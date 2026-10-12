@@ -38,10 +38,10 @@ func oracle(se core.SideEffect, preset string, trig core.Trigger, space bool, ta
 		return expect{core.VerdictDeny, true, false}
 	case se == core.SEAdmin && (trig.Scheduled() || trig == core.TrigAPI):
 		return expect{core.VerdictDeny, true, false}
-	case se == core.SEAdmin:
-		return expect{core.VerdictAsk, true, true}
 	case space && se > core.SERead:
 		return expect{core.VerdictDeny, true, false}
+	case se == core.SEAdmin:
+		return expect{core.VerdictAsk, true, true}
 	case taint.Exposed() && (se == core.SEExternalSend || se == core.SEIrreversible):
 		return expect{core.VerdictAsk, true, false}
 	case prov == core.ProvUntrusted && se >= core.SELocalWrite:
@@ -277,6 +277,12 @@ func TestFinancialFloor(t *testing.T) {
 	})
 	if d := h.decide(h.in(a, s)); d.Verdict != core.VerdictAsk || !d.Approver.AdminOnly {
 		t.Errorf("defaults ask: %+v", d)
+	}
+	// The opt-in never reaches a restricted space (F4).
+	in := h.in(a, s)
+	in.Principal, in.Session = h.space, h.spaceSession
+	if d := h.decide(in); d.Verdict != core.VerdictDeny || !d.Floor {
+		t.Errorf("restricted space opt-in: %+v", d)
 	}
 
 	h = newHarness(t, func(c *config.Config) {

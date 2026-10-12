@@ -1,8 +1,11 @@
 package policy
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -480,5 +483,48 @@ func TestNextTaint(t *testing.T) {
 	}
 	if got := e.NextTaint(0, spec("x", core.SERead, func(m *core.Manifest) { m.Taint = 0xF0 }), nil, nil, false); got != 0 {
 		t.Errorf("unknown bits leaked: %d", got)
+	}
+}
+
+// failingGrantUse makes Grants().Use fail as if the grant were spent or
+// revoked between loading and use.
+type failingGrantUse struct{ core.Store }
+
+func (s failingGrantUse) Grants() core.GrantRepo { return failingGrantRepo{s.Store.Grants()} }
+
+type failingGrantRepo struct{ core.GrantRepo }
+
+func (failingGrantRepo) Use(context.Context, core.GrantID) error {
+	return fmt.Errorf("grant used up: %w", core.ErrConflict)
+}
+
+// TestAllowWhenTaintedGrantMustBeUsed checks that the trifecta exception
+// holds only while its grant can be used: an auto rule does not skip the use
+// (so max_uses counts) and a failed use puts the floor back.
+func TestAllowWhenTaintedGrantMustBeUsed(t *testing.T) {
+	for _, preset := range []string{"careful", "balanced", "hands_off"} {
+		h := newHarness(t, func(c *config.Config) {
+			c.Policy.Preset = preset
+			c.Policy.Rules = []config.Rule{{ID: "mail", Tool: "send_mail", Verdict: "auto"}}
+		})
+		s := spec("send_mail", core.SEExternalSend)
+		id := h.grant(core.Grant{Principal: h.ownerP.ID, Scope: core.GrantPrincipal, Kind: core.GrantRecipient, Value: "bob", MaxSE: core.SEExternalSend, AllowWhenTainted: true, MaxUses: 1})
+		in := h.in(sendAction("send_mail", "bob", core.SEExternalSend), s)
+		in.Taint = core.TaintPrivate | core.TaintUntrusted
+		if d := h.decide(in); d.Verdict != core.VerdictAuto || d.Rule != "grant:"+string(id) {
+			t.Errorf("%s: first use: %+v", preset, d)
+		}
+		if d := h.decide(in); d.Verdict != core.VerdictAsk || d.Rule != "floor:trifecta" || !d.Floor {
+			t.Errorf("%s: spent grant: %+v", preset, d)
+		}
+
+		h2 := newHarness(t, func(c *config.Config) { c.Policy.Preset = preset })
+		h2.grant(core.Grant{Principal: h2.ownerP.ID, Scope: core.GrantPrincipal, Kind: core.GrantRecipient, Value: "bob", MaxSE: core.SEExternalSend, AllowWhenTainted: true})
+		h2.engine.store = failingGrantUse{h2.store}
+		in2 := h2.in(sendAction("send_mail", "bob", core.SEExternalSend), s)
+		in2.Taint = core.TaintPrivate | core.TaintUntrusted
+		if d := h2.decide(in2); d.Verdict != core.VerdictAsk || d.Rule != "floor:trifecta" || slices.Contains(d.Choices, core.AllowSession) {
+			t.Errorf("%s: failed use: %+v", preset, d)
+		}
 	}
 }

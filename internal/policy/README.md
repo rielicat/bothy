@@ -9,8 +9,11 @@
 `policy.rules` entry, active grants, first contact and the preset/class
 defaults, and stops at the first verdict. Floors are never relaxed by a rule
 or grant (the only exception is an `AllowWhenTainted` grant for exactly the
-action's recipient, which lifts the trifecta floor and nothing else); a
-`deny` rule may still tighten an ask floor. A rule `ask` and a class-default
+action's recipient, which lifts the trifecta floor and nothing else; the
+action is then allowed as that grant, so every lift counts against its
+`max_uses`, and a grant that can no longer be used puts the floor back); a
+`deny` rule may still tighten an ask floor. A restricted space never gets
+the admin-approved asks of F2/F3: F4 denies first. A rule `ask` and a class-default
 or first-contact ask are answered by a matching grant, which is what makes
 "allow for session" and "allow always" meaningful; floor asks offer only
 `allow_once`/`deny` (except `net_allow`, which offers grants only).

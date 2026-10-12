@@ -16,6 +16,9 @@ const (
 	toolWebFetch = "web_fetch"
 	toolNetAllow = "net_allow"
 	metaPaused   = "paused"
+
+	floorTrifecta  = "floor:trifecta"
+	trifectaReason = "this session has seen private data and untrusted content, so anything leaving it needs approval"
 )
 
 // Defaults used when the configured approval timeouts are unset (§5.9).
@@ -173,6 +176,9 @@ func (e *Engine) Decide(ctx context.Context, in core.PolicyInput) core.Decision 
 	if d, done := e.floors(ctx, x, rule); done {
 		return d
 	}
+	if x.only != nil {
+		return e.taintedException(ctx, x, rule)
+	}
 	var pending *config.Rule
 	if rule != nil {
 		switch core.Verdict(rule.Verdict) {
@@ -191,7 +197,7 @@ func (e *Engine) Decide(ctx context.Context, in core.PolicyInput) core.Decision 
 		d = e.ask(x, askSpec{rule: "rule:" + pending.ID, reason: ruleReason(pending), grants: true})
 	} else {
 		d = e.contactOrDefault(ctx, x)
-		if d.Verdict == core.VerdictAuto && x.only == nil {
+		if d.Verdict == core.VerdictAuto {
 			return d
 		}
 	}
@@ -223,6 +229,9 @@ func (e *Engine) floors(ctx context.Context, x *input, rule *config.Rule) (core.
 		return e.ask(x, askSpec{rule: name, reason: reason, floor: true, admin: admin}), true
 	}
 
+	// F4 is applied before the F2/F3 asks: an admin's approval must not open
+	// a non-read action to a restricted space, which the tool profile forbids.
+	restricted := x.Principal.Restricted() && x.se > core.SERead
 	switch x.se {
 	case core.SEFinancial:
 		if rule != nil && core.Verdict(rule.Verdict) == core.VerdictDeny {
@@ -230,7 +239,7 @@ func (e *Engine) floors(ctx context.Context, x *input, rule *config.Rule) (core.
 		}
 		optIn := rule != nil && core.Verdict(rule.Verdict) == core.VerdictAsk ||
 			rule == nil && core.Verdict(x.cfg.Policy.Defaults[core.SEFinancial.String()]) == core.VerdictAsk
-		if !optIn {
+		if !optIn || restricted {
 			return denied("floor:financial", "financial actions are never allowed", true), true
 		}
 		return e.ask(x, askSpec{rule: "floor:financial", reason: "financial action: an admin must approve it", floor: true, admin: true}), true
@@ -238,15 +247,17 @@ func (e *Engine) floors(ctx context.Context, x *input, rule *config.Rule) (core.
 		if x.Trigger.Scheduled() || x.Trigger == core.TrigAPI {
 			return denied("floor:admin", "self-modification is not allowed in scheduled, heartbeat or API runs", true), true
 		}
-		return askFloor("floor:admin", "self-modification: an admin must approve it", true)
+		if !restricted {
+			return askFloor("floor:admin", "self-modification: an admin must approve it", true)
+		}
 	}
-	if x.Principal.Restricted() && x.se > core.SERead {
+	if restricted {
 		return denied("floor:restricted_space", "restricted spaces can only use read-only tools", true), true
 	}
 	if x.exposed() && (x.se == core.SEExternalSend || x.se == core.SEIrreversible) {
 		x.only = e.taintedRecipientGrant(ctx, x)
 		if x.only == nil {
-			return askFloor("floor:trifecta", "this session has seen private data and untrusted content, so anything leaving it needs approval", false)
+			return askFloor(floorTrifecta, trifectaReason, false)
 		}
 	}
 	if x.Provenance == core.ProvUntrusted && x.se >= core.SELocalWrite {
@@ -293,6 +304,20 @@ func (e *Engine) knownURL(ctx context.Context, x *input) bool {
 		return false
 	}
 	return ok
+}
+
+// taintedException decides an action whose trifecta floor an
+// AllowWhenTainted grant lifted. Only that grant may allow it, and its use is
+// what lifts the floor: a rule auto must not skip Use (MaxUses), and a grant
+// spent or revoked since it was loaded puts the floor back.
+func (e *Engine) taintedException(ctx context.Context, x *input, rule *config.Rule) core.Decision {
+	if rule != nil && core.Verdict(rule.Verdict) == core.VerdictDeny {
+		return ruleDenied(rule)
+	}
+	if g := e.useGrant(ctx, x); g != nil {
+		return allowed("grant:"+string(g.ID), "allowed by an earlier approval")
+	}
+	return e.ask(x, askSpec{rule: floorTrifecta, reason: trifectaReason, floor: true})
 }
 
 // taintedRecipientGrant finds the only kind of grant that lifts the
