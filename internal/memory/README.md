@@ -9,8 +9,12 @@ Each user principal has `MEMORY.md`, `USER.md` and `HEARTBEAT.md` under
 lose an update and `Snapshot().LastID` always matches the files returned; if
 the event row cannot be stored the file is rolled back. Agent ops edit one
 entry (a non-blank line, compared trimmed) at a time: `add` appends, `replace`
-and `remove` need the exact entry (a near miss names candidates), and an op
-over `memory.*_max_bytes` fails with the bytes still free. The web editor
+and `remove` need the exact entry, and an op that would grow a file past
+`memory.*_max_bytes` fails with the bytes still free (shrinking ops always
+pass, so a file left over a lowered cap can be trimmed). A near miss in the
+tool's `Plan` names candidate entries (and quotes `HEARTBEAT.md`) only when the
+session is already tainted private, because that error text bypasses policy
+and taint tracking. The web editor
 writes whole files guarded by a sha256 ETag (`core.ErrConflict` when stale).
 `DeltasSince` renders the net `- entry` / `+ entry` change of `MEMORY.md` and
 `USER.md` since an event id, so the turn-context stays bounded by the caps.

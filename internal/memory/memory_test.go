@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -129,19 +130,39 @@ func TestApplyOps(t *testing.T) {
 
 func TestApplyDuplicateAndHints(t *testing.T) {
 	h := newHarness(t)
+	ctx := context.Background()
 	h.apply(t, core.FileMemory, "add", "", "- Project Bothy ships in October")
-	_, err := h.svc.Apply(context.Background(), h.p, "", core.MemoryOp{File: core.FileMemory, Op: "add", New: "- Project Bothy ships in October"}, core.ProvUser)
+	_, err := h.svc.Apply(ctx, h.p, "", core.MemoryOp{File: core.FileMemory, Op: "add", New: "- Project Bothy ships in October"}, core.ProvUser)
 	if !errors.Is(err, core.ErrInvalid) || !strings.Contains(err.Error(), "already has") {
 		t.Fatalf("duplicate add: %v", err)
 	}
-	_, err = h.svc.Apply(context.Background(), h.p, "", core.MemoryOp{File: core.FileMemory, Op: "remove", Old: "project bothy"}, core.ProvUser)
+	h.apply(t, core.FileHeartbeat, "add", "", "Check the bank inbox")
+
+	// Hints quote file content, so only a session already tainted private gets them.
+	tl := tool(t, h, "memory")
+	private := h.env(t)
+	private.Taint = core.TaintPrivate
+	_, err = tl.Plan(ctx, private, json.RawMessage(`{"file":"MEMORY","op":"remove","old":"project bothy"}`))
 	if err == nil || !strings.Contains(err.Error(), `"- Project Bothy ships in October"`) {
 		t.Fatalf("near-miss remove should name the candidate entry: %v", err)
 	}
-	h.apply(t, core.FileHeartbeat, "add", "", "Check the inbox")
-	_, err = h.svc.Apply(context.Background(), h.p, "", core.MemoryOp{File: core.FileHeartbeat, Op: "remove", Old: "check calendar"}, core.ProvUser)
-	if err == nil || !strings.Contains(err.Error(), "Current HEARTBEAT.md:\nCheck the inbox") {
+	_, err = tl.Plan(ctx, private, json.RawMessage(`{"file":"HEARTBEAT","op":"remove","old":"check calendar"}`))
+	if err == nil || !strings.Contains(err.Error(), "Current HEARTBEAT.md:\nCheck the bank inbox") {
 		t.Fatalf("HEARTBEAT miss should include the file: %v", err)
+	}
+	for _, taint := range []core.Taint{0, core.TaintUntrusted} {
+		env := h.env(t)
+		env.Taint = taint
+		for _, args := range []string{`{"file":"HEARTBEAT","op":"remove","old":"bank"}`, `{"file":"MEMORY","op":"remove","old":"bothy"}`} {
+			_, err := tl.Plan(ctx, env, json.RawMessage(args))
+			if !errors.Is(err, core.ErrInvalid) || strings.Contains(err.Error(), "inbox") || strings.Contains(err.Error(), "October") {
+				t.Fatalf("taint %b: a miss leaked file content into a session not tainted private: %v", taint, err)
+			}
+		}
+	}
+	_, err = h.svc.Apply(ctx, h.p, "run_1", core.MemoryOp{File: core.FileHeartbeat, Op: "remove", Old: "bank"}, core.ProvUser)
+	if !errors.Is(err, core.ErrInvalid) || strings.Contains(err.Error(), "inbox") {
+		t.Fatalf("Apply miss leaked file content: %v", err)
 	}
 }
 
@@ -481,5 +502,85 @@ func TestOverCapCheck(t *testing.T) {
 	}
 	if err := chk.Fix(ctx, fs[0]); !errors.Is(err, core.ErrNotImplemented) {
 		t.Fatalf("Fix: %v", err)
+	}
+}
+
+// copyingEvents returns the new id without writing it back into the caller's
+// event, which the MemoryEventRepo contract allows.
+type copyingEvents struct {
+	core.MemoryEventRepo
+}
+
+func (r copyingEvents) Add(ctx context.Context, e *core.MemoryEvent) (int64, error) {
+	cp := *e
+	return r.MemoryEventRepo.Add(ctx, &cp)
+}
+
+type copyingStore struct {
+	core.Store
+}
+
+func (s copyingStore) MemoryEvents() core.MemoryEventRepo {
+	return copyingEvents{s.Store.MemoryEvents()}
+}
+
+func TestEventIDComesFromRepo(t *testing.T) {
+	h := newHarness(t)
+	h.apply(t, core.FileUser, "add", "", "first")
+	h.svc.store = copyingStore{h.store}
+	sub := h.bus.Subscribe(core.Filter{Principals: []core.PrincipalID{h.p}}, 8)
+	defer sub.Close()
+	e := h.apply(t, core.FileMemory, "add", "", "x")
+	if e.ID != 2 {
+		t.Fatalf("event id = %d, want the id the repository returned (2)", e.ID)
+	}
+	if ev := <-sub.C(); ev.Data != (core.MemoryData{File: core.FileMemory, EventID: 2}) {
+		t.Fatalf("memory.updated = %+v", ev.Data)
+	}
+	audit := h.audit.All()
+	if !strings.Contains(string(audit[len(audit)-1].Detail), `"event_id":2`) {
+		t.Fatalf("audit detail = %s", audit[len(audit)-1].Detail)
+	}
+	if tag, err := h.svc.Write(context.Background(), h.viewer(), h.p, core.FileMemory, "y\n", "", h.user); err != nil || tag == "" {
+		t.Fatalf("Write: %q %v", tag, err)
+	}
+	if ev := <-sub.C(); ev.Data != (core.MemoryData{File: core.FileMemory, EventID: 3}) {
+		t.Fatalf("memory.updated after Write = %+v", ev.Data)
+	}
+}
+
+func TestApplyShrinksOverCapFile(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	// The cap (256) was lowered below what the file already holds.
+	content := strings.Repeat("a", 150) + "\n" + strings.Repeat("b", 150) + "\n"
+	if err := os.MkdirAll(filepath.Dir(h.svc.path(h.p, core.FileMemory)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(h.svc.path(h.p, core.FileMemory), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.Apply(ctx, h.p, "", core.MemoryOp{File: core.FileMemory, Op: "add", New: "c"}, core.ProvUser); !errors.Is(err, core.ErrInvalid) {
+		t.Fatalf("growing an over-cap file: %v", err)
+	}
+	tl := tool(t, h, "memory")
+	if _, err := tl.Plan(ctx, h.env(t), json.RawMessage(`{"file":"MEMORY","op":"replace","old":"`+strings.Repeat("a", 150)+`","new":"`+strings.Repeat("a", 140)+`"}`)); err != nil {
+		t.Fatalf("Plan of a shrinking replace: %v", err)
+	}
+	h.apply(t, core.FileMemory, "replace", strings.Repeat("a", 150), strings.Repeat("a", 140))
+	h.apply(t, core.FileMemory, "remove", strings.Repeat("b", 150), "")
+	if got := h.read(t, core.FileMemory); got != strings.Repeat("a", 140)+"\n" {
+		t.Fatalf("file = %q", got)
+	}
+}
+
+func TestEventFailureLeavesNoNewFile(t *testing.T) {
+	h := newHarness(t)
+	h.svc.store = failingStore{h.store}
+	if _, err := h.svc.Apply(context.Background(), h.p, "", core.MemoryOp{File: core.FileUser, Op: "add", New: "x"}, core.ProvUser); err == nil {
+		t.Fatal("Apply succeeded without its event row")
+	}
+	if _, err := os.Stat(h.svc.path(h.p, core.FileUser)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a failed first write left a file behind: %v", err)
 	}
 }

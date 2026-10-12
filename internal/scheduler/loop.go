@@ -94,7 +94,14 @@ func (s *Service) step(ctx context.Context) time.Duration {
 // and d is the time until the next one.
 func (s *Service) fireDue(ctx context.Context) (d time.Duration, more bool) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	d, more = s.fireDueLocked(ctx)
+	notes := s.takeNotices()
+	s.mu.Unlock()
+	s.sendNotices(ctx, notes)
+	return d, more
+}
+
+func (s *Service) fireDueLocked(ctx context.Context) (time.Duration, bool) {
 	sc, err := s.store.Schedules().NextDue(ctx)
 	if errors.Is(err, core.ErrNotFound) {
 		return idleRecheck, false
@@ -122,6 +129,18 @@ func (s *Service) fireDue(ctx context.Context) (d time.Duration, more bool) {
 // or the tick was missed and the missed-run policy says skip. The next run is
 // always computed from now, so a long outage yields at most one catch-up.
 func (s *Service) due(ctx context.Context, sc *core.Schedule, now time.Time) error {
+	if st, ok := s.unsaved[sc.ID]; ok {
+		delete(s.unsaved, sc.ID)
+		if st.tick.Equal(sc.NextRunAt) {
+			// This tick already started its run; firing it again would
+			// duplicate the run, so only the row update is retried.
+			if err := s.saveRun(ctx, sc, st); err != nil {
+				s.unsaved[sc.ID] = st
+				return err
+			}
+			return nil
+		}
+	}
 	p, err := parsePlan(sc.Kind, sc.Spec, sc.TZ, sc.ActiveHours)
 	var next time.Time
 	if err == nil {
@@ -138,7 +157,10 @@ func (s *Service) due(ctx context.Context, sc *core.Schedule, now time.Time) err
 		return s.store.Schedules().SetRun(ctx, sc.ID, sc.LastRunAt, next, sc.LastStatus, sc.Failures, enabled)
 	}
 	_, err = s.fire(ctx, sc, now, next, enabled, false)
-	if err != nil && !errors.Is(err, errSkipped) {
+	switch {
+	case errors.Is(err, errUnsaved):
+		return err
+	case err != nil && !errors.Is(err, errSkipped):
 		s.log.Info("scheduler: tick did not start a run", "schedule", sc.ID, "err", err)
 	}
 	return nil
@@ -159,38 +181,84 @@ func missedRecently(p plan, sc *core.Schedule, now time.Time) bool {
 	return err == nil && !t.IsZero() && !t.After(now)
 }
 
-// errSkipped marks a tick that deliberately started nothing (empty
-// HEARTBEAT.md, heartbeat cap reached).
-var errSkipped = errors.New("tick skipped")
+var (
+	// errSkipped marks a tick that deliberately started nothing (empty
+	// HEARTBEAT.md, heartbeat cap reached, disabled user or space).
+	errSkipped = errors.New("tick skipped")
+	// errUnsaved marks a run whose outcome could not be written to its
+	// schedule row.
+	errUnsaved = errors.New("run state not saved")
+)
+
+// runState is what one fired tick writes into its schedule row. It is kept
+// in Service.unsaved when the write fails, so the loop retries the write
+// instead of firing the same tick again.
+type runState struct {
+	tick, last, next time.Time
+	status           core.RunStatus
+	failures         int
+	enabled, disable bool
+}
+
+// notice is an automatic disable the owner must hear about. Notices are sent
+// after s.mu is released: a slow channel API must not stall the loop.
+type notice struct {
+	sc   *core.Schedule
+	last core.RunStatus
+}
 
 // fire submits one run of sc and records the outcome in the schedule row. For
 // manual runs next and enabled are the row's own values. The returned error
 // explains a run that did not start; the row is updated either way.
 func (s *Service) fire(ctx context.Context, sc *core.Schedule, now, next time.Time, enabled, manual bool) (core.RunID, error) {
 	run, status, failed, err := s.submit(ctx, sc, now)
-	failures, last, lastStatus := sc.Failures, sc.LastRunAt, sc.LastStatus
+	st := runState{tick: sc.NextRunAt, last: sc.LastRunAt, next: next, status: sc.LastStatus, failures: sc.Failures, enabled: enabled}
 	if failed {
-		failures++
+		st.failures++
 	}
 	if status != "" {
-		last, lastStatus = now, status
+		st.last, st.status = now, status
 	}
-	disable := enabled && failures >= maxFailures
-	if disable {
-		enabled, next = false, time.Time{}
+	if enabled && st.failures >= maxFailures {
+		st.enabled, st.next, st.disable = false, time.Time{}, true
 	}
-	if !manual || status != "" || disable {
-		if serr := s.store.Schedules().SetRun(ctx, sc.ID, last, next, lastStatus, failures, enabled); serr != nil {
-			return run, errors.Join(err, fmt.Errorf("scheduler: save run state: %w", serr))
+	var serr error
+	if !manual || status != "" || st.disable {
+		if serr = s.saveRun(ctx, sc, st); serr != nil && !manual {
+			s.unsaved[sc.ID] = st
 		}
 	}
 	if status != "" {
 		s.publishRun(sc, run, status)
 	}
-	if disable {
-		s.disabled(ctx, sc, lastStatus)
+	if serr != nil {
+		return run, errors.Join(err, serr)
 	}
 	return run, err
+}
+
+// saveRun writes a tick's outcome and queues the owner notice when it turned
+// the schedule off. Callers hold s.mu.
+func (s *Service) saveRun(ctx context.Context, sc *core.Schedule, st runState) error {
+	if err := s.store.Schedules().SetRun(ctx, sc.ID, st.last, st.next, st.status, st.failures, st.enabled); err != nil {
+		return fmt.Errorf("scheduler: save run state: %w: %w", errUnsaved, err)
+	}
+	if st.disable {
+		s.notices = append(s.notices, notice{sc: sc, last: st.status})
+	}
+	return nil
+}
+
+func (s *Service) takeNotices() []notice {
+	n := s.notices
+	s.notices = nil
+	return n
+}
+
+func (s *Service) sendNotices(ctx context.Context, notes []notice) {
+	for _, n := range notes {
+		s.disabled(ctx, n.sc, n.last)
+	}
 }
 
 // submit starts the run. status "" means nothing was started and nothing is
@@ -199,6 +267,12 @@ func (s *Service) submit(ctx context.Context, sc *core.Schedule, now time.Time) 
 	prin, err := s.store.Principals().Get(ctx, core.SystemViewer(), sc.Principal)
 	if err != nil {
 		return "", core.RunFailed, true, fmt.Errorf("scheduler: principal: %w", err)
+	}
+	if err := s.checkActive(ctx, prin); err != nil {
+		if errors.Is(err, errSkipped) {
+			return "", "", false, err
+		}
+		return "", core.RunFailed, true, err
 	}
 	trigger, prompt := core.TrigSchedule, sc.Prompt
 	if sc.Kind == core.SchedHeartbeat {
@@ -215,11 +289,8 @@ func (s *Service) submit(ctx context.Context, sc *core.Schedule, now time.Time) 
 		Session: ses.ID, Principal: sc.Principal, User: prin.User, Trigger: trigger, Schedule: sc.ID, Slot: sc.Slot,
 		Input:      []core.Part{{Type: core.PartText, Text: prompt}},
 		Provenance: core.ProvUser, Sender: "schedule:" + string(sc.ID),
-		Sink: s.deliverySink(ctx, sc, prin.User),
-	}
-	if sc.Limits != (core.RunLimits{}) {
-		l := sc.Limits
-		req.Limits = &l
+		Sink:   s.deliverySink(ctx, sc, prin),
+		Limits: s.runLimits(sc.Limits),
 	}
 	res, err := s.runner.Submit(ctx, req)
 	var be *core.BudgetError
@@ -234,6 +305,48 @@ func (s *Service) submit(ctx context.Context, sc *core.Schedule, now time.Time) 
 		return "", core.RunBudgetExceeded, false, err
 	}
 	return "", core.RunFailed, true, fmt.Errorf("scheduler: submit: %w", err)
+}
+
+// checkActive refuses ticks of a disabled user's schedules and of a space
+// that is not enabled: neither may start runs, whatever their schedules say.
+func (s *Service) checkActive(ctx context.Context, prin *core.Principal) error {
+	u, err := s.store.Users().Get(ctx, prin.User)
+	if err != nil {
+		return fmt.Errorf("scheduler: user: %w", err)
+	}
+	if u.Disabled {
+		return skipError{fmt.Errorf("user %s is disabled: %w", u.ID, core.ErrForbidden)}
+	}
+	if prin.Kind != core.PrincipalSpace {
+		return nil
+	}
+	sp, err := s.store.Spaces().Get(ctx, core.SystemViewer(), prin.ID)
+	if err != nil {
+		return fmt.Errorf("scheduler: space: %w", err)
+	}
+	if !sp.Enabled {
+		return skipError{fmt.Errorf("space %s is disabled: %w", prin.ID, core.ErrForbidden)}
+	}
+	return nil
+}
+
+// runLimits fills the limits a schedule leaves at zero from budgets.scheduled
+// (SPEC §5.16), so a partly set override never lifts the other limits.
+func (s *Service) runLimits(l core.RunLimits) *core.RunLimits {
+	d := s.cfg.Current().Budgets.Scheduled
+	if l.MaxSteps == 0 {
+		l.MaxSteps = d.MaxSteps
+	}
+	if l.MaxTokens == 0 {
+		l.MaxTokens = d.MaxTokens
+	}
+	if l.MaxTime == 0 {
+		l.MaxTime = d.MaxTime.D()
+	}
+	if l.MaxCost == 0 {
+		l.MaxCost = core.MicrosFromUSD(d.MaxUSD)
+	}
+	return &l
 }
 
 // targetSession is the schedule's own session, or a fresh one per run so
@@ -266,7 +379,7 @@ func (s *Service) recordSkipped(ctx context.Context, sc *core.Schedule, prin *co
 	r := &core.Run{
 		ID: core.RunID(core.NewID(core.PrefixRun)), Session: ses, Principal: sc.Principal, User: prin.User,
 		Trigger: trigger, Schedule: sc.ID, Status: core.RunSkipped, Error: "session queue full",
-		Limits: sc.Limits, CreatedAt: now, FinishedAt: now,
+		Limits: *s.runLimits(sc.Limits), CreatedAt: now, FinishedAt: now,
 	}
 	if err := s.store.Runs().Create(ctx, r); err != nil {
 		s.log.Error("scheduler: record skipped run", "schedule", sc.ID, "err", err)
@@ -278,8 +391,8 @@ func (s *Service) recordSkipped(ctx context.Context, sc *core.Schedule, prin *co
 // deliverySink returns the final-mode sink for the schedule's delivery chat,
 // or nil for web-only delivery. Heartbeat sinks hold the run back until it is
 // clear whether the answer is HEARTBEAT_OK.
-func (s *Service) deliverySink(ctx context.Context, sc *core.Schedule, owner core.UserID) core.RunSink {
-	chat, ok := s.deliveryChat(ctx, sc, owner)
+func (s *Service) deliverySink(ctx context.Context, sc *core.Schedule, prin *core.Principal) core.RunSink {
+	chat, ok := s.deliveryChat(ctx, sc, prin)
 	if !ok {
 		return nil
 	}
@@ -290,22 +403,30 @@ func (s *Service) deliverySink(ctx context.Context, sc *core.Schedule, owner cor
 	return sink
 }
 
-func (s *Service) deliveryChat(ctx context.Context, sc *core.Schedule, owner core.UserID) (core.ChatRef, bool) {
+// deliveryChat resolves the delivery target when the schedule fires. A stored
+// chat is checked again here: an identity may have been unlinked, or linked to
+// another account, since the schedule was saved.
+func (s *Service) deliveryChat(ctx context.Context, sc *core.Schedule, prin *core.Principal) (core.ChatRef, bool) {
 	if s.hub == nil {
 		return core.ChatRef{}, false
 	}
 	d := sc.Deliver
 	switch {
 	case d == nil:
-		return s.hub.PreferredChat(ctx, owner)
+		return s.hub.PreferredChat(ctx, prin.User)
 	case d.Channel == "web":
 		return core.ChatRef{}, false
 	case d.ChatID != "":
-		return *d, true
+		chat, ok, err := s.ownChat(ctx, prin, *d)
+		if err != nil || !ok {
+			s.log.Warn("scheduler: delivery chat is no longer the principal's; web only", "schedule", sc.ID, "channel", d.Channel, "err", err)
+			return core.ChatRef{}, false
+		}
+		return chat, true
 	}
-	ids, err := s.store.Identities().ForUser(ctx, owner)
+	ids, err := s.store.Identities().ForUser(ctx, prin.User)
 	if err != nil {
-		s.log.Warn("scheduler: identities", "user", owner, "err", err)
+		s.log.Warn("scheduler: identities", "user", prin.User, "err", err)
 		return core.ChatRef{}, false
 	}
 	for _, id := range ids {
@@ -315,6 +436,35 @@ func (s *Service) deliveryChat(ctx context.Context, sc *core.Schedule, owner cor
 	}
 	s.log.Warn("scheduler: no linked DM to deliver to; web only", "schedule", sc.ID, "channel", d.Channel)
 	return core.ChatRef{}, false
+}
+
+// ownChat resolves c to a chat the principal's output may go to: a linked DM
+// of its user or, for a space, the space's own chat. Scheduled output carries
+// the principal's private context, so no other chat qualifies.
+func (s *Service) ownChat(ctx context.Context, prin *core.Principal, c core.ChatRef) (core.ChatRef, bool, error) {
+	ids, err := s.store.Identities().ForUser(ctx, prin.User)
+	if err != nil {
+		return core.ChatRef{}, false, fmt.Errorf("scheduler: identities: %w", err)
+	}
+	for _, id := range ids {
+		if id.Channel == c.Channel && id.Status == core.IdentityLinked && id.DMChat != "" && id.DMChat == c.ChatID {
+			return core.ChatRef{Channel: c.Channel, ChatID: c.ChatID, Kind: core.ChatDM}, true, nil
+		}
+	}
+	if prin.Kind != core.PrincipalSpace {
+		return core.ChatRef{}, false, nil
+	}
+	sp, err := s.store.Spaces().Get(ctx, core.SystemViewer(), prin.ID)
+	if errors.Is(err, core.ErrNotFound) {
+		return core.ChatRef{}, false, nil
+	}
+	if err != nil {
+		return core.ChatRef{}, false, fmt.Errorf("scheduler: space: %w", err)
+	}
+	if sp.Owner != prin.User || sp.Chat.Channel != c.Channel || sp.Chat.ChatID != c.ChatID {
+		return core.ChatRef{}, false, nil
+	}
+	return core.ChatRef{Channel: c.Channel, ChatID: c.ChatID, ThreadID: c.ThreadID, Kind: sp.Chat.Kind}, true, nil
 }
 
 // onFinished folds a run outcome into its schedule: success resets the
@@ -368,7 +518,7 @@ func (s *Service) onFinished(ctx context.Context, e core.Event) {
 	}
 	s.publishRun(sc, e.Run, status)
 	if disable {
-		s.disabled(ctx, sc, status)
+		s.sendNotices(ctx, []notice{{sc: sc, last: status}})
 	}
 }
 

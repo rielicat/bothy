@@ -43,8 +43,12 @@ type Service struct {
 
 	// mu serializes every write to schedule rows (firing, run outcomes,
 	// Upsert, Delete, RunNow, heartbeat sync) so their read-modify-write of
-	// next_run_at, failures and last_status never interleave.
-	mu     sync.Mutex
+	// next_run_at, failures and last_status never interleave. It also guards
+	// unsaved and notices.
+	mu      sync.Mutex
+	unsaved map[core.ScheduleID]runState
+	notices []notice
+
 	paused atomic.Bool
 	syncHB atomic.Bool
 	wake   chan struct{}
@@ -62,17 +66,18 @@ func New(d Deps) (*Service, error) {
 		return nil, errors.New("scheduler: Deps.Runner is required")
 	}
 	s := &Service{
-		store:  d.Store,
-		cfg:    d.Config,
-		runner: d.Runner,
-		hub:    d.Hub,
-		memory: d.Memory,
-		bus:    d.Bus,
-		audit:  d.Audit,
-		clock:  d.Clock,
-		log:    d.Log,
-		jitter: cryptoJitter,
-		wake:   make(chan struct{}, 1),
+		store:   d.Store,
+		cfg:     d.Config,
+		runner:  d.Runner,
+		hub:     d.Hub,
+		memory:  d.Memory,
+		bus:     d.Bus,
+		audit:   d.Audit,
+		clock:   d.Clock,
+		log:     d.Log,
+		jitter:  cryptoJitter,
+		wake:    make(chan struct{}, 1),
+		unsaved: map[core.ScheduleID]runState{},
 	}
 	if s.clock == nil {
 		s.clock = core.SystemClock{}

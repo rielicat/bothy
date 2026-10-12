@@ -312,7 +312,7 @@ func (t *deleteTool) Exec(ctx context.Context, env *core.ToolEnv, act *core.Acti
 	if err := json.Unmarshal(act.Payload, &a); err != nil {
 		return nil, fmt.Errorf("schedule_delete: payload: %w", err)
 	}
-	if err := t.s.Delete(ctx, ownViewer(env), a.ID, env.User); err != nil {
+	if err := t.s.deleteAs(ctx, ownViewer(env), a.ID, "run:"+string(env.Run)); err != nil {
 		return errorResult(deleteToolName, err)
 	}
 	return &core.ToolResult{Name: deleteToolName, Content: fmt.Sprintf("Deleted schedule %s “%s”.", a.ID, a.Name)}, nil

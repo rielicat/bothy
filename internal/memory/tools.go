@@ -120,12 +120,12 @@ func (t *memoryTool) Plan(_ context.Context, env *core.ToolEnv, args json.RawMes
 	if err != nil {
 		return nil, err
 	}
-	after, err := applyOp(before, op)
+	after, err := applyOp(before, op, env.Taint.Has(core.TaintPrivate))
 	if err != nil {
 		return nil, err
 	}
-	if limit := t.s.capOf(op.File); len(after) > limit {
-		return nil, capError(op.File, len(before), len(after), limit)
+	if err := t.s.checkCap(op.File, before, after); err != nil {
+		return nil, err
 	}
 	act, err := newAction(memoryToolName, core.ActMemory, core.SELocalWrite, op)
 	if err != nil {

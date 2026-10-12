@@ -48,17 +48,14 @@ func (s *Service) Snapshot(ctx context.Context, p core.PrincipalID) (core.Memory
 }
 
 func (s *Service) lastEventID(ctx context.Context, p core.PrincipalID) (int64, error) {
-	var last int64
-	for _, f := range files {
-		evs, err := s.store.MemoryEvents().List(ctx, core.SystemViewer(), p, f, core.Page{Limit: 1})
-		if err != nil {
-			return 0, fmt.Errorf("memory: last event: %w", err)
-		}
-		if len(evs) > 0 && evs[0].ID > last {
-			last = evs[0].ID
-		}
+	evs, err := s.store.MemoryEvents().List(ctx, core.SystemViewer(), p, "", core.Page{Limit: 1})
+	if err != nil {
+		return 0, fmt.Errorf("memory: last event: %w", err)
 	}
-	return last, nil
+	if len(evs) == 0 {
+		return 0, nil
+	}
+	return evs[0].ID, nil
 }
 
 // Apply runs one agent op (add, replace or remove of a single-line entry).
@@ -79,12 +76,12 @@ func (s *Service) Apply(ctx context.Context, p core.PrincipalID, run core.RunID,
 	if err != nil {
 		return nil, err
 	}
-	after, err := applyOp(before, op)
+	after, err := applyOp(before, op, false)
 	if err != nil {
 		return nil, err
 	}
-	if limit := s.capOf(op.File); len(after) > limit {
-		return nil, capError(op.File, len(before), len(after), limit)
+	if err := s.checkCap(op.File, before, after); err != nil {
+		return nil, err
 	}
 	actor := "system"
 	if run != "" {
@@ -107,12 +104,15 @@ func (s *Service) commit(ctx context.Context, e *core.MemoryEvent) error {
 	if err := s.writeFile(e.Principal, e.File, e.After); err != nil {
 		return err
 	}
-	if _, err := s.store.MemoryEvents().Add(ctx, e); err != nil {
-		if rerr := s.writeFile(e.Principal, e.File, e.Before); rerr != nil {
+	id, err := s.store.MemoryEvents().Add(ctx, e)
+	if err != nil {
+		if rerr := s.restoreFile(e.Principal, e.File, e.Before); rerr != nil {
 			s.log.Error("memory: rollback failed", "principal", e.Principal, "file", e.File, "err", rerr)
 		}
 		return fmt.Errorf("memory: record event: %w", err)
 	}
+	// The repository contract is the returned id; it need not fill e.ID.
+	e.ID = id
 	return nil
 }
 

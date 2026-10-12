@@ -105,6 +105,7 @@ func (s *Service) upsertLocked(ctx context.Context, v core.Viewer, in *core.Sche
 	if err := s.store.Schedules().Upsert(ctx, sc); err != nil {
 		return fmt.Errorf("scheduler: save schedule: %w", err)
 	}
+	delete(s.unsaved, sc.ID)
 	*in = *sc
 	action := "schedule.update"
 	if cur == nil {
@@ -177,7 +178,7 @@ func (s *Service) normalize(ctx context.Context, in *core.Schedule) (*core.Sched
 	if sc.Kind == core.SchedHeartbeat && prin.Kind != core.PrincipalUser {
 		return nil, plan{}, invalidf("a heartbeat needs HEARTBEAT.md, and spaces have no memory")
 	}
-	if sc.Deliver, err = s.checkDeliver(ctx, prin.User, sc.Deliver); err != nil {
+	if sc.Deliver, err = s.checkDeliver(ctx, prin, sc.Deliver); err != nil {
 		return nil, plan{}, err
 	}
 	if sc.Session != "" {
@@ -192,10 +193,10 @@ func (s *Service) normalize(ctx context.Context, in *core.Schedule) (*core.Sched
 	return &sc, p, nil
 }
 
-// checkDeliver confines delivery to the owner's own chats: a linked DM, or the
-// chat of a space they own. A channel without a chat id means "the owner's DM
-// on that channel", resolved when the schedule fires.
-func (s *Service) checkDeliver(ctx context.Context, owner core.UserID, d *core.ChatRef) (*core.ChatRef, error) {
+// checkDeliver confines delivery to chats the principal's output may reach
+// (ownChat). A channel without a chat id means "the owner's DM on that
+// channel", resolved when the schedule fires.
+func (s *Service) checkDeliver(ctx context.Context, prin *core.Principal, d *core.ChatRef) (*core.ChatRef, error) {
 	if d == nil {
 		return nil, nil
 	}
@@ -209,22 +210,25 @@ func (s *Service) checkDeliver(ctx context.Context, owner core.UserID, d *core.C
 	case c.ChatID == "":
 		return &core.ChatRef{Channel: c.Channel}, nil
 	}
-	ids, err := s.store.Identities().ForUser(ctx, owner)
-	if err != nil {
-		return nil, fmt.Errorf("scheduler: identities: %w", err)
+	chat, ok, err := s.ownChat(ctx, prin, c)
+	switch {
+	case err != nil:
+		return nil, err
+	case !ok && prin.Kind == core.PrincipalSpace:
+		return nil, invalidf("deliver: %s chat %s is neither this space's chat nor a direct chat of its owner", c.Channel, c.ChatID)
+	case !ok:
+		return nil, invalidf("deliver: %s chat %s is not one of your direct chats", c.Channel, c.ChatID)
 	}
-	for _, id := range ids {
-		if id.Channel == c.Channel && id.Status == core.IdentityLinked && id.DMChat == c.ChatID {
-			return &core.ChatRef{Channel: c.Channel, ChatID: c.ChatID, Kind: core.ChatDM}, nil
-		}
-	}
-	if sp, err := s.store.Spaces().ByChat(ctx, c.Channel, c.ChatID); err == nil && sp.Owner == owner {
-		return &core.ChatRef{Channel: c.Channel, ChatID: c.ChatID, ThreadID: c.ThreadID, Kind: sp.Chat.Kind}, nil
-	}
-	return nil, invalidf("deliver: %s chat %s is not one of your chats", c.Channel, c.ChatID)
+	return &chat, nil
 }
 
 func (s *Service) Delete(ctx context.Context, v core.Viewer, id core.ScheduleID, by core.UserID) error {
+	return s.deleteAs(ctx, v, id, "user:"+string(by))
+}
+
+// deleteAs deletes a schedule; by follows Upsert ("user:<id>" or
+// "run:<id>" for an agent-approved delete).
+func (s *Service) deleteAs(ctx context.Context, v core.Viewer, id core.ScheduleID, by string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	sc, err := s.store.Schedules().Get(ctx, v, id)
@@ -234,7 +238,8 @@ func (s *Service) Delete(ctx context.Context, v core.Viewer, id core.ScheduleID,
 	if err := s.store.Schedules().Delete(ctx, v, id); err != nil {
 		return err
 	}
-	s.auditf(ctx, "schedule.delete", "user:"+string(by), sc, nil)
+	delete(s.unsaved, id)
+	s.auditf(ctx, "schedule.delete", auditActor(by), sc, nil)
 	s.poke()
 	return nil
 }
@@ -242,7 +247,14 @@ func (s *Service) Delete(ctx context.Context, v core.Viewer, id core.ScheduleID,
 // RunNow fires a schedule immediately without moving its next run.
 func (s *Service) RunNow(ctx context.Context, v core.Viewer, id core.ScheduleID, _ core.UserID) (core.RunID, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	run, err := s.runNowLocked(ctx, v, id)
+	notes := s.takeNotices()
+	s.mu.Unlock()
+	s.sendNotices(ctx, notes)
+	return run, err
+}
+
+func (s *Service) runNowLocked(ctx context.Context, v core.Viewer, id core.ScheduleID) (core.RunID, error) {
 	sc, err := s.store.Schedules().Get(ctx, v, id)
 	if err != nil {
 		return "", err

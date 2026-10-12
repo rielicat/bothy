@@ -67,6 +67,17 @@ func (s *Service) capOf(f core.MemoryFile) int {
 	return m.HeartbeatMaxBytes
 }
 
+// checkCap refuses an op that would leave the file over its cap. An op that
+// does not grow the file always passes, so a file left over the cap (after the
+// cap was lowered) can still be shortened entry by entry.
+func (s *Service) checkCap(f core.MemoryFile, before, after string) error {
+	limit := s.capOf(f)
+	if len(after) <= limit || len(after) <= len(before) {
+		return nil
+	}
+	return capError(f, len(before), len(after), limit)
+}
+
 func (s *Service) path(p core.PrincipalID, f core.MemoryFile) string {
 	return filepath.Join(s.dir, string(p), fileName(f))
 }
@@ -114,6 +125,19 @@ func (s *Service) writeFile(p core.PrincipalID, f core.MemoryFile, content strin
 		return fmt.Errorf("memory: write %s: %w", fileName(f), err)
 	}
 	syncDir(dir)
+	return nil
+}
+
+// restoreFile puts back content read before a failed change. Empty content
+// means the file may not have existed (a missing file reads as ""), so it is
+// removed rather than left behind empty, e.g. after a racing purge.
+func (s *Service) restoreFile(p core.PrincipalID, f core.MemoryFile, content string) error {
+	if content != "" {
+		return s.writeFile(p, f, content)
+	}
+	if err := os.Remove(s.path(p, f)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("memory: restore %s: %w", fileName(f), err)
+	}
 	return nil
 }
 
@@ -207,8 +231,9 @@ func normalizeOp(op core.MemoryOp) (core.MemoryOp, error) {
 	return op, nil
 }
 
-// applyOp returns the file content after a normalized op.
-func applyOp(before string, op core.MemoryOp) (string, error) {
+// applyOp returns the file content after a normalized op. reveal lets a
+// missing-entry error quote the file's entries (see notFoundError).
+func applyOp(before string, op core.MemoryOp, reveal bool) (string, error) {
 	lines := splitLines(before)
 	name := fileName(op.File)
 	switch op.Op {
@@ -220,7 +245,7 @@ func applyOp(before string, op core.MemoryOp) (string, error) {
 	case "replace", "remove":
 		i := findEntry(lines, op.Old)
 		if i < 0 {
-			return "", notFoundError(op.File, before, op.Old)
+			return "", notFoundError(op.File, before, op.Old, reveal)
 		}
 		if op.Op == "remove" {
 			return joinLines(append(lines[:i:i], lines[i+1:]...)), nil
@@ -232,11 +257,17 @@ func applyOp(before string, op core.MemoryOp) (string, error) {
 	return "", invalidf("op must be add, replace or remove, got %q", op.Op)
 }
 
-// notFoundError helps the model retry: it names entries that contain the text
-// and, for HEARTBEAT.md (which is not in the model's context), the whole file.
-func notFoundError(f core.MemoryFile, content, old string) error {
+// notFoundError helps the model retry: with reveal it names entries that
+// contain the text and, for HEARTBEAT.md (which is not in the model's
+// context), the whole file. The text is a tool result that no policy step
+// sees, so callers reveal only into a session already tainted private;
+// otherwise it would bring private data in without the taint.
+func notFoundError(f core.MemoryFile, content, old string, reveal bool) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s has no entry exactly equal to %q.", fileName(f), old)
+	if !reveal {
+		return invalidf("%s", b.String())
+	}
 	var near []string
 	needle := strings.ToLower(old)
 	for _, l := range splitLines(content) {

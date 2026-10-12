@@ -26,8 +26,15 @@ tick inlines `HEARTBEAT.md`, skips without an LLM call when it is blank or when
 today's spend of the schedule's runs reaches `budgets.heartbeat_daily_usd` (0
 = no cap), and holds the run's events back so a reply starting with
 `HEARTBEAT_OK` is never delivered. `Upsert` validates everything (spec, zone,
-active hours, limits, a target session of the same principal, delivery only to
-the owner's own DMs or spaces), ignores caller values for run state, computes
-`next_run_at` and audits `schedule.create`/`update`/`delete`. `Preview` lists
-upcoming times and `Describe` renders a spec as "Weekdays at 08:00
-(Europe/London)".
+active hours, limits, a target session of the same principal), ignores caller
+values for run state, computes `next_run_at` and audits
+`schedule.create`/`update`/`delete`. Delivery is confined to the principal's
+own chats: a linked DM of its user or, for a space, that space's chat; a user
+schedule never posts into a group. The target is checked again at every fire,
+so a chat that was unlinked or re-linked to another account falls back to web
+only. Ticks of a disabled user or a space that is not enabled start nothing;
+run limits a schedule leaves at zero come from `budgets.scheduled`. If a fired
+tick's row update fails, the loop retries the write rather than firing the
+tick again, and owner notices are sent after the scheduler lock is released.
+`Preview` lists upcoming times and `Describe` renders a spec as "Weekdays at
+08:00 (Europe/London)".

@@ -104,7 +104,7 @@ func TestUpsertValidation(t *testing.T) {
 		{"past once", func(s *core.Schedule) { s.Kind, s.Spec = core.SchedOnce, "2020-01-01T00:00:00Z" }, "in the past"},
 		{"once with active hours", func(s *core.Schedule) { s.Kind, s.Spec, s.ActiveHours = core.SchedOnce, future, "08:00-09:00" }, "active hours"},
 		{"tiny interval", func(s *core.Schedule) { s.Kind, s.Spec = core.SchedHeartbeat, "10s" }, "between 1m"},
-		{"foreign chat", func(s *core.Schedule) { s.Deliver = &core.ChatRef{Channel: "telegram", ChatID: "999"} }, "not one of your chats"},
+		{"foreign chat", func(s *core.Schedule) { s.Deliver = &core.ChatRef{Channel: "telegram", ChatID: "999"} }, "not one of your direct chats"},
 		{"bad channel", func(s *core.Schedule) { s.Deliver = &core.ChatRef{Channel: "Tele gram"} }, "unknown channel"},
 		{"foreign session", func(s *core.Schedule) { s.Session = "ses_00000000000000000000000000" }, "not a session"},
 	} {
@@ -165,6 +165,10 @@ func TestUpsertDeliverTargets(t *testing.T) {
 	if err := h.store.Spaces().Create(ctx, sp, &core.Principal{Kind: core.PrincipalSpace, User: h.owner, ToolProfile: "restricted", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
+	other := &core.Space{Kind: "group", Chat: core.ChatRef{Channel: "telegram", ChatID: "-200", Kind: core.ChatGroup}, Owner: h.owner, Enabled: true, CreatedAt: time.Now()}
+	if err := h.store.Spaces().Create(ctx, other, &core.Principal{Kind: core.PrincipalSpace, User: h.owner, ToolProfile: "restricted", CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
 	spaceHB := &core.Schedule{Principal: sp.Principal, Name: "hb", Kind: core.SchedHeartbeat, Spec: "30m", Enabled: true}
 	if err := h.svc.Upsert(ctx, core.SystemViewer(), spaceHB, "user:x"); !errors.Is(err, core.ErrInvalid) {
 		t.Fatalf("heartbeat for a space: %v", err)
@@ -176,11 +180,35 @@ func TestUpsertDeliverTargets(t *testing.T) {
 		{&core.ChatRef{Channel: "web", ChatID: "ignored"}, &core.ChatRef{Channel: "web"}},
 		{&core.ChatRef{Channel: "slack"}, &core.ChatRef{Channel: "slack"}},
 		{&core.ChatRef{Channel: "telegram", ChatID: "42"}, &h.dm},
-		{&core.ChatRef{Channel: "telegram", ChatID: "-100", ThreadID: "7"}, &core.ChatRef{Channel: "telegram", ChatID: "-100", ThreadID: "7", Kind: core.ChatGroup}},
 	} {
 		sc := h.upsert(&core.Schedule{Name: "d", Kind: core.SchedCron, Spec: "0 8 * * *", Prompt: "p", Deliver: c.in})
 		if (sc.Deliver == nil) != (c.want == nil) || (c.want != nil && *sc.Deliver != *c.want) {
 			t.Errorf("deliver %+v stored as %+v, want %+v", c.in, sc.Deliver, c.want)
+		}
+	}
+	// A user's schedule carries the user's private context: never into a group.
+	userToGroup := &core.Schedule{Principal: h.p, Name: "d", Kind: core.SchedCron, Spec: "0 8 * * *", Prompt: "p",
+		Deliver: &core.ChatRef{Channel: "telegram", ChatID: "-100"}}
+	if err := h.svc.Upsert(ctx, h.viewer(), userToGroup, "user:x"); !errors.Is(err, core.ErrInvalid) {
+		t.Fatalf("user schedule delivered to a group: %v", err)
+	}
+	// A space's schedule goes to its own chat or the owner's DM, not another space.
+	ownerV := core.Viewer{User: h.owner, Principals: []core.PrincipalID{h.p, sp.Principal, other.Principal}}
+	for _, c := range []struct {
+		in   *core.ChatRef
+		want *core.ChatRef
+	}{
+		{&core.ChatRef{Channel: "telegram", ChatID: "-100", ThreadID: "7"}, &core.ChatRef{Channel: "telegram", ChatID: "-100", ThreadID: "7", Kind: core.ChatGroup}},
+		{&core.ChatRef{Channel: "telegram", ChatID: "42"}, &h.dm},
+		{&core.ChatRef{Channel: "telegram", ChatID: "-200"}, nil},
+	} {
+		sc := &core.Schedule{Principal: sp.Principal, Name: "s", Kind: core.SchedCron, Spec: "0 8 * * *", Prompt: "p", Deliver: c.in}
+		err := h.svc.Upsert(ctx, ownerV, sc, "user:x")
+		switch {
+		case c.want == nil && !errors.Is(err, core.ErrInvalid):
+			t.Errorf("space schedule to %+v: err = %v, want ErrInvalid", c.in, err)
+		case c.want != nil && (err != nil || *sc.Deliver != *c.want):
+			t.Errorf("space schedule to %+v stored as %+v (%v), want %+v", c.in, sc.Deliver, err, c.want)
 		}
 	}
 }
@@ -243,6 +271,10 @@ func TestRunNowAndSessions(t *testing.T) {
 func TestDeliveryDefaults(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
+	prin, err := h.store.Principals().Get(ctx, core.SystemViewer(), h.p)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, c := range []struct {
 		deliver *core.ChatRef
 		want    string // chat key or "" for web only
@@ -253,13 +285,13 @@ func TestDeliveryDefaults(t *testing.T) {
 		{&core.ChatRef{Channel: "discord"}, ""}, // no linked discord DM
 	} {
 		sc := &core.Schedule{Principal: h.p, Kind: core.SchedCron, Deliver: c.deliver}
-		chat, ok := h.svc.deliveryChat(ctx, sc, h.owner)
+		chat, ok := h.svc.deliveryChat(ctx, sc, prin)
 		if got := map[bool]string{true: chat.Key(), false: ""}[ok]; got != c.want {
 			t.Errorf("deliver %+v -> %q, want %q", c.deliver, got, c.want)
 		}
 	}
 	h.hub.PreferredChats = nil
-	if _, ok := h.svc.deliveryChat(ctx, &core.Schedule{}, h.owner); ok {
+	if _, ok := h.svc.deliveryChat(ctx, &core.Schedule{}, prin); ok {
 		t.Error("no preferred chat means web only")
 	}
 }
