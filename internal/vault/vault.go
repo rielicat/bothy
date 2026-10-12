@@ -29,6 +29,10 @@ const (
 	hintMinLen = 12
 )
 
+// errBadName never quotes the name: a caller that mixed up arguments could
+// otherwise copy a plaintext secret into an error message and the logs.
+var errBadName = fmt.Errorf("vault: a secret name is 1-64 characters of a-z 0-9 _ . -: %w", core.ErrInvalid)
+
 func (v *Vault) setSealed(p kekPlan, reason string) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -249,7 +253,7 @@ func (v *Vault) decrypt(ctx context.Context, sc core.Scope, name string) ([]byte
 // returned, so an audit failure withholds the secret.
 func (v *Vault) Get(ctx context.Context, sc core.Scope, name, purpose string) (core.Secret, error) {
 	if !validName(name) {
-		return core.Secret{}, fmt.Errorf("vault: secret name %q: %w", name, core.ErrInvalid)
+		return core.Secret{}, errBadName
 	}
 	if val, ok := v.envSecs[envName(name)]; ok {
 		if err := v.record(ctx, "secret.use", "system", name, "ok",
@@ -261,6 +265,8 @@ func (v *Vault) Get(ctx context.Context, sc core.Scope, name, purpose string) (c
 	if err := validScope(sc); err != nil {
 		return core.Secret{}, err
 	}
+	v.keyMu.RLock()
+	defer v.keyMu.RUnlock()
 	if _, _, err := v.key(); err != nil {
 		return core.Secret{}, err
 	}
@@ -350,11 +356,13 @@ func (v *Vault) Put(ctx context.Context, sc core.Scope, name string, value []byt
 		return core.SecretMeta{}, err
 	}
 	if !validName(name) {
-		return core.SecretMeta{}, fmt.Errorf("vault: secret name %q (1-64 of a-z 0-9 _ . -): %w", name, core.ErrInvalid)
+		return core.SecretMeta{}, errBadName
 	}
 	if len(value) == 0 || len(value) > maxSecretSize {
 		return core.SecretMeta{}, fmt.Errorf("vault: secret value must be 1 to %d bytes: %w", maxSecretSize, core.ErrInvalid)
 	}
+	v.keyMu.RLock()
+	defer v.keyMu.RUnlock()
 	dek, keyID, err := v.key()
 	if err != nil {
 		return core.SecretMeta{}, err
@@ -397,7 +405,7 @@ func (v *Vault) Delete(ctx context.Context, sc core.Scope, name string, by core.
 		return err
 	}
 	if !validName(name) {
-		return fmt.Errorf("vault: secret name %q: %w", name, core.ErrInvalid)
+		return errBadName
 	}
 	if err := v.store.Vault().DeleteSecret(ctx, sc, name); err != nil {
 		return err
@@ -435,8 +443,8 @@ func (v *Vault) List(ctx context.Context, sc core.Scope) ([]core.SecretMeta, err
 // Unseal opens a passphrase vault. The first Unseal sets the passphrase: it
 // creates the salt and the DEK. A wrong passphrase is ErrForbidden.
 func (v *Vault) Unseal(ctx context.Context, passphrase []byte) error {
-	v.unsealMu.Lock()
-	defer v.unsealMu.Unlock()
+	v.keyMu.Lock()
+	defer v.keyMu.Unlock()
 	v.mu.RLock()
 	plan, sealed, reason := v.plan, v.sealed, v.reason
 	v.mu.RUnlock()
@@ -517,8 +525,8 @@ func (v *Vault) initPassphrase(ctx context.Context, plan kekPlan, passphrase []b
 // the rename if it was interrupted). Externally managed KEKs (Docker secret,
 // systemd, file, env, passphrase) stay as they are; only the DEK rotates.
 func (v *Vault) RotateKEK(ctx context.Context, by core.UserID) error {
-	v.unsealMu.Lock()
-	defer v.unsealMu.Unlock()
+	v.keyMu.Lock()
+	defer v.keyMu.Unlock()
 	v.mu.RLock()
 	plan, oldKEK, oldDEK, oldID, sealed := v.plan, v.kek, v.dek, v.keyID, v.sealed
 	v.mu.RUnlock()

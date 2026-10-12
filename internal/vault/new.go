@@ -42,8 +42,10 @@ type Vault struct {
 	keyfile   string
 	colocated bool
 
-	// unsealMu serialises Unseal and RotateKEK, which replace key material.
-	unsealMu sync.Mutex
+	// keyMu is held exclusively by Unseal and RotateKEK, which replace key
+	// material, and shared by every operation that encrypts or decrypts, so a
+	// Put can never land a row under a DEK that a concurrent rotation retired.
+	keyMu sync.RWMutex
 
 	mu      sync.RWMutex
 	plan    kekPlan
