@@ -13,7 +13,7 @@ stopping the gateway. `BOTHY_SECRET_<NAME>` and `BOTHY_SECRET_<NAME>_FILE` shado
 vault entries in every scope and are held in memory only; `Resolve` substitutes
 `secret:<name>` references, also inside header values, and rejects plain strings
 without echoing them. Every use is audited as `secret.use` before the value is
-released. `RotateKEK` re-encrypts all secrets under a new DEK in one transaction
+released; when that audit fails, or the vault has no auditor, nothing is. `RotateKEK` re-encrypts all secrets under a new DEK in one transaction
 and, for the auto keyfile, a new KEK written through `<keyfile>.new`. The
 `Redactor` masks registered values (and, from 8 bytes, their hex, percent,
 base64/base64url and JSON-escaped forms) plus well-known token patterns;

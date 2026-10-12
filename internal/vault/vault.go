@@ -259,8 +259,15 @@ func (v *Vault) decrypt(ctx context.Context, sc core.Scope, name string) ([]byte
 // scope to global. Each use is audited as secret.use before the value is
 // returned, so an audit failure withholds the secret.
 func (v *Vault) Get(ctx context.Context, sc core.Scope, name, purpose string) (core.Secret, error) {
+	if err := validScope(sc); err != nil {
+		return core.Secret{}, err
+	}
 	if !validName(name) {
 		return core.Secret{}, errBadName
+	}
+	// Without an auditor a use could not be recorded, so nothing is released.
+	if v.audit == nil {
+		return core.Secret{}, errors.New("vault: no auditor to record secret.use")
 	}
 	if val, ok := v.envSecs[envName(name)]; ok {
 		if err := v.record(ctx, "secret.use", "system", name, "ok",
@@ -268,9 +275,6 @@ func (v *Vault) Get(ctx context.Context, sc core.Scope, name, purpose string) (c
 			return core.Secret{}, err
 		}
 		return core.NewSecret(bytes.Clone(val)), nil
-	}
-	if err := validScope(sc); err != nil {
-		return core.Secret{}, err
 	}
 	v.keyMu.RLock()
 	defer v.keyMu.RUnlock()

@@ -668,6 +668,24 @@ func TestAuditFailureWithholdsSecret(t *testing.T) {
 	}
 }
 
+// TestNoAuditorWithholdsSecrets: a vault built without an auditor cannot
+// record secret.use, so it releases neither vault nor env secrets.
+func TestNoAuditorWithholdsSecrets(t *testing.T) {
+	f := newFixture(t)
+	f.env = []string{"BOTHY_SECRET_FROM_ENV=env-value-0123"}
+	f.audit = nil
+	v := f.open()
+	mustPut(t, v, core.GlobalScope, "x", "value-needs-audit")
+	for _, name := range []string{"x", "from_env"} {
+		if s, err := v.Get(context.Background(), core.GlobalScope, name, "test"); err == nil {
+			t.Errorf("Get(%s) returned %q without an auditor", name, s.Reveal())
+		}
+	}
+	if _, err := v.Resolve(context.Background(), "secret:x", "", "test"); err == nil {
+		t.Error("Resolve succeeded without an auditor")
+	}
+}
+
 func runChecks(t *testing.T, p core.CheckProvider) map[string]*core.Finding {
 	t.Helper()
 	out := map[string]*core.Finding{}
