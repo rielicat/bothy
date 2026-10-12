@@ -33,9 +33,11 @@ equal the CONNECT host, and is replayed upstream byte for byte) or, with
 `egress.allow_plain_http`, one absolute-form HTTP request whose `Host` header
 is forced to the target. The decision order is SPEC §2.8: port, denylist,
 allowlist sources, trifecta (an Exposed session suspends grants), then
-hold-for-approval or 403. A held CONNECT asks `Policy.Decide` with the
-`net_allow` spec and an Action `{kind: net, host, port}`, requests an approval
-for tool call `<bound call>#net`, and waits up to `egress.hold_for_approval`;
+hold-for-approval or 403. Only interactive bindings of a run that is still
+running are held (background processes outlive their run). A held CONNECT
+asks `Policy.Decide` with the `net_allow` spec and an Action
+`{kind: net, host, port}`, requests an approval for tool call
+`<bound call>#net`, and waits up to `egress.hold_for_approval`;
 concurrent holds for the same destination share one card. `allow_once` admits
 the destination for the rest of the bound tool call, `allow_session` and
 `allow_always` store the policy's narrow grant. A denied or expired hold is

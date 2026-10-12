@@ -160,6 +160,7 @@ type testEnv struct {
 	user   core.UserID
 	member core.UserID
 	sess   core.SessionID
+	run    *core.Run
 }
 
 func newEnv(t *testing.T, mut func(c *config.Config)) *testEnv {
@@ -252,14 +253,34 @@ func (e *testEnv) openBox(be core.BoxEgress) (string, string) {
 	return key, filepath.Join(e.runDir, sub, "proxy.sock")
 }
 
+// bind starts a running run (ending the previous one) and binds its next
+// tool call to the box.
 func (e *testEnv) bind(key string, interactive bool) core.EgressBinding {
-	b := core.EgressBinding{Run: core.RunID(core.NewID(core.PrefixRun)), ToolCallID: core.NewID(core.PrefixToolCall),
-		User: e.user, Role: core.RoleOwner, Trigger: core.TrigMessage, Interactive: interactive, Context: "Web · test"}
+	e.t.Helper()
+	trigger := core.TrigMessage
 	if !interactive {
-		b.Trigger = core.TrigSchedule
+		trigger = core.TrigSchedule
 	}
+	e.endRun()
+	e.run = &core.Run{Session: e.sess, Principal: e.principal(), User: e.user, Trigger: trigger, Status: core.RunRunning}
+	if err := e.store.Runs().Create(context.Background(), e.run); err != nil {
+		e.t.Fatal(err)
+	}
+	b := core.EgressBinding{Run: e.run.ID, ToolCallID: core.NewID(core.PrefixToolCall),
+		User: e.user, Role: core.RoleOwner, Trigger: trigger, Interactive: interactive, Context: "Web · test"}
 	e.s.Bind(key, b)
 	return b
+}
+
+func (e *testEnv) endRun() {
+	e.t.Helper()
+	if e.run == nil {
+		return
+	}
+	e.run.Status = core.RunDone
+	if err := e.store.Runs().Update(context.Background(), e.run); err != nil {
+		e.t.Fatal(err)
+	}
 }
 
 // records flushes until at least n egress_log rows exist and returns them

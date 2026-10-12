@@ -354,3 +354,18 @@ func TestHoldsPerToolCallAreCapped(t *testing.T) {
 		result(t, ch)
 	}
 }
+
+func TestNoHoldAfterTheRunEnded(t *testing.T) {
+	e := newEnv(t, nil)
+	key, sock := e.openBox(core.BoxEgress{})
+	e.bind(key, true)
+	e.endRun() // a background process outlives its run
+	start := time.Now()
+	code, msg := connectStatus(t, sock, "pypi.org:443")
+	if code != http.StatusForbidden || !strings.Contains(msg, "not in the allowlist") || time.Since(start) > time.Second {
+		t.Fatalf("after the run ended = %d %q after %v", code, msg, time.Since(start))
+	}
+	if n := len(e.apr.All()); n != 0 {
+		t.Fatalf("approvals = %d, want none for an ended run", n)
+	}
+}

@@ -792,3 +792,23 @@ func TestLimitedGrantIsChargedPerConnection(t *testing.T) {
 		t.Fatalf("grant with max_uses 1 admitted a second connection: %d", code)
 	}
 }
+
+func TestBoxRefusesAllowedDestinationsOnBlockedAddresses(t *testing.T) {
+	e := newEnv(t, func(c *config.Config) {
+		c.Egress.Allow = []string{"internal.example", "meta.example", "127.0.0.1:443", "[::ffff:169.254.169.254]:443", "[64:ff9b::a9fe:a9fe]:443"}
+	})
+	e.res.set("internal.example", []string{"10.0.0.7"})
+	e.res.set("meta.example", []string{publicIP, "169.254.169.254"})
+	key, sock := e.openBox(core.BoxEgress{})
+	e.bind(key, false)
+	for _, authority := range []string{"internal.example:443", "meta.example:443", "127.0.0.1:443",
+		"[::ffff:169.254.169.254]:443", "[64:ff9b::a9fe:a9fe]:443"} {
+		code, msg := connectStatus(t, sock, authority)
+		if code != http.StatusForbidden || !(strings.Contains(msg, "blocked range") || strings.Contains(msg, "metadata")) {
+			t.Errorf("CONNECT %s = %d %q, want 403 for a blocked address", authority, code, msg)
+		}
+	}
+	if d := e.dial.calls(); len(d) != 0 {
+		t.Fatalf("blocked addresses were dialed: %v", d)
+	}
+}

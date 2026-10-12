@@ -659,7 +659,7 @@ func (s *Service) decide(ctx context.Context, b *box, be core.BoxEgress, bind co
 		return verdict{reason: "session holds private and untrusted data, so grants are suspended"}
 	}
 	if grants && bind.Interactive && bind.ToolCallID != "" && c.HoldForApproval.D() > 0 &&
-		s.policy != nil && s.approvals != nil && be.Principal != "" {
+		s.policy != nil && s.approvals != nil && be.Principal != "" && s.runActive(ctx, bind.Run) {
 		if r, ok := b.refusedOnce(bind.ToolCallID, h.hostport(port)); ok {
 			return verdict{reason: r + " earlier in this tool call"}
 		}
@@ -684,6 +684,17 @@ func (s *Service) capExhausted(b *box) bool {
 func (s *Service) caps() (up, down int64) {
 	c := s.cfg().Egress.Caps
 	return int64(c.SessionUpMB) << 20, int64(c.SessionDownMB) << 20
+}
+
+// runActive reports whether the bound run is still running. Background
+// processes outlive their exec and run, and must not raise approval cards for
+// a run that has ended.
+func (s *Service) runActive(ctx context.Context, id core.RunID) bool {
+	if id == "" {
+		return false
+	}
+	r, err := s.store.Runs().Get(ctx, core.SystemViewer(), id)
+	return err == nil && r.Status == core.RunRunning
 }
 
 // exposed fails closed: a session that cannot be read counts as exposed.
