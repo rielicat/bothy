@@ -29,6 +29,7 @@ const (
 type service struct {
 	cfg    config.View
 	egress core.Egress
+	store  core.Store
 	bus    core.Bus
 	audit  core.Auditor
 	work   string
@@ -51,6 +52,9 @@ type service struct {
 	usage    map[core.WorkspaceID]int64
 
 	locks keyedMutex
+
+	bannerMu      sync.Mutex
+	memberBanners map[core.PrincipalID]core.BannerData
 }
 
 type boxState struct {
@@ -69,10 +73,11 @@ func newService(d Deps) *service {
 		log = slog.New(slog.DiscardHandler)
 	}
 	return &service{
-		cfg: d.Config, egress: d.Egress, bus: d.Bus, audit: d.Audit, work: d.WorkDir, run: d.RunDir,
+		cfg: d.Config, egress: d.Egress, store: d.Store, bus: d.Bus, audit: d.Audit, work: d.WorkDir, run: d.RunDir,
 		clock: clock, log: log.With("component", "sandbox"),
 		healthEvery: 15 * time.Second, retryEvery: 3 * time.Second, reapEvery: time.Minute, quotaEvery: 5 * time.Minute,
 		boxes: map[string]*boxState{}, usage: map[core.WorkspaceID]int64{},
+		memberBanners: map[core.PrincipalID]core.BannerData{},
 	}
 }
 
@@ -132,37 +137,80 @@ func sameStatus(a, b core.SandboxStatus) bool {
 
 const settingsRoute = "/settings/sandbox"
 
+var bannerCodes = []string{"no_sandbox", "sandbox_not_isolated"}
+
+// bannerFor is the banner a status calls for; the zero value means none.
+func bannerFor(st core.SandboxStatus) core.BannerData {
+	switch bad := isolationFailure(st); {
+	case st.Available:
+		return core.BannerData{}
+	case len(bad) > 0:
+		return core.BannerData{Level: "error", Code: "sandbox_not_isolated", Action: settingsRoute,
+			Text: fmt.Sprintf("Sandbox not isolated: exec refused (failed checks: %v).", bad)}
+	default:
+		text := noSandboxText
+		if st.Backend != "none" && st.Reason != "" {
+			text = "No sandbox: shell, python and MCP stdio are off (" + st.Reason + ")."
+		}
+		return core.BannerData{Level: "warn", Code: "no_sandbox", Text: text, Action: settingsRoute}
+	}
+}
+
+// showBanner sets want (or nothing) and clears the other sandbox banner for
+// principal p ("" = the admin broadcast).
+func (s *service) showBanner(p core.PrincipalID, want core.BannerData) {
+	for _, code := range bannerCodes {
+		if code != want.Code {
+			s.bus.Publish(core.Event{Type: core.EvBanner, Principal: p,
+				Data: core.BannerData{Level: "info", Code: code, Action: settingsRoute, Clear: true}})
+		}
+	}
+	if want.Code != "" {
+		s.bus.Publish(core.Event{Type: core.EvBanner, Principal: p, Data: want})
+	}
+}
+
 func (s *service) publish(prev, st core.SandboxStatus) {
 	if s.bus == nil {
 		return
 	}
 	s.bus.Publish(core.Event{Type: core.EvSandboxStatus, Data: core.SandboxStatusData{Status: st}})
-	banner := func(level, code, text string, clear bool) {
-		s.bus.Publish(core.Event{Type: core.EvBanner, Data: core.BannerData{Level: level, Code: code, Text: text,
-			Action: settingsRoute, Clear: clear}})
+	s.showBanner("", bannerFor(st))
+	if bad := isolationFailure(st); len(bad) > 0 && len(isolationFailure(prev)) == 0 && s.audit != nil {
+		detail, _ := json.Marshal(map[string]any{"backend": st.Backend, "runtime": st.Runtime, "failed": bad})
+		if err := s.audit.Record(context.Background(), core.AuditEntry{Actor: "system", Action: "sandbox.selftest_failed",
+			Target: st.Backend, Outcome: "error", Detail: detail}); err != nil {
+			s.log.Warn("audit sandbox.selftest_failed", "err", err)
+		}
 	}
-	bad := isolationFailure(st)
-	switch {
-	case st.Available:
-		banner("warn", "no_sandbox", "", true)
-		banner("error", "sandbox_not_isolated", "", true)
-	case len(bad) > 0:
-		banner("warn", "no_sandbox", "", true)
-		banner("error", "sandbox_not_isolated", fmt.Sprintf("Sandbox not isolated: exec refused (failed checks: %v).", bad), false)
-		if len(isolationFailure(prev)) == 0 && s.audit != nil {
-			detail, _ := json.Marshal(map[string]any{"backend": st.Backend, "runtime": st.Runtime, "failed": bad})
-			if err := s.audit.Record(context.Background(), core.AuditEntry{Actor: "system", Action: "sandbox.selftest_failed",
-				Target: st.Backend, Outcome: "error", Detail: detail}); err != nil {
-				s.log.Warn("audit sandbox.selftest_failed", "err", err)
-			}
+	s.syncMemberBanners(context.Background())
+}
+
+// syncMemberBanners gives every member (non-admin) user principal the
+// current banner: sandbox.status reaches admins only (SPEC §8.2). It runs on
+// every status change and health tick, so users created later catch up.
+func (s *service) syncMemberBanners(ctx context.Context) {
+	if s.store == nil || s.bus == nil {
+		return
+	}
+	users, err := s.store.Users().List(ctx)
+	if err != nil {
+		s.log.Debug("listing users for sandbox banners", "err", err)
+		return
+	}
+	want := bannerFor(s.Status(ctx))
+	s.bannerMu.Lock()
+	defer s.bannerMu.Unlock()
+	for _, u := range users {
+		if u.Role.IsAdmin() || u.Disabled {
+			continue
 		}
-	default:
-		banner("error", "sandbox_not_isolated", "", true)
-		text := noSandboxText
-		if st.Backend != "none" && st.Reason != "" {
-			text = "No sandbox: shell, python and MCP stdio are off (" + st.Reason + ")."
+		p := core.UserPrincipal(u.ID)
+		if shown, ok := s.memberBanners[p]; ok && shown == want {
+			continue
 		}
-		banner("warn", "no_sandbox", text, false)
+		s.showBanner(p, want)
+		s.memberBanners[p] = want
 	}
 }
 

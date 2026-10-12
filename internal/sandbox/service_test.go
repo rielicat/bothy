@@ -18,6 +18,7 @@ import (
 	"github.com/bothyhq/bothy/internal/core"
 	"github.com/bothyhq/bothy/internal/sandboxd/enginetest"
 	"github.com/bothyhq/bothy/internal/sandboxd/proto"
+	"github.com/bothyhq/bothy/internal/testkit/memstore"
 )
 
 var _ core.Sandbox = (*Client)(nil)
@@ -379,6 +380,50 @@ func TestStatusTransitions(t *testing.T) {
 	e.c.svc.refresh(ctx)
 	if len(seen) != 2 {
 		t.Fatal("watchers notified without a change")
+	}
+}
+
+func TestMemberBanners(t *testing.T) {
+	ctx := context.Background()
+	st := memstore.New()
+	users := map[string]*core.User{"owner": {Role: core.RoleOwner}, "member": {Role: core.RoleMember},
+		"gone": {Role: core.RoleMember, Disabled: true}}
+	for name, u := range users {
+		u.Username = name
+		if err := st.Users().Create(ctx, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e, _ := newEnv(t, opts{cfg: func(c *config.Config) { c.Sandbox.Backend = "none" }})
+	e.c.svc.store = st
+	e.c.svc.syncMemberBanners(ctx)
+	codes := func(p core.PrincipalID) []string {
+		var out []string
+		for _, ev := range e.bus.Banners(core.Filter{Principals: []core.PrincipalID{p}}) {
+			out = append(out, ev.Data.(core.BannerData).Code)
+		}
+		return out
+	}
+	member := core.UserPrincipal(users["member"].ID)
+	if got := codes(member); !slices.Equal(got, []string{"no_sandbox"}) {
+		t.Fatalf("member banners = %v", got)
+	}
+	for _, name := range []string{"owner", "gone"} {
+		if got := codes(core.UserPrincipal(users[name].ID)); len(got) != 0 {
+			t.Fatalf("%s got per-principal banners %v (admins see the broadcast)", name, got)
+		}
+	}
+	late := &core.User{Username: "late", Role: core.RoleMember}
+	if err := st.Users().Create(ctx, late); err != nil {
+		t.Fatal(err)
+	}
+	e.c.svc.syncMemberBanners(ctx)
+	if got := codes(core.UserPrincipal(late.ID)); !slices.Equal(got, []string{"no_sandbox"}) {
+		t.Fatalf("a user created later got %v", got)
+	}
+	e.c.svc.setStatus(core.SandboxStatus{Backend: "sandboxd", Available: true, Runtime: "runc"})
+	if got := codes(member); len(got) != 0 {
+		t.Fatalf("member banner not cleared: %v", got)
 	}
 }
 

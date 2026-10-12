@@ -91,6 +91,7 @@ func (s *service) loop(ctx context.Context) error {
 		case <-health.C:
 			s.maybeSwitch()
 			s.refresh(ctx)
+			s.syncMemberBanners(ctx)
 			health.Reset(s.nextHealth())
 		case <-reap.C:
 			s.reapIdle(ctx)
