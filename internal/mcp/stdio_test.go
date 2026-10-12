@@ -42,14 +42,15 @@ type installer struct {
 	integrity string
 	gate      chan struct{}
 
-	mu    sync.Mutex
-	argvs [][]string
+	mu     sync.Mutex
+	argvs  [][]string
+	ciLock string // when set, "npm ci" rewrites package-lock.json with it
 }
 
 func (in *installer) exec(ctx context.Context, key string, req core.ExecRequest) (*core.ExecResult, error) {
 	in.mu.Lock()
 	in.argvs = append(in.argvs, slices.Clone(req.Argv))
-	gate := in.gate
+	gate, ciLock := in.gate, in.ciLock
 	in.mu.Unlock()
 	if gate != nil {
 		select {
@@ -83,6 +84,9 @@ func (in *installer) exec(ctx context.Context, key string, req core.ExecRequest)
 			return &core.ExecResult{Exit: 1, Stderr: []byte("npm ci needs a lockfile")}, nil
 		}
 		err = write("node_modules/@acme/mcp-notes/index.js", "server()")
+		if ciLock != "" {
+			err = errors.Join(err, write("package-lock.json", ciLock))
+		}
 	case "uv pip":
 		switch req.Argv[2] {
 		case "compile":

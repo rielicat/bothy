@@ -81,9 +81,8 @@ func newServerSpec(c config.MCPServer) (*serverSpec, error) {
 		if len(c.Command) == 0 || c.Command[0] == "" {
 			return nil, fmt.Errorf("command is required for stdio servers")
 		}
-		switch exe := filepath.Base(c.Command[0]); {
-		case exe == "npx", exe == "uvx", exe == "bunx", exe == "pipx" && len(c.Command) > 1 && c.Command[1] == "run":
-			return nil, fmt.Errorf("command %s fetches packages at run time; install the package and run it from /opt/mcp", exe)
+		if f := runtimeFetcher(c.Command); f != "" {
+			return nil, fmt.Errorf("command %s fetches packages at run time; install the package and run it from /opt/mcp", f)
 		}
 		s.command = slices.Clone(c.Command)
 		s.profile = core.BoxProfile(c.Profile)
@@ -104,6 +103,27 @@ func newServerSpec(c config.MCPServer) (*serverSpec, error) {
 		return nil, fmt.Errorf("unknown transport %q", c.Transport)
 	}
 	return s, nil
+}
+
+// runtimeFetcher names the package runner a command starts with ("npx",
+// "pipx run", ...), or returns "". SPEC §2.11 names npx, uvx, bunx and pipx
+// run; the equivalent sub-commands of npm, pnpm, yarn, bun and uv fetch just
+// the same, so they are refused too.
+func runtimeFetcher(cmd []string) string {
+	exe, sub := filepath.Base(cmd[0]), ""
+	if len(cmd) > 1 {
+		sub = cmd[1]
+	}
+	switch {
+	case exe == "npx", exe == "uvx", exe == "bunx", exe == "pnpx":
+		return exe
+	case exe == "pipx" && sub == "run", exe == "npm" && (sub == "exec" || sub == "x"),
+		exe == "pnpm" && sub == "dlx", exe == "yarn" && sub == "dlx", exe == "bun" && sub == "x":
+		return exe + " " + sub
+	case exe == "uv" && sub == "tool" && len(cmd) > 2 && cmd[2] == "run":
+		return "uv tool run"
+	}
+	return ""
 }
 
 func checkPackage(p *config.MCPPackage) error {

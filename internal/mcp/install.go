@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/bothyhq/bothy/internal/core"
 	"github.com/bothyhq/bothy/internal/skills/treehash"
@@ -70,9 +71,11 @@ func (m *Manager) install(ctx context.Context, s *server, by core.UserID) {
 	m.closeInstances(s)
 	in, err := m.runInstall(ctx, s)
 	// Cleared before the final state is set, so whoever sees the install end
-	// may start the next one; op still serialises them.
+	// may start the next one; op still serialises them. A failed install is
+	// not retried on its own, unlike a failed discovery.
 	s.mu.Lock()
 	s.installing = false
+	s.retries, s.retryAt = 0, time.Time{}
 	s.mu.Unlock()
 	detail := map[string]any{"ecosystem": s.spec.pkg.Ecosystem, "package": s.spec.pkg.Name, "version": s.spec.pkg.Version}
 	if in != nil {
@@ -123,7 +126,7 @@ func (m *Manager) recordedLock(ctx context.Context, s *server) []byte {
 	return prev.Lock
 }
 
-func (m *Manager) installTree(ctx context.Context, s *server, in *core.MCPInstall, lock []byte) error {
+func (m *Manager) installTree(ctx context.Context, s *server, in *core.MCPInstall, recorded []byte) (err error) {
 	spec := s.spec
 	rel := spec.installTree(in.InstallID)
 	dir := filepath.Join(m.d.WorkDir, filepath.FromSlash(rel))
@@ -134,6 +137,13 @@ func (m *Manager) installTree(ctx context.Context, s *server, in *core.MCPInstal
 	if err := os.MkdirAll(dir, 0o770); err != nil { //nolint:gosec
 		return err
 	}
+	defer func() {
+		if err != nil {
+			if rerr := os.RemoveAll(dir); rerr != nil {
+				m.log.Warn("remove failed mcp install tree", "server", s.name, "install", in.InstallID, "err", rerr)
+			}
+		}
+	}()
 	_ = os.Chown(dir, -1, boxGroup)
 	if err := os.Chmod(dir, 0o770|os.ModeSetgid); err != nil {
 		return err
@@ -148,11 +158,12 @@ func (m *Manager) installTree(ctx context.Context, s *server, in *core.MCPInstal
 		Egress: core.BoxEgress{Extra: spec.registryHosts(), NoGrants: true}}); err != nil {
 		return fmt.Errorf("installer box: %w", err)
 	}
+	var lock []byte
 	switch spec.pkg.Ecosystem {
 	case "npm":
-		err = m.installNPM(ctx, box, root, spec, lock)
+		err = m.installNPM(ctx, box, root, spec, recorded)
 	default:
-		lock, err = m.installPyPI(ctx, box, root, spec, lock)
+		lock, err = m.installPyPI(ctx, box, root, spec, recorded)
 	}
 	// Nothing in the tree is trusted before the installer box is gone, so no
 	// process left running in it can change files after they are verified.
@@ -168,6 +179,11 @@ func (m *Manager) installTree(ctx context.Context, s *server, in *core.MCPInstal
 		}
 		if err := checkNPMLock(lock, spec.pkg.Name, spec.pkg.Version, spec.pkg.Integrity); err != nil {
 			return err
+		}
+		// npm ci never writes the lock, so any difference means the tree was
+		// not installed from the lock recorded on first install.
+		if recorded != nil && !bytes.Equal(lock, recorded) {
+			return fmt.Errorf("%s differs from the lock recorded on first install", npmLockFile)
 		}
 	}
 	sum, err := treehash.SumRoot(root)

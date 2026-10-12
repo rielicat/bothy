@@ -26,7 +26,37 @@ func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	for k, v := range t.headers {
 		r.Header.Set(k, v.Reveal())
 	}
-	return t.base.RoundTrip(r)
+	resp, err := t.base.RoundTrip(r)
+	if err != nil {
+		return nil, err
+	}
+	// The SDK reads a JSON response whole; event streams it bounds per event.
+	if ct := strings.ToLower(resp.Header.Get("Content-Type")); !strings.HasPrefix(ct, "text/event-stream") {
+		resp.Body = &cappedBody{ReadCloser: resp.Body}
+	}
+	return resp, nil
+}
+
+// maxResponseBytes bounds one non-streaming response of an HTTP MCP server.
+const maxResponseBytes = 16 << 20
+
+var errResponseTooLarge = fmt.Errorf("mcp server response is larger than %d MB", maxResponseBytes>>20)
+
+type cappedBody struct {
+	io.ReadCloser
+	n int64
+}
+
+func (b *cappedBody) Read(p []byte) (int, error) {
+	if b.n > maxResponseBytes {
+		return 0, errResponseTooLarge
+	}
+	n, err := b.ReadCloser.Read(p)
+	b.n += int64(n)
+	if b.n > maxResponseBytes {
+		return n, errResponseTooLarge
+	}
+	return n, err
 }
 
 // onceCloser makes Close idempotent: the SDK closes an IOTransport's reader

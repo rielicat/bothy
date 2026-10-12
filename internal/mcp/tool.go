@@ -113,7 +113,7 @@ func (t *tool) Enabled(env *core.ToolEnv) bool {
 		return false
 	}
 	s := t.m.server(t.server)
-	if s == nil || s.spec == nil || !s.usable() {
+	if s == nil || s.spec == nil || !s.exposes(t.name, t.hash) {
 		return false
 	}
 	return s.spec.transport != "stdio" || t.m.sandboxOK.Load()
@@ -156,8 +156,17 @@ func applyFieldMap(a *core.Action, args map[string]any, fm map[string]string) er
 	for _, key := range slices.Sorted(maps.Keys(fm)) {
 		ptr := fm[key]
 		v, ok := pointer(args, ptr)
-		s, isString := v.(string)
-		if !ok || !isString || s == "" {
+		if !ok || v == nil {
+			continue
+		}
+		// A mapped value the Action cannot carry is refused rather than
+		// skipped: skipping would hide a recipient or URL from first-contact
+		// checks and from the approval card.
+		s, err := fieldValue(key, v)
+		if err != nil {
+			return fmt.Errorf("%w: argument %s (field_map %s): %w", core.ErrInvalid, ptr, key, err)
+		}
+		if s == "" {
 			continue
 		}
 		switch key {
@@ -191,6 +200,33 @@ func applyFieldMap(a *core.Action, args map[string]any, fm map[string]string) er
 		}
 	}
 	return nil
+}
+
+// fieldValue renders a mapped argument as the Action field's text: strings
+// and numbers as they are, and for recipient a list of them joined with ", "
+// (a new combination is then a new recipient). URLs and hosts must be single
+// values, since the Action holds only one.
+func fieldValue(key string, v any) (string, error) {
+	switch x := v.(type) {
+	case string:
+		return x, nil
+	case json.Number:
+		return x.String(), nil
+	case []any:
+		if key != "recipient" {
+			break
+		}
+		parts := make([]string, 0, len(x))
+		for _, e := range x {
+			s, err := fieldValue("", e)
+			if err != nil {
+				return "", err
+			}
+			parts = append(parts, s)
+		}
+		return strings.Join(parts, ", "), nil
+	}
+	return "", fmt.Errorf("want a string, got %T", v)
 }
 
 // pointer resolves an RFC 6901 JSON pointer.
@@ -234,6 +270,13 @@ func (t *tool) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action) (*co
 	}
 	if env.Principal.Restricted() {
 		return nil, fmt.Errorf("mcp tools are not available to restricted spaces: %w", core.ErrForbidden)
+	}
+	if s.spec.transport == "stdio" && !t.m.sandboxOK.Load() {
+		return nil, fmt.Errorf("mcp server %s: %w", t.server, core.ErrNoSandbox)
+	}
+	if !s.exposes(t.name, t.hash) {
+		return &core.ToolResult{Name: t.spec.Def.Name, IsError: true, Content: fmt.Sprintf(
+			"The MCP tool %s is not available right now: it was disabled or changed, or the server %s is not ready.", t.name, t.server)}, nil
 	}
 	c, inst, release, err := t.m.acquire(ctx, s, env)
 	if err != nil {

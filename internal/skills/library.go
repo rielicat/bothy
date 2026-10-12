@@ -295,6 +295,9 @@ func (l *Library) SetEnabled(ctx context.Context, name string, on bool, by core.
 		if err != nil {
 			return fmt.Errorf("skill %s: %w: %w", name, core.ErrInvalid, err)
 		}
+		if fm.Name != name {
+			return fmt.Errorf("skill %s: %w: SKILL.md now names %q", name, core.ErrInvalid, fm.Name)
+		}
 		sum, err := treehash.SumRoot(root)
 		if err != nil {
 			return fmt.Errorf("skill %s: %w", name, err)
@@ -436,7 +439,9 @@ func (l *Library) markChanged(ctx context.Context, name, sum string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	s, err := l.store.Skills().Get(ctx, name)
-	if err != nil || s.Status != core.SkillEnabled {
+	// The caller hashed against a row read without l.mu; an admin may have
+	// re-approved exactly these files since.
+	if err != nil || s.Status != core.SkillEnabled || s.ApprovedHash == sum {
 		return
 	}
 	s.Status, s.Hash, s.UpdatedAt = core.SkillChanged, sum, l.clock.Now()

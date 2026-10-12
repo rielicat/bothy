@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/bothyhq/bothy/internal/core"
 	"github.com/bothyhq/bothy/internal/skills/treehash"
@@ -57,15 +58,20 @@ func (m *Manager) discoverLocked(ctx context.Context, s *server) {
 			state, err = stNoSandbox, errors.New(noSandboxMsg)
 		case errors.Is(err, errDrifted):
 			state = stDisabled
+		case !errors.Is(err, errNotInstalled) && ctx.Err() == nil:
+			s.failed(m.clock.Now())
 		}
-		m.log.Warn("mcp discovery failed", "server", s.name, "err", err)
-		s.setState(m.clock.Now(), state, err.Error())
+		// A server may echo request headers (vault secrets) in an error body.
+		msg := m.redact(err.Error())
+		m.log.Warn("mcp discovery failed", "server", s.name, "err", msg)
+		s.setState(m.clock.Now(), state, msg)
 		m.syncTools(ctx, s)
 		return
 	}
 	m.closeConn(c)
 	s.mu.Lock()
 	s.protocol = c.protocol
+	s.retries, s.retryAt = 0, time.Time{}
 	s.mu.Unlock()
 	m.observe(ctx, s, c.tools, true)
 }
@@ -203,8 +209,19 @@ func (m *Manager) syncTools(ctx context.Context, s *server) {
 	defer m.regMu.Unlock()
 	s.mu.Lock()
 	live := maps.Clone(s.live)
-	exposable := !s.removed && s.spec != nil && s.spec.enabled && !s.drifted
+	removed := s.removed
+	exposable := !removed && s.spec != nil && s.spec.enabled && !s.drifted
+	if removed {
+		// applyConfig already dropped the source. A late discovery of a
+		// replaced server must not touch the registry: the source name now
+		// belongs to its successor.
+		s.tools, s.pending, s.regKey, s.exposed = 0, 0, "", nil
+	}
 	s.mu.Unlock()
+	if removed {
+		m.refreshBanners()
+		return
+	}
 	var want []*tool
 	pending := 0
 	if exposable && len(live) > 0 {
@@ -236,21 +253,27 @@ func (m *Manager) syncTools(ctx context.Context, s *server) {
 	}
 	key := registrationKey(want)
 	s.mu.Lock()
-	registered, same := s.tools, key == s.regKey
+	same := key == s.regKey
 	s.mu.Unlock()
+	var exposed map[string]string
 	if !same {
 		m.d.Registry.UnregisterSource(source(s.name))
-		registered = 0
+		exposed = make(map[string]string, len(want))
 		for _, t := range want {
 			if err := m.d.Registry.Register(t); err != nil {
 				m.log.Warn("mcp tool not registered", "server", s.name, "tool", t.name, "err", err)
+				// Never equal to a computed key, so the next sync retries.
+				key = "\x00partial"
 				continue
 			}
-			registered++
+			exposed[t.name] = t.hash
 		}
 	}
 	s.mu.Lock()
-	s.tools, s.pending, s.regKey = registered, pending, key
+	if !same {
+		s.exposed, s.tools, s.regKey = exposed, len(exposed), key
+	}
+	s.pending = pending
 	if s.state == stReady || s.state == stPinsPending || s.state == stConnecting && exposable && live != nil {
 		next := stReady
 		if pending > 0 {

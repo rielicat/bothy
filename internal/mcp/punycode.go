@@ -2,9 +2,12 @@ package mcp
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"unicode/utf8"
 )
+
+const maxHostBytes = 1024
 
 // toASCII lower-cases a host name and punycode-encodes (RFC 3492) every label
 // holding non-ASCII characters, so Actions and approval cards show
@@ -12,6 +15,11 @@ import (
 // beyond lower-casing: x/net/idna is not among this module's dependencies, and
 // the punycode form is what the policy and card renderer compare and show.
 func toASCII(host string) (string, error) {
+	// Hosts come from model-written arguments, and encoding is quadratic in
+	// the label length; no DNS name is anywhere near this long.
+	if len(host) > maxHostBytes {
+		return "", fmt.Errorf("host is longer than %d bytes", maxHostBytes)
+	}
 	if !utf8.ValidString(host) {
 		return "", errors.New("host is not valid UTF-8")
 	}

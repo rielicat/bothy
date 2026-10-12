@@ -82,6 +82,9 @@ func vaultUser(env *core.ToolEnv) core.UserID {
 // acquire returns the caller's runtime session, starting it when needed, and
 // a release func the caller must run when its call is done.
 func (m *Manager) acquire(ctx context.Context, s *server, env *core.ToolEnv) (*conn, *instance, func(), error) {
+	if m.ctx.Err() != nil {
+		return nil, nil, nil, fmt.Errorf("mcp server %s: manager closed: %w", s.name, core.ErrConflict)
+	}
 	var key string
 	var connect func(context.Context) (*conn, error)
 	switch s.spec.transport {
@@ -241,7 +244,9 @@ func (m *Manager) reaper(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			m.reapIdle(m.clock.Now())
+			now := m.clock.Now()
+			m.reapIdle(now)
+			m.retryDiscovery(now)
 		}
 	}
 }
@@ -324,6 +329,12 @@ func (m *Manager) listTools(ctx context.Context, cs *mcpsdk.ClientSession) (map[
 		def, canon, hash, err := definitionOf(t)
 		if err != nil {
 			m.log.Warn("ignoring mcp tool", "tool", t.Name, "err", err)
+			continue
+		}
+		// Every definition is stored as a pin and may reach a model through
+		// tool_search, so an oversized one is dropped rather than recorded.
+		if len(canon) > maxDefinitionBytes {
+			m.log.Warn("ignoring mcp tool with an oversized definition", "tool", t.Name, "bytes", len(canon), "max", maxDefinitionBytes)
 			continue
 		}
 		out[t.Name] = discovered{def: def, canon: canon, hash: hash}

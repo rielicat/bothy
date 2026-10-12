@@ -27,11 +27,12 @@ const (
 )
 
 const (
-	idleTimeout       = 10 * time.Minute
-	discoverTimeout   = 90 * time.Second
-	connectTimeout    = 60 * time.Second
-	installTimeout    = 10 * time.Minute
-	maxToolsPerServer = 512
+	idleTimeout        = 10 * time.Minute
+	discoverTimeout    = 90 * time.Second
+	connectTimeout     = 60 * time.Second
+	installTimeout     = 10 * time.Minute
+	maxToolsPerServer  = 512
+	maxDefinitionBytes = 64 << 10
 )
 
 // server is one configured MCP server and everything known about it.
@@ -50,6 +51,7 @@ type server struct {
 	protocol   string
 	since      time.Time
 	live       map[string]string // tool -> definition hash at the last discovery
+	exposed    map[string]string // tool -> approved hash of each tool now in the registry
 	install    *core.MCPInstall  // verified install (stdio)
 	tools      int
 	pending    int
@@ -58,6 +60,8 @@ type server struct {
 	installing bool
 	drifted    bool
 	removed    bool
+	retries    int       // consecutive failed discoveries
+	retryAt    time.Time // next automatic discovery after a failure; zero = none scheduled
 }
 
 func source(name string) string { return "mcp:" + name }
@@ -84,11 +88,23 @@ func (s *server) isRemoved() bool {
 	return s.removed
 }
 
-// usable reports whether the server's tools may be called right now.
-func (s *server) usable() bool {
+// exposes reports whether the tool's definition with this approved hash is
+// registered right now and its server can take calls. Tool adapters check it
+// on every use, because a run may hold an adapter across an approval wait
+// during which the tool was disabled, changed or its server shut down.
+func (s *server) exposes(tool, hash string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return !s.removed && (s.state == stReady || s.state == stPinsPending)
+	return !s.removed && !s.drifted && (s.state == stReady || s.state == stPinsPending) && hash != "" && s.exposed[tool] == hash
+}
+
+// failed records a failed discovery and schedules the next automatic one:
+// 1 minute, doubling to 30 minutes.
+func (s *server) failed(now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.retries++
+	s.retryAt = now.Add(min(time.Minute<<min(s.retries-1, 5), 30*time.Minute))
 }
 
 func (m *Manager) newServer(c config.MCPServer) *server {
@@ -219,6 +235,30 @@ func (m *Manager) onSandbox(st core.SandboxStatus) {
 }
 
 const noSandboxMsg = "no sandbox: MCP stdio servers need sandboxd or bwrap"
+
+// retryDiscovery rediscovers servers whose last discovery failed once their
+// backoff has passed, so a server that was unreachable at start-up (or later)
+// comes back without an admin's Reload.
+func (m *Manager) retryDiscovery(now time.Time) {
+	for _, s := range m.allServers() {
+		s.mu.Lock()
+		due := !s.removed && s.state == stError && !s.retryAt.IsZero() && !now.Before(s.retryAt)
+		if due {
+			s.retryAt = time.Time{}
+		}
+		s.mu.Unlock()
+		if due {
+			m.spawn(func(ctx context.Context) { m.discover(ctx, s) })
+		}
+	}
+}
+
+func (m *Manager) redact(s string) string {
+	if r := m.d.Vault.Redactor(); r != nil {
+		return r.Redact(s)
+	}
+	return s
+}
 
 // discoverAll discovers every enabled server concurrently and waits.
 func (m *Manager) discoverAll() {

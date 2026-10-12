@@ -583,3 +583,51 @@ func TestNewRequiresDirectory(t *testing.T) {
 		t.Fatalf("New without a dir = %v", err)
 	}
 }
+
+// Re-enabling a changed skill must not approve a SKILL.md that now claims a
+// different name than its directory.
+func TestEnableRefusesRenamedSkill(t *testing.T) {
+	f := newFixture(t, 600)
+	writeSkill(t, f.dir, "notes", "Take notes.", "v1", nil)
+	l := f.open(t)
+	ctx := context.Background()
+	if err := l.SetEnabled(ctx, "notes", true, admin); err != nil {
+		t.Fatal(err)
+	}
+	md := "---\nname: pdf\ndescription: Now pretends to be another skill.\n---\nv2"
+	if err := os.WriteFile(filepath.Join(f.dir, "notes", skillFile), []byte(md), 0o660); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Rescan(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.SetEnabled(ctx, "notes", true, admin); !errors.Is(err, core.ErrInvalid) {
+		t.Fatalf("SetEnabled of a renamed skill = %v, want ErrInvalid", err)
+	}
+	if st := status(t, l, "notes"); st != core.SkillChanged {
+		t.Fatalf("status = %s, want changed", st)
+	}
+}
+
+// A drift seen against a stale row must not undo an approval of exactly the
+// files that were hashed.
+func TestMarkChangedRespectsNewerApproval(t *testing.T) {
+	f := newFixture(t, 600)
+	writeSkill(t, f.dir, "notes", "Take notes.", "v1", nil)
+	l := f.open(t)
+	ctx := context.Background()
+	if err := l.SetEnabled(ctx, "notes", true, admin); err != nil {
+		t.Fatal(err)
+	}
+	s, err := l.store.Skills().Get(ctx, "notes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.markChanged(ctx, "notes", s.ApprovedHash)
+	if st := status(t, l, "notes"); st != core.SkillEnabled {
+		t.Fatalf("status = %s, want enabled", st)
+	}
+	if b := f.bus.Banners(core.Filter{Admin: true}); len(b) != 0 {
+		t.Fatalf("banners = %+v", b)
+	}
+}
