@@ -2,62 +2,93 @@ package config
 
 import (
 	"bufio"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 )
 
-func resolveDirs(c *Config, mounted func(string) bool) Dirs {
+// mounts is the list of mount points from /proc/self/mountinfo; nil where that
+// file does not exist (macOS, Windows, tests).
+type mounts []string
+
+func resolveDirs(c *Config, mt mounts) Dirs {
 	d := Dirs{Data: c.Storage.DataDir, Work: c.Storage.WorkDir, Run: c.Storage.RunDir, Keyfile: c.Vault.Keyfile}
 	if d.Data == "" {
 		d.Data = "/data"
 	}
+	if d.Run == "" {
+		d.Run = "/run/bothy"
+	}
 	if d.Work == "" {
 		d.Work = filepath.Join(d.Data, "work")
-		if mounted("/work") {
+		if mt.isMountPoint("/work") {
 			d.Work = "/work"
 		}
 	}
 	if d.Keyfile == "" {
 		d.Keyfile = filepath.Join(d.Data, "keys", "kek")
-		if mounted("/keys") {
+		if mt.isMountPoint("/keys") {
 			d.Keyfile = "/keys/kek"
 		}
 	}
-	d.KeyfileColocated = within(d.Data, d.Keyfile)
+	if len(mt) == 0 {
+		d.KeyfileColocated = within(d.Data, d.Keyfile)
+	} else {
+		d.KeyfileColocated = mt.mountOf(d.Data) == mt.mountOf(d.Keyfile)
+	}
 	return d
 }
 
-// within approximates "same volume" as "under the data dir". TEMPORARY: the
-// full implementation compares mount points.
+// within is the "same volume" guess when no mount table is available.
 func within(dir, p string) bool {
 	rel, err := filepath.Rel(dir, p)
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// isMountPoint reports whether dir is a mount point per /proc/self/mountinfo
-// (always false where that file does not exist).
-func isMountPoint(dir string) bool {
-	f, err := os.Open("/proc/self/mountinfo")
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-	return mountinfoHas(bufio.NewScanner(f), dir)
-}
-
-func mountinfoHas(sc *bufio.Scanner, dir string) bool {
-	for sc.Scan() {
-		fields := strings.Fields(sc.Text())
-		if len(fields) < 5 {
-			continue
-		}
-		if unescapeMountinfo(fields[4]) == dir {
+func (mt mounts) isMountPoint(dir string) bool {
+	dir = filepath.Clean(dir)
+	for _, m := range mt {
+		if m == dir {
 			return true
 		}
 	}
 	return false
+}
+
+// mountOf returns the longest mount point containing p (lexically; the paths
+// may not exist yet).
+func (mt mounts) mountOf(p string) string {
+	p = filepath.Clean(p)
+	best := ""
+	for _, m := range mt {
+		prefix := strings.TrimSuffix(m, "/") + "/"
+		if (p == m || strings.HasPrefix(p, prefix)) && len(m) > len(best) {
+			best = m
+		}
+	}
+	return best
+}
+
+func readMounts() mounts {
+	f, err := os.Open("/proc/self/mountinfo")
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	return parseMountinfo(f)
+}
+
+func parseMountinfo(r io.Reader) mounts {
+	var out mounts
+	sc := bufio.NewScanner(r)
+	for sc.Scan() {
+		if fields := strings.Fields(sc.Text()); len(fields) >= 5 {
+			out = append(out, filepath.Clean(unescapeMountinfo(fields[4])))
+		}
+	}
+	return out
 }
 
 // unescapeMountinfo decodes the kernel's octal escapes (\040 for space, etc.).
