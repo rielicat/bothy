@@ -1,0 +1,13 @@
+**
+!go.mod
+!go.sum
+!cmd/
+!internal/
+!web/
+web/node_modules/
+web/test-results/
+web/playwright-report/
+internal/webui/dist/*
+!internal/webui/dist/index.html
+**/*_test.go
+**/testdata/

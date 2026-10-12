@@ -1,0 +1,61 @@
+name: bothy
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+services:
+  bothy:
+    <<: *hardening
+    image: ghcr.io/bothyhq/bothy:0.1.0@sha256:<digest>
+    command: ["serve"]
+    user: "65532:65532"
+    group_add: ["10001"]                 # shared workspace group with tool boxes
+    ports: ["127.0.0.1:8080:8080"]       # loopback only: Docker bypasses UFW
+    environment:
+      BOTHY_DEPLOYMENT: container        # listen 0.0.0.0:8080 inside; exposure gate still applies
+      BOTHY_SANDBOX__BACKEND: sandboxd
+      GOMEMLIMIT: 48MiB
+    volumes: [data:/data, keys:/keys, work:/work, run:/run/bothy]
+    tmpfs: ["/tmp:size=32m,mode=1777,nosuid,nodev,noexec"]
+    mem_limit: 256m
+    pids_limit: 256
+    extra_hosts: ["host.docker.internal:host-gateway"]   # Ollama / LM Studio on the host
+    healthcheck: {test: ["CMD", "/bothy", "healthcheck"], interval: 30s, timeout: 3s, retries: 3}
+    # secrets: [bothy_kek]               # optional Docker secret KEK (/run/secrets/bothy_kek)
+  sandboxd:
+    <<: *hardening
+    image: ghcr.io/bothyhq/bothy:0.1.0@sha256:<digest>
+    command: ["sandboxd"]
+    network_mode: none                   # sandboxd itself has no network
+    user: "${SANDBOXD_USER:-65532:65532}"   # rootless Docker: set to the socket owner's uid:gid
+    group_add: ["${DOCKER_GID:-999}", "65532"]
+    environment:
+      BOTHY_SBX_ENGINE: unix:///var/run/docker.sock
+      BOTHY_SBX_WORK_VOLUME: bothy_work
+      BOTHY_SBX_RUN_VOLUME: bothy_run
+      BOTHY_SBX_IMAGES: "base=ghcr.io/bothyhq/bothy-sandbox:0.1.0@sha256:<d1>,node=ghcr.io/bothyhq/bothy-sandbox-node:0.1.0@sha256:<d2>"
+      BOTHY_SBX_RUNTIME: auto            # auto | runsc | runc
+      BOTHY_SBX_MAX_BOXES: "8"
+      BOTHY_SBX_GATEWAY_UID: "65532"
+    volumes:
+      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
+      - run:/run/bothy
+    mem_limit: 64m
+    pids_limit: 64
+  searxng:                               # optional: docker compose --profile search up -d
+    <<: *hardening
+    profiles: ["search"]
+    image: docker.io/searxng/searxng@sha256:<digest>
+    cap_add: [SETUID, SETGID]
+    tmpfs: ["/tmp"]
+    environment:
+      SEARXNG_SECRET: "${SEARXNG_SECRET:-}"   # install.sh writes a random value into deploy/.env
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro   # search.formats [html, json], limiter off, no image proxy
+      # (verify) whether the image's entrypoint still needs a writable /etc/searxng (uwsgi.ini); if so, add a tmpfs
+volumes:
+  data: {name: bothy_data}
+  keys: {name: bothy_keys}
+  work: {name: bothy_work}
+  run:  {name: bothy_run}

@@ -1,0 +1,34 @@
+# tygo configuration for web/src/lib/api/types.gen.ts, read by tools/typesgen
+# (`make gen`). Packages are generated in order and merged into one file;
+# references between them (core.Session in dto) resolve to the bare names.
+#
+# Keys outside tygo's schema: `output` (relative to the repo root), `overrides`
+# (replace the declaration of a type whose JSON form differs from its Go kind;
+# its typed consts are dropped) and `renames` (resolve a name declared by two
+# packages; the later package's declaration and its references are renamed).
+
+output: web/src/lib/api/types.gen.ts
+
+type_mappings:
+  time.Time: "string /* RFC 3339 */"
+  time.Duration: "number /* nanoseconds */"
+  json.RawMessage: "unknown"
+
+packages:
+  - path: github.com/bothyhq/bothy/internal/core
+    preserve_comments: types
+    frontmatter: |
+      // Go's builtin error interface (internal fields only; never sent by the API).
+      type error = unknown;
+  - path: github.com/bothyhq/bothy/internal/config
+    include_files: [api.go]
+    preserve_comments: types
+  - path: github.com/bothyhq/bothy/internal/httpapi/dto
+    preserve_comments: types
+
+overrides:
+  SideEffect: '"read" | "local_write" | "external_send" | "irreversible" | "financial" | "admin"'
+  Secret: '"[redacted]"'
+
+renames:
+  dto.Upload: UploadResp

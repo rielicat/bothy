@@ -3,6 +3,11 @@
 /data/
 /web/node_modules/
 /web/dist/
+/web/test-results/
+/web/playwright-report/
+# make ui output; index.html stays the committed placeholder (make ui-reset)
+/internal/webui/dist/*
+!/internal/webui/dist/index.html
 *.db
 *.db-wal
 *.db-shm
