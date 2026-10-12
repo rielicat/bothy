@@ -2,9 +2,14 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/netip"
+	"os"
+	"sync"
 	"time"
 
 	"github.com/bothyhq/bothy/internal/config"
@@ -41,34 +46,152 @@ type Deps struct {
 	Log       *slog.Logger
 }
 
-type Server struct{ d Deps }
+type Server struct {
+	d       Deps
+	log     *slog.Logger
+	clock   core.Clock
+	boot    time.Time
+	getenv  func(string) string
+	handler http.Handler
+	routes  []route
 
-func New(d Deps) (*Server, error) { return &Server{d: d}, nil }
+	// tools plans actions for POST /api/policy/preview. Deps has no tool
+	// registry yet (ICR httpapi.Deps.Tools); until it is wired the route
+	// answers 503.
+	tools core.ToolRegistry
 
-// Handler is the full middleware-wrapped mux (used by tests and Serve). The
-// skeleton serves only the health endpoints.
-func (s *Server) Handler() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
-	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"ok":true}`))
-	})
-	return mux
+	cop      *http.CrossOriginProtection
+	net      netCache
+	gateways func() []netip.Addr
+	tokens   *limiter // per-token requests per minute
+	logins   *limiter // per client address
+	claims   *limiter // global: setup claims
+	sse      *sseTracker
+
+	shutdownOnce sync.Once
+	shutdown     chan struct{} // closed when Serve begins shutting down; ends SSE streams
 }
+
+func New(d Deps) (*Server, error) {
+	if d.Config == nil {
+		d.Config = staticAdmin{config.Static(config.Default())}
+	}
+	if d.Clock == nil {
+		d.Clock = core.SystemClock{}
+	}
+	if d.Log == nil {
+		d.Log = slog.New(slog.DiscardHandler)
+	}
+	s := &Server{
+		d:        d,
+		log:      d.Log,
+		clock:    d.Clock,
+		boot:     d.Clock.Now(),
+		getenv:   os.Getenv,
+		cop:      http.NewCrossOriginProtection(),
+		gateways: defaultGateways,
+		tokens:   newLimiter(d.Clock),
+		logins:   newLimiter(d.Clock),
+		claims:   newLimiter(d.Clock),
+		sse:      newSSETracker(),
+		shutdown: make(chan struct{}),
+	}
+	s.routes = s.routeTable()
+	s.handler = s.build()
+	return s, nil
+}
+
+// Handler is the full middleware-wrapped mux (used by tests and Serve).
+func (s *Server) Handler() http.Handler { return s.handler }
 
 // Serve listens on server.listen (TLS when configured) until ctx is done, then
 // shuts down gracefully within 10s.
 func (s *Server) Serve(ctx context.Context) error {
-	srv := &http.Server{Addr: s.d.Config.Current().Server.Listen, Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	c := s.cfg().Server
+	srv := &http.Server{
+		Addr:              c.Listen,
+		Handler:           s.handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+		MaxHeaderBytes:    64 << 10,
+		ErrorLog:          slog.NewLogLogger(s.log.Handler(), slog.LevelWarn),
+	}
+	srv.RegisterOnShutdown(s.stopStreams)
+	ln, err := net.Listen("tcp", c.Listen)
+	if err != nil {
+		return err
+	}
+	errc := make(chan error, 1)
 	go func() {
-		<-ctx.Done()
-		sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(sctx)
+		if c.TLS.CertFile != "" && c.TLS.KeyFile != "" {
+			errc <- srv.ServeTLS(ln, c.TLS.CertFile, c.TLS.KeyFile)
+		} else {
+			errc <- srv.Serve(ln)
+		}
 	}()
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	select {
+	case err := <-errc:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-ctx.Done():
+	}
+	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(sctx); err != nil {
+		_ = srv.Close()
+	}
+	if err := <-errc; err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
 }
+
+func (s *Server) stopStreams() { s.shutdownOnce.Do(func() { close(s.shutdown) }) }
+
+func (s *Server) cfg() *config.Config { return s.d.Config.Current() }
+
+func (s *Server) now() time.Time { return s.clock.Now() }
+
+func (s *Server) safeMode() bool { return s.d.Config.Effective().SafeMode }
+
+// audit records an entry for the acting user; failures are logged.
+func (s *Server) audit(r *http.Request, a core.Actor, action, target, outcome string, detail map[string]any) {
+	if s.d.Audit == nil {
+		return
+	}
+	e := core.AuditEntry{At: s.now(), Actor: actorString(a), Action: action, Target: target, Outcome: outcome,
+		IP: clientIP(r), Detail: json.RawMessage("{}")}
+	if len(detail) > 0 {
+		if b, err := json.Marshal(detail); err == nil {
+			e.Detail = b
+		}
+	}
+	if err := s.d.Audit.Record(r.Context(), e); err != nil {
+		s.log.Error("audit record failed", "action", action, "err", err)
+	}
+}
+
+func actorString(a core.Actor) string {
+	switch {
+	case a.Via == "token" && a.TokenID != "":
+		return "token:" + a.TokenID
+	case a.User != "":
+		return "user:" + string(a.User)
+	}
+	return "system"
+}
+
+func byString(a core.Actor) string { return "user:" + string(a.User) }
+
+// staticAdmin adapts a fixed config to config.Admin for servers built
+// without a manager (tests, tools).
+type staticAdmin struct{ config.View }
+
+func (staticAdmin) Effective() config.Effective { return config.Effective{} }
+func (staticAdmin) Set(context.Context, map[string]json.RawMessage, string) ([]string, error) {
+	return nil, core.ErrNotImplemented
+}
+func (staticAdmin) Reset(context.Context, string, string) error { return core.ErrNotImplemented }
+func (staticAdmin) Schema() json.RawMessage                     { return json.RawMessage("{}") }
