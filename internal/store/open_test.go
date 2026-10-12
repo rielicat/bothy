@@ -214,7 +214,7 @@ func TestMigratorBackupAndPrune(t *testing.T) {
 	ctx := context.Background()
 	clock := &stepClock{t: time.Date(2026, 10, 12, 9, 0, 0, 0, time.UTC)}
 
-	db, err := open(ctx, Options{Path: p, BackupDir: backups, BackupsKeep: 2, Clock: clock}, migrationsFS)
+	db, err := open(ctx, Options{Path: p, BackupDir: backups, BackupsKeep: 2, Clock: clock}, migrationsFS, queryVersion)
 	if err != nil {
 		t.Fatal(err)
 	}

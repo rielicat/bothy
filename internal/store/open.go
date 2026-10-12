@@ -34,7 +34,16 @@ var pragmas = []string{
 	"cell_size_check(ON)",
 }
 
-func open(ctx context.Context, o Options, fsys fs.FS) (*DB, error) {
+// versionFunc reports the linked SQLite version; tests inject old versions.
+type versionFunc func(ctx context.Context, db *sql.DB) (string, error)
+
+func queryVersion(ctx context.Context, db *sql.DB) (string, error) {
+	var v string
+	err := db.QueryRowContext(ctx, "SELECT sqlite_version()").Scan(&v)
+	return v, err
+}
+
+func open(ctx context.Context, o Options, fsys fs.FS, version versionFunc) (*DB, error) {
 	if o.Path == "" {
 		return nil, fmt.Errorf("store: %w: empty database path", core.ErrInvalid)
 	}
@@ -67,7 +76,8 @@ func open(ctx context.Context, o Options, fsys fs.FS) (*DB, error) {
 		return nil, fmt.Errorf("store: %w", err)
 	}
 
-	db := &DB{}
+	db := &DB{path: o.Path, backupDir: o.BackupDir, clock: o.Clock, log: o.Log}
+	db.handle = handle{db: db}
 	ok := false
 	defer func() {
 		if !ok {
@@ -81,7 +91,7 @@ func open(ctx context.Context, o Options, fsys fs.FS) (*DB, error) {
 	db.w.SetMaxIdleConns(1)
 	db.w.SetConnMaxLifetime(0)
 	db.w.SetConnMaxIdleTime(0)
-	if err := db.w.QueryRowContext(ctx, "SELECT sqlite_version()").Scan(&db.version); err != nil {
+	if db.version, err = version(ctx, db.w); err != nil {
 		return nil, fmt.Errorf("store: open %s: %w", o.Path, err)
 	}
 	if err := checkVersion(db.version); err != nil {
@@ -109,6 +119,7 @@ func open(ctx context.Context, o Options, fsys fs.FS) (*DB, error) {
 	if err := db.r.PingContext(ctx); err != nil {
 		return nil, fmt.Errorf("store: reader: %w", err)
 	}
+	db.rq, db.wq = db.r, db.w
 	ok = true
 	return db, nil
 }
