@@ -26,13 +26,6 @@ func Tool(t *testing.T, tool core.Tool, cases []ToolCase) { t.Helper() }
 // round-trip, previews disabled on every send, MaxLen respected, Ack within 3s.
 func Channel(t *testing.T, ch core.Channel, platform PlatformFake) { t.Helper() }
 
-// Store runs the repository contract against a fresh store per subtest:
-// round trips for every method, the IDOR table (foreign Viewer => ErrNotFound
-// on every by-ID read), Decide CAS under 50 goroutines, runs_one_active =>
-// ErrConflict, paging order, MarkInterrupted, Approvals.Seen, Grants.Active
-// expiry/revocation, audit Append/Range ordering. memstore and M1 both run it.
-func Store(t *testing.T, open func(t *testing.T) core.Store) { t.Helper() }
-
 // PlatformFake is implemented by telegramtest, discordtest and slacktest.
 type PlatformFake interface {
 	InjectText(chatID, senderID, text string, mention bool)
