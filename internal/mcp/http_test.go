@@ -298,6 +298,8 @@ func TestCheckHost(t *testing.T) {
 		{"[::ffff:127.0.0.1]:443", false, false},
 		{"[fe80::1%25eth0]:443", false, false},
 		{"localhost:8080", false, false},
+		{"localhost.:8080", false, false},
+		{"api.LOCALHOST.:8080", false, false},
 		{"api.localhost:8080", true, true},
 		{"169.254.169.254:80", true, false},
 		{"[fd00:ec2::254]:80", true, false},

@@ -90,7 +90,7 @@ func checkHost(hostPort string, allowPrivate bool) error {
 	if err != nil {
 		return err
 	}
-	host = strings.ToLower(host)
+	host = strings.TrimSuffix(strings.ToLower(host), ".")
 	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
 		if allowPrivate {
 			return nil
