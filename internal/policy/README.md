@@ -13,7 +13,10 @@ action's recipient, which lifts the trifecta floor and nothing else; the
 action is then allowed as that grant, so every lift counts against its
 `max_uses`, and a grant that can no longer be used puts the floor back); a
 `deny` rule may still tighten an ask floor. A restricted space never gets
-the admin-approved asks of F2/F3: F4 denies first. A rule `ask` and a class-default
+the admin-approved asks of F2/F3: F4 denies first. F2 turns into an
+admin ask only through a matching `ask` rule with `side_effect: financial`
+or, when no such rule matches, `policy.defaults.financial: ask`; a broad
+`ask` rule never loosens it. A rule `ask` and a class-default
 or first-contact ask are answered by a matching grant, which is what makes
 "allow for session" and "allow always" meaningful; floor asks offer only
 `allow_once`/`deny` (except `net_allow`, which offers grants only).

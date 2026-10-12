@@ -243,8 +243,11 @@ func (e *Engine) floors(ctx context.Context, x *input, rule *config.Rule) (core.
 		if rule != nil && core.Verdict(rule.Verdict) == core.VerdictDeny {
 			return ruleDenied(rule), true
 		}
-		optIn := rule != nil && core.Verdict(rule.Verdict) == core.VerdictAsk ||
-			rule == nil && core.Verdict(x.cfg.Policy.Defaults[core.SEFinancial.String()]) == core.VerdictAsk
+		// Only a rule aimed at the financial class opts in: a broad ask rule
+		// written to tighten other tools must not turn this deny into an ask.
+		explicit := rule != nil && rule.SideEffect == core.SEFinancial.String()
+		optIn := explicit && core.Verdict(rule.Verdict) == core.VerdictAsk ||
+			!explicit && core.Verdict(x.cfg.Policy.Defaults[core.SEFinancial.String()]) == core.VerdictAsk
 		if !optIn || restricted {
 			return denied("floor:financial", "financial actions are never allowed", true), true
 		}

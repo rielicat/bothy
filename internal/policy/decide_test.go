@@ -258,11 +258,20 @@ func TestFinancialFloor(t *testing.T) {
 	}
 
 	h = newHarness(t, func(c *config.Config) {
-		c.Policy.Rules = []config.Rule{{ID: "pay-ask", Tool: "pay", Verdict: "ask"}}
+		c.Policy.Rules = []config.Rule{{ID: "pay-ask", Tool: "pay", SideEffect: "financial", Verdict: "ask"}}
 	})
 	d := h.decide(h.in(a, s))
 	if d.Verdict != core.VerdictAsk || !d.Approver.AdminOnly || hasChoice(d, core.AllowSession) || hasChoice(d, core.AllowAlways) {
 		t.Errorf("rule ask: %+v", d)
+	}
+
+	// An ask rule not aimed at the financial class tightens other actions;
+	// it must not loosen the financial deny.
+	for _, r := range []config.Rule{{ID: "ask-all", Verdict: "ask"}, {ID: "ask-pay", Tool: "pay", Verdict: "ask"}} {
+		h = newHarness(t, func(c *config.Config) { c.Policy.Rules = []config.Rule{r} })
+		if d := h.decide(h.in(a, s)); d.Verdict != core.VerdictDeny || d.Rule != "floor:financial" {
+			t.Errorf("%s opened financial: %+v", r.ID, d)
+		}
 	}
 
 	h = newHarness(t, func(c *config.Config) {
