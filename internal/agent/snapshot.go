@@ -410,8 +410,8 @@ func (r *Runner) turnContext(ctx context.Context, rs *runState, sess *core.Sessi
 		b.WriteString("warning: this session holds private data and untrusted content; sending anything out needs the user's approval and links are defanged. Suggest a clean fork for unrelated work.\n")
 	}
 	if was, known := snapshotSandbox(sess.SystemSnapshot); known {
-		if now := r.sandboxOK(ctx); now != was {
-			if now {
+		if avail := r.sandboxOK(ctx); avail != was {
+			if avail {
 				b.WriteString("sandbox: now available (shell and python work again)\n")
 			} else {
 				b.WriteString("sandbox: now unavailable (shell, python and MCP stdio are off)\n")

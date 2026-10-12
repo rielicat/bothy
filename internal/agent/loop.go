@@ -143,6 +143,10 @@ func (r *Runner) startTurn(rs *runState) *runEnd {
 	if rs.sess.Archived {
 		return &runEnd{noRow: true}
 	}
+	if r.paused.Load() { // engaged while the turn waited in a coalescing window or queue
+		r.notice(ctx, req.Session, req.Principal, "", "Bothy is paused by an admin.", req.Sink)
+		return &runEnd{noRow: true}
+	}
 	if err := r.d.Budget.CheckDaily(ctx, req.User); err != nil {
 		r.refuseDaily(ctx, rs.sess, req, err)
 		return &runEnd{noRow: true}
@@ -290,8 +294,13 @@ func (r *Runner) headRef(rs *runState) core.ModelRef {
 	return core.ModelRef{}
 }
 
-// persistSteer stores a message for the active run; w.mu is held.
-func (r *Runner) persistSteer(ctx context.Context, a *runState, sess *core.Session, req core.RunRequest) error {
+// persistSteer stores a message for the active run; w.mu is held. The session
+// is re-read because the run has advanced its memory and pin cursors.
+func (r *Runner) persistSteer(ctx context.Context, a *runState, req core.RunRequest) error {
+	sess, err := r.d.Store.Sessions().Get(ctx, core.SystemViewer(), req.Session)
+	if err != nil {
+		return err
+	}
 	text, memSeen, pinsSeen, err := r.turnContext(ctx, a, sess, req)
 	if err != nil {
 		return err

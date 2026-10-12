@@ -21,7 +21,7 @@ var errNotParked = errors.New("run is not parked on this approval")
 
 // ask handles an Ask decision: request the approval, release the run's slots
 // while waiting (D22), then execute, deny or park.
-func (r *Runner) ask(rs *runState, pc *pcall, rest []core.ToolCall, step int) *runEnd {
+func (r *Runner) ask(rs *runState, pc *pcall, rest []core.ToolCall) *runEnd {
 	ctx := rs.ctx
 	api := rs.req.Trigger == core.TrigAPI
 	if api && rs.req.OnApproval != "wait" {
@@ -61,6 +61,9 @@ func (r *Runner) ask(rs *runState, pc *pcall, rest []core.ToolCall, step int) *r
 	if errors.Is(err, core.ErrParked) && !api {
 		return r.park(rs, pc, appr, rest)
 	}
+	if errors.Is(err, core.ErrStopped) { // the approval was cancelled: the run is over
+		rs.cancel(core.ErrStopped)
+	}
 	if ctx.Err() != nil {
 		return r.ctxEnd(rs)
 	}
@@ -80,9 +83,6 @@ func (r *Runner) ask(rs *runState, pc *pcall, rest []core.ToolCall, step int) *r
 		return r.finishCall(rs, pc, r.execute(rs, pc), false)
 	case errors.Is(err, core.ErrApprovalExpired), errors.Is(err, core.ErrParked), waitCtx.Err() != nil:
 		return r.finishCall(rs, pc, textResult(core.TCDenied, approvalExpiry), false)
-	case errors.Is(err, core.ErrStopped):
-		rs.cancel(core.ErrStopped)
-		return r.ctxEnd(rs)
 	}
 	return r.finishCall(rs, pc, textResult(core.TCError, "Approval failed: "+r.redact(err.Error())), false)
 }

@@ -42,7 +42,7 @@ func (r *Runner) Submit(ctx context.Context, req core.RunRequest) (core.SubmitRe
 			w.mu.Unlock()
 			continue
 		}
-		res, err := r.place(ctx, w, sess, req)
+		res, err := r.place(ctx, w, req)
 		w.mu.Unlock()
 		return res, err
 	}
@@ -114,7 +114,7 @@ func (r *Runner) resetTime() time.Time {
 }
 
 // place decides what happens to a request; w.mu is held.
-func (r *Runner) place(ctx context.Context, w *worker, sess *core.Session, req core.RunRequest) (core.SubmitResult, error) {
+func (r *Runner) place(ctx context.Context, w *worker, req core.RunRequest) (core.SubmitResult, error) {
 	c := r.cfg()
 	depth := orInt(c.Agent.QueueDepth, 8)
 	if a := w.active; a != nil && !a.finishing && r.steerable(a, req) {
@@ -127,7 +127,7 @@ func (r *Runner) place(ctx context.Context, w *worker, sess *core.Session, req c
 			w.merged++
 			return core.SubmitResult{Run: a.id, Steered: true}, nil
 		case a.turnPersisted:
-			if err := r.persistSteer(ctx, a, sess, req); err != nil {
+			if err := r.persistSteer(ctx, a, req); err != nil {
 				return core.SubmitResult{}, err
 			}
 			w.steers++
@@ -223,7 +223,8 @@ func (r *Runner) stopSession(ctx context.Context, sess *core.Session, by core.Us
 		w.queue, w.pending, w.steers, w.merged = nil, nil, 0, 0
 		w.mu.Unlock()
 	}
-	stopped := rs != nil && rs.stop(ctx, by)
+	runStopped := rs != nil && rs.stop(ctx, by)
+	stopped := runStopped
 	kctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopKillWithin)
 	defer cancel()
 	if r.d.Sandbox != nil {
@@ -260,21 +261,18 @@ func (r *Runner) stopSession(ctx context.Context, sess *core.Session, by core.Us
 		return false
 	}
 	var detail map[string]any
-	if rs != nil {
+	if runStopped {
 		tot := rs.totals()
 		detail = map[string]any{"run": rs.id, "steps": tot.Steps, "cost_micros": tot.Cost}
 		r.notice(kctx, sess.ID, sess.Principal, rs.id, fmt.Sprintf("Stopped. %s, %s", plural(tot.Steps, "step"), tot.Cost), nil)
 		time.AfterFunc(abandonAfter, func() { r.abandon(rs) })
 	}
-	r.auditf(kctx, "user:"+string(by), "run.stop", string(sess.ID), "ok", sess.ID, runIDOf(rs), detail)
-	return true
-}
-
-func runIDOf(rs *runState) core.RunID {
-	if rs == nil {
-		return ""
+	var runID core.RunID
+	if runStopped {
+		runID = rs.id
 	}
-	return rs.id
+	r.auditf(kctx, "user:"+string(by), "run.stop", string(sess.ID), "ok", sess.ID, runID, detail)
+	return true
 }
 
 // abandon detaches a stopped run whose goroutine is still stuck (a tool that

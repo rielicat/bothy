@@ -162,7 +162,7 @@ func (r *Runner) runTools(rs *runState, step int, calls []core.ToolCall) *runEnd
 			pc.dec = r.decide(ctx, rs, pc, rs.taint)
 		}
 		r.publishToolCall(rs, pc)
-		if end := r.handleDecision(rs, pc, calls[i+1:], step); end != nil {
+		if end := r.handleDecision(rs, pc, calls[i+1:]); end != nil {
 			return end
 		}
 	}
@@ -279,7 +279,7 @@ func (r *Runner) publishToolCall(rs *runState, pc *pcall) {
 		Action: r.redactAction(pc.action), Verdict: pc.dec.Verdict, Rule: pc.dec.Rule})
 }
 
-func (r *Runner) handleDecision(rs *runState, pc *pcall, rest []core.ToolCall, step int) *runEnd {
+func (r *Runner) handleDecision(rs *runState, pc *pcall, rest []core.ToolCall) *runEnd {
 	switch pc.dec.Verdict {
 	case core.VerdictDeny:
 		r.auditf(rs.ctx, "agent:"+string(rs.id), "tool.denied", pc.name, "denied", rs.req.Session, rs.id,
@@ -287,7 +287,7 @@ func (r *Runner) handleDecision(rs *runState, pc *pcall, rest []core.ToolCall, s
 		text := fmt.Sprintf("Denied by policy (%s): %s", pc.dec.Rule, pc.dec.Reason)
 		return r.finishCall(rs, pc, textResult(core.TCDenied, text), false)
 	case core.VerdictAsk:
-		return r.ask(rs, pc, rest, step)
+		return r.ask(rs, pc, rest)
 	}
 	return r.finishCall(rs, pc, r.execute(rs, pc), false)
 }

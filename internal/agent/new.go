@@ -112,8 +112,9 @@ func New(d Deps) (*Runner, error) {
 		prefix:  map[core.SessionID]prefixMark{},
 	}
 	r.global = newSemaphore(func() int { return r.cfg().Agent.MaxConcurrentRuns })
+	// Without the file the embedded default persona is used, so boot goes on.
 	if err := r.ensurePersona(); err != nil {
-		return nil, err
+		r.log.Warn("default persona not written", "err", err)
 	}
 	return r, nil
 }
@@ -194,7 +195,7 @@ func (r *Runner) ensureInit(ctx context.Context) error {
 	return nil
 }
 
-// personaPath resolves agent.persona_file inside DataDir; it refuses paths
+// personaName resolves agent.persona_file inside DataDir; it refuses paths
 // that would leave the data directory.
 func (r *Runner) personaName() (string, bool) {
 	name := r.cfg().Agent.PersonaFile

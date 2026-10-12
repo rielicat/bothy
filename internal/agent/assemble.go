@@ -292,9 +292,11 @@ func fit(est func(string) int, hist []histMsg, toks [][]int, budget int) ([]hist
 	return hist, toks
 }
 
+// truncatable excludes thinking parts: providers verify their signature over
+// the exact text.
 func truncatable(p core.Part) bool {
 	switch p.Type {
-	case core.PartText, core.PartThinking:
+	case core.PartText:
 		return true
 	case core.PartToolResult:
 		return p.ToolResult != nil
