@@ -32,7 +32,7 @@ payload (`*` crosses `/`), side effect and triggers. An `auto` rule must
 cover every domain/path the action touches; `ask`/`deny` rules fire on any.
 
 **NarrowGrant** never builds a whole-tool grant: exec pins `argv[0]` (plus
-the whole argv for interpreters), fs writes/deletes pin the parent directory
+the whole argv for interpreters, and the code for python), fs writes/deletes pin the parent directory
 prefix (exact path at the workspace root), HTTP/net pin `host:port`, sends
 pin the recipient, MCP pins the recipient field or the exact payload.
 **Grant** validates (no whole-tool or match-everything patterns, no
@@ -42,7 +42,10 @@ from admins) and audits `grant.create` with `via: card` for grants built by
 
 **Approvals** persist the request with a card rendered from the Action only
 (`renderCard`: bidi/zero-width characters shown as `⟨U+XXXX⟩`, hosts in
-punycode, diffs capped at 64 KB), publish `approval.requested` /
+punycode, diffs capped at 64 KB) and only offerable choices (whatever the
+caller passed: no grants for `AdminOnly`, `allow_always` only beside
+`allow_session`, never for irreversible actions or schedule/heartbeat/API
+runs), publish `approval.requested` /
 `approval.resolved` (plus an admin-broadcast copy for `AdminOnly`), and
 resolve by CAS. `Resolve` takes the approver's role from the store, requires
 chat presses to come from a recorded card message, allows only `deny` from a

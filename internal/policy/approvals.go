@@ -31,18 +31,11 @@ func (ap *Approvals) Request(ctx context.Context, r core.ApprovalRequest) (*core
 	case !r.Decision.Approver.AdminOnly && r.Decision.Approver.User == "":
 		return nil, fmt.Errorf("%w: approval request without an approver", core.ErrInvalid)
 	}
-	r.Decision.Choices = slices.Clone(r.Decision.Choices)
-	if r.Decision.Approver.AdminOnly {
-		r.Decision.Choices = slices.DeleteFunc(r.Decision.Choices, func(c core.Choice) bool {
-			return c == core.AllowSession || c == core.AllowAlways
-		})
+	choices, err := ap.offered(ctx, r)
+	if err != nil {
+		return nil, err
 	}
-	if !slices.ContainsFunc(r.Decision.Choices, func(c core.Choice) bool { return c != core.Deny }) {
-		r.Decision.Choices = append([]core.Choice{core.AllowOnce}, r.Decision.Choices...)
-	}
-	if !slices.Contains(r.Decision.Choices, core.Deny) {
-		r.Decision.Choices = append(r.Decision.Choices, core.Deny)
-	}
+	r.Decision.Choices = choices
 	c := ap.cfg.Current()
 	now := msTime(ap.clock.Now())
 	timeout := r.Decision.Timeout
@@ -78,6 +71,42 @@ func (ap *Approvals) Request(ctx context.Context, r core.ApprovalRequest) (*core
 	ap.publish(core.EvApprovalRequested, a, func(cp *core.Approval) core.EventData { return core.ApprovalData{Approval: cp} })
 	out := *a
 	return &out, nil
+}
+
+// offered returns the choices a card may carry whatever the caller asked
+// for (§5.8): known choices only, no grants for admin-only approvals, and
+// allow_always only next to allow_session, never for irreversible actions
+// and never in a run no human started. Egress holds build their choices
+// outside Decide, so this is checked here as well.
+func (ap *Approvals) offered(ctx context.Context, r core.ApprovalRequest) ([]core.Choice, error) {
+	in := r.Decision.Choices
+	admin := r.Decision.Approver.AdminOnly
+	always := !admin && slices.Contains(in, core.AllowAlways) && slices.Contains(in, core.AllowSession) &&
+		max(validOrZero(r.Action.SideEffect), validOrZero(r.Spec.Manifest.SideEffect)) != core.SEIrreversible
+	if always {
+		run, err := ap.store.Runs().Get(ctx, core.SystemViewer(), r.Run)
+		if err != nil {
+			return nil, fmt.Errorf("approval run %s: %w", r.Run, err)
+		}
+		always = !run.Trigger.Scheduled() && run.Trigger != core.TrigAPI
+	}
+	out := make([]core.Choice, 0, 4)
+	for _, c := range in {
+		switch {
+		case slices.Contains(out, c):
+		case c == core.AllowOnce, c == core.Deny,
+			c == core.AllowSession && !admin,
+			c == core.AllowAlways && always:
+			out = append(out, c)
+		}
+	}
+	if !slices.ContainsFunc(out, func(c core.Choice) bool { return c != core.Deny }) {
+		out = append([]core.Choice{core.AllowOnce}, out...)
+	}
+	if !slices.Contains(out, core.Deny) {
+		out = append(out, core.Deny)
+	}
+	return out, nil
 }
 
 // Await implements core.Approvals. It also applies the timeout itself when

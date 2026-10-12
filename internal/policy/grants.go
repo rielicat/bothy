@@ -70,6 +70,11 @@ func narrowGrant(c *config.Config, a *core.Action, p core.PrincipalID, scope cor
 			}
 			pattern["/argv"] = globEscape(string(whole))
 		}
+		// python carries its code next to an argv that only names the file
+		// the code is written to; the grant is for that code alone.
+		if code, ok := mustPointer(doc, "/code").(string); ok {
+			pattern["/code"] = globEscape(code)
+		}
 		return tool(pattern)
 	case core.ActFSWrite, core.ActFSDelete:
 		target, ok := mustPointer(doc, "/path").(string)

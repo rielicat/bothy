@@ -679,3 +679,58 @@ func TestTimeoutCallbacksMayReenter(t *testing.T) {
 		}
 	})
 }
+
+// TestRequestEnforcesOfferableChoices covers callers that build choices
+// outside Decide (egress holds): allow_always never reaches a card for a run
+// no human started, an irreversible action, or without allow_session.
+func TestRequestEnforcesOfferableChoices(t *testing.T) {
+	h := newHarness(t, nil)
+	runFor := func(trig core.Trigger) core.RunID {
+		s := h.newSession(h.ownerP.ID)
+		r := &core.Run{Session: s, Principal: h.ownerP.ID, User: h.owner.ID, Trigger: trig, Status: core.RunQueued, CreatedAt: time.Now()}
+		if err := h.store.Runs().Create(h.ctx, r); err != nil {
+			t.Fatal(err)
+		}
+		return r.ID
+	}
+	all := []core.Choice{core.AllowOnce, core.AllowSession, core.AllowAlways, core.Deny}
+	net := action("net_allow", core.ActNet, core.SEExternalSend, map[string]any{"host": "example.com", "port": 443}, func(a *core.Action) { a.Host, a.Port = "example.com", 443 })
+	del := action("fs_delete", core.ActFSDelete, core.SEIrreversible, map[string]any{"path": "a/b"})
+	for _, tc := range []struct {
+		name   string
+		trig   core.Trigger
+		a      *core.Action
+		in     []core.Choice
+		expect []core.Choice
+	}{
+		{"interactive", core.TrigMessage, net, all, all},
+		{"schedule", core.TrigSchedule, net, all, []core.Choice{core.AllowOnce, core.AllowSession, core.Deny}},
+		{"heartbeat", core.TrigHeartbeat, net, all, []core.Choice{core.AllowOnce, core.AllowSession, core.Deny}},
+		{"api", core.TrigAPI, net, all, []core.Choice{core.AllowOnce, core.AllowSession, core.Deny}},
+		{"irreversible", core.TrigMessage, del, all, []core.Choice{core.AllowOnce, core.AllowSession, core.Deny}},
+		{"always without session", core.TrigMessage, net, []core.Choice{core.AllowAlways, core.Deny}, []core.Choice{core.AllowOnce, core.Deny}},
+		{"unknown and duplicate", core.TrigMessage, net, []core.Choice{"approve_all", core.AllowOnce, core.AllowOnce, core.Deny}, []core.Choice{core.AllowOnce, core.Deny}},
+	} {
+		run := runFor(tc.trig)
+		runRow, err := h.store.Runs().Get(h.ctx, core.SystemViewer(), run)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ap, err := h.ap.Request(h.ctx, core.ApprovalRequest{
+			Run: run, Session: runRow.Session, Principal: h.ownerP.ID, Action: tc.a, Spec: spec(tc.a.Tool, tc.a.SideEffect),
+			Decision: core.Decision{Verdict: core.VerdictAsk, Approver: core.ApproverReq{User: h.owner.ID}, Choices: tc.in},
+		})
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if !slices.Equal(ap.Decision.Choices, tc.expect) || !slices.Equal(ap.Card.Choices, tc.expect) {
+			t.Errorf("%s: choices %v card %v, want %v", tc.name, ap.Decision.Choices, ap.Card.Choices, tc.expect)
+		}
+		if slices.Contains(tc.expect, core.AllowAlways) {
+			continue
+		}
+		if _, err := h.ap.Resolve(h.ctx, core.Resolution{ID: ap.ID, Choice: core.AllowAlways, By: h.owner.ID, Via: "web"}); !errors.Is(err, core.ErrInvalid) {
+			t.Errorf("%s: allow_always resolved: %v", tc.name, err)
+		}
+	}
+}

@@ -140,6 +140,13 @@ func TestNarrowGrantExec(t *testing.T) {
 	if _, ok := eg.Pattern["/argv"]; !ok {
 		t.Errorf("env is an interpreter: %+v", eg.Pattern)
 	}
+	py := func(code string) *core.Action {
+		return action("python", core.ActExec, core.SELocalWrite, map[string]any{"argv": []string{"python3", ".bothy/tmp/run.py"}, "code": code, "cwd": ""})
+	}
+	pg := narrowOf(t, h, py("print(1)"), core.GrantSession, string(h.session))
+	if pySpec := spec("python", core.SELocalWrite); !matches(pg, py("print(1)"), pySpec) || matches(pg, py("import os; os.system('x')"), pySpec) {
+		t.Errorf("python grant must pin the code: %+v", pg.Pattern)
+	}
 	glob := action("x", core.ActExec, core.SELocalWrite, map[string]any{"argv": []string{"rm*", "-rf"}})
 	rg := narrowOf(t, h, glob, core.GrantSession, string(h.session))
 	if matches(rg, action("x", core.ActExec, core.SELocalWrite, map[string]any{"argv": []string{"rmdir", "-rf"}}), spec("x", core.SELocalWrite)) {
