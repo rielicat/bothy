@@ -20,7 +20,6 @@ var (
 	trustedBins = []string{"/bin", "/usr/bin", "/usr/local/bin", "/sbin", "/usr/sbin"}
 )
 
-// firstRule returns the first configured rule matching the action, or nil.
 func firstRule(x *input) *config.Rule {
 	for i := range x.cfg.Policy.Rules {
 		if r := &x.cfg.Policy.Rules[i]; ruleMatches(r, x) {

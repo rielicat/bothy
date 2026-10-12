@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -162,7 +163,7 @@ func compileSchema(raw json.RawMessage) (*jsonschema.Resolved, error) {
 		return nil, fmt.Errorf("schema is not a JSON object: %w", err)
 	}
 	if top["type"] != "object" {
-		return nil, fmt.Errorf(`schema must have "type": "object"`)
+		return nil, errors.New(`schema must have "type": "object"`)
 	}
 	if err := checkTypes(top); err != nil {
 		return nil, err

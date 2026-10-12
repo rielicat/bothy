@@ -3,6 +3,7 @@ package policy
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -212,6 +213,70 @@ func TestResolveAuthority(t *testing.T) {
 	ap3 := h.request(core.TrigSchedule)
 	if _, err := h.ap.Resolve(h.ctx, core.Resolution{ID: ap3.ID, Choice: core.AllowAlways, By: h.owner.ID, Via: "web"}); !errors.Is(err, core.ErrInvalid) {
 		t.Errorf("allow_always on a scheduled-run card: %v", err)
+	}
+}
+
+// TestAllowAlwaysCardFlow walks the runner's allow_always path end to end:
+// card → allow_always → principal grant → no card in a new session →
+// revoke → card again.
+func TestAllowAlwaysCardFlow(t *testing.T) {
+	h := newHarness(t, nil)
+	s := spec("send_mail", core.SEExternalSend)
+	a := sendAction("send_mail", "bob@example.com", core.SEExternalSend)
+	ap := h.request(core.TrigMessage)
+	if !slices.Contains(ap.Card.Choices, core.AllowAlways) {
+		t.Fatalf("card choices %v", ap.Card.Choices)
+	}
+	got, err := h.ap.Resolve(h.ctx, core.Resolution{ID: ap.ID, Choice: core.AllowAlways, By: h.owner.ID, Via: "web"})
+	if err != nil || got.Choice != core.AllowAlways {
+		t.Fatalf("resolve: %+v %v", got, err)
+	}
+	g, ok := h.engine.NarrowGrant(got.Action, got.Principal, core.GrantPrincipal, "", got.DecidedBy)
+	if !ok {
+		t.Fatal("no principal grant for the card's action")
+	}
+	id, err := h.engine.Grant(h.ctx, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := h.in(a, s)
+	in.Session = h.newSession(h.ownerP.ID)
+	if d := h.decide(in); d.Verdict != core.VerdictAuto || d.Rule != "grant:"+string(id) {
+		t.Errorf("new session: %+v", d)
+	}
+	list, err := h.store.Grants().List(h.ctx, core.Viewer{Principals: []core.PrincipalID{h.ownerP.ID}}, core.GrantPrincipal, "")
+	if err != nil || len(list) != 1 || list[0].ID != id {
+		t.Errorf("grant not listed for the owner: %v %v", list, err)
+	}
+	if err := h.engine.Revoke(h.ctx, core.Viewer{Principals: []core.PrincipalID{h.ownerP.ID}}, id, h.owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	if d := h.decide(in); d.Verdict != core.VerdictAsk {
+		t.Errorf("after revoke: %+v", d)
+	}
+}
+
+func TestRequestNormalisesChoices(t *testing.T) {
+	h := newHarness(t, nil)
+	run := h.newRun(h.session, h.ownerP.ID, h.owner.ID)
+	a := action("schedule_create", core.ActSchedule, core.SEAdmin, map[string]any{"x": 1})
+	ap, err := h.ap.Request(h.ctx, core.ApprovalRequest{
+		Run: run, Session: h.session, Principal: h.ownerP.ID, Action: a, Spec: spec("schedule_create", core.SEAdmin),
+		Decision: core.Decision{Verdict: core.VerdictAsk, Approver: core.ApproverReq{AdminOnly: true},
+			Choices: []core.Choice{core.AllowSession, core.AllowAlways}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(ap.Decision.Choices, []core.Choice{core.AllowOnce, core.Deny}) || !slices.Equal(ap.Card.Choices, ap.Decision.Choices) {
+		t.Errorf("admin-only choices %v / card %v", ap.Decision.Choices, ap.Card.Choices)
+	}
+	if ap.OnTimeout != core.TimeoutDeny || ap.ExpiresAt.Sub(ap.CreatedAt) != 15*time.Minute {
+		t.Errorf("defaults: %s %v", ap.OnTimeout, ap.ExpiresAt.Sub(ap.CreatedAt))
+	}
+	if _, err := h.ap.Request(h.ctx, core.ApprovalRequest{Run: run, Session: h.session, Principal: h.ownerP.ID, Action: a,
+		Decision: core.Decision{Verdict: core.VerdictAsk}}); !errors.Is(err, core.ErrInvalid) {
+		t.Errorf("request without an approver: %v", err)
 	}
 }
 

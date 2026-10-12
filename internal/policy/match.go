@@ -114,7 +114,6 @@ func classChar(p string) (rune, int) {
 	return r, w
 }
 
-// validGlob reports whether g parses as a glob (path.Match syntax).
 func validGlob(g string) bool {
 	_, err := path.Match(g, "")
 	return err == nil

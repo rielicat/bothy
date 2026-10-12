@@ -31,11 +31,17 @@ func (ap *Approvals) Request(ctx context.Context, r core.ApprovalRequest) (*core
 	case !r.Decision.Approver.AdminOnly && r.Decision.Approver.User == "":
 		return nil, fmt.Errorf("%w: approval request without an approver", core.ErrInvalid)
 	}
-	if len(r.Decision.Choices) == 0 {
-		r.Decision.Choices = []core.Choice{core.AllowOnce}
+	r.Decision.Choices = slices.Clone(r.Decision.Choices)
+	if r.Decision.Approver.AdminOnly {
+		r.Decision.Choices = slices.DeleteFunc(r.Decision.Choices, func(c core.Choice) bool {
+			return c == core.AllowSession || c == core.AllowAlways
+		})
+	}
+	if !slices.ContainsFunc(r.Decision.Choices, func(c core.Choice) bool { return c != core.Deny }) {
+		r.Decision.Choices = append([]core.Choice{core.AllowOnce}, r.Decision.Choices...)
 	}
 	if !slices.Contains(r.Decision.Choices, core.Deny) {
-		r.Decision.Choices = append(slices.Clone(r.Decision.Choices), core.Deny)
+		r.Decision.Choices = append(r.Decision.Choices, core.Deny)
 	}
 	c := ap.cfg.Current()
 	now := msTime(ap.clock.Now())

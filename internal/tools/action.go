@@ -26,7 +26,6 @@ func decodeArgs(args json.RawMessage, v any) error {
 	return nil
 }
 
-// newAction builds an Action whose Payload is the canonical JSON of payload.
 func newAction(tool string, kind core.ActionKind, se core.SideEffect, payload any) (*core.Action, error) {
 	b, err := core.CanonicalJSON(payload)
 	if err != nil {
@@ -35,7 +34,6 @@ func newAction(tool string, kind core.ActionKind, se core.SideEffect, payload an
 	return &core.Action{Tool: tool, Kind: kind, SideEffect: se, Payload: b, Fingerprint: core.ActionFingerprint(tool, b)}, nil
 }
 
-// payloadOf decodes a planned Action's payload for Exec.
 func payloadOf(a *core.Action, v any) error {
 	if a == nil {
 		return fmt.Errorf("%w: no action", core.ErrInvalid)
