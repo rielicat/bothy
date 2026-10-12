@@ -1,0 +1,272 @@
+package memory
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+// userError carries a message meant for the model or the web UI verbatim while
+// still matching a core sentinel with errors.Is.
+type userError struct {
+	msg  string
+	kind error
+}
+
+func (e *userError) Error() string { return e.msg }
+func (e *userError) Unwrap() error { return e.kind }
+
+func invalidf(format string, args ...any) error {
+	return &userError{msg: fmt.Sprintf(format, args...), kind: core.ErrInvalid}
+}
+
+var files = []core.MemoryFile{core.FileMemory, core.FileUser, core.FileHeartbeat}
+
+func validFile(f core.MemoryFile) bool {
+	return f == core.FileMemory || f == core.FileUser || f == core.FileHeartbeat
+}
+
+func fileName(f core.MemoryFile) string { return string(f) + ".md" }
+
+// checkPrincipal accepts only user principals. Space ids get ErrForbidden
+// (spaces have no memory); anything else is rejected before it can reach a
+// file path.
+func checkPrincipal(p core.PrincipalID) error {
+	switch {
+	case core.ValidID(core.PrefixUser, string(p)):
+		return nil
+	case core.ValidID(core.PrefixSpace, string(p)):
+		return fmt.Errorf("memory of %s: spaces have no memory: %w", p, core.ErrForbidden)
+	}
+	return fmt.Errorf("memory: principal %q: %w", p, core.ErrInvalid)
+}
+
+// etag is the hex sha256 prefix of a file's content; a missing file has the
+// ETag of "".
+func etag(content string) string {
+	sum := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(sum[:16])
+}
+
+func (s *Service) capOf(f core.MemoryFile) int {
+	m := s.cfg.Current().Memory
+	switch f {
+	case core.FileMemory:
+		return m.MemoryMaxBytes
+	case core.FileUser:
+		return m.UserMaxBytes
+	}
+	return m.HeartbeatMaxBytes
+}
+
+func (s *Service) path(p core.PrincipalID, f core.MemoryFile) string {
+	return filepath.Join(s.dir, string(p), fileName(f))
+}
+
+func (s *Service) readFile(p core.PrincipalID, f core.MemoryFile) (string, error) {
+	b, err := os.ReadFile(s.path(p, f))
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("memory: read %s: %w", fileName(f), err)
+	}
+	return string(b), nil
+}
+
+// writeFile replaces the file atomically: readers see the old or the new
+// content, never a torn write.
+func (s *Service) writeFile(p core.PrincipalID, f core.MemoryFile, content string) error {
+	dir := filepath.Join(s.dir, string(p))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("memory: create dir: %w", err)
+	}
+	tmp, err := os.CreateTemp(dir, "."+fileName(f)+"-*.tmp")
+	if err != nil {
+		return fmt.Errorf("memory: write %s: %w", fileName(f), err)
+	}
+	name := tmp.Name()
+	defer os.Remove(name) // no-op once renamed
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return fmt.Errorf("memory: write %s: %w", fileName(f), err)
+	}
+	if _, err := tmp.WriteString(content); err != nil {
+		tmp.Close()
+		return fmt.Errorf("memory: write %s: %w", fileName(f), err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("memory: write %s: %w", fileName(f), err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("memory: write %s: %w", fileName(f), err)
+	}
+	if err := os.Rename(name, s.path(p, f)); err != nil {
+		return fmt.Errorf("memory: write %s: %w", fileName(f), err)
+	}
+	syncDir(dir)
+	return nil
+}
+
+// syncDir makes the rename durable where the platform supports fsync on a
+// directory; elsewhere (Windows) it is a no-op.
+func syncDir(dir string) {
+	d, err := os.Open(dir)
+	if err != nil {
+		return
+	}
+	_ = d.Sync()
+	_ = d.Close()
+}
+
+// checkText rejects content that cannot be stored as a text file.
+func checkText(what, s string) error {
+	if !utf8.ValidString(s) {
+		return invalidf("%s is not valid UTF-8", what)
+	}
+	if strings.ContainsRune(s, 0) {
+		return invalidf("%s contains a NUL byte", what)
+	}
+	return nil
+}
+
+// Entries are the non-blank lines of a memory file, compared after trimming
+// surrounding whitespace. Agent ops never touch blank lines or line order, so
+// a file edited by hand in the web UI keeps its layout.
+
+func splitLines(content string) []string {
+	if content == "" {
+		return nil
+	}
+	return strings.Split(strings.TrimSuffix(content, "\n"), "\n")
+}
+
+func joinLines(lines []string) string {
+	out := strings.Join(lines, "\n")
+	if strings.TrimSpace(out) == "" {
+		return ""
+	}
+	return strings.TrimRight(out, "\n") + "\n"
+}
+
+func findEntry(lines []string, entry string) int {
+	for i, l := range lines {
+		if strings.TrimSpace(l) == entry {
+			return i
+		}
+	}
+	return -1
+}
+
+// normalizeOp trims the entry texts and checks that the op is complete.
+func normalizeOp(op core.MemoryOp) (core.MemoryOp, error) {
+	op.Old = strings.TrimSpace(op.Old)
+	op.New = strings.TrimSpace(op.New)
+	if !validFile(op.File) {
+		return op, invalidf("file must be MEMORY, USER or HEARTBEAT, got %q", op.File)
+	}
+	if err := checkText("old", op.Old); err != nil {
+		return op, err
+	}
+	if err := checkText("new", op.New); err != nil {
+		return op, err
+	}
+	switch op.Op {
+	case "add":
+		if op.New == "" {
+			return op, invalidf("op=add needs new: the entry to save")
+		}
+		op.Old = ""
+	case "replace":
+		if op.Old == "" || op.New == "" {
+			return op, invalidf("op=replace needs old (the exact existing entry) and new (its replacement)")
+		}
+		if op.Old == op.New {
+			return op, invalidf("old and new are identical; nothing to change")
+		}
+	case "remove":
+		if op.Old == "" {
+			return op, invalidf("op=remove needs old: the exact entry to delete")
+		}
+		op.New = ""
+	default:
+		return op, invalidf("op must be add, replace or remove, got %q", op.Op)
+	}
+	if strings.ContainsAny(op.New, "\r\n") {
+		return op, invalidf("one entry per call: new must be a single line")
+	}
+	return op, nil
+}
+
+// applyOp returns the file content after a normalized op.
+func applyOp(before string, op core.MemoryOp) (string, error) {
+	lines := splitLines(before)
+	name := fileName(op.File)
+	switch op.Op {
+	case "add":
+		if findEntry(lines, op.New) >= 0 {
+			return "", invalidf("%s already has the entry %q; nothing changed", name, op.New)
+		}
+		return joinLines(append(lines, op.New)), nil
+	case "replace", "remove":
+		i := findEntry(lines, op.Old)
+		if i < 0 {
+			return "", notFoundError(op.File, before, op.Old)
+		}
+		if op.Op == "remove" {
+			return joinLines(append(lines[:i:i], lines[i+1:]...)), nil
+		}
+		out := append([]string(nil), lines...)
+		out[i] = op.New
+		return joinLines(out), nil
+	}
+	return "", invalidf("op must be add, replace or remove, got %q", op.Op)
+}
+
+// notFoundError helps the model retry: it names entries that contain the text
+// and, for HEARTBEAT.md (which is not in the model's context), the whole file.
+func notFoundError(f core.MemoryFile, content, old string) error {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s has no entry exactly equal to %q.", fileName(f), old)
+	var near []string
+	needle := strings.ToLower(old)
+	for _, l := range splitLines(content) {
+		if t := strings.TrimSpace(l); t != "" && strings.Contains(strings.ToLower(t), needle) {
+			near = append(near, t)
+			if len(near) == 3 {
+				break
+			}
+		}
+	}
+	if len(near) > 0 {
+		b.WriteString(" Entries containing it:")
+		for _, n := range near {
+			fmt.Fprintf(&b, " %q", n)
+		}
+		b.WriteString(". Pass the whole entry as old.")
+	}
+	if f == core.FileHeartbeat {
+		if strings.TrimSpace(content) == "" {
+			b.WriteString(" HEARTBEAT.md is empty.")
+		} else {
+			b.WriteString(" Current HEARTBEAT.md:\n" + content)
+		}
+	}
+	return invalidf("%s", b.String())
+}
+
+// capError tells the model how many bytes it has left (SPEC §4.14).
+func capError(f core.MemoryFile, before, after, limit int) error {
+	free := max(limit-before, 0)
+	return invalidf("%s is capped at %d bytes: this change would make it %d bytes. %d bytes are free now; remove or shorten entries first.",
+		fileName(f), limit, after, free)
+}
