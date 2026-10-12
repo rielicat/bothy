@@ -4,9 +4,19 @@
 
   let { text, exposed = false, allow = [], class: cls = '' }: { text: string; class?: string } & MdOptions = $props();
 
+  // The transcript rebuilds its row objects on every streamed delta, which
+  // re-runs this derived for every message; render again only when the
+  // inputs actually changed.
+  let memo = { text: '', exposed: false, allow: '', html: '' };
+
   // renderMarkdown escapes everything and emits only a fixed tag set (see
   // lib/markdown.ts and its XSS corpus); this is the only {@html} in the app.
-  const html = $derived(renderMarkdown(text ?? '', { exposed, allow }));
+  const html = $derived.by(() => {
+    const t = text ?? '';
+    const a = allow.join(',');
+    if (t !== memo.text || exposed !== memo.exposed || a !== memo.allow) memo = { text: t, exposed, allow: a, html: renderMarkdown(t, { exposed, allow }) };
+    return memo.html;
+  });
 
   function onclick(e: MouseEvent) {
     const b = (e.target as HTMLElement).closest('button.md-copy');
