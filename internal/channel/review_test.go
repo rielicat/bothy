@@ -306,3 +306,29 @@ func TestPairInGroupWarnsInsteadOfClaimingLinked(t *testing.T) {
 		}
 	})
 }
+
+func TestSessionCostTerminatesWithoutTimestamps(t *testing.T) {
+	h := newHarness(t)
+	chat := h.dmChat(ownerChat)
+	sess, err := h.runner.NewSession(h.ctx, core.UserPrincipal(h.owner.ID), "telegram", &chat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var at time.Time // rows without created_at: the page cursor cannot move
+	for range 501 {
+		if err := h.store.Runs().Create(h.ctx, &core.Run{Session: sess.ID, Principal: sess.Principal, User: h.owner.ID,
+			Trigger: core.TrigMessage, Status: core.RunDone, Cost: 10, CreatedAt: at}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	done := make(chan core.Micros, 1)
+	go func() { done <- h.hub.sessionCost(h.ctx, sess.ID) }()
+	select {
+	case got := <-done:
+		if got < 5000 {
+			t.Fatalf("session cost = %d, want at least the first page", got)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("sessionCost loops forever when the page cursor does not move")
+	}
+}

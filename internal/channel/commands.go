@@ -397,6 +397,12 @@ func (h *Hub) sessionCost(ctx context.Context, s core.SessionID) core.Micros {
 		if len(runs) < page.Limit {
 			return total
 		}
-		page.Before = runs[len(runs)-1].CreatedAt.UnixMilli()
+		// The cursor must move back in time, or a page of zero or equal
+		// timestamps would be fetched forever.
+		next := runs[len(runs)-1].CreatedAt.UnixMilli()
+		if next <= 0 || (page.Before > 0 && next >= page.Before) {
+			return total
+		}
+		page.Before = next
 	}
 }
