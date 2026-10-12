@@ -204,11 +204,18 @@ func (m *Manager) closeConn(c *conn) {
 }
 
 func (m *Manager) destroyBox(box string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := m.d.Sandbox.Destroy(ctx, box); err != nil && !errors.Is(err, core.ErrNoSandbox) {
+	if err := m.removeBox(box); err != nil && !errors.Is(err, core.ErrNoSandbox) {
 		m.log.Warn("destroy mcp box", "box", box, "err", err)
 	}
+}
+
+func (m *Manager) removeBox(box string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := m.d.Sandbox.Destroy(ctx, box); err != nil {
+		return fmt.Errorf("destroy box %s: %w", box, err)
+	}
+	return nil
 }
 
 func (m *Manager) closeInstances(s *server) {
@@ -226,13 +233,12 @@ func (m *Manager) closeInstances(s *server) {
 	}
 }
 
-func (m *Manager) reaper() {
-	defer m.wg.Done()
+func (m *Manager) reaper(ctx context.Context) {
 	t := time.NewTicker(time.Minute)
 	defer t.Stop()
 	for {
 		select {
-		case <-m.ctx.Done():
+		case <-ctx.Done():
 			return
 		case <-t.C:
 			m.reapIdle(m.clock.Now())

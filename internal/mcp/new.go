@@ -103,11 +103,12 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.started = true
 	m.unwatch = m.d.Config.Watch(m.onConfig)
 	m.mu.Unlock()
+	// Picks up mcp.servers edits made between New and the watch above.
+	m.applyConfig(m.d.Config.Current().MCP.Servers, false)
 	context.AfterFunc(ctx, m.cancel)
 	m.sandboxOK.Store(m.d.Sandbox.Status(ctx).Available)
 	m.d.Sandbox.Watch(m.onSandbox)
-	m.wg.Add(1)
-	go m.reaper()
+	m.spawn(m.reaper)
 	m.discoverAll()
 	return nil
 }

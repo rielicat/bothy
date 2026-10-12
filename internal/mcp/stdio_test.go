@@ -207,7 +207,7 @@ func TestStdioInstallDiscoverAndCall(t *testing.T) {
 	}
 	close(in.gate)
 	h.waitFor("install", func() bool { st := h.status("notes").State; return st != stInstalling && st != stConnecting })
-	if st := h.status("notes"); st.State != stPinsPending || st.Pending != 2 || st.Transport != "stdio" {
+	if st := h.status("notes"); st.State != stPinsPending || st.Pending != 2 || st.Transport != "stdio" || st.Protocol != "2026-07-28" {
 		t.Fatalf("status after install = %+v", st)
 	}
 
@@ -549,5 +549,20 @@ func TestCloseDestroysBoxes(t *testing.T) {
 	a, _ := h.tool("mcp__notes__search").Plan(context.Background(), alice, json.RawMessage(`{}`))
 	if _, err := h.tool("mcp__notes__search").Exec(context.Background(), alice, a); err == nil {
 		t.Fatal("Exec after Close succeeded")
+	}
+}
+
+// A server that only speaks an older spec revision works over stdio too.
+func TestStdioOldSpecEra(t *testing.T) {
+	h, _, rec := newStdioHarness(t, notesCfg())
+	rec.f.versions = []string{"2025-03-26"}
+	h.start()
+	h.install("notes")
+	if st := h.status("notes"); st.State != stPinsPending || st.Protocol != "2025-03-26" {
+		t.Fatalf("status = %+v", st)
+	}
+	h.approve("notes", map[string]core.MCPToolApproval{"search": {}})
+	if res, err := h.call(h.tool("mcp__notes__search"), userEnv(newUser("old")), `{"q":"era"}`); err != nil || res.Content != "results for era" {
+		t.Fatalf("Exec = %+v, %v", res, err)
 	}
 }

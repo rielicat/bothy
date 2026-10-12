@@ -138,25 +138,37 @@ func (m *Manager) installTree(ctx context.Context, s *server, in *core.MCPInstal
 	if err := os.Chmod(dir, 0o770|os.ModeSetgid); err != nil {
 		return err
 	}
-	box := installBox(s.name)
-	if err := m.d.Sandbox.Ensure(ctx, core.BoxSpec{Key: box, Profile: spec.profile, MCPTree: rel, MCPTreeRW: true, Limits: m.limits(),
-		Egress: core.BoxEgress{Extra: spec.registryHosts(), NoGrants: true}}); err != nil {
-		return fmt.Errorf("installer box: %w", err)
-	}
-	defer m.destroyBox(box)
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return err
 	}
 	defer root.Close()
+	box := installBox(s.name)
+	if err := m.d.Sandbox.Ensure(ctx, core.BoxSpec{Key: box, Profile: spec.profile, MCPTree: rel, MCPTreeRW: true, Limits: m.limits(),
+		Egress: core.BoxEgress{Extra: spec.registryHosts(), NoGrants: true}}); err != nil {
+		return fmt.Errorf("installer box: %w", err)
+	}
 	switch spec.pkg.Ecosystem {
 	case "npm":
-		lock, err = m.installNPM(ctx, box, root, spec, lock)
+		err = m.installNPM(ctx, box, root, spec, lock)
 	default:
 		lock, err = m.installPyPI(ctx, box, root, spec, lock)
 	}
+	// Nothing in the tree is trusted before the installer box is gone, so no
+	// process left running in it can change files after they are verified.
+	if rerr := m.removeBox(box); err == nil {
+		err = rerr
+	}
 	if err != nil {
 		return err
+	}
+	if spec.pkg.Ecosystem == "npm" {
+		if lock, err = readCapped(root, npmLockFile); err != nil {
+			return err
+		}
+		if err := checkNPMLock(lock, spec.pkg.Name, spec.pkg.Version, spec.pkg.Integrity); err != nil {
+			return err
+		}
 	}
 	sum, err := treehash.SumRoot(root)
 	if err != nil {
@@ -166,38 +178,31 @@ func (m *Manager) installTree(ctx context.Context, s *server, in *core.MCPInstal
 	return nil
 }
 
-func (m *Manager) installNPM(ctx context.Context, box string, root *os.Root, spec *serverSpec, lock []byte) ([]byte, error) {
+// installNPM runs npm in the installer box: npm ci from the recorded lock
+// when there is one, else npm install of the exact version. The caller
+// verifies the resulting lock once the box is gone.
+func (m *Manager) installNPM(ctx context.Context, box string, root *os.Root, spec *serverSpec, lock []byte) error {
 	name, version := spec.pkg.Name, spec.pkg.Version
 	manifest := map[string]any{"name": "bothy-mcp-" + spec.name, "private": true}
 	argv := []string{"npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", "--save-exact", "--prefix", "/opt/mcp", name + "@" + version}
 	if lock != nil {
 		if err := checkNPMLock(lock, name, version, spec.pkg.Integrity); err != nil {
-			return nil, fmt.Errorf("recorded lock: %w", err)
+			return fmt.Errorf("recorded lock: %w", err)
 		}
 		manifest["dependencies"] = map[string]string{name: version}
 		if err := root.WriteFile(npmLockFile, lock, 0o660); err != nil {
-			return nil, err
+			return err
 		}
 		argv = []string{"npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund", "--prefix", "/opt/mcp"}
 	}
 	pj, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if err := root.WriteFile("package.json", append(pj, '\n'), 0o660); err != nil {
-		return nil, err
+		return err
 	}
-	if err := m.installExec(ctx, box, argv); err != nil {
-		return nil, err
-	}
-	got, err := readCapped(root, npmLockFile)
-	if err != nil {
-		return nil, err
-	}
-	if err := checkNPMLock(got, name, version, spec.pkg.Integrity); err != nil {
-		return nil, err
-	}
-	return got, nil
+	return m.installExec(ctx, box, argv)
 }
 
 // checkNPMLock verifies that a package-lock.json pins the configured package
@@ -224,6 +229,9 @@ func checkNPMLock(lock []byte, name, version, integrity string) error {
 	return nil
 }
 
+// installPyPI compiles a hashed lock for the exact version (unless one was
+// recorded), checks the configured hash in it and installs from it with
+// --require-hashes, returning the lock that was verified.
 func (m *Manager) installPyPI(ctx context.Context, box string, root *os.Root, spec *serverSpec, lock []byte) ([]byte, error) {
 	if lock == nil {
 		req := spec.pkg.Name + "==" + spec.pkg.Version + "\n"
