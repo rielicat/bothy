@@ -17,10 +17,9 @@ const ActionArchived = "audit.archived"
 // genesis is the prev_hash of the first row of a log that was never archived.
 func genesis() []byte { return make([]byte, sha256.Size) }
 
-// chainRow is what a row's hash covers: every column except id and the
-// hashes. The id is left out because SQLite assigns it on insert, after the
-// hash is computed; order is still pinned by each prev_hash.
+// chainRow is what a row's hash covers: every column except the hashes.
 type chainRow struct {
+	ID      int64           `json:"id"`
 	TS      int64           `json:"ts"`
 	Actor   string          `json:"actor"`
 	Action  string          `json:"action"`
@@ -42,7 +41,7 @@ func chainHash(prev []byte, e *core.AuditEntry) ([]byte, error) {
 	if !e.At.IsZero() {
 		ts = e.At.UnixMilli()
 	}
-	b, err := core.CanonicalJSON(chainRow{TS: ts, Actor: e.Actor, Action: e.Action, Target: e.Target, Outcome: e.Outcome,
+	b, err := core.CanonicalJSON(chainRow{ID: e.ID, TS: ts, Actor: e.Actor, Action: e.Action, Target: e.Target, Outcome: e.Outcome,
 		Session: string(e.Session), Run: string(e.Run), IP: e.IP, Detail: detail})
 	if err != nil {
 		return nil, fmt.Errorf("audit: canonical row: %w", err)
@@ -88,11 +87,10 @@ func verify(ctx context.Context, s core.Store) (int64, error) {
 		} else if bad == 0 && !bytes.Equal(prevHash, prev) {
 			bad = e.ID
 		}
+		// A detail that no longer parses (edited with CHECK constraints
+		// ignored) is a tampered row to report, not a reason to fail.
 		h, err := chainHash(prevHash, e)
-		if err != nil {
-			return err
-		}
-		if bad == 0 && !bytes.Equal(h, hash) {
+		if bad == 0 && (err != nil || !bytes.Equal(h, hash)) {
 			bad = e.ID
 		}
 		if e.Action == ActionArchived && bytes.Equal(h, hash) {

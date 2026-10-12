@@ -7,9 +7,10 @@ import (
 	"github.com/bothyhq/bothy/internal/core"
 )
 
-// AnchorFunc builds the audit.archived anchor row from the head of the log
-// that remains after pruning (id 0 and nil hash when nothing remains).
-type AnchorFunc func(headID int64, headHash []byte) (e *core.AuditEntry, prevHash, hash []byte, err error)
+// AnchorFunc builds the audit.archived anchor row that PruneAudit stores under
+// anchorID, from the head of the log that remains after pruning (id 0 and nil
+// hash when nothing remains).
+type AnchorFunc func(anchorID, headID int64, headHash []byte) (e *core.AuditEntry, prevHash, hash []byte, err error)
 
 // PruneAudit deletes audit_log rows with id <= throughID and appends the
 // anchor row, all in one transaction. The append-only triggers are dropped
@@ -58,11 +59,11 @@ func (db *DB) PruneAudit(ctx context.Context, throughID int64, anchor AnchorFunc
 	if err = tx.QueryRowContext(ctx, `SELECT id, hash FROM audit_log ORDER BY id DESC LIMIT 1`).Scan(&headID, &headHash); err != nil && !isNoRows(err) {
 		return 0, 0, dbErr("prune audit: head", err)
 	}
-	e, prev, hash, err := anchor(headID, headHash)
+	anchorID = max(throughID, headID) + 1
+	e, prev, hash, err := anchor(anchorID, headID, headHash)
 	if err != nil {
 		return 0, 0, fmt.Errorf("store: prune audit: anchor: %w", err)
 	}
-	anchorID = max(throughID, headID) + 1
 	detail := string(e.Detail)
 	if detail == "" {
 		detail = "{}"

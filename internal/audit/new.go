@@ -1,9 +1,12 @@
 package audit
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 	"sync"
@@ -25,14 +28,17 @@ const (
 	// Record flush inline, bounding memory when Run is not running (CLI).
 	kickAt   = 256
 	maxQueue = 4096
+	// maxHeld bounds what stays queued while the database refuses writes;
+	// entries beyond it are dropped with an error instead of growing forever.
+	maxHeld = 4 * maxQueue
 )
 
 // syncPrefixes are the actions Record writes before returning (§4.14).
 var syncPrefixes = []string{"auth.", "config.", "approval.", "secret."}
 
-// Writer implements core.Auditor. It is the only writer of audit_log: every
-// append goes through flush, which holds flushMu while it chains the rows, so
-// prev_hash always names the row before.
+// Writer implements core.Auditor. Within the process it is the only writer of
+// audit_log: every append goes through flush, which holds flushMu while it
+// chains the rows.
 type Writer struct {
 	store core.Store
 	red   core.Redactor
@@ -44,7 +50,6 @@ type Writer struct {
 	kick  chan struct{}
 
 	flushMu sync.Mutex
-	head    []byte // hash of the last row; nil until loaded
 }
 
 var _ core.Auditor = (*Writer)(nil)
@@ -86,18 +91,23 @@ func (w *Writer) Run(ctx context.Context) error {
 }
 
 // Record validates and redacts e, then queues it. auth.*, config.*,
-// approval.* and secret.* entries are flushed before Record returns, so the
-// caller learns whether they were written.
+// approval.* and secret.* entries are written before Record returns, so the
+// caller learns whether they were written; one that fails is not kept for a
+// later flush, because the caller has already acted on the failure (the vault
+// withholds the secret, for example).
 func (w *Writer) Record(ctx context.Context, e core.AuditEntry) error {
 	if err := w.normalize(&e); err != nil {
 		return err
+	}
+	if isSync(e.Action) {
+		return w.flush(ctx, &e)
 	}
 	w.mu.Lock()
 	w.queue = append(w.queue, e)
 	n := len(w.queue)
 	w.mu.Unlock()
-	if isSync(e.Action) || n >= maxQueue {
-		return w.Flush(ctx)
+	if n >= maxQueue {
+		return w.flush(ctx, nil)
 	}
 	if n >= kickAt {
 		select {
@@ -136,76 +146,132 @@ func (w *Writer) normalize(e *core.AuditEntry) error {
 		return fmt.Errorf("audit: outcome %q: %w", e.Outcome, core.ErrInvalid)
 	}
 	e.ID = 0
-	detail := []byte(e.Detail)
-	if len(detail) == 0 {
-		detail = []byte("{}")
-	}
-	if w.red != nil {
-		detail = w.red.RedactBytes(detail)
-	}
-	canon, err := core.CanonicalJSON(detail)
+	detail, err := w.redactDetail(e.Detail)
 	if err != nil {
 		return fmt.Errorf("audit: detail is not JSON: %w", core.ErrInvalid)
 	}
-	e.Detail = canon
+	e.Detail = detail
 	return nil
 }
 
+// redactDetail returns detail as canonical JSON with secrets masked inside
+// its strings, keys and numbers. Masking the raw bytes instead could cut
+// through JSON syntax (a registered value such as "1234" inside a number) and
+// turn every later entry that mentions it into an invalid one.
+func (w *Writer) redactDetail(detail json.RawMessage) (json.RawMessage, error) {
+	if len(detail) == 0 {
+		return json.RawMessage("{}"), nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(detail))
+	dec.UseNumber()
+	var tree any
+	if err := dec.Decode(&tree); err != nil {
+		return nil, err
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, errors.New("trailing data after the JSON value")
+	}
+	if w.red != nil {
+		tree = w.redactValue(tree)
+	}
+	return core.CanonicalJSON(tree)
+}
+
+func (w *Writer) redactValue(v any) any {
+	switch x := v.(type) {
+	case string:
+		return w.red.Redact(x)
+	case json.Number:
+		if s := w.red.Redact(string(x)); s != string(x) {
+			return s
+		}
+		return x
+	case []any:
+		for i := range x {
+			x[i] = w.redactValue(x[i])
+		}
+		return x
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, val := range x {
+			out[w.red.Redact(k)] = w.redactValue(val)
+		}
+		return out
+	}
+	return v
+}
+
 // Flush writes every queued entry in one transaction, chaining each to the
-// previous row. On failure the entries go back to the front of the queue and
-// the head is re-read on the next attempt.
-func (w *Writer) Flush(ctx context.Context) error {
+// previous row. On failure the entries go back to the front of the queue.
+func (w *Writer) Flush(ctx context.Context) error { return w.flush(ctx, nil) }
+
+// flush writes the queue plus extra (a synchronous entry, which is not
+// re-queued when the write fails).
+func (w *Writer) flush(ctx context.Context, extra *core.AuditEntry) error {
 	w.flushMu.Lock()
 	defer w.flushMu.Unlock()
 	w.mu.Lock()
 	batch := w.queue
 	w.queue = nil
 	w.mu.Unlock()
+	if extra != nil {
+		batch = append(batch, *extra)
+	}
 	if len(batch) == 0 {
 		return nil
 	}
-	head, err := w.loadHead(ctx)
+	err := w.store.Tx(ctx, func(tx core.Store) error { return appendChain(ctx, tx, batch) })
 	if err == nil {
-		err = w.store.Tx(ctx, func(tx core.Store) error {
-			prev := head
-			for i := range batch {
-				h, err := chainHash(prev, &batch[i])
-				if err != nil {
-					return err
-				}
-				if _, err := tx.Audit().Append(ctx, &batch[i], prev, h); err != nil {
-					return err
-				}
-				prev = h
-			}
-			head = prev
-			return nil
-		})
+		return nil
 	}
-	if err != nil {
-		w.head = nil
-		for i := range batch {
-			batch[i].ID = 0
-		}
-		w.mu.Lock()
-		w.queue = append(batch, w.queue...)
-		w.mu.Unlock()
-		return fmt.Errorf("audit: flush: %w", err)
+	if extra != nil {
+		batch = batch[:len(batch)-1]
 	}
-	w.head = head
-	return nil
+	w.requeue(batch)
+	return fmt.Errorf("audit: flush: %w", err)
 }
 
-func (w *Writer) loadHead(ctx context.Context) ([]byte, error) {
-	if w.head != nil {
-		return w.head, nil
+// requeue puts a failed batch back in front of what was recorded meanwhile.
+// Ids need no reset: appendChain assigns them on every attempt.
+func (w *Writer) requeue(batch []core.AuditEntry) {
+	w.mu.Lock()
+	q := append(batch, w.queue...)
+	dropped := max(len(q)-maxHeld, 0)
+	w.queue = q[:len(q)-dropped]
+	w.mu.Unlock()
+	if dropped > 0 {
+		w.log.Error("audit: database unavailable; dropped audit entries", "dropped", dropped, "queued", maxHeld)
 	}
-	id, hash, err := w.store.Audit().Head(ctx)
+}
+
+// appendChain appends batch after the current head of the log. The head is
+// read inside the write transaction rather than cached, because other
+// processes (the CLI) append to the same log while the gateway runs.
+func appendChain(ctx context.Context, tx core.Store, batch []core.AuditEntry) error {
+	id, prev, err := tx.Audit().Head(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if id == 0 {
-		return genesis(), nil
+		prev = genesis()
 	}
-	return hash, nil
+	for i := range batch {
+		e := &batch[i]
+		// SQLite gives a rowid table max(id)+1, and the hash covers the id, so
+		// a row stored under any other id must not be committed.
+		e.ID = id + 1
+		h, err := chainHash(prev, e)
+		if err != nil {
+			return err
+		}
+		got, err := tx.Audit().Append(ctx, e, prev, h)
+		if err != nil {
+			return err
+		}
+		if got != id+1 {
+			return fmt.Errorf("audit: row stored as id %d, chained as id %d", got, id+1)
+		}
+		id, prev = got, h
+	}
+	return nil
 }

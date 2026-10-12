@@ -78,7 +78,7 @@ func archive(ctx context.Context, db *store.DB, dir string, before time.Time, no
 	if err != nil {
 		return nil, err
 	}
-	anchorID, deleted, err := db.PruneAudit(ctx, res.ToID, func(headID int64, headHash []byte) (*core.AuditEntry, []byte, []byte, error) {
+	anchorID, deleted, err := db.PruneAudit(ctx, res.ToID, func(anchorID, headID int64, headHash []byte) (*core.AuditEntry, []byte, []byte, error) {
 		prev := headHash
 		if headID == 0 {
 			prev = lastHash
@@ -88,7 +88,7 @@ func archive(ctx context.Context, db *store.DB, dir string, before time.Time, no
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		e := &core.AuditEntry{At: time.UnixMilli(now().UnixMilli()).UTC(), Actor: "system", Action: ActionArchived,
+		e := &core.AuditEntry{ID: anchorID, At: time.UnixMilli(now().UnixMilli()).UTC(), Actor: "system", Action: ActionArchived,
 			Target: "audit_log", Outcome: "ok", Detail: d}
 		h, err := chainHash(prev, e)
 		return e, prev, h, err
