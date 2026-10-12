@@ -104,6 +104,19 @@ func TestFixRoutesToReporter(t *testing.T) {
 	}
 }
 
+type panicFix struct{ fakeCheck }
+
+func (*panicFix) Fix(context.Context, core.Finding) error { panic("fix boom") }
+
+func TestFixSurvivesPanics(t *testing.T) {
+	good := &fakeCheck{id: "b.good"}
+	r := New([]core.Check{&panicFix{fakeCheck{id: "a.bad"}}, good})
+	fixed := r.Fix(context.Background(), []core.Finding{{ID: "a.bad", AutoFix: true}, {ID: "b.good", AutoFix: true}})
+	if !slices.Equal(fixed, []string{"b.good"}) || !slices.Equal(good.fixes, []string{"b.good"}) {
+		t.Fatalf("fixed = %v, good fixes = %v", fixed, good.fixes)
+	}
+}
+
 func TestConfigChecks(t *testing.T) {
 	clean := ConfigChecks(fakeConfig{})
 	r := New(clean)

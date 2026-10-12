@@ -157,14 +157,24 @@ func (r *Runner) Fix(ctx context.Context, fs []core.Finding) []string {
 		if c == nil {
 			continue
 		}
-		fctx, cancel := context.WithTimeout(ctx, checkTimeout)
-		err := c.Fix(fctx, f)
-		cancel()
-		if err == nil {
+		if fixOne(ctx, c, f) == nil {
 			fixed = append(fixed, f.ID)
 		}
 	}
 	return fixed
+}
+
+// fixOne applies one fix; a panicking fix counts as failed rather than
+// taking down `bothy security-audit --fix` or the request serving it.
+func fixOne(ctx context.Context, c core.Check, f core.Finding) (err error) {
+	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
+	defer cancel()
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("fix %s panicked: %v", f.ID, p)
+		}
+	}()
+	return c.Fix(ctx, f)
 }
 
 func (r *Runner) checkFor(id string) core.Check {

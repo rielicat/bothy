@@ -44,6 +44,22 @@ func get(t *testing.T, h http.Handler, method, path string, hdr map[string]strin
 	return rec
 }
 
+func TestUnderscoreChunksServedDotfilesHidden(t *testing.T) {
+	fsys := testFS(t)
+	fsys["assets/_commonjsHelpers-4f2a.js"] = &fstest.MapFile{Data: []byte("export{}")}
+	fsys[".DS_Store"] = &fstest.MapFile{Data: []byte("junk")}
+	fsys["assets/.hidden.js"] = &fstest.MapFile{Data: []byte("junk")}
+	h := newHandler(fsys)
+	if rec := get(t, h, "GET", "/assets/_commonjsHelpers-4f2a.js", nil); rec.Code != 200 {
+		t.Fatalf("underscore chunk = %d", rec.Code)
+	}
+	for _, p := range []string{"/.DS_Store", "/assets/.hidden.js"} {
+		if rec := get(t, h, "GET", p, nil); rec.Code != 404 {
+			t.Fatalf("%s = %d, want 404", p, rec.Code)
+		}
+	}
+}
+
 func TestAssetsGzipETagAndCaching(t *testing.T) {
 	h := newHandler(testFS(t))
 	rec := get(t, h, "GET", "/assets/app-1a2b3c.js", map[string]string{"Accept-Encoding": "br, gzip;q=0.8"})

@@ -44,6 +44,12 @@ func newHandler(fsys fs.FS) *handler {
 		if err != nil {
 			return err
 		}
+		if strings.HasPrefix(d.Name(), ".") && p != "." {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
 		if d.IsDir() || strings.HasSuffix(p, ".gz") {
 			return nil
 		}
