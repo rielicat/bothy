@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -58,14 +59,33 @@ func publishConfigBanners(bus core.Bus, eff config.Effective) {
 func printSetupBanner(c *config.Config, token string) {
 	url := c.Server.PublicURL
 	if url == "" {
-		url = "http://127.0.0.1:8080"
+		url = localURL(c.Server.Listen)
 	}
 	fmt.Fprintf(os.Stderr, "\n  Bothy is ready for setup.\n  Open %s/setup#t=%s\n  (token also in %s/setup-token; valid %s)\n\n",
 		url, token, c.Storage.DataDir, c.Auth.SetupTokenTTL.D())
 }
 
+// localURL turns a listen address into a URL reachable from the same host;
+// wildcard binds (container mode listens on 0.0.0.0) are dialled on loopback.
+func localURL(listen string) string {
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return "http://127.0.0.1:8080"
+	}
+	if ip := net.ParseIP(host); host == "" || (ip != nil && ip.IsUnspecified()) {
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, port)
+}
+
+// healthcheck runs inside the container without loading config, so it only
+// honours the env override of server.listen.
 func healthcheck(ctx context.Context) error {
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:8080/healthz", nil)
+	listen := os.Getenv("BOTHY_SERVER__LISTEN")
+	if listen == "" {
+		listen = "127.0.0.1:8080"
+	}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, localURL(listen)+"/healthz", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err

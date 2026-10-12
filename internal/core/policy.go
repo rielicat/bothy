@@ -208,7 +208,7 @@ type Approvals interface {
 	Get(ctx context.Context, v Viewer, id ApprovalID) (*Approval, error)
 	Pending(ctx context.Context, v Viewer) ([]*Approval, error)        // pending + parked
 	Recent(ctx context.Context, v Viewer, p Page) ([]*Approval, error) // decided, newest first; Before = created_at ms
-	// ButtonData returns "a:<id>:<o|s|d>:<mac8>" (<= 64 bytes, Telegram limit);
+	// ButtonData returns "a:<id>:<o|s|a|d>:<mac8>" (<= 64 bytes, Telegram limit);
 	// the mac is HMAC-SHA256(server key, id|choice) truncated to 8 base32 chars.
 	ButtonData(id ApprovalID, c Choice) string
 	ParseButtonData(data string) (ApprovalID, Choice, error) // verifies the mac

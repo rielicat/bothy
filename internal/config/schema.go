@@ -17,7 +17,7 @@ type Config struct {
 	Log       Log               `yaml:"log" reload:"hot"`
 	Auth      Auth              `yaml:"auth"`
 	Vault     VaultCfg          `yaml:"vault"`
-	Providers []Provider        `yaml:"providers"`
+	Providers []Provider        `yaml:"providers" reload:"hot"`
 	Models    Models            `yaml:"models" reload:"hot"`
 	Pricing   map[string]PriceO `yaml:"pricing" reload:"hot"`
 	Agent     Agent             `yaml:"agent" reload:"hot"`
@@ -288,9 +288,9 @@ type WebFetch struct {
 type Channels struct {
 	UnknownSenders string   `yaml:"unknown_senders" reload:"hot"` // pair | ignore
 	UsageFooter    bool     `yaml:"usage_footer" reload:"hot"`
-	Telegram       Telegram `yaml:"telegram"`
-	Discord        Discord  `yaml:"discord"`
-	Slack          Slack    `yaml:"slack"`
+	Telegram       Telegram `yaml:"telegram" reload:"hot"`
+	Discord        Discord  `yaml:"discord" reload:"hot"`
+	Slack          Slack    `yaml:"slack" reload:"hot"`
 }
 
 type Groups struct {

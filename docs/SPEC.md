@@ -1664,7 +1664,7 @@ type Approvals interface {
 	Get(ctx context.Context, v Viewer, id ApprovalID) (*Approval, error)
 	Pending(ctx context.Context, v Viewer) ([]*Approval, error)        // pending + parked
 	Recent(ctx context.Context, v Viewer, p Page) ([]*Approval, error) // decided, newest first; Before = created_at ms
-	// ButtonData returns "a:<id>:<o|s|d>:<mac8>" (<= 64 bytes, Telegram limit);
+	// ButtonData returns "a:<id>:<o|s|a|d>:<mac8>" (<= 64 bytes, Telegram limit);
 	// the mac is HMAC-SHA256(server key, id|choice) truncated to 8 base32 chars.
 	ButtonData(id ApprovalID, c Choice) string
 	ParseButtonData(data string) (ApprovalID, Choice, error) // verifies the mac
@@ -3411,7 +3411,7 @@ type CheckProvider interface{ Checks() []Check }
 | `/pair CODE`, `/start CODE` | pairing (step 3) |
 
    There is no `/approve CODE` command: approvals happen only through card buttons or the web UI.
-6. **Button presses → `Hub.OnAction`.** Data `a:<approval>:<o|s|d>:<mac>` → `Approvals.ParseButtonData` (MAC check) → `Approvals.Resolve` with `ViaMsg` = the pressed message, `By` = the presser's linked user. Resolve rejects presses from unrecorded messages, from non-approvers, and approve presses on truncated cards. The adapter `Ack`s within 3 s with a toast ("Approved", "Not allowed", "Open in web to approve"). Data `s:<run>` → Stop, authorized exactly like `/stop`.
+6. **Button presses → `Hub.OnAction`.** Data `a:<approval>:<o|s|a|d>:<mac>` → `Approvals.ParseButtonData` (MAC check) → `Approvals.Resolve` with `ViaMsg` = the pressed message, `By` = the presser's linked user. Resolve rejects presses from unrecorded messages, from non-approvers, and approve presses on truncated cards. The adapter `Ack`s within 3 s with a toast ("Approved", "Not allowed", "Open in web to approve"). Data `s:<run>` → Stop, authorized exactly like `/stop`.
 7. **Principal and gating:**
    - DM from a linked identity → the user's own principal.
    - DM from a `guest` identity → that guest's space principal.
@@ -4455,7 +4455,7 @@ type Config struct {
 	Log       Log               `yaml:"log" reload:"hot"`
 	Auth      Auth              `yaml:"auth"`
 	Vault     VaultCfg          `yaml:"vault"`
-	Providers []Provider        `yaml:"providers"`
+	Providers []Provider        `yaml:"providers" reload:"hot"` // the provider facade and channel hub re-read Current() and restart clients on config.changed
 	Models    Models            `yaml:"models" reload:"hot"`
 	Pricing   map[string]PriceO `yaml:"pricing" reload:"hot"`
 	Agent     Agent             `yaml:"agent" reload:"hot"`
@@ -4726,9 +4726,9 @@ type WebFetch struct {
 type Channels struct {
 	UnknownSenders string   `yaml:"unknown_senders" reload:"hot"` // pair | ignore
 	UsageFooter    bool     `yaml:"usage_footer" reload:"hot"`
-	Telegram       Telegram `yaml:"telegram"`
-	Discord        Discord  `yaml:"discord"`
-	Slack          Slack    `yaml:"slack"`
+	Telegram       Telegram `yaml:"telegram" reload:"hot"`
+	Discord        Discord  `yaml:"discord" reload:"hot"`
+	Slack          Slack    `yaml:"slack" reload:"hot"`
 }
 
 type Groups struct {
@@ -4860,7 +4860,7 @@ type Source struct {
 	Line   int       `json:"line,omitempty"`
 	EnvVar string    `json:"env_var,omitempty"`
 	By     string    `json:"by,omitempty"` // UI layer: "user:<id>"
-	At     time.Time `json:"at,omitempty"` // UI layer write time
+	At     time.Time `json:"at,omitzero"` // UI layer write time
 }
 
 type Shadow struct {

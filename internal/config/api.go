@@ -38,7 +38,7 @@ type Source struct {
 	Line   int       `json:"line,omitempty"`
 	EnvVar string    `json:"env_var,omitempty"`
 	By     string    `json:"by,omitempty"` // UI layer: "user:<id>"
-	At     time.Time `json:"at,omitempty"` // UI layer write time
+	At     time.Time `json:"at,omitzero"`  // UI layer write time
 }
 
 type Shadow struct {

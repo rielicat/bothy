@@ -263,7 +263,7 @@ func TestHotAndRestart(t *testing.T) {
 		hot  bool
 	}{{"budgets.daily_usd", true}, {"server.allowed_hosts", true}, {"server.public_url", false}, {"storage.backups_keep", true},
 		{"storage.data_dir", false}, {"auth.session_idle", true}, {"auth.argon2.memory_kib", false}, {"sandbox.profile", true},
-		{"sandbox.backend", false}, {"channels.unknown_senders", true}, {"channels.telegram.enabled", false}, {"mode", true}} {
+		{"sandbox.backend", false}, {"channels.unknown_senders", true}, {"channels.telegram.enabled", true}, {"providers", true}, {"mode", true}} {
 		if e := entry(t, eff, tc.path); e.Hot != tc.hot {
 			t.Errorf("%s hot=%v", tc.path, e.Hot)
 		}
