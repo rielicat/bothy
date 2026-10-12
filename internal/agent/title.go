@@ -80,7 +80,7 @@ func (r *Runner) makeTitle(ctx context.Context, sid core.SessionID, p core.Princ
 			r.log.Warn("record title spend", "err", serr)
 		}
 	}
-	if err != nil {
+	if err != nil || resp == nil {
 		r.log.Debug("title generation failed", "session", sid, "err", err)
 		return
 	}

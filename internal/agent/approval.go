@@ -80,7 +80,7 @@ func (r *Runner) ask(rs *runState, pc *pcall, rest []core.ToolCall) *runEnd {
 	rs.resume()
 	rs.setStatus(ctx, core.RunRunning)
 	switch {
-	case err == nil && choice == core.Deny:
+	case err == nil && !allows(choice): // deny, or anything unexpected: fail closed
 		pc.rec.Status = core.TCDenied
 		return r.finishCall(rs, pc, textResult(core.TCDenied, userDenied), false)
 	case err == nil:
@@ -92,6 +92,10 @@ func (r *Runner) ask(rs *runState, pc *pcall, rest []core.ToolCall) *runEnd {
 		return r.finishCall(rs, pc, textResult(core.TCDenied, approvalExpiry), false)
 	}
 	return r.finishCall(rs, pc, textResult(core.TCError, "Approval failed: "+r.redact(err.Error())), false)
+}
+
+func allows(c core.Choice) bool {
+	return c == core.AllowOnce || c == core.AllowSession || c == core.AllowAlways
 }
 
 // grantFor creates the narrow grant an allow_session or allow_always choice
@@ -491,7 +495,7 @@ func (r *Runner) executeApproved(rs *runState, a *core.Approval) *runEnd {
 	pc.out = rs.newOutputLimiter(rec.ID)
 	pc.env = r.toolEnv(rs, rec.ID, pc.out)
 	pc.spec = core.ToolSpec{Def: core.ToolDef{Name: action.Tool}}
-	if a.Status == core.ApprovalDenied || a.Choice == core.Deny {
+	if a.Status != core.ApprovalAllowed || !allows(a.Choice) {
 		pc.rec.Status = core.TCDenied
 		return r.finishCall(rs, pc, textResult(core.TCDenied, userDenied), true)
 	}

@@ -332,6 +332,25 @@ func TestApprovalChoicesAndAPIRuns(t *testing.T) {
 	}
 }
 
+func TestUnexpectedApprovalChoiceFailsClosed(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		send := &testTool{name: "send", se: core.SEExternalSend}
+		h := newHarness(t, opts{tools: []core.Tool{send},
+			pol:   &fakes.Policy{Verdicts: map[string]core.Verdict{"send": core.VerdictAsk}},
+			appr:  &fakes.Approvals{Choice: core.Choice("allow_everything")},
+			steps: []fakes.LLMStep{{ToolCalls: []core.ToolCall{call("send", `{}`)}}, {Text: []string{"not sent"}}}})
+		defer h.close()
+		res := h.submit("send it")
+		synctest.Wait()
+		if send.calls.Load() != 0 {
+			t.Fatal("an unknown approval choice ran the action")
+		}
+		if recs := h.toolCalls(res.Run); len(recs) != 1 || recs[0].Status != core.TCDenied {
+			t.Fatalf("tool calls = %+v", recs)
+		}
+	})
+}
+
 func TestParallelReadsRunTogether(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		started := make(chan struct{}, 2)

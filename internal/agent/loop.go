@@ -426,6 +426,9 @@ func (r *Runner) loop(rs *runState) *runEnd {
 		})
 		text.close()
 		think.close()
+		if err == nil && resp == nil {
+			err = errors.New("the provider returned no response")
+		}
 		if err != nil {
 			if ci.Usage != (core.Usage{}) || ci.Cost > 0 {
 				r.recordCall(ctx, rs, asm, &ci, step, "agent")

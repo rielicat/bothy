@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -42,8 +43,7 @@ type standingLine struct {
 // compactInRun compacts the session of a running run. It never fails the run:
 // errors are logged and the assembler's hard fit keeps requests in budget.
 func (r *Runner) compactInRun(ctx context.Context, rs *runState, force bool) {
-	rs.publish(core.EvRunStatus, core.RunStatusData{Status: "compacting"})
-	if err := r.compact(ctx, rs, force); err != nil {
+	if err := r.compact(ctx, rs, force, false); err != nil {
 		r.log.Warn("compaction failed", "session", rs.req.Session, "err", err)
 	}
 }
@@ -66,13 +66,14 @@ func (r *Runner) compactSession(ctx context.Context, id core.SessionID, user cor
 	if end := r.resolveModel(ctx, rs); end != nil {
 		return fmt.Errorf("agent: compact: %s", end.err)
 	}
-	return r.compact(ctx, rs, true)
+	return r.compact(ctx, rs, true, true)
 }
 
 // compact runs SPEC §5.10: fold everything before the last keep_recent_turns
 // user turns into a validated summary, auto-pin standing instructions, start
-// a new epoch with a refreshed snapshot.
-func (r *Runner) compact(ctx context.Context, rs *runState, force bool) error {
+// a new epoch with a refreshed snapshot. manual is /compact, which refreshes
+// the snapshot even when there is nothing to fold.
+func (r *Runner) compact(ctx context.Context, rs *runState, force, manual bool) error {
 	cc := r.cfg().Context.Compaction
 	sess, err := r.d.Store.Sessions().Get(ctx, core.SystemViewer(), rs.req.Session)
 	if err != nil {
@@ -92,7 +93,16 @@ func (r *Runner) compact(ctx context.Context, rs *runState, force bool) error {
 	promote := lazyPromotions(msgs, sess.ToolsSnapshot)
 	split := r.chooseSplit(rs, msgs, orInt(cc.KeepRecentTurns, 4), force)
 	if split <= sess.SummaryUpto {
+		if !manual {
+			// One long turn has nothing to fold. A new epoch would only
+			// re-render S2 every step and break the prompt cache; the hard
+			// fit keeps the request in budget.
+			return nil
+		}
 		return r.newEpoch(ctx, rs, promote, nil, "")
+	}
+	if !manual {
+		rs.publish(core.EvRunStatus, core.RunStatusData{Status: "compacting"})
 	}
 	var fold []*core.Message
 	for _, m := range msgs {
@@ -287,6 +297,9 @@ func (r *Runner) summarize(ctx context.Context, rs *runState, sess *core.Session
 		}
 		resp, ci, err := r.d.LLM.Complete(ctx, slot, nil, build, nil)
 		r.meterAux(ctx, rs, &ci, "compaction")
+		if err == nil && resp == nil {
+			err = errors.New("no response")
+		}
 		if err != nil {
 			r.log.Warn("summarizer failed", "session", sess.ID, "attempt", attempt+1, "err", err)
 			continue

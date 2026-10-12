@@ -440,3 +440,37 @@ func TestStandingRulesAndSkillsIndex(t *testing.T) {
 		}
 	})
 }
+
+func TestLongSingleTurnKeepsItsEpoch(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		info := core.ModelInfo{Ref: core.ModelRef{Provider: "ollama", Model: "qwen3:14b"}, Context: 16384, MaxOutput: 2048, Tools: true, Local: true, Price: core.Price{Known: true}}
+		big := &testTool{name: "fs_read", run: func(_ context.Context, _ *core.ToolEnv, _ *core.Action) (*core.ToolResult, error) {
+			return &core.ToolResult{Content: strings.Repeat("log line with some words\n", 600)}, nil
+		}}
+		var steps []fakes.LLMStep
+		for i := range 8 {
+			steps = append(steps, fakes.LLMStep{ToolCalls: []core.ToolCall{call("fs_read", fmt.Sprintf(`{"n":%d}`, i))}})
+		}
+		steps = append(steps, fakes.LLMStep{Text: []string{"Done."}})
+		h := newHarness(t, opts{info: info, tools: []core.Tool{big}, steps: steps})
+		defer h.close()
+		res := h.submit("read all the logs")
+		synctest.Wait()
+		if st := h.run(res.Run).Status; st != core.RunDone {
+			t.Fatalf("status %s (%s)", st, h.run(res.Run).Error)
+		}
+		reqs := h.requests()
+		limit := info.Context - reserveFor(h.cfg, profileCompact, info.Context)
+		for i, req := range reqs {
+			if n := estimateRequest(h.r, info.Ref, req); n > limit {
+				t.Fatalf("request %d: %d tokens > %d", i, n, limit)
+			}
+		}
+		if h.session().Epoch != 0 {
+			t.Fatalf("epoch = %d; one turn has nothing to fold", h.session().Epoch)
+		}
+		if first, last := prefixHash(reqs[0].Tools, reqs[0].System), prefixHash(reqs[len(reqs)-1].Tools, reqs[len(reqs)-1].System); first != last {
+			t.Fatal("the prefix changed within one turn")
+		}
+	})
+}

@@ -23,10 +23,16 @@ synthesized, never stored), untrusted text is wrapped in `<untrusted … id=…>
 blocks whose ids are an HMAC of their position under `meta.agent.spotlight_key`
 (stable bytes for prompt caching, unpredictable to the content's author), and
 a hard fit keeps every request within window − reserve for the model the
-provider facade actually picks. Compaction (`compact.go`) folds everything
-before the last `keep_recent_turns` user turns into a validated six-heading
-summary, auto-pins standing instructions and falls back to dropping turns when
-the summarizer fails twice.
+provider facade actually picks. Tool call ids are made unique when the
+assistant message is stored, since providers without ids number them per
+response. `/v1` ephemeral history keeps only text and attachments, with the
+request's provenance. Compaction (`compact.go`) folds everything before the
+last `keep_recent_turns` user turns into a validated six-heading summary,
+auto-pins standing instructions and falls back to dropping turns when the
+summarizer fails twice; an automatic compaction with nothing to fold (one
+long turn) leaves the epoch alone, and the always-lazy builtins (`fs_delete`,
+`net_allow`, `skill_read`, `schedule_*`) are never promoted into the tools
+block.
 
 Tool calls (`tools.go`, `approval.go`) follow SPEC §5.7: `use_tool` unwrap,
 availability, schema check, `Plan`, the loop pre-check, `Policy.Decide`,
@@ -34,14 +40,21 @@ approvals (allow once/session/always, API deny or bounded wait, park for
 scheduled runs with a placeholder result), parallel execution of auto-allowed
 non-exec reads (decided with the taint the batch could reach), output capped
 head 60% / tail 40% with the full redacted output spilled to
-`.bothy/out/<tcl>.txt`, taint, audit. `Resume` flips a parked run to queued in
-one store transaction, so the stored Action runs exactly once, and appends the
-outcome as an `<approved-action>` message. `Stop` never waits on the run: it
-cancels, kills the session box, cancels approvals, clears the queue and
-abandons a run that has not exited 5 s later. The kill switch persists in
-`meta.paused`. `Run` marks interrupted runs at boot, cancels their approvals,
-notifies their chats and resumes parked runs whose approval was decided while
-the gateway was down.
+`.bothy/out/<tcl>.txt`, taint, audit. Card grants are created only for
+choices the decision offered, and an unexpected choice counts as a denial.
+`Resume` treats its argument as a signal only: it re-reads the approval from
+the approvals store, flips the parked run to queued in one store transaction
+and runs the stored Action exactly once, provided it matches the planned tool
+call, appending the outcome as an `<approved-action>` message. `Stop` never
+waits on the run: it cancels, kills the session box, cancels approvals, clears
+the queue (including resumes not yet handed to the worker) and abandons a run
+that has not exited 5 s later. The kill switch persists in `meta.paused`;
+`StopAll` covers every session with queued work and a queued resume that
+starts while paused stops instead. `Run` marks interrupted runs at boot,
+cancels their approvals, notifies their chats and resumes parked runs whose
+approval was decided while the gateway was down; at shutdown, runs it
+interrupts cancel their own approvals. A zero field in requested limits means
+the trigger's default, never unlimited.
 
 The embedded `CONSTITUTION.md`, `CONSTITUTION.short.md` and default `SOUL.md`
 (written to `<data>/<agent.persona_file>` at construction when missing) are
