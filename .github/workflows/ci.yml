@@ -1,0 +1,156 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CGO_ENABLED: "0"
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: go mod verify
+        run: go mod verify
+      - name: modernc.org/libc is pinned exactly (SPEC §11.1)
+        run: test "$(go list -m -f '{{.Version}}' modernc.org/libc)" = v1.77.1
+      - name: build
+        run: |
+          go build ./...
+          GOOS=linux GOARCH=amd64 go build ./...
+          GOOS=linux GOARCH=arm64 go build ./...
+          GOOS=darwin GOARCH=arm64 go build ./...
+          GOOS=windows GOARCH=amd64 go build ./...
+      - name: go vet
+        run: |
+          go vet ./...
+          go vet -tags 'e2e budgets' ./e2e/...
+      - name: go test -race
+        run: make test
+
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: gofmt, vet, staticcheck, golangci-lint, import and ownership rules
+        run: make lint
+      - name: shellcheck
+        run: shellcheck scripts/*.sh scripts/*/*.sh deploy/install.sh
+      - name: dependency cooldown (14 days)
+        if: github.event_name == 'pull_request'
+        run: scripts/check-cooldown.sh -base "origin/${GITHUB_BASE_REF}"
+      - name: dependency cooldown (14 days)
+        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: scripts/check-cooldown.sh -base "$BEFORE"
+
+  vuln:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make vuln
+
+  gen:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+      - run: make gen
+      - name: types.gen.ts is up to date
+        run: git diff --exit-code -- web/src/lib/api/types.gen.ts
+
+  ui:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: committed dist/index.html is the node-less placeholder
+        run: grep -q 'has not been built into this binary' internal/webui/dist/index.html
+      - run: make ui
+      - name: typecheck
+        working-directory: web
+        run: npm run check
+      - name: unit tests
+        working-directory: web
+        run: npm test
+      - name: size and CSP gates
+        run: scripts/budgets/ui-size.sh
+
+  e2e:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make e2e
+
+  budgets:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      IMAGE: bothy:ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: build the gateway image
+        run: make image IMAGE="$IMAGE"
+      - name: image size
+        run: scripts/budgets/image-size.sh "$IMAGE"
+      - name: image layout (SPEC §2.3)
+        run: scripts/budgets/image-layout.sh "$IMAGE"
+      - name: binary size
+        run: scripts/budgets/binary-size.sh
+      - name: cold start and idle RSS (10 minutes)
+        run: scripts/budgets/footprint.sh

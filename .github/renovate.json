@@ -1,0 +1,16 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests", "docker:pinDigests"],
+  "minimumReleaseAge": "14 days",
+  "internalChecksFilter": "strict",
+  "rangeStrategy": "pin",
+  "postUpdateOptions": ["gomodTidy"],
+  "labels": ["dependencies"],
+  "packageRules": [
+    {
+      "description": "go.mod is lead-only (SPEC §12.3): no automerge, review as a skeleton patch",
+      "matchManagers": ["gomod"],
+      "automerge": false
+    }
+  ]
+}

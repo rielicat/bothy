@@ -1,0 +1,36 @@
+version: "2"
+
+run:
+  build-tags: [e2e]
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - errorlint
+    - gosec
+    - misspell
+    - nilerr
+    - noctx
+    - unconvert
+  settings:
+    gosec:
+      excludes:
+        - G101 # "secret:<name>" vault references are names, not credentials
+        - G104 # unhandled errors belong to errcheck
+        - G115 # integer conversions are range-checked where it matters (ids, ring indexes)
+        - G118 # shutdown goroutines deliberately outlive the cancelled context
+        - G204 # os/exec is banned outside sandbox/bwrap by scripts/check-imports.sh; reexec uses syscall.Exec
+        - G304 # paths are built from the data dir or opened under os.Root
+        - G702 # same as G204: the only exec is the self re-exec of os.Executable()
+  exclusions:
+    presets: [std-error-handling]
+    rules:
+      - path: _test\.go
+        linters: [gosec, noctx, bodyclose]
+      - path: _test\.go
+        linters: [staticcheck]
+        text: "^(S1|ST1|QF|SA4000)"
+
+formatters:
+  enable: [gofmt]

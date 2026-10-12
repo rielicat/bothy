@@ -1,0 +1,4 @@
+* text=auto eol=lf
+*.sh text eol=lf
+web/src/lib/api/types.gen.ts linguist-generated=true
+web/package-lock.json linguist-generated=true

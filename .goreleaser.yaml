@@ -1,0 +1,118 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+# Release pipeline (SPEC §2.1, §12.1), run by .github/workflows/release.yml on
+# a v* tag: static binaries, the gateway image, SBOMs, cosign signatures and
+# the Homebrew cask. The workflow adds SLSA provenance attestations and the
+# digest-pinned compose bundle afterwards (scripts/release/compose-bundle.sh).
+version: 2
+project_name: bothy
+
+before:
+  hooks:
+    - go mod verify
+    - make ui
+
+builds:
+  - id: bothy
+    main: ./cmd/bothy
+    binary: bothy
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.version={{ .Version }}"]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+  # Best-effort armv7 gateway image only; not shipped as an archive.
+  - id: bothy-armv7
+    main: ./cmd/bothy
+    binary: bothy
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.version={{ .Version }}"]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    goos: [linux]
+    goarch: [arm]
+    goarm: ["7"]
+
+archives:
+  - id: bothy
+    ids: [bothy]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files: [LICENSE, NOTICE, README.md]
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+sboms:
+  - id: archives
+    artifacts: archive
+
+# Keyless: the certificate names the release workflow at the tag, which
+# deploy/install.sh requires.
+signs:
+  - id: checksums
+    cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sigstore.json"
+    args: ["sign-blob", "--bundle=${signature}", "${artifact}", "--yes"]
+
+dockers_v2:
+  - id: gateway
+    ids: [bothy, bothy-armv7]
+    dockerfile: deploy/Dockerfile.release
+    images: [ghcr.io/bothyhq/bothy]
+    tags:
+      - "{{ .Version }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    platforms: [linux/amd64, linux/arm64, linux/arm/v7]
+    sbom: true
+    labels:
+      org.opencontainers.image.title: bothy
+      org.opencontainers.image.description: Self-hosted AI agent gateway
+      org.opencontainers.image.source: https://github.com/bothyhq/bothy
+      org.opencontainers.image.licenses: Apache-2.0
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.created: "{{ .CommitDate }}"
+
+docker_signs:
+  - id: gateway
+    cmd: cosign
+    artifacts: manifests
+    args: ["sign", "${artifact}@${digest}", "--yes"]
+
+homebrew_casks:
+  - name: bothy
+    ids: [bothy]
+    repository:
+      owner: bothyhq
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: https://github.com/bothyhq/bothy
+    description: Self-hosted AI agent with secure defaults in one small binary
+    license: Apache-2.0
+    skip_upload: auto
+    hooks:
+      post:
+        # The binaries are not notarized; Gatekeeper would otherwise refuse them.
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/bothy"]
+          end
+
+release:
+  github:
+    owner: bothyhq
+    name: bothy
+  prerelease: auto
+  draft: true
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude: ["^docs:", "^test:", "^chore:"]
