@@ -67,9 +67,35 @@
     return () => offs.forEach((f) => f());
   });
 
+  // The card the shortcuts act on. When a different card slides under the
+  // cursor without the user moving (one above was decided elsewhere, or a
+  // resync reordered the list), shortcuts stay off until j/k or focus picks a
+  // card again, so a keypress never decides a card that was not on screen.
+  let selId: string | undefined;
+  let selTab = '';
+  let armed = $state(true);
+
   $effect(() => {
     if (sel >= list.length) sel = Math.max(0, list.length - 1);
+    const id = list[sel]?.id;
+    if (tab !== selTab) {
+      selTab = tab;
+      armed = true;
+    } else if (selId !== undefined && id !== selId) armed = false;
+    selId = id;
   });
+
+  function select(i: number) {
+    sel = Math.min(Math.max(0, i), list.length - 1);
+    selId = list[sel]?.id;
+    armed = true;
+  }
+
+  // After the user's own decision the next card is the intended target.
+  function decided() {
+    selId = undefined;
+    armed = true;
+  }
 
   const keys: Record<string, Choice> = { a: 'allow_once', s: 'allow_session', l: 'allow_always', d: 'deny' };
 
@@ -81,10 +107,10 @@
     const row = () => listEl?.children[sel] as HTMLElement | undefined;
     if (e.key === 'j' || e.key === 'k') {
       e.preventDefault();
-      sel = Math.min(Math.max(0, sel + (e.key === 'j' ? 1 : -1)), list.length - 1);
+      select(sel + (e.key === 'j' ? 1 : -1));
       row()?.scrollIntoView({ block: 'nearest' });
       row()?.querySelector<HTMLButtonElement>('footer button')?.focus();
-    } else if (keys[e.key]) {
+    } else if (keys[e.key] && armed) {
       const b = row()?.querySelector<HTMLButtonElement>(`button[data-choice="${keys[e.key]}"]`);
       if (!b) return;
       e.preventDefault();
@@ -144,8 +170,8 @@
   {:else}
     <ul class="space-y-4" bind:this={listEl}>
       {#each list as a, i (a.id)}
-        <li class="rounded-xl transition-shadow {i === sel ? 'ring-2 ring-accent/50 ring-offset-4 ring-offset-bg' : ''}">
-          <ApprovalCard approval={a} shortcuts={i === sel} />
+        <li class="rounded-xl transition-shadow {i === sel ? 'ring-2 ring-accent/50 ring-offset-4 ring-offset-bg' : ''}" onfocusin={() => i !== sel && select(i)}>
+          <ApprovalCard approval={a} shortcuts={i === sel && armed} onresolved={decided} />
           <p class="mt-1.5 flex gap-3 px-1 text-xs text-muted">
             <span>{ago(a.created_at, clock.now)}</span>
             <a class="link" href="/chat/{encodeURIComponent(a.session_id)}" onclick={router.link}>Open the chat</a>

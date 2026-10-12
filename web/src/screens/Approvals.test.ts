@@ -13,6 +13,8 @@ describe('Approvals inbox keyboard flow', () => {
 
   beforeEach(async () => {
     calls = installApi();
+    // Start empty so the wait below sees this test's load, not the last test's list.
+    approvals.reset();
     await session.init();
     // let the login-time fetch land before seeding the inbox
     await waitFor(() => expect(approvals.pending.length).toBe(fixtureApprovals.length));
@@ -88,5 +90,48 @@ describe('Approvals inbox keyboard flow', () => {
     await fireEvent.click(screen.getByRole('tab', { name: /Recent/ }));
     expect(router.query.get('status')).toBe('recent');
     await waitFor(() => expect(calls.some((c) => c.url.includes('status=recent'))).toBe(true));
+  });
+});
+
+describe('Approvals inbox shortcut target', () => {
+  let calls: Call[];
+
+  beforeEach(async () => {
+    calls = installApi();
+    // Start empty so the wait below sees this test's load, not the last test's list.
+    approvals.reset();
+    await session.init();
+    await waitFor(() => expect(approvals.pending.length).toBe(fixtureApprovals.length));
+    const second = { ...fixtureApprovals[1], status: 'pending', created_at: '2099-01-01T00:00:00Z' };
+    approvals.pending = [fixtureApprovals[0], second];
+    router.navigate('/approvals');
+  });
+
+  const posts = () => calls.filter((c) => c.method === 'POST' && c.url.startsWith('/api/approvals/'));
+
+  it('does not decide a card that slid under the cursor until the user moves', async () => {
+    render(Approvals, { params: {} });
+    await screen.findAllByRole('article');
+    // The selected card is decided from Telegram; the next one takes its place.
+    approvals.upsert({ ...fixtureApprovals[0], status: 'allowed' });
+    await waitFor(() => expect(screen.getAllByRole('article')).toHaveLength(1));
+    expect(screen.getByRole('article').querySelector('[aria-keyshortcuts]')).toBeNull();
+    await fireEvent.keyDown(window, { key: 'a' });
+    expect(posts()).toHaveLength(0);
+
+    await fireEvent.keyDown(window, { key: 'j' });
+    await fireEvent.keyDown(window, { key: 'a' });
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posts()[0].url).toBe(`/api/approvals/${fixtureApprovals[1].id}`);
+  });
+
+  it('acts on the card that holds focus', async () => {
+    render(Approvals, { params: {} });
+    const cards = await screen.findAllByRole('article');
+    await fireEvent.focusIn(cards[1].querySelector('footer button')!);
+    await fireEvent.keyDown(window, { key: 'd' });
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posts()[0].url).toBe(`/api/approvals/${fixtureApprovals[1].id}`);
+    expect(JSON.parse(posts()[0].body)).toEqual({ choice: 'deny' });
   });
 });

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { api } from '../lib/api/client';
   import type { Approval, Choice } from '../lib/api/types.gen';
-  import { countdown, ago } from '../lib/format';
+  import { countdown, ago, isZeroTime } from '../lib/format';
   import { channelName, choiceDone, choiceKey, choiceLabel, risk } from '../lib/labels';
   import { clock } from '../lib/stores/clock.svelte';
   import { approvals, session } from '../lib/stores/session.svelte';
@@ -39,12 +39,13 @@
   const open = $derived(view.status === 'pending' || view.status === 'parked');
   const tone = $derived(risk[card.risk] ?? risk.external_send);
   const me = $derived(session.me?.user);
-  const canApprove = $derived(
-    !!me && (view.approver?.admin_only ? session.isAdmin : !view.approver?.user_id || view.approver.user_id === me.id),
-  );
-  const deadline = $derived(view.status === 'parked' ? view.park_until : card.expires || view.expires_at);
+  // Fails closed: an approval that names no approver shows no buttons.
+  const canApprove = $derived(!!me && (view.approver?.admin_only ? session.isAdmin : !!view.approver?.user_id && view.approver.user_id === me.id));
+  // Go sends unset times as 0001-01-01, which is truthy.
+  const deadline = $derived(view.status === 'parked' ? view.park_until : isZeroTime(card.expires) ? view.expires_at : card.expires);
   const left = $derived(open && deadline ? countdown(deadline, clock.now) : '');
-  const choices = $derived((card.choices?.length ? card.choices : view.decision?.choices) ?? []);
+  // The rendered card is authoritative: a choice it leaves out is never offered.
+  const choices = $derived(card.choices ?? []);
   const order: Choice[] = ['allow_once', 'allow_session', 'allow_always', 'deny'];
   const buttons = $derived(order.filter((c) => choices.includes(c)));
 

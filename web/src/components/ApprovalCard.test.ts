@@ -112,4 +112,22 @@ describe('ApprovalCard', () => {
     expect(details.open).toBe(false);
     expect(details.querySelector('summary')?.textContent).toBe("Model's reason (unverified)");
   });
+
+  it('offers no choice the card leaves out and fails closed without an approver', () => {
+    const noChoices = approval({ card: { ...approval().card, choices: [] } });
+    const a = render(ApprovalCard, { approval: noChoices });
+    expect(a.container.querySelectorAll('footer button')).toHaveLength(0);
+    a.unmount();
+
+    const nobody = approval({ approver: { user_id: '', admin_only: false } });
+    const b = render(ApprovalCard, { approval: nobody });
+    expect(b.container.querySelectorAll('footer button')).toHaveLength(0);
+  });
+
+  it('counts down to the approval expiry when the card carries Go zero time', () => {
+    const a = approval({ card: { ...approval().card, expires: '0001-01-01T00:00:00Z' }, expires_at: new Date(Date.now() + 5 * 60_000).toISOString() });
+    render(ApprovalCard, { approval: a });
+    expect(screen.getByTitle('Expires in').textContent).toMatch(/[45]:\d\d/);
+  });
 });
+
