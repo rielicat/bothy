@@ -88,13 +88,26 @@ func TestRunTimeoutKillsTheGroup(t *testing.T) {
 		t.Fatalf("no background pid in %q", out)
 	}
 	deadline := time.Now().Add(3 * time.Second)
-	for syscall.Kill(pid, 0) == nil {
+	for alive(pid) {
 		if time.Now().After(deadline) {
 			_ = syscall.Kill(pid, syscall.SIGKILL)
 			t.Fatalf("background process %d survived the timeout", pid)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
+}
+
+// alive reports whether pid runs. A killed orphan may linger as a zombie
+// when nobody reaps it (the test binary as a container's PID 1).
+func alive(pid int) bool {
+	if syscall.Kill(pid, 0) != nil {
+		return false
+	}
+	if stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid)); err == nil {
+		st := procState(stat)
+		return st != 'Z' && st != 'X'
+	}
+	return true
 }
 
 func TestRunBackgroundProcessDoesNotHoldTheExec(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -633,13 +634,13 @@ func (h *harness) stdio(key, body string) (net.Conn, *bufio.Reader) {
 
 func TestRing(t *testing.T) {
 	r := newRing()
-	r.Write([]byte("abc"))
+	_, _ = r.Write([]byte("abc"))
 	if string(r.Bytes()) != "abc" {
 		t.Fatal(string(r.Bytes()))
 	}
 	big := bytes.Repeat([]byte("0123456789"), stderrRing/10+5)
-	r.Write(big)
-	r.Write([]byte("tail"))
+	_, _ = r.Write(big)
+	_, _ = r.Write([]byte("tail"))
 	got := r.Bytes()
 	if len(got) != stderrRing || !bytes.HasSuffix(got, []byte("tail")) || !bytes.Equal(got[:stderrRing-4], big[len(big)-(stderrRing-4):]) {
 		t.Fatalf("ring kept %d bytes, suffix %q", len(got), got[len(got)-8:])
@@ -657,7 +658,7 @@ func TestOutputCaps(t *testing.T) {
 	if k, _ := c.take(2, []byte("wxyz!")); string(k) != "wxyz" {
 		t.Fatal("caps are per stream", string(k))
 	}
-	if _, err := c.take(1, make([]byte, drainLimit+1)); err != errCut {
+	if _, err := c.take(1, make([]byte, drainLimit+1)); !errors.Is(err, errCut) {
 		t.Fatalf("drain limit: %v", err)
 	}
 }

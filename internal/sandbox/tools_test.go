@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -138,11 +139,11 @@ func TestShellExec(t *testing.T) {
 	}
 
 	env.Sandbox = &sandboxtest.Sandbox{StatusV: core.SandboxStatus{Backend: "none"}}
-	if _, err := shell.Exec(context.Background(), env, a); !errorsIs(err, core.ErrNoSandbox) {
+	if _, err := shell.Exec(context.Background(), env, a); !errors.Is(err, core.ErrNoSandbox) {
 		t.Fatalf("no sandbox: %v", err)
 	}
 	env.Sandbox = nil
-	if _, err := shell.Exec(context.Background(), env, a); err != core.ErrNoSandbox {
+	if _, err := shell.Exec(context.Background(), env, a); !errors.Is(err, core.ErrNoSandbox) {
 		t.Fatalf("nil sandbox: %v", err)
 	}
 }

@@ -172,6 +172,9 @@ func newEnv(t *testing.T, o opts) (*env, *enginetest.Fake) {
 	}
 	if sd, ok := c.svc.be.(*sandboxdBackend); ok {
 		sd.group = os.Getgid() // the test user is not in group 10001
+		// A pooled connection that never carried a request holds up the
+		// sidecar's graceful shutdown for 5s.
+		t.Cleanup(sd.hc.CloseIdleConnections)
 	}
 	e.c = c
 	return e, eng

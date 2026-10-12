@@ -1,4 +1,4 @@
-//go:build docker
+//go:build docker || runsc
 
 package sandbox
 
@@ -135,6 +135,7 @@ type dockerEnv struct {
 	c    *Client
 	eg   *proxyEgress
 	work string
+	cfg  *config.Config
 }
 
 func (d *dockerEnv) sh(t *testing.T, key, cmd string, timeout time.Duration) *core.ExecResult {
@@ -159,7 +160,10 @@ func (d *dockerEnv) ensure(t *testing.T, purpose string) (string, core.Workspace
 	return key, ws
 }
 
-func TestDockerAcceptance(t *testing.T) {
+// newDockerEnv connects to the sandboxd under test and waits until its
+// self-test has settled (the first one may pull images).
+func newDockerEnv(t *testing.T) (*dockerEnv, core.SandboxStatus) {
+	t.Helper()
 	sock := os.Getenv("BOTHY_TEST_SANDBOXD_SOCKET")
 	if sock == "" {
 		t.Skip("BOTHY_TEST_SANDBOXD_SOCKET not set (run deploy/sandbox/test/acceptance.sh)")
@@ -175,20 +179,30 @@ func TestDockerAcceptance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(5 * time.Minute) // the first self-test may pull images
-	for !c.svc.refresh(ctx).Available {
+	deadline := time.Now().Add(5 * time.Minute)
+	for {
+		st := c.svc.refresh(ctx)
+		if st.Available || (len(st.SelfTest) > 0 && !strings.Contains(st.Reason, "not reachable")) {
+			raw, _ := json.MarshalIndent(st, "", "  ")
+			t.Logf("status:\n%s", raw)
+			return &dockerEnv{c: c, eg: eg, work: work, cfg: cfg}, st
+		}
 		if time.Now().After(deadline) {
-			st, _ := json.MarshalIndent(c.Status(ctx), "", "  ")
-			t.Fatalf("sandbox never became available:\n%s", st)
+			raw, _ := json.MarshalIndent(st, "", "  ")
+			t.Fatalf("sandboxd never settled:\n%s", raw)
 		}
 		time.Sleep(time.Second)
 	}
-	d := &dockerEnv{c: c, eg: eg, work: work}
+}
+
+func TestDockerAcceptance(t *testing.T) {
+	d, st := newDockerEnv(t)
+	if !st.Available {
+		t.Fatalf("sandbox unavailable: %s", st.Reason)
+	}
+	c, eg, work, cfg, ctx := d.c, d.eg, d.work, d.cfg, context.Background()
 
 	t.Run("self-test passes", func(t *testing.T) {
-		st := c.Status(ctx)
-		raw, _ := json.MarshalIndent(st, "", "  ")
-		t.Logf("status:\n%s", raw)
 		for _, chk := range st.SelfTest {
 			if !chk.OK && chk.Name != proto.CheckRunsc {
 				t.Errorf("check %s failed: %s", chk.Name, chk.Detail)

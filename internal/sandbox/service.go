@@ -418,6 +418,13 @@ func (s *service) reapIdle(ctx context.Context) {
 	}
 	s.mu.Unlock()
 	for _, k := range keys {
+		s.mu.Lock()
+		b := s.boxes[k]
+		still := b != nil && b.active == 0 && now.Sub(b.lastUsed) > idle // an exec may have started meanwhile
+		s.mu.Unlock()
+		if !still {
+			continue
+		}
 		if err := s.Destroy(ctx, k); err != nil && !errors.Is(err, core.ErrNoSandbox) {
 			s.log.Warn("reaping idle box failed", "key", k, "err", err)
 		}

@@ -30,10 +30,12 @@ type runOpts struct {
 
 func parseRunArgs(args []string) (runOpts, error) {
 	o := runOpts{killAfter: 5 * time.Second}
-	for i := 0; i < len(args); i++ {
-		switch a := args[i]; a {
+	for rest := args; len(rest) > 0; {
+		a := rest[0]
+		rest = rest[1:]
+		switch a {
 		case "--":
-			o.argv = args[i+1:]
+			o.argv = rest
 			if len(o.argv) == 0 || o.argv[0] == "" {
 				return o, errors.New("missing command after --")
 			}
@@ -42,19 +44,20 @@ func parseRunArgs(args []string) (runOpts, error) {
 			}
 			return o, nil
 		case "--timeout", "--kill-after":
-			if i+1 >= len(args) {
+			if len(rest) == 0 {
 				return o, fmt.Errorf("%s needs a duration", a)
 			}
-			d, err := time.ParseDuration(args[i+1])
+			v := rest[0]
+			rest = rest[1:]
+			d, err := time.ParseDuration(v)
 			if err != nil || d <= 0 {
-				return o, fmt.Errorf("%s: invalid duration %q", a, args[i+1])
+				return o, fmt.Errorf("%s: invalid duration %q", a, v)
 			}
 			if a == "--timeout" {
 				o.timeout = d
 			} else {
 				o.killAfter = d
 			}
-			i++
 		default:
 			return o, fmt.Errorf("unknown argument %q", a)
 		}

@@ -5,18 +5,33 @@
 # run volumes (unix sockets included). Works on Linux and on Docker Desktop,
 # where the host itself cannot share those volumes.
 #
-#   deploy/sandbox/test/acceptance.sh            # -tags docker suite
-#   MODE=bwrap deploy/sandbox/test/acceptance.sh # -tags bwrap suite in a container
+#   deploy/sandbox/test/acceptance.sh                         # -tags docker suite
+#   MODE=bwrap deploy/sandbox/test/acceptance.sh              # -tags bwrap suite in a container
+#   MODE=runsc EXPECT=runsc|fallback|refused deploy/sandbox/test/acceptance.sh
 #
-# Everything it creates is labelled bothy.test=1 and removed on exit
-# (KEEP_IMAGES=1 keeps the images). Env: RUNTIME (auto|runc|runsc, default
-# auto), NET (1 = the test container may reach example.com, default 1).
+# MODE=runsc needs gVisor registered with the engine: with --host-uds=open for
+# EXPECT=runsc, without it for fallback (BOTHY_SBX_RUNTIME=auto) and refused
+# (BOTHY_SBX_RUNTIME=runsc). Everything it creates is labelled bothy.test=1 and
+# removed on exit (KEEP_IMAGES=1 keeps the images). Env: RUNTIME overrides
+# BOTHY_SBX_RUNTIME; NET=1 (default) lets the test container reach example.com.
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 
 MODE=${MODE:-docker}
-RUNTIME=${RUNTIME:-auto}
+EXPECT=${EXPECT:-runsc}
 NET=${NET:-1}
+TAGS=docker
+TESTS=TestDockerAcceptance
+DEFAULT_RUNTIME=auto
+if [ "$MODE" = runsc ]; then
+	TAGS=runsc
+	TESTS=TestRunsc
+	case "$EXPECT" in
+	runsc) TESTS='TestRunsc|TestDockerAcceptance' DEFAULT_RUNTIME=runsc ;;
+	refused) DEFAULT_RUNTIME=runsc ;;
+	esac
+fi
+RUNTIME=${RUNTIME:-$DEFAULT_RUNTIME}
 TAG=bothy-m5-acceptance
 LABEL=bothy.test=1
 BASE=docker.io/library/debian:trixie-20260918-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
@@ -28,7 +43,7 @@ SANDBOXD=bothy-test-sandboxd
 
 cleanup() {
 	status=$?
-	if [ "$MODE" = docker ] && [ "$status" -ne 0 ] && docker inspect "$SANDBOXD" >/dev/null 2>&1; then
+	if [ "$MODE" != bwrap ] && [ "$status" -ne 0 ] && docker inspect "$SANDBOXD" >/dev/null 2>&1; then
 		echo "--- sandboxd logs" >&2
 		docker logs "$SANDBOXD" >&2 || true
 	fi
@@ -74,7 +89,7 @@ if [ "$MODE" = bwrap ]; then
 fi
 
 CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go build -trimpath -o "$OUT/bothy" ./cmd/bothy
-CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go test -c -tags docker -o "$OUT/sandbox.test" ./internal/sandbox
+CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go test -c -tags "$TAGS" -o "$OUT/sandbox.test" ./internal/sandbox
 build -f deploy/sandbox/Dockerfile --target base -t "$TAG:box" .
 BOX_IMAGE=$(docker image inspect "$TAG:box" --format '{{.Id}}')
 
@@ -103,5 +118,5 @@ docker run --rm --name bothy-test-gateway --label "$LABEL" \
 	--cap-drop ALL --security-opt no-new-privileges:true --user 65532:65532 --group-add 10001 \
 	-v "$WORK_VOL:/work" -v "$RUN_VOL:/run/bothy" \
 	-e BOTHY_TEST_SANDBOXD_SOCKET=/run/bothy/sandboxd.sock -e BOTHY_TEST_WORK=/work -e BOTHY_TEST_RUN=/run/bothy \
-	-e BOTHY_TEST_NET="$NET" \
-	--entrypoint /opt/test/sandbox.test "$TAG:harness" -test.v -test.count=1 -test.timeout 15m -test.run TestDockerAcceptance
+	-e BOTHY_TEST_NET="$NET" -e BOTHY_TEST_RUNSC_EXPECT="$EXPECT" \
+	--entrypoint /opt/test/sandbox.test "$TAG:harness" -test.v -test.count=1 -test.timeout 15m -test.run "$TESTS"

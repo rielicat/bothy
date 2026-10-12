@@ -21,10 +21,10 @@ const sharedDir = 0o770 | fs.ModeSetgid
 const noGroup = -1
 
 // mkdirGroup creates dir (and missing parents below root) with mode, then
-// enforces mode and, when gid >= 0, the group on every directory it created
-// and on dir itself. Explicit chmod because the process umask (007) would
-// otherwise drop bits, and MkdirAll never fixes existing directories.
-func mkdirGroup(root, dir string, mode fs.FileMode, gid int) error {
+// enforces mode and, when gid >= 0, the group on every directory it created,
+// and on dir itself when it already existed and fixExisting is set. Explicit
+// chmod because the process umask (007) would otherwise drop bits.
+func mkdirGroup(root, dir string, mode fs.FileMode, gid int, fixExisting bool) error {
 	rel, err := filepath.Rel(root, dir)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("sandbox: %s is outside %s", dir, root)
@@ -52,7 +52,7 @@ func mkdirGroup(root, dir string, mode fs.FileMode, gid int) error {
 			// put it there; never follow it.
 			return fmt.Errorf("sandbox: %s is not a directory", cur)
 		}
-		if cur == dir {
+		if cur == dir && fixExisting {
 			if err := fixDir(cur, mode, gid); err != nil {
 				return err
 			}
@@ -75,22 +75,24 @@ func fixDir(p string, mode fs.FileMode, gid int) error {
 // MCP tree (2770), skills/ (2770), and egress/<h> (0750) on the run volume.
 func boxDirs(work, run string, spec core.BoxSpec, gid int) error {
 	if spec.Workspace != "" {
-		if err := mkdirGroup(work, filepath.Join(work, "ws", string(spec.Workspace)), sharedDir, gid); err != nil {
+		if err := mkdirGroup(work, filepath.Join(work, "ws", string(spec.Workspace)), sharedDir, gid, true); err != nil {
 			return err
 		}
 	}
 	if spec.MCPTree != "" {
-		if err := mkdirGroup(work, filepath.Join(work, filepath.FromSlash(spec.MCPTree)), sharedDir, gid); err != nil {
+		if err := mkdirGroup(work, filepath.Join(work, filepath.FromSlash(spec.MCPTree)), sharedDir, gid, true); err != nil {
 			return err
 		}
 	}
-	if err := mkdirGroup(work, filepath.Join(work, "skills"), sharedDir, gid); err != nil {
+	// skills/ and egress/ belong to the skills and egress modules once they
+	// exist; only create them.
+	if err := mkdirGroup(work, filepath.Join(work, "skills"), sharedDir, gid, false); err != nil {
 		return err
 	}
-	// egress/ is shared with sandboxd (same group 65532), which keeps its
-	// canary socket there.
-	if err := mkdirGroup(run, filepath.Join(run, "egress"), 0o770, noGroup); err != nil {
+	// egress/ is shared with sandboxd (group 65532), which keeps its canary
+	// socket there.
+	if err := mkdirGroup(run, filepath.Join(run, "egress"), 0o770, noGroup, false); err != nil {
 		return err
 	}
-	return mkdirGroup(run, filepath.Join(run, filepath.FromSlash(proto.EgressSubpath(spec.Key))), 0o750, gid)
+	return mkdirGroup(run, filepath.Join(run, filepath.FromSlash(proto.EgressSubpath(spec.Key))), 0o750, gid, true)
 }

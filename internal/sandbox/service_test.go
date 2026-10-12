@@ -3,6 +3,7 @@ package sandbox
 import (
 	"bufio"
 	"context"
+	"errors"
 	"io"
 	"io/fs"
 	"os"
@@ -144,7 +145,7 @@ func TestValidationHappensBeforeTheSidecar(t *testing.T) {
 		"rw no tree": {Key: key1, MCPTreeRW: true},
 		"profile":    {Key: key1, Profile: "../x"},
 	} {
-		if err := e.c.Ensure(ctx, spec); !errorsIsInvalid(err) {
+		if err := e.c.Ensure(ctx, spec); !isInvalid(err) {
 			t.Errorf("%s: err = %v", name, err)
 		}
 	}
@@ -161,17 +162,17 @@ func TestValidationHappensBeforeTheSidecar(t *testing.T) {
 		"proxy env":  {Argv: []string{"env"}, Env: map[string]string{"HTTPS_PROXY": "http://evil"}},
 		"big stdin":  {Argv: []string{"cat"}, Stdin: make([]byte, proto.MaxStdin+1)},
 	} {
-		if _, err := e.c.Exec(ctx, key1, req, nil); !errorsIsInvalid(err) {
+		if _, err := e.c.Exec(ctx, key1, req, nil); !isInvalid(err) {
 			t.Errorf("%s: err = %v", name, err)
 		}
 	}
-	if _, err := e.c.Exec(ctx, "box_bad", core.ExecRequest{Argv: []string{"true"}}, nil); !errorsIsInvalid(err) {
+	if _, err := e.c.Exec(ctx, "box_bad", core.ExecRequest{Argv: []string{"true"}}, nil); !isInvalid(err) {
 		t.Errorf("bad key: %v", err)
 	}
-	if _, err := e.c.Stdio(ctx, key1, nil, nil); !errorsIsInvalid(err) {
+	if _, err := e.c.Stdio(ctx, key1, nil, nil); !isInvalid(err) {
 		t.Errorf("stdio empty argv: %v", err)
 	}
-	if _, err := e.c.Stdio(ctx, key1, []string{"x"}, map[string]string{"NODE_OPTIONS": "--require x"}); !errorsIsInvalid(err) {
+	if _, err := e.c.Stdio(ctx, key1, []string{"x"}, map[string]string{"NODE_OPTIONS": "--require x"}); !isInvalid(err) {
 		t.Errorf("stdio env: %v", err)
 	}
 	if len(eng.Created()) != before {
@@ -179,29 +180,7 @@ func TestValidationHappensBeforeTheSidecar(t *testing.T) {
 	}
 }
 
-func errorsIsInvalid(err error) bool { return err != nil && isInvalid(err) }
-
-func isInvalid(err error) bool {
-	for e := err; e != nil; {
-		if e == core.ErrInvalid {
-			return true
-		}
-		switch x := e.(type) {
-		case interface{ Unwrap() []error }:
-			for _, inner := range x.Unwrap() {
-				if isInvalid(inner) {
-					return true
-				}
-			}
-			return false
-		case interface{ Unwrap() error }:
-			e = x.Unwrap()
-		default:
-			return false
-		}
-	}
-	return false
-}
+func isInvalid(err error) bool { return errors.Is(err, core.ErrInvalid) }
 
 func TestEnsureRefusesSymlinksAndWrongEgress(t *testing.T) {
 	e, _ := newEnv(t, opts{sandboxd: true})
@@ -307,26 +286,12 @@ func TestExecContextCancellation(t *testing.T) {
 		ccancel(core.ErrStopped)
 	}()
 	res, err = e.c.Exec(cctx, key1, core.ExecRequest{Argv: []string{"sleep"}}, nil)
-	if !res.Killed || !errorsIs(err, core.ErrStopped) {
+	if !res.Killed || !errors.Is(err, core.ErrStopped) {
 		t.Fatalf("cancel = %+v, %v", res, err)
 	}
 	if err := e.c.Kill(ctx, key1); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func errorsIs(err, target error) bool {
-	for err != nil {
-		if err == target {
-			return true
-		}
-		u, ok := err.(interface{ Unwrap() error })
-		if !ok {
-			return false
-		}
-		err = u.Unwrap()
-	}
-	return false
 }
 
 func TestStdio(t *testing.T) {
@@ -526,7 +491,7 @@ func findings(t *testing.T, c *Client, id string) []core.Finding {
 	t.Helper()
 	for _, ch := range c.Checks() {
 		if ch.ID() == id {
-			if err := ch.Fix(context.Background(), core.Finding{}); err != core.ErrNotImplemented {
+			if err := ch.Fix(context.Background(), core.Finding{}); !errors.Is(err, core.ErrNotImplemented) {
 				t.Errorf("%s: Fix = %v", id, err)
 			}
 			return ch.Run(context.Background())
@@ -580,20 +545,36 @@ func TestChecks(t *testing.T) {
 
 func TestMkdirGroupRefusesEscapes(t *testing.T) {
 	root := t.TempDir()
-	if err := mkdirGroup(root, filepath.Join(root, "..", "x"), 0o770, noGroup); err == nil {
+	if err := mkdirGroup(root, filepath.Join(root, "..", "x"), 0o770, noGroup, true); err == nil {
 		t.Fatal("created a directory outside root")
 	}
 	if err := os.WriteFile(filepath.Join(root, "file"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := mkdirGroup(root, filepath.Join(root, "file", "x"), 0o770, noGroup); err == nil {
+	if err := mkdirGroup(root, filepath.Join(root, "file", "x"), 0o770, noGroup, true); err == nil {
 		t.Fatal("descended through a file")
 	}
-	if err := mkdirGroup(root, filepath.Join(root, "a", "b"), sharedDir, noGroup); err != nil {
+	if err := mkdirGroup(root, filepath.Join(root, "a", "b"), sharedDir, noGroup, true); err != nil {
 		t.Fatal(err)
 	}
 	fi, _ := os.Stat(filepath.Join(root, "a"))
 	if fi.Mode()&fs.ModeSetgid == 0 || fi.Mode().Perm() != 0o770 {
 		t.Fatalf("parent mode %v", fi.Mode())
+	}
+	existing := filepath.Join(root, "skills")
+	if err := os.Mkdir(existing, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := mkdirGroup(root, existing, sharedDir, noGroup, false); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(existing); fi.Mode().Perm() != 0o700 {
+		t.Fatalf("an existing directory was changed to %v", fi.Mode())
+	}
+	if err := mkdirGroup(root, existing, sharedDir, noGroup, true); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(existing); fi.Mode().Perm() != 0o770 {
+		t.Fatalf("fixExisting left %v", fi.Mode())
 	}
 }
