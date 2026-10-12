@@ -157,8 +157,9 @@ func (w fsWrite) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action) (*
 	defer root.Close()
 	rel := filepath.FromSlash(p)
 	var oldSize int64
+	perm := fileMode
 	if st, err := root.Stat(rel); err == nil && st.Mode().IsRegular() {
-		oldSize = st.Size()
+		oldSize, perm = st.Size(), st.Mode().Perm()
 	}
 	growth := int64(len(in.Content))
 	if in.Mode != modeAppend {
@@ -181,7 +182,7 @@ func (w fsWrite) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action) (*
 		err = appendTo(root, rel, in.Content)
 		verb = "Appended"
 	default:
-		err = replace(root, rel, in.Content)
+		err = replace(root, rel, in.Content, perm)
 	}
 	if err != nil {
 		return nil, fsErr(p, err)
@@ -226,8 +227,9 @@ func appendTo(root *os.Root, rel, content string) error {
 }
 
 // replace writes a sibling temp file and renames it over the target, so a
-// failed write never leaves a half-written file behind.
-func replace(root *os.Root, rel, content string) error {
+// failed write never leaves a half-written file behind. The new file keeps
+// the old one's permission bits (an overwritten script stays executable).
+func replace(root *os.Root, rel, content string, perm fs.FileMode) error {
 	var rnd [6]byte
 	if _, err := rand.Read(rnd[:]); err != nil {
 		return err
@@ -236,6 +238,13 @@ func replace(root *os.Root, rel, content string) error {
 	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, fileMode)
 	if err != nil {
 		return err
+	}
+	if perm != fileMode {
+		if err := f.Chmod(perm); err != nil {
+			_ = f.Close()
+			_ = root.Remove(tmp)
+			return err
+		}
 	}
 	if err := finish(f, content); err != nil {
 		_ = root.Remove(tmp)

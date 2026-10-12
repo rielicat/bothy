@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/bothyhq/bothy/internal/core"
@@ -376,5 +377,57 @@ func TestMessage(t *testing.T) {
 	}
 	if strings.Contains(string(m.Spec().Def.Schema), "recipient") || strings.Contains(string(m.Spec().Def.Schema), `"to"`) {
 		t.Error("message schema exposes a recipient")
+	}
+}
+
+func TestFSWriteKeepsPermissions(t *testing.T) {
+	env, ws := workspace(t)
+	script := filepath.Join(ws, "run.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\n"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, fsWrite{}, env, `{"path":"run.sh","content":"#!/bin/sh\necho hi\n"}`); err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode().Perm() != 0o750 {
+		t.Errorf("overwrite changed the mode to %v", st.Mode().Perm())
+	}
+}
+
+// expiringCtx reports no error for its first n Err calls, then Canceled, so
+// a test can cancel in the middle of a read.
+type expiringCtx struct {
+	context.Context
+	n atomic.Int32
+}
+
+func (c *expiringCtx) Err() error {
+	if c.n.Add(-1) >= 0 {
+		return nil
+	}
+	return context.Canceled
+}
+
+func TestFSReadHonoursCancellation(t *testing.T) {
+	env, ws := workspace(t)
+	if err := os.WriteFile(filepath.Join(ws, "long.txt"), []byte(strings.Repeat("line\n", 20000)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a, err := plan(t, fsRead{}, env, `{"path":"long.txt","offset":19999}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := &expiringCtx{Context: context.Background()}
+	ctx.n.Store(2)
+	if _, err := (fsRead{}).Exec(ctx, env, a); !errors.Is(err, context.Canceled) {
+		t.Errorf("read cancelled while skipping lines: %v", err)
+	}
+	res, err := (fsRead{}).Exec(context.Background(), env, a)
+	if err != nil || res.Content != "line\nline\n" {
+		t.Errorf("read: %v %+v", err, res)
 	}
 }

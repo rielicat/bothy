@@ -118,7 +118,7 @@ func (fsRead) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action) (*cor
 	if in.Offset == 0 && in.Limit == 0 {
 		return readWhole(br, p, st.Size())
 	}
-	return readLines(br, p, max(in.Offset, 1), in.Limit)
+	return readLines(ctx, br, p, max(in.Offset, 1), in.Limit)
 }
 
 func readWhole(r io.Reader, p string, size int64) (*core.ToolResult, error) {
@@ -136,11 +136,15 @@ func readWhole(r io.Reader, p string, size int64) (*core.ToolResult, error) {
 	}, nil
 }
 
-func readLines(r *bufio.Reader, p string, offset, limit int) (*core.ToolResult, error) {
+func readLines(ctx context.Context, r *bufio.Reader, p string, offset, limit int) (*core.ToolResult, error) {
 	var out bytes.Buffer
 	line, last := 0, 0
 	truncated, more := false, false
 	for {
+		// Skipping to a far offset reads the whole file; honour the timeout.
+		if line%4096 == 0 && ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		keep := 0
 		if line+1 >= offset {
 			keep = readCap - out.Len() + 1
