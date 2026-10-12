@@ -18,8 +18,10 @@ role and token scope, and rate-limits tokens. Handlers always pass the actor's
 foreign ids are 404. `GET /api/events` streams the bus as SSE with a hello
 frame, `Last-Event-ID` replay, `resync` across boots or on overflow, 15 s
 pings, a credential re-check every minute (revoked tokens, ended sessions,
-disabled users and role changes close the stream) and at most four streams
-per user. `/v1/chat/completions` maps OpenAI
+disabled users, role changes and new principals close the stream) and at
+most four streams per user. With `X-Bothy-Session`, a session that already
+has a run is refused (429) rather than steered into a run the request
+cannot stream. `/v1/chat/completions` maps OpenAI
 requests onto runs (`bothy`, `bothy-fast`) or onto `LLM.Passthrough` for
 `<provider>/<model>`, streaming `chat.completion.chunk` frames. Uploads and
 workspace downloads go through `os.Root` under `<WorkDir>/ws/<id>`, the
