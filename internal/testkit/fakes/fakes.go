@@ -1,11 +1,25 @@
 // Package fakes holds in-memory implementations of core interfaces for unit tests.
+//
+// Every fake is safe for concurrent use. Exported slices record calls: read
+// them directly once the code under test has returned, or through the
+// accessor methods while it may still be running. Methods a fake does not
+// implement fall through to its embedded interface, which is nil unless the
+// test sets it, so an unexpected call panics loudly.
 package fakes
 
 import (
+	"context"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/bothyhq/bothy/internal/core"
+)
+
+var (
+	_ core.Clock   = (*Clock)(nil)
+	_ core.Auditor = (*Auditor)(nil)
+	_ core.RunSink = (*Sink)(nil)
 )
 
 // Clock is a manually advanced core.Clock (use testing/synctest for timers).
@@ -24,119 +38,107 @@ type Auditor struct {
 	Entries []core.AuditEntry
 }
 
-// Vault is an in-memory core.Vault with an exact-match Redactor. Seal() makes
-// Get/Resolve return core.ErrSealed.
-type Vault struct{ core.Vault }
-
-func NewVault(secrets map[string]string) *Vault { return &Vault{} }
-
-// Policy returns Verdicts[tool] (default Default) with Rule "fake".
-type Policy struct {
-	core.Policy
-	Verdicts map[string]core.Verdict
-	Default  core.Verdict
+// Record assigns the next id (and At when zero) and appends the entry.
+func (a *Auditor) Record(_ context.Context, e core.AuditEntry) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	e.ID = int64(len(a.Entries)) + 1
+	if e.At.IsZero() {
+		e.At = time.Now()
+	}
+	a.Entries = append(a.Entries, e)
+	return nil
 }
 
-// Approvals resolves every request immediately with Choice (or blocks until
-// Resolve when Manual is true). Records requests.
-type Approvals struct {
-	core.Approvals
-	Choice   core.Choice
-	Manual   bool
-	Requests []core.ApprovalRequest
+func (a *Auditor) Verify(context.Context) (int64, error) { return 0, nil }
+func (a *Auditor) Flush(context.Context) error           { return nil }
+
+// All returns a copy of the recorded entries.
+func (a *Auditor) All() []core.AuditEntry {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]core.AuditEntry(nil), a.Entries...)
 }
 
-// LLM replays scripted turns: each Step streams Text and/or ToolCalls and
-// returns Usage; Err fails the call. Requests records every BuildFunc result.
-type LLM struct {
-	core.LLM
-	Steps    []LLMStep
-	Requests []*core.Request
-	Info     core.ModelInfo
-}
-
-type LLMStep struct {
-	Text      []string // streamed as deltas
-	ToolCalls []core.ToolCall
-	Usage     core.Usage
-	Err       error
-	Block     chan struct{} // if set, blocks after the first delta until closed or ctx done
+// Actions returns the Action of every recorded entry, in order.
+func (a *Auditor) Actions() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := make([]string, len(a.Entries))
+	for i, e := range a.Entries {
+		out[i] = e.Action
+	}
+	return out
 }
 
 // Sink records run events.
 type Sink struct {
-	mu     sync.Mutex
-	Events []core.Event
+	mu      sync.Mutex
+	Events  []core.Event
+	changed chan struct{} // closed and cleared on every event; created by Wait
 }
 
-func (s *Sink) OnEvent(e core.Event) { s.mu.Lock(); s.Events = append(s.Events, e); s.mu.Unlock() }
-
-// Runner records Submit/Stop/StopAll/Resume calls and returns Result (or Err)
-// from Submit; Paused/SetPaused toggle a flag; ResolveSession/NewSession/Fork
-// create sessions in Store (a memstore) when set.
-type Runner struct {
-	core.Runner
-	Store   core.Store
-	Result  core.SubmitResult
-	Err     error
-	Submits []core.RunRequest
-	Stops   []core.SessionID
-	Resumed []core.ApprovalID
-	PausedV bool
+func (s *Sink) OnEvent(e core.Event) {
+	s.mu.Lock()
+	s.Events = append(s.Events, e)
+	if s.changed != nil {
+		close(s.changed)
+		s.changed = nil
+	}
+	s.mu.Unlock()
 }
 
-// Hub records Messenger sends and StreamTo calls; StreamTo returns a *Sink.
-// PreferredChats maps users to their preferred DM.
-type Hub struct {
-	core.ChannelHub
-	Sent           []string // "<chat key>|<markdown>"
-	Streams        map[string]*Sink
-	PreferredChats map[core.UserID]core.ChatRef
+// All returns a copy of the events received so far.
+func (s *Sink) All() []core.Event {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]core.Event(nil), s.Events...)
 }
 
-// Auth resolves identities from Identities (key "<channel>:<external id>"),
-// builds Viewers from Viewers, and records pairing and sender-notice calls.
-type Auth struct {
-	core.Auth
-	Identities map[string]core.IdentityResolution
-	Viewers    map[core.UserID]core.Viewer
-	Notices    []core.ChannelIdentity
+// Types returns the type of every event received so far, in order.
+func (s *Sink) Types() []core.EventType {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]core.EventType, len(s.Events))
+	for i, e := range s.Events {
+		out[i] = e.Type
+	}
+	return out
 }
 
-// Budget allows everything unless Deny is set; StartRun returns a meter that
-// enforces only the given RunLimits steps and records AfterCall infos.
-type Budget struct {
-	core.Budget
-	Deny  *core.BudgetError
-	Calls []core.CallInfo
+// Text concatenates the text of every run.delta event.
+func (s *Sink) Text() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var b strings.Builder
+	for _, e := range s.Events {
+		if d, ok := e.Data.(core.DeltaData); ok {
+			b.WriteString(d.Text)
+		}
+	}
+	return b.String()
 }
 
-// Registry is a map-backed core.ToolRegistry with the real filtering rules
-// reduced to: trigger, principal kind (SpaceOK), sandbox (Exec), Gated.
-type Registry struct {
-	core.ToolRegistry
-	Tools map[string]core.Tool
-}
-
-// Memory, Skills, MCP and Scheduler embed their interface and implement the
-// read paths over in-memory maps (files, skill bodies, statuses, schedules).
-type Memory struct {
-	core.Memory
-	Files map[core.PrincipalID]map[core.MemoryFile]string
-}
-
-type Skills struct {
-	core.Skills
-	Metas  []core.SkillMeta
-	Bodies map[string]string
-}
-
-type MCP struct {
-	core.MCP
-	StatusV []core.MCPStatus
-}
-
-type Scheduler struct {
-	core.Scheduler
-	Schedules map[core.ScheduleID]*core.Schedule
+// Wait returns the first received event of type typ, blocking until one
+// arrives or ctx is done.
+func (s *Sink) Wait(ctx context.Context, typ core.EventType) (core.Event, error) {
+	for {
+		s.mu.Lock()
+		for _, e := range s.Events {
+			if e.Type == typ {
+				s.mu.Unlock()
+				return e, nil
+			}
+		}
+		if s.changed == nil {
+			s.changed = make(chan struct{})
+		}
+		ch := s.changed
+		s.mu.Unlock()
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			return core.Event{}, ctx.Err()
+		}
+	}
 }
