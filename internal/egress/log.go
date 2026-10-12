@@ -58,10 +58,25 @@ func (s *Service) flush(ctx context.Context) error {
 		return nil
 	}
 	if err := s.store.Egress().Add(ctx, batch); err != nil {
-		s.log.Warn("egress: writing egress_log failed", "rows", len(batch), "err", err)
+		s.log.Warn("egress: writing egress_log failed; will retry", "rows", len(batch), "err", err)
+		s.requeue(batch)
 		return err
 	}
 	return nil
+}
+
+// requeue puts a batch that could not be written back in front of the queue,
+// within maxPending.
+func (s *Service) requeue(batch []core.EgressRecord) {
+	q := &s.logq
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	all := append(batch, q.pending...)
+	if over := len(all) - maxPending; over > 0 {
+		q.dropped += over
+		all = all[:maxPending]
+	}
+	q.pending = all
 }
 
 func (s *Service) audit(ctx context.Context, action, target, outcome string, sess core.SessionID, run core.RunID, detail map[string]any) {

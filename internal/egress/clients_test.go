@@ -1,6 +1,7 @@
 package egress
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/bothyhq/bothy/internal/config"
@@ -267,5 +269,73 @@ func TestSystemClientExactHostsOnly(t *testing.T) {
 	}
 	if !slices.ContainsFunc(recs, func(r core.EgressRecord) bool { return r.Dest == "provider:test" && r.Decision == "allow" }) {
 		t.Fatalf("no allowed provider:test row: %+v", recs)
+	}
+}
+
+func TestDenylistAppliesToEveryDialer(t *testing.T) {
+	e := newEnv(t, func(c *config.Config) { c.Egress.Deny = []string{"evil.example", "*.bad.example"} })
+	e.res.set("evil.example", []string{publicIP})
+	e.res.set("x.bad.example", []string{publicIP})
+	e.plainUpstream(http.HandlerFunc(hello))
+	for _, u := range []string{"http://evil.example/", "http://x.bad.example/"} {
+		if _, err := e.s.PublicClient(e.sess, e.principal()).Get(u); !errors.Is(err, errDenied) {
+			t.Errorf("public GET %s: err = %v, want errDenied", u, err)
+		}
+	}
+	_, err := e.tool("web_fetch").Plan(context.Background(), e.toolEnv(), args(map[string]string{"url": "https://Evil.example/x"}))
+	if !errors.Is(err, core.ErrForbidden) {
+		t.Errorf("web_fetch Plan of a denylisted host: %v", err)
+	}
+	sc := e.s.SystemClient(core.SystemDest{Name: "mcp:evil", Hosts: []string{"evil.example:80"}})
+	if _, err := sc.Get("http://evil.example/"); !errors.Is(err, errDenied) {
+		t.Errorf("system GET: err = %v, want errDenied", err)
+	}
+	if d := e.dial.calls(); len(d) != 0 {
+		t.Fatalf("denylisted hosts were dialed: %v", d)
+	}
+	for _, r := range e.records(3) {
+		if r.Decision != "deny" || !strings.Contains(r.Reason, "denylisted") {
+			t.Errorf("record = %+v", r)
+		}
+	}
+}
+
+type flakyEgressRepo struct {
+	core.EgressRepo
+	fail atomic.Bool
+}
+
+func (r *flakyEgressRepo) Add(ctx context.Context, rs []core.EgressRecord) error {
+	if r.fail.Load() {
+		return errors.New("database is locked")
+	}
+	return r.EgressRepo.Add(ctx, rs)
+}
+
+type egressStore struct {
+	core.Store
+	eg core.EgressRepo
+}
+
+func (s egressStore) Egress() core.EgressRepo { return s.eg }
+
+func TestFlushKeepsRowsWhenTheStoreFails(t *testing.T) {
+	e := newEnv(t, nil)
+	repo := &flakyEgressRepo{EgressRepo: e.store.Egress()}
+	repo.fail.Store(true)
+	e.s.store = egressStore{Store: e.store, eg: repo}
+	e.s.record(core.EgressRecord{Dialer: "system", Dest: "provider:x", Host: "a.example", Port: 443, Decision: "allow"})
+	if err := e.s.flush(context.Background()); err == nil {
+		t.Fatal("flush reported success while the store failed")
+	}
+	repo.fail.Store(false)
+	if r := e.records(1)[0]; r.Host != "a.example" {
+		t.Fatalf("record = %+v", r)
+	}
+
+	e.s.logq.pending = make([]core.EgressRecord, maxPending-1)
+	e.s.requeue(make([]core.EgressRecord, 5))
+	if n, d := len(e.s.logq.pending), e.s.logq.dropped; n != maxPending || d != 4 {
+		t.Fatalf("requeue kept %d rows and dropped %d, want %d and 4", n, d, maxPending)
 	}
 }

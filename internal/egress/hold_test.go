@@ -3,6 +3,7 @@ package egress
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"io"
 	"net/http"
 	"slices"
@@ -279,5 +280,77 @@ func TestHoldForSharedTenantOffersOnlyAllowOnce(t *testing.T) {
 	e.resolve(ap.ID, core.AllowOnce)
 	if r := result(t, ch); r.code != http.StatusOK {
 		t.Fatalf("request = %+v", r)
+	}
+}
+
+func TestRefusedHoldIsNotAskedAgainInTheSameToolCall(t *testing.T) {
+	e := newEnv(t, nil)
+	e.res.set("pypi.org", []string{publicIP})
+	e.tlsUpstream(http.HandlerFunc(hello))
+	key, sock := e.openBox(core.BoxEgress{})
+	e.bind(key, true)
+	ch := asyncConnect(sock, "pypi.org:443")
+	e.resolve(e.pendingApproval(1).ID, core.Deny)
+	if r := result(t, ch); r.code != http.StatusForbidden {
+		t.Fatalf("denied hold = %+v", r)
+	}
+	start := time.Now()
+	code, msg := connectStatus(t, sock, "pypi.org:443")
+	if code != http.StatusForbidden || !strings.Contains(msg, "denied by the user earlier in this tool call") {
+		t.Fatalf("retry = %d %q", code, msg)
+	}
+	if time.Since(start) > time.Second {
+		t.Fatal("the retry was held again")
+	}
+	if n := len(e.apr.All()); n != 1 {
+		t.Fatalf("approvals = %d, want the retry answered without a new card", n)
+	}
+
+	e.bind(key, true)
+	ch = asyncConnect(sock, "pypi.org:443")
+	e.resolve(e.pendingApproval(2).ID, core.AllowOnce)
+	if r := result(t, ch); r.code != http.StatusOK {
+		t.Fatalf("the next tool call inherited the refusal: %+v", r)
+	}
+}
+
+func TestTimedOutHoldIsNotRepeatedInTheSameToolCall(t *testing.T) {
+	e := newEnv(t, func(c *config.Config) { c.Egress.HoldForApproval = config.Duration(100 * time.Millisecond) })
+	key, sock := e.openBox(core.BoxEgress{})
+	e.bind(key, true)
+	if code, _ := connectStatus(t, sock, "pypi.org:443"); code != http.StatusForbidden {
+		t.Fatalf("timed-out hold = %d", code)
+	}
+	code, msg := connectStatus(t, sock, "pypi.org:443")
+	if code != http.StatusForbidden || !strings.Contains(msg, "approval timed out earlier in this tool call") {
+		t.Fatalf("retry = %d %q", code, msg)
+	}
+	if n := len(e.apr.All()); n != 1 {
+		t.Fatalf("approvals = %d, want 1", n)
+	}
+}
+
+func TestHoldsPerToolCallAreCapped(t *testing.T) {
+	e := newEnv(t, nil)
+	key, sock := e.openBox(core.BoxEgress{})
+	e.bind(key, true)
+	var chans []<-chan connectResult
+	for i := range maxHoldsPerCall {
+		chans = append(chans, asyncConnect(sock, fmt.Sprintf("h%d.example:443", i)))
+	}
+	e.pendingApproval(maxHoldsPerCall)
+	start := time.Now()
+	code, msg := connectStatus(t, sock, "one-more.example:443")
+	if code != http.StatusForbidden || !strings.Contains(msg, "too many approval requests") || time.Since(start) > time.Second {
+		t.Fatalf("hold beyond the cap = %d %q after %v", code, msg, time.Since(start))
+	}
+	if n := len(e.apr.All()); n != maxHoldsPerCall {
+		t.Fatalf("approvals = %d, want %d", n, maxHoldsPerCall)
+	}
+	for _, a := range e.apr.All() {
+		e.resolve(a.ID, core.Deny)
+	}
+	for _, ch := range chans {
+		result(t, ch)
 	}
 }

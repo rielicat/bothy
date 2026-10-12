@@ -26,11 +26,29 @@ type spliceResult struct {
 	reason   string
 }
 
-// charge adds n to counter and reports whether the total stays within limit
-// (0 = unlimited).
-func charge(counter *atomic.Int64, n int, limit int64) bool {
-	total := counter.Add(int64(n))
-	return limit <= 0 || total <= limit
+// budget is one direction of a box's traffic: its byte total against the
+// session cap (0 = unlimited) and the box's activity flag.
+type budget struct {
+	used   *atomic.Int64
+	limit  int64
+	active *atomic.Bool
+}
+
+// take charges n bytes and reports whether the total stays within the cap.
+// Activity is flagged before the bytes are passed on.
+func (g budget) take(n int) bool {
+	total := g.used.Add(int64(n))
+	if g.limit > 0 && total > g.limit {
+		return false
+	}
+	g.active.Store(true)
+	return true
+}
+
+func (s *Service) budgets(b *box) (up, down budget) {
+	upCap, downCap := s.caps()
+	return budget{used: &b.use.up, limit: upCap, active: &b.activity},
+		budget{used: &b.use.down, limit: downCap, active: &b.activity}
 }
 
 func (s *Service) tunnel(b *box, c net.Conn, cr io.Reader, up net.Conn, t target) spliceResult {
@@ -46,16 +64,15 @@ func (s *Service) tunnel(b *box, c net.Conn, cr io.Reader, up net.Conn, t target
 	if !sniMatches(sni, t.host) {
 		return spliceResult{denied: true, reason: fmt.Sprintf("SNI %q does not match CONNECT host", truncate(sni, 64))}
 	}
-	upCap, _ := s.caps()
-	if !charge(&b.up, len(hello), upCap) {
+	upB, downB := s.budgets(b)
+	if !upB.take(len(hello)) {
 		return spliceResult{reason: "upload cap exceeded"}
 	}
-	b.activity.Store(true)
 	n, err := up.Write(hello)
 	if err != nil {
 		return spliceResult{up: int64(n), reason: "upstream write failed"}
 	}
-	r := s.splice(b, c, cr, up)
+	r := splice(c, cr, up, upB, downB)
 	r.up += int64(n)
 	return r
 }
@@ -81,12 +98,11 @@ func (i *idle) expired() bool { return time.Since(time.Unix(0, i.last.Load())) >
 
 // splice copies both directions under the box's byte caps. A client EOF is
 // passed on as a half-close; the upstream closing ends the tunnel.
-func (s *Service) splice(b *box, c net.Conn, cr io.Reader, up net.Conn) spliceResult {
-	upCap, downCap := s.caps()
+func splice(c net.Conn, cr io.Reader, up net.Conn, upB, downB budget) spliceResult {
 	act := newIdle()
 	upc, downc := make(chan dirResult, 1), make(chan dirResult, 1)
 	go func() {
-		n, capped, err := pipe(up, cr, c, &b.up, upCap, act)
+		n, capped, err := pipe(up, cr, c, upB, act)
 		if capped || err != nil {
 			_ = c.Close()
 			_ = up.Close()
@@ -96,7 +112,7 @@ func (s *Service) splice(b *box, c net.Conn, cr io.Reader, up net.Conn) spliceRe
 		upc <- dirResult{n, capped}
 	}()
 	go func() {
-		n, capped, _ := pipe(c, up, up, &b.down, downCap, act)
+		n, capped, _ := pipe(c, up, up, downB, act)
 		_ = c.Close()
 		_ = up.Close()
 		downc <- dirResult{n, capped}
@@ -114,14 +130,14 @@ func (s *Service) splice(b *box, c net.Conn, cr io.Reader, up net.Conn) spliceRe
 
 // pipe copies src to dst until EOF, an error, the cap or idleTimeout without
 // traffic in either direction. readConn is the connection src reads from.
-func pipe(dst net.Conn, src io.Reader, readConn net.Conn, counter *atomic.Int64, limit int64, act *idle) (n int64, capped bool, err error) {
+func pipe(dst net.Conn, src io.Reader, readConn net.Conn, g budget, act *idle) (n int64, capped bool, err error) {
 	buf := make([]byte, 32<<10)
 	for {
 		_ = readConn.SetReadDeadline(time.Now().Add(idleTimeout))
 		nr, rerr := src.Read(buf)
 		if nr > 0 {
 			act.touch()
-			if !charge(counter, nr, limit) {
+			if !g.take(nr) {
 				return n, true, nil
 			}
 			_ = dst.SetWriteDeadline(time.Now().Add(idleTimeout))
@@ -154,15 +170,14 @@ func closeWrite(c net.Conn) {
 
 // chargedWriter counts what the client sends upstream against the up cap.
 type chargedWriter struct {
-	w       net.Conn
-	counter *atomic.Int64
-	limit   int64
-	n       int64
-	capped  bool
+	w      net.Conn
+	g      budget
+	n      int64
+	capped bool
 }
 
 func (cw *chargedWriter) Write(p []byte) (int, error) {
-	if !charge(cw.counter, len(p), cw.limit) {
+	if !cw.g.take(len(p)) {
 		cw.capped = true
 		return 0, errors.New("upload cap exceeded")
 	}
@@ -195,17 +210,16 @@ func (s *Service) forward(b *box, c net.Conn, cr io.Reader, up net.Conn, req *ht
 	}
 	req.Close = true
 
-	upCap, downCap := s.caps()
+	upB, downB := s.budgets(b)
 	downc := make(chan dirResult, 1)
 	go func() {
-		n, capped, _ := pipe(c, up, up, &b.down, downCap, newIdle())
+		n, capped, _ := pipe(c, up, up, downB, newIdle())
 		_ = c.Close()
 		_ = up.Close()
 		downc <- dirResult{n, capped}
 	}()
 	_ = c.SetReadDeadline(time.Now().Add(idleTimeout))
-	b.activity.Store(true)
-	cw := &chargedWriter{w: up, counter: &b.up, limit: upCap}
+	cw := &chargedWriter{w: up, g: upB}
 	if err := req.Write(cw); err != nil {
 		_ = up.Close()
 		_ = c.Close()

@@ -23,11 +23,15 @@ import (
 )
 
 const (
-	boxGID         = 10001 // tool box processes; must be able to connect to the socket
-	maxConnsPerBox = 64
-	headTimeout    = 30 * time.Second
-	maxHeadBytes   = 64 << 10
-	idleTimeout    = 5 * time.Minute
+	boxGID          = 10001 // tool box processes; must be able to connect to the socket
+	maxConnsPerBox  = 64
+	headTimeout     = 30 * time.Second
+	maxHeadBytes    = 64 << 10
+	idleTimeout     = 5 * time.Minute
+	maxUsage        = 4096
+	maxReported     = 256
+	reportWindow    = 10 * time.Minute
+	maxHoldsPerCall = 8
 )
 
 type box struct {
@@ -36,20 +40,32 @@ type box struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	sem    chan struct{}
+	use    *usage
 
 	mu        sync.Mutex
 	egress    core.BoxEgress
 	binding   core.EgressBinding
-	allowOnce map[string]map[string]bool // tool call id -> host:port
+	allowOnce map[string]map[string]bool   // tool call id -> host:port
+	refused   map[string]map[string]string // tool call id -> host:port -> why its hold failed
+	asked     map[string]map[string]bool   // tool call id -> host:port held for approval
+	reported  map[string]bool              // tool call id + denial already audited
+	reportAt  time.Time                    // when reported was last cleared
 	conns     map[net.Conn]struct{}
 	closed    bool
 
-	// up and down are the box's byte totals against egress.caps; they reset
-	// only when the box is closed.
-	up, down atomic.Int64
-	// activity is set before the first byte goes upstream, so it is already
-	// visible when an exec could have seen any reply (TakeActivity taints).
+	// activity is set before any byte is passed on in either direction, so it
+	// is already visible when an exec could have seen it (TakeActivity taints
+	// exec output). Long-lived tunnels keep setting it.
 	activity atomic.Bool
+}
+
+// usage is one session's byte totals against egress.caps. It outlives the
+// session's box, which is destroyed when idle, so reopening the box does not
+// reset the caps.
+type usage struct {
+	up, down atomic.Int64
+	refs     int       // open boxes; guarded by Service.mu
+	idleAt   time.Time // when refs last dropped to 0; guarded by Service.mu
 }
 
 func (b *box) snapshot() (core.BoxEgress, core.EgressBinding) {
@@ -89,6 +105,66 @@ func (b *box) addAllowOnce(call, hp string) {
 	b.allowOnce[call][hp] = true
 }
 
+// refusedOnce returns why an earlier hold for hp in this tool call failed, so
+// a retrying client is not held, and the user not asked, again.
+func (b *box) refusedOnce(call, hp string) (string, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	r, ok := b.refused[call][hp]
+	return r, ok && call != ""
+}
+
+// reserveHold admits a hold for hp unless the tool call already asked about
+// maxHoldsPerCall other destinations, so code in the box cannot flood the
+// user with approval cards.
+func (b *box) reserveHold(call, hp string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	asked := b.asked[call]
+	if asked[hp] {
+		return true
+	}
+	if len(asked) >= maxHoldsPerCall {
+		return false
+	}
+	if asked == nil {
+		asked = map[string]bool{}
+		b.asked[call] = asked
+	}
+	asked[hp] = true
+	return true
+}
+
+func (b *box) addRefused(call, hp, reason string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.refused[call] == nil {
+		b.refused[call] = map[string]string{}
+	}
+	b.refused[call][hp] = reason
+}
+
+// firstReport reports whether a denial is new for the tool call (or, for boxes
+// that are never bound, such as MCP servers, within reportWindow). A retry
+// loop thus yields one egress.deny audit entry and one egress.blocked event
+// per destination and reason, since the append-only audit log cannot be
+// pruned; egress_log still records every connection.
+func (b *box) firstReport(call, what string) bool {
+	now := time.Now()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if now.Sub(b.reportAt) >= reportWindow {
+		clear(b.reported)
+		b.reportAt = now
+	}
+	k := call + "\x00" + what
+	if b.reported[k] || len(b.reported) >= maxReported {
+		return false
+	}
+	b.reported[k] = true
+	return true
+}
+
 func (b *box) close() {
 	b.cancel()
 	_ = b.ln.Close()
@@ -125,14 +201,14 @@ func (s *Service) OpenBox(ctx context.Context, key string, e core.BoxEgress) (st
 	if s.closed {
 		return "", errors.New("egress: service stopped")
 	}
+	if s.runDir == "" {
+		return "", fmt.Errorf("egress: %w: no run directory configured", core.ErrInvalid)
+	}
 	if b, ok := s.boxes[key]; ok {
 		b.mu.Lock()
 		b.egress = e
 		b.mu.Unlock()
 		return sub, nil
-	}
-	if s.runDir == "" {
-		return "", fmt.Errorf("egress: %w: no run directory configured", core.ErrInvalid)
 	}
 	dir := filepath.Join(s.runDir, filepath.FromSlash(sub))
 	if err := ensureSocketDir(dir); err != nil {
@@ -157,12 +233,61 @@ func (s *Service) OpenBox(ctx context.Context, key string, e core.BoxEgress) (st
 	}
 	bctx, cancel := context.WithCancel(context.Background())
 	b := &box{key: key, ln: ln, ctx: bctx, cancel: cancel, sem: make(chan struct{}, maxConnsPerBox),
-		egress: e, allowOnce: map[string]map[string]bool{}, conns: map[net.Conn]struct{}{}}
+		use: s.acquireUsage(usageKey(key, e)), egress: e, allowOnce: map[string]map[string]bool{},
+		refused: map[string]map[string]string{}, asked: map[string]map[string]bool{}, reported: map[string]bool{},
+		conns: map[net.Conn]struct{}{}}
 	s.boxes[key] = b
 	go s.serve(b)
 	return sub, nil
 }
 
+func usageKey(key string, e core.BoxEgress) string {
+	if e.Session != "" {
+		return "session:" + string(e.Session)
+	}
+	return "box:" + key
+}
+
+// acquireUsage must be called with s.mu held.
+func (s *Service) acquireUsage(k string) *usage {
+	if u, ok := s.usage[k]; ok {
+		u.refs++
+		return u
+	}
+	if len(s.usage) >= maxUsage {
+		s.pruneUsage()
+	}
+	u := &usage{refs: 1}
+	s.usage[k] = u
+	return u
+}
+
+// releaseUsage must be called with s.mu held.
+func (s *Service) releaseUsage(u *usage) {
+	if u.refs--; u.refs == 0 {
+		u.idleAt = time.Now()
+	}
+}
+
+// pruneUsage forgets the longest-idle meters until half the table is free;
+// meters of open boxes are kept. Must be called with s.mu held.
+func (s *Service) pruneUsage() {
+	idle := make([]string, 0, len(s.usage))
+	for k, u := range s.usage {
+		if u.refs == 0 {
+			idle = append(idle, k)
+		}
+	}
+	slices.SortFunc(idle, func(a, b string) int { return s.usage[a].idleAt.Compare(s.usage[b].idleAt) })
+	n := min(len(idle), len(s.usage)-maxUsage/2)
+	for _, k := range idle[:n] {
+		delete(s.usage, k)
+	}
+}
+
+// ensureSocketDir creates the box's socket directory, normally made by the
+// sandbox before OpenBox, and hands it to the box group, without which the
+// box cannot reach the socket inside.
 func ensureSocketDir(dir string) error {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("egress: create %s: %w", dir, err)
@@ -174,6 +299,7 @@ func ensureSocketDir(dir string) error {
 	if !fi.IsDir() {
 		return fmt.Errorf("egress: %s is not a directory", dir)
 	}
+	_ = os.Chown(dir, -1, boxGID) // the socket chown below warns when this fails
 	return nil
 }
 
@@ -197,6 +323,9 @@ func (s *Service) CloseBox(key string) {
 	s.mu.Lock()
 	b := s.boxes[key]
 	delete(s.boxes, key)
+	if b != nil {
+		s.releaseUsage(b.use)
+	}
 	s.mu.Unlock()
 	if b != nil {
 		b.close()
@@ -208,10 +337,25 @@ func (s *Service) closeAll() {
 	s.closed = true
 	boxes := s.boxes
 	s.boxes = map[string]*box{}
+	for _, b := range boxes {
+		s.releaseUsage(b.use)
+	}
 	s.mu.Unlock()
 	for _, b := range boxes {
 		b.close()
 	}
+}
+
+// startHandler registers a connection handler unless the service is
+// stopping, so handlers.Add never races the shutdown Wait.
+func (s *Service) startHandler() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return false
+	}
+	s.handlers.Add(1)
+	return true
 }
 
 func (s *Service) box(key string) *box {
@@ -221,8 +365,8 @@ func (s *Service) box(key string) *box {
 }
 
 // Bind attaches the current run/tool call to a box before each exec, for
-// logging, taint and hold-for-approval. allow_once admissions belong to one
-// tool call, so binding the next call drops them.
+// logging, taint and hold-for-approval. allow_once admissions and refused
+// holds belong to one tool call, so binding the next call drops them.
 func (s *Service) Bind(key string, eb core.EgressBinding) {
 	b := s.box(key)
 	if b == nil {
@@ -230,6 +374,10 @@ func (s *Service) Bind(key string, eb core.EgressBinding) {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.binding.ToolCallID != eb.ToolCallID {
+		clear(b.reported)
+		b.reportAt = time.Now()
+	}
 	b.binding = eb
 	if eb.Chat != nil {
 		c := *eb.Chat
@@ -238,6 +386,16 @@ func (s *Service) Bind(key string, eb core.EgressBinding) {
 	for call := range b.allowOnce {
 		if call != eb.ToolCallID {
 			delete(b.allowOnce, call)
+		}
+	}
+	for call := range b.refused {
+		if call != eb.ToolCallID {
+			delete(b.refused, call)
+		}
+	}
+	for call := range b.asked {
+		if call != eb.ToolCallID {
+			delete(b.asked, call)
 		}
 	}
 }
@@ -270,12 +428,12 @@ func (s *Service) serve(b *box) {
 			_ = c.Close()
 			continue
 		}
-		if !b.track(c) {
+		if !b.track(c) || !s.startHandler() {
+			b.untrack(c)
 			<-b.sem
 			_ = c.Close()
 			continue
 		}
-		s.handlers.Add(1)
 		go func() {
 			defer s.handlers.Done()
 			defer func() { <-b.sem }()
@@ -384,7 +542,7 @@ func (s *Service) handle(b *box, c net.Conn) {
 	}
 	if !v.allow {
 		finish(denyDecision, v.reason)
-		s.refuse(b.ctx, c, be, bind, t, v.reason)
+		s.refuse(b, c, be, bind, t, v.reason)
 		return
 	}
 
@@ -394,7 +552,7 @@ func (s *Service) handle(b *box, c net.Conn) {
 	}
 	if pd.reason != "" {
 		finish("deny", pd.reason)
-		s.refuse(b.ctx, c, be, bind, t, pd.reason)
+		s.refuse(b, c, be, bind, t, pd.reason)
 		return
 	}
 	if pd.err != nil {
@@ -414,23 +572,26 @@ func (s *Service) handle(b *box, c net.Conn) {
 	rec.Up, rec.Down = res.up, res.down
 	if res.denied {
 		finish(denyDecision, res.reason)
-		s.denied(b.ctx, be, bind, t, res.reason)
+		s.denied(b, be, bind, t, res.reason)
 		return
 	}
 	finish(allowDecision, res.reason)
 }
 
 // refuse answers 403 after publishing and auditing the denial.
-func (s *Service) refuse(ctx context.Context, c net.Conn, be core.BoxEgress, bind core.EgressBinding, t target, reason string) {
-	s.denied(ctx, be, bind, t, reason)
+func (s *Service) refuse(b *box, c net.Conn, be core.BoxEgress, bind core.EgressBinding, t target, reason string) {
+	s.denied(b, be, bind, t, reason)
 	writeResponse(c, http.StatusForbidden,
 		fmt.Sprintf("bothy: egress to %s denied (%s). Ask the user or call net_allow.\n", t.host.hostport(t.port), reason))
 }
 
-func (s *Service) denied(ctx context.Context, be core.BoxEgress, bind core.EgressBinding, t target, reason string) {
+func (s *Service) denied(b *box, be core.BoxEgress, bind core.EgressBinding, t target, reason string) {
+	hp := t.host.hostport(t.port)
+	if !b.firstReport(bind.ToolCallID, hp+"\x00"+reason) {
+		return
+	}
 	s.publishBlocked(be.Principal, be.Session, bind.Run, t.host.name, t.port, reason)
-	s.audit(ctx, "egress.deny", t.host.hostport(t.port), "denied", be.Session, bind.Run,
-		map[string]any{"dialer": "box", "reason": reason})
+	s.audit(b.ctx, "egress.deny", hp, "denied", be.Session, bind.Run, map[string]any{"dialer": "box", "reason": reason})
 }
 
 func writeResponse(c net.Conn, code int, body string) {
@@ -499,6 +660,12 @@ func (s *Service) decide(ctx context.Context, b *box, be core.BoxEgress, bind co
 	}
 	if grants && bind.Interactive && bind.ToolCallID != "" && c.HoldForApproval.D() > 0 &&
 		s.policy != nil && s.approvals != nil && be.Principal != "" {
+		if r, ok := b.refusedOnce(bind.ToolCallID, h.hostport(port)); ok {
+			return verdict{reason: r + " earlier in this tool call"}
+		}
+		if !b.reserveHold(bind.ToolCallID, h.hostport(port)) {
+			return verdict{reason: "too many approval requests in this tool call"}
+		}
 		r := s.holdForApproval(b, be, bind, h, port, shared)
 		return verdict{allow: r.ok, held: true, reason: r.reason}
 	}
@@ -510,7 +677,7 @@ func (s *Service) decide(ctx context.Context, b *box, be core.BoxEgress, bind co
 
 func (s *Service) capExhausted(b *box) bool {
 	up, down := s.caps()
-	return up > 0 && b.up.Load() >= up || down > 0 && b.down.Load() >= down
+	return up > 0 && b.use.up.Load() >= up || down > 0 && b.use.down.Load() >= down
 }
 
 // caps returns the byte caps; 0 disables a cap.
@@ -533,7 +700,8 @@ func (s *Service) exposed(ctx context.Context, id core.SessionID) bool {
 }
 
 // grantAllows checks active domain grants. Wildcards and shared-tenant hosts
-// need a principal-scoped grant created by an admin.
+// need a principal-scoped grant created by an admin. A grant limited to
+// MaxUses is charged one use per admitted connection.
 func (s *Service) grantAllows(ctx context.Context, be core.BoxEgress, bind core.EgressBinding, h hostname, port int, shared bool) bool {
 	if be.Principal == "" {
 		return false
@@ -553,6 +721,11 @@ func (s *Service) grantAllows(ctx context.Context, be core.BoxEgress, bind core.
 		}
 		if (p.wildcard || shared) && (g.Scope != core.GrantPrincipal || !s.isAdmin(ctx, g.CreatedBy)) {
 			continue
+		}
+		if g.MaxUses > 0 {
+			if err := s.store.Grants().Use(ctx, g.ID); err != nil {
+				continue
+			}
 		}
 		return true
 	}

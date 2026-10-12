@@ -469,3 +469,22 @@ func TestToolSpecs(t *testing.T) {
 		}
 	}
 }
+
+func TestNetAllowExecMirrorsTheProxy(t *testing.T) {
+	e := newEnv(t, nil)
+	tool := e.tool("net_allow")
+	a, err := tool.Plan(context.Background(), e.toolEnv(), args(map[string]any{"host": "pypi.org"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.addGrant(core.Grant{Value: "pypi.org:443", MaxSE: core.SERead})
+	if res, _ := tool.Exec(context.Background(), e.toolEnv(), a); !res.IsError || !strings.Contains(res.Content, "No grant") {
+		t.Fatalf("a read-class grant, which the proxy ignores: %+v", res)
+	}
+	e.addGrant(core.Grant{Value: "pypi.org:443"})
+	env := e.toolEnv()
+	env.Taint = core.TaintPrivate | core.TaintUntrusted
+	if res, _ := tool.Exec(context.Background(), env, a); !res.IsError || !strings.Contains(res.Content, "suspended") {
+		t.Fatalf("exposed session: %+v", res)
+	}
+}

@@ -61,6 +61,13 @@ func (s *Service) checkSharedTenant(ctx context.Context) []core.Finding {
 			found = append(found, "egress.allow "+e)
 		}
 	}
+	for _, m := range s.cfg().MCP.Servers {
+		for _, e := range m.Egress {
+			if coversSharedTenant(e, c.SharedTenantSuffixes) {
+				found = append(found, "mcp.servers."+m.Name+".egress "+e)
+			}
+		}
+	}
 	for _, g := range s.principalDomainGrants(ctx) {
 		if coversSharedTenant(g.Value, c.SharedTenantSuffixes) {
 			found = append(found, fmt.Sprintf("grant %s (%s) %s", g.ID, g.Principal, g.Value))
@@ -72,7 +79,7 @@ func (s *Service) checkSharedTenant(ctx context.Context) []core.Finding {
 	return []core.Finding{{
 		ID: "egress.shared_tenant_allowed", Area: "egress", Title: "Shared-hosting domains allowed",
 		Detail:   "Anyone can publish under these domains, so allowing them can open an exfiltration path: " + strings.Join(found, "; ") + ".",
-		Fix:      "Allow only the exact tenant host you trust, or remove the entry (Settings → Network, Settings → Grants).",
+		Fix:      "Allow only the exact tenant host you trust, or remove the entry (Settings → Network, Settings → MCP, Settings → Grants).",
 		Severity: core.SevMedium, Security: true,
 	}}
 }

@@ -149,10 +149,15 @@ type pinned struct {
 	err    error
 }
 
-// dialPinned resolves h once, refuses the destination if any answer is
-// blocked or denylisted, and dials only address literals, so a second DNS
-// answer can never redirect the connection (rebinding).
+// dialPinned refuses a denylisted host, resolves h once, refuses the
+// destination if any answer is blocked or denylisted, and dials only address
+// literals, so a second DNS answer can never redirect the connection
+// (rebinding). egress.deny applies to every dialer.
 func (s *Service) dialPinned(ctx context.Context, h hostname, port int, allowPrivate bool) pinned {
+	deny := s.cfg().Egress.Deny
+	if e, ok := matchAny(deny, h, port, true, true); ok {
+		return pinned{ip: h.ip, reason: "denylisted (" + e + ")", err: fmt.Errorf("%w: %s is denylisted", errDenied, h.hostport(port))}
+	}
 	addrs := []netip.Addr{h.ip}
 	if !h.isIP() {
 		var err error
@@ -160,7 +165,6 @@ func (s *Service) dialPinned(ctx context.Context, h hostname, port int, allowPri
 			return pinned{err: fmt.Errorf("resolve %s: %w", h.name, err)}
 		}
 	}
-	deny := s.cfg().Egress.Deny
 	for _, a := range addrs {
 		if r := addrProblem(a, allowPrivate); r != "" {
 			return pinned{ip: a.Unmap(), reason: r, err: fmt.Errorf("%w: %s resolves to %s (%s)", errBlocked, h.name, a.Unmap(), r)}

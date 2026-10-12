@@ -14,10 +14,10 @@ doctor checks `egress.wildcards`, `egress.shared_tenant_allowed`,
 | public (`PublicClient`) | `web_fetch` | any public address; GET only, no cookies, no `Authorization`, redirects re-checked (≤ `web_fetch.max_redirects`) |
 | system (`SystemClient`) | providers, channels, search APIs, HTTP MCP | exactly the destination's `host:port` list; private ranges only with `AllowPrivate` |
 
-All three resolve once with the gateway resolver (answers cached for
-`egress.dns.max_ttl`, at most 60 s), refuse the destination if **any** answer
-is blocked or denylisted, dial only address literals, and re-check the final
-socket address in `net.Dialer.Control`. The blocklist (`addr.go`) unmaps
+All three refuse hosts matching `egress.deny`, resolve once with the gateway
+resolver (answers cached for `egress.dns.max_ttl`, at most 60 s), refuse the
+destination if **any** answer is blocked or denylisted, dial only address
+literals, and re-check the final socket address in `net.Dialer.Control`. The blocklist (`addr.go`) unmaps
 IPv4-mapped addresses and re-checks the IPv4 embedded in NAT64, 6to4, Teredo
 and IPv4-compatible forms. Cloud metadata addresses are refused even with
 `AllowPrivate`. Hosts are normalized to lowercase punycode; numeric forms that
@@ -38,14 +38,21 @@ hold-for-approval or 403. A held CONNECT asks `Policy.Decide` with the
 for tool call `<bound call>#net`, and waits up to `egress.hold_for_approval`;
 concurrent holds for the same destination share one card. `allow_once` admits
 the destination for the rest of the bound tool call, `allow_session` and
-`allow_always` store the policy's narrow grant. Byte caps
-(`egress.caps`) count per box and close the connection when exceeded.
-`TakeActivity` reports whether the box moved bytes since the last call.
+`allow_always` store the policy's narrow grant. A denied or expired hold is
+remembered for the rest of the tool call (retries get an immediate 403, not a
+new card), and one tool call can ask about at most 8 destinations. Byte caps
+(`egress.caps`, 0 = no cap) count per session, survive the box being
+destroyed and recreated, and close the connection when exceeded. Grants with
+`max_uses` are charged one use per admitted connection. `TakeActivity`
+reports whether the box moved bytes in either direction since the last call,
+including on tunnels opened during an earlier call.
 
 Every connection of every dialer becomes one `egress_log` row (written in
-batches by `Run`; pooled system connections are logged when they close).
-Box denials publish `egress.blocked` and audit `egress.deny`; approved holds
-audit `egress.allow`.
+batches by `Run`, retried when the store fails; pooled system connections are
+logged when they close). Box denials publish `egress.blocked` and audit
+`egress.deny` once per tool call, destination and reason (once per 10 minutes
+for boxes that are never bound), so a retry loop cannot flood the
+append-only audit log; approved holds audit `egress.allow`.
 
 ## Tools
 
@@ -60,4 +67,14 @@ audit `egress.allow`.
   `none`.
 - `net_allow` (external_send, lazy): plans `{kind: net, host, port}` for the
   F9 card; the runner stores the grant on approval and `Exec` reports whether
-  one is active. Hidden without a sandbox.
+  one the proxy would honour is active (and whether the trifecta suspends
+  it). Hidden without a sandbox.
+
+## URL form for `session_urls` (F8)
+
+`web_fetch` puts, and `web_search` records, URLs in one canonical form, so
+`Sessions().HasURL(session, action.URL)` matches: lowercase scheme (`http` or
+`https`), lowercase IDNA punycode host (IPv6 in brackets, IPv4 numeric forms
+canonicalized), default port dropped, no userinfo, fragment dropped, empty
+path as `/`, the path as `url.URL.EscapedPath`, the raw query kept verbatim.
+URLs from user messages must be recorded in exactly this form.

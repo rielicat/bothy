@@ -606,3 +606,189 @@ func TestActivityVisibleWhileTunnelIsOpen(t *testing.T) {
 	}
 	conn.Close()
 }
+
+func TestActivityFlaggedForLaterTrafficOnAnOpenTunnel(t *testing.T) {
+	e := newEnv(t, func(c *config.Config) { c.Egress.Allow = []string{"example.com"} })
+	e.res.set("example.com", []string{publicIP})
+	key, sock := e.openBox(core.BoxEgress{})
+	e.bind(key, false)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	e.dial.route(publicIP+":443", ln.Addr().String())
+	upc := make(chan net.Conn, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			close(upc)
+			return
+		}
+		upc <- c
+	}()
+
+	conn, resp := proxyConnect(t, sock, "example.com:443")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("CONNECT = %d", resp.StatusCode)
+	}
+	h := clientHello(t, "example.com")
+	if _, err := conn.Write(h); err != nil {
+		t.Fatal(err)
+	}
+	var up net.Conn
+	select {
+	case up = <-upc:
+	case <-time.After(5 * time.Second):
+		t.Fatal("upstream never dialed")
+	}
+	if up == nil {
+		t.Fatal("upstream accept failed")
+	}
+	defer up.Close()
+	_ = up.SetDeadline(time.Now().Add(5 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := io.ReadFull(up, make([]byte, len(h))); err != nil {
+		t.Fatal(err)
+	}
+	if !e.s.TakeActivity(key) || e.s.TakeActivity(key) {
+		t.Fatal("TakeActivity did not report and then reset the first exchange")
+	}
+
+	// A background process keeps using the tunnel during the next exec.
+	if _, err := up.Write([]byte("later")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.ReadFull(conn, make([]byte, 5)); err != nil {
+		t.Fatal(err)
+	}
+	if !e.s.TakeActivity(key) {
+		t.Fatal("a download on an already open tunnel was not reported")
+	}
+	if _, err := conn.Write([]byte("more")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.ReadFull(up, make([]byte, 4)); err != nil {
+		t.Fatal(err)
+	}
+	if !e.s.TakeActivity(key) {
+		t.Fatal("an upload on an already open tunnel was not reported")
+	}
+}
+
+func TestCapsSurviveBoxReopen(t *testing.T) {
+	e := newEnv(t, func(c *config.Config) {
+		c.Egress.Allow = []string{"example.com"}
+		c.Egress.Caps.SessionDownMB = 1
+	})
+	e.res.set("example.com", []string{publicIP})
+	key, sock := e.openBox(core.BoxEgress{})
+	e.bind(key, false)
+	e.rawUpstream(bytes.Repeat([]byte("y"), 3<<20))
+	conn, _ := proxyConnect(t, sock, "example.com:443")
+	if _, err := conn.Write(clientHello(t, "example.com")); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_, _ = io.Copy(io.Discard, conn)
+	if r := e.records(1)[0]; r.Reason != "download cap exceeded" {
+		t.Fatalf("record = %+v", r)
+	}
+
+	// The sandbox destroys idle boxes; the session's budget stays spent.
+	e.s.CloseBox(key)
+	key, sock = e.openBox(core.BoxEgress{})
+	e.bind(key, false)
+	if code, msg := connectStatus(t, sock, "example.com:443"); code != http.StatusForbidden || !strings.Contains(msg, "cap exhausted") {
+		t.Fatalf("reopened box = %d %q, want the cap still exhausted", code, msg)
+	}
+
+	other := &core.Session{Principal: e.principal(), Origin: "web", Title: "other"}
+	if err := e.store.Sessions().Create(context.Background(), other); err != nil {
+		t.Fatal(err)
+	}
+	k2, s2 := e.openBox(core.BoxEgress{Session: other.ID, Principal: e.principal()})
+	e.bind(k2, false)
+	e.rawUpstream(nil)
+	if code, _ := connectStatus(t, s2, "example.com:443"); code != http.StatusOK {
+		t.Fatalf("another session's box = %d, want its own budget", code)
+	}
+}
+
+func TestUsageMetersAreBounded(t *testing.T) {
+	e := newEnv(t, nil)
+	s := e.s
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	held := s.acquireUsage("session:held")
+	base := time.Now()
+	for i := range maxUsage - 1 {
+		u := s.acquireUsage(fmt.Sprintf("session:%d", i))
+		s.releaseUsage(u)
+		u.idleAt = base.Add(time.Duration(i) * time.Second)
+	}
+	s.acquireUsage("session:new")
+	if n := len(s.usage); n != maxUsage/2+1 {
+		t.Fatalf("meters after pruning = %d, want %d", n, maxUsage/2+1)
+	}
+	if s.usage["session:held"] != held {
+		t.Fatal("the meter of an open box was pruned")
+	}
+	if _, ok := s.usage[fmt.Sprintf("session:%d", maxUsage-2)]; !ok {
+		t.Fatal("the most recently idle meter was pruned")
+	}
+	if _, ok := s.usage["session:0"]; ok {
+		t.Fatal("the longest-idle meter survived")
+	}
+}
+
+func TestRetriedDenialIsAuditedOncePerToolCall(t *testing.T) {
+	e := newEnv(t, nil)
+	sub := e.bus.Subscribe(core.Filter{System: true, Types: []core.EventType{core.EvEgressBlocked}}, 32)
+	defer sub.Close()
+	key, sock := e.openBox(core.BoxEgress{})
+	e.bind(key, false)
+	for range 5 {
+		connectStatus(t, sock, "nowhere.example:443")
+	}
+	connectStatus(t, sock, "other.example:443")
+	if n := len(e.records(6)); n != 6 {
+		t.Fatalf("egress_log rows = %d, want one per connection", n)
+	}
+	if n := len(e.aud.All()); n != 2 {
+		t.Fatalf("audit entries = %d, want one per destination", n)
+	}
+	e.bind(key, false)
+	connectStatus(t, sock, "nowhere.example:443")
+	e.records(7)
+	if n := len(e.aud.All()); n != 3 {
+		t.Fatalf("audit entries after the next tool call = %d, want 3", n)
+	}
+	events := 0
+	for done := false; !done; {
+		select {
+		case <-sub.C():
+			events++
+		case <-time.After(200 * time.Millisecond):
+			done = true
+		}
+	}
+	if events != 3 {
+		t.Fatalf("egress.blocked events = %d, want 3", events)
+	}
+}
+
+func TestLimitedGrantIsChargedPerConnection(t *testing.T) {
+	e := newEnv(t, nil)
+	e.res.set("example.com", []string{publicIP})
+	e.tlsUpstream(http.HandlerFunc(hello))
+	key, sock := e.openBox(core.BoxEgress{})
+	e.bind(key, false)
+	e.addGrant(core.Grant{Value: "example.com:443", MaxUses: 1})
+	if code, _ := connectStatus(t, sock, "example.com:443"); code != http.StatusOK {
+		t.Fatalf("first use = %d", code)
+	}
+	if code, _ := connectStatus(t, sock, "example.com:443"); code != http.StatusForbidden {
+		t.Fatalf("grant with max_uses 1 admitted a second connection: %d", code)
+	}
+}

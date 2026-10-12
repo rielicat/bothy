@@ -56,6 +56,7 @@ type Service struct {
 
 	mu       sync.Mutex
 	boxes    map[string]*box
+	usage    map[string]*usage // per session (or per box without one)
 	closed   bool
 	handlers sync.WaitGroup
 
@@ -74,6 +75,7 @@ func New(d Deps) (*Service, error) {
 		bus: d.Bus, auditor: d.Audit, runDir: d.RunDir, clock: d.Clock, log: d.Log,
 		dialAddr:   netDial,
 		boxes:      map[string]*box{},
+		usage:      map[string]*usage{},
 		sysClients: map[string]*http.Client{},
 	}
 	if s.clock == nil {

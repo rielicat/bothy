@@ -142,6 +142,10 @@ func (t *netAllow) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action) 
 	switch {
 	case err != nil:
 		return nil, err
+	case scope != "" && env.Taint.Exposed():
+		res.Content = "A grant for " + hp + " exists, but it is suspended while this session holds both private and untrusted data. " +
+			"Start a clean session (Fork clean) to use it."
+		res.IsError = true
 	case scope == core.GrantPrincipal:
 		res.Content = "The sandbox may now reach " + hp + " in every session. Retry the command."
 	case scope != "":
@@ -152,6 +156,7 @@ func (t *netAllow) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action) 
 	return res, nil
 }
 
+// activeGrant finds the grant the box proxy would honour for host:port.
 func (t *netAllow) activeGrant(ctx context.Context, env *core.ToolEnv, h hostname, port int) (core.GrantScope, error) {
 	gs, err := t.s.store.Grants().Active(ctx, env.Principal.ID, env.Session, env.Schedule, t.s.clock.Now())
 	if err != nil {
@@ -159,7 +164,7 @@ func (t *netAllow) activeGrant(ctx context.Context, env *core.ToolEnv, h hostnam
 	}
 	var found core.GrantScope
 	for _, g := range gs {
-		if g.Kind != core.GrantDomain {
+		if g.Kind != core.GrantDomain || g.MaxSE < core.SEExternalSend {
 			continue
 		}
 		if p, ok := parsePattern(g.Value); ok && !p.wildcard && p.port == port && p.matches(h, port, false) {

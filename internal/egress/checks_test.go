@@ -57,6 +57,7 @@ func TestChecksFindings(t *testing.T) {
 			{Name: "compose", Transport: "http", URL: "http://docs-mcp:8080/mcp"},
 			{Name: "tls", Transport: "http", URL: "https://mcp.example.com/mcp", Enabled: &yes},
 			{Name: "off", Transport: "http", URL: "http://off.example.com/mcp", Enabled: &no},
+			{Name: "box", Transport: "stdio", Egress: []string{"api.box.example:443", "x.workers.dev:443"}},
 		}
 	})
 	e.addGrant(core.Grant{Value: "*.corp.example:443", Scope: core.GrantPrincipal, ScopeID: ""})
@@ -70,7 +71,8 @@ func TestChecksFindings(t *testing.T) {
 	}
 	s := f["egress.shared_tenant_allowed"]
 	if s.Severity != core.SevMedium || !strings.Contains(s.Detail, "assets.s3.amazonaws.com") || !strings.Contains(s.Detail, "*.io") ||
-		!strings.Contains(s.Detail, "me.github.io") || strings.Contains(s.Detail, "example.org") {
+		!strings.Contains(s.Detail, "me.github.io") || !strings.Contains(s.Detail, "mcp.servers.box.egress x.workers.dev:443") ||
+		strings.Contains(s.Detail, "example.org") || strings.Contains(s.Detail, "api.box.example") {
 		t.Errorf("shared tenant = %+v", s)
 	}
 	if p := f["egress.presets_enabled"]; p.Severity != core.SevLow || !strings.Contains(p.Detail, "pypi.org") {

@@ -96,12 +96,18 @@ func (s *Service) requestHold(ctx context.Context, b *box, be core.BoxEgress, bi
 	}
 	wctx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
+	// A refusal is remembered for the rest of the tool call: clients retry
+	// failed connections, and each retry would otherwise ask again.
+	refused := func(reason string) holdResult {
+		b.addRefused(bind.ToolCallID, hp, reason)
+		return holdResult{reason: reason}
+	}
 	choice, err := s.approvals.Await(wctx, ap.ID)
 	switch {
 	case errors.Is(err, core.ErrApprovalExpired), errors.Is(err, context.DeadlineExceeded):
-		return holdResult{reason: "approval timed out"}
+		return refused("approval timed out")
 	case err != nil:
-		return holdResult{reason: "approval not granted"}
+		return refused("approval not granted")
 	}
 	switch choice {
 	case core.AllowOnce:
@@ -116,9 +122,9 @@ func (s *Service) requestHold(ctx context.Context, b *box, be core.BoxEgress, bi
 			}
 		}
 	case core.Deny:
-		return holdResult{reason: "denied by the user"}
+		return refused("denied by the user")
 	default:
-		return holdResult{reason: "approval not granted"}
+		return refused("approval not granted")
 	}
 	// The approved call proceeds even if the grant could not be stored.
 	b.addAllowOnce(bind.ToolCallID, hp)

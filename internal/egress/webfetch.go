@@ -55,6 +55,9 @@ func (t *webFetch) Plan(_ context.Context, _ *core.ToolEnv, args json.RawMessage
 			return nil, fmt.Errorf("%w: refusing to fetch %s: %s", core.ErrForbidden, h.name, r)
 		}
 	}
+	if e, ok := matchAny(t.s.cfg().Egress.Deny, h, port, true, true); ok {
+		return nil, fmt.Errorf("%w: %s is blocked by egress.deny (%s)", core.ErrForbidden, h.name, e)
+	}
 	payload, err := core.CanonicalJSON(map[string]string{"url": nu})
 	if err != nil {
 		return nil, err
