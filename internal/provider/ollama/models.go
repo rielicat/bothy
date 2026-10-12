@@ -14,7 +14,8 @@ import (
 )
 
 // maxShow bounds the /api/show calls of one discovery; a large local library
-// should not turn a model list into hundreds of requests.
+// should not turn a model list into hundreds of requests. Models past it are
+// still listed, without context or capabilities.
 const maxShow = 50
 
 // Models returns the configured models followed, when discovery is on, by the
@@ -143,13 +144,14 @@ func (c *Client) Discover(ctx context.Context) ([]core.ModelInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(names) > maxShow {
-		names = names[:maxShow]
-	}
 	out := make([]core.ModelInfo, len(names))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 4)
 	for i, name := range names {
+		if i >= maxShow {
+			out[i] = basicInfo(c.o.ID, name)
+			continue
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -157,7 +159,7 @@ func (c *Client) Discover(ctx context.Context) ([]core.ModelInfo, error) {
 			defer func() { <-sem }()
 			s, err := c.Show(ctx, name)
 			if err != nil {
-				out[i] = core.ModelInfo{Ref: core.ModelRef{Provider: c.o.ID, Model: name}, Tools: true, Local: true, Source: "discovery"}
+				out[i] = basicInfo(c.o.ID, name)
 				return
 			}
 			out[i] = c.Info(name, s)
@@ -165,4 +167,8 @@ func (c *Client) Discover(ctx context.Context) ([]core.ModelInfo, error) {
 	}
 	wg.Wait()
 	return out, nil
+}
+
+func basicInfo(id, model string) core.ModelInfo {
+	return core.ModelInfo{Ref: core.ModelRef{Provider: id, Model: model}, Tools: true, Local: true, Source: "discovery"}
 }

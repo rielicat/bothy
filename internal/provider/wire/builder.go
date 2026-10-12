@@ -3,6 +3,7 @@ package wire
 import (
 	"regexp"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -33,6 +34,10 @@ type Builder struct {
 	on    func(core.StreamEvent) error
 	parts []core.Part
 	open  int // index of the open text/thinking part, -1 when none
+	// text collects the open part's deltas; appending to Part.Text directly
+	// would copy the whole reply on every delta.
+	text  strings.Builder
+	cut   map[int]bool // slots of calls whose arguments were empty or unclosed
 	calls int
 }
 
@@ -55,6 +60,7 @@ func (b *Builder) delta(t core.PartType, ev core.StreamEventType, s string) erro
 		return nil
 	}
 	if b.open < 0 || b.parts[b.open].Type != t {
+		b.flush()
 		p := core.Part{Type: t}
 		if t == core.PartThinking {
 			p.SigKind = b.kind
@@ -62,8 +68,16 @@ func (b *Builder) delta(t core.PartType, ev core.StreamEventType, s string) erro
 		b.parts = append(b.parts, p)
 		b.open = len(b.parts) - 1
 	}
-	b.parts[b.open].Text += s
+	b.text.WriteString(s)
 	return b.on(core.StreamEvent{Type: ev, Text: s})
+}
+
+// flush moves the collected text into the open part.
+func (b *Builder) flush() {
+	if b.open >= 0 && b.text.Len() > 0 {
+		b.parts[b.open].Text += b.text.String()
+	}
+	b.text.Reset()
 }
 
 func (b *Builder) Text(s string) error { return b.delta(core.PartText, core.StreamTextDelta, s) }
@@ -76,6 +90,7 @@ func (b *Builder) Thinking(s string) error {
 // carry only a signature. Thinking parts always record the producing kind:
 // the facade strips them before a call to any other kind.
 func (b *Builder) OpenThinking() {
+	b.flush()
 	b.parts = append(b.parts, core.Part{Type: core.PartThinking, SigKind: b.kind})
 	b.open = len(b.parts) - 1
 }
@@ -96,7 +111,10 @@ func (b *Builder) Sign(sig string) {
 }
 
 // Close ends the open text or thinking part.
-func (b *Builder) Close() { b.open = -1 }
+func (b *Builder) Close() {
+	b.flush()
+	b.open = -1
+}
 
 // StartCall emits StreamToolCallStart; an empty id is synthesized.
 func (b *Builder) StartCall(id, name string) (*Call, error) {
@@ -116,7 +134,13 @@ func (b *Builder) FinishCall(c *Call, rawArgs, sig string) error {
 		return nil
 	}
 	c.done = true
-	args, _ := RepairArgs(rawArgs)
+	args, _, cut := repairArgs(rawArgs)
+	if cut {
+		if b.cut == nil {
+			b.cut = map[int]bool{}
+		}
+		b.cut[c.slot] = true
+	}
 	p := &b.parts[c.slot]
 	p.ToolCall.Args = args
 	if sig != "" {
@@ -129,14 +153,16 @@ func (b *Builder) FinishCall(c *Call, rawArgs, sig string) error {
 // Calls reports how many tool calls were started.
 func (b *Builder) Calls() int { return b.calls }
 
-// Response returns the assembled message. Calls that never finished (output
-// cut off mid-arguments) are dropped: executing a truncated call could act on
-// half an argument.
+// Response returns the assembled message. Calls that never finished, and
+// under max_tokens calls whose arguments were empty or had to be closed, are
+// dropped: executing a truncated call could act on half an argument (a path
+// or command cut short).
 func (b *Builder) Response(model string, stop core.StopReason, u core.Usage, estimated bool) *core.Response {
+	b.Close()
 	parts := make([]core.Part, 0, len(b.parts))
 	finished := 0
-	for _, p := range b.parts {
-		if p.Type == core.PartToolCall && len(p.ToolCall.Args) == 0 {
+	for i, p := range b.parts {
+		if p.Type == core.PartToolCall && (len(p.ToolCall.Args) == 0 || stop == core.StopMaxTokens && b.cut[i]) {
 			continue
 		}
 		if p.Type == core.PartToolCall {

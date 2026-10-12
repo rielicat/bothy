@@ -44,6 +44,10 @@ type Facade struct {
 	disc    map[string]*discovery
 	corr    map[string]float64
 	banner  bool // provider_auth banner raised
+
+	// bannerMu serializes updateBanner so a raise and a clear computed
+	// concurrently cannot be published in the wrong order.
+	bannerMu sync.Mutex
 }
 
 var (

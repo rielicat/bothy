@@ -9,7 +9,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/bothyhq/bothy/internal/core"
@@ -37,17 +37,30 @@ func (c *Client) Kind() core.ProviderKind { return core.KindGemini }
 
 func setAuth(h http.Header, key string) { h.Set("x-goog-api-key", key) }
 
-// modelPath accepts "gemini-x" and "models/gemini-x"; tuned models live under
-// "tunedModels/…".
-func modelPath(model string) string {
-	if strings.Contains(model, "/") {
-		return "/" + model
+// modelName is one model id segment; ':' separates the method in the URL.
+var modelName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// modelPath accepts "gemini-x", "models/gemini-x" and "tunedModels/x". The
+// model is part of the URL path, which carries the key header, so anything
+// else ("../files", "x?y", "x:method") is refused rather than escaped: a
+// passthrough client must not reach other endpoints with the operator's key.
+func modelPath(model string) (string, bool) {
+	coll, name, ok := strings.Cut(model, "/")
+	if !ok {
+		coll, name = "models", model
 	}
-	return "/models/" + url.PathEscape(model)
+	if coll != "models" && coll != "tunedModels" || !modelName.MatchString(name) {
+		return "", false
+	}
+	return "/" + coll + "/" + name, true
 }
 
 func (c *Client) Stream(ctx context.Context, r *core.Request, on func(core.StreamEvent) error) (*core.Response, error) {
-	u := c.o.URL(modelPath(r.Model) + ":streamGenerateContent?alt=sse")
+	path, ok := modelPath(r.Model)
+	if !ok {
+		return nil, &core.ProviderError{Provider: c.o.ID, Kind: core.ErrKindInvalidRequest, Msg: "invalid Gemini model name"}
+	}
+	u := c.o.URL(path + ":streamGenerateContent?alt=sse")
 	req, err := c.o.NewRequest(ctx, http.MethodPost, u, buildRequest(r), setAuth)
 	if err != nil {
 		return nil, err

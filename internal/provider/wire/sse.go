@@ -101,11 +101,15 @@ func (s *SSE) dispatch() (Event, bool) {
 
 // ReadLine returns one line without its "\n" or "\r\n" terminator, capped at
 // MaxEventBytes. At the end of input it returns the trailing partial line
-// (nil when there is none) with io.EOF.
+// (nil when there is none) with io.EOF. The line may alias r's buffer, so it
+// is valid only until the next read.
 func ReadLine(r *bufio.Reader) ([]byte, error) {
+	chunk, err := r.ReadSlice('\n')
+	if err == nil {
+		return trimEOL(chunk), nil
+	}
 	var buf []byte
 	for {
-		chunk, err := r.ReadSlice('\n')
 		if len(buf)+len(chunk) > MaxEventBytes {
 			return nil, ErrEventTooLarge
 		}
@@ -114,7 +118,6 @@ func ReadLine(r *bufio.Reader) ([]byte, error) {
 		case err == nil:
 			return trimEOL(buf), nil
 		case errors.Is(err, bufio.ErrBufferFull):
-			continue
 		case errors.Is(err, io.EOF):
 			if len(buf) == 0 {
 				return nil, io.EOF
@@ -123,6 +126,7 @@ func ReadLine(r *bufio.Reader) ([]byte, error) {
 		default:
 			return nil, fmt.Errorf("reading stream: %w", err)
 		}
+		chunk, err = r.ReadSlice('\n')
 	}
 }
 

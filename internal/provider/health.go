@@ -59,10 +59,13 @@ func (f *Facade) open(e *entry) bool {
 func (f *Facade) succeeded(e *entry) {
 	f.mu.Lock()
 	h := f.healthOf(e)
+	wasAuth := h.state == stateAuthFailed
 	h.fails, h.openUntil, h.lastErr = 0, time.Time{}, ""
 	h.set(stateOK, f.clock.Now())
 	f.mu.Unlock()
-	f.updateBanner()
+	if wasAuth {
+		f.updateBanner()
+	}
 }
 
 func (f *Facade) failed(e *entry, err error) {
@@ -110,6 +113,8 @@ func (f *Facade) updateBanner() {
 	if f.d.Bus == nil {
 		return
 	}
+	f.bannerMu.Lock()
+	defer f.bannerMu.Unlock()
 	var failed []string
 	for _, h := range f.Health() {
 		if h.State == stateAuthFailed {

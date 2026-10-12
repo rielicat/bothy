@@ -8,9 +8,12 @@ the key in `Authorization: Bearer` (omitted when none is configured, as for
 local servers), and use the plain string content form unless an image needs
 parts. The reader assembles tool-call deltas by index (synthesizing
 `call_<n>` ids, telling apart calls that all claim index 0 by id, accepting
-whole arguments in one delta or as a JSON object), reads reasoning from
-`reasoning_content` or `reasoning`, extracts `<tool_call>{…}</tool_call>`
-text when the request offered tools, keeps the last of repeated cumulative
+whole arguments in one delta or as a JSON object; on `finish_reason:
+"length"` a call with cut-off arguments is dropped), reads reasoning from
+`reasoning_content` or else `reasoning`, extracts `<tool_call>{…}</tool_call>`
+text from `openai_compat` servers when the request offered tools (OpenAI
+itself calls tools natively, so there the tag is left as prose), keeps the
+last of repeated cumulative
 usage frames, normalises cached and cache-write tokens out of `Input`, marks
 missing usage for estimation, and maps error bodies (including the looser
 shapes of compatible servers and in-stream `error` chunks) to

@@ -118,7 +118,10 @@ type pending struct {
 
 func (c *Client) read(ctx context.Context, body io.Reader, r *core.Request, on func(core.StreamEvent) error) (*core.Response, error) {
 	b := wire.NewBuilder(c.o.Kind, on)
-	text := newTextFilter(b, len(r.Tools) > 0)
+	// OpenAI itself always answers with native tool calls; there a
+	// <tool_call> tag can only be prose (an example, a quote) and must not
+	// turn into an action.
+	text := newTextFilter(b, c.o.Kind == core.KindOpenAICompat && len(r.Tools) > 0)
 	sse := wire.NewSSE(body)
 	model := r.Model
 	var (
@@ -131,7 +134,12 @@ func (c *Client) read(ctx context.Context, body io.Reader, r *core.Request, on f
 	)
 	finishCalls := func() error {
 		for _, p := range calls {
-			if err := b.FinishCall(p.call, p.args.String(), ""); err != nil {
+			raw := p.args.String()
+			// Arguments cut off by the output limit never become a call.
+			if finish == "length" && !wire.ArgsComplete(raw) {
+				continue
+			}
+			if err := b.FinishCall(p.call, raw, ""); err != nil {
 				return err
 			}
 		}
@@ -173,11 +181,14 @@ func (c *Client) read(ctx context.Context, body io.Reader, r *core.Request, on f
 				continue
 			}
 			d := choice.Delta
-			for _, s := range []*string{d.ReasoningContent, d.Reasoning} {
-				if s != nil {
-					if err := b.Thinking(*s); err != nil {
-						return nil, err
-					}
+			// Some servers send the same text under both names.
+			reasoning := d.ReasoningContent
+			if reasoning == nil || *reasoning == "" {
+				reasoning = d.Reasoning
+			}
+			if reasoning != nil {
+				if err := b.Thinking(*reasoning); err != nil {
+					return nil, err
 				}
 			}
 			if d.Content != nil {

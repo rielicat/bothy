@@ -2,7 +2,10 @@
 
 `core.Provider` for the Gemini API: `POST
 /v1beta/models/{model}:streamGenerateContent?alt=sse` with the key in the
-`x-goog-api-key` header, never in the URL. Requests carry
+`x-goog-api-key` header, never in the URL. The model goes into the path, so
+only `name`, `models/name` and `tunedModels/name` with a plain name
+(letters, digits, `.`, `_`, `-`) are accepted; anything else is an
+`invalid_request` before any request is sent. Requests carry
 `systemInstruction`, tools as `functionDeclarations` with
 `parametersJsonSchema` (full JSON Schema), `toolConfig` (AUTO, NONE, or ANY
 for the probe's forced call) and `generationConfig`; tool results go back as

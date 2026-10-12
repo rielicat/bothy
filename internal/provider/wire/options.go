@@ -111,6 +111,32 @@ type Classifier func(status int, body []byte) (core.ErrorKind, string)
 // maxErrorBody bounds how much of an error response is read.
 const maxErrorBody = 64 << 10
 
+// MaxBodyBytes bounds a successful response body. Streams carry a token
+// limit, but a broken or hostile server could otherwise send without end;
+// the longest replies of current models are far below this even with SSE
+// framing.
+const MaxBodyBytes = 256 << 20
+
+// ErrBodyTooLarge is returned by reads past MaxBodyBytes.
+var ErrBodyTooLarge = errors.New("response body exceeds 256 MiB")
+
+type limitedBody struct {
+	io.ReadCloser
+	left int64
+}
+
+func (b *limitedBody) Read(p []byte) (int, error) {
+	if b.left <= 0 {
+		return 0, ErrBodyTooLarge
+	}
+	if int64(len(p)) > b.left {
+		p = p[:b.left]
+	}
+	n, err := b.ReadCloser.Read(p)
+	b.left -= int64(n)
+	return n, err
+}
+
 // Do sends req. A 2xx response is returned for the caller to stream and close;
 // anything else becomes a *core.ProviderError (body closed). Transport
 // failures are ErrKindNetwork unless ctx ended, in which case the context's
@@ -123,6 +149,7 @@ func (o *Options) Do(ctx context.Context, req *http.Request, classify Classifier
 		return nil, o.NetError(ctx, err)
 	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		resp.Body = &limitedBody{ReadCloser: resp.Body, left: MaxBodyBytes}
 		return resp, nil
 	}
 	defer resp.Body.Close()

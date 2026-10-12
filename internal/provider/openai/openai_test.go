@@ -224,6 +224,15 @@ func TestToolCallTextExtraction(t *testing.T) {
 	if _, err := c.Stream(context.Background(), &core.Request{Model: "mock"}, ev.On); err != nil || len(ev.Done()) != 0 || !strings.HasPrefix(ev.Text(), "<tool_call>") {
 		t.Fatalf("no tools: %v %q", err, ev.Text())
 	}
+	// OpenAI itself calls tools natively; a tag in its text is prose.
+	srv := wiretest.NewServer(t, wiretest.SSE([]byte(`data: {"choices":[{"index":0,"delta":{"content":"Use <tool_call>{\"name\":\"x\",\"arguments\":{}}</tool_call> like this."},"finish_reason":"stop"}]}
+
+data: [DONE]
+`)))
+	ev = wiretest.Events{}
+	if _, err := New(wiretest.Options(srv, "openai")).Stream(context.Background(), &core.Request{Model: "m", Tools: []core.ToolDef{{Name: "x"}}}, ev.On); err != nil || len(ev.Done()) != 0 || !strings.Contains(ev.Text(), "<tool_call>") {
+		t.Fatalf("openai prose: %v %q", err, ev.Text())
+	}
 	// An unparsable tag stays text.
 	_, c = mock(t, []mockllm.Rule{{Text: []string{"a <tool_call>not json</tool_call> b"}}})
 	ev = wiretest.Events{}
@@ -350,5 +359,60 @@ func TestDiscover(t *testing.T) {
 	ms, err := New(o).Discover(context.Background())
 	if err != nil || len(ms) != 3 || ms[0].Context != 40960 || ms[1].Context != 8192 || ms[2].Context != 0 || ms[0].Ref.Provider != "or" {
 		t.Fatalf("%v %+v", err, ms)
+	}
+}
+
+// finish_reason "length" inside a tool call leaves its arguments cut short;
+// repairing and running them could act on half a path or command.
+func TestStreamTruncatedToolCallDropped(t *testing.T) {
+	body := `data: {"id":"c","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"read","arguments":"{\"path\":\"/etc\"}"}}]},"finish_reason":null}]}
+
+data: {"id":"c","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"id":"call_b","type":"function","function":{"name":"shell","arguments":"{\"command\":\"rm -rf /home/user/pro"}}]},"finish_reason":null}]}
+
+data: {"id":"c","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"tool_calls":[{"index":2,"id":"call_c","type":"function","function":{"name":"list","arguments":""}}]},"finish_reason":null}]}
+
+data: {"id":"c","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{},"finish_reason":"length"}]}
+
+data: [DONE]
+`
+	srv := wiretest.NewServer(t, wiretest.SSE([]byte(body)))
+	var ev wiretest.Events
+	resp, err := New(wiretest.Options(srv, "openai")).Stream(context.Background(), &core.Request{Model: "m", Tools: []core.ToolDef{{Name: "shell"}}}, ev.On)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Stop != core.StopMaxTokens {
+		t.Fatalf("stop %q", resp.Stop)
+	}
+	if done := ev.Done(); len(done) != 1 || done[0].ID != "call_a" {
+		t.Fatalf("done events %+v", done)
+	}
+	var calls []string
+	for _, p := range resp.Message.Parts {
+		if p.Type == core.PartToolCall {
+			calls = append(calls, p.ToolCall.ID)
+		}
+	}
+	if len(calls) != 1 || calls[0] != "call_a" {
+		t.Fatalf("calls kept %v", calls)
+	}
+}
+
+func TestStreamReasoningUnderBothNames(t *testing.T) {
+	body := `data: {"id":"c","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"reasoning_content":"Think","reasoning":"Think"}}]}
+
+data: {"id":"c","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}
+
+data: [DONE]
+`
+	srv := wiretest.NewServer(t, wiretest.SSE([]byte(body)))
+	o := wiretest.Options(srv, "vllm")
+	o.Kind = core.KindOpenAICompat
+	var ev wiretest.Events
+	if _, err := New(o).Stream(context.Background(), &core.Request{Model: "m"}, ev.On); err != nil {
+		t.Fatal(err)
+	}
+	if ev.Thinking() != "Think" {
+		t.Fatalf("thinking %q", ev.Thinking())
 	}
 }

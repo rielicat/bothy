@@ -110,7 +110,16 @@ func TestClientHardening(t *testing.T) {
 			t.Fatalf("%s: %q %v", base, got, err)
 		}
 	}
-	for _, bad := range []string{"ftp://x", "https://user:pw@x", "::nope"} {
+	// A nil transport would mean http.DefaultTransport and its env proxy.
+	h.egress.Client = &http.Client{}
+	c, err = h.f.httpClient("provider:y", "https://api.example.com/v1", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr, ok := c.Transport.(*http.Transport); !ok || tr.Proxy != nil || tr.TLSClientConfig.MinVersion < tls.VersionTLS12 {
+		t.Fatalf("nil transport not hardened: %+v", c.Transport)
+	}
+	for _, bad := range []string{"ftp://x", "https://user:pw@x", "::nope", "https://x/v1?key=1", "https://x/v1#f", "https://x/v1?"} {
 		if _, err := hostPort(bad); !errors.Is(err, core.ErrInvalid) {
 			t.Fatalf("%s accepted", bad)
 		}

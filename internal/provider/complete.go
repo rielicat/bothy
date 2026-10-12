@@ -230,13 +230,17 @@ func prefixHash(r *core.Request) string {
 }
 
 // prepare applies the provider rules the wire format depends on, on a copy
-// (the caller's history must not change): thinking parts and signatures from
-// another kind are dropped, images become a note for models without vision,
-// and Ollama gets the model's window as num_ctx.
+// (the caller's history must not change): notices never reach a model,
+// thinking parts and signatures from another kind are dropped, images become
+// a note for models without vision, and Ollama gets the model's window as
+// num_ctx.
 func prepare(r *core.Request, m core.ModelInfo, kind core.ProviderKind) *core.Request {
 	out := *r
-	out.Messages = make([]core.Message, len(r.Messages))
-	for i, msg := range r.Messages {
+	out.Messages = make([]core.Message, 0, len(r.Messages))
+	for _, msg := range r.Messages {
+		if msg.Kind == core.KindNotice {
+			continue
+		}
 		parts := make([]core.Part, 0, len(msg.Parts))
 		for _, p := range msg.Parts {
 			if p.Type == core.PartThinking && p.SigKind != kind {
@@ -251,7 +255,7 @@ func prepare(r *core.Request, m core.ModelInfo, kind core.ProviderKind) *core.Re
 			parts = append(parts, p)
 		}
 		msg.Parts = parts
-		out.Messages[i] = msg
+		out.Messages = append(out.Messages, msg)
 	}
 	if out.Model == "" {
 		out.Model = m.Ref.Model

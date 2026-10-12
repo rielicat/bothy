@@ -12,10 +12,11 @@ const (
 	closeTag = "</tool_call>"
 )
 
-// textFilter forwards content deltas and, when the request offered tools,
-// turns <tool_call>{"name":…,"arguments":…}</tool_call> spans (the Hermes /
-// Qwen convention, emitted as plain text by servers without a tool parser)
-// into real tool calls. Text that might be the start of a tag is held back
+// textFilter forwards content deltas and, for an OpenAI-compatible server
+// when the request offered tools, turns
+// <tool_call>{"name":…,"arguments":…}</tool_call> spans (the Hermes / Qwen
+// convention, emitted as plain text by servers without a tool parser) into
+// real tool calls. Text that might be the start of a tag is held back
 // until it can be decided, so a tag never leaks to the user half-written.
 type textFilter struct {
 	b       *wire.Builder

@@ -1,10 +1,12 @@
 package wire
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -208,5 +210,84 @@ func TestOptionsErrors(t *testing.T) {
 	}
 	if err := o.NetError(context.Background(), errors.New("reset")); !errors.As(err, &pe) || pe.Kind != core.ErrKindNetwork {
 		t.Fatalf("network: %v", err)
+	}
+}
+
+func TestBuilderDropsCutCallsUnderMaxTokens(t *testing.T) {
+	build := func() *Builder {
+		b := NewBuilder(core.KindOpenAI, nil)
+		whole, _ := b.StartCall("a", "read")
+		_ = b.FinishCall(whole, `{"path":"/etc"}`, "")
+		cut, _ := b.StartCall("b", "shell")
+		_ = b.FinishCall(cut, `{"command":"rm -rf /home/user/pro`, "")
+		empty, _ := b.StartCall("c", "list")
+		_ = b.FinishCall(empty, "", "")
+		return b
+	}
+	ids := func(r *core.Response) []string {
+		var out []string
+		for _, p := range r.Message.Parts {
+			if p.Type == core.PartToolCall {
+				out = append(out, p.ToolCall.ID+string(p.ToolCall.Args))
+			}
+		}
+		return out
+	}
+	if got := ids(build().Response("m", core.StopMaxTokens, core.Usage{}, false)); len(got) != 1 || got[0] != `a{"path":"/etc"}` {
+		t.Fatalf("max_tokens kept %v", got)
+	}
+	// A reply that ended normally keeps the repaired calls.
+	if got := ids(build().Response("m", core.StopEnd, core.Usage{}, false)); len(got) != 3 || got[1] != `b{"command":"rm -rf /home/user/pro"}` || got[2] != "c{}" {
+		t.Fatalf("end_turn kept %v", got)
+	}
+	for raw, want := range map[string]bool{
+		`{"a":1}`: true, "```json\n{\"a\":1}\n```": true, `{"a":1,}`: true, `"{\"a\":1}"`: true,
+		"": false, `{"a":"b`: false, `{"a":[1,2`: false, `{"a":`: false,
+	} {
+		if got := ArgsComplete(raw); got != want {
+			t.Errorf("ArgsComplete(%q) = %v", raw, got)
+		}
+	}
+}
+
+func TestBuilderLongReply(t *testing.T) {
+	b := NewBuilder(core.KindAnthropic, nil)
+	var want strings.Builder
+	for i := range 20000 {
+		s := strconv.Itoa(i)
+		want.WriteString(s)
+		_ = b.Text(s)
+	}
+	_ = b.Thinking("t")
+	_ = b.Text("tail")
+	ps := b.Response("m", core.StopEnd, core.Usage{}, false).Message.Parts
+	if len(ps) != 3 || ps[0].Text != want.String() || ps[1].Text != "t" || ps[2].Text != "tail" {
+		t.Fatalf("%d parts", len(ps))
+	}
+}
+
+func TestReadLineLongAndShort(t *testing.T) {
+	long := strings.Repeat("x", 100<<10)
+	r := bufio.NewReaderSize(strings.NewReader("a\r\n"+long+"\nlast"), 16)
+	for _, want := range []string{"a", long, "last"} {
+		line, err := ReadLine(r)
+		if string(line) != want || err != nil && !errors.Is(err, io.EOF) {
+			t.Fatalf("line %d bytes, err %v", len(line), err)
+		}
+	}
+	if _, err := ReadLine(r); !errors.Is(err, io.EOF) {
+		t.Fatalf("after last: %v", err)
+	}
+}
+
+func TestLimitedBody(t *testing.T) {
+	b := &limitedBody{ReadCloser: io.NopCloser(strings.NewReader(strings.Repeat("x", 10))), left: 4}
+	got, err := io.ReadAll(b)
+	if string(got) != "xxxx" || !errors.Is(err, ErrBodyTooLarge) {
+		t.Fatalf("%q %v", got, err)
+	}
+	b = &limitedBody{ReadCloser: io.NopCloser(strings.NewReader("abc")), left: 4}
+	if got, err := io.ReadAll(b); string(got) != "abc" || err != nil {
+		t.Fatalf("%q %v", got, err)
 	}
 }

@@ -12,17 +12,32 @@ import (
 // at the end. ok is false when nothing usable remains; args is then "{}" so
 // the call still fails schema validation with a message the model can act on.
 func RepairArgs(raw string) (args json.RawMessage, ok bool) {
+	args, ok, _ = repairArgs(raw)
+	return args, ok
+}
+
+// ArgsComplete reports whether raw holds a whole argument object: empty input
+// and arguments that only parse once open strings or brackets are closed
+// are what a model cut off by its output limit leaves behind.
+func ArgsComplete(raw string) bool {
+	_, ok, cut := repairArgs(raw)
+	return ok && !cut
+}
+
+// repairArgs is RepairArgs; cut is true when raw was empty or had to be
+// closed to parse.
+func repairArgs(raw string) (args json.RawMessage, ok, cut bool) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
-		return json.RawMessage("{}"), true
+		return json.RawMessage("{}"), true, true
 	}
 	s = stripFence(s)
-	for _, cand := range []string{s, dropTrailingCommas(s), closeOpen(dropTrailingCommas(s))} {
+	for i, cand := range []string{s, dropTrailingCommas(s), closeOpen(dropTrailingCommas(s))} {
 		if obj, ok := asObject([]byte(cand)); ok {
-			return obj, true
+			return obj, true, i == 2
 		}
 	}
-	return json.RawMessage("{}"), false
+	return json.RawMessage("{}"), false, false
 }
 
 func asObject(b []byte) (json.RawMessage, bool) {

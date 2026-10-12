@@ -43,6 +43,7 @@ type entry struct {
 	base  string
 	cfg   config.Provider
 	fp    string
+	hc    *http.Client
 	cl    client
 	creds *credentials
 }
@@ -98,15 +99,23 @@ func (f *Facade) entry(id string) (*entry, error) {
 	fp := string(fpb)
 	f.mu.Lock()
 	old := f.entries[id]
+	f.mu.Unlock()
 	if old != nil && old.fp == fp {
-		f.mu.Unlock()
 		return old, nil
 	}
+	// Built without f.mu: Egress is another module and must not be called
+	// under the facade's lock.
 	e, err := f.build(p, fp)
 	if err != nil {
-		f.mu.Unlock()
 		return nil, err
 	}
+	f.mu.Lock()
+	if cur := f.entries[id]; cur != nil && cur.fp == fp {
+		f.mu.Unlock()
+		e.hc.CloseIdleConnections()
+		return cur, nil
+	}
+	old = f.entries[id]
 	f.entries[id] = e
 	delete(f.disc, id)
 	// A changed config (a new key, another base URL) deserves a fresh start:
@@ -114,6 +123,9 @@ func (f *Facade) entry(id string) (*entry, error) {
 	delete(f.health, id)
 	f.mu.Unlock()
 	if old != nil {
+		// Each entry owns a cloned transport; the replaced one's idle
+		// connections would otherwise linger.
+		old.hc.CloseIdleConnections()
 		f.updateBanner()
 	}
 	return e, nil
@@ -143,7 +155,7 @@ func (f *Facade) build(p config.Provider, fp string) (*entry, error) {
 	for _, m := range p.Models {
 		o.Models = append(o.Models, core.ModelInfo{Ref: core.ModelRef{Provider: p.ID, Model: m.ID}, Source: "config"})
 	}
-	return &entry{id: p.ID, kind: kind, base: base, cfg: p, fp: fp, creds: creds, cl: newClient(o)}, nil
+	return &entry{id: p.ID, kind: kind, base: base, cfg: p, fp: fp, hc: hc, creds: creds, cl: newClient(o)}, nil
 }
 
 func newClient(o wire.Options) client {
@@ -171,6 +183,8 @@ func hostPort(base string) (string, error) {
 		return "", fmt.Errorf("base_url %q: scheme must be http or https: %w", base, core.ErrInvalid)
 	case u.User != nil:
 		return "", fmt.Errorf("base_url must not carry credentials: %w", core.ErrInvalid)
+	case u.RawQuery != "" || u.Fragment != "" || u.ForceQuery:
+		return "", fmt.Errorf("base_url %q must not have a query or fragment: %w", base, core.ErrInvalid)
 	case port == "" && u.Scheme == "https":
 		port = "443"
 	case port == "":
@@ -182,7 +196,8 @@ func hostPort(base string) (string, error) {
 // httpClient gets the egress-guarded client for base and hardens a copy: no
 // proxy, TLS 1.2 or newer, no cookie jar, no client-wide timeout (streams
 // outlive any fixed one; the caller's context bounds them) and no redirects,
-// since the key headers would follow a redirect to another host.
+// since the key headers would follow a redirect to another host. The copy
+// has its own connection pool; short-lived users close its idle connections.
 func (f *Facade) httpClient(name, base string, allowPrivate bool) (*http.Client, error) {
 	hp, err := hostPort(base)
 	if err != nil {
@@ -200,7 +215,13 @@ func harden(c *http.Client) *http.Client {
 	out.Jar = nil
 	out.Timeout = 0
 	out.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	if t, ok := c.Transport.(*http.Transport); ok {
+	rt := c.Transport
+	if rt == nil {
+		// A nil transport means http.DefaultTransport, which honours
+		// HTTP(S)_PROXY from the environment.
+		rt = http.DefaultTransport
+	}
+	if t, ok := rt.(*http.Transport); ok {
 		t = t.Clone()
 		t.Proxy = nil
 		if t.TLSClientConfig == nil {

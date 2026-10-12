@@ -242,3 +242,34 @@ func TestDiscover(t *testing.T) {
 		t.Fatal("discovery key placement")
 	}
 }
+
+// The model name lands in the URL path next to the key header: a passthrough
+// client must not steer it to another endpoint of the host.
+func TestModelNameCannotEscapeThePath(t *testing.T) {
+	srv := wiretest.NewServer(t, wiretest.SSE(wiretest.File(t, "testdata/js_text_stream.sse")))
+	c := New(wiretest.Options(srv, "gemini"))
+	for _, bad := range []string{
+		"../files", "models/../../upload/v1beta/files", "x?alt=json#", "gemini-2.5-flash:generateContent",
+		"cachedContents/abc", "models/", "", "tunedModels/a/b", "%2e%2e",
+	} {
+		_, err := c.Stream(context.Background(), &core.Request{Model: bad}, nil)
+		var pe *core.ProviderError
+		if !errors.As(err, &pe) || pe.Kind != core.ErrKindInvalidRequest {
+			t.Fatalf("%q: %v", bad, err)
+		}
+	}
+	if n := len(srv.Requests()); n != 0 {
+		t.Fatalf("%d requests sent", n)
+	}
+	for model, want := range map[string]string{
+		"models/gemini-2.5-flash": "/models/gemini-2.5-flash:streamGenerateContent?alt=sse",
+		"tunedModels/my-model-1":  "/tunedModels/my-model-1:streamGenerateContent?alt=sse",
+	} {
+		if _, err := c.Stream(context.Background(), &core.Request{Model: model}, nil); err != nil {
+			t.Fatalf("%s: %v", model, err)
+		}
+		if reqs := srv.Requests(); reqs[len(reqs)-1].URL != want {
+			t.Fatalf("%s: url %s", model, reqs[len(reqs)-1].URL)
+		}
+	}
+}

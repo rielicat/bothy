@@ -58,6 +58,7 @@ func (f *Facade) Probe(ctx context.Context, pc core.ProbeConfig) (core.ProbeResu
 	if err != nil {
 		return core.ProbeResult{}, err
 	}
+	defer hc.CloseIdleConnections()
 	creds := &credentials{f: f, id: "probe", secret: key, expires: time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)}
 	o := wire.Options{ID: "probe", Kind: pc.Kind, BaseURL: base, HTTP: hc, Redact: creds.redact}
 	if !key.IsZero() {

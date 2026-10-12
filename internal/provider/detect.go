@@ -89,6 +89,7 @@ func (f *Facade) detectServer(ctx context.Context, kind core.ProviderKind, base,
 	if err != nil {
 		return nil
 	}
+	defer hc.CloseIdleConnections()
 	o := wire.Options{ID: "detect", Kind: kind, BaseURL: base, HTTP: hc}
 	var names []string
 	if kind == core.KindOllama {

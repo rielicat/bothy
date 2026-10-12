@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/bothyhq/bothy/internal/core"
@@ -173,5 +174,26 @@ func TestDiscovery(t *testing.T) {
 	running, err := New(wiretest.Options(srv, "ollama")).Running(context.Background())
 	if err != nil || running["gemma4"] != 4096 {
 		t.Fatalf("%v %v", err, running)
+	}
+}
+
+func TestDiscoveryListsPastTheShowLimit(t *testing.T) {
+	var tags struct {
+		Models []map[string]string `json:"models"`
+	}
+	for i := range maxShow + 10 {
+		tags.Models = append(tags.Models, map[string]string{"name": fmt.Sprintf("m%d:latest", i)})
+	}
+	body, _ := json.Marshal(tags)
+	srv := wiretest.NewServer(t, wiretest.JSON(200, body), wiretest.JSON(200, wiretest.File(t, "testdata/docs_show.json")))
+	ms, err := New(wiretest.Options(srv, "ollama")).Discover(context.Background())
+	if err != nil || len(ms) != maxShow+10 {
+		t.Fatalf("%v: %d models", err, len(ms))
+	}
+	if last := ms[len(ms)-1]; last.Ref.Model != fmt.Sprintf("m%d:latest", maxShow+9) || last.Context != 0 || !last.Tools {
+		t.Fatalf("last %+v", last)
+	}
+	if n := len(srv.Requests()); n != 1+maxShow {
+		t.Fatalf("%d requests", n)
 	}
 }

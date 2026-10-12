@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -372,6 +373,19 @@ func TestPrepareStripsForeignSignatures(t *testing.T) {
 	}
 }
 
+func TestPrepareDropsNotices(t *testing.T) {
+	text := func(s string) []core.Part { return []core.Part{{Type: core.PartText, Text: s}} }
+	r := &core.Request{Messages: []core.Message{
+		{Role: core.MsgUser, Kind: core.KindNormal, Parts: text("q")},
+		{Role: core.MsgAssistant, Kind: core.KindNotice, Parts: text("Stopped by /stop.")},
+		{Role: core.MsgUser, Kind: core.KindSteer, Parts: text("more")},
+	}}
+	got := prepare(r, core.ModelInfo{}, core.KindOpenAI).Messages
+	if len(got) != 2 || got[0].Parts[0].Text != "q" || got[1].Parts[0].Text != "more" || len(r.Messages) != 3 {
+		t.Fatalf("messages %+v", got)
+	}
+}
+
 func TestSameRoleMessagesMergedOnTheWire(t *testing.T) {
 	srv := newServer(t, sse(okStream))
 	h := newHarness(t, []config.Provider{cfgProvider("a", core.KindOpenAICompat, srv.URL)}, "a/m")
@@ -411,4 +425,47 @@ func TestNewRequiresDeps(t *testing.T) {
 	if hs := f.Health(); len(hs) != 0 {
 		t.Fatalf("health %+v", hs)
 	}
+}
+
+// Run with -race: calls, health, model listing, calibration and config
+// reloads share the facade's state.
+func TestConcurrentCallsAndReload(t *testing.T) {
+	good := newServer(t, sse(okStream))
+	denied := newServer(t, jsonReply(401, errBody(`"invalid_api_key"`, "invalid_request_error", "bad key")))
+	h := newHarness(t, []config.Provider{
+		cfgProvider("bad", core.KindOpenAICompat, denied.URL),
+		cfgProvider("good", core.KindOpenAICompat, good.URL),
+	}, "bad/m", "good/m")
+	h.f.sleep = func(context.Context, time.Duration) error { return nil }
+	h.f.d.Bus = events.New(events.Options{Clock: h.clock})
+	base := h.view.Current()
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Go(func() {
+			for range 10 {
+				if _, ci, err := h.f.Complete(context.Background(), core.SlotMain, nil, userReq, nil); err != nil || ci.Ref.Provider != "good" {
+					t.Errorf("%v %+v", err, ci)
+					return
+				}
+				h.f.Calibrate(core.ModelRef{Provider: "good", Model: "m"}, 100, 90+i)
+			}
+		})
+	}
+	wg.Go(func() {
+		for range 20 {
+			_ = h.f.Health()
+			_ = h.f.Models(context.Background())
+			_ = h.f.Chain(core.SlotMain, nil)
+			_ = h.f.Estimate("some text", core.ModelRef{Provider: "good", Model: "m"})
+		}
+	})
+	wg.Go(func() {
+		for i := range 10 {
+			cfg := *base
+			cfg.Providers = append([]config.Provider(nil), base.Providers...)
+			cfg.Providers[1].Models = []config.ProviderModel{{ID: "m", Context: 8192 + i}}
+			h.view.set(&cfg)
+		}
+	})
+	wg.Wait()
 }
