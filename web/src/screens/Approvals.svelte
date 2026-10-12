@@ -98,7 +98,7 @@
     armed = true;
   }
 
-  const keys: Record<string, Choice> = { a: 'allow_once', s: 'allow_session', l: 'allow_always', d: 'deny' };
+  const keys: Record<string, Choice> = { a: 'allow_once', s: 'allow_session', d: 'deny' };
 
   // Shortcuts go through the DOM buttons, so they obey exactly the same
   // checks (card choices, approver, busy) as a click.

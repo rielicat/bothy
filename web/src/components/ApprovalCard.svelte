@@ -164,7 +164,7 @@
           onclick={() => resolve(c)}
         >
           {choiceLabel[c]}
-          {#if shortcuts}<kbd class="kbd ml-1">{choiceKey[c]}</kbd>{/if}
+          {#if shortcuts && choiceKey[c]}<kbd class="kbd ml-1">{choiceKey[c]}</kbd>{/if}
         </button>
       {/each}
     {:else if open}

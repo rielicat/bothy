@@ -134,4 +134,13 @@ describe('Approvals inbox shortcut target', () => {
     expect(posts()[0].url).toBe(`/api/approvals/${fixtureApprovals[1].id}`);
     expect(JSON.parse(posts()[0].body)).toEqual({ choice: 'deny' });
   });
+
+  it('has no single-key shortcut for always allow', async () => {
+    render(Approvals, { params: {} });
+    const [first] = await screen.findAllByRole('article');
+    expect(first.querySelector('button[data-choice="allow_always"]')?.hasAttribute('aria-keyshortcuts')).toBe(false);
+    await fireEvent.keyDown(window, { key: 'l' });
+    expect(posts()).toHaveLength(0);
+  });
 });
+

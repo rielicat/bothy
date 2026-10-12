@@ -35,7 +35,9 @@ export const choiceDone: Record<Choice, string> = {
   deny: 'Denied',
 };
 
-export const choiceKey: Record<Choice, string> = { allow_once: 'a', allow_session: 's', allow_always: 'l', deny: 'd' };
+// SPEC §9.3 shortcuts. "Always allow" creates a standing grant, so it has no
+// single-key shortcut that a stray keypress could trigger; it stays a button.
+export const choiceKey: Partial<Record<Choice, string>> = { allow_once: 'a', allow_session: 's', deny: 'd' };
 
 export const verdictChip: Record<Verdict | 'granted' | 'approved' | 'denied', string> = {
   auto: 'chip',
