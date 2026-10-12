@@ -30,6 +30,7 @@ type assembled struct {
 // that model's window.
 type assembler struct {
 	r        *Runner
+	ws       string // workspace dir images are read from
 	standing []string
 	s2       string
 	specs    []core.ToolSpec
@@ -44,6 +45,7 @@ type assembler struct {
 func (r *Runner) newAssembler(rs *runState, hist []histMsg) *assembler {
 	return &assembler{
 		r:        r,
+		ws:       r.workspaceDir(rs.principal),
 		standing: r.cfg().Agent.StandingRules,
 		s2:       rs.sess.SystemSnapshot,
 		specs:    r.snapshotSpecs(rs),
@@ -62,14 +64,16 @@ func (a *assembler) result(ref core.ModelRef) (assembled, bool) {
 }
 
 func (a *assembler) build(m core.ModelInfo) (*core.Request, error) {
-	out := a.assemble(m)
+	out := a.assemble(m, true)
 	a.mu.Lock()
 	a.built[m.Ref] = out
 	a.mu.Unlock()
 	return out.req, nil
 }
 
-func (a *assembler) assemble(m core.ModelInfo) assembled {
+// assemble fits the request to m. Only a build that is sent (load) reads
+// image bytes, and only for the messages that survived the fit.
+func (a *assembler) assemble(m core.ModelInfo, load bool) assembled {
 	c := a.r.cfg()
 	p := profileFor(c, m.Context)
 	est := func(s string) int {
@@ -126,6 +130,9 @@ func (a *assembler) assemble(m core.ModelInfo) assembled {
 	var bd core.Breakdown
 	for i, h := range hist {
 		msgs[i] = h.msg
+		if load && m.Vision {
+			loadImages(a.ws, &msgs[i])
+		}
 		bd.History += msgOverhead
 		for j, t := range toks[i] {
 			switch h.regions[j] {

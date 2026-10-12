@@ -119,6 +119,17 @@ func allowedIn(p profile, name string) bool {
 	return true
 }
 
+// alwaysLazy reports the builtins SPEC §5.6 keeps out of every tools block:
+// they delete, open egress, read skill files or schedule work, so the model
+// reaches them only through tool_search/use_tool.
+func alwaysLazy(name string) bool {
+	switch name {
+	case "fs_delete", "net_allow", "skill_read":
+		return true
+	}
+	return strings.HasPrefix(name, "schedule_")
+}
+
 func orInt(v, def int) int {
 	if v > 0 {
 		return v

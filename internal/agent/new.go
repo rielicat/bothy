@@ -55,7 +55,10 @@ const (
 	stopKillWithin = 2 * time.Second
 )
 
-var errShutdown = errors.New("gateway shutting down")
+var (
+	errShutdown     = errors.New("gateway shutting down")
+	errShuttingDown = fmt.Errorf("agent: %w: %w", core.ErrPaused, errShutdown)
+)
 
 // Runner implements core.Runner.
 type Runner struct {
@@ -80,6 +83,8 @@ type Runner struct {
 	global  *semaphore
 	loops   sync.WaitGroup // worker goroutines
 	bg      sync.WaitGroup // titles, notices
+	bgCtx   context.Context
+	bgStop  context.CancelFunc // cancels bg work when shutdown stops waiting
 }
 
 type prefixMark struct {
@@ -111,6 +116,7 @@ func New(d Deps) (*Runner, error) {
 		users:   map[core.UserID]*semaphore{},
 		prefix:  map[core.SessionID]prefixMark{},
 	}
+	r.bgCtx, r.bgStop = context.WithCancel(context.Background())
 	r.global = newSemaphore(func() int { return r.cfg().Agent.MaxConcurrentRuns })
 	// Without the file the embedded default persona is used, so boot goes on.
 	if err := r.ensurePersona(); err != nil {
@@ -297,8 +303,9 @@ func (r *Runner) Run(ctx context.Context) error {
 // shutdown stops intake, lets runs reach a step boundary for drainTimeout,
 // then cancels the rest; their status becomes interrupted.
 func (r *Runner) shutdown() {
-	r.closing.Store(true)
+	defer r.bgStop()
 	r.mu.Lock()
+	r.closing.Store(true)
 	for _, w := range r.workers {
 		w.signal()
 	}
@@ -319,6 +326,7 @@ func (r *Runner) shutdown() {
 	for _, rs := range r.activeRuns() {
 		rs.cancel(errShutdown)
 	}
+	r.bgStop()
 	wait := time.NewTimer(shutdownWait)
 	defer wait.Stop()
 	select {

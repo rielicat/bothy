@@ -54,17 +54,22 @@ func (*compactJob) isJob() {}
 
 // worker returns the live worker of a session, starting one when needed. The
 // caller must lock it and re-check dead, since an idle worker may be retiring.
-func (r *Runner) worker(id core.SessionID) *worker {
+// Once shutdown has begun no worker starts, so r.loops never grows while
+// shutdown waits on it.
+func (r *Runner) worker(id core.SessionID) (*worker, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.closing.Load() {
+		return nil, errShuttingDown
+	}
 	if w, ok := r.workers[id]; ok {
-		return w
+		return w, nil
 	}
 	w := &worker{r: r, id: id, wake: make(chan struct{}, 1)}
 	r.workers[id] = w
 	r.loops.Add(1)
 	go w.loop()
-	return w
+	return w, nil
 }
 
 func (r *Runner) existingWorker(id core.SessionID) *worker {
@@ -171,7 +176,9 @@ func (w *worker) exec(j job) {
 		j.done <- w.r.compactSession(context.Background(), w.id, j.user)
 	}
 	w.mu.Lock()
-	w.active, w.busy = nil, false
+	// Steers the run never read are in the history the next turn reads, so
+	// they no longer count against queue_depth.
+	w.active, w.busy, w.steers = nil, false, 0
 	w.mu.Unlock()
 }
 
@@ -191,9 +198,7 @@ func (w *worker) tryRetire() bool {
 		return false
 	}
 	w.dead = true
-	if w.r.workers[w.id] == w {
-		delete(w.r.workers, w.id)
-	}
+	w.r.forgetLocked(w)
 	return true
 }
 
@@ -210,8 +215,16 @@ func (w *worker) retireForShutdown() {
 		}
 	}
 	w.queue, w.pending, w.dead = nil, nil, true
-	if w.r.workers[w.id] == w {
-		delete(w.r.workers, w.id)
+	w.r.forgetLocked(w)
+}
+
+// forgetLocked drops a retiring worker and its session's per-process state,
+// which would otherwise grow with every session ever run (each stateless /v1
+// request has its own); r.mu is held.
+func (r *Runner) forgetLocked(w *worker) {
+	if r.workers[w.id] == w {
+		delete(r.workers, w.id)
+		delete(r.prefix, w.id)
 	}
 }
 

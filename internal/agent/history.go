@@ -42,20 +42,41 @@ type histMsg struct {
 // message, in call order, with a synthesized result for any call that has
 // none. Results without a matching call are dropped. Messages that landed in
 // between (steer turns persisted while tools ran) follow the results.
+//
+// A call's result is the first unused one with its id between the call and
+// the next assistant message: providers without call ids get "call_<n>"
+// numbered per response, so the same id recurs across steps and runs.
 func orderToolPairs(msgs []*core.Message) []*core.Message {
-	results := map[string]*core.Message{}
-	for _, m := range msgs {
+	type use struct {
+		msg int
+		id  string
+	}
+	type result struct {
+		at  int
+		msg *core.Message
+	}
+	results := map[string][]result{} // call id -> tool messages, ascending
+	nextAssistant := make([]int, len(msgs))
+	next := len(msgs)
+	for i := len(msgs) - 1; i >= 0; i-- {
+		nextAssistant[i] = next
+		if msgs[i].Role == core.MsgAssistant {
+			next = i
+		}
+	}
+	for i, m := range msgs {
+		if m.Role != core.MsgTool {
+			continue
+		}
 		for _, p := range m.Parts {
-			if p.Type == core.PartToolResult && p.ToolResult != nil && m.Role == core.MsgTool {
-				if _, dup := results[p.ToolResult.CallID]; !dup {
-					results[p.ToolResult.CallID] = m
-				}
+			if p.Type == core.PartToolResult && p.ToolResult != nil {
+				results[p.ToolResult.CallID] = append(results[p.ToolResult.CallID], result{i, m})
 			}
 		}
 	}
-	used := map[*core.Message]bool{}
+	used := map[use]bool{}
 	out := make([]*core.Message, 0, len(msgs))
-	for _, m := range msgs {
+	for i, m := range msgs {
 		if m.Role == core.MsgTool {
 			continue // placed after their calls below
 		}
@@ -68,9 +89,16 @@ func orderToolPairs(msgs []*core.Message) []*core.Message {
 				continue
 			}
 			id := p.ToolCall.ID
-			if res, ok := results[id]; ok && !used[res] {
-				used[res] = true
-				out = append(out, onlyResult(res, id))
+			var found *result
+			for k, res := range results[id] {
+				if res.at > i && res.at < nextAssistant[i] && !used[use{res.at, id}] {
+					found = &results[id][k]
+					break
+				}
+			}
+			if found != nil {
+				used[use{found.at, id}] = true
+				out = append(out, onlyResult(found.msg, id))
 				continue
 			}
 			out = append(out, &core.Message{Session: m.Session, Seq: m.Seq, Run: m.Run, Role: core.MsgTool,
@@ -82,24 +110,25 @@ func orderToolPairs(msgs []*core.Message) []*core.Message {
 	return out
 }
 
-// onlyResult narrows a tool message to the result for one call id.
+// onlyResult narrows a tool message to its first result for one call id.
 func onlyResult(m *core.Message, id string) *core.Message {
 	if len(m.Parts) == 1 {
 		return m
 	}
 	cp := *m
-	cp.Parts = nil
 	for _, p := range m.Parts {
 		if p.Type == core.PartToolResult && p.ToolResult != nil && p.ToolResult.CallID == id {
-			cp.Parts = append(cp.Parts, p)
+			cp.Parts = []core.Part{p}
+			break
 		}
 	}
 	return &cp
 }
 
 // loadHistory reads the session after its summary and renders it for the
-// model: context parts become text, untrusted content is spotlighted,
-// attachments are loaded or described, and everything is redacted.
+// model: context parts become text, untrusted content is spotlighted, files
+// are described, and everything is redacted. Image bytes are read only by
+// the build for a vision model, after the history is fitted.
 func (r *Runner) loadHistory(ctx context.Context, rs *runState) ([]histMsg, error) {
 	sess := rs.sess
 	raw, err := r.d.Store.Messages().Range(ctx, core.SystemViewer(), sess.ID, sess.SummaryUpto+1, 0)
@@ -108,12 +137,18 @@ func (r *Runner) loadHistory(ctx context.Context, rs *runState) ([]histMsg, erro
 	}
 	kept := raw[:0:0]
 	rs.seenSeq = sess.SummaryUpto
+	rs.callIDs = map[string]bool{}
 	for _, m := range raw {
 		rs.seenSeq = max(rs.seenSeq, m.Seq)
 		if m.Kind == core.KindNotice || m.Kind == core.KindSummary {
 			continue
 		}
 		kept = append(kept, m)
+		for _, p := range m.Parts {
+			if p.Type == core.PartToolCall && p.ToolCall != nil {
+				rs.callIDs[p.ToolCall.ID] = true
+			}
+		}
 	}
 	var out []histMsg
 	if sess.Epoch > 0 && sess.Summary != "" {
@@ -127,12 +162,12 @@ func (r *Runner) loadHistory(ctx context.Context, rs *runState) ([]histMsg, erro
 		if m.Role == core.MsgUser && m.Provenance != core.ProvSystem {
 			group++
 		}
-		out = append(out, r.renderMessage(rs, m, group))
+		out = append(out, r.renderMessage(m, group))
 	}
 	return out, nil
 }
 
-func (r *Runner) renderMessage(rs *runState, m *core.Message, group int) histMsg {
+func (r *Runner) renderMessage(m *core.Message, group int) histMsg {
 	h := histMsg{group: group}
 	cp := *m
 	cp.Parts = make([]core.Part, 0, len(m.Parts))
@@ -170,8 +205,6 @@ func (r *Runner) renderMessage(rs *runState, m *core.Message, group int) histMsg
 				tc.Args = r.d.Redactor.RedactBytes(tc.Args)
 				p.ToolCall = &tc
 			}
-		case core.PartImage:
-			p = r.loadImage(rs, p)
 		case core.PartFile:
 			p = fileNote(p)
 		}
@@ -190,16 +223,29 @@ func fileNote(p core.Part) core.Part {
 		p.Blob.Name, p.Blob.MIME, p.Blob.Size, p.Blob.Ref)}
 }
 
-// loadImage fills Blob.Data from the principal's workspace. Data is never
-// persisted; an unreadable or oversized image becomes a note.
-func (r *Runner) loadImage(rs *runState, p core.Part) core.Part {
+// loadImages fills Blob.Data of a message's images from the workspace dir,
+// copying the parts it changes. Data is never persisted; an unreadable or
+// oversized image becomes a note.
+func loadImages(dir string, m *core.Message) {
+	cloned := false
+	for i, p := range m.Parts {
+		if p.Type != core.PartImage {
+			continue
+		}
+		if !cloned {
+			m.Parts, cloned = slices.Clone(m.Parts), true
+		}
+		m.Parts[i] = loadImage(dir, p)
+	}
+}
+
+func loadImage(dir string, p core.Part) core.Part {
 	if p.Blob == nil {
 		return core.Part{Type: core.PartText, Text: "[image unavailable]"}
 	}
 	note := func(why string) core.Part {
 		return core.Part{Type: core.PartText, Text: fmt.Sprintf("[image %q %s]", p.Blob.Name, why)}
 	}
-	dir := r.workspaceDir(rs.principal)
 	if dir == "" || !filepath.IsLocal(p.Blob.Ref) {
 		return note("unavailable")
 	}

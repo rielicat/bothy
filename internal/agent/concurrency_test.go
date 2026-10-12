@@ -415,3 +415,70 @@ func TestShutdownInterruptsRuns(t *testing.T) {
 		close(block)
 	})
 }
+
+func TestShutdownCancelsTheApprovalOfAnInterruptedRun(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		act := &testTool{name: "act", se: core.SEExternalSend}
+		h := newHarness(t, opts{tools: []core.Tool{act},
+			pol:   &fakes.Policy{Verdicts: map[string]core.Verdict{"act": core.VerdictAsk}},
+			appr:  &fakes.Approvals{Manual: true},
+			steps: []fakes.LLMStep{{ToolCalls: []core.ToolCall{call("act", `{}`)}}}})
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error)
+		go func() { done <- h.r.Run(ctx) }()
+		res := h.submit("act")
+		synctest.Wait()
+		if st := h.run(res.Run).Status; st != core.RunWaitingApproval {
+			t.Fatalf("status = %s", st)
+		}
+		cancel()
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+		if st := h.run(res.Run).Status; st != core.RunInterrupted {
+			t.Fatalf("status after shutdown = %s", st)
+		}
+		// Boot recovery only sees runs still open, so the card must be
+		// cancelled now rather than stay approvable for a dead run.
+		if st := h.appr.All()[0].Status; st != core.ApprovalCancelled {
+			t.Fatalf("approval after shutdown = %s", st)
+		}
+		if !slicesContains(h.notices(), "I was restarted mid-task. Send 'retry' to continue.") {
+			t.Fatalf("notices = %v", h.notices())
+		}
+	})
+}
+
+func TestRetiredWorkerForgetsSessionState(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{steps: []fakes.LLMStep{{Text: []string{"hi"}}}})
+		defer h.close()
+		h.submit("hello")
+		synctest.Wait()
+		h.r.mu.Lock()
+		before := len(h.r.prefix)
+		h.r.mu.Unlock()
+		if before != 1 {
+			t.Fatalf("prefix marks after a run = %d", before)
+		}
+		synctestSleep(int((workerIdle + time.Second) / time.Second))
+		h.r.mu.Lock()
+		defer h.r.mu.Unlock()
+		if len(h.r.workers) != 0 || len(h.r.prefix) != 0 {
+			t.Fatalf("after idle retirement: %d workers, %d prefix marks", len(h.r.workers), len(h.r.prefix))
+		}
+	})
+}
+
+func TestCompactRefusedWhilePaused(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{})
+		defer h.close()
+		if err := h.r.SetPaused(h.ctx, true, h.user.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := h.r.Compact(h.ctx, ownerViewer(h), h.sess.ID); !errors.Is(err, core.ErrPaused) {
+			t.Fatalf("Compact while paused = %v", err)
+		}
+	})
+}

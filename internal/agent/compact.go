@@ -50,6 +50,9 @@ func (r *Runner) compactInRun(ctx context.Context, rs *runState, force bool) {
 
 // compactSession is Runner.Compact, run on the session worker.
 func (r *Runner) compactSession(ctx context.Context, id core.SessionID, user core.UserID) error {
+	if r.paused.Load() {
+		return core.ErrPaused
+	}
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	rs := &runState{r: r, ctx: ctx, cancel: cancel, done: make(chan struct{}), req: core.RunRequest{Session: id}}
@@ -204,7 +207,8 @@ func (r *Runner) keptTokens(rs *runState, msgs []*core.Message) int {
 }
 
 // lazyPromotions lists lazy tools used at least twice in the epoch, most used
-// first; compaction promotes them into the tools block.
+// first; compaction promotes them into the tools block. The always-lazy
+// builtins of SPEC §5.6 are never promoted.
 func lazyPromotions(msgs []*core.Message, block []string) []string {
 	counts := map[string]int{}
 	for _, m := range msgs {
@@ -225,7 +229,7 @@ func lazyPromotions(msgs []*core.Message, block []string) []string {
 				}
 				name = u.Name
 			}
-			if name != "tool_search" && name != "use_tool" && !slices.Contains(block, name) {
+			if name != "tool_search" && name != "use_tool" && !alwaysLazy(name) && !slices.Contains(block, name) {
 				counts[name]++
 			}
 		}

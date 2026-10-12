@@ -118,9 +118,6 @@ func (r *Runner) runTools(rs *runState, step int, calls []core.ToolCall) *runEnd
 			}
 			return r.ctxEnd(rs)
 		}
-		if call.ID == "" {
-			call.ID = fmt.Sprintf("call_%d_%d", step, i)
-		}
 		pc := r.prepareCall(rs, step, call)
 		if pc.fail != "" {
 			if end := flush(); end != nil {

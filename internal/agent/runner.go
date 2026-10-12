@@ -22,7 +22,7 @@ func (r *Runner) Submit(ctx context.Context, req core.RunRequest) (core.SubmitRe
 		return core.SubmitResult{}, err
 	}
 	if r.closing.Load() {
-		return core.SubmitResult{}, fmt.Errorf("agent: %w: %w", core.ErrPaused, errShutdown)
+		return core.SubmitResult{}, errShuttingDown
 	}
 	if r.paused.Load() {
 		return core.SubmitResult{}, core.ErrPaused
@@ -36,7 +36,10 @@ func (r *Runner) Submit(ctx context.Context, req core.RunRequest) (core.SubmitRe
 		return core.SubmitResult{}, err
 	}
 	for {
-		w := r.worker(req.Session)
+		w, err := r.worker(req.Session)
+		if err != nil {
+			return core.SubmitResult{}, err
+		}
 		w.mu.Lock()
 		if w.dead {
 			w.mu.Unlock()
@@ -195,7 +198,7 @@ func (r *Runner) sendAsync(chat core.ChatRef, text string) {
 	r.bg.Add(1)
 	go func() {
 		defer r.bg.Done()
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(r.bgCtx, 30*time.Second)
 		defer cancel()
 		if _, err := h.Send(ctx, chat, text); err != nil {
 			r.log.Warn("chat notice", "chat", chat.Key(), "err", err)
@@ -247,10 +250,22 @@ func (r *Runner) stopSession(ctx context.Context, sess *core.Session, by core.Us
 			j.done <- core.ErrStopped
 		}
 	}
-	if parked, err := r.d.Store.Runs().List(kctx, core.SystemViewer(), core.RunFilter{Session: sess.ID, Status: core.RunParked}); err == nil {
-		for _, run := range parked {
-			if err := r.d.Approvals.CancelRun(kctx, run.ID); err != nil {
-				r.log.Warn("cancel approvals of parked run", "run", run.ID, "err", err)
+	// Parked runs, and resumes Resume has flipped to queued but not yet handed
+	// to the worker, have no goroutine to cancel.
+	for _, st := range []core.RunStatus{core.RunParked, core.RunQueued} {
+		runs, err := r.d.Store.Runs().List(kctx, core.SystemViewer(), core.RunFilter{Session: sess.ID, Status: st})
+		if err != nil {
+			r.log.Warn("list runs to stop", "session", sess.ID, "status", st, "err", err)
+			continue
+		}
+		for _, run := range runs {
+			if rs != nil && run.ID == rs.id {
+				continue
+			}
+			if st == core.RunParked {
+				if err := r.d.Approvals.CancelRun(kctx, run.ID); err != nil {
+					r.log.Warn("cancel approvals of parked run", "run", run.ID, "err", err)
+				}
 			}
 			if r.finishDetached(kctx, run, core.RunStopped, "", by) {
 				stopped = true
@@ -289,20 +304,21 @@ func (r *Runner) abandon(rs *runState) {
 	rs.detach()
 	rs.releaseSems()
 	r.mu.Lock()
-	if r.workers[rs.w.id] == rs.w {
-		delete(r.workers, rs.w.id)
-	}
+	r.forgetLocked(rs.w)
 	r.mu.Unlock()
 	rs.w.mu.Lock()
 	rs.w.dead = true
 	rs.w.mu.Unlock()
 }
 
+// StopAll stops every session that has a run or queued work, so a resume
+// waiting in a queue cannot start after the kill switch is engaged.
 func (r *Runner) StopAll(ctx context.Context, by core.UserID) (int, error) {
 	n := 0
-	for _, rs := range r.activeRuns() {
-		sess, err := r.d.Store.Sessions().Get(ctx, core.SystemViewer(), rs.sessionID())
+	for _, id := range r.busySessions() {
+		sess, err := r.d.Store.Sessions().Get(ctx, core.SystemViewer(), id)
 		if err != nil {
+			r.log.Warn("stop all: session", "session", id, "err", err)
 			continue
 		}
 		if r.stopSession(ctx, sess, by) {
@@ -310,6 +326,24 @@ func (r *Runner) StopAll(ctx context.Context, by core.UserID) (int, error) {
 		}
 	}
 	return n, nil
+}
+
+func (r *Runner) busySessions() []core.SessionID {
+	r.mu.Lock()
+	ws := make([]*worker, 0, len(r.workers))
+	for _, w := range r.workers {
+		ws = append(ws, w)
+	}
+	r.mu.Unlock()
+	var out []core.SessionID
+	for _, w := range ws {
+		w.mu.Lock()
+		if w.active != nil || w.pending != nil || len(w.queue) > 0 {
+			out = append(out, w.id)
+		}
+		w.mu.Unlock()
+	}
+	return out
 }
 
 func (r *Runner) activeRuns() []*runState {

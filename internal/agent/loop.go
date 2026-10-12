@@ -25,6 +25,11 @@ func loopEnd() *runEnd {
 		notice: "Stopped: I was repeating myself (loop detected). Rephrase the request or press Retry."}
 }
 
+func interruptedEnd() *runEnd {
+	return &runEnd{status: core.RunInterrupted, err: "interrupted by shutdown",
+		notice: "I was restarted mid-task. Send 'retry' to continue."}
+}
+
 func failEnd(msg string) *runEnd {
 	return &runEnd{status: core.RunFailed, err: msg, notice: "The run failed: " + msg}
 }
@@ -57,7 +62,7 @@ func (r *Runner) ctxEnd(rs *runState) *runEnd {
 	case errors.As(cause, &be):
 		return budgetEnd(be)
 	case errors.Is(cause, errShutdown):
-		return &runEnd{status: core.RunInterrupted, err: "interrupted by shutdown"}
+		return interruptedEnd()
 	}
 	return &runEnd{status: core.RunStopped}
 }
@@ -153,7 +158,7 @@ func (r *Runner) startTurn(rs *runState) *runEnd {
 	}
 	limits := r.d.Budget.DefaultLimits(req.Trigger)
 	if req.Limits != nil {
-		limits = *req.Limits
+		limits = withDefaults(*req.Limits, limits)
 	}
 	rs.mu.Lock()
 	rs.run = core.Run{ID: rs.id, Session: req.Session, Principal: req.Principal, User: req.User, Trigger: req.Trigger,
@@ -206,6 +211,25 @@ func (r *Runner) startTurn(rs *runState) *runEnd {
 	return nil
 }
 
+// withDefaults fills the unset fields of requested limits from the trigger's
+// defaults: a zero limit means "the default", never "unlimited", so a
+// schedule saved without limits cannot run without a step or time bound.
+func withDefaults(l, def core.RunLimits) core.RunLimits {
+	if l.MaxSteps <= 0 {
+		l.MaxSteps = def.MaxSteps
+	}
+	if l.MaxTokens <= 0 {
+		l.MaxTokens = def.MaxTokens
+	}
+	if l.MaxTime <= 0 {
+		l.MaxTime = def.MaxTime
+	}
+	if l.MaxCost <= 0 {
+		l.MaxCost = def.MaxCost
+	}
+	return l
+}
+
 // persistTurn stores the turn (ephemeral API history, then the user message
 // with its turn-context) while holding the worker lock, so steer messages
 // accepted meanwhile merge into it or are ordered after it.
@@ -223,16 +247,13 @@ func (r *Runner) persistTurn(ctx context.Context, rs *runState) error {
 		return err
 	}
 	for _, e := range req.Ephemeral {
-		m := e
-		m.ID, m.Seq, m.Session, m.Run, m.Kind = 0, 0, req.Session, rs.id, core.KindNormal
-		if m.Role != core.MsgAssistant {
-			m.Role = core.MsgUser
+		m := ephemeralMessage(e, req)
+		if m == nil {
+			continue
 		}
-		if m.Provenance == "" {
-			m.Provenance = req.Provenance
-		}
+		m.Run = rs.id
 		m.Tokens = r.d.LLM.Estimate(m.PlainText(), r.headRef(rs))
-		if err := r.appendMessage(ctx, req.Principal, &m, nil); err != nil {
+		if err := r.appendMessage(ctx, req.Principal, m, nil); err != nil {
 			return fmt.Errorf("agent: persist history: %w", err)
 		}
 	}
@@ -265,6 +286,34 @@ func (r *Runner) persistTurn(ctx context.Context, rs *runState) error {
 	rs.sess = s
 	r.recordURLs(ctx, req.Session, req.Provenance, inputsOf(reqs))
 	return nil
+}
+
+// ephemeralMessage copies one /v1 client history message: user or assistant
+// role, the request's provenance (SPEC §8.5) and only text and attachment
+// parts, so a client cannot inject turn-context, tool traffic or provider
+// signatures. nil when nothing is left.
+func ephemeralMessage(e core.Message, req core.RunRequest) *core.Message {
+	m := &core.Message{Session: req.Session, Role: core.MsgUser, Kind: core.KindNormal, Provenance: req.Provenance,
+		Sender: req.Sender}
+	if e.Role == core.MsgAssistant {
+		m.Role = core.MsgAssistant
+	}
+	for _, p := range e.Parts {
+		switch p.Type {
+		case core.PartText, core.PartImage, core.PartFile:
+			part := core.Part{Type: p.Type, Text: p.Text}
+			if p.Blob != nil {
+				b := *p.Blob
+				b.Data = nil
+				part.Blob = &b
+			}
+			m.Parts = append(m.Parts, part)
+		}
+	}
+	if len(m.Parts) == 0 {
+		return nil
+	}
+	return m
 }
 
 // persistTurnOrLog keeps the user's message when the run fails before it
@@ -328,8 +377,7 @@ func (r *Runner) loop(rs *runState) *runEnd {
 	showThinking := r.cfg().Agent.ShowThinking
 	for {
 		if r.closing.Load() {
-			return &runEnd{status: core.RunInterrupted, err: "interrupted by shutdown",
-				notice: "I was restarted mid-task. Send 'retry' to continue."}
+			return interruptedEnd()
 		}
 		if ctx.Err() != nil {
 			return r.ctxEnd(rs)
@@ -455,7 +503,7 @@ func (r *Runner) prepareStep(ctx context.Context, rs *runState) (*assembler, ass
 		r.syncSteersLocked(ctx, rs)
 		rs.w.mu.Unlock()
 		asm := r.newAssembler(rs, hist)
-		return asm, asm.assemble(rs.chain[0]), nil
+		return asm, asm.assemble(rs.chain[0], false), nil
 	}
 	asm, head, err := build()
 	if err != nil {
@@ -504,23 +552,28 @@ func (r *Runner) compactThreshold(m core.ModelInfo) int {
 	return t
 }
 
-// persistAssistant stores the assistant message and returns its tool calls,
-// with ids filled in where the provider sent none.
+// persistAssistant stores the assistant message and returns its tool calls.
+// A call without an id, or with one already in the history (providers that
+// number calls per response), gets a fresh id so each result pairs with
+// exactly one call for every provider.
 func (r *Runner) persistAssistant(ctx context.Context, rs *runState, resp *core.Response) []core.ToolCall {
 	msg := resp.Message
 	msg.ID, msg.Seq, msg.Session, msg.Run = 0, 0, rs.req.Session, rs.id
 	msg.Role, msg.Kind, msg.Provenance = core.MsgAssistant, core.KindNormal, core.ProvSystem
 	msg.Parts = slices.Clone(msg.Parts)
+	if rs.callIDs == nil {
+		rs.callIDs = map[string]bool{}
+	}
 	var calls []core.ToolCall
-	step := rs.totals().Steps
 	for i, p := range msg.Parts {
 		if p.Type != core.PartToolCall || p.ToolCall == nil {
 			continue
 		}
 		tc := *p.ToolCall
-		if tc.ID == "" {
-			tc.ID = fmt.Sprintf("call_%d_%d", step, i)
+		for tc.ID == "" || rs.callIDs[tc.ID] {
+			tc.ID = "call_" + randomID()
 		}
+		rs.callIDs[tc.ID] = true
 		msg.Parts[i].ToolCall = &tc
 		calls = append(calls, tc)
 	}
@@ -632,10 +685,18 @@ func (r *Runner) finish(rs *runState, end *runEnd) {
 		r.auditf(ctx, "agent:"+string(rs.id), "budget.exceeded", string(rs.id), "denied", rs.req.Session, rs.id,
 			map[string]any{"kind": end.budget.Kind, "limit": end.budget.Limit, "used": end.budget.Used})
 	}
+	// Boot recovery only sees runs still open at boot, so a run interrupted
+	// by this shutdown cancels its own pending approval (SPEC §5.9).
+	if end.status == core.RunInterrupted {
+		if err := r.d.Approvals.CancelRun(ctx, rs.id); err != nil {
+			r.log.Warn("cancel approvals of interrupted run", "run", rs.id, "err", err)
+		}
+	}
 	if end.status != core.RunDone || rs.sess == nil {
 		return
 	}
-	if rs.sess.Title == "" {
+	// Hidden /v1 sessions are never listed, so a title would only cost a call.
+	if rs.sess.Title == "" && !rs.sess.Hidden {
 		r.titleAsync(rs)
 	}
 	if len(rs.chain) > 0 && rs.lastEst*10 > rs.chain[0].Context*6 {

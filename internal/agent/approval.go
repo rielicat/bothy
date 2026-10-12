@@ -64,6 +64,13 @@ func (r *Runner) ask(rs *runState, pc *pcall, rest []core.ToolCall) *runEnd {
 	if errors.Is(err, core.ErrStopped) { // the approval was cancelled: the run is over
 		rs.cancel(core.ErrStopped)
 	}
+	// An API run gave up on the card; cancel it so a later click cannot look
+	// like it approved anything.
+	if api && ctx.Err() == nil && (waitCtx.Err() != nil || errors.Is(err, core.ErrParked)) {
+		if cerr := r.d.Approvals.CancelRun(context.WithoutCancel(ctx), rs.id); cerr != nil {
+			r.log.Warn("cancel expired api approval", "run", rs.id, "err", cerr)
+		}
+	}
 	if ctx.Err() != nil {
 		return r.ctxEnd(rs)
 	}
@@ -88,12 +95,13 @@ func (r *Runner) ask(rs *runState, pc *pcall, rest []core.ToolCall) *runEnd {
 }
 
 // grantFor creates the narrow grant an allow_session or allow_always choice
-// stands for. A choice the decision did not offer counts as allow_once.
+// stands for. A choice the decision did not offer counts as allow_once, so a
+// decision that lists no choices never yields a grant.
 func (r *Runner) grantFor(ctx context.Context, rs *runState, pc *pcall, choice core.Choice) {
 	if choice != core.AllowSession && choice != core.AllowAlways {
 		return
 	}
-	if len(pc.dec.Choices) > 0 && !slices.Contains(pc.dec.Choices, choice) {
+	if !slices.Contains(pc.dec.Choices, choice) {
 		r.log.Warn("approval choice was not offered; treating it as allow_once", "choice", choice, "run", rs.id)
 		return
 	}
@@ -187,22 +195,40 @@ func titleCase(s string) string {
 // record the denial and continue the loop; expired/cancelled => run stopped
 // with a notice. It is a no-op when the approval's run is not parked.
 func (r *Runner) Resume(ctx context.Context, a *core.Approval) error {
-	if a == nil || a.Run == "" {
-		return nil
-	}
-	switch a.Status {
-	case core.ApprovalAllowed, core.ApprovalDenied, core.ApprovalExpired, core.ApprovalCancelled:
-	default:
+	if a == nil || a.ID == "" || !resolved(a.Status) {
 		return nil
 	}
 	if err := r.ensureInit(ctx); err != nil {
 		return err
 	}
+	// Most resolutions are for runs that never parked; a read keeps them off
+	// the writer transaction.
+	run, err := r.d.Store.Runs().Get(ctx, core.SystemViewer(), a.Run)
+	switch {
+	case errors.Is(err, core.ErrNotFound):
+		return nil
+	case err != nil:
+		return fmt.Errorf("agent: resume: read run %s: %w", a.Run, err)
+	case run.Status != core.RunParked || run.ParkedOn != a.ID:
+		return nil
+	}
+	// The caller's copy is only a signal: status, choice and Action come from
+	// the approvals store, so nothing but a recorded resolution runs an Action.
+	stored, err := r.d.Approvals.Get(ctx, core.SystemViewer(), a.ID)
+	if errors.Is(err, core.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("agent: resume: read approval %s: %w", a.ID, err)
+	}
+	a = stored
+	if !resolved(a.Status) || a.Run == "" {
+		return nil
+	}
 	stopOnly := a.Status == core.ApprovalExpired || a.Status == core.ApprovalCancelled || r.paused.Load() || r.closing.Load()
-	var run *core.Run
 	// The status flip is a compare-and-swap inside one transaction, so two
 	// resolutions or two runners can never execute the stored Action twice.
-	err := r.d.Store.Tx(ctx, func(tx core.Store) error {
+	err = r.d.Store.Tx(ctx, func(tx core.Store) error {
 		cur, err := tx.Runs().Get(ctx, core.SystemViewer(), a.Run)
 		if err != nil {
 			return err
@@ -231,7 +257,10 @@ func (r *Runner) Resume(ctx context.Context, a *core.Approval) error {
 		return nil
 	}
 	for {
-		w := r.worker(run.Session)
+		w, err := r.worker(run.Session)
+		if err != nil { // the row stays queued and becomes interrupted at boot
+			return err
+		}
 		w.mu.Lock()
 		if w.dead {
 			w.mu.Unlock()
@@ -244,33 +273,50 @@ func (r *Runner) Resume(ctx context.Context, a *core.Approval) error {
 	}
 }
 
+func resolved(st core.ApprovalStatus) bool {
+	switch st {
+	case core.ApprovalAllowed, core.ApprovalDenied, core.ApprovalExpired, core.ApprovalCancelled:
+		return true
+	}
+	return false
+}
+
+const pausedParkedNotice = "Bothy is paused by an admin, so the parked run stopped."
+
 // endParked finishes a parked run whose approval expired or was cancelled
 // (or that cannot resume because Bothy is paused).
 func (r *Runner) endParked(ctx context.Context, run *core.Run, a *core.Approval) {
 	text := "The parked action was not approved in time, so the run stopped."
+	st := core.TCTimeout
 	switch {
 	case a.Status == core.ApprovalCancelled:
-		text = "The parked action was cancelled, so the run stopped."
-	case r.paused.Load():
-		text = "Bothy is paused by an admin, so the parked run stopped."
+		text, st = "The parked action was cancelled, so the run stopped.", core.TCDenied
+	case a.Status != core.ApprovalExpired && r.paused.Load():
+		text, st = pausedParkedNotice, core.TCStopped
 	}
-	if recs, err := r.d.Store.Runs().ToolCalls(ctx, core.SystemViewer(), run.ID); err == nil {
-		for _, rec := range recs {
-			if rec.ID == a.ToolCallID {
-				rec.Status, rec.FinishedAt = core.TCDenied, r.now()
-				if a.Status == core.ApprovalExpired {
-					rec.Status = core.TCTimeout
-				}
-				r.updateRec(ctx, rec)
-			}
-		}
-	}
+	r.closeParkedCall(ctx, run.ID, a.ToolCallID, st)
 	sink := r.resumeSink(ctx, run)
 	r.notice(ctx, run.Session, run.Principal, run.ID, text, sink)
 	ev := r.d.Bus.Publish(core.Event{Type: core.EvRunFinished, Principal: run.Principal, Session: run.Session, Run: run.ID,
 		Data: core.RunFinishedData{Status: core.RunStopped, Steps: run.Steps, Usage: run.Usage, Cost: run.Cost}})
 	if sink != nil {
 		sink.OnEvent(ev)
+	}
+}
+
+// closeParkedCall finalizes the tool call record of a parked call that will
+// not run.
+func (r *Runner) closeParkedCall(ctx context.Context, run core.RunID, callID string, st core.ToolCallStatus) {
+	recs, err := r.d.Store.Runs().ToolCalls(ctx, core.SystemViewer(), run)
+	if err != nil {
+		r.log.Warn("parked tool call", "run", run, "err", err)
+		return
+	}
+	for _, rec := range recs {
+		if rec.ID == callID {
+			rec.Status, rec.FinishedAt = st, r.now()
+			r.updateRec(ctx, rec)
+		}
 	}
 }
 
@@ -348,8 +394,20 @@ func (r *Runner) runResume(rs *runState, j *resumeJob) {
 
 func (r *Runner) startResume(rs *runState, j *resumeJob) *runEnd {
 	ctx := rs.ctx
+	// A Stop that landed between Resume's flip to queued and this job
+	// starting has already finished the row.
+	if cur, err := r.d.Store.Runs().Get(ctx, core.SystemViewer(), rs.id); err != nil || cur.Status != core.RunQueued {
+		return &runEnd{noRow: true}
+	}
 	if err := r.loadRunContext(ctx, rs); err != nil {
 		return failEnd("could not load the session: " + err.Error())
+	}
+	if r.paused.Load() { // engaged while the resume waited in the queue
+		r.closeParkedCall(ctx, rs.id, j.approval.ToolCallID, core.TCStopped)
+		rs.emitMu.Lock()
+		rs.sink = r.resumeSink(ctx, j.run)
+		rs.emitMu.Unlock()
+		return &runEnd{status: core.RunStopped, notice: pausedParkedNotice}
 	}
 	rs.req.Provenance = r.runProvenance(ctx, rs)
 	rs.req.Chat = rs.sess.Chat
@@ -421,11 +479,10 @@ func (r *Runner) executeApproved(rs *runState, a *core.Approval) *runEnd {
 			rec = x
 		}
 	}
+	// The card showed the approval's Action; it must also be the call this
+	// run planned.
 	action := a.Action
-	if action == nil && rec != nil {
-		action = rec.Action
-	}
-	if rec == nil || action == nil {
+	if rec == nil || action == nil || a.Run != rs.id {
 		rs.notice(ctx, "The approved action could not be found, so it did not run.")
 		return nil
 	}
@@ -433,14 +490,17 @@ func (r *Runner) executeApproved(rs *runState, a *core.Approval) *runEnd {
 		dec: a.Decision, decided: true, argsHash: fnv64(action.Payload)}
 	pc.out = rs.newOutputLimiter(rec.ID)
 	pc.env = r.toolEnv(rs, rec.ID, pc.out)
+	pc.spec = core.ToolSpec{Def: core.ToolDef{Name: action.Tool}}
 	if a.Status == core.ApprovalDenied || a.Choice == core.Deny {
 		pc.rec.Status = core.TCDenied
-		pc.spec = core.ToolSpec{Def: core.ToolDef{Name: action.Tool}}
 		return r.finishCall(rs, pc, textResult(core.TCDenied, userDenied), true)
+	}
+	if rec.Action == nil || rec.Action.Tool != action.Tool || rec.Action.Fingerprint != action.Fingerprint {
+		return r.finishCall(rs, pc, textResult(core.TCError,
+			"The approved action does not match the planned call, so it did not run."), true)
 	}
 	t, ok := r.d.Tools.Get(action.Tool)
 	if !ok {
-		pc.spec = core.ToolSpec{Def: core.ToolDef{Name: action.Tool}}
 		return r.finishCall(rs, pc, textResult(core.TCError,
 			fmt.Sprintf("The approved action did not run: the tool %s is no longer available.", action.Tool)), true)
 	}

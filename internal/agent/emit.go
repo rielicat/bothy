@@ -20,11 +20,18 @@ const (
 )
 
 // publish sends a run event to the bus and then to the run's sink, under
-// emitMu so both see the same order. A detached sink gets nothing.
+// emitMu so both see the same order. A detached sink gets nothing. Status
+// details carry URLs and command lines, so an exposed session's sink gets
+// them with links neutralized like the text.
 func (rs *runState) publish(typ core.EventType, data core.EventData) core.Event {
 	rs.emitMu.Lock()
 	defer rs.emitMu.Unlock()
-	return rs.publishLocked(typ, data, data)
+	sinkData := data
+	if st, ok := data.(core.RunStatusData); ok && rs.exposed && st.Detail != "" {
+		st.Detail = neutralizeLinks(st.Detail)
+		sinkData = st
+	}
+	return rs.publishLocked(typ, data, sinkData)
 }
 
 // publishLocked lets the sink get a different payload (neutralized links).

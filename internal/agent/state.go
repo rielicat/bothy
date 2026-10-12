@@ -49,7 +49,8 @@ type runState struct {
 	chain      []core.ModelInfo
 	profile    profile
 	sel        core.Selection
-	seenSeq    int64 // newest message seq the last assembly read
+	seenSeq    int64           // newest message seq the last assembly read
+	callIDs    map[string]bool // tool call ids in the history the last assembly read
 	taint      core.Taint
 	boxReady   bool
 	wsReady    bool
@@ -73,8 +74,6 @@ func (r *Runner) newResumeState(w *worker, j *resumeJob) *runState {
 		req: core.RunRequest{Session: j.run.Session, Principal: j.run.Principal, User: j.run.User,
 			Trigger: j.run.Trigger, Schedule: j.run.Schedule}}
 }
-
-func (rs *runState) sessionID() core.SessionID { return rs.req.Session }
 
 func (rs *runState) status() core.RunStatus {
 	rs.mu.Lock()

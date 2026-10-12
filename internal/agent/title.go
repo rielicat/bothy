@@ -27,7 +27,7 @@ func (r *Runner) titleAsync(rs *runState) {
 	r.bg.Add(1)
 	go func() {
 		defer r.bg.Done()
-		ctx, cancel := context.WithTimeout(context.Background(), titleTimeout)
+		ctx, cancel := context.WithTimeout(r.bgCtx, titleTimeout)
 		defer cancel()
 		r.makeTitle(ctx, sid, p, u)
 	}()

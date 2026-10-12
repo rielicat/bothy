@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 	"testing/synctest"
 
@@ -215,6 +217,152 @@ func TestExpiredParkedApprovalStopsRun(t *testing.T) {
 		}
 		if act.calls.Load() != 0 {
 			t.Fatal("expired action ran")
+		}
+	})
+}
+
+func TestResumeReadsTheApprovalFromTheStore(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var mu sync.Mutex
+		var payloads []string
+		act := &testTool{name: "act", se: core.SEExternalSend, run: func(_ context.Context, _ *core.ToolEnv, a *core.Action) (*core.ToolResult, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			payloads = append(payloads, string(a.Payload))
+			return &core.ToolResult{Content: "sent"}, nil
+		}}
+		h := parkHarness(t, act, fakes.LLMStep{Text: []string{"Report sent."}})
+		defer h.close()
+		id, a := parkRun(t, h)
+
+		forged := *a // claims allowed while the store still says parked
+		forged.Status, forged.Choice = core.ApprovalAllowed, core.AllowOnce
+		if err := h.r.Resume(h.ctx, &forged); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		if act.calls.Load() != 0 || h.run(id).Status != core.RunParked {
+			t.Fatalf("forged resolution: act calls %d, run %s", act.calls.Load(), h.run(id).Status)
+		}
+
+		resolved, err := h.appr.Resolve(h.ctx, core.Resolution{ID: a.ID, Choice: core.AllowOnce, By: h.user.ID, Via: "web"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		swapped := *resolved.Action
+		swapped.Payload = json.RawMessage(`{"to":"attacker"}`)
+		signal := *resolved
+		signal.Action = &swapped
+		if err := h.r.Resume(h.ctx, &signal); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		if act.calls.Load() != 1 || payloads[0] != `{"to":"x"}` {
+			t.Fatalf("act calls %d with %v; want the stored payload once", act.calls.Load(), payloads)
+		}
+		if st := h.run(id).Status; st != core.RunDone {
+			t.Fatalf("status = %s", st)
+		}
+	})
+}
+
+func TestResumeRefusesAnActionThatIsNotThePlannedCall(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		act := &testTool{name: "act", se: core.SEExternalSend}
+		h := parkHarness(t, act, fakes.LLMStep{Text: []string{"It did not run."}})
+		defer h.close()
+		h.appr.OnResolved(func(a *core.Approval) { _ = h.r.Resume(context.Background(), a) })
+		id, a := parkRun(t, h)
+		for _, rec := range h.toolCalls(id) {
+			if rec.ID != a.ToolCallID {
+				continue
+			}
+			other := *rec.Action
+			other.Payload = json.RawMessage(`{"to":"y"}`)
+			other.Fingerprint = core.ActionFingerprint(other.Tool, other.Payload)
+			rec.Action = &other
+			if err := h.store.Runs().UpdateToolCall(h.ctx, rec); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := h.appr.Resolve(h.ctx, core.Resolution{ID: a.ID, Choice: core.AllowOnce, By: h.user.ID, Via: "web"}); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		if act.calls.Load() != 0 {
+			t.Fatal("an action that differs from the planned call ran")
+		}
+		reqs := h.requests()
+		if !strings.Contains(allText(reqs[len(reqs)-1]), "The approved action does not match the planned call") {
+			t.Fatal("the model was not told why the action did not run")
+		}
+	})
+}
+
+func TestKillSwitchStopsAQueuedResume(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		block := make(chan struct{})
+		act := &testTool{name: "act", se: core.SEExternalSend}
+		h := parkHarness(t, act, fakes.LLMStep{Text: []string{"busy"}, Block: block})
+		defer h.close()
+		h.appr.OnResolved(func(a *core.Approval) { _ = h.r.Resume(context.Background(), a) })
+		id, a := parkRun(t, h)
+		h.submit("keep the session busy")
+		synctest.Wait()
+		if _, err := h.appr.Resolve(h.ctx, core.Resolution{ID: a.ID, Choice: core.AllowOnce, By: h.user.ID, Via: "web"}); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		// The kill switch engages while the resume waits behind the active
+		// run (StopAll has not reached this session yet).
+		h.r.paused.Store(true)
+		close(block)
+		synctest.Wait()
+		if act.calls.Load() != 0 {
+			t.Fatal("a resumed action ran while Bothy was paused")
+		}
+		if st := h.run(id).Status; st != core.RunStopped {
+			t.Fatalf("status = %s", st)
+		}
+		if !slicesContains(h.notices(), pausedParkedNotice) {
+			t.Fatalf("notices = %v", h.notices())
+		}
+	})
+}
+
+func TestStopFinishesAResumeNotYetHandedToTheWorker(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		act := &testTool{name: "act", se: core.SEExternalSend}
+		h := parkHarness(t, act, fakes.LLMStep{Text: []string{"should not happen"}})
+		defer h.close()
+		id, a := parkRun(t, h)
+		resolved, err := h.appr.Resolve(h.ctx, core.Resolution{ID: a.ID, Choice: core.AllowOnce, By: h.user.ID, Via: "web"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Resume has flipped the row to queued but not queued the job yet.
+		run := h.run(id)
+		run.Status = core.RunQueued
+		if err := h.store.Runs().Update(h.ctx, run); err != nil {
+			t.Fatal(err)
+		}
+		if ok, err := h.r.Stop(h.ctx, ownerViewer(h), h.sess.ID, h.user.ID); err != nil || !ok {
+			t.Fatalf("Stop = %v %v", ok, err)
+		}
+		w, err := h.r.worker(h.sess.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.mu.Lock()
+		w.queue = append(w.queue, &resumeJob{run: run, approval: resolved})
+		w.signal()
+		w.mu.Unlock()
+		synctest.Wait()
+		if act.calls.Load() != 0 {
+			t.Fatal("a stopped resume ran its action")
+		}
+		if st := h.run(id).Status; st != core.RunStopped {
+			t.Fatalf("status = %s", st)
 		}
 	})
 }

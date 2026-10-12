@@ -123,7 +123,8 @@ func (r *Runner) Fork(ctx context.Context, v core.Viewer, id core.SessionID, by 
 }
 
 // Compact runs a compaction now (/compact). It waits behind the session's
-// active run, if any.
+// active run, if any. Summarizing is an LLM call, so the kill switch refuses
+// it like a run.
 func (r *Runner) Compact(ctx context.Context, v core.Viewer, id core.SessionID) error {
 	sess, err := r.d.Store.Sessions().Get(ctx, v, id)
 	if err != nil {
@@ -132,13 +133,19 @@ func (r *Runner) Compact(ctx context.Context, v core.Viewer, id core.SessionID) 
 	if err := r.ensureInit(ctx); err != nil {
 		return err
 	}
+	if r.paused.Load() {
+		return core.ErrPaused
+	}
 	p, err := r.d.Store.Principals().Get(ctx, core.SystemViewer(), sess.Principal)
 	if err != nil {
 		return err
 	}
 	j := &compactJob{user: p.User, done: make(chan error, 1)}
 	for {
-		w := r.worker(id)
+		w, err := r.worker(id)
+		if err != nil {
+			return err
+		}
 		w.mu.Lock()
 		if w.dead {
 			w.mu.Unlock()
@@ -180,7 +187,7 @@ func (r *Runner) ContextPreview(ctx context.Context, v core.Viewer, id core.Sess
 	if err != nil {
 		return nil, err
 	}
-	bd := r.newAssembler(rs, hist).assemble(rs.chain[0]).bd
+	bd := r.newAssembler(rs, hist).assemble(rs.chain[0], false).bd
 	return &bd, nil
 }
 
