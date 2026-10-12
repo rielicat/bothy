@@ -1,0 +1,7511 @@
+# Bothy v0.1: implementation spec
+
+**Status:** final architecture for v0.1, 2026-10-12. This is the single source of truth for the skeleton commit and for the 12 parallel implementers. Base: the "lean" proposal (judged best by all three judges), with every fatal flaw and must-fix item from the judge reports resolved, and the best ideas grafted from "secure" and "ux".
+
+**Module:** `github.com/bothyhq/bothy` · **License:** Apache-2.0 + DCO · **Go:** `go 1.26`, `toolchain go1.27.2`, `CGO_ENABLED=0`.
+
+**How to read this.** Prose is short. Go code, SQL, YAML and route tables are normative and are copied into the skeleton as-is. All Go listings (§2.5, §4, §7.4, §8.4, §12.1) were compiled together as one module (`go vet`, `go build`, cross-compiled for linux/arm64 and windows), and the skeleton wiring was booted (it serves `/healthz` and shuts down cleanly on SIGTERM). The DDL in §6 was applied to SQLite 3.53 with smoke tests (FTS after VACUUM, append-only triggers, one-active-run index, grant checks). The YAML in §7.1 decodes strictly into the §7.4 struct. Items marked *(verify)* must be checked when the skeleton is built; none of them changes an interface.
+
+**Words.** *Gateway* = `bothy serve`. *Box* = a throwaway tool container (or bwrap jail). *Principal* = the owner of sessions, workspace, memory and grants: a user's own data, or a *space* (a group chat or an allowlisted guest DM). *Card* = an approval card rendered from a structured Action. *Lead* = the integrator who writes the skeleton and owns frozen files.
+
+---
+
+## 1. Overview and key decisions
+
+Bothy is one static Go binary with three roles chosen by subcommand: `serve` (the gateway), `sandboxd` (a sidecar that alone talks to the container runtime) and `sbx-init` (PID 1 and exec wrapper inside boxes). State is one SQLite file plus a few plain files under `/data`. No other service is required. Tools never run in the gateway process, except workspace file tools confined with `os.Root`. When no sandbox is available, exec-class tools are absent, a red banner says why, and nothing ever falls back to host execution.
+
+| # | Decision | Rationale |
+|---|---|---|
+| D1 | One binary: `serve`, `sandboxd`, `sbx-init`, `doctor`, `security-audit`, `setup-token`, `user`, `vault`, `config`, `audit`, `backup`, `healthcheck`, `version` | One image, one SBOM, one signature, no version skew between gateway and sidecar. |
+| D2 | One frozen `internal/core` package holds every cross-module type and interface. Modules import only `core`, `config`, the stdlib and their own approved deps. `cmd/bothy` wires concrete types. | No import cycles; one rule for 12 agents; fakes are trivial. |
+| D3 | Hand-written LLM clients: Anthropic Messages, OpenAI Chat Completions (+ every OpenAI-compatible base URL), Gemini `streamGenerateContent`, and **native Ollama `/api/chat`** (so `num_ctx` is honoured). Golden fixtures are copied from vendor docs and SDK test data, not invented. | SDKs retry implicitly (hiding double billing from the meter), read env vars, bypass our dialer and add several MB. We call about five endpoints. |
+| D4 | Channel libraries: **disgo** (Discord gateway) and **slack-go** (Socket Mode). **Hand-written Telegram** long-poll client. | No real API keys exist for testing; the two stateful WebSocket protocols are the riskiest hand-writes. Telegram is plain JSON over HTTP. |
+| D5 | Official MCP `go-sdk` v1.8.0, client side only. | Two spec eras (2026-07-28 and older); conformance is not worth owning. |
+| D6 | `modernc.org/sqlite` v1.60.1 (SQLite 3.53.4), WAL, FTS5, STRICT tables, `messages.id INTEGER PRIMARY KEY` as FTS content rowid. Startup refuses SQLite < 3.53.4. | Pure Go. INTEGER PK survives VACUUM / VACUUM INTO, which renumbers implicit rowids. |
+| D7 | Stdlib `net/http` ServeMux patterns; hand-written migrator on `PRAGMA user_version`; hand-written SQL. No chi, goose or sqlc. | Fewer deps and tools. Schema is frozen; only the lead adds `0002_*.sql`. |
+| D8 | Config: one YAML schema; layers defaults < `bothy.yaml` < env < **`bothy.ui.yaml`** (sparse overlay written by the web UI, 0600, audited). Per-key effective source with file:line. Bad YAML boots **safe mode**, never exit 1. | Inspectable, GitOps-friendly, no hidden DB state. |
+| D9 | Web streaming is SSE + REST, not WebSocket. | No WS origin surface; proxies work; `Last-Event-ID` resume. |
+| D10 | **Sandbox = `sandboxd` sidecar** with a fixed-schema API on a unix socket. Boxes run `--network none`, no DNS, read-only rootfs, uid 10001, and reach the network only through a **per-box unix-socket egress proxy** (the socket is the identity; no tokens in the box). Native Linux: `bwrap` backend. Neither: exec disabled (fail closed). | The gateway never holds the runtime socket; a compromised gateway can only request the compiled-in hardened spec. |
+| D11 | sandboxd uses a hand-written Docker Engine API client (~12 endpoints, API ≥ 1.45 for volume subpaths). | `moby/client` drags in containerd/OCI/otel. |
+| D12 | Kill semantics: every exec runs under `sbx-init run --timeout`; `/stop` execs `sbx-init killall` (kill(-1, SIGKILL) as the box uid, PID 1 survives), falling back to container kill + recreate. | Docker has no exec-kill API. |
+| D13 | Plan/Exec split: `Tool.Plan` returns a structured `Action`; policy, cards, audit and loop detection read only the Action; `Exec` runs exactly that Action (persisted for parked runs). | Cards cannot be forged by model prose. |
+| D14 | Policy order: **floors → rules → grants → first contact → class defaults**. Floors (trifecta, financial, admin/self-modification, restricted spaces, tainted memory writes, URL provenance) cannot be overridden. Grants are always narrow. | Fixes grant-before-trifecta. |
+| D15 | Group chats and allowlisted guest DMs are **space principals**: no owner memory, no vault, read-only tools by default, approvals routed to the owner's DM. | Group participants must not reach the owner's private data. |
+| D16 | Every by-ID repository read takes a `core.Viewer` and returns `ErrNotFound` across principals; IDOR suites at store and HTTP layers. | Multi-user isolation enforced at the data layer. |
+| D17 | No secret ever enters a box (MCP stdio included). Credentialed integrations use Streamable HTTP MCP with vault-injected headers. Credential-injecting proxy is P1. | P0 baseline #3. |
+| D18 | Money is integer micro-USD (`core.Micros`). Prices are micros per 1M tokens. | No float drift in caps. |
+| D19 | Argon2id m=19 MiB, t=2, p=1, one global hashing slot. | OWASP minimum within the RSS budget. |
+| D20 | Audit log: append-only triggers + sha256 hash chain; no online prune; offline archive inserts an anchor row. | Tamper-evident at negligible cost; host root can still rewrite it, so external anchoring stays P2. |
+| D21 | Web UI: Svelte 5 runes + Vite 8 + Tailwind 4 SPA, history router, hand-written escape-all markdown renderer (no images, no raw HTML), external CSS only (CSP without `unsafe-inline`). Only `svelte` ships at runtime. JS ≤ 120 KB gz (target 90). | Size and an exfiltration control in one. |
+| D22 | Run semaphores (global 4, per user 2) gate LLM streaming and tool execution only; they are **released while waiting for approval or parked**. | Pending approvals cannot starve other runs. |
+| D23 | Approval defaults: interactive 15 min then deny; scheduled/heartbeat 2 min then **park** (24 h); API tokens `on_approval: deny` (opt-in `wait`, never park). | No stalled overnight jobs; no silent auto-approve. |
+| D24 | Cut from v0.1: OpenAI Responses API, passkeys/OIDC/TOTP, OS keychain and SOPS KEK sources, WASM Python, credential-injecting proxy, vector memory, age-encrypted export, Landlock. See §13. | Bytes and deps out of proportion to v0.1 value. |
+
+---
+
+## 2. Deployment topology
+
+### 2.1 Modes
+
+| Mode | Processes | Exec tools (`shell`, `python`, MCP stdio) | Everything else |
+|---|---|---|---|
+| **Single container** (`docker run -p 127.0.0.1:8080:8080 -v bothy_data:/data ghcr.io/bothyhq/bothy:0.1.0`) | `bothy serve` | **Absent.** Red banner "No sandbox: shell, python and MCP stdio are off. Use the compose file." Doctor finding `sandbox.unavailable` (medium). The system facts block tells the model. | Chat, channels, `fs_*` tools (`os.Root`), `web_fetch`/`web_search`, HTTP MCP, memory, scheduler, approvals |
+| **Compose** (recommended) | `bothy serve` + `bothy sandboxd` | Per-session boxes once sandboxd's self-test passes; runsc when registered and probed | Same |
+| **Native Linux binary** | `bothy serve` | `bwrap` backend when `bwrap` ≥ 0.8 exists and the user-namespace probe passes; else absent | Same |
+| **Native macOS/Windows** | `bothy serve` | Absent (P2: VM tier) | Same |
+
+**Install channels:** `docker run` / `docker compose` (images linux/amd64 and linux/arm64; linux/armv7 gateway image best-effort; sandbox images amd64/arm64), static binaries for linux/darwin/windows amd64+arm64 from goreleaser, `deploy/install.sh` (downloads, verifies checksum and cosign signature, installs to `~/.local/bin`), and a Homebrew tap. There is no auto-update code; only signed tagged releases.
+
+`sandbox.backend: auto` probes sandboxd socket → bwrap → none. The result is published as `sandbox.status`, shown in the UI header chip, `/api/sandbox`, doctor, and the S2 facts block.
+
+**Directory fallbacks for single-container mode.** `storage.work_dir: ""` means auto: `/work` if it is a mount point (checked via `/proc/self/mountinfo`), else `<data_dir>/work`. `vault.keyfile: ""` means auto: `/keys/kek` if `/keys` is a mount point, else `<data_dir>/keys/kek` (doctor: `vault.kek_colocated`, medium).
+
+### 2.2 Compose file (`deploy/compose.yaml`, lead-owned)
+
+Volume names are fixed because sandboxd mounts subpaths of them by engine name.
+
+```yaml
+name: bothy
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+services:
+  bothy:
+    <<: *hardening
+    image: ghcr.io/bothyhq/bothy:0.1.0@sha256:<digest>
+    command: ["serve"]
+    user: "65532:65532"
+    group_add: ["10001"]                 # shared workspace group with tool boxes
+    ports: ["127.0.0.1:8080:8080"]       # loopback only: Docker bypasses UFW
+    environment:
+      BOTHY_DEPLOYMENT: container        # listen 0.0.0.0:8080 inside; exposure gate still applies
+      BOTHY_SANDBOX__BACKEND: sandboxd
+      GOMEMLIMIT: 48MiB
+    volumes: [data:/data, keys:/keys, work:/work, run:/run/bothy]
+    tmpfs: ["/tmp:size=32m,mode=1777,nosuid,nodev,noexec"]
+    mem_limit: 256m
+    pids_limit: 256
+    extra_hosts: ["host.docker.internal:host-gateway"]   # Ollama / LM Studio on the host
+    healthcheck: {test: ["CMD", "/bothy", "healthcheck"], interval: 30s, timeout: 3s, retries: 3}
+    # secrets: [bothy_kek]               # optional Docker secret KEK (/run/secrets/bothy_kek)
+  sandboxd:
+    <<: *hardening
+    image: ghcr.io/bothyhq/bothy:0.1.0@sha256:<digest>
+    command: ["sandboxd"]
+    network_mode: none                   # sandboxd itself has no network
+    user: "${SANDBOXD_USER:-65532:65532}"   # rootless Docker: set to the socket owner's uid:gid
+    group_add: ["${DOCKER_GID:-999}", "65532"]
+    environment:
+      BOTHY_SBX_ENGINE: unix:///var/run/docker.sock
+      BOTHY_SBX_WORK_VOLUME: bothy_work
+      BOTHY_SBX_RUN_VOLUME: bothy_run
+      BOTHY_SBX_IMAGES: "base=ghcr.io/bothyhq/bothy-sandbox:0.1.0@sha256:<d1>,node=ghcr.io/bothyhq/bothy-sandbox-node:0.1.0@sha256:<d2>"
+      BOTHY_SBX_RUNTIME: auto            # auto | runsc | runc
+      BOTHY_SBX_MAX_BOXES: "8"
+      BOTHY_SBX_GATEWAY_UID: "65532"
+    volumes:
+      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
+      - run:/run/bothy
+    mem_limit: 64m
+    pids_limit: 64
+  searxng:                               # optional: docker compose --profile search up -d
+    <<: *hardening
+    profiles: ["search"]
+    image: docker.io/searxng/searxng@sha256:<digest>
+    cap_add: [SETUID, SETGID]
+    tmpfs: ["/tmp"]
+    environment:
+      SEARXNG_SECRET: "${SEARXNG_SECRET:-}"   # install.sh writes a random value into deploy/.env
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro   # search.formats [html, json], limiter off, no image proxy
+      # (verify) whether the image's entrypoint still needs a writable /etc/searxng (uwsgi.ini); if so, add a tmpfs
+volumes:
+  data: {name: bothy_data}
+  keys: {name: bothy_keys}
+  work: {name: bothy_work}
+  run:  {name: bothy_run}
+```
+
+`deploy/.env.example` documents `DOCKER_GID` (printed by `stat -c %g /var/run/docker.sock`), `DOCKER_SOCK`, `SANDBOXD_USER` and `SEARXNG_SECRET`. `deploy/searxng/settings.yml` (lead) enables the JSON output format that `web_search` needs (SearXNG answers `format=json` with 403 otherwise).
+
+### 2.3 Image layout and uids (`deploy/Dockerfile`, lead-owned)
+
+- Build: `CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=$V" ./cmd/bothy` after `make ui` (pre-gzipped assets into `internal/webui/dist`).
+- Final stage: `gcr.io/distroless/static-debian13:nonroot@sha256:<digest>` (the sandbox images are trixie too; *verify* the tag, fall back to `static-debian12`), binary at `/bothy`, `ENTRYPOINT ["/bothy"]`, `USER 65532:65532`.
+- Directories baked into the image (named volumes copy ownership on first mount, so permissions are deterministic whichever container mounts first):
+
+| Path | Owner | Mode | Purpose |
+|---|---|---|---|
+| `/data` | 65532:65532 | 0700 | DB, memory files, SOUL.md, config files, setup token, backups |
+| `/keys` | 65532:65532 | 0700 | auto-generated KEK (separate volume from the DB) |
+| `/work` | 65532:10001 | 2770 | `ws/<id>/` workspaces, `skills/`, `mcp/<server>/<install>/` |
+| `/run/bothy` | 65532:65532 | 0770 | `sandboxd.sock` (0660), `egress/<h>/proxy.sock` |
+
+| Identity | uid:gid | Notes |
+|---|---|---|
+| gateway | 65532:65532 + supplementary 10001 | Process umask `007`; `/data` files created with explicit 0600/0700; workspace files 0660, dirs 2770 |
+| sandboxd | 65532:65532 + docker gid + 65532 | Only holder of the runtime socket |
+| tool box processes | 10001:10001 | No caps, no setuid binaries in the image, umask 002 |
+
+### 2.4 Process roles
+
+- **Gateway (`serve`).** Auth, policy, approvals, vault, LLM calls, scheduler, SQLite, audit, egress proxy, channels, HTTP. Holds no runtime socket. Mounts `/work` (for `fs_*` tools and workspace pre-creation) and `/run/bothy` (egress sockets).
+- **sandboxd.** Serves HTTP/1.1 + JSON on `/run/bothy/sandboxd.sock` (mode 0660, group 65532). Checks `SO_PEERCRED` uid == `BOTHY_SBX_GATEWAY_UID` when available (doctor reports `peercred=false` otherwise). The container spec is compiled in (§2.6); the gateway chooses only a key, a profile name, a workspace id, an MCP install id and clamped limits. Images come only from `BOTHY_SBX_IMAGES`, pinned by digest. Unknown JSON fields → 400.
+- **sbx-init (PID 1 in every box).** ~250 lines, stdlib only, static, ~1.5 MB, copied to `/opt/bothy/sbx-init` in sandbox images. Reaps zombies, relays TCP `127.0.0.1:3128` ↔ `/run/egress/proxy.sock`, and provides the exec wrapper (§2.7). `HostConfig.Init` is **false**: sbx-init must be PID 1 so `killall` spares exactly it.
+
+### 2.5 Gateway ↔ sandboxd protocol
+
+Versioned `/v1`, fixed schema, wire types in `internal/sandboxd/proto` (M5):
+
+| Method + path | Request → response |
+|---|---|
+| `GET /v1/health` | → `proto.Health` (engine, API ≥ 1.45, runtime, rootless, subpath, self-test results, ok) |
+| `POST /v1/selftest` | re-run canaries → `proto.Health` |
+| `POST /v1/boxes` | `proto.CreateReq` → `proto.CreateResp`. Idempotent per key. Limits clamped. Refused (503 `unavailable`) when the self-test failed. Refused (503 `busy`) at `BOTHY_SBX_MAX_BOXES` after evicting the least-recently-used idle box fails. |
+| `POST /v1/boxes/{key}/exec` | `proto.ExecReq` → NDJSON `proto.Frame` stream |
+| `POST /v1/boxes/{key}/stdio` | Upgrade `bothy-stdio/1` + `proto.StdioReq` → raw duplex stream (MCP stdio) |
+| `GET /v1/boxes/{key}/stderr` | → last 64 KiB of the stdio process stderr (text) |
+| `POST /v1/boxes/{key}/kill` | → `proto.KillResp` (§2.7) |
+| `DELETE /v1/boxes/{key}` | stop and remove; 204 |
+| `GET /v1/boxes` | → `[]proto.BoxInfo` (gateway reconciles at boot) |
+
+sandboxd reaps boxes idle for more than `BOTHY_SBX_IDLE` (default 10m) and caps lifetime at `BOTHY_SBX_MAX_LIFETIME` (default 4h). At start it removes every container labelled `bothy.box=1` (orphans of a previous sandboxd process).
+
+```go
+// Package proto is the fixed-schema gateway <-> sandboxd wire format (HTTP/1.1
+// + JSON over /run/bothy/sandboxd.sock). Both sides decode with
+// DisallowUnknownFields. Owner: M5 (client and server are in the same module).
+package proto
+
+const Version = "1" // path prefix /v1
+
+// Validation (sandboxd rejects with 400 otherwise):
+//   Key       ^box_[0-9a-z]{26}$
+//   Workspace ^ws_[0-9a-z]{26}$ or ""
+//   MCPTree   ^mcp/[a-z0-9][a-z0-9-]{0,31}/in_[0-9a-z]{26}$ or ""
+//   Profile   one of the image keys in BOTHY_SBX_IMAGES
+//   Limits    clamped to [64,2048] MB, [0.1,2] CPUs, [16,512] pids
+//
+// Subpaths are derived by sandboxd, never supplied: workspace = "ws/<Workspace>"
+// on the work volume; egress = "egress/" + hex(sha256(Key))[:32] on the run
+// volume. The gateway pre-creates both directories before calling Create.
+
+type Health struct {
+	Version  string  `json:"version"`
+	API      string  `json:"api"`      // engine API version negotiated, must be >= 1.45
+	Engine   string  `json:"engine"`   // "docker 27.4.1"
+	Runtime  string  `json:"runtime"`  // runsc | runc
+	Rootless bool    `json:"rootless"` // from /info SecurityOptions
+	Subpath  bool    `json:"subpath"`  // volume subpath supported
+	OK       bool    `json:"ok"`       // false => gateway treats exec as unavailable
+	Reason   string  `json:"reason,omitempty"`
+	Fix      string  `json:"fix,omitempty"`
+	SelfTest []Check `json:"self_test"`
+	Boxes    int     `json:"boxes"`
+	MaxBoxes int     `json:"max_boxes"`
+}
+
+type Check struct {
+	Name   string `json:"name"`
+	OK     bool   `json:"ok"`
+	Detail string `json:"detail,omitempty"`
+}
+
+type Limits struct {
+	MemoryMB int     `json:"memory_mb"`
+	CPUs     float64 `json:"cpus"`
+	Pids     int     `json:"pids"`
+}
+
+type CreateReq struct {
+	Key       string `json:"key"`
+	Profile   string `json:"profile"`
+	Workspace string `json:"workspace"`   // mounted rw at /workspace from work volume subpath ws/<id>
+	MCPTree   string `json:"mcp_tree"`    // work volume subpath, mounted at /opt/mcp
+	MCPTreeRW bool   `json:"mcp_tree_rw"` // installer box only
+	Limits    Limits `json:"limits"`
+}
+
+type CreateResp struct {
+	ID      string `json:"id"`
+	Created bool   `json:"created"` // false = already running (idempotent per key)
+	Runtime string `json:"runtime"`
+}
+
+type ExecReq struct {
+	Argv      []string          `json:"argv"` // <= 256 entries, <= 256 KiB total
+	Cwd       string            `json:"cwd"`  // relative, cleaned, under /workspace
+	Env       map[string]string `json:"env"`
+	StdinB64  string            `json:"stdin_b64"`
+	TimeoutMS int               `json:"timeout_ms"` // 1..max_exec (default cap 30 min)
+	MaxOutput int               `json:"max_output"` // bytes kept per stream
+}
+
+// Exec response: Content-Type application/x-ndjson, one Frame per line:
+//
+//	{"s":1,"d":"<b64>"} stdout   {"s":2,"d":"<b64>"} stderr
+//	last line: {"exit":0,"ms":41,"truncated":false,"timed_out":false,"killed":false}
+type Frame struct {
+	Stream    int    `json:"s,omitempty"`
+	Data      string `json:"d,omitempty"`
+	Exit      *int   `json:"exit,omitempty"`
+	Ms        int64  `json:"ms,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
+	TimedOut  bool   `json:"timed_out,omitempty"`
+	Killed    bool   `json:"killed,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+// Stdio: POST /v1/boxes/{key}/stdio with "Connection: Upgrade", "Upgrade:
+// bothy-stdio/1" and a StdioReq body; 101 then a raw full-duplex byte stream
+// (stdin -> process, process stdout -> client; stderr goes to a 64 KiB ring
+// readable at GET /v1/boxes/{key}/stderr). One stdio stream per box.
+type StdioReq struct {
+	Argv []string          `json:"argv"`
+	Cwd  string            `json:"cwd"`
+	Env  map[string]string `json:"env"`
+}
+
+type KillResp struct {
+	Killed    int  `json:"killed"`    // processes reported by sbx-init killall
+	Recreated bool `json:"recreated"` // fallback path: container killed and removed
+}
+
+type BoxInfo struct {
+	Key      string `json:"key"`
+	ID       string `json:"id"`
+	Profile  string `json:"profile"`
+	Created  int64  `json:"created_ms"`
+	LastUsed int64  `json:"last_used_ms"`
+	Runtime  string `json:"runtime"`
+}
+
+type Error struct {
+	Code    string `json:"code"` // bad_request | not_found | busy | engine | unavailable
+	Message string `json:"message"`
+}
+```
+
+### 2.6 Box container spec (compiled into sandboxd; `internal/sandboxd/spec.go`)
+
+Engine API field names; illustrative Go (the engine client's own structs are M5's). Only the marked inputs come from the request; everything else is constant.
+
+```go
+memBytes := int64(clamp(req.Limits.MemoryMB, 64, 2048)) << 20 // input
+hc := HostConfig{
+	NetworkMode:    "none",
+	ReadonlyRootfs: true,
+	CapDrop:        []string{"ALL"},
+	SecurityOpt:    []string{"no-new-privileges:true"}, // default seccomp + AppArmor profiles stay on
+	Init:           false,                              // sbx-init is PID 1
+	IpcMode:        "private",
+	PidsLimit:      clamp(req.Limits.Pids, 16, 512),            // input
+	Memory:         memBytes,
+	MemorySwap:     memBytes, // equal to Memory: no swap
+	NanoCPUs:       int64(clampF(req.Limits.CPUs, 0.1, 2) * 1e9), // input
+	Ulimits:        []Ulimit{{Name: "nofile", Soft: 1024, Hard: 1024}, {Name: "core", Soft: 0, Hard: 0}},
+	Tmpfs: map[string]string{
+		"/tmp":      "rw,nosuid,nodev,size=256m",
+		"/home/sbx": "rw,nosuid,nodev,size=64m,uid=10001,gid=10001,mode=0700",
+	},
+	Runtime:   runtime, // "runsc" only when registered AND the UDS canary passed (§2.9)
+	LogConfig: LogConfig{Type: "none"}, // tool output never lands in host logs
+	Mounts: []Mount{
+		{Type: "volume", Source: workVol, Target: "/workspace", // only when req.Workspace != ""
+			VolumeOptions: &VolumeOptions{Subpath: "ws/" + req.Workspace, NoCopy: true}},
+		{Type: "volume", Source: runVol, Target: "/run/egress", ReadOnly: true,
+			VolumeOptions: &VolumeOptions{Subpath: "egress/" + hex(sha256(req.Key))[:32], NoCopy: true}},
+		{Type: "volume", Source: workVol, Target: "/skills", ReadOnly: true,
+			VolumeOptions: &VolumeOptions{Subpath: "skills", NoCopy: true}},
+		{Type: "volume", Source: workVol, Target: "/opt/mcp", ReadOnly: !req.MCPTreeRW, // only when req.MCPTree != ""
+			VolumeOptions: &VolumeOptions{Subpath: req.MCPTree, NoCopy: true}},
+	},
+	RestartPolicy: RestartPolicy{Name: "no"},
+	AutoRemove:    true,
+}
+cfg := Config{
+	Image: images[req.Profile], User: "10001:10001", WorkingDir: "/workspace",
+	Cmd:  []string{"/opt/bothy/sbx-init"},
+	Env: []string{"HOME=/home/sbx", "LANG=C.UTF-8", "PATH=/usr/local/bin:/usr/bin:/bin",
+		"HTTP_PROXY=http://127.0.0.1:3128", "HTTPS_PROXY=http://127.0.0.1:3128",
+		"http_proxy=http://127.0.0.1:3128", "https_proxy=http://127.0.0.1:3128",
+		"NO_PROXY=", "NODE_USE_ENV_PROXY=1", "PIP_DISABLE_PIP_VERSION_CHECK=1", "GIT_TERMINAL_PROMPT=0"},
+	Labels: map[string]string{"bothy.box": "1", "bothy.key": req.Key, "bothy.profile": req.Profile},
+}
+```
+
+Volume subpaths need Engine API ≥ 1.45 (Docker 26+), and the subpath directory must already exist (moby#47842), so **the gateway creates `ws/<id>` (2770, group 10001) and `egress/<h>` (0750, group 10001) before calling Create**. Docker resolves subpath symlinks safely; sandboxd additionally rejects any key/workspace/tree id not matching the regexes in `proto`. API < 1.45 → `Health.OK=false`, reason "Docker 26+ required", exec unavailable. Podman 5 compatibility is *(verify)* in week 1 and labelled beta.
+
+**Sandbox images** (`deploy/sandbox/`, M5; digest-pinned in releases):
+- `bothy-sandbox` (base): debian trixie-slim, python3, python3-venv, uv, bash, coreutils, git, curl, ca-certificates, jq, ripgrep, unzip, procps, sbx-init; user `sbx` 10001. ~50 MB compressed.
+- `bothy-sandbox-node`: base + Node 24 LTS + npm. ~80 MB compressed.
+- Both: all setuid/setgid bits stripped (`find / -perm /6000 -type f -exec chmod a-s {} +`); `/etc/gitconfig` sets `core.fsmonitor=false`, `core.hooksPath=/dev/null`, `core.pager=cat`, `protocol.file.allow=never`, `protocol.ext.allow=never`, `safe.directory=/workspace/*`.
+
+### 2.7 Exec, timeout and kill (D12)
+
+`sbx-init` subcommands (inside the box, all run as uid 10001):
+
+| Command | Behaviour |
+|---|---|
+| `sbx-init` (no args) | PID 1: reap children; run the TCP→UDS relay on `127.0.0.1:3128`; exit on SIGTERM. |
+| `sbx-init run --timeout <d> --kill-after 5s -- argv…` | `setsid` child, set rlimits (NOFILE 1024, FSIZE 1 GiB, CORE 0, CPU = timeout; no RLIMIT_NPROC: it counts every process and thread of the host uid, i.e. all boxes together in container mode and the gateway itself in bwrap mode, so process counts are bounded by the pids cgroup instead), wait. On timeout: SIGTERM the process group, SIGKILL after kill-after, exit 124. Background processes that escape the group survive the exec (dev servers work) until `/stop`, `killall` or box reaping. |
+| `sbx-init killall` | `kill(-1, SIGKILL)`: signals every process in the box's PID namespace the caller may signal except PID 1 and itself. Prints the count. |
+| `sbx-init count` | Prints the number of processes other than PID 1 and itself (reads `/proc`). |
+| `sbx-init selftest` | Runs canaries (§2.10), prints JSON. |
+| `sbx-init --relay <sock> run …` | bwrap mode: starts the relay in-process, then behaves like `run`. |
+
+Every `POST /exec` becomes a Docker exec of `["/opt/bothy/sbx-init","run","--timeout",N,"--kill-after","5s","--",argv…]` with `User: "10001:10001"`, `WorkingDir: /workspace/<cwd>`, env = request env (validated) over the container env. sandboxd demultiplexes the Docker stream (8-byte headers), keeps `max_output` bytes per stream, then drains and discards up to 64 MiB more before killing.
+
+`POST /kill`: exec `sbx-init killall`, then `sbx-init count`; if count > 0 after 1 s or either exec fails, `ContainerKill(SIGKILL)` + remove (`recreated: true`; the next Ensure recreates the box; the workspace persists). The gateway calls Kill from `/stop` without waiting on the run goroutine. Acceptance: a double-forked `setsid sleep 600` is gone within 1 s (§12).
+
+### 2.8 Networks and egress
+
+- Boxes are `--network none`: only `lo`, no route, no resolver. DNS exfiltration is impossible by construction.
+- **The socket is the identity.** `Egress.OpenBox(key)` creates `/run/bothy/egress/<h>/proxy.sock` (0660, group 10001, dir 0750) where `<h>` = `hex(sha256(key))[:32]`; that directory is subpath-mounted read-only into exactly one box. The proxy knows the box from the listener that accepted the connection. No tokens enter the box.
+- sbx-init relays `127.0.0.1:3128` to that socket. Clients honouring `HTTP(S)_PROXY` work (pip, uv, npm, curl, git, requests, Node 24 with `NODE_USE_ENV_PROXY`). Others fail closed.
+- The proxy (`internal/egress`, in the gateway) speaks HTTP CONNECT and absolute-form HTTP. Per connection:
+  1. **Port** must be in `egress.ports` (default `[443]`; `80` only with `allow_plain_http`).
+  2. **Host** normalised: lowercase, IDNA → punycode; IP literals denied unless an exact `ip:port` grant exists.
+  3. **Denylist** `egress.deny` beats everything below. **Allowlist** = `egress.allow` ∪ enabled presets ∪ box `Extra` (MCP server egress list, installer registries) ∪ active domain grants from `Grants().Active(principal, session, binding.Schedule)` (unless `NoGrants`) ∪ the in-memory allow_once set of the bound tool call. Patterns: exact host, or `*.suffix` (only in `egress.allow` or admin-created principal grants). A host under a **shared-tenant suffix** (`egress.shared_tenant_suffixes`: `.amazonaws.com`, `.cloudfront.net`, `.googleusercontent.com`, `.blob.core.windows.net`, `.workers.dev`, `.pages.dev`, `.ngrok-free.app`, `.github.io`) is allowed only by an admin principal grant or `egress.allow`, never by a session grant.
+  4. **Trifecta:** if the session is Exposed (§5.3), session and principal grants are suspended; only `egress.allow`, presets and box `Extra` apply.
+  5. **Not allowed:** if the binding is interactive, the session is not Exposed and `hold_for_approval > 0`, hold the CONNECT up to 45 s and request an approval (tool call id = the bound exec's id + `#net`, Action `{kind: net, host, port}`, card "Sandbox wants to reach pypi.org:443", choices allow once / allow for session / deny). Otherwise reply `403` with body `bothy: egress to <host>:<port> denied (<reason>). Ask the user or call net_allow.`, publish `egress.blocked`, audit `egress.deny`.
+  6. **Resolve** with the gateway resolver (TTL clamped ≤ 60 s), check **every** returned address against the blocklist after `Unmap()`, dial the first allowed **IP literal**; `net.Dialer.Control` re-checks the final address (defeats rebinding).
+  7. **SNI check:** for CONNECT, peek the TLS ClientHello (`tls.Server` with `GetConfigForClient` capturing `ServerName` on a tee'd reader, then replay); SNI must equal the CONNECT host or the tunnel is closed.
+  8. **Byte caps** per session: 10 MiB up, 200 MiB down (`egress.caps`); exceeding either closes the connection.
+  9. One `egress_log` row per connection (batched), with decision, bytes and duration. `Egress.TakeActivity(key)` reports bytes moved since the last call (the runner uses it to taint exec output).
+- **Blocklist** (`net/netip`, every address `Unmap()`ed; embedded IPv4 extracted and re-checked for `::ffff:0:0/96`, `64:ff9b::/96`, `2002::/16`, `2001::/32`): `0.0.0.0/8`, `10.0.0.0/8`, `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16`, `172.16.0.0/12`, `192.0.0.0/24`, `192.0.2.0/24`, `192.88.99.0/24`, `192.168.0.0/16`, `198.18.0.0/15`, `198.51.100.0/24`, `203.0.113.0/24`, `224.0.0.0/4`, `240.0.0.0/4`, `::/128`, `::1/128`, `fc00::/7`, `fe80::/10`, `ff00::/8`, `100::/64`, `2001:db8::/32`. Cloud metadata (`169.254.169.254`, `fd00:ec2::254`) is blocked even for `allow_private` destinations.
+- **Three dialers, all logged:**
+  - *box* (above).
+  - *public* (`Egress.PublicClient`, used by `web_fetch`): any public address, same blocklist, pinned dial, redirects re-checked per hop (≤ 5), no cookies, no `Authorization`, GET only, `Proxy: nil`.
+  - *system* (`Egress.SystemClient(SystemDest)`): providers, channel APIs, search APIs, HTTP MCP servers. Only the exact `host:port` list of the destination; private addresses only with `AllowPrivate` (admin-set, exact host:port); `Proxy: nil`; TLS ≥ 1.2; no implicit retries.
+
+### 2.9 gVisor (runsc)
+
+Tool boxes connect to a host UDS on a bind mount, which gVisor allows only with `--host-uds=open` (connect-only; never `all`). The documented `/etc/docker/daemon.json`:
+
+```json
+{ "runtimes": { "runsc": { "path": "/usr/local/bin/runsc", "runtimeArgs": ["--host-uds=open"] } } }
+```
+
+At start and on every self-test, sandboxd runs the canary box under runsc (when registered) and checks that `127.0.0.1:3128` reaches the canary box's own egress socket, which sandboxd itself creates and listens on (canary key `DerivedID("box","canary")`). `BOTHY_SBX_RUNTIME`:
+- `auto`: runsc if registered **and** the UDS canary passes; otherwise runc, with doctor finding `sandbox.runsc_host_uds` (low) printing the daemon.json fix.
+- `runsc`: refuse to serve (fail closed, `Health.OK=false`) when the canary fails.
+- `runc`: never runsc.
+
+### 2.10 Self-test canaries and the fail-closed matrix
+
+sandboxd runs a canary box at start, every 10 minutes and on `POST /v1/selftest`. Inside it `sbx-init selftest` checks:
+
+| # | Probe | Must be |
+|---|---|---|
+| 1 | TCP connect `1.1.1.1:443` | fails (ENETUNREACH) |
+| 2 | resolve `example.com` | fails |
+| 3 | `/proc/self/status` | runc: `CapEff: 0`, `NoNewPrivs: 1`, `Seccomp: 2`. runsc: `CapEff: 0` only; gVisor's Sentry is the syscall boundary and does not apply Docker's OCI seccomp profile unless runsc runs with `--oci-seccomp` *(verify flag and what gVisor reports in `/proc/self/status`)*, so the other two fields are reported, not required |
+| 4 | write to `/usr/bin/x` | EROFS |
+| 5 | `/proc/self/mountinfo` | no `docker.sock`, no `/run/bothy` root, only the expected mounts |
+| 6 | uid/gid | 10001/10001 |
+| 7 | `127.0.0.1:3128` | reaches the canary listener |
+
+Any failure of 1–6 → `Health.OK=false`, Create refused, red banner `sandbox_not_isolated`, doctor critical. Failure of 7 alone → runtime fallback per §2.9.
+
+| Condition | Effect |
+|---|---|
+| No sandboxd socket / health unreachable | Exec tools absent from `ForRun`; MCP stdio servers state `no_sandbox`; banner `no_sandbox` (warn); doctor medium |
+| Self-test isolation failure | As above but banner `sandbox_not_isolated` (error); doctor critical |
+| Engine API < 1.45 or no subpath | Exec unavailable; fix text "Docker 26+ required" |
+| Docker socket not accessible | sandboxd logs and reports `reason` with the exact fix line (below); doctor `docker.socket_gid` |
+| runc on rootful Docker without userns-remap | Allowed; doctor low "prefer rootless Docker or runsc" |
+| Box creation fails mid-run | Tool result is an error; model told exec is unavailable; never host fallback |
+
+**Docker socket onboarding.** At start sandboxd `stat`s the socket. If `connect` fails with EACCES it reports: `cannot access /var/run/docker.sock (owner uid U gid G, mode M). Set DOCKER_GID=G in deploy/.env and run: docker compose up -d`. For rootless Docker (socket under `$XDG_RUNTIME_DIR`, mode 0600 or 0660 owned by the user), group membership is not enough: the fix line says `set SANDBOXD_USER=<uid>:<gid> and DOCKER_SOCK=$XDG_RUNTIME_DIR/docker.sock`.
+
+### 2.11 MCP stdio servers in boxes
+
+- **Config** requires `package: {ecosystem: npm|pypi, name, version (exact), integrity}`. Validation rejects `latest`, ranges, git refs, and any `command` starting with `npx`, `uvx`, `pipx run` or `bunx` (no runtime fetches).
+- **Install** (admin action, `POST /api/mcp/{server}/install`): an installer box (key `DerivedID("box","mcp-install:"+server)`, profile per config, `MCPTree = mcp/<server>/<install_id>` mounted **rw**, no workspace, `Extra` = registry hosts only: `registry.npmjs.org:443` or `pypi.org:443` + `files.pythonhosted.org:443`, `NoGrants`).
+  - npm: if a lock was recorded, `npm ci --ignore-scripts --no-audit --no-fund --prefix /opt/mcp` from it; else `npm install --ignore-scripts --no-audit --no-fund --save-exact --prefix /opt/mcp <name>@<version>`, verify the top-level `integrity`, record `package-lock.json` as the lock (trust on first install).
+  - pypi: with a recorded lock, `uv pip install --no-deps --require-hashes -r lock.txt --target /opt/mcp`; else `uv pip compile --generate-hashes` for `<name>==<version>`, record it, then install from it.
+  - The gateway pre-creates `<work>/mcp/<server>/<install_id>/` (2770, group 10001) before the installer box mounts it, then hashes the installed tree (`mcp_installs.tree_hash`, sha256 over sorted relative paths, modes and contents) and re-checks it on every `Start`; drift → status `drifted`, server disabled, banner.
+- **Runtime:** one instance per (server, principal), box key `DerivedID("box","mcp:"+server+":"+principal)`, `MCPTree` mounted **read-only** (the server cannot rewrite itself), workspace mounted only when `workspace: principal`, `Extra` = the server's `egress` list, `NoGrants`. Started lazily on first tool call through `Sandbox.Ensure` + `Sandbox.Stdio`, wired to the go-sdk as `&mcp.IOTransport{Reader: rwc, Writer: rwc}` (the stream closes once); stopped after 10 minutes idle; restarted with backoff 1 s → 60 s. Tool lists come from a short-lived discovery instance (box key `DerivedID("box","mcp-discover:"+server)`, no workspace, same egress) run at `Start`, `Install` and `Reload`, which updates pins and is then destroyed; pins are per server, shared by all principals.
+- **HTTP servers:** `StreamableClientTransport` (legacy `SSEClientTransport` fallback for old servers) with `HTTPClient` always set from `Egress.SystemClient(SystemDest{Name: "mcp:<server>", Hosts: [url host:port], AllowPrivate: allow_private})` (a nil client would fall back to `http.DefaultClient`). One client session per (server, billing user); header refs resolve with `Vault.Resolve(ref, user)` (user scope, then global), so household members can hold their own tokens for the same server. Runs of space principals resolve in the global scope only (spaces have no vault scope).
+- **Tool names** are `mcp__<server>__<tool>`; a name over 64 characters becomes its first 55 characters + `_` + the first 8 hex of sha256(full name).
+- **No secret is ever passed to a stdio server.** Integrations needing credentials use HTTP MCP with vault-injected headers.
+- MCP stdio is unavailable (state `no_sandbox`) without a sandbox; restricted spaces never see MCP tools.
+
+### 2.12 bwrap backend (native Linux)
+
+```
+bwrap --clearenv \
+  --setenv PATH /usr/local/bin:/usr/bin:/bin --setenv HOME /home/sbx --setenv LANG C.UTF-8 \
+  --setenv HTTP_PROXY http://127.0.0.1:3128 --setenv HTTPS_PROXY http://127.0.0.1:3128 \
+  --setenv http_proxy http://127.0.0.1:3128 --setenv https_proxy http://127.0.0.1:3128 \
+  --unshare-all --unshare-user --disable-userns --uid 10001 --gid 10001 \
+  --die-with-parent --new-session --cap-drop ALL \
+  --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --ro-bind-try /usr/lib64 /lib64 \
+  --ro-bind /etc/ssl /etc/ssl --ro-bind-try /etc/alternatives /etc/alternatives \
+  --proc /proc --dev /dev --tmpfs /tmp --tmpfs /home/sbx \
+  --bind $WORK/ws/<id> /workspace --chdir /workspace --ro-bind-try $WORK/skills /skills \
+  --ro-bind $RUN/egress/<h> /run/egress --ro-bind <self exe> /opt/bothy/bothy \
+  --seccomp 3 \
+  -- /opt/bothy/bothy sbx-init --relay /run/egress/proxy.sock run --timeout 120s --kill-after 5s -- <argv>
+```
+
+- `exec.Cmd.Env` is always set explicitly (never nil, which would inherit the gateway environment including `BOTHY_SECRET_*`).
+- Seccomp filter (fd 3, passed via `exec.Cmd.ExtraFiles`) generated with `github.com/elastic/go-seccomp-bpf`: `Policy.Assemble()` (no filter is loaded into the gateway) → `golang.org/x/net/bpf.Assemble` → each `RawInstruction` written as a native-endian `struct sock_filter` (u16 code, u8 jt, u8 jf, u32 k); default action allow, listed syscalls `ActionErrno` (EPERM), arch-checked, x32 blocked; the `socket` family rule uses `NamesWithCondtions` (sic, the library's spelling) on argument 0. Denied: deny `ptrace`, `process_vm_readv/writev`, `bpf`, `perf_event_open`, `userfaultfd`, `io_uring_*`, `keyctl`, `add_key`, `request_key`, `mount`, `umount2`, `pivot_root`, `chroot`, `unshare`, `setns`, `kexec_*`, `*_module`, `acct`, `swapon/off`, `reboot`, `open_by_handle_at`, `personality` (except 0/0xffffffff), and `socket` families other than `AF_UNIX`/`AF_INET`/`AF_INET6`.
+- Limits: rlimits via `sbx-init run`; memory/pids only when cgroup v2 delegation is available (doctor warns otherwise).
+- Probe at start: `bwrap --unshare-all --unshare-user --disable-userns … true`. Ubuntu's userns AppArmor restriction makes it fail → exec unavailable, doctor prints the fix.
+- `os/exec` is banned in gateway packages by a CI check (`scripts/check-imports.sh`), except `internal/sandbox/bwrap`.
+- Per-session "boxes" in bwrap mode are per-exec jails sharing the session workspace; `Kill` kills the process tree of every active jail for the key.
+
+---
+
+## 3. Go package layout
+
+Owner tags refer to §12. **S** = skeleton/lead (frozen for module agents). Each module directory gets a one-paragraph `README.md`.
+
+```
+cmd/bothy/                 main.go (dispatch), wire.go (construction order), cli.go, umask_*.go          [S]
+cmd/sbx-init/              main.go: os.Exit(sbxinit.Main(os.Args[1:]))                                   [S]
+internal/core/             every shared type and interface (§4); small pure helpers implemented         [S]
+internal/config/           schema (§7), loader, env overlay, bothy.ui.yaml writer, effective sources    [S, implemented]
+internal/events/           core.Bus: 4096-entry ring, boot id, non-blocking fan-out                     [S, implemented]
+internal/deps/             deps.go (//go:build deps) blank-imports every go.mod dependency              [S]
+internal/testkit/          shared fakes and harnesses (§12.1)                                           [S]
+internal/testkit/memstore/ in-memory core.Store (all 24 repos) passing conformance.Store                [S]
+internal/testkit/mockllm/  scriptable OpenAI-compatible HTTP server with fault injection               [S]
+internal/httpapi/dto/      REST request/response shapes (§8.4); source for types.gen.ts                 [S]
+internal/store/            core.Store on modernc sqlite: Open, pragmas, version gate, migrator, repos   [M1]
+internal/store/migrations/ 0001_init.sql (§6)                                                           [S]
+internal/vault/            core.Vault, core.Redactor, KEK sources, envelope crypto                      [M1]
+internal/audit/            core.Auditor: single writer, hash chain, Verify, offline Archive             [M1]
+internal/provider/         core.LLM facade: chains, retries, breaker, estimator, catalog, probe, detect  [M2]
+internal/provider/anthropic|openai|gemini|ollama/   wire clients (openai also = openai_compat)           [M2]
+internal/provider/catalog/ catalog.json (embedded) + loader                                             [M2]
+internal/agent/            core.Runner: session workers, run loop, assembly, compaction, stop, resume   [M3]
+internal/budget/           core.Budget: meters, daily caps, sender limiter, loop detector               [M3]
+internal/policy/           core.Policy, core.Approvals, card renderer, button MAC                       [M4]
+internal/tools/            core.ToolRegistry, tool_search/use_tool, fs_read/write/list/delete, message  [M4]
+internal/sandbox/          core.Sandbox: sandboxd client, bwrap backend, none; shell/python tools       [M5]
+internal/sandboxd/         sidecar server, Docker Engine client, compiled spec, reaper, self-test       [M5]
+internal/sandboxd/proto/   wire types (§2.5)                                                           [M5]
+internal/sbxinit/          PID 1, relay, run/killall/count/selftest (stdlib only)                       [M5]
+internal/egress/           core.Egress: proxy, dialers, SSRF guard, caps, hold-for-approval;
+                           web_fetch, web_search, net_allow tools                                       [M6]
+internal/mcp/              core.MCP: go-sdk client, stdio-in-box + Streamable HTTP, install, pinning    [M7]
+internal/skills/           core.Skills: SKILL.md scanner, index, zip install; skill_load/skill_read     [M7]
+internal/memory/           core.Memory: MEMORY/USER/HEARTBEAT files, events, deltas; memory,
+                           session_search tools                                                         [M8]
+internal/scheduler/        core.Scheduler: timer loop, gronx, heartbeat; schedule_* tools               [M8]
+internal/channel/          core.ChannelHub: gatekeeping, pairing, commands, streamer, card delivery     [M9]
+internal/channel/telegram/ Telegram adapter (hand-written) + telegramtest fake Bot API server           [M9]
+internal/channel/discord/  Discord adapter (disgo) + discordtest fake                                   [M10]
+internal/channel/slack/    Slack adapter (slack-go socketmode) + slacktest fake                         [M10]
+internal/auth/             core.Auth                                                                    [M11]
+internal/httpapi/          routes, middleware, SSE, OpenAI-compatible endpoints                         [M11]
+internal/doctor/           check runner, text/JSON rendering                                            [M11]
+internal/webui/            go:embed dist (pre-gzipped), SPA fallback, cache headers                     [M11]
+web/                       Svelte 5 SPA (src/lib/api/types.gen.ts is [S], generated)                    [M12]
+deploy/                    Dockerfile, compose.yaml, .env.example, install.sh, searxng/settings.yml     [S]
+deploy/sandbox/            sandbox image Dockerfiles, gitconfig                                         [M5]
+tools/                     separate go.mod: tygo config [S]; catalog-gen (catwalk) [M2]
+e2e/                       black-box suite (phase 3)                                                    [S]
+scripts/                   check-imports.sh, check-ownership.sh, budgets/*                              [S]
+```
+
+**Import rules (CI-enforced by `scripts/check-imports.sh`):**
+- `internal/core` imports only the standard library.
+- Module packages import `core`, `config`, the stdlib, their own subpackages and their approved deps (§11). They never import another module's package. Exceptions: `httpapi` may import `doctor` and `dto` (same module / skeleton), adapters may import nothing from `internal/channel`, and tests may import `internal/testkit/**` and `internal/events`.
+- Only `cmd/bothy` imports concrete module packages.
+- `os/exec` only in `internal/sandbox/bwrap`. `unsafe` nowhere outside deps.
+- No provider SDK, no `net/http.DefaultClient` in gateway packages (all clients come from `core.Egress`).
+
+---
+
+## 4. Core types and interfaces (`internal/core`)
+
+This is the complete package, copied verbatim into the skeleton. It compiles on its own (stdlib only). The skeleton also implements the small pure helpers it contains (`NewID`, `DerivedID`, `ValidID`, `Micros`, `Price.Cost`, `ParseModelRef`, `Usage.Add`, `SideEffect` text marshalling, `Taint` helpers, `Viewer.Can`, `Actor.HasScope`, `Secret`, `Message.PlainText`, `ChatRef.Key`, `CanonicalJSON`, `ActionFingerprint`) with unit tests. Everything else is an interface implemented by a module. Changes after the skeleton go through the lead as an ICR (§12.3).
+
+Conventions that every implementer relies on:
+- **Viewer scoping.** Every by-ID repository read takes a `Viewer`; rows outside `Viewer.Principals` are `ErrNotFound` (never `ErrForbidden`, to avoid existence oracles). `SystemViewer()` is for internal callers only; a CI grep forbids it in `internal/httpapi`. Internal callers that act on behalf of a chat user (the hub's `/stop`, `/new`, `/pin`) authorize first (sender is the principal's user or an admin) and then use `SystemViewer()`.
+- **Hashing.** Anything hashed or compared across modules (Action payloads, fingerprints, tool spec hashes, MCP pins, audit rows) goes through `core.CanonicalJSON` first.
+- **IDs.** `NewID(prefix)` everywhere; box keys are `DerivedID("box", "session:"+sessionID)` and `DerivedID("box", "mcp:"+server+":"+principalID)` so restarts find the same box.
+- **Errors.** Modules wrap sentinels with `%w`; the HTTP layer maps `ErrNotFound`→404, `ErrForbidden`→403, `ErrConflict`→409, `ErrInvalid`→400, `ErrBusy`→429 `busy`, `ErrPaused`→503 `paused`, `*BudgetError`→429 `budget_exceeded`, `ErrSealed`→503 `sealed`, `ErrNoSandbox`→503 `no_sandbox`.
+- **Time.** Persisted as unix ms; zero `time.Time` ↔ 0.
+- **Events.** Each `EventType` has exactly one payload type (table in §8.2). Payloads are redacted before publishing.
+
+### 4.1 `ids.go`: identifiers, money, clock, roles, principals, viewers, errors
+
+```go
+// Package core holds every cross-module type and interface. It imports only the
+// standard library. It is frozen after the skeleton commit: changes go through
+// the lead as an interface change request (ICR).
+package core
+
+import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"math"
+	"strings"
+	"time"
+)
+
+type (
+	UserID      string // usr_<26>
+	PrincipalID string // user principals reuse the UserID string; spaces are spc_<26>
+	SessionID   string // ses_<26>
+	RunID       string // run_<26>
+	ApprovalID  string // apr_<26>
+	ScheduleID  string // sch_<26>
+	WorkspaceID string // ws_<26>
+	GrantID     string // grt_<26>
+)
+
+// ID prefixes. Every generated id is "<prefix>_<26 lowercase Crockford base32>".
+const (
+	PrefixUser      = "usr"
+	PrefixSpace     = "spc"
+	PrefixSession   = "ses"
+	PrefixRun       = "run"
+	PrefixApproval  = "apr"
+	PrefixSchedule  = "sch"
+	PrefixWorkspace = "ws"
+	PrefixGrant     = "grt"
+	PrefixToolCall  = "tcl"
+	PrefixLLMCall   = "llm"
+	PrefixToken     = "tok"
+	PrefixBox       = "box"
+	PrefixInstall   = "in"
+	PrefixUpload    = "upl"
+)
+
+const crockford = "0123456789abcdefghjkmnpqrstvwxyz"
+
+// NewID returns prefix + "_" + 26 chars: 48-bit unix ms then 80 random bits.
+// Ids sort by creation time.
+func NewID(prefix string) string {
+	var b [16]byte
+	ms := uint64(time.Now().UnixMilli())
+	binary.BigEndian.PutUint16(b[0:2], uint16(ms>>32))
+	binary.BigEndian.PutUint32(b[2:6], uint32(ms))
+	if _, err := rand.Read(b[6:]); err != nil {
+		panic(err)
+	}
+	return prefix + "_" + encode128(b)
+}
+
+// DerivedID returns a stable id of the given prefix for a purpose string. Used
+// for sandbox box keys so the same session or MCP instance maps to the same box.
+func DerivedID(prefix, purpose string) string {
+	sum := sha256.Sum256([]byte(purpose))
+	var b [16]byte
+	copy(b[:], sum[:16])
+	return prefix + "_" + encode128(b)
+}
+
+func encode128(b [16]byte) string {
+	hi := binary.BigEndian.Uint64(b[0:8])
+	lo := binary.BigEndian.Uint64(b[8:16])
+	out := make([]byte, 26)
+	for i := 25; i >= 0; i-- {
+		out[i] = crockford[lo&31]
+		lo = lo>>5 | hi<<59
+		hi >>= 5
+	}
+	return string(out)
+}
+
+// ValidID reports whether s is "<prefix>_" followed by 26 Crockford chars.
+func ValidID(prefix, s string) bool {
+	rest, ok := strings.CutPrefix(s, prefix+"_")
+	if !ok || len(rest) != 26 {
+		return false
+	}
+	for i := 0; i < len(rest); i++ {
+		if !strings.ContainsRune(crockford, rune(rest[i])) {
+			return false
+		}
+	}
+	return true
+}
+
+// Micros is millionths of a US dollar. All money math is integer.
+type Micros int64
+
+func (m Micros) USD() float64 { return float64(m) / 1e6 }
+
+func (m Micros) String() string { return fmt.Sprintf("$%.4f", m.USD()) }
+
+// MicrosFromUSD converts a config value such as 5.00 into Micros, rounding half up.
+func MicrosFromUSD(usd float64) Micros { return Micros(math.Round(usd * 1e6)) }
+
+// Clock is injected wherever "now" matters. Timer-heavy tests use testing/synctest.
+type Clock interface{ Now() time.Time }
+
+type SystemClock struct{}
+
+func (SystemClock) Now() time.Time { return time.Now() }
+
+type Role string
+
+const (
+	RoleOwner  Role = "owner"
+	RoleAdmin  Role = "admin"
+	RoleMember Role = "member"
+)
+
+func (r Role) IsAdmin() bool { return r == RoleOwner || r == RoleAdmin }
+
+type PrincipalKind string
+
+const (
+	PrincipalUser  PrincipalKind = "user"  // a human account's own data
+	PrincipalSpace PrincipalKind = "space" // a group chat or an allowlisted guest DM; restricted
+)
+
+// Principal owns sessions, workspace, memory, grants and schedules. A space has
+// no vault scope and no memory files, and gets read-only tools unless its
+// ToolProfile is "standard".
+type Principal struct {
+	ID          PrincipalID   `json:"id"`
+	Kind        PrincipalKind `json:"kind"`
+	User        UserID        `json:"user_id"` // user principal: that user; space: the owning user
+	DisplayName string        `json:"display_name"`
+	Workspace   WorkspaceID   `json:"workspace_id"`
+	ToolProfile string        `json:"tool_profile"` // "standard" | "restricted" (spaces default restricted)
+	CreatedAt   time.Time     `json:"created_at"`
+}
+
+func (p Principal) Restricted() bool { return p.Kind == PrincipalSpace && p.ToolProfile != "standard" }
+
+// UserPrincipal returns the principal id of a user's own data.
+func UserPrincipal(u UserID) PrincipalID { return PrincipalID(u) }
+
+// Viewer scopes repository reads. Repositories return ErrNotFound for any row
+// whose principal is not in Principals, unless System is set. HTTP handlers
+// build Viewers with Auth.ViewerFor and never set System.
+//
+// Admin is set by Auth.ViewerFor for owner/admin users. Repositories ignore it
+// except in exactly two places: approvals whose approver is AdminOnly
+// (ApprovalRepo.Get/Pending/Recent also return those), and egress rows of the
+// system dialer (principal_id ""). It never grants access to message content.
+type Viewer struct {
+	User       UserID        `json:"user_id"`
+	Principals []PrincipalID `json:"principals"`
+	Admin      bool          `json:"admin"`
+	System     bool          `json:"-"`
+}
+
+// SystemViewer is for internal callers only (scheduler, runner, egress, doctor).
+func SystemViewer() Viewer { return Viewer{System: true} }
+
+func (v Viewer) Can(p PrincipalID) bool {
+	if v.System {
+		return true
+	}
+	for _, x := range v.Principals {
+		if x == p {
+			return true
+		}
+	}
+	return false
+}
+
+type Trigger string
+
+const (
+	TrigMessage   Trigger = "message" // web UI or channel message
+	TrigSchedule  Trigger = "schedule"
+	TrigHeartbeat Trigger = "heartbeat"
+	TrigAPI       Trigger = "api" // OpenAI-compatible endpoint
+	// TrigResume appears only in RunStartedData when a parked run continues.
+	// Run.Trigger, PolicyInput.Trigger and ToolEnv.Trigger always keep the run's
+	// original trigger, so floors such as F3 still apply after a resume.
+	TrigResume Trigger = "resume"
+)
+
+func (t Trigger) Interactive() bool { return t == TrigMessage }
+
+func (t Trigger) Scheduled() bool { return t == TrigSchedule || t == TrigHeartbeat }
+
+var (
+	ErrNotFound        = errors.New("not found")
+	ErrForbidden       = errors.New("forbidden")
+	ErrConflict        = errors.New("conflict")
+	ErrInvalid         = errors.New("invalid")
+	ErrBusy            = errors.New("session queue full")
+	ErrNoSandbox       = errors.New("sandbox unavailable")
+	ErrStopped         = errors.New("run stopped")
+	ErrPaused          = errors.New("kill switch engaged")
+	ErrApprovalExpired = errors.New("approval expired")
+	ErrParked          = errors.New("run parked awaiting approval")
+	ErrSealed          = errors.New("vault sealed")
+	ErrNotImplemented  = errors.New("not implemented")
+)
+```
+
+### 4.2 `message.go`: messages, parts, pins
+
+```go
+package core
+
+import (
+	"encoding/json"
+	"time"
+)
+
+// Provenance says who authored content. Anything not ProvUser/ProvSystem/ProvTool
+// is untrusted and is wrapped in spotlight delimiters when sent to a model.
+type Provenance string
+
+const (
+	ProvUser      Provenance = "user"      // the human who owns the session's principal (or the space owner)
+	ProvUntrusted Provenance = "untrusted" // other senders, group participants, web/MCP output, API client "system"
+	ProvTool      Provenance = "tool"      // trusted tool output (own workspace reads, exit codes)
+	ProvSystem    Provenance = "system"    // Bothy-authored notices, turn-context, summaries
+)
+
+type MsgRole string
+
+const (
+	MsgUser      MsgRole = "user"
+	MsgAssistant MsgRole = "assistant"
+	MsgTool      MsgRole = "tool"
+)
+
+type MsgKind string
+
+const (
+	KindNormal  MsgKind = "normal"
+	KindSummary MsgKind = "summary" // compaction output, first message of an epoch
+	KindSteer   MsgKind = "steer"   // user message injected at a step boundary of a running run
+	KindNotice  MsgKind = "notice"  // Bothy-authored (stopped, budget, loop); never sent to a model
+)
+
+type PartType string
+
+const (
+	PartText       PartType = "text"
+	PartImage      PartType = "image"
+	PartFile       PartType = "file"
+	PartToolCall   PartType = "tool_call"
+	PartToolResult PartType = "tool_result"
+	PartThinking   PartType = "thinking"
+	PartContext    PartType = "context" // persisted <turn-context> block of a user message
+)
+
+type Part struct {
+	Type       PartType    `json:"t"`
+	Text       string      `json:"text,omitempty"`
+	Blob       *Blob       `json:"blob,omitempty"` // image or file
+	ToolCall   *ToolCall   `json:"call,omitempty"`
+	ToolResult *ToolResult `json:"result,omitempty"`
+	// Sig is provider-opaque data that must round-trip verbatim (Anthropic thinking
+	// signature, Gemini thoughtSignature). SigKind is the ProviderKind that produced
+	// it; the provider facade strips it when the next call goes to another kind.
+	Sig     string       `json:"sig,omitempty"`
+	SigKind ProviderKind `json:"sig_kind,omitempty"`
+}
+
+// Blob points at a file in the principal's workspace. Data is filled by the
+// agent just before a provider call and is never persisted.
+type Blob struct {
+	MIME string `json:"mime"`
+	Name string `json:"name,omitempty"`
+	Ref  string `json:"ref"` // workspace-relative path, e.g. ".bothy/in/<msg>/photo.jpg"
+	Size int64  `json:"size"`
+	Data []byte `json:"-"`
+}
+
+type ToolCall struct {
+	ID   string          `json:"id"` // provider id, or "call_<n>" when the provider sends none
+	Name string          `json:"name"`
+	Args json.RawMessage `json:"args"` // a JSON object after repair
+}
+
+type ToolResult struct {
+	CallID    string `json:"call_id"`
+	Name      string `json:"name"`
+	Content   string `json:"content"` // redacted, truncated head+tail
+	IsError   bool   `json:"is_error,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
+	FullRef   string `json:"full_ref,omitempty"`  // workspace path of the full redacted output
+	Untrusted bool   `json:"untrusted,omitempty"` // wrapped in <untrusted id=…> when sent to a model
+}
+
+type Message struct {
+	ID         int64      `json:"id"`
+	Session    SessionID  `json:"session_id"`
+	Seq        int64      `json:"seq"`
+	Run        RunID      `json:"run_id,omitempty"`
+	Role       MsgRole    `json:"role"`
+	Kind       MsgKind    `json:"kind"`
+	Parts      []Part     `json:"parts"`
+	Provenance Provenance `json:"provenance"`
+	Sender     string     `json:"sender,omitempty"` // "telegram:12345", "web:usr_…", "api:tok_…"
+	Tokens     int        `json:"tokens"`           // estimate, calibrated
+	CreatedAt  time.Time  `json:"created_at"`
+}
+
+// PlainText returns the concatenated text parts (no tool JSON). Stored in
+// messages.text for FTS.
+func (m *Message) PlainText() string {
+	var s string
+	for _, p := range m.Parts {
+		if p.Type == PartText {
+			if s != "" {
+				s += "\n"
+			}
+			s += p.Text
+		}
+	}
+	return s
+}
+
+type Pin struct {
+	ID        int64     `json:"id"`
+	Session   SessionID `json:"session_id"`
+	Text      string    `json:"text"`
+	Source    string    `json:"source"` // "user" | "auto" (standing instruction found by compaction)
+	MsgSeq    int64     `json:"msg_seq,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+```
+
+### 4.3 `provider.go`: models, requests, streaming, the LLM facade
+
+```go
+package core
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"strings"
+	"time"
+)
+
+type Slot string
+
+const (
+	SlotMain Slot = "main" // agent turns
+	SlotFast Slot = "fast" // compaction, titles, heartbeat triage
+)
+
+type ProviderKind string
+
+const (
+	KindAnthropic    ProviderKind = "anthropic"
+	KindOpenAI       ProviderKind = "openai"
+	KindGemini       ProviderKind = "gemini"
+	KindOllama       ProviderKind = "ollama"        // native /api/chat (num_ctx honoured)
+	KindOpenAICompat ProviderKind = "openai_compat" // LM Studio, vLLM, OpenRouter, Groq, xAI, DeepSeek…
+)
+
+// ModelRef is "<provider id>/<model>". The model part may itself contain "/".
+type ModelRef struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+}
+
+func (m ModelRef) String() string { return m.Provider + "/" + m.Model }
+
+func ParseModelRef(s string) (ModelRef, error) {
+	p, m, ok := strings.Cut(s, "/")
+	if !ok || p == "" || m == "" {
+		return ModelRef{}, errors.New("model ref must be <provider>/<model>")
+	}
+	return ModelRef{Provider: p, Model: m}, nil
+}
+
+// Price is USD micros per 1M tokens. Tiers reprice the whole request once input
+// passes a threshold (xAI bills 2x above 200K).
+type Price struct {
+	InPerM         Micros      `json:"in_per_m"`
+	OutPerM        Micros      `json:"out_per_m"`
+	CacheReadPerM  Micros      `json:"cache_read_per_m"`
+	CacheWritePerM Micros      `json:"cache_write_per_m"`
+	Tiers          []PriceTier `json:"tiers,omitempty"`
+	Known          bool        `json:"known"`
+}
+
+type PriceTier struct {
+	AboveInput int `json:"above_input"`
+	Permille   int `json:"permille"` // 2000 = 2x
+}
+
+// Cost is exact integer math, rounding each component half up. Input excludes
+// cache reads/writes (providers report them separately; adapters normalise).
+func (p Price) Cost(u Usage) Micros {
+	mul := int64(1000)
+	total := u.Input + u.CacheRead + u.CacheWrite
+	for _, t := range p.Tiers {
+		if total > t.AboveInput && int64(t.Permille) > mul {
+			mul = int64(t.Permille)
+		}
+	}
+	part := func(tokens int, perM Micros) int64 {
+		return (int64(tokens)*int64(perM)*mul + 500_000_000) / 1_000_000_000
+	}
+	return Micros(part(u.Input, p.InPerM) + part(u.Output, p.OutPerM) +
+		part(u.CacheRead, p.CacheReadPerM) + part(u.CacheWrite, p.CacheWritePerM))
+}
+
+type CacheMode uint8
+
+const (
+	CacheNone     CacheMode = iota
+	CacheExplicit           // Anthropic cache_control breakpoints
+	CacheImplicit           // OpenAI/Gemini/DeepSeek automatic prefix caching
+)
+
+type ModelInfo struct {
+	Ref       ModelRef  `json:"ref"`
+	Display   string    `json:"display"`
+	Context   int       `json:"context"`    // effective window (Ollama: the num_ctx we send)
+	MaxOutput int       `json:"max_output"` //
+	Tools     bool      `json:"tools"`
+	Vision    bool      `json:"vision"`
+	Thinking  bool      `json:"thinking"`
+	Cache     CacheMode `json:"cache"`
+	Local     bool      `json:"local"`
+	Price     Price     `json:"price"`
+	Source    string    `json:"source"` // catalog | config | discovery
+}
+
+type ToolDef struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Schema      json.RawMessage `json:"schema"` // JSON Schema object
+}
+
+type SystemBlock struct {
+	Text       string
+	CacheBreak bool // Anthropic cache_control breakpoint after this block
+}
+
+type Request struct {
+	Model       string
+	System      []SystemBlock
+	Tools       []ToolDef
+	ToolsCache  bool // breakpoint after the last tool (Anthropic)
+	Messages    []Message
+	CacheTail   bool // rolling breakpoint on the last message (Anthropic)
+	MaxTokens   int
+	Temperature *float64
+	ToolChoice  string // "auto" | "none"
+	Stop        []string
+	NumCtx      int // Ollama native only
+}
+
+type StreamEventType uint8
+
+const (
+	StreamTextDelta StreamEventType = iota + 1
+	StreamThinkingDelta
+	StreamToolCallStart // Call has ID and Name
+	StreamToolCallDone  // Call complete with repaired Args
+	StreamUsage
+)
+
+type StreamEvent struct {
+	Type  StreamEventType
+	Text  string
+	Call  *ToolCall
+	Usage *Usage
+}
+
+// Usage: Input excludes cache reads and writes.
+type Usage struct {
+	Input      int `json:"input"`
+	Output     int `json:"output"`
+	CacheRead  int `json:"cache_read"`
+	CacheWrite int `json:"cache_write"`
+	Reasoning  int `json:"reasoning"`
+}
+
+func (u Usage) Add(o Usage) Usage {
+	return Usage{u.Input + o.Input, u.Output + o.Output, u.CacheRead + o.CacheRead,
+		u.CacheWrite + o.CacheWrite, u.Reasoning + o.Reasoning}
+}
+
+func (u Usage) TotalInput() int { return u.Input + u.CacheRead + u.CacheWrite }
+
+type StopReason string
+
+const (
+	StopEnd       StopReason = "end_turn"
+	StopTool      StopReason = "tool_use"
+	StopMaxTokens StopReason = "max_tokens"
+	StopRefusal   StopReason = "refusal"
+)
+
+type Response struct {
+	Message        Message // assistant role, parts assembled (text, thinking+sig, tool calls)
+	Usage          Usage
+	UsageEstimated bool // provider reported none; estimator filled it
+	Stop           StopReason
+	Model          string
+}
+
+// Provider is one wire protocol plus credentials. It never retries, never reads
+// env vars, and uses only the http.Client given by Egress.SystemClient.
+type Provider interface {
+	ID() string
+	Kind() ProviderKind
+	Models(ctx context.Context) ([]ModelInfo, error) // config + discovery
+	Stream(ctx context.Context, req *Request, on func(StreamEvent) error) (*Response, error)
+}
+
+type ErrorKind string
+
+const (
+	ErrKindAuth           ErrorKind = "auth"
+	ErrKindRateLimit      ErrorKind = "rate_limit"
+	ErrKindOverloaded     ErrorKind = "overloaded"
+	ErrKindContextLength  ErrorKind = "context_length"
+	ErrKindInvalidRequest ErrorKind = "invalid_request"
+	ErrKindContentFilter  ErrorKind = "content_filter"
+	ErrKindNetwork        ErrorKind = "network"
+	ErrKindServer         ErrorKind = "server"
+)
+
+type ProviderError struct {
+	Provider   string
+	Kind       ErrorKind
+	Status     int
+	RetryAfter time.Duration
+	Msg        string // redacted provider message
+	Err        error
+}
+
+func (e *ProviderError) Error() string { return e.Provider + ": " + string(e.Kind) + ": " + e.Msg }
+func (e *ProviderError) Unwrap() error { return e.Err }
+func (e *ProviderError) Retryable() bool {
+	switch e.Kind {
+	case ErrKindRateLimit, ErrKindOverloaded, ErrKindNetwork, ErrKindServer:
+		return true
+	}
+	return false
+}
+
+type Attempt struct {
+	Ref     ModelRef      `json:"ref"`
+	Err     string        `json:"err,omitempty"`
+	Kind    ErrorKind     `json:"kind,omitempty"`
+	Latency time.Duration `json:"latency"`
+}
+
+// Breakdown is estimated tokens per prompt region, scaled so the sum equals the
+// provider-reported total input.
+type Breakdown struct {
+	Constitution int `json:"constitution"`
+	Persona      int `json:"persona"`
+	Memory       int `json:"memory"`
+	Skills       int `json:"skills"`
+	Pins         int `json:"pins"`
+	Tools        int `json:"tools"`
+	Summary      int `json:"summary"`
+	History      int `json:"history"`
+	ToolResults  int `json:"tool_results"`
+	TurnContext  int `json:"turn_context"`
+	Total        int `json:"total"`
+	Window       int `json:"window"`
+	Reserve      int `json:"reserve"`
+	Cacheable    int `json:"cacheable"` // tokens in the frozen prefix (tools + system)
+}
+
+type CallInfo struct {
+	ID             string        `json:"id"` // llm_<26>
+	Ref            ModelRef      `json:"ref"`
+	Slot           Slot          `json:"slot"`
+	Purpose        string        `json:"purpose"` // agent|compaction|title|heartbeat|probe|passthrough
+	Step           int           `json:"step"`
+	Attempts       []Attempt     `json:"attempts"`
+	Usage          Usage         `json:"usage"`
+	UsageEstimated bool          `json:"usage_estimated"`
+	Cost           Micros        `json:"cost_micros"`
+	PriceKnown     bool          `json:"price_known"`
+	TTFT           time.Duration `json:"ttft"`
+	Latency        time.Duration `json:"latency"`
+	Breakdown      Breakdown     `json:"breakdown"`
+	PrefixHash     string        `json:"prefix_hash"` // sha256(tools bytes || system bytes), hex[:16]
+	Stop           StopReason    `json:"stop"`
+	Error          string        `json:"error,omitempty"`
+}
+
+// BuildFunc assembles the request for the concrete model picked. The facade calls
+// it again on fallback so context is re-fitted to that model's window.
+type BuildFunc func(m ModelInfo) (*Request, error)
+
+type ProbeConfig struct {
+	Kind         ProviderKind `json:"kind"`
+	BaseURL      string       `json:"base_url"`
+	APIKey       Secret       `json:"-"`          // transient; never persisted by Probe
+	SecretRef    string       `json:"secret_ref"` // alternative to APIKey: "secret:<name>"
+	Model        string       `json:"model"`
+	AllowPrivate bool         `json:"allow_private"`
+}
+
+type ProbeResult struct {
+	OK            bool          `json:"ok"`
+	Latency       time.Duration `json:"latency"`
+	ToolCalling   bool          `json:"tool_calling"`   // a forced one-tool call round-tripped
+	UsageReported bool          `json:"usage_reported"` //
+	Context       int           `json:"context"`        // effective window
+	Models        []string      `json:"models"`
+	Cost          Micros        `json:"cost_micros"`
+	Detail        string        `json:"detail"` // plain-language failure or hint (e.g. OLLAMA_CONTEXT_LENGTH)
+}
+
+type Detection struct {
+	Kind    ProviderKind `json:"kind"`
+	BaseURL string       `json:"base_url"`
+	EnvVar  string       `json:"env_var,omitempty"` // e.g. ANTHROPIC_API_KEY; the value never leaves the process
+	Models  []string     `json:"models,omitempty"`
+	Note    string       `json:"note,omitempty"`
+}
+
+type ProviderHealth struct {
+	ID        string       `json:"id"`
+	Kind      ProviderKind `json:"kind"`
+	State     string       `json:"state"` // ok | degraded | down | auth_failed
+	LastError string       `json:"last_error,omitempty"`
+	Since     time.Time    `json:"since"`
+}
+
+// LLM is the fallback-aware facade the agent uses. It owns retries, circuit
+// breakers and the fallback chain; it never switches model after the first
+// streamed event.
+type LLM interface {
+	Complete(ctx context.Context, slot Slot, override *ModelRef, build BuildFunc, on func(StreamEvent) error) (*Response, CallInfo, error)
+	// Passthrough calls exactly one model, no fallback, for /v1 passthrough mode.
+	Passthrough(ctx context.Context, ref ModelRef, req *Request, on func(StreamEvent) error) (*Response, CallInfo, error)
+	Chain(slot Slot, override *ModelRef) []ModelInfo // resolved chain; [0] drives context sizing
+	Model(ref ModelRef) (ModelInfo, bool)
+	Models(ctx context.Context) []ModelInfo
+	Estimate(text string, ref ModelRef) int // bytes/3.6 times the per-model EWMA correction
+	Calibrate(ref ModelRef, estimated, actual int)
+	Probe(ctx context.Context, cfg ProbeConfig) (ProbeResult, error)
+	Detect(ctx context.Context) []Detection
+	Health() []ProviderHealth
+}
+```
+
+### 4.4 `tool.go`: side effects, taint, manifests, actions, tools, registry
+
+```go
+package core
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"time"
+)
+
+// CanonicalJSON re-encodes JSON (a json.RawMessage, a []byte, or any
+// JSON-marshalable value) with object keys sorted, no insignificant whitespace,
+// numbers kept verbatim and HTML escaping off. Action.Payload, Fingerprint,
+// ToolSpec.Hash, MCP pin hashes and the audit chain all hash these bytes, so
+// every module agrees on them.
+func CanonicalJSON(v any) ([]byte, error) {
+	var raw []byte
+	switch x := v.(type) {
+	case json.RawMessage:
+		raw = x
+	case []byte:
+		raw = x
+	default:
+		b, err := json.Marshal(v)
+		if err != nil {
+			return nil, err
+		}
+		raw = b
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var tree any
+	if err := dec.Decode(&tree); err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(tree); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
+}
+
+// ActionFingerprint is hex sha256(tool || 0x00 || canonical payload).
+func ActionFingerprint(tool string, canonicalPayload []byte) string {
+	h := sha256.New()
+	h.Write([]byte(tool))
+	h.Write([]byte{0})
+	h.Write(canonicalPayload)
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// SideEffect classes. The zero value is invalid so a missing manifest field is
+// rejected at Register instead of silently meaning "read".
+type SideEffect uint8
+
+const (
+	SERead SideEffect = iota + 1
+	SELocalWrite
+	SEExternalSend
+	SEIrreversible
+	SEFinancial
+	SEAdmin // self-modification: config, policy, prompts, skills, MCP, schedules, auth
+)
+
+var seNames = [...]string{"", "read", "local_write", "external_send", "irreversible", "financial", "admin"}
+
+func (s SideEffect) String() string {
+	if int(s) < len(seNames) {
+		return seNames[s]
+	}
+	return fmt.Sprintf("side_effect(%d)", s)
+}
+
+func (s SideEffect) Valid() bool { return s >= SERead && s <= SEAdmin }
+
+func (s SideEffect) MarshalText() ([]byte, error) {
+	if !s.Valid() {
+		return nil, fmt.Errorf("invalid side effect %d", s)
+	}
+	return []byte(s.String()), nil
+}
+
+func (s *SideEffect) UnmarshalText(b []byte) error {
+	v, err := ParseSideEffect(string(b))
+	*s = v
+	return err
+}
+
+func ParseSideEffect(name string) (SideEffect, error) {
+	for i := 1; i < len(seNames); i++ {
+		if seNames[i] == name {
+			return SideEffect(i), nil
+		}
+	}
+	return 0, fmt.Errorf("unknown side effect %q", name)
+}
+
+// Taint legs of the lethal trifecta, persisted per session as a bitmask.
+type Taint uint8
+
+const (
+	TaintPrivate   Taint = 1 << iota // private data entered context (memory snapshot, private reads)
+	TaintUntrusted                   // untrusted content entered context
+	TaintSend                        // an exfiltration-capable capability is enabled (informational leg)
+)
+
+// Exposed is private+untrusted. In this state every external_send or
+// irreversible action is forced to Ask (the trifecta floor).
+func (t Taint) Exposed() bool { return t&TaintPrivate != 0 && t&TaintUntrusted != 0 }
+
+func (t Taint) Has(x Taint) bool { return t&x == x }
+
+type Manifest struct {
+	Title       string        `json:"title"` // card title, e.g. "Run shell command"
+	SideEffect  SideEffect    `json:"side_effect"`
+	Exec        bool          `json:"exec"`     // needs a sandbox; hidden when none is available
+	FSPaths     []string      `json:"fs_paths"` // workspace-relative globs it may touch
+	Domains     []string      `json:"domains"`  // static egress domains; dynamic ones go in Action
+	Secrets     []string      `json:"secrets"`  // vault names used gateway-side only
+	Messaging   bool          `json:"messaging"`
+	Taint       Taint         `json:"taint"`              // legs added to the session when it runs
+	Triggers    []Trigger     `json:"triggers,omitempty"` // empty = all; schedule tools = {message}
+	MinRole     Role          `json:"min_role,omitempty"` // empty = any
+	SpaceOK     bool          `json:"space_ok"`           // offered to restricted space principals
+	Core        bool          `json:"core"`               // schema always in the tools block; else via tool_search
+	Timeout     time.Duration `json:"timeout"`
+	MaxOutputKB int           `json:"max_output_kb"`
+}
+
+type ToolSpec struct {
+	Def      ToolDef  `json:"def"`
+	Source   string   `json:"source"` // "builtin" | "mcp:<server>" | "skill:<name>"
+	Manifest Manifest `json:"manifest"`
+	Hash     string   `json:"hash"` // sha256 of canonical Def JSON
+}
+
+type ActionKind string
+
+const (
+	ActExec     ActionKind = "exec"
+	ActFSRead   ActionKind = "fs.read"
+	ActFSWrite  ActionKind = "fs.write"
+	ActFSDelete ActionKind = "fs.delete"
+	ActHTTP     ActionKind = "http"     // gateway-side fetch
+	ActNet      ActionKind = "net"      // egress grant request (net_allow, proxy hold-for-approval)
+	ActSend     ActionKind = "send"     // message to a chat
+	ActMCP      ActionKind = "mcp"      // MCP tool call
+	ActMemory   ActionKind = "memory"   //
+	ActSchedule ActionKind = "schedule" //
+	ActSkill    ActionKind = "skill"    // skill_load / skill_read
+	ActSearch   ActionKind = "search"   // web_search, session_search
+	ActGeneric  ActionKind = "generic"
+)
+
+// Action is the structured, system-normalized form of a tool call. Policy,
+// approval cards, audit and loop detection consume only this, and Exec receives
+// exactly the Action that was decided (and, for parked runs, persisted).
+type Action struct {
+	Tool        string          `json:"tool"`
+	Kind        ActionKind      `json:"kind"`
+	SideEffect  SideEffect      `json:"side_effect"` // may escalate above Manifest.SideEffect, never lower
+	Argv        []string        `json:"argv,omitempty"`
+	Cwd         string          `json:"cwd,omitempty"`
+	Method      string          `json:"method,omitempty"`
+	URL         string          `json:"url,omitempty"`
+	Host        string          `json:"host,omitempty"` // punycode, lowercase
+	Port        int             `json:"port,omitempty"`
+	Paths       []string        `json:"paths,omitempty"`
+	Diff        string          `json:"diff,omitempty"` // unified diff for fs.write, capped 64KB
+	Recipient   string          `json:"recipient,omitempty"`
+	Domains     []string        `json:"domains,omitempty"`
+	MCPServer   string          `json:"mcp_server,omitempty"`
+	MCPTool     string          `json:"mcp_tool,omitempty"`
+	Payload     json.RawMessage `json:"payload"`     // normalized args (CanonicalJSON), executed verbatim
+	Fingerprint string          `json:"fingerprint"` // ActionFingerprint(Tool, Payload)
+}
+
+// Exec actions: Payload is {"argv":[…],"cwd":"…"} (shell: ["bash","-lc",cmd];
+// python adds "code" and argv ["python3",".bothy/tmp/<fingerprint[:16]>.py"],
+// Exec writes the code there first), so JSON pointers such as "/argv/2" in
+// rules and grants address the command line and cards show the exact code.
+
+// ToolEnv carries per-call context. Every capability a tool may use is here or
+// injected into the tool's constructor; tools never reach for globals.
+type ToolEnv struct {
+	User        UserID
+	Role        Role
+	Principal   Principal
+	Session     SessionID
+	Run         RunID
+	CallID      string // tcl_<26>
+	Trigger     Trigger
+	Schedule    ScheduleID
+	Workspace   string // absolute dir; tools open it with os.OpenRoot
+	BoxKey      string // box_<26> for this session
+	Sandbox     Sandbox
+	HTTP        *http.Client // egress-guarded public client scoped to this session (web_fetch)
+	Chat        *ChatRef     // originating chat; the message tool can only reply here
+	Taint       Taint
+	Interactive bool
+	Selection   Selection       // the run's tool selection (tool_search passes it to Registry.Search)
+	Emit        func(EventData) // tool.output progress; non-blocking, rate-limited by the runner
+}
+
+type Tool interface {
+	Spec() ToolSpec
+	// Plan validates and normalizes args into an Action. It may read (workspace
+	// files via os.Root, the DB) but must not write, send, exec or dial, and is
+	// deterministic for the same input and state (conformance-tested).
+	Plan(ctx context.Context, env *ToolEnv, args json.RawMessage) (*Action, error)
+	Exec(ctx context.Context, env *ToolEnv, a *Action) (*ToolResult, error)
+}
+
+// Gated is optionally implemented by tools whose availability depends on
+// runtime state the registry cannot see (message: env.Chat != nil; skill_load:
+// at least one enabled skill; MCP tools: server ready). ForRun, Available and
+// Search skip a tool whose Enabled returns false.
+type Gated interface {
+	Enabled(env *ToolEnv) bool
+}
+
+// ToolProvider is implemented by modules that contribute tools. cmd/bothy
+// registers them at boot.
+type ToolProvider interface{ Tools() []Tool }
+
+type Selection struct {
+	SandboxOK  bool
+	SmallModel bool // compact profile: <= 8 core tools, short descriptions
+	Degraded   bool // degraded profile: <= 5 core tools, no skills index
+	Paused     bool // kill switch: read-only tools only
+}
+
+type ToolRegistry interface {
+	Register(t Tool) error // name collision, invalid manifest or schema => error
+	UnregisterSource(source string)
+	Get(name string) (Tool, bool)
+	// ForRun returns the core tools for the tools block plus tool_search/use_tool
+	// when lazy tools exist, filtered by trigger, role, principal kind, sandbox and
+	// Selection, sorted by name. Bytes must be identical for identical inputs.
+	ForRun(env *ToolEnv, sel Selection) []ToolSpec
+	// Available reports whether a (possibly lazy) tool is callable in this run.
+	Available(name string, env *ToolEnv, sel Selection) bool
+	Search(query string, env *ToolEnv, sel Selection, limit int) []ToolSpec
+	All() []ToolSpec
+}
+```
+
+### 4.5 `policy.go`: decisions, grants, cards, approvals
+
+```go
+package core
+
+import (
+	"context"
+	"time"
+)
+
+type Verdict string
+
+const (
+	VerdictAuto Verdict = "auto"
+	VerdictAsk  Verdict = "ask"
+	VerdictDeny Verdict = "deny"
+)
+
+type TimeoutAction string
+
+const (
+	TimeoutDeny TimeoutAction = "deny"
+	TimeoutPark TimeoutAction = "park"
+)
+
+type Choice string
+
+const (
+	AllowOnce    Choice = "allow_once"
+	AllowSession Choice = "allow_session"
+	// AllowAlways creates the same narrow grant as AllowSession but with
+	// GrantPrincipal scope, so it persists across sessions until revoked.
+	// Offered only where AllowSession is, and never for irreversible actions.
+	AllowAlways Choice = "allow_always"
+	Deny        Choice = "deny"
+)
+
+type PolicyInput struct {
+	User       UserID // human owning the principal (space owner for spaces)
+	Role       Role
+	Principal  Principal
+	Session    SessionID
+	Schedule   ScheduleID
+	Trigger    Trigger
+	Action     *Action
+	Spec       ToolSpec
+	Taint      Taint
+	Provenance Provenance // provenance of the message that started the run
+	Chat       *ChatRef
+}
+
+// ApproverReq says who may resolve an approval.
+type ApproverReq struct {
+	User      UserID `json:"user_id"`    // the principal's user; empty when AdminOnly
+	AdminOnly bool   `json:"admin_only"` // admin-class actions: any owner/admin
+}
+
+type Decision struct {
+	Verdict   Verdict       `json:"verdict"`
+	Rule      string        `json:"rule"`   // "floor:financial" | "floor:trifecta" | "rule:<id>" | "grant:<id>" | "first_contact:domain" | "default:external_send"
+	Reason    string        `json:"reason"` // safe to show the model and the user
+	Floor     bool          `json:"floor"`
+	Approver  ApproverReq   `json:"approver"`
+	Timeout   time.Duration `json:"timeout"`
+	OnTimeout TimeoutAction `json:"on_timeout"`
+	Choices   []Choice      `json:"choices"` // AllowSession omitted when no narrow grant can be formed or when Exposed
+	Warnings  []string      `json:"warnings,omitempty"`
+}
+
+type GrantScope string
+
+const (
+	GrantSession   GrantScope = "session"
+	GrantSchedule  GrantScope = "schedule"
+	GrantPrincipal GrantScope = "principal" // persistent; created by admins in the web UI, or narrow-only via an allow_always card choice
+)
+
+type GrantKind string
+
+const (
+	GrantTool      GrantKind = "tool"      // Tool + Pattern (JSON pointer -> glob); never a whole tool
+	GrantDomain    GrantKind = "domain"    // Value "host:port"; "*.suffix:443" only for GrantPrincipal by admins
+	GrantRecipient GrantKind = "recipient" // Value = ChatRef.Key() or MCP recipient field value
+)
+
+type Grant struct {
+	ID               GrantID           `json:"id"`
+	Principal        PrincipalID       `json:"principal_id"`
+	Scope            GrantScope        `json:"scope"`
+	ScopeID          string            `json:"scope_id"` // session or schedule id; "" for principal
+	Kind             GrantKind         `json:"kind"`
+	Tool             string            `json:"tool,omitempty"`
+	Pattern          map[string]string `json:"pattern,omitempty"` // JSON pointer into Action.Payload -> glob
+	Value            string            `json:"value,omitempty"`
+	MaxSE            SideEffect        `json:"max_se"`
+	AllowWhenTainted bool              `json:"allow_when_tainted"` // only valid with Kind recipient and an exact Value
+	Uses             int               `json:"uses"`
+	MaxUses          int               `json:"max_uses"` // 0 = unlimited
+	CreatedBy        UserID            `json:"created_by"`
+	CreatedAt        time.Time         `json:"created_at"`
+	ExpiresAt        time.Time         `json:"expires_at"` // zero = never
+}
+
+type Policy interface {
+	// Decide order: floors -> rules -> grants -> first contact -> class defaults.
+	// No rule or grant overrides a floor (sole exception: AllowWhenTainted
+	// recipient grant vs the trifecta floor).
+	Decide(ctx context.Context, in PolicyInput) Decision
+	// NarrowGrant builds the grant that "allow for session" creates for an Action,
+	// or ok=false when no narrow grant exists (then AllowSession is not offered).
+	NarrowGrant(a *Action, p PrincipalID, scope GrantScope, scopeID string, by UserID) (g Grant, ok bool)
+	Grant(ctx context.Context, g Grant) (GrantID, error)
+	Revoke(ctx context.Context, v Viewer, id GrantID, by UserID) error
+	// NextTaint is pure. boxEgressed reports that the session box moved bytes
+	// through the egress proxy during this call (output becomes untrusted).
+	NextTaint(prev Taint, spec ToolSpec, a *Action, res *ToolResult, boxEgressed bool) Taint
+}
+
+type CardField struct {
+	Label string `json:"label"`
+	Value string `json:"value"` // verbatim; renderers escape and visualize bidi/zero-width chars
+	Mono  bool   `json:"mono"`
+}
+
+// Card is rendered by the policy module from the Action only, never from model
+// prose. Channel adapters format it; they never add content.
+type Card struct {
+	Title    string      `json:"title"`
+	Risk     SideEffect  `json:"risk"`
+	Fields   []CardField `json:"fields"`
+	Code     string      `json:"code,omitempty"` // exact argv / JSON args
+	Diff     string      `json:"diff,omitempty"`
+	Warnings []string    `json:"warnings,omitempty"`
+	Context  string      `json:"context"` // "Telegram · DM · session “Q3 report”"
+	Choices  []Choice    `json:"choices"`
+	Expires  time.Time   `json:"expires"`
+	WebURL   string      `json:"web_url"` // public_url + /approvals/<id>
+}
+
+type ApprovalStatus string
+
+const (
+	ApprovalPending   ApprovalStatus = "pending"
+	ApprovalAllowed   ApprovalStatus = "allowed"
+	ApprovalDenied    ApprovalStatus = "denied"
+	ApprovalExpired   ApprovalStatus = "expired"
+	ApprovalParked    ApprovalStatus = "parked"
+	ApprovalCancelled ApprovalStatus = "cancelled"
+)
+
+type Approval struct {
+	ID         ApprovalID     `json:"id"`
+	Run        RunID          `json:"run_id"`
+	Session    SessionID      `json:"session_id"`
+	Principal  PrincipalID    `json:"principal_id"`
+	ToolCallID string         `json:"tool_call_id"`
+	Action     *Action        `json:"action"`
+	Decision   Decision       `json:"decision"`
+	Card       Card           `json:"card"`
+	Status     ApprovalStatus `json:"status"`
+	Choice     Choice         `json:"choice,omitempty"`
+	Approver   ApproverReq    `json:"approver"`
+	Chat       *ChatRef       `json:"chat,omitempty"` // originating chat
+	OnTimeout  TimeoutAction  `json:"on_timeout"`
+	DecidedBy  UserID         `json:"decided_by,omitempty"`
+	DecidedVia string         `json:"decided_via,omitempty"` // web|telegram|discord|slack|timeout|stop (CancelRun)
+	CreatedAt  time.Time      `json:"created_at"`
+	ExpiresAt  time.Time      `json:"expires_at"`
+	ParkUntil  time.Time      `json:"park_until,omitempty"`
+	DecidedAt  time.Time      `json:"decided_at,omitempty"`
+}
+
+type ApprovalRequest struct {
+	Run        RunID
+	Session    SessionID
+	Principal  PrincipalID
+	ToolCallID string
+	Action     *Action
+	Spec       ToolSpec
+	Decision   Decision // from Policy.Decide (Verdict Ask)
+	Chat       *ChatRef
+	Context    string // card context line, built by the caller from session/channel
+}
+
+type Resolution struct {
+	ID      ApprovalID
+	Choice  Choice
+	By      UserID
+	ByRole  Role
+	Via     string  // web | telegram | discord | slack
+	ViaMsg  *MsgRef // required for chat channels: must be a recorded card message
+	Comment string
+}
+
+type Approvals interface {
+	// Request persists, renders the Card and publishes approval.requested with
+	// Principal = r.Principal; for AdminOnly approvals it also publishes a copy
+	// with Principal "" (admin broadcast) so every admin's inbox sees it.
+	// approval.resolved is published the same way.
+	Request(ctx context.Context, r ApprovalRequest) (*Approval, error)
+	// Await blocks until resolved, timed out, or ctx done. Timeout: deny =>
+	// ErrApprovalExpired; park => ErrParked (status parked, ParkUntil set).
+	Await(ctx context.Context, id ApprovalID) (Choice, error)
+	// Resolve is a CAS from pending|parked. It checks approver authority, that a
+	// chat press comes from a recorded card message, and that a truncated card is
+	// only ever denied from chat. Publishes approval.resolved.
+	Resolve(ctx context.Context, r Resolution) (*Approval, error)
+	CancelRun(ctx context.Context, run RunID) error
+	// RenderCard renders without persisting (policy preview, tests).
+	RenderCard(r ApprovalRequest) Card
+	Get(ctx context.Context, v Viewer, id ApprovalID) (*Approval, error)
+	Pending(ctx context.Context, v Viewer) ([]*Approval, error)        // pending + parked
+	Recent(ctx context.Context, v Viewer, p Page) ([]*Approval, error) // decided, newest first; Before = created_at ms
+	// ButtonData returns "a:<id>:<o|s|d>:<mac8>" (<= 64 bytes, Telegram limit);
+	// the mac is HMAC-SHA256(server key, id|choice) truncated to 8 base32 chars.
+	ButtonData(id ApprovalID, c Choice) string
+	ParseButtonData(data string) (ApprovalID, Choice, error) // verifies the mac
+	AddMessageRef(ctx context.Context, id ApprovalID, ref MsgRef, truncated bool) error
+	MessageRefs(ctx context.Context, id ApprovalID) ([]CardMessage, error)
+	// OnResolved registers a callback; the runner uses it to resume parked runs.
+	OnResolved(fn func(a *Approval))
+}
+
+type CardMessage struct {
+	Ref       MsgRef `json:"ref"`
+	Truncated bool   `json:"truncated"`
+}
+```
+
+### 4.6 `channel.go`: chats, inbound/outbound, adapters, the hub
+
+```go
+package core
+
+import (
+	"context"
+	"io"
+	"log/slog"
+	"net/http"
+	"time"
+)
+
+type ChatKind string
+
+const (
+	ChatDM    ChatKind = "dm"
+	ChatGroup ChatKind = "group" // groups, Discord guild channels, Slack channels
+	ChatWeb   ChatKind = "web"
+	ChatAPI   ChatKind = "api"
+)
+
+type ChatRef struct {
+	Channel  string   `json:"channel"` // "telegram" | "discord" | "slack" | "web" | "api"
+	ChatID   string   `json:"chat_id"`
+	ThreadID string   `json:"thread_id,omitempty"` // Slack thread ts, Telegram topic, Discord thread
+	Kind     ChatKind `json:"kind"`
+}
+
+// Key is the session lookup key for channel sessions.
+func (c ChatRef) Key() string { return c.Channel + ":" + c.ChatID + ":" + c.ThreadID }
+
+type Attachment struct {
+	Name     string `json:"name"`
+	MIME     string `json:"mime"`
+	Size     int64  `json:"size"`
+	FetchRef string `json:"fetch_ref"` // adapter-private (Telegram file_id, Slack url_private, Discord CDN url)
+}
+
+type Inbound struct {
+	Chat ChatRef
+	// MsgID must be unique per adapter (it keys inbound_dedup): Telegram
+	// "<chat_id>:<message_id>", Slack "<channel>:<ts>", Discord the message
+	// snowflake. Edits of an existing message are not redelivered as new.
+	MsgID          string
+	SenderID       string // platform user id
+	SenderName     string
+	SenderUsername string
+	SenderIsBot    bool
+	Text           string // mention of the bot stripped
+	Mentioned      bool   // DM, @mention, reply-to-bot, or slash command
+	Attachments    []Attachment
+	At             time.Time
+}
+
+type MsgRef struct {
+	Chat ChatRef `json:"chat"`
+	ID   string  `json:"id"`
+}
+
+type ButtonStyle uint8
+
+const (
+	BtnDefault ButtonStyle = iota
+	BtnPrimary
+	BtnDanger
+)
+
+type Button struct {
+	Label string      `json:"label"`
+	Data  string      `json:"data,omitempty"` // callback payload <= 64 bytes; produced only by Approvals.ButtonData or the router ("s:<run>" stop)
+	URL   string      `json:"url,omitempty"`  // link button (no callback)
+	Style ButtonStyle `json:"style"`
+}
+
+// OutMessage text is the Bothy markdown subset: paragraphs, **bold**, *italic*,
+// `code`, fenced code, lists, [text](url), headings rendered as bold. No images,
+// no raw HTML. The router has already split it to fit Caps.MaxLen and
+// neutralized links for exposed sessions. Agent output never carries Buttons.
+type OutMessage struct {
+	Chat    ChatRef
+	Text    string
+	Buttons [][]Button
+	ReplyTo string
+	Silent  bool
+}
+
+type ActionEvent struct {
+	Chat     ChatRef
+	Msg      MsgRef
+	SenderID string
+	Data     string
+	AckRef   string // adapter-private: callback_query id, interaction token, Slack response_url
+}
+
+type ChannelCaps struct {
+	Edit            bool          `json:"edit"`
+	Buttons         bool          `json:"buttons"`
+	Threads         bool          `json:"threads"`
+	Typing          bool          `json:"typing"`
+	MaxLen          int           `json:"max_len"`           // visible characters per message after rendering
+	EditMinInterval time.Duration `json:"edit_min_interval"` // Telegram 1s, Discord 1s, Slack 1.2s
+}
+
+type InboundSink interface {
+	OnMessage(ctx context.Context, in Inbound) // must not block on agent work
+	OnAction(ctx context.Context, ev ActionEvent)
+}
+
+type ChannelStatus struct {
+	Name      string    `json:"name"`
+	Enabled   bool      `json:"enabled"`
+	State     string    `json:"state"` // connecting | connected | backoff | auth_failed | disabled
+	Detail    string    `json:"detail,omitempty"`
+	Identity  string    `json:"identity,omitempty"` // "@my_bothy_bot"
+	Since     time.Time `json:"since"`
+	DeepLinks bool      `json:"deep_links"`
+}
+
+// Channel adapters never do auth, policy, splitting or neutralization: the
+// router does. Adapters escape for their dialect and always disable link
+// previews/unfurls (Telegram link_preview_options.is_disabled, Slack
+// unfurl_links/unfurl_media=false, Discord flags SUPPRESS_EMBEDS).
+type Channel interface {
+	Name() string
+	Caps() ChannelCaps
+	Run(ctx context.Context, sink InboundSink) error // blocks; reconnects internally with backoff
+	Send(ctx context.Context, m OutMessage) (MsgRef, error)
+	Edit(ctx context.Context, ref MsgRef, m OutMessage) error
+	Delete(ctx context.Context, ref MsgRef) error
+	Typing(ctx context.Context, chat ChatRef) error
+	Ack(ctx context.Context, ev ActionEvent, toast string) error // within 3s
+	OpenDM(ctx context.Context, externalUserID string) (ChatRef, error)
+	Fetch(ctx context.Context, a Attachment, max int64) (io.ReadCloser, error)
+	SelfTest(ctx context.Context) (identity string, err error) // getMe / users/@me / auth.test
+	DeepLink(code string) string                               // "" when unsupported; Telegram t.me/<bot>?start=<code>
+	Status() ChannelStatus
+}
+
+// Cards on channels without Caps.Buttons (P1 email, Signal) are always sent
+// truncated as text with the Card.WebURL link only; they can never approve.
+
+// Messenger sends a system-originated message (message tool, schedule delivery,
+// hello DM). Bound to explicit chats; the message tool only passes env.Chat.
+type Messenger interface {
+	Send(ctx context.Context, chat ChatRef, markdown string) (MsgRef, error)
+}
+
+// ChannelHub is the channel router. It owns adapters, inbound gatekeeping,
+// commands, run streaming to chats and approval card delivery.
+type ChannelHub interface {
+	InboundSink
+	Messenger
+	Add(ch Channel)
+	Run(ctx context.Context) error
+	Status() []ChannelStatus
+	Test(ctx context.Context, name string) (string, error)
+	DeepLink(channel, code string) string
+	// PreferredChat returns the user's DM on their preferred linked channel.
+	PreferredChat(ctx context.Context, u UserID) (ChatRef, bool)
+	// StreamTo returns a sink that delivers a run to a chat: mode "stream"
+	// (throttled edits) or "final" (one message at run end; schedules).
+	StreamTo(chat ChatRef, mode string) RunSink
+}
+
+// AdapterDeps is what channel adapters may use. Adapters import only core,
+// config and their protocol library.
+type AdapterDeps struct {
+	Secret   func(ctx context.Context, ref string) (Secret, error) // resolves "secret:<name>" (global scope)
+	HTTP     func(d SystemDest) *http.Client                       // Egress.SystemClient
+	Meta     MetaRepo                                              // long-poll offsets, resume cursors (keys "channel.<name>.*")
+	StateDir string                                                // <data>/channels/<name>/ (0700): P1 adapters with their own state (Matrix crypto store, WhatsApp device store)
+	Clock    Clock
+	Log      *slog.Logger
+}
+```
+
+### 4.7 `sandbox.go`: boxes and egress
+
+```go
+package core
+
+import (
+	"context"
+	"io"
+	"net/http"
+	"time"
+)
+
+type SelfTestCheck struct {
+	Name   string `json:"name"`
+	OK     bool   `json:"ok"`
+	Detail string `json:"detail,omitempty"`
+}
+
+type SandboxStatus struct {
+	Backend   string          `json:"backend"` // sandboxd | bwrap | none
+	Available bool            `json:"available"`
+	Reason    string          `json:"reason,omitempty"` // why not available, plain language
+	Fix       string          `json:"fix,omitempty"`    // copyable command or doc anchor
+	Runtime   string          `json:"runtime"`          // runsc | runc | bwrap
+	Engine    string          `json:"engine,omitempty"` // "docker 27.4.1 (api 1.47)"
+	Rootless  bool            `json:"rootless"`
+	SelfTest  []SelfTestCheck `json:"self_test"`
+	CheckedAt time.Time       `json:"checked_at"`
+}
+
+type BoxProfile string
+
+const (
+	ProfileBase BoxProfile = "base" // python3, bash, git, curl, uv
+	ProfileNode BoxProfile = "node" // base + Node 24 LTS
+)
+
+type BoxLimits struct {
+	MemoryMB int     `json:"memory_mb"`
+	CPUs     float64 `json:"cpus"`
+	Pids     int     `json:"pids"`
+}
+
+type BoxSpec struct {
+	Key       string      // box_<26>; DerivedID("box", "session:"+id) or ("mcp:"+server+":"+principal)
+	Profile   BoxProfile  //
+	Workspace WorkspaceID // mounted rw at /workspace; "" = none (MCP servers without workspace access)
+	MCPTree   string      // "mcp/<server>/<install_id>" mounted at /opt/mcp; "" = none
+	MCPTreeRW bool        // true only for the installer box
+	Limits    BoxLimits
+	Egress    BoxEgress
+}
+
+type BoxEgress struct {
+	Session   SessionID
+	Principal PrincipalID
+	Extra     []string // host:port always allowed for this box (MCP server egress list, installer registries)
+	NoGrants  bool     // ignore session/principal grants (MCP and installer boxes)
+}
+
+type ExecRequest struct {
+	Argv      []string
+	Stdin     []byte
+	Cwd       string            // relative to /workspace, cleaned
+	Env       map[string]string // keys ^[A-Z_][A-Z0-9_]{0,63}$; no LD_*, PATH, HOME, *_PROXY, BASH_ENV, NODE_OPTIONS, PYTHONPATH
+	Timeout   time.Duration
+	MaxOutput int // bytes kept per stream; the rest is drained and dropped
+}
+
+type ExecResult struct {
+	Exit      int           `json:"exit"`
+	Stdout    []byte        `json:"-"`
+	Stderr    []byte        `json:"-"`
+	Truncated bool          `json:"truncated"`
+	TimedOut  bool          `json:"timed_out"`
+	Killed    bool          `json:"killed"` // by /stop
+	Duration  time.Duration `json:"duration"`
+}
+
+// Sandbox is the gateway-side client for the active backend (sandboxd, bwrap or
+// none). With backend none every method except Status, Usage and Watch returns
+// ErrNoSandbox.
+type Sandbox interface {
+	Status(ctx context.Context) SandboxStatus
+	// Ensure creates the directories the box mounts (work volume: ws/<id> and,
+	// when set, the MCPTree dir, both 2770 group 10001, plus skills/ if missing;
+	// run volume: egress/<h> 0750 group 10001), opens the box's egress socket via
+	// Egress.OpenBox, then creates the box (idempotent per Key).
+	Ensure(ctx context.Context, spec BoxSpec) error
+	// Usage reports a workspace's size against sandbox.workspace_quota_mb from
+	// the periodic quota scan (works with every backend, including none; fs_write
+	// refuses writes over quota).
+	Usage(ctx context.Context, ws WorkspaceID) (usedBytes, quotaBytes int64, err error)
+	Exec(ctx context.Context, key string, req ExecRequest, onOut func(stream int, b []byte)) (*ExecResult, error)
+	Stdio(ctx context.Context, key string, argv []string, env map[string]string) (io.ReadWriteCloser, error)
+	// Kill SIGKILLs every process in the box except its init (sbx-init killall);
+	// falls back to removing the box. The workspace persists. p99 < 1s.
+	Kill(ctx context.Context, key string) error
+	Destroy(ctx context.Context, key string) error // also calls Egress.CloseBox(key)
+	Watch(fn func(SandboxStatus))                  // status changes (self-test failures, sandboxd restarts)
+}
+
+// SystemDest describes a gateway-originated destination (provider, channel API,
+// search API, remote MCP server). Only these exact host:port pairs are dialable
+// by the returned client.
+type SystemDest struct {
+	Name  string   // "provider:anthropic", "channel:telegram", "mcp:docs", "search:brave"
+	Hosts []string // exact "host:port"
+	// AllowPrivate admits RFC1918, ULA, CGNAT, loopback and link-local addresses
+	// for these exact hosts (Ollama on the host or LAN, the searxng service).
+	// Cloud metadata addresses stay blocked.
+	AllowPrivate bool
+}
+
+// EgressBinding carries what the proxy needs to log a connection and, for an
+// unknown destination, to build the hold-for-approval PolicyInput.
+type EgressBinding struct {
+	Run         RunID
+	ToolCallID  string
+	User        UserID // approver context (space owner for spaces)
+	Role        Role
+	Trigger     Trigger
+	Schedule    ScheduleID // schedule-scoped (pre-authorized) domain grants apply at the proxy
+	Interactive bool       // hold unknown CONNECTs for approval (egress.hold_for_approval) instead of failing
+	Chat        *ChatRef   // for the hold-for-approval card
+	Context     string
+}
+
+type Egress interface {
+	// OpenBox creates /run/bothy/egress/<h>/proxy.sock for the box (the socket is
+	// the box identity) and returns the volume subpath "egress/<h>".
+	OpenBox(ctx context.Context, key string, e BoxEgress) (subpath string, err error)
+	CloseBox(key string)
+	// Bind attaches the current run/tool call to a box before each exec, for
+	// logging, taint and hold-for-approval.
+	Bind(key string, b EgressBinding)
+	// TakeActivity reports whether the box moved bytes since the last call.
+	TakeActivity(key string) bool
+	// PublicClient is the session-scoped client for gateway-side tools
+	// (web_fetch): any public address, SSRF-guarded, pinned DNS, per-hop checks.
+	PublicClient(s SessionID, p PrincipalID) *http.Client
+	// SystemClient is for providers, channels, search APIs and HTTP MCP servers.
+	SystemClient(d SystemDest) *http.Client
+}
+```
+
+### 4.8 `store.go`: entities and repositories
+
+```go
+package core
+
+import (
+	"context"
+	"encoding/json"
+	"time"
+)
+
+// Page is keyset pagination: Before is an exclusive upper bound on the row's
+// sort key (seq, id or unix ms depending on the method); 0 = newest.
+type Page struct {
+	Before int64
+	Limit  int // 0 = repository default (50), max 500
+}
+
+type User struct {
+	ID           UserID    `json:"id"`
+	Username     string    `json:"username"`
+	DisplayName  string    `json:"display_name"`
+	Role         Role      `json:"role"`
+	PWHash       string    `json:"-"` // PHC $argon2id$v=19$m=19456,t=2,p=1$…
+	Timezone     string    `json:"timezone"`
+	Disabled     bool      `json:"disabled"`
+	FailedLogins int       `json:"-"`
+	LockedUntil  time.Time `json:"-"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+type Space struct {
+	Principal   PrincipalID `json:"principal_id"`
+	Kind        string      `json:"kind"` // "group" | "guest" (allowlisted guest DM)
+	Chat        ChatRef     `json:"chat"`
+	Title       string      `json:"title"`
+	Owner       UserID      `json:"owner_user_id"`
+	Enabled     bool        `json:"enabled"`
+	MentionOnly bool        `json:"mention_only"`
+	CreatedAt   time.Time   `json:"created_at"`
+	UpdatedAt   time.Time   `json:"updated_at"`
+}
+
+type IdentityStatus string
+
+const (
+	IdentityPending IdentityStatus = "pending" // unknown sender, approve_sender code issued
+	IdentityLinked  IdentityStatus = "linked"  // linked to a user account
+	IdentityGuest   IdentityStatus = "guest"   // allowlisted, talks to its own guest space
+	IdentityBlocked IdentityStatus = "blocked"
+)
+
+type ChannelIdentity struct {
+	Channel     string         `json:"channel"`
+	ExternalID  string         `json:"external_id"`
+	Username    string         `json:"username"`
+	DisplayName string         `json:"display_name"`
+	Status      IdentityStatus `json:"status"`
+	User        UserID         `json:"user_id,omitempty"`      // linked
+	Principal   PrincipalID    `json:"principal_id,omitempty"` // guest space
+	DMChat      string         `json:"dm_chat_id,omitempty"`
+	FirstSeen   time.Time      `json:"first_seen_at"`
+	LastSeen    time.Time      `json:"last_seen_at"`
+	LastNotice  time.Time      `json:"-"`
+}
+
+type PairingPurpose string
+
+const (
+	PairLinkIdentity  PairingPurpose = "link_identity"  // user creates in web UI, sends /pair CODE (or /start CODE) from chat
+	PairApproveSender PairingPurpose = "approve_sender" // unknown sender receives it; an admin enters it in the web UI
+)
+
+type Pairing struct {
+	CodeHash   []byte         `json:"-"`
+	Purpose    PairingPurpose `json:"purpose"`
+	User       UserID         `json:"user_id,omitempty"`
+	Channel    string         `json:"channel,omitempty"`
+	ExternalID string         `json:"external_id,omitempty"`
+	CreatedBy  UserID         `json:"created_by,omitempty"`
+	ExpiresAt  time.Time      `json:"expires_at"`
+	UsedAt     time.Time      `json:"used_at"`
+	Attempts   int            `json:"attempts"`
+}
+
+type AuthSession struct {
+	IDHash      []byte
+	User        UserID
+	CSRF        string
+	IP, UA      string
+	CreatedAt   time.Time
+	LastSeen    time.Time
+	IdleExpires time.Time
+	Expires     time.Time
+}
+
+type TokenRecord struct {
+	ID         string    `json:"id"` // tok_<26>, public part of bothy_pat_<id>_<secret>_<crc6>
+	User       UserID    `json:"user_id"`
+	Name       string    `json:"name"`
+	SecretHash []byte    `json:"-"`
+	Scopes     []string  `json:"scopes"`      // chat | llm | read | admin
+	OnApproval string    `json:"on_approval"` // deny | wait
+	RatePerMin int       `json:"rate_per_min"`
+	CreatedAt  time.Time `json:"created_at"`
+	LastUsed   time.Time `json:"last_used_at"`
+	Expires    time.Time `json:"expires_at"`
+	Revoked    time.Time `json:"revoked_at"`
+}
+
+type Session struct {
+	ID             SessionID   `json:"id"`
+	Principal      PrincipalID `json:"principal_id"`
+	Origin         string      `json:"origin"`      // web|telegram|discord|slack|api|schedule
+	ChannelKey     string      `json:"channel_key"` // ChatRef.Key() for channel sessions; "" otherwise
+	Chat           *ChatRef    `json:"chat,omitempty"`
+	Title          string      `json:"title"`
+	ModelSlot      Slot        `json:"model_slot"`
+	ModelOverride  string      `json:"model_override,omitempty"` // "provider/model"
+	SystemSnapshot string      `json:"-"`                        // frozen S2 block text
+	ToolsSnapshot  []string    `json:"-"`                        // frozen core tool names
+	SnapshotHash   string      `json:"-"`                        // sha256 of tools+system bytes at snapshot time
+	Summary        string      `json:"-"`
+	SummaryUpto    int64       `json:"summary_upto"` // last message seq folded into Summary
+	Epoch          int         `json:"epoch"`        // incremented by each compaction
+	MemorySeen     int64       `json:"-"`            // last memory_events id folded into the snapshot
+	PinsSeen       int64       `json:"-"`            // last pin id folded into the snapshot
+	Taint          Taint       `json:"taint"`
+	Hidden         bool        `json:"hidden"` // ephemeral API sessions
+	Archived       bool        `json:"archived"`
+	CreatedAt      time.Time   `json:"created_at"`
+	UpdatedAt      time.Time   `json:"updated_at"`
+	LastMessageAt  time.Time   `json:"last_message_at"`
+}
+
+type RunStatus string
+
+const (
+	RunQueued          RunStatus = "queued"
+	RunRunning         RunStatus = "running"
+	RunWaitingApproval RunStatus = "waiting_approval"
+	RunParked          RunStatus = "parked"
+	RunDone            RunStatus = "done"
+	RunStopped         RunStatus = "stopped"
+	RunFailed          RunStatus = "failed"
+	RunBudgetExceeded  RunStatus = "budget_exceeded"
+	RunLoopDetected    RunStatus = "loop_detected"
+	RunInterrupted     RunStatus = "interrupted" // process restarted mid-run
+	RunSkipped         RunStatus = "skipped"     // schedule fired while target session queue was full
+)
+
+func (s RunStatus) Terminal() bool {
+	switch s {
+	case RunQueued, RunRunning, RunWaitingApproval, RunParked:
+		return false
+	}
+	return true
+}
+
+type Run struct {
+	ID         RunID       `json:"id"`
+	Session    SessionID   `json:"session_id"`
+	Principal  PrincipalID `json:"principal_id"`
+	User       UserID      `json:"user_id"` // billing user (space owner for spaces)
+	Trigger    Trigger     `json:"trigger"`
+	Schedule   ScheduleID  `json:"schedule_id,omitempty"`
+	Status     RunStatus   `json:"status"`
+	Error      string      `json:"error,omitempty"`
+	Steps      int         `json:"steps"`
+	ToolCalls  int         `json:"tool_calls"`
+	Usage      Usage       `json:"usage"`
+	Cost       Micros      `json:"cost_micros"`
+	Models     []string    `json:"models"`
+	Limits     RunLimits   `json:"limits"`
+	ParkedOn   ApprovalID  `json:"parked_on,omitempty"`
+	StoppedBy  UserID      `json:"stopped_by,omitempty"`
+	CreatedAt  time.Time   `json:"created_at"`
+	StartedAt  time.Time   `json:"started_at"`
+	FinishedAt time.Time   `json:"finished_at"`
+}
+
+type RunFilter struct {
+	Session  SessionID
+	Schedule ScheduleID
+	Status   RunStatus
+	Page     Page
+}
+
+type ToolCallStatus string
+
+const (
+	TCPlanned  ToolCallStatus = "planned"
+	TCWaiting  ToolCallStatus = "waiting"
+	TCApproved ToolCallStatus = "approved"
+	TCDenied   ToolCallStatus = "denied"
+	TCRunning  ToolCallStatus = "running"
+	TCOK       ToolCallStatus = "ok"
+	TCError    ToolCallStatus = "error"
+	TCTimeout  ToolCallStatus = "timeout"
+	TCStopped  ToolCallStatus = "stopped"
+	TCInvalid  ToolCallStatus = "invalid" // unknown tool or schema-invalid args
+)
+
+type ToolCallRecord struct {
+	ID            string         `json:"id"` // tcl_<26>
+	Run           RunID          `json:"run_id"`
+	Session       SessionID      `json:"session_id"`
+	Principal     PrincipalID    `json:"principal_id"`
+	Step          int            `json:"step"`
+	CallID        string         `json:"call_id"` // provider call id
+	Tool          string         `json:"tool"`
+	Source        string         `json:"source"`
+	SideEffect    SideEffect     `json:"side_effect"`
+	Action        *Action        `json:"action,omitempty"`
+	Verdict       Verdict        `json:"verdict"`
+	Rule          string         `json:"rule"`
+	Approval      ApprovalID     `json:"approval_id,omitempty"`
+	Status        ToolCallStatus `json:"status"`
+	ResultPreview string         `json:"result_preview"` // <= 2KB, redacted
+	ResultBytes   int            `json:"result_bytes"`
+	FullRef       string         `json:"full_ref,omitempty"`
+	Untrusted     bool           `json:"untrusted"`
+	Duration      time.Duration  `json:"duration"`
+	CreatedAt     time.Time      `json:"created_at"`
+	FinishedAt    time.Time      `json:"finished_at"`
+}
+
+type ScheduleKind string
+
+const (
+	SchedCron      ScheduleKind = "cron"      // 5-field cron (gronx), timezone-aware
+	SchedHeartbeat ScheduleKind = "heartbeat" // interval "30m", ±10% jitter, active hours
+	SchedOnce      ScheduleKind = "once"      // RFC3339
+)
+
+type Schedule struct {
+	ID          ScheduleID   `json:"id"`
+	Principal   PrincipalID  `json:"principal_id"`
+	Name        string       `json:"name"`
+	Kind        ScheduleKind `json:"kind"`
+	Spec        string       `json:"spec"`
+	TZ          string       `json:"tz"`
+	ActiveHours string       `json:"active_hours,omitempty"` // "08:00-22:00" in TZ
+	Prompt      string       `json:"prompt"`
+	Session     SessionID    `json:"session_id,omitempty"` // "" = dedicated schedule session
+	Deliver     *ChatRef     `json:"deliver,omitempty"`    // nil = PreferredChat of the principal's user if any, otherwise web only; {channel:"web"} = web only
+	Slot        Slot         `json:"slot"`
+	Limits      RunLimits    `json:"limits"`
+	MissedRun   string       `json:"missed_run"` // skip | once
+	Enabled     bool         `json:"enabled"`
+	CreatedBy   string       `json:"created_by"` // "user:<id>" | "run:<id>" (agent-created after admin approval) | "system" (heartbeat)
+	Failures    int          `json:"failures"`   // consecutive; 3 => auto-disabled
+	NextRunAt   time.Time    `json:"next_run_at"`
+	LastRunAt   time.Time    `json:"last_run_at"`
+	LastStatus  RunStatus    `json:"last_status,omitempty"`
+	CreatedAt   time.Time    `json:"created_at"`
+	UpdatedAt   time.Time    `json:"updated_at"`
+}
+
+type UsageQuery struct {
+	User    UserID // "" = all users (admin)
+	From    time.Time
+	To      time.Time
+	GroupBy string // day | model | user | schedule | session
+}
+
+type UsageRow struct {
+	Key        string `json:"key"`
+	Cost       Micros `json:"cost_micros"`
+	Input      int    `json:"input"`
+	Output     int    `json:"output"`
+	CacheRead  int    `json:"cache_read"`
+	CacheWrite int    `json:"cache_write"`
+	Calls      int    `json:"calls"`
+	PriceKnown bool   `json:"price_known"` // false if any call in the bucket had an unknown price
+}
+
+type AuditEntry struct {
+	ID      int64           `json:"id"`
+	At      time.Time       `json:"at"`
+	Actor   string          `json:"actor"`  // user:<id> | agent:<run> | system | channel:<name>:<ext> | token:<id>
+	Action  string          `json:"action"` // see §10 audit action list
+	Target  string          `json:"target"`
+	Outcome string          `json:"outcome"` // ok | denied | error
+	Session SessionID       `json:"session_id,omitempty"`
+	Run     RunID           `json:"run_id,omitempty"`
+	IP      string          `json:"ip,omitempty"`
+	Detail  json.RawMessage `json:"detail"` // redacted JSON; never message content
+}
+
+type AuditFilter struct {
+	Actor        string
+	ActionPrefix string
+	From, To     time.Time
+	Page         Page
+}
+
+type EgressRecord struct {
+	ID        int64         `json:"id"`
+	At        time.Time     `json:"at"`
+	Dialer    string        `json:"dialer"` // box | public | system
+	Session   SessionID     `json:"session_id,omitempty"`
+	Principal PrincipalID   `json:"principal_id,omitempty"`
+	Run       RunID         `json:"run_id,omitempty"`
+	Dest      string        `json:"dest"` // SystemDest.Name for system dialer
+	Host      string        `json:"host"`
+	Port      int           `json:"port"`
+	IP        string        `json:"ip,omitempty"`
+	Decision  string        `json:"decision"` // allow | deny | held_allow | held_deny
+	Reason    string        `json:"reason,omitempty"`
+	Up        int64         `json:"bytes_up"`
+	Down      int64         `json:"bytes_down"`
+	Duration  time.Duration `json:"duration"`
+}
+
+type MCPPinStatus string
+
+const (
+	PinPending    MCPPinStatus = "pending"
+	PinApproved   MCPPinStatus = "approved"
+	PinSuperseded MCPPinStatus = "superseded"
+	PinDisabled   MCPPinStatus = "disabled"
+)
+
+type MCPPin struct {
+	Server     string            `json:"server"`
+	Tool       string            `json:"tool"`
+	Hash       string            `json:"hash"` // sha256 canonical {name,title,description,inputSchema,outputSchema,annotations}
+	Definition json.RawMessage   `json:"definition"`
+	Status     MCPPinStatus      `json:"status"`
+	SideEffect SideEffect        `json:"side_effect"`
+	FieldMap   map[string]string `json:"field_map,omitempty"` // {"recipient":"/to","url":"/url"}
+	Private    bool              `json:"private"`             // output counts as private data
+	ApprovedBy UserID            `json:"approved_by,omitempty"`
+	FirstSeen  time.Time         `json:"first_seen_at"`
+	ApprovedAt time.Time         `json:"approved_at"`
+}
+
+type MCPInstall struct {
+	Server    string    `json:"server"`
+	InstallID string    `json:"install_id"` // in_<26>; volume subpath mcp/<server>/<install_id>
+	Version   string    `json:"version"`
+	LockHash  string    `json:"lock_hash"` // sha256 of the recorded lockfile (TOFU)
+	Lock      []byte    `json:"-"`         // package-lock.json or hashed requirements.txt
+	TreeHash  string    `json:"tree_hash"`
+	Status    string    `json:"status"` // installing | ready | failed | drifted
+	Error     string    `json:"error,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type SkillStatus string
+
+const (
+	SkillPending  SkillStatus = "pending" // new: disabled until an admin enables
+	SkillEnabled  SkillStatus = "enabled"
+	SkillDisabled SkillStatus = "disabled"
+	SkillChanged  SkillStatus = "changed" // on-disk hash != approved hash: excluded until re-approved
+)
+
+type SkillMeta struct {
+	Name         string      `json:"name"`
+	Description  string      `json:"description"`
+	Path         string      `json:"path"`
+	Hash         string      `json:"hash"`
+	ApprovedHash string      `json:"approved_hash"`
+	Status       SkillStatus `json:"status"`
+	Tokens       int         `json:"tokens"`
+	InstalledBy  UserID      `json:"installed_by,omitempty"`
+	ApprovedBy   UserID      `json:"approved_by,omitempty"`
+	InstalledAt  time.Time   `json:"installed_at"`
+	UpdatedAt    time.Time   `json:"updated_at"`
+}
+
+type MemoryFile string
+
+const (
+	FileMemory    MemoryFile = "MEMORY"
+	FileUser      MemoryFile = "USER"
+	FileHeartbeat MemoryFile = "HEARTBEAT"
+)
+
+type MemoryEvent struct {
+	ID         int64       `json:"id"`
+	Principal  PrincipalID `json:"principal_id"`
+	File       MemoryFile  `json:"file"`
+	Op         string      `json:"op"` // add | replace | remove | edit (web editor)
+	Before     string      `json:"before"`
+	After      string      `json:"after"`
+	Run        RunID       `json:"run_id,omitempty"`
+	Actor      string      `json:"actor"` // agent:<run> | user:<id>
+	Provenance Provenance  `json:"provenance"`
+	At         time.Time   `json:"at"`
+}
+
+type SearchHit struct {
+	Session SessionID `json:"session_id"`
+	Title   string    `json:"title"`
+	Seq     int64     `json:"seq"`
+	Snippet string    `json:"snippet"`
+	At      time.Time `json:"at"`
+	Rank    float64   `json:"rank"`
+	Trusted bool      `json:"trusted"` // provenance user/system; untrusted hits taint the session
+}
+
+type Upload struct {
+	ID        string      `json:"id"` // upl_<26>
+	Principal PrincipalID `json:"principal_id"`
+	Session   SessionID   `json:"session_id"`
+	Name      string      `json:"name"`
+	MIME      string      `json:"mime"`
+	Size      int64       `json:"size"`
+	Ref       string      `json:"ref"` // workspace-relative: ".bothy/in/<upl>/<name>"
+	CreatedAt time.Time   `json:"created_at"`
+}
+
+type SecretMeta struct {
+	Scope     Scope     `json:"scope"`
+	Name      string    `json:"name"`
+	Source    string    `json:"source"` // vault | env
+	Hint      string    `json:"hint"`   // last 4 chars
+	UpdatedAt time.Time `json:"updated_at"`
+	LastUsed  time.Time `json:"last_used_at"`
+}
+
+// ---- repositories ----
+
+type MetaRepo interface {
+	Get(ctx context.Context, k string) (string, error) // ErrNotFound
+	Set(ctx context.Context, k, v string) error
+	Delete(ctx context.Context, k string) error
+}
+
+type UserRepo interface {
+	Create(ctx context.Context, u *User) error // also creates the user principal + workspace id
+	Get(ctx context.Context, id UserID) (*User, error)
+	ByUsername(ctx context.Context, name string) (*User, error)
+	List(ctx context.Context) ([]*User, error)
+	Update(ctx context.Context, u *User) error
+	RecordLogin(ctx context.Context, id UserID, ok bool, lockUntil time.Time) error
+	Count(ctx context.Context) (int, error)
+}
+
+type PrincipalRepo interface {
+	Get(ctx context.Context, v Viewer, id PrincipalID) (*Principal, error)
+	ForUser(ctx context.Context, u UserID) ([]*Principal, error) // own principal first, then owned spaces
+	Update(ctx context.Context, p *Principal) error
+}
+
+type SpaceRepo interface {
+	Create(ctx context.Context, s *Space, p *Principal) error // creates the space principal too
+	ByChat(ctx context.Context, channel, chatID string) (*Space, error)
+	Get(ctx context.Context, v Viewer, id PrincipalID) (*Space, error)
+	List(ctx context.Context, v Viewer) ([]*Space, error)
+	Update(ctx context.Context, s *Space) error
+}
+
+type IdentityRepo interface {
+	Touch(ctx context.Context, id *ChannelIdentity) (*ChannelIdentity, error) // upsert names/last_seen; returns stored row
+	Get(ctx context.Context, channel, externalID string) (*ChannelIdentity, error)
+	Update(ctx context.Context, id *ChannelIdentity) error // status, user, principal, dm chat, last notice
+	ForUser(ctx context.Context, u UserID) ([]*ChannelIdentity, error)
+	List(ctx context.Context, status IdentityStatus) ([]*ChannelIdentity, error) // "" = all
+	Delete(ctx context.Context, channel, externalID string) error
+}
+
+type PairingRepo interface {
+	Create(ctx context.Context, p *Pairing) error
+	// Redeem atomically marks an unexpired, unused code as used. Wrong codes
+	// increment no row; callers rate-limit per identity.
+	Redeem(ctx context.Context, codeHash []byte, purpose PairingPurpose, now time.Time) (*Pairing, error)
+	ForIdentity(ctx context.Context, channel, externalID string, purpose PairingPurpose, now time.Time) (*Pairing, error)
+}
+
+type AuthSessionRepo interface {
+	Create(ctx context.Context, s *AuthSession) error
+	Get(ctx context.Context, idHash []byte) (*AuthSession, error)
+	Touch(ctx context.Context, idHash []byte, lastSeen, idleExpires time.Time) error
+	Delete(ctx context.Context, idHash []byte) error
+	DeleteUser(ctx context.Context, u UserID) error
+	DeleteExpired(ctx context.Context, now time.Time) (int, error)
+}
+
+type TokenRepo interface {
+	Create(ctx context.Context, t *TokenRecord) error
+	Get(ctx context.Context, id string) (*TokenRecord, error)
+	List(ctx context.Context, u UserID) ([]*TokenRecord, error)
+	Revoke(ctx context.Context, u UserID, id string, at time.Time) error // ErrNotFound across users
+	Touch(ctx context.Context, id string, at time.Time) error
+}
+
+type SessionFilter struct {
+	Principal     PrincipalID // "" = all principals in the Viewer
+	Archived      bool
+	IncludeHidden bool
+	Query         string // title substring
+	Page          Page   // Before = last_message_at unix ms
+}
+
+type SessionRepo interface {
+	Create(ctx context.Context, s *Session) error
+	Get(ctx context.Context, v Viewer, id SessionID) (*Session, error)
+	ByChannelKey(ctx context.Context, p PrincipalID, key string) (*Session, error) // open (non-archived) only
+	List(ctx context.Context, v Viewer, f SessionFilter) ([]*Session, error)
+	Update(ctx context.Context, s *Session) error
+	SetTaint(ctx context.Context, id SessionID, t Taint) error
+	Archive(ctx context.Context, v Viewer, id SessionID) error
+	AddURLs(ctx context.Context, id SessionID, urls []string, source string) error // URL provenance: search | user
+	HasURL(ctx context.Context, id SessionID, url string) (bool, error)
+}
+
+type MessageRepo interface {
+	Append(ctx context.Context, m *Message) error                                                   // assigns ID and Seq atomically; fills messages.text from PlainText
+	Range(ctx context.Context, v Viewer, s SessionID, fromSeq int64, limit int) ([]*Message, error) // seq >= fromSeq ascending
+	Page(ctx context.Context, v Viewer, s SessionID, p Page) ([]*Message, error)                    // newest first, Before = seq
+	Search(ctx context.Context, v Viewer, query string, limit int) ([]SearchHit, error)             // FTS5 MATCH over Viewer's principals, bm25 order
+}
+
+type PinRepo interface {
+	Add(ctx context.Context, p *Pin) error
+	List(ctx context.Context, v Viewer, s SessionID) ([]*Pin, error)
+	Delete(ctx context.Context, v Viewer, s SessionID, id int64) error
+}
+
+type RunRepo interface {
+	Create(ctx context.Context, r *Run) error // runs_one_active index => ErrConflict
+	Update(ctx context.Context, r *Run) error
+	Get(ctx context.Context, v Viewer, id RunID) (*Run, error)
+	List(ctx context.Context, v Viewer, f RunFilter) ([]*Run, error)
+	MarkInterrupted(ctx context.Context, now time.Time) ([]*Run, error) // boot: queued|running|waiting_approval -> interrupted; returns the rows changed
+	Parked(ctx context.Context) ([]*Run, error)
+	AddLLMCall(ctx context.Context, run RunID, p PrincipalID, u UserID, c CallInfo) error
+	LLMCalls(ctx context.Context, v Viewer, run RunID) ([]CallInfo, error)
+	AddToolCall(ctx context.Context, tc *ToolCallRecord) error
+	UpdateToolCall(ctx context.Context, tc *ToolCallRecord) error
+	ToolCalls(ctx context.Context, v Viewer, run RunID) ([]*ToolCallRecord, error)
+}
+
+type ApprovalRepo interface {
+	Create(ctx context.Context, a *Approval) error
+	Get(ctx context.Context, v Viewer, id ApprovalID) (*Approval, error)
+	// Decide is a CAS: it updates only when status is one of from. Returns false
+	// when another resolver won.
+	Decide(ctx context.Context, id ApprovalID, from []ApprovalStatus, to ApprovalStatus, c Choice, by UserID, via string, at time.Time) (bool, error)
+	Park(ctx context.Context, id ApprovalID, until time.Time) error
+	Pending(ctx context.Context, v Viewer) ([]*Approval, error)
+	Recent(ctx context.Context, v Viewer, p Page) ([]*Approval, error) // not pending/parked, newest first; Before = created_at ms
+	Due(ctx context.Context, now time.Time) ([]*Approval, error)       // pending past expires_at, parked past park_until
+	ByRun(ctx context.Context, run RunID) ([]*Approval, error)
+	// Seen reports whether an allowed approval of this principal targeted the
+	// recipient (Action.Recipient) or host (Action.Host); used by the policy
+	// first-contact step. Empty arguments never match.
+	Seen(ctx context.Context, p PrincipalID, recipient, host string) (bool, error)
+	AddMessage(ctx context.Context, id ApprovalID, m CardMessage) error
+	Messages(ctx context.Context, id ApprovalID) ([]CardMessage, error)
+}
+
+type GrantRepo interface {
+	Add(ctx context.Context, g *Grant) error
+	// Active returns unexpired, unrevoked grants for the principal that apply to
+	// the session and/or schedule (plus principal-scoped grants).
+	Active(ctx context.Context, p PrincipalID, s SessionID, sch ScheduleID, now time.Time) ([]*Grant, error)
+	Use(ctx context.Context, id GrantID) error
+	List(ctx context.Context, v Viewer, scope GrantScope, scopeID string) ([]*Grant, error)
+	Revoke(ctx context.Context, v Viewer, id GrantID, at time.Time) error
+}
+
+type ScheduleRepo interface {
+	Upsert(ctx context.Context, s *Schedule) error
+	Get(ctx context.Context, v Viewer, id ScheduleID) (*Schedule, error)
+	List(ctx context.Context, v Viewer) ([]*Schedule, error)
+	Delete(ctx context.Context, v Viewer, id ScheduleID) error
+	NextDue(ctx context.Context) (*Schedule, error) // enabled, min next_run_at; ErrNotFound when none
+	SetRun(ctx context.Context, id ScheduleID, last, next time.Time, status RunStatus, failures int, enabled bool) error
+}
+
+type UsageRepo interface {
+	AddSpend(ctx context.Context, u UserID, day string, c CallInfo) error // spend_daily UPSERT
+	Spend(ctx context.Context, u UserID, day string) (Micros, error)      // u == "" => global total
+	Report(ctx context.Context, q UsageQuery) ([]UsageRow, error)         // aggregates llm_calls
+}
+
+type AuditRepo interface {
+	// Append is called only by the audit writer, which computes the chain.
+	Append(ctx context.Context, e *AuditEntry, prevHash, hash []byte) (int64, error)
+	Head(ctx context.Context) (id int64, hash []byte, err error)
+	Range(ctx context.Context, fromID, toID int64, fn func(e *AuditEntry, prevHash, hash []byte) error) error
+	Query(ctx context.Context, f AuditFilter) ([]*AuditEntry, error)
+}
+
+type EgressRepo interface {
+	Add(ctx context.Context, rs []EgressRecord) error // batched by the egress module
+	// Query returns rows of the Viewer's principals (s "" = all of them), plus
+	// system-dialer rows (principal_id "") when v.Admin. Before = id.
+	Query(ctx context.Context, v Viewer, s SessionID, p Page) ([]*EgressRecord, error)
+	Prune(ctx context.Context, before time.Time) (int64, error)
+}
+
+type MCPRepo interface {
+	UpsertPin(ctx context.Context, p *MCPPin) (MCPPinStatus, error) // unseen hash => pending; same as approved => approved
+	ApprovePins(ctx context.Context, server string, approve map[string]MCPPin, by UserID, at time.Time) error
+	Pins(ctx context.Context, server string) ([]*MCPPin, error) // latest per tool
+	Approved(ctx context.Context, server string) (map[string]*MCPPin, error)
+	DisableTool(ctx context.Context, server, tool string) error
+	PutInstall(ctx context.Context, in *MCPInstall) error
+	Install(ctx context.Context, server string) (*MCPInstall, error) // current ready (or latest) install
+}
+
+type SkillRepo interface {
+	Upsert(ctx context.Context, s *SkillMeta) error
+	Get(ctx context.Context, name string) (*SkillMeta, error)
+	List(ctx context.Context) ([]*SkillMeta, error)
+	Delete(ctx context.Context, name string) error
+}
+
+type MemoryEventRepo interface {
+	Add(ctx context.Context, e *MemoryEvent) (int64, error)
+	Since(ctx context.Context, p PrincipalID, afterID int64) ([]*MemoryEvent, error)
+	List(ctx context.Context, v Viewer, p PrincipalID, f MemoryFile, page Page) ([]*MemoryEvent, error)
+}
+
+type VaultRepo interface {
+	ActiveKey(ctx context.Context) (id int64, wrapped, check []byte, source string, err error) // ErrNotFound on first boot
+	PutKey(ctx context.Context, wrapped, check []byte, source string) (int64, error)           // deactivates the previous key
+	PutSecret(ctx context.Context, sc Scope, name string, keyID int64, version int, nonce, ct []byte, hint string, by UserID) error
+	GetSecret(ctx context.Context, sc Scope, name string) (keyID int64, version int, nonce, ct []byte, err error)
+	DeleteSecret(ctx context.Context, sc Scope, name string) error
+	ListSecrets(ctx context.Context, sc Scope) ([]SecretMeta, error)
+	TouchSecret(ctx context.Context, sc Scope, name string, at time.Time) error
+	// Rewrap runs fn for every secret in one transaction (KEK/DEK rotation).
+	Rewrap(ctx context.Context, fn func(sc Scope, name string, keyID int64, version int, nonce, ct []byte) (newKeyID int64, newNonce, newCT []byte, err error)) error
+}
+
+type UploadRepo interface {
+	Create(ctx context.Context, u *Upload) error
+	Get(ctx context.Context, v Viewer, id string) (*Upload, error)
+}
+
+type DedupRepo interface {
+	Seen(ctx context.Context, channel, msgID string, at time.Time) (bool, error) // insert-or-report
+	Prune(ctx context.Context, before time.Time) (int64, error)
+}
+
+type Store interface {
+	Meta() MetaRepo
+	Users() UserRepo
+	Principals() PrincipalRepo
+	Spaces() SpaceRepo
+	Identities() IdentityRepo
+	Pairings() PairingRepo
+	AuthSessions() AuthSessionRepo
+	Tokens() TokenRepo
+	Sessions() SessionRepo
+	Messages() MessageRepo
+	Pins() PinRepo
+	Runs() RunRepo
+	Approvals() ApprovalRepo
+	Grants() GrantRepo
+	Schedules() ScheduleRepo
+	Usage() UsageRepo
+	Audit() AuditRepo
+	Egress() EgressRepo
+	MCP() MCPRepo
+	Skills() SkillRepo
+	MemoryEvents() MemoryEventRepo
+	Vault() VaultRepo
+	Dedup() DedupRepo
+	Uploads() UploadRepo
+	// Tx runs fn on the single writer connection inside BEGIN IMMEDIATE.
+	Tx(ctx context.Context, fn func(Store) error) error
+	// Backup writes <dir>/bothy-<UTC yyyymmddThhmmss>.tar (0600) holding a
+	// VACUUM INTO snapshot of the DB plus memory/**, SOUL.md, bothy.yaml and
+	// bothy.ui.yaml from the DB's directory. It never includes the KEK (/keys)
+	// or workspaces. Returns the path. Restore = stop, untar into /data.
+	Backup(ctx context.Context, dir string) (string, error)
+	SQLiteVersion() string
+	Close() error
+}
+```
+
+### 4.9 `vault.go`: secrets, vault, redactor
+
+```go
+package core
+
+import "context"
+
+// Scope is "global" or "user:<id>". Spaces have no vault scope.
+type Scope string
+
+const GlobalScope Scope = "global"
+
+func UserScope(u UserID) Scope { return Scope("user:" + string(u)) }
+
+// Secret never prints its value through fmt, JSON or slog.
+type Secret struct{ v []byte }
+
+func NewSecret(b []byte) Secret               { return Secret{v: b} }
+func (s Secret) Reveal() string               { return string(s.v) }
+func (s Secret) Bytes() []byte                { return s.v }
+func (s Secret) IsZero() bool                 { return len(s.v) == 0 }
+func (s Secret) String() string               { return "[redacted]" }
+func (s Secret) GoString() string             { return "[redacted]" }
+func (s Secret) MarshalJSON() ([]byte, error) { return []byte(`"[redacted]"`), nil }
+
+type VaultStatus struct {
+	Sealed    bool   `json:"sealed"`     // passphrase KEK not yet entered
+	KEKSource string `json:"kek_source"` // docker_secret | systemd | file | passphrase | env | autogen
+	KEKID     string `json:"kek_id"`     // sha256(kek)[:8] hex
+	Colocated bool   `json:"colocated"`  // KEK file on the same volume as the DB
+	Secrets   int    `json:"secrets"`
+}
+
+// Redactor masks exact secret values (and their base64, base64url, hex and
+// percent-encoded forms, for values >= 8 bytes) plus token patterns: sk-…,
+// sk-ant-…, xox[abpr]-…, xapp-…, ghp_/gho_/github_pat_…, AIza…, JWTs,
+// bothy_pat_…. Applied to logs, audit detail, tool results, channel output,
+// SSE payloads and model input.
+type Redactor interface {
+	Redact(s string) string
+	RedactBytes(b []byte) []byte
+	Add(id string, value []byte) // vault plaintexts, setup token, session cookies in flight
+	Remove(id string)
+}
+
+type Vault interface {
+	Put(ctx context.Context, sc Scope, name string, value []byte, by UserID) (SecretMeta, error)
+	// Get resolves BOTHY_SECRET_<NAME> env first, then the given scope; with a user
+	// scope it falls back to global. Every use is audited as secret.use(name, purpose).
+	Get(ctx context.Context, sc Scope, name, purpose string) (Secret, error)
+	// Resolve handles config references "secret:<name>" (user scope, then global;
+	// u == "" => global only, used for providers, channels, search and space
+	// principals). A ref embedded in a header value ("Bearer secret:x") resolves
+	// to the whole header with the ref substituted. Plain strings are rejected
+	// for secret-typed fields.
+	Resolve(ctx context.Context, ref string, u UserID, purpose string) (Secret, error)
+	Delete(ctx context.Context, sc Scope, name string, by UserID) error
+	List(ctx context.Context, sc Scope) ([]SecretMeta, error) // names, source, hint; never values
+	Unseal(ctx context.Context, passphrase []byte) error
+	RotateKEK(ctx context.Context, by UserID) error
+	Status() VaultStatus
+	Redactor() Redactor
+}
+```
+
+### 4.10 `events.go`: the event bus and payloads
+
+```go
+package core
+
+import "time"
+
+type EventType string
+
+const (
+	EvRunQueued         EventType = "run.queued"
+	EvRunStarted        EventType = "run.started"
+	EvRunStatus         EventType = "run.status"
+	EvRunDelta          EventType = "run.delta"    // coalesced by the runner to <= 20/s per run
+	EvRunThinking       EventType = "run.thinking" // coalesced like run.delta
+	EvToolCall          EventType = "run.tool_call"
+	EvToolOutput        EventType = "run.tool_output" // <= 8KB chunk, <= 10/s per call
+	EvToolResult        EventType = "run.tool_result"
+	EvRunUsage          EventType = "run.usage"
+	EvRunParked         EventType = "run.parked"
+	EvRunFinished       EventType = "run.finished"
+	EvApprovalRequested EventType = "approval.requested"
+	EvApprovalResolved  EventType = "approval.resolved"
+	EvMessageCreated    EventType = "message.created"
+	EvSessionUpdated    EventType = "session.updated"
+	EvMemoryUpdated     EventType = "memory.updated"
+	EvEgressBlocked     EventType = "egress.blocked"
+	EvScheduleRun       EventType = "schedule.run"
+	EvBudgetWarning     EventType = "budget.warning"
+	EvPairingLinked     EventType = "pairing.linked"
+	EvChannelStatus     EventType = "channel.status"  // admin broadcast
+	EvSandboxStatus     EventType = "sandbox.status"  // admin broadcast
+	EvMCPPinPending     EventType = "mcp.pin_pending" // admin broadcast
+	EvConfigChanged     EventType = "config.changed"  // admin broadcast
+	EvBanner            EventType = "banner"          // admin broadcast or per principal
+)
+
+// EventData is implemented only by the payload types below; each EventType has
+// exactly one payload type (see the table in SPEC §8.2).
+type EventData interface{ eventData() }
+
+type Event struct {
+	Seq       uint64      `json:"seq"`
+	Type      EventType   `json:"type"`
+	Principal PrincipalID `json:"principal_id,omitempty"` // "" = admin broadcast
+	Session   SessionID   `json:"session_id,omitempty"`
+	Run       RunID       `json:"run_id,omitempty"`
+	At        time.Time   `json:"at"`
+	Data      EventData   `json:"data"`
+}
+
+type RunQueuedData struct {
+	Position int `json:"position"`
+}
+type RunStartedData struct {
+	Trigger Trigger `json:"trigger"`
+	Model   string  `json:"model"`
+}
+type RunStatusData struct {
+	Status string `json:"status"` // thinking | tool | waiting_approval | compacting | queued
+	Detail string `json:"detail,omitempty"`
+}
+type DeltaData struct {
+	Text string `json:"text"`
+}
+type ToolCallData struct {
+	CallID  string  `json:"call_id"` // tcl_<26>
+	Tool    string  `json:"tool"`
+	Title   string  `json:"title"`
+	Action  *Action `json:"action"`
+	Verdict Verdict `json:"verdict"`
+	Rule    string  `json:"rule"`
+}
+type ToolOutputData struct {
+	CallID string `json:"call_id"`
+	Stream int    `json:"stream"` // 1 stdout, 2 stderr
+	Chunk  string `json:"chunk"`  // redacted
+}
+type ToolResultData struct {
+	CallID    string         `json:"call_id"`
+	Status    ToolCallStatus `json:"status"`
+	Preview   string         `json:"preview"` // <= 2KB, redacted
+	Bytes     int            `json:"bytes"`
+	Ms        int64          `json:"ms"`
+	Truncated bool           `json:"truncated"`
+	Untrusted bool           `json:"untrusted"`
+}
+type UsageData struct {
+	Call     CallInfo `json:"call"`
+	RunCost  Micros   `json:"run_cost_micros"`
+	DayCost  Micros   `json:"day_cost_micros"`
+	DayLimit Micros   `json:"day_limit_micros"`
+}
+type RunParkedData struct {
+	Approval ApprovalID `json:"approval_id"`
+}
+type RunFinishedData struct {
+	Status RunStatus `json:"status"`
+	Error  string    `json:"error,omitempty"`
+	Steps  int       `json:"steps"`
+	Usage  Usage     `json:"usage"`
+	Cost   Micros    `json:"cost_micros"`
+}
+type ApprovalData struct {
+	Approval *Approval `json:"approval"`
+}
+type ApprovalResolvedData struct {
+	Approval ApprovalID     `json:"approval_id"`
+	Status   ApprovalStatus `json:"status"`
+	Choice   Choice         `json:"choice,omitempty"`
+	By       UserID         `json:"by,omitempty"`
+	Via      string         `json:"via"`
+}
+type MessageData struct {
+	Message *Message `json:"message"`
+}
+type SessionData struct {
+	Title string `json:"title"`
+	Taint Taint  `json:"taint"`
+	Epoch int    `json:"epoch"`
+}
+type MemoryData struct {
+	File    MemoryFile `json:"file"`
+	EventID int64      `json:"event_id"`
+}
+type EgressBlockedData struct {
+	Host   string `json:"host"`
+	Port   int    `json:"port"`
+	Reason string `json:"reason"`
+}
+type ScheduleRunData struct {
+	Schedule ScheduleID `json:"schedule_id"`
+	Status   RunStatus  `json:"status"`
+}
+type BudgetWarningData struct {
+	User  UserID `json:"user_id"`
+	Spent Micros `json:"spent_micros"`
+	Limit Micros `json:"limit_micros"`
+}
+type PairingLinkedData struct {
+	Channel    string `json:"channel"`
+	ExternalID string `json:"external_id"`
+	Display    string `json:"display"`
+}
+type ChannelStatusData struct {
+	Status ChannelStatus `json:"status"`
+}
+type SandboxStatusData struct {
+	Status SandboxStatus `json:"status"`
+}
+type MCPPinData struct {
+	Server string   `json:"server"`
+	Tools  []string `json:"tools"`
+}
+type ConfigChangedData struct {
+	Paths           []string `json:"paths"`
+	RestartRequired []string `json:"restart_required"`
+}
+type BannerData struct {
+	Level  string `json:"level"` // info | warn | error
+	Code   string `json:"code"`  // no_sandbox | sandbox_not_isolated | config_error | provider_auth | paused | mcp_pins | budget_80 | vault_sealed | safe_mode | restart_required | unknown_sender | skills_changed
+	Text   string `json:"text"`
+	Action string `json:"action,omitempty"` // SPA route, e.g. "/settings/sandbox"
+	Clear  bool   `json:"clear,omitempty"`  // true removes the banner with this Code
+}
+
+func (RunQueuedData) eventData()        {}
+func (RunStartedData) eventData()       {}
+func (RunStatusData) eventData()        {}
+func (DeltaData) eventData()            {}
+func (ToolCallData) eventData()         {}
+func (ToolOutputData) eventData()       {}
+func (ToolResultData) eventData()       {}
+func (UsageData) eventData()            {}
+func (RunParkedData) eventData()        {}
+func (RunFinishedData) eventData()      {}
+func (ApprovalData) eventData()         {}
+func (ApprovalResolvedData) eventData() {}
+func (MessageData) eventData()          {}
+func (SessionData) eventData()          {}
+func (MemoryData) eventData()           {}
+func (EgressBlockedData) eventData()    {}
+func (ScheduleRunData) eventData()      {}
+func (BudgetWarningData) eventData()    {}
+func (PairingLinkedData) eventData()    {}
+func (ChannelStatusData) eventData()    {}
+func (SandboxStatusData) eventData()    {}
+func (MCPPinData) eventData()           {}
+func (ConfigChangedData) eventData()    {}
+func (BannerData) eventData()           {}
+
+type Filter struct {
+	Principals []PrincipalID // events for these principals
+	Admin      bool          // also admin broadcasts (Principal == "")
+	Session    SessionID     // optional narrowing
+	Types      []EventType   // optional narrowing
+	System     bool          // everything (internal subscribers only)
+}
+
+type Subscription interface {
+	C() <-chan Event
+	Dropped() uint64 // > 0 => the consumer fell behind and must resync
+	Close()
+}
+
+type Bus interface {
+	Publish(e Event) Event // assigns Seq and At; never blocks
+	Subscribe(f Filter, buf int) Subscription
+	// Since replays events with Seq > after from the 4096-entry ring.
+	// complete=false means the gap is outside the ring: the client must resync.
+	Since(after uint64, f Filter) (evs []Event, complete bool)
+	BootID() string // random per process; SSE ids are "<boot>-<seq>"
+	// Banners returns the active banner events matching f: the bus keeps the
+	// latest EvBanner per (Principal, Code) and drops it on Clear. dto.Me and the
+	// SSE hello use it, so banners survive page reloads.
+	Banners(f Filter) []Event
+}
+```
+
+### 4.11 `budget.go`: limits, meters, loop detection
+
+```go
+package core
+
+import (
+	"context"
+	"time"
+)
+
+type RunLimits struct {
+	MaxSteps  int           `json:"max_steps"`
+	MaxTokens int           `json:"max_tokens"` // cumulative input+output across the run
+	MaxTime   time.Duration `json:"max_time"`   // wall clock, approval waits excluded
+	MaxCost   Micros        `json:"max_cost_micros"`
+}
+
+type BudgetKind string
+
+const (
+	BudgetSteps     BudgetKind = "steps"
+	BudgetTokens    BudgetKind = "tokens"
+	BudgetTime      BudgetKind = "time"
+	BudgetRunCost   BudgetKind = "run_cost"
+	BudgetDailyCost BudgetKind = "daily_cost"
+	BudgetRate      BudgetKind = "rate"
+)
+
+type BudgetError struct {
+	Kind  BudgetKind
+	Limit int64
+	Used  int64
+}
+
+func (e *BudgetError) Error() string { return "budget exceeded: " + string(e.Kind) }
+
+type LoopVerdict uint8
+
+const (
+	LoopOK LoopVerdict = iota
+	LoopWarn
+	LoopAbort
+)
+
+type RunTotals struct {
+	Steps     int           `json:"steps"`
+	ToolCalls int           `json:"tool_calls"`
+	Usage     Usage         `json:"usage"`
+	Cost      Micros        `json:"cost_micros"`
+	Active    time.Duration `json:"active"`
+}
+
+type RunMeter interface {
+	Step() error // *BudgetError
+	// BeforeCall projects estInput + m.MaxOutput against run tokens, run cost and
+	// the user's and global daily caps. Unknown prices skip $ checks only.
+	BeforeCall(ctx context.Context, estInput int, m ModelInfo) error
+	// AfterCall records spend_daily and run totals; emits budget.warning at 80%.
+	AfterCall(ctx context.Context, c CallInfo) error
+	ObserveTool(tool string, argsHash, resultHash uint64) LoopVerdict
+	ObserveText(hash uint64) LoopVerdict // identical assistant text 3 steps in a row => abort
+	Pause()                              // approval wait: wall clock stops
+	Resume()
+	Deadline() time.Time
+	Totals() RunTotals
+	Remaining() RunLimits
+}
+
+type Budget interface {
+	StartRun(run RunID, u UserID, l RunLimits) RunMeter
+	// CheckDaily fails with *BudgetError(daily_cost) when the user's or global cap
+	// is exhausted; used before accepting a run.
+	CheckDaily(ctx context.Context, u UserID) error
+	// RecordSpend is for calls outside a run (passthrough, probes): it writes the
+	// llm_calls row (run_id NULL, principal = the user's own) and spend_daily.
+	RecordSpend(ctx context.Context, u UserID, c CallInfo) error
+	AllowSender(key string) (ok bool, retryAfter time.Duration) // token bucket, LRU 10k keys
+	Daily(ctx context.Context, u UserID) (spent, limit Micros, err error)
+	DefaultLimits(t Trigger) RunLimits
+}
+```
+
+### 4.12 `auth.go`: actors, tokens, pairing, identities
+
+```go
+package core
+
+import (
+	"context"
+	"time"
+)
+
+// Actor is the authenticated caller of an HTTP request.
+type Actor struct {
+	User    UserID   `json:"user_id"`
+	Role    Role     `json:"role"`
+	Via     string   `json:"via"` // cookie | token
+	TokenID string   `json:"token_id,omitempty"`
+	Scopes  []string `json:"scopes,omitempty"` // token scopes: chat | llm | read | admin; cookies have all of the role
+	CSRF    string   `json:"-"`
+	Viewer  Viewer   `json:"-"`
+	// OnApproval and RatePerMin come from the token (cookie actors: "deny", 0).
+	OnApproval string `json:"-"`
+	RatePerMin int    `json:"-"`
+}
+
+func (a Actor) HasScope(s string) bool {
+	if a.Via == "cookie" {
+		return s != "admin" || a.Role.IsAdmin()
+	}
+	for _, x := range a.Scopes {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+type TokenSpec struct {
+	Name       string        `json:"name"`
+	Scopes     []string      `json:"scopes"`
+	TTL        time.Duration `json:"ttl"`         // default 90 days; 0 rejected
+	OnApproval string        `json:"on_approval"` // deny (default) | wait
+	RatePerMin int           `json:"rate_per_min"`
+}
+
+type PairingCode struct {
+	Code      string            `json:"code"` // 8 Crockford chars shown as XXXX-XXXX
+	ExpiresAt time.Time         `json:"expires_at"`
+	DeepLinks map[string]string `json:"deep_links"` // channel -> URL (Telegram t.me/<bot>?start=<code>)
+}
+
+type IdentityResolution struct {
+	Status    IdentityStatus // "" = unknown sender
+	User      UserID         // linked: the user
+	Role      Role
+	Principal PrincipalID // linked: user principal; guest: guest space principal
+}
+
+type SenderNotice struct {
+	Reply bool        // true at most once per 24h per identity
+	Code  PairingCode // approve_sender code to show to the unknown sender
+}
+
+type Auth interface {
+	NeedsSetup(ctx context.Context) (bool, error)
+	// EnsureSetupToken creates the one-time token when no owner exists; written to
+	// <data>/setup-token (0600) and printed once in the boot banner.
+	EnsureSetupToken(ctx context.Context) (plain string, created bool, err error)
+	RotateSetupToken(ctx context.Context) (string, error)
+	ClaimSetup(ctx context.Context, token string) (grantCookie string, err error) // constant-time; 30 min grant
+	CreateOwner(ctx context.Context, grantCookie, username, password, timezone string) (cookie string, a Actor, err error)
+	CompleteSetup(ctx context.Context, a Actor) error // deletes token file; setup routes then 404
+
+	Login(ctx context.Context, username, password, ip string) (cookie string, a Actor, err error)
+	FromCookie(ctx context.Context, cookie string) (Actor, error)
+	FromBearer(ctx context.Context, token string) (Actor, error)
+	Logout(ctx context.Context, cookie string) error
+	ViewerFor(ctx context.Context, u UserID) (Viewer, error) // own principal + owned spaces; Admin = role is owner/admin
+
+	// Passwords (CreateOwner, CreateUser, SetPassword, ResetPassword) must be at
+	// least auth.password_min_length and not in the embedded list of 10k common
+	// passwords (internal/auth, server-side only) => ErrInvalid with a message.
+	CreateUser(ctx context.Context, by Actor, username, password, displayName string, role Role) (*User, error)
+	UpdateUser(ctx context.Context, by Actor, u *User) error // role/disabled/display name; disabling revokes sessions and tokens
+	SetPassword(ctx context.Context, u UserID, old, new string) error
+	// ResetPassword is for the offline CLI (`bothy user reset-password`): no old
+	// password, revokes the user's sessions, audited auth.password_changed.
+	ResetPassword(ctx context.Context, u UserID, new string) error
+	CreateToken(ctx context.Context, by Actor, spec TokenSpec) (plain string, rec *TokenRecord, err error)
+	RevokeToken(ctx context.Context, by Actor, id string) error
+
+	NewPairingCode(ctx context.Context, by Actor) (PairingCode, error) // link_identity for by.User
+	// RedeemPairing handles "/pair CODE" and "/start CODE" from a chat.
+	RedeemPairing(ctx context.Context, ident ChannelIdentity, code string) (*ChannelIdentity, error)
+	// SenderNotice records an unknown DM sender and returns whether to reply.
+	SenderNotice(ctx context.Context, ident ChannelIdentity) (SenderNotice, error)
+	// ApproveSender redeems an approve_sender code typed into the web UI by an
+	// admin: as "guest" (creates a guest space) or "link" (to linkUser).
+	ApproveSender(ctx context.Context, by Actor, code, as string, linkUser UserID) (*ChannelIdentity, error)
+	ResolveIdentity(ctx context.Context, channel, externalID string) (IdentityResolution, error)
+}
+```
+
+### 4.13 `agent.go`: the runner
+
+```go
+package core
+
+import (
+	"context"
+	"time"
+)
+
+// RunSink receives a run's events in order (channel streamer, OpenAI SSE
+// writer). OnEvent must not block for long; the runner drops nothing but the
+// sink must buffer.
+type RunSink interface{ OnEvent(e Event) }
+
+type RunRequest struct {
+	Session    SessionID
+	Principal  PrincipalID
+	User       UserID // the acting/billing user
+	Trigger    Trigger
+	Schedule   ScheduleID
+	Slot       Slot   // "" = the session's ModelSlot (schedules and /v1 bothy-fast set it)
+	Input      []Part // attachments arrive as image/file parts whose Blob is already in the workspace
+	Provenance Provenance
+	Sender     string
+	Chat       *ChatRef // originating chat (message tool target, card routing)
+	Sink       RunSink  // may be nil (web runs use the bus)
+	Limits     *RunLimits
+	// Instructions are /v1 client "system" messages, rendered as untrusted
+	// "client instructions" inside the turn-context; never part of S1/S2.
+	Instructions string
+	// API runs: OnApproval "deny" (default) or "wait" (up to ApprovalWait).
+	OnApproval   string
+	ApprovalWait time.Duration
+	// Ephemeral carries client history for stateless /v1 requests. It is
+	// appended to the hidden api session before Input.
+	Ephemeral []Message
+	MaxOutput int // /v1 max_tokens cap per step; 0 = model default
+}
+
+type SubmitResult struct {
+	Run     RunID `json:"run_id,omitempty"`
+	Queued  bool  `json:"queued"`  // waiting for the session's active run
+	Steered bool  `json:"steered"` // injected into the active run at the next step
+}
+
+type RunInfo struct {
+	Run       RunID       `json:"run_id"`
+	Session   SessionID   `json:"session_id"`
+	Principal PrincipalID `json:"principal_id"`
+	Status    RunStatus   `json:"status"`
+	Started   time.Time   `json:"started_at"`
+	Queued    int         `json:"queued"`
+}
+
+type Runner interface {
+	// Submit returns ErrBusy when the session mailbox is full and ErrPaused when
+	// the kill switch is engaged.
+	Submit(ctx context.Context, r RunRequest) (SubmitResult, error)
+	// Stop cancels the active run, SIGKILLs the session box, cancels its pending
+	// approvals and clears its queue. It never waits on the run goroutine.
+	Stop(ctx context.Context, v Viewer, s SessionID, by UserID) (bool, error)
+	StopAll(ctx context.Context, by UserID) (int, error)
+	SetPaused(ctx context.Context, paused bool, by UserID) error // persisted in meta.paused
+	Paused() bool
+	// Resume continues a parked run after its approval resolved: allowed =>
+	// execute the stored Action exactly once and continue the loop; denied =>
+	// record the denial and continue the loop; expired/cancelled => run stopped
+	// with a notice. It is a no-op when the approval's run is not parked.
+	Resume(ctx context.Context, a *Approval) error
+	Active() []RunInfo
+	ResolveSession(ctx context.Context, p PrincipalID, chat ChatRef) (*Session, error) // open session by ChatRef.Key()
+	NewSession(ctx context.Context, p PrincipalID, origin string, chat *ChatRef) (*Session, error)
+	// Fork creates the clean fork of §5.3: no history, taint 0, a system note
+	// linking the old session. For a channel session it archives the old one and
+	// moves the channel key to the fork, so the chat continues in the fork.
+	Fork(ctx context.Context, v Viewer, s SessionID, by UserID) (*Session, error)
+	Compact(ctx context.Context, v Viewer, s SessionID) error
+	ContextPreview(ctx context.Context, v Viewer, s SessionID) (*Breakdown, error)
+	Continue(ctx context.Context, v Viewer, run RunID, by UserID) (SubmitResult, error) // "+10 steps" after a steps budget stop
+	Constitution() (version, text string)                                               // embedded CONSTITUTION.md (full variant) for GET /api/constitution
+}
+```
+
+### 4.14 `services.go`: memory, skills, MCP, scheduler, audit, doctor
+
+```go
+package core
+
+import (
+	"context"
+	"io"
+	"time"
+)
+
+// ---- memory ----
+
+type MemoryOp struct {
+	File MemoryFile `json:"file"`
+	Op   string     `json:"op"`            // add | replace | remove
+	Old  string     `json:"old,omitempty"` // exact existing entry text (replace/remove)
+	New  string     `json:"new,omitempty"`
+}
+
+type MemorySnapshot struct {
+	Memory  string `json:"memory"`
+	User    string `json:"user"`
+	LastID  int64  `json:"last_id"` // last memory_events id folded in
+	Private bool   `json:"private"` // non-empty => session starts with TaintPrivate
+}
+
+// Memory files live in <data>/memory/<principal>/{MEMORY,USER,HEARTBEAT}.md.
+// Caps: memory.memory_max_bytes, user_max_bytes, heartbeat_max_bytes. Space
+// principals have no memory: Snapshot returns an empty snapshot and
+// Apply/Read/Write/History return ErrForbidden for them.
+type Memory interface {
+	ToolProvider // memory, session_search
+	Snapshot(ctx context.Context, p PrincipalID) (MemorySnapshot, error)
+	// Apply enforces byte caps (error text tells the model the remaining bytes),
+	// writes atomically (temp+rename, 0600), records memory_events, audits.
+	Apply(ctx context.Context, p PrincipalID, run RunID, op MemoryOp, prov Provenance) (*MemoryEvent, error)
+	Read(ctx context.Context, v Viewer, p PrincipalID, f MemoryFile) (content, etag string, err error)
+	Write(ctx context.Context, v Viewer, p PrincipalID, f MemoryFile, content, etag string, by UserID) (string, error) // ErrConflict on etag mismatch
+	DeltasSince(ctx context.Context, p PrincipalID, afterID int64) (text string, lastID int64, err error)
+	History(ctx context.Context, v Viewer, p PrincipalID, f MemoryFile, page Page) ([]*MemoryEvent, error)
+	Search(ctx context.Context, v Viewer, query string, limit int) ([]SearchHit, error)
+}
+
+// ---- skills ----
+
+type Skills interface {
+	ToolProvider                           // skill_load, skill_read
+	Index(ctx context.Context) []SkillMeta // enabled and hash-matching only, by name
+	Load(ctx context.Context, name string) (body string, files []string, err error)
+	ReadFile(ctx context.Context, name, rel string) ([]byte, error) // os.Root confined, 256KB cap
+	List(ctx context.Context) ([]*SkillMeta, error)                 // all, for admins
+	SetEnabled(ctx context.Context, name string, on bool, by UserID) error
+	Install(ctx context.Context, zip io.ReaderAt, size int64, by UserID) (*SkillMeta, error) // status pending; never executes anything
+	Remove(ctx context.Context, name string, by UserID) error
+	Rescan(ctx context.Context) error // hash drift => status changed
+}
+
+// ---- MCP ----
+
+type MCPStatus struct {
+	Name      string    `json:"name"`
+	Transport string    `json:"transport"` // stdio | http
+	State     string    `json:"state"`     // disabled | installing | connecting | ready | error | no_sandbox | pins_pending
+	Protocol  string    `json:"protocol"`  // negotiated spec revision
+	Err       string    `json:"error,omitempty"`
+	Tools     int       `json:"tools"`
+	Pending   int       `json:"pending"`
+	Since     time.Time `json:"since"`
+}
+
+type MCPToolApproval struct {
+	SideEffect SideEffect        `json:"side_effect"`
+	FieldMap   map[string]string `json:"field_map,omitempty"`
+	Private    bool              `json:"private"`
+	Disable    bool              `json:"disable,omitempty"` // true => pin status disabled (MCPRepo.DisableTool); other fields ignored
+}
+
+type MCP interface {
+	Start(ctx context.Context) error // connects enabled servers; registers approved, hash-matching tools
+	Status() []MCPStatus
+	Pins(ctx context.Context, server string) ([]*MCPPin, error) // latest definition per tool incl. pending diffs
+	Approve(ctx context.Context, server string, tools map[string]MCPToolApproval, by UserID) error
+	Install(ctx context.Context, server string, by UserID) error // stdio only, installer box
+	Reload(ctx context.Context, server string) error
+	Close() error
+}
+
+// ---- scheduler ----
+
+type Scheduler interface {
+	ToolProvider // schedule_list, schedule_create, schedule_delete (Triggers: message only)
+	// Run fires due schedules and keeps one heartbeat schedule (name
+	// "heartbeat", kind heartbeat, created_by "system") for the owner's principal
+	// in sync with scheduler.heartbeat (hot reload enables/disables it).
+	Run(ctx context.Context) error
+	Upsert(ctx context.Context, v Viewer, s *Schedule, by string) error // validates spec+tz, computes NextRunAt, wakes loop
+	Delete(ctx context.Context, v Viewer, id ScheduleID, by UserID) error
+	RunNow(ctx context.Context, v Viewer, id ScheduleID, by UserID) (RunID, error)
+	Preview(kind ScheduleKind, spec, tz string, n int) ([]time.Time, error)
+	SetPaused(paused bool)
+}
+
+// ---- audit ----
+
+type Auditor interface {
+	// Record redacts Detail, chains sha256(prev_hash || canonical row) and appends.
+	// auth.*, config.*, approval.* and secret.* are written synchronously; others
+	// are batched (flush <= 250ms) and flushed on shutdown.
+	Record(ctx context.Context, e AuditEntry) error
+	Verify(ctx context.Context) (badID int64, err error) // 0 = chain intact
+	Flush(ctx context.Context) error
+}
+
+// ---- doctor ----
+
+type Severity string
+
+const (
+	SevInfo     Severity = "info"
+	SevLow      Severity = "low"
+	SevMedium   Severity = "medium"
+	SevHigh     Severity = "high"
+	SevCritical Severity = "critical"
+)
+
+type Finding struct {
+	ID       string   `json:"id"` // stable: "vault.kek_colocated", "sandbox.unavailable"
+	Area     string   `json:"area"`
+	Title    string   `json:"title"`
+	Detail   string   `json:"detail"`
+	Fix      string   `json:"fix,omitempty"` // copyable command or UI route
+	Severity Severity `json:"severity"`
+	Security bool     `json:"security"` // included in security-audit
+	AutoFix  bool     `json:"auto_fix"`
+}
+
+type Check interface {
+	ID() string
+	Run(ctx context.Context) []Finding
+	Fix(ctx context.Context, f Finding) error // ErrNotImplemented when !AutoFix
+}
+
+type CheckProvider interface{ Checks() []Check }
+```
+
+---
+
+## 5. Agent run lifecycle
+
+### 5.1 Inbound from a chat channel (router, M9)
+
+1. **Adapter → `Hub.OnMessage`.** Adapters normalise platform updates into `core.Inbound` and never block (256-slot buffer per adapter; overflow drops and counts a metric).
+2. **Dedup:** `Store.Dedup().Seen(channel, msgID)`; repeats are dropped (Telegram redelivery, Slack retries).
+3. **Identity:** `Identities().Touch`, then `Auth.ResolveIdentity(channel, senderID)`:
+   - `blocked` → drop silently.
+   - unknown, in a DM → if text is `/pair CODE` or `/start CODE`: `Auth.RedeemPairing` (link_identity; Auth publishes `pairing.linked`, also for `ApproveSender` links), reply "Linked to <user>", then send the hello DM. Otherwise, with `channels.unknown_senders: pair`, call `Auth.SenderNotice`; when `Reply` is true (at most once per 24 h), reply *"I'm a private assistant. Ask my owner to approve code 7KQ2-MX4D."* and notify admins (web banner + preferred DM card with links to Settings → People). **No LLM call is ever made for an unknown sender.** With `ignore`, drop silently.
+   - unknown, in a group → ignored unless the group is an enabled space (below).
+4. **Rate limit:** `Budget.AllowSender(channel+":"+senderID)` (10/min, burst 5). Over the limit: drop; one "slow down" reply per window.
+5. **Command fast path** (before any queue, authorised against the session principal's user or an admin):
+
+| Command | Effect |
+|---|---|
+| `/stop` | `Runner.Stop` for this chat's session (§5.11). Reply "Stopped." |
+| `/stopall` | admins only: kill switch on (`Runner.SetPaused(true)` + `StopAll`) |
+| `/resume` | admins only: kill switch off |
+| `/new` | archive the chat's session; next message starts a fresh one |
+| `/status` | active run, queue length, today's spend vs cap, sandbox status |
+| `/pin <text>`, `/pins`, `/unpin <n>` | manage session pins |
+| `/compact` | `Runner.Compact` |
+| `/model <provider/model>`, `/model` | set or clear the session model override (stored as-is; the runner rejects an unknown ref at the next run with a notice and clears it) |
+| `/usage` | today's and this session's cost |
+| `/help` | list commands |
+| `/pair CODE`, `/start CODE` | pairing (step 3) |
+
+   There is no `/approve CODE` command: approvals happen only through card buttons or the web UI.
+6. **Button presses → `Hub.OnAction`.** Data `a:<approval>:<o|s|d>:<mac>` → `Approvals.ParseButtonData` (MAC check) → `Approvals.Resolve` with `ViaMsg` = the pressed message, `By` = the presser's linked user. Resolve rejects presses from unrecorded messages, from non-approvers, and approve presses on truncated cards. The adapter `Ack`s within 3 s with a toast ("Approved", "Not allowed", "Open in web to approve"). Data `s:<run>` → Stop, authorized exactly like `/stop`.
+7. **Principal and gating:**
+   - DM from a linked identity → the user's own principal.
+   - DM from a `guest` identity → that guest's space principal.
+   - Group message → the chat must be an **enabled space** (`Spaces().ByChat`); otherwise ignored (first sighting creates a disabled space row, owned by the linked user who added the bot when the platform reports it (Telegram `my_chat_member.from`, Slack inviter, Discord guild owner) and otherwise by the instance owner, and notifies that owner: "Bothy was added to <title>; enable it?"). With `mention_only` (default), the message must mention or reply to the bot. Senders that are not linked users are `ProvUntrusted`; the space owner's own messages are `ProvUser`.
+8. **Session:** `Runner.ResolveSession(principal, chat)` keyed by `ChatRef.Key()` (one open session per chat or thread per principal). If `agent.session_idle_reset` (default 0 = never) has elapsed since the last message, the old session is archived first.
+9. **Attachments:** the hub fetches each attachment with `Channel.Fetch` (≤ `server.upload_max_mb`, default 20 MB; larger ones are skipped with a note) into `<work>/ws/<workspace>/.bothy/in/<msgid>/<name>` (0660, name sanitized) and passes `Part{Type: image|file, Blob{Ref, MIME, Size}}`.
+10. **Submit:** `Runner.Submit(RunRequest{… Sink: Hub.StreamTo(chat,"stream")})`.
+
+Web (`POST /api/sessions/{id}/messages`) and API (`/v1/chat/completions`) skip steps 1–8 with an authenticated actor; web uploads are already in the workspace (`POST /api/uploads`).
+
+### 5.2 Principals and spaces
+
+| Principal | Created | Memory | Vault | Tools | Approvals go to | Billing |
+|---|---|---|---|---|---|---|
+| user (`usr_…`) | with the user | MEMORY/USER/HEARTBEAT files | `user:<id>` then `global` | all available | the user (admin for admin-class) | the user |
+| space, kind `group` | first sighting of a group chat (disabled until an admin enables it) | none | none | `restricted` (default): `SpaceOK && SideEffect == read` only; `standard` (admin opt-in): normal policy | the owner's preferred DM, never the group | the owner |
+| space, kind `guest` | `Auth.ApproveSender(as="guest")` | none | none | as above | the owner's DM | the owner |
+
+`SpaceOK` read tools are `fs_read`, `fs_list`, `web_search`, `web_fetch`, `skill_load`, `skill_read`, `tool_search`, `use_tool`; restricted spaces have no `memory`, `session_search`, `fs_write`, `shell`, `python`, MCP or `schedule_*` tools; their workspace is their own (`ws_…` per principal). A run started by a `ProvUntrusted` message in a `standard` space asks the owner for every action above `read` (floor F6).
+
+### 5.3 Taint and the trifecta state machine
+
+`sessions.taint` is a bitmask (`core.Taint`), monotonic within a session (only a clean fork resets it):
+
+| Leg | Set when |
+|---|---|
+| `TaintPrivate` | session snapshot includes non-empty MEMORY/USER (`MemorySnapshot.Private`); a tool with `Manifest.Taint` ⊇ Private runs (`fs_read`, `session_search`, MCP tools approved as `private`) |
+| `TaintUntrusted` | a `ProvUntrusted` message enters the session; a tool with Taint ⊇ Untrusted runs (`web_fetch`, `web_search`, MCP tools unless `trusted_output`); an exec whose box moved bytes through the proxy (`Egress.TakeActivity`); a `session_search` hit with `Trusted=false` |
+| `TaintSend` | the run's toolset contains any `external_send` capability or the box has any egress grant (informational, for the UI badge) |
+
+`Taint.Exposed()` (Private and Untrusted) triggers the **trifecta floor**: every `external_send` or `irreversible` action asks (no "allow for session" offered), session/principal egress grants are suspended at the proxy, `web_fetch` follows the URL-provenance rule, links in agent output are neutralized, and the UI badge turns red with a "Fork clean" button (`POST /api/sessions/{id}/fork` → `Runner.Fork`: a new session with no history, a system note linking the old one, taint 0; a channel session's chat moves to the fork).
+
+`Policy.NextTaint` is pure and is applied by the runner after every tool result and inbound message; changes publish `session.updated`.
+
+### 5.4 Submit, session workers, busy handling, semaphores
+
+- **Worker per session:** created lazily, exits after 5 minutes idle, mailbox `agent.queue_depth` (8). Full → `ErrBusy` ("Busy. Send /stop to interrupt.").
+- **Idle coalescing:** a DM message to an idle session waits `agent.coalesce_window` (1.2 s) for more messages; all are merged into one turn.
+- **Busy, `agent.busy_mode: steer`** (default): the message is persisted immediately as `KindSteer` (with its own turn-context) and injected at the next step boundary, before the next LLM call. The chat gets one short reply per run, "Got it, adding that to the current task." If the run is `waiting_approval`, the reply is "Waiting for your approval above; I'll read this after." and the steer is held until resolution.
+- **Busy, `queue`:** messages wait and are coalesced into one user turn when the run ends.
+- **Semaphores:** global `agent.max_concurrent_runs` (4) and per-user `agent.max_runs_per_user` (2). They gate **LLM streaming and tool execution only**. A run **releases both while `waiting_approval` or `parked`** and re-acquires them (per-user first, then global, so a user at their limit never holds a global slot) before continuing. Queued runs publish `run.queued{position}` and channels show "Queued (1 ahead)".
+- **Kill switch:** when `Runner.Paused()`, Submit returns `ErrPaused` ("Bothy is paused by an admin.").
+- **Daily cap:** `Budget.CheckDaily(user)` before creating a run; exhausted → system notice with reset time, no run row.
+
+### 5.5 The run loop
+
+1. **Start.** Insert `runs` (status `queued` until both semaphores are held, then `running`; `limits` snapshot: interactive or scheduled defaults, overridden by schedule or request). `Budget.StartRun`. Publish `run.started`. The hub's `StreamTo` sink (not the runner) renews the typing indicator every 4 s while `run.status` is `thinking` and sends a placeholder ("Thinking…" with a Stop button) at the first delta or after 1.5 s.
+2. **Persist the user turn.** Input parts + one `PartContext` part (§5.6 turn-context), provenance from the request. Attachments are already `Blob` parts in the workspace (hub or `POST /api/uploads`); the runner only loads `Blob.Data` before each provider call. URLs in `ProvUser` text are recorded with `Sessions().AddURLs(…, "user")` (URL provenance, F8). Before the first tool call the runner creates `<work>/ws/<id>/` and `.bothy/{in,out,tmp}` (2770, group 10001) so `fs_*` tools work with every sandbox backend.
+3. **Assemble** the request for the head of the slot's chain (§5.6). If the estimate exceeds `trigger × window − reserve` (or a price tier threshold), compact first (§5.10).
+4. **Pre-call checks:** `RunMeter.Step()`, then `BeforeCall(estimate, model)` (run tokens, run $, user and global daily $ with projection).
+5. **Stream:** `LLM.Complete(slot, override, build, on)`. Text deltas are coalesced (50 ms) into `run.delta` on the bus and forwarded to the `Sink`; thinking deltas go to the UI only (`agent.show_thinking`). Tool-call deltas are assembled by the provider client.
+6. **Persist the assistant message** (text, thinking + signature parts, tool calls). `RunRepo.AddLLMCall(CallInfo)` (with breakdown and `prefix_hash`), `RunMeter.AfterCall` (spend_daily, 80% warning), `LLM.Calibrate`. Publish `run.usage`. A `prefix_hash` change between two calls of the same session and epoch is logged as a cache-stability bug.
+7. **No tool calls** → step 10.
+8. **Tool calls** → §5.7 for each, in model order. Consecutive calls that are all `read`, all auto-allowed and not exec run in parallel (≤ `agent.parallel_read_tools`, 4); everything else is sequential.
+9. **Loop:** drain steer messages into history, re-check budgets, go to 3. The tools block and system blocks never change mid-epoch.
+10. **Finish:** final status (`done`, `stopped`, `failed`, `budget_exceeded`, `loop_detected`). Update run totals. Publish `run.finished`. The sink finalizes (last edit, overflow split, Stop button removed, optional usage footer "· 3 steps · 12.4K tok · $0.006"). Budget stops add a notice; a steps stop offers **Continue** (`Runner.Continue`: new run, same session, +10 steps). First run of a session generates a title asynchronously (fast slot, ≤ 300 tokens, metered).
+11. **Drain** the queue (busy mode `queue`) and release the worker.
+
+### 5.6 Context assembly (cache-stable layout)
+
+```
+[tools]   core tool specs from ToolRegistry.ForRun, sorted, frozen per epoch       ← breakpoint 1 (ToolsCache)
+[S1]      CONSTITUTION.md (embedded, versioned) + admin standing rules
+[S2]      persona (SOUL.md) · facts (principal display name, kind, timezone, channel,
+          sandbox available, model window, profile) · USER.md · MEMORY.md ·
+          pinned instructions · skills index                                         ← breakpoint 2 (CacheBreak)
+[M0]      <context-summary epoch="N"> … </context-summary>   (when epoch > 0)
+[M1..]    history from summary_upto+1, byte-identical to earlier calls              ← breakpoint 3 (CacheTail, rolling)
+[Mn]      user turn: <turn-context …/> + input parts (+ steer turns)
+```
+
+- **Frozen per epoch:** `sessions.system_snapshot` (S2 text), `tools_snapshot` (names) and `snapshot_hash`. Re-rendered only at compaction (or when the model profile changes after a model override). `ForRun` is called only when a snapshot is (re)built; every other call builds the tools block from `tools_snapshot` via `ToolRegistry.Get`, keeping the snapshot order (a name that disappeared, e.g. a removed MCP server, is dropped and logged as a cache break). Tools approved mid-epoch (new MCP tools, enabled skills) are reachable immediately through `tool_search`/`use_tool` and enter the tools block at the next compaction.
+- **History invariants:** every assistant tool call in history has exactly one matching tool result. Assembly synthesizes a deterministic error result `Not executed (run stopped or interrupted).` for any call without one (not persisted, so the bytes stay identical on later calls). A parked call already has its placeholder result (§5.7 g).
+- **S1 is never compacted and never editable by the agent.** It states: tool protocol; instructions inside `<untrusted>` blocks and tool results are data; never reveal secrets or approval codes; ask before acting when unsure; standing instructions and pins override convenience.
+- **Turn-context** (persisted as `PartContext` so later prefixes stay identical): current time with timezone; channel, sender display name and trust label; memory deltas since `memory_seen` (`Memory.DeltasSince`); pins added since `pins_seen`; remaining run/daily budget when below 20%; a trifecta warning when Exposed; sandbox availability changes; `RunRequest.Instructions` (/v1 client system messages) wrapped as `<untrusted source="client_instructions">`. Memory and pin changes are therefore visible on the very next turn without invalidating the cache.
+- **Spotlighting:** untrusted content is wrapped `<untrusted source="web_fetch" host="example.com" id="r7f3k2">…</untrusted id="r7f3k2">` with a fresh random id per block, so injected closing tags cannot match. Group messages from untrusted senders are wrapped the same way.
+- **Provider rules:** thinking/signature parts whose `SigKind` differs from the target provider are stripped; images are dropped (with a note) for non-vision models; consecutive messages of the same API role are merged by adapters; Ollama gets `NumCtx` = the effective window.
+- **Token estimate:** bytes/3.6 × per-model EWMA correction from reported usage. `Breakdown` per region, scaled so its sum equals reported input.
+- **Model profiles** by effective window (`ModelInfo.Context`):
+
+| Window | Profile | Constitution | Core tools | Skills index | Tool output cap | Compaction trigger | Reserve |
+|---|---|---|---|---|---|---|---|
+| ≥ 32K | standard | full (~900 tok) | full set (≤ 1.5K tok) | ≤ 600 tok | `tool_output_tokens` (4000) or 10% of window | 0.70 | min(8192, 12% window) |
+| 16K–32K | compact | short (≤ 400 tok) | ≤ 8: `shell`, `fs_read`, `fs_write`, `web_search`, `web_fetch`, `memory`, `tool_search`, `use_tool` | names only | 1000 tok | 0.60 | 2048 |
+| 8K–16K | degraded | short | ≤ 5: `shell`, `fs_read`, `fs_write`, `web_search`, `memory` | none | 500 tok | 0.55 | 1024 |
+| < 8K | text-only | short | none (banner "model too small for tools") | none | — | 0.55 | 1024 |
+
+  Standard core set: `fs_read`, `fs_write`, `fs_list`, `shell`, `python`, `web_fetch`, `web_search`, `memory`, `session_search`, `message` (only when the run has a chat), `skill_load` (when any skill is enabled), `tool_search`, `use_tool`. Always lazy (reached via `tool_search`/`use_tool`): `fs_delete`, `net_allow`, `skill_read`, `schedule_*`, every MCP tool unless config pins it. Tools filtered out by sandbox state, trigger, role or principal kind are absent from both.
+
+  Acceptance: a 16K model's assembled prompt never exceeds window − reserve (§12, M3).
+
+### 5.7 Tool call pipeline
+
+For each tool call:
+
+a. **Resolve** the tool in this run (`ToolRegistry.Available`). `use_tool{name,args}` is never planned or executed itself: the runner unwraps it here and every later step (validation, Plan, policy, `tool_calls.tool`, audit) uses the target tool and its args. `tool_search{query}` is an ordinary `read` tool (Action kind `search`) whose Exec calls `Registry.Search(query, env, env.Selection, 8)` and returns name, description and schema per hit. Unknown or unavailable → error result *"Unknown tool X. Use tool_search."* (counts as a step; `tool_calls.status=invalid`).
+b. **Validate** args against the JSON Schema (`google/jsonschema-go`, already a go-sdk dependency). Invalid → error result with the schema error.
+c. **Plan** → `Action` (pure). Plan error → error result. Insert `tool_calls` (status `planned`), publish `run.tool_call`.
+d. **Loop check:** `RunMeter.ObserveTool(tool, fnv64(canonical payload), 0)` pre-check (§5.13).
+e. **Decide:** `Policy.Decide(PolicyInput)` (§5.8).
+f. **Deny** → result *"Denied by policy (<rule>): <reason>"*; audit `tool.denied`.
+g. **Ask** → `Approvals.Request` (card rendered from the Action, §5.9). Run status `waiting_approval`, `RunMeter.Pause()`, **release semaphores**, `Approvals.Await`:
+   - `allow_once` → continue.
+   - `allow_session` → `Policy.NarrowGrant(action, principal, session)` + `Policy.Grant`, continue.
+   - `allow_always` → `Policy.NarrowGrant(action, principal, GrantPrincipal, "")` + `Policy.Grant`, continue. The grant is listed and revocable under Settings → Grants and audited as `grant.create` with `via: card`.
+   - `deny` → result *"The user denied this action."*
+   - timeout with `deny` → result *"Approval expired (denied)."*; the card is updated to "Expired".
+   - timeout with `park` → approval `parked` (park_until = now + `park_ttl`, 24 h), run `parked`, `run.parked` published, worker released, user told "Parked. Approve any time in the next 24 h." At park time the runner persists a placeholder tool result for the call (*"Parked: waiting for approval of <card title>. It has not run."*) so the session history stays valid for providers while other runs use the session. When resolved, `Approvals.OnResolved` → `Runner.Resume(approval)`: the **same run** goes back to `running` in the session worker (published as `run.started` with trigger `resume`; `runs.trigger` keeps its original value), re-reads the persisted Action and executes it exactly once (allowed) or records the denial. The outcome is appended as a user-role message with provenance `system`: `<approved-action tool="…" call="…">` + result (spotlight-wrapped when untrusted), or the denial text; then the loop continues. Events go to the bus and to a new sink: `Hub.StreamTo(schedule.Deliver or PreferredChat, "final")` for scheduled/heartbeat runs, `Hub.StreamTo(session.Chat, "stream")` for channel sessions, the bus only for web. If the session has another active run, the resume is queued behind it. Unanswered parked approvals expire → run `stopped` with notice.
+   - API runs (`OnApproval: deny`, default) never wait: result *"Requires approval, unavailable via API."* With `wait`, they wait up to `api_wait` (120 s) and then deny; they never park.
+   - Re-acquire semaphores, `RunMeter.Resume()`.
+h. **Execute** with a per-tool timeout context (`Manifest.Timeout`, default 120 s; exec tools use `sandbox.exec_timeout`). Before an exec, the runner calls `Sandbox.Ensure` (lazily) and `Egress.Bind(boxKey, {run, callID, user, role, trigger, schedule, interactive, chat, context})`. `tool.output` chunks (≤ 8 KB, ≤ 10/s, tail kept) are published for shell.
+i. **Post-process:** `Redactor.Redact`; truncate to the profile cap as head 60% + tail 40% with `[… N bytes elided; full output at .bothy/out/<tcl>.txt]` (full redacted output written to the workspace, `FullRef`); `Untrusted` from manifest taint or box activity; `Policy.NextTaint` → persist if changed. Persist the tool-result message, finalize `tool_calls`, publish `run.tool_result`, `RunMeter.ObserveTool(…, resultHash)`, audit `tool.exec` (tool, fingerprint, verdict, status; never content).
+
+### 5.8 Policy decision procedure (M4)
+
+`Decide` evaluates in this order and stops at the first verdict. **F = floor** (cannot be overridden by rules or grants).
+
+| Step | Check | Verdict |
+|---|---|---|
+| F1 | Tool not available for this trigger, role, principal kind, sandbox state or kill switch | deny |
+| F2 | `SideEffect == financial` | deny, unless a config rule sets financial → ask (admin); never auto |
+| F3 | `SideEffect == admin` (self-modification: schedules, config, skills, MCP, policy, auth) | ask, `AdminOnly` approver, no allow_session; **deny** for `schedule`, `heartbeat`, `api` triggers |
+| F4 | Restricted space principal and `SideEffect > read` | deny |
+| F5 | Session Exposed and `SideEffect ∈ {external_send, irreversible}` | ask, no allow_session; exception: an `AllowWhenTainted` recipient grant matching `Action.Recipient` exactly → auto |
+| F6 | Run started by a `ProvUntrusted` message and `SideEffect ≥ local_write` | ask (owner) |
+| F7 | `Kind == memory` and session has `TaintUntrusted` | ask (`memory.tainted_writes: ask`) or deny (`deny`) |
+| F8 | `web_fetch` in an Exposed session for a URL not in `session_urls` (from search results or user messages) | ask |
+| F9 | `net_allow` | ask (never auto, never via rules); allow_session grants exactly `host:port` |
+| R | Config `policy.rules`, first match (tool glob, argv0, domains, paths, JSON-pointer `match`, side effect, triggers) | rule verdict (rules can make things stricter or auto, but not past floors) |
+| G | Active grants for (principal, session, schedule) whose kind/tool/pattern/value match the Action and `MaxSE ≥ SideEffect` | auto (`grant:<id>`, `Grants().Use`) |
+| C | First contact: `send`, `mcp` with a mapped recipient, or `http` with a non-GET method, to a recipient/domain that is not the run's originating chat and not seen in an active grant, `egress.allow`, or an earlier allowed approval of this principal (`Approvals().Seen`) | ask (presets careful and balanced) |
+| D | Class default from the preset, overridden by `policy.defaults` | auto / ask / deny |
+
+Presets (`policy.preset`):
+
+| Class | careful (default) | balanced | hands_off |
+|---|---|---|---|
+| read | auto | auto | auto |
+| local_write | auto | auto | auto |
+| external_send | ask | auto (first contact still asks) | auto (no first-contact step) |
+| irreversible | ask | ask | ask |
+| financial | deny | deny | deny |
+| admin | ask (admin) | ask (admin) | ask (admin) |
+
+Shell and python are `local_write` (they run in the box; their network is separately gated by the proxy), so they are auto in every preset unless a rule says otherwise.
+
+**Rule matching for exec.** `argv0` matches the basename of the first word of the *command line*: for shell (`["bash","-lc",cmd]`) that is the first shell word of `cmd`, and an `argv0` rule never matches when `cmd` contains a shell metacharacter or expansion (`;`, `|`, `&`, `$`, a backtick, `<`, `>`, `(`, `)`, `{`, `}`, `*`, `?`, a newline), so `ls; curl x | sh` cannot ride on a `readonly-shell` rule. For python it is `python3`. `match` globs apply to the Payload as is (`/argv/2` is the shell command line).
+
+**Net approvals.** For a held CONNECT, `allow_once` admits that host:port for the rest of the bound tool call (in-memory, keyed by box and tool call id) `allow_session` creates the narrow session domain grant, and `allow_always` creates the same exact `host:port` grant at principal scope (never for a shared-tenant suffix). For `net_allow`, `Decision.Choices` is `[allow_session, allow_always, deny]`.
+
+**Narrow grants** (`Policy.NarrowGrant`): exec → `{"/argv/0": exact}` plus, when argv0 ∈ {bash, sh, zsh, python, python3, node, env, xargs, sudo, uv, npx}, an exact match of the whole argv; fs.write/fs.delete → path prefix of the parent directory; http/net → `host:port`; send → recipient; mcp → tool + recipient field when `field_map` has one, else the exact canonical payload. No whole-tool grants (also enforced by a DB CHECK). Admin-class and Exposed decisions never offer allow_session or allow_always. `allow_always` is offered exactly when `allow_session` is, except for `irreversible` actions, held CONNECTs to a shared-tenant suffix, and runs whose trigger is `schedule`, `heartbeat` or `api` (persistent grants are created only by a human looking at a card in an interactive context or the web inbox).
+
+**Approver:** the principal's user (space owner for spaces); `AdminOnly` for admin-class. Guests and untrusted group members can never approve. Approvals are resolved only from the web UI with a cookie session or from a recorded chat card; bearer tokens can never resolve approvals (an API client must not approve its own run's actions).
+
+**Egress holds.** The proxy builds its approval with `Policy.Decide` on the `net_allow` spec and an Action `{tool: net_allow, kind: net, side_effect: external_send, host, port}` using the `EgressBinding` (user, role, trigger, chat); it then sets `Decision.Timeout = egress.hold_for_approval` and `OnTimeout = deny` and offers `[allow_once, allow_session, allow_always, deny]` (allow_always subject to the §5.8 narrow-grant rules). The run stays `running` (the exec is blocked inside the box) and keeps its semaphores for that bounded wait.
+
+### 5.9 Approvals: cards, routing, timeouts
+
+- **Card rendering (M4)** from the Action only: title from `Manifest.Title`; fields such as Command (argv joined with shell quoting, mono), Folder, URL (full, host shown as punycode and bolded), Recipient (system-resolved label), MCP server/tool with pretty-printed args, Network; `Diff` (unified, ≤ 64 KB, web shows all, chat shows ≤ 3 KB); Warnings (trifecta, first contact, untrusted origin); Context line; Choices; Expires; WebURL. Bidi controls and zero-width characters are rendered visibly (`⟨U+202E⟩`). Model prose never appears; any model rationale is shown in the web UI only, collapsed under "Model's reason (unverified)".
+- **Routing (M9):** the hub subscribes to `approval.requested` and delivers the card:
+  - origin is a DM of the approver → that DM;
+  - origin is a group or space → the approver's preferred DM (`PreferredChat`), plus a short "Waiting for owner approval" line in the group;
+  - origin is web, API or a schedule → the approver's preferred DM plus `policy.approval.notify` channels;
+  - `AdminOnly` approvals: the owner's preferred DM (the owner is always an admin) instead of the principal's user;
+  - always the web inbox (SSE; `AdminOnly` approvals reach every admin through the admin-broadcast copy).
+  Each delivered message is recorded with `Approvals.AddMessageRef(id, ref, truncated)`. A card that does not fit the channel (MaxLen or button limits) is sent **truncated**: Deny button + "Open in web to approve" link button only. `Card.WebURL` is `server.public_url + /approvals/<id>`; with no `public_url` it is empty, the link button is omitted and the text says "Open Bothy's web UI → Approvals" (platforms reject loopback URLs in buttons).
+- **Button data:** `a:<approval id>:<o|s|a|d>:<mac>` (a = allow_always), ≤ 64 bytes; MAC = HMAC-SHA256(meta `approval_mac_key`, id|choice) truncated to 8 base32 chars. Agent output and the `message` tool can never carry buttons. Approval ids and MACs never enter model context.
+- **Resolve** is a CAS (`ApprovalRepo.Decide` from pending|parked). Double resolves → exactly one wins; the loser gets "Already decided". All delivered cards are edited to the outcome.
+- **Timeouts** (`policy.approval`): interactive `15m` → `deny`; scheduled/heartbeat `2m` → `park` (`park_ttl` 24 h); API per token. The expiry sweeper (`policy.Approvals.Run`, every 30 s) handles due approvals after restarts. At boot the runner calls `Approvals.CancelRun` for every run it marked `interrupted` (their pending approvals become `cancelled`, cards edited); parked approvals survive.
+
+### 5.10 Compaction
+
+Triggered when the pre-call estimate crosses the profile trigger, on a `context_length` provider error (then retried once), after a run that ends above 60% of the window, or by `/compact`.
+
+1. Choose the split: keep the last `keep_recent_turns` (4) user turns; never separate a tool call from its result; pinned items are not history (they live in S2).
+2. Elide tool results older than the kept turns to `[elided 12KB → .bothy/out/x.txt]` before summarizing.
+3. Summarize messages `summary_upto+1 … split` with the **fast** slot (fallback main) into ≤ `summary_max_tokens` (1200) with exactly these headings: `## Goals`, `## Decisions`, `## Facts`, `## Open tasks`, `## Standing instructions`, `## Files`.
+4. **Validate:** all headings present, and every user sentence matched by the standing-instruction detector (imperatives such as "don't … until", "never", "always", "from now on", "stop …ing", "only … if") appears verbatim under Standing instructions. On failure, retry once with the missing quotes listed.
+5. **Auto-pin** (when `auto_pin`): detected standing instructions that are not already pins become pins (`source=auto`) and a notice is posted: *"I'll keep following: 'don't act until I say'. /pins to manage."*
+6. **Fallback** if the summarizer fails twice: drop the oldest non-pinned turns until the budget fits, insert a notice *"Older context was dropped because summarizing failed."* (after auto-pinning detected instructions). The run never fails because of compaction, including on 16K models.
+7. **New epoch:** `epoch++`, `summary`, `summary_upto`, refresh memory snapshot (`memory_seen`), merge pins (`pins_seen`), re-render S2 and the tools block for the current registry and profile (lazy tools used at least twice in the previous epoch are promoted into the block, within the profile's cap), update `snapshot_hash`, publish `session.updated`. Old messages stay in the DB and FTS.
+8. Cost is metered on the run with `purpose=compaction`.
+
+S1 is outside compaction by construction; session taint and policy state live in the DB.
+
+### 5.11 `/stop` and the kill switch
+
+`Runner.Stop(session)` runs on the caller's goroutine and never waits on the worker, the LLM or a semaphore:
+1. cancel the run context with cause `ErrStopped` (the provider stream aborts; tools see `ctx.Done()`);
+2. `Sandbox.Kill(boxKey)` (§2.7);
+3. `Approvals.CancelRun(run)` (cards edited to "Cancelled");
+4. in-flight MCP calls get `notifications/cancelled`;
+5. clear the session mailbox; mark the run `stopped` (`stopped_by`), audit `run.stop`, reply "Stopped. 3 steps, $0.004".
+If the run goroutine has not exited after 5 s it is abandoned (sink detached, later emits ignored). Targets: cancel path p99 < 100 ms; processes gone < 1 s.
+
+Kill switch: `/stopall` or `POST /api/admin/pause {paused:true}` → `Runner.SetPaused(true)` + `StopAll` (every active run stopped, every session box killed), `meta.paused=1` (survives restart), banner `paused`. The scheduler fires nothing while `Runner.Paused()`; new runs get `ErrPaused`; read-only HTTP keeps working. Only admins disengage it (`/resume` or the API).
+
+### 5.12 Budgets
+
+| Limit | Interactive | Scheduled | Enforcement |
+|---|---|---|---|
+| steps / run | 25 | 15 | `Step()` before each LLM call |
+| tokens / run (input+output) | 400K | 150K | `BeforeCall` projection |
+| wall time / run (approval waits excluded) | 10 min | 15 min | run deadline |
+| $ / run | none | $0.25 | `BeforeCall` projection |
+| $ / day | global $5.00; members $2.00; per-user overrides | same | `CheckDaily` + projection; 80% warning |
+| heartbeat $ / day | — | $0.25 | scheduler precheck; skip when exhausted |
+| sender rate | 10/min, burst 5 | — | hub |
+| API token rate | `rate_per_min` (30) | — | middleware |
+
+Unknown prices skip $ checks but not token checks, and the UI marks costs "price unknown". Local models cost $0. On a trip: run status `budget_exceeded`, a system notice naming the budget and the settings page, audit `budget.exceeded`.
+
+- **Per-user cap:** `per_user_daily_usd[username]` if set; else `member_daily_usd` for role `member` (multi mode); owners and admins have no per-user cap and are bounded by the global `daily_usd` only. The global cap is the sum over all users (`UsageRepo.Spend(u="")`).
+- **Heartbeat cap:** before firing a heartbeat schedule the scheduler sums today's cost of runs of that schedule (`UsageRepo.Report{GroupBy: schedule}`, which joins `llm_calls` to `runs`) and skips the tick when ≥ `heartbeat_daily_usd`.
+- **Calls outside runs** (passthrough, probes): `Budget.RecordSpend` writes the `llm_calls` row (`run_id` NULL) and `spend_daily`. Inside runs the runner writes `llm_calls` (`RunRepo.AddLLMCall`) and `RunMeter.AfterCall` writes `spend_daily`.
+- **API token rate** (`rate_per_min`) is a token bucket local to `httpapi` keyed by token id (burst = max(1, rate/6)); `Budget.AllowSender` is only for chat senders.
+
+### 5.13 Loop detection
+
+Ring of the last 16 `(tool, fnv64(args), fnv64(result))`:
+- same `(tool,args)` 3× → `LoopWarn`: a note is appended to the tool result *"You repeated an identical call 3 times; change approach or answer the user."*
+- same `(tool,args)` 5×, same `(tool,args,result)` 3×, A-B-A-B over 8 entries, 5 consecutive tool errors, or identical assistant text in 3 consecutive steps → `LoopAbort`, status `loop_detected`, notice with a Retry hint.
+
+### 5.14 Provider fallback (M2)
+
+- Chain from `models.<slot>` (or the session/request override as a single-element chain followed by the slot chain).
+- Per candidate, **before the first streamed event**: retryable errors (429, 408, 5xx, network, overloaded) retry once on the same candidate after `250ms·2^n ±20%` jitter, honouring `Retry-After` up to 20 s; then the next candidate. `auth` errors mark the provider `auth_failed` (banner `provider_auth`, once) and move on. `context_length` returns to the runner (compaction then one retry). `invalid_request` fails the step.
+- Circuit breaker: 3 consecutive failures skip the provider for 60 s.
+- Candidates without tool support are skipped when the request has tools.
+- **Never switch after the first event:** partial text is kept, the step fails with *"Model error mid-reply."* and a Retry hint.
+- `build(ModelInfo)` is called per candidate so context is re-fitted to its window and capabilities.
+- Every attempt goes into `CallInfo.Attempts`; providers never retry internally.
+
+### 5.15 Concurrency and recovery
+
+- One active run per session (worker), plus the DB guard `runs_one_active`.
+- Goroutine bound: active session workers (idle-reaped) + adapters (≤ 2 each) + scheduler (1) + audit writer (1) + approval sweeper (1) + egress log flusher (1) + sandbox watcher (1) + SSE connections (≤ 4 per user).
+- Boot (`agent.Runner.Run`): `RunRepo.MarkInterrupted` turns `queued`/`running`/`waiting_approval` into `interrupted` and returns those runs; for each, `Approvals.CancelRun` and, for channel sessions, a notice through the hub's `Messenger` (the runner gets the hub via `SetHub` after construction, §12.1): *"I was restarted mid-task. Send 'retry' to continue."*; `parked` runs stay parked; pending approvals past expiry are expired by the sweeper; boxes are reconciled (`GET /v1/boxes`, orphans destroyed).
+- Shutdown: stop intake, give runs 10 s to reach a step boundary, mark the rest `interrupted`, flush audit, close the DB.
+
+### 5.16 Scheduled and heartbeat runs (M8 + M3)
+
+- A schedule run uses the schedule's target session (`Schedule.Session`, a running conversation) or, when that is empty, a **fresh session per run** (`Runner.NewSession(principal, "schedule", nil)`, title "<schedule name> · <local date>"), so independent runs never accumulate history and each run has its own transcript. Busy target → queued; full queue → run recorded `skipped`. The run's input is the schedule prompt with provenance `user` (heartbeat: §below).
+- Limits = schedule limits (defaults `budgets.scheduled`). Pre-authorized grants (`scope=schedule`) apply. `schedule_*` tools are absent (`Manifest.Triggers = [message]`), and F3 denies all admin-class actions: cron cannot create cron.
+- Approvals park (§5.9). Delivery: `Hub.StreamTo(deliver or PreferredChat, "final")`.
+- Heartbeat (`scheduler.heartbeat`, off by default): one schedule of kind `heartbeat` for the owner's principal, kept in sync by the scheduler (`every` ± 10% jitter, `active_hours`, `deliver`: `preferred` = PreferredChat, `web`, or a channel name = the owner's DM there), fast slot. Memory files are not in the workspace, so the scheduler inlines the file: the prompt is *"Here is HEARTBEAT.md. If nothing needs the user's attention, reply exactly HEARTBEAT_OK."* followed by the content of `HEARTBEAT.md` (`Memory.Read`, `SystemViewer`). An empty or whitespace-only HEARTBEAT.md skips the tick with no LLM call. Delivery is suppressed when the final text starts with `HEARTBEAT_OK`; capped by `heartbeat_daily_usd` (§5.12). Members may create their own `heartbeat`-kind schedules in the Schedules UI.
+- Missed runs at boot: `missed_run: skip` (default) records nothing; `once` fires one catch-up run if missed by < 1 h. Three consecutive failures auto-disable the schedule and notify the owner.
+
+---
+
+## 6. SQLite schema (`internal/store/migrations/0001_init.sql`)
+
+**Open (skeleton-implemented in `store.Open`, then owned by M1):**
+- Driver `modernc.org/sqlite`; file `<data>/bothy.db`, created 0600; `-wal`/`-shm` 0600.
+- Pragmas on every connection: `journal_mode=WAL`, `synchronous=NORMAL`, `foreign_keys=ON`, `busy_timeout=5000`, `cache_size=-2048`, `mmap_size=0`, `temp_store=MEMORY`, `trusted_schema=OFF`, `cell_size_check=ON`; `SQLITE_DBCONFIG_DEFENSIVE` via the DSN parameter `_defensive=1` (modernc ≥ v1.57.0 applies it right after open, before the pragmas). Pragmas go in `_pragma=` DSN parameters so every pooled connection gets them.
+- One writer connection (`BEGIN IMMEDIATE` for `Tx`) and two read-only reader connections (`query_only=1`).
+- `SELECT sqlite_version()` must be ≥ 3.53.4, else refuse to start with a clear error.
+- Migrator: `PRAGMA user_version` holds the applied version; embedded `migrations/NNNN_*.sql` applied in order, each in one transaction. When any migration is pending and the DB is non-empty, first `VACUUM INTO <data>/backups/pre-<ver>-<ts>.db` (0600), keeping the newest `storage.backups_keep` (3).
+- Only the lead adds migrations (`0002_*.sql` onward); the schema is frozen for module agents.
+
+```sql
+-- 0001_init.sql. Times: unix ms INTEGER (0 = unset). Money: micro-USD INTEGER.
+-- JSON: TEXT with json_valid checks. Applied in one transaction; the migrator
+-- sets PRAGMA user_version = 1 afterwards.
+
+CREATE TABLE meta (
+  k TEXT PRIMARY KEY,
+  v TEXT NOT NULL
+) STRICT, WITHOUT ROWID;
+-- keys: install_id (store, first open), setup_token_hash, setup_token_exp, setup_grant_hash,
+--       setup_grant_exp, setup_done (auth), paused (runner), approval_mac_key (policy, first
+--       boot, 32 random bytes hex), constitution_version (runner),
+--       channel.telegram.offset, channel.discord.session, channel.discord.seq (adapters)
+
+CREATE TABLE users (
+  id            TEXT PRIMARY KEY,
+  username      TEXT NOT NULL COLLATE NOCASE UNIQUE,
+  display_name  TEXT NOT NULL DEFAULT '',
+  role          TEXT NOT NULL CHECK (role IN ('owner','admin','member')),
+  pw_hash       TEXT NOT NULL,
+  timezone      TEXT NOT NULL DEFAULT 'UTC',
+  disabled      INTEGER NOT NULL DEFAULT 0 CHECK (disabled IN (0,1)),
+  failed_logins INTEGER NOT NULL DEFAULT 0,
+  locked_until  INTEGER NOT NULL DEFAULT 0,
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL
+) STRICT;
+CREATE UNIQUE INDEX users_one_owner ON users(role) WHERE role = 'owner';
+
+CREATE TABLE principals (
+  id           TEXT PRIMARY KEY,               -- user principals: same string as users.id
+  kind         TEXT NOT NULL CHECK (kind IN ('user','space')),
+  user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,  -- owner for spaces
+  display_name TEXT NOT NULL DEFAULT '',
+  workspace_id TEXT NOT NULL UNIQUE,
+  tool_profile TEXT NOT NULL CHECK (tool_profile IN ('standard','restricted')),  -- no default: users insert 'standard', spaces 'restricted'
+  created_at   INTEGER NOT NULL,
+  CHECK (kind = 'space' OR id = user_id)
+) STRICT;
+CREATE INDEX principals_user ON principals(user_id);
+
+CREATE TABLE spaces (
+  principal_id TEXT PRIMARY KEY REFERENCES principals(id) ON DELETE CASCADE,
+  kind         TEXT NOT NULL CHECK (kind IN ('group','guest')),
+  channel      TEXT NOT NULL,
+  chat_id      TEXT NOT NULL,
+  chat_kind    TEXT NOT NULL CHECK (chat_kind IN ('dm','group')),
+  title        TEXT NOT NULL DEFAULT '',
+  owner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  enabled      INTEGER NOT NULL DEFAULT 0,
+  mention_only INTEGER NOT NULL DEFAULT 1,
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL,
+  UNIQUE (channel, chat_id)
+) STRICT;
+
+CREATE TABLE channel_identities (
+  channel        TEXT NOT NULL,
+  external_id    TEXT NOT NULL,
+  username       TEXT NOT NULL DEFAULT '',
+  display_name   TEXT NOT NULL DEFAULT '',
+  status         TEXT NOT NULL CHECK (status IN ('pending','linked','guest','blocked')),
+  user_id        TEXT REFERENCES users(id) ON DELETE SET NULL,
+  principal_id   TEXT REFERENCES principals(id) ON DELETE SET NULL,
+  dm_chat_id     TEXT NOT NULL DEFAULT '',
+  first_seen_at  INTEGER NOT NULL,
+  last_seen_at   INTEGER NOT NULL,
+  last_notice_at INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (channel, external_id),
+  CHECK (status <> 'linked' OR user_id IS NOT NULL),
+  CHECK (status <> 'guest' OR principal_id IS NOT NULL)
+) STRICT, WITHOUT ROWID;
+CREATE INDEX channel_identities_user ON channel_identities(user_id);
+
+CREATE TABLE pairing_codes (
+  code_hash   BLOB PRIMARY KEY,                -- sha256(normalized code)
+  purpose     TEXT NOT NULL CHECK (purpose IN ('link_identity','approve_sender')),
+  user_id     TEXT REFERENCES users(id) ON DELETE CASCADE,
+  channel     TEXT NOT NULL DEFAULT '',
+  external_id TEXT NOT NULL DEFAULT '',
+  created_by  TEXT NOT NULL DEFAULT '',
+  created_at  INTEGER NOT NULL,
+  expires_at  INTEGER NOT NULL,
+  used_at     INTEGER NOT NULL DEFAULT 0,
+  attempts    INTEGER NOT NULL DEFAULT 0
+) STRICT, WITHOUT ROWID;
+CREATE INDEX pairing_codes_identity ON pairing_codes(channel, external_id) WHERE purpose = 'approve_sender';
+
+CREATE TABLE auth_sessions (
+  id_hash         BLOB PRIMARY KEY,            -- sha256(cookie value)
+  user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  csrf            TEXT NOT NULL,
+  ip              TEXT NOT NULL DEFAULT '',
+  ua              TEXT NOT NULL DEFAULT '',
+  created_at      INTEGER NOT NULL,
+  last_seen_at    INTEGER NOT NULL,
+  idle_expires_at INTEGER NOT NULL,
+  expires_at      INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
+CREATE INDEX auth_sessions_user ON auth_sessions(user_id);
+CREATE INDEX auth_sessions_exp ON auth_sessions(expires_at);
+
+CREATE TABLE api_tokens (
+  id           TEXT PRIMARY KEY,               -- tok_<26>
+  user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,
+  secret_hash  BLOB NOT NULL UNIQUE,           -- sha256(secret); 256-bit secret, no KDF needed
+  scopes       TEXT NOT NULL CHECK (json_valid(scopes)),
+  on_approval  TEXT NOT NULL DEFAULT 'deny' CHECK (on_approval IN ('deny','wait')),
+  rate_per_min INTEGER NOT NULL DEFAULT 30,
+  created_at   INTEGER NOT NULL,
+  last_used_at INTEGER NOT NULL DEFAULT 0,
+  expires_at   INTEGER NOT NULL,
+  revoked_at   INTEGER NOT NULL DEFAULT 0
+) STRICT;
+CREATE INDEX api_tokens_user ON api_tokens(user_id);
+
+CREATE TABLE sessions (
+  id              TEXT PRIMARY KEY,
+  principal_id    TEXT NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
+  origin          TEXT NOT NULL CHECK (origin IN ('web','telegram','discord','slack','api','schedule')),
+  channel_key     TEXT,
+  chat            TEXT CHECK (chat IS NULL OR json_valid(chat)),
+  title           TEXT NOT NULL DEFAULT '',
+  model_slot      TEXT NOT NULL DEFAULT 'main',
+  model_override  TEXT NOT NULL DEFAULT '',
+  system_snapshot TEXT NOT NULL DEFAULT '',
+  tools_snapshot  TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(tools_snapshot)),
+  snapshot_hash   TEXT NOT NULL DEFAULT '',
+  summary         TEXT NOT NULL DEFAULT '',
+  summary_upto    INTEGER NOT NULL DEFAULT 0,
+  epoch           INTEGER NOT NULL DEFAULT 0,
+  memory_seen     INTEGER NOT NULL DEFAULT 0,
+  pins_seen       INTEGER NOT NULL DEFAULT 0,
+  taint           INTEGER NOT NULL DEFAULT 0,
+  hidden          INTEGER NOT NULL DEFAULT 0,
+  archived        INTEGER NOT NULL DEFAULT 0,
+  created_at      INTEGER NOT NULL,
+  updated_at      INTEGER NOT NULL,
+  last_message_at INTEGER NOT NULL DEFAULT 0
+) STRICT;
+CREATE UNIQUE INDEX sessions_channel_key ON sessions(principal_id, channel_key)
+  WHERE channel_key IS NOT NULL AND archived = 0;
+CREATE INDEX sessions_recent ON sessions(principal_id, archived, last_message_at DESC);
+
+CREATE TABLE session_urls (                      -- URL provenance for web_fetch in exposed sessions
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  url_hash   BLOB NOT NULL,                      -- sha256(normalized URL)
+  source     TEXT NOT NULL CHECK (source IN ('search','user')),
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (session_id, url_hash)
+) STRICT, WITHOUT ROWID;
+
+-- INTEGER PRIMARY KEY is required: FTS5 external content keys on it, and the
+-- implicit rowid of a TEXT-PK table can change under VACUUM / VACUUM INTO.
+CREATE TABLE messages (
+  id          INTEGER PRIMARY KEY,
+  session_id  TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  seq         INTEGER NOT NULL,
+  run_id      TEXT,
+  role        TEXT NOT NULL CHECK (role IN ('user','assistant','tool')),
+  kind        TEXT NOT NULL DEFAULT 'normal' CHECK (kind IN ('normal','summary','steer','notice')),
+  provenance  TEXT NOT NULL CHECK (provenance IN ('user','untrusted','tool','system')),
+  sender      TEXT NOT NULL DEFAULT '',
+  parts       TEXT NOT NULL CHECK (json_valid(parts)),
+  text        TEXT NOT NULL DEFAULT '',          -- PlainText() projection for FTS (no tool JSON)
+  tokens      INTEGER NOT NULL DEFAULT 0,
+  created_at  INTEGER NOT NULL,
+  UNIQUE (session_id, seq)
+) STRICT;
+
+CREATE VIRTUAL TABLE messages_fts USING fts5(
+  text, content='messages', content_rowid='id', tokenize='unicode61 remove_diacritics 2'
+);
+CREATE TRIGGER messages_ai AFTER INSERT ON messages BEGIN
+  INSERT INTO messages_fts(rowid, text) VALUES (new.id, new.text);
+END;
+CREATE TRIGGER messages_ad AFTER DELETE ON messages BEGIN
+  INSERT INTO messages_fts(messages_fts, rowid, text) VALUES ('delete', old.id, old.text);
+END;
+CREATE TRIGGER messages_au AFTER UPDATE OF text ON messages BEGIN
+  INSERT INTO messages_fts(messages_fts, rowid, text) VALUES ('delete', old.id, old.text);
+  INSERT INTO messages_fts(rowid, text) VALUES (new.id, new.text);
+END;
+
+CREATE TABLE pins (
+  id         INTEGER PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  text       TEXT NOT NULL CHECK (length(text) <= 2000),
+  source     TEXT NOT NULL CHECK (source IN ('user','auto')),
+  msg_seq    INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+) STRICT;
+CREATE INDEX pins_session ON pins(session_id, id);
+
+CREATE TABLE schedules (
+  id           TEXT PRIMARY KEY,
+  principal_id TEXT NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,
+  kind         TEXT NOT NULL CHECK (kind IN ('cron','heartbeat','once')),
+  spec         TEXT NOT NULL,
+  tz           TEXT NOT NULL DEFAULT 'UTC',
+  active_hours TEXT NOT NULL DEFAULT '',
+  prompt       TEXT NOT NULL,
+  session_id   TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+  deliver      TEXT CHECK (deliver IS NULL OR json_valid(deliver)),
+  model_slot   TEXT NOT NULL DEFAULT 'main',
+  limits       TEXT NOT NULL CHECK (json_valid(limits)),
+  missed_run   TEXT NOT NULL DEFAULT 'skip' CHECK (missed_run IN ('skip','once')),
+  enabled      INTEGER NOT NULL DEFAULT 1,
+  created_by   TEXT NOT NULL,
+  failures     INTEGER NOT NULL DEFAULT 0,
+  next_run_at  INTEGER NOT NULL DEFAULT 0,
+  last_run_at  INTEGER NOT NULL DEFAULT 0,
+  last_status  TEXT NOT NULL DEFAULT '',
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
+) STRICT;
+CREATE INDEX schedules_due ON schedules(next_run_at) WHERE enabled = 1;
+
+CREATE TABLE runs (
+  id                 TEXT PRIMARY KEY,
+  session_id         TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  principal_id       TEXT NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
+  user_id            TEXT NOT NULL,
+  trigger            TEXT NOT NULL CHECK (trigger IN ('message','schedule','heartbeat','api','resume')),
+  schedule_id        TEXT REFERENCES schedules(id) ON DELETE SET NULL,
+  status             TEXT NOT NULL CHECK (status IN ('queued','running','waiting_approval','parked','done',
+                       'stopped','failed','budget_exceeded','loop_detected','interrupted','skipped')),
+  error              TEXT NOT NULL DEFAULT '',
+  steps              INTEGER NOT NULL DEFAULT 0,
+  tool_calls         INTEGER NOT NULL DEFAULT 0,
+  input_tokens       INTEGER NOT NULL DEFAULT 0,
+  output_tokens      INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens  INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  cost_micros        INTEGER NOT NULL DEFAULT 0,
+  models             TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(models)),
+  limits             TEXT NOT NULL CHECK (json_valid(limits)),
+  parked_on          TEXT NOT NULL DEFAULT '',
+  stopped_by         TEXT NOT NULL DEFAULT '',
+  created_at         INTEGER NOT NULL,
+  started_at         INTEGER NOT NULL DEFAULT 0,
+  finished_at        INTEGER NOT NULL DEFAULT 0
+) STRICT;
+CREATE INDEX runs_session ON runs(session_id, created_at DESC);
+CREATE INDEX runs_schedule ON runs(schedule_id, created_at DESC) WHERE schedule_id IS NOT NULL;
+CREATE INDEX runs_principal_time ON runs(principal_id, created_at DESC);
+CREATE INDEX runs_open ON runs(status) WHERE status IN ('queued','running','waiting_approval','parked');
+-- DB guard for "one active run per session" (the in-memory worker is the primary guard).
+CREATE UNIQUE INDEX runs_one_active ON runs(session_id) WHERE status IN ('running','waiting_approval');
+
+CREATE TABLE llm_calls (
+  id                 TEXT PRIMARY KEY,
+  run_id             TEXT REFERENCES runs(id) ON DELETE CASCADE,  -- NULL for passthrough/probe
+  principal_id       TEXT NOT NULL DEFAULT '',
+  user_id            TEXT NOT NULL,
+  step               INTEGER NOT NULL DEFAULT 0,
+  purpose            TEXT NOT NULL CHECK (purpose IN ('agent','compaction','title','heartbeat','probe','passthrough')),
+  provider           TEXT NOT NULL,
+  model              TEXT NOT NULL,
+  slot               TEXT NOT NULL DEFAULT '',
+  attempts           TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(attempts)),
+  input_tokens       INTEGER NOT NULL DEFAULT 0,
+  output_tokens      INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens  INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  reasoning_tokens   INTEGER NOT NULL DEFAULT 0,
+  usage_estimated    INTEGER NOT NULL DEFAULT 0,
+  cost_micros        INTEGER NOT NULL DEFAULT 0,
+  price_known        INTEGER NOT NULL DEFAULT 1,
+  breakdown          TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(breakdown)),
+  prefix_hash        TEXT NOT NULL DEFAULT '',
+  ttft_ms            INTEGER NOT NULL DEFAULT 0,
+  latency_ms         INTEGER NOT NULL DEFAULT 0,
+  stop_reason        TEXT NOT NULL DEFAULT '',
+  error              TEXT NOT NULL DEFAULT '',
+  created_at         INTEGER NOT NULL
+) STRICT;
+CREATE INDEX llm_calls_run ON llm_calls(run_id, step);
+CREATE INDEX llm_calls_user_time ON llm_calls(user_id, created_at);
+
+CREATE TABLE tool_calls (
+  id             TEXT PRIMARY KEY,               -- tcl_<26>
+  run_id         TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  session_id     TEXT NOT NULL,
+  principal_id   TEXT NOT NULL,
+  step           INTEGER NOT NULL,
+  call_id        TEXT NOT NULL,
+  tool           TEXT NOT NULL,
+  source         TEXT NOT NULL,
+  side_effect    TEXT NOT NULL,
+  action         TEXT CHECK (action IS NULL OR json_valid(action)),
+  verdict        TEXT NOT NULL CHECK (verdict IN ('auto','ask','deny','')),
+  rule           TEXT NOT NULL DEFAULT '',
+  approval_id    TEXT NOT NULL DEFAULT '',
+  status         TEXT NOT NULL CHECK (status IN ('planned','waiting','approved','denied','running','ok',
+                   'error','timeout','stopped','invalid')),
+  result_preview TEXT NOT NULL DEFAULT '',
+  result_bytes   INTEGER NOT NULL DEFAULT 0,
+  full_ref       TEXT NOT NULL DEFAULT '',
+  untrusted      INTEGER NOT NULL DEFAULT 0,
+  duration_ms    INTEGER NOT NULL DEFAULT 0,
+  created_at     INTEGER NOT NULL,
+  finished_at    INTEGER NOT NULL DEFAULT 0
+) STRICT;
+CREATE INDEX tool_calls_run ON tool_calls(run_id, step);
+
+CREATE TABLE approvals (
+  id           TEXT PRIMARY KEY,
+  run_id       TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  session_id   TEXT NOT NULL,
+  principal_id TEXT NOT NULL,
+  tool_call_id TEXT NOT NULL,
+  action       TEXT NOT NULL CHECK (json_valid(action)),
+  decision     TEXT NOT NULL CHECK (json_valid(decision)),
+  card         TEXT NOT NULL CHECK (json_valid(card)),
+  approver     TEXT NOT NULL CHECK (json_valid(approver)),
+  chat         TEXT CHECK (chat IS NULL OR json_valid(chat)),
+  status       TEXT NOT NULL CHECK (status IN ('pending','allowed','denied','expired','parked','cancelled')),
+  choice       TEXT NOT NULL DEFAULT '',
+  on_timeout   TEXT NOT NULL CHECK (on_timeout IN ('deny','park')),
+  decided_by   TEXT NOT NULL DEFAULT '',
+  decided_via  TEXT NOT NULL DEFAULT '',
+  created_at   INTEGER NOT NULL,
+  expires_at   INTEGER NOT NULL,
+  park_until   INTEGER NOT NULL DEFAULT 0,
+  decided_at   INTEGER NOT NULL DEFAULT 0
+) STRICT;
+CREATE INDEX approvals_open ON approvals(principal_id, status) WHERE status IN ('pending','parked');
+CREATE INDEX approvals_due ON approvals(expires_at) WHERE status = 'pending';
+CREATE INDEX approvals_run ON approvals(run_id);
+
+CREATE TABLE approval_messages (                 -- chat messages that carry a card; presses must come from these
+  approval_id TEXT NOT NULL REFERENCES approvals(id) ON DELETE CASCADE,
+  channel     TEXT NOT NULL,
+  chat_id     TEXT NOT NULL,
+  thread_id   TEXT NOT NULL DEFAULT '',
+  message_id  TEXT NOT NULL,
+  truncated   INTEGER NOT NULL DEFAULT 0,        -- 1 => deny-only from chat
+  PRIMARY KEY (approval_id, channel, chat_id, message_id)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE grants (
+  id                 TEXT PRIMARY KEY,
+  principal_id       TEXT NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
+  scope              TEXT NOT NULL CHECK (scope IN ('session','schedule','principal')),
+  scope_id           TEXT NOT NULL DEFAULT '',
+  kind               TEXT NOT NULL CHECK (kind IN ('tool','domain','recipient')),
+  tool               TEXT NOT NULL DEFAULT '',
+  pattern            TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(pattern)),
+  value              TEXT NOT NULL DEFAULT '',
+  max_se             TEXT NOT NULL,
+  allow_when_tainted INTEGER NOT NULL DEFAULT 0,
+  uses               INTEGER NOT NULL DEFAULT 0,
+  max_uses           INTEGER NOT NULL DEFAULT 0,
+  created_by         TEXT NOT NULL,
+  created_at         INTEGER NOT NULL,
+  expires_at         INTEGER NOT NULL DEFAULT 0,
+  revoked_at         INTEGER NOT NULL DEFAULT 0,
+  CHECK ((scope = 'principal') = (scope_id = '')),
+  CHECK (kind <> 'tool' OR (tool <> '' AND pattern <> '{}')),   -- never a whole-tool grant
+  CHECK (allow_when_tainted = 0 OR kind = 'recipient')
+) STRICT;
+CREATE INDEX grants_lookup ON grants(principal_id, scope, scope_id) WHERE revoked_at = 0;
+
+CREATE TABLE vault_keys (
+  id          INTEGER PRIMARY KEY,
+  wrapped_dek BLOB NOT NULL,                     -- nonce || AES-256-GCM(KEK, DEK)
+  kek_check   BLOB NOT NULL,                     -- nonce || AES-256-GCM(KEK, "bothy-kek-check")
+  kek_source  TEXT NOT NULL,
+  active      INTEGER NOT NULL DEFAULT 1,
+  created_at  INTEGER NOT NULL
+) STRICT;
+CREATE UNIQUE INDEX vault_keys_active ON vault_keys(active) WHERE active = 1;
+
+CREATE TABLE vault_secrets (
+  scope        TEXT NOT NULL,
+  name         TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 64 AND name NOT GLOB '*[^a-z0-9_.-]*'),
+  key_id       INTEGER NOT NULL REFERENCES vault_keys(id),
+  version      INTEGER NOT NULL,
+  nonce        BLOB NOT NULL,
+  ciphertext   BLOB NOT NULL,                    -- AAD = scope || 0x00 || name || 0x00 || version
+  hint         TEXT NOT NULL DEFAULT '',
+  created_by   TEXT NOT NULL DEFAULT '',
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL,
+  last_used_at INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (scope, name)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE mcp_tool_pins (
+  server        TEXT NOT NULL,
+  tool          TEXT NOT NULL,
+  hash          TEXT NOT NULL,
+  definition    TEXT NOT NULL CHECK (json_valid(definition)),
+  status        TEXT NOT NULL CHECK (status IN ('pending','approved','superseded','disabled')),
+  side_effect   TEXT NOT NULL DEFAULT 'external_send',
+  field_map     TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(field_map)),
+  private       INTEGER NOT NULL DEFAULT 0,
+  approved_by   TEXT NOT NULL DEFAULT '',
+  first_seen_at INTEGER NOT NULL,
+  approved_at   INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (server, tool, hash)
+) STRICT, WITHOUT ROWID;
+CREATE INDEX mcp_pins_status ON mcp_tool_pins(server, status);
+
+CREATE TABLE mcp_installs (
+  install_id TEXT PRIMARY KEY,                   -- in_<26>
+  server     TEXT NOT NULL,
+  version    TEXT NOT NULL,
+  lock_hash  TEXT NOT NULL DEFAULT '',
+  lock       BLOB,
+  tree_hash  TEXT NOT NULL DEFAULT '',
+  status     TEXT NOT NULL CHECK (status IN ('installing','ready','failed','drifted')),
+  error      TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
+) STRICT;
+CREATE INDEX mcp_installs_server ON mcp_installs(server, created_at DESC);
+
+CREATE TABLE skills (
+  name          TEXT PRIMARY KEY,
+  description   TEXT NOT NULL,
+  path          TEXT NOT NULL,
+  hash          TEXT NOT NULL,                   -- sha256 over the sorted file tree
+  approved_hash TEXT NOT NULL DEFAULT '',
+  status        TEXT NOT NULL CHECK (status IN ('pending','enabled','disabled','changed')),
+  tokens        INTEGER NOT NULL DEFAULT 0,
+  installed_by  TEXT NOT NULL DEFAULT '',
+  approved_by   TEXT NOT NULL DEFAULT '',
+  installed_at  INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL
+) STRICT;
+
+CREATE TABLE memory_events (
+  id           INTEGER PRIMARY KEY,
+  principal_id TEXT NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
+  file         TEXT NOT NULL CHECK (file IN ('MEMORY','USER','HEARTBEAT')),
+  op           TEXT NOT NULL CHECK (op IN ('add','replace','remove','edit')),
+  before       TEXT NOT NULL DEFAULT '',
+  after        TEXT NOT NULL DEFAULT '',
+  run_id       TEXT NOT NULL DEFAULT '',
+  actor        TEXT NOT NULL,
+  provenance   TEXT NOT NULL DEFAULT 'user',
+  created_at   INTEGER NOT NULL
+) STRICT;
+CREATE INDEX memory_events_p ON memory_events(principal_id, id);
+
+CREATE TABLE spend_daily (
+  user_id       TEXT NOT NULL,                   -- billing user (space owner for spaces)
+  day           TEXT NOT NULL,                   -- YYYY-MM-DD in config timezone
+  cost_micros   INTEGER NOT NULL DEFAULT 0,
+  input_tokens  INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  calls         INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, day)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE inbound_dedup (
+  channel TEXT NOT NULL,
+  msg_id  TEXT NOT NULL,
+  seen_at INTEGER NOT NULL,
+  PRIMARY KEY (channel, msg_id)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE uploads (
+  id           TEXT PRIMARY KEY,                 -- upl_<26>
+  principal_id TEXT NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
+  session_id   TEXT NOT NULL,
+  name         TEXT NOT NULL,
+  mime         TEXT NOT NULL,
+  size         INTEGER NOT NULL,
+  ref          TEXT NOT NULL,                    -- workspace-relative path
+  created_at   INTEGER NOT NULL
+) STRICT;
+
+CREATE TABLE egress_log (
+  id           INTEGER PRIMARY KEY,
+  ts           INTEGER NOT NULL,
+  dialer       TEXT NOT NULL CHECK (dialer IN ('box','public','system')),
+  dest         TEXT NOT NULL DEFAULT '',
+  session_id   TEXT NOT NULL DEFAULT '',
+  principal_id TEXT NOT NULL DEFAULT '',
+  run_id       TEXT NOT NULL DEFAULT '',
+  host         TEXT NOT NULL,
+  port         INTEGER NOT NULL,
+  ip           TEXT NOT NULL DEFAULT '',
+  decision     TEXT NOT NULL CHECK (decision IN ('allow','deny','held_allow','held_deny')),
+  reason       TEXT NOT NULL DEFAULT '',
+  bytes_up     INTEGER NOT NULL DEFAULT 0,
+  bytes_down   INTEGER NOT NULL DEFAULT 0,
+  duration_ms  INTEGER NOT NULL DEFAULT 0
+) STRICT;
+CREATE INDEX egress_log_ts ON egress_log(ts);
+CREATE INDEX egress_log_session ON egress_log(session_id, ts);
+
+CREATE TABLE audit_log (
+  id         INTEGER PRIMARY KEY,
+  ts         INTEGER NOT NULL,
+  actor      TEXT NOT NULL,
+  action     TEXT NOT NULL,
+  target     TEXT NOT NULL DEFAULT '',
+  outcome    TEXT NOT NULL DEFAULT 'ok' CHECK (outcome IN ('ok','denied','error')),
+  session_id TEXT NOT NULL DEFAULT '',
+  run_id     TEXT NOT NULL DEFAULT '',
+  ip         TEXT NOT NULL DEFAULT '',
+  detail     TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(detail)),
+  prev_hash  BLOB NOT NULL,
+  hash       BLOB NOT NULL                       -- sha256(prev_hash || canonical JSON of the row without hashes)
+) STRICT;
+CREATE INDEX audit_ts ON audit_log(ts);
+CREATE INDEX audit_action ON audit_log(action, ts);
+CREATE INDEX audit_actor ON audit_log(actor, ts);
+CREATE TRIGGER audit_no_update BEFORE UPDATE ON audit_log
+  BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END;
+CREATE TRIGGER audit_no_delete BEFORE DELETE ON audit_log
+  BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END;
+```
+
+**Session search query** (`MessageRepo.Search`):
+
+```sql
+SELECT m.session_id, s.title, m.seq, snippet(messages_fts, 0, '[', ']', '…', 12) AS snip,
+       m.created_at, bm25(messages_fts) AS rank, m.provenance IN ('user','system') AS trusted
+FROM messages_fts
+JOIN messages m ON m.id = messages_fts.rowid
+JOIN sessions s ON s.id = m.session_id
+WHERE messages_fts MATCH ?1 AND s.principal_id IN (/* viewer principals */) AND s.hidden = 0
+ORDER BY rank LIMIT ?2;
+```
+
+User input to `MATCH` is converted to a quoted-phrase/AND query (never raw FTS syntax).
+
+**Repository ↔ table map:** Meta→`meta`; Users→`users` (+ `principals` row on create); Principals→`principals`; Spaces→`spaces` (+ `principals`); Identities→`channel_identities`; Pairings→`pairing_codes`; AuthSessions→`auth_sessions`; Tokens→`api_tokens`; Sessions→`sessions`, `session_urls`; Messages→`messages`, `messages_fts`; Pins→`pins`; Runs→`runs`, `llm_calls`, `tool_calls`; Approvals→`approvals`, `approval_messages`; Grants→`grants`; Schedules→`schedules`; Usage→`spend_daily` (caps) and `llm_calls` (reports); Audit→`audit_log`; Egress→`egress_log`; MCP→`mcp_tool_pins`, `mcp_installs`; Skills→`skills`; MemoryEvents→`memory_events`; Vault→`vault_keys`, `vault_secrets`; Dedup→`inbound_dedup`; Uploads→`uploads`.
+
+**Retention** (`DB.RunRetention`, hourly):
+- `egress_log` older than `storage.retention.egress_log` (720h).
+- `inbound_dedup` older than 24 h.
+- expired `auth_sessions`; used or expired `pairing_codes` older than 7 days.
+- `runs` (with cascading `llm_calls`, `tool_calls`, `approvals`) only when `storage.retention.runs` > 0 (default 0 = keep).
+- Hidden `api` sessions older than 7 days are archived and their messages deleted.
+- `audit_log` is never pruned online. `bothy audit archive --before <date>` runs with the gateway stopped: it exports the range to JSONL (0600), rebuilds `audit_log` without the triggers in a transaction, deletes the range, re-creates the triggers, and inserts an anchor row (`action=audit.archived`, detail = range, count and the last archived hash) chained to the remaining log.
+
+---
+
+## 7. Config
+
+### 7.1 Full file (`<data>/bothy.yaml`)
+
+Zero-config works with no file at all. This example decodes strictly (`KnownFields(true)`) into the `config.Config` struct in §7.4; that is a skeleton unit test.
+
+```yaml
+# <data>/bothy.yaml: every key is optional; the values shown are the built-in
+# defaults unless marked "example". `bothy config defaults` prints this file;
+# `bothy config check` validates one; `bothy config effective` prints the merged
+# result with a source comment on every line.
+version: 1
+mode: single                      # single | multi (multi enables users, roles, per-user caps)
+timezone: UTC                     # schedules and spend days; the wizard sets the owner's browser zone
+telemetry: false                  # reserved; no phone-home code exists
+
+server:
+  listen: "127.0.0.1:8080"        # the image sets BOTHY_DEPLOYMENT=container => default 0.0.0.0:8080
+  public_url: ""                  # e.g. https://bothy.example.com; used for cards, cookies, Origin checks
+  allowed_hosts: []               # extra Host values; always allowed: public_url host, localhost, 127.0.0.1, [::1]
+  trusted_proxies: []             # CIDRs whose X-Forwarded-For/-Proto are honoured; loopback is NOT implied
+  local_cidrs: []                 # extra peers treated as local (default: loopback + the container's default gateway)
+  insecure_lan: false             # LOCKED: allow plain HTTP from RFC1918/ULA peers (env/file only)
+  tls: {cert_file: "", key_file: ""}
+  max_body_mb: 1
+  upload_max_mb: 20
+
+storage:
+  data_dir: /data
+  work_dir: ""                    # "" = /work if it is a mount point, else <data_dir>/work
+  run_dir: /run/bothy
+  backups_keep: 3
+  retention: {egress_log: 720h, runs: 0s, inbound_dedup: 24h}
+
+log: {level: info, format: text}  # format: text | json
+
+auth:
+  session_idle: 168h
+  session_max: 720h
+  password_min_length: 12
+  lockout: {max_failures: 5, base: 1m, max: 1h}     # per username and per IP, exponential
+  argon2: {memory_kib: 19456, iterations: 2, parallelism: 1}
+  pairing_ttl: 15m
+  setup_token_ttl: 24h
+  admin_can_read_chats: false     # LOCKED: admins never see other users' message content
+
+vault:
+  kek: auto                       # auto | file:/path | systemd:<name> | passphrase | env (BOTHY_KEK; flagged high)
+  keyfile: ""                     # auto-generated KEK; "" = /keys/kek if /keys is a mount point, else <data_dir>/keys/kek
+
+providers:                        # examples; the wizard writes these. api_key accepts only secret:<name>
+  - {id: anthropic, type: anthropic, api_key: "secret:anthropic_api_key"}
+  - {id: openai, type: openai, base_url: "https://api.openai.com/v1", api_key: "secret:openai_api_key", enabled: false}
+  - {id: gemini, type: gemini, api_key: "secret:gemini_api_key", enabled: false}
+  - id: ollama
+    type: ollama                  # native /api/chat; num_ctx = models[].context
+    base_url: "http://host.docker.internal:11434"
+    allow_private: true           # this exact host:port only; metadata IPs always blocked
+    discover: true                # /api/tags + /api/show
+    models:
+      - {id: "qwen3:14b", context: 16384, max_output: 2048, tools: true}
+  - id: openrouter
+    type: openai_compat
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: "secret:openrouter_api_key"
+    enabled: false
+
+models:                           # example chains: "<provider id>/<model>", in fallback order
+  main: [anthropic/claude-sonnet-4-6, ollama/qwen3:14b]
+  fast: [anthropic/claude-haiku-4-5, ollama/qwen3:4b]
+
+pricing:                          # USD per 1M tokens; overrides the embedded catalog
+  "ollama/qwen3:14b": {in: 0, out: 0}
+
+agent:
+  persona_file: SOUL.md           # in data_dir; admin-editable only
+  standing_rules: []              # admin-only lines appended to the constitution block
+  busy_mode: steer                # steer | queue
+  coalesce_window: 1200ms
+  queue_depth: 8
+  max_concurrent_runs: 4
+  max_runs_per_user: 2
+  tool_output_tokens: 4000
+  parallel_read_tools: 4
+  show_thinking: false
+  session_idle_reset: 0s          # 0 = never start a new channel session automatically
+
+context:
+  reserve_output: auto            # auto = min(8192, 12% of window), floor 1024; or an integer
+  compact_below: 32768            # windows below this use the compact profile
+  degraded_below: 16384           # windows below this use the degraded profile
+  min_context: 8192               # below this: text-only (no tools)
+  compaction: {trigger: 0.70, compact_trigger: 0.60, keep_recent_turns: 4, summary_max_tokens: 1200, auto_pin: true}
+
+budgets:
+  daily_usd: 5.00                 # global; 0 = unlimited (security-audit finding)
+  member_daily_usd: 2.00          # multi mode default per member
+  per_user_daily_usd: {}          # example: {alice: 3.00}
+  warn_ratio: 0.8
+  run:       {max_steps: 25, max_tokens: 400000, max_time: 10m, max_usd: 0}
+  scheduled: {max_steps: 15, max_tokens: 150000, max_time: 15m, max_usd: 0.25}
+  heartbeat_daily_usd: 0.25
+  sender_rate: {per_minute: 10, burst: 5}
+  loop: {warn_after: 3, abort_after: 5}
+
+policy:
+  preset: careful                 # careful | balanced | hands_off
+  defaults: {}                    # example: {external_send: ask}; overrides the preset per class
+  rules:                          # first match wins; cannot override floors
+    - {id: readonly-shell, tool: shell, argv0: [ls, cat, head, tail, grep, rg, wc, pwd, find], verdict: auto}
+    - {id: wiki, tool: web_fetch, domains: ["*.wikipedia.org"], verdict: auto}
+    - {id: no-pipe-to-shell, tool: shell, match: {"/argv/2": "*curl*|*sh*"}, verdict: ask, reason: "pipes a download into a shell"}
+  approval:
+    interactive_timeout: 15m
+    interactive_on_timeout: deny  # deny | park
+    scheduled_timeout: 2m
+    scheduled_on_timeout: park
+    park_ttl: 24h
+    api_wait: 120s                # tokens with on_approval: wait
+    notify: []                    # extra channel names for mirrored cards (web-origin and scheduled runs)
+  trifecta: {enforce: true}       # LOCKED
+
+sandbox:
+  backend: auto                   # auto | sandboxd | bwrap | none
+  socket: /run/bothy/sandboxd.sock
+  profile: base                   # base | node
+  limits: {memory_mb: 512, cpus: 1.0, pids: 256}
+  exec_timeout: 120s
+  output_kb: 64
+  workspace_quota_mb: 2048
+  idle_timeout: 10m
+
+egress:
+  allow: []                       # host or host:port; "*.suffix" allowed here (admin)
+  deny: []                        # always denied, beats allow and grants
+  presets: {python_packages: false, npm_packages: false}
+  ports: [443]
+  allow_plain_http: false         # also allows port 80
+  hold_for_approval: 45s          # 0 = off (immediate 403)
+  caps: {session_up_mb: 10, session_down_mb: 200}
+  shared_tenant_suffixes: [.amazonaws.com, .cloudfront.net, .googleusercontent.com, .blob.core.windows.net,
+                           .workers.dev, .pages.dev, .ngrok-free.app, .github.io]
+  dns: {servers: [], max_ttl: 60s}
+
+search:
+  provider: none                  # searxng | brave | tavily | none (the wizard sets it)
+  searxng_url: "http://searxng:8080"
+  searxng_allow_private: true     # the compose service is on a private network; this exact host:port only
+  brave_api_key: "secret:brave_api_key"
+  tavily_api_key: "secret:tavily_api_key"
+  max_results: 8
+
+web_fetch: {max_bytes: 2097152, timeout: 20s, max_redirects: 5}
+
+channels:
+  unknown_senders: pair           # pair | ignore
+  usage_footer: false
+  telegram: {enabled: false, token: "secret:telegram_bot_token", groups: {mention_only: true},
+             api_base: "https://api.telegram.org"}                           # api_base fields are LOCKED
+  discord:  {enabled: false, token: "secret:discord_bot_token", application_id: "", groups: {mention_only: true},
+             api_base: "https://discord.com/api/v10", gateway_url: ""}
+  slack:    {enabled: false, app_token: "secret:slack_app_token", bot_token: "secret:slack_bot_token", groups: {mention_only: true},
+             api_base: "https://slack.com/api/"}
+
+mcp:
+  servers:                        # examples
+    - name: docs
+      transport: http
+      url: "https://mcp.example.com/mcp"
+      headers: {Authorization: "Bearer secret:docs_mcp_token"}
+      side_effects: {default: read}
+    - name: notes
+      enabled: false
+      transport: stdio
+      profile: node
+      package: {ecosystem: npm, name: "@modelcontextprotocol/server-filesystem", version: "2026.7.1", integrity: "sha512-…"}
+      command: ["node", "node_modules/@modelcontextprotocol/server-filesystem/dist/index.js", "/workspace/notes"]
+      egress: []                  # runtime host[:port] allowlist for this server's box
+      workspace: principal        # none | principal (mount the caller's workspace at /workspace)
+      side_effects: {default: local_write, "read_*": read, "list_*": read}
+      private: ["read_*"]         # outputs that count as private data
+      trusted_output: true
+
+memory: {memory_max_bytes: 4096, user_max_bytes: 2048, heartbeat_max_bytes: 2048, tainted_writes: ask}   # tainted_writes LOCKED: ask | deny
+skills: {dir: "", index_budget_tokens: 600}                                   # "" = <work_dir>/skills
+
+scheduler:
+  enabled: true
+  missed_run: skip                # skip | once
+  heartbeat: {enabled: false, every: 30m, active_hours: "08:00-22:00", slot: fast, deliver: preferred}
+
+api: {openai_compat: true, passthrough: true}
+```
+
+### 7.2 Layers, env and secrets
+
+**Precedence**, lowest to highest: built-in defaults < `bothy.yaml` (`$BOTHY_CONFIG` or `<data>/bothy.yaml`) < environment < `<data>/bothy.ui.yaml` (UI overrides).
+
+- **Env names:** `BOTHY_` + upper-cased path with `__` between segments: `BOTHY_BUDGETS__DAILY_USD=2`, `BOTHY_SERVER__PUBLIC_URL=…`. List items keyed by `id`/`name` are addressable: `BOTHY_PROVIDERS__OLLAMA__BASE_URL=…`, `BOTHY_MCP__SERVERS__DOCS__URL=…`. Lists and maps take JSON: `BOTHY_MODELS__MAIN='["openai/gpt-5.1"]'`.
+- **Merging:** deep merge; lists of objects with `id`/`name` merge by key; scalar lists replace.
+- **Secret fields** (`secret:"true"` tag: `api_key`, `token`, `app_token`, `bot_token`, `brave_api_key`, `tavily_api_key`, header values) accept only `secret:<name>` references, optionally embedded in a header string (`"Bearer secret:docs_mcp_token"`). Plaintext is a validation error: *"Move this secret to the vault: Settings → Vault, or `BOTHY_SECRET_DOCS_MCP_TOKEN`."*
+- **Secrets from env:** `BOTHY_SECRET_<NAME>` or `BOTHY_SECRET_<NAME>_FILE` (Docker secrets) satisfy `secret:<name>` with source `env`; held in memory only, never written. `<NAME>` is the vault name upper-cased with `.` and `-` replaced by `_` (`docs_mcp_token` → `BOTHY_SECRET_DOCS_MCP_TOKEN`). Env secrets apply to every scope lookup (they shadow vault entries of the same name). Well-known keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`, `XAI_API_KEY`, `DEEPSEEK_API_KEY`, `TELEGRAM_BOT_TOKEN`) are only *offered* by the wizard ("Found ANTHROPIC_API_KEY. Import into the vault?"); never used silently.
+- **Locks:** fields tagged `locked:"true"` (`server.listen`, `server.tls`, `server.trusted_proxies`, `server.local_cidrs`, `server.insecure_lan`, `storage.*` dirs, `vault.*`, `sandbox.socket`, `auth.admin_can_read_chats`, `policy.trifecta`, `memory.tainted_writes`, `skills.dir`, `channels.*.api_base`, `channels.discord.gateway_url`) are never settable from the UI layer. `BOTHY_CONFIG_LOCK="providers.*,policy.*"` additionally locks globs (GitOps); locked keys show as "locked" in the UI and the UI layer is ignored for them.
+- **Validation per key:** a key that fails validation falls back to the next lower valid layer and is reported in `Effective.Errors` (banner `config_error` + doctor). Messages carry source and suggestions: `bothy.yaml:42: models.main[0]: unknown provider "antropic" (did you mean "anthropic"?)`.
+- **Safe mode:** if `bothy.yaml` cannot be parsed, the gateway boots with defaults + env + ui, `SafeMode=true`, banner `safe_mode`, and only auth, setup, config, doctor and health routes active (agent, channels, scheduler off): `httpapi` answers every other `/api` and `/v1` route with 503 `{"error":{"code":"unavailable","message":"safe mode: fix bothy.yaml"}}`, and `cmd/bothy` does not start the hub, scheduler or MCP loops (§12.1). Fixing the file and `Reload` (mtime poll or SIGHUP) leaves safe mode only after a restart. It never exits 1 for config errors. An invalid `server.*` falls back to `127.0.0.1:8080`.
+- **Hot reload:** fields tagged `reload:"hot"` apply immediately (watchers get `old, cur`); others require restart and are listed in `Effective.Restart` with a banner offering **Restart** (`POST /api/admin/restart` drains, then `syscall.Exec("/proc/self/exe")`, which works in distroless). `bothy.yaml` is polled by mtime every 5 s and on SIGHUP.
+
+### 7.3 UI writes and the effective-source view
+
+- `config.Manager.Set` validates each change against the fully merged result, rejects locked keys and secret literals, writes the sparse `bothy.ui.yaml` atomically (temp file, fsync, rename, 0600), audits each path as `config.set` with old and new values (secret references only, never values) through the `OnSet` hook, and notifies watchers. `Reset` deletes a key from `bothy.ui.yaml` (`config.reset`). Paths address list items by id/name: setting `providers.<id>` or `mcp.servers.<name>` to an object creates or replaces that item; setting it to `null` removes the UI-layer item. The config package has no bus: `cmd/bothy` publishes `config.changed` from a `Watch` callback using `config.Diff(old, cur)` and `Effective().Restart`, plus the `restart_required` banner.
+- `GET /api/config` returns `config.Effective`: for every leaf, the effective value, its source (`default`, `file` with file:line, `env` with variable name, `ui` with user and time), the shadowed lower layers with their values, `locked`, `hot` and `secret` flags.
+- The UI shows a source chip per field (`default`, `file · bothy.yaml:61`, `env · BOTHY_BUDGETS__DAILY_USD`, `UI · alice · 2h ago`, `locked`); hovering shows shadowed values; **Reset** removes the UI override and previews the fallback value; a UI override that shadows env or file shows a warning chip ("overrides env value 5"). Boot logs list shadowing overrides. Settings → Advanced renders the merged YAML with source comments and offers `bothy.ui.yaml` for download.
+- CLI: `bothy config check [file]`, `bothy config defaults`, `bothy config effective`.
+
+### 7.4 `internal/config` (skeleton-implemented, frozen)
+
+`schema.go`:
+
+```go
+package config
+
+import "time"
+
+// Tags: yaml = key name; reload:"hot" fields apply without restart (default
+// "restart"); secret:"true" fields accept only "secret:<name>" references;
+// locked:"true" fields are never settable from the UI layer.
+
+type Config struct {
+	Version   int    `yaml:"version"`
+	Mode      string `yaml:"mode" reload:"hot"` // single | multi
+	Timezone  string `yaml:"timezone" reload:"hot"`
+	Telemetry bool   `yaml:"telemetry"` // reserved; no phone-home code exists
+
+	Server    Server            `yaml:"server"`
+	Storage   Storage           `yaml:"storage"`
+	Log       Log               `yaml:"log" reload:"hot"`
+	Auth      Auth              `yaml:"auth"`
+	Vault     VaultCfg          `yaml:"vault"`
+	Providers []Provider        `yaml:"providers"`
+	Models    Models            `yaml:"models" reload:"hot"`
+	Pricing   map[string]PriceO `yaml:"pricing" reload:"hot"`
+	Agent     Agent             `yaml:"agent" reload:"hot"`
+	Context   ContextCfg        `yaml:"context" reload:"hot"`
+	Budgets   Budgets           `yaml:"budgets" reload:"hot"`
+	Policy    PolicyCfg         `yaml:"policy" reload:"hot"`
+	Sandbox   SandboxCfg        `yaml:"sandbox"`
+	Egress    EgressCfg         `yaml:"egress" reload:"hot"`
+	Search    Search            `yaml:"search" reload:"hot"`
+	WebFetch  WebFetch          `yaml:"web_fetch" reload:"hot"`
+	Channels  Channels          `yaml:"channels"`
+	MCP       MCPCfg            `yaml:"mcp" reload:"hot"`
+	Memory    MemoryCfg         `yaml:"memory" reload:"hot"`
+	Skills    SkillsCfg         `yaml:"skills" reload:"hot"`
+	Scheduler SchedulerCfg      `yaml:"scheduler" reload:"hot"`
+	API       APICfg            `yaml:"api" reload:"hot"`
+}
+
+type Server struct {
+	Listen         string   `yaml:"listen" locked:"true"`
+	PublicURL      string   `yaml:"public_url"`
+	AllowedHosts   []string `yaml:"allowed_hosts" reload:"hot"`
+	TrustedProxies []string `yaml:"trusted_proxies" locked:"true"`
+	LocalCIDRs     []string `yaml:"local_cidrs" locked:"true"`
+	InsecureLAN    bool     `yaml:"insecure_lan" locked:"true"`
+	TLS            TLS      `yaml:"tls" locked:"true"`
+	MaxBodyMB      int      `yaml:"max_body_mb"`
+	UploadMaxMB    int      `yaml:"upload_max_mb"`
+}
+
+type TLS struct {
+	CertFile string `yaml:"cert_file"`
+	KeyFile  string `yaml:"key_file"`
+}
+
+type Storage struct {
+	DataDir     string    `yaml:"data_dir" locked:"true"`
+	WorkDir     string    `yaml:"work_dir" locked:"true"`
+	RunDir      string    `yaml:"run_dir" locked:"true"`
+	BackupsKeep int       `yaml:"backups_keep" reload:"hot"`
+	Retention   Retention `yaml:"retention" reload:"hot"`
+}
+
+type Retention struct {
+	EgressLog    Duration `yaml:"egress_log"`
+	Runs         Duration `yaml:"runs"` // 0 = keep forever
+	InboundDedup Duration `yaml:"inbound_dedup"`
+}
+
+type Log struct {
+	Level  string `yaml:"level"`  // debug | info | warn | error
+	Format string `yaml:"format"` // text | json
+}
+
+type Auth struct {
+	SessionIdle       Duration `yaml:"session_idle" reload:"hot"`
+	SessionMax        Duration `yaml:"session_max" reload:"hot"`
+	PasswordMinLength int      `yaml:"password_min_length" reload:"hot"`
+	Lockout           Lockout  `yaml:"lockout" reload:"hot"`
+	Argon2            Argon2   `yaml:"argon2"`
+	PairingTTL        Duration `yaml:"pairing_ttl" reload:"hot"`
+	SetupTokenTTL     Duration `yaml:"setup_token_ttl"`
+	AdminCanReadChats bool     `yaml:"admin_can_read_chats" reload:"hot" locked:"true"`
+}
+
+type Lockout struct {
+	MaxFailures int      `yaml:"max_failures"`
+	Base        Duration `yaml:"base"`
+	Max         Duration `yaml:"max"`
+}
+
+type Argon2 struct {
+	MemoryKiB   uint32 `yaml:"memory_kib"`
+	Iterations  uint32 `yaml:"iterations"`
+	Parallelism uint8  `yaml:"parallelism"`
+}
+
+type VaultCfg struct {
+	KEK     string `yaml:"kek" locked:"true"`     // auto | file:/path | systemd:<name> | passphrase | env
+	Keyfile string `yaml:"keyfile" locked:"true"` // autogen target
+}
+
+type Provider struct {
+	ID           string            `yaml:"id"`
+	Type         string            `yaml:"type"` // anthropic | openai | gemini | ollama | openai_compat
+	BaseURL      string            `yaml:"base_url"`
+	APIKey       string            `yaml:"api_key" secret:"true"`
+	AllowPrivate bool              `yaml:"allow_private"` // exact host:port of base_url only
+	Discover     bool              `yaml:"discover"`
+	Enabled      *bool             `yaml:"enabled"` // nil = true
+	Headers      map[string]string `yaml:"headers" secret:"true"`
+	Models       []ProviderModel   `yaml:"models"`
+}
+
+type ProviderModel struct {
+	ID        string `yaml:"id"`
+	Context   int    `yaml:"context"`
+	MaxOutput int    `yaml:"max_output"`
+	Tools     *bool  `yaml:"tools"`
+	Vision    bool   `yaml:"vision"`
+}
+
+type Models struct {
+	Main []string `yaml:"main"` // "provider/model" fallback chain
+	Fast []string `yaml:"fast"`
+}
+
+type PriceO struct { // USD per 1M tokens
+	In         float64 `yaml:"in"`
+	Out        float64 `yaml:"out"`
+	CacheRead  float64 `yaml:"cache_read"`
+	CacheWrite float64 `yaml:"cache_write"`
+}
+
+type Agent struct {
+	PersonaFile       string   `yaml:"persona_file"`
+	StandingRules     []string `yaml:"standing_rules"`
+	BusyMode          string   `yaml:"busy_mode"` // steer | queue
+	CoalesceWindow    Duration `yaml:"coalesce_window"`
+	QueueDepth        int      `yaml:"queue_depth"`
+	MaxConcurrentRuns int      `yaml:"max_concurrent_runs"`
+	MaxRunsPerUser    int      `yaml:"max_runs_per_user"`
+	ToolOutputTokens  int      `yaml:"tool_output_tokens"`
+	ParallelReadTools int      `yaml:"parallel_read_tools"`
+	ShowThinking      bool     `yaml:"show_thinking"`
+	SessionIdleReset  Duration `yaml:"session_idle_reset"` // 0 = never
+}
+
+type ContextCfg struct {
+	ReserveOutput string     `yaml:"reserve_output"` // "auto" or an integer
+	CompactBelow  int        `yaml:"compact_below"`
+	DegradedBelow int        `yaml:"degraded_below"`
+	MinContext    int        `yaml:"min_context"`
+	Compaction    Compaction `yaml:"compaction"`
+}
+
+type Compaction struct {
+	Trigger          float64 `yaml:"trigger"`
+	CompactTrigger   float64 `yaml:"compact_trigger"`
+	KeepRecentTurns  int     `yaml:"keep_recent_turns"`
+	SummaryMaxTokens int     `yaml:"summary_max_tokens"`
+	AutoPin          bool    `yaml:"auto_pin"`
+}
+
+type Budgets struct {
+	DailyUSD          float64            `yaml:"daily_usd"`
+	MemberDailyUSD    float64            `yaml:"member_daily_usd"`
+	PerUserDailyUSD   map[string]float64 `yaml:"per_user_daily_usd"` // username -> cap
+	WarnRatio         float64            `yaml:"warn_ratio"`
+	Run               RunBudget          `yaml:"run"`
+	Scheduled         RunBudget          `yaml:"scheduled"`
+	HeartbeatDailyUSD float64            `yaml:"heartbeat_daily_usd"`
+	SenderRate        Rate               `yaml:"sender_rate"`
+	Loop              Loop               `yaml:"loop"`
+}
+
+type RunBudget struct {
+	MaxSteps  int      `yaml:"max_steps"`
+	MaxTokens int      `yaml:"max_tokens"`
+	MaxTime   Duration `yaml:"max_time"`
+	MaxUSD    float64  `yaml:"max_usd"` // 0 = no per-run $ cap
+}
+
+type Rate struct {
+	PerMinute int `yaml:"per_minute"`
+	Burst     int `yaml:"burst"`
+}
+
+type Loop struct {
+	WarnAfter  int `yaml:"warn_after"`
+	AbortAfter int `yaml:"abort_after"`
+}
+
+type PolicyCfg struct {
+	Preset   string            `yaml:"preset"`   // careful | balanced | hands_off
+	Defaults map[string]string `yaml:"defaults"` // class -> auto|ask|deny; overrides the preset
+	Rules    []Rule            `yaml:"rules"`
+	Approval Approval          `yaml:"approval"`
+	Trifecta Trifecta          `yaml:"trifecta" locked:"true"`
+}
+
+type Rule struct {
+	ID         string            `yaml:"id"`
+	Tool       string            `yaml:"tool"` // glob
+	Argv0      []string          `yaml:"argv0"`
+	Domains    []string          `yaml:"domains"`
+	Paths      []string          `yaml:"paths"`
+	Match      map[string]string `yaml:"match"` // JSON pointer -> glob over Action.Payload
+	SideEffect string            `yaml:"side_effect"`
+	Triggers   []string          `yaml:"triggers"`
+	Verdict    string            `yaml:"verdict"` // auto | ask | deny
+	Reason     string            `yaml:"reason"`
+}
+
+type Approval struct {
+	InteractiveTimeout   Duration `yaml:"interactive_timeout"`
+	InteractiveOnTimeout string   `yaml:"interactive_on_timeout"` // deny | park
+	ScheduledTimeout     Duration `yaml:"scheduled_timeout"`
+	ScheduledOnTimeout   string   `yaml:"scheduled_on_timeout"`
+	ParkTTL              Duration `yaml:"park_ttl"`
+	APIWait              Duration `yaml:"api_wait"`
+	Notify               []string `yaml:"notify"` // extra channels for mirrored cards (web-origin and scheduled runs)
+}
+
+type Trifecta struct {
+	Enforce bool `yaml:"enforce"`
+}
+
+type SandboxCfg struct {
+	Backend          string    `yaml:"backend"` // auto | sandboxd | bwrap | none
+	Socket           string    `yaml:"socket" locked:"true"`
+	Profile          string    `yaml:"profile" reload:"hot"`
+	Limits           BoxLimits `yaml:"limits" reload:"hot"`
+	ExecTimeout      Duration  `yaml:"exec_timeout" reload:"hot"`
+	OutputKB         int       `yaml:"output_kb" reload:"hot"`
+	WorkspaceQuotaMB int       `yaml:"workspace_quota_mb" reload:"hot"`
+	IdleTimeout      Duration  `yaml:"idle_timeout" reload:"hot"`
+}
+
+type BoxLimits struct {
+	MemoryMB int     `yaml:"memory_mb"`
+	CPUs     float64 `yaml:"cpus"`
+	Pids     int     `yaml:"pids"`
+}
+
+type EgressCfg struct {
+	Allow                []string      `yaml:"allow"` // host or host:port; "*.suffix" allowed here (admin)
+	Deny                 []string      `yaml:"deny"`
+	Presets              EgressPresets `yaml:"presets"`
+	Ports                []int         `yaml:"ports"`
+	AllowPlainHTTP       bool          `yaml:"allow_plain_http"`
+	HoldForApproval      Duration      `yaml:"hold_for_approval"` // 0 = off
+	Caps                 EgressCaps    `yaml:"caps"`
+	SharedTenantSuffixes []string      `yaml:"shared_tenant_suffixes"`
+	DNS                  DNS           `yaml:"dns"`
+}
+
+type EgressPresets struct {
+	PythonPackages bool `yaml:"python_packages"` // pypi.org, files.pythonhosted.org
+	NPMPackages    bool `yaml:"npm_packages"`    // registry.npmjs.org
+}
+
+type EgressCaps struct {
+	SessionUpMB   int `yaml:"session_up_mb"`
+	SessionDownMB int `yaml:"session_down_mb"`
+}
+
+type DNS struct {
+	Servers []string `yaml:"servers"` // "" = system resolver
+	MaxTTL  Duration `yaml:"max_ttl"`
+}
+
+type Search struct {
+	Provider            string `yaml:"provider"` // searxng | brave | tavily | none
+	SearxngURL          string `yaml:"searxng_url"`
+	SearxngAllowPrivate bool   `yaml:"searxng_allow_private"` // SystemDest.AllowPrivate for searxng_url's exact host:port
+	BraveAPIKey         string `yaml:"brave_api_key" secret:"true"`
+	TavilyAPIKey        string `yaml:"tavily_api_key" secret:"true"`
+	MaxResults          int    `yaml:"max_results"`
+}
+
+type WebFetch struct {
+	MaxBytes     int      `yaml:"max_bytes"`
+	Timeout      Duration `yaml:"timeout"`
+	MaxRedirects int      `yaml:"max_redirects"`
+}
+
+type Channels struct {
+	UnknownSenders string   `yaml:"unknown_senders" reload:"hot"` // pair | ignore
+	UsageFooter    bool     `yaml:"usage_footer" reload:"hot"`
+	Telegram       Telegram `yaml:"telegram"`
+	Discord        Discord  `yaml:"discord"`
+	Slack          Slack    `yaml:"slack"`
+}
+
+type Groups struct {
+	MentionOnly bool `yaml:"mention_only"`
+}
+
+type Telegram struct {
+	Enabled bool   `yaml:"enabled"`
+	Token   string `yaml:"token" secret:"true"`
+	Groups  Groups `yaml:"groups"`
+	APIBase string `yaml:"api_base" locked:"true"` // https://api.telegram.org (self-hosted Bot API servers, tests)
+}
+
+type Discord struct {
+	Enabled       bool   `yaml:"enabled"`
+	Token         string `yaml:"token" secret:"true"`
+	ApplicationID string `yaml:"application_id"`
+	Groups        Groups `yaml:"groups"`
+	APIBase       string `yaml:"api_base" locked:"true"`    // https://discord.com/api/v10 (tests)
+	GatewayURL    string `yaml:"gateway_url" locked:"true"` // "" = from GET /gateway/bot (tests)
+}
+
+type Slack struct {
+	Enabled  bool   `yaml:"enabled"`
+	AppToken string `yaml:"app_token" secret:"true"` // xapp-
+	BotToken string `yaml:"bot_token" secret:"true"` // xoxb-
+	Groups   Groups `yaml:"groups"`
+	APIBase  string `yaml:"api_base" locked:"true"` // https://slack.com/api/ (tests)
+}
+
+type MCPCfg struct {
+	Servers []MCPServer `yaml:"servers"`
+}
+
+type MCPServer struct {
+	Name          string            `yaml:"name"` // ^[a-z0-9][a-z0-9-]{0,31}$
+	Enabled       *bool             `yaml:"enabled"`
+	Transport     string            `yaml:"transport"` // stdio | http
+	URL           string            `yaml:"url"`
+	Headers       map[string]string `yaml:"headers" secret:"true"`
+	AllowPrivate  bool              `yaml:"allow_private"`
+	Profile       string            `yaml:"profile"` // base | node
+	Package       *MCPPackage       `yaml:"package"`
+	Command       []string          `yaml:"command"`      // relative to /opt/mcp after install
+	Egress        []string          `yaml:"egress"`       // runtime host[:port] allowlist for the box
+	Workspace     string            `yaml:"workspace"`    // none | principal
+	SideEffects   map[string]string `yaml:"side_effects"` // glob -> class; "default" key
+	Private       []string          `yaml:"private"`      // tool globs whose output is private data
+	TrustedOutput bool              `yaml:"trusted_output"`
+}
+
+type MCPPackage struct {
+	Ecosystem string `yaml:"ecosystem"` // npm | pypi
+	Name      string `yaml:"name"`
+	Version   string `yaml:"version"` // exact
+	Integrity string `yaml:"integrity"`
+}
+
+type MemoryCfg struct {
+	MemoryMaxBytes    int    `yaml:"memory_max_bytes"`
+	UserMaxBytes      int    `yaml:"user_max_bytes"`
+	HeartbeatMaxBytes int    `yaml:"heartbeat_max_bytes"`
+	TaintedWrites     string `yaml:"tainted_writes" locked:"true"` // ask | deny
+}
+
+type SkillsCfg struct {
+	Dir               string `yaml:"dir" locked:"true"`
+	IndexBudgetTokens int    `yaml:"index_budget_tokens"`
+}
+
+type SchedulerCfg struct {
+	Enabled   bool      `yaml:"enabled"`
+	MissedRun string    `yaml:"missed_run"` // skip | once
+	Heartbeat Heartbeat `yaml:"heartbeat"`
+}
+
+type Heartbeat struct {
+	Enabled     bool     `yaml:"enabled"`
+	Every       Duration `yaml:"every"`
+	ActiveHours string   `yaml:"active_hours"`
+	Slot        string   `yaml:"slot"`
+	Deliver     string   `yaml:"deliver"` // preferred | web | <channel name>
+}
+
+type APICfg struct {
+	OpenAICompat bool `yaml:"openai_compat"`
+	Passthrough  bool `yaml:"passthrough"`
+}
+
+// Duration unmarshals "15m", "720h", "1200ms"; marshals back the same way.
+type Duration time.Duration
+
+func (d Duration) D() time.Duration { return time.Duration(d) }
+
+func (d *Duration) UnmarshalText(b []byte) error {
+	v, err := time.ParseDuration(string(b))
+	*d = Duration(v)
+	return err
+}
+
+func (d Duration) MarshalText() ([]byte, error) { return []byte(time.Duration(d).String()), nil }
+```
+
+`api.go` (bodies shown are placeholders; the skeleton ships the real implementation with tests for: precedence matrix, file:line provenance, id-keyed env overrides, locked keys rejected, secret literals rejected, safe mode on broken YAML, atomic 0600 writes, hot vs restart classification, `BOTHY_CONFIG_LOCK` globs):
+
+```go
+// Package config loads the layered configuration: defaults < bothy.yaml < env <
+// bothy.ui.yaml. It is fully implemented in the skeleton and frozen.
+package config
+
+import (
+	"context"
+	"encoding/json"
+	"time"
+)
+
+type Layer string
+
+const (
+	LayerDefault Layer = "default"
+	LayerFile    Layer = "file" // <data>/bothy.yaml or $BOTHY_CONFIG
+	LayerEnv     Layer = "env"  // BOTHY_<PATH> with "__" between segments
+	LayerUI      Layer = "ui"   // <data>/bothy.ui.yaml, written by the web UI
+)
+
+type Source struct {
+	Layer  Layer     `json:"layer"`
+	File   string    `json:"file,omitempty"`
+	Line   int       `json:"line,omitempty"`
+	EnvVar string    `json:"env_var,omitempty"`
+	By     string    `json:"by,omitempty"` // UI layer: "user:<id>"
+	At     time.Time `json:"at,omitempty"` // UI layer write time
+}
+
+type Shadow struct {
+	Source Source          `json:"source"`
+	Value  json.RawMessage `json:"value"` // secret refs shown as refs, never resolved
+}
+
+type Entry struct {
+	Path     string          `json:"path"` // dotted; list items by id/name: "providers.ollama.base_url"
+	Value    json.RawMessage `json:"value"`
+	Source   Source          `json:"source"`
+	Shadowed []Shadow        `json:"shadowed"`
+	Locked   bool            `json:"locked"` // locked:"true" tag or BOTHY_CONFIG_LOCK glob
+	Hot      bool            `json:"hot"`    // applies without restart
+	Secret   bool            `json:"secret"`
+}
+
+type FieldError struct {
+	Path    string `json:"path"`
+	Source  Source `json:"source"`
+	Message string `json:"message"` // includes "did you mean …" suggestions
+}
+
+type Effective struct {
+	Entries  []Entry      `json:"entries"`
+	Errors   []FieldError `json:"errors"` // a key failing validation falls back to the next lower valid layer
+	SafeMode bool         `json:"safe_mode"`
+	Restart  []string     `json:"restart_required"` // restart-only paths changed since boot
+}
+
+type Options struct {
+	DataDir  string             // default /data; config file <DataDir>/bothy.yaml unless File set
+	File     string             // $BOTHY_CONFIG
+	Env      func() []string    // os.Environ in production
+	Defaults func(*Config)      // optional extra defaulting (binary vs image listen address)
+	OnSet    func(ChangeRecord) // audit hook (config.set / config.reset)
+}
+
+type ChangeRecord struct {
+	Path   string          `json:"path"`
+	Old    json.RawMessage `json:"old"`
+	New    json.RawMessage `json:"new"` // null for reset
+	By     string          `json:"by"`
+	Action string          `json:"action"` // set | reset
+}
+
+// View is what modules depend on (fakeable with config.Static).
+type View interface {
+	Current() *Config // immutable snapshot; never mutate
+	Watch(fn func(old, cur *Config)) (cancel func())
+}
+
+// Admin is the config surface used by the HTTP API (implemented by *Manager).
+type Admin interface {
+	View
+	Effective() Effective
+	Set(ctx context.Context, changes map[string]json.RawMessage, by string) (restart []string, err error)
+	Reset(ctx context.Context, path, by string) error
+	Schema() json.RawMessage
+}
+
+// Manager implements Admin.
+type Manager struct{ _ [0]func() }
+
+// Load never fails on a bad file: YAML parse errors put the manager in safe
+// mode (defaults + env + ui) with Errors set. It fails only on unreadable data dir.
+func Load(ctx context.Context, o Options) (*Manager, error) { return &Manager{}, nil }
+
+func (m *Manager) Current() *Config                                { return nil }
+func (m *Manager) Watch(fn func(old, cur *Config)) (cancel func()) { return func() {} }
+func (m *Manager) Effective() Effective                            { return Effective{} }
+
+// Set validates every change against the fully merged result, rejects locked and
+// secret-literal values, writes bothy.ui.yaml atomically (temp, fsync, rename,
+// 0600), calls OnSet per path, then notifies watchers.
+func (m *Manager) Set(ctx context.Context, changes map[string]json.RawMessage, by string) (restart []string, err error) {
+	return nil, nil
+}
+
+func (m *Manager) Reset(ctx context.Context, path, by string) error { return nil }
+
+// Schema returns a JSON Schema (draft 2020-12) generated from Config tags, for
+// UI forms.
+func (m *Manager) Schema() json.RawMessage { return nil }
+
+// SetOnSet installs the audit hook after the auditor exists.
+func (m *Manager) SetOnSet(fn func(ChangeRecord)) {}
+
+// Reload re-reads bothy.yaml (polled every 5s by mtime and on SIGHUP).
+func (m *Manager) Reload(ctx context.Context) error { return nil }
+
+// Default returns the built-in defaults (the values in SPEC §7.1).
+func Default() *Config { return &Config{} }
+
+// Diff returns the dotted leaf paths whose values differ (for config.changed).
+func Diff(old, cur *Config) []string { return nil }
+
+// Dirs are the resolved storage paths. storage.work_dir "" and vault.keyfile ""
+// mean auto (SPEC §2.1: /work or /keys/kek when that directory is a mount point
+// per /proc/self/mountinfo, else under data_dir). cmd/bothy and the vault use
+// ResolveDirs; nothing else interprets the raw values.
+type Dirs struct {
+	Data, Work, Run, Keyfile string
+	KeyfileColocated         bool // the KEK file lives on the same volume as the DB
+}
+
+func ResolveDirs(c *Config) Dirs { return Dirs{} }
+
+// Static wraps a fixed Config as a View for tests.
+func Static(c *Config) View { return staticView{c} }
+
+type staticView struct{ c *Config }
+
+func (s staticView) Current() *Config                             { return s.c }
+func (s staticView) Watch(func(old, cur *Config)) (cancel func()) { return func() {} }
+```
+
+Implementation notes for the lead: `Watch` callbacks run synchronously after a successful `Set`/`Reload`, in registration order, and must not block; parse each file layer into `yaml.Node` (go.yaml.in/yaml/v3) to keep line numbers; build a path-indexed map per layer; merge into `map[string]any`; decode the merged tree into `Config` with `KnownFields(true)`; record per-leaf provenance. Defaults live in `Default()` (the values in §7.1). `BOTHY_DEPLOYMENT=container` changes the default `server.listen` to `0.0.0.0:8080`.
+
+---
+
+## 8. HTTP API, streaming and auth (M11)
+
+### 8.1 Middleware chain and auth mechanics
+
+Order: request id → panic recovery → security headers → **Host check** → **exposure gate** → body limit → **query-credential rejection** → authenticate → **CSRF** → authorize (role, scope, Viewer) → per-token rate limit → handler. Handlers have the shape `func(w http.ResponseWriter, r *http.Request, a core.Actor) error` and always pass `a.Viewer` to services.
+
+- **Security headers** on every response: `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Resource-Policy: same-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`, `Cache-Control: no-store` on `/api/*` and `/v1/*`, HSTS when TLS. **No CORS headers are ever emitted.**
+- **Host check:** `Host` must be in `allowed_hosts` ∪ {public_url host, `localhost`, `127.0.0.1`, `[::1]`} (with port) → else **421** (DNS-rebinding defence).
+- **Exposure gate (peer IP, never the Host header):** the client IP is `RemoteAddr`, or the right-most untrusted `X-Forwarded-For` hop only when the peer is in `trusted_proxies`. Classes: *local* = loopback, the container's default gateway (read from `/proc/net/route`; that is where Docker's published-port traffic arrives from), `local_cidrs`; *lan* = RFC1918/ULA; *public* = everything else. Plain HTTP is served to local peers, to lan peers only with `insecure_lan` (locked, env/file only), and never to public peers (403 page explaining Tailscale/Caddy/TLS). Over TLS (native or `X-Forwarded-Proto: https` from a trusted proxy) all classes pass. Loopback is still authenticated like any client.
+- **Query-credential rejection:** any `/api` or `/v1` request with a query parameter named `token`, `access_token`, `api_key`, `key`, `auth`, `password`, `cookie` or `gatewayUrl` → **400**. Credentials are never read from query strings (CVE-2026-25253 class).
+- **Cookie:** 32 random bytes, stored as sha256. Name `__Host-bothy` (`Secure`) when TLS or trusted-proxy https; `bothy_session` on local plain HTTP. `HttpOnly; SameSite=Strict; Path=/`. Idle 7 days, absolute 30 days, rotated on login and privilege change; logout deletes the row; disabling a user deletes all their sessions and revokes tokens. The setup grant cookie `bothy_setup` lasts 30 min.
+- **CSRF:** Go's `http.CrossOriginProtection` (Sec-Fetch-Site / Origin vs Host; Go 1.25+) wraps **every** unsafe `/api` request, including login, setup and bearer requests (non-browser clients send neither header and pass). Cookie-authenticated unsafe requests additionally need `X-CSRF-Token` equal to the session's token (constant-time; returned by `/api/auth/me`; the setup grant has its own token from `/api/setup/claim`) **and** SameSite=Strict.
+- **API tokens:** `Authorization: Bearer bothy_pat_<26-char id>_<43-char base62 secret>_<6-char base62 CRC32>`, where the id field is the 26 Crockford chars of `tok_<26>` without the `tok_` prefix; parse by fixed field lengths after the `bothy_pat_` prefix, never by splitting on `_`. The CRC (over `bothy_pat_<id>_<secret>`) lets secret scanners recognise the format. Stored as sha256 of the secret; compared in constant time after an id lookup. Scopes: `chat` (sessions API + `/v1` agent models), `llm` (`/v1` passthrough), `read` (GET `/api/*` + SSE), `admin` (admin routes). Default TTL 90 days; tokens without expiry are rejected. `/v1/*` accepts only bearer tokens; `/api/*` accepts cookies or bearer tokens with a matching scope.
+- **Login:** one global Argon2id slot; unknown usernames run a dummy hash (equal timing); lockout per username and per IP (5 failures → 1 m, doubling to 1 h); `subtle.ConstantTimeCompare` for setup token, CSRF, tokens, pairing codes.
+- **Setup token:** created at first boot while no owner exists: 32 random bytes, base32, 24 h (re-minted at boot if expired), stored as sha256 in `meta`, written to `<data>/setup-token` (0600) and printed once as `Open http://127.0.0.1:8080/setup#t=<token>`. `bothy setup-token` rotates it (Auth never caches the hash, so a rotation by the CLI process is seen at once). The SPA reads it from the URL fragment, posts it to `/api/setup/claim`, then removes it with `history.replaceState`. Setup routes answer non-local peers with 403 and a fix line (`ssh -L 8080:127.0.0.1:8080 <host>`, then open the printed URL locally).
+- **File downloads** (`/api/workspace/files`): `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`, `Content-Type: application/octet-stream` and `Content-Security-Policy: sandbox`.
+- **Error envelope:** `{"error":{"code":"…","message":"…","fix":"…"}}` (`dto.Error`). Bodies capped at `max_body_mb` (1 MB) except uploads (`upload_max_mb`, 20 MB, streamed to the workspace).
+
+### 8.2 Web streaming protocol (SSE)
+
+`GET /api/events` (cookie or bearer `read`). Response headers `Content-Type: text/event-stream`, `Cache-Control: no-store`, `X-Accel-Buffering: no`. Frames:
+
+```
+id: <boot>-<seq>
+event: <core.EventType>
+data: <JSON core.Event>
+
+```
+
+- On connect the server sends `event: hello` with `{"boot":"…","seq":N,"paused":false,"sandbox":true,"banners":[BannerData…]}` (banners from `Bus.Banners` under the connection's filter).
+- `: ping` comment every 15 s; writes flushed per event with a write deadline (`http.ResponseController`).
+- **Resume:** the browser sends `Last-Event-ID`; same boot and within the ring → replay via `Bus.Since`; otherwise `event: resync` (`data: {}`) and the client refetches sessions, active runs and approvals over REST. A per-connection buffer of 256; overflow → `resync` and close. At most 4 SSE connections per user (oldest closed).
+- **ACL:** `Filter{Principals: actor.Viewer.Principals, Admin: actor.Role.IsAdmin()}`. Admins receive admin broadcasts (Principal "") but **not** other principals' content (`admin_can_read_chats` is locked false).
+- **Coalescing:** `run.delta`/`run.thinking` ≤ 20/s per run; `run.tool_output` ≤ 10/s per call, ≤ 8 KB per event, redacted.
+
+| Event | Payload (`data.data`) | Scope |
+|---|---|---|
+| `run.queued` | `RunQueuedData{position}` | principal |
+| `run.started` | `RunStartedData{trigger, model}` | principal |
+| `run.status` | `RunStatusData{status: thinking\|tool\|waiting_approval\|compacting\|queued, detail}` | principal |
+| `run.delta` | `DeltaData{text}` | principal |
+| `run.thinking` | `DeltaData{text}` | principal |
+| `run.tool_call` | `ToolCallData{call_id, tool, title, action, verdict, rule}` | principal |
+| `run.tool_output` | `ToolOutputData{call_id, stream, chunk}` | principal |
+| `run.tool_result` | `ToolResultData{call_id, status, preview, bytes, ms, truncated, untrusted}` | principal |
+| `run.usage` | `UsageData{call: CallInfo (incl. breakdown), run_cost_micros, day_cost_micros, day_limit_micros}` | principal |
+| `run.parked` | `RunParkedData{approval_id}` | principal |
+| `run.finished` | `RunFinishedData{status, error, steps, usage, cost_micros}` | principal |
+| `approval.requested` | `ApprovalData{approval}` (with card) | principal; `AdminOnly` ones also admin |
+| `approval.resolved` | `ApprovalResolvedData{approval_id, status, choice, by, via}` | principal; `AdminOnly` ones also admin |
+| `message.created` | `MessageData{message}` | principal |
+| `session.updated` | `SessionData{title, taint, epoch}` | principal |
+| `memory.updated` | `MemoryData{file, event_id}` | principal |
+| `egress.blocked` | `EgressBlockedData{host, port, reason}` | principal |
+| `schedule.run` | `ScheduleRunData{schedule_id, status}` | principal |
+| `budget.warning` | `BudgetWarningData{user_id, spent_micros, limit_micros}` | principal |
+| `pairing.linked` | `PairingLinkedData{channel, external_id, display}` | principal |
+| `channel.status` | `ChannelStatusData{status}` | admin |
+| `sandbox.status` | `SandboxStatusData{status}` | admin (members get `banner`) |
+| `mcp.pin_pending` | `MCPPinData{server, tools}` | admin |
+| `config.changed` | `ConfigChangedData{paths, restart_required}` | admin |
+| `banner` | `BannerData{level, code, text, action, clear}` | admin or principal |
+
+SSE-only control frames: `hello`, `resync`.
+
+### 8.3 Routes (Go 1.22+ ServeMux patterns)
+
+Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once setup is complete); **user** (cookie or bearer `chat`); **read** (cookie or bearer `read`); **admin** (owner/admin cookie or bearer `admin`); **bearer:x** (`/v1`, token scope x). "Own" means filtered by the actor's Viewer. Types refer to `core` and `dto` (§4, §8.4). Paginated lists use `?before=&limit=` and return `dto.List[T]`.
+
+| Method + path | Auth | Request | Response |
+|---|---|---|---|
+| `GET /healthz` | none | — | `200 ok` (text) |
+| `GET /readyz` | none | — | `200 {"ok":true}` / `503 {"ok":false}` (DB, migrations, config) — no versions |
+| `GET /api/setup/state` | none (local peers) | — | `dto.SetupState` |
+| `POST /api/setup/claim` | none (local, rate-limited 5/min) | `dto.SetupClaimReq` | `dto.SetupClaimResp` + `bothy_setup` cookie |
+| `POST /api/setup/owner` | setup | `dto.SetupOwnerReq` | `dto.Me` + session cookie |
+| `POST /api/setup/complete` | admin (during setup) | — | `204`; deletes the token file; setup routes 404 afterwards |
+| `POST /api/auth/login` | none (rate-limited) | `dto.LoginReq` | `dto.Me` + cookie |
+| `POST /api/auth/logout` | user | — | `204` |
+| `GET /api/auth/me` | user | — | `dto.Me` |
+| `POST /api/auth/password` | user (cookie) | `dto.PasswordReq` | `204` (rotates the session) |
+| `GET /api/tokens` | user (cookie) | — | `[]core.TokenRecord` (own) |
+| `POST /api/tokens` | user (cookie) | `core.TokenSpec` | `dto.TokenCreateResp` (plaintext once) |
+| `DELETE /api/tokens/{id}` | user (cookie) | — | `204` |
+| `GET /api/users` | admin | — | `[]core.User` |
+| `POST /api/users` | admin (multi mode) | `dto.UserCreateReq` | `core.User` |
+| `PATCH /api/users/{id}` | admin | `dto.UserPatchReq` | `core.User` |
+| `DELETE /api/users/{id}` | admin | `?purge=true` (optional) | `204` (disable + revoke sessions and tokens; owner cannot be deleted). With `purge=true`: also destroys the user's boxes, deletes their vault user-scope secrets, grants, pairings, identities, memory files, workspaces and sessions (audit rows are kept, with the user id); this is the "deleting a principal wipes its credentials" guarantee and is covered by E19 |
+| `POST /api/pairing` | user | — | `core.PairingCode` (link_identity for self; the handler fills `DeepLinks` from `Hub.DeepLink(channel, code)` for every connected channel) |
+| `POST /api/pairing/approve` | admin | `dto.PairingApproveReq` | `core.ChannelIdentity` |
+| `GET /api/identities` | user (own) / admin (all, `?status=`) | — | `[]core.ChannelIdentity` |
+| `PATCH /api/identities/{channel}/{external}` | admin | `dto.IdentityPatchReq` | `core.ChannelIdentity` (`guest` creates the guest space like `ApproveSender`; audited `identity.*`) |
+| `DELETE /api/identities/{channel}/{external}` | user (own) / admin | — | `204` (unlink) |
+| `GET /api/spaces` | user (owned) / admin | — | `[]core.Space` |
+| `PATCH /api/spaces/{id}` | owner of space / admin | `dto.SpacePatchReq` | `core.Space` |
+| `GET /api/sessions` | user | `?principal=&archived=&q=&before=&limit=` | `dto.List[core.Session]` |
+| `POST /api/sessions` | user | `dto.SessionCreateReq` | `core.Session` (`Runner.NewSession`, origin `web`) |
+| `GET /api/sessions/{id}` | user | — | `dto.SessionDetail` |
+| `PATCH /api/sessions/{id}` | user | `dto.SessionPatchReq` | `core.Session` |
+| `DELETE /api/sessions/{id}` | user | — | `204` (archive) |
+| `GET /api/sessions/{id}/messages` | user | `?before=<seq>&limit=` | `dto.MessagePage` |
+| `POST /api/sessions/{id}/messages` | user | `dto.SendReq` | `202 core.SubmitResult` |
+| `POST /api/sessions/{id}/stop` | user | — | `dto.StopResp` |
+| `POST /api/sessions/{id}/compact` | user | — | `202` |
+| `GET /api/sessions/{id}/context` | user | — | `core.Breakdown` (preview of the next call) |
+| `POST /api/sessions/{id}/fork` | user | — | `core.Session` (`Runner.Fork`: clean fork, taint 0) |
+| `GET /api/sessions/{id}/pins` | user | — | `[]core.Pin` |
+| `POST /api/sessions/{id}/pins` | user | `dto.PinReq` | `core.Pin` |
+| `DELETE /api/sessions/{id}/pins/{pin}` | user | — | `204` |
+| `POST /api/uploads` | user | multipart `file`, field `session_id` | `dto.Upload` (streamed to `<work>/ws/<principal workspace>/.bothy/in/<upl>/<sanitized name>`, 0660, ≤ `upload_max_mb`; `uploads` row) |
+| `GET /api/runs` | user | `?session=&schedule=&status=&before=&limit=` | `dto.List[core.Run]` |
+| `GET /api/runs/{id}` | user | — | `dto.RunDetail` |
+| `POST /api/runs/{id}/continue` | user | — | `202 core.SubmitResult` |
+| `GET /api/approvals` | user | `?status=pending\|parked\|recent&before=&limit=` | `dto.List[core.Approval]` (`Approvals.Pending` filtered, `Next` 0; or `Approvals.Recent`, `Next` = last `created_at` unix ms) |
+| `GET /api/approvals/{id}` | user | — | `core.Approval` |
+| `POST /api/approvals/{id}` | user (cookie only; approver) | `dto.ApprovalResolveReq` | `core.Approval` (bearer tokens → 403) |
+| `GET /api/grants` | user (own) | `?scope=&scope_id=` | `[]core.Grant` |
+| `POST /api/grants` | admin | `dto.GrantCreateReq` (principal scope only) | `core.Grant` |
+| `DELETE /api/grants/{id}` | user (own) / admin | — | `204` |
+| `POST /api/policy/preview` | admin | `dto.PolicyPreviewReq` | `dto.PolicyPreviewResp` (Plan + Decide, no side effects) |
+| `GET /api/events` | read | `Last-Event-ID` header | SSE (§8.2) |
+| `GET /api/search` | user | `?q=&limit=` | `[]core.SearchHit` (own principals) |
+| `GET /api/memory/{file}` | user | `?principal=` (default own) | `dto.MemoryDoc` |
+| `PUT /api/memory/{file}` | user | `If-Match: <etag>` + `dto.MemoryPutReq` | `dto.MemoryDoc` / `409` |
+| `GET /api/memory/{file}/history` | user | `?before=&limit=` | `dto.List[core.MemoryEvent]` |
+| `GET /api/memory/export` | user | `?principal=` (default own) | `application/x-tar` of MEMORY.md, USER.md, HEARTBEAT.md and `events.jsonl` (`Content-Disposition: attachment`, `CSP: sandbox`) |
+| `GET /api/persona` | user | — | `{"content":"…"}` (reads `<data>/<agent.persona_file>`; the runner writes the default SOUL.md at boot when missing) |
+| `PUT /api/persona` | admin | `{"content":"…"}` | `204` (atomic write 0600, ≤ 16 KB, audited `persona.update`; used at the next snapshot) |
+| `GET /api/constitution` | user | — | `{"version":"…","content":"…"}` (`Runner.Constitution`, read-only) |
+| `GET /api/skills` | user (enabled) / admin (all) | — | `[]core.SkillMeta` |
+| `GET /api/skills/{name}` | user | — | `dto.SkillDetail` |
+| `POST /api/skills` | admin | multipart zip (≤ 5 MB, ≤ 200 files) | `core.SkillMeta` (status pending) |
+| `PATCH /api/skills/{name}` | admin | `dto.SkillPatchReq` | `core.SkillMeta` |
+| `DELETE /api/skills/{name}` | admin | — | `204` |
+| `POST /api/skills/rescan` | admin | — | `[]core.SkillMeta` |
+| `GET /api/schedules` | user | — | `[]core.Schedule` (own) |
+| `POST /api/schedules` | user (own principals; humans need no approval: the self-modification lock targets the agent, whose `schedule_*` tools are admin-class under F3; members stay bounded by their daily cap) | `dto.ScheduleUpsertReq` | `core.Schedule` (`Scheduler.Upsert` assigns the id, then each `grants[]` entry goes through `Policy.Grant` with scope `schedule`, `scope_id` = the id, `principal_id` = the schedule's principal; whole-tool or admin/financial `max_se` grants → 400; audited `schedule.create`) |
+| `GET /api/schedules/{id}` | user | — | `core.Schedule` |
+| `PATCH /api/schedules/{id}` | user | `dto.ScheduleUpsertReq` | `core.Schedule` (the schedule's grants are replaced: old ones revoked, new ones granted as above) |
+| `DELETE /api/schedules/{id}` | user | — | `204` |
+| `POST /api/schedules/{id}/run` | user | — | `202 {"run_id":"…"}` |
+| `GET /api/schedules/{id}/runs` | user | `?before=&limit=` | `dto.List[core.Run]` |
+| `POST /api/schedules/preview` | user | `dto.SchedulePreviewReq` | `dto.SchedulePreviewResp` |
+| `GET /api/mcp` | admin | — | `[]core.MCPStatus` |
+| `GET /api/mcp/{server}/pins` | admin | — | `[]core.MCPPin` (pending ones include the previous approved definition for diffing) |
+| `POST /api/mcp/{server}/approve` | admin | `dto.MCPApproveReq` | `204` |
+| `POST /api/mcp/{server}/install` | admin | — | `202` |
+| `POST /api/mcp/{server}/reload` | admin | — | `202` |
+| `GET /api/providers` | admin | — | `[]core.ProviderHealth` |
+| `POST /api/providers/test` | admin | `dto.ProviderTestReq` | `core.ProbeResult` |
+| `POST /api/providers/detect` | admin | — | `[]core.Detection` |
+| `GET /api/models` | user | — | `[]core.ModelInfo` |
+| `GET /api/channels` | admin | — | `[]core.ChannelStatus` |
+| `POST /api/channels/{name}/test` | admin | — | `dto.ChannelTestResp` |
+| `GET /api/channels/slack/manifest` | admin | — | `text/yaml` app manifest |
+| `GET /api/channels/discord/invite` | admin | — | `dto.DiscordInvite` |
+| `GET /api/config` | admin | `?schema=1` | `dto.ConfigView` |
+| `PATCH /api/config` | admin | `dto.ConfigPatchReq` | `dto.ConfigPatchResp` / `400` with `config.FieldError`s |
+| `DELETE /api/config/{path...}` | admin | — | `204` (reset UI override) |
+| `GET /api/vault/status` | admin | — | `core.VaultStatus` |
+| `POST /api/vault/import` | admin | `dto.VaultImportReq` | `core.SecretMeta` (copies one well-known env key, e.g. `ANTHROPIC_API_KEY`, into the global vault; the value never leaves the process; audited `vault.put`) |
+| `GET /api/vault` | admin (`?scope=global\|user:<id>`) / user (own scope) | — | `[]core.SecretMeta` |
+| `PUT /api/vault/{scope}/{name}` | admin / user (own scope) | `dto.VaultPutReq` | `core.SecretMeta` |
+| `DELETE /api/vault/{scope}/{name}` | admin / user (own scope) | — | `204` |
+| `POST /api/vault/unseal` | admin | `dto.UnsealReq` | `core.VaultStatus` |
+| `GET /api/usage` | user (own) / admin (all, `?user=`) | `?from=&to=&group_by=day\|model\|user\|schedule\|session` | `dto.UsageResp` |
+| `GET /api/usage/today` | user | — | `dto.UsageToday` |
+| `GET /api/audit` | admin | `?actor=&action=&from=&to=&before=&limit=` | `dto.List[core.AuditEntry]` |
+| `GET /api/audit/verify` | admin | — | `dto.AuditVerify` |
+| `GET /api/egress` | user | `?session=&before=&limit=` | `dto.List[core.EgressRecord]` (own principals; admins also see system-dialer rows) |
+| `GET /api/sandbox` | user | — | `dto.SandboxInfo` (`UsedMB`/`QuotaMB` from `Sandbox.Usage` of the caller's own workspace) |
+| `GET /api/workspace/files` | user | `?principal=&path=` | directory listing JSON or file download (`Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`) via `os.Root` |
+| `POST /api/admin/pause` | admin | `dto.PauseReq` | `204` |
+| `POST /api/admin/restart` | admin | — | `202` (calls `Deps.Restart`; `cmd/bothy` drains every loop, then re-execs itself) |
+| `POST /api/admin/backup` | admin | — | `{"path":"…"}` (`Store.Backup(<data>/backups)`, audited `backup.create`) |
+| `GET /api/doctor` | admin | — | `dto.DoctorReport` |
+| `POST /api/security-audit` | admin | `dto.SecurityAuditReq` | `dto.DoctorReport` |
+| `GET /v1/models` | bearer:chat or llm | — | OpenAI list (§8.5) |
+| `POST /v1/chat/completions` | bearer:chat (agent) / llm (passthrough) | OpenAI request | OpenAI response / SSE |
+| `GET /{path...}` | none | — | SPA: hashed `/assets/*` with `Cache-Control: public, max-age=31536000, immutable` and pre-gzipped `Content-Encoding`; `index.html` `no-store`; unknown non-API paths → `index.html` |
+
+### 8.4 DTOs (`internal/httpapi/dto`, skeleton-owned, frozen)
+
+JSON conventions: field names are snake_case as tagged; times are RFC 3339 strings; `time.Duration` fields are integer nanoseconds (Go's default, mapped to `number` by tygo); money is integer micro-USD in fields ending `_micros`.
+
+`make gen` runs tygo (tools module) over `internal/core` and `internal/httpapi/dto` and writes `web/src/lib/api/types.gen.ts`; CI fails if it is stale.
+
+```go
+// Package dto holds the JSON shapes of the REST API that are not core types.
+// Frozen in the skeleton; web/src/lib/api/types.gen.ts is generated from it and
+// from internal/core by tygo (make gen).
+package dto
+
+import (
+	"encoding/json"
+	"time"
+
+	"github.com/bothyhq/bothy/internal/config"
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+// Error is the envelope for every non-2xx /api response.
+type Error struct {
+	Error ErrorBody `json:"error"`
+}
+
+type ErrorBody struct {
+	Code    string `json:"code"` // bad_request | unauthorized | forbidden | not_found | conflict | busy | paused | budget_exceeded | rate_limited | sealed | no_sandbox | unavailable | internal
+	Message string `json:"message"`
+	Fix     string `json:"fix,omitempty"`
+}
+
+type List[T any] struct {
+	Items []T   `json:"items"`
+	Next  int64 `json:"next,omitempty"` // pass as ?before= for the next page; 0 = end
+}
+
+// ---- setup / auth ----
+
+type SetupState struct {
+	NeedsSetup bool   `json:"needs_setup"`
+	Claimed    bool   `json:"claimed"` // a setup grant cookie is present and valid
+	OwnerSet   bool   `json:"owner_set"`
+	Sandbox    bool   `json:"sandbox_available"`
+	Version    string `json:"-"` // never disclosed pre-auth
+}
+
+type SetupClaimReq struct {
+	Token string `json:"token"`
+}
+
+type SetupClaimResp struct {
+	CSRF string `json:"csrf"`
+}
+
+type SetupOwnerReq struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Timezone string `json:"timezone"`
+}
+
+type LoginReq struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type Me struct {
+	User       core.User         `json:"user"`
+	CSRF       string            `json:"csrf"`
+	Mode       string            `json:"mode"` // single | multi
+	Principals []*core.Principal `json:"principals"`
+	Paused     bool              `json:"paused"`
+	Sandbox    bool              `json:"sandbox_available"`
+	Banners    []core.BannerData `json:"banners"`
+}
+
+type PasswordReq struct {
+	Old string `json:"old"`
+	New string `json:"new"`
+}
+
+type TokenCreateResp struct {
+	Token string            `json:"token"` // plaintext, shown once
+	Meta  *core.TokenRecord `json:"meta"`
+}
+
+type UserCreateReq struct {
+	Username    string    `json:"username"`
+	Password    string    `json:"password"`
+	DisplayName string    `json:"display_name"`
+	Role        core.Role `json:"role"`
+}
+
+type UserPatchReq struct {
+	DisplayName *string    `json:"display_name,omitempty"`
+	Role        *core.Role `json:"role,omitempty"`
+	Disabled    *bool      `json:"disabled,omitempty"`
+}
+
+type PairingApproveReq struct {
+	Code   string      `json:"code"`
+	As     string      `json:"as"` // guest | link
+	UserID core.UserID `json:"user_id,omitempty"`
+}
+
+type IdentityPatchReq struct {
+	Status core.IdentityStatus `json:"status"` // blocked | guest | linked
+	UserID core.UserID         `json:"user_id,omitempty"`
+}
+
+type SpacePatchReq struct {
+	Title       *string `json:"title,omitempty"`
+	Enabled     *bool   `json:"enabled,omitempty"`
+	MentionOnly *bool   `json:"mention_only,omitempty"`
+	ToolProfile *string `json:"tool_profile,omitempty"` // restricted | standard (admin)
+}
+
+// ---- sessions / messages / runs ----
+
+type SessionCreateReq struct {
+	Principal core.PrincipalID `json:"principal_id,omitempty"` // default: caller's own
+	Title     string           `json:"title,omitempty"`
+}
+
+type SessionPatchReq struct {
+	Title         *string `json:"title,omitempty"`
+	ModelOverride *string `json:"model_override,omitempty"` // "" clears
+}
+
+type SessionDetail struct {
+	Session core.Session     `json:"session"`
+	Pins    []*core.Pin      `json:"pins"`
+	Active  *core.RunInfo    `json:"active,omitempty"`
+	Pending []*core.Approval `json:"pending_approvals"`
+}
+
+type MessagePage struct {
+	Messages []*core.Message `json:"messages"` // oldest first within the page
+	HasMore  bool            `json:"has_more"`
+}
+
+type SendReq struct {
+	Text    string   `json:"text"`
+	Uploads []string `json:"uploads,omitempty"` // upl_<26> ids from POST /api/uploads
+}
+
+type Upload struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	MIME string `json:"mime"`
+	Size int64  `json:"size"`
+}
+
+type PinReq struct {
+	Text   string `json:"text,omitempty"`
+	MsgSeq int64  `json:"msg_seq,omitempty"`
+}
+
+type StopResp struct {
+	Stopped bool `json:"stopped"`
+}
+
+type RunDetail struct {
+	Run       *core.Run              `json:"run"`
+	LLMCalls  []core.CallInfo        `json:"llm_calls"`
+	ToolCalls []*core.ToolCallRecord `json:"tool_calls"`
+	Approvals []*core.Approval       `json:"approvals"`
+}
+
+type ApprovalResolveReq struct {
+	Choice  core.Choice `json:"choice"`
+	Comment string      `json:"comment,omitempty"`
+}
+
+type GrantCreateReq struct { // admin, persistent principal grants only
+	Principal core.PrincipalID  `json:"principal_id"`
+	Kind      core.GrantKind    `json:"kind"`
+	Tool      string            `json:"tool,omitempty"`
+	Pattern   map[string]string `json:"pattern,omitempty"`
+	Value     string            `json:"value,omitempty"`
+	MaxSE     core.SideEffect   `json:"max_se"`
+	ExpiresAt time.Time         `json:"expires_at,omitempty"`
+}
+
+type PolicyPreviewReq struct {
+	Tool    string          `json:"tool"`
+	Args    json.RawMessage `json:"args"`
+	Session core.SessionID  `json:"session_id,omitempty"` // taint and grants context; default: a clean session
+	Trigger core.Trigger    `json:"trigger,omitempty"`
+}
+
+type PolicyPreviewResp struct {
+	Action   *core.Action  `json:"action"`
+	Decision core.Decision `json:"decision"`
+	Card     *core.Card    `json:"card,omitempty"` // when the verdict is ask
+}
+
+// ---- memory / skills / schedules ----
+
+type MemoryDoc struct {
+	File     core.MemoryFile `json:"file"`
+	Content  string          `json:"content"`
+	ETag     string          `json:"etag"`
+	CapBytes int             `json:"cap_bytes"`
+}
+
+type MemoryPutReq struct {
+	Content string `json:"content"` // If-Match header carries the etag
+}
+
+type SkillDetail struct {
+	Meta  *core.SkillMeta `json:"meta"`
+	Body  string          `json:"body"`
+	Files []string        `json:"files"`
+}
+
+type SkillPatchReq struct {
+	Enabled bool `json:"enabled"`
+}
+
+type SchedulePreviewReq struct {
+	Kind core.ScheduleKind `json:"kind"`
+	Spec string            `json:"spec"`
+	TZ   string            `json:"tz"`
+}
+
+type SchedulePreviewResp struct {
+	Next  []time.Time `json:"next"`  // 5 occurrences
+	Human string      `json:"human"` // "Weekdays at 08:00 (Europe/London)"
+}
+
+type ScheduleUpsertReq struct {
+	Schedule core.Schedule `json:"schedule"`
+	Grants   []core.Grant  `json:"grants"` // pre-authorized scopes (scope=schedule); narrow only
+}
+
+// ---- providers / channels / mcp / sandbox ----
+
+type ProviderTestReq struct {
+	Kind         core.ProviderKind `json:"kind"`
+	BaseURL      string            `json:"base_url,omitempty"`
+	APIKey       string            `json:"api_key,omitempty"` // write-only, used for this probe only; the wizard stores it with PUT /api/vault/global/<name>
+	SecretRef    string            `json:"secret_ref,omitempty"`
+	Model        string            `json:"model"`
+	AllowPrivate bool              `json:"allow_private"`
+}
+
+type ChannelTestResp struct {
+	Identity string `json:"identity"`
+}
+
+type DiscordInvite struct {
+	URL string `json:"url"`
+}
+
+type MCPApproveReq struct {
+	Tools map[string]core.MCPToolApproval `json:"tools"`
+}
+
+type SandboxInfo struct {
+	Status  core.SandboxStatus `json:"status"`
+	Compose string             `json:"compose_hint,omitempty"` // shown when unavailable
+	QuotaMB int                `json:"quota_mb"`
+	UsedMB  int                `json:"used_mb"`
+}
+
+// ---- config / vault / usage / audit / admin ----
+
+type ConfigView struct {
+	config.Effective
+	Schema json.RawMessage `json:"schema,omitempty"`
+}
+
+type ConfigPatchReq struct {
+	Set map[string]json.RawMessage `json:"set"` // dotted path -> JSON value
+}
+
+type ConfigPatchResp struct {
+	RestartRequired []string `json:"restart_required"`
+}
+
+type VaultPutReq struct {
+	Value string `json:"value"` // write-only
+}
+
+type VaultImportReq struct {
+	EnvVar string `json:"env_var"` // one of the well-known names in SPEC §7.2; anything else => 400
+	Name   string `json:"name"`    // vault name in the global scope, e.g. "anthropic_api_key"
+}
+
+type UnsealReq struct {
+	Passphrase string `json:"passphrase"`
+}
+
+type UsageResp struct {
+	Rows   []core.UsageRow `json:"rows"`
+	Totals core.UsageRow   `json:"totals"`
+}
+
+type UsageToday struct {
+	Spent       core.Micros `json:"spent_micros"`
+	Limit       core.Micros `json:"limit_micros"`
+	GlobalSpent core.Micros `json:"global_spent_micros"` // admins only
+	GlobalLimit core.Micros `json:"global_limit_micros"`
+}
+
+type AuditVerify struct {
+	OK    bool  `json:"ok"`
+	BadID int64 `json:"bad_id,omitempty"`
+}
+
+type PauseReq struct {
+	Paused bool `json:"paused"`
+}
+
+type SecurityAuditReq struct {
+	Fix bool `json:"fix"`
+}
+
+type DoctorReport struct {
+	Findings []core.Finding `json:"findings"`
+	Fixed    []string       `json:"fixed,omitempty"`
+}
+```
+
+### 8.5 OpenAI-compatible endpoint
+
+**`GET /v1/models`** → `{"object":"list","data":[{"id":"bothy","object":"model","created":<boot unix>,"owned_by":"bothy"}, {"id":"bothy-fast",…}, …]}`. Passthrough ids (`anthropic/claude-sonnet-4-6`, `ollama/qwen3:14b`) are listed only for tokens with scope `llm` and when `api.passthrough` is on.
+
+**`POST /v1/chat/completions`, model `bothy` (main slot) or `bothy-fast` (fast slot), scope `chat`:**
+- **Session mapping:** header `X-Bothy-Session: ses_…` (must be visible to the token user's Viewer, else 404) → server-side history; only the **last** user message is used; response header `X-Bothy-History: server`. Without the header → a hidden `api` session (origin `api`, retained 7 days) built from the request: client `system` messages become `RunRequest.Instructions`, rendered as untrusted "client instructions" inside the turn-context (they never replace the constitution); prior `user`/`assistant` turns become `Ephemeral` history with the token user's provenance; client `tool` messages → 400. The model id selects `RunRequest.Slot` (`bothy` = main, `bothy-fast` = fast), with or without the session header. Trigger `api`, so F3 denies admin-class actions and approvals follow the token's `on_approval`.
+- **Rejected with 400** (`{"error":{"message","type":"invalid_request_error","param","code":"unsupported_in_agent_mode"}}`): `tools`, `tool_choice`, `functions`, `function_call`, `n>1`, `logprobs`, `audio`, `prediction`, `response_format`. Use passthrough for client tools.
+- **Honoured:** `stream`, `stream_options.include_usage`, `max_tokens` / `max_completion_tokens` (caps each step's output), `temperature`, `stop`, `user` (audit only), `metadata` (ignored). Other parameters are ignored and listed in `X-Bothy-Ignored`.
+- **Images:** `image_url` with `data:` URIs only (≤ 5 MB); remote URLs → 400 (fetching them would be agent-controlled egress).
+- **Streaming:** `chat.completion.chunk` frames, then `data: [DONE]`. `delta.content` carries the assistant text of all steps joined by a blank line. Tool activity is not in `content`; with `X-Bothy-Events: 1` chunks carry an extra `bothy` object (`{"event":"run.tool_call","tool":"web_search"}`) that standard clients ignore. While waiting on an approval (token `on_approval: wait`), the stream sends `: waiting-approval` comments for up to `api_wait`, then the action is denied; API runs never park.
+- **Final:** `finish_reason` `stop` | `length` (steps/token budget) | `content_filter` (refusal). `usage` sums every internal call (`prompt_tokens` includes cached; `prompt_tokens_details.cached_tokens` set). Headers `X-Bothy-Run-Id`, `X-Bothy-Session`, `X-Bothy-Cost-Micros`.
+- **Disconnect** cancels the run unless `X-Bothy-Detach: 1`.
+- **Errors:** budget → 429 `{"error":{"type":"insufficient_quota","code":"budget_exceeded"}}`; rate limit → 429 + `Retry-After`; paused → 503; provider failure after fallback → 502 `upstream_error`.
+
+**Passthrough, model `<provider>/<model>`, scope `llm`:** the OpenAI request is translated to `core.Request` (so Anthropic, Gemini and Ollama models work from any OpenAI client) and the response translated back. Client `tools`/`tool_choice` pass through and come back as standard `tool_calls`. No Bothy tools, memory, constitution or fallback (`LLM.Passthrough`). Metered (`purpose=passthrough`) against the token user's daily cap; audit `api.passthrough` with token counts only.
+
+### 8.6 Channel setup helpers (M11)
+
+**Slack app manifest** (`GET /api/channels/slack/manifest`; `{{name}}` = agent name from SOUL.md, default "Bothy"):
+
+```yaml
+display_information:
+  name: "{{name}}"
+  description: Self-hosted assistant (Bothy)
+features:
+  bot_user: {display_name: "{{name}}", always_online: true}
+  slash_commands:
+    - {command: /bothy, description: "Talk to {{name}} (stop, new, status, help)", should_escape: false}
+oauth_config:
+  scopes:
+    bot: [app_mentions:read, channels:history, groups:history, im:history, im:read, im:write,
+          chat:write, commands, users:read, files:read, reactions:write]
+settings:
+  event_subscriptions:
+    bot_events: [app_mention, message.im, message.channels, message.groups]   # channel messages only matter for spaces with mention_only off; duplicates of app_mention are dropped by inbound dedup (same ts)
+  interactivity: {is_enabled: true}
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false
+```
+
+The wizard opens `https://api.slack.com/apps?new_app=1&manifest_yaml=<urlencoded manifest>`; the user then creates an app-level token with `connections:write` (`xapp-…`) and installs the app (`xoxb-…`). Agent output always sets `unfurl_links: false, unfurl_media: false`.
+
+**Discord invite URL** (`GET /api/channels/discord/invite`): `https://discord.com/oauth2/authorize?client_id=<application_id>&scope=bot%20applications.commands&permissions=274877975552` (View Channels 1024 + Send Messages 2048 + Read Message History 65536 + Send Messages in Threads 274877906944). The Message Content privileged intent must be enabled in the developer portal; the wizard says so and the adapter reports `auth_failed` with that hint when the gateway closes with 4014.
+
+---
+
+## 9. Web UI screens and flows (M12)
+
+**Stack:** Svelte 5 (runes), Vite 8, Tailwind 4 (`@tailwindcss/vite`), plain SPA (no SvelteKit). Runtime dependency: `svelte` only. Hand-written pieces: history router (~80 lines), API client over `types.gen.ts` (adds `X-CSRF-Token`, maps `dto.Error`), one `EventSource` store with resync, markdown renderer, SVG charts, QR encoder (byte mode, versions 1–6, ECC M; lazy chunk), ~25 inline SVG icons. Svelte compiled with `css: 'external'`; no `style="…"` attributes in markup (use classes or `style:` directives, which go through CSSOM) so CSP needs no `unsafe-inline`. Budgets (CI): JS ≤ 120 KB gz (target 90), CSS ≤ 20 KB gz, zero requests to other origins. Mobile-first, works at 360 px; light/dark/system; PWA manifest and icons (no offline mode).
+
+**Markdown renderer** (security control): headings, paragraphs, emphasis, inline/fenced code, lists, tables, blockquotes, links. Escapes all HTML; never renders images (image syntax becomes a text link "image: host/…"); links get `rel="noopener noreferrer nofollow"` and `target="_blank"`; `javascript:`/`data:`/`vbscript:` links become text; in Exposed sessions, links to non-allowlisted domains render inert (host shown, copy button). Shared by chat, cards and the SKILL.md viewer.
+
+**Routes:** `/setup`, `/login`, `/chat`, `/chat/:id`, `/approvals`, `/approvals/:id`, `/runs/:id`, `/schedules`, `/schedules/:id`, `/memory`, `/usage`, `/audit`, `/settings/:page`.
+
+**Shell:** left rail (Chat, Approvals with badge, Schedules, Memory, Usage, Audit for admins, Settings); top bar with the sandbox chip (green "Isolated · runsc", green "Isolated · runc", red "No sandbox: exec off", red "Not isolated: refused"), kill-switch button (admins), today's spend vs cap; persistent banners (`banner` events): no sandbox, sandbox not isolated, config errors / safe mode, provider auth failed, paused, MCP pins pending, budget ≥ 80%, vault sealed, restart required.
+
+### 9.1 First-run wizard (`/setup`)
+
+Progress dots; every step revisitable; state derives from the server, so a reload resumes.
+
+0. **Claim.** The token is read from `#t=…`, posted to `/api/setup/claim`, and removed with `history.replaceState`. Without a fragment: a paste box plus the exact commands (`docker logs bothy | grep setup`, `docker exec bothy /bothy setup-token`, or `<data>/setup-token`). One sentence of product intro.
+1. **Owner account.** Username, password (≥ 12 chars, a local length/variety strength meter, show/hide; the 10k common-password list lives server-side in `internal/auth` and its rejection message is shown inline, so the bundle stays small), timezone from `Intl` (editable). "Household/team mode" toggle (sets `mode: multi`). Creates the owner and logs in.
+2. **Models.** `POST /api/providers/detect` cards first ("Ollama at host.docker.internal:11434: 3 models", "ANTHROPIC_API_KEY found: import into the vault?" → `POST /api/vault/import`). Provider tiles: Anthropic, OpenAI, Gemini, OpenRouter, Groq, xAI, DeepSeek, Ollama, LM Studio, Custom (base URL). Pasting a key runs **Test** (`POST /api/providers/test`): a real 1-token completion plus a forced tool-call probe, showing ✓ key valid · ✓ tool calling · context window · latency · test cost, or plain-language failures ("401: key revoked or wrong project"; "Ollama serves qwen3:8b with 4,096 context; set OLLAMA_CONTEXT_LENGTH=16384 or pick a model with ≥ 16K"). "Use this provider" stores the key (`PUT /api/vault/global/<name>`) and writes the provider (`PATCH /api/config` with `set: {"providers.<id>": {…}}`). Pick **Main** and **Fast** (recommended pair preselected), drag to add fallbacks. Windows < 32K show "compact mode", < 16K "degraded", < 8K "text-only".
+3. **Safety.** Sandbox card from `/api/sandbox` with self-test results (green, or red with the copyable compose command / daemon.json fix and "Continue without code tools"). Policy preset cards with plain examples (careful: "asks before anything leaves this box"; balanced: "asks the first time per recipient or site"; hands-off: "asks only for irreversible actions"). Daily spend slider (default $5) with "≈ N typical replies on <Main model>" from catalog prices. Approval timeout behaviour. Web search backend (SearXNG if reachable, Brave, Tavily, off). Package-registry egress presets (off by default).
+4. **Chat apps** (skippable; each tile expands inline):
+   - **Telegram:** 3-step BotFather guide → paste token (`secret`) → Test (`getMe` → "@my_bothy_bot") → "Link your Telegram": QR code + button for `t.me/<bot>?start=<code>` (`POST /api/pairing`) → live checkmark on `pairing.linked` → hello DM.
+   - **Discord:** token + application id → invite URL with exact permissions and no privileged intents beyond Message Content (`/api/channels/discord/invite`) → pair by DM `/pair CODE`.
+   - **Slack:** "Create Slack app from manifest" button opening `https://api.slack.com/apps?new_app=1&manifest_yaml=<urlencoded /api/channels/slack/manifest>` (Socket Mode, minimal scopes, `unfurl` off, `/bothy` slash command) → paste `xapp-` and `xoxb-` → Test (`auth.test`) → pair by DM.
+5. **Make it yours.** Agent name and tone preset (written to SOUL.md via `PUT /api/persona`), three optional questions seeding USER.md, heartbeat toggle (off) with "≈ $0.05/day on <Fast model>".
+6. **Done.** `POST /api/setup/complete`; security-audit summary (`POST /api/security-audit {fix:false}`); suggested first messages; opens chat.
+
+### 9.2 Chat (`/chat/:id`)
+
+- **Sidebar:** sessions grouped Today / This week / Older with origin icons (web, Telegram, Discord, Slack, API, schedule), spaces under their own heading, FTS search box (`/api/search`, highlighted snippets), New chat.
+- **Header:** editable title; model override dropdown (`/api/models`); **trifecta badge** (three dots P·U·S lit per leg, red when Exposed, tooltip explains; "Fork clean" button); pins counter (drawer to add/remove pins).
+- **Transcript:** streaming markdown; steer messages marked "added while working"; notices (stopped, budget, loop, compaction, auto-pin) styled as system lines. **Tool rows**: compact chips built from the Action ("Searched the web: 'madrid weather'", "Ran `python analyze.py` · exit 0 · 2.1 s"), expandable to the exact Action, live `run.tool_output`, status, duration, verdict chip (auto / granted / approved / denied), "untrusted output" tag. **Approval cards** inline (§9.3).
+- **Composer:** text, attachments (upload), slash commands (`/pin`, `/new`, `/model`, `/compact`, `/stop`); **Stop** button always enabled while running; "Continue (+10 steps)" after a steps-budget stop; Retry after a provider error.
+- **Context ring:** tokens used / window from the last `run.usage` breakdown and run cost; click opens the **Breakdown drawer**: stacked bar (constitution, persona, memory, skills, pins, tools, summary, history, tool results, turn context, reserve) against the window with the compaction threshold marker, cache-hit %, per-step calls with model, fallback attempts, TTFT, cost.
+- **Run trace** (`/runs/:id`): timeline of LLM calls (breakdown, attempts, cost) and tool calls (Action, decision, rule, approval, egress destinations from `/api/egress`, duration).
+
+### 9.3 Approvals (`/approvals`, bell badge)
+
+- Inbox of pending, parked and recent approvals across the user's principals, filter by status, keyboard shortcuts (a = allow once, s = allow for session, d = deny, j/k move).
+- **Card component** (shared with inline cards): title + risk colour by class; fields rendered verbatim in monospace with bidi/zero-width characters visualised and domains in punycode; diff viewer (lines coloured by prefix); warnings (trifecta, first contact, untrusted origin); context line; countdown; buttons from `card.choices`; "Model's reason (unverified)" collapsed when present. Buttons are real `<button>` elements, keyboard reachable.
+- Resolving anywhere updates every surface live (`approval.resolved`).
+
+### 9.4 Settings (`/settings/:page`), every field with a source chip (§7.3)
+
+| Page | Contents |
+|---|---|
+| General | Mode, timezone, public URL, remote-access status (peer class, TLS), restart banner |
+| Models & providers | Provider cards (health, Test, last error), slot chains (drag to reorder), pricing overrides, detected local models |
+| Chat apps | Channel cards (status, reconnect, Test), group spaces (enable, mention-only, tool profile), pairing (code + QR), linked identities, pending senders (approve as guest / link / block), Slack manifest, Discord invite |
+| People (multi mode) | Users, roles, per-user caps, disable |
+| Policy | Preset, class overrides, rules table (add/edit with a "what would happen" tester: `POST /api/policy/preview` plans a sample call and returns the Action and Decision), grants list with revoke, approval timeouts and notify channels |
+| Sandbox & egress | Backend, runtime, engine, self-test results, limits, quota usage, active boxes; egress allowlist, presets, shared-tenant list, recent blocks with one-click "allow for this session" (creates a narrow domain grant) |
+| MCP | Servers (state, protocol, transport), add/edit (writes `mcp.servers` via config PATCH; shows the exact install command, package, integrity and requested egress), Install, Reload, tool review: pending tools with a JSON **diff** against the previously approved definition, side-effect class selector, field map editor, private toggle, Approve |
+| Skills | List, status (pending/enabled/disabled/changed), view SKILL.md and files (read-only), upload zip, enable/disable, rescan |
+| Persona | SOUL.md editor (admin), constitution viewer (read-only), standing rules (admin) |
+| Vault | Names, scope, source (vault/env), hint, last used; set/replace (write-only fields), delete; KEK source and colocation warning (`GET /api/vault/status`); unseal |
+| API tokens | Create (scopes, expiry, on_approval), shown once with copy and snippets (curl, Open WebUI); revoke; last used |
+| Budgets | Global and per-user caps, run and scheduled limits, heartbeat cap, current spend bars |
+| Advanced | Effective config (merged YAML with source comments), download `bothy.ui.yaml`, doctor and security audit (findings with Fix buttons), backup now, kill switch |
+
+### 9.5 Other screens
+
+- **Usage** (`/usage`): today / 7 d / 30 d totals; inline-SVG bars by day; tables by model, user (admins), schedule and session; cache-hit ratio; "price unknown" markers; drill-down to runs and the run trace.
+- **Audit** (`/audit`, admins): filters (actor, action prefix, time); row detail JSON (redacted); egress tab; **Verify chain** (`/api/audit/verify`) showing OK or the first bad id.
+- **Memory** (`/memory`): tabs MEMORY.md, USER.md, HEARTBEAT.md (principal picker for owned spaces is hidden: spaces have no memory); editor with live byte counter against the cap; `If-Match` conflict handling; event history (op, before/after diff, actor, provenance badge, run link); note "Changes appear in your next message."
+- **Schedules** (`/schedules`): list with name, human description ("Weekdays at 08:00, Europe/London"), next run, last status and cost, enabled toggle, Run now; create/edit form: kind (cron / heartbeat / once) with presets or raw cron and a live preview of the next 5 runs (`/api/schedules/preview`), timezone, active hours, prompt, deliver-to picker (preferred DM, a linked chat, web only), model slot, per-run limits, **pre-authorized grants** checklist (each narrow grant shows its class), missed-run policy; history table with status, cost and transcript links.
+
+---
+
+## 10. Security controls (P0 baseline → mechanism → module)
+
+| # | Baseline item (brief §6) | Mechanism | Module |
+|---|---|---|---|
+| 1 | No unauthenticated mode; loopback publish; refuse insecure exposure; setup token; Argon2id; lockout; constant-time | Every route except health, setup (local peers, 404 after completion) and static assets requires an Actor; loopback is not trusted. Compose publishes `127.0.0.1:8080`. Exposure gate by **peer IP** (§8.1): plain HTTP only for local peers (LAN only with locked `insecure_lan`), public peers need TLS. Host allowlist → 421. Setup token 256-bit, single claim, 24 h, file 0600, delivered in the URL fragment. Argon2id m=19 MiB t=2 p=1, one hashing slot, dummy hash for unknown users, per-user and per-IP exponential lockout. `subtle.ConstantTimeCompare` for all secrets. | httpapi, auth, deploy |
+| 2 | Web hardening: Origin/CSRF/SameSite, no tokens in query strings, CSP, no wildcard CORS, loopback not trusted, mDNS off | SSE instead of WebSocket. `http.CrossOriginProtection` + synchroniser `X-CSRF-Token` + SameSite=Strict; `__Host-` cookie under TLS. Credential-named query params → 400; the SPA never reads tokens or gateway URLs from `location` except the one-time setup fragment, which it strips. Strict CSP without `unsafe-inline`, `frame-ancestors 'none'`. No CORS headers at all. `trusted_proxies` explicit. No mDNS code. | httpapi, auth, web |
+| 3 | Envelope-encrypted vault; KEK sources; keys only in the gateway; redaction; write-only UI; 0600 files | One active 32-byte DEK wrapped (AES-256-GCM) by the KEK; secrets AES-256-GCM with random 96-bit nonces and AAD `scope‖0‖name‖0‖version`; `kek_check` detects a wrong KEK (fail closed, vault sealed). KEK sources: Docker secret `/run/secrets/bothy_kek` → systemd `$CREDENTIALS_DIRECTORY/bothy_kek` → `file:` → passphrase (Argon2id-derived, vault sealed until unlocked in the UI) → auto keyfile in the separate `/keys` volume (colocated fallback flagged medium) → `env` (`BOTHY_KEK`, flagged high). Secrets reach only provider, channel, search and HTTP-MCP clients in the gateway; the sandbox protocol has no field that can carry them; MCP stdio gets none. Redactor: exact values plus base64/base64url/hex/percent-encoded variants and token patterns, applied to logs (slog handler), audit detail, tool results, model input, channel output and SSE. API never returns values. Umask 007; `/data` files 0600, dirs 0700. | vault, audit, sandbox, egress |
+| 4 | Sandbox: non-root, cap_drop ALL, no-new-privileges, read-only rootfs + tmpfs, default seccomp/AppArmor, limits; workspace only; no docker.sock in the gateway; network none / proxy only; approvals stay on | Compiled-in spec (§2.6): uid 10001, `CapDrop: ALL`, `no-new-privileges`, read-only rootfs, tmpfs `/tmp` and home, default seccomp/AppArmor, pids/memory/CPU/nofile limits, `--network none`, `LogConfig none`. Mounts: own workspace subpath rw, skills ro, own egress socket dir ro, MCP tree ro. The runtime socket lives only in sandboxd (no network, fixed schema, regex-validated ids). runsc auto when probed. Self-test canaries gate every box. Policy has no "in a container" bypass. bwrap backend: `--clearenv`, `--unshare-all --disable-userns`, seccomp filter, rlimits. | sandbox, sandboxd, sbxinit, policy |
+| 5 | Egress: default deny, private ranges blocked, proxy DNS with pinning, no sandbox DNS, byte caps, every destination logged | Per-box unix-socket proxy (socket = identity); port allowlist (443); allowlist from config, presets (off), box extras and narrow grants; shared-tenant suffixes admin-only; IP literals only by exact grant; full netip blocklist with `Unmap` and embedded-IPv4 re-check; resolve-then-dial pinned IP with `Control` re-check; SNI must equal the CONNECT host; redirects re-checked per hop (public dialer); asymmetric caps (10 MiB up / 200 MiB down); `egress_log` row per connection; three dialers (box, public, system), the system dialer limited to exact configured `host:port`. | egress |
+| 6 | Capability manifests for every tool, skill and MCP tool; side-effect class; deny by default; system-rendered cards | `core.Manifest` is required and validated at `Register` (zero side effect rejected, schema must compile). MCP tools are not exposed until an admin approves them with a class (config `side_effects` default `external_send`; annotations may only upgrade; `field_map` exposes recipient/URL fields for first-contact checks). Skills add no tools and never execute anything. Cards are rendered by the policy module from the Action only; channel renderers escape everything. | tools, mcp, skills, policy, channel |
+| 7 | Trifecta state machine; messaging confined to origin chat; first contact needs approval | `sessions.taint` P/U/S bits (§5.3); Exposed ⇒ external_send/irreversible always ask, session egress grants suspended, URL provenance for `web_fetch`, link neutralization; box egress taints exec output. The `message` tool has no recipient parameter (uses `env.Chat`). First contact (new recipient or non-GET domain) asks. Clean fork resets taint. | policy, agent, tools, egress, channel, web |
+| 8 | Close exfiltration channels | No remote images anywhere (renderer drops them; CSP `img-src 'self' data:`). Previews off: Telegram `link_preview_options.is_disabled`, Slack `unfurl_links/unfurl_media:false`, Discord `flags: SUPPRESS_EMBEDS`. Links neutralized in Exposed sessions (`hxxps://evil[.]com/…` in chat; inert in web). Agent output never carries buttons. Shared-tenant hosts need admin grants. Upload caps. | channel/*, web, egress |
+| 9 | Self-modification lock | The model has no tools for config, policy, persona, constitution, skills, MCP or auth. `schedule_create/delete` are `admin` class (F3: admin approver, never auto, denied in scheduled/heartbeat/API runs; `Triggers: [message]`). fs tools are rooted at the principal workspace via `os.Root`. Every UI/API change is audited. | tools, policy, scheduler, httpapi |
+| 10 | Cost and abuse caps + kill switch | Run steps/tokens/time/$ meters, daily caps (global, per user, heartbeat), sender and token rate limits, loop detector, `/stop`, `/stopall` / `POST /api/admin/pause` (persisted). | budget, agent, channel, httpapi |
+| 11 | Append-only audit log | `audit_log` with UPDATE/DELETE abort triggers and a sha256 hash chain (`prev_hash`, `hash` over canonical JSON); single writer; `GET /api/audit/verify` and `bothy audit verify`; no online prune; offline archive inserts an anchor row. | audit, store |
+| 12 | Our supply chain | Distroless static nonroot, digest-pinned bases; goreleaser + cosign keyless + syft SBOM + SLSA provenance; `go.sum` committed; **14-day cooldown** for new dependency versions (CI checks publish times via proxy.golang.org and the npm registry); govulncheck; `npm ci --ignore-scripts`; Renovate `minimumReleaseAge: 14 days`; MCP packages exact version + integrity + recorded lock, installed with `--ignore-scripts` into a read-only tree; skill hash pinning; safe `/etc/gitconfig` in sandbox images; `os/exec` import ban. | deploy, CI, mcp, skills, sandbox images |
+| 13 | SECURITY.md with SLA and private channel | GitHub private advisories + `security@bothy.dev` (*verify domain*); acknowledge within 72 h, fix critical/high within 14 days; supported versions; coordinated disclosure. | repo root |
+| — | Multi-principal isolation | Viewer-scoped repositories (IDOR suites in M1 and M11), space principals without memory/vault, per-principal workspaces and boxes, guests never approve, `admin_can_read_chats` locked off. | store, auth, agent, channel |
+| — | Prompt-injection containment (v0.1 level) | Provenance on every message, spotlight delimiters with random ids, deterministic floors; quarantined LLM is P1. | agent, policy |
+| — | Compaction keeps safety | Constitution and standing rules in S1 outside history; pins in S2; validated summaries; auto-pinned standing instructions; taint and grants in the DB. | agent |
+
+**Audit actions** (`audit_log.action`): `auth.setup_claim`, `auth.owner_created`, `auth.login`, `auth.login_failed`, `auth.lockout`, `auth.logout`, `auth.password_changed`, `token.create`, `token.revoke`, `user.create`, `user.update`, `pairing.create`, `pairing.redeem`, `identity.link`, `identity.guest`, `identity.block`, `space.update`, `config.set`, `config.reset`, `persona.update`, `vault.put`, `vault.delete`, `vault.rotate`, `vault.unseal`, `secret.use` (name + purpose), `tool.exec`, `tool.denied`, `approval.request`, `approval.decide`, `approval.expire`, `grant.create`, `grant.revoke`, `egress.allow` (first contact / held approvals), `egress.deny`, `memory.write`, `memory.edit`, `skill.install`, `skill.enable`, `skill.disable`, `skill.changed`, `mcp.install`, `mcp.approve`, `mcp.changed`, `schedule.create`, `schedule.update`, `schedule.delete`, `run.stop`, `budget.exceeded`, `admin.pause`, `admin.resume`, `admin.restart`, `backup.create`, `sandbox.selftest_failed`, `api.passthrough`, `audit.archived`. Details never include message content or secret values.
+
+**Doctor / security-audit checks** (stable ids; `security` ones run in `security-audit`; `fix` = auto-fixable):
+
+| Id | Severity | Security | Fix |
+|---|---|---|---|
+| `sqlite.version` | critical | | |
+| `data.permissions` (files 0600, dirs 0700) | high | ✓ | ✓ chmod |
+| `vault.kek_colocated` | medium | ✓ | |
+| `vault.kek_env` | high | ✓ | |
+| `vault.sealed` | high | | |
+| `server.exposure` (non-loopback listen, no TLS, no proxy) | high | ✓ | |
+| `server.insecure_lan` | medium | ✓ | |
+| `sandbox.unavailable` | medium | ✓ | |
+| `sandbox.not_isolated` | critical | ✓ | |
+| `sandbox.rootful_runc` | low | ✓ | |
+| `sandbox.runsc_host_uds` | low | | |
+| `docker.socket_access` | medium | | |
+| `egress.wildcards` / `egress.shared_tenant_allowed` | medium | ✓ | |
+| `egress.presets_enabled` | low | ✓ | |
+| `policy.hands_off` / `policy.auto_external_rules` | medium | ✓ | |
+| `budgets.unlimited` | medium | ✓ | |
+| `tokens.admin_scope` / `tokens.expired_unrevoked` | low | ✓ | ✓ revoke expired |
+| `mcp.pending_pins` / `mcp.drifted` | medium | ✓ | ✓ disable drifted |
+| `mcp.http_plaintext` (http:// non-private URL) | high | ✓ | |
+| `skills.changed` | medium | ✓ | ✓ disable |
+| `providers.auth_failed` / `channels.auth_failed` | medium | | |
+| `backups.none_recent` | low | | |
+| `config.errors` / `config.safe_mode` | high | | |
+
+Owners: `sqlite.*`, `data.*`, `backups.*`, `vault.*` M1; `providers.*` M2; `policy.*`, `budgets.*` M4; `sandbox.*`, `docker.*` M5; `egress.*`, `mcp.http_plaintext` M6; `mcp.pending_pins`, `mcp.drifted`, `skills.*` M7; `channels.*` M9; `server.*`, `tokens.*` (auth) and `config.*` (`doctor.ConfigChecks`) M11. `server.exposure` is also raised when `BOTHY_DEPLOYMENT=container`, the listen address is `0.0.0.0` and no `public_url` with https is set (see the userland-proxy risk in §13.1).
+
+---
+
+## 11. Dependencies
+
+### 11.1 Go (`go.mod`, the complete set; only the lead edits it)
+
+| Module @ version | Used by | Why |
+|---|---|---|
+| `modernc.org/sqlite` v1.60.1 (SQLite 3.53.4, FTS5, `_defensive` DSN parameter since v1.57.0) | store | Pure-Go SQLite; nothing else fits CGO_ENABLED=0 with FTS5 |
+| `modernc.org/libc` v1.77.1 (exact; CI asserts `go list -m modernc.org/libc`) | store | modernc requires an exact libc pin |
+| `github.com/modelcontextprotocol/go-sdk` v1.8.0 | mcp; `github.com/google/jsonschema-go` (its dependency) used by tools for argument validation | MCP client for both spec eras; `IOTransport`, `StreamableClientTransport`, `SSEClientTransport` |
+| `github.com/disgoorg/disgo` v0.19.6 | channel/discord | Maintained Discord gateway; caches disabled, minimal intents |
+| `github.com/slack-go/slack` v0.30.1 | channel/slack | Socket Mode + Web API; configurable API URL for fakes |
+| `go.yaml.in/yaml/v3` (newest tag ≥ 14 days old; *verify*) | config | `yaml.Node` line numbers for provenance |
+| `golang.org/x/crypto` (*verify*) | auth, vault | `argon2` only |
+| `golang.org/x/net` (*verify*) | egress, policy, sandbox/bwrap | `html` (web_fetch text extraction), `idna` (punycode), `bpf` (serializing the seccomp program) |
+| `github.com/adhocore/gronx` v1.20.5 | scheduler | Cron parsing and next tick with timezone; zero deps |
+| `github.com/elastic/go-seccomp-bpf` v1.6.0 or newer (*verify* newest tag ≥ 14 days old) | sandbox/bwrap | `Policy.Assemble()` builds an arch-checked program without loading it (§2.12) |
+
+`internal/deps/deps.go` (`//go:build deps`) blank-imports each module so `go mod tidy` keeps them before modules use them. Stdlib covers HTTP/TLS, JSON, AES-GCM, HMAC, `os.Root`, `net/netip`, `log/slog`, `embed`, `testing/synctest`, `http.CrossOriginProtection`.
+
+**`tools/go.mod`** (separate module, not linked into the binary): `github.com/gzuidhof/tygo` (*verify*) for `types.gen.ts` [S]; `charm.land/catwalk` v0.52.69 for `tools/catalog-gen`, which writes `internal/provider/catalog/catalog.json` at release time [M2].
+
+**Deliberately not used:**
+
+| Not used | Instead | Reason |
+|---|---|---|
+| anthropic-sdk-go, openai-go, google.golang.org/genai | hand-written clients (~2.5K LOC incl. Ollama) | implicit retries and env pickup, bypass of our dialer, size |
+| telego | hand-written Telegram client (~700 LOC) | plain JSON long-poll; full control of preview flags and parse mode |
+| coder/websocket | (disgo and slack-go bring gorilla/websocket) | no own WS code |
+| chi, koanf, goose, sqlc, gocron | ServeMux, own loader, own migrator, hand SQL, own timer loop | fewer deps and tools; chi v5.4.0 is inside its cooldown |
+| moby/client | hand-written Engine client in sandboxd (~400 LOC) | containerd/OCI/otel weight; only sandboxd needs it |
+| otel, bubbletea/huh, age, wazero, go-landlock, sqlite-vec | — | P1/P2 or unnecessary (§13) |
+
+### 11.2 npm (`web/package.json`, exact pins, lockfile committed, `npm ci --ignore-scripts`)
+
+| Package | Version | Note |
+|---|---|---|
+| `svelte` | 5.57.2 | only runtime dependency |
+| `vite` | 8.3.4 | build |
+| `tailwindcss`, `@tailwindcss/vite` | 4.3.3 | external CSS |
+| `@sveltejs/vite-plugin-svelte` | the Vite-8-compatible release, pinned exactly (*verify*) | build |
+| `typescript`, `svelte-check` | pinned exactly (*verify*) | typecheck (dev) |
+| `vitest`, `@testing-library/svelte`, `jsdom` | pinned exactly (*verify*) | unit tests (dev) |
+| `@playwright/test` | pinned exactly (*verify*) | phase-3 UI smoke (dev, lead) |
+
+No router, markdown, chart, icon, date or QR libraries.
+
+### 11.3 Size and memory estimates (CI-enforced from the skeleton on)
+
+| Part | Stripped estimate (linux/amd64, `-trimpath -s -w`) |
+|---|---|
+| Go runtime + net/http + TLS + JSON | ~6.5 MB |
+| modernc sqlite + libc | ~6.5 MB |
+| disgo + gorilla/websocket | ~2 MB |
+| slack-go | ~1.5 MB |
+| MCP go-sdk + jsonschema | ~1.2 MB |
+| yaml, x/net, x/crypto, gronx, seccomp-bpf | ~1.2 MB |
+| Bothy code + catalog.json + pre-gzipped UI | ~4.5 MB |
+| **Binary** | **~23 MB → ~9 MB gzip** |
+| **Gateway image** (distroless static ≈ 1 MB) | **~10–11 MB compressed** (budget 30, CI warns at 20) |
+| Sandbox images (compose only) | base ~50 MB, node ~80 MB |
+
+Idle RSS with 3 channels connected: Go runtime ~8 MB, SQLite page cache 2 MB × 3 connections, disgo (caches off) + slack-go + Telegram poller ~5 MB, event ring 4096 entries ~2 MB, one shared transport per dialer, `GOMEMLIMIT=48MiB` ⇒ **~30–40 MB expected**. CI boots the binary against the fake platform servers, waits 10 minutes, and fails above 60 MB. Cold start to `/healthz` ≤ 500 ms. Fixed token overhead (S1 + core tool schemas, standard profile) ≤ 2.5K estimated tokens; core tool schemas alone ≤ 1.5K.
+
+---
+
+## 12. Parallel work breakdown
+
+### 12.1 Skeleton commit (lead, before fan-out)
+
+Exit criteria: `go build ./... && go vet ./... && go test ./...` green on linux/amd64 and linux/arm64 (and `GOOS=windows go build ./...`); `bothy serve` boots against an empty data dir, prints the setup banner and answers `/healthz` and `/readyz`; `make ui` builds the scaffold; CI (below) green.
+
+**Files and what they contain:**
+
+| Path | Contents | State after skeleton |
+|---|---|---|
+| `go.mod`, `go.sum` | `module github.com/bothyhq/bothy`, `go 1.26`, `toolchain go1.27.2`, every §11.1 dependency | frozen (lead only) |
+| `internal/deps/deps.go` | `//go:build deps` blank imports of every dependency | frozen |
+| `internal/core/*.go` | §4 verbatim + tests for the pure helpers | frozen |
+| `internal/config/*.go` | §7.4, **fully implemented** with tests | frozen |
+| `internal/events/*.go` | `core.Bus`: ring 4096, boot id, `Publish` never blocks (per-subscriber buffered channel; on overflow increments `Dropped` and stops delivering until the subscriber reads `Dropped` and resyncs), `Since`, filter matching per `core.Filter`; **fully implemented** with race tests | frozen |
+| `internal/store/migrations/0001_init.sql` | §6 | frozen |
+| `internal/store/*.go` | `Open` (pragmas, version gate, pre-migration backup, migrator) **implemented**; repositories stubbed (`core.Store` embedded nil) | → M1 |
+| `internal/httpapi/dto/dto.go` | §8.4 | frozen |
+| `web/src/lib/api/types.gen.ts` | generated by `make gen` | frozen (regenerated by lead) |
+| every module package | `doc.go` + `new.go` with the exact constructor, `Deps` struct and stub types below | → owner |
+| `internal/httpapi` stub | `Serve` listens on `server.listen` and serves only `/healthz`, `/readyz` until M11 replaces it | → M11 |
+| `internal/testkit/**` | shared fakes and harnesses below, **implemented**, including `memstore` (an in-memory `core.Store` with Viewer scoping, `Decide` CAS, the `runs_one_active` conflict and keyset paging) and the `conformance.Store` suite that both memstore and M1's SQLite store must pass, so module tests written against memstore hold against the real store | frozen |
+| `cmd/bothy/*.go` | dispatch, `wire.go` construction order, CLI stubs | lead (CLI filled in phase 3 on module APIs; module agents never edit `cmd/`) |
+| `cmd/sbx-init/main.go` | one line | frozen |
+| `web/` scaffold | `package.json` (exact pins), `vite.config.ts` (outDir `../internal/webui/dist`, `css: 'external'`), Tailwind entry, `App.svelte` shell, router stub, API client stub, SSE store stub | → M12 |
+| `internal/webui/dist/index.html` | committed placeholder so `go:embed` compiles without node | build output |
+| `deploy/Dockerfile`, `deploy/compose.yaml`, `deploy/.env.example`, `deploy/install.sh`, `deploy/searxng/settings.yml`, `.goreleaser.yaml` (binaries, gateway and sandbox images, SBOM, cosign, SLSA, Homebrew tap) | §2.1–2.3 | lead |
+| `Makefile` | `build`, `test` (`-race`), `ui`, `gen`, `lint`, `e2e`, `image`, `budgets` | lead |
+| `.github/workflows/ci.yml` | vet, staticcheck, `golangci-lint`, `go test -race ./...`, govulncheck, `scripts/check-imports.sh`, `scripts/check-ownership.sh`, `make gen` drift check, UI build + size gate, budgets job (image size, RSS, cold start, token overhead) | lead |
+| `scripts/check-imports.sh` | §3 import rules, `os/exec` ban, `SystemViewer` ban in httpapi, no `http.DefaultClient` in `internal/` | lead |
+| `scripts/check-ownership.sh` | fails a module PR touching paths outside its `OWNERSHIP.md` entry | lead |
+| `OWNERSHIP.md`, `CONTRIBUTING.md` (ICR process, comment style, 14-day cooldown), `SECURITY.md`, `LICENSE`, `NOTICE`, `README.md`, `docs/SPEC.md` (this file) | | lead |
+| `e2e/` | harness: builds the binary, temp data dir, starts mockllm and fake platform servers, helpers to drive the HTTP API and SSE | lead (scenarios in phase 3) |
+
+**Construction and wiring (`cmd/bothy/wire.go`, verbatim in the skeleton):**
+
+```go
+package main
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
+	"os"
+	"path/filepath"
+	"sync"
+
+	"github.com/bothyhq/bothy/internal/agent"
+	"github.com/bothyhq/bothy/internal/audit"
+	"github.com/bothyhq/bothy/internal/auth"
+	"github.com/bothyhq/bothy/internal/budget"
+	"github.com/bothyhq/bothy/internal/channel"
+	"github.com/bothyhq/bothy/internal/channel/discord"
+	"github.com/bothyhq/bothy/internal/channel/slack"
+	"github.com/bothyhq/bothy/internal/channel/telegram"
+	"github.com/bothyhq/bothy/internal/config"
+	"github.com/bothyhq/bothy/internal/core"
+	"github.com/bothyhq/bothy/internal/doctor"
+	"github.com/bothyhq/bothy/internal/egress"
+	"github.com/bothyhq/bothy/internal/events"
+	"github.com/bothyhq/bothy/internal/httpapi"
+	"github.com/bothyhq/bothy/internal/mcp"
+	"github.com/bothyhq/bothy/internal/memory"
+	"github.com/bothyhq/bothy/internal/policy"
+	"github.com/bothyhq/bothy/internal/provider"
+	"github.com/bothyhq/bothy/internal/sandbox"
+	"github.com/bothyhq/bothy/internal/scheduler"
+	"github.com/bothyhq/bothy/internal/skills"
+	"github.com/bothyhq/bothy/internal/store"
+	"github.com/bothyhq/bothy/internal/tools"
+	"github.com/bothyhq/bothy/internal/vault"
+	"github.com/bothyhq/bothy/internal/webui"
+)
+
+// app holds every constructed component; built in dependency order.
+type app struct {
+	cfg       *config.Manager
+	log       *slog.Logger
+	clock     core.Clock
+	db        *store.DB
+	redactor  *vault.Redactor
+	audit     *audit.Writer
+	vault     *vault.Vault
+	bus       *events.Bus
+	auth      *auth.Service
+	policy    *policy.Engine
+	approvals *policy.Approvals
+	egress    *egress.Service
+	sandbox   *sandbox.Client
+	llm       *provider.Facade
+	budget    *budget.Service
+	memory    *memory.Service
+	skills    *skills.Library
+	registry  *tools.Registry
+	mcp       *mcp.Manager
+	runner    *agent.Runner
+	hub       *channel.Hub
+	scheduler *scheduler.Service
+	doctor    *doctor.Runner
+	api       *httpapi.Server
+	restart   chan struct{} // POST /api/admin/restart
+}
+
+var errRestart = errors.New("restart requested")
+
+func build(ctx context.Context) (*app, error) {
+	setUmask() // 007: /data files are created 0600/0700 explicitly; workspace files 0660/2770
+	a := &app{clock: core.SystemClock{}, restart: make(chan struct{}, 1)}
+	var err error
+	dataDir := envOr("BOTHY_STORAGE__DATA_DIR", "/data")
+	if a.cfg, err = config.Load(ctx, config.Options{DataDir: dataDir, File: os.Getenv("BOTHY_CONFIG"), Env: os.Environ}); err != nil {
+		return nil, err
+	}
+	c := a.cfg.Current()
+	dirs := config.ResolveDirs(c) // "auto" work_dir and keyfile resolved once (§2.1)
+	a.redactor = vault.NewRedactor()
+	a.log = slog.New(vault.NewSlogHandler(newLogHandler(c.Log), a.redactor))
+	a.bus = events.New(events.Options{Ring: 4096, Clock: a.clock})
+	if a.db, err = store.Open(ctx, store.Options{Path: filepath.Join(dirs.Data, "bothy.db"),
+		BackupDir: filepath.Join(dirs.Data, "backups"), BackupsKeep: c.Storage.BackupsKeep, Clock: a.clock, Log: a.log}); err != nil {
+		return nil, err
+	}
+	if a.audit, err = audit.New(audit.Deps{Store: a.db, Redactor: a.redactor, Clock: a.clock, Log: a.log}); err != nil {
+		return nil, err
+	}
+	a.cfg.SetOnSet(func(r config.ChangeRecord) { auditConfig(ctx, a.audit, r) })
+	a.cfg.Watch(func(old, cur *config.Config) { publishConfigChanged(a.bus, a.cfg, old, cur) })
+	publishConfigBanners(a.bus, a.cfg.Effective())
+	if a.vault, err = vault.New(vault.Deps{Store: a.db, Config: a.cfg, Redactor: a.redactor, Audit: a.audit, Env: os.Environ, Clock: a.clock, Log: a.log}); err != nil {
+		return nil, err
+	}
+	if a.auth, err = auth.New(auth.Deps{Store: a.db, Config: a.cfg, Audit: a.audit, Bus: a.bus, Redactor: a.redactor, DataDir: dirs.Data, Clock: a.clock, Log: a.log}); err != nil {
+		return nil, err
+	}
+	if a.policy, a.approvals, err = policy.New(policy.Deps{Store: a.db, Config: a.cfg, Bus: a.bus, Audit: a.audit, Clock: a.clock, Log: a.log}); err != nil {
+		return nil, err
+	}
+	if a.egress, err = egress.New(egress.Deps{Config: a.cfg, Store: a.db, Vault: a.vault, Approvals: a.approvals, Policy: a.policy,
+		Bus: a.bus, Audit: a.audit, RunDir: dirs.Run, Clock: a.clock, Log: a.log}); err != nil {
+		return nil, err
+	}
+	if a.sandbox, err = sandbox.New(ctx, sandbox.Deps{Config: a.cfg, Egress: a.egress, Store: a.db, Bus: a.bus, Audit: a.audit,
+		WorkDir: dirs.Work, RunDir: dirs.Run, Clock: a.clock, Log: a.log}); err != nil {
+		return nil, err
+	}
+	if a.llm, err = provider.New(provider.Deps{Config: a.cfg, Vault: a.vault, Egress: a.egress, Env: os.Environ, Clock: a.clock, Log: a.log}); err != nil {
+		return nil, err
+	}
+	if a.budget, err = budget.New(budget.Deps{Store: a.db, Config: a.cfg, Bus: a.bus, Audit: a.audit, Clock: a.clock, Log: a.log}); err != nil {
+		return nil, err
+	}
+	if a.memory, err = memory.New(memory.Deps{Store: a.db, Config: a.cfg, Bus: a.bus, Audit: a.audit, DataDir: dirs.Data, Clock: a.clock, Log: a.log}); err != nil {
+		return nil, err
+	}
+	if a.skills, err = skills.New(skills.Deps{Store: a.db, Config: a.cfg, Audit: a.audit, Bus: a.bus, WorkDir: dirs.Work, Clock: a.clock, Log: a.log}); err != nil {
+		return nil, err
+	}
+	a.registry = tools.NewRegistry(tools.RegistryDeps{Config: a.cfg, Log: a.log})
+	if a.mcp, err = mcp.New(mcp.Deps{Config: a.cfg, Store: a.db, Sandbox: a.sandbox, Egress: a.egress, Registry: a.registry,
+		Vault: a.vault, Bus: a.bus, Audit: a.audit, WorkDir: dirs.Work, Clock: a.clock, Log: a.log}); err != nil {
+		return nil, err
+	}
+	if a.runner, err = agent.New(agent.Deps{Store: a.db, Config: a.cfg, LLM: a.llm, Tools: a.registry, Policy: a.policy,
+		Approvals: a.approvals, Budget: a.budget, Memory: a.memory, Skills: a.skills, Sandbox: a.sandbox, Egress: a.egress,
+		Redactor: a.redactor, Bus: a.bus, Audit: a.audit, DataDir: dirs.Data, WorkDir: dirs.Work, Clock: a.clock, Log: a.log}); err != nil {
+		return nil, err
+	}
+	if a.hub, err = channel.New(channel.Deps{Config: a.cfg, Auth: a.auth, Runner: a.runner, Approvals: a.approvals, Budget: a.budget,
+		Sandbox: a.sandbox, Store: a.db, Bus: a.bus, Audit: a.audit, Redactor: a.redactor, WorkDir: dirs.Work, Clock: a.clock, Log: a.log}); err != nil {
+		return nil, err
+	}
+	a.runner.SetHub(a.hub) // breaks the runner <-> hub cycle: resumed-run sinks and restart notices
+	adapterDeps := func(name string) core.AdapterDeps {
+		return core.AdapterDeps{
+			Secret: func(ctx context.Context, ref string) (core.Secret, error) {
+				return a.vault.Resolve(ctx, ref, "", "channel:"+name) // empty user: global scope only
+			},
+			HTTP:     func(d core.SystemDest) *http.Client { return a.egress.SystemClient(d) },
+			Meta:     a.db.Meta(),
+			StateDir: filepath.Join(dirs.Data, "channels", name), // created by adapters that need it (P1)
+			Clock:    a.clock,
+			Log:      a.log.With("channel", name),
+		}
+	}
+	for _, mk := range []func() (core.Channel, error){
+		func() (core.Channel, error) { return telegram.New(c.Channels.Telegram, adapterDeps("telegram")) },
+		func() (core.Channel, error) { return discord.New(c.Channels.Discord, adapterDeps("discord")) },
+		func() (core.Channel, error) { return slack.New(c.Channels.Slack, adapterDeps("slack")) },
+	} {
+		ch, err := mk()
+		if errors.Is(err, core.ErrNotImplemented) {
+			continue // skeleton stubs
+		}
+		if err != nil {
+			return nil, err
+		}
+		a.hub.Add(ch) // disabled channels report state "disabled"
+	}
+	if a.scheduler, err = scheduler.New(scheduler.Deps{Store: a.db, Config: a.cfg, Runner: a.runner, Hub: a.hub, Memory: a.memory,
+		Bus: a.bus, Audit: a.audit, Clock: a.clock, Log: a.log}); err != nil {
+		return nil, err
+	}
+	// Late tool registration: every provider's tools, then builtins. Snapshots are
+	// frozen per session, so registration must finish before the API serves.
+	// MCP tools register themselves later through Deps.Registry (lazy tools).
+	var all []core.Tool
+	all = append(all, tools.Builtins(tools.BuiltinDeps{Config: a.cfg, Messenger: a.hub, Sandbox: a.sandbox, Clock: a.clock})...)
+	for _, p := range []core.ToolProvider{a.sandbox, a.egress, a.memory, a.skills, a.scheduler} {
+		all = append(all, p.Tools()...)
+	}
+	for _, t := range all {
+		if err := a.registry.Register(t); err != nil {
+			return nil, err
+		}
+	}
+	checks := doctor.ConfigChecks(a.cfg) // config.errors, config.safe_mode
+	for _, p := range []core.CheckProvider{a.db, a.vault, a.auth, a.policy, a.egress, a.sandbox, a.llm, a.memory, a.skills, a.mcp, a.hub} {
+		checks = append(checks, p.Checks()...)
+	}
+	a.doctor = doctor.New(checks)
+	a.api, err = httpapi.New(httpapi.Deps{Config: a.cfg, Store: a.db, Auth: a.auth, Vault: a.vault, Bus: a.bus, Runner: a.runner,
+		Approvals: a.approvals, Policy: a.policy, LLM: a.llm, Budget: a.budget, Memory: a.memory, Skills: a.skills, MCP: a.mcp,
+		Scheduler: a.scheduler, Hub: a.hub, Sandbox: a.sandbox, Egress: a.egress, Doctor: a.doctor, Audit: a.audit,
+		WebUI: webui.Handler(), Version: version, DataDir: dirs.Data, WorkDir: dirs.Work, Restart: a.requestRestart,
+		Clock: a.clock, Log: a.log})
+	return a, err
+}
+
+func (a *app) requestRestart() {
+	select {
+	case a.restart <- struct{}{}:
+	default: // one pending request is enough
+	}
+}
+
+func serve(ctx context.Context, args []string) error {
+	a, err := build(ctx)
+	if err != nil {
+		return err
+	}
+	if tok, created, err := a.auth.EnsureSetupToken(ctx); err == nil && created {
+		printSetupBanner(a.cfg.Current(), tok)
+	}
+	// Every resolution is forwarded; Resume is a no-op unless the run is parked.
+	a.approvals.OnResolved(func(ap *core.Approval) { _ = a.runner.Resume(context.WithoutCancel(ctx), ap) })
+	loops := []func(context.Context) error{
+		a.audit.Run, a.approvals.Run, a.egress.Run, a.sandbox.Run, a.runner.Run,
+		func(ctx context.Context) error { return a.db.RunRetention(ctx, a.cfg) }, a.api.Serve,
+	}
+	if !a.cfg.Effective().SafeMode { // safe mode: no chat intake, schedules or MCP (§7.2)
+		loops = append(loops, a.hub.Run, a.scheduler.Run, a.mcp.Start)
+	}
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	go func() {
+		select {
+		case <-a.restart:
+			cancel(errRestart)
+		case <-ctx.Done():
+		}
+	}()
+	var wg sync.WaitGroup
+	for _, run := range loops {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				cancel(err)
+			}
+		}()
+	}
+	wg.Wait()
+	_ = a.mcp.Close()
+	_ = a.audit.Flush(context.Background())
+	_ = a.db.Close()
+	cause := context.Cause(ctx)
+	if errors.Is(cause, errRestart) {
+		return reexec() // syscall.Exec of os.Executable(); works in distroless
+	}
+	if cause != nil && !errors.Is(cause, context.Canceled) {
+		return cause
+	}
+	return nil
+}
+```
+
+```go
+// Command bothy is the single binary: gateway, sandbox sidecar and CLI.
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"github.com/bothyhq/bothy/internal/sandboxd"
+	"github.com/bothyhq/bothy/internal/sbxinit"
+)
+
+var version = "dev" // -ldflags "-X main.version=…"
+
+const usage = `usage: bothy <command> [flags]
+
+commands:
+  serve            run the gateway (default)
+  sandboxd         run the sandbox sidecar (needs the container runtime socket)
+  sbx-init         sandbox PID 1 / exec wrapper (inside tool boxes and bwrap)
+  doctor           run health checks            [--json]
+  security-audit   run security checks          [--fix] [--json]
+  setup-token      print a fresh one-time setup token (only while no owner exists)
+  user             user admin: reset-password <name> | list
+  vault            vault admin: rotate-kek (gateway stopped) | status
+  config           check | defaults | effective
+  audit            verify | archive --before <date> (gateway stopped)
+  backup           write a consistent backup to <data>/backups
+  healthcheck      exit 0 when /healthz answers (container HEALTHCHECK)
+  version          print version
+`
+
+func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	cmd, args := "serve", os.Args[1:]
+	if len(args) > 0 {
+		cmd, args = args[0], args[1:]
+	}
+	var err error
+	code := 0
+	switch cmd {
+	case "serve":
+		err = serve(ctx, args)
+	case "sandboxd":
+		err = sandboxd.Main(ctx, args, os.Environ)
+	case "sbx-init":
+		os.Exit(sbxinit.Main(args))
+	case "doctor":
+		code, err = doctorCmd(ctx, args, false)
+	case "security-audit":
+		code, err = doctorCmd(ctx, args, true)
+	case "setup-token", "user", "vault", "config", "audit", "backup":
+		err = adminCmd(ctx, cmd, args)
+	case "healthcheck":
+		err = healthcheck(ctx)
+	case "version":
+		fmt.Println(version)
+	default:
+		fmt.Fprint(os.Stderr, usage)
+		os.Exit(2)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "bothy:", err)
+		os.Exit(1)
+	}
+	os.Exit(code)
+}
+```
+
+```go
+// ===== cmd/bothy/cli.go =====
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"time"
+
+	"github.com/bothyhq/bothy/internal/config"
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+func envOr(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
+}
+
+func newLogHandler(l config.Log) slog.Handler {
+	var lvl slog.Level
+	_ = lvl.UnmarshalText([]byte(l.Level))
+	o := &slog.HandlerOptions{Level: lvl}
+	if l.Format == "json" {
+		return slog.NewJSONHandler(os.Stderr, o)
+	}
+	return slog.NewTextHandler(os.Stderr, o)
+}
+
+func auditConfig(ctx context.Context, w core.Auditor, r config.ChangeRecord) {
+	d, _ := json.Marshal(r)
+	_ = w.Record(ctx, core.AuditEntry{At: time.Now(), Actor: r.By, Action: "config." + r.Action, Target: r.Path, Outcome: "ok", Detail: d})
+}
+
+func publishConfigChanged(bus core.Bus, cfg config.Admin, old, cur *config.Config) {
+	eff := cfg.Effective()
+	bus.Publish(core.Event{Type: core.EvConfigChanged, Data: core.ConfigChangedData{Paths: config.Diff(old, cur), RestartRequired: eff.Restart}})
+	if len(eff.Restart) > 0 {
+		bus.Publish(core.Event{Type: core.EvBanner, Data: core.BannerData{Level: "warn", Code: "restart_required",
+			Text: "Some changes need a restart.", Action: "/settings/general"}})
+	}
+	publishConfigBanners(bus, eff)
+}
+
+func publishConfigBanners(bus core.Bus, eff config.Effective) {
+	b := core.BannerData{Level: "error", Code: "config_error", Action: "/settings/advanced",
+		Text: "Some config values are invalid and fell back to the next layer.", Clear: len(eff.Errors) == 0}
+	bus.Publish(core.Event{Type: core.EvBanner, Data: b})
+	if eff.SafeMode {
+		bus.Publish(core.Event{Type: core.EvBanner, Data: core.BannerData{Level: "error", Code: "safe_mode", Action: "/settings/advanced",
+			Text: "bothy.yaml could not be parsed: safe mode (chat, channels and schedules are off until a restart)."}})
+	}
+}
+
+func printSetupBanner(c *config.Config, token string) {
+	url := c.Server.PublicURL
+	if url == "" {
+		url = "http://127.0.0.1:8080"
+	}
+	fmt.Fprintf(os.Stderr, "\n  Bothy is ready for setup.\n  Open %s/setup#t=%s\n  (token also in %s/setup-token; valid %s)\n\n",
+		url, token, c.Storage.DataDir, c.Auth.SetupTokenTTL.D())
+}
+
+func healthcheck(ctx context.Context) error {
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:8080/healthz", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("healthz: %s", resp.Status)
+	}
+	return nil
+}
+
+// doctorCmd builds the app without starting loops, runs checks, prints them.
+func doctorCmd(ctx context.Context, args []string, security bool) (int, error) {
+	return 0, core.ErrNotImplemented // lead, phase 3: build() + doctor.Runner.Run/Fix + doctor.Print
+}
+
+// adminCmd is filled by the lead in phase 3 on module APIs: setup-token
+// (Auth.RotateSetupToken), user (Auth.ResetPassword, Users().List), vault
+// (Vault.RotateKEK, Vault.Status), config (config.Load/Effective), audit
+// (Auditor.Verify, audit.Archive), backup (Store.Backup).
+func adminCmd(ctx context.Context, cmd string, args []string) error {
+	return core.ErrNotImplemented
+}
+
+// ===== cmd/bothy/umask_unix.go =====
+//go:build unix
+
+package main
+
+import (
+	"os"
+	"syscall"
+)
+
+func setUmask() { syscall.Umask(0o007) }
+
+func reexec() error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	return syscall.Exec(exe, os.Args, os.Environ())
+}
+
+// ===== cmd/bothy/umask_other.go =====
+//go:build !unix
+
+package main
+
+import "github.com/bothyhq/bothy/internal/core"
+
+func setUmask() {}
+
+func reexec() error { return core.ErrNotImplemented }
+```
+
+**Module constructors (`new.go` in each package; signatures and `Deps` are frozen, bodies are stubs the owner replaces).** Stub types embed the core interface they implement (a nil interface: calling an unimplemented method panics, which is intended until the module lands) and add their extra methods (`Run`, `Tools`, `Checks`). The listing shows compile stubs; in the actual skeleton `store.Open` and `events.New` are real implementations and the `httpapi` stub serves `/healthz` and `/readyz`:
+
+```go
+// ===== internal/store/new.go =====
+// Package store implements core.Store on modernc.org/sqlite. Owner: M1.
+package store
+
+import (
+	"context"
+	"log/slog"
+
+	"github.com/bothyhq/bothy/internal/config"
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+type Options struct {
+	Path        string // <data>/bothy.db
+	BackupDir   string // <data>/backups
+	BackupsKeep int
+	Clock       core.Clock
+	Log         *slog.Logger
+}
+
+// DB implements core.Store and core.CheckProvider.
+type DB struct {
+	core.Store // skeleton stub: nil; M1 replaces with real fields
+}
+
+// Open sets pragmas, refuses SQLite < 3.53.4, takes a VACUUM INTO backup when
+// migrations are pending, then applies embedded migrations (skeleton-implemented).
+func Open(ctx context.Context, o Options) (*DB, error) { return &DB{}, nil }
+
+// RunRetention prunes egress_log, inbound_dedup, expired auth sessions and old
+// runs per config every hour. Blocks until ctx is done.
+func (db *DB) RunRetention(ctx context.Context, cfg config.View) error {
+	<-ctx.Done()
+	return nil
+}
+
+func (db *DB) Checks() []core.Check { return nil }
+
+// Boot-path methods implemented in the skeleton (the rest of core.Store is M1's).
+func (db *DB) Meta() core.MetaRepo { return nil }
+func (db *DB) Close() error        { return nil }
+
+// ===== internal/vault/new.go =====
+// Package vault implements core.Vault (envelope encryption) and core.Redactor. Owner: M1.
+package vault
+
+import (
+	"log/slog"
+
+	"github.com/bothyhq/bothy/internal/config"
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+// Redactor implements core.Redactor. Created first: the logger, audit and vault use it.
+type Redactor struct{ core.Redactor }
+
+func NewRedactor() *Redactor { return &Redactor{} }
+
+// NewSlogHandler wraps h so the message and every string attribute pass through
+// r.Redact (the skeleton stub returns h unchanged until M1 lands).
+func NewSlogHandler(h slog.Handler, r *Redactor) slog.Handler { return h }
+
+type Deps struct {
+	Store    core.Store
+	Config   config.View
+	Redactor *Redactor
+	Audit    core.Auditor
+	Env      func() []string // os.Environ: BOTHY_SECRET_<NAME>[_FILE], BOTHY_KEK
+	Clock    core.Clock
+	Log      *slog.Logger
+}
+
+// Vault implements core.Vault and core.CheckProvider.
+type Vault struct{ core.Vault }
+
+func New(d Deps) (*Vault, error) { return &Vault{}, nil }
+
+func (v *Vault) Checks() []core.Check { return nil }
+
+// ===== internal/audit/new.go =====
+// Package audit is the single writer of the hash-chained audit log. Owner: M1.
+package audit
+
+import (
+	"context"
+	"log/slog"
+
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+type Deps struct {
+	Store    core.Store
+	Redactor core.Redactor
+	Clock    core.Clock
+	Log      *slog.Logger
+}
+
+// Writer implements core.Auditor.
+type Writer struct{ core.Auditor }
+
+func New(d Deps) (*Writer, error) { return &Writer{}, nil }
+
+// Run flushes batched entries every 250ms until ctx is done, then flushes once more.
+func (w *Writer) Run(ctx context.Context) error {
+	<-ctx.Done()
+	return nil
+}
+
+func (w *Writer) Flush(ctx context.Context) error { return nil }
+
+// ===== internal/events/new.go =====
+// Package events is the in-process bus with a replay ring. Skeleton-implemented, frozen.
+package events
+
+import "github.com/bothyhq/bothy/internal/core"
+
+type Options struct {
+	Ring  int // default 4096
+	Clock core.Clock
+}
+
+// Bus implements core.Bus.
+type Bus struct{ core.Bus }
+
+func New(o Options) *Bus { return &Bus{} }
+
+// ===== internal/auth/new.go =====
+// Package auth implements core.Auth. Owner: M11.
+package auth
+
+import (
+	"context"
+	"log/slog"
+
+	"github.com/bothyhq/bothy/internal/config"
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+type Deps struct {
+	Store    core.Store
+	Config   config.View
+	Audit    core.Auditor
+	Bus      core.Bus
+	Redactor core.Redactor
+	DataDir  string // setup-token file location
+	Clock    core.Clock
+	Log      *slog.Logger
+}
+
+// Service implements core.Auth and core.CheckProvider.
+type Service struct{ core.Auth }
+
+func New(d Deps) (*Service, error) { return &Service{}, nil }
+
+func (s *Service) Checks() []core.Check { return nil }
+
+// EnsureSetupToken is a boot-path stub (no token until M11 lands).
+func (s *Service) EnsureSetupToken(ctx context.Context) (string, bool, error) { return "", false, nil }
+
+// ===== internal/policy/new.go =====
+// Package policy implements core.Policy, core.Approvals and the card renderer. Owner: M4.
+package policy
+
+import (
+	"context"
+	"log/slog"
+
+	"github.com/bothyhq/bothy/internal/config"
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+type Deps struct {
+	Store  core.Store
+	Config config.View
+	Bus    core.Bus
+	Audit  core.Auditor
+	Clock  core.Clock
+	Log    *slog.Logger
+}
+
+// Engine implements core.Policy and core.CheckProvider.
+type Engine struct{ core.Policy }
+
+// Approvals implements core.Approvals.
+type Approvals struct{ core.Approvals }
+
+func New(d Deps) (*Engine, *Approvals, error) { return &Engine{}, &Approvals{}, nil }
+
+// Run expires due approvals every 30s until ctx is done.
+func (a *Approvals) Run(ctx context.Context) error {
+	<-ctx.Done()
+	return nil
+}
+
+func (e *Engine) Checks() []core.Check { return nil }
+
+func (a *Approvals) OnResolved(fn func(*core.Approval)) {}
+
+// ===== internal/egress/new.go =====
+// Package egress implements the egress proxy, SSRF guard, dialers and the
+// web_fetch / web_search / net_allow tools. Owner: M6.
+package egress
+
+import (
+	"context"
+	"log/slog"
+
+	"github.com/bothyhq/bothy/internal/config"
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+type Deps struct {
+	Config    config.View
+	Store     core.Store
+	Vault     core.Vault // search API keys
+	Approvals core.Approvals
+	Policy    core.Policy // net_allow grants
+	Bus       core.Bus
+	Audit     core.Auditor
+	RunDir    string // /run/bothy
+	Clock     core.Clock
+	Log       *slog.Logger
+}
+
+// Service implements core.Egress, core.ToolProvider and core.CheckProvider.
+type Service struct{ core.Egress }
+
+func New(d Deps) (*Service, error) { return &Service{}, nil }
+
+// Run batches egress_log writes until ctx is done.
+func (s *Service) Run(ctx context.Context) error {
+	<-ctx.Done()
+	return nil
+}
+
+func (s *Service) Tools() []core.Tool   { return nil }
+func (s *Service) Checks() []core.Check { return nil }
+
+// ===== internal/sandbox/new.go =====
+// Package sandbox implements core.Sandbox (sandboxd client, bwrap, none) and the
+// shell/python tools. Owner: M5.
+package sandbox
+
+import (
+	"context"
+	"log/slog"
+
+	"github.com/bothyhq/bothy/internal/config"
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+type Deps struct {
+	Config  config.View
+	Egress  core.Egress
+	Store   core.Store
+	Bus     core.Bus
+	Audit   core.Auditor
+	WorkDir string // /work
+	RunDir  string // /run/bothy
+	Clock   core.Clock
+	Log     *slog.Logger
+}
+
+// Client implements core.Sandbox, core.ToolProvider and core.CheckProvider.
+type Client struct{ core.Sandbox }
+
+// New probes backends in order sandboxd -> bwrap -> none (per sandbox.backend).
+func New(ctx context.Context, d Deps) (*Client, error) { return &Client{}, nil }
+
+// Run watches sandboxd health, reaps idle boxes and scans workspace quotas.
+func (c *Client) Run(ctx context.Context) error {
+	<-ctx.Done()
+	return nil
+}
+
+func (c *Client) Tools() []core.Tool   { return nil }
+func (c *Client) Checks() []core.Check { return nil }
+
+// ===== internal/sandboxd/new.go =====
+// Package sandboxd is the sidecar that alone holds the container runtime socket. Owner: M5.
+package sandboxd
+
+import "context"
+
+// Main runs `bothy sandboxd`. Configuration comes only from BOTHY_SBX_* env.
+func Main(ctx context.Context, args []string, env func() []string) error {
+	<-ctx.Done()
+	return nil
+}
+
+// ===== internal/sbxinit/new.go =====
+// Package sbxinit is PID 1 and the exec wrapper inside tool boxes. Stdlib only. Owner: M5.
+package sbxinit
+
+// Main implements `sbx-init [run|killall|count|selftest] …`; returns the exit code.
+func Main(args []string) int { return 0 }
+
+// ===== internal/provider/new.go =====
+// Package provider implements core.LLM over hand-written Anthropic, OpenAI,
+// Gemini, Ollama and OpenAI-compatible clients. Owner: M2.
+package provider
+
+import (
+	"log/slog"
+
+	"github.com/bothyhq/bothy/internal/config"
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+type Deps struct {
+	Config config.View
+	Vault  core.Vault
+	Egress core.Egress     // SystemClient per provider base URL
+	Env    func() []string // Detect only: names of well-known key env vars
+	Clock  core.Clock
+	Log    *slog.Logger
+}
+
+// Facade implements core.LLM and core.CheckProvider.
+type Facade struct{ core.LLM }
+
+func New(d Deps) (*Facade, error) { return &Facade{}, nil }
+
+func (f *Facade) Checks() []core.Check { return nil }
+
+// ===== internal/budget/new.go =====
+// Package budget implements core.Budget. Owner: M3.
+package budget
+
+import (
+	"log/slog"
+
+	"github.com/bothyhq/bothy/internal/config"
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+type Deps struct {
+	Store  core.Store
+	Config config.View
+	Bus    core.Bus
+	Audit  core.Auditor
+	Clock  core.Clock
+	Log    *slog.Logger
+}
+
+// Service implements core.Budget.
+type Service struct{ core.Budget }
+
+func New(d Deps) (*Service, error) { return &Service{}, nil }
+
+// ===== internal/memory/new.go =====
+// Package memory implements core.Memory and the memory/session_search tools. Owner: M8.
+package memory
+
+import (
+	"log/slog"
+
+	"github.com/bothyhq/bothy/internal/config"
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+type Deps struct {
+	Store   core.Store
+	Config  config.View
+	Bus     core.Bus
+	Audit   core.Auditor
+	DataDir string // files under <data>/memory/<principal>/
+	Clock   core.Clock
+	Log     *slog.Logger
+}
+
+// Service implements core.Memory and core.CheckProvider.
+type Service struct{ core.Memory }
+
+func New(d Deps) (*Service, error) { return &Service{}, nil }
+
+func (s *Service) Tools() []core.Tool   { return nil }
+func (s *Service) Checks() []core.Check { return nil }
+
+// ===== internal/skills/new.go =====
+// Package skills implements core.Skills (SKILL.md loader) and skill tools. Owner: M7.
+package skills
+
+import (
+	"log/slog"
+
+	"github.com/bothyhq/bothy/internal/config"
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+type Deps struct {
+	Store   core.Store
+	Config  config.View
+	Audit   core.Auditor
+	Bus     core.Bus // skills_changed banner
+	WorkDir string   // resolved work dir; skills.dir "" = <WorkDir>/skills
+	Clock   core.Clock
+	Log     *slog.Logger
+}
+
+// Library implements core.Skills and core.CheckProvider.
+type Library struct{ core.Skills }
+
+func New(d Deps) (*Library, error) { return &Library{}, nil }
+
+func (l *Library) Tools() []core.Tool   { return nil }
+func (l *Library) Checks() []core.Check { return nil } // skills.changed (fix: disable)
+
+// ===== internal/tools/new.go =====
+// Package tools implements core.ToolRegistry, tool_search/use_tool, and the
+// fs_* and message builtins. Owner: M4.
+package tools
+
+import (
+	"log/slog"
+
+	"github.com/bothyhq/bothy/internal/config"
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+type RegistryDeps struct {
+	Config config.View
+	Log    *slog.Logger
+}
+
+// Registry implements core.ToolRegistry.
+type Registry struct{ core.ToolRegistry }
+
+func NewRegistry(d RegistryDeps) *Registry { return &Registry{} }
+
+func (r *Registry) Register(t core.Tool) error { return nil }
+
+type BuiltinDeps struct {
+	Config    config.View
+	Messenger core.Messenger // message tool, bound to env.Chat
+	Sandbox   core.Sandbox   // workspace quota check before writes
+	Clock     core.Clock
+}
+
+// Builtins returns fs_read, fs_write, fs_list, fs_delete, message.
+func Builtins(d BuiltinDeps) []core.Tool { return nil }
+
+// ===== internal/mcp/new.go =====
+// Package mcp implements core.MCP over the official go-sdk client. Owner: M7.
+package mcp
+
+import (
+	"context"
+	"log/slog"
+
+	"github.com/bothyhq/bothy/internal/config"
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+type Deps struct {
+	Config   config.View
+	Store    core.Store
+	Sandbox  core.Sandbox
+	Egress   core.Egress
+	Registry core.ToolRegistry
+	Vault    core.Vault
+	Bus      core.Bus
+	Audit    core.Auditor
+	WorkDir  string // resolved work dir: install trees under <WorkDir>/mcp/<server>/<install_id>
+	Clock    core.Clock
+	Log      *slog.Logger
+}
+
+// Manager implements core.MCP and core.CheckProvider.
+type Manager struct{ core.MCP }
+
+func New(d Deps) (*Manager, error) { return &Manager{}, nil }
+
+func (m *Manager) Checks() []core.Check { return nil }
+
+func (m *Manager) Start(ctx context.Context) error { return nil }
+func (m *Manager) Close() error                    { return nil }
+
+// ===== internal/agent/new.go =====
+// Package agent implements core.Runner: session workers, the run loop, context
+// assembly, compaction, stop and resume. Owner: M3.
+package agent
+
+import (
+	"context"
+	"log/slog"
+
+	"github.com/bothyhq/bothy/internal/config"
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+type Deps struct {
+	Store     core.Store
+	Config    config.View
+	LLM       core.LLM
+	Tools     core.ToolRegistry
+	Policy    core.Policy
+	Approvals core.Approvals
+	Budget    core.Budget
+	Memory    core.Memory
+	Skills    core.Skills
+	Sandbox   core.Sandbox
+	Egress    core.Egress
+	Redactor  core.Redactor
+	Bus       core.Bus
+	Audit     core.Auditor
+	DataDir   string // SOUL.md
+	WorkDir   string // workspaces
+	Clock     core.Clock
+	Log       *slog.Logger
+}
+
+// Runner implements core.Runner.
+type Runner struct{ core.Runner }
+
+func New(d Deps) (*Runner, error) { return &Runner{}, nil }
+
+// SetHub is called once by cmd/bothy after the hub exists (the hub depends on
+// the runner). The runner uses it for sinks of resumed parked runs
+// (Hub.StreamTo) and for restart notices (Messenger.Send); before SetHub, or
+// with a nil hub in tests, those deliveries are skipped.
+func (r *Runner) SetHub(h core.ChannelHub) {}
+
+// Run performs boot recovery (MarkInterrupted, resumable parked runs) and reaps
+// idle session workers until ctx is done; then drains for up to 10s.
+func (r *Runner) Run(ctx context.Context) error {
+	<-ctx.Done()
+	return nil
+}
+
+// ===== internal/scheduler/new.go =====
+// Package scheduler implements core.Scheduler and the schedule_* tools. Owner: M8.
+package scheduler
+
+import (
+	"context"
+	"log/slog"
+
+	"github.com/bothyhq/bothy/internal/config"
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+type Deps struct {
+	Store  core.Store
+	Config config.View
+	Runner core.Runner
+	Hub    core.ChannelHub // delivery sinks
+	Memory core.Memory     // HEARTBEAT.md
+	Bus    core.Bus
+	Audit  core.Auditor
+	Clock  core.Clock
+	Log    *slog.Logger
+}
+
+// Service implements core.Scheduler.
+type Service struct{ core.Scheduler }
+
+func New(d Deps) (*Service, error) { return &Service{}, nil }
+
+func (s *Service) Run(ctx context.Context) error {
+	<-ctx.Done()
+	return nil
+}
+
+func (s *Service) Tools() []core.Tool { return nil }
+
+// ===== internal/channel/new.go =====
+// Package channel is the channel router (core.ChannelHub). Owner: M9.
+package channel
+
+import (
+	"context"
+	"log/slog"
+
+	"github.com/bothyhq/bothy/internal/config"
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+type Deps struct {
+	Config    config.View
+	Auth      core.Auth
+	Runner    core.Runner
+	Approvals core.Approvals
+	Budget    core.Budget
+	Sandbox   core.Sandbox // /status only
+	Store     core.Store
+	Bus       core.Bus
+	Audit     core.Auditor
+	Redactor  core.Redactor
+	WorkDir   string // attachments are written to <WorkDir>/ws/<workspace>/.bothy/in/
+	Clock     core.Clock
+	Log       *slog.Logger
+}
+
+// Hub implements core.ChannelHub and core.CheckProvider.
+type Hub struct{ core.ChannelHub }
+
+func New(d Deps) (*Hub, error) { return &Hub{}, nil }
+
+func (h *Hub) Checks() []core.Check { return nil }
+
+func (h *Hub) Add(ch core.Channel) {}
+
+func (h *Hub) Run(ctx context.Context) error {
+	<-ctx.Done()
+	return nil
+}
+
+// ===== internal/channel/telegram/new.go =====
+// Package telegram implements core.Channel for Telegram. Owner: M9.
+package telegram
+
+import (
+	"github.com/bothyhq/bothy/internal/config"
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+// New returns the adapter; it performs no network I/O until Run.
+func New(cfg config.Telegram, d core.AdapterDeps) (core.Channel, error) {
+	return nil, core.ErrNotImplemented
+}
+
+// ===== internal/channel/discord/new.go =====
+// Package discord implements core.Channel for Discord. Owner: M10.
+package discord
+
+import (
+	"github.com/bothyhq/bothy/internal/config"
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+// New returns the adapter; it performs no network I/O until Run.
+func New(cfg config.Discord, d core.AdapterDeps) (core.Channel, error) {
+	return nil, core.ErrNotImplemented
+}
+
+// ===== internal/channel/slack/new.go =====
+// Package slack implements core.Channel for Slack. Owner: M10.
+package slack
+
+import (
+	"github.com/bothyhq/bothy/internal/config"
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+// New returns the adapter; it performs no network I/O until Run.
+func New(cfg config.Slack, d core.AdapterDeps) (core.Channel, error) {
+	return nil, core.ErrNotImplemented
+}
+
+// ===== internal/doctor/new.go =====
+// Package doctor runs core.Check sets for `bothy doctor`, `bothy security-audit`
+// and /api/doctor. Owner: M11.
+package doctor
+
+import (
+	"context"
+	"io"
+
+	"github.com/bothyhq/bothy/internal/config"
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+type Runner struct{ checks []core.Check }
+
+func New(checks []core.Check) *Runner { return &Runner{checks: checks} }
+
+// ConfigChecks returns config.errors and config.safe_mode (from Effective()),
+// which no module owns because internal/config is skeleton code.
+func ConfigChecks(cfg config.Admin) []core.Check { return nil }
+
+// Run executes every check (security-only when security is true), sorted by severity.
+func (r *Runner) Run(ctx context.Context, security bool) []core.Finding { return nil }
+
+// Fix applies AutoFix findings and returns the fixed ids.
+func (r *Runner) Fix(ctx context.Context, fs []core.Finding) []string { return nil }
+
+// Print renders findings as text (exit code 1 when any >= high) or JSON.
+func Print(w io.Writer, fs []core.Finding, asJSON bool) int { return 0 }
+
+// ===== internal/httpapi/new.go =====
+// Package httpapi serves every route in SPEC §8. Owner: M11.
+package httpapi
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"github.com/bothyhq/bothy/internal/config"
+	"github.com/bothyhq/bothy/internal/core"
+	"github.com/bothyhq/bothy/internal/doctor"
+)
+
+type Deps struct {
+	Config    config.Admin
+	Store     core.Store
+	Auth      core.Auth
+	Vault     core.Vault
+	Bus       core.Bus
+	Runner    core.Runner
+	Approvals core.Approvals
+	Policy    core.Policy
+	LLM       core.LLM
+	Budget    core.Budget
+	Memory    core.Memory
+	Skills    core.Skills
+	MCP       core.MCP
+	Scheduler core.Scheduler
+	Hub       core.ChannelHub
+	Sandbox   core.Sandbox
+	Egress    core.Egress
+	Doctor    *doctor.Runner
+	Audit     core.Auditor
+	WebUI     http.Handler
+	Version   string
+	DataDir   string // persona file (agent.persona_file), backups
+	WorkDir   string // uploads and workspace downloads (os.Root under <WorkDir>/ws/<id>)
+	Restart   func() // POST /api/admin/restart: asks cmd/bothy to drain and re-exec
+	Clock     core.Clock
+	Log       *slog.Logger
+}
+
+type Server struct{ d Deps }
+
+func New(d Deps) (*Server, error) { return &Server{d: d}, nil }
+
+// Handler is the full middleware-wrapped mux (used by tests and Serve). The
+// skeleton serves only the health endpoints.
+func (s *Server) Handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	})
+	return mux
+}
+
+// Serve listens on server.listen (TLS when configured) until ctx is done, then
+// shuts down gracefully within 10s.
+func (s *Server) Serve(ctx context.Context) error {
+	srv := &http.Server{Addr: s.d.Config.Current().Server.Listen, Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	go func() {
+		<-ctx.Done()
+		sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(sctx)
+	}()
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
+}
+
+// ===== internal/webui/new.go =====
+// Package webui serves the embedded SPA from dist/ (pre-gzipped). Owner: M11.
+package webui
+
+import "net/http"
+
+// Handler serves hashed assets as immutable, index.html as no-store, and falls
+// back to index.html for unknown non-/api, non-/v1 paths.
+func Handler() http.Handler { return http.NotFoundHandler() }
+```
+
+**Shared test kit (`internal/testkit`, implemented by the lead; API below):**
+
+```go
+// ===== internal/testkit/fakes/fakes.go =====
+// Package fakes holds in-memory implementations of core interfaces for unit tests.
+package fakes
+
+import (
+	"sync"
+	"time"
+
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+// Clock is a manually advanced core.Clock (use testing/synctest for timers).
+type Clock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func NewClock(t time.Time) *Clock        { return &Clock{now: t} }
+func (c *Clock) Now() time.Time          { c.mu.Lock(); defer c.mu.Unlock(); return c.now }
+func (c *Clock) Advance(d time.Duration) { c.mu.Lock(); c.now = c.now.Add(d); c.mu.Unlock() }
+
+// Auditor records entries; Verify always reports an intact chain.
+type Auditor struct {
+	mu      sync.Mutex
+	Entries []core.AuditEntry
+}
+
+// Vault is an in-memory core.Vault with an exact-match Redactor. Seal() makes
+// Get/Resolve return core.ErrSealed.
+type Vault struct{ core.Vault }
+
+func NewVault(secrets map[string]string) *Vault { return &Vault{} }
+
+// Policy returns Verdicts[tool] (default Default) with Rule "fake".
+type Policy struct {
+	core.Policy
+	Verdicts map[string]core.Verdict
+	Default  core.Verdict
+}
+
+// Approvals resolves every request immediately with Choice (or blocks until
+// Resolve when Manual is true). Records requests.
+type Approvals struct {
+	core.Approvals
+	Choice   core.Choice
+	Manual   bool
+	Requests []core.ApprovalRequest
+}
+
+// LLM replays scripted turns: each Step streams Text and/or ToolCalls and
+// returns Usage; Err fails the call. Requests records every BuildFunc result.
+type LLM struct {
+	core.LLM
+	Steps    []LLMStep
+	Requests []*core.Request
+	Info     core.ModelInfo
+}
+
+type LLMStep struct {
+	Text      []string // streamed as deltas
+	ToolCalls []core.ToolCall
+	Usage     core.Usage
+	Err       error
+	Block     chan struct{} // if set, blocks after the first delta until closed or ctx done
+}
+
+// Sink records run events.
+type Sink struct {
+	mu     sync.Mutex
+	Events []core.Event
+}
+
+func (s *Sink) OnEvent(e core.Event) { s.mu.Lock(); s.Events = append(s.Events, e); s.mu.Unlock() }
+
+// Runner records Submit/Stop/StopAll/Resume calls and returns Result (or Err)
+// from Submit; Paused/SetPaused toggle a flag; ResolveSession/NewSession/Fork
+// create sessions in Store (a memstore) when set.
+type Runner struct {
+	core.Runner
+	Store   core.Store
+	Result  core.SubmitResult
+	Err     error
+	Submits []core.RunRequest
+	Stops   []core.SessionID
+	Resumed []core.ApprovalID
+	PausedV bool
+}
+
+// Hub records Messenger sends and StreamTo calls; StreamTo returns a *Sink.
+// PreferredChats maps users to their preferred DM.
+type Hub struct {
+	core.ChannelHub
+	Sent           []string // "<chat key>|<markdown>"
+	Streams        map[string]*Sink
+	PreferredChats map[core.UserID]core.ChatRef
+}
+
+// Auth resolves identities from Identities (key "<channel>:<external id>"),
+// builds Viewers from Viewers, and records pairing and sender-notice calls.
+type Auth struct {
+	core.Auth
+	Identities map[string]core.IdentityResolution
+	Viewers    map[core.UserID]core.Viewer
+	Notices    []core.ChannelIdentity
+}
+
+// Budget allows everything unless Deny is set; StartRun returns a meter that
+// enforces only the given RunLimits steps and records AfterCall infos.
+type Budget struct {
+	core.Budget
+	Deny  *core.BudgetError
+	Calls []core.CallInfo
+}
+
+// Registry is a map-backed core.ToolRegistry with the real filtering rules
+// reduced to: trigger, principal kind (SpaceOK), sandbox (Exec), Gated.
+type Registry struct {
+	core.ToolRegistry
+	Tools map[string]core.Tool
+}
+
+// Memory, Skills, MCP and Scheduler embed their interface and implement the
+// read paths over in-memory maps (files, skill bodies, statuses, schedules).
+type Memory struct {
+	core.Memory
+	Files map[core.PrincipalID]map[core.MemoryFile]string
+}
+
+type Skills struct {
+	core.Skills
+	Metas  []core.SkillMeta
+	Bodies map[string]string
+}
+
+type MCP struct {
+	core.MCP
+	StatusV []core.MCPStatus
+}
+
+type Scheduler struct {
+	core.Scheduler
+	Schedules map[core.ScheduleID]*core.Schedule
+}
+
+// ===== internal/testkit/memstore/memstore.go =====
+// Package memstore is an in-memory core.Store for module unit tests while M1's
+// SQLite store is being built. It passes conformance.Store (Viewer scoping =>
+// ErrNotFound, ApprovalRepo.Decide CAS, the runs_one_active ErrConflict,
+// keyset paging, FTS replaced by case-insensitive substring search, audit
+// append-only). Tx runs fn under one mutex.
+package memstore
+
+import "github.com/bothyhq/bothy/internal/core"
+
+func New() core.Store { return nil }
+
+// ===== internal/testkit/channeltest/channeltest.go =====
+// Package channeltest provides a fake core.Channel that records sends/edits and
+// lets tests inject inbound messages and button presses.
+package channeltest
+
+import "github.com/bothyhq/bothy/internal/core"
+
+type Channel struct {
+	core.Channel
+	NameV  string
+	CapsV  core.ChannelCaps
+	Sent   []core.OutMessage
+	Edited []core.OutMessage
+	Acks   []string
+}
+
+// New returns a fake with Telegram-like caps unless overridden.
+func New(name string) *Channel { return &Channel{NameV: name} }
+
+// Inject delivers an inbound message to the sink passed to Run.
+func (c *Channel) Inject(in core.Inbound) {}
+
+// Press delivers a button press for a previously sent message.
+func (c *Channel) Press(msg core.MsgRef, senderID, data string) {}
+
+// ===== internal/testkit/sandboxtest/sandboxtest.go =====
+// Package sandboxtest provides fake core.Sandbox and core.Egress.
+package sandboxtest
+
+import (
+	"context"
+	"net/http"
+
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+type Sandbox struct {
+	core.Sandbox
+	StatusV core.SandboxStatus
+	// Exec handles every exec; default echoes argv to stdout with exit 0.
+	ExecFunc func(ctx context.Context, key string, req core.ExecRequest) (*core.ExecResult, error)
+	Killed   []string
+	Ensured  []core.BoxSpec
+}
+
+type Egress struct {
+	core.Egress
+	Client   *http.Client // returned by PublicClient and SystemClient (point it at an httptest server)
+	Activity map[string]bool
+	Bound    []core.EgressBinding
+}
+
+// ===== internal/testkit/conformance/conformance.go =====
+// Package conformance holds suites every implementation must pass.
+package conformance
+
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+type ToolCase struct {
+	Name    string
+	Env     *core.ToolEnv
+	Args    json.RawMessage
+	WantErr bool
+}
+
+// Tool checks: valid Manifest (non-zero side effect, Title set, schema compiles,
+// name ^[a-zA-Z0-9_-]{1,64}$); Plan is deterministic (two calls give identical
+// Action JSON and Fingerprint); Plan performs no side effects (env.Sandbox,
+// env.HTTP and env.Emit are trapped and must not be called); Action.SideEffect
+// >= Manifest.SideEffect; Action.Tool == spec name.
+func Tool(t *testing.T, tool core.Tool, cases []ToolCase) { t.Helper() }
+
+// Channel checks an adapter against its fake platform server: Send/Edit/Delete
+// round-trip, previews disabled on every send, MaxLen respected, Ack within 3s.
+func Channel(t *testing.T, ch core.Channel, platform PlatformFake) { t.Helper() }
+
+// Store runs the repository contract against a fresh store per subtest:
+// round trips for every method, the IDOR table (foreign Viewer => ErrNotFound
+// on every by-ID read), Decide CAS under 50 goroutines, runs_one_active =>
+// ErrConflict, paging order, MarkInterrupted, Approvals.Seen, Grants.Active
+// expiry/revocation, audit Append/Range ordering. memstore and M1 both run it.
+func Store(t *testing.T, open func(t *testing.T) core.Store) { t.Helper() }
+
+// PlatformFake is implemented by telegramtest, discordtest and slacktest.
+type PlatformFake interface {
+	InjectText(chatID, senderID, text string, mention bool)
+	InjectButton(chatID, msgID, senderID, data string)
+	SentTexts(chatID string) []string
+	PreviewsDisabled() bool // true when every outgoing message disabled previews/unfurls/embeds
+}
+
+// ===== internal/testkit/mockllm/mockllm.go =====
+// Package mockllm is a scriptable OpenAI-compatible server (/v1/models,
+// /v1/chat/completions with and without stream) for agent tests and E2E.
+package mockllm
+
+import (
+	"time"
+
+	"github.com/bothyhq/bothy/internal/core"
+)
+
+type Rule struct {
+	MatchUser       string          `yaml:"match_user"`        // regexp on the last user text
+	MatchToolResult string          `yaml:"match_tool_result"` // regexp on the last tool result
+	MatchSystem     string          `yaml:"match_system"`      // regexp on the system prompt (e.g. compaction requests)
+	Text            []string        `yaml:"text"`              // streamed chunks
+	ToolCalls       []core.ToolCall `yaml:"tool_calls"`
+	Usage           *core.Usage     `yaml:"usage"`    // default: estimated from bytes
+	NoUsage         bool            `yaml:"no_usage"` // omit usage (compat quirk)
+	Fault           string          `yaml:"fault"`    // "" | 429 | 500 | overflow | midstream | slow_ttft | malformed
+	Delay           time.Duration   `yaml:"delay"`    // between chunks
+	Times           int             `yaml:"times"`    // 0 = unlimited
+}
+
+type Server struct{}
+
+func New(rules []Rule, models []core.ModelInfo) *Server { return &Server{} }
+func Load(path string) (*Server, error)                 { return &Server{}, nil } // YAML script
+func (s *Server) URL() string                           { return "" }             // base URL ending in /v1
+func (s *Server) Requests() [][]byte                    { return nil }            // raw request bodies, in order
+func (s *Server) Close()                                {}
+```
+
+Platform fakes (fake Telegram Bot API server, fake Discord gateway + REST, fake Slack Socket Mode + Web API) are built by the adapter owners in `<adapter>test` subpackages, implement `conformance.PlatformFake`, and are reused by the E2E suite and the RSS budget job.
+
+### 12.2 Modules (12 agents, disjoint ownership)
+
+| # | Module | Owns (exclusive) |
+|---|---|---|
+| M1 | Store, vault, audit | `internal/store/**` except `migrations/0001_init.sql`; `internal/vault/**`; `internal/audit/**` |
+| M2 | Providers | `internal/provider/**`; `tools/catalog-gen/**` |
+| M3 | Agent runtime, budget | `internal/agent/**`; `internal/budget/**` |
+| M4 | Policy, approvals, tool registry, core builtins | `internal/policy/**`; `internal/tools/**` |
+| M5 | Sandbox | `internal/sandbox/**`; `internal/sandboxd/**`; `internal/sbxinit/**`; `deploy/sandbox/**` |
+| M6 | Egress, web tools | `internal/egress/**` |
+| M7 | MCP, skills | `internal/mcp/**`; `internal/skills/**` |
+| M8 | Memory, scheduler | `internal/memory/**`; `internal/scheduler/**` |
+| M9 | Channel router, Telegram | `internal/channel/*.go` (package `channel` only); `internal/channel/telegram/**` |
+| M10 | Discord, Slack | `internal/channel/discord/**`; `internal/channel/slack/**` |
+| M11 | Auth, HTTP API, doctor, web embed | `internal/auth/**`; `internal/httpapi/**` except `dto/`; `internal/doctor/**`; `internal/webui/*.go` |
+| M12 | Web UI | `web/**` except `web/src/lib/api/types.gen.ts` |
+| S | Lead | everything else (§12.1) |
+
+Every module: implements its `new.go` signatures; ships `README.md`; `go test -race` of its packages passes standalone with testkit fakes; contributes `Checks()` where listed; no network in unit tests (httptest only); golangci-lint clean; no new dependencies.
+
+---
+
+#### M1 · Store, vault, audit
+
+- **Implements:** `core.Store` and all 24 repositories in hand-written SQL (writer `Tx` with `BEGIN IMMEDIATE`, two readers); Viewer scoping on every by-ID read; FTS search with the §6 query and safe MATCH quoting; `Backup` (tarball with a VACUUM INTO snapshot, 0600; §4.8); `RunRetention`; `vault.NewSlogHandler`; `Checks` (`sqlite.version`, `data.permissions` with fix, `backups.none_recent`). `vault.Redactor` (exact + encoded variants + patterns), `vault.Vault` (KEK sources and sealing, DEK wrap, AES-256-GCM with AAD, env overlay `BOTHY_SECRET_*[_FILE]`, `Resolve("secret:x")` with header-embedded refs, `RotateKEK`, `Unseal`, `secret.use` audit, `Checks`: `vault.kek_colocated`, `vault.kek_env`, `vault.sealed`). `audit.Writer` (canonical JSON, chain, sync vs batched actions, `Verify`) and `audit.Archive(ctx, dbPath, before)` for the offline CLI.
+- **Consumes:** core, config.
+- **Acceptance tests:**
+  - `conformance.Store` passes against a temp DB (the same suite memstore passes); every repository method round-trips.
+  - **IDOR suite:** for every by-ID method, a Viewer without the principal gets `ErrNotFound` (table-driven over all repos).
+  - FTS: finds a message; stays correct after `VACUUM` and after restoring a `VACUUM INTO` copy; never returns hidden or foreign sessions; hostile MATCH input (`"`, `NEAR(`, `*`) does not error.
+  - `runs_one_active` → `ErrConflict`; approval `Decide` CAS: 50 concurrent deciders, exactly one wins.
+  - Audit: UPDATE/DELETE abort; a tampered row makes `Verify` return its id; archive + anchor keeps `Verify` green.
+  - Migrator: refuses SQLite < 3.53.4 (injected version func); writes the pre-migration backup; idempotent.
+  - 200 concurrent writers: no `SQLITE_BUSY`; 1K message appends < 1 s; 10K-message search < 50 ms.
+  - Vault: round trip; wrong KEK → sealed with `kek_check` failure; ciphertext moved to another name or version fails (AAD); rotation keeps every secret readable; values never appear in a captured slog stream; redactor masks raw, base64, base64url, hex and percent-encoded forms inside JSON; files 0600.
+
+#### M2 · Providers
+
+- **Implements:** `provider.Facade` (`core.LLM`): chain resolution, retries/backoff/`Retry-After`, circuit breaker, no-switch-after-first-event, `Passthrough`, estimator + EWMA calibration, catalog (embedded `catalog.json` + `pricing` overrides), `Probe` (1-token completion + forced tool call, context discovery, cost), `Detect` (Ollama at `host.docker.internal:11434`/`localhost:11434`/`ollama:11434`, LM Studio `:1234`, vLLM `:8000`, well-known env var names), `Health`, `Checks` (`providers.auth_failed`). Clients: `anthropic` (Messages SSE, tools, thinking + signature round-trip, `cache_control` from `CacheBreak`/`ToolsCache`/`CacheTail`, usage with cache read/write), `openai` (Chat Completions SSE for OpenAI and every `openai_compat` base: `stream_options.include_usage`, `max_tokens` vs `max_completion_tokens`, tool-call deltas, missing usage → estimate, missing call ids → `call_<n>`, whole-argument tool calls, `reasoning_content`, `<tool_call>{…}</tool_call>` text extraction), `gemini` (`streamGenerateContent?alt=sse`, key in `x-goog-api-key` header, functionCall, thoughtSignature), `ollama` (`/api/chat` NDJSON with `options.num_ctx`, `/api/tags`, `/api/show` for context length). All clients use `Egress.SystemClient`, never retry, never read env, keep keys in headers only. `tools/catalog-gen`.
+- **Consumes:** config, `core.Vault`, `core.Egress`.
+- **Acceptance tests:**
+  - Golden SSE fixtures per provider, **copied from vendor documentation and official SDK test data** (with attribution in `testdata/README.md`): text, parallel tool calls, thinking/signature, usage incl. cache, every `ErrorKind` mapping, a mid-stream error.
+  - Fallback on 429/500 before the first event; no fallback after it; `build` called with each candidate's `ModelInfo`; `context_length` surfaced, not retried by the facade; breaker opens after 3 failures.
+  - Cost math exact to the micro (tiers included); unknown price → `PriceKnown=false`.
+  - A recorder asserts API keys never appear in URLs or logs; clients have `Proxy == nil`, TLS ≥ 1.2; a CI grep confirms no provider SDK import.
+  - Ollama: `num_ctx` sent equals the configured/discovered context; Probe reports "4,096 context" with the `OLLAMA_CONTEXT_LENGTH` hint when the served context is small.
+  - Thinking parts with a different `SigKind` are stripped; same-role messages merged.
+
+#### M3 · Agent runtime, budget
+
+- **Implements:** `agent.Runner` (`core.Runner`): session workers, coalescing, steer and queue modes, semaphores released during approval waits, run loop (§5.5), context assembly and profiles (§5.6), tool pipeline (§5.7), park/resume (placeholder result at park, `<approved-action>` message at resume, resume sinks via `SetHub`), history invariants (synthesized results for dangling calls), compaction (§5.10), stop/kill switch (§5.11), boot recovery (interrupted runs: cancel approvals, notify chats), `Fork`, `Continue`, titles, workspace directory creation, URL provenance for user messages, the embedded `CONSTITUTION.md` (full and short variants, versioned in `meta.constitution_version`, exposed by `Constitution()`) and the default `SOUL.md` written at boot when missing. `budget.Service` (`core.Budget`): meters, daily caps with per-user overrides, sender token buckets (LRU 10k), loop detector, defaults per trigger.
+- **Consumes:** every core service interface (via testkit fakes and `memstore`).
+- **Acceptance tests** (memstore, fakes.LLM, sandboxtest, fakes.Policy, fakes.Approvals, fakes.Hub; `testing/synctest` for time):
+  - A session with a parked call and a dangling (interrupted) call still produces provider-valid requests (every tool call has one result); a resumed parked run executes once and its result arrives as an `<approved-action>` message.
+  - **Prefix stability:** tools + S1 + S2 bytes identical across 5 turns including a memory write and a new pin (they appear in turn-context); `prefix_hash` changes only after compaction.
+  - Constitution present after 10 forced compactions; a pinned "don't act until I say" survives verbatim; a standing instruction in history is auto-pinned and announced.
+  - Summarizer failing twice → truncation fallback with notice; run completes. A 16K-window model: every assembled request ≤ window − reserve; breakdown sums equal the total.
+  - `/stop` while the LLM is blocked mid-stream and while a tool sleeps: `Stop` returns < 100 ms; `Sandbox.Kill` called; run `stopped`.
+  - 50 concurrent Submits to one session → exactly one active run; overflow → `ErrBusy`; steer message injected at the next step; queue mode coalesces.
+  - With global semaphore 1: run A waiting for approval does not block run B.
+  - Park → new Runner on the same DB → resolve → Resume executes the stored Action exactly once.
+  - Every budget path ends with the right status; loop warn then abort; exposed session forces the sink to neutralize links.
+  - Tool output > cap is truncated head/tail with the spill file written and `FullRef` set; untrusted results are spotlight-wrapped with unique ids.
+
+#### M4 · Policy, approvals, tool registry, core builtins
+
+- **Implements:** `policy.Engine` (`core.Policy`: §5.8 procedure, presets, rules with globs/argv0 (command-line first word, metacharacter guard)/domains/paths/JSON-pointer matchers, grants, first contact (grants, `egress.allow`, `Approvals().Seen`, origin chat), floors, `NarrowGrant`, `NextTaint`), `policy.Approvals` (`core.Approvals`: persistence, card rendering (§5.9), `Await` with timeouts, park, CAS `Resolve` with authority/message/truncation checks, `ButtonData` MAC with `meta.approval_mac_key` created on first boot, `AddMessageRef`, sweeper `Run`, `OnResolved`, `RenderCard`, `Recent`, admin-broadcast copies for `AdminOnly`). `tools.Registry` (`core.ToolRegistry`: manifest/schema validation, deterministic `ForRun` per profile honouring `core.Gated`, `Available`, `Search` (name/description keyword ranking), the `tool_search` tool (uses `env.Selection`) and the `use_tool` schema entry, which the runner unwraps). Builtins: `fs_read` (ranges, 256 KB cap, binary detection), `fs_write` (Action with unified diff; create/overwrite/append), `fs_list`, `fs_delete` (irreversible), `message` (origin chat only, `SELocalWrite`, `Messaging`). `Checks`: `policy.hands_off`, `policy.auto_external_rules`, `budgets.unlimited`.
+- **Consumes:** config, `core.Store`, `core.Bus`, `core.Auditor`, `core.Messenger`, `core.Sandbox` (quota check only).
+- **Acceptance tests:**
+  - Decision table ≥ 150 cases over (class × preset × trigger × principal kind × taint × provenance × rules × grants); no rule or grant beats a floor; the `AllowWhenTainted` exception works only for exact recipients.
+  - `NarrowGrant` never yields a whole-tool grant; `bash -c` grants match only the exact argv; an `argv0: [ls]` rule matches `ls -la` but not `ls; rm -rf x`, `ls $(curl …)` or `ls | sh`.
+  - First contact: a recipient approved once (allowed approval) is not first contact again; the run's own chat never is.
+  - Approvals: concurrent double resolve → one wins; a press from an unrecorded message, a non-approver, or "approve" on a truncated card is rejected; MAC tamper rejected; button data ≤ 64 bytes; expiry → deny or park per decision; park TTL expiry.
+  - Card fuzz: Action fields with markdown, HTML, U+202E, zero-width chars and fake button text never change card structure; bidi/zero-width visualised; punycode shown.
+  - Registry: identical `ForRun` bytes for identical inputs; core schemas ≤ 1,500 estimated tokens (standard) and the compact/degraded sets match §5.6; exec tools absent without sandbox; `schedule_*` absent for schedule triggers; restricted spaces get read-only tools only.
+  - fs tools: `os.Root` blocks `../`, absolute paths and symlink escapes; every builtin passes `conformance.Tool`.
+
+#### M5 · Sandbox
+
+- **Implements:** `sandbox.Client` (`core.Sandbox`): backend probe (sandboxd → bwrap → none), sandboxd client (`proto`), directory pre-creation in `Ensure` (`ws/<id>` and MCP trees 2770 g10001, `skills/`, `egress/<h>` 0750 g10001), `Usage` from the quota scan (every backend), `Destroy` → `Egress.CloseBox`, health watch and `Watch` callbacks, idle reaping, quota scan, `Checks` (`sandbox.unavailable`, `sandbox.not_isolated`, `sandbox.rootful_runc`, `sandbox.runsc_host_uds`, `docker.socket_access`); `internal/sandbox/bwrap` (§2.12); tools `shell` (`bash -lc` via `ExecRequest`, `local_write`, `Exec`) and `python` (writes the script to `.bothy/tmp/` then runs `python3`). `internal/sandboxd`: server (`proto`, `DisallowUnknownFields`, regex validation, peercred check), hand-written Engine API client (ping, version, info, image inspect/pull by digest, container create/start/kill/remove/list, exec create/start with hijack and stream demux, exec inspect), compiled spec (§2.6), reaper, max-boxes LRU, runtime selection and UDS canary (§2.9), self-test (§2.10), socket onboarding messages. `internal/sbxinit` (§2.7). `deploy/sandbox/` images.
+- **Consumes:** config, `core.Egress`, `core.Store`, `core.Bus`, `core.Auditor`.
+- **Acceptance tests:**
+  - Unit: spec test asserts every hardening field of §2.6; unknown JSON fields, bad key/workspace/tree ids, `..` in cwd, forbidden env keys → 400; limits clamped; frame decoding fuzzed.
+  - Linux CI job with Docker 27 (`-tags docker`): self-test passes; `curl https://example.com` fails without a grant and succeeds with one; `getent hosts example.com` fails; `curl http://169.254.169.254` fails; a double-forked `setsid sleep 600` is gone < 1 s after Kill; an exec timeout returns `timed_out` and exit 124; a fork bomb is contained by pids; `/run/bothy` and `docker.sock` are not visible in the box; uid is 10001; files written by the box are readable by the gateway (group 10001) and vice versa; a second session's workspace is invisible.
+  - runsc job (`-tags runsc`, daemon.json with `--host-uds=open`): egress works; without the flag `auto` falls back to runc and `runsc` mode refuses.
+  - bwrap job: environment is clean (no `BOTHY_*`), network only via relay, `ptrace` denied.
+  - `shell` and `python` pass `conformance.Tool`.
+
+#### M6 · Egress, web tools
+
+- **Implements:** `egress.Service` (`core.Egress`): per-box unix listeners, CONNECT + absolute-form proxy (§2.8 steps 1–9), hold-for-approval (`Policy.Decide` on the `net_allow` spec + `core.Approvals`, §5.8 "Egress holds"; allow_once scoped to the bound tool call), trifecta grant suspension (reads session taint), pinned resolver, blocklist, SNI check, caps, batched `egress_log`, `TakeActivity`, `PublicClient` (redirect re-checks, no cookies/auth headers), `SystemClient`. Tools: `web_fetch` (GET only, HTML → text via `x/net/html`, `web_fetch.max_bytes`, Taint Untrusted, Action with full URL and punycode host), `web_search` (SearXNG JSON, Brave, Tavily via `SystemClient`, SearXNG with `AllowPrivate` from `search.searxng_allow_private`; records result URLs in `session_urls`; Taint Untrusted), `net_allow` (Action `{kind: net, host, port}`, `external_send`, F9). `Checks`: `egress.wildcards`, `egress.shared_tenant_allowed`, `egress.presets_enabled`, `mcp.http_plaintext`.
+- **Consumes:** config, `core.Store`, `core.Vault`, `core.Approvals`, `core.Policy`, `core.Bus`, `core.Auditor`.
+- **Acceptance tests:** SSRF table: `127.0.0.1`, `0x7f000001`, `2130706433`, `017700000001`, `[::1]`, `[::ffff:127.0.0.1]`, `[::ffff:169.254.169.254]`, `64:ff9b::a9fe:a9fe`, `2002:a9fe:a9fe::`, `2001:0:…` Teredo, `100.64.0.1`, `198.18.0.1`; DNS rebinding (fake resolver answers public then private) dials the pinned IP; redirect to a private address refused; CONNECT to port 22 refused; IP literal without grant refused; SNI ≠ CONNECT host closed; shared-tenant host not allowed by a session grant; Exposed session ignores session grants; over-cap upload aborted; hold-for-approval allows on approve, 403 on timeout and immediately when Exposed or non-interactive; every connection logged; `web_fetch` sends no `Authorization`/`Cookie`; IDN homograph shown as punycode in the Action; tools pass `conformance.Tool`.
+
+#### M7 · MCP, skills
+
+- **Implements:** `mcp.Manager` (`core.MCP`): config → servers; Streamable HTTP via go-sdk with `Egress.SystemClient` and vault-injected headers, one session per (server, billing user), legacy SSE fallback; stdio via `Sandbox.Stdio` + `IOTransport`; discovery instances for tool lists (§2.11); install flow (§2.11) with TOFU locks and tree hashing; per-(server, principal) stdio instances with idle stop and backoff; `Approve` with `Disable`; tool-name truncation rule; canonical hashing and pinning (pending/approved/changed→disabled), `mcp.pin_pending` events; tool adapters `mcp__<server>__<tool>` (lazy unless pinned to core by config; Action from `field_map`; class from approval; Taint Untrusted unless `trusted_output`, Private when approved private); cancellation; `Checks` (`mcp.pending_pins`, `mcp.drifted` with fix). `skills.Library` (`core.Skills`): scan `<work>/skills/*/SKILL.md`, YAML frontmatter (`name`, `description`, optional `license`, `allowed-tools` advisory), tree hash, status machine, index within budget, `Load`/`ReadFile` via `os.Root` (256 KB), zip install (zip-slip and size limits, never executes anything), rescan drift → `changed` (banner `skills_changed`, audit `skill.changed`); tools `skill_load` (`core.Gated`: only when a skill is enabled), `skill_read`; `Checks`: `skills.changed` (fix: disable).
+- **Consumes:** config, `core.Store`, `core.Sandbox`, `core.Egress`, `core.ToolRegistry`, `core.Vault`, `core.Bus`, `core.Auditor`.
+- **Acceptance tests:** in-process go-sdk servers (old and new spec era) over pipes and httptest: new tool → pending, not exposed; approve → callable; changed description → disabled + event + diff; unpinned package / `npx` command rejected at config validation; stdio refused without sandbox; HTTP MCP to a private IP refused without `allow_private`; header secret resolved and never logged; cancellation propagates; tree drift → `drifted`. Skills: oversize index degrades to names; `../` and symlink reads blocked; zip-slip blocked; a skill whose SKILL.md says "run this install command" causes zero `Sandbox` calls; hash drift → excluded and banner.
+
+#### M8 · Memory, scheduler
+
+- **Implements:** `memory.Service` (`core.Memory`): files under `<data>/memory/<principal>/` (0600, atomic temp+rename), ops with byte caps and helpful errors, `memory_events`, ETags, `DeltasSince` text, history, `Search` (delegates to `Messages().Search`); tools `memory` (Action kind `memory`, provenance recorded; F7) and `session_search` (Taint Private, + Untrusted on untrusted hits). Spaces have no memory: neither tool is `SpaceOK`. `scheduler.Service` (`core.Scheduler`): single timer on `NextDue`, gronx with timezones and DST, heartbeat (owner schedule kept in sync with config, HEARTBEAT.md inlined into the prompt, empty file = no call, jitter, active hours, `HEARTBEAT_OK` suppression, daily cap from `UsageRepo.Report`), once, missed-run policy, auto-disable after 3 failures, `SetPaused`, `Preview` (+ human description), delivery via `Hub.StreamTo(…, "final")`; tools `schedule_list` (read), `schedule_create`, `schedule_delete` (admin class, `Triggers: [message]`).
+- **Consumes:** config, `core.Store`, `core.Runner`, `core.ChannelHub`, `core.Memory`, `core.Bus`, `core.Auditor` (memstore, fakes.Runner, fakes.Hub in tests).
+- **Acceptance tests:** cap enforcement with remaining-bytes message; concurrent `Apply` serialized; ETag conflict → `ErrConflict`; delta text after add/replace/remove; DST spring-forward and fall-back (Europe/London March/October) next-run correctness; `once` missed-run fires exactly once; paused scheduler fires nothing and resumes; heartbeat output `HEARTBEAT_OK` is not delivered; 3 failures disable and notify; tools pass `conformance.Tool`.
+
+#### M9 · Channel router, Telegram
+
+- **Implements:** `channel.Hub` (`core.ChannelHub`): adapter lifecycle, §5.1 pipeline (dedup, identity, unknown-sender flow, rate limits, command fast path, button handling, space gating, provenance, session resolution, attachment download into the workspace, Submit), streamer (`StreamTo`: typing renewal and placeholder, buffer deltas, edit no faster than `EditMinInterval`, split at `MaxLen` on paragraph/line boundaries without breaking code fences, status line "Running `pip install pandas`…", Stop button `s:<run>`, final edit, link neutralization when Exposed), approval card delivery and updates (§5.9 routing, truncation, `AddMessageRef`), `Messenger.Send`, `PreferredChat` (most recently used linked DM), `DeepLink`, `Test`, `Checks` (`channels.auth_failed`). Telegram adapter: `getUpdates` long poll (offset in meta), `sendMessage`/`editMessageText` with HTML parse mode and escaping, `link_preview_options.is_disabled`, inline keyboards, `answerCallbackQuery`, `sendChatAction`, `getFile`, `setMyCommands`, `getMe`, 429 `retry_after`, `t.me/<bot>?start=<code>` deep links. `telegramtest` fake Bot API server.
+- **Consumes:** config, `core.Auth`, `core.Runner`, `core.Approvals`, `core.Budget`, `core.Sandbox` (status), `core.Store`, `core.Bus`, `core.Auditor`, `core.Redactor`; adapters get `core.AdapterDeps` (memstore, fakes.Auth, fakes.Runner, fakes.Budget in tests).
+- **Acceptance tests** (channeltest + telegramtest, synctest for timing): pairing via `/start CODE`; unknown sender gets one reply per 24 h and **zero** Runner submissions; blocked sender silent; group message without mention ignored; disabled space ignored with admin notice; `/stop` handled while the session worker is busy; a non-approver's button rejected with a toast; a card from a group run is delivered to the owner's DM, not the group; truncated card offers only Deny + Open in web; ≤ 1 edit per interval; a 10K-char reply splits correctly; HTML injection escaped; previews disabled on every send; redelivered update deduplicated; Telegram adapter passes `conformance.Channel`.
+
+#### M10 · Discord, Slack
+
+- **Implements:** Discord adapter on disgo: gateway with intents `GUILD_MESSAGES | DIRECT_MESSAGES | MESSAGE_CONTENT`, caches disabled, resume handled by disgo, REST create/edit/delete with `flags: SUPPRESS_EMBEDS`, components (buttons) and interaction responses (deferred update ≤ 3 s), typing, DM channel open, per-route 429 handling, mention detection, invite URL builder. Slack adapter on slack-go `socketmode`: `apps.connections.open`, envelope ack ≤ 3 s, `app_mention` + `message.im`, threads as `ThreadID`, `block_actions` → `ActionEvent`, `chat.postMessage`/`chat.update` with Block Kit buttons and `unfurl_links/unfurl_media: false`, mrkdwn escaping, `/bothy` slash command, `auth.test`. (The Slack app manifest and Discord invite URL are generated by M11 from the templates in §8.6.) `discordtest` and `slacktest` fakes. Each adapter talks to its library through a package-private interface so unit tests can fake it even where the library resists URL overrides.
+- **Consumes:** config, `core.AdapterDeps`.
+- **Acceptance tests:** fake gateway: reconnect/resume after a forced close; interaction acked < 3 s; mention vs non-mention; embeds suppressed. Slack fake: envelope ack timing; reconnect on `disconnect`; button → `ActionEvent` with `AckRef`; unfurls disabled; the §8.6 manifest's scopes are sufficient for every call the adapter makes (test asserts the set). Both pass `conformance.Channel`; idle allocation benchmark ≤ 3 MB per adapter.
+
+#### M11 · Auth, HTTP API, doctor, web embed
+
+- **Implements:** `auth.Service` (`core.Auth`: setup token lifecycle, claim grant, owner creation, Argon2id with one slot and dummy hash, lockout, cookies and rotation, CSRF tokens, PAT format with CRC, scopes, pairing codes (8 Crockford chars, TTL 15 m, single use, 5 attempts per identity per hour), sender notices, `ApproveSender` creating guest spaces, `ResolveIdentity`, `ViewerFor` (sets `Viewer.Admin`), `ResetPassword`, the embedded common-password list, `pairing.linked` events, `Checks`: `server.exposure`, `server.insecure_lan`, `tokens.*`). `httpapi.Server`: middleware (§8.1), every route in §8.3, SSE (§8.2, hello with `Bus.Banners`), OpenAI endpoints (§8.5) with request/response translation for passthrough, Slack manifest and Discord invite (§8.6, golden tests), uploads and workspace file download under `Deps.WorkDir`, persona file under `Deps.DataDir`, vault status/import, policy preview, per-token rate limiter, safe-mode route gating, restart via `Deps.Restart`. `doctor.Runner`, `doctor.ConfigChecks` + `Print`. `webui.Handler` (pre-gzipped assets, `Content-Encoding`, ETag, immutable caching, SPA fallback).
+- **Consumes:** every core interface, `config.Admin`, `dto` (memstore and the testkit fakes for every service in tests).
+- **Acceptance tests:** route authz matrix (anonymous, member, admin, each token scope) for every route, including `POST /api/approvals/{id}` → 403 for every bearer token and safe mode → 503 outside the allowed routes; IDOR suite through HTTP (foreign session/run/approval/schedule/memory ids → 404); setup routes 404 after completion and 403 from non-local peers; setup token single use; login timing equal for unknown users (±10%); lockout; cookie flags under TLS and plain local HTTP; missing CSRF header → 403; cross-site `Sec-Fetch-Site` → 403; query-string token → 400; wrong Host → 421; public peer over plain HTTP → 403, LAN peer → 403 unless `insecure_lan`; `X-Forwarded-For` honoured only from trusted proxies; CSP and nosniff on every response; no CORS header ever; SSE: resume without gaps, `resync` across boots, member never receives another principal's events, admin never receives others' `run.delta`; `/v1/chat/completions` stream parsed by a recorded official-client fixture; `tools` → 400 in agent mode; passthrough tool round-trip; budget → 429 OpenAI shape.
+
+#### M12 · Web UI
+
+- **Implements:** every §9 screen; router; API client; SSE store with resync; markdown renderer; card component; context ring and breakdown drawer; SVG charts; QR encoder; wizard; effective-config chips; responsive layout; PWA manifest.
+- **Consumes:** `types.gen.ts`, §8; develops against a `web/mock/` dev server that replays fixtures.
+- **Acceptance tests:** vitest: renderer XSS corpus (no executable output, no `<img>`, `javascript:` links inert, neutralization in Exposed sessions); card renders only DTO fields and visualises bidi; SSE store resync behaviour; router. Build gates: JS ≤ 120 KB gz, CSS ≤ 20 KB gz, no inline scripts or style attributes in the built HTML, zero external origins. Keyboard-only approval flow; works at 360 px; axe checks on chat, approvals and settings.
+
+### 12.3 Rules for parallel agents
+
+- Code only against `internal/core`, `internal/config` and testkit. Never import another module's package (CI).
+- Touch only owned paths (CI ownership check). `go.mod`, `core`, `config`, `events`, `dto`, migrations, testkit, `cmd/` and `deploy/` (except `deploy/sandbox/`) change only through the lead.
+- **Interface change request (ICR):** open an issue titled `ICR: <package>.<symbol>` with the proposed diff and rationale; meanwhile code against a local adapter in your own package. The lead batches approved ICRs daily into a skeleton patch that every worktree rebases onto.
+- Schema changes: request `0002_*.sql` from the lead; never edit `0001`.
+- New dependency: request from the lead (14-day cooldown applies).
+- Comments: only the non-obvious why; match file density (CONTRIBUTING).
+
+### 12.4 Phase 3: merge, integrate, E2E (lead)
+
+**Merge order** (each merge keeps `make test` green; stubs remain until replaced): M1 → M2 → M4 → M6 → M5 → M8 → M7 → M3 → M9 → M10 → M11 → M12. Then the lead fills the CLI commands (`doctor`, `security-audit`, `setup-token`, `user`, `vault`, `config`, `audit`, `backup`) on top of module APIs.
+
+**E2E suite** (`e2e/`, real binary, mockllm as an `openai_compat` provider, fake platform servers wired in through the locked `channels.*.api_base` / `gateway_url` keys set by env; a `docker`-tagged variant runs real sandboxd):
+
+| # | Scenario | Pass condition |
+|---|---|---|
+| E1 | Zero-config first run | setup fragment token → owner → provider test against mockllm → first chat streams over SSE with usage and breakdown |
+| E2 | Shell approval (docker) | rule makes `shell` ask → card over SSE → approve → box exec → result → final answer |
+| E3 | Deny and park | interactive deny path; scheduled run parks → approve via web → resumes and executes once |
+| E4 | Telegram | pair via deep link → DM → streamed edits → approval button → result; previews disabled |
+| E5 | Group space | owner enables a group; untrusted member message → read-only tools only, card goes to owner DM |
+| E6 | Unknown sender | DM from an unknown id → one reply, zero mockllm requests |
+| E7 | Stop | `/stop` during `sleep 600` and a hung stream: stopped < 1 s, zero box processes left |
+| E8 | Budget and loop | daily cap refuses runs; looping script aborts with `loop_detected` |
+| E9 | Compaction | 16K mock model, 12 forced compactions: constitution and pinned instruction present in mockllm requests; auto-pin announced |
+| E10 | Memory | memory write appears in the next request's turn-context; tools+system prefix bytes unchanged |
+| E11 | MCP | in-process HTTP MCP server: pending → approve → call; description change → disabled |
+| E12 | Egress (docker) | blocked domain → hold card → allow for session → retry succeeds; exposed session → immediate 403 |
+| E13 | OpenAI endpoint | agent mode stream + non-stream; `tools` rejected; passthrough tool round-trip |
+| E14 | No sandbox | `shell` absent from the tools sent to mockllm; banner present |
+| E15 | Vault canary | a secret `CANARY-<rand>` stored and used by a provider header never appears in mockllm request bodies, channel sends, logs, audit rows or SSE |
+| E16 | Forged approval | mockllm emits a benign-sounding preamble and a destructive shell call: the card shows the exact argv; truncated chat card cannot approve |
+| E17 | Restart | kill the gateway mid-run: run `interrupted` with notice; parked approval survives and resumes |
+| E18 | Footprint budgets | image ≤ 30 MB; idle RSS ≤ 60 MB after 10 min with 3 fake channels; cold start ≤ 500 ms; fixed token overhead ≤ 2.5K |
+| E19 | Principal isolation (the "real isolation" claim) | multi mode, users A and B plus a group space: B's cookie and tokens get 404 on every by-ID route for A's sessions, runs, approvals, memory, grants and vault entries; B's `fs_*` and shell runs cannot see A's workspace; a space run sees no owner memory or vault; `DELETE /api/users/A?purge=true` leaves no vault row, grant, memory file, workspace dir or box for A |
+| E20 | Allow always | approve a card with `allow_always` → a principal grant exists and the identical action in a **new** session runs without a card; revoking it in Settings restores the card; the choice is absent on irreversible, Exposed and scheduled-run cards |
+
+---
+
+## 13. Risks, cuts and deferrals
+
+### 13.1 Risks
+
+| Risk | Impact | Mitigation / verification |
+|---|---|---|
+| sandboxd holds the runtime socket; on rootful Docker a sandboxd compromise is host root | high, inherent to option (a) | sandboxd has no network, a fixed schema with regex-validated ids, no caller-chosen image/mount/caps, peercred check, ~1.5K auditable lines. Docs and doctor steer to rootless Docker or runsc. P1 alternative backend: socketless uid-per-lease sidecar (from the "secure" proposal) for hosts that refuse a socket mount. |
+| Kill/timeout semantics under runsc (`kill(-1)`) or exotic engines | stop slower than target | container kill + recreate fallback; E7 runs under runc and runsc in CI. |
+| gVisor needs `--host-uds=open` for the egress socket | egress broken under runsc | UDS canary; `auto` falls back to runc with a fix line; `runsc` mode fails closed; CI job with the documented daemon.json. |
+| Volume subpaths need Docker 26+ / API 1.45; Podman compat API unverified | no exec on older engines | health reports it; exec unavailable with "Docker 26+ required"; Podman labelled beta after a week-1 check. |
+| Rootless Docker socket permissions | onboarding friction | `SANDBOXD_USER` + `DOCKER_SOCK`; exact fix lines from sandboxd and doctor. |
+| Hand-written provider clients drift from vendor APIs; fixtures may encode misunderstandings | broken streams | fixtures copied from vendor docs and SDK test data; opt-in nightly contract job with maintainer keys; each client ≤ ~800 lines behind `core.Provider` so an SDK swap stays possible. |
+| disgo/slack-go behaviour behind fakes (no real keys) | reconnect bugs in production | package-private client interfaces for unit fakes; protocol-level fakes; nightly contract job; libraries are widely used. |
+| CONNECT passthrough allows domain fronting on CDNs | exfiltration via an allowlisted CDN host | SNI = CONNECT host check; shared-tenant suffixes admin-only; Exposed sessions suspend grants; small upload cap. TLS inspection is P1 (with the credential-injecting proxy). |
+| Tools that ignore `HTTP(S)_PROXY` | feature failures, not leaks | proxy env set for common runtimes (`NODE_USE_ENV_PROXY`); fail closed. |
+| Small local models handle `tool_search`/`use_tool` poorly | low task success at 16K | compact profile keeps the most useful tools in the block; Probe reports tool-calling reliability before the user commits; tools used twice are promoted into the block at the next compaction. |
+| Approval fatigue | rubber-stamping | shell auto inside the box; narrow allow-for-session grants; pre-authorized schedule grants; presets; batched approvals are P1. |
+| Footprint targets are estimates | marketing risk | CI budget job from the skeleton on; publish only measured numbers. |
+| One SQLite writer under heavy runs | latency | deltas are never persisted; egress log batched; measure with 4 concurrent runs in the budgets job. |
+| Kubernetes pods share a netns (`network_mode: none` impossible) | no k8s exec | k8s exec unsupported in v0.1; Helm with NetworkPolicy is P1. |
+| Docker's userland proxy (`docker-proxy`) can make remote clients appear to come from the bridge gateway IP (ports published on `0.0.0.0` with IPv6, or iptables disabled), which the exposure gate classes as *local* | plain HTTP served to remote peers | compose publishes loopback only; auth is still required for every route; doctor `server.exposure` flags container mode on `0.0.0.0` without an https `public_url`; docs say to front remote access with TLS (Caddy/Tailscale). |
+| Parallel-build integration drift | rework | compiled skeleton, frozen core/dto, shared fakes and conformance suites, ownership CI, daily ICR batches, defined merge order. |
+
+### 13.2 Cut from v0.1 (with reason)
+
+| Cut | Reason | When |
+|---|---|---|
+| OpenAI Responses API | Chat Completions covers every targeted model; avoids a second OpenAI dialect | P1 if reasoning-state reuse proves worth it |
+| Passkeys/WebAuthn, TOTP, OIDC | dependency weight; Argon2id + lockout meets the baseline | P1 |
+| OS keychain and SOPS/age KEK sources | CGO/dbus or extra deps; Docker secret / systemd / file / passphrase cover containers. SOPS users can use `sops exec-env … 'bothy serve'` with `BOTHY_SECRET_*` | P1 |
+| WASM Python (wazero + CPython-WASI) for single-container exec | ~25 MB blob breaks the image budget; single-container mode fails closed instead | P1 optional download |
+| Credential-injecting / TLS-inspecting egress proxy | MITM CA plumbing | P1 |
+| Secrets for MCP stdio servers | violates "keys only in the gateway" without the injecting proxy | P1 (with the proxy) |
+| Remote MCP OAuth 2.1 (PKCE, resource indicators, CIMD, RFC 9207) | go-sdk client OAuth is experimental | P1 |
+| Vector memory (sqlite-vec), learning loop, subagents, multi-bot principals, quarantined LLM | scope and cost | P1 |
+| Matrix, WhatsApp, Signal, email | `core.Channel` + `AdapterDeps` already fit; each is a new package plus a line in `wire.go` | P1 |
+| Browser sidecar, voice, image generation | not core footprint | P1 compose profiles |
+| OpenClaw/Hermes importers, MCP server mode, webhooks/RSS/email triggers | adoption features after the core is stable | P1 |
+| OTel export | built-in run trace covers v0.1 | P1 |
+| age-encrypted export | `bothy backup` writes a 0600 tarball; encryption needs age | P1 |
+| Batched approvals, Web Push | UX polish | P1 |
+| Landlock-only backend, microVM tier, encrypted DB at rest, external audit anchoring | kernel fix unconfirmed / KVM not universal / P2 in the brief | P2 |
+| Parallel execution of non-read tools | deterministic approvals | P1 for more classes |
+
+**Explicitly never:** host-exec fallback, unauthenticated mode, the runtime socket in the gateway, telemetry on by default, an open skill marketplace, paywalled auth features.
+
+### 13.3 How judge findings were resolved (traceability)
+
+| Finding (judge) | Resolution in this spec |
+|---|---|
+| Core did not compile (`EvUsage` collision, unexported `ackToken`, no deps.go) | stream constants renamed `Stream*`; `ActionEvent.AckRef` exported; `internal/deps/deps.go`; core compile-checked (§4) |
+| No exec kill/timeout mechanism | `sbx-init run --timeout`, `killall`, kill+recreate fallback (§2.7) |
+| runsc needs `--host-uds` | UDS canary, runtime policy, daemon.json fix (§2.9) |
+| `expose_secrets` puts secrets in boxes | removed; HTTP MCP with vault headers (§2.11, D17) |
+| Semaphore held during approval waits | released while waiting/parked (D22, §5.4) |
+| Exposure guard trusted the Host header | peer-IP gate + separate Host allowlist (§8.1) |
+| Grants evaluated before trifecta; whole-tool grants | floors first; narrow grants + DB CHECK (§5.8, §6) |
+| bwrap env leak, no seccomp/userns lock | `--clearenv`, explicit env, `--disable-userns`, seccomp (§2.12) |
+| No egress port allowlist; incomplete blocklist; registries on by default | ports `[443]`, full blocklist, SNI check, presets off (§2.8) |
+| `/approve CODE` fallback | removed; MAC-bound buttons from recorded messages; truncated cards deny-only (§5.9) |
+| Groups ran with the owner's memory | space principals (§5.2) |
+| FTS on implicit rowid (secure, ux) | `messages.id INTEGER PRIMARY KEY` (§6) |
+| UI overrides hidden in the DB | `bothy.ui.yaml` overlay (§7) |
+| Ollama `/v1` ignores context | native Ollama client with `num_ctx` (D3) |
+| Hand-written stateful channel protocols untestable | disgo + slack-go; Telegram hand-written (D4) |
+| Overloaded policy/tools module | tools moved to their natural owners (§12.2) |
+| Fakes built in parallel | testkit + mockllm in the skeleton (§12.1) |
+| `any` placeholders in frozen interfaces | none; event payloads use the closed `EventData` interface (§4.10) |
+| Scheduled approvals stalled or denied | park by default with 24 h TTL (D23) |
+| Docker socket gid / rootless friction | sandboxd fix lines + `SANDBOXD_USER` (§2.10) |
+| Consistency review: modules could not be tested in parallel without a store; runner/hub cycle; parked/interrupted tool calls broke provider history; admin-only approvals invisible to admins; unowned routes and checks | `testkit/memstore` + `conformance.Store` + service fakes (§12.1); `Runner.SetHub`; placeholder results, synthesized results and `<approved-action>` messages (§5.6, §5.7); `Viewer.Admin` + admin-broadcast copies; `Runner.Fork`/`Constitution`, `Sandbox.Usage`, vault status/import routes, `doctor.ConfigChecks`, skills checks |
