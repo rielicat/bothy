@@ -97,16 +97,25 @@ func (f *Facade) entry(id string) (*entry, error) {
 	fpb, _ := json.Marshal(p) //nolint:gosec // G117: see above
 	fp := string(fpb)
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	if e := f.entries[id]; e != nil && e.fp == fp {
-		return e, nil
+	old := f.entries[id]
+	if old != nil && old.fp == fp {
+		f.mu.Unlock()
+		return old, nil
 	}
 	e, err := f.build(p, fp)
 	if err != nil {
+		f.mu.Unlock()
 		return nil, err
 	}
 	f.entries[id] = e
 	delete(f.disc, id)
+	// A changed config (a new key, another base URL) deserves a fresh start:
+	// the old breaker and auth state described the old settings.
+	delete(f.health, id)
+	f.mu.Unlock()
+	if old != nil {
+		f.updateBanner()
+	}
 	return e, nil
 }
 

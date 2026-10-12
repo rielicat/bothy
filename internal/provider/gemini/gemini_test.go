@@ -154,6 +154,17 @@ func TestStreamMidstreamError(t *testing.T) {
 	}
 }
 
+// A blocked prompt arrives as a 200 chunk carrying only promptFeedback
+// (GenerateContentResponse.promptFeedback.blockReason).
+func TestPromptBlocked(t *testing.T) {
+	srv := wiretest.NewServer(t, wiretest.SSE([]byte("data: {\"promptFeedback\":{\"blockReason\":\"SAFETY\"},\"modelVersion\":\"gemini-2.5-flash\"}\r\n\r\n")))
+	_, err := New(wiretest.Options(srv, "gemini")).Stream(context.Background(), &core.Request{Model: "m"}, nil)
+	var pe *core.ProviderError
+	if !errors.As(err, &pe) || pe.Kind != core.ErrKindContentFilter || pe.Retryable() {
+		t.Fatalf("%v", err)
+	}
+}
+
 func TestErrorKinds(t *testing.T) {
 	docBody := string(wiretest.File(t, "testdata/docs_error_api_key.json"))
 	generic := func(code int, status, msg string) string {

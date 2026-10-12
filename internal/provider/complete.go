@@ -84,6 +84,7 @@ func (f *Facade) run(ctx context.Context, chain []core.ModelInfo, build core.Bui
 			continue
 		}
 		req = prepare(req, m, e.kind)
+		ci.Ref = m.Ref // a failed call is recorded against the last model tried
 		for try := 0; try < 2; try++ {
 			resp, started, cbErr, err := f.attempt(ctx, e, m, req, on, &ci, start)
 			if err == nil {
@@ -212,7 +213,6 @@ func (f *Facade) finish(e *entry, m core.ModelInfo, req *core.Request, resp *cor
 	ci.PriceKnown = m.Price.Known
 	ci.Stop = resp.Stop
 	ci.PrefixHash = prefixHash(req)
-	ci.Breakdown.Window = m.Context
 	ci.Latency = f.clock.Now().Sub(start)
 	return resp, ci, nil
 }

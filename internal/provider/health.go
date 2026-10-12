@@ -104,26 +104,25 @@ func errText(err error) string {
 	return err.Error()
 }
 
-// updateBanner raises provider_auth once while any provider is auth_failed
-// and clears it when none is.
+// updateBanner raises provider_auth once while any configured provider is
+// auth_failed and clears it when none is.
 func (f *Facade) updateBanner() {
 	if f.d.Bus == nil {
 		return
 	}
-	f.mu.Lock()
 	var failed []string
-	for id, h := range f.health {
-		if h.state == stateAuthFailed {
-			failed = append(failed, id)
+	for _, h := range f.Health() {
+		if h.State == stateAuthFailed {
+			failed = append(failed, h.ID)
 		}
 	}
+	f.mu.Lock()
 	raise := len(failed) > 0 && !f.banner
 	clear := len(failed) == 0 && f.banner
 	f.banner = len(failed) > 0
 	f.mu.Unlock()
 	switch {
 	case raise:
-		slices.Sort(failed)
 		f.d.Bus.Publish(core.Event{Type: core.EvBanner, Data: core.BannerData{
 			Level: "error", Code: "provider_auth", Action: "/settings/providers",
 			Text: "The " + failed[0] + " provider rejected its API key. Update the key in Settings → Vault.",
