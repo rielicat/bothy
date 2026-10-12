@@ -124,6 +124,11 @@ func (h *Hub) runCommand(ctx context.Context, a *adapter, in core.Inbound, res c
 		say(h.cmdUsage(ctx, tg, chat))
 	case "pair", "start":
 		switch {
+		case args != "" && chat.Kind != core.ChatDM:
+			// Codes are single use: anyone here could now redeem it first.
+			say("Pairing codes only work in a direct message with me. This one is now visible here, so create a new code in the web UI and send it to me privately.")
+		case args != "" && res.Status == core.IdentityGuest:
+			say("This account is a guest; an admin can link it to a user in Settings → People.")
 		case args != "":
 			say("This account is already linked.")
 		case res.Status == core.IdentityLinked && chat.Kind == core.ChatDM:

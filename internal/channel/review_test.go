@@ -289,3 +289,20 @@ func TestCardKeepsLinksInert(t *testing.T) {
 		}
 	})
 }
+
+func TestPairInGroupWarnsInsteadOfClaimingLinked(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		h.space("-900", true, false)
+		h.group("-900", "9009", "/pair ABCD-EFGH", true)
+		h.wantVisible("-900", "only work in a direct message")
+		for _, v := range h.visible("-900") {
+			if strings.Contains(v, "already linked") {
+				t.Fatalf("an unknown group member was told %q", v)
+			}
+		}
+		if len(h.auth.Redeemed) != 0 || len(h.runner.Submitted()) != 0 {
+			t.Fatal("a code typed in a group was redeemed or reached the runner")
+		}
+	})
+}
