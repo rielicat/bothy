@@ -323,9 +323,7 @@ func TestStdioInstallDiscoverAndCall(t *testing.T) {
 	}
 
 	h.sb.SetStatus(core.SandboxStatus{Backend: "none"})
-	if st := h.status("notes"); st.State != stNoSandbox {
-		t.Fatalf("state without sandbox = %+v", st)
-	}
+	h.waitFor("no_sandbox", func() bool { return h.status("notes").State == stNoSandbox })
 	if h.tool("mcp__notes__search").(core.Gated).Enabled(alice) {
 		t.Fatal("stdio tool offered without a sandbox")
 	}

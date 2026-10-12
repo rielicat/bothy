@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -368,4 +369,63 @@ func TestStaleBoxNeverReused(t *testing.T) {
 	if res, err := h.call(tool, alice, `{"q":"z"}`); err != nil || res.Content != "results for z" {
 		t.Fatalf("Exec once the box is gone = %+v, %v", res, err)
 	}
+}
+
+// lockingSandbox runs Watch callbacks under the same lock its Destroy takes,
+// as a sandbox client may.
+type lockingSandbox struct {
+	*sandboxtest.Sandbox
+	mu  sync.Mutex
+	fns []func(core.SandboxStatus)
+}
+
+func (l *lockingSandbox) Watch(fn func(core.SandboxStatus)) {
+	l.mu.Lock()
+	l.fns = append(l.fns, fn)
+	l.mu.Unlock()
+}
+
+func (l *lockingSandbox) Destroy(ctx context.Context, key string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.Sandbox.Destroy(ctx, key)
+}
+
+func (l *lockingSandbox) set(st core.SandboxStatus) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.Sandbox.SetStatus(st)
+	for _, fn := range l.fns {
+		fn(l.Sandbox.Status(context.Background()))
+	}
+}
+
+func TestSandboxWatchCallbackDoesNotCallBack(t *testing.T) {
+	h, _, _ := newStdioHarness(t, notesCfg())
+	ls := &lockingSandbox{Sandbox: h.sb}
+	h.m.d.Sandbox = ls
+	h.start()
+	h.install("notes")
+	h.approve("notes", map[string]core.MCPToolApproval{"search": {}})
+	alice := userEnv(newUser("alice"))
+	if _, err := h.call(h.tool("mcp__notes__search"), alice, `{"q":"x"}`); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		ls.set(core.SandboxStatus{Backend: "none"})
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("sandbox status callback deadlocked calling back into the sandbox")
+	}
+	h.waitFor("no_sandbox", func() bool { return h.status("notes").State == stNoSandbox })
+	h.waitFor("instance closed", func() bool {
+		inst := h.m.server("notes").instance("p:" + string(alice.Principal.ID))
+		inst.mu.Lock()
+		defer inst.mu.Unlock()
+		return inst.c == nil
+	})
 }

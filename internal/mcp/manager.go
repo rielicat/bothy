@@ -216,11 +216,20 @@ func (m *Manager) onSandbox(st core.SandboxStatus) {
 	if prev := m.sandboxOK.Swap(st.Available); prev == st.Available {
 		return
 	}
+	// Watch callbacks run on the sandbox client's own goroutine; closing
+	// instances calls back into it (Destroy), so that happens elsewhere.
+	m.spawn(func(context.Context) { m.sandboxChanged() })
+}
+
+// sandboxChanged applies the latest sandbox availability, not the one that
+// triggered it, so quick flips settle on the current state.
+func (m *Manager) sandboxChanged() {
+	available := m.sandboxOK.Load()
 	for _, s := range m.allServers() {
 		if s.spec == nil || s.spec.transport != "stdio" || !s.spec.enabled {
 			continue
 		}
-		if st.Available {
+		if available {
 			s.mu.Lock()
 			again := s.state == stNoSandbox
 			s.mu.Unlock()
