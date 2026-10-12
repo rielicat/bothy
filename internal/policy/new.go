@@ -41,11 +41,12 @@ type Approvals struct {
 	key   []byte // HMAC key for button data (meta approval_mac_key)
 
 	mu        sync.Mutex
-	changed   map[core.ApprovalID]chan struct{}
+	changed   map[core.ApprovalID]*waiter
 	callbacks []func(*core.Approval)
 
 	// transMu serialises timeout transitions so an Await timer and the
-	// sweeper never park or expire the same approval twice.
+	// sweeper never park or expire the same approval twice. Callbacks run
+	// after it is released.
 	transMu sync.Mutex
 }
 
@@ -72,7 +73,7 @@ func New(d Deps) (*Engine, *Approvals, error) {
 	e := &Engine{store: d.Store, cfg: d.Config, audit: d.Audit, clock: d.Clock, log: d.Log, narrowed: newRecentSet(d.Clock.Now)}
 	a := &Approvals{
 		store: d.Store, cfg: d.Config, bus: d.Bus, audit: d.Audit, clock: d.Clock, log: d.Log, key: key,
-		changed: map[core.ApprovalID]chan struct{}{},
+		changed: map[core.ApprovalID]*waiter{},
 	}
 	return e, a, nil
 }

@@ -611,3 +611,71 @@ func TestRecentAndViewerScoping(t *testing.T) {
 		t.Errorf("member get: %v", err)
 	}
 }
+
+// TestAwaitLeavesNoWaiters checks that the per-approval change channels go
+// away with the last Await, however it returns.
+func TestAwaitLeavesNoWaiters(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, nil)
+		waiters := func() int {
+			h.ap.mu.Lock()
+			defer h.ap.mu.Unlock()
+			return len(h.ap.changed)
+		}
+		resolved := h.request(core.TrigMessage)
+		var wg sync.WaitGroup
+		for range 3 {
+			wg.Go(func() {
+				if c, err := h.ap.Await(h.ctx, resolved.ID); err != nil || c != core.AllowOnce {
+					t.Errorf("await: %s %v", c, err)
+				}
+			})
+		}
+		synctest.Wait()
+		if _, err := h.ap.Resolve(h.ctx, core.Resolution{ID: resolved.ID, Choice: core.AllowOnce, By: h.owner.ID, Via: "web"}); err != nil {
+			t.Fatal(err)
+		}
+		wg.Wait()
+		if _, err := h.ap.Await(h.ctx, resolved.ID); err != nil {
+			t.Fatal(err)
+		}
+
+		abandoned := h.request(core.TrigMessage)
+		ctx, cancel := context.WithCancel(h.ctx)
+		go cancel()
+		if _, err := h.ap.Await(ctx, abandoned.ID); !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled await: %v", err)
+		}
+		if n := waiters(); n != 0 {
+			t.Errorf("%d waiter entries left behind", n)
+		}
+	})
+}
+
+// TestTimeoutCallbacksMayReenter checks that OnResolved callbacks for an
+// expiry run after the transition lock is released, so a callback that
+// touches another due approval does not deadlock.
+func TestTimeoutCallbacksMayReenter(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, nil)
+		first, second := h.request(core.TrigMessage), h.request(core.TrigMessage)
+		var inner error
+		h.ap.OnResolved(func(a *core.Approval) {
+			if a.ID == first.ID {
+				_, inner = h.ap.Await(h.ctx, second.ID)
+			}
+		})
+		time.Sleep(16 * time.Minute)
+		if _, err := h.ap.Await(h.ctx, first.ID); !errors.Is(err, core.ErrApprovalExpired) {
+			t.Fatalf("await: %v", err)
+		}
+		if !errors.Is(inner, core.ErrApprovalExpired) {
+			t.Errorf("callback await: %v", inner)
+		}
+		for _, id := range []core.ApprovalID{first.ID, second.ID} {
+			if st := h.status(id).Status; st != core.ApprovalExpired {
+				t.Errorf("%s: %s", id, st)
+			}
+		}
+	})
+}

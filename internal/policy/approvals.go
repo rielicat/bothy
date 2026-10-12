@@ -84,43 +84,53 @@ func (ap *Approvals) Request(ctx context.Context, r core.ApprovalRequest) (*core
 // the deadline passes, so an interactive wait never depends on the sweeper.
 func (ap *Approvals) Await(ctx context.Context, id core.ApprovalID) (core.Choice, error) {
 	for {
-		ch := ap.waitChan(id) // taken before reading so no change is missed
-		a, err := ap.store.Approvals().Get(ctx, core.SystemViewer(), id)
-		if err != nil {
-			return "", fmt.Errorf("approval %s: %w", id, err)
-		}
-		switch a.Status {
-		case core.ApprovalAllowed:
-			return a.Choice, nil
-		case core.ApprovalDenied:
-			return core.Deny, nil
-		case core.ApprovalExpired:
-			return "", core.ErrApprovalExpired
-		case core.ApprovalParked:
-			return "", core.ErrParked
-		case core.ApprovalCancelled:
-			return "", core.ErrStopped
-		}
-		wait := a.ExpiresAt.Sub(ap.clock.Now())
-		if wait <= 0 {
-			if err := ap.timeout(ctx, id); err != nil {
-				return "", err
-			}
-			continue
-		}
-		t := time.NewTimer(wait)
-		select {
-		case <-ch:
-			t.Stop()
-		case <-t.C:
-			if err := ap.timeout(ctx, id); err != nil {
-				return "", err
-			}
-		case <-ctx.Done():
-			t.Stop()
-			return "", context.Cause(ctx)
+		c, done, err := ap.awaitOnce(ctx, id)
+		if done {
+			return c, err
 		}
 	}
+}
+
+// awaitOnce reads the approval and, while it is pending, waits for one change
+// or its deadline; done is false when the caller should read again.
+func (ap *Approvals) awaitOnce(ctx context.Context, id core.ApprovalID) (core.Choice, bool, error) {
+	ch, release := ap.watch(id) // taken before reading so no change is missed
+	defer release()
+	a, err := ap.store.Approvals().Get(ctx, core.SystemViewer(), id)
+	if err != nil {
+		return "", true, fmt.Errorf("approval %s: %w", id, err)
+	}
+	switch a.Status {
+	case core.ApprovalAllowed:
+		return a.Choice, true, nil
+	case core.ApprovalDenied:
+		return core.Deny, true, nil
+	case core.ApprovalExpired:
+		return "", true, core.ErrApprovalExpired
+	case core.ApprovalParked:
+		return "", true, core.ErrParked
+	case core.ApprovalCancelled:
+		return "", true, core.ErrStopped
+	}
+	wait := a.ExpiresAt.Sub(ap.clock.Now())
+	if wait <= 0 {
+		if err := ap.timeout(ctx, id); err != nil {
+			return "", true, err
+		}
+		return "", false, nil
+	}
+	t := time.NewTimer(wait)
+	defer t.Stop()
+	select {
+	case <-ch:
+	case <-t.C:
+		if err := ap.timeout(ctx, id); err != nil {
+			return "", true, err
+		}
+	case <-ctx.Done():
+		return "", true, context.Cause(ctx)
+	}
+	return "", false, nil
 }
 
 // Resolve implements core.Approvals.
@@ -313,47 +323,57 @@ func (ap *Approvals) sweep(ctx context.Context) {
 // approval parks (park_until = now + park_ttl) or expires; a parked one
 // expires once park_until passes.
 func (ap *Approvals) timeout(ctx context.Context, id core.ApprovalID) error {
+	a, err := ap.transition(ctx, id)
+	if a != nil {
+		// Callbacks run outside transMu: they may call back into Approvals.
+		ap.resolved(a)
+	}
+	return err
+}
+
+// transition performs the timeout under transMu and returns the approval
+// when it expired (and callbacks are due).
+func (ap *Approvals) transition(ctx context.Context, id core.ApprovalID) (*core.Approval, error) {
 	ap.transMu.Lock()
 	defer ap.transMu.Unlock()
 	a, err := ap.store.Approvals().Get(ctx, core.SystemViewer(), id)
 	if err != nil {
-		return fmt.Errorf("approval %s: %w", id, err)
+		return nil, fmt.Errorf("approval %s: %w", id, err)
 	}
 	now := ap.clock.Now()
 	switch {
 	case a.Status == core.ApprovalPending && a.ExpiresAt.After(now),
 		a.Status == core.ApprovalParked && a.ParkUntil.After(now),
 		!slices.Contains(openStatuses, a.Status):
-		return nil
+		return nil, nil
 	case a.Status == core.ApprovalPending && a.OnTimeout == core.TimeoutPark:
 		until := msTime(now.Add(orDefault(ap.cfg.Current().Policy.Approval.ParkTTL.D(), defaultParkTTL)))
 		if err := ap.store.Approvals().Park(ctx, id, until); err != nil {
 			if errors.Is(err, core.ErrConflict) {
-				return nil
+				return nil, nil
 			}
-			return fmt.Errorf("park approval %s: %w", id, err)
+			return nil, fmt.Errorf("park approval %s: %w", id, err)
 		}
 		ap.audit1(ctx, core.AuditEntry{
 			Actor: "system", Action: "approval.expire", Target: string(id), Outcome: "ok", Session: a.Session, Run: a.Run,
 			Detail: auditDetail(map[string]any{"status": core.ApprovalParked, "park_until": until.UnixMilli(), "tool": toolOf(a)}),
 		})
 		ap.notify(id)
-		return nil
+		return nil, nil
 	}
 	ok, err := ap.store.Approvals().Decide(ctx, id, []core.ApprovalStatus{a.Status}, core.ApprovalExpired, "", "", "timeout", now)
 	if err != nil {
-		return fmt.Errorf("expire approval %s: %w", id, err)
+		return nil, fmt.Errorf("expire approval %s: %w", id, err)
 	}
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	a.Status, a.Choice, a.DecidedBy, a.DecidedVia, a.DecidedAt = core.ApprovalExpired, "", "", "timeout", msTime(now)
 	ap.audit1(ctx, core.AuditEntry{
 		Actor: "system", Action: "approval.expire", Target: string(id), Outcome: "ok", Session: a.Session, Run: a.Run,
 		Detail: auditDetail(map[string]any{"status": core.ApprovalExpired, "tool": toolOf(a)}),
 	})
-	ap.resolved(a)
-	return nil
+	return a, nil
 }
 
 // resolved publishes approval.resolved, wakes waiters and runs callbacks.
@@ -391,22 +411,37 @@ func (ap *Approvals) publish(typ core.EventType, a *core.Approval, data func(*co
 	}
 }
 
-func (ap *Approvals) waitChan(id core.ApprovalID) chan struct{} {
+// waiter is the change channel shared by every Await of one approval; n
+// counts them so the entry goes away with the last one even when the
+// approval never changes again.
+type waiter struct {
+	ch chan struct{}
+	n  int
+}
+
+func (ap *Approvals) watch(id core.ApprovalID) (<-chan struct{}, func()) {
 	ap.mu.Lock()
 	defer ap.mu.Unlock()
-	ch, ok := ap.changed[id]
+	w, ok := ap.changed[id]
 	if !ok {
-		ch = make(chan struct{})
-		ap.changed[id] = ch
+		w = &waiter{ch: make(chan struct{})}
+		ap.changed[id] = w
 	}
-	return ch
+	w.n++
+	return w.ch, func() {
+		ap.mu.Lock()
+		defer ap.mu.Unlock()
+		if w.n--; w.n == 0 && ap.changed[id] == w {
+			delete(ap.changed, id)
+		}
+	}
 }
 
 func (ap *Approvals) notify(id core.ApprovalID) {
 	ap.mu.Lock()
 	defer ap.mu.Unlock()
-	if ch, ok := ap.changed[id]; ok {
-		close(ch)
+	if w, ok := ap.changed[id]; ok {
+		close(w.ch)
 		delete(ap.changed, id)
 	}
 }
