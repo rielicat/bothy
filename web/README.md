@@ -64,7 +64,7 @@ public/                 theme.js (sets the theme before first paint), PWA manife
   `Markdown.svelte` is the only `{@html}` in the app; `markdown.test.ts` holds
   the XSS corpus.
 - **Approval cards show only the card DTO**, verbatim, with bidi and zero-width
-  characters drawn as `⟨U+202E⟩` and URL hosts in punycode. Model text never
+  characters drawn as `⟨U+202E⟩` and non-ASCII hosts in punycode. Model text never
   appears on a card.
 - **Secrets are write-only**: key fields are password inputs sent once to the
   vault; nothing reads a value back. The setup token is read from the URL

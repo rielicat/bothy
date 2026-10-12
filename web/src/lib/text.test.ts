@@ -34,6 +34,22 @@ describe('punycode', () => {
 
   it('keeps ASCII text unchanged', () => {
     expect(punycode('curl https://example.com/a?b=1 && ls')).toBe('curl https://example.com/a?b=1 && ls');
+    expect(punycode('curl http://EXAMPLE.com http://0x7f.1/')).toBe('curl http://EXAMPLE.com http://0x7f.1/');
+  });
+
+  it('never drops text the URL parser would read as a query or path', () => {
+    expect(punycode('see 例え.jp?token=abc#x')).toBe('see 例え.jp?token=abc#x');
+    expect(punycode('mail bob@аpple.com')).toBe('mail bob@xn--pple-43d.com');
+  });
+
+  // An approval card or tool output can carry a long field (a message in
+  // Chinese, a base64 blob); these took seconds before.
+  it('stays linear on long runs without spaces', () => {
+    const t0 = performance.now();
+    punycode('中'.repeat(50_000));
+    punycode('a'.repeat(50_000));
+    punycode('a+'.repeat(25_000));
+    expect(performance.now() - t0).toBeLessThan(300);
   });
 });
 
