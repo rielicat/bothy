@@ -212,6 +212,16 @@ func (m *Manager) destroyBox(box string) {
 	}
 }
 
+// freshBox removes whatever box is left under key (after a failed Destroy or
+// a crash) before Ensure creates it. Ensure is idempotent per key, so it would
+// otherwise reuse a box whose /opt/mcp is an older or unverified tree.
+func (m *Manager) freshBox(ctx context.Context, key string) error {
+	if err := m.d.Sandbox.Destroy(ctx, key); err != nil && !errors.Is(err, core.ErrNotFound) {
+		return fmt.Errorf("remove stale box %s: %w", key, err)
+	}
+	return nil
+}
+
 func (m *Manager) removeBox(box string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -361,6 +371,9 @@ func (m *Manager) connectStdio(ctx context.Context, s *server, box string, ws co
 	}
 	spec := core.BoxSpec{Key: box, Profile: s.spec.profile, Workspace: ws, MCPTree: s.spec.installTree(in.InstallID),
 		Limits: m.limits(), Egress: core.BoxEgress{Principal: p, Extra: s.spec.egress, NoGrants: true}}
+	if err := m.freshBox(ctx, box); err != nil {
+		return nil, fmt.Errorf("mcp server %s: %w", s.name, err)
+	}
 	if err := m.d.Sandbox.Ensure(ctx, spec); err != nil {
 		return nil, fmt.Errorf("mcp server %s: box: %w", s.name, err)
 	}

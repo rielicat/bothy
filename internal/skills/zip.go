@@ -24,6 +24,8 @@ const (
 	maxZipEntries  = 2 * maxZipFiles
 	maxFileBytes   = 5 << 20
 	maxUnpackBytes = 20 << 20
+
+	installTempPrefix = ".install-"
 )
 
 func invalidf(format string, args ...any) error {
@@ -66,7 +68,7 @@ func (l *Library) Install(ctx context.Context, zr io.ReaderAt, size int64, by co
 		return nil, err
 	}
 
-	tmp, err := os.MkdirTemp(l.dir, ".install-")
+	tmp, err := os.MkdirTemp(l.dir, installTempPrefix)
 	if err != nil {
 		return nil, err
 	}

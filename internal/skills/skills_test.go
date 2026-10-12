@@ -512,6 +512,9 @@ func TestRescanPicksUpAndDropsDirectories(t *testing.T) {
 	if list, _ := l.List(ctx); len(list) != 1 || list[0].Name != "later" {
 		t.Fatalf("List = %+v", list)
 	}
+	if _, err := os.Stat(filepath.Join(f.dir, ".install-123")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("leftover from an unfinished install not removed by Rescan")
+	}
 	if err := os.RemoveAll(filepath.Join(f.dir, "later")); err != nil {
 		t.Fatal(err)
 	}
@@ -629,5 +632,27 @@ func TestMarkChangedRespectsNewerApproval(t *testing.T) {
 	}
 	if b := f.bus.Banners(core.Filter{Admin: true}); len(b) != 0 {
 		t.Fatalf("banners = %+v", b)
+	}
+}
+
+// Enabling approves the tree the last scan recorded (the hash an admin was
+// shown), not files that changed after it.
+func TestEnableRefusesFilesChangedSinceScan(t *testing.T) {
+	f := newFixture(t, 600)
+	writeSkill(t, f.dir, "notes", "Take notes.", "reviewed", nil)
+	l := f.open(t)
+	ctx := context.Background()
+	writeSkill(t, f.dir, "notes", "Take notes.", "swapped after review", nil)
+	if err := l.SetEnabled(ctx, "notes", true, admin); !errors.Is(err, core.ErrConflict) {
+		t.Fatalf("SetEnabled after an unscanned change = %v, want ErrConflict", err)
+	}
+	if st := status(t, l, "notes"); st != core.SkillPending {
+		t.Fatalf("status = %s, want pending", st)
+	}
+	if err := l.Rescan(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.SetEnabled(ctx, "notes", true, admin); err != nil {
+		t.Fatalf("SetEnabled after a rescan = %v", err)
 	}
 }

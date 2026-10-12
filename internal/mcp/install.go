@@ -154,6 +154,9 @@ func (m *Manager) installTree(ctx context.Context, s *server, in *core.MCPInstal
 	}
 	defer root.Close()
 	box := installBox(s.name)
+	if err := m.freshBox(ctx, box); err != nil {
+		return err
+	}
 	if err := m.d.Sandbox.Ensure(ctx, core.BoxSpec{Key: box, Profile: spec.profile, MCPTree: rel, MCPTreeRW: true, Limits: m.limits(),
 		Egress: core.BoxEgress{Extra: spec.registryHosts(), NoGrants: true}}); err != nil {
 		return fmt.Errorf("installer box: %w", err)

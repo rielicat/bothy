@@ -19,6 +19,7 @@ import (
 
 	"github.com/bothyhq/bothy/internal/config"
 	"github.com/bothyhq/bothy/internal/core"
+	"github.com/bothyhq/bothy/internal/testkit/sandboxtest"
 )
 
 // A run can hold a tool across an approval wait. If an admin disables the
@@ -322,5 +323,49 @@ func TestRuntimeFetcherCommandsRejected(t *testing.T) {
 		if _, err := newServerSpec(stdioServer(func(s *config.MCPServer) { s.Command = cmd })); err != nil {
 			t.Errorf("command %q rejected: %v", cmd, err)
 		}
+	}
+}
+
+type failingDestroy struct {
+	*sandboxtest.Sandbox
+	fail atomic.Bool
+}
+
+func (f *failingDestroy) Destroy(ctx context.Context, key string) error {
+	if f.fail.Load() {
+		return errors.New("sandboxd: remove failed")
+	}
+	return f.Sandbox.Destroy(ctx, key)
+}
+
+// A box that could not be removed is never reused for a new instance: its
+// /opt/mcp could be an older or tampered tree.
+func TestStaleBoxNeverReused(t *testing.T) {
+	h, _, rec := newStdioHarness(t, notesCfg())
+	fd := &failingDestroy{Sandbox: h.sb}
+	h.m.d.Sandbox = fd
+	h.start()
+	h.install("notes")
+	h.approve("notes", map[string]core.MCPToolApproval{"search": {}})
+	tool := h.tool("mcp__notes__search")
+	alice := userEnv(newUser("alice"))
+	box := runtimeBox("notes", alice.Principal.ID)
+	if _, err := h.call(tool, alice, `{"q":"x"}`); err != nil {
+		t.Fatal(err)
+	}
+
+	fd.fail.Store(true)
+	h.m.reapIdle(h.clock.Now().Add(time.Hour))
+	ensured, streams := len(h.ensuredFor(box)), len(rec.calls())
+	if _, err := h.call(tool, alice, `{"q":"y"}`); err == nil || !strings.Contains(err.Error(), "stale box") {
+		t.Fatalf("Exec with an unremovable old box = %v", err)
+	}
+	if len(h.ensuredFor(box)) != ensured || len(rec.calls()) != streams {
+		t.Fatal("a box that could not be removed was reused")
+	}
+	fd.fail.Store(false)
+	h.clock.Advance(2 * time.Second)
+	if res, err := h.call(tool, alice, `{"q":"z"}`); err != nil || res.Content != "results for z" {
+		t.Fatalf("Exec once the box is gone = %+v, %v", res, err)
 	}
 }

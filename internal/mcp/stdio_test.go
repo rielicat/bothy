@@ -237,8 +237,10 @@ func TestStdioInstallDiscoverAndCall(t *testing.T) {
 	if rec1.Status != "ready" || rec1.TreeHash != sum || rec1.LockHash != sha256hex(rec1.Lock) || !strings.Contains(string(rec1.Lock), npmIntegrity) {
 		t.Fatalf("install record = %+v", rec1)
 	}
-	if !slices.Contains(h.sb.Destroyed, installBox("notes")) || !slices.Contains(h.sb.Destroyed, discoverBox("notes")) {
-		t.Fatalf("destroyed = %v, want installer and discovery boxes", h.sb.Destroyed)
+	// Each one-shot box is destroyed once before Ensure (a stale box must not
+	// be reused) and once when it is done.
+	if h.destroyed(installBox("notes")) != 2 || h.destroyed(discoverBox("notes")) != 2 {
+		t.Fatalf("destroyed = %v, want installer and discovery boxes removed before and after use", h.sb.Destroyed)
 	}
 	if got := h.auditActions("mcp.install"); len(got) != 1 || got[0].Outcome != "ok" {
 		t.Fatalf("mcp.install audit = %+v", got)
@@ -286,12 +288,13 @@ func TestStdioInstallDiscoverAndCall(t *testing.T) {
 		}
 	}
 
+	aliceN, bobN := h.destroyed(box), h.destroyed(runtimeBox("notes", bob.Principal.ID))
 	h.m.reapIdle(h.clock.Now().Add(9 * time.Minute))
-	if slices.Contains(h.sb.Destroyed, box) {
+	if h.destroyed(box) != aliceN {
 		t.Fatal("instance reaped before the idle timeout")
 	}
 	h.m.reapIdle(h.clock.Now().Add(11 * time.Minute))
-	if !slices.Contains(h.sb.Destroyed, box) || !slices.Contains(h.sb.Destroyed, runtimeBox("notes", bob.Principal.ID)) {
+	if h.destroyed(box) != aliceN+1 || h.destroyed(runtimeBox("notes", bob.Principal.ID)) != bobN+1 {
 		t.Fatalf("idle instances not stopped: destroyed %v", h.sb.Destroyed)
 	}
 	if _, err := h.call(tool, alice, `{"q":"restart"}`); err != nil {
@@ -544,10 +547,11 @@ func TestCloseDestroysBoxes(t *testing.T) {
 	if _, err := h.call(h.tool("mcp__notes__search"), alice, `{"q":"x"}`); err != nil {
 		t.Fatal(err)
 	}
+	n := h.destroyed(runtimeBox("notes", alice.Principal.ID))
 	if err := h.m.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(h.sb.Destroyed, runtimeBox("notes", alice.Principal.ID)) {
+	if h.destroyed(runtimeBox("notes", alice.Principal.ID)) != n+1 {
 		t.Fatalf("Close left the instance box: %v", h.sb.Destroyed)
 	}
 	a, _ := h.tool("mcp__notes__search").Plan(context.Background(), alice, json.RawMessage(`{}`))

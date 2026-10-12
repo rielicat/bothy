@@ -302,7 +302,12 @@ func (l *Library) SetEnabled(ctx context.Context, name string, on bool, by core.
 		if err != nil {
 			return fmt.Errorf("skill %s: %w", name, err)
 		}
-		s.Status, s.Hash, s.ApprovedHash, s.ApprovedBy = core.SkillEnabled, sum, sum, by
+		// Approve only the tree last recorded by a scan or install, the one
+		// whose hash the admin was shown, never files that changed since.
+		if sum != s.Hash {
+			return fmt.Errorf("skill %s: %w: its files changed since they were last scanned; rescan and review them again", name, core.ErrConflict)
+		}
+		s.Status, s.ApprovedHash, s.ApprovedBy = core.SkillEnabled, sum, by
 		s.Description, s.Tokens = fm.Description, estimateTokens(body)
 		action = "skill.enable"
 	} else {
@@ -346,8 +351,8 @@ func (l *Library) Remove(ctx context.Context, name string, by core.UserID) error
 // Rescan reconciles the skills table with <dir>/*/SKILL.md: new directories
 // become pending skills, enabled skills whose tree no longer matches the
 // approved hash become changed (audited, banner raised) and rows whose
-// directory is gone are dropped. Hidden directories (in-progress installs)
-// and symlinked directories are ignored.
+// directory is gone are dropped. Hidden and symlinked directories are
+// ignored, except that leftovers of unfinished installs are removed.
 func (l *Library) Rescan(ctx context.Context) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -366,6 +371,14 @@ func (l *Library) Rescan(ctx context.Context) error {
 	seen := map[string]bool{}
 	for _, e := range entries {
 		name := e.Name()
+		if strings.HasPrefix(name, installTempPrefix) && e.IsDir() {
+			// Install holds l.mu from creating its temp dir to renaming it, so
+			// one seen here was left by an install that never finished.
+			if err := os.RemoveAll(filepath.Join(l.dir, name)); err != nil {
+				l.log.Warn("remove unfinished skill install", "dir", name, "err", err)
+			}
+			continue
+		}
 		if strings.HasPrefix(name, ".") || !e.IsDir() {
 			continue
 		}

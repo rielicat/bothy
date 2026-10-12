@@ -118,6 +118,17 @@ func (h *harness) waitFor(what string, cond func() bool) {
 	}
 }
 
+// destroyed counts Destroy calls for a box key.
+func (h *harness) destroyed(key string) int {
+	n := 0
+	for _, k := range h.sb.Destroyed {
+		if k == key {
+			n++
+		}
+	}
+	return n
+}
+
 func (h *harness) approve(server string, tools map[string]core.MCPToolApproval) {
 	h.t.Helper()
 	if err := h.m.Approve(context.Background(), server, tools, admin); err != nil {
