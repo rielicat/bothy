@@ -329,7 +329,7 @@ func maxOutput(req oaRequest) (int, error) {
 	return n, nil
 }
 
-// content extracts text and image parts of a message. Only data: images are
+// msgContent is a message's text and image parts. Only data: images are
 // accepted: fetching a remote URL would be agent-controlled egress.
 type msgContent struct {
 	text   []string
