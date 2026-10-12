@@ -222,11 +222,11 @@ func (d *disgoAPI) OpenDM(ctx context.Context, user snowflake.ID) (snowflake.ID,
 // token in the path, so they carry no bot token.
 
 func (d *disgoAPI) DeferUpdate(ctx context.Context, interaction snowflake.ID, token string) error {
-	return d.r.CreateInteractionResponse(interaction, token,
-		discord.InteractionResponse{Type: discord.InteractionResponseTypeDeferredUpdateMessage}, rest.WithCtx(ctx))
+	return hideURL(d.r.CreateInteractionResponse(interaction, token,
+		discord.InteractionResponse{Type: discord.InteractionResponseTypeDeferredUpdateMessage}, rest.WithCtx(ctx)))
 }
 
 func (d *disgoAPI) Followup(ctx context.Context, app snowflake.ID, token string, m discord.MessageCreate) error {
 	_, err := d.r.CreateFollowupMessage(app, token, m, rest.WithCtx(ctx))
-	return err
+	return hideURL(err)
 }

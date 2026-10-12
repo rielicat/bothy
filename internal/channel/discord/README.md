@@ -7,11 +7,15 @@ resumes dropped sessions itself; on shutdown the adapter closes with a
 resumable code and stores the session cursor in Meta
 (`channel.discord.resume`) so a restart resumes too. Every connection, the
 WebSocket and its resume URLs included, goes through the egress system dialer
-for that exact `host:port`. Messages are sent with `SUPPRESS_EMBEDS` and all
-mention parsing off, Bothy markdown is escaped for Discord's dialect, threads
+for that exact `host:port`; only an overridden `api_base` or `gateway_url` host
+may resolve to a private address, never a host the server hands out.
+Messages are sent with `SUPPRESS_EMBEDS` and all mention parsing off, Bothy
+markdown is escaped for Discord's dialect (only where it would form markup,
+since escapes count against the 2000-character limit), threads
 arrive as `ThreadID` under their parent channel, and button presses get a
 deferred-update response before the hub sees them, so the 3 s deadline holds;
-`Ack` then sends the toast as an ephemeral followup. 429s are retried per
+`Ack` then sends the toast as an ephemeral followup. Interaction tokens are
+masked in disgo's log output and kept out of errors. 429s are retried per
 route by disgo's rate limiter. A 401 or close code 4004 reports
 `auth_failed`; 4014 reports it with the Message Content intent hint.
 `InviteURL` builds the §8.6 invite link.

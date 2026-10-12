@@ -171,14 +171,11 @@ func (a *adapter) gatewayDialer(stopped *atomic.Bool) gateway.ConfigOpt {
 			if stopped.Load() {
 				return nil, errSessionOver
 			}
-			plain, tlsDial, err := systemDialer(a.deps, a.dest(addr))
+			d, err := systemDialer(a.deps, a.dest(addr), secure)
 			if err != nil {
 				return nil, err
 			}
-			if secure {
-				plain = tlsDial
-			}
-			conn, err := plain(ctx, network, addr)
+			conn, err := d(ctx, network, addr)
 			if err != nil {
 				a.setState(stateBackoff, err.Error())
 				return nil, err

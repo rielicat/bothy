@@ -44,7 +44,7 @@ type adapter struct {
 	libLog       *slog.Logger
 	clock        core.Clock
 	apiBase      *url.URL
-	allowPrivate bool
+	privateHosts map[string]bool
 	newGateway   gateway.CreateFunc
 
 	apiOnce sync.Once
@@ -80,11 +80,21 @@ func newAdapter(cfg config.Discord, d core.AdapterDeps) (*adapter, error) {
 	if err != nil || (api.Scheme != "https" && api.Scheme != "http") || api.Host == "" {
 		return nil, fmt.Errorf("discord: channels.discord.api_base %q is not an http(s) URL: %w", cfg.APIBase, core.ErrInvalid)
 	}
+	// The api_base and gateway_url keys are locked (file or env only), so an
+	// override is admin-set, which is what AllowPrivate requires; it is how a
+	// self-hosted proxy or the test fakes on loopback are reached. Hosts
+	// learned at run time (GET /gateway/bot, resume URLs, CDN links) never
+	// get it.
+	private := map[string]bool{}
+	if cfg.APIBase != strings.TrimRight(config.Default().Channels.Discord.APIBase, "/") {
+		private[strings.ToLower(hostPort(api))] = true
+	}
 	if cfg.GatewayURL != "" {
 		gw, err := url.Parse(cfg.GatewayURL)
 		if err != nil || (gw.Scheme != "wss" && gw.Scheme != "ws") || gw.Host == "" {
 			return nil, fmt.Errorf("discord: channels.discord.gateway_url %q is not a ws(s) URL: %w", cfg.GatewayURL, core.ErrInvalid)
 		}
+		private[strings.ToLower(hostPort(gw))] = true
 	}
 	log := d.Log
 	if log == nil {
@@ -94,18 +104,14 @@ func newAdapter(cfg config.Discord, d core.AdapterDeps) (*adapter, error) {
 	if clock == nil {
 		clock = core.SystemClock{}
 	}
-	def := config.Default().Channels.Discord
 	a := &adapter{
-		cfg:     cfg,
-		deps:    d,
-		log:     log,
-		libLog:  slog.New(quietHandler{log.Handler()}),
-		clock:   clock,
-		apiBase: api,
-		// The api_base and gateway_url keys are locked (file or env only), so
-		// an override is admin-set, which is what AllowPrivate requires; it is
-		// how a self-hosted proxy or the test fakes on loopback are reached.
-		allowPrivate: cfg.APIBase != strings.TrimRight(def.APIBase, "/") || cfg.GatewayURL != "",
+		cfg:          cfg,
+		deps:         d,
+		log:          log,
+		libLog:       slog.New(quietHandler{log.Handler()}),
+		clock:        clock,
+		apiBase:      api,
+		privateHosts: private,
 		newGateway:   gateway.New,
 		state:        stateConnecting,
 		since:        clock.Now(),

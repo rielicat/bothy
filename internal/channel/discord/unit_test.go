@@ -6,7 +6,10 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -22,21 +25,32 @@ func TestRender(t *testing.T) {
 	tests := []struct{ in, want string }{
 		{"plain text", "plain text"},
 		{"**bold** and *italic* and `co_de`", "**bold** and *italic* and `co_de`"},
-		{"snake_case ~strike~ a|b <@123> <t:1>", `snake\_case \~strike\~ a\|b \<@123> \<t:1>`},
-		{"# Title_1\n## Sub", "**Title\\_1**\n**Sub**"},
+		{"snake_case ~tilde~ a|b <@123> <t:1>", `snake_case ~tilde~ a|b \<@123> \<t:1>`},
+		{"~~strike~~ ||spoiler|| __init__ a_b_ c _x_ y_", `\~\~strike\~\~ \|\|spoiler\|\| \_\_init\_\_ a_b\_ c \_x\_ y\_`},
+		{`\||x|| café_x`, `\|\|x\|\| café\_x`},
+		{"| a | b |\n|---|---|", "| a | b |\n|---|---|"},
+		{"# Title_1\n## Sub_", "**Title_1**\n**Sub\\_**"},
 		{"> not a quote\n-# not subtext\n- list item", "\\> not a quote\n\\-# not subtext\n- list item"},
 		{"```go\nx := a_b || c\n```\nafter_", "```go\nx := a_b || c\n```\nafter\\_"},
-		{"see [the_docs](https://example.com/a_b)", `see [the\_docs](https://example.com/a_b)`},
+		{"see [the_docs](https://example.com/a_b)", `see [the_docs](https://example.com/a_b)`},
 		{"[evil](hxxps://evil[.]com)", "evil (hxxps://evil[.]com)"},
 		{`escaped \_ stays \*`, `escaped \_ stays \*`},
 		{"``a ` b`` and `unclosed", "``a ` b`` and `unclosed"},
 		{"[not a link] (x)", "[not a link] (x)"},
-		{"héllo_wörld", `héllo\_wörld`},
+		{"héllo_wörld", `héllo_wörld`},
 	}
 	for _, tt := range tests {
 		if got := render(tt.in); got != tt.want {
 			t.Errorf("render(%q) =\n%q\nwant\n%q", tt.in, got, tt.want)
 		}
+	}
+}
+
+func TestTableFitsContentLimit(t *testing.T) {
+	row := "| cfg_key | value_x | notes |\n"
+	table := strings.Repeat(row, maxLen/len(row))
+	if n := len([]rune(render(table))); n > contentLimit {
+		t.Fatalf("a %d-rune markdown table rendered to %d runes, over Discord's %d", len(table), n, contentLimit)
 	}
 }
 
@@ -106,11 +120,76 @@ func TestInboundQueueDropsWhenFull(t *testing.T) {
 }
 
 func TestSystemDialerFailsClosed(t *testing.T) {
-	for _, c := range []*http.Client{nil, {}, {Transport: roundTripper(nil)}, {Transport: &http.Transport{}}} {
+	proxy, _ := url.Parse("http://proxy.internal:3128")
+	proxied := &http.Transport{DialContext: (&net.Dialer{}).DialContext, Proxy: http.ProxyURL(proxy)}
+	for _, c := range []*http.Client{nil, {}, {Transport: roundTripper(nil)}, {Transport: &http.Transport{}}, {Transport: proxied}} {
 		deps := core.AdapterDeps{HTTP: func(core.SystemDest) *http.Client { return c }}
-		if _, _, err := systemDialer(deps, core.SystemDest{Hosts: []string{"gateway.discord.gg:443"}}); !errors.Is(err, core.ErrForbidden) {
-			t.Fatalf("systemDialer with client %+v = %v, want ErrForbidden", c, err)
+		for _, secure := range []bool{false, true} {
+			if _, err := systemDialer(deps, core.SystemDest{Hosts: []string{"gateway.discord.gg:443"}}, secure); !errors.Is(err, core.ErrForbidden) {
+				t.Fatalf("systemDialer(secure=%v) with client %+v = %v, want ErrForbidden", secure, c, err)
+			}
 		}
+	}
+	direct := &http.Transport{DialContext: (&net.Dialer{}).DialContext, Proxy: func(*http.Request) (*url.URL, error) { return nil, nil }}
+	deps := core.AdapterDeps{HTTP: func(core.SystemDest) *http.Client { return &http.Client{Transport: direct} }}
+	if _, err := systemDialer(deps, core.SystemDest{Hosts: []string{"gateway.discord.gg:443"}}, true); err != nil {
+		t.Fatalf("systemDialer with a direct proxy func = %v", err)
+	}
+}
+
+func TestPrivateAddressesOnlyForConfiguredHosts(t *testing.T) {
+	cfg := config.Default().Channels.Discord
+	cfg.APIBase = "http://LOCALHOST:8080/api/v10"
+	cfg.GatewayURL = "ws://127.0.0.1:9090/gateway"
+	a, err := newAdapter(cfg, core.AdapterDeps{
+		Secret: func(context.Context, string) (core.Secret, error) { return core.Secret{}, nil },
+		HTTP:   func(core.SystemDest) *http.Client { return newPlainClient() },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, hp := range []string{"localhost:8080", "127.0.0.1:9090"} {
+		if !a.dest(hp).AllowPrivate {
+			t.Fatalf("dest(%s): an admin-set endpoint must admit private addresses", hp)
+		}
+	}
+	// Hosts learned at run time (resume URLs, GET /gateway/bot, CDN links)
+	// come from the server, not the admin.
+	for _, hp := range []string{"gateway-us-east1-b.discord.gg:443", "cdn.discordapp.com:443", "10.0.0.5:9090", "127.0.0.1:8080"} {
+		if a.dest(hp).AllowPrivate {
+			t.Fatalf("dest(%s) admits private addresses", hp)
+		}
+	}
+}
+
+func TestInteractionTokensStayOutOfLogsAndErrors(t *testing.T) {
+	const token = "aW50ZXJhY3Rpb246c2VjcmV0"
+	var buf bytes.Buffer
+	log := slog.New(quietHandler{slog.NewTextHandler(&buf, nil)}).With("url", "/webhooks/1/"+token)
+	log.Warn("rate limit exceeded", "endpoint", "/interactions/123/"+token+"/callback",
+		"err", errors.New(`Post "https://discord.com/api/v10/webhooks/2/`+token+`": EOF`),
+		slog.Group("g", "path", "/webhooks/3/"+token+"?wait=true"))
+	if out := buf.String(); strings.Contains(out, token) || !strings.Contains(out, "/interactions/123/<token>/callback") {
+		t.Fatalf("log output leaks the interaction token: %s", out)
+	}
+
+	srv := httptest.NewServer(http.NotFoundHandler())
+	cfg := config.Default().Channels.Discord
+	cfg.APIBase = srv.URL + "/api/v10"
+	srv.Close()
+	a, err := newAdapter(cfg, core.AdapterDeps{
+		Secret: func(context.Context, string) (core.Secret, error) { return core.NewSecret([]byte("tok")), nil },
+		HTTP:   func(core.SystemDest) *http.Client { return newPlainClient() },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = a.Ack(context.Background(), core.ActionEvent{AckRef: "1100000000000000002:" + token}, "Approved")
+	if err == nil || strings.Contains(err.Error(), token) {
+		t.Fatalf("Ack against a dead API = %v, want an error without the interaction token", err)
+	}
+	if err := a.client().DeferUpdate(context.Background(), 1, token); err == nil || strings.Contains(err.Error(), token) {
+		t.Fatalf("DeferUpdate against a dead API = %v, want an error without the interaction token", err)
 	}
 }
 

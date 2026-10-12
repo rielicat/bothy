@@ -9,10 +9,10 @@ import (
 // Discord already renders the Bothy markdown subset (bold, italic, code,
 // fences, lists, masked links). render escapes the Discord syntax the subset
 // does not have, so text shows as written: underline and italics with "_",
-// strikethrough "~", spoilers "|", mention and timestamp pills "<", quotes
-// and subtext at line start. Headings become bold lines.
-
-const inlineEscapes = "_~|<"
+// strikethrough "~~", spoilers "||", mention and timestamp pills "<", quotes
+// and subtext at line start. Headings become bold lines. Escapes count
+// against Discord's content limit, so characters that cannot form markup
+// where they stand (a lone "|" or "~", the "_" in snake_case) are left alone.
 
 var headingRe = regexp.MustCompile(`^ {0,3}#{1,6}[ \t]+(.+?)[ \t#]*$`)
 
@@ -93,15 +93,32 @@ func writeInline(b *strings.Builder, s string) {
 				b.WriteByte(')')
 			}
 			i = end
-		case strings.IndexByte(inlineEscapes, c) >= 0:
-			b.WriteByte('\\')
+		case c == '_':
+			// "_" emphasis needs a word boundary on its outer side, which an
+			// underscore between two ASCII letters or digits never has.
+			if i == 0 || i+1 >= len(s) || !isWordByte(s[i-1]) || !isWordByte(s[i+1]) {
+				b.WriteByte('\\')
+			}
 			b.WriteByte(c)
+			i++
+		case c == '|' || c == '~':
+			if (i > 0 && s[i-1] == c) || (i+1 < len(s) && s[i+1] == c) {
+				b.WriteByte('\\')
+			}
+			b.WriteByte(c)
+			i++
+		case c == '<':
+			b.WriteString(`\<`)
 			i++
 		default:
 			b.WriteByte(c)
 			i++
 		}
 	}
+}
+
+func isWordByte(c byte) bool {
+	return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9'
 }
 
 func runLen(s string, c byte) int {
