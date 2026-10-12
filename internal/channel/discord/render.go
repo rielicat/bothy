@@ -24,7 +24,7 @@ func render(md string) string {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
-		if strings.HasPrefix(strings.TrimLeft(line, " "), "```") {
+		if isFence(strings.TrimLeft(line, " "), fence) {
 			fence = !fence
 			b.WriteString(line)
 			continue
@@ -47,6 +47,12 @@ func render(md string) string {
 		writeInline(&b, rest)
 	}
 	return b.String()
+}
+
+// isFence reports whether a line opens or closes a fenced block; "```x```"
+// on one line is inline code.
+func isFence(line string, inFence bool) bool {
+	return strings.HasPrefix(line, "```") && (inFence || !strings.Contains(line[3:], "```"))
 }
 
 func writeInline(b *strings.Builder, s string) {
