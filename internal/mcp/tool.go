@@ -155,7 +155,10 @@ func (t *tool) Plan(_ context.Context, _ *core.ToolEnv, args json.RawMessage) (*
 func applyFieldMap(a *core.Action, args map[string]any, fm map[string]string) error {
 	for _, key := range slices.Sorted(maps.Keys(fm)) {
 		ptr := fm[key]
-		v, ok := pointer(args, ptr)
+		v, ok, twin := pointer(args, ptr)
+		if twin != "" {
+			return fmt.Errorf("%w: argument %q is ambiguous next to %s (field_map %s)", core.ErrInvalid, twin, ptr, key)
+		}
 		if !ok || v == nil {
 			continue
 		}
@@ -229,34 +232,42 @@ func fieldValue(key string, v any) (string, error) {
 	return "", fmt.Errorf("want a string, got %T", v)
 }
 
-// pointer resolves an RFC 6901 JSON pointer.
-func pointer(doc any, ptr string) (any, bool) {
+// pointer resolves an RFC 6901 JSON pointer. twin is a key on the way that
+// differs from the pointer's token only in case: servers that match keys
+// case-insensitively (Go's encoding/json, for one) may read it instead of
+// the value the Action shows, so callers refuse such arguments.
+func pointer(doc any, ptr string) (v any, ok bool, twin string) {
 	if ptr == "" {
-		return doc, true
+		return doc, true, ""
 	}
 	if !strings.HasPrefix(ptr, "/") {
-		return nil, false
+		return nil, false, ""
 	}
 	for _, tok := range strings.Split(ptr[1:], "/") {
 		tok = strings.ReplaceAll(strings.ReplaceAll(tok, "~1", "/"), "~0", "~")
 		switch v := doc.(type) {
 		case map[string]any:
+			for k := range v {
+				if k != tok && strings.EqualFold(k, tok) {
+					return nil, false, k
+				}
+			}
 			x, ok := v[tok]
 			if !ok {
-				return nil, false
+				return nil, false, ""
 			}
 			doc = x
 		case []any:
 			i, err := strconv.Atoi(tok)
 			if err != nil || i < 0 || i >= len(v) || len(tok) > 1 && tok[0] == '0' {
-				return nil, false
+				return nil, false, ""
 			}
 			doc = v[i]
 		default:
-			return nil, false
+			return nil, false, ""
 		}
 	}
-	return doc, true
+	return doc, true, ""
 }
 
 // Exec calls the tool through the caller's runtime session. Cancelling ctx

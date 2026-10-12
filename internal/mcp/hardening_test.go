@@ -142,7 +142,9 @@ func TestFieldMapRefusesValuesTheActionCannotCarry(t *testing.T) {
 		}
 	}
 	for _, args := range []string{`{"to":{"addr":"a@x.example"}}`, `{"to":[["nested"]]}`, `{"to":true}`,
-		`{"link":["https://a.example/","https://b.example/"]}`} {
+		`{"link":["https://a.example/","https://b.example/"]}`,
+		// A case-insensitive server would send to the twin the card never shows.
+		`{"to":"ok@x.example","TO":"evil@y.example"}`, `{"To":"evil@y.example"}`} {
 		if _, err := plan(args); !errors.Is(err, core.ErrInvalid) {
 			t.Errorf("Plan(%s) = %v, want ErrInvalid", args, err)
 		}

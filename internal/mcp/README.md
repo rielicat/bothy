@@ -14,11 +14,11 @@ truncated to 55 + `_` + 8 hex of the full name). Unseen definitions are
 approved tool unregisters it, is audited as `mcp.changed` with a field diff,
 and `Pins` returns both versions for review. `Approve` sets the class (raised,
 never lowered, by annotations), `field_map` (`recipient`, `url`, `host` JSON
-pointers copied into the Action; values the Action cannot carry are refused)
-and the private flag, or disables a tool. Adapters re-check on every call that
-their approved definition is still registered and the server ready, so a call
-held across an approval wait never reaches a tool disabled or changed
-meanwhile.
+pointers copied into the Action; values the Action cannot carry, and keys
+that differ from a mapped one only in case, are refused) and the private
+flag, or disables a tool. Adapters re-check on every call that their
+approved definition is still registered and the server ready, so a call held
+across an approval wait never reaches a tool disabled or changed meanwhile.
 
 HTTP servers use Streamable HTTP (falling back to legacy SSE) through
 `Egress.SystemClient` for the exact `host:port`; private literals need

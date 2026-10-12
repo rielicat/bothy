@@ -282,9 +282,15 @@ func TestPointer(t *testing.T) {
 	var doc any
 	_ = json.Unmarshal([]byte(`{"a":{"b/c":[{"~k":"v"}]},"":"root"}`), &doc)
 	for ptr, want := range map[string]any{"/a/b~1c/0/~0k": "v", "/": "root", "/a/b~1c/1": nil, "/a/b~1c/00": nil, "x": nil} {
-		got, ok := pointer(doc, ptr)
+		got, ok, _ := pointer(doc, ptr)
 		if want == nil && ok || want != nil && got != want {
 			t.Errorf("pointer(%q) = %v, %v", ptr, got, ok)
+		}
+	}
+	_ = json.Unmarshal([]byte(`{"a":{"To":"x","to":"y"},"b":{"TO":"z"}}`), &doc)
+	for ptr, want := range map[string]string{"/a/to": "To", "/b/to": "TO", "/a/To": "to"} {
+		if _, ok, twin := pointer(doc, ptr); ok || twin != want {
+			t.Errorf("pointer(%q) twin = %q, %v; want %q", ptr, twin, ok, want)
 		}
 	}
 }
