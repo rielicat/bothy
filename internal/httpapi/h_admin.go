@@ -279,6 +279,9 @@ func (s *Server) patchSchedule(w http.ResponseWriter, r *http.Request, a core.Ac
 func (s *Server) deleteSchedule(w http.ResponseWriter, r *http.Request, a core.Actor) error {
 	ctx := r.Context()
 	id := core.ScheduleID(r.PathValue("id"))
+	if _, err := s.d.Store.Schedules().Get(ctx, a.Viewer, id); err != nil {
+		return err
+	}
 	if err := s.d.Scheduler.Delete(ctx, a.Viewer, id, a.User); err != nil {
 		return err
 	}
@@ -290,7 +293,11 @@ func (s *Server) deleteSchedule(w http.ResponseWriter, r *http.Request, a core.A
 }
 
 func (s *Server) runSchedule(w http.ResponseWriter, r *http.Request, a core.Actor) error {
-	run, err := s.d.Scheduler.RunNow(r.Context(), a.Viewer, core.ScheduleID(r.PathValue("id")), a.User)
+	id := core.ScheduleID(r.PathValue("id"))
+	if _, err := s.d.Store.Schedules().Get(r.Context(), a.Viewer, id); err != nil {
+		return err
+	}
+	run, err := s.d.Scheduler.RunNow(r.Context(), a.Viewer, id, a.User)
 	if err != nil {
 		return err
 	}
@@ -645,7 +652,7 @@ func (s *Server) usage(w http.ResponseWriter, r *http.Request, a core.Actor) err
 	if isAdmin(a) {
 		uq.User = core.UserID(q.Get("user"))
 	} else if group == "user" {
-		group, uq.GroupBy = "day", "day"
+		uq.GroupBy = "day"
 	}
 	rows, err := s.d.Store.Usage().Report(r.Context(), uq)
 	if err != nil {

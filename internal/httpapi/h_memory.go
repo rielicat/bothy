@@ -185,13 +185,15 @@ func (s *Server) memoryExport(w http.ResponseWriter, r *http.Request, a core.Act
 	}
 	for _, d := range docs {
 		if err := add(string(d.f)+".md", d.content); err != nil {
-			return nil // headers are sent; a broken stream is all that is left
+			return aborted(err)
 		}
 	}
 	if err := add("events.jsonl", jsonl.String()); err != nil {
-		return nil
+		return aborted(err)
 	}
-	_ = tw.Close()
+	if err := tw.Close(); err != nil {
+		return aborted(err)
+	}
 	return nil
 }
 

@@ -58,9 +58,9 @@ func candidates(lower string) []string {
 	return out
 }
 
-func notLetter(r rune) bool { return !(r >= 'a' && r <= 'z' || r > 127) }
+func notLetter(r rune) bool { return (r < 'a' || r > 'z') && r <= 127 }
 
-func notAlnum(r rune) bool { return notLetter(r) && !(r >= '0' && r <= '9') }
+func notAlnum(r rune) bool { return notLetter(r) && (r < '0' || r > '9') }
 
 // unit returns the shortest string whose repetition is s ("abcabcabc" -> "abc").
 func unit(s string) string {

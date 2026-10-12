@@ -88,7 +88,7 @@ func (s *Server) build() http.Handler {
 				withFix("add this host name to server.allowed_hosts or server.public_url"))
 			return
 		}
-		if !ri.secure && !(ri.class == classLocal || ri.class == classLAN && s.cfg().Server.InsecureLAN) {
+		if !ri.secure && !s.plainAllowed(ri.class) {
 			s.refuseInsecure(w, r)
 			return
 		}
@@ -106,6 +106,12 @@ func (s *Server) build() http.Handler {
 	})
 }
 
+// plainAllowed: plain HTTP goes to local peers, to LAN peers only with the
+// locked insecure_lan, and never to public peers.
+func (s *Server) plainAllowed(c peerClass) bool {
+	return c == classLocal || c == classLAN && s.cfg().Server.InsecureLAN
+}
+
 func requestID() string {
 	var b [8]byte
 	_, _ = rand.Read(b[:])
@@ -117,7 +123,7 @@ func (s *Server) recoverPanic(w http.ResponseWriter, r *http.Request) {
 	if p == nil {
 		return
 	}
-	if p == http.ErrAbortHandler {
+	if err, ok := p.(error); ok && errors.Is(err, http.ErrAbortHandler) {
 		panic(p)
 	}
 	s.log.Error("handler panic", "method", r.Method, "path", r.URL.Path, "request_id", infoOf(r).id, "panic", fmt.Sprint(p))
@@ -165,23 +171,28 @@ func (s *Server) cookieName(r *http.Request) string {
 	return cookiePlain
 }
 
+// setCookie always sets HttpOnly and SameSite=Strict. Secure follows the
+// transport: plain HTTP reaches only local (or opted-in LAN) peers, where a
+// Secure cookie would never be sent back.
+func setCookie(w http.ResponseWriter, r *http.Request, name, value, path string, maxAge int) {
+	http.SetCookie(w, &http.Cookie{Name: name, Value: value, Path: path, MaxAge: maxAge, HttpOnly: true, //nolint:gosec // Secure is set per transport, see above
+		Secure: infoOf(r).secure, SameSite: http.SameSiteStrictMode})
+}
+
 func (s *Server) setSessionCookie(w http.ResponseWriter, r *http.Request, value string) {
 	maxAge := int(s.cfg().Auth.SessionMax.D().Seconds())
 	if maxAge <= 0 {
 		maxAge = 30 * 24 * 3600
 	}
-	http.SetCookie(w, &http.Cookie{Name: s.cookieName(r), Value: value, Path: "/", MaxAge: maxAge, HttpOnly: true,
-		Secure: infoOf(r).secure, SameSite: http.SameSiteStrictMode})
+	setCookie(w, r, s.cookieName(r), value, "/", maxAge)
 }
 
 func (s *Server) clearSessionCookie(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{Name: s.cookieName(r), Value: "", Path: "/", MaxAge: -1, HttpOnly: true,
-		Secure: infoOf(r).secure, SameSite: http.SameSiteStrictMode})
+	setCookie(w, r, s.cookieName(r), "", "/", -1)
 }
 
 func (s *Server) setSetupCookie(w http.ResponseWriter, r *http.Request, value string, maxAge int) {
-	http.SetCookie(w, &http.Cookie{Name: cookieSetup, Value: value, Path: "/api/setup", MaxAge: maxAge, HttpOnly: true,
-		Secure: infoOf(r).secure, SameSite: http.SameSiteStrictMode})
+	setCookie(w, r, cookieSetup, value, "/api/setup", maxAge)
 }
 
 func cookieValue(r *http.Request, name string) string {
@@ -336,7 +347,8 @@ func authorize(r *http.Request, rt route, a core.Actor) error {
 	token := a.Via == "token"
 	switch rt.access {
 	case accessUser:
-		if token && !a.HasScope("chat") && !(a.HasScope("read") && !unsafeMethod(r.Method)) {
+		readOnly := a.HasScope("read") && !unsafeMethod(r.Method)
+		if token && !a.HasScope("chat") && !readOnly {
 			return newError(http.StatusForbidden, "forbidden", "this token lacks the chat scope")
 		}
 	case accessUserCookie:

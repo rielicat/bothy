@@ -290,7 +290,7 @@ func TestSetupRoutes(t *testing.T) {
 	}
 	owner := dto.SetupOwnerReq{Username: "owner", Password: testPassword, Timezone: "Europe/Madrid"}
 	expect(t, h.do("POST", "/api/setup/owner", owner, nil, withGrant), http.StatusForbidden) // no CSRF token
-	expect(t, h.do("POST", "/api/setup/owner", owner, nil), http.StatusUnauthorized)       // no grant
+	expect(t, h.do("POST", "/api/setup/owner", owner, nil), http.StatusUnauthorized)         // no grant
 	rec = h.do("POST", "/api/setup/owner", owner, nil, withGrant, withHeader("X-CSRF-Token", claim.CSRF))
 	expect(t, rec, http.StatusOK)
 	me := decodeAs[dto.Me](t, rec)

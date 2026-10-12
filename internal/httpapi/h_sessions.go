@@ -227,7 +227,12 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request, a core.Acto
 	return accepted(w, res)
 }
 
+// Handlers that delegate to the runner check visibility through the store
+// first, so isolation never depends on the runner alone.
 func (s *Server) stopSession(w http.ResponseWriter, r *http.Request, a core.Actor) error {
+	if _, err := s.session(r.Context(), a, sessionID(r)); err != nil {
+		return err
+	}
 	stopped, err := s.d.Runner.Stop(r.Context(), a.Viewer, sessionID(r), a.User)
 	if err != nil {
 		return err
@@ -254,6 +259,9 @@ func (s *Server) compactSession(w http.ResponseWriter, r *http.Request, a core.A
 }
 
 func (s *Server) sessionContext(w http.ResponseWriter, r *http.Request, a core.Actor) error {
+	if _, err := s.session(r.Context(), a, sessionID(r)); err != nil {
+		return err
+	}
 	b, err := s.d.Runner.ContextPreview(r.Context(), a.Viewer, sessionID(r))
 	if err != nil {
 		return err
@@ -262,6 +270,9 @@ func (s *Server) sessionContext(w http.ResponseWriter, r *http.Request, a core.A
 }
 
 func (s *Server) forkSession(w http.ResponseWriter, r *http.Request, a core.Actor) error {
+	if _, err := s.session(r.Context(), a, sessionID(r)); err != nil {
+		return err
+	}
 	sess, err := s.d.Runner.Fork(r.Context(), a.Viewer, sessionID(r), a.User)
 	if err != nil {
 		return err
@@ -270,6 +281,9 @@ func (s *Server) forkSession(w http.ResponseWriter, r *http.Request, a core.Acto
 }
 
 func (s *Server) listPins(w http.ResponseWriter, r *http.Request, a core.Actor) error {
+	if _, err := s.session(r.Context(), a, sessionID(r)); err != nil {
+		return err
+	}
 	pins, err := s.d.Store.Pins().List(r.Context(), a.Viewer, sessionID(r))
 	if err != nil {
 		return err
@@ -361,7 +375,11 @@ func (s *Server) getRun(w http.ResponseWriter, r *http.Request, a core.Actor) er
 }
 
 func (s *Server) continueRun(w http.ResponseWriter, r *http.Request, a core.Actor) error {
-	res, err := s.d.Runner.Continue(r.Context(), a.Viewer, core.RunID(r.PathValue("id")), a.User)
+	id := core.RunID(r.PathValue("id"))
+	if _, err := s.d.Store.Runs().Get(r.Context(), a.Viewer, id); err != nil {
+		return err
+	}
+	res, err := s.d.Runner.Continue(r.Context(), a.Viewer, id, a.User)
 	if err != nil {
 		return err
 	}

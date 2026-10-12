@@ -185,7 +185,12 @@ func (s *Server) purgeGrants(ctx context.Context, v core.Viewer, by core.Actor, 
 		return err
 	}
 	for _, g := range gs {
-		if err := s.d.Policy.Revoke(ctx, v, g.ID, by.User); err != nil && !errors.Is(err, core.ErrNotFound) {
+		err := s.d.Policy.Revoke(ctx, v, g.ID, by.User)
+		if errors.Is(err, core.ErrNotFound) {
+			// The row is still active, so revoke it directly.
+			err = s.d.Store.Grants().Revoke(ctx, v, g.ID, s.now())
+		}
+		if err != nil && !errors.Is(err, core.ErrNotFound) {
 			return err
 		}
 		st["grants"]++

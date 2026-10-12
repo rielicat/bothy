@@ -41,7 +41,10 @@ type handler struct {
 func newHandler(fsys fs.FS) *handler {
 	h := &handler{fsys: fsys, assets: map[string]*asset{}}
 	_ = fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || strings.HasSuffix(p, ".gz") {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || strings.HasSuffix(p, ".gz") {
 			return nil
 		}
 		a := &asset{name: p, ctype: contentType(p), etag: etagOf(fsys, p)}

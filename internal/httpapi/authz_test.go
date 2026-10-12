@@ -24,11 +24,6 @@ func concretePath(pattern string) (method, path string) {
 	return method, path
 }
 
-type actorKind struct {
-	c    *client
-	kind string // anon | cookie-member | cookie-admin | token
-}
-
 // expected returns 401 or 403 when the access class must refuse the actor,
 // or 0 when it must be let through to the handler.
 func expected(rt route, method string, c *client) int {

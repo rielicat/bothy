@@ -27,6 +27,8 @@ import (
 
 const testPassword = "violin staple orbit meadow"
 
+type configT = config.Config
+
 // testConfig is a mutable config.Admin.
 type testConfig struct {
 	mu   sync.Mutex

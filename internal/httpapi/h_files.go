@@ -60,7 +60,7 @@ func (s *Server) openWorkspace(ws core.WorkspaceID, create bool) (*os.Root, erro
 		return nil, fmt.Errorf("workspace: %w", core.ErrNotFound)
 	}
 	if create {
-		if err := os.MkdirAll(dir, 0o770); err != nil {
+		if err := os.MkdirAll(dir, 0o770); err != nil { //nolint:gosec // group 10001 shares workspaces with tool boxes (SPEC §2.3)
 			return nil, err
 		}
 	}

@@ -41,7 +41,6 @@ func badRequest(format string, args ...any) error {
 var (
 	errNotFound     = newError(http.StatusNotFound, "not_found", "not found")
 	errUnauthorized = newError(http.StatusUnauthorized, "unauthorized", "sign in required")
-	errForbidden    = newError(http.StatusForbidden, "forbidden", "forbidden")
 	errCookieOnly   = newError(http.StatusForbidden, "forbidden", "this endpoint needs a signed-in browser session, not an API token")
 	errSafeMode     = newError(http.StatusServiceUnavailable, "unavailable", "safe mode: fix bothy.yaml").withFix("bothy config check, then restart")
 )
@@ -109,8 +108,18 @@ func (s *Server) redact(msg string) string {
 	return s.d.Vault.Redactor().Redact(msg)
 }
 
+// errAborted marks a failure after the response started: nothing more can
+// be sent, so writeError only logs it.
+var errAborted = errors.New("response aborted")
+
+func aborted(err error) error { return fmt.Errorf("%w: %w", errAborted, err) }
+
 func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, context.Canceled) && r.Context().Err() != nil {
+		return
+	}
+	if errors.Is(err, errAborted) {
+		s.log.Debug("response aborted", "path", r.URL.Path, "request_id", infoOf(r).id, "err", err)
 		return
 	}
 	status, env, retry := s.mapError(err)

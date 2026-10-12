@@ -117,7 +117,7 @@ func (s *Server) Serve(ctx context.Context) error {
 		ErrorLog:          slog.NewLogLogger(s.log.Handler(), slog.LevelWarn),
 	}
 	srv.RegisterOnShutdown(s.stopStreams)
-	ln, err := net.Listen("tcp", c.Listen)
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", c.Listen)
 	if err != nil {
 		return err
 	}
