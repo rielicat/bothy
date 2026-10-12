@@ -28,9 +28,9 @@ type purgeStats map[string]int
 // vault user-scope secrets, grants, schedules, identities, memory files and
 // workspaces removed, sessions archived (or deleted with the user row when
 // the store supports it). Every step runs even if an earlier one failed, and
-// the outcome is audited.
+// the outcome is audited. A client hanging up does not stop a purge halfway.
 func (s *Server) purgeUser(r *http.Request, by core.Actor, u *core.User) error {
-	ctx := r.Context()
+	ctx := context.WithoutCancel(r.Context())
 	st := purgeStats{}
 	ps, err := s.d.Store.Principals().ForUser(ctx, u.ID)
 	if err != nil {

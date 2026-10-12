@@ -17,10 +17,15 @@ role and token scope, and rate-limits tokens. Handlers always pass the actor's
 `Viewer`; by-ID routes look rows up through the store before delegating, so
 foreign ids are 404. `GET /api/events` streams the bus as SSE with a hello
 frame, `Last-Event-ID` replay, `resync` across boots or on overflow, 15 s
-pings and at most four streams per user. `/v1/chat/completions` maps OpenAI
+pings, a credential re-check every minute (revoked tokens, ended sessions,
+disabled users and role changes close the stream) and at most four streams
+per user. `/v1/chat/completions` maps OpenAI
 requests onto runs (`bothy`, `bothy-fast`) or onto `LLM.Passthrough` for
 `<provider>/<model>`, streaming `chat.completion.chunk` frames. Uploads and
 workspace downloads go through `os.Root` under `<WorkDir>/ws/<id>`, the
 persona file through `os.Root` under `<DataDir>`; `DELETE /api/users/{id}`
 with `purge=true` wipes the user's boxes, vault scope, grants, schedules,
-identities, memory files, workspaces and sessions and keeps audit rows.
+identities, memory files and workspaces and keeps audit rows; sessions and
+their messages are deleted with the user row once the store implements
+`UserRepo.Delete` (ICR), and are archived until then. Compactions and MCP
+installs run in the background, one at a time per session or server.

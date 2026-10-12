@@ -217,6 +217,11 @@ func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request, a core.A
 	}
 	for _, g := range grants {
 		if _, err := s.d.Policy.Grant(ctx, g); err != nil {
+			// The client sees a failure, so leave no half-made schedule for
+			// a retry to duplicate.
+			if uerr := s.undoSchedule(context.WithoutCancel(ctx), a, sc.ID); uerr != nil {
+				s.log.Error("undo schedule after a failed grant", "schedule", sc.ID, "err", uerr)
+			}
 			return err
 		}
 	}
@@ -230,6 +235,10 @@ func (s *Server) respondSchedule(w http.ResponseWriter, ctx context.Context, a c
 		return err
 	}
 	return ok(w, sc)
+}
+
+func (s *Server) undoSchedule(ctx context.Context, a core.Actor, id core.ScheduleID) error {
+	return errors.Join(s.revokeScheduleGrants(ctx, a, id), s.d.Scheduler.Delete(ctx, a.Viewer, id, a.User))
 }
 
 func (s *Server) revokeScheduleGrants(ctx context.Context, a core.Actor, id core.ScheduleID) error {
@@ -377,13 +386,11 @@ func (s *Server) mcpInstall(w http.ResponseWriter, r *http.Request, a core.Actor
 	if !slices.ContainsFunc(s.cfg().MCP.Servers, func(m configMCP) bool { return m.Name == server }) {
 		return errNotFound
 	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), installTimeout)
-		defer cancel()
+	s.jobs.start(r.Context(), "mcp-install:"+server, installTimeout, func(ctx context.Context) {
 		if err := s.d.MCP.Install(ctx, server, a.User); err != nil {
 			s.log.Warn("mcp install failed", "server", server, "err", err)
 		}
-	}()
+	})
 	return accepted(w, nil)
 }
 

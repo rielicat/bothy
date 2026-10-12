@@ -40,13 +40,26 @@ func (s *Server) me(ctx context.Context, a core.Actor) (*dto.Me, error) {
 		m.Paused = s.d.Runner.Paused()
 	}
 	if s.d.Bus != nil {
-		for _, e := range s.d.Bus.Banners(filterFor(a)) {
-			if b, ok := e.Data.(core.BannerData); ok {
-				m.Banners = append(m.Banners, b)
+		m.Banners = banners(s.d.Bus, filterFor(a))
+	}
+	return m, nil
+}
+
+// banners lists the active banners under f. The bus tracks both value and
+// pointer payloads, so both are accepted here.
+func banners(bus core.Bus, f core.Filter) []core.BannerData {
+	out := []core.BannerData{}
+	for _, e := range bus.Banners(f) {
+		switch b := e.Data.(type) {
+		case core.BannerData:
+			out = append(out, b)
+		case *core.BannerData:
+			if b != nil {
+				out = append(out, *b)
 			}
 		}
 	}
-	return m, nil
+	return out
 }
 
 func (s *Server) setupState(w http.ResponseWriter, r *http.Request, _ core.Actor) error {
@@ -174,6 +187,8 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, a core.A
 	if err := s.d.Auth.SetPassword(r.Context(), a.User, req.Old, req.New); err != nil {
 		return err
 	}
+	// Every session just ended; so do streams opened with them.
+	s.sse.closeUser(a.User)
 	cookie, _, err := s.d.Auth.Login(r.Context(), u.Username, req.New, clientIP(r))
 	if err != nil {
 		s.clearSessionCookie(w, r)
@@ -244,6 +259,7 @@ func (s *Server) patchUser(w http.ResponseWriter, r *http.Request, a core.Actor)
 	if err != nil {
 		return err
 	}
+	prevRole := u.Role
 	if req.DisplayName != nil {
 		u.DisplayName = *req.DisplayName
 	}
@@ -260,7 +276,8 @@ func (s *Server) patchUser(w http.ResponseWriter, r *http.Request, a core.Actor)
 	if err != nil {
 		return err
 	}
-	if u.Disabled {
+	// Open streams carry the filter of the old role (admin broadcasts).
+	if u.Disabled || u.Role != prevRole {
 		s.sse.closeUser(u.ID)
 	}
 	return ok(w, u)

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -21,7 +22,12 @@ import (
 	"github.com/bothyhq/bothy/internal/httpapi/dto"
 )
 
-const maxFileName = 128
+const (
+	maxFileName = 128
+	// maxListing bounds a directory listing: boxes can create files far
+	// faster than a browser can render them.
+	maxListing = 5000
+)
 
 // sanitizeName keeps a file's base name to letters, digits, '.', '_', '-'
 // and spaces, with no leading dots, so it is safe as a single path element.
@@ -238,7 +244,9 @@ func (s *Server) workspaceFiles(w http.ResponseWriter, r *http.Request, a core.A
 		return err
 	}
 	defer root.Close()
-	f, err := root.Open(rel)
+	// O_NONBLOCK: boxes write this tree, and opening a FIFO they planted
+	// would otherwise block this goroutine until something writes to it.
+	f, err := root.OpenFile(rel, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		// Missing, unreadable and escaping paths all look the same.
 		return errNotFound
@@ -249,9 +257,13 @@ func (s *Server) workspaceFiles(w http.ResponseWriter, r *http.Request, a core.A
 		return err
 	}
 	if fi.IsDir() {
-		des, err := f.ReadDir(-1)
-		if err != nil {
+		des, err := f.ReadDir(maxListing + 1)
+		if err != nil && !errors.Is(err, io.EOF) {
 			return err
+		}
+		if len(des) > maxListing {
+			des = des[:maxListing]
+			w.Header().Set("X-Bothy-Truncated", "true")
 		}
 		out := make([]fileEntry, 0, len(des))
 		for _, de := range des {

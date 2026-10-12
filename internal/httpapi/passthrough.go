@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -79,7 +80,8 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, a core.Acto
 		ci.Ref = ref
 	}
 	if resp != nil || ci.Usage != (core.Usage{}) {
-		if rerr := s.d.Budget.RecordSpend(ctx, a.User, ci); rerr != nil {
+		// Tokens were spent even if the client hung up mid-stream.
+		if rerr := s.d.Budget.RecordSpend(context.WithoutCancel(ctx), a.User, ci); rerr != nil {
 			s.log.Error("record passthrough spend", "err", rerr)
 		}
 	}

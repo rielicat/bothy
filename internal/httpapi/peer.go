@@ -141,18 +141,26 @@ func (s *Server) peer(r *http.Request) (netip.Addr, bool) {
 	for i := len(hops) - 1; i >= 0; i-- {
 		a, ok := parseAddr(hops[i])
 		if !ok {
-			break
+			// An unreadable hop is an unknown client, never the trusted
+			// proxy itself (often loopback, which would make it local).
+			return netip.Addr{}, secureFromProxy(r, secure)
 		}
 		client = a
 		if !contains(nc.trusted, a) {
 			break
 		}
 	}
+	return client, secureFromProxy(r, secure)
+}
+
+// secureFromProxy reads X-Forwarded-Proto; callers have checked that the
+// TCP peer is a trusted proxy.
+func secureFromProxy(r *http.Request, secure bool) bool {
 	if protos := r.Header.Values("X-Forwarded-Proto"); len(protos) > 0 {
 		parts := strings.Split(protos[len(protos)-1], ",")
 		secure = secure || strings.EqualFold(strings.TrimSpace(parts[len(parts)-1]), "https")
 	}
-	return client, secure
+	return secure
 }
 
 // classify: local = loopback, the container's default gateway (where

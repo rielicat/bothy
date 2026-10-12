@@ -241,20 +241,19 @@ func (s *Server) stopSession(w http.ResponseWriter, r *http.Request, a core.Acto
 }
 
 // compactSession runs the compaction in the background: it may take a model
-// call, and progress arrives on the event stream.
+// call, and progress arrives on the event stream. A request while one is
+// already running for the session joins it instead of starting another.
 func (s *Server) compactSession(w http.ResponseWriter, r *http.Request, a core.Actor) error {
 	sess, err := s.session(r.Context(), a, sessionID(r))
 	if err != nil {
 		return err
 	}
 	v := a.Viewer
-	go func() {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), compactLimit)
-		defer cancel()
+	s.jobs.start(r.Context(), "compact:"+string(sess.ID), compactLimit, func(ctx context.Context) {
 		if err := s.d.Runner.Compact(ctx, v, sess.ID); err != nil {
 			s.log.Warn("compaction failed", "session", sess.ID, "err", err)
 		}
-	}()
+	})
 	return accepted(w, nil)
 }
 

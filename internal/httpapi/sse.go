@@ -14,7 +14,6 @@ import (
 )
 
 const (
-	ssePing     = 15 * time.Second
 	sseBuffer   = 256
 	sseDeadline = 10 * time.Second
 )
@@ -168,8 +167,9 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, a core.Actor) er
 		}
 		last = e.Seq
 	}
-	ping := time.NewTicker(ssePing)
+	ping := time.NewTicker(s.ssePing)
 	defer ping.Stop()
+	checked := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
@@ -180,6 +180,12 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, a core.Actor) er
 			if sub.Dropped() > 0 {
 				_ = sw.frame("", "resync", []byte("{}"))
 				return nil
+			}
+			if time.Since(checked) >= s.sseRecheck {
+				checked = time.Now()
+				if !s.stillAuthorized(r, a) {
+					return nil
+				}
 			}
 			if err := sw.comment("ping"); err != nil {
 				return nil
@@ -203,6 +209,19 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, a core.Actor) er
 	}
 }
 
+// stillAuthorized re-runs authentication for an open stream, whose filter
+// was fixed at connect time: a revoked token, an ended session, a disabled
+// account or a role change closes it, and the client reconnects with
+// whatever access it has now.
+func (s *Server) stillAuthorized(r *http.Request, a core.Actor) bool {
+	rt := route{access: accessRead}
+	cur, err := s.authenticate(r, rt)
+	if err != nil {
+		return false
+	}
+	return cur.User == a.User && cur.Role == a.Role && authorize(r, rt, cur) == nil
+}
+
 func (s *Server) sendHello(ctx context.Context, sw *sseWriter, a core.Actor, f core.Filter, boot string, seq uint64, replay []core.Event) error {
 	hello := struct {
 		Boot    string            `json:"boot"`
@@ -217,11 +236,7 @@ func (s *Server) sendHello(ctx context.Context, sw *sseWriter, a core.Actor, f c
 	if s.d.Runner != nil {
 		hello.Paused = s.d.Runner.Paused()
 	}
-	for _, e := range s.d.Bus.Banners(f) {
-		if b, ok := e.Data.(core.BannerData); ok {
-			hello.Banners = append(hello.Banners, b)
-		}
-	}
+	hello.Banners = banners(s.d.Bus, f)
 	b, err := json.Marshal(hello)
 	if err != nil {
 		return err

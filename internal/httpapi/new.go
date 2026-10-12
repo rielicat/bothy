@@ -67,6 +67,11 @@ type Server struct {
 	logins   *limiter // per client address
 	claims   *limiter // global: setup claims
 	sse      *sseTracker
+	// ssePing and sseRecheck pace keep-alives and credential re-checks of
+	// open streams; tests shorten them.
+	ssePing    time.Duration
+	sseRecheck time.Duration
+	jobs       *jobs // background compactions and MCP installs, one per key
 
 	shutdownOnce sync.Once
 	shutdown     chan struct{} // closed when Serve begins shutting down; ends SSE streams
@@ -83,18 +88,21 @@ func New(d Deps) (*Server, error) {
 		d.Log = slog.New(slog.DiscardHandler)
 	}
 	s := &Server{
-		d:        d,
-		log:      d.Log,
-		clock:    d.Clock,
-		boot:     d.Clock.Now(),
-		getenv:   os.Getenv,
-		cop:      http.NewCrossOriginProtection(),
-		gateways: defaultGateways,
-		tokens:   newLimiter(d.Clock),
-		logins:   newLimiter(d.Clock),
-		claims:   newLimiter(d.Clock),
-		sse:      newSSETracker(),
-		shutdown: make(chan struct{}),
+		d:          d,
+		log:        d.Log,
+		clock:      d.Clock,
+		boot:       d.Clock.Now(),
+		getenv:     os.Getenv,
+		cop:        http.NewCrossOriginProtection(),
+		gateways:   defaultGateways,
+		tokens:     newLimiter(d.Clock),
+		logins:     newLimiter(d.Clock),
+		claims:     newLimiter(d.Clock),
+		sse:        newSSETracker(),
+		ssePing:    15 * time.Second,
+		sseRecheck: time.Minute,
+		jobs:       newJobs(),
+		shutdown:   make(chan struct{}),
 	}
 	s.routes = s.routeTable()
 	s.handler = s.build()
@@ -156,7 +164,9 @@ func (s *Server) now() time.Time { return s.clock.Now() }
 
 func (s *Server) safeMode() bool { return s.d.Config.Effective().SafeMode }
 
-// audit records an entry for the acting user; failures are logged.
+// audit records an entry for the acting user; failures are logged. The
+// action has already happened, so a client hanging up must not cancel its
+// record.
 func (s *Server) audit(r *http.Request, a core.Actor, action, target, outcome string, detail map[string]any) {
 	if s.d.Audit == nil {
 		return
@@ -168,7 +178,7 @@ func (s *Server) audit(r *http.Request, a core.Actor, action, target, outcome st
 			e.Detail = b
 		}
 	}
-	if err := s.d.Audit.Record(r.Context(), e); err != nil {
+	if err := s.d.Audit.Record(context.WithoutCancel(r.Context()), e); err != nil {
 		s.log.Error("audit record failed", "action", action, "err", err)
 	}
 }
