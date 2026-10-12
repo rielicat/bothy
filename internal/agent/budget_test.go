@@ -43,11 +43,13 @@ func TestBudgetPathsEndWithTheRightStatus(t *testing.T) {
 		steps  []fakes.LLMStep
 		kind   core.BudgetKind
 		sleep  bool
+		spent  float64 // already spent today against a $1 daily cap
 	}{
 		{name: "steps", limits: core.RunLimits{MaxSteps: 2}, steps: repeatCalls(3, "echo", func(i int) string { return fmt.Sprintf(`{"i":%d}`, i) }), kind: core.BudgetSteps},
 		{name: "tokens", limits: core.RunLimits{MaxTokens: 500}, steps: repeatCalls(1, "echo", func(int) string { return `{}` }), kind: core.BudgetTokens},
 		{name: "run cost", limits: core.RunLimits{MaxCost: 1000}, info: priced, steps: repeatCalls(1, "echo", func(int) string { return `{}` }), kind: core.BudgetRunCost},
 		{name: "time", limits: core.RunLimits{MaxTime: time.Minute}, steps: repeatCalls(1, "nap", func(int) string { return `{}` }), kind: core.BudgetTime, sleep: true},
+		{name: "daily projection", info: priced, steps: repeatCalls(1, "echo", func(int) string { return `{}` }), kind: core.BudgetDailyCost, spent: 0.99},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -60,8 +62,14 @@ func TestBudgetPathsEndWithTheRightStatus(t *testing.T) {
 						return nil, ctx.Err()
 					}
 				}}
-				h := newHarness(t, opts{realBudget: true, info: tc.info, tools: []core.Tool{&testTool{name: "echo"}, nap}, steps: tc.steps})
+				h := newHarness(t, opts{realBudget: true, info: tc.info, tools: []core.Tool{&testTool{name: "echo"}, nap}, steps: tc.steps,
+					cfg: func(c *config.Config) { c.Budgets.DailyUSD = 1 }})
 				defer h.close()
+				if tc.spent > 0 {
+					if err := h.budget.RecordSpend(h.ctx, h.user.ID, core.CallInfo{Purpose: "probe", Cost: core.MicrosFromUSD(tc.spent)}); err != nil {
+						t.Fatal(err)
+					}
+				}
 				id := h.submitLimits("go", tc.limits)
 				synctest.Wait()
 				if tc.sleep {
@@ -195,6 +203,31 @@ func TestLoopOnRepeatedTextAndErrors(t *testing.T) {
 				t.Fatalf("status = %s after %d calls", st, fail.calls.Load())
 			}
 		})
+	})
+}
+
+func TestApprovalWaitDoesNotCountAgainstTime(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		send := &testTool{name: "send", se: core.SEExternalSend}
+		h := newHarness(t, opts{realBudget: true, tools: []core.Tool{send},
+			pol:   &fakes.Policy{Verdicts: map[string]core.Verdict{"send": core.VerdictAsk}},
+			appr:  &fakes.Approvals{Manual: true},
+			steps: []fakes.LLMStep{{ToolCalls: []core.ToolCall{call("send", `{}`)}}, {Text: []string{"sent"}}}})
+		defer h.close()
+		id := h.submitLimits("send it", core.RunLimits{MaxTime: time.Minute, MaxSteps: 5})
+		synctest.Wait()
+		time.Sleep(10 * time.Minute) // the user takes a while
+		synctest.Wait()
+		if st := h.run(id).Status; st != core.RunWaitingApproval {
+			t.Fatalf("status while waiting = %s", st)
+		}
+		if _, err := h.appr.Resolve(h.ctx, core.Resolution{ID: h.appr.All()[0].ID, Choice: core.AllowOnce, By: h.user.ID, Via: "web"}); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		if st := h.run(id).Status; st != core.RunDone || send.calls.Load() != 1 {
+			t.Fatalf("status = %s, calls %d", st, send.calls.Load())
+		}
 	})
 }
 
