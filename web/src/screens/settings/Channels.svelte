@@ -64,8 +64,14 @@
 
   const idPath = (i: ChannelIdentity) => `/api/identities/${encodeURIComponent(i.channel)}/${encodeURIComponent(i.external_id)}`;
 
+  // Linking gives the chat account that person's data, so in multi mode the
+  // admin must pick someone explicitly; single mode can only mean the owner.
+  const linkTarget = (i: ChannelIdentity) => (users.length ? linkTo[i.external_id] : session.me?.user.id);
+
   async function decide(i: ChannelIdentity, status: IdentityStatus) {
-    const body = status === 'linked' ? { status, user_id: linkTo[i.external_id] || session.me?.user.id } : { status };
+    const user_id = linkTarget(i);
+    if (status === 'linked' && !user_id) return;
+    const body = status === 'linked' ? { status, user_id } : { status };
     if (await attempt(() => api.patch(idPath(i), body), status === 'blocked' ? 'Blocked.' : status === 'guest' ? 'Added as a guest with read-only tools.' : 'Linked.')) void load();
   }
 
@@ -116,11 +122,12 @@
         <span class="min-w-0 flex-1">{i.display_name || i.username} <span class="text-muted">· {channelName[i.channel] ?? i.channel} · {ago(i.first_seen_at)}</span></span>
         <button type="button" class="btn btn-sm" onclick={() => decide(i, 'guest')}>Allow as guest</button>
         {#if users.length}
-          <select class="input h-7 w-auto text-xs" aria-label="Link to user" bind:value={linkTo[i.external_id]}>
+          <select class="input h-7 w-auto text-xs" aria-label="Link to user" value={linkTo[i.external_id] ?? ''} onchange={(e) => (linkTo[i.external_id] = e.currentTarget.value)}>
+            <option value="">Link to…</option>
             {#each users as u (u.id)}<option value={u.id}>{u.display_name || u.username}</option>{/each}
           </select>
         {/if}
-        <button type="button" class="btn btn-sm" onclick={() => decide(i, 'linked')}>Link</button>
+        <button type="button" class="btn btn-sm" disabled={!linkTarget(i)} onclick={() => decide(i, 'linked')}>Link</button>
         <button type="button" class="btn btn-sm btn-ghost text-bad" onclick={() => decide(i, 'blocked')}>Block</button>
       </div>
     {/each}

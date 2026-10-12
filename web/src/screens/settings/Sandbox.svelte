@@ -5,19 +5,26 @@
   import { api } from '../../lib/api/client';
   import type { EgressRecord, List } from '../../lib/api/types.gen';
   import { ago } from '../../lib/format';
+  import { hostPort } from '../../lib/grants';
   import { attempt } from '../../lib/stores/ui.svelte';
 
   let blocked = $state<EgressRecord[]>([]);
 
   $effect(() => {
-    api.get<List<EgressRecord>>('/api/egress?limit=100').then((l) => (blocked = (l.items ?? []).filter((e) => e.decision === 'deny' || e.decision === 'held_deny').slice(0, 8)), () => {});
+    api.get<List<EgressRecord>>('/api/egress?limit=100').then((l) => {
+      // Every connection is logged; one row per destination is enough here.
+      const seen = new Map<string, EgressRecord>();
+      for (const e of l.items ?? []) if ((e.decision === 'deny' || e.decision === 'held_deny') && !seen.has(`${e.host}:${e.port}`)) seen.set(`${e.host}:${e.port}`, e);
+      blocked = [...seen.values()].slice(0, 8);
+    }, () => {});
   });
 
   // The API creates principal-scope grants only (POST /api/grants); a narrow
   // domain grant is the closest to "allow for this session".
   async function allow(e: EgressRecord) {
-    if (await attempt(() => api.post('/api/grants', { principal_id: e.principal_id, kind: 'domain', value: e.host, max_se: 'read' }), `Bothy may now reach ${e.host}.`))
-      blocked = blocked.filter((x) => x.host !== e.host);
+    const value = hostPort(e.host, e.port);
+    if (await attempt(() => api.post('/api/grants', { principal_id: e.principal_id, kind: 'domain', value, max_se: 'read' }), `Bothy may now reach ${value}.`))
+      blocked = blocked.filter((x) => x.host !== e.host || x.port !== e.port);
   }
 </script>
 

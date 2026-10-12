@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import Dialog from '../components/Dialog.svelte';
   import Icon from '../components/Icon.svelte';
   import { api, errorText } from '../lib/api/client';
@@ -6,6 +7,7 @@
   import { usd, when } from '../lib/format';
   import { risk, statusOf } from '../lib/labels';
   import { router } from '../lib/router.svelte';
+  import { hostPort } from '../lib/grants';
   import { cronPresets, localZone, saveSchedule, scheduleGrants, timezones, ZERO } from '../lib/schedules';
   import { session } from '../lib/stores/session.svelte';
   import { toasts } from '../lib/stores/ui.svelte';
@@ -56,7 +58,7 @@
     error = '';
     api.get<ChannelIdentity[]>('/api/identities').then((l) => (identities = l.filter((i) => i.status === 'linked' && i.dm_chat_id)), () => {});
     if (id === 'new') {
-      s = blank();
+      s = untrack(blank);
       grants = [];
       runs = [];
       return;
@@ -75,20 +77,25 @@
       .catch((e) => (error = errorText(e)));
   });
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  // Only the newest spec may show its preview; answers can arrive out of order.
+  let previewSeq = 0;
   $effect(() => {
     if (!s) return;
     const req = { kind: s.kind, spec: s.spec, tz: s.tz };
-    clearTimeout(timer);
-    timer = setTimeout(async () => {
+    const seq = ++previewSeq;
+    const timer = setTimeout(async () => {
       try {
-        preview = await api.post<SchedulePreviewResp>('/api/schedules/preview', req);
+        const p = await api.post<SchedulePreviewResp>('/api/schedules/preview', req);
+        if (seq !== previewSeq) return;
+        preview = p;
         previewError = '';
       } catch (e) {
+        if (seq !== previewSeq) return;
         preview = null;
         previewError = errorText(e);
       }
     }, 300);
+    return () => clearTimeout(timer);
   });
 
   const deliverValue = $derived(!s?.deliver ? 'preferred' : s.deliver.channel === 'web' ? 'web' : `${s.deliver.channel}:${s.deliver.chat_id}`);
@@ -122,7 +129,7 @@
       kind: g.kind,
       tool: tool ? g.tool : undefined,
       pattern: tool ? { [g.pointer]: g.glob } : undefined,
-      value: tool ? undefined : g.value,
+      value: tool ? undefined : g.kind === 'domain' ? hostPort(g.value) : g.value.trim(),
       max_se: g.max_se,
       allow_when_tainted: false,
       uses: 0,
