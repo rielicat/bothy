@@ -262,3 +262,40 @@ func TestScheduleCreateRollsBackOnGrantFailure(t *testing.T) {
 		t.Fatalf("grants left active: %+v (given %v, revoked %v)", gs, fp.given, fp.revoked)
 	}
 }
+
+// activeRunner reports one active run, on the session in active.
+type activeRunner struct {
+	*fakes.Runner
+	active core.SessionID
+}
+
+func (r *activeRunner) Active() []core.RunInfo {
+	if r.active == "" {
+		return nil
+	}
+	return []core.RunInfo{{Run: "run_busy", Session: r.active, Status: core.RunRunning}}
+}
+
+func TestV1BusySessionIsNotConsumed(t *testing.T) {
+	h := newHarness(t).setup()
+	ar := &activeRunner{Runner: h.runner}
+	h.srv.d.Runner = ar
+	tok := h.tokenFor(h.member, "chat")
+	own := decodeAs[core.Session](t, h.do("POST", "/api/sessions", map[string]any{}, h.member))
+	body := map[string]any{"model": "bothy", "messages": []map[string]any{{"role": "user", "content": "hi"}}}
+	ar.active = own.ID
+	rec := h.do("POST", "/v1/chat/completions", body, tok, withHeader("X-Bothy-Session", string(own.ID)))
+	expect(t, rec, http.StatusTooManyRequests)
+	if rec.Header().Get("Retry-After") == "" || len(h.runner.Submitted()) != 0 {
+		t.Fatalf("busy session: Retry-After %q, %d submits", rec.Header().Get("Retry-After"), len(h.runner.Submitted()))
+	}
+	// A run that starts between the check and Submit takes the message; a
+	// retryable 429 would make the client send it twice.
+	ar.active = ""
+	h.runner.Result = core.SubmitResult{Steered: true}
+	rec = h.do("POST", "/v1/chat/completions", body, tok, withHeader("X-Bothy-Session", string(own.ID)))
+	expect(t, rec, http.StatusConflict)
+	if errCode(t, rec) != "steered" {
+		t.Fatalf("body = %s", rec.Body.String())
+	}
+}

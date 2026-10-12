@@ -588,6 +588,12 @@ func (s *Server) agentCompletion(w http.ResponseWriter, r *http.Request, a core.
 	if err != nil {
 		return err
 	}
+	// A busy session would steer or queue the message into a run this
+	// request cannot stream, so it is refused before anything is consumed.
+	if mapped && s.sessionBusy(sess.ID) {
+		w.Header().Set("Retry-After", "1")
+		return &v1Err{status: http.StatusTooManyRequests, code: "busy", msg: "the session is running another task; retry when it finishes"}
+	}
 	lastContent, err := parseContent(last.Content)
 	if err != nil {
 		return err
@@ -636,7 +642,9 @@ func (s *Server) agentCompletion(w http.ResponseWriter, r *http.Request, a core.
 		return s.v1RunError(err)
 	}
 	if res.Run == "" {
-		return &v1Err{status: http.StatusTooManyRequests, code: "busy", msg: "the session is busy with another run; retry shortly"}
+		// Another run started first and took the message: a retry would
+		// send it twice, so this is not a retryable 429.
+		return &v1Err{status: http.StatusConflict, code: "steered", msg: "the session started another run first; this message was added to it"}
 	}
 	h := w.Header()
 	h.Set("X-Bothy-Run-Id", string(res.Run))
@@ -684,6 +692,15 @@ func (s *Server) v1RunError(err error) error {
 		return &v1Err{status: http.StatusTooManyRequests, code: "busy", msg: "the session queue is full"}
 	}
 	return err
+}
+
+func (s *Server) sessionBusy(id core.SessionID) bool {
+	for _, ri := range s.d.Runner.Active() {
+		if ri.Session == id {
+			return true
+		}
+	}
+	return false
 }
 
 // apiSession resolves X-Bothy-Session (which must be visible to the token's
