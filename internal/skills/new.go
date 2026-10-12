@@ -64,7 +64,7 @@ func New(d Deps) (*Library, error) {
 	if err != nil {
 		return nil, fmt.Errorf("skills: %w", err)
 	}
-	if err := os.MkdirAll(dir, 0o770); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, fmt.Errorf("skills: create %s: %w", dir, err)
 	}
 	l := &Library{store: d.Store, cfg: d.Config, audit: d.Audit, bus: d.Bus, clock: d.Clock, log: d.Log, dir: dir}

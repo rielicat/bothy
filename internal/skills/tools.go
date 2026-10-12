@@ -51,7 +51,7 @@ func decodeArgs(args json.RawMessage, v any) error {
 	dec := json.NewDecoder(bytes.NewReader(args))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
-		return fmt.Errorf("%w: arguments: %v", core.ErrInvalid, err)
+		return fmt.Errorf("%w: arguments: %w", core.ErrInvalid, err)
 	}
 	if dec.More() {
 		return fmt.Errorf("%w: arguments: trailing data", core.ErrInvalid)

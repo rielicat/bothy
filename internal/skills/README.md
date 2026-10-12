@@ -20,5 +20,5 @@ absolute paths or symlinked components); the model-facing tools `skill_load`
 gated likewise) require an enabled skill whose files still match. `Install`
 unpacks a zip (≤ 5 MB, ≤ 200 files, ≤ 20 MB unpacked, `SKILL.md` at the root
 or in one top-level folder) through `os.Root`, refusing unsafe names,
-symlinks and special files; files are written 0660 and nothing is ever
-executed. `Checks` provides `skills.changed` (fix: disable).
+symlinks and special files; files are written 0640 (dirs 0750) and nothing
+is ever executed. `Checks` provides `skills.changed` (fix: disable).

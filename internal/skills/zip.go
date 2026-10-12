@@ -76,11 +76,11 @@ func (l *Library) Install(ctx context.Context, zr io.ReaderAt, size int64, by co
 			_ = os.RemoveAll(tmp)
 		}
 	}()
-	// MkdirTemp creates 0700; the box reads /skills through group 10001, and the
+	// MkdirTemp creates 0700; boxes read /skills through group 10001, and the
 	// setgid bit inherited from the skills directory must survive the chmod.
 	if fi, err := os.Stat(tmp); err != nil {
 		return nil, err
-	} else if err := os.Chmod(tmp, fi.Mode()&os.ModeSetgid|0o770); err != nil {
+	} else if err := os.Chmod(tmp, fi.Mode()&os.ModeSetgid|0o750); err != nil {
 		return nil, err
 	}
 	files, err := unpack(tmp, prefix, entries)
@@ -208,13 +208,13 @@ func unpack(dir, prefix string, entries map[string]*zip.File) (int, error) {
 			continue
 		}
 		if f.Mode().IsDir() || strings.HasSuffix(f.Name, "/") {
-			if err := root.MkdirAll(rel, 0o770); err != nil {
+			if err := root.MkdirAll(rel, 0o750); err != nil {
 				return 0, err
 			}
 			continue
 		}
 		if parent := path.Dir(rel); parent != "." {
-			if err := root.MkdirAll(parent, 0o770); err != nil {
+			if err := root.MkdirAll(parent, 0o750); err != nil {
 				return 0, err
 			}
 		}
@@ -235,7 +235,7 @@ func writeEntry(root *os.Root, rel string, f *zip.File, budget int64) (int64, er
 		return 0, invalidf("%s: %v", rel, err)
 	}
 	defer rc.Close()
-	dst, err := root.OpenFile(rel, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o660)
+	dst, err := root.OpenFile(rel, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o640)
 	if err != nil {
 		return 0, err
 	}
