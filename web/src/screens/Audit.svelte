@@ -6,6 +6,7 @@
   import { api, errorText, qs } from '../lib/api/client';
   import type { AuditEntry, AuditVerify, EgressRecord, List } from '../lib/api/types.gen';
   import { bytes, when } from '../lib/format';
+  import { appendNew } from '../lib/list';
   import { router } from '../lib/router.svelte';
   import { session } from '../lib/stores/session.svelte';
 
@@ -41,11 +42,11 @@
     try {
       if (tab === 'log') {
         const r = await api.get<List<AuditEntry>>(`/api/audit${params(more ? next : undefined)}`);
-        rows = more ? [...rows, ...r.items] : r.items;
+        rows = more ? appendNew(rows, r.items, (x) => x.id) : (r.items ?? []);
         next = r.next ?? 0;
       } else {
         const r = await api.get<List<EgressRecord>>(`/api/egress${qs({ limit: 100, before: more ? next : undefined })}`);
-        egress = more ? [...egress, ...r.items] : r.items;
+        egress = more ? appendNew(egress, r.items, (x) => x.id) : (r.items ?? []);
         next = r.next ?? 0;
       }
     } catch (e) {

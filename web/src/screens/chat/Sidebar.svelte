@@ -3,6 +3,7 @@
   import { api, errorText, qs } from '../../lib/api/client';
   import type { List, SearchHit, Session, SessionData } from '../../lib/api/types.gen';
   import { ago, date } from '../../lib/format';
+  import { appendNew } from '../../lib/list';
   import { originIcon } from '../../lib/labels';
   import { router } from '../../lib/router.svelte';
   import { events } from '../../lib/sse.svelte';
@@ -51,11 +52,7 @@
     error = '';
     try {
       const r = await api.get<List<Session>>(`/api/sessions${qs({ limit: 50, before: more ? next : undefined })}`);
-      const items = r.items ?? [];
-      if (more) {
-        const have = new Set(sessions.map((s) => s.id));
-        sessions = [...sessions, ...items.filter((s) => !have.has(s.id))];
-      } else sessions = items;
+      sessions = more ? appendNew(sessions, r.items, (s) => s.id) : (r.items ?? []);
       next = r.next ?? 0;
     } catch (e) {
       error = errorText(e);

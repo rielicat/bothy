@@ -5,6 +5,7 @@
   import { api, errorText, qs } from '../lib/api/client';
   import type { Approval, Choice, List } from '../lib/api/types.gen';
   import { ago } from '../lib/format';
+  import { appendNew } from '../lib/list';
   import { router } from '../lib/router.svelte';
   import { events } from '../lib/sse.svelte';
   import { clock } from '../lib/stores/clock.svelte';
@@ -39,7 +40,7 @@
   async function loadRecent(more = false) {
     try {
       const r = await api.get<List<Approval>>(`/api/approvals${qs({ status: 'recent', limit: 30, before: more ? next : undefined })}`);
-      recent = more ? [...recent, ...r.items] : r.items;
+      recent = more ? appendNew(recent, r.items, (a) => a.id) : (r.items ?? []);
       next = r.next ?? 0;
     } catch (e) {
       error = errorText(e);
