@@ -20,7 +20,7 @@ type Options struct {
 	ID       string
 	Kind     core.ProviderKind
 	BaseURL  string       // without a trailing slash
-	HTTP     *http.Client // from core.Egress.SystemClient; never http.DefaultClient
+	HTTP     *http.Client // from core.Egress.SystemClient only
 	Key      func(ctx context.Context) (core.Secret, error)
 	Headers  func(ctx context.Context) (map[string]core.Secret, error)
 	Redact   func(string) string
