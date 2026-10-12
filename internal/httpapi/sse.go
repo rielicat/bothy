@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -211,15 +212,26 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, a core.Actor) er
 
 // stillAuthorized re-runs authentication for an open stream, whose filter
 // was fixed at connect time: a revoked token, an ended session, a disabled
-// account or a role change closes it, and the client reconnects with
-// whatever access it has now.
+// account, a role change or a changed set of principals (a new guest space)
+// closes it, and the client reconnects with whatever access it has now.
 func (s *Server) stillAuthorized(r *http.Request, a core.Actor) bool {
 	rt := route{access: accessRead}
 	cur, err := s.authenticate(r, rt)
 	if err != nil {
 		return false
 	}
-	return cur.User == a.User && cur.Role == a.Role && authorize(r, rt, cur) == nil
+	return cur.User == a.User && cur.Role == a.Role && authorize(r, rt, cur) == nil &&
+		samePrincipals(cur.Viewer.Principals, a.Viewer.Principals)
+}
+
+func samePrincipals(x, y []core.PrincipalID) bool {
+	if len(x) != len(y) {
+		return false
+	}
+	x, y = slices.Clone(x), slices.Clone(y)
+	slices.Sort(x)
+	slices.Sort(y)
+	return slices.Equal(x, y)
 }
 
 func (s *Server) sendHello(ctx context.Context, sw *sseWriter, a core.Actor, f core.Filter, boot string, seq uint64, replay []core.Event) error {

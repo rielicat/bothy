@@ -69,6 +69,29 @@ func TestSSERechecksCredentials(t *testing.T) {
 	}
 }
 
+func TestSSEReconnectsWhenPrincipalsChange(t *testing.T) {
+	h := newHarness(t).setup()
+	h.srv.ssePing, h.srv.sseRecheck = 10*time.Millisecond, 0
+	srv := h.server(t)
+	c := h.openSSE(t, srv, h.admin, "")
+	c.next(t)
+	ctx := context.Background()
+	ident := core.ChannelIdentity{Channel: "telegram", ExternalID: "777", DMChat: "777", DisplayName: "Guest"}
+	if _, err := h.auth.SenderNotice(ctx, ident); err != nil {
+		t.Fatal(err)
+	}
+	admin, err := h.auth.FromCookie(ctx, h.admin.cookie)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.auth.SetIdentityStatus(ctx, admin, "telegram", "777", core.IdentityGuest, ""); err != nil {
+		t.Fatal(err)
+	}
+	if !c.closed(t) {
+		t.Fatal("stream kept a filter without the admin's new guest space")
+	}
+}
+
 func TestSSEClosedOnRoleAndPasswordChange(t *testing.T) {
 	h := newHarness(t).setup()
 	srv := h.server(t)
