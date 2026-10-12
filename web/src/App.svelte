@@ -18,7 +18,7 @@
   import Setup from './screens/setup/Setup.svelte';
   import Usage from './screens/Usage.svelte';
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- screens differ in props; all accept params
+  // Screens take different props (all accept params), so the table is loosely typed.
   type Screen = Component<any>;
 
   // One bundle: it compresses far better than a chunk per screen (shared

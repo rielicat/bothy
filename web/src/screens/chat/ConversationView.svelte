@@ -5,7 +5,7 @@
   import Icon from '../../components/Icon.svelte';
   import Markdown from '../../components/Markdown.svelte';
   import StackedBar from '../../components/StackedBar.svelte';
-  import { api, ApiError, errorText } from '../../lib/api/client';
+  import { api, ApiError } from '../../lib/api/client';
   import type { ModelInfoX } from '../../lib/api/extra';
   import type { Pin, RunDetail, Session, SubmitResult } from '../../lib/api/types.gen';
   import { bytes, clock as fmtClock, duration, tokens, usd } from '../../lib/format';

@@ -34,7 +34,7 @@ function precompress(): Plugin {
 
 const mock = process.env.BOTHY_MOCK === '1';
 const plugins: PluginOption[] = [tailwindcss(), svelte({ configFile: false, compilerOptions: { css: 'external', discloseVersion: false } }), precompress()];
-// The fixture gateway (web/mock) is loaded only for `npm run mock`.
+// The fixture gateway (web/mock) is loaded only with BOTHY_MOCK=1 (npm run mock, npm run preview:mock).
 if (mock) plugins.push((await import('./mock/server.ts')).mockGateway());
 
 export default defineConfig({

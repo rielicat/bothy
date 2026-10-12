@@ -15,21 +15,40 @@
 
   const steps = ['Claim', 'Account', 'Models', 'Safety', 'Chat apps', 'Make it yours', 'Done'];
   const HINT = 'bothy.setup.step';
+  // The setup grant's CSRF token only comes back from the single-use claim,
+  // so it is kept for this tab: a reload between claim and account creation
+  // would otherwise strand the wizard until the grant expires.
+  const GRANT = 'bothy.setup.csrf';
+
+  const stored = (k: string) => {
+    try {
+      return sessionStorage.getItem(k);
+    } catch {
+      return null;
+    }
+  };
+  const store = (k: string, v: string | null) => {
+    try {
+      if (v === null) sessionStorage.removeItem(k);
+      else sessionStorage.setItem(k, v);
+    } catch {
+      // private mode: the wizard still works without a reload
+    }
+  };
 
   function initial(): number {
     const st = session.setup;
-    if (!st?.owner_set) return st?.claimed ? 1 : 0;
-    let hint = 2;
-    try {
-      hint = Number(sessionStorage.getItem(HINT)) || 2;
-    } catch {
-      // storage blocked: start at the first post-account step
+    if (!st?.owner_set) {
+      const grant = stored(GRANT);
+      if (st?.claimed && grant) setCsrf(grant);
+      return st?.claimed && grant ? 1 : 0;
     }
-    return Math.min(Math.max(hint, 2), 6);
+    return Math.min(Math.max(Number(stored(HINT)) || 2, 2), 6);
   }
 
-  let step = $state(initial());
-  let reached = $state(initial());
+  const first = initial();
+  let step = $state(first);
+  let reached = $state(first);
   let token = $state('');
   let claiming = $state(false);
   let error = $state('');
@@ -42,11 +61,7 @@
   const zones = timezones();
 
   $effect(() => {
-    try {
-      if (step >= 2) sessionStorage.setItem(HINT, String(step));
-    } catch {
-      // only a resume hint
-    }
+    if (step >= 2) store(HINT, String(step));
   });
 
   function go(n: number) {
@@ -68,7 +83,9 @@
     claiming = true;
     error = '';
     try {
-      setCsrf((await api.post<SetupClaimResp>('/api/setup/claim', { token: t.trim() })).csrf);
+      const { csrf } = await api.post<SetupClaimResp>('/api/setup/claim', { token: t.trim() });
+      setCsrf(csrf);
+      store(GRANT, csrf);
       if (session.setup) session.setup.claimed = true;
       go(1);
     } catch (e) {
@@ -86,6 +103,7 @@
       session.login(me);
       if (session.setup) session.setup.owner_set = true;
       owner.password = '';
+      store(GRANT, null);
       await config.load(true);
       await config.set({ timezone: owner.timezone, mode: owner.multi ? 'multi' : 'single' }, true);
       go(2);
@@ -109,11 +127,7 @@
 
   async function leave(first?: string) {
     if (session.setup) session.setup.needs_setup = false;
-    try {
-      sessionStorage.removeItem(HINT);
-    } catch {
-      // nothing to clean up
-    }
+    store(HINT, null);
     if (!first) return router.navigate('/chat', { replace: true });
     try {
       const s = await api.post<Session>('/api/sessions', {});
