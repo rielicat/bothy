@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -74,7 +75,12 @@ func newInput(in core.PolicyInput, c *config.Config) (*input, error) {
 		return nil, errors.New("no valid side-effect class")
 	}
 	x := &input{PolicyInput: in, cfg: c, a: a, se: se}
-	x.payload, _ = decodePayload(a.Payload)
+	var ok bool
+	// An unreadable payload would silently skip every match rule, deny ones
+	// included.
+	if x.payload, ok = decodePayload(a.Payload); !ok && len(bytes.TrimSpace(a.Payload)) > 0 {
+		return nil, errors.New("the action payload is not JSON")
+	}
 	x.argv = a.Argv
 	if v, ok := pointer(x.payload, "/argv"); ok {
 		if list, ok := stringList(v); ok {

@@ -234,6 +234,7 @@ func TestInvalidInputDenies(t *testing.T) {
 		"nil action":    h.in(nil, spec("x", core.SERead)),
 		"tool mismatch": h.in(action("y", core.ActGeneric, core.SERead, map[string]any{}), spec("x", core.SERead)),
 		"no class":      h.in(action("x", core.ActGeneric, 0, map[string]any{}), spec("x", 0)),
+		"bad payload":   h.in(&core.Action{Tool: "x", Kind: core.ActGeneric, SideEffect: core.SERead, Payload: []byte(`{"argv":`)}, spec("x", core.SERead)),
 	}
 	for name, in := range cases {
 		if d := h.decide(in); d.Verdict != core.VerdictDeny || !d.Floor {
