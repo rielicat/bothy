@@ -124,9 +124,15 @@ func actionHosts(a *core.Action) []hostPort {
 		}
 	}
 	for _, d := range a.Domains {
-		if hp, ok := splitHostPort(d); ok && !slices.Contains(out, hp) {
-			out = append(out, hp)
+		hp, ok := splitHostPort(d)
+		if !ok || slices.Contains(out, hp) {
+			continue
 		}
+		// A portless entry naming a host already listed adds nothing.
+		if hp.port == 0 && slices.ContainsFunc(out, func(o hostPort) bool { return o.host == hp.host }) {
+			continue
+		}
+		out = append(out, hp)
 	}
 	return out
 }

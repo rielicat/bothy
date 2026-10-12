@@ -175,6 +175,15 @@ func TestNarrowGrantDestinations(t *testing.T) {
 	if matches(g, httpAction("web_fetch", "GET", "http://example.com/other", core.SERead), fetch) {
 		t.Error("domain grant matched another port")
 	}
+	withDomains := httpAction("web_fetch", "GET", "https://example.com/d", core.SERead)
+	withDomains.Domains = []string{"EXAMPLE.com"}
+	if !matches(g, withDomains, fetch) {
+		t.Error("a portless Domains entry for the same host defeated the grant")
+	}
+	withDomains.Domains = []string{"example.com", "cdn.example.net:443"}
+	if matches(g, withDomains, fetch) {
+		t.Error("domain grant covered an extra destination")
+	}
 	if matches(g, httpAction("web_fetch", "POST", "https://example.com/x", core.SEExternalSend), spec("web_fetch", core.SEExternalSend)) {
 		t.Error("a read grant covered an external send")
 	}
