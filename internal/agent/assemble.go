@@ -102,7 +102,7 @@ func (a *assembler) assemble(m core.ModelInfo) assembled {
 	budget := m.Context - reserve
 	fixed := est(sys1) + est(s2) + toolsTok
 	if budget > 0 && fixed > budget && len(defs) > 0 {
-		defs, specs, toolsTok = nil, nil, 0
+		defs, toolsTok = nil, 0
 		fixed = est(sys1) + est(s2)
 	}
 	if budget > 0 && fixed > budget {
