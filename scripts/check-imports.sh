@@ -50,7 +50,9 @@ thirdparty_ok() {
 	esac
 	case "$2" in
 	cmd) return 0 ;;
-	config | testkit | e2e) case "$3" in go.yaml.in/yaml/v3*) return 0 ;; esac ;;
+	config | e2e) case "$3" in go.yaml.in/yaml/v3*) return 0 ;; esac ;;
+	# conformance.Tool compiles tool schemas with the validator M4 uses.
+	testkit) case "$3" in go.yaml.in/yaml/v3* | github.com/google/jsonschema-go/*) return 0 ;; esac ;;
 	M1) case "$3" in modernc.org/sqlite* | modernc.org/libc* | golang.org/x/crypto/*) return 0 ;; esac ;;
 	M4) case "$3" in github.com/google/jsonschema-go/* | golang.org/x/net/*) return 0 ;; esac ;;
 	M5) case "$1:$3" in internal/sandbox/bwrap*:github.com/elastic/go-seccomp-bpf* | internal/sandbox/bwrap*:golang.org/x/net/*) return 0 ;; esac ;;

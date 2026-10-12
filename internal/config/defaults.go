@@ -2,8 +2,6 @@ package config
 
 import "time"
 
-func boolPtr(b bool) *bool { return &b }
-
 // defaults holds the built-in values of SPEC §7.1. Entries marked "example"
 // there (providers, model chains, pricing, MCP servers) are not defaults.
 func defaults() *Config {

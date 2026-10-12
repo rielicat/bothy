@@ -1717,6 +1717,11 @@ export interface FieldError {
   source: Source;
   message: string; // includes "did you mean …" suggestions
 }
+/**
+ * FieldErrors is the error Set and Reset return when a change is rejected;
+ * the HTTP layer answers 400 with the list. It matches core.ErrInvalid.
+ */
+export type FieldErrors = FieldError[];
 export interface Effective {
   entries: Entry[];
   errors: FieldError[]; // a key failing validation falls back to the next lower valid layer
@@ -1748,8 +1753,6 @@ export type Admin =
     View;
 /**
  * Manager implements Admin.
- * TEMPORARY skeleton-base implementation: defaults + scalar env overrides, no
- * file or UI layers, no provenance. Replaced by the full loader.
  */
 export interface Manager {
 }
