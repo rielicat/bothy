@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/slack-go/slack/socketmode"
@@ -36,7 +37,8 @@ func hostPort(u *url.URL) string {
 }
 
 func (a *adapter) dest(hostport string) core.SystemDest {
-	return core.SystemDest{Name: "channel:" + name, Hosts: []string{hostport}, AllowPrivate: a.allowPrivate}
+	private := a.privateHost != "" && strings.EqualFold(hostport, a.privateHost)
+	return core.SystemDest{Name: "channel:" + name, Hosts: []string{hostport}, AllowPrivate: private}
 }
 
 // egressClient returns the egress client for hostport. A nil one would make
@@ -59,19 +61,33 @@ type dialFunc func(ctx context.Context, network, addr string) (net.Conn, error)
 
 // systemDialer returns the egress system dialer for exactly dest. AdapterDeps
 // hands out only *http.Client values, so the dialer is borrowed from the
-// client's *http.Transport; a client without one fails closed instead of
-// dialing around egress (ICR core.AdapterDeps.Dial would remove this).
-func systemDialer(deps core.AdapterDeps, dest core.SystemDest) (plain, secure dialFunc, err error) {
+// client's *http.Transport. A client without one, or one that would route
+// this destination through a proxy (which a raw WebSocket dial cannot
+// honour), fails closed instead of dialing around egress (ICR
+// core.AdapterDeps.Dial would remove this).
+func systemDialer(deps core.AdapterDeps, dest core.SystemDest, secure bool) (dialFunc, error) {
 	c := deps.HTTP(dest)
 	var tr *http.Transport
 	if c != nil {
 		tr, _ = c.Transport.(*http.Transport)
 	}
-	if tr == nil || tr.DialContext == nil {
-		return nil, nil, fmt.Errorf("egress client for %v exposes no dialer: %w", dest.Hosts, core.ErrForbidden)
+	if tr == nil || tr.DialContext == nil || len(dest.Hosts) != 1 {
+		return nil, fmt.Errorf("egress client for %v exposes no dialer: %w", dest.Hosts, core.ErrForbidden)
+	}
+	if tr.Proxy != nil {
+		scheme := "http"
+		if secure {
+			scheme = "https"
+		}
+		if p, err := tr.Proxy(&http.Request{URL: &url.URL{Scheme: scheme, Host: dest.Hosts[0]}}); err != nil || p != nil {
+			return nil, fmt.Errorf("egress client for %v routes through a proxy: %w", dest.Hosts, core.ErrForbidden)
+		}
+	}
+	if !secure {
+		return tr.DialContext, nil
 	}
 	if tr.DialTLSContext != nil {
-		return tr.DialContext, tr.DialTLSContext, nil
+		return tr.DialTLSContext, nil
 	}
 	tc := &tls.Config{MinVersion: tls.VersionTLS12}
 	if tr.TLSClientConfig != nil {
@@ -81,7 +97,7 @@ func systemDialer(deps core.AdapterDeps, dest core.SystemDest) (plain, secure di
 		tc.NextProtos = nil
 		tc.MinVersion = max(tc.MinVersion, tls.VersionTLS12)
 	}
-	secure = func(ctx context.Context, network, addr string) (net.Conn, error) {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
 		conn, err := tr.DialContext(ctx, network, addr)
 		if err != nil {
 			return nil, err
@@ -96,8 +112,7 @@ func systemDialer(deps core.AdapterDeps, dest core.SystemDest) (plain, secure di
 			return nil, err
 		}
 		return tlsConn, nil
-	}
-	return tr.DialContext, secure, nil
+	}, nil
 }
 
 // newOptionArg allocates the value an option function takes a pointer to.
@@ -117,14 +132,11 @@ func (a *adapter) socketDialer() socketmode.Option {
 	d.WriteBufferSize = writeBuffer
 	dial := func(secure bool) dialFunc {
 		return func(ctx context.Context, network, addr string) (net.Conn, error) {
-			plain, tlsDial, err := systemDialer(a.deps, a.dest(addr))
+			d, err := systemDialer(a.deps, a.dest(addr), secure)
 			if err != nil {
 				return nil, err
 			}
-			if secure {
-				return tlsDial(ctx, network, addr)
-			}
-			return plain(ctx, network, addr)
+			return d(ctx, network, addr)
 		}
 	}
 	d.NetDialContext = dial(false)

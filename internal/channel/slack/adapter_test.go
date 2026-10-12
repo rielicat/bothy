@@ -82,7 +82,7 @@ func TestButtonPressBecomesActionEvent(t *testing.T) {
 	f := newFixture(t)
 	f.start(t, stateConnected)
 	ctx := context.Background()
-	const channel, user, thread = "C0000100", "U0000100", "1760000000.000001"
+	const channel, user, thread = "C0000100", "U0000100", "1750000000.000001"
 	chat := core.ChatRef{Channel: name, ChatID: channel, ThreadID: thread, Kind: core.ChatGroup}
 	ref, err := f.a.Send(ctx, core.OutMessage{Chat: chat, Text: "Run `rm -rf build`?", Buttons: [][]core.Button{
 		{{Label: "Approve", Data: "a:apr_1:o:mac", Style: core.BtnPrimary}, {Label: "Deny", Data: "a:apr_1:d:mac", Style: core.BtnDanger}},
@@ -110,6 +110,56 @@ func TestButtonPressBecomesActionEvent(t *testing.T) {
 	}
 	if err := f.a.Ack(ctx, core.ActionEvent{AckRef: "https://evil.example/hook"}, "x"); !errors.Is(err, core.ErrInvalid) {
 		t.Fatalf("Ack to a foreign host = %v, want ErrInvalid", err)
+	}
+}
+
+func TestButtonPressOnThreadRoot(t *testing.T) {
+	f := newFixture(t)
+	f.start(t, stateConnected)
+	ctx := context.Background()
+	const channel, user = "C0000150", "U0000150"
+	chat := core.ChatRef{Channel: name, ChatID: channel, Kind: core.ChatGroup}
+	ref, err := f.a.Send(ctx, core.OutMessage{Chat: chat, Text: "Running…", Buttons: [][]core.Button{{{Label: "Stop", Data: "s:run_9", Style: core.BtnDanger}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Someone replies in the card's thread, which makes Slack report the card
+	// as the thread's root (thread_ts == ts).
+	f.srv.Inject(slacktest.Incoming{ChatID: channel, SenderID: user, Text: "what is it doing?", ThreadTS: ref.ID})
+	f.sink.message(t)
+	f.srv.InjectButton(channel, ref.ID, user, "s:run_9")
+	ev := f.sink.action(t)
+	if ev.Chat != chat || ev.Msg != ref {
+		t.Fatalf("ActionEvent chat %+v msg %+v, want %+v and the MsgRef Send returned (%+v)", ev.Chat, ev.Msg, chat, ref)
+	}
+}
+
+func TestReplyInBotThreadIsMentioned(t *testing.T) {
+	f := newFixture(t)
+	f.start(t, stateConnected)
+	const channel, user = "C0000160", "U0000160"
+	chat := core.ChatRef{Channel: name, ChatID: channel, Kind: core.ChatGroup}
+	ref, err := f.a.Send(context.Background(), core.OutMessage{Chat: chat, Text: "Here is the summary."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.srv.Inject(slacktest.Incoming{ChatID: channel, SenderID: user, Text: "and the details?", ThreadTS: ref.ID})
+	if in := f.sink.message(t); !in.Mentioned || in.Chat.ThreadID != ref.ID {
+		t.Fatalf("reply in the bot's thread = %+v, want Mentioned in thread %s", in, ref.ID)
+	}
+	f.srv.Inject(slacktest.Incoming{ChatID: channel, SenderID: user, Text: "side chat", ThreadTS: "1760000000.999999"})
+	if in := f.sink.message(t); in.Mentioned {
+		t.Fatalf("reply in someone else's thread = %+v, want not Mentioned", in)
+	}
+}
+
+func TestAckErrorHidesResponseURL(t *testing.T) {
+	f := newFixture(t)
+	ackRef := strings.TrimSuffix(f.srv.URL(), "/api/") + "/response/secret-hook-path"
+	f.srv.Close()
+	err := f.a.Ack(context.Background(), core.ActionEvent{AckRef: ackRef}, "Approved")
+	if err == nil || strings.Contains(err.Error(), "secret-hook-path") {
+		t.Fatalf("Ack against a dead response_url = %v, want an error without the URL", err)
 	}
 }
 

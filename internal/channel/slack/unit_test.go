@@ -5,7 +5,9 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -138,13 +140,75 @@ func TestFullQueueLeavesRequestUnacked(t *testing.T) {
 }
 
 func TestSystemDialerFailsClosed(t *testing.T) {
-	for _, c := range []*http.Client{nil, {}, {Transport: &http.Transport{}}} {
+	proxy, _ := url.Parse("http://proxy.internal:3128")
+	proxied := &http.Transport{DialContext: (&net.Dialer{}).DialContext, Proxy: http.ProxyURL(proxy)}
+	for _, c := range []*http.Client{nil, {}, {Transport: &http.Transport{}}, {Transport: proxied}} {
 		deps := core.AdapterDeps{HTTP: func(core.SystemDest) *http.Client { return c }}
-		if _, _, err := systemDialer(deps, core.SystemDest{Hosts: []string{"wss-primary.slack.com:443"}}); !errors.Is(err, core.ErrForbidden) {
-			t.Fatalf("systemDialer with client %+v = %v, want ErrForbidden", c, err)
+		for _, secure := range []bool{false, true} {
+			if _, err := systemDialer(deps, core.SystemDest{Hosts: []string{"wss-primary.slack.com:443"}}, secure); !errors.Is(err, core.ErrForbidden) {
+				t.Fatalf("systemDialer(secure=%v) with client %+v = %v, want ErrForbidden", secure, c, err)
+			}
+		}
+	}
+	// A proxy function that leaves this destination direct is fine.
+	direct := &http.Transport{DialContext: (&net.Dialer{}).DialContext, Proxy: func(*http.Request) (*url.URL, error) { return nil, nil }}
+	deps := core.AdapterDeps{HTTP: func(core.SystemDest) *http.Client { return &http.Client{Transport: direct} }}
+	if _, err := systemDialer(deps, core.SystemDest{Hosts: []string{"wss-primary.slack.com:443"}}, true); err != nil {
+		t.Fatalf("systemDialer with a direct proxy func = %v", err)
+	}
+}
+
+func TestPrivateAddressesOnlyForConfiguredAPIHost(t *testing.T) {
+	cfg := config.Default().Channels.Slack
+	cfg.APIBase = "http://LOCALHOST:8080/api"
+	a, err := newAdapter(cfg, core.AdapterDeps{
+		Secret: func(context.Context, string) (core.Secret, error) { return core.Secret{}, nil },
+		HTTP:   func(core.SystemDest) *http.Client { return newPlainClient() },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !a.dest("localhost:8080").AllowPrivate {
+		t.Fatal("the admin-set api_base host must admit private addresses")
+	}
+	// Hosts handed out at run time (the Socket Mode URL, file and response
+	// URLs) come from the server, not the admin.
+	for _, hp := range []string{"wss-primary.slack.com:443", "files.slack.com:443", "hooks.slack.com:443", "localhost:8081", "10.0.0.1:8080"} {
+		if a.dest(hp).AllowPrivate {
+			t.Fatalf("dest(%s) admits private addresses", hp)
 		}
 	}
 }
+
+func TestActionOnThreadRootStaysInChannel(t *testing.T) {
+	a := &adapter{log: slog.New(slog.DiscardHandler), clock: core.SystemClock{}}
+	for _, tt := range []struct {
+		name       string
+		container  slack.Container
+		msgThread  string
+		wantThread string
+	}{
+		{"root via message", slack.Container{ChannelID: "C1", MessageTs: "1.000001"}, "1.000001", ""},
+		{"root via container", slack.Container{ChannelID: "C1", MessageTs: "1.000001", ThreadTs: "1.000001"}, "1.000001", ""},
+		{"reply in thread", slack.Container{ChannelID: "C1", MessageTs: "1.000002", ThreadTs: "1.000001"}, "1.000001", "1.000001"},
+	} {
+		cb := slack.InteractionCallback{Type: slack.InteractionTypeBlockActions, Container: tt.container, User: slack.User{ID: "U1"},
+			ResponseURL: "https://hooks.slack.com/actions/x"}
+		cb.Message.ThreadTimestamp = tt.msgThread
+		cb.ActionCallback.BlockActions = []*slack.BlockAction{{Value: "s:run_1"}}
+		var got core.ActionEvent
+		a.actionJob(cb)(context.Background(), actionSink(func(ev core.ActionEvent) { got = ev }))
+		if got.Chat.ThreadID != tt.wantThread || got.Msg.Chat != got.Chat || got.Msg.ID != tt.container.MessageTs {
+			t.Errorf("%s: ActionEvent = %+v, want thread %q", tt.name, got, tt.wantThread)
+		}
+	}
+}
+
+type actionSink func(core.ActionEvent)
+
+func (actionSink) OnMessage(context.Context, core.Inbound) {}
+
+func (f actionSink) OnAction(_ context.Context, ev core.ActionEvent) { f(ev) }
 
 func TestNilEgressClientFailsClosed(t *testing.T) {
 	a, err := newAdapter(config.Default().Channels.Slack, core.AdapterDeps{

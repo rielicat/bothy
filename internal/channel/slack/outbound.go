@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -108,7 +109,7 @@ func (a *adapter) Ack(ctx context.Context, ev core.ActionEvent, toast string) er
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := a.noRedirects(u).Do(req)
 	if err != nil {
-		return fmt.Errorf("slack: acknowledge press: %w", err)
+		return fmt.Errorf("slack: acknowledge press: %w", hideURL(err))
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
@@ -209,6 +210,15 @@ func (a *adapter) noRedirects(u *url.URL) *http.Client {
 	c := *a.egressClient(hostPort(u))
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &c
+}
+
+// hideURL keeps a request URL out of err: a response_url is a credential
+// for posting into its conversation, and errors end up in logs.
+func hideURL(err error) error {
+	if ue, ok := errors.AsType[*url.Error](err); ok {
+		return fmt.Errorf("%s response_url: %w", ue.Op, ue.Err)
+	}
+	return err
 }
 
 func checkChat(chat core.ChatRef) error {

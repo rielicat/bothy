@@ -34,13 +34,13 @@ const (
 var caps = core.ChannelCaps{Edit: true, Buttons: true, Threads: true, MaxLen: maxLen, EditMinInterval: 1200 * time.Millisecond}
 
 type adapter struct {
-	cfg          config.Slack
-	deps         core.AdapterDeps
-	log          *slog.Logger
-	clock        core.Clock
-	apiBase      *url.URL
-	allowPrivate bool
-	newSocket    func(*slack.Client, ...socketmode.Option) socket
+	cfg         config.Slack
+	deps        core.AdapterDeps
+	log         *slog.Logger
+	clock       core.Clock
+	apiBase     *url.URL
+	privateHost string
+	newSocket   func(*slack.Client, ...socketmode.Option) socket
 
 	tokMu sync.Mutex
 	bot   core.Secret
@@ -86,18 +86,21 @@ func newAdapter(cfg config.Slack, d core.AdapterDeps) (*adapter, error) {
 		clock = core.SystemClock{}
 	}
 	a := &adapter{
-		cfg:     cfg,
-		deps:    d,
-		log:     log,
-		clock:   clock,
-		apiBase: api,
-		// api_base is locked (file or env only), so an override is admin-set,
-		// which is what AllowPrivate requires; it is how a self-hosted proxy
-		// or the test fake on loopback is reached.
-		allowPrivate: cfg.APIBase != config.Default().Channels.Slack.APIBase,
-		newSocket:    newSocketMode,
-		state:        stateConnecting,
-		since:        clock.Now(),
+		cfg:       cfg,
+		deps:      d,
+		log:       log,
+		clock:     clock,
+		apiBase:   api,
+		newSocket: newSocketMode,
+		state:     stateConnecting,
+		since:     clock.Now(),
+	}
+	// api_base is locked (file or env only), so an override is admin-set,
+	// which is what AllowPrivate requires; it is how a self-hosted proxy or
+	// the test fake on loopback is reached. Hosts learned at run time (the
+	// Socket Mode URL, file and response URLs) never get it.
+	if cfg.APIBase != config.Default().Channels.Slack.APIBase {
+		a.privateHost = strings.ToLower(hostPort(api))
 	}
 	if !cfg.Enabled {
 		a.state = stateDisabled

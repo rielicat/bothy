@@ -93,7 +93,9 @@ func (a *adapter) fromMessage(e *slackevents.MessageEvent) (core.Inbound, bool) 
 	if e.Message != nil {
 		in.Attachments = attachments(e.Message.Files)
 	}
-	in.Mentioned = in.Chat.Kind == core.ChatDM || mentioned
+	// A reply in a thread the bot started is Slack's reply-to-bot.
+	replyToBot := self != "" && in.Chat.ThreadID != "" && e.Message != nil && e.Message.ParentUserId == self
+	in.Mentioned = in.Chat.Kind == core.ChatDM || mentioned || replyToBot
 	return in, in.Text != "" || len(in.Attachments) > 0
 }
 
@@ -134,7 +136,13 @@ func (a *adapter) actionJob(cb slack.InteractionCallback) job {
 	}
 	channel := either(cb.Container.ChannelID, cb.Channel.ID)
 	ts := either(cb.Container.MessageTs, cb.Message.Timestamp)
-	chat := chatRef(channel, "", either(cb.Container.ThreadTs, cb.Message.ThreadTimestamp))
+	thread := either(cb.Container.ThreadTs, cb.Message.ThreadTimestamp)
+	if thread == ts {
+		// A message that has thread replies reports its own ts as thread_ts,
+		// but it was sent to the channel and Send's MsgRef says so.
+		thread = ""
+	}
+	chat := chatRef(channel, "", thread)
 	var evs []core.ActionEvent
 	for _, act := range cb.ActionCallback.BlockActions {
 		if act.Value == "" {

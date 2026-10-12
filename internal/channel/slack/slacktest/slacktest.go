@@ -41,6 +41,7 @@ type Message struct {
 	UnfurlMedia string
 	Edits       int
 	Deleted     bool
+	Replies     int // thread replies injected under this message
 }
 
 // Ack is a Socket Mode acknowledgement; After is measured from the envelope.
@@ -199,8 +200,14 @@ func (s *Server) Inject(in Incoming) string {
 	}
 	ev := map[string]any{"type": "message", "channel": in.ChatID, "channel_type": channelType(in.ChatID), "user": in.SenderID,
 		"text": text, "ts": ts, "event_ts": ts, "client_msg_id": s.idLocked()}
+	parent := ""
 	if in.ThreadTS != "" {
 		ev["thread_ts"] = in.ThreadTS
+		if m := s.findLocked(in.ChatID, in.ThreadTS); m != nil {
+			m.Replies++
+			parent = s.BotUserID
+			ev["parent_user_id"] = parent
+		}
 	}
 	if in.Bot {
 		ev["bot_id"] = "B" + in.SenderID
@@ -220,6 +227,9 @@ func (s *Server) Inject(in Incoming) string {
 		mention := map[string]any{"type": "app_mention", "channel": in.ChatID, "user": in.SenderID, "text": text, "ts": ts, "event_ts": ts}
 		if in.ThreadTS != "" {
 			mention["thread_ts"] = in.ThreadTS
+		}
+		if parent != "" {
+			mention["parent_user_id"] = parent
 		}
 		if files, ok := ev["files"]; ok {
 			mention["files"] = files
@@ -247,8 +257,10 @@ func (s *Server) InjectButton(chatID, msgID, senderID, data string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	actionID, blockID, threadTS := "b0", "r0", ""
+	parentOfThread := false
 	if m := s.findLocked(chatID, msgID); m != nil {
 		threadTS = m.ThreadTS
+		parentOfThread = m.ThreadTS == "" && m.Replies > 0
 		var blocks []struct {
 			BlockID  string `json:"block_id"`
 			Elements []struct {
@@ -269,6 +281,10 @@ func (s *Server) InjectButton(chatID, msgID, senderID, data string) {
 	container := map[string]any{"type": "message", "message_ts": msgID, "channel_id": chatID, "is_ephemeral": false}
 	if threadTS != "" {
 		msg["thread_ts"], container["thread_ts"] = threadTS, threadTS
+	}
+	if parentOfThread {
+		// Slack reports a message with replies as the root of its thread.
+		msg["thread_ts"] = msgID
 	}
 	s.envelopeLocked("interactive", map[string]any{
 		"type": "block_actions", "token": "verification", "api_app_id": DefaultAppID, "trigger_id": s.idLocked(),
