@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/bothyhq/bothy/internal/config"
 	"github.com/bothyhq/bothy/internal/core"
+	"github.com/bothyhq/bothy/internal/events"
 	"github.com/bothyhq/bothy/internal/sandboxd/enginetest"
 	"github.com/bothyhq/bothy/internal/sandboxd/proto"
 	"github.com/bothyhq/bothy/internal/testkit/memstore"
@@ -422,8 +424,120 @@ func TestMemberBanners(t *testing.T) {
 		t.Fatalf("a user created later got %v", got)
 	}
 	e.c.svc.setStatus(core.SandboxStatus{Backend: "sandboxd", Available: true, Runtime: "runc"})
+	e.c.svc.syncMemberBanners(ctx) // Run does this after every probe
 	if got := codes(member); len(got) != 0 {
 		t.Fatalf("member banner not cleared: %v", got)
+	}
+}
+
+// New must not read the store: the skeleton's stub store (a nil embedded
+// core.Store) would panic, and boot should not wait on the DB anyway.
+func TestNewDoesNotReadTheStore(t *testing.T) {
+	cfg := config.Default()
+	cfg.Sandbox.Backend = "none"
+	dir := shortTempDir(t)
+	c, err := New(context.Background(), Deps{Config: config.Static(cfg), Egress: &egress{}, Store: panicStore{},
+		Bus: events.New(events.Options{}), WorkDir: dir, RunDir: dir, Log: slog.New(slog.DiscardHandler)})
+	if err != nil || c.Status(context.Background()).Backend != "none" {
+		t.Fatalf("New = %v", err)
+	}
+}
+
+type panicStore struct{ core.Store }
+
+func TestIdleReapedBoxComesBackOnExec(t *testing.T) {
+	e, eng := newEnv(t, opts{sandboxd: true})
+	ctx := context.Background()
+	if err := e.c.Ensure(ctx, e.spec(key1)); err != nil {
+		t.Fatal(err)
+	}
+	e.clock.Advance(e.cfg.Sandbox.IdleTimeout.D() + time.Second)
+	e.c.svc.reapIdle(ctx)
+	if len(eng.Running()) != 0 || !slices.Contains(e.eg.closedKeys(), key1) {
+		t.Fatalf("idle box not reaped: running %v closed %v", eng.Running(), e.eg.closedKeys())
+	}
+	// The runner may Exec again without a new Ensure: the box, its
+	// directories and its egress socket come back from the last spec.
+	e.eg.mu.Lock()
+	delete(e.eg.opened, key1)
+	e.eg.mu.Unlock()
+	if err := os.RemoveAll(filepath.Join(e.run, proto.EgressSubpath(key1))); err != nil {
+		t.Fatal(err)
+	}
+	res, err := e.c.Exec(ctx, key1, core.ExecRequest{Argv: []string{"echo", "back"}}, nil)
+	if err != nil || string(res.Stdout) != "back\n" {
+		t.Fatalf("exec after idle reap = %+v, %v", res, err)
+	}
+	e.eg.mu.Lock()
+	reopened := e.eg.opened[key1]
+	e.eg.mu.Unlock()
+	if reopened.Session != "ses_x" || len(eng.Running()) != 1 {
+		t.Fatalf("egress not reopened (%+v) or box not recreated (%v)", reopened, eng.Running())
+	}
+	if _, err := os.Stat(filepath.Join(e.run, proto.EgressSubpath(key1))); err != nil {
+		t.Fatalf("egress directory not recreated: %v", err)
+	}
+	// A reaped box's spec is forgotten after a day of disuse.
+	e.clock.Advance(e.cfg.Sandbox.IdleTimeout.D() + time.Second)
+	e.c.svc.reapIdle(ctx)
+	e.clock.Advance(specRetention + time.Second)
+	e.c.svc.reapIdle(ctx)
+	e.c.svc.mu.Lock()
+	_, kept := e.c.svc.boxes[key1]
+	e.c.svc.mu.Unlock()
+	if kept {
+		t.Fatal("spec kept past its retention")
+	}
+}
+
+func TestReaperSparesABoxThatTurnedBusy(t *testing.T) {
+	e, eng := newEnv(t, opts{sandboxd: true})
+	ctx := context.Background()
+	if err := e.c.Ensure(ctx, e.spec(key1)); err != nil {
+		t.Fatal(err)
+	}
+	e.clock.Advance(e.cfg.Sandbox.IdleTimeout.D() + time.Second)
+	// An exec begins after the reaper listed the box as idle.
+	release := e.c.svc.begin(key1)
+	e.c.svc.reapOne(ctx, key1, e.cfg.Sandbox.IdleTimeout.D())
+	release()
+	if len(eng.Running()) != 1 || slices.Contains(e.eg.closedKeys(), key1) {
+		t.Fatalf("busy box reaped: running %v closed %v", eng.Running(), e.eg.closedKeys())
+	}
+}
+
+func TestEnsureFailureLeavesTheSocketToTheReaper(t *testing.T) {
+	e, _ := newEnv(t, opts{sandboxd: true})
+	ctx := context.Background()
+	spec := e.spec(key1)
+	spec.Profile = "gpu" // valid syntax, unknown to sandboxd
+	if err := e.c.Ensure(ctx, spec); !isInvalid(err) {
+		t.Fatalf("Ensure = %v", err)
+	}
+	e.clock.Advance(e.cfg.Sandbox.IdleTimeout.D() + time.Second)
+	e.c.svc.reapIdle(ctx)
+	if !slices.Contains(e.eg.closedKeys(), key1) {
+		t.Fatal("the egress socket of a box that was never created stays open")
+	}
+}
+
+func TestPartialLimitsTakeConfigDefaults(t *testing.T) {
+	e, eng := newEnv(t, opts{sandboxd: true})
+	spec := e.spec(key1)
+	spec.Limits = core.BoxLimits{MemoryMB: 1024}
+	if err := e.c.Ensure(context.Background(), spec); err != nil {
+		t.Fatal(err)
+	}
+	hc := eng.Created()[len(eng.Created())-1].HostConfig
+	if hc.Memory != 1024<<20 || hc.NanoCPUs != 1e9 || *hc.PidsLimit != 256 {
+		t.Fatalf("limits: mem %d cpu %d pids %d", hc.Memory, hc.NanoCPUs, *hc.PidsLimit)
+	}
+}
+
+func TestCanaryKeyIsReserved(t *testing.T) {
+	e, _ := newEnv(t, opts{sandboxd: true})
+	if err := e.c.Ensure(context.Background(), e.spec(canaryKey)); !isInvalid(err) {
+		t.Fatalf("Ensure(canary) = %v", err)
 	}
 }
 
@@ -552,7 +666,8 @@ func TestChecks(t *testing.T) {
 	for _, ch := range e.c.Checks() {
 		ids = append(ids, ch.ID())
 	}
-	if !slices.Equal(ids, []string{"sandbox.unavailable", "sandbox.not_isolated", "sandbox.rootful_runc", "sandbox.runsc_host_uds", "docker.socket_access"}) {
+	if !slices.Equal(ids, []string{"sandbox.unavailable", "sandbox.not_isolated", "sandbox.rootful_runc", "sandbox.runsc_host_uds",
+		"sandbox.bwrap_limits", "docker.socket_access"}) {
 		t.Fatalf("check ids = %v", ids)
 	}
 	set := func(st core.SandboxStatus) { e.c.svc.setStatus(st) }
@@ -568,6 +683,14 @@ func TestChecks(t *testing.T) {
 	set(core.SandboxStatus{Backend: "sandboxd", Available: true, Runtime: "runsc"})
 	if len(findings(t, e.c, "sandbox.rootful_runc")) != 0 || len(findings(t, e.c, "sandbox.unavailable")) != 0 {
 		t.Fatal("findings on a healthy runsc sandbox")
+	}
+
+	if len(findings(t, e.c, "sandbox.bwrap_limits")) != 0 {
+		t.Fatal("bwrap_limits outside bwrap")
+	}
+	set(core.SandboxStatus{Backend: "bwrap", Available: true, Runtime: "bwrap"})
+	if f := findings(t, e.c, "sandbox.bwrap_limits"); len(f) != 1 || f[0].Severity != core.SevLow || !f[0].Security {
+		t.Fatalf("bwrap_limits = %+v", f)
 	}
 
 	set(core.SandboxStatus{Backend: "sandboxd", Available: true, Runtime: "runc", Rootless: true,

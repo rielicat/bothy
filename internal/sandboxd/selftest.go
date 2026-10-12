@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"net"
 	"os"
@@ -26,14 +27,23 @@ const runscFix = `register runsc with --host-uds=open in /etc/docker/daemon.json
 // canaryKey is the box key of the self-test canary (SPEC §2.9).
 var canaryKey = core.DerivedID(core.PrefixBox, "canary")
 
+// selfTestRetry is the self-test interval while the canary could not even run
+// (engine unreachable, images missing): such failures are often transient.
+// Isolation failures keep the normal interval.
+const selfTestRetry = 30 * time.Second
+
 // selfTest runs the engine checks and the canary, chooses the runtime and
 // publishes the result as the current health.
 func (d *daemon) selfTest(ctx context.Context) {
 	d.testMu.Lock()
 	defer d.testMu.Unlock()
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute) // includes image pulls
+	tctx, cancel := context.WithTimeout(ctx, 15*time.Minute) // includes image pulls
 	defer cancel()
-	h, rt, builtin := d.runSelfTest(ctx)
+	h, rt, builtin := d.runSelfTest(tctx)
+	if ctx.Err() != nil {
+		// Shutting down: the aborted run says nothing about the engine.
+		return
+	}
 	d.hmu.Lock()
 	wasOK := d.health.OK
 	d.health, d.runtime, d.seccompBuiltin = h, rt, builtin
@@ -139,6 +149,19 @@ func (d *daemon) runSelfTest(ctx context.Context) (h proto.Health, runtime strin
 	return h, runtime, seccompBuiltin
 }
 
+// nextSelfTest is the delay before the next periodic self-test.
+func (d *daemon) nextSelfTest() time.Duration {
+	d.hmu.RLock()
+	defer d.hmu.RUnlock()
+	canaryRan := slices.ContainsFunc(d.health.SelfTest, func(c proto.Check) bool {
+		return slices.Contains(proto.IsolationChecks, c.Name)
+	})
+	if d.health.OK || canaryRan {
+		return d.cfg.SelfTestEvery
+	}
+	return min(selfTestRetry, d.cfg.SelfTestEvery)
+}
+
 func allOK(cs []proto.Check) bool {
 	return len(cs) > 0 && !slices.ContainsFunc(cs, func(c proto.Check) bool { return !c.OK })
 }
@@ -241,8 +264,11 @@ func (d *daemon) canary(ctx context.Context, engineRuntime, label string, seccom
 // mounts this directory, so it is world-accessible: sandboxd is not in the
 // box's group 10001 and cannot hand it over.
 func (d *daemon) canaryListener(nonce string) (stop func(), err error) {
+	if err := ensureEgressRoot(d.cfg.RunDir); err != nil {
+		return nil, err
+	}
 	dir := filepath.Join(d.cfg.RunDir, proto.EgressSubpath(canaryKey))
-	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // G301: see above
+	if err := os.Mkdir(dir, 0o755); err != nil && !errors.Is(err, fs.ErrExist) { //nolint:gosec // G301: see above
 		return nil, err
 	}
 	if err := os.Chmod(dir, 0o755); err != nil { //nolint:gosec // G302: see above
@@ -278,6 +304,28 @@ func (d *daemon) canaryListener(nonce string) (stop func(), err error) {
 		wg.Wait()
 		_ = os.Remove(sock)
 	}, nil
+}
+
+// ensureEgressRoot creates <run>/egress, where the gateway creates every
+// box's socket directory, 0770 in the run directory's group: sandboxd may run
+// as another uid than the gateway (rootless Docker's SANDBOXD_USER), and a
+// directory only sandboxd could write would refuse every box.
+func ensureEgressRoot(runDir string) error {
+	dir := filepath.Join(runDir, "egress")
+	if err := os.Mkdir(dir, 0o770); err != nil { //nolint:gosec // G301: shared with the gateway through the group
+		if errors.Is(err, fs.ErrExist) {
+			return nil // the gateway's, or ours from an earlier run
+		}
+		return err
+	}
+	if fi, err := os.Stat(runDir); err == nil {
+		if _, gid, ok := fileOwner(fi); ok {
+			if err := os.Lchown(dir, -1, gid); err != nil {
+				return fmt.Errorf("chgrp %s: %w", dir, err)
+			}
+		}
+	}
+	return os.Chmod(dir, 0o770) //nolint:gosec // G302: see above
 }
 
 func randomHex(n int) (string, error) {

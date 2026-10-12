@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/bothyhq/bothy/internal/sandboxd/engine"
@@ -316,7 +315,7 @@ func (d *daemon) kill(ctx context.Context, key string) (proto.KillResp, error) {
 	rctx, rcancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer rcancel()
 	_ = d.eng.ContainerKill(rctx, id, "SIGKILL")
-	if err := d.remove(rctx, key, id); err != nil {
+	if _, err := d.removeIf(rctx, b, nil); err != nil {
 		return proto.KillResp{}, errEngine(err)
 	}
 	d.log.Info("box killed and removed", "key", key)
@@ -324,17 +323,19 @@ func (d *daemon) kill(ctx context.Context, key string) (proto.KillResp, error) {
 }
 
 // stdioPump copies between the gateway connection and the exec stream until
-// either side ends; process stderr goes to the box's ring.
-func stdioPump(gw io.ReadWriteCloser, gwIn io.Reader, s ExecStream, errRing io.Writer) {
-	var wg sync.WaitGroup
-	wg.Add(2)
+// either side ends; process stderr goes to the box's ring. Once the gateway
+// stops sending (it closed the stream), the process gets grace to exit on
+// stdin EOF; then the stream is cut so a server that ignores EOF cannot hold
+// the box's only stdio slot.
+func stdioPump(gw io.ReadWriteCloser, gwIn io.Reader, s ExecStream, errRing io.Writer, grace time.Duration) {
+	inDone, outDone := make(chan struct{}), make(chan struct{})
 	go func() {
-		defer wg.Done()
+		defer close(inDone)
 		_, _ = io.Copy(s, gwIn)
 		_ = s.CloseWrite()
 	}()
 	go func() {
-		defer wg.Done()
+		defer close(outDone)
 		_ = engine.Demux(s, func(st int, p []byte) error {
 			if st == engine.Stderr {
 				_, _ = errRing.Write(p)
@@ -343,8 +344,19 @@ func stdioPump(gw io.ReadWriteCloser, gwIn io.Reader, s ExecStream, errRing io.W
 			_, err := gw.Write(p)
 			return err
 		})
-		gw.Close()
-		s.Close()
 	}()
-	wg.Wait()
+	select {
+	case <-outDone:
+	case <-inDone:
+		t := time.NewTimer(grace)
+		select {
+		case <-outDone:
+		case <-t.C:
+		}
+		t.Stop()
+	}
+	gw.Close()
+	s.Close()
+	<-inDone
+	<-outDone
 }

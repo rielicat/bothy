@@ -36,7 +36,9 @@ type Backend struct {
 
 	mu     sync.Mutex
 	active map[string]map[*jailProc]struct{}
-	gen    map[string]uint64 // bumped by Kill so running execs report killed
+	// gen is bumped by Kill so running execs report killed; only keys with
+	// running jails have an entry.
+	gen map[string]uint64
 }
 
 type jailProc struct {
@@ -114,10 +116,12 @@ func (b *Backend) Version() string { return b.version }
 // Kill SIGKILLs every running jail of key; returns how many.
 func (b *Backend) Kill(key string) int {
 	b.mu.Lock()
-	b.gen[key]++
 	var ps []*jailProc
 	for p := range b.active[key] {
 		ps = append(ps, p)
+	}
+	if len(ps) > 0 {
+		b.gen[key]++
 	}
 	b.mu.Unlock()
 	for _, p := range ps {

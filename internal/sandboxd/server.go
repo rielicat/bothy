@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	maxBody      = 4 << 20 // stdin (2 MiB, base64) plus argv and env
+	maxBody      = 8 << 20 // stdin (2 MiB, base64) plus argv and env, which JSON escaping can inflate 6x
 	stdioUpgrade = "bothy-stdio/1"
 )
 
@@ -89,7 +89,9 @@ func (d *daemon) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (d *daemon) handleSelfTest(w http.ResponseWriter, r *http.Request) {
-	d.selfTest(r.Context())
+	// A caller that hangs up must not leave a "context canceled" failure as
+	// the published health; the test is bounded by its own timeout.
+	d.selfTest(context.WithoutCancel(r.Context()))
 	writeJSON(w, http.StatusOK, d.healthSnapshot())
 }
 
@@ -212,7 +214,7 @@ func (d *daemon) handleStdio(w http.ResponseWriter, r *http.Request) {
 	if _, err := io.WriteString(conn, "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: "+stdioUpgrade+"\r\n\r\n"); err != nil {
 		return
 	}
-	stdioPump(conn, brw.Reader, stream, b.stderr)
+	stdioPump(conn, brw.Reader, stream, b.stderr, d.stdioGrace)
 }
 
 func validateStdio(r *proto.StdioReq) error {

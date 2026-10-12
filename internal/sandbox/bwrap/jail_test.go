@@ -38,7 +38,13 @@ func newJail(t *testing.T) *jailEnv {
 	if err != nil {
 		t.Fatalf("bwrap probe: %v (%+v)", err, checks)
 	}
-	dir := t.TempDir()
+	// t.TempDir embeds the test name: the egress socket path would exceed
+	// the 108-byte sun_path limit.
+	dir, err := os.MkdirTemp("", "bw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
 	o.WorkDir, o.RunDir = filepath.Join(dir, "work"), filepath.Join(dir, "run")
 	b, err := New(o, version)
 	if err != nil {

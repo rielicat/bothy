@@ -70,6 +70,16 @@ func checks(s *service) []core.Check {
 				c.Detail, "set the runsc runtime args in /etc/docker/daemon.json to: "+daemonJSON+" and restart Docker",
 				core.SevLow, false)
 		}},
+		// SPEC §2.12: bwrap gets memory/pids limits only from cgroup v2
+		// delegation, which this backend does not set up, so doctor says so.
+		check{id: "sandbox.bwrap_limits", svc: s, run: func(st core.SandboxStatus) []core.Finding {
+			if st.Backend != "bwrap" || !st.Available {
+				return nil
+			}
+			return finding("sandbox.bwrap_limits", "bwrap jails have no memory or process limits",
+				"Jails get rlimits only; a runaway command can exhaust the memory or the processes of the user the gateway runs as.",
+				"use the compose deployment for per-box memory, CPU and pids limits: "+composeFix, core.SevLow, true)
+		}},
 		check{id: "docker.socket_access", svc: s, run: func(st core.SandboxStatus) []core.Finding {
 			c, ok := selfTestCheck(st, proto.CheckEngine)
 			if !ok || c.OK || !strings.HasPrefix(c.Detail, "cannot access") {

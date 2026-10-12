@@ -3,6 +3,7 @@ package sandbox
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -237,7 +238,11 @@ func pythonArgv(code string) []string {
 }
 
 // writeScript puts the decided code where the decided argv points, inside
-// the workspace through os.Root.
+// the workspace through os.Root. The box can write the workspace and the
+// name is predictable, so the code goes to a fresh file that is renamed into
+// place: whatever the box planted there (a FIFO would block the open, a
+// symlink would redirect it) is replaced, and a concurrent identical call
+// never sees a truncated script.
 func writeScript(env *core.ToolEnv, p execPayload) error {
 	if !slices.Equal(p.Argv, pythonArgv(p.Code)) {
 		return fmt.Errorf("python: %w: argv does not match the code", core.ErrInvalid)
@@ -255,13 +260,21 @@ func writeScript(env *core.ToolEnv, p execPayload) error {
 	if err := root.MkdirAll(scriptDir, 0o770); err != nil {
 		return fmt.Errorf("python: %w", err)
 	}
-	f, err := root.OpenFile(p.Argv[1], os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o660)
+	tmp := scriptDir + "/." + rand.Text() + ".tmp"
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o660)
 	if err != nil {
 		return fmt.Errorf("python: %w", err)
 	}
-	if _, err := io.WriteString(f, p.Code); err != nil {
-		f.Close()
-		return fmt.Errorf("python: %w", err)
+	_, werr := io.WriteString(f, p.Code)
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
 	}
-	return f.Close()
+	if werr == nil {
+		werr = root.Rename(tmp, p.Argv[1])
+	}
+	if werr != nil {
+		_ = root.Remove(tmp)
+		return fmt.Errorf("python: %w", werr)
+	}
+	return nil
 }

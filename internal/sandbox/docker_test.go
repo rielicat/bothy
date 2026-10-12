@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -367,6 +368,29 @@ func TestDockerAcceptance(t *testing.T) {
 		res, err := python.Exec(ctx, env, a)
 		if err != nil || res.IsError || !strings.Contains(res.Content, "10001 45") {
 			t.Fatalf("python: %+v, %v", res, err)
+		}
+	})
+
+	t.Run("a stdio server that ignores EOF does not hold the box", func(t *testing.T) {
+		rwc, err := c.Stdio(ctx, key, []string{"sleep", "600"}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rwc.Close()
+		deadline := time.Now().Add(20 * time.Second)
+		for {
+			again, err := c.Stdio(ctx, key, []string{"cat"}, nil)
+			if err == nil {
+				again.Close()
+				break
+			}
+			if !errors.Is(err, core.ErrBusy) || time.Now().After(deadline) {
+				t.Fatalf("second stdio stream: %v", err)
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		if err := c.Kill(ctx, key); err != nil {
+			t.Fatal(err)
 		}
 	})
 }

@@ -86,7 +86,7 @@ func (d *daemon) background(ctx context.Context) {
 	d.selfTest(ctx)
 	reap := time.NewTicker(30 * time.Second)
 	defer reap.Stop()
-	test := time.NewTicker(d.cfg.SelfTestEvery)
+	test := time.NewTimer(d.nextSelfTest())
 	defer test.Stop()
 	for {
 		select {
@@ -96,6 +96,7 @@ func (d *daemon) background(ctx context.Context) {
 			d.reap(ctx)
 		case <-test.C:
 			d.selfTest(ctx)
+			test.Reset(d.nextSelfTest())
 		}
 	}
 }

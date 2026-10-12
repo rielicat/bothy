@@ -77,6 +77,7 @@ func (c *Client) Checks() []core.Check { return checks(c.svc) }
 
 func (s *service) loop(ctx context.Context) error {
 	s.reconcile(ctx)
+	s.syncMemberBanners(ctx)
 	s.scanQuota()
 	health := time.NewTimer(s.nextHealth())
 	defer health.Stop()

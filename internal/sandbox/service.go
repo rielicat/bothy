@@ -23,7 +23,14 @@ const (
 	// execGrace is kept free before the caller's deadline so sbx-init's own
 	// timeout, its kill-after and the final frame all land first.
 	execGrace = 6 * time.Second
+	// specRetention is how long the spec of an idle-reaped box is kept so a
+	// later Exec can bring the box back without a new Ensure.
+	specRetention = 24 * time.Hour
 )
+
+// canaryKey is sandboxd's self-test box (SPEC §2.9); its egress directory is
+// sandboxd's, so no gateway box may use the key.
+var canaryKey = core.DerivedID(core.PrefixBox, "canary")
 
 // service implements core.Sandbox in front of one backend.
 type service struct {
@@ -58,9 +65,12 @@ type service struct {
 }
 
 type boxState struct {
-	spec     *core.BoxSpec // nil for boxes adopted from an earlier gateway process
+	spec     *core.BoxSpec // last Ensure; nil for boxes adopted from an earlier gateway process
 	lastUsed time.Time
 	active   int
+	// live means the backend may hold the box. An idle reap clears it and
+	// keeps the spec, so the next Exec re-ensures the box.
+	live bool
 }
 
 func newService(d Deps) *service {
@@ -183,12 +193,12 @@ func (s *service) publish(prev, st core.SandboxStatus) {
 			s.log.Warn("audit sandbox.selftest_failed", "err", err)
 		}
 	}
-	s.syncMemberBanners(context.Background())
 }
 
 // syncMemberBanners gives every member (non-admin) user principal the
-// current banner: sandbox.status reaches admins only (SPEC §8.2). It runs on
-// every status change and health tick, so users created later catch up.
+// current banner: sandbox.status reaches admins only (SPEC §8.2). Run calls
+// it at start and after every health probe, so status changes and users
+// created later catch up; New stays free of store reads.
 func (s *service) syncMemberBanners(ctx context.Context) {
 	if s.store == nil || s.bus == nil {
 		return
@@ -227,9 +237,25 @@ func (s *service) Ensure(ctx context.Context, spec core.BoxSpec) error {
 	}
 	unlock := s.locks.lock(spec.Key)
 	defer unlock()
+	return s.ensureLocked(ctx, be, spec)
+}
+
+// ensureLocked prepares the directories and egress socket and creates the
+// box. The caller holds the key lock. The box is registered before its
+// socket opens so the idle reaper closes the socket even when creation fails.
+func (s *service) ensureLocked(ctx context.Context, be backend, spec core.BoxSpec) error {
 	if err := boxDirs(s.work, s.run, spec, be.gid()); err != nil {
 		return fmt.Errorf("sandbox: preparing box directories: %w", err)
 	}
+	s.mu.Lock()
+	b := s.boxes[spec.Key]
+	if b == nil {
+		b = &boxState{}
+		s.boxes[spec.Key] = b
+	}
+	sp := spec
+	b.spec, b.lastUsed, b.live = &sp, s.clock.Now(), true
+	s.mu.Unlock()
 	sub, err := s.egress.OpenBox(ctx, spec.Key, spec.Egress)
 	if err != nil {
 		return fmt.Errorf("sandbox: opening the egress socket: %w", err)
@@ -240,19 +266,7 @@ func (s *service) Ensure(ctx context.Context, spec core.BoxSpec) error {
 		s.egress.CloseBox(spec.Key)
 		return fmt.Errorf("sandbox: egress socket at %q, boxes mount %q", sub, want)
 	}
-	if err := be.create(ctx, spec); err != nil {
-		return err
-	}
-	s.mu.Lock()
-	b := s.boxes[spec.Key]
-	if b == nil {
-		b = &boxState{}
-		s.boxes[spec.Key] = b
-	}
-	sp := spec
-	b.spec, b.lastUsed = &sp, s.clock.Now()
-	s.mu.Unlock()
-	return nil
+	return be.create(ctx, spec)
 }
 
 func (s *service) validateSpec(spec *core.BoxSpec) error {
@@ -260,11 +274,19 @@ func (s *service) validateSpec(spec *core.BoxSpec) error {
 	if spec.Profile == "" {
 		spec.Profile = core.BoxProfile(c.Profile)
 	}
-	if spec.Limits == (core.BoxLimits{}) {
-		spec.Limits = core.BoxLimits{MemoryMB: c.Limits.MemoryMB, CPUs: c.Limits.CPUs, Pids: c.Limits.Pids}
+	// Unset limits take the configured ones; sandboxd would clamp a zero to
+	// the minimum (0.1 CPU, 16 pids).
+	if spec.Limits.MemoryMB == 0 {
+		spec.Limits.MemoryMB = c.Limits.MemoryMB
+	}
+	if spec.Limits.CPUs == 0 {
+		spec.Limits.CPUs = c.Limits.CPUs
+	}
+	if spec.Limits.Pids == 0 {
+		spec.Limits.Pids = c.Limits.Pids
 	}
 	switch {
-	case !proto.ValidKey(spec.Key):
+	case !proto.ValidKey(spec.Key) || spec.Key == canaryKey:
 		return fmt.Errorf("sandbox: %w: box key %q", core.ErrInvalid, spec.Key)
 	case !proto.ValidWorkspace(string(spec.Workspace)):
 		return fmt.Errorf("sandbox: %w: workspace %q", core.ErrInvalid, spec.Workspace)
@@ -278,17 +300,22 @@ func (s *service) validateSpec(spec *core.BoxSpec) error {
 	return nil
 }
 
-// begin marks key busy (not idle-reaped) and returns the release func.
+// begin marks key busy (not idle-reaped) and returns the release func. It
+// takes the key lock so it cannot slip between the reaper's idle check and
+// its destroy.
 func (s *service) begin(key string) func() {
+	unlock := s.locks.lock(key)
 	s.mu.Lock()
 	b := s.boxes[key]
 	if b == nil {
-		b = &boxState{}
+		// Not ensured by this process; the backend may still hold it.
+		b = &boxState{live: true}
 		s.boxes[key] = b
 	}
 	b.active++
 	b.lastUsed = s.clock.Now()
 	s.mu.Unlock()
+	unlock()
 	return func() {
 		s.mu.Lock()
 		b.active--
@@ -297,21 +324,26 @@ func (s *service) begin(key string) func() {
 	}
 }
 
-// recreate brings back a box the backend lost, from the spec of its last
-// Ensure.
+// recreate brings back a box the backend lost or the idle reaper removed:
+// directories, egress socket and box, from the spec of its last Ensure.
 func (s *service) recreate(ctx context.Context, be backend, key string) error {
-	s.mu.Lock()
-	var spec *core.BoxSpec
-	if b := s.boxes[key]; b != nil {
-		spec = b.spec
-	}
-	s.mu.Unlock()
-	if spec == nil {
-		return fmt.Errorf("sandbox: box %s was never ensured: %w", key, core.ErrNotFound)
+	if s.egress == nil {
+		return fmt.Errorf("sandbox: no egress service: %w", core.ErrNoSandbox)
 	}
 	unlock := s.locks.lock(key)
 	defer unlock()
-	return be.create(ctx, *spec)
+	s.mu.Lock()
+	var spec core.BoxSpec
+	b := s.boxes[key]
+	ok := b != nil && b.spec != nil
+	if ok {
+		spec = *b.spec
+	}
+	s.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("sandbox: box %s was never ensured: %w", key, core.ErrNotFound)
+	}
+	return s.ensureLocked(ctx, be, spec)
 }
 
 func (s *service) Exec(ctx context.Context, key string, req core.ExecRequest, onOut func(stream int, b []byte)) (*core.ExecResult, error) {
@@ -453,30 +485,55 @@ func (s *service) Destroy(ctx context.Context, key string) error {
 }
 
 // reapIdle destroys boxes unused for longer than sandbox.idle_timeout, which
-// also closes their egress sockets.
+// also closes their egress sockets, and forgets old specs.
 func (s *service) reapIdle(ctx context.Context) {
 	idle := s.cfg.Current().Sandbox.IdleTimeout.D()
 	now := s.clock.Now()
 	var keys []string
 	s.mu.Lock()
 	for k, b := range s.boxes {
-		if b.active == 0 && now.Sub(b.lastUsed) > idle {
+		switch {
+		case b.active > 0:
+		case b.live && now.Sub(b.lastUsed) > idle:
 			keys = append(keys, k)
+		case !b.live && now.Sub(b.lastUsed) > specRetention:
+			delete(s.boxes, k)
 		}
 	}
 	s.mu.Unlock()
 	for _, k := range keys {
-		s.mu.Lock()
-		b := s.boxes[k]
-		still := b != nil && b.active == 0 && now.Sub(b.lastUsed) > idle // an exec may have started meanwhile
-		s.mu.Unlock()
-		if !still {
-			continue
-		}
-		if err := s.Destroy(ctx, k); err != nil && !errors.Is(err, core.ErrNoSandbox) {
-			s.log.Warn("reaping idle box failed", "key", k, "err", err)
-		}
+		s.reapOne(ctx, k, idle)
 	}
+}
+
+// reapOne re-checks under the key lock that key is still idle, then removes
+// the box and closes its socket, keeping the spec for a later recreate.
+func (s *service) reapOne(ctx context.Context, key string, idle time.Duration) {
+	unlock := s.locks.lock(key)
+	defer unlock()
+	s.mu.Lock()
+	b, be := s.boxes[key], s.be
+	if b == nil || !b.live || b.active > 0 || s.clock.Now().Sub(b.lastUsed) <= idle {
+		s.mu.Unlock()
+		return
+	}
+	s.mu.Unlock()
+	err := be.destroy(ctx, key)
+	if s.egress != nil {
+		s.egress.CloseBox(key)
+	}
+	if err != nil && !errors.Is(err, core.ErrNoSandbox) {
+		// The box stays live so the next pass retries.
+		s.log.Warn("reaping idle box failed", "key", key, "err", err)
+		return
+	}
+	s.mu.Lock()
+	if b.spec == nil {
+		delete(s.boxes, key)
+	} else {
+		b.live = false
+	}
+	s.mu.Unlock()
 }
 
 // reconcile adopts boxes that an earlier gateway process left running, so
@@ -492,7 +549,7 @@ func (s *service) reconcile(ctx context.Context) {
 	defer s.mu.Unlock()
 	for _, bi := range infos {
 		if _, ok := s.boxes[bi.Key]; !ok && proto.ValidKey(bi.Key) {
-			s.boxes[bi.Key] = &boxState{lastUsed: time.UnixMilli(bi.LastUsed)}
+			s.boxes[bi.Key] = &boxState{lastUsed: time.UnixMilli(bi.LastUsed), live: true}
 		}
 	}
 }

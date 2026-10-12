@@ -13,7 +13,9 @@
 # EXPECT=runsc, without it for fallback (BOTHY_SBX_RUNTIME=auto) and refused
 # (BOTHY_SBX_RUNTIME=runsc). Everything it creates is labelled bothy.test=1 and
 # removed on exit (KEEP_IMAGES=1 keeps the images). Env: RUNTIME overrides
-# BOTHY_SBX_RUNTIME; NET=1 (default) lets the test container reach example.com.
+# BOTHY_SBX_RUNTIME; NET=1 (default) lets the test container reach example.com;
+# SANDBOXD_USER runs sandboxd as another uid than the gateway, as rootless
+# Docker setups do (default 65532:65532, as in compose).
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 
@@ -32,6 +34,7 @@ if [ "$MODE" = runsc ]; then
 	esac
 fi
 RUNTIME=${RUNTIME:-$DEFAULT_RUNTIME}
+SANDBOXD_USER=${SANDBOXD_USER:-65532:65532}
 TAG=bothy-m5-acceptance
 LABEL=bothy.test=1
 BASE=docker.io/library/debian:trixie-20260918-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
@@ -108,7 +111,7 @@ SOCK_GID=$(docker run --rm --label "$LABEL" -v /var/run/docker.sock:/var/run/doc
 
 docker run -d --name "$SANDBOXD" --label "$LABEL" \
 	--network none --read-only --cap-drop ALL --security-opt no-new-privileges:true \
-	--user 65532:65532 --group-add "$SOCK_GID" --group-add 65532 \
+	--user "$SANDBOXD_USER" --group-add "$SOCK_GID" --group-add 65532 \
 	-v /var/run/docker.sock:/var/run/docker.sock -v "$RUN_VOL:/run/bothy" \
 	-e BOTHY_SBX_WORK_VOLUME="$WORK_VOL" -e BOTHY_SBX_RUN_VOLUME="$RUN_VOL" \
 	-e BOTHY_SBX_IMAGES="base=$BOX_IMAGE" -e BOTHY_SBX_RUNTIME="$RUNTIME" -e BOTHY_SBX_GATEWAY_UID=65532 \

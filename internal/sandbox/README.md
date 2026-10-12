@@ -9,14 +9,17 @@ Linux, see `bwrap/`) or **none** (every exec method returns
 socket, then bwrap, then none, and keeps watching for the socket. `Ensure`
 creates the directories a box mounts (`ws/<id>` and MCP trees 2770 group
 10001, `skills/`, `egress/<h>` 0750) and opens the box's egress socket before
-creating the box; `Exec` and `Stdio` recreate a box sandboxd lost (reaped,
-evicted, killed and removed) from the last `Ensure`. `Run` polls health and
-publishes `sandbox.status` events, `no_sandbox` / `sandbox_not_isolated`
-banners (an admin broadcast plus one per member user principal, since members
-do not receive `sandbox.status`) and the `sandbox.selftest_failed` audit entry,
-destroys boxes idle past `sandbox.idle_timeout` (closing their egress sockets)
-and scans workspace sizes for `Usage`. The package also provides the `shell`
-and `python` tools and the `sandbox.*` / `docker.socket_access` doctor checks.
+creating the box; `Exec` and `Stdio` bring back a box that is gone (reaped or
+evicted by sandboxd, killed and removed, or idle-reaped here) by repeating the
+last `Ensure` for its key, whose spec is kept for a day after an idle reap.
+`Run` polls health and publishes `sandbox.status` events, `no_sandbox` /
+`sandbox_not_isolated` banners (an admin broadcast plus one per member user
+principal, since members do not receive `sandbox.status`) and the
+`sandbox.selftest_failed` audit entry, destroys boxes idle past
+`sandbox.idle_timeout` (closing their egress sockets) and scans workspace sizes
+for `Usage`. The package also provides the `shell` and `python` tools and the
+`sandbox.*` / `docker.socket_access` doctor checks (`sandbox.bwrap_limits`
+notes that bwrap jails have rlimits but no memory or pids limits).
 `docker_test.go` (`-tags docker`) and `runsc_test.go` (`-tags runsc`) are the
 acceptance suites against a real engine; run them with
 `deploy/sandbox/test/acceptance.sh`.

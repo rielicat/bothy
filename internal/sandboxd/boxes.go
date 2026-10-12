@@ -20,6 +20,8 @@ type daemon struct {
 	log *slog.Logger
 	now func() time.Time
 
+	stdioGrace time.Duration // how long a stdio process may outlive its closed stream
+
 	testMu sync.Mutex // serializes self-tests
 
 	hmu            sync.RWMutex
@@ -39,11 +41,14 @@ type box struct {
 	stdio                     bool   // one stdio stream per box
 	killGen                   uint64 // bumped by Kill so running execs report killed
 	stderr                    *ring
+	// removing is non-nil while the container is being removed and closed
+	// when that ends; no exec or stdio starts on the box meanwhile.
+	removing chan struct{}
 }
 
 func newDaemon(cfg Config, eng Engine, log *slog.Logger, now func() time.Time) *daemon {
 	return &daemon{
-		cfg: cfg, eng: eng, log: log, now: now,
+		cfg: cfg, eng: eng, log: log, now: now, stdioGrace: 5 * time.Second,
 		health: proto.Health{Version: proto.Version, MaxBoxes: cfg.MaxBoxes, SelfTest: []proto.Check{},
 			Reason: "the sandbox self-test has not finished yet"},
 		boxes:   map[string]*box{},
@@ -101,12 +106,25 @@ func (d *daemon) create(ctx context.Context, req proto.CreateReq) (proto.CreateR
 	if err := proto.ValidateCreate(&req, d.cfg.Images); err != nil {
 		return proto.CreateResp{}, err
 	}
+	if req.Key == canaryKey {
+		// Its egress directory is sandboxd's own world-accessible canary socket.
+		return proto.CreateResp{}, fmt.Errorf("%w: the canary key is reserved", proto.ErrInvalid)
+	}
 	if ok, reason := d.healthy(); !ok {
 		return proto.CreateResp{}, errUnavailable(reason)
 	}
 	for {
 		d.mu.Lock()
 		if b := d.boxes[req.Key]; b != nil {
+			if ch := b.removing; ch != nil {
+				d.mu.Unlock()
+				select {
+				case <-ch:
+					continue
+				case <-ctx.Done():
+					return proto.CreateResp{}, ctx.Err()
+				}
+			}
 			id, rt := b.id, b.runtime
 			b.lastUsed = d.now()
 			d.mu.Unlock()
@@ -132,11 +150,14 @@ func (d *daemon) create(ctx context.Context, req proto.CreateReq) (proto.CreateR
 				return proto.CreateResp{}, &apiError{http.StatusServiceUnavailable, "busy",
 					fmt.Sprintf("all %d boxes are busy", d.cfg.MaxBoxes)}
 			}
-			if err := d.remove(ctx, victim.key, victim.id); err != nil {
+			removed, err := d.removeIf(ctx, victim, func(b *box) bool { return b.active == 0 })
+			if err != nil {
 				return proto.CreateResp{}, &apiError{http.StatusServiceUnavailable, "busy",
 					"evicting the least recently used box failed: " + err.Error()}
 			}
-			d.log.Info("evicted idle box", "key", victim.key)
+			if removed {
+				d.log.Info("evicted idle box", "key", victim.key)
+			}
 			continue
 		}
 		ch := make(chan struct{})
@@ -154,7 +175,7 @@ func (d *daemon) create(ctx context.Context, req proto.CreateReq) (proto.CreateR
 func (d *daemon) lruIdleLocked() *box {
 	var victim *box
 	for _, b := range d.boxes {
-		if b.active == 0 && (victim == nil || b.lastUsed.Before(victim.lastUsed)) {
+		if b.active == 0 && b.removing == nil && (victim == nil || b.lastUsed.Before(victim.lastUsed)) {
 			victim = b
 		}
 	}
@@ -221,13 +242,43 @@ func (d *daemon) forget(key, id string) {
 	d.mu.Unlock()
 }
 
-// remove force-removes the container and forgets the box.
-func (d *daemon) remove(ctx context.Context, key, id string) error {
-	if err := d.eng.ContainerRemove(ctx, id); err != nil {
-		return err
+// removeIf force-removes b's container and forgets it, provided b is still
+// registered and cond (nil = always) holds at that moment. The check and the
+// removing mark are atomic, so a box that became busy after it was picked
+// (eviction, idle reaping) survives. It waits for a removal already under way.
+func (d *daemon) removeIf(ctx context.Context, b *box, cond func(*box) bool) (bool, error) {
+	for {
+		d.mu.Lock()
+		if d.boxes[b.key] != b {
+			d.mu.Unlock()
+			return false, nil
+		}
+		if ch := b.removing; ch != nil {
+			d.mu.Unlock()
+			select {
+			case <-ch:
+				continue
+			case <-ctx.Done():
+				return false, ctx.Err()
+			}
+		}
+		if cond != nil && !cond(b) {
+			d.mu.Unlock()
+			return false, nil
+		}
+		ch := make(chan struct{})
+		b.removing = ch
+		d.mu.Unlock()
+		err := d.eng.ContainerRemove(ctx, b.id)
+		d.mu.Lock()
+		b.removing = nil
+		if err == nil && d.boxes[b.key] == b {
+			delete(d.boxes, b.key)
+		}
+		d.mu.Unlock()
+		close(ch)
+		return err == nil, err
 	}
-	d.forget(key, id)
-	return nil
 }
 
 // acquire marks a box busy for an exec or stdio stream.
@@ -235,7 +286,8 @@ func (d *daemon) acquire(key string, stdio bool) (*box, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	b := d.boxes[key]
-	if b == nil {
+	if b == nil || b.removing != nil {
+		// The gateway recreates the box; its create waits for the removal.
 		return nil, errNotFound(key)
 	}
 	if stdio {
@@ -274,7 +326,8 @@ func (d *daemon) destroy(ctx context.Context, key string) error {
 		// Also remove an unregistered container of that name.
 		return d.eng.ContainerRemove(ctx, containerName(key))
 	}
-	return d.remove(ctx, key, b.id)
+	_, err = d.removeIf(ctx, b, nil)
+	return err
 }
 
 func (d *daemon) list() []proto.BoxInfo {
@@ -302,29 +355,39 @@ func (d *daemon) list() []proto.BoxInfo {
 func (d *daemon) reap(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	// A box registered after the listing began is missing from it without
+	// being gone.
+	listedAt := d.now()
 	alive := map[string]bool{}
 	cs, listErr := d.eng.ContainerList(ctx, d.labels())
 	for _, c := range cs {
 		alive[c.ID] = c.State == "running"
 	}
 	now := d.now()
-	var victims []*box
+	idle := func(b *box) bool { return b.active == 0 && d.now().Sub(b.lastUsed) > d.cfg.Idle }
+	type victim struct {
+		b    *box
+		cond func(*box) bool
+	}
+	var victims []victim
 	d.mu.Lock()
 	for _, b := range d.boxes {
 		switch {
-		case listErr == nil && !alive[b.id]:
+		case b.removing != nil:
+		case listErr == nil && !alive[b.id] && b.created.Before(listedAt):
 			delete(d.boxes, b.key)
-		case now.Sub(b.created) > d.cfg.MaxLifetime,
-			b.active == 0 && now.Sub(b.lastUsed) > d.cfg.Idle:
-			victims = append(victims, &box{key: b.key, id: b.id})
+		case now.Sub(b.created) > d.cfg.MaxLifetime:
+			victims = append(victims, victim{b, nil})
+		case idle(b):
+			victims = append(victims, victim{b, idle})
 		}
 	}
 	d.mu.Unlock()
 	for _, v := range victims {
-		if err := d.remove(ctx, v.key, v.id); err != nil {
-			d.log.Warn("reaping box failed", "key", v.key, "err", err)
-		} else {
-			d.log.Info("reaped box", "key", v.key)
+		if removed, err := d.removeIf(ctx, v.b, v.cond); err != nil {
+			d.log.Warn("reaping box failed", "key", v.b.key, "err", err)
+		} else if removed {
+			d.log.Info("reaped box", "key", v.b.key)
 		}
 	}
 }
@@ -350,13 +413,13 @@ func (d *daemon) removeOrphans(ctx context.Context) {
 
 func (d *daemon) removeAll(ctx context.Context) {
 	d.mu.Lock()
-	var all []*box
+	all := make([]*box, 0, len(d.boxes))
 	for _, b := range d.boxes {
-		all = append(all, &box{key: b.key, id: b.id})
+		all = append(all, b)
 	}
 	d.mu.Unlock()
 	for _, b := range all {
-		if err := d.remove(ctx, b.key, b.id); err != nil {
+		if _, err := d.removeIf(ctx, b, nil); err != nil {
 			d.log.Warn("removing box at shutdown failed", "key", b.key, "err", err)
 		}
 	}

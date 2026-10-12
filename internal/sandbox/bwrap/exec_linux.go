@@ -76,12 +76,11 @@ func (b *Backend) Exec(ctx context.Context, j Jail, req core.ExecRequest, onOut 
 	if err := startCmd(); err != nil {
 		return nil, err
 	}
-	gen, untrack := b.track(j.Key, p)
+	untrack := b.track(j.Key, p)
 	err = cmd.Wait()
-	untrack()
+	res.Killed = untrack()
 	res.Duration = time.Since(start)
 	res.Stdout, res.Stderr = out.buf, errw.buf
-	res.Killed = b.killedSince(j.Key, gen)
 	var ee *exec.ExitError
 	switch {
 	case err == nil:
@@ -127,7 +126,7 @@ func (b *Backend) Stdio(ctx context.Context, j Jail, argv []string, env map[stri
 		return nil, err
 	}
 	p := &jailProc{kill: func() { _ = killGroup(cmd) }}
-	_, untrack := b.track(j.Key, p)
+	untrack := b.track(j.Key, p)
 	done := make(chan struct{})
 	go func() {
 		_ = cmd.Wait()
@@ -158,25 +157,25 @@ func (s *stdioJail) Close() error {
 	return nil
 }
 
-func (b *Backend) track(key string, p *jailProc) (gen uint64, untrack func()) {
+// track registers a running jail of key; untrack removes it and reports
+// whether Kill ran meanwhile.
+func (b *Backend) track(key string, p *jailProc) (untrack func() (killed bool)) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.active[key] == nil {
 		b.active[key] = map[*jailProc]struct{}{}
 	}
 	b.active[key][p] = struct{}{}
-	return b.gen[key], func() {
+	gen := b.gen[key]
+	return func() bool {
 		b.mu.Lock()
+		defer b.mu.Unlock()
+		killed := b.gen[key] != gen
 		delete(b.active[key], p)
 		if len(b.active[key]) == 0 {
 			delete(b.active, key)
+			delete(b.gen, key)
 		}
-		b.mu.Unlock()
+		return killed
 	}
-}
-
-func (b *Backend) killedSince(key string, gen uint64) bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.gen[key] != gen
 }

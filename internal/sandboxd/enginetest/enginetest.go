@@ -104,7 +104,10 @@ func (f *Fake) AddImage(ref string) {
 
 func (f *Fake) Socket() string { return f.SocketPath }
 
-func (f *Fake) Negotiate(context.Context) (string, error) {
+func (f *Fake) Negotiate(ctx context.Context) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if f.NegotiateErr != nil {
 		return "", f.NegotiateErr
 	}
