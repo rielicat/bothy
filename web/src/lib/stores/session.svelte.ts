@@ -16,6 +16,16 @@ import type {
 import { router } from '../router.svelte';
 import { events } from '../sse.svelte';
 
+// The banner list is keyed by code in the shell.
+function uniqueBanners(list: BannerData[] | null | undefined): BannerData[] {
+  return [...new Map((list ?? []).filter(Boolean).map((b) => [b.code, b])).values()];
+}
+
+// Approvals by id; the pending and parked lists may overlap.
+function uniqueById(list: Approval[]): Approval[] {
+  return [...new Map(list.filter(Boolean).map((a) => [a.id, a])).values()];
+}
+
 class Session {
   me: Me | null = $state(null);
   setup: SetupState | null = $state(null);
@@ -51,8 +61,16 @@ class Session {
     setCsrf(me.csrf);
     this.paused = me.paused;
     this.sandbox = me.sandbox_available;
-    this.banners = me.banners ?? [];
+    this.banners = uniqueBanners(me.banners);
     this.#live();
+  }
+
+  // Re-reads the session after the server rotated it (password change), which
+  // also rotates the CSRF token that every later write must carry.
+  async refresh() {
+    const me = await api.get<Me>('/api/auth/me');
+    this.me = me;
+    setCsrf(me.csrf);
   }
 
   async logout() {
@@ -97,7 +115,7 @@ class Session {
       events.onHello((h) => {
         this.paused = h.paused;
         this.sandbox = h.sandbox;
-        this.banners = h.banners ?? [];
+        this.banners = uniqueBanners(h.banners);
       }),
       events.on('banner', (e) => this.setBanner(e.data as BannerData)),
       events.on('sandbox.status', (e) => (this.sandbox = (e.data as SandboxStatusData).status.available)),
@@ -113,6 +131,9 @@ class Session {
         void this.refreshToday();
         void approvals.load();
       }),
+      // A stream the server refused (expired session) never says why; asking
+      // /api/auth/me turns a 401 into a clean logout instead of endless retries.
+      events.onClosed(() => void api.get<Me>('/api/auth/me').catch(() => {})),
       approvals.listen(),
     ];
     events.connect();
@@ -131,7 +152,7 @@ class Approvals {
         api.get<List<Approval>>('/api/approvals?status=pending&limit=200'),
         api.get<List<Approval>>('/api/approvals?status=parked&limit=200'),
       ]);
-      this.pending = [...(p.items ?? []), ...(k.items ?? [])];
+      this.pending = uniqueById([...(p.items ?? []), ...(k.items ?? [])]);
     } catch {
       // the badge keeps its last value; the inbox shows the error
     }

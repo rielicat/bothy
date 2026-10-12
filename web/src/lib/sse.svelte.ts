@@ -50,6 +50,7 @@ export class EventStream {
   #handlers = new Map<string, Set<Handler>>();
   #resync = new Set<() => void>();
   #hello = new Set<(h: Hello) => void>();
+  #closed = new Set<() => void>();
   #boot = '';
   #missed = false;
   #retry = 0;
@@ -87,9 +88,15 @@ export class EventStream {
       this.#missed = true;
       const delay = Math.min(maxBackoff, 1000 * 2 ** this.#retry++);
       this.#timer = setTimeout(() => this.#open(), delay);
+      this.#closed.forEach((fn) => fn());
     };
     es.addEventListener('hello', (m) => {
-      const h = JSON.parse((m as MessageEvent).data) as Hello;
+      let h: Hello;
+      try {
+        h = JSON.parse((m as MessageEvent).data) as Hello;
+      } catch {
+        return;
+      }
       const rebooted = this.#boot !== '' && this.#boot !== h.boot;
       this.#boot = h.boot;
       this.hello = h;
@@ -153,6 +160,13 @@ export class EventStream {
   onHello(fn: (h: Hello) => void): () => void {
     this.#hello.add(fn);
     return () => this.#hello.delete(fn);
+  }
+
+  // fn runs when the server ends the stream for good (an HTTP error); the
+  // stream itself keeps retrying with backoff until close().
+  onClosed(fn: () => void): () => void {
+    this.#closed.add(fn);
+    return () => this.#closed.delete(fn);
   }
 }
 

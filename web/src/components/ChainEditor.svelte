@@ -10,7 +10,7 @@
 
   const chain = $derived(config.value<string[]>(path, []) ?? []);
   const info = (ref: string) => models.find((m) => `${m.ref.provider}/${m.ref.model}` === ref);
-  const spare = $derived(models.map((m) => `${m.ref.provider}/${m.ref.model}`).filter((r) => !chain.includes(r)));
+  const spare = $derived([...new Set(models.map((m) => `${m.ref.provider}/${m.ref.model}`))].filter((r) => !chain.includes(r)));
   const locked = $derived(!!config.entry(path)?.locked);
   let drag = -1;
 
@@ -33,7 +33,7 @@
   </div>
   {#if help}<p class="help -mt-1 mb-2">{help}</p>{/if}
   <ol class="space-y-1.5">
-    {#each chain as ref, i (ref)}
+    {#each chain as ref, i (i)}
       {@const m = info(ref)}
       <li
         class="flex items-center gap-2 rounded-lg border border-line bg-surface px-2 py-1.5 text-sm"

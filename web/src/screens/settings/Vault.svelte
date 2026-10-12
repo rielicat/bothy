@@ -94,7 +94,7 @@
       </select>
     {/if}
   {/snippet}
-  {#each secrets as s (s.scope + s.name)}
+  {#each secrets as s (s.source + ':' + s.scope + ':' + s.name)}
     <div class="py-3">
       <div class="flex flex-wrap items-center gap-3 text-sm">
         <Icon name="key" size={16} class="text-muted" />

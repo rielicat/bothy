@@ -44,6 +44,9 @@
       .find((m) => m.role === 'user' && m.kind !== 'notice')
       ?.parts.find((p) => p.t === 'text')?.text ?? '',
   );
+  // Continue adds steps (core.Runner.Continue), so it is offered only when
+  // the steps budget stopped the run; the error is core.BudgetError's text.
+  const stepsStop = $derived(conv.finished?.status === 'budget_exceeded' && (!conv.finished.error || /\bsteps\b/.test(conv.finished.error)));
   const statusLine = $derived.by(() => {
     const l = conv.live;
     if (!l) return '';
@@ -245,7 +248,7 @@
       onchange={(e) => patch({ model_override: e.currentTarget.value })}
     >
       <option value="">Default model</option>
-      {#each models as m (m.ref.provider + '/' + m.ref.model)}
+      {#each models as m, i (i)}
         <option value="{m.ref.provider}/{m.ref.model}">{m.display || m.ref.model}</option>
       {/each}
     </select>
@@ -367,7 +370,11 @@
         {#if !running && conv.finished}
           {#if conv.finished.status === 'budget_exceeded'}
             <div class="flex flex-wrap items-center gap-2">
-              <button type="button" class="btn btn-sm" onclick={() => cont(conv.finished!.run_id)}><Icon name="play" size={14} />Continue (+10 steps)</button>
+              {#if stepsStop}
+                <button type="button" class="btn btn-sm" onclick={() => cont(conv.finished!.run_id)}><Icon name="play" size={14} />Continue (+10 steps)</button>
+              {:else if conv.finished.error}
+                <span class="text-xs text-bad">{conv.finished.error}</span>
+              {/if}
               <a href="/settings/budgets" onclick={router.link} class="text-xs text-muted underline">Budget settings</a>
             </div>
           {:else if conv.finished.status === 'failed' || conv.finished.status === 'loop_detected' || conv.finished.status === 'interrupted'}

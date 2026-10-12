@@ -4,7 +4,7 @@
   import type { SandboxInfo } from '../lib/api/types.gen';
   import { usd } from '../lib/format';
   import type { IconName } from '../lib/icons';
-  import { router } from '../lib/router.svelte';
+  import { router, safeNext } from '../lib/router.svelte';
   import { events } from '../lib/sse.svelte';
   import { approvals, session } from '../lib/stores/session.svelte';
   import { attempt, theme, type ThemePref } from '../lib/stores/ui.svelte';
@@ -78,7 +78,7 @@
   ];
 
   const initial = $derived((session.me?.user.display_name || session.me?.user.username || '?').slice(0, 1).toUpperCase());
-  const safeAction = (a?: string) => (a && a.startsWith('/') && !a.startsWith('//') ? a : '');
+  const safeAction = (a?: string) => safeNext(a, '');
 </script>
 
 {#snippet links()}

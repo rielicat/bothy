@@ -79,4 +79,29 @@ describe('conversation', () => {
     expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/messages'))).toBe(false);
     expect(JSON.parse(calls.find((c) => c.url.endsWith('/pins') && c.method === 'POST')!.body)).toEqual({ text: 'Always answer in English' });
   });
+
+  it('offers Continue only after a steps-budget stop', async () => {
+    render(ConversationView, { id: SID });
+    await screen.findByText('What can I help with?');
+    emit('run.started', { trigger: 'message', model: 'anthropic/claude-sonnet-4-6' });
+    emit('run.finished', { status: 'budget_exceeded', error: 'budget exceeded: daily_cost', steps: 3, usage: { input: 1, output: 1, cache_read: 0, cache_write: 0, reasoning: 0 }, cost_micros: 5000 });
+    expect(await screen.findByText('budget exceeded: daily_cost')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Continue/ })).toBeNull();
+
+    emit('run.started', { trigger: 'message', model: 'anthropic/claude-sonnet-4-6' }, 'run_2');
+    emit('run.finished', { status: 'budget_exceeded', error: 'budget exceeded: steps', steps: 25, usage: { input: 1, output: 1, cache_read: 0, cache_write: 0, reasoning: 0 }, cost_micros: 5000 }, 'run_2');
+    expect(await screen.findByRole('button', { name: /Continue \(\+10 steps\)/ })).toBeTruthy();
+  });
+
+  it('updates a repeated tool_call event in place instead of adding a row', async () => {
+    render(ConversationView, { id: SID });
+    await screen.findByText('What can I help with?');
+    emit('run.started', { trigger: 'message', model: 'anthropic/claude-sonnet-4-6' });
+    const call = { call_id: 'tcl_9', tool: 'shell', title: 'Run shell command', action: { tool: 'shell', kind: 'exec', side_effect: 'local_write', argv: ['bash', '-lc', 'ls'], payload: { command: 'ls' }, fingerprint: 'f' }, rule: 'default:local_write' };
+    emit('run.tool_call', { ...call, verdict: 'ask' });
+    emit('run.tool_call', { ...call, verdict: 'auto' });
+    await waitFor(() => expect(screen.getAllByText('Ran `ls`')).toHaveLength(1));
+    expect(screen.queryByText('needs approval')).toBeNull();
+  });
 });
+

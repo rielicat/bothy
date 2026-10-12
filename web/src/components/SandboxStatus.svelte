@@ -40,7 +40,7 @@
     {/if}
     {#if st.self_test?.length}
       <ul class="grid gap-1.5 text-sm sm:grid-cols-2">
-        {#each st.self_test as c (c.name)}
+        {#each st.self_test as c, i (i)}
           <li class="flex items-center gap-2 {c.ok ? '' : 'text-bad'}"><Icon name={c.ok ? 'check' : 'x'} size={15} class={c.ok ? 'text-ok' : ''} />{c.name}{c.detail ? ` · ${c.detail}` : ''}</li>
         {/each}
       </ul>

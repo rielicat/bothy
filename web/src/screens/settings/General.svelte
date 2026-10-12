@@ -24,7 +24,9 @@
     try {
       await api.post('/api/auth/password', { old, new: next });
       old = next = again = '';
-      toasts.ok('Password changed. Other sessions stay signed in until they expire.');
+      // The server rotated the session, and with it the CSRF token.
+      await session.refresh().catch(() => {});
+      toasts.ok('Password changed.');
     } catch (err) {
       error = errorText(err);
     }

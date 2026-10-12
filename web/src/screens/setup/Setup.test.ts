@@ -55,4 +55,11 @@ describe('first-run wizard', () => {
     expect(await screen.findByText('Connect a model')).toBeTruthy();
     expect(sessionStorage.getItem('bothy.setup.csrf')).toBeNull();
   });
+
+  it('strips a mangled fragment without breaking the page', async () => {
+    history.replaceState(null, '', '/setup#t=%E0%A4%A');
+    render(Setup);
+    expect(location.hash).toBe('');
+    expect((await screen.findByRole('alert')).textContent).toMatch(/not valid/);
+  });
 });

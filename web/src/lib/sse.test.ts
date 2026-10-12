@@ -115,4 +115,17 @@ describe('EventStream', () => {
     expect(s.status).toBe('idle');
     expect(s.hello).toBeNull();
   });
+
+  it('tells closed listeners when the server refuses the stream, not on transient drops', () => {
+    const closed = vi.fn();
+    s.onClosed(closed);
+    s.connect();
+    FakeEventSource.last.emit('hello', 'not json');
+    expect(s.hello).toBeNull();
+    FakeEventSource.last.fail(false);
+    expect(closed).not.toHaveBeenCalled();
+    FakeEventSource.last.fail(true);
+    expect(closed).toHaveBeenCalledTimes(1);
+  });
 });
+

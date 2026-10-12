@@ -1,14 +1,27 @@
 <script module lang="ts">
+  import { api } from '../../lib/api/client';
   import type { RunDetail } from '../../lib/api/types.gen';
 
-  // Rows of one run share a single /api/runs fetch.
+  // Rows of one run share a single /api/runs fetch. Only recent runs are
+  // kept (the tab can live for days), and a failed fetch is not remembered.
   const runs = new Map<string, Promise<RunDetail>>();
+  const MAX_RUNS = 16;
+
+  export function runDetail(id: string): Promise<RunDetail> {
+    let p = runs.get(id);
+    if (!p) {
+      p = api.get<RunDetail>(`/api/runs/${encodeURIComponent(id)}`);
+      p.catch(() => runs.delete(id));
+      runs.set(id, p);
+      if (runs.size > MAX_RUNS) runs.delete(runs.keys().next().value!);
+    }
+    return p;
+  }
 </script>
 
 <script lang="ts">
   import Icon from '../../components/Icon.svelte';
   import Verbatim from '../../components/Verbatim.svelte';
-  import { api } from '../../lib/api/client';
   import type { ToolCall, ToolCallRecord, ToolResult } from '../../lib/api/types.gen';
   import { bytes, duration, ms } from '../../lib/format';
   import { router } from '../../lib/router.svelte';
@@ -45,12 +58,11 @@
     if (!open || loaded || live || !runId || !call) return;
     loaded = true;
     try {
-      let p = runs.get(runId);
-      if (!p) runs.set(runId, (p = api.get<RunDetail>(`/api/runs/${encodeURIComponent(runId)}`)));
-      const d = await p;
+      const d = await runDetail(runId);
       record = (d.tool_calls ?? []).find((t) => t?.call_id === call.id) ?? null;
     } catch {
       // details are optional; the row still shows the arguments
+      loaded = false;
     }
   }
 </script>

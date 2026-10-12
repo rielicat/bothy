@@ -79,7 +79,10 @@
         },
         true,
       );
-      if (errs) return;
+      if (errs) {
+        error = errs.map((f) => f.message).join(' ');
+        return;
+      }
       toasts.ok(`${tile.name} is ready.`);
       onadded?.(`${tile.id}/${model}`, probe);
       key = '';
@@ -125,7 +128,7 @@
         <div>
           <label class="label" for="{id}-model">Model to test</label>
           <input id="{id}-model" class="input mono" list="{id}-models" placeholder="model id" bind:value={model} />
-          <datalist id="{id}-models">{#each probe?.models ?? [] as m (m)}<option value={m}></option>{/each}</datalist>
+          <datalist id="{id}-models">{#each probe?.models ?? [] as m, i (i)}<option value={m}></option>{/each}</datalist>
         </div>
         {#if tile.local || tile.custom}
           <label class="flex items-center gap-2 self-end pb-2 text-sm"><input type="checkbox" class="switch" bind:checked={allowPrivate} />Private address</label>

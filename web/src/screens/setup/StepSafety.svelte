@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import PresetPicker from '../../components/PresetPicker.svelte';
   import SandboxStatus from '../../components/SandboxStatus.svelte';
   import { api } from '../../lib/api/client';
@@ -28,7 +29,7 @@
   );
   const replies = $derived(perReply > 0 ? Math.floor((cap * 1e6) / perReply) : 0);
 
-  $effect(() => {
+  onMount(() => {
     api.get<ModelInfoX[]>('/api/models').then((m) => (models = m), () => {});
     void config.load().then(() => (cap = config.value<number>('budgets.daily_usd', 5) || 5));
   });

@@ -1,9 +1,16 @@
 import { resolve, type Match } from './routes';
 
 // Only same-origin absolute paths; "//host" and "/\host" are protocol-relative
-// in browsers and would turn ?next= into an open redirect.
+// in browsers and would turn ?next= (or a server-sent link) into an open
+// redirect. The parse catches the rest, such as "/\t/host": browsers drop tabs
+// and newlines inside URLs.
 export function safeNext(next: string | null | undefined, fallback = '/chat'): string {
   if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\')) return fallback;
+  try {
+    if (new URL(next, window.location.origin).origin !== window.location.origin) return fallback;
+  } catch {
+    return fallback;
+  }
   return next;
 }
 

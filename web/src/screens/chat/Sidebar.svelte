@@ -26,10 +26,10 @@
     const spaceNames = new Map(auth.spaces.map((p) => [p.id, p.display_name]));
     const now = new Date(clock.now);
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const out: { title: string; items: Session[] }[] = [
-      { title: 'Today', items: [] },
-      { title: 'This week', items: [] },
-      { title: 'Older', items: [] },
+    const out: { key: string; title: string; items: Session[]; space?: boolean }[] = [
+      { key: 'today', title: 'Today', items: [] },
+      { key: 'week', title: 'This week', items: [] },
+      { key: 'older', title: 'Older', items: [] },
     ];
     const spaces = new Map<string, Session[]>();
     for (const s of sessions) {
@@ -42,7 +42,8 @@
       const t = (date(s.last_message_at) ?? date(s.created_at))?.getTime() ?? 0;
       out[t >= startOfDay ? 0 : t >= startOfDay - 6 * 86400_000 ? 1 : 2].items.push(s);
     }
-    const spaceGroups = [...spaces].map(([id, items]) => ({ title: spaceNames.get(id) ?? 'Space', items, space: true }));
+    // Keyed by principal: two group chats can share a name.
+    const spaceGroups = [...spaces].map(([id, items]) => ({ key: id, title: spaceNames.get(id) || 'Space', items, space: true }));
     return [...out.filter((g) => g.items.length), ...spaceGroups];
   });
 
@@ -50,7 +51,11 @@
     error = '';
     try {
       const r = await api.get<List<Session>>(`/api/sessions${qs({ limit: 50, before: more ? next : undefined })}`);
-      sessions = more ? [...sessions, ...r.items] : r.items;
+      const items = r.items ?? [];
+      if (more) {
+        const have = new Set(sessions.map((s) => s.id));
+        sessions = [...sessions, ...items.filter((s) => !have.has(s.id))];
+      } else sessions = items;
       next = r.next ?? 0;
     } catch (e) {
       error = errorText(e);
@@ -88,24 +93,29 @@
     };
   });
 
-  let searchTimer: ReturnType<typeof setTimeout> | undefined;
+  // Only the latest query may write results: an answer that lands after the
+  // box was cleared or changed would otherwise replace the session list.
+  let searchSeq = 0;
   $effect(() => {
     const term = q.trim();
-    clearTimeout(searchTimer);
+    const seq = ++searchSeq;
     if (!term) {
       hits = null;
+      searching = false;
       return;
     }
-    searchTimer = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       searching = true;
       try {
-        hits = await api.get<SearchHit[]>(`/api/search${qs({ q: term, limit: 20 })}`);
+        const r = await api.get<SearchHit[]>(`/api/search${qs({ q: term, limit: 20 })}`);
+        if (seq === searchSeq) hits = r;
       } catch (e) {
-        error = errorText(e);
+        if (seq === searchSeq) error = errorText(e);
       } finally {
-        searching = false;
+        if (seq === searchSeq) searching = false;
       }
     }, 250);
+    return () => clearTimeout(timer);
   });
 
   async function newChat() {
@@ -163,9 +173,9 @@
     {:else if !sessions.length}
       <p class="px-3 py-8 text-center text-sm text-muted">No chats yet. Start one, or message Bothy from a linked chat app.</p>
     {:else}
-      {#each groups as g (g.title)}
+      {#each groups as g (g.key)}
         <h2 class="mt-3 mb-1 flex items-center gap-1.5 px-3 text-xs font-medium tracking-wide text-faint uppercase first:mt-1">
-          {#if 'space' in g}<Icon name="users" size={13} />{/if}{g.title}
+          {#if g.space}<Icon name="users" size={13} />{/if}{g.title}
         </h2>
         <ul class="space-y-0.5">
           {#each g.items as s (s.id)}

@@ -56,6 +56,8 @@ describe('router', () => {
     expect(safeNext('/chat/ses_1?x=1')).toBe('/chat/ses_1?x=1');
     expect(safeNext('//evil.example')).toBe('/chat');
     expect(safeNext('/\\evil.example')).toBe('/chat');
+    expect(safeNext('/\t/evil.example')).toBe('/chat');
+    expect(safeNext('/\n/evil.example')).toBe('/chat');
     expect(safeNext('https://evil.example')).toBe('/chat');
     expect(safeNext('javascript:alert(1)')).toBe('/chat');
     expect(safeNext(null, '/usage')).toBe('/usage');

@@ -31,17 +31,24 @@
   const dirty = $derived(!!doc && text !== doc.content);
   const info = $derived(files.find((x) => x.f === file)!);
 
+  // Tabs can switch while a load is in flight; only the latest may fill the
+  // editor, or one file's text would sit under another file's tab.
+  let loadSeq = 0;
+
   async function load() {
+    const seq = ++loadSeq;
+    const f = file;
     error = '';
     conflict = null;
     changedElsewhere = false;
     try {
-      const [d, h] = await Promise.all([api.get<MemoryDoc>(`/api/memory/${file}`), api.get<List<MemoryEvent>>(`/api/memory/${file}/history?limit=25`)]);
+      const [d, h] = await Promise.all([api.get<MemoryDoc>(`/api/memory/${f}`), api.get<List<MemoryEvent>>(`/api/memory/${f}/history?limit=25`)]);
+      if (seq !== loadSeq) return;
       doc = d;
       text = d.content;
       history = h.items ?? [];
     } catch (e) {
-      error = errorText(e);
+      if (seq === loadSeq) error = errorText(e);
     }
   }
 

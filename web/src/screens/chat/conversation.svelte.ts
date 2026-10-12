@@ -157,14 +157,20 @@ export class Conversation {
       on('run.thinking', (e) => (this.#run(e).thinking += (e.data as DeltaData).text)),
       on('run.tool_call', (e) => {
         const d = e.data as ToolCallData;
-        this.#run(e).tools.push({ callId: d.call_id, tool: d.tool, title: d.title, action: d.action, verdict: d.verdict, rule: d.rule, out: [] });
+        const tools = this.#run(e).tools;
+        const t = tools.find((x) => x.callId === d.call_id);
+        if (t) Object.assign(t, { tool: d.tool, title: d.title, action: d.action, verdict: d.verdict, rule: d.rule });
+        else tools.push({ callId: d.call_id, tool: d.tool, title: d.title, action: d.action, verdict: d.verdict, rule: d.rule, out: [] });
       }),
       on('run.tool_output', (e) => {
         const d = e.data as ToolOutputData;
         const t = this.#run(e).tools.find((x) => x.callId === d.call_id);
         if (!t) return;
-        const size = t.out.reduce((n, o) => n + o.chunk.length, 0);
-        if (size < MAX_TOOL_OUTPUT) t.out.push({ stream: d.stream, chunk: d.chunk.slice(0, MAX_TOOL_OUTPUT - size) });
+        const size = t.outSize ?? 0;
+        if (size >= MAX_TOOL_OUTPUT) return;
+        const chunk = d.chunk.slice(0, MAX_TOOL_OUTPUT - size);
+        t.out.push({ stream: d.stream, chunk });
+        t.outSize = size + chunk.length;
       }),
       on('run.tool_result', (e) => {
         const d = e.data as ToolResultData;

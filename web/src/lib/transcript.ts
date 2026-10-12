@@ -9,6 +9,7 @@ export interface LiveTool {
   verdict: Verdict;
   rule: string;
   out: { stream: number; chunk: string }[];
+  outSize?: number;
   status?: ToolCallStatus;
   preview?: string;
   ms?: number;
@@ -81,14 +82,14 @@ export function buildItems(messages: Message[], live: LiveRun | null, known?: Ma
     const thinking = text(m, 'thinking');
     if (t || thinking) items.push({ kind: 'assistant', key, msg: m, text: t, thinking });
     const ofLive = !!live && m.run_id === live.id;
-    for (const p of m.parts) {
+    for (const [n, p] of m.parts.entries()) {
       if (p.t !== 'tool_call' || !p.call) continue;
       let lt: LiveTool | undefined;
       if (ofLive) {
         if (skip > 0) skip--;
         else if (queue[0]?.tool === p.call.name) lt = queue.shift();
       }
-      items.push({ kind: 'tool', key: `t${m.id}:${p.call.id}`, runId: m.run_id, call: p.call, result: results.get(p.call.id), live: lt ?? known?.get(p.call.id) });
+      items.push({ kind: 'tool', key: `t${m.id}:${n}`, runId: m.run_id, call: p.call, result: results.get(p.call.id), live: lt ?? known?.get(p.call.id) });
     }
     if (ofLive) lastOfRun = items.length;
   }

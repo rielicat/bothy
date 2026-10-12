@@ -62,7 +62,8 @@ export async function raw(method: string, path: string, body?: unknown, headers:
     }
     const e = (parsed as ErrorEnvelope | undefined)?.error;
     const fields = fieldErrors(parsed);
-    if (res.status === 401 && unauthorized && !path.startsWith('/api/auth/login') && !path.startsWith('/api/setup/')) {
+    // A 401 from these means a wrong credential in the request, not a dead session.
+    if (res.status === 401 && unauthorized && !/^\/api\/(auth\/login|auth\/password|setup\/)/.test(path)) {
       unauthorized();
     }
     const message = e?.message ?? (fields.length ? fields.map((f) => f.message).join('; ') : res.statusText || `HTTP ${res.status}`);

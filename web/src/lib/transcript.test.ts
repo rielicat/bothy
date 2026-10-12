@@ -102,3 +102,14 @@ describe('describe', () => {
     expect(describeCall('custom_tool', undefined, {}, 'Custom title')).toBe('Custom title');
   });
 });
+
+describe('buildItems keys', () => {
+  // Svelte throws on duplicate keys in a keyed each, which would take the
+  // whole conversation down; providers do repeat call ids.
+  it('stays unique when a message repeats a tool call id', () => {
+    const items = buildItems([msg(1, 'assistant', [call('dup', 'web_search'), call('dup', 'web_search')], { run_id: 'run_0' })], null);
+    const keys = items.map((i) => i.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(items.filter((i) => i.kind === 'tool')).toHaveLength(2);
+  });
+});

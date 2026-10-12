@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import ChainEditor from '../../components/ChainEditor.svelte';
   import Icon from '../../components/Icon.svelte';
   import ProviderSetup from '../../components/ProviderSetup.svelte';
@@ -22,7 +23,9 @@
     models = await api.get<ModelInfoX[]>('/api/models').catch(() => []);
   }
 
-  $effect(() => {
+  // Once per visit: detection probes several local ports, and an effect here
+  // would re-run on every config change the step itself makes.
+  onMount(() => {
     void config.load();
     void loadModels();
     api.post<Detection[]>('/api/providers/detect').then((d) => (detections = d), () => (detections = []));

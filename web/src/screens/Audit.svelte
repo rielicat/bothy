@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import Empty from '../components/Empty.svelte';
   import Icon from '../components/Icon.svelte';
   import Verbatim from '../components/Verbatim.svelte';
@@ -9,10 +10,10 @@
   import { session } from '../lib/stores/session.svelte';
 
   const tab = $derived(router.query.get('tab') === 'egress' ? 'egress' : 'log');
-  let actor = $state(router.query.get('actor') ?? '');
-  let action = $state(router.query.get('action') ?? '');
-  let from = $state(router.query.get('from') ?? '');
-  let to = $state(router.query.get('to') ?? '');
+  let actor = $state('');
+  let action = $state('');
+  let from = $state('');
+  let to = $state('');
 
   let rows = $state<AuditEntry[]>([]);
   let egress = $state<EgressRecord[]>([]);
@@ -28,7 +29,7 @@
     return qs({
       actor,
       action,
-      from: from ? new Date(from).toISOString() : undefined,
+      from: from ? new Date(`${from}T00:00:00`).toISOString() : undefined,
       to: to ? new Date(`${to}T23:59:59`).toISOString() : undefined,
       before,
       limit: 50,
@@ -52,15 +53,23 @@
     }
   }
 
+  // The URL is the applied filter: typing in the boxes changes nothing until
+  // Filter, and back/forward restore the boxes along with the results.
   $effect(() => {
     void tab;
-    void router.search;
-    void load();
+    const q = router.query;
+    actor = q.get('actor') ?? '';
+    action = q.get('action') ?? '';
+    from = q.get('from') ?? '';
+    to = q.get('to') ?? '';
+    untrack(() => void load());
   });
 
   function apply(e: SubmitEvent) {
     e.preventDefault();
+    const before = router.search;
     router.setQuery({ actor, action, from, to });
+    if (router.search === before) void load();
   }
 
   async function runVerify() {

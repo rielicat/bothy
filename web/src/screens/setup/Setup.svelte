@@ -76,7 +76,13 @@
     const m = /^#t=([^&]+)/.exec(location.hash);
     if (!m) return;
     history.replaceState(null, '', location.pathname);
-    if (step === 0) void claim(decodeURIComponent(m[1]));
+    let t = m[1];
+    try {
+      t = decodeURIComponent(t);
+    } catch {
+      // a mangled escape: the server rejects the raw value with a clear message
+    }
+    if (step === 0) void claim(t);
   });
 
   async function claim(t: string) {
@@ -249,7 +255,7 @@
           <div class="mt-6 rounded-xl border border-line p-4 text-sm">
             <p class="font-medium">{serious.length ? `Security check: ${serious.length} thing${serious.length === 1 ? '' : 's'} to look at` : 'Security check: all good'}</p>
             <ul class="mt-2 space-y-1.5">
-              {#each serious.slice(0, 3) as f (f.id)}<li class="flex gap-2 text-muted"><Icon name="alert" size={15} class="mt-0.5 text-warn" />{f.title}</li>{/each}
+              {#each serious.slice(0, 3) as f, i (i)}<li class="flex gap-2 text-muted"><Icon name="alert" size={15} class="mt-0.5 text-warn" />{f.title}</li>{/each}
             </ul>
             {#if serious.length}<p class="mt-2 text-xs text-muted">Details and fixes are under Settings → Advanced.</p>{/if}
           </div>

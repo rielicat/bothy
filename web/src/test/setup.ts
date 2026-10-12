@@ -16,8 +16,9 @@ if (!('showModal' in dialog) || typeof dialog.showModal !== 'function') {
 }
 Element.prototype.scrollIntoView ??= function () {};
 window.scrollTo = () => {};
-URL.createObjectURL ??= () => 'blob:test';
-URL.revokeObjectURL ??= () => {};
+// Node's own createObjectURL rejects jsdom's Blob, so both are replaced.
+URL.createObjectURL = () => 'blob:test';
+URL.revokeObjectURL = () => {};
 
 export class FakeEventSource {
   static instances: FakeEventSource[] = [];

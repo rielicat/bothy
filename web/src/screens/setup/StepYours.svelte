@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { api } from '../../lib/api/client';
   import type { ModelInfoX } from '../../lib/api/extra';
   import type { MemoryDoc } from '../../lib/api/types.gen';
@@ -27,9 +28,10 @@
   // 28 checks a day (every 30 min, 08:00–22:00), each ~2K tokens in and ~100 out.
   const perDay = $derived(fast?.price.known ? (28 * (2000 * fast.price.in_per_m + 100 * fast.price.out_per_m)) / 1e6 : 0);
 
-  $effect(() => {
+  // A resumed wizard can open on this step before anything loaded config.
+  onMount(() => {
     api.get<ModelInfoX[]>('/api/models').then((m) => (models = m), () => {});
-    heartbeat = config.flag('scheduler.heartbeat.enabled');
+    void config.load().then(() => (heartbeat = config.flag('scheduler.heartbeat.enabled')));
   });
 
   async function save() {

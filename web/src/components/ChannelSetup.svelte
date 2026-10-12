@@ -32,7 +32,11 @@
         set[`channels.${name}.${fields[name][i]}`] = `secret:${secrets[name][i]}`;
       }
       if (name === 'discord') set['channels.discord.application_id'] = appId.trim();
-      if (await config.set(set, true)) return;
+      const errs = await config.set(set, true);
+      if (errs) {
+        error = errs.map((f) => f.message).join(' ');
+        return;
+      }
       identity = (await api.post<ChannelTestResp>(`/api/channels/${name}/test`)).identity;
       if (name === 'discord') invite = (await api.get<DiscordInvite>('/api/channels/discord/invite')).url;
       a = b = '';

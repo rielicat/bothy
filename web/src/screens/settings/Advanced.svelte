@@ -4,7 +4,7 @@
   import { api } from '../../lib/api/client';
   import type { DoctorReport, Finding } from '../../lib/api/types.gen';
   import { config, sourceLabel, type SchemaNode } from '../../lib/config.svelte';
-  import { router } from '../../lib/router.svelte';
+  import { router, safeNext } from '../../lib/router.svelte';
   import { session } from '../../lib/stores/session.svelte';
   import { attempt, copyText, toasts } from '../../lib/stores/ui.svelte';
   import { toYaml } from '../../lib/yaml';
@@ -45,7 +45,7 @@
     }
   }
 
-  const isRoute = (f: Finding) => !!f.fix && f.fix.startsWith('/') && !f.fix.startsWith('//');
+  const isRoute = (f: Finding) => !!safeNext(f.fix, '');
 </script>
 
 <Section title="Health and security" desc="Doctor checks everything; the security audit checks the settings that affect safety.">
@@ -58,7 +58,7 @@
   {:else if !findings.length}
     <p class="alert-ok my-4"><Icon name="check" size={16} />No findings. Everything looks right.</p>
   {:else}
-    {#each findings as f (f.id)}
+    {#each findings as f, i (i)}
       <div class="flex flex-wrap items-start gap-3 py-3.5 text-sm">
         <span class="chip {sev[f.severity] ?? ''}">{f.severity}</span>
         <div class="min-w-0 flex-1">
