@@ -163,6 +163,11 @@ func (c *client) do(ctx context.Context, method string, body []byte, out any) er
 func (c *client) download(ctx context.Context, filePath string, limit int64) (io.ReadCloser, error) {
 	segs := strings.Split(filePath, "/")
 	for i, s := range segs {
+		// Dot segments would let a file path reach other Bot API endpoints
+		// once a proxy or server normalizes the URL.
+		if s == "" || s == "." || s == ".." {
+			return nil, fmt.Errorf("telegram file download: unusable file path %q", filePath)
+		}
 		segs[i] = url.PathEscape(s)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/file/bot"+c.token+"/"+strings.Join(segs, "/"), nil)

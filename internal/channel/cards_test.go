@@ -253,7 +253,7 @@ func TestCardShowsValuesVerbatim(t *testing.T) {
 		h := newHarness(t)
 		ap := &core.Approval{ID: core.ApprovalID(core.NewID(core.PrefixApproval)), Card: core.Card{
 			Title:  "Send **message**",
-			Fields: []core.CardField{{Label: "Recipient", Value: "[click](https://evil.example)‮gnp.exe"}, {Label: "Path", Value: "a`b", Mono: true}},
+			Fields: []core.CardField{{Label: "Recipient", Value: "[click](https://evil.example)\u202egnp.exe"}, {Label: "Path", Value: "a`b", Mono: true}},
 			Code:   "```\nbreak out\n```", Choices: []core.Choice{core.AllowOnce, core.Deny},
 		}}
 		msg, truncated := h.hub.renderCard(ap, core.ChannelCaps{Buttons: true, MaxLen: 4096})

@@ -4,7 +4,10 @@ The Telegram adapter (`core.Channel`, owner M9), a hand-written Bot API
 client with no third-party dependency. `Run` long-polls `getUpdates` (offset
 in meta key `channel.telegram.offset`, so a restart neither replays nor skips
 updates), reconnects with exponential backoff, waits out 429 `retry_after`,
-and reports `auth_failed` when Telegram rejects the token. Messages are sent
+and reports `auth_failed` when Telegram rejects the token. Messages with
+neither text nor an attachment (stickers, polls, service messages) are
+ignored; a `my_chat_member` "bot added" update becomes the hub's presence
+signal, the only empty group `Inbound` the adapter produces. Messages are sent
 and edited in HTML parse mode from the router's markdown subset, with every
 other character escaped and `link_preview_options.is_disabled` always set;
 buttons become inline keyboards (callback data at most 64 bytes, loopback

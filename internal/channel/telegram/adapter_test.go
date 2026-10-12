@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -248,9 +249,13 @@ func TestInboundNormalization(t *testing.T) {
 		t.Fatalf("topic message thread = %q", in.Chat.ThreadID)
 	}
 
+	// A content-less message (a sticker, say) must not pose as the
+	// bot-added presence signal.
+	e.srv.Inject(telegramtest.Inbound{ChatID: -200, ChatType: "group", SenderID: 5})
 	e.srv.InjectBotAdded(-200, "Family", 9)
 	in = s.next(t)
-	if in.Chat.ChatID != "-200" || in.SenderID != "9" || in.Text != "" || in.Mentioned || len(in.Attachments) != 0 {
+	if in.Chat.ChatID != "-200" || in.SenderID != "9" || in.Text != "" || in.Mentioned || len(in.Attachments) != 0 ||
+		!strings.Contains(in.MsgID, ":joined:") {
 		t.Fatalf("bot-added presence signal = %+v", in)
 	}
 	if got := e.a.ChatTitle("-200"); got != "Family" {
@@ -310,6 +315,22 @@ func TestCallbackAckAndFetch(t *testing.T) {
 	}
 	if a := e.srv.Answers(); len(a) != 1 || a[0].Text != "Denied" {
 		t.Fatalf("answers = %+v", a)
+	}
+}
+
+func TestDownloadRefusesDotSegments(t *testing.T) {
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { hits++ }))
+	defer srv.Close()
+	cl := &client{base: srv.URL, token: telegramtest.DefaultToken, http: srv.Client()}
+	for _, p := range []string{"../bot1:x/sendMessage", "docs/./a", "docs//a", ""} {
+		if rc, err := cl.download(context.Background(), p, 1<<20); err == nil {
+			rc.Close()
+			t.Fatalf("download(%q) succeeded", p)
+		}
+	}
+	if hits != 0 {
+		t.Fatalf("%d requests made for unusable file paths", hits)
 	}
 }
 

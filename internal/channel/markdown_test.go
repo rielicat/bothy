@@ -148,6 +148,11 @@ func TestNeutralize(t *testing.T) {
 		"pi is 3.14 and e.g. this is fine":   "pi is 3.14 and e.g. this is fine",
 		"ftp://files.example/readme":         "fxp://files[.]example/readme",
 		"[x](mailto:a@b.example)":            "x (mailto[:]a@b[.]example)",
+		"open tg://msg_url?url=x":            "open tg[:]//msg_url?url=x",
+		"[share](tg://msg?text=secret)":      "share (tg[:]//msg?text=secret)",
+		"call 203.0.113.7/collect?k=v":       "call 203[.]0[.]113[.]7/collect?k=v",
+		"see пример.рф or bad。example":       "see пример[.]рф or bad[.]example",
+		"version 1.2.3 is out":               "version 1.2.3 is out",
 	} {
 		if got := neutralize(in); got != want {
 			t.Errorf("neutralize(%q) = %q, want %q", in, got, want)
@@ -171,7 +176,7 @@ func TestEscapeMDAndCode(t *testing.T) {
 	if got := codeBlock("", "```\nx\n```"); got != "````\n```\nx\n```\n````" {
 		t.Fatalf("codeBlock = %q", got)
 	}
-	if got := revealInvisible("a‮b​c"); got != "a⟨U+202E⟩b⟨U+200B⟩c" {
+	if got := revealInvisible("a\u202eb\u200bc"); got != "a⟨U+202E⟩b⟨U+200B⟩c" {
 		t.Fatalf("revealInvisible = %q", got)
 	}
 }

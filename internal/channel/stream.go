@@ -130,14 +130,17 @@ type streamState struct {
 	session core.SessionID
 	exposed bool
 
-	raw    string // the run's reply so far, as the model wrote it
-	commit int    // bytes of raw already shown in finished messages
-	carry  string // fence line the next message must reopen
+	raw       strings.Builder // the run's reply so far, as the model wrote it
+	commit    int             // bytes of raw already shown in finished messages
+	carry     string          // fence line the next message must reopen
+	stepBreak bool            // a tool call ended the model's last text; the next text starts a paragraph
+	lastStep  int             // offset in raw of the latest step's text
 
 	msgs       []core.MsgRef // messages sent for this run; the last one is live
 	shown      string        // text the live message shows
 	needLive   bool          // the live message was finalized; the next op sends a new one
 	status     string
+	toolStatus string // status line of the latest tool call, restored after an approval wait
 	statusKind string
 	gotDelta   bool
 
@@ -169,20 +172,26 @@ func (st *streamState) apply(ctx context.Context, e core.Event) {
 			st.status = "_Waiting for approval…_"
 		case "compacting":
 			st.status = "_Compacting context…_"
+		case "tool":
+			st.status = st.toolStatus
 		case "thinking":
 			st.status = ""
 		}
 	case core.RunQueuedData:
 		st.status = fmt.Sprintf("_Queued (%d ahead)…_", d.Position)
 	case core.DeltaData:
-		if e.Type == core.EvRunDelta {
-			st.raw += d.Text
-			st.gotDelta = true
+		if e.Type == core.EvRunDelta && d.Text != "" {
+			st.appendText(d.Text)
 		}
 	case core.ToolCallData:
-		st.status = "_Running " + toolLabel(d) + "…_"
+		st.toolStatus = "_Running " + toolLabel(d, st.s.h.redact) + "…_"
+		st.status = st.toolStatus
+		st.stepBreak = true
 	case core.ToolResultData:
 		st.status = ""
+		// A tool result is where taint changes; the session may have just
+		// become Exposed, and live edits must start neutralizing links now.
+		st.refreshTaint(ctx)
 	case core.SessionData:
 		st.exposed = st.exposed || d.Taint.Exposed()
 	case core.MessageData:
@@ -198,6 +207,26 @@ func (st *streamState) apply(ctx context.Context, e core.Event) {
 	}
 }
 
+// appendText adds model text to the reply. Each step's text is its own
+// assistant message, so text after a tool call starts a new paragraph rather
+// than running into the previous step's last sentence.
+func (st *streamState) appendText(text string) {
+	if st.stepBreak {
+		st.stepBreak = false
+		raw := st.raw.String()
+		switch {
+		case raw == "", strings.HasSuffix(raw, "\n\n"):
+		case strings.HasSuffix(raw, "\n"):
+			st.raw.WriteByte('\n')
+		default:
+			st.raw.WriteString("\n\n")
+		}
+		st.lastStep = st.raw.Len()
+	}
+	st.raw.WriteString(text)
+	st.gotDelta = true
+}
+
 func (st *streamState) refreshTaint(ctx context.Context) {
 	if st.session == "" {
 		return
@@ -208,14 +237,16 @@ func (st *streamState) refreshTaint(ctx context.Context) {
 }
 
 // toolLabel is the status-line form of a tool call: the command line for
-// exec actions ("Running `pip install pandas`…"), else the tool's title.
-func toolLabel(d core.ToolCallData) string {
+// exec actions ("Running `pip install pandas`…"), else the tool's title. The
+// command is redacted before it is shortened, since a cut secret no longer
+// matches the redactor.
+func toolLabel(d core.ToolCallData, redact func(string) string) string {
 	if a := d.Action; a != nil && a.Kind == core.ActExec && len(a.Argv) > 0 {
 		cmd := strings.Join(a.Argv, " ")
 		if len(a.Argv) >= 3 && (a.Argv[1] == "-lc" || a.Argv[1] == "-c") {
 			cmd = a.Argv[2]
 		}
-		cmd, _, _ = strings.Cut(strings.TrimSpace(cmd), "\n")
+		cmd, _, _ = strings.Cut(strings.TrimSpace(redact(cmd)), "\n")
 		return codeSpan(truncateRunes(cmd, 60))
 	}
 	title := d.Title
@@ -246,7 +277,7 @@ func (st *streamState) buttons() [][]core.Button {
 // the trailing partial word is held back, so a secret that is still arriving
 // is never shown before the redactor can recognise it.
 func (st *streamState) pending(live bool) string {
-	seg := st.raw[st.commit:]
+	seg := st.raw.String()[st.commit:]
 	if live {
 		if i := strings.LastIndexFunc(seg, unicode.IsSpace); i >= 0 {
 			seg = seg[:i]
@@ -427,10 +458,11 @@ func (st *streamState) waitGap(ctx context.Context) bool {
 
 func (st *streamState) finish(ctx context.Context) {
 	st.refreshTaint(ctx)
-	if st.final && strings.HasPrefix(strings.TrimSpace(st.raw), "HEARTBEAT_OK") {
+	raw := st.raw.String()
+	if st.final && (heartbeatOK(raw) || heartbeatOK(raw[st.lastStep:])) {
 		return
 	}
-	body := strings.TrimRightFunc(st.raw[st.commit:], unicode.IsSpace)
+	body := strings.TrimRightFunc(raw[st.commit:], unicode.IsSpace)
 	if note := st.finishNote(); note != "" {
 		if open, _, marker := fenceState(st.carry, body); open {
 			body += "\n" + marker
@@ -475,6 +507,11 @@ func (st *streamState) finish(ctx context.Context) {
 		st.lastOp = time.Now()
 	}
 }
+
+// heartbeatOK reports a heartbeat reply that must not be delivered (SPEC
+// §5.16); the model may say something before its final answer, so the last
+// step's text counts too.
+func heartbeatOK(s string) bool { return strings.HasPrefix(strings.TrimSpace(s), "HEARTBEAT_OK") }
 
 // finishNote is the closing line: the runner's notices when it sent any,
 // else a short word on how the run ended, plus the optional usage footer.

@@ -60,6 +60,13 @@ func inbound(m *tgMessage, me tgUser) (core.Inbound, bool) {
 	if r := m.ReplyToMessage; r != nil && r.From != nil && r.From.ID == me.ID {
 		mentioned = true
 	}
+	atts := attachments(m)
+	// Stickers, polls, service messages and the like carry nothing for the
+	// agent, and an empty group Inbound is the hub's "bot was added by"
+	// signal, which only my_chat_member may produce.
+	if text == "" && len(atts) == 0 {
+		return core.Inbound{}, false
+	}
 	return core.Inbound{
 		Chat:           chat,
 		MsgID:          fmt.Sprintf("%d:%d", m.Chat.ID, m.MessageID),
@@ -69,7 +76,7 @@ func inbound(m *tgMessage, me tgUser) (core.Inbound, bool) {
 		SenderIsBot:    m.From.IsBot,
 		Text:           text,
 		Mentioned:      mentioned,
-		Attachments:    attachments(m),
+		Attachments:    atts,
 		At:             time.Unix(m.Date, 0),
 	}, true
 }

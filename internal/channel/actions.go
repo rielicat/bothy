@@ -15,9 +15,12 @@ const actionBudget = 2500 * time.Millisecond
 
 func (h *Hub) handleAction(ctx context.Context, a *adapter, ev core.ActionEvent) {
 	ev.Chat.Channel = a.name
-	if ev.Msg.Chat.Channel == "" {
+	if ev.Msg.Chat.ChatID == "" {
 		ev.Msg.Chat = ev.Chat
 	}
+	// A press can only be on this adapter's own message; never let it match
+	// a card recorded on another channel.
+	ev.Msg.Chat.Channel = a.name
 	pctx, cancel := context.WithTimeout(ctx, actionBudget)
 	toast := h.action(pctx, a, ev)
 	cancel()

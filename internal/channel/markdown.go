@@ -219,8 +219,11 @@ var (
 	autoLinkRe  = regexp.MustCompile(`<([a-zA-Z][a-zA-Z0-9+.-]*:[^\s<>]+)>`)
 	schemeURLRe = regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*://[^\s<>"'()\[\]]+`)
 	// Telegram (and others) turn bare domains into links, so anything that
-	// looks like host.tld is defanged too.
-	bareHostRe = regexp.MustCompile(`(?i)\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]*[a-z0-9]\b`)
+	// looks like host.tld is defanged too: internationalized names and the
+	// ideographic and full-width dots that IDNA maps to "." included.
+	bareHostRe = regexp.MustCompile(`(?:[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?[.。．｡])+\p{L}[\p{L}\p{N}-]*[\p{L}\p{N}]`)
+	bareIPv4Re = regexp.MustCompile(`\b\d{1,3}(?:\.\d{1,3}){3}\b`)
+	hostDotRe  = regexp.MustCompile(`[.。．｡]`)
 )
 
 // neutralize defangs every link outside code ("https://evil.com/x" becomes
@@ -233,7 +236,8 @@ func neutralize(md string) string {
 		})
 		text = autoLinkRe.ReplaceAllStringFunc(text, func(m string) string { return defangURL(m[1 : len(m)-1]) })
 		text = schemeURLRe.ReplaceAllStringFunc(text, defangURL)
-		return bareHostRe.ReplaceAllStringFunc(text, func(h string) string { return strings.ReplaceAll(h, ".", "[.]") })
+		text = bareHostRe.ReplaceAllStringFunc(text, func(h string) string { return hostDotRe.ReplaceAllString(h, "[.]") })
+		return bareIPv4Re.ReplaceAllStringFunc(text, func(ip string) string { return strings.ReplaceAll(ip, ".", "[.]") })
 	})
 }
 
@@ -253,6 +257,11 @@ func defangURL(u string) string {
 		scheme = "hxxps"
 	case "ftp":
 		scheme = "fxp"
+	case "hxxp", "hxxps", "fxp": // defanged by an earlier pass
+	default:
+		// tg://, intent:// and the like have no dotted host to break, but
+		// clients still open them; breaking the "://" makes them inert.
+		return scheme + "[:]//" + strings.ReplaceAll(rest, ".", "[.]")
 	}
 	host, path, _ := strings.Cut(rest, "/")
 	out := scheme + "://" + strings.ReplaceAll(host, ".", "[.]")

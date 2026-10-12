@@ -128,7 +128,7 @@ func (h *Hub) goAsync(fn func(ctx context.Context)) bool {
 	h.wg.Add(1)
 	go func() {
 		defer h.wg.Done()
-		fn(h.ctx)
+		h.contain("async work", func() { fn(h.ctx) })
 	}()
 	return true
 }

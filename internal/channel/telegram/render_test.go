@@ -39,7 +39,7 @@ var renderCorpus = []string{
 	"[a](https://ok.com/\"><script>)", "[a [b] c](https://e.com)", "[unterminated](https://e.com",
 	"`a</code>`", "```\n</pre><b>\n```", "``` js\n<x>\n```", "_a_b_", "__", "****", "* * *",
 	"`` ` ``", "[`x`](https://e.com)", "**[x](https://e.com)**", "# **h** `c`", "- *x* `y`",
-	"\\", "\\\\*", "a\nb\n\n```\n", "emoji 🙂 **ok**", "tab\there", "‮mirror",
+	"\\", "\\\\*", "a\nb\n\n```\n", "emoji 🙂 **ok**", "tab\there", "\u202emirror",
 }
 
 func TestRenderAlwaysValidHTML(t *testing.T) {

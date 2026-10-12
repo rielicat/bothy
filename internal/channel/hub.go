@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"runtime/debug"
 	"slices"
 	"sync/atomic"
 	"time"
@@ -90,8 +91,8 @@ func (h *Hub) Run(ctx context.Context) error {
 	sub := h.d.Bus.Subscribe(core.Filter{System: true, Types: []core.EventType{core.EvApprovalRequested, core.EvApprovalResolved}}, 256)
 	stopWatch := h.d.Config.Watch(func(_, _ *config.Config) { h.requestReconcile() })
 	h.reconcile()
-	h.resyncCards()
-	h.publishStatuses()
+	h.contain("approval card resync", h.resyncCards)
+	h.contain("channel status", h.publishStatuses)
 
 	tick := time.NewTicker(h.statusEvery)
 loop:
@@ -105,9 +106,9 @@ loop:
 			h.reconcile()
 		case <-tick.C:
 			if sub.Dropped() > 0 {
-				h.resyncCards()
+				h.contain("approval card resync", h.resyncCards)
 			}
-			h.publishStatuses()
+			h.contain("channel status", h.publishStatuses)
 			h.prune()
 		}
 	}
@@ -247,13 +248,37 @@ func (h *Hub) startAdapterLocked(a *adapter) {
 	}()
 }
 
+// contain runs fn and logs a panic instead of letting it end the process.
+// The hub calls into every other service on behalf of untrusted platform
+// input; one bad message or a faulty service must not take the gateway down.
+func (h *Hub) contain(what string, fn func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			h.log.Error("channel: recovered from a panic", "in", what, "panic", r, "stack", string(debug.Stack()))
+		}
+	}()
+	fn()
+}
+
+// runAdapter runs the adapter once, turning a panic into an error so the
+// supervisor restarts it with backoff.
+func (h *Hub) runAdapter(ctx context.Context, a *adapter) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			h.log.Error("channel adapter panicked", "channel", a.name, "panic", r, "stack", string(debug.Stack()))
+			err = fmt.Errorf("channel %s: panic: %v", a.name, r)
+		}
+	}()
+	return a.ch.Run(ctx, h)
+}
+
 // supervise keeps an adapter's Run going. Adapters reconnect internally, so a
 // return before ctx ends is unusual and is retried with exponential backoff.
 func (h *Hub) supervise(ctx context.Context, a *adapter) {
 	backoff := time.Second
 	for {
 		started := time.Now()
-		err := a.ch.Run(ctx, h)
+		err := h.runAdapter(ctx, a)
 		if ctx.Err() != nil {
 			return
 		}

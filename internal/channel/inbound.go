@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/bothyhq/bothy/internal/core"
 )
@@ -57,7 +58,7 @@ func (h *Hub) dispatch(a *adapter) {
 		case <-h.ctx.Done():
 			return
 		case in := <-a.queue:
-			h.handleMessage(h.ctx, a, in)
+			h.contain("inbound message", func() { h.handleMessage(h.ctx, a, in) })
 		}
 	}
 }
@@ -102,6 +103,11 @@ func (h *Hub) handleMessage(ctx context.Context, a *adapter, in core.Inbound) {
 	}
 	known := res.Status == core.IdentityLinked || res.Status == core.IdentityGuest
 	if !known && in.Chat.Kind == core.ChatDM {
+		// Unknown senders are limited too, silently: otherwise every wrong
+		// pairing code would make the bot answer, without bound.
+		if ok, _ := h.d.Budget.AllowSender(a.name + ":" + in.SenderID); !ok {
+			return
+		}
 		h.unknownDM(ctx, a, in, ident)
 		return
 	}
@@ -281,7 +287,12 @@ func (h *Hub) gate(ctx context.Context, a *adapter, in core.Inbound, res core.Id
 	case core.ChatGroup:
 		sp, err := h.d.Store.Spaces().ByChat(ctx, a.name, in.Chat.ChatID)
 		if errors.Is(err, core.ErrNotFound) {
-			h.firstSighting(ctx, a, in, res)
+			// Anyone can add the bot to groups; the limiter bounds how fast
+			// one account can create spaces and owner notices. A skipped
+			// sighting is retried with the group's next message.
+			if ok, _ := h.d.Budget.AllowSender(a.name + ":" + in.SenderID); ok {
+				h.firstSighting(ctx, a, in, res)
+			}
 			return tg, false
 		}
 		if err != nil {
@@ -309,10 +320,14 @@ func (h *Hub) gate(ctx context.Context, a *adapter, in core.Inbound, res core.Id
 
 // firstSighting records an unknown group as a disabled space and asks its
 // owner whether to enable it. The owner is the linked user who added the bot
-// (or spoke first), otherwise the instance owner.
+// when the adapter reports it (a presence signal), otherwise the instance
+// owner: whoever merely speaks first must not become the space's approver.
 func (h *Hub) firstSighting(ctx context.Context, a *adapter, in core.Inbound, res core.IdentityResolution) {
-	owner := res.User
-	if res.Status != core.IdentityLinked || owner == "" {
+	var owner core.UserID
+	if isPresence(in) && res.Status == core.IdentityLinked {
+		owner = res.User
+	}
+	if owner == "" {
 		u, ok := h.instanceOwner(ctx)
 		if !ok {
 			return
@@ -321,7 +336,7 @@ func (h *Hub) firstSighting(ctx context.Context, a *adapter, in core.Inbound, re
 	}
 	title := ""
 	if t, ok := a.ch.(ChatTitler); ok {
-		title = strings.TrimSpace(t.ChatTitle(in.Chat.ChatID))
+		title = spaceTitle(t.ChatTitle(in.Chat.ChatID))
 	}
 	if title == "" {
 		title = channelTitle(a.name) + " group " + in.Chat.ChatID
@@ -349,6 +364,37 @@ func (h *Hub) firstSighting(ctx context.Context, a *adapter, in core.Inbound, re
 		". I stay silent there until you enable it in Settings → Spaces."
 	buttons := h.webButton("Open Settings → Spaces", "/settings/spaces")
 	h.enqueueChat(chat.Key(), func(ctx context.Context) { h.sendWithButtons(ctx, chat, text, buttons) })
+}
+
+// isPresence reports the adapters' "bot added to this group by SenderID"
+// signal: a group Inbound with no text and no attachments.
+func isPresence(in core.Inbound) bool {
+	return in.Chat.Kind == core.ChatGroup && strings.TrimSpace(in.Text) == "" && len(in.Attachments) == 0
+}
+
+const maxTitleRunes = 128
+
+// spaceTitle cleans a platform group title, which any group admin controls,
+// before it names a space and its principal: one line, no control or
+// invisible characters, bounded length.
+func spaceTitle(s string) string {
+	var b strings.Builder
+	gap := false
+	for _, r := range s {
+		switch {
+		case unicode.IsSpace(r):
+			gap = b.Len() > 0
+			continue
+		case unicode.IsControl(r), unicode.Is(unicode.Cf, r), invisible(r):
+			continue
+		}
+		if gap {
+			b.WriteByte(' ')
+			gap = false
+		}
+		b.WriteRune(r)
+	}
+	return truncateRunes(b.String(), maxTitleRunes)
 }
 
 func (h *Hub) instanceOwner(ctx context.Context) (*core.User, bool) {
@@ -523,6 +569,6 @@ func (h *Hub) drainChat(key string, q *chatQueue) {
 		job := q.jobs[0]
 		q.jobs = q.jobs[1:]
 		h.mu.Unlock()
-		job(h.ctx)
+		h.contain("chat work", func() { job(h.ctx) })
 	}
 }
