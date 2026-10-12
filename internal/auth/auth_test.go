@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -241,20 +242,20 @@ func TestPHCFormat(t *testing.T) {
 	if !strings.HasPrefix(phc, "$argon2id$v=19$m=8192,t=1,p=1$") {
 		t.Fatalf("phc = %s", phc)
 	}
-	if ok, err := h.verify(ctx, phc, goodPassword); !ok || err != nil {
+	if ok, err := h.verifyHeld(phc, goodPassword); !ok || err != nil {
 		t.Fatalf("verify = %v, %v", ok, err)
 	}
-	if ok, _ := h.verify(ctx, phc, goodPassword+"x"); ok {
+	if ok, _ := h.verifyHeld(phc, goodPassword+"x"); ok {
 		t.Fatal("wrong password verified")
 	}
 	// Parameters come from the stored hash, not from the hasher.
 	h2 := newHasher(argonParams{memory: 19456, time: 2, threads: 1})
-	if ok, _ := h2.verify(ctx, phc, goodPassword); !ok {
+	if ok, _ := h2.verifyHeld(phc, goodPassword); !ok {
 		t.Fatal("old parameters no longer verify")
 	}
 	for _, bad := range []string{"", "$argon2i$v=19$m=8192,t=1,p=1$c2FsdHNhbHQ$aGFzaGhhc2hoYXNoaGFzaA",
 		"$argon2id$v=19$m=99999999,t=1,p=1$c2FsdHNhbHQ$aGFzaGhhc2hoYXNoaGFzaA"} {
-		if _, err := h.verify(ctx, bad, "x"); !errors.Is(err, errPHC) {
+		if _, err := h.verifyHeld(bad, "x"); !errors.Is(err, errPHC) {
 			t.Errorf("verify(%q) = %v", bad, err)
 		}
 	}
@@ -303,6 +304,38 @@ func TestLoginAndLockout(t *testing.T) {
 	acts := e.audit.Actions()
 	if !slices.Contains(acts, "auth.lockout") || !slices.Contains(acts, "auth.login_failed") {
 		t.Fatalf("audit = %v", acts)
+	}
+}
+
+// Guesses sent all at once, from many addresses, must not slip past the
+// lock that the fifth failure sets.
+func TestConcurrentGuessesHitLockout(t *testing.T) {
+	e := newEnv(t)
+	e.owner(t)
+	const n = 24
+	errs := make(chan error, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _, err := e.s.Login(ctx, "owner", "wrong password!", "198.51.100."+strconv.Itoa(i+1))
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	tried := 0
+	for err := range errs {
+		switch {
+		case isUnauthenticated(err):
+			tried++
+		case retryAfter(err) == 0:
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+	if tried != 5 {
+		t.Fatalf("%d of %d concurrent guesses were checked, want 5 before the lock", tried, n)
 	}
 }
 
@@ -468,6 +501,52 @@ func TestTokens(t *testing.T) {
 	e.clock.Advance(time.Hour)
 	if _, err := e.s.FromBearer(ctx, plain); !isUnauthenticated(err) {
 		t.Fatalf("expired token: %v", err)
+	}
+}
+
+// strictAuditor and ctxUsers refuse canceled contexts, as the synchronous
+// SQLite writes behind them would.
+type strictAuditor struct{ *fakes.Auditor }
+
+func (a strictAuditor) Record(c context.Context, e core.AuditEntry) error {
+	if err := c.Err(); err != nil {
+		return err
+	}
+	return a.Auditor.Record(c, e)
+}
+
+type ctxUsers struct{ core.UserRepo }
+
+func (u ctxUsers) RecordLogin(c context.Context, id core.UserID, ok bool, until time.Time) error {
+	if err := c.Err(); err != nil {
+		return err
+	}
+	return u.UserRepo.RecordLogin(c, id, ok, until)
+}
+
+type ctxStore struct{ core.Store }
+
+func (s ctxStore) Users() core.UserRepo { return ctxUsers{s.Store.Users()} }
+
+// A client that hangs up once the hash has run must still be charged the
+// failure, and the audit trail must keep it.
+func TestFailureRecordsSurviveCancellation(t *testing.T) {
+	e := newEnv(t)
+	owner := e.owner(t)
+	e.s.audit = strictAuditor{e.audit}
+	e.s.store = ctxStore{e.store}
+	gone, cancel := context.WithCancel(ctx)
+	cancel()
+	u, err := e.store.Users().Get(ctx, owner.User)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.s.loginFailed(gone, u, "owner", "203.0.113.5", e.clock.Now())
+	if u, _ = e.store.Users().Get(ctx, owner.User); u.FailedLogins != 1 {
+		t.Fatalf("failed logins = %d, want 1", u.FailedLogins)
+	}
+	if !slices.Contains(e.audit.Actions(), "auth.login_failed") {
+		t.Fatalf("audit = %v", e.audit.Actions())
 	}
 }
 

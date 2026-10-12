@@ -166,26 +166,40 @@ func (s *Service) revokeAllTokens(ctx context.Context, u core.UserID, now time.T
 // used to brute-force the password. All sessions are deleted; the caller
 // signs in again to rotate its cookie.
 func (s *Service) SetPassword(ctx context.Context, uid core.UserID, old, newPW string) error {
-	u, err := s.store.Users().Get(ctx, uid)
+	// As in Login, the lock check and the counted failure share the slot.
+	if err := s.hash.acquire(ctx); err != nil {
+		return err
+	}
+	u, err := s.checkOldPassword(ctx, uid, old)
+	s.hash.release()
 	if err != nil {
 		return err
-	}
-	now := s.now()
-	if now.Before(u.LockedUntil) {
-		return limited("account temporarily locked", u.LockedUntil.Sub(now))
-	}
-	ok, err := s.hash.verify(ctx, u.PWHash, old)
-	if err != nil && !errors.Is(err, errPHC) {
-		return err
-	}
-	if !ok {
-		s.loginFailed(ctx, u, u.Username, "", now)
-		return fmt.Errorf("%w: the current password is incorrect", core.ErrInvalid)
 	}
 	if old == newPW {
 		return fmt.Errorf("%w: the new password must differ from the current one", core.ErrInvalid)
 	}
 	return s.replacePassword(ctx, u, newPW, "user:"+string(uid), "web")
+}
+
+// checkOldPassword runs with the hashing slot held.
+func (s *Service) checkOldPassword(ctx context.Context, uid core.UserID, old string) (*core.User, error) {
+	u, err := s.store.Users().Get(ctx, uid)
+	if err != nil {
+		return nil, err
+	}
+	now := s.now()
+	if now.Before(u.LockedUntil) {
+		return nil, limited("account temporarily locked", u.LockedUntil.Sub(now))
+	}
+	ok, err := s.hash.verifyHeld(u.PWHash, old)
+	if err != nil && !errors.Is(err, errPHC) {
+		return nil, err
+	}
+	if !ok {
+		s.loginFailed(ctx, u, u.Username, "", now)
+		return nil, fmt.Errorf("%w: the current password is incorrect", core.ErrInvalid)
+	}
+	return u, nil
 }
 
 // ResetPassword sets a password without the old one (offline CLI).

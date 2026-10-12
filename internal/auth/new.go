@@ -85,7 +85,8 @@ func (s *Service) conf() *config.Config { return s.cfg.Current() }
 
 // record writes an audit row; failures are logged, never returned, so a
 // broken audit sink cannot lock every user out. A detail "ip" goes to the
-// row's ip column.
+// row's ip column. The event already happened, so the caller's cancellation
+// (a client hanging up) does not drop the row.
 func (s *Service) record(ctx context.Context, actor, action, target, outcome string, detail map[string]any) {
 	if s.audit == nil {
 		return
@@ -100,7 +101,7 @@ func (s *Service) record(ctx context.Context, actor, action, target, outcome str
 			e.Detail = b
 		}
 	}
-	if err := s.audit.Record(ctx, e); err != nil {
+	if err := s.audit.Record(context.WithoutCancel(ctx), e); err != nil {
 		s.log.Error("audit record failed", "action", action, "err", err)
 	}
 }

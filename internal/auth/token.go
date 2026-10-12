@@ -189,7 +189,7 @@ func (s *Service) FromBearer(ctx context.Context, token string) (core.Actor, err
 			s.log.Warn("touch token", "err", err)
 		}
 	}
-	v, err := s.ViewerFor(ctx, u.ID)
+	v, err := s.viewerOf(ctx, u)
 	if err != nil {
 		return core.Actor{}, err
 	}

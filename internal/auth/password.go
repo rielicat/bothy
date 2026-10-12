@@ -76,48 +76,38 @@ func (h *hasher) acquire(ctx context.Context) error {
 
 func (h *hasher) release() { <-h.slot }
 
-func (h *hasher) key(ctx context.Context, pw string, salt []byte, p argonParams) ([]byte, error) {
-	if err := h.acquire(ctx); err != nil {
-		return nil, err
-	}
-	defer h.release()
-	return argon2.IDKey([]byte(pw), salt, p.time, p.memory, p.threads, keyLen), nil
+func derive(pw string, salt []byte, p argonParams) []byte {
+	return argon2.IDKey([]byte(pw), salt, p.time, p.memory, p.threads, keyLen)
 }
 
 // hash returns a PHC string: $argon2id$v=19$m=19456,t=2,p=1$<salt>$<key>.
 func (h *hasher) hash(ctx context.Context, pw string) (string, error) {
 	salt := make([]byte, saltLen)
 	_, _ = rand.Read(salt)
-	k, err := h.key(ctx, pw, salt, h.params)
-	if err != nil {
+	if err := h.acquire(ctx); err != nil {
 		return "", err
 	}
+	k := derive(pw, salt, h.params)
+	h.release()
 	enc := base64.RawStdEncoding
 	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s", argonVersion, h.params.memory, h.params.time,
 		h.params.threads, enc.EncodeToString(salt), enc.EncodeToString(k)), nil
 }
 
-// verify checks pw against a stored PHC string using the parameters recorded
-// in it, so hashes made before a parameter change stay valid.
-func (h *hasher) verify(ctx context.Context, phc, pw string) (bool, error) {
+// verifyHeld checks pw against a stored PHC string using the parameters
+// recorded in it, so hashes made before a parameter change stay valid. The
+// caller holds the slot.
+func (h *hasher) verifyHeld(phc, pw string) (bool, error) {
 	p, salt, want, err := parsePHC(phc)
 	if err != nil {
 		return false, err
 	}
-	got, err := h.key(ctx, pw, salt, p)
-	if err != nil {
-		return false, err
-	}
-	return subtle.ConstantTimeCompare(got, want) == 1, nil
+	return subtle.ConstantTimeCompare(derive(pw, salt, p), want) == 1, nil
 }
 
-func (h *hasher) dummyVerify(ctx context.Context, pw string) error {
-	got, err := h.key(ctx, pw, h.dummySalt, h.params)
-	if err != nil {
-		return err
-	}
-	subtle.ConstantTimeCompare(got, h.dummyKey)
-	return nil
+// dummyHeld spends the time of a verification; the caller holds the slot.
+func (h *hasher) dummyHeld(pw string) {
+	subtle.ConstantTimeCompare(derive(pw, h.dummySalt, h.params), h.dummyKey)
 }
 
 var errPHC = errors.New("auth: malformed password hash")

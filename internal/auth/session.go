@@ -16,43 +16,20 @@ const cookieLen = 43
 // usernames run a dummy derivation so timing does not reveal them, and
 // failures count against both the username and the client address.
 func (s *Service) Login(ctx context.Context, username, password, ip string) (string, core.Actor, error) {
-	now := s.now()
-	ipKey, nameKey := "ip:"+ip, "name:"+strings.ToLower(username)
-	if d := s.locks.locked(ipKey, now); ip != "" && d > 0 {
+	ipKey := "ip:" + ip
+	if d := s.locks.locked(ipKey, s.now()); ip != "" && d > 0 {
 		return "", core.Actor{}, limited("too many failed sign-in attempts", d)
 	}
-	u, err := s.store.Users().ByUsername(ctx, username)
-	switch {
-	case errors.Is(err, core.ErrNotFound):
-		u = nil
-	case err != nil:
+	// The lockout checks, the derivation and the recorded outcome share the
+	// hashing slot: otherwise a burst of concurrent guesses would all pass
+	// the checks before the first failure is counted.
+	if err := s.hash.acquire(ctx); err != nil {
 		return "", core.Actor{}, err
 	}
-	if u != nil && now.Before(u.LockedUntil) {
-		return "", core.Actor{}, limited("account temporarily locked", u.LockedUntil.Sub(now))
-	}
-	if d := s.locks.locked(nameKey, now); d > 0 {
-		return "", core.Actor{}, limited("account temporarily locked", d)
-	}
-	ok := false
-	if u != nil && len(password) <= maxPassword {
-		ok, err = s.hash.verify(ctx, u.PWHash, password)
-		if err != nil && !errors.Is(err, errPHC) {
-			return "", core.Actor{}, err
-		}
-	} else if err := s.hash.dummyVerify(ctx, password); err != nil {
+	u, err := s.checkLogin(ctx, username, password, ip)
+	s.hash.release()
+	if err != nil {
 		return "", core.Actor{}, err
-	}
-	if !ok || u.Disabled {
-		s.loginFailed(ctx, u, username, ip, now)
-		return "", core.Actor{}, errCredentials
-	}
-	s.locks.reset(ipKey)
-	s.locks.reset(nameKey)
-	if u.FailedLogins > 0 || !u.LockedUntil.IsZero() {
-		if err := s.store.Users().RecordLogin(ctx, u.ID, true, time.Time{}); err != nil {
-			return "", core.Actor{}, err
-		}
 	}
 	cookie, a, err := s.startSession(ctx, u, ip)
 	if err != nil {
@@ -60,6 +37,49 @@ func (s *Service) Login(ctx context.Context, username, password, ip string) (str
 	}
 	s.record(ctx, userTarget(u.ID), "auth.login", userTarget(u.ID), "ok", map[string]any{"ip": ip})
 	return cookie, a, nil
+}
+
+// checkLogin runs with the hashing slot held.
+func (s *Service) checkLogin(ctx context.Context, username, password, ip string) (*core.User, error) {
+	now := s.now()
+	ipKey, nameKey := "ip:"+ip, "name:"+strings.ToLower(username)
+	if d := s.locks.locked(ipKey, now); ip != "" && d > 0 {
+		return nil, limited("too many failed sign-in attempts", d)
+	}
+	u, err := s.store.Users().ByUsername(ctx, username)
+	switch {
+	case errors.Is(err, core.ErrNotFound):
+		u = nil
+	case err != nil:
+		return nil, err
+	}
+	if u != nil && now.Before(u.LockedUntil) {
+		return nil, limited("account temporarily locked", u.LockedUntil.Sub(now))
+	}
+	if d := s.locks.locked(nameKey, now); d > 0 {
+		return nil, limited("account temporarily locked", d)
+	}
+	ok := false
+	if u != nil && len(password) <= maxPassword {
+		ok, err = s.hash.verifyHeld(u.PWHash, password)
+		if err != nil && !errors.Is(err, errPHC) {
+			return nil, err
+		}
+	} else {
+		s.hash.dummyHeld(password)
+	}
+	if !ok || u.Disabled {
+		s.loginFailed(ctx, u, username, ip, now)
+		return nil, errCredentials
+	}
+	s.locks.reset(ipKey)
+	s.locks.reset(nameKey)
+	if u.FailedLogins > 0 || !u.LockedUntil.IsZero() {
+		if err := s.store.Users().RecordLogin(ctx, u.ID, true, time.Time{}); err != nil {
+			return nil, err
+		}
+	}
+	return u, nil
 }
 
 func (s *Service) loginFailed(ctx context.Context, u *core.User, username, ip string, now time.Time) {
@@ -76,7 +96,8 @@ func (s *Service) loginFailed(ctx context.Context, u *core.User, username, ip st
 		if lockName > 0 {
 			until = now.Add(lockName)
 		}
-		if err := s.store.Users().RecordLogin(ctx, u.ID, false, until); err != nil {
+		// Persist the failure even if the client hung up after the hash ran.
+		if err := s.store.Users().RecordLogin(context.WithoutCancel(ctx), u.ID, false, until); err != nil {
 			s.log.Error("record failed login", "err", err)
 		}
 	} else {
@@ -107,7 +128,7 @@ func (s *Service) startSession(ctx context.Context, u *core.User, ip string) (st
 	if err := s.store.AuthSessions().Create(ctx, sess); err != nil {
 		return "", core.Actor{}, err
 	}
-	v, err := s.ViewerFor(ctx, u.ID)
+	v, err := s.viewerOf(ctx, u)
 	if err != nil {
 		return "", core.Actor{}, err
 	}
@@ -158,7 +179,7 @@ func (s *Service) FromCookie(ctx context.Context, cookie string) (core.Actor, er
 			s.log.Warn("touch session", "err", err)
 		}
 	}
-	v, err := s.ViewerFor(ctx, u.ID)
+	v, err := s.viewerOf(ctx, u)
 	if err != nil {
 		return core.Actor{}, err
 	}
@@ -193,11 +214,17 @@ func (s *Service) ViewerFor(ctx context.Context, u core.UserID) (core.Viewer, er
 	if err != nil {
 		return core.Viewer{}, err
 	}
-	ps, err := s.store.Principals().ForUser(ctx, u)
+	return s.viewerOf(ctx, user)
+}
+
+// viewerOf is ViewerFor for a user row already loaded by the caller (every
+// authenticated request has one).
+func (s *Service) viewerOf(ctx context.Context, user *core.User) (core.Viewer, error) {
+	ps, err := s.store.Principals().ForUser(ctx, user.ID)
 	if err != nil {
 		return core.Viewer{}, err
 	}
-	v := core.Viewer{User: u, Admin: user.Role.IsAdmin(), Principals: make([]core.PrincipalID, 0, len(ps))}
+	v := core.Viewer{User: user.ID, Admin: user.Role.IsAdmin(), Principals: make([]core.PrincipalID, 0, len(ps))}
 	for _, p := range ps {
 		v.Principals = append(v.Principals, p.ID)
 	}
