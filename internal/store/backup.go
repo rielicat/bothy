@@ -3,6 +3,7 @@ package store
 import (
 	"archive/tar"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -65,7 +66,10 @@ func (db *DB) Backup(ctx context.Context, dir string) (string, error) {
 	return final, nil
 }
 
-// snapshot writes a consistent copy of the database into dir with VACUUM INTO.
+// snapshot writes a consistent copy of the database into dir with VACUUM INTO,
+// on a connection of its own: on the writer it would stall every write for as
+// long as the copy takes, and the readers are query_only, which VACUUM INTO
+// refuses. In WAL mode its read transaction does not block the writer.
 func (db *DB) snapshot(ctx context.Context, dir string) (string, error) {
 	f, err := os.CreateTemp(dir, ".bothy-*.db.tmp")
 	if err != nil {
@@ -82,7 +86,14 @@ func (db *DB) snapshot(ctx context.Context, dir string) (string, error) {
 		os.Remove(p)
 		return "", fmt.Errorf("store: backup: %w", err)
 	}
-	if _, err := db.w.ExecContext(ctx, "VACUUM INTO ?", p); err != nil {
+	conn, err := sql.Open("sqlite", dsn(db.path, false))
+	if err != nil {
+		os.Remove(p)
+		return "", fmt.Errorf("store: backup: %w", err)
+	}
+	defer conn.Close()
+	conn.SetMaxOpenConns(1)
+	if _, err := conn.ExecContext(ctx, "VACUUM INTO ?", p); err != nil {
 		os.Remove(p)
 		return "", dbErr("backup snapshot", err)
 	}
@@ -107,8 +118,8 @@ func (db *DB) writeBackup(w io.Writer, snap string) error {
 	}
 	err = fs.WalkDir(root.FS(), "memory", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) && p == "memory" {
-				return fs.SkipDir
+			if errors.Is(err, fs.ErrNotExist) {
+				return fs.SkipDir // no memory yet, or a principal's directory removed mid-walk
 			}
 			return err
 		}
@@ -140,7 +151,9 @@ func addFile(tw *tar.Writer, name, path string, mod time.Time) error {
 }
 
 // addRootFile copies a regular file from the data directory; a missing file
-// or anything that is not a regular file (symlinks included) is skipped.
+// or anything that is not a regular file (symlinks included) is skipped. The
+// memory service replaces files by rename while a backup runs, so a file may
+// vanish after the walk saw it, and the size comes from the opened file.
 func addRootFile(tw *tar.Writer, root *os.Root, name string) error {
 	fi, err := root.Lstat(name)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -153,10 +166,19 @@ func addRootFile(tw *tar.Writer, root *os.Root, name string) error {
 		return nil
 	}
 	f, err := root.Open(name)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("store: backup: %w", err)
 	}
 	defer f.Close()
+	if fi, err = f.Stat(); err != nil {
+		return fmt.Errorf("store: backup: %w", err)
+	}
+	if !fi.Mode().IsRegular() {
+		return nil
+	}
 	return copyEntry(tw, filepath.ToSlash(name), fi.Size(), fi.ModTime(), f)
 }
 

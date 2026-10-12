@@ -25,6 +25,12 @@ func TestIDOR(t *testing.T) {
 	w.must(w.db.Runs().AddToolCall(w.ctx, &core.ToolCallRecord{Run: run.ID, Session: s.ID, Principal: p, Tool: "fs_read", Source: "builtin", SideEffect: core.SERead, Status: core.TCOK}))
 	apr := &core.Approval{Run: run.ID, Session: s.ID, Principal: p, Status: core.ApprovalPending, OnTimeout: core.TimeoutDeny, Approver: core.ApproverReq{User: owner.ID}, Card: core.Card{Risk: core.SEExternalSend}}
 	w.must(w.db.Approvals().Create(w.ctx, apr))
+	decided := &core.Approval{Run: run.ID, Session: s.ID, Principal: p, Status: core.ApprovalAllowed, OnTimeout: core.TimeoutDeny, Approver: core.ApproverReq{User: owner.ID}, Card: core.Card{Risk: core.SEExternalSend}}
+	w.must(w.db.Approvals().Create(w.ctx, decided))
+	w.must(w.db.Egress().Add(w.ctx, []core.EgressRecord{
+		{At: t0, Dialer: "box", Session: s.ID, Principal: p, Host: "a.example", Port: 443, Decision: "allow"},
+		{At: t0, Dialer: "system", Dest: "anthropic", Host: "api.anthropic.com", Port: 443, Decision: "allow"},
+	}))
 	grant := &core.Grant{Principal: p, Scope: core.GrantSession, ScopeID: string(s.ID), Kind: core.GrantDomain, Value: "a.example:443", MaxSE: core.SEExternalSend}
 	w.must(w.db.Grants().Add(w.ctx, grant))
 	sch := &core.Schedule{Principal: p, Name: "s", Kind: core.SchedCron, Spec: "0 9 * * *", TZ: "UTC", Prompt: "x", MissedRun: "skip", CreatedBy: "system"}
@@ -73,8 +79,18 @@ func TestIDOR(t *testing.T) {
 			return len(x), err
 		},
 		"Approvals.Pending": func(v core.Viewer) (int, error) { x, err := w.db.Approvals().Pending(w.ctx, v); return len(x), err },
-		"Grants.List":       func(v core.Viewer) (int, error) { x, err := w.db.Grants().List(w.ctx, v, "", ""); return len(x), err },
-		"Schedules.List":    func(v core.Viewer) (int, error) { x, err := w.db.Schedules().List(w.ctx, v); return len(x), err },
+		"Approvals.Recent": func(v core.Viewer) (int, error) {
+			x, err := w.db.Approvals().Recent(w.ctx, v, core.Page{})
+			return len(x), err
+		},
+		// Scoped to the session: admins also see the system-dialer row, which
+		// belongs to no principal and no session.
+		"Egress.Query": func(v core.Viewer) (int, error) {
+			x, err := w.db.Egress().Query(w.ctx, v, s.ID, core.Page{})
+			return len(x), err
+		},
+		"Grants.List":    func(v core.Viewer) (int, error) { x, err := w.db.Grants().List(w.ctx, v, "", ""); return len(x), err },
+		"Schedules.List": func(v core.Viewer) (int, error) { x, err := w.db.Schedules().List(w.ctx, v); return len(x), err },
 	}
 
 	adminV := viewerOf(admin)
