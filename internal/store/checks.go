@@ -148,7 +148,7 @@ func (db *DB) checkBackups(context.Context) []core.Finding {
 	}
 	for _, e := range entries {
 		n := e.Name()
-		if !(strings.HasPrefix(n, "bothy-") && strings.HasSuffix(n, ".tar")) {
+		if !strings.HasPrefix(n, "bothy-") || !strings.HasSuffix(n, ".tar") {
 			continue
 		}
 		if fi, err := e.Info(); err == nil && fi.ModTime().After(newest) {

@@ -112,7 +112,7 @@ func (v *Vault) boot(ctx context.Context, spec string) error {
 	plan, err := v.planKEK(spec)
 	if err != nil {
 		v.setSealed(plan, "configuration: "+err.Error())
-		return nil
+		return nil //nolint:nilerr // sealed, not fatal: see above
 	}
 	v.plan = plan
 	if plan.source != srcEnv && v.envVar(kekEnv) != "" {
@@ -130,7 +130,7 @@ func (v *Vault) boot(ctx context.Context, spec string) error {
 	kek, err := v.loadKEK(plan, first)
 	if err != nil {
 		v.setSealed(plan, "KEK unavailable: "+err.Error())
-		return nil
+		return nil //nolint:nilerr // sealed, not fatal: see above
 	}
 	if first {
 		dek := newKey()
@@ -160,7 +160,7 @@ func (v *Vault) boot(ctx context.Context, spec string) error {
 	dek, err := unwrapBlob(kek, wrapped)
 	if err != nil {
 		v.setSealed(plan, "the wrapped DEK could not be decrypted")
-		return nil
+		return nil //nolint:nilerr // sealed, not fatal: see above
 	}
 	v.setOpen(plan, kek, dek, id)
 	v.loadSecrets(ctx)
