@@ -354,7 +354,8 @@ func resultText(res *mcpsdk.CallToolResult) string {
 	}
 	out := b.String()
 	if len(out) > maxResultBytes {
-		out = out[:maxResultBytes] + "\n[… output truncated]"
+		// The cut may split a rune; drop its leftover bytes.
+		out = strings.ToValidUTF8(out[:maxResultBytes], "") + "\n[… output truncated]"
 	}
 	return out
 }

@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -430,4 +431,15 @@ func TestSandboxWatchCallbackDoesNotCallBack(t *testing.T) {
 		defer inst.mu.Unlock()
 		return inst.c == nil
 	})
+}
+
+func TestResultTextTruncatesOnRuneBoundary(t *testing.T) {
+	text := strings.Repeat("a", maxResultBytes-1) + "é" + strings.Repeat("b", 100)
+	got := resultText(&mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: text}}})
+	if !utf8.ValidString(got) || !strings.HasSuffix(got, "[… output truncated]") || len(got) > maxResultBytes+64 {
+		t.Fatalf("truncated result: valid %v, %d bytes", utf8.ValidString(got), len(got))
+	}
+	if !utf8.ValidString(truncate("ab€", 3)) {
+		t.Fatal("truncate split a rune")
+	}
 }
