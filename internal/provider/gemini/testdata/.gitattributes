@@ -1,0 +1,2 @@
+# Gemini terminates SSE events with CRLF; keep the bytes as sent.
+*.sse -text
