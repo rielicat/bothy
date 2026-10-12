@@ -30,6 +30,9 @@ var (
 // corrupt key is an error rather than a silent rotation, which would make
 // every delivered card button fail without explanation.
 func loadMACKey(ctx context.Context, meta core.MetaRepo) ([]byte, error) {
+	if meta == nil {
+		return nil, errors.New("policy: the store has no meta repository for the approval MAC key")
+	}
 	v, err := meta.Get(ctx, metaMACKey)
 	switch {
 	case err == nil:
