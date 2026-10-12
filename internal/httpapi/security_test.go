@@ -123,7 +123,7 @@ func TestForwardedForOnlyFromTrustedProxies(t *testing.T) {
 		expect(t, rec, http.StatusOK)
 		for _, e := range h.audit.All()[before:] {
 			if e.Action == "auth.login" {
-				return string(e.Detail)
+				return e.IP
 			}
 		}
 		t.Fatal("no auth.login audit row")

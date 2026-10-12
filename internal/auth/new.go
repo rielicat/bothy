@@ -84,12 +84,17 @@ func (s *Service) now() time.Time { return s.clock.Now() }
 func (s *Service) conf() *config.Config { return s.cfg.Current() }
 
 // record writes an audit row; failures are logged, never returned, so a
-// broken audit sink cannot lock every user out.
+// broken audit sink cannot lock every user out. A detail "ip" goes to the
+// row's ip column.
 func (s *Service) record(ctx context.Context, actor, action, target, outcome string, detail map[string]any) {
 	if s.audit == nil {
 		return
 	}
 	e := core.AuditEntry{At: s.now(), Actor: actor, Action: action, Target: target, Outcome: outcome, Detail: json.RawMessage("{}")}
+	if ip, ok := detail["ip"].(string); ok {
+		e.IP = ip
+		delete(detail, "ip")
+	}
 	if len(detail) > 0 {
 		if b, err := json.Marshal(detail); err == nil {
 			e.Detail = b

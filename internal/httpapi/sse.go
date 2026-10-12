@@ -45,6 +45,15 @@ func (t *sseTracker) add(u core.UserID, cancel context.CancelFunc) uint64 {
 	return id
 }
 
+// closeUser ends every stream of a user whose access was just revoked.
+func (t *sseTracker) closeUser(u core.UserID) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, cancel := range t.conns[u] {
+		cancel()
+	}
+}
+
 func (t *sseTracker) remove(u core.UserID, id uint64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()

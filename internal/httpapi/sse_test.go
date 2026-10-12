@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/bothyhq/bothy/internal/core"
+	"github.com/bothyhq/bothy/internal/httpapi/dto"
 )
 
 type sseFrame struct {
@@ -339,5 +340,18 @@ func TestSSEOverflowResyncsAndCloses(t *testing.T) {
 	}
 	if !strings.Contains(bw.String(), "event: resync") {
 		t.Fatalf("no resync frame in %q", bw.String()[:min(len(bw.String()), 400)])
+	}
+}
+
+func TestSSEClosedWhenUserDisabled(t *testing.T) {
+	h := newHarness(t).setup()
+	srv := h.server(t)
+	c := h.openSSE(t, srv, h.member, "")
+	c.next(t)
+	off := true
+	rec := h.do("PATCH", "/api/users/"+string(h.member.user), dto.UserPatchReq{Disabled: &off}, h.admin)
+	expect(t, rec, http.StatusOK)
+	if !c.closed(t) {
+		t.Fatal("stream of a disabled user stayed open")
 	}
 }

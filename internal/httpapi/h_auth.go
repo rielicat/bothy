@@ -260,6 +260,9 @@ func (s *Server) patchUser(w http.ResponseWriter, r *http.Request, a core.Actor)
 	if err != nil {
 		return err
 	}
+	if u.Disabled {
+		s.sse.closeUser(u.ID)
+	}
 	return ok(w, u)
 }
 
@@ -288,6 +291,7 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request, a core.Actor
 			return err
 		}
 	}
+	s.sse.closeUser(u.ID)
 	if purge {
 		if err := s.purgeUser(r, a, u); err != nil {
 			return err

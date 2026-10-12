@@ -10,6 +10,9 @@ import (
 const (
 	skillZipMax = 5 << 20
 	imageMax    = 5 << 20
+	// v1BodyMax fits three maximum-size images as base64 data URIs plus text;
+	// /v1 bodies are read whole, so the cap also bounds memory per request.
+	v1BodyMax = 3*(imageMax*4/3) + 1<<20
 )
 
 // routeTable is SPEC §8.3. Access classes: accessUser = cookie or bearer
@@ -146,7 +149,7 @@ func (s *Server) routeTable() []route {
 		{pattern: "POST /api/security-audit", access: accessAdmin, safe: true, h: s.securityAudit},
 
 		{pattern: "GET /v1/models", access: accessV1, h: s.v1Models},
-		{pattern: "POST /v1/chat/completions", access: accessV1, h: s.v1ChatCompletions, limit: 8*imageMax + 1<<20},
+		{pattern: "POST /v1/chat/completions", access: accessV1, h: s.v1ChatCompletions, limit: v1BodyMax},
 
 		{pattern: "GET /{path...}", access: accessNone, safe: true, h: s.spa},
 	}

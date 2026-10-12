@@ -102,10 +102,11 @@ func (s *Service) mintSetupToken(ctx context.Context) (string, error) {
 	var b [32]byte
 	_, _ = rand.Read(b[:])
 	tok := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b[:])
-	exp := s.now().Add(s.conf().Auth.SetupTokenTTL.D())
-	if s.conf().Auth.SetupTokenTTL.D() <= 0 {
-		exp = s.now().Add(24 * time.Hour)
+	ttl := s.conf().Auth.SetupTokenTTL.D()
+	if ttl <= 0 {
+		ttl = 24 * time.Hour
 	}
+	exp := s.now().Add(ttl)
 	if err := s.writeTokenFile(tok); err != nil {
 		return "", err
 	}
