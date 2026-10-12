@@ -52,7 +52,8 @@ func openRoot(env *core.ToolEnv) (*os.Root, error) {
 	}
 	r, err := os.OpenRoot(env.Workspace)
 	if err != nil {
-		return nil, fmt.Errorf("open workspace: %w", err)
+		// The model sees this error; it must not learn the host path.
+		return nil, fsErr("workspace", err)
 	}
 	return r, nil
 }

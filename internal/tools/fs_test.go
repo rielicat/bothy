@@ -431,3 +431,19 @@ func TestFSReadHonoursCancellation(t *testing.T) {
 		t.Errorf("read: %v %+v", err, res)
 	}
 }
+
+func TestFSErrorsHideHostPaths(t *testing.T) {
+	env, ws := workspace(t)
+	env.Workspace = filepath.Join(ws, "missing-workspace")
+	for tool, args := range map[core.Tool]string{
+		fsRead{}:   `{"path":"top.txt"}`,
+		fsWrite{}:  `{"path":"top.txt","content":"x"}`,
+		fsList{}:   `{"path":"notes"}`,
+		fsDelete{}: `{"path":"top.txt"}`,
+	} {
+		_, err := plan(t, tool, env, args)
+		if err == nil || strings.Contains(err.Error(), ws) || !strings.Contains(err.Error(), "workspace") {
+			t.Errorf("%s: %v", tool.Spec().Def.Name, err)
+		}
+	}
+}
