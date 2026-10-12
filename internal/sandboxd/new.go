@@ -25,7 +25,7 @@ func Main(ctx context.Context, args []string, env func() []string) error {
 		// assume a Linux engine host.
 		return errors.New("sandboxd runs only on Linux")
 	}
-	cfg, err := parseConfig(env())
+	cfg, err := ParseConfig(env())
 	if err != nil {
 		return err
 	}
@@ -34,12 +34,18 @@ func Main(ctx context.Context, args []string, env func() []string) error {
 		return err
 	}
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil)).With("component", "sandboxd")
-	d := newDaemon(cfg, engineClient{cli}, log, time.Now)
 	ln, err := listenSocket(cfg.Socket, cfg.RunDir)
 	if err != nil {
 		return err
 	}
-	return d.serve(ctx, &credListener{Listener: ln, uid: cfg.GatewayUID, log: log})
+	return Serve(ctx, cfg, cli, &credListener{Listener: ln, uid: cfg.GatewayUID, log: log}, log)
+}
+
+// Serve runs the API on ln against eng until ctx ends. Main adds the real
+// engine client, the socket and the peer-credential check; tests pass an
+// enginetest.Fake.
+func Serve(ctx context.Context, cfg Config, eng Engine, ln net.Listener, log *slog.Logger) error {
+	return newDaemon(cfg, eng, log, time.Now).serve(ctx, ln)
 }
 
 // serve runs the API on ln until ctx ends, plus the start-up cleanup, the

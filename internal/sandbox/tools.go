@@ -250,7 +250,9 @@ func writeScript(env *core.ToolEnv, p execPayload) error {
 		return fmt.Errorf("python: %w", err)
 	}
 	defer root.Close()
-	if err := root.MkdirAll(scriptDir, sharedDir); err != nil {
+	// os.Root takes permission bits only; inside the setgid workspace Linux
+	// gives new directories the setgid bit and group 10001 anyway.
+	if err := root.MkdirAll(scriptDir, 0o770); err != nil {
 		return fmt.Errorf("python: %w", err)
 	}
 	f, err := root.OpenFile(p.Argv[1], os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o660)

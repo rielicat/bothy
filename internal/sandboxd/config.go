@@ -36,7 +36,8 @@ var (
 	pinnedRefRE = regexp.MustCompile(`^([a-z0-9][a-z0-9._:/-]{0,254}@)?sha256:[0-9a-f]{64}$`)
 )
 
-func parseConfig(environ []string) (Config, error) {
+// ParseConfig reads the BOTHY_SBX_* variables of environ.
+func ParseConfig(environ []string) (Config, error) {
 	env := map[string]string{}
 	for _, kv := range environ {
 		if k, v, ok := strings.Cut(kv, "="); ok && strings.HasPrefix(k, "BOTHY_SBX_") {

@@ -294,7 +294,7 @@ func (c *Client) ExecInspect(ctx context.Context, id string) (ExecInspect, error
 // ExecStart starts an exec and hijacks the connection: the returned stream
 // carries stdin to the process and the multiplexed stdout/stderr frames back
 // (see Demux). Cancelling ctx closes the stream.
-func (c *Client) ExecStart(ctx context.Context, id string) (*Stream, error) {
+func (c *Client) ExecStart(ctx context.Context, id string) (ExecStream, error) {
 	conn, err := c.dial(ctx, "unix", c.sock)
 	if err != nil {
 		return nil, err

@@ -75,7 +75,19 @@ func Program() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("seccomp: %w", err)
 	}
-	raw, err := bpf.Assemble(insts)
+	info, err := arch.GetInfo("")
+	if err != nil {
+		return nil, err
+	}
+	// Assemble sends syscalls of a foreign architecture (i386 on amd64,
+	// aarch32 on arm64) straight to the default action, which is allow here:
+	// that would bypass the deny list, so they kill the process instead.
+	guard := []bpf.Instruction{
+		bpf.LoadAbsolute{Off: 4, Size: 4}, // seccomp_data.arch
+		bpf.JumpIf{Cond: bpf.JumpEqual, Val: uint32(info.ID), SkipTrue: 1},
+		bpf.RetConstant{Val: uint32(seccomp.ActionKillProcess)},
+	}
+	raw, err := bpf.Assemble(append(guard, insts...))
 	if err != nil {
 		return nil, fmt.Errorf("seccomp: %w", err)
 	}

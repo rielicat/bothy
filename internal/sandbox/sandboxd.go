@@ -24,12 +24,13 @@ import (
 type sandboxdBackend struct {
 	socket string
 	hc     *http.Client
+	group  int // boxes run as 10001:10001 and the gateway shares group 10001
 }
 
 const sandboxdBase = "http://sandboxd/v" + proto.Version
 
 func newSandboxdBackend(socket string) *sandboxdBackend {
-	b := &sandboxdBackend{socket: socket}
+	b := &sandboxdBackend{socket: socket, group: proto.BoxUID}
 	b.hc = &http.Client{Transport: &http.Transport{
 		DialContext:        b.dial,
 		DisableCompression: true,
@@ -47,8 +48,7 @@ func (b *sandboxdBackend) dial(ctx context.Context, _, _ string) (net.Conn, erro
 
 func (b *sandboxdBackend) name() string { return "sandboxd" }
 
-// gid: boxes run as 10001:10001 and the gateway shares group 10001.
-func (b *sandboxdBackend) gid() int { return proto.BoxUID }
+func (b *sandboxdBackend) gid() int { return b.group }
 
 func (b *sandboxdBackend) health(ctx context.Context) (proto.Health, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)

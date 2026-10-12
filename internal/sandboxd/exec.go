@@ -158,7 +158,7 @@ func (d *daemon) beginExec(ctx context.Context, b *box, p execPlan) (*execRun, e
 	d.mu.Lock()
 	gen := b.killGen
 	d.mu.Unlock()
-	start := d.now()
+	start := time.Now() // durations use the monotonic clock, not the injected one
 	ctx, cancel := context.WithTimeout(ctx, p.timeout+killAfter+deadlineSlack)
 	execID, err := d.eng.ExecCreate(ctx, b.id, engine.ExecConfig{
 		User: boxUser, WorkingDir: workDir(p.cwd), Env: p.env, Cmd: runCmd(p.argv, p.timeout),
@@ -204,7 +204,7 @@ func (d *daemon) streamExec(r *execRun, b *box, p execPlan, fw *frameWriter) {
 	deadlineHit := errors.Is(r.ctx.Err(), context.DeadlineExceeded)
 	final := proto.Frame{Truncated: caps.truncated}
 	exit, ierr := d.awaitExit(context.WithoutCancel(r.ctx), r.id)
-	elapsed := d.now().Sub(r.start)
+	elapsed := time.Since(r.start)
 	final.Ms = elapsed.Milliseconds()
 	switch {
 	case deadlineHit:
@@ -289,7 +289,7 @@ func (d *daemon) kill(ctx context.Context, key string) (proto.KillResp, error) {
 	b.killGen++
 	id := b.id
 	d.mu.Unlock()
-	start := d.now()
+	start := time.Now()
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	killed, ok := 0, false
@@ -304,7 +304,7 @@ func (d *daemon) kill(ctx context.Context, key string) (proto.KillResp, error) {
 				ok = true
 				break
 			}
-			if d.now().Sub(start) > time.Second {
+			if time.Since(start) > time.Second {
 				break
 			}
 			time.Sleep(50 * time.Millisecond)
