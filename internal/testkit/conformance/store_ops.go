@@ -327,11 +327,12 @@ func testMemoryEvents(f *fx) {
 		{Principal: pu, File: core.FileUser, Op: "replace", Before: "tz UTC", After: "tz Europe/London", Actor: "user:" + string(u.ID), Provenance: core.ProvUser, At: at(2)},
 		{Principal: pu, File: core.FileMemory, Op: "remove", Before: "likes tea", Actor: "agent:run_y", Run: "run_y", Provenance: core.ProvUntrusted, At: at(3)},
 	}
-	for i, e := range evs {
+	var prev int64
+	for _, e := range evs {
 		id, err := r.Add(f.ctx, e)
 		f.must(err, "Add")
-		f.check(id > 0 && (i == 0 || id > evs[i-1].ID), "Add returned id %d", id)
-		e.ID = id
+		f.check(id > prev, "Add returned id %d", id)
+		e.ID, prev = id, id
 	}
 	f.must(func() error {
 		_, err := r.Add(f.ctx, &core.MemoryEvent{Principal: core.UserPrincipal(other.ID), File: core.FileMemory, Op: "add", Actor: "x", At: at(4)})

@@ -406,7 +406,7 @@ func (s *Scheduler) Preview(kind core.ScheduleKind, spec, tz string, n int) ([]t
 	case core.SchedOnce:
 		t, err := time.ParseInLocation(time.RFC3339, spec, loc)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %v", core.ErrInvalid, err)
+			return nil, fmt.Errorf("%w: %w", core.ErrInvalid, err)
 		}
 		return []time.Time{t}, nil
 	case core.SchedHeartbeat:

@@ -446,7 +446,7 @@ func validSecretName(name string) bool {
 		return false
 	}
 	for _, c := range []byte(name) {
-		if !('a' <= c && c <= 'z' || '0' <= c && c <= '9' || c == '_' || c == '.' || c == '-') {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' && c != '.' && c != '-' {
 			return false
 		}
 	}

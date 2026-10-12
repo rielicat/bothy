@@ -332,7 +332,7 @@ func snapshot(dir string) (map[string]string, error) {
 			}
 			desc += " -> " + target
 		case info.Mode().IsRegular():
-			b, err := os.ReadFile(path)
+			b, err := os.ReadFile(path) //nolint:gosec // snapshot of a test-owned temp workspace
 			if err != nil {
 				return err
 			}

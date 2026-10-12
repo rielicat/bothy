@@ -333,7 +333,7 @@ func jsonCol[T any](what string, v T) (T, error) {
 		err = json.Unmarshal(b, &out)
 	}
 	if err != nil {
-		return out, fmt.Errorf("memstore: %s: %w: %v", what, core.ErrInvalid, err)
+		return out, fmt.Errorf("memstore: %s: %w: %w", what, core.ErrInvalid, err)
 	}
 	return out, nil
 }

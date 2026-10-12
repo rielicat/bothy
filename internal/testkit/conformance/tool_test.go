@@ -41,7 +41,7 @@ func (e *echo) Plan(_ context.Context, env *core.ToolEnv, args json.RawMessage) 
 		Text string `json:"text"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
-		return nil, fmt.Errorf("%w: %v", core.ErrInvalid, err)
+		return nil, fmt.Errorf("%w: %w", core.ErrInvalid, err)
 	}
 	if in.Text == "" {
 		return nil, fmt.Errorf("%w: text is required", core.ErrInvalid)

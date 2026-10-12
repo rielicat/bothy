@@ -85,8 +85,8 @@ func healthcheck(ctx context.Context) error {
 	if listen == "" {
 		listen = "127.0.0.1:8080"
 	}
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, localURL(listen)+"/healthz", nil)
-	resp, err := http.DefaultClient.Do(req)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, localURL(listen)+"/healthz", nil) //nolint:gosec // see below
+	resp, err := http.DefaultClient.Do(req)                                                     //nolint:gosec // loopback probe built from server.listen, not user input
 	if err != nil {
 		return err
 	}

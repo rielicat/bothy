@@ -243,8 +243,8 @@ func typeMessage(f *field, n *yaml.Node) string {
 			want = "a list of integers"
 		}
 	case kScalar:
-		switch {
-		case f.typ == durationType:
+		switch f.typ {
+		case durationType:
 			want = `a duration such as "90s", "15m" or "24h"`
 		default:
 			switch f.scalarKind() {

@@ -185,7 +185,7 @@ func TestSetRejections(t *testing.T) {
 		{"locked api_base", map[string]string{"channels.telegram.api_base": `"https://evil.example"`}, "locked"},
 		{"unknown key", map[string]string{"budgets.daily_usdd": "1"}, `unknown key "daily_usdd" (did you mean "daily_usd"?)`},
 		{"type", map[string]string{"budgets.daily_usd": `"lots"`}, `expected a number, got "lots"`},
-		{"enum", map[string]string{"policy.preset": `"carefull"`}, `(did you mean "careful"?)`},
+		{"enum", map[string]string{"policy.preset": `"carefull"`}, `(did you mean "careful"?)`}, //nolint:misspell // deliberate typo under test
 		{"semantic", map[string]string{"models.main": `["antropic/x"]`}, `models.main[0]: unknown provider "antropic"`},
 		{"secret literal", map[string]string{"providers.anthropic": `{"type":"anthropic","api_key":"sk-ant-api03-secretvalue"}`},
 			"Move this secret to the vault: Settings → Vault, or `BOTHY_SECRET_ANTHROPIC_API_KEY`."},
