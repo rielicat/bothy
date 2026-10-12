@@ -60,12 +60,15 @@ func TestUnpinnedPackagesAndFetchersRejected(t *testing.T) {
 			t.Errorf("%s: newServerSpec accepted %+v", name, c)
 		}
 	}
-	good := stdioServer(func(s *config.MCPServer) { s.Egress = []string{"API.Example.com", "x.example:8443"} })
+	if _, err := newServerSpec(stdioServer(func(s *config.MCPServer) { s.Egress = []string{"*.example.com"} })); err == nil {
+		t.Error("wildcard egress accepted for a box")
+	}
+	good := stdioServer(func(s *config.MCPServer) { s.Egress = []string{"API.Example.com", "x.example:8443", "[2001:db8::1]"} })
 	spec, err := newServerSpec(good)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if spec.profile != core.ProfileNode || strings.Join(spec.egress, ",") != "api.example.com:443,x.example:8443" {
+	if spec.profile != core.ProfileNode || strings.Join(spec.egress, ",") != "api.example.com:443,x.example:8443,[2001:db8::1]:443" {
 		t.Fatalf("spec = %+v", spec)
 	}
 

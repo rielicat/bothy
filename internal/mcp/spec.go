@@ -130,14 +130,17 @@ func checkPackage(p *config.MCPPackage) error {
 	return nil
 }
 
+// normHostPort turns an egress entry into the exact host:port the box may
+// reach (port 443 by default). Wildcards are refused: box extras are exact.
 func normHostPort(s string) (string, error) {
 	host, port := strings.ToLower(s), "443"
 	if h, p, err := net.SplitHostPort(host); err == nil {
 		host, port = h, p
 	}
+	host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
 	n, err := strconv.Atoi(port)
-	if host == "" || strings.ContainsAny(host, "/@ ") || err != nil || n < 1 || n > 65535 {
-		return "", fmt.Errorf("want host or host:port")
+	if host == "" || strings.ContainsAny(host, "/@ *[]") || err != nil || n < 1 || n > 65535 {
+		return "", fmt.Errorf("want an exact host or host:port")
 	}
 	return net.JoinHostPort(host, port), nil
 }
