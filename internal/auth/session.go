@@ -18,7 +18,7 @@ const cookieLen = 43
 func (s *Service) Login(ctx context.Context, username, password, ip string) (string, core.Actor, error) {
 	now := s.now()
 	ipKey, nameKey := "ip:"+ip, "name:"+strings.ToLower(username)
-	if d := s.locks.locked(ipKey, now); d > 0 {
+	if d := s.locks.locked(ipKey, now); ip != "" && d > 0 {
 		return "", core.Actor{}, limited("too many failed sign-in attempts", d)
 	}
 	u, err := s.store.Users().ByUsername(ctx, username)
@@ -65,8 +65,10 @@ func (s *Service) Login(ctx context.Context, username, password, ip string) (str
 func (s *Service) loginFailed(ctx context.Context, u *core.User, username, ip string, now time.Time) {
 	cfg := s.conf().Auth.Lockout
 	target := username
-	lockIP := s.locks.fail("ip:"+ip, now, cfg)
-	var lockName time.Duration
+	var lockIP, lockName time.Duration
+	if ip != "" {
+		lockIP = s.locks.fail("ip:"+ip, now, cfg)
+	}
 	if u != nil {
 		target = userTarget(u.ID)
 		lockName = lockFor(u.FailedLogins+1, cfg)

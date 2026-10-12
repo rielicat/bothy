@@ -148,19 +148,16 @@ func outMessage(m core.Message) oaOutMessage {
 // translateRequest maps an OpenAI request onto core.Request so any provider
 // kind can serve it.
 func translateRequest(req oaRequest) (*core.Request, error) {
-	out := &core.Request{Model: "", Temperature: req.Temperature, ToolChoice: "auto"}
 	ref, _ := core.ParseModelRef(req.Model)
-	out.Model = ref.Model
 	n, err := maxOutput(req)
 	if err != nil {
 		return nil, err
 	}
-	out.MaxTokens = n
-	if stop, err := parseStop(req.Stop); err != nil {
+	stop, err := parseStop(req.Stop)
+	if err != nil {
 		return nil, err
-	} else {
-		out.Stop = stop
 	}
+	out := &core.Request{Model: ref.Model, Temperature: req.Temperature, ToolChoice: "auto", MaxTokens: n, Stop: stop}
 	for _, t := range req.Tools {
 		if t.Type != "function" || t.Function.Name == "" {
 			return nil, invalidParam("tools", "only function tools with a name are supported")

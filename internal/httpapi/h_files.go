@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/bothyhq/bothy/internal/core"
 	"github.com/bothyhq/bothy/internal/httpapi/dto"
@@ -38,12 +39,17 @@ func sanitizeName(name string) string {
 		}
 	}
 	out := strings.TrimLeft(strings.TrimSpace(b.String()), ".")
-	for len(out) > maxFileName {
+	if len(out) > maxFileName {
 		ext := path.Ext(out)
 		if len(ext) > 16 {
 			ext = ""
 		}
-		out = out[:maxFileName-len(ext)] + ext
+		base := strings.TrimSuffix(out, ext)
+		for len(base)+len(ext) > maxFileName {
+			_, size := utf8.DecodeLastRuneInString(base)
+			base = base[:len(base)-size]
+		}
+		out = base + ext
 	}
 	if out == "" || out == "_" {
 		return "file"
@@ -181,17 +187,19 @@ func (s *Server) storeUpload(r *http.Request, pr *core.Principal, sid core.Sessi
 	return up, nil
 }
 
-// sniffType trusts the content, not the client: the extension is used only
-// to refine generic text and binary verdicts.
+// sniffType trusts the content, not the client. The extension only refines
+// a generic verdict (plain text to text/csv, binary to a specific type), and
+// never into a type a browser would execute.
 func sniffType(name string, head []byte) string {
 	t := http.DetectContentType(head)
-	if t == "application/octet-stream" || strings.HasPrefix(t, "text/plain") {
-		if byExt := mime.TypeByExtension(path.Ext(name)); byExt != "" && !strings.HasPrefix(byExt, "text/html") &&
-			!strings.Contains(byExt, "javascript") && !strings.HasPrefix(byExt, "image/svg") {
-			if strings.HasPrefix(t, "text/plain") == strings.HasPrefix(byExt, "text/") || t == "application/octet-stream" {
-				return byExt
-			}
-		}
+	byExt := mime.TypeByExtension(path.Ext(name))
+	switch {
+	case byExt == "", strings.Contains(byExt, "html"), strings.Contains(byExt, "javascript"), strings.Contains(byExt, "svg"):
+		return t
+	case t == "application/octet-stream":
+		return byExt
+	case strings.HasPrefix(t, "text/plain") && strings.HasPrefix(byExt, "text/"):
+		return byExt
 	}
 	return t
 }

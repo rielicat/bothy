@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
-	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -331,28 +331,37 @@ func TestLoginIPLockoutCoversUnknownUsers(t *testing.T) {
 }
 
 func TestLoginTimingUnknownUser(t *testing.T) {
-	if testing.Short() {
-		t.Skip("argon2 timing")
+	if testing.Short() || raceEnabled {
+		t.Skip("wall-clock comparison: skipped with -short and under the race detector")
 	}
 	e := newEnv(t, func(c *config.Config) { c.Auth.Argon2 = config.Default().Auth.Argon2 })
 	e.owner(t)
-	measure := func(name string) time.Duration {
-		var ds []time.Duration
-		for i := 0; i < 9; i++ {
-			start := time.Now()
-			_, _, _ = e.s.Login(ctx, name, "not the password", "192.0.2."+string(rune('a'+i)))
-			ds = append(ds, time.Since(start))
-			e.s.locks = newLockouts()
-			_ = e.store.Users().RecordLogin(ctx, mustUser(t, e, "owner").ID, true, time.Time{})
-		}
-		sort.Slice(ds, func(i, j int) bool { return ds[i] < ds[j] })
+	owner := mustUser(t, e, "owner").ID
+	once := func(name string, i int) time.Duration {
+		runtime.GC()
+		start := time.Now()
+		_, _, _ = e.s.Login(ctx, name, "not the password", "192.0.2."+strconv.Itoa(i))
+		d := time.Since(start)
+		e.s.locks = newLockouts()
+		_ = e.store.Users().RecordLogin(ctx, owner, true, time.Time{})
+		return d
+	}
+	once("owner", 0)
+	once("nosuchuser", 0)
+	// Interleaving cancels drift (thermal, other load) between the two series.
+	var known, unknown []time.Duration
+	for i := 0; i < 15; i++ {
+		known = append(known, once("owner", i))
+		unknown = append(unknown, once("nosuchuser", i))
+	}
+	median := func(ds []time.Duration) time.Duration {
+		slices.Sort(ds)
 		return ds[len(ds)/2]
 	}
-	measure("owner")
-	known, unknown := measure("owner"), measure("nosuchuser")
-	ratio := float64(unknown) / float64(known)
+	k, u := median(known), median(unknown)
+	ratio := float64(u) / float64(k)
 	if ratio < 0.9 || ratio > 1.1 {
-		t.Fatalf("unknown/known median login time = %v/%v (ratio %.2f), want within 10%%", unknown, known, ratio)
+		t.Fatalf("unknown/known median login time = %v/%v (ratio %.2f), want within 10%%", u, k, ratio)
 	}
 }
 

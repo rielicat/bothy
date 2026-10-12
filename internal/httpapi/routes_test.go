@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/bothyhq/bothy/internal/core"
 	"github.com/bothyhq/bothy/internal/httpapi/dto"
@@ -887,5 +888,24 @@ func TestMiscReads(t *testing.T) {
 	next := decodeAs[dto.List[*core.AuditEntry]](t, h.do("GET", "/api/audit?action=user.&limit=1&before="+itoa(audit.Next), nil, h.admin))
 	if len(next.Items) != 1 || next.Items[0].Action != "user.create" {
 		t.Fatalf("second page = %+v", next)
+	}
+}
+
+func TestSanitizeNameAndSniff(t *testing.T) {
+	long := strings.Repeat("é", 100) + ".txt"
+	got := sanitizeName(long)
+	if len(got) > maxFileName || !strings.HasSuffix(got, ".txt") || !utf8.ValidString(got) {
+		t.Fatalf("sanitizeName(long) = %q", got)
+	}
+	for in, want := range map[string]string{"..\\..\\boot.ini": "boot.ini", ".hidden": "hidden", "a b/c?.pdf": "c_.pdf", "": "file", "..": "file"} {
+		if got := sanitizeName(in); got != want {
+			t.Errorf("sanitizeName(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if got := sniffType("x.html", []byte("plain words")); strings.Contains(got, "html") {
+		t.Fatalf("html extension trusted: %s", got)
+	}
+	if got := sniffType("data.csv", []byte("a,b\n1,2\n")); got != "text/csv; charset=utf-8" {
+		t.Fatalf("csv = %s", got)
 	}
 }
