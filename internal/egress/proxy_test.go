@@ -577,3 +577,32 @@ func TestRunFlushesOnShutdown(t *testing.T) {
 		t.Fatal("OpenBox after shutdown succeeded")
 	}
 }
+
+func TestActivityVisibleWhileTunnelIsOpen(t *testing.T) {
+	e := newEnv(t, func(c *config.Config) { c.Egress.Allow = []string{"example.com"} })
+	e.res.set("example.com", []string{publicIP})
+	key, sock := e.openBox(core.BoxEgress{})
+	e.bind(key, false)
+
+	e.rawUpstream(nil)
+	conn, _ := proxyConnect(t, sock, "example.com:443")
+	if _, err := conn.Write(clientHello(t, "evil.com")); err != nil {
+		t.Fatal(err)
+	}
+	e.records(1)
+	if e.s.TakeActivity(key) {
+		t.Fatal("a tunnel closed at the SNI check counts as activity")
+	}
+
+	up := e.rawUpstream(nil)
+	conn, _ = proxyConnect(t, sock, "example.com:443")
+	h := clientHello(t, "example.com")
+	if _, err := conn.Write(h); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "hello forwarded", func() bool { return up.recv.Load() >= int64(len(h)) })
+	if !e.s.TakeActivity(key) {
+		t.Fatal("an open tunnel that moved bytes reports no activity")
+	}
+	conn.Close()
+}

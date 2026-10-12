@@ -47,6 +47,8 @@ type box struct {
 	// up and down are the box's byte totals against egress.caps; they reset
 	// only when the box is closed.
 	up, down atomic.Int64
+	// activity is set before the first byte goes upstream, so it is already
+	// visible when an exec could have seen any reply (TakeActivity taints).
 	activity atomic.Bool
 }
 
@@ -410,9 +412,6 @@ func (s *Service) handle(b *box, c net.Conn) {
 		res = s.forward(b, c, br, up, req, t)
 	}
 	rec.Up, rec.Down = res.up, res.down
-	if res.up+res.down > 0 {
-		b.activity.Store(true)
-	}
 	if res.denied {
 		finish(denyDecision, res.reason)
 		s.denied(b.ctx, be, bind, t, res.reason)

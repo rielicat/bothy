@@ -126,9 +126,9 @@ func (s *Service) Tools() []core.Tool { return s.tools }
 
 func (s *Service) Checks() []core.Check {
 	return []core.Check{
-		&check{s: s, id: "egress.wildcards", run: s.checkWildcards},
-		&check{s: s, id: "egress.shared_tenant_allowed", run: s.checkSharedTenant},
-		&check{s: s, id: "egress.presets_enabled", run: s.checkPresets},
-		&check{s: s, id: "mcp.http_plaintext", run: s.checkMCPPlaintext},
+		&check{id: "egress.wildcards", run: s.checkWildcards},
+		&check{id: "egress.shared_tenant_allowed", run: s.checkSharedTenant},
+		&check{id: "egress.presets_enabled", run: s.checkPresets},
+		&check{id: "mcp.http_plaintext", run: s.checkMCPPlaintext},
 	}
 }

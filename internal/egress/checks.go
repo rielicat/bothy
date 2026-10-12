@@ -11,7 +11,6 @@ import (
 )
 
 type check struct {
-	s   *Service
 	id  string
 	run func(ctx context.Context) []core.Finding
 }

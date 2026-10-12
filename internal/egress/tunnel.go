@@ -50,6 +50,7 @@ func (s *Service) tunnel(b *box, c net.Conn, cr io.Reader, up net.Conn, t target
 	if !charge(&b.up, len(hello), upCap) {
 		return spliceResult{reason: "upload cap exceeded"}
 	}
+	b.activity.Store(true)
 	n, err := up.Write(hello)
 	if err != nil {
 		return spliceResult{up: int64(n), reason: "upstream write failed"}
@@ -203,6 +204,7 @@ func (s *Service) forward(b *box, c net.Conn, cr io.Reader, up net.Conn, req *ht
 		downc <- dirResult{n, capped}
 	}()
 	_ = c.SetReadDeadline(time.Now().Add(idleTimeout))
+	b.activity.Store(true)
 	cw := &chargedWriter{w: up, counter: &b.up, limit: upCap}
 	if err := req.Write(cw); err != nil {
 		_ = up.Close()
