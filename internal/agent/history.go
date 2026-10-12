@@ -107,7 +107,9 @@ func (r *Runner) loadHistory(ctx context.Context, rs *runState) ([]histMsg, erro
 		return nil, fmt.Errorf("agent: history: %w", err)
 	}
 	kept := raw[:0:0]
+	rs.seenSeq = sess.SummaryUpto
 	for _, m := range raw {
+		rs.seenSeq = max(rs.seenSeq, m.Seq)
 		if m.Kind == core.KindNotice || m.Kind == core.KindSummary {
 			continue
 		}

@@ -118,5 +118,8 @@ func cleanTitle(s string) string {
 	s = strings.Trim(s, "\"'`*_“”‘’ ")
 	s = strings.TrimRight(s, ".:;")
 	s = strings.Join(strings.Fields(s), " ")
-	return truncateRunes(s, 80)
+	if r := []rune(s); len(r) > 80 {
+		s = strings.TrimSpace(string(r[:80])) + "…"
+	}
+	return s
 }

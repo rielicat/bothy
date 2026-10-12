@@ -41,6 +41,19 @@ func (r *Runner) ensureWorkspace(p *core.Principal) error {
 	return nil
 }
 
+// workspaceOnce creates the workspace before a run's first tool call. It is
+// called from the run goroutine only (never from parallel tool executions).
+func (r *Runner) workspaceOnce(rs *runState) {
+	if rs.wsReady {
+		return
+	}
+	if err := r.ensureWorkspace(rs.principal); err != nil {
+		r.log.Warn("workspace directories", "principal", rs.principal.ID, "err", err)
+		return
+	}
+	rs.wsReady = true
+}
+
 func mkdirShared(dir string) error {
 	err := os.Mkdir(dir, 0o770|os.ModeSetgid)
 	switch {

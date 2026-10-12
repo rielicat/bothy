@@ -109,8 +109,8 @@ func (r *Runner) ensureSnapshot(ctx context.Context, rs *runState) error {
 func (r *Runner) rebuildSnapshot(ctx context.Context, rs *runState, promote []string, edit func(s *core.Session)) error {
 	c := r.cfg()
 	window := rs.chain[0].Context
-	p := profileFor(c, window)
-	rs.sel = r.selection(ctx, p)
+	r.refreshSelection(ctx, rs)
+	p := rs.profile
 	env := r.toolEnv(rs, "", nil)
 
 	var names []string

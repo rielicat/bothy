@@ -11,11 +11,12 @@ import (
 
 var channelOrigins = map[string]bool{"telegram": true, "discord": true, "slack": true}
 
-// ResolveSession returns the open session of a chat for a principal, keyed by
-// ChatRef.Key(), creating it on first contact. With agent.session_idle_reset
-// set, a session idle for longer is archived and a fresh one started.
+// ResolveSession returns the open session of a channel chat for a principal,
+// keyed by ChatRef.Key(), creating it on first contact. With
+// agent.session_idle_reset set, a session idle for longer is archived and a
+// fresh one started. Web and API sessions have no channel key.
 func (r *Runner) ResolveSession(ctx context.Context, p core.PrincipalID, chat core.ChatRef) (*core.Session, error) {
-	if !channelOrigins[chat.Channel] && chat.Channel != "web" && chat.Channel != "api" {
+	if !channelOrigins[chat.Channel] {
 		return nil, fmt.Errorf("agent: channel %q: %w", chat.Channel, core.ErrInvalid)
 	}
 	key := chat.Key()

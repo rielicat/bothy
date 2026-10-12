@@ -1,0 +1,50 @@
+# internal/agent
+
+`agent.Runner` implements `core.Runner` (SPEC §4.13, §5). Every session has a
+worker goroutine that runs its turns, resumed parked runs and compactions one
+at a time and exits after 5 minutes idle. `Submit` validates the request
+against its session, checks the daily cap, then starts a turn, merges a DM
+message into the 1.2 s coalescing window, injects a steer message into the
+active interactive run (same user and provenance only, so an untrusted
+participant never rides on the owner's run), or queues it; `agent.queue_depth`
+bounds all of these (`ErrBusy`). Runs hold a per-user and then a global
+semaphore only while streaming or executing tools and release both while
+waiting for an approval or parked.
+
+The loop (`loop.go`) assembles a cache-stable request (`assemble.go`,
+`snapshot.go`): tools and S2 (persona, facts, USER.md, MEMORY.md, pins, skills
+index) are frozen per epoch in the session row, S1 is the embedded
+`CONSTITUTION.md` (full or short by model profile) plus the administrator's
+standing rules, and each user turn carries a persisted `<turn-context>` with
+time, sender trust, memory deltas, new pins, budget and trifecta warnings and
+spotlighted client instructions. History is re-ordered so every tool call is
+followed by exactly one result (a deterministic "Not executed" result is
+synthesized, never stored), untrusted text is wrapped in `<untrusted … id=…>`
+blocks whose ids are an HMAC of their position under `meta.agent.spotlight_key`
+(stable bytes for prompt caching, unpredictable to the content's author), and
+a hard fit keeps every request within window − reserve for the model the
+provider facade actually picks. Compaction (`compact.go`) folds everything
+before the last `keep_recent_turns` user turns into a validated six-heading
+summary, auto-pins standing instructions and falls back to dropping turns when
+the summarizer fails twice.
+
+Tool calls (`tools.go`, `approval.go`) follow SPEC §5.7: `use_tool` unwrap,
+availability, schema check, `Plan`, the loop pre-check, `Policy.Decide`,
+approvals (allow once/session/always, API deny or bounded wait, park for
+scheduled runs with a placeholder result), parallel execution of auto-allowed
+non-exec reads (decided with the taint the batch could reach), output capped
+head 60% / tail 40% with the full redacted output spilled to
+`.bothy/out/<tcl>.txt`, taint, audit. `Resume` flips a parked run to queued in
+one store transaction, so the stored Action runs exactly once, and appends the
+outcome as an `<approved-action>` message. `Stop` never waits on the run: it
+cancels, kills the session box, cancels approvals, clears the queue and
+abandons a run that has not exited 5 s later. The kill switch persists in
+`meta.paused`. `Run` marks interrupted runs at boot, cancels their approvals,
+notifies their chats and resumes parked runs whose approval was decided while
+the gateway was down.
+
+The embedded `CONSTITUTION.md`, `CONSTITUTION.short.md` and default `SOUL.md`
+(written to `<data>/<agent.persona_file>` at construction when missing) are
+product prompts: changing either constitution requires bumping
+`constitutionVersion` (a test pins their hash), which is recorded in
+`meta.constitution_version`.

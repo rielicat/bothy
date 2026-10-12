@@ -445,6 +445,7 @@ func (r *Runner) executeApproved(rs *runState, a *core.Approval) *runEnd {
 			fmt.Sprintf("The approved action did not run: the tool %s is no longer available.", action.Tool)), true)
 	}
 	pc.tool, pc.spec = t, t.Spec()
+	r.workspaceOnce(rs)
 	r.grantFor(ctx, rs, pc, a.Choice)
 	pc.rec.Status = core.TCApproved
 	r.updateRec(ctx, pc.rec)

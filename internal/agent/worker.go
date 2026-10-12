@@ -22,12 +22,11 @@ type worker struct {
 	mu      sync.Mutex
 	dead    bool
 	active  *runState
-	busy    bool      // a non-run job (compaction) is executing
-	pending *turnJob  // DM turn inside its coalescing window
-	queue   []job     // waiting jobs, oldest first
-	steers  int       // steer messages persisted but not yet seen by an assembly
-	merged  int       // inputs merged into a turn that has not been persisted yet
-	idleAt  time.Time // when the worker last became idle
+	busy    bool     // a non-run job (compaction) is executing
+	pending *turnJob // DM turn inside its coalescing window
+	queue   []job    // waiting jobs, oldest first
+	steers  int      // steer messages persisted but not yet seen by an assembly
+	merged  int      // inputs merged into a turn that has not been persisted yet
 }
 
 type job interface{ isJob() }
@@ -61,7 +60,7 @@ func (r *Runner) worker(id core.SessionID) *worker {
 	if w, ok := r.workers[id]; ok {
 		return w
 	}
-	w := &worker{r: r, id: id, wake: make(chan struct{}, 1), idleAt: r.now()}
+	w := &worker{r: r, id: id, wake: make(chan struct{}, 1)}
 	r.workers[id] = w
 	r.loops.Add(1)
 	go w.loop()
@@ -103,6 +102,10 @@ func (w *worker) take() job {
 	defer idle.Stop()
 	for {
 		w.mu.Lock()
+		if w.dead { // replaced after its stopped run was abandoned
+			w.mu.Unlock()
+			return nil
+		}
 		if w.r.closing.Load() {
 			w.mu.Unlock()
 			w.retireForShutdown()
@@ -169,7 +172,6 @@ func (w *worker) exec(j job) {
 	}
 	w.mu.Lock()
 	w.active, w.busy = nil, false
-	w.idleAt = w.r.now()
 	w.mu.Unlock()
 }
 

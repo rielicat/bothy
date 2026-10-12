@@ -47,9 +47,12 @@ type runState struct {
 	slot       core.Slot
 	override   *core.ModelRef
 	chain      []core.ModelInfo
+	profile    profile
 	sel        core.Selection
+	seenSeq    int64 // newest message seq the last assembly read
 	taint      core.Taint
 	boxReady   bool
+	wsReady    bool
 	toolErrors int // consecutive failed tool calls
 	deadline   *time.Timer
 	ctxRetried bool

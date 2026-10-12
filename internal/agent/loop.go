@@ -112,7 +112,15 @@ func (r *Runner) resolveModel(ctx context.Context, rs *runState) *runEnd {
 		return &runEnd{status: core.RunFailed, err: "no model configured",
 			notice: fmt.Sprintf("No model is configured for the %s slot. Add one in Settings → Models.", rs.slot)}
 	}
+	r.refreshSelection(ctx, rs)
 	return nil
+}
+
+// refreshSelection recomputes the head model's profile and the tool selection
+// (the sandbox may come and go between steps).
+func (r *Runner) refreshSelection(ctx context.Context, rs *runState) {
+	rs.profile = profileFor(r.cfg(), rs.chain[0].Context)
+	rs.sel = r.selection(ctx, rs.profile)
 }
 
 // runTurn executes one user turn on the session worker.
@@ -402,7 +410,7 @@ func (r *Runner) loop(rs *runState) *runEnd {
 		}
 		if len(calls) == 0 {
 			rs.w.mu.Lock()
-			more := rs.w.steers > 0
+			more := r.syncSteersLocked(ctx, rs)
 			if !more {
 				rs.finishing = true
 			}
@@ -429,13 +437,14 @@ func (r *Runner) prepareStep(ctx context.Context, rs *runState) (*assembler, ass
 		}
 		rs.sess, rs.taint = sess, sess.Taint|rs.taint
 		rs.setExposed(rs.taint)
-		rs.w.mu.Lock()
-		rs.w.steers = 0
-		rs.w.mu.Unlock()
+		r.refreshSelection(ctx, rs)
 		hist, err := r.loadHistory(ctx, rs)
 		if err != nil {
 			return nil, assembled{}, err
 		}
+		rs.w.mu.Lock()
+		r.syncSteersLocked(ctx, rs)
+		rs.w.mu.Unlock()
 		asm := r.newAssembler(rs, hist)
 		return asm, asm.assemble(rs.chain[0]), nil
 	}
@@ -448,6 +457,28 @@ func (r *Runner) prepareStep(ctx context.Context, rs *runState) (*assembler, ass
 		return build()
 	}
 	return asm, head, nil
+}
+
+// syncSteersLocked recounts the steer messages persisted after the last
+// assembly read the history; w.mu is held, and steers are persisted under it,
+// so none can slip between the count and the decision to finish.
+func (r *Runner) syncSteersLocked(ctx context.Context, rs *runState) bool {
+	if rs.w.steers == 0 {
+		return false
+	}
+	msgs, err := r.d.Store.Messages().Range(ctx, core.SystemViewer(), rs.req.Session, rs.seenSeq+1, 0)
+	if err != nil {
+		r.log.Warn("count steer messages", "session", rs.req.Session, "err", err)
+		return true
+	}
+	n := 0
+	for _, m := range msgs {
+		if m.Kind == core.KindSteer {
+			n++
+		}
+	}
+	rs.w.steers = n
+	return n > 0
 }
 
 // compactThreshold is trigger × window − reserve, lowered to a price tier's

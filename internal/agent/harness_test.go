@@ -30,6 +30,7 @@ type harness struct {
 	cfg    *config.Config
 	llm    *routerLLM
 	reg    *fakes.Registry
+	tools  core.ToolRegistry
 	pol    *fakes.Policy
 	appr   *fakes.Approvals
 	budget core.Budget
@@ -60,6 +61,7 @@ type opts struct {
 	pol        *fakes.Policy
 	work, data string
 	noHub      bool
+	coreOnly   bool // ForRun hides lazy tools, as the real registry does
 }
 
 func newHarness(t *testing.T, o opts) *harness {
@@ -84,6 +86,10 @@ func newHarness(t *testing.T, o opts) *harness {
 	}
 	h.llm = &routerLLM{LLM: &fakes.LLM{Steps: o.steps, Info: o.info}}
 	h.reg = &fakes.Registry{}
+	h.tools = h.reg
+	if o.coreOnly {
+		h.tools = coreOnlyRegistry{h.reg}
+	}
 	for _, tool := range o.tools {
 		if err := h.reg.Register(tool); err != nil {
 			t.Fatal(err)
@@ -133,7 +139,7 @@ func newHarness(t *testing.T, o opts) *harness {
 
 func (h *harness) newRunner() *Runner {
 	h.t.Helper()
-	r, err := New(Deps{Store: h.store, Config: config.Static(h.cfg), LLM: h.llm, Tools: h.reg, Policy: h.pol,
+	r, err := New(Deps{Store: h.store, Config: config.Static(h.cfg), LLM: h.llm, Tools: h.tools, Policy: h.pol,
 		Approvals: h.appr, Budget: h.budget, Memory: h.mem, Skills: h.skills, Sandbox: h.sbx, Egress: h.egress,
 		Redactor: h.red, Bus: h.bus, Audit: h.audit, DataDir: h.data, WorkDir: h.work})
 	if err != nil {

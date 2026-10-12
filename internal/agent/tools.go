@@ -202,6 +202,9 @@ func (r *Runner) prepareCall(rs *runState, step int, call core.ToolCall) *pcall 
 	if trimmed := bytes.TrimSpace(pc.args); len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 		pc.args = json.RawMessage("{}")
 	}
+	if rs.profile == profileTextOnly {
+		return fail(core.TCInvalid, "This model's window is too small for tools; answer in text.")
+	}
 	t, ok := r.d.Tools.Get(pc.name)
 	if !ok || !r.d.Tools.Available(pc.name, pc.env, rs.sel) {
 		return fail(core.TCInvalid, fmt.Sprintf("Unknown tool %s. Use tool_search.", pc.name))
@@ -211,6 +214,7 @@ func (r *Runner) prepareCall(rs *runState, step int, call core.ToolCall) *pcall 
 	if err := validateArgs(pc.spec.Def.Schema, pc.args); err != nil {
 		return fail(core.TCInvalid, fmt.Sprintf("Invalid arguments for %s: %v", pc.name, err))
 	}
+	r.workspaceOnce(rs)
 	a, err := t.Plan(ctx, pc.env, pc.args)
 	if err == nil && a == nil {
 		err = errors.New("no action")
@@ -320,9 +324,6 @@ func (r *Runner) execute(rs *runState, pc *pcall) execResult {
 			})
 			r.d.Egress.TakeActivity(boxKey(rs.req.Session))
 		}
-	}
-	if err := r.ensureWorkspace(rs.principal); err != nil {
-		r.log.Warn("workspace directories", "principal", rs.principal.ID, "err", err)
 	}
 	tctx, cancel := context.WithTimeoutCause(ctx, timeout, errToolTimeout)
 	defer cancel()
