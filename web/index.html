@@ -2,13 +2,21 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="referrer" content="no-referrer" />
     <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f6f5f1" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#111312" media="(prefers-color-scheme: dark)" />
+    <meta name="description" content="Bothy, your self-hosted assistant" />
     <title>Bothy</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <script src="/theme.js"></script>
   </head>
   <body>
     <div id="app"></div>
+    <noscript>Bothy needs JavaScript to run in the browser.</noscript>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

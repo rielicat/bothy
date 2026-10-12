@@ -1,0 +1,4536 @@
+{
+ "entries": [
+  {
+   "path": "version",
+   "value": 1,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 5
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 1
+    }
+   ],
+   "locked": false,
+   "hot": false,
+   "secret": false
+  },
+  {
+   "path": "mode",
+   "value": "single",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 6
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "single"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "timezone",
+   "value": "UTC",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 7
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "UTC"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "telemetry",
+   "value": false,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 8
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": false
+    }
+   ],
+   "locked": false,
+   "hot": false,
+   "secret": false
+  },
+  {
+   "path": "server.listen",
+   "value": "127.0.0.1:8080",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 11
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "127.0.0.1:8080"
+    }
+   ],
+   "locked": true,
+   "hot": false,
+   "secret": false
+  },
+  {
+   "path": "server.public_url",
+   "value": "",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 12
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": ""
+    }
+   ],
+   "locked": false,
+   "hot": false,
+   "secret": false
+  },
+  {
+   "path": "server.allowed_hosts",
+   "value": [],
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 13
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": []
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "server.trusted_proxies",
+   "value": [],
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 14
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": []
+    }
+   ],
+   "locked": true,
+   "hot": false,
+   "secret": false
+  },
+  {
+   "path": "server.local_cidrs",
+   "value": [],
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 15
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": []
+    }
+   ],
+   "locked": true,
+   "hot": false,
+   "secret": false
+  },
+  {
+   "path": "server.insecure_lan",
+   "value": false,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 16
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": false
+    }
+   ],
+   "locked": true,
+   "hot": false,
+   "secret": false
+  },
+  {
+   "path": "server.tls.cert_file",
+   "value": "",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 17
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": ""
+    }
+   ],
+   "locked": true,
+   "hot": false,
+   "secret": false
+  },
+  {
+   "path": "server.tls.key_file",
+   "value": "",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 17
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": ""
+    }
+   ],
+   "locked": true,
+   "hot": false,
+   "secret": false
+  },
+  {
+   "path": "server.max_body_mb",
+   "value": 1,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 18
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 1
+    }
+   ],
+   "locked": false,
+   "hot": false,
+   "secret": false
+  },
+  {
+   "path": "server.upload_max_mb",
+   "value": 20,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 19
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 20
+    }
+   ],
+   "locked": false,
+   "hot": false,
+   "secret": false
+  },
+  {
+   "path": "storage.data_dir",
+   "value": "/data",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 22
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "/var/folders/sc/q7ts72ds13sfc6ft8m5cfs6c0000gn/T/TestDump521217090/001"
+    }
+   ],
+   "locked": true,
+   "hot": false,
+   "secret": false
+  },
+  {
+   "path": "storage.work_dir",
+   "value": "",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 23
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": ""
+    }
+   ],
+   "locked": true,
+   "hot": false,
+   "secret": false
+  },
+  {
+   "path": "storage.run_dir",
+   "value": "/run/bothy",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 24
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "/run/bothy"
+    }
+   ],
+   "locked": true,
+   "hot": false,
+   "secret": false
+  },
+  {
+   "path": "storage.backups_keep",
+   "value": 3,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 25
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 3
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "storage.retention.egress_log",
+   "value": "720h0m0s",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 26
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "720h0m0s"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "storage.retention.runs",
+   "value": "0s",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 26
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "0s"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "storage.retention.inbound_dedup",
+   "value": "24h0m0s",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 26
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "24h0m0s"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "log.level",
+   "value": "info",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 28
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "info"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "log.format",
+   "value": "text",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 28
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "text"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "auth.session_idle",
+   "value": "168h0m0s",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 31
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "168h0m0s"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "auth.session_max",
+   "value": "720h0m0s",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 32
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "720h0m0s"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "auth.password_min_length",
+   "value": 12,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 33
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 12
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "auth.lockout.max_failures",
+   "value": 5,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 34
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 5
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "auth.lockout.base",
+   "value": "1m0s",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 34
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "1m0s"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "auth.lockout.max",
+   "value": "1h0m0s",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 34
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "1h0m0s"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "auth.argon2.memory_kib",
+   "value": 19456,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 35
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 19456
+    }
+   ],
+   "locked": false,
+   "hot": false,
+   "secret": false
+  },
+  {
+   "path": "auth.argon2.iterations",
+   "value": 2,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 35
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 2
+    }
+   ],
+   "locked": false,
+   "hot": false,
+   "secret": false
+  },
+  {
+   "path": "auth.argon2.parallelism",
+   "value": 1,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 35
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 1
+    }
+   ],
+   "locked": false,
+   "hot": false,
+   "secret": false
+  },
+  {
+   "path": "auth.pairing_ttl",
+   "value": "15m0s",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 36
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "15m0s"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "auth.setup_token_ttl",
+   "value": "24h0m0s",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 37
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "24h0m0s"
+    }
+   ],
+   "locked": false,
+   "hot": false,
+   "secret": false
+  },
+  {
+   "path": "auth.admin_can_read_chats",
+   "value": false,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 38
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": false
+    }
+   ],
+   "locked": true,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "vault.kek",
+   "value": "auto",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 41
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "auto"
+    }
+   ],
+   "locked": true,
+   "hot": false,
+   "secret": false
+  },
+  {
+   "path": "vault.keyfile",
+   "value": "",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 42
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": ""
+    }
+   ],
+   "locked": true,
+   "hot": false,
+   "secret": false
+  },
+  {
+   "path": "providers.anthropic.id",
+   "value": "anthropic",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 45
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.anthropic.type",
+   "value": "anthropic",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 45
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.anthropic.base_url",
+   "value": "",
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.anthropic.api_key",
+   "value": "secret:anthropic_api_key",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 45
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": true
+  },
+  {
+   "path": "providers.anthropic.allow_private",
+   "value": false,
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.anthropic.discover",
+   "value": false,
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.anthropic.enabled",
+   "value": null,
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.anthropic.headers",
+   "value": {},
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": true
+  },
+  {
+   "path": "providers.anthropic.models",
+   "value": [],
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.openai.id",
+   "value": "openai",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 46
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.openai.type",
+   "value": "openai",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 46
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.openai.base_url",
+   "value": "https://api.openai.com/v1",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 46
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.openai.api_key",
+   "value": "secret:openai_api_key",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 46
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": true
+  },
+  {
+   "path": "providers.openai.allow_private",
+   "value": false,
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.openai.discover",
+   "value": false,
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.openai.enabled",
+   "value": false,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 46
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.openai.headers",
+   "value": {},
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": true
+  },
+  {
+   "path": "providers.openai.models",
+   "value": [],
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.gemini.id",
+   "value": "gemini",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 47
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.gemini.type",
+   "value": "gemini",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 47
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.gemini.base_url",
+   "value": "",
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.gemini.api_key",
+   "value": "secret:gemini_api_key",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 47
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": true
+  },
+  {
+   "path": "providers.gemini.allow_private",
+   "value": false,
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.gemini.discover",
+   "value": false,
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.gemini.enabled",
+   "value": false,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 47
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.gemini.headers",
+   "value": {},
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": true
+  },
+  {
+   "path": "providers.gemini.models",
+   "value": [],
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.ollama.id",
+   "value": "ollama",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 48
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.ollama.type",
+   "value": "ollama",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 49
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.ollama.base_url",
+   "value": "http://host.docker.internal:11434",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 50
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.ollama.api_key",
+   "value": "",
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": true
+  },
+  {
+   "path": "providers.ollama.allow_private",
+   "value": true,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 51
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.ollama.discover",
+   "value": true,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 52
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.ollama.enabled",
+   "value": null,
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.ollama.headers",
+   "value": {},
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": true
+  },
+  {
+   "path": "providers.ollama.models.qwen3:14b.id",
+   "value": "qwen3:14b",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 54
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.ollama.models.qwen3:14b.context",
+   "value": 16384,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 54
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.ollama.models.qwen3:14b.max_output",
+   "value": 2048,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 54
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.ollama.models.qwen3:14b.tools",
+   "value": true,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 54
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.ollama.models.qwen3:14b.vision",
+   "value": false,
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.openrouter.id",
+   "value": "openrouter",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 55
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.openrouter.type",
+   "value": "openai_compat",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 56
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.openrouter.base_url",
+   "value": "https://openrouter.ai/api/v1",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 57
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.openrouter.api_key",
+   "value": "secret:openrouter_api_key",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 58
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": true
+  },
+  {
+   "path": "providers.openrouter.allow_private",
+   "value": false,
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.openrouter.discover",
+   "value": false,
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.openrouter.enabled",
+   "value": false,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 59
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "providers.openrouter.headers",
+   "value": {},
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": true
+  },
+  {
+   "path": "providers.openrouter.models",
+   "value": [],
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "models.main",
+   "value": [
+    "anthropic/claude-sonnet-4-6",
+    "ollama/qwen3:14b"
+   ],
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 62
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": []
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "models.fast",
+   "value": [
+    "anthropic/claude-haiku-4-5",
+    "ollama/qwen3:4b"
+   ],
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 63
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": []
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "pricing.ollama/qwen3:14b.in",
+   "value": 0,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 66
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "pricing.ollama/qwen3:14b.out",
+   "value": 0,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 66
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "pricing.ollama/qwen3:14b.cache_read",
+   "value": 0,
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "pricing.ollama/qwen3:14b.cache_write",
+   "value": 0,
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "agent.persona_file",
+   "value": "SOUL.md",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 69
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "SOUL.md"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "agent.standing_rules",
+   "value": [],
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 70
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": []
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "agent.busy_mode",
+   "value": "steer",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 71
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "steer"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "agent.coalesce_window",
+   "value": "1.2s",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 72
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "1.2s"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "agent.queue_depth",
+   "value": 8,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 73
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 8
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "agent.max_concurrent_runs",
+   "value": 4,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 74
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 4
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "agent.max_runs_per_user",
+   "value": 2,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 75
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 2
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "agent.tool_output_tokens",
+   "value": 4000,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 76
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 4000
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "agent.parallel_read_tools",
+   "value": 4,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 77
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 4
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "agent.show_thinking",
+   "value": false,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 78
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": false
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "agent.session_idle_reset",
+   "value": "0s",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 79
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "0s"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "context.reserve_output",
+   "value": "auto",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 82
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "auto"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "context.compact_below",
+   "value": 32768,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 83
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 32768
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "context.degraded_below",
+   "value": 16384,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 84
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 16384
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "context.min_context",
+   "value": 8192,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 85
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 8192
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "context.compaction.trigger",
+   "value": 0.7,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 86
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 0.7
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "context.compaction.compact_trigger",
+   "value": 0.6,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 86
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 0.6
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "context.compaction.keep_recent_turns",
+   "value": 4,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 86
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 4
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "context.compaction.summary_max_tokens",
+   "value": 1200,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 86
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 1200
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "context.compaction.auto_pin",
+   "value": true,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 86
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": true
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "budgets.daily_usd",
+   "value": 3,
+   "source": {
+    "layer": "ui",
+    "file": "/data/bothy.ui.yaml",
+    "line": 6,
+    "by": "user:usr_01jsam0000000000000000000",
+    "at": "2026-10-12T09:30:00Z"
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "env",
+      "env_var": "BOTHY_BUDGETS__DAILY_USD"
+     },
+     "value": 4
+    },
+    {
+     "source": {
+      "layer": "file",
+      "file": "/data/bothy.yaml",
+      "line": 89
+     },
+     "value": 5
+    },
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 5
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "budgets.member_daily_usd",
+   "value": 2,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 90
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 2
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "budgets.per_user_daily_usd",
+   "value": {},
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 91
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": {}
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "budgets.warn_ratio",
+   "value": 0.8,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 92
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 0.8
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "budgets.run.max_steps",
+   "value": 25,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 93
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 25
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "budgets.run.max_tokens",
+   "value": 400000,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 93
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 400000
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "budgets.run.max_time",
+   "value": "10m0s",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 93
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "10m0s"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "budgets.run.max_usd",
+   "value": 0,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 93
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 0
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "budgets.scheduled.max_steps",
+   "value": 15,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 94
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 15
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "budgets.scheduled.max_tokens",
+   "value": 150000,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 94
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 150000
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "budgets.scheduled.max_time",
+   "value": "15m0s",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 94
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "15m0s"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "budgets.scheduled.max_usd",
+   "value": 0.25,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 94
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 0.25
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "budgets.heartbeat_daily_usd",
+   "value": 0.25,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 95
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 0.25
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "budgets.sender_rate.per_minute",
+   "value": 10,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 96
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 10
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "budgets.sender_rate.burst",
+   "value": 5,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 96
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 5
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "budgets.loop.warn_after",
+   "value": 3,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 97
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 3
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "budgets.loop.abort_after",
+   "value": 5,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 97
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 5
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.preset",
+   "value": "balanced",
+   "source": {
+    "layer": "ui",
+    "file": "/data/bothy.ui.yaml",
+    "line": 8,
+    "by": "user:usr_01jsam0000000000000000000",
+    "at": "2026-10-12T09:30:00Z"
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "file",
+      "file": "/data/bothy.yaml",
+      "line": 100
+     },
+     "value": "careful"
+    },
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "careful"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.defaults",
+   "value": {},
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 101
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": {}
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.readonly-shell.id",
+   "value": "readonly-shell",
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.readonly-shell.tool",
+   "value": "shell",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 103
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "shell"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.readonly-shell.argv0",
+   "value": [
+    "ls",
+    "cat",
+    "head",
+    "tail",
+    "grep",
+    "rg",
+    "wc",
+    "pwd",
+    "find"
+   ],
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 103
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": [
+      "ls",
+      "cat",
+      "head",
+      "tail",
+      "grep",
+      "rg",
+      "wc",
+      "pwd",
+      "find"
+     ]
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.readonly-shell.domains",
+   "value": [],
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.readonly-shell.paths",
+   "value": [],
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.readonly-shell.match",
+   "value": {},
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.readonly-shell.side_effect",
+   "value": "",
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.readonly-shell.triggers",
+   "value": [],
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.readonly-shell.verdict",
+   "value": "auto",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 103
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "auto"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.readonly-shell.reason",
+   "value": "",
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.wiki.id",
+   "value": "wiki",
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.wiki.tool",
+   "value": "web_fetch",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 104
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "web_fetch"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.wiki.argv0",
+   "value": [],
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.wiki.domains",
+   "value": [
+    "*.wikipedia.org"
+   ],
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 104
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": [
+      "*.wikipedia.org"
+     ]
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.wiki.paths",
+   "value": [],
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.wiki.match",
+   "value": {},
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.wiki.side_effect",
+   "value": "",
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.wiki.triggers",
+   "value": [],
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.wiki.verdict",
+   "value": "auto",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 104
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "auto"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.wiki.reason",
+   "value": "",
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.no-pipe-to-shell.id",
+   "value": "no-pipe-to-shell",
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.no-pipe-to-shell.tool",
+   "value": "shell",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 105
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "shell"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.no-pipe-to-shell.argv0",
+   "value": [],
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.no-pipe-to-shell.domains",
+   "value": [],
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.no-pipe-to-shell.paths",
+   "value": [],
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.no-pipe-to-shell.match./argv/2",
+   "value": "*curl*|*sh*",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 105
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "*curl*|*sh*"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.no-pipe-to-shell.side_effect",
+   "value": "",
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.no-pipe-to-shell.triggers",
+   "value": [],
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.no-pipe-to-shell.verdict",
+   "value": "ask",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 105
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "ask"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.rules.no-pipe-to-shell.reason",
+   "value": "pipes a download into a shell",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 105
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "pipes a download into a shell"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.approval.interactive_timeout",
+   "value": "15m0s",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 107
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "15m0s"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.approval.interactive_on_timeout",
+   "value": "deny",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 108
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "deny"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.approval.scheduled_timeout",
+   "value": "2m0s",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 109
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "2m0s"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.approval.scheduled_on_timeout",
+   "value": "park",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 110
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "park"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.approval.park_ttl",
+   "value": "24h0m0s",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 111
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "24h0m0s"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.approval.api_wait",
+   "value": "2m0s",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 112
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "2m0s"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.approval.notify",
+   "value": [],
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 113
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": []
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "policy.trifecta.enforce",
+   "value": true,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 114
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": true
+    }
+   ],
+   "locked": true,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "sandbox.backend",
+   "value": "auto",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 117
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "auto"
+    }
+   ],
+   "locked": false,
+   "hot": false,
+   "secret": false
+  },
+  {
+   "path": "sandbox.socket",
+   "value": "/run/bothy/sandboxd.sock",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 118
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "/run/bothy/sandboxd.sock"
+    }
+   ],
+   "locked": true,
+   "hot": false,
+   "secret": false
+  },
+  {
+   "path": "sandbox.profile",
+   "value": "base",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 119
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "base"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "sandbox.limits.memory_mb",
+   "value": 512,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 120
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 512
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "sandbox.limits.cpus",
+   "value": 1,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 120
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 1
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "sandbox.limits.pids",
+   "value": 256,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 120
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 256
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "sandbox.exec_timeout",
+   "value": "2m0s",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 121
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "2m0s"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "sandbox.output_kb",
+   "value": 64,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 122
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 64
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "sandbox.workspace_quota_mb",
+   "value": 2048,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 123
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 2048
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "sandbox.idle_timeout",
+   "value": "10m0s",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 124
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "10m0s"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "egress.allow",
+   "value": [],
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 127
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": []
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "egress.deny",
+   "value": [],
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 128
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": []
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "egress.presets.python_packages",
+   "value": false,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 129
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": false
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "egress.presets.npm_packages",
+   "value": false,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 129
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": false
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "egress.ports",
+   "value": [
+    443
+   ],
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 130
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": [
+      443
+     ]
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "egress.allow_plain_http",
+   "value": false,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 131
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": false
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "egress.hold_for_approval",
+   "value": "45s",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 132
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "45s"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "egress.caps.session_up_mb",
+   "value": 10,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 133
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 10
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "egress.caps.session_down_mb",
+   "value": 200,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 133
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 200
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "egress.shared_tenant_suffixes",
+   "value": [
+    ".amazonaws.com",
+    ".cloudfront.net",
+    ".googleusercontent.com",
+    ".blob.core.windows.net",
+    ".workers.dev",
+    ".pages.dev",
+    ".ngrok-free.app",
+    ".github.io"
+   ],
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 134
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": [
+      ".amazonaws.com",
+      ".cloudfront.net",
+      ".googleusercontent.com",
+      ".blob.core.windows.net",
+      ".workers.dev",
+      ".pages.dev",
+      ".ngrok-free.app",
+      ".github.io"
+     ]
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "egress.dns.servers",
+   "value": [],
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 136
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": []
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "egress.dns.max_ttl",
+   "value": "1m0s",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 136
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "1m0s"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "search.provider",
+   "value": "none",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 139
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "none"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "search.searxng_url",
+   "value": "http://searxng:8080",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 140
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "http://searxng:8080"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "search.searxng_allow_private",
+   "value": true,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 141
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": true
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "search.brave_api_key",
+   "value": "secret:brave_api_key",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 142
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "secret:brave_api_key"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": true
+  },
+  {
+   "path": "search.tavily_api_key",
+   "value": "secret:tavily_api_key",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 143
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "secret:tavily_api_key"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": true
+  },
+  {
+   "path": "search.max_results",
+   "value": 8,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 144
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 8
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "web_fetch.max_bytes",
+   "value": 2097152,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 146
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 2097152
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "web_fetch.timeout",
+   "value": "20s",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 146
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "20s"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "web_fetch.max_redirects",
+   "value": 5,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 146
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 5
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "channels.unknown_senders",
+   "value": "pair",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 149
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "pair"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "channels.usage_footer",
+   "value": false,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 150
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": false
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "channels.telegram.enabled",
+   "value": false,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 151
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": false
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "channels.telegram.token",
+   "value": "secret:telegram_bot_token",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 151
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "secret:telegram_bot_token"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": true
+  },
+  {
+   "path": "channels.telegram.groups.mention_only",
+   "value": true,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 151
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": true
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "channels.telegram.api_base",
+   "value": "https://api.telegram.org",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 152
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "https://api.telegram.org"
+    }
+   ],
+   "locked": true,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "channels.discord.enabled",
+   "value": false,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 153
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": false
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "channels.discord.token",
+   "value": "secret:discord_bot_token",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 153
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "secret:discord_bot_token"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": true
+  },
+  {
+   "path": "channels.discord.application_id",
+   "value": "",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 153
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": ""
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "channels.discord.groups.mention_only",
+   "value": true,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 153
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": true
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "channels.discord.api_base",
+   "value": "https://discord.com/api/v10",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 154
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "https://discord.com/api/v10"
+    }
+   ],
+   "locked": true,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "channels.discord.gateway_url",
+   "value": "",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 154
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": ""
+    }
+   ],
+   "locked": true,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "channels.slack.enabled",
+   "value": false,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 155
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": false
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "channels.slack.app_token",
+   "value": "secret:slack_app_token",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 155
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "secret:slack_app_token"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": true
+  },
+  {
+   "path": "channels.slack.bot_token",
+   "value": "secret:slack_bot_token",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 155
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "secret:slack_bot_token"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": true
+  },
+  {
+   "path": "channels.slack.groups.mention_only",
+   "value": true,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 155
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": true
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "channels.slack.api_base",
+   "value": "https://slack.com/api/",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 156
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "https://slack.com/api/"
+    }
+   ],
+   "locked": true,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.docs.name",
+   "value": "docs",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 160
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.docs.enabled",
+   "value": null,
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.docs.transport",
+   "value": "http",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 161
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.docs.url",
+   "value": "https://mcp.example.com/mcp",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 162
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.docs.headers.Authorization",
+   "value": "Bearer secret:docs_mcp_token",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 163
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": true
+  },
+  {
+   "path": "mcp.servers.docs.allow_private",
+   "value": false,
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.docs.profile",
+   "value": "",
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.docs.package",
+   "value": null,
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.docs.command",
+   "value": [],
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.docs.egress",
+   "value": [],
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.docs.workspace",
+   "value": "",
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.docs.side_effects.default",
+   "value": "read",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 164
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.docs.private",
+   "value": [],
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.docs.trusted_output",
+   "value": false,
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.notes.name",
+   "value": "notes",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 165
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.notes.enabled",
+   "value": false,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 166
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.notes.transport",
+   "value": "stdio",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 167
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.notes.url",
+   "value": "",
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.notes.headers",
+   "value": {},
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": true
+  },
+  {
+   "path": "mcp.servers.notes.allow_private",
+   "value": false,
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.notes.profile",
+   "value": "node",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 168
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.notes.package.ecosystem",
+   "value": "npm",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 169
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.notes.package.name",
+   "value": "@modelcontextprotocol/server-filesystem",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 169
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.notes.package.version",
+   "value": "2026.7.1",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 169
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.notes.package.integrity",
+   "value": "sha512-\u2026",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 169
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.notes.command",
+   "value": [
+    "node",
+    "node_modules/@modelcontextprotocol/server-filesystem/dist/index.js",
+    "/workspace/notes"
+   ],
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 170
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.notes.egress",
+   "value": [],
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 171
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.notes.workspace",
+   "value": "principal",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 172
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.notes.side_effects.default",
+   "value": "local_write",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 173
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.notes.side_effects.list_*",
+   "value": "read",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 173
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.notes.side_effects.read_*",
+   "value": "read",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 173
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.notes.private",
+   "value": [
+    "read_*"
+   ],
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 174
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "mcp.servers.notes.trusted_output",
+   "value": true,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 175
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "memory.memory_max_bytes",
+   "value": 4096,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 177
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 4096
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "memory.user_max_bytes",
+   "value": 2048,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 177
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 2048
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "memory.heartbeat_max_bytes",
+   "value": 2048,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 177
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 2048
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "memory.tainted_writes",
+   "value": "ask",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 177
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "ask"
+    }
+   ],
+   "locked": true,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "skills.dir",
+   "value": "",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 178
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": ""
+    }
+   ],
+   "locked": true,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "skills.index_budget_tokens",
+   "value": 600,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 178
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 600
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "scheduler.enabled",
+   "value": true,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 181
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": true
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "scheduler.missed_run",
+   "value": "skip",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 182
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "skip"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "scheduler.heartbeat.enabled",
+   "value": false,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 183
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": false
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "scheduler.heartbeat.every",
+   "value": "30m0s",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 183
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "30m0s"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "scheduler.heartbeat.active_hours",
+   "value": "08:00-22:00",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 183
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "08:00-22:00"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "scheduler.heartbeat.slot",
+   "value": "fast",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 183
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "fast"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "scheduler.heartbeat.deliver",
+   "value": "preferred",
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 183
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": "preferred"
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "api.openai_compat",
+   "value": true,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 185
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": true
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
+   "path": "api.passthrough",
+   "value": true,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 185
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": true
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  }
+ ],
+ "errors": [],
+ "safe_mode": false,
+ "restart_required": []
+}

@@ -9,6 +9,8 @@
   },
   "scripts": {
     "dev": "vite",
+    "mock": "BOTHY_MOCK=1 vite",
+    "preview:mock": "BOTHY_MOCK=1 vite preview",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
     "test": "vitest run"

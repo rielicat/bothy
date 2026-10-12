@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { gzipSync, constants } from 'node:zlib';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
-import { defineConfig, type Plugin } from 'vite';
+import type { Plugin, PluginOption } from 'vite';
+import { defineConfig } from 'vitest/config';
 
 const outDir = fileURLToPath(new URL('../internal/webui/dist', import.meta.url));
 const compressible = /\.(js|css|html|svg|json|webmanifest|txt)$/;
@@ -31,8 +32,13 @@ function precompress(): Plugin {
   };
 }
 
+const mock = process.env.BOTHY_MOCK === '1';
+const plugins: PluginOption[] = [tailwindcss(), svelte({ configFile: false, compilerOptions: { css: 'external', discloseVersion: false } }), precompress()];
+// The fixture gateway (web/mock) is loaded only for `npm run mock`.
+if (mock) plugins.push((await import('./mock/server.ts')).mockGateway());
+
 export default defineConfig({
-  plugins: [tailwindcss(), svelte({ configFile: false, compilerOptions: { css: 'external' } }), precompress()],
+  plugins,
   build: {
     outDir,
     emptyOutDir: true,
@@ -42,10 +48,18 @@ export default defineConfig({
     target: 'es2022',
   },
   server: {
-    proxy: {
-      '/api': 'http://127.0.0.1:8080',
-      '/v1': 'http://127.0.0.1:8080',
-      '/healthz': 'http://127.0.0.1:8080',
-    },
+    proxy: mock
+      ? undefined
+      : {
+          '/api': 'http://127.0.0.1:8080',
+          '/v1': 'http://127.0.0.1:8080',
+          '/healthz': 'http://127.0.0.1:8080',
+        },
+  },
+  resolve: process.env.VITEST ? { conditions: ['browser'] } : undefined,
+  test: {
+    environment: 'jsdom',
+    include: ['src/**/*.test.ts'],
+    restoreMocks: true,
   },
 });

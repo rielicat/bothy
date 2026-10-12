@@ -1,6 +1,6 @@
 @import 'tailwindcss' source('./');
 
-/* light | dark | system: <html data-theme> pins a theme; without it the OS preference wins. */
+/* light | dark | system: public/theme.js resolves the preference into <html data-theme> before first paint. */
 @custom-variant dark {
   &:where([data-theme='dark'], [data-theme='dark'] *) {
     @slot;
@@ -12,12 +12,335 @@
   }
 }
 
-:root {
-  color-scheme: light dark;
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
+  --color-bg: #f6f5f1;
+  --color-surface: #ffffff;
+  --color-sunken: #efede7;
+  --color-line: #e3e0d8;
+  --color-line-strong: #cfcbc0;
+  --color-fg: #1d1c19;
+  --color-muted: #5f5b53;
+  --color-faint: #6d6960;
+  --color-accent: #2d6a55;
+  --color-accent-hover: #245644;
+  --color-on-accent: #ffffff;
+  --color-accent-soft: #e2eee8;
+  --color-ok: #26703f;
+  --color-ok-soft: #e2f2e8;
+  --color-warn: #8a5900;
+  --color-warn-soft: #faefd6;
+  --color-bad: #b42330;
+  --color-bad-soft: #fbe6e7;
+  --color-info: #2a5d9b;
+  --color-info-soft: #e4edf8;
+  --color-risk-read: #5f6b7a;
+  --color-risk-local: #2b67a8;
+  --color-risk-send: #8a5a0b;
+  --color-risk-irrev: #c2312f;
+  --color-risk-money: #b0307a;
+  --color-risk-admin: #6a46bd;
+  --color-r1: #7b6fd0;
+  --color-r2: #3f8fb8;
+  --color-r3: #3a9a7a;
+  --color-r4: #b38b2e;
+  --color-r5: #c0653c;
+  --color-r6: #b2477b;
 }
-:root[data-theme='light'] {
-  color-scheme: light;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+  :root[data-theme='dark'] {
+    color-scheme: dark;
+    --color-bg: #111312;
+    --color-surface: #191b1a;
+    --color-sunken: #0d0f0e;
+    --color-line: #2a2e2c;
+    --color-line-strong: #3a3f3c;
+    --color-fg: #eceae4;
+    --color-muted: #a6a298;
+    --color-faint: #8f8b80;
+    --color-accent: #72c2a2;
+    --color-accent-hover: #8dd3b6;
+    --color-on-accent: #0b1a14;
+    --color-accent-soft: #1b2e26;
+    --color-ok: #6fca8f;
+    --color-ok-soft: #17291e;
+    --color-warn: #e3b25c;
+    --color-warn-soft: #2d2513;
+    --color-bad: #f2828a;
+    --color-bad-soft: #341b1e;
+    --color-info: #85b3ee;
+    --color-info-soft: #172333;
+    --color-risk-read: #9aa6b4;
+    --color-risk-local: #7fb0e8;
+    --color-risk-send: #e5ac55;
+    --color-risk-irrev: #f2827d;
+    --color-risk-money: #ef8cc4;
+    --color-risk-admin: #b59cf3;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--color-accent) 25%, transparent);
+  }
+  [hidden] {
+    display: none !important;
+  }
+  dialog::backdrop {
+    background: rgb(10 12 11 / 0.45);
+    backdrop-filter: blur(2px);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }
-:root[data-theme='dark'] {
-  color-scheme: dark;
+
+@layer components {
+  .btn {
+    @apply inline-flex h-9 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-line bg-surface px-3 text-sm font-medium whitespace-nowrap text-fg shadow-xs transition-colors select-none hover:bg-sunken disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply border-transparent bg-accent text-on-accent hover:bg-accent-hover;
+  }
+  .btn-danger {
+    @apply border-transparent bg-bad text-white hover:opacity-90 dark:text-bg;
+  }
+  .btn-ghost {
+    @apply border-transparent bg-transparent shadow-none hover:bg-sunken;
+  }
+  .btn-sm {
+    @apply h-7 rounded-md px-2 text-xs;
+  }
+  .btn-icon {
+    @apply w-9 px-0;
+  }
+  .btn-sm.btn-icon {
+    @apply w-7;
+  }
+  .input {
+    @apply block h-9 w-full min-w-0 rounded-lg border border-line bg-surface px-3 text-sm text-fg shadow-xs placeholder:text-faint focus:border-accent focus:outline-none focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-60;
+  }
+  textarea.input {
+    @apply h-auto py-2 leading-relaxed;
+  }
+  select.input {
+    @apply pr-8;
+  }
+  .label {
+    @apply mb-1 block text-sm font-medium text-fg;
+  }
+  .help {
+    @apply mt-1 text-xs text-muted;
+  }
+  .card {
+    @apply rounded-xl border border-line bg-surface;
+  }
+  .chip {
+    @apply inline-flex max-w-full items-center gap-1 rounded-full border border-line bg-surface px-2 py-0.5 text-xs leading-5 whitespace-nowrap text-muted;
+  }
+  .chip-ok {
+    @apply border-transparent bg-ok-soft text-ok;
+  }
+  .chip-warn {
+    @apply border-transparent bg-warn-soft text-warn;
+  }
+  .chip-bad {
+    @apply border-transparent bg-bad-soft text-bad;
+  }
+  .chip-info {
+    @apply border-transparent bg-info-soft text-info;
+  }
+  .chip-accent {
+    @apply border-transparent bg-accent-soft text-accent;
+  }
+  .alert-bad,
+  .alert-warn,
+  .alert-ok,
+  .alert-info {
+    @apply flex items-start gap-2 rounded-lg px-3 py-2 text-sm;
+  }
+  .alert-bad {
+    @apply bg-bad-soft text-bad;
+  }
+  .alert-warn {
+    @apply bg-warn-soft text-warn;
+  }
+  .alert-ok {
+    @apply bg-ok-soft text-ok;
+  }
+  .alert-info {
+    @apply bg-info-soft text-info;
+  }
+  .stat {
+    @apply rounded-xl border border-line bg-surface p-4;
+  }
+  .stat dt {
+    @apply text-xs text-muted;
+  }
+  .stat dd {
+    @apply mt-1 text-xl font-semibold tabular-nums;
+  }
+  .kbd {
+    @apply inline-flex h-5 min-w-5 items-center justify-center rounded border border-line bg-sunken px-1 font-mono text-[11px] text-muted;
+  }
+  .btn .kbd {
+    @apply border-current/30 bg-transparent text-current opacity-75;
+  }
+  .link {
+    @apply text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent;
+  }
+  .page {
+    @apply mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 sm:py-8;
+  }
+  .page-title {
+    @apply text-xl font-semibold tracking-tight sm:text-2xl;
+  }
+  .section-title {
+    @apply text-sm font-semibold text-fg;
+  }
+  .table {
+    @apply w-full border-collapse text-sm;
+  }
+  .table th {
+    @apply border-b border-line px-3 py-2 text-left text-xs font-medium tracking-wide text-muted uppercase;
+  }
+  .table td {
+    @apply border-b border-line px-3 py-2 align-top;
+  }
+  .table tr:last-child td {
+    @apply border-b-0;
+  }
+  .mono {
+    @apply font-mono text-[13px];
+  }
+  .tabs {
+    @apply flex gap-1 overflow-x-auto border-b border-line;
+  }
+  .tab {
+    @apply -mb-px cursor-pointer border-b-2 border-transparent px-3 py-2 text-sm whitespace-nowrap text-muted hover:text-fg aria-selected:border-accent aria-selected:font-medium aria-selected:text-fg;
+  }
+  .switch {
+    @apply relative inline-flex h-5 w-9 shrink-0 cursor-pointer appearance-none rounded-full bg-line-strong transition-colors checked:bg-accent disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .switch::after {
+    content: '';
+    @apply absolute top-0.5 left-0.5 size-4 rounded-full bg-white shadow transition-transform;
+  }
+  .switch:checked::after {
+    @apply translate-x-4;
+  }
+  .sheet {
+    @apply m-0 h-dvh max-h-dvh w-full max-w-md border-l border-line bg-surface p-0 text-fg shadow-2xl sm:ml-auto;
+  }
+  .modal {
+    @apply m-auto w-[calc(100%-2rem)] max-w-lg rounded-2xl border border-line bg-surface p-0 text-fg shadow-2xl;
+  }
+  .sr-only {
+    @apply absolute -m-px h-px w-px overflow-hidden p-0 whitespace-nowrap;
+    clip: rect(0, 0, 0, 0);
+  }
+  .skeleton {
+    @apply animate-pulse rounded bg-sunken;
+  }
+}
+
+/* Markdown output of lib/markdown.ts (chat, cards, SKILL.md). */
+.md {
+  @apply text-[15px] leading-relaxed break-words;
+}
+.md > * + * {
+  @apply mt-3;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4,
+.md h5,
+.md h6 {
+  @apply font-semibold tracking-tight;
+}
+.md h1 {
+  @apply text-xl;
+}
+.md h2 {
+  @apply text-lg;
+}
+.md h3 {
+  @apply text-base;
+}
+.md a {
+  @apply text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent;
+}
+.md ul {
+  @apply list-disc pl-6;
+}
+.md ol {
+  @apply list-decimal pl-6;
+}
+.md li + li {
+  @apply mt-1;
+}
+.md li > ul,
+.md li > ol {
+  @apply mt-1;
+}
+.md blockquote {
+  @apply border-l-2 border-line-strong pl-3 text-muted;
+}
+.md code {
+  @apply rounded bg-sunken px-1 py-0.5 font-mono text-[0.85em];
+}
+.md pre {
+  @apply relative overflow-x-auto rounded-lg border border-line bg-sunken p-3 text-[13px] leading-normal;
+}
+.md pre code {
+  @apply bg-transparent p-0 text-[13px];
+}
+.md hr {
+  @apply border-line;
+}
+.md table {
+  @apply block w-max max-w-full overflow-x-auto border-collapse text-sm;
+}
+.md th,
+.md td {
+  @apply border border-line px-2 py-1 text-left;
+}
+.md th {
+  @apply bg-sunken font-medium;
+}
+.md .md-inert {
+  @apply inline-flex items-center gap-1 rounded bg-warn-soft px-1 font-mono text-[0.85em] text-warn;
+}
+.md .md-copy {
+  @apply cursor-pointer rounded px-1 text-xs text-muted hover:bg-line hover:text-fg;
+}
+.md pre .md-copy {
+  @apply absolute top-1.5 right-1.5 border border-line bg-surface;
+}
+.md .md-img {
+  @apply text-muted italic;
 }
