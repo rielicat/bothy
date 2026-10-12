@@ -24,9 +24,11 @@ the runner unwraps; planning or executing `use_tool` itself is an error.
 
 **Builtins.** `fs_read` (line ranges, 256 KB cap, binary detection, taints
 the session Private), `fs_write` (create/overwrite/append, Action carries an
-exact unified diff, quota checked through `Sandbox.Usage`, atomic replace),
+exact unified diff, quota checked through `Sandbox.Usage`, atomic replace
+that keeps the file's permission bits),
 `fs_list`, `fs_delete` (irreversible, lazy, diff of what is removed) and
 `message` (`core.Gated` on a channel chat, no recipient parameter: it replies
 only in `env.Chat` and refuses to send a planned Action to any other chat).
 All file access goes through `os.Root` on the principal's workspace, so `..`,
-absolute paths and symlinks leading outside are refused at both Plan and Exec.
+absolute paths and symlinks leading outside are refused at both Plan and Exec,
+and errors name paths relative to the workspace, never the host directory.
