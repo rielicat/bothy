@@ -12,6 +12,9 @@ const (
 	ewmaAlpha     = 0.2
 	minCorrection = 0.25
 	maxCorrection = 4.0
+	// maxCorrections bounds the per-model table: passthrough clients name
+	// models freely, so the set of refs is not limited by config.
+	maxCorrections = 1024
 )
 
 func (f *Facade) correction(ref core.ModelRef) float64 {
@@ -44,6 +47,9 @@ func (f *Facade) Calibrate(ref core.ModelRef, estimated, actual int) {
 	defer f.mu.Unlock()
 	cur, ok := f.corr[ref.String()]
 	if !ok {
+		if len(f.corr) >= maxCorrections {
+			return
+		}
 		cur = 1
 	}
 	f.corr[ref.String()] = clamp(cur+ewmaAlpha*(cur*ratio-cur), minCorrection, maxCorrection)

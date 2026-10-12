@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -141,6 +142,16 @@ func TestEstimateAndCalibrate(t *testing.T) {
 	h.f.Calibrate(ref, 0, 10) // ignored
 	if other := h.f.Estimate(text, core.ModelRef{Provider: "p", Model: "other"}); other != 10 {
 		t.Fatalf("per-model correction leaked: %d", other)
+	}
+	// Passthrough model names are unbounded; the table is not.
+	for i := range maxCorrections + 50 {
+		h.f.Calibrate(core.ModelRef{Provider: "p", Model: strconv.Itoa(i)}, 100, 150)
+	}
+	if n := len(h.f.corr); n != maxCorrections {
+		t.Fatalf("%d corrections kept", n)
+	}
+	if got := h.f.Estimate(text, ref); got != 40 {
+		t.Fatalf("known model lost its correction: %d", got)
 	}
 }
 
