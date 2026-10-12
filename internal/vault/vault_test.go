@@ -243,6 +243,18 @@ func TestWrongKEKSeals(t *testing.T) {
 	if err != nil || bytes.Contains(ct, []byte("value-under-kek-one")) {
 		t.Errorf("ciphertext = %q, %v", ct, err)
 	}
+	if n := v2.Status().Secrets; n != 1 {
+		t.Errorf("sealed Status.Secrets = %d, want the 1 stored secret", n)
+	}
+	if err := v2.Delete(ctx, core.GlobalScope, "token", ""); err != nil {
+		t.Errorf("Delete on a sealed vault = %v", err)
+	}
+	if err := v2.Delete(ctx, core.GlobalScope, "token", ""); !errors.Is(err, core.ErrNotFound) {
+		t.Errorf("second Delete = %v", err)
+	}
+	if n := v2.Status().Secrets; n != 0 {
+		t.Errorf("Status.Secrets after Delete = %d, want 0", n)
+	}
 }
 
 func TestLostKeyfileIsNotRegenerated(t *testing.T) {
@@ -568,6 +580,9 @@ func TestEnvSecrets(t *testing.T) {
 	}
 	if env != 2 {
 		t.Errorf("List shows %d env secrets, want 2: %+v", env, metas)
+	}
+	if n := len(metas); n < 2 || metas[n-2].Name != "docs_mcp_token" || metas[n-1].Name != "file_key" {
+		t.Errorf("env secrets are not listed in name order: %+v", metas)
 	}
 	for _, s := range []string{"env-docs-token-value", "from-a-file-value"} {
 		if red := v.Redactor().Redact(s); red != Mask {

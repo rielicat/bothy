@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -196,9 +198,11 @@ func (v *Vault) record(ctx context.Context, action, actor, target, outcome strin
 	return v.audit.Record(ctx, core.AuditEntry{At: v.clock.Now(), Actor: actor, Action: action, Target: target, Outcome: outcome, Detail: d})
 }
 
-// loadSecrets registers every stored plaintext with the redactor and counts
-// the secrets. Scopes are global plus each user's: the only scopes Put accepts.
+// loadSecrets counts the stored secrets and, when the vault is open,
+// registers every plaintext with the redactor. Scopes are global plus each
+// user's: the only scopes Put accepts.
 func (v *Vault) loadSecrets(ctx context.Context) {
+	_, _, keyErr := v.key()
 	scopes := []core.Scope{core.GlobalScope}
 	users, err := v.store.Users().List(ctx)
 	if err != nil {
@@ -216,6 +220,9 @@ func (v *Vault) loadSecrets(ctx context.Context) {
 		}
 		for _, m := range metas {
 			n++
+			if keyErr != nil {
+				continue
+			}
 			val, err := v.decrypt(ctx, sc, m.Name)
 			if err != nil {
 				v.log.Error("vault: secret cannot be decrypted", "scope", sc, "name", m.Name, "err", err)
@@ -412,7 +419,7 @@ func (v *Vault) Delete(ctx context.Context, sc core.Scope, name string, by core.
 	}
 	v.red.Remove(redactID(sc, name))
 	v.mu.Lock()
-	v.count--
+	v.count = max(v.count-1, 0)
 	delete(v.touched, redactID(sc, name))
 	v.mu.Unlock()
 	return v.record(ctx, "vault.delete", actor(by), redactID(sc, name), "ok", map[string]any{"scope": string(sc), "name": name})
@@ -430,8 +437,8 @@ func (v *Vault) List(ctx context.Context, sc core.Scope) ([]core.SecretMeta, err
 		return nil, err
 	}
 	if sc == core.GlobalScope {
-		for name, val := range v.envSecs {
-			out = append(out, core.SecretMeta{Scope: core.GlobalScope, Name: strings.ToLower(name), Source: "env", Hint: hint(val)})
+		for _, name := range slices.Sorted(maps.Keys(v.envSecs)) {
+			out = append(out, core.SecretMeta{Scope: core.GlobalScope, Name: strings.ToLower(name), Source: "env", Hint: hint(v.envSecs[name])})
 		}
 	}
 	if out == nil {

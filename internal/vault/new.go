@@ -101,9 +101,11 @@ func newVault(d Deps, o options) (*Vault, error) {
 	if d.Env != nil {
 		v.loadEnv(d.Env())
 	}
-	if err := v.boot(context.Background(), cfg.Vault.KEK); err != nil {
+	ctx := context.Background()
+	if err := v.boot(ctx, cfg.Vault.KEK); err != nil {
 		return nil, err
 	}
+	v.loadSecrets(ctx)
 	return v, nil
 }
 
@@ -165,7 +167,6 @@ func (v *Vault) boot(ctx context.Context, spec string) error {
 		return nil //nolint:nilerr // sealed, not fatal: see above
 	}
 	v.setOpen(plan, kek, dek, id)
-	v.loadSecrets(ctx)
 	return nil
 }
 
