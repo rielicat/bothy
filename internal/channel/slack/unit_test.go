@@ -15,6 +15,7 @@ import (
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
 
+	"github.com/bothyhq/bothy/internal/config"
 	"github.com/bothyhq/bothy/internal/core"
 )
 
@@ -142,6 +143,23 @@ func TestSystemDialerFailsClosed(t *testing.T) {
 		if _, _, err := systemDialer(deps, core.SystemDest{Hosts: []string{"wss-primary.slack.com:443"}}); !errors.Is(err, core.ErrForbidden) {
 			t.Fatalf("systemDialer with client %+v = %v, want ErrForbidden", c, err)
 		}
+	}
+}
+
+func TestNilEgressClientFailsClosed(t *testing.T) {
+	a, err := newAdapter(config.Default().Channels.Slack, core.AdapterDeps{
+		Secret: func(context.Context, string) (core.Secret, error) { return core.NewSecret([]byte("xoxb-x")), nil },
+		HTTP:   func(core.SystemDest) *http.Client { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := a.Send(ctx, core.OutMessage{Chat: core.ChatRef{Channel: name, ChatID: "C1"}, Text: "x"}); !errors.Is(err, core.ErrForbidden) {
+		t.Fatalf("Send without an egress client = %v, want ErrForbidden", err)
+	}
+	if _, err := a.Fetch(ctx, core.Attachment{FetchRef: "https://files.slack.com/a"}, 10); !errors.Is(err, core.ErrForbidden) {
+		t.Fatalf("Fetch without an egress client = %v, want ErrForbidden", err)
 	}
 }
 

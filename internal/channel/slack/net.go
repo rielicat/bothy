@@ -39,6 +39,22 @@ func (a *adapter) dest(hostport string) core.SystemDest {
 	return core.SystemDest{Name: "channel:" + name, Hosts: []string{hostport}, AllowPrivate: a.allowPrivate}
 }
 
+// egressClient returns the egress client for hostport. A nil one would make
+// slack-go panic or fall back to the default transport; refusing every
+// request keeps a wiring mistake closed.
+func (a *adapter) egressClient(hostport string) *http.Client {
+	if c := a.deps.HTTP(a.dest(hostport)); c != nil {
+		return c
+	}
+	return &http.Client{Transport: refuse{}}
+}
+
+type refuse struct{}
+
+func (refuse) RoundTrip(r *http.Request) (*http.Response, error) {
+	return nil, fmt.Errorf("no egress client for %s: %w", r.URL.Host, core.ErrForbidden)
+}
+
 type dialFunc func(ctx context.Context, network, addr string) (net.Conn, error)
 
 // systemDialer returns the egress system dialer for exactly dest. AdapterDeps

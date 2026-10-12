@@ -42,10 +42,9 @@ func (a *adapter) client() discordAPI {
 		if a.api != nil {
 			return
 		}
-		hc := a.deps.HTTP(a.dest(hostPort(a.apiBase)))
 		rc := rest.NewClient("",
 			rest.WithURL(a.cfg.APIBase),
-			rest.WithHTTPClient(hc),
+			rest.WithHTTPClient(a.egressClient(hostPort(a.apiBase))),
 			rest.WithUserAgent(userAgent),
 			rest.WithLogger(a.libLog),
 			rest.WithRateLimiterConfigOpts(rest.WithMaxRetries(maxRetries), rest.WithRateLimiterLogger(a.libLog)),

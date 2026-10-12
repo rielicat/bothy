@@ -106,11 +106,7 @@ func (a *adapter) Ack(ctx context.Context, ev core.ActionEvent, toast string) er
 		return fmt.Errorf("slack: ack request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	hc, err := a.noRedirects(u)
-	if err != nil {
-		return err
-	}
-	resp, err := hc.Do(req)
+	resp, err := a.noRedirects(u).Do(req)
 	if err != nil {
 		return fmt.Errorf("slack: acknowledge press: %w", err)
 	}
@@ -183,11 +179,7 @@ func (a *adapter) Fetch(ctx context.Context, att core.Attachment, limit int64) (
 		return nil, fmt.Errorf("slack: file request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+bot)
-	hc, err := a.noRedirects(u)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := hc.Do(req)
+	resp, err := a.noRedirects(u).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("slack: fetch file: %w", err)
 	}
@@ -213,14 +205,10 @@ func (a *adapter) hostAllowed(u *url.URL, host string) bool {
 }
 
 // noRedirects returns the egress client for u's host with redirects off.
-func (a *adapter) noRedirects(u *url.URL) (*http.Client, error) {
-	base := a.deps.HTTP(a.dest(hostPort(u)))
-	if base == nil {
-		return nil, fmt.Errorf("slack: no egress client for %s: %w", u.Host, core.ErrForbidden)
-	}
-	c := *base
+func (a *adapter) noRedirects(u *url.URL) *http.Client {
+	c := *a.egressClient(hostPort(u))
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	return &c, nil
+	return &c
 }
 
 func checkChat(chat core.ChatRef) error {

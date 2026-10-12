@@ -62,7 +62,7 @@ var authCodes = map[string]bool{
 func (a *adapter) newClient(bot, app string) *slack.Client {
 	opts := []slack.Option{
 		slack.OptionAPIURL(a.cfg.APIBase),
-		slack.OptionHTTPClient(a.deps.HTTP(a.dest(hostPort(a.apiBase)))),
+		slack.OptionHTTPClient(a.egressClient(hostPort(a.apiBase))),
 		slack.OptionRetryConfig(slack.RetryConfig{MaxRetries: 2, RetryAfterDuration: 5 * time.Second}),
 	}
 	if app != "" {

@@ -169,11 +169,7 @@ func (a *adapter) Fetch(ctx context.Context, att core.Attachment, limit int64) (
 	if err != nil {
 		return nil, fmt.Errorf("discord: attachment request: %w", err)
 	}
-	base := a.deps.HTTP(a.dest(hostPort(u)))
-	if base == nil {
-		return nil, fmt.Errorf("discord: no egress client for %s: %w", u.Host, core.ErrForbidden)
-	}
-	hc := *base
+	hc := *a.egressClient(hostPort(u))
 	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	resp, err := hc.Do(req)
 	if err != nil {
