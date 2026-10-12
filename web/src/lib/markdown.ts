@@ -38,7 +38,7 @@ export function safeUrl(raw: string): URL | null {
 }
 
 const FENCE = /^ {0,3}(`{3,}|~{3,})[ \t]*([^`\s]*)/;
-const HEADING = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/;
+const HEADING = /^ {0,3}(#{1,6})(?=[ \t]|$)/;
 const HR = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
 const QUOTE = /^ {0,3}> ?/;
 const ITEM = /^( {0,3})([-*+]|\d{1,9}[.)])([ \t]+|$)/;
@@ -94,7 +94,7 @@ function blocks(lines: string[], o: MdOptions, depth: number): string {
     }
     if ((m = HEADING.exec(line))) {
       const n = m[1].length;
-      out += `<h${n}>${inline(m[2] ?? '', o)}</h${n}>`;
+      out += `<h${n}>${inline(headingText(line.slice(m[0].length)), o)}</h${n}>`;
       i++;
       continue;
     }
@@ -126,6 +126,16 @@ function blocks(lines: string[], o: MdOptions, depth: number): string {
     out += `<p>${inline(para.join('\n').trimEnd(), o)}</p>`;
   }
   return out;
+}
+
+// A closing run of "#" counts only after whitespace or as the whole text. This
+// is done by hand: the regex form backtracks quadratically on long space runs.
+function headingText(s: string): string {
+  const t = s.trim();
+  let e = t.length;
+  while (e > 0 && t[e - 1] === '#') e--;
+  if (e === 0) return '';
+  return e < t.length && (t[e - 1] === ' ' || t[e - 1] === '\t') ? t.slice(0, e).trimEnd() : t;
 }
 
 function list(lines: string[], start: number, o: MdOptions, depth: number): [string, number] {
@@ -222,6 +232,9 @@ function inline(s: string, o: MdOptions, inLink = false): string {
   // Lengths of backtick runs known to have no closing run further on; keeps
   // a line of unmatched backticks linear instead of quadratic.
   const unclosed = new Set<number>();
+  // A failed link parse can scan thousands of characters; once this budget
+  // is spent, brackets stay text, so "[](" repeated cannot stall rendering.
+  const scan = { left: 16 * s.length + 8192 };
   let i = 0;
   while (i < s.length) {
     const ch = s[i];
@@ -250,9 +263,9 @@ function inline(s: string, o: MdOptions, inLink = false): string {
       i = close + n;
       continue;
     }
-    if (!inLink && (ch === '[' || (ch === '!' && s[i + 1] === '['))) {
+    if (!inLink && scan.left > 0 && (ch === '[' || (ch === '!' && s[i + 1] === '['))) {
       const img = ch === '!';
-      const l = parseLink(s, img ? i + 1 : i);
+      const l = parseLink(s, img ? i + 1 : i, scan);
       if (l) {
         flush();
         const label = img ? '' : inline(l.text, o, true);
@@ -279,11 +292,19 @@ function inline(s: string, o: MdOptions, inLink = false): string {
       const b = BARE.exec(s);
       if (b) {
         let url = b[0];
+        let open = 0;
+        let close = 0;
+        for (const c of url) {
+          if (c === '(') open++;
+          else if (c === ')') close++;
+        }
         for (;;) {
           const last = url[url.length - 1];
           if ('?!.,:;*_~\'"'.includes(last)) url = url.slice(0, -1);
-          else if (last === ')' && (url.match(/\(/g)?.length ?? 0) < (url.match(/\)/g)?.length ?? 0)) url = url.slice(0, -1);
-          else break;
+          else if (last === ')' && open < close) {
+            url = url.slice(0, -1);
+            close--;
+          } else break;
         }
         flush();
         out += ph(link(url, esc(url), o));
@@ -302,12 +323,25 @@ function inline(s: string, o: MdOptions, inLink = false): string {
     .replace(/(^|[^\p{L}\p{N}])__(?=\S)([^\n]{0,400}?\S)__(?![\p{L}\p{N}])/gu, '$1<strong>$2</strong>')
     .replace(/~~(?=\S)([^\n]{0,400}?\S)~~/g, '<del>$1</del>')
     .replace(/(^|[^*])\*(?=[^\s*])([^\n]{0,400}?[^\s*])\*(?!\*)/g, '$1<em>$2</em>')
-    .replace(/(^|[^\p{L}\p{N}])_(?=\S)([^\n]{0,400}?\S)_(?![\p{L}\p{N}])/gu, '$1<em>$2</em>')
-    .replace(/ *\n/g, '<br>');
-  return out.replace(/\uE000(\d+)\uE001/g, (_, n: string) => parts[Number(n)]);
+    .replace(/(^|[^\p{L}\p{N}])_(?=\S)([^\n]{0,400}?\S)_(?![\p{L}\p{N}])/gu, '$1<em>$2</em>');
+  return breaks(out).replace(/\uE000(\d+)\uE001/g, (_, n: string) => parts[Number(n)]);
 }
 
-function parseLink(s: string, at: number): { text: string; href: string; end: number } | null {
+// Newlines become <br>, dropping the spaces before each one. A / *\n/ regex
+// would rescan every run of spaces from each of its positions.
+function breaks(s: string): string {
+  if (!s.includes('\n')) return s;
+  const lines = s.split('\n');
+  for (let i = 0; i < lines.length - 1; i++) {
+    const l = lines[i];
+    let e = l.length;
+    while (e > 0 && l.charCodeAt(e - 1) === 32) e--;
+    lines[i] = l.slice(0, e);
+  }
+  return lines.join('<br>');
+}
+
+function parseLink(s: string, at: number, scan: { left: number }): { text: string; href: string; end: number } | null {
   let depth = 0;
   let j = at;
   const stop = Math.min(s.length, at + 1000);
@@ -316,6 +350,7 @@ function parseLink(s: string, at: number): { text: string; href: string; end: nu
     else if (s[j] === '[') depth++;
     else if (s[j] === ']' && --depth === 0) break;
   }
+  scan.left -= j - at;
   if (j >= stop || s[j + 1] !== '(') return null;
   const text = s.slice(at + 1, j);
   let k = j + 2;
@@ -323,6 +358,7 @@ function parseLink(s: string, at: number): { text: string; href: string; end: nu
   let href = '';
   if (s[k] === '<') {
     const e = s.indexOf('>', k);
+    scan.left -= (e < 0 ? s.length : e) - k;
     if (e < 0 || s.slice(k, e).includes('\n')) return null;
     href = s.slice(k + 1, e);
     k = e + 1;
@@ -333,6 +369,7 @@ function parseLink(s: string, at: number): { text: string; href: string; end: nu
       if (s[k] === '(') parens++;
       else if (s[k] === ')' && parens-- === 0) break;
     }
+    scan.left -= k - b;
     href = s.slice(b, k);
   }
   while (s[k] === ' ') k++;

@@ -187,6 +187,28 @@ describe('renderMarkdown formatting', () => {
     renderMarkdown('- '.repeat(5000));
     expect(performance.now() - t0).toBeLessThan(2000);
   });
+
+  // Each of these took seconds (quadratic regex backtracking or rescans) on
+  // ~100 KB of model output, re-rendered on every streamed delta.
+  it.each([
+    ['a heading with a long space run', '# a' + ' '.repeat(100_000) + 'b'],
+    ['a paragraph with a long space run', 'a' + ' '.repeat(100_000) + 'b'],
+    ['a bare URL ending in parentheses', 'http://a.example' + ')'.repeat(100_000)],
+    ['unterminated link targets', '[]('.repeat(30_000)],
+  ])('renders %s in linear time', (_, src) => {
+    const t0 = performance.now();
+    renderMarkdown(src);
+    expect(performance.now() - t0).toBeLessThan(500);
+  });
+
+  it('keeps heading closers and line-break spacing', () => {
+    expect(renderMarkdown('## Title ##')).toBe('<h2>Title</h2>');
+    expect(renderMarkdown('# C#')).toBe('<h1>C#</h1>');
+    expect(renderMarkdown('# #')).toBe('<h1></h1>');
+    expect(renderMarkdown('#nope')).toBe('<p>#nope</p>');
+    expect(renderMarkdown('a   \nb  ')).toBe('<p>a<br>b</p>');
+    expect(renderMarkdown('see http://a.example/x_(y))')).toContain('href="http://a.example/x_(y)"');
+  });
 });
 
 describe('url helpers', () => {
