@@ -426,6 +426,53 @@ func TestMemorySnapshotTaintsPrivate(t *testing.T) {
 	})
 }
 
+func TestMemoryDeltaTaintsPrivate(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		block := make(chan struct{})
+		h := newHarness(t, opts{steps: []fakes.LLMStep{
+			{Text: []string{"ok"}},                 // A, first turn
+			{Text: []string{"busy"}, Block: block}, // B, long turn
+			{Text: []string{"noted"}},              // B, after the steer
+			{Text: []string{"you have a locker"}},  // A, second turn
+		}})
+		defer h.close()
+		a := h.sess
+		h.submit("hi")
+		synctest.Wait()
+		b := h.newSession("web", nil)
+		h.sess = b
+		h.submit("long task")
+		synctest.Wait()
+		if h.session().Taint != 0 {
+			t.Fatalf("taint with empty memory = %b", h.session().Taint)
+		}
+		// Memory written elsewhere (web editor, another session) reaches a
+		// session through its next turn-context, steer turns included.
+		if _, err := h.mem.Apply(h.ctx, h.pid, "", core.MemoryOp{File: core.FileMemory, Op: "add", New: "Locker code is 4512."}, core.ProvUser); err != nil {
+			t.Fatal(err)
+		}
+		if res := h.submit("also this"); !res.Steered {
+			t.Fatalf("not steered: %+v", res)
+		}
+		if !h.session().Taint.Has(core.TaintPrivate) {
+			t.Fatal("a memory delta in a steer turn-context did not taint the session private")
+		}
+		close(block)
+		synctest.Wait()
+
+		h.sess = a
+		h.submit("what do you know?")
+		synctest.Wait()
+		reqs := h.requests()
+		if !strings.Contains(lastUserText(reqs[len(reqs)-1]), "Locker code is 4512.") {
+			t.Fatal("memory delta missing from the turn-context")
+		}
+		if !h.session().Taint.Has(core.TaintPrivate) {
+			t.Fatal("a memory delta in the turn-context did not taint the session private")
+		}
+	})
+}
+
 func TestExecToolsUseTheBoxInEveryRun(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		shell := &testTool{name: "shell", se: core.SELocalWrite, exec: true, run: func(ctx context.Context, env *core.ToolEnv, _ *core.Action) (*core.ToolResult, error) {

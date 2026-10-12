@@ -57,6 +57,23 @@ func (r *Runner) addTaint(ctx context.Context, rs *runState, legs core.Taint) er
 	return nil
 }
 
+// recordTaint stores new legs before the content that carries them is
+// appended, so a failed write never leaves that content in the history of an
+// untainted session.
+func (r *Runner) recordTaint(ctx context.Context, id core.SessionID, have, legs core.Taint) (*core.Session, error) {
+	if have|legs == have {
+		return nil, nil
+	}
+	s, err := r.mutateSession(ctx, id, func(s *core.Session) error {
+		s.Taint |= legs
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("agent: update taint: %w", err)
+	}
+	return s, nil
+}
+
 func boxKey(s core.SessionID) string { return core.DerivedID(core.PrefixBox, "session:"+string(s)) }
 
 func (r *Runner) sandboxOK(ctx context.Context) bool {
@@ -350,9 +367,19 @@ func (r *Runner) snapshotSpecs(rs *runState) []core.ToolSpec {
 	return specs
 }
 
+// turnCtx is a rendered <turn-context> and the cursors it advanced.
+type turnCtx struct {
+	text              string
+	memSeen, pinsSeen int64
+	// legs the turn adds to the session: memory deltas are the user's
+	// private data entering context, like a snapshot with memory (SPEC §5.3).
+	legs core.Taint
+}
+
 // turnContext renders the persisted <turn-context> of a user turn and
 // returns the memory event and pin ids it folded in.
-func (r *Runner) turnContext(ctx context.Context, rs *runState, sess *core.Session, req core.RunRequest) (string, int64, int64, error) {
+func (r *Runner) turnContext(ctx context.Context, rs *runState, sess *core.Session, req core.RunRequest) (turnCtx, error) {
+	var tc turnCtx
 	var b strings.Builder
 	loc := r.timezone(rs)
 	now := r.now().In(loc)
@@ -378,26 +405,27 @@ func (r *Runner) turnContext(ctx context.Context, rs *runState, sess *core.Sessi
 		fmt.Fprintf(&b, "trigger: %s run (nobody is watching live; approvals wait for the user)\n", req.Trigger)
 	}
 
-	memSeen, pinsSeen := sess.MemorySeen, sess.PinsSeen
+	tc.memSeen, tc.pinsSeen = sess.MemorySeen, sess.PinsSeen
 	if r.d.Memory != nil && rs.principal.Kind == core.PrincipalUser {
 		text, last, err := r.d.Memory.DeltasSince(ctx, rs.principal.ID, sess.MemorySeen)
 		if err != nil {
-			return "", 0, 0, fmt.Errorf("agent: memory deltas: %w", err)
+			return turnCtx{}, fmt.Errorf("agent: memory deltas: %w", err)
 		}
 		if strings.TrimSpace(text) != "" {
 			b.WriteString("memory changed since the last turn:\n" + strings.TrimRight(text, "\n") + "\n")
+			tc.legs |= core.TaintPrivate
 		}
-		memSeen = max(memSeen, last)
+		tc.memSeen = max(tc.memSeen, last)
 	}
 	pins, err := r.d.Store.Pins().List(ctx, core.SystemViewer(), sess.ID)
 	if err != nil {
-		return "", 0, 0, fmt.Errorf("agent: pins: %w", err)
+		return turnCtx{}, fmt.Errorf("agent: pins: %w", err)
 	}
 	var fresh []string
 	for _, p := range pins {
 		if p.ID > sess.PinsSeen {
 			fresh = append(fresh, "- "+strings.ReplaceAll(strings.TrimSpace(p.Text), "\n", " "))
-			pinsSeen = max(pinsSeen, p.ID)
+			tc.pinsSeen = max(tc.pinsSeen, p.ID)
 		}
 	}
 	if len(fresh) > 0 {
@@ -422,7 +450,8 @@ func (r *Runner) turnContext(ctx context.Context, rs *runState, sess *core.Sessi
 		b.WriteString(wrapUntrusted(randomID(), req.Instructions, "source", "client_instructions") + "\n")
 	}
 	b.WriteString("</turn-context>")
-	return b.String(), memSeen, pinsSeen, nil
+	tc.text = b.String()
+	return tc, nil
 }
 
 // budgetWarning mentions the run or daily budget once less than 20% is left.

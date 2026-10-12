@@ -242,10 +242,18 @@ func (r *Runner) persistTurn(ctx context.Context, rs *runState) error {
 	}
 	reqs := slices.Clone(rs.turn.reqs)
 	req := reqs[0]
-	text, memSeen, pinsSeen, err := r.turnContext(ctx, rs, rs.sess, req)
+	tc, err := r.turnContext(ctx, rs, rs.sess, req)
 	if err != nil {
 		return err
 	}
+	legs := tc.legs
+	if req.Provenance == core.ProvUntrusted {
+		legs |= core.TaintUntrusted
+	}
+	if _, err := r.recordTaint(ctx, req.Session, rs.taint, legs); err != nil {
+		return err
+	}
+	text := tc.text
 	for _, e := range req.Ephemeral {
 		m := ephemeralMessage(e, req)
 		if m == nil {
@@ -266,12 +274,8 @@ func (r *Runner) persistTurn(ctx context.Context, rs *runState) error {
 	}
 	rs.turnPersisted = true
 	w.merged = 0
-	legs := core.Taint(0)
-	if req.Provenance == core.ProvUntrusted {
-		legs |= core.TaintUntrusted
-	}
 	s, err := r.mutateSession(ctx, req.Session, func(s *core.Session) error {
-		s.MemorySeen, s.PinsSeen = max(s.MemorySeen, memSeen), max(s.PinsSeen, pinsSeen)
+		s.MemorySeen, s.PinsSeen = max(s.MemorySeen, tc.memSeen), max(s.PinsSeen, tc.pinsSeen)
 		s.LastMessageAt = r.now()
 		s.Taint |= legs
 		return nil
@@ -350,18 +354,31 @@ func (r *Runner) persistSteer(ctx context.Context, a *runState, req core.RunRequ
 	if err != nil {
 		return err
 	}
-	text, memSeen, pinsSeen, err := r.turnContext(ctx, a, sess, req)
+	tc, err := r.turnContext(ctx, a, sess, req)
 	if err != nil {
 		return err
 	}
-	parts := append([]core.Part{{Type: core.PartContext, Text: text}}, req.Input...)
+	legs := tc.legs
+	if req.Provenance == core.ProvUntrusted {
+		legs |= core.TaintUntrusted
+	}
+	// The run picks the new legs up from the session row at its next step.
+	tainted, err := r.recordTaint(ctx, req.Session, sess.Taint, legs)
+	if err != nil {
+		return err
+	}
+	if tainted != nil {
+		r.d.Bus.Publish(core.Event{Type: core.EvSessionUpdated, Principal: tainted.Principal, Session: tainted.ID,
+			Data: core.SessionData{Title: tainted.Title, Taint: tainted.Taint, Epoch: tainted.Epoch}})
+	}
+	parts := append([]core.Part{{Type: core.PartContext, Text: tc.text}}, req.Input...)
 	m := &core.Message{Session: req.Session, Run: a.id, Role: core.MsgUser, Kind: core.KindSteer, Parts: parts,
 		Provenance: req.Provenance, Sender: req.Sender}
 	if err := r.appendMessage(ctx, req.Principal, m, nil); err != nil {
 		return fmt.Errorf("agent: persist steer: %w", err)
 	}
 	if _, err := r.mutateSession(ctx, req.Session, func(s *core.Session) error {
-		s.MemorySeen, s.PinsSeen = max(s.MemorySeen, memSeen), max(s.PinsSeen, pinsSeen)
+		s.MemorySeen, s.PinsSeen = max(s.MemorySeen, tc.memSeen), max(s.PinsSeen, tc.pinsSeen)
 		s.LastMessageAt = r.now()
 		return nil
 	}); err != nil {
