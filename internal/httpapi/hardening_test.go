@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -66,6 +67,34 @@ func TestSSERechecksCredentials(t *testing.T) {
 	expect(t, h.do("POST", "/api/auth/logout", nil, other), http.StatusNoContent)
 	if !co.closed(t) {
 		t.Fatal("stream of a logged-out session stayed open")
+	}
+}
+
+func TestSSEPings(t *testing.T) {
+	h := newHarness(t).setup()
+	h.srv.ssePing = 10 * time.Millisecond
+	srv := h.server(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", srv.URL+"/api/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.AddCookie(&http.Cookie{Name: cookiePlain, Value: h.member.cookie})
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	br := bufio.NewReader(resp.Body)
+	for {
+		line, err := br.ReadString('\n')
+		if err != nil {
+			t.Fatalf("no ping before %v", err)
+		}
+		if line == ": ping\n" {
+			return
+		}
 	}
 }
 
