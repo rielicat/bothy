@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -139,20 +140,23 @@ func fenceOpenAtEnd(s string) bool {
 
 func TestNeutralize(t *testing.T) {
 	for in, want := range map[string]string{
-		"go to https://evil.com/a.b?x=1":     "go to hxxps://evil[.]com/a.b?x=1",
-		"[docs](http://docs.example.org/p)":  "docs (hxxp://docs[.]example[.]org/p)",
-		"<https://auto.link>":                "hxxps://auto[.]link",
-		"mail me at bob@evil.co.uk":          "mail me at bob@evil[.]co[.]uk",
-		"keep `curl https://x.io` in code":   "keep `curl https://x.io` in code",
-		"```\nwget http://x.io/y\n```\nx.io": "```\nwget http://x.io/y\n```\nx[.]io",
-		"pi is 3.14 and e.g. this is fine":   "pi is 3.14 and e.g. this is fine",
-		"ftp://files.example/readme":         "fxp://files[.]example/readme",
-		"[x](mailto:a@b.example)":            "x (mailto[:]a@b[.]example)",
-		"open tg://msg_url?url=x":            "open tg[:]//msg_url?url=x",
-		"[share](tg://msg?text=secret)":      "share (tg[:]//msg?text=secret)",
-		"call 203.0.113.7/collect?k=v":       "call 203[.]0[.]113[.]7/collect?k=v",
-		"see пример.рф or bad。example":       "see пример[.]рф or bad[.]example",
-		"version 1.2.3 is out":               "version 1.2.3 is out",
+		"go to https://evil.com/a.b?x=1":           "go to hxxps://evil[.]com/a.b?x=1",
+		"[docs](http://docs.example.org/p)":        "docs (hxxp://docs[.]example[.]org/p)",
+		"<https://auto.link>":                      "hxxps://auto[.]link",
+		"mail me at bob@evil.co.uk":                "mail me at bob@evil[.]co[.]uk",
+		"keep `curl https://x.io` in code":         "keep `curl https://x.io` in code",
+		"```\nwget http://x.io/y\n```\nx.io":       "```\nwget http://x.io/y\n```\nx[.]io",
+		"pi is 3.14 and e.g. this is fine":         "pi is 3.14 and e.g. this is fine",
+		"ftp://files.example/readme":               "fxp://files[.]example/readme",
+		"[x](mailto:a@b.example)":                  "x (mailto[:]a@b[.]example)",
+		"open tg://msg_url?url=x":                  "open tg[:]//msg_url?url=x",
+		"[share](tg://msg?text=secret)":            "share (tg[:]//msg?text=secret)",
+		"call 203.0.113.7/collect?k=v":             "call 203[.]0[.]113[.]7/collect?k=v",
+		"host_203.0.113.7/c":                       "host_203[.]0[.]113[.]7/c",
+		"see пример.рф or bad。example":             "see пример[.]рф or bad[.]example",
+		"version 1.2.3 is out":                     "version 1.2.3 is out",
+		"[x [y] z](mailto:a@evil.com?body=s)":      "[x [y] z] (mailto:a@evil[.]com?body=s)",
+		"https://a.example/?u=https://b.example/x": "hxxps://a[.]example/?u=https[:]//b[.]example/x",
 	} {
 		if got := neutralize(in); got != want {
 			t.Errorf("neutralize(%q) = %q, want %q", in, got, want)
@@ -179,4 +183,33 @@ func TestEscapeMDAndCode(t *testing.T) {
 	if got := revealInvisible("a\u202eb\u200bc"); got != "a⟨U+202E⟩b⟨U+200B⟩c" {
 		t.Fatalf("revealInvisible = %q", got)
 	}
+}
+
+var liveSchemeRe = regexp.MustCompile(`(?i)[a-z][a-z0-9+.-]*://[^\s<>"'()\[\]]`)
+
+// FuzzNeutralize checks that neutralized prose keeps no link syntax a
+// renderer or client could act on: no "](" and no live "scheme://".
+func FuzzNeutralize(f *testing.F) {
+	for _, s := range []string{
+		"[docs](https://x.example/p)", "[x [y] z](tg://resolve?domain=a)", "<https://a.example>",
+		"see https://a.example/b and t.me/x", "`https://code.example` [a](b)", "x_https://evil.example/c", "```\nhttps://x.example\n```\n[a](https://b.example)",
+	} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		out := neutralize(s)
+		mapProse(out, func(text string) string {
+			if strings.Contains(text, "](") {
+				t.Fatalf("neutralize(%q) = %q keeps link syntax in %q", s, out, text)
+			}
+			for _, m := range liveSchemeRe.FindAllString(text, -1) {
+				switch strings.ToLower(m[:strings.Index(m, "://")]) {
+				case "hxxp", "hxxps", "fxp":
+				default:
+					t.Fatalf("neutralize(%q) = %q keeps a live %q in %q", s, out, m, text)
+				}
+			}
+			return text
+		})
+	})
 }

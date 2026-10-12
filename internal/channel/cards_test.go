@@ -260,7 +260,7 @@ func TestCardShowsValuesVerbatim(t *testing.T) {
 		if truncated {
 			t.Fatal("small card truncated")
 		}
-		for _, want := range []string{`Send \*\*message\*\*`, `\[click\](https://evil.example)⟨U+202E⟩gnp.exe`, "``a`b``", "````\n```\nbreak out\n```\n````"} {
+		for _, want := range []string{`Send \*\*message\*\*`, "`[click](https://evil.example)⟨U+202E⟩gnp.exe`", "``a`b``", "````\n```\nbreak out\n```\n````"} {
 			if !strings.Contains(msg.Text, want) {
 				t.Errorf("card text %q lacks %q", msg.Text, want)
 			}

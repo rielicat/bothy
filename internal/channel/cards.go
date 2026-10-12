@@ -179,7 +179,7 @@ func (h *Hub) renderCard(ap *core.Approval, caps core.ChannelCaps) (core.OutMess
 		case f.Mono:
 			lines = append(lines, label+" "+codeSpan(v))
 		default:
-			lines = append(lines, label+" "+escapeMD(v))
+			lines = append(lines, label+" "+inert(v))
 		}
 	}
 	if c.Code != "" {
@@ -190,10 +190,10 @@ func (h *Hub) renderCard(ap *core.Approval, caps core.ChannelCaps) (core.OutMess
 		lines = append(lines, codeBlock("diff", revealInvisible(c.Diff)))
 	}
 	for _, w := range c.Warnings {
-		lines = append(lines, "⚠️ "+escapeMD(revealInvisible(w)))
+		lines = append(lines, "⚠️ "+inert(revealInvisible(w)))
 	}
 	if c.Context != "" {
-		lines = append(lines, "_"+escapeMD(revealInvisible(c.Context))+"_")
+		lines = append(lines, contextLine(c.Context))
 	}
 	if !c.Expires.IsZero() {
 		lines = append(lines, "Expires "+h.expiresText(c.Expires)+".")
@@ -228,7 +228,7 @@ func (h *Hub) renderCard(ap *core.Approval, caps core.ChannelCaps) (core.OutMess
 
 	short := []string{header}
 	if c.Context != "" {
-		short = append(short, "_"+escapeMD(revealInvisible(c.Context))+"_")
+		short = append(short, contextLine(c.Context))
 	}
 	switch {
 	case !caps.Buttons && web != "":
@@ -248,6 +248,31 @@ func (h *Hub) renderCard(ap *core.Approval, caps core.ChannelCaps) (core.OutMess
 		}
 	}
 	return msg, true
+}
+
+// inert shows a card value verbatim. A value a chat client would turn into
+// a link goes in a code span instead: the URL an action is about to fetch may
+// carry the data it would leak, and one curious tap on the card must not
+// send it before the approver has decided.
+func inert(v string) string {
+	if linkish(v) {
+		return codeSpan(v)
+	}
+	return escapeMD(v)
+}
+
+func linkish(s string) bool {
+	return schemeURLRe.MatchString(s) || bareHostRe.MatchString(s) || bareIPv4Re.MatchString(s)
+}
+
+// contextLine is the card's italic context line; italics cannot hold a code
+// span on every platform, so a linkish context is shown as code alone.
+func contextLine(ctx string) string {
+	ctx = revealInvisible(ctx)
+	if linkish(ctx) {
+		return codeSpan(ctx)
+	}
+	return "_" + escapeMD(ctx) + "_"
 }
 
 func (h *Hub) expiresText(t time.Time) string {

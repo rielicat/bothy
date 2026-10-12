@@ -215,14 +215,16 @@ func closesFence(t, marker string) bool {
 // ---- link neutralization (Exposed sessions, SPEC §5.3) ----
 
 var (
-	mdLinkRe    = regexp.MustCompile(`\[([^\]\n]*)\]\(([^)\s]+)\)`)
-	autoLinkRe  = regexp.MustCompile(`<([a-zA-Z][a-zA-Z0-9+.-]*:[^\s<>]+)>`)
-	schemeURLRe = regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*://[^\s<>"'()\[\]]+`)
+	mdLinkRe   = regexp.MustCompile(`\[([^\]\n]*)\]\(([^)\s]+)\)`)
+	autoLinkRe = regexp.MustCompile(`<([a-zA-Z][a-zA-Z0-9+.-]*:[^\s<>]+)>`)
+	// No \b: "x_https://…" has no word boundary before "https", yet clients
+	// still find the URL in it.
+	schemeURLRe = regexp.MustCompile(`(?i)[a-z][a-z0-9+.-]*://[^\s<>"'()\[\]]+`)
 	// Telegram (and others) turn bare domains into links, so anything that
 	// looks like host.tld is defanged too: internationalized names and the
 	// ideographic and full-width dots that IDNA maps to "." included.
 	bareHostRe = regexp.MustCompile(`(?:[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?[.。．｡])+\p{L}[\p{L}\p{N}-]*[\p{L}\p{N}]`)
-	bareIPv4Re = regexp.MustCompile(`\b\d{1,3}(?:\.\d{1,3}){3}\b`)
+	bareIPv4Re = regexp.MustCompile(`\d{1,3}(?:\.\d{1,3}){3}`)
 	hostDotRe  = regexp.MustCompile(`[.。．｡]`)
 )
 
@@ -237,7 +239,10 @@ func neutralize(md string) string {
 		text = autoLinkRe.ReplaceAllStringFunc(text, func(m string) string { return defangURL(m[1 : len(m)-1]) })
 		text = schemeURLRe.ReplaceAllStringFunc(text, defangURL)
 		text = bareHostRe.ReplaceAllStringFunc(text, func(h string) string { return hostDotRe.ReplaceAllString(h, "[.]") })
-		return bareIPv4Re.ReplaceAllStringFunc(text, func(ip string) string { return strings.ReplaceAll(ip, ".", "[.]") })
+		text = bareIPv4Re.ReplaceAllStringFunc(text, func(ip string) string { return strings.ReplaceAll(ip, ".", "[.]") })
+		// mdLinkRe misses link text with nested brackets; no "](" left in
+		// prose means no renderer can still form a link.
+		return strings.ReplaceAll(text, "](", "] (")
 	})
 }
 
@@ -250,6 +255,8 @@ func defangURL(u string) string {
 		}
 		return scheme + "[:]" + strings.ReplaceAll(rest, ".", "[.]")
 	}
+	// A URL nested in this one ("?next=https://…") must not stay live either.
+	rest = strings.ReplaceAll(rest, "://", "[:]//")
 	switch strings.ToLower(scheme) {
 	case "http":
 		scheme = "hxxp"

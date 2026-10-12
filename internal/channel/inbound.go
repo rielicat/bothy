@@ -209,7 +209,7 @@ func (h *Hub) notifyUnknownSender(ctx context.Context, channel string, ident cor
 		h.log.Error("channel: listing admins failed", "err", err)
 		return
 	}
-	text := "Someone new wrote to me on " + channelTitle(channel) + ": " + escapeMD(who) +
+	text := "Someone new wrote to me on " + channelTitle(channel) + ": " + inert(revealInvisible(who)) +
 		". If you know them, approve the code they received in Settings → People."
 	buttons := h.webButton("Open Settings → People", "/settings/people")
 	for _, u := range users {
@@ -360,7 +360,7 @@ func (h *Hub) firstSighting(ctx context.Context, a *adapter, in core.Inbound, re
 	if !ok {
 		return
 	}
-	text := "I was added to “" + escapeMD(title) + "” on " + channelTitle(a.name) +
+	text := "I was added to “" + inert(title) + "” on " + channelTitle(a.name) +
 		". I stay silent there until you enable it in Settings → Spaces."
 	buttons := h.webButton("Open Settings → Spaces", "/settings/spaces")
 	h.enqueueChat(chat.Key(), func(ctx context.Context) { h.sendWithButtons(ctx, chat, text, buttons) })

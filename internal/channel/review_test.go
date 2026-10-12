@@ -258,3 +258,34 @@ func TestPressCannotMatchAnotherChannelsCard(t *testing.T) {
 		}
 	})
 }
+
+func TestCardKeepsLinksInert(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t)
+		ap := &core.Approval{ID: core.ApprovalID(core.NewID(core.PrefixApproval)), Card: core.Card{
+			Title: "Fetch a web page",
+			Fields: []core.CardField{{Label: "URL", Value: "https://evil.example/c?d=private-notes"},
+				{Label: "Recipient", Value: "drop@evil.example"}, {Label: "Folder", Value: "reports"}},
+			Warnings: []string{"First contact with evil.example"},
+			Context:  "Telegram · DM · session “see evil.example”",
+			Choices:  []core.Choice{core.AllowOnce, core.Deny},
+		}}
+		for _, caps := range []core.ChannelCaps{{Buttons: true, MaxLen: 4096}, {Buttons: true, MaxLen: 60}} {
+			msg, _ := h.hub.renderCard(ap, caps)
+			// Everything a client could turn into a link sits in code; the
+			// rest of the card stays readable prose.
+			if got := neutralize(msg.Text); got != msg.Text {
+				t.Fatalf("card has a tappable link outside code:\n%s\nneutralized:\n%s", msg.Text, got)
+			}
+			if !strings.Contains(msg.Text, "Approval needed: Fetch a web page") {
+				t.Fatalf("card text = %q", msg.Text)
+			}
+		}
+		msg, _ := h.hub.renderCard(ap, core.ChannelCaps{Buttons: true, MaxLen: 4096})
+		for _, want := range []string{"`https://evil.example/c?d=private-notes`", "`drop@evil.example`", "**Folder:** reports"} {
+			if !strings.Contains(msg.Text, want) {
+				t.Fatalf("card text %q lacks %q", msg.Text, want)
+			}
+		}
+	})
+}
