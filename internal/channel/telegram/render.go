@@ -30,7 +30,8 @@ func render(md string) (html, plain string) {
 			var body []string
 			j := i + 1
 			for ; j < len(lines); j++ {
-				if closesFence(strings.TrimLeft(lines[j], " "), m) {
+				c := strings.TrimLeft(lines[j], " ")
+				if len(lines[j])-len(c) <= 3 && closesFence(c, m) {
 					break
 				}
 				body = append(body, lines[j])

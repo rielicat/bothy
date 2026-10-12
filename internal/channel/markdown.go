@@ -122,13 +122,32 @@ func cutPoint(s string, budget int) (end, rest int) {
 	if i := strings.LastIndexByte(window(1), '\n'); i > 0 && i >= half {
 		return i, skip(i + 1)
 	}
-	if i := strings.LastIndexAny(window(1), " \t"); i > 0 && i >= half {
-		return i, i + 1
+	// A cut inside a line must not change what is a fence line: the text
+	// after it becomes a line start (where a backtick run opens a fence), and
+	// a fence-like line cut short can start or end a block it did not before.
+	w := window(1)
+	for i := strings.LastIndexAny(w, " \t"); i > 0 && i >= half; i = strings.LastIndexAny(w[:i], " \t") {
+		if !startsFenceRun(s[i+1:]) && !startsFenceRun(s[strings.LastIndexByte(s[:i], '\n')+1:]) {
+			return i, i + 1
+		}
 	}
 	if i := strings.LastIndexByte(window(1), '\n'); i > 0 {
 		return i, skip(i + 1)
 	}
+	for limit > 1 && startsFenceRun(s[limit:]) {
+		limit -= firstRuneLenBefore(s, limit)
+	}
 	return limit, limit
+}
+
+func startsFenceRun(s string) bool {
+	s = strings.TrimLeft(s, " \t")
+	return strings.HasPrefix(s, "```") || strings.HasPrefix(s, "~~~")
+}
+
+func firstRuneLenBefore(s string, i int) int {
+	_, n := utf8.DecodeLastRuneInString(s[:i])
+	return max(n, 1)
 }
 
 // fenceState scans body, starting inside the fence opened by carry (if any),
@@ -139,7 +158,7 @@ func fenceState(carry, body string) (open bool, line, marker string) {
 		open, line, marker = true, carry, fenceRun(carry)
 	}
 	for l := range strings.SplitSeq(body, "\n") {
-		t := strings.TrimLeft(l, " ")
+		t := fenceCandidate(l)
 		if open {
 			if closesFence(t, marker) {
 				open, line, marker = false, "", ""
@@ -151,6 +170,16 @@ func fenceState(carry, body string) (open bool, line, marker string) {
 		}
 	}
 	return open, line, marker
+}
+
+// fenceCandidate strips the up to three spaces a fence line may be indented
+// by; a line indented further is never a fence (CommonMark), so it yields "".
+func fenceCandidate(l string) string {
+	t := strings.TrimLeft(l, " ")
+	if len(l)-len(t) > 3 {
+		return ""
+	}
+	return t
 }
 
 func fenceRun(t string) string {
@@ -243,7 +272,7 @@ func mapProse(md string, fn func(string) string) string {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
-		t := strings.TrimLeft(l, " ")
+		t := fenceCandidate(l)
 		switch {
 		case open:
 			if closesFence(t, marker) {

@@ -105,14 +105,7 @@ func (s *streamSink) run(ctx context.Context) {
 			return
 		}
 		st.step(ctx)
-		next := earliest(st.nextWake(), idle)
-		if !timer.Stop() {
-			select {
-			case <-timer.C:
-			default:
-			}
-		}
-		timer.Reset(max(time.Until(next), 0))
+		timer.Reset(max(time.Until(earliest(st.nextWake(), idle)), 0))
 		select {
 		case <-ctx.Done():
 			return

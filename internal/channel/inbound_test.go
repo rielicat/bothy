@@ -258,6 +258,18 @@ func TestSenderRateLimit(t *testing.T) {
 		if got := h.budget.Senders; len(got) == 0 || got[0] != "telegram:"+ownerChat {
 			t.Fatalf("AllowSender keys = %v", got)
 		}
+
+		h.space("-500", true, true)
+		h.space("-501", false, false)
+		before := len(h.budget.Senders)
+		h.group("-500", ownerChat, "unaddressed chatter", false)
+		h.group("-501", ownerChat, "disabled space", true)
+		if len(h.visible("-500"))+len(h.visible("-501")) != 0 {
+			t.Fatal("the limiter answered in a group the bot must stay silent in")
+		}
+		if n := len(h.budget.Senders) - before; n != 0 {
+			t.Fatalf("ignored group messages consumed the sender budget %d times", n)
+		}
 	})
 }
 

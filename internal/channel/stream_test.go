@@ -166,8 +166,18 @@ func TestStreamSplitsLongReply(t *testing.T) {
 // contentLines drops blank and fence lines, which splitting may add.
 func contentLines(s string) []string {
 	var out []string
+	open, marker := false, ""
 	for l := range strings.SplitSeq(s, "\n") {
-		if t := strings.TrimSpace(l); t != "" && openingFence(t) == "" {
+		t := fenceCandidate(l)
+		switch {
+		case open && closesFence(t, marker):
+			open = false
+			continue
+		case !open && openingFence(t) != "":
+			open, marker = true, openingFence(t)
+			continue
+		}
+		if t := strings.TrimSpace(l); t != "" {
 			out = append(out, t)
 		}
 	}

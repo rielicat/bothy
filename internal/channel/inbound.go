@@ -105,12 +105,14 @@ func (h *Hub) handleMessage(ctx context.Context, a *adapter, in core.Inbound) {
 		h.unknownDM(ctx, a, in, ident)
 		return
 	}
-	if ok, retry := h.d.Budget.AllowSender(a.name + ":" + in.SenderID); !ok {
-		h.slowDown(a, in.Chat, a.name+":"+in.SenderID, retry)
-		return
-	}
 	tg, ok := h.gate(ctx, a, in, res)
 	if !ok {
+		return
+	}
+	// The limiter runs after gating so the bot never answers in a group it
+	// must stay silent in, and unaddressed group chatter costs nothing.
+	if ok, retry := h.d.Budget.AllowSender(a.name + ":" + in.SenderID); !ok {
+		h.slowDown(in.Chat, a.name+":"+in.SenderID, retry)
 		return
 	}
 	cmd, args, isCmd := parseCommand(in.Text)
@@ -241,7 +243,7 @@ func channelTitle(name string) string {
 }
 
 // slowDown answers a rate-limited sender at most once per limiter window.
-func (h *Hub) slowDown(a *adapter, chat core.ChatRef, key string, retry time.Duration) {
+func (h *Hub) slowDown(chat core.ChatRef, key string, retry time.Duration) {
 	window := max(retry, time.Minute)
 	now := time.Now()
 	h.mu.Lock()
