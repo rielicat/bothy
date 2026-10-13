@@ -151,8 +151,9 @@ func TestReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.w.Exec(`INSERT INTO meta(k, v) VALUES ('install_id', 'abc')`); err != nil {
-		t.Fatal(err)
+	id, err := db.Meta().Get(ctx, "install_id")
+	if err != nil || len(id) != 32 {
+		t.Fatalf("install_id after first open = %q, %v", id, err)
 	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
@@ -163,8 +164,8 @@ func TestReopen(t *testing.T) {
 	}
 	defer db.Close()
 	var v string
-	if err := db.r.QueryRow(`SELECT v FROM meta WHERE k = 'install_id'`).Scan(&v); err != nil || v != "abc" {
-		t.Fatalf("data lost across reopen: %q %v", v, err)
+	if err := db.r.QueryRow(`SELECT v FROM meta WHERE k = 'install_id'`).Scan(&v); err != nil || v != id {
+		t.Fatalf("install_id changed across reopen: %q -> %q %v", id, v, err)
 	}
 	if n := userVersion(t, db.w); n != 1 {
 		t.Fatalf("user_version = %d", n)
@@ -219,7 +220,7 @@ func TestMigratorBackupAndPrune(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if _, err := db.w.Exec(`INSERT INTO meta(k, v) VALUES ('install_id', 'abc')`); err != nil {
+	if _, err := db.w.Exec(`INSERT INTO meta(k, v) VALUES ('test.marker', 'abc')`); err != nil {
 		t.Fatal(err)
 	}
 	backup := func(ctx context.Context, target int) error {
@@ -253,7 +254,7 @@ func TestMigratorBackupAndPrune(t *testing.T) {
 		t.Fatal(err)
 	}
 	var id string
-	if err := bdb.QueryRow(`SELECT v FROM meta WHERE k = 'install_id'`).Scan(&id); err != nil || id != "abc" {
+	if err := bdb.QueryRow(`SELECT v FROM meta WHERE k = 'test.marker'`).Scan(&id); err != nil || id != "abc" {
 		t.Fatalf("backup content: %q %v", id, err)
 	}
 	if v := userVersion(t, bdb); v != 1 {

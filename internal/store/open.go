@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -76,7 +78,7 @@ func open(ctx context.Context, o Options, fsys fs.FS, version versionFunc) (*DB,
 		return nil, fmt.Errorf("store: %w", err)
 	}
 
-	db := &DB{path: o.Path, backupDir: o.BackupDir, clock: o.Clock, log: o.Log}
+	db := &DB{path: o.Path, backupDir: o.BackupDir, workDir: o.WorkDir, clock: o.Clock, log: o.Log}
 	db.handle = handle{db: db}
 	ok := false
 	defer func() {
@@ -120,6 +122,9 @@ func open(ctx context.Context, o Options, fsys fs.FS, version versionFunc) (*DB,
 		return nil, fmt.Errorf("store: reader: %w", err)
 	}
 	db.rq, db.wq = db.r, db.w
+	if err := ensureInstallID(ctx, db.w); err != nil {
+		return nil, err
+	}
 	ok = true
 	return db, nil
 }
@@ -194,4 +199,16 @@ func parseVersion(s string) ([3]int, error) {
 		v[i] = n
 	}
 	return v, nil
+}
+
+// ensureInstallID writes meta.install_id once, on the first open (SPEC §6).
+func ensureInstallID(ctx context.Context, w *sql.DB) error {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Errorf("store: install id: %w", err)
+	}
+	if _, err := w.ExecContext(ctx, `INSERT INTO meta(k, v) VALUES ('install_id', ?) ON CONFLICT(k) DO NOTHING`, hex.EncodeToString(b[:])); err != nil {
+		return fmt.Errorf("store: install id: %w", err)
+	}
+	return nil
 }

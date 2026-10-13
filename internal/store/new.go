@@ -11,6 +11,7 @@ import (
 type Options struct {
 	Path        string // <data>/bothy.db
 	BackupDir   string // <data>/backups
+	WorkDir     string // resolved storage.work_dir; data.permissions skips it (shared with the sandbox uid)
 	BackupsKeep int
 	Clock       core.Clock
 	Log         *slog.Logger
@@ -25,6 +26,7 @@ type DB struct {
 	version   string
 	path      string
 	backupDir string
+	workDir   string
 	clock     core.Clock
 	log       *slog.Logger
 }

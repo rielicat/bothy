@@ -14,17 +14,17 @@ func sum(s string) []byte {
 
 func testMeta(f *fx) {
 	m := f.s.Meta()
-	_, err := m.Get(f.ctx, "install_id")
+	_, err := m.Get(f.ctx, "conformance.key")
 	f.want(err, core.ErrNotFound, "Get missing key")
-	f.must(m.Set(f.ctx, "install_id", "a"), "Set")
-	f.must(m.Set(f.ctx, "install_id", "b"), "Set overwrite")
-	v, err := m.Get(f.ctx, "install_id")
+	f.must(m.Set(f.ctx, "conformance.key", "a"), "Set")
+	f.must(m.Set(f.ctx, "conformance.key", "b"), "Set overwrite")
+	v, err := m.Get(f.ctx, "conformance.key")
 	f.must(err, "Get")
 	f.check(v == "b", "Get after overwrite = %q, want b", v)
-	f.must(m.Delete(f.ctx, "install_id"), "Delete")
-	_, err = m.Get(f.ctx, "install_id")
+	f.must(m.Delete(f.ctx, "conformance.key"), "Delete")
+	_, err = m.Get(f.ctx, "conformance.key")
 	f.want(err, core.ErrNotFound, "Get after Delete")
-	f.must(m.Delete(f.ctx, "install_id"), "Delete of a missing key is idempotent")
+	f.must(m.Delete(f.ctx, "conformance.key"), "Delete of a missing key is idempotent")
 }
 
 func testUsers(f *fx) {

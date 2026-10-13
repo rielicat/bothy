@@ -80,7 +80,7 @@ func build(ctx context.Context) (*app, error) {
 	a.redactor = vault.NewRedactor()
 	a.log = slog.New(vault.NewSlogHandler(newLogHandler(c.Log), a.redactor))
 	a.bus = events.New(events.Options{Ring: 4096, Clock: a.clock})
-	if a.db, err = store.Open(ctx, store.Options{Path: filepath.Join(dirs.Data, "bothy.db"),
+	if a.db, err = store.Open(ctx, store.Options{Path: filepath.Join(dirs.Data, "bothy.db"), WorkDir: dirs.Work,
 		BackupDir: filepath.Join(dirs.Data, "backups"), BackupsKeep: c.Storage.BackupsKeep, Clock: a.clock, Log: a.log}); err != nil {
 		return nil, err
 	}

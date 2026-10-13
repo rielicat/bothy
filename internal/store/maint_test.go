@@ -364,3 +364,27 @@ func TestChecks(t *testing.T) {
 		t.Errorf("sqlite.version = %+v", f)
 	}
 }
+
+func TestPermissionsSkipConfiguredWorkDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX modes")
+	}
+	dir := filepath.Join(t.TempDir(), "data")
+	work := filepath.Join(dir, "spaces")
+	db, err := Open(context.Background(), Options{Path: filepath.Join(dir, "bothy.db"), WorkDir: work, Clock: fixedClock{time.Now()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	writeFile(t, filepath.Join(work, "ws_a", "f"), "shared on purpose")
+	writeFile(t, filepath.Join(dir, "work", "stray"), "not the work dir")
+	for _, p := range []string{filepath.Join(work, "ws_a", "f"), filepath.Join(dir, "work", "stray")} {
+		if err := os.Chmod(p, 0o660); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f, ok := findings(t, db)["data.permissions"]
+	if !ok || strings.Contains(f.Detail, "ws_a") || !strings.Contains(f.Detail, "stray") {
+		t.Fatalf("data.permissions = %+v", f)
+	}
+}

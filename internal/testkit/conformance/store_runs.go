@@ -1,9 +1,11 @@
 package conformance
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -380,6 +382,8 @@ func testApprovals(f *fx) {
 	for i := range msgs {
 		msgs[i].Ref.Chat.Kind = ""
 	}
+	// approval_messages has no ordering column, so stores may return any order.
+	slices.SortFunc(msgs, func(a, b core.CardMessage) int { return cmp.Compare(a.Ref.ID, b.Ref.ID) })
 	f.eq("Messages round trip (chat kind has no column)", msgs, []core.CardMessage{m1, m2})
 	msgs, err = r.Messages(f.ctx, b.ID)
 	f.must(err, "Messages of an approval without cards")

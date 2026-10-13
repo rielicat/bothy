@@ -3,7 +3,8 @@
 `core.Store` on `modernc.org/sqlite` (owner: M1). `Open` creates `<data>/bothy.db`
 (and its `-wal`/`-shm`) 0600, sets the pragmas of SPEC §6 on every pooled
 connection, refuses SQLite older than 3.53.4, takes a `VACUUM INTO` backup when
-migrations are pending, and applies the embedded migrations. All 24 repositories
+migrations are pending, applies the embedded migrations and writes `meta.install_id`
+on the first open. All 24 repositories
 are hand-written SQL over one writer connection and two `query_only` readers;
 `Tx` runs on the writer inside `BEGIN IMMEDIATE`, a nested `Tx` joins it, and
 multi-statement writes use a savepoint when already inside a transaction. Every

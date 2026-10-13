@@ -57,10 +57,14 @@ func (db *DB) checkVersion(context.Context) []core.Finding {
 }
 
 // loosePaths lists data-directory entries that grant any group or other
-// permission. The workspace tree (<data>/work in single-container mode) is
+// permission. The workspace tree (Options.WorkDir, <data>/work when unset) is
 // skipped: it is shared with the sandbox uid on purpose (0660/2770).
 func (db *DB) loosePaths() ([]string, error) {
 	dataDir := filepath.Dir(db.path)
+	workDir := filepath.Join(dataDir, "work")
+	if db.workDir != "" {
+		workDir = filepath.Clean(db.workDir)
+	}
 	var out []string
 	err := filepath.WalkDir(dataDir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -69,7 +73,7 @@ func (db *DB) loosePaths() ([]string, error) {
 			}
 			return err
 		}
-		if d.IsDir() && p == filepath.Join(dataDir, "work") {
+		if d.IsDir() && p == workDir {
 			return fs.SkipDir
 		}
 		if d.Type()&fs.ModeSymlink != 0 {
