@@ -1,4 +1,4 @@
-//go:build runsc
+//go:build runsc && unix
 
 package sandbox
 

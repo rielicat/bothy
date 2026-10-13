@@ -1,4 +1,4 @@
-//go:build docker || runsc
+//go:build (docker || runsc) && unix
 
 package sandbox
 
