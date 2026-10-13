@@ -77,10 +77,8 @@ func MoveLegacyWork(d Dirs) (bool, error) {
 		return false, err
 	}
 	defer os.RemoveAll(tmp)
-	for i := range src {
-		if err := copyTree(from(i), filepath.Join(tmp, src[i].Name())); err != nil {
-			return false, fmt.Errorf("copy %s to %s: %w", from(i), d.Work, err)
-		}
+	if err := copyAll(d.LegacyWork, tmp, src); err != nil {
+		return false, fmt.Errorf("copy %s to %s: %w", d.LegacyWork, d.Work, err)
 	}
 	for _, e := range src {
 		if err := os.Rename(filepath.Join(tmp, e.Name()), filepath.Join(d.Work, e.Name())); err != nil {
@@ -90,59 +88,77 @@ func MoveLegacyWork(d Dirs) (bool, error) {
 	return true, os.RemoveAll(d.LegacyWork)
 }
 
-// copyTree copies files, directories and symlinks with their permission bits;
-// other file types (sockets, FIFOs) are left behind.
-func copyTree(from, to string) error {
-	return filepath.WalkDir(from, func(p string, e fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(from, p)
-		if err != nil {
-			return err
-		}
-		dst := filepath.Join(to, rel)
-		info, err := e.Info()
-		if err != nil {
-			return err
-		}
-		switch mode := info.Mode(); {
-		case mode.IsDir():
-			if err := os.Mkdir(dst, 0o700); err != nil {
+// copyAll copies the entries of from into to, through roots so that a
+// symlink inside the tree can never redirect a read or a write outside it.
+func copyAll(from, to string, entries []fs.DirEntry) error {
+	src, err := os.OpenRoot(from)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	dst, err := os.OpenRoot(to)
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+	for _, e := range entries {
+		if e.Type()&fs.ModeSymlink != 0 {
+			if err := copyEntry(src, dst, e.Name()); err != nil {
 				return err
 			}
-			return os.Chmod(dst, mode.Perm()|mode&(fs.ModeSetgid|fs.ModeSticky))
-		case mode&fs.ModeSymlink != 0:
-			target, err := os.Readlink(p)
+			continue
+		}
+		if err := fs.WalkDir(src.FS(), e.Name(), func(p string, _ fs.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
-			return os.Symlink(target, dst)
-		case mode.IsRegular():
-			return copyFile(p, dst, mode.Perm())
+			return copyEntry(src, dst, p)
+		}); err != nil {
+			return err
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
-func copyFile(from, to string, perm fs.FileMode) error {
-	in, err := os.Open(from)
+// copyEntry copies one directory (without its contents), symlink or file
+// with its permission bits; other types (sockets, FIFOs) are left behind.
+func copyEntry(src, dst *os.Root, name string) error {
+	info, err := src.Lstat(name)
 	if err != nil {
 		return err
 	}
-	defer in.Close()
-	out, err := os.OpenFile(to, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
-	if err != nil {
+	switch mode := info.Mode(); {
+	case mode.IsDir():
+		if err := dst.Mkdir(name, 0o700); err != nil {
+			return err
+		}
+		return dst.Chmod(name, mode.Perm()|mode&(fs.ModeSetgid|fs.ModeSticky))
+	case mode&fs.ModeSymlink != 0:
+		target, err := src.Readlink(name)
+		if err != nil {
+			return err
+		}
+		return dst.Symlink(target, name)
+	case mode.IsRegular():
+		in, err := src.Open(name)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+		out, err := dst.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode.Perm())
+		if err != nil {
+			return err
+		}
+		_, err = io.Copy(out, in)
+		if err == nil {
+			err = out.Sync()
+		}
+		if cerr := out.Close(); err == nil {
+			err = cerr
+		}
 		return err
 	}
-	_, err = io.Copy(out, in)
-	if err == nil {
-		err = out.Sync()
-	}
-	if cerr := out.Close(); err == nil {
-		err = cerr
-	}
-	return err
+	return nil
 }
 
 // within is the "same volume" guess when no mount table is available.

@@ -84,10 +84,21 @@ func TestMoveLegacyWorkAcrossVolumes(t *testing.T) {
 	d := legacyTree(t)
 	rename = func(string, string) error { return errors.New("invalid cross-device link") }
 	t.Cleanup(func() { rename = os.Rename })
+	outside := filepath.Join(t.TempDir(), "elsewhere")
+	if runtime.GOOS != "windows" {
+		if err := os.Symlink(outside, filepath.Join(d.LegacyWork, "workspaces", "out")); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if moved, err := MoveLegacyWork(d); err != nil || !moved {
 		t.Fatalf("move = %v, %v", moved, err)
 	}
 	checkMoved(t, d)
+	if runtime.GOOS != "windows" {
+		if target, err := os.Readlink(filepath.Join(d.Work, "workspaces", "out")); err != nil || target != outside {
+			t.Fatalf("link out of the tree = %q, %v", target, err)
+		}
+	}
 }
 
 // A /work volume that already holds data is never merged into.
