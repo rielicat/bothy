@@ -34,6 +34,7 @@ type runState struct {
 	userHeld   bool
 	globalHeld bool
 	meter      core.RunMeter
+	postCancel context.CancelFunc // cancels the compaction after the run finished
 
 	emitMu   sync.Mutex
 	sink     core.RunSink
@@ -151,6 +152,20 @@ func (rs *runState) stop(ctx context.Context, by core.UserID) bool {
 	rs.saveLocked(ctx)
 	rs.mu.Unlock()
 	rs.cancel(core.ErrStopped)
+	return true
+}
+
+// stopPostRun cancels the compaction a finished run does on its way out;
+// false when none is running.
+func (rs *runState) stopPostRun() bool {
+	rs.mu.Lock()
+	cancel := rs.postCancel
+	rs.postCancel = nil
+	rs.mu.Unlock()
+	if cancel == nil {
+		return false
+	}
+	cancel()
 	return true
 }
 

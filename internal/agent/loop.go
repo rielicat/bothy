@@ -731,7 +731,14 @@ func (r *Runner) finish(rs *runState, end *runEnd) {
 	if rs.sess.Title == "" && !rs.sess.Hidden {
 		r.titleAsync(rs)
 	}
-	if len(rs.chain) > 0 && rs.lastEst*10 > rs.chain[0].Context*6 {
-		r.compactInRun(ctx, rs, false)
+	if len(rs.chain) > 0 && rs.lastEst*10 > rs.chain[0].Context*6 && !r.paused.Load() && !r.closing.Load() {
+		// The run is over, so rs.stop no longer applies: Stop, StopAll and
+		// shutdown cancel this summarizing call through stopPostRun.
+		cctx, cancel := context.WithCancel(ctx)
+		rs.mu.Lock()
+		rs.postCancel = cancel
+		rs.mu.Unlock()
+		r.compactInRun(cctx, rs, false)
+		rs.stopPostRun()
 	}
 }

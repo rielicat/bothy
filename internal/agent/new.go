@@ -354,6 +354,7 @@ func (r *Runner) shutdown() {
 	}
 	for _, rs := range r.activeRuns() {
 		rs.cancel(errShutdown)
+		rs.stopPostRun()
 	}
 	r.bgStop()
 	wait := time.NewTimer(shutdownWait)

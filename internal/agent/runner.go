@@ -158,6 +158,7 @@ func (r *Runner) place(ctx context.Context, w *worker, req core.RunRequest) (cor
 	if w.load() >= depth {
 		return core.SubmitResult{}, core.ErrBusy
 	}
+	j.announced = req.Sink != nil
 	w.queue = append(w.queue, j)
 	w.signal()
 	ev := r.d.Bus.Publish(core.Event{Type: core.EvRunQueued, Principal: req.Principal, Session: req.Session,
@@ -198,11 +199,16 @@ func (r *Runner) stopSession(ctx context.Context, sess *core.Session, by core.Us
 		w.mu.Lock()
 		rs = w.active
 		dropped = w.queue
+		if w.pending != nil {
+			dropped = append(dropped, w.pending)
+		}
 		w.queue, w.pending, w.steers, w.merged = nil, nil, 0, 0
 		w.mu.Unlock()
 	}
 	runStopped := rs != nil && rs.stop(ctx, by)
-	stopped := runStopped
+	// A finished run may still be compacting on its way out; that LLM call
+	// is stoppable work too.
+	stopped := runStopped || rs != nil && rs.stopPostRun()
 	kctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopKillWithin)
 	defer cancel()
 	if r.d.Sandbox != nil {
@@ -217,6 +223,10 @@ func (r *Runner) stopSession(ctx context.Context, sess *core.Session, by core.Us
 	}
 	for _, j := range dropped {
 		switch j := j.(type) {
+		case *turnJob:
+			// Accepted messages are thrown away here, so the stop is real.
+			r.finishQueued(j, nil, core.RunStopped, "")
+			stopped = true
 		case *resumeJob:
 			if r.finishDetached(kctx, j.run, core.RunStopped, "", by) {
 				stopped = true

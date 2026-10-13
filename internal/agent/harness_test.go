@@ -255,6 +255,9 @@ type routerLLM struct {
 	agentReqs []*core.Request
 	auxReqs   []*core.Request
 	titles    int
+	// summaryGate, when set, holds every summarizing call until it is
+	// closed or the call's context ends (a slow local model).
+	summaryGate chan struct{}
 }
 
 var errSummarizer = errors.New("summarizer unavailable")
@@ -279,7 +282,15 @@ func (l *routerLLM) Complete(ctx context.Context, slot core.Slot, override *core
 			text = l.summaries[l.summaryN]
 		}
 		l.summaryN++
+		gate := l.summaryGate
 		l.mu.Unlock()
+		if gate != nil {
+			select {
+			case <-gate:
+			case <-ctx.Done():
+				return nil, ci, ctx.Err()
+			}
+		}
 		if text == "" {
 			ci.Error = errSummarizer.Error()
 			return nil, ci, errSummarizer

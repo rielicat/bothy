@@ -36,6 +36,9 @@ type turnJob struct {
 	id    core.RunID
 	reqs  []core.RunRequest
 	until time.Time // end of the DM coalescing window; zero = start at once
+	// announced: its sink got run.queued, so a channel shows a live
+	// "Queued (N ahead)…" message that some later event must finish.
+	announced bool
 }
 
 type resumeJob struct {
@@ -135,6 +138,7 @@ func (w *worker) take() job {
 		if len(w.queue) > 0 {
 			j := w.queue[0]
 			w.queue = w.queue[1:]
+			var merged []*turnJob
 			switch j := j.(type) {
 			case *turnJob:
 				for len(w.queue) > 0 {
@@ -143,6 +147,7 @@ func (w *worker) take() job {
 						break
 					}
 					j.reqs = append(j.reqs, next.reqs...)
+					merged = append(merged, next)
 					w.queue = w.queue[1:]
 				}
 				w.active = w.r.newRunState(w, j)
@@ -152,6 +157,11 @@ func (w *worker) take() job {
 				w.busy = true
 			}
 			w.mu.Unlock()
+			if t, ok := j.(*turnJob); ok {
+				for _, m := range merged {
+					w.r.finishQueued(m, t.reqs[0].Sink, core.RunDone, mergedNotice)
+				}
+			}
 			return j
 		}
 		w.mu.Unlock()
@@ -246,6 +256,34 @@ func (r *Runner) forgetLocked(w *worker) {
 	if r.workers[w.id] == w {
 		delete(r.workers, w.id)
 		delete(r.prefix, w.id)
+	}
+}
+
+const mergedNotice = "Merged into the reply above."
+
+// finishQueued ends the sinks of an announced turn that will not run as its
+// own (merged into an earlier turn's run, or dropped), so their live
+// "Queued…" messages are finished instead of lingering until the sink idles
+// out. keep is the sink the run streams to.
+func (r *Runner) finishQueued(j *turnJob, keep core.RunSink, st core.RunStatus, notice string) {
+	if !j.announced {
+		return
+	}
+	for _, q := range j.reqs {
+		if q.Sink == nil || q.Sink == keep {
+			continue
+		}
+		base := core.Event{Principal: q.Principal, Session: q.Session, Run: j.id, At: r.now()}
+		if notice != "" {
+			ev := base
+			ev.Type = core.EvMessageCreated
+			ev.Data = core.MessageData{Message: &core.Message{Session: q.Session, Run: j.id, Role: core.MsgAssistant,
+				Kind: core.KindNotice, Provenance: core.ProvSystem, Parts: []core.Part{{Type: core.PartText, Text: notice}}}}
+			q.Sink.OnEvent(ev)
+		}
+		ev := base
+		ev.Type, ev.Data = core.EvRunFinished, core.RunFinishedData{Status: st}
+		q.Sink.OnEvent(ev)
 	}
 }
 
