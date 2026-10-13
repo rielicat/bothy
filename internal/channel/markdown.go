@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -220,12 +221,18 @@ var (
 	// No \b: "x_https://…" has no word boundary before "https", yet clients
 	// still find the URL in it.
 	schemeURLRe = regexp.MustCompile(`(?i)[a-z][a-z0-9+.-]*://[^\s<>"'()\[\]]+`)
-	// Telegram (and others) turn bare domains into links, so anything that
-	// looks like host.tld is defanged too: internationalized names and the
-	// ideographic and full-width dots that IDNA maps to "." included.
-	bareHostRe = regexp.MustCompile(`(?:[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?[.。．｡])+\p{L}[\p{L}\p{N}-]*[\p{L}\p{N}]`)
-	bareIPv4Re = regexp.MustCompile(`\d{1,3}(?:\.\d{1,3}){3}`)
-	hostDotRe  = regexp.MustCompile(`[.。．｡]`)
+	// Telegram, Slack and Discord turn bare domains ("attacker.com/?q=…")
+	// into links, so anything that looks like host.tld is defanged too:
+	// internationalized names and the dot look-alikes that IDNA or NFKC map
+	// to "." included.
+	bareHostRe = regexp.MustCompile(`(?:[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?[.。．｡․﹒])+\p{L}[\p{L}\p{N}-]*[\p{L}\p{N}]`)
+	// More than four parts too: a match ending inside a longer run would
+	// leave the rest of it a live address.
+	bareIPv4Re = regexp.MustCompile(`\d{1,3}(?:\.\d{1,3}){3,}`)
+	hostDotRe  = regexp.MustCompile(`[.。．｡․﹒]`)
+	// schemeStartRe finds a "scheme://" left in rendered text; the defanged
+	// schemes are skipped by the caller.
+	schemeStartRe = regexp.MustCompile(`(?i)[a-z][a-z0-9+.-]*://`)
 )
 
 // neutralize defangs every link outside code ("https://evil.com/x" becomes
@@ -240,10 +247,76 @@ func neutralize(md string) string {
 		text = schemeURLRe.ReplaceAllStringFunc(text, defangURL)
 		text = bareHostRe.ReplaceAllStringFunc(text, func(h string) string { return hostDotRe.ReplaceAllString(h, "[.]") })
 		text = bareIPv4Re.ReplaceAllStringFunc(text, func(ip string) string { return strings.ReplaceAll(ip, ".", "[.]") })
+		text = defangRendered(text)
 		// mdLinkRe misses link text with nested brackets; no "](" left in
 		// prose means no renderer can still form a link.
 		return strings.ReplaceAll(text, "](", "] (")
 	})
+}
+
+// defangRendered breaks links that only form once the markdown is rendered:
+// a backslash escape ("evil\.com", "https\://"), emphasis markers around a
+// dot ("evil**.**com") or invisible characters ("evil\u200b.com") disappear
+// on the way to the client, which then finds "evil.com". It matches on the
+// text as rendered and defangs the dots and scheme colons in the source.
+func defangRendered(text string) string {
+	var vis strings.Builder
+	var at []int // source offset of every byte of vis
+	for i := 0; i < len(text); {
+		r, n := utf8.DecodeRuneInString(text[i:])
+		hidden := r == '*' || r == '_' || r == '~' || invisible(r) || unicode.Is(unicode.Cf, r) ||
+			r == '\\' && i+1 < len(text) && isASCIIPunct(text[i+1])
+		if !hidden {
+			vis.WriteString(text[i : i+n])
+			for range n {
+				at = append(at, i)
+			}
+		}
+		i += n
+	}
+	v := vis.String()
+	if len(v) == len(text) {
+		return text
+	}
+	fix := map[int]string{} // source offset of a rune -> its replacement
+	for _, m := range bareHostRe.FindAllStringIndex(v, -1) {
+		for _, d := range hostDotRe.FindAllStringIndex(v[m[0]:m[1]], -1) {
+			fix[at[m[0]+d[0]]] = "[.]"
+		}
+	}
+	for _, m := range bareIPv4Re.FindAllStringIndex(v, -1) {
+		for j := m[0]; j < m[1]; j++ {
+			if v[j] == '.' {
+				fix[at[j]] = "[.]"
+			}
+		}
+	}
+	for _, m := range schemeStartRe.FindAllStringIndex(v, -1) {
+		colon := m[1] - 3
+		switch strings.ToLower(v[m[0]:colon]) {
+		case "hxxp", "hxxps", "fxp":
+		default:
+			fix[at[colon]] = "[:]"
+		}
+	}
+	if len(fix) == 0 {
+		return text
+	}
+	var b strings.Builder
+	for i := 0; i < len(text); {
+		_, n := utf8.DecodeRuneInString(text[i:])
+		if rep, ok := fix[i]; ok {
+			b.WriteString(rep)
+		} else {
+			b.WriteString(text[i : i+n])
+		}
+		i += n
+	}
+	return b.String()
+}
+
+func isASCIIPunct(c byte) bool {
+	return strings.IndexByte("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~", c) >= 0
 }
 
 func defangURL(u string) string {

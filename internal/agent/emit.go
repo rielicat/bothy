@@ -83,6 +83,7 @@ type streamer struct {
 	buf     strings.Builder
 	timer   *time.Timer
 	pending string // raw text held back for the next flush
+	links   linkFilter
 }
 
 func (rs *runState) newStreamer(typ core.EventType, toSink bool) *streamer {
@@ -137,9 +138,11 @@ func (s *streamer) flushLocked(final bool) {
 	text := rs.r.redact(raw)
 	var sinkData core.EventData
 	if s.toSink {
-		sinkText := text
+		// The filter sees every chunk, so its code-block state is right
+		// when the session turns exposed.
+		sinkText, neutral := text, s.links.apply(text)
 		if rs.exposed {
-			sinkText = neutralizeLinks(text)
+			sinkText = neutral
 		}
 		sinkData = core.DeltaData{Text: sinkText}
 	}

@@ -59,7 +59,8 @@ public/                 theme.js (sets the theme before first paint), PWA manife
 - **Zero other origins.** System fonts only, no CDNs, no remote images.
 - **Markdown is escape-all.** `lib/markdown.ts` escapes every input byte and emits
   a fixed tag set with attributes it builds itself; images become text links,
-  only absolute http(s)/mailto links survive (with `noopener noreferrer nofollow`),
+  only absolute http(s)/mailto links survive (with `noopener noreferrer nofollow`;
+  bare domains such as `attacker.com/?q=…` are never linked, escaped or not),
   and in Exposed sessions links become inert host chips with a copy button.
   `Markdown.svelte` is the only `{@html}` in the app; `markdown.test.ts` holds
   the XSS corpus.
