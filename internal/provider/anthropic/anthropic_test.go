@@ -228,6 +228,9 @@ func TestErrorKinds(t *testing.T) {
 		{400, "invalid_request_error", "prompt is too long: 208310 tokens > 200000 maximum", core.ErrKindContextLength},
 		{401, "authentication_error", "There's an issue with your API key.", core.ErrKindAuth},
 		{402, "billing_error", "There's an issue with your billing or payment information.", core.ErrKindAuth},
+		// Exhausted prepaid credit is reported as a plain 400; it must move
+		// on to the next candidate and raise the credentials banner too.
+		{400, "invalid_request_error", "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.", core.ErrKindAuth},
 		{403, "permission_error", "Your API key does not have permission to use the specified resource.", core.ErrKindAuth},
 		{404, "not_found_error", "The requested resource could not be found.", core.ErrKindInvalidRequest},
 		{413, "request_too_large", "Request exceeds the maximum allowed number of bytes.", core.ErrKindContextLength},
