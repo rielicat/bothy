@@ -259,27 +259,27 @@ type tgFile struct {
 }
 
 type tgMessage struct {
-	MessageID       int        `json:"message_id"`
-	MessageThreadID int        `json:"message_thread_id,omitempty"`
-	IsTopicMessage  bool       `json:"is_topic_message,omitempty"`
-	From            *tgUser    `json:"from,omitempty"`
-	Chat            tgChat     `json:"chat"`
-	Date            int64      `json:"date"`
-	Text            string     `json:"text,omitempty"`
-	Entities        []tgEntity `json:"entities,omitempty"`
-	Caption         string     `json:"caption,omitempty"`
-	CaptionEntities []tgEntity `json:"caption_entities,omitempty"`
-	ReplyToMessage  *tgMessage `json:"reply_to_message,omitempty"`
+	MessageID       int           `json:"message_id"`
+	MessageThreadID int           `json:"message_thread_id,omitempty"`
+	IsTopicMessage  bool          `json:"is_topic_message,omitempty"`
+	From            *tgUser       `json:"from,omitempty"`
+	Chat            tgChat        `json:"chat"`
+	Date            int64         `json:"date"`
+	Text            string        `json:"text,omitempty"`
+	Entities        []tgEntity    `json:"entities,omitempty"`
+	Caption         string        `json:"caption,omitempty"`
+	CaptionEntities []tgEntity    `json:"caption_entities,omitempty"`
+	ReplyToMessage  *tgMessage    `json:"reply_to_message,omitempty"`
+	Photo           []tgPhotoSize `json:"photo,omitempty"`
+	Document        *tgFile       `json:"document,omitempty"`
+	Audio           *tgFile       `json:"audio,omitempty"`
+	Voice           *tgFile       `json:"voice,omitempty"`
+	Video           *tgFile       `json:"video,omitempty"`
 	// ForwardOrigin is set on forwards (Bot API 7.0+); older servers send
 	// only forward_date. ViaBot names the inline bot the message came from.
 	ForwardOrigin *tgForwardOrigin `json:"forward_origin,omitempty"`
 	ForwardDate   int64            `json:"forward_date,omitempty"`
 	ViaBot        *tgUser          `json:"via_bot,omitempty"`
-	Photo         []tgPhotoSize    `json:"photo,omitempty"`
-	Document      *tgFile          `json:"document,omitempty"`
-	Audio         *tgFile          `json:"audio,omitempty"`
-	Voice         *tgFile          `json:"voice,omitempty"`
-	Video         *tgFile          `json:"video,omitempty"`
 }
 
 type tgForwardOrigin struct {
