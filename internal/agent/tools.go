@@ -428,7 +428,9 @@ func (r *Runner) finishCall(rs *runState, pc *pcall, er execResult, approved boo
 		}
 	}
 	res.Content = content
-	ran := er.status == core.TCOK || er.status == core.TCError || er.status == core.TCTimeout
+	// A stopped call ran too: its partial output is persisted below, so the
+	// session takes its taint like any other result.
+	ran := er.status == core.TCOK || er.status == core.TCError || er.status == core.TCTimeout || er.status == core.TCStopped
 	if pc.action != nil && pc.fail == "" && ran {
 		next := r.d.Policy.NextTaint(rs.taint, pc.spec, pc.action, &res, er.egressed)
 		if err := r.addTaint(ctx, rs, next); err != nil {
