@@ -52,7 +52,6 @@ type runState struct {
 	seenSeq    int64           // newest message seq the last assembly read
 	callIDs    map[string]bool // tool call ids in the history the last assembly read
 	taint      core.Taint
-	boxReady   bool
 	wsReady    bool
 	toolErrors int // consecutive failed tool calls
 	deadline   *time.Timer

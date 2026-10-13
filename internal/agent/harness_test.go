@@ -137,11 +137,19 @@ func newHarness(t *testing.T, o opts) *harness {
 	return h
 }
 
-func (h *harness) newRunner() *Runner {
+func (h *harness) newRunner() *Runner { return h.newRunnerWith(nil) }
+
+// newRunnerWith builds a runner on the harness dependencies after mod has
+// replaced some of them.
+func (h *harness) newRunnerWith(mod func(d *Deps)) *Runner {
 	h.t.Helper()
-	r, err := New(Deps{Store: h.store, Config: config.Static(h.cfg), LLM: h.llm, Tools: h.tools, Policy: h.pol,
+	d := Deps{Store: h.store, Config: config.Static(h.cfg), LLM: h.llm, Tools: h.tools, Policy: h.pol,
 		Approvals: h.appr, Budget: h.budget, Memory: h.mem, Skills: h.skills, Sandbox: h.sbx, Egress: h.egress,
-		Redactor: h.red, Bus: h.bus, Audit: h.audit, DataDir: h.data, WorkDir: h.work})
+		Redactor: h.red, Bus: h.bus, Audit: h.audit, DataDir: h.data, WorkDir: h.work}
+	if mod != nil {
+		mod(&d)
+	}
+	r, err := New(d)
 	if err != nil {
 		h.t.Fatal(err)
 	}

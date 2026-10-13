@@ -10,12 +10,14 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
 
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/testkit/fakes"
+	"github.com/rielicat/bothy/internal/testkit/sandboxtest"
 )
 
 func TestExposedSessionNeutralizesLinksForTheSink(t *testing.T) {
@@ -491,7 +493,6 @@ func TestExecToolsUseTheBoxInEveryRun(t *testing.T) {
 		defer h.close()
 		h.submit("first")
 		synctest.Wait()
-		h.egress.MarkActivity(boxKey(h.sess.ID)) // stale bytes from before the exec are not attributed
 		res := h.submit("second")
 		synctest.Wait()
 		if shell.calls.Load() != 2 || h.toolCalls(res.Run)[0].Status != core.TCOK {
@@ -504,7 +505,147 @@ func TestExecToolsUseTheBoxInEveryRun(t *testing.T) {
 			t.Fatalf("bindings = %+v", h.egress.Bound)
 		}
 		if h.session().Taint.Has(core.TaintUntrusted) {
-			t.Fatal("activity from before the exec tainted the session")
+			t.Fatal("a box that moved no bytes tainted the session")
+		}
+	})
+}
+
+// TestBackgroundBoxEgressTaints: a process an earlier exec left running can
+// download through the proxy between calls; the next call must not wipe
+// that activity, or `cat` of the download comes back trusted.
+func TestBackgroundBoxEgressTaints(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		shell := &testTool{name: "shell", se: core.SELocalWrite, exec: true, run: func(ctx context.Context, env *core.ToolEnv, _ *core.Action) (*core.ToolResult, error) {
+			return &core.ToolResult{Content: "notes"}, nil
+		}}
+		between := make(chan struct{})
+		h := newHarness(t, opts{tools: []core.Tool{shell}, steps: []fakes.LLMStep{
+			{ToolCalls: []core.ToolCall{call("shell", `{"cmd":"(sleep 20; curl -s https://registry.example/x > notes.json) &"}`)}},
+			{Text: []string{"Reading."}, ToolCalls: []core.ToolCall{call("shell", `{"cmd":"cat notes.json"}`)}, Block: between},
+			{Text: []string{"done"}},
+		}})
+		defer h.close()
+		res := h.submit("set it up")
+		synctest.Wait()
+		if h.session().Taint.Has(core.TaintUntrusted) {
+			t.Fatal("tainted before any bytes moved")
+		}
+		h.egress.MarkActivity(boxKey(h.sess.ID)) // the background curl
+		close(between)
+		synctest.Wait()
+		recs := h.toolCalls(res.Run)
+		if len(recs) != 2 || !recs[1].Untrusted {
+			t.Fatalf("the call after a background download = %+v", recs)
+		}
+		if !h.session().Taint.Has(core.TaintUntrusted) {
+			t.Fatalf("taint after a background download = %v", h.session().Taint)
+		}
+	})
+}
+
+// reapingEgress models egress.Service: Bind is dropped for a box whose
+// socket is closed, and a box opened again starts with no binding.
+type reapingEgress struct {
+	*sandboxtest.Egress
+	mu    sync.Mutex
+	open  map[string]bool
+	bound map[string]core.EgressBinding
+}
+
+func (e *reapingEgress) OpenBox(ctx context.Context, key string, be core.BoxEgress) (string, error) {
+	e.mu.Lock()
+	if !e.open[key] {
+		e.open[key], e.bound[key] = true, core.EgressBinding{}
+	}
+	e.mu.Unlock()
+	return e.Egress.OpenBox(ctx, key, be)
+}
+
+func (e *reapingEgress) CloseBox(key string) {
+	e.mu.Lock()
+	delete(e.open, key)
+	delete(e.bound, key)
+	e.mu.Unlock()
+	e.Egress.CloseBox(key)
+}
+
+func (e *reapingEgress) Bind(key string, b core.EgressBinding) {
+	e.mu.Lock()
+	if e.open[key] {
+		e.bound[key] = b
+	}
+	e.mu.Unlock()
+	e.Egress.Bind(key, b)
+}
+
+func (e *reapingEgress) binding(key string) core.EgressBinding {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.bound[key]
+}
+
+// reapingSandbox models sandbox.service: Ensure opens the egress socket, and
+// an exec on a box the idle reaper removed recreates it from its spec.
+type reapingSandbox struct {
+	*sandboxtest.Sandbox
+	egress *reapingEgress
+	specs  map[string]core.BoxSpec
+	seen   []core.EgressBinding // binding in force at each exec
+}
+
+func (s *reapingSandbox) Ensure(ctx context.Context, spec core.BoxSpec) error {
+	s.specs[spec.Key] = spec
+	if _, err := s.egress.OpenBox(ctx, spec.Key, spec.Egress); err != nil {
+		return err
+	}
+	return s.Sandbox.Ensure(ctx, spec)
+}
+
+func (s *reapingSandbox) Exec(ctx context.Context, key string, req core.ExecRequest, onOut func(int, []byte)) (*core.ExecResult, error) {
+	if _, err := s.egress.OpenBox(ctx, key, s.specs[key].Egress); err != nil { // recreate after a reap
+		return nil, err
+	}
+	s.seen = append(s.seen, s.egress.binding(key))
+	return s.Sandbox.Exec(ctx, key, req, onOut)
+}
+
+func (s *reapingSandbox) reap(key string) { s.egress.CloseBox(key) }
+
+// TestEgressBindingSurvivesAnIdleReap: an approval wait can outlast
+// sandbox.idle_timeout, and the reaper closes the box's egress socket. The
+// next exec must still run with this call's binding (hold-for-approval,
+// schedule grants, attribution), not the empty one of a recreated box.
+func TestEgressBindingSurvivesAnIdleReap(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var sbx *reapingSandbox
+		shell := &testTool{name: "shell", se: core.SELocalWrite, exec: true, run: func(ctx context.Context, env *core.ToolEnv, _ *core.Action) (*core.ToolResult, error) {
+			res, err := env.Sandbox.Exec(ctx, env.BoxKey, core.ExecRequest{Argv: []string{"true"}}, nil)
+			if err != nil {
+				return nil, err
+			}
+			sbx.reap(env.BoxKey) // idle for longer than idle_timeout before the next exec
+			return &core.ToolResult{Content: string(res.Stdout)}, nil
+		}}
+		h := newHarness(t, opts{tools: []core.Tool{shell}, steps: []fakes.LLMStep{
+			{ToolCalls: []core.ToolCall{call("shell", `{"cmd":"ls"}`)}},
+			{ToolCalls: []core.ToolCall{call("shell", `{"cmd":"pip install foo"}`)}},
+			{Text: []string{"done"}},
+		}})
+		defer h.close()
+		eg := &reapingEgress{Egress: h.egress, open: map[string]bool{}, bound: map[string]core.EgressBinding{}}
+		sbx = &reapingSandbox{Sandbox: h.sbx, egress: eg, specs: map[string]core.BoxSpec{}}
+		h.r = h.newRunnerWith(func(d *Deps) { d.Sandbox, d.Egress = sbx, eg })
+		h.r.SetHub(h.hub)
+		res := h.submit("install it")
+		synctest.Wait()
+		recs := h.toolCalls(res.Run)
+		if len(recs) != 2 || len(sbx.seen) != 2 {
+			t.Fatalf("calls %d, execs %d", len(recs), len(sbx.seen))
+		}
+		for i, b := range sbx.seen {
+			if b.ToolCallID != recs[i].ID || b.Run != res.Run || !b.Interactive {
+				t.Fatalf("exec %d ran with binding %+v, want call %s of run %s", i, b, recs[i].ID, res.Run)
+			}
 		}
 	})
 }
