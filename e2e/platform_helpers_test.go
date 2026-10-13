@@ -100,9 +100,14 @@ func pltNewClient(g *Gateway) *pltUser {
 // pltOwner claims the setup token, creates the owner and completes setup.
 func pltOwner(t testing.TB, g *Gateway) *pltUser {
 	t.Helper()
+	return pltClaim(t, g, g.SetupToken(t))
+}
+
+func pltClaim(t testing.TB, g *Gateway, token string) *pltUser {
+	t.Helper()
 	u := pltNewClient(g)
 	var claim dto.SetupClaimResp
-	if code := u.JSON(t, http.MethodPost, "/api/setup/claim", dto.SetupClaimReq{Token: g.SetupToken(t)}, &claim); code != http.StatusOK {
+	if code := u.JSON(t, http.MethodPost, "/api/setup/claim", dto.SetupClaimReq{Token: token}, &claim); code != http.StatusOK {
 		t.Fatalf("setup claim = %d", code)
 	}
 	u.csrf = claim.CSRF
