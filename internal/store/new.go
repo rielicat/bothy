@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"log/slog"
 
-	"github.com/bothyhq/bothy/internal/config"
 	"github.com/bothyhq/bothy/internal/core"
 )
 
@@ -19,28 +18,27 @@ type Options struct {
 
 // DB implements core.Store and core.CheckProvider.
 type DB struct {
-	core.Store // skeleton stub: nil; M1 replaces with real fields
+	handle
 
-	w       *sql.DB // the single writer connection
-	r       *sql.DB // two query_only reader connections
-	version string
+	w         *sql.DB // the single writer connection
+	r         *sql.DB // two query_only reader connections
+	version   string
+	path      string
+	backupDir string
+	clock     core.Clock
+	log       *slog.Logger
 }
+
+var (
+	_ core.Store         = (*DB)(nil)
+	_ core.CheckProvider = (*DB)(nil)
+)
 
 // Open sets pragmas, refuses SQLite < 3.53.4, takes a VACUUM INTO backup when
-// migrations are pending, then applies embedded migrations (skeleton-implemented).
-func Open(ctx context.Context, o Options) (*DB, error) { return open(ctx, o, migrationsFS) }
-
-// RunRetention prunes egress_log, inbound_dedup, expired auth sessions and old
-// runs per config every hour. Blocks until ctx is done.
-func (db *DB) RunRetention(ctx context.Context, cfg config.View) error {
-	<-ctx.Done()
-	return nil
+// migrations are pending, then applies embedded migrations.
+func Open(ctx context.Context, o Options) (*DB, error) {
+	return open(ctx, o, migrationsFS, queryVersion)
 }
-
-func (db *DB) Checks() []core.Check { return nil }
-
-// Boot-path methods implemented in the skeleton (the rest of core.Store is M1's).
-func (db *DB) Meta() core.MetaRepo { return nil }
 
 func (db *DB) SQLiteVersion() string { return db.version }
 
