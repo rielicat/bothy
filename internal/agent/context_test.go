@@ -472,6 +472,34 @@ func TestStandingRulesAndSkillsIndex(t *testing.T) {
 	})
 }
 
+func TestTurnContextNamesTheChannelOnce(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{steps: []fakes.LLMStep{{Text: []string{"one"}}, {Text: []string{"two"}}}})
+		defer h.close()
+		web := h.req("from the web UI")
+		web.Chat = &core.ChatRef{Channel: "web", ChatID: string(h.sess.ID), Kind: core.ChatWeb}
+		if _, err := h.r.Submit(h.ctx, web); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		chat := &core.ChatRef{Channel: "telegram", ChatID: "7", Kind: core.ChatDM}
+		h.sess = h.newSession("telegram", chat)
+		dm := h.req("from telegram")
+		dm.Chat = chat
+		if _, err := h.r.Submit(h.ctx, dm); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		reqs := h.requests()
+		if got := lastUserText(reqs[0]); !strings.Contains(got, "channel: web · ") || strings.Contains(got, "web web") {
+			t.Fatalf("web turn-context:\n%s", got)
+		}
+		if got := lastUserText(reqs[1]); !strings.Contains(got, "channel: telegram dm · ") {
+			t.Fatalf("telegram turn-context:\n%s", got)
+		}
+	})
+}
+
 func TestLongSingleTurnKeepsItsEpoch(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		info := core.ModelInfo{Ref: core.ModelRef{Provider: "ollama", Model: "qwen3:14b"}, Context: 16384, MaxOutput: 2048, Tools: true, Local: true, Price: core.Price{Known: true}}
