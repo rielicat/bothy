@@ -392,7 +392,7 @@ func TestCreateIsIdempotentAndClamps(t *testing.T) {
 		t.Fatalf("limits not clamped: mem %d cpu %d pids %d", hc.Memory, hc.NanoCPUs, *hc.PidsLimit)
 	}
 	// A box whose container died is recreated.
-	h.eng.Vanish(containerName(testKey))
+	h.eng.Vanish(h.d.containerName(testKey))
 	resp, b = h.do("POST", "/boxes", createBody(testKey, testWS))
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("recreate: %d %s", resp.StatusCode, b)
@@ -407,7 +407,7 @@ func TestMaxBoxesEvictsLRUIdle(t *testing.T) {
 		h.advance(time.Second)
 	}
 	h.create("box_0000000000000000000000000d")
-	if slices.Contains(h.eng.Running(), containerName(keys[0])) || !slices.Contains(h.eng.Removed(), containerName(keys[0])) {
+	if slices.Contains(h.eng.Running(), h.d.containerName(keys[0])) || !slices.Contains(h.eng.Removed(), h.d.containerName(keys[0])) {
 		t.Fatalf("LRU box not evicted: running %v", h.eng.Running())
 	}
 	// With every box busy, creation is refused.
@@ -481,7 +481,7 @@ func TestExecWrapsInSbxInitRun(t *testing.T) {
 func TestExecOnVanishedBoxIs404(t *testing.T) {
 	h := newHarness(t, nil)
 	h.create(testKey)
-	h.eng.Vanish(containerName(testKey))
+	h.eng.Vanish(h.d.containerName(testKey))
 	h.wantError("POST", "/boxes/"+testKey+"/exec", execBody([]string{"echo"}, 1000, ""), http.StatusNotFound, "not_found")
 	if _, err := h.d.lookup(testKey); err == nil {
 		t.Fatal("vanished box still registered")
@@ -513,7 +513,7 @@ func TestKill(t *testing.T) {
 	if !o.final.Killed || *o.final.Exit != 137 {
 		t.Fatalf("killed exec reported %+v", o.final)
 	}
-	if !slices.Contains(h.eng.Running(), containerName(testKey)) {
+	if !slices.Contains(h.eng.Running(), h.d.containerName(testKey)) {
 		t.Fatal("killall path removed the box")
 	}
 
@@ -523,7 +523,7 @@ func TestKill(t *testing.T) {
 	if resp.StatusCode != 200 || json.Unmarshal(b, &kr) != nil || !kr.Recreated {
 		t.Fatalf("fallback kill: %d %s", resp.StatusCode, b)
 	}
-	if slices.Contains(h.eng.Running(), containerName(testKey)) {
+	if slices.Contains(h.eng.Running(), h.d.containerName(testKey)) {
 		t.Fatal("box survived the fallback")
 	}
 	h.wantError("POST", "/boxes/"+testKey+"/kill", "", http.StatusNotFound, "not_found")
@@ -570,6 +570,34 @@ func TestOrphansRemovedAtStart(t *testing.T) {
 	h.d.removeOrphans(context.Background())
 	if got := h.eng.Running(); !slices.Equal(got, []string{"other-install", "unrelated"}) {
 		t.Fatalf("running after orphan cleanup: %v", got)
+	}
+}
+
+// Two installs on one engine share fixed box keys (the canary's, MCP
+// installers'); neither may replace or remove the other's container.
+func TestInstallsOnOneEngineKeepTheirBoxes(t *testing.T) {
+	h := newHarness(t, nil)
+	cfg := h.conf
+	cfg.RunVolume = "other_run"
+	other := newDaemon(cfg, h.eng, slog.New(slog.DiscardHandler), h.clock)
+	other.selfTest(context.Background())
+	if h.d.containerName(canaryKey) == other.containerName(canaryKey) {
+		t.Fatal("both installs name their canary box alike")
+	}
+	h.create(testKey)
+	mine := h.d.containerName(testKey)
+	ctx := context.Background()
+	if _, err := other.create(ctx, proto.CreateReq{Key: testKey, Profile: "base", Workspace: testWS,
+		Limits: proto.Limits{MemoryMB: 256, CPUs: 1, Pids: 64}}); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 { // the second destroy finds no registered box and removes by name
+		if err := other.destroy(ctx, testKey); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !slices.Contains(h.eng.Running(), mine) || slices.Contains(h.eng.Removed(), mine) {
+		t.Fatalf("the other install touched %s: running %v, removed %v", mine, h.eng.Running(), h.eng.Removed())
 	}
 }
 

@@ -21,7 +21,7 @@ import (
 func TestReapKeepsBoxesCreatedDuringTheListing(t *testing.T) {
 	h := newHarness(t, nil)
 	h.create(testKey)
-	h.eng.Vanish(containerName(testKey)) // stands in for "not listed yet"
+	h.eng.Vanish(h.d.containerName(testKey)) // stands in for "not listed yet"
 	h.d.reap(context.Background())
 	if _, err := h.d.lookup(testKey); err != nil {
 		t.Fatal("a box created as the listing ran was forgotten")
@@ -43,7 +43,7 @@ func TestRemoveIfSparesABoxThatTurnedBusy(t *testing.T) {
 	}
 	removed, err := h.d.removeIf(context.Background(), b, func(b *box) bool { return b.active == 0 })
 	h.d.release(busy, false)
-	if removed || err != nil || !slices.Contains(h.eng.Running(), containerName(testKey)) {
+	if removed || err != nil || !slices.Contains(h.eng.Running(), h.d.containerName(testKey)) {
 		t.Fatalf("removeIf = %v, %v; running %v", removed, err, h.eng.Running())
 	}
 }
@@ -89,7 +89,7 @@ func TestStdioCutsAServerThatIgnoresEOF(t *testing.T) {
 	})
 	h.d.stdioGrace = 50 * time.Millisecond
 	h.create(testKey)
-	t.Cleanup(func() { h.eng.Vanish(containerName(testKey)) })
+	t.Cleanup(func() { h.eng.Vanish(h.d.containerName(testKey)) })
 	conn, _ := h.stdio(testKey, `{"argv":["mcp-server"]}`)
 	conn.Close()
 	waitFor(t, func() bool {
