@@ -120,6 +120,40 @@ func TestRunBackgroundProcessDoesNotHoldTheExec(t *testing.T) {
 	}
 }
 
+// A background process that keeps writing to the exec's stdout (a dev
+// server's log) must outlive the exec instead of dying of SIGPIPE.
+func TestRunBackgroundWriterSurvivesTheExec(t *testing.T) {
+	dir := t.TempDir()
+	marker, pidFile := filepath.Join(dir, "marker"), filepath.Join(dir, "pid")
+	script := fmt.Sprintf(`(while :; do echo tick; echo x >> %s; sleep 0.05; done) & echo $! > %s; echo started`, marker, pidFile)
+	out, _, code, took := sbxInit(t, "", "run", "--timeout", "20s", "--", "sh", "-c", script)
+	if code != 0 || !strings.Contains(out, "started\n") || took > 2*time.Second {
+		t.Fatalf("code %d stdout %q took %v", code, out, took)
+	}
+	b, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+	size := func() int64 {
+		fi, err := os.Stat(marker)
+		if err != nil {
+			return 0
+		}
+		return fi.Size()
+	}
+	time.Sleep(300 * time.Millisecond)
+	before := size()
+	time.Sleep(300 * time.Millisecond)
+	if !alive(pid) || size() <= before {
+		t.Fatalf("background writer died after the exec (alive %v, marker %d -> %d bytes)", alive(pid), before, size())
+	}
+}
+
 func TestRunSignalledChild(t *testing.T) {
 	_, _, code, _ := sbxInit(t, "", "run", "--timeout", "10s", "--", "sh", "-c", "kill -KILL $$")
 	if code != 128+int(syscall.SIGKILL) {

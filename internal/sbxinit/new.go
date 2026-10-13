@@ -28,8 +28,16 @@ const usage = `usage: sbx-init                                  PID 1: reap, rel
 
 // Main implements `sbx-init [run|killall|count|selftest] …`; returns the exit code.
 func Main(args []string) int {
+	// The argv that ran sbx-init: "/opt/bothy/sbx-init" in a box, "/opt/bothy/bothy
+	// sbx-init" in a bwrap jail. run re-invokes it for its output drainer.
+	if n := len(os.Args) - len(args); n > 0 {
+		self = os.Args[:n]
+	}
 	return dispatch(args, os.Stdout, os.Stderr)
 }
+
+// self is the argv prefix that runs sbx-init (nil when unknown).
+var self []string
 
 func dispatch(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
@@ -57,6 +65,8 @@ func dispatch(args []string, stdout, stderr io.Writer) int {
 		return countMain(stdout, stderr)
 	case "selftest":
 		return selftestMain(args[1:], stdout, stderr)
+	case "drain":
+		return drainMain()
 	default:
 		fmt.Fprint(stderr, usage)
 		return exitInternal

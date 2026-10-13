@@ -17,3 +17,4 @@ func runMain(_ []string, stderr io.Writer) int         { return unsupported(stde
 func killallMain(_, stderr io.Writer) int              { return unsupported(stderr) }
 func countMain(_, stderr io.Writer) int                { return unsupported(stderr) }
 func selftestMain(_ []string, _, stderr io.Writer) int { return unsupported(stderr) }
+func drainMain() int                                   { return exitInternal }

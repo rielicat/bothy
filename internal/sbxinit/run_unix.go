@@ -19,7 +19,8 @@ import (
 
 // drainGrace is how long run keeps copying output after the command exits.
 // Background processes may hold the pipes open forever; once the grace is over
-// the pipes are closed so the exec ends (those processes get EPIPE).
+// the pipes go to a detached drainer so the exec ends while those processes
+// keep running (SPEC §2.7: dev servers survive the exec).
 const drainGrace = 250 * time.Millisecond
 
 type runOpts struct {
@@ -177,12 +178,63 @@ func drain(wg *sync.WaitGroup, grace time.Duration, pipes ...*os.File) {
 	defer t.Stop()
 	select {
 	case <-done:
+		return
 	case <-t.C:
-		for _, p := range pipes {
-			p.Close()
-		}
-		<-done
 	}
+	// Best effort: without a drainer the writers get EPIPE (or die of
+	// SIGPIPE) once the pipes close below.
+	_ = startDrainer(pipes)
+	for _, p := range pipes {
+		p.Close()
+	}
+	<-done
+}
+
+// startDrainer starts `sbx-init drain` in its own session with the read ends
+// of pipes as fds 3 and up and /dev/null as stdio, so it holds nothing of the
+// exec's own streams. PID 1 reaps it once its writers are gone.
+func startDrainer(pipes []*os.File) error {
+	if len(self) == 0 {
+		return errors.New("unknown sbx-init invocation")
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	null, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+	if err != nil {
+		return err
+	}
+	defer null.Close()
+	argv := append(append([]string(nil), self...), "drain")
+	p, err := os.StartProcess(exe, argv, &os.ProcAttr{
+		Env:   os.Environ(),
+		Files: append([]*os.File{null, null, null}, pipes...),
+		Sys:   &syscall.SysProcAttr{Setsid: true},
+	})
+	if err != nil {
+		return err
+	}
+	return p.Release()
+}
+
+// drainMain discards everything on fds 3 and 4 until their writers are gone.
+func drainMain() int {
+	var wg sync.WaitGroup
+	for fd := uintptr(3); fd <= 4; fd++ {
+		f := os.NewFile(fd, "pipe")
+		if f == nil {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = io.Copy(io.Discard, f)
+			f.Close()
+		}()
+	}
+	wg.Wait()
+	return 0
 }
 
 func exitStatus(st *os.ProcessState) int {

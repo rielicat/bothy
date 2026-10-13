@@ -393,4 +393,18 @@ func TestDockerAcceptance(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+
+	t.Run("a background process that logs to stdout outlives its exec", func(t *testing.T) {
+		res := d.sh(t, key, `(while :; do echo tick; sleep 0.1; done) & echo $! > /tmp/bg.pid; echo started`, 30*time.Second)
+		if res.Exit != 0 || !strings.HasPrefix(string(res.Stdout), "started\n") || res.Duration > 5*time.Second {
+			t.Fatalf("exec: %+v %q", res, res.Stdout)
+		}
+		time.Sleep(time.Second)
+		if res := d.sh(t, key, "kill -0 $(cat /tmp/bg.pid) && echo alive", 30*time.Second); string(res.Stdout) != "alive\n" {
+			t.Fatalf("background writer died with its exec: %q %q", res.Stdout, res.Stderr)
+		}
+		if err := c.Kill(ctx, key); err != nil {
+			t.Fatal(err)
+		}
+	})
 }
