@@ -316,7 +316,8 @@ func (u *pltUser) WaitApproval(t testing.TB, run core.RunID, status core.Approva
 			}
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("no %s approval for run %s\nlogs:\n%s", status, run, u.g.Logs())
+			resp := u.Do(t, http.MethodGet, "/api/runs/"+string(run), nil, nil)
+			t.Fatalf("no %s approval for run %s (run: %s %s)\nlogs:\n%s", status, run, resp.Status, resp.Body, u.g.Logs())
 		}
 		time.Sleep(25 * time.Millisecond)
 	}

@@ -132,9 +132,7 @@ policy:
 		if execs != 1 {
 			t.Fatalf("tool.exec audit rows for the resumed run = %d, want 1", execs)
 		}
-		if !slices.ContainsFunc(llm.Requests(), func(b []byte) bool {
-			return strings.Contains(string(b), "Saved after approval") || strings.Contains(string(b), "approved-action")
-		}) {
+		if !slices.ContainsFunc(llm.Requests(), func(b []byte) bool { return strings.Contains(string(b), `<approved-action tool=\"fs_write\"`) }) {
 			t.Fatalf("the approved action's outcome never reached the model")
 		}
 	})
