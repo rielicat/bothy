@@ -200,8 +200,10 @@ func TestSteerInjectedAtNextStep(t *testing.T) {
 			t.Fatalf("steer not injected at the next step")
 		}
 		checkPairs(t, reqs[1])
-		if n := len(h.hub.Messages()); n != 1 || !strings.HasSuffix(h.hub.Messages()[0], "|"+steerReply) {
-			t.Fatalf("hub sends = %v", h.hub.Messages())
+		// The hub acknowledges steers in the chat itself (once per run), so
+		// a reply from the runner would make the first one echo twice.
+		if sent := h.hub.Messages(); len(sent) != 0 {
+			t.Fatalf("runner sent steer acknowledgements: %v", sent)
 		}
 		if st := h.run(res.Run).Status; st != core.RunDone {
 			t.Fatalf("status = %s", st)

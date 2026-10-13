@@ -24,7 +24,6 @@ type runState struct {
 	// Guarded by w.mu.
 	turnPersisted bool
 	finishing     bool
-	steerReplied  bool
 
 	mu         sync.Mutex
 	run        core.Run // database row mirror; saveRun writes it

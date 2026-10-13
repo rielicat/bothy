@@ -10,11 +10,6 @@ import (
 	"github.com/rielicat/bothy/internal/core"
 )
 
-const (
-	steerReply        = "Got it, adding that to the current task."
-	steerReplyWaiting = "Waiting for your approval above; I'll read this after."
-)
-
 // Submit returns ErrBusy when the session mailbox is full and ErrPaused when
 // the kill switch is engaged.
 func (r *Runner) Submit(ctx context.Context, req core.RunRequest) (core.SubmitResult, error) {
@@ -134,14 +129,8 @@ func (r *Runner) place(ctx context.Context, w *worker, req core.RunRequest) (cor
 				return core.SubmitResult{}, err
 			}
 			w.steers++
-			if !a.steerReplied && req.Chat != nil {
-				a.steerReplied = true
-				text := steerReply
-				if a.status() == core.RunWaitingApproval {
-					text = steerReplyWaiting
-				}
-				r.sendAsync(*req.Chat, text)
-			}
+			// The hub acknowledges a steer in its chat once per run; a
+			// second reply from here would make every first steer echo twice.
 			return core.SubmitResult{Run: a.id, Steered: true}, nil
 		}
 	}
@@ -188,22 +177,6 @@ func (r *Runner) steerable(a *runState, req core.RunRequest) bool {
 
 func coalescible(req core.RunRequest) bool {
 	return req.Trigger == core.TrigMessage && req.Chat != nil && req.Chat.Kind == core.ChatDM
-}
-
-func (r *Runner) sendAsync(chat core.ChatRef, text string) {
-	h := r.hubOrNil()
-	if h == nil {
-		return
-	}
-	r.bg.Add(1)
-	go func() {
-		defer r.bg.Done()
-		ctx, cancel := context.WithTimeout(r.bgCtx, 30*time.Second)
-		defer cancel()
-		if _, err := h.Send(ctx, chat, text); err != nil {
-			r.log.Warn("chat notice", "chat", chat.Key(), "err", err)
-		}
-	}()
 }
 
 // Stop cancels the active run, SIGKILLs the session box, cancels its pending
