@@ -19,9 +19,12 @@ creates the directories a box mounts (`ws/<id>` and MCP trees 2770 group
 creating the box; `Exec` and `Stdio` bring back a box that is gone (reaped or
 evicted by sandboxd, killed and removed, or idle-reaped here) by repeating the
 last `Ensure` for its key, whose spec is kept for a day after an idle reap.
-`Run` polls health and publishes `sandbox.status` events, `no_sandbox` /
-`sandbox_not_isolated` banners (an admin broadcast plus one per member user
-principal, since members do not receive `sandbox.status`) and the
+`Run` polls sandboxd's health (an auto-mode none backend only watches for the
+socket; none and bwrap are probed once) and publishes `sandbox.status` events,
+`no_sandbox` / `sandbox_not_isolated` banners (an admin broadcast plus one per
+member user principal, since members do not receive `sandbox.status`; synced
+on every status change and, for users created or promoted since, once a
+minute, without reading the users table while no banner is shown) and the
 `sandbox.selftest_failed` audit entry, destroys boxes idle past
 `sandbox.idle_timeout` (closing their egress sockets) and scans workspace sizes
 for `Usage`. The package also provides the `shell` and `python` tools and the

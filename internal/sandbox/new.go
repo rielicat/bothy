@@ -91,10 +91,18 @@ func (c *Client) Checks() []core.Check { return checks(c.svc) }
 
 func (s *service) loop(ctx context.Context) error {
 	s.reconcile(ctx)
+	synced := s.statusGen()
 	s.syncMemberBanners(ctx)
 	s.scanQuota()
-	health := time.NewTimer(s.nextHealth())
+	health := time.NewTimer(time.Hour)
+	health.Stop()
 	defer health.Stop()
+	arm := func() {
+		if d, ok := s.nextHealth(); ok {
+			health.Reset(d)
+		}
+	}
+	arm()
 	reap := time.NewTicker(s.reapEvery)
 	defer reap.Stop()
 	quota := time.NewTicker(s.quotaEvery)
@@ -106,21 +114,36 @@ func (s *service) loop(ctx context.Context) error {
 		case <-health.C:
 			s.maybeSwitch()
 			s.refresh(ctx)
-			s.syncMemberBanners(ctx)
-			health.Reset(s.nextHealth())
+			if g := s.statusGen(); g != synced {
+				synced = g
+				s.syncMemberBanners(ctx)
+			}
+			arm()
 		case <-reap.C:
 			s.reapIdle(ctx)
+			// Nothing announces new users or role changes, so members'
+			// banners also catch up here.
+			s.syncMemberBanners(ctx)
 		case <-quota.C:
 			s.scanQuota()
 		}
 	}
 }
 
-func (s *service) nextHealth() time.Duration {
-	if _, st := s.current(); st.Available {
-		return s.healthEvery
+// nextHealth is when Run probes again; ok is false when no probe can change
+// the status. Only sandboxd's health moves, and an auto-mode none backend
+// waits for the sandboxd socket; none and bwrap are probed once, by New.
+func (s *service) nextHealth() (d time.Duration, ok bool) {
+	be, st := s.current()
+	switch {
+	case be.name() == "none" && s.auto:
+		return s.retryEvery, true
+	case be.name() != "sandboxd":
+		return 0, false
+	case st.Available:
+		return s.healthEvery, true
 	}
-	return s.retryEvery
+	return s.retryEvery, true
 }
 
 // maybeSwitch moves an auto-mode gateway from none to sandboxd once the
