@@ -8,11 +8,10 @@ import Usage from './Usage.svelte';
 // GET /api/usage?group_by=day keys rows by UTC date (store usageKeys).
 describe('usage by day', () => {
   let calls: Call[];
-  const tz = process.env.TZ;
   const row = { key: '2026-10-13', cost_micros: 800_000, input: 1000, output: 100, cache_read: 0, cache_write: 0, calls: 1, price_known: true };
 
   beforeEach(async () => {
-    process.env.TZ = 'America/New_York';
+    vi.stubEnv('TZ', 'America/New_York');
     vi.useFakeTimers({ toFake: ['Date'] });
     // 21:00 on 12 October in New York
     vi.setSystemTime(new Date('2026-10-13T01:00:00Z'));
@@ -28,7 +27,7 @@ describe('usage by day', () => {
 
   afterEach(() => {
     vi.useRealTimers();
-    process.env.TZ = tz;
+    vi.unstubAllEnvs();
   });
 
   it('draws spend on the UTC day the server reports it under', async () => {
