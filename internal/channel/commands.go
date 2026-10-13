@@ -117,7 +117,9 @@ func (h *Hub) runCommand(ctx context.Context, a *adapter, in core.Inbound, res c
 	case "unpin":
 		say(h.cmdUnpin(ctx, tg, chat, args))
 	case "compact":
-		say(h.cmdCompact(ctx, tg, chat))
+		if text := h.cmdCompact(ctx, tg, chat); text != "" {
+			say(text)
+		}
 	case "model":
 		say(h.cmdModel(ctx, tg, chat, args))
 	case "usage":
@@ -333,19 +335,63 @@ func (h *Hub) cmdUnpin(ctx context.Context, tg target, chat core.ChatRef, arg st
 	return "Unpinned."
 }
 
+// compactWait bounds how long a /compact waits for its turn behind the
+// session's active run before saying it is still queued.
+const compactWait = 15 * time.Minute
+
+const compactFailed = "Compaction failed; it will run again automatically when needed."
+
+// cmdCompact starts the compaction in the background and replies when it is
+// done. Runner.Compact queues behind the session's active run, and waiting
+// for it in the chat's queue would hold back every later message in this
+// chat, steers included, until that run ends.
 func (h *Hub) cmdCompact(ctx context.Context, tg target, chat core.ChatRef) string {
 	sess, err := h.chatSession(ctx, tg, chat)
 	if errors.Is(err, core.ErrNotFound) {
 		return "Nothing to compact yet."
 	}
-	if err == nil {
-		err = h.d.Runner.Compact(ctx, core.SystemViewer(), sess.ID)
-	}
 	if err != nil {
 		h.log.Warn("channel /compact failed", "err", err)
-		return "Compaction failed; it will run again automatically when needed."
+		return compactFailed
 	}
-	return "Compacted."
+	h.mu.Lock()
+	if _, ok := h.compacting[sess.ID]; ok {
+		h.mu.Unlock()
+		return "Already compacting this conversation."
+	}
+	h.compacting[sess.ID] = struct{}{}
+	h.mu.Unlock()
+	done := func() {
+		h.mu.Lock()
+		delete(h.compacting, sess.ID)
+		h.mu.Unlock()
+	}
+	busy := slices.ContainsFunc(h.d.Runner.Active(), func(ri core.RunInfo) bool { return ri.Session == sess.ID })
+	started := h.goAsync(func(ctx context.Context) {
+		defer done()
+		wait, cancel := context.WithTimeout(ctx, compactWait)
+		err := h.d.Runner.Compact(wait, core.SystemViewer(), sess.ID)
+		cancel()
+		text := "Compacted."
+		switch {
+		case ctx.Err() != nil:
+			return
+		case errors.Is(err, context.DeadlineExceeded):
+			text = "Compaction is still waiting for the current task; it runs when that ends."
+		case err != nil:
+			h.log.Warn("channel /compact failed", "session", sess.ID, "err", err)
+			text = compactFailed
+		}
+		h.reply(ctx, chat, text)
+	})
+	if !started {
+		done()
+		return ""
+	}
+	if busy {
+		return "I'll compact this conversation when the current task is done."
+	}
+	return ""
 }
 
 func (h *Hub) cmdModel(ctx context.Context, tg target, chat core.ChatRef, ref string) string {

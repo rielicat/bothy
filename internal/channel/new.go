@@ -65,7 +65,9 @@ type Hub struct {
 	resolved  map[string]time.Time
 	slowed    map[string]time.Time
 	replied   map[string]time.Time
-	asks      askLimiter
+	// compacting holds the sessions with a /compact in flight.
+	compacting map[core.SessionID]struct{}
+	asks       askLimiter
 }
 
 func New(d Deps) (*Hub, error) {
@@ -103,6 +105,7 @@ func New(d Deps) (*Hub, error) {
 		resolved:      map[string]time.Time{},
 		slowed:        map[string]time.Time{},
 		replied:       map[string]time.Time{},
+		compacting:    map[core.SessionID]struct{}{},
 	}, nil
 }
 

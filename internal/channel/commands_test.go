@@ -1,8 +1,10 @@
 package channel
 
 import (
+	"context"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -166,6 +168,54 @@ func TestStopButton(t *testing.T) {
 			t.Fatalf("toasts = %q", got)
 		}
 	})
+}
+
+// /compact waits behind the session's active run; meanwhile the chat keeps
+// flowing, so a steer sent after it reaches the runner at once.
+func TestCompactDoesNotHoldTheChat(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		cr := &compactRunner{release: make(chan struct{})}
+		h := newHarness(t, func(h *harness) {
+			cr.Runner = h.runner
+			h.runner2 = cr
+		}).start()
+		h.dm(ownerChat, "run the test suite")
+		h.dm(ownerChat, "/compact")
+		h.dm(ownerChat, "actually, skip the tests")
+		if subs := h.runner.Submitted(); len(subs) != 2 || subs[1].Input[0].Text != "actually, skip the tests" {
+			t.Fatalf("submits while compacting = %+v", subs)
+		}
+		h.dm(ownerChat, "/compact")
+		h.wantVisible(ownerChat, "Already compacting this conversation.")
+		if n := cr.calls.Load(); n != 1 {
+			t.Fatalf("compactions started = %d, want 1", n)
+		}
+		close(cr.release)
+		synctest.Wait()
+		h.wantVisible(ownerChat, "Compacted.")
+		h.dm(ownerChat, "/compact")
+		if n := cr.calls.Load(); n != 2 {
+			t.Fatalf("compactions after the first finished = %d, want 2", n)
+		}
+	})
+}
+
+// compactRunner's Compact blocks until release, like the runner's does while
+// the session has an active run.
+type compactRunner struct {
+	*fakes.Runner
+	release chan struct{}
+	calls   atomic.Int32
+}
+
+func (c *compactRunner) Compact(ctx context.Context, _ core.Viewer, _ core.SessionID) error {
+	c.calls.Add(1)
+	select {
+	case <-c.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 type activeRunner struct {
