@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { approvals as fixtureApprovals } from '../../../mock/fixtures';
+import { api } from '../../lib/api/client';
+import { router } from '../../lib/router.svelte';
 import { session } from '../../lib/stores/session.svelte';
 import { installApi, type Call } from '../../test/api';
 import { FakeEventSource } from '../../test/setup';
@@ -102,6 +104,56 @@ describe('conversation', () => {
     emit('run.tool_call', { ...call, verdict: 'auto' });
     await waitFor(() => expect(screen.getAllByText('Ran `ls`')).toHaveLength(1));
     expect(screen.queryByText('needs approval')).toBeNull();
+  });
+
+  // The approval was decided from Telegram, or expired, while the laptop slept.
+  it('drops an inline card that was resolved while the stream was away', async () => {
+    const trip = fixtureApprovals[0];
+    render(ConversationView, { id: trip.session_id });
+    expect((await screen.findByRole('article')).dataset.approval).toBe(trip.id);
+    await api.post(`/api/approvals/${trip.id}`, { choice: 'deny' });
+    FakeEventSource.last.emit('resync', {});
+    await waitFor(() => expect(screen.queryByRole('article')).toBeNull());
+  });
+});
+
+describe('conversation search hits', () => {
+  const S = 'ses_01jslack00000000000000000';
+  const all = Array.from({ length: 300 }, (_, i) => ({
+    id: i + 1,
+    session_id: S,
+    seq: i + 1,
+    role: 'user',
+    kind: 'normal',
+    provenance: 'user',
+    tokens: 5,
+    created_at: '2026-10-12T00:00:00Z',
+    parts: [{ t: 'text', text: `note number ${i + 1}` }],
+  }));
+
+  beforeEach(async () => {
+    installApi({
+      override: (_m, url) => {
+        const u = new URL(url, 'http://bothy');
+        if (u.pathname !== `/api/sessions/${S}/messages`) return undefined;
+        const older = all.filter((m) => m.seq < (Number(u.searchParams.get('before')) || Infinity));
+        const limit = Number(u.searchParams.get('limit') ?? 50);
+        return { messages: older.slice(-limit), has_more: older.length > limit };
+      },
+    });
+    await session.init();
+  });
+
+  const hit = (seq: number) => document.getElementById(`m${seq}`)?.classList.contains('ring-warn');
+
+  it('loads older messages until the hit is on screen, and follows later hits in the same chat', async () => {
+    router.navigate(`/chat/${S}#m12`);
+    render(ConversationView, { id: S });
+    await waitFor(() => expect(hit(12)).toBe(true));
+
+    router.navigate(`/chat/${S}#m250`);
+    await waitFor(() => expect(hit(250)).toBe(true));
+    expect(hit(12)).toBe(false);
   });
 });
 

@@ -71,7 +71,7 @@
   $effect(() => {
     const m = /^#t=([^&]+)/.exec(location.hash);
     if (!m) return;
-    history.replaceState(null, '', location.pathname);
+    router.navigate(location.pathname, { replace: true });
     let t = m[1];
     try {
       t = decodeURIComponent(t);

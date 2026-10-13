@@ -17,14 +17,18 @@ export function safeNext(next: string | null | undefined, fallback = '/chat'): s
 class Router {
   path = $state(window.location.pathname);
   search = $state(window.location.search);
+  hash = $state(window.location.hash);
   current: Match | null = $derived(resolve(this.path));
   query: URLSearchParams = $derived(new URLSearchParams(this.search));
 
   constructor() {
-    window.addEventListener('popstate', () => {
+    const sync = () => {
       this.path = window.location.pathname;
       this.search = window.location.search;
-    });
+      this.hash = window.location.hash;
+    };
+    window.addEventListener('popstate', sync);
+    window.addEventListener('hashchange', sync);
   }
 
   navigate(to: string, opts: { replace?: boolean } = {}) {
@@ -34,6 +38,7 @@ class Router {
     else history.pushState(null, '', url);
     this.path = url.pathname;
     this.search = url.search;
+    this.hash = url.hash;
   }
 
   // Merges params into the query string (empty values remove the key).
