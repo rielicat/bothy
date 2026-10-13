@@ -106,6 +106,11 @@ type Inbound struct {
 	ThreadID  int  // forum topic
 	Photo     *File
 	Document  *File
+	// ForwardedFrom makes the message a forward of something this name
+	// wrote (forward_origin of type hidden_user); ViaBot names the inline
+	// bot it was sent through.
+	ForwardedFrom string
+	ViaBot        string
 }
 
 // Server is the fake. It is safe for concurrent use.
@@ -267,6 +272,12 @@ func (s *Server) Inject(in Inbound) (updateID int64, msgID int) {
 	}
 	if in.ThreadID != 0 {
 		msg["message_thread_id"], msg["is_topic_message"] = in.ThreadID, true
+	}
+	if in.ForwardedFrom != "" {
+		msg["forward_origin"] = map[string]any{"type": "hidden_user", "sender_user_name": in.ForwardedFrom, "date": time.Now().Unix()}
+	}
+	if in.ViaBot != "" {
+		msg["via_bot"] = map[string]any{"id": 777, "is_bot": true, "first_name": in.ViaBot, "username": in.ViaBot}
 	}
 	if in.ReplyTo != 0 {
 		msg["reply_to_message"] = map[string]any{"message_id": in.ReplyTo, "date": time.Now().Unix(),

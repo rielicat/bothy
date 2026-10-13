@@ -37,7 +37,9 @@ func chatRef(c tgChat, m *tgMessage) (core.ChatRef, bool) {
 
 // inbound normalizes a message. ok is false for updates Bothy ignores:
 // channel posts, messages without a sender, and commands addressed to
-// another bot in a group.
+// another bot in a group. A forward, or a message sent through an inline
+// bot, is marked Forwarded: its text is someone else's, so its mentions and
+// commands address nobody here.
 func inbound(m *tgMessage, me tgUser) (core.Inbound, bool) {
 	if m == nil || m.From == nil {
 		return core.Inbound{}, false
@@ -51,6 +53,10 @@ func inbound(m *tgMessage, me tgUser) (core.Inbound, bool) {
 		text, entities = m.Caption, m.CaptionEntities
 	}
 	text, mentioned, forOther := stripMentions(text, entities, me)
+	forwarded := m.ForwardOrigin != nil || m.ForwardDate != 0 || m.ViaBot != nil && m.ViaBot.ID != me.ID
+	if forwarded {
+		mentioned, forOther = false, false
+	}
 	if forOther {
 		return core.Inbound{}, false
 	}
@@ -78,6 +84,7 @@ func inbound(m *tgMessage, me tgUser) (core.Inbound, bool) {
 		Attachments:    atts,
 		At:             time.Unix(m.Date, 0),
 		ChatTitle:      m.Chat.Title,
+		Forwarded:      forwarded,
 	}, true
 }
 

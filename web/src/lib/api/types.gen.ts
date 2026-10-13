@@ -179,6 +179,12 @@ export interface Inbound {
    * AddedBy and no text or attachments only announces the group.
    */
   AddedBy: string;
+  /**
+   * Forwarded marks content the sender relayed from someone else
+   * (Telegram forward_origin or via_bot). The hub treats it as untrusted
+   * even from a linked user and never as a command.
+   */
+  Forwarded: boolean;
 }
 export interface MsgRef {
   chat: ChatRef;
@@ -555,6 +561,10 @@ export const TrigAPI: Trigger = "api";
  * original trigger, so floors such as F3 still apply after a resume.
  */
 export const TrigResume: Trigger = "resume";
+
+//////////
+// source: internal/core/links.go
+
 
 //////////
 // source: internal/core/message.go

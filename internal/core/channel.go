@@ -56,6 +56,10 @@ type Inbound struct {
 	// Slack inviter, Discord guild owner); "" otherwise. A group Inbound with
 	// AddedBy and no text or attachments only announces the group.
 	AddedBy string
+	// Forwarded marks content the sender relayed from someone else
+	// (Telegram forward_origin or via_bot). The hub treats it as untrusted
+	// even from a linked user and never as a command.
+	Forwarded bool
 }
 
 type MsgRef struct {

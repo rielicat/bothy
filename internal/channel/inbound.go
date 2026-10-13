@@ -122,6 +122,7 @@ func (h *Hub) handleMessage(ctx context.Context, a *adapter, in core.Inbound) {
 		return
 	}
 	cmd, args, isCmd := parseCommand(in.Text)
+	isCmd = isCmd && !in.Forwarded
 	if isCmd && commands[cmd].urgent {
 		h.runCommand(ctx, a, in, res, tg, cmd, args)
 		return
@@ -162,7 +163,7 @@ func (h *Hub) touchIdentity(ctx context.Context, channel string, in core.Inbound
 // redeemed, everyone else gets at most one notice a day. Nothing here ever
 // reaches the runner, so no model call is made for an unknown sender.
 func (h *Hub) unknownDM(ctx context.Context, a *adapter, in core.Inbound, ident core.ChannelIdentity) {
-	if cmd, code, ok := parseCommand(in.Text); ok && (cmd == "pair" || cmd == "start") && code != "" {
+	if cmd, code, ok := parseCommand(in.Text); ok && !in.Forwarded && (cmd == "pair" || cmd == "start") && code != "" {
 		linked, err := h.d.Auth.RedeemPairing(ctx, ident, code)
 		if err != nil {
 			h.log.Info("channel pairing failed", "channel", a.name, "err", err)
@@ -355,6 +356,10 @@ func (h *Hub) gate(ctx context.Context, a *adapter, in core.Inbound, res core.Id
 		}
 	default:
 		return tg, false
+	}
+	// Forwarded text was written by someone else, whoever relayed it.
+	if in.Forwarded {
+		tg.prov = core.ProvUntrusted
 	}
 	p, err := h.d.Store.Principals().Get(ctx, core.SystemViewer(), pid)
 	if err != nil {
