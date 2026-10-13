@@ -65,6 +65,7 @@ type Hub struct {
 	resolved  map[string]time.Time
 	slowed    map[string]time.Time
 	replied   map[string]time.Time
+	asks      askLimiter
 }
 
 func New(d Deps) (*Hub, error) {

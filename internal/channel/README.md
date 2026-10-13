@@ -5,7 +5,8 @@ adapters cmd/bothy hands it, starting, stopping and restarting them as
 `channels.*` config changes (hot reload). Every inbound message goes through
 the SPEC §5.1 pipeline: dedup, identity, the unknown-sender flow (pairing via
 `/pair` or `/start CODE`, one notice a day, never a model call; unknown
-senders are rate-limited silently), space gating and provenance, then the
+senders are rate-limited silently, and admins get at most three DMs an hour
+about them while the web banner counts every one), space gating and provenance, then the
 sender rate limit (after gating, so the bot never answers in a group it must
 stay silent in), the command fast path, attachment download into
 `<work>/ws/<workspace>/.bothy/in/<msgid>/`, then `Runner.Submit`.
