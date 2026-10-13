@@ -182,17 +182,33 @@ func TestDisabledSpaceIgnoredWithOwnerNotice(t *testing.T) {
 func TestBotAddedByMemberMakesThemOwner(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t).start()
-		h.inject(core.Inbound{Chat: h.groupChat("-700"), MsgID: "-700:joined:9", SenderID: memberChat, SenderName: "Mark"})
+		h.inject(core.Inbound{Chat: h.groupChat("-700"), MsgID: "-700:joined:9", SenderID: memberChat, SenderName: "Mark",
+			AddedBy: memberChat, ChatTitle: "Family"})
 		sp, err := h.store.Spaces().ByChat(h.ctx, "telegram", "-700")
-		if err != nil || sp.Owner != h.member.ID || sp.Enabled {
-			t.Fatalf("space = %+v, %v; want disabled and owned by the member who added the bot", sp, err)
+		if err != nil || sp.Owner != h.member.ID || sp.Enabled || sp.Title != "Family" {
+			t.Fatalf("space = %+v, %v; want disabled, titled and owned by the member who added the bot", sp, err)
 		}
 		h.wantVisible(memberChat, "I was added to")
 
-		h.inject(core.Inbound{Chat: h.groupChat("-701"), MsgID: "-701:joined:10", SenderID: "8008"})
+		h.inject(core.Inbound{Chat: h.groupChat("-701"), MsgID: "-701:joined:10", SenderID: "8008", AddedBy: "8008"})
 		sp, err = h.store.Spaces().ByChat(h.ctx, "telegram", "-701")
 		if err != nil || sp.Owner != h.owner.ID {
 			t.Fatalf("space added by a stranger = %+v, %v; want the instance owner", sp, err)
+		}
+
+		// The platform's owner of the group may differ from the sender.
+		h.inject(core.Inbound{Chat: h.groupChat("-702"), MsgID: "-702:1", SenderID: "8008", Text: "hi", AddedBy: memberChat})
+		sp, err = h.store.Spaces().ByChat(h.ctx, "telegram", "-702")
+		if err != nil || sp.Owner != h.member.ID {
+			t.Fatalf("space reported as owned by the member = %+v, %v", sp, err)
+		}
+
+		// Without AddedBy a content-less message proves nothing about who
+		// added the bot.
+		h.inject(core.Inbound{Chat: h.groupChat("-703"), MsgID: "-703:1", SenderID: memberChat})
+		sp, err = h.store.Spaces().ByChat(h.ctx, "telegram", "-703")
+		if err != nil || sp.Owner != h.owner.ID {
+			t.Fatalf("space without AddedBy = %+v, %v; want the instance owner", sp, err)
 		}
 	})
 }

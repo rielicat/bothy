@@ -25,13 +25,11 @@ package):
 - `Reconfigure(*config.Config) error` (`channel.Reconfigurer`): receives the
   new snapshot when the adapter's `channels.<name>` section changes, before
   the hub restarts its `Run`. Without it a restart reuses the boot config.
-- `ChatTitle(chatID string) string` (`channel.ChatTitler`): names a newly
-  sighted group space.
-- An `Inbound` in a group with no text and no attachments is a presence
-  signal (the bot was added, by `SenderID`): it only records the group as a
-  disabled space owned by that user, if linked. Adapters must not produce
-  such an Inbound for anything else (stickers, service messages). A group
-  first seen through an ordinary message is owned by the instance owner.
+
+A newly sighted group becomes a disabled space named by `Inbound.ChatTitle`
+and owned by the linked user `Inbound.AddedBy` names (the platform's "added
+by" or owner), otherwise by the instance owner. A group `Inbound` with
+`AddedBy` and no text or attachments only announces the group.
 
 Markdown the hub sends uses CommonMark backslash escapes for punctuation and
 backtick fences or spans longer than any backtick run they contain, so system

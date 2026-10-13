@@ -48,6 +48,14 @@ type Inbound struct {
 	Mentioned      bool   // DM, @mention, reply-to-bot, or slash command
 	Attachments    []Attachment
 	At             time.Time
+	// ChatTitle is the group's title as the platform reports it (names a
+	// newly sighted space); "" when unknown.
+	ChatTitle string
+	// AddedBy is the platform user id that added the bot to this group or
+	// owns it, when the platform reports it (Telegram my_chat_member.from,
+	// Slack inviter, Discord guild owner); "" otherwise. A group Inbound with
+	// AddedBy and no text or attachments only announces the group.
+	AddedBy string
 }
 
 type MsgRef struct {

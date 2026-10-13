@@ -1742,6 +1742,14 @@ type Inbound struct {
 	Mentioned      bool   // DM, @mention, reply-to-bot, or slash command
 	Attachments    []Attachment
 	At             time.Time
+	// ChatTitle is the group's title as the platform reports it (names a
+	// newly sighted space); "" when unknown.
+	ChatTitle string
+	// AddedBy is the platform user id that added the bot to this group or
+	// owns it, when the platform reports it (Telegram my_chat_member.from,
+	// Slack inviter, Discord guild owner); "" otherwise. A group Inbound with
+	// AddedBy and no text or attachments only announces the group.
+	AddedBy string
 }
 
 type MsgRef struct {
@@ -3436,7 +3444,7 @@ type CheckProvider interface{ Checks() []Check }
 7. **Principal and gating:**
    - DM from a linked identity → the user's own principal.
    - DM from a `guest` identity → that guest's space principal.
-   - Group message → the chat must be an **enabled space** (`Spaces().ByChat`); otherwise ignored (first sighting creates a disabled space row, owned by the linked user who added the bot when the platform reports it (Telegram `my_chat_member.from`, Slack inviter, Discord guild owner) and otherwise by the instance owner, and notifies that owner: "Bothy was added to <title>; enable it?"). With `mention_only` (default), the message must mention or reply to the bot. Senders that are not linked users are `ProvUntrusted`; the space owner's own messages are `ProvUser`.
+   - Group message → the chat must be an **enabled space** (`Spaces().ByChat`); otherwise ignored (first sighting creates a disabled space row, owned by the linked user who added the bot when the platform reports it (`Inbound.AddedBy`: Telegram `my_chat_member.from`, Slack inviter, Discord guild owner; v0.1 adapters other than Telegram leave it empty) and otherwise by the instance owner, named by `Inbound.ChatTitle`, and notifies that owner: "Bothy was added to <title>; enable it?"). With `mention_only` (default), the message must mention or reply to the bot. Senders that are not linked users are `ProvUntrusted`; the space owner's own messages are `ProvUser`.
 8. **Session:** `Runner.ResolveSession(principal, chat)` keyed by `ChatRef.Key()` (one open session per chat or thread per principal). If `agent.session_idle_reset` (default 0 = never) has elapsed since the last message, the old session is archived first.
 9. **Attachments:** the hub fetches each attachment with `Channel.Fetch` (≤ `server.upload_max_mb`, default 20 MB; larger ones are skipped with a note) into `<work>/ws/<workspace>/.bothy/in/<msgid>/<name>` (0660, name sanitized) and passes `Part{Type: image|file, Blob{Ref, MIME, Size}}`.
 10. **Submit:** `Runner.Submit(RunRequest{… Sink: Hub.StreamTo(chat,"stream")})`.

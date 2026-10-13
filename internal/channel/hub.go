@@ -23,12 +23,6 @@ type Reconfigurer interface {
 	Reconfigure(c *config.Config) error
 }
 
-// ChatTitler is implemented by adapters that remember group titles from the
-// updates they have seen; the hub names a newly sighted space with it.
-type ChatTitler interface {
-	ChatTitle(chatID string) string
-}
-
 const (
 	inboundBuffer        = 256
 	maxConcurrentActions = 16

@@ -319,13 +319,21 @@ func (h *Hub) gate(ctx context.Context, a *adapter, in core.Inbound, res core.Id
 }
 
 // firstSighting records an unknown group as a disabled space and asks its
-// owner whether to enable it. The owner is the linked user who added the bot
-// when the adapter reports it (a presence signal), otherwise the instance
+// owner whether to enable it. The owner is the linked user the platform
+// reports as having added the bot (Inbound.AddedBy), otherwise the instance
 // owner: whoever merely speaks first must not become the space's approver.
 func (h *Hub) firstSighting(ctx context.Context, a *adapter, in core.Inbound, res core.IdentityResolution) {
 	var owner core.UserID
-	if isPresence(in) && res.Status == core.IdentityLinked {
-		owner = res.User
+	switch {
+	case in.AddedBy == "":
+	case in.AddedBy == in.SenderID:
+		if res.Status == core.IdentityLinked {
+			owner = res.User
+		}
+	default:
+		if r, err := h.d.Auth.ResolveIdentity(ctx, a.name, in.AddedBy); err == nil && r.Status == core.IdentityLinked {
+			owner = r.User
+		}
 	}
 	if owner == "" {
 		u, ok := h.instanceOwner(ctx)
@@ -334,10 +342,7 @@ func (h *Hub) firstSighting(ctx context.Context, a *adapter, in core.Inbound, re
 		}
 		owner = u.ID
 	}
-	title := ""
-	if t, ok := a.ch.(ChatTitler); ok {
-		title = spaceTitle(t.ChatTitle(in.Chat.ChatID))
-	}
+	title := spaceTitle(in.ChatTitle)
 	if title == "" {
 		title = channelTitle(a.name) + " group " + in.Chat.ChatID
 	}
@@ -364,12 +369,6 @@ func (h *Hub) firstSighting(ctx context.Context, a *adapter, in core.Inbound, re
 		". I stay silent there until you enable it in Settings → Spaces."
 	buttons := h.webButton("Open Settings → Spaces", "/settings/spaces")
 	h.enqueueChat(chat.Key(), func(ctx context.Context) { h.sendWithButtons(ctx, chat, text, buttons) })
-}
-
-// isPresence reports the adapters' "bot added to this group by SenderID"
-// signal: a group Inbound with no text and no attachments.
-func isPresence(in core.Inbound) bool {
-	return in.Chat.Kind == core.ChatGroup && strings.TrimSpace(in.Text) == "" && len(in.Attachments) == 0
 }
 
 const maxTitleRunes = 128

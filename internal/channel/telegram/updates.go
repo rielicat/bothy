@@ -62,8 +62,7 @@ func inbound(m *tgMessage, me tgUser) (core.Inbound, bool) {
 	}
 	atts := attachments(m)
 	// Stickers, polls, service messages and the like carry nothing for the
-	// agent, and an empty group Inbound is the hub's "bot was added by"
-	// signal, which only my_chat_member may produce.
+	// agent.
 	if text == "" && len(atts) == 0 {
 		return core.Inbound{}, false
 	}
@@ -78,6 +77,7 @@ func inbound(m *tgMessage, me tgUser) (core.Inbound, bool) {
 		Mentioned:      mentioned,
 		Attachments:    atts,
 		At:             time.Unix(m.Date, 0),
+		ChatTitle:      m.Chat.Title,
 	}, true
 }
 
@@ -185,9 +185,9 @@ func callback(q *tgCallbackQuery) (core.ActionEvent, bool) {
 	}, true
 }
 
-// joined turns "the bot was added to a group" into the hub's presence
-// signal: an Inbound with no text from the user who added the bot, which the
-// hub uses only to record the group with that user as its owner.
+// joined turns "the bot was added to a group" into an announcement: an
+// Inbound with no text whose AddedBy is the user who added the bot, which
+// the hub uses only to record the group with that user as its owner.
 func joined(u *tgChatMemberUpdated, updateID int64, me tgUser) (core.Inbound, bool) {
 	if u == nil || u.NewChatMember.User.ID != me.ID {
 		return core.Inbound{}, false
@@ -208,5 +208,7 @@ func joined(u *tgChatMemberUpdated, updateID int64, me tgUser) (core.Inbound, bo
 		SenderUsername: u.From.Username,
 		SenderIsBot:    u.From.IsBot,
 		At:             time.Unix(u.Date, 0),
+		ChatTitle:      u.Chat.Title,
+		AddedBy:        strconv.FormatInt(u.From.ID, 10),
 	}, true
 }

@@ -28,7 +28,6 @@ const (
 	pollTimeout    = 25 * time.Second
 	maxBackoff     = time.Minute
 	authRetry      = 5 * time.Minute
-	maxTitles      = 1024
 	maxToastRunes  = 200
 )
 
@@ -70,7 +69,6 @@ type Adapter struct {
 	cl     *client // nil until a token has been resolved
 	me     tgUser
 	status core.ChannelStatus
-	titles map[string]string
 }
 
 // authError marks failures that mean the credentials are wrong or missing.
@@ -295,7 +293,6 @@ func (a *Adapter) poll(ctx context.Context, cl *client, sink core.InboundSink) e
 func (a *Adapter) dispatch(ctx context.Context, u *tgUpdate, me tgUser, sink core.InboundSink) {
 	switch {
 	case u.Message != nil:
-		a.rememberTitle(u.Message.Chat)
 		if in, ok := inbound(u.Message, me); ok {
 			sink.OnMessage(ctx, in)
 		}
@@ -304,30 +301,10 @@ func (a *Adapter) dispatch(ctx context.Context, u *tgUpdate, me tgUser, sink cor
 			sink.OnAction(ctx, ev)
 		}
 	case u.MyChatMember != nil:
-		a.rememberTitle(u.MyChatMember.Chat)
 		if in, ok := joined(u.MyChatMember, u.UpdateID, me); ok {
 			sink.OnMessage(ctx, in)
 		}
 	}
-}
-
-func (a *Adapter) rememberTitle(c tgChat) {
-	if c.Title == "" {
-		return
-	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if len(a.titles) >= maxTitles {
-		clear(a.titles)
-	}
-	a.titles[strconv.FormatInt(c.ID, 10)] = c.Title
-}
-
-// ChatTitle returns a group's title as last seen in an update.
-func (a *Adapter) ChatTitle(chatID string) string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.titles[chatID]
 }
 
 func (a *Adapter) loadOffset(ctx context.Context) int64 {

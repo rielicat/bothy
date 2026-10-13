@@ -19,7 +19,7 @@ func New(cfg config.Telegram, d core.AdapterDeps) (core.Channel, error) {
 	if d.Log == nil {
 		d.Log = slog.New(slog.DiscardHandler)
 	}
-	a := &Adapter{deps: d, log: d.Log, cfg: cfg, titles: map[string]string{}}
+	a := &Adapter{deps: d, log: d.Log, cfg: cfg}
 	a.status = core.ChannelStatus{Name: Name, State: "connecting", Since: d.Clock.Now()}
 	return a, nil
 }

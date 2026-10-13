@@ -249,17 +249,14 @@ func TestInboundNormalization(t *testing.T) {
 		t.Fatalf("topic message thread = %q", in.Chat.ThreadID)
 	}
 
-	// A content-less message (a sticker, say) must not pose as the
-	// bot-added presence signal.
+	// A content-less message (a sticker, say) is dropped; the bot-added
+	// update names who added the bot.
 	e.srv.Inject(telegramtest.Inbound{ChatID: -200, ChatType: "group", SenderID: 5})
 	e.srv.InjectBotAdded(-200, "Family", 9)
 	in = s.next(t)
-	if in.Chat.ChatID != "-200" || in.SenderID != "9" || in.Text != "" || in.Mentioned || len(in.Attachments) != 0 ||
-		!strings.Contains(in.MsgID, ":joined:") {
-		t.Fatalf("bot-added presence signal = %+v", in)
-	}
-	if got := e.a.ChatTitle("-200"); got != "Family" {
-		t.Fatalf("ChatTitle = %q", got)
+	if in.Chat.ChatID != "-200" || in.SenderID != "9" || in.AddedBy != "9" || in.ChatTitle != "Family" || in.Text != "" ||
+		in.Mentioned || len(in.Attachments) != 0 || !strings.Contains(in.MsgID, ":joined:") {
+		t.Fatalf("bot-added announcement = %+v", in)
 	}
 }
 
