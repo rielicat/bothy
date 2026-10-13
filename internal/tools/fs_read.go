@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"time"
 	"unicode/utf8"
@@ -92,18 +93,14 @@ func (fsRead) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action) (*cor
 		return nil, err
 	}
 	defer root.Close()
-	f, err := root.Open(filepath.FromSlash(p))
+	f, st, err := openRegular(root, filepath.FromSlash(p), os.O_RDONLY, 0)
+	if errors.Is(err, errNotRegular) {
+		return nil, fmt.Errorf("%s is not a regular file", p)
+	}
 	if err != nil {
 		return nil, fsErr(p, err)
 	}
 	defer f.Close()
-	st, err := f.Stat()
-	if err != nil {
-		return nil, fsErr(p, err)
-	}
-	if !st.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s is not a regular file", p)
-	}
 	br := bufio.NewReaderSize(f, sniffLen)
 	head, err := br.Peek(sniffLen)
 	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, bufio.ErrBufferFull) {

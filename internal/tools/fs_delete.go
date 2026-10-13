@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -72,11 +73,14 @@ func (fsDelete) Plan(_ context.Context, env *core.ToolEnv, args json.RawMessage)
 		}
 		diff = fmt.Sprintf("--- a/%s/\n+++ %s\n(folder with %d top-level entries)\n", p, devNull, len(entries))
 	case st.Mode().IsRegular() && st.Size() <= maxDiffInput:
-		b, err := root.ReadFile(rel)
-		if err != nil {
+		b, _, ok, err := readRegular(root, rel, maxDiffInput)
+		switch {
+		case errors.Is(err, errNotRegular):
+		case err != nil:
 			return nil, fsErr(p, err)
+		case ok:
+			diff = unifiedDiff("a/"+p, devNull, b, nil)
 		}
-		diff = unifiedDiff("a/"+p, devNull, b, nil)
 	}
 	a, err := newAction(fsDeleteName, core.ActFSDelete, core.SEIrreversible, fsDeleteArgs{Path: p, Recursive: in.Recursive})
 	if err != nil {

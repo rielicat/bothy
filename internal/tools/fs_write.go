@@ -118,27 +118,23 @@ type existing struct {
 // readExisting reads the current file for the diff; a directory or special
 // file in the way is an error.
 func readExisting(root *os.Root, p string) (existing, error) {
-	st, err := root.Stat(filepath.FromSlash(p))
+	b, st, ok, err := readRegular(root, filepath.FromSlash(p), maxDiffInput)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		return existing{data: []byte{}}, nil
+	case errors.Is(err, errNotRegular) && st.IsDir():
+		return existing{}, fmt.Errorf("%w: %s is a directory", core.ErrInvalid, p)
+	case errors.Is(err, errNotRegular):
+		return existing{}, fmt.Errorf("%w: %s is not a regular file", core.ErrInvalid, p)
 	case err != nil:
 		return existing{}, fsErr(p, err)
-	case st.IsDir():
-		return existing{}, fmt.Errorf("%w: %s is a directory", core.ErrInvalid, p)
-	case !st.Mode().IsRegular():
-		return existing{}, fmt.Errorf("%w: %s is not a regular file", core.ErrInvalid, p)
-	case st.Size() > maxDiffInput:
+	case !ok:
 		return existing{exists: true, size: st.Size()}, nil
-	}
-	b, err := root.ReadFile(filepath.FromSlash(p))
-	if err != nil {
-		return existing{}, fsErr(p, err)
 	}
 	if b == nil {
 		b = []byte{}
 	}
-	return existing{exists: true, size: st.Size(), data: b}, nil
+	return existing{exists: true, size: int64(len(b)), data: b}, nil
 }
 
 func (w fsWrite) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action) (*core.ToolResult, error) {
@@ -219,7 +215,10 @@ func writeNew(root *os.Root, rel, content string) error {
 }
 
 func appendTo(root *os.Root, rel, content string) error {
-	f, err := root.OpenFile(rel, os.O_WRONLY|os.O_CREATE|os.O_APPEND, fileMode)
+	f, _, err := openRegular(root, rel, os.O_WRONLY|os.O_CREATE|os.O_APPEND, fileMode)
+	if errors.Is(err, errNotRegular) {
+		return fmt.Errorf("%w: it is not a regular file", core.ErrInvalid)
+	}
 	if err != nil {
 		return err
 	}
