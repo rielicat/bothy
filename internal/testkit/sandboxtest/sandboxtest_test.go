@@ -138,7 +138,7 @@ func TestEgress(t *testing.T) {
 	e := &sandboxtest.Egress{}
 	sub, err := e.OpenBox(ctx, "box_1", core.BoxEgress{Session: "ses_1"})
 	again, _ := e.OpenBox(ctx, "box_1", core.BoxEgress{Session: "ses_1"})
-	if err != nil || !strings.HasPrefix(sub, "egress/") || sub != again || e.Opened["box_1"].Session != "ses_1" {
+	if err != nil || !strings.HasPrefix(sub, "egress/") || len(sub) != len("egress/")+32 || sub != again || e.Opened["box_1"].Session != "ses_1" {
 		t.Fatalf("OpenBox = %q, %v", sub, err)
 	}
 	e.Bind("box_1", core.EgressBinding{Run: "run_1"})

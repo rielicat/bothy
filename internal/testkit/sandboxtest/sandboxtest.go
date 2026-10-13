@@ -245,7 +245,7 @@ type Egress struct {
 	Dests  []core.SystemDest
 }
 
-// OpenBox returns "egress/<sha256(key) hex[:12]>".
+// OpenBox returns "egress/<sha256(key) hex[:32]>", the subpath sandboxd derives (SPEC §2.5).
 func (e *Egress) OpenBox(_ context.Context, key string, be core.BoxEgress) (string, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -254,7 +254,7 @@ func (e *Egress) OpenBox(_ context.Context, key string, be core.BoxEgress) (stri
 	}
 	e.Opened[key] = be
 	sum := sha256.Sum256([]byte(key))
-	return "egress/" + hex.EncodeToString(sum[:6]), nil
+	return "egress/" + hex.EncodeToString(sum[:16]), nil
 }
 
 func (e *Egress) CloseBox(key string) {
