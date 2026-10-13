@@ -273,6 +273,7 @@ func (r *Runner) persistTurn(ctx context.Context, rs *runState) error {
 		return fmt.Errorf("agent: persist turn: %w", err)
 	}
 	rs.turnPersisted = true
+	rs.answered = m.Seq
 	w.merged = 0
 	s, err := r.mutateSession(ctx, req.Session, func(s *core.Session) error {
 		s.MemorySeen, s.PinsSeen = max(s.MemorySeen, tc.memSeen), max(s.PinsSeen, tc.pinsSeen)
@@ -480,6 +481,7 @@ func (r *Runner) loop(rs *runState) *runEnd {
 				notice: "The model could not answer (" + truncateRunes(msg, 200) + "). Press Retry to try again."}
 		}
 		rs.ctxRetried = false
+		rs.answered = rs.seenSeq
 		r.recordCall(ctx, rs, asm, &ci, step, "agent")
 		rs.lastEst = head.est
 		calls := r.persistAssistant(ctx, rs, resp)
@@ -673,6 +675,27 @@ func (r *Runner) checkPrefix(rs *runState, hash string) {
 	r.prefix[rs.req.Session] = prefixMark{epoch: rs.sess.Epoch, hash: hash}
 }
 
+const steerUnreadNotice = "The run ended before it read your latest message. It is kept in the conversation, so your next message picks it up."
+
+// unreadSteers reports whether a steer for this run arrived after the last
+// model call that completed, so the model never answered it.
+func (r *Runner) unreadSteers(ctx context.Context, rs *runState) bool {
+	if rs.turn == nil || !rs.turnPersisted {
+		return false
+	}
+	msgs, err := r.d.Store.Messages().Range(ctx, core.SystemViewer(), rs.req.Session, rs.answered+1, 0)
+	if err != nil {
+		r.log.Warn("look for unread steer messages", "run", rs.id, "err", err)
+		return false
+	}
+	for _, m := range msgs {
+		if m.Kind == core.KindSteer && m.Run == rs.id {
+			return true
+		}
+	}
+	return false
+}
+
 // finish records the final status (SPEC §5.5 step 10).
 func (r *Runner) finish(rs *runState, end *runEnd) {
 	ctx := context.WithoutCancel(rs.ctx)
@@ -684,6 +707,11 @@ func (r *Runner) finish(rs *runState, end *runEnd) {
 	if end.status == "" {
 		end.status = core.RunDone
 	}
+	// From here on a message for this session starts a turn of its own
+	// instead of becoming a steer nothing would read.
+	rs.w.mu.Lock()
+	rs.finishing = true
+	rs.w.mu.Unlock()
 	tot := rs.totals()
 	rs.mu.Lock()
 	stopped := rs.stopped
@@ -717,7 +745,12 @@ func (r *Runner) finish(rs *runState, end *runEnd) {
 	default:
 		rs.notice(ctx, end.notice)
 	}
-	if end.status == core.RunParked {
+	switch end.status {
+	case core.RunBudgetExceeded, core.RunLoopDetected, core.RunFailed, core.RunInterrupted:
+		if r.unreadSteers(ctx, rs) {
+			rs.notice(ctx, steerUnreadNotice)
+		}
+	case core.RunParked:
 		r.resumeIfResolved(ctx, end.parkedOn)
 	}
 	if end.budget != nil {

@@ -51,6 +51,7 @@ type runState struct {
 	profile    profile
 	sel        core.Selection
 	seenSeq    int64           // newest message seq the last assembly read
+	answered   int64           // newest message seq a completed model call has seen
 	callIDs    map[string]bool // tool call ids in the history the last assembly read
 	taint      core.Taint
 	wsReady    bool
