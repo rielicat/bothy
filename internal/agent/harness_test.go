@@ -311,8 +311,10 @@ type testTool struct {
 	taint  core.Taint
 	lazy   bool
 	schema string
-	run    func(ctx context.Context, env *core.ToolEnv, a *core.Action) (*core.ToolResult, error)
-	calls  atomic.Int32
+	// planErr stands in for the registry's schema check (ErrInvalid).
+	planErr error
+	run     func(ctx context.Context, env *core.ToolEnv, a *core.Action) (*core.ToolResult, error)
+	calls   atomic.Int32
 }
 
 func (t *testTool) Spec() core.ToolSpec {
@@ -332,6 +334,9 @@ func (t *testTool) Spec() core.ToolSpec {
 }
 
 func (t *testTool) Plan(_ context.Context, _ *core.ToolEnv, args json.RawMessage) (*core.Action, error) {
+	if t.planErr != nil {
+		return nil, t.planErr
+	}
 	return &core.Action{Tool: t.name, Kind: core.ActGeneric, SideEffect: t.Spec().Manifest.SideEffect, Payload: args}, nil
 }
 

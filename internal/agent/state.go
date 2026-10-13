@@ -30,7 +30,8 @@ type runState struct {
 	run        core.Run // database row mirror; saveRun writes it
 	rowCreated bool
 	stopped    bool
-	finished   bool // run.finished published
+	finished   bool            // run.finished published
+	budget     core.BudgetKind // limit that ended the run, for run.finished
 	userHeld   bool
 	globalHeld bool
 	meter      core.RunMeter

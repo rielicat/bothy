@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -190,7 +191,7 @@ func TestUntrustedResultsAreSpotlightedWithUniqueIDs(t *testing.T) {
 func TestToolPipelineEdges(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		lazy := &testTool{name: "lazy_tool", lazy: true}
-		strict := &testTool{name: "strict", schema: `{"type":"object","properties":{"n":{"type":"integer","minimum":1}},"required":["n"],"additionalProperties":false}`}
+		strict := &testTool{name: "strict", planErr: fmt.Errorf("%w: arguments for strict: /n: must be >= 1", core.ErrInvalid)}
 		send := &testTool{name: "send", se: core.SEExternalSend}
 		h := newHarness(t, opts{
 			tools: []core.Tool{lazy, strict, send},
@@ -225,7 +226,7 @@ func TestToolPipelineEdges(t *testing.T) {
 			t.Fatalf("deny: %+v", r)
 		}
 		text := allText(h.requests()[1])
-		for _, want := range []string{"Unknown tool nope. Use tool_search.", "Invalid arguments for strict: /n: must be >= 1", "Denied by policy (fake): fake policy"} {
+		for _, want := range []string{"Unknown tool nope. Use tool_search.", "Invalid arguments for strict: arguments for strict: /n: must be >= 1", "Denied by policy (fake): fake policy"} {
 			if !strings.Contains(text, want) {
 				t.Fatalf("missing %q in\n%s", want, text)
 			}

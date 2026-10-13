@@ -53,13 +53,16 @@ func (rs *runState) publishFinished() {
 		return
 	}
 	rs.finished = true
-	run := rs.run
+	run, budget := rs.run, rs.budget
 	if rs.stopped {
 		run.Status = core.RunStopped
 	}
+	if run.Status != core.RunBudgetExceeded {
+		budget = ""
+	}
 	rs.mu.Unlock()
 	tot := rs.totals()
-	rs.publish(core.EvRunFinished, core.RunFinishedData{Status: run.Status, Error: run.Error, Steps: tot.Steps, Usage: tot.Usage, Cost: tot.Cost})
+	rs.publish(core.EvRunFinished, core.RunFinishedData{Status: run.Status, Error: run.Error, Budget: budget, Steps: tot.Steps, Usage: tot.Usage, Cost: tot.Cost})
 }
 
 func (rs *runState) setExposed(t core.Taint) {

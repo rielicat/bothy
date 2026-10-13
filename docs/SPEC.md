@@ -2854,9 +2854,10 @@ type RunParkedData struct {
 	Approval ApprovalID `json:"approval_id"`
 }
 type RunFinishedData struct {
-	Status RunStatus `json:"status"`
-	Error  string    `json:"error,omitempty"`
-	Steps  int       `json:"steps"`
+	Status RunStatus  `json:"status"`
+	Error  string     `json:"error,omitempty"`
+	Budget BudgetKind `json:"budget,omitempty"` // which limit stopped the run when Status is budget_exceeded
+	Steps  int        `json:"steps"`
 	Usage  Usage     `json:"usage"`
 	Cost   Micros    `json:"cost_micros"`
 }
@@ -3705,7 +3706,8 @@ CREATE TABLE meta (
 ) STRICT, WITHOUT ROWID;
 -- keys: install_id (store, first open), setup_token_hash, setup_token_exp, setup_grant_hash,
 --       setup_grant_exp, setup_done (auth), paused (runner), approval_mac_key (policy, first
---       boot, 32 random bytes hex), constitution_version (runner),
+--       boot, 32 random bytes hex), constitution_version (runner), agent.spotlight_key (runner,
+--       first use, 32 random bytes hex),
 --       channel.telegram.offset, channel.discord.session, channel.discord.seq (adapters)
 
 CREATE TABLE users (

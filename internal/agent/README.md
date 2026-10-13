@@ -35,7 +35,7 @@ long turn) leaves the epoch alone, and the always-lazy builtins (`fs_delete`,
 block.
 
 Tool calls (`tools.go`, `approval.go`) follow SPEC §5.7: `use_tool` unwrap,
-availability, schema check, `Plan`, the loop pre-check, `Policy.Decide`,
+availability, `Plan` (behind the registry's schema check), the loop pre-check, `Policy.Decide`,
 approvals (allow once/session/always, API deny or bounded wait, park for
 scheduled runs with a placeholder result), parallel execution of auto-allowed
 non-exec reads (decided with the taint the batch could reach), output capped

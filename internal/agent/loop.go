@@ -685,6 +685,9 @@ func (r *Runner) finish(rs *runState, end *runEnd) {
 		end = &runEnd{status: core.RunStopped}
 	}
 	rs.run.Status, rs.run.Error = end.status, end.err
+	if end.budget != nil {
+		rs.budget = end.budget.Kind
+	}
 	rs.run.Steps, rs.run.ToolCalls, rs.run.Usage, rs.run.Cost = tot.Steps, tot.ToolCalls, tot.Usage, tot.Cost
 	if end.status == core.RunParked {
 		rs.run.ParkedOn = end.parkedOn

@@ -92,11 +92,12 @@ type RunParkedData struct {
 	Approval ApprovalID `json:"approval_id"`
 }
 type RunFinishedData struct {
-	Status RunStatus `json:"status"`
-	Error  string    `json:"error,omitempty"`
-	Steps  int       `json:"steps"`
-	Usage  Usage     `json:"usage"`
-	Cost   Micros    `json:"cost_micros"`
+	Status RunStatus  `json:"status"`
+	Error  string     `json:"error,omitempty"`
+	Budget BudgetKind `json:"budget,omitempty"` // which limit stopped the run when Status is budget_exceeded
+	Steps  int        `json:"steps"`
+	Usage  Usage      `json:"usage"`
+	Cost   Micros     `json:"cost_micros"`
 }
 type ApprovalData struct {
 	Approval *Approval `json:"approval"`

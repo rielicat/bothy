@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -208,13 +209,16 @@ func (r *Runner) prepareCall(rs *runState, step int, call core.ToolCall) *pcall 
 	}
 	pc.tool, pc.spec = t, t.Spec()
 	pc.rec.Source, pc.rec.SideEffect = pc.spec.Source, pc.spec.Manifest.SideEffect
-	if err := validateArgs(pc.spec.Def.Schema, pc.args); err != nil {
-		return fail(core.TCInvalid, fmt.Sprintf("Invalid arguments for %s: %v", pc.name, err))
-	}
 	r.workspaceOnce(rs)
+	// The registry's tool validates args against the schema before Plan
+	// (§5.7 b) and reports violations as ErrInvalid.
 	a, err := t.Plan(ctx, pc.env, pc.args)
 	if err == nil && a == nil {
 		err = errors.New("no action")
+	}
+	if errors.Is(err, core.ErrInvalid) {
+		msg := strings.TrimPrefix(err.Error(), core.ErrInvalid.Error()+": ")
+		return fail(core.TCInvalid, fmt.Sprintf("Invalid arguments for %s: %s", pc.name, r.redact(msg)))
 	}
 	if err != nil {
 		return fail(core.TCError, fmt.Sprintf("%s could not plan this call: %s", pc.name, r.redact(err.Error())))

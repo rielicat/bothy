@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -93,44 +92,6 @@ func TestScaleBreakdownSumsExactly(t *testing.T) {
 	}
 	if got := scaleBreakdown(bd, 0); got.Total != 1010 {
 		t.Fatalf("unreported input keeps the estimate: %d", got.Total)
-	}
-}
-
-func TestValidateArgs(t *testing.T) {
-	schema := json.RawMessage(`{"type":"object","properties":{
-		"cmd":{"type":"string","minLength":1},
-		"n":{"type":"integer","minimum":1,"maximum":5},
-		"mode":{"enum":["a","b"]},
-		"tags":{"type":"array","items":{"type":"string"},"maxItems":2},
-		"opt":{"anyOf":[{"type":"string"},{"type":"null"}]}
-	},"required":["cmd"],"additionalProperties":false}`)
-	ok := []string{`{"cmd":"ls"}`, `{"cmd":"ls","n":3,"mode":"a","tags":["x"],"opt":null}`, `{"cmd":"ls","n":2.0}`}
-	for _, a := range ok {
-		if err := validateArgs(schema, json.RawMessage(a)); err != nil {
-			t.Errorf("%s: %v", a, err)
-		}
-	}
-	bad := map[string]string{
-		`[]`:                               "must be a JSON object",
-		`{`:                                "not valid JSON",
-		`{}`:                               `missing required property "cmd"`,
-		`{"cmd":""}`:                       "/cmd: must be at least 1 characters",
-		`{"cmd":"x","n":9}`:                "/n: must be <= 5",
-		`{"cmd":"x","n":1.5}`:              "/n: must be a value of type integer",
-		`{"cmd":"x","mode":"c"}`:           `/mode: must be one of ["a","b"]`,
-		`{"cmd":"x","tags":["a","b","c"]}`: "/tags: allows at most 2 items",
-		`{"cmd":"x","tags":[1]}`:           "/tags/0: must be a value of type string",
-		`{"cmd":"x","extra":1}`:            `unknown property "extra"`,
-		`{"cmd":"x","opt":3}`:              "/opt: must be a value of type string",
-	}
-	for a, want := range bad {
-		err := validateArgs(schema, json.RawMessage(a))
-		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("%s: got %v, want %q", a, err, want)
-		}
-	}
-	if err := validateArgs(nil, json.RawMessage(`{"any":1}`)); err != nil {
-		t.Fatalf("no schema: %v", err)
 	}
 }
 

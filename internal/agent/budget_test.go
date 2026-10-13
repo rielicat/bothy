@@ -90,6 +90,16 @@ func TestBudgetPathsEndWithTheRightStatus(t *testing.T) {
 				if !slicesContains(h.audit.Actions(), "budget.exceeded") {
 					t.Fatal("budget.exceeded not audited")
 				}
+				evs, _ := h.bus.Since(0, core.Filter{System: true})
+				var fin *core.RunFinishedData
+				for _, ev := range evs {
+					if d, ok := ev.Data.(core.RunFinishedData); ok && ev.Run == id {
+						fin = &d
+					}
+				}
+				if fin == nil || fin.Budget != tc.kind {
+					t.Fatalf("run.finished = %+v, want budget %s", fin, tc.kind)
+				}
 			})
 		})
 	}
