@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,7 @@ import (
 	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/provider/catalog"
+	"github.com/rielicat/bothy/internal/provider/ollama"
 )
 
 func refs(ms []core.ModelInfo) []string {
@@ -173,8 +175,9 @@ func (r *recorder) get(i int) string {
 	return r.bodies[i]
 }
 
-// ollamaServer routes the documented Ollama responses by path.
-func ollamaServer(t *testing.T, show string, chats *recorder) *httptest.Server {
+// ollamaServer routes the documented Ollama responses by path; /api/ps is
+// served only when ps is given.
+func ollamaServer(t *testing.T, show string, chats *recorder, ps ...string) *httptest.Server {
 	t.Helper()
 	tags, _ := os.ReadFile("ollama/testdata/docs_tags.json")
 	chat, _ := os.ReadFile("ollama/testdata/docs_chat_stream.ndjson")
@@ -188,6 +191,12 @@ func ollamaServer(t *testing.T, show string, chats *recorder) *httptest.Server {
 		case "/api/chat":
 			chats.add(string(b))
 			_, _ = w.Write(chat)
+		case "/api/ps":
+			if len(ps) == 0 {
+				http.NotFound(w, r)
+				return
+			}
+			_, _ = w.Write([]byte(ps[0]))
 		default:
 			http.NotFound(w, r)
 		}
@@ -227,15 +236,65 @@ func TestOllamaNumCtx(t *testing.T) {
 	if m := h.f.Chain(core.SlotMain, nil)[0]; m.Context != 16384 || !m.Local {
 		t.Fatalf("info %+v", m)
 	}
-	// Discovered: num_ctx is what /api/show reports.
+	// Discovered: the trained maximum /api/show reports (131,072) would make
+	// Ollama allocate a KV cache small machines cannot hold, so num_ctx is
+	// capped at the default window.
 	if _, _, err := h.f.Complete(context.Background(), core.SlotMain, &core.ModelRef{Provider: "ollama", Model: "gemma4"}, userReq, nil); err != nil {
 		t.Fatal(err)
 	}
-	if got := numCtx(t, chats.get(1)); got != 131072 {
-		t.Fatalf("discovered num_ctx %d", got)
+	if got := numCtx(t, chats.get(1)); got != ollama.DefaultWindow {
+		t.Fatalf("discovered num_ctx %d, want %d", got, ollama.DefaultWindow)
 	}
-	if m, _ := h.f.Model(core.ModelRef{Provider: "ollama", Model: "gemma4"}); m.Context != 131072 || m.Source != "discovery" || !m.Vision || m.Tools {
+	if m, _ := h.f.Model(core.ModelRef{Provider: "ollama", Model: "gemma4"}); m.Context != ollama.DefaultWindow || m.Source != "discovery" || !m.Vision || m.Tools {
 		t.Fatalf("discovered info %+v", m)
+	}
+}
+
+// A served context larger than the default (OLLAMA_CONTEXT_LENGTH set by the
+// operator) is kept; a smaller one, such as Ollama's 4,096 default for a
+// model another client loaded, does not shrink the window.
+func TestOllamaNumCtxFollowsALargerServedContext(t *testing.T) {
+	show, _ := os.ReadFile("ollama/testdata/docs_show.json") // gemma4.context_length 131072
+	for _, tc := range []struct{ served, want int }{{32768, 32768}, {4096, ollama.DefaultWindow}, {262144, 131072}} {
+		chats := &recorder{}
+		ps := fmt.Sprintf(`{"models":[{"name":"gemma4","model":"gemma4","context_length":%d}]}`, tc.served)
+		srv := ollamaServer(t, string(show), chats, ps)
+		h := newHarness(t, []config.Provider{
+			{ID: "ollama", Type: "ollama", BaseURL: srv.URL, AllowPrivate: true, Discover: true},
+		}, "ollama/gemma4")
+		if _, _, err := h.f.Complete(context.Background(), core.SlotMain, nil, userReq, nil); err != nil {
+			t.Fatal(err)
+		}
+		if got := numCtx(t, chats.get(0)); got != tc.want {
+			t.Fatalf("served %d: num_ctx %d, want %d", tc.served, got, tc.want)
+		}
+	}
+}
+
+// The doctor explains a capped window for chain models, and is quiet once
+// config sizes the model.
+func TestOllamaContextCheck(t *testing.T) {
+	show, _ := os.ReadFile("ollama/testdata/docs_show.json") // gemma4.context_length 131072
+	srv := ollamaServer(t, string(show), &recorder{})
+	check := func(models []config.ProviderModel) []core.Finding {
+		h := newHarness(t, []config.Provider{
+			{ID: "ollama", Type: "ollama", BaseURL: srv.URL, AllowPrivate: true, Models: models},
+		}, "ollama/gemma4")
+		for _, c := range h.f.Checks() {
+			if c.ID() == "providers.ollama_context" {
+				return c.Run(context.Background())
+			}
+		}
+		t.Fatal("no providers.ollama_context check")
+		return nil
+	}
+	fs := check(nil)
+	if len(fs) != 1 || fs[0].Severity != core.SevInfo || !strings.Contains(fs[0].Detail, "num_ctx 16,384") ||
+		!strings.Contains(fs[0].Detail, "131,072") || fs[0].Fix != "/settings/providers" {
+		t.Fatalf("findings = %+v", fs)
+	}
+	if fs := check([]config.ProviderModel{{ID: "gemma4", Context: 65536}}); len(fs) != 0 {
+		t.Fatalf("a configured context still reported: %+v", fs)
 	}
 }
 

@@ -2,8 +2,11 @@
 
 `core.Provider` for Ollama's native API rather than its OpenAI-compatible
 endpoint, because only `/api/chat` honours `options.num_ctx`: the facade sends
-the model's effective window (configured, else discovered) as `num_ctx` and
-`MaxTokens` as `num_predict`. The NDJSON reader takes thinking, content and
+the model's effective window as `num_ctx` and `MaxTokens` as `num_predict`:
+the configured context, else `Window` of the trained maximum (`/api/show`)
+and the served context (`/api/ps`), capped at `DefaultWindow` (16,384) unless
+the server already serves more, because Ollama reserves memory for whatever
+num_ctx asks. The NDJSON reader takes thinking, content and
 whole tool calls per line (ids synthesized when absent), usage from the final
 `done` line's `prompt_eval_count` and `eval_count` (a missing prompt count is
 left for the facade to estimate), `done_reason: "length"` as `max_tokens`, and

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/provider/ollama"
 	"github.com/rielicat/bothy/internal/testkit/mockllm"
 )
 
@@ -20,12 +21,14 @@ func TestProbeOllamaSmallContext(t *testing.T) {
 	chat, _ := os.ReadFile("ollama/testdata/docs_chat_stream.ndjson")
 	show, _ := os.ReadFile("ollama/testdata/docs_show.json")
 	ps, _ := os.ReadFile("ollama/testdata/docs_ps.json")
+	chats := &recorder{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.Copy(io.Discard, r.Body)
+		b, _ := io.ReadAll(r.Body)
 		switch r.URL.Path {
 		case "/api/tags":
 			_, _ = w.Write(tags)
 		case "/api/chat":
+			chats.add(string(b))
 			_, _ = w.Write(chat)
 		case "/api/show":
 			_, _ = w.Write(show)
@@ -46,6 +49,14 @@ func TestProbeOllamaSmallContext(t *testing.T) {
 	}
 	if !strings.Contains(res.Detail, "4,096 context") || !strings.Contains(res.Detail, "OLLAMA_CONTEXT_LENGTH") || !strings.Contains(res.Detail, "131,072") {
 		t.Fatalf("detail %q", res.Detail)
+	}
+	// The probe loads the model with the capped window Bothy will send and
+	// says why it is below the trained maximum.
+	if got := numCtx(t, chats.get(0)); got != ollama.DefaultWindow {
+		t.Fatalf("probe num_ctx %d, want %d", got, ollama.DefaultWindow)
+	}
+	if !strings.Contains(res.Detail, "num_ctx 16,384") || !strings.Contains(res.Detail, "set context for this model") {
+		t.Fatalf("detail does not explain the capped window: %q", res.Detail)
 	}
 	if strings.Join(res.Models, ",") != "deepseek-r1:latest,llama3.2:latest" {
 		t.Fatalf("models %v", res.Models)

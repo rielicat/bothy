@@ -165,8 +165,9 @@ func TestDiscovery(t *testing.T) {
 	if err != nil || len(ms) != 2 {
 		t.Fatalf("%v %+v", err, ms)
 	}
+	// /api/ps is not served here, so the 131,072 trained maximum is capped.
 	for _, m := range ms {
-		if m.Context != 131072 || !m.Vision || !m.Thinking || m.Tools || !m.Local {
+		if m.Context != DefaultWindow || !m.Vision || !m.Thinking || m.Tools || !m.Local {
 			t.Fatalf("model %+v", m)
 		}
 	}
@@ -193,7 +194,26 @@ func TestDiscoveryListsPastTheShowLimit(t *testing.T) {
 	if last := ms[len(ms)-1]; last.Ref.Model != fmt.Sprintf("m%d:latest", maxShow+9) || last.Context != 0 || !last.Tools {
 		t.Fatalf("last %+v", last)
 	}
-	if n := len(srv.Requests()); n != 1+maxShow {
+	// tags, ps, then one show per model up to the limit
+	if n := len(srv.Requests()); n != 2+maxShow {
 		t.Fatalf("%d requests", n)
+	}
+}
+
+// Window never sends the trained maximum blindly: it caps at DefaultWindow
+// unless Ollama already serves the model with more.
+func TestWindow(t *testing.T) {
+	for _, tc := range []struct{ trained, served, want int }{
+		{131072, 0, DefaultWindow},
+		{8192, 0, 8192},
+		{131072, 4096, DefaultWindow},
+		{131072, 32768, 32768},
+		{32768, 65536, 32768},
+		{0, 0, 0},
+		{0, 4096, 4096},
+	} {
+		if got := Window(tc.trained, tc.served); got != tc.want {
+			t.Errorf("Window(%d, %d) = %d, want %d", tc.trained, tc.served, got, tc.want)
+		}
 	}
 }

@@ -84,10 +84,18 @@ func (f *Facade) Probe(ctx context.Context, pc core.ProbeConfig) (core.ProbeResu
 		return res, nil
 	}
 	info := f.probeInfo(pc.Kind, base, model, found)
+	oc, isOllama := cl.(*ollama.Client)
+	trained, numCtx := 0, 0
+	if isOllama {
+		// Ollama loads the model with the window Bothy will send, so the
+		// probe also tests that the machine can hold it.
+		trained = ollamaWindow(ctx, oc, model, &info)
+		numCtx = info.Context
+	}
 
 	t0 := f.clock.Now()
 	resp, err := cl.Stream(ctx, &core.Request{
-		Model: model, MaxTokens: 1,
+		Model: model, MaxTokens: 1, NumCtx: numCtx,
 		Messages: []core.Message{{Role: core.MsgUser, Parts: []core.Part{{Type: core.PartText, Text: "Reply with the single word: ok"}}}},
 	}, nil)
 	res.Latency = f.clock.Now().Sub(t0)
@@ -101,7 +109,7 @@ func (f *Facade) Probe(ctx context.Context, pc core.ProbeConfig) (core.ProbeResu
 
 	var notes []string
 	tresp, terr := cl.Stream(ctx, &core.Request{
-		Model: model, MaxTokens: 256, ToolChoice: "required",
+		Model: model, MaxTokens: 256, ToolChoice: "required", NumCtx: numCtx,
 		Tools:    []core.ToolDef{{Name: probeTool, Description: "Echo a value back.", Schema: probeSchema}},
 		Messages: []core.Message{{Role: core.MsgUser, Parts: []core.Part{{Type: core.PartText, Text: `Call the probe_echo tool with value "ok".`}}}},
 	}, nil)
@@ -119,10 +127,8 @@ func (f *Facade) Probe(ctx context.Context, pc core.ProbeConfig) (core.ProbeResu
 		notes = append(notes, "The server does not report token usage; Bothy will estimate it.")
 	}
 	res.Context = info.Context
-	if oc, ok := cl.(*ollama.Client); ok {
-		if hint := ollamaContext(ctx, oc, model, &res); hint != "" {
-			notes = append(notes, hint)
-		}
+	if isOllama {
+		notes = append(notes, ollamaContext(ctx, oc, model, trained, &res)...)
 	}
 	res.Detail = strings.Join(notes, " ")
 	return res, nil
@@ -167,35 +173,45 @@ func calledProbe(r *core.Response) bool {
 	return false
 }
 
-// ollamaContext reports the window Ollama actually allocated (from /api/ps
-// after the probe loaded the model) and explains a small one: requests
-// without num_ctx get the server default, which is 4,096 on small GPUs.
-func ollamaContext(ctx context.Context, oc *ollama.Client, model string, res *core.ProbeResult) string {
+// ollamaWindow sets the window the facade would send for a model config does
+// not size (ollama.Window of the trained and served contexts) and returns the
+// trained maximum.
+func ollamaWindow(ctx context.Context, oc *ollama.Client, model string, info *core.ModelInfo) int {
 	show, err := oc.Show(ctx, model)
-	if err == nil && show.Context > 0 {
-		res.Context = show.Context
+	if err != nil {
+		return 0
+	}
+	running, _ := oc.Running(ctx)
+	if w := ollama.Window(show.Context, running[model]); w > 0 {
+		info.Context = w
+	}
+	return show.Context
+}
+
+// ollamaContext explains the window sent as num_ctx when it is below what
+// the model supports, and checks with /api/ps (after the probe loaded the
+// model with that num_ctx) that the server really allocated it.
+func ollamaContext(ctx context.Context, oc *ollama.Client, model string, trained int, res *core.ProbeResult) []string {
+	var notes []string
+	window := res.Context
+	if trained > window {
+		notes = append(notes, fmt.Sprintf("Bothy sends num_ctx %s for %s, less than the %s the model supports, because a larger window needs much more memory. To use more, set context for this model in Bothy's provider settings.",
+			thousands(window), model, thousands(trained)))
 	}
 	running, err := oc.Running(ctx)
 	if err != nil {
-		return ""
+		return notes
 	}
 	served := running[model]
-	if served <= 0 {
-		return ""
+	if served <= 0 || served >= window || served >= smallContext {
+		return notes
 	}
 	res.Context = served
-	if served >= smallContext || show.Context > 0 && served >= show.Context {
-		return ""
+	msg := fmt.Sprintf("Ollama is serving %s with a %s context although Bothy asked for %s", model, thousands(served), thousands(window))
+	if trained > 0 {
+		msg += fmt.Sprintf(" (the model supports %s)", thousands(trained))
 	}
-	want := 32_768
-	if show.Context > 0 {
-		want = min(want, show.Context)
-	}
-	msg := fmt.Sprintf("Ollama is serving %s with a %s context", model, thousands(served))
-	if show.Context > 0 {
-		msg += fmt.Sprintf(" (the model supports %s)", thousands(show.Context))
-	}
-	return msg + fmt.Sprintf(". Set OLLAMA_CONTEXT_LENGTH=%d where Ollama runs, or set context: %d for this model in Bothy's provider settings so it is sent as num_ctx.", want, want)
+	return append(notes, msg+fmt.Sprintf(". Set OLLAMA_CONTEXT_LENGTH=%d where Ollama runs, and check that nothing between Bothy and Ollama drops num_ctx.", window))
 }
 
 func thousands(n int) string {
