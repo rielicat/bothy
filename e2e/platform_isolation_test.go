@@ -142,6 +142,7 @@ policy:
 	bTok := b.Token(t, "", "chat", "read")
 	aTok := a.Token(t, "", "chat", "read")
 	bEvents := pltRecord(b.Events(t))
+	ownerEvents := pltRecord(owner.Events(t))
 	aPrincipal := a.Principal(t)
 	aID := a.ID()
 
@@ -276,6 +277,21 @@ policy:
 		}
 	})
 
+	// admin_can_read_chats is locked off: the owner manages A's account but
+	// never reads A's content.
+	t.Run("the owner cannot read A's content either", func(t *testing.T) {
+		for _, path := range []string{"/api/sessions/" + string(sA.ID), "/api/sessions/" + string(sA.ID) + "/messages",
+			"/api/runs/" + string(runA), "/api/approvals/" + string(apP.ID), "/api/memory/MEMORY.md?principal=" + string(aPrincipal.ID),
+			"/api/workspace/files?principal=" + string(aPrincipal.ID) + "&path=ask/secret-a.txt", "/api/schedules/" + string(schA.ID)} {
+			if resp := owner.Do(t, http.MethodGet, path, nil, nil); resp.StatusCode != http.StatusNotFound {
+				t.Errorf("owner GET %s = %s %s, want 404", path, resp.Status, resp.Body)
+			}
+		}
+		if resp := owner.Do(t, http.MethodGet, "/api/search?q="+aWord, nil, nil); bytes.Contains(resp.Body, []byte(aWord)) {
+			t.Errorf("owner search finds A's message: %s", resp.Body)
+		}
+	})
+
 	t.Run("B's fs tools cannot see A's workspace", func(t *testing.T) {
 		sB := b.NewSession(t)
 		// refused: the call fails at planning (error) or as invalid arguments.
@@ -311,16 +327,24 @@ policy:
 		}
 	})
 
-	t.Run("B's event stream carries none of A's events", func(t *testing.T) {
-		b.Finished(t, b.Send(t, b.NewSession(t).ID, "E19-B-HELLO")) // B's own run proves the stream works
-		bEvents.WaitFor(t, core.EvRunFinished, 5*time.Second, func(e pltEvent) bool { return e.Principal == core.UserPrincipal(b.ID()) })
-		for _, f := range bEvents.Frames() {
-			var ev pltEvent
-			if json.Unmarshal(f.Data, &ev) == nil && (ev.Principal == aPrincipal.ID || ev.Session == sA.ID || ev.Session == sA2.ID || ev.Run == runA || ev.Run == runP) {
-				t.Fatalf("B received A's %s event: %s", f.Event, f.Data)
+	t.Run("B's and the owner's event streams carry none of A's events", func(t *testing.T) {
+		// Their own runs prove both streams were live throughout.
+		b.Finished(t, b.Send(t, b.NewSession(t).ID, "E19-B-HELLO"))
+		owner.Finished(t, owner.Send(t, owner.NewSession(t).ID, "E19-OWNER-HELLO"))
+		for name, rec := range map[string]*pltRecorder{"B": bEvents, "owner": ownerEvents} {
+			self := core.UserPrincipal(b.ID())
+			if name == "owner" {
+				self = core.UserPrincipal(owner.ID())
 			}
-			if bytes.Contains(f.Data, []byte(aSecret)) || bytes.Contains(f.Data, []byte(aWord)) {
-				t.Fatalf("B's stream leaked A's content: %s", f.Data)
+			rec.WaitFor(t, core.EvRunFinished, 5*time.Second, func(e pltEvent) bool { return e.Principal == self })
+			for _, f := range rec.Frames() {
+				var ev pltEvent
+				if json.Unmarshal(f.Data, &ev) == nil && (ev.Principal == aPrincipal.ID || ev.Session == sA.ID || ev.Session == sA2.ID || ev.Run == runA || ev.Run == runP) {
+					t.Fatalf("%s received A's %s event: %s", name, f.Event, f.Data)
+				}
+				if bytes.Contains(f.Data, []byte(aSecret)) || bytes.Contains(f.Data, []byte(aWord)) {
+					t.Fatalf("%s's stream leaked A's content: %s", name, f.Data)
+				}
 			}
 		}
 	})
