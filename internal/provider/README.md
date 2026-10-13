@@ -20,8 +20,12 @@ provider's breaker for 60 s. Model info merges kind defaults, discovery, the
 embedded catalog (`catalog/`), `providers[].models` and `pricing`; costs are
 integer micros. Also here: the bytes/3.6 estimator
 with a per-model EWMA correction, missing-usage estimation, `Probe` (one-token
-completion, forced tool call, Ollama context check with the
-`OLLAMA_CONTEXT_LENGTH` hint), `Detect` (local Ollama/LM Studio/vLLM and the
-names of well-known key variables) and the `providers.auth_failed` check.
+completion and forced tool call, Ollama ones sent with the num_ctx Bothy will
+use, then a context check with the `OLLAMA_CONTEXT_LENGTH` hint), `Detect`
+(local Ollama/LM Studio/vLLM and the names of well-known key variables) and
+the `providers.auth_failed` and `providers.ollama_context` checks. An Ollama
+model without a configured context never gets its trained maximum as
+num_ctx: `ollama.Window` caps it at 16,384, or at the served context when
+Ollama already runs the model with more.
 `wire/` holds what the clients share; `wiretest/` serves recorded vendor
 responses in tests.

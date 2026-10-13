@@ -22,7 +22,14 @@ func (h *harness) scheduledReq(text string) core.RunRequest {
 // approval time out into parking.
 func parkRun(t *testing.T, h *harness) (core.RunID, *core.Approval) {
 	t.Helper()
-	res, err := h.r.Submit(h.ctx, h.scheduledReq("nightly report"))
+	return parkRunAs(t, h, core.TrigSchedule)
+}
+
+func parkRunAs(t *testing.T, h *harness, trigger core.Trigger) (core.RunID, *core.Approval) {
+	t.Helper()
+	req := h.scheduledReq("nightly report")
+	req.Trigger = trigger
+	res, err := h.r.Submit(h.ctx, req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,6 +152,46 @@ func TestResumeExecutesStoredActionOnce(t *testing.T) {
 			t.Fatalf("run.started triggers = %v, run trigger %s", started, h.run(id).Trigger)
 		}
 	})
+}
+
+// A resumed heartbeat run streams to a sink resumeSink builds, not to the
+// scheduler's quiet sink, so the runner must hold back HEARTBEAT_OK itself.
+func TestResumedHeartbeatSuppressesHeartbeatOK(t *testing.T) {
+	for _, tc := range []struct {
+		reply     string
+		delivered bool
+	}{
+		{"HEARTBEAT_OK", false},
+		{"**HEARTBEAT_OK**", false},
+		{"The nightly backup failed.", true},
+	} {
+		t.Run(tc.reply, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				act := &testTool{name: "act", se: core.SEExternalSend}
+				h := parkHarness(t, act, fakes.LLMStep{Text: []string{tc.reply}})
+				defer h.close()
+				h.appr.OnResolved(func(a *core.Approval) { _ = h.r.Resume(context.Background(), a) })
+				id, a := parkRunAs(t, h, core.TrigHeartbeat)
+				chat := core.ChatRef{Channel: "telegram", ChatID: "9", Kind: core.ChatDM}
+				h.hub.PreferredChats = map[core.UserID]core.ChatRef{h.user.ID: chat}
+				if _, err := h.appr.Resolve(h.ctx, core.Resolution{ID: a.ID, Choice: core.AllowOnce, By: h.user.ID, Via: "web"}); err != nil {
+					t.Fatal(err)
+				}
+				synctest.Wait()
+				if run := h.run(id); run.Status != core.RunDone {
+					t.Fatalf("status = %s (%s)", run.Status, run.Error)
+				}
+				s, ok := h.hub.Stream(chat)
+				if !ok {
+					t.Fatal("the resumed run got no delivery sink")
+				}
+				got := hasType(s.Types(), core.EvRunFinished)
+				if got != tc.delivered || tc.delivered && !strings.Contains(s.Text(), tc.reply) {
+					t.Fatalf("reply %q delivered = %v (events %v, text %q), want %v", tc.reply, got, s.Types(), s.Text(), tc.delivered)
+				}
+			})
+		})
+	}
 }
 
 func TestParkNewRunnerResumesOnce(t *testing.T) {

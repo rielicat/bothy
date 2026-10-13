@@ -358,6 +358,14 @@ func (r *Runner) finishDetached(ctx context.Context, run *core.Run, st core.RunS
 // (or the user's preferred chat) for scheduled runs, the session's chat for
 // channel sessions, the bus only for web sessions.
 func (r *Runner) resumeSink(ctx context.Context, run *core.Run) core.RunSink {
+	sink := r.resumeTarget(ctx, run)
+	if sink != nil && run.Trigger == core.TrigHeartbeat {
+		return &heartbeatSink{next: sink}
+	}
+	return sink
+}
+
+func (r *Runner) resumeTarget(ctx context.Context, run *core.Run) core.RunSink {
 	h := r.hubOrNil()
 	if h == nil {
 		return nil

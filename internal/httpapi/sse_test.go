@@ -21,9 +21,10 @@ type sseFrame struct {
 }
 
 type sseConn struct {
-	frames chan sseFrame
-	resp   *http.Response
-	cancel context.CancelFunc
+	frames  chan sseFrame
+	retries chan string // values of "retry:" lines, in order
+	resp    *http.Response
+	cancel  context.CancelFunc
 }
 
 func (h *harness) openSSE(t *testing.T, srv *httptest.Server, c *client, lastID string) *sseConn {
@@ -50,7 +51,7 @@ func (h *harness) openSSE(t *testing.T, srv *httptest.Server, c *client, lastID 
 		cancel()
 		t.Fatalf("SSE status %d", resp.StatusCode)
 	}
-	sc := &sseConn{frames: make(chan sseFrame, 1024), resp: resp, cancel: cancel}
+	sc := &sseConn{frames: make(chan sseFrame, 1024), retries: make(chan string, 16), resp: resp, cancel: cancel}
 	go func() {
 		defer close(sc.frames)
 		br := bufio.NewReader(resp.Body)
@@ -73,6 +74,8 @@ func (h *harness) openSSE(t *testing.T, srv *httptest.Server, c *client, lastID 
 				f.event = line[7:]
 			case strings.HasPrefix(line, "data: "):
 				f.data = line[6:]
+			case strings.HasPrefix(line, "retry: "):
+				sc.retries <- line[7:]
 			}
 		}
 	}()
@@ -282,26 +285,47 @@ func TestSSEConnectionCap(t *testing.T) {
 			t.Fatalf("frame = %+v", f)
 		}
 	}
+	// The evicted stream is told to wait before reconnecting; with the
+	// browser's default delay, a fifth tab would start an eviction storm.
+	// Every stream starts with the normal delay, which undoes that wait.
+	if got := drain(conns[0].retries); strings.Join(got, ",") != "3000,60000" {
+		t.Fatalf("evicted stream retry fields = %v", got)
+	}
+	if got := drain(conns[1].retries); strings.Join(got, ",") != "3000" {
+		t.Fatalf("open stream retry fields = %v", got)
+	}
 }
 
-// blockingWriter stalls the handler on its first event write, so the bus
-// subscription overflows.
+func drain(ch chan string) []string {
+	var out []string
+	for {
+		select {
+		case v := <-ch:
+			out = append(out, v)
+		default:
+			return out
+		}
+	}
+}
+
+// blockingWriter stalls the handler on its first write after the hello
+// frame, so the bus subscription overflows.
 type blockingWriter struct {
 	mu      sync.Mutex
 	h       http.Header
 	buf     strings.Builder
 	release chan struct{}
-	writes  int
+	stalled bool
 }
 
 func (b *blockingWriter) Header() http.Header { return b.h }
 func (b *blockingWriter) WriteHeader(int)     {}
 func (b *blockingWriter) Write(p []byte) (int, error) {
 	b.mu.Lock()
-	b.writes++
-	n := b.writes
+	stall := !b.stalled && strings.Contains(b.buf.String(), "event: hello")
+	b.stalled = b.stalled || stall
 	b.mu.Unlock()
-	if n == 2 {
+	if stall {
 		<-b.release
 	}
 	b.mu.Lock()

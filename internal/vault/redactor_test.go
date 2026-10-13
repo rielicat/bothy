@@ -145,6 +145,53 @@ func TestRedactorShortValuesAndRemove(t *testing.T) {
 	}
 }
 
+// PartialAt finds the earliest tail that a registered value (or one of its
+// encodings) could still grow out of, which a stream must hold back.
+func TestRedactorPartialAt(t *testing.T) {
+	r := NewRedactor()
+	if got := r.PartialAt("correct hor"); got != len("correct hor") {
+		t.Fatalf("nothing registered: PartialAt = %d", got)
+	}
+	r.Add("pw", []byte("correct horse battery"))
+	r.Add("key", []byte(canary))
+	var all []string
+	for _, v := range r.values {
+		all = append(all, needles(v)...)
+	}
+	// The reference: the smallest i whose suffix some longer needle starts with.
+	want := func(s string) int {
+		for i := range len(s) {
+			for _, n := range all {
+				if len(n) > len(s)-i && strings.HasPrefix(n, s[i:]) {
+					return i
+				}
+			}
+		}
+		return len(s)
+	}
+	inputs := []string{
+		"my password is correct hor",
+		"my password is correct horse battery",
+		"my password is correct horse battery and more",
+		"the key: CANARY-s3cr",
+		"encoded: " + base64.StdEncoding.EncodeToString([]byte(canary))[:12],
+		"hex " + hex.EncodeToString([]byte("correct horse battery"))[:9],
+		"nothing to see here.",
+		"",
+	}
+	for _, s := range inputs {
+		if got := r.PartialAt(s); got != want(s) {
+			t.Errorf("PartialAt(%q) = %d, want %d", s, got, want(s))
+		}
+	}
+	if got := r.PartialAt("my password is correct hor"); got > len("my password is ") {
+		t.Errorf("the half-sent password is not held back: PartialAt = %d", got)
+	}
+	if s := "my password is correct horse battery and more"; r.PartialAt(s) != len(s) {
+		t.Errorf("a complete value followed by text holds back %q", s[r.PartialAt(s):])
+	}
+}
+
 func TestRedactorInputUnchanged(t *testing.T) {
 	r := NewRedactor()
 	r.Add("x", []byte("mutate-me-not"))

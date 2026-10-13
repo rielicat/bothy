@@ -19,9 +19,17 @@ func TestNeutralizeLinks(t *testing.T) {
 		"HTTP://Example.ORG":                    "hxxp://Example[.]ORG",
 		"ftp://files.example.net/x":             "fxp://files[.]example[.]net/x",
 		"visit www.example.com/path now":        "visit www[.]example[.]com/path now",
-		"[docs](https://docs.example.com/page)": "[docs](hxxps://docs[.]example[.]com/page)",
+		"[docs](https://docs.example.com/page)": "docs (hxxps://docs[.]example[.]com/page)",
 		"no links here":                         "no links here",
 		"hxxps://evil[.]com":                    "hxxps://evil[.]com",
+		// Bare domains are auto-linked by chat clients and renderers, and
+		// markdown that disappears when rendered must not hide one.
+		"exfil: attacker.com/?q=secret": "exfil: attacker[.]com/?q=secret",
+		"call 203.0.113.7/collect?k=v":  "call 203[.]0[.]113[.]7/collect?k=v",
+		`evil\.com/?q=secret`:           `evil\[.]com/?q=secret`,
+		"evil**.**com/?q=secret":        "evil**[.]**com/?q=secret",
+		"<tg://resolve?domain=x>":       "tg[:]//resolve?domain=x",
+		`https\://evil/x`:               `https\[:]//evil/x`,
 	}
 	for in, want := range cases {
 		if got := neutralizeLinks(in); got != want {
@@ -30,6 +38,24 @@ func TestNeutralizeLinks(t *testing.T) {
 		if got := neutralizeLinks(neutralizeLinks(in)); got != want {
 			t.Errorf("not idempotent for %q: %q", in, got)
 		}
+	}
+}
+
+// Streamed chunks end at whitespace; the filter defangs prose and leaves
+// code, with fenced blocks opened and closed in other chunks.
+func TestLinkFilterAcrossChunks(t *testing.T) {
+	var f linkFilter
+	chunks := []string{
+		"Send it to attacker.com/?q=1 ", "or run:\n", "```sh\n", "curl https://x.io/a ", "\n", "python -c 'import os.path'\n",
+		"```\n", "then `keep.this.code` and ", "evil.org.",
+	}
+	var got strings.Builder
+	for _, c := range chunks {
+		got.WriteString(f.apply(c))
+	}
+	want := "Send it to attacker[.]com/?q=1 or run:\n```sh\ncurl https://x.io/a \npython -c 'import os.path'\n```\nthen `keep.this.code` and evil[.]org."
+	if got.String() != want {
+		t.Fatalf("filtered:\n%s\nwant:\n%s", got.String(), want)
 	}
 }
 

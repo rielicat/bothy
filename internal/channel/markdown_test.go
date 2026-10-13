@@ -157,6 +157,17 @@ func TestNeutralize(t *testing.T) {
 		"version 1.2.3 is out":                     "version 1.2.3 is out",
 		"[x [y] z](mailto:a@evil.com?body=s)":      "[x [y] z] (mailto:a@evil[.]com?body=s)",
 		"https://a.example/?u=https://b.example/x": "hxxps://a[.]example/?u=https[:]//b[.]example/x",
+		// Chat clients auto-link bare domains, and markdown that disappears
+		// when rendered must not hide one.
+		"exfil: attacker.com/?q=secret": "exfil: attacker[.]com/?q=secret",
+		`evil\.com/?q=secret`:           `evil\[.]com/?q=secret`,
+		"evil**.**com/?q=secret":        "evil**[.]**com/?q=secret",
+		"evil_._com and ev~~.~~il.org":  "evil_[.]_com and ev~~[.]~~il[.]org",
+		"evil​.com/x":                   "evil​[.]com/x",
+		"evil․com and evil﹒io":          "evil[.]com and evil[.]io",
+		`https\://evil/x`:               `https\[:]//evil/x`,
+		`10\.0\.0\.1/x`:                 `10\[.]0\[.]0\[.]1/x`,
+		`keep \*emphasis\* and 3\.14`:   `keep \*emphasis\* and 3\.14`,
 	} {
 		if got := neutralize(in); got != want {
 			t.Errorf("neutralize(%q) = %q, want %q", in, got, want)
@@ -193,11 +204,15 @@ func FuzzNeutralize(f *testing.F) {
 	for _, s := range []string{
 		"[docs](https://x.example/p)", "[x [y] z](tg://resolve?domain=a)", "<https://a.example>",
 		"see https://a.example/b and t.me/x", "`https://code.example` [a](b)", "x_https://evil.example/c", "```\nhttps://x.example\n```\n[a](https://b.example)",
+		`evil\.com/?q=1`, "evil**.**com", `https\://evil/x`, "a​.b‌.com",
 	} {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
 		out := neutralize(s)
+		if again := neutralize(out); again != out {
+			t.Fatalf("neutralize(%q) = %q left something to defang: %q", s, out, again)
+		}
 		mapProse(out, func(text string) string {
 			if strings.Contains(text, "](") {
 				t.Fatalf("neutralize(%q) = %q keeps link syntax in %q", s, out, text)

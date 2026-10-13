@@ -11,11 +11,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/gateway"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/gorilla/websocket"
 
@@ -237,5 +239,34 @@ func TestCappedBody(t *testing.T) {
 	}
 	if _, err := read("123456", 5); !errors.Is(err, errTooLarge) {
 		t.Fatalf("over the limit: %v, want errTooLarge", err)
+	}
+}
+
+// The hub builds a new adapter on every config change, and disgo's rate
+// limiter runs a cleanup goroutine nothing ever stops, so rebuilt adapters
+// must reuse one limiter instead of each starting another goroutine.
+func TestRebuiltAdaptersShareOneRateLimiter(t *testing.T) {
+	cfg := config.Default().Channels.Discord
+	cfg.APIBase = "http://127.0.0.1:9/rebuild-test/api/v10"
+	limiter := func() rest.RateLimiter {
+		a, err := newAdapter(cfg, core.AdapterDeps{
+			Secret: func(context.Context, string) (core.Secret, error) { return core.NewSecret([]byte("tok")), nil },
+			HTTP:   func(core.SystemDest) *http.Client { return newPlainClient() },
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return a.client().(*disgoAPI).r.RateLimiter()
+	}
+	first := limiter()
+	before := runtime.NumGoroutine()
+	const rebuilds = 50
+	for range rebuilds {
+		if limiter() != first {
+			t.Fatal("a rebuilt adapter got its own rate limiter")
+		}
+	}
+	if grew := runtime.NumGoroutine() - before; grew >= rebuilds/5 {
+		t.Fatalf("%d rebuilds left %d more goroutines", rebuilds, grew)
 	}
 }

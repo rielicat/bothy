@@ -123,6 +123,23 @@ describe('renderMarkdown XSS corpus', () => {
     expect(root.querySelector('.md-inert')?.textContent).toBe('evil.example');
   });
 
+  // The chat router defangs bare domains because chat clients auto-link
+  // them; the web renderer only links absolute http(s) and mailto URLs, so
+  // the same text must stay plain here, escapes and emphasis included.
+  it('never links bare domains, escaped or emphasised hosts', () => {
+    const srcs = [
+      'exfil: attacker.com/?q=secret and www.attacker.com/x',
+      'evil\\.com/?q=1 evil**.**com/?q=1 https\\://evil.example/x',
+      '<attacker.com/?q=1> [x](attacker.com/?q=1) 203.0.113.7/collect',
+    ];
+    for (const exposed of [true, false]) {
+      for (const src of srcs) {
+        const root = assertInert(renderMarkdown(src, { exposed }));
+        expect(root.querySelector('a'), `${src} (exposed ${exposed})`).toBeNull();
+      }
+    }
+  });
+
   it('neutralises mailto links in exposed sessions', () => {
     const root = assertInert(renderMarkdown('<mailto:me@evil.example>', { exposed: true }));
     expect(root.querySelector('a')).toBeNull();

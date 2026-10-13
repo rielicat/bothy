@@ -249,3 +249,19 @@ func (r *Redactor) RedactBytes(b []byte) []byte {
 	}
 	return out
 }
+
+// PartialAt mirrors vault.Redactor.PartialAt for the raw values this fake
+// masks: where the earliest suffix of s that a longer value starts with
+// begins, or len(s).
+func (r *Redactor) PartialAt(s string) int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for i := range len(s) {
+		for _, v := range r.values {
+			if len(v) > len(s)-i && strings.HasPrefix(string(v), s[i:]) {
+				return i
+			}
+		}
+	}
+	return len(s)
+}

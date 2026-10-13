@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rielicat/bothy/internal/core"
@@ -17,56 +18,62 @@ import (
 const (
 	sseBuffer   = 256
 	sseDeadline = 10 * time.Second
+	// sseRetry is the reconnection delay every stream starts with, which
+	// also undoes an earlier sseEvictedRetry in the same EventSource.
+	sseRetry = 3 * time.Second
+	// sseEvictedRetry is the delay a stream closed for the per-user cap is
+	// told to wait. With the browser's default of about 3 s, five tabs would
+	// evict each other in a loop, each reconnect closing another stream.
+	sseEvictedRetry = time.Minute
 )
 
 // sseTracker caps concurrent streams per user; the oldest is closed first.
 type sseTracker struct {
 	mu    sync.Mutex
-	conns map[core.UserID][]context.CancelFunc
-	ids   map[core.UserID][]uint64
+	conns map[core.UserID][]*sseStream
 	next  uint64
 }
 
-func newSSETracker() *sseTracker {
-	return &sseTracker{conns: map[core.UserID][]context.CancelFunc{}, ids: map[core.UserID][]uint64{}}
+type sseStream struct {
+	id      uint64
+	cancel  context.CancelFunc
+	evicted atomic.Bool // closed for the per-user cap, not by the client
 }
 
-func (t *sseTracker) add(u core.UserID, cancel context.CancelFunc) uint64 {
+func newSSETracker() *sseTracker {
+	return &sseTracker{conns: map[core.UserID][]*sseStream{}}
+}
+
+func (t *sseTracker) add(u core.UserID, cancel context.CancelFunc) *sseStream {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.next++
-	id := t.next
-	t.conns[u] = append(t.conns[u], cancel)
-	t.ids[u] = append(t.ids[u], id)
+	st := &sseStream{id: t.next, cancel: cancel}
+	t.conns[u] = append(t.conns[u], st)
 	for len(t.conns[u]) > maxUserSSE {
-		t.conns[u][0]()
-		t.conns[u], t.ids[u] = t.conns[u][1:], t.ids[u][1:]
+		old := t.conns[u][0]
+		old.evicted.Store(true)
+		old.cancel()
+		t.conns[u] = t.conns[u][1:]
 	}
-	return id
+	return st
 }
 
 // closeUser ends every stream of a user whose access was just revoked.
 func (t *sseTracker) closeUser(u core.UserID) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	for _, cancel := range t.conns[u] {
-		cancel()
+	for _, st := range t.conns[u] {
+		st.cancel()
 	}
 }
 
-func (t *sseTracker) remove(u core.UserID, id uint64) {
+func (t *sseTracker) remove(u core.UserID, st *sseStream) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	for i, x := range t.ids[u] {
-		if x == id {
-			t.conns[u] = append(t.conns[u][:i:i], t.conns[u][i+1:]...)
-			t.ids[u] = append(t.ids[u][:i:i], t.ids[u][i+1:]...)
-			break
-		}
-	}
-	if len(t.ids[u]) == 0 {
+	t.conns[u] = slices.DeleteFunc(t.conns[u], func(x *sseStream) bool { return x == st })
+	if len(t.conns[u]) == 0 {
 		delete(t.conns, u)
-		delete(t.ids, u)
 	}
 }
 
@@ -104,6 +111,15 @@ func (sw *sseWriter) comment(text string) error {
 	return sw.flush()
 }
 
+// retry sets the browser's reconnection delay for this EventSource.
+func (sw *sseWriter) retry(d time.Duration, why string) error {
+	_ = sw.rc.SetWriteDeadline(time.Now().Add(sseDeadline))
+	if _, err := fmt.Fprintf(sw.w, ": %s\nretry: %d\n\n", why, d.Milliseconds()); err != nil {
+		return err
+	}
+	return sw.flush()
+}
+
 func parseLastEventID(v string) (boot string, seq uint64, ok bool) {
 	boot, n, found := strings.Cut(strings.TrimSpace(v), "-")
 	if !found || boot == "" {
@@ -122,8 +138,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, a core.Actor) er
 	}
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	connID := s.sse.add(a.User, cancel)
-	defer s.sse.remove(a.User, connID)
+	stream := s.sse.add(a.User, cancel)
+	defer s.sse.remove(a.User, stream)
 
 	f := filterFor(a)
 	sub := s.d.Bus.Subscribe(f, sseBuffer)
@@ -135,6 +151,9 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, a core.Actor) er
 	h.Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 	sw := &sseWriter{w: w, rc: http.NewResponseController(w), red: s.redactBytes}
+	if err := sw.retry(sseRetry, "connected"); err != nil {
+		return nil
+	}
 	boot := s.d.Bus.BootID()
 
 	var replay []core.Event
@@ -174,6 +193,9 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, a core.Actor) er
 	for {
 		select {
 		case <-ctx.Done():
+			if stream.evicted.Load() && r.Context().Err() == nil {
+				_ = sw.retry(sseEvictedRetry, "closed: this user has too many open streams")
+			}
 			return nil
 		case <-s.shutdown:
 			return nil

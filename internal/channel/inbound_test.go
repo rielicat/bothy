@@ -99,6 +99,59 @@ func TestUnknownSenderOneReplyPerDayNoRuns(t *testing.T) {
 	})
 }
 
+// Each throwaway account gets one notice a day, so without a global bound N
+// accounts would mean N admin DMs. After askDMs in a window the banner keeps
+// the count and the next DM, a window later, mentions the backlog.
+func TestUnknownSenderAdminDMsThrottled(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		sub := h.bus.Subscribe(core.Filter{Admin: true, Types: []core.EventType{core.EvBanner}}, 64)
+		defer sub.Close()
+		dms := func() int {
+			n := 0
+			for _, v := range h.visible(ownerChat) {
+				if strings.Contains(v, "Someone new wrote to me") {
+					n++
+				}
+			}
+			return n
+		}
+		const strangers = 10
+		for i := range strangers {
+			h.dm(strconv.Itoa(7000+i), "let me in")
+		}
+		for i := range strangers {
+			if n := len(h.visible(strconv.Itoa(7000 + i))); n != 1 {
+				t.Fatalf("stranger %d got %d replies, want its one notice", i, n)
+			}
+		}
+		if n := dms(); n != askDMs {
+			t.Fatalf("admin got %d DMs about %d strangers, want %d", n, strangers, askDMs)
+		}
+		var last core.BannerData
+		for drained := false; !drained; {
+			select {
+			case e := <-sub.C():
+				last = e.Data.(core.BannerData)
+			default:
+				drained = true
+			}
+		}
+		if !strings.Contains(last.Text, "10 people asked for access") || last.Code != "unknown_sender" {
+			t.Fatalf("summary banner = %+v", last)
+		}
+
+		time.Sleep(askWindow)
+		h.dm("7999", "me too")
+		if n := dms(); n != askDMs+1 {
+			t.Fatalf("a new window allowed %d DMs in total, want %d", n, askDMs+1)
+		}
+		if got := h.lastText(ownerChat); !strings.Contains(got, "7 more asked since my last message") {
+			t.Fatalf("the first DM of a new window does not mention the backlog: %q", got)
+		}
+	})
+}
+
 func TestUnknownSenderIgnoreMode(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t).start()

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"sync"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/rest"
@@ -47,11 +49,34 @@ func (a *adapter) client() discordAPI {
 			rest.WithHTTPClient(a.egressClient(hostPort(a.apiBase))),
 			rest.WithUserAgent(userAgent),
 			rest.WithLogger(a.libLog),
-			rest.WithRateLimiterConfigOpts(rest.WithMaxRetries(maxRetries), rest.WithRateLimiterLogger(a.libLog)),
+			rest.WithRateLimiter(sharedLimiter(a.cfg.APIBase, a.libLog)),
 		)
 		a.api = &disgoAPI{r: rest.New(rc, rest.WithDefaultAllowedMentions(*allowedMentions(false))), token: a.token}
 	})
 	return a.api
+}
+
+// limiters holds one REST rate limiter per API base for the whole process.
+// disgo starts a cleanup goroutine with every limiter that nothing ever stops
+// (its Close does not), and the hub builds a new adapter on every config
+// change, so a limiter per adapter would leak one goroutine per reload.
+var limiters struct {
+	mu sync.Mutex
+	m  map[string]rest.RateLimiter
+}
+
+func sharedLimiter(base string, log *slog.Logger) rest.RateLimiter {
+	limiters.mu.Lock()
+	defer limiters.mu.Unlock()
+	if rl, ok := limiters.m[base]; ok {
+		return rl
+	}
+	if limiters.m == nil {
+		limiters.m = map[string]rest.RateLimiter{}
+	}
+	rl := rest.NewRateLimiter(rest.WithMaxRetries(maxRetries), rest.WithRateLimiterLogger(log))
+	limiters.m[base] = rl
+	return rl
 }
 
 // token returns the bot token, resolving and caching the secret reference.

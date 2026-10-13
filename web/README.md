@@ -16,7 +16,7 @@ SSE store, markdown renderer, QR encoder, charts and icons are written here.
 | `npm run check` | `svelte-check` over `src/` and `mock/`, warnings fail |
 | `npm test` | vitest: unit, component and axe tests in jsdom against the fixture gateway |
 | `npm run preview:mock` | serves the built app with the fixture gateway and the gateway's CSP |
-| `npm run smoke` | Playwright against `preview:mock`: 360 px layout, keyboard-only approval, axe with contrast in light and dark, no CSP violations; `PLAYWRIGHT_CHROMIUM=<path>` uses a local Chromium |
+| `npm run smoke` | Playwright against `preview:mock`: 360 px layout, keyboard-only approval, axe with contrast in light and dark, no CSP violations, tabs sharing one event stream; `PLAYWRIGHT_CHROMIUM=<path>` uses a local Chromium |
 
 From the repository root, `make ui` installs and builds, `scripts/budgets/ui-size.sh`
 checks the gates, and `make ui-reset` restores the committed placeholder; run
@@ -32,7 +32,8 @@ src/
     api/client.ts       fetch wrapper: X-CSRF-Token, dto.Error → ApiError, 401 → login
     api/types.gen.ts    generated from the Go DTOs by `make gen` (do not edit)
     router.svelte.ts    history router; safeNext() for ?next=
-    sse.svelte.ts       one EventSource: typed handlers, hello, resync, reconnect with backoff
+    sse.svelte.ts       one EventSource per browser, shared by tabs (Web Lock + BroadcastChannel):
+                        typed handlers, hello, resync, reconnect with backoff
     stores/             session and approvals, theme and toasts, one-second clock
     markdown.ts         escape-all renderer (security control, see below)
     text.ts             bidi/zero-width visualisation and punycode for approval cards
@@ -58,7 +59,8 @@ public/                 theme.js (sets the theme before first paint), PWA manife
 - **Zero other origins.** System fonts only, no CDNs, no remote images.
 - **Markdown is escape-all.** `lib/markdown.ts` escapes every input byte and emits
   a fixed tag set with attributes it builds itself; images become text links,
-  only absolute http(s)/mailto links survive (with `noopener noreferrer nofollow`),
+  only absolute http(s)/mailto links survive (with `noopener noreferrer nofollow`;
+  bare domains such as `attacker.com/?q=…` are never linked, escaped or not),
   and in Exposed sessions links become inert host chips with a copy button.
   `Markdown.svelte` is the only `{@html}` in the app; `markdown.test.ts` holds
   the XSS corpus.

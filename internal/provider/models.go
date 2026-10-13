@@ -94,9 +94,9 @@ func (f *Facade) refresh(ctx context.Context, e *entry) {
 	f.remember(e.id, ms, err == nil)
 }
 
-// ensureContext fills an Ollama model's window from /api/show before its
-// first call when config does not set it, because that window is what
-// num_ctx sends.
+// ensureContext fills an Ollama model's window from /api/show and /api/ps
+// (ollama.Window) before its first call when config does not set it, because
+// that window is what num_ctx sends.
 func (f *Facade) ensureContext(ctx context.Context, e *entry, m *core.ModelInfo) {
 	if e.kind != core.KindOllama || configured(e.cfg, m.Ref.Model).Context > 0 {
 		return
@@ -114,6 +114,9 @@ func (f *Facade) ensureContext(ctx context.Context, e *entry, m *core.ModelInfo)
 	if err != nil {
 		f.log.Debug("ollama show failed", "provider", e.id, "model", m.Ref.Model, "err", err)
 		return
+	}
+	if running, err := oc.Running(ctx); err == nil {
+		s.Served = running[m.Ref.Model]
 	}
 	f.learn(e.id, oc.Info(m.Ref.Model, s))
 	*m = f.resolve(e, m.Ref.Model)

@@ -14,7 +14,7 @@ import (
 // passthrough calls exactly one model with the client's own tools: no Bothy
 // tools, memory, constitution or fallback. It is metered against the token
 // user's daily cap and audited with token counts only.
-func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, a core.Actor, req oaRequest, raw map[string]json.RawMessage) error {
+func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, a core.Actor, req oaRequest, keys v1Keys) error {
 	ref, err := core.ParseModelRef(req.Model)
 	if err != nil {
 		return invalidParam("model", "%v", err)
@@ -26,11 +26,12 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, a core.Acto
 	if err != nil {
 		return err
 	}
+	req.Messages = nil // creq holds what the upstream call needs
 	ctx := r.Context()
 	if err := s.d.Budget.CheckDaily(ctx, a.User); err != nil {
 		return s.v1RunError(err)
 	}
-	if ign := ignoredParams(raw, passthroughHonoured); len(ign) > 0 {
+	if ign := keys.ignored(passthroughHonoured); len(ign) > 0 {
 		w.Header().Set("X-Bothy-Ignored", strings.Join(ign, ","))
 	}
 	id := "chatcmpl-" + requestID() + requestID()

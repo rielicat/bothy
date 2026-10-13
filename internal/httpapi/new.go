@@ -70,7 +70,9 @@ type Server struct {
 	// open streams; tests shorten them.
 	ssePing    time.Duration
 	sseRecheck time.Duration
-	jobs       *jobs // background compactions and MCP installs, one per key
+	jobs       *jobs         // background compactions and MCP installs, one per key
+	v1Large    chan struct{} // slots for /v1 bodies over v1SmallBody
+	v1Wait     time.Duration // how long a large /v1 body waits for a slot
 
 	shutdownOnce sync.Once
 	shutdown     chan struct{} // closed when Serve begins shutting down; ends SSE streams
@@ -102,6 +104,8 @@ func New(d Deps) (*Server, error) {
 		ssePing:    15 * time.Second,
 		sseRecheck: time.Minute,
 		jobs:       newJobs(),
+		v1Large:    make(chan struct{}, v1LargeSlots),
+		v1Wait:     v1LargeWait,
 		shutdown:   make(chan struct{}),
 	}
 	s.routes = s.routeTable()

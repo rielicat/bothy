@@ -264,16 +264,25 @@ var (
 )
 
 func (s *Server) v1ChatCompletions(w http.ResponseWriter, r *http.Request, a core.Actor) error {
-	body, err := io.ReadAll(r.Body)
+	body, release, err := s.readV1Body(r)
+	if errors.Is(err, errV1Busy) {
+		w.Header().Set("Retry-After", strconv.Itoa(max(1, int(s.v1Wait/time.Second))))
+		return s.writeV1(w, r, err)
+	}
 	if err != nil {
 		return err
 	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(body, &raw); err != nil {
-		return s.writeV1(w, r, invalidParam("", "invalid JSON: %v", err))
-	}
+	defer release()
 	var req oaRequest
 	if err := json.Unmarshal(body, &req); err != nil {
+		var se *json.SyntaxError
+		if errors.As(err, &se) {
+			return s.writeV1(w, r, invalidParam("", "invalid JSON: %v", err))
+		}
+		return s.writeV1(w, r, invalidParam("", "invalid request: %v", err))
+	}
+	keys, err := topLevelKeys(body)
+	if err != nil {
 		return s.writeV1(w, r, invalidParam("", "invalid request: %v", err))
 	}
 	if len(req.Messages) == 0 {
@@ -284,7 +293,7 @@ func (s *Server) v1ChatCompletions(w http.ResponseWriter, r *http.Request, a cor
 		if !a.HasScope("chat") {
 			return s.writeV1(w, r, &v1Err{status: http.StatusForbidden, code: "insufficient_scope", msg: "the agent models need a token with the chat scope"})
 		}
-		return s.writeV1(w, r, s.agentCompletion(w, r, a, req, raw))
+		return s.writeV1(w, r, s.agentCompletion(w, r, a, req, keys, release))
 	case strings.Contains(req.Model, "/"):
 		if !a.HasScope("llm") {
 			return s.writeV1(w, r, &v1Err{status: http.StatusForbidden, code: "insufficient_scope", msg: "passthrough models need a token with the llm scope"})
@@ -292,26 +301,10 @@ func (s *Server) v1ChatCompletions(w http.ResponseWriter, r *http.Request, a cor
 		if !s.cfg().API.Passthrough {
 			return s.writeV1(w, r, &v1Err{status: http.StatusNotFound, code: "model_not_found", param: "model", msg: "passthrough is disabled (api.passthrough)"})
 		}
-		return s.writeV1(w, r, s.passthrough(w, r, a, req, raw))
+		return s.writeV1(w, r, s.passthrough(w, r, a, req, keys))
 	}
 	return s.writeV1(w, r, &v1Err{status: http.StatusNotFound, code: "model_not_found", param: "model",
 		msg: fmt.Sprintf("unknown model %q: use bothy, bothy-fast or <provider>/<model>", req.Model)})
-}
-
-func present(raw map[string]json.RawMessage, k string) bool {
-	v, ok := raw[k]
-	return ok && !bytes.Equal(bytes.TrimSpace(v), []byte("null"))
-}
-
-func ignoredParams(raw map[string]json.RawMessage, honoured []string) []string {
-	var out []string
-	for k := range raw {
-		if !slices.Contains(honoured, k) {
-			out = append(out, k)
-		}
-	}
-	sort.Strings(out)
-	return out
 }
 
 func maxOutput(req oaRequest) (int, error) {
@@ -533,16 +526,18 @@ func (q *runQueue) drain() []core.Event {
 }
 
 // agentCompletion maps an OpenAI request onto a Bothy run (SPEC §8.5).
-func (s *Server) agentCompletion(w http.ResponseWriter, r *http.Request, a core.Actor, req oaRequest, raw map[string]json.RawMessage) error {
+// release frees the large-body slot once the request's content has been
+// handed to the runner, before the possibly long run is streamed.
+func (s *Server) agentCompletion(w http.ResponseWriter, r *http.Request, a core.Actor, req oaRequest, keys v1Keys, release func()) error {
 	for _, k := range agentRejected {
-		if present(raw, k) {
+		if keys.set(k) {
 			return unsupported(k)
 		}
 	}
 	if req.N != nil && *req.N > 1 {
 		return unsupported("n")
 	}
-	if v, ok := raw["logprobs"]; ok && bytes.Equal(bytes.TrimSpace(v), []byte("true")) {
+	if keys["logprobs"] == "true" {
 		return unsupported("logprobs")
 	}
 	maxOut, err := maxOutput(req)
@@ -553,22 +548,26 @@ func (s *Server) agentCompletion(w http.ResponseWriter, r *http.Request, a core.
 	if err != nil {
 		return err
 	}
-	last := req.Messages[len(req.Messages)-1]
-	if last.Role != "user" {
+	if req.Messages[len(req.Messages)-1].Role != "user" {
 		return invalidParam("messages", "the last message must have role user")
 	}
 	var instructions []string
 	var history []core.Message
+	var lastContent msgContent
 	for i, m := range req.Messages {
 		mc, err := parseContent(m.Content)
 		if err != nil {
 			return err
 		}
+		// Each raw message is dropped once parsed, so a request's images are
+		// not held twice while the rest of it is handled.
+		req.Messages[i].Content = nil
 		switch m.Role {
 		case "system", "developer":
 			instructions = append(instructions, strings.Join(mc.text, "\n"))
 		case "user", "assistant":
 			if i == len(req.Messages)-1 {
+				lastContent = mc
 				continue
 			}
 			text := strings.Join(mc.text, "\n")
@@ -597,10 +596,6 @@ func (s *Server) agentCompletion(w http.ResponseWriter, r *http.Request, a core.
 	if mapped && s.sessionBusy(sess.ID) {
 		w.Header().Set("Retry-After", "1")
 		return &v1Err{status: http.StatusTooManyRequests, code: "busy", msg: "the session is running another task; retry when it finishes"}
-	}
-	lastContent, err := parseContent(last.Content)
-	if err != nil {
-		return err
 	}
 	var input []core.Part
 	if t := strings.Join(lastContent.text, "\n"); t != "" {
@@ -642,6 +637,7 @@ func (s *Server) agentCompletion(w http.ResponseWriter, r *http.Request, a core.
 		rr.OnApproval = "deny"
 	}
 	res, err := s.d.Runner.Submit(ctx, rr)
+	release()
 	if err != nil {
 		return s.v1RunError(err)
 	}
@@ -656,9 +652,10 @@ func (s *Server) agentCompletion(w http.ResponseWriter, r *http.Request, a core.
 	if mapped {
 		h.Set("X-Bothy-History", "server")
 	}
-	if ign := ignoredParams(raw, agentHonoured); len(ign) > 0 {
+	if ign := keys.ignored(agentHonoured); len(ign) > 0 {
 		h.Set("X-Bothy-Ignored", strings.Join(ign, ","))
 	}
+	req.Messages = nil // not kept for the length of the run
 	ar := &agentRun{s: s, w: w, r: r, a: a, req: req, sess: sess, run: res.Run, q: q,
 		events: r.Header.Get("X-Bothy-Events") == "1", detach: r.Header.Get("X-Bothy-Detach") == "1"}
 	return ar.serve()

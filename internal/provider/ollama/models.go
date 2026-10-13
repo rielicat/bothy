@@ -70,10 +70,31 @@ func (c *Client) Tags(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
-// ShowInfo is what /api/show tells about a model.
+// ShowInfo is what /api/show tells about a model, plus the context /api/ps
+// reports when the model is loaded.
 type ShowInfo struct {
 	Context      int // "<arch>.context_length": the trained maximum
 	Capabilities []string
+	Served       int // context the server allocated for the loaded model; 0 when not loaded
+}
+
+// DefaultWindow caps the window of a model whose context Bothy's config does
+// not set. The trained maximum is often 128K or more, and Ollama allocates
+// the KV cache for whatever num_ctx asks, which small machines cannot hold.
+const DefaultWindow = 16_384
+
+// Window is the context to send as num_ctx for a model config does not size:
+// the trained maximum capped at DefaultWindow, or at the served context when
+// the server already runs the model with more (the operator chose that with
+// OLLAMA_CONTEXT_LENGTH). 0 when neither is known.
+func Window(trained, served int) int {
+	switch {
+	case trained > 0:
+		return min(trained, max(DefaultWindow, served))
+	case served > 0:
+		return served
+	}
+	return 0
 }
 
 // Show calls POST /api/show.
@@ -129,7 +150,7 @@ func (c *Client) Running(ctx context.Context) (map[string]int, error) {
 func (c *Client) Info(model string, s ShowInfo) core.ModelInfo {
 	return core.ModelInfo{
 		Ref:      core.ModelRef{Provider: c.o.ID, Model: model},
-		Context:  s.Context,
+		Context:  Window(s.Context, s.Served),
 		Tools:    len(s.Capabilities) == 0 || slices.Contains(s.Capabilities, "tools"),
 		Vision:   slices.Contains(s.Capabilities, "vision"),
 		Thinking: slices.Contains(s.Capabilities, "thinking"),
@@ -138,12 +159,14 @@ func (c *Client) Info(model string, s ShowInfo) core.ModelInfo {
 	}
 }
 
-// Discover lists the local models with their context and capabilities.
+// Discover lists the local models with their window and capabilities.
 func (c *Client) Discover(ctx context.Context) ([]core.ModelInfo, error) {
 	names, err := c.Tags(ctx)
 	if err != nil {
 		return nil, err
 	}
+	// Best effort: without /api/ps every window is capped at DefaultWindow.
+	served, _ := c.Running(ctx)
 	out := make([]core.ModelInfo, len(names))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 4)
@@ -162,6 +185,7 @@ func (c *Client) Discover(ctx context.Context) ([]core.ModelInfo, error) {
 				out[i] = basicInfo(c.o.ID, name)
 				return
 			}
+			s.Served = served[name]
 			out[i] = c.Info(name, s)
 		}()
 	}

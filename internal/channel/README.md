@@ -5,15 +5,20 @@ adapters cmd/bothy hands it, starting, stopping and restarting them as
 `channels.*` config changes (hot reload). Every inbound message goes through
 the SPEC §5.1 pipeline: dedup, identity, the unknown-sender flow (pairing via
 `/pair` or `/start CODE`, one notice a day, never a model call; unknown
-senders are rate-limited silently), space gating and provenance, then the
+senders are rate-limited silently, and admins get at most three DMs an hour
+about them while the web banner counts every one), space gating and provenance, then the
 sender rate limit (after gating, so the bot never answers in a group it must
 stay silent in), the command fast path, attachment download into
 `<work>/ws/<workspace>/.bothy/in/<msgid>/`, then `Runner.Submit`.
 `StreamTo` streams a run back to a chat (typing, a "Thinking…" placeholder
 with a Stop button, edits no faster than the channel's `EditMinInterval`,
-splits at `MaxLen` without breaking code fences, redaction always, status
+splits at `MaxLen` without breaking code fences, redaction always (model
+text enters the reply only redacted and once no later delta can complete a
+secret in it, so neither a live edit nor a split shows part of one), status
 line included, and link neutralization once the session is Exposed,
-re-checked after every tool result). The hub delivers approval cards to the
+re-checked after every tool result: scheme URLs, markdown and autolinks, bare
+domains and IPv4 addresses, also when only rendering joins them, as in
+`evil\.com` or `evil**.**com`). The hub delivers approval cards to the
 approver's DM (never a group), truncating cards that do not fit to Deny plus
 a web link, and edits them to the outcome.
 It also implements `Messenger`, `PreferredChat`, `DeepLink`, `Test` and the

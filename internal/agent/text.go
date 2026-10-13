@@ -89,7 +89,6 @@ func escapeSection(content, tag string) string {
 
 var (
 	urlRE      = regexp.MustCompile(`(?i)\b(?:https?|ftp)://[^\s<>"'` + "`" + `]+`)
-	wwwRE      = regexp.MustCompile(`(?i)\bwww\.[^\s<>"'` + "`" + `]+`)
 	urlTrimSet = ".,;:!?)]}'\""
 )
 
@@ -109,34 +108,6 @@ func extractURLs(text string) []string {
 		}
 	}
 	return out
-}
-
-// neutralizeLinks defangs links for exposed sessions: hxxps://evil[.]com/…
-func neutralizeLinks(s string) string {
-	s = urlRE.ReplaceAllStringFunc(s, func(u string) string {
-		i := strings.Index(u, "://")
-		scheme, rest := u[:i], u[i+3:]
-		switch strings.ToLower(scheme) {
-		case "http":
-			scheme = "hxxp"
-		case "https":
-			scheme = "hxxps"
-		default:
-			scheme = "fxp"
-		}
-		end := strings.IndexAny(rest, "/?#")
-		if end < 0 {
-			end = len(rest)
-		}
-		return scheme + "://" + strings.ReplaceAll(rest[:end], ".", "[.]") + rest[end:]
-	})
-	return wwwRE.ReplaceAllStringFunc(s, func(u string) string {
-		end := strings.IndexAny(u, "/?#")
-		if end < 0 {
-			end = len(u)
-		}
-		return strings.ReplaceAll(u[:end], ".", "[.]") + u[end:]
-	})
 }
 
 var standingRE = []*regexp.Regexp{

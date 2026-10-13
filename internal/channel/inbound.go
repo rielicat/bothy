@@ -195,15 +195,59 @@ func helloText(name string) string {
 	return "Hi " + escapeMD(name) + "! I'm your Bothy assistant. Write to me here any time; /help lists the commands."
 }
 
+const (
+	// askDMs bounds the admin DMs about unknown senders per askWindow: each
+	// throwaway account gets one notice a day, but nothing else stops a
+	// hundred accounts from becoming a hundred DMs. The banner still counts
+	// every one.
+	askDMs    = 3
+	askWindow = time.Hour
+)
+
+// askLimiter counts unknown senders in fixed windows of askWindow.
+type askLimiter struct {
+	start time.Time
+	asked int // senders noticed in this window
+	dms   int // admin DMs sent in this window
+	held  int // senders noticed without a DM since the last one
+}
+
+// note records one more unknown sender. It reports how many asked in this
+// window, whether admins get a DM about this one and how many held-back
+// senders that DM should mention.
+func (l *askLimiter) note(now time.Time) (asked int, dm bool, held int) {
+	if now.Sub(l.start) >= askWindow {
+		l.start, l.asked, l.dms = now, 0, 0
+	}
+	l.asked++
+	if l.dms >= askDMs {
+		l.held++
+		return l.asked, false, 0
+	}
+	l.dms++
+	held, l.held = l.held, 0
+	return l.asked, true, held
+}
+
 // notifyUnknownSender tells admins (web banner and their preferred DM) that
 // someone asked for access. The approval code is deliberately not included:
 // the admin has to get it from the person, out of band.
 func (h *Hub) notifyUnknownSender(ctx context.Context, channel string, ident core.ChannelIdentity) {
 	who := senderLabel(ident)
+	h.mu.Lock()
+	asked, dm, held := h.asks.note(h.clock.Now())
+	h.mu.Unlock()
+	banner := who + " on " + channelTitle(channel) + " asked for access. Approve the code they were given in Settings → People."
+	if asked > 1 {
+		banner = fmt.Sprintf("%d people asked for access in the past hour, most recently %s on %s. Approve the codes they were given in Settings → People.",
+			asked, who, channelTitle(channel))
+	}
 	h.d.Bus.Publish(core.Event{Type: core.EvBanner, Data: core.BannerData{
-		Level: "warn", Code: "unknown_sender", Action: "/settings/people",
-		Text: who + " on " + channelTitle(channel) + " asked for access. Approve the code they were given in Settings → People.",
+		Level: "warn", Code: "unknown_sender", Action: "/settings/people", Text: banner,
 	}})
+	if !dm {
+		return
+	}
 	users, err := h.d.Store.Users().List(ctx)
 	if err != nil {
 		h.log.Error("channel: listing admins failed", "err", err)
@@ -211,6 +255,9 @@ func (h *Hub) notifyUnknownSender(ctx context.Context, channel string, ident cor
 	}
 	text := "Someone new wrote to me on " + channelTitle(channel) + ": " + inert(revealInvisible(who)) +
 		". If you know them, approve the code they received in Settings → People."
+	if held > 0 {
+		text += fmt.Sprintf(" %d more asked since my last message about this; Settings → People lists everyone.", held)
+	}
 	buttons := h.webButton("Open Settings → People", "/settings/people")
 	for _, u := range users {
 		if !u.Role.IsAdmin() || u.Disabled {
