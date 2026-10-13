@@ -707,7 +707,14 @@ func (r *Runner) finish(rs *runState, end *runEnd) {
 	} else {
 		rs.publishFinished()
 	}
-	if end.notice != "" {
+	switch {
+	case end.notice == "":
+	case end.status == core.RunInterrupted && rs.sess != nil && r.sendChat(ctx, rs.sess.Chat, end.notice):
+		// Shutdown stops the hub's sinks together with the runner, and boot
+		// recovery only sees runs still open, so the chat is told directly,
+		// as boot recovery does; the sink would only repeat it.
+		r.notice(ctx, rs.req.Session, rs.req.Principal, rs.id, end.notice, nil)
+	default:
 		rs.notice(ctx, end.notice)
 	}
 	if end.status == core.RunParked {

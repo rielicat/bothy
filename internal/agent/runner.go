@@ -182,6 +182,25 @@ func coalescible(req core.RunRequest) bool {
 	return req.Trigger == core.TrigMessage && req.Chat != nil && req.Chat.Kind == core.ChatDM
 }
 
+// sendChat delivers a notice to a channel chat through the hub, waiting for
+// it, and reports whether it went out.
+func (r *Runner) sendChat(ctx context.Context, chat *core.ChatRef, text string) bool {
+	if chat == nil || !channelOrigins[chat.Channel] {
+		return false
+	}
+	h := r.hubOrNil()
+	if h == nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), chatNoticeWithin)
+	defer cancel()
+	if _, err := h.Send(ctx, *chat, text); err != nil {
+		r.log.Warn("chat notice", "chat", chat.Key(), "err", err)
+		return false
+	}
+	return true
+}
+
 // Stop cancels the active run, SIGKILLs the session box, cancels its pending
 // approvals and clears its queue. It never waits on the run goroutine.
 func (r *Runner) Stop(ctx context.Context, v core.Viewer, s core.SessionID, by core.UserID) (bool, error) {

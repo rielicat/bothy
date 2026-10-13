@@ -56,6 +56,9 @@ const (
 	drainTimeout   = 10 * time.Second
 	shutdownWait   = 5 * time.Second
 	stopKillWithin = 2 * time.Second
+	// chatNoticeWithin bounds a notice sent straight to a chat through the
+	// hub's Messenger, which works without the hub's intake (as at boot).
+	chatNoticeWithin = 5 * time.Second
 )
 
 var (

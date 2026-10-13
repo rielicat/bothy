@@ -238,15 +238,63 @@ func (w *worker) retireForShutdown() {
 	w.r.dropForShutdown(jobs)
 }
 
+const droppedAtShutdown = "Bothy restarted before it got to this message. Send 'retry' to continue."
+
 // dropForShutdown disposes of jobs no worker will run. A waiting /compact
 // gets an error instead of blocking its caller; queued resumes keep their
-// row "queued" and become interrupted at the next boot.
+// row "queued" and become interrupted at the next boot; accepted messages
+// are kept (see keepDroppedTurn).
 func (r *Runner) dropForShutdown(jobs []job) {
 	for _, j := range jobs {
-		if c, ok := j.(*compactJob); ok {
-			c.done <- errShutdown
+		switch j := j.(type) {
+		case *compactJob:
+			j.done <- errShutdown
+		case *turnJob:
+			r.keepDroppedTurn(context.Background(), j)
 		}
 	}
+}
+
+// keepDroppedTurn saves a turn that was accepted (queued, or waiting in its
+// coalescing window) but never ran: its input has no run row and is stored
+// only when a turn starts, and the hub has already deduplicated the platform
+// message, so nothing would bring it back. The input goes into the history
+// with its taint, a notice says it was not answered, its chat is told
+// directly (its sink may already be stopped), and its sink is finished.
+func (r *Runner) keepDroppedTurn(ctx context.Context, j *turnJob) {
+	req := j.reqs[0]
+	if parts := inputsOf(j.reqs); len(parts) > 0 {
+		var legs core.Taint
+		for _, q := range j.reqs {
+			if q.Provenance == core.ProvUntrusted {
+				legs |= core.TaintUntrusted
+			}
+		}
+		if _, err := r.recordTaint(ctx, req.Session, 0, legs); err != nil {
+			r.log.Error("keep a message dropped at shutdown", "session", req.Session, "err", err)
+			return
+		}
+		m := &core.Message{Session: req.Session, Role: core.MsgUser, Parts: parts, Provenance: req.Provenance, Sender: req.Sender}
+		m.Tokens = r.d.LLM.Estimate(plainText(parts), core.ModelRef{})
+		if err := r.appendMessage(ctx, req.Principal, m, nil); err != nil {
+			r.log.Error("keep a message dropped at shutdown", "session", req.Session, "err", err)
+		}
+		r.recordURLs(ctx, req.Session, req.Provenance, parts)
+		if untrustedFiles(j.reqs) {
+			if p, err := r.d.Store.Principals().Get(ctx, core.SystemViewer(), req.Principal); err == nil {
+				r.markWorkspaceUntrusted(ctx, p, "attachments from someone other than the user")
+			}
+		}
+	}
+	r.notice(ctx, req.Session, req.Principal, "", droppedAtShutdown, nil)
+	told := map[string]bool{}
+	for _, q := range j.reqs {
+		if q.Chat != nil && !told[q.Chat.Key()] {
+			told[q.Chat.Key()] = true
+			r.sendChat(ctx, q.Chat, droppedAtShutdown)
+		}
+	}
+	r.finishQueued(j, nil, core.RunInterrupted, "")
 }
 
 // forgetLocked drops a retiring worker and its session's per-process state,

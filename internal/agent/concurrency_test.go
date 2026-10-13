@@ -566,6 +566,66 @@ func TestShutdownCancelsTheApprovalOfAnInterruptedRun(t *testing.T) {
 	})
 }
 
+// TestShutdownTellsChatsAndKeepsQueuedMessages: a graceful restart
+// interrupts a Telegram run and drops a message queued behind it. Boot
+// recovery only sees runs still open, and the queued message has no row at
+// all, so both must be dealt with before the hub stops: the chat hears
+// about each, the queued input stays in the history and its live "Queued…"
+// message is finished.
+func TestShutdownTellsChatsAndKeepsQueuedMessages(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{cfg: func(c *config.Config) { c.Agent.BusyMode = "queue" },
+			steps: []fakes.LLMStep{{Text: []string{"thinking"}, Block: make(chan struct{})}}})
+		chat := &core.ChatRef{Channel: "telegram", ChatID: "77", Kind: core.ChatDM}
+		h.sess = h.newSession("telegram", chat)
+		ctx, cancel := context.WithCancel(context.Background())
+		if err := h.r.Recover(ctx); err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan error)
+		go func() { done <- h.r.Run(ctx) }()
+		first := h.req("tell me a long story")
+		first.Chat = chat
+		res, err := h.r.Submit(h.ctx, first)
+		if err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		queuedSink := &fakes.Sink{}
+		second := h.req("QUEUED-SECOND and then summarize it")
+		second.Chat, second.Sink = chat, queuedSink
+		if got, err := h.r.Submit(h.ctx, second); err != nil || !got.Queued {
+			t.Fatalf("second = %+v %v", got, err)
+		}
+		cancel()
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+		if st := h.run(res.Run).Status; st != core.RunInterrupted {
+			t.Fatalf("first run = %s", st)
+		}
+		sent := h.hub.Messages()
+		for _, want := range []string{"I was restarted mid-task. Send 'retry' to continue.", droppedAtShutdown} {
+			if !slicesContains(sent, chat.Key()+"|"+want) {
+				t.Errorf("chat never heard %q: %v", want, sent)
+			}
+		}
+		var kept bool
+		for _, m := range h.messages() {
+			kept = kept || m.Role == core.MsgUser && strings.Contains(m.PlainText(), "QUEUED-SECOND")
+		}
+		if !kept {
+			t.Error("the queued message is gone from the history")
+		}
+		if n := h.notices(); !slicesContains(n, droppedAtShutdown) || strings.Count(strings.Join(n, "\n"), "restarted mid-task") != 1 {
+			t.Errorf("notices = %q", n)
+		}
+		if d, ok := sinkFinished(queuedSink); !ok || d.Status != core.RunInterrupted {
+			t.Errorf("the queued message's sink = %v", queuedSink.Types())
+		}
+	})
+}
+
 func TestRetiredWorkerForgetsSessionState(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t, opts{steps: []fakes.LLMStep{{Text: []string{"hi"}}}})
