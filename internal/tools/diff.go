@@ -40,7 +40,42 @@ func unifiedDiff(oldName, newName string, old, new []byte) string {
 		return header + "Binary files differ\n"
 	}
 	ops := diffLines(splitLines(string(old)), splitLines(string(new)))
-	return capText(header+formatHunks(ops), maxDiff)
+	// Only maxDiff bytes are ever shown, so formatting stops storing there:
+	// rewriting a 4 MB file must not build a 4 MB diff text first.
+	out := &cappedText{limit: maxDiff}
+	out.WriteString(header)
+	formatHunks(out, ops)
+	return out.result()
+}
+
+// cappedText keeps the first limit bytes written and counts the rest.
+type cappedText struct {
+	b     strings.Builder
+	limit int
+	total int
+}
+
+func (c *cappedText) WriteString(s string) {
+	c.total += len(s)
+	if room := c.limit - c.b.Len(); room > 0 {
+		c.b.WriteString(s[:min(len(s), room)])
+	}
+}
+
+func (c *cappedText) writeByte(b byte) {
+	c.total++
+	if c.b.Len() < c.limit {
+		_ = c.b.WriteByte(b)
+	}
+}
+
+// result is what capText would return for the whole text.
+func (c *cappedText) result() string {
+	s := c.b.String()
+	if c.total <= c.limit {
+		return s
+	}
+	return capCut(s, c.limit, c.total)
 }
 
 func splitLines(s string) []string {
@@ -63,22 +98,29 @@ func diffLines(a, b []string) []diffOp {
 	for suf < len(a)-pre && suf < len(b)-pre && a[len(a)-1-suf] == b[len(b)-1-suf] {
 		suf++
 	}
-	var ops []diffOp
+	ma, mb := a[pre:len(a)-suf], b[pre:len(b)-suf]
+	var mid []diffOp
+	ok := false
+	// The edit distance is at least the length difference, so a search
+	// that cannot finish within maxEdit is not started (its trace alone
+	// would hold maxEdit² entries).
+	if len(ma) > 0 && len(mb) > 0 && max(len(ma)-len(mb), len(mb)-len(ma)) <= maxEdit {
+		mid, ok = myers(ma, mb)
+	}
+	ops := make([]diffOp, 0, len(a)+len(b)-pre-suf)
 	for _, l := range a[:pre] {
 		ops = append(ops, diffOp{opEqual, l})
 	}
-	ma, mb := a[pre:len(a)-suf], b[pre:len(b)-suf]
-	mid, ok := myers(ma, mb)
-	if !ok {
-		mid = mid[:0]
+	if ok {
+		ops = append(ops, mid...)
+	} else {
 		for _, l := range ma {
-			mid = append(mid, diffOp{opDel, l})
+			ops = append(ops, diffOp{opDel, l})
 		}
 		for _, l := range mb {
-			mid = append(mid, diffOp{opIns, l})
+			ops = append(ops, diffOp{opIns, l})
 		}
 	}
-	ops = append(ops, mid...)
 	for _, l := range a[len(a)-suf:] {
 		ops = append(ops, diffOp{opEqual, l})
 	}
@@ -95,9 +137,13 @@ func myers(a, b []string) ([]diffOp, bool) {
 	maxD := min(n+m, maxEdit)
 	off := maxD + 1
 	v := make([]int, 2*maxD+3)
-	var trace [][]int
+	var trace [][]int32 // x fits: inputs are at most maxDiffInput lines
 	for d := 0; d <= maxD; d++ {
-		trace = append(trace, append([]int(nil), v[off-d:off+d+1]...))
+		snap := make([]int32, 2*d+1)
+		for i, x := range v[off-d : off+d+1] {
+			snap[i] = int32(x)
+		}
+		trace = append(trace, snap)
 		for k := -d; k <= d; k += 2 {
 			var x int
 			if k == -d || k != d && v[off+k-1] < v[off+k+1] {
@@ -119,12 +165,12 @@ func myers(a, b []string) ([]diffOp, bool) {
 	return nil, false
 }
 
-func backtrack(trace [][]int, a, b []string, d int) []diffOp {
+func backtrack(trace [][]int32, a, b []string, d int) []diffOp {
 	x, y := len(a), len(b)
 	var rev []diffOp
 	for ; d > 0; d-- {
 		vs := trace[d] // V after step d-1, indexed k+d
-		at := func(k int) int { return vs[k+d] }
+		at := func(k int) int { return int(vs[k+d]) }
 		k := x - y
 		var pk int
 		if k == -d || k != d && at(k-1) < at(k+1) {
@@ -159,8 +205,7 @@ func backtrack(trace [][]int, a, b []string, d int) []diffOp {
 	return ops
 }
 
-func formatHunks(ops []diffOp) string {
-	var b strings.Builder
+func formatHunks(b *cappedText, ops []diffOp) {
 	oldLine, newLine := 1, 1
 	for i := 0; i < len(ops); {
 		if ops[i].kind == opEqual {
@@ -196,9 +241,9 @@ func formatHunks(ops []diffOp) string {
 				nCount++
 			}
 		}
-		fmt.Fprintf(&b, "@@ -%s +%s @@\n", hunkRange(oStart, oCount), hunkRange(nStart, nCount))
+		b.WriteString("@@ -" + hunkRange(oStart, oCount) + " +" + hunkRange(nStart, nCount) + " @@\n")
 		for _, op := range ops[start:end] {
-			b.WriteByte(byte(op.kind))
+			b.writeByte(byte(op.kind))
 			b.WriteString(op.line)
 			if !strings.HasSuffix(op.line, "\n") {
 				b.WriteString("\n\\ No newline at end of file\n")
@@ -214,7 +259,6 @@ func formatHunks(ops []diffOp) string {
 		}
 		i = end
 	}
-	return b.String()
 }
 
 func hunkRange(start, count int) string {
@@ -227,13 +271,11 @@ func hunkRange(start, count int) string {
 	return fmt.Sprintf("%d,%d", start, count)
 }
 
-// capText cuts s to at most n bytes at a line boundary, with a marker.
-func capText(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	marker := fmt.Sprintf("… diff truncated (%s total)\n", humanSize(int64(len(s))))
-	cut := s[:max(n-len(marker), 0)]
+// capCut cuts s, the first bytes of a total-byte text, to at most n bytes
+// at a line boundary, with a marker.
+func capCut(s string, n, total int) string {
+	marker := fmt.Sprintf("… diff truncated (%s total)\n", humanSize(int64(total)))
+	cut := s[:min(max(n-len(marker), 0), len(s))]
 	if i := strings.LastIndexByte(cut, '\n'); i >= 0 {
 		cut = cut[:i+1]
 	}

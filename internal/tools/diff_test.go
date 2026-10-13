@@ -2,6 +2,7 @@ package tools
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -125,5 +126,42 @@ func TestUnifiedDiffLimits(t *testing.T) {
 	large := strings.Repeat("x", maxDiffInput)
 	if got := unifiedDiff("a", "b", []byte(large), []byte("y")); !strings.Contains(got, "diff omitted") {
 		t.Errorf("large input: %q", got)
+	}
+}
+
+// TestUnifiedDiffMemory bounds what one diff allocates: Plan computes it for
+// every fs_write and fs_delete, auto-allowed ones included, under the
+// gateway's 48 MiB memory limit.
+func TestUnifiedDiffMemory(t *testing.T) {
+	var old strings.Builder
+	for i := 0; old.Len() < maxDiffInput-40<<10; i++ {
+		fmt.Fprintf(&old, "%08d,some,data,row,with,several,columns,%d\n", i, i*7)
+	}
+	o := []byte(old.String())
+	lines := splitLines(old.String())
+	lines = lines[:len(lines)/2]
+	half := []byte(strings.Join(lines, ""))
+	for i := 0; i < len(lines); i += len(lines) / 500 {
+		lines[i] = "changed\n"
+	}
+	scattered := []byte(strings.Join(lines, ""))
+	cases := map[string][2][]byte{
+		"overwrite": {o, []byte(strings.Repeat("fresh content line\n", 30<<10/19))},
+		"delete":    {o, nil},
+		"create":    {nil, o},
+		"scattered": {half, scattered},
+	}
+	for name, c := range cases {
+		var before, after runtime.MemStats
+		runtime.GC()
+		runtime.ReadMemStats(&before)
+		d := unifiedDiff("a", "b", c[0], c[1])
+		runtime.ReadMemStats(&after)
+		if got := after.TotalAlloc - before.TotalAlloc; got > 16<<20 {
+			t.Errorf("%s: one diff allocated %d MB", name, got>>20)
+		}
+		if len(d) > maxDiff || !strings.Contains(d, "diff truncated") {
+			t.Errorf("%s: %d bytes, truncated %v", name, len(d), strings.Contains(d, "diff truncated"))
+		}
 	}
 }
