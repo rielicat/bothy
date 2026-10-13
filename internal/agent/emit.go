@@ -28,7 +28,7 @@ func (rs *runState) publish(typ core.EventType, data core.EventData) core.Event 
 	defer rs.emitMu.Unlock()
 	sinkData := data
 	if st, ok := data.(core.RunStatusData); ok && rs.exposed && st.Detail != "" {
-		st.Detail = neutralizeLinks(st.Detail)
+		st.Detail = core.NeutralizeLinks(st.Detail)
 		sinkData = st
 	}
 	return rs.publishLocked(typ, data, sinkData)
@@ -83,11 +83,11 @@ type streamer struct {
 	buf     strings.Builder
 	timer   *time.Timer
 	pending string // raw text held back for the next flush
-	links   linkFilter
+	links   func(chunk string) string
 }
 
 func (rs *runState) newStreamer(typ core.EventType, toSink bool) *streamer {
-	return &streamer{rs: rs, typ: typ, toSink: toSink}
+	return &streamer{rs: rs, typ: typ, toSink: toSink, links: core.NewLinkFilter()}
 }
 
 func (s *streamer) add(text string) {
@@ -140,7 +140,7 @@ func (s *streamer) flushLocked(final bool) {
 	if s.toSink {
 		// The filter sees every chunk, so its code-block state is right
 		// when the session turns exposed.
-		sinkText, neutral := text, s.links.apply(text)
+		sinkText, neutral := text, s.links(text)
 		if rs.exposed {
 			sinkText = neutral
 		}

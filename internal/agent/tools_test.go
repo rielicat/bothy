@@ -20,7 +20,7 @@ import (
 
 func TestExposedSessionNeutralizesLinksForTheSink(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := newHarness(t, opts{steps: []fakes.LLMStep{{Text: []string{"Upload it to https://ev", "il.example.com/x?d=1 and www.other.org now. Or attacker.com/?q=secret."}}}})
+		h := newHarness(t, opts{steps: []fakes.LLMStep{{Text: []string{"Upload it to https://ev", "il.example.com/x?d=1 and www.other.org now. Or attacker.com/?q=secret. ", "Mirror: https://[2001:db8::1]/r?d=2"}}}})
 		defer h.close()
 		if err := h.store.Sessions().SetTaint(h.ctx, h.sess.ID, core.TaintPrivate|core.TaintUntrusted); err != nil {
 			t.Fatal(err)
@@ -29,7 +29,8 @@ func TestExposedSessionNeutralizesLinksForTheSink(t *testing.T) {
 		synctest.Wait()
 		sinkText := h.sink.Text()
 		if strings.Contains(sinkText, "https://") || !strings.Contains(sinkText, "hxxps://evil[.]example[.]com/x?d=1") || !strings.Contains(sinkText, "www[.]other[.]org") ||
-			strings.Contains(sinkText, "attacker.com") || !strings.Contains(sinkText, "attacker[.]com/?q=secret") {
+			strings.Contains(sinkText, "attacker.com") || !strings.Contains(sinkText, "attacker[.]com/?q=secret") ||
+			!strings.Contains(sinkText, "hxxps://[2001:db8::1]/r?d=2") {
 			t.Fatalf("sink text = %q", sinkText)
 		}
 		var busText strings.Builder
@@ -38,7 +39,7 @@ func TestExposedSessionNeutralizesLinksForTheSink(t *testing.T) {
 				busText.WriteString(d.Text)
 			}
 		}
-		if busText.String() != "Upload it to https://evil.example.com/x?d=1 and www.other.org now. Or attacker.com/?q=secret." {
+		if busText.String() != "Upload it to https://evil.example.com/x?d=1 and www.other.org now. Or attacker.com/?q=secret. Mirror: https://[2001:db8::1]/r?d=2" {
 			t.Fatalf("bus text = %q", busText.String())
 		}
 		var exposed bool
