@@ -1,3 +1,4 @@
+import { untrack } from 'svelte';
 import { api, errorText } from '../../lib/api/client';
 import type {
   Approval,
@@ -63,16 +64,22 @@ export class Conversation {
     return `/api/sessions/${this.#enc}`;
   }
 
+  // Also the resync handler: what the server says is pending replaces the
+  // local list, so a card resolved while events were missed loses its
+  // buttons. Only cards that arrived by event during the fetch are kept,
+  // since the snapshot may predate them.
   async load() {
     this.error = '';
+    // untracked: an effect calls load(), and load() rewrites this list.
+    const before = untrack(() => new Set(this.approvals.map((a) => a.id)));
     try {
       const [d, page] = await Promise.all([api.get<SessionDetail>(this.base), api.get<MessagePage>(`${this.base}/messages?limit=60`)]);
       this.detail = d;
       this.messages = defined(page.messages);
       this.hasMore = page.has_more;
-      const seen = new Map(this.approvals.map((a) => [a.id, a]));
-      for (const a of defined(d.pending_approvals)) seen.set(a.id, a);
-      this.approvals = [...seen.values()];
+      const pending = defined(d.pending_approvals);
+      const listed = new Set(pending.map((a) => a.id));
+      this.approvals = [...pending, ...this.approvals.filter((a) => !before.has(a.id) && !listed.has(a.id))];
       if (d.active && this.live?.id !== d.active.run_id) {
         this.live = {
           id: d.active.run_id,
@@ -95,7 +102,20 @@ export class Conversation {
   async loadEarlier() {
     const first = this.messages[0];
     if (!first) return;
-    const page = await api.get<MessagePage>(`${this.base}/messages?before=${first.seq}&limit=60`);
+    await this.#earlier(first.seq, 60);
+  }
+
+  // Pages back until message seq is loaded (a search hit), in pages large
+  // enough to get there in one request when the server allows it.
+  async loadUntil(seq: number) {
+    for (let first = this.messages[0]; first && first.seq > seq && this.hasMore; first = this.messages[0]) {
+      await this.#earlier(first.seq, Math.min(500, Math.max(60, first.seq - seq + 10)));
+      if (this.messages[0]?.seq === first.seq) return;
+    }
+  }
+
+  async #earlier(before: number, limit: number) {
+    const page = await api.get<MessagePage>(`${this.base}/messages?before=${before}&limit=${limit}`);
     const have = new Set(this.messages.map((m) => m.id));
     this.messages = [...defined(page.messages).filter((m) => !have.has(m.id)), ...this.messages];
     this.hasMore = page.has_more;

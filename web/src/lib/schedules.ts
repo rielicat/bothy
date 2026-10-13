@@ -35,3 +35,24 @@ export function timezones(): string[] {
 export function localZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 }
+
+// The wall-clock time of d in tz as YYYY-MM-DDTHH:MM, which is what a
+// datetime-local input holds and what the server reads in the schedule's tz.
+export function wallClock(d: Date, tz: string): string {
+  try {
+    const f = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const p = Object.fromEntries(f.formatToParts(d).map((x) => [x.type, x.value]));
+    return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+  } catch {
+    // a zone the browser does not know (still being typed): show UTC
+    return d.toISOString().slice(0, 16);
+  }
+}
+
+// A saved once spec is RFC 3339 with an offset; the form edits it as
+// wall-clock time in the schedule's tz.
+export function onceInput(spec: string, tz: string): string {
+  if (!/(Z|[+-]\d\d:\d\d)$/i.test(spec)) return spec;
+  const d = new Date(spec);
+  return Number.isNaN(d.getTime()) ? spec : wallClock(d, tz);
+}

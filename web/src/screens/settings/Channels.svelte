@@ -54,12 +54,21 @@
     }
   }
 
-  async function patchSpace(s: Space, body: Record<string, unknown>) {
+  // A refused change leaves the bound value as it was, so Svelte would not
+  // reset the control the user just flipped; put it back by hand.
+  async function patchSpace(s: Space, body: Record<string, unknown>, el: HTMLInputElement | HTMLSelectElement, was: boolean | string) {
     try {
       Object.assign(s, await api.patch<Space>(`/api/spaces/${encodeURIComponent(s.principal_id)}`, body));
     } catch (e) {
+      if (el instanceof HTMLInputElement) el.checked = was as boolean;
+      else el.value = was as string;
       toasts.error(e);
     }
+  }
+
+  async function setChannel(n: string, box: HTMLInputElement) {
+    const path = `channels.${n}.enabled`;
+    if (await config.set({ [path]: box.checked })) box.checked = config.flag(path);
   }
 
   const idPath = (i: ChannelIdentity) => `/api/identities/${encodeURIComponent(i.channel)}/${encodeURIComponent(i.external_id)}`;
@@ -93,7 +102,7 @@
             <p class="text-xs text-muted">{st?.detail || (st ? `${st.state} · since ${ago(st.since)}` : 'not configured')}</p>
           </div>
           {#if st}<span class="chip {st.state === 'connected' ? 'chip-ok' : st.state === 'auth_failed' ? 'chip-bad' : st.state === 'disabled' ? '' : 'chip-warn'}">{st.state.replace('_', ' ')}</span>{/if}
-          <input type="checkbox" class="switch" aria-label="Enable {channelName[n]}" checked={config.flag(`channels.${n}.enabled`)} onchange={(e) => config.set({ [`channels.${n}.enabled`]: e.currentTarget.checked })} />
+          <input type="checkbox" class="switch" aria-label="Enable {channelName[n]}" checked={config.flag(`channels.${n}.enabled`)} onchange={(e) => setChannel(n, e.currentTarget)} />
           {#if st?.enabled}<button type="button" class="btn btn-sm" onclick={() => test(n)}>Test</button>{/if}
           <button type="button" class="btn btn-sm" aria-expanded={open === n} onclick={() => (open = open === n ? '' : n)}>{open === n ? 'Close' : 'Set up'}</button>
         </div>
@@ -143,11 +152,11 @@
           <p class="font-medium">{s.title}</p>
           <p class="text-xs text-muted">{channelName[s.chat.channel] ?? s.chat.channel} · {s.kind}</p>
         </div>
-        <label class="flex items-center gap-2"><input type="checkbox" class="switch" checked={s.enabled} onchange={(e) => patchSpace(s, { enabled: e.currentTarget.checked })} />On</label>
-        <label class="flex items-center gap-2"><input type="checkbox" class="switch" checked={s.mention_only} onchange={(e) => patchSpace(s, { mention_only: e.currentTarget.checked })} />Only when mentioned</label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="switch" checked={s.enabled} onchange={(e) => patchSpace(s, { enabled: e.currentTarget.checked }, e.currentTarget, s.enabled)} />On</label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="switch" checked={s.mention_only} onchange={(e) => patchSpace(s, { mention_only: e.currentTarget.checked }, e.currentTarget, s.mention_only)} />Only when mentioned</label>
         {#if session.isAdmin}
           {@const p = session.principals.find((x) => x.id === s.principal_id)}
-          <select class="input h-8 w-auto text-xs" aria-label="Tools for {s.title}" value={p?.tool_profile ?? 'restricted'} onchange={(e) => patchSpace(s, { tool_profile: e.currentTarget.value })}>
+          <select class="input h-8 w-auto text-xs" aria-label="Tools for {s.title}" value={p?.tool_profile ?? 'restricted'} onchange={(e) => patchSpace(s, { tool_profile: e.currentTarget.value }, e.currentTarget, p?.tool_profile ?? 'restricted')}>
             <option value="restricted">Read-only tools</option>
             <option value="standard">Normal tools (asks you)</option>
           </select>

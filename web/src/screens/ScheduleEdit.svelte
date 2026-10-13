@@ -8,7 +8,7 @@
   import { risk, statusOf } from '../lib/labels';
   import { router } from '../lib/router.svelte';
   import { hostPort } from '../lib/grants';
-  import { cronPresets, localZone, saveSchedule, scheduleGrants, timezones, ZERO } from '../lib/schedules';
+  import { cronPresets, localZone, onceInput, saveSchedule, scheduleGrants, timezones, wallClock, ZERO } from '../lib/schedules';
   import { session } from '../lib/stores/session.svelte';
   import { toasts } from '../lib/stores/ui.svelte';
 
@@ -69,7 +69,7 @@
       api.get<List<Run>>(`/api/schedules/${encodeURIComponent(id)}/runs?limit=20`),
     ])
       .then(([sc, gr, rn]) => {
-        s = sc;
+        s = forForm(sc);
         [ahFrom, ahTo] = (sc.active_hours ?? '').split('-');
         grants = gr.map((x) => ({ ...x, keep: true }));
         runs = rn.items ?? [];
@@ -113,8 +113,10 @@
   function setKind(k: ScheduleKind) {
     if (!s || s.kind === k) return;
     s.kind = k;
-    s.spec = k === 'cron' ? '0 8 * * *' : k === 'heartbeat' ? '30m' : new Date(Date.now() + 3600_000).toISOString().slice(0, 16);
+    s.spec = k === 'cron' ? '0 8 * * *' : k === 'heartbeat' ? '30m' : wallClock(new Date(Date.now() + 3600_000), s.tz);
   }
+
+  const forForm = (sc: Schedule): Schedule => (sc.kind === 'once' ? { ...sc, spec: onceInput(sc.spec, sc.tz) } : sc);
 
   function addGrant() {
     if (!s) return;
@@ -152,7 +154,7 @@
       const out = await saveSchedule($state.snapshot(s), keep);
       toasts.ok(isNew ? 'Schedule created.' : 'Schedule saved.');
       if (isNew) router.navigate(`/schedules/${encodeURIComponent(out.id)}`, { replace: true });
-      else s = out;
+      else s = forForm(out);
     } catch (err) {
       toasts.error(err);
     } finally {

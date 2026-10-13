@@ -22,12 +22,16 @@
     void load();
   });
 
-  async function setEnabled(s: SkillMeta, enabled: boolean) {
+  async function setEnabled(s: SkillMeta, box: HTMLInputElement) {
+    const enabled = box.checked;
     try {
       // Enabling names the hash shown here, so files rescanned since are refused.
       Object.assign(s, await api.patch<SkillMeta>(`/api/skills/${encodeURIComponent(s.name)}`, { enabled, hash: enabled ? s.hash : undefined }));
     } catch (e) {
+      // s.status did not change, so Svelte would leave the box as clicked.
+      box.checked = s.status === 'enabled';
       toasts.error(e);
+      void load();
     }
   }
 
@@ -56,7 +60,7 @@
   {#each skills as s (s.name)}
     <div class="flex flex-wrap items-center gap-3 py-3.5">
       {#if session.isAdmin}
-        <input type="checkbox" class="switch" checked={s.status === 'enabled'} aria-label="Enable {s.name}" onchange={(e) => setEnabled(s, e.currentTarget.checked)} />
+        <input type="checkbox" class="switch" checked={s.status === 'enabled'} aria-label="Enable {s.name}" onchange={(e) => setEnabled(s, e.currentTarget)} />
       {/if}
       <div class="min-w-0 flex-1">
         <p class="font-medium">{s.name} <span class="chip {tone[s.status] ?? ''}">{s.status}</span></p>

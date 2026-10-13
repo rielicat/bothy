@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { api } from '../lib/api/client';
   import type { Approval, Choice } from '../lib/api/types.gen';
   import { countdown, ago, isZeroTime } from '../lib/format';
@@ -33,6 +34,7 @@
   const id = $props.id();
   let busy = $state<Choice | ''>('');
   let resolved = $state<Approval | null>(null);
+  let foot = $state<HTMLElement>();
 
   const view = $derived(resolved?.id === approval.id ? resolved : approval);
   const card = $derived(view.card);
@@ -73,6 +75,9 @@
       resolved = a;
       approvals.upsert(a);
       onresolved?.(a);
+      // The pressed button is gone; a card that stays shows its outcome there.
+      await tick();
+      if (foot?.isConnected && (!document.activeElement || document.activeElement === document.body)) foot.querySelector<HTMLElement>('[role="status"]')?.focus();
     } catch (e) {
       toasts.error(e);
     } finally {
@@ -152,7 +157,7 @@
   </div>
 
   {#if !preview}
-  <footer class="flex flex-wrap items-center gap-2 border-t border-line bg-sunken/50 px-4 py-3">
+  <footer class="flex flex-wrap items-center gap-2 border-t border-line bg-sunken/50 px-4 py-3" bind:this={foot}>
     {#if open && canApprove}
       {#each buttons as c (c)}
         <button
@@ -172,7 +177,7 @@
         Waiting for {view.approver?.admin_only ? 'an admin' : 'the owner'} to decide.
       </p>
     {:else}
-      <p class="flex items-center gap-1.5 text-sm {view.status === 'allowed' ? 'text-ok' : 'text-muted'}" role="status">
+      <p class="flex items-center gap-1.5 text-sm outline-none {view.status === 'allowed' ? 'text-ok' : 'text-muted'}" role="status" tabindex="-1">
         <Icon name={view.status === 'allowed' ? 'check' : 'x'} size={15} />{outcome}
       </p>
     {/if}

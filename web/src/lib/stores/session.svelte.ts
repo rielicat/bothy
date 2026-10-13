@@ -1,4 +1,4 @@
-import { api, ApiError, onUnauthorized, setCsrf } from '../api/client';
+import { api, ApiError, onCsrfRejected, onUnauthorized, setCsrf } from '../api/client';
 import type {
   ApprovalData,
   ApprovalResolvedData,
@@ -35,6 +35,8 @@ class Session {
   banners: BannerData[] = $state([]);
   dismissed: string[] = $state([]);
   today: UsageToday | null = $state(null);
+  // The wizard completed setup and stays open on its last step until left.
+  finishing = $state(false);
 
   isAdmin = $derived(this.me?.user.role === 'owner' || this.me?.user.role === 'admin');
   multi = $derived(this.me?.mode === 'multi');
@@ -46,6 +48,7 @@ class Session {
 
   async init() {
     onUnauthorized(() => this.expire());
+    onCsrfRejected(() => this.#recheck());
     const [me, setup] = await Promise.all([
       api.get<Me>('/api/auth/me').catch((e) => (e instanceof ApiError && e.status === 401 ? null : Promise.reject(e))),
       // Non-local peers get 403 from setup routes; they can only log in.
@@ -73,28 +76,56 @@ class Session {
     setCsrf(me.csrf);
   }
 
+  // The cookie is shared by every tab, so another tab may have rotated the
+  // session (new token) or signed someone else in. Only the first case may
+  // carry on in this tab; the second leaves it signed out. Concurrent
+  // refused writes share one lookup.
+  #rechecking: Promise<boolean> | null = null;
+  #recheck(): Promise<boolean> {
+    this.#rechecking ??= (async () => {
+      const was = this.me;
+      if (!was) return false;
+      const me = await api.get<Me>('/api/auth/me').catch(() => null);
+      if (!me || this.me !== was) return false;
+      if (me.user.id !== was.user.id) {
+        this.expire(true);
+        return false;
+      }
+      this.me = me;
+      setCsrf(me.csrf);
+      return true;
+    })().finally(() => (this.#rechecking = null));
+    return this.#rechecking;
+  }
+
   async logout() {
     try {
       await api.post('/api/auth/logout');
     } finally {
-      this.#clear();
+      this.#clear(true);
       router.navigate('/login', { replace: true });
     }
   }
 
-  expire() {
+  // others: the cookie every tab shares was signed out or now belongs to
+  // someone else, so this user's other tabs sign out too (and the one
+  // holding the stream closes it). A plain 401 does not tell them: during
+  // a password change in another tab it can be a moment's gap before the
+  // new cookie, and each tab finds a dead session on its own.
+  expire(others = false) {
     if (!this.me) return;
-    this.#clear();
+    this.#clear(others);
     const here = router.path + router.search;
     router.navigate(`/login?next=${encodeURIComponent(here)}`, { replace: true });
   }
 
-  #clear() {
+  #clear(others: boolean) {
     this.me = null;
     setCsrf('');
     this.#offs.forEach((f) => f());
     this.#offs = [];
-    events.close();
+    if (others) events.logout();
+    else events.close();
     approvals.reset();
     this.today = null;
   }
@@ -107,6 +138,8 @@ class Session {
     const rest = this.banners.filter((x) => x.code !== b.code);
     this.banners = b.clear ? rest : [...rest, b];
     if (!b.clear) this.dismissed = this.dismissed.filter((c) => c !== b.code);
+    // The kill switch announces itself only as this banner.
+    if (b.code === 'paused') this.paused = !b.clear;
   }
 
   #live() {
@@ -132,11 +165,16 @@ class Session {
         void approvals.load();
       }),
       // A stream the server refused (expired session) never says why; asking
-      // /api/auth/me turns a 401 into a clean logout instead of endless retries.
-      events.onClosed(() => void api.get<Me>('/api/auth/me').catch(() => {})),
+      // /api/auth/me turns a 401 into a clean logout instead of endless
+      // retries, and a cookie that now signs in someone else into one too.
+      events.onClosed(() => {
+        const was = this.me;
+        void api.get<Me>('/api/auth/me').then((m) => this.me === was && m.user.id !== was?.user.id && this.expire(true), () => {});
+      }),
+      events.onLogout(() => this.expire()),
       approvals.listen(),
     ];
-    events.connect();
+    events.connect(this.me?.user.id);
     void this.refreshToday();
     void approvals.load();
   }

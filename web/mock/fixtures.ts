@@ -551,8 +551,8 @@ export function usageRows(groupBy: string, days: number) {
   const out = [];
   if (groupBy === 'day') {
     for (let i = days - 1; i >= 0; i--) {
-      const d = new Date(now - i * 86400_000);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      // UTC dates, like the gateway's day keys
+      const key = new Date(now - i * 86400_000).toISOString().slice(0, 10);
       const cost = Math.round(120_000 + 90_000 * Math.sin(i * 1.7) ** 2 + (i % 6 === 0 ? 260_000 : 0));
       out.push({ key, cost_micros: cost, input: 42000, output: 6100, cache_read: 30500, cache_write: 4200, calls: 18 + (i % 5), price_known: i !== 3 });
     }

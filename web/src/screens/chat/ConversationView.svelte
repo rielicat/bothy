@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import ApprovalCard from '../../components/ApprovalCard.svelte';
   import Dialog from '../../components/Dialog.svelte';
   import Icon from '../../components/Icon.svelte';
@@ -67,24 +67,39 @@
     }
   });
 
+  let loaded = $state(false);
+  let hit: Element | null = null;
+
   $effect(() => {
     conv.listen();
-    void conv.load().then(async () => {
-      await tick();
-      const m = /^#m(\d+)$/.exec(location.hash);
-      const el = m && document.getElementById(`m${m[1]}`);
-      if (el) {
-        stick = false;
-        el.scrollIntoView({ block: 'center' });
-        el.classList.add('ring-2', 'ring-warn');
-      } else scrollDown();
-    });
+    void conv.load().then(() => (loaded = true));
     api
       .get<ModelInfo[]>('/api/models')
       .then((m) => (models = m))
       .catch(() => {});
     return () => conv.dispose();
   });
+
+  // A search hit links to #m<seq>: on open, and again for each hit clicked
+  // while this chat stays open (only the hash changes then).
+  $effect(() => {
+    const hash = router.hash;
+    if (loaded) untrack(() => void jump(hash));
+  });
+
+  async function jump(hash: string) {
+    const seq = Number(/^#m(\d+)$/.exec(hash)?.[1] ?? 0);
+    if (seq) await conv.loadUntil(seq).catch(() => {});
+    await tick();
+    const el = seq ? document.getElementById(`m${seq}`) : null;
+    hit?.classList.remove('ring-2', 'ring-warn');
+    hit = el;
+    if (el) {
+      stick = false;
+      el.scrollIntoView({ block: 'center' });
+      el.classList.add('ring-2', 'ring-warn');
+    } else scrollDown();
+  }
 
   $effect(() => {
     void conv.items.length;

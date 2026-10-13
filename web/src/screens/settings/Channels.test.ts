@@ -40,3 +40,29 @@ describe('Chat apps: pending senders', () => {
     expect(JSON.parse(patch.body)).toEqual({ status: 'linked', user_id: session.me!.user.id });
   });
 });
+
+describe('Chat apps: switches the server refuses', () => {
+  const refuse = () => new Response('{"error":{"code":"internal","message":"could not save"}}', { status: 500 });
+
+  it('puts a channel switch back when the config change fails', async () => {
+    const calls = installApi({ override: (m, url) => (m === 'PATCH' && url === '/api/config' ? refuse() : undefined) });
+    await session.init();
+    render(Channels);
+    const box = (await screen.findByRole('checkbox', { name: 'Enable Discord' })) as HTMLInputElement;
+    const was = box.checked;
+    await fireEvent.click(box);
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url === '/api/config')).toBe(true));
+    await waitFor(() => expect(box.checked).toBe(was));
+  });
+
+  it('puts a group chat switch back when the change fails', async () => {
+    const calls = installApi({ override: (m, url) => (m === 'PATCH' && url.startsWith('/api/spaces/') ? refuse() : undefined) });
+    await session.init();
+    render(Channels);
+    const box = (await screen.findAllByRole('checkbox', { name: 'On' }))[0] as HTMLInputElement;
+    const was = box.checked;
+    await fireEvent.click(box);
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url.startsWith('/api/spaces/'))).toBe(true));
+    await waitFor(() => expect(box.checked).toBe(was));
+  });
+});
