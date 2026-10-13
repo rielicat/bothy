@@ -35,6 +35,8 @@ class Session {
   banners: BannerData[] = $state([]);
   dismissed: string[] = $state([]);
   today: UsageToday | null = $state(null);
+  // The wizard completed setup and stays open on its last step until left.
+  finishing = $state(false);
 
   isAdmin = $derived(this.me?.user.role === 'owner' || this.me?.user.role === 'admin');
   multi = $derived(this.me?.mode === 'multi');

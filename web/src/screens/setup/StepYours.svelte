@@ -1,3 +1,9 @@
+<script lang="ts" module>
+  // Kept across visits to this step, so finishing again after going back
+  // writes what the owner chose, not the defaults.
+  const form = $state({ name: 'Bothy', tone: 'warm', about: { call: '', work: '', remember: '' } });
+</script>
+
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '../../lib/api/client';
@@ -15,9 +21,6 @@
     { v: 'formal', label: 'Calm and formal', line: 'Be courteous and precise, like a professional assistant.' },
   ];
 
-  let name = $state('Bothy');
-  let tone = $state('warm');
-  let about = $state({ call: '', work: '', remember: '' });
   let heartbeat = $state(false);
   let models = $state<ModelInfo[]>([]);
   let saving = $state(false);
@@ -36,13 +39,17 @@
   async function save() {
     saving = true;
     try {
-      const n = name.trim() || 'Bothy';
-      const soul = `# ${n}\n\nYou are ${n}, a personal assistant running on your owner's own machine.\n${tones.find((t) => t.v === tone)!.line}\nSay plainly what you did and did not do. Ask before acting on anything that leaves this machine.\n`;
+      const { about } = form;
+      const n = form.name.trim() || 'Bothy';
+      const soul = `# ${n}\n\nYou are ${n}, a personal assistant running on your owner's own machine.\n${tones.find((t) => t.v === form.tone)!.line}\nSay plainly what you did and did not do. Ask before acting on anything that leaves this machine.\n`;
       await api.put('/api/persona', { content: soul });
-      const lines = [about.call && `- Call me ${about.call.trim()}.`, about.work && `- ${about.work.trim()}`, about.remember && `- ${about.remember.trim()}`].filter(Boolean);
+      const lines = [about.call.trim() && `- Call me ${about.call.trim()}.`, about.work.trim() && `- ${about.work.trim()}`, about.remember.trim() && `- ${about.remember.trim()}`].filter(Boolean);
       if (lines.length) {
+        // Finish can run more than once (a failed attempt, or a later visit).
         const doc = await api.get<MemoryDoc>('/api/memory/USER');
-        await api.put('/api/memory/USER', { content: [doc.content.trim(), ...lines].filter(Boolean).join('\n') }, { 'If-Match': doc.etag });
+        const have = new Set(doc.content.split('\n').map((l) => l.trim()));
+        const add = lines.filter((l) => !have.has(l));
+        if (add.length) await api.put('/api/memory/USER', { content: [doc.content.trim(), ...add].filter(Boolean).join('\n') }, { 'If-Match': doc.etag });
       }
       if (heartbeat !== (config.flag('scheduler.heartbeat.enabled'))) await config.set({ 'scheduler.heartbeat.enabled': heartbeat }, true);
       onnext();
@@ -60,26 +67,26 @@
 <div class="mt-6 grid gap-4 sm:grid-cols-2">
   <div>
     <label class="label" for="y-name">Assistant name</label>
-    <input id="y-name" class="input" maxlength="40" bind:value={name} />
+    <input id="y-name" class="input" maxlength="40" bind:value={form.name} />
   </div>
   <div>
     <label class="label" for="y-tone">Tone</label>
-    <select id="y-tone" class="input" bind:value={tone}>{#each tones as t (t.v)}<option value={t.v}>{t.label}</option>{/each}</select>
+    <select id="y-tone" class="input" bind:value={form.tone}>{#each tones as t (t.v)}<option value={t.v}>{t.label}</option>{/each}</select>
   </div>
 </div>
 
 <h2 class="mt-8 text-sm font-semibold">About you <span class="font-normal text-muted">(saved to USER.md)</span></h2>
 <div class="mt-3 space-y-3">
-  <div><label class="label" for="y-call">What should {name || 'Bothy'} call you?</label><input id="y-call" class="input" bind:value={about.call} /></div>
-  <div><label class="label" for="y-work">What do you do, in a sentence?</label><input id="y-work" class="input" placeholder="I run a small design studio and have two kids." bind:value={about.work} /></div>
-  <div><label class="label" for="y-rem">Anything it should always keep in mind?</label><input id="y-rem" class="input" placeholder="Keep answers short unless I ask for detail." bind:value={about.remember} /></div>
+  <div><label class="label" for="y-call">What should {form.name || 'Bothy'} call you?</label><input id="y-call" class="input" bind:value={form.about.call} /></div>
+  <div><label class="label" for="y-work">What do you do, in a sentence?</label><input id="y-work" class="input" placeholder="I run a small design studio and have two kids." bind:value={form.about.work} /></div>
+  <div><label class="label" for="y-rem">Anything it should always keep in mind?</label><input id="y-rem" class="input" placeholder="Keep answers short unless I ask for detail." bind:value={form.about.remember} /></div>
 </div>
 
 <label class="mt-8 flex items-start gap-3 rounded-xl border border-line p-4 text-sm">
   <input type="checkbox" class="switch mt-0.5" bind:checked={heartbeat} />
   <span>
     <span class="font-medium">Heartbeat</span>
-    <span class="block text-muted">Every 30 minutes in the daytime, {name || 'Bothy'} reads your HEARTBEAT.md checklist and only messages you when something needs attention.{perDay ? ` About ${usd(perDay)} a day on ${fast?.display || fastRef}.` : ''}</span>
+    <span class="block text-muted">Every 30 minutes in the daytime, {form.name || 'Bothy'} reads your HEARTBEAT.md checklist and only messages you when something needs attention.{perDay ? ` About ${usd(perDay)} a day on ${fast?.display || fastRef}.` : ''}</span>
   </span>
 </label>
 

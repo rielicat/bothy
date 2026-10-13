@@ -253,6 +253,8 @@ on('POST', '/api/setup/owner', async (req, res) => {
   json(res, 200, me());
 });
 on('POST', '/api/setup/complete', (_q, res) => {
+  // Like the gateway, setup routes are gone once setup is done.
+  if (!st.setup.needs_setup) return fail(res, 404, 'not_found', 'not found');
   st.setup.needs_setup = false;
   json(res, 204);
 });

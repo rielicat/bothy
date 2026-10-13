@@ -45,18 +45,23 @@
 
   onMount(() => void session.init());
 
-  // Route guards: setup first, then login, then the app.
+  // Route guards: setup first, then login, then the app. Once the owner
+  // exists, the rest of the wizard needs their session, so a signed-out
+  // browser logs in first.
   $effect(() => {
     if (!session.ready) return;
     const setup = session.setup;
     const here = router.path + router.search;
-    if (router.path === '/') {
+    const ownerLogin = !!setup?.needs_setup && setup.owner_set && !session.me;
+    if (ownerLogin) {
+      if (pattern !== '/login') router.navigate(`/login?next=${encodeURIComponent('/setup')}`, { replace: true });
+    } else if (router.path === '/') {
       router.navigate(setup?.needs_setup ? '/setup' : session.me ? '/chat' : '/login', { replace: true });
     } else if (setup?.needs_setup) {
-      if (pattern !== '/setup' && !(pattern === '/login' && setup.owner_set && !session.me)) router.navigate('/setup', { replace: true });
+      if (pattern !== '/setup') router.navigate('/setup', { replace: true });
     } else if (!session.me) {
       if (!isPublic || pattern === '/setup') router.navigate(`/login?next=${encodeURIComponent(here)}`, { replace: true });
-    } else if (isPublic) {
+    } else if (isPublic && !(pattern === '/setup' && session.finishing)) {
       router.navigate(safeNext(router.query.get('next')), { replace: true });
     }
   });

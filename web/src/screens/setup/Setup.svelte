@@ -112,10 +112,16 @@
     }
   }
 
+  // Done lets the owner revisit earlier steps and finish again; the server
+  // drops its setup routes once setup is complete, so that is posted once.
   async function finish() {
     completing = true;
     try {
-      await api.post('/api/setup/complete');
+      if (!session.finishing) {
+        await api.post('/api/setup/complete');
+        session.finishing = true;
+        if (session.setup) session.setup.needs_setup = false;
+      }
       audit = await api.post<DoctorReport>('/api/security-audit', { fix: false }).catch(() => ({ findings: [] }));
       go(6);
     } catch (e) {
@@ -126,17 +132,20 @@
   }
 
   async function leave(first?: string) {
-    if (session.setup) session.setup.needs_setup = false;
     store(HINT, null);
-    if (!first) return router.navigate('/chat', { replace: true });
-    try {
-      const s = await api.post<Session>('/api/sessions', {});
-      await api.post(`/api/sessions/${encodeURIComponent(s.id)}/messages`, { text: first });
-      router.navigate(`/chat/${encodeURIComponent(s.id)}`, { replace: true });
-    } catch (e) {
-      toasts.error(e);
-      router.navigate('/chat', { replace: true });
+    let to = '/chat';
+    if (first) {
+      try {
+        const s = await api.post<Session>('/api/sessions', {});
+        await api.post(`/api/sessions/${encodeURIComponent(s.id)}/messages`, { text: first });
+        to = `/chat/${encodeURIComponent(s.id)}`;
+      } catch (e) {
+        toasts.error(e);
+      }
     }
+    if (session.setup) session.setup.needs_setup = false;
+    session.finishing = false;
+    router.navigate(to, { replace: true });
   }
 
   const serious = $derived((audit?.findings ?? []).filter((f) => ['critical', 'high', 'medium'].includes(f.severity)));
@@ -162,7 +171,7 @@
             <button
               type="button"
               class="block h-1.5 w-full rounded-full transition-colors {i === step ? 'bg-accent' : done ? 'bg-accent/40' : 'bg-line'} disabled:cursor-default"
-              disabled={i > reached || i === step || (i < 2 && !!session.setup?.owner_set) || i === 6}
+              disabled={i > reached || i === step || (i < 2 && !!session.setup?.owner_set) || (i === 6 && !session.finishing)}
               aria-label="{label}{i === step ? ' (current)' : ''}"
               aria-current={i === step ? 'step' : undefined}
               onclick={() => go(i)}
@@ -189,8 +198,9 @@
             <p class="font-medium">Where is the token?</p>
             <p class="mt-1 text-muted">Bothy printed a link with it when it first started. Any of these shows it again:</p>
             <ul class="mt-3 space-y-2">
-              {#each ['docker logs bothy | grep setup', 'docker exec bothy /bothy setup-token', 'cat <data>/setup-token'] as cmd (cmd)}
+              {#each [['Compose', 'docker compose logs bothy 2>&1 | grep setup'], ['Compose', 'docker compose exec bothy /bothy setup-token'], ['docker run', 'docker logs bothy 2>&1 | grep setup'], ['Binary', 'bothy setup-token']] as [where, cmd] (cmd)}
                 <li class="flex items-center gap-2">
+                  <span class="w-20 shrink-0 text-xs text-muted">{where}</span>
                   <code class="mono min-w-0 flex-1 truncate rounded-md bg-surface px-2 py-1">{cmd}</code>
                   <button type="button" class="btn btn-ghost btn-icon btn-sm" aria-label="Copy command" onclick={() => copyText(cmd)}><Icon name="copy" size={14} /></button>
                 </li>
