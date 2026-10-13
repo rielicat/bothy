@@ -156,6 +156,15 @@ func writeKeyfile(p string, k []byte, replace bool) error {
 	return os.Link(tmp, p)
 }
 
+// syncDir makes a new directory entry durable before its only other copy is
+// deleted; platforms that cannot sync a directory are left as they are.
+func syncDir(dir string) {
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		_ = d.Close()
+	}
+}
+
 func fileExists(p string) bool {
 	fi, err := os.Stat(p)
 	return err == nil && fi.Mode().IsRegular()

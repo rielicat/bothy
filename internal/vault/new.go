@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -41,6 +43,7 @@ type Vault struct {
 
 	keyfile   string
 	colocated bool
+	legacyKey string // config.Dirs.LegacyKeyfile
 
 	// keyMu is held exclusively by Unseal and RotateKEK, which replace key
 	// material, and shared by every operation that encrypts or decrypts, so a
@@ -97,7 +100,7 @@ func newVault(d Deps, o options) (*Vault, error) {
 		cfg = d.Config.Current()
 	}
 	dirs := o.resolveDirs(cfg)
-	v.keyfile, v.colocated = dirs.Keyfile, dirs.KeyfileColocated
+	v.keyfile, v.colocated, v.legacyKey = dirs.Keyfile, dirs.KeyfileColocated, dirs.LegacyKeyfile
 	if d.Env != nil {
 		v.loadEnv(d.Env())
 	}
@@ -131,6 +134,9 @@ func (v *Vault) boot(ctx context.Context, spec string) error {
 		v.setSealed(plan, "waiting for the passphrase (Settings → Vault → Unseal)")
 		return nil
 	}
+	if plan.source == srcAutogen && !first {
+		v.adoptLegacyKey(check)
+	}
 	kek, err := v.loadKEK(plan, first)
 	if err != nil {
 		v.setSealed(plan, "KEK unavailable: "+err.Error())
@@ -157,7 +163,16 @@ func (v *Vault) boot(ctx context.Context, spec string) error {
 		kek = v.recoverRotation(kek, check)
 	}
 	if !kekMatches(kek, check) {
-		v.setSealed(plan, "the KEK from "+plan.source+" does not match this vault (kek_check failed)")
+		reason := "the KEK from " + plan.source + " does not match this vault (kek_check failed)"
+		// Following the kek_colocated advice with a fresh secret lands here;
+		// say where the key that does open the vault is.
+		for _, p := range []string{v.keyfile, v.legacyKey} {
+			if k, err := readKEKFile(p); plan.source != srcAutogen && p != "" && err == nil && kekMatches(k, check) {
+				reason += "; the auto-generated key in " + p + " opens it: provide that key instead"
+				break
+			}
+		}
+		v.setSealed(plan, reason)
 		v.log.Error("vault sealed: KEK does not match kek_check", "kek_source", plan.source, "kek_id", kekID(kek))
 		return nil
 	}
@@ -168,6 +183,29 @@ func (v *Vault) boot(ctx context.Context, spec string) error {
 	}
 	v.setOpen(plan, kek, dek, id)
 	return nil
+}
+
+// adoptLegacyKey moves the auto KEK from <data>/keys/kek to the keyfile when
+// a /keys volume appeared after the vault was created without one (a single
+// container moved to compose). Only a key that opens this vault is moved.
+func (v *Vault) adoptLegacyKey(check []byte) {
+	if v.legacyKey == "" || v.legacyKey == v.keyfile || fileExists(v.keyfile) {
+		return
+	}
+	k, err := readKEKFile(v.legacyKey)
+	if err != nil || !kekMatches(k, check) {
+		return
+	}
+	if err := writeKeyfile(v.keyfile, k, false); err != nil {
+		v.log.Error("vault: could not move the KEK to the keys volume", "from", v.legacyKey, "to", v.keyfile, "err", err)
+		return
+	}
+	syncDir(filepath.Dir(v.keyfile))
+	if err := os.Remove(v.legacyKey); err != nil {
+		v.log.Error("vault: the KEK was copied to the keys volume; delete the old copy", "path", v.legacyKey, "err", err)
+		return
+	}
+	v.log.Warn("vault: moved the KEK off the data volume", "from", v.legacyKey, "to", v.keyfile)
 }
 
 // recoverRotation finishes a RotateKEK that committed the new key to the

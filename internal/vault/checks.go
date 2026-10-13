@@ -32,7 +32,9 @@ func (v *Vault) checkColocated() []core.Finding {
 		ID: "vault.kek_colocated", Area: "vault", Severity: core.SevMedium, Security: true,
 		Title:  "The vault key is stored next to the database",
 		Detail: "The auto-generated KEK at " + v.keyfile + " is on the same volume as bothy.db, so a copy of that volume holds both the encrypted secrets and the key.",
-		Fix:    "Mount a separate volume at /keys (the compose file does), or provide /run/secrets/bothy_kek as a Docker secret.",
+		Fix: "Mount a separate volume at /keys (the compose file does); Bothy moves this key there on its next start. Or give the same key " +
+			"as a Docker secret: docker cp <container>:" + v.keyfile + " bothy_kek, mount it as /run/secrets/bothy_kek, restart, then delete " +
+			v.keyfile + ". A new key in the secret would seal the vault.",
 	}}
 }
 

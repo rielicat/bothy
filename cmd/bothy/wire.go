@@ -95,6 +95,11 @@ func buildBase(ctx context.Context) (*app, error) {
 	dirs := a.dirs
 	a.redactor = vault.NewRedactor()
 	a.log = slog.New(vault.NewSlogHandler(newLogHandler(c.Log), a.redactor))
+	if moved, err := config.MoveLegacyWork(dirs); err != nil {
+		a.log.Error("could not move the workspaces to the work volume; copy them by hand", "from", dirs.LegacyWork, "to", dirs.Work, "err", err)
+	} else if moved {
+		a.log.Warn("moved the workspaces to the work volume", "from", dirs.LegacyWork, "to", dirs.Work)
+	}
 	a.bus = events.New(events.Options{Ring: 4096, Clock: a.clock})
 	if a.db, err = store.Open(ctx, store.Options{Path: filepath.Join(dirs.Data, "bothy.db"), WorkDir: dirs.Work,
 		BackupDir: filepath.Join(dirs.Data, "backups"), BackupsKeep: c.Storage.BackupsKeep, Clock: a.clock, Log: a.log}); err != nil {
