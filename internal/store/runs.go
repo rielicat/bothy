@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/rielicat/bothy/internal/core"
@@ -430,10 +431,16 @@ func (r approvalRepo) Recent(ctx context.Context, v core.Viewer, p core.Page) ([
 	return queryAll(ctx, r.h.rq, "recent approvals", scanApproval, q, args...)
 }
 
+// dueApprovals runs every 30 s for the life of the process over a table
+// that keeps every approval, so each branch must stay on its partial index
+// (approvals_due, approvals_parked).
+const dueApprovals = `SELECT ` + approvalCols + ` FROM (
+	SELECT * FROM approvals WHERE status = 'pending' AND expires_at <= ?1
+	UNION ALL SELECT * FROM approvals WHERE status = 'parked' AND park_until <= ?1)
+	ORDER BY created_at, id`
+
 func (r approvalRepo) Due(ctx context.Context, now time.Time) ([]*core.Approval, error) {
-	return queryAll(ctx, r.h.rq, "due approvals", scanApproval, `SELECT `+approvalCols+` FROM approvals
-		WHERE (status = 'pending' AND expires_at <= ?1) OR (status = 'parked' AND park_until <= ?1)
-		ORDER BY created_at, id`, ms(now))
+	return queryAll(ctx, r.h.rq, "due approvals", scanApproval, dueApprovals, ms(now))
 }
 
 func (r approvalRepo) ByRun(ctx context.Context, run core.RunID) ([]*core.Approval, error) {
@@ -441,13 +448,23 @@ func (r approvalRepo) ByRun(ctx context.Context, run core.RunID) ([]*core.Approv
 		`SELECT `+approvalCols+` FROM approvals WHERE run_id = ? ORDER BY created_at, id`, string(run))
 }
 
+// The expressions must match approvals_seen_recipient and approvals_seen_host
+// exactly for SQLite to use them.
+const (
+	seenRecipient = `SELECT 1 FROM approvals WHERE principal_id = ? AND status = 'allowed' AND json_extract(action, '$.recipient') = ?`
+	seenHost      = `SELECT 1 FROM approvals WHERE principal_id = ? AND status = 'allowed' AND json_extract(action, '$.host') = ?`
+)
+
 func (r approvalRepo) Seen(ctx context.Context, p core.PrincipalID, recipient, host string) (bool, error) {
-	if recipient == "" && host == "" {
-		return false, nil
+	for _, c := range []struct{ q, v string }{{seenRecipient, recipient}, {seenHost, host}} {
+		if c.v == "" {
+			continue
+		}
+		if ok, err := exists(ctx, r.h.rq, "approval seen", c.q, string(p), c.v); ok || err != nil {
+			return ok, err
+		}
 	}
-	return exists(ctx, r.h.rq, "approval seen", `SELECT 1 FROM approvals WHERE principal_id = ?1 AND status = 'allowed'
-		AND ((?2 <> '' AND json_extract(action, '$.recipient') = ?2) OR (?3 <> '' AND json_extract(action, '$.host') = ?3))`,
-		string(p), recipient, host)
+	return false, nil
 }
 
 // AddMessage stores no chat kind: approval_messages has no column for it.
@@ -690,22 +707,51 @@ var usageKeys = map[string]string{
 	"session":  `COALESCE(r.session_id, '')`,
 }
 
+// usageQuery builds Report's statement. llm_calls is never pruned by default,
+// so only the bounds that are set appear in WHERE ("? = 0 OR …" forms would
+// hide the indexes from the planner), and runs is joined only for the keys
+// that come from it.
+func usageQuery(q core.UsageQuery) (string, []any, error) {
+	key, ok := usageKeys[q.GroupBy]
+	if !ok {
+		return "", nil, invalid("usage group_by " + q.GroupBy)
+	}
+	var b strings.Builder
+	b.WriteString(`SELECT ` + key + ` AS k, SUM(c.cost_micros), SUM(c.input_tokens), SUM(c.output_tokens), SUM(c.cache_read_tokens),
+		SUM(c.cache_write_tokens), COUNT(*), MIN(c.price_known) FROM llm_calls c`)
+	if strings.Contains(key, "r.") {
+		b.WriteString(` LEFT JOIN runs r ON r.id = c.run_id`)
+	}
+	b.WriteString(` WHERE 1`)
+	var args []any
+	if q.User != "" {
+		b.WriteString(` AND c.user_id = ?`)
+		args = append(args, string(q.User))
+	}
+	if !q.From.IsZero() {
+		b.WriteString(` AND c.created_at >= ?`)
+		args = append(args, ms(q.From))
+	}
+	if !q.To.IsZero() {
+		b.WriteString(` AND c.created_at < ?`)
+		args = append(args, ms(q.To))
+	}
+	b.WriteString(` GROUP BY k ORDER BY k`)
+	return b.String(), args, nil
+}
+
 // Report aggregates llm_calls created in [From, To) (zero bounds are open).
 // Day keys are UTC dates.
 func (r usageRepo) Report(ctx context.Context, q core.UsageQuery) ([]core.UsageRow, error) {
-	key, ok := usageKeys[q.GroupBy]
-	if !ok {
-		return nil, invalid("usage group_by " + q.GroupBy)
+	query, args, err := usageQuery(q)
+	if err != nil {
+		return nil, err
 	}
 	rows, err := queryAll(ctx, r.h.rq, "usage report", func(sc scanner) (core.UsageRow, error) {
 		var u core.UsageRow
 		err := sc.Scan(&u.Key, &u.Cost, &u.Input, &u.Output, &u.CacheRead, &u.CacheWrite, &u.Calls, &u.PriceKnown)
 		return u, err
-	}, `SELECT `+key+` AS k, SUM(c.cost_micros), SUM(c.input_tokens), SUM(c.output_tokens), SUM(c.cache_read_tokens),
-		SUM(c.cache_write_tokens), COUNT(*), MIN(c.price_known)
-		FROM llm_calls c LEFT JOIN runs r ON r.id = c.run_id
-		WHERE (?1 = '' OR c.user_id = ?1) AND (?2 = 0 OR c.created_at >= ?2) AND (?3 = 0 OR c.created_at < ?3)
-		GROUP BY k ORDER BY k`, string(q.User), ms(q.From), ms(q.To))
+	}, query, args...)
 	if err != nil {
 		return nil, err
 	}
