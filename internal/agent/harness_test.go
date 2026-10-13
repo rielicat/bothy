@@ -319,6 +319,7 @@ type testTool struct {
 	taint  core.Taint
 	lazy   bool
 	schema string
+	fs     bool // a workspace file tool (Manifest.FSPaths)
 	// planErr stands in for the registry's schema check (ErrInvalid).
 	planErr error
 	run     func(ctx context.Context, env *core.ToolEnv, a *core.Action) (*core.ToolResult, error)
@@ -334,10 +335,14 @@ func (t *testTool) Spec() core.ToolSpec {
 	if se == 0 {
 		se = core.SERead
 	}
+	m := core.Manifest{Title: "Run " + t.name, SideEffect: se, Exec: t.exec, Taint: t.taint, Core: !t.lazy, SpaceOK: true}
+	if t.fs {
+		m.FSPaths = []string{"**"}
+	}
 	return core.ToolSpec{
 		Def:      core.ToolDef{Name: t.name, Description: "test tool " + t.name, Schema: json.RawMessage(schema)},
 		Source:   "builtin",
-		Manifest: core.Manifest{Title: "Run " + t.name, SideEffect: se, Exec: t.exec, Taint: t.taint, Core: !t.lazy, SpaceOK: true},
+		Manifest: m,
 	}
 }
 

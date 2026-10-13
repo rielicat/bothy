@@ -150,6 +150,9 @@ func (r *Runner) runTools(rs *runState, step int, calls []core.ToolCall) *runEnd
 				r.publishToolCall(rs, pc)
 				batch = append(batch, pc)
 				projected |= m.Taint
+				if readsWorkspace(pc.spec, pc.action) && r.workspaceUntrusted(ctx, rs.principal) {
+					projected |= core.TaintUntrusted
+				}
 				continue
 			}
 		}
@@ -411,7 +414,12 @@ func (r *Runner) finishCall(rs *runState, pc *pcall, er execResult, approved boo
 		content = headTail(content, capBytes, note)
 		res.Truncated = true
 	}
-	res.Untrusted = res.Untrusted || er.egressed || pc.spec.Manifest.Taint.Has(core.TaintUntrusted)
+	// A stopped call ran too: its partial output is persisted below, so the
+	// session takes its taint like any other result.
+	ran := pc.action != nil && pc.fail == "" &&
+		(er.status == core.TCOK || er.status == core.TCError || er.status == core.TCTimeout || er.status == core.TCStopped)
+	res.Untrusted = res.Untrusted || er.egressed || pc.spec.Manifest.Taint.Has(core.TaintUntrusted) ||
+		ran && readsWorkspace(pc.spec, pc.action) && r.workspaceUntrusted(ctx, rs.principal)
 	isErr := "0"
 	if res.IsError {
 		isErr = "1"
@@ -426,14 +434,19 @@ func (r *Runner) finishCall(rs *runState, pc *pcall, er execResult, approved boo
 		}
 	}
 	res.Content = content
-	// A stopped call ran too: its partial output is persisted below, so the
-	// session takes its taint like any other result.
-	ran := er.status == core.TCOK || er.status == core.TCError || er.status == core.TCTimeout || er.status == core.TCStopped
-	if pc.action != nil && pc.fail == "" && ran {
+	if ran {
 		next := r.d.Policy.NextTaint(rs.taint, pc.spec, pc.action, &res, er.egressed)
 		if err := r.addTaint(ctx, rs, next); err != nil {
 			r.log.Error("taint", "run", rs.id, "err", err)
 		}
+	}
+	switch {
+	case ran && er.egressed:
+		r.markWorkspaceUntrusted(ctx, rs.principal, "the box moved bytes through the proxy")
+	case res.Untrusted && res.FullRef != "":
+		r.markWorkspaceUntrusted(ctx, rs.principal, "untrusted tool output spilled into .bothy/out")
+	case ran && rs.taint.Has(core.TaintUntrusted) && writesWorkspace(pc.spec, pc.action):
+		r.markWorkspaceUntrusted(ctx, rs.principal, "written by a session holding untrusted content")
 	}
 
 	var msg *core.Message

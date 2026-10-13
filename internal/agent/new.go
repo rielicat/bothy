@@ -45,6 +45,9 @@ const (
 	metaPaused       = "paused"
 	metaConstitution = "constitution_version"
 	metaSpotlightKey = "agent.spotlight_key"
+	// metaWorkspaceUntrusted + workspace id is "1" once untrusted content
+	// may have been written to that workspace.
+	metaWorkspaceUntrusted = "agent.workspace_untrusted."
 )
 
 const (
@@ -83,6 +86,7 @@ type Runner struct {
 	workers map[core.SessionID]*worker
 	users   map[core.UserID]*semaphore
 	prefix  map[core.SessionID]prefixMark
+	wsMarks map[core.WorkspaceID]bool // workspaces known to hold untrusted content
 	global  *semaphore
 	loops   sync.WaitGroup // worker goroutines
 	bg      sync.WaitGroup // titles, notices
@@ -122,6 +126,7 @@ func New(d Deps) (*Runner, error) {
 		workers: map[core.SessionID]*worker{},
 		users:   map[core.UserID]*semaphore{},
 		prefix:  map[core.SessionID]prefixMark{},
+		wsMarks: map[core.WorkspaceID]bool{},
 	}
 	r.bgCtx, r.bgStop = context.WithCancel(context.Background())
 	r.global = newSemaphore(func() int { return r.cfg().Agent.MaxConcurrentRuns })

@@ -289,6 +289,9 @@ func (r *Runner) persistTurn(ctx context.Context, rs *runState) error {
 	}
 	rs.sess = s
 	r.recordURLs(ctx, req.Session, req.Provenance, inputsOf(reqs))
+	if untrustedFiles(reqs) {
+		r.markWorkspaceUntrusted(ctx, rs.principal, "attachments from someone other than the user")
+	}
 	return nil
 }
 
@@ -385,6 +388,9 @@ func (r *Runner) persistSteer(ctx context.Context, a *runState, req core.RunRequ
 		r.log.Warn("update session after steer", "session", req.Session, "err", err)
 	}
 	r.recordURLs(ctx, req.Session, req.Provenance, req.Input)
+	if untrustedFiles([]core.RunRequest{req}) {
+		r.markWorkspaceUntrusted(ctx, a.principal, "attachments from someone other than the user")
+	}
 	return nil
 }
 
