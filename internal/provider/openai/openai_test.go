@@ -103,6 +103,23 @@ func TestUsageNormalization(t *testing.T) {
 	if got := w.normalize(); got != (core.Usage{Input: 50, Output: 10, CacheRead: 20, CacheWrite: 30, Reasoning: 4}) {
 		t.Fatalf("%+v", got)
 	}
+	// xAI reports reasoning beside completion_tokens (total = prompt +
+	// completion + reasoning) and bills it at the output rate; OpenAI counts
+	// it inside completion_tokens.
+	for doc, want := range map[string]core.Usage{
+		`{"prompt_tokens":663,"completion_tokens":50,"total_tokens":837,"completion_tokens_details":{"reasoning_tokens":124}}`:  {Input: 663, Output: 174, Reasoning: 124},
+		`{"prompt_tokens":20,"completion_tokens":30,"completion_tokens_details":{"reasoning_tokens":556}}`:                      {Input: 20, Output: 586, Reasoning: 556},
+		`{"prompt_tokens":100,"completion_tokens":300,"total_tokens":400,"completion_tokens_details":{"reasoning_tokens":256}}`: {Input: 100, Output: 300, Reasoning: 256},
+		`{"prompt_tokens":100,"completion_tokens":300,"completion_tokens_details":{"reasoning_tokens":256}}`:                    {Input: 100, Output: 300, Reasoning: 256},
+	} {
+		var x usageJSON
+		if err := json.Unmarshal([]byte(doc), &x); err != nil {
+			t.Fatal(err)
+		}
+		if got := x.normalize(); got != want {
+			t.Errorf("%s: %+v, want %+v", doc, got, want)
+		}
+	}
 }
 
 // The chunks follow the xAI streaming example (docs.x.ai, streaming), whose
@@ -130,18 +147,72 @@ data: [DONE]
 	if ev.Thinking() != "The plan" || ev.Text() != "Ah," {
 		t.Fatalf("thinking %q text %q", ev.Thinking(), ev.Text())
 	}
-	if p := resp.Message.Parts[0]; p.Type != core.PartThinking || p.Text != "The plan" || p.Sig != "" {
+	if p := resp.Message.Parts[0]; p.Type != core.PartThinking || p.Text != "The plan" || p.SigKind != core.KindOpenAICompat {
 		t.Fatalf("thinking part %+v", p)
 	}
 	// Cumulative usage on every chunk: the last one wins.
 	if resp.Usage != (core.Usage{Input: 41, Output: 2}) {
 		t.Fatalf("usage %+v", resp.Usage)
 	}
-	// Reasoning is never sent back.
+	// Reasoning goes back only to the server that wrote it, never to
+	// another OpenAI-compatible one.
+	o.ID = "groq"
 	req := New(o).buildRequest(&core.Request{Model: "m", Messages: []core.Message{userText("q"), resp.Message}})
 	b, _ := json.Marshal(req.Messages)
 	if strings.Contains(string(b), "plan") {
-		t.Fatalf("reasoning echoed: %s", b)
+		t.Fatalf("reasoning echoed to another server: %s", b)
+	}
+}
+
+// DeepSeek's thinking mode rejects a tool loop with HTTP 400 unless every
+// assistant turn carries its reasoning_content back (api-docs.deepseek.com,
+// thinking mode). Reasoning that arrived under "reasoning" (Groq,
+// OpenRouter, Ollama) is not echoed: those servers do not take that field.
+func TestReasoningContentEchoedToItsServer(t *testing.T) {
+	body := `data: {"id":"c","object":"chat.completion.chunk","created":1,"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"role":"assistant","content":null,"reasoning_content":"Need the"}}]}
+
+data: {"id":"c","object":"chat.completion.chunk","created":1,"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"reasoning_content":" weather."}}]}
+
+data: {"id":"c","object":"chat.completion.chunk","created":1,"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_0","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Oslo\"}"}}]}}]}
+
+data: {"id":"c","object":"chat.completion.chunk","created":1,"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: [DONE]
+`
+	srv := wiretest.NewServer(t, wiretest.SSE([]byte(body)))
+	o := wiretest.Options(srv, "deepseek")
+	o.Kind = core.KindOpenAICompat
+	resp, err := New(o).Stream(context.Background(), &core.Request{Model: "deepseek-v4-flash"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	history := []core.Message{
+		userText("weather in Oslo?"), resp.Message,
+		{Role: core.MsgTool, Parts: []core.Part{{Type: core.PartToolResult, ToolResult: &core.ToolResult{CallID: "call_0", Name: "get_weather", Content: "4°C"}}}},
+	}
+	req := New(o).buildRequest(&core.Request{Model: "deepseek-v4-flash", Messages: history})
+	b, _ := json.Marshal(req.Messages[1])
+	want := `{"role":"assistant","content":null,"reasoning_content":"Need the weather.","tool_calls":[{"id":"call_0","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Oslo\"}"}}]}`
+	if string(b) != want {
+		t.Fatalf("assistant turn\n got %s\nwant %s", b, want)
+	}
+
+	vllm := `data: {"id":"c","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"reasoning":"Hidden"}}]}
+
+data: {"id":"c","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}
+
+data: [DONE]
+`
+	srv = wiretest.NewServer(t, wiretest.SSE([]byte(vllm)))
+	o = wiretest.Options(srv, "groq")
+	o.Kind = core.KindOpenAICompat
+	resp, err = New(o).Stream(context.Background(), &core.Request{Model: "m"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req = New(o).buildRequest(&core.Request{Model: "m", Messages: []core.Message{userText("q"), resp.Message, userText("again")}})
+	if b, _ := json.Marshal(req.Messages); strings.Contains(string(b), "Hidden") || strings.Contains(string(b), "reasoning") {
+		t.Fatalf("reasoning from the reasoning field echoed: %s", b)
 	}
 }
 
@@ -303,6 +374,10 @@ func TestErrorKinds(t *testing.T) {
 		{404, `{"error":"model 'qwen3' not found"}`, core.ErrKindInvalidRequest},
 		{422, `{"detail":"Input should be a valid list"}`, core.ErrKindInvalidRequest},
 		{502, `<html>Bad gateway</html>`, core.ErrKindServer},
+		// An exhausted account is a billing failure, not a rate limit:
+		// retrying cannot help and the admin must be told.
+		{429, `{"error":{"message":"You exceeded your current quota, please check your plan and billing details.","type":"insufficient_quota","param":null,"code":"insufficient_quota"}}`, core.ErrKindAuth},
+		{429, `{"error":{"message":"You exceeded your current quota.","type":"insufficient_quota","param":null,"code":null}}`, core.ErrKindAuth},
 	} {
 		srv := wiretest.NewServer(t, wiretest.JSON(tc.status, []byte(tc.body)))
 		_, err := New(wiretest.Options(srv, "openai")).Stream(context.Background(), &core.Request{Model: "m"}, nil)
