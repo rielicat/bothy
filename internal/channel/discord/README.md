@@ -16,7 +16,9 @@ arrive as `ThreadID` under their parent channel, and button presses get a
 deferred-update response before the hub sees them, so the 3 s deadline holds;
 `Ack` then sends the toast as an ephemeral followup. Interaction tokens are
 masked in disgo's log output and kept out of errors. 429s are retried per
-route by disgo's rate limiter. A 401 or close code 4004 reports
+route by disgo's rate limiter, one per API base for the whole process:
+disgo never stops a limiter's goroutine, and the hub rebuilds the adapter
+on every config change. A 401 or close code 4004 reports
 `auth_failed`; 4014 reports it with the Message Content intent hint.
 `InviteURL` builds the §8.6 invite link.
 
