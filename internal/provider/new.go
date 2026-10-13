@@ -21,9 +21,7 @@ type Deps struct {
 	Env    func() []string // Detect only: names of well-known key env vars
 	Clock  core.Clock
 	Log    *slog.Logger
-	// Bus is optional: when set, an auth failure raises the provider_auth
-	// banner. cmd/bothy does not pass it yet (ICR provider.Deps.Bus).
-	Bus core.Bus
+	Bus    core.Bus // optional: provider_auth banner on a rejected key (§5.14)
 }
 
 // Facade implements core.LLM and core.CheckProvider.

@@ -116,7 +116,7 @@ type Request struct {
 	CacheTail   bool // rolling breakpoint on the last message (Anthropic)
 	MaxTokens   int
 	Temperature *float64
-	ToolChoice  string // "auto" | "none"
+	ToolChoice  string // "auto" | "none" | "required" (force some tool call)
 	Stop        []string
 	NumCtx      int // Ollama native only
 }

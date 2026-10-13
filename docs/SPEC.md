@@ -997,7 +997,7 @@ type Request struct {
 	CacheTail   bool // rolling breakpoint on the last message (Anthropic)
 	MaxTokens   int
 	Temperature *float64
-	ToolChoice  string // "auto" | "none"
+	ToolChoice  string // "auto" | "none" | "required" (force some tool call)
 	Stop        []string
 	NumCtx      int // Ollama native only
 }
@@ -5867,7 +5867,7 @@ func build(ctx context.Context) (*app, error) {
 		WorkDir: dirs.Work, RunDir: dirs.Run, Clock: a.clock, Log: a.log}); err != nil {
 		return nil, err
 	}
-	if a.llm, err = provider.New(provider.Deps{Config: a.cfg, Vault: a.vault, Egress: a.egress, Env: os.Environ, Clock: a.clock, Log: a.log}); err != nil {
+	if a.llm, err = provider.New(provider.Deps{Config: a.cfg, Vault: a.vault, Egress: a.egress, Env: os.Environ, Clock: a.clock, Log: a.log, Bus: a.bus}); err != nil {
 		return nil, err
 	}
 	if a.budget, err = budget.New(budget.Deps{Store: a.db, Config: a.cfg, Bus: a.bus, Audit: a.audit, Clock: a.clock, Log: a.log}); err != nil {
@@ -6527,6 +6527,7 @@ type Deps struct {
 	Env    func() []string // Detect only: names of well-known key env vars
 	Clock  core.Clock
 	Log    *slog.Logger
+	Bus    core.Bus // optional: provider_auth banner on a rejected key (§5.14)
 }
 
 // Facade implements core.LLM and core.CheckProvider.
