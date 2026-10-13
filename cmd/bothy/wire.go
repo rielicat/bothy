@@ -39,6 +39,7 @@ import (
 // app holds every constructed component; built in dependency order.
 type app struct {
 	cfg       *config.Manager
+	dirs      config.Dirs // resolved once at boot (§2.1)
 	log       *slog.Logger
 	clock     core.Clock
 	db        *store.DB
@@ -68,6 +69,20 @@ type app struct {
 var errRestart = errors.New("restart requested")
 
 func build(ctx context.Context) (*app, error) {
+	a, err := buildBase(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.buildRest(ctx); err != nil {
+		a.close()
+		return nil, err
+	}
+	return a, nil
+}
+
+// buildBase opens what the offline CLI commands need: config, logging, the
+// store, the audit writer, the vault and auth.
+func buildBase(ctx context.Context) (*app, error) {
 	setUmask() // 007: /data files are created 0600/0700 explicitly; workspace files 0660/2770
 	a := &app{clock: core.SystemClock{}, restart: make(chan struct{}, 1)}
 	var err error
@@ -76,7 +91,8 @@ func build(ctx context.Context) (*app, error) {
 		return nil, err
 	}
 	c := a.cfg.Current()
-	dirs := config.ResolveDirs(c) // "auto" work_dir and keyfile resolved once (§2.1)
+	a.dirs = config.ResolveDirs(c) // "auto" work_dir and keyfile resolved once (§2.1)
+	dirs := a.dirs
 	a.redactor = vault.NewRedactor()
 	a.log = slog.New(vault.NewSlogHandler(newLogHandler(c.Log), a.redactor))
 	a.bus = events.New(events.Options{Ring: 4096, Clock: a.clock})
@@ -85,53 +101,74 @@ func build(ctx context.Context) (*app, error) {
 		return nil, err
 	}
 	if a.audit, err = audit.New(audit.Deps{Store: a.db, Redactor: a.redactor, Clock: a.clock, Log: a.log}); err != nil {
+		a.close()
 		return nil, err
 	}
 	a.cfg.SetOnSet(func(r config.ChangeRecord) { auditConfig(ctx, a.audit, r) })
 	a.cfg.Watch(func(old, cur *config.Config) { publishConfigChanged(a.bus, a.cfg, old, cur) })
 	publishConfigBanners(a.bus, a.cfg.Effective())
 	if a.vault, err = vault.New(vault.Deps{Store: a.db, Config: a.cfg, Redactor: a.redactor, Audit: a.audit, Env: os.Environ, Clock: a.clock, Log: a.log}); err != nil {
+		a.close()
 		return nil, err
 	}
 	if a.auth, err = auth.New(auth.Deps{Store: a.db, Config: a.cfg, Audit: a.audit, Bus: a.bus, Redactor: a.redactor, DataDir: dirs.Data, Clock: a.clock, Log: a.log}); err != nil {
+		a.close()
 		return nil, err
 	}
+	return a, nil
+}
+
+// close flushes pending audit rows and closes the store; serve's own
+// shutdown does the same after its loops end.
+func (a *app) close() {
+	if a.audit != nil {
+		_ = a.audit.Flush(context.Background())
+	}
+	if a.db != nil {
+		_ = a.db.Close()
+	}
+}
+
+// buildRest constructs the services serve and doctor need on top of the base.
+func (a *app) buildRest(ctx context.Context) error {
+	c, dirs := a.cfg.Current(), a.dirs
+	var err error
 	if a.policy, a.approvals, err = policy.New(policy.Deps{Store: a.db, Config: a.cfg, Bus: a.bus, Audit: a.audit, Clock: a.clock, Log: a.log}); err != nil {
-		return nil, err
+		return err
 	}
 	if a.egress, err = egress.New(egress.Deps{Config: a.cfg, Store: a.db, Vault: a.vault, Approvals: a.approvals, Policy: a.policy,
 		Bus: a.bus, Audit: a.audit, RunDir: dirs.Run, Clock: a.clock, Log: a.log}); err != nil {
-		return nil, err
+		return err
 	}
 	if a.sandbox, err = sandbox.New(ctx, sandbox.Deps{Config: a.cfg, Egress: a.egress, Store: a.db, Bus: a.bus, Audit: a.audit,
 		WorkDir: dirs.Work, RunDir: dirs.Run, Clock: a.clock, Log: a.log}); err != nil {
-		return nil, err
+		return err
 	}
 	if a.llm, err = provider.New(provider.Deps{Config: a.cfg, Vault: a.vault, Egress: a.egress, Env: os.Environ, Clock: a.clock, Log: a.log, Bus: a.bus}); err != nil {
-		return nil, err
+		return err
 	}
 	if a.budget, err = budget.New(budget.Deps{Store: a.db, Config: a.cfg, Bus: a.bus, Audit: a.audit, Clock: a.clock, Log: a.log}); err != nil {
-		return nil, err
+		return err
 	}
 	if a.memory, err = memory.New(memory.Deps{Store: a.db, Config: a.cfg, Bus: a.bus, Audit: a.audit, DataDir: dirs.Data, Clock: a.clock, Log: a.log}); err != nil {
-		return nil, err
+		return err
 	}
 	if a.skills, err = skills.New(skills.Deps{Store: a.db, Config: a.cfg, Audit: a.audit, Bus: a.bus, WorkDir: dirs.Work, Clock: a.clock, Log: a.log}); err != nil {
-		return nil, err
+		return err
 	}
 	a.registry = tools.NewRegistry(tools.RegistryDeps{Config: a.cfg, Log: a.log})
 	if a.mcp, err = mcp.New(mcp.Deps{Config: a.cfg, Store: a.db, Sandbox: a.sandbox, Egress: a.egress, Registry: a.registry,
 		Vault: a.vault, Bus: a.bus, Audit: a.audit, WorkDir: dirs.Work, Clock: a.clock, Log: a.log}); err != nil {
-		return nil, err
+		return err
 	}
 	if a.runner, err = agent.New(agent.Deps{Store: a.db, Config: a.cfg, LLM: a.llm, Tools: a.registry, Policy: a.policy,
 		Approvals: a.approvals, Budget: a.budget, Memory: a.memory, Skills: a.skills, Sandbox: a.sandbox, Egress: a.egress,
 		Redactor: a.redactor, Bus: a.bus, Audit: a.audit, DataDir: dirs.Data, WorkDir: dirs.Work, Clock: a.clock, Log: a.log}); err != nil {
-		return nil, err
+		return err
 	}
 	if a.hub, err = channel.New(channel.Deps{Config: a.cfg, Auth: a.auth, Runner: a.runner, Approvals: a.approvals, Budget: a.budget,
 		Sandbox: a.sandbox, Store: a.db, Bus: a.bus, Audit: a.audit, Redactor: a.redactor, WorkDir: dirs.Work, Clock: a.clock, Log: a.log}); err != nil {
-		return nil, err
+		return err
 	}
 	a.runner.SetHub(a.hub) // breaks the runner <-> hub cycle: resumed-run sinks and restart notices
 	adapterDeps := func(name string) core.AdapterDeps {
@@ -156,13 +193,13 @@ func build(ctx context.Context) (*app, error) {
 			continue // skeleton stubs
 		}
 		if err != nil {
-			return nil, err
+			return err
 		}
 		a.hub.Add(ch) // disabled channels report state "disabled"
 	}
 	if a.scheduler, err = scheduler.New(scheduler.Deps{Store: a.db, Config: a.cfg, Runner: a.runner, Hub: a.hub, Memory: a.memory,
 		Bus: a.bus, Audit: a.audit, Clock: a.clock, Log: a.log}); err != nil {
-		return nil, err
+		return err
 	}
 	// Late tool registration: every provider's tools, then builtins. Snapshots are
 	// frozen per session, so registration must finish before the API serves.
@@ -174,7 +211,7 @@ func build(ctx context.Context) (*app, error) {
 	}
 	for _, t := range all {
 		if err := a.registry.Register(t); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	checks := doctor.ConfigChecks(a.cfg) // config.errors, config.safe_mode
@@ -187,7 +224,7 @@ func build(ctx context.Context) (*app, error) {
 		Scheduler: a.scheduler, Hub: a.hub, Sandbox: a.sandbox, Egress: a.egress, Doctor: a.doctor, Audit: a.audit,
 		WebUI: webui.Handler(), Version: version, DataDir: dirs.Data, WorkDir: dirs.Work, Restart: a.requestRestart,
 		Clock: a.clock, Log: a.log})
-	return a, err
+	return err
 }
 
 func (a *app) requestRestart() {

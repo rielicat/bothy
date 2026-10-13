@@ -96,16 +96,3 @@ func healthcheck(ctx context.Context) error {
 	}
 	return nil
 }
-
-// doctorCmd builds the app without starting loops, runs checks, prints them.
-func doctorCmd(ctx context.Context, args []string, security bool) (int, error) {
-	return 0, core.ErrNotImplemented // lead, phase 3: build() + doctor.Runner.Run/Fix + doctor.Print
-}
-
-// adminCmd is filled by the lead in phase 3 on module APIs: setup-token
-// (Auth.RotateSetupToken), user (Auth.ResetPassword, Users().List), vault
-// (Vault.RotateKEK, Vault.Status), config (config.Load/Effective), audit
-// (Auditor.Verify, audit.Archive), backup (Store.Backup).
-func adminCmd(ctx context.Context, cmd string, args []string) error {
-	return core.ErrNotImplemented
-}
