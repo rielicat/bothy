@@ -273,12 +273,14 @@ func (st *streamState) buttons() [][]core.Button {
 	return [][]core.Button{{{Label: "Stop", Data: "s:" + string(st.run), Style: core.BtnDanger}}}
 }
 
-// pending is the not-yet-finalized part of the reply. While the run is live
-// the trailing partial word is held back, so a secret that is still arriving
-// is never shown before the redactor can recognise it.
+// pending is the not-yet-finalized part of the reply. While the model is
+// still writing, the trailing partial word is held back, so a secret that is
+// still arriving is never shown before the redactor can recognise it. Once a
+// tool call has ended the step, the runner has flushed all of that step's
+// text, so nothing is held back while the tool runs or awaits approval.
 func (st *streamState) pending(live bool) string {
 	seg := st.raw.String()[st.commit:]
-	if live {
+	if live && !st.stepBreak {
 		if i := strings.LastIndexFunc(seg, unicode.IsSpace); i >= 0 {
 			seg = seg[:i]
 		} else {

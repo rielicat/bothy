@@ -105,6 +105,38 @@ func TestStreamSeparatesStepsAndRestoresToolStatus(t *testing.T) {
 	})
 }
 
+// The trailing word of a step's text is held back only while the model may
+// still be writing it; during the approval wait that follows a tool call the
+// whole sentence must show, not "… for you right".
+func TestStreamShowsWholeStepTextDuringToolCall(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		f := h.feed(h.dmChat(ownerChat), "stream")
+		f.emit(core.EvRunStarted, core.RunStartedData{Trigger: core.TrigMessage})
+		f.delta("I'll save that note for you right")
+		time.Sleep(2 * time.Second)
+		synctest.Wait()
+		if got := h.lastText(ownerChat); strings.Contains(got, "right") {
+			t.Fatalf("a word the model may still be writing is shown: %q", got)
+		}
+		f.delta(" away.")
+		f.emit(core.EvToolCall, core.ToolCallData{Tool: "fs_write", Title: "Write file"})
+		f.emit(core.EvRunStatus, core.RunStatusData{Status: "waiting_approval"})
+		time.Sleep(2 * time.Second)
+		synctest.Wait()
+		if got := h.lastText(ownerChat); got != "I'll save that note for you right away.\n\n_Waiting for approval…_" {
+			t.Fatalf("during the approval wait the live message shows %q", got)
+		}
+		f.emit(core.EvRunStatus, core.RunStatusData{Status: "tool"})
+		f.emit(core.EvToolResult, core.ToolResultData{Status: core.TCOK})
+		f.delta("Saved.")
+		f.finish(core.RunDone)
+		if got := h.lastText(ownerChat); got != "I'll save that note for you right away.\n\nSaved." {
+			t.Fatalf("final text = %q", got)
+		}
+	})
+}
+
 func TestStreamFinalModeSuppressesLateHeartbeatOK(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t).start()
