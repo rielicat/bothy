@@ -510,8 +510,11 @@ func (st *streamState) finish(ctx context.Context) {
 
 // heartbeatOK reports a heartbeat reply that must not be delivered (SPEC
 // §5.16); the model may say something before its final answer, so the last
-// step's text counts too.
-func heartbeatOK(s string) bool { return strings.HasPrefix(strings.TrimSpace(s), "HEARTBEAT_OK") }
+// step's text counts too. Emphasis or code ticks around the token are
+// tolerated, as the scheduler and the runner do.
+func heartbeatOK(s string) bool {
+	return strings.HasPrefix(strings.TrimLeft(strings.TrimSpace(s), "*_`> "), "HEARTBEAT_OK")
+}
 
 // finishNote is the closing line: the runner's notices when it sent any,
 // else a short word on how the run ended, plus the optional usage footer.

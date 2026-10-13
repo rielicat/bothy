@@ -267,6 +267,13 @@ func TestStreamFinalModeAndHeartbeat(t *testing.T) {
 		if n := len(h.visible(ownerChat)); n != 1 {
 			t.Fatalf("a HEARTBEAT_OK reply was delivered (%d messages)", n)
 		}
+
+		bold := h.feed(h.dmChat(ownerChat), "final")
+		bold.delta("**HEARTBEAT_OK**")
+		bold.finish(core.RunDone)
+		if n := len(h.visible(ownerChat)); n != 1 {
+			t.Fatalf("an emphasised HEARTBEAT_OK reply was delivered (%d messages)", n)
+		}
 	})
 }
 
