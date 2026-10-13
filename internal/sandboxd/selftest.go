@@ -225,7 +225,7 @@ func (d *daemon) canary(ctx context.Context, engineRuntime, label string, seccom
 		return nil, fmt.Errorf("canary egress socket: %w", err)
 	}
 	defer stop()
-	name := containerName(canaryKey)
+	name := d.containerName(canaryKey)
 	_ = d.eng.ContainerRemove(ctx, name)
 	profile := d.cfg.canaryProfile()
 	cfg := boxSpec(specInput{

@@ -77,7 +77,11 @@ func errEngine(err error) error {
 	return &apiError{http.StatusBadGateway, "engine", err.Error()}
 }
 
-func containerName(key string) string { return "bothy-" + key }
+// containerName scopes the engine-wide container name to this install's run
+// volume: the canary and MCP box keys are derived, not random, so two installs
+// (or test runs) on one engine would otherwise share names, and a name clash
+// makes createAndStart remove the other install's container.
+func (d *daemon) containerName(key string) string { return d.cfg.RunVolume + "-" + key }
 
 func (d *daemon) labels() []string {
 	return []string{labelBox + "=1", labelVolume + "=" + d.cfg.RunVolume}
@@ -191,7 +195,7 @@ func (d *daemon) start(ctx context.Context, req proto.CreateReq) (proto.CreateRe
 		Limits: req.Limits, Image: d.cfg.Images[req.Profile], Runtime: rt,
 		WorkVolume: d.cfg.WorkVolume, RunVolume: d.cfg.RunVolume, SeccompBuiltin: builtin,
 	})
-	id, err := d.createAndStart(ctx, containerName(req.Key), cfg)
+	id, err := d.createAndStart(ctx, d.containerName(req.Key), cfg)
 	if err != nil {
 		return proto.CreateResp{}, errEngine(err)
 	}
@@ -324,7 +328,7 @@ func (d *daemon) destroy(ctx context.Context, key string) error {
 	b, err := d.lookup(key)
 	if err != nil {
 		// Also remove an unregistered container of that name.
-		return d.eng.ContainerRemove(ctx, containerName(key))
+		return d.eng.ContainerRemove(ctx, d.containerName(key))
 	}
 	_, err = d.removeIf(ctx, b, nil)
 	return err

@@ -214,7 +214,7 @@ func TestExecRecreatesALostBox(t *testing.T) {
 	if err := e.c.Ensure(ctx, e.spec(key1)); err != nil {
 		t.Fatal(err)
 	}
-	eng.Vanish("bothy-" + key1) // reaped or evicted by sandboxd
+	eng.Vanish("bothy_run-" + key1) // reaped or evicted by sandboxd
 	res, err := e.c.Exec(ctx, key1, core.ExecRequest{Argv: []string{"echo", "back"}}, nil)
 	if err != nil || string(res.Stdout) != "back\n" {
 		t.Fatalf("exec after loss = %+v, %v", res, err)
