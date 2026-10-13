@@ -10,7 +10,7 @@ CREATE TABLE meta (
 --       setup_grant_exp, setup_done (auth), paused (runner), approval_mac_key (policy, first
 --       boot, 32 random bytes hex), constitution_version (runner), agent.spotlight_key (runner,
 --       first use, 32 random bytes hex),
---       channel.telegram.offset, channel.discord.session, channel.discord.seq (adapters)
+--       channel.telegram.offset, channel.discord.resume (adapters; JSON session_id, seq, url)
 
 CREATE TABLE users (
   id            TEXT PRIMARY KEY,

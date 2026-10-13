@@ -59,7 +59,9 @@ thirdparty_ok() {
 	M6) case "$3" in golang.org/x/net/*) return 0 ;; esac ;;
 	M7) case "$3" in github.com/modelcontextprotocol/go-sdk/* | github.com/google/jsonschema-go/* | go.yaml.in/yaml/v3*) return 0 ;; esac ;;
 	M8) case "$3" in github.com/adhocore/gronx*) return 0 ;; esac ;;
-	M10) case "$1:$3" in internal/channel/discord*:github.com/disgoorg/* | internal/channel/slack*:github.com/slack-go/slack*) return 0 ;; esac ;;
+	# gorilla/websocket: disgo and slack-go take a *websocket.Dialer and report *websocket.CloseError.
+	M10) case "$1:$3" in internal/channel/discord*:github.com/disgoorg/* | internal/channel/slack*:github.com/slack-go/slack* | \
+		internal/channel/discord*:github.com/gorilla/websocket | internal/channel/slack*:github.com/gorilla/websocket) return 0 ;; esac ;;
 	M11) case "$3" in golang.org/x/crypto/*) return 0 ;; esac ;;
 	esac
 	return 1

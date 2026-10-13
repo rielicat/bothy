@@ -16,8 +16,8 @@ import (
 
 // The fake speaks just enough RFC 6455 for a Socket Mode client: it reads masked
 // client frames (reassembling fragments), answers pings and writes
-// unfragmented, unmasked server frames. gorilla/websocket is not an approved
-// import here (SPEC §11.1), and the server side is small.
+// unfragmented, unmasked server frames. The server side is small enough not
+// to need gorilla/websocket.
 
 const (
 	opContinuation = 0x0

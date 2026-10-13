@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/slack-go/slack/socketmode"
 
 	"github.com/bothyhq/bothy/internal/core"
@@ -63,8 +64,7 @@ type dialFunc func(ctx context.Context, network, addr string) (net.Conn, error)
 // hands out only *http.Client values, so the dialer is borrowed from the
 // client's *http.Transport. A client without one, or one that would route
 // this destination through a proxy (which a raw WebSocket dial cannot
-// honour), fails closed instead of dialing around egress (ICR
-// core.AdapterDeps.Dial would remove this).
+// honour), fails closed instead of dialing around egress.
 func systemDialer(deps core.AdapterDeps, dest core.SystemDest, secure bool) (dialFunc, error) {
 	c := deps.HTTP(dest)
 	var tr *http.Transport
@@ -115,21 +115,12 @@ func systemDialer(deps core.AdapterDeps, dest core.SystemDest, secure bool) (dia
 	}, nil
 }
 
-// newOptionArg allocates the value an option function takes a pointer to.
-// Socket Mode's dialer type lives in gorilla/websocket, which SPEC §11.1 does
-// not approve as a direct import; reaching it through slack-go's own option
-// keeps the import graph within the approved set while the WebSocket still
-// goes through egress.
-func newOptionArg[T, O any](func(*T) O) *T { return new(T) }
-
 // socketDialer connects the Socket Mode WebSocket, whose host comes from
 // apps.connections.open, through the egress system dialer for that exact
 // host:port. It sets no proxy: slack-go's default dialer would read
 // HTTPS_PROXY from the environment.
 func (a *adapter) socketDialer() socketmode.Option {
-	d := newOptionArg(socketmode.OptionDialer)
-	d.HandshakeTimeout = handshakeTimeout
-	d.WriteBufferSize = writeBuffer
+	d := &websocket.Dialer{HandshakeTimeout: handshakeTimeout, WriteBufferSize: writeBuffer}
 	dial := func(secure bool) dialFunc {
 		return func(ctx context.Context, network, addr string) (net.Conn, error) {
 			d, err := systemDialer(a.deps, a.dest(addr), secure)

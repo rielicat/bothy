@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -16,6 +17,7 @@ import (
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/gateway"
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/gorilla/websocket"
 
 	"github.com/bothyhq/bothy/internal/config"
 	"github.com/bothyhq/bothy/internal/core"
@@ -85,18 +87,19 @@ func TestStripMention(t *testing.T) {
 
 func TestGatewayErrClassification(t *testing.T) {
 	for _, tt := range []struct {
-		msg  string
+		err  error
 		auth string
 	}{
-		{"failed to open gateway connection: websocket: close 4004: Authentication failed.", tokenHint},
-		{"websocket: close 4014: Disallowed intent(s).", intentHint},
-		{"websocket: close 4000: Unknown error", ""},
-		{"dial tcp: connection refused", ""},
+		{fmt.Errorf("failed to open gateway connection: %w", &websocket.CloseError{Code: 4004, Text: "Authentication failed."}), tokenHint},
+		{&websocket.CloseError{Code: 4014, Text: "Disallowed intent(s)."}, intentHint},
+		{&websocket.CloseError{Code: 4000, Text: "Unknown error"}, ""},
+		{errors.New("websocket: close 4004: text alone is not a close frame"), ""},
+		{errors.New("dial tcp: connection refused"), ""},
 	} {
-		err := gatewayErr(errors.New(tt.msg))
+		err := gatewayErr(tt.err)
 		ae, ok := errors.AsType[*authError](err)
 		if (tt.auth != "") != ok || (ok && ae.hint != tt.auth) {
-			t.Errorf("gatewayErr(%q) = %v, want auth hint %q", tt.msg, err, tt.auth)
+			t.Errorf("gatewayErr(%q) = %v, want auth hint %q", tt.err, err, tt.auth)
 		}
 	}
 	if err := gatewayErr(context.Canceled); !errors.Is(err, context.Canceled) {

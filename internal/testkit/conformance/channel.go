@@ -297,8 +297,10 @@ wait:
 	if ev.SenderID != s.senderID {
 		r.Errorf("%s: ActionEvent.SenderID = %q, want %q", name, ev.SenderID, s.senderID)
 	}
-	if ev.Msg.ID != ref.ID || ev.Chat.ChatID != s.chatID {
-		r.Errorf("%s: ActionEvent for message %q in chat %q, want %q in %q", name, ev.Msg.ID, ev.Chat.ChatID, ref.ID, s.chatID)
+	// The hub matches a press against the card refs it recorded, so the
+	// event must carry exactly the MsgRef Send returned (thread and kind too).
+	if ev.Msg != ref || ev.Chat != ref.Chat {
+		r.Errorf("%s: ActionEvent for %+v in %+v, want the MsgRef Send returned (%+v)", name, ev.Msg, ev.Chat, ref)
 	}
 	if ev.AckRef == "" {
 		r.Errorf("%s: ActionEvent.AckRef is empty", name)

@@ -22,8 +22,11 @@ build:
 	go build -trimpath -ldflags '$(LDFLAGS)' -o bin/bothy ./cmd/bothy
 
 # The race detector needs cgo on Linux; only test binaries are built with it.
+# disgo v0.19.6's gateway races internally, so the Discord tests that drive
+# the real gateway are built only without -race; the second run covers them.
 test:
 	CGO_ENABLED=1 go test -race ./...
+	go test -count=1 ./internal/channel/discord/...
 
 ui:
 	cd web && npm ci --ignore-scripts && npm run build

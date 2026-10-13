@@ -7,14 +7,13 @@ import (
 	"fmt"
 	"net"
 	"net/url"
-	"regexp"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/gateway"
+	"github.com/gorilla/websocket"
 
 	"github.com/bothyhq/bothy/internal/core"
 )
@@ -164,8 +163,7 @@ func (a *adapter) session(ctx context.Context, jobs chan<- job) (connected bool,
 // gatewayDialer routes every gateway dial, resume URLs included, through the
 // egress system dialer for that exact host:port.
 func (a *adapter) gatewayDialer(stopped *atomic.Bool) gateway.ConfigOpt {
-	d := newOptionArg(gateway.WithDialer)
-	d.HandshakeTimeout = handshakeTimeout
+	d := &websocket.Dialer{HandshakeTimeout: handshakeTimeout}
 	dial := func(secure bool) dialFunc {
 		return func(ctx context.Context, network, addr string) (net.Conn, error) {
 			if stopped.Load() {
@@ -189,17 +187,12 @@ func (a *adapter) gatewayDialer(stopped *atomic.Bool) gateway.ConfigOpt {
 	return gateway.WithDialer(d)
 }
 
-// closeCodeRe reads the code out of gorilla/websocket's CloseError text
-// ("websocket: close 4014: Disallowed intent(s)"); the type itself is out of
-// reach without importing gorilla (see newOptionArg).
-var closeCodeRe = regexp.MustCompile(`websocket: close (\d{4})`)
-
 func gatewayErr(err error) error {
 	if errors.Is(err, context.Canceled) {
 		return err
 	}
-	if m := closeCodeRe.FindStringSubmatch(err.Error()); m != nil {
-		switch code, _ := strconv.Atoi(m[1]); code {
+	if ce, ok := errors.AsType[*websocket.CloseError](err); ok {
+		switch ce.Code {
 		case gateway.CloseEventCodeAuthenticationFailed.Code:
 			return &authError{hint: tokenHint, err: err}
 		case gateway.CloseEventCodeDisallowedIntent.Code:

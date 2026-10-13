@@ -3716,7 +3716,7 @@ CREATE TABLE meta (
 --       setup_grant_exp, setup_done (auth), paused (runner), approval_mac_key (policy, first
 --       boot, 32 random bytes hex), constitution_version (runner), agent.spotlight_key (runner,
 --       first use, 32 random bytes hex),
---       channel.telegram.offset, channel.discord.session, channel.discord.seq (adapters)
+--       channel.telegram.offset, channel.discord.resume (adapters; JSON session_id, seq, url)
 
 CREATE TABLE users (
   id            TEXT PRIMARY KEY,
@@ -5702,6 +5702,7 @@ Owners: `sqlite.*`, `data.*`, `backups.*`, `vault.*` M1; `providers.*` M2; `poli
 | `github.com/modelcontextprotocol/go-sdk` v1.8.0 | mcp; `github.com/google/jsonschema-go` (its dependency) used by tools for argument validation | MCP client for both spec eras; `IOTransport`, `StreamableClientTransport`, `SSEClientTransport` |
 | `github.com/disgoorg/disgo` v0.19.6 | channel/discord | Maintained Discord gateway; caches disabled, minimal intents |
 | `github.com/slack-go/slack` v0.30.1 | channel/slack | Socket Mode + Web API; configurable API URL for fakes |
+| `github.com/gorilla/websocket` v1.5.3 | channel/discord, channel/slack (types only) | Already linked by disgo and slack-go; their dialer options take `*websocket.Dialer` and close codes arrive as `*websocket.CloseError` |
 | `go.yaml.in/yaml/v3` (newest tag ≥ 14 days old; *verify*) | config | `yaml.Node` line numbers for provenance |
 | `golang.org/x/crypto` (*verify*) | auth, vault | `argon2` only |
 | `golang.org/x/net` (*verify*) | egress, policy, sandbox/bwrap | `html` (web_fetch text extraction), `idna` (punycode), `bpf` (serializing the seccomp program) |

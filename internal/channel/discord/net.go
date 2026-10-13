@@ -54,8 +54,7 @@ type dialFunc func(ctx context.Context, network, addr string) (net.Conn, error)
 // hands out only *http.Client values, so the dialer is borrowed from the
 // client's *http.Transport. A client without one, or one that would route
 // this destination through a proxy (which a raw WebSocket dial cannot
-// honour), fails closed instead of dialing around egress (ICR
-// core.AdapterDeps.Dial would remove this).
+// honour), fails closed instead of dialing around egress.
 func systemDialer(deps core.AdapterDeps, dest core.SystemDest, secure bool) (dialFunc, error) {
 	c := deps.HTTP(dest)
 	var tr *http.Transport
@@ -105,13 +104,6 @@ func systemDialer(deps core.AdapterDeps, dest core.SystemDest, secure bool) (dia
 		return tlsConn, nil
 	}, nil
 }
-
-// newOptionArg allocates the value an option function takes a pointer to.
-// The gateway's dialer type lives in gorilla/websocket, which SPEC §11.1 does
-// not approve as a direct import; reaching it through disgo's own option
-// keeps the import graph within the approved set while the WebSocket still
-// goes through egress.
-func newOptionArg[T, O any](func(*T) O) *T { return new(T) }
 
 // quietHandler drops debug records: disgo logs whole gateway and REST
 // payloads at debug level, message content and the IDENTIFY token included.
