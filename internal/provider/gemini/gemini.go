@@ -185,6 +185,12 @@ func (c *Client) read(ctx context.Context, body io.Reader, model string, on func
 	if finish == "" {
 		return nil, c.o.NetError(ctx, errors.New("stream ended before finishReason"))
 	}
+	// The model wrote a call Gemini could not parse or did not offer, and
+	// dropped it: a failed step, not an empty answer. It is retryable, so the
+	// facade tries again or falls back when nothing has streamed yet.
+	if finish == "MALFORMED_FUNCTION_CALL" || finish == "UNEXPECTED_TOOL_CALL" {
+		return nil, c.o.StreamError(core.ErrKindServer, "the model produced an invalid tool call ("+finish+")")
+	}
 	if seen {
 		if err := b.Usage(u); err != nil {
 			return nil, err
@@ -199,7 +205,7 @@ func mapFinish(s string) core.StopReason {
 		return core.StopMaxTokens
 	case "SAFETY", "RECITATION", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "IMAGE_SAFETY":
 		return core.StopRefusal
-	default: // STOP, MALFORMED_FUNCTION_CALL, OTHER, …
+	default: // STOP, OTHER, …
 		return core.StopEnd
 	}
 }

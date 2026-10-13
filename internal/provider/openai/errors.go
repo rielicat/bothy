@@ -29,7 +29,9 @@ func (e *errorPayload) kind(status int) (core.ErrorKind, string) {
 	switch {
 	case code == "context_length_exceeded" || code == "string_above_max_length" || overflowStatus(status) && wire.IsContextOverflow(e.Message):
 		return core.ErrKindContextLength, e.Message
-	case code == "invalid_api_key" || typ == "authentication_error":
+	// An exhausted quota arrives as a 429, but retrying cannot help: like
+	// Anthropic's billing_error it is a credential problem for the admin.
+	case code == "invalid_api_key" || typ == "authentication_error" || code == "insufficient_quota" || typ == "insufficient_quota":
 		return core.ErrKindAuth, e.Message
 	case code == "content_filter" || code == "content_policy_violation":
 		return core.ErrKindContentFilter, e.Message

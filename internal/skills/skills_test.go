@@ -429,7 +429,8 @@ func TestHashDriftExcludesAndRaisesBanner(t *testing.T) {
 	}
 
 	findings := l.Checks()[0].Run(ctx)
-	if len(findings) != 1 || findings[0].ID != "skills.changed" || !findings[0].AutoFix || !strings.Contains(findings[0].Detail, "notes") {
+	if len(findings) != 1 || findings[0].ID != "skills.changed" || !findings[0].AutoFix || !strings.Contains(findings[0].Detail, "notes") ||
+		!strings.Contains(findings[0].Fix, "bothy security-audit --fix") {
 		t.Fatalf("Run before rescan = %+v", findings)
 	}
 	if err := l.Rescan(ctx); err != nil {

@@ -310,7 +310,7 @@ func toolLabel(d core.ToolCallData, redact func(string) string) string {
 func (st *streamState) render(md string) string {
 	out := st.s.h.redact(md)
 	if st.exposed {
-		out = neutralize(out)
+		out = core.NeutralizeMarkdown(out)
 	}
 	return out
 }

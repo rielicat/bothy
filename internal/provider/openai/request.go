@@ -27,10 +27,11 @@ type streamOptions struct {
 }
 
 type message struct {
-	Role       string     `json:"role"`
-	Content    any        `json:"content"` // string, []contentPart or nil
-	ToolCalls  []toolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Role             string     `json:"role"`
+	Content          any        `json:"content"` // string, []contentPart or nil
+	ReasoningContent string     `json:"reasoning_content,omitempty"`
+	ToolCalls        []toolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string     `json:"tool_call_id,omitempty"`
 }
 
 type contentPart struct {
@@ -98,11 +99,13 @@ func (c *Client) buildRequest(r *core.Request) request {
 	if sys := wire.SystemText(r.System); sys != "" {
 		out.Messages = append(out.Messages, message{Role: "system", Content: sys})
 	}
-	out.Messages = append(out.Messages, buildMessages(r.Messages)...)
+	out.Messages = append(out.Messages, buildMessages(r.Messages, c.echoSig())...)
 	return out
 }
 
-func buildMessages(msgs []core.Message) []message {
+// buildMessages converts the history; thinking parts signed with echo
+// ("" for none) go back as the assistant turn's reasoning_content.
+func buildMessages(msgs []core.Message, echo string) []message {
 	var out []message
 	for _, m := range msgs {
 		switch m.Role {
@@ -120,6 +123,10 @@ func buildMessages(msgs []core.Message) []message {
 				case core.PartText:
 					if p.Text != "" {
 						text = append(text, p.Text)
+					}
+				case core.PartThinking:
+					if echo != "" && p.SigKind == core.KindOpenAICompat && p.Sig == echo {
+						am.ReasoningContent += p.Text
 					}
 				case core.PartToolCall:
 					if p.ToolCall == nil {
@@ -141,6 +148,7 @@ func buildMessages(msgs []core.Message) []message {
 			if n := len(out); n > 0 && out[n-1].Role == "assistant" && len(out[n-1].ToolCalls) == 0 {
 				prev := &out[n-1]
 				prev.Content = joinContent(prev.Content, am.Content)
+				prev.ReasoningContent += am.ReasoningContent
 				prev.ToolCalls = am.ToolCalls
 				continue
 			}

@@ -10,7 +10,8 @@ The SSE reader assembles text, thinking with its signature (and
 `redacted_thinking`, kept as an opaque signature) and tool calls by block
 index, takes usage from `message_start` and the cumulative `message_delta`
 (cache reads and writes reported separately, so `Input` already excludes
-them), maps `error` events and HTTP errors to `core.ErrorKind`, drops tool
+them), maps `error` events and HTTP errors to `core.ErrorKind` (a 400 about
+an exhausted credit balance is `auth`, like `billing_error`), drops tool
 calls cut off by `max_tokens`, and treats a stream that ends before
 `message_stop` as a network failure. Thinking parts go back verbatim only to
 Anthropic. `Discover` lists `GET /v1/models`. Fixtures: `testdata/README.md`.

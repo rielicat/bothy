@@ -114,8 +114,15 @@ func TestProbeFailures(t *testing.T) {
 		t.Fatalf("vault uses %v", h.vault.Uses)
 	}
 	res, _ = h.f.Probe(context.Background(), core.ProbeConfig{Kind: core.KindOllama, BaseURL: "http://127.0.0.1:1", AllowPrivate: true})
-	if res.OK || !strings.Contains(res.Detail, "Could not reach") || !strings.Contains(res.Detail, "Is Ollama running?") {
+	if res.OK || !strings.Contains(res.Detail, "Could not reach") || !strings.Contains(res.Detail, "Is Ollama running?") ||
+		!strings.Contains(res.Detail, "OLLAMA_HOST=0.0.0.0") {
 		t.Fatalf("unreachable: %+v", res)
+	}
+	// A stock LM Studio or vLLM listens on the host's loopback only, which a
+	// container on Linux cannot reach.
+	res, _ = h.f.Probe(context.Background(), core.ProbeConfig{Kind: core.KindOpenAICompat, BaseURL: "http://127.0.0.1:1/v1", AllowPrivate: true})
+	if res.OK || !strings.Contains(res.Detail, "Could not reach") || !strings.Contains(res.Detail, "local network") {
+		t.Fatalf("unreachable local server: %+v", res)
 	}
 	res, _ = h.f.Probe(context.Background(), core.ProbeConfig{Kind: core.KindAnthropic, SecretRef: "secret:missing"})
 	if res.OK || !strings.Contains(res.Detail, "vault") {
@@ -134,6 +141,24 @@ func (hr hostRouter) RoundTrip(r *http.Request) (*http.Response, error) {
 	rec := httptest.NewRecorder()
 	hnd.ServeHTTP(rec, r)
 	return rec.Result(), nil
+}
+
+// In the container, localhost is the container itself: servers on the
+// Docker host are found through host.docker.internal.
+func TestDetectServersOnTheDockerHost(t *testing.T) {
+	models := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"qwen3-8b","object":"model"}]}`))
+	})
+	h := newHarness(t, nil)
+	h.egress.Client = &http.Client{Transport: hostRouter{"host.docker.internal:1234": models, "host.docker.internal:8000": models}}
+	h.f.d.Env = func() []string { return nil }
+	var bases []string
+	for _, d := range h.f.Detect(context.Background()) {
+		bases = append(bases, d.BaseURL)
+	}
+	if strings.Join(bases, " ") != "http://host.docker.internal:1234/v1 http://host.docker.internal:8000/v1" {
+		t.Fatalf("detected %v", bases)
+	}
 }
 
 func TestDetect(t *testing.T) {

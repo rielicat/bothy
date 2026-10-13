@@ -22,7 +22,8 @@ integer micros. Also here: the bytes/3.6 estimator
 with a per-model EWMA correction, missing-usage estimation, `Probe` (one-token
 completion and forced tool call, Ollama ones sent with the num_ctx Bothy will
 use, then a context check with the `OLLAMA_CONTEXT_LENGTH` hint), `Detect`
-(local Ollama/LM Studio/vLLM and the names of well-known key variables) and
+(Ollama, LM Studio and vLLM on this machine and on the Docker host, and the
+names of well-known key variables) and
 the `providers.auth_failed` and `providers.ollama_context` checks. An Ollama
 model without a configured context never gets its trained maximum as
 num_ctx: `ollama.Window` caps it at 16,384, or at the served context when

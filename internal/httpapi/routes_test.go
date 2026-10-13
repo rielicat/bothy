@@ -676,9 +676,12 @@ func TestUsageEndpoints(t *testing.T) {
 
 func TestAdminEndpoints(t *testing.T) {
 	h := newHarness(t).setup()
+	// The runner's persisted flag is the kill switch; the scheduler reads it
+	// (Runner.Paused), so a /resume from chat releases the scheduler too. A
+	// copy in the scheduler's own flag would outlive that /resume.
 	expect(t, h.do("POST", "/api/admin/pause", dto.PauseReq{Paused: true}, h.admin), http.StatusNoContent)
-	if !h.runner.Paused() || !h.scheduler.PausedV || h.runner.StopAlls != 1 {
-		t.Fatalf("pause: runner %v scheduler %v stopall %d", h.runner.Paused(), h.scheduler.PausedV, h.runner.StopAlls)
+	if !h.runner.Paused() || h.scheduler.PausedV || h.runner.StopAlls != 1 {
+		t.Fatalf("pause: runner %v scheduler's own flag %v stopall %d", h.runner.Paused(), h.scheduler.PausedV, h.runner.StopAlls)
 	}
 	if bs := h.bus.Banners(core.Filter{Admin: true}); len(bs) != 1 || bs[0].Data.(core.BannerData).Code != "paused" {
 		t.Fatalf("banners = %+v", bs)

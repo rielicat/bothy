@@ -50,6 +50,29 @@ func TestConvertCatwalk(t *testing.T) {
 	}
 }
 
+// catwalk lists some entries' read price under in_cached and the output
+// price under out_cached (Gemini 3.1 Flash-Lite: 0.025 and 1.50 against
+// 0.25 input). A cache read above the input price is never right.
+func TestCacheReadNeverAboveInput(t *testing.T) {
+	for _, tc := range []struct {
+		m    cwModel
+		want price
+	}{
+		{cwModel{ID: "gemini-3.1-flash-lite", CostPer1MIn: 0.25, CostPer1MOut: 1.5, CostPer1MInCached: 0.025, CostPer1MOutCached: 1.5},
+			price{InPerM: 250_000, OutPerM: 1_500_000, CacheReadPerM: 25_000}},
+		{cwModel{ID: "gemini-3.5-flash-lite", CostPer1MIn: 0.3, CostPer1MOut: 2.5, CostPer1MInCached: 0.03, CostPer1MOutCached: 2.5},
+			price{InPerM: 300_000, OutPerM: 2_500_000, CacheReadPerM: 30_000}},
+		{cwModel{ID: "odd", CostPer1MIn: 1, CostPer1MOut: 5, CostPer1MInCached: 1.25, CostPer1MOutCached: 2},
+			price{InPerM: 1_000_000, OutPerM: 5_000_000, CacheWritePerM: 1_250_000}},
+		{cwModel{ID: "claude", CostPer1MIn: 3, CostPer1MOut: 15, CostPer1MInCached: 3.75, CostPer1MOutCached: 0.3},
+			price{InPerM: 3_000_000, OutPerM: 15_000_000, CacheReadPerM: 300_000, CacheWritePerM: 3_750_000}},
+	} {
+		if got := convertModel("gemini", tc.m); got.Price == nil || *got.Price != tc.want {
+			t.Errorf("%s: price %+v, want %+v", tc.m.ID, got.Price, tc.want)
+		}
+	}
+}
+
 func TestRenderParsesAndIsStable(t *testing.T) {
 	ps, err := load(context.Background(), "testdata")
 	if err != nil {

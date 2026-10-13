@@ -214,6 +214,12 @@ func TestMessengerSend(t *testing.T) {
 		if got := h.lastText(ownerChat); got != "see hxxps://evil[.]example/x" {
 			t.Fatalf("exposed chat got %q, want neutralized links", got)
 		}
+		if _, err := h.hub.Send(h.ctx, chat, "Details: https://[2001:db8:abcd::1]/r?d=SECRET"); err != nil {
+			t.Fatal(err)
+		}
+		if got := h.lastText(ownerChat); got != "Details: hxxps://[2001:db8:abcd::1]/r?d=SECRET" {
+			t.Fatalf("exposed chat got %q, want the IPv6 link neutralized", got)
+		}
 		if _, err := h.hub.Send(h.ctx, h.dmChat(ownerChat), "  "); !errors.Is(err, core.ErrInvalid) {
 			t.Fatalf("empty Send = %v", err)
 		}

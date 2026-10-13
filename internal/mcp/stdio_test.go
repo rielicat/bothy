@@ -370,7 +370,8 @@ func TestStdioTreeDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	findings := h.m.Checks()[1].Run(context.Background())
-	if len(findings) != 1 || findings[0].ID != "mcp.drifted" || !findings[0].AutoFix || !strings.Contains(findings[0].Detail, "notes") {
+	if len(findings) != 1 || findings[0].ID != "mcp.drifted" || !findings[0].AutoFix || !strings.Contains(findings[0].Detail, "notes") ||
+		!strings.Contains(findings[0].Fix, "bothy security-audit --fix") || strings.Contains(findings[0].Fix, "doctor --fix") {
 		t.Fatalf("drift findings = %+v", findings)
 	}
 

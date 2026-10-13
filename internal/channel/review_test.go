@@ -297,7 +297,8 @@ func TestCardKeepsLinksInert(t *testing.T) {
 		ap := &core.Approval{ID: core.ApprovalID(core.NewID(core.PrefixApproval)), Card: core.Card{
 			Title: "Fetch a web page",
 			Fields: []core.CardField{{Label: "URL", Value: "https://evil.example/c?d=private-notes"},
-				{Label: "Recipient", Value: "drop@evil.example"}, {Label: "Folder", Value: "reports"}},
+				{Label: "Recipient", Value: "drop@evil.example"}, {Label: "Folder", Value: "reports"},
+				{Label: "Mirror", Value: "https://[2001:db8::1]/c?d=private-notes"}},
 			Warnings: []string{"First contact with evil.example"},
 			Context:  "Telegram · DM · session “see evil.example”",
 			Choices:  []core.Choice{core.AllowOnce, core.Deny},
@@ -306,7 +307,7 @@ func TestCardKeepsLinksInert(t *testing.T) {
 			msg, _ := h.hub.renderCard(ap, caps)
 			// Everything a client could turn into a link sits in code; the
 			// rest of the card stays readable prose.
-			if got := neutralize(msg.Text); got != msg.Text {
+			if got := core.NeutralizeMarkdown(msg.Text); got != msg.Text {
 				t.Fatalf("card has a tappable link outside code:\n%s\nneutralized:\n%s", msg.Text, got)
 			}
 			if !strings.Contains(msg.Text, "Approval needed: Fetch a web page") {
@@ -314,7 +315,8 @@ func TestCardKeepsLinksInert(t *testing.T) {
 			}
 		}
 		msg, _ := h.hub.renderCard(ap, core.ChannelCaps{Buttons: true, MaxLen: 4096})
-		for _, want := range []string{"`https://evil.example/c?d=private-notes`", "`drop@evil.example`", "**Folder:** reports"} {
+		for _, want := range []string{"`https://evil.example/c?d=private-notes`", "`drop@evil.example`", "**Folder:** reports",
+			"`https://[2001:db8::1]/c?d=private-notes`"} {
 			if !strings.Contains(msg.Text, want) {
 				t.Fatalf("card text %q lacks %q", msg.Text, want)
 			}

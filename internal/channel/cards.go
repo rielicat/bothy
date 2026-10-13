@@ -255,21 +255,17 @@ func (h *Hub) renderCard(ap *core.Approval, caps core.ChannelCaps) (core.OutMess
 // carry the data it would leak, and one curious tap on the card must not
 // send it before the approver has decided.
 func inert(v string) string {
-	if linkish(v) {
+	if core.LooksLikeLink(v) {
 		return codeSpan(v)
 	}
 	return escapeMD(v)
 }
 
-func linkish(s string) bool {
-	return schemeURLRe.MatchString(s) || bareHostRe.MatchString(s) || bareIPv4Re.MatchString(s)
-}
-
 // contextLine is the card's italic context line; italics cannot hold a code
-// span on every platform, so a linkish context is shown as code alone.
+// span on every platform, so a link-like context is shown as code alone.
 func contextLine(ctx string) string {
 	ctx = revealInvisible(ctx)
-	if linkish(ctx) {
+	if core.LooksLikeLink(ctx) {
 		return codeSpan(ctx)
 	}
 	return "_" + escapeMD(ctx) + "_"

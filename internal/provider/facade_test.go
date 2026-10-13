@@ -220,6 +220,30 @@ func TestAuthFailureMovesOnAndRaisesBanner(t *testing.T) {
 	}
 }
 
+// An exhausted account is not a rate limit or a bad request: the facade
+// moves to the next candidate at once and flags the provider for the admin.
+func TestBillingFailuresMoveOnAndRaiseBanner(t *testing.T) {
+	quota := newServer(t, jsonReply(429, errBody(`"insufficient_quota"`, "insufficient_quota", "You exceeded your current quota, please check your plan and billing details.")))
+	credit := newServer(t, jsonReply(400, `{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."}}`))
+	backup := newServer(t, sse(okStream))
+	h := newHarness(t, []config.Provider{
+		cfgProvider("a", core.KindOpenAICompat, quota.URL),
+		cfgProvider("c", core.KindAnthropic, credit.URL),
+		cfgProvider("b", core.KindOpenAICompat, backup.URL),
+	}, "a/m", "c/m", "b/m")
+	if _, ci, err := h.f.Complete(context.Background(), core.SlotMain, nil, userReq, nil); err != nil || ci.Ref.Provider != "b" {
+		t.Fatalf("%v %+v", err, ci)
+	}
+	if quota.count() != 1 || credit.count() != 1 || len(h.sleeps) != 0 {
+		t.Fatalf("quota %d credit %d sleeps %v: billing failures were retried", quota.count(), credit.count(), h.sleeps)
+	}
+	for _, hs := range h.f.Health() {
+		if (hs.ID == "a" || hs.ID == "c") && hs.State != stateAuthFailed {
+			t.Fatalf("health %+v", hs)
+		}
+	}
+}
+
 func TestHotReload(t *testing.T) {
 	first := newServer(t, sse(okStream))
 	h := newHarness(t, []config.Provider{cfgProvider("a", core.KindOpenAICompat, first.URL)}, "a/m")

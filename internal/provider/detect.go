@@ -15,9 +15,10 @@ import (
 
 const detectTimeout = 1500 * time.Millisecond
 
-// localServers are probed by Detect: Ollama from inside the container (the
-// host), on the host itself and as a compose service; LM Studio and vLLM on
-// their default ports.
+// localServers are probed by Detect: Ollama, LM Studio and vLLM on their
+// default ports, from inside the container (host.docker.internal is the
+// Docker host; localhost is the container itself) and on this machine, and
+// Ollama as a compose service.
 var localServers = []struct {
 	kind core.ProviderKind
 	base string
@@ -26,7 +27,9 @@ var localServers = []struct {
 	{core.KindOllama, "http://host.docker.internal:11434", "Ollama on the Docker host"},
 	{core.KindOllama, "http://localhost:11434", "Ollama on this machine"},
 	{core.KindOllama, "http://ollama:11434", "Ollama compose service"},
+	{core.KindOpenAICompat, "http://host.docker.internal:1234/v1", "LM Studio on the Docker host"},
 	{core.KindOpenAICompat, "http://localhost:1234/v1", "LM Studio"},
+	{core.KindOpenAICompat, "http://host.docker.internal:8000/v1", "vLLM on the Docker host"},
 	{core.KindOpenAICompat, "http://localhost:8000/v1", "vLLM"},
 }
 

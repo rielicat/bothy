@@ -20,7 +20,7 @@ func (h *Hub) Send(ctx context.Context, chat core.ChatRef, markdown string) (cor
 	}
 	text := h.redact(markdown)
 	if h.chatExposed(ctx, chat) {
-		text = neutralize(text)
+		text = core.NeutralizeMarkdown(text)
 	}
 	return h.sendText(ctx, chat, text, nil)
 }

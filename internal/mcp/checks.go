@@ -90,7 +90,7 @@ func (c driftCheck) Run(ctx context.Context) []core.Finding {
 	return []core.Finding{{
 		ID: driftID, Area: "mcp", Title: "MCP install trees changed on disk",
 		Detail:   fmt.Sprintf("The installed files of %s no longer match the hash recorded at install time.", strings.Join(names, ", ")),
-		Fix:      "Disable the drifted servers (doctor --fix), then reinstall them under Settings → MCP",
+		Fix:      "Disable the drifted servers (Fix in Settings → Advanced, or bothy security-audit --fix), then reinstall them under Settings → MCP",
 		Severity: core.SevMedium, Security: true, AutoFix: true,
 	}}
 }

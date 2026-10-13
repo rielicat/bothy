@@ -275,6 +275,15 @@ type tgMessage struct {
 	Audio           *tgFile       `json:"audio,omitempty"`
 	Voice           *tgFile       `json:"voice,omitempty"`
 	Video           *tgFile       `json:"video,omitempty"`
+	// ForwardOrigin is set on forwards (Bot API 7.0+); older servers send
+	// only forward_date. ViaBot names the inline bot the message came from.
+	ForwardOrigin *tgForwardOrigin `json:"forward_origin,omitempty"`
+	ForwardDate   int64            `json:"forward_date,omitempty"`
+	ViaBot        *tgUser          `json:"via_bot,omitempty"`
+}
+
+type tgForwardOrigin struct {
+	Type string `json:"type"` // user | hidden_user | chat | channel
 }
 
 type tgCallbackQuery struct {

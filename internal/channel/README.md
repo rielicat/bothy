@@ -16,9 +16,13 @@ splits at `MaxLen` without breaking code fences, redaction always (model
 text enters the reply only redacted and once no later delta can complete a
 secret in it, so neither a live edit nor a split shows part of one), status
 line included, and link neutralization once the session is Exposed,
-re-checked after every tool result: scheme URLs, markdown and autolinks, bare
-domains and IPv4 addresses, also when only rendering joins them, as in
-`evil\.com` or `evil**.**com`). The hub delivers approval cards to the
+re-checked after every tool result: scheme URLs (IPv6 hosts included),
+markdown and autolinks, bare domains and IPv4 addresses, also when only
+rendering joins them, as in `evil\.com` or `evil**.**com`; the rules live in
+`core.NeutralizeMarkdown`, shared with the agent's sink). Forwarded messages
+(`Inbound.Forwarded`) are untrusted whoever forwards them and never run as
+commands; `/compact` runs in the background and replies when done. The hub
+delivers approval cards to the
 approver's DM (never a group), truncating cards that do not fit to Deny plus
 a web link, and edits them to the outcome.
 It also implements `Messenger`, `PreferredChat`, `DeepLink`, `Test` and the

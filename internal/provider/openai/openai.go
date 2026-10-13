@@ -83,6 +83,7 @@ type chunk struct {
 type usageJSON struct {
 	PromptTokens        int `json:"prompt_tokens"`
 	CompletionTokens    int `json:"completion_tokens"`
+	TotalTokens         int `json:"total_tokens"`
 	PromptTokensDetails *struct {
 		CachedTokens     int `json:"cached_tokens"`
 		CacheWriteTokens int `json:"cache_write_tokens"`
@@ -95,7 +96,10 @@ type usageJSON struct {
 }
 
 // normalize converts to core.Usage, where Input excludes cache reads and
-// writes (OpenAI counts them inside prompt_tokens).
+// writes (OpenAI counts them inside prompt_tokens) and Output includes
+// reasoning. OpenAI counts reasoning inside completion_tokens; xAI reports
+// it beside them (total = prompt + completion + reasoning) and bills it as
+// output, recognisable by that total or by more reasoning than completion.
 func (u *usageJSON) normalize() core.Usage {
 	out := core.Usage{Output: u.CompletionTokens}
 	if d := u.PromptTokensDetails; d != nil {
@@ -106,6 +110,9 @@ func (u *usageJSON) normalize() core.Usage {
 	}
 	if d := u.CompletionTokensDetails; d != nil {
 		out.Reasoning = d.ReasoningTokens
+	}
+	if r := out.Reasoning; r > 0 && (r > u.CompletionTokens || u.TotalTokens >= u.PromptTokens+u.CompletionTokens+r) {
+		out.Output += r
 	}
 	out.Input = max(0, u.PromptTokens-out.CacheRead-out.CacheWrite)
 	return out
@@ -182,13 +189,16 @@ func (c *Client) read(ctx context.Context, body io.Reader, r *core.Request, on f
 			}
 			d := choice.Delta
 			// Some servers send the same text under both names.
-			reasoning := d.ReasoningContent
+			reasoning, echo := d.ReasoningContent, c.echoSig()
 			if reasoning == nil || *reasoning == "" {
-				reasoning = d.Reasoning
+				reasoning, echo = d.Reasoning, ""
 			}
 			if reasoning != nil {
 				if err := b.Thinking(*reasoning); err != nil {
 					return nil, err
+				}
+				if *reasoning != "" {
+					b.Sign(echo)
 				}
 			}
 			if d.Content != nil {
@@ -246,6 +256,18 @@ func (c *Client) read(ctx context.Context, body io.Reader, r *core.Request, on f
 		}
 	}
 	return b.Response(model, stop, u, usage == nil), nil
+}
+
+// echoSig is the signature of a thinking part whose text this server sent as
+// reasoning_content. DeepSeek's thinking mode rejects a tool loop (HTTP 400)
+// unless every assistant turn carries it back, so it is returned under that
+// name, and only to the provider that wrote it: servers that use the
+// "reasoning" field instead (Groq, OpenRouter) reject an unknown one.
+func (c *Client) echoSig() string {
+	if c.o.Kind != core.KindOpenAICompat {
+		return ""
+	}
+	return "reasoning_content:" + c.o.ID
 }
 
 // argText accepts arguments as the specified JSON string or, from some

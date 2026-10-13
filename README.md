@@ -23,8 +23,9 @@ is available, a shell and Python in throwaway containers.
   (PID 1 inside tool boxes). State is one SQLite file plus a few plain files.
 - **Bring your own keys**: native Anthropic, OpenAI, Gemini and Ollama clients,
   plus any OpenAI-compatible endpoint (OpenRouter, Groq, xAI, DeepSeek, LM
-  Studio, vLLM). Ollama and LM Studio are detected automatically. Works with
-  small local models from a 16K context window.
+  Studio, vLLM). Ollama, LM Studio and vLLM are detected automatically (see
+  [Local models](#local-models) for Docker on Linux). Works with small local
+  models from a 16K context window.
 - **Chat-native approvals**: risky actions arrive as cards in the chat you are
   using, rendered from the exact action (command, URL, recipient, diff), never
   from the model's prose.
@@ -149,6 +150,19 @@ docker compose logs bothy | grep setup
 
 sh install.sh                            # native binary into ~/.local/bin/bothy
 ```
+
+### Local models
+
+The setup wizard looks for Ollama (port 11434), LM Studio (1234) and vLLM
+(8000) on this machine and, from a container, on the Docker host through
+`host.docker.internal`. Compose maps that name; with `docker run` on Linux add
+`--add-host host.docker.internal:host-gateway`. On a Linux host the container
+reaches the host through the Docker bridge, not loopback, so the server must
+listen beyond `127.0.0.1`: start Ollama with `OLLAMA_HOST=0.0.0.0` (for the
+systemd service, `sudo systemctl edit ollama` and add
+`Environment=OLLAMA_HOST=0.0.0.0`), turn on LM Studio's "Serve on Local
+Network", or run vLLM with `--host 0.0.0.0`, and keep that port closed to the
+rest of your network. Docker Desktop on macOS and Windows needs neither step.
 
 ## Development
 

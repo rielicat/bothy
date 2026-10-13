@@ -2,10 +2,17 @@ package anthropic
 
 import (
 	"encoding/json"
+	"regexp"
 
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/provider/wire"
 )
+
+// creditRe matches how the API reports exhausted prepaid credit: an
+// invalid_request_error ("Your credit balance is too low to access the
+// Anthropic API. Please go to Plans & Billing to upgrade or purchase
+// credits."), not the documented billing_error.
+var creditRe = regexp.MustCompile(`(?i)credit balance|purchase credits|plans (&|and) billing`)
 
 // classify reads the documented error shape
 // {"type":"error","error":{"type":…,"message":…},"request_id":…}.
@@ -40,7 +47,10 @@ func typeKind(typ, msg string) core.ErrorKind {
 	case "request_too_large":
 		return core.ErrKindContextLength
 	case "invalid_request_error":
-		if wire.IsContextOverflow(msg) {
+		switch {
+		case creditRe.MatchString(msg):
+			return core.ErrKindAuth
+		case wire.IsContextOverflow(msg):
 			return core.ErrKindContextLength
 		}
 	}

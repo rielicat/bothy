@@ -3,6 +3,7 @@ package gemini
 import (
 	"encoding/base64"
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/rielicat/bothy/internal/core"
@@ -120,8 +121,40 @@ func buildContents(msgs []core.Message) []content {
 		}
 		out = append(out, content{Role: role, Parts: parts})
 	}
+	markForeignCalls(out)
 	return out
 }
+
+// markForeignCalls gives the first functionCall of every step since the last
+// user message the skip sentinel when it has no signature: Gemini 3 rejects
+// such a call there, and calls another vendor made before a fallback never
+// have one. Earlier turns are not validated and are left alone.
+func markForeignCalls(cs []content) {
+	turn := 0
+	for i, c := range cs {
+		if c.Role == "user" && slices.ContainsFunc(c.Parts, func(p part) bool { return p.FunctionResponse == nil }) {
+			turn = i + 1
+		}
+	}
+	for _, c := range cs[turn:] {
+		if c.Role != "model" {
+			continue
+		}
+		for j := range c.Parts {
+			if p := &c.Parts[j]; p.FunctionCall != nil {
+				if p.ThoughtSignature == "" {
+					p.ThoughtSignature = skipSignature
+				}
+				break
+			}
+		}
+	}
+}
+
+// skipSignature is the thought signature Google documents for function
+// calls the API did not generate (history from another model): Gemini 3
+// then skips its validation instead of rejecting the request.
+const skipSignature = "skip_thought_signature_validator"
 
 // sig returns the part's thought signature when it came from Gemini; others
 // were stripped by the facade, but a stray one must never be forwarded.

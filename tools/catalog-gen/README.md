@@ -11,7 +11,10 @@ and Gemini by kind, and OpenAI-compatible ones (OpenRouter, xAI, Groq,
 DeepSeek…) keyed by their `https://` endpoint; catwalk's `cost_per_1m_in_cached`
 is the cache-write price and `cost_per_1m_out_cached` the cache-read price,
 except where an entry lists a read price under `in_cached` (cheaper than
-input), which is recognised and moved. Output is sorted, one model per line.
+input), which is recognised and moved. A cache-read price above the input
+price (some entries carry the output price there) is dropped, since a cache
+hit never costs more than the input it replaces. Output is sorted, one model
+per line.
 
 ```sh
 cd tools

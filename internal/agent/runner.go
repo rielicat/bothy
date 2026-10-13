@@ -398,8 +398,9 @@ func (r *Runner) activeRuns() []*runState {
 	return out
 }
 
-// SetPaused engages or releases the kill switch (persisted in meta.paused).
-// Engaging it also stops every active run.
+// SetPaused engages or releases the kill switch (persisted in meta.paused):
+// new runs get ErrPaused. Callers stop the active runs with StopAll, whose
+// count is what they report (SPEC §5.11).
 func (r *Runner) SetPaused(ctx context.Context, paused bool, by core.UserID) error {
 	if err := r.ensureInit(ctx); err != nil {
 		return err
@@ -420,11 +421,6 @@ func (r *Runner) SetPaused(ctx context.Context, paused bool, by core.UserID) err
 	}
 	r.d.Bus.Publish(core.Event{Type: core.EvBanner, Data: banner})
 	r.auditf(ctx, "user:"+string(by), action, "runner", "ok", "", "", nil)
-	if paused {
-		if _, err := r.StopAll(ctx, by); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
