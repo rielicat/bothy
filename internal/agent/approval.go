@@ -150,6 +150,25 @@ func (r *Runner) park(rs *runState, pc *pcall, appr *core.Approval, rest []core.
 		notice: fmt.Sprintf("Parked. Approve any time in the next %s.", humanDuration(ttl))}
 }
 
+// resumeIfResolved runs once the parked row is saved. The approval parks
+// before the run does, and a resolution that lands in between finds a run
+// that is not parked yet, so its Resume is a no-op; without this the
+// approved action would wait for the next boot. Resume's compare-and-swap
+// keeps it to one execution when both get there.
+func (r *Runner) resumeIfResolved(ctx context.Context, id core.ApprovalID) {
+	a, err := r.d.Approvals.Get(ctx, core.SystemViewer(), id)
+	if err != nil {
+		r.log.Warn("re-read approval after parking", "approval", id, "err", err)
+		return
+	}
+	if !resolved(a.Status) {
+		return
+	}
+	if err := r.Resume(ctx, a); err != nil {
+		r.log.Warn("resume a run resolved while it parked", "approval", id, "err", err)
+	}
+}
+
 func humanDuration(d time.Duration) string {
 	switch {
 	case d >= time.Hour && d%time.Hour == 0:

@@ -710,6 +710,9 @@ func (r *Runner) finish(rs *runState, end *runEnd) {
 	if end.notice != "" {
 		rs.notice(ctx, end.notice)
 	}
+	if end.status == core.RunParked {
+		r.resumeIfResolved(ctx, end.parkedOn)
+	}
 	if end.budget != nil {
 		r.auditf(ctx, "agent:"+string(rs.id), "budget.exceeded", string(rs.id), "denied", rs.req.Session, rs.id,
 			map[string]any{"kind": end.budget.Kind, "limit": end.budget.Limit, "used": end.budget.Used})
