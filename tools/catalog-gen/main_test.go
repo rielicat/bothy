@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -15,7 +16,7 @@ func TestConvertCatwalk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := convert(ps, "test")
+	c, _ := convert(ps, "test", nil)
 	if len(c.Providers) != 2 || c.Providers[0].ID != "anthropic" || c.Providers[1].ID != "deepseek" {
 		t.Fatalf("providers %+v", c.Providers)
 	}
@@ -30,7 +31,7 @@ func TestConvertCatwalk(t *testing.T) {
 		}
 	}
 	// in_cached is the write price and out_cached the read price.
-	if sonnet == nil || *sonnet.Price != (price{InPerM: 3_000_000, OutPerM: 15_000_000, CacheReadPerM: 300_000, CacheWritePerM: 3_750_000}) ||
+	if sonnet == nil || !reflect.DeepEqual(*sonnet.Price, price{InPerM: 3_000_000, OutPerM: 15_000_000, CacheReadPerM: 300_000, CacheWritePerM: 3_750_000}) ||
 		sonnet.Cache != "explicit" || sonnet.Context != 200000 || !sonnet.Thinking || !sonnet.Vision {
 		t.Fatalf("sonnet %+v", sonnet)
 	}
@@ -40,7 +41,7 @@ func TestConvertCatwalk(t *testing.T) {
 	}
 	// DeepSeek lists its cache-hit price under in_cached.
 	flash := d.Models[0]
-	if flash.ID != "deepseek-v4-flash" || *flash.Price != (price{InPerM: 140_000, OutPerM: 280_000, CacheReadPerM: 2_800}) || flash.Cache != "implicit" {
+	if flash.ID != "deepseek-v4-flash" || !reflect.DeepEqual(*flash.Price, price{InPerM: 140_000, OutPerM: 280_000, CacheReadPerM: 2_800}) || flash.Cache != "implicit" {
 		t.Fatalf("flash %+v %+v", flash, flash.Price)
 	}
 	for i := 1; i < len(a.Models); i++ {
@@ -55,11 +56,13 @@ func TestRenderParsesAndIsStable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b1, err := render(convert(ps, "test"))
+	c1, _ := convert(ps, "test", nil)
+	b1, err := render(c1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b2, _ := render(convert(ps, "test"))
+	c2, _ := convert(ps, "test", nil)
+	b2, _ := render(c2)
 	if string(b1) != string(b2) {
 		t.Fatal("output not deterministic")
 	}
@@ -73,11 +76,11 @@ func TestRenderParsesAndIsStable(t *testing.T) {
 }
 
 func TestSkipsUnsupported(t *testing.T) {
-	c := convert([]cwProvider{
+	c, _ := convert([]cwProvider{
 		{ID: "bedrock", Type: "bedrock", Models: []cwModel{{ID: "x"}}},
 		{ID: "envonly", Type: "openai-compat", APIEndpoint: "$SOME_ENDPOINT", Models: []cwModel{{ID: "x"}}},
 		{ID: "or", Type: "openrouter", APIEndpoint: "https://openrouter.ai/api/v1/", Models: []cwModel{{ID: "m:free"}, {ID: "unpriced"}, {ID: "m:free"}}},
-	}, "t")
+	}, "t", nil)
 	if len(c.Providers) != 1 || c.Providers[0].BaseURL != "https://openrouter.ai/api/v1" {
 		t.Fatalf("%+v", c.Providers)
 	}

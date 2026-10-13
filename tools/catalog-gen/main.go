@@ -2,7 +2,8 @@
 // catwalk provider data (github.com/charmbracelet/catwalk). It reads the
 // published JSON (the per-provider files under internal/providers/configs or
 // the array the catwalk service returns) instead of importing catwalk, so the
-// tools module needs no extra dependency.
+// tools module needs no extra dependency. Long-context price tiers, which
+// catwalk lacks, come from the embedded tiers.json.
 //
 //	go run ./catalog-gen -source "catwalk v0.52.69" -out ../internal/provider/catalog/catalog.json configs/anthropic.json configs/openai.json …
 //
@@ -12,6 +13,7 @@ package main
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -21,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -75,10 +78,64 @@ type model struct {
 }
 
 type price struct {
-	InPerM         int64 `json:"in_per_m"`
-	OutPerM        int64 `json:"out_per_m"`
-	CacheReadPerM  int64 `json:"cache_read_per_m,omitempty"`
-	CacheWritePerM int64 `json:"cache_write_per_m,omitempty"`
+	InPerM         int64  `json:"in_per_m"`
+	OutPerM        int64  `json:"out_per_m"`
+	CacheReadPerM  int64  `json:"cache_read_per_m,omitempty"`
+	CacheWritePerM int64  `json:"cache_write_per_m,omitempty"`
+	Tiers          []tier `json:"tiers,omitempty"`
+}
+
+// tier mirrors core.PriceTier.
+type tier struct {
+	AboveInput         int `json:"above_input"`
+	Permille           int `json:"permille"`
+	OutPermille        int `json:"out_permille,omitempty"`
+	CacheReadPermille  int `json:"cache_read_permille,omitempty"`
+	CacheWritePermille int `json:"cache_write_permille,omitempty"`
+}
+
+// tierRule is one entry of tiers.json, the hand-maintained overlay of
+// long-context prices: catwalk has no tier data.
+type tierRule struct {
+	Provider string         `json:"provider"` // catwalk provider id
+	Models   string         `json:"models"`   // regexp over model ids
+	Tiers    []tier         `json:"tiers"`
+	Source   string         `json:"source"` // where and when the prices were read
+	re       *regexp.Regexp // compiled Models
+}
+
+//go:embed tiers.json
+var tiersJSON []byte
+
+func parseTiers(b []byte) ([]tierRule, error) {
+	var f struct {
+		Rules []tierRule `json:"rules"`
+	}
+	if err := json.Unmarshal(b, &f); err != nil {
+		return nil, fmt.Errorf("tiers.json: %w", err)
+	}
+	for i := range f.Rules {
+		r := &f.Rules[i]
+		re, err := regexp.Compile(r.Models)
+		if err != nil {
+			return nil, fmt.Errorf("tiers.json: rule %d: %w", i, err)
+		}
+		r.re = re
+		if r.Provider == "" || len(r.Tiers) == 0 || r.Source == "" {
+			return nil, fmt.Errorf("tiers.json: rule %d needs provider, tiers and source", i)
+		}
+		for _, t := range r.Tiers {
+			for _, m := range []int{t.Permille, t.OutPermille, t.CacheReadPermille, t.CacheWritePermille} {
+				if m != 0 && m < 1000 {
+					return nil, fmt.Errorf("tiers.json: rule %d: multipliers below 1000 (1x) are ignored by core.Price.Cost", i)
+				}
+			}
+			if t.Permille == 0 || t.AboveInput <= 0 {
+				return nil, fmt.Errorf("tiers.json: rule %d: every tier needs above_input and permille", i)
+			}
+		}
+	}
+	return f.Rules, nil
 }
 
 // firstParty maps catwalk's vendor types to Bothy kinds and the base URL the
@@ -97,6 +154,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, "catalog-gen: give catwalk JSON files, directories or URLs")
 		os.Exit(2)
 	}
+	rules, err := parseTiers(tiersJSON)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "catalog-gen:", err)
+		os.Exit(1)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	var all []cwProvider
@@ -108,7 +170,11 @@ func main() {
 		}
 		all = append(all, ps...)
 	}
-	b, err := render(convert(all, *source))
+	c, unused := convert(all, *source, rules)
+	for _, r := range unused {
+		fmt.Fprintf(os.Stderr, "catalog-gen: warning: tiers.json rule %s %q matched no priced model; check for renamed models\n", r.Provider, r.Models)
+	}
+	b, err := render(c)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "catalog-gen:", err)
 		os.Exit(1)
@@ -192,9 +258,12 @@ func decode(name string, b []byte) ([]cwProvider, error) {
 
 func micros(usd float64) int64 { return int64(math.Round(usd * 1e6)) }
 
-func convert(ps []cwProvider, source string) catalog {
+// convert maps catwalk providers to the catalog and applies the tier rules;
+// it also returns the rules that matched no priced model of a loaded provider.
+func convert(ps []cwProvider, source string, rules []tierRule) (catalog, []tierRule) {
 	c := catalog{Version: 1, Source: source}
 	seen := map[string]bool{}
+	used := make([]bool, len(rules))
 	for _, p := range ps {
 		kind, base := "", ""
 		if fp, ok := firstParty[p.Type]; ok {
@@ -218,13 +287,25 @@ func convert(ps []cwProvider, source string) catalog {
 				continue
 			}
 			ids[m.ID] = true
-			out.Models = append(out.Models, convertModel(kind, m))
+			cm := convertModel(kind, m)
+			for i, r := range rules {
+				if cm.Price != nil && r.Provider == p.ID && r.re.MatchString(m.ID) {
+					cm.Price.Tiers, used[i] = slices.Clone(r.Tiers), true
+				}
+			}
+			out.Models = append(out.Models, cm)
 		}
 		slices.SortFunc(out.Models, func(a, b model) int { return strings.Compare(a.ID, b.ID) })
 		c.Providers = append(c.Providers, out)
 	}
 	slices.SortFunc(c.Providers, func(a, b provider) int { return strings.Compare(a.ID, b.ID) })
-	return c
+	var unused []tierRule
+	for i, r := range rules {
+		if !used[i] && seen[r.Provider] {
+			unused = append(unused, r)
+		}
+	}
+	return c, unused
 }
 
 // convertModel maps catwalk's prices. catwalk's "in_cached" is the cache

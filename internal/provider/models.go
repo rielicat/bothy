@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -193,11 +194,31 @@ func (f *Facade) resolve(e *entry, model string) core.ModelInfo {
 			info.Price = core.Price{
 				InPerM: core.MicrosFromUSD(po.In), OutPerM: core.MicrosFromUSD(po.Out),
 				CacheReadPerM: core.MicrosFromUSD(po.CacheRead), CacheWritePerM: core.MicrosFromUSD(po.CacheWrite),
-				Known: true,
+				Tiers: overrideTiers(po.Tiers, info.Price.Tiers), Known: true,
 			}
 		}
 	}
 	return info
+}
+
+// overrideTiers converts a pricing override's tiers (keys validated by
+// config). Without any, the catalog's stay: they are multipliers of whatever
+// base price applies, and the vendor's long-context surcharge still does.
+func overrideTiers(tiers map[string]config.PriceTierO, catalog []core.PriceTier) []core.PriceTier {
+	if len(tiers) == 0 {
+		return catalog
+	}
+	out := make([]core.PriceTier, 0, len(tiers))
+	for k, t := range tiers {
+		above, err := strconv.Atoi(k)
+		if err != nil {
+			continue
+		}
+		out = append(out, core.PriceTier{AboveInput: above, Permille: t.Permille, OutPermille: t.OutPermille,
+			CacheReadPermille: t.CacheReadPermille, CacheWritePermille: t.CacheWritePermille})
+	}
+	slices.SortFunc(out, func(a, b core.PriceTier) int { return cmp.Compare(a.AboveInput, b.AboveInput) })
+	return out
 }
 
 // Chain resolves the fallback chain: the override (if any) first, then the

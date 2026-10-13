@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -100,7 +101,7 @@ func TestExampleStrictDecode(t *testing.T) {
 		c.Providers[3].Models[0].ID != "qwen3:14b" || !*c.Providers[3].Models[0].Tools || *c.Providers[1].Enabled {
 		t.Errorf("providers: %+v", c.Providers)
 	}
-	if c.Models.Main[1] != "ollama/qwen3:14b" || c.Pricing["ollama/qwen3:14b"] != (PriceO{}) {
+	if c.Models.Main[1] != "ollama/qwen3:14b" || !reflect.DeepEqual(c.Pricing["ollama/qwen3:14b"], PriceO{}) {
 		t.Errorf("models/pricing: %+v %+v", c.Models, c.Pricing)
 	}
 	if c.Policy.Rules[2].Match["/argv/2"] != "*curl*|*sh*" || c.Policy.Approval.APIWait.D() != 120*time.Second {
@@ -509,6 +510,40 @@ channels:
 	e = entry(t, eff, "sandbox.backend")
 	if e.Source.Layer != LayerFile || len(e.Shadowed) != 1 {
 		t.Fatalf("sandbox.backend entry %+v", e)
+	}
+}
+
+func TestPricingTiers(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "bothy.yaml"), `pricing:
+  gemini/gemini-2.5-pro:
+    in: 1.25
+    out: 10
+    cache_read: 0.125
+    tiers:
+      "200000": {permille: 2000, out_permille: 1500}
+  xai/grok-4.5:
+    in: 2
+    tiers:
+      "two hundred k": {permille: 2000}
+      "199999": {permille: 500}
+`)
+	m := load(t, dir)
+	c, eff := m.Current(), m.Effective()
+	want := PriceTierO{Permille: 2000, OutPermille: 1500}
+	if got := c.Pricing["gemini/gemini-2.5-pro"].Tiers; len(got) != 1 || got["200000"] != want {
+		t.Fatalf("gemini tiers = %+v", got)
+	}
+	for _, w := range []string{
+		`pricing.xai/grok-4.5.tiers.two hundred k: key must be the prompt size`,
+		`pricing.xai/grok-4.5.tiers.199999.permille: must be between 1000 and 100000, got 500`,
+	} {
+		if len(errorsMatching(eff, w)) != 1 {
+			t.Errorf("missing error %q in %+v", w, eff.Errors)
+		}
+	}
+	if got := c.Pricing["xai/grok-4.5"]; got.In != 2 || len(got.Tiers) != 0 {
+		t.Errorf("invalid tiers kept: %+v", got)
 	}
 }
 

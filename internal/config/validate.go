@@ -492,6 +492,24 @@ func validateModels(c *Config, v *vctx, ids []string) {
 		v.nonNegF("pricing."+k+".out", p.Out)
 		v.nonNegF("pricing."+k+".cache_read", p.CacheRead)
 		v.nonNegF("pricing."+k+".cache_write", p.CacheWrite)
+		for _, n := range keysOf(p.Tiers) {
+			tp := "pricing." + k + ".tiers." + n
+			if above, err := strconv.Atoi(n); err != nil || above < 0 {
+				v.item(tp, "key must be the prompt size in tokens the tier applies above, e.g. \"200000\"")
+				continue
+			}
+			// core.Price.Cost ignores multipliers below 1x, so reject them rather than drop them silently.
+			t := p.Tiers[n]
+			v.intRange(tp+".permille", t.Permille, 1000, 100_000)
+			for _, o := range []struct {
+				name string
+				m    int
+			}{{"out_permille", t.OutPermille}, {"cache_read_permille", t.CacheReadPermille}, {"cache_write_permille", t.CacheWritePermille}} {
+				if o.m != 0 {
+					v.intRange(tp+"."+o.name, o.m, 1000, 100_000)
+				}
+			}
+		}
 	}
 }
 

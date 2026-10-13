@@ -126,10 +126,20 @@ type Models struct {
 }
 
 type PriceO struct { // USD per 1M tokens
-	In         float64 `yaml:"in"`
-	Out        float64 `yaml:"out"`
-	CacheRead  float64 `yaml:"cache_read"`
-	CacheWrite float64 `yaml:"cache_write"`
+	In         float64               `yaml:"in"`
+	Out        float64               `yaml:"out"`
+	CacheRead  float64               `yaml:"cache_read"`
+	CacheWrite float64               `yaml:"cache_write"`
+	Tiers      map[string]PriceTierO `yaml:"tiers"` // keyed by the prompt size they apply above ("200000"); unset keeps the catalog's
+}
+
+// PriceTierO is core.PriceTier: multipliers in permille (2000 = 2x) of the
+// whole request once its prompt exceeds the tier's key; 0 = permille.
+type PriceTierO struct {
+	Permille           int `yaml:"permille"`
+	OutPermille        int `yaml:"out_permille"`
+	CacheReadPermille  int `yaml:"cache_read_permille"`
+	CacheWritePermille int `yaml:"cache_write_permille"`
 }
 
 type Agent struct {

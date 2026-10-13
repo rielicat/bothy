@@ -1,6 +1,7 @@
 package core
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -52,26 +53,35 @@ type Price struct {
 	Known          bool        `json:"known"`
 }
 
+// PriceTier multipliers are permille (2000 = 2x). Permille applies to every
+// component whose own multiplier is 0 (Gemini Pro and OpenAI bill 2x input
+// but 1.5x output above their thresholds).
 type PriceTier struct {
-	AboveInput int `json:"above_input"`
-	Permille   int `json:"permille"` // 2000 = 2x
+	AboveInput         int `json:"above_input"`
+	Permille           int `json:"permille"`
+	OutPermille        int `json:"out_permille,omitempty"`
+	CacheReadPermille  int `json:"cache_read_permille,omitempty"`
+	CacheWritePermille int `json:"cache_write_permille,omitempty"`
 }
 
 // Cost is exact integer math, rounding each component half up. Input excludes
 // cache reads/writes (providers report them separately; adapters normalise).
 func (p Price) Cost(u Usage) Micros {
-	mul := int64(1000)
+	in, out, cr, cw := int64(1000), int64(1000), int64(1000), int64(1000)
 	total := u.Input + u.CacheRead + u.CacheWrite
 	for _, t := range p.Tiers {
-		if total > t.AboveInput && int64(t.Permille) > mul {
-			mul = int64(t.Permille)
+		if total > t.AboveInput {
+			in = max(in, int64(t.Permille))
+			out = max(out, int64(cmp.Or(t.OutPermille, t.Permille)))
+			cr = max(cr, int64(cmp.Or(t.CacheReadPermille, t.Permille)))
+			cw = max(cw, int64(cmp.Or(t.CacheWritePermille, t.Permille)))
 		}
 	}
-	part := func(tokens int, perM Micros) int64 {
+	part := func(tokens int, perM Micros, mul int64) int64 {
 		return (int64(tokens)*int64(perM)*mul + 500_000_000) / 1_000_000_000
 	}
-	return Micros(part(u.Input, p.InPerM) + part(u.Output, p.OutPerM) +
-		part(u.CacheRead, p.CacheReadPerM) + part(u.CacheWrite, p.CacheWritePerM))
+	return Micros(part(u.Input, p.InPerM, in) + part(u.Output, p.OutPerM, out) +
+		part(u.CacheRead, p.CacheReadPerM, cr) + part(u.CacheWrite, p.CacheWritePerM, cw))
 }
 
 type CacheMode uint8
