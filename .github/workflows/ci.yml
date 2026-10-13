@@ -43,7 +43,7 @@ jobs:
       - name: go vet
         run: |
           go vet ./...
-          go vet -tags 'e2e budgets' ./e2e/...
+          go vet -tags 'e2e budgets docker' ./e2e/...
       - name: go test -race
         run: make test
 
@@ -131,6 +131,20 @@ jobs:
           go-version-file: go.mod
       - run: make e2e
 
+  e2e-docker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: compose deployment with a real sandbox (gateway, sandboxd, tool box)
+        run: make e2e-docker
+
   budgets:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -152,5 +166,5 @@ jobs:
         run: scripts/budgets/image-layout.sh "$IMAGE"
       - name: binary size
         run: scripts/budgets/binary-size.sh
-      - name: cold start and idle RSS (10 minutes)
+      - name: cold start, idle RSS with three channels (10 minutes), token overhead
         run: scripts/budgets/footprint.sh

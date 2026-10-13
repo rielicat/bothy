@@ -16,9 +16,9 @@ canary box runs `sbx-init selftest` (every 30 s instead while the canary cannot
 even start, e.g. the engine is unreachable); isolation failures refuse every
 new box and exec, and the runtime is chosen per `BOTHY_SBX_RUNTIME` (runsc only
 when its unix-socket canary passes). Box containers are named
-`bothy-<key>-<first 8 hex of sha256(run volume)>`, so installs sharing an
-engine never replace or remove each other's boxes (the canary and MCP
-installer keys are the same everywhere). It removes this install's orphaned boxes
+`<run volume>-<key>`, so installs sharing an engine never replace or remove
+each other's boxes (the canary and MCP installer keys are the same
+everywhere). It removes this install's orphaned boxes
 at start, reaps idle and over-age boxes, and evicts the least recently used
 idle box at `BOTHY_SBX_MAX_BOXES`; a box being removed takes no new exec, and a
 create for its key waits for the removal. `engine/` is

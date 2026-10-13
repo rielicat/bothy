@@ -1,9 +1,10 @@
 name: release
 
-# A v* tag builds a draft release: binaries, the gateway image, SBOMs, cosign
-# signatures, SLSA provenance, the Homebrew cask and the digest-pinned compose
-# bundle. A maintainer publishes the draft after checking it. deploy/install.sh
-# verifies signatures against this file's path at the tag, so keep its name.
+# A v* tag builds a draft release: binaries, the gateway and sandbox images (all
+# multi-arch), SBOMs, cosign signatures, SLSA provenance, the Homebrew cask and
+# the digest-pinned compose bundle. A maintainer publishes the draft after
+# checking it. deploy/install.sh verifies signatures against this file's path
+# at the tag, so keep its name.
 
 on:
   push:
@@ -17,7 +18,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write # draft release and assets
-      packages: write # ghcr.io/rielicat/bothy
+      packages: write # ghcr.io/rielicat/bothy, bothy-sandbox, bothy-sandbox-node
       id-token: write # keyless cosign and attestations
       attestations: write # SLSA build provenance
     steps:
@@ -60,16 +61,31 @@ jobs:
             dist/*.zip
             dist/checksums.txt
 
-      - name: gateway image digest
+      - name: image digests
         id: image
         run: |
-          d=$(docker buildx imagetools inspect "ghcr.io/rielicat/bothy:${GITHUB_REF_NAME#v}" --format '{{.Manifest.Digest}}')
-          echo "digest=$d" >>"$GITHUB_OUTPUT"
+          for img in bothy bothy-sandbox bothy-sandbox-node; do
+            d=$(docker buildx imagetools inspect "ghcr.io/rielicat/$img:${GITHUB_REF_NAME#v}" --format '{{json .Manifest}}' | jq -r .digest)
+            case "$d" in sha256:*) ;; *) echo "no digest for $img" >&2; exit 1 ;; esac
+            echo "${img//-/_}=$d" >>"$GITHUB_OUTPUT"
+          done
       - name: provenance for the gateway image
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ghcr.io/rielicat/bothy
-          subject-digest: ${{ steps.image.outputs.digest }}
+          subject-digest: ${{ steps.image.outputs.bothy }}
+          push-to-registry: true
+      - name: provenance for the sandbox image
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/rielicat/bothy-sandbox
+          subject-digest: ${{ steps.image.outputs.bothy_sandbox }}
+          push-to-registry: true
+      - name: provenance for the node sandbox image
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/rielicat/bothy-sandbox-node
+          subject-digest: ${{ steps.image.outputs.bothy_sandbox_node }}
           push-to-registry: true
 
       - name: compose bundle

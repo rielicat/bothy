@@ -1,8 +1,9 @@
 # yaml-language-server: $schema=https://goreleaser.com/static/schema.json
 # Release pipeline (SPEC §2.1, §12.1), run by .github/workflows/release.yml on
-# a v* tag: static binaries, the gateway image, SBOMs, cosign signatures and
-# the Homebrew cask. The workflow adds SLSA provenance attestations and the
-# digest-pinned compose bundle afterwards (scripts/release/compose-bundle.sh).
+# a v* tag: static binaries, the gateway and sandbox images, SBOMs, cosign
+# signatures and the Homebrew cask. The workflow adds SLSA provenance
+# attestations and the digest-pinned compose bundle afterwards
+# (scripts/release/compose-bundle.sh).
 version: 2
 project_name: bothy
 
@@ -32,6 +33,16 @@ builds:
     goos: [linux]
     goarch: [arm]
     goarm: ["7"]
+  # PID 1 of the tool box images; not shipped as an archive.
+  - id: sbx-init
+    main: ./cmd/sbx-init
+    binary: sbx-init
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: ["-s -w"]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    goos: [linux]
+    goarch: [amd64, arm64]
 
 archives:
   - id: bothy
@@ -78,9 +89,52 @@ dockers_v2:
       org.opencontainers.image.version: "{{ .Version }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.created: "{{ .CommitDate }}"
+  # Tool box images (SPEC §2.6): the targets of deploy/sandbox/Dockerfile,
+  # with the release's sbx-init binaries in place of a second build.
+  - id: sandbox
+    ids: [sbx-init]
+    dockerfile: deploy/sandbox/Dockerfile
+    extra_files: [deploy/sandbox/gitconfig]
+    build_args: {SBXINIT: release}
+    flags: [--target=base]
+    images: [ghcr.io/rielicat/bothy-sandbox]
+    tags:
+      - "{{ .Version }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    platforms: [linux/amd64, linux/arm64]
+    sbom: true
+    labels:
+      org.opencontainers.image.title: bothy-sandbox
+      org.opencontainers.image.description: Bothy tool box image (python3, uv, bash, git)
+      org.opencontainers.image.source: https://github.com/rielicat/bothy
+      org.opencontainers.image.licenses: Apache-2.0
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.created: "{{ .CommitDate }}"
+  - id: sandbox-node
+    ids: [sbx-init]
+    dockerfile: deploy/sandbox/Dockerfile
+    extra_files: [deploy/sandbox/gitconfig]
+    build_args: {SBXINIT: release}
+    flags: [--target=node]
+    images: [ghcr.io/rielicat/bothy-sandbox-node]
+    tags:
+      - "{{ .Version }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    platforms: [linux/amd64, linux/arm64]
+    sbom: true
+    labels:
+      org.opencontainers.image.title: bothy-sandbox-node
+      org.opencontainers.image.description: Bothy tool box image with Node 24 and npm
+      org.opencontainers.image.source: https://github.com/rielicat/bothy
+      org.opencontainers.image.licenses: Apache-2.0
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.created: "{{ .CommitDate }}"
 
+# Every pushed manifest: the gateway and both sandbox images.
 docker_signs:
-  - id: gateway
+  - id: images
     cmd: cosign
     artifacts: manifests
     args: ["sign", "${artifact}@${digest}", "--yes"]

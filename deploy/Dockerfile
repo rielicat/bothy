@@ -39,6 +39,6 @@ COPY --from=build /out/bothy /bothy
 ENV BOTHY_DEPLOYMENT=container
 USER 65532:65532
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=3s --retries=3 CMD ["/bothy", "healthcheck"]
+HEALTHCHECK --interval=30s --timeout=3s --retries=3 --start-period=30s --start-interval=1s CMD ["/bothy", "healthcheck"]
 ENTRYPOINT ["/bothy"]
 CMD ["serve"]

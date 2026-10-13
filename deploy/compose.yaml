@@ -21,7 +21,7 @@ services:
     mem_limit: 256m
     pids_limit: 256
     extra_hosts: ["host.docker.internal:host-gateway"]   # Ollama / LM Studio on the host
-    healthcheck: {test: ["CMD", "/bothy", "healthcheck"], interval: 30s, timeout: 3s, retries: 3}
+    healthcheck: {test: ["CMD", "/bothy", "healthcheck"], interval: 30s, timeout: 3s, retries: 3, start_period: 30s, start_interval: 1s}
     # secrets: [bothy_kek]               # optional Docker secret KEK (/run/secrets/bothy_kek)
   sandboxd:
     <<: *hardening
@@ -29,7 +29,7 @@ services:
     command: ["sandboxd"]
     network_mode: none                   # sandboxd itself has no network
     user: "${SANDBOXD_USER:-65532:65532}"   # rootless Docker: set to the socket owner's uid:gid
-    group_add: ["${DOCKER_GID:-999}", "65532"]
+    group_add: ["${DOCKER_GID:-999}", "65532"]   # Docker Desktop: DOCKER_GID=0
     environment:
       BOTHY_SBX_ENGINE: unix:///var/run/docker.sock
       BOTHY_SBX_WORK_VOLUME: bothy_work
@@ -43,7 +43,8 @@ services:
       - run:/run/bothy
     mem_limit: 64m
     pids_limit: 64
-  searxng:                               # optional: docker compose --profile search up -d
+    healthcheck: {test: ["CMD", "/bothy", "healthcheck", "sandboxd"], interval: 30s, timeout: 3s, retries: 3, start_period: 30s, start_interval: 1s}
+  searxng:                              # optional: docker compose --profile search up -d
     <<: *hardening
     profiles: ["search"]
     image: docker.io/searxng/searxng@sha256:<digest>

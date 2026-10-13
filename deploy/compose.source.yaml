@@ -1,0 +1,16 @@
+# Runs deploy/compose.yaml on images built from this checkout instead of the
+# digest-pinned release images (see README, "From source"):
+#
+#   make image IMAGE=bothy:dev
+#   docker buildx build -f deploy/sandbox/Dockerfile --target base -t bothy-sandbox:dev --load .
+#   export BOTHY_SBX_IMAGES="base=$(docker image inspect -f '{{.Id}}' bothy-sandbox:dev)"
+#   docker compose -f deploy/compose.yaml -f deploy/compose.source.yaml up -d
+#
+# sandboxd accepts only content-addressed images; a local image id is one.
+services:
+  bothy:
+    image: bothy:dev
+  sandboxd:
+    image: bothy:dev
+    environment:
+      BOTHY_SBX_IMAGES: "${BOTHY_SBX_IMAGES:?build the sandbox image and export BOTHY_SBX_IMAGES first}"

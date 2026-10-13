@@ -2,8 +2,6 @@ package sandboxd
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -79,14 +77,11 @@ func errEngine(err error) error {
 	return &apiError{http.StatusBadGateway, "engine", err.Error()}
 }
 
-// containerName scopes the engine-global container name to this install's
-// run volume: box keys are unique only within an install (the canary and MCP
-// installer keys are fixed), and create and destroy replace or remove a
-// container by name.
-func (d *daemon) containerName(key string) string {
-	sum := sha256.Sum256([]byte(d.cfg.RunVolume))
-	return "bothy-" + key + "-" + hex.EncodeToString(sum[:4])
-}
+// containerName scopes the engine-wide container name to this install's run
+// volume: the canary and MCP box keys are derived, not random, so two installs
+// (or test runs) on one engine would otherwise share names, and a name clash
+// makes createAndStart remove the other install's container.
+func (d *daemon) containerName(key string) string { return d.cfg.RunVolume + "-" + key }
 
 func (d *daemon) labels() []string {
 	return []string{labelBox + "=1", labelVolume + "=" + d.cfg.RunVolume}

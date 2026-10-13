@@ -147,8 +147,12 @@ if [ -n "$compose_dir" ]; then
 	else
 		secret=$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')
 		gid=999
-		if [ -S /var/run/docker.sock ]; then
-			gid=$(stat -c %g /var/run/docker.sock 2>/dev/null || stat -f %g /var/run/docker.sock)
+		if [ "$os" = darwin ]; then
+			# Docker Desktop: the host path is a symlink to a user-owned socket,
+			# but containers get the VM's socket, root:root 0660.
+			gid=0
+		elif [ -S /var/run/docker.sock ]; then
+			gid=$(stat -L -c %g /var/run/docker.sock)
 		fi
 		(umask 077 && sed -e "s/^DOCKER_GID=.*/DOCKER_GID=$gid/" -e "s/^SEARXNG_SECRET=.*/SEARXNG_SECRET=$secret/" \
 			"$tmp/env.example" >"$compose_dir/.env")

@@ -5,6 +5,9 @@
 # workflow signs the checksums file.
 #
 #   scripts/release/compose-bundle.sh 0.1.0 dist/deploy
+#
+# The digests are resolved from the registry. A dry run without pushed images
+# can supply them: BOTHY_DIGEST, SANDBOX_DIGEST, SANDBOX_NODE_DIGEST.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -14,19 +17,28 @@ out=${2:?usage: $0 <version> <out dir>}
 # Third-party image, pinned here rather than resolved at release time.
 SEARXNG=docker.io/searxng/searxng:2026.9.25-12f8b6515@sha256:5286edb35782454ab8a102c5eff6b54bff745853191b46aeead95f225aa6dfb6
 
+# digest <image> [preset]: the manifest (list) digest, from the registry
+# unless preset. `--format '{{.Manifest.Digest}}'` prints the whole listing
+# on some buildx versions, hence the JSON.
 digest() {
-	local d
-	d=$(docker buildx imagetools inspect "$1" --format '{{.Manifest.Digest}}')
-	case "$d" in sha256:*) echo "$d" ;; *)
-		echo "compose-bundle: no digest for $1" >&2
-		exit 1
-		;;
-	esac
+	local d=${2:-}
+	if [ -z "$d" ]; then
+		d=$(docker buildx imagetools inspect "$1" --format '{{json .Manifest}}' | jq -r .digest) || d=
+	fi
+	case "$d" in sha256:[0-9a-f]*) [ ${#d} -eq 71 ] && echo "$d" && return ;; esac
+	echo "compose-bundle: no digest for $1" >&2
+	exit 1
 }
 
-gw=$(digest "ghcr.io/rielicat/bothy:$version")
-base=$(digest "ghcr.io/rielicat/bothy-sandbox:$version")
-node=$(digest "ghcr.io/rielicat/bothy-sandbox-node:$version")
+if command -v sha256sum >/dev/null; then
+	sums() { sha256sum "$@"; }
+else
+	sums() { shasum -a 256 "$@"; }
+fi
+
+gw=$(digest "ghcr.io/rielicat/bothy:$version" "${BOTHY_DIGEST:-}")
+base=$(digest "ghcr.io/rielicat/bothy-sandbox:$version" "${SANDBOX_DIGEST:-}")
+node=$(digest "ghcr.io/rielicat/bothy-sandbox-node:$version" "${SANDBOX_NODE_DIGEST:-}")
 
 mkdir -p "$out"
 sed -E \
@@ -41,5 +53,5 @@ if grep -n 'sha256:<' "$out/compose.yaml"; then
 fi
 cp deploy/searxng/settings.yml "$out/searxng-settings.yml"
 cp deploy/.env.example "$out/env.example"
-(cd "$out" && sha256sum compose.yaml searxng-settings.yml env.example >deploy-checksums.txt)
+(cd "$out" && sums compose.yaml searxng-settings.yml env.example >deploy-checksums.txt)
 echo "compose-bundle: wrote $out"

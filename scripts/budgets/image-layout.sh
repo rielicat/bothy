@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Checks the gateway image against SPEC §2.3: user, entrypoint, binary, and the
+# Checks the gateway image against SPEC §2.3: user, entrypoint, binary, the
 # baked directories with their owners and modes (named volumes copy them on
-# first mount, so they must be right in the image).
+# first mount, so they must be right in the image), no setuid/setgid files and
+# no shell.
 #
 #   scripts/budgets/image-layout.sh ghcr.io/rielicat/bothy:dev
 set -euo pipefail
@@ -27,7 +28,15 @@ esac
 
 cid=$(docker create "$image")
 trap 'docker rm -f "$cid" >/dev/null' EXIT
-listing=$(docker export "$cid" | tar --numeric-owner -tvf -)
+# GNU tar prints "mode uid/gid size ..." and bsdtar (macOS) "mode links uid
+# gid size ..."; normalise both to "mode uid/gid path" (a symlink's path is
+# the field before "->").
+listing=$(docker export "$cid" | tar --numeric-owner -tvf - | awk '{
+	owner = ($2 ~ /\//) ? $2 : $3 "/" $4
+	path = $NF
+	for (i = 1; i <= NF; i++) if ($i == "->") path = $(i - 1)
+	print $1, owner, path
+}')
 
 want() { # mode owner path
 	local line mode owner
@@ -50,6 +59,12 @@ want drwxrwx--- 65532/65532 run/bothy
 
 if ! printf '%s\n' "$listing" | awk '$NF == "bothy" && $1 ~ /^-..x/' | grep -q .; then
 	echo "image-layout: /bothy missing or not executable" >&2
+	fail=1
+fi
+shells=$(printf '%s\n' "$listing" | awk '$NF ~ /^(usr\/)?s?bin\/(sh|bash|dash|ash|zsh|busybox)$/')
+if [ -n "$shells" ]; then
+	echo "image-layout: the image has a shell:" >&2
+	printf '%s\n' "$shells" >&2
 	fail=1
 fi
 if printf '%s\n' "$listing" | awk '$1 ~ /^-..[sS]|^-.....[sS]/' | grep -q .; then

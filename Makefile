@@ -14,7 +14,7 @@ TOOLS_BIN := bin/tools
 GOLANGCI_LINT_VERSION := v2.14.0
 GOVULNCHECK_VERSION := v1.8.0
 
-.PHONY: all build test ui ui-reset gen lint vuln e2e image budgets clean
+.PHONY: all build test ui ui-reset gen lint vuln e2e e2e-docker image budgets clean
 
 all: build
 
@@ -50,7 +50,7 @@ $(TOOLS_BIN)/govulncheck:
 lint: $(TOOLS_BIN)/golangci-lint
 	@test -z "$$(gofmt -l cmd internal e2e tools)" || { gofmt -l cmd internal e2e tools; echo "gofmt: files above need formatting"; exit 1; }
 	go vet ./...
-	go vet -tags 'e2e budgets' ./e2e/...
+	go vet -tags 'e2e budgets docker' ./e2e/...
 	go -C tools vet ./...
 	$(TOOLS_BIN)/golangci-lint run ./...
 	cd tools && ../$(TOOLS_BIN)/golangci-lint run ./...
@@ -62,6 +62,10 @@ vuln: $(TOOLS_BIN)/govulncheck
 
 e2e:
 	go test -tags e2e -count=1 ./e2e/...
+
+# Real compose deployment (gateway + sandboxd + tool boxes); needs Docker 26+.
+e2e-docker:
+	scripts/e2e-docker.sh
 
 image:
 	docker buildx build -f deploy/Dockerfile --build-arg VERSION=$(VERSION) -t $(IMAGE) --load .

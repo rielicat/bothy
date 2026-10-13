@@ -578,9 +578,12 @@ func TestOrphansRemovedAtStart(t *testing.T) {
 func TestInstallsOnOneEngineKeepTheirBoxes(t *testing.T) {
 	h := newHarness(t, nil)
 	cfg := h.conf
-	cfg.RunVolume = "other_run"
+	cfg.WorkVolume, cfg.RunVolume = "other_work", "other_run"
 	other := newDaemon(cfg, h.eng, slog.New(slog.DiscardHandler), h.clock)
 	other.selfTest(context.Background())
+	if ok, reason := other.healthy(); !ok {
+		t.Fatalf("second install unhealthy: %s", reason)
+	}
 	if h.d.containerName(canaryKey) == other.containerName(canaryKey) {
 		t.Fatal("both installs name their canary box alike")
 	}
@@ -590,6 +593,10 @@ func TestInstallsOnOneEngineKeepTheirBoxes(t *testing.T) {
 	if _, err := other.create(ctx, proto.CreateReq{Key: testKey, Profile: "base", Workspace: testWS,
 		Limits: proto.Limits{MemoryMB: 256, CPUs: 1, Pids: 64}}); err != nil {
 		t.Fatal(err)
+	}
+	want := []string{"bothy_run-" + testKey, "other_run-" + testKey}
+	if got := h.eng.Running(); !slices.Equal(got, want) {
+		t.Fatalf("running = %v, want %v", got, want)
 	}
 	for range 2 { // the second destroy finds no registered box and removes by name
 		if err := other.destroy(ctx, testKey); err != nil {

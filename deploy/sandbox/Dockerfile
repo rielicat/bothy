@@ -8,8 +8,12 @@
 #     --platform linux/amd64,linux/arm64 -t ghcr.io/rielicat/bothy-sandbox-node:0.1.0 .
 #
 # Dockerfile.dockerignore limits the context to what these stages read.
+# Releases (goreleaser dockers_v2) pass SBXINIT=release and copy the signed
+# sbx-init binary from $TARGETPLATFORM/sbx-init in their context instead.
 
-FROM --platform=$BUILDPLATFORM docker.io/library/golang:1.27.2-trixie@sha256:e58d6f83b3416618d8bcac2b3dde1b7f7e3c4a77d25e88637f8bbae81536c48d AS sbxinit
+ARG SBXINIT=source
+
+FROM --platform=$BUILDPLATFORM docker.io/library/golang:1.27.2-trixie@sha256:e58d6f83b3416618d8bcac2b3dde1b7f7e3c4a77d25e88637f8bbae81536c48d AS sbxinit-source
 ARG TARGETOS TARGETARCH
 ENV GOTOOLCHAIN=local GOFLAGS=-mod=readonly
 WORKDIR /src
@@ -18,6 +22,12 @@ COPY cmd/sbx-init/ cmd/sbx-init/
 COPY internal/sbxinit/ internal/sbxinit/
 COPY internal/sandboxd/proto/ internal/sandboxd/proto/
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/sbx-init ./cmd/sbx-init
+
+FROM scratch AS sbxinit-release
+ARG TARGETPLATFORM
+COPY --chmod=0755 $TARGETPLATFORM/sbx-init /out/sbx-init
+
+FROM sbxinit-${SBXINIT} AS sbxinit
 
 FROM ghcr.io/astral-sh/uv:0.12.19@sha256:04d046b13e60d6bcec73cbc5e1cad25d680dea90c8573340950a0ac2d1aef424 AS uv
 
