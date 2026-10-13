@@ -25,3 +25,22 @@ func TestIdentityRoutesRefuseTokens(t *testing.T) {
 		http.StatusForbidden)
 	expect(t, h.do("POST", "/api/pairing", nil, h.member), http.StatusOK)
 }
+
+// Pre-authorized schedule grants answer approvals in advance; a token, whose
+// runs follow on_approval, must not be able to create them.
+func TestScheduleGrantsRefuseTokens(t *testing.T) {
+	h := newHarness(t).setup()
+	h.useStoreScheduler()
+	h.useStorePolicy()
+	tok := h.tokenFor(h.member, "chat")
+	grants := []core.Grant{{Kind: core.GrantDomain, Value: "api.weather.example:443", MaxSE: core.SERead}}
+	expect(t, h.do("POST", "/api/schedules", dto.ScheduleUpsertReq{Schedule: core.Schedule{Name: "weather"}, Grants: grants}, tok),
+		http.StatusForbidden)
+	rec := h.do("POST", "/api/schedules", dto.ScheduleUpsertReq{Schedule: core.Schedule{Name: "weather"}}, tok)
+	expect(t, rec, http.StatusOK)
+	id := decodeAs[core.Schedule](t, rec).ID
+	expect(t, h.do("PATCH", "/api/schedules/"+string(id), dto.ScheduleUpsertReq{Schedule: core.Schedule{Name: "weather"}, Grants: grants}, tok),
+		http.StatusForbidden)
+	expect(t, h.do("PATCH", "/api/schedules/"+string(id), dto.ScheduleUpsertReq{Schedule: core.Schedule{Name: "weather"}, Grants: grants}, h.member),
+		http.StatusOK)
+}

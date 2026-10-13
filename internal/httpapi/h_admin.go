@@ -178,6 +178,10 @@ func (s *Server) getSchedule(w http.ResponseWriter, r *http.Request, a core.Acto
 
 // scheduleGrants validates pre-authorized grants and binds them to the
 // schedule: scope schedule, narrow only, never admin or financial.
+// errGrantsCookieOnly: pre-authorized grants answer approvals in advance, so
+// like approvals they need a browser session; token runs follow on_approval.
+var errGrantsCookieOnly = newError(http.StatusForbidden, "forbidden", "pre-authorized grants need a signed-in browser session, not an API token")
+
 func scheduleGrants(req []core.Grant, sc *core.Schedule, by core.UserID, now time.Time) ([]core.Grant, error) {
 	out := make([]core.Grant, 0, len(req))
 	for _, g := range req {
@@ -195,6 +199,9 @@ func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request, a core.A
 	var req dto.ScheduleUpsertReq
 	if err := decode(r, &req); err != nil {
 		return err
+	}
+	if a.Via == "token" && len(req.Grants) > 0 {
+		return errGrantsCookieOnly
 	}
 	ctx := r.Context()
 	sc := req.Schedule
@@ -258,6 +265,9 @@ func (s *Server) patchSchedule(w http.ResponseWriter, r *http.Request, a core.Ac
 	var req dto.ScheduleUpsertReq
 	if err := decode(r, &req); err != nil {
 		return err
+	}
+	if a.Via == "token" && len(req.Grants) > 0 {
+		return errGrantsCookieOnly
 	}
 	ctx := r.Context()
 	cur, err := s.d.Store.Schedules().Get(ctx, a.Viewer, core.ScheduleID(r.PathValue("id")))
