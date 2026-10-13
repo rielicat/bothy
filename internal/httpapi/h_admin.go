@@ -765,11 +765,10 @@ func (s *Server) pause(w http.ResponseWriter, r *http.Request, a core.Actor) err
 		return err
 	}
 	ctx := r.Context()
+	// The runner's persisted flag is the whole kill switch: the scheduler
+	// reads it, so /resume from a chat releases what this pause engaged.
 	if err := s.d.Runner.SetPaused(ctx, req.Paused, a.User); err != nil {
 		return err
-	}
-	if s.d.Scheduler != nil {
-		s.d.Scheduler.SetPaused(req.Paused)
 	}
 	action := "admin.resume"
 	if req.Paused {

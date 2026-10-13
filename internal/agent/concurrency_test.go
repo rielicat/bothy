@@ -328,8 +328,13 @@ func TestKillSwitch(t *testing.T) {
 		defer h.close()
 		res := h.submit("work")
 		synctest.Wait()
+		// The kill switch is SetPaused + StopAll (SPEC §5.11); StopAll's
+		// count is what /stopall reports.
 		if err := h.r.SetPaused(h.ctx, true, h.user.ID); err != nil {
 			t.Fatal(err)
+		}
+		if n, err := h.r.StopAll(h.ctx, h.user.ID); err != nil || n != 1 {
+			t.Fatalf("StopAll after SetPaused = %d, %v; want the one active run", n, err)
 		}
 		synctest.Wait()
 		if st := h.run(res.Run).Status; st != core.RunStopped {
