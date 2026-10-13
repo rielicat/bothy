@@ -25,6 +25,14 @@ func TestEmbeddedCatalogParses(t *testing.T) {
 		default:
 			t.Fatalf("%s: kind %q", p.ID, p.Kind)
 		}
+		// A cache hit never costs more than the uncached input it replaces;
+		// a higher read price is a source-data error that overbills every
+		// cached prompt.
+		for _, m := range p.Models {
+			if m.Price != nil && m.Price.CacheReadPerM > m.Price.InPerM {
+				t.Errorf("%s/%s: cache read %d above input %d per M", p.ID, m.ID, m.Price.CacheReadPerM, m.Price.InPerM)
+			}
+		}
 	}
 	if Default() == nil || len(Default().Providers) != len(c.Providers) {
 		t.Fatal("Default differs from the embedded file")

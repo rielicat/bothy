@@ -229,16 +229,21 @@ func convert(ps []cwProvider, source string) catalog {
 
 // convertModel maps catwalk's prices. catwalk's "in_cached" is the cache
 // write price and "out_cached" the cache read price (Anthropic: 3.75 and
-// 0.30 against 3.00 input); some entries put a read price in "in_cached"
-// instead, recognisable because a cache write never costs less than input.
+// 0.30 against 3.00 input). Some entries put a read price in "in_cached"
+// instead, recognisable because a cache write never costs less than input,
+// sometimes with the output price in "out_cached" (Gemini Flash-Lite); a
+// read price above input is never right and is dropped.
 func convertModel(kind string, m cwModel) model {
 	out := model{
 		ID: m.ID, Display: m.Name, Context: int(m.ContextWindow), MaxOutput: int(m.DefaultMaxTokens),
 		Tools: true, Vision: m.SupportsImages, Thinking: m.CanReason,
 	}
 	read, write := m.CostPer1MOutCached, m.CostPer1MInCached
-	if read == 0 && write > 0 && write < m.CostPer1MIn {
+	if write > 0 && write < m.CostPer1MIn && (read == 0 || read > m.CostPer1MIn) {
 		read, write = write, 0
+	}
+	if read > m.CostPer1MIn {
+		read = 0
 	}
 	free := strings.HasSuffix(m.ID, ":free")
 	if m.CostPer1MIn > 0 || m.CostPer1MOut > 0 || read > 0 || write > 0 || free {
