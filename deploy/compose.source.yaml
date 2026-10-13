@@ -3,14 +3,17 @@
 #
 #   make image IMAGE=bothy:dev
 #   docker buildx build -f deploy/sandbox/Dockerfile --target base -t bothy-sandbox:dev --load .
-#   export BOTHY_SBX_IMAGES="base=$(docker image inspect -f '{{.Id}}' bothy-sandbox:dev)"
+#   docker buildx build -f deploy/sandbox/Dockerfile --target node -t bothy-sandbox-node:dev --load .
+#   echo "BOTHY_SBX_IMAGES=base=<image id of bothy-sandbox:dev>,node=<image id of bothy-sandbox-node:dev>" >>deploy/.env
 #   docker compose -f deploy/compose.yaml -f deploy/compose.source.yaml up -d
 #
-# sandboxd accepts only content-addressed images; a local image id is one.
+# BOTHY_SBX_IMAGES belongs in deploy/.env, which compose reads for every later
+# command (logs, down, restart) as well. sandboxd accepts only
+# content-addressed images; a local image id is one.
 services:
   bothy:
     image: bothy:dev
   sandboxd:
     image: bothy:dev
     environment:
-      BOTHY_SBX_IMAGES: "${BOTHY_SBX_IMAGES:?build the sandbox image and export BOTHY_SBX_IMAGES first}"
+      BOTHY_SBX_IMAGES: "${BOTHY_SBX_IMAGES:?build the sandbox images and set BOTHY_SBX_IMAGES in deploy/.env first}"

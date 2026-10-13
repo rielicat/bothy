@@ -1,0 +1,40 @@
+{
+  "rules": [
+    {
+      "provider": "gemini",
+      "models": "^gemini-(2\\.5|3|3\\.1)-pro(-|$)",
+      "tiers": [{"above_input": 200000, "permille": 2000, "out_permille": 1500}],
+      "source": "ai.google.dev/gemini-api/docs/pricing, read 2026-10-13: prompts over 200K bill input and cache reads 2x, output 1.5x (2.5 Pro $1.25/$10/$0.125 -> $2.50/$15/$0.25)"
+    },
+    {
+      "provider": "xai",
+      "models": "^grok-",
+      "tiers": [{"above_input": 199999, "permille": 2000}],
+      "source": "docs.x.ai/docs/models, read 2026-10-13: from 200K prompt tokens every rate doubles, for all tokens of the request"
+    },
+    {
+      "provider": "openai",
+      "models": "^gpt-(5\\.4|5\\.5)(-pro)?$|^gpt-(5\\.6|6|6\\.1)-(sol|terra|luna|astra)$",
+      "tiers": [{"above_input": 272000, "permille": 2000, "out_permille": 1500}],
+      "source": "developers.openai.com/api/docs/pricing, read 2026-10-13: over 272K input tokens, input and cached input 2x, output 1.5x"
+    },
+    {
+      "provider": "openrouter",
+      "models": "^google/gemini-(2\\.5|3|3\\.1)-pro(-|$)",
+      "tiers": [{"above_input": 199999, "permille": 2000, "out_permille": 1500, "cache_write_permille": 1000}],
+      "source": "openrouter.ai/api/v1/models pricing.overrides, read 2026-10-13: min_prompt_tokens 200000; cache writes keep their price"
+    },
+    {
+      "provider": "openrouter",
+      "models": "^x-ai/grok-",
+      "tiers": [{"above_input": 199999, "permille": 2000}],
+      "source": "openrouter.ai/api/v1/models pricing.overrides, read 2026-10-13: min_prompt_tokens 200000"
+    },
+    {
+      "provider": "openrouter",
+      "models": "^openai/gpt-(5\\.4|5\\.5)(-pro)?$|^openai/gpt-(5\\.6|6|6\\.1)-(sol|terra|luna|astra)(-pro)?$",
+      "tiers": [{"above_input": 271999, "permille": 2000, "out_permille": 1500}],
+      "source": "openrouter.ai/api/v1/models pricing.overrides, read 2026-10-13: min_prompt_tokens 272000"
+    }
+  ]
+}

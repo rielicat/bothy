@@ -3,9 +3,13 @@ package main
 
 import (
 	"context"
+	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 
 	"github.com/rielicat/bothy/internal/sandboxd"
@@ -25,46 +29,71 @@ commands:
   setup-token      print a fresh one-time setup token (only while no owner exists)
   user             user admin: reset-password <name> | list
   vault            vault admin: rotate-kek (gateway stopped) | status
-  config           check | defaults | effective
+  config           check [file] | defaults | effective
   audit            verify | archive --before <date> (gateway stopped)
   backup           write a consistent backup to <data>/backups
   healthcheck      exit 0 when /healthz answers (container HEALTHCHECK) [sandboxd]
   version          print version
+
+The data directory is $BOTHY_STORAGE__DATA_DIR (default /data).
 `
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	cmd, args := "serve", os.Args[1:]
+	code := run(ctx, os.Args[1:], os.Stdout, os.Stderr)
+	stop()
+	os.Exit(code)
+}
+
+// run dispatches one invocation and returns the exit code: 0 ok (and help),
+// 1 failure, 2 usage. Usage errors are caught before any state is opened, so a
+// mistyped command never creates a data dir, database or KEK.
+func run(ctx context.Context, argv []string, stdout, stderr io.Writer) int {
+	cmd, args := "serve", argv
 	if len(args) > 0 {
 		cmd, args = args[0], args[1:]
 	}
 	var err error
 	code := 0
 	switch cmd {
+	case "help", "-h", "-help", "--help":
+		fmt.Fprint(stdout, usage)
+		return 0
 	case "serve":
 		err = serve(ctx, args)
 	case "sandboxd":
 		err = sandboxd.Main(ctx, args, os.Environ)
 	case "sbx-init":
-		os.Exit(sbxinit.Main(args))
+		return sbxinit.Main(args)
 	case "doctor":
 		code, err = doctorCmd(ctx, args, false)
 	case "security-audit":
 		code, err = doctorCmd(ctx, args, true)
 	case "setup-token", "user", "vault", "config", "audit", "backup":
-		err = adminCmd(ctx, cmd, args)
+		if slices.ContainsFunc(args, isHelpFlag) {
+			fmt.Fprint(stdout, usage)
+			return 0
+		}
+		err = runAdmin(ctx, cmd, args, stdout, stderr)
 	case "healthcheck":
 		err = healthcheck(ctx, args)
 	case "version":
-		fmt.Println(version)
+		fmt.Fprintln(stdout, version)
 	default:
-		fmt.Fprint(os.Stderr, usage)
-		os.Exit(2)
+		fmt.Fprintf(stderr, "bothy: unknown command %q\n\n%s", cmd, usage)
+		return 2
 	}
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "bothy:", err)
-		os.Exit(1)
+	switch {
+	case errors.Is(err, flag.ErrHelp):
+		return 0
+	case errors.Is(err, errUsage):
+		fmt.Fprint(stderr, usage)
+		return 2
+	case err != nil:
+		fmt.Fprintln(stderr, "bothy:", err)
+		return 1
 	}
-	os.Exit(code)
+	return code
 }
+
+func isHelpFlag(s string) bool { return s == "-h" || s == "-help" || s == "--help" }

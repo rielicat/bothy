@@ -118,6 +118,55 @@ verify_sums() {
 	done
 }
 
+# docker_socket sets sock, the host path compose mounts into sandboxd, and
+# gid, the socket's group as containers see it (which is what group_add needs).
+docker_socket() {
+	sock=/var/run/docker.sock
+	gid=999
+	if [ "$os" = darwin ]; then
+		# Docker Desktop: the host path is a symlink to a user-owned socket,
+		# but containers get the VM's socket, root:root 0660.
+		gid=0
+		return
+	fi
+	have_docker=0
+	command -v docker >/dev/null && have_docker=1
+	case "${DOCKER_HOST:-}" in
+	unix://*) sock=${DOCKER_HOST#unix://} ;;
+	"")
+		if [ $have_docker -eq 1 ]; then
+			endpoint=$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)
+			case "$endpoint" in unix://*) sock=${endpoint#unix://} ;; esac
+		fi
+		if [ ! -S "$sock" ] && [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -S "$XDG_RUNTIME_DIR/docker.sock" ]; then
+			sock=$XDG_RUNTIME_DIR/docker.sock
+		fi
+		;;
+	esac
+	rootless=0
+	case "$sock" in
+	/run/user/*) rootless=1 ;;
+	"${XDG_RUNTIME_DIR:-/nonexistent}"/*) rootless=1 ;;
+	esac
+	if [ $have_docker -eq 1 ] && docker info --format '{{.OperatingSystem}}' 2>/dev/null | grep -q 'Docker Desktop'; then
+		# Docker Desktop on Linux, as on macOS: containers that mount this path
+		# get the VM's root:root socket, whatever the host context points at.
+		sock=/var/run/docker.sock
+		gid=0
+		return
+	fi
+	if [ $have_docker -eq 1 ] && docker info --format '{{.SecurityOptions}}' 2>/dev/null | grep -q rootless; then
+		rootless=1
+	fi
+	if [ $rootless -eq 1 ]; then
+		# Containers share rootless dockerd's user namespace, where the socket's
+		# owner (this user) is root: inside, the socket is root:root.
+		gid=0
+	elif [ -S "$sock" ]; then
+		gid=$(stat -L -c %g "$sock" 2>/dev/null || stat -L -f %g "$sock")
+	fi
+}
+
 archive="bothy_${version}_${os}_${arch}.tar.gz"
 echo "Installing Bothy $version ($os/$arch) into $bindir"
 fetch "$archive"
@@ -146,17 +195,13 @@ if [ -n "$compose_dir" ]; then
 		echo "Kept the existing $compose_dir/.env"
 	else
 		secret=$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')
-		gid=999
-		if [ "$os" = darwin ]; then
-			# Docker Desktop: the host path is a symlink to a user-owned socket,
-			# but containers get the VM's socket, root:root 0660.
-			gid=0
-		elif [ -S /var/run/docker.sock ]; then
-			gid=$(stat -L -c %g /var/run/docker.sock)
-		fi
-		(umask 077 && sed -e "s/^DOCKER_GID=.*/DOCKER_GID=$gid/" -e "s/^SEARXNG_SECRET=.*/SEARXNG_SECRET=$secret/" \
-			"$tmp/env.example" >"$compose_dir/.env")
-		echo "Wrote $compose_dir/.env (DOCKER_GID=$gid, random SEARXNG_SECRET)"
+		docker_socket
+		(umask 077 && sed -e "s/^DOCKER_GID=.*/DOCKER_GID=$gid/" -e "s|^DOCKER_SOCK=.*|DOCKER_SOCK=$sock|" \
+			-e "s/^SEARXNG_SECRET=.*/SEARXNG_SECRET=$secret/" "$tmp/env.example" >"$compose_dir/.env")
+		echo "Wrote $compose_dir/.env (DOCKER_SOCK=$sock, DOCKER_GID=$gid, random SEARXNG_SECRET)"
 	fi
 	echo "Start it with: cd $compose_dir && docker compose up -d && docker compose logs bothy | grep setup"
+else
+	echo "Run the gateway with: BOTHY_STORAGE__DATA_DIR=\"\$HOME/bothy-data\" $bindir/bothy serve"
+	echo "(the data directory is created with mode 0700; serve prints the setup link)"
 fi

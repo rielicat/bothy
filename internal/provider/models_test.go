@@ -87,6 +87,35 @@ func TestModelResolution(t *testing.T) {
 	}
 }
 
+// TestLongContextTiers: the embedded catalog carries Gemini Pro's surcharge
+// above 200K; a pricing override keeps it unless it sets tiers of its own.
+func TestLongContextTiers(t *testing.T) {
+	h := newHarness(t, []config.Provider{cfgProvider("gemini", core.KindGemini, "")})
+	h.view.c.Providers[0].AllowPrivate = false
+	ref := core.ModelRef{Provider: "gemini", Model: "gemini-2.5-pro"}
+	m, _ := h.f.Model(ref)
+	long := core.Usage{Input: 400_000, Output: 4_000}
+	if got := m.Price.Cost(long); got != 1_060_000 { // 400K × $2.50 + 4K × $15
+		t.Fatalf("catalog cost of a 400K prompt = %d micros, tiers %+v", got, m.Price.Tiers)
+	}
+
+	h.view.c.Pricing = map[string]config.PriceO{ref.String(): {In: 1, Out: 8}}
+	m, _ = h.f.Model(ref)
+	if got := m.Price.Cost(long); got != 800_000+48_000 {
+		t.Fatalf("override without tiers = %d micros, tiers %+v", got, m.Price.Tiers)
+	}
+
+	h.view.c.Pricing = map[string]config.PriceO{ref.String(): {In: 1, Out: 8, Tiers: map[string]config.PriceTierO{
+		"300000": {Permille: 3000}, "100000": {Permille: 1500, OutPermille: 1000}}}}
+	m, _ = h.f.Model(ref)
+	if tiers := m.Price.Tiers; len(tiers) != 2 || tiers[0].AboveInput != 100_000 || tiers[1].Permille != 3000 {
+		t.Fatalf("override tiers %+v", tiers)
+	}
+	if got := m.Price.Cost(long); got != 1_200_000+96_000 {
+		t.Fatalf("override with tiers = %d micros", got)
+	}
+}
+
 // TestCost checks CallInfo.Cost to the micro: catalog price, a tiered price
 // and an unknown price.
 func TestCost(t *testing.T) {

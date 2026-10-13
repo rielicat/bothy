@@ -33,6 +33,8 @@ func TestParseModelRef(t *testing.T) {
 func TestPriceCost(t *testing.T) {
 	sonnet := Price{InPerM: 3_000_000, OutPerM: 15_000_000, CacheReadPerM: 300_000, CacheWritePerM: 3_750_000, Known: true}
 	tiered := Price{InPerM: 3_000_000, OutPerM: 15_000_000, Tiers: []PriceTier{{AboveInput: 200_000, Permille: 2000}}}
+	gemini25Pro := Price{InPerM: 1_250_000, OutPerM: 10_000_000, CacheReadPerM: 125_000, Known: true,
+		Tiers: []PriceTier{{AboveInput: 200_000, Permille: 2000, OutPermille: 1500}}}
 	tests := []struct {
 		name string
 		p    Price
@@ -56,6 +58,16 @@ func TestPriceCost(t *testing.T) {
 			Usage{Input: 1000}, 3_000},
 		{"discount tiers ignored", Price{InPerM: 1_000_000, Tiers: []PriceTier{{AboveInput: 0, Permille: 500}}},
 			Usage{Input: 1000}, 1_000},
+		// Google bills Gemini 2.5 Pro prompts over 200K at $2.50 in, $15 out,
+		// $0.25 cache read (from $1.25, $10, $0.125).
+		{"gemini pro long context", gemini25Pro, Usage{Input: 400_000, Output: 4_000}, 1_000_000 + 60_000},
+		{"gemini pro below the tier", gemini25Pro, Usage{Input: 100_000, Output: 4_000}, 125_000 + 40_000},
+		{"gemini pro cache read doubles", gemini25Pro, Usage{Input: 1_000, CacheRead: 300_000}, 2_500 + 75_000},
+		{"own multiplier per component", Price{InPerM: 1_000_000, OutPerM: 1_000_000, CacheReadPerM: 1_000_000, CacheWritePerM: 1_000_000,
+			Tiers: []PriceTier{{AboveInput: 10, Permille: 2000, OutPermille: 1500, CacheReadPermille: 3000, CacheWritePermille: 1000}}},
+			Usage{Input: 100, Output: 100, CacheRead: 100, CacheWrite: 100}, 200 + 150 + 300 + 100},
+		{"component discount ignored", Price{OutPerM: 1_000_000, Tiers: []PriceTier{{AboveInput: 0, Permille: 2000, OutPermille: 500}}},
+			Usage{Input: 1, Output: 1000}, 1_000},
 	}
 	for _, tt := range tests {
 		if got := tt.p.Cost(tt.u); got != tt.want {

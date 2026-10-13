@@ -838,9 +838,17 @@ export interface Price {
   tiers?: PriceTier[];
   known: boolean;
 }
+/**
+ * PriceTier multipliers are permille (2000 = 2x). Permille applies to every
+ * component whose own multiplier is 0 (Gemini Pro and OpenAI bill 2x input
+ * but 1.5x output above their thresholds).
+ */
 export interface PriceTier {
   above_input: number /* int */;
-  permille: number /* int */; // 2000 = 2x
+  permille: number /* int */;
+  out_permille?: number /* int */;
+  cache_read_permille?: number /* int */;
+  cache_write_permille?: number /* int */;
 }
 export type CacheMode = number /* uint8 */;
 export const CacheNone: CacheMode = 0;
