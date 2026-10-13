@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rielicat/bothy/internal/core"
 )
@@ -134,6 +135,35 @@ func TestApprovalResolveRefusesEveryToken(t *testing.T) {
 	if got := decodeAs[core.Approval](t, rec); got.Status != core.ApprovalAllowed || got.DecidedVia != "web" {
 		t.Fatalf("approval = %+v", got)
 	}
+}
+
+// TestContinueRefusesEveryToken: a continued run is interactive (cards,
+// long waits, allow_always), which a bearer client cannot answer and whose
+// runs postMessage turns into trigger api with the token's on_approval.
+func TestContinueRefusesEveryToken(t *testing.T) {
+	h := newHarness(t).setup()
+	ctx := context.Background()
+	sess, err := h.store.Sessions().Get(ctx, core.SystemViewer(), mustSession(t, h))
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := &core.Run{ID: core.RunID(core.NewID(core.PrefixRun)), Session: sess.ID, Principal: sess.Principal, User: h.owner.user,
+		Trigger: core.TrigMessage, Status: core.RunBudgetExceeded, Error: "budget exceeded: steps", CreatedAt: time.Now()}
+	if err := h.store.Runs().Create(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/runs/" + string(run.ID) + "/continue"
+	for _, scopes := range [][]string{{"chat"}, {"read"}, {"chat", "read", "llm", "admin"}} {
+		expect(t, h.do("POST", path, nil, h.tokenFor(h.owner, scopes...)), http.StatusForbidden)
+	}
+	expect(t, h.do("POST", path, nil, h.owner), http.StatusAccepted)
+}
+
+func mustSession(t *testing.T, h *harness) core.SessionID {
+	t.Helper()
+	rec := h.do("POST", "/api/sessions", map[string]any{}, h.owner)
+	expect(t, rec, http.StatusOK)
+	return decodeAs[core.Session](t, rec).ID
 }
 
 func TestSafeModeGating(t *testing.T) {

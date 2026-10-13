@@ -200,6 +200,9 @@ func TestIDORThroughHTTP(t *testing.T) {
 			if c.token != "" && rt.method == "POST" && strings.HasPrefix(rt.path, "/api/approvals/") {
 				continue // tokens are refused before lookup (TestApprovalResolveRefusesEveryToken)
 			}
+			if c.token != "" && rt.method == "POST" && strings.HasSuffix(rt.path, "/continue") {
+				continue // tokens are refused before lookup (TestContinueRefusesEveryToken)
+			}
 			if c == h.admin && (strings.HasPrefix(rt.path, "/api/vault") || strings.HasPrefix(rt.path, "/api/grants/")) {
 				continue // admins administer vault scopes and grants by design
 			}

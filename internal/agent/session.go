@@ -193,7 +193,11 @@ func (r *Runner) ContextPreview(ctx context.Context, v core.Viewer, id core.Sess
 }
 
 // Continue starts a new run in the session of a run stopped by its steps
-// budget, with 10 more steps.
+// budget, with 10 more steps. The caller is a signed-in user who can answer
+// cards (the HTTP route is cookie-only), so the run is message-triggered, but
+// it keeps the provenance of the run it continues: pressing Continue on a run
+// an untrusted participant started does not make their instructions the
+// user's (floor F6).
 func (r *Runner) Continue(ctx context.Context, v core.Viewer, id core.RunID, by core.UserID) (core.SubmitResult, error) {
 	run, err := r.d.Store.Runs().Get(ctx, v, id)
 	if err != nil {
@@ -210,7 +214,7 @@ func (r *Runner) Continue(ctx context.Context, v core.Viewer, id core.RunID, by 
 	limits.MaxSteps = 10
 	req := core.RunRequest{
 		Session: sess.ID, Principal: sess.Principal, User: by, Trigger: core.TrigMessage,
-		Input: []core.Part{{Type: core.PartText, Text: "Continue."}}, Provenance: core.ProvUser,
+		Input: []core.Part{{Type: core.PartText, Text: "Continue."}}, Provenance: r.runProvenance(ctx, run.Session, run.ID),
 		Sender: "web:" + string(by), Chat: sess.Chat, Limits: &limits,
 	}
 	if sess.Chat != nil {

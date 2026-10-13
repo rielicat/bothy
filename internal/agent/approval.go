@@ -421,7 +421,7 @@ func (r *Runner) startResume(rs *runState, j *resumeJob) *runEnd {
 		rs.emitMu.Unlock()
 		return &runEnd{status: core.RunStopped, notice: pausedParkedNotice}
 	}
-	rs.req.Provenance = r.runProvenance(ctx, rs)
+	rs.req.Provenance = r.runProvenance(ctx, rs.req.Session, rs.id)
 	rs.req.Chat = rs.sess.Chat
 	rs.emitMu.Lock()
 	rs.sink = r.resumeSink(ctx, j.run)
@@ -463,14 +463,15 @@ func (r *Runner) startResume(rs *runState, j *resumeJob) *runEnd {
 }
 
 // runProvenance is the provenance of the message that started the run; the
-// floors keep applying to it after a resume. Unknown means untrusted.
-func (r *Runner) runProvenance(ctx context.Context, rs *runState) core.Provenance {
-	msgs, err := r.d.Store.Messages().Range(ctx, core.SystemViewer(), rs.req.Session, 0, 0)
+// floors keep applying to it after a resume or a Continue. Unknown means
+// untrusted.
+func (r *Runner) runProvenance(ctx context.Context, s core.SessionID, run core.RunID) core.Provenance {
+	msgs, err := r.d.Store.Messages().Range(ctx, core.SystemViewer(), s, 0, 0)
 	if err != nil {
 		return core.ProvUntrusted
 	}
 	for _, m := range msgs {
-		if m.Run == rs.id && m.Role == core.MsgUser && m.Kind == core.KindNormal && m.Provenance != core.ProvSystem {
+		if m.Run == run && m.Role == core.MsgUser && m.Kind == core.KindNormal && m.Provenance != core.ProvSystem {
 			return m.Provenance
 		}
 	}

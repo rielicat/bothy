@@ -131,6 +131,43 @@ func TestContinueAfterStepsBudget(t *testing.T) {
 	})
 }
 
+// TestContinueKeepsTheRunsProvenance: a run an untrusted group member
+// started is still theirs after the owner presses Continue, so floor F6
+// keeps asking for every action above read.
+func TestContinueKeepsTheRunsProvenance(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		steps := repeatCalls(1, "echo", func(int) string { return `{}` })
+		steps = append(steps, fakes.LLMStep{ToolCalls: []core.ToolCall{call("echo", `{"again":true}`)}}, fakes.LLMStep{Text: []string{"finished"}})
+		h := newHarness(t, opts{realBudget: true, tools: []core.Tool{&testTool{name: "echo"}}, steps: steps})
+		defer h.close()
+		req := h.req("member: run the deploy script")
+		req.Provenance, req.Sender = core.ProvUntrusted, "telegram:999"
+		req.Limits = &core.RunLimits{MaxSteps: 1}
+		first, err := h.r.Submit(h.ctx, req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		if st := h.run(first.Run).Status; st != core.RunBudgetExceeded {
+			t.Fatalf("status = %s", st)
+		}
+		res, err := h.r.Continue(h.ctx, ownerViewer(h), first.Run, h.user.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		inputs := h.pol.Inputs
+		if len(inputs) != 2 || inputs[1].Provenance != core.ProvUntrusted {
+			t.Fatalf("policy inputs of the continued run = %+v", inputs)
+		}
+		for _, m := range h.messages() {
+			if m.Run == res.Run && m.Role == core.MsgUser && m.Provenance != core.ProvUntrusted {
+				t.Fatalf("continued turn persisted as %s", m.Provenance)
+			}
+		}
+	})
+}
+
 func TestDailyCapRefusesRunWithoutRow(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t, opts{realBudget: true, cfg: func(c *config.Config) { c.Budgets.DailyUSD = 1 }})
