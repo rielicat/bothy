@@ -222,6 +222,21 @@ func dockerStop(t *testing.T, s *dockerSuite) {
 		time.Sleep(20 * time.Millisecond)
 	}
 
+	// The run goroutine finalizes the killed call shortly after the stop.
+	for deadline := time.Now().Add(10 * time.Second); ; {
+		var rd dto.RunDetail
+		if code := g.JSON(t, http.MethodGet, "/api/runs/"+string(call.Run), nil, &rd); code != http.StatusOK {
+			t.Fatalf("run detail = %d", code)
+		}
+		if rd.Run.Status == core.RunStopped && len(rd.ToolCalls) == 1 && rd.ToolCalls[0].Status == core.TCStopped {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("stopped run %s: status %s, tool calls %+v", call.Run, rd.Run.Status, rd.ToolCalls)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
 	sendText(t, g, sess, "E7 hang")
 	started := tr.await(t, "run.started", time.Minute, of(core.EvRunStarted, sess))
 	tr.await(t, "run.status thinking", time.Minute, func(e sev) bool {
