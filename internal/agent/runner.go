@@ -164,7 +164,9 @@ func (r *Runner) place(ctx context.Context, w *worker, req core.RunRequest) (cor
 		w.signal()
 		return core.SubmitResult{Run: j.id}, nil
 	}
-	if w.load() >= depth {
+	// An /v1 caller streams only the run it started and could never read
+	// one queued here, so it is refused and retries instead.
+	if w.load() >= depth || req.Chat != nil && req.Chat.Kind == core.ChatAPI {
 		return core.SubmitResult{}, core.ErrBusy
 	}
 	w.queue = append(w.queue, j)
