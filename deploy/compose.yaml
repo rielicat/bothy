@@ -51,7 +51,7 @@ services:
     cap_add: [SETUID, SETGID]
     tmpfs: ["/tmp"]
     environment:
-      SEARXNG_SECRET: "${SEARXNG_SECRET:-}"   # install.sh writes a random value into deploy/.env
+      SEARXNG_SECRET: "${SEARXNG_SECRET:-}"   # install.sh writes a random value into the .env next to this file
     volumes:
       - ./searxng/settings.yml:/etc/searxng/settings.yml:ro   # search.formats [html, json], limiter off, no image proxy
       # (verify) whether the image's entrypoint still needs a writable /etc/searxng (uwsgi.ini); if so, add a tmpfs

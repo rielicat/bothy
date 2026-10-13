@@ -315,8 +315,9 @@ func (s *Service) previewPlan(kind core.ScheduleKind, spec, tz string) (plan, er
 	return p, nil
 }
 
-// SetPaused stops firing (kill switch). Ticks that fall due while paused are
-// skipped, not replayed on resume.
+// SetPaused stops firing independently of the kill switch, which isPaused
+// reads from Runner.Paused(). Ticks that fall due while paused are skipped,
+// not replayed on resume.
 func (s *Service) SetPaused(paused bool) {
 	s.paused.Store(paused)
 	s.poke()

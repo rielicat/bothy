@@ -109,6 +109,9 @@ type Scheduler interface {
 	// Describe renders a spec in plain English for dto.SchedulePreviewResp.Human,
 	// e.g. "Weekdays at 08:00 (Europe/London)".
 	Describe(kind ScheduleKind, spec, tz string) (string, error)
+	// SetPaused is a scheduler-only pause, independent of the kill switch:
+	// the scheduler stops firing while Runner.Paused() is true whatever this
+	// says, and nothing in the gateway calls it.
 	SetPaused(paused bool)
 }
 

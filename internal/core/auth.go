@@ -91,7 +91,11 @@ type Auth interface {
 	// SenderNotice records an unknown DM sender and returns whether to reply.
 	SenderNotice(ctx context.Context, ident ChannelIdentity) (SenderNotice, error)
 	// ApproveSender redeems an approve_sender code typed into the web UI by an
-	// admin: as "guest" (creates a guest space) or "link" (to linkUser).
+	// admin: as "guest" (creates a guest space) or "link" (to linkUser). Admins
+	// link a chat identity only to themselves; only the owner links one to
+	// another user. An identity linked to some user is never made a guest or
+	// linked to anyone else (ErrForbidden); it can be blocked, unlinked or
+	// linked back to that same user.
 	ApproveSender(ctx context.Context, by Actor, code, as string, linkUser UserID) (*ChannelIdentity, error)
 	ResolveIdentity(ctx context.Context, channel, externalID string) (IdentityResolution, error)
 }

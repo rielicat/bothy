@@ -66,6 +66,9 @@ type PriceTier struct {
 
 // Cost is exact integer math, rounding each component half up. Input excludes
 // cache reads/writes (providers report them separately; adapters normalise).
+// Each component takes the largest of 1000 and its tier multiplier over the
+// tiers whose AboveInput the prompt (input + cache read + cache write)
+// exceeds, so a discount tier never lowers a price.
 func (p Price) Cost(u Usage) Micros {
 	in, out, cr, cw := int64(1000), int64(1000), int64(1000), int64(1000)
 	total := u.Input + u.CacheRead + u.CacheWrite

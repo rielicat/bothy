@@ -32,13 +32,24 @@ type VaultStatus struct {
 // percent-encoded forms, for values >= 8 bytes) plus token patterns: sk-…,
 // sk-ant-…, xox[abpr]-…, xapp-…, ghp_/gho_/github_pat_…, AIza…, JWTs,
 // bothy_pat_…. Applied to logs, audit detail, tool results, channel output,
-// SSE payloads and model input.
+// SSE payloads and model input. Redact and RedactBytes return their input
+// unchanged when nothing is masked; RedactBytes may return its argument, so
+// callers that keep or modify the result copy it first.
 type Redactor interface {
 	Redact(s string) string
 	RedactBytes(b []byte) []byte
 	Add(id string, value []byte) // vault plaintexts, setup token, session cookies in flight
 	Remove(id string)
 }
+
+// Not part of Redactor: vault.Redactor (and testkit/fakes.Redactor) also
+// implement PartialAt(s string) int, which returns where the earliest suffix
+// of s starts that is a proper prefix of a registered value or of one of its
+// encodings (len(s) when none). Streamers (agent run.delta, run.thinking and
+// run.tool_output; the channel hub's live messages) find it by a type
+// assertion on interface{ PartialAt(string) int } and hold that tail back, so
+// redacting each published piece masks exactly what redacting the whole
+// stream would, even for a secret that contains spaces.
 
 type Vault interface {
 	Put(ctx context.Context, sc Scope, name string, value []byte, by UserID) (SecretMeta, error)
