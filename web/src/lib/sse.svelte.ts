@@ -41,8 +41,24 @@ export const eventTypes: EventType[] = [
 
 const maxBackoff = 30_000;
 
+// Tabs share one stream. The server allows four per user and closes the
+// oldest, so a fifth tab would start an eviction loop, and every stream holds
+// one of the browser's six connections to the gateway. The tab holding the
+// Web Lock opens the EventSource and relays every frame over a
+// BroadcastChannel; when it goes away the lock passes to another tab, which
+// reconnects and tells the others to refetch what the handoff missed.
+const shareName = 'bothy-events';
+
+type Status = 'idle' | 'connecting' | 'open' | 'error';
+
+type Relay = { k: 'frame'; t: string; d: string } | { k: 'status'; s: Status } | { k: 'closed' } | { k: 'join' };
+
+function canShare(): boolean {
+  return typeof BroadcastChannel !== 'undefined' && typeof navigator !== 'undefined' && typeof navigator.locks?.request === 'function';
+}
+
 export class EventStream {
-  status: 'idle' | 'connecting' | 'open' | 'error' = $state('idle');
+  status: Status = $state('idle');
   hello: Hello | null = $state(null);
 
   #url = '/api/events';
@@ -57,26 +73,84 @@ export class EventStream {
   #timer: ReturnType<typeof setTimeout> | undefined;
   #resyncQueued = false;
 
+  #bc: BroadcastChannel | null = null;
+  #abort: AbortController | null = null;
+  #unlock: (() => void) | null = null;
+  #leader = false;
+  #followed = false;
+  #lastHello = '';
+
   connect(url = '/api/events') {
-    if (this.#es || this.#timer) return;
+    if (this.#es || this.#timer || this.#bc) return;
     this.#url = url;
-    this.#open();
+    if (!canShare()) {
+      this.#open();
+      return;
+    }
+    const bc = new BroadcastChannel(shareName);
+    this.#bc = bc;
+    bc.onmessage = (m: MessageEvent) => this.#relayed(m.data as Relay);
+    const abort = new AbortController();
+    this.#abort = abort;
+    this.status = 'connecting';
+    navigator.locks
+      .request(shareName, { signal: abort.signal }, () => {
+        if (abort.signal.aborted) return;
+        this.#leader = true;
+        // Frames the previous leader had not relayed yet are lost.
+        this.#missed = this.#missed || this.#followed;
+        this.#open();
+        return new Promise<void>((resolve) => (this.#unlock = resolve));
+      })
+      .catch(() => {});
+    bc.postMessage({ k: 'join' } satisfies Relay);
+  }
+
+  #post(r: Relay) {
+    if (this.#leader) this.#bc?.postMessage(r);
+  }
+
+  #setStatus(s: Status) {
+    this.status = s;
+    this.#post({ k: 'status', s });
+  }
+
+  #relayed(r: Relay) {
+    if (this.#leader) {
+      if (r.k === 'join') {
+        this.#post({ k: 'status', s: this.status });
+        if (this.#lastHello) this.#post({ k: 'frame', t: 'hello', d: this.#lastHello });
+      }
+      return;
+    }
+    switch (r.k) {
+      case 'frame':
+        this.#followed = true;
+        this.#frame(r.t, r.d);
+        break;
+      case 'status':
+        this.status = r.s;
+        break;
+      case 'closed':
+        this.#closed.forEach((fn) => fn());
+        break;
+    }
   }
 
   #open() {
     this.#timer = undefined;
-    this.status = 'connecting';
+    this.#setStatus('connecting');
     // The browser resends Last-Event-ID on its own reconnects; the server
     // replays from its ring or answers "resync".
     const es = new EventSource(this.#url);
     this.#es = es;
     es.onopen = () => {
-      this.status = 'open';
+      this.#setStatus('open');
       this.#retry = 0;
     };
     es.onerror = () => {
       if (es.readyState !== EventSource.CLOSED) {
-        this.status = 'connecting';
+        this.#setStatus('connecting');
         return;
       }
       // A CLOSED source (HTTP error, auth expiry) never retries by itself, and
@@ -84,41 +158,55 @@ export class EventStream {
       // must be refetched once the new stream says hello.
       es.close();
       this.#es = null;
-      this.status = 'error';
+      this.#setStatus('error');
       this.#missed = true;
       const delay = Math.min(maxBackoff, 1000 * 2 ** this.#retry++);
       this.#timer = setTimeout(() => this.#open(), delay);
       this.#closed.forEach((fn) => fn());
+      this.#post({ k: 'closed' });
     };
-    es.addEventListener('hello', (m) => {
+    for (const t of ['hello', 'resync', ...eventTypes]) {
+      es.addEventListener(t, (m) => {
+        const d = (m as MessageEvent).data as string;
+        this.#frame(t, d);
+        this.#post({ k: 'frame', t, d });
+      });
+    }
+  }
+
+  #frame(t: string, d: string) {
+    if (t === 'resync') {
+      this.#queueResync();
+      return;
+    }
+    if (t === 'hello') {
       let h: Hello;
       try {
-        h = JSON.parse((m as MessageEvent).data) as Hello;
+        h = JSON.parse(d) as Hello;
       } catch {
         return;
       }
       const rebooted = this.#boot !== '' && this.#boot !== h.boot;
       this.#boot = h.boot;
+      this.#lastHello = d;
       this.hello = h;
       this.#hello.forEach((fn) => fn(h));
       if (rebooted || this.#missed) {
+        // Other tabs saw the same boot, so only a gap needs telling them.
+        if (this.#missed) this.#post({ k: 'frame', t: 'resync', d: '{}' });
         this.#missed = false;
         this.#queueResync();
       }
-    });
-    es.addEventListener('resync', () => this.#queueResync());
-    for (const t of eventTypes) {
-      es.addEventListener(t, (m) => {
-        let ev: BusEvent;
-        try {
-          ev = JSON.parse((m as MessageEvent).data) as BusEvent;
-        } catch {
-          return;
-        }
-        this.#handlers.get(t)?.forEach((fn) => fn(ev));
-        this.#handlers.get('*')?.forEach((fn) => fn(ev));
-      });
+      return;
     }
+    let ev: BusEvent;
+    try {
+      ev = JSON.parse(d) as BusEvent;
+    } catch {
+      return;
+    }
+    this.#handlers.get(t)?.forEach((fn) => fn(ev));
+    this.#handlers.get('*')?.forEach((fn) => fn(ev));
   }
 
   // A reboot shows up both as a new hello boot and as a resync frame; one
@@ -137,6 +225,15 @@ export class EventStream {
     this.#timer = undefined;
     this.#es?.close();
     this.#es = null;
+    this.#abort?.abort();
+    this.#abort = null;
+    this.#unlock?.();
+    this.#unlock = null;
+    this.#bc?.close();
+    this.#bc = null;
+    this.#leader = false;
+    this.#followed = false;
+    this.#lastHello = '';
     this.#boot = '';
     this.#missed = false;
     this.#retry = 0;

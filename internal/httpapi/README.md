@@ -19,7 +19,9 @@ foreign ids are 404. `GET /api/events` streams the bus as SSE with a hello
 frame, `Last-Event-ID` replay, `resync` across boots or on overflow, 15 s
 pings, a credential re-check every minute (revoked tokens, ended sessions,
 disabled users, role changes and new principals close the stream) and at
-most four streams per user. With `X-Bothy-Session`, a session that already
+most four streams per user: the oldest is closed with a one-minute `retry:`
+(every stream starts with 3 s), so extra tabs cannot evict each other in a
+loop. With `X-Bothy-Session`, a session that already
 has a run is refused (429) rather than steered into a run the request
 cannot stream. `/v1/chat/completions` maps OpenAI
 requests onto runs (`bothy`, `bothy-fast`) or onto `LLM.Passthrough` for

@@ -32,7 +32,8 @@ src/
     api/client.ts       fetch wrapper: X-CSRF-Token, dto.Error → ApiError, 401 → login
     api/types.gen.ts    generated from the Go DTOs by `make gen` (do not edit)
     router.svelte.ts    history router; safeNext() for ?next=
-    sse.svelte.ts       one EventSource: typed handlers, hello, resync, reconnect with backoff
+    sse.svelte.ts       one EventSource per browser, shared by tabs (Web Lock + BroadcastChannel):
+                        typed handlers, hello, resync, reconnect with backoff
     stores/             session and approvals, theme and toasts, one-second clock
     markdown.ts         escape-all renderer (security control, see below)
     text.ts             bidi/zero-width visualisation and punycode for approval cards
