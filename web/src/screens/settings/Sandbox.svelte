@@ -5,7 +5,7 @@
   import { api } from '../../lib/api/client';
   import type { EgressRecord, List } from '../../lib/api/types.gen';
   import { ago } from '../../lib/format';
-  import { hostPort } from '../../lib/grants';
+  import { siteGrant } from '../../lib/grants';
   import { attempt } from '../../lib/stores/ui.svelte';
 
   let blocked = $state<EgressRecord[]>([]);
@@ -22,8 +22,8 @@
   // The API creates principal-scope grants only (POST /api/grants); a narrow
   // domain grant is the closest to "allow for this session".
   async function allow(e: EgressRecord) {
-    const value = hostPort(e.host, e.port);
-    if (await attempt(() => api.post('/api/grants', { principal_id: e.principal_id, kind: 'domain', value, max_se: 'read' }), `Bothy may now reach ${value}.`))
+    const grant = siteGrant(e.principal_id ?? '', e.host, e.port);
+    if (await attempt(() => api.post('/api/grants', grant), `Bothy may now reach ${grant.value}.`))
       blocked = blocked.filter((x) => x.host !== e.host || x.port !== e.port);
   }
 </script>

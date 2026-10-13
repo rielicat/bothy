@@ -2,6 +2,8 @@ package sandboxd
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -77,7 +79,14 @@ func errEngine(err error) error {
 	return &apiError{http.StatusBadGateway, "engine", err.Error()}
 }
 
-func containerName(key string) string { return "bothy-" + key }
+// containerName scopes the engine-global container name to this install's
+// run volume: box keys are unique only within an install (the canary and MCP
+// installer keys are fixed), and create and destroy replace or remove a
+// container by name.
+func (d *daemon) containerName(key string) string {
+	sum := sha256.Sum256([]byte(d.cfg.RunVolume))
+	return "bothy-" + key + "-" + hex.EncodeToString(sum[:4])
+}
 
 func (d *daemon) labels() []string {
 	return []string{labelBox + "=1", labelVolume + "=" + d.cfg.RunVolume}
@@ -191,7 +200,7 @@ func (d *daemon) start(ctx context.Context, req proto.CreateReq) (proto.CreateRe
 		Limits: req.Limits, Image: d.cfg.Images[req.Profile], Runtime: rt,
 		WorkVolume: d.cfg.WorkVolume, RunVolume: d.cfg.RunVolume, SeccompBuiltin: builtin,
 	})
-	id, err := d.createAndStart(ctx, containerName(req.Key), cfg)
+	id, err := d.createAndStart(ctx, d.containerName(req.Key), cfg)
 	if err != nil {
 		return proto.CreateResp{}, errEngine(err)
 	}
@@ -324,7 +333,7 @@ func (d *daemon) destroy(ctx context.Context, key string) error {
 	b, err := d.lookup(key)
 	if err != nil {
 		// Also remove an unregistered container of that name.
-		return d.eng.ContainerRemove(ctx, containerName(key))
+		return d.eng.ContainerRemove(ctx, d.containerName(key))
 	}
 	_, err = d.removeIf(ctx, b, nil)
 	return err

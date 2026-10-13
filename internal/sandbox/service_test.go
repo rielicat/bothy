@@ -214,7 +214,12 @@ func TestExecRecreatesALostBox(t *testing.T) {
 	if err := e.c.Ensure(ctx, e.spec(key1)); err != nil {
 		t.Fatal(err)
 	}
-	eng.Vanish("bothy-" + key1) // reaped or evicted by sandboxd
+	// Reaped or evicted by sandboxd; its name also carries an install hash.
+	i := slices.IndexFunc(eng.Running(), func(n string) bool { return strings.HasPrefix(n, "bothy-"+key1+"-") })
+	if i < 0 {
+		t.Fatalf("no box container for %s: %v", key1, eng.Running())
+	}
+	eng.Vanish(eng.Running()[i])
 	res, err := e.c.Exec(ctx, key1, core.ExecRequest{Argv: []string{"echo", "back"}}, nil)
 	if err != nil || string(res.Stdout) != "back\n" {
 		t.Fatalf("exec after loss = %+v, %v", res, err)
