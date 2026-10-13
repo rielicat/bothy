@@ -5,13 +5,17 @@ package e2e
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/httpapi/dto"
 	"github.com/rielicat/bothy/internal/testkit/mockllm"
 )
 
@@ -179,6 +183,7 @@ func TestOpenAIEndpoint(t *testing.T) {
 		mockllm.Rule{MatchUser: `E13-AGENT`, Text: []string{"Agent ", "mode ", "reply."}},
 		mockllm.Rule{MatchUser: `E13-WEATHER`, MatchToolResult: `sunny`, Text: []string{"It is sunny ", "in Lisbon."}},
 		mockllm.Rule{MatchUser: `E13-WEATHER`, ToolCalls: []core.ToolCall{pltCall("call_w1", "get_weather", `{"city":"Lisbon"}`)}},
+		mockllm.Rule{MatchUser: `E13-SLOW`, Fault: mockllm.FaultSlowTTFT, Delay: time.Minute, Text: []string{"too late"}},
 	)
 	g := Start(t, Options{Config: pltYAML(llm.URL(), nil, "")})
 	owner := pltOwner(t, g)
@@ -261,6 +266,67 @@ func TestOpenAIEndpoint(t *testing.T) {
 		}
 		if !core.ValidID(core.PrefixRun, resp.Header.Get("X-Bothy-Run-Id")) {
 			t.Fatalf("agent stream headers = %v", resp.Header)
+		}
+	})
+
+	t.Run("session header uses server history; disconnect stops the run", func(t *testing.T) {
+		s := owner.NewSession(t)
+		owner.Finished(t, owner.Send(t, s.ID, "E13-AGENT first turn in the web"))
+		req := map[string]any{"model": "bothy", "messages": []map[string]string{
+			{"role": "user", "content": "client-side history that must be ignored"},
+			{"role": "assistant", "content": "ignored as well"},
+			{"role": "user", "content": "E13-AGENT second turn via the API"}}}
+		resp := chat.Do(t, http.MethodPost, "/v1/chat/completions", req, http.Header{"X-Bothy-Session": {string(s.ID)}})
+		if resp.StatusCode != http.StatusOK || resp.Header.Get("X-Bothy-History") != "server" || resp.Header.Get("X-Bothy-Session") != string(s.ID) {
+			t.Fatalf("mapped completion = %s %v %s", resp.Status, resp.Header, resp.Body)
+		}
+		var users []string
+		for _, m := range owner.Messages(t, s.ID) {
+			if m.Role == core.MsgUser && m.Kind == core.KindNormal {
+				users = append(users, m.PlainText())
+			}
+		}
+		if len(users) != 2 || !strings.Contains(users[0], "first turn") || !strings.Contains(users[1], "second turn") {
+			t.Fatalf("session user turns = %q, want the web turn and only the last API message", users)
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		body, _ := json.Marshal(map[string]any{"model": "bothy", "stream": true,
+			"messages": []map[string]string{{"role": "user", "content": "E13-SLOW take your time"}}})
+		hreq, _ := http.NewRequestWithContext(ctx, http.MethodPost, g.BaseURL+"/v1/chat/completions", bytes.NewReader(body))
+		hreq.Header.Set("Authorization", "Bearer "+chat.bearer)
+		hreq.Header.Set("Content-Type", "application/json")
+		go func() {
+			if resp, err := http.DefaultClient.Do(hreq); err == nil {
+				_, _ = io.Copy(io.Discard, resp.Body)
+				resp.Body.Close()
+			}
+		}()
+		var run core.RunID
+		deadline := time.Now().Add(10 * time.Second)
+		for run == "" {
+			var runs dto.List[core.Run]
+			owner.JSON(t, http.MethodGet, "/api/runs?status=running", nil, &runs)
+			for _, r := range runs.Items {
+				if r.Trigger == core.TrigAPI {
+					run = r.ID
+				}
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("the slow API run never started")
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		for !slices.ContainsFunc(llm.Requests(), func(b []byte) bool { return bytes.Contains(b, []byte("E13-SLOW")) }) {
+			if time.Now().After(deadline) {
+				t.Fatal("the slow API run never reached the model")
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		cancel()
+		if d := owner.WaitRun(t, run, 10*time.Second, func(r *core.Run) bool { return r.Status.Terminal() }); d.Run.Status != core.RunStopped {
+			t.Fatalf("API run after the client hung up = %+v, want stopped", d.Run)
 		}
 	})
 
