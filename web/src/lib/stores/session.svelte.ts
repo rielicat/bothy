@@ -88,7 +88,7 @@ class Session {
       const me = await api.get<Me>('/api/auth/me').catch(() => null);
       if (!me || this.me !== was) return false;
       if (me.user.id !== was.user.id) {
-        this.expire();
+        this.expire(true);
         return false;
       }
       this.me = me;
@@ -102,26 +102,30 @@ class Session {
     try {
       await api.post('/api/auth/logout');
     } finally {
-      this.#clear();
+      this.#clear(true);
       router.navigate('/login', { replace: true });
     }
   }
 
-  expire() {
+  // others: the cookie every tab shares was signed out or now belongs to
+  // someone else, so this user's other tabs sign out too (and the one
+  // holding the stream closes it). A plain 401 does not tell them: during
+  // a password change in another tab it can be a moment's gap before the
+  // new cookie, and each tab finds a dead session on its own.
+  expire(others = false) {
     if (!this.me) return;
-    this.#clear();
+    this.#clear(others);
     const here = router.path + router.search;
     router.navigate(`/login?next=${encodeURIComponent(here)}`, { replace: true });
   }
 
-  // The other tabs share the cookie that just stopped working, so they are
-  // told to sign out too (and the one holding the stream closes it).
-  #clear() {
+  #clear(others: boolean) {
     this.me = null;
     setCsrf('');
     this.#offs.forEach((f) => f());
     this.#offs = [];
-    events.logout();
+    if (others) events.logout();
+    else events.close();
     approvals.reset();
     this.today = null;
   }
@@ -165,7 +169,7 @@ class Session {
       // retries, and a cookie that now signs in someone else into one too.
       events.onClosed(() => {
         const was = this.me;
-        void api.get<Me>('/api/auth/me').then((m) => this.me === was && m.user.id !== was?.user.id && this.expire(), () => {});
+        void api.get<Me>('/api/auth/me').then((m) => this.me === was && m.user.id !== was?.user.id && this.expire(true), () => {});
       }),
       events.onLogout(() => this.expire()),
       approvals.listen(),

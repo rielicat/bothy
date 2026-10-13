@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { member } from '../mock/fixtures';
 import { api, setCsrf } from './lib/api/client';
 import type { Me } from './lib/api/types.gen';
+import { events } from './lib/sse.svelte';
 import { session } from './lib/stores/session.svelte';
 import { installApi } from './test/api';
 import { FakeEventSource } from './test/setup';
@@ -31,6 +32,23 @@ describe('session', () => {
     await tick();
     await tick();
     expect(session.me).toBeNull();
+  });
+
+  it("tells this user's other tabs when signing out, but not on a plain 401", async () => {
+    let dead = false;
+    installApi({ override: (_m, url) => (dead && url === '/api/sessions' ? new Response('{"error":{"code":"unauthorized","message":"log in"}}', { status: 401 }) : undefined) });
+    const told = vi.spyOn(events, 'logout');
+    await session.init();
+    await session.logout();
+    expect(told).toHaveBeenCalledTimes(1);
+
+    await api.post('/api/auth/login', { username: 'sam', password: 'Granite-River-42-Lantern' });
+    await session.init();
+    expect(session.me).not.toBeNull();
+    dead = true;
+    await api.get('/api/sessions').catch(() => {});
+    expect(session.me).toBeNull();
+    expect(told).toHaveBeenCalledTimes(1);
   });
 
   it('follows the kill switch from banner events', async () => {
