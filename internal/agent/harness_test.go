@@ -137,11 +137,19 @@ func newHarness(t *testing.T, o opts) *harness {
 	return h
 }
 
-func (h *harness) newRunner() *Runner {
+func (h *harness) newRunner() *Runner { return h.newRunnerWith(nil) }
+
+// newRunnerWith builds a runner on the harness dependencies after mod has
+// replaced some of them.
+func (h *harness) newRunnerWith(mod func(d *Deps)) *Runner {
 	h.t.Helper()
-	r, err := New(Deps{Store: h.store, Config: config.Static(h.cfg), LLM: h.llm, Tools: h.tools, Policy: h.pol,
+	d := Deps{Store: h.store, Config: config.Static(h.cfg), LLM: h.llm, Tools: h.tools, Policy: h.pol,
 		Approvals: h.appr, Budget: h.budget, Memory: h.mem, Skills: h.skills, Sandbox: h.sbx, Egress: h.egress,
-		Redactor: h.red, Bus: h.bus, Audit: h.audit, DataDir: h.data, WorkDir: h.work})
+		Redactor: h.red, Bus: h.bus, Audit: h.audit, DataDir: h.data, WorkDir: h.work}
+	if mod != nil {
+		mod(&d)
+	}
+	r, err := New(d)
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -247,6 +255,9 @@ type routerLLM struct {
 	agentReqs []*core.Request
 	auxReqs   []*core.Request
 	titles    int
+	// summaryGate, when set, holds every summarizing call until it is
+	// closed or the call's context ends (a slow local model).
+	summaryGate chan struct{}
 }
 
 var errSummarizer = errors.New("summarizer unavailable")
@@ -271,7 +282,15 @@ func (l *routerLLM) Complete(ctx context.Context, slot core.Slot, override *core
 			text = l.summaries[l.summaryN]
 		}
 		l.summaryN++
+		gate := l.summaryGate
 		l.mu.Unlock()
+		if gate != nil {
+			select {
+			case <-gate:
+			case <-ctx.Done():
+				return nil, ci, ctx.Err()
+			}
+		}
 		if text == "" {
 			ci.Error = errSummarizer.Error()
 			return nil, ci, errSummarizer
@@ -311,6 +330,7 @@ type testTool struct {
 	taint  core.Taint
 	lazy   bool
 	schema string
+	fs     bool // a workspace file tool (Manifest.FSPaths)
 	// planErr stands in for the registry's schema check (ErrInvalid).
 	planErr error
 	run     func(ctx context.Context, env *core.ToolEnv, a *core.Action) (*core.ToolResult, error)
@@ -326,10 +346,14 @@ func (t *testTool) Spec() core.ToolSpec {
 	if se == 0 {
 		se = core.SERead
 	}
+	m := core.Manifest{Title: "Run " + t.name, SideEffect: se, Exec: t.exec, Taint: t.taint, Core: !t.lazy, SpaceOK: true}
+	if t.fs {
+		m.FSPaths = []string{"**"}
+	}
 	return core.ToolSpec{
 		Def:      core.ToolDef{Name: t.name, Description: "test tool " + t.name, Schema: json.RawMessage(schema)},
 		Source:   "builtin",
-		Manifest: core.Manifest{Title: "Run " + t.name, SideEffect: se, Exec: t.exec, Taint: t.taint, Core: !t.lazy, SpaceOK: true},
+		Manifest: m,
 	}
 }
 

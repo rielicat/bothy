@@ -78,8 +78,15 @@ func renderCard(r core.ApprovalRequest) core.Card {
 		if m, ok := mustPointer(doc, "/mode").(string); ok {
 			add("Mode", m, false)
 		}
-		if a.Diff == "" && a.Kind == core.ActFSWrite {
-			c.Code = visible(prettyPayload(a.Payload))
+		// The diff stands for the content only when it is a complete text
+		// diff; an empty, omitted, binary or truncated one would let a card
+		// approve bytes nobody was shown.
+		if a.Kind == core.ActFSWrite && !completeDiff(a.Diff, a.Paths) {
+			if content, ok := mustPointer(doc, "/content").(string); ok {
+				c.Code = visible(content)
+			} else {
+				c.Code = visible(prettyPayload(a.Payload))
+			}
 		}
 	case core.ActHTTP:
 		if a.Method != "" && !strings.EqualFold(a.Method, "GET") {
@@ -125,6 +132,18 @@ func renderCard(r core.ApprovalRequest) core.Card {
 	}
 	c.Diff = visible(capDiff(a.Diff))
 	return c
+}
+
+// completeDiff reports whether a tool's unified diff shows every changed
+// line: it has hunks and neither the tool (64 KB) nor the card cut it. A
+// path with a line break could forge hunk lines in the diff header.
+func completeDiff(d string, paths []string) bool {
+	for _, p := range paths {
+		if strings.ContainsAny(p, "\r\n") || strings.ContainsFunc(p, hidden) {
+			return false
+		}
+	}
+	return len(d) <= maxCardDiff && strings.Contains(d, "\n@@ -") && !strings.Contains(d, "diff truncated")
 }
 
 // visible replaces control, format (bidi, zero-width), separator and filler

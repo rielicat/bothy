@@ -150,6 +150,25 @@ func (r *Runner) park(rs *runState, pc *pcall, appr *core.Approval, rest []core.
 		notice: fmt.Sprintf("Parked. Approve any time in the next %s.", humanDuration(ttl))}
 }
 
+// resumeIfResolved runs once the parked row is saved. The approval parks
+// before the run does, and a resolution that lands in between finds a run
+// that is not parked yet, so its Resume is a no-op; without this the
+// approved action would wait for the next boot. Resume's compare-and-swap
+// keeps it to one execution when both get there.
+func (r *Runner) resumeIfResolved(ctx context.Context, id core.ApprovalID) {
+	a, err := r.d.Approvals.Get(ctx, core.SystemViewer(), id)
+	if err != nil {
+		r.log.Warn("re-read approval after parking", "approval", id, "err", err)
+		return
+	}
+	if !resolved(a.Status) {
+		return
+	}
+	if err := r.Resume(ctx, a); err != nil {
+		r.log.Warn("resume a run resolved while it parked", "approval", id, "err", err)
+	}
+}
+
 func humanDuration(d time.Duration) string {
 	switch {
 	case d >= time.Hour && d%time.Hour == 0:
@@ -421,7 +440,7 @@ func (r *Runner) startResume(rs *runState, j *resumeJob) *runEnd {
 		rs.emitMu.Unlock()
 		return &runEnd{status: core.RunStopped, notice: pausedParkedNotice}
 	}
-	rs.req.Provenance = r.runProvenance(ctx, rs)
+	rs.req.Provenance = r.runProvenance(ctx, rs.req.Session, rs.id)
 	rs.req.Chat = rs.sess.Chat
 	rs.emitMu.Lock()
 	rs.sink = r.resumeSink(ctx, j.run)
@@ -463,14 +482,15 @@ func (r *Runner) startResume(rs *runState, j *resumeJob) *runEnd {
 }
 
 // runProvenance is the provenance of the message that started the run; the
-// floors keep applying to it after a resume. Unknown means untrusted.
-func (r *Runner) runProvenance(ctx context.Context, rs *runState) core.Provenance {
-	msgs, err := r.d.Store.Messages().Range(ctx, core.SystemViewer(), rs.req.Session, 0, 0)
+// floors keep applying to it after a resume or a Continue. Unknown means
+// untrusted.
+func (r *Runner) runProvenance(ctx context.Context, s core.SessionID, run core.RunID) core.Provenance {
+	msgs, err := r.d.Store.Messages().Range(ctx, core.SystemViewer(), s, 0, 0)
 	if err != nil {
 		return core.ProvUntrusted
 	}
 	for _, m := range msgs {
-		if m.Run == rs.id && m.Role == core.MsgUser && m.Kind == core.KindNormal && m.Provenance != core.ProvSystem {
+		if m.Run == run && m.Role == core.MsgUser && m.Kind == core.KindNormal && m.Provenance != core.ProvSystem {
 			return m.Provenance
 		}
 	}

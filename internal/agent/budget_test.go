@@ -131,6 +131,86 @@ func TestContinueAfterStepsBudget(t *testing.T) {
 	})
 }
 
+// TestContinueKeepsTheRunsProvenance: a run an untrusted group member
+// started is still theirs after the owner presses Continue, so floor F6
+// keeps asking for every action above read.
+func TestContinueKeepsTheRunsProvenance(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		steps := repeatCalls(1, "echo", func(int) string { return `{}` })
+		steps = append(steps, fakes.LLMStep{ToolCalls: []core.ToolCall{call("echo", `{"again":true}`)}}, fakes.LLMStep{Text: []string{"finished"}})
+		h := newHarness(t, opts{realBudget: true, tools: []core.Tool{&testTool{name: "echo"}}, steps: steps})
+		defer h.close()
+		req := h.req("member: run the deploy script")
+		req.Provenance, req.Sender = core.ProvUntrusted, "telegram:999"
+		req.Limits = &core.RunLimits{MaxSteps: 1}
+		first, err := h.r.Submit(h.ctx, req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		if st := h.run(first.Run).Status; st != core.RunBudgetExceeded {
+			t.Fatalf("status = %s", st)
+		}
+		res, err := h.r.Continue(h.ctx, ownerViewer(h), first.Run, h.user.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		inputs := h.pol.Inputs
+		if len(inputs) != 2 || inputs[1].Provenance != core.ProvUntrusted {
+			t.Fatalf("policy inputs of the continued run = %+v", inputs)
+		}
+		for _, m := range h.messages() {
+			if m.Run == res.Run && m.Role == core.MsgUser && m.Provenance != core.ProvUntrusted {
+				t.Fatalf("continued turn persisted as %s", m.Provenance)
+			}
+		}
+	})
+}
+
+// TestSteerIntoAnEndingRunIsSurfaced: a correction sent while a tool runs
+// is persisted as a steer; when the run then stops on its step budget the
+// model never sees it, and the user must be told rather than ignored.
+func TestSteerIntoAnEndingRunIsSurfaced(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		release := make(chan struct{})
+		slow := &testTool{name: "slow", run: func(context.Context, *core.ToolEnv, *core.Action) (*core.ToolResult, error) {
+			<-release
+			return &core.ToolResult{Content: "done"}, nil
+		}}
+		h := newHarness(t, opts{realBudget: true, tools: []core.Tool{slow}, steps: []fakes.LLMStep{
+			{ToolCalls: []core.ToolCall{call("slow", `{}`)}}, {Text: []string{"never reached"}}, {Text: []string{"answered"}}}})
+		defer h.close()
+		id := h.submitLimits("start", core.RunLimits{MaxSteps: 1})
+		synctest.Wait()
+		if got := h.submit("correction: use the staging bucket"); !got.Steered {
+			t.Fatalf("correction = %+v, want a steer", got)
+		}
+		close(release)
+		synctest.Wait()
+		if st := h.run(id).Status; st != core.RunBudgetExceeded {
+			t.Fatalf("status = %s", st)
+		}
+		if !slicesContains(h.notices(), steerUnreadNotice) {
+			t.Fatalf("notices = %q", h.notices())
+		}
+
+		// A run that answered its steers says nothing more.
+		h2 := newHarness(t, opts{tools: []core.Tool{&testTool{name: "echo"}}, steps: []fakes.LLMStep{
+			{ToolCalls: []core.ToolCall{call("echo", `{}`)}, Block: make(chan struct{})}}})
+		defer h2.close()
+		h2.submit("x")
+		synctest.Wait()
+		if ok, _ := h2.r.Stop(h2.ctx, ownerViewer(h2), h2.sess.ID, h2.user.ID); !ok {
+			t.Fatal("not stopped")
+		}
+		synctest.Wait()
+		if slicesContains(h2.notices(), steerUnreadNotice) {
+			t.Fatal("a run without steers reported an unread one")
+		}
+	})
+}
+
 func TestDailyCapRefusesRunWithoutRow(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t, opts{realBudget: true, cfg: func(c *config.Config) { c.Budgets.DailyUSD = 1 }})

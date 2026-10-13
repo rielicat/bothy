@@ -24,7 +24,6 @@ type runState struct {
 	// Guarded by w.mu.
 	turnPersisted bool
 	finishing     bool
-	steerReplied  bool
 
 	mu         sync.Mutex
 	run        core.Run // database row mirror; saveRun writes it
@@ -35,6 +34,7 @@ type runState struct {
 	userHeld   bool
 	globalHeld bool
 	meter      core.RunMeter
+	postCancel context.CancelFunc // cancels the compaction after the run finished
 
 	emitMu   sync.Mutex
 	sink     core.RunSink
@@ -51,9 +51,9 @@ type runState struct {
 	profile    profile
 	sel        core.Selection
 	seenSeq    int64           // newest message seq the last assembly read
+	answered   int64           // newest message seq a completed model call has seen
 	callIDs    map[string]bool // tool call ids in the history the last assembly read
 	taint      core.Taint
-	boxReady   bool
 	wsReady    bool
 	toolErrors int // consecutive failed tool calls
 	deadline   *time.Timer
@@ -74,12 +74,6 @@ func (r *Runner) newResumeState(w *worker, j *resumeJob) *runState {
 		run: *j.run, rowCreated: true,
 		req: core.RunRequest{Session: j.run.Session, Principal: j.run.Principal, User: j.run.User,
 			Trigger: j.run.Trigger, Schedule: j.run.Schedule}}
-}
-
-func (rs *runState) status() core.RunStatus {
-	rs.mu.Lock()
-	defer rs.mu.Unlock()
-	return rs.run.Status
 }
 
 func (rs *runState) info() core.RunInfo {
@@ -135,6 +129,12 @@ func (rs *runState) saveLocked(ctx context.Context) {
 	}
 }
 
+func (rs *runState) isStopped() bool {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	return rs.stopped
+}
+
 // stop marks the run stopped and cancels it; false when it already ended.
 func (rs *runState) stop(ctx context.Context, by core.UserID) bool {
 	rs.mu.Lock()
@@ -147,6 +147,20 @@ func (rs *runState) stop(ctx context.Context, by core.UserID) bool {
 	rs.saveLocked(ctx)
 	rs.mu.Unlock()
 	rs.cancel(core.ErrStopped)
+	return true
+}
+
+// stopPostRun cancels the compaction a finished run does on its way out;
+// false when none is running.
+func (rs *runState) stopPostRun() bool {
+	rs.mu.Lock()
+	cancel := rs.postCancel
+	rs.postCancel = nil
+	rs.mu.Unlock()
+	if cancel == nil {
+		return false
+	}
+	cancel()
 	return true
 }
 

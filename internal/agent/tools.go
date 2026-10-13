@@ -150,6 +150,9 @@ func (r *Runner) runTools(rs *runState, step int, calls []core.ToolCall) *runEnd
 				r.publishToolCall(rs, pc)
 				batch = append(batch, pc)
 				projected |= m.Taint
+				if readsWorkspace(pc.spec, pc.action) && r.workspaceUntrusted(ctx, rs.principal) {
+					projected |= core.TaintUntrusted
+				}
 				continue
 			}
 		}
@@ -313,6 +316,10 @@ func (r *Runner) execute(rs *runState, pc *pcall) execResult {
 			timeout = t
 		}
 		timeout += execGrace
+		// Ensured before every exec, not once per run: the idle reaper may
+		// have closed the box's egress socket during a long approval wait,
+		// and Bind on a closed box is dropped, so a recreated box would run
+		// with no binding (no hold-for-approval, no run attribution).
 		if err := r.ensureBox(ctx, rs); err != nil {
 			pc.out.close()
 			return textResult(core.TCError, "The sandbox is unavailable: "+r.redact(err.Error()))
@@ -323,7 +330,6 @@ func (r *Runner) execute(rs *runState, pc *pcall) execResult {
 				Schedule: rs.req.Schedule, Interactive: rs.req.Trigger.Interactive(), Chat: rs.req.Chat,
 				Context: r.cardContext(rs),
 			})
-			r.d.Egress.TakeActivity(boxKey(rs.req.Session))
 		}
 	}
 	tctx, cancel := context.WithTimeoutCause(ctx, timeout, errToolTimeout)
@@ -332,7 +338,10 @@ func (r *Runner) execute(rs *runState, pc *pcall) execResult {
 	res, err := pc.tool.Exec(tctx, pc.env, pc.action)
 	pc.out.close()
 	er := execResult{res: res, dur: r.now().Sub(start)}
-	if m.Exec && r.d.Egress != nil {
+	// Activity since the last take counts whenever it happened: processes an
+	// earlier exec left running keep downloading between calls, and what
+	// they fetch reaches the model through this or any later call.
+	if r.d.Egress != nil {
 		er.egressed = r.d.Egress.TakeActivity(boxKey(rs.req.Session))
 	}
 	switch {
@@ -358,9 +367,6 @@ func (r *Runner) execute(rs *runState, pc *pcall) execResult {
 }
 
 func (r *Runner) ensureBox(ctx context.Context, rs *runState) error {
-	if rs.boxReady {
-		return nil
-	}
 	if r.d.Sandbox == nil {
 		return core.ErrNoSandbox
 	}
@@ -369,18 +375,13 @@ func (r *Runner) ensureBox(ctx context.Context, rs *runState) error {
 	if c.Profile == string(core.ProfileNode) {
 		profile = core.ProfileNode
 	}
-	err := r.d.Sandbox.Ensure(ctx, core.BoxSpec{
+	return r.d.Sandbox.Ensure(ctx, core.BoxSpec{
 		Key:       boxKey(rs.req.Session),
 		Profile:   profile,
 		Workspace: rs.principal.Workspace,
 		Limits:    core.BoxLimits{MemoryMB: c.Limits.MemoryMB, CPUs: c.Limits.CPUs, Pids: c.Limits.Pids},
 		Egress:    core.BoxEgress{Session: rs.req.Session, Principal: rs.req.Principal},
 	})
-	if err != nil {
-		return err
-	}
-	rs.boxReady = true
-	return nil
 }
 
 func (r *Runner) updateRec(ctx context.Context, rec *core.ToolCallRecord) {
@@ -413,7 +414,12 @@ func (r *Runner) finishCall(rs *runState, pc *pcall, er execResult, approved boo
 		content = headTail(content, capBytes, note)
 		res.Truncated = true
 	}
-	res.Untrusted = res.Untrusted || er.egressed || pc.spec.Manifest.Taint.Has(core.TaintUntrusted)
+	// A stopped call ran too: its partial output is persisted below, so the
+	// session takes its taint like any other result.
+	ran := pc.action != nil && pc.fail == "" &&
+		(er.status == core.TCOK || er.status == core.TCError || er.status == core.TCTimeout || er.status == core.TCStopped)
+	res.Untrusted = res.Untrusted || er.egressed || pc.spec.Manifest.Taint.Has(core.TaintUntrusted) ||
+		ran && readsWorkspace(pc.spec, pc.action) && r.workspaceUntrusted(ctx, rs.principal)
 	isErr := "0"
 	if res.IsError {
 		isErr = "1"
@@ -428,12 +434,19 @@ func (r *Runner) finishCall(rs *runState, pc *pcall, er execResult, approved boo
 		}
 	}
 	res.Content = content
-	ran := er.status == core.TCOK || er.status == core.TCError || er.status == core.TCTimeout
-	if pc.action != nil && pc.fail == "" && ran {
+	if ran {
 		next := r.d.Policy.NextTaint(rs.taint, pc.spec, pc.action, &res, er.egressed)
 		if err := r.addTaint(ctx, rs, next); err != nil {
 			r.log.Error("taint", "run", rs.id, "err", err)
 		}
+	}
+	switch {
+	case ran && er.egressed:
+		r.markWorkspaceUntrusted(ctx, rs.principal, "the box moved bytes through the proxy")
+	case res.Untrusted && res.FullRef != "":
+		r.markWorkspaceUntrusted(ctx, rs.principal, "untrusted tool output spilled into .bothy/out")
+	case ran && rs.taint.Has(core.TaintUntrusted) && writesWorkspace(pc.spec, pc.action):
+		r.markWorkspaceUntrusted(ctx, rs.principal, "written by a session holding untrusted content")
 	}
 
 	var msg *core.Message

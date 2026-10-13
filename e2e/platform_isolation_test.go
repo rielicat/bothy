@@ -203,7 +203,8 @@ policy:
 			{method: http.MethodPost, path: "/api/uploads", body: upload, hdr: uploadHdr},
 			{method: http.MethodPost, path: "/api/sessions", body: dto.SessionCreateReq{Principal: aPrincipal.ID}},
 			{method: http.MethodGet, path: "/api/runs/" + run},
-			{method: http.MethodPost, path: "/api/runs/" + run + "/continue"},
+			// Continuing is cookie-only too: every bearer token gets 403.
+			{method: http.MethodPost, path: "/api/runs/" + run + "/continue", bearerStatus: http.StatusForbidden},
 			{method: http.MethodGet, path: "/api/approvals/" + string(apA.ID)},
 			{method: http.MethodGet, path: "/api/approvals/" + string(apP.ID)},
 			// Resolving is cookie-only: every bearer token gets 403 for any id.

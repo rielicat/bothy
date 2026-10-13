@@ -10,6 +10,7 @@ import (
 
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/testkit/fakes"
+	"github.com/rielicat/bothy/internal/testkit/memstore"
 )
 
 func (h *harness) scheduledReq(text string) core.RunRequest {
@@ -410,6 +411,81 @@ func TestStopFinishesAResumeNotYetHandedToTheWorker(t *testing.T) {
 		}
 		if st := h.run(id).Status; st != core.RunStopped {
 			t.Fatalf("status = %s", st)
+		}
+	})
+}
+
+// appendHookStore calls onAppend after every message it stores outside a
+// transaction.
+type appendHookStore struct {
+	core.Store
+	onAppend func(m *core.Message)
+}
+
+func (s *appendHookStore) Messages() core.MessageRepo {
+	return appendHookMessages{MessageRepo: s.Store.Messages(), on: s.onAppend}
+}
+
+type appendHookMessages struct {
+	core.MessageRepo
+	on func(m *core.Message)
+}
+
+func (m appendHookMessages) Append(ctx context.Context, msg *core.Message) error {
+	err := m.MessageRepo.Append(ctx, msg)
+	if err == nil && m.on != nil {
+		m.on(msg)
+	}
+	return err
+}
+
+// TestResolutionWhileParkingResumes: the user approves in the window where
+// the approval is already parked but the run row is not yet, so Resolve's
+// Resume sees a run that is not parked and does nothing. The run must still
+// resume now, not at some later restart.
+func TestResolutionWhileParkingResumes(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		act := &testTool{name: "act", se: core.SEExternalSend}
+		var h *harness
+		var once sync.Once
+		store := &appendHookStore{Store: memstore.New()}
+		store.onAppend = func(m *core.Message) {
+			for _, p := range m.Parts {
+				if p.ToolResult == nil || !strings.HasPrefix(p.ToolResult.Content, "Parked: waiting for approval") {
+					continue
+				}
+				once.Do(func() {
+					a := h.appr.All()[0]
+					if _, err := h.appr.Resolve(h.ctx, core.Resolution{ID: a.ID, Choice: core.AllowOnce, By: h.user.ID, Via: "web"}); err != nil {
+						t.Errorf("resolve while parking: %v", err)
+					}
+				})
+			}
+		}
+		h = newHarness(t, opts{
+			store: store,
+			tools: []core.Tool{act, &testTool{name: "echo"}},
+			steps: []fakes.LLMStep{
+				{Text: []string{"Sending."}, ToolCalls: []core.ToolCall{call("act", `{"to":"x"}`), call("echo", `{}`)}},
+				{Text: []string{"Report sent."}},
+			},
+			pol:  &fakes.Policy{Verdicts: map[string]core.Verdict{"act": core.VerdictAsk}},
+			appr: &fakes.Approvals{Manual: true},
+		})
+		defer h.close()
+		h.appr.OnResolved(func(a *core.Approval) { _ = h.r.Resume(context.Background(), a) })
+		res, err := h.r.Submit(h.ctx, h.scheduledReq("nightly report"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		if err := h.appr.Expire(h.appr.All()[0].ID); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		run := h.run(res.Run)
+		if run.Status != core.RunDone || act.calls.Load() != 1 {
+			t.Fatalf("run = %s, act ran %d times, approval %s", run.Status, act.calls.Load(), h.appr.All()[0].Status)
 		}
 	})
 }

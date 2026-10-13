@@ -10,11 +10,6 @@ import (
 	"github.com/rielicat/bothy/internal/core"
 )
 
-const (
-	steerReply        = "Got it, adding that to the current task."
-	steerReplyWaiting = "Waiting for your approval above; I'll read this after."
-)
-
 // Submit returns ErrBusy when the session mailbox is full and ErrPaused when
 // the kill switch is engaged.
 func (r *Runner) Submit(ctx context.Context, req core.RunRequest) (core.SubmitResult, error) {
@@ -120,7 +115,9 @@ func (r *Runner) resetTime() time.Time {
 func (r *Runner) place(ctx context.Context, w *worker, req core.RunRequest) (core.SubmitResult, error) {
 	c := r.cfg()
 	depth := orInt(c.Agent.QueueDepth, 8)
-	if a := w.active; a != nil && !a.finishing && r.steerable(a, req) {
+	// A stopped run reads nothing more, even while its goroutine is still
+	// on its way out, so a message for it waits for a run of its own.
+	if a := w.active; a != nil && !a.finishing && !a.isStopped() && r.steerable(a, req) {
 		if w.load() >= depth {
 			return core.SubmitResult{}, core.ErrBusy
 		}
@@ -134,14 +131,8 @@ func (r *Runner) place(ctx context.Context, w *worker, req core.RunRequest) (cor
 				return core.SubmitResult{}, err
 			}
 			w.steers++
-			if !a.steerReplied && req.Chat != nil {
-				a.steerReplied = true
-				text := steerReply
-				if a.status() == core.RunWaitingApproval {
-					text = steerReplyWaiting
-				}
-				r.sendAsync(*req.Chat, text)
-			}
+			// The hub acknowledges a steer in its chat once per run; a
+			// second reply from here would make every first steer echo twice.
 			return core.SubmitResult{Run: a.id, Steered: true}, nil
 		}
 	}
@@ -169,6 +160,7 @@ func (r *Runner) place(ctx context.Context, w *worker, req core.RunRequest) (cor
 	if w.load() >= depth || req.Chat != nil && req.Chat.Kind == core.ChatAPI {
 		return core.SubmitResult{}, core.ErrBusy
 	}
+	j.announced = req.Sink != nil
 	w.queue = append(w.queue, j)
 	w.signal()
 	ev := r.d.Bus.Publish(core.Event{Type: core.EvRunQueued, Principal: req.Principal, Session: req.Session,
@@ -192,20 +184,23 @@ func coalescible(req core.RunRequest) bool {
 	return req.Trigger == core.TrigMessage && req.Chat != nil && req.Chat.Kind == core.ChatDM
 }
 
-func (r *Runner) sendAsync(chat core.ChatRef, text string) {
+// sendChat delivers a notice to a channel chat through the hub, waiting for
+// it, and reports whether it went out.
+func (r *Runner) sendChat(ctx context.Context, chat *core.ChatRef, text string) bool {
+	if chat == nil || !channelOrigins[chat.Channel] {
+		return false
+	}
 	h := r.hubOrNil()
 	if h == nil {
-		return
+		return false
 	}
-	r.bg.Add(1)
-	go func() {
-		defer r.bg.Done()
-		ctx, cancel := context.WithTimeout(r.bgCtx, 30*time.Second)
-		defer cancel()
-		if _, err := h.Send(ctx, chat, text); err != nil {
-			r.log.Warn("chat notice", "chat", chat.Key(), "err", err)
-		}
-	}()
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), chatNoticeWithin)
+	defer cancel()
+	if _, err := h.Send(ctx, *chat, text); err != nil {
+		r.log.Warn("chat notice", "chat", chat.Key(), "err", err)
+		return false
+	}
+	return true
 }
 
 // Stop cancels the active run, SIGKILLs the session box, cancels its pending
@@ -225,11 +220,16 @@ func (r *Runner) stopSession(ctx context.Context, sess *core.Session, by core.Us
 		w.mu.Lock()
 		rs = w.active
 		dropped = w.queue
+		if w.pending != nil {
+			dropped = append(dropped, w.pending)
+		}
 		w.queue, w.pending, w.steers, w.merged = nil, nil, 0, 0
 		w.mu.Unlock()
 	}
 	runStopped := rs != nil && rs.stop(ctx, by)
-	stopped := runStopped
+	// A finished run may still be compacting on its way out; that LLM call
+	// is stoppable work too.
+	stopped := runStopped || rs != nil && rs.stopPostRun()
 	kctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopKillWithin)
 	defer cancel()
 	if r.d.Sandbox != nil {
@@ -244,6 +244,10 @@ func (r *Runner) stopSession(ctx context.Context, sess *core.Session, by core.Us
 	}
 	for _, j := range dropped {
 		switch j := j.(type) {
+		case *turnJob:
+			// Accepted messages are thrown away here, so the stop is real.
+			r.finishQueued(j, nil, core.RunStopped, "")
+			stopped = true
 		case *resumeJob:
 			if r.finishDetached(kctx, j.run, core.RunStopped, "", by) {
 				stopped = true
@@ -294,7 +298,8 @@ func (r *Runner) stopSession(ctx context.Context, sess *core.Session, by core.Us
 
 // abandon detaches a stopped run whose goroutine is still stuck (a tool that
 // ignores cancellation): its sink gets nothing more, its semaphores are
-// freed and the session gets a fresh worker.
+// freed and the session gets a fresh worker, which takes over the work
+// queued behind the stuck run.
 func (r *Runner) abandon(rs *runState) {
 	select {
 	case <-rs.done:
@@ -308,9 +313,36 @@ func (r *Runner) abandon(rs *runState) {
 	r.mu.Lock()
 	r.forgetLocked(rs.w)
 	r.mu.Unlock()
-	rs.w.mu.Lock()
-	rs.w.dead = true
-	rs.w.mu.Unlock()
+	old := rs.w
+	// Taken under the same lock that marks it dead: a Submit that got the
+	// old worker either queued before this or sees dead and retries.
+	old.mu.Lock()
+	old.dead = true
+	queue, pending := old.queue, old.pending
+	old.queue, old.pending = nil, nil
+	old.mu.Unlock()
+	if pending != nil {
+		queue = append([]job{pending}, queue...)
+	}
+	if len(queue) == 0 {
+		return
+	}
+	for {
+		w, err := r.worker(old.id)
+		if err != nil { // shutting down: nothing will run them
+			r.dropForShutdown(queue)
+			return
+		}
+		w.mu.Lock()
+		if w.dead {
+			w.mu.Unlock()
+			continue
+		}
+		w.queue = append(queue, w.queue...)
+		w.signal()
+		w.mu.Unlock()
+		return
+	}
 }
 
 // StopAll stops every session that has a run or queued work, so a resume

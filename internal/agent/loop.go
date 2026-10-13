@@ -273,6 +273,7 @@ func (r *Runner) persistTurn(ctx context.Context, rs *runState) error {
 		return fmt.Errorf("agent: persist turn: %w", err)
 	}
 	rs.turnPersisted = true
+	rs.answered = m.Seq
 	w.merged = 0
 	s, err := r.mutateSession(ctx, req.Session, func(s *core.Session) error {
 		s.MemorySeen, s.PinsSeen = max(s.MemorySeen, tc.memSeen), max(s.PinsSeen, tc.pinsSeen)
@@ -289,6 +290,9 @@ func (r *Runner) persistTurn(ctx context.Context, rs *runState) error {
 	}
 	rs.sess = s
 	r.recordURLs(ctx, req.Session, req.Provenance, inputsOf(reqs))
+	if untrustedFiles(reqs) {
+		r.markWorkspaceUntrusted(ctx, rs.principal, "attachments from someone other than the user")
+	}
 	return nil
 }
 
@@ -385,6 +389,9 @@ func (r *Runner) persistSteer(ctx context.Context, a *runState, req core.RunRequ
 		r.log.Warn("update session after steer", "session", req.Session, "err", err)
 	}
 	r.recordURLs(ctx, req.Session, req.Provenance, req.Input)
+	if untrustedFiles([]core.RunRequest{req}) {
+		r.markWorkspaceUntrusted(ctx, a.principal, "attachments from someone other than the user")
+	}
 	return nil
 }
 
@@ -474,6 +481,7 @@ func (r *Runner) loop(rs *runState) *runEnd {
 				notice: "The model could not answer (" + truncateRunes(msg, 200) + "). Press Retry to try again."}
 		}
 		rs.ctxRetried = false
+		rs.answered = rs.seenSeq
 		r.recordCall(ctx, rs, asm, &ci, step, "agent")
 		rs.lastEst = head.est
 		calls := r.persistAssistant(ctx, rs, resp)
@@ -667,6 +675,27 @@ func (r *Runner) checkPrefix(rs *runState, hash string) {
 	r.prefix[rs.req.Session] = prefixMark{epoch: rs.sess.Epoch, hash: hash}
 }
 
+const steerUnreadNotice = "The run ended before it read your latest message. It is kept in the conversation, so your next message picks it up."
+
+// unreadSteers reports whether a steer for this run arrived after the last
+// model call that completed, so the model never answered it.
+func (r *Runner) unreadSteers(ctx context.Context, rs *runState) bool {
+	if rs.turn == nil || !rs.turnPersisted {
+		return false
+	}
+	msgs, err := r.d.Store.Messages().Range(ctx, core.SystemViewer(), rs.req.Session, rs.answered+1, 0)
+	if err != nil {
+		r.log.Warn("look for unread steer messages", "run", rs.id, "err", err)
+		return false
+	}
+	for _, m := range msgs {
+		if m.Kind == core.KindSteer && m.Run == rs.id {
+			return true
+		}
+	}
+	return false
+}
+
 // finish records the final status (SPEC §5.5 step 10).
 func (r *Runner) finish(rs *runState, end *runEnd) {
 	ctx := context.WithoutCancel(rs.ctx)
@@ -678,6 +707,11 @@ func (r *Runner) finish(rs *runState, end *runEnd) {
 	if end.status == "" {
 		end.status = core.RunDone
 	}
+	// From here on a message for this session starts a turn of its own
+	// instead of becoming a steer nothing would read.
+	rs.w.mu.Lock()
+	rs.finishing = true
+	rs.w.mu.Unlock()
 	tot := rs.totals()
 	rs.mu.Lock()
 	stopped := rs.stopped
@@ -701,8 +735,23 @@ func (r *Runner) finish(rs *runState, end *runEnd) {
 	} else {
 		rs.publishFinished()
 	}
-	if end.notice != "" {
+	switch {
+	case end.notice == "":
+	case end.status == core.RunInterrupted && rs.sess != nil && r.sendChat(ctx, rs.sess.Chat, end.notice):
+		// Shutdown stops the hub's sinks together with the runner, and boot
+		// recovery only sees runs still open, so the chat is told directly,
+		// as boot recovery does; the sink would only repeat it.
+		r.notice(ctx, rs.req.Session, rs.req.Principal, rs.id, end.notice, nil)
+	default:
 		rs.notice(ctx, end.notice)
+	}
+	switch end.status {
+	case core.RunBudgetExceeded, core.RunLoopDetected, core.RunFailed, core.RunInterrupted:
+		if r.unreadSteers(ctx, rs) {
+			rs.notice(ctx, steerUnreadNotice)
+		}
+	case core.RunParked:
+		r.resumeIfResolved(ctx, end.parkedOn)
 	}
 	if end.budget != nil {
 		r.auditf(ctx, "agent:"+string(rs.id), "budget.exceeded", string(rs.id), "denied", rs.req.Session, rs.id,
@@ -722,7 +771,14 @@ func (r *Runner) finish(rs *runState, end *runEnd) {
 	if rs.sess.Title == "" && !rs.sess.Hidden {
 		r.titleAsync(rs)
 	}
-	if len(rs.chain) > 0 && rs.lastEst*10 > rs.chain[0].Context*6 {
-		r.compactInRun(ctx, rs, false)
+	if len(rs.chain) > 0 && rs.lastEst*10 > rs.chain[0].Context*6 && !r.paused.Load() && !r.closing.Load() {
+		// The run is over, so rs.stop no longer applies: Stop, StopAll and
+		// shutdown cancel this summarizing call through stopPostRun.
+		cctx, cancel := context.WithCancel(ctx)
+		rs.mu.Lock()
+		rs.postCancel = cancel
+		rs.mu.Unlock()
+		r.compactInRun(cctx, rs, false)
+		rs.stopPostRun()
 	}
 }

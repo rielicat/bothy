@@ -36,6 +36,9 @@ type turnJob struct {
 	id    core.RunID
 	reqs  []core.RunRequest
 	until time.Time // end of the DM coalescing window; zero = start at once
+	// announced: its sink got run.queued, so a channel shows a live
+	// "Queued (N ahead)…" message that some later event must finish.
+	announced bool
 }
 
 type resumeJob struct {
@@ -135,6 +138,7 @@ func (w *worker) take() job {
 		if len(w.queue) > 0 {
 			j := w.queue[0]
 			w.queue = w.queue[1:]
+			var merged []*turnJob
 			switch j := j.(type) {
 			case *turnJob:
 				for len(w.queue) > 0 {
@@ -143,6 +147,7 @@ func (w *worker) take() job {
 						break
 					}
 					j.reqs = append(j.reqs, next.reqs...)
+					merged = append(merged, next)
 					w.queue = w.queue[1:]
 				}
 				w.active = w.r.newRunState(w, j)
@@ -152,6 +157,11 @@ func (w *worker) take() job {
 				w.busy = true
 			}
 			w.mu.Unlock()
+			if t, ok := j.(*turnJob); ok {
+				for _, m := range merged {
+					w.r.finishQueued(m, t.reqs[0].Sink, core.RunDone, mergedNotice)
+				}
+			}
 			return j
 		}
 		w.mu.Unlock()
@@ -213,20 +223,78 @@ func (w *worker) tryRetire() bool {
 	return true
 }
 
-// retireForShutdown drops queued work. Queued resumes stay "queued" in the
-// database and become interrupted at the next boot.
+// retireForShutdown retires the worker and drops its queued work.
 func (w *worker) retireForShutdown() {
 	w.r.mu.Lock()
-	defer w.r.mu.Unlock()
 	w.mu.Lock()
-	defer w.mu.Unlock()
-	for _, j := range w.queue {
-		if c, ok := j.(*compactJob); ok {
-			c.done <- errShutdown
-		}
+	jobs := w.queue
+	if w.pending != nil {
+		jobs = append([]job{w.pending}, jobs...)
 	}
 	w.queue, w.pending, w.dead = nil, nil, true
 	w.r.forgetLocked(w)
+	w.mu.Unlock()
+	w.r.mu.Unlock()
+	w.r.dropForShutdown(jobs)
+}
+
+const droppedAtShutdown = "Bothy restarted before it got to this message. Send 'retry' to continue."
+
+// dropForShutdown disposes of jobs no worker will run. A waiting /compact
+// gets an error instead of blocking its caller; queued resumes keep their
+// row "queued" and become interrupted at the next boot; accepted messages
+// are kept (see keepDroppedTurn).
+func (r *Runner) dropForShutdown(jobs []job) {
+	for _, j := range jobs {
+		switch j := j.(type) {
+		case *compactJob:
+			j.done <- errShutdown
+		case *turnJob:
+			r.keepDroppedTurn(context.Background(), j)
+		}
+	}
+}
+
+// keepDroppedTurn saves a turn that was accepted (queued, or waiting in its
+// coalescing window) but never ran: its input has no run row and is stored
+// only when a turn starts, and the hub has already deduplicated the platform
+// message, so nothing would bring it back. The input goes into the history
+// with its taint, a notice says it was not answered, its chat is told
+// directly (its sink may already be stopped), and its sink is finished.
+func (r *Runner) keepDroppedTurn(ctx context.Context, j *turnJob) {
+	req := j.reqs[0]
+	if parts := inputsOf(j.reqs); len(parts) > 0 {
+		var legs core.Taint
+		for _, q := range j.reqs {
+			if q.Provenance == core.ProvUntrusted {
+				legs |= core.TaintUntrusted
+			}
+		}
+		if _, err := r.recordTaint(ctx, req.Session, 0, legs); err != nil {
+			r.log.Error("keep a message dropped at shutdown", "session", req.Session, "err", err)
+			return
+		}
+		m := &core.Message{Session: req.Session, Role: core.MsgUser, Parts: parts, Provenance: req.Provenance, Sender: req.Sender}
+		m.Tokens = r.d.LLM.Estimate(plainText(parts), core.ModelRef{})
+		if err := r.appendMessage(ctx, req.Principal, m, nil); err != nil {
+			r.log.Error("keep a message dropped at shutdown", "session", req.Session, "err", err)
+		}
+		r.recordURLs(ctx, req.Session, req.Provenance, parts)
+		if untrustedFiles(j.reqs) {
+			if p, err := r.d.Store.Principals().Get(ctx, core.SystemViewer(), req.Principal); err == nil {
+				r.markWorkspaceUntrusted(ctx, p, "attachments from someone other than the user")
+			}
+		}
+	}
+	r.notice(ctx, req.Session, req.Principal, "", droppedAtShutdown, nil)
+	told := map[string]bool{}
+	for _, q := range j.reqs {
+		if q.Chat != nil && !told[q.Chat.Key()] {
+			told[q.Chat.Key()] = true
+			r.sendChat(ctx, q.Chat, droppedAtShutdown)
+		}
+	}
+	r.finishQueued(j, nil, core.RunInterrupted, "")
 }
 
 // forgetLocked drops a retiring worker and its session's per-process state,
@@ -236,6 +304,34 @@ func (r *Runner) forgetLocked(w *worker) {
 	if r.workers[w.id] == w {
 		delete(r.workers, w.id)
 		delete(r.prefix, w.id)
+	}
+}
+
+const mergedNotice = "Merged into the reply above."
+
+// finishQueued ends the sinks of an announced turn that will not run as its
+// own (merged into an earlier turn's run, or dropped), so their live
+// "Queued…" messages are finished instead of lingering until the sink idles
+// out. keep is the sink the run streams to.
+func (r *Runner) finishQueued(j *turnJob, keep core.RunSink, st core.RunStatus, notice string) {
+	if !j.announced {
+		return
+	}
+	for _, q := range j.reqs {
+		if q.Sink == nil || q.Sink == keep {
+			continue
+		}
+		base := core.Event{Principal: q.Principal, Session: q.Session, Run: j.id, At: r.now()}
+		if notice != "" {
+			ev := base
+			ev.Type = core.EvMessageCreated
+			ev.Data = core.MessageData{Message: &core.Message{Session: q.Session, Run: j.id, Role: core.MsgAssistant,
+				Kind: core.KindNotice, Provenance: core.ProvSystem, Parts: []core.Part{{Type: core.PartText, Text: notice}}}}
+			q.Sink.OnEvent(ev)
+		}
+		ev := base
+		ev.Type, ev.Data = core.EvRunFinished, core.RunFinishedData{Status: st}
+		q.Sink.OnEvent(ev)
 	}
 }
 

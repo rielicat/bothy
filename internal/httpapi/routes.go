@@ -71,7 +71,10 @@ func (s *Server) routeTable() []route {
 
 		{pattern: "GET /api/runs", access: accessUser, h: s.listRuns},
 		{pattern: "GET /api/runs/{id}", access: accessUser, h: s.getRun},
-		{pattern: "POST /api/runs/{id}/continue", access: accessUser, h: s.continueRun},
+		// Cookie-only: a continued run is interactive (cards, 15 min waits,
+		// allow_always), which bearer clients get only through postMessage's
+		// trigger api and on_approval.
+		{pattern: "POST /api/runs/{id}/continue", access: accessUserCookie, h: s.continueRun},
 
 		{pattern: "GET /api/approvals", access: accessUser, h: s.listApprovals},
 		{pattern: "GET /api/approvals/{id}", access: accessUser, h: s.getApproval},

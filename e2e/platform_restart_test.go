@@ -154,3 +154,59 @@ policy:
 		}
 	})
 }
+
+// TestGracefulRestartTellsChats: a SIGTERM (or the admin Restart button)
+// drains the runner while a Telegram run waits on the model and a second
+// message is queued behind it. Both runs end before the next boot, so boot
+// recovery has nothing to report: the chat must hear about both during the
+// drain, and the queued message must still be in the session afterwards.
+func TestGracefulRestartTellsChats(t *testing.T) {
+	const tgUser = 5002
+	llm := pltLLM(t,
+		mockllm.Rule{MatchUser: `GRACEFUL-SLOW`, Fault: mockllm.FaultSlowTTFT, Delay: time.Minute, Text: []string{"too late"}},
+	)
+	tg := pltNewTelegram()
+	cfg := pltYAML(llm.URL(), nil, `
+agent:
+  busy_mode: queue
+`)
+	g := Start(t, Options{Config: cfg, Platforms: []Platform{tg}})
+	owner := pltOwner(t, g)
+	tg.Pair(t, owner, tgUser)
+
+	tg.Inject(telegramtest.Inbound{ChatID: tgUser, SenderID: tgUser, Text: "GRACEFUL-SLOW tell me a long story"})
+	deadline := time.Now().Add(15 * time.Second)
+	for !slices.ContainsFunc(llm.Requests(), func(b []byte) bool { return strings.Contains(string(b), "GRACEFUL-SLOW") }) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the Telegram run never reached the model\nlogs:\n%s", g.Logs())
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	var runs dto.List[core.Run]
+	if code := owner.JSON(t, http.MethodGet, "/api/runs?status=running", nil, &runs); code != http.StatusOK || len(runs.Items) != 1 {
+		t.Fatalf("running runs = %d %+v", code, runs.Items)
+	}
+	slow := runs.Items[0]
+	tg.Inject(telegramtest.Inbound{ChatID: tgUser, SenderID: tgUser, Text: "QUEUED-SECOND and then summarize it"})
+	tg.WaitText(t, tgUser, "Queued", 10*time.Second)
+
+	_ = g.Stop() // drains for 10 s, then interrupts the run
+	tg.WaitText(t, tgUser, "I was restarted mid-task", 5*time.Second)
+	tg.WaitText(t, tgUser, "restarted before it got to this message", 5*time.Second)
+
+	g = Start(t, Options{DataDir: g.DataDir, Config: cfg, Platforms: []Platform{tg}})
+	owner = pltLogin(t, g, "owner", pltPassword)
+	if d := owner.Finished(t, slow.ID); d.Run.Status != core.RunInterrupted {
+		t.Fatalf("run after a graceful restart = %+v, want interrupted", d.Run)
+	}
+	var kept bool
+	for _, m := range owner.Messages(t, slow.Session) {
+		kept = kept || m.Role == core.MsgUser && strings.Contains(m.PlainText(), "QUEUED-SECOND")
+	}
+	if !kept {
+		t.Fatal("the queued message is gone from the session after a graceful restart")
+	}
+	if n := owner.Notices(t, slow.Session); strings.Count(strings.Join(n, "\n"), "restarted mid-task") != 1 {
+		t.Fatalf("session notices = %q, want one restart notice", n)
+	}
+}

@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
+	"path"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/rielicat/bothy/internal/core"
@@ -96,23 +99,13 @@ func (fsList) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action) (*cor
 		lines = append(lines, describe(rel, d))
 		return nil
 	}
-	fsys := root.FS()
 	if in.Recursive {
-		err = fs.WalkDir(fsys, p, func(name string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if name == p {
-				return nil
-			}
+		err = walkDir(ctx, root, p, func(name string, d fs.DirEntry) error {
 			return add(relTo(p, name), d)
 		})
 	} else {
 		var entries []fs.DirEntry
-		entries, err = fs.ReadDir(fsys, p)
+		entries, err = readDir(root, filepath.FromSlash(p))
 		for _, d := range entries {
 			if add(d.Name(), d) != nil {
 				break
@@ -130,6 +123,37 @@ func (fsList) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action) (*cor
 		out += fmt.Sprintf("\n[… stopped after %d entries]", listCap)
 	}
 	return &core.ToolResult{Content: out, Truncated: full}, nil
+}
+
+// walkDir visits the tree under dir in lexical order like fs.WalkDir, opening
+// every folder with readDir. A folder that is no longer one when it is opened
+// (box code swapped it) is listed but not descended into.
+func walkDir(ctx context.Context, root *os.Root, dir string, fn func(name string, d fs.DirEntry) error) error {
+	entries, err := readDir(root, filepath.FromSlash(dir))
+	if err != nil {
+		return err
+	}
+	for _, d := range entries {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		name := path.Join(dir, d.Name())
+		if err := fn(name, d); err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			continue
+		}
+		err := walkDir(ctx, root, name, fn)
+		var pe *fs.PathError
+		if errors.As(err, &pe) && errors.Is(pe.Err, syscall.ENOTDIR) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func relTo(base, name string) string {

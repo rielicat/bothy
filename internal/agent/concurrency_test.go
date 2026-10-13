@@ -200,11 +200,120 @@ func TestSteerInjectedAtNextStep(t *testing.T) {
 			t.Fatalf("steer not injected at the next step")
 		}
 		checkPairs(t, reqs[1])
-		if n := len(h.hub.Messages()); n != 1 || !strings.HasSuffix(h.hub.Messages()[0], "|"+steerReply) {
-			t.Fatalf("hub sends = %v", h.hub.Messages())
+		// The hub acknowledges steers in the chat itself (once per run), so
+		// a reply from the runner would make the first one echo twice.
+		if sent := h.hub.Messages(); len(sent) != 0 {
+			t.Fatalf("runner sent steer acknowledgements: %v", sent)
 		}
 		if st := h.run(res.Run).Status; st != core.RunDone {
 			t.Fatalf("status = %s", st)
+		}
+	})
+}
+
+func sinkFinished(s *fakes.Sink) (core.RunFinishedData, bool) {
+	for _, ev := range s.All() {
+		if d, ok := ev.Data.(core.RunFinishedData); ok && ev.Type == core.EvRunFinished {
+			return d, true
+		}
+	}
+	return core.RunFinishedData{}, false
+}
+
+func sinkNotices(s *fakes.Sink) []string {
+	var out []string
+	for _, ev := range s.All() {
+		if d, ok := ev.Data.(core.MessageData); ok && d.Message != nil && d.Message.Kind == core.KindNotice {
+			out = append(out, d.Message.PlainText())
+		}
+	}
+	return out
+}
+
+// TestQueuedTurnsFinishTheirSinks: a queued request's sink shows a live
+// "Queued (N ahead)…" message; when its turn is merged into an earlier one
+// or dropped by /stop it must still get a final event.
+func TestQueuedTurnsFinishTheirSinks(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		block := make(chan struct{})
+		h := newHarness(t, opts{cfg: func(c *config.Config) { c.Agent.BusyMode = "queue" },
+			steps: []fakes.LLMStep{{Text: []string{"one"}, Block: block}, {Text: []string{"both"}}, {Text: []string{"x"}, Block: make(chan struct{})}}})
+		defer h.close()
+		h.submit("first")
+		synctest.Wait()
+		sinks := []*fakes.Sink{{}, {}}
+		for i, text := range []string{"second", "third"} {
+			req := h.req(text)
+			req.Sink = sinks[i]
+			if res, err := h.r.Submit(h.ctx, req); err != nil || !res.Queued {
+				t.Fatalf("%s = %+v %v", text, res, err)
+			}
+		}
+		close(block)
+		synctest.Wait()
+		if d, ok := sinkFinished(sinks[0]); !ok || d.Status != core.RunDone || !hasType(sinks[0].Types(), core.EvRunStarted) {
+			t.Fatalf("the merged run's own sink = %v", sinks[0].Types())
+		}
+		if d, ok := sinkFinished(sinks[1]); !ok || d.Status != core.RunDone || !slicesContains(sinkNotices(sinks[1]), mergedNotice) {
+			t.Fatalf("the merged request's sink = %v %q", sinks[1].Types(), sinkNotices(sinks[1]))
+		}
+
+		h.submit("blocks")
+		synctest.Wait()
+		dropped := &fakes.Sink{}
+		req := h.req("queued, then stopped")
+		req.Sink = dropped
+		if res, err := h.r.Submit(h.ctx, req); err != nil || !res.Queued {
+			t.Fatalf("queued = %+v %v", res, err)
+		}
+		if ok, _ := h.r.Stop(h.ctx, ownerViewer(h), h.sess.ID, h.user.ID); !ok {
+			t.Fatal("not stopped")
+		}
+		if d, ok := sinkFinished(dropped); !ok || d.Status != core.RunStopped {
+			t.Fatalf("a dropped request's sink = %v", dropped.Types())
+		}
+	})
+}
+
+// TestPostRunCompactionIsStoppable: a finished run that compacts on its way
+// out still holds the session; /stop must cancel that summarizing call, say
+// it stopped something, and finish what it drops.
+func TestPostRunCompactionIsStoppable(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{cfg: func(c *config.Config) {
+			c.Context.Compaction.Trigger = 0.9
+			c.Context.Compaction.KeepRecentTurns = 1
+		}, steps: []fakes.LLMStep{{Text: []string{"hi"}}, {Text: []string{"ok"}}, {Text: []string{"fresh"}}}})
+		defer h.close()
+		h.llm.setSummaries(goodSummary())
+		h.llm.summaryGate = make(chan struct{})
+		h.submit("hello")
+		synctest.Wait()
+		big := h.submit(strings.Repeat("a long pasted log line ", 14500))
+		synctest.Wait()
+		if st := h.run(big.Run).Status; st != core.RunDone {
+			t.Fatalf("big run = %s", st)
+		}
+		queued := &fakes.Sink{}
+		req := h.req("sent while it compacts")
+		req.Sink = queued
+		if res, err := h.r.Submit(h.ctx, req); err != nil || !res.Queued {
+			t.Fatalf("a message during post-run compaction = %+v %v (did it compact?)", res, err)
+		}
+		if ok, _ := h.r.Stop(h.ctx, ownerViewer(h), h.sess.ID, h.user.ID); !ok {
+			t.Fatal("/stop during post-run compaction said there was nothing to stop")
+		}
+		synctest.Wait()
+		if _, ok := sinkFinished(queued); !ok {
+			t.Fatal("the dropped message's sink was not finished")
+		}
+		res := h.submit("are you there?")
+		if res.Queued {
+			t.Fatal("the session is still busy compacting after /stop")
+		}
+		synctest.Wait()
+		if st := h.run(res.Run).Status; st != core.RunDone {
+			t.Fatalf("run after the stop = %s", st)
 		}
 	})
 }
@@ -453,6 +562,66 @@ func TestShutdownCancelsTheApprovalOfAnInterruptedRun(t *testing.T) {
 		}
 		if !slicesContains(h.notices(), "I was restarted mid-task. Send 'retry' to continue.") {
 			t.Fatalf("notices = %v", h.notices())
+		}
+	})
+}
+
+// TestShutdownTellsChatsAndKeepsQueuedMessages: a graceful restart
+// interrupts a Telegram run and drops a message queued behind it. Boot
+// recovery only sees runs still open, and the queued message has no row at
+// all, so both must be dealt with before the hub stops: the chat hears
+// about each, the queued input stays in the history and its live "Queued…"
+// message is finished.
+func TestShutdownTellsChatsAndKeepsQueuedMessages(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{cfg: func(c *config.Config) { c.Agent.BusyMode = "queue" },
+			steps: []fakes.LLMStep{{Text: []string{"thinking"}, Block: make(chan struct{})}}})
+		chat := &core.ChatRef{Channel: "telegram", ChatID: "77", Kind: core.ChatDM}
+		h.sess = h.newSession("telegram", chat)
+		ctx, cancel := context.WithCancel(context.Background())
+		if err := h.r.Recover(ctx); err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan error)
+		go func() { done <- h.r.Run(ctx) }()
+		first := h.req("tell me a long story")
+		first.Chat = chat
+		res, err := h.r.Submit(h.ctx, first)
+		if err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		queuedSink := &fakes.Sink{}
+		second := h.req("QUEUED-SECOND and then summarize it")
+		second.Chat, second.Sink = chat, queuedSink
+		if got, err := h.r.Submit(h.ctx, second); err != nil || !got.Queued {
+			t.Fatalf("second = %+v %v", got, err)
+		}
+		cancel()
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+		if st := h.run(res.Run).Status; st != core.RunInterrupted {
+			t.Fatalf("first run = %s", st)
+		}
+		sent := h.hub.Messages()
+		for _, want := range []string{"I was restarted mid-task. Send 'retry' to continue.", droppedAtShutdown} {
+			if !slicesContains(sent, chat.Key()+"|"+want) {
+				t.Errorf("chat never heard %q: %v", want, sent)
+			}
+		}
+		var kept bool
+		for _, m := range h.messages() {
+			kept = kept || m.Role == core.MsgUser && strings.Contains(m.PlainText(), "QUEUED-SECOND")
+		}
+		if !kept {
+			t.Error("the queued message is gone from the history")
+		}
+		if n := h.notices(); !slicesContains(n, droppedAtShutdown) || strings.Count(strings.Join(n, "\n"), "restarted mid-task") != 1 {
+			t.Errorf("notices = %q", n)
+		}
+		if d, ok := sinkFinished(queuedSink); !ok || d.Status != core.RunInterrupted {
+			t.Errorf("the queued message's sink = %v", queuedSink.Types())
 		}
 	})
 }

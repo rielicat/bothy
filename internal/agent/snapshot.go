@@ -387,7 +387,11 @@ func (r *Runner) turnContext(ctx context.Context, rs *runState, sess *core.Sessi
 	fmt.Fprintf(&b, "time: %s (%s)\n", now.Format("Monday 2006-01-02 15:04 MST"), loc.String())
 	channel := sess.Origin
 	if req.Chat != nil {
-		channel = req.Chat.Channel + " " + string(req.Chat.Kind)
+		channel = req.Chat.Channel
+		// Web and API chats have a kind named like their channel.
+		if k := string(req.Chat.Kind); k != "" && k != channel {
+			channel += " " + k
+		}
 	}
 	sender := req.Sender
 	if req.Provenance == core.ProvUser && rs.user != nil {
