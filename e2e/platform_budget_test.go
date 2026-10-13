@@ -81,6 +81,41 @@ budgets:
 	}
 }
 
+// TestMemberDailyCap is E8 in multi mode: a member who spends past
+// member_daily_usd is refused, while the owner (bounded by the global cap
+// only) keeps working.
+func TestMemberDailyCap(t *testing.T) {
+	llm := pltLLM(t,
+		mockllm.Rule{MatchUser: `E8-SPEND`, Text: []string{"Spent."}, Usage: &core.Usage{Input: 20000, Output: 10}},
+		mockllm.Rule{MatchUser: `E8-`, Text: []string{"Fine."}},
+	)
+	g := Start(t, Options{Config: pltYAML(llm.URL(), nil, `mode: multi
+pricing:
+  "mock/mock-model": {in: 1, out: 1}
+budgets:
+  daily_usd: 5
+  member_daily_usd: 0.01
+`)})
+	owner := pltOwner(t, g)
+	member := owner.CreateUser(t, "mia")
+	s := member.NewSession(t)
+	if d := member.Finished(t, member.Send(t, s.ID, "E8-SPEND please")); d.Run.Status != core.RunDone {
+		t.Fatalf("member's first run = %+v", d.Run)
+	}
+	var today dto.UsageToday
+	if code := member.JSON(t, http.MethodGet, "/api/usage/today", nil, &today); code != http.StatusOK || today.Spent < today.Limit || today.Limit != core.MicrosFromUSD(0.01) {
+		t.Fatalf("member usage today = %d %+v, want spend at or over the $0.01 member cap", code, today)
+	}
+	resp := member.Do(t, http.MethodPost, "/api/sessions/"+string(s.ID)+"/messages", dto.SendReq{Text: "E8-AGAIN"}, nil)
+	var e dto.Error
+	if resp.StatusCode != http.StatusTooManyRequests || json.Unmarshal(resp.Body, &e) != nil || e.Error.Code != "budget_exceeded" {
+		t.Fatalf("member over the cap = %s %s", resp.Status, resp.Body)
+	}
+	if d := owner.Finished(t, owner.Send(t, owner.NewSession(t).ID, "E8-OWNER still working")); d.Run.Status != core.RunDone {
+		t.Fatalf("owner's run after the member hit their cap = %+v", d.Run)
+	}
+}
+
 // TestLoopDetected is E8 (loop): a model that repeats the same tool call
 // with the same result is stopped with loop_detected and a Retry notice,
 // long before the 25-step budget.
