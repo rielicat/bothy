@@ -63,7 +63,8 @@ progress (`run.tool_output`) to 100 ms, and each flush publishes only what
 secret could still complete (`PartialAt` of the vault's redactor), so a
 secret or link split across flushes is redacted and neutralized whole on the
 bus and in the sink. An exposed session's sink gets links neutralized by the
-channel router's rules (`links.go`: bare domains included, code left alone),
+same rules as the channel router's (`core.NewLinkFilter`: bare domains and
+IPv6 hosts included, code left alone),
 since a `/v1` client renders the text itself. A resumed heartbeat run's sink holds back a
 `HEARTBEAT_OK` answer like the scheduler's.
 
