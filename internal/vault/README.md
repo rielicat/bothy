@@ -17,5 +17,7 @@ released; when that audit fails, or the vault has no auditor, nothing is. `Rotat
 and, for the auto keyfile, a new KEK written through `<keyfile>.new`. The
 `Redactor` masks registered values (and, from 8 bytes, their hex, percent,
 base64/base64url and JSON-escaped forms) plus well-known token patterns;
-`NewSlogHandler` applies it to every log message and attribute. `Checks` reports
+`PartialAt` tells a streaming consumer where a value may still be arriving at
+the end of its text, so it can hold that tail back (the agent's `run.delta`
+and tool output, the channel streamer). `NewSlogHandler` applies it to every log message and attribute. `Checks` reports
 `vault.kek_colocated`, `vault.kek_env` and `vault.sealed`.

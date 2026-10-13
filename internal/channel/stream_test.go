@@ -244,6 +244,61 @@ func TestStreamRedactsAndHoldsBackPartialSecrets(t *testing.T) {
 	})
 }
 
+// A registered secret may contain spaces, so holding back only the partial
+// last word used to show its first words in a live edit; and a split into
+// several messages redacted each piece alone, so a secret straddling the cut
+// went out in halves.
+func TestStreamNeverShowsPartOfASecretWithSpaces(t *testing.T) {
+	const secret = "correct horse battery staple"
+	fragments := []string{"correct", "horse", "battery", "staple"}
+	check := func(t *testing.T, ops []op) {
+		t.Helper()
+		for _, o := range ops {
+			for _, w := range fragments {
+				if strings.Contains(o.msg.Text, w) {
+					t.Fatalf("a %s showed %q of the secret: %q", o.kind, w, o.msg.Text)
+				}
+			}
+		}
+	}
+	t.Run("live edit", func(t *testing.T) {
+		bubble(t, func(t *testing.T) {
+			var oc *opsChannel
+			h := newHarness(t, withOps(&oc)).start()
+			h.redactor.Add("pw", []byte(secret))
+			f := h.feed(h.dmChat(ownerChat), "stream")
+			f.delta("The passphrase is correct hor")
+			time.Sleep(2 * time.Second)
+			synctest.Wait()
+			f.delta("se battery staple, keep it safe. ")
+			time.Sleep(2 * time.Second)
+			synctest.Wait()
+			f.finish(core.RunDone)
+			check(t, oc.all())
+			if got := h.lastText(ownerChat); !strings.Contains(got, "The passphrase is "+fakes.Mask+", keep it safe.") {
+				t.Fatalf("final text = %q", got)
+			}
+		})
+	})
+	t.Run("message split", func(t *testing.T) {
+		bubble(t, func(t *testing.T) {
+			var oc *opsChannel
+			h := newHarness(t, withOps(&oc)).start()
+			h.redactor.Add("pw", []byte(secret))
+			f := h.feed(h.dmChat(ownerChat), "final")
+			// Words up to just below the 4096-unit limit, then the secret
+			// across it: a word-boundary cut falls inside the secret.
+			filler := strings.Repeat("word ", (4096-14)/5)
+			f.delta(filler + secret + " and more words after it.")
+			f.finish(core.RunDone)
+			check(t, oc.all())
+			if n := len(oc.all()); n < 2 {
+				t.Fatalf("the reply was not split (%d messages)", n)
+			}
+		})
+	})
+}
+
 func TestStreamFinalModeAndHeartbeat(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t).start()

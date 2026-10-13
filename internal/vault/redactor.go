@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"maps"
 	"net/url"
 	"regexp"
 	"slices"
@@ -47,7 +48,14 @@ var tokenMarkers = []string{"sk-", "xoxa-", "xoxb-", "xoxp-", "xoxr-", "xapp-", 
 type Redactor struct {
 	mu     sync.Mutex
 	values map[string][]byte
-	snap   atomic.Pointer[strings.Replacer]
+	snap   atomic.Pointer[snapshot]
+}
+
+// snapshot is the compiled form of the registered values.
+type snapshot struct {
+	rep     *strings.Replacer
+	sorted  []string // every needle in byte order, for prefix lookups
+	longest int
 }
 
 func NewRedactor() *Redactor { return &Redactor{values: map[string][]byte{}} }
@@ -92,23 +100,49 @@ func (r *Redactor) rebuild() {
 		r.snap.Store(nil)
 		return
 	}
-	list := make([]string, 0, len(set))
-	for n := range set {
-		list = append(list, n)
-	}
-	slices.SortFunc(list, func(a, b string) int { return cmp.Or(cmp.Compare(len(b), len(a)), strings.Compare(a, b)) })
+	sorted := slices.Sorted(maps.Keys(set))
+	list := slices.Clone(sorted)
+	slices.SortStableFunc(list, func(a, b string) int { return cmp.Compare(len(b), len(a)) })
 	args := make([]string, 0, 2*len(list))
 	for _, n := range list {
 		args = append(args, n, Mask)
 	}
-	r.snap.Store(strings.NewReplacer(args...))
+	r.snap.Store(&snapshot{rep: strings.NewReplacer(args...), sorted: sorted, longest: len(list[0])})
 }
 
 func (r *Redactor) Redact(s string) string {
-	if rep := r.snap.Load(); rep != nil {
-		s = rep.Replace(s)
+	if sn := r.snap.Load(); sn != nil {
+		s = sn.rep.Replace(s)
 	}
 	return redactPatterns(s)
+}
+
+// PartialAt returns where the earliest suffix of s that is a proper prefix
+// of a registered value, or of one of its encodings, starts; len(s) when no
+// suffix is. Text streamed in pieces must hold that tail back: the rest of
+// the value may still be coming, and redacting the part already shown cannot
+// mask it. Token patterns have no whitespace, so holding back the partial
+// last word covers them.
+func (r *Redactor) PartialAt(s string) int {
+	sn := r.snap.Load()
+	if sn == nil {
+		return len(s)
+	}
+	for i := max(0, len(s)-sn.longest+1); i < len(s); i++ {
+		if sn.extends(s[i:]) {
+			return i
+		}
+	}
+	return len(s)
+}
+
+// extends reports whether some needle is longer than p and starts with it.
+func (sn *snapshot) extends(p string) bool {
+	j, found := slices.BinarySearch(sn.sorted, p)
+	if found {
+		j++
+	}
+	return j < len(sn.sorted) && strings.HasPrefix(sn.sorted[j], p)
 }
 
 func (r *Redactor) RedactBytes(b []byte) []byte { return []byte(r.Redact(string(b))) }

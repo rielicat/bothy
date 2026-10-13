@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/rielicat/bothy/internal/core"
 )
@@ -130,7 +131,8 @@ type streamState struct {
 	session core.SessionID
 	exposed bool
 
-	raw       strings.Builder // the run's reply so far, as the model wrote it
+	raw       strings.Builder // the run's reply so far, redacted
+	tail      string          // newest model text, held back until streamCut releases it into raw
 	commit    int             // bytes of raw already shown in finished messages
 	carry     string          // fence line the next message must reopen
 	stepBreak bool            // a tool call ended the model's last text; the next text starts a paragraph
@@ -184,6 +186,7 @@ func (st *streamState) apply(ctx context.Context, e core.Event) {
 			st.appendText(d.Text)
 		}
 	case core.ToolCallData:
+		st.releaseTail()
 		st.toolStatus = "_Running " + toolLabel(d, st.s.h.redact) + "…_"
 		st.status = st.toolStatus
 		st.stepBreak = true
@@ -209,10 +212,13 @@ func (st *streamState) apply(ctx context.Context, e core.Event) {
 
 // appendText adds model text to the reply. Each step's text is its own
 // assistant message, so text after a tool call starts a new paragraph rather
-// than running into the previous step's last sentence.
+// than running into the previous step's last sentence. Text reaches raw only
+// redacted and once no later delta can complete a secret in it, so neither a
+// live edit nor a split into several messages can show part of one.
 func (st *streamState) appendText(text string) {
 	if st.stepBreak {
 		st.stepBreak = false
+		st.releaseTail()
 		raw := st.raw.String()
 		switch {
 		case raw == "", strings.HasSuffix(raw, "\n\n"):
@@ -223,8 +229,51 @@ func (st *streamState) appendText(text string) {
 		}
 		st.lastStep = st.raw.Len()
 	}
-	st.raw.WriteString(text)
+	st.tail += text
+	cut := st.s.h.streamCut(st.tail)
+	st.raw.WriteString(st.s.h.redact(st.tail[:cut]))
+	st.tail = st.tail[cut:]
 	st.gotDelta = true
+}
+
+// releaseTail moves the held-back text into raw once nothing can follow it:
+// the step or the run ended.
+func (st *streamState) releaseTail() {
+	if st.tail != "" {
+		st.raw.WriteString(st.s.h.redact(st.tail))
+		st.tail = ""
+	}
+}
+
+// partialer is implemented by redactors that know the registered secrets
+// (vault.Redactor): PartialAt finds a tail of s that could still grow into
+// one.
+type partialer interface{ PartialAt(s string) int }
+
+// streamCut returns how much of the model's newest text can be redacted and
+// kept: up to whitespace, so a token-shaped secret still arriving is never
+// split, and before any tail a registered secret (which may contain spaces)
+// could still be completing.
+func (h *Hub) streamCut(s string) int {
+	cut := afterLastSpace(s)
+	p, ok := h.d.Redactor.(partialer)
+	for ok && cut > 0 {
+		at := p.PartialAt(s[:cut])
+		if at >= cut {
+			break
+		}
+		cut = afterLastSpace(s[:at])
+	}
+	return cut
+}
+
+func afterLastSpace(s string) int {
+	i := strings.LastIndexFunc(s, unicode.IsSpace)
+	if i < 0 {
+		return 0
+	}
+	_, n := utf8.DecodeRuneInString(s[i:])
+	return i + n
 }
 
 func (st *streamState) refreshTaint(ctx context.Context) {
@@ -274,8 +323,8 @@ func (st *streamState) buttons() [][]core.Button {
 }
 
 // pending is the not-yet-finalized part of the reply. While the run is live
-// the trailing partial word is held back, so a secret that is still arriving
-// is never shown before the redactor can recognise it.
+// the trailing partial word is held back too, so a link still arriving is
+// neutralized whole.
 func (st *streamState) pending(live bool) string {
 	seg := st.raw.String()[st.commit:]
 	if live {
@@ -458,6 +507,7 @@ func (st *streamState) waitGap(ctx context.Context) bool {
 
 func (st *streamState) finish(ctx context.Context) {
 	st.refreshTaint(ctx)
+	st.releaseTail()
 	raw := st.raw.String()
 	if st.final && (heartbeatOK(raw) || heartbeatOK(raw[st.lastStep:])) {
 		return

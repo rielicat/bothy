@@ -12,7 +12,9 @@ stay silent in), the command fast path, attachment download into
 `<work>/ws/<workspace>/.bothy/in/<msgid>/`, then `Runner.Submit`.
 `StreamTo` streams a run back to a chat (typing, a "Thinking…" placeholder
 with a Stop button, edits no faster than the channel's `EditMinInterval`,
-splits at `MaxLen` without breaking code fences, redaction always, status
+splits at `MaxLen` without breaking code fences, redaction always (model
+text enters the reply only redacted and once no later delta can complete a
+secret in it, so neither a live edit nor a split shows part of one), status
 line included, and link neutralization once the session is Exposed,
 re-checked after every tool result). The hub delivers approval cards to the
 approver's DM (never a group), truncating cards that do not fit to Deny plus

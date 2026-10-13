@@ -57,6 +57,14 @@ approval was decided while the gateway was down; at shutdown, runs it
 interrupts cancel their own approvals. A zero field in requested limits means
 the trigger's default, never unlimited.
 
+Streamed text (`run.delta`, `run.thinking`) is coalesced to 50 ms and tool
+progress (`run.tool_output`) to 100 ms, and each flush publishes only what
+`streamCut` releases: text up to whitespace, short of any tail a registered
+secret could still complete (`PartialAt` of the vault's redactor), so a
+secret or link split across flushes is redacted and neutralized whole on the
+bus and in the sink. A resumed heartbeat run's sink holds back a
+`HEARTBEAT_OK` answer like the scheduler's.
+
 The embedded `CONSTITUTION.md`, `CONSTITUTION.short.md` and default `SOUL.md`
 (written to `<data>/<agent.persona_file>` at construction when missing) are
 product prompts: changing either constitution requires bumping

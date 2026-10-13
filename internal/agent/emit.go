@@ -72,9 +72,9 @@ func (rs *runState) setExposed(t core.Taint) {
 }
 
 // streamer coalesces one LLM call's deltas into events at most every
-// deltaInterval. When the session is exposed it releases text only up to the
-// last whitespace, so a link split across deltas is neutralized whole on the
-// sink side; the bus always gets the raw text (the web renders links inert).
+// deltaInterval. Each flush publishes only what streamCut allows, so a secret
+// or a link split across deltas is redacted and neutralized whole; the rest
+// waits for the next flush or the end of the call.
 type streamer struct {
 	rs      *runState
 	typ     core.EventType
@@ -82,7 +82,7 @@ type streamer struct {
 	mu      sync.Mutex
 	buf     strings.Builder
 	timer   *time.Timer
-	pending string // held back while exposed
+	pending string // raw text held back for the next flush
 }
 
 func (rs *runState) newStreamer(typ core.EventType, toSink bool) *streamer {
@@ -125,23 +125,15 @@ func (s *streamer) flushLocked(final bool) {
 	s.buf.Reset()
 	s.pending = ""
 	rs := s.rs
-	rs.emitMu.Lock()
-	defer rs.emitMu.Unlock()
-	if rs.exposed && s.toSink && !final {
-		cut := strings.LastIndexFunc(raw, unicode.IsSpace)
-		if cut < 0 && len(raw) < holdbackMax {
-			s.pending = raw
-			return
-		}
-		if cut >= 0 {
-			_, size := utf8.DecodeRuneInString(raw[cut:])
-			s.pending = raw[cut+size:]
-			raw = raw[:cut+size]
-		}
+	if !final {
+		cut := rs.r.streamCut(raw)
+		raw, s.pending = raw[:cut], raw[cut:]
 	}
 	if raw == "" {
 		return
 	}
+	rs.emitMu.Lock()
+	defer rs.emitMu.Unlock()
 	text := rs.r.redact(raw)
 	var sinkData core.EventData
 	if s.toSink {
@@ -154,14 +146,71 @@ func (s *streamer) flushLocked(final bool) {
 	rs.publishLocked(s.typ, core.DeltaData{Text: text}, sinkData)
 }
 
+// partialer is implemented by redactors that know the registered secrets
+// (vault.Redactor): PartialAt finds a tail of s that could still grow into
+// one.
+type partialer interface{ PartialAt(s string) int }
+
+// streamCut returns how much of a stream's buffered raw text can be
+// published now. The cut is after whitespace, so a token-shaped secret or a
+// link that is still arriving is never split, and before any tail a
+// registered secret could still be completing; redacting the published part
+// alone then masks exactly what redacting the whole stream would. A long run
+// without whitespace is released at a character no token contains.
+func (r *Runner) streamCut(s string) int {
+	cut := r.safeCut(s, afterLastSpace)
+	if cut == 0 && len(s) >= holdbackMax {
+		cut = r.safeCut(s, afterLastNonToken)
+	}
+	return cut
+}
+
+func (r *Runner) safeCut(s string, boundary func(string) int) int {
+	cut := boundary(s)
+	p, ok := r.d.Redactor.(partialer)
+	for ok && cut > 0 {
+		at := p.PartialAt(s[:cut])
+		if at >= cut {
+			break
+		}
+		cut = boundary(s[:at])
+	}
+	return cut
+}
+
+func afterLastSpace(s string) int {
+	i := strings.LastIndexFunc(s, unicode.IsSpace)
+	if i < 0 {
+		return 0
+	}
+	_, n := utf8.DecodeRuneInString(s[i:])
+	return i + n
+}
+
+// afterLastNonToken cuts after the last character that cannot be part of a
+// credential token (they are made of letters, digits, "_", "-" and ".").
+func afterLastNonToken(s string) int {
+	i := strings.LastIndexFunc(s, func(c rune) bool {
+		token := c == '_' || c == '-' || c == '.' || 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9'
+		return !token
+	})
+	if i < 0 {
+		return 0
+	}
+	_, n := utf8.DecodeRuneInString(s[i:])
+	return i + n
+}
+
 // outputLimiter forwards a tool's progress output as run.tool_output: chunks
 // of at most outputChunkMax bytes (the tail is kept), at most one event per
-// outputInterval. Emit never blocks the tool.
+// outputInterval. Like the text streamer it holds back what streamCut does
+// not release, so a secret split across chunks is never shown. Emit never
+// blocks the tool.
 type outputLimiter struct {
 	rs     *runState
 	callID string
 	mu     sync.Mutex
-	buf    [3][]byte // per stream (1 stdout, 2 stderr)
+	buf    [3]string // raw output not yet published, per stream (1 stdout, 2 stderr)
 	last   time.Time
 	timer  *time.Timer
 	closed bool
@@ -185,9 +234,16 @@ func (o *outputLimiter) emit(d core.EventData) {
 	if o.closed {
 		return
 	}
-	b := append(o.buf[stream], out.Chunk...)
-	if len(b) > outputChunkMax {
-		b = b[len(b)-outputChunkMax:]
+	b := o.buf[stream] + out.Chunk
+	if len(b) > 4*outputChunkMax {
+		// Only the tail is ever shown; dropping the head at a cut streamCut
+		// allows keeps a secret from being split by the drop.
+		head := b[:len(b)-2*outputChunkMax]
+		cut := o.rs.r.streamCut(head)
+		if cut == 0 {
+			cut = len(head)
+		}
+		b = b[cut:]
 	}
 	o.buf[stream] = b
 	if o.timer != nil {
@@ -195,7 +251,7 @@ func (o *outputLimiter) emit(d core.EventData) {
 	}
 	wait := outputInterval - o.rs.r.now().Sub(o.last)
 	if wait <= 0 {
-		o.flushLocked()
+		o.flushLocked(false)
 		return
 	}
 	o.timer = time.AfterFunc(wait, func() {
@@ -203,18 +259,31 @@ func (o *outputLimiter) emit(d core.EventData) {
 		defer o.mu.Unlock()
 		o.timer = nil
 		if !o.closed {
-			o.flushLocked()
+			o.flushLocked(false)
 		}
 	})
 }
 
-func (o *outputLimiter) flushLocked() {
+func (o *outputLimiter) flushLocked(final bool) {
 	for stream := 1; stream <= 2; stream++ {
-		if len(o.buf[stream]) == 0 {
+		raw := o.buf[stream]
+		if !final {
+			cut := o.rs.r.streamCut(raw)
+			raw, o.buf[stream] = raw[:cut], raw[cut:]
+		} else {
+			o.buf[stream] = ""
+		}
+		if raw == "" {
 			continue
 		}
-		chunk := o.rs.r.redact(string(o.buf[stream]))
-		o.buf[stream] = nil
+		chunk := o.rs.r.redact(raw)
+		if len(chunk) > outputChunkMax {
+			from := len(chunk) - outputChunkMax
+			for from < len(chunk) && !utf8.RuneStart(chunk[from]) {
+				from++
+			}
+			chunk = chunk[from:]
+		}
 		o.rs.publish(core.EvToolOutput, core.ToolOutputData{CallID: o.callID, Stream: stream, Chunk: chunk})
 	}
 	o.last = o.rs.r.now()
@@ -227,7 +296,7 @@ func (o *outputLimiter) close() {
 		o.timer.Stop()
 		o.timer = nil
 	}
-	o.flushLocked()
+	o.flushLocked(true)
 	o.closed = true
 }
 
