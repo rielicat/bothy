@@ -238,6 +238,10 @@ type Selection struct {
 type ToolRegistry interface {
 	Register(t Tool) error // name collision, invalid manifest or schema => error
 	UnregisterSource(source string)
+	// Get returns the tool behind JSON Schema validation of its arguments
+	// (before Plan; violations wrap ErrInvalid) and normalisation of the
+	// planned Action (canonical payload, fingerprint, side effect never below
+	// the manifest). Callers need no validator of their own (§5.7 b).
 	Get(name string) (Tool, bool)
 	// ForRun returns the core tools for the tools block plus tool_search/use_tool
 	// when lazy tools exist, filtered by trigger, role, principal kind, sandbox and

@@ -1439,6 +1439,10 @@ type Selection struct {
 type ToolRegistry interface {
 	Register(t Tool) error // name collision, invalid manifest or schema => error
 	UnregisterSource(source string)
+	// Get returns the tool behind JSON Schema validation of its arguments
+	// (before Plan; violations wrap ErrInvalid) and normalisation of the
+	// planned Action (canonical payload, fingerprint, side effect never below
+	// the manifest). Callers need no validator of their own (§5.7 b).
 	Get(name string) (Tool, bool)
 	// ForRun returns the core tools for the tools block plus tool_search/use_tool
 	// when lazy tools exist, filtered by trigger, role, principal kind, sandbox and
@@ -3508,7 +3512,7 @@ Web (`POST /api/sessions/{id}/messages`) and API (`/v1/chat/completions`) skip s
 For each tool call:
 
 a. **Resolve** the tool in this run (`ToolRegistry.Available`). `use_tool{name,args}` is never planned or executed itself: the runner unwraps it here and every later step (validation, Plan, policy, `tool_calls.tool`, audit) uses the target tool and its args. `tool_search{query}` is an ordinary `read` tool (Action kind `search`) whose Exec calls `Registry.Search(query, env, env.Selection, 8)` and returns name, description and schema per hit. Unknown or unavailable → error result *"Unknown tool X. Use tool_search."* (counts as a step; `tool_calls.status=invalid`).
-b. **Validate** args against the JSON Schema (`google/jsonschema-go`, already a go-sdk dependency). Invalid → error result with the schema error.
+b. **Validate** args against the JSON Schema (`google/jsonschema-go`, already a go-sdk dependency). The registry does this inside the tool `ToolRegistry.Get` returns, before `Plan`, and wraps violations in `ErrInvalid`; the runner does not validate again. Invalid → error result with the schema error (`tool_calls.status=invalid`).
 c. **Plan** → `Action` (pure). Plan error → error result. Insert `tool_calls` (status `planned`), publish `run.tool_call`.
 d. **Loop check:** `RunMeter.ObserveTool(tool, fnv64(canonical payload), 0)` pre-check (§5.13).
 e. **Decide:** `Policy.Decide(PolicyInput)` (§5.8).
@@ -3544,6 +3548,8 @@ i. **Post-process:** `Redactor.Redact`; truncate to the profile cap as head 60% 
 | G | Active grants for (principal, session, schedule) whose kind/tool/pattern/value match the Action and `MaxSE ≥ SideEffect` | auto (`grant:<id>`, `Grants().Use`) |
 | C | First contact: `send`, `mcp` with a mapped recipient, or `http` with a non-GET method, to a recipient/domain that is not the run's originating chat and not seen in an active grant, `egress.allow`, or an earlier allowed approval of this principal (`Approvals().Seen`) | ask (presets careful and balanced) |
 | D | Class default from the preset, overridden by `policy.defaults` | auto / ask / deny |
+
+F1 is enforced in two places: `Decide` checks trigger, role, principal kind and the kill switch (`meta.paused`, read failures count as paused); sandbox availability is enforced by `ToolRegistry.Available` at §5.7 a, so the runner never reaches `Decide` for an exec tool without a sandbox.
 
 Presets (`policy.preset`):
 
