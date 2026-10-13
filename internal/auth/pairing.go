@@ -236,9 +236,9 @@ func (s *Service) ApproveSender(ctx context.Context, by core.Actor, code, as str
 			return err
 		}
 		if as == "guest" {
-			out, err = s.makeGuest(ctx, tx, by.User, id, now)
+			out, err = s.makeGuest(ctx, tx, by, id, now)
 		} else {
-			out, err = s.makeLinked(ctx, tx, id, linkUser)
+			out, err = s.makeLinked(ctx, tx, by, id, linkUser)
 		}
 		return err
 	})
@@ -261,7 +261,21 @@ func (s *Service) identityChanged(ctx context.Context, actor string, id *core.Ch
 	}
 }
 
-func (s *Service) makeLinked(ctx context.Context, tx core.Store, id *core.ChannelIdentity, uid core.UserID) (*core.ChannelIdentity, error) {
+// errOthersIdentity: another user linked this chat account themselves, so an
+// admin may block or unlink it but never move it into a principal they read.
+var errOthersIdentity = fmt.Errorf("%w: this chat account is linked to another user; block or unlink it instead", core.ErrForbidden)
+
+// makeLinked gives the chat account uid's principal and role. Admins link
+// accounts to themselves; only the owner may link one to someone else (who
+// can always pair it themselves with a code from Settings). An account that
+// is already some user's may only be linked back to that user.
+func (s *Service) makeLinked(ctx context.Context, tx core.Store, by core.Actor, id *core.ChannelIdentity, uid core.UserID) (*core.ChannelIdentity, error) {
+	if id.User != "" && id.User != uid {
+		return nil, errOthersIdentity
+	}
+	if uid != by.User && uid != id.User && by.Role != core.RoleOwner {
+		return nil, fmt.Errorf("%w: only the owner can link a chat account to someone else; they can pair it themselves from Settings", core.ErrForbidden)
+	}
 	u, err := tx.Users().Get(ctx, uid)
 	if errors.Is(err, core.ErrNotFound) {
 		return nil, fmt.Errorf("%w: no such user", core.ErrInvalid)
@@ -277,8 +291,12 @@ func (s *Service) makeLinked(ctx context.Context, tx core.Store, id *core.Channe
 }
 
 // makeGuest gives the identity its own restricted guest space (reusing one
-// already bound to its DM chat) owned by owner.
-func (s *Service) makeGuest(ctx context.Context, tx core.Store, owner core.UserID, id *core.ChannelIdentity, now time.Time) (*core.ChannelIdentity, error) {
+// already bound to its DM chat) owned by the acting admin.
+func (s *Service) makeGuest(ctx context.Context, tx core.Store, by core.Actor, id *core.ChannelIdentity, now time.Time) (*core.ChannelIdentity, error) {
+	if id.User != "" && id.User != by.User {
+		return nil, errOthersIdentity
+	}
+	owner := by.User
 	chatID := id.DMChat
 	if chatID == "" {
 		chatID = id.ExternalID
@@ -323,12 +341,12 @@ func (s *Service) SetIdentityStatus(ctx context.Context, by core.Actor, channel,
 			out = id
 			return tx.Identities().Update(ctx, id)
 		case core.IdentityGuest:
-			out, err = s.makeGuest(ctx, tx, by.User, id, now)
+			out, err = s.makeGuest(ctx, tx, by, id, now)
 		case core.IdentityLinked:
 			if uid == "" {
 				return fmt.Errorf("%w: user_id is required to link", core.ErrInvalid)
 			}
-			out, err = s.makeLinked(ctx, tx, id, uid)
+			out, err = s.makeLinked(ctx, tx, by, id, uid)
 		default:
 			return fmt.Errorf("%w: status must be blocked, guest or linked", core.ErrInvalid)
 		}
@@ -342,14 +360,21 @@ func (s *Service) SetIdentityStatus(ctx context.Context, by core.Actor, channel,
 }
 
 // UnlinkIdentity deletes an identity row: its owner may unlink their own,
-// admins any. Others get ErrNotFound. Not part of core.Auth.
+// admins any. Others get ErrNotFound. A blocked row keeps its user, but only
+// an admin may delete it: deleting it would lift the block. Not part of
+// core.Auth.
 func (s *Service) UnlinkIdentity(ctx context.Context, by core.Actor, channel, externalID string) error {
 	id, err := s.store.Identities().Get(ctx, channel, externalID)
 	if err != nil {
 		return err
 	}
-	if !by.Role.IsAdmin() && id.User != by.User {
-		return fmt.Errorf("identity: %w", core.ErrNotFound)
+	if !by.Role.IsAdmin() {
+		if id.User != by.User {
+			return fmt.Errorf("identity: %w", core.ErrNotFound)
+		}
+		if id.Status == core.IdentityBlocked {
+			return fmt.Errorf("%w: an admin blocked this chat account", core.ErrForbidden)
+		}
 	}
 	if err := s.store.Identities().Delete(ctx, channel, externalID); err != nil {
 		return err
