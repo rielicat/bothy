@@ -1,0 +1,51 @@
+name: release-publish
+
+# Runs when a maintainer publishes the draft that release.yml built. Only then
+# do the images' `latest` tags move and the Homebrew cask reach the tap, so a
+# draft that is never published reaches neither `docker pull …:latest` nor
+# `brew install` (whose download URLs only work once the release is public).
+# Prereleases move neither until they are promoted.
+
+on:
+  release:
+    types: [released] # published as a full release, or a prerelease promoted to one
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read # the cask asset of the release
+      packages: write # retag ghcr.io/rielicat/bothy, bothy-sandbox, bothy-sandbox-node
+    steps:
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The same manifest under a second tag: its digest, cosign signatures
+      # and provenance attestations stay those of the reviewed version.
+      - name: move latest to the published version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          for img in bothy bothy-sandbox bothy-sandbox-node; do
+            docker buildx imagetools create -t "ghcr.io/rielicat/$img:latest" "ghcr.io/rielicat/$img:${TAG#v}"
+          done
+
+      - name: commit the Homebrew cask to the tap
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern bothy.rb --dir cask
+          path=repos/rielicat/homebrew-tap/contents/Casks/bothy.rb
+          sha=$(GH_TOKEN=$TAP_TOKEN gh api "$path" --jq .sha 2>/dev/null || true)
+          GH_TOKEN=$TAP_TOKEN gh api -X PUT "$path" -f message="bothy ${TAG#v}" \
+            -f content="$(base64 -w0 cask/bothy.rb)" ${sha:+-f sha="$sha"}

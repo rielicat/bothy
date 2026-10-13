@@ -71,6 +71,8 @@ signs:
     signature: "${artifact}.sigstore.json"
     args: ["sign-blob", "--bundle=${signature}", "${artifact}", "--yes"]
 
+# Version tags only: `latest` moves in release-publish.yml once a maintainer
+# publishes the draft, so an unreviewed build is never what `latest` pulls.
 dockers_v2:
   - id: gateway
     ids: [bothy, bothy-armv7]
@@ -78,7 +80,6 @@ dockers_v2:
     images: [ghcr.io/rielicat/bothy]
     tags:
       - "{{ .Version }}"
-      - "{{ if not .Prerelease }}latest{{ end }}"
     platforms: [linux/amd64, linux/arm64, linux/arm/v7]
     sbom: true
     labels:
@@ -100,7 +101,6 @@ dockers_v2:
     images: [ghcr.io/rielicat/bothy-sandbox]
     tags:
       - "{{ .Version }}"
-      - "{{ if not .Prerelease }}latest{{ end }}"
     platforms: [linux/amd64, linux/arm64]
     sbom: true
     labels:
@@ -120,7 +120,6 @@ dockers_v2:
     images: [ghcr.io/rielicat/bothy-sandbox-node]
     tags:
       - "{{ .Version }}"
-      - "{{ if not .Prerelease }}latest{{ end }}"
     platforms: [linux/amd64, linux/arm64]
     sbom: true
     labels:
@@ -139,17 +138,19 @@ docker_signs:
     artifacts: manifests
     args: ["sign", "${artifact}@${digest}", "--yes"]
 
+# Rendered only: release.yml attaches it to the draft and release-publish.yml
+# commits it to the tap after the draft is published, when its download URLs
+# start to work.
 homebrew_casks:
   - name: bothy
     ids: [bothy]
     repository:
       owner: rielicat
       name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     homepage: https://github.com/rielicat/bothy
     description: Self-hosted AI agent with secure defaults in one small binary
     license: Apache-2.0
-    skip_upload: auto
+    skip_upload: true
     hooks:
       post:
         # The binaries are not notarized; Gatekeeper would otherwise refuse them.

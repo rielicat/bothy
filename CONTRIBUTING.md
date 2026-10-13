@@ -1,8 +1,10 @@
 # Contributing to Bothy
 
 Thanks for helping. Bothy is security software that runs an agent with your
-credentials, so the bar for changes is deliberately high and the rules below
-are enforced in CI.
+credentials, so the bar for changes is deliberately high. CI enforces the
+mechanical rules below (formatting and linters, import and ownership rules,
+the dependency cooldown and the DCO sign-off); review upholds the rest, such
+as the interface change process and the comment style.
 
 The design lives in [docs/SPEC.md](docs/SPEC.md). Go code, SQL, YAML and route
 tables there are normative: implement them as written, and propose changes to
@@ -102,9 +104,9 @@ approval: the lead adds `-allow name@version` to the CI step.
 - Conventional commit messages (`feat(policy): …`, `fix(egress): …`), with
   the why in the body when it is not obvious.
 - Every commit carries a Developer Certificate of Origin sign-off
-  (`git commit -s`), certifying that you may contribute it under the
-  project's license ([developercertificate.org](https://developercertificate.org)).
-  There is no CLA.
+  (`git commit -s`) by its author, certifying that you may contribute it under
+  the project's license ([developercertificate.org](https://developercertificate.org)).
+  `scripts/check-dco.sh` checks each pull request's commits. There is no CLA.
 - Keep pull requests focused on one module or concern; CI must be green.
 
 ## Reporting security issues

@@ -107,25 +107,36 @@ docker logs bothy 2>&1 | grep setup
 
 **Compose** (recommended: adds the sandbox sidecar, so the model can run shell,
 Python and MCP stdio servers in throwaway boxes). `deploy/compose.source.yaml`
-swaps the release images for your local builds:
+swaps the release images for your local builds. Build both tool box images
+(`node` runs npm-based MCP servers) and record them, with the Docker socket's
+group as containers see it, in `deploy/.env`, which every later compose
+command reads:
 
 ```sh
 docker buildx build -f deploy/sandbox/Dockerfile --target base -t bothy-sandbox:dev --load .
-export BOTHY_SBX_IMAGES="base=$(docker image inspect -f '{{.Id}}' bothy-sandbox:dev)"
-echo "DOCKER_GID=$(stat -L -c %g /var/run/docker.sock)" >deploy/.env   # Docker Desktop: DOCKER_GID=0
+docker buildx build -f deploy/sandbox/Dockerfile --target node -t bothy-sandbox-node:dev --load .
+img() { docker image inspect -f '{{.Id}}' "$1"; }
+cat >deploy/.env <<EOF
+BOTHY_SBX_IMAGES=base=$(img bothy-sandbox:dev),node=$(img bothy-sandbox-node:dev)
+DOCKER_GID=$(docker run --rm --entrypoint stat -v /var/run/docker.sock:/s bothy-sandbox:dev -c %g /s)
+EOF
 docker compose -f deploy/compose.yaml -f deploy/compose.source.yaml up -d --wait
 docker compose -f deploy/compose.yaml -f deploy/compose.source.yaml logs bothy | grep setup
 ```
 
-If `DOCKER_GID` is wrong, shell and Python stay off and `docker compose logs
-sandboxd` prints the exact value to set.
+Rootless Docker: use `$XDG_RUNTIME_DIR/docker.sock` in place of
+`/var/run/docker.sock` above and add `DOCKER_SOCK=$XDG_RUNTIME_DIR/docker.sock`
+to `deploy/.env` (see `deploy/.env.example`). If `DOCKER_GID` is wrong, shell
+and Python stay off and `docker compose -f deploy/compose.yaml -f
+deploy/compose.source.yaml logs sandboxd` prints the exact value to set.
 
 **Native binary** (Linux, macOS or Windows; on Linux the shell tool uses
-bubblewrap when it is installed):
+bubblewrap when it is installed). Bothy creates the data directory with mode
+0700; without `BOTHY_STORAGE__DATA_DIR` it uses `/data`, the image's volume:
 
 ```sh
 make ui build                            # web UI (Node 24) and bin/bothy
-mkdir -p ~/bothy-data && BOTHY_STORAGE__DATA_DIR=~/bothy-data bin/bothy serve
+BOTHY_STORAGE__DATA_DIR=~/bothy-data bin/bothy serve
 ```
 
 ### After the v0.1.0 release
@@ -139,6 +150,7 @@ cd ~/bothy && docker compose up -d       # add --profile search for SearXNG
 docker compose logs bothy | grep setup
 
 sh install.sh                            # native binary into ~/.local/bin/bothy
+BOTHY_STORAGE__DATA_DIR=~/bothy-data bothy serve
 ```
 
 ## Development
@@ -151,8 +163,9 @@ make image budgets        # image size and layout, cold start, idle RSS, token o
 ```
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) first: module ownership
-([OWNERSHIP.md](OWNERSHIP.md)), the interface change process, the comment
-style and the 14-day dependency cooldown are all checked in CI.
+([OWNERSHIP.md](OWNERSHIP.md)), the import rules, the 14-day dependency
+cooldown and the DCO sign-off are checked in CI; the interface change process
+and the comment style are upheld in review.
 
 ## License
 

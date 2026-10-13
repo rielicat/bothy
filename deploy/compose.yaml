@@ -22,14 +22,14 @@ services:
     pids_limit: 256
     extra_hosts: ["host.docker.internal:host-gateway"]   # Ollama / LM Studio on the host
     healthcheck: {test: ["CMD", "/bothy", "healthcheck"], interval: 30s, timeout: 3s, retries: 3, start_period: 30s, start_interval: 1s}
-    # secrets: [bothy_kek]               # optional Docker secret KEK (/run/secrets/bothy_kek)
+    # secrets: [bothy_kek]               # optional Docker secret KEK: also uncomment the top-level secrets block
   sandboxd:
     <<: *hardening
     image: ghcr.io/rielicat/bothy:0.1.0@sha256:<digest>
     command: ["sandboxd"]
     network_mode: none                   # sandboxd itself has no network
-    user: "${SANDBOXD_USER:-65532:65532}"   # rootless Docker: set to the socket owner's uid:gid
-    group_add: ["${DOCKER_GID:-999}", "65532"]   # Docker Desktop: DOCKER_GID=0
+    user: "${SANDBOXD_USER:-65532:65532}"
+    group_add: ["${DOCKER_GID:-999}", "65532"]   # the socket's group inside containers; Docker Desktop and rootless Docker: DOCKER_GID=0
     environment:
       BOTHY_SBX_ENGINE: unix:///var/run/docker.sock
       BOTHY_SBX_WORK_VOLUME: bothy_work
@@ -60,3 +60,13 @@ volumes:
   keys: {name: bothy_keys}
   work: {name: bothy_work}
   run:  {name: bothy_run}
+# Docker secret KEK, mounted at /run/secrets/bothy_kek (uncomment with the
+# bothy service's secrets line). The file holds 64 hex characters
+# (openssl rand -hex 32) and must be readable by uid 65532 inside the
+# container: chown 65532:65532 bothy_kek && chmod 0400 bothy_kek.
+# On an existing install the vault is sealed under the current key, so a new
+# one leaves it sealed: put that key in the file instead, e.g.
+#   docker run --rm -v bothy_keys:/k:ro busybox cat /k/kek > bothy_kek
+# secrets:
+#   bothy_kek:
+#     file: ./bothy_kek
