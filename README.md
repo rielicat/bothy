@@ -4,10 +4,11 @@ A small, self-hosted AI agent that lives in your chat apps and is secure by
 default. One static Go binary, one SQLite file, your own API keys or local
 models.
 
-> **Status: v0.1 is in development.** Nothing is released yet: the image
-> names, install commands and numbers below describe the v0.1.0 release and
-> its CI-enforced targets, not something you can download today. The design is
-> in [docs/SPEC.md](docs/SPEC.md).
+> **Status: v0.1 is in development.** Nothing is released yet: the registry
+> images, the install script and the comparison figures below describe the
+> v0.1.0 release and its CI-enforced targets. You can build and run it from
+> source today ([Quickstart](#quickstart)). The design is in
+> [docs/SPEC.md](docs/SPEC.md).
 
 ## What it is
 
@@ -48,7 +49,10 @@ safe before you configure anything.
 
 Competitor figures come from the projects' own documentation and container
 registries, read on 2026-10-12. Bothy's figures are budgets that CI enforces from the
-first commit; we will publish measured numbers with the release.
+first commit; we will publish measured numbers with the release. A pre-release
+build measured 9.1–9.8 MB compressed for the gateway image (arm64, amd64,
+armv7) and 28 MB idle RSS on linux/arm64 after 10 minutes with Telegram,
+Discord and Slack (test servers) connected.
 
 What we do not try to win on: the number of chat platforms and providers,
 where Hermes and OpenClaw are far ahead.
@@ -76,41 +80,74 @@ See [SECURITY.md](SECURITY.md) to report a vulnerability.
 
 ## Quickstart
 
+There is no release yet, so today you build from a checkout; the commands
+under [After the v0.1.0 release](#after-the-v010-release) start working with
+the first signed release. Either way you open the printed
+`http://127.0.0.1:8080/setup#t=…` URL; the setup wizard walks you through the
+owner account, a model provider (with a live test call), safety presets, a
+daily spend cap and pairing your chat apps by QR code.
+
+### From source
+
+Needs Docker 26 or newer (Docker Desktop works). The image build compiles the
+web UI and the binary itself:
+
+```sh
+git clone https://github.com/rielicat/bothy && cd bothy
+make image IMAGE=bothy:dev
+```
+
 **Single container** (chat, channels, web tools and HTTP MCP servers; no shell
 or Python tools, because there is no sandbox):
 
 ```sh
-docker run -d --name bothy -p 127.0.0.1:8080:8080 -v bothy_data:/data ghcr.io/rielicat/bothy:0.1.0
-docker logs bothy 2>&1 | grep setup     # open the printed http://127.0.0.1:8080/setup#t=… URL
+docker run -d --name bothy -p 127.0.0.1:8080:8080 -v bothy_data:/data bothy:dev
+docker logs bothy 2>&1 | grep setup
 ```
 
-**Compose** (recommended: adds the sandbox sidecar for shell, Python and MCP
-stdio servers, and optionally SearXNG for web search):
+**Compose** (recommended: adds the sandbox sidecar, so the model can run shell,
+Python and MCP stdio servers in throwaway boxes). `deploy/compose.source.yaml`
+swaps the release images for your local builds:
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/rielicat/bothy/main/deploy/install.sh
-sh install.sh --compose ~/bothy          # verifies checksums and Sigstore signatures
-cd ~/bothy && docker compose up -d       # add --profile search for SearXNG
-docker compose logs bothy | grep setup
+docker buildx build -f deploy/sandbox/Dockerfile --target base -t bothy-sandbox:dev --load .
+export BOTHY_SBX_IMAGES="base=$(docker image inspect -f '{{.Id}}' bothy-sandbox:dev)"
+echo "DOCKER_GID=$(stat -L -c %g /var/run/docker.sock)" >deploy/.env   # Docker Desktop: DOCKER_GID=0
+docker compose -f deploy/compose.yaml -f deploy/compose.source.yaml up -d --wait
+docker compose -f deploy/compose.yaml -f deploy/compose.source.yaml logs bothy | grep setup
 ```
+
+If `DOCKER_GID` is wrong, shell and Python stay off and `docker compose logs
+sandboxd` prints the exact value to set.
 
 **Native binary** (Linux, macOS or Windows; on Linux the shell tool uses
 bubblewrap when it is installed):
 
 ```sh
-sh install.sh                            # installs ~/.local/bin/bothy
-bothy serve
+make ui build                            # web UI (Node 24) and bin/bothy
+mkdir -p ~/bothy-data && BOTHY_STORAGE__DATA_DIR=~/bothy-data bin/bothy serve
 ```
 
-The setup wizard then walks you through the owner account, a model provider
-(with a live test call), safety presets, a daily spend cap and pairing your
-chat apps by QR code.
+### After the v0.1.0 release
+
+```sh
+docker run -d --name bothy -p 127.0.0.1:8080:8080 -v bothy_data:/data ghcr.io/rielicat/bothy:0.1.0
+
+curl -fsSLO https://raw.githubusercontent.com/rielicat/bothy/main/deploy/install.sh
+sh install.sh --compose ~/bothy          # verifies checksums and Sigstore signatures
+cd ~/bothy && docker compose up -d       # add --profile search for SearXNG
+docker compose logs bothy | grep setup
+
+sh install.sh                            # native binary into ~/.local/bin/bothy
+```
 
 ## Development
 
 ```sh
 make build test lint      # binary, race tests, linters and import rules
 make ui gen e2e           # web UI, generated TypeScript types, black-box tests
+make e2e-docker           # real compose deployment: gateway, sandboxd, tool boxes
+make image budgets        # image size and layout, cold start, idle RSS, token overhead
 ```
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) first: module ownership
