@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
@@ -158,7 +159,9 @@ func (s *streamer) flushLocked(final bool) {
 
 // outputLimiter forwards a tool's progress output as run.tool_output: chunks
 // of at most outputChunkMax bytes (the tail is kept), at most one event per
-// outputInterval. Emit never blocks the tool.
+// outputInterval. Like streamer, it holds back each stream's trailing
+// partial word until the next flush so redaction sees secrets whole. Emit
+// never blocks the tool.
 type outputLimiter struct {
 	rs     *runState
 	callID string
@@ -197,7 +200,7 @@ func (o *outputLimiter) emit(d core.EventData) {
 	}
 	wait := outputInterval - o.rs.r.now().Sub(o.last)
 	if wait <= 0 {
-		o.flushLocked()
+		o.flushLocked(false)
 		return
 	}
 	o.timer = time.AfterFunc(wait, func() {
@@ -205,18 +208,31 @@ func (o *outputLimiter) emit(d core.EventData) {
 		defer o.mu.Unlock()
 		o.timer = nil
 		if !o.closed {
-			o.flushLocked()
+			o.flushLocked(false)
 		}
 	})
 }
 
-func (o *outputLimiter) flushLocked() {
+func (o *outputLimiter) flushLocked(final bool) {
 	for stream := 1; stream <= 2; stream++ {
-		if len(o.buf[stream]) == 0 {
+		b := o.buf[stream]
+		o.buf[stream] = nil
+		if !final {
+			cut := bytes.LastIndexFunc(b, unicode.IsSpace)
+			if cut < 0 && len(b) < holdbackMax {
+				o.buf[stream] = b
+				continue
+			}
+			if cut >= 0 {
+				_, size := utf8.DecodeRune(b[cut:])
+				o.buf[stream] = append([]byte(nil), b[cut+size:]...)
+				b = b[:cut+size]
+			}
+		}
+		if len(b) == 0 {
 			continue
 		}
-		chunk := o.rs.r.redact(string(o.buf[stream]))
-		o.buf[stream] = nil
+		chunk := o.rs.r.redact(string(b))
 		o.rs.publish(core.EvToolOutput, core.ToolOutputData{CallID: o.callID, Stream: stream, Chunk: chunk})
 	}
 	o.last = o.rs.r.now()
@@ -229,7 +245,7 @@ func (o *outputLimiter) close() {
 		o.timer.Stop()
 		o.timer = nil
 	}
-	o.flushLocked()
+	o.flushLocked(true)
 	o.closed = true
 }
 
