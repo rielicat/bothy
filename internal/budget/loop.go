@@ -1,6 +1,6 @@
 package budget
 
-import "github.com/bothyhq/bothy/internal/core"
+import "github.com/rielicat/bothy/internal/core"
 
 const (
 	loopRing        = 16

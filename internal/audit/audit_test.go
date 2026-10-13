@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/store"
-	"github.com/bothyhq/bothy/internal/testkit/fakes"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/store"
+	"github.com/rielicat/bothy/internal/testkit/fakes"
 
 	_ "modernc.org/sqlite"
 )

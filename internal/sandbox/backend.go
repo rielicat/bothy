@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/sandboxd/proto"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/sandboxd/proto"
 )
 
 // backend is one way of running boxes: sandboxd, bwrap or none. The service

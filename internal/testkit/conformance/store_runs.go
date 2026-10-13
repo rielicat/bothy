@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 func (f *fx) schedule(p core.PrincipalID, next time.Time, enabled bool) *core.Schedule {

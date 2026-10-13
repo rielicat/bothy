@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/sandboxd/proto"
-	"github.com/bothyhq/bothy/internal/sbxinit"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/sandboxd/proto"
+	"github.com/rielicat/bothy/internal/sbxinit"
 )
 
 // The jail runs /opt/bothy/bothy sbx-init …; here that binary is this test

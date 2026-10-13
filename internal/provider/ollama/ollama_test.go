@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/provider/wire"
-	"github.com/bothyhq/bothy/internal/provider/wire/wiretest"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/provider/wire"
+	"github.com/rielicat/bothy/internal/provider/wire/wiretest"
 )
 
 func ndjson(b []byte) wiretest.Response {

@@ -11,8 +11,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/provider/wire"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/provider/wire"
 )
 
 // DefaultBaseURL is used when the provider config has no base_url.

@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/provider/ollama"
-	"github.com/bothyhq/bothy/internal/provider/openai"
-	"github.com/bothyhq/bothy/internal/provider/wire"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/provider/ollama"
+	"github.com/rielicat/bothy/internal/provider/openai"
+	"github.com/rielicat/bothy/internal/provider/wire"
 )
 
 const detectTimeout = 1500 * time.Millisecond

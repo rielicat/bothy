@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // backupMaxAge is when backups.none_recent starts to fire.

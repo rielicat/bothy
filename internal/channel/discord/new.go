@@ -12,8 +12,8 @@ import (
 	"github.com/disgoorg/disgo/gateway"
 	"github.com/disgoorg/snowflake/v2"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 const name = "discord"

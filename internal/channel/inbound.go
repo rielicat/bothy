@@ -8,7 +8,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // maxChatQueue bounds the per-chat work waiting behind a slow submission; the

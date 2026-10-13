@@ -6,8 +6,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/skills/treehash"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/skills/treehash"
 )
 
 const changedID = "skills.changed"

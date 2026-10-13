@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 const (

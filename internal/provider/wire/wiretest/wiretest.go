@@ -11,8 +11,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/provider/wire"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/provider/wire"
 )
 
 // Key is the API key test clients send; tests assert it never leaks.

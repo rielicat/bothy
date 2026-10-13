@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // Send delivers a system-originated message (message tool, schedule

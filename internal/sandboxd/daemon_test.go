@@ -20,9 +20,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/sandboxd/engine"
-	"github.com/bothyhq/bothy/internal/sandboxd/enginetest"
-	"github.com/bothyhq/bothy/internal/sandboxd/proto"
+	"github.com/rielicat/bothy/internal/sandboxd/engine"
+	"github.com/rielicat/bothy/internal/sandboxd/enginetest"
+	"github.com/rielicat/bothy/internal/sandboxd/proto"
 )
 
 var testImage = "sha256:" + strings.Repeat("a", 64)
@@ -159,7 +159,7 @@ func parseFrames(t *testing.T, b []byte) execOut {
 }
 
 func TestConfig(t *testing.T) {
-	c, err := ParseConfig([]string{"BOTHY_SBX_IMAGES=base=ghcr.io/bothyhq/bothy-sandbox@" + testImage + ",node=" + testImage,
+	c, err := ParseConfig([]string{"BOTHY_SBX_IMAGES=base=ghcr.io/rielicat/bothy-sandbox@" + testImage + ",node=" + testImage,
 		"PATH=/bin", "BOTHY_SBX_IDLE=1m"})
 	if err != nil {
 		t.Fatal(err)
@@ -333,7 +333,7 @@ func TestSelfTestPicksRunscAndBuiltinSeccomp(t *testing.T) {
 }
 
 func TestSelfTestPullsPinnedImages(t *testing.T) {
-	ref := "ghcr.io/bothyhq/bothy-sandbox@" + testImage
+	ref := "ghcr.io/rielicat/bothy-sandbox@" + testImage
 	h := newHarness(t, func(c *Config, e *enginetest.Fake) { c.Images = map[string]string{"base": ref} })
 	if !h.d.healthSnapshot().OK || !slices.Equal(h.eng.Pulled(), []string{ref}) {
 		t.Fatalf("pulled %v, health %+v", h.eng.Pulled(), h.d.healthSnapshot())

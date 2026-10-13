@@ -19,9 +19,9 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/testkit/sandboxtest"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/testkit/sandboxtest"
 )
 
 // A run can hold a tool across an approval wait. If an admin disables the

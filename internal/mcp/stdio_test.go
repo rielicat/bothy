@@ -17,9 +17,9 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/skills/treehash"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/skills/treehash"
 )
 
 const (

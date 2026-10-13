@@ -4,7 +4,7 @@ package main
 import (
 	"os"
 
-	"github.com/bothyhq/bothy/internal/sbxinit"
+	"github.com/rielicat/bothy/internal/sbxinit"
 )
 
 func main() { os.Exit(sbxinit.Main(os.Args[1:])) }

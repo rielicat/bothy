@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/testkit/sandboxtest"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/testkit/sandboxtest"
 )
 
 // The box can write the workspace and knows where a given script will land:

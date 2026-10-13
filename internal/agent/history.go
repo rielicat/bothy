@@ -10,7 +10,7 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // notExecuted is the deterministic result synthesized (never persisted) for

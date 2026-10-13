@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/sandboxd/proto"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/sandboxd/proto"
 )
 
 // sandboxdBackend talks to the sidecar over its unix socket. The socket is

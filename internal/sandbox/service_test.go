@@ -15,12 +15,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/events"
-	"github.com/bothyhq/bothy/internal/sandboxd/enginetest"
-	"github.com/bothyhq/bothy/internal/sandboxd/proto"
-	"github.com/bothyhq/bothy/internal/testkit/memstore"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/events"
+	"github.com/rielicat/bothy/internal/sandboxd/enginetest"
+	"github.com/rielicat/bothy/internal/sandboxd/proto"
+	"github.com/rielicat/bothy/internal/testkit/memstore"
 )
 
 var _ core.Sandbox = (*Client)(nil)

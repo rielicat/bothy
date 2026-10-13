@@ -17,7 +17,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/sandboxd/proto"
+	"github.com/rielicat/bothy/internal/sandboxd/proto"
 )
 
 const probeTimeout = 3 * time.Second

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 const sessionCols = `id, principal_id, origin, COALESCE(channel_key, ''), chat, title, model_slot, model_override, system_snapshot,

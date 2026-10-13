@@ -6,7 +6,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 const auditCols = `id, ts, actor, action, target, outcome, session_id, run_id, ip, detail, prev_hash, hash`

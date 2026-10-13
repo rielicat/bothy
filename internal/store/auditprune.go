@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // AnchorFunc builds the audit.archived anchor row that PruneAudit stores under

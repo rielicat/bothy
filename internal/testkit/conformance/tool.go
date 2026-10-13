@@ -21,7 +21,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 var toolNameRE = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)

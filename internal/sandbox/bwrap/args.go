@@ -10,7 +10,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/sandboxd/proto"
+	"github.com/rielicat/bothy/internal/sandboxd/proto"
 )
 
 const (

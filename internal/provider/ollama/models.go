@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/provider/wire"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/provider/wire"
 )
 
 // maxShow bounds the /api/show calls of one discovery; a large local library

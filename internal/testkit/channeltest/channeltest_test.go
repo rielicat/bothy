@@ -9,8 +9,8 @@ import (
 	"testing"
 	"testing/synctest"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/testkit/channeltest"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/testkit/channeltest"
 )
 
 type sink struct {

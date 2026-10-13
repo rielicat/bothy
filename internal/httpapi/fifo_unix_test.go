@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // A box can plant a FIFO in its workspace; downloading it must answer at

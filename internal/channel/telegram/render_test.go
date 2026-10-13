@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bothyhq/bothy/internal/channel/telegram/telegramtest"
+	"github.com/rielicat/bothy/internal/channel/telegram/telegramtest"
 )
 
 func TestRender(t *testing.T) {

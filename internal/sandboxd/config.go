@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/sandboxd/proto"
+	"github.com/rielicat/bothy/internal/sandboxd/proto"
 )
 
 // Config comes only from BOTHY_SBX_* environment variables (SPEC §2.2).

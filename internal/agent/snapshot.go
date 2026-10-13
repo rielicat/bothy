@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // mutateSession applies fn to a fresh copy of the session inside a store

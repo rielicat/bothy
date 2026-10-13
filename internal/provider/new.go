@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/provider/catalog"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/provider/catalog"
 )
 
 type Deps struct {

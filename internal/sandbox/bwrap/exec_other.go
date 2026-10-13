@@ -7,7 +7,7 @@ import (
 	"errors"
 	"io"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 var errLinuxOnly = errors.New("bwrap jails need Linux")

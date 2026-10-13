@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // Meta keys (SPEC §6). The setup token and grant are stored only as sha256

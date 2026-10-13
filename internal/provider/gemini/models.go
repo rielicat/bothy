@@ -8,8 +8,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/provider/wire"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/provider/wire"
 )
 
 // Models returns the configured models followed, when discovery is on, by the

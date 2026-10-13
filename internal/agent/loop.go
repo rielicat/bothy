@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // runEnd says how a run ends (or parks).

@@ -2,7 +2,7 @@ Bothy
 Copyright 2026 The Bothy Authors
 
 This product includes software developed by The Bothy Authors
-(https://github.com/bothyhq/bothy).
+(https://github.com/rielicat/bothy).
 
 Release binaries and images statically include third-party Go modules and,
 in the embedded web UI, the Svelte runtime, each under its own permissive

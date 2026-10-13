@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 type check struct {

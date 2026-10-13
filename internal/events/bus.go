@@ -4,7 +4,7 @@ import (
 	"slices"
 	"sync/atomic"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 var _ core.Bus = (*Bus)(nil)

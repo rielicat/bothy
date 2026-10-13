@@ -1,6 +1,6 @@
 package sandboxd
 
-import "github.com/bothyhq/bothy/internal/sandboxd/engine"
+import "github.com/rielicat/bothy/internal/sandboxd/engine"
 
 // Engine is what sandboxd needs from the container engine.
 type Engine = engine.API

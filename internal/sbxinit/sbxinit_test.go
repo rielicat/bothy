@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/sandboxd/proto"
+	"github.com/rielicat/bothy/internal/sandboxd/proto"
 )
 
 // TestMain lets tests run the package's Main in a child process: run sets

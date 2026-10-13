@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/store"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/store"
 )
 
 // ArchiveResult describes one offline archive run. Count is 0 (and nothing

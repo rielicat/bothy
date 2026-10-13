@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/config"
 )
 
 // maxTracked bounds the in-memory failure and attempt maps so a flood of

@@ -3,9 +3,9 @@
 # the two profiles of BOTHY_SBX_IMAGES:
 #
 #   docker buildx build -f deploy/sandbox/Dockerfile --target base \
-#     --platform linux/amd64,linux/arm64 -t ghcr.io/bothyhq/bothy-sandbox:0.1.0 .
+#     --platform linux/amd64,linux/arm64 -t ghcr.io/rielicat/bothy-sandbox:0.1.0 .
 #   docker buildx build -f deploy/sandbox/Dockerfile --target node \
-#     --platform linux/amd64,linux/arm64 -t ghcr.io/bothyhq/bothy-sandbox-node:0.1.0 .
+#     --platform linux/amd64,linux/arm64 -t ghcr.io/rielicat/bothy-sandbox-node:0.1.0 .
 #
 # Dockerfile.dockerignore limits the context to what these stages read.
 

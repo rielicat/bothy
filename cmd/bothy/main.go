@@ -8,8 +8,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/bothyhq/bothy/internal/sandboxd"
-	"github.com/bothyhq/bothy/internal/sbxinit"
+	"github.com/rielicat/bothy/internal/sandboxd"
+	"github.com/rielicat/bothy/internal/sbxinit"
 )
 
 var version = "dev" // -ldflags "-X main.version=…"

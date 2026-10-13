@@ -7,7 +7,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 const runCols = `id, session_id, principal_id, user_id, trigger, COALESCE(schedule_id, ''), status, error, steps, tool_calls,

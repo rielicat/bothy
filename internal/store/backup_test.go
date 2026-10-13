@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // TestBackupDoesNotWaitForWriter: a backup taken while a transaction holds

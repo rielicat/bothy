@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/provider/wire/wiretest"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/provider/wire/wiretest"
 )
 
 func stream(t *testing.T, fixture string, req *core.Request) (*core.Response, *wiretest.Events, *wiretest.Server, error) {

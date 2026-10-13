@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 func TestRotateConcurrentWithUse(t *testing.T) {

@@ -12,8 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/skills/treehash"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/skills/treehash"
 )
 
 // Upload limits (SPEC §8.3: ≤ 5 MB, ≤ 200 files). The unpacked caps bound

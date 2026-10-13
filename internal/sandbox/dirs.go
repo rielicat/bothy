@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/sandboxd/proto"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/sandboxd/proto"
 )
 
 // sharedDir is 2770: setgid so files the gateway and boxes create stay in

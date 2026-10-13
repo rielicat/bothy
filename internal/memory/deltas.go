@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // DeltasSince renders the net change of MEMORY.md and USER.md since event

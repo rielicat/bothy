@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // command prepares one jail. The seccomp program goes to bwrap on fd 3

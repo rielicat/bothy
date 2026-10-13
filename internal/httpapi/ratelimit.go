@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // limiter is a set of token buckets keyed by token id or client address.

@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/channel/slack/slacktest"
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/channel/slack/slacktest"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // egressRecorder stands in for core.Egress.SystemClient: plain dialing, with

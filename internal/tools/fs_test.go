@@ -10,10 +10,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/testkit/conformance"
-	"github.com/bothyhq/bothy/internal/testkit/fakes"
-	"github.com/bothyhq/bothy/internal/testkit/sandboxtest"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/testkit/conformance"
+	"github.com/rielicat/bothy/internal/testkit/fakes"
+	"github.com/rielicat/bothy/internal/testkit/sandboxtest"
 )
 
 // workspace creates a workspace with a few files and an outside directory

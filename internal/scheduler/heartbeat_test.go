@@ -8,9 +8,9 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/testkit/fakes"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/testkit/fakes"
 )
 
 func heartbeatOn(c *config.Config) {

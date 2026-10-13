@@ -15,7 +15,7 @@ import (
 	"github.com/disgoorg/disgo/gateway"
 	"github.com/gorilla/websocket"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 const (

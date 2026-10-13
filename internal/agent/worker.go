@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // worker serializes everything that happens in one session: turns, resumed

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/httpapi/dto"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/httpapi/dto"
 )
 
 const (

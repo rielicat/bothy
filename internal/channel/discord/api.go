@@ -10,7 +10,7 @@ import (
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // discordAPI is the slice of the Discord REST API the adapter uses. The
@@ -31,7 +31,7 @@ type discordAPI interface {
 }
 
 const (
-	userAgent = "DiscordBot (https://github.com/bothyhq/bothy, 0.1)"
+	userAgent = "DiscordBot (https://github.com/rielicat/bothy, 0.1)"
 	// maxRetries bounds disgo's per-route 429 retries so a rate-limited edit
 	// cannot hold the streamer for long.
 	maxRetries = 3

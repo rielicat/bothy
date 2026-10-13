@@ -6,7 +6,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 type metaRepo struct{ h *handle }

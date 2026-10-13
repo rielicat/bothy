@@ -6,8 +6,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // shellMeta are the characters that make a command line more than one plain

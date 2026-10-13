@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // cookieLen is the base64url length of a 32-byte session value.

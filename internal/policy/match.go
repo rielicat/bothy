@@ -12,7 +12,7 @@ import (
 
 	"golang.org/x/net/idna"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // globMatch uses path.Match syntax, except that '*' and '?' also match '/'

@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/sandboxd/engine"
-	"github.com/bothyhq/bothy/internal/sandboxd/proto"
+	"github.com/rielicat/bothy/internal/sandboxd/engine"
+	"github.com/rielicat/bothy/internal/sandboxd/proto"
 )
 
 type daemon struct {

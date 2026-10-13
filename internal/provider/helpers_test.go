@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/testkit/fakes"
-	"github.com/bothyhq/bothy/internal/testkit/sandboxtest"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/testkit/fakes"
+	"github.com/rielicat/bothy/internal/testkit/sandboxtest"
 )
 
 // canary is the API key every test provider uses; no URL, log line or

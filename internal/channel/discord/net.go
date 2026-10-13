@@ -13,7 +13,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 func hostPort(u *url.URL) string {

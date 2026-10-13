@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // TestIDOR covers every repository method that takes a Viewer, for rows owned

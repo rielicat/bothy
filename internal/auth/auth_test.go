@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/events"
-	"github.com/bothyhq/bothy/internal/testkit/fakes"
-	"github.com/bothyhq/bothy/internal/testkit/memstore"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/events"
+	"github.com/rielicat/bothy/internal/testkit/fakes"
+	"github.com/rielicat/bothy/internal/testkit/memstore"
 )
 
 const goodPassword = "violin staple orbit meadow"

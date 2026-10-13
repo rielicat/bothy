@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // runState is the in-memory side of one run. The run goroutine (its session

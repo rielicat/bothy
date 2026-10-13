@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // actionBudget leaves room for the adapter's Ack inside the 3 s platforms

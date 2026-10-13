@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Compressed gateway image size (SPEC §11.3): fail above 30 MB, warn above 20.
 #
-#   scripts/budgets/image-size.sh ghcr.io/bothyhq/bothy:dev
+#   scripts/budgets/image-size.sh ghcr.io/rielicat/bothy:dev
 set -euo pipefail
 
 image=${1:?usage: $0 <image>}

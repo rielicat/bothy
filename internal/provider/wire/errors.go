@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // RetryAfter parses Retry-After (seconds or an HTTP date) and the

@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // Options configure one provider client. Credentials are callbacks so the

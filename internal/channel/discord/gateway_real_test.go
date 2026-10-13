@@ -2,7 +2,7 @@
 
 package discord
 
-import "github.com/bothyhq/bothy/internal/channel/discord/discordtest"
+import "github.com/rielicat/bothy/internal/channel/discord/discordtest"
 
 // realGateway: without the race detector the tests drive disgo's gateway
 // over WebSocket against the fake.

@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/sandboxd/proto"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/sandboxd/proto"
 )
 
 func TestRunsc(t *testing.T) {

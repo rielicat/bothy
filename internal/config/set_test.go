@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 func set(t *testing.T, m *Manager, changes map[string]string) ([]string, error) {

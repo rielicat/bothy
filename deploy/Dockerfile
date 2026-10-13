@@ -2,7 +2,7 @@
 # Gateway image (SPEC §2.3): one static binary on distroless, uid 65532.
 #
 #   docker buildx build -f deploy/Dockerfile --build-arg VERSION=0.1.0 \
-#     --platform linux/amd64,linux/arm64 -t ghcr.io/bothyhq/bothy:0.1.0 .
+#     --platform linux/amd64,linux/arm64 -t ghcr.io/rielicat/bothy:0.1.0 .
 #
 # Releases use the binaries goreleaser builds instead (deploy/Dockerfile.release);
 # both produce the same layout.

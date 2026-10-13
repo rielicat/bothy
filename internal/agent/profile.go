@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bothyhq/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/config"
 )
 
 // profile is the model profile chosen from the effective window (SPEC §5.6).

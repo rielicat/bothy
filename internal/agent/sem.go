@@ -5,7 +5,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // semaphore is a FIFO counting semaphore whose capacity is read on every

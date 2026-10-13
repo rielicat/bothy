@@ -10,7 +10,7 @@ import (
 
 	"github.com/disgoorg/disgo/gateway"
 
-	"github.com/bothyhq/bothy/internal/channel/discord/discordtest"
+	"github.com/rielicat/bothy/internal/channel/discord/discordtest"
 )
 
 // realGateway: disgo v0.19.6's gateway writes heartbeatCancel, the heartbeat

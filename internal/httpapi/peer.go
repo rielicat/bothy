@@ -15,7 +15,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bothyhq/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/config"
 )
 
 type peerClass uint8

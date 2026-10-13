@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // ssrfHosts is the SPEC §12.2 M6 SSRF table, as URL hosts.

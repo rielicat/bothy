@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/sandboxd/proto"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/sandboxd/proto"
 )
 
 // check is a doctor check computed from the current sandbox status.

@@ -4,8 +4,8 @@ import (
 	"io"
 	"log/slog"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 type RegistryDeps struct {

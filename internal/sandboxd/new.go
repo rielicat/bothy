@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/sandboxd/engine"
+	"github.com/rielicat/bothy/internal/sandboxd/engine"
 )
 
 // Main runs `bothy sandboxd`. Configuration comes only from BOTHY_SBX_* env.

@@ -3,7 +3,7 @@ package channel
 import (
 	"context"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // authFailedCheck is the doctor check channels.auth_failed: an enabled

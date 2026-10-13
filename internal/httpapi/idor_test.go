@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/httpapi/dto"
-	"github.com/bothyhq/bothy/internal/testkit/fakes"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/httpapi/dto"
+	"github.com/rielicat/bothy/internal/testkit/fakes"
 )
 
 // storeScheduler is fakes.Scheduler persisting into the store, like the

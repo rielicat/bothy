@@ -3,7 +3,7 @@ package provider
 import (
 	"context"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 func (f *Facade) Checks() []core.Check { return []core.Check{authCheck{f}} }

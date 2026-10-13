@@ -6,7 +6,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // normRun drops Usage.Reasoning: runs has no reasoning_tokens column.

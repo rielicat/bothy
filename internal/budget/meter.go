@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 func (s *Service) StartRun(run core.RunID, u core.UserID, l core.RunLimits) core.RunMeter {

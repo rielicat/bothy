@@ -24,15 +24,15 @@ digest() {
 	esac
 }
 
-gw=$(digest "ghcr.io/bothyhq/bothy:$version")
-base=$(digest "ghcr.io/bothyhq/bothy-sandbox:$version")
-node=$(digest "ghcr.io/bothyhq/bothy-sandbox-node:$version")
+gw=$(digest "ghcr.io/rielicat/bothy:$version")
+base=$(digest "ghcr.io/rielicat/bothy-sandbox:$version")
+node=$(digest "ghcr.io/rielicat/bothy-sandbox-node:$version")
 
 mkdir -p "$out"
 sed -E \
-	-e "s#ghcr\.io/bothyhq/bothy:[^@\"]+@sha256:<digest>#ghcr.io/bothyhq/bothy:$version@$gw#g" \
-	-e "s#ghcr\.io/bothyhq/bothy-sandbox:[^@\"]+@sha256:<d1>#ghcr.io/bothyhq/bothy-sandbox:$version@$base#g" \
-	-e "s#ghcr\.io/bothyhq/bothy-sandbox-node:[^@\"]+@sha256:<d2>#ghcr.io/bothyhq/bothy-sandbox-node:$version@$node#g" \
+	-e "s#ghcr\.io/rielicat/bothy:[^@\"]+@sha256:<digest>#ghcr.io/rielicat/bothy:$version@$gw#g" \
+	-e "s#ghcr\.io/rielicat/bothy-sandbox:[^@\"]+@sha256:<d1>#ghcr.io/rielicat/bothy-sandbox:$version@$base#g" \
+	-e "s#ghcr\.io/rielicat/bothy-sandbox-node:[^@\"]+@sha256:<d2>#ghcr.io/rielicat/bothy-sandbox-node:$version@$node#g" \
 	-e "s#docker\.io/searxng/searxng@sha256:<digest>#$SEARXNG#g" \
 	deploy/compose.yaml >"$out/compose.yaml"
 if grep -n 'sha256:<' "$out/compose.yaml"; then

@@ -64,7 +64,7 @@ dockers_v2:
   - id: gateway
     ids: [bothy, bothy-armv7]
     dockerfile: deploy/Dockerfile.release
-    images: [ghcr.io/bothyhq/bothy]
+    images: [ghcr.io/rielicat/bothy]
     tags:
       - "{{ .Version }}"
       - "{{ if not .Prerelease }}latest{{ end }}"
@@ -73,7 +73,7 @@ dockers_v2:
     labels:
       org.opencontainers.image.title: bothy
       org.opencontainers.image.description: Self-hosted AI agent gateway
-      org.opencontainers.image.source: https://github.com/bothyhq/bothy
+      org.opencontainers.image.source: https://github.com/rielicat/bothy
       org.opencontainers.image.licenses: Apache-2.0
       org.opencontainers.image.version: "{{ .Version }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"
@@ -89,10 +89,10 @@ homebrew_casks:
   - name: bothy
     ids: [bothy]
     repository:
-      owner: bothyhq
+      owner: rielicat
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    homepage: https://github.com/bothyhq/bothy
+    homepage: https://github.com/rielicat/bothy
     description: Self-hosted AI agent with secure defaults in one small binary
     license: Apache-2.0
     skip_upload: auto
@@ -106,7 +106,7 @@ homebrew_casks:
 
 release:
   github:
-    owner: bothyhq
+    owner: rielicat
     name: bothy
   prerelease: auto
   draft: true

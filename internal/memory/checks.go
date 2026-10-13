@@ -10,7 +10,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // overCapCheck reports memory files larger than their configured cap (after

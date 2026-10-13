@@ -15,15 +15,15 @@ type_mappings:
   json.RawMessage: "unknown"
 
 packages:
-  - path: github.com/bothyhq/bothy/internal/core
+  - path: github.com/rielicat/bothy/internal/core
     preserve_comments: types
     frontmatter: |
       // Go's builtin error interface (internal fields only; never sent by the API).
       type error = unknown;
-  - path: github.com/bothyhq/bothy/internal/config
+  - path: github.com/rielicat/bothy/internal/config
     include_files: [api.go]
     preserve_comments: types
-  - path: github.com/bothyhq/bothy/internal/httpapi/dto
+  - path: github.com/rielicat/bothy/internal/httpapi/dto
     preserve_comments: types
 
 overrides:

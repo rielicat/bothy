@@ -6,9 +6,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/sandbox/bwrap"
-	"github.com/bothyhq/bothy/internal/sandboxd/proto"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/sandbox/bwrap"
+	"github.com/rielicat/bothy/internal/sandboxd/proto"
 )
 
 // bwrapBackend: a "box" is the per-key mount set; every exec is its own

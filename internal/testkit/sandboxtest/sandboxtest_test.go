@@ -13,8 +13,8 @@ import (
 	"testing"
 	"testing/synctest"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/testkit/sandboxtest"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/testkit/sandboxtest"
 )
 
 var ctx = context.Background()

@@ -17,9 +17,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/sandboxd/engine"
-	"github.com/bothyhq/bothy/internal/sandboxd/proto"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/sandboxd/engine"
+	"github.com/rielicat/bothy/internal/sandboxd/proto"
 )
 
 const runscFix = `register runsc with --host-uds=open in /etc/docker/daemon.json: { "runtimes": { "runsc": { "path": "/usr/local/bin/runsc", "runtimeArgs": ["--host-uds=open"] } } } and restart Docker`

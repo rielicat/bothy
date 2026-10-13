@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 func normAudit(e core.AuditEntry) core.AuditEntry {

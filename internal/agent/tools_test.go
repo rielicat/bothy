@@ -14,8 +14,8 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/testkit/fakes"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/testkit/fakes"
 )
 
 func TestExposedSessionNeutralizesLinksForTheSink(t *testing.T) {

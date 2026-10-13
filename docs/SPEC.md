@@ -2,7 +2,7 @@
 
 **Status:** final architecture for v0.1, 2026-10-12. This is the single source of truth for the skeleton commit and for the 12 parallel implementers. Base: the "lean" proposal (judged best by all three judges), with every fatal flaw and must-fix item from the judge reports resolved, and the best ideas grafted from "secure" and "ux".
 
-**Module:** `github.com/bothyhq/bothy` · **License:** Apache-2.0 + DCO · **Go:** `go 1.26`, `toolchain go1.27.2`, `CGO_ENABLED=0`.
+**Module:** `github.com/rielicat/bothy` · **License:** Apache-2.0 + DCO · **Go:** `go 1.26`, `toolchain go1.27.2`, `CGO_ENABLED=0`.
 
 **How to read this.** Prose is short. Go code, SQL, YAML and route tables are normative and are copied into the skeleton as-is. All Go listings (§2.5, §4, §7.4, §8.4, §12.1) were compiled together as one module (`go vet`, `go build`, cross-compiled for linux/arm64 and windows), and the skeleton wiring was booted (it serves `/healthz` and shuts down cleanly on SIGTERM). The DDL in §6 was applied to SQLite 3.53 with smoke tests (FTS after VACUUM, append-only triggers, one-active-run index, grant checks). The YAML in §7.1 decodes strictly into the §7.4 struct. Items marked *(verify)* must be checked when the skeleton is built; none of them changes an interface.
 
@@ -49,7 +49,7 @@ Bothy is one static Go binary with three roles chosen by subcommand: `serve` (th
 
 | Mode | Processes | Exec tools (`shell`, `python`, MCP stdio) | Everything else |
 |---|---|---|---|
-| **Single container** (`docker run -p 127.0.0.1:8080:8080 -v bothy_data:/data ghcr.io/bothyhq/bothy:0.1.0`) | `bothy serve` | **Absent.** Red banner "No sandbox: shell, python and MCP stdio are off. Use the compose file." Doctor finding `sandbox.unavailable` (medium). The system facts block tells the model. | Chat, channels, `fs_*` tools (`os.Root`), `web_fetch`/`web_search`, HTTP MCP, memory, scheduler, approvals |
+| **Single container** (`docker run -p 127.0.0.1:8080:8080 -v bothy_data:/data ghcr.io/rielicat/bothy:0.1.0`) | `bothy serve` | **Absent.** Red banner "No sandbox: shell, python and MCP stdio are off. Use the compose file." Doctor finding `sandbox.unavailable` (medium). The system facts block tells the model. | Chat, channels, `fs_*` tools (`os.Root`), `web_fetch`/`web_search`, HTTP MCP, memory, scheduler, approvals |
 | **Compose** (recommended) | `bothy serve` + `bothy sandboxd` | Per-session boxes once sandboxd's self-test passes; runsc when registered and probed | Same |
 | **Native Linux binary** | `bothy serve` | `bwrap` backend when `bwrap` ≥ 0.8 exists and the user-namespace probe passes; else absent | Same |
 | **Native macOS/Windows** | `bothy serve` | Absent (P2: VM tier) | Same |
@@ -74,7 +74,7 @@ x-hardening: &hardening
 services:
   bothy:
     <<: *hardening
-    image: ghcr.io/bothyhq/bothy:0.1.0@sha256:<digest>
+    image: ghcr.io/rielicat/bothy:0.1.0@sha256:<digest>
     command: ["serve"]
     user: "65532:65532"
     group_add: ["10001"]                 # shared workspace group with tool boxes
@@ -92,7 +92,7 @@ services:
     # secrets: [bothy_kek]               # optional Docker secret KEK (/run/secrets/bothy_kek)
   sandboxd:
     <<: *hardening
-    image: ghcr.io/bothyhq/bothy:0.1.0@sha256:<digest>
+    image: ghcr.io/rielicat/bothy:0.1.0@sha256:<digest>
     command: ["sandboxd"]
     network_mode: none                   # sandboxd itself has no network
     user: "${SANDBOXD_USER:-65532:65532}"   # rootless Docker: set to the socket owner's uid:gid
@@ -101,7 +101,7 @@ services:
       BOTHY_SBX_ENGINE: unix:///var/run/docker.sock
       BOTHY_SBX_WORK_VOLUME: bothy_work
       BOTHY_SBX_RUN_VOLUME: bothy_run
-      BOTHY_SBX_IMAGES: "base=ghcr.io/bothyhq/bothy-sandbox:0.1.0@sha256:<d1>,node=ghcr.io/bothyhq/bothy-sandbox-node:0.1.0@sha256:<d2>"
+      BOTHY_SBX_IMAGES: "base=ghcr.io/rielicat/bothy-sandbox:0.1.0@sha256:<d1>,node=ghcr.io/rielicat/bothy-sandbox-node:0.1.0@sha256:<d2>"
       BOTHY_SBX_RUNTIME: auto            # auto | runsc | runc
       BOTHY_SBX_MAX_BOXES: "8"
       BOTHY_SBX_GATEWAY_UID: "65532"
@@ -5221,8 +5221,8 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // Error is the envelope for every non-2xx /api response.
@@ -5783,7 +5783,7 @@ Exit criteria: `go build ./... && go vet ./... && go test ./...` green on linux/
 
 | Path | Contents | State after skeleton |
 |---|---|---|
-| `go.mod`, `go.sum` | `module github.com/bothyhq/bothy`, `go 1.26`, `toolchain go1.27.2`, every §11.1 dependency | frozen (lead only) |
+| `go.mod`, `go.sum` | `module github.com/rielicat/bothy`, `go 1.26`, `toolchain go1.27.2`, every §11.1 dependency | frozen (lead only) |
 | `internal/deps/deps.go` | `//go:build deps` blank imports of every dependency | frozen |
 | `internal/core/*.go` | §4 verbatim + tests for the pure helpers | frozen |
 | `internal/config/*.go` | §7.4, **fully implemented** with tests | frozen |
@@ -5821,31 +5821,31 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/bothyhq/bothy/internal/agent"
-	"github.com/bothyhq/bothy/internal/audit"
-	"github.com/bothyhq/bothy/internal/auth"
-	"github.com/bothyhq/bothy/internal/budget"
-	"github.com/bothyhq/bothy/internal/channel"
-	"github.com/bothyhq/bothy/internal/channel/discord"
-	"github.com/bothyhq/bothy/internal/channel/slack"
-	"github.com/bothyhq/bothy/internal/channel/telegram"
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/doctor"
-	"github.com/bothyhq/bothy/internal/egress"
-	"github.com/bothyhq/bothy/internal/events"
-	"github.com/bothyhq/bothy/internal/httpapi"
-	"github.com/bothyhq/bothy/internal/mcp"
-	"github.com/bothyhq/bothy/internal/memory"
-	"github.com/bothyhq/bothy/internal/policy"
-	"github.com/bothyhq/bothy/internal/provider"
-	"github.com/bothyhq/bothy/internal/sandbox"
-	"github.com/bothyhq/bothy/internal/scheduler"
-	"github.com/bothyhq/bothy/internal/skills"
-	"github.com/bothyhq/bothy/internal/store"
-	"github.com/bothyhq/bothy/internal/tools"
-	"github.com/bothyhq/bothy/internal/vault"
-	"github.com/bothyhq/bothy/internal/webui"
+	"github.com/rielicat/bothy/internal/agent"
+	"github.com/rielicat/bothy/internal/audit"
+	"github.com/rielicat/bothy/internal/auth"
+	"github.com/rielicat/bothy/internal/budget"
+	"github.com/rielicat/bothy/internal/channel"
+	"github.com/rielicat/bothy/internal/channel/discord"
+	"github.com/rielicat/bothy/internal/channel/slack"
+	"github.com/rielicat/bothy/internal/channel/telegram"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/doctor"
+	"github.com/rielicat/bothy/internal/egress"
+	"github.com/rielicat/bothy/internal/events"
+	"github.com/rielicat/bothy/internal/httpapi"
+	"github.com/rielicat/bothy/internal/mcp"
+	"github.com/rielicat/bothy/internal/memory"
+	"github.com/rielicat/bothy/internal/policy"
+	"github.com/rielicat/bothy/internal/provider"
+	"github.com/rielicat/bothy/internal/sandbox"
+	"github.com/rielicat/bothy/internal/scheduler"
+	"github.com/rielicat/bothy/internal/skills"
+	"github.com/rielicat/bothy/internal/store"
+	"github.com/rielicat/bothy/internal/tools"
+	"github.com/rielicat/bothy/internal/vault"
+	"github.com/rielicat/bothy/internal/webui"
 )
 
 // app holds every constructed component; built in dependency order.
@@ -6076,8 +6076,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/bothyhq/bothy/internal/sandboxd"
-	"github.com/bothyhq/bothy/internal/sbxinit"
+	"github.com/rielicat/bothy/internal/sandboxd"
+	"github.com/rielicat/bothy/internal/sbxinit"
 )
 
 var version = "dev" // -ldflags "-X main.version=…"
@@ -6151,8 +6151,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 func envOr(k, def string) string {
@@ -6257,7 +6257,7 @@ func reexec() error {
 
 package main
 
-import "github.com/bothyhq/bothy/internal/core"
+import "github.com/rielicat/bothy/internal/core"
 
 func setUmask() {}
 
@@ -6275,8 +6275,8 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 type Options struct {
@@ -6317,8 +6317,8 @@ package vault
 import (
 	"log/slog"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // Redactor implements core.Redactor. Created first: the logger, audit and vault use it.
@@ -6355,7 +6355,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 type Deps struct {
@@ -6382,7 +6382,7 @@ func (w *Writer) Flush(ctx context.Context) error { return nil }
 // Package events is the in-process bus with a replay ring. Skeleton-implemented, frozen.
 package events
 
-import "github.com/bothyhq/bothy/internal/core"
+import "github.com/rielicat/bothy/internal/core"
 
 type Options struct {
 	Ring  int // default 4096
@@ -6402,8 +6402,8 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 type Deps struct {
@@ -6435,8 +6435,8 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 type Deps struct {
@@ -6475,8 +6475,8 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 type Deps struct {
@@ -6515,8 +6515,8 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 type Deps struct {
@@ -6573,8 +6573,8 @@ package provider
 import (
 	"log/slog"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 type Deps struct {
@@ -6601,8 +6601,8 @@ package budget
 import (
 	"log/slog"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 type Deps struct {
@@ -6626,8 +6626,8 @@ package memory
 import (
 	"log/slog"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 type Deps struct {
@@ -6655,8 +6655,8 @@ package skills
 import (
 	"log/slog"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 type Deps struct {
@@ -6685,8 +6685,8 @@ package tools
 import (
 	"log/slog"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 type RegistryDeps struct {
@@ -6719,8 +6719,8 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 type Deps struct {
@@ -6756,8 +6756,8 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 type Deps struct {
@@ -6807,8 +6807,8 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 type Deps struct {
@@ -6843,8 +6843,8 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 type Deps struct {
@@ -6882,8 +6882,8 @@ func (h *Hub) Run(ctx context.Context) error {
 package telegram
 
 import (
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // New returns the adapter; it performs no network I/O until Run.
@@ -6896,8 +6896,8 @@ func New(cfg config.Telegram, d core.AdapterDeps) (core.Channel, error) {
 package discord
 
 import (
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // New returns the adapter; it performs no network I/O until Run.
@@ -6910,8 +6910,8 @@ func New(cfg config.Discord, d core.AdapterDeps) (core.Channel, error) {
 package slack
 
 import (
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // New returns the adapter; it performs no network I/O until Run.
@@ -6928,8 +6928,8 @@ import (
 	"context"
 	"io"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 type Runner struct{ checks []core.Check }
@@ -6960,9 +6960,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/doctor"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/doctor"
 )
 
 type Deps struct {
@@ -7049,7 +7049,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // Clock is a manually advanced core.Clock (use testing/synctest for timers).
@@ -7193,7 +7193,7 @@ type Scheduler struct {
 // append-only). Tx runs fn under one mutex.
 package memstore
 
-import "github.com/bothyhq/bothy/internal/core"
+import "github.com/rielicat/bothy/internal/core"
 
 func New() core.Store { return nil }
 
@@ -7202,7 +7202,7 @@ func New() core.Store { return nil }
 // lets tests inject inbound messages and button presses.
 package channeltest
 
-import "github.com/bothyhq/bothy/internal/core"
+import "github.com/rielicat/bothy/internal/core"
 
 type Channel struct {
 	core.Channel
@@ -7230,7 +7230,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 type Sandbox struct {
@@ -7257,7 +7257,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 type ToolCase struct {
@@ -7301,7 +7301,7 @@ package mockllm
 import (
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 type Rule struct {

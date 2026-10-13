@@ -80,7 +80,7 @@ See [SECURITY.md](SECURITY.md) to report a vulnerability.
 or Python tools, because there is no sandbox):
 
 ```sh
-docker run -d --name bothy -p 127.0.0.1:8080:8080 -v bothy_data:/data ghcr.io/bothyhq/bothy:0.1.0
+docker run -d --name bothy -p 127.0.0.1:8080:8080 -v bothy_data:/data ghcr.io/rielicat/bothy:0.1.0
 docker logs bothy 2>&1 | grep setup     # open the printed http://127.0.0.1:8080/setup#t=… URL
 ```
 
@@ -88,7 +88,7 @@ docker logs bothy 2>&1 | grep setup     # open the printed http://127.0.0.1:8080
 stdio servers, and optionally SearXNG for web search):
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/bothyhq/bothy/main/deploy/install.sh
+curl -fsSLO https://raw.githubusercontent.com/rielicat/bothy/main/deploy/install.sh
 sh install.sh --compose ~/bothy          # verifies checksums and Sigstore signatures
 cd ~/bothy && docker compose up -d       # add --profile search for SearXNG
 docker compose logs bothy | grep setup

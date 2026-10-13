@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 const (

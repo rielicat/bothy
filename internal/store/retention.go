@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/config"
 )
 
 const (

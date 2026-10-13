@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 var t0 = time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)

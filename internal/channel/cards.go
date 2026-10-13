@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // maxChatDiff is how much of a diff a chat card shows (SPEC §5.9); a longer

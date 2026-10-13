@@ -19,8 +19,8 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/gorilla/websocket"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 func TestRender(t *testing.T) {

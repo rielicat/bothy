@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // heartbeatOK is the reply that means "nothing needs the user's attention".

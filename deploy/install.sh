@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installs a signed Bothy release.
 #
-#   curl -fsSLO https://raw.githubusercontent.com/bothyhq/bothy/main/deploy/install.sh
+#   curl -fsSLO https://raw.githubusercontent.com/rielicat/bothy/main/deploy/install.sh
 #   sh install.sh                      # binary -> ~/.local/bin/bothy
 #   sh install.sh --compose ~/bothy    # also the pinned compose deployment
 #
@@ -17,7 +17,7 @@
 #   --skip-signature     checksums only, when cosign is unavailable (not recommended)
 set -eu
 
-REPO=bothyhq/bothy
+REPO=rielicat/bothy
 ISSUER=https://token.actions.githubusercontent.com
 
 version=${BOTHY_VERSION:-}

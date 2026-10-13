@@ -1,4 +1,4 @@
-module github.com/bothyhq/bothy
+module github.com/rielicat/bothy
 
 go 1.26.0
 

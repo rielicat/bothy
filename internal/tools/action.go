@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // decodeArgs strictly decodes a tool's JSON arguments; empty means {}.

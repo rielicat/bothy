@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/sandboxd/enginetest"
-	"github.com/bothyhq/bothy/internal/sandboxd/proto"
+	"github.com/rielicat/bothy/internal/sandboxd/enginetest"
+	"github.com/rielicat/bothy/internal/sandboxd/proto"
 )
 
 // A box registered after the reaper listed the containers is not in the list

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // auditRow has exported fields so diff can compare the times inside it.

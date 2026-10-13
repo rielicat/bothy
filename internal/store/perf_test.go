@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // TestConcurrentWriters: 200 goroutines writing at once never see

@@ -8,7 +8,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 const (

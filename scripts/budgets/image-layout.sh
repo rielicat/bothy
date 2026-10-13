@@ -3,7 +3,7 @@
 # baked directories with their owners and modes (named volumes copy them on
 # first mount, so they must be right in the image).
 #
-#   scripts/budgets/image-layout.sh ghcr.io/bothyhq/bothy:dev
+#   scripts/budgets/image-layout.sh ghcr.io/rielicat/bothy:dev
 set -euo pipefail
 
 image=${1:?usage: $0 <image>}

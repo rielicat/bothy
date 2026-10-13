@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 var _ core.ChannelHub = (*Hub)(nil)

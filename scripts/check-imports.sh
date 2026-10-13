@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-MOD=github.com/bothyhq/bothy
+MOD=github.com/rielicat/bothy
 fail=0
 err() {
 	echo "check-imports: $*" >&2

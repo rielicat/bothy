@@ -3,7 +3,7 @@ package catalog
 import (
 	"testing"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 func TestEmbeddedCatalogParses(t *testing.T) {

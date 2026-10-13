@@ -6,8 +6,8 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/testkit/channeltest"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/testkit/channeltest"
 )
 
 // memPlatform presents a channeltest.Channel as its own platform: injections

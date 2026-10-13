@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/testkit/fakes"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/testkit/fakes"
 )
 
 // scriptRunner is fakes.Runner that plays a scripted event sequence into

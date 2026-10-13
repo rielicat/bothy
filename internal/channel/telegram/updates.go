@@ -8,7 +8,7 @@ import (
 	"time"
 	"unicode/utf16"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 func chatKind(t string) (core.ChatKind, bool) {

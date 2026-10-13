@@ -15,7 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/slack-go/slack/socketmode"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 const (

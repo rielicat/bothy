@@ -6,7 +6,7 @@ we treat security reports as the most important issues we get.
 ## Reporting a vulnerability
 
 Report privately through GitHub: open
-[a private security advisory](https://github.com/bothyhq/bothy/security/advisories/new)
+[a private security advisory](https://github.com/rielicat/bothy/security/advisories/new)
 on this repository. Please do not open a public issue, pull request or
 discussion for a suspected vulnerability.
 
@@ -71,11 +71,11 @@ checks both; by hand:
 
 ```sh
 cosign verify-blob --bundle checksums.txt.sigstore.json \
-  --certificate-identity "https://github.com/bothyhq/bothy/.github/workflows/release.yml@refs/tags/v0.1.0" \
+  --certificate-identity "https://github.com/rielicat/bothy/.github/workflows/release.yml@refs/tags/v0.1.0" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   checksums.txt
 sha256sum --ignore-missing -c checksums.txt
-cosign verify ghcr.io/bothyhq/bothy:0.1.0 \
-  --certificate-identity "https://github.com/bothyhq/bothy/.github/workflows/release.yml@refs/tags/v0.1.0" \
+cosign verify ghcr.io/rielicat/bothy:0.1.0 \
+  --certificate-identity "https://github.com/rielicat/bothy/.github/workflows/release.yml@refs/tags/v0.1.0" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```

@@ -2,7 +2,7 @@
 
 package main
 
-import "github.com/bothyhq/bothy/internal/core"
+import "github.com/rielicat/bothy/internal/core"
 
 func setUmask() {}
 

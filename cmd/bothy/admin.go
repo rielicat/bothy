@@ -17,9 +17,9 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/bothyhq/bothy/internal/audit"
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/doctor"
+	"github.com/rielicat/bothy/internal/audit"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/doctor"
 )
 
 var errUsage = errors.New("usage")

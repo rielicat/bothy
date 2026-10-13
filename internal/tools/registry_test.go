@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/testkit/conformance"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/testkit/conformance"
 )
 
 // stub stands in for tools other modules own, with schemas of realistic size.

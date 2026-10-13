@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/httpapi/dto"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/httpapi/dto"
 )
 
 // cli runs one offline admin command against dataDir and returns its stdout,

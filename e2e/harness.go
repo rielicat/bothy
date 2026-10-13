@@ -24,9 +24,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/testkit/conformance"
-	"github.com/bothyhq/bothy/internal/testkit/mockllm"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/testkit/conformance"
+	"github.com/rielicat/bothy/internal/testkit/mockllm"
 )
 
 // Platform is a fake chat platform (an adapter's <name>test package) that the

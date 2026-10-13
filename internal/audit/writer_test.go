@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/store"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/store"
 )
 
 // TestWritersInTwoProcessesShareChain: a CLI process appends with its own

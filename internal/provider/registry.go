@@ -13,13 +13,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/config"
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/provider/anthropic"
-	"github.com/bothyhq/bothy/internal/provider/gemini"
-	"github.com/bothyhq/bothy/internal/provider/ollama"
-	"github.com/bothyhq/bothy/internal/provider/openai"
-	"github.com/bothyhq/bothy/internal/provider/wire"
+	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/provider/anthropic"
+	"github.com/rielicat/bothy/internal/provider/gemini"
+	"github.com/rielicat/bothy/internal/provider/ollama"
+	"github.com/rielicat/bothy/internal/provider/openai"
+	"github.com/rielicat/bothy/internal/provider/wire"
 )
 
 // secretTTL bounds how long a resolved key is reused. Re-resolving on every

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 var wildcardRE = regexp.MustCompile(`\{[a-z]+(\.\.\.)?\}`)

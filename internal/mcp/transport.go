@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // headerTransport adds vault-resolved headers to every request of one HTTP

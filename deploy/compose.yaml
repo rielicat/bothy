@@ -7,7 +7,7 @@ x-hardening: &hardening
 services:
   bothy:
     <<: *hardening
-    image: ghcr.io/bothyhq/bothy:0.1.0@sha256:<digest>
+    image: ghcr.io/rielicat/bothy:0.1.0@sha256:<digest>
     command: ["serve"]
     user: "65532:65532"
     group_add: ["10001"]                 # shared workspace group with tool boxes
@@ -25,7 +25,7 @@ services:
     # secrets: [bothy_kek]               # optional Docker secret KEK (/run/secrets/bothy_kek)
   sandboxd:
     <<: *hardening
-    image: ghcr.io/bothyhq/bothy:0.1.0@sha256:<digest>
+    image: ghcr.io/rielicat/bothy:0.1.0@sha256:<digest>
     command: ["sandboxd"]
     network_mode: none                   # sandboxd itself has no network
     user: "${SANDBOXD_USER:-65532:65532}"   # rootless Docker: set to the socket owner's uid:gid
@@ -34,7 +34,7 @@ services:
       BOTHY_SBX_ENGINE: unix:///var/run/docker.sock
       BOTHY_SBX_WORK_VOLUME: bothy_work
       BOTHY_SBX_RUN_VOLUME: bothy_run
-      BOTHY_SBX_IMAGES: "base=ghcr.io/bothyhq/bothy-sandbox:0.1.0@sha256:<d1>,node=ghcr.io/bothyhq/bothy-sandbox-node:0.1.0@sha256:<d2>"
+      BOTHY_SBX_IMAGES: "base=ghcr.io/rielicat/bothy-sandbox:0.1.0@sha256:<d1>,node=ghcr.io/rielicat/bothy-sandbox-node:0.1.0@sha256:<d2>"
       BOTHY_SBX_RUNTIME: auto            # auto | runsc | runc
       BOTHY_SBX_MAX_BOXES: "8"
       BOTHY_SBX_GATEWAY_UID: "65532"

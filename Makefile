@@ -4,7 +4,7 @@ SHELL := /bin/bash
 export CGO_ENABLED := 0
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-IMAGE ?= ghcr.io/bothyhq/bothy:dev
+IMAGE ?= ghcr.io/rielicat/bothy:dev
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
 # Go-installed tools are built with the repository toolchain; linters built

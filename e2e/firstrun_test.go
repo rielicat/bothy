@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/httpapi/dto"
-	"github.com/bothyhq/bothy/internal/testkit/mockllm"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/httpapi/dto"
+	"github.com/rielicat/bothy/internal/testkit/mockllm"
 )
 
 // TestFirstRun is E1: setup token -> owner -> provider test against mockllm

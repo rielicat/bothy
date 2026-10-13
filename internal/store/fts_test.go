@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 func searchKeys(t *testing.T, s core.Store, v core.Viewer, q string) map[string]bool {

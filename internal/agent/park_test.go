@@ -8,8 +8,8 @@ import (
 	"testing"
 	"testing/synctest"
 
-	"github.com/bothyhq/bothy/internal/core"
-	"github.com/bothyhq/bothy/internal/testkit/fakes"
+	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/testkit/fakes"
 )
 
 func (h *harness) scheduledReq(text string) core.RunRequest {

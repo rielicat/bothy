@@ -4,7 +4,7 @@ import (
 	"crypto/sha256"
 	"time"
 
-	"github.com/bothyhq/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/core"
 )
 
 func sum(s string) []byte {

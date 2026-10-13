@@ -10,7 +10,7 @@ import (
 	"github.com/elastic/go-seccomp-bpf/arch"
 	"golang.org/x/net/bpf"
 
-	"github.com/bothyhq/bothy/internal/sandboxd/proto"
+	"github.com/rielicat/bothy/internal/sandboxd/proto"
 )
 
 const key = "box_0123456789abcdefghjkmnpqrs"
