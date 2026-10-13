@@ -16,7 +16,7 @@ SSE store, markdown renderer, QR encoder, charts and icons are written here.
 | `npm run check` | `svelte-check` over `src/` and `mock/`, warnings fail |
 | `npm test` | vitest: unit, component and axe tests in jsdom against the fixture gateway |
 | `npm run preview:mock` | serves the built app with the fixture gateway and the gateway's CSP |
-| `npm run smoke` | Playwright against `preview:mock`: 360 px layout, keyboard-only approval, axe with contrast in light and dark, no CSP violations; `PLAYWRIGHT_CHROMIUM=<path>` uses a local Chromium |
+| `npm run smoke` | Playwright against `preview:mock`: 360 px layout, keyboard-only approval, axe with contrast in light and dark, no CSP violations, tabs sharing one event stream; `PLAYWRIGHT_CHROMIUM=<path>` uses a local Chromium |
 
 From the repository root, `make ui` installs and builds, `scripts/budgets/ui-size.sh`
 checks the gates, and `make ui-reset` restores the committed placeholder; run
