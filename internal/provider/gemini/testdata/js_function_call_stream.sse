@@ -1,0 +1,2 @@
+data: {"candidates":[{"content":{"parts":[{"functionCall":{"args":{"denominator":2,"numerator":100},"name":"customDivide"}}],"role":"model"},"finishReason":"STOP"}],"modelVersion":"gemini-2.0-flash","responseId":"xtSfaIRs8_Sf2Q-skYe5Dg","usageMetadata":{"candidatesTokenCount":6,"candidatesTokensDetails":[{"modality":"TEXT","tokenCount":6}],"promptTokenCount":21,"promptTokensDetails":[{"modality":"TEXT","tokenCount":21}],"totalTokenCount":27}}
+
