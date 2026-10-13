@@ -46,7 +46,7 @@ providers:                        # examples; the wizard writes these. api_key a
   - {id: openai, type: openai, base_url: "https://api.openai.com/v1", api_key: "secret:openai_api_key", enabled: false}
   - {id: gemini, type: gemini, api_key: "secret:gemini_api_key", enabled: false}
   - id: ollama
-    type: ollama                  # native /api/chat; num_ctx = models[].context
+    type: ollama                  # native /api/chat; num_ctx = models[].context, else min(trained, max(16384, served context from /api/ps))
     base_url: "http://host.docker.internal:11434"
     allow_private: true           # this exact host:port only; metadata IPs always blocked
     discover: true                # /api/tags + /api/show
