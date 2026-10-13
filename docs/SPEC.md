@@ -2917,7 +2917,7 @@ type ConfigChangedData struct {
 }
 type BannerData struct {
 	Level  string `json:"level"` // info | warn | error
-	Code   string `json:"code"`  // no_sandbox | sandbox_not_isolated | config_error | provider_auth | paused | mcp_pins | budget_80 | vault_sealed | safe_mode | restart_required | unknown_sender | skills_changed
+	Code   string `json:"code"`  // no_sandbox | sandbox_not_isolated | config_error | provider_auth | paused | mcp_pins | mcp_drifted | budget_80 | vault_sealed | safe_mode | restart_required | unknown_sender | skills_changed
 	Text   string `json:"text"`
 	Action string `json:"action,omitempty"` // SPA route, e.g. "/settings/sandbox"
 	Clear  bool   `json:"clear,omitempty"`  // true removes the banner with this Code
@@ -3299,7 +3299,9 @@ type Skills interface {
 	Load(ctx context.Context, name string) (body string, files []string, err error)
 	ReadFile(ctx context.Context, name, rel string) ([]byte, error) // os.Root confined, 256KB cap
 	List(ctx context.Context) ([]*SkillMeta, error)                 // all, for admins
-	SetEnabled(ctx context.Context, name string, on bool, by UserID) error
+	// SetEnabled with on approves the last scanned tree; hash, when non-empty,
+	// must equal the SkillMeta.Hash the admin reviewed, otherwise ErrConflict.
+	SetEnabled(ctx context.Context, name string, on bool, hash string, by UserID) error
 	Install(ctx context.Context, zip io.ReaderAt, size int64, by UserID) (*SkillMeta, error) // status pending; never executes anything
 	Remove(ctx context.Context, name string, by UserID) error
 	Rescan(ctx context.Context) error // hash drift => status changed
@@ -3323,6 +3325,9 @@ type MCPToolApproval struct {
 	FieldMap   map[string]string `json:"field_map,omitempty"`
 	Private    bool              `json:"private"`
 	Disable    bool              `json:"disable,omitempty"` // true => pin status disabled (MCPRepo.DisableTool); other fields ignored
+	// Hash is the definition hash the admin reviewed. When set, Approve fails
+	// with ErrConflict unless it is still the tool's latest pin.
+	Hash string `json:"hash,omitempty"`
 }
 
 type MCP interface {
@@ -3514,7 +3519,7 @@ Web (`POST /api/sessions/{id}/messages`) and API (`/v1/chat/completions`) skip s
 | 8K–16K | degraded | short | ≤ 5: `shell`, `fs_read`, `fs_write`, `web_search`, `memory` | none | 500 tok | 0.55 | 1024 |
 | < 8K | text-only | short | none (banner "model too small for tools") | none | — | 0.55 | 1024 |
 
-  Standard core set: `fs_read`, `fs_write`, `fs_list`, `shell`, `python`, `web_fetch`, `web_search`, `memory`, `session_search`, `message` (only when the run has a chat), `skill_load` (when any skill is enabled), `tool_search`, `use_tool`. Always lazy (reached via `tool_search`/`use_tool`): `fs_delete`, `net_allow`, `skill_read`, `schedule_*`, every MCP tool unless config pins it. Tools filtered out by sandbox state, trigger, role or principal kind are absent from both.
+  Standard core set: `fs_read`, `fs_write`, `fs_list`, `shell`, `python`, `web_fetch`, `web_search`, `memory`, `session_search`, `message` (only when the run has a chat), `skill_load` (when any skill is enabled), `tool_search`, `use_tool`. Always lazy (reached via `tool_search`/`use_tool`): `fs_delete`, `net_allow`, `skill_read`, `schedule_*`, every MCP tool unless its server's `core` globs pin it. Tools filtered out by sandbox state, trigger, role or principal kind are absent from both.
 
   Acceptance: a 16K model's assembled prompt never exceeds window − reserve (§12, M3).
 
@@ -4416,6 +4421,7 @@ mcp:
       side_effects: {default: local_write, "read_*": read, "list_*": read}
       private: ["read_*"]         # outputs that count as private data
       trusted_output: true
+      core: []                    # tool globs pinned into the core tools block; every other MCP tool is lazy
 
 memory: {memory_max_bytes: 4096, user_max_bytes: 2048, heartbeat_max_bytes: 2048, tainted_writes: ask}   # tainted_writes LOCKED: ask | deny
 skills: {dir: "", index_budget_tokens: 600}                                   # "" = <work_dir>/skills
@@ -4795,6 +4801,7 @@ type MCPServer struct {
 	SideEffects   map[string]string `yaml:"side_effects"` // glob -> class; "default" key
 	Private       []string          `yaml:"private"`      // tool globs whose output is private data
 	TrustedOutput bool              `yaml:"trusted_output"`
+	Core          []string          `yaml:"core"` // tool globs pinned into the core tools block (default: lazy)
 }
 
 type MCPPackage struct {
@@ -5396,7 +5403,8 @@ type SkillDetail struct {
 }
 
 type SkillPatchReq struct {
-	Enabled bool `json:"enabled"`
+	Enabled bool   `json:"enabled"`
+	Hash    string `json:"hash,omitempty"` // SkillMeta.Hash of the reviewed files
 }
 
 type SchedulePreviewReq struct {

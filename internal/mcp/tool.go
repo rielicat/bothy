@@ -78,6 +78,7 @@ func newTool(m *Manager, s *serverSpec, p *core.MCPPin) (*tool, error) {
 		m: m, server: s.name, name: p.Tool, hash: p.Hash, class: class, fieldMap: maps.Clone(p.FieldMap), trusted: s.trustedOutput,
 		spec: core.ToolSpec{Def: td, Source: source(s.name), Hash: hex.EncodeToString(sum[:]), Manifest: core.Manifest{
 			Title: "MCP " + s.name + ": " + title, SideEffect: class, Secrets: secretNames(s.headers), Taint: taint,
+			Core: s.pinnedCore(p.Tool),
 		}},
 	}, nil
 }

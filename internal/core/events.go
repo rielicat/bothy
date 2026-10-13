@@ -155,7 +155,7 @@ type ConfigChangedData struct {
 }
 type BannerData struct {
 	Level  string `json:"level"` // info | warn | error
-	Code   string `json:"code"`  // no_sandbox | sandbox_not_isolated | config_error | provider_auth | paused | mcp_pins | budget_80 | vault_sealed | safe_mode | restart_required | unknown_sender | skills_changed
+	Code   string `json:"code"`  // no_sandbox | sandbox_not_isolated | config_error | provider_auth | paused | mcp_pins | mcp_drifted | budget_80 | vault_sealed | safe_mode | restart_required | unknown_sender | skills_changed
 	Text   string `json:"text"`
 	Action string `json:"action,omitempty"` // SPA route, e.g. "/settings/sandbox"
 	Clear  bool   `json:"clear,omitempty"`  // true removes the banner with this Code

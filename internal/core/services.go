@@ -50,7 +50,9 @@ type Skills interface {
 	Load(ctx context.Context, name string) (body string, files []string, err error)
 	ReadFile(ctx context.Context, name, rel string) ([]byte, error) // os.Root confined, 256KB cap
 	List(ctx context.Context) ([]*SkillMeta, error)                 // all, for admins
-	SetEnabled(ctx context.Context, name string, on bool, by UserID) error
+	// SetEnabled with on approves the last scanned tree; hash, when non-empty,
+	// must equal the SkillMeta.Hash the admin reviewed, otherwise ErrConflict.
+	SetEnabled(ctx context.Context, name string, on bool, hash string, by UserID) error
 	Install(ctx context.Context, zip io.ReaderAt, size int64, by UserID) (*SkillMeta, error) // status pending; never executes anything
 	Remove(ctx context.Context, name string, by UserID) error
 	Rescan(ctx context.Context) error // hash drift => status changed
@@ -74,6 +76,9 @@ type MCPToolApproval struct {
 	FieldMap   map[string]string `json:"field_map,omitempty"`
 	Private    bool              `json:"private"`
 	Disable    bool              `json:"disable,omitempty"` // true => pin status disabled (MCPRepo.DisableTool); other fields ignored
+	// Hash is the definition hash the admin reviewed. When set, Approve fails
+	// with ErrConflict unless it is still the tool's latest pin.
+	Hash string `json:"hash,omitempty"`
 }
 
 type MCP interface {

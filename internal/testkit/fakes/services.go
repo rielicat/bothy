@@ -213,7 +213,7 @@ func (m *Memory) Purge(_ context.Context, p core.PrincipalID) error {
 
 // Skills serves Metas and Bodies; Files holds each skill's extra files by
 // relative path. Index lists enabled skills whose Hash equals ApprovedHash.
-// SetEnabled approves the current hash.
+// SetEnabled approves the current hash; a non-empty reviewed hash must match it.
 type Skills struct {
 	core.Skills
 	Metas  []core.SkillMeta
@@ -275,13 +275,16 @@ func (s *Skills) List(context.Context) ([]*core.SkillMeta, error) {
 	return out, nil
 }
 
-func (s *Skills) SetEnabled(_ context.Context, name string, on bool, by core.UserID) error {
+func (s *Skills) SetEnabled(_ context.Context, name string, on bool, hash string, by core.UserID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := range s.Metas {
 		m := &s.Metas[i]
 		if m.Name != name {
 			continue
+		}
+		if on && hash != "" && hash != m.Hash {
+			return fmt.Errorf("skill %q: %w: reviewed hash is stale", name, core.ErrConflict)
 		}
 		m.Status = core.SkillDisabled
 		if on {

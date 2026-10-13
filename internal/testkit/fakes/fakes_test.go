@@ -1075,7 +1075,7 @@ func TestSkills(t *testing.T) {
 	if b, err := s.ReadFile(ctx, "pdf", "scripts/x.py"); err != nil || string(b) != "print()" {
 		t.Fatalf("ReadFile = %q %v", b, err)
 	}
-	if err := s.SetEnabled(ctx, "new", true, "usr_admin"); err != nil {
+	if err := s.SetEnabled(ctx, "new", true, "", "usr_admin"); err != nil {
 		t.Fatal(err)
 	}
 	if idx := s.Index(ctx); len(idx) != 2 || idx[0].Name != "new" || idx[0].ApprovedBy != "usr_admin" {
@@ -1087,7 +1087,7 @@ func TestSkills(t *testing.T) {
 	if l, _ := s.List(ctx); len(l) != 2 || l[0].Name != "drift" {
 		t.Fatalf("List = %+v", l)
 	}
-	if err := s.SetEnabled(ctx, "pdf", true, ""); !errors.Is(err, core.ErrNotFound) {
+	if err := s.SetEnabled(ctx, "pdf", true, "", ""); !errors.Is(err, core.ErrNotFound) {
 		t.Fatalf("SetEnabled removed = %v", err)
 	}
 }

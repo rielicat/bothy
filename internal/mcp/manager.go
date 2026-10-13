@@ -365,6 +365,9 @@ func (m *Manager) Approve(ctx context.Context, name string, tools map[string]cor
 			detail[tool] = map[string]any{"disable": true, "hash": p.Hash}
 			continue
 		}
+		if a.Hash != "" && a.Hash != p.Hash {
+			return fmt.Errorf("mcp tool %s/%s: %w: the definition changed after it was reviewed", name, tool, core.ErrConflict)
+		}
 		se := a.SideEffect
 		if se == 0 {
 			se = p.SideEffect

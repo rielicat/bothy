@@ -340,6 +340,7 @@ type MCPServer struct {
 	SideEffects   map[string]string `yaml:"side_effects"` // glob -> class; "default" key
 	Private       []string          `yaml:"private"`      // tool globs whose output is private data
 	TrustedOutput bool              `yaml:"trusted_output"`
+	Core          []string          `yaml:"core"` // tool globs pinned into the core tools block (default: lazy)
 }
 
 type MCPPackage struct {

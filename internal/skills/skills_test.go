@@ -122,7 +122,7 @@ func TestScanEnableAndIndex(t *testing.T) {
 		}
 	}
 
-	if err := l.SetEnabled(ctx, "pdf", true, admin); err != nil {
+	if err := l.SetEnabled(ctx, "pdf", true, "", admin); err != nil {
 		t.Fatal(err)
 	}
 	idx := l.Index(ctx)
@@ -140,13 +140,13 @@ func TestScanEnableAndIndex(t *testing.T) {
 		t.Fatalf("audit = %v, want skill.enable", got)
 	}
 
-	if err := l.SetEnabled(ctx, "pdf", false, admin); err != nil {
+	if err := l.SetEnabled(ctx, "pdf", false, "", admin); err != nil {
 		t.Fatal(err)
 	}
 	if len(l.Index(ctx)) != 0 || status(t, l, "pdf") != core.SkillDisabled {
 		t.Fatal("disabled skill still indexed")
 	}
-	if err := l.SetEnabled(ctx, "nope", true, admin); !errors.Is(err, core.ErrNotFound) {
+	if err := l.SetEnabled(ctx, "nope", true, "", admin); !errors.Is(err, core.ErrNotFound) {
 		t.Fatalf("SetEnabled(unknown) = %v", err)
 	}
 }
@@ -161,7 +161,7 @@ func TestIndexDegradesToNamesOverBudget(t *testing.T) {
 	l := f.open(t)
 	ctx := context.Background()
 	for _, n := range names {
-		if err := l.SetEnabled(ctx, n, true, admin); err != nil {
+		if err := l.SetEnabled(ctx, n, true, "", admin); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -376,7 +376,7 @@ func TestInstallCommandSkillNeverExecutes(t *testing.T) {
 	if _, err := install(l, makeZip(t, []zipEntry{{name: "SKILL.md", body: md}, {name: "install.sh", body: "#!/bin/sh\nrm -rf /\n", mode: 0o755}})); err != nil {
 		t.Fatal(err)
 	}
-	if err := l.SetEnabled(ctx, "setup", true, admin); err != nil {
+	if err := l.SetEnabled(ctx, "setup", true, "", admin); err != nil {
 		t.Fatal(err)
 	}
 	if err := l.Rescan(ctx); err != nil {
@@ -418,7 +418,7 @@ func TestHashDriftExcludesAndRaisesBanner(t *testing.T) {
 	writeSkill(t, f.dir, "notes", "Take notes.", "Write notes.\n", map[string]string{"tpl.md": "v1"})
 	l := f.open(t)
 	ctx := context.Background()
-	if err := l.SetEnabled(ctx, "notes", true, admin); err != nil {
+	if err := l.SetEnabled(ctx, "notes", true, "", admin); err != nil {
 		t.Fatal(err)
 	}
 	if len(l.Checks()[0].Run(ctx)) != 0 {
@@ -466,7 +466,7 @@ func TestHashDriftExcludesAndRaisesBanner(t *testing.T) {
 		t.Fatalf("banner not cleared: %+v", b)
 	}
 
-	if err := l.SetEnabled(ctx, "notes", true, admin); err != nil {
+	if err := l.SetEnabled(ctx, "notes", true, "", admin); err != nil {
 		t.Fatal(err)
 	}
 	if idx := l.Index(ctx); len(idx) != 1 {
@@ -479,7 +479,7 @@ func TestDriftDetectedAtUse(t *testing.T) {
 	writeSkill(t, f.dir, "notes", "Take notes.", "v1", nil)
 	l := f.open(t)
 	ctx := context.Background()
-	if err := l.SetEnabled(ctx, "notes", true, admin); err != nil {
+	if err := l.SetEnabled(ctx, "notes", true, "", admin); err != nil {
 		t.Fatal(err)
 	}
 	writeSkill(t, f.dir, "notes", "Take notes.", "v2", nil)
@@ -556,7 +556,7 @@ func TestToolsConformance(t *testing.T) {
 	f := newFixture(t, 600)
 	writeSkill(t, f.dir, "pdf", "PDF.", "body", map[string]string{"a.md": "a"})
 	l := f.open(t)
-	if err := l.SetEnabled(context.Background(), "pdf", true, admin); err != nil {
+	if err := l.SetEnabled(context.Background(), "pdf", true, "", admin); err != nil {
 		t.Fatal(err)
 	}
 	tools := l.Tools()
@@ -594,7 +594,7 @@ func TestEnableRefusesRenamedSkill(t *testing.T) {
 	writeSkill(t, f.dir, "notes", "Take notes.", "v1", nil)
 	l := f.open(t)
 	ctx := context.Background()
-	if err := l.SetEnabled(ctx, "notes", true, admin); err != nil {
+	if err := l.SetEnabled(ctx, "notes", true, "", admin); err != nil {
 		t.Fatal(err)
 	}
 	md := "---\nname: pdf\ndescription: Now pretends to be another skill.\n---\nv2"
@@ -604,7 +604,7 @@ func TestEnableRefusesRenamedSkill(t *testing.T) {
 	if err := l.Rescan(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := l.SetEnabled(ctx, "notes", true, admin); !errors.Is(err, core.ErrInvalid) {
+	if err := l.SetEnabled(ctx, "notes", true, "", admin); !errors.Is(err, core.ErrInvalid) {
 		t.Fatalf("SetEnabled of a renamed skill = %v, want ErrInvalid", err)
 	}
 	if st := status(t, l, "notes"); st != core.SkillChanged {
@@ -619,7 +619,7 @@ func TestMarkChangedRespectsNewerApproval(t *testing.T) {
 	writeSkill(t, f.dir, "notes", "Take notes.", "v1", nil)
 	l := f.open(t)
 	ctx := context.Background()
-	if err := l.SetEnabled(ctx, "notes", true, admin); err != nil {
+	if err := l.SetEnabled(ctx, "notes", true, "", admin); err != nil {
 		t.Fatal(err)
 	}
 	s, err := l.store.Skills().Get(ctx, "notes")
@@ -643,7 +643,7 @@ func TestEnableRefusesFilesChangedSinceScan(t *testing.T) {
 	l := f.open(t)
 	ctx := context.Background()
 	writeSkill(t, f.dir, "notes", "Take notes.", "swapped after review", nil)
-	if err := l.SetEnabled(ctx, "notes", true, admin); !errors.Is(err, core.ErrConflict) {
+	if err := l.SetEnabled(ctx, "notes", true, "", admin); !errors.Is(err, core.ErrConflict) {
 		t.Fatalf("SetEnabled after an unscanned change = %v, want ErrConflict", err)
 	}
 	if st := status(t, l, "notes"); st != core.SkillPending {
@@ -652,7 +652,35 @@ func TestEnableRefusesFilesChangedSinceScan(t *testing.T) {
 	if err := l.Rescan(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := l.SetEnabled(ctx, "notes", true, admin); err != nil {
+	if err := l.SetEnabled(ctx, "notes", true, "", admin); err != nil {
 		t.Fatalf("SetEnabled after a rescan = %v", err)
+	}
+}
+
+// A rescan between the admin's review and the approval must not approve
+// files the admin never saw: the reviewed hash pins the approval.
+func TestEnableRefusesStaleReviewedHash(t *testing.T) {
+	f := newFixture(t, 600)
+	writeSkill(t, f.dir, "notes", "Take notes.", "reviewed", nil)
+	l := f.open(t)
+	ctx := context.Background()
+	s, err := l.store.Skills().Get(ctx, "notes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewed := s.Hash
+	writeSkill(t, f.dir, "notes", "Take notes.", "swapped after review", nil)
+	if err := l.Rescan(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.SetEnabled(ctx, "notes", true, reviewed, admin); !errors.Is(err, core.ErrConflict) {
+		t.Fatalf("SetEnabled with a stale reviewed hash = %v, want ErrConflict", err)
+	}
+	s, err = l.store.Skills().Get(ctx, "notes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := l.SetEnabled(ctx, "notes", true, s.Hash, admin); err != nil {
+		t.Fatalf("SetEnabled with the current hash = %v", err)
 	}
 }

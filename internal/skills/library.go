@@ -269,7 +269,7 @@ func (l *Library) List(ctx context.Context) ([]*core.SkillMeta, error) {
 
 // SetEnabled approves the skill's current files (on) or disables it (off).
 // Enabling re-hashes the tree and pins that hash as approved.
-func (l *Library) SetEnabled(ctx context.Context, name string, on bool, by core.UserID) error {
+func (l *Library) SetEnabled(ctx context.Context, name string, on bool, hash string, by core.UserID) error {
 	if !validName(name) {
 		return fmt.Errorf("skill %q: %w", name, core.ErrNotFound)
 	}
@@ -282,6 +282,9 @@ func (l *Library) SetEnabled(ctx context.Context, name string, on bool, by core.
 	now := l.clock.Now()
 	action := "skill.disable"
 	if on {
+		if hash != "" && hash != s.Hash {
+			return fmt.Errorf("skill %s: %w: it was rescanned after the review; review it again", name, core.ErrConflict)
+		}
 		root, err := l.openSkill(name)
 		if err != nil {
 			return err

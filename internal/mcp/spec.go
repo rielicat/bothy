@@ -47,12 +47,13 @@ type serverSpec struct {
 	workspace     bool
 	sideEffects   map[string]string
 	private       []string
+	core          []string
 	trustedOutput bool
 }
 
 func newServerSpec(c config.MCPServer) (*serverSpec, error) {
 	s := &serverSpec{raw: c, name: c.Name, transport: c.Transport, enabled: c.Enabled == nil || *c.Enabled,
-		allowPrivate: c.AllowPrivate, headers: c.Headers, sideEffects: c.SideEffects, private: c.Private,
+		allowPrivate: c.AllowPrivate, headers: c.Headers, sideEffects: c.SideEffects, private: c.Private, core: c.Core,
 		trustedOutput: c.TrustedOutput, workspace: c.Workspace == "principal"}
 	if !serverNameRe.MatchString(c.Name) {
 		return nil, fmt.Errorf("invalid server name %q", c.Name)
@@ -207,6 +208,11 @@ func (s *serverSpec) suggestedClass(tool string, def *toolDefinition) core.SideE
 // privateOutput reports whether config marks the tool's output as private.
 func (s *serverSpec) privateOutput(tool string) bool {
 	return slices.ContainsFunc(s.private, func(g string) bool { return globMatch(g, tool) })
+}
+
+// pinnedCore reports whether config pins the tool into the core tools block.
+func (s *serverSpec) pinnedCore(tool string) bool {
+	return slices.ContainsFunc(s.core, func(g string) bool { return globMatch(g, tool) })
 }
 
 func (s *serverSpec) installTree(id string) string { return "mcp/" + s.name + "/" + id }

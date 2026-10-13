@@ -540,3 +540,47 @@ func TestConfigReloadAddsAndRemovesServers(t *testing.T) {
 		return len(st) == 1 && st[0].Name == "other" && st[0].State == stPinsPending
 	})
 }
+
+// Config core globs pin matching approved tools into the core tools block.
+func TestCoreGlobsPinTools(t *testing.T) {
+	f := newFakeServer()
+	ts := f.httpServer(t, false)
+	cfg := httpServerCfg("docs", ts.URL)
+	cfg.Core = []string{"sea*"}
+	h := newHarness(t, []config.MCPServer{cfg}, withClient(ts.Client()))
+	h.start()
+	h.approve("docs", map[string]core.MCPToolApproval{"search": {SideEffect: core.SERead}, "block": {SideEffect: core.SERead}})
+	if !h.tool("mcp__docs__search").Spec().Manifest.Core {
+		t.Error("search not pinned to core")
+	}
+	if h.tool("mcp__docs__block").Spec().Manifest.Core {
+		t.Error("block pinned to core without a matching glob")
+	}
+}
+
+// Approve with a reviewed hash refuses a definition that changed since.
+func TestApproveReviewedHash(t *testing.T) {
+	f := newFakeServer()
+	ts := f.httpServer(t, false)
+	h := newHarness(t, []config.MCPServer{httpServerCfg("docs", ts.URL)}, withClient(ts.Client()))
+	h.start()
+	pins, err := h.m.Pins(context.Background(), "docs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reviewed string
+	for _, p := range pins {
+		if p.Tool == "search" {
+			reviewed = p.Hash
+		}
+	}
+	err = h.m.Approve(context.Background(), "docs", map[string]core.MCPToolApproval{"search": {SideEffect: core.SERead, Hash: "stale"}}, admin)
+	if !errors.Is(err, core.ErrConflict) {
+		t.Fatalf("Approve with a stale hash = %v, want ErrConflict", err)
+	}
+	if names := h.toolNames(); len(names) != 0 {
+		t.Fatalf("stale approval exposed %v", names)
+	}
+	h.approve("docs", map[string]core.MCPToolApproval{"search": {SideEffect: core.SERead, Hash: reviewed}})
+	h.tool("mcp__docs__search")
+}

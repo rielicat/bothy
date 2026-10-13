@@ -207,7 +207,8 @@ type SkillDetail struct {
 }
 
 type SkillPatchReq struct {
-	Enabled bool `json:"enabled"`
+	Enabled bool   `json:"enabled"`
+	Hash    string `json:"hash,omitempty"` // SkillMeta.Hash of the reviewed files
 }
 
 type SchedulePreviewReq struct {

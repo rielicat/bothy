@@ -759,6 +759,11 @@ func validateMCP(c *Config, v *vctx) {
 				v.addAt(base+".private", i, "invalid glob %q", g)
 			}
 		}
+		for i, g := range s.Core {
+			if g == "" || !validGlob(g) {
+				v.addAt(base+".core", i, "invalid glob %q", g)
+			}
+		}
 	}
 }
 

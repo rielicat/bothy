@@ -7,7 +7,7 @@ read-only at `/skills` in every box), parses the YAML frontmatter (`name`,
 pins each skill to a `treehash` of its directory. New skills are `pending`
 until an admin enables them; enabling pins the hash recorded by the last scan
 or install as approved (files changed since then must be rescanned and
-reviewed first). Any later drift, found by `Rescan`, `Index`,
+reviewed first), and a non-empty reviewed hash must still be that hash. Any later drift, found by `Rescan`, `Index`,
 `skill_load`/`skill_read` or the doctor check, moves an enabled skill to
 `changed`: it is excluded, audited as `skill.changed`, and the
 `skills_changed` banner is raised until it is re-enabled or disabled.
