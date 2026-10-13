@@ -393,8 +393,12 @@ func TestAllowOnceEndsWithTheToolCall(t *testing.T) {
 	if n := len(e.apr.All()); n != 1 {
 		t.Fatalf("approvals = %d, want no card once the tool call ended", n)
 	}
-	if r := e.records(2)[1]; r.Run != b.Run || r.Decision != "deny" {
-		t.Fatalf("record after unbind = %+v, want a denial logged against the run", r)
+	// The allowed tunnel is logged when it closes, which can be after the
+	// refused CONNECT, so the denial is looked up rather than indexed.
+	recs := e.records(2)
+	i := slices.IndexFunc(recs, func(r core.EgressRecord) bool { return r.Decision == "deny" })
+	if i < 0 || recs[i].Run != b.Run {
+		t.Fatalf("records after unbind = %+v, want a denial logged against the run", recs)
 	}
 
 	// A late Unbind of an earlier call leaves the current call bound.
