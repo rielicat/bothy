@@ -545,10 +545,18 @@ func TestCanaryKeyIsReserved(t *testing.T) {
 	}
 }
 
+// workingComposeFix: deploy/compose.yaml keeps digest placeholders and an
+// install.sh deployment has no deploy/ directory, so a fix pointing at it
+// fails everywhere; the README / install.sh compose flow works.
+func workingComposeFix(fix string) bool {
+	return !strings.Contains(fix, "deploy/compose.yaml") && strings.Contains(fix, "install.sh --compose")
+}
+
 func TestSandboxdUnreachable(t *testing.T) {
 	e, _ := newEnv(t, opts{})
 	st := e.c.Status(context.Background())
-	if st.Available || st.Backend != "sandboxd" || !strings.Contains(st.Reason, "not reachable") || st.Fix == "" {
+	if st.Available || st.Backend != "sandboxd" || !strings.Contains(st.Reason, "not reachable") ||
+		strings.Contains(st.Fix, "deploy/compose.yaml") || !strings.Contains(st.Fix, "docker compose logs sandboxd") {
 		t.Fatalf("status = %+v", st)
 	}
 	if !strings.Contains(e.banners()["no_sandbox"].Text, "not reachable") {
@@ -693,7 +701,7 @@ func TestChecks(t *testing.T) {
 		t.Fatal("bwrap_limits outside bwrap")
 	}
 	set(core.SandboxStatus{Backend: "bwrap", Available: true, Runtime: "bwrap"})
-	if f := findings(t, e.c, "sandbox.bwrap_limits"); len(f) != 1 || f[0].Severity != core.SevLow || !f[0].Security {
+	if f := findings(t, e.c, "sandbox.bwrap_limits"); len(f) != 1 || f[0].Severity != core.SevLow || !f[0].Security || !workingComposeFix(f[0].Fix) {
 		t.Fatalf("bwrap_limits = %+v", f)
 	}
 
@@ -704,10 +712,10 @@ func TestChecks(t *testing.T) {
 	}
 
 	set(core.SandboxStatus{Backend: "sandboxd", Reason: "cannot access /var/run/docker.sock (owner uid 0 gid 998, mode 0660)",
-		Fix:      "Set DOCKER_GID=998 in deploy/.env and run: docker compose up -d",
+		Fix:      "Set DOCKER_GID=998 in the .env next to compose.yaml and run: docker compose up -d",
 		SelfTest: []core.SelfTestCheck{{Name: proto.CheckEngine, Detail: "cannot access /var/run/docker.sock (owner uid 0 gid 998, mode 0660)"}}})
 	f := findings(t, e.c, "docker.socket_access")
-	if len(f) != 1 || f[0].Fix != "Set DOCKER_GID=998 in deploy/.env and run: docker compose up -d" || f[0].Severity != core.SevMedium {
+	if len(f) != 1 || f[0].Fix != "Set DOCKER_GID=998 in the .env next to compose.yaml and run: docker compose up -d" || f[0].Severity != core.SevMedium {
 		t.Fatalf("socket_access = %+v", f)
 	}
 	if len(findings(t, e.c, "sandbox.unavailable")) != 1 {

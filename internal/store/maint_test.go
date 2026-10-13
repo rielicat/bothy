@@ -301,7 +301,8 @@ func TestChecks(t *testing.T) {
 	if _, ok := fs["sqlite.version"]; ok {
 		t.Error("sqlite.version fired on a supported SQLite")
 	}
-	if f, ok := fs["backups.none_recent"]; !ok || f.Severity != core.SevLow {
+	// The distroless image has no bothy on PATH: the container form names /bothy.
+	if f, ok := fs["backups.none_recent"]; !ok || f.Severity != core.SevLow || !strings.Contains(f.Fix, "docker compose exec bothy /bothy backup") {
 		t.Errorf("backups.none_recent = %+v", f)
 	}
 	if runtime.GOOS != "windows" {
@@ -323,7 +324,8 @@ func TestChecks(t *testing.T) {
 			t.Fatal(err)
 		}
 		f, ok := findings(t, db)["data.permissions"]
-		if !ok || f.Severity != core.SevHigh || !f.Security || !f.AutoFix || !strings.Contains(f.Detail, "SOUL.md") || strings.Contains(f.Detail, "ws_a") {
+		if !ok || f.Severity != core.SevHigh || !f.Security || !f.AutoFix || !strings.Contains(f.Detail, "SOUL.md") || strings.Contains(f.Detail, "ws_a") ||
+			!strings.Contains(f.Fix, "docker compose exec bothy /bothy security-audit --fix") {
 			t.Fatalf("data.permissions = %+v", f)
 		}
 		for _, c := range db.Checks() {

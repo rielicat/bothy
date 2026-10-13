@@ -19,7 +19,7 @@ func resolveDirs(c *Config, mt mounts) Dirs {
 		d.Data = "/data"
 	}
 	if d.Run == "" {
-		d.Run = "/run/bothy"
+		d.Run = defaultRunDir
 	}
 	if d.Work == "" {
 		d.Work = filepath.Join(d.Data, "work")
@@ -39,6 +39,27 @@ func resolveDirs(c *Config, mt mounts) Dirs {
 		d.KeyfileColocated = mt.mountOf(d.Data) == mt.mountOf(d.Keyfile)
 	}
 	return d
+}
+
+const defaultRunDir = "/run/bothy"
+
+// resolveRunDir keeps the default /run/bothy where it exists (the images
+// create it, compose mounts the run volume there). A native install cannot
+// create it as an unprivileged user, so it gets $XDG_RUNTIME_DIR/bothy, else
+// <data_dir>/run. An explicit run_dir is kept as is.
+func resolveRunDir(run, data string, getenv func(string) string, isDir func(string) bool) string {
+	if run != defaultRunDir || isDir(run) {
+		return run
+	}
+	if x := getenv("XDG_RUNTIME_DIR"); filepath.IsAbs(x) {
+		return filepath.Join(x, "bothy")
+	}
+	return filepath.Join(data, "run")
+}
+
+func isDir(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
 }
 
 // within is the "same volume" guess when no mount table is available.

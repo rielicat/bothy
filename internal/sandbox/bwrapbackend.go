@@ -21,9 +21,12 @@ type bwrapBackend struct {
 	jails map[string]bwrap.Jail
 }
 
-func newBwrapBackend(ctx context.Context, work, run string) *bwrapBackend {
+// bwrapProbe is bwrap.Probe; tests stand in for hosts with bubblewrap.
+type bwrapProbe func(ctx context.Context) (bwrap.Options, string, []core.SelfTestCheck, error)
+
+func newBwrapBackend(ctx context.Context, probe bwrapProbe, work, run string) *bwrapBackend {
 	b := &bwrapBackend{jails: map[string]bwrap.Jail{}}
-	o, version, checks, err := bwrap.Probe(ctx)
+	o, version, checks, err := probe(ctx)
 	b.st = core.SandboxStatus{Backend: "bwrap", Runtime: "bwrap", Engine: version, SelfTest: checks}
 	if err != nil {
 		b.st.Reason = err.Error()
@@ -33,6 +36,12 @@ func newBwrapBackend(ctx context.Context, work, run string) *bwrapBackend {
 		}
 		return b
 	}
+	if err := prepareRunDir(run); err != nil {
+		b.st.SelfTest = append(b.st.SelfTest, core.SelfTestCheck{Name: "run_dir", Detail: err.Error()})
+		b.st.Reason, b.st.Fix = err.Error(), runDirFix
+		return b
+	}
+	b.st.SelfTest = append(b.st.SelfTest, core.SelfTestCheck{Name: "run_dir", OK: true, Detail: run})
 	o.WorkDir, o.RunDir = work, run
 	jailer, err := bwrap.New(o, version)
 	if err != nil {

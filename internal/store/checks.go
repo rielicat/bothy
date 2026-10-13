@@ -116,7 +116,7 @@ func (db *DB) checkPermissions(context.Context) []core.Finding {
 		ID: "data.permissions", Area: "data", Severity: core.SevHigh, Security: true, AutoFix: true,
 		Title:  "Data files are readable by other users",
 		Detail: detail,
-		Fix:    "bothy security-audit --fix",
+		Fix:    "bothy security-audit --fix (Docker: docker compose exec bothy /bothy security-audit --fix)",
 	}}
 }
 
@@ -170,6 +170,6 @@ func (db *DB) checkBackups(context.Context) []core.Finding {
 		ID: "backups.none_recent", Area: "backups", Severity: core.SevLow,
 		Title:  "No recent backup",
 		Detail: detail,
-		Fix:    "bothy backup",
+		Fix:    "bothy backup (Docker: docker compose exec bothy /bothy backup)",
 	}}
 }

@@ -165,6 +165,10 @@ func TestSafeModeGating(t *testing.T) {
 		if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "safe mode") {
 			t.Errorf("%s: %d %s, want 503 safe mode", rt.pattern, rec.Code, rec.Body.String())
 		}
+		// The distroless image has no bothy on PATH: the fix names /bothy too.
+		if strings.HasPrefix(path, "/api/") && !strings.Contains(rec.Body.String(), "docker compose exec bothy /bothy config check") {
+			t.Errorf("%s: fix in %s", rt.pattern, rec.Body.String())
+		}
 	}
 	// Unknown /api paths and the SPA still behave normally.
 	expect(t, h.do("GET", "/", nil, nil), http.StatusOK)

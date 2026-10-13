@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -566,6 +567,31 @@ func TestResolveDirs(t *testing.T) {
 	c.Storage.WorkDir, c.Vault.Keyfile = "/w", "/k/kek"
 	if d = resolveDirs(c, mounts{"/", "/k"}); d.Work != "/w" || d.Keyfile != "/k/kek" || d.KeyfileColocated {
 		t.Fatalf("explicit: %+v", d)
+	}
+}
+
+// A native install cannot create /run/bothy as an unprivileged user, so the
+// default falls back to a directory the gateway can create.
+func TestResolveRunDir(t *testing.T) {
+	env := func(kv map[string]string) func(string) string { return func(k string) string { return kv[k] } }
+	dirs := func(ds ...string) func(string) bool { return func(p string) bool { return slices.Contains(ds, p) } }
+	xdg := env(map[string]string{"XDG_RUNTIME_DIR": "/run/user/1000"})
+	cases := []struct {
+		name, run string
+		getenv    func(string) string
+		isDir     func(string) bool
+		want      string
+	}{
+		{"images and compose", "/run/bothy", xdg, dirs("/run/bothy"), "/run/bothy"},
+		{"native with XDG_RUNTIME_DIR", "/run/bothy", xdg, dirs(), "/run/user/1000/bothy"},
+		{"native without XDG_RUNTIME_DIR", "/run/bothy", env(nil), dirs(), "/home/a/data/run"},
+		{"relative XDG_RUNTIME_DIR", "/run/bothy", env(map[string]string{"XDG_RUNTIME_DIR": "run"}), dirs(), "/home/a/data/run"},
+		{"explicit", "/srv/run", xdg, dirs(), "/srv/run"},
+	}
+	for _, c := range cases {
+		if got := resolveRunDir(c.run, "/home/a/data", c.getenv, c.isDir); got != c.want {
+			t.Errorf("%s: run dir = %q, want %q", c.name, got, c.want)
+		}
 	}
 }
 

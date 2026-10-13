@@ -6,7 +6,14 @@ implements `core.Sandbox` in front of one backend chosen at boot by
 `/run/bothy/sandboxd.sock` with the fixed `proto` schema), **bwrap** (native
 Linux, see `bwrap/`) or **none** (every exec method returns
 `core.ErrNoSandbox`; nothing ever runs on the host). `auto` prefers a sandboxd
-socket, then bwrap, then none, and keeps watching for the socket. `Ensure`
+socket, then bwrap, then none, and keeps watching for the socket; a native
+none status keeps bwrap's reason and fix, while the container image (no bwrap)
+points at the compose deployment. Fix texts never name `deploy/compose.yaml`,
+which keeps digest placeholders and does not exist in an install.sh
+deployment. The bwrap backend creates the run directory (0750; config falls
+back from `/run/bothy` to `$XDG_RUNTIME_DIR/bothy` or `<data_dir>/run` on
+native installs) and is unavailable, with a fix line, when the gateway cannot
+write it or its socket paths would be too long. `Ensure`
 creates the directories a box mounts (`ws/<id>` and MCP trees 2770 group
 10001, `skills/`, `egress/<h>` 0750) and opens the box's egress socket before
 creating the box; `Exec` and `Stdio` bring back a box that is gone (reaped or

@@ -51,7 +51,7 @@ func ConfigChecks(cfg config.Admin) []core.Check {
 				ID: "config.errors", Area: "config", Severity: core.SevHigh,
 				Title:  fmt.Sprintf("%d config value(s) are invalid and fell back to a lower layer", len(errs)),
 				Detail: strings.Join(lines, "\n"),
-				Fix:    "bothy config check",
+				Fix:    "bothy config check (Docker: docker compose exec bothy /bothy config check)",
 			}}
 		}},
 		check{id: "config.safe_mode", run: func(context.Context) []core.Finding {
@@ -62,7 +62,7 @@ func ConfigChecks(cfg config.Admin) []core.Check {
 				ID: "config.safe_mode", Area: "config", Severity: core.SevHigh,
 				Title:  "Safe mode: bothy.yaml could not be parsed",
 				Detail: "Chat, channels, schedules and MCP are off until bothy.yaml parses and the gateway restarts.",
-				Fix:    "bothy config check, then restart",
+				Fix:    "bothy config check (Docker: docker compose exec bothy /bothy config check), then restart",
 			}}
 		}},
 	}

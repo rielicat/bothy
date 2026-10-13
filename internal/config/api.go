@@ -610,7 +610,13 @@ type Dirs struct {
 	KeyfileColocated         bool // the KEK file lives on the same volume as the DB
 }
 
-func ResolveDirs(c *Config) Dirs { return resolveDirs(c, readMounts()) }
+// ResolveDirs also moves the default run_dir /run/bothy, where it does not
+// exist, to $XDG_RUNTIME_DIR/bothy or <data_dir>/run.
+func ResolveDirs(c *Config) Dirs {
+	d := resolveDirs(c, readMounts())
+	d.Run = resolveRunDir(d.Run, d.Data, os.Getenv, isDir)
+	return d
+}
 
 // Static wraps a fixed Config as a View for tests.
 func Static(c *Config) View { return staticView{c} }

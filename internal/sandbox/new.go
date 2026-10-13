@@ -9,6 +9,7 @@ import (
 
 	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/sandbox/bwrap"
 )
 
 type Deps struct {
@@ -47,7 +48,7 @@ func (s *service) selectBackend(ctx context.Context) backend {
 	case "sandboxd":
 		return sandboxd()
 	case "bwrap":
-		return newBwrapBackend(ctx, s.work, s.run)
+		return newBwrapBackend(ctx, bwrap.Probe, s.work, s.run)
 	}
 	// auto: a sandboxd socket wins; then bwrap on Linux; else none, while Run
 	// keeps watching for the socket (compose may start sandboxd later).
@@ -55,12 +56,25 @@ func (s *service) selectBackend(ctx context.Context) backend {
 	if isSocket(c.Socket) {
 		return sandboxd()
 	}
-	if runtime.GOOS == "linux" {
-		if b := newBwrapBackend(ctx, s.work, s.run); b.st.Available {
-			return b
-		}
+	return s.autoFallback(ctx, runtime.GOOS, os.Getenv("BOTHY_DEPLOYMENT") == "container", bwrap.Probe)
+}
+
+// autoFallback picks bwrap on Linux, else none. A native none status keeps
+// bwrap's reason and fix (install it, allow user namespaces, fix run_dir);
+// the container image has no bwrap, so there the fix is the compose
+// deployment.
+func (s *service) autoFallback(ctx context.Context, goos string, container bool, probe bwrapProbe) backend {
+	if goos != "linux" {
+		return noneBackend{reason: noSandboxText, fix: composeFix}
 	}
-	return noneBackend{reason: noSandboxText, fix: composeFix}
+	b := newBwrapBackend(ctx, probe, s.work, s.run)
+	switch {
+	case b.st.Available:
+		return b
+	case container:
+		return noneBackend{reason: noSandboxText, fix: composeFix}
+	}
+	return noneBackend{reason: "No sandbox: " + b.st.Reason + ". Shell, python and MCP stdio are off.", fix: b.st.Fix}
 }
 
 func isSocket(p string) bool {

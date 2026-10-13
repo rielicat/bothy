@@ -20,7 +20,7 @@ import (
 const (
 	skillMaxFiles   = 200
 	installTimeout  = 15 * time.Minute
-	composeHint     = "docker compose -f deploy/compose.yaml up -d (runs the sandboxd sidecar)"
+	composeHint     = "use the compose deployment, which adds the sandboxd sidecar (README Quickstart: sh install.sh --compose ~/bothy, then docker compose up -d in ~/bothy)"
 	maxSecretValue  = 64 << 10
 	defaultUsageAge = 30 * 24 * time.Hour
 )

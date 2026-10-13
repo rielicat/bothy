@@ -67,7 +67,7 @@ func statusFromHealth(h proto.Health, err error) core.SandboxStatus {
 	st := core.SandboxStatus{Backend: "sandboxd", SelfTest: []core.SelfTestCheck{}}
 	if err != nil {
 		st.Reason = "sandboxd is not reachable: " + err.Error()
-		st.Fix = composeFix
+		st.Fix = sandboxdFix
 		return st
 	}
 	st.Available, st.Reason, st.Fix = h.OK, h.Reason, h.Fix

@@ -853,7 +853,8 @@ func TestTokenChecksAndFix(t *testing.T) {
 	}
 	e.clock.Advance(2 * time.Minute)
 	fs := run("tokens.expired_unrevoked")
-	if len(fs) != 1 || !fs[0].AutoFix {
+	// The distroless image has no bothy on PATH: the container form names /bothy.
+	if len(fs) != 1 || !fs[0].AutoFix || !strings.Contains(fs[0].Fix, "docker compose exec bothy /bothy security-audit --fix") {
 		t.Fatalf("expired = %+v", fs)
 	}
 	for _, c := range e.s.Checks() {
