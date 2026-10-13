@@ -238,6 +238,11 @@ type Selection struct {
 type ToolRegistry interface {
 	Register(t Tool) error // name collision, invalid manifest or schema => error
 	UnregisterSource(source string)
+	// ReplaceSource swaps every tool registered under source for tools in one
+	// step, so a run never sees the source half re-registered. Tools that fail
+	// validation, name another source or collide are skipped and reported in
+	// the (joined) error; the others are registered.
+	ReplaceSource(source string, tools []Tool) error
 	// Get returns the tool behind JSON Schema validation of its arguments
 	// (before Plan; violations wrap ErrInvalid) and normalisation of the
 	// planned Action (canonical payload, fingerprint, side effect never below

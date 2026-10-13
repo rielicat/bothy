@@ -2,6 +2,7 @@ package fakes
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -52,6 +53,35 @@ func (r *Registry) UnregisterSource(source string) {
 			delete(r.Tools, name)
 		}
 	}
+}
+
+// ReplaceSource drops source's tools and registers the new ones under one
+// lock; invalid or colliding tools are skipped and reported.
+func (r *Registry) ReplaceSource(source string, tools []core.Tool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for name, t := range r.Tools {
+		if t.Spec().Source == source {
+			delete(r.Tools, name)
+		}
+	}
+	if r.Tools == nil {
+		r.Tools = map[string]core.Tool{}
+	}
+	var errs []error
+	for _, t := range tools {
+		spec := t.Spec()
+		name := spec.Def.Name
+		switch _, dup := r.Tools[name]; {
+		case name == "" || !spec.Manifest.SideEffect.Valid() || spec.Source != source:
+			errs = append(errs, fmt.Errorf("tool %q: %w: name, side effect and source %q are required", name, core.ErrInvalid, source))
+		case dup:
+			errs = append(errs, fmt.Errorf("tool %q: %w", name, core.ErrConflict))
+		default:
+			r.Tools[name] = t
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func (r *Registry) Get(name string) (core.Tool, bool) {

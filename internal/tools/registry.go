@@ -246,6 +246,10 @@ func cloneSpec(s core.ToolSpec) core.ToolSpec {
 func (r *Registry) UnregisterSource(source string) {
 	r.state.mu.Lock()
 	defer r.state.mu.Unlock()
+	r.unregisterLocked(source)
+}
+
+func (r *Registry) unregisterLocked(source string) {
 	r.state.names = slices.DeleteFunc(r.state.names, func(name string) bool {
 		e := r.state.tools[name]
 		if e.meta || e.spec.Source != source {
@@ -254,6 +258,45 @@ func (r *Registry) UnregisterSource(source string) {
 		delete(r.state.tools, name)
 		return true
 	})
+}
+
+// ReplaceSource implements core.ToolRegistry. The old tools of source go and
+// the valid new ones arrive under one lock, so readers see one set or the
+// other. A tool that fails validation, belongs to another source or collides
+// with another source's name is skipped and reported in the joined error.
+func (r *Registry) ReplaceSource(source string, tools []core.Tool) error {
+	var errs []error
+	entries := make([]*entry, 0, len(tools))
+	for _, t := range tools {
+		if t == nil {
+			errs = append(errs, fmt.Errorf("%w: nil tool", core.ErrInvalid))
+			continue
+		}
+		e, err := newEntry(t, false)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if e.spec.Source != source {
+			errs = append(errs, fmt.Errorf("tool %q: %w: source %q, want %q", e.spec.Def.Name, core.ErrInvalid, e.spec.Source, source))
+			continue
+		}
+		entries = append(entries, e)
+	}
+	r.state.mu.Lock()
+	defer r.state.mu.Unlock()
+	r.unregisterLocked(source)
+	for _, e := range entries {
+		name := e.spec.Def.Name
+		if _, ok := r.state.tools[name]; ok {
+			errs = append(errs, fmt.Errorf("tool %q: %w: already registered", name, core.ErrConflict))
+			continue
+		}
+		r.state.tools[name] = e
+		i, _ := slices.BinarySearch(r.state.names, name)
+		r.state.names = slices.Insert(r.state.names, i, name)
+	}
+	return errors.Join(errs...)
 }
 
 // Get implements core.ToolRegistry. The returned tool validates arguments

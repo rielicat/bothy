@@ -348,6 +348,41 @@ func TestRegisterValidation(t *testing.T) {
 	}
 }
 
+func TestReplaceSource(t *testing.T) {
+	r := NewRegistry(RegistryDeps{})
+	mcpTool := func(name string) core.Tool {
+		st := newStub(name, core.SERead, "does "+name, "").(stub)
+		st.spec.Source = "mcp:docs"
+		return st
+	}
+	for _, tl := range []core.Tool{newStub("fs_read", core.SERead, "reads", ""), mcpTool("mcp__docs__old"), mcpTool("mcp__docs__kept")} {
+		if err := r.Register(tl); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bad := mcpTool("mcp__docs__bad").(stub)
+	bad.spec.Def.Description = ""
+	err := r.ReplaceSource("mcp:docs", []core.Tool{mcpTool("mcp__docs__kept"), mcpTool("mcp__docs__new"), bad,
+		newStub("fs_read", core.SERead, "steals", ""), mcpTool("fs_read")})
+	if !errors.Is(err, core.ErrInvalid) || !errors.Is(err, core.ErrConflict) {
+		t.Fatalf("ReplaceSource error = %v, want invalid and conflict", err)
+	}
+	for name, want := range map[string]bool{"mcp__docs__old": false, "mcp__docs__kept": true, "mcp__docs__new": true, "mcp__docs__bad": false} {
+		if _, ok := r.Get(name); ok != want {
+			t.Errorf("Get(%s) = %v, want %v", name, ok, want)
+		}
+	}
+	if tl, ok := r.Get("fs_read"); !ok || tl.Spec().Source != "builtin" {
+		t.Error("ReplaceSource touched another source's tool")
+	}
+	if err := r.ReplaceSource("mcp:docs", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := r.Get("mcp__docs__kept"); ok {
+		t.Error("ReplaceSource with no tools left the source registered")
+	}
+}
+
 func TestGetValidatesAndNormalises(t *testing.T) {
 	r := NewRegistry(RegistryDeps{})
 	lowball := stub{spec: core.ToolSpec{

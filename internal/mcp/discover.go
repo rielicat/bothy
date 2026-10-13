@@ -200,10 +200,10 @@ func (m *Manager) observe(ctx context.Context, s *server, tools map[string]disco
 }
 
 // syncTools re-registers the server's tools: exactly those whose live hash
-// equals the approved pin's hash. The registry can only drop a whole source,
-// so it is touched only when that set (or any registered spec) changed; a run
-// looking a tool up mid-swap would otherwise miss it. It also refreshes the
-// tool and pending counts, the ready/pins_pending state and the banners.
+// equals the approved pin's hash, swapped in with one ReplaceSource. The
+// registry is touched only when that set (or any registered spec) changed. It
+// also refreshes the tool and pending counts, the ready/pins_pending state and
+// the banners.
 func (m *Manager) syncTools(ctx context.Context, s *server) {
 	m.regMu.Lock()
 	defer m.regMu.Unlock()
@@ -257,16 +257,21 @@ func (m *Manager) syncTools(ctx context.Context, s *server) {
 	s.mu.Unlock()
 	var exposed map[string]string
 	if !same {
-		m.d.Registry.UnregisterSource(source(s.name))
+		src := source(s.name)
+		tools := make([]core.Tool, len(want))
+		for i, t := range want {
+			tools[i] = t
+		}
+		if err := m.d.Registry.ReplaceSource(src, tools); err != nil {
+			m.log.Warn("mcp tools not registered", "server", s.name, "err", err)
+			// Never equal to a computed key, so the next sync retries.
+			key = "\x00partial"
+		}
 		exposed = make(map[string]string, len(want))
 		for _, t := range want {
-			if err := m.d.Registry.Register(t); err != nil {
-				m.log.Warn("mcp tool not registered", "server", s.name, "tool", t.name, "err", err)
-				// Never equal to a computed key, so the next sync retries.
-				key = "\x00partial"
-				continue
+			if rt, ok := m.d.Registry.Get(t.spec.Def.Name); ok && rt.Spec().Source == src {
+				exposed[t.name] = t.hash
 			}
-			exposed[t.name] = t.hash
 		}
 	}
 	s.mu.Lock()
