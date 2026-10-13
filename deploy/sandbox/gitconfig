@@ -1,0 +1,13 @@
+# System git config of tool boxes (SPEC §2.6): no hooks, no fsmonitor or
+# pager programs, no file:// or ext:: transports.
+[core]
+	fsmonitor = false
+	hooksPath = /dev/null
+	pager = cat
+[protocol "file"]
+	allow = never
+[protocol "ext"]
+	allow = never
+[safe]
+	directory = /workspace
+	directory = /workspace/*
