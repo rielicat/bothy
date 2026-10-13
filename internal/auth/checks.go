@@ -74,8 +74,18 @@ func (s *Service) checkExposure(context.Context) []core.Finding {
 		return nil
 	// Docker's userland proxy can make remote clients appear to come from the
 	// bridge gateway, which the exposure gate treats as local (SPEC §13.1).
+	// Inside the container the listen address must be 0.0.0.0 and the
+	// publish address is invisible, so this cannot be HIGH: the stock
+	// compose file publishes on loopback only and could never clear it.
 	case s.getenv("BOTHY_DEPLOYMENT") == "container" && unspecifiedListen(c.Listen) && !httpsURL(c.PublicURL):
-		why = "container mode listens on " + c.Listen + " without an https public_url"
+		return []core.Finding{{
+			ID: "server.exposure", Area: "server", Severity: core.SevMedium, Security: true,
+			Title: "The web UI may be reachable without TLS",
+			Detail: "Bothy runs in a container listening on " + c.Listen + " without an https public_url. The gateway cannot see the host address " +
+				"Docker publishes the port on; if it is more than 127.0.0.1, Docker's proxy can make remote clients look local.",
+			Fix: "Keep the port published on 127.0.0.1 only, as the compose file does (127.0.0.1:8080:8080). For remote access, terminate TLS " +
+				"(server.tls, or Caddy/Tailscale in server.trusted_proxies with an https server.public_url); that also clears this finding.",
+		}}
 	case !proxied:
 		why = "server.listen is " + c.Listen + " with neither TLS nor a trusted reverse proxy"
 	default:
