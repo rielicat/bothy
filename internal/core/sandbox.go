@@ -121,6 +121,7 @@ type EgressBinding struct {
 	Interactive bool       // hold unknown CONNECTs for approval (egress.hold_for_approval) instead of failing
 	Chat        *ChatRef   // for the hold-for-approval card
 	Context     string
+	Provenance  Provenance // of the message that started the run: floor F6 applies to held connections
 }
 
 type Egress interface {
@@ -131,6 +132,10 @@ type Egress interface {
 	// Bind attaches the current run/tool call to a box before each exec, for
 	// logging, taint and hold-for-approval.
 	Bind(key string, b EgressBinding)
+	// Unbind ends toolCallID's binding once its exec returns: its allow_once
+	// admissions go, and later connections (background processes) are no
+	// longer held for approval. The run stays bound for logging.
+	Unbind(key, toolCallID string)
 	// TakeActivity reports whether the box moved bytes since the last call.
 	TakeActivity(key string) bool
 	// PublicClient is the session-scoped client for gateway-side tools

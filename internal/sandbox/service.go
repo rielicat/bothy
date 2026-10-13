@@ -54,6 +54,7 @@ type service struct {
 	be       backend
 	st       core.SandboxStatus
 	stSet    bool
+	stGen    uint64 // counts status changes
 	watchers []func(core.SandboxStatus)
 	boxes    map[string]*boxState
 	usage    map[core.WorkspaceID]int64
@@ -126,16 +127,26 @@ func (s *service) setStatus(st core.SandboxStatus) {
 	}
 	s.mu.Lock()
 	prev, first := s.st, !s.stSet
+	changed := first || !sameStatus(prev, st)
 	s.st, s.stSet = st, true
+	if changed {
+		s.stGen++
+	}
 	fns := slices.Clone(s.watchers)
 	s.mu.Unlock()
-	if !first && sameStatus(prev, st) {
+	if !changed {
 		return
 	}
 	s.publish(prev, st)
 	for _, fn := range fns {
 		fn(st)
 	}
+}
+
+func (s *service) statusGen() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stGen
 }
 
 func sameStatus(a, b core.SandboxStatus) bool {
@@ -197,10 +208,17 @@ func (s *service) publish(prev, st core.SandboxStatus) {
 
 // syncMemberBanners gives every member (non-admin) user principal the
 // current banner: sandbox.status reaches admins only (SPEC §8.2). Run calls
-// it at start and after every health probe, so status changes and users
-// created later catch up; New stays free of store reads.
+// it at start, after every status change and on the reap tick, so users
+// created or promoted later catch up; New stays free of store reads. With no
+// banner to show and none shown it skips reading the users.
 func (s *service) syncMemberBanners(ctx context.Context) {
 	if s.store == nil || s.bus == nil {
+		return
+	}
+	want := bannerFor(s.Status(ctx))
+	s.bannerMu.Lock()
+	defer s.bannerMu.Unlock()
+	if want.Code == "" && !s.memberBannerShownLocked() {
 		return
 	}
 	users, err := s.store.Users().List(ctx)
@@ -208,20 +226,38 @@ func (s *service) syncMemberBanners(ctx context.Context) {
 		s.log.Debug("listing users for sandbox banners", "err", err)
 		return
 	}
-	want := bannerFor(s.Status(ctx))
-	s.bannerMu.Lock()
-	defer s.bannerMu.Unlock()
+	members := make(map[core.PrincipalID]bool, len(users))
 	for _, u := range users {
-		if u.Role.IsAdmin() || u.Disabled {
-			continue
+		if !u.Role.IsAdmin() && !u.Disabled {
+			members[core.UserPrincipal(u.ID)] = true
 		}
-		p := core.UserPrincipal(u.ID)
+	}
+	// Admins see the broadcast; users promoted, disabled or deleted since
+	// lose the banner they were shown.
+	for p, shown := range s.memberBanners {
+		if !members[p] {
+			if shown.Code != "" {
+				s.showBanner(p, core.BannerData{})
+			}
+			delete(s.memberBanners, p)
+		}
+	}
+	for p := range members {
 		if shown, ok := s.memberBanners[p]; ok && shown == want {
 			continue
 		}
 		s.showBanner(p, want)
 		s.memberBanners[p] = want
 	}
+}
+
+func (s *service) memberBannerShownLocked() bool {
+	for _, b := range s.memberBanners {
+		if b.Code != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *service) Ensure(ctx context.Context, spec core.BoxSpec) error {

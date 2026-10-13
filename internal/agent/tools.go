@@ -325,11 +325,13 @@ func (r *Runner) execute(rs *runState, pc *pcall) execResult {
 			return textResult(core.TCError, "The sandbox is unavailable: "+r.redact(err.Error()))
 		}
 		if r.d.Egress != nil {
-			r.d.Egress.Bind(boxKey(rs.req.Session), core.EgressBinding{
+			key := boxKey(rs.req.Session)
+			r.d.Egress.Bind(key, core.EgressBinding{
 				Run: rs.id, ToolCallID: pc.rec.ID, User: rs.req.User, Role: pc.env.Role, Trigger: rs.req.Trigger,
 				Schedule: rs.req.Schedule, Interactive: rs.req.Trigger.Interactive(), Chat: rs.req.Chat,
-				Context: r.cardContext(rs),
+				Context: r.cardContext(rs), Provenance: rs.req.Provenance,
 			})
+			defer r.d.Egress.Unbind(key, pc.rec.ID)
 		}
 	}
 	tctx, cancel := context.WithTimeoutCause(ctx, timeout, errToolTimeout)

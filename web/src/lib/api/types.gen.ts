@@ -1106,6 +1106,7 @@ export interface EgressBinding {
   Interactive: boolean; // hold unknown CONNECTs for approval (egress.hold_for_approval) instead of failing
   Chat?: ChatRef; // for the hold-for-approval card
   Context: string;
+  Provenance: Provenance; // of the message that started the run: floor F6 applies to held connections
 }
 export type Egress = any;
 

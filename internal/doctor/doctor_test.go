@@ -135,6 +135,12 @@ func TestConfigChecks(t *testing.T) {
 	if fs[0].Severity != core.SevHigh || !strings.Contains(fs[0].Detail, "and 2 more") {
 		t.Fatalf("config.errors = %+v", fs[0])
 	}
+	// The distroless image has no bothy on PATH: the container form names /bothy.
+	for _, f := range fs {
+		if !strings.Contains(f.Fix, "docker compose exec bothy /bothy config check") {
+			t.Errorf("%s fix = %q", f.ID, f.Fix)
+		}
+	}
 	for _, c := range ConfigChecks(fakeConfig{}) {
 		if err := c.Fix(context.Background(), core.Finding{}); !errors.Is(err, core.ErrNotImplemented) {
 			t.Fatalf("%s Fix = %v", c.ID(), err)

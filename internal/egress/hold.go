@@ -78,7 +78,7 @@ func (s *Service) requestHold(ctx context.Context, b *box, be core.BoxEgress, bi
 	spec.Manifest.Title = "Sandbox wants to reach " + hp
 	d := s.policy.Decide(ctx, core.PolicyInput{
 		User: bind.User, Role: bind.Role, Principal: *pr, Session: be.Session, Schedule: bind.Schedule,
-		Trigger: bind.Trigger, Action: a, Spec: spec, Taint: taint, Chat: bind.Chat,
+		Trigger: bind.Trigger, Action: a, Spec: spec, Taint: taint, Provenance: bind.Provenance, Chat: bind.Chat,
 	})
 	if d.Verdict == core.VerdictDeny {
 		return holdResult{reason: "denied by policy (" + d.Rule + "): " + d.Reason}

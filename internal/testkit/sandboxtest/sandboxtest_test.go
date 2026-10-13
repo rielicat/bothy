@@ -141,10 +141,11 @@ func TestEgress(t *testing.T) {
 	if err != nil || !strings.HasPrefix(sub, "egress/") || len(sub) != len("egress/")+32 || sub != again || e.Opened["box_1"].Session != "ses_1" {
 		t.Fatalf("OpenBox = %q, %v", sub, err)
 	}
-	e.Bind("box_1", core.EgressBinding{Run: "run_1"})
+	e.Bind("box_1", core.EgressBinding{Run: "run_1", ToolCallID: "tcl_1"})
+	e.Unbind("box_1", "tcl_1")
 	e.CloseBox("box_1")
-	if len(e.Bound) != 1 || e.Bound[0].Run != "run_1" || e.Closed[0] != "box_1" {
-		t.Fatal("Bind/CloseBox not recorded")
+	if len(e.Bound) != 1 || e.Bound[0].Run != "run_1" || !slices.Equal(e.UnboundCalls(), []string{"tcl_1"}) || e.Closed[0] != "box_1" {
+		t.Fatal("Bind/Unbind/CloseBox not recorded")
 	}
 	if e.TakeActivity("box_1") {
 		t.Fatal("activity without traffic")

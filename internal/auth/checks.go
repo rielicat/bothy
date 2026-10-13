@@ -155,7 +155,7 @@ func (s *Service) checkExpiredTokens(ctx context.Context) []core.Finding {
 		ID: "tokens.expired_unrevoked", Area: "tokens", Severity: core.SevLow, Security: true, AutoFix: true,
 		Title:  "Expired API tokens are not revoked",
 		Detail: fmt.Sprintf("%d expired token(s) no longer work but are still listed as active records.", len(ts)),
-		Fix:    "bothy security-audit --fix",
+		Fix:    "bothy security-audit --fix (Docker: docker compose exec bothy /bothy security-audit --fix)",
 	}}
 }
 

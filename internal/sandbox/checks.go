@@ -78,7 +78,7 @@ func checks(s *service) []core.Check {
 			}
 			return finding("sandbox.bwrap_limits", "bwrap jails have no memory or process limits",
 				"Jails get rlimits only; a runaway command can exhaust the memory or the processes of the user the gateway runs as.",
-				"use the compose deployment for per-box memory, CPU and pids limits: "+composeFix, core.SevLow, true)
+				"use the compose deployment for per-box memory, CPU and pids limits ("+composeSteps+")", core.SevLow, true)
 		}},
 		check{id: "docker.socket_access", svc: s, run: func(st core.SandboxStatus) []core.Finding {
 			c, ok := selfTestCheck(st, proto.CheckEngine)

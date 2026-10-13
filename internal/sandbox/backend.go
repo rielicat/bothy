@@ -31,9 +31,14 @@ type backend interface {
 // and removed); the service recreates it from the last spec and retries once.
 var errGone = fmt.Errorf("box is gone: %w", core.ErrNotFound)
 
+// Fix texts never point at deploy/compose.yaml: it keeps digest placeholders
+// until release, and an install.sh deployment has no deploy/ directory.
 const (
 	noSandboxText = "No sandbox: shell, python and MCP stdio are off. Use the compose file."
-	composeFix    = "docker compose -f deploy/compose.yaml up -d"
+	composeSteps  = "README Quickstart: sh install.sh --compose ~/bothy, then docker compose up -d in ~/bothy"
+	composeFix    = "use the compose deployment, which adds the sandboxd sidecar (" + composeSteps + ")"
+	sandboxdFix   = "start the sandboxd sidecar with docker compose up -d in your compose directory; " +
+		"docker compose logs sandboxd says why it stopped"
 )
 
 type noneBackend struct {

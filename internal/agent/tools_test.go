@@ -650,6 +650,44 @@ func TestEgressBindingSurvivesAnIdleReap(t *testing.T) {
 	})
 }
 
+// The proxy builds held-connection approvals from the binding, so it carries
+// the run's provenance (F6), and the binding ends with the exec so allow_once
+// does not outlive the tool call (SPEC §5.8).
+func TestExecBindingCarriesProvenanceAndEndsWithTheExec(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var h *harness
+		var unboundDuringExec []string
+		shell := &testTool{name: "shell", se: core.SELocalWrite, exec: true, run: func(context.Context, *core.ToolEnv, *core.Action) (*core.ToolResult, error) {
+			unboundDuringExec = h.egress.UnboundCalls()
+			return &core.ToolResult{Content: "ok"}, nil
+		}}
+		h = newHarness(t, opts{tools: []core.Tool{shell}, steps: []fakes.LLMStep{
+			{ToolCalls: []core.ToolCall{call("shell", `{}`)}}, {Text: []string{"done"}},
+		}})
+		defer h.close()
+		req := h.req("from a stranger")
+		req.Provenance = core.ProvUntrusted
+		res, err := h.r.Submit(h.ctx, req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		recs := h.toolCalls(res.Run)
+		if len(recs) != 1 || recs[0].Status != core.TCOK {
+			t.Fatalf("tool calls = %+v", recs)
+		}
+		if len(h.egress.Bound) != 1 || h.egress.Bound[0].ToolCallID != recs[0].ID || h.egress.Bound[0].Provenance != core.ProvUntrusted {
+			t.Fatalf("bindings = %+v", h.egress.Bound)
+		}
+		if len(unboundDuringExec) != 0 {
+			t.Fatalf("unbound before the exec returned: %v", unboundDuringExec)
+		}
+		if got := h.egress.UnboundCalls(); !slices.Equal(got, []string{recs[0].ID}) {
+			t.Fatalf("unbound = %v, want %s", got, recs[0].ID)
+		}
+	})
+}
+
 func TestBoxEgressMakesOutputUntrusted(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		var h *harness

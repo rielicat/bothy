@@ -17,7 +17,7 @@ func defaults() *Config {
 		},
 		Storage: Storage{
 			DataDir:     "/data",
-			RunDir:      "/run/bothy",
+			RunDir:      defaultRunDir,
 			BackupsKeep: 3,
 			Retention:   Retention{EgressLog: d(720 * time.Hour), InboundDedup: d(24 * time.Hour)},
 		},

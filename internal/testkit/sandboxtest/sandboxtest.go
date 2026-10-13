@@ -238,6 +238,7 @@ type Egress struct {
 	Client   *http.Client // returned by PublicClient and SystemClient (point it at an httptest server)
 	Activity map[string]bool
 	Bound    []core.EgressBinding
+	Unbound  []string // tool call ids, in Unbind order
 
 	mu     sync.Mutex
 	Opened map[string]core.BoxEgress
@@ -267,6 +268,19 @@ func (e *Egress) Bind(_ string, b core.EgressBinding) {
 	e.mu.Lock()
 	e.Bound = append(e.Bound, b)
 	e.mu.Unlock()
+}
+
+func (e *Egress) Unbind(_ string, toolCallID string) {
+	e.mu.Lock()
+	e.Unbound = append(e.Unbound, toolCallID)
+	e.mu.Unlock()
+}
+
+// UnboundCalls returns a copy of Unbound.
+func (e *Egress) UnboundCalls() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return slices.Clone(e.Unbound)
 }
 
 // MarkActivity makes the next TakeActivity(key) report true.

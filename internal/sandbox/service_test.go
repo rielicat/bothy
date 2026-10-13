@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -428,9 +429,116 @@ func TestMemberBanners(t *testing.T) {
 		t.Fatalf("a user created later got %v", got)
 	}
 	e.c.svc.setStatus(core.SandboxStatus{Backend: "sandboxd", Available: true, Runtime: "runc"})
-	e.c.svc.syncMemberBanners(ctx) // Run does this after every probe
+	e.c.svc.syncMemberBanners(ctx) // Run does this after every status change
 	if got := codes(member); len(got) != 0 {
 		t.Fatalf("member banner not cleared: %v", got)
+	}
+
+	e.c.svc.setStatus(core.SandboxStatus{Backend: "none", Reason: "gone"})
+	e.c.svc.syncMemberBanners(ctx)
+	users["member"].Role = core.RoleAdmin
+	if err := st.Users().Update(ctx, users["member"]); err != nil {
+		t.Fatal(err)
+	}
+	e.c.svc.syncMemberBanners(ctx)
+	if got := codes(member); len(got) != 0 {
+		t.Fatalf("a member promoted to admin kept %v (admins see the broadcast)", got)
+	}
+}
+
+// countingStore counts Users().List, the read behind member banners.
+type countingStore struct {
+	core.Store
+	lists *atomic.Int32
+}
+
+func (s countingStore) Users() core.UserRepo { return countingUsers{s.Store.Users(), s.lists} }
+
+type countingUsers struct {
+	core.UserRepo
+	lists *atomic.Int32
+}
+
+func (u countingUsers) List(ctx context.Context) ([]*core.User, error) {
+	u.lists.Add(1)
+	return u.UserRepo.List(ctx)
+}
+
+// runLoop runs Run with fast timers until the test ends; the store counts
+// user list reads and holds one member.
+func runLoop(t *testing.T, e *env) (lists *atomic.Int32, member core.PrincipalID) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	st := memstore.New()
+	u := &core.User{Username: "member", Role: core.RoleMember}
+	if err := st.Users().Create(ctx, u); err != nil {
+		t.Fatal(err)
+	}
+	lists = &atomic.Int32{}
+	e.c.svc.store = countingStore{Store: st, lists: lists}
+	e.c.svc.healthEvery, e.c.svc.retryEvery = time.Millisecond, time.Millisecond
+	done := make(chan error, 1)
+	go func() { done <- e.c.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	})
+	return lists, core.UserPrincipal(u.ID)
+}
+
+func (e *env) memberBanner(p core.PrincipalID) string {
+	for _, ev := range e.bus.Banners(core.Filter{Principals: []core.PrincipalID{p}}) {
+		return ev.Data.(core.BannerData).Code
+	}
+	return ""
+}
+
+// The none backend's status never changes (the single-container and macOS
+// default), so Run neither probes it nor re-reads the users table.
+func TestIdleNoneBackendDoesNotPoll(t *testing.T) {
+	e, _ := newEnv(t, opts{cfg: func(c *config.Config) { c.Sandbox.Backend = "none" }})
+	lists, member := runLoop(t, e)
+	waitFor(t, "the member banner", func() bool { return e.memberBanner(member) == "no_sandbox" })
+	time.Sleep(50 * time.Millisecond)
+	if n := lists.Load(); n != 1 {
+		t.Fatalf("users listed %d times, want once at start", n)
+	}
+}
+
+func TestHealthySandboxDoesNotListUsers(t *testing.T) {
+	e, _ := newEnv(t, opts{sandboxd: true})
+	lists, member := runLoop(t, e)
+	time.Sleep(50 * time.Millisecond)
+	if n := lists.Load(); n != 0 || e.memberBanner(member) != "" {
+		t.Fatalf("users listed %d times, member banner %q; nothing to show or clear", n, e.memberBanner(member))
+	}
+}
+
+// Members follow status changes as they happen, and users created or
+// promoted later catch up on the reap tick.
+func TestMemberBannersFollowChanges(t *testing.T) {
+	e, _ := newEnv(t, opts{cfg: func(c *config.Config) { c.Sandbox.Backend = "auto" }})
+	if name := e.c.svc.be.name(); name != "none" {
+		t.Skipf("auto picked %s on this host", name)
+	}
+	e.c.svc.reapEvery = 20 * time.Millisecond
+	lists, member := runLoop(t, e)
+	waitFor(t, "the member banner", func() bool { return e.memberBanner(member) == "no_sandbox" })
+	late := &core.User{Username: "late", Role: core.RoleMember}
+	if err := e.c.svc.store.Users().Create(context.Background(), late); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the late member's banner", func() bool { return e.memberBanner(core.UserPrincipal(late.ID)) == "no_sandbox" })
+	startSandboxd(t, e.socket, nil)
+	waitFor(t, "the banners to clear", func() bool {
+		return e.memberBanner(member) == "" && e.memberBanner(core.UserPrincipal(late.ID)) == ""
+	})
+	time.Sleep(50 * time.Millisecond)
+	// Start, a few reap ticks and the switch; not one read per 1ms probe.
+	if n := lists.Load(); n > 20 {
+		t.Fatalf("users listed %d times", n)
 	}
 }
 
@@ -545,10 +653,18 @@ func TestCanaryKeyIsReserved(t *testing.T) {
 	}
 }
 
+// workingComposeFix: deploy/compose.yaml keeps digest placeholders and an
+// install.sh deployment has no deploy/ directory, so a fix pointing at it
+// fails everywhere; the README / install.sh compose flow works.
+func workingComposeFix(fix string) bool {
+	return !strings.Contains(fix, "deploy/compose.yaml") && strings.Contains(fix, "install.sh --compose")
+}
+
 func TestSandboxdUnreachable(t *testing.T) {
 	e, _ := newEnv(t, opts{})
 	st := e.c.Status(context.Background())
-	if st.Available || st.Backend != "sandboxd" || !strings.Contains(st.Reason, "not reachable") || st.Fix == "" {
+	if st.Available || st.Backend != "sandboxd" || !strings.Contains(st.Reason, "not reachable") ||
+		strings.Contains(st.Fix, "deploy/compose.yaml") || !strings.Contains(st.Fix, "docker compose logs sandboxd") {
 		t.Fatalf("status = %+v", st)
 	}
 	if !strings.Contains(e.banners()["no_sandbox"].Text, "not reachable") {
@@ -693,7 +809,7 @@ func TestChecks(t *testing.T) {
 		t.Fatal("bwrap_limits outside bwrap")
 	}
 	set(core.SandboxStatus{Backend: "bwrap", Available: true, Runtime: "bwrap"})
-	if f := findings(t, e.c, "sandbox.bwrap_limits"); len(f) != 1 || f[0].Severity != core.SevLow || !f[0].Security {
+	if f := findings(t, e.c, "sandbox.bwrap_limits"); len(f) != 1 || f[0].Severity != core.SevLow || !f[0].Security || !workingComposeFix(f[0].Fix) {
 		t.Fatalf("bwrap_limits = %+v", f)
 	}
 
@@ -704,10 +820,10 @@ func TestChecks(t *testing.T) {
 	}
 
 	set(core.SandboxStatus{Backend: "sandboxd", Reason: "cannot access /var/run/docker.sock (owner uid 0 gid 998, mode 0660)",
-		Fix:      "Set DOCKER_GID=998 in deploy/.env and run: docker compose up -d",
+		Fix:      "Set DOCKER_GID=998 in the .env next to compose.yaml and run: docker compose up -d",
 		SelfTest: []core.SelfTestCheck{{Name: proto.CheckEngine, Detail: "cannot access /var/run/docker.sock (owner uid 0 gid 998, mode 0660)"}}})
 	f := findings(t, e.c, "docker.socket_access")
-	if len(f) != 1 || f[0].Fix != "Set DOCKER_GID=998 in deploy/.env and run: docker compose up -d" || f[0].Severity != core.SevMedium {
+	if len(f) != 1 || f[0].Fix != "Set DOCKER_GID=998 in the .env next to compose.yaml and run: docker compose up -d" || f[0].Severity != core.SevMedium {
 		t.Fatalf("socket_access = %+v", f)
 	}
 	if len(findings(t, e.c, "sandbox.unavailable")) != 1 {

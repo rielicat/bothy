@@ -33,14 +33,17 @@ equal the CONNECT host, and is replayed upstream byte for byte) or, with
 `egress.allow_plain_http`, one absolute-form HTTP request whose `Host` header
 is forced to the target. The decision order is SPEC §2.8: port, denylist,
 allowlist sources, trifecta (an Exposed session suspends grants), then
-hold-for-approval or 403. Only interactive bindings of a run that is still
-running are held (background processes outlive their run). A held CONNECT
-asks `Policy.Decide` with the `net_allow` spec and an Action
-`{kind: net, host, port}`, requests an approval for tool call
+hold-for-approval or 403. Only an interactive binding is held, and only
+while its exec runs (the runner calls `Unbind` when the exec returns) in a
+run that is still running: background processes outlive both. A held CONNECT
+asks `Policy.Decide` with the `net_allow` spec, an Action
+`{kind: net, host, port}` and the run's provenance (so F6 applies to runs
+started by untrusted messages), requests an approval for tool call
 `<bound call>#net`, and waits up to `egress.hold_for_approval`;
 concurrent holds for the same destination share one card. `allow_once` admits
-the destination for the rest of the bound tool call, `allow_session` and
-`allow_always` store the policy's narrow grant. A denied or expired hold is
+the destination until the bound tool call's exec returns (an approval that
+arrives later admits only the connection that waited for it), `allow_session`
+and `allow_always` store the policy's narrow grant. A denied or expired hold is
 remembered for the rest of the tool call (retries get an immediate 403, not a
 new card), and one tool call can ask about at most 8 destinations. Byte caps
 (`egress.caps`, 0 = no cap) count per session, survive the box being

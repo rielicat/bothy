@@ -42,7 +42,7 @@ var (
 	errNotFound     = newError(http.StatusNotFound, "not_found", "not found")
 	errUnauthorized = newError(http.StatusUnauthorized, "unauthorized", "sign in required")
 	errCookieOnly   = newError(http.StatusForbidden, "forbidden", "this endpoint needs a signed-in browser session, not an API token")
-	errSafeMode     = newError(http.StatusServiceUnavailable, "unavailable", "safe mode: fix bothy.yaml").withFix("bothy config check, then restart")
+	errSafeMode     = newError(http.StatusServiceUnavailable, "unavailable", "safe mode: fix bothy.yaml").withFix("bothy config check (Docker: docker compose exec bothy /bothy config check), then restart")
 )
 
 // errorEnvelope is dto.Error plus the field errors of a rejected config

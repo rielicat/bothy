@@ -137,7 +137,7 @@ func TestComposeSocketOnboarding(t *testing.T) {
 	}
 	c.SetupOwner(t)
 	var info dto.SandboxInfo
-	want := "Set DOCKER_GID=" + c.SocketGID + " in deploy/.env and run: docker compose up -d"
+	want := "Set DOCKER_GID=" + c.SocketGID + " in the .env next to compose.yaml and run: docker compose up -d"
 	deadline := time.Now().Add(60 * time.Second)
 	for {
 		if code := c.HTTP.JSON(t, http.MethodGet, "/api/sandbox", nil, &info); code != http.StatusOK {

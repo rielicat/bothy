@@ -827,7 +827,9 @@ func TestSandboxInfo(t *testing.T) {
 	}
 	h.sandbox.SetStatus(core.SandboxStatus{Backend: "none", Reason: "no sandboxd"})
 	info = decodeAs[dto.SandboxInfo](t, h.do("GET", "/api/sandbox", nil, h.member))
-	if info.Status.Available || info.Compose == "" {
+	// deploy/compose.yaml keeps digest placeholders and install.sh deployments
+	// have no deploy/ directory, so the hint follows the install.sh flow.
+	if info.Status.Available || strings.Contains(info.Compose, "deploy/compose.yaml") || !strings.Contains(info.Compose, "install.sh --compose") {
 		t.Fatalf("unavailable info = %+v", info)
 	}
 }

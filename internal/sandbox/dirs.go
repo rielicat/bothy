@@ -71,6 +71,31 @@ func fixDir(p string, mode fs.FileMode, gid int) error {
 	return os.Chmod(p, mode)
 }
 
+// maxSocketPath is the longest unix socket path Linux accepts: sun_path holds
+// 108 bytes including the terminating NUL.
+const maxSocketPath = 107
+
+const runDirFix = "set BOTHY_STORAGE__RUN_DIR (or storage.run_dir in bothy.yaml) to a short directory this user can write, " +
+	"such as $XDG_RUNTIME_DIR/bothy, and restart"
+
+// prepareRunDir creates the run directory, which nothing else creates on a
+// native install, and checks that the gateway can make the boxes' egress
+// sockets in it. In the images and under compose it already exists.
+func prepareRunDir(run string) error {
+	if err := os.MkdirAll(run, 0o750); err != nil {
+		return fmt.Errorf("cannot create the run directory: %w", err)
+	}
+	probe, err := os.MkdirTemp(run, ".probe-")
+	if err != nil {
+		return fmt.Errorf("the run directory %s is not writable: %w", run, err)
+	}
+	_ = os.Remove(probe)
+	if n := len(filepath.Join(run, filepath.FromSlash(proto.EgressSubpath(canaryKey)), "proxy.sock")); n > maxSocketPath {
+		return fmt.Errorf("the run directory %s is too long for the boxes' egress sockets (%d > %d bytes)", run, n, maxSocketPath)
+	}
+	return nil
+}
+
 // boxDirs creates what a box mounts (core.Sandbox.Ensure): ws/<id> and the
 // MCP tree (2770), skills/ (2770), and egress/<h> (0750) on the run volume.
 func boxDirs(work, run string, spec core.BoxSpec, gid int) error {

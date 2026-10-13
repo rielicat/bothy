@@ -282,16 +282,19 @@ func TestSocketOnboardingFixLines(t *testing.T) {
 	if !strings.HasPrefix(reason, "cannot access "+f.Name()+fmt.Sprintf(" (owner uid %d gid %d, mode 0660)", uid, gid)) {
 		t.Fatalf("reason = %q", reason)
 	}
-	wantRootful := fmt.Sprintf("Set DOCKER_GID=%d in deploy/.env and run: docker compose up -d", gid)
-	wantRootless := fmt.Sprintf("set SANDBOXD_USER=%d:%d and DOCKER_SOCK=$XDG_RUNTIME_DIR/docker.sock", uid, gid)
+	// install.sh puts .env next to compose.yaml in its own directory; a
+	// checkout keeps both in deploy/.
+	wantRootful := fmt.Sprintf("Set DOCKER_GID=%d in the .env next to compose.yaml and run: docker compose up -d", gid)
+	wantRootless := fmt.Sprintf("set SANDBOXD_USER=%d:%d and DOCKER_SOCK=$XDG_RUNTIME_DIR/docker.sock in the .env next to compose.yaml", uid, gid)
 	if uid == 0 && fix != wantRootful || uid != 0 && !strings.HasPrefix(fix, wantRootless) {
 		t.Fatalf("fix = %q", fix)
 	}
 	if !rootlessSocket("/run/user/1000/docker.sock", 1000, 0o600) || rootlessSocket("/var/run/docker.sock", 0, 0o660) {
 		t.Fatal("rootless detection")
 	}
-	if reason, _ := socketOnboarding("/nonexistent/docker.sock", os.ErrNotExist); !strings.Contains(reason, "cannot find") {
-		t.Fatalf("missing socket reason %q", reason)
+	if reason, fix := socketOnboarding("/nonexistent/docker.sock", os.ErrNotExist); !strings.Contains(reason, "cannot find") ||
+		!strings.Contains(fix, "DOCKER_SOCK in the .env next to compose.yaml") {
+		t.Fatalf("missing socket = %q, %q", reason, fix)
 	}
 }
 
