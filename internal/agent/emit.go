@@ -72,9 +72,11 @@ func (rs *runState) setExposed(t core.Taint) {
 }
 
 // streamer coalesces one LLM call's deltas into events at most every
-// deltaInterval. When the session is exposed it releases text only up to the
-// last whitespace, so a link split across deltas is neutralized whole on the
-// sink side; the bus always gets the raw text (the web renders links inert).
+// deltaInterval. It releases text only up to the last whitespace: each flush
+// is redacted on its own, so a secret or token split across two flushes would
+// pass unmasked, and in an exposed session a link split across deltas must
+// be neutralized whole on the sink side (the bus gets it raw; the web renders
+// links inert).
 type streamer struct {
 	rs      *runState
 	typ     core.EventType
@@ -82,7 +84,7 @@ type streamer struct {
 	mu      sync.Mutex
 	buf     strings.Builder
 	timer   *time.Timer
-	pending string // held back while exposed
+	pending string // trailing partial word, held back until the next flush
 }
 
 func (rs *runState) newStreamer(typ core.EventType, toSink bool) *streamer {
@@ -127,7 +129,7 @@ func (s *streamer) flushLocked(final bool) {
 	rs := s.rs
 	rs.emitMu.Lock()
 	defer rs.emitMu.Unlock()
-	if rs.exposed && s.toSink && !final {
+	if !final {
 		cut := strings.LastIndexFunc(raw, unicode.IsSpace)
 		if cut < 0 && len(raw) < holdbackMax {
 			s.pending = raw
