@@ -8,7 +8,6 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -213,25 +212,41 @@ func controlFor(allowPrivate bool) func(network, address string, c syscall.RawCo
 // sent to the destination, down what we received from it.
 type trackedConn struct {
 	net.Conn
-	up, down atomic.Int64
+	rmu, wmu sync.Mutex
+	up, down int64
 	once     sync.Once
 	onClose  func(up, down int64)
 }
 
 func (c *trackedConn) Read(p []byte) (int, error) {
+	c.rmu.Lock()
+	defer c.rmu.Unlock()
 	n, err := c.Conn.Read(p)
-	c.down.Add(int64(n))
+	c.down += int64(n)
 	return n, err
 }
 
 func (c *trackedConn) Write(p []byte) (int, error) {
+	c.wmu.Lock()
+	defer c.wmu.Unlock()
 	n, err := c.Conn.Write(p)
-	c.up.Add(int64(n))
+	c.up += int64(n)
 	return n, err
 }
 
+// Close reports only after in-flight Read/Write calls have added their bytes:
+// the transport's write goroutine can still be between Write returning and
+// counting when the response has already been read and the conn closed.
+// Closing the underlying conn first unblocks them.
 func (c *trackedConn) Close() error {
 	err := c.Conn.Close()
-	c.once.Do(func() { c.onClose(c.up.Load(), c.down.Load()) })
+	c.once.Do(func() {
+		c.rmu.Lock()
+		c.wmu.Lock()
+		up, down := c.up, c.down
+		c.wmu.Unlock()
+		c.rmu.Unlock()
+		c.onClose(up, down)
+	})
 	return err
 }
