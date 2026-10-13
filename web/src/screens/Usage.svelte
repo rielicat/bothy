@@ -19,15 +19,21 @@
   let error = $state('');
 
   const days = $derived(Number(range));
+  // The server keys day rows by UTC date, so the range starts at a UTC
+  // midnight and each bar is a UTC day; the bars then add up to Spent.
+  const DAY = 86_400_000;
+  const utcDay = (back: number) => {
+    const now = new Date();
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - back * DAY);
+  };
   const series = $derived.by(() => {
     const rows = new Map((byDay?.rows ?? []).map((r) => [r.key.slice(0, 10), r]));
     const out = [];
     for (let i = days - 1; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const d = utcDay(i);
+      const key = d.toISOString().slice(0, 10);
       const r = rows.get(key);
-      out.push({ key, label: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), value: r?.cost_micros ?? 0, muted: r ? !r.price_known : false });
+      out.push({ key, label: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' }), value: r?.cost_micros ?? 0, muted: r ? !r.price_known : false });
     }
     return out;
   });
@@ -35,10 +41,7 @@
   const cacheable = $derived(t ? t.input + t.cache_read + t.cache_write : 0);
 
   $effect(() => {
-    const from = new Date();
-    from.setHours(0, 0, 0, 0);
-    from.setDate(from.getDate() - (days - 1));
-    const base = { from: from.toISOString(), to: new Date().toISOString() };
+    const base = { from: utcDay(days - 1).toISOString(), to: new Date().toISOString() };
     const kinds = ['model', 'session', 'schedule', ...(session.isAdmin ? ['user'] : [])];
     error = '';
     Promise.all([
@@ -105,7 +108,7 @@
   {/if}
 
   <section class="card mb-8 p-4">
-    <h2 class="mb-2 section-title">Spend by day</h2>
+    <h2 class="mb-2 section-title">Spend by day <span class="font-normal normal-case text-muted">(UTC days)</span></h2>
     <BarChart data={series} label="Spend per day" format={(v) => usd(v)} />
     {#if series.some((s) => s.muted)}<p class="mt-1 text-xs text-warn">Amber days include calls whose price is unknown.</p>{/if}
   </section>
