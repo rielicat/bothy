@@ -591,8 +591,8 @@ func (s *Server) agentCompletion(w http.ResponseWriter, r *http.Request, a core.
 	if err != nil {
 		return err
 	}
-	// A busy session would steer or queue the message into a run this
-	// request cannot stream, so it is refused before anything is consumed.
+	// The runner refuses to queue a /v1 request behind another run (ErrBusy
+	// below); this early check only saves storing the request's images.
 	if mapped && s.sessionBusy(sess.ID) {
 		w.Header().Set("Retry-After", "1")
 		return &v1Err{status: http.StatusTooManyRequests, code: "busy", msg: "the session is running another task; retry when it finishes"}
@@ -638,13 +638,21 @@ func (s *Server) agentCompletion(w http.ResponseWriter, r *http.Request, a core.
 	}
 	res, err := s.d.Runner.Submit(ctx, rr)
 	release()
+	if errors.Is(err, core.ErrBusy) {
+		// Nothing was consumed: the runner never queues a /v1 request.
+		w.Header().Set("Retry-After", "1")
+		return &v1Err{status: http.StatusTooManyRequests, code: "busy", msg: "the session is running another task; retry when it finishes"}
+	}
 	if err != nil {
 		return s.v1RunError(err)
 	}
-	if res.Run == "" {
-		// Another run started first and took the message: a retry would
-		// send it twice, so this is not a retryable 429.
+	// Neither is retryable: the message is already in the session, and a
+	// retry would send it twice.
+	switch {
+	case res.Steered:
 		return &v1Err{status: http.StatusConflict, code: "steered", msg: "the session started another run first; this message was added to it"}
+	case res.Run == "" || res.Queued:
+		return &v1Err{status: http.StatusConflict, code: "queued", msg: "the session was busy; this message was queued behind its current task and its reply will not be streamed here"}
 	}
 	h := w.Header()
 	h.Set("X-Bothy-Run-Id", string(res.Run))

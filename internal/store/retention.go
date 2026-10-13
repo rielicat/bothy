@@ -15,6 +15,18 @@ const (
 	defaultDedupKeep  = 24 * time.Hour
 )
 
+// Stateless /v1 requests leave one hidden api session each. The pass runs in
+// one write transaction, so it must only touch the not yet archived ones
+// through sessions_hidden_api (same expression), never scan every session
+// ever made. Archived ones are never shown or resumed with their history,
+// so their snapshot and summary are cleared too; their runs keep the costs.
+const (
+	hiddenDue           = `hidden = 1 AND origin = 'api' AND archived = 0 AND max(created_at, updated_at, last_message_at) < ?`
+	pruneHiddenMessages = `DELETE FROM messages WHERE session_id IN (SELECT id FROM sessions WHERE ` + hiddenDue + `)`
+	archiveHidden       = `UPDATE sessions SET archived = 1, system_snapshot = '', tools_snapshot = '[]', snapshot_hash = '',
+		summary = '' WHERE ` + hiddenDue
+)
+
 // RunRetention prunes egress_log, inbound_dedup, expired auth sessions and old
 // runs per config every hour. Blocks until ctx is done.
 func (db *DB) RunRetention(ctx context.Context, cfg config.View) error {
@@ -66,11 +78,10 @@ func (db *DB) retain(ctx context.Context, c *config.Config) error {
 	}
 	err := db.write(ctx, func(q querier) error {
 		cut := ms(now.Add(-hiddenSessionKeep))
-		const old = `hidden = 1 AND origin = 'api' AND MAX(created_at, updated_at, last_message_at) < ?`
-		if _, err := q.ExecContext(ctx, `DELETE FROM messages WHERE session_id IN (SELECT id FROM sessions WHERE `+old+`)`, cut); err != nil {
+		if _, err := q.ExecContext(ctx, pruneHiddenMessages, cut); err != nil {
 			return dbErr("prune hidden sessions", err)
 		}
-		_, err := q.ExecContext(ctx, `UPDATE sessions SET archived = 1 WHERE archived = 0 AND `+old, cut)
+		_, err := q.ExecContext(ctx, archiveHidden, cut)
 		return dbErr("archive hidden sessions", err)
 	})
 	if err != nil {

@@ -495,10 +495,18 @@ func validateModels(c *Config, v *vctx, ids []string) {
 	}
 }
 
+// ValidPersonaFile reports whether name may be agent.persona_file: a bare
+// Markdown file name. PUT /api/persona overwrites that file in the data dir,
+// which also holds bothy.yaml, bothy.db, the setup token and the KEK.
+func ValidPersonaFile(name string) bool {
+	return len(name) > len(".md") && filepath.IsLocal(name) && !strings.ContainsAny(name, `/\`) &&
+		strings.EqualFold(filepath.Ext(name), ".md")
+}
+
 func validateAgent(c *Config, v *vctx) {
 	a := c.Agent
-	if a.PersonaFile == "" || !filepath.IsLocal(a.PersonaFile) {
-		v.add("agent.persona_file", "must be a relative path inside the data dir, got %q", a.PersonaFile)
+	if !ValidPersonaFile(a.PersonaFile) {
+		v.add("agent.persona_file", "must be a Markdown file name in the data dir (like SOUL.md), got %q", a.PersonaFile)
 	}
 	v.enum("agent.busy_mode", "agent.busy_mode", a.BusyMode)
 	v.nonNeg("agent.coalesce_window", a.CoalesceWindow)

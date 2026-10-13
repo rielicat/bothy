@@ -13,11 +13,11 @@ import (
 	"mime"
 	"net/http"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/httpapi/dto"
 )
@@ -217,15 +217,16 @@ func (s *Server) allHistory(ctx context.Context, v core.Viewer, p core.Principal
 	}
 }
 
-// personaRoot opens the data dir; agent.persona_file must be a plain file
-// name inside it.
+// personaRoot opens the data dir. The same check as config validation runs
+// again here: this handler overwrites the file, and the data dir also holds
+// bothy.yaml, the database and the setup token.
 func (s *Server) personaRoot() (*os.Root, string, error) {
 	name := s.cfg().Agent.PersonaFile
 	if name == "" {
 		name = "SOUL.md"
 	}
-	if name != filepath.Base(name) || name == "." || name == ".." || s.d.DataDir == "" {
-		return nil, "", newError(http.StatusServiceUnavailable, "unavailable", "agent.persona_file must be a file name inside the data directory")
+	if !config.ValidPersonaFile(name) || s.d.DataDir == "" {
+		return nil, "", newError(http.StatusServiceUnavailable, "unavailable", "agent.persona_file must be a Markdown file name inside the data directory")
 	}
 	root, err := os.OpenRoot(s.d.DataDir)
 	if err != nil {

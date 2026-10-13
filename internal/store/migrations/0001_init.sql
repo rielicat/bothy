@@ -141,7 +141,10 @@ CREATE TABLE sessions (
 ) STRICT;
 CREATE UNIQUE INDEX sessions_channel_key ON sessions(principal_id, channel_key)
   WHERE channel_key IS NOT NULL AND archived = 0;
-CREATE INDEX sessions_recent ON sessions(principal_id, archived, last_message_at DESC);
+CREATE INDEX sessions_recent ON sessions(principal_id, archived, hidden, last_message_at DESC);
+-- Hidden one-shot api sessions still due for retention (store/retention.go).
+CREATE INDEX sessions_hidden_api ON sessions(max(created_at, updated_at, last_message_at))
+  WHERE hidden = 1 AND origin = 'api' AND archived = 0;
 
 CREATE TABLE session_urls (                      -- URL provenance for web_fetch in exposed sessions
   session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -279,6 +282,7 @@ CREATE TABLE llm_calls (
 ) STRICT;
 CREATE INDEX llm_calls_run ON llm_calls(run_id, step);
 CREATE INDEX llm_calls_user_time ON llm_calls(user_id, created_at);
+CREATE INDEX llm_calls_time ON llm_calls(created_at);
 
 CREATE TABLE tool_calls (
   id             TEXT PRIMARY KEY,               -- tcl_<26>
@@ -329,6 +333,10 @@ CREATE TABLE approvals (
 ) STRICT;
 CREATE INDEX approvals_open ON approvals(principal_id, status) WHERE status IN ('pending','parked');
 CREATE INDEX approvals_due ON approvals(expires_at) WHERE status = 'pending';
+CREATE INDEX approvals_parked ON approvals(park_until) WHERE status = 'parked';
+-- First contact (Approvals.Seen); the expressions match store/runs.go.
+CREATE INDEX approvals_seen_recipient ON approvals(principal_id, json_extract(action, '$.recipient')) WHERE status = 'allowed';
+CREATE INDEX approvals_seen_host ON approvals(principal_id, json_extract(action, '$.host')) WHERE status = 'allowed';
 CREATE INDEX approvals_run ON approvals(run_id);
 
 CREATE TABLE approval_messages (                 -- chat messages that carry a card; presses must come from these

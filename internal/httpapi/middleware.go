@@ -32,14 +32,15 @@ type handlerFunc func(w http.ResponseWriter, r *http.Request, a core.Actor) erro
 type access uint8
 
 const (
-	accessNone       access = iota // anyone
-	accessLocal                    // anyone on a local peer (setup state and claim)
-	accessSetup                    // setup grant cookie, local peers
-	accessUser                     // cookie, or bearer chat (read covers GET)
-	accessUserCookie               // cookie only
-	accessRead                     // cookie or bearer read
-	accessAdmin                    // owner/admin cookie or bearer admin
-	accessV1                       // bearer chat or llm
+	accessNone        access = iota // anyone
+	accessLocal                     // anyone on a local peer (setup state and claim)
+	accessSetup                     // setup grant cookie, local peers
+	accessUser                      // cookie, or bearer chat (read covers GET)
+	accessUserCookie                // cookie only
+	accessRead                      // cookie or bearer read
+	accessAdmin                     // owner/admin cookie or bearer admin
+	accessV1                        // bearer chat or llm
+	accessAdminCookie               // owner/admin cookie only
 )
 
 type route struct {
@@ -361,6 +362,13 @@ func authorize(r *http.Request, rt route, a core.Actor) error {
 		}
 	case accessAdmin:
 		if !a.Role.IsAdmin() || !a.HasScope("admin") {
+			return newError(http.StatusForbidden, "forbidden", "admin only")
+		}
+	case accessAdminCookie:
+		if token {
+			return errCookieOnly
+		}
+		if !a.Role.IsAdmin() {
 			return newError(http.StatusForbidden, "forbidden", "admin only")
 		}
 	case accessV1:

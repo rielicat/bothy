@@ -120,6 +120,15 @@ docker compose -f deploy/compose.yaml -f deploy/compose.source.yaml logs bothy |
 If `DOCKER_GID` is wrong, shell and Python stay off and `docker compose logs
 sandboxd` prints the exact value to set.
 
+**Moving from the single container to compose** keeps the `bothy_data`
+volume. Stop and remove the old container first (`docker rm -f bothy`), then
+start compose: on its first start the gateway moves the vault key from
+`/data/keys/kek` to the new `bothy_keys` volume and the workspaces from
+`/data/work` to `bothy_work`, and logs both moves. To use a Docker secret for
+the key instead, put the existing key in it (`docker cp bothy:/data/keys/kek
+bothy_kek` before removing the container); a newly generated key cannot open
+the vault.
+
 **Native binary** (Linux, macOS or Windows; on Linux the shell tool uses
 bubblewrap when it is installed):
 

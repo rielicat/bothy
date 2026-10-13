@@ -166,10 +166,14 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, a core.Actor) er
 		resync = true
 	}
 	// A fresh client loads state over REST, so it gets every live event; the
-	// hello only tells it where the stream stood.
+	// hello only tells it where the stream stood. Events between its last
+	// match and the bus head cannot match f, so the head serves as well and
+	// needs no copy of the ring under the bus lock.
 	helloSeq := last
 	if !resync && len(replay) == 0 && last == 0 {
-		if evs, _ := s.d.Bus.Since(0, f); len(evs) > 0 {
+		if b, ok := s.d.Bus.(interface{ Seq() uint64 }); ok {
+			helloSeq = b.Seq()
+		} else if evs, _ := s.d.Bus.Since(0, f); len(evs) > 0 {
 			helloSeq = evs[len(evs)-1].Seq
 		}
 	}

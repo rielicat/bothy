@@ -65,10 +65,9 @@ func clientIP(r *http.Request) string {
 }
 
 // netCache holds the parsed network settings of the config snapshot it was
-// built from; trusted_proxies and local_cidrs are restart-only, allowed_hosts
-// and public_url can change at runtime.
+// built from. A new config gets a new value and the old one is never
+// modified: requests keep reading the lists after netState returns.
 type netCache struct {
-	mu      sync.Mutex
 	src     *config.Config
 	trusted []netip.Prefix
 	local   []netip.Prefix
@@ -92,23 +91,19 @@ func parsePrefixes(list []string) []netip.Prefix {
 
 func (s *Server) netState() *netCache {
 	c := s.cfg()
-	nc := &s.net
-	nc.mu.Lock()
-	defer nc.mu.Unlock()
-	if nc.src != c {
-		nc.src = c
-		nc.trusted = parsePrefixes(c.Server.TrustedProxies)
-		nc.local = parsePrefixes(c.Server.LocalCIDRs)
-		nc.hosts = nc.hosts[:0]
-		for _, h := range c.Server.AllowedHosts {
-			if h = strings.TrimSpace(h); h != "" {
-				nc.hosts = append(nc.hosts, splitHost(h))
-			}
-		}
-		if u, err := url.Parse(c.Server.PublicURL); err == nil && u.Host != "" {
-			nc.hosts = append(nc.hosts, splitHost(u.Host))
+	if nc := s.net.Load(); nc != nil && nc.src == c {
+		return nc
+	}
+	nc := &netCache{src: c, trusted: parsePrefixes(c.Server.TrustedProxies), local: parsePrefixes(c.Server.LocalCIDRs)}
+	for _, h := range c.Server.AllowedHosts {
+		if h = strings.TrimSpace(h); h != "" {
+			nc.hosts = append(nc.hosts, splitHost(h))
 		}
 	}
+	if u, err := url.Parse(c.Server.PublicURL); err == nil && u.Host != "" {
+		nc.hosts = append(nc.hosts, splitHost(u.Host))
+	}
+	s.net.Store(nc)
 	return nc
 }
 

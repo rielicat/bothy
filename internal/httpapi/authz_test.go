@@ -53,6 +53,10 @@ func expected(rt route, method string, c *client) int {
 		if !admin || token && !has("admin") {
 			return http.StatusForbidden
 		}
+	case accessAdminCookie:
+		if !admin || token {
+			return http.StatusForbidden
+		}
 	case accessV1:
 		if !token {
 			return http.StatusUnauthorized
@@ -146,7 +150,7 @@ func TestSafeModeGating(t *testing.T) {
 			continue
 		}
 		c := admin
-		if rt.access == accessUserCookie || rt.access == accessSetup || path == "/api/auth/logout" {
+		if rt.access == accessUserCookie || rt.access == accessAdminCookie || rt.access == accessSetup || path == "/api/auth/logout" {
 			c = h.admin
 		}
 		opts := []reqOpt{}

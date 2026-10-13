@@ -30,7 +30,7 @@
       api.get<ChannelIdentity[]>('/api/identities').catch(() => []),
       admin ? api.get<ChannelStatus[]>('/api/channels').catch(() => []) : [],
       api.get<Space[]>('/api/spaces').catch(() => []),
-      admin && session.multi ? api.get<User[]>('/api/users').catch(() => []) : [],
+      session.me?.user.role === 'owner' && session.multi ? api.get<User[]>('/api/users').catch(() => []) : [],
     ]);
   }
 
@@ -64,8 +64,9 @@
 
   const idPath = (i: ChannelIdentity) => `/api/identities/${encodeURIComponent(i.channel)}/${encodeURIComponent(i.external_id)}`;
 
-  // Linking gives the chat account that person's data, so in multi mode the
-  // admin must pick someone explicitly; single mode can only mean the owner.
+  // Linking gives the chat account that person's data. Only the owner may link
+  // it to someone else and must pick them explicitly; other admins link to
+  // themselves, and everyone else pairs their own account with a code.
   const linkTarget = (i: ChannelIdentity) => (users.length ? linkTo[i.external_id] : session.me?.user.id);
 
   async function decide(i: ChannelIdentity, status: IdentityStatus) {

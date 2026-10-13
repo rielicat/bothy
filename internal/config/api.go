@@ -608,6 +608,10 @@ func anyNode(v any) *yaml.Node {
 type Dirs struct {
 	Data, Work, Run, Keyfile string
 	KeyfileColocated         bool // the KEK file lives on the same volume as the DB
+	// LegacyWork and LegacyKeyfile are the single-container paths under Data
+	// that the auto work dir and keyfile replaced because /work or /keys is
+	// mounted; "" otherwise. MoveLegacyWork and the vault move them over.
+	LegacyWork, LegacyKeyfile string
 }
 
 func ResolveDirs(c *Config) Dirs { return resolveDirs(c, readMounts()) }

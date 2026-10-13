@@ -89,9 +89,12 @@ func (s *Service) loginFailed(ctx context.Context, u *core.User, username, ip st
 	if ip != "" {
 		lockIP = s.locks.fail("ip:"+ip, now, cfg)
 	}
+	// Known and unknown usernames share one counter with one forgiveness
+	// rule, so a lockout never tells them apart; the users table only keeps
+	// a known account's lock across restarts.
+	lockName = s.locks.fail("name:"+strings.ToLower(username), now, cfg)
 	if u != nil {
 		target = userTarget(u.ID)
-		lockName = lockFor(u.FailedLogins+1, cfg)
 		var until time.Time
 		if lockName > 0 {
 			until = now.Add(lockName)
@@ -100,8 +103,6 @@ func (s *Service) loginFailed(ctx context.Context, u *core.User, username, ip st
 		if err := s.store.Users().RecordLogin(context.WithoutCancel(ctx), u.ID, false, until); err != nil {
 			s.log.Error("record failed login", "err", err)
 		}
-	} else {
-		lockName = s.locks.fail("name:"+strings.ToLower(username), now, cfg)
 	}
 	s.record(ctx, "system", "auth.login_failed", target, "denied", map[string]any{"ip": ip})
 	if lockIP > 0 || lockName > 0 {

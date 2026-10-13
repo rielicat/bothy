@@ -45,8 +45,8 @@ func ruleMatches(r *config.Rule, x *input) bool {
 	// touches; a tightening one fires when any of them matches.
 	all := r.Verdict == string(core.VerdictAuto)
 	if len(r.Argv0) > 0 {
-		name, ok := commandName(x.argv)
-		if !ok || !slices.Contains(r.Argv0, name) {
+		name, args, ok := commandLine(x.argv)
+		if !ok || !slices.Contains(r.Argv0, name) || all && !readOnlyArgs(name, args) {
 			return false
 		}
 	}
@@ -101,23 +101,64 @@ func matchPaths(patterns, paths []string, all bool) bool {
 // rule sees it: for ["bash","-lc",cmd] the first word of cmd, otherwise
 // argv[0]. ok is false when that cannot be decided safely.
 func commandName(argv []string) (string, bool) {
+	name, _, ok := commandLine(argv)
+	return name, ok
+}
+
+// commandLine is commandName plus the words after the program.
+func commandLine(argv []string) (string, []string, bool) {
 	if len(argv) == 0 {
-		return "", false
+		return "", nil, false
 	}
+	words := argv
 	if len(argv) == 3 && (argv[1] == "-c" || argv[1] == "-lc") {
 		if sh, ok := programName(argv[0]); ok && slices.Contains(shells, sh) {
 			cmd := argv[2]
 			if strings.ContainsAny(cmd, shellMeta) {
-				return "", false
+				return "", nil, false
 			}
-			words := strings.Fields(cmd)
-			if len(words) == 0 {
-				return "", false
+			if words = strings.Fields(cmd); len(words) == 0 {
+				return "", nil, false
 			}
-			return programName(words[0])
 		}
 	}
-	return programName(argv[0])
+	name, ok := programName(words[0])
+	return name, words[1:], ok
+}
+
+// writingFlags are the options that make a tool of the default read-only
+// shell rule delete or write files or run another program.
+var writingFlags = map[string][]string{
+	"find": {"-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf", "-fls"},
+	"rg":   {"--pre", "--pre-glob", "--search-zip", "--hostname-bin"},
+}
+
+// readOnlyArgs reports whether args keep name read-only, so that a relaxing
+// argv0 rule may match. Quotes and backslashes are dropped first, as the
+// shell would ("-de'le'te" is -delete).
+func readOnlyArgs(name string, args []string) bool {
+	bad := writingFlags[name]
+	if bad == nil {
+		return true
+	}
+	for _, a := range args {
+		a = strings.Map(func(r rune) rune {
+			if r == '\'' || r == '"' || r == '\\' {
+				return -1
+			}
+			return r
+		}, a)
+		flag, _, _ := strings.Cut(a, "=")
+		if slices.Contains(bad, flag) {
+			return false
+		}
+		// rg's -z (--search-zip) runs decompressors and may share a cluster
+		// with other short flags.
+		if name == "rg" && len(a) > 1 && a[0] == '-' && a[1] != '-' && strings.ContainsRune(a, 'z') {
+			return false
+		}
+	}
+	return true
 }
 
 // programName accepts a bare command name or an absolute path in a system

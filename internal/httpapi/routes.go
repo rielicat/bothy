@@ -43,11 +43,13 @@ func (s *Server) routeTable() []route {
 		{pattern: "PATCH /api/users/{id}", access: accessAdmin, h: s.patchUser},
 		{pattern: "DELETE /api/users/{id}", access: accessAdmin, h: s.deleteUser},
 
-		{pattern: "POST /api/pairing", access: accessUser, h: s.newPairing},
-		{pattern: "POST /api/pairing/approve", access: accessAdmin, h: s.approvePairing},
+		// A linked chat identity answers approval cards as its user, so making
+		// or moving one is cookie-only like approvals and tokens.
+		{pattern: "POST /api/pairing", access: accessUserCookie, h: s.newPairing},
+		{pattern: "POST /api/pairing/approve", access: accessAdminCookie, h: s.approvePairing},
 		{pattern: "GET /api/identities", access: accessUser, h: s.listIdentities},
-		{pattern: "PATCH /api/identities/{channel}/{external}", access: accessAdmin, h: s.patchIdentity},
-		{pattern: "DELETE /api/identities/{channel}/{external}", access: accessUser, h: s.deleteIdentity},
+		{pattern: "PATCH /api/identities/{channel}/{external}", access: accessAdminCookie, h: s.patchIdentity},
+		{pattern: "DELETE /api/identities/{channel}/{external}", access: accessUserCookie, h: s.deleteIdentity},
 		{pattern: "GET /api/spaces", access: accessUser, h: s.listSpaces},
 		{pattern: "PATCH /api/spaces/{id}", access: accessUser, h: s.patchSpace},
 

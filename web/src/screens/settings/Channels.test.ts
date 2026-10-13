@@ -24,4 +24,19 @@ describe('Chat apps: pending senders', () => {
     const patch = calls.find((c) => c.method === 'PATCH' && c.url.startsWith('/api/identities/'))!;
     expect(JSON.parse(patch.body)).toEqual({ status: 'linked', user_id: member.id });
   });
+
+  // The gateway lets only the owner link a chat account to someone else.
+  it('offers an admin no one to link to but themselves', async () => {
+    const calls = installApi({ override: (m, url) => (url === '/api/users' ? [member, owner] : undefined) });
+    await session.init();
+    session.me = { ...session.me!, mode: 'multi', user: { ...session.me!.user, role: 'admin' } };
+    render(Channels);
+    const link = await screen.findByRole('button', { name: 'Link' });
+    expect(screen.queryByRole('combobox', { name: 'Link to user' })).toBeNull();
+    expect(calls.some((c) => c.url === '/api/users')).toBe(false);
+    await fireEvent.click(link);
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url.startsWith('/api/identities/'))).toBe(true));
+    const patch = calls.find((c) => c.method === 'PATCH' && c.url.startsWith('/api/identities/'))!;
+    expect(JSON.parse(patch.body)).toEqual({ status: 'linked', user_id: session.me!.user.id });
+  });
 });

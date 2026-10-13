@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rielicat/bothy/internal/config"
@@ -60,7 +61,7 @@ type Server struct {
 	tools core.ToolRegistry
 
 	cop      *http.CrossOriginProtection
-	net      netCache
+	net      atomic.Pointer[netCache]
 	gateways func() []netip.Addr
 	tokens   *limiter // per-token requests per minute
 	logins   *limiter // per client address

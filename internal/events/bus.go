@@ -75,6 +75,13 @@ func (b *Bus) Since(after uint64, f core.Filter) ([]core.Event, bool) {
 
 func (b *Bus) BootID() string { return b.boot }
 
+// Seq returns the newest Seq assigned, 0 before the first Publish.
+func (b *Bus) Seq() uint64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.seq
+}
+
 // Banners returns the active banners matching f in Seq order.
 func (b *Bus) Banners(f core.Filter) []core.Event {
 	b.mu.Lock()

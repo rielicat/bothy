@@ -185,7 +185,9 @@ func TestIdentitiesAndSpaces(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	rec := h.do("PATCH", "/api/identities/telegram/1", dto.IdentityPatchReq{Status: core.IdentityLinked, UserID: h.member.user}, h.admin)
+	expect(t, h.do("PATCH", "/api/identities/telegram/1", dto.IdentityPatchReq{Status: core.IdentityLinked, UserID: h.member.user}, h.admin),
+		http.StatusForbidden)
+	rec := h.do("PATCH", "/api/identities/telegram/1", dto.IdentityPatchReq{Status: core.IdentityLinked, UserID: h.member.user}, h.owner)
 	expect(t, rec, http.StatusOK)
 	rec = h.do("PATCH", "/api/identities/telegram/2", dto.IdentityPatchReq{Status: core.IdentityGuest}, h.owner)
 	expect(t, rec, http.StatusOK)
