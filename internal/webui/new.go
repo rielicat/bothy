@@ -1,6 +1,7 @@
 package webui
 
 import (
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
@@ -23,9 +24,9 @@ func Handler() http.Handler {
 }
 
 type asset struct {
-	name  string // path inside the FS
+	name  string // path inside the FS, "" when only the gzip variant is embedded
 	ctype string
-	etag  string
+	etag  string // of the uncompressed content
 	gz    string // name of the pre-gzipped variant, "" when absent
 	gzTag string
 }
@@ -50,12 +51,19 @@ func newHandler(fsys fs.FS) *handler {
 			}
 			return nil
 		}
-		if d.IsDir() || strings.HasSuffix(p, ".gz") {
+		if d.IsDir() {
 			return nil
 		}
-		a := &asset{name: p, ctype: contentType(p), etag: etagOf(fsys, p)}
+		if raw, ok := strings.CutSuffix(p, ".gz"); ok {
+			// The build drops the raw copy of compressible files.
+			if _, err := fs.Stat(fsys, raw); err != nil {
+				h.assets[raw] = &asset{ctype: contentType(raw), etag: etagOf(fsys, p, true), gz: p, gzTag: etagOf(fsys, p, false)}
+			}
+			return nil
+		}
+		a := &asset{name: p, ctype: contentType(p), etag: etagOf(fsys, p, false)}
 		if _, err := fs.Stat(fsys, p+".gz"); err == nil {
-			a.gz, a.gzTag = p+".gz", etagOf(fsys, p+".gz")
+			a.gz, a.gzTag = p+".gz", etagOf(fsys, p+".gz", false)
 		}
 		h.assets[p] = a
 		return nil
@@ -63,14 +71,23 @@ func newHandler(fsys fs.FS) *handler {
 	return h
 }
 
-func etagOf(fsys fs.FS, name string) string {
+// etagOf hashes name, or its decompressed content when gunzip is set.
+func etagOf(fsys fs.FS, name string, gunzip bool) string {
 	f, err := fsys.Open(name)
 	if err != nil {
 		return ""
 	}
 	defer f.Close()
+	var r io.Reader = f
+	if gunzip {
+		zr, err := gzip.NewReader(f)
+		if err != nil {
+			return ""
+		}
+		r = zr
+	}
 	sum := sha256.New()
-	if _, err := io.Copy(sum, f); err != nil {
+	if _, err := io.Copy(sum, r); err != nil {
 		return ""
 	}
 	return `"` + hex.EncodeToString(sum.Sum(nil)[:12]) + `"`
@@ -137,11 +154,15 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request, a *asset, immuta
 	hdr.Set("Content-Type", a.ctype)
 	hdr.Set("X-Content-Type-Options", "nosniff")
 	name, tag := a.name, a.etag
+	gunzip := false
 	if a.gz != "" {
 		hdr.Add("Vary", "Accept-Encoding")
-		if acceptsGzip(r) {
+		switch {
+		case acceptsGzip(r):
 			name, tag = a.gz, a.gzTag
 			hdr.Set("Content-Encoding", "gzip")
+		case a.name == "":
+			name, gunzip = a.gz, true
 		}
 	}
 	switch {
@@ -161,6 +182,10 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request, a *asset, immuta
 		return
 	}
 	defer f.Close()
+	if gunzip {
+		serveGunzipped(w, r, f, tag)
+		return
+	}
 	rs, ok := f.(io.ReadSeeker)
 	if !ok {
 		hdr.Del("ETag")
@@ -171,6 +196,28 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request, a *asset, immuta
 		return
 	}
 	http.ServeContent(w, r, "", time.Time{}, rs)
+}
+
+// serveGunzipped streams a gzip-only asset to a client without gzip; such
+// clients are rare, so it offers no ranges, only If-None-Match.
+func serveGunzipped(w http.ResponseWriter, r *http.Request, f io.Reader, tag string) {
+	if inm := r.Header.Get("If-None-Match"); tag != "" && inm != "" {
+		for _, t := range strings.Split(inm, ",") {
+			if t = strings.TrimSpace(t); t == tag || t == "*" || t == "W/"+tag {
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
+		}
+	}
+	zr, err := gzip.NewReader(f)
+	if err != nil {
+		http.Error(w, "corrupt embedded asset", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	if r.Method != http.MethodHead {
+		_, _ = io.Copy(w, zr)
+	}
 }
 
 // acceptsGzip reports whether Accept-Encoding lists gzip with a non-zero q.

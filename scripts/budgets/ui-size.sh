@@ -14,17 +14,21 @@ if grep -q 'has not been built into this binary' "$dist/index.html"; then
 	exit 1
 fi
 
-gzsize() { gzip -9 -c "$1" | wc -c | tr -d ' '; }
-
+# The build embeds only the gzip variants of scripts and stylesheets, so
+# those are the bytes that count.
 js=0
 css=0
 while IFS= read -r f; do
-	n=$(gzsize "$f")
+	n=$(wc -c <"$f" | tr -d ' ')
 	case "$f" in
-	*.js) js=$((js + n)) ;;
-	*.css) css=$((css + n)) ;;
+	*.js.gz) js=$((js + n)) ;;
+	*.css.gz) css=$((css + n)) ;;
 	esac
-done < <(find "$dist" -type f \( -name '*.js' -o -name '*.css' \))
+done < <(find "$dist" -type f \( -name '*.js.gz' -o -name '*.css.gz' \))
+if [ "$js" -eq 0 ]; then
+	echo "ui-size: no *.js.gz in $dist; the precompress step did not run" >&2
+	exit 1
+fi
 
 fail=0
 printf 'ui-size: js %d B gz (budget %d), css %d B gz (budget %d)\n' "$js" "$js_budget" "$css" "$css_budget"
@@ -50,7 +54,7 @@ if grep -Eiq '(src|href)="(https?:)?//' "$dist/index.html"; then
 	echo "ui-size: index.html references another origin" >&2
 	fail=1
 fi
-if find "$dist" -name '*.css' -exec grep -Eil '(url\(|@import)[[:space:]]*["'\'']?(https?:)?//' {} + | grep -q .; then
+if find "$dist" -name '*.css.gz' -exec gzip -dc {} + | grep -Ei '(url\(|@import)[[:space:]]*["'\'']?(https?:)?//' >/dev/null; then
 	echo "ui-size: CSS references another origin" >&2
 	fail=1
 fi
