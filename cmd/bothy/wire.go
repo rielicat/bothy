@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -86,9 +88,9 @@ func buildBase(ctx context.Context) (*app, error) {
 	setUmask() // 007: /data files are created 0600/0700 explicitly; workspace files 0660/2770
 	a := &app{clock: core.SystemClock{}, restart: make(chan struct{}, 1)}
 	var err error
-	dataDir := envOr("BOTHY_STORAGE__DATA_DIR", "/data")
+	dataDir, defaulted := dataDir()
 	if a.cfg, err = config.Load(ctx, config.Options{DataDir: dataDir, File: os.Getenv("BOTHY_CONFIG"), Env: os.Environ}); err != nil {
-		return nil, err
+		return nil, dataDirErr(err, dataDir, defaulted)
 	}
 	c := a.cfg.Current()
 	a.dirs = config.ResolveDirs(c) // "auto" work_dir and keyfile resolved once (§2.1)
@@ -98,7 +100,7 @@ func buildBase(ctx context.Context) (*app, error) {
 	a.bus = events.New(events.Options{Ring: 4096, Clock: a.clock})
 	if a.db, err = store.Open(ctx, store.Options{Path: filepath.Join(dirs.Data, "bothy.db"), WorkDir: dirs.Work,
 		BackupDir: filepath.Join(dirs.Data, "backups"), BackupsKeep: c.Storage.BackupsKeep, Clock: a.clock, Log: a.log}); err != nil {
-		return nil, err
+		return nil, dataDirErr(err, dataDir, defaulted)
 	}
 	if a.audit, err = audit.New(audit.Deps{Store: a.db, Redactor: a.redactor, Clock: a.clock, Log: a.log}); err != nil {
 		a.close()
@@ -235,13 +237,33 @@ func (a *app) requestRestart() {
 }
 
 func serve(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
+	fs.Usage = func() {
+		fmt.Fprint(fs.Output(), "usage: bothy serve\n\nRuns the gateway. Settings come from <data>/bothy.yaml and BOTHY_* variables;\nthe data directory is $BOTHY_STORAGE__DATA_DIR (default /data).\n")
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return errUsage
+	}
+	setMemoryLimit()
 	a, err := build(ctx)
 	if err != nil {
 		return err
 	}
-	if tok, created, err := a.auth.EnsureSetupToken(ctx); err == nil && created {
-		printSetupBanner(a.cfg.Current(), tok)
+	c := a.cfg.Current()
+	switch tok, created, err := a.auth.EnsureSetupToken(ctx); {
+	case err != nil:
+		a.log.Error("setup token", "err", err)
+	case created:
+		printSetupBanner(os.Stderr, c, tok)
+	default:
+		if pending, err := a.auth.NeedsSetup(ctx); err == nil && pending {
+			printSetupPending(os.Stderr, c)
+		}
 	}
+	a.log.Info("gateway starting", "listen", c.Server.Listen, "url", baseURL(c), "version", version)
 	// Every resolution is forwarded; Resume is a no-op unless the run is parked.
 	a.approvals.OnResolved(func(ap *core.Approval) { _ = a.runner.Resume(context.WithoutCancel(ctx), ap) })
 	// Before any intake: a run submitted while recovery is pending would be

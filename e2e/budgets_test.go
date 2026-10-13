@@ -73,9 +73,9 @@ func TestIdleRSS(t *testing.T) {
 		wait = d
 	}
 	tg, dc, sl := telegramtest.New(telegramtest.Config{}), discordtest.New(), slacktest.New()
-	// Same memory limit as deploy/compose.yaml.
-	g := Start(t, Options{Env: map[string]string{"GOMEMLIMIT": "48MiB"},
-		Platforms: []Platform{budgetTelegram{tg}, budgetDiscord{dc}, budgetSlack{sl}}})
+	// No GOMEMLIMIT: the budget holds for `docker run` and native installs,
+	// where serve's own 48 MiB default applies, not just under compose.
+	g := Start(t, Options{Platforms: []Platform{budgetTelegram{tg}, budgetDiscord{dc}, budgetSlack{sl}}})
 	connected := func() bool { return tg.Calls("getUpdates") > 0 && dc.Connected() && sl.Connected() }
 	for deadline := time.Now().Add(30 * time.Second); !connected(); time.Sleep(100 * time.Millisecond) {
 		if time.Now().After(deadline) {

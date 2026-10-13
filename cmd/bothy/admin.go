@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -24,6 +23,12 @@ import (
 
 var errUsage = errors.New("usage")
 
+// offlineDoctorNote goes to stderr after every CLI doctor run: these checks
+// read health that only the running gateway's calls and connections produce.
+const offlineDoctorNote = "Note: this offline run cannot see the running gateway's state, so checks such as " +
+	"providers.auth_failed and channels.auth_failed never fire here. The web UI runs them live: " +
+	"Settings → Advanced → Health and security."
+
 // doctorCmd builds the app without starting its loops, runs the checks and
 // prints them. security-audit keeps security findings and can apply the
 // automatic fixes, after which it checks again.
@@ -44,6 +49,9 @@ func doctorCmd(ctx context.Context, args []string, security bool) (int, error) {
 		}
 		return 2, nil
 	}
+	if fs.NArg() != 0 {
+		return 0, errUsage
+	}
 	a, err := build(ctx)
 	if err != nil {
 		return 0, err
@@ -56,58 +64,41 @@ func doctorCmd(ctx context.Context, args []string, security bool) (int, error) {
 		}
 		findings = a.doctor.Run(ctx, security)
 	}
-	return doctor.Print(os.Stdout, findings, *asJSON), nil
+	code := doctor.Print(os.Stdout, findings, *asJSON)
+	fmt.Fprintln(os.Stderr, offlineDoctorNote)
+	return code, nil
 }
 
-// adminCmd runs the offline admin commands on the module APIs. Only the
-// pieces each one needs are opened, never the gateway's loops.
-func adminCmd(ctx context.Context, cmd string, args []string) error {
-	sub := ""
-	if len(args) > 0 {
-		sub = args[0]
-	}
-	err := runAdmin(ctx, cmd, sub, args)
-	if errors.Is(err, errUsage) {
-		fmt.Fprint(os.Stderr, usage)
-		os.Exit(2)
-	}
-	return err
+// adminOp is one offline admin command. Its shape is checked before anything
+// is opened, so a mistyped command creates no state.
+type adminOp struct {
+	nargs int // len(args), the subcommand included
+	run   func(ctx context.Context, a *app, args []string) error
 }
 
-func runAdmin(ctx context.Context, cmd, sub string, args []string) error {
-	switch {
-	case cmd == "config":
-		return configCmd(ctx, sub, args)
-	case cmd == "audit" && sub == "archive":
-		return auditArchive(ctx, args[1:])
-	}
-	a, err := buildBase(ctx)
-	if err != nil {
-		return err
-	}
-	defer a.close()
-	switch {
-	case cmd == "setup-token" && len(args) == 0:
+var adminOps = map[string]adminOp{
+	"setup-token": {0, func(ctx context.Context, a *app, _ []string) error {
 		tok, err := a.auth.RotateSetupToken(ctx)
 		if err != nil {
 			return err
 		}
-		printSetupBanner(a.cfg.Current(), tok)
+		printSetupBanner(os.Stderr, a.cfg.Current(), tok)
 		fmt.Println(tok)
 		return nil
-	case cmd == "user" && sub == "list" && len(args) == 1:
-		return listUsers(ctx, a)
-	case cmd == "user" && sub == "reset-password" && len(args) == 2:
+	}},
+	"user list": {1, func(ctx context.Context, a *app, _ []string) error { return listUsers(ctx, a) }},
+	"user reset-password": {2, func(ctx context.Context, a *app, args []string) error {
 		return resetPassword(ctx, a, args[1], os.Stdin)
-	case cmd == "vault" && sub == "status" && len(args) == 1:
-		return printJSON(a.vault.Status())
-	case cmd == "vault" && sub == "rotate-kek" && len(args) == 1:
+	}},
+	"vault status": {1, func(_ context.Context, a *app, _ []string) error { return printJSON(a.vault.Status()) }},
+	"vault rotate-kek": {1, func(ctx context.Context, a *app, _ []string) error {
 		if err := a.vault.RotateKEK(ctx, ""); err != nil {
 			return err
 		}
 		fmt.Printf("Vault keys rotated (KEK %s, source %s).\n", a.vault.Status().KEKID, a.vault.Status().KEKSource)
 		return nil
-	case cmd == "audit" && sub == "verify" && len(args) == 1:
+	}},
+	"audit verify": {1, func(ctx context.Context, a *app, _ []string) error {
 		bad, err := a.audit.Verify(ctx)
 		if err != nil {
 			return err
@@ -117,15 +108,43 @@ func runAdmin(ctx context.Context, cmd, sub string, args []string) error {
 		}
 		fmt.Println("Audit chain intact.")
 		return nil
-	case cmd == "backup" && len(args) == 0:
+	}},
+	"backup": {0, func(ctx context.Context, a *app, _ []string) error {
 		p, err := a.db.Backup(ctx, filepath.Join(a.dirs.Data, "backups"))
 		if err != nil {
 			return err
 		}
 		fmt.Println(p)
 		return nil
+	}},
+}
+
+// runAdmin runs the offline admin commands on the module APIs. Only the
+// pieces each one needs are opened, never the gateway's loops.
+func runAdmin(ctx context.Context, cmd string, args []string, stdout, stderr io.Writer) error {
+	sub := ""
+	if len(args) > 0 {
+		sub = args[0]
 	}
-	return errUsage
+	switch {
+	case cmd == "config":
+		return configCmd(ctx, sub, args, stdout, stderr)
+	case cmd == "audit" && sub == "archive":
+		return auditArchive(ctx, args[1:])
+	}
+	op, ok := adminOps[cmd]
+	if !ok && sub != "" {
+		op, ok = adminOps[cmd+" "+sub]
+	}
+	if !ok || len(args) != op.nargs {
+		return errUsage
+	}
+	a, err := buildBase(ctx)
+	if err != nil {
+		return err
+	}
+	defer a.close()
+	return op.run(ctx, a, args)
 }
 
 func listUsers(ctx context.Context, a *app) error {
@@ -211,21 +230,26 @@ func parseDate(s string) (time.Time, error) {
 	return t, nil
 }
 
-func configCmd(ctx context.Context, sub string, args []string) error {
+func configCmd(ctx context.Context, sub string, args []string, stdout, stderr io.Writer) error {
 	switch {
 	case sub == "defaults" && len(args) == 1:
-		out, err := yaml.Marshal(config.Default())
+		out, err := yaml.Marshal(defaultConfig())
 		if err != nil {
 			return err
 		}
-		_, err = os.Stdout.Write(out)
+		_, err = stdout.Write(out)
 		return err
 	case sub == "effective" && len(args) == 1:
 		m, err := loadConfig(ctx, "")
 		if err != nil {
 			return err
 		}
-		return printJSON(m.Effective())
+		out, err := effectiveYAML(m.Effective().Entries, m.Schema())
+		if err != nil {
+			return err
+		}
+		_, err = io.WriteString(stdout, out)
+		return err
 	case sub == "check" && len(args) <= 2:
 		file := ""
 		if len(args) == 2 {
@@ -237,21 +261,25 @@ func configCmd(ctx context.Context, sub string, args []string) error {
 		}
 		eff := m.Effective()
 		for _, e := range eff.Errors {
-			where := string(e.Source.Layer)
-			if e.Source.File != "" {
-				where = fmt.Sprintf("%s:%d", e.Source.File, e.Source.Line)
-			} else if e.Source.EnvVar != "" {
-				where = e.Source.EnvVar
-			}
-			fmt.Fprintf(os.Stderr, "%s: %s: %s\n", where, cmp.Or(e.Path, "<file>"), e.Message)
+			fmt.Fprintln(stderr, e.Message) // already carries the location and path
 		}
 		if eff.SafeMode || len(eff.Errors) > 0 {
 			return fmt.Errorf("config check: %d problem(s)", max(len(eff.Errors), 1))
 		}
-		fmt.Println("Config OK.")
+		fmt.Fprintln(stdout, "Config OK.")
 		return nil
 	}
 	return errUsage
+}
+
+// defaultConfig is config.Default plus the image default config.Load applies
+// for BOTHY_DEPLOYMENT=container, so `config defaults` matches what serve uses.
+func defaultConfig() *config.Config {
+	c := config.Default()
+	if os.Getenv("BOTHY_DEPLOYMENT") == "container" {
+		c.Server.Listen = "0.0.0.0:8080"
+	}
+	return c
 }
 
 // loadConfig loads the layered config the way serve does; file overrides
@@ -260,7 +288,9 @@ func loadConfig(ctx context.Context, file string) (*config.Manager, error) {
 	if file == "" {
 		file = os.Getenv("BOTHY_CONFIG")
 	}
-	return config.Load(ctx, config.Options{DataDir: envOr("BOTHY_STORAGE__DATA_DIR", "/data"), File: file, Env: os.Environ})
+	dir, defaulted := dataDir()
+	m, err := config.Load(ctx, config.Options{DataDir: dir, File: file, Env: os.Environ})
+	return m, dataDirErr(err, dir, defaulted)
 }
 
 func printJSON(v any) error {
