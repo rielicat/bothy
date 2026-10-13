@@ -44,7 +44,7 @@ func (c changedCheck) Run(ctx context.Context) []core.Finding {
 		ID: changedID, Area: "skills", Title: "Skill files changed since approval",
 		Detail: fmt.Sprintf("%s: the files on disk no longer match the approved hash, so these skills are excluded from runs.",
 			strings.Join(names, ", ")),
-		Fix:      "Review them under Settings → Skills and re-enable, or let doctor disable them",
+		Fix:      "Review them under Settings → Skills and re-enable, or disable them (Fix in Settings → Advanced, or bothy security-audit --fix)",
 		Severity: core.SevMedium, Security: true, AutoFix: true,
 	}}
 }

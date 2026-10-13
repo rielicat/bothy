@@ -152,7 +152,9 @@ func TestPrint(t *testing.T) {
 		t.Fatalf("exit code = %d", code)
 	}
 	out := buf.String()
-	if !strings.HasPrefix(out, "[HIGH] b: bad\n[LOW] a: minor\n    line one\n    line two\n    fix: do it (auto-fixable with --fix)\n") ||
+	// `bothy doctor` has no --fix flag; the fixes are applied by
+	// security-audit, which every auto-fixable finding belongs to.
+	if !strings.HasPrefix(out, "[HIGH] b: bad\n[LOW] a: minor\n    line one\n    line two\n    fix: do it (auto-fixable: bothy security-audit --fix)\n") ||
 		!strings.Contains(out, "2 finding(s): 1 high, 1 low") {
 		t.Fatalf("text = %q", out)
 	}

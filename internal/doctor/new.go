@@ -227,9 +227,12 @@ func Print(w io.Writer, fs []core.Finding, asJSON bool) int {
 			}
 		}
 		if f.Fix != "" {
+			// Only security-audit applies fixes, and every auto-fixable
+			// finding is a security one, so the hint names that command
+			// even when `bothy doctor` printed it.
 			auto := ""
 			if f.AutoFix {
-				auto = " (auto-fixable with --fix)"
+				auto = " (auto-fixable: bothy security-audit --fix)"
 			}
 			fmt.Fprintf(w, "    fix: %s%s\n", f.Fix, auto)
 		}
