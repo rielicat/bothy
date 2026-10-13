@@ -90,15 +90,25 @@ func (b *box) untrack(c net.Conn) {
 	b.mu.Unlock()
 }
 
+// boundLocked reports whether call is the bound tool call; b.mu is held.
+func (b *box) boundLocked(call string) bool {
+	return call != "" && b.binding.ToolCallID == call
+}
+
 func (b *box) allowedOnce(call, hp string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return call != "" && b.allowOnce[call][hp]
 }
 
+// addAllowOnce admits hp for the rest of call. A hold approved after its
+// call was unbound admits only the connection that waited for it.
 func (b *box) addAllowOnce(call, hp string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if !b.boundLocked(call) {
+		return
+	}
 	if b.allowOnce[call] == nil {
 		b.allowOnce[call] = map[string]bool{}
 	}
@@ -138,6 +148,9 @@ func (b *box) reserveHold(call, hp string) bool {
 func (b *box) addRefused(call, hp, reason string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if !b.boundLocked(call) {
+		return
+	}
 	if b.refused[call] == nil {
 		b.refused[call] = map[string]string{}
 	}
@@ -397,6 +410,26 @@ func (s *Service) Bind(key string, eb core.EgressBinding) {
 		if call != eb.ToolCallID {
 			delete(b.asked, call)
 		}
+	}
+}
+
+// Unbind ends toolCallID's binding when its exec returns. allow_once admits
+// a destination only for the rest of the bound tool call (SPEC §5.8), so its
+// admissions, refused holds and reservations go; with no tool call bound
+// nothing is held for approval, so a process the exec left running gets
+// neither. The run stays bound so later connections are logged against it.
+func (s *Service) Unbind(key, toolCallID string) {
+	b := s.box(key)
+	if b == nil || toolCallID == "" {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.allowOnce, toolCallID)
+	delete(b.refused, toolCallID)
+	delete(b.asked, toolCallID)
+	if b.binding.ToolCallID == toolCallID {
+		b.binding.ToolCallID, b.binding.Interactive = "", false
 	}
 }
 

@@ -369,3 +369,98 @@ func TestNoHoldAfterTheRunEnded(t *testing.T) {
 		t.Fatalf("approvals = %d, want none for an ended run", n)
 	}
 }
+
+// A process the exec left running must not keep using the call's allow_once
+// admission once the exec returned, nor raise new cards for it.
+func TestAllowOnceEndsWithTheToolCall(t *testing.T) {
+	e := newEnv(t, nil)
+	e.res.set("upload.example.com", []string{publicIP})
+	e.tlsUpstream(http.HandlerFunc(hello))
+	key, sock := e.openBox(core.BoxEgress{})
+	b := e.bind(key, true)
+	ch := asyncGet(sock, "https://upload.example.com/a")
+	e.resolve(e.pendingApproval(1).ID, core.AllowOnce)
+	if r := result(t, ch); r.code != http.StatusOK {
+		t.Fatalf("allowed request = %+v", r)
+	}
+
+	e.s.Unbind(key, b.ToolCallID)
+	start := time.Now()
+	code, msg := connectStatus(t, sock, "upload.example.com:443")
+	if code != http.StatusForbidden || !strings.Contains(msg, "not in the allowlist") || time.Since(start) > time.Second {
+		t.Fatalf("after the tool call ended = %d %q after %v", code, msg, time.Since(start))
+	}
+	if n := len(e.apr.All()); n != 1 {
+		t.Fatalf("approvals = %d, want no card once the tool call ended", n)
+	}
+	if r := e.records(2)[1]; r.Run != b.Run || r.Decision != "deny" {
+		t.Fatalf("record after unbind = %+v, want a denial logged against the run", r)
+	}
+
+	// A late Unbind of an earlier call leaves the current call bound.
+	next := e.bind(key, true)
+	e.s.Unbind(key, b.ToolCallID)
+	ch = asyncGet(sock, "https://upload.example.com/b")
+	ap := e.pendingApproval(2)
+	if ap.ToolCallID != next.ToolCallID+"#net" {
+		t.Fatalf("approval for %s, want the current call %s", ap.ToolCallID, next.ToolCallID)
+	}
+	e.resolve(ap.ID, core.AllowOnce)
+	if r := result(t, ch); r.code != http.StatusOK {
+		t.Fatalf("request in the next call = %+v", r)
+	}
+}
+
+// An approval that arrives after its exec returned admits the connection
+// that waited for it and nothing after.
+func TestHoldApprovedAfterTheToolCallEnded(t *testing.T) {
+	e := newEnv(t, nil)
+	e.res.set("upload.example.com", []string{publicIP})
+	e.tlsUpstream(http.HandlerFunc(hello))
+	key, sock := e.openBox(core.BoxEgress{})
+	b := e.bind(key, true)
+	ch := asyncGet(sock, "https://upload.example.com/a")
+	ap := e.pendingApproval(1)
+	e.s.Unbind(key, b.ToolCallID)
+	e.resolve(ap.ID, core.AllowOnce)
+	if r := result(t, ch); r.code != http.StatusOK {
+		t.Fatalf("held request = %+v", r)
+	}
+	if code, msg := connectStatus(t, sock, "upload.example.com:443"); code != http.StatusForbidden || !strings.Contains(msg, "not in the allowlist") {
+		t.Fatalf("later connection = %d %q", code, msg)
+	}
+}
+
+// A run started by an untrusted message gets the F6 decision for its held
+// connections: no grant choices, and the untrusted-origin warning.
+func TestHoldUsesTheRunProvenance(t *testing.T) {
+	e := newEnv(t, nil)
+	const warning = "Started by a message from an untrusted sender."
+	e.pol.Func = func(in core.PolicyInput) core.Decision {
+		if in.Provenance == core.ProvUntrusted {
+			return core.Decision{Verdict: core.VerdictAsk, Rule: "floor:untrusted_origin", Floor: true,
+				Choices: []core.Choice{core.AllowOnce, core.Deny}, Warnings: []string{warning}}
+		}
+		return core.Decision{Verdict: core.VerdictAsk, Rule: "floor:net_allow", Floor: true,
+			Choices: []core.Choice{core.AllowSession, core.AllowAlways, core.Deny}}
+	}
+	key, sock := e.openBox(core.BoxEgress{})
+	b := e.bind(key, true)
+	b.Provenance = core.ProvUntrusted
+	e.s.Bind(key, b)
+	ch := asyncConnect(sock, "attacker.example:443")
+	ap := e.pendingApproval(1)
+	if in := e.pol.decided()[0]; in.Provenance != core.ProvUntrusted {
+		t.Fatalf("policy input provenance = %q", in.Provenance)
+	}
+	if want := []core.Choice{core.AllowOnce, core.Deny}; !slices.Equal(ap.Decision.Choices, want) {
+		t.Fatalf("choices = %v, want %v", ap.Decision.Choices, want)
+	}
+	if !slices.Contains(ap.Card.Warnings, warning) {
+		t.Fatalf("card warnings = %v", ap.Card.Warnings)
+	}
+	e.resolve(ap.ID, core.Deny)
+	if r := result(t, ch); r.code != http.StatusForbidden {
+		t.Fatalf("denied CONNECT = %+v", r)
+	}
+}
