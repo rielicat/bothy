@@ -1,10 +1,12 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import ApprovalCard from '../components/ApprovalCard.svelte';
   import Empty from '../components/Empty.svelte';
   import Icon from '../components/Icon.svelte';
   import { api, errorText, qs } from '../lib/api/client';
   import type { Approval, Choice, List } from '../lib/api/types.gen';
   import { ago } from '../lib/format';
+  import { choiceDone } from '../lib/labels';
   import { appendNew } from '../lib/list';
   import { router } from '../lib/router.svelte';
   import { events } from '../lib/sse.svelte';
@@ -25,8 +27,14 @@
   let next = $state(0);
   let error = $state('');
   let focused: Approval | null = $state(null);
+  // The requested card drawn above the list takes the shortcuts until j/k
+  // or focus moves into the list: it is the card the user came to look at.
+  let top = $state(false);
   let sel = $state(0);
   let listEl = $state<HTMLUListElement>();
+  let topEl = $state<HTMLElement>();
+  let emptyEl = $state<HTMLElement>();
+  let announce = $state('');
 
   const list = $derived(
     tab === 'recent' ? recent : approvals.pending.filter((a) => a.status === tab).sort((x, y) => x.created_at.localeCompare(y.created_at)),
@@ -54,6 +62,7 @@
   $effect(() => {
     const id = params.id;
     focused = null;
+    top = !!id;
     if (id) api.get<Approval>(`/api/approvals/${encodeURIComponent(id)}`).then((a) => (focused = a), (e) => (error = errorText(e)));
   });
 
@@ -87,41 +96,60 @@
   });
 
   function select(i: number) {
+    top = false;
     sel = Math.min(Math.max(0, i), list.length - 1);
     selId = list[sel]?.id;
     armed = true;
   }
 
   // After the user's own decision the next card is the intended target.
-  function decided() {
+  // Focus follows it (the pressed button is gone) to the row, not to a
+  // decision button, so a held Enter cannot click the next card too.
+  async function decided(a: Approval) {
     selId = undefined;
     armed = true;
+    announce = `${choiceDone[a.choice ?? 'deny']}: ${a.card.title}`;
+    await tick();
+    if (document.activeElement && document.activeElement !== document.body) return;
+    ((listEl?.children[sel] as HTMLElement | undefined) ?? emptyEl)?.focus();
   }
 
   const keys: Record<string, Choice> = { a: 'allow_once', s: 'allow_session', d: 'deny' };
+  // The key that made the last decision, until it is released: OS key repeat
+  // must not decide the cards that slide under the cursor one by one.
+  let held = '';
+
+  function move(d: 1 | -1) {
+    if (top) {
+      if (d === 1 && list.length) select(0);
+    } else if (d === -1 && sel === 0 && focused) top = true;
+    else select(sel + d);
+    const card = top ? topEl : (listEl?.children[sel] as HTMLElement | undefined);
+    card?.scrollIntoView({ block: 'nearest' });
+    card?.querySelector<HTMLButtonElement>('footer button')?.focus();
+  }
 
   // Shortcuts go through the DOM buttons, so they obey exactly the same
   // checks (card choices, approver, busy) as a click.
   function onkeydown(e: KeyboardEvent) {
     if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
     if (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable], dialog')) return;
-    const row = () => listEl?.children[sel] as HTMLElement | undefined;
     if (e.key === 'j' || e.key === 'k') {
       e.preventDefault();
-      select(sel + (e.key === 'j' ? 1 : -1));
-      row()?.scrollIntoView({ block: 'nearest' });
-      row()?.querySelector<HTMLButtonElement>('footer button')?.focus();
-    } else if (keys[e.key] && armed) {
-      const b = row()?.querySelector<HTMLButtonElement>(`button[data-choice="${keys[e.key]}"]`);
+      move(e.key === 'j' ? 1 : -1);
+    } else if (keys[e.key] && !e.repeat && held !== e.key) {
+      const card = top ? topEl : armed ? (listEl?.children[sel] as HTMLElement | undefined) : undefined;
+      const b = card?.querySelector<HTMLButtonElement>(`button[data-choice="${keys[e.key]}"]`);
       if (!b) return;
       e.preventDefault();
+      held = e.key;
       b.click();
     }
   }
 </script>
 
 <svelte:head><title>Approvals · Bothy</title></svelte:head>
-<svelte:window {onkeydown} />
+<svelte:window {onkeydown} onkeyup={(e) => e.key === held && (held = '')} onblur={() => (held = '')} />
 
 <div class="page max-w-3xl">
   <div class="mb-6 flex flex-wrap items-end gap-3">
@@ -134,9 +162,11 @@
     </p>
   </div>
 
+  <p class="sr-only" role="status">{announce}</p>
+
   {#if focused}
-    <section class="mb-8" aria-label="Requested approval">
-      <ApprovalCard approval={focused} onresolved={(a) => (focused = a)} />
+    <section class="mb-8" aria-label="Requested approval" bind:this={topEl} onfocusin={() => (top = true)}>
+      <ApprovalCard approval={focused} shortcuts={top} onresolved={(a) => (focused = a)} />
       <p class="mt-2 flex gap-3 text-xs">
         <a class="link" href="/chat/{encodeURIComponent(focused.session_id)}" onclick={router.link}>Open the chat</a>
         <a class="link" href="/runs/{encodeURIComponent(focused.run_id)}" onclick={router.link}>Run trace</a>
@@ -161,18 +191,24 @@
   {#if error}<p class="mb-4 alert-bad" role="alert">{error}</p>{/if}
 
   {#if !list.length}
-    <Empty icon={tab === 'recent' ? 'clock' : 'check'} title={tab === 'pending' ? 'All clear' : tab === 'parked' ? 'Nothing parked' : 'No decisions yet'}>
-      {tab === 'pending'
-        ? 'Nothing is waiting for you. When Bothy needs a yes, it shows up here and in your chat apps.'
-        : tab === 'parked'
-          ? 'Scheduled runs park here when nobody answers in time, and resume once you decide.'
-          : 'Approvals you and others decide will be listed here.'}
-    </Empty>
+    <div class="outline-none" tabindex="-1" bind:this={emptyEl}>
+      <Empty icon={tab === 'recent' ? 'clock' : 'check'} title={tab === 'pending' ? 'All clear' : tab === 'parked' ? 'Nothing parked' : 'No decisions yet'}>
+        {tab === 'pending'
+          ? 'Nothing is waiting for you. When Bothy needs a yes, it shows up here and in your chat apps.'
+          : tab === 'parked'
+            ? 'Scheduled runs park here when nobody answers in time, and resume once you decide.'
+            : 'Approvals you and others decide will be listed here.'}
+      </Empty>
+    </div>
   {:else}
     <ul class="space-y-4" bind:this={listEl}>
       {#each list as a, i (a.id)}
-        <li class="rounded-xl transition-shadow {i === sel ? 'ring-2 ring-accent/50 ring-offset-4 ring-offset-bg' : ''}" onfocusin={() => i !== sel && select(i)}>
-          <ApprovalCard approval={a} shortcuts={i === sel && armed} onresolved={decided} />
+        <li
+          class="rounded-xl outline-none transition-shadow {i === sel && !top ? 'ring-2 ring-accent/50 ring-offset-4 ring-offset-bg' : ''}"
+          tabindex="-1"
+          onfocusin={() => (i !== sel || top) && select(i)}
+        >
+          <ApprovalCard approval={a} shortcuts={!top && i === sel && armed} onresolved={decided} />
           <p class="mt-1.5 flex gap-3 px-1 text-xs text-muted">
             <span>{ago(a.created_at, clock.now)}</span>
             <a class="link" href="/chat/{encodeURIComponent(a.session_id)}" onclick={router.link}>Open the chat</a>
