@@ -1720,7 +1720,9 @@ export interface VaultStatus {
  * percent-encoded forms, for values >= 8 bytes) plus token patterns: sk-…,
  * sk-ant-…, xox[abpr]-…, xapp-…, ghp_/gho_/github_pat_…, AIza…, JWTs,
  * bothy_pat_…. Applied to logs, audit detail, tool results, channel output,
- * SSE payloads and model input.
+ * SSE payloads and model input. Redact and RedactBytes return their input
+ * unchanged when nothing is masked; RedactBytes may return its argument, so
+ * callers that keep or modify the result copy it first.
  */
 export type Redactor = any;
 export type Vault = any;
@@ -1810,6 +1812,18 @@ export interface Dirs {
   Run: string;
   Keyfile: string;
   KeyfileColocated: boolean; // the KEK file lives on the same volume as the DB
+  /**
+   * LegacyWork and LegacyKeyfile are the single-container paths under Data
+   * that the auto work dir and keyfile replaced because /work or /keys is
+   * mounted; "" otherwise. MoveLegacyWork and the vault move them over.
+   */
+  LegacyWork: string;
+  /**
+   * LegacyWork and LegacyKeyfile are the single-container paths under Data
+   * that the auto work dir and keyfile replaced because /work or /keys is
+   * mounted; "" otherwise. MoveLegacyWork and the vault move them over.
+   */
+  LegacyKeyfile: string;
 }
 
 //////////
