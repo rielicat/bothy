@@ -1,0 +1,35 @@
+# Test override for deploy/compose.yaml, used by the docker-tagged e2e tests
+# (scripts/e2e-docker.sh):
+#
+#   docker compose -p "$BOTHY_E2E_PREFIX" -f deploy/compose.yaml -f e2e/docker/compose.test.yaml up -d
+#
+# The stock file fixes the volume names (bothy_*) and the host port; here
+# every name derives from BOTHY_E2E_PREFIX and everything carries the
+# bothy.test label, so a test run never touches a real install or another run
+# on the same engine. Box containers are labelled bothy.run_volume=<prefix>_run
+# by sandboxd itself.
+name: ${BOTHY_E2E_PREFIX:?set BOTHY_E2E_PREFIX}
+services:
+  bothy:
+    image: ${BOTHY_E2E_IMAGE:?set BOTHY_E2E_IMAGE}
+    ports: !override ["127.0.0.1:${BOTHY_E2E_PORT:?set BOTHY_E2E_PORT}:8080"]
+    restart: !override "no"
+    labels: {bothy.test: "${BOTHY_E2E_PREFIX}"}
+    environment:
+      BOTHY_LOG__LEVEL: debug
+  sandboxd:
+    image: ${BOTHY_E2E_IMAGE}
+    restart: !override "no"
+    labels: {bothy.test: "${BOTHY_E2E_PREFIX}"}
+    environment:
+      BOTHY_SBX_WORK_VOLUME: ${BOTHY_E2E_PREFIX}_work
+      BOTHY_SBX_RUN_VOLUME: ${BOTHY_E2E_PREFIX}_run
+      BOTHY_SBX_IMAGES: ${BOTHY_E2E_SBX_IMAGES:?set BOTHY_E2E_SBX_IMAGES}
+volumes:
+  data: {name: "${BOTHY_E2E_PREFIX}_data", labels: {bothy.test: "${BOTHY_E2E_PREFIX}"}}
+  keys: {name: "${BOTHY_E2E_PREFIX}_keys", labels: {bothy.test: "${BOTHY_E2E_PREFIX}"}}
+  work: {name: "${BOTHY_E2E_PREFIX}_work", labels: {bothy.test: "${BOTHY_E2E_PREFIX}"}}
+  run: {name: "${BOTHY_E2E_PREFIX}_run", labels: {bothy.test: "${BOTHY_E2E_PREFIX}"}}
+networks:
+  default:
+    labels: {bothy.test: "${BOTHY_E2E_PREFIX}"}
