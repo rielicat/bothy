@@ -3,12 +3,12 @@ package auth
 import (
 	"context"
 	"crypto/rand"
-	"encoding/base32"
-	"errors"
-	"io/fs"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
 	"log/slog"
 	"os"
-	"path/filepath"
+	"time"
 
 	"github.com/bothyhq/bothy/internal/config"
 	"github.com/bothyhq/bothy/internal/core"
@@ -27,42 +27,107 @@ type Deps struct {
 
 // Service implements core.Auth and core.CheckProvider.
 type Service struct {
-	core.Auth
-	dataDir string
+	store    core.Store
+	cfg      config.View
+	audit    core.Auditor
+	bus      core.Bus
+	redactor core.Redactor
+	dataDir  string
+	clock    core.Clock
+	log      *slog.Logger
+	getenv   func(string) string
+
+	hash  *hasher
+	locks *lockouts
+	pairs *attempts
 }
 
-func New(d Deps) (*Service, error) { return &Service{dataDir: d.DataDir}, nil }
+var (
+	_ core.Auth          = (*Service)(nil)
+	_ core.CheckProvider = (*Service)(nil)
+)
 
-func (s *Service) Checks() []core.Check { return nil }
+const (
+	pairAttempts       = 5
+	pairAttemptsWindow = time.Hour
+	touchEvery         = time.Minute
+)
 
-// EnsureSetupToken is a boot-path stub until M11 lands: it writes
-// <DataDir>/setup-token (0600) once so the boot banner appears. There is no
-// owner check, hash in meta, expiry or claim yet.
-func (s *Service) EnsureSetupToken(ctx context.Context) (string, bool, error) {
-	if s.dataDir == "" {
-		return "", false, nil
+func New(d Deps) (*Service, error) {
+	if d.Config == nil {
+		d.Config = config.Static(config.Default())
 	}
-	if err := os.MkdirAll(s.dataDir, 0o700); err != nil {
-		return "", false, err
+	if d.Clock == nil {
+		d.Clock = core.SystemClock{}
 	}
-	var b [32]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", false, err
+	if d.Log == nil {
+		d.Log = slog.New(slog.DiscardHandler)
 	}
-	tok := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b[:])
-	f, err := os.OpenFile(filepath.Join(s.dataDir, "setup-token"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if errors.Is(err, fs.ErrExist) {
-		return "", false, nil
+	return &Service{
+		store:    d.Store,
+		cfg:      d.Config,
+		audit:    d.Audit,
+		bus:      d.Bus,
+		redactor: d.Redactor,
+		dataDir:  d.DataDir,
+		clock:    d.Clock,
+		log:      d.Log,
+		getenv:   os.Getenv,
+		hash:     newHasher(paramsFrom(d.Config.Current().Auth.Argon2)),
+		locks:    newLockouts(),
+		pairs:    newAttempts(pairAttempts, pairAttemptsWindow),
+	}, nil
+}
+
+func (s *Service) now() time.Time { return s.clock.Now() }
+
+func (s *Service) conf() *config.Config { return s.cfg.Current() }
+
+// record writes an audit row; failures are logged, never returned, so a
+// broken audit sink cannot lock every user out. A detail "ip" goes to the
+// row's ip column. The event already happened, so the caller's cancellation
+// (a client hanging up) does not drop the row.
+func (s *Service) record(ctx context.Context, actor, action, target, outcome string, detail map[string]any) {
+	if s.audit == nil {
+		return
 	}
-	if err != nil {
-		return "", false, err
+	e := core.AuditEntry{At: s.now(), Actor: actor, Action: action, Target: target, Outcome: outcome, Detail: json.RawMessage("{}")}
+	if ip, ok := detail["ip"].(string); ok {
+		e.IP = ip
+		delete(detail, "ip")
 	}
-	if _, err := f.WriteString(tok + "\n"); err != nil {
-		f.Close()
-		return "", false, err
+	if len(detail) > 0 {
+		if b, err := json.Marshal(detail); err == nil {
+			e.Detail = b
+		}
 	}
-	if err := f.Close(); err != nil {
-		return "", false, err
+	if err := s.audit.Record(context.WithoutCancel(ctx), e); err != nil {
+		s.log.Error("audit record failed", "action", action, "err", err)
 	}
-	return tok, true, nil
+}
+
+func (s *Service) publish(e core.Event) {
+	if s.bus != nil {
+		s.bus.Publish(e)
+	}
+}
+
+func actorOf(a core.Actor) string {
+	if a.Via == "token" && a.TokenID != "" {
+		return "token:" + a.TokenID
+	}
+	return "user:" + string(a.User)
+}
+
+func userTarget(u core.UserID) string { return "user:" + string(u) }
+
+func randomToken(n int) string {
+	b := make([]byte, n)
+	_, _ = rand.Read(b)
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+func sha(s string) []byte {
+	sum := sha256.Sum256([]byte(s))
+	return sum[:]
 }
