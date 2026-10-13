@@ -50,7 +50,8 @@ waits on the run: it cancels, kills the session box, cancels approvals, clears
 the queue (including resumes not yet handed to the worker) and abandons a run
 that has not exited 5 s later. The kill switch persists in `meta.paused`;
 `StopAll` covers every session with queued work and a queued resume that
-starts while paused stops instead. `Run` marks interrupted runs at boot,
+starts while paused stops instead. `Recover` (called by cmd/bothy before any
+intake, and again, as a no-op, by `Run`) marks interrupted runs at boot,
 cancels their approvals, notifies their chats and resumes parked runs whose
 approval was decided while the gateway was down; at shutdown, runs it
 interrupts cancel their own approvals. A zero field in requested limits means

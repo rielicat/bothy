@@ -398,6 +398,9 @@ func TestShutdownInterruptsRuns(t *testing.T) {
 		block := make(chan struct{})
 		h := newHarness(t, opts{steps: []fakes.LLMStep{{Text: []string{"x"}, Block: block}}})
 		ctx, cancel := context.WithCancel(context.Background())
+		if err := h.r.Recover(ctx); err != nil {
+			t.Fatal(err)
+		}
 		done := make(chan error)
 		go func() { done <- h.r.Run(ctx) }()
 		res := h.submit("work")
@@ -424,6 +427,11 @@ func TestShutdownCancelsTheApprovalOfAnInterruptedRun(t *testing.T) {
 			appr:  &fakes.Approvals{Manual: true},
 			steps: []fakes.LLMStep{{ToolCalls: []core.ToolCall{call("act", `{}`)}}}})
 		ctx, cancel := context.WithCancel(context.Background())
+		// Recovery precedes intake (as in cmd/bothy); otherwise Run's own
+		// recovery could take the fresh run for a leftover.
+		if err := h.r.Recover(ctx); err != nil {
+			t.Fatal(err)
+		}
 		done := make(chan error)
 		go func() { done <- h.r.Run(ctx) }()
 		res := h.submit("act")

@@ -73,6 +73,9 @@ type Runner struct {
 	inited  bool
 	spotKey []byte
 
+	recoverMu sync.Mutex
+	recovered bool
+
 	paused  atomic.Bool
 	closing atomic.Bool
 
@@ -286,13 +289,30 @@ func (r *Runner) auditf(ctx context.Context, actor, action, target, outcome stri
 	}
 }
 
-// Run performs boot recovery (MarkInterrupted, resumable parked runs) and reaps
-// idle session workers until ctx is done; then drains for up to 10s.
+// Recover performs boot recovery once: runs left open by the previous process
+// become interrupted and resolved parked runs resume. cmd/bothy calls it
+// before any intake starts, because a run submitted first would be taken for
+// a leftover and interrupted; Run calls it too.
+func (r *Runner) Recover(ctx context.Context) error {
+	if err := r.ensureInit(ctx); err != nil {
+		return err
+	}
+	r.recoverMu.Lock()
+	defer r.recoverMu.Unlock()
+	if r.recovered {
+		return nil
+	}
+	r.recovered = true
+	return r.recover(ctx)
+}
+
+// Run performs boot recovery (see Recover) and reaps idle session workers
+// until ctx is done; then drains for up to 10s.
 func (r *Runner) Run(ctx context.Context) error {
 	if err := r.ensureInit(ctx); err != nil {
 		return err
 	}
-	if err := r.recover(ctx); err != nil {
+	if err := r.Recover(ctx); err != nil {
 		r.log.Error("boot recovery", "err", err)
 	}
 	<-ctx.Done()

@@ -244,6 +244,11 @@ func serve(ctx context.Context, args []string) error {
 	}
 	// Every resolution is forwarded; Resume is a no-op unless the run is parked.
 	a.approvals.OnResolved(func(ap *core.Approval) { _ = a.runner.Resume(context.WithoutCancel(ctx), ap) })
+	// Before any intake: a run submitted while recovery is pending would be
+	// marked interrupted as a leftover of the previous process.
+	if err := a.runner.Recover(ctx); err != nil {
+		a.log.Error("boot recovery", "err", err)
+	}
 	loops := []func(context.Context) error{
 		a.audit.Run, a.approvals.Run, a.egress.Run, a.sandbox.Run, a.runner.Run,
 		func(ctx context.Context) error { return a.db.RunRetention(ctx, a.cfg) }, a.api.Serve,
