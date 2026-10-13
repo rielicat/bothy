@@ -37,6 +37,8 @@ type assembler struct {
 	snap     profile
 	hist     []histMsg
 	maxOut   int
+	temp     *float64 // /v1 client sampling settings
+	stop     []string
 
 	mu    sync.Mutex
 	built map[core.ModelRef]assembled
@@ -52,6 +54,8 @@ func (r *Runner) newAssembler(rs *runState, hist []histMsg) *assembler {
 		snap:     snapshotProfile(rs.sess.SystemSnapshot),
 		hist:     hist,
 		maxOut:   rs.req.MaxOutput,
+		temp:     rs.req.Temperature,
+		stop:     rs.req.Stop,
 		built:    map[core.ModelRef]assembled{},
 	}
 }
@@ -164,13 +168,15 @@ func (a *assembler) assemble(m core.ModelInfo, load bool) assembled {
 	}
 	system := []core.SystemBlock{{Text: sys1}, {Text: s2, CacheBreak: true}}
 	req := &core.Request{
-		Model:     m.Ref.Model,
-		System:    system,
-		Tools:     defs,
-		Messages:  msgs,
-		CacheTail: true,
-		MaxTokens: maxTokens,
-		NumCtx:    m.Context,
+		Model:       m.Ref.Model,
+		System:      system,
+		Tools:       defs,
+		Messages:    msgs,
+		CacheTail:   true,
+		MaxTokens:   maxTokens,
+		Temperature: a.temp,
+		Stop:        a.stop,
+		NumCtx:      m.Context,
 	}
 	if len(defs) > 0 {
 		req.ToolsCache, req.ToolChoice = true, "auto"

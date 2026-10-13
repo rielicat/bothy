@@ -27,7 +27,7 @@ requests onto runs (`bothy`, `bothy-fast`) or onto `LLM.Passthrough` for
 workspace downloads go through `os.Root` under `<WorkDir>/ws/<id>`, the
 persona file through `os.Root` under `<DataDir>`; `DELETE /api/users/{id}`
 with `purge=true` wipes the user's boxes, vault scope, grants, schedules,
-identities, memory files and workspaces and keeps audit rows; sessions and
-their messages are deleted with the user row once the store implements
-`UserRepo.Delete` (ICR), and are archived until then. Compactions and MCP
+identities, memory files and workspaces, then deletes the user row, whose
+cascade removes sessions, messages, runs and memory events; audit rows stay.
+Compactions and MCP
 installs run in the background, one at a time per session or server.

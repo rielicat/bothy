@@ -26,6 +26,7 @@ type Deps struct {
 	Runner    core.Runner
 	Approvals core.Approvals
 	Policy    core.Policy
+	Tools     core.ToolRegistry // POST /api/policy/preview plans sample calls
 	LLM       core.LLM
 	Budget    core.Budget
 	Memory    core.Memory
@@ -55,9 +56,7 @@ type Server struct {
 	handler http.Handler
 	routes  []route
 
-	// tools plans actions for POST /api/policy/preview. Deps has no tool
-	// registry yet (ICR httpapi.Deps.Tools); until it is wired the route
-	// answers 503.
+	// tools plans actions for POST /api/policy/preview; nil answers 503.
 	tools core.ToolRegistry
 
 	cop      *http.CrossOriginProtection
@@ -89,6 +88,7 @@ func New(d Deps) (*Server, error) {
 	}
 	s := &Server{
 		d:          d,
+		tools:      d.Tools,
 		log:        d.Log,
 		clock:      d.Clock,
 		boot:       d.Clock.Now(),

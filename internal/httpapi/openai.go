@@ -257,7 +257,7 @@ func (s *Server) v1Models(w http.ResponseWriter, r *http.Request, a core.Actor) 
 
 var (
 	// metadata is accepted and ignored without being reported.
-	agentHonoured       = []string{"model", "messages", "stream", "stream_options", "max_tokens", "max_completion_tokens", "user", "metadata"}
+	agentHonoured       = []string{"model", "messages", "stream", "stream_options", "max_tokens", "max_completion_tokens", "temperature", "stop", "user", "metadata"}
 	agentRejected       = []string{"tools", "tool_choice", "functions", "function_call", "audio", "prediction", "response_format"}
 	passthroughHonoured = []string{"model", "messages", "stream", "stream_options", "max_tokens", "max_completion_tokens", "temperature",
 		"stop", "user", "metadata", "tools", "tool_choice", "n"}
@@ -549,6 +549,10 @@ func (s *Server) agentCompletion(w http.ResponseWriter, r *http.Request, a core.
 	if err != nil {
 		return err
 	}
+	stop, err := parseStop(req.Stop)
+	if err != nil {
+		return err
+	}
 	last := req.Messages[len(req.Messages)-1]
 	if last.Role != "user" {
 		return invalidParam("messages", "the last message must have role user")
@@ -630,7 +634,7 @@ func (s *Server) agentCompletion(w http.ResponseWriter, r *http.Request, a core.
 	rr := core.RunRequest{Session: sess.ID, Principal: sess.Principal, User: a.User, Trigger: core.TrigAPI, Slot: slot, Input: input,
 		Provenance: core.ProvUser, Sender: "api:" + a.TokenID, Chat: &core.ChatRef{Channel: "api", ChatID: string(sess.ID), Kind: core.ChatAPI},
 		Sink: q, Instructions: strings.Join(instructions, "\n\n"), OnApproval: a.OnApproval,
-		ApprovalWait: s.cfg().Policy.Approval.APIWait.D(), MaxOutput: maxOut}
+		ApprovalWait: s.cfg().Policy.Approval.APIWait.D(), MaxOutput: maxOut, Temperature: req.Temperature, Stop: stop}
 	if !mapped {
 		rr.Ephemeral = history
 	}

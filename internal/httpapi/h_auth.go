@@ -33,6 +33,9 @@ func (s *Server) me(ctx context.Context, a core.Actor) (*dto.Me, error) {
 	if a.Via == "cookie" {
 		m.CSRF = a.CSRF
 	}
+	if ri, ok := ctx.Value(ctxKey{}).(*reqInfo); ok {
+		m.Access = dto.Access{Peer: ri.class.String(), TLS: ri.secure}
+	}
 	if m.Mode == "" {
 		m.Mode = "single"
 	}
@@ -70,8 +73,11 @@ func (s *Server) setupState(w http.ResponseWriter, r *http.Request, _ core.Actor
 	}
 	st := dto.SetupState{NeedsSetup: need, Sandbox: s.sandboxAvailable(ctx)}
 	if sg, has := s.d.Auth.(setupGrants); has {
-		_, err := sg.SetupGrant(ctx, cookieValue(r, cookieSetup))
-		st.Claimed = err == nil
+		// A reload between claim and owner creation must not strand the
+		// wizard: the grant cookie's holder gets its CSRF token back.
+		if csrf, err := sg.SetupGrant(ctx, cookieValue(r, cookieSetup)); err == nil {
+			st.Claimed, st.CSRF = true, csrf
+		}
 	}
 	n, err := s.d.Store.Users().Count(ctx)
 	if err != nil {

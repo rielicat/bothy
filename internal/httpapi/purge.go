@@ -12,23 +12,16 @@ import (
 	"github.com/bothyhq/bothy/internal/core"
 )
 
-// userDeleter is the proposed core.UserRepo.Delete (ICR): deleting the users
-// row cascades through the schema's foreign keys to principals, spaces,
-// sessions with their messages and runs, grants, schedules, memory events,
-// uploads, pairing codes, auth sessions and tokens. audit_log has no foreign
-// key, so audit rows survive with the user id. Until a store implements it,
-// purge revokes, archives and deletes what the frozen repositories allow.
-type userDeleter interface {
-	Delete(ctx context.Context, id core.UserID) error
-}
-
 type purgeStats map[string]int
 
 // purgeUser wipes a disabled user's data: runs are stopped, boxes destroyed,
 // vault user-scope secrets, grants, schedules, identities, memory files and
-// workspaces removed, sessions archived (or deleted with the user row when
-// the store supports it). Every step runs even if an earlier one failed, and
-// the outcome is audited. A client hanging up does not stop a purge halfway.
+// workspaces removed, then the users row is deleted, which cascades to
+// principals, spaces, sessions with their messages and runs, memory events,
+// uploads, pairing codes, auth sessions and tokens (audit_log has no foreign
+// key and keeps the user id). Every step runs even if an earlier one failed,
+// and the outcome is audited. A client hanging up does not stop a purge
+// halfway.
 func (s *Server) purgeUser(r *http.Request, by core.Actor, u *core.User) error {
 	ctx := context.WithoutCancel(r.Context())
 	st := purgeStats{}
@@ -54,18 +47,16 @@ func (s *Server) purgeUser(r *http.Request, by core.Actor, u *core.User) error {
 	step("grants", func() error { return s.purgeGrants(ctx, v, by, st) })
 	step("vault", func() error { return s.purgeVault(ctx, u.ID, by, st) })
 	step("identities", func() error { return s.purgeIdentities(ctx, u.ID, v, st) })
+	step("memory", func() error { return s.purgeMemory(ctx, ps) })
 	step("files", func() error { return s.purgeFiles(ps, st) })
-	if del, ok := s.d.Store.Users().(userDeleter); ok {
-		step("user", func() error {
-			if err := del.Delete(ctx, u.ID); err != nil {
-				return err
-			}
-			st["users"] = 1
-			return nil
-		})
-	} else {
-		step("archive", func() error { return s.archiveAll(ctx, v, sessions, st) })
-	}
+	step("user", func() error {
+		if err := s.d.Store.Users().Delete(ctx, u.ID); err != nil {
+			// Whatever blocked the cascade, the sessions must not stay open.
+			return errors.Join(err, s.archiveAll(ctx, v, sessions, st))
+		}
+		st["users"] = 1
+		return nil
+	})
 	outcome := "ok"
 	if len(errs) > 0 {
 		outcome = "error"
@@ -243,6 +234,21 @@ func (s *Server) purgeIdentities(ctx context.Context, u core.UserID, v core.View
 		st["identities"]++
 	}
 	return nil
+}
+
+// purgeMemory lets the memory service drop each principal's files under its
+// own lock, so a concurrent write cannot recreate them mid-purge.
+func (s *Server) purgeMemory(ctx context.Context, ps []*core.Principal) error {
+	if s.d.Memory == nil {
+		return nil
+	}
+	var errs []error
+	for _, p := range ps {
+		if err := s.d.Memory.Purge(ctx, p.ID); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // purgeFiles removes <data>/memory/<principal> (the layout core.Memory

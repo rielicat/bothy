@@ -285,8 +285,11 @@ func TestSetupRoutes(t *testing.T) {
 	expect(t, h.do("POST", "/api/setup/claim", dto.SetupClaimReq{Token: tok}, nil), http.StatusUnauthorized)
 	withGrant := func(r *http.Request) { r.AddCookie(&http.Cookie{Name: cookieSetup, Value: grant.Value}) }
 	st = decodeAs[dto.SetupState](t, h.do("GET", "/api/setup/state", nil, nil, withGrant))
-	if !st.Claimed {
-		t.Fatalf("claimed = false")
+	if !st.Claimed || st.CSRF != claim.CSRF {
+		t.Fatalf("state with grant = %+v, want claimed with the claim's CSRF token", st)
+	}
+	if st := decodeAs[dto.SetupState](t, h.do("GET", "/api/setup/state", nil, nil)); st.CSRF != "" {
+		t.Fatalf("CSRF token disclosed without the grant cookie: %+v", st)
 	}
 	owner := dto.SetupOwnerReq{Username: "owner", Password: testPassword, Timezone: "Europe/Madrid"}
 	expect(t, h.do("POST", "/api/setup/owner", owner, nil, withGrant), http.StatusForbidden) // no CSRF token

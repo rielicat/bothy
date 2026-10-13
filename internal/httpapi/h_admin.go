@@ -343,7 +343,11 @@ func (s *Server) previewSchedule(w http.ResponseWriter, r *http.Request, _ core.
 	if err != nil {
 		return err
 	}
-	return ok(w, dto.SchedulePreviewResp{Next: nonNil(next), Human: describeSchedule(req.Kind, req.Spec, tz)})
+	human, err := s.d.Scheduler.Describe(req.Kind, req.Spec, tz)
+	if err != nil {
+		return err
+	}
+	return ok(w, dto.SchedulePreviewResp{Next: nonNil(next), Human: human})
 }
 
 // ---- MCP ----

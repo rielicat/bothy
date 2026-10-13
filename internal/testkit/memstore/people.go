@@ -163,6 +163,96 @@ func (r userRepo) RecordLogin(_ context.Context, id core.UserID, ok bool, lockUn
 	return nil
 }
 
+// Delete mirrors the schema's ON DELETE chains from users: CASCADE through
+// principals and everything they own, SET NULL on schedules.session_id and
+// runs.schedule_id, and the identity CHECKs that make SET NULL fail for
+// linked users and guest principals.
+func (r userRepo) Delete(_ context.Context, id core.UserID) error {
+	st, unlock := r.s.begin()
+	defer unlock()
+	if _, ok := st.users[id]; !ok {
+		return notFound("user")
+	}
+	ps := map[core.PrincipalID]bool{}
+	for pid, p := range st.principals {
+		if p.User == id {
+			ps[pid] = true
+		}
+	}
+	for pid, sp := range st.spaces {
+		if sp.Owner == id {
+			ps[pid] = true
+		}
+	}
+	for _, row := range st.identities {
+		if (row.id.Status == core.IdentityLinked && row.id.User == id) || (row.id.Status == core.IdentityGuest && ps[row.id.Principal]) {
+			return invalid("channel_identities CHECK")
+		}
+	}
+	for k, row := range st.identities {
+		if row.id.User == id {
+			row.id.User = ""
+		}
+		if ps[row.id.Principal] {
+			row.id.Principal = ""
+		}
+		st.identities[k] = row
+	}
+	sessions := map[core.SessionID]bool{}
+	for sid, sess := range st.sessions {
+		if ps[sess.Principal] {
+			sessions[sid] = true
+			delete(st.sessions, sid)
+			delete(st.lastSeq, sid)
+		}
+	}
+	maps.DeleteFunc(st.sessionURLs, func(k urlKey, _ string) bool { return sessions[k.session] })
+	st.messages = slices.DeleteFunc(st.messages, func(m core.Message) bool { return sessions[m.Session] })
+	st.pins = slices.DeleteFunc(st.pins, func(p core.Pin) bool { return sessions[p.Session] })
+	schedules := map[core.ScheduleID]bool{}
+	for sid, sc := range st.schedules {
+		switch {
+		case ps[sc.Principal]:
+			schedules[sid] = true
+			delete(st.schedules, sid)
+		case sessions[sc.Session]:
+			sc.Session = ""
+			st.schedules[sid] = sc
+		}
+	}
+	runs := map[core.RunID]bool{}
+	for rid, run := range st.runs {
+		switch {
+		case sessions[run.Session] || ps[run.Principal]:
+			runs[rid] = true
+			delete(st.runs, rid)
+		case schedules[run.Schedule]:
+			run.Schedule = ""
+			st.runs[rid] = run
+		}
+	}
+	st.llmCalls = slices.DeleteFunc(st.llmCalls, func(c llmRow) bool { return c.run != "" && runs[c.run] })
+	maps.DeleteFunc(st.toolCalls, func(_ string, tc toolCallRow) bool { return runs[tc.tc.Run] })
+	approvals := map[core.ApprovalID]bool{}
+	for aid, a := range st.approvals {
+		if runs[a.Run] {
+			approvals[aid] = true
+			delete(st.approvals, aid)
+		}
+	}
+	st.cardMsgs = slices.DeleteFunc(st.cardMsgs, func(c cardMsgRow) bool { return approvals[c.approval] })
+	maps.DeleteFunc(st.grants, func(_ core.GrantID, g grantRow) bool { return ps[g.g.Principal] })
+	st.memEvents = slices.DeleteFunc(st.memEvents, func(e core.MemoryEvent) bool { return ps[e.Principal] })
+	maps.DeleteFunc(st.uploads, func(_ string, u core.Upload) bool { return ps[u.Principal] })
+	maps.DeleteFunc(st.pairings, func(_ string, p pairingRow) bool { return p.p.User == id })
+	maps.DeleteFunc(st.authSess, func(_ string, a core.AuthSession) bool { return a.User == id })
+	maps.DeleteFunc(st.tokens, func(_ string, t core.TokenRecord) bool { return t.User == id })
+	maps.DeleteFunc(st.spaces, func(pid core.PrincipalID, _ core.Space) bool { return ps[pid] })
+	maps.DeleteFunc(st.principals, func(pid core.PrincipalID, _ core.Principal) bool { return ps[pid] })
+	delete(st.users, id)
+	return nil
+}
+
 func (r userRepo) Count(context.Context) (int, error) {
 	st, unlock := r.s.begin()
 	defer unlock()

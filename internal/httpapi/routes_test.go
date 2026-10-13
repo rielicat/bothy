@@ -58,8 +58,12 @@ func TestMeAndBanners(t *testing.T) {
 	h.bus.Publish(core.Event{Type: core.EvBanner, Data: core.BannerData{Level: "warn", Code: "restart_required", Text: "restart"}})
 	h.runner.PausedV = true
 	me := decodeAs[dto.Me](t, h.do("GET", "/api/auth/me", nil, h.owner))
-	if me.User.ID != h.owner.user || me.CSRF != h.owner.csrf || me.Mode != "multi" || !me.Paused || !me.Sandbox || len(me.Banners) != 1 {
+	if me.User.ID != h.owner.user || me.CSRF != h.owner.csrf || me.Mode != "multi" || !me.Paused || !me.Sandbox || len(me.Banners) != 1 ||
+		me.Access != (dto.Access{Peer: "local"}) {
 		t.Fatalf("me = %+v", me)
+	}
+	if me := decodeAs[dto.Me](t, h.do("GET", "/api/auth/me", nil, h.owner, overTLS())); me.Access != (dto.Access{Peer: "local", TLS: true}) {
+		t.Fatalf("access over TLS = %+v", me.Access)
 	}
 	if strings.Contains(h.do("GET", "/api/auth/me", nil, h.owner).Body.String(), "pw_hash") {
 		t.Fatal("password hash serialised")
@@ -580,30 +584,8 @@ func TestSchedulesWithGrants(t *testing.T) {
 	}
 	prev := decodeAs[dto.SchedulePreviewResp](t, h.do("POST", "/api/schedules/preview",
 		dto.SchedulePreviewReq{Kind: core.SchedHeartbeat, Spec: "30m", TZ: "Europe/London"}, h.member))
-	if len(prev.Next) != 5 || prev.Human != "Every 30m (Europe/London)" {
+	if len(prev.Next) != 5 || prev.Human != "heartbeat 30m (Europe/London)" {
 		t.Fatalf("preview = %+v", prev)
-	}
-}
-
-func TestDescribeSchedule(t *testing.T) {
-	for _, tc := range []struct {
-		kind       core.ScheduleKind
-		spec, want string
-	}{
-		{core.SchedCron, "0 8 * * 1-5", "Weekdays at 08:00 (Europe/London)"},
-		{core.SchedCron, "30 7 * * *", "Daily at 07:30 (Europe/London)"},
-		{core.SchedCron, "*/15 * * * *", "Every 15 minutes (Europe/London)"},
-		{core.SchedCron, "5 * * * *", "Every hour at :05 (Europe/London)"},
-		{core.SchedCron, "0 9 * * 1", "Every Monday at 09:00 (Europe/London)"},
-		{core.SchedCron, "0 10 * * 0,6", "Weekends at 10:00 (Europe/London)"},
-		{core.SchedCron, "0 6 1 * *", "Monthly on day 1 at 06:00 (Europe/London)"},
-		{core.SchedCron, "0 6 1 1 *", "cron 0 6 1 1 * (Europe/London)"},
-		{core.SchedHeartbeat, "90m", "Every 1h30m (Europe/London)"},
-		{core.SchedOnce, "2026-12-24T18:00:00Z", "Once at 2026-12-24 18:00 (Europe/London)"},
-	} {
-		if got := describeSchedule(tc.kind, tc.spec, "Europe/London"); got != tc.want {
-			t.Errorf("%s %q = %q, want %q", tc.kind, tc.spec, got, tc.want)
-		}
 	}
 }
 

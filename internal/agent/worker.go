@@ -242,7 +242,8 @@ func mergeable(a, b core.RunRequest) bool {
 		a.Limits == nil && b.Limits == nil &&
 		a.Instructions == "" && b.Instructions == "" &&
 		len(a.Ephemeral) == 0 && len(b.Ephemeral) == 0 &&
-		a.OnApproval == b.OnApproval && a.MaxOutput == b.MaxOutput
+		a.OnApproval == b.OnApproval && a.MaxOutput == b.MaxOutput &&
+		a.Temperature == nil && b.Temperature == nil && len(a.Stop) == 0 && len(b.Stop) == 0
 }
 
 // inputsOf flattens the inputs of merged requests in arrival order.

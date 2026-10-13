@@ -26,6 +26,16 @@ const (
 	classLocal
 )
 
+func (c peerClass) String() string {
+	switch c {
+	case classLocal:
+		return "local"
+	case classLAN:
+		return "lan"
+	}
+	return "public"
+}
+
 // reqInfo is computed once per request by the outer middleware.
 type reqInfo struct {
 	id     string

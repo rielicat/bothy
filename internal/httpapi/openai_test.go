@@ -218,8 +218,11 @@ func TestV1AgentStreamParsedLikeOfficialClient(t *testing.T) {
 	if resp.Header.Get("X-Bothy-Run-Id") == "" || resp.Header.Get("X-Bothy-Session") == "" || resp.Header.Get("X-Bothy-History") != "" {
 		t.Fatalf("headers = %v", resp.Header)
 	}
-	if got := resp.Header.Get("X-Bothy-Ignored"); got != "temperature" {
+	if got := resp.Header.Get("X-Bothy-Ignored"); got != "" {
 		t.Fatalf("X-Bothy-Ignored = %q", got)
+	}
+	if subs := sr.Submits; len(subs) != 1 || subs[0].Temperature == nil || *subs[0].Temperature != 0.2 {
+		t.Fatalf("temperature not passed to the run: %+v", subs)
 	}
 	chunks, _ := readStream(t, resp.Body)
 	if resp.Trailer.Get("X-Bothy-Cost-Micros") != "1234" {

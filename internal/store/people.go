@@ -90,6 +90,13 @@ func (r userRepo) RecordLogin(ctx context.Context, id core.UserID, ok bool, lock
 	return mustAffect("record login", res, err)
 }
 
+// Delete relies on the schema's ON DELETE CASCADE chains; a linked or
+// guest channel identity turns the SET NULL into a CHECK failure.
+func (r userRepo) Delete(ctx context.Context, id core.UserID) error {
+	res, err := r.h.wq.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, string(id))
+	return mustAffect("delete user", res, err)
+}
+
 func (r userRepo) Count(ctx context.Context) (int, error) {
 	var n int
 	if err := r.h.rq.QueryRowContext(ctx, `SELECT count(*) FROM users`).Scan(&n); err != nil {

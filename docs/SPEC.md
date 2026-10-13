@@ -2461,6 +2461,12 @@ type UserRepo interface {
 	Update(ctx context.Context, u *User) error
 	RecordLogin(ctx context.Context, id UserID, ok bool, lockUntil time.Time) error
 	Count(ctx context.Context) (int, error)
+	// Delete removes the users row (user purge). Foreign keys cascade to its
+	// principals, spaces, sessions (messages, pins, runs, approvals), grants,
+	// schedules, memory events, uploads, pairing codes, auth sessions and
+	// tokens. Channel identities linked to the user, or guests of its spaces,
+	// must be deleted first (ErrInvalid otherwise). audit_log is untouched.
+	Delete(ctx context.Context, id UserID) error
 }
 
 type PrincipalRepo interface {
@@ -3206,7 +3212,9 @@ type RunRequest struct {
 	// Ephemeral carries client history for stateless /v1 requests. It is
 	// appended to the hidden api session before Input.
 	Ephemeral []Message
-	MaxOutput int // /v1 max_tokens cap per step; 0 = model default
+	MaxOutput   int      // /v1 max_tokens cap per step; 0 = model default
+	Temperature *float64 // /v1 client temperature; nil = model default
+	Stop        []string // /v1 stop sequences
 }
 
 type SubmitResult struct {
@@ -5237,7 +5245,8 @@ type List[T any] struct {
 
 type SetupState struct {
 	NeedsSetup bool   `json:"needs_setup"`
-	Claimed    bool   `json:"claimed"` // a setup grant cookie is present and valid
+	Claimed    bool   `json:"claimed"`        // a setup grant cookie is present and valid
+	CSRF       string `json:"csrf,omitempty"` // the claimed grant's CSRF token (like dto.Me.CSRF); empty unless Claimed
 	OwnerSet   bool   `json:"owner_set"`
 	Sandbox    bool   `json:"sandbox_available"`
 	Version    string `json:"-"` // never disclosed pre-auth
@@ -5270,6 +5279,13 @@ type Me struct {
 	Paused     bool              `json:"paused"`
 	Sandbox    bool              `json:"sandbox_available"`
 	Banners    []core.BannerData `json:"banners"`
+	Access     Access            `json:"access"` // how this request reached the server
+}
+
+// Access is the caller's remote-access status for Settings > General.
+type Access struct {
+	Peer string `json:"peer"` // local | lan | public (exposure-gate class of the client address)
+	TLS  bool   `json:"tls"`  // native TLS or X-Forwarded-Proto https from a trusted proxy
 }
 
 type PasswordReq struct {
@@ -5573,7 +5589,7 @@ The wizard opens `https://api.slack.com/apps?new_app=1&manifest_yaml=<urlencoded
 
 **Stack:** Svelte 5 (runes), Vite 8, Tailwind 4 (`@tailwindcss/vite`), plain SPA (no SvelteKit). Runtime dependency: `svelte` only. Hand-written pieces: history router (~80 lines), API client over `types.gen.ts` (adds `X-CSRF-Token`, maps `dto.Error`), one `EventSource` store with resync, markdown renderer, SVG charts, QR encoder (byte mode, versions 1–6, ECC M; lazy chunk), ~25 inline SVG icons. Svelte compiled with `css: 'external'`; no `style="…"` attributes in markup (use classes or `style:` directives, which go through CSSOM) so CSP needs no `unsafe-inline`. Budgets (CI): JS ≤ 120 KB gz (target 90), CSS ≤ 20 KB gz, zero requests to other origins. Mobile-first, works at 360 px; light/dark/system; PWA manifest and icons (no offline mode).
 
-**Markdown renderer** (security control): headings, paragraphs, emphasis, inline/fenced code, lists, tables, blockquotes, links. Escapes all HTML; never renders images (image syntax becomes a text link "image: host/…"); links get `rel="noopener noreferrer nofollow"` and `target="_blank"`; `javascript:`/`data:`/`vbscript:` links become text; in Exposed sessions, links to non-allowlisted domains render inert (host shown, copy button). Shared by chat, cards and the SKILL.md viewer.
+**Markdown renderer** (security control): headings, paragraphs, emphasis, inline/fenced code, lists, tables, blockquotes, links. Escapes all HTML; never renders images (image syntax becomes a text link "image: host/…"); links get `rel="noopener noreferrer nofollow"` and `target="_blank"`; `javascript:`/`data:`/`vbscript:` links become text; in Exposed sessions, links to non-allowlisted domains render inert (host shown, copy button; v0.1 renders every link inert there, since members cannot read `egress.allow`). Shared by chat, cards and the SKILL.md viewer.
 
 **Routes:** `/setup`, `/login`, `/chat`, `/chat/:id`, `/approvals`, `/approvals/:id`, `/runs/:id`, `/schedules`, `/schedules/:id`, `/memory`, `/usage`, `/audit`, `/settings/:page`.
 
@@ -5979,7 +5995,7 @@ func build(ctx context.Context) (*app, error) {
 	}
 	a.doctor = doctor.New(checks)
 	a.api, err = httpapi.New(httpapi.Deps{Config: a.cfg, Store: a.db, Auth: a.auth, Vault: a.vault, Bus: a.bus, Runner: a.runner,
-		Approvals: a.approvals, Policy: a.policy, LLM: a.llm, Budget: a.budget, Memory: a.memory, Skills: a.skills, MCP: a.mcp,
+		Approvals: a.approvals, Policy: a.policy, Tools: a.registry, LLM: a.llm, Budget: a.budget, Memory: a.memory, Skills: a.skills, MCP: a.mcp,
 		Scheduler: a.scheduler, Hub: a.hub, Sandbox: a.sandbox, Egress: a.egress, Doctor: a.doctor, Audit: a.audit,
 		WebUI: webui.Handler(), Version: version, DataDir: dirs.Data, WorkDir: dirs.Work, Restart: a.requestRestart,
 		Clock: a.clock, Log: a.log})
@@ -6953,6 +6969,7 @@ type Deps struct {
 	Runner    core.Runner
 	Approvals core.Approvals
 	Policy    core.Policy
+	Tools     core.ToolRegistry // POST /api/policy/preview plans sample calls
 	LLM       core.LLM
 	Budget    core.Budget
 	Memory    core.Memory

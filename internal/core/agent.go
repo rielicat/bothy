@@ -31,8 +31,10 @@ type RunRequest struct {
 	ApprovalWait time.Duration
 	// Ephemeral carries client history for stateless /v1 requests. It is
 	// appended to the hidden api session before Input.
-	Ephemeral []Message
-	MaxOutput int // /v1 max_tokens cap per step; 0 = model default
+	Ephemeral   []Message
+	MaxOutput   int      // /v1 max_tokens cap per step; 0 = model default
+	Temperature *float64 // /v1 client temperature; nil = model default
+	Stop        []string // /v1 stop sequences
 }
 
 type SubmitResult struct {

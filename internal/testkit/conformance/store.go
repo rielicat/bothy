@@ -67,6 +67,7 @@ var storeSuite = []struct {
 }{
 	{"Meta", testMeta},
 	{"Users", testUsers},
+	{"UserDelete", testUserDelete},
 	{"Principals", testPrincipals},
 	{"Spaces", testSpaces},
 	{"Identities", testIdentities},

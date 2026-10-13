@@ -436,6 +436,12 @@ type UserRepo interface {
 	Update(ctx context.Context, u *User) error
 	RecordLogin(ctx context.Context, id UserID, ok bool, lockUntil time.Time) error
 	Count(ctx context.Context) (int, error)
+	// Delete removes the users row (user purge). Foreign keys cascade to its
+	// principals, spaces, sessions (messages, pins, runs, approvals), grants,
+	// schedules, memory events, uploads, pairing codes, auth sessions and
+	// tokens. Channel identities linked to the user, or guests of its spaces,
+	// must be deleted first (ErrInvalid otherwise). audit_log is untouched.
+	Delete(ctx context.Context, id UserID) error
 }
 
 type PrincipalRepo interface {

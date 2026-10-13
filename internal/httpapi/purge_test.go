@@ -16,8 +16,7 @@ import (
 	"github.com/bothyhq/bothy/internal/httpapi/dto"
 )
 
-// deletingStore adds the proposed UserRepo.Delete to memstore for the
-// cascade path of purge.
+// deletingStore records UserRepo.Delete calls.
 type deletingStore struct {
 	core.Store
 	deleted []core.UserID

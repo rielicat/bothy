@@ -428,3 +428,77 @@ func testTokens(f *fx) {
 	_, err = r.Get(f.ctx, core.NewID(core.PrefixToken))
 	f.want(err, core.ErrNotFound, "Get missing")
 }
+
+// testUserDelete checks the purge cascade: deleting a user removes its
+// principals and everything they own, keeps other users' rows, and refuses
+// while a linked identity still points at the user.
+func testUserDelete(f *fx) {
+	alice := f.user(core.RoleMember)
+	bob := f.user(core.RoleMember)
+	pa, pb := core.UserPrincipal(alice.ID), core.UserPrincipal(bob.ID)
+	sp := f.space(alice)
+	s := f.session(pa)
+	ss := f.session(sp.Principal)
+	sb := f.session(pb)
+	f.must(f.s.Messages().Append(f.ctx, textMsg(s.ID, core.MsgUser, core.ProvUser, "alice secret", 1)), "Append")
+	f.must(f.s.Messages().Append(f.ctx, textMsg(sb.ID, core.MsgUser, core.ProvUser, "bob keeps this", 1)), "Append")
+	run := f.run(s, core.RunWaitingApproval)
+	apr := f.approval(run, core.ApprovalPending, at(2))
+	f.must(f.s.Approvals().AddMessage(f.ctx, apr.ID, core.CardMessage{Ref: core.MsgRef{Chat: core.ChatRef{Channel: "telegram", ChatID: "1"}, ID: "9"}}), "AddMessage")
+	sch := f.schedule(pa, at(100), true)
+	_, err := f.s.MemoryEvents().Add(f.ctx, &core.MemoryEvent{Principal: pa, File: core.FileMemory, Op: "add", After: "x", Actor: "user:x", At: at(3)})
+	f.must(err, "Add memory event")
+	tok := &core.TokenRecord{User: alice.ID, Name: "t", SecretHash: []byte("0123456789abcdef"), Scopes: []string{"chat"}, OnApproval: "deny"}
+	f.must(f.s.Tokens().Create(f.ctx, tok), "Create token")
+	f.must(f.s.AuthSessions().Create(f.ctx, &core.AuthSession{IDHash: sum("alice-session"), User: alice.ID, CSRF: "c",
+		CreatedAt: at(1), LastSeen: at(1), IdleExpires: at(9000), Expires: at(9000)}), "Create auth session")
+	_, err = f.s.Identities().Touch(f.ctx, &core.ChannelIdentity{Channel: "telegram", ExternalID: "77", LastSeen: at(4)})
+	f.must(err, "Touch identity")
+	f.must(f.s.Identities().Update(f.ctx, &core.ChannelIdentity{Channel: "telegram", ExternalID: "77", Status: core.IdentityLinked,
+		User: alice.ID, FirstSeen: at(4), LastSeen: at(4)}), "link identity")
+
+	f.want(f.s.Users().Delete(f.ctx, alice.ID), core.ErrInvalid, "Delete with a linked identity")
+	_, err = f.s.Users().Get(f.ctx, alice.ID)
+	f.must(err, "a refused Delete keeps the user")
+	f.must(f.s.Identities().Delete(f.ctx, "telegram", "77"), "Delete identity")
+	f.must(f.s.Users().Delete(f.ctx, alice.ID), "Delete")
+	f.want(f.s.Users().Delete(f.ctx, alice.ID), core.ErrNotFound, "Delete of a missing user")
+
+	sys := core.SystemViewer()
+	_, err = f.s.Users().Get(f.ctx, alice.ID)
+	f.want(err, core.ErrNotFound, "user after Delete")
+	ps, err := f.s.Principals().ForUser(f.ctx, alice.ID)
+	f.must(err, "ForUser")
+	f.check(len(ps) == 0, "principals after Delete = %d", len(ps))
+	_, err = f.s.Spaces().Get(f.ctx, sys, sp.Principal)
+	f.want(err, core.ErrNotFound, "space after Delete")
+	for _, id := range []core.SessionID{s.ID, ss.ID} {
+		_, err = f.s.Sessions().Get(f.ctx, sys, id)
+		f.want(err, core.ErrNotFound, "session after Delete")
+	}
+	_, err = f.s.Runs().Get(f.ctx, sys, run.ID)
+	f.want(err, core.ErrNotFound, "run after Delete")
+	_, err = f.s.Approvals().Get(f.ctx, sys, apr.ID)
+	f.want(err, core.ErrNotFound, "approval after Delete")
+	msgs, err := f.s.Approvals().Messages(f.ctx, apr.ID)
+	f.must(err, "Approvals.Messages")
+	f.check(len(msgs) == 0, "card messages after Delete = %d", len(msgs))
+	_, err = f.s.Schedules().Get(f.ctx, sys, sch.ID)
+	f.want(err, core.ErrNotFound, "schedule after Delete")
+	evs, err := f.s.MemoryEvents().List(f.ctx, sys, pa, "", core.Page{})
+	f.must(err, "MemoryEvents.List")
+	f.check(len(evs) == 0, "memory events after Delete = %d", len(evs))
+	_, err = f.s.Tokens().Get(f.ctx, tok.ID)
+	f.want(err, core.ErrNotFound, "token after Delete")
+	_, err = f.s.AuthSessions().Get(f.ctx, sum("alice-session"))
+	f.want(err, core.ErrNotFound, "auth session after Delete")
+	hits, err := f.s.Messages().Search(f.ctx, sys, "secret", 10)
+	f.must(err, "Search")
+	f.check(len(hits) == 0, "search still finds the deleted user's messages: %+v", hits)
+
+	_, err = f.s.Users().Get(f.ctx, bob.ID)
+	f.must(err, "other user after Delete")
+	bm, err := f.s.Messages().Range(f.ctx, viewer(bob), sb.ID, 1, 0)
+	f.must(err, "other user's messages")
+	f.check(len(bm) == 1, "other user's messages after Delete = %d", len(bm))
+}

@@ -31,7 +31,8 @@ type List[T any] struct {
 
 type SetupState struct {
 	NeedsSetup bool   `json:"needs_setup"`
-	Claimed    bool   `json:"claimed"` // a setup grant cookie is present and valid
+	Claimed    bool   `json:"claimed"`        // a setup grant cookie is present and valid
+	CSRF       string `json:"csrf,omitempty"` // the claimed grant's CSRF token (like dto.Me.CSRF); empty unless Claimed
 	OwnerSet   bool   `json:"owner_set"`
 	Sandbox    bool   `json:"sandbox_available"`
 	Version    string `json:"-"` // never disclosed pre-auth
@@ -64,6 +65,13 @@ type Me struct {
 	Paused     bool              `json:"paused"`
 	Sandbox    bool              `json:"sandbox_available"`
 	Banners    []core.BannerData `json:"banners"`
+	Access     Access            `json:"access"` // how this request reached the server
+}
+
+// Access is the caller's remote-access status for Settings > General.
+type Access struct {
+	Peer string `json:"peer"` // local | lan | public (exposure-gate class of the client address)
+	TLS  bool   `json:"tls"`  // native TLS or X-Forwarded-Proto https from a trusted proxy
 }
 
 type PasswordReq struct {
