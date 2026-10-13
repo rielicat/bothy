@@ -85,7 +85,7 @@ const (
 type ModelInfo struct {
 	Ref       ModelRef  `json:"ref"`
 	Display   string    `json:"display"`
-	Context   int       `json:"context"` // effective window (Ollama: the num_ctx we send)
+	Context   int       `json:"context"` // effective window (Ollama: the num_ctx we send: the configured context, else min(trained, max(16384, served context from /api/ps)))
 	MaxOutput int       `json:"max_output"`
 	Tools     bool      `json:"tools"`
 	Vision    bool      `json:"vision"`

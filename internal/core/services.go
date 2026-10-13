@@ -82,7 +82,10 @@ type MCPToolApproval struct {
 }
 
 type MCP interface {
-	Start(ctx context.Context) error // connects enabled servers; registers approved, hash-matching tools
+	// Start connects enabled servers and registers approved, hash-matching
+	// tools. Discovery has no billing user: HTTP header secret refs resolve in
+	// the global vault scope only, so each needs a global value (§2.11).
+	Start(ctx context.Context) error
 	Status() []MCPStatus
 	Pins(ctx context.Context, server string) ([]*MCPPin, error) // latest definition per tool incl. pending diffs
 	Approve(ctx context.Context, server string, tools map[string]MCPToolApproval, by UserID) error

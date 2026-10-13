@@ -839,7 +839,7 @@ export const CacheImplicit: CacheMode = 2;
 export interface ModelInfo {
   ref: ModelRef;
   display: string;
-  context: number /* int */; // effective window (Ollama: the num_ctx we send)
+  context: number /* int */; // effective window (Ollama: the num_ctx we send: the configured context, else min(trained, max(16384, served context from /api/ps)))
   max_output: number /* int */;
   tools: boolean;
   vision: boolean;

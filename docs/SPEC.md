@@ -16,7 +16,7 @@ Bothy is one static Go binary with three roles chosen by subcommand: `serve` (th
 
 | # | Decision | Rationale |
 |---|---|---|
-| D1 | One binary: `serve`, `sandboxd`, `sbx-init`, `doctor`, `security-audit`, `setup-token`, `user`, `vault`, `config`, `audit`, `backup`, `healthcheck`, `version` | One image, one SBOM, one signature, no version skew between gateway and sidecar. |
+| D1 | One binary: `serve`, `sandboxd`, `sbx-init`, `doctor`, `security-audit`, `setup-token`, `user`, `vault`, `config`, `audit`, `backup`, `healthcheck [sandboxd]` (gateway `/healthz`, or the sidecar's socket), `version` | One image, one SBOM, one signature, no version skew between gateway and sidecar. |
 | D2 | One frozen `internal/core` package holds every cross-module type and interface. Modules import only `core`, `config`, the stdlib and their own approved deps. `cmd/bothy` wires concrete types. | No import cycles; one rule for 12 agents; fakes are trivial. |
 | D3 | Hand-written LLM clients: Anthropic Messages, OpenAI Chat Completions (+ every OpenAI-compatible base URL), Gemini `streamGenerateContent`, and **native Ollama `/api/chat`** (so `num_ctx` is honoured). Golden fixtures are copied from vendor docs and SDK test data, not invented. | SDKs retry implicitly (hiding double billing from the meter), read env vars, bypass our dialer and add several MB. We call about five endpoints. |
 | D4 | Channel libraries: **disgo** (Discord gateway) and **slack-go** (Socket Mode). **Hand-written Telegram** long-poll client. | No real API keys exist for testing; the two stateful WebSocket protocols are the riskiest hand-writes. Telegram is plain JSON over HTTP. |
@@ -88,7 +88,7 @@ services:
     mem_limit: 256m
     pids_limit: 256
     extra_hosts: ["host.docker.internal:host-gateway"]   # Ollama / LM Studio on the host
-    healthcheck: {test: ["CMD", "/bothy", "healthcheck"], interval: 30s, timeout: 3s, retries: 3}
+    healthcheck: {test: ["CMD", "/bothy", "healthcheck"], interval: 30s, timeout: 3s, retries: 3, start_period: 30s, start_interval: 1s}
     # secrets: [bothy_kek]               # optional Docker secret KEK (/run/secrets/bothy_kek)
   sandboxd:
     <<: *hardening
@@ -96,7 +96,7 @@ services:
     command: ["sandboxd"]
     network_mode: none                   # sandboxd itself has no network
     user: "${SANDBOXD_USER:-65532:65532}"   # rootless Docker: set to the socket owner's uid:gid
-    group_add: ["${DOCKER_GID:-999}", "65532"]
+    group_add: ["${DOCKER_GID:-999}", "65532"]   # Docker Desktop: DOCKER_GID=0
     environment:
       BOTHY_SBX_ENGINE: unix:///var/run/docker.sock
       BOTHY_SBX_WORK_VOLUME: bothy_work
@@ -110,6 +110,7 @@ services:
       - run:/run/bothy
     mem_limit: 64m
     pids_limit: 64
+    healthcheck: {test: ["CMD", "/bothy", "healthcheck", "sandboxd"], interval: 30s, timeout: 3s, retries: 3, start_period: 30s, start_interval: 1s}
   searxng:                               # optional: docker compose --profile search up -d
     <<: *hardening
     profiles: ["search"]
@@ -128,12 +129,12 @@ volumes:
   run:  {name: bothy_run}
 ```
 
-`deploy/.env.example` documents `DOCKER_GID` (printed by `stat -c %g /var/run/docker.sock`), `DOCKER_SOCK`, `SANDBOXD_USER` and `SEARXNG_SECRET`. `deploy/searxng/settings.yml` (lead) enables the JSON output format that `web_search` needs (SearXNG answers `format=json` with 403 otherwise).
+`deploy/.env.example` documents `DOCKER_GID` (printed by `stat -L -c %g /var/run/docker.sock`; Docker Desktop on macOS and Windows uses `0`, the socket's group inside its VM, and `install.sh` writes `0` on darwin), `DOCKER_SOCK`, `SANDBOXD_USER` and `SEARXNG_SECRET`. `deploy/searxng/settings.yml` (lead) enables the JSON output format that `web_search` needs (SearXNG answers `format=json` with 403 otherwise).
 
 ### 2.3 Image layout and uids (`deploy/Dockerfile`, lead-owned)
 
 - Build: `CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=$V" ./cmd/bothy` after `make ui` (pre-gzipped assets into `internal/webui/dist`).
-- Final stage: `gcr.io/distroless/static-debian13:nonroot@sha256:<digest>` (the sandbox images are trixie too; *verify* the tag, fall back to `static-debian12`), binary at `/bothy`, `ENTRYPOINT ["/bothy"]`, `USER 65532:65532`.
+- Final stage: `gcr.io/distroless/static-debian13:nonroot@sha256:<digest>` (the sandbox images are trixie too; *verify* the tag, fall back to `static-debian12`), binary at `/bothy`, `ENTRYPOINT ["/bothy"]`, `USER 65532:65532`, `HEALTHCHECK --interval=30s --timeout=3s --retries=3 --start-period=30s --start-interval=1s CMD ["/bothy", "healthcheck"]` (same in `deploy/Dockerfile.release`; compose overrides it for sandboxd with `healthcheck sandboxd`).
 - Directories baked into the image (named volumes copy ownership on first mount, so permissions are deterministic whichever container mounts first):
 
 | Path | Owner | Mode | Purpose |
@@ -332,15 +333,19 @@ cfg := Config{
 		"HTTP_PROXY=http://127.0.0.1:3128", "HTTPS_PROXY=http://127.0.0.1:3128",
 		"http_proxy=http://127.0.0.1:3128", "https_proxy=http://127.0.0.1:3128",
 		"NO_PROXY=", "NODE_USE_ENV_PROXY=1", "PIP_DISABLE_PIP_VERSION_CHECK=1", "GIT_TERMINAL_PROMPT=0"},
-	Labels: map[string]string{"bothy.box": "1", "bothy.key": req.Key, "bothy.profile": req.Profile},
+	Labels: map[string]string{"bothy.box": "1", "bothy.key": req.Key, "bothy.profile": req.Profile,
+		"bothy.run_volume": runVol}, // scopes orphan cleanup to this install's boxes
 }
+name := runVol + "-" + req.Key // container name
 ```
+
+**Container names** are `<BOTHY_SBX_RUN_VOLUME>-<key>`. Box keys are unique only within one install (the canary key `DerivedID("box","canary")` and the MCP installer and discovery keys are derived, so they are the same in every install), and Create replaces a container by name on a clash while Destroy of an unregistered key removes by name. Scoping the name to the run volume (keys never contain `-`, so the name is exactly unique) lets several installs or test runs share one engine provided their run volumes differ; orphan cleanup at start lists only containers labelled with this install's `bothy.run_volume`.
 
 Volume subpaths need Engine API ≥ 1.45 (Docker 26+), and the subpath directory must already exist (moby#47842), so **the gateway creates `ws/<id>` (2770, group 10001) and `egress/<h>` (0750, group 10001) before calling Create**. Docker resolves subpath symlinks safely; sandboxd additionally rejects any key/workspace/tree id not matching the regexes in `proto`. API < 1.45 → `Health.OK=false`, reason "Docker 26+ required", exec unavailable. Podman 5 compatibility is *(verify)* in week 1 and labelled beta.
 
 **Sandbox images** (`deploy/sandbox/`, M5; digest-pinned in releases):
-- `bothy-sandbox` (base): debian trixie-slim, python3, python3-venv, uv, bash, coreutils, git, curl, ca-certificates, jq, ripgrep, unzip, procps, sbx-init; user `sbx` 10001. ~50 MB compressed.
-- `bothy-sandbox-node`: base + Node 24 LTS + npm. ~80 MB compressed.
+- `bothy-sandbox` (base): debian trixie-slim, python3, python3-venv, uv, bash, coreutils, git, curl, ca-certificates, jq, ripgrep, unzip, procps, sbx-init; user `sbx` 10001. ~106 MiB compressed (measured 105.8 MiB on linux/arm64; the apt layer is ~173 MB unpacked and uv ~48 MB).
+- `bothy-sandbox-node`: base + Node 24 LTS + npm. ~153 MiB compressed (measured 152.5 MiB on linux/arm64).
 - Both: all setuid/setgid bits stripped (`find / -perm /6000 -type f -exec chmod a-s {} +`); `/etc/gitconfig` sets `core.fsmonitor=false`, `core.hooksPath=/dev/null`, `core.pager=cat`, `protocol.file.allow=never`, `protocol.ext.allow=never`, `safe.directory=/workspace/*`.
 
 ### 2.7 Exec, timeout and kill (D12)
@@ -368,7 +373,7 @@ Every `POST /exec` becomes a Docker exec of `["/opt/bothy/sbx-init","run","--tim
 - The proxy (`internal/egress`, in the gateway) speaks HTTP CONNECT and absolute-form HTTP. Per connection:
   1. **Port** must be in `egress.ports` (default `[443]`; `80` only with `allow_plain_http`).
   2. **Host** normalised: lowercase, IDNA → punycode; IP literals denied unless an exact `ip:port` grant exists.
-  3. **Denylist** `egress.deny` beats everything below. **Allowlist** = `egress.allow` ∪ enabled presets ∪ box `Extra` (MCP server egress list, installer registries) ∪ active domain grants from `Grants().Active(principal, session, binding.Schedule)` (unless `NoGrants`) ∪ the in-memory allow_once set of the bound tool call. Patterns: exact host, or `*.suffix` (only in `egress.allow` or admin-created principal grants). A host under a **shared-tenant suffix** (`egress.shared_tenant_suffixes`: `.amazonaws.com`, `.cloudfront.net`, `.googleusercontent.com`, `.blob.core.windows.net`, `.workers.dev`, `.pages.dev`, `.ngrok-free.app`, `.github.io`) is allowed only by an admin principal grant or `egress.allow`, never by a session grant.
+  3. **Denylist** `egress.deny` beats everything below. **Allowlist** = `egress.allow` ∪ enabled presets ∪ box `Extra` (MCP server egress list, installer registries) ∪ active domain grants from `Grants().Active(principal, session, binding.Schedule)` whose `MaxSE` ≥ `external_send` (unless `NoGrants`; a box can upload as well as download, so a read-class domain grant never opens the box proxy; `NarrowGrant` gives `net` actions `external_send`, and so do `net_allow` and Settings → Sandbox "Allow this site") ∪ the in-memory allow_once set of the bound tool call. Patterns: exact host, or `*.suffix` (only in `egress.allow` or admin-created principal grants). A host under a **shared-tenant suffix** (`egress.shared_tenant_suffixes`: `.amazonaws.com`, `.cloudfront.net`, `.googleusercontent.com`, `.blob.core.windows.net`, `.workers.dev`, `.pages.dev`, `.ngrok-free.app`, `.github.io`) is allowed only by an admin principal grant or `egress.allow`, never by a session grant.
   4. **Trifecta:** if the session is Exposed (§5.3), session and principal grants are suspended; only `egress.allow`, presets and box `Extra` apply.
   5. **Not allowed:** if the binding is interactive, the session is not Exposed and `hold_for_approval > 0`, hold the CONNECT up to 45 s and request an approval (tool call id = the bound exec's id + `#net`, Action `{kind: net, host, port}`, card "Sandbox wants to reach pypi.org:443", choices allow once / allow for session / deny). Otherwise reply `403` with body `bothy: egress to <host>:<port> denied (<reason>). Ask the user or call net_allow.`, publish `egress.blocked`, audit `egress.deny`.
   6. **Resolve** with the gateway resolver (TTL clamped ≤ 60 s), check **every** returned address against the blocklist after `Unmap()`, dial the first allowed **IP literal**; `net.Dialer.Control` re-checks the final address (defeats rebinding).
@@ -429,7 +434,7 @@ Any failure of 1–6 → `Health.OK=false`, Create refused, red banner `sandbox_
   - pypi: with a recorded lock, `uv pip install --no-deps --require-hashes -r lock.txt --target /opt/mcp`; else `uv pip compile --generate-hashes` for `<name>==<version>`, record it, then install from it.
   - The gateway pre-creates `<work>/mcp/<server>/<install_id>/` (2770, group 10001) before the installer box mounts it, then hashes the installed tree (`mcp_installs.tree_hash`, sha256 over sorted relative paths, modes and contents) and re-checks it on every `Start`; drift → status `drifted`, server disabled, banner.
 - **Runtime:** one instance per (server, principal), box key `DerivedID("box","mcp:"+server+":"+principal)`, `MCPTree` mounted **read-only** (the server cannot rewrite itself), workspace mounted only when `workspace: principal`, `Extra` = the server's `egress` list, `NoGrants`. Started lazily on first tool call through `Sandbox.Ensure` + `Sandbox.Stdio`, wired to the go-sdk as `&mcp.IOTransport{Reader: rwc, Writer: rwc}` (the stream closes once); stopped after 10 minutes idle; restarted with backoff 1 s → 60 s. Tool lists come from a short-lived discovery instance (box key `DerivedID("box","mcp-discover:"+server)`, no workspace, same egress) run at `Start`, `Install` and `Reload`, which updates pins and is then destroyed; pins are per server, shared by all principals.
-- **HTTP servers:** `StreamableClientTransport` (legacy `SSEClientTransport` fallback for old servers) with `HTTPClient` always set from `Egress.SystemClient(SystemDest{Name: "mcp:<server>", Hosts: [url host:port], AllowPrivate: allow_private})` (a nil client would fall back to `http.DefaultClient`). One client session per (server, billing user); header refs resolve with `Vault.Resolve(ref, user)` (user scope, then global), so household members can hold their own tokens for the same server. Runs of space principals resolve in the global scope only (spaces have no vault scope).
+- **HTTP servers:** `StreamableClientTransport` (legacy `SSEClientTransport` fallback for old servers) with `HTTPClient` always set from `Egress.SystemClient(SystemDest{Name: "mcp:<server>", Hosts: [url host:port], AllowPrivate: allow_private})` (a nil client would fall back to `http.DefaultClient`). One client session per (server, billing user); header refs resolve with `Vault.Resolve(ref, user)` (user scope, then global), so household members can hold their own tokens for the same server. Runs of space principals resolve in the global scope only (spaces have no vault scope). **Discovery** (at `Start`, `Install` and `Reload`) has no billing user, so it resolves every header reference in the global scope only: each referenced secret therefore needs a global value, and a per-user value only overrides it for that user's own calls. Without a global value the server is never discovered and its tools never register.
 - **Tool names** are `mcp__<server>__<tool>`; a name over 64 characters becomes its first 55 characters + `_` + the first 8 hex of sha256(full name).
 - **No secret is ever passed to a stdio server.** Integrations needing credentials use HTTP MCP with vault-injected headers.
 - MCP stdio is unavailable (state `no_sandbox`) without a sandbox; restricted spaces never see MCP tools.
@@ -507,11 +512,13 @@ internal/httpapi/          routes, middleware, SSE, OpenAI-compatible endpoints 
 internal/doctor/           check runner, text/JSON rendering                                            [M11]
 internal/webui/            go:embed dist (pre-gzipped), SPA fallback, cache headers                     [M11]
 web/                       Svelte 5 SPA (src/lib/api/types.gen.ts is [S], generated)                    [M12]
-deploy/                    Dockerfile, compose.yaml, .env.example, install.sh, searxng/settings.yml     [S]
+deploy/                    Dockerfile, compose.yaml, compose.source.yaml (compose on images built
+                           from source), .env.example, install.sh, searxng/settings.yml                 [S]
 deploy/sandbox/            sandbox image Dockerfiles, gitconfig                                         [M5]
 tools/                     separate go.mod: tygo config [S]; catalog-gen (catwalk) [M2]
-e2e/                       black-box suite (phase 3)                                                    [S]
-scripts/                   check-imports.sh, check-ownership.sh, budgets/*                              [S]
+e2e/                       black-box suite (phase 3); dockerrelease.go + docker/compose.test.yaml
+                           drive a real compose deployment (tags e2e,docker)                            [S]
+scripts/                   check-imports.sh, check-ownership.sh, budgets/*, e2e-docker.sh               [S]
 ```
 
 **Import rules (CI-enforced by `scripts/check-imports.sh`):**
@@ -966,7 +973,7 @@ const (
 type ModelInfo struct {
 	Ref       ModelRef  `json:"ref"`
 	Display   string    `json:"display"`
-	Context   int       `json:"context"`    // effective window (Ollama: the num_ctx we send)
+	Context   int       `json:"context"`    // effective window (Ollama: the num_ctx we send: the configured context, else min(trained, max(16384, served context from /api/ps)))
 	MaxOutput int       `json:"max_output"`
 	Tools     bool      `json:"tools"`
 	Vision    bool      `json:"vision"`
@@ -2751,6 +2758,15 @@ type Redactor interface {
 	Remove(id string)
 }
 
+// Not part of Redactor: vault.Redactor (and testkit/fakes.Redactor) also
+// implement PartialAt(s string) int, which returns where the earliest suffix
+// of s starts that is a proper prefix of a registered value or of one of its
+// encodings (len(s) when none). Streamers (agent run.delta, run.thinking and
+// run.tool_output; the channel hub's live messages) find it by a type
+// assertion on interface{ PartialAt(string) int } and hold that tail back, so
+// redacting each published piece masks exactly what redacting the whole
+// stream would, even for a secret that contains spaces.
+
 type Vault interface {
 	Put(ctx context.Context, sc Scope, name string, value []byte, by UserID) (SecretMeta, error)
 	// Get resolves BOTHY_SECRET_<NAME> env first, then the given scope; with a user
@@ -3348,7 +3364,10 @@ type MCPToolApproval struct {
 }
 
 type MCP interface {
-	Start(ctx context.Context) error // connects enabled servers; registers approved, hash-matching tools
+	// Start connects enabled servers and registers approved, hash-matching
+	// tools. Discovery has no billing user: HTTP header secret refs resolve in
+	// the global vault scope only, so each needs a global value (§2.11).
+	Start(ctx context.Context) error
 	Status() []MCPStatus
 	Pins(ctx context.Context, server string) ([]*MCPPin, error) // latest definition per tool incl. pending diffs
 	Approve(ctx context.Context, server string, tools map[string]MCPToolApproval, by UserID) error
@@ -3428,7 +3447,7 @@ type CheckProvider interface{ Checks() []Check }
 2. **Dedup:** `Store.Dedup().Seen(channel, msgID)`; repeats are dropped (Telegram redelivery, Slack retries).
 3. **Identity:** `Identities().Touch`, then `Auth.ResolveIdentity(channel, senderID)`:
    - `blocked` → drop silently.
-   - unknown, in a DM → if text is `/pair CODE` or `/start CODE`: `Auth.RedeemPairing` (link_identity; Auth publishes `pairing.linked`, also for `ApproveSender` links), reply "Linked to <user>", then send the hello DM. Otherwise, with `channels.unknown_senders: pair`, call `Auth.SenderNotice`; when `Reply` is true (at most once per 24 h), reply *"I'm a private assistant. Ask my owner to approve code 7KQ2-MX4D."* and notify admins (web banner + preferred DM card with links to Settings → People). **No LLM call is ever made for an unknown sender.** With `ignore`, drop silently.
+   - unknown, in a DM → if text is `/pair CODE` or `/start CODE`: `Auth.RedeemPairing` (link_identity; Auth publishes `pairing.linked`, also for `ApproveSender` links), reply "Linked to <user>", then send the hello DM. Otherwise, with `channels.unknown_senders: pair`, call `Auth.SenderNotice`; when `Reply` is true (at most once per 24 h), reply *"I'm a private assistant. Ask my owner to approve code 7KQ2-MX4D."* and notify admins (web banner + preferred DM card with links to Settings → People). Admin DMs about unknown senders are limited to 3 per hour globally (fixed one-hour windows), so a hundred throwaway accounts cannot become a hundred DMs: the `unknown_sender` banner summarizes the window's count ("10 people asked for access in the past hour, most recently …"), and the first DM of the next window mentions how many senders were held back. **No LLM call is ever made for an unknown sender.** With `ignore`, drop silently.
    - unknown, in a group → ignored unless the group is an enabled space (below).
 4. **Rate limit:** `Budget.AllowSender(channel+":"+senderID)` (10/min, burst 5). Over the limit: drop; one "slow down" reply per window.
 5. **Command fast path** (before any queue, authorised against the session principal's user or an admin):
@@ -3467,7 +3486,7 @@ Web (`POST /api/sessions/{id}/messages`) and API (`/v1/chat/completions`) skip s
 | space, kind `group` | first sighting of a group chat (disabled until an admin enables it) | none | none | `restricted` (default): `SpaceOK && SideEffect == read` only; `standard` (admin opt-in): normal policy | the owner's preferred DM, never the group | the owner |
 | space, kind `guest` | `Auth.ApproveSender(as="guest")` | none | none | as above | the owner's DM | the owner |
 
-`SpaceOK` read tools are `fs_read`, `fs_list`, `web_search`, `web_fetch`, `skill_load`, `skill_read`, `tool_search`, `use_tool`; restricted spaces have no `memory`, `session_search`, `fs_write`, `shell`, `python`, MCP or `schedule_*` tools; their workspace is their own (`ws_…` per principal). A run started by a `ProvUntrusted` message in a `standard` space asks the owner for every action above `read` (floor F6).
+`SpaceOK` read tools are `fs_read`, `fs_list`, `web_search`, `web_fetch`, `skill_load`, `skill_read`, `tool_search`, `use_tool`; `tool_search`/`use_tool` are offered only when lazy tools are reachable (§5.6), and `web_search` only with a search provider, so a restricted space with no search provider and no skills is offered just `fs_list`, `fs_read` and `web_fetch`. Restricted spaces have no `memory`, `session_search`, `fs_write`, `shell`, `python`, MCP or `schedule_*` tools; their workspace is their own (`ws_…` per principal). A run started by a `ProvUntrusted` message in a `standard` space asks the owner for every action above `read` (floor F6).
 
 ### 5.3 Taint and the trifecta state machine
 
@@ -3480,6 +3499,8 @@ Web (`POST /api/sessions/{id}/messages`) and API (`/v1/chat/completions`) skip s
 | `TaintSend` | the run's toolset contains any `external_send` capability or the box has any egress grant (informational, for the UI badge) |
 
 `Taint.Exposed()` (Private and Untrusted) triggers the **trifecta floor**: every `external_send` or `irreversible` action asks (no "allow for session" offered), session/principal egress grants are suspended at the proxy, `web_fetch` follows the URL-provenance rule, links in agent output are neutralized, and the UI badge turns red with a "Fork clean" button (`POST /api/sessions/{id}/fork` → `Runner.Fork`: a new session with no history, a system note linking the old one, taint 0; a channel session's chat moves to the fork).
+
+**Link neutralization** (channel output, the agent's `Sink` and therefore `/v1` replies, while Exposed) works on the text as it renders: it defangs scheme URLs (`hxxps://evil[.]com/…`), `www.` hosts, bare domains (`attacker.com/?q=…`), IPv4 runs of 4 or more dotted parts, hosts written with the U+2024 or U+FE52 dot look-alikes, and hosts or `scheme:` colons hidden by markdown backslash escapes (`evil\.com`, `https\://`), emphasis (`evil**.**com`, `_`, `~`) or invisible format characters; the defang is applied to the source text. Inline code and fenced blocks are left alone (the agent sink tracks fences across chunks). The neutralizer is idempotent. The web renderer never links bare domains.
 
 `Policy.NextTaint` is pure and is applied by the runner after every tool result and inbound message; changes publish `session.updated`.
 
@@ -3499,7 +3520,7 @@ Web (`POST /api/sessions/{id}/messages`) and API (`/v1/chat/completions`) skip s
 2. **Persist the user turn.** Input parts + one `PartContext` part (§5.6 turn-context), provenance from the request. Attachments are already `Blob` parts in the workspace (hub or `POST /api/uploads`); the runner only loads `Blob.Data` before each provider call. URLs in `ProvUser` text are recorded with `Sessions().AddURLs(…, "user")` (URL provenance, F8). Before the first tool call the runner creates `<work>/ws/<id>/` and `.bothy/{in,out,tmp}` (2770, group 10001) so `fs_*` tools work with every sandbox backend.
 3. **Assemble** the request for the head of the slot's chain (§5.6). If the estimate exceeds `trigger × window − reserve` (or a price tier threshold), compact first (§5.10).
 4. **Pre-call checks:** `RunMeter.Step()`, then `BeforeCall(estimate, model)` (run tokens, run $, user and global daily $ with projection).
-5. **Stream:** `LLM.Complete(slot, override, build, on)`. Text deltas are coalesced (50 ms) into `run.delta` on the bus and forwarded to the `Sink`; thinking deltas go to the UI only (`agent.show_thinking`). Tool-call deltas are assembled by the provider client.
+5. **Stream:** `LLM.Complete(slot, override, build, on)`. Text deltas are coalesced (50 ms) into `run.delta` on the bus and forwarded to the `Sink`; thinking deltas go to the UI only (`agent.show_thinking`). Tool-call deltas are assembled by the provider client. Every `run.delta`, `run.thinking` and `run.tool_output` flush publishes only up to the last whitespace short of a tail a registered secret could still be completing (`PartialAt`, §4.9), and redacts what it publishes; the rest waits for the next flush or the end of the call (a whitespace-free run of 2 KiB or more is cut after the last character no credential token contains). The bus therefore never receives raw per-flush text, and a secret or token split across flushes is masked whole. When the session is Exposed the sink's copy also has links neutralized outside code (§5.3).
 6. **Persist the assistant message** (text, thinking + signature parts, tool calls). `RunRepo.AddLLMCall(CallInfo)` (with breakdown and `prefix_hash`), `RunMeter.AfterCall` (spend_daily, 80% warning), `LLM.Calibrate`. Publish `run.usage`. A `prefix_hash` change between two calls of the same session and epoch is logged as a cache-stability bug.
 7. **No tool calls** → step 10.
 8. **Tool calls** → §5.7 for each, in model order. Consecutive calls that are all `read`, all auto-allowed and not exec run in parallel (≤ `agent.parallel_read_tools`, 4); everything else is sequential.
@@ -3536,7 +3557,7 @@ Web (`POST /api/sessions/{id}/messages`) and API (`/v1/chat/completions`) skip s
 | 8K–16K | degraded | short | ≤ 5: `shell`, `fs_read`, `fs_write`, `web_search`, `memory` | none | 500 tok | 0.55 | 1024 |
 | < 8K | text-only | short | none (banner "model too small for tools") | none | — | 0.55 | 1024 |
 
-  Standard core set: `fs_read`, `fs_write`, `fs_list`, `shell`, `python`, `web_fetch`, `web_search`, `memory`, `session_search`, `message` (only when the run has a chat), `skill_load` (when any skill is enabled), `tool_search`, `use_tool`. Always lazy (reached via `tool_search`/`use_tool`): `fs_delete`, `net_allow`, `skill_read`, `schedule_*`, every MCP tool unless its server's `core` globs pin it. Tools filtered out by sandbox state, trigger, role or principal kind are absent from both.
+  Standard core set: `fs_read`, `fs_write`, `fs_list`, `shell`, `python`, `web_fetch`, `web_search`, `memory`, `session_search`, `message` (only when the run has a chat), `skill_load` (when any skill is enabled), `tool_search`, `use_tool` (both only when a lazy tool is reachable for the run). Always lazy (reached via `tool_search`/`use_tool`): `fs_delete`, `net_allow`, `skill_read`, `schedule_*`, every MCP tool unless its server's `core` globs pin it. Tools filtered out by sandbox state, trigger, role or principal kind are absent from both.
 
   Acceptance: a 16K model's assembled prompt never exceeds window − reserve (§12, M3).
 
@@ -3696,7 +3717,7 @@ Ring of the last 16 `(tool, fnv64(args), fnv64(result))`:
 - A schedule run uses the schedule's target session (`Schedule.Session`, a running conversation) or, when that is empty, a **fresh session per run** (`Runner.NewSession(principal, "schedule", nil)`, title "<schedule name> · <local date>"), so independent runs never accumulate history and each run has its own transcript. Busy target → queued; full queue → run recorded `skipped`. The run's input is the schedule prompt with provenance `user` (heartbeat: §below).
 - Limits = schedule limits (defaults `budgets.scheduled`). Pre-authorized grants (`scope=schedule`) apply. `schedule_*` tools are absent (`Manifest.Triggers = [message]`), and F3 denies all admin-class actions: cron cannot create cron.
 - Approvals park (§5.9). Delivery: `Hub.StreamTo(deliver or PreferredChat, "final")`.
-- Heartbeat (`scheduler.heartbeat`, off by default): one schedule of kind `heartbeat` for the owner's principal, kept in sync by the scheduler (`every` ± 10% jitter, `active_hours`, `deliver`: `preferred` = PreferredChat, `web`, or a channel name = the owner's DM there), fast slot. Memory files are not in the workspace, so the scheduler inlines the file: the prompt is *"Here is HEARTBEAT.md. If nothing needs the user's attention, reply exactly HEARTBEAT_OK."* followed by the content of `HEARTBEAT.md` (`Memory.Read`, `SystemViewer`). An empty or whitespace-only HEARTBEAT.md skips the tick with no LLM call. Delivery is suppressed when the final text starts with `HEARTBEAT_OK`; capped by `heartbeat_daily_usd` (§5.12). Members may create their own `heartbeat`-kind schedules in the Schedules UI.
+- Heartbeat (`scheduler.heartbeat`, off by default): one schedule of kind `heartbeat` for the owner's principal, kept in sync by the scheduler (`every` ± 10% jitter, `active_hours`, `deliver`: `preferred` = PreferredChat, `web`, or a channel name = the owner's DM there), fast slot. Memory files are not in the workspace, so the scheduler inlines the file: the prompt is *"Here is HEARTBEAT.md. If nothing needs the user's attention, reply exactly HEARTBEAT_OK."* followed by the content of `HEARTBEAT.md` (`Memory.Read`, `SystemViewer`). An empty or whitespace-only HEARTBEAT.md skips the tick with no LLM call. Delivery is suppressed when the final text starts with `HEARTBEAT_OK` (emphasis, blockquote or code ticks around the token are tolerated by the scheduler, the runner and the channel alike), including for a resumed (previously parked) heartbeat run: the runner wraps the resume sink so a `HEARTBEAT_OK` answer is not delivered then either; capped by `heartbeat_daily_usd` (§5.12). Members may create their own `heartbeat`-kind schedules in the Schedules UI.
 - Missed runs at boot: `missed_run: skip` (default) records nothing; `once` fires one catch-up run if missed by < 1 h. Three consecutive failures auto-disable the schedule and notify the owner.
 
 ---
@@ -4312,7 +4333,7 @@ providers:                        # examples; the wizard writes these. api_key a
   - {id: openai, type: openai, base_url: "https://api.openai.com/v1", api_key: "secret:openai_api_key", enabled: false}
   - {id: gemini, type: gemini, api_key: "secret:gemini_api_key", enabled: false}
   - id: ollama
-    type: ollama                  # native /api/chat; num_ctx = models[].context
+    type: ollama                  # native /api/chat; num_ctx = models[].context, else min(trained, max(16384, served context from /api/ps))
     base_url: "http://host.docker.internal:11434"
     allow_private: true           # this exact host:port only; metadata IPs always blocked
     discover: true                # /api/tags + /api/show
@@ -5053,11 +5074,11 @@ data: <JSON core.Event>
 
 ```
 
-- On connect the server sends `event: hello` with `{"boot":"…","seq":N,"paused":false,"sandbox":true,"banners":[BannerData…]}` (banners from `Bus.Banners` under the connection's filter).
+- Every stream starts with `retry: 3000` (the browser's reconnect delay), then the server sends `event: hello` with `{"boot":"…","seq":N,"paused":false,"sandbox":true,"banners":[BannerData…]}` (banners from `Bus.Banners` under the connection's filter).
 - `: ping` comment every 15 s; writes flushed per event with a write deadline (`http.ResponseController`).
-- **Resume:** the browser sends `Last-Event-ID`; same boot and within the ring → replay via `Bus.Since`; otherwise `event: resync` (`data: {}`) and the client refetches sessions, active runs and approvals over REST. A per-connection buffer of 256; overflow → `resync` and close. At most 4 SSE connections per user (oldest closed).
+- **Resume:** the browser sends `Last-Event-ID`; same boot and within the ring → replay via `Bus.Since`; otherwise `event: resync` (`data: {}`) and the client refetches sessions, active runs and approvals over REST. A per-connection buffer of 256; overflow → `resync` and close. At most 4 SSE connections per user (oldest closed); the evicted stream gets `: closed: this user has too many open streams` and `retry: 60000` before it closes, so tabs past the cap cannot reconnect in a storm. The web UI shares one `EventSource` per browser across tabs: a Web Lock elects a leader tab that holds the stream and relays frames, `hello`, status and `closed` over a `BroadcastChannel`; on leader handoff every tab refetches once.
 - **ACL:** `Filter{Principals: actor.Viewer.Principals, Admin: actor.Role.IsAdmin()}`. Admins receive admin broadcasts (Principal "") but **not** other principals' content (`admin_can_read_chats` is locked false).
-- **Coalescing:** `run.delta`/`run.thinking` ≤ 20/s per run; `run.tool_output` ≤ 10/s per call, ≤ 8 KB per event, redacted.
+- **Coalescing:** `run.delta`/`run.thinking` ≤ 20/s per run; `run.tool_output` ≤ 10/s per call, ≤ 8 KB per event, redacted. Each flush of these three is released only up to the last whitespace short of a possible partial secret (§5.5 step 5; a partial word is held back, at most 2 KiB before a cut at a non-token character) and redacted on its own, so redaction always sees whole secrets and tokens and the joined stream never reveals one.
 
 | Event | Payload (`data.data`) | Scope |
 |---|---|---|
@@ -5550,6 +5571,7 @@ type DoctorReport struct {
 - **Streaming:** `chat.completion.chunk` frames, then `data: [DONE]`. `delta.content` carries the assistant text of all steps joined by a blank line. Tool activity is not in `content`; with `X-Bothy-Events: 1` chunks carry an extra `bothy` object (`{"event":"run.tool_call","tool":"web_search"}`) that standard clients ignore. While waiting on an approval (token `on_approval: wait`), the stream sends `: waiting-approval` comments for up to `api_wait`, then the action is denied; API runs never park.
 - **Final:** `finish_reason` `stop` | `length` (steps/token budget) | `content_filter` (refusal). `usage` sums every internal call (`prompt_tokens` includes cached; `prompt_tokens_details.cached_tokens` set). Headers `X-Bothy-Run-Id`, `X-Bothy-Session`, `X-Bothy-Cost-Micros`.
 - **Disconnect** cancels the run unless `X-Bothy-Detach: 1`.
+- **Large bodies** (agent mode and passthrough): a body over 1 MiB (by `Content-Length`, or once a chunked body passes 1 MiB) first takes the single global large-body slot, waiting up to 10 s, else 429 `rate_limited` with `Retry-After: 10`; one such body already outweighs `GOMEMLIMIT`, so they queue instead of adding up. The body is decoded once (top-level keys are scanned without copying values) and raw messages are dropped after parsing.
 - **Errors:** budget → 429 `{"error":{"type":"insufficient_quota","code":"budget_exceeded"}}`; rate limit → 429 + `Retry-After`; paused → 503; provider failure after fallback → 502 `upstream_error`.
 
 **Passthrough, model `<provider>/<model>`, scope `llm`:** the OpenAI request is translated to `core.Request` (so Anthropic, Gemini and Ollama models work from any OpenAI client) and the response translated back. Client `tools`/`tool_choice` pass through and come back as standard `tool_calls`. No Bothy tools, memory, constitution or fallback (`LLM.Passthrough`). Metered (`purpose=passthrough`) against the token user's daily cap; audit `api.passthrough` with token counts only.
@@ -5589,7 +5611,7 @@ The wizard opens `https://api.slack.com/apps?new_app=1&manifest_yaml=<urlencoded
 
 **Stack:** Svelte 5 (runes), Vite 8, Tailwind 4 (`@tailwindcss/vite`), plain SPA (no SvelteKit). Runtime dependency: `svelte` only. Hand-written pieces: history router (~80 lines), API client over `types.gen.ts` (adds `X-CSRF-Token`, maps `dto.Error`), one `EventSource` store with resync, markdown renderer, SVG charts, QR encoder (byte mode, versions 1–6, ECC M; lazy chunk), ~25 inline SVG icons. Svelte compiled with `css: 'external'`; no `style="…"` attributes in markup (use classes or `style:` directives, which go through CSSOM) so CSP needs no `unsafe-inline`. Budgets (CI): JS ≤ 120 KB gz (target 90), CSS ≤ 20 KB gz, zero requests to other origins. Mobile-first, works at 360 px; light/dark/system; PWA manifest and icons (no offline mode).
 
-**Markdown renderer** (security control): headings, paragraphs, emphasis, inline/fenced code, lists, tables, blockquotes, links. Escapes all HTML; never renders images (image syntax becomes a text link "image: host/…"); links get `rel="noopener noreferrer nofollow"` and `target="_blank"`; `javascript:`/`data:`/`vbscript:` links become text; in Exposed sessions, links to non-allowlisted domains render inert (host shown, copy button; v0.1 renders every link inert there, since members cannot read `egress.allow`). Shared by chat, cards and the SKILL.md viewer.
+**Markdown renderer** (security control): headings, paragraphs, emphasis, inline/fenced code, lists, tables, blockquotes, links. Escapes all HTML; never renders images (image syntax becomes a text link "image: host/…"); links get `rel="noopener noreferrer nofollow"` and `target="_blank"`; `javascript:`/`data:`/`vbscript:` links become text; in Exposed sessions, links to non-allowlisted domains render inert (host shown, copy button; v0.1 renders every link inert there, since members cannot read `egress.allow`). Only explicit links and scheme URLs are ever linked: bare domains, and hosts hidden by markdown escapes, emphasis or invisible characters (`evil\.com`, `evil**.**com`), stay plain text. Shared by chat, cards and the SKILL.md viewer.
 
 **Routes:** `/setup`, `/login`, `/chat`, `/chat/:id`, `/approvals`, `/approvals/:id`, `/runs/:id`, `/schedules`, `/schedules/:id`, `/memory`, `/usage`, `/audit`, `/settings/:page`.
 
@@ -5634,7 +5656,7 @@ Progress dots; every step revisitable; state derives from the server, so a reloa
 | Chat apps | Channel cards (status, reconnect, Test), group spaces (enable, mention-only, tool profile), pairing (code + QR), linked identities, pending senders (approve as guest / link / block), Slack manifest, Discord invite |
 | People (multi mode) | Users, roles, per-user caps, disable |
 | Policy | Preset, class overrides, rules table (add/edit with a "what would happen" tester: `POST /api/policy/preview` plans a sample call and returns the Action and Decision), grants list with revoke, approval timeouts and notify channels |
-| Sandbox & egress | Backend, runtime, engine, self-test results, limits, quota usage, active boxes; egress allowlist, presets, shared-tenant list, recent blocks with one-click "allow for this session" (creates a narrow domain grant) |
+| Sandbox & egress | Backend, runtime, engine, self-test results, limits, quota usage, active boxes; egress allowlist, presets, shared-tenant list, recent blocks (`egress_log` `held_deny`/deny rows) with "Allow this site", which creates a persistent principal-scope exact `host:port` domain grant with `max_se` `external_send` (the box proxy ignores read-class domain grants, §2.8; revocable under Settings → Grants) |
 | MCP | Servers (state, protocol, transport), add/edit (writes `mcp.servers` via config PATCH; shows the exact install command, package, integrity and requested egress), Install, Reload, tool review: pending tools with a JSON **diff** against the previously approved definition, side-effect class selector, field map editor, private toggle, Approve |
 | Skills | List, status (pending/enabled/disabled/changed), view SKILL.md and files (read-only), upload zip, enable/disable, rescan |
 | Persona | SOUL.md editor (admin), constitution viewer (read-only), standing rules (admin) |
@@ -5662,8 +5684,8 @@ Progress dots; every step revisitable; state derives from the server, so a reloa
 | 4 | Sandbox: non-root, cap_drop ALL, no-new-privileges, read-only rootfs + tmpfs, default seccomp/AppArmor, limits; workspace only; no docker.sock in the gateway; network none / proxy only; approvals stay on | Compiled-in spec (§2.6): uid 10001, `CapDrop: ALL`, `no-new-privileges`, read-only rootfs, tmpfs `/tmp` and home, default seccomp/AppArmor, pids/memory/CPU/nofile limits, `--network none`, `LogConfig none`. Mounts: own workspace subpath rw, skills ro, own egress socket dir ro, MCP tree ro. The runtime socket lives only in sandboxd (no network, fixed schema, regex-validated ids). runsc auto when probed. Self-test canaries gate every box. Policy has no "in a container" bypass. bwrap backend: `--clearenv`, `--unshare-all --disable-userns`, seccomp filter, rlimits. | sandbox, sandboxd, sbxinit, policy |
 | 5 | Egress: default deny, private ranges blocked, proxy DNS with pinning, no sandbox DNS, byte caps, every destination logged | Per-box unix-socket proxy (socket = identity); port allowlist (443); allowlist from config, presets (off), box extras and narrow grants; shared-tenant suffixes admin-only; IP literals only by exact grant; full netip blocklist with `Unmap` and embedded-IPv4 re-check; resolve-then-dial pinned IP with `Control` re-check; SNI must equal the CONNECT host; redirects re-checked per hop (public dialer); asymmetric caps (10 MiB up / 200 MiB down); `egress_log` row per connection; three dialers (box, public, system), the system dialer limited to exact configured `host:port`. | egress |
 | 6 | Capability manifests for every tool, skill and MCP tool; side-effect class; deny by default; system-rendered cards | `core.Manifest` is required and validated at `Register` (zero side effect rejected, schema must compile). MCP tools are not exposed until an admin approves them with a class (config `side_effects` default `external_send`; annotations may only upgrade; `field_map` exposes recipient/URL fields for first-contact checks). Skills add no tools and never execute anything. Cards are rendered by the policy module from the Action only; channel renderers escape everything. | tools, mcp, skills, policy, channel |
-| 7 | Trifecta state machine; messaging confined to origin chat; first contact needs approval | `sessions.taint` P/U/S bits (§5.3); Exposed ⇒ external_send/irreversible always ask, session egress grants suspended, URL provenance for `web_fetch`, link neutralization; box egress taints exec output. The `message` tool has no recipient parameter (uses `env.Chat`). First contact (new recipient or non-GET domain) asks. Clean fork resets taint. | policy, agent, tools, egress, channel, web |
-| 8 | Close exfiltration channels | No remote images anywhere (renderer drops them; CSP `img-src 'self' data:`). Previews off: Telegram `link_preview_options.is_disabled`, Slack `unfurl_links/unfurl_media:false`, Discord `flags: SUPPRESS_EMBEDS`. Links neutralized in Exposed sessions (`hxxps://evil[.]com/…` in chat; inert in web). Agent output never carries buttons. Shared-tenant hosts need admin grants. Upload caps. | channel/*, web, egress |
+| 7 | Trifecta state machine; messaging confined to origin chat; first contact needs approval | `sessions.taint` P/U/S bits (§5.3); Exposed ⇒ external_send/irreversible always ask, session egress grants suspended, URL provenance for `web_fetch`, link neutralization as rendered (scheme URLs, `www.` hosts, bare domains, IPv4 runs of 4+ parts, U+2024/U+FE52 dot look-alikes, hosts and `scheme:` colons hidden by markdown escapes, emphasis or invisible characters; code left alone; §5.3) in channel output and the agent sink; box egress taints exec output. The `message` tool has no recipient parameter (uses `env.Chat`). First contact (new recipient or non-GET domain) asks. Clean fork resets taint. | policy, agent, tools, egress, channel, web |
+| 8 | Close exfiltration channels | No remote images anywhere (renderer drops them; CSP `img-src 'self' data:`). Previews off: Telegram `link_preview_options.is_disabled`, Slack `unfurl_links/unfurl_media:false`, Discord `flags: SUPPRESS_EMBEDS`. Links neutralized in Exposed sessions (`hxxps://evil[.]com/…`, `evil[.]com` for bare and markdown-obfuscated domains in chat and `/v1`, code left alone; inert in web, which never links bare domains). Agent output never carries buttons. Shared-tenant hosts need admin grants. Upload caps. | channel/*, web, egress |
 | 9 | Self-modification lock | The model has no tools for config, policy, persona, constitution, skills, MCP or auth. `schedule_create/delete` are `admin` class (F3: admin approver, never auto, denied in scheduled/heartbeat/API runs; `Triggers: [message]`). fs tools are rooted at the principal workspace via `os.Root`. Every UI/API change is audited. | tools, policy, scheduler, httpapi |
 | 10 | Cost and abuse caps + kill switch | Run steps/tokens/time/$ meters, daily caps (global, per user, heartbeat), sender and token rate limits, loop detector, `/stop`, `/stopall` / `POST /api/admin/pause` (persisted). | budget, agent, channel, httpapi |
 | 11 | Append-only audit log | `audit_log` with UPDATE/DELETE abort triggers and a sha256 hash chain (`prev_hash`, `hash` over canonical JSON); single writer; `GET /api/audit/verify` and `bothy audit verify`; no online prune; offline archive inserts an anchor row. | audit, store |
@@ -5700,6 +5722,7 @@ Progress dots; every step revisitable; state derives from the server, so a reloa
 | `mcp.http_plaintext` (http:// non-private URL) | high | ✓ | |
 | `skills.changed` | medium | ✓ | ✓ disable |
 | `providers.auth_failed` / `channels.auth_failed` | medium | | |
+| `providers.ollama_context` (an Ollama chain model's window was capped below its trained maximum because its context is not configured) | info | | |
 | `backups.none_recent` | low | | |
 | `config.errors` / `config.safe_mode` | high | | |
 
@@ -5766,10 +5789,12 @@ No router, markdown, chart, icon, date or QR libraries.
 | yaml, x/net, x/crypto, gronx, seccomp-bpf | ~1.2 MB |
 | Bothy code + catalog.json + pre-gzipped UI | ~4.5 MB |
 | **Binary** | **~23 MB → ~9 MB gzip** |
-| **Gateway image** (distroless static ≈ 1 MB) | **~10–11 MB compressed** (budget 30, CI warns at 20) |
-| Sandbox images (compose only) | base ~50 MB, node ~80 MB |
+| **Gateway image** (distroless static ≈ 1 MB) | **~10–11 MB compressed** (budget 30, CI warns at 20); measured 9.1 MiB (arm64), 9.8 MiB (amd64), 9.3 MiB (armv7) |
+| Sandbox images (compose only) | measured 105.8 MiB (base) and 152.5 MiB (node) compressed on linux/arm64, against the original ~50 and ~80 MB estimates (apt layer ~173 MB unpacked, uv ~48 MB); no hard budget |
 
 Idle RSS with 3 channels connected: Go runtime ~8 MB, SQLite page cache 2 MB × 3 connections, disgo (caches off) + slack-go + Telegram poller ~5 MB, event ring 4096 entries ~2 MB, one shared transport per dialer, `GOMEMLIMIT=48MiB` ⇒ **~30–40 MB expected**. CI boots the binary against the fake platform servers, waits 10 minutes, and fails above 60 MB. Cold start to `/healthz` ≤ 500 ms. Fixed token overhead (S1 + core tool schemas, standard profile) ≤ 2.5K estimated tokens; core tool schemas alone ≤ 1.5K.
+
+**Measured (E18):** cold start to `/healthz` median 23 ms (linux/arm64, in a container; 45 ms native darwin/arm64); idle RSS 28.4 MiB peak after 10 minutes with the Telegram, Discord and Slack fakes connected (35.1 MiB darwin/arm64), the gateway container 30.0 MiB after 10 minutes idle; fixed token overhead 1943 without exec tools (S1 929 + core tools 1014) and 2190 with `shell`/`python` (core tools 1261), counted from the first agent request mockllm records.
 
 ---
 
@@ -5799,13 +5824,14 @@ Exit criteria: `go build ./... && go vet ./... && go test ./...` green on linux/
 | `cmd/sbx-init/main.go` | one line | frozen |
 | `web/` scaffold | `package.json` (exact pins), `vite.config.ts` (outDir `../internal/webui/dist`, `css: 'external'`), Tailwind entry, `App.svelte` shell, router stub, API client stub, SSE store stub | → M12 |
 | `internal/webui/dist/index.html` | committed placeholder so `go:embed` compiles without node | build output |
-| `deploy/Dockerfile`, `deploy/compose.yaml`, `deploy/.env.example`, `deploy/install.sh`, `deploy/searxng/settings.yml`, `.goreleaser.yaml` (binaries, gateway and sandbox images, SBOM, cosign, SLSA, Homebrew tap) | §2.1–2.3 | lead |
-| `Makefile` | `build`, `test` (`-race`), `ui`, `gen`, `lint`, `e2e`, `image`, `budgets` | lead |
-| `.github/workflows/ci.yml` | vet, staticcheck, `golangci-lint`, `go test -race ./...`, govulncheck, `scripts/check-imports.sh`, `scripts/check-ownership.sh`, `make gen` drift check, UI build + size gate, budgets job (image size, RSS, cold start, token overhead) | lead |
+| `deploy/Dockerfile`, `deploy/Dockerfile.release`, `deploy/compose.yaml`, `deploy/compose.source.yaml` (overrides the images with ones built from the checkout; the sandbox image is passed by image id in `BOTHY_SBX_IMAGES`), `deploy/.env.example`, `deploy/install.sh`, `deploy/searxng/settings.yml` | §2.1–2.3 | lead |
+| `.goreleaser.yaml`, `.github/workflows/release.yml` | goreleaser builds the static binaries and `sbx-init` (linux amd64/arm64, not archived); `dockers_v2` builds the gateway image (amd64/arm64/armv7) and the `sandbox` and `sandbox-node` images (amd64/arm64) from `deploy/sandbox/Dockerfile` with build arg `SBXINIT=release` (the `sbxinit-release` stage copies the release's signed binary from `$TARGETPLATFORM/sbx-init` instead of compiling it again) and `--target base` or `node`; SBOMs for every image; `docker_signs` cosign-signs every pushed manifest; the Homebrew cask. The release workflow then attests SLSA build provenance for `bothy`, `bothy-sandbox` and `bothy-sandbox-node` (digests read from the manifest JSON) and builds the digest-pinned compose bundle (`scripts/release/compose-bundle.sh`) | lead |
+| `Makefile` | `build`, `test` (`-race`), `ui`, `gen`, `lint`, `e2e`, `e2e-docker` (`scripts/e2e-docker.sh`), `image`, `budgets` | lead |
+| `.github/workflows/ci.yml` | vet (also `-tags 'e2e budgets docker'`), staticcheck, `golangci-lint`, `go test -race ./...`, govulncheck, `scripts/check-imports.sh`, `scripts/check-ownership.sh`, `make gen` drift check, UI build + size gate, `e2e`, `e2e-docker` job (`make e2e-docker`: real compose deployment and the docker-tagged scenarios), budgets job (image size, RSS, cold start, token overhead) | lead |
 | `scripts/check-imports.sh` | §3 import rules, `os/exec` ban, `SystemViewer` ban in httpapi, no `http.DefaultClient` in `internal/` | lead |
 | `scripts/check-ownership.sh` | fails a module PR touching paths outside its `OWNERSHIP.md` entry | lead |
 | `OWNERSHIP.md`, `CONTRIBUTING.md` (ICR process, comment style, 14-day cooldown), `SECURITY.md`, `LICENSE`, `NOTICE`, `README.md`, `docs/SPEC.md` (this file) | | lead |
-| `e2e/` | harness: builds the binary, temp data dir, starts mockllm and fake platform servers, helpers to drive the HTTP API and SSE | lead (scenarios in phase 3) |
+| `e2e/` | harness: builds the binary, temp data dir, starts mockllm and fake platform servers, helpers to drive the HTTP API and SSE; `e2e/dockerrelease.go`, `e2e/docker/compose.test.yaml` and `scripts/e2e-docker.sh` for the docker-tagged compose tests (§12.4) | lead (scenarios in phase 3) |
 
 **Construction and wiring (`cmd/bothy/wire.go`, verbatim in the skeleton):**
 
@@ -6096,7 +6122,7 @@ commands:
   config           check | defaults | effective
   audit            verify | archive --before <date> (gateway stopped)
   backup           write a consistent backup to <data>/backups
-  healthcheck      exit 0 when /healthz answers (container HEALTHCHECK)
+  healthcheck      exit 0 when /healthz answers (container HEALTHCHECK) [sandboxd]
   version          print version
 `
 
@@ -6123,7 +6149,7 @@ func main() {
 	case "setup-token", "user", "vault", "config", "audit", "backup":
 		err = adminCmd(ctx, cmd, args)
 	case "healthcheck":
-		err = healthcheck(ctx)
+		err = healthcheck(ctx, args)
 	case "version":
 		fmt.Println(version)
 	default:
@@ -6147,6 +6173,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -6206,7 +6233,21 @@ func printSetupBanner(c *config.Config, token string) {
 		url, token, c.Storage.DataDir, c.Auth.SetupTokenTTL.D())
 }
 
-func healthcheck(ctx context.Context) error {
+// healthcheck probes /healthz; `healthcheck sandboxd` instead connects to
+// BOTHY_SBX_SOCKET (default /run/bothy/sandboxd.sock): the sidecar shares the
+// image and its HEALTHCHECK but serves no HTTP port, and it closes
+// connections from any uid but the gateway's, so connecting is the signal.
+func healthcheck(ctx context.Context, args []string) error {
+	switch {
+	case len(args) == 1 && args[0] == "sandboxd":
+		c, err := (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "unix", envOr("BOTHY_SBX_SOCKET", "/run/bothy/sandboxd.sock"))
+		if err != nil {
+			return err
+		}
+		return c.Close()
+	case len(args) > 0:
+		return fmt.Errorf("healthcheck takes no arguments, or sandboxd")
+	}
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:8080/healthz", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -7373,7 +7414,7 @@ Every module: implements its `new.go` signatures; ships `README.md`; `go test -r
   - Fallback on 429/500 before the first event; no fallback after it; `build` called with each candidate's `ModelInfo`; `context_length` surfaced, not retried by the facade; breaker opens after 3 failures.
   - Cost math exact to the micro (tiers included); unknown price → `PriceKnown=false`.
   - A recorder asserts API keys never appear in URLs or logs; clients have `Proxy == nil`, TLS ≥ 1.2; a CI grep confirms no provider SDK import.
-  - Ollama: `num_ctx` sent equals the configured/discovered context; Probe reports "4,096 context" with the `OLLAMA_CONTEXT_LENGTH` hint when the served context is small.
+  - Ollama: `num_ctx` sent equals the configured context, else min(trained, max(16384, served context from /api/ps)); Probe sends that `num_ctx`, explains the cap, and reports "4,096 context" with the `OLLAMA_CONTEXT_LENGTH` hint when the served context is small. No extra config key: `providers[].models[].context` lifts the cap.
   - Thinking parts with a different `SigKind` are stripped; same-role messages merged.
 
 #### M3 · Agent runtime, budget
@@ -7473,17 +7514,21 @@ Every module: implements its `new.go` signatures; ships `README.md`; `go test -r
 
 **E2E suite** (`e2e/`, real binary, mockllm as an `openai_compat` provider, fake platform servers wired in through the locked `channels.*.api_base` / `gateway_url` keys set by env; a `docker`-tagged variant runs real sandboxd):
 
+- **`make e2e`** (`go test -tags e2e ./e2e/...`) runs the native binary with no Docker. Scenarios that need exec tools without Docker (E16) use a **fake sandboxd** that speaks the §2.5 `/v1` protocol on a short unix socket, so the gateway offers `shell`; it records calls and never executes. e2e may not import `internal/sandboxd/proto` (or a SQLite driver or the MCP SDK; `scripts/check-imports.sh`), so such wire structs, the hand-written MCP server and similar test doubles are kept locally in `e2e/`.
+- **Docker-tagged** (`go test -tags 'e2e docker' ./e2e/`, e.g. `-run TestDockerSandbox` or `-run 'TestVaultCanarySandbox|TestPrincipalIsolationSandbox'`): the real gateway and sandboxd run in containers built from the checkout (the gateway image laid out as in §2.3, the box image from `deploy/sandbox/Dockerfile --target base`, passed to sandboxd by image id in `BOTHY_SBX_IMAGES`), sharing the work and run volumes as compose does. This also works on Docker Desktop, where the gateway cannot run on the host because sandboxd's unix socket lives in a VM volume; the test drives the gateway over a published 127.0.0.1 port and the gateway reaches the in-process mockllm through `host.docker.internal` (on Linux, a relay on the stack network's gateway address). `BOTHY_E2E_DOCKER_PREFIX` names and labels (`bothy.test=<prefix>`) every container, volume, network and image, all removed afterwards (boxes are found by their `bothy.run_volume` label); `BOTHY_E2E_KEEP_IMAGES=1` keeps the images; `BOTHY_E2E_NET=0` skips E12, which needs outbound `example.com:443` from the gateway container.
+- **`make e2e-docker`** (`scripts/e2e-docker.sh`) builds the gateway and both sandbox images under the prefix (`BOTHY_E2E_IMAGE` / `BOTHY_E2E_SANDBOX_IMAGES` test existing ones instead; `KEEP_IMAGES=1` keeps them) and runs every docker-tagged test, including the real compose deployment (`TestComposeShell`, `TestComposeSocketOnboarding`, and `TestComposeIdleRSS` when `BOTHY_RSS_WAIT` is set) through `deploy/compose.yaml` plus `e2e/docker/compose.test.yaml`.
+
 | # | Scenario | Pass condition |
 |---|---|---|
 | E1 | Zero-config first run | setup fragment token → owner → provider test against mockllm → first chat streams over SSE with usage and breakdown |
 | E2 | Shell approval (docker) | rule makes `shell` ask → card over SSE → approve → box exec → result → final answer |
-| E3 | Deny and park | interactive deny path; scheduled run parks → approve via web → resumes and executes once |
+| E3 | Deny and park | interactive deny path; scheduled run parks → approve via web → resumes and executes once (non-Docker form: a rule makes `fs_write` ask; docker form: `shell`) |
 | E4 | Telegram | pair via deep link → DM → streamed edits → approval button → result; previews disabled |
-| E5 | Group space | owner enables a group; untrusted member message → read-only tools only, card goes to owner DM |
+| E5 | Group space | owner enables a group; untrusted member message → read-only tools only; with a policy rule that makes a read tool ask (a restricted space otherwise never raises a card: read tools are auto-allowed and F4 denies anything above read), the card goes to the owner DM only, never to the group |
 | E6 | Unknown sender | DM from an unknown id → one reply, zero mockllm requests |
-| E7 | Stop | `/stop` during `sleep 600` and a hung stream: stopped < 1 s, zero box processes left |
+| E7 | Stop | `/stop` during `sleep 600` (docker) and a hung stream (no Docker needed): stopped < 1 s, zero box processes left |
 | E8 | Budget and loop | daily cap refuses runs; looping script aborts with `loop_detected` |
-| E9 | Compaction | 16K mock model, 12 forced compactions: constitution and pinned instruction present in mockllm requests; auto-pin announced |
+| E9 | Compaction | 16K mock model, 12 forced compactions (`/compact`, i.e. `POST /api/sessions/{id}/compact`, each call folding one more turn): constitution and pinned instruction present in mockllm requests; auto-pin announced |
 | E10 | Memory | memory write appears in the next request's turn-context; tools+system prefix bytes unchanged |
 | E11 | MCP | in-process HTTP MCP server: pending → approve → call; description change → disabled |
 | E12 | Egress (docker) | blocked domain → hold card → allow for session → retry succeeds; exposed session → immediate 403 |
@@ -7492,8 +7537,8 @@ Every module: implements its `new.go` signatures; ships `README.md`; `go test -r
 | E15 | Vault canary | a secret `CANARY-<rand>` stored and used by a provider header never appears in mockllm request bodies, channel sends, logs, audit rows or SSE |
 | E16 | Forged approval | mockllm emits a benign-sounding preamble and a destructive shell call: the card shows the exact argv; truncated chat card cannot approve |
 | E17 | Restart | kill the gateway mid-run: run `interrupted` with notice; parked approval survives and resumes |
-| E18 | Footprint budgets | image ≤ 30 MB; idle RSS ≤ 60 MB after 10 min with 3 fake channels; cold start ≤ 500 ms; fixed token overhead ≤ 2.5K |
-| E19 | Principal isolation (the "real isolation" claim) | multi mode, users A and B plus a group space: B's cookie and tokens get 404 on every by-ID route for A's sessions, runs, approvals, memory, grants and vault entries; B's `fs_*` and shell runs cannot see A's workspace; a space run sees no owner memory or vault; `DELETE /api/users/A?purge=true` leaves no vault row, grant, memory file, workspace dir or box for A |
+| E18 | Footprint budgets | image ≤ 30 MB; idle RSS ≤ 60 MB after 10 min with 3 fake channels; cold start ≤ 500 ms; fixed token overhead ≤ 2.5K (measured: §11.3) |
+| E19 | Principal isolation (the "real isolation" claim) | multi mode, users A and B plus a group space: B's cookie and tokens get 404 on every by-ID route for A's sessions, runs, approvals, memory, grants and vault entries (one exception: `POST /api/approvals/{id}` is cookie-only (§8.3), so every bearer token gets 403 for any id, which reveals nothing about which ids exist); B's `fs_*` and shell runs cannot see A's workspace; a space run sees no owner memory or vault; `DELETE /api/users/A?purge=true` leaves no vault row, grant, memory file, workspace dir or box for A |
 | E20 | Allow always | approve a card with `allow_always` → a principal grant exists and the identical action in a **new** session runs without a card; revoking it in Settings restores the card; the choice is absent on irreversible, Exposed and scheduled-run cards |
 
 ---
