@@ -3281,6 +3281,9 @@ type Memory interface {
 	DeltasSince(ctx context.Context, p PrincipalID, afterID int64) (text string, lastID int64, err error)
 	History(ctx context.Context, v Viewer, p PrincipalID, f MemoryFile, page Page) ([]*MemoryEvent, error)
 	Search(ctx context.Context, v Viewer, query string, limit int) ([]SearchHit, error)
+	// Purge deletes every memory file of a principal (DELETE /api/users/{id}?purge=true);
+	// its memory_events rows go with the principal (ON DELETE CASCADE).
+	Purge(ctx context.Context, p PrincipalID) error
 }
 
 // ---- skills ----
@@ -3339,6 +3342,9 @@ type Scheduler interface {
 	Delete(ctx context.Context, v Viewer, id ScheduleID, by UserID) error
 	RunNow(ctx context.Context, v Viewer, id ScheduleID, by UserID) (RunID, error)
 	Preview(kind ScheduleKind, spec, tz string, n int) ([]time.Time, error)
+	// Describe renders a spec in plain English for dto.SchedulePreviewResp.Human,
+	// e.g. "Weekdays at 08:00 (Europe/London)".
+	Describe(kind ScheduleKind, spec, tz string) (string, error)
 	SetPaused(paused bool)
 }
 

@@ -202,6 +202,15 @@ func (m *Memory) Search(context.Context, core.Viewer, string, int) ([]core.Searc
 	return nil, nil
 }
 
+// Purge drops the principal's files and events.
+func (m *Memory) Purge(_ context.Context, p core.PrincipalID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.Files, p)
+	m.events = slices.DeleteFunc(m.events, func(e core.MemoryEvent) bool { return e.Principal == p })
+	return nil
+}
+
 // Skills serves Metas and Bodies; Files holds each skill's extra files by
 // relative path. Index lists enabled skills whose Hash equals ApprovedHash.
 // SetEnabled approves the current hash.
@@ -422,6 +431,17 @@ func (s *Scheduler) Preview(kind core.ScheduleKind, spec, tz string, n int) ([]t
 		return out, nil
 	}
 	return nil, fmt.Errorf("fakes.Scheduler: preview of %s: %w", kind, core.ErrNotImplemented)
+}
+
+// Describe names the kind, spec and timezone; specs Preview rejects fail.
+func (s *Scheduler) Describe(kind core.ScheduleKind, spec, tz string) (string, error) {
+	if _, err := s.Preview(kind, spec, tz, 1); err != nil {
+		return "", err
+	}
+	if tz == "" {
+		tz = "UTC"
+	}
+	return fmt.Sprintf("%s %s (%s)", kind, spec, tz), nil
 }
 
 func (s *Scheduler) SetPaused(paused bool) {
