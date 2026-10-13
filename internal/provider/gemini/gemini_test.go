@@ -221,7 +221,7 @@ func TestRequestShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := `{"contents":[{"role":"user","parts":[{"text":"q"},{"inlineData":{"mimeType":"image/jpeg","data":"/w=="}}]},` +
-		`{"role":"model","parts":[{"functionCall":{"id":"fc-123","name":"f","args":{"a":"b"}}}]},` +
+		`{"role":"model","parts":[{"functionCall":{"id":"fc-123","name":"f","args":{"a":"b"}},"thoughtSignature":"skip_thought_signature_validator"}]},` +
 		`{"role":"user","parts":[{"functionResponse":{"id":"fc-123","name":"f","response":{"error":"bad"}}}]}],` +
 		`"systemInstruction":{"parts":[{"text":"S1\n\nS2"}]},` +
 		`"tools":[{"functionDeclarations":[{"name":"f","description":"F","parametersJsonSchema":{"type":"object","properties":{"a":{"type":"string"}}}}]}],` +
@@ -229,6 +229,67 @@ func TestRequestShape(t *testing.T) {
 		`"generationConfig":{"maxOutputTokens":100,"temperature":0.5,"stopSequences":["X"]}}`
 	if got := string(srv.Requests()[0].Body); got != want {
 		t.Fatalf("body\n got %s\nwant %s", got, want)
+	}
+}
+
+// Gemini 3 rejects a functionCall of the current turn that lacks a thought
+// signature (400 INVALID_ARGUMENT), so calls another vendor made before a
+// fallback carry the documented skip_thought_signature_validator sentinel:
+// on the first call of each step, never over a real signature and never
+// before the last user message, where nothing is validated.
+func TestForeignCallsSkipSignatureValidation(t *testing.T) {
+	call := func(id string, sig string, kind core.ProviderKind) core.Part {
+		return core.Part{Type: core.PartToolCall, ToolCall: &core.ToolCall{ID: id, Name: "f", Args: json.RawMessage(`{}`)}, Sig: sig, SigKind: kind}
+	}
+	result := func(ids ...string) core.Message {
+		m := core.Message{Role: core.MsgTool}
+		for _, id := range ids {
+			m.Parts = append(m.Parts, core.Part{Type: core.PartToolResult, ToolResult: &core.ToolResult{CallID: id, Name: "f", Content: "ok"}})
+		}
+		return m
+	}
+	req := buildRequest(&core.Request{Messages: []core.Message{
+		userText("earlier"),
+		{Role: core.MsgAssistant, Parts: []core.Part{call("old", "", "")}},
+		result("old"),
+		{Role: core.MsgAssistant, Parts: []core.Part{{Type: core.PartText, Text: "done"}}},
+		userText("now"),
+		{Role: core.MsgAssistant, Parts: []core.Part{{Type: core.PartText, Text: "Checking."}, call("a1", "", ""), call("a2", "", "")}},
+		result("a1", "a2"),
+		{Role: core.MsgAssistant, Parts: []core.Part{call("g1", "CiQreal", core.KindGemini), call("g2", "", "")}},
+		result("g1", "g2"),
+	}})
+	sigs := map[string]string{}
+	for _, c := range req.Contents {
+		for _, p := range c.Parts {
+			if p.FunctionCall != nil {
+				sigs[p.FunctionCall.ID] = p.ThoughtSignature
+			}
+		}
+	}
+	want := map[string]string{"old": "", "a1": skipSignature, "a2": "", "g1": "CiQreal", "g2": ""}
+	for id, sig := range want {
+		if sigs[id] != sig {
+			t.Errorf("call %s signature %q, want %q (all: %v)", id, sigs[id], sig, sigs)
+		}
+	}
+}
+
+// MALFORMED_FUNCTION_CALL ends a candidate with no parts when the model
+// wrote an invalid call. That is a failed step, not an empty answer: it is
+// retryable, so the facade retries or falls back before anything streamed.
+func TestMalformedFunctionCallIsAnError(t *testing.T) {
+	body := "data: {\"candidates\":[{\"content\":{\"role\":\"model\"},\"finishReason\":\"MALFORMED_FUNCTION_CALL\",\"index\":0}]," +
+		"\"usageMetadata\":{\"promptTokenCount\":120,\"totalTokenCount\":120},\"modelVersion\":\"gemini-2.5-flash\"}\r\n\r\n"
+	srv := wiretest.NewServer(t, wiretest.SSE([]byte(body)))
+	var ev wiretest.Events
+	resp, err := New(wiretest.Options(srv, "gemini")).Stream(context.Background(), &core.Request{Model: "gemini-2.5-flash"}, ev.On)
+	var pe *core.ProviderError
+	if !errors.As(err, &pe) || pe.Kind != core.ErrKindServer || !pe.Retryable() || !strings.Contains(pe.Msg, "MALFORMED_FUNCTION_CALL") {
+		t.Fatalf("resp %+v err %v", resp, err)
+	}
+	if len(ev.All) != 0 {
+		t.Fatalf("events before the error: %+v", ev.All)
 	}
 }
 
