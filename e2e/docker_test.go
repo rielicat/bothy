@@ -5,6 +5,7 @@ package e2e
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -103,6 +104,13 @@ except e.HTTPError as x: print("egress", x.code, x.read().decode().strip())'`
 	if n := len(c.Boxes()); n != 1 {
 		t.Errorf("%d box containers running, want 1", n)
 	}
+	for _, svc := range []string{"bothy", "sandboxd"} {
+		if rss, err := c.RSS(svc); err != nil {
+			t.Errorf("%s RSS: %v", svc, err)
+		} else {
+			t.Logf("%s container RSS after the run: %.1f MiB", svc, float64(rss)/(1<<20))
+		}
+	}
 
 	var cons struct {
 		Content string `json:"content"`
@@ -152,6 +160,61 @@ func TestComposeSocketOnboarding(t *testing.T) {
 	}
 	if info.Compose == "" {
 		t.Error("no compose hint while the sandbox is unavailable")
+	}
+}
+
+// TestComposeIdleRSS samples the gateway container's RSS (the Linux figure
+// of the real image under the compose memory settings) while it idles after
+// first run and one chat. It runs only with BOTHY_RSS_WAIT set (10m for the
+// SPEC §11.3 wait); the channel fakes cannot be reached from a container, so
+// TestIdleRSS remains the budget with channels connected.
+func TestComposeIdleRSS(t *testing.T) {
+	v := os.Getenv("BOTHY_RSS_WAIT")
+	if v == "" {
+		t.Skip("set BOTHY_RSS_WAIT (e.g. 10m) to sample the container's idle RSS")
+	}
+	wait, err := time.ParseDuration(v)
+	if err != nil {
+		t.Fatalf("BOTHY_RSS_WAIT: %v", err)
+	}
+	const model = "mock-model"
+	c := StartCompose(t, ComposeOptions{
+		MockLLM: []mockllm.Rule{{Text: []string{"OK"}}},
+		Models:  []core.ModelInfo{{Ref: core.ModelRef{Provider: "mock", Model: model}, Context: 65536, MaxOutput: 2048, Tools: true}},
+	})
+	c.FirstRun(t, model, 65536)
+	events := c.HTTP.Events(t, "", nil)
+	events.WaitFor(t, "hello", 5*time.Second)
+	var sess core.Session
+	if code := c.HTTP.JSON(t, http.MethodPost, "/api/sessions", dto.SessionCreateReq{}, &sess); code/100 != 2 {
+		t.Fatalf("create session = %d", code)
+	}
+	if code := c.HTTP.JSON(t, http.MethodPost, "/api/sessions/"+string(sess.ID)+"/messages", dto.SendReq{Text: "hello"}, nil); code/100 != 2 {
+		t.Fatalf("send = %d", code)
+	}
+	if run := composeCollectRun(t, events, sess.ID, time.Minute); run.finished.Status != core.RunDone {
+		t.Fatalf("run.finished = %+v", run.finished)
+	}
+	events.Close()
+	var first, last, peak int64
+	for end := time.Now().Add(wait); ; {
+		rss, err := c.RSS("bothy")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if first == 0 {
+			first = rss
+		}
+		last, peak = rss, max(peak, rss)
+		if !time.Now().Before(end) {
+			break
+		}
+		time.Sleep(min(10*time.Second, time.Until(end)))
+	}
+	mib := func(b int64) float64 { return float64(b) / (1 << 20) }
+	t.Logf("gateway container RSS: %.1f MiB after a chat, %.1f MiB after %s idle, peak %.1f MiB (budget 60)", mib(first), mib(last), wait, mib(peak))
+	if peak > 60<<20 {
+		t.Errorf("container RSS %.1f MiB exceeds 60 MiB", mib(peak))
 	}
 }
 

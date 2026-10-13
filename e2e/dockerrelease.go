@@ -259,6 +259,34 @@ func (c *Compose) Exec(service string, argv ...string) (string, error) {
 	return c.compose(append([]string{"exec", "-T", service}, argv...)...)
 }
 
+// RSS is the resident set size of a service's processes as the engine host
+// sees them: the Linux figure of the real image.
+func (c *Compose) RSS(service string) (int64, error) {
+	id, err := c.compose("ps", "-q", service)
+	if err != nil {
+		return 0, fmt.Errorf("compose ps: %w: %s", err, id)
+	}
+	// docker top insists on a PID column.
+	out, err := docker("top", strings.TrimSpace(id), "-o", "pid,rss")
+	if err != nil {
+		return 0, err
+	}
+	var kb int64
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	for _, l := range lines[1:] {
+		f := strings.Fields(l)
+		if len(f) != 2 {
+			return 0, fmt.Errorf("docker top: %q", out)
+		}
+		n, err := strconv.ParseInt(f[1], 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("docker top: %q", out)
+		}
+		kb += n
+	}
+	return kb << 10, nil
+}
+
 // Boxes lists the tool box containers sandboxd started for this deployment.
 func (c *Compose) Boxes() []string {
 	out, err := docker("ps", "-aq", "--filter", "label=bothy.box=1", "--filter", "label=bothy.run_volume="+c.Prefix+"_run")
