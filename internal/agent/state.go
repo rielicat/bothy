@@ -133,6 +133,12 @@ func (rs *runState) saveLocked(ctx context.Context) {
 	}
 }
 
+func (rs *runState) isStopped() bool {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	return rs.stopped
+}
+
 // stop marks the run stopped and cancels it; false when it already ended.
 func (rs *runState) stop(ctx context.Context, by core.UserID) bool {
 	rs.mu.Lock()

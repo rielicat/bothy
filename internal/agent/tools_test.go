@@ -839,6 +839,50 @@ func TestStuckRunIsAbandonedAfterStop(t *testing.T) {
 	})
 }
 
+// TestWorkAfterStopSurvivesTheAbandon: a stopped run is not steerable, so a
+// message sent before its goroutine exits waits for a run of its own, and
+// work queued behind a run that is then abandoned moves to the fresh worker
+// instead of disappearing with the dead one.
+func TestWorkAfterStopSurvivesTheAbandon(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		release := make(chan struct{})
+		stuck := &testTool{name: "stuck", run: func(context.Context, *core.ToolEnv, *core.Action) (*core.ToolResult, error) {
+			<-release // ignores cancellation
+			return &core.ToolResult{Content: "late"}, nil
+		}}
+		h := newHarness(t, opts{tools: []core.Tool{stuck}, steps: []fakes.LLMStep{
+			{ToolCalls: []core.ToolCall{call("stuck", `{}`)}}, {Text: []string{"answered the follow-up"}}}})
+		defer h.close()
+		defer close(release)
+		h.submit("hang")
+		synctest.Wait()
+		if ok, _ := h.r.Stop(h.ctx, ownerViewer(h), h.sess.ID, h.user.ID); !ok {
+			t.Fatal("not stopped")
+		}
+		follow := h.submit("actually, do this instead")
+		if follow.Steered || !follow.Queued {
+			t.Fatalf("a message after /stop = %+v, want queued for its own run", follow)
+		}
+		compacted := make(chan error, 1)
+		go func() { compacted <- h.r.Compact(h.ctx, ownerViewer(h), h.sess.ID) }()
+		synctest.Wait()
+		synctestSleep(6) // the stopped run is abandoned
+		synctest.Wait()
+		select {
+		case <-compacted:
+		default:
+			t.Fatal("a compaction queued behind the abandoned run never finished")
+		}
+		var answered bool
+		for _, run := range h.runs() {
+			answered = answered || run.Status == core.RunDone
+		}
+		if !answered {
+			t.Fatalf("the queued follow-up never ran: %+v", h.runs())
+		}
+	})
+}
+
 func TestAttachmentsLoadedPerModel(t *testing.T) {
 	for _, vision := range []bool{true, false} {
 		t.Run(map[bool]string{true: "vision", false: "text"}[vision], func(t *testing.T) {

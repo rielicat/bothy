@@ -115,7 +115,9 @@ func (r *Runner) resetTime() time.Time {
 func (r *Runner) place(ctx context.Context, w *worker, req core.RunRequest) (core.SubmitResult, error) {
 	c := r.cfg()
 	depth := orInt(c.Agent.QueueDepth, 8)
-	if a := w.active; a != nil && !a.finishing && r.steerable(a, req) {
+	// A stopped run reads nothing more, even while its goroutine is still
+	// on its way out, so a message for it waits for a run of its own.
+	if a := w.active; a != nil && !a.finishing && !a.isStopped() && r.steerable(a, req) {
 		if w.load() >= depth {
 			return core.SubmitResult{}, core.ErrBusy
 		}
@@ -265,7 +267,8 @@ func (r *Runner) stopSession(ctx context.Context, sess *core.Session, by core.Us
 
 // abandon detaches a stopped run whose goroutine is still stuck (a tool that
 // ignores cancellation): its sink gets nothing more, its semaphores are
-// freed and the session gets a fresh worker.
+// freed and the session gets a fresh worker, which takes over the work
+// queued behind the stuck run.
 func (r *Runner) abandon(rs *runState) {
 	select {
 	case <-rs.done:
@@ -279,9 +282,36 @@ func (r *Runner) abandon(rs *runState) {
 	r.mu.Lock()
 	r.forgetLocked(rs.w)
 	r.mu.Unlock()
-	rs.w.mu.Lock()
-	rs.w.dead = true
-	rs.w.mu.Unlock()
+	old := rs.w
+	// Taken under the same lock that marks it dead: a Submit that got the
+	// old worker either queued before this or sees dead and retries.
+	old.mu.Lock()
+	old.dead = true
+	queue, pending := old.queue, old.pending
+	old.queue, old.pending = nil, nil
+	old.mu.Unlock()
+	if pending != nil {
+		queue = append([]job{pending}, queue...)
+	}
+	if len(queue) == 0 {
+		return
+	}
+	for {
+		w, err := r.worker(old.id)
+		if err != nil { // shutting down: nothing will run them
+			r.dropForShutdown(queue)
+			return
+		}
+		w.mu.Lock()
+		if w.dead {
+			w.mu.Unlock()
+			continue
+		}
+		w.queue = append(queue, w.queue...)
+		w.signal()
+		w.mu.Unlock()
+		return
+	}
 }
 
 // StopAll stops every session that has a run or queued work, so a resume

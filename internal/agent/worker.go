@@ -213,20 +213,30 @@ func (w *worker) tryRetire() bool {
 	return true
 }
 
-// retireForShutdown drops queued work. Queued resumes stay "queued" in the
-// database and become interrupted at the next boot.
+// retireForShutdown retires the worker and drops its queued work.
 func (w *worker) retireForShutdown() {
 	w.r.mu.Lock()
-	defer w.r.mu.Unlock()
 	w.mu.Lock()
-	defer w.mu.Unlock()
-	for _, j := range w.queue {
+	jobs := w.queue
+	if w.pending != nil {
+		jobs = append([]job{w.pending}, jobs...)
+	}
+	w.queue, w.pending, w.dead = nil, nil, true
+	w.r.forgetLocked(w)
+	w.mu.Unlock()
+	w.r.mu.Unlock()
+	w.r.dropForShutdown(jobs)
+}
+
+// dropForShutdown disposes of jobs no worker will run. A waiting /compact
+// gets an error instead of blocking its caller; queued resumes keep their
+// row "queued" and become interrupted at the next boot.
+func (r *Runner) dropForShutdown(jobs []job) {
+	for _, j := range jobs {
 		if c, ok := j.(*compactJob); ok {
 			c.done <- errShutdown
 		}
 	}
-	w.queue, w.pending, w.dead = nil, nil, true
-	w.r.forgetLocked(w)
 }
 
 // forgetLocked drops a retiring worker and its session's per-process state,
