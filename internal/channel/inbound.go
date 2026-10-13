@@ -324,9 +324,9 @@ func (h *Hub) gate(ctx context.Context, a *adapter, in core.Inbound, res core.Id
 // owner: whoever merely speaks first must not become the space's approver.
 func (h *Hub) firstSighting(ctx context.Context, a *adapter, in core.Inbound, res core.IdentityResolution) {
 	var owner core.UserID
-	switch {
-	case in.AddedBy == "":
-	case in.AddedBy == in.SenderID:
+	switch in.AddedBy {
+	case "":
+	case in.SenderID:
 		if res.Status == core.IdentityLinked {
 			owner = res.User
 		}
