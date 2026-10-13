@@ -83,11 +83,17 @@ func TestVaultCanary(t *testing.T) {
 		mockllm.Rule{MatchUser: `E15-TOOL`, MatchToolResult: `.`, Times: 1, ToolCalls: []core.ToolCall{pltCall("call_r", "fs_read", `{"path":"leak.txt"}`)}},
 		mockllm.Rule{MatchUser: `E15-TOOL`, MatchToolResult: `.`, Text: []string{"Stored and read back."}},
 		mockllm.Rule{MatchUser: `E15-TOOL`, ToolCalls: []core.ToolCall{pltCall("call_w", "fs_write", `{"path":"leak.txt","content":"token=`+canary+`\n"}`)}},
+		mockllm.Rule{MatchUser: `E15-CARD`, MatchToolResult: `.`, Text: []string{"Not sent."}},
+		mockllm.Rule{MatchUser: `E15-CARD`, ToolCalls: []core.ToolCall{pltCall("call_c", "fs_write", `{"path":"outbox/key.txt","content":"token=`+canary+`\n"}`)}},
 	)
 	proxy := pltNewProviderProxy(t, llm)
 	tg := pltNewTelegram()
 	const tgUser = 6001
-	g := Start(t, Options{Config: pltYAML(proxy.URL(), map[string]string{"X-Canary": "secret:e15_canary"}, ""), Platforms: []Platform{tg}})
+	g := Start(t, Options{Config: pltYAML(proxy.URL(), map[string]string{"X-Canary": "secret:e15_canary"}, `
+policy:
+  rules:
+    - {id: e15-outbox, tool: fs_write, paths: ["outbox/**"], verdict: ask}
+`), Platforms: []Platform{tg}})
 	owner := pltOwner(t, g)
 	if code := owner.JSON(t, http.MethodPut, "/api/vault/global/e15_canary", dto.VaultPutReq{Value: canary}, nil); code != http.StatusOK {
 		t.Fatalf("vault put = %d", code)
@@ -101,6 +107,13 @@ func TestVaultCanary(t *testing.T) {
 			t.Fatalf("%s: run = %+v\nlogs:\n%s", text, d.Run, g.Logs())
 		}
 	}
+	// An approval card built from an action carrying the secret goes to the
+	// web inbox (SSE) and to the owner's Telegram DM.
+	cardRun := owner.Send(t, s.ID, "E15-CARD send the key out")
+	card := owner.WaitApproval(t, cardRun, core.ApprovalPending)
+	tg.WaitText(t, tgUser, "Write file", 10*time.Second)
+	owner.Resolve(t, card.ID, core.Deny)
+	owner.Finished(t, cardRun)
 	// The provider got the secret in its header, so it was really in use.
 	used := 0
 	for _, r := range proxy.Requests() {
