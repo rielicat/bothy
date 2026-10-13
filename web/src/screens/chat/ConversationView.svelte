@@ -6,8 +6,7 @@
   import Markdown from '../../components/Markdown.svelte';
   import StackedBar from '../../components/StackedBar.svelte';
   import { api, ApiError } from '../../lib/api/client';
-  import type { ModelInfoX } from '../../lib/api/extra';
-  import type { Pin, RunDetail, Session, SubmitResult } from '../../lib/api/types.gen';
+  import type { ModelInfo, Pin, RunDetail, Session, SubmitResult } from '../../lib/api/types.gen';
   import { bytes, clock as fmtClock, duration, tokens, usd } from '../../lib/format';
   import { router } from '../../lib/router.svelte';
   import { session as auth } from '../../lib/stores/session.svelte';
@@ -25,7 +24,7 @@
   let stick = $state(true);
   let editing = $state(false);
   let title = $state('');
-  let models: ModelInfoX[] = $state([]);
+  let models: ModelInfo[] = $state([]);
   let pinsOpen = $state(false);
   let ctxOpen = $state(false);
   let trifectaOpen = $state(false);
@@ -45,8 +44,8 @@
       ?.parts.find((p) => p.t === 'text')?.text ?? '',
   );
   // Continue adds steps (core.Runner.Continue), so it is offered only when
-  // the steps budget stopped the run; the error is core.BudgetError's text.
-  const stepsStop = $derived(conv.finished?.status === 'budget_exceeded' && (!conv.finished.error || /\bsteps\b/.test(conv.finished.error)));
+  // the steps budget stopped the run.
+  const stepsStop = $derived(conv.finished?.status === 'budget_exceeded' && conv.finished.budget === 'steps');
   const statusLine = $derived.by(() => {
     const l = conv.live;
     if (!l) return '';
@@ -81,7 +80,7 @@
       } else scrollDown();
     });
     api
-      .get<ModelInfoX[]>('/api/models')
+      .get<ModelInfo[]>('/api/models')
       .then((m) => (models = m))
       .catch(() => {});
     return () => conv.dispose();

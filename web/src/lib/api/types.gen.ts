@@ -41,6 +41,8 @@ export interface RunRequest {
    */
   Ephemeral: Message[];
   MaxOutput: number /* int */; // /v1 max_tokens cap per step; 0 = model default
+  Temperature?: number /* float64 */; // /v1 client temperature; nil = model default
+  Stop: string[]; // /v1 stop sequences
 }
 export interface SubmitResult {
   run_id?: RunID;
@@ -165,6 +167,18 @@ export interface Inbound {
   Mentioned: boolean; // DM, @mention, reply-to-bot, or slash command
   Attachments: Attachment[];
   At: string /* RFC 3339 */;
+  /**
+   * ChatTitle is the group's title as the platform reports it (names a
+   * newly sighted space); "" when unknown.
+   */
+  ChatTitle: string;
+  /**
+   * AddedBy is the platform user id that added the bot to this group or
+   * owns it, when the platform reports it (Telegram my_chat_member.from,
+   * Slack inviter, Discord guild owner); "" otherwise. A group Inbound with
+   * AddedBy and no text or attachments only announces the group.
+   */
+  AddedBy: string;
 }
 export interface MsgRef {
   chat: ChatRef;
@@ -341,6 +355,7 @@ export interface RunParkedData {
 export interface RunFinishedData {
   status: RunStatus;
   error?: string;
+  budget?: BudgetKind; // which limit stopped the run when Status is budget_exceeded
   steps: number /* int */;
   usage: Usage;
   cost_micros: Micros;
@@ -402,7 +417,7 @@ export interface ConfigChangedData {
 }
 export interface BannerData {
   level: string; // info | warn | error
-  code: string; // no_sandbox | sandbox_not_isolated | config_error | provider_auth | paused | mcp_pins | budget_80 | vault_sealed | safe_mode | restart_required | unknown_sender | skills_changed
+  code: string; // no_sandbox | sandbox_not_isolated | config_error | provider_auth | paused | mcp_pins | mcp_drifted | budget_80 | vault_sealed | safe_mode | restart_required | unknown_sender | skills_changed
   text: string;
   action?: string; // SPA route, e.g. "/settings/sandbox"
   clear?: boolean; // true removes the banner with this Code
@@ -825,7 +840,8 @@ export interface ModelInfo {
   ref: ModelRef;
   display: string;
   context: number /* int */; // effective window (Ollama: the num_ctx we send)
-  max_output: number /* int */; //   tools: boolean;
+  max_output: number /* int */;
+  tools: boolean;
   vision: boolean;
   thinking: boolean;
   cache: CacheMode;
@@ -851,7 +867,7 @@ export interface Request {
   CacheTail: boolean; // rolling breakpoint on the last message (Anthropic)
   MaxTokens: number /* int */;
   Temperature?: number /* float64 */;
-  ToolChoice: string; // "auto" | "none"
+  ToolChoice: string; // "auto" | "none" | "required" (force some tool call)
   Stop: string[];
   NumCtx: number /* int */; // Ollama native only
 }
@@ -971,7 +987,8 @@ export interface ProbeResult {
   ok: boolean;
   latency: number /* nanoseconds */;
   tool_calling: boolean; // a forced one-tool call round-tripped
-  usage_reported: boolean; //   context: number /* int */; // effective window
+  usage_reported: boolean;
+  context: number /* int */; // effective window
   models: string[];
   cost_micros: Micros;
   detail: string; // plain-language failure or hint (e.g. OLLAMA_CONTEXT_LENGTH)
@@ -1026,7 +1043,8 @@ export interface BoxLimits {
 }
 export interface BoxSpec {
   Key: string; // box_<26>; DerivedID("box", "session:"+id) or ("mcp:"+server+":"+principal)
-  Profile: BoxProfile; //   Workspace: WorkspaceID; // mounted rw at /workspace; "" = none (MCP servers without workspace access)
+  Profile: BoxProfile;
+  Workspace: WorkspaceID; // mounted rw at /workspace; "" = none (MCP servers without workspace access)
   MCPTree: string; // "mcp/<server>/<install_id>" mounted at /opt/mcp; "" = none
   MCPTreeRW: boolean; // true only for the installer box
   Limits: BoxLimits;
@@ -1133,6 +1151,11 @@ export interface MCPToolApproval {
   field_map?: { [key: string]: string};
   private: boolean;
   disable?: boolean; // true => pin status disabled (MCPRepo.DisableTool); other fields ignored
+  /**
+   * Hash is the definition hash the admin reviewed. When set, Approve fails
+   * with ErrConflict unless it is still the tool's latest pin.
+   */
+  hash?: string;
 }
 export type MCP = any;
 export type Scheduler = 
@@ -1791,6 +1814,7 @@ export interface List<T extends any> {
 export interface SetupState {
   needs_setup: boolean;
   claimed: boolean; // a setup grant cookie is present and valid
+  csrf?: string; // the claimed grant's CSRF token (like dto.Me.CSRF); empty unless Claimed
   owner_set: boolean;
   sandbox_available: boolean;
 }
@@ -1817,6 +1841,14 @@ export interface Me {
   paused: boolean;
   sandbox_available: boolean;
   banners: BannerData[];
+  access: Access; // how this request reached the server
+}
+/**
+ * Access is the caller's remote-access status for Settings > General.
+ */
+export interface Access {
+  peer: string; // local | lan | public (exposure-gate class of the client address)
+  tls: boolean; // native TLS or X-Forwarded-Proto https from a trusted proxy
 }
 export interface PasswordReq {
   old: string;
@@ -1933,6 +1965,7 @@ export interface SkillDetail {
 }
 export interface SkillPatchReq {
   enabled: boolean;
+  hash?: string; // SkillMeta.Hash of the reviewed files
 }
 export interface SchedulePreviewReq {
   kind: ScheduleKind;

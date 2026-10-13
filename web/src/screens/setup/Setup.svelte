@@ -15,10 +15,6 @@
 
   const steps = ['Claim', 'Account', 'Models', 'Safety', 'Chat apps', 'Make it yours', 'Done'];
   const HINT = 'bothy.setup.step';
-  // The setup grant's CSRF token only comes back from the single-use claim,
-  // so it is kept for this tab: a reload between claim and account creation
-  // would otherwise strand the wizard until the grant expires.
-  const GRANT = 'bothy.setup.csrf';
 
   const stored = (k: string) => {
     try {
@@ -39,9 +35,9 @@
   function initial(): number {
     const st = session.setup;
     if (!st?.owner_set) {
-      const grant = stored(GRANT);
-      if (st?.claimed && grant) setCsrf(grant);
-      return st?.claimed && grant ? 1 : 0;
+      // After a reload the setup state hands back the claimed grant's token.
+      if (st?.claimed && st.csrf) setCsrf(st.csrf);
+      return st?.claimed && st.csrf ? 1 : 0;
     }
     return Math.min(Math.max(Number(stored(HINT)) || 2, 2), 6);
   }
@@ -91,7 +87,6 @@
     try {
       const { csrf } = await api.post<SetupClaimResp>('/api/setup/claim', { token: t.trim() });
       setCsrf(csrf);
-      store(GRANT, csrf);
       if (session.setup) session.setup.claimed = true;
       go(1);
     } catch (e) {
@@ -109,7 +104,6 @@
       session.login(me);
       if (session.setup) session.setup.owner_set = true;
       owner.password = '';
-      store(GRANT, null);
       await config.load(true);
       await config.set({ timezone: owner.timezone, mode: owner.multi ? 'multi' : 'single' }, true);
       go(2);

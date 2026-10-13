@@ -1,8 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '../../lib/api/client';
-  import type { ModelInfoX } from '../../lib/api/extra';
-  import type { MemoryDoc } from '../../lib/api/types.gen';
+  import type { MemoryDoc, ModelInfo } from '../../lib/api/types.gen';
   import { config } from '../../lib/config.svelte';
   import { usd } from '../../lib/format';
   import { toasts } from '../../lib/stores/ui.svelte';
@@ -20,7 +19,7 @@
   let tone = $state('warm');
   let about = $state({ call: '', work: '', remember: '' });
   let heartbeat = $state(false);
-  let models = $state<ModelInfoX[]>([]);
+  let models = $state<ModelInfo[]>([]);
   let saving = $state(false);
 
   const fastRef = $derived(config.value<string[]>('models.fast', [])?.[0] ?? '');
@@ -30,7 +29,7 @@
 
   // A resumed wizard can open on this step before anything loaded config.
   onMount(() => {
-    api.get<ModelInfoX[]>('/api/models').then((m) => (models = m), () => {});
+    api.get<ModelInfo[]>('/api/models').then((m) => (models = m), () => {});
     void config.load().then(() => (heartbeat = config.flag('scheduler.heartbeat.enabled')));
   });
 

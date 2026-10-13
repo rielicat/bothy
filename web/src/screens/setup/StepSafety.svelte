@@ -3,13 +3,13 @@
   import PresetPicker from '../../components/PresetPicker.svelte';
   import SandboxStatus from '../../components/SandboxStatus.svelte';
   import { api } from '../../lib/api/client';
-  import type { ModelInfoX } from '../../lib/api/extra';
+  import type { ModelInfo } from '../../lib/api/types.gen';
   import { config } from '../../lib/config.svelte';
   import { toasts } from '../../lib/stores/ui.svelte';
 
   let { onnext }: { onnext: () => void } = $props();
 
-  let models = $state<ModelInfoX[]>([]);
+  let models = $state<ModelInfo[]>([]);
   let cap = $state(5);
   let searchKey = $state('');
 
@@ -30,7 +30,7 @@
   const replies = $derived(perReply > 0 ? Math.floor((cap * 1e6) / perReply) : 0);
 
   onMount(() => {
-    api.get<ModelInfoX[]>('/api/models').then((m) => (models = m), () => {});
+    api.get<ModelInfo[]>('/api/models').then((m) => (models = m), () => {});
     void config.load().then(() => (cap = config.value<number>('budgets.daily_usd', 5) || 5));
   });
 

@@ -146,14 +146,14 @@ const (
 	ActFSRead   ActionKind = "fs.read"
 	ActFSWrite  ActionKind = "fs.write"
 	ActFSDelete ActionKind = "fs.delete"
-	ActHTTP     ActionKind = "http"     // gateway-side fetch
-	ActNet      ActionKind = "net"      // egress grant request (net_allow, proxy hold-for-approval)
-	ActSend     ActionKind = "send"     // message to a chat
-	ActMCP      ActionKind = "mcp"      // MCP tool call
-	ActMemory   ActionKind = "memory"   //
-	ActSchedule ActionKind = "schedule" //
-	ActSkill    ActionKind = "skill"    // skill_load / skill_read
-	ActSearch   ActionKind = "search"   // web_search, session_search
+	ActHTTP     ActionKind = "http" // gateway-side fetch
+	ActNet      ActionKind = "net"  // egress grant request (net_allow, proxy hold-for-approval)
+	ActSend     ActionKind = "send" // message to a chat
+	ActMCP      ActionKind = "mcp"  // MCP tool call
+	ActMemory   ActionKind = "memory"
+	ActSchedule ActionKind = "schedule"
+	ActSkill    ActionKind = "skill"  // skill_load / skill_read
+	ActSearch   ActionKind = "search" // web_search, session_search
 	ActGeneric  ActionKind = "generic"
 )
 

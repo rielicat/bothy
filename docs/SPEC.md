@@ -967,7 +967,7 @@ type ModelInfo struct {
 	Ref       ModelRef  `json:"ref"`
 	Display   string    `json:"display"`
 	Context   int       `json:"context"`    // effective window (Ollama: the num_ctx we send)
-	MaxOutput int       `json:"max_output"` //
+	MaxOutput int       `json:"max_output"`
 	Tools     bool      `json:"tools"`
 	Vision    bool      `json:"vision"`
 	Thinking  bool      `json:"thinking"`
@@ -1155,7 +1155,7 @@ type ProbeResult struct {
 	OK            bool          `json:"ok"`
 	Latency       time.Duration `json:"latency"`
 	ToolCalling   bool          `json:"tool_calling"`   // a forced one-tool call round-tripped
-	UsageReported bool          `json:"usage_reported"` //
+	UsageReported bool          `json:"usage_reported"`
 	Context       int           `json:"context"`        // effective window
 	Models        []string      `json:"models"`
 	Cost          Micros        `json:"cost_micros"`
@@ -1351,8 +1351,8 @@ const (
 	ActNet      ActionKind = "net"      // egress grant request (net_allow, proxy hold-for-approval)
 	ActSend     ActionKind = "send"     // message to a chat
 	ActMCP      ActionKind = "mcp"      // MCP tool call
-	ActMemory   ActionKind = "memory"   //
-	ActSchedule ActionKind = "schedule" //
+	ActMemory   ActionKind = "memory"
+	ActSchedule ActionKind = "schedule"
 	ActSkill    ActionKind = "skill"    // skill_load / skill_read
 	ActSearch   ActionKind = "search"   // web_search, session_search
 	ActGeneric  ActionKind = "generic"
@@ -1919,7 +1919,7 @@ type BoxLimits struct {
 
 type BoxSpec struct {
 	Key       string      // box_<26>; DerivedID("box", "session:"+id) or ("mcp:"+server+":"+principal)
-	Profile   BoxProfile  //
+	Profile   BoxProfile
 	Workspace WorkspaceID // mounted rw at /workspace; "" = none (MCP servers without workspace access)
 	MCPTree   string      // "mcp/<server>/<install_id>" mounted at /opt/mcp; "" = none
 	MCPTreeRW bool        // true only for the installer box

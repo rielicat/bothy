@@ -85,8 +85,8 @@ const (
 type ModelInfo struct {
 	Ref       ModelRef  `json:"ref"`
 	Display   string    `json:"display"`
-	Context   int       `json:"context"`    // effective window (Ollama: the num_ctx we send)
-	MaxOutput int       `json:"max_output"` //
+	Context   int       `json:"context"` // effective window (Ollama: the num_ctx we send)
+	MaxOutput int       `json:"max_output"`
 	Tools     bool      `json:"tools"`
 	Vision    bool      `json:"vision"`
 	Thinking  bool      `json:"thinking"`
@@ -273,9 +273,9 @@ type ProbeConfig struct {
 type ProbeResult struct {
 	OK            bool          `json:"ok"`
 	Latency       time.Duration `json:"latency"`
-	ToolCalling   bool          `json:"tool_calling"`   // a forced one-tool call round-tripped
-	UsageReported bool          `json:"usage_reported"` //
-	Context       int           `json:"context"`        // effective window
+	ToolCalling   bool          `json:"tool_calling"` // a forced one-tool call round-tripped
+	UsageReported bool          `json:"usage_reported"`
+	Context       int           `json:"context"` // effective window
 	Models        []string      `json:"models"`
 	Cost          Micros        `json:"cost_micros"`
 	Detail        string        `json:"detail"` // plain-language failure or hint (e.g. OLLAMA_CONTEXT_LENGTH)

@@ -4,24 +4,23 @@
   import ProviderSetup from '../../components/ProviderSetup.svelte';
   import Section from '../../components/Section.svelte';
   import { api, errorText } from '../../lib/api/client';
-  import type { ModelInfoX, ProbeResultX } from '../../lib/api/extra';
-  import type { Detection, ProviderHealth } from '../../lib/api/types.gen';
+  import type { Detection, ModelInfo, ProbeResult, ProviderHealth } from '../../lib/api/types.gen';
   import { config } from '../../lib/config.svelte';
   import { duration } from '../../lib/format';
   import { toasts } from '../../lib/stores/ui.svelte';
 
-  let models = $state<ModelInfoX[]>([]);
+  let models = $state<ModelInfo[]>([]);
   let health = $state<ProviderHealth[]>([]);
   let detected = $state<Detection[] | null>(null);
   let adding = $state(false);
-  let probes = $state<Record<string, ProbeResultX | string>>({});
+  let probes = $state<Record<string, ProbeResult | string>>({});
   let price = $state({ ref: '', inp: '', out: '' });
 
   const ids = $derived(config.keys('providers'));
   const prices = $derived(config.keys('pricing', 'tail'));
 
   async function refresh() {
-    [models, health] = await Promise.all([api.get<ModelInfoX[]>('/api/models').catch(() => []), api.get<ProviderHealth[]>('/api/providers').catch(() => [])]);
+    [models, health] = await Promise.all([api.get<ModelInfo[]>('/api/models').catch(() => []), api.get<ProviderHealth[]>('/api/providers').catch(() => [])]);
   }
 
   $effect(() => {
@@ -33,7 +32,7 @@
     const model = chain.find((r) => r.startsWith(id + '/'))?.slice(id.length + 1) ?? config.keys(`providers.${id}.models`, 'tail')[0] ?? '';
     probes[id] = 'testing';
     try {
-      probes[id] = await api.post<ProbeResultX>('/api/providers/test', {
+      probes[id] = await api.post<ProbeResult>('/api/providers/test', {
         kind: config.value(`providers.${id}.type`),
         base_url: config.value(`providers.${id}.base_url`) || undefined,
         secret_ref: config.value(`providers.${id}.api_key`) || undefined,

@@ -4,8 +4,7 @@
   import Icon from '../../components/Icon.svelte';
   import ProviderSetup from '../../components/ProviderSetup.svelte';
   import { api } from '../../lib/api/client';
-  import type { ModelInfoX } from '../../lib/api/extra';
-  import type { Detection } from '../../lib/api/types.gen';
+  import type { Detection, ModelInfo } from '../../lib/api/types.gen';
   import { config } from '../../lib/config.svelte';
   import { tiles, type Tile } from '../../lib/providers';
   import { attempt } from '../../lib/stores/ui.svelte';
@@ -13,14 +12,14 @@
   let { onnext }: { onnext: () => void } = $props();
 
   let detections = $state<Detection[] | null>(null);
-  let models = $state<ModelInfoX[]>([]);
+  let models = $state<ModelInfo[]>([]);
   let preset = $state<(Partial<Tile> & { id: string }) | undefined>();
   let imported = $state<string[]>([]);
 
   const main = $derived(config.value<string[]>('models.main', []) ?? []);
 
   async function loadModels() {
-    models = await api.get<ModelInfoX[]>('/api/models').catch(() => []);
+    models = await api.get<ModelInfo[]>('/api/models').catch(() => []);
   }
 
   // Once per visit: detection probes several local ports, and an effect here

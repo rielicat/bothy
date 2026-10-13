@@ -24,7 +24,8 @@
 
   async function setEnabled(s: SkillMeta, enabled: boolean) {
     try {
-      Object.assign(s, await api.patch<SkillMeta>(`/api/skills/${encodeURIComponent(s.name)}`, { enabled }));
+      // Enabling names the hash shown here, so files rescanned since are refused.
+      Object.assign(s, await api.patch<SkillMeta>(`/api/skills/${encodeURIComponent(s.name)}`, { enabled, hash: enabled ? s.hash : undefined }));
     } catch (e) {
       toasts.error(e);
     }

@@ -53,7 +53,7 @@ describe('conversation', () => {
     expect(screen.queryByText('your')).toBeNull();
 
     emit('run.usage', { call: { breakdown: { constitution: 1, persona: 1, memory: 1, skills: 1, pins: 0, tools: 1, summary: 0, history: 10, tool_results: 0, turn_context: 1, total: 16, window: 100, reserve: 10, cacheable: 3 }, usage: { input: 1, output: 1, cache_read: 0, cache_write: 0, reasoning: 0 } }, run_cost_micros: 5000, day_cost_micros: 1, day_limit_micros: 2 });
-    emit('run.finished', { status: 'budget_exceeded', steps: 25, usage: { input: 1, output: 1, cache_read: 0, cache_write: 0, reasoning: 0 }, cost_micros: 5000 });
+    emit('run.finished', { status: 'budget_exceeded', budget: 'steps', steps: 25, usage: { input: 1, output: 1, cache_read: 0, cache_write: 0, reasoning: 0 }, cost_micros: 5000 });
     const cont = await screen.findByRole('button', { name: /Continue \(\+10 steps\)/ });
     await fireEvent.click(cont);
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/runs/run_live/continue')).toBe(true));
@@ -84,12 +84,12 @@ describe('conversation', () => {
     render(ConversationView, { id: SID });
     await screen.findByText('What can I help with?');
     emit('run.started', { trigger: 'message', model: 'anthropic/claude-sonnet-4-6' });
-    emit('run.finished', { status: 'budget_exceeded', error: 'budget exceeded: daily_cost', steps: 3, usage: { input: 1, output: 1, cache_read: 0, cache_write: 0, reasoning: 0 }, cost_micros: 5000 });
+    emit('run.finished', { status: 'budget_exceeded', budget: 'daily_cost', error: 'budget exceeded: daily_cost', steps: 3, usage: { input: 1, output: 1, cache_read: 0, cache_write: 0, reasoning: 0 }, cost_micros: 5000 });
     expect(await screen.findByText('budget exceeded: daily_cost')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Continue/ })).toBeNull();
 
     emit('run.started', { trigger: 'message', model: 'anthropic/claude-sonnet-4-6' }, 'run_2');
-    emit('run.finished', { status: 'budget_exceeded', error: 'budget exceeded: steps', steps: 25, usage: { input: 1, output: 1, cache_read: 0, cache_write: 0, reasoning: 0 }, cost_micros: 5000 }, 'run_2');
+    emit('run.finished', { status: 'budget_exceeded', budget: 'steps', error: 'budget exceeded: steps', steps: 25, usage: { input: 1, output: 1, cache_read: 0, cache_write: 0, reasoning: 0 }, cost_micros: 5000 }, 'run_2');
     expect(await screen.findByRole('button', { name: /Continue \(\+10 steps\)/ })).toBeTruthy();
   });
 

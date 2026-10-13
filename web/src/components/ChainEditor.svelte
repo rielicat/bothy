@@ -1,12 +1,12 @@
 <script lang="ts">
-  import type { ModelInfoX } from '../lib/api/extra';
+  import type { ModelInfo } from '../lib/api/types.gen';
   import { config } from '../lib/config.svelte';
   import { tokens } from '../lib/format';
   import { windowNote } from '../lib/providers';
   import Icon from './Icon.svelte';
   import SourceChip from './SourceChip.svelte';
 
-  let { path, label, help = '', models }: { path: string; label: string; help?: string; models: ModelInfoX[] } = $props();
+  let { path, label, help = '', models }: { path: string; label: string; help?: string; models: ModelInfo[] } = $props();
 
   const chain = $derived(config.value<string[]>(path, []) ?? []);
   const info = (ref: string) => models.find((m) => `${m.ref.provider}/${m.ref.model}` === ref);

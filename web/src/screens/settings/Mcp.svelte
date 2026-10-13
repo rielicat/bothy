@@ -46,7 +46,10 @@
   async function decide(tool: string, disable = false) {
     const d = review!.drafts[tool];
     const field_map = Object.fromEntries(Object.entries({ recipient: d.recipient, url: d.url }).filter(([, v]) => v));
-    const body = { tools: { [tool]: disable ? { side_effect: d.side_effect, private: false, disable: true } : { side_effect: d.side_effect, private: d.private, field_map } } };
+    // The reviewed definition's hash: the server refuses the approval if the
+    // tool changed after this review was opened.
+    const hash = review!.pins.find((x) => x.tool === tool && x.status === 'pending')?.hash;
+    const body = { tools: { [tool]: disable ? { side_effect: d.side_effect, private: false, disable: true } : { side_effect: d.side_effect, private: d.private, field_map, hash } } };
     if (await attempt(() => api.post(`/api/mcp/${encodeURIComponent(review!.server)}/approve`, body), disable ? `${tool} disabled.` : `${tool} approved.`)) {
       delete review!.drafts[tool];
       void load();

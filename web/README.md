@@ -31,7 +31,6 @@ src/
   lib/
     api/client.ts       fetch wrapper: X-CSRF-Token, dto.Error → ApiError, 401 → login
     api/types.gen.ts    generated from the Go DTOs by `make gen` (do not edit)
-    api/extra.ts        fields tygo drops from types.gen.ts (see ICR in the module report)
     router.svelte.ts    history router; safeNext() for ?next=
     sse.svelte.ts       one EventSource: typed handlers, hello, resync, reconnect with backoff
     stores/             session and approvals, theme and toasts, one-second clock

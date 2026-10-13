@@ -9,7 +9,7 @@
 // or `npm run preview:mock` for the built app under the production CSP), so
 // nothing here ships in the build.
 import type { Plugin } from 'vite';
-import type { Approval, BannerData, Card, Entry, Message, Schedule, Session } from '../src/lib/api/types.gen.ts';
+import type { Approval, BannerData, Card, Entry, Message, Schedule, Session, SetupState } from '../src/lib/api/types.gen.ts';
 import effectiveFixture from './fixtures/effective.json' with { type: 'json' };
 import schema from './fixtures/schema.json' with { type: 'json' };
 import * as fx from './fixtures.ts';
@@ -41,7 +41,7 @@ const boot = newId('boot').slice(5, 13);
 
 function fresh(setup = env.MOCK_SETUP === '1', login = env.MOCK_LOGIN !== '0') {
   return {
-    setup: { needs_setup: setup, claimed: false, owner_set: !setup, sandbox_available: true },
+    setup: { needs_setup: setup, claimed: false, owner_set: !setup, sandbox_available: true } as SetupState,
     loggedIn: !setup && login,
     me: clone(fx.owner),
     mode: 'single',
@@ -88,7 +88,7 @@ function emit(type: string, data: unknown, sessionId?: string, runId?: string) {
 }
 
 function me() {
-  return { user: st.me, csrf: 'mock-csrf', mode: st.mode, principals: fx.principals, paused: st.paused, sandbox_available: true, banners: st.banners };
+  return { user: st.me, csrf: 'mock-csrf', mode: st.mode, principals: fx.principals, paused: st.paused, sandbox_available: true, banners: st.banners, access: { peer: 'local', tls: false } };
 }
 
 function json(res: Res, status: number, body?: unknown) {
@@ -240,6 +240,7 @@ on('POST', '/api/setup/claim', async (req, res) => {
   const { token } = JSON.parse(await body(req));
   if (token !== SETUP_TOKEN) return fail(res, 401, 'unauthorized', 'That setup token is not valid or has expired.', 'Run `docker exec bothy /bothy setup-token` to print a new one.');
   st.setup.claimed = true;
+  st.setup.csrf = 'mock-csrf';
   json(res, 200, { csrf: 'mock-csrf' });
 });
 on('POST', '/api/setup/owner', async (req, res) => {
@@ -247,6 +248,7 @@ on('POST', '/api/setup/owner', async (req, res) => {
   if (b.password === 'password1234') return fail(res, 400, 'bad_request', 'This password is on the list of common passwords. Pick something less guessable.');
   st.me = { ...st.me, username: b.username, display_name: b.username, timezone: b.timezone };
   st.setup.owner_set = true;
+  delete st.setup.csrf;
   st.loggedIn = true;
   json(res, 200, me());
 });

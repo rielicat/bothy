@@ -39,8 +39,8 @@ type BoxLimits struct {
 }
 
 type BoxSpec struct {
-	Key       string      // box_<26>; DerivedID("box", "session:"+id) or ("mcp:"+server+":"+principal)
-	Profile   BoxProfile  //
+	Key       string // box_<26>; DerivedID("box", "session:"+id) or ("mcp:"+server+":"+principal)
+	Profile   BoxProfile
 	Workspace WorkspaceID // mounted rw at /workspace; "" = none (MCP servers without workspace access)
 	MCPTree   string      // "mcp/<server>/<install_id>" mounted at /opt/mcp; "" = none
 	MCPTreeRW bool        // true only for the installer box

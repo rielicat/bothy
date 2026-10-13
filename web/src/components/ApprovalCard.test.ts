@@ -48,7 +48,7 @@ describe('ApprovalCard', () => {
   beforeEach(() => {
     calls = installApi();
     setCsrf('mock-csrf');
-    session.me = { user: owner, csrf: 'mock-csrf', mode: 'single', principals: [], paused: false, sandbox_available: true, banners: [] };
+    session.me = { user: owner, csrf: 'mock-csrf', mode: 'single', principals: [], paused: false, sandbox_available: true, banners: [], access: { peer: 'local', tls: false } };
     approvals.reset();
   });
 

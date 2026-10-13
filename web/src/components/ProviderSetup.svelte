@@ -1,21 +1,20 @@
 <script lang="ts">
   import { api, errorText } from '../lib/api/client';
-  import type { ProbeResultX } from '../lib/api/extra';
-  import type { SecretMeta } from '../lib/api/types.gen';
+  import type { ProbeResult, SecretMeta } from '../lib/api/types.gen';
   import { config } from '../lib/config.svelte';
   import { duration, tokens, usd } from '../lib/format';
   import { tiles, windowNote, type Tile } from '../lib/providers';
   import { toasts } from '../lib/stores/ui.svelte';
   import Icon from './Icon.svelte';
 
-  let { onadded, preset }: { onadded?: (ref: string, probe: ProbeResultX | null) => void; preset?: Partial<Tile> & { id: string } } = $props();
+  let { onadded, preset }: { onadded?: (ref: string, probe: ProbeResult | null) => void; preset?: Partial<Tile> & { id: string } } = $props();
 
   let tile = $state<Tile | null>(null);
   let base = $state('');
   let key = $state('');
   let model = $state('');
   let allowPrivate = $state(false);
-  let probe = $state<ProbeResultX | null>(null);
+  let probe = $state<ProbeResult | null>(null);
   let busy = $state<'' | 'test' | 'save'>('');
   let error = $state('');
   let vault = $state<SecretMeta[]>([]);
@@ -45,7 +44,7 @@
     busy = 'test';
     error = '';
     try {
-      probe = await api.post<ProbeResultX>('/api/providers/test', {
+      probe = await api.post<ProbeResult>('/api/providers/test', {
         kind: tile.kind,
         base_url: base || undefined,
         api_key: key || undefined,
