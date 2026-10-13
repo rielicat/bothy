@@ -1,4 +1,4 @@
-import type { BannerData, Event as BusEvent, EventType } from './api/types.gen';
+import type { BannerData, Event as BusEvent, EventType, SandboxStatusData } from './api/types.gen';
 
 export interface Hello {
   boot: string;
@@ -46,12 +46,20 @@ const maxBackoff = 30_000;
 // one of the browser's six connections to the gateway. The tab holding the
 // Web Lock opens the EventSource and relays every frame over a
 // BroadcastChannel; when it goes away the lock passes to another tab, which
-// reconnects and tells the others to refetch what the handoff missed.
+// reconnects and tells the others to refetch what the handoff missed. Lock
+// and channel are per user, so on a shared browser one person's tabs never
+// relay their frames to a tab another person signed in to.
 const shareName = 'bothy-events';
 
 type Status = 'idle' | 'connecting' | 'open' | 'error';
 
-type Relay = { k: 'frame'; t: string; d: string } | { k: 'status'; s: Status } | { k: 'closed' } | { k: 'join' };
+type Relay =
+  | { k: 'frame'; t: string; d: string }
+  | { k: 'status'; s: Status }
+  | { k: 'closed' }
+  | { k: 'join'; id: string }
+  | { k: 'hello'; to: string; d: string }
+  | { k: 'logout' };
 
 function canShare(): boolean {
   return typeof BroadcastChannel !== 'undefined' && typeof navigator !== 'undefined' && typeof navigator.locks?.request === 'function';
@@ -67,6 +75,7 @@ export class EventStream {
   #resync = new Set<() => void>();
   #hello = new Set<(h: Hello) => void>();
   #closed = new Set<() => void>();
+  #logout = new Set<() => void>();
   #boot = '';
   #missed = false;
   #retry = 0;
@@ -78,23 +87,27 @@ export class EventStream {
   #unlock: (() => void) | null = null;
   #leader = false;
   #followed = false;
+  // The leader's hello for joining tabs, kept current with banner and
+  // sandbox events so a new tab does not start from connect-time state.
   #lastHello = '';
+  #joinId = '';
 
-  connect(url = '/api/events') {
+  // user keys the stream shared between this browser's tabs.
+  connect(user = '') {
     if (this.#es || this.#timer || this.#bc) return;
-    this.#url = url;
     if (!canShare()) {
       this.#open();
       return;
     }
-    const bc = new BroadcastChannel(shareName);
+    const name = user ? `${shareName}:${user}` : shareName;
+    const bc = new BroadcastChannel(name);
     this.#bc = bc;
     bc.onmessage = (m: MessageEvent) => this.#relayed(m.data as Relay);
     const abort = new AbortController();
     this.#abort = abort;
     this.status = 'connecting';
     navigator.locks
-      .request(shareName, { signal: abort.signal }, () => {
+      .request(name, { signal: abort.signal }, () => {
         if (abort.signal.aborted) return;
         this.#leader = true;
         // Frames the previous leader had not relayed yet are lost.
@@ -103,7 +116,8 @@ export class EventStream {
         return new Promise<void>((resolve) => (this.#unlock = resolve));
       })
       .catch(() => {});
-    bc.postMessage({ k: 'join' } satisfies Relay);
+    this.#joinId = Math.random().toString(36).slice(2);
+    bc.postMessage({ k: 'join', id: this.#joinId } satisfies Relay);
   }
 
   #post(r: Relay) {
@@ -116,10 +130,16 @@ export class EventStream {
   }
 
   #relayed(r: Relay) {
+    if (r.k === 'logout') {
+      this.close();
+      this.#logout.forEach((fn) => fn());
+      return;
+    }
     if (this.#leader) {
       if (r.k === 'join') {
         this.#post({ k: 'status', s: this.status });
-        if (this.#lastHello) this.#post({ k: 'frame', t: 'hello', d: this.#lastHello });
+        // Only the new tab takes it: the others already follow every banner.
+        if (this.#lastHello) this.#post({ k: 'hello', to: r.id, d: this.#lastHello });
       }
       return;
     }
@@ -127,6 +147,9 @@ export class EventStream {
       case 'frame':
         this.#followed = true;
         this.#frame(r.t, r.d);
+        break;
+      case 'hello':
+        if (r.to === this.#joinId) this.#frame('hello', r.d);
         break;
       case 'status':
         this.status = r.s;
@@ -205,8 +228,22 @@ export class EventStream {
     } catch {
       return;
     }
+    if (this.hello && (t === 'banner' || t === 'sandbox.status')) this.#track(this.hello, t, ev);
     this.#handlers.get(t)?.forEach((fn) => fn(ev));
     this.#handlers.get('*')?.forEach((fn) => fn(ev));
+  }
+
+  #track(h: Hello, t: string, ev: BusEvent) {
+    const next = { ...h };
+    if (t === 'banner') {
+      const b = ev.data as BannerData;
+      next.banners = [...(h.banners ?? []).filter((x) => x.code !== b.code), ...(b.clear ? [] : [b])];
+      if (b.code === 'paused') next.paused = !b.clear;
+    } else {
+      next.sandbox = !!(ev.data as SandboxStatusData).status?.available;
+    }
+    this.hello = next;
+    this.#lastHello = JSON.stringify(next);
   }
 
   // A reboot shows up both as a new hello boot and as a resync frame; one
@@ -234,11 +271,24 @@ export class EventStream {
     this.#leader = false;
     this.#followed = false;
     this.#lastHello = '';
+    this.#joinId = '';
     this.#boot = '';
     this.#missed = false;
     this.#retry = 0;
     this.hello = null;
     this.status = 'idle';
+  }
+
+  // The session ended: every tab of this user closes its stream and runs its
+  // onLogout handlers, so the tab holding the stream stops relaying at once.
+  logout() {
+    this.#bc?.postMessage({ k: 'logout' } satisfies Relay);
+    this.close();
+  }
+
+  onLogout(fn: () => void): () => void {
+    this.#logout.add(fn);
+    return () => this.#logout.delete(fn);
   }
 
   on(type: EventType | '*', fn: Handler): () => void {

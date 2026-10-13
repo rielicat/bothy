@@ -1,4 +1,4 @@
-import { api, ApiError, onUnauthorized, setCsrf } from '../api/client';
+import { api, ApiError, onCsrfRejected, onUnauthorized, setCsrf } from '../api/client';
 import type {
   ApprovalData,
   ApprovalResolvedData,
@@ -46,6 +46,7 @@ class Session {
 
   async init() {
     onUnauthorized(() => this.expire());
+    onCsrfRejected(() => this.#recheck());
     const [me, setup] = await Promise.all([
       api.get<Me>('/api/auth/me').catch((e) => (e instanceof ApiError && e.status === 401 ? null : Promise.reject(e))),
       // Non-local peers get 403 from setup routes; they can only log in.
@@ -73,6 +74,28 @@ class Session {
     setCsrf(me.csrf);
   }
 
+  // The cookie is shared by every tab, so another tab may have rotated the
+  // session (new token) or signed someone else in. Only the first case may
+  // carry on in this tab; the second leaves it signed out. Concurrent
+  // refused writes share one lookup.
+  #rechecking: Promise<boolean> | null = null;
+  #recheck(): Promise<boolean> {
+    this.#rechecking ??= (async () => {
+      const was = this.me;
+      if (!was) return false;
+      const me = await api.get<Me>('/api/auth/me').catch(() => null);
+      if (!me || this.me !== was) return false;
+      if (me.user.id !== was.user.id) {
+        this.expire();
+        return false;
+      }
+      this.me = me;
+      setCsrf(me.csrf);
+      return true;
+    })().finally(() => (this.#rechecking = null));
+    return this.#rechecking;
+  }
+
   async logout() {
     try {
       await api.post('/api/auth/logout');
@@ -89,12 +112,14 @@ class Session {
     router.navigate(`/login?next=${encodeURIComponent(here)}`, { replace: true });
   }
 
+  // The other tabs share the cookie that just stopped working, so they are
+  // told to sign out too (and the one holding the stream closes it).
   #clear() {
     this.me = null;
     setCsrf('');
     this.#offs.forEach((f) => f());
     this.#offs = [];
-    events.close();
+    events.logout();
     approvals.reset();
     this.today = null;
   }
@@ -107,6 +132,8 @@ class Session {
     const rest = this.banners.filter((x) => x.code !== b.code);
     this.banners = b.clear ? rest : [...rest, b];
     if (!b.clear) this.dismissed = this.dismissed.filter((c) => c !== b.code);
+    // The kill switch announces itself only as this banner.
+    if (b.code === 'paused') this.paused = !b.clear;
   }
 
   #live() {
@@ -132,11 +159,16 @@ class Session {
         void approvals.load();
       }),
       // A stream the server refused (expired session) never says why; asking
-      // /api/auth/me turns a 401 into a clean logout instead of endless retries.
-      events.onClosed(() => void api.get<Me>('/api/auth/me').catch(() => {})),
+      // /api/auth/me turns a 401 into a clean logout instead of endless
+      // retries, and a cookie that now signs in someone else into one too.
+      events.onClosed(() => {
+        const was = this.me;
+        void api.get<Me>('/api/auth/me').then((m) => this.me === was && m.user.id !== was?.user.id && this.expire(), () => {});
+      }),
+      events.onLogout(() => this.expire()),
       approvals.listen(),
     ];
-    events.connect();
+    events.connect(this.me?.user.id);
     void this.refreshToday();
     void approvals.load();
   }

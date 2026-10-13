@@ -664,7 +664,7 @@ async function dispatch(req: Req, res: Res, next: () => void) {
   const route = routes.find(([m, re]) => m === req.method && re.test(url.pathname));
   if (!route) return fail(res, 404, 'not_found', `mock: no route for ${req.method} ${url.pathname}`);
   if (!open.has(url.pathname) && !st.loggedIn) return fail(res, 401, 'unauthorized', 'Log in first.');
-  if (req.method !== 'GET' && !open.has(url.pathname) && req.headers['x-csrf-token'] !== 'mock-csrf') return fail(res, 403, 'forbidden', 'Missing CSRF token.');
+  if (req.method !== 'GET' && !open.has(url.pathname) && req.headers['x-csrf-token'] !== 'mock-csrf') return fail(res, 403, 'forbidden', 'missing or invalid X-CSRF-Token', 'GET /api/auth/me returns the token');
   if (latency) await sleep(latency);
   try {
     await route[2](req, res, url.pathname.match(route[1])!, url.searchParams);

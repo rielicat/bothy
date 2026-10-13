@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { member } from '../mock/fixtures';
+import { api, setCsrf } from './lib/api/client';
+import type { Me } from './lib/api/types.gen';
 import { session } from './lib/stores/session.svelte';
 import { installApi } from './test/api';
 import { FakeEventSource } from './test/setup';
+
+const tick = () => new Promise((r) => setTimeout(r, 0));
 
 describe('session', () => {
   it('logs out when the event stream is refused because the session expired', async () => {
@@ -11,7 +16,52 @@ describe('session', () => {
     expect(session.me).not.toBeNull();
     expired = true;
     FakeEventSource.last.fail(true);
-    await new Promise((r) => setTimeout(r, 0));
+    await tick();
+    expect(session.me).toBeNull();
+  });
+
+  // Someone else signed in from another tab: the cookie is theirs now.
+  it('logs out when the stream comes back as another user', async () => {
+    let other: Me | null = null;
+    installApi({ override: (_m, url) => (other && url === '/api/auth/me' ? other : undefined) });
+    await session.init();
+    const me = session.me!;
+    other = { ...me, user: member, csrf: 'other-csrf' } as Me;
+    FakeEventSource.last.fail(true);
+    await tick();
+    await tick();
+    expect(session.me).toBeNull();
+  });
+
+  it('follows the kill switch from banner events', async () => {
+    installApi();
+    await session.init();
+    const banner = (data: object) => FakeEventSource.last.emit('banner', { seq: 1, type: 'banner', at: '2026-10-12T00:00:00Z', data });
+    banner({ level: 'error', code: 'paused', text: 'Bothy is paused by an admin.' });
+    expect(session.paused).toBe(true);
+    banner({ level: 'error', code: 'paused', text: '', clear: true });
+    expect(session.paused).toBe(false);
+  });
+
+  // Another tab changed the password, which rotated the session and its token.
+  it('picks up a rotated CSRF token and retries the write once', async () => {
+    const calls = installApi();
+    await session.init();
+    setCsrf('stale-token');
+    await api.post('/api/admin/pause', { paused: false });
+    const pauses = calls.filter((c) => c.url === '/api/admin/pause');
+    expect(pauses.map((c) => c.headers['x-csrf-token'])).toEqual(['stale-token', 'mock-csrf']);
+    expect(calls.filter((c) => c.url === '/api/auth/me').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('does not retry a write as a different user', async () => {
+    let other: Me | null = null;
+    const calls = installApi({ override: (_m, url) => (other && url === '/api/auth/me' ? other : undefined) });
+    await session.init();
+    other = { ...session.me!, user: member, csrf: 'mock-csrf' } as Me;
+    setCsrf('stale-token');
+    await expect(api.post('/api/admin/pause', { paused: false })).rejects.toMatchObject({ status: 403 });
+    expect(calls.filter((c) => c.url === '/api/admin/pause')).toHaveLength(1);
     expect(session.me).toBeNull();
   });
 });

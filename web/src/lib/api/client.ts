@@ -15,6 +15,7 @@ export class ApiError extends Error {
 
 let csrf = '';
 let unauthorized: (() => void) | null = null;
+let csrfRejected: (() => Promise<boolean>) | null = null;
 
 // Set from dto.Me.csrf (or dto.SetupClaimResp.csrf during setup).
 export function setCsrf(token: string) {
@@ -25,6 +26,14 @@ export function setCsrf(token: string) {
 // uses it to drop the session and route to /login.
 export function onUnauthorized(fn: () => void) {
   unauthorized = fn;
+}
+
+// Called when a write is refused for its CSRF token, which happens when
+// another tab rotated the shared session cookie. fn re-reads the token and
+// resolves true when this tab's user still holds the session; the write is
+// then sent once more if the token changed.
+export function onCsrfRejected(fn: () => Promise<boolean>) {
+  csrfRejected = fn;
 }
 
 const unsafe = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -43,10 +52,11 @@ function fieldErrors(body: unknown): FieldError[] {
   return [];
 }
 
-export async function raw(method: string, path: string, body?: unknown, headers: HeadersInit = {}): Promise<Response> {
+export async function raw(method: string, path: string, body?: unknown, headers: HeadersInit = {}, retried = false): Promise<Response> {
   const h = new Headers(headers);
   if (body !== undefined && !(body instanceof FormData)) h.set('Content-Type', 'application/json');
-  if (unsafe.has(method) && csrf) h.set('X-CSRF-Token', csrf);
+  const sent = unsafe.has(method) ? csrf : '';
+  if (sent) h.set('X-CSRF-Token', sent);
   const res = await fetch(path, {
     method,
     headers: h,
@@ -65,6 +75,11 @@ export async function raw(method: string, path: string, body?: unknown, headers:
     // A 401 from these means a wrong credential in the request, not a dead session.
     if (res.status === 401 && unauthorized && !/^\/api\/(auth\/login|auth\/password|setup\/)/.test(path)) {
       unauthorized();
+    }
+    // The server marks this refusal only by its message (code "forbidden").
+    // Setup routes carry the setup grant's token, which /api/auth/me does not return.
+    if (res.status === 403 && !retried && sent && csrfRejected && e?.message?.includes('X-CSRF-Token') && !path.startsWith('/api/setup/')) {
+      if ((await csrfRejected()) && csrf && csrf !== sent) return raw(method, path, body, headers, true);
     }
     const message = e?.message ?? (fields.length ? fields.map((f) => f.message).join('; ') : res.statusText || `HTTP ${res.status}`);
     throw new ApiError(res.status, e?.code ?? (res.status === 401 ? 'unauthorized' : 'internal'), message, e?.fix, fields);
