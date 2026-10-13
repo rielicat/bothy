@@ -13,6 +13,7 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -255,6 +256,75 @@ func (d *pltDocker) cleanup(t *testing.T) {
 	}
 }
 
+// pltWaitSandbox waits until the deployment reports a usable sandbox.
+func pltWaitSandbox(t *testing.T, admin *pltUser) {
+	t.Helper()
+	deadline := time.Now().Add(90 * time.Second)
+	for {
+		var info dto.SandboxInfo
+		if code := admin.JSON(t, http.MethodGet, "/api/sandbox", nil, &info); code == http.StatusOK && info.Status.Available {
+			t.Logf("sandbox: %s runtime %s, %s", info.Status.Backend, info.Status.Runtime, info.Status.Engine)
+			return
+		} else if time.Now().After(deadline) {
+			t.Fatalf("sandbox never became available: %+v", info.Status)
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
+// TestVaultCanarySandbox is the docker half of E15: a shell command prints a
+// vault secret in two writes half a second apart, so the parts arrive in
+// different run.tool_output events; neither the joined stream nor the tool
+// result nor the next model request carries the secret.
+func TestVaultCanarySandbox(t *testing.T) {
+	canary := "CANARY-" + pltRand(12)
+	tail := canary[len("CANARY-"):]
+	llm := pltLLM(t,
+		mockllm.Rule{MatchUser: `E15D-`, MatchToolResult: `.`, Text: []string{"Printed."}},
+		mockllm.Rule{MatchUser: `E15D-PRINT`, ToolCalls: []core.ToolCall{pltCall("call_p", "shell",
+			`{"command":"printf 'key=CANARY-'; sleep 0.5; printf '`+tail+` done\\n'"}`)}},
+	)
+	d := pltNewDocker(t)
+	g := d.StartGateway(t, pltYAML(pltForward(t, llm), nil, ""))
+	owner := pltClaim(t, g, d.SetupToken(t))
+	pltWaitSandbox(t, owner)
+	if code := owner.JSON(t, http.MethodPut, "/api/vault/global/e15_canary", dto.VaultPutReq{Value: canary}, nil); code != http.StatusOK {
+		t.Fatalf("vault put = %d", code)
+	}
+	events := pltRecord(owner.Events(t))
+	dt := owner.WaitRun(t, owner.Send(t, owner.NewSession(t).ID, "E15D-PRINT the key slowly"), 3*time.Minute,
+		func(r *core.Run) bool { return r.Status.Terminal() })
+	if dt.Run.Status != core.RunDone || len(dt.ToolCalls) != 1 || dt.ToolCalls[0].Status != core.TCOK {
+		t.Fatalf("run = %+v tool calls %+v", dt.Run, dt.ToolCalls)
+	}
+	callID := dt.ToolCalls[0].ID
+	events.WaitFor(t, core.EvRunFinished, 10*time.Second, func(e pltEvent) bool { return e.Run == dt.Run.ID })
+	var out strings.Builder
+	chunks := 0
+	for _, f := range events.Frames() {
+		var ev pltEvent
+		var data core.ToolOutputData
+		if f.Event == string(core.EvToolOutput) && json.Unmarshal(f.Data, &ev) == nil && json.Unmarshal(ev.Data, &data) == nil && data.CallID == callID {
+			out.WriteString(data.Chunk)
+			chunks++
+		}
+	}
+	if chunks == 0 || !strings.Contains(out.String(), "key=") || !strings.Contains(out.String(), "done") {
+		t.Fatalf("run.tool_output for %s = %d chunks %q, want the streamed output", callID, chunks, out.String())
+	}
+	if strings.Contains(out.String(), canary) {
+		t.Fatalf("the secret leaked through run.tool_output across %d chunks: %q", chunks, out.String())
+	}
+	if strings.Contains(dt.ToolCalls[0].ResultPreview, canary) {
+		t.Fatalf("tool result preview leaks the secret: %q", dt.ToolCalls[0].ResultPreview)
+	}
+	for _, body := range llm.Requests() {
+		if bytes.Contains(body, []byte(canary)) {
+			t.Fatalf("a model request carries the secret")
+		}
+	}
+}
+
 // TestPrincipalIsolationSandbox is the docker half of E19: B's shell runs
 // in B's own box, which mounts only B's workspace, so A's files are
 // invisible to it while A's later boxes still see them; purging A destroys
@@ -272,17 +342,7 @@ func TestPrincipalIsolationSandbox(t *testing.T) {
 	d := pltNewDocker(t)
 	g := d.StartGateway(t, pltYAML(pltForward(t, llm), nil, "mode: multi\n"))
 	owner := pltClaim(t, g, d.SetupToken(t))
-	deadline := time.Now().Add(90 * time.Second)
-	for {
-		var info dto.SandboxInfo
-		if code := owner.JSON(t, http.MethodGet, "/api/sandbox", nil, &info); code == http.StatusOK && info.Status.Available {
-			t.Logf("sandbox: %s runtime %s, %s", info.Status.Backend, info.Status.Runtime, info.Status.Engine)
-			break
-		} else if time.Now().After(deadline) {
-			t.Fatalf("sandbox never became available: %+v", info.Status)
-		}
-		time.Sleep(250 * time.Millisecond)
-	}
+	pltWaitSandbox(t, owner)
 	a := owner.CreateUser(t, "alice")
 	b := owner.CreateUser(t, "bob")
 
