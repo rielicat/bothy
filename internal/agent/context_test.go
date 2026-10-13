@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
@@ -256,12 +257,42 @@ func TestSummarizerFailingTwiceFallsBackToTruncation(t *testing.T) {
 			t.Fatalf("summarizer attempts = %d", attempts)
 		}
 		res := h.submit("six")
+		if res.Run == "" {
+			t.Fatalf("submit after compact = %+v, want a new run", res)
+		}
 		synctest.Wait()
 		if st := h.run(res.Run).Status; st != core.RunDone {
 			t.Fatalf("run after fallback: %s", st)
 		}
 		if strings.Contains(allText(h.requests()[5]), "one\n") {
 			t.Fatal("dropped turn still sent")
+		}
+	})
+}
+
+// Compact used to return before its worker was idle again, so a message sent
+// right after it queued behind the finished compaction (no run id), which is
+// how TestSummarizerFailingTwiceFallsBackToTruncation flaked in CI. The hook
+// lets the caller win that race every time.
+func TestSubmitRightAfterCompactStartsARun(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{steps: textSteps(3, "ok")})
+		defer h.close()
+		for _, text := range []string{"one", "two"} {
+			h.submit(text)
+			synctest.Wait()
+		}
+		h.r.beforeIdle = func() { time.Sleep(time.Second) }
+		if err := h.r.Compact(h.ctx, core.SystemViewer(), h.sess.ID); err != nil {
+			t.Fatal(err)
+		}
+		res := h.submit("three")
+		if res.Run == "" || res.Queued || res.Steered {
+			t.Fatalf("submit right after compact = %+v, want a new run", res)
+		}
+		synctest.Wait()
+		if st := h.run(res.Run).Status; st != core.RunDone {
+			t.Fatalf("run after compact: %s", st)
 		}
 	})
 }

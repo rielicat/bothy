@@ -88,6 +88,10 @@ type Runner struct {
 	bg      sync.WaitGroup // titles, notices
 	bgCtx   context.Context
 	bgStop  context.CancelFunc // cancels bg work when shutdown stops waiting
+
+	// beforeIdle runs on a worker between finishing a job and clearing its
+	// state; tests use it to widen that window.
+	beforeIdle func()
 }
 
 type prefixMark struct {

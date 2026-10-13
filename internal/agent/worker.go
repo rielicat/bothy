@@ -167,19 +167,30 @@ func (w *worker) take() job {
 }
 
 func (w *worker) exec(j job) {
+	var compacted chan error
+	var err error
 	switch j := j.(type) {
 	case *turnJob:
 		w.r.runTurn(w.activeRun())
 	case *resumeJob:
 		w.r.runResume(w.activeRun(), j)
 	case *compactJob:
-		j.done <- w.r.compactSession(context.Background(), w.id, j.user)
+		compacted = j.done
+		err = w.r.compactSession(context.Background(), w.id, j.user)
+	}
+	if w.r.beforeIdle != nil {
+		w.r.beforeIdle()
 	}
 	w.mu.Lock()
 	// Steers the run never read are in the history the next turn reads, so
 	// they no longer count against queue_depth.
 	w.active, w.busy, w.steers = nil, false, 0
 	w.mu.Unlock()
+	// Compact returns only now: a message sent right after it must start a
+	// run, not queue behind a compaction that has already finished.
+	if compacted != nil {
+		compacted <- err
+	}
 }
 
 func (w *worker) activeRun() *runState {
