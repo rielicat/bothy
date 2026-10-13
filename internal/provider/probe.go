@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"strconv"
 	"strings"
@@ -222,23 +223,41 @@ func thousands(n int) string {
 	return s
 }
 
+// localHost reports whether a base URL's host is this machine, the Docker
+// host or a private address: where a self-hosted model server would run.
+func localHost(h string) bool {
+	switch strings.ToLower(h) {
+	case "localhost", "host.docker.internal":
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && (ip.IsLoopback() || ip.IsPrivate())
+}
+
 // plain turns a provider failure into a sentence for the setup wizard.
 func plain(err error, base string, kind core.ProviderKind) string {
 	var pe *core.ProviderError
 	if !errors.As(err, &pe) {
 		return err.Error()
 	}
-	host := base
+	host, hostname := base, ""
 	if u, perr := url.Parse(base); perr == nil && u.Host != "" {
-		host = u.Host
+		host, hostname = u.Host, u.Hostname()
 	}
 	switch pe.Kind {
 	case core.ErrKindAuth:
 		return "The provider rejected the API key: " + pe.Msg
 	case core.ErrKindNetwork:
 		msg := "Could not reach " + host + ": " + pe.Msg
-		if kind == core.KindOllama {
-			msg += " Is Ollama running? From the Bothy container use http://host.docker.internal:11434 and allow_private."
+		// On a Linux host, host.docker.internal is the bridge gateway, and a
+		// stock install listens on the host's loopback only.
+		switch {
+		case kind == core.KindOllama:
+			msg += " Is Ollama running? From the Bothy container use http://host.docker.internal:11434 and allow_private;" +
+				" on a Linux host, also start Ollama with OLLAMA_HOST=0.0.0.0 so the container can reach it."
+		case kind == core.KindOpenAICompat && localHost(hostname):
+			msg += " Is the server running? From the Bothy container use http://host.docker.internal:<port>/v1 and allow_private;" +
+				" on a Linux host the server must listen on the local network (LM Studio: Serve on Local Network; vLLM: --host 0.0.0.0)."
 		}
 		return msg
 	case core.ErrKindRateLimit:
