@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
@@ -72,9 +73,11 @@ func (rs *runState) setExposed(t core.Taint) {
 }
 
 // streamer coalesces one LLM call's deltas into events at most every
-// deltaInterval. When the session is exposed it releases text only up to the
-// last whitespace, so a link split across deltas is neutralized whole on the
-// sink side; the bus always gets the raw text (the web renders links inert).
+// deltaInterval. It releases text only up to the last whitespace: each flush
+// is redacted on its own, so a secret or token split across two flushes would
+// pass unmasked, and in an exposed session a link split across deltas must
+// be neutralized whole on the sink side (the bus gets it raw; the web renders
+// links inert).
 type streamer struct {
 	rs      *runState
 	typ     core.EventType
@@ -82,7 +85,7 @@ type streamer struct {
 	mu      sync.Mutex
 	buf     strings.Builder
 	timer   *time.Timer
-	pending string // held back while exposed
+	pending string // trailing partial word, held back until the next flush
 }
 
 func (rs *runState) newStreamer(typ core.EventType, toSink bool) *streamer {
@@ -127,7 +130,7 @@ func (s *streamer) flushLocked(final bool) {
 	rs := s.rs
 	rs.emitMu.Lock()
 	defer rs.emitMu.Unlock()
-	if rs.exposed && s.toSink && !final {
+	if !final {
 		cut := strings.LastIndexFunc(raw, unicode.IsSpace)
 		if cut < 0 && len(raw) < holdbackMax {
 			s.pending = raw
@@ -156,7 +159,9 @@ func (s *streamer) flushLocked(final bool) {
 
 // outputLimiter forwards a tool's progress output as run.tool_output: chunks
 // of at most outputChunkMax bytes (the tail is kept), at most one event per
-// outputInterval. Emit never blocks the tool.
+// outputInterval. Like streamer, it holds back each stream's trailing
+// partial word until the next flush so redaction sees secrets whole. Emit
+// never blocks the tool.
 type outputLimiter struct {
 	rs     *runState
 	callID string
@@ -195,7 +200,7 @@ func (o *outputLimiter) emit(d core.EventData) {
 	}
 	wait := outputInterval - o.rs.r.now().Sub(o.last)
 	if wait <= 0 {
-		o.flushLocked()
+		o.flushLocked(false)
 		return
 	}
 	o.timer = time.AfterFunc(wait, func() {
@@ -203,18 +208,31 @@ func (o *outputLimiter) emit(d core.EventData) {
 		defer o.mu.Unlock()
 		o.timer = nil
 		if !o.closed {
-			o.flushLocked()
+			o.flushLocked(false)
 		}
 	})
 }
 
-func (o *outputLimiter) flushLocked() {
+func (o *outputLimiter) flushLocked(final bool) {
 	for stream := 1; stream <= 2; stream++ {
-		if len(o.buf[stream]) == 0 {
+		b := o.buf[stream]
+		o.buf[stream] = nil
+		if !final {
+			cut := bytes.LastIndexFunc(b, unicode.IsSpace)
+			if cut < 0 && len(b) < holdbackMax {
+				o.buf[stream] = b
+				continue
+			}
+			if cut >= 0 {
+				_, size := utf8.DecodeRune(b[cut:])
+				o.buf[stream] = append([]byte(nil), b[cut+size:]...)
+				b = b[:cut+size]
+			}
+		}
+		if len(b) == 0 {
 			continue
 		}
-		chunk := o.rs.r.redact(string(o.buf[stream]))
-		o.buf[stream] = nil
+		chunk := o.rs.r.redact(string(b))
 		o.rs.publish(core.EvToolOutput, core.ToolOutputData{CallID: o.callID, Stream: stream, Chunk: chunk})
 	}
 	o.last = o.rs.r.now()
@@ -227,7 +245,7 @@ func (o *outputLimiter) close() {
 		o.timer.Stop()
 		o.timer = nil
 	}
-	o.flushLocked()
+	o.flushLocked(true)
 	o.closed = true
 }
 
