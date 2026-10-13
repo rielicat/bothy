@@ -76,12 +76,6 @@ func (r *Runner) newResumeState(w *worker, j *resumeJob) *runState {
 			Trigger: j.run.Trigger, Schedule: j.run.Schedule}}
 }
 
-func (rs *runState) status() core.RunStatus {
-	rs.mu.Lock()
-	defer rs.mu.Unlock()
-	return rs.run.Status
-}
-
 func (rs *runState) info() core.RunInfo {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
