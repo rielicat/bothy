@@ -79,8 +79,22 @@ func localURL(listen string) string {
 }
 
 // healthcheck runs inside the container without loading config, so it only
-// honours the env override of server.listen.
-func healthcheck(ctx context.Context) error {
+// honours the env override of server.listen. `healthcheck sandboxd` probes
+// the sidecar instead, which shares the image (and so its HEALTHCHECK) but
+// serves no HTTP port.
+func healthcheck(ctx context.Context, args []string) error {
+	switch {
+	case len(args) == 1 && args[0] == "sandboxd":
+		// Connecting is the signal: sandboxd closes connections from any uid
+		// but the gateway's, which a probe running as SANDBOXD_USER may not be.
+		c, err := (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "unix", envOr("BOTHY_SBX_SOCKET", "/run/bothy/sandboxd.sock"))
+		if err != nil {
+			return err
+		}
+		return c.Close()
+	case len(args) > 0:
+		return fmt.Errorf("healthcheck takes no arguments, or sandboxd")
+	}
 	listen := os.Getenv("BOTHY_SERVER__LISTEN")
 	if listen == "" {
 		listen = "127.0.0.1:8080"

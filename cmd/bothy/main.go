@@ -28,7 +28,7 @@ commands:
   config           check | defaults | effective
   audit            verify | archive --before <date> (gateway stopped)
   backup           write a consistent backup to <data>/backups
-  healthcheck      exit 0 when /healthz answers (container HEALTHCHECK)
+  healthcheck      exit 0 when /healthz answers (container HEALTHCHECK) [sandboxd]
   version          print version
 `
 
@@ -55,7 +55,7 @@ func main() {
 	case "setup-token", "user", "vault", "config", "audit", "backup":
 		err = adminCmd(ctx, cmd, args)
 	case "healthcheck":
-		err = healthcheck(ctx)
+		err = healthcheck(ctx, args)
 	case "version":
 		fmt.Println(version)
 	default:
