@@ -56,6 +56,10 @@ policy:
 	parked := owner.WaitApproval(t, fired.Run, core.ApprovalParked)
 	owner.WaitRun(t, fired.Run, 10*time.Second, func(r *core.Run) bool { return r.Status == core.RunParked && r.ParkedOn == parked.ID })
 
+	// An interactive web run waits on a pending (not parked) approval.
+	waiting := owner.Send(t, owner.NewSession(t).ID, "E17-PARK a web copy")
+	pending := owner.WaitApproval(t, waiting, core.ApprovalPending)
+
 	// A Telegram run is in flight: mockllm holds the request open.
 	tg.Inject(telegramtest.Inbound{ChatID: tgUser, SenderID: tgUser, Text: "E17-SLOW tell me a long story"})
 	var slow core.Run
@@ -96,6 +100,19 @@ policy:
 			t.Fatalf("session notices = %q, want the restart notice", n)
 		}
 		tg.WaitText(t, tgUser, notice, 10*time.Second)
+	})
+
+	t.Run("pending approval of an interrupted run is cancelled", func(t *testing.T) {
+		if d := owner.Finished(t, waiting); d.Run.Status != core.RunInterrupted {
+			t.Fatalf("waiting run after restart = %+v, want interrupted", d.Run)
+		}
+		var a core.Approval
+		if code := owner.JSON(t, http.MethodGet, "/api/approvals/"+string(pending.ID), nil, &a); code != http.StatusOK || a.Status != core.ApprovalCancelled {
+			t.Fatalf("its approval = %d %+v, want cancelled", code, a)
+		}
+		if resp := owner.Do(t, http.MethodPost, "/api/approvals/"+string(pending.ID), dto.ApprovalResolveReq{Choice: core.AllowOnce}, nil); resp.StatusCode/100 == 2 {
+			t.Fatalf("approving a cancelled approval = %s", resp.Status)
+		}
 	})
 
 	t.Run("parked approval survives and resumes once", func(t *testing.T) {
