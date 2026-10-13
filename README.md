@@ -41,14 +41,13 @@ safe before you configure anything.
 | Hosting | self-hosted | self-hosted | self-hosted | xAI cloud only | self-hosted |
 | Image size | ≤ 30 MB, CI-enforced | 1,121 MB | 1,236 MB | n/a | 1,416 MB, amd64 only |
 | Idle memory | ≤ 60 MB with 3 channels, CI-enforced | 1 GB minimum (its docs) | 150–500 MB (unverified, third-party) | n/a | not published |
-| Tool sandbox | on by default; no network except a per-box egress proxy | host execution on native installs | off by default | one shared cloud computer per account | chat shells unsandboxed |
-| Secrets | envelope-encrypted vault, never inside a box | — | store not encrypted at rest (its docs) | n/a (hosted) | vault, readable from chat shells |
-| Models | any provider or local model, from 16K context | rejects models under 64K context | any | xAI models only | 20+ providers |
+| Tool sandbox | on by default; no network except a per-box egress proxy | host execution on native installs | off by default | one shared cloud computer per account | bot runs only; kernel-dependent (its docs) |
+| Secrets | envelope-encrypted vault, never inside a box | — | store not encrypted at rest (its docs) | n/a (hosted) | encrypted vault |
+| Models | any provider or local model, from 16K context | rejects models under 64K context | any | no model choice; requests may route to third-party models (its docs) | 20+ providers |
 | License | Apache-2.0 | MIT | MIT | proprietary | AGPL-3.0 |
 
-Competitor figures come from our research brief
-([docs/research/brief.md](docs/research/brief.md), registry and documentation
-reads on 2026-10-12). Bothy's figures are budgets that CI enforces from the
+Competitor figures come from the projects' own documentation and container
+registries, read on 2026-10-12. Bothy's figures are budgets that CI enforces from the
 first commit; we will publish measured numbers with the release.
 
 What we do not try to win on: the number of chat platforms and providers,

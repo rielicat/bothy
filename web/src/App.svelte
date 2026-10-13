@@ -1,67 +1,87 @@
 <script lang="ts">
-  import { router } from './lib/router.svelte';
-  import { events } from './lib/sse.svelte';
+  import { onMount, type Component } from 'svelte';
+  import Empty from './components/Empty.svelte';
+  import Icon from './components/Icon.svelte';
+  import Shell from './components/Shell.svelte';
+  import Toasts from './components/Toasts.svelte';
+  import { router, safeNext } from './lib/router.svelte';
+  import { session } from './lib/stores/session.svelte';
+  import Approvals from './screens/Approvals.svelte';
+  import Audit from './screens/Audit.svelte';
+  import Chat from './screens/chat/Chat.svelte';
+  import Login from './screens/Login.svelte';
+  import Memory from './screens/Memory.svelte';
+  import RunTrace from './screens/RunTrace.svelte';
+  import ScheduleEdit from './screens/ScheduleEdit.svelte';
+  import Schedules from './screens/Schedules.svelte';
+  import Settings from './screens/settings/Settings.svelte';
+  import Setup from './screens/setup/Setup.svelte';
+  import Usage from './screens/Usage.svelte';
 
-  const nav = [
-    { href: '/chat', base: '/chat', label: 'Chat' },
-    { href: '/approvals', base: '/approvals', label: 'Approvals' },
-    { href: '/schedules', base: '/schedules', label: 'Schedules' },
-    { href: '/memory', base: '/memory', label: 'Memory' },
-    { href: '/usage', base: '/usage', label: 'Usage' },
-    { href: '/audit', base: '/audit', label: 'Audit' },
-    { href: '/settings/general', base: '/settings', label: 'Settings' },
-  ];
+  // Screens take different props (all accept params), so the table is loosely typed.
+  type Screen = Component<any>;
 
-  const sandbox = $derived(events.hello?.sandbox);
-  const active = (base: string) => router.path === base || router.path.startsWith(base + '/');
+  // One bundle: it compresses far better than a chunk per screen (shared
+  // Svelte and Tailwind vocabulary), and the JS budget counts every chunk.
+  const screens: Record<string, Screen> = {
+    '/setup': Setup,
+    '/login': Login,
+    '/chat': Chat,
+    '/chat/:id': Chat,
+    '/approvals': Approvals,
+    '/approvals/:id': Approvals,
+    '/runs/:id': RunTrace,
+    '/schedules': Schedules,
+    '/schedules/:id': ScheduleEdit,
+    '/memory': Memory,
+    '/usage': Usage,
+    '/audit': Audit,
+    '/settings/:page': Settings,
+  };
+  const Current: Screen | null = $derived(screens[router.current?.pattern ?? ''] ?? null);
 
+  const pattern = $derived(router.current?.pattern ?? '');
+  const isPublic = $derived(pattern === '/setup' || pattern === '/login');
+
+  onMount(() => void session.init());
+
+  // Route guards: setup first, then login, then the app.
   $effect(() => {
-    if (router.path === '/') router.navigate('/chat', { replace: true });
+    if (!session.ready) return;
+    const setup = session.setup;
+    const here = router.path + router.search;
+    if (router.path === '/') {
+      router.navigate(setup?.needs_setup ? '/setup' : session.me ? '/chat' : '/login', { replace: true });
+    } else if (setup?.needs_setup) {
+      if (pattern !== '/setup' && !(pattern === '/login' && setup.owner_set && !session.me)) router.navigate('/setup', { replace: true });
+    } else if (!session.me) {
+      if (!isPublic || pattern === '/setup') router.navigate(`/login?next=${encodeURIComponent(here)}`, { replace: true });
+    } else if (isPublic) {
+      router.navigate(safeNext(router.query.get('next')), { replace: true });
+    }
   });
 </script>
 
-<div class="flex min-h-dvh bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
-  <nav aria-label="Main" class="hidden w-48 shrink-0 border-r border-zinc-200 p-3 sm:block dark:border-zinc-800">
-    <a href="/chat" onclick={router.link} class="mb-4 block px-2 text-lg font-semibold">Bothy</a>
-    <ul class="space-y-1">
-      {#each nav as item (item.href)}
-        <li>
-          <a
-            href={item.href}
-            onclick={router.link}
-            aria-current={active(item.base) ? 'page' : undefined}
-            class="block rounded px-2 py-1 hover:bg-zinc-100 aria-[current=page]:bg-zinc-200 dark:hover:bg-zinc-900 dark:aria-[current=page]:bg-zinc-800"
-          >
-            {item.label}
-          </a>
-        </li>
-      {/each}
-    </ul>
-  </nav>
+{#snippet screen()}
+  {#if !router.current}
+    <Empty icon="search" title="Nothing here">
+      This address doesn't match any page.
+      {#snippet action()}<a href="/chat" class="btn btn-primary" onclick={router.link}>Go to chat</a>{/snippet}
+    </Empty>
+  {:else if Current}
+    <Current params={router.current.params} />
+  {/if}
+{/snippet}
 
-  <div class="flex min-w-0 flex-1 flex-col">
-    <header class="flex items-center gap-3 border-b border-zinc-200 px-4 py-2 dark:border-zinc-800">
-      <span class="font-semibold sm:hidden">Bothy</span>
-      <span
-        class="rounded-full px-2 py-0.5 text-xs"
-        class:bg-green-100={sandbox === true}
-        class:text-green-900={sandbox === true}
-        class:bg-red-100={sandbox === false}
-        class:text-red-900={sandbox === false}
-        class:bg-zinc-100={sandbox === undefined}
-      >
-        {sandbox === undefined ? 'Sandbox: unknown' : sandbox ? 'Isolated' : 'No sandbox: exec off'}
-      </span>
-    </header>
-
-    <main class="flex-1 p-4">
-      {#if router.current}
-        <h1 class="text-xl font-semibold">{router.current.pattern}</h1>
-        <p class="mt-2 text-sm text-zinc-500">This screen is not built yet.</p>
-      {:else}
-        <h1 class="text-xl font-semibold">Not found</h1>
-        <p class="mt-2 text-sm"><a href="/chat" onclick={router.link} class="underline">Go to chat</a></p>
-      {/if}
-    </main>
+{#if !session.ready}
+  <div class="grid h-dvh place-items-center" aria-busy="true">
+    <span class="grid size-11 animate-pulse place-items-center rounded-xl bg-accent text-on-accent"><Icon name="bothy" size={24} /></span>
+    <span class="sr-only">Loading Bothy</span>
   </div>
-</div>
+{:else if isPublic || !session.me}
+  {@render screen()}
+{:else}
+  <Shell>{@render screen()}</Shell>
+{/if}
+
+<Toasts />

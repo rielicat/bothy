@@ -12,8 +12,10 @@
     "noUncheckedIndexedAccess": false,
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
     "allowJs": false,
     "checkJs": false
   },
-  "include": ["src/**/*.ts", "src/**/*.svelte"]
+  "include": ["src/**/*.ts", "src/**/*.svelte", "mock/**/*.ts"]
 }
