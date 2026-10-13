@@ -68,6 +68,9 @@ func TestNoSandbox(t *testing.T) {
 	if fin.Status != core.RunDone || text != "No shell here." {
 		t.Fatalf("run = %+v text %q", fin, text)
 	}
+	if res := tr.toolResults(t, tr.lastRun(s)); len(res) != 1 || res[0].Status != core.TCInvalid {
+		t.Fatalf("forced shell call results = %+v, want one invalid call", res)
+	}
 
 	reqs := llm.Requests()
 	if len(reqs) < 2 {
@@ -127,6 +130,9 @@ policy:
 	}
 	if body, ok := workspaceFile(t, g, "denied.txt"); ok {
 		t.Fatalf("a denied fs_write ran: denied.txt = %q", body)
+	}
+	if n := tr.count(core.EvApprovalRequested, s); n != 1 {
+		t.Fatalf("%d cards for one denied call", n)
 	}
 
 	// Scheduled run: the approval parks after scheduled_timeout.
