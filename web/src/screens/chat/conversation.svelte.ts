@@ -226,6 +226,10 @@ export class Conversation {
         const a = (e.data as ApprovalData).approval;
         if (a) this.#upsertApproval(a);
       }),
+      on('approval.voted', (e) => {
+        const a = (e.data as ApprovalData).approval;
+        if (a) this.#upsertApproval(a);
+      }),
       events.on('approval.resolved', (e) => {
         const d = e.data as ApprovalResolvedData;
         const a = this.approvals.find((x) => x.id === d.approval_id);
