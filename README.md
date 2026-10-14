@@ -25,7 +25,8 @@ is available, a shell and Python in throwaway containers.
   plus any OpenAI-compatible endpoint (OpenRouter, Groq, xAI, DeepSeek, LM
   Studio, vLLM). Ollama, LM Studio and vLLM are detected automatically (see
   [Local models](#local-models) for Docker on Linux). Works with small local
-  models from a 16K context window.
+  models from a 16K context window. On AWS, [Amazon Bedrock](#amazon-bedrock)
+  uses the server's own AWS role or SSO profile instead of a key.
 - **Chat-native approvals**: risky actions arrive as cards in the chat you are
   using, rendered from the exact action (command, URL, recipient, diff), never
   from the model's prose.
@@ -175,6 +176,43 @@ systemd service, `sudo systemctl edit ollama` and add
 `Environment=OLLAMA_HOST=0.0.0.0`), turn on LM Studio's "Serve on Local
 Network", or run vLLM with `--host 0.0.0.0`, and keep that port closed to the
 rest of your network. Docker Desktop on macOS and Windows needs neither step.
+
+### Amazon Bedrock
+
+Bedrock needs no API key: Bothy signs requests with this server's AWS
+credentials, resolved through the standard AWS chain (environment, shared
+config and credentials files including SSO sessions, web identity / IRSA,
+ECS and EKS container credentials, EC2 instance roles over IMDSv2) when a
+call needs them, kept in memory only and never shown. The setup wizard
+offers "Use this server's AWS access" when they resolve and lists the Claude
+and Nova models the account can use; the doctor reports where the
+credentials come from (`AWS SSO, profile dev`, `EC2 instance role (IMDSv2)`),
+never their values.
+
+```yaml
+providers:
+  - {id: bedrock, type: bedrock, region: us-west-2}          # profile: optional shared-config profile
+models:
+  main: [bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0]
+```
+
+- **On AWS** (EC2, ECS, EKS), give the instance, task or service account a
+  role that allows `bedrock:InvokeModelWithResponseStream` (and
+  `bedrock:ListFoundationModels`, `bedrock:ListInferenceProfiles` for the
+  model list); no Bothy config beyond the provider is needed. For the gateway
+  container on EC2, set the instance metadata hop limit to 2 so it reaches
+  IMDSv2.
+- **On a laptop**, sign in on the host (`aws sso login --profile dev`). A
+  native `bothy serve` reads `~/.aws` itself. With compose, uncomment the
+  Bedrock lines of the bothy service in `compose.yaml`: they set `AWS_PROFILE`
+  and `AWS_REGION` and mount `~/.aws` read-only into the gateway (on Linux
+  also grant uid 65532 read access with the `setfacl` line shown there). Run
+  `aws sso login` again on the host when the session expires.
+
+Only the gateway's credential chain may reach the instance metadata service
+and the container credential endpoints; tool boxes, `web_fetch` and MCP
+servers cannot. `credential_process` profiles are refused, since the program
+would run outside Bothy's egress control.
 
 ## Development
 
