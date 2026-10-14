@@ -44,7 +44,8 @@
   // Step 2 of setup (docs/design/ui.md §5.6), and Settings → Models → "Add a
   // provider" (§11.4). Setup saves on Continue; settings saves the provider
   // (not the model slots) on the first successful check and calls onconnected.
-  let { mode = 'setup', onconnected }: { mode?: 'setup' | 'settings'; onconnected?: (c: Connected) => void } = $props();
+  // `exclude` names providers already set up, which Settings manages in its own list.
+  let { mode = 'setup', exclude = [], onconnected }: { mode?: 'setup' | 'settings'; exclude?: string[]; onconnected?: (c: Connected) => void } = $props();
 
   type Source = 'aws' | 'local' | 'env' | 'list';
   interface Row extends Option {
@@ -133,9 +134,9 @@
     return rows;
   }
 
-  const found = $derived(detectedRows(detections ?? []));
+  const found = $derived(detectedRows(detections ?? []).filter((r) => !exclude.includes(r.def.id)));
   // A provider found on the server leaves the list, unless it was chosen there before detection finished.
-  const hide = $derived(new Set(found.map((r) => (r.source === 'aws' ? 'bedrock' : r.source === 'local' ? r.def.id : '')).filter((id) => id && `p:${id}` !== selected)));
+  const hide = $derived(new Set([...exclude, ...found.map((r) => (r.source === 'aws' ? 'bedrock' : r.source === 'local' ? r.def.id : '')).filter((id) => id && `p:${id}` !== selected)]));
   const looking = $derived(detections === null && slow);
   const pad = $derived(setup ? '[&>div>label]:px-4 [&>div>div]:mr-4 [&>div>div]:ml-11' : '');
   const base = $derived(providers.filter((p) => !p.more && !hide.has(p.id)).map(listRow));

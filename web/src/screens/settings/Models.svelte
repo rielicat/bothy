@@ -106,7 +106,7 @@
   const managedNow = $derived(managing ? managed(managing) : null);
 
   let adding = $state(false);
-  let before = new Set<string>();
+  let before = $state(new Set<string>());
 
   function add() {
     before = new Set(ids);
@@ -227,7 +227,7 @@
 <ManageProvider bind:open={manageOpen} provider={managedNow} onchanged={refresh} />
 
 <Dialog bind:open={adding} title="Add a provider" size="md">
-  <Chooser mode="settings" onconnected={connected} />
+  <Chooser mode="settings" exclude={[...before]} onconnected={connected} />
   {#snippet footer({ close })}
     <Button data-cancel onclick={close}>Cancel</Button>
   {/snippet}
