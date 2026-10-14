@@ -25,3 +25,7 @@ connection. `conformance.Store` runs against a temp database in the tests.
 `DB.GitHub()` returns the `core.GitHubStore` of migration `0002_repos.sql`
 (GitHub connections and their repositories, one row per repository whatever
 its case), kept outside `core.Store` and checked by `conformance.GitHubStore`.
+Migration 0004 adds `approval_votes` (one vote per approver and approval;
+multi-approver approvals are also visible to their voters) and
+`release_deploys`, served by `Releases()` (`core.ReleaseStore`, outside
+`core.Store`).

@@ -272,6 +272,9 @@ func (e *Engine) floors(ctx context.Context, x *input, rule *config.Rule) (core.
 	if restricted {
 		return denied("floor:restricted_space", "restricted spaces can only use read-only tools", true), true
 	}
+	if isRelease(x.a) {
+		return e.releaseFloor(ctx, x, rule), true
+	}
 	if x.exposed() && (x.se == core.SEExternalSend || x.se == core.SEIrreversible) {
 		x.only = e.taintedRecipientGrant(ctx, x)
 		if x.only == nil {

@@ -40,6 +40,7 @@ type Deps struct {
 	Egress    core.Egress
 	Doctor    *doctor.Runner
 	Audit     core.Auditor
+	Deploys   core.ReleaseRepo // GET /api/releases; nil lists no deploys
 	WebUI     http.Handler
 	Version   string
 	DataDir   string // persona file (agent.persona_file), backups

@@ -348,6 +348,7 @@ func validate(c *Config, v *vctx) {
 	validateMCP(c, v)
 	validateMisc(c, v)
 	validateKnowledge(c, v)
+	validateReleases(c, v)
 }
 
 func validateServer(c *Config, v *vctx) {

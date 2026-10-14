@@ -28,8 +28,10 @@ func (ap *Approvals) Request(ctx context.Context, r core.ApprovalRequest) (*core
 		return nil, fmt.Errorf("%w: approval request for a %q decision", core.ErrInvalid, r.Decision.Verdict)
 	case r.Run == "" || r.Session == "" || r.Principal == "":
 		return nil, fmt.Errorf("%w: approval request needs run, session and principal", core.ErrInvalid)
-	case !r.Decision.Approver.AdminOnly && r.Decision.Approver.User == "":
+	case !r.Decision.Approver.AdminOnly && r.Decision.Approver.User == "" && !r.Decision.Approver.Multi():
 		return nil, fmt.Errorf("%w: approval request without an approver", core.ErrInvalid)
+	case r.Decision.Approver.Multi() && (r.Decision.Approver.User != "" || r.Decision.Approver.Requester == "" || r.Decision.Approver.Required < 0):
+		return nil, fmt.Errorf("%w: a multi-approver request names its approvers and requester only", core.ErrInvalid)
 	}
 	choices, err := ap.offered(ctx, r)
 	if err != nil {
@@ -53,6 +55,16 @@ func (ap *Approvals) Request(ctx context.Context, r core.ApprovalRequest) (*core
 		Chat: r.Chat, OnTimeout: onTimeout, CreatedAt: now, ExpiresAt: msTime(now.Add(timeout)),
 	}
 	a.Card = renderCard(r)
+	if a.Approver.Multi() {
+		name := ap.userName(ctx)
+		a.Card.Fields = append(a.Card.Fields,
+			core.CardField{Label: "Requested by", Value: visible(name(a.Approver.Requester))},
+			core.CardField{Label: "Approvers", Value: visible(approverSummary(a.Approver, name))})
+		// The context line names the requester's session, whose title comes
+		// from their conversation; the other approvers are outside that
+		// principal and see only who asked.
+		a.Card.Context = ""
+	}
 	a.Card.Expires = a.ExpiresAt
 	if base := strings.TrimRight(c.Server.PublicURL, "/"); base != "" {
 		a.Card.WebURL = base + "/approvals/" + string(a.ID)
@@ -65,10 +77,10 @@ func (ap *Approvals) Request(ctx context.Context, r core.ApprovalRequest) (*core
 		Session: r.Session, Run: r.Run,
 		Detail: auditDetail(map[string]any{
 			"tool": r.Action.Tool, "fingerprint": r.Action.Fingerprint, "rule": r.Decision.Rule,
-			"admin_only": r.Decision.Approver.AdminOnly, "choices": r.Decision.Choices,
+			"admin_only": r.Decision.Approver.AdminOnly, "choices": r.Decision.Choices, "approvers": approverDetail(r.Decision.Approver),
 		}),
 	})
-	ap.publish(core.EvApprovalRequested, a, func(cp *core.Approval) core.EventData { return core.ApprovalData{Approval: cp} })
+	ap.publish(ctx, core.EvApprovalRequested, a, func(cp *core.Approval) core.EventData { return core.ApprovalData{Approval: cp} })
 	out := *a
 	return &out, nil
 }
@@ -80,7 +92,9 @@ func (ap *Approvals) Request(ctx context.Context, r core.ApprovalRequest) (*core
 // outside Decide, so this is checked here as well.
 func (ap *Approvals) offered(ctx context.Context, r core.ApprovalRequest) ([]core.Choice, error) {
 	in := r.Decision.Choices
-	admin := r.Decision.Approver.AdminOnly
+	// Votes answer an action once; a grant would let one approver stand in for
+	// the others next time.
+	admin := r.Decision.Approver.AdminOnly || r.Decision.Approver.Multi()
 	always := !admin && slices.Contains(in, core.AllowAlways) && slices.Contains(in, core.AllowSession) &&
 		max(validOrZero(r.Action.SideEffect), validOrZero(r.Spec.Manifest.SideEffect)) != core.SEIrreversible
 	if always {
@@ -180,6 +194,9 @@ func (ap *Approvals) Resolve(ctx context.Context, r core.Resolution) (*core.Appr
 	if !slices.Contains(openStatuses, a.Status) {
 		return nil, fmt.Errorf("approval %s: already decided: %w", r.ID, core.ErrConflict)
 	}
+	if a.Approver.Multi() {
+		return ap.vote(ctx, a, r)
+	}
 	if r.Choice != core.Deny && !slices.Contains(a.Decision.Choices, r.Choice) {
 		return nil, fmt.Errorf("%w: %s was not offered for this approval", core.ErrInvalid, r.Choice)
 	}
@@ -200,7 +217,7 @@ func (ap *Approvals) Resolve(ctx context.Context, r core.Resolution) (*core.Appr
 		Session: a.Session, Run: a.Run,
 		Detail: auditDetail(map[string]any{"choice": r.Choice, "via": r.Via, "tool": toolOf(a), "fingerprint": fingerprintOf(a)}),
 	})
-	ap.resolved(a)
+	ap.resolved(ctx, a)
 	out := *a
 	return &out, nil
 }
@@ -227,6 +244,16 @@ func (ap *Approvals) authorize(ctx context.Context, a *core.Approval, r core.Res
 		}
 	} else if a.Approver.User == "" || r.By != a.Approver.User {
 		return forbid("not an approver")
+	}
+	return ap.checkVia(ctx, a, r)
+}
+
+// checkVia enforces where a resolution may come from: the web UI, or a press
+// on a recorded card message of that channel, which may only deny when the
+// card was truncated.
+func (ap *Approvals) checkVia(ctx context.Context, a *core.Approval, r core.Resolution) error {
+	forbid := func(why string) error {
+		return fmt.Errorf("%w: %s", core.ErrForbidden, why)
 	}
 	switch {
 	case r.Via == "web":
@@ -279,7 +306,7 @@ func (ap *Approvals) CancelRun(ctx context.Context, run core.RunID) error {
 			Actor: "system", Action: "approval.decide", Target: string(a.ID), Outcome: "ok", Session: a.Session, Run: a.Run,
 			Detail: auditDetail(map[string]any{"status": core.ApprovalCancelled, "via": "stop", "tool": toolOf(a)}),
 		})
-		ap.publishResolved(a)
+		ap.publishResolved(ctx, a)
 		ap.notify(a.ID)
 	}
 	return errors.Join(errs...)
@@ -290,17 +317,38 @@ func (ap *Approvals) RenderCard(r core.ApprovalRequest) core.Card { return rende
 
 // Get implements core.Approvals.
 func (ap *Approvals) Get(ctx context.Context, v core.Viewer, id core.ApprovalID) (*core.Approval, error) {
-	return ap.store.Approvals().Get(ctx, v, id)
+	a, err := ap.store.Approvals().Get(ctx, v, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := ap.fillVotes(ctx, a); err != nil {
+		return nil, err
+	}
+	return a, nil
 }
 
 // Pending implements core.Approvals.
 func (ap *Approvals) Pending(ctx context.Context, v core.Viewer) ([]*core.Approval, error) {
-	return ap.store.Approvals().Pending(ctx, v)
+	as, err := ap.store.Approvals().Pending(ctx, v)
+	if err != nil {
+		return nil, err
+	}
+	if err := ap.fillVotes(ctx, as...); err != nil {
+		return nil, err
+	}
+	return as, nil
 }
 
 // Recent implements core.Approvals.
 func (ap *Approvals) Recent(ctx context.Context, v core.Viewer, p core.Page) ([]*core.Approval, error) {
-	return ap.store.Approvals().Recent(ctx, v, p)
+	as, err := ap.store.Approvals().Recent(ctx, v, p)
+	if err != nil {
+		return nil, err
+	}
+	if err := ap.fillVotes(ctx, as...); err != nil {
+		return nil, err
+	}
+	return as, nil
 }
 
 // AddMessageRef implements core.Approvals.
@@ -355,7 +403,7 @@ func (ap *Approvals) timeout(ctx context.Context, id core.ApprovalID) error {
 	a, err := ap.transition(ctx, id)
 	if a != nil {
 		// Callbacks run outside transMu: they may call back into Approvals.
-		ap.resolved(a)
+		ap.resolved(ctx, a)
 	}
 	return err
 }
@@ -406,8 +454,8 @@ func (ap *Approvals) transition(ctx context.Context, id core.ApprovalID) (*core.
 }
 
 // resolved publishes approval.resolved, wakes waiters and runs callbacks.
-func (ap *Approvals) resolved(a *core.Approval) {
-	ap.publishResolved(a)
+func (ap *Approvals) resolved(ctx context.Context, a *core.Approval) {
+	ap.publishResolved(ctx, a)
 	ap.notify(a.ID)
 	ap.mu.Lock()
 	cbs := slices.Clone(ap.callbacks)
@@ -418,21 +466,27 @@ func (ap *Approvals) resolved(a *core.Approval) {
 	}
 }
 
-func (ap *Approvals) publishResolved(a *core.Approval) {
-	ap.publish(core.EvApprovalResolved, a, func(*core.Approval) core.EventData {
+func (ap *Approvals) publishResolved(ctx context.Context, a *core.Approval) {
+	ap.publish(ctx, core.EvApprovalResolved, a, func(*core.Approval) core.EventData {
 		return core.ApprovalResolvedData{Approval: a.ID, Status: a.Status, Choice: a.Choice, By: a.DecidedBy, Via: a.DecidedVia}
 	})
 }
 
 // publish sends the event to the approval's principal and, for admin-only
-// approvals, a copy as an admin broadcast (principal "").
-func (ap *Approvals) publish(typ core.EventType, a *core.Approval, data func(*core.Approval) core.EventData) {
+// approvals, a copy as an admin broadcast (principal ""), and for
+// multi-approver approvals a copy to each eligible approver's own principal.
+func (ap *Approvals) publish(ctx context.Context, typ core.EventType, a *core.Approval, data func(*core.Approval) core.EventData) {
 	if ap.bus == nil {
 		return
 	}
 	principals := []core.PrincipalID{a.Principal}
 	if a.Approver.AdminOnly {
 		principals = append(principals, "")
+	}
+	for _, u := range ap.voters(ctx, a.Approver) {
+		if p := core.UserPrincipal(u.ID); !slices.Contains(principals, p) {
+			principals = append(principals, p)
+		}
 	}
 	for _, p := range principals {
 		cp := *a

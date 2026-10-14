@@ -241,6 +241,8 @@ func (r userRepo) Delete(_ context.Context, id core.UserID) error {
 		}
 	}
 	st.cardMsgs = slices.DeleteFunc(st.cardMsgs, func(c cardMsgRow) bool { return approvals[c.approval] })
+	maps.DeleteFunc(st.votes, func(k voteKey, _ core.ApprovalVote) bool { return approvals[k.approval] })
+	maps.DeleteFunc(st.deploys, func(_ string, d deployRow) bool { return ps[d.d.Principal] })
 	maps.DeleteFunc(st.grants, func(_ core.GrantID, g grantRow) bool { return ps[g.g.Principal] })
 	st.memEvents = slices.DeleteFunc(st.memEvents, func(e core.MemoryEvent) bool { return ps[e.Principal] })
 	maps.DeleteFunc(st.uploads, func(_ string, u core.Upload) bool { return ps[u.Principal] })

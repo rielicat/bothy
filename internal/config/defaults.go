@@ -117,5 +117,11 @@ func defaults() *Config {
 		Scheduler: SchedulerCfg{Enabled: true, MissedRun: "skip", Heartbeat: Heartbeat{Every: d(30 * time.Minute), ActiveHours: "08:00-22:00", Slot: "fast", Deliver: "preferred"}},
 		API:       APICfg{OpenAICompat: true, Passthrough: true},
 		Knowledge: defaultKnowledge(),
+		Releases: ReleasesCfg{
+			GitHubToken:  "secret:github_token",
+			GitHubAPI:    "https://api.github.com",
+			PollInterval: d(15 * time.Second),
+			FollowFor:    d(6 * time.Hour),
+		},
 	}
 }

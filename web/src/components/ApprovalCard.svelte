@@ -41,15 +41,41 @@
   const open = $derived(view.status === 'pending' || view.status === 'parked');
   const tone = $derived(risk[card.risk] ?? risk.external_send);
   const me = $derived(session.me?.user);
+  // A multi-approver approval (deploys) resolves by votes: the requester can
+  // only withdraw it, every other eligible approver votes once.
+  const approver = $derived(view.approver);
+  const multi = $derived(!!approver && !approver.admin_only && ((approver.users?.length ?? 0) > 0 || (approver.roles?.length ?? 0) > 0));
+  const required = $derived(Math.max(approver?.required ?? 0, 1));
+  const allows = $derived(new Set((view.votes ?? []).filter((v) => v.choice === 'allow_once' && v.user_id !== approver?.requester).map((v) => v.user_id)).size);
+  const myVote = $derived(me ? (view.votes ?? []).find((v) => v.user_id === me.id)?.choice : undefined);
+  const isRequester = $derived(multi && !!me && me.id === approver?.requester);
+  const rank: Record<string, number> = { owner: 3, admin: 2, member: 1 };
+  const eligible = $derived(
+    multi && !!me && !isRequester && ((approver?.users ?? []).includes(me.id) || (approver?.roles ?? []).some((r) => (rank[me.role] ?? 0) >= (rank[r] ?? 99))),
+  );
   // Fails closed: an approval that names no approver shows no buttons.
-  const canApprove = $derived(!!me && (view.approver?.admin_only ? session.isAdmin : !!view.approver?.user_id && view.approver.user_id === me.id));
+  const canApprove = $derived(
+    !!me &&
+      (multi
+        ? !myVote && (eligible || isRequester)
+        : approver?.admin_only
+          ? session.isAdmin
+          : !!approver?.user_id && approver.user_id === me.id),
+  );
   // Go sends unset times as 0001-01-01, which is truthy.
   const deadline = $derived(view.status === 'parked' ? view.park_until : isZeroTime(card.expires) ? view.expires_at : card.expires);
   const left = $derived(open && deadline ? countdown(deadline, clock.now) : '');
   // The rendered card is authoritative: a choice it leaves out is never offered.
   const choices = $derived(card.choices ?? []);
   const order: Choice[] = ['allow_once', 'allow_session', 'allow_always', 'deny'];
-  const buttons = $derived(order.filter((c) => choices.includes(c)));
+  const buttons = $derived(order.filter((c) => choices.includes(c) && (!isRequester || c === 'deny')));
+  const waiting = $derived.by(() => {
+    if (!multi) return `Waiting for ${approver?.admin_only ? 'an admin' : 'the owner'} to decide.`;
+    const left = Math.max(required - allows, 0);
+    const more = `${left} more approval${left === 1 ? '' : 's'}`;
+    if (myVote === 'allow_once') return `You approved. Waiting for ${more}.`;
+    return `Waiting for ${more} from the approvers.`;
+  });
 
   const outcome = $derived.by(() => {
     const who = view.decided_by ? (view.decided_by === me?.id ? 'you' : view.decided_by) : '';
@@ -96,6 +122,9 @@
       <Icon name="shield" size={13} />{tone.label}
     </span>
     <h2 id="{id}-t" class="min-w-0 flex-1 font-semibold"><Verbatim text={card.title} /></h2>
+    {#if multi}
+      <span class="chip tabular-nums" data-progress>{allows} of {required} approvals</span>
+    {/if}
     {#if open && left}
       <span class="chip chip-warn tabular-nums" title={view.status === 'parked' ? 'Parked until' : 'Expires in'}>
         <Icon name="clock" size={12} />{view.status === 'parked' ? 'parked · ' : ''}{left}
@@ -159,6 +188,7 @@
   {#if !preview}
   <footer class="flex flex-wrap items-center gap-2 border-t border-line bg-sunken/50 px-4 py-3" bind:this={foot}>
     {#if open && canApprove}
+      {#if isRequester}<span class="text-sm text-muted">You asked for this; someone else approves it.</span>{/if}
       {#each buttons as c (c)}
         <button
           type="button"
@@ -173,9 +203,7 @@
         </button>
       {/each}
     {:else if open}
-      <p class="text-sm text-muted" role="status">
-        Waiting for {view.approver?.admin_only ? 'an admin' : 'the owner'} to decide.
-      </p>
+      <p class="text-sm text-muted" role="status">{waiting}</p>
     {:else}
       <p class="flex items-center gap-1.5 text-sm outline-none {view.status === 'allowed' ? 'text-ok' : 'text-muted'}" role="status" tabindex="-1">
         <Icon name={view.status === 'allowed' ? 'check' : 'x'} size={15} />{outcome}

@@ -64,4 +64,26 @@ callbacks run synchronously after allow, deny and expiry, not after
 `CancelRun`. Button data is `a:<id>:<o|s|a|d>:<mac8>` with an HMAC key kept
 in `meta.approval_mac_key` (created on first boot; a corrupt key fails `New`).
 
+**Releases and votes.** A deploy (`release_deploy`, or any `ActRelease`
+action) has its own floor after the restricted-space check: denied outside
+interactive runs and outside a user's own principal, denied when the payload
+does not match its `releases.environments` entry (repository, workflow,
+inputs, `ref_pattern`) or when fewer enabled users than `required` could
+approve it besides the requester; otherwise an ask that no preset, default,
+rule or grant relaxes (a deny rule still refuses it), offering only
+`allow_once`/`deny`, with a multi-approver `ApproverReq` (`users`, `roles`,
+`required`, `requester`). Such an approval resolves by votes
+(`approval_votes`): the status check, the vote, the recount of still-eligible
+allow votes and the decision share one store transaction, so concurrent votes
+count once and resolve it once. The requester's allow is refused (they may
+deny to withdraw), each user votes once, one deny denies, the `required`th
+distinct allow allows; every vote is audited (`approval.vote`, refusals with
+outcome `denied`), a vote that does not resolve is published as
+`approval.voted`, and requested/voted/resolved events also go to each
+eligible approver's own principal. The card adds "Requested by" and
+"Approvers" and leaves out the context line, whose session title belongs to
+the requester's principal. Timeouts, parking and the button MAC and
+recorded-card rules are unchanged. `Get`, `Pending` and `Recent` fill
+`Approval.Votes`; `Voters` lists who may vote.
+
 Checks: `policy.hands_off`, `policy.auto_external_rules`, `budgets.unlimited`.

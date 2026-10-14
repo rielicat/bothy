@@ -382,6 +382,9 @@ func (s *Server) getRun(w http.ResponseWriter, r *http.Request, a core.Actor) er
 		return err
 	}
 	aps = slices.DeleteFunc(aps, func(ap *core.Approval) bool { return !a.Viewer.Can(ap.Principal) })
+	if err := s.withVotes(ctx, aps); err != nil {
+		return err
+	}
 	refine, err := s.runRefineTrace(ctx, a.Viewer, run, calls)
 	if err != nil {
 		return err

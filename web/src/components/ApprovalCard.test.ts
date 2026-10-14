@@ -124,6 +124,45 @@ describe('ApprovalCard', () => {
     expect(b.container.querySelectorAll('footer button')).toHaveLength(0);
   });
 
+  describe('multi-approver deploys', () => {
+    const requester = 'usr_01jrequester000000000000';
+    const deploy = (extra: Partial<Approval> = {}) =>
+      approval({
+        approver: { user_id: '', admin_only: false, roles: ['admin'], required: 2, requester },
+        card: { ...approval().card, title: 'Deploy a release', choices: ['allow_once', 'deny'] },
+        ...extra,
+      });
+
+    it('shows the vote count and lets an eligible approver vote', async () => {
+      render(ApprovalCard, { approval: deploy({ votes: [{ approval_id: 'apr_1', user_id: 'usr_x', choice: 'allow_once', via: 'telegram', at: '2026-10-14T10:00:00Z' }] }) });
+      expect(document.querySelector('[data-progress]')?.textContent).toBe('1 of 2 approvals');
+      const buttons = screen.getAllByRole('button').map((b) => b.textContent?.trim());
+      expect(buttons).toEqual(['Allow once', 'Deny']);
+      await fireEvent.click(screen.getAllByRole('button')[0]);
+      await waitFor(() => expect(calls.some((c) => c.method === 'POST')).toBe(true));
+    });
+
+    it('lets the requester only withdraw', () => {
+      session.me = { ...session.me!, user: { ...owner, id: requester } };
+      render(ApprovalCard, { approval: deploy() });
+      expect(screen.getAllByRole('button').map((b) => b.textContent?.trim())).toEqual(['Deny']);
+      expect(document.body.textContent).toContain('someone else approves it');
+    });
+
+    it('waits after the viewer voted and hides buttons from non-approvers', () => {
+      const voted = deploy({ votes: [{ approval_id: 'apr_1', user_id: owner.id, choice: 'allow_once', via: 'web', at: '2026-10-14T10:00:00Z' }] });
+      const a = render(ApprovalCard, { approval: voted });
+      expect(screen.queryByRole('button')).toBeNull();
+      expect(screen.getByRole('status').textContent).toContain('You approved. Waiting for 1 more approval.');
+      a.unmount();
+
+      session.me = { ...session.me!, user: { ...owner, id: 'usr_01jmember0000000000000000', role: 'member' } };
+      render(ApprovalCard, { approval: deploy() });
+      expect(screen.queryByRole('button')).toBeNull();
+      expect(screen.getByRole('status').textContent).toContain('Waiting for 2 more approvals');
+    });
+  });
+
   it('counts down to the approval expiry when the card carries Go zero time', () => {
     const a = approval({ card: { ...approval().card, expires: '0001-01-01T00:00:00Z' }, expires_at: new Date(Date.now() + 5 * 60_000).toISOString() });
     render(ApprovalCard, { approval: a });

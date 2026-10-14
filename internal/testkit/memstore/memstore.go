@@ -224,6 +224,8 @@ type state struct {
 	secrets     map[secretKey]secretRow
 	dedup       map[dedupKey]time.Time
 	uploads     map[string]core.Upload
+	votes       map[voteKey]core.ApprovalVote
+	deploys     map[string]deployRow
 }
 
 func newState() state {
@@ -251,6 +253,8 @@ func newState() state {
 		secrets:     map[secretKey]secretRow{},
 		dedup:       map[dedupKey]time.Time{},
 		uploads:     map[string]core.Upload{},
+		votes:       map[voteKey]core.ApprovalVote{},
+		deploys:     map[string]deployRow{},
 	}
 }
 
@@ -287,6 +291,8 @@ func (st *state) clone() state {
 	c.secrets = maps.Clone(st.secrets)
 	c.dedup = maps.Clone(st.dedup)
 	c.uploads = maps.Clone(st.uploads)
+	c.votes = maps.Clone(st.votes)
+	c.deploys = maps.Clone(st.deploys)
 	return c
 }
 

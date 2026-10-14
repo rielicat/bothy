@@ -26,7 +26,11 @@ commands; `/compact` runs in the background and replies when done, and
 meta key `agent.refine.<session>`, which the runner reads). The hub
 delivers approval cards to the
 approver's DM (never a group), truncating cards that do not fit to Deny plus
-a web link, and edits them to the outcome.
+a web link, and edits them to the outcome. A multi-approver card (deploys)
+goes to every eligible approver's DM but never the requester's, shows
+"1 of 2 approvals", is edited after each `approval.voted`, and refuses the
+requester's allow press with a toast; the originating chat gets a waiting
+line.
 It also implements `Messenger`, `PreferredChat`, `DeepLink`, `Test` and the
 doctor check `channels.auth_failed`.
 

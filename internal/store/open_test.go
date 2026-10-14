@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -319,13 +320,18 @@ func TestFailedMigrationRollsBack(t *testing.T) {
 
 func TestLoadMigrations(t *testing.T) {
 	ms, err := loadMigrations(migrationsFS)
-	if err != nil || len(ms) < 3 || ms[0].name != "0001_init.sql" || ms[1].name != "0002_repos.sql" ||
-		ms[2].name != "0003_knowledge.sql" || ms[len(ms)-1].version != len(ms) {
-		names := make([]string, len(ms))
-		for i, m := range ms {
-			names[i] = m.name
-		}
+	names := make([]string, len(ms))
+	for i, m := range ms {
+		names[i] = m.name
+	}
+	want := []string{"0001_init.sql", "0002_repos.sql", "0003_knowledge.sql", "0004_approval_votes.sql"}
+	if err != nil || len(ms) < len(want) || !slices.Equal(names[:len(want)], want) {
 		t.Fatalf("embedded migrations = %v, %v", names, err)
+	}
+	for i, m := range ms {
+		if m.version != i+1 {
+			t.Fatalf("embedded migration %s has version %d, want %d", m.name, m.version, i+1)
+		}
 	}
 	bad := []fstest.MapFS{
 		{},

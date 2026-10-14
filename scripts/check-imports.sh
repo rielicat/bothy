@@ -29,6 +29,7 @@ owner() {
 	internal/httpapi/dto) echo dto ;;
 	internal/auth | internal/auth/* | internal/httpapi | internal/httpapi/* | internal/doctor | internal/doctor/* | internal/webui | internal/webui/*) echo M11 ;;
 	internal/github | internal/github/*) echo F4 ;; # v0.2 brief §4: stdlib, core and config only
+	internal/release | internal/release/*) echo release ;; # v0.2 F5
 	internal/core) echo core ;;
 	internal/config) echo config ;;
 	internal/events) echo events ;;
