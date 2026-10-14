@@ -21,6 +21,7 @@ const (
 	EvApprovalVoted     EventType = "approval.voted" // ApprovalData: a vote that did not resolve a multi-approver approval
 	EvReleaseDispatched EventType = "release.dispatched"
 	EvReleaseFinished   EventType = "release.finished"
+	EvInboxChanged      EventType = "inbox.changed" // a new unknown sender or group chat item; refetch GET /api/inbox
 	EvMessageCreated    EventType = "message.created"
 	EvSessionUpdated    EventType = "session.updated"
 	EvMemoryUpdated     EventType = "memory.updated"
@@ -138,6 +139,12 @@ type ReleaseFinishedData struct {
 	// in the repository's workflow file (show it verbatim, never as markup).
 	FailedStep string `json:"failed_step,omitempty"`
 }
+
+// InboxChangedData names the approvals-inbox item that appeared, e.g.
+// "sender:telegram:42" or "group:spc_…" (dto.InboxItem.ID).
+type InboxChangedData struct {
+	Item string `json:"item"`
+}
 type MessageData struct {
 	Message *Message `json:"message"`
 }
@@ -218,6 +225,7 @@ func (BannerData) eventData()           {}
 
 func (ReleaseDispatchedData) eventData() {}
 func (ReleaseFinishedData) eventData()   {}
+func (InboxChangedData) eventData()      {}
 
 type Filter struct {
 	Principals []PrincipalID // events for these principals

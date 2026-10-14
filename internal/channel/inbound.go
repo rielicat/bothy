@@ -189,7 +189,41 @@ func (h *Hub) unknownDM(ctx context.Context, a *adapter, in core.Inbound, ident 
 		return
 	}
 	h.replyAsync(in.Chat, "I'm a private assistant. Ask my owner to approve code "+escapeMD(notice.Code.Code)+".")
+	h.keepFirstText(ctx, a.name, in)
 	h.notifyUnknownSender(ctx, a.name, ident)
+	h.inboxChanged("sender:"+a.name+":"+in.SenderID, "")
+}
+
+const maxFirstText = 120
+
+// keepFirstText stores the start of a pending sender's first message for
+// the admins' inbox item, once. It is cleaned to one line and redacted; the
+// inbox shows it verbatim as the sender's words, and it never reaches a run.
+func (h *Hub) keepFirstText(ctx context.Context, channel string, in core.Inbound) {
+	ids := h.d.Store.Identities()
+	cur, err := ids.Get(ctx, channel, in.SenderID)
+	if err != nil || cur.Status != core.IdentityPending || cur.FirstText != "" {
+		return
+	}
+	cur.FirstText = truncateRunes(spaceTitle(h.redact(in.Text)), maxFirstText)
+	if cur.FirstText == "" {
+		return
+	}
+	if err := ids.Update(ctx, cur); err != nil {
+		h.log.Warn("channel: keeping an unknown sender's first words failed", "channel", channel, "err", err)
+	}
+}
+
+// inboxChanged tells admins' inboxes, and owner's when set, that an item
+// appeared.
+func (h *Hub) inboxChanged(item string, owner core.UserID) {
+	ps := []core.PrincipalID{""}
+	if owner != "" {
+		ps = append(ps, core.UserPrincipal(owner))
+	}
+	for _, p := range ps {
+		h.d.Bus.Publish(core.Event{Type: core.EvInboxChanged, Principal: p, Data: core.InboxChangedData{Item: item}})
+	}
 }
 
 func helloText(name string) string {
@@ -413,6 +447,7 @@ func (h *Hub) firstSighting(ctx context.Context, a *adapter, in core.Inbound, re
 		}
 		return
 	}
+	h.inboxChanged("group:"+string(sp.Principal), owner)
 	chat, ok := h.PreferredChat(ctx, owner)
 	if !ok {
 		return

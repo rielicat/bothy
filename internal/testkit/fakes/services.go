@@ -315,6 +315,7 @@ func (s *Skills) Rescan(context.Context) error { return nil }
 type MCP struct {
 	core.MCP
 	StatusV []core.MCPStatus
+	PinsV   map[string][]*core.MCPPin // by server
 
 	mu sync.Mutex
 }
@@ -327,9 +328,14 @@ func (m *MCP) Status() []core.MCPStatus {
 	return slices.Clone(m.StatusV)
 }
 
-func (m *MCP) Pins(context.Context, string) ([]*core.MCPPin, error) { return nil, nil }
-func (m *MCP) Reload(context.Context, string) error                 { return nil }
-func (m *MCP) Close() error                                         { return nil }
+func (m *MCP) Pins(_ context.Context, server string) ([]*core.MCPPin, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return slices.Clone(m.PinsV[server]), nil
+}
+
+func (m *MCP) Reload(context.Context, string) error { return nil }
+func (m *MCP) Close() error                         { return nil }
 
 // Scheduler keeps Schedules, Viewer-scoped like the real service (a schedule
 // of a principal outside the Viewer is core.ErrNotFound). Upsert assigns ids;
