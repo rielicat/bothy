@@ -21,7 +21,9 @@ markdown and autolinks, bare domains and IPv4 addresses, also when only
 rendering joins them, as in `evil\.com` or `evil**.**com`; the rules live in
 `core.NeutralizeMarkdown`, shared with the agent's sink). Forwarded messages
 (`Inbound.Forwarded`) are untrusted whoever forwards them and never run as
-commands; `/compact` runs in the background and replies when done. The hub
+commands; `/compact` runs in the background and replies when done, and
+`/refine on|off|default` sets the conversation's refine mode (the session's
+meta key `agent.refine.<session>`, which the runner reads). The hub
 delivers approval cards to the
 approver's DM (never a group), truncating cards that do not fit to Deny plus
 a web link, and edits them to the outcome.
