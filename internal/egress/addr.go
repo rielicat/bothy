@@ -37,10 +37,17 @@ var blocklist = func() []blockedPrefix {
 	return out
 }()
 
+// metadataAddrs stay blocked even with AllowPrivate. The ECS and EKS
+// container credential endpoints are listed too: they hand out the task's
+// role credentials to anything that can reach them, and only
+// CredentialsClient may.
 var metadataAddrs = []netip.Addr{
 	netip.MustParseAddr("169.254.169.254"),
 	netip.MustParseAddr("fd00:ec2::254"),
 	netip.MustParseAddr("100.100.100.200"),
+	netip.MustParseAddr("169.254.170.2"),
+	netip.MustParseAddr("169.254.170.23"),
+	netip.MustParseAddr("fd00:ec2::23"),
 }
 
 var (
