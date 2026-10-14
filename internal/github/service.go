@@ -53,6 +53,10 @@ type Service struct {
 
 	locks keyedMutex // one checkout or PR per workspace repository at a time
 	tools []core.Tool
+
+	// findFor and findEvery bound the search for the run a dispatch started
+	// when GitHub does not return its id.
+	findFor, findEvery time.Duration
 }
 
 type connSource struct {
@@ -74,6 +78,7 @@ func New(d Deps) (*Service, error) {
 		cfg: d.Config, store: d.Store, vault: d.Vault, egress: d.Egress, bus: d.Bus, audit: d.Audit,
 		dataDir: d.DataDir, clock: d.Clock, log: d.Log,
 		sources: map[string]*connSource{},
+		findFor: 30 * time.Second, findEvery: 2 * time.Second,
 	}
 	s.tools = []core.Tool{
 		&repoList{s}, &repoCheckout{s}, &repoChanges{s}, &repoOpenPR{s},

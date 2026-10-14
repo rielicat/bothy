@@ -87,6 +87,8 @@ type Run struct {
 	Status     string
 	Conclusion string
 	Title      string
+	HeadSHA    string    // "" keeps the fixture's
+	CreatedAt  time.Time // zero keeps the fixture's
 }
 
 func (r *Repo) FullName() string { return r.Owner + "/" + r.Name }
@@ -261,6 +263,17 @@ func (r *Repo) AddRun(run Run) int64 {
 	run.ID = r.srv.nextID
 	r.runs = append(r.runs, &run)
 	return run.ID
+}
+
+// SetRun moves a workflow run to status and conclusion ("" while running).
+func (r *Repo) SetRun(id int64, status, conclusion string) {
+	r.srv.mu.Lock()
+	defer r.srv.mu.Unlock()
+	for _, run := range r.runs {
+		if run.ID == id {
+			run.Status, run.Conclusion = status, conclusion
+		}
+	}
 }
 
 // Pulls returns the repository's pull requests.

@@ -30,14 +30,35 @@ type Deps struct {
 	Deploys core.ReleaseRepo
 	Vault   SecretResolver
 	HTTP    func(core.SystemDest) *http.Client // Egress.SystemClient
-	// Dispatcher defaults to the built-in GitHub client over Vault and HTTP.
+	// Dispatcher defaults to the built-in GitHub client over Vault and HTTP
+	// (releases.github_token). It serves the repositories Connections does not.
 	Dispatcher core.WorkflowDispatcher
-	Messenger  core.Messenger // posts outcomes to chats; nil = sessions only
-	Bus        core.Bus
-	Audit      core.Auditor
-	Redactor   core.Redactor
-	Clock      core.Clock
-	Log        *slog.Logger
+	// Connections dispatches for the repositories allowlisted on a GitHub
+	// connection (the GitHub module); nil leaves every repository to
+	// Dispatcher.
+	Connections RepoDispatcher
+	Messenger   core.Messenger // posts outcomes to chats; nil = sessions only
+	Bus         core.Bus
+	Audit       core.Auditor
+	Redactor    core.Redactor
+	Clock       core.Clock
+	Log         *slog.Logger
+}
+
+// RepoDispatcher is a WorkflowDispatcher for the repositories it serves.
+type RepoDispatcher interface {
+	core.WorkflowDispatcher
+	Serves(ctx context.Context, repo string) bool
+}
+
+// dispatcher picks who dispatches and follows repo's runs. The choice is
+// made per call, so a repository that joins or leaves a connection's
+// allowlist moves with it.
+func (s *Service) dispatcher(ctx context.Context, repo string) core.WorkflowDispatcher {
+	if s.d.Connections != nil && s.d.Connections.Serves(ctx, repo) {
+		return s.d.Connections
+	}
+	return s.d.Dispatcher
 }
 
 // Service provides the release tools and follows dispatched runs.
@@ -135,7 +156,7 @@ func (s *Service) check(ctx context.Context, d *core.Deploy) {
 		s.finish(ctx, d, core.DeployUnknown, "", "stopped following the run after "+s.followFor().String())
 		return
 	}
-	run, err := s.d.Dispatcher.RunStatus(ctx, d.Repo, d.WorkflowRun)
+	run, err := s.dispatcher(ctx, d.Repo).RunStatus(ctx, d.Repo, d.WorkflowRun)
 	switch {
 	case errors.Is(err, core.ErrNotFound):
 		s.finish(ctx, d, core.DeployUnknown, "", "GitHub no longer knows the workflow run")

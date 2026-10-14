@@ -19,7 +19,10 @@ park while an admin tightens them), then dispatches the
 workflow and records a `core.Deploy` (also when GitHub refuses, as failed).
 The dispatch and the record survive a cancelled tool call.
 
-**GitHub** is `GitHub`, a `core.WorkflowDispatcher` over the REST API at
+**GitHub.** A deploy of a repository on a GitHub connection's allowlist is
+dispatched and followed through that connection (`Deps.Connections`, the
+GitHub module's `core.WorkflowDispatcher`), chosen per call. Every other
+repository uses `GitHub`, a `core.WorkflowDispatcher` over the REST API at
 `releases.github_api` (locked; https, or http only for a loopback address;
 private addresses only for a non-default host) with the token from
 `releases.github_token`, resolved from the vault on every call and sent only
@@ -43,5 +46,6 @@ to the originating chat, and audited as `release.finish`
 approves and their last three deploys visible to the caller, with the live
 state of up to three followed runs.
 
-Check: `releases.github_token` (environments configured, token missing).
+Check: `releases.github_token` (an environment whose repository no
+connection serves, and the token is missing).
 `actionstest` fakes the Actions endpoints for unit and e2e tests.

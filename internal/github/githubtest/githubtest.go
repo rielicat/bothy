@@ -43,6 +43,9 @@ type Server struct {
 	// TarballLocation, when set, replaces the codeload URL the tarball
 	// endpoint redirects to.
 	TarballLocation string
+	// DispatchNoDetails answers workflow_dispatch with 204 and no run id, as
+	// servers without return_run_details do.
+	DispatchNoDetails bool
 
 	srv *httptest.Server
 
@@ -53,6 +56,7 @@ type Server struct {
 	faults    []*fault
 	tokens    map[string]minted
 	downloads map[string]string // download token -> "owner/repo@sha"
+	dispatch  []Dispatch
 	rateLimit int
 	remaining int
 	reset     time.Time
@@ -79,6 +83,22 @@ type Installation struct {
 type minted struct {
 	inst    Installation
 	expires time.Time
+}
+
+// Dispatch is a workflow_dispatch the fake accepted.
+type Dispatch struct {
+	Repo, Workflow, Ref string
+	Inputs              map[string]string
+	ReturnRunDetails    bool
+	RunID               int64
+	Auth                string // as in Request
+}
+
+// Dispatches returns the accepted workflow_dispatch calls, oldest first.
+func (s *Server) Dispatches() []Dispatch {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.dispatch)
 }
 
 // Request is what the fake recorded about one call.
@@ -1028,7 +1048,48 @@ func (c *reqCtx) runJSON(r *Repo, run *Run, template map[string]any) map[string]
 	}
 	j["path"] = ".github/workflows/" + run.Workflow + "@" + run.Branch
 	j["html_url"] = "https://github.com/" + r.FullName() + "/actions/runs/" + strconv.FormatInt(run.ID, 10)
+	if run.HeadSHA != "" {
+		j["head_sha"] = run.HeadSHA
+	}
+	if !run.CreatedAt.IsZero() {
+		j["created_at"], j["updated_at"] = run.CreatedAt.UTC().Format(time.RFC3339), run.CreatedAt.UTC().Format(time.RFC3339)
+	}
 	return j
+}
+
+// dispatch starts a queued workflow_dispatch run of workflow on the ref.
+func (c *reqCtx) dispatch(r *Repo, workflow string) {
+	var in struct {
+		Ref              string            `json:"ref"`
+		Inputs           map[string]string `json:"inputs"`
+		ReturnRunDetails bool              `json:"return_run_details"`
+	}
+	if !c.decode(&in) {
+		return
+	}
+	if in.Ref == "" {
+		c.error(http.StatusUnprocessableEntity, "Invalid request.\n\n\"ref\" wasn't supplied.")
+		return
+	}
+	sha := r.resolve(in.Ref)
+	if sha == "" {
+		c.error(http.StatusUnprocessableEntity, "No ref found for: "+in.Ref)
+		return
+	}
+	c.s.nextID++
+	run := &Run{ID: c.s.nextID, Name: workflow, Workflow: workflow, Branch: in.Ref, Event: "workflow_dispatch",
+		Status: "queued", HeadSHA: sha, CreatedAt: time.Now().UTC()}
+	r.runs = append(r.runs, run)
+	c.s.dispatch = append(c.s.dispatch, Dispatch{Repo: r.FullName(), Workflow: workflow, Ref: in.Ref, Inputs: in.Inputs,
+		ReturnRunDetails: in.ReturnRunDetails, RunID: run.ID, Auth: c.auth})
+	if in.ReturnRunDetails && !c.s.DispatchNoDetails {
+		id := strconv.FormatInt(run.ID, 10)
+		c.json(http.StatusOK, map[string]any{"workflow_run_id": run.ID,
+			"run_url":  c.s.URL + "/repos/" + r.FullName() + "/actions/runs/" + id,
+			"html_url": "https://github.com/" + r.FullName() + "/actions/runs/" + id})
+		return
+	}
+	c.w.WriteHeader(http.StatusNoContent)
 }
 
 func (c *reqCtx) actions(r *Repo, seg []string) {
@@ -1040,6 +1101,7 @@ func (c *reqCtx) actions(r *Repo, seg []string) {
 			switch st := q.Get("status"); {
 			case workflow != "" && run.Workflow != workflow,
 				q.Get("branch") != "" && run.Branch != q.Get("branch"),
+				q.Get("event") != "" && cmp.Or(run.Event, "push") != q.Get("event"),
 				st != "" && run.Status != st && run.Conclusion != st:
 				continue
 			}
@@ -1055,6 +1117,8 @@ func (c *reqCtx) actions(r *Repo, seg []string) {
 		c.json(http.StatusOK, page)
 	}
 	switch {
+	case c.r.Method == http.MethodPost && len(seg) == 3 && seg[0] == "workflows" && seg[2] == "dispatches":
+		c.dispatch(r, seg[1])
 	case c.r.Method != http.MethodGet:
 		c.error(http.StatusNotFound, "Not Found")
 	case len(seg) == 1 && seg[0] == "runs":

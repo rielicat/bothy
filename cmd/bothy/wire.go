@@ -233,8 +233,10 @@ func (a *app) buildRest(ctx context.Context) error {
 		Bus: a.bus, Audit: a.audit, Clock: a.clock, Log: a.log}); err != nil {
 		return err
 	}
+	// Deploys of repositories on a GitHub connection's allowlist use that
+	// connection; releases.github_token serves the others.
 	if a.release, err = release.New(release.Deps{Config: a.cfg, Store: a.db, Deploys: a.db.Releases(), Vault: a.vault,
-		HTTP: a.egress.SystemClient, Messenger: a.hub, Bus: a.bus, Audit: a.audit, Redactor: a.redactor, Clock: a.clock, Log: a.log}); err != nil {
+		HTTP: a.egress.SystemClient, Connections: a.github, Messenger: a.hub, Bus: a.bus, Audit: a.audit, Redactor: a.redactor, Clock: a.clock, Log: a.log}); err != nil {
 		return err
 	}
 	// Late tool registration: every provider's tools, then builtins. Snapshots are

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/github/githubtest"
 	"github.com/rielicat/bothy/internal/httpapi/dto"
 	"github.com/rielicat/bothy/internal/release/actionstest"
 	"github.com/rielicat/bothy/internal/testkit/mockllm"
@@ -172,5 +173,70 @@ func waitDeploy(t *testing.T, u *pltUser, st core.DeployStatus) *core.Deploy {
 			t.Fatalf("no deploy with status %s within 15s: %s", st, b)
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// TestReleaseThroughGitHubConnection: with acme/web on a GitHub connection's
+// allowlist and no releases.github_token, an approved deploy dispatches the
+// workflow through the connection's token and its outcome is followed the
+// same way.
+func TestReleaseThroughGitHubConnection(t *testing.T) {
+	gh := githubtest.New()
+	t.Cleanup(gh.Close)
+	repo := gh.AddRepo("acme", "web", true, map[string]string{"README.md": "# web\n"})
+	llm := pltLLM(t,
+		mockllm.Rule{MatchUser: `RELGH-`, MatchToolResult: `.`, Text: []string{"Deploy handled."}},
+		mockllm.Rule{MatchUser: `RELGH-DEPLOY`, ToolCalls: []core.ToolCall{pltCall("call_rel", "release_deploy", `{"environment":"staging","ref":"main"}`)}},
+	)
+	g := Start(t, Options{Config: pltYAML(llm.URL(), nil, fmt.Sprintf(`mode: multi
+github:
+  api_base: %q
+releases:
+  poll_interval: 200ms
+  environments:
+    - name: staging
+      repo: acme/web
+      workflow: deploy.yml
+      ref_pattern: main
+      approvers: [admin]
+      required: 1
+`, gh.URL))})
+	owner := pltOwner(t, g)
+	alice := relAdmin(t, owner, "alice")
+	req := dto.GitHubConnectReq{Auth: core.GitHubPAT, Token: gh.PAT, Repos: []string{"acme/web"}}
+	if code := owner.JSON(t, http.MethodPost, "/api/github/connections", req, nil); code != http.StatusOK {
+		t.Fatalf("connect = %d", code)
+	}
+	var doc dto.DoctorReport
+	if code := owner.JSON(t, http.MethodGet, "/api/doctor", nil, &doc); code != http.StatusOK {
+		t.Fatalf("doctor = %d", code)
+	}
+	if i := slices.IndexFunc(doc.Findings, func(f core.Finding) bool { return f.ID == "releases.github_token" }); i >= 0 {
+		t.Fatalf("doctor wants a release token although the repository is connected: %+v", doc.Findings[i])
+	}
+
+	sess := owner.NewSession(t)
+	run := owner.Send(t, sess.ID, "RELGH-DEPLOY ship main to staging")
+	a := owner.WaitApproval(t, run, core.ApprovalPending)
+	if a.Decision.Rule != "floor:release" || a.Approver.Needed() != 1 {
+		t.Fatalf("deploy approval = %+v", a.Decision)
+	}
+	if got := alice.Resolve(t, a.ID, core.AllowOnce); got.Status != core.ApprovalAllowed {
+		t.Fatalf("after alice = %+v", got)
+	}
+	if d := owner.Finished(t, run); d.Run.Status != core.RunDone || len(d.ToolCalls) != 1 || d.ToolCalls[0].Status != core.TCOK {
+		t.Fatalf("run = %+v tool calls %+v", d.Run, d.ToolCalls)
+	}
+	ds := gh.Dispatches()
+	if len(ds) != 1 || ds[0].Repo != "acme/web" || ds[0].Workflow != "deploy.yml" || ds[0].Ref != "main" || ds[0].Auth != "pat" {
+		t.Fatalf("dispatches = %+v", ds)
+	}
+	repo.SetRun(ds[0].RunID, "completed", "success")
+	dep := waitDeploy(t, owner, core.DeploySucceeded)
+	if dep.WorkflowRun != ds[0].RunID || dep.RunURL != fmt.Sprintf("%s/acme/web/actions/runs/%d", gh.URL, ds[0].RunID) {
+		t.Fatalf("deploy = %+v", dep)
+	}
+	if strings.Contains(g.Logs(), gh.PAT) {
+		t.Fatal("the PAT is in the gateway logs")
 	}
 }

@@ -17,17 +17,26 @@ func (tokenCheck) ID() string { return "releases.github_token" }
 func (tokenCheck) Fix(context.Context, core.Finding) error { return core.ErrNotImplemented }
 
 // Run reports configured environments whose deploys cannot work for lack of
-// a GitHub token. It resolves the reference only; nothing is sent to GitHub.
+// a GitHub token: their repository is on no GitHub connection's allowlist
+// and releases.github_token does not resolve. It resolves the reference
+// only; nothing is sent to GitHub.
 func (c tokenCheck) Run(ctx context.Context) []core.Finding {
 	r := c.s.d.Config.Current().Releases
-	if len(r.Environments) == 0 {
+	var uncovered []string
+	for _, e := range r.Environments {
+		if c.s.d.Connections == nil || !c.s.d.Connections.Serves(ctx, e.Repo) {
+			uncovered = append(uncovered, e.Name)
+		}
+	}
+	if len(uncovered) == 0 {
 		return nil
 	}
 	f := core.Finding{ID: "releases.github_token", Area: "releases", Severity: core.SevMedium,
 		Title: "Deploys cannot start: no GitHub token", Fix: "/settings/vault"}
+	which := "The repositories of " + strings.Join(uncovered, ", ") + " are on no GitHub connection's allowlist"
 	switch {
 	case strings.TrimSpace(r.GitHubToken) == "":
-		f.Detail = "releases.environments is set but releases.github_token is empty."
+		f.Detail = which + " and releases.github_token is empty. Connect them in Settings → Connections → GitHub, or set a token."
 		return []core.Finding{f}
 	case c.s.d.Vault == nil:
 		return nil
@@ -35,7 +44,7 @@ func (c tokenCheck) Run(ctx context.Context) []core.Finding {
 	sec, err := c.s.d.Vault.Resolve(ctx, r.GitHubToken, "", "doctor:releases")
 	if err != nil || strings.TrimSpace(sec.Reveal()) == "" {
 		name := strings.TrimPrefix(r.GitHubToken, "secret:")
-		f.Detail = "releases.github_token refers to the secret " + name + ", which is not in the vault. Add a GitHub token with Actions read and write on the release repositories."
+		f.Detail = which + ", and releases.github_token refers to the secret " + name + ", which is not in the vault. Connect the repositories in Settings → Connections → GitHub, or add a GitHub token with Actions read and write on them."
 		return []core.Finding{f}
 	}
 	return nil

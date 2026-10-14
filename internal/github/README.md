@@ -27,5 +27,10 @@ branch and the pull request (deleting the branch if the PR is refused);
 `github_issues`, `github_pr`, `github_runs` (read) and `github_comment`
 (external_send). Content tools and `repo_checkout` taint the session private
 and untrusted and mark their results untrusted, so they are spotlighted and
-the trifecta floor applies. `githubtest` is a fake GitHub API built from the examples in GitHub's
-REST description.
+the trifecta floor applies. The service is also the `core.WorkflowDispatcher`
+the release module uses for allowlisted repositories (`Serves`): Dispatch
+sends `workflow_dispatch` with `return_run_details` (asking again without it
+after a 422 that names it, finding the run among recent `workflow_dispatch`
+runs after a 204), and runs keep only checked fields with links built from
+the web base. `githubtest` is a fake GitHub API built from the examples in
+GitHub's REST description, including `workflow_dispatch`.

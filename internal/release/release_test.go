@@ -635,3 +635,78 @@ func TestDeployRecordFailure(t *testing.T) {
 		t.Fatalf("Exec = %+v, %v", res, err)
 	}
 }
+
+// connected is a RepoDispatcher serving one repository, as the GitHub
+// module's connections do.
+type connected struct {
+	repo       string
+	dispatches []core.WorkflowDispatch
+	status     string
+	conclusion string
+}
+
+func (c *connected) Serves(_ context.Context, repo string) bool {
+	return strings.EqualFold(repo, c.repo)
+}
+
+func (c *connected) Dispatch(_ context.Context, d core.WorkflowDispatch) (*core.WorkflowRun, error) {
+	c.dispatches = append(c.dispatches, d)
+	return &core.WorkflowRun{ID: 77, Repo: d.Repo, Status: "queued", URL: "https://github.com/acme/web/actions/runs/77"}, nil
+}
+
+func (c *connected) RunStatus(_ context.Context, repo string, id int64) (*core.WorkflowRun, error) {
+	if id != 77 {
+		return nil, core.ErrNotFound
+	}
+	return &core.WorkflowRun{ID: id, Repo: repo, Status: c.status, Conclusion: c.conclusion}, nil
+}
+
+func TestConnectionsDispatchTheirRepositories(t *testing.T) {
+	f := newFixture(t)
+	conn := &connected{repo: "Acme/Web", status: "in_progress"}
+	f.svc.d.Connections = conn
+	env := f.env()
+	a := f.plan(env, `{"environment":"staging"}`)
+	f.approve(env, a, core.ApprovalAllowed, f.alice, f.bob)
+	if res, err := f.tool(deployName).Exec(f.ctx, env, a); err != nil || res.IsError {
+		t.Fatalf("Exec = %+v, %v", res, err)
+	}
+	if len(conn.dispatches) != 1 || conn.dispatches[0].Inputs["target"] != "staging" || len(f.gh.Dispatches()) != 0 {
+		t.Fatalf("connection dispatches %+v, token client dispatches %+v", conn.dispatches, f.gh.Dispatches())
+	}
+	d := f.deploys()[0]
+	if d.WorkflowRun != 77 || d.RunURL != "https://github.com/acme/web/actions/runs/77" {
+		t.Fatalf("deploy = %+v", d)
+	}
+	f.svc.poll(f.ctx)
+	if d = f.deploys()[0]; d.Status != core.DeployRunning {
+		t.Fatalf("deploy after the first poll = %+v", d)
+	}
+	conn.status, conn.conclusion = "completed", "success"
+	f.svc.poll(f.ctx)
+	if d = f.deploys()[0]; d.Status != core.DeploySucceeded {
+		t.Fatalf("deploy after the run finished = %+v", d)
+	}
+
+	// Without a token, the doctor only minds environments no connection serves.
+	f.svc.d.Vault = fakes.NewVault(nil)
+	if got := f.svc.Checks()[0].Run(f.ctx); len(got) != 0 {
+		t.Fatalf("findings with every repository connected = %+v", got)
+	}
+	conn.repo = "acme/other"
+	if got := f.svc.Checks()[0].Run(f.ctx); len(got) != 1 || !strings.Contains(got[0].Detail, "staging") {
+		t.Fatalf("findings with staging unconnected = %+v", got)
+	}
+
+	// A repository no connection serves goes to releases.github_token.
+	f.svc.d.Vault = fakes.NewVault(map[string]string{"github_token": testToken})
+	env = f.env()
+	a = f.plan(env, `{"environment":"staging"}`)
+	f.approve(env, a, core.ApprovalAllowed, f.alice, f.bob)
+	if res, err := f.tool(deployName).Exec(f.ctx, env, a); err != nil || res.IsError {
+		t.Fatalf("Exec = %+v, %v", res, err)
+	}
+	if len(conn.dispatches) != 1 || len(f.gh.Dispatches()) != 1 {
+		t.Fatalf("connection dispatches %+v, token client dispatches %+v", conn.dispatches, f.gh.Dispatches())
+	}
+}
