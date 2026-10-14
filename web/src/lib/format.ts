@@ -73,7 +73,7 @@ export function when(t: string | undefined | null): string {
 
 export function clock(t: string | undefined | null): string {
   const d = date(t);
-  return d ? d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '';
+  return d ? d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '';
 }
 
 export function countdown(t: string | undefined | null, now = Date.now()): string {

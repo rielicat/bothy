@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { lineDiff } from './diff';
-import { bytes, countdown, duration, estimate, expiresIn, fullTime, ms, money, parseGoDuration, plural, prettyGoDuration, relTime, tokens, usd } from './format';
+import { bytes, clock, countdown, duration, estimate, expiresIn, fullTime, ms, money, parseGoDuration, plural, prettyGoDuration, relTime, tokens, usd } from './format';
 
 describe('format', () => {
   it('formats micro-dollars', () => {
@@ -147,6 +147,14 @@ describe('format (v0.2)', () => {
     expect(plural(3, 'file')).toBe('3 files');
     expect(plural(0, 'file')).toBe('0 files');
     expect(plural(1204, 'entry', 'entries', 'en-GB')).toBe('1,204 entries');
+  });
+});
+
+describe('clock', () => {
+  it('writes the hour the way the rest of the app does, without a leading zero in 12-hour locales', () => {
+    const t = new Date(2026, 9, 14, 9, 27).toISOString();
+    expect(clock(t)).toBe(new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }));
+    expect(clock('')).toBe('');
   });
 });
 
