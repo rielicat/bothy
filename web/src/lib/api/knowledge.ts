@@ -1,0 +1,251 @@
+// Knowledge API (docs/design/ui.md §9, server need S18). The types mirror
+// internal/core/knowledge.go; they are local until types.gen.ts carries them
+// (C10 swaps them for the generated ones). Fields marked "S18" are what the
+// screens need beyond today's server; every one of them is optional and the
+// screens fall back when it is missing.
+import { api, ApiError, qs } from './client';
+
+export type IndexStatus = 'queued' | 'indexing' | 'ready' | 'error';
+
+export interface NotesState {
+  status: 'none' | 'drafting' | 'ready' | 'error';
+  error?: string;
+  untrusted: boolean;
+  updated_at: string;
+}
+
+export interface KnowledgeRepo {
+  id: number;
+  repo: string;
+  source: string;
+  sha: string;
+  status: IndexStatus;
+  error?: string;
+  files: number;
+  chunks: number;
+  bytes: number;
+  skipped: number;
+  truncated: boolean;
+  indexed_at: string;
+  notes: NotesState;
+  created_at: string;
+  updated_at: string;
+  /** S18: files read so far and the total expected, while reading. */
+  progress?: { done: number; total: number };
+  /** S18: the default branch moved on since the last read. */
+  stale?: boolean;
+  /** S18: the first sentence of the notes, for the project list. */
+  summary?: string;
+}
+
+export interface KnowledgeNotes {
+  repo_id: number;
+  repo: string;
+  content: string;
+  etag: string;
+  cap_bytes: number;
+  status: string;
+  untrusted: boolean;
+  updated_at: string;
+}
+
+/** S18: one change to a project's notes. */
+export interface NotesChange {
+  id: number;
+  /** "bothy" or a person. */
+  actor: 'bothy' | 'user';
+  name?: string;
+  user_id?: string;
+  before: string;
+  after: string;
+  at: string;
+  chat?: { id: string; title: string };
+}
+
+export interface KnowledgeHit {
+  repo_id: number;
+  repo: string;
+  sha: string;
+  path: string;
+  start_line: number;
+  end_line: number;
+  kind: string;
+  lang: string;
+  title: string;
+  snippet: string;
+  citation: string;
+  rank: number;
+  /** S18: where the hit came from; the server searches code only today. */
+  source?: 'code' | 'notes';
+}
+
+const repoPath = (id: number) => `/api/knowledge/repos/${id}`;
+
+export const knowledge = {
+  repos: async () => (await api.get<{ items: KnowledgeRepo[] | null }>('/api/knowledge/repos')).items ?? [],
+  notes: (id: number) => api.get<KnowledgeNotes>(`${repoPath(id)}/notes`),
+  saveNotes: (id: number, content: string, etag: string) => api.put<KnowledgeNotes>(`${repoPath(id)}/notes`, { content }, { 'If-Match': `"${etag}"` }),
+  /** S18. Null when the server has no notes history yet, so the screens hide it. */
+  history: async (id: number): Promise<NotesChange[] | null> => {
+    try {
+      return (await api.get<{ items: NotesChange[] | null }>(`${repoPath(id)}/notes/history`)).items ?? [];
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 405 || e.status === 501)) return null;
+      throw e;
+    }
+  },
+  reindex: (id: number) => api.post<KnowledgeRepo>(`${repoPath(id)}/reindex`),
+  /** S18: keep_notes leaves the notes in place when the repository is dropped. */
+  stop: (id: number) => api.del(`${repoPath(id)}?keep_notes=1`),
+  search: async (q: string, opts: { repo?: number; limit?: number } = {}) =>
+    (await api.get<{ items: KnowledgeHit[] | null }>(`/api/knowledge/search${qs({ q, repo_id: opts.repo, limit: opts.limit })}`)).items ?? [],
+};
+
+/**
+ * What Knowledge needs to know about GitHub for its empty states (§9.1):
+ * whether it is connected (admins only; null for members, who can't ask)
+ * and which repositories Bothy may read. The GitHub API itself is C8's.
+ */
+export async function githubState(admin: boolean): Promise<{ connected: boolean | null; allowed: string[] }> {
+  const [conns, repos] = await Promise.all([
+    admin ? api.get<unknown[] | null>('/api/github/connections').catch(() => []) : Promise.resolve(null),
+    api.get<{ owner: string; name: string; allowed: boolean }[] | null>('/api/github/repos').catch(() => []),
+  ]);
+  return {
+    connected: conns === null ? null : (conns ?? []).length > 0,
+    allowed: (repos ?? []).filter((r) => r.allowed).map((r) => `${r.owner}/${r.name}`.toLowerCase()),
+  };
+}
+
+/** A repository Bothy may read but hasn't indexed yet, shown as waiting to be read. */
+export function queuedRepo(repo: string): KnowledgeRepo {
+  const zero = '0001-01-01T00:00:00Z';
+  return {
+    id: 0,
+    repo,
+    source: 'github',
+    sha: '',
+    status: 'queued',
+    files: 0,
+    chunks: 0,
+    bytes: 0,
+    skipped: 0,
+    truncated: false,
+    indexed_at: zero,
+    notes: { status: 'none', untrusted: false, updated_at: zero },
+    created_at: zero,
+    updated_at: zero,
+  };
+}
+
+export const isConflict = (e: unknown) => e instanceof ApiError && (e.status === 409 || e.status === 412);
+
+/** The server has no Knowledge API yet (S18): the screens show the empty state, not an error. */
+export const isUnavailable = (e: unknown) => e instanceof ApiError && (e.status === 404 || e.status === 501 || e.status === 503);
+
+/** The repositories Bothy reads, or none when the server can't say. */
+export const readRepos = () => knowledge.repos().catch((e) => (isUnavailable(e) ? [] : Promise.reject(e)));
+
+/** What the project list says about a repository (§9.1). */
+export type RepoState = 'ready' | 'reading' | 'stale' | 'failed';
+
+export function repoState(r: Pick<KnowledgeRepo, 'status' | 'stale'>): RepoState {
+  if (r.status === 'error') return 'failed';
+  if (r.status === 'queued' || r.status === 'indexing') return 'reading';
+  return r.stale ? 'stale' : 'ready';
+}
+
+/** Whole percent read, or null when the server doesn't say. */
+export function progressPct(r: Pick<KnowledgeRepo, 'progress'>): number | null {
+  const p = r.progress;
+  if (!p || p.total <= 0) return null;
+  return Math.min(99, Math.floor((p.done / p.total) * 100));
+}
+
+/** The plain reason a read failed; the raw message stays behind Details. */
+export function failReason(r: Pick<KnowledgeRepo, 'error' | 'truncated'>): string {
+  const e = (r.error ?? '').toLowerCase();
+  if (r.truncated || /too (many|large)|file (count|cap)|limit/.test(e)) return 'Too large to read (more than 50,000 files).';
+  if (/\b(401|403|404)\b|not found|no access|access denied|forbidden|bad credentials/.test(e)) return 'GitHub says Bothy no longer has access to this repository.';
+  if (/timeout|unreachable|connection|dial/.test(e)) return "Bothy couldn't reach GitHub. It will try again later.";
+  return 'Something went wrong while reading it.';
+}
+
+/** A Markdown snippet as one line of plain text: no list markers, emphasis or code ticks. */
+export function plainText(md: string): string {
+  return md
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/(^|\s)([-*+]|\d+\.|#+|>)\s+/g, '$1')
+    .replace(/[`*_~]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** The first sentence of a Markdown document, as plain text. */
+export function firstSentence(md: string, max = 160): string {
+  const lines = md
+    .replace(/^---\n[\s\S]*?\n---\n/, '')
+    .replace(/```[\s\S]*?```/g, '')
+    .split('\n')
+    .map((l) => l.trim());
+  const para: string[] = [];
+  for (const l of lines) {
+    if (!l || /^(#|>|\||[-*_]{3,}$)/.test(l)) {
+      if (para.length) break;
+      continue;
+    }
+    para.push(l.replace(/^([-*+]|\d+\.)\s+/, ''));
+  }
+  const text = para
+    .join(' ')
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/[`*_~]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const m = /^.+?[.!?](?=\s|$)/.exec(text);
+  const s = m ? m[0] : text;
+  return s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s;
+}
+
+export const byteLength = (s: string) => new TextEncoder().encode(s).length;
+
+/** 'near' above 80 % of the cap (§9.2, §9.4), 'over' past it. */
+export function fullness(content: string, cap: number): 'ok' | 'near' | 'over' {
+  if (!cap) return 'ok';
+  const n = byteLength(content);
+  if (n > cap) return 'over';
+  return n > cap * 0.8 ? 'near' : 'ok';
+}
+
+/** The words a search highlights: two characters or more, without duplicates. */
+export function queryWords(q: string): string[] {
+  return [...new Set(q.toLowerCase().split(/[^\p{L}\p{N}_]+/u).filter((w) => w.length >= 2))];
+}
+
+export type Mark = { text: string; hit: boolean };
+
+/** Splits text into plain and matching pieces, case-insensitively, for <mark>. */
+export function marks(text: string, words: string[]): Mark[] {
+  if (!words.length || !text) return [{ text, hit: false }];
+  const re = new RegExp(`(${words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'giu');
+  return text
+    .split(re)
+    .filter((t) => t !== '')
+    .map((t) => ({ text: t, hit: words.includes(t.toLowerCase()) }));
+}
+
+/** "line 10" or "lines 10–42", never "#L10-L42" (§9.3). */
+export function linesLabel(a: number, b: number): string {
+  return b > a ? `lines ${a}–${b}` : `line ${a}`;
+}
+
+/** A link to GitHub: the repository, or a file at a commit with its lines. */
+export function githubUrl(repo: string, at?: { sha: string; path: string; start: number; end: number }): string {
+  const base = `https://github.com/${repo}`;
+  if (!at) return base;
+  const path = at.path.split('/').map(encodeURIComponent).join('/');
+  return `${base}/blob/${at.sha || 'HEAD'}/${path}#L${at.start}${at.end > at.start ? `-L${at.end}` : ''}`;
+}
+
+/** Splits "owner/name"; the route is /knowledge/projects/:owner/:repo. */
+export const projectHref = (repo: string) => `/knowledge/projects/${repo.split('/').map(encodeURIComponent).join('/')}`;

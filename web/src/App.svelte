@@ -11,11 +11,13 @@
   import Audit from './screens/Audit.svelte';
   import ChangePassword from './screens/ChangePassword.svelte';
   import Chat from './screens/chat/Chat.svelte';
-  import Knowledge from './screens/knowledge/Knowledge.svelte';
   import KnowledgeSearch from './screens/knowledge/KnowledgeSearch.svelte';
+  import Memory from './screens/knowledge/Memory.svelte';
   import ProjectNotes from './screens/knowledge/ProjectNotes.svelte';
+  import Projects from './screens/knowledge/Projects.svelte';
+  import SkillView from './screens/knowledge/SkillView.svelte';
+  import Skills from './screens/knowledge/Skills.svelte';
   import Login from './screens/Login.svelte';
-  import Memory from './screens/Memory.svelte';
   import RunTrace from './screens/RunTrace.svelte';
   import ScheduleEdit from './screens/ScheduleEdit.svelte';
   import Schedules from './screens/Schedules.svelte';
@@ -40,9 +42,11 @@
     '/chat/:id': Chat,
     '/approvals': Approvals,
     '/approvals/:id': Approvals,
-    '/knowledge': Knowledge,
+    '/knowledge': Projects,
     '/knowledge/search': KnowledgeSearch,
     '/knowledge/memory': Memory,
+    '/knowledge/skills': Skills,
+    '/knowledge/skills/:name': SkillView,
     '/knowledge/projects/:owner/:repo': ProjectNotes,
     '/activity': Tasks,
     '/activity/tasks/:id': RunTrace,
@@ -59,9 +63,6 @@
     if (!m) return null;
     const p = m.params;
     switch (m.pattern) {
-      case '/knowledge/skills':
-      case '/knowledge/skills/:name':
-        return { c: Settings, params: { ...p, page: 'skills' } };
       case '/settings/:group':
         return { c: Settings, params: { ...p, page: legacySettingsPage(p.group) ?? p.group } };
       case '/settings/:group/:item': {
