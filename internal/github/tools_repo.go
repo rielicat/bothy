@@ -40,6 +40,12 @@ const (
 
 func checkoutDir(r *core.GitHubRepo) string { return "repos/" + r.Owner + "/" + r.Name }
 
+// lockCheckout serialises checkouts, change scans and pull requests of one
+// repository in one workspace.
+func (s *Service) lockCheckout(env *core.ToolEnv, r *core.GitHubRepo) func() {
+	return s.locks.lock(string(env.Principal.Workspace) + "\x00" + strings.ToLower(r.FullName()))
+}
+
 // apiDomain is the API host:port an Action names for rules and audit.
 func (s *Service) apiDomain() []string {
 	ep, err := s.endpoint()
@@ -230,7 +236,7 @@ func (t *repoCheckout) Exec(ctx context.Context, env *core.ToolEnv, a *core.Acti
 	if err != nil {
 		return nil, err
 	}
-	unlock := t.s.locks.lock(string(env.Principal.Workspace) + "\x00" + strings.ToLower(r.FullName()))
+	unlock := t.s.lockCheckout(env, r)
 	defer unlock()
 	root, err := workspaceRoot(env)
 	if err != nil {
@@ -512,6 +518,8 @@ func (t *repoChanges) Exec(ctx context.Context, env *core.ToolEnv, a *core.Actio
 	if err != nil {
 		return nil, err
 	}
+	unlock := t.s.lockCheckout(env, r)
+	defer unlock()
 	root, err := workspaceRoot(env)
 	if err != nil {
 		return nil, err
@@ -800,7 +808,7 @@ func (t *repoOpenPR) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action
 	if err != nil {
 		return nil, err
 	}
-	unlock := t.s.locks.lock(string(env.Principal.Workspace) + "\x00" + strings.ToLower(r.FullName()))
+	unlock := t.s.lockCheckout(env, r)
 	defer unlock()
 	root, err := workspaceRoot(env)
 	if err != nil {

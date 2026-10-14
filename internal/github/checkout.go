@@ -277,7 +277,7 @@ func readSmall(root *os.Root, rel string, limit int64) ([]byte, bool) {
 func renderDiff(root *os.Root, dir, archive string, m *manifest, changes []change, lim archiveLimits) (string, bool, error) {
 	wanted := map[string]bool{}
 	for _, c := range changes {
-		if c.Op != "added" {
+		if c.Op == "modified" {
 			wanted[c.Path] = true
 		}
 	}
