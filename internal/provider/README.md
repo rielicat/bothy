@@ -49,7 +49,8 @@ of AWS credentials instead of a key. Bedrock models get explicit caching
 only where Bedrock takes cache points, and an `allow_private` VPC endpoint
 does not make them local (free). `Probe` resolves the credentials and
 reports their source, lists the usable Claude and Nova models with display
-names (`ProbeResult.Choices`) and tests a small one by default; `Detect`
+names (`ProbeResult.Choices`) and tests the suggested main model by
+default (a small one when the list suggests none); `Detect`
 offers "Use this server's AWS access" first when the chain resolves (within
 4 s when the environment or `~/.aws` suggests AWS, else within the local
 detection timeout for IMDS), with region and models; the doctor check
@@ -65,8 +66,8 @@ per provider: the newest Sonnet and Haiku (Claude vendors, Bedrock with the
 region's own geography first, then global), the newest plain GPT and its
 mini, the newest Gemini Pro and Flash-Lite, the largest local model up to
 40B for both slots, else the first model and the cheapest priced one. A
-probe without a model tests the recommended one (Bedrock keeps its small
-default) and names it in `model`; a failed probe sets `code`
+probe without a model tests the recommended one, Bedrock too, and names it
+in `model`; a failed probe sets `code`
 (`core.FailureCode`) and the raw `error`. Bedrock credential sources read
 "SSO profile acme-dev", "instance role bothy-prod" (the role name from IMDS),
 "IRSA role bothy", "ECS task role". `Detect` also lists provider keys saved

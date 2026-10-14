@@ -59,7 +59,9 @@ in `New`, answer foreign or malformed ids with 404 and need `If-Match` on a
 notes `PUT`.
 The v0.2 UI routes sit in `h_onboarding.go`: `POST /api/providers/connect`
 saves or picks the key (pasted, a saved `secret:<name>` or a detected
-environment variable), writes `providers.<id>` and puts the chosen models
+environment variable), writes `providers.<id>` (without an `id`, the
+kind's default or, when another provider holds it, the next free one such as
+`custom-2`) and puts the chosen models
 first in both slots in one config change, taking a saved key back if that
 change is refused; `POST /api/users/{id}/password` (admin cookie) hands out a
 one-time password. `POST /api/users` without a password returns one too. A
