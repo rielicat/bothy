@@ -586,6 +586,10 @@ func (s *Server) agentCompletion(w http.ResponseWriter, r *http.Request, a core.
 			return invalidParam("messages", "unknown role %q", m.Role)
 		}
 	}
+	refine, err := refineHeader(r.Header.Get("X-Bothy-Refine"))
+	if err != nil {
+		return err
+	}
 	ctx := r.Context()
 	sess, mapped, err := s.apiSession(ctx, a, core.SessionID(r.Header.Get("X-Bothy-Session")))
 	if err != nil {
@@ -629,7 +633,8 @@ func (s *Server) agentCompletion(w http.ResponseWriter, r *http.Request, a core.
 	rr := core.RunRequest{Session: sess.ID, Principal: sess.Principal, User: a.User, Trigger: core.TrigAPI, Slot: slot, Input: input,
 		Provenance: core.ProvUser, Sender: "api:" + a.TokenID, Chat: &core.ChatRef{Channel: "api", ChatID: string(sess.ID), Kind: core.ChatAPI},
 		Sink: q, Instructions: strings.Join(instructions, "\n\n"), OnApproval: a.OnApproval,
-		ApprovalWait: s.cfg().Policy.Approval.APIWait.D(), MaxOutput: maxOut, Temperature: req.Temperature, Stop: stop}
+		ApprovalWait: s.cfg().Policy.Approval.APIWait.D(), MaxOutput: maxOut, Temperature: req.Temperature, Stop: stop,
+		Refine: refine}
 	if !mapped {
 		rr.Ephemeral = history
 	}

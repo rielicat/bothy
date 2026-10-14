@@ -125,6 +125,7 @@ type SessionCreateReq struct {
 type SessionPatchReq struct {
 	Title         *string `json:"title,omitempty"`
 	ModelOverride *string `json:"model_override,omitempty"` // "" clears
+	Refine        *string `json:"refine,omitempty"`         // "on" | "off"; "" clears (follow agent.refine.enabled)
 }
 
 type SessionDetail struct {
@@ -132,6 +133,7 @@ type SessionDetail struct {
 	Pins    []*core.Pin      `json:"pins"`
 	Active  *core.RunInfo    `json:"active,omitempty"`
 	Pending []*core.Approval `json:"pending_approvals"`
+	Refine  string           `json:"refine"` // the session's refine setting: "on" | "off" | "" (follows agent.refine.enabled)
 }
 
 type MessagePage struct {
@@ -142,6 +144,7 @@ type MessagePage struct {
 type SendReq struct {
 	Text    string   `json:"text"`
 	Uploads []string `json:"uploads,omitempty"` // upl_<26> ids from POST /api/uploads
+	Refine  *bool    `json:"refine,omitempty"`  // refine this turn's answer; omitted = the session's setting
 }
 
 type Upload struct {
@@ -165,6 +168,18 @@ type RunDetail struct {
 	LLMCalls  []core.CallInfo        `json:"llm_calls"`
 	ToolCalls []*core.ToolCallRecord `json:"tool_calls"`
 	Approvals []*core.Approval       `json:"approvals"`
+	Refine    *core.RefineTrace      `json:"refine,omitempty"` // the run's last refined answer; entries name their llm_calls
+}
+
+// RefineInfo is what the composer needs to offer refine mode and say what it
+// costs: the defaults, and the most model calls one refined answer takes.
+type RefineInfo struct {
+	Enabled    bool      `json:"enabled"` // agent.refine.enabled: on for messages and sessions that do not say
+	Drafts     int       `json:"drafts"`
+	Depth      int       `json:"depth"`
+	EarlyStop  bool      `json:"early_stop"`
+	CriticSlot core.Slot `json:"critic_slot"`
+	MaxCalls   int       `json:"max_calls"` // drafts × (1 + 3 × depth), the answer step included
 }
 
 type ApprovalResolveReq struct {
