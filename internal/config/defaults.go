@@ -114,5 +114,6 @@ func defaults() *Config {
 		Skills:    SkillsCfg{IndexBudgetTokens: 600},
 		Scheduler: SchedulerCfg{Enabled: true, MissedRun: "skip", Heartbeat: Heartbeat{Every: d(30 * time.Minute), ActiveHours: "08:00-22:00", Slot: "fast", Deliver: "preferred"}},
 		API:       APICfg{OpenAICompat: true, Passthrough: true},
+		Knowledge: defaultKnowledge(),
 	}
 }
