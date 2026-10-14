@@ -72,7 +72,9 @@ func TestGitHubPullRequest(t *testing.T) {
 		!strings.Contains(card.Code, `"title": "Clarify the README"`) {
 		t.Errorf("card fields %+v code:\n%s", card.Fields, card.Code)
 	}
-	if !strings.Contains(card.Diff, "-A test repository.") || !strings.Contains(card.Diff, "+A test repository, now with a README edit by Bothy.") ||
+	if !strings.HasPrefix(card.Diff, "Repository: octocat/Hello-World\nBranch: bothy/clarify-the-readme-") ||
+		!strings.Contains(card.Diff, " → main\nTitle: Clarify the README\n\n    Explains what the repository is for.\n---\n") ||
+		!strings.Contains(card.Diff, "-A test repository.") || !strings.Contains(card.Diff, "+A test repository, now with a README edit by Bothy.") ||
 		!strings.Contains(card.Diff, "diff --git a/README.md b/README.md") {
 		t.Errorf("card diff:\n%s", card.Diff)
 	}

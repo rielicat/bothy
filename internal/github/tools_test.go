@@ -363,6 +363,10 @@ func TestOpenPR(t *testing.T) {
 	if err := json.Unmarshal(a.Payload, &p); err != nil {
 		t.Fatal(err)
 	}
+	header := "Repository: octocat/Hello-World\nBranch: " + p.Head + " → main\nTitle: Improve the README\n\n    Explains more.\n\n    Fixes #3.\n---\n"
+	if !strings.HasPrefix(a.Diff, header) {
+		t.Errorf("card diff header:\n%s", a.Diff[:min(len(a.Diff), 300)])
+	}
 	if p.Base != "main" || p.BaseSHA != base || p.Title != "Improve the README" || !strings.HasPrefix(p.Head, "bothy/improve-the-readme-") || p.Draft {
 		t.Errorf("payload = %+v", p)
 	}
@@ -413,6 +417,19 @@ func TestOpenPR(t *testing.T) {
 	}
 	if !slices.Contains(f.audit.Actions(), "github.pull_request") {
 		t.Errorf("audit = %v", f.audit.Actions())
+	}
+}
+
+func TestPRHeaderCannotForgeDiffLines(t *testing.T) {
+	h := prHeader(openPRPayload{Repo: "o/r", Base: "main", Head: "x", Title: "t", Draft: true,
+		Body: "looks fine\ndiff --git a/README.md b/README.md\n+harmless\n" + strings.Repeat("y", 2000)})
+	for _, line := range strings.Split(h, "\n") {
+		if strings.HasPrefix(line, "diff ") || strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-") && line != "---" {
+			t.Errorf("unindented description line %q", line)
+		}
+	}
+	if !strings.Contains(h, "Draft: yes\n") || !strings.Contains(h, "    diff --git a/README.md") || len(h) > 1200 || !strings.HasSuffix(h, "…\n---\n") {
+		t.Errorf("header:\n%s", h)
 	}
 }
 

@@ -685,10 +685,6 @@ func (t *repoOpenPR) Plan(ctx context.Context, env *core.ToolEnv, args json.RawM
 	if !complete {
 		return nil, fmt.Errorf("%w: a changed text file is too large to show on the approval card; pass paths to leave it out", core.ErrInvalid)
 	}
-	if len(diff) > maxCardDiff {
-		return nil, fmt.Errorf("%w: the diff is %s and an approval card shows at most %s; pass paths to propose fewer files at a time",
-			core.ErrInvalid, humanSize(int64(len(diff))), humanSize(maxCardDiff))
-	}
 	head := strings.TrimSpace(in.Head)
 	if head == "" {
 		head = defaultHead(title, changesDigest(ch))
@@ -705,12 +701,40 @@ func (t *repoOpenPR) Plan(ctx context.Context, env *core.ToolEnv, args json.RawM
 		p.Files = append(p.Files, prFile{Path: c.Path, Op: c.Op, SHA256: c.SHA256, Exec: c.Exec})
 		paths[i] = c.Path
 	}
+	card := prHeader(p) + diff
+	if len(card) > maxCardDiff {
+		return nil, fmt.Errorf("%w: the diff is %s and an approval card shows at most %s; pass paths to propose fewer files at a time",
+			core.ErrInvalid, humanSize(int64(len(card))), humanSize(maxCardDiff))
+	}
 	a, err := newAction(repoOpenPRName, core.ActSend, core.SEExternalSend, p)
 	if err != nil {
 		return nil, err
 	}
-	a.Recipient, a.Diff, a.Paths, a.Domains = "github:"+r.FullName(), diff, paths, t.s.apiDomain()
+	a.Recipient, a.Diff, a.Paths, a.Domains = "github:"+r.FullName(), card, paths, t.s.apiDomain()
 	return a, nil
+}
+
+// prHeader opens the card's diff the way git format-patch opens a patch,
+// so even a chat card cut to its first lines shows where the change goes.
+// Description lines are indented like git log does, so none can pass for
+// a diff line; the whole description is in the card's arguments.
+func prHeader(p openPRPayload) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Repository: %s\nBranch: %s → %s\nTitle: %s\n", p.Repo, p.Head, p.Base, p.Title)
+	if p.Draft {
+		b.WriteString("Draft: yes\n")
+	}
+	if body := strings.TrimSpace(p.Body); body != "" {
+		b.WriteString("\n")
+		for _, line := range strings.Split(clip(body, 1024), "\n") {
+			if line = strings.TrimRight(line, " \t\r"); line != "" {
+				b.WriteString("    " + line)
+			}
+			b.WriteString("\n")
+		}
+	}
+	b.WriteString("---\n")
+	return b.String()
 }
 
 // selectChanges picks the changes a pull request carries.
