@@ -82,6 +82,9 @@ describe('choose a new password', () => {
     await signIn('jordan', 'TempPass-1234-xyz');
     await waitFor(() => expect(router.path).toBe('/password'));
     login.unmount();
+    // The server refuses everything else until the password is replaced, so nothing else is asked yet.
+    const background = () => calls.filter((c) => /^\/api\/(inbox|approvals|events|usage)/.test(c.url));
+    expect(background()).toEqual([]);
 
     render(ChangePassword);
     expect(screen.getByText('You signed in with a one-time password. Choose your own to continue.')).toBeTruthy();
@@ -94,6 +97,7 @@ describe('choose a new password', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Save and continue' }));
     await waitFor(() => expect(router.path).toBe('/approvals'));
     expect(JSON.parse(calls.find((c) => c.url === '/api/auth/password')!.body)).toEqual({ old: 'TempPass-1234-xyz', new: 'Granite-River-42-Lantern' });
+    await waitFor(() => expect(background().length).toBeGreaterThan(0));
   });
 
   it('asks for the one-time password again after a reload', async () => {

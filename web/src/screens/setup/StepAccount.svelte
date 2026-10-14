@@ -11,7 +11,7 @@
   import Icon from '../../components/Icon.svelte';
   import Button from '../../components/ui/Button.svelte';
   import TextField from '../../components/ui/TextField.svelte';
-  import { api } from '../../lib/api/client';
+  import { api, setCsrf } from '../../lib/api/client';
   import type { Me } from '../../lib/api/types.gen';
   import { nameError, passwordError, passwordHelp, usernameError } from '../../lib/password';
   import { session } from '../../lib/stores/session.svelte';
@@ -61,6 +61,8 @@
     const timezone = browserZone();
     try {
       let me = await api.post<Me>('/api/setup/owner', { display_name: name, username: account.username.trim(), password: account.password, timezone });
+      // The owner's session has its own CSRF token; the setup grant's no longer passes.
+      setCsrf(me.csrf);
       // Silent defaults (§5.8): team mode and the browser's time zone, and the
       // owner's name where the server doesn't take it at creation yet (S7).
       await api.patch('/api/config', { set: { mode: 'multi', timezone } }).catch(() => {});

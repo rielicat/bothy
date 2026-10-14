@@ -59,6 +59,7 @@ class Session {
   visibleBanners: BannerData[] = $derived(this.banners.filter((b) => !this.dismissed.includes(b.code)));
 
   #offs: (() => void)[] = [];
+  #held = false;
 
   async init() {
     onUnauthorized(() => this.expire());
@@ -80,7 +81,9 @@ class Session {
     this.paused = me.paused;
     this.sandbox = me.sandbox_available;
     this.banners = uniqueBanners(me.banners);
-    this.#live();
+    // Until a one-time password is replaced the server refuses everything else (S9).
+    this.#held = !!me.user.must_change_password;
+    if (!this.#held) this.#live();
   }
 
   // Re-reads the session after the server rotated it (password change), which
@@ -89,6 +92,10 @@ class Session {
     const me = await api.get<Me>('/api/auth/me');
     this.me = me;
     setCsrf(me.csrf);
+    if (this.#held && !me.user.must_change_password) {
+      this.#held = false;
+      this.#live();
+    }
   }
 
   // The cookie is shared by every tab, so another tab may have rotated the

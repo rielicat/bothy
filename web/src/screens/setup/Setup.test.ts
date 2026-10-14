@@ -90,8 +90,11 @@ describe('setup code', () => {
     await fillAccount();
     await submitAccount();
     await waitFor(() => expect(calls.some((c) => c.url === '/api/setup/owner')).toBe(true));
-    expect(calls.find((c) => c.url === '/api/setup/owner')!.headers['x-csrf-token']).toBe('mock-csrf');
+    expect(calls.find((c) => c.url === '/api/setup/owner')!.headers['x-csrf-token']).toBe('mock-setup-csrf');
     expect(await screen.findByText('Connect an AI model')).toBeTruthy();
+    // Team mode and the time zone are written with the owner's own session token.
+    const patch = calls.find((c) => c.method === 'PATCH' && c.url === '/api/config')!;
+    expect(patch.headers['x-csrf-token']).toBe('mock-csrf');
   });
 });
 

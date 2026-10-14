@@ -74,8 +74,9 @@ on(
     const { token } = JSON.parse(await body(req));
     if (token !== SETUP_TOKEN) return fail(res, 401, 'unauthorized', 'invalid or expired setup token');
     core.setup.claimed = true;
-    core.setup.csrf = 'mock-csrf';
-    json(res, 200, { csrf: 'mock-csrf' });
+    // The setup grant has its own CSRF token, as on the gateway; the owner's session then gets another.
+    core.setup.csrf = 'mock-setup-csrf';
+    json(res, 200, { csrf: 'mock-setup-csrf' });
   },
   { open: true },
 );
