@@ -191,6 +191,61 @@ func TestStreamReasoningSignatureRoundTrip(t *testing.T) {
 	}
 }
 
+// A refine draft repeats a step after a tool loop with ToolChoice none.
+// Converse cannot forbid calls while tools are offered, so the request
+// offers none: no toolConfig, the loop's call and result as text, the signed
+// reasoning that led to the call left out, and roles still alternating.
+func TestRefineDraftWithoutTools(t *testing.T) {
+	frames := readFrames(t, "live_reasoning_tool.jsonl")
+	first, _, _, err := streamFrames(t, frames, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	history := []core.Message{userText("Should I take an umbrella in Oslo today?"), first.Message,
+		{Role: core.MsgTool, Parts: []core.Part{{Type: core.PartToolResult, ToolResult: &core.ToolResult{
+			CallID: "tooluse_k3cMZ8sgoQYYQEnRl1CEdk", Name: "get_weather", Content: `{"forecast":"rain"}`}}}},
+		{Role: core.MsgAssistant, Parts: []core.Part{{Type: core.PartText, Text: "Yes, take one.\nFinal answer: yes"}}},
+		userText("Continue the draft above and end with a Final answer: line."),
+	}
+	srv := wiretest.NewServer(t, eventStream(encodeFrames(t, readFrames(t, "live_text.jsonl"))))
+	c, _ := testClient(srv)
+	req := &core.Request{Model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0", MaxTokens: 64, ToolChoice: "none", ToolsCache: true, CacheTail: true,
+		Tools: []core.ToolDef{{Name: "get_weather", Schema: json.RawMessage(`{"type":"object"}`)}}, Messages: history}
+	if _, err := c.Stream(context.Background(), req, nil); err != nil {
+		t.Fatal(err)
+	}
+	body := string(srv.Requests()[0].Body)
+	for _, absent := range []string{"toolConfig", "toolUse", "toolResult", "reasoningContent", "toolChoice"} {
+		if strings.Contains(body, absent) {
+			t.Fatalf("%s sent: %s", absent, body)
+		}
+	}
+	var sent request
+	if err := json.Unmarshal(srv.Requests()[0].Body, &sent); err != nil {
+		t.Fatal(err)
+	}
+	roles := ""
+	for _, m := range sent.Messages {
+		roles += m.Role[:1]
+	}
+	if roles != "uauau" {
+		t.Fatalf("roles %s: %s", roles, body)
+	}
+	if got := toJSON(t, sent.Messages[1]); got != `{"role":"assistant","content":[{"text":"I'll check the weather in Oslo for you."},{"text":"[called tool get_weather with {\"city\":\"Oslo\"}]"}]}` {
+		t.Fatalf("assistant turn %s", got)
+	}
+	if !strings.HasPrefix(sent.Messages[2].Content[0].Text, "[result of tool get_weather]\n") {
+		t.Fatalf("tool result %s", toJSON(t, sent.Messages[2]))
+	}
+
+	// The tool-using step itself still sends the definitions and the blocks.
+	req.ToolChoice = "auto"
+	r := buildRequest(req)
+	if s := toJSON(t, r); r.ToolConfig == nil || !strings.Contains(s, `"toolUse"`) || !strings.Contains(s, "reasoningContent") {
+		t.Fatalf("auto: %s", s)
+	}
+}
+
 func jsonString(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)

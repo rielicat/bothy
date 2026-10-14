@@ -122,7 +122,6 @@ type reasoningText struct {
 
 func buildRequest(r *core.Request) request {
 	cache := SupportsCache(r.Model)
-	toolHistory := hasToolBlocks(r.Messages)
 	out := request{}
 	for _, s := range r.System {
 		if strings.TrimSpace(s.Text) == "" {
@@ -138,9 +137,12 @@ func buildRequest(r *core.Request) request {
 		out.InferenceConfig = &ic
 	}
 
-	// Converse has no "none" choice; leaving the tools out says the same when
-	// the history needs no tool definitions to be valid.
-	withTools := len(r.Tools) > 0 && (r.ToolChoice != "none" || toolHistory)
+	// Converse has no "none" choice, and a model offered tools may answer
+	// with a call alone (refine drafts would then have no text). Leaving the
+	// tools out is the only way to say "none"; the history's tool blocks then
+	// go as text, since Converse refuses them without a toolConfig. That
+	// request shares no cached prefix with the tool-using one.
+	withTools := len(r.Tools) > 0 && r.ToolChoice != "none"
 	if withTools {
 		tc := &toolConfig{}
 		for _, t := range r.Tools {
@@ -186,12 +188,10 @@ func addTailCachePoint(msgs []message, model string) {
 	}
 }
 
-func hasToolBlocks(msgs []core.Message) bool {
-	for _, m := range msgs {
-		for _, p := range m.Parts {
-			if p.Type == core.PartToolCall || p.Type == core.PartToolResult {
-				return true
-			}
+func hasToolCall(m core.Message) bool {
+	for _, p := range m.Parts {
+		if p.Type == core.PartToolCall && p.ToolCall != nil {
+			return true
 		}
 	}
 	return false
@@ -240,7 +240,10 @@ func limitCachePoints(r *request) {
 // false) tool calls and results become text, since Converse refuses toolUse
 // blocks in a request that defines no tools. Reasoning blocks are sent back
 // only when reasoning is true: other vendors' models (Nova after a fallback
-// from Claude) reject Claude's signed reasoning.
+// from Claude) reject Claude's signed reasoning. A message whose calls became
+// text loses its reasoning too: signed reasoning must reach Claude exactly as
+// it was produced, followed by the call it led to, and leaving out an earlier
+// turn's reasoning is always accepted.
 func buildMessages(msgs []core.Message, withTools, reasoning bool) []message {
 	var out []message
 	for _, m := range msgs {
@@ -248,9 +251,10 @@ func buildMessages(msgs []core.Message, withTools, reasoning bool) []message {
 		if m.Role == core.MsgAssistant {
 			role = "assistant"
 		}
+		keepReasoning := reasoning && (withTools || !hasToolCall(m))
 		var blocks []block
 		for _, p := range m.Parts {
-			if p.Type == core.PartThinking && !reasoning {
+			if p.Type == core.PartThinking && !keepReasoning {
 				continue
 			}
 			if b, ok := partBlock(p, role, withTools); ok {
