@@ -491,3 +491,18 @@ data: [DONE]
 		t.Fatalf("thinking %q", ev.Thinking())
 	}
 }
+
+func TestClassifyRouterUpstreamError(t *testing.T) {
+	body := `{"error":{"message":"Provider returned error","code":400,"metadata":{"raw":"{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Thinking may not be enabled when tool_choice forces tool use.\"}}","provider_name":"Anthropic"}}}`
+	kind, msg := classify(400, []byte(body))
+	if kind != core.ErrKindInvalidRequest {
+		t.Errorf("kind = %v", kind)
+	}
+	want := "Provider returned error (Anthropic: Thinking may not be enabled when tool_choice forces tool use.)"
+	if msg != want {
+		t.Fatalf("msg = %q, want %q", msg, want)
+	}
+	if _, msg := classify(400, []byte(`{"error":{"message":"bad model","metadata":{"raw":"bad model"}}}`)); msg != "bad model" {
+		t.Fatalf("a raw equal to the message is not repeated: %q", msg)
+	}
+}

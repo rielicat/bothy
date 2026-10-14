@@ -196,3 +196,46 @@ func TestDetect(t *testing.T) {
 		}
 	}
 }
+
+func TestProbeToolCallingWhenForcedChoiceRefused(t *testing.T) {
+	srv := mockllm.New([]mockllm.Rule{
+		{MatchUser: "probe_echo", ToolCalls: []core.ToolCall{{Name: probeTool, Args: json.RawMessage(`{"value":"ok"}`)}}},
+		{MatchUser: "single word", Text: []string{"ok"}},
+	}, []core.ModelInfo{{Ref: core.ModelRef{Model: "anthropic/claude-sonnet-5.5"}}})
+	t.Cleanup(srv.Close)
+	forced := 0
+	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(body), `"tool_choice":"required"`) {
+			forced++
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(400)
+			_, _ = io.WriteString(w, `{"error":{"message":"Provider returned error","code":400,"metadata":{"raw":"{\"message\":\"tool_choice: type \\\"tool\\\" and \\\"any\\\" are not supported for this model.\"}","provider_name":"Amazon Bedrock"}}}`)
+			return
+		}
+		req, _ := http.NewRequestWithContext(r.Context(), r.Method, srv.URL()+r.URL.Path, strings.NewReader(string(body)))
+		req.Header = r.Header.Clone()
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			w.WriteHeader(502)
+			return
+		}
+		defer resp.Body.Close()
+		for k, v := range resp.Header {
+			w.Header()[k] = v
+		}
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
+	}))
+	t.Cleanup(router.Close)
+	h := newHarness(t, nil)
+	res, err := h.f.Probe(context.Background(), core.ProbeConfig{
+		Kind: core.KindOpenAICompat, BaseURL: router.URL, AllowPrivate: true, APIKey: core.NewSecret([]byte(canary)), Model: "anthropic/claude-sonnet-5.5",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.OK || !res.ToolCalling || forced != 1 {
+		t.Fatalf("forced requests %d, result %+v", forced, res)
+	}
+}

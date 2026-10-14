@@ -11,9 +11,52 @@ import (
 // errorPayload is OpenAI's {"message","type","param","code"}; code may be a
 // string or, on some compatible servers, a number.
 type errorPayload struct {
-	Message string          `json:"message"`
-	Type    string          `json:"type"`
-	Code    json.RawMessage `json:"code"`
+	Message  string          `json:"message"`
+	Type     string          `json:"type"`
+	Code     json.RawMessage `json:"code"`
+	Metadata *struct {
+		Raw          json.RawMessage `json:"raw"`
+		ProviderName string          `json:"provider_name"`
+	} `json:"metadata"`
+}
+
+// upstream adds the routed provider's own message to a router's generic one
+// (OpenRouter: "Provider returned error" with the reason in metadata.raw).
+func (e *errorPayload) upstream() string {
+	if e.Metadata == nil || len(e.Metadata.Raw) == 0 {
+		return e.Message
+	}
+	raw := e.Metadata.Raw
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		raw = []byte(s)
+	}
+	var inner struct {
+		Error   json.RawMessage `json:"error"`
+		Message string          `json:"message"`
+	}
+	msg := strings.TrimSpace(string(raw))
+	if json.Unmarshal(raw, &inner) == nil {
+		var p errorPayload
+		switch {
+		case len(inner.Error) > 0 && inner.Error[0] == '{' && json.Unmarshal(inner.Error, &p) == nil && p.Message != "":
+			msg = p.Message
+		case len(inner.Error) > 0 && json.Unmarshal(inner.Error, &s) == nil && s != "":
+			msg = s
+		case inner.Message != "":
+			msg = inner.Message
+		}
+	}
+	if msg == "" || strings.Contains(e.Message, msg) {
+		return e.Message
+	}
+	if len(msg) > 300 {
+		msg = msg[:300] + "…"
+	}
+	if e.Metadata.ProviderName != "" {
+		msg = e.Metadata.ProviderName + ": " + msg
+	}
+	return e.Message + " (" + msg + ")"
 }
 
 func (e *errorPayload) code() string {
@@ -83,6 +126,7 @@ func classify(status int, body []byte) (core.ErrorKind, string) {
 	}
 	var p errorPayload
 	if len(obj.Error) > 0 && obj.Error[0] == '{' && json.Unmarshal(obj.Error, &p) == nil {
+		p.Message = p.upstream()
 		return p.kind(status)
 	}
 	msg := obj.Message

@@ -171,11 +171,18 @@ func (f *Facade) exercise(ctx context.Context, p probeCall, res *core.ProbeResul
 		// reasoning model can spend 256 before it calls the tool.
 		toolTokens = 1024
 	}
-	tresp, terr := p.cl.Stream(ctx, &core.Request{
+	toolReq := &core.Request{
 		Model: p.model, MaxTokens: toolTokens, ToolChoice: "required", NumCtx: p.numCtx,
 		Tools:    []core.ToolDef{{Name: probeTool, Description: "Echo a value back.", Schema: probeSchema}},
 		Messages: []core.Message{{Role: core.MsgUser, Parts: []core.Part{{Type: core.PartText, Text: `Call the probe_echo tool with value "ok".`}}}},
-	}, nil)
+	}
+	tresp, terr := p.cl.Stream(ctx, toolReq, nil)
+	if terr != nil && forcedChoiceRefused(terr) {
+		// Some models (Claude 5.5 on Bedrock, thinking models) refuse a
+		// forced tool_choice; the agent never forces one, so ask normally.
+		toolReq.ToolChoice = ""
+		tresp, terr = p.cl.Stream(ctx, toolReq, nil)
+	}
 	mode := p.effort.Mode("probe", p.model)
 	switch {
 	case terr != nil && mode == openai.EffortNoTools:
@@ -387,4 +394,12 @@ func plain(err error, base string, kind core.ProviderKind, api string) string {
 	default:
 		return fmt.Sprintf("The provider failed (%s): %s", pe.Kind, pe.Msg)
 	}
+}
+
+// forcedChoiceRefused reports a request refused only because it forced the
+// tool choice.
+func forcedChoiceRefused(err error) bool {
+	m := strings.ToLower(err.Error())
+	return strings.Contains(m, "tool_choice") && (strings.Contains(m, "not supported") || strings.Contains(m, "may not be") ||
+		strings.Contains(m, "not allowed") || strings.Contains(m, "unsupported") || strings.Contains(m, "forces tool use"))
 }
