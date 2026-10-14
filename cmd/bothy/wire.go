@@ -24,6 +24,7 @@ import (
 	"github.com/rielicat/bothy/internal/doctor"
 	"github.com/rielicat/bothy/internal/egress"
 	"github.com/rielicat/bothy/internal/events"
+	"github.com/rielicat/bothy/internal/github"
 	"github.com/rielicat/bothy/internal/httpapi"
 	"github.com/rielicat/bothy/internal/mcp"
 	"github.com/rielicat/bothy/internal/memory"
@@ -60,6 +61,7 @@ type app struct {
 	skills    *skills.Library
 	registry  *tools.Registry
 	mcp       *mcp.Manager
+	github    *github.Service
 	runner    *agent.Runner
 	hub       *channel.Hub
 	scheduler *scheduler.Service
@@ -168,6 +170,10 @@ func (a *app) buildRest(ctx context.Context) error {
 		Vault: a.vault, Bus: a.bus, Audit: a.audit, WorkDir: dirs.Work, Clock: a.clock, Log: a.log}); err != nil {
 		return err
 	}
+	if a.github, err = github.New(github.Deps{Config: a.cfg, Store: a.db.GitHub(), Vault: a.vault, Egress: a.egress, Bus: a.bus,
+		Audit: a.audit, DataDir: dirs.Data, Clock: a.clock, Log: a.log}); err != nil {
+		return err
+	}
 	if a.runner, err = agent.New(agent.Deps{Store: a.db, Config: a.cfg, LLM: a.llm, Tools: a.registry, Policy: a.policy,
 		Approvals: a.approvals, Budget: a.budget, Memory: a.memory, Skills: a.skills, Sandbox: a.sandbox, Egress: a.egress,
 		Redactor: a.redactor, Bus: a.bus, Audit: a.audit, DataDir: dirs.Data, WorkDir: dirs.Work, Clock: a.clock, Log: a.log}); err != nil {
@@ -213,7 +219,7 @@ func (a *app) buildRest(ctx context.Context) error {
 	// MCP tools register themselves later through Deps.Registry (lazy tools).
 	var all []core.Tool
 	all = append(all, tools.Builtins(tools.BuiltinDeps{Config: a.cfg, Messenger: a.hub, Sandbox: a.sandbox, Clock: a.clock})...)
-	for _, p := range []core.ToolProvider{a.sandbox, a.egress, a.memory, a.skills, a.scheduler} {
+	for _, p := range []core.ToolProvider{a.sandbox, a.egress, a.memory, a.skills, a.scheduler, a.github} {
 		all = append(all, p.Tools()...)
 	}
 	for _, t := range all {
@@ -222,12 +228,12 @@ func (a *app) buildRest(ctx context.Context) error {
 		}
 	}
 	checks := doctor.ConfigChecks(a.cfg) // config.errors, config.safe_mode
-	for _, p := range []core.CheckProvider{a.db, a.vault, a.auth, a.policy, a.egress, a.sandbox, a.llm, a.memory, a.skills, a.mcp, a.hub} {
+	for _, p := range []core.CheckProvider{a.db, a.vault, a.auth, a.policy, a.egress, a.sandbox, a.llm, a.memory, a.skills, a.mcp, a.hub, a.github} {
 		checks = append(checks, p.Checks()...)
 	}
 	a.doctor = doctor.New(checks)
 	a.api, err = httpapi.New(httpapi.Deps{Config: a.cfg, Store: a.db, Auth: a.auth, Vault: a.vault, Bus: a.bus, Runner: a.runner,
-		Approvals: a.approvals, Policy: a.policy, Tools: a.registry, LLM: a.llm, Budget: a.budget, Memory: a.memory, Skills: a.skills, MCP: a.mcp,
+		Approvals: a.approvals, Policy: a.policy, Tools: a.registry, LLM: a.llm, Budget: a.budget, Memory: a.memory, Skills: a.skills, MCP: a.mcp, GitHub: a.github,
 		Scheduler: a.scheduler, Hub: a.hub, Sandbox: a.sandbox, Egress: a.egress, Doctor: a.doctor, Audit: a.audit,
 		WebUI: webui.Handler(), Version: version, DataDir: dirs.Data, WorkDir: dirs.Work, Restart: a.requestRestart,
 		Clock: a.clock, Log: a.log})
