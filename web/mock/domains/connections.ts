@@ -3,7 +3,7 @@
 // search check. Chat app and MCP state follows the config the settings domain
 // keeps, so turning things on and off in the UI shows up in their status.
 import type { ChannelIdentity, ChannelStatus, Entry, MCPPin, MCPStatus, SideEffect, Space } from '../../src/lib/api/types.gen.ts';
-import type { GitHubConnection, GitHubProbe, GitHubRepo, GitHubRepoAccess, IndexedRepo, ReleaseEnvironment, Workflow } from '../../src/screens/settings/connections/types.ts';
+import type { GitHubConnection, GitHubProbe, GitHubRepo, GitHubRepoAccess, ReleaseEnvironment, Workflow } from '../../src/screens/settings/connections/types.ts';
 import { ago, ahead, body, clone, emit, fail, json, member, nowISO, on, onReset, owner, scenario, sleep, ZERO, type Req } from './core.ts';
 import { state as security } from './security.ts';
 import { state as settings } from './settings.ts';
@@ -16,6 +16,7 @@ const noTools = scenario('mcp-none', 'No MCP servers are set up.', 'connections'
 const installing = scenario('mcp-installing', 'A Sentry MCP server is being installed.', 'connections');
 const toolError = scenario('mcp-error', "The Linear MCP server doesn't answer.", 'connections');
 const githubNone = scenario('github-none', 'GitHub is not connected.', 'connections');
+const githubNoRepos = scenario('github-no-repos', 'GitHub is connected but no repository is chosen.', 'connections');
 const githubApp = scenario('github-app', 'GitHub is connected through a GitHub App.', 'connections');
 const githubFail = scenario('github-fail', 'GitHub checks fail; github-fail:<rejected|empty|unreachable|not-installed|installations>.', 'connections');
 const noWorkflows = scenario('no-workflows', "The repository workflow list isn't available (S19 fallback: a text field).", 'connections');
@@ -190,13 +191,6 @@ function connection(app: boolean): GitHubConnection {
   };
 }
 
-const today = (h: number, m: number) => {
-  const d = new Date();
-  d.setHours(h, m, 0, 0);
-  if (d.getTime() > Date.now()) d.setDate(d.getDate() - 1);
-  return d.toISOString();
-};
-
 export const state = {
   identities: [] as ChannelIdentity[],
   spaces: [] as Space[],
@@ -204,7 +198,6 @@ export const state = {
   pins: [] as MCPPin[],
   github: null as GitHubConnection | null,
   held: [] as GitHubRepo[],
-  indexed: [] as IndexedRepo[],
   madeHere: false,
 };
 
@@ -218,10 +211,6 @@ onReset(() => {
     pins: clone(mcpPins),
     github: connection(false),
     held: [held('web', true), held('api', true), held('infra', false)],
-    indexed: [
-      { id: 1, repo: 'acme/web', status: 'ready', indexed_at: today(9, 12) },
-      { id: 2, repo: 'acme/api', status: 'indexing', indexed_at: ZERO },
-    ],
     madeHere: false,
   });
   seed('channels.slack.enabled', true);
@@ -387,23 +376,18 @@ on('POST', '/api/github/connections', async (req, res) => {
   state.github = { ...connection(b.auth === 'app'), account: b.auth === 'app' ? 'acme' : 'maya-acme', created_at: nowISO(), checked_at: nowISO() };
   state.madeHere = true;
   state.held = (b.repos as string[]).map((r) => held(r.split('/')[1], true));
-  state.indexed = state.held.map((h, i) => ({ id: i + 1, repo: `acme/${h.name}`, status: 'indexing', indexed_at: ZERO }));
   json(res, 200, state.github);
 });
 on('GET', '/api/github/connections/{id}', (req, res) => {
   const c = connected(req);
   if (!c) return fail(res, 404, 'not_found', 'no such GitHub connection');
-  json(res, 200, { connection: c, repos: state.held });
+  json(res, 200, { connection: c, repos: githubNoRepos(req) && !state.madeHere ? state.held.map((h) => ({ ...h, allowed: false })) : state.held });
 });
 on('POST', '/api/github/connections/{id}/test', (req, res) => json(res, 200, probe(req, state.github?.auth ?? 'pat', true)));
 on('PUT', '/api/github/connections/{id}/repos', async (req, res) => {
   const want = (JSON.parse(await body(req)).repos as string[]).map((r) => r.split('/')[1]);
   for (const h of state.held) h.allowed = want.includes(h.name);
-  for (const name of want)
-    if (!state.held.some((h) => h.name === name)) {
-      state.held.push(held(name, true));
-      state.indexed.push({ id: state.indexed.length + 1, repo: `acme/${name}`, status: 'indexing', indexed_at: ZERO });
-    }
+  for (const name of want) if (!state.held.some((h) => h.name === name)) state.held.push(held(name, true));
   json(res, 200, state.held);
 });
 on('DELETE', '/api/github/connections/{id}', (_q, res) => {
@@ -411,7 +395,7 @@ on('DELETE', '/api/github/connections/{id}', (_q, res) => {
   state.held = [];
   json(res, 204);
 });
-on('GET', '/api/github/repos', (req, res) => json(res, 200, connected(req) ? state.held.filter((h) => h.allowed) : []));
+on('GET', '/api/github/repos', (req, res) => json(res, 200, connected(req) && !(githubNoRepos(req) && !state.madeHere) ? state.held.filter((h) => h.allowed) : []));
 // S19 asks the server for this list; the dialog falls back to a text field without it.
 on('GET', '/api/github/repos/{owner}/{repo}/workflows', (req, res) => {
   if (noWorkflows(req)) return fail(res, 404, 'not_found', 'mock: no workflow list');
@@ -422,18 +406,11 @@ on('GET', '/api/github/repos/{owner}/{repo}/workflows', (req, res) => {
   json(res, 200, list);
 });
 
-// Answers only until the knowledge (C5) and activity (C6) domains register
-// these routes: the first registered route wins, and those files load first.
-on('GET', '/api/knowledge/repos', (req, res) => json(res, 200, { items: connected(req) ? state.indexed : [] }));
-on('POST', '/api/knowledge/repos/{id}/reindex', (_q, res, m) => {
-  const k = state.indexed.find((x) => x.id === Number(m[1]));
-  if (k) k.status = 'indexing';
-  json(res, 200, k);
-});
-on('GET', '/api/releases', (req, res) => {
+/** The deploy environments as GET /api/releases lists them, read from config so the dialog's edits show; the activity domain serves the route. */
+export function releaseEnvironments(req: Req): ReleaseEnvironment[] {
   const people = settings.users;
   // no-environments hides the seeded ones; environments added in the UI (they carry a time) still show.
-  const environments: ReleaseEnvironment[] = [...items('releases.environments')]
+  return [...items('releases.environments')]
     .filter(([, e]) => !noEnvs(req) || Number(e['@at']) > 0)
     .map(([name, e]) => ({
         name,
@@ -447,8 +424,7 @@ on('GET', '/api/releases', (req, res) => {
           return u ? { kind: 'user', id, name: u.display_name } : { kind: 'role', id, name: id };
         }),
       }));
-  json(res, 200, { environments, deploys: [] });
-});
+}
 
 // ---- routes: web search check (not on the server yet) ----
 

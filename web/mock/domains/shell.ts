@@ -101,7 +101,8 @@ function overlay(method: string, path: string, when: (req: Req, m: RegExpMatchAr
   const self: Handler = (req, res, m, q) => {
     if (when(req, m)) return h(req, res, m, q);
     const p = new URL(req.url ?? '/', 'http://mock').pathname;
-    const next = routes.find((r) => r[2] !== self && r[0] === method && r[1].test(p));
+    // Only routes after this one: another domain's wrapper in front of it falls through to here, so searching from the top would loop.
+    const next = routes.slice(routes.findIndex((r) => r[2] === self) + 1).find((r) => r[0] === method && r[1].test(p));
     return next ? next[2](req, res, p.match(next[1])!, q) : fail(res, 404, 'not_found', `mock: no route for ${method} ${p}`);
   };
   on(method, path, self);

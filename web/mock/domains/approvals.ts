@@ -2,7 +2,7 @@
 // other inbox items (S12) and the deploys approvals start (S17).
 import type { Action, Approval, Card, Choice, SideEffect } from '../../src/lib/api/types.gen.ts';
 import type { ApprovalV2, ApprovalVotes, Deploy, InboxItem } from '../../src/components/approval/types.ts';
-import { body, clone, core, emit, fail, ids, json, member, nowISO, on, onReset, owner, routes, scenario, sleep, viewer, type Req } from './core.ts';
+import { body, clone, core, emit, fail, ids, json, member, nowISO, on, onReset, owner, scenario, sleep, viewer, type Req } from './core.ts';
 
 const none = scenario('approvals-empty', 'Nothing waits for approval and nothing was decided.', 'approvals');
 const all = scenario('approvals-all', 'Adds one waiting card for every kind of action (docs/design/ui.md §8.2).', 'approvals');
@@ -398,10 +398,4 @@ on('POST', '/api/approvals/{id}', async (req, res, m) => {
   waiting.get(a.id)?.(choice);
   waiting.delete(a.id);
   json(res, 200, a);
-});
-
-// The activity domain may serve the releases list itself; this one answers only when nothing else does.
-queueMicrotask(() => {
-  if (routes.some(([method, re]) => method === 'GET' && re.test('/api/releases'))) return;
-  on('GET', '/api/releases', (req, res) => json(res, 200, { environments: [], deploys: none(req) ? [] : state.deploys }));
 });

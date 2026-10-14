@@ -106,7 +106,7 @@ describe('knowledge API', () => {
 
   it('asks members only for the repositories, not the connections', async () => {
     const calls = installApi();
-    expect(await githubState(false)).toEqual({ connected: null, allowed: ['acme/web', 'acme/api', 'acme/infra', 'acme/docs'] });
+    expect(await githubState(false)).toEqual({ connected: null, allowed: ['acme/web', 'acme/api'] });
     expect(calls.some((c) => c.url === '/api/github/connections')).toBe(false);
     expect((await githubState(true)).connected).toBe(true);
   });

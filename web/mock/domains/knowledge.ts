@@ -6,7 +6,7 @@
 import type { KnowledgeHit, KnowledgeRepo, NotesChange } from '../../src/lib/api/knowledge.ts';
 import type { Approval, MemoryEvent, SkillMeta } from '../../src/lib/api/types.gen.ts';
 import { state as approvalState, waiting } from './approvals.ts';
-import { ago, ahead, body, clone, core, emit, fail, json, newId, nowISO, on, onReset, owner, routes, scenario, viewer, type Req } from './core.ts';
+import { ago, ahead, body, clone, core, emit, fail, json, newId, nowISO, on, onReset, owner, scenario, viewer, type Req } from './core.ts';
 
 // ---- memory ----
 
@@ -250,8 +250,6 @@ function notesChunks(repo_id: number, md: string): Chunk[] {
 }
 
 const knowledgeEmpty = scenario('knowledge-empty', 'Bothy has read no repositories yet.', 'knowledge');
-const githubNone = scenario('github-none', 'GitHub is not connected (served here until the connections domain answers /api/github).', 'knowledge');
-const githubNoRepos = scenario('github-no-repos', 'GitHub is connected but no repository is chosen (served here until the connections domain answers /api/github).', 'knowledge');
 const notesConflict = scenario('notes-conflict', 'Someone else saves the acme/web notes while you edit them: your first save is refused.', 'knowledge');
 const notesFull = scenario('notes-near-full', 'The acme/web notes are above 80 % of their size limit.', 'knowledge');
 const notesSuggest = scenario('notes-suggestions', 'Bothy suggested 2 changes to the acme/web notes, from content it read.', 'knowledge');
@@ -490,29 +488,6 @@ on('GET', '/api/knowledge/search', (req, res, _m, q) => {
   }
   hits.sort((a, b) => a.rank - b.rank);
   json(res, 200, { items: hits.slice(0, limit) });
-});
-
-// GitHub as Knowledge sees it: connected or not, and the allowed repositories.
-// The connections domain owns /api/github; these answer only while it doesn't,
-// which is checked after every domain has registered its routes.
-queueMicrotask(() => {
-  const taken = (path: string) => routes.some(([m, re]) => m === 'GET' && re.test(path));
-  if (!taken('/api/github/connections'))
-    on('GET', '/api/github/connections', (req, res) => {
-      if (viewer(req).role === 'member') return fail(res, 403, 'forbidden', 'admins only');
-      if (githubNone(req)) return json(res, 200, []);
-      json(res, 200, [{ id: 'ghc_01jacme00000000000000000', auth: 'app', account: 'acme', account_type: 'Organization', status: 'ok', created_at: ago(60 * 24 * 5) }]);
-    });
-  if (!taken('/api/github/repos'))
-    on('GET', '/api/github/repos', (req, res) => {
-      if (githubNone(req) || githubNoRepos(req)) return json(res, 200, []);
-      const names = ['web', 'api', 'infra', 'docs', 'mobile'];
-      json(
-        res,
-        200,
-        names.map((name, i) => ({ connection_id: 'ghc_01jacme00000000000000000', github_id: 100 + i, owner: 'acme', name, default_branch: 'main', private: true, allowed: name !== 'mobile' })),
-      );
-    });
 });
 
 // ---- memory and skills routes ----

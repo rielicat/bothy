@@ -5,6 +5,7 @@
 import type { Approval, AuditEntry, EgressRecord, Run, Schedule, ToolCallRecord } from '../../src/lib/api/types.gen.ts';
 import { state as approvalState } from './approvals.ts';
 import { breakdown } from './chat.ts';
+import { releaseEnvironments } from './connections.ts';
 import { ago, asMember, body, clone, fail, ids, json, member, newId, nowISO, on, onReset, owner, routes, scenario, viewer, type Req, type Res } from './core.ts';
 
 const limits = { max_steps: 0, max_tokens: 0, max_time: 0, max_cost_micros: 0 };
@@ -319,10 +320,6 @@ export function usageRows(groupBy: string, days: number, user?: string, today = 
   return [];
 }
 
-const releaseEnvs = [
-  { name: 'production', repo: 'acme/web', workflow: 'deploy.yml', ref_pattern: 'main', inputs: {}, required: 2, approvers: [{ kind: 'role', id: 'admin', name: 'admin' }] },
-  { name: 'staging', repo: 'acme/web', workflow: 'deploy.yml', ref_pattern: '*', inputs: {}, required: 1, approvers: [{ kind: 'role', id: 'admin', name: 'admin' }] },
-];
 const deploy = (id: string, env: string, sha: string, subject: string, status: string, minAgo: number, extra: Record<string, unknown> = {}) => ({
   id,
   environment: env,
@@ -459,9 +456,10 @@ on('DELETE', '/api/schedules/{id}', (_q, res, m) => {
 on('POST', '/api/schedules/{id}/run', (_q, res) => json(res, 202, { run_id: 'run_01jstandup10000000000000' }));
 on('GET', '/api/schedules/{id}/runs', (_q, res, m) => json(res, 200, { items: runs.filter((r) => r.schedule_id === m[1]) }));
 
+// Environments come from config (the connections domain) so edits in Settings show here; the approvals domain adds the deploys its approved cards started.
 on('GET', '/api/releases', (req, res) => {
   if (noReleases(req)) return json(res, 200, { environments: [], deploys: [] });
-  json(res, 200, { environments: releaseEnvs, deploys: noDeploys(req) || empty(req) ? [] : deploys });
+  json(res, 200, { environments: releaseEnvironments(req), deploys: noDeploys(req) || empty(req) ? [] : [...deploys, ...approvalState.deploys] });
 });
 
 // Today's bar on the chart matches the meter in every spending scenario.
