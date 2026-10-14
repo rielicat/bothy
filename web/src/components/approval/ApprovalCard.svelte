@@ -312,7 +312,8 @@
     {/if}
 
     <p class="mt-3 text-small text-muted">
-      {#if view.session_id && (!someoneElse || (origin.title && !askedIn))}
+      <!-- Inside its own chat the card needs no "From" (§7.1). -->
+      {#if mode !== 'inline' && view.session_id && (!someoneElse || (origin.title && !askedIn))}
         {#if someoneElse}
           Requested by {requesterName} in <span data-copy-ignore>“<Verbatim text={origin.title ?? ''} />”</span>
         {:else}

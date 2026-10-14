@@ -70,8 +70,13 @@ describe('ApprovalCard', () => {
 
   const posts = () => calls.filter((c) => c.method === 'POST');
 
+  it('leaves "From" off a card inside its own chat', () => {
+    render(ApprovalCard, { approval: approval() });
+    expect(screen.getByRole('article').textContent).not.toContain('From');
+  });
+
   it('asks a plain question from the Action and never shows other payload prose on its face', () => {
-    const { container } = render(ApprovalCard, { approval: approval() });
+    const { container } = render(ApprovalCard, { approval: approval(), mode: 'inbox' });
     const card = screen.getByRole('article');
     expect(within(card).getByRole('heading', { level: 2 }).textContent).toBe('Run this command?');
     expect(card.textContent).toContain('You asked on Telegram.');
