@@ -45,22 +45,23 @@ describe('model choice', () => {
     ]);
   });
 
-  it('leads a long router list with one suggested model per family, then all models by name', () => {
+  it('leads a long router list with the newest listed model of each family, then all models by name', () => {
     const ids = [
       '~unbiased/pareto-latest',
-      'anthropic/claude-sonnet-4.5',
       'anthropic/claude-sonnet-5.5',
       'anthropic/claude-haiku-5.5',
       'anthropic/claude-opus-5.5',
-      'openai/gpt-6.1-sol',
       'openai/gpt-6.1-sol-pro',
+      'openai/gpt-6.1-sol',
       'openai/gpt-6-mini',
       'google/gemini-3.1-pro-preview',
-      'google/gemini-3-pro',
+      'x-ai/grok-4.7',
       'google/gemini-3.8-flash',
       'google/gemini-3.5-flash-lite',
       'google/gemini-3-pro-image',
-      'x-ai/grok-4.7',
+      'google/gemini-3-pro',
+      'x-ai/grok-4.20',
+      'anthropic/claude-sonnet-4.5',
     ];
     const opts = modelOptions(ids, 'anthropic/claude-sonnet-5.5', (m) => m);
     expect(opts.filter((o) => o.group === 'Suggested').map((o) => o.value)).toEqual([
@@ -75,7 +76,7 @@ describe('model choice', () => {
     ]);
     const all = opts.filter((o) => o.group === 'All models').map((o) => o.value);
     expect(all.at(0)).toBe('anthropic/claude-sonnet-4.5');
-    expect(all.at(-1)).toBe('~unbiased/pareto-latest');
+    expect(all.slice(-2)).toEqual(['~unbiased/pareto-latest', 'x-ai/grok-4.20']);
     expect(opts).toHaveLength(ids.length);
   });
 });

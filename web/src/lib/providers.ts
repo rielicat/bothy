@@ -162,8 +162,9 @@ export interface ModelOption {
 /** Above this many models the picker leads with a short suggested group. */
 const LONG_LIST = 12;
 
-// One pick per family, newest first: what most people choose from a router's
-// hundreds of models.
+// One pick per family: what most people choose from a router's hundreds of
+// models. Routers list newest first (version numbers can't say: Grok 4.20
+// came before 4.3), so the first match wins.
 const families: RegExp[] = [
   /claude-opus/,
   /claude-sonnet/,
@@ -181,13 +182,6 @@ const families: RegExp[] = [
 ];
 const notSuggested = /preview|exp|beta|:free|image|audio|tts|search|online|realtime|research|guard|vision|customtools/;
 
-const version = (id: string) => (id.match(/\d+/g) ?? []).map(Number);
-function newer(a: string, b: string): boolean {
-  const [x, y] = [version(a), version(b)];
-  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] ?? -1) !== (y[i] ?? -1)) return (x[i] ?? -1) > (y[i] ?? -1);
-  return a.length < b.length;
-}
-
 export function modelOptions(models: string[], recommended: string, name: (id: string) => string = friendlyModel): ModelOption[] {
   const list = usable(models);
   const seen = new Set<string>();
@@ -204,8 +198,7 @@ export function modelOptions(models: string[], recommended: string, name: (id: s
   }
   add(recommended, 'Suggested');
   for (const f of families) {
-    const fits = list.filter((m) => f.test(m.toLowerCase()) && !notSuggested.test(m.toLowerCase()));
-    const pick = fits.reduce((best, m) => (!best || newer(m, best) ? m : best), '');
+    const pick = list.find((m) => f.test(m.toLowerCase()) && !notSuggested.test(m.toLowerCase()));
     if (pick) add(pick, 'Suggested');
   }
   const key = (m: string) => name(m).replace(/^[^\p{L}\p{N}]+/u, '');
