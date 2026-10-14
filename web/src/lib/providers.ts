@@ -152,15 +152,64 @@ export function pickModels(def: ProviderDef, models: string[]): { main: string; 
 }
 
 /** Models for the "Change" select: friendly names, the recommended one first. */
-export function modelOptions(models: string[], recommended: string, name: (id: string) => string = friendlyModel): { value: string; label: string }[] {
+export interface ModelOption {
+  value: string;
+  label: string;
+  /** Set when the list is long: "Suggested", then "All models". */
+  group?: string;
+}
+
+/** Above this many models the picker leads with a short suggested group. */
+const LONG_LIST = 12;
+
+// One pick per family, newest first: what most people choose from a router's
+// hundreds of models.
+const families: RegExp[] = [
+  /claude-opus/,
+  /claude-sonnet/,
+  /claude-haiku/,
+  /(^|\/)gpt-(?!.*(mini|nano|pro|oss|codex|chat))/,
+  /(^|\/)gpt-.*mini/,
+  /gemini-.*pro/,
+  /gemini-.*flash(?!.*lite)/,
+  /grok-/,
+  /deepseek/,
+  /qwen/,
+  /kimi/,
+  /mistral-large/,
+  /llama/,
+];
+const notSuggested = /preview|exp|beta|:free|image|audio|tts|search|online|realtime|research|guard|vision|customtools/;
+
+const version = (id: string) => (id.match(/\d+/g) ?? []).map(Number);
+function newer(a: string, b: string): boolean {
+  const [x, y] = [version(a), version(b)];
+  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] ?? -1) !== (y[i] ?? -1)) return (x[i] ?? -1) > (y[i] ?? -1);
+  return a.length < b.length;
+}
+
+export function modelOptions(models: string[], recommended: string, name: (id: string) => string = friendlyModel): ModelOption[] {
+  const list = usable(models);
   const seen = new Set<string>();
-  const out: { value: string; label: string }[] = [];
-  for (const m of [recommended, ...usable(models)]) {
+  const out: ModelOption[] = [];
+  const add = (m: string, group?: string) => {
     const label = name(m);
-    if (!m || seen.has(label)) continue;
+    if (!m || seen.has(label)) return;
     seen.add(label);
-    out.push({ value: m, label: m === recommended ? `${label} (recommended)` : label });
+    out.push({ value: m, label: m === recommended ? `${label} (recommended)` : label, ...(group ? { group } : {}) });
+  };
+  if (list.length <= LONG_LIST) {
+    for (const m of [recommended, ...list]) add(m);
+    return out;
   }
+  add(recommended, 'Suggested');
+  for (const f of families) {
+    const fits = list.filter((m) => f.test(m.toLowerCase()) && !notSuggested.test(m.toLowerCase()));
+    const pick = fits.reduce((best, m) => (!best || newer(m, best) ? m : best), '');
+    if (pick) add(pick, 'Suggested');
+  }
+  const key = (m: string) => name(m).replace(/^[^\p{L}\p{N}]+/u, '');
+  for (const m of list.filter((m) => !seen.has(name(m))).sort((a, b) => key(a).localeCompare(key(b)))) add(m, 'All models');
   return out;
 }
 

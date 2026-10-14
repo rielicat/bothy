@@ -44,6 +44,40 @@ describe('model choice', () => {
       { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
     ]);
   });
+
+  it('leads a long router list with one suggested model per family, then all models by name', () => {
+    const ids = [
+      '~unbiased/pareto-latest',
+      'anthropic/claude-sonnet-4.5',
+      'anthropic/claude-sonnet-5.5',
+      'anthropic/claude-haiku-5.5',
+      'anthropic/claude-opus-5.5',
+      'openai/gpt-6.1-sol',
+      'openai/gpt-6.1-sol-pro',
+      'openai/gpt-6-mini',
+      'google/gemini-3.1-pro-preview',
+      'google/gemini-3-pro',
+      'google/gemini-3.8-flash',
+      'google/gemini-3.5-flash-lite',
+      'google/gemini-3-pro-image',
+      'x-ai/grok-4.7',
+    ];
+    const opts = modelOptions(ids, 'anthropic/claude-sonnet-5.5', (m) => m);
+    expect(opts.filter((o) => o.group === 'Suggested').map((o) => o.value)).toEqual([
+      'anthropic/claude-sonnet-5.5',
+      'anthropic/claude-opus-5.5',
+      'anthropic/claude-haiku-5.5',
+      'openai/gpt-6.1-sol',
+      'openai/gpt-6-mini',
+      'google/gemini-3-pro',
+      'google/gemini-3.8-flash',
+      'x-ai/grok-4.7',
+    ]);
+    const all = opts.filter((o) => o.group === 'All models').map((o) => o.value);
+    expect(all.at(0)).toBe('anthropic/claude-sonnet-4.5');
+    expect(all.at(-1)).toBe('~unbiased/pareto-latest');
+    expect(opts).toHaveLength(ids.length);
+  });
 });
 
 describe('model notes (§5.6.3)', () => {

@@ -437,6 +437,26 @@ func TestDiscover(t *testing.T) {
 	}
 }
 
+func TestDiscoverSkipsModelsThatCannotRunTheAgent(t *testing.T) {
+	srv := wiretest.NewServer(t, wiretest.JSON(200, []byte(`{"data":[
+		{"id":"anthropic/claude-sonnet-5.5","architecture":{"output_modalities":["text"]},"supported_parameters":["tools","max_tokens"]},
+		{"id":"anthropic/claude-sonnet-5.5:batch","architecture":{"output_modalities":["text"]},"supported_parameters":["tools"]},
+		{"id":"google/gemini-3-pro-image","architecture":{"output_modalities":["image"]},"supported_parameters":["max_tokens"]},
+		{"id":"scaledown/summarize","architecture":{"output_modalities":["text"]},"supported_parameters":["max_tokens"]},
+		{"id":"google/gemini-3.1-flash-image","architecture":{"output_modalities":["image","text"]},"supported_parameters":["tools"]},
+		{"id":"vllm-model"}]}`)))
+	o := wiretest.Options(srv, "or")
+	o.Kind = core.KindOpenAICompat
+	ms, err := New(o).Discover(context.Background())
+	var ids []string
+	for _, m := range ms {
+		ids = append(ids, m.Ref.Model)
+	}
+	if err != nil || strings.Join(ids, ",") != "anthropic/claude-sonnet-5.5,google/gemini-3.1-flash-image,vllm-model" {
+		t.Fatalf("%v %v", err, ids)
+	}
+}
+
 // finish_reason "length" inside a tool call leaves its arguments cut short;
 // repairing and running them could act on half a path or command.
 func TestStreamTruncatedToolCallDropped(t *testing.T) {

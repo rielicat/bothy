@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"slices"
+	"strings"
 
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/provider/wire"
@@ -47,6 +49,12 @@ func discover(ctx context.Context, o *wire.Options) ([]core.ModelInfo, error) {
 			Name          string `json:"name"`
 			ContextLength int    `json:"context_length"`
 			MaxModelLen   int    `json:"max_model_len"`
+			// OpenRouter only: what the model returns and which request
+			// parameters it takes ("tools" among them when it calls tools).
+			Architecture *struct {
+				OutputModalities []string `json:"output_modalities"`
+			} `json:"architecture"`
+			SupportedParameters []string `json:"supported_parameters"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&list); err != nil {
@@ -54,6 +62,13 @@ func discover(ctx context.Context, o *wire.Options) ([]core.ModelInfo, error) {
 	}
 	out := make([]core.ModelInfo, 0, len(list.Data))
 	for _, m := range list.Data {
+		// A router's batch variants answer hours later, and image or audio
+		// models and models that cannot call tools cannot run the agent.
+		if strings.HasSuffix(m.ID, ":batch") ||
+			m.Architecture != nil && len(m.Architecture.OutputModalities) > 0 && !slices.Contains(m.Architecture.OutputModalities, "text") ||
+			m.SupportedParameters != nil && !slices.Contains(m.SupportedParameters, "tools") {
+			continue
+		}
 		ctxLen := m.ContextLength
 		if ctxLen == 0 {
 			ctxLen = m.MaxModelLen
