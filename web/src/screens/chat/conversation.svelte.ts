@@ -12,6 +12,7 @@ import type {
   MessageData,
   MessagePage,
   Pin,
+  RunDetail,
   RunFinishedData,
   RunQueuedData,
   RunStartedData,
@@ -20,6 +21,7 @@ import type {
   SessionData,
   SessionDetail,
   ToolCallData,
+  ToolCallRecord,
   ToolOutputData,
   ToolResultData,
   UsageData,
@@ -28,13 +30,22 @@ import { events } from '../../lib/sse.svelte';
 import { buildItems, countToolParts, type Item, type LiveRun, type LiveTool } from '../../lib/transcript';
 
 const MAX_TOOL_OUTPUT = 64 * 1024;
+// Run details are fetched for the most recent runs when a chat opens, so
+// decided approvals and how each step was allowed survive a reload.
+const RECENT_RUNS = 8;
 
 function defined<T>(xs: (T | undefined | null)[] | null | undefined): T[] {
   return (xs ?? []).filter((x): x is T => x != null);
 }
 
+/** How the latest run ended, from its event or, after a reload, its stored record. */
+export interface Outcome extends Partial<RunFinishedData> {
+  run_id: string;
+  status: string;
+}
+
 export class Conversation {
-  readonly id: string;
+  id = $state('');
   detail: SessionDetail | null = $state(null);
   messages: Message[] = $state([]);
   hasMore = $state(false);
@@ -43,25 +54,64 @@ export class Conversation {
   live: LiveRun | null = $state(null);
   usage: UsageData | null = $state(null);
   preview: Breakdown | null = $state(null);
-  finished: (RunFinishedData & { run_id: string }) | null = $state(null);
+  finished: Outcome | null = $state(null);
   approvals: Approval[] = $state([]);
+  runs: Record<string, RunDetail> = $state({});
+  /** Messages sent while Bothy was busy, by message text, until the reply starts. */
+  queued: string[] = $state([]);
 
   #known = new Map<string, LiveTool>();
   items: Item[] = $derived(buildItems(this.messages, this.live, this.#known));
   session: Session | null = $derived(this.detail?.session ?? null);
   pins: Pin[] = $derived(defined(this.detail?.pins));
-  pending: Approval[] = $derived(this.approvals.filter((a) => a.status === 'pending' || a.status === 'parked'));
+  running = $derived(!!this.live && this.live.status !== 'finished');
+  lastRunId = $derived(this.live?.id || this.finished?.run_id || ([...this.messages].reverse().find((m) => m.run_id)?.run_id ?? ''));
+
+  /** Approvals by tool call id (tcl_…): events and the pending list first, then stored runs. */
+  byCall = $derived.by(() => {
+    const out = new Map<string, Approval>();
+    for (const d of Object.values(this.runs)) for (const a of defined(d.approvals)) out.set(a.tool_call_id, a);
+    for (const a of this.approvals) out.set(a.tool_call_id, a);
+    return out;
+  });
+
+  /** Stored tool calls by run and provider call id. */
+  records = $derived.by(() => {
+    const out = new Map<string, ToolCallRecord>();
+    for (const d of Object.values(this.runs)) for (const t of defined(d.tool_calls)) out.set(`${t.run_id}:${t.call_id}`, t);
+    return out;
+  });
+
+  outcome: Outcome | null = $derived.by(() => {
+    const id = this.lastRunId;
+    if (!id || this.running) return null;
+    if (this.finished?.run_id === id) return this.finished;
+    const r = this.runs[id]?.run;
+    if (!r) return null;
+    // The stored run doesn't say which limit stopped it; its limits and totals do.
+    const l = r.limits;
+    const budget = r.status !== 'budget_exceeded' ? undefined : l.max_steps && r.steps >= l.max_steps ? 'steps' : l.max_cost_micros && r.cost_micros >= l.max_cost_micros ? 'run_cost' : 'daily_cost';
+    return { run_id: id, status: r.status, error: r.error, steps: r.steps, budget };
+  });
 
   #offs: (() => void)[] = [];
-  readonly #enc: string;
+  // Counts run events, so a load that raced a run starting keeps the live run.
+  #seen = 0;
+  #fetching = new Map<string, Promise<RunDetail | null>>();
 
   constructor(id: string) {
     this.id = id;
-    this.#enc = encodeURIComponent(id);
+    if (!id) this.loading = false;
   }
 
   get base() {
-    return `/api/sessions/${this.#enc}`;
+    return `/api/sessions/${encodeURIComponent(this.id)}`;
+  }
+
+  /** A new chat got its session on the first send; events for it are already being followed. */
+  adopt(s: Session) {
+    this.id = s.id;
+    this.detail = { session: s, pins: [], pending_approvals: [] };
   }
 
   // Also the resync handler: what the server says is pending replaces the
@@ -69,9 +119,11 @@ export class Conversation {
   // buttons. Only cards that arrived by event during the fetch are kept,
   // since the snapshot may predate them.
   async load() {
+    if (!this.id) return;
     this.error = '';
     // untracked: an effect calls load(), and load() rewrites this list.
     const before = untrack(() => new Set(this.approvals.map((a) => a.id)));
+    const seen = this.#seen;
     try {
       const [d, page] = await Promise.all([api.get<SessionDetail>(this.base), api.get<MessagePage>(`${this.base}/messages?limit=60`)]);
       this.detail = d;
@@ -79,7 +131,8 @@ export class Conversation {
       this.hasMore = page.has_more;
       const pending = defined(d.pending_approvals);
       const listed = new Set(pending.map((a) => a.id));
-      this.approvals = [...pending, ...this.approvals.filter((a) => !before.has(a.id) && !listed.has(a.id))];
+      // Decided cards stay decided; a pending one not listed any more was decided elsewhere.
+      this.approvals = [...pending, ...this.approvals.filter((a) => !listed.has(a.id) && (!before.has(a.id) || (a.status !== 'pending' && a.status !== 'parked')))];
       if (d.active && this.live?.id !== d.active.run_id) {
         this.live = {
           id: d.active.run_id,
@@ -90,13 +143,40 @@ export class Conversation {
           tools: [],
           skip: countToolParts(this.messages, d.active.run_id),
         };
-      } else if (!d.active) this.live = null;
+      } else if (!d.active && seen === this.#seen) this.live = null;
+      this.#recentRuns();
       if (!this.usage) this.preview = await api.get<Breakdown>(`${this.base}/context`).catch(() => null);
     } catch (e) {
       this.error = errorText(e);
     } finally {
       this.loading = false;
     }
+  }
+
+  #recentRuns() {
+    const ids: string[] = [];
+    for (const m of [...this.messages].reverse()) {
+      if (!m.run_id || ids.includes(m.run_id)) continue;
+      if (m.parts.some((p) => p.t === 'tool_call') || ids.length === 0) ids.push(m.run_id);
+      if (ids.length >= RECENT_RUNS) break;
+    }
+    for (const id of ids) void this.loadRun(id, true);
+  }
+
+  /** Fetches a run's stored record once (again with `fresh`, after it finishes). */
+  loadRun(id: string, fresh = false): Promise<RunDetail | null> {
+    let p = fresh ? undefined : this.#fetching.get(id);
+    if (!p) {
+      p = api
+        .get<RunDetail>(`/api/runs/${encodeURIComponent(id)}`)
+        .then((d) => (this.runs[id] = d))
+        .catch(() => {
+          this.#fetching.delete(id);
+          return null;
+        });
+      this.#fetching.set(id, p);
+    }
+    return p;
   }
 
   async loadEarlier() {
@@ -148,6 +228,7 @@ export class Conversation {
   }
 
   #run(e: BusEvent): LiveRun {
+    this.#seen++;
     const id = e.run_id ?? '';
     if (!this.live || this.live.id !== id) {
       this.live = { id, status: 'running', text: '', thinking: '', tools: [], skip: countToolParts(this.messages, id) };
@@ -156,7 +237,7 @@ export class Conversation {
   }
 
   listen() {
-    const on = (t: EventType, fn: (e: BusEvent) => void) => events.on(t, (e) => e.session_id === this.id && fn(e));
+    const on = (t: EventType, fn: (e: BusEvent) => void) => events.on(t, (e) => !!this.id && e.session_id === this.id && fn(e));
     this.#offs = [
       on('run.queued', (e) => {
         const r = this.#run(e);
@@ -164,7 +245,9 @@ export class Conversation {
         r.queued = (e.data as RunQueuedData).position;
       }),
       on('run.started', (e) => {
+        this.#seen++;
         this.finished = null;
+        this.queued = [];
         this.live = { id: e.run_id ?? '', status: 'started', model: (e.data as RunStartedData).model, text: '', thinking: '', tools: [], skip: 0 };
       }),
       on('run.status', (e) => {
@@ -173,7 +256,10 @@ export class Conversation {
         r.status = d.status;
         r.detail = d.detail;
       }),
-      on('run.delta', (e) => (this.#run(e).text += (e.data as DeltaData).text)),
+      on('run.delta', (e) => {
+        this.queued = [];
+        this.#run(e).text += (e.data as DeltaData).text;
+      }),
       on('run.thinking', (e) => (this.#run(e).thinking += (e.data as DeltaData).text)),
       on('run.tool_call', (e) => {
         const d = e.data as ToolCallData;
@@ -200,11 +286,13 @@ export class Conversation {
       on('run.usage', (e) => (this.usage = e.data as UsageData)),
       on('run.parked', (e) => (this.#run(e).status = 'parked')),
       on('run.finished', (e) => {
-        this.finished = { ...(e.data as RunFinishedData), run_id: e.run_id ?? '' };
+        const id = e.run_id ?? '';
+        this.finished = { ...(e.data as RunFinishedData), run_id: id };
         const live = this.live;
-        if (live && live.id === e.run_id) live.status = 'finished';
+        if (live && live.id === id) live.status = 'finished';
+        void this.loadRun(id, true);
         void this.#refreshTail().then(() => {
-          if (this.live?.id !== e.run_id) return;
+          if (this.live?.id !== id) return;
           for (const it of this.items) if (it.kind === 'tool' && it.call && it.live) this.#known.set(it.call.id, $state.snapshot(it.live) as LiveTool);
           this.live = null;
         });
@@ -228,8 +316,8 @@ export class Conversation {
       }),
       events.on('approval.resolved', (e) => {
         const d = e.data as ApprovalResolvedData;
-        const a = this.approvals.find((x) => x.id === d.approval_id);
-        if (a) this.#upsertApproval({ ...a, status: d.status, choice: d.choice, decided_by: d.by, decided_via: d.via });
+        const a = this.byCall.get([...this.byCall].find(([, x]) => x.id === d.approval_id)?.[0] ?? '');
+        if (a) this.#upsertApproval({ ...a, status: d.status, choice: d.choice, decided_by: d.by, decided_via: d.via, decided_at: e.at });
       }),
       events.onResync(() => void this.load()),
     ];
@@ -250,5 +338,10 @@ export class Conversation {
 
   setPins(pins: Pin[]) {
     if (this.detail) this.detail.pins = pins;
+  }
+
+  async addPin(text: string) {
+    const p = await api.post<Pin>(`${this.base}/pins`, { text });
+    this.setPins([...this.pins, p]);
   }
 }

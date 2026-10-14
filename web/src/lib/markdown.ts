@@ -93,7 +93,8 @@ function blocks(lines: string[], o: MdOptions, depth: number): string {
       continue;
     }
     if ((m = HEADING.exec(line))) {
-      const n = m[1].length;
+      // The page owns the only h1 (the chat or page title), so "#" and "##" share h2 (§3.2, §16).
+      const n = Math.max(2, m[1].length);
       out += `<h${n}>${inline(headingText(line.slice(m[0].length)), o)}</h${n}>`;
       i++;
       continue;
@@ -396,7 +397,7 @@ function link(href: string, label: string, o: MdOptions, image = false): string 
   if (o.exposed && (mail || !hostAllowed(u.hostname, o.allow))) {
     const where = mail ? u.pathname : u.hostname;
     const prefix = label && label !== esc(href) && label !== esc(u.href) ? `${label} ` : '';
-    return `${prefix}<span class="md-inert" title="Links are disabled in this session because it holds private and untrusted data">${esc(where)}</span><button type="button" class="md-copy" data-copy="${esc(u.href)}" aria-label="Copy link">Copy</button>`;
+    return `${prefix}<span class="md-inert" title="Links are off in this chat because it has seen private information and content from outside your team.">${esc(where)}</span><button type="button" class="md-copy" data-copy="${esc(u.href)}" aria-label="Copy link">Copy</button>`;
   }
   return `<a href="${esc(u.href)}" target="_blank" rel="noopener noreferrer nofollow" title="${esc(u.href)}"${image ? ' class="md-img"' : ''}>${label || esc(u.href)}</a>`;
 }

@@ -28,7 +28,8 @@ describe('accessibility (axe)', () => {
   });
 
   it('chat', () => check('/chat/ses_01jtrip000000000000000000', () => screen.getByText(/Here's a gentle plan/)));
-  it('chat list', () => check('/chat', () => screen.getByText('Weekend in Edinburgh')));
+  // v0.2 lists chats in the shell sidebar (C1); /chat is the new chat itself (docs/design/ui.md §7.2).
+  it('new chat', () => check('/chat', () => screen.getByText('What should Bothy work on?')));
   it('approvals', () => check('/approvals', () => screen.getByText('Run shell command')));
   it('approvals, parked', () => check('/approvals?status=parked', () => screen.getByText('Send a message')));
   it('settings: general', () => check('/settings/general', () => screen.getByText('Remote access')));

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Message } from './api/types.gen';
-import { buildItems, countToolParts, describe as describeCall, type LiveRun, type LiveTool } from './transcript';
+import { buildBlocks, buildItems, countToolParts, dayLabel, describe as describeCall, type LiveRun, type LiveTool } from './transcript';
 
 let id = 0;
 const msg = (seq: number, role: string, parts: Message['parts'], extra: Partial<Message> = {}): Message => ({
@@ -111,5 +111,54 @@ describe('buildItems keys', () => {
     const keys = items.map((i) => i.key);
     expect(new Set(keys).size).toBe(keys.length);
     expect(items.filter((i) => i.kind === 'tool')).toHaveLength(2);
+  });
+});
+
+describe('use_tool and tool_search', () => {
+  it('shows the tool use_tool reached and never tool_search', () => {
+    const items = buildItems(
+      [
+        msg(1, 'assistant', [{ t: 'tool_call', call: { id: 'c1', name: 'tool_search', args: { query: 'linear' } } }, { t: 'tool_call', call: { id: 'c2', name: 'use_tool', args: { name: 'mcp__linear__create_issue', args: { title: 'Bug' } } } }], {
+          run_id: 'run_0',
+        }),
+      ],
+      null,
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0].kind === 'tool' && items[0].tool).toBe('mcp__linear__create_issue');
+    expect(items[0].kind === 'tool' && items[0].args).toEqual({ title: 'Bug' });
+  });
+
+  it('matches streamed rows of use_tool calls and drops streamed tool_search rows', () => {
+    const messages = [msg(1, 'assistant', [{ t: 'tool_call', call: { id: 'c1', name: 'use_tool', args: { name: 'mcp__docs__search', args: {} } } }], { run_id: 'run_1' })];
+    const items = buildItems(messages, live([{ tool: 'mcp__docs__search' }, { tool: 'tool_search' }]));
+    expect(items.filter((i) => i.kind === 'tool').map((i) => i.kind === 'tool' && i.live?.callId)).toEqual(['tcl_0']);
+  });
+});
+
+describe('buildBlocks', () => {
+  it('groups consecutive steps of one run and puts a day separator before each new day', () => {
+    const items = buildItems(
+      [
+        msg(1, 'user', [{ t: 'text', text: 'go' }], { created_at: '2026-10-11T10:00:00Z' }),
+        msg(2, 'assistant', [call('c1', 'web_search'), call('c2', 'web_search')], { run_id: 'run_0', created_at: '2026-10-11T10:01:00Z' }),
+        msg(3, 'assistant', [{ t: 'text', text: 'done' }], { run_id: 'run_0', created_at: '2026-10-11T10:02:00Z' }),
+        msg(4, 'user', [{ t: 'text', text: 'again' }], { created_at: '2026-10-12T09:00:00Z' }),
+      ],
+      null,
+    );
+    const blocks = buildBlocks(items, (iso) => iso.slice(0, 10));
+    expect(blocks.map((b) => b.kind)).toEqual(['day', 'user', 'steps', 'assistant', 'day', 'user']);
+    const steps = blocks[2];
+    expect(steps.kind === 'steps' && steps.tools).toHaveLength(2);
+  });
+
+  it('labels days as Today, Yesterday, then the weekday and date', () => {
+    const now = Date.parse('2026-10-14T12:00:00Z');
+    const opts = { now, locale: 'en-GB', timeZone: 'UTC' };
+    expect(dayLabel('2026-10-14T08:00:00Z', opts)).toBe('Today');
+    expect(dayLabel('2026-10-13T23:00:00Z', opts)).toBe('Yesterday');
+    expect(dayLabel('2026-10-10T08:00:00Z', opts)).toBe('Saturday 10 October');
+    expect(dayLabel('2025-10-10T08:00:00Z', opts)).toMatch(/^Friday,? 10 October 2025$/);
   });
 });
