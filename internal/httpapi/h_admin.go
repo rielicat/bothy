@@ -434,6 +434,11 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request, _ core.Act
 	if req.SecretRef != "" && !strings.HasPrefix(req.SecretRef, "secret:") {
 		return badRequest("secret_ref must be secret:<name>")
 	}
+	switch req.API {
+	case "", "auto", "responses", "chat":
+	default:
+		return badRequest("api must be auto, responses or chat")
+	}
 	if req.APIKey != "" && s.d.Vault != nil {
 		// The key is write-only: keep it out of logs and probe errors.
 		id := "probe:" + requestID()
@@ -441,7 +446,7 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request, _ core.Act
 		defer s.d.Vault.Redactor().Remove(id)
 	}
 	res, err := s.d.LLM.Probe(r.Context(), core.ProbeConfig{Kind: req.Kind, BaseURL: req.BaseURL, APIKey: core.NewSecret([]byte(req.APIKey)),
-		SecretRef: req.SecretRef, Model: req.Model, AllowPrivate: req.AllowPrivate})
+		SecretRef: req.SecretRef, Model: req.Model, AllowPrivate: req.AllowPrivate, API: req.API})
 	if err != nil {
 		return err
 	}

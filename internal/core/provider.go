@@ -281,6 +281,7 @@ type ProbeConfig struct {
 	SecretRef    string       `json:"secret_ref"` // alternative to APIKey: "secret:<name>"
 	Model        string       `json:"model"`
 	AllowPrivate bool         `json:"allow_private"`
+	API          string       `json:"api,omitempty"` // openai, openai_compat: auto | responses | chat ("" = auto), as providers[].api
 }
 
 type ProbeResult struct {
@@ -291,7 +292,8 @@ type ProbeResult struct {
 	Context       int           `json:"context"` // effective window
 	Models        []string      `json:"models"`
 	Cost          Micros        `json:"cost_micros"`
-	Detail        string        `json:"detail"` // plain-language failure or hint (e.g. OLLAMA_CONTEXT_LENGTH)
+	API           string        `json:"api,omitempty"` // openai, openai_compat: the API tested, "responses" or "chat"
+	Detail        string        `json:"detail"`        // plain-language failure or hint (e.g. OLLAMA_CONTEXT_LENGTH)
 }
 
 type Detection struct {

@@ -1,0 +1,23 @@
+[
+    {
+        "id": "fc_12345xyz",
+        "call_id": "call_12345xyz",
+        "type": "function_call",
+        "name": "get_weather",
+        "arguments": "{\"location\":\"Paris, France\"}"
+    },
+    {
+        "id": "fc_67890abc",
+        "call_id": "call_67890abc",
+        "type": "function_call",
+        "name": "get_weather",
+        "arguments": "{\"location\":\"Bogotá, Colombia\"}"
+    },
+    {
+        "id": "fc_99999def",
+        "call_id": "call_99999def",
+        "type": "function_call",
+        "name": "send_email",
+        "arguments": "{\"to\":\"bob@email.com\",\"body\":\"Hi bob\"}"
+    }
+]

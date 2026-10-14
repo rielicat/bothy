@@ -31,18 +31,39 @@ func (e *errorPayload) kind(status int) (core.ErrorKind, string) {
 		return core.ErrKindContextLength, e.Message
 	// An exhausted quota arrives as a 429, but retrying cannot help: like
 	// Anthropic's billing_error it is a credential problem for the admin.
-	case code == "invalid_api_key" || typ == "authentication_error" || code == "insufficient_quota" || typ == "insufficient_quota":
+	case code == "invalid_api_key" || typ == "authentication_error" || billingCodes[code] || typ == "insufficient_quota":
 		return core.ErrKindAuth, e.Message
-	case code == "content_filter" || code == "content_policy_violation":
+	case code == "content_filter" || code == "content_policy_violation" || policyCodes[code]:
 		return core.ErrKindContentFilter, e.Message
 	case code == "rate_limit_exceeded" || typ == "rate_limit_error" || code == "slow_down":
 		return core.ErrKindRateLimit, e.Message
 	case code == "server_is_overloaded" || typ == "service_unavailable_error":
 		return core.ErrKindOverloaded, e.Message
-	case typ == "server_error" && status < 500:
+	// The Responses API reports in-stream failures (response.failed) with a
+	// code and no type.
+	case (typ == "server_error" || code == "server_error" || code == "vector_store_timeout") && status < 500:
 		return core.ErrKindServer, e.Message
 	}
 	return wire.StatusKind(status), e.Message
+}
+
+// billingCodes are the 429 codes of an account that cannot pay; the type
+// may still say insufficient_quota (error-codes guide).
+var billingCodes = map[string]bool{
+	"insufficient_quota":                true,
+	"credit_balance_exhausted":          true,
+	"organization_spend_limit_exceeded": true,
+	"project_spend_limit_exceeded":      true,
+	"organization_usage_limit_exceeded": true,
+}
+
+// policyCodes end a Responses stream (response.failed) for a policy
+// violation; repeating the request cannot succeed.
+var policyCodes = map[string]bool{
+	"bio_policy":                     true,
+	"cyber_policy":                   true,
+	"misalignment_policy_violation":  true,
+	"image_content_policy_violation": true,
 }
 
 // classify reads {"error":{…}} and the looser shapes compatible servers use:

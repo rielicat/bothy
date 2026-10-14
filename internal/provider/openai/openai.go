@@ -1,9 +1,10 @@
-// Package openai is the Chat Completions client for OpenAI and every
-// OpenAI-compatible server (openai_compat: LM Studio, vLLM, OpenRouter, Groq,
-// xAI, DeepSeek…). It tolerates the compatible servers' quirks: missing
-// usage, missing call ids, whole-argument tool calls, reasoning text in
-// reasoning_content or reasoning, and tool calls written as
-// <tool_call>{…}</tool_call> text. Owner: M2.
+// Package openai holds the OpenAI clients: Responses (POST /responses, the
+// default for kind openai) and Chat Completions (the default for every
+// OpenAI-compatible server: LM Studio, vLLM, OpenRouter, Groq, xAI,
+// DeepSeek…). The Chat Completions client tolerates the compatible servers'
+// quirks: missing usage, missing call ids, whole-argument tool calls,
+// reasoning text in reasoning_content or reasoning, and tool calls written
+// as <tool_call>{…}</tool_call> text. Owner: M2.
 package openai
 
 import (
@@ -22,20 +23,36 @@ import (
 // DefaultBaseURL is used for kind openai when the config has no base_url.
 const DefaultBaseURL = "https://api.openai.com/v1"
 
-// Client implements core.Provider.
-type Client struct{ o wire.Options }
+// Client is the Chat Completions client; it implements core.Provider.
+type Client struct {
+	o      wire.Options
+	effort *EffortMemory
+}
 
 var _ core.Provider = (*Client)(nil)
 
-// New returns a client; o.Kind is KindOpenAI or KindOpenAICompat.
-func New(o wire.Options) *Client {
+// New returns a Chat Completions client with a private EffortMemory;
+// o.Kind is KindOpenAI or KindOpenAICompat.
+func New(o wire.Options) *Client { return NewChat(o, nil) }
+
+// NewChat returns a Chat Completions client that shares effort (what it
+// learns about tools and reasoning per model) with other clients; nil gives
+// it a private one.
+func NewChat(o wire.Options, effort *EffortMemory) *Client {
+	if effort == nil {
+		effort = NewEffortMemory(64, nil)
+	}
+	return &Client{o: withDefaults(o), effort: effort}
+}
+
+func withDefaults(o wire.Options) wire.Options {
 	if o.Kind != core.KindOpenAICompat {
 		o.Kind = core.KindOpenAI
 	}
 	if o.BaseURL == "" && o.Kind == core.KindOpenAI {
 		o.BaseURL = DefaultBaseURL
 	}
-	return &Client{o: o}
+	return o
 }
 
 func (c *Client) ID() string              { return c.o.ID }
@@ -43,8 +60,58 @@ func (c *Client) Kind() core.ProviderKind { return c.o.Kind }
 
 func setAuth(h http.Header, key string) { h.Set("Authorization", "Bearer "+key) }
 
+// Stream makes one Chat Completions call. A request with tools that the
+// server rejects because reasoning is on (toolsNeedNoReasoning) is sent once
+// more with reasoning_effort "none", but only while nothing has been
+// streamed, and the outcome is remembered per provider and model: later
+// calls send "none" at once, or, when "none" was refused too, fail without
+// asking again. This is a capability downgrade, not a retry of a failed
+// call: the rejected request is not billed, and the facade's
+// no-switch-after-first-event rule still holds.
 func (c *Client) Stream(ctx context.Context, r *core.Request, on func(core.StreamEvent) error) (*core.Response, error) {
-	req, err := c.o.NewRequest(ctx, http.MethodPost, c.o.URL("/chat/completions"), c.buildRequest(r), setAuth)
+	tools := len(r.Tools) > 0
+	mode := c.effort.Mode(c.o.ID, r.Model)
+	off := tools && mode == EffortOff
+	started := false
+	track := func(ev core.StreamEvent) error {
+		started = true
+		if on == nil {
+			return nil
+		}
+		return on(ev)
+	}
+	resp, err := c.stream(ctx, r, off, track)
+	var first *core.ProviderError
+	if err == nil || off || started || !tools || !toolsNeedNoReasoning(err) || !errors.As(err, &first) {
+		return resp, err
+	}
+	if mode == EffortNoTools {
+		return nil, c.noTools(first, `an earlier retry with reasoning_effort "none" was refused too.`)
+	}
+	resp, retryErr := c.stream(ctx, r, true, track)
+	if retryErr == nil {
+		c.effort.record(c.o.ID, r.Model, EffortOff)
+		return resp, nil
+	}
+	var second *core.ProviderError
+	if started || !errors.As(retryErr, &second) || second.Kind != core.ErrKindInvalidRequest {
+		return nil, retryErr
+	}
+	c.effort.record(c.o.ID, r.Model, EffortNoTools)
+	return nil, c.noTools(first, `retrying with reasoning_effort "none" failed too: `+second.Msg)
+}
+
+func (c *Client) noTools(first *core.ProviderError, why string) error {
+	return &core.ProviderError{Provider: c.o.ID, Kind: core.ErrKindInvalidRequest, Status: first.Status,
+		Msg: first.Msg + " Tools cannot be used over Chat Completions for this model: " + why, Err: first}
+}
+
+func (c *Client) stream(ctx context.Context, r *core.Request, effortNone bool, on func(core.StreamEvent) error) (*core.Response, error) {
+	body := c.buildRequest(r)
+	if effortNone {
+		body.ReasoningEffort = "none"
+	}
+	req, err := c.o.NewRequest(ctx, http.MethodPost, c.o.URL("/chat/completions"), body, setAuth)
 	if err != nil {
 		return nil, err
 	}

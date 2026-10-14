@@ -104,6 +104,7 @@ type Provider struct {
 	ID           string            `yaml:"id"`
 	Type         string            `yaml:"type"` // anthropic | openai | gemini | ollama | openai_compat
 	BaseURL      string            `yaml:"base_url"`
+	API          string            `yaml:"api"` // openai, openai_compat: auto | responses | chat; "" = auto (responses for openai, chat for openai_compat)
 	APIKey       string            `yaml:"api_key" secret:"true"`
 	AllowPrivate bool              `yaml:"allow_private"` // exact host:port of base_url only
 	Discover     bool              `yaml:"discover"`

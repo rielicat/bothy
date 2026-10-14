@@ -40,6 +40,8 @@ type client interface {
 type entry struct {
 	id    string
 	kind  core.ProviderKind
+	api   string            // openai kinds: openai.APIResponses or openai.APIChat
+	sig   core.ProviderKind // the SigKind the client writes and accepts back
 	base  string
 	cfg   config.Provider
 	fp    string
@@ -122,6 +124,7 @@ func (f *Facade) entry(id string) (*entry, error) {
 	// the old breaker and auth state described the old settings.
 	delete(f.health, id)
 	f.mu.Unlock()
+	f.effort.Forget(id)
 	if old != nil {
 		// Each entry owns a cloned transport; the replaced one's idle
 		// connections would otherwise linger.
@@ -155,10 +158,21 @@ func (f *Facade) build(p config.Provider, fp string) (*entry, error) {
 	for _, m := range p.Models {
 		o.Models = append(o.Models, core.ModelInfo{Ref: core.ModelRef{Provider: p.ID, Model: m.ID}, Source: "config"})
 	}
-	return &entry{id: p.ID, kind: kind, base: base, cfg: p, fp: fp, hc: hc, creds: creds, cl: newClient(o)}, nil
+	api := apiFor(kind, p.API)
+	cl := f.newClient(o, api, f.effort)
+	return &entry{id: p.ID, kind: kind, api: api, sig: sigKind(cl), base: base, cfg: p, fp: fp, hc: hc, creds: creds, cl: cl}, nil
 }
 
-func newClient(o wire.Options) client {
+// apiFor resolves providers[].api for the OpenAI kinds; other kinds have one
+// wire API and report "".
+func apiFor(kind core.ProviderKind, api string) string {
+	if kind != core.KindOpenAI && kind != core.KindOpenAICompat {
+		return ""
+	}
+	return openai.ResolveAPI(kind, api)
+}
+
+func (f *Facade) newClient(o wire.Options, api string, effort *openai.EffortMemory) client {
 	switch o.Kind {
 	case core.KindAnthropic:
 		return anthropic.New(o)
@@ -166,9 +180,24 @@ func newClient(o wire.Options) client {
 		return gemini.New(o)
 	case core.KindOllama:
 		return ollama.New(o)
-	default:
-		return openai.New(o)
 	}
+	if api == openai.APIResponses {
+		cp := f.cat.Find(o.Kind, o.BaseURL)
+		return openai.NewResponses(o, func(model string) bool {
+			m, ok := cp.Model(model)
+			return ok && !m.Thinking
+		})
+	}
+	return openai.NewChat(o, effort)
+}
+
+// sigKind is the SigKind a client's parts carry: its provider kind, unless
+// the client writes signatures another client of that kind cannot read.
+func sigKind(cl client) core.ProviderKind {
+	if s, ok := cl.(interface{ SigKind() core.ProviderKind }); ok {
+		return s.SigKind()
+	}
+	return cl.Kind()
 }
 
 // hostPort returns the exact "host:port" Egress must allow for a base URL.

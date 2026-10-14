@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/provider/ollama"
+	"github.com/rielicat/bothy/internal/provider/openai"
 	"github.com/rielicat/bothy/internal/provider/wire"
 )
 
@@ -34,6 +36,11 @@ var probeSchema = json.RawMessage(`{"type":"object","properties":{"value":{"type
 func (f *Facade) Probe(ctx context.Context, pc core.ProbeConfig) (core.ProbeResult, error) {
 	if !validKind(pc.Kind) {
 		return core.ProbeResult{}, fmt.Errorf("provider: unknown kind %q: %w", pc.Kind, core.ErrInvalid)
+	}
+	switch pc.API {
+	case "", openai.APIAuto, openai.APIResponses, openai.APIChat:
+	default:
+		return core.ProbeResult{}, fmt.Errorf("provider: unknown api %q: %w", pc.API, core.ErrInvalid)
 	}
 	base := strings.TrimRight(pc.BaseURL, "/")
 	if base == "" {
@@ -65,9 +72,13 @@ func (f *Facade) Probe(ctx context.Context, pc core.ProbeConfig) (core.ProbeResu
 	if !key.IsZero() {
 		o.Key = creds.key
 	}
-	cl := newClient(o)
+	api := apiFor(pc.Kind, pc.API)
+	// A private memory: what this probe learns about tools and reasoning is
+	// reported in its result, and the provider is not saved yet.
+	effort := openai.NewEffortMemory(1, nil)
+	cl := f.newClient(o, api, effort)
 
-	var res core.ProbeResult
+	res := core.ProbeResult{API: api}
 	found, derr := cl.Discover(ctx)
 	for _, m := range found {
 		res.Models = append(res.Models, m.Ref.Model)
@@ -78,7 +89,7 @@ func (f *Facade) Probe(ctx context.Context, pc core.ProbeConfig) (core.ProbeResu
 	}
 	if model == "" {
 		if derr != nil {
-			res.Detail = plain(derr, base, pc.Kind)
+			res.Detail = plain(derr, base, pc.Kind, api)
 		} else {
 			res.Detail = "The server lists no models; name one to test."
 		}
@@ -101,25 +112,44 @@ func (f *Facade) Probe(ctx context.Context, pc core.ProbeConfig) (core.ProbeResu
 	}, nil)
 	res.Latency = f.clock.Now().Sub(t0)
 	if err != nil {
-		res.Detail = plain(err, base, pc.Kind)
+		res.Detail = plain(err, base, pc.Kind, api)
 		return res, nil
 	}
 	res.OK = true
 	res.UsageReported = !resp.UsageEstimated
+	// A reply cut off at the one-token limit may carry no usage (a Responses
+	// incomplete event can have none); the tool call then decides.
+	cutShort := resp.UsageEstimated && resp.Stop == core.StopMaxTokens
 	res.Cost = info.Price.Cost(resp.Usage)
 
 	var notes []string
+	if n := apiNote(pc.Kind, pc.API, api); n != "" {
+		notes = append(notes, n)
+	}
+	toolTokens := 256
+	if api == openai.APIResponses {
+		// Reasoning counts against max_output_tokens there, and a
+		// reasoning model can spend 256 before it calls the tool.
+		toolTokens = 1024
+	}
 	tresp, terr := cl.Stream(ctx, &core.Request{
-		Model: model, MaxTokens: 256, ToolChoice: "required", NumCtx: numCtx,
+		Model: model, MaxTokens: toolTokens, ToolChoice: "required", NumCtx: numCtx,
 		Tools:    []core.ToolDef{{Name: probeTool, Description: "Echo a value back.", Schema: probeSchema}},
 		Messages: []core.Message{{Role: core.MsgUser, Parts: []core.Part{{Type: core.PartText, Text: `Call the probe_echo tool with value "ok".`}}}},
 	}, nil)
-	if terr != nil {
-		notes = append(notes, "Tool calling failed: "+plain(terr, base, pc.Kind))
-	} else {
+	mode := effort.Mode("probe", model)
+	switch {
+	case terr != nil && mode == openai.EffortNoTools:
+		notes = append(notes, noToolsOverChat(pc.Kind, terr))
+	case terr != nil:
+		notes = append(notes, "Tool calling failed: "+plain(terr, base, pc.Kind, api))
+	default:
 		res.ToolCalling = calledProbe(tresp)
-		res.UsageReported = res.UsageReported && !tresp.UsageEstimated
+		res.UsageReported = (res.UsageReported || cutShort) && !tresp.UsageEstimated
 		res.Cost += info.Price.Cost(tresp.Usage)
+		if mode == openai.EffortOff {
+			notes = append(notes, reasoningOffNote(pc.Kind))
+		}
 		if !res.ToolCalling {
 			notes = append(notes, "The model answered without calling the test tool; tool use may be unreliable.")
 		}
@@ -234,8 +264,49 @@ func localHost(h string) bool {
 	return ip != nil && (ip.IsLoopback() || ip.IsPrivate())
 }
 
+// apiNote says which OpenAI API the probe used, for type openai (where the
+// choice is automatic) and whenever api was set.
+func apiNote(kind core.ProviderKind, asked, api string) string {
+	if kind != core.KindOpenAI && (asked == "" || asked == openai.APIAuto) {
+		return ""
+	}
+	switch api {
+	case openai.APIResponses:
+		return "Tested with the Responses API."
+	case openai.APIChat:
+		return "Tested with the Chat Completions API."
+	}
+	return ""
+}
+
+// reasoningOffNote explains a Chat Completions endpoint that accepted the
+// test tool only with reasoning off.
+func reasoningOffNote(kind core.ProviderKind) string {
+	msg := `Tool calling works over Chat Completions only with reasoning turned off: the server refuses tools while this model reasons, so Bothy sends them with reasoning_effort "none".`
+	if kind == core.KindOpenAI {
+		return msg + " To keep reasoning during tool use, set api to responses or auto for this provider."
+	}
+	return msg + " If this server also offers the Responses API, set api: responses for this provider to keep reasoning during tool use."
+}
+
+// noToolsOverChat explains a model that cannot call tools over Chat
+// Completions at all, with the provider's own words last.
+func noToolsOverChat(kind core.ProviderKind, err error) string {
+	msg := "Tool calling failed: this model cannot call tools over Chat Completions, not even with reasoning turned off."
+	if kind == core.KindOpenAI {
+		msg += " Set api to responses or auto for this provider to use the Responses API, which supports it."
+	} else {
+		msg += " If this server also offers the Responses API, set api: responses for this provider."
+	}
+	var pe *core.ProviderError
+	if errors.As(err, &pe) {
+		msg += " The provider said: " + pe.Msg
+	}
+	return msg
+}
+
 // plain turns a provider failure into a sentence for the setup wizard.
-func plain(err error, base string, kind core.ProviderKind) string {
+func plain(err error, base string, kind core.ProviderKind, api string) string {
 	var pe *core.ProviderError
 	if !errors.As(err, &pe) {
 		return err.Error()
@@ -263,6 +334,11 @@ func plain(err error, base string, kind core.ProviderKind) string {
 	case core.ErrKindRateLimit:
 		return "The provider is rate limiting this key; try again shortly."
 	case core.ErrKindInvalidRequest:
+		// A 404 that does not mention a model is a missing path: a server
+		// without the Responses API.
+		if api == openai.APIResponses && pe.Status == http.StatusNotFound && !strings.Contains(strings.ToLower(pe.Msg), "model") {
+			return "This server has no Responses API at " + base + "/responses (" + pe.Msg + "). Set api: chat for this provider to use Chat Completions."
+		}
 		return "The provider rejected the test request: " + pe.Msg
 	default:
 		return fmt.Sprintf("The provider failed (%s): %s", pe.Kind, pe.Msg)

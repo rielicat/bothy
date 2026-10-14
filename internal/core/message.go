@@ -52,8 +52,10 @@ type Part struct {
 	ToolCall   *ToolCall   `json:"call,omitempty"`
 	ToolResult *ToolResult `json:"result,omitempty"`
 	// Sig is provider-opaque data that must round-trip verbatim (Anthropic thinking
-	// signature, Gemini thoughtSignature). SigKind is the ProviderKind that produced
-	// it; the provider facade strips it when the next call goes to another kind.
+	// signature, Gemini thoughtSignature, OpenAI Responses encrypted reasoning).
+	// SigKind is the ProviderKind that produced it, or a client's own kind where
+	// one provider kind has two wire APIs ("openai_responses"); the provider facade
+	// strips it when the next call goes to a client of another kind.
 	Sig     string       `json:"sig,omitempty"`
 	SigKind ProviderKind `json:"sig_kind,omitempty"`
 }

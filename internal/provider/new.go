@@ -12,6 +12,7 @@ import (
 	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/provider/catalog"
+	"github.com/rielicat/bothy/internal/provider/openai"
 )
 
 type Deps struct {
@@ -43,6 +44,11 @@ type Facade struct {
 	corr    map[string]float64
 	banner  bool // provider_auth banner raised
 
+	// effort is shared by every Chat Completions client, so what one call
+	// learned survives the client being rebuilt for another provider's
+	// config change (Forget drops only the changed provider's entries).
+	effort *openai.EffortMemory
+
 	// bannerMu serializes updateBanner so a raise and a clear computed
 	// concurrently cannot be published in the wrong order.
 	bannerMu sync.Mutex
@@ -66,7 +72,7 @@ func New(d Deps) (*Facade, error) {
 	if d.Env == nil {
 		d.Env = func() []string { return nil }
 	}
-	return &Facade{
+	f := &Facade{
 		d:       d,
 		cat:     catalog.Default(),
 		clock:   d.Clock,
@@ -78,8 +84,17 @@ func New(d Deps) (*Facade, error) {
 		health:  map[string]*health{},
 		disc:    map[string]*discovery{},
 		corr:    map[string]float64{},
-	}, nil
+	}
+	f.effort = openai.NewEffortMemory(maxEffortEntries, func(e openai.EffortEntry) {
+		f.log.Warn("chat completions rejects tools with reasoning on", "provider", e.Provider, "model", e.Model,
+			"reasoning_off_works", e.Mode == openai.EffortOff)
+	})
+	return f, nil
 }
+
+// maxEffortEntries bounds what the Chat Completions clients remember about
+// tools and reasoning: one entry per (provider, model) that needed it.
+const maxEffortEntries = 256
 
 func sleepCtx(ctx context.Context, d time.Duration) error {
 	t := time.NewTimer(d)

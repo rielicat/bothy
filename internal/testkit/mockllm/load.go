@@ -42,6 +42,7 @@ type yamlRule struct {
 	MatchUser       string         `yaml:"match_user"`
 	MatchToolResult string         `yaml:"match_tool_result"`
 	MatchSystem     string         `yaml:"match_system"`
+	Reasoning       string         `yaml:"reasoning"`
 	Text            []string       `yaml:"text"`
 	ToolCalls       []yamlToolCall `yaml:"tool_calls"`
 	Usage           *yamlUsage     `yaml:"usage"`
@@ -110,7 +111,7 @@ func parseScript(b []byte) ([]Rule, []core.ModelInfo, error) {
 	rules := make([]Rule, len(sc.Rules))
 	for i, yr := range sc.Rules {
 		r := Rule{MatchUser: yr.MatchUser, MatchToolResult: yr.MatchToolResult, MatchSystem: yr.MatchSystem,
-			Text: yr.Text, NoUsage: yr.NoUsage, Fault: yr.Fault, Delay: yr.Delay, Times: yr.Times}
+			Reasoning: yr.Reasoning, Text: yr.Text, NoUsage: yr.NoUsage, Fault: yr.Fault, Delay: yr.Delay, Times: yr.Times}
 		if u := yr.Usage; u != nil {
 			r.Usage = &core.Usage{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite, Reasoning: u.Reasoning}
 		}

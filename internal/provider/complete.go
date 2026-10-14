@@ -83,7 +83,7 @@ func (f *Facade) run(ctx context.Context, chain []core.ModelInfo, build core.Bui
 			ci.Attempts = append(ci.Attempts, core.Attempt{Ref: m.Ref, Err: "model has no tool support", Kind: core.ErrKindInvalidRequest})
 			continue
 		}
-		req = prepare(req, m, e.kind)
+		req = prepare(req, m, e.kind, e.sig)
 		ci.Ref = m.Ref // a failed call is recorded against the last model tried
 		for try := 0; try < 2; try++ {
 			resp, started, cbErr, err := f.attempt(ctx, e, m, req, on, &ci, start)
@@ -231,10 +231,10 @@ func prefixHash(r *core.Request) string {
 
 // prepare applies the provider rules the wire format depends on, on a copy
 // (the caller's history must not change): notices never reach a model,
-// thinking parts and signatures from another kind are dropped, images become
-// a note for models without vision, and Ollama gets the model's window as
-// num_ctx.
-func prepare(r *core.Request, m core.ModelInfo, kind core.ProviderKind) *core.Request {
+// thinking parts and signatures of another SigKind than the client's (sig)
+// are dropped, images become a note for models without vision, and Ollama
+// gets the model's window as num_ctx.
+func prepare(r *core.Request, m core.ModelInfo, kind, sig core.ProviderKind) *core.Request {
 	out := *r
 	out.Messages = make([]core.Message, 0, len(r.Messages))
 	for _, msg := range r.Messages {
@@ -243,10 +243,10 @@ func prepare(r *core.Request, m core.ModelInfo, kind core.ProviderKind) *core.Re
 		}
 		parts := make([]core.Part, 0, len(msg.Parts))
 		for _, p := range msg.Parts {
-			if p.Type == core.PartThinking && p.SigKind != kind {
+			if p.Type == core.PartThinking && p.SigKind != sig {
 				continue
 			}
-			if p.Sig != "" && p.SigKind != kind {
+			if p.Sig != "" && p.SigKind != sig {
 				p.Sig, p.SigKind = "", ""
 			}
 			if p.Type == core.PartImage && !m.Vision {

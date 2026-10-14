@@ -30,6 +30,7 @@ var enums = map[string][]string{
 	"log.level":                              {"debug", "info", "warn", "error"},
 	"log.format":                             {"text", "json"},
 	"providers.*.type":                       {"anthropic", "openai", "gemini", "ollama", "openai_compat"},
+	"providers.*.api":                        {"", "auto", "responses", "chat"},
 	"agent.busy_mode":                        {"steer", "queue"},
 	"policy.preset":                          {"careful", "balanced", "hands_off"},
 	"policy.defaults.*":                      verdicts,
@@ -447,6 +448,9 @@ func validateProviders(c *Config, v *vctx) []string {
 			continue
 		}
 		v.url(base+".base_url", p.BaseURL, false, "http", "https")
+		if v.enum(base+".api", "providers.*.api", p.API) && p.API != "" && p.Type != "openai" && p.Type != "openai_compat" {
+			v.add(base+".api", "only providers of type openai or openai_compat choose an api")
+		}
 		for _, name := range keysOf(p.Headers) {
 			if !headerNameRe.MatchString(name) {
 				v.add(base+".headers."+name, "invalid header name")

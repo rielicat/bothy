@@ -1,0 +1,11 @@
+{
+    "input_tokens": 100,
+    "input_tokens_details": {
+        "cached_tokens": 40,
+        "cache_write_tokens": 60
+    },
+    "output_tokens": 10,
+    "output_tokens_details": { "reasoning_tokens": 5 },
+    "total_tokens": 110,
+    "codex_rollout_budget_units": 2.5
+}

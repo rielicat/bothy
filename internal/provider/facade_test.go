@@ -364,7 +364,7 @@ func TestPrepareStripsForeignSignatures(t *testing.T) {
 	}
 	parts = append(parts, core.Part{Type: core.PartImage, Blob: &core.Blob{MIME: "image/png", Ref: "a.png", Data: []byte{1}}})
 	orig := &core.Request{Messages: []core.Message{{Role: core.MsgAssistant, Parts: parts}}}
-	got := prepare(orig, core.ModelInfo{Ref: core.ModelRef{Model: "m"}, MaxOutput: 99, Context: 4096}, core.KindAnthropic)
+	got := prepare(orig, core.ModelInfo{Ref: core.ModelRef{Model: "m"}, MaxOutput: 99, Context: 4096}, core.KindAnthropic, core.KindAnthropic)
 	ps := got.Messages[0].Parts
 	var thinking, signed int
 	for _, p := range ps {
@@ -392,7 +392,7 @@ func TestPrepareStripsForeignSignatures(t *testing.T) {
 	if len(op) != len(parts) || op[2].Sig != "s-gemini" || op[3].Sig != "fc-gemini" || op[6].Type != core.PartImage {
 		t.Fatalf("prepare mutated the caller's parts: %+v", op)
 	}
-	if prepare(orig, core.ModelInfo{Context: 16384}, core.KindOllama).NumCtx != 16384 {
+	if prepare(orig, core.ModelInfo{Context: 16384}, core.KindOllama, core.KindOllama).NumCtx != 16384 {
 		t.Fatal("ollama num_ctx default")
 	}
 }
@@ -404,7 +404,7 @@ func TestPrepareDropsNotices(t *testing.T) {
 		{Role: core.MsgAssistant, Kind: core.KindNotice, Parts: text("Stopped by /stop.")},
 		{Role: core.MsgUser, Kind: core.KindSteer, Parts: text("more")},
 	}}
-	got := prepare(r, core.ModelInfo{}, core.KindOpenAI).Messages
+	got := prepare(r, core.ModelInfo{}, core.KindOpenAI, core.KindOpenAI).Messages
 	if len(got) != 2 || got[0].Parts[0].Text != "q" || got[1].Parts[0].Text != "more" || len(r.Messages) != 3 {
 		t.Fatalf("messages %+v", got)
 	}

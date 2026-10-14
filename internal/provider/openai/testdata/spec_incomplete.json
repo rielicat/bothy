@@ -1,0 +1,37 @@
+{
+  "type": "response.incomplete",
+  "response": {
+    "id": "resp_123",
+    "object": "response",
+    "access_programs": null,
+    "created_at": 1740855869,
+    "status": "incomplete",
+    "completed_at": null,
+    "error": null,
+    "incomplete_details": {
+      "reason": "max_output_tokens"
+    },
+    "instructions": null,
+    "max_output_tokens": null,
+    "model": "gpt-6-astra",
+    "output": [],
+    "previous_response_id": null,
+    "reasoning_effort": null,
+    "store": false,
+    "temperature": 1,
+    "text": {
+      "format": {
+        "type": "text"
+      }
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_p": 1,
+    "truncation": "disabled",
+    "usage": null,
+    "user": null,
+    "metadata": {},
+    "parallel_tool_calls": true
+  },
+  "sequence_number": 1
+}

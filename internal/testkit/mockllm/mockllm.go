@@ -1,27 +1,38 @@
 // Package mockllm is a scriptable OpenAI-compatible server (/v1/models,
-// /v1/chat/completions with and without stream) for agent tests and E2E.
+// /v1/chat/completions and /v1/responses, with and without stream) for agent
+// tests and E2E.
 //
-// Each chat completion request is matched against the rules in order; the
-// first rule whose matchers all match (and whose Times is not used up) answers
-// it. A rule without matchers matches everything. MatchUser applies to the
-// text of the last user message; MatchToolResult to the last tool message
-// after it, so it never matches a request that does not end a tool round;
-// MatchSystem to the system and developer messages joined by newlines.
-// Unmatched requests get a 400 invalid_request_error with code "no_rule".
+// Each chat completion or responses request is matched against the rules in
+// order; the first rule whose matchers all match (and whose Times is not
+// used up) answers it. A rule without matchers matches everything. MatchUser
+// applies to the text of the last user message; MatchToolResult to the last
+// tool message (Responses: function_call_output) after it, so it never
+// matches a request that does not end a tool round; MatchSystem to the
+// system and developer messages (Responses: instructions first) joined by
+// newlines. Unmatched requests get a 400 invalid_request_error with code
+// "no_rule".
 //
-// Responses follow the OpenAI wire format: streamed chat.completion.chunk
-// frames (role, one frame per Text chunk, tool calls with arguments split
-// across frames, a finish frame, a usage frame when
+// Responses follow the OpenAI wire format. Chat Completions: streamed
+// chat.completion.chunk frames (role, one frame per Text chunk, tool calls
+// with arguments split across frames, a finish frame, a usage frame when
 // stream_options.include_usage is set, then [DONE]) or one chat.completion
-// object. A request for a model the server does not list is a 404
-// model_not_found; a prompt whose estimate (bytes/4) exceeds the model's
-// Context gets the overflow error, as from a real server.
+// object. Responses: the typed events of the Responses API (response.created,
+// then per output item output_item.added, its deltas and output_item.done,
+// then response.completed with usage) or one response object. Output items
+// are a reasoning item when the rule has Reasoning (its summary is that text
+// and its encrypted_content an opaque token), a message for Text and one
+// function_call per tool call. A request for a model the server does not
+// list is a 404 model_not_found; a prompt whose estimate (bytes/4) exceeds
+// the model's Context gets the overflow error, as from a real server.
 //
 // Faults: "429" (with Retry-After: 1), "500", "overflow" (400
 // context_length_exceeded), "midstream" (the connection drops after half the
 // frames or body bytes), "slow_ttft" (nothing, not even headers, is sent for
-// Delay, default 30s; the response then streams without further delays) and
-// "malformed" (a truncated JSON frame or body).
+// Delay, default 30s; the response then streams without further delays),
+// "malformed" (a truncated JSON frame or body), and, on Chat Completions
+// requests with tools only, "tools_reasoning" (rejected with OpenAI's 400
+// unless reasoning_effort is "none", like GPT-5.4 and later) and
+// "tools_responses_only" (rejected either way, like GPT-6 Astra).
 package mockllm
 
 import (
@@ -41,26 +52,30 @@ type Rule struct {
 	MatchUser       string          `yaml:"match_user"`        // regexp on the last user text
 	MatchToolResult string          `yaml:"match_tool_result"` // regexp on the last tool result
 	MatchSystem     string          `yaml:"match_system"`      // regexp on the system prompt (e.g. compaction requests)
+	Reasoning       string          `yaml:"reasoning"`         // Responses only: a reasoning item with this summary
 	Text            []string        `yaml:"text"`              // streamed chunks
 	ToolCalls       []core.ToolCall `yaml:"tool_calls"`
 	Usage           *core.Usage     `yaml:"usage"`    // default: estimated from bytes
 	NoUsage         bool            `yaml:"no_usage"` // omit usage (compat quirk)
-	Fault           string          `yaml:"fault"`    // "" | 429 | 500 | overflow | midstream | slow_ttft | malformed
+	Fault           string          `yaml:"fault"`    // "" | 429 | 500 | overflow | midstream | slow_ttft | malformed | tools_reasoning | tools_responses_only
 	Delay           time.Duration   `yaml:"delay"`    // between chunks
 	Times           int             `yaml:"times"`    // 0 = unlimited
 }
 
 // Fault values.
 const (
-	FaultRateLimit = "429"
-	FaultServer    = "500"
-	FaultOverflow  = "overflow"
-	FaultMidstream = "midstream"
-	FaultSlowTTFT  = "slow_ttft"
-	FaultMalformed = "malformed"
+	FaultRateLimit          = "429"
+	FaultServer             = "500"
+	FaultOverflow           = "overflow"
+	FaultMidstream          = "midstream"
+	FaultSlowTTFT           = "slow_ttft"
+	FaultMalformed          = "malformed"
+	FaultToolsReasoning     = "tools_reasoning"
+	FaultToolsResponsesOnly = "tools_responses_only"
 )
 
-var faults = []string{"", FaultRateLimit, FaultServer, FaultOverflow, FaultMidstream, FaultSlowTTFT, FaultMalformed}
+var faults = []string{"", FaultRateLimit, FaultServer, FaultOverflow, FaultMidstream, FaultSlowTTFT, FaultMalformed,
+	FaultToolsReasoning, FaultToolsResponsesOnly}
 
 // DefaultSlowTTFT is the slow_ttft wait of a rule without Delay.
 const DefaultSlowTTFT = 30 * time.Second
@@ -137,7 +152,8 @@ func compile(rules []Rule) ([]compiledRule, error) {
 
 func (s *Server) URL() string { return s.ts.URL + "/v1" } // base URL ending in /v1
 
-// Requests returns the raw bodies of the chat completion requests, in order.
+// Requests returns the raw bodies of the chat completion and responses
+// requests, in order.
 func (s *Server) Requests() [][]byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
