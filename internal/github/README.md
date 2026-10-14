@@ -32,5 +32,7 @@ the release module uses for allowlisted repositories (`Serves`): Dispatch
 sends `workflow_dispatch` with `return_run_details` (asking again without it
 after a 422 that names it, finding the run among recent `workflow_dispatch`
 runs after a 204), and runs keep only checked fields with links built from
-the web base. `githubtest` is a fake GitHub API built from the examples in
+the web base. `FailedStep` names the step a failed run stopped at for
+`release.finished` (the release module cleans it and never shows it to the
+model). `githubtest` is a fake GitHub API built from the examples in
 GitHub's REST description, including `workflow_dispatch`.

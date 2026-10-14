@@ -40,7 +40,12 @@ run, a run GitHub no longer knows, a run that was never identified or one
 older than `releases.follow_for` ends the deploy; the outcome is posted as a
 Bothy notice to the session (web UI, `message.created`) and, for chat runs,
 to the originating chat, and audited as `release.finish`
-(`release.dispatch` for dispatches and refusals).
+(`release.dispatch` for dispatches and refusals). `release.dispatched` and
+`release.finished {ok, url, duration, failed_step}` go to the deploy's
+principal and as an admin broadcast; `failed_step` comes from the run's jobs
+through `StepReader` (implemented by `GitHub` and the GitHub connections),
+cleaned to one line, and never appears in the notice: step names are written
+by whoever can push to the repository.
 
 **release_status** `{environment?}` (read) lists environments with who
 approves and their last three deploys visible to the caller, with the live

@@ -80,10 +80,24 @@ deny to withdraw), each user votes once, one deny denies, the `required`th
 distinct allow allows; every vote is audited (`approval.vote`, refusals with
 outcome `denied`), a vote that does not resolve is published as
 `approval.voted`, and requested/voted/resolved events also go to each
-eligible approver's own principal. The card adds "Requested by" and
-"Approvers" and leaves out the context line, whose session title belongs to
-the requester's principal. Timeouts, parking and the button MAC and
-recorded-card rules are unchanged. `Get`, `Pending` and `Recent` fill
-`Approval.Votes`; `Voters` lists who may vote.
+eligible approver's own principal. The card leaves out the context line,
+whose session title belongs to the requester's principal. Timeouts, parking
+and the button MAC and recorded-card rules are unchanged. `Get`, `Pending`,
+`Recent`, `Resolve` and the published events fill `Approval.Votes`,
+`Approval.Approvals` (required, votes with names and comments, eligible
+approvers, `any_admin`) and `Approval.Requester`; a decision's or vote's
+reason (`Resolution.Comment`) is stored and sent with `approval.resolved`.
+`Voters` lists who may vote.
+
+**Plain copy** (`copy.go`, v0.2 S2). `renderCard` also writes the words every
+surface shows, from the Action, the spec and the decision only: `question`,
+`consequence`, `primary_label` (allow_once's verb, else "Allow for this
+chat"), the `ing` phrase, `kind` (`action`, `pull_request`, `deploy`,
+`review` for notes edits) and `tone` (`destructive` for irreversible and
+financial actions and schedule deletion, never for deploys), plain field
+labels per tool with MCP (schema-declared scalar arguments), admin and
+unknown-tool fallbacks, and plain decision warnings. A field that shows the
+exact action (a shell command, a message, a comment) replaces `Code`; a value
+inside a sentence goes through `inline()`, so it can never break the line.
 
 Checks: `policy.hands_off`, `policy.auto_external_rules`, `budgets.unlimited`.
