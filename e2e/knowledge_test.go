@@ -99,6 +99,10 @@ func TestKnowledge(t *testing.T) {
 		t.Fatalf("indexed repo = %+v", r)
 	}
 	id := strconv.FormatInt(r.ID, 10)
+	var files dto.List[core.KnowledgeFile]
+	if code := owner.JSON(t, http.MethodGet, "/api/knowledge/repos/"+id+"/files", nil, &files); code != http.StatusOK || len(files.Items) != 4 {
+		t.Fatalf("files = %d %+v", code, files.Items)
+	}
 
 	var res dto.KnowledgeSearchResp
 	if code := owner.JSON(t, http.MethodGet, "/api/knowledge/search?q="+url.QueryEscape("rate limiter"), nil, &res); code != http.StatusOK {
@@ -123,6 +127,12 @@ func TestKnowledge(t *testing.T) {
 	}
 	if req := string(kLastRequest(t, llm, "call_ks")); !strings.Contains(req, "acme/api@0123456789ab:limit.go#L3-L6") {
 		t.Fatal("the tool result did not reach the model with its citation")
+	}
+	// Workspace content anyone may have authored: one search arms the
+	// trifecta floor, as an fs_read of the same file plus a web fetch would.
+	var sd dto.SessionDetail
+	if code := owner.JSON(t, http.MethodGet, "/api/sessions/"+string(sess.ID), nil, &sd); code != http.StatusOK || !sd.Session.Taint.Exposed() {
+		t.Fatalf("session taint after knowledge_search = %d %v, want Exposed", code, sd.Session.Taint)
 	}
 	owner.Finished(t, owner.Send(t, sess.ID, "K-NEXT anything else?"))
 	next := string(kLastRequest(t, llm, "K-NEXT"))
@@ -162,6 +172,7 @@ func TestKnowledge(t *testing.T) {
 
 	for _, probe := range []struct{ method, path string }{
 		{http.MethodGet, "/api/knowledge/repos/" + id},
+		{http.MethodGet, "/api/knowledge/repos/" + id + "/files"},
 		{http.MethodGet, "/api/knowledge/repos/" + id + "/notes"},
 		{http.MethodPost, "/api/knowledge/repos/" + id + "/reindex"},
 		{http.MethodPost, "/api/knowledge/repos/" + id + "/notes/draft"},
