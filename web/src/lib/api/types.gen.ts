@@ -577,7 +577,8 @@ export const EvRepoCheckedOut: EventType = "repo.checked_out";
 export const EvKnowledgeUpdated: EventType = "knowledge.updated";
 /**
  * RepoCheckedOutData: Dir holds Repo's files at commit SHA. Dir is absolute
- * (inside the event principal's workspace) or relative to that workspace.
+ * (inside the event principal's workspace), the path boxes see
+ * (/workspace/...), or relative to that workspace.
  */
 export interface RepoCheckedOutData {
   repo: string; // "owner/name"
