@@ -86,7 +86,11 @@ func (s *Service) TurnContext(ctx context.Context, in core.TurnContextInput) (co
 
 // notesBlock renders one repo's summary in at most room bytes.
 func notesBlock(r *core.IndexedRepo, content string, room int) (string, bool) {
-	head := "project notes for " + r.Repo + " (Bothy's own notes, kept outside the repo; the notes tool reads and updates them):\n"
+	// Naming both tools matters: they are gated on an indexed repo, so a
+	// session whose tools block froze before the first index lacks them
+	// until compaction, while tool_search and use_tool already reach them.
+	head := "project notes for " + r.Repo + " (Bothy's own notes, kept outside the repo; the notes tool reads and updates them, " +
+		"knowledge_search searches the repo's code and docs):\n"
 	overhead := len(head) + len(notesMoreTail) + 1
 	if r.Notes.Untrusted {
 		overhead += len(spotlight("", "source", "project_notes", "repo", r.Repo))

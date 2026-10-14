@@ -52,6 +52,7 @@ func TestTurnContextInjectsOncePerEpochAndChange(t *testing.T) {
 
 	first := h.turn(sess, 0)
 	if !strings.HasPrefix(first.Text, "project notes for acme/api") || !strings.Contains(first.Text, "## Build and test\nmake test") ||
+		!strings.Contains(first.Text, "knowledge_search") ||
 		strings.Contains(first.Text, "# acme/api\n") || first.Taint != core.TaintPrivate {
 		t.Fatalf("first block = %+v", first)
 	}
