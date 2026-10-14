@@ -77,6 +77,11 @@ func TestNoSandbox(t *testing.T) {
 		t.Fatalf("mockllm saw %d requests, want the tool round trip", len(reqs))
 	}
 	for i, body := range reqs {
+		// The session-title request after the run carries no tools; it can
+		// land before these requests are read.
+		if strings.Contains(string(body), "Write a title of at most six words") {
+			continue
+		}
 		tools := requestTools(t, body)
 		if slices.Contains(tools, "shell") || slices.Contains(tools, "python") {
 			t.Errorf("request %d offers exec tools without a sandbox: %v", i, tools)
