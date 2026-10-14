@@ -568,7 +568,7 @@ function seed() {
 const noChats = scenario('chat-empty', 'No chats yet: the chat list and search are empty.', 'chat');
 const hold = scenario('chat-hold', 'The scripted run stops at a phase and stays there: chat-hold:<working|streaming|tool|waiting>.', 'chat');
 const runFails = scenario('chat-fail', 'The scripted run fails after its first words, as when Anthropic is overloaded.', 'chat');
-const refineEst = scenario('refine', 'Refine cost for the composer: refine:estimate adds dollars to the multiplier; refine:none fails the estimate.', 'chat');
+const refineEst = scenario('refine', 'Refine cost for the composer: refine:estimate adds dollars to the multiplier; refine:none fails the estimate and GET /api/refine.', 'chat');
 const queuedNow = scenario('chat-queued', 'Messages sent now wait for the current step (the server answers queued).', 'chat');
 const uploadFail = scenario('upload-fail', 'Uploads fail: upload-fail:large (413) or upload-fail:type (415).', 'chat');
 

@@ -92,8 +92,8 @@ const states: ShotState[] = [
   { name: 'notice-paused', route: chat(ids.paused), mock: 'paused', ready: "Your message will be answered when it's resumed.", setup: frame },
   { name: 'notice-queued', route: chat(ids.paused), mock: 'chat-queued', ready: 'Can you find three venues', setup: then(send('Also check Manchester'), waitText('Bothy will read this when it finishes the current step.')) },
   { name: 'refine-estimate', route: chat(ids.login), mock: 'refine:estimate', ready: 'Fixed. The sign-in callback', setup: then(click('Refine'), waitText('About $0.20 for this reply.')) },
-  { name: 'refine-multiplier', route: chat(ids.login), mock: 'refine:multiplier', ready: 'Fixed. The sign-in callback', setup: then(click('Refine'), waitText('Costs about 12× a normal reply.')) },
-  { name: 'refine-generic', route: chat(ids.login), ready: 'Fixed. The sign-in callback', setup: then(click('Refine'), waitText('Slower, and costs several times more.')) },
+  { name: 'refine-multiplier', route: chat(ids.login), ready: 'Fixed. The sign-in callback', setup: then(click('Refine'), waitText('Costs about 12× a normal reply.')) },
+  { name: 'refine-generic', route: chat(ids.login), mock: 'refine:none', ready: 'Fixed. The sign-in callback', setup: then(click('Refine'), waitText('Slower, and costs several times more.')) },
   // The open menu is a top-layer popover, but the nesting probe still counts it as inside the composer's border.
   { name: 'model-picker', route: chat(ids.login), ready: 'Fixed. The sign-in callback', setup: then(click(/^Model:/)), probes: { nesting: false } },
   {

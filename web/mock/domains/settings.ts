@@ -98,7 +98,11 @@ onReset(() =>
 );
 
 // GET /api/refine: the defaults and the cost the server works out from them (h_refine.go refineWork).
-on('GET', '/api/refine', (_q, res) => {
+// Shares chat.ts's "refine" switch: refine:none takes the estimate and these defaults away.
+const refineSwitch = scenario('refine', 'Refine cost for the composer (see chat.ts).', 'chat');
+const refineDown = (req: Req) => refineSwitch(req) && refineSwitch.arg(req) === 'none';
+on('GET', '/api/refine', (req, res) => {
+  if (refineDown(req)) return fail(res, 500, 'internal', 'mock: refine:none');
   const v = (p: string, d: unknown) => state.effective.entries.find((e) => e.path === p)?.value ?? d;
   const drafts = Math.max(Number(v('agent.refine.drafts', 3)), 1);
   const depth = Math.max(Number(v('agent.refine.depth', 2)), 0);
