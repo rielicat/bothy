@@ -114,10 +114,11 @@ func (f *fixture) plan(env *core.ToolEnv, args string) *core.Action {
 	return a
 }
 
-// approve stores the approval of env's call with the given status and votes.
+// approve stores the approval of env's call with the given status and votes,
+// needing as many approvals as staging does now.
 func (f *fixture) approve(env *core.ToolEnv, a *core.Action, st core.ApprovalStatus, voters ...*core.User) *core.Approval {
 	f.t.Helper()
-	req := core.ApproverReq{Roles: []core.Role{core.RoleAdmin}, Required: 2, Requester: env.User}
+	req := core.ApproverReq{Roles: []core.Role{core.RoleAdmin}, Required: f.cfg.Releases.Environments[0].Needed(), Requester: env.User}
 	ap := &core.Approval{Run: env.Run, Session: env.Session, Principal: env.Principal.ID, ToolCallID: env.CallID, Action: a,
 		Decision: core.Decision{Verdict: core.VerdictAsk, Approver: req}, Card: core.Card{Title: "Deploy a release", Risk: core.SEIrreversible},
 		Status: st, Approver: req, OnTimeout: core.TimeoutDeny,
@@ -288,6 +289,24 @@ func TestDeployExecRefusesWithoutApproval(t *testing.T) {
 			f.approve(env, a, core.ApprovalAllowed, f.alice, f.bob)
 			f.cfg.Releases.Environments[0].Inputs = map[string]string{"target": "prod"}
 		}, "changed after this deploy was approved"},
+		{"approvers replaced since", func(f *fixture, env *core.ToolEnv, a *core.Action) {
+			f.approve(env, a, core.ApprovalAllowed, f.alice, f.bob)
+			carol := f.user("carol", core.RoleMember)
+			f.cfg.Releases.Environments[0].Approvers = []string{string(f.alice.ID), string(carol.ID)}
+		}, "1 of the 2 approvals it needs now still count"},
+		{"required raised since", func(f *fixture, env *core.ToolEnv, a *core.Action) {
+			f.cfg.Releases.Environments[0].Required = 1
+			f.approve(env, a, core.ApprovalAllowed, f.alice)
+			f.cfg.Releases.Environments[0].Required = 2
+		}, "1 of the 2 approvals it needs now still count"},
+		{"approver disabled since", func(f *fixture, env *core.ToolEnv, a *core.Action) {
+			f.approve(env, a, core.ApprovalAllowed, f.alice, f.bob)
+			b := *f.bob
+			b.Disabled = true
+			if err := f.store.Users().Update(f.ctx, &b); err != nil {
+				f.t.Fatal(err)
+			}
+		}, "approvers changed since it was approved"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFixture(t)
@@ -304,6 +323,20 @@ func TestDeployExecRefusesWithoutApproval(t *testing.T) {
 				t.Fatalf("%d deploy records", n)
 			}
 		})
+	}
+}
+
+// TestDeployExecAfterApproversLoosened: votes that satisfied the stricter
+// rule still satisfy a looser one, so the deploy runs.
+func TestDeployExecAfterApproversLoosened(t *testing.T) {
+	f := newFixture(t)
+	env := f.env()
+	a := f.plan(env, `{"environment":"staging"}`)
+	f.approve(env, a, core.ApprovalAllowed, f.alice, f.bob)
+	f.cfg.Releases.Environments[0].Required = 1
+	f.cfg.Releases.Environments[0].Approvers = []string{"admin", "member"}
+	if res, err := f.tool(deployName).Exec(f.ctx, env, a); err != nil || res.IsError || len(f.gh.Dispatches()) != 1 {
+		t.Fatalf("Exec = %+v, %v; dispatches %d", res, err, len(f.gh.Dispatches()))
 	}
 }
 
@@ -431,6 +464,31 @@ func TestLegacyDispatchFindsRun(t *testing.T) {
 	}
 }
 
+// TestDispatchOnServerWithoutRunDetails: a GitHub Enterprise Server that
+// refuses return_run_details still gets exactly one dispatch, and the run is
+// then found by listing.
+func TestDispatchOnServerWithoutRunDetails(t *testing.T) {
+	f := newFixture(t)
+	f.gh.SetStrict(true)
+	run, err := f.svc.d.Dispatcher.Dispatch(f.ctx, core.WorkflowDispatch{Repo: "acme/web", Workflow: "deploy.yml", Ref: "main",
+		Inputs: map[string]string{"target": "staging"}})
+	if err != nil || run.ID != 9001 {
+		t.Fatalf("dispatch = %+v, %v", run, err)
+	}
+	ds := f.gh.Dispatches()
+	if len(ds) != 1 || ds[0].ReturnRunDetails || ds[0].Inputs["target"] != "staging" {
+		t.Fatalf("dispatches = %+v; want one without return_run_details", ds)
+	}
+	f.gh.RejectRef("gone")
+	if _, err := f.svc.d.Dispatcher.Dispatch(f.ctx, core.WorkflowDispatch{Repo: "acme/web", Workflow: "deploy.yml", Ref: "gone"}); err == nil ||
+		!strings.Contains(err.Error(), "No ref found") {
+		t.Fatalf("other 422 = %v; want it reported, not retried away", err)
+	}
+	if n := len(f.gh.Dispatches()); n != 1 {
+		t.Fatalf("%d dispatches", n)
+	}
+}
+
 func TestGitHubClient(t *testing.T) {
 	f := newFixture(t)
 	g := f.svc.d.Dispatcher.(*GitHub)
@@ -459,6 +517,12 @@ func TestGitHubClient(t *testing.T) {
 	bad.cfg.Releases.GitHubAPI = "ftp://example.com"
 	if _, err := noSecret.RunStatus(bad.ctx, "acme/web", 1); !errors.Is(err, core.ErrInvalid) {
 		t.Fatalf("bad api base = %v", err)
+	}
+	plain := newFixture(t)
+	plain.cfg.Releases.GitHubAPI = "http://ghe.example.com/api/v3"
+	if _, err := plain.svc.d.Dispatcher.RunStatus(plain.ctx, "acme/web", 1); !errors.Is(err, core.ErrInvalid) || !strings.Contains(err.Error(), "https") ||
+		len(plain.dests) != 0 {
+		t.Fatalf("plain http to a remote API = %v (destinations %+v); want refused before any connection", err, plain.dests)
 	}
 
 	pub := newFixture(t)

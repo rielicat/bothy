@@ -106,7 +106,7 @@ func (t *deployTool) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action
 	if !ok || cur.Repo != p.Repo || cur.Workflow != p.Workflow || !maps.Equal(inputsOf(cur), nonNil(p.Inputs)) || !cur.AllowsRef(p.Ref) {
 		return failed("The " + p.Environment + " environment changed after this deploy was approved, so it did not run. Ask again to deploy with the current settings."), nil
 	}
-	appr, voters, err := s.approvalFor(ctx, env, a)
+	appr, voters, err := s.approvalFor(ctx, env, a, cur)
 	if err != nil {
 		s.audit(ctx, core.AuditEntry{Actor: "agent:" + string(env.Run), Action: "release.dispatch", Target: p.Environment, Outcome: "denied",
 			Session: env.Session, Run: env.Run, Detail: detail(map[string]any{"environment": p.Environment, "reason": err.Error()})})
@@ -161,8 +161,10 @@ func (t *deployTool) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action
 }
 
 // approvalFor finds the allowed multi-approver approval of this very call
-// and returns it with the users whose allow votes count.
-func (s *Service) approvalFor(ctx context.Context, env *core.ToolEnv, a *core.Action) (*core.Approval, []core.UserID, error) {
+// and returns it with the users whose allow votes count. The votes must also
+// satisfy the environment as configured now: an approval may wait (parked)
+// while an admin tightens required or replaces the approvers.
+func (s *Service) approvalFor(ctx context.Context, env *core.ToolEnv, a *core.Action, cur config.ReleaseEnv) (*core.Approval, []core.UserID, error) {
 	list, err := s.d.Store.Approvals().ByRun(ctx, env.Run)
 	if err != nil {
 		return nil, nil, fmt.Errorf("could not read its approval")
@@ -186,6 +188,18 @@ func (s *Service) approvalFor(ctx context.Context, env *core.ToolEnv, a *core.Ac
 		}
 		if len(voters) < ap.Approver.Needed() {
 			return nil, nil, fmt.Errorf("only %d of %d approvals were recorded", len(voters), ap.Approver.Needed())
+		}
+		users, roles := cur.ApproverSet()
+		now := core.ApproverReq{Users: users, Roles: roles, Required: cur.Needed(), Requester: env.User}
+		n := 0
+		for _, id := range voters {
+			if u, err := s.d.Store.Users().Get(ctx, id); err == nil && !u.Disabled && now.Eligible(u.ID, u.Role) {
+				n++
+			}
+		}
+		if n < now.Needed() {
+			return nil, nil, fmt.Errorf("the %s environment's approvers changed since it was approved: %d of the %d approvals it needs now still count",
+				cur.Name, n, now.Needed())
 		}
 		return ap, voters, nil
 	}
