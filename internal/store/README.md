@@ -20,3 +20,6 @@ offline `bothy audit archive`, and `Checks` reports `sqlite.version`,
 `data.permissions` (auto-fixable) and `backups.none_recent`. Code inside a `Tx`
 callback must use the `core.Store` it is given: the writer pool has a single
 connection. `conformance.Store` runs against a temp database in the tests.
+`DB.GitHub()` returns the `core.GitHubStore` of migration `0002_repos.sql`
+(GitHub connections and their repositories, one row per repository whatever
+its case), kept outside `core.Store` and checked by `conformance.GitHubStore`.

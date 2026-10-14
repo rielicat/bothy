@@ -37,3 +37,8 @@ identities, memory files and workspaces, then deletes the user row, whose
 cascade removes sessions, messages, runs and memory events; audit rows stay.
 Compactions and MCP
 installs run in the background, one at a time per session or server.
+The `/api/github` routes (v0.2, `h_github.go`) hand GitHub connection
+management to `core.GitHub`: admins test, connect, re-test, set the
+repository allowlist and disconnect; any user lists the allowlisted
+repositories. Tokens and App keys are write-only; without a GitHub service
+the routes answer 503.
