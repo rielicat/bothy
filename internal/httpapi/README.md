@@ -7,7 +7,9 @@ HSTS under TLS; never any CORS header), enforces the `Host` allowlist (421),
 applies the exposure gate on the peer address (loopback, the container's
 default gateway and `local_cidrs` are local; RFC1918/ULA is LAN; plain HTTP
 only for local peers, or LAN with `insecure_lan`; `X-Forwarded-*` honoured
-only from `trusted_proxies`) and rejects credential-named query parameters.
+only from `trusted_proxies`, and a request a trusted proxy forwarded is never
+local, whatever address it names) and rejects credential-named query
+parameters.
 Each route then caps its body, applies safe mode and the setup rules (local
 peers only, 404 after completion), authenticates (`bothy_session` cookie on
 plain HTTP, `__Host-bothy` under TLS, or a bearer PAT; `/v1` is bearer-only),

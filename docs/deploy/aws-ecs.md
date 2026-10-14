@@ -220,8 +220,8 @@ Skip the ACL in step 1. Bothy shows the "No sandbox" banner.
   `authenticate-cognito` action to the HTTPS listener; an internal ALB needs a
   NAT gateway to reach the IdP
   ([ELB: authenticate users](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/listener-authenticate-users.html)).
-- First-run setup is refused through the ALB: use the SSM tunnel once, or see
-  [setup through an ALB](README.md#reaching-the-ui-privately).
+- First-run setup is refused through the ALB, whatever address it forwards:
+  use the SSM tunnel once.
 
 ## Models
 

@@ -91,8 +91,10 @@ unknown Host), but the port should not be reachable in the first place.
 - `server.public_url` to the HTTPS URL users open (it also allows that Host).
 - `server.trusted_proxies` to the proxy's own addresses only, for an ALB the
   CIDRs of subnets that hold nothing but the ALB. A trusted peer's
-  `X-Forwarded-For` is believed: any other host in those ranges could claim to
-  be `127.0.0.1` and reach first-run setup.
+  `X-Forwarded-For` names the client in logs and rate limits and its
+  `X-Forwarded-Proto: https` counts as TLS, so any other host in those ranges
+  could forge both. A forwarded address never counts as local, whatever it
+  says, so it cannot open first-run setup.
 
 **ALB health checks** use plain HTTP and send the target's IP as the Host
 header, which Bothy rejects with 421 before anything else. Set the target
@@ -100,10 +102,11 @@ group's success codes to `421`: it proves the gateway answers, and the
 container health check (`/bothy healthcheck`) remains the real liveness
 probe.
 
-**First-run setup through an ALB** is refused (the client is not local). Run
-setup through a tunnel, or for one deploy set `server.local_cidrs` to your own
-address as the ALB reports it (`["203.0.113.7/32"]`), finish setup, then remove
-it.
+**First-run setup through an ALB** is refused, whatever client address the
+ALB forwards. Run setup through a tunnel that reaches the gateway directly:
+SSH, SSM port forwarding or `kubectl port-forward`; on Fargate, SSM port
+forwarding through an instance in the VPC ([fargate.md](fargate.md#steps),
+step 7).
 
 ## Backups
 
@@ -173,7 +176,9 @@ gateway and sandbox images built from this repository:
   `bothy backup` works in the Kubernetes layout.
 - The exposure gate as an ALB meets it: 421 for health checks, 403 for plain
   HTTP from the VPC, 200 through a trusted proxy with `X-Forwarded-Proto:
-  https`; setup through the proxy 403, and 200 with `server.local_cidrs`.
+  https`; setup through the proxy 403, also when the forwarded address is
+  loopback or in `server.local_cidrs` (the `httpapi` tests and a native
+  gateway on macOS).
 - Manifests: both ECS task definitions pass the AWS CLI's parameter
   validation for `RegisterTaskDefinition`; the Kubernetes manifests render with
   `kubectl kustomize` and decode strictly into the `k8s.io/api` v0.34 types;

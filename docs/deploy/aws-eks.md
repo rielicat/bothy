@@ -175,7 +175,8 @@ With the AWS Load Balancer Controller, an Ingress with
 the pod IP, which Bothy rejects first). Then add to the container's
 environment `BOTHY_SERVER__PUBLIC_URL` (the HTTPS URL) and
 `BOTHY_SERVER__TRUSTED_PROXIES` (the ALB's subnets as a JSON list), and allow
-that ingress in the NetworkPolicy. Run first-run setup through port-forward.
+that ingress in the NetworkPolicy. Run first-run setup through port-forward:
+a client behind the ALB never counts as local.
 
 ## Optional: sandboxd on a Docker node
 

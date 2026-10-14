@@ -78,8 +78,9 @@ func (s *Server) build() http.Handler {
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ri := &reqInfo{id: requestID()}
-		ri.ip, ri.secure = s.peer(r)
-		ri.class = s.classify(ri.ip)
+		var proxied bool
+		ri.ip, ri.secure, proxied = s.peer(r)
+		ri.class = s.classify(ri.ip, proxied)
 		r = r.WithContext(withInfo(r.Context(), ri))
 		w.Header().Set("X-Request-Id", ri.id)
 		defer s.recoverPanic(w, r)

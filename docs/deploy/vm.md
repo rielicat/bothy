@@ -186,7 +186,9 @@ Bedrock from outside AWS mount a read-only `~/.aws` into the gateway and set
         BOTHY_SERVER__TRUSTED_PROXIES: '["172.18.0.1/32"]'
   ```
 
-All three arrive as local peers, so first-run setup works through them.
+SSH and SSM arrive as local peers, so first-run setup works through them.
+Tailscale forwards the client's tailnet address, and a forwarded address never
+counts as local: run first-run setup through SSH or SSM.
 
 ## Backups and upgrades
 
