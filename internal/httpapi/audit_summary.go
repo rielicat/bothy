@@ -155,8 +155,11 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 	case "auth.logout":
 		return "Signed out"
 	case "auth.password_changed":
-		if e.Actor == e.Target {
+		switch {
+		case e.Actor == e.Target:
 			return "Changed their password"
+		case d["one_time"] == true:
+			return "Gave " + targetUser() + " a one-time password"
 		}
 		return "Changed the password of " + targetUser()
 	case "auth.setup_claim":
@@ -293,6 +296,8 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 		return "Used an AI model through the API"
 	case "audit.archived":
 		return "Archived old log entries"
+	case "provider.connect":
+		return "Connected an AI model"
 	case "github.connect":
 		return "Connected GitHub"
 	case "github.repos":

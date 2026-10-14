@@ -173,6 +173,10 @@ func TestAuditRowsAndEgressOutcomes(t *testing.T) {
 		{Actor: "system", Action: "something.new", Outcome: "ok"},
 		{Actor: "user:" + string(h.member.user), Action: "run.stop", Target: string(f.sess.ID), Outcome: "ok", Session: f.sess.ID},
 		{Actor: "user:" + string(h.member.user), Action: "schedule.delete", Target: "schedule:" + string(sched.ID), Outcome: "ok"},
+		{Actor: "user:" + string(h.admin.user), Action: "auth.password_changed", Target: "user:" + string(h.member.user), Outcome: "ok",
+			Detail: detail(map[string]any{"via": "admin", "one_time": true})},
+		{Actor: "user:" + string(h.admin.user), Action: "provider.connect", Target: "provider:anthropic", Outcome: "ok",
+			Detail: detail(map[string]any{"kind": "anthropic"})},
 	}
 	for i := range entries {
 		e := entries[i]
@@ -190,17 +194,19 @@ func TestAuditRowsAndEgressOutcomes(t *testing.T) {
 		got[r.Action+"/"+r.Target] = [2]string{r.ActorName, r.Summary}
 	}
 	for k, want := range map[string][2]string{
-		"auth.login/user:" + string(h.member.user):     {"member", "Signed in"},
-		"approval.request/" + string(ap.ID):            {"Bothy", "Asked to delete notes/staging.md"},
-		"approval.decide/" + string(ap.ID):             {"member", "Approved deleting notes/staging.md in Slack"},
-		"tool.exec/fs_delete":                          {"Bothy", "Deleted notes/staging.md"},
-		"tool.exec/shell":                              {"Bothy", "A command finished with errors"},
-		"egress.deny/paste.example.net:443":            {"Bothy", "Blocked from reaching paste.example.net"},
-		"schedule.update/schedule:sch_x":               {"Bothy", "Turned off the schedule “Daily standup” after it failed several times"},
-		"knowledge.index/knowledge:usr_x/acme/web":     {"Bothy", "Couldn't read acme/web"},
-		"something.new/":                               {"Bothy", "Something new"},
-		"run.stop/" + string(f.sess.ID):                {"member", "Stopped a task"},
-		"schedule.delete/schedule:" + string(sched.ID): {"member", "Deleted a schedule"},
+		"auth.login/user:" + string(h.member.user):            {"member", "Signed in"},
+		"approval.request/" + string(ap.ID):                   {"Bothy", "Asked to delete notes/staging.md"},
+		"approval.decide/" + string(ap.ID):                    {"member", "Approved deleting notes/staging.md in Slack"},
+		"tool.exec/fs_delete":                                 {"Bothy", "Deleted notes/staging.md"},
+		"tool.exec/shell":                                     {"Bothy", "A command finished with errors"},
+		"egress.deny/paste.example.net:443":                   {"Bothy", "Blocked from reaching paste.example.net"},
+		"schedule.update/schedule:sch_x":                      {"Bothy", "Turned off the schedule “Daily standup” after it failed several times"},
+		"knowledge.index/knowledge:usr_x/acme/web":            {"Bothy", "Couldn't read acme/web"},
+		"something.new/":                                      {"Bothy", "Something new"},
+		"run.stop/" + string(f.sess.ID):                       {"member", "Stopped a task"},
+		"schedule.delete/schedule:" + string(sched.ID):        {"member", "Deleted a schedule"},
+		"auth.password_changed/user:" + string(h.member.user): {"admin", "Gave member a one-time password"},
+		"provider.connect/provider:anthropic":                 {"admin", "Connected an AI model"},
 	} {
 		if got[k] != want {
 			t.Errorf("%s = %q, want %q", k, got[k], want)
