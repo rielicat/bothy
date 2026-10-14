@@ -81,10 +81,10 @@ func TestCardInApproverDMAndNonApproverRejected(t *testing.T) {
 			t.Fatalf("cards = %d", len(cards))
 		}
 		card := cards[0]
-		if got := buttonLabels(card); strings.Join(got, ",") != "Allow once,Allow for session,Deny" {
+		if got := buttonLabels(card); strings.Join(got, ",") != "Run command,Allow for this chat,Deny" {
 			t.Fatalf("buttons = %v", got)
 		}
-		if !strings.Contains(card.Text, "Run shell command") || !strings.Contains(card.Text, "rm -rf build") {
+		if !strings.HasPrefix(card.Text, "**Run this command?**\n") || !strings.Contains(card.Text, "**Command:** `rm -rf build`") {
 			t.Fatalf("card text = %q", card.Text)
 		}
 		refs := h.refs(ap.ID)
@@ -121,7 +121,7 @@ func TestCardInApproverDMAndNonApproverRejected(t *testing.T) {
 			Approval: ap.ID, Status: core.ApprovalAllowed, Choice: core.AllowOnce, By: h.owner.ID, Via: "telegram"}})
 		synctest.Wait()
 		edited := h.ch.EditedMessages()
-		if len(edited) != 1 || len(edited[0].Buttons) != 0 || !strings.Contains(edited[0].Text, "Allowed once by Olivia (telegram)") {
+		if len(edited) != 1 || len(edited[0].Buttons) != 0 || edited[0].Text != "**Run this command?**\nOlivia approved running a command in Telegram." {
 			t.Fatalf("card edits = %+v", edited)
 		}
 		h.ch.Press(refs[0].Ref, ownerChat, h.approvals.ButtonData(ap.ID, core.Deny))
@@ -268,6 +268,52 @@ func TestCardShowsValuesVerbatim(t *testing.T) {
 		_, truncated = h.hub.renderCard(ap, core.ChannelCaps{MaxLen: 4096})
 		if !truncated {
 			t.Fatal("a card for a channel without buttons must be truncated")
+		}
+	})
+}
+
+// TestCardSpeaksPlainCopy: a chat card carries the web card's words: the
+// question first, the consequence, warnings, the verb on the primary button
+// (red only when the action can't be undone, Deny never), and its decided
+// line names who decided, where, and the reason they gave.
+func TestCardSpeaksPlainCopy(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		owner := core.UserPrincipal(h.owner.ID)
+		chat := h.dmChat(ownerChat)
+		ap, err := h.approvals.Request(h.ctx, core.ApprovalRequest{
+			Run: core.RunID(core.NewID(core.PrefixRun)), Session: core.SessionID(core.NewID(core.PrefixSession)), Principal: owner,
+			Action: &core.Action{Tool: "fs_delete", Kind: core.ActFSDelete, SideEffect: core.SEIrreversible, Paths: []string{"notes/old.md"}},
+			Spec:   core.ToolSpec{Def: core.ToolDef{Name: "fs_delete"}, Manifest: core.Manifest{Title: "Delete file"}},
+			Decision: core.Decision{Verdict: core.VerdictAsk, Approver: core.ApproverReq{User: h.owner.ID}, Timeout: 15 * time.Minute,
+				Choices:  []core.Choice{core.AllowOnce, core.Deny},
+				Warnings: []string{"This chat has seen private information and content from outside. Check carefully before letting anything leave."}},
+			Chat: &chat,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.publishRequested(ap)
+		card := h.sent(ownerChat)[0]
+		want := "Delete `notes/old.md`?\nThis can't be undone.\n! This chat has seen private information and content from outside. " +
+			"Check carefully before letting anything leave.\n"
+		if !strings.HasPrefix(card.Text, want) || strings.Contains(card.Text, "Risk") || strings.Contains(card.Text, "Approval needed") {
+			t.Fatalf("card text =\n%s\nwant prefix\n%s", card.Text, want)
+		}
+		if row := card.Buttons[0]; len(row) != 2 || row[0].Label != "Delete file" || row[0].Style != core.BtnDanger ||
+			row[1].Label != "Deny" || row[1].Style != core.BtnDefault {
+			t.Fatalf("buttons = %+v", card.Buttons)
+		}
+		if core.NeutralizeMarkdown(card.Text) != card.Text {
+			t.Fatalf("a file name in the question is a tappable link: %q", card.Text)
+		}
+
+		h.bus.Publish(core.Event{Type: core.EvApprovalResolved, Principal: owner, Data: core.ApprovalResolvedData{
+			Approval: ap.ID, Status: core.ApprovalDenied, Choice: core.Deny, By: h.owner.ID, Via: "web", Comment: "Keep it for the audit"}})
+		synctest.Wait()
+		edited := h.ch.EditedMessages()
+		if len(edited) != 1 || edited[0].Text != "Delete `notes/old.md`?\nOlivia denied deleting `notes/old.md` on the web. “Keep it for the audit”" {
+			t.Fatalf("decided card = %+v", edited)
 		}
 	})
 }

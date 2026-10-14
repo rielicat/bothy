@@ -55,7 +55,7 @@ func (h *Hub) deliverVoteCards(ctx context.Context, ap *core.Approval) {
 	if n := ap.Approver.Needed(); n > 1 {
 		who = fmt.Sprintf("%d other people", n)
 	}
-	h.reply(ctx, *origin, "Waiting for "+who+" to approve “"+escapeMD(revealInvisible(cardTitle(ap)))+"”.")
+	h.reply(ctx, *origin, plainLine("Waiting for "+who+" to approve "+cardIng(ap)+"."))
 }
 
 // refreshCards edits the full cards of a multi-approver approval after a vote
@@ -88,6 +88,42 @@ func approvalProgress(ap *core.Approval) string {
 	return fmt.Sprintf("%d of %d approvals", core.AllowVotes(ap.Votes, ap.Approver), ap.Approver.Needed())
 }
 
+// approvalLines is the card's approvals row (docs/design/ui.md §8.5): the
+// count, every vote with its voter, and who else may still approve.
+func (h *Hub) approvalLines(ap *core.Approval) []string {
+	lines := []string{"**Approvals:** " + approvalProgress(ap)}
+	t := ap.Approvals
+	if t == nil {
+		return lines
+	}
+	voted := map[core.UserID]bool{}
+	for _, v := range t.Votes {
+		voted[v.User] = true
+		verb := " approved"
+		if v.Choice == core.Deny {
+			verb = " denied"
+		}
+		line := v.Name + verb
+		if c := strings.TrimSpace(v.Comment); c != "" {
+			line += ": “" + c + "”"
+		}
+		lines = append(lines, plainLine(line))
+	}
+	var rest []string
+	for _, p := range t.Eligible {
+		if !voted[p.User] {
+			rest = append(rest, p.Name)
+		}
+	}
+	if t.AnyAdmin {
+		rest = append(rest, "any admin")
+	}
+	if len(rest) > 0 {
+		lines = append(lines, plainLine("Waiting for "+orList(rest)+"."))
+	}
+	return lines
+}
+
 // allowedBy names the users whose allow votes approved ap ("Alice and Bob").
 func (h *Hub) allowedBy(ctx context.Context, ap *core.Approval) string {
 	var names []string
@@ -97,7 +133,7 @@ func (h *Hub) allowedBy(ctx context.Context, ap *core.Approval) string {
 			continue
 		}
 		seen[v.User] = true
-		names = append(names, escapeMD(revealInvisible(h.userName(ctx, v.User))))
+		names = append(names, h.userName(ctx, v.User))
 	}
 	switch len(names) {
 	case 0:
@@ -106,4 +142,11 @@ func (h *Hub) allowedBy(ctx context.Context, ap *core.Approval) string {
 		return names[0]
 	}
 	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+}
+
+func orList(items []string) string {
+	if len(items) < 2 {
+		return strings.Join(items, "")
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " or " + items[len(items)-1]
 }

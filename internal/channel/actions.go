@@ -120,7 +120,7 @@ func choiceToast(c core.Choice) string {
 	case core.AllowOnce:
 		return "Approved"
 	case core.AllowSession:
-		return "Allowed for this session"
+		return "Allowed for this chat"
 	case core.AllowAlways:
 		return "Always allowed"
 	}

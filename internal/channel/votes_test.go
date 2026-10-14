@@ -35,7 +35,9 @@ func (h *harness) requestDeploy(approver core.ApproverReq) *core.Approval {
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	ap.Card.Fields = []core.CardField{{Label: "Environment", Value: "staging"}, {Label: "Ref", Value: "main", Mono: true}}
+	ap.Card.Fields = []core.CardField{{Label: "Environment", Value: "staging"}, {Label: "Version", Value: "main", Mono: true}}
+	ap.Requester = &core.ApprovalPerson{User: h.member.ID, Name: "Mark"}
+	ap.Approvals = &core.ApprovalTally{Required: approver.Needed(), Votes: []core.ApprovalBallot{}, Eligible: []core.ApprovalPerson{}, AnyAdmin: true}
 	for _, p := range []core.PrincipalID{ap.Principal, core.UserPrincipal(h.owner.ID), ""} {
 		h.bus.Publish(core.Event{Type: core.EvApprovalRequested, Principal: p, Data: core.ApprovalData{Approval: ap}})
 	}
@@ -69,8 +71,8 @@ func TestMultiApproverCardsGoToEveryApprover(t *testing.T) {
 		}
 		for _, chat := range []string{ownerChat, adaChat, benChat} {
 			card := h.sent(chat)
-			if len(card) != 1 || !strings.Contains(card[0].Text, "0 of 2 approvals") || !strings.Contains(card[0].Text, "staging") ||
-				strings.Join(buttonLabels(card[0]), ",") != "Allow once,Deny" {
+			if len(card) != 1 || !strings.Contains(card[0].Text, "**Approvals:** 0 of 2 approvals\nWaiting for any admin.") || !strings.Contains(card[0].Text, "\nMark asked.\n") ||
+				strings.Join(buttonLabels(card[0]), ",") != "Approve deploy,Deny" {
 				t.Fatalf("card in %s = %+v", chat, card)
 			}
 		}
@@ -81,7 +83,7 @@ func TestMultiApproverCardsGoToEveryApprover(t *testing.T) {
 			t.Fatalf("a non-approver got %+v", sent)
 		}
 		waiting := h.sent(memberChat)
-		if len(waiting) != 1 || len(waiting[0].Buttons) != 0 || !strings.Contains(waiting[0].Text, "Waiting for 2 other people to approve") {
+		if len(waiting) != 1 || len(waiting[0].Buttons) != 0 || waiting[0].Text != "Waiting for 2 other people to approve deploying acme/web to staging." {
 			t.Fatalf("requester's chat got %+v; want only a waiting line", waiting)
 		}
 
@@ -102,6 +104,8 @@ func TestMultiApproverCardsGoToEveryApprover(t *testing.T) {
 		if err != nil || voted.Status != core.ApprovalPending || len(voted.Votes) != 1 {
 			t.Fatalf("after one vote: %+v, %v", voted, err)
 		}
+		voted.Approvals = &core.ApprovalTally{Required: 2, AnyAdmin: true,
+			Votes: []core.ApprovalBallot{{User: ada.ID, Name: "Ada", Choice: core.AllowOnce, At: voted.Votes[0].At}}}
 		for _, p := range []core.PrincipalID{voted.Principal, core.UserPrincipal(h.owner.ID)} {
 			h.bus.Publish(core.Event{Type: core.EvApprovalVoted, Principal: p, Data: core.ApprovalData{Approval: voted}})
 		}
@@ -111,7 +115,7 @@ func TestMultiApproverCardsGoToEveryApprover(t *testing.T) {
 			t.Fatalf("card edits after a vote = %d, want one per card", len(edits))
 		}
 		for _, e := range edits {
-			if !strings.Contains(e.Text, "1 of 2 approvals") || strings.Join(buttonLabels(e), ",") != "Allow once,Deny" {
+			if !strings.Contains(e.Text, "1 of 2 approvals\nAda approved\n") || strings.Join(buttonLabels(e), ",") != "Approve deploy,Deny" {
 				t.Fatalf("edited card = %+v; want the new count and the buttons kept", e)
 			}
 		}
@@ -133,7 +137,7 @@ func TestMultiApproverCardsGoToEveryApprover(t *testing.T) {
 		synctest.Wait()
 		edits = h.ch.EditedMessages()
 		last := edits[len(edits)-1]
-		if len(edits) != 6 || len(last.Buttons) != 0 || !strings.Contains(last.Text, "Approved by Ada and Ben") {
+		if len(edits) != 6 || len(last.Buttons) != 0 || last.Text != "**Deploy acme/web to staging?**\nAda and Ben approved deploying acme/web to staging." {
 			t.Fatalf("final card edits = %d, last %+v", len(edits), last)
 		}
 	})
@@ -147,7 +151,7 @@ func TestMultiApproverRequesterMayWithdraw(t *testing.T) {
 		if len(refs) != 1 || refs[0].Ref.Chat.ChatID != ownerChat {
 			t.Fatalf("cards = %+v; want only the named approver's DM", refs)
 		}
-		if !strings.Contains(h.sent(memberChat)[0].Text, "Waiting for someone else to approve") {
+		if h.sent(memberChat)[0].Text != "Waiting for someone else to approve deploying acme/web to staging." {
 			t.Fatalf("waiting line = %q", h.sent(memberChat)[0].Text)
 		}
 		h.ch.Press(refs[0].Ref, memberChat, h.approvals.ButtonData(ap.ID, core.Deny))

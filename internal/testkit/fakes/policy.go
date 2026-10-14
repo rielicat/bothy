@@ -131,6 +131,9 @@ type Approvals struct {
 	Choice   core.Choice
 	Manual   bool
 	Requests []core.ApprovalRequest
+	// Render, when set, replaces RenderCard for Request (a module test that
+	// needs the plain-copy fields the policy module would fill).
+	Render func(core.ApprovalRequest) core.Card
 
 	mu          sync.Mutex
 	Resolutions []core.Resolution
@@ -157,7 +160,11 @@ func (ap *Approvals) Request(_ context.Context, r core.ApprovalRequest) (*core.A
 		Status: core.ApprovalPending, Approver: r.Decision.Approver, Chat: r.Chat,
 		OnTimeout: r.Decision.OnTimeout, CreatedAt: now, ExpiresAt: now.Add(timeout),
 	}
-	a.Card = ap.RenderCard(r)
+	if ap.Render != nil {
+		a.Card = ap.Render(r)
+	} else {
+		a.Card = ap.RenderCard(r)
+	}
 	a.Card.Expires = a.ExpiresAt
 	a.Card.WebURL = "/approvals/" + string(a.ID)
 
