@@ -82,7 +82,8 @@ CREATE INDEX knowledge_sessions_repo ON knowledge_sessions(repo_id);
 
 -- llm_calls.purpose gains 'notes' (project notes drafts, metered outside any
 -- run). SQLite cannot alter a CHECK, so the table is rebuilt with the same
--- columns and indexes; no table, trigger or view references it.
+-- columns and indexes; no table, trigger or view references it. rowid is
+-- copied because per-run listings break ties on it.
 CREATE TABLE llm_calls_v3 (
   id                 TEXT PRIMARY KEY,
   run_id             TEXT REFERENCES runs(id) ON DELETE CASCADE,  -- NULL for passthrough/probe/notes
@@ -110,10 +111,10 @@ CREATE TABLE llm_calls_v3 (
   error              TEXT NOT NULL DEFAULT '',
   created_at         INTEGER NOT NULL
 ) STRICT;
-INSERT INTO llm_calls_v3 (id, run_id, principal_id, user_id, step, purpose, provider, model, slot, attempts,
+INSERT INTO llm_calls_v3 (rowid, id, run_id, principal_id, user_id, step, purpose, provider, model, slot, attempts,
   input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, usage_estimated, cost_micros,
   price_known, breakdown, prefix_hash, ttft_ms, latency_ms, stop_reason, error, created_at)
-SELECT id, run_id, principal_id, user_id, step, purpose, provider, model, slot, attempts,
+SELECT rowid, id, run_id, principal_id, user_id, step, purpose, provider, model, slot, attempts,
   input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, usage_estimated, cost_micros,
   price_known, breakdown, prefix_hash, ttft_ms, latency_ms, stop_reason, error, created_at
 FROM llm_calls;

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -143,22 +144,55 @@ func TestKnowledgeMigratesExistingDatabase(t *testing.T) {
 	}
 	call := core.CallInfo{ID: core.NewID(core.PrefixLLMCall), Ref: core.ModelRef{Provider: "p", Model: "m"}, Purpose: "title",
 		Usage: core.Usage{Input: 7}, Cost: 11}
-	if err := old.Runs().AddLLMCall(ctx, "", core.UserPrincipal(u.ID), u.ID, call); err != nil {
+	// Rows deleted and added again leave the rowid out of insertion order;
+	// the rebuild must keep each row's rowid, since listings break ties on it.
+	var rowids []int64
+	for i := range 3 {
+		c := call
+		if i > 0 {
+			c.ID = core.NewID(core.PrefixLLMCall)
+		}
+		if err := old.Runs().AddLLMCall(ctx, "", core.UserPrincipal(u.ID), u.ID, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := old.w.ExecContext(ctx, `UPDATE llm_calls SET rowid = rowid + 100 WHERE id = ?`, call.ID); err != nil {
 		t.Fatal(err)
 	}
+	rowidsOf := func(d *DB) []int64 {
+		t.Helper()
+		var out []int64
+		rows, err := d.w.QueryContext(ctx, `SELECT rowid FROM llm_calls ORDER BY id`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id int64
+			if err := rows.Scan(&id); err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, id)
+		}
+		return out
+	}
+	rowids = rowidsOf(old)
 	old.Close()
 	db, err := Open(ctx, Options{Path: p, BackupDir: filepath.Join(dir, "backups")})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	if got := rowidsOf(db); !slices.Equal(got, rowids) {
+		t.Fatalf("llm_calls rowids %v after the rebuild, want %v", got, rowids)
+	}
 	r := &core.IndexedRepo{Principal: core.UserPrincipal(u.ID), Repo: "acme/api", Source: core.KnowledgeWorkspace, Dir: ".",
 		Status: core.IndexQueued}
 	if err := db.Knowledge().Upsert(ctx, r); err != nil || r.ID == 0 {
 		t.Fatalf("upsert after upgrade: %+v %v", r, err)
 	}
 	rows, err := db.Usage().Report(ctx, core.UsageQuery{GroupBy: "user", From: time.UnixMilli(0), To: time.Now().Add(time.Hour)})
-	if err != nil || len(rows) != 1 || rows[0].Input != 7 || rows[0].Cost != 11 {
+	if err != nil || len(rows) != 1 || rows[0].Input != 21 || rows[0].Cost != 33 {
 		t.Fatalf("llm_calls rows lost in the rebuild: %+v %v", rows, err)
 	}
 	notes := core.CallInfo{ID: core.NewID(core.PrefixLLMCall), Ref: core.ModelRef{Provider: "p", Model: "m"}, Purpose: "notes"}
