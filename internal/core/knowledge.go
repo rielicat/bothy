@@ -230,6 +230,7 @@ type Knowledge interface {
 	TurnContextHook
 	Repos(ctx context.Context, v Viewer, p PrincipalID) ([]*IndexedRepo, error)
 	Repo(ctx context.Context, v Viewer, id int64) (*IndexedRepo, error)
+	Files(ctx context.Context, v Viewer, id int64) ([]KnowledgeFile, error) // what the index holds, by path
 	// Index queues an index of a directory of p's workspace and returns the
 	// queued row; indexing runs in the background (knowledge.updated).
 	Index(ctx context.Context, v Viewer, p PrincipalID, req KnowledgeIndexRequest, by UserID) (*IndexedRepo, error)

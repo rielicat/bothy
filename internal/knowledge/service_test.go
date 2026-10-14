@@ -125,6 +125,12 @@ func TestViewerScoping(t *testing.T) {
 	if _, err := h.svc.Notes(h.ctx, foreign, r.ID); !errors.Is(err, core.ErrNotFound) {
 		t.Errorf("Notes = %v", err)
 	}
+	if _, err := h.svc.Files(h.ctx, foreign, r.ID); !errors.Is(err, core.ErrNotFound) {
+		t.Errorf("Files = %v", err)
+	}
+	if files, err := h.svc.Files(h.ctx, h.viewer(), r.ID); err != nil || len(files) != r.Files {
+		t.Errorf("owner Files = %d %v, want %d", len(files), err, r.Files)
+	}
 	if _, err := h.svc.WriteNotes(h.ctx, foreign, r.ID, "x", "", bob.ID); !errors.Is(err, core.ErrNotFound) {
 		t.Errorf("WriteNotes = %v", err)
 	}

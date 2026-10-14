@@ -20,6 +20,7 @@ func (s *Server) knowledgeRoutes() []route {
 		{pattern: "POST /api/knowledge/repos", access: accessUser, h: s.indexKnowledgeRepo},
 		{pattern: "GET /api/knowledge/repos/{id}", access: accessUser, h: s.getKnowledgeRepo},
 		{pattern: "DELETE /api/knowledge/repos/{id}", access: accessUser, h: s.deleteKnowledgeRepo},
+		{pattern: "GET /api/knowledge/repos/{id}/files", access: accessUser, h: s.listKnowledgeFiles},
 		{pattern: "POST /api/knowledge/repos/{id}/reindex", access: accessUser, h: s.reindexKnowledgeRepo},
 		{pattern: "GET /api/knowledge/repos/{id}/notes", access: accessUser, h: s.getKnowledgeNotes},
 		{pattern: "PUT /api/knowledge/repos/{id}/notes", access: accessUser, h: s.putKnowledgeNotes},
@@ -113,6 +114,22 @@ func (s *Server) getKnowledgeRepo(w http.ResponseWriter, r *http.Request, a core
 		return err
 	}
 	return ok(w, repo)
+}
+
+func (s *Server) listKnowledgeFiles(w http.ResponseWriter, r *http.Request, a core.Actor) error {
+	k, err := s.knowledge()
+	if err != nil {
+		return err
+	}
+	id, err := knowledgeID(r)
+	if err != nil {
+		return err
+	}
+	files, err := k.Files(r.Context(), a.Viewer, id)
+	if err != nil {
+		return err
+	}
+	return ok(w, dto.List[core.KnowledgeFile]{Items: nonNil(files)})
 }
 
 func (s *Server) deleteKnowledgeRepo(w http.ResponseWriter, r *http.Request, a core.Actor) error {

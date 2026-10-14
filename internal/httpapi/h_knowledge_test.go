@@ -69,6 +69,15 @@ func (f *fakeKnowledge) Repo(_ context.Context, v core.Viewer, id int64) (*core.
 	return f.get(v, id)
 }
 
+func (f *fakeKnowledge) Files(_ context.Context, v core.Viewer, id int64) ([]core.KnowledgeFile, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, err := f.get(v, id); err != nil {
+		return nil, err
+	}
+	return []core.KnowledgeFile{{Path: "a.go", Hash: "c2:x", Size: 10, Lang: "go", Chunks: 1}}, nil
+}
+
 func (f *fakeKnowledge) Index(_ context.Context, v core.Viewer, p core.PrincipalID, req core.KnowledgeIndexRequest, _ core.UserID) (*core.IndexedRepo, error) {
 	if !v.Can(p) {
 		return nil, core.ErrNotFound
@@ -202,6 +211,10 @@ func TestKnowledgeRoutes(t *testing.T) {
 	}
 	expect(t, h.do(http.MethodPost, "/api/knowledge/repos", dto.KnowledgeIndexReq{Dir: "../x"}, h.owner), http.StatusBadRequest)
 	expect(t, h.do(http.MethodGet, "/api/knowledge/repos/"+id, nil, h.owner), http.StatusOK)
+	if files := decodeAs[dto.List[core.KnowledgeFile]](t, h.do(http.MethodGet, "/api/knowledge/repos/"+id+"/files", nil, h.owner)); len(files.Items) != 1 ||
+		files.Items[0].Path != "a.go" {
+		t.Fatalf("files = %+v", files)
+	}
 	expect(t, h.do(http.MethodPost, "/api/knowledge/repos/"+id+"/reindex", nil, h.owner), http.StatusAccepted)
 
 	rec = h.do(http.MethodGet, "/api/knowledge/repos/"+id+"/notes", nil, h.owner)
@@ -260,6 +273,7 @@ func TestKnowledgeIDOR(t *testing.T) {
 			hdr          []reqOpt
 		}{
 			{http.MethodGet, "/api/knowledge/repos/" + id, nil, nil},
+			{http.MethodGet, "/api/knowledge/repos/" + id + "/files", nil, nil},
 			{http.MethodDelete, "/api/knowledge/repos/" + id, nil, nil},
 			{http.MethodPost, "/api/knowledge/repos/" + id + "/reindex", nil, nil},
 			{http.MethodGet, "/api/knowledge/repos/" + id + "/notes", nil, nil},

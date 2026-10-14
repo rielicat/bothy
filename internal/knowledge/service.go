@@ -457,6 +457,10 @@ func (s *Service) Repo(ctx context.Context, v core.Viewer, id int64) (*core.Inde
 	return s.d.Repo.Get(ctx, v, id)
 }
 
+func (s *Service) Files(ctx context.Context, v core.Viewer, id int64) ([]core.KnowledgeFile, error) {
+	return s.d.Repo.Files(ctx, v, id)
+}
+
 func (s *Service) Index(ctx context.Context, v core.Viewer, p core.PrincipalID, req core.KnowledgeIndexRequest, by core.UserID) (*core.IndexedRepo, error) {
 	if !s.cfg().Enabled {
 		return nil, errDisabled

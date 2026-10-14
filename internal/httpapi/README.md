@@ -37,7 +37,7 @@ identities, memory files, project notes and workspaces, then deletes the user ro
 cascade removes sessions, messages, runs and memory events; audit rows stay.
 Compactions and MCP
 installs run in the background, one at a time per session or server.
-The v0.2 knowledge routes (`/api/knowledge/repos[/{id}[/reindex|/notes[/draft]]]`,
+The v0.2 knowledge routes (`/api/knowledge/repos[/{id}[/files|/reindex|/notes[/draft]]]`,
 `/api/knowledge/search`) sit in `h_knowledge.go`, are appended to the table
 in `New`, answer foreign or malformed ids with 404 and need `If-Match` on a
 notes `PUT`.
