@@ -96,6 +96,21 @@ func TestDispatchRefusals(t *testing.T) {
 	}
 }
 
+// TestFailedStepReadsTheRunsJobs: the release module asks a connection
+// where a failed run stopped; a run whose steps all passed names none, and
+// an unlisted repository is refused.
+func TestFailedStepReadsTheRunsJobs(t *testing.T) {
+	f := newFx(t)
+	f.connect("octocat/Hello-World")
+	id := f.repo.AddRun(githubtest.Run{Workflow: "deploy.yml", Branch: "main", Status: "completed", Conclusion: "success"})
+	if step, err := f.svc.FailedStep(f.ctx, "octocat/Hello-World", id); err != nil || step != "" {
+		t.Fatalf("FailedStep = %q, %v", step, err)
+	}
+	if _, err := f.svc.FailedStep(f.ctx, "octocat/unlisted", id); !errors.Is(err, core.ErrInvalid) {
+		t.Errorf("FailedStep of an unlisted repo = %v", err)
+	}
+}
+
 func TestRunStatusKeepsOnlyCheckedFields(t *testing.T) {
 	f := newFx(t)
 	f.connect("octocat/Hello-World")

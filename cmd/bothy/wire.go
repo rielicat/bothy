@@ -42,6 +42,10 @@ import (
 	"github.com/rielicat/bothy/internal/webui"
 )
 
+// The release module finds a failed run's step through an optional
+// interface; this keeps the GitHub connections offering it.
+var _ release.StepReader = (*github.Service)(nil)
+
 // app holds every constructed component; built in dependency order.
 type app struct {
 	cfg       *config.Manager

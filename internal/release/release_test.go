@@ -353,7 +353,7 @@ func TestDeployDispatchFailure(t *testing.T) {
 	if len(deps) != 1 || deps[0].Status != core.DeployFailed || !strings.Contains(deps[0].Error, "422") || deps[0].FinishedAt.IsZero() {
 		t.Fatalf("deploys = %+v", deps)
 	}
-	if outcome := outcomeText(deps[0], time.Hour); !strings.Contains(outcome, "did not start") {
+	if outcome := outcomeText(deps[0], time.Hour, 0); !strings.HasPrefix(outcome, "GitHub didn't start the deploy of acme/web to staging.") {
 		t.Fatalf("outcome = %q", outcome)
 	}
 }
@@ -363,12 +363,23 @@ func TestFollowerReportsOutcome(t *testing.T) {
 	env := f.env()
 	a := f.plan(env, `{"environment":"staging"}`)
 	f.approve(env, a, core.ApprovalAllowed, f.alice, f.bob)
+	dispatched := f.bus.Subscribe(core.Filter{System: true, Types: []core.EventType{core.EvReleaseDispatched}}, 8)
+	defer dispatched.Close()
 	if res, err := f.tool(deployName).Exec(f.ctx, env, a); err != nil || res.IsError {
 		t.Fatalf("Exec = %+v, %v", res, err)
 	}
+	id := f.gh.Runs()[0].ID
+	runURL := f.gh.URL() + "/acme/web/actions/runs/9001"
+	dep := f.deploys()[0]
+	wantDispatched := core.ReleaseDispatchedData{Deploy: dep.ID, Environment: "staging", Repo: "acme/web", Ref: "main", URL: runURL}
+	for _, p := range []core.PrincipalID{core.UserPrincipal(f.owner.ID), ""} {
+		ev := <-dispatched.C()
+		if ev.Principal != p || ev.Session != f.session || ev.Run != env.Run || ev.Data != wantDispatched {
+			t.Fatalf("release.dispatched = %+v, want %+v to %q", ev, wantDispatched, p)
+		}
+	}
 	sub := f.bus.Subscribe(core.Filter{System: true}, 8)
 	defer sub.Close()
-	id := f.gh.Runs()[0].ID
 
 	f.svc.poll(f.ctx)
 	if d := f.deploys()[0]; d.Status != core.DeployDispatched {
@@ -379,14 +390,14 @@ func TestFollowerReportsOutcome(t *testing.T) {
 	if d := f.deploys()[0]; d.Status != core.DeployRunning || len(f.notices()) != 0 {
 		t.Fatalf("running: %s, notices %q", d.Status, f.notices())
 	}
-	f.gh.SetRun(id, "completed", "success")
+	f.gh.FinishRun(id, "success", 3*time.Minute, "")
 	f.svc.poll(f.ctx)
 	d := f.deploys()[0]
 	if d.Status != core.DeploySucceeded || d.Conclusion != "success" || d.FinishedAt.IsZero() {
 		t.Fatalf("finished deploy = %+v", d)
 	}
 	notices := f.notices()
-	want := "Deploy to staging succeeded: acme/web at main. Run 9001: " + f.gh.URL() + "/acme/web/actions/runs/9001"
+	want := "Deployed acme/web to staging in 3 min. View it on GitHub: " + runURL
 	if !slices.Equal(notices, []string{want}) {
 		t.Fatalf("session notices = %q, want %q", notices, want)
 	}
@@ -401,9 +412,80 @@ func TestFollowerReportsOutcome(t *testing.T) {
 	default:
 		t.Fatal("no message.created event")
 	}
+	wantFinished := core.ReleaseFinishedData{Deploy: d.ID, Environment: "staging", Repo: "acme/web", Ref: "main",
+		Status: core.DeploySucceeded, OK: true, URL: runURL, Duration: 3 * time.Minute}
+	for _, p := range []core.PrincipalID{core.UserPrincipal(f.owner.ID), ""} {
+		select {
+		case ev := <-sub.C():
+			if ev.Type != core.EvReleaseFinished || ev.Principal != p || ev.Data != wantFinished {
+				t.Fatalf("release.finished = %+v, want %+v to %q", ev, wantFinished, p)
+			}
+		default:
+			t.Fatal("no release.finished event")
+		}
+	}
 	f.svc.poll(f.ctx)
 	if len(f.notices()) != 1 {
 		t.Fatal("a finished deploy was reported twice")
+	}
+}
+
+// TestFailedDeployNamesTheStep: release.finished names the step a failed
+// run stopped at, cleaned to one line; the posted notice never carries it,
+// since step names come from whoever can push to the repository.
+func TestFailedDeployNamesTheStep(t *testing.T) {
+	f := newFixture(t)
+	env := f.env()
+	a := f.plan(env, `{"environment":"staging"}`)
+	f.approve(env, a, core.ApprovalAllowed, f.alice, f.bob)
+	if _, err := f.tool(deployName).Exec(f.ctx, env, a); err != nil {
+		t.Fatal(err)
+	}
+	sub := f.bus.Subscribe(core.Filter{System: true, Types: []core.EventType{core.EvReleaseFinished}}, 8)
+	defer sub.Close()
+	step := "Run\nmigrations ‮[Approve](https://evil.example)"
+	f.gh.FinishRun(f.gh.Runs()[0].ID, "failure", 90*time.Second, step)
+	f.svc.poll(f.ctx)
+	ev := <-sub.C()
+	got := ev.Data.(core.ReleaseFinishedData)
+	if got.OK || got.Status != core.DeployFailed || got.Duration != 90*time.Second ||
+		got.FailedStep != "Run migrations [Approve](https://evil.example)" {
+		t.Fatalf("release.finished = %+v", got)
+	}
+	if n := f.notices(); len(n) != 1 || strings.Contains(n[0], "migrations") || strings.Contains(n[0], "evil") {
+		t.Fatalf("notice = %q", n)
+	}
+
+	refused := newFixture(t)
+	refused.gh.RejectRef("main")
+	sub2 := refused.bus.Subscribe(core.Filter{System: true, Types: []core.EventType{core.EvReleaseFinished, core.EvReleaseDispatched}}, 8)
+	defer sub2.Close()
+	renv := refused.env()
+	ra := refused.plan(renv, `{"environment":"staging"}`)
+	refused.approve(renv, ra, core.ApprovalAllowed, refused.alice, refused.bob)
+	_, _ = refused.tool(deployName).Exec(refused.ctx, renv, ra)
+	ev = <-sub2.C()
+	if fin, ok := ev.Data.(core.ReleaseFinishedData); !ok || fin.OK || fin.Status != core.DeployFailed || fin.URL != "" {
+		t.Fatalf("refused dispatch event = %+v", ev)
+	}
+}
+
+func TestStepName(t *testing.T) {
+	for in, want := range map[string]string{
+		"  Run   migrations ":       "Run migrations",
+		"a\x00b​c\td":               "abc d",
+		strings.Repeat("é", 150):    strings.Repeat("é", 99) + "…",
+		"Deploy to ${{ env.NAME }}": "Deploy to ${{ env.NAME }}",
+	} {
+		if got := stepName(in); got != want {
+			t.Errorf("stepName(%q) = %q, want %q", in, got, want)
+		}
+	}
+	for d, want := range map[time.Duration]string{0: "1 s", 42 * time.Second: "42 s", 3 * time.Minute: "3 min",
+		130 * time.Second: "2 min 10 s", time.Hour: "1 h", 65 * time.Minute: "1 h 5 min"} {
+		if got := humanDuration(d); got != want {
+			t.Errorf("humanDuration(%s) = %q, want %q", d, got, want)
+		}
 	}
 }
 
@@ -414,8 +496,8 @@ func TestFollowerEndings(t *testing.T) {
 		status core.DeployStatus
 		want   string
 	}{
-		{"failure", func(f *fixture, run int64) { f.gh.SetRun(run, "completed", "failure") }, core.DeployFailed, "ended with “failure”"},
-		{"cancelled", func(f *fixture, run int64) { f.gh.SetRun(run, "completed", "cancelled") }, core.DeployFailed, "“cancelled”"},
+		{"failure", func(f *fixture, run int64) { f.gh.SetRun(run, "completed", "failure") }, core.DeployFailed, "failed (GitHub says “failure”)"},
+		{"cancelled", func(f *fixture, run int64) { f.gh.SetRun(run, "completed", "cancelled") }, core.DeployFailed, "was cancelled on GitHub"},
 		{"run deleted", func(f *fixture, run int64) { f.gh.DeleteRun(run) }, core.DeployUnknown, "no longer knows"},
 		{"followed too long", func(f *fixture, run int64) { f.clock.Advance(7 * time.Hour) }, core.DeployUnknown, "stopped following it"},
 	}
@@ -459,7 +541,7 @@ func TestLegacyDispatchFindsRun(t *testing.T) {
 	}
 	f.svc.poll(f.ctx)
 	if got, _ := f.svc.d.Deploys.Get(f.ctx, core.SystemViewer(), missing.ID); got.Status != core.DeployUnknown ||
-		!strings.Contains(f.notices()[0], "could not find its workflow run") {
+		!strings.Contains(f.notices()[0], "couldn't find its run") {
 		t.Fatalf("unidentified run: %+v %q", got, f.notices())
 	}
 }
@@ -613,7 +695,7 @@ func TestRunWakesOnDispatch(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if n := f.notices(); len(n) != 1 || !strings.Contains(n[0], "succeeded") {
+	if n := f.notices(); len(n) != 1 || !strings.HasPrefix(n[0], "Deployed acme/web to staging in ") {
 		t.Fatalf("notices = %q", n)
 	}
 }

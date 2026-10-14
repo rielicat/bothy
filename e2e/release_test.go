@@ -61,6 +61,7 @@ releases:
 	alice, bob := relAdmin(t, owner, "alice"), relAdmin(t, owner, "bob")
 	member := owner.CreateUser(t, "mallory")
 	aliceEvents := pltRecord(alice.Events(t))
+	ownerEvents := pltRecord(owner.Events(t))
 
 	sess := owner.NewSession(t)
 	run := owner.Send(t, sess.ID, "REL-DEPLOY ship main to staging")
@@ -138,15 +139,28 @@ releases:
 	}
 
 	runID := gh.Runs()[0].ID
+	runURL := fmt.Sprintf("%s/acme/web/actions/runs/%d", gh.URL(), runID)
+	ev = ownerEvents.WaitFor(t, core.EvReleaseDispatched, 10*time.Second, func(e pltEvent) bool { return e.Run == run })
+	var dispatched core.ReleaseDispatchedData
+	if err := json.Unmarshal(ev.Data, &dispatched); err != nil || dispatched.Environment != "staging" || dispatched.Repo != "acme/web" ||
+		dispatched.Ref != "main" || dispatched.URL != runURL || dispatched.Deploy == "" || ev.Session != sess.ID {
+		t.Fatalf("release.dispatched = %s (%v)", ev.Data, err)
+	}
 	gh.SetRun(runID, "in_progress", "")
 	waitDeploy(t, owner, core.DeployRunning)
-	gh.SetRun(runID, "completed", "success")
+	gh.FinishRun(runID, "success", 3*time.Minute, "")
 	dep := waitDeploy(t, owner, core.DeploySucceeded)
 	if dep.WorkflowRun != runID || dep.Approval != a.ID || !slices.Equal(dep.ApprovedBy, []core.UserID{alice.ID(), bob.ID()}) ||
-		dep.RequestedBy != owner.ID() || dep.Conclusion != "success" {
+		dep.RequestedBy != owner.ID() || dep.Conclusion != "success" || dep.ID != dispatched.Deploy {
 		t.Fatalf("deploy = %+v", dep)
 	}
-	want := fmt.Sprintf("Deploy to staging succeeded: acme/web at main. Run %d: %s/acme/web/actions/runs/%d", runID, gh.URL(), runID)
+	ev = ownerEvents.WaitFor(t, core.EvReleaseFinished, 10*time.Second, func(e pltEvent) bool { return e.Run == run })
+	var finished core.ReleaseFinishedData
+	if err := json.Unmarshal(ev.Data, &finished); err != nil || !finished.OK || finished.Status != core.DeploySucceeded ||
+		finished.URL != runURL || finished.Duration != 3*time.Minute || finished.FailedStep != "" || finished.Deploy != dep.ID {
+		t.Fatalf("release.finished = %s (%v)", ev.Data, err)
+	}
+	want := "Deployed acme/web to staging in 3 min. View it on GitHub: " + runURL
 	deadline := time.Now().Add(10 * time.Second)
 	for !slices.Contains(owner.Notices(t, sess.ID), want) {
 		if time.Now().After(deadline) {
