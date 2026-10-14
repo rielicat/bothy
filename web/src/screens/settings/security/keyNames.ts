@@ -38,8 +38,11 @@ export function serviceName(id: string): string {
   return services[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
 }
 
+const AWS_SM = 'aws-sm:';
+
 /** "anthropic_api_key" → "Anthropic API key"; unknown names read as words. */
 export function keyName(name: string): string {
+  if (name.startsWith(AWS_SM)) return awsSecretName(name);
   const lower = name.toLowerCase();
   const [prefix] = lower.split(/[_.-]/);
   for (const [re, kind] of kinds) {
@@ -49,11 +52,26 @@ export function keyName(name: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-/** What uses a saved key, from the settings that point at `secret:<name>`. */
+// The global key list also carries the server's aws-sm references (SPEC
+// §14.8), named by the reference itself. An ARN shows only the secret's name,
+// never the account: "aws-sm:prod/openai#api_key" → "prod/openai (api_key) in
+// AWS Secrets Manager".
+function awsSecretName(ref: string): string {
+  const [id, key] = ref.slice(AWS_SM.length).split('?')[0].split('#');
+  const at = id.indexOf(':secret:');
+  const secret = id.startsWith('arn:') && at >= 0 ? id.slice(at + ':secret:'.length) : id;
+  return `${secret}${key ? ` (${key})` : ''} in AWS Secrets Manager`;
+}
+
+// A reference may sit at the end of a header value: "Bearer aws-sm:docs#token".
+const pointsAt = (value: unknown, name: string) =>
+  name.startsWith(AWS_SM) ? typeof value === 'string' && (value === name || value.endsWith(` ${name}`)) : value === `secret:${name}`;
+
+/** What uses a saved key, from the settings that point at `secret:<name>` (or at the aws-sm reference). */
 export function usedBy(name: string, entries: Entry[]): string[] {
   const out = new Set<string>();
   for (const e of entries) {
-    if (e.value !== `secret:${name}`) continue;
+    if (!pointsAt(e.value, name)) continue;
     const [area, id] = e.path.split('.');
     if (area === 'providers' || area === 'channels') out.add(serviceName(id));
     else if (area === 'search') out.add(serviceName(id.split('_')[0]));

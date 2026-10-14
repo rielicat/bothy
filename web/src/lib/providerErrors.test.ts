@@ -64,6 +64,13 @@ describe('failure copy (§5.6.4)', () => {
     expect(failure('aws_denied', ctx).text).toMatch(/to instance role bothy-prod\.$/);
   });
 
+  it('blames the AWS secret, not the provider, for a key reference that fails', () => {
+    for (const code of ['not_found', 'json_key_missing', 'not_json'] as const) {
+      expect(failure(code, ctx).text).toMatch(/^(AWS|The secret in AWS) Secrets Manager /);
+      expect(failure(code, ctx).text).not.toContain('Anthropic');
+    }
+  });
+
   it('offers to allow exactly the blocked host and port', () => {
     expect(failure('private_address', ctx).action).toEqual({ kind: 'allow', label: 'Allow 127.0.0.1:9' });
   });

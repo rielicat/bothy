@@ -17,6 +17,9 @@ export const failureCodes = [
   'aws_no_credentials',
   'aws_denied',
   'aws_no_models',
+  'not_found',
+  'json_key_missing',
+  'not_json',
   'unknown',
 ] as const;
 export type FailureCode = (typeof failureCodes)[number];
@@ -147,6 +150,14 @@ export function failure(code: FailureCode, c: FailureContext): Failure {
         action: { kind: 'link', label: 'Open the Bedrock console', href: `https://console.aws.amazon.com/bedrock/home?region=${encodeURIComponent(c.regionCode ?? 'us-east-1')}#/modelaccess` },
         more: aws,
       };
+    // Only an aws-sm key reference fails with these (SPEC §14.8); the server's
+    // sentence naming the reference goes to Details.
+    case 'not_found':
+      return { text: "AWS Secrets Manager has no secret by that name that this server can read. Check the secret's name and region.", action: retry };
+    case 'json_key_missing':
+      return { text: "The secret in AWS Secrets Manager doesn't have the value this setting asks for. Check the name after # in the reference.", action: retry };
+    case 'not_json':
+      return { text: "The secret in AWS Secrets Manager holds a single value, so Bothy can't pick a named part of it. Remove the part after # from the reference.", action: retry };
     default:
       return { text: 'Something went wrong while checking. Try again, or choose another option.', action: retry, more: aws };
   }

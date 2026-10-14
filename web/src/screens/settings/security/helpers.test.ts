@@ -79,6 +79,16 @@ describe('saved key names', () => {
     expect(keyName('my_custom_thing')).toBe('My custom thing');
   });
 
+  it('names aws-sm references by their secret, never the account', () => {
+    expect(keyName('aws-sm:prod/openai')).toBe('prod/openai in AWS Secrets Manager');
+    expect(keyName('aws-sm:prod/openai#api_key?region=eu-west-1')).toBe('prod/openai (api_key) in AWS Secrets Manager');
+    expect(keyName('aws-sm:arn:aws:secretsmanager:us-west-2:123456789012:secret:bothy/slack-AbCdEf#bot')).toBe('bothy/slack-AbCdEf (bot) in AWS Secrets Manager');
+    const e = (path: string, value: unknown) => ({ path, value }) as Entry;
+    const entries = [e('providers.openai.api_key', 'aws-sm:prod/openai#api_key'), e('mcp.servers.docs.headers.Authorization', 'Bearer aws-sm:prod/openai#api_key'), e('providers.groq.api_key', 'aws-sm:prod/openai#api_key2')];
+    expect(usedBy('aws-sm:prod/openai#api_key', entries)).toEqual(['OpenAI', 'docs']);
+    expect(usedBy('aws-sm:prod/openai', entries)).toEqual([]);
+  });
+
   it('finds what uses a key from the settings that point at it', () => {
     const e = (path: string, value: unknown) => ({ path, value }) as Entry;
     const entries = [e('providers.anthropic.api_key', 'secret:anthropic_api_key'), e('search.brave_api_key', 'secret:brave_api_key'), e('channels.telegram.token', 'secret:tg'), e('channels.slack.bot_token', 'secret:tg')];
