@@ -14,6 +14,7 @@ import (
 	"maps"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -43,6 +44,12 @@ type Fake struct {
 	Survivors int
 	// Program overrides the scripted programs run by `sbx-init run`.
 	Program func(ctx context.Context, p *Proc) int
+	// Volumes overrides what VolumeInspect reports; by default every volume
+	// is local with mount point /var/lib/docker/volumes/<name>/_data.
+	Volumes map[string]engine.Volume
+	// OnStart runs after ContainerStart resolved the container's bind
+	// sources (on this machine, following symlinks like the kernel does).
+	OnStart func(name string)
 
 	mu         sync.Mutex
 	images     map[string]bool
@@ -60,6 +67,7 @@ type container struct {
 	cfg      *engine.ContainerConfig
 	running  bool
 	procs    map[*Proc]struct{}
+	mountIDs map[string]string // bind target -> identity of its source at start
 }
 
 type execState struct {
@@ -185,12 +193,31 @@ func (f *Fake) lookupLocked(idOrName string) *container {
 
 func (f *Fake) ContainerStart(_ context.Context, id string) error {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	c := f.lookupLocked(id)
 	if c == nil {
+		f.mu.Unlock()
 		return apiErr(http.StatusNotFound, "no such container")
 	}
+	c.mountIDs = map[string]string{}
+	if c.cfg.HostConfig != nil {
+		for _, m := range c.cfg.HostConfig.Mounts {
+			if m.Type != "bind" {
+				continue
+			}
+			fi, err := os.Stat(m.Source)
+			if err != nil {
+				f.mu.Unlock()
+				return apiErr(http.StatusInternalServerError, "error mounting "+m.Source+": "+err.Error())
+			}
+			c.mountIDs[m.Target], _ = proto.MountID(fi)
+		}
+	}
 	c.running = true
+	name, hook := c.name, f.OnStart
+	f.mu.Unlock()
+	if hook != nil {
+		hook(name)
+	}
 	return nil
 }
 
@@ -266,6 +293,13 @@ func (f *Fake) ContainerInspect(_ context.Context, id string) (*engine.Container
 	j.State.Running = c.running
 	j.Config.Labels = c.cfg.Labels
 	return &j, nil
+}
+
+func (f *Fake) VolumeInspect(_ context.Context, name string) (engine.Volume, error) {
+	if v, ok := f.Volumes[name]; ok {
+		return v, nil
+	}
+	return engine.Volume{Name: name, Driver: "local", Mountpoint: "/var/lib/docker/volumes/" + name + "/_data"}, nil
 }
 
 func (f *Fake) ExecCreate(_ context.Context, id string, cfg engine.ExecConfig) (string, error) {
@@ -391,6 +425,18 @@ func (f *Fake) run(ctx context.Context, c *container, p *Proc) int {
 		return 0
 	case "selftest":
 		return f.selftest(p, cmd[2:])
+	case "mountids":
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		for _, target := range cmd[2:] {
+			id, ok := c.mountIDs[target]
+			if !ok {
+				fmt.Fprintf(p.Stderr, "sbx-init mountids: %s is not a bind mount here\n", target)
+				return 125
+			}
+			fmt.Fprintln(p.Stdout, id)
+		}
+		return 0
 	case "run":
 		i := slices.Index(cmd, "--")
 		if i < 0 {

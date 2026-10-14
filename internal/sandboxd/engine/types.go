@@ -71,11 +71,23 @@ type Mount struct {
 	Target        string         `json:"Target"`
 	ReadOnly      bool           `json:"ReadOnly"`
 	VolumeOptions *VolumeOptions `json:"VolumeOptions,omitempty"`
+	BindOptions   *BindOptions   `json:"BindOptions,omitempty"`
 }
 
 type VolumeOptions struct {
 	NoCopy  bool   `json:"NoCopy"`
 	Subpath string `json:"Subpath,omitempty"`
+}
+
+type BindOptions struct {
+	Propagation  string `json:"Propagation,omitempty"`
+	NonRecursive bool   `json:"NonRecursive"`
+}
+
+type Volume struct {
+	Name       string `json:"Name"`
+	Driver     string `json:"Driver"`
+	Mountpoint string `json:"Mountpoint"`
 }
 
 type RestartPolicy struct {

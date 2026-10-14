@@ -39,14 +39,14 @@ func (d *daemon) selfTest(ctx context.Context) {
 	defer d.testMu.Unlock()
 	tctx, cancel := context.WithTimeout(ctx, 15*time.Minute) // includes image pulls
 	defer cancel()
-	h, rt, builtin := d.runSelfTest(tctx)
+	h, rt, builtin, binds := d.runSelfTest(tctx)
 	if ctx.Err() != nil {
 		// Shutting down: the aborted run says nothing about the engine.
 		return
 	}
 	d.hmu.Lock()
 	wasOK := d.health.OK
-	d.health, d.runtime, d.seccompBuiltin = h, rt, builtin
+	d.health, d.runtime, d.seccompBuiltin, d.binds = h, rt, builtin, binds
 	d.hmu.Unlock()
 	switch {
 	case h.OK && !wasOK:
@@ -56,14 +56,14 @@ func (d *daemon) selfTest(ctx context.Context) {
 	}
 }
 
-func (d *daemon) runSelfTest(ctx context.Context) (h proto.Health, runtime string, seccompBuiltin bool) {
+func (d *daemon) runSelfTest(ctx context.Context) (h proto.Health, runtime string, seccompBuiltin bool, binds *bindRoots) {
 	h = proto.Health{Version: proto.Version, MaxBoxes: d.cfg.MaxBoxes, SelfTest: []proto.Check{}}
 	add := func(name string, ok bool, detail string) {
 		h.SelfTest = append(h.SelfTest, proto.Check{Name: name, OK: ok, Detail: detail})
 	}
-	fail := func(reason, fix string) (proto.Health, string, bool) {
+	fail := func(reason, fix string) (proto.Health, string, bool, *bindRoots) {
 		h.OK, h.Reason, h.Fix = false, reason, fix
-		return h, runtime, seccompBuiltin
+		return h, runtime, seccompBuiltin, nil
 	}
 
 	server, err := d.eng.Negotiate(ctx)
@@ -77,12 +77,19 @@ func (d *daemon) runSelfTest(ctx context.Context) (h proto.Health, runtime strin
 		h.Engine = "docker " + v.Version
 	}
 	h.API = d.eng.APIVersion()
-	if engine.CompareVersions(server, engine.MinAPI) < 0 {
-		add(proto.CheckEngineAPI, false, "engine API "+server+" is older than "+engine.MinAPI)
-		return fail("Docker 26+ required (engine API "+server+" has no volume subpaths)", "upgrade Docker to 26 or newer")
+	bindMode := false
+	switch {
+	case engine.CompareVersions(server, engine.MinAPI) >= 0:
+		h.Subpath = true
+		add(proto.CheckEngineAPI, true, "engine API "+server)
+	case engine.CompareVersions(server, engine.MinBindAPI) >= 0:
+		bindMode = true
+		add(proto.CheckEngineAPI, true, "engine API "+server+" has no volume subpaths: boxes get bind mounts that sandboxd verifies")
+	default:
+		add(proto.CheckEngineAPI, false, "engine API "+server+" is older than "+engine.MinBindAPI)
+		return fail("Docker 25+ required (engine API "+server+" is too old)",
+			"upgrade Docker to 26 or newer (Docker 25 also works, with bind mounts and without gVisor)")
 	}
-	h.Subpath = true
-	add(proto.CheckEngineAPI, true, "engine API "+server)
 	info, err := d.eng.Info(ctx)
 	if err != nil {
 		return fail("engine info failed: "+err.Error(), "")
@@ -103,6 +110,25 @@ func (d *daemon) runSelfTest(ctx context.Context) (h proto.Health, runtime strin
 	add(proto.CheckImages, true, fmt.Sprintf("%d profile image(s) present", len(d.cfg.Images)))
 
 	_, runscRegistered := info.Runtimes["runsc"]
+	if bindMode {
+		if binds, err = d.resolveBindRoots(ctx); err != nil {
+			add(proto.CheckBindMounts, false, err.Error())
+			return fail("bind mounts for Docker 25 are not set up: "+err.Error(), bindFix(d.cfg.WorkDir))
+		}
+		detail := fmt.Sprintf("work volume at %s, run volume at %s; runc only", binds.work, binds.run)
+		if runscRegistered {
+			detail += " (runsc is registered but not used without volume subpaths)"
+		}
+		add(proto.CheckBindMounts, true, detail)
+		// gVisor reports its own device and inode numbers, so the bind check
+		// cannot compare them with sandboxd's.
+		if d.cfg.Runtime == "runsc" {
+			h.Runtime = "runsc"
+			return fail("BOTHY_SBX_RUNTIME=runsc needs Docker 26+: the bind mounts used on Docker 25 cannot be checked under gVisor",
+				"upgrade Docker to 26 or newer, or set BOTHY_SBX_RUNTIME=auto to use runc")
+		}
+		runscRegistered = false
+	}
 	runcName := "" // the engine default
 	for _, n := range []string{"runc", "io.containerd.runc.v2"} {
 		if _, ok := info.Runtimes[n]; ok {
@@ -117,7 +143,7 @@ func (d *daemon) runSelfTest(ctx context.Context) (h proto.Health, runtime strin
 		h.Runtime = "runsc"
 		return fail("BOTHY_SBX_RUNTIME=runsc but runsc is not registered", runscFix)
 	case d.cfg.Runtime == "runsc" || (d.cfg.Runtime == "auto" && runscRegistered):
-		checks, err = d.canary(ctx, "runsc", "runsc", seccompBuiltin)
+		checks, err = d.canary(ctx, "runsc", "runsc", seccompBuiltin, binds)
 		if err == nil && allOK(checks) {
 			h.Runtime, runtime = "runsc", "runsc"
 			break
@@ -133,11 +159,15 @@ func (d *daemon) runSelfTest(ctx context.Context) (h proto.Health, runtime strin
 		fallthrough
 	default:
 		h.Runtime, runtime = "runc", runcName
-		checks, err = d.canary(ctx, runcName, "runc", seccompBuiltin)
+		checks, err = d.canary(ctx, runcName, "runc", seccompBuiltin, binds)
 	}
 	if err != nil {
 		add(proto.CheckCanary, false, err.Error())
-		return fail("the canary box could not run: "+err.Error(), "")
+		fix := ""
+		if errors.Is(err, errBindCheck) {
+			fix = bindFix(d.cfg.WorkDir)
+		}
+		return fail("the canary box could not run: "+err.Error(), fix)
 	}
 	add(proto.CheckCanary, true, "canary ran under "+h.Runtime)
 	h.SelfTest = append(h.SelfTest, checks...)
@@ -145,8 +175,11 @@ func (d *daemon) runSelfTest(ctx context.Context) (h proto.Health, runtime strin
 		return fail("box isolation self-test failed: "+strings.Join(bad, ", "),
 			"run `docker info` and check the seccomp, no-new-privileges and read-only rootfs support of the engine")
 	}
-	h.OK = true
-	return h, runtime, seccompBuiltin
+	h.OK, h.Mounts = true, proto.MountsSubpath
+	if binds != nil {
+		h.Mounts = proto.MountsBind
+	}
+	return h, runtime, seccompBuiltin, binds
 }
 
 // nextSelfTest is the delay before the next periodic self-test.
@@ -215,7 +248,7 @@ func (d *daemon) ensureImages(ctx context.Context) error {
 // canary runs `sbx-init selftest` in a throwaway box whose egress socket is a
 // listener of sandboxd's own that answers with a nonce, so probe 7 proves
 // that 127.0.0.1:3128 reaches exactly this box's socket.
-func (d *daemon) canary(ctx context.Context, engineRuntime, label string, seccompBuiltin bool) ([]proto.Check, error) {
+func (d *daemon) canary(ctx context.Context, engineRuntime, label string, seccompBuiltin bool, binds *bindRoots) ([]proto.Check, error) {
 	nonce, err := randomHex(16)
 	if err != nil {
 		return nil, err
@@ -228,12 +261,12 @@ func (d *daemon) canary(ctx context.Context, engineRuntime, label string, seccom
 	name := d.containerName(canaryKey)
 	_ = d.eng.ContainerRemove(ctx, name)
 	profile := d.cfg.canaryProfile()
-	cfg := boxSpec(specInput{
+	in := specInput{
 		Key: canaryKey, Profile: profile, Limits: proto.Limits{MemoryMB: 128, CPUs: 0.5, Pids: 64},
 		Image: d.cfg.Images[profile], Runtime: engineRuntime, WorkVolume: d.cfg.WorkVolume, RunVolume: d.cfg.RunVolume,
-		SeccompBuiltin: seccompBuiltin, Canary: true,
-	})
-	id, err := d.createAndStart(ctx, name, cfg)
+		SeccompBuiltin: seccompBuiltin, Canary: true, Binds: binds,
+	}
+	id, err := d.createAndStart(ctx, name, boxSpec(in))
 	if err != nil {
 		return nil, err
 	}
@@ -244,6 +277,11 @@ func (d *daemon) canary(ctx context.Context, engineRuntime, label string, seccom
 			d.log.Warn("removing the canary box failed", "err", err)
 		}
 	}()
+	if binds != nil {
+		if err := d.verifyBinds(ctx, id, in); err != nil {
+			return nil, fmt.Errorf("%w: %w", errBindCheck, err)
+		}
+	}
 	ectx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	out, stderr, exit, err := d.execCollect(ectx, id, []string{sbxInit, "selftest", "--runtime", label, "--canary", nonce}, 64<<10)

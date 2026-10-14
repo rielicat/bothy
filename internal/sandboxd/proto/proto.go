@@ -16,14 +16,21 @@ const Version = "1" // path prefix /v1
 // on the work volume; egress = "egress/" + hex(sha256(Key))[:32] on the run
 // volume. The gateway pre-creates both directories before calling Create.
 
+// Mount modes reported in Health.Mounts.
+const (
+	MountsSubpath = "subpath" // volume subpaths (engine API >= 1.45, Docker 26+)
+	MountsBind    = "bind"    // bind mounts of the volumes' host paths, verified after start (API 1.44, Docker 25)
+)
+
 type Health struct {
 	Version  string  `json:"version"`
-	API      string  `json:"api"`      // engine API version negotiated, must be >= 1.45
-	Engine   string  `json:"engine"`   // "docker 27.4.1"
-	Runtime  string  `json:"runtime"`  // runsc | runc
-	Rootless bool    `json:"rootless"` // from /info SecurityOptions
-	Subpath  bool    `json:"subpath"`  // volume subpath supported
-	OK       bool    `json:"ok"`       // false => gateway treats exec as unavailable
+	API      string  `json:"api"`              // engine API version negotiated, must be >= 1.44
+	Engine   string  `json:"engine"`           // "docker 27.4.1"
+	Runtime  string  `json:"runtime"`          // runsc | runc
+	Rootless bool    `json:"rootless"`         // from /info SecurityOptions
+	Subpath  bool    `json:"subpath"`          // volume subpath supported
+	Mounts   string  `json:"mounts,omitempty"` // MountsSubpath | MountsBind, once the engine checks passed
+	OK       bool    `json:"ok"`               // false => gateway treats exec as unavailable
 	Reason   string  `json:"reason,omitempty"`
 	Fix      string  `json:"fix,omitempty"`
 	SelfTest []Check `json:"self_test"`

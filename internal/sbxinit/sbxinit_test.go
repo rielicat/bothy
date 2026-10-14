@@ -190,6 +190,40 @@ func TestBadArguments(t *testing.T) {
 	}
 }
 
+func TestMountids(t *testing.T) {
+	dir := t.TempDir()
+	a, b := filepath.Join(dir, "a"), filepath.Join(dir, "b")
+	for _, d := range []string{a, b} {
+		if err := os.Mkdir(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var want string
+	for _, d := range []string{a, b} {
+		fi, err := os.Lstat(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, _ := proto.MountID(fi)
+		want += id + "\n"
+	}
+	if out, errOut, code, _ := sbxInit(t, "", "mountids", a, b); code != 0 || out != want {
+		t.Fatalf("mountids = %d %q %q, want %q", code, out, errOut, want)
+	}
+	link, file := filepath.Join(dir, "link"), filepath.Join(dir, "file")
+	if err := os.Symlink(a, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"mountids"}, {"mountids", a, link}, {"mountids", file}, {"mountids", filepath.Join(dir, "none")}} {
+		if _, _, code, _ := sbxInit(t, "", args...); code != exitInternal {
+			t.Errorf("%q: exit %d, want %d", args, code, exitInternal)
+		}
+	}
+}
+
 func TestParseRunArgs(t *testing.T) {
 	o, err := parseRunArgs([]string{"--timeout", "2m", "--kill-after", "1s", "--", "bash", "-lc", "echo --timeout"})
 	if err != nil || o.timeout != 2*time.Minute || o.killAfter != time.Second || len(o.argv) != 3 || o.argv[2] != "echo --timeout" {

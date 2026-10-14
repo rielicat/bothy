@@ -10,5 +10,6 @@ timeout, SIGTERMs then SIGKILLs the process group and exits 124. Shortly
 after the command exits, output pipes still held by background processes are
 handed to a detached `sbx-init drain`, so they cannot hold the exec open and
 keep running (writes still succeed) until `/stop`, `killall` or box reaping. `killall` is `kill(-1, SIGKILL)` (which spares PID 1),
-`count` counts live processes from `/proc`, and `selftest` prints the canary
-checks as JSON. `--relay <sock> run …` is the bwrap mode, where it is not PID 1.
+`count` counts live processes from `/proc`, `selftest` prints the canary
+checks as JSON, and `mountids <path>…` prints each directory's `dev:ino` for
+sandboxd's bind-mount check (a symlink or non-directory fails it). `--relay <sock> run …` is the bwrap mode, where it is not PID 1.

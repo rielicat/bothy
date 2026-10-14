@@ -74,7 +74,10 @@ func statusFromHealth(h proto.Health, err error) core.SandboxStatus {
 	st.Runtime, st.Rootless = h.Runtime, h.Rootless
 	if h.Engine != "" {
 		st.Engine = h.Engine
-		if h.API != "" {
+		switch {
+		case h.API != "" && h.Mounts == proto.MountsBind:
+			st.Engine += " (api " + h.API + ", bind mounts)"
+		case h.API != "":
 			st.Engine += " (api " + h.API + ")"
 		}
 	}

@@ -26,6 +26,9 @@ const (
 	MaxAPI = "1.47"
 	// MinAPI is the oldest version with volume subpaths (Docker 26).
 	MinAPI = "1.45"
+	// MinBindAPI is the oldest version sandboxd runs boxes on without
+	// subpaths, with bind mounts it verifies after start (Docker 25).
+	MinBindAPI = "1.44"
 )
 
 var (
@@ -52,6 +55,7 @@ type Client struct {
 
 	mu      sync.Mutex
 	version string
+	limit   string
 }
 
 // New accepts "unix:///path/to/docker.sock" or a bare absolute path.
@@ -98,14 +102,25 @@ func (c *Client) Negotiate(ctx context.Context) (string, error) {
 	if server == "" {
 		return "", errors.New("engine: /_ping did not report an API version")
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.limit != "" && CompareVersions(server, c.limit) > 0 {
+		server = c.limit
+	}
 	v := server
 	if CompareVersions(v, MaxAPI) > 0 {
 		v = MaxAPI
 	}
-	c.mu.Lock()
 	c.version = v
-	c.mu.Unlock()
 	return server, nil
+}
+
+// LimitAPI makes Negotiate treat the engine as if it spoke at most version
+// v, requests included, so a newer engine can stand in for an older one.
+func (c *Client) LimitAPI(v string) {
+	c.mu.Lock()
+	c.limit = v
+	c.mu.Unlock()
 }
 
 // APIVersion is the negotiated version, "" before Negotiate.
@@ -254,6 +269,14 @@ func (c *Client) ContainerRemove(ctx context.Context, id string) error {
 		return nil
 	}
 	return err
+}
+
+// VolumeInspect returns a named volume's driver and its mount point in the
+// engine's own mount namespace.
+func (c *Client) VolumeInspect(ctx context.Context, name string) (Volume, error) {
+	var v Volume
+	err := c.do(ctx, http.MethodGet, "/volumes/"+url.PathEscape(name), nil, nil, &v)
+	return v, err
 }
 
 // ContainerList lists containers (running or not) carrying every label.

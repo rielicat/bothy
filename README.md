@@ -90,8 +90,9 @@ daily spend cap and pairing your chat apps by QR code.
 
 ### From source
 
-Needs Docker 26 or newer (Docker Desktop works). The image build compiles the
-web UI and the binary itself:
+Needs Docker 26 or newer (Docker Desktop works; the sandbox also runs on
+Docker 25, without gVisor). The image build compiles the web UI and the binary
+itself:
 
 ```sh
 git clone https://github.com/rielicat/bothy && cd bothy

@@ -15,7 +15,11 @@
 # removed on exit (KEEP_IMAGES=1 keeps the images). Env: RUNTIME overrides
 # BOTHY_SBX_RUNTIME; NET=1 (default) lets the test container reach example.com;
 # SANDBOXD_USER runs sandboxd as another uid than the gateway, as rootless
-# Docker setups do (default 65532:65532, as in compose).
+# Docker setups do (default 65532:65532, as in compose); PREFIX (default bothy)
+# starts every container, volume and image name, so runs can share an engine;
+# API_LIMIT=1.44 builds sandboxd with -tags sbxtesthooks and makes it treat the
+# engine as that API version, which runs the Docker 25 bind-mount mode on a
+# newer engine.
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 
@@ -35,14 +39,24 @@ if [ "$MODE" = runsc ]; then
 fi
 RUNTIME=${RUNTIME:-$DEFAULT_RUNTIME}
 SANDBOXD_USER=${SANDBOXD_USER:-65532:65532}
-TAG=bothy-m5-acceptance
+PREFIX=${PREFIX:-bothy}
+API_LIMIT=${API_LIMIT:-}
+TAG=$PREFIX-m5-acceptance
 LABEL=bothy.test=1
 BASE=docker.io/library/debian:trixie-20260918-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
 ARCH=$(docker version --format '{{.Server.Arch}}')
 OUT=$(mktemp -d)
-WORK_VOL=bothy_test_work
-RUN_VOL=bothy_test_run
-SANDBOXD=bothy-test-sandboxd
+WORK_VOL=${PREFIX}_test_work
+RUN_VOL=${PREFIX}_test_run
+SANDBOXD=$PREFIX-test-sandboxd
+GATEWAY=$PREFIX-test-gateway
+BWRAP=$PREFIX-test-bwrap
+EXPECT_MOUNTS=subpath
+BUILD_TAGS=
+if [ -n "$API_LIMIT" ]; then
+	BUILD_TAGS=sbxtesthooks
+	EXPECT_MOUNTS=bind
+fi
 
 cleanup() {
 	status=$?
@@ -51,7 +65,7 @@ cleanup() {
 		docker logs "$SANDBOXD" >&2 || true
 	fi
 	docker stop -t 10 "$SANDBOXD" >/dev/null 2>&1 || true
-	docker rm -f "$SANDBOXD" bothy-test-gateway bothy-test-bwrap >/dev/null 2>&1 || true
+	docker rm -f "$SANDBOXD" "$GATEWAY" "$BWRAP" >/dev/null 2>&1 || true
 	# Boxes of this run only: sandboxd labels them with its run volume.
 	leftovers=$(docker ps -aq --filter "label=bothy.run_volume=$RUN_VOL")
 	if [ -n "$leftovers" ]; then
@@ -85,13 +99,13 @@ if [ "$MODE" = bwrap ]; then
 	build -t "$TAG:bwrap" "$OUT"
 	# bwrap needs unprivileged user namespaces and a fresh /proc, which
 	# Docker's default seccomp profile and masked /proc paths forbid.
-	docker run --rm --name bothy-test-bwrap --label "$LABEL" --user 1000:1000 \
+	docker run --rm --name "$BWRAP" --label "$LABEL" --user 1000:1000 \
 		--security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined \
 		-e BOTHY_SECRET_PROBE=leak-me --entrypoint /opt/test/bwrap.test "$TAG:bwrap" -test.v -test.count=1 -test.timeout 10m
 	exit 0
 fi
 
-CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go build -trimpath -o "$OUT/bothy" ./cmd/bothy
+CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go build -trimpath -tags "$BUILD_TAGS" -o "$OUT/bothy" ./cmd/bothy
 CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go test -c -tags "$TAGS" -o "$OUT/sandbox.test" ./internal/sandbox
 build -f deploy/sandbox/Dockerfile --target base -t "$TAG:box" .
 BOX_IMAGE=$(docker image inspect "$TAG:box" --format '{{.Id}}')
@@ -112,14 +126,14 @@ SOCK_GID=$(docker run --rm --label "$LABEL" -v /var/run/docker.sock:/var/run/doc
 docker run -d --name "$SANDBOXD" --label "$LABEL" \
 	--network none --read-only --cap-drop ALL --security-opt no-new-privileges:true \
 	--user "$SANDBOXD_USER" --group-add "$SOCK_GID" --group-add 65532 \
-	-v /var/run/docker.sock:/var/run/docker.sock -v "$RUN_VOL:/run/bothy" \
-	-e BOTHY_SBX_WORK_VOLUME="$WORK_VOL" -e BOTHY_SBX_RUN_VOLUME="$RUN_VOL" \
+	-v /var/run/docker.sock:/var/run/docker.sock -v "$RUN_VOL:/run/bothy" -v "$WORK_VOL:/work:ro" \
+	-e BOTHY_SBX_WORK_VOLUME="$WORK_VOL" -e BOTHY_SBX_RUN_VOLUME="$RUN_VOL" -e BOTHY_SBX_TEST_API_LIMIT="$API_LIMIT" \
 	-e BOTHY_SBX_IMAGES="base=$BOX_IMAGE" -e BOTHY_SBX_RUNTIME="$RUNTIME" -e BOTHY_SBX_GATEWAY_UID=65532 \
 	--entrypoint /opt/test/bothy "$TAG:harness" sandboxd >/dev/null
 
-docker run --rm --name bothy-test-gateway --label "$LABEL" \
+docker run --rm --name "$GATEWAY" --label "$LABEL" \
 	--cap-drop ALL --security-opt no-new-privileges:true --user 65532:65532 --group-add 10001 \
 	-v "$WORK_VOL:/work" -v "$RUN_VOL:/run/bothy" \
 	-e BOTHY_TEST_SANDBOXD_SOCKET=/run/bothy/sandboxd.sock -e BOTHY_TEST_WORK=/work -e BOTHY_TEST_RUN=/run/bothy \
-	-e BOTHY_TEST_NET="$NET" -e BOTHY_TEST_RUNSC_EXPECT="$EXPECT" \
+	-e BOTHY_TEST_NET="$NET" -e BOTHY_TEST_RUNSC_EXPECT="$EXPECT" -e BOTHY_TEST_EXPECT_MOUNTS="$EXPECT_MOUNTS" \
 	--entrypoint /opt/test/sandbox.test "$TAG:harness" -test.v -test.count=1 -test.timeout 15m -test.run "$TESTS"

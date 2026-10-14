@@ -7,8 +7,8 @@ platform's secret store as a file, and the web UI is reached privately.
 
 | Recipe | Shell, Python, MCP stdio | Vault key (KEK) | Private access | Use it when |
 |---|---|---|---|---|
-| [Single VM with compose](vm.md) (any cloud) | Yes (Docker 26+) | Docker secret file, or systemd credential for the native binary | SSH tunnel, Tailscale, SSM port forwarding | You want everything, with the least to run. Recommended. |
-| [AWS ECS on EC2](aws-ecs.md) | Only on a container instance with Docker 26+; the ECS-optimized AMI ships Docker 25 | Secrets Manager, written to a file by an init container | SSM port forwarding, internal ALB | You already run ECS and want task roles, CloudWatch logs and ECS deploys. |
+| [Single VM with compose](vm.md) (any cloud) | Yes (Docker 25+; gVisor needs 26+) | Docker secret file, or systemd credential for the native binary | SSH tunnel, Tailscale, SSM port forwarding | You want everything, with the least to run. Recommended. |
+| [AWS ECS on EC2](aws-ecs.md) | Yes, also on the ECS-optimized AMI's Docker 25 (runc only) | Secrets Manager, written to a file by an init container | SSM port forwarding, internal ALB | You already run ECS and want task roles, CloudWatch logs and ECS deploys. |
 | [AWS EKS](aws-eks.md) | No by default (EKS nodes run containerd); optional sidecar on Docker 26+ nodes | Kubernetes Secret or the Secrets Store CSI driver, mounted as a file | `kubectl port-forward`, internal ALB | Your platform is Kubernetes. |
 | [AWS Fargate](fargate.md) | Never (single-container mode) | Secrets Manager, written to a file by an init container | Internal ALB | You accept chat, channels, web and HTTP MCP tools without a sandbox. |
 
@@ -181,6 +181,10 @@ gateway and sandbox images built from this repository:
   that Host, 403 for plain HTTP from the VPC, 200 through a trusted proxy with
   `X-Forwarded-Proto: https`; setup through the proxy 403, also when the
   forwarded address is loopback or in `server.local_cidrs`.
+- The sandbox on Docker 25 (API 1.44): the Docker acceptance suite with
+  sandboxd limited to API 1.44 (`API_LIMIT=1.44 deploy/sandbox/test/acceptance.sh`)
+  on Docker Desktop 27.4, including a workspace swapped for a symlink, which
+  sandboxd refuses. Not run on a real Docker 25 engine.
 - Manifests: both ECS task definitions pass the AWS CLI's parameter
   validation for `RegisterTaskDefinition`; the Kubernetes manifests render with
   `kubectl kustomize` and decode strictly into the `k8s.io/api` v0.34 types;

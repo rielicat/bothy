@@ -214,6 +214,15 @@ func TestDockerAcceptance(t *testing.T) {
 		}
 	})
 
+	bindMode := strings.Contains(st.Engine, "bind mounts")
+	t.Run("mount mode", func(t *testing.T) {
+		switch want := os.Getenv("BOTHY_TEST_EXPECT_MOUNTS"); {
+		case want == "bind" && !bindMode, want == "subpath" && bindMode:
+			t.Fatalf("want %s mounts, engine %q", want, st.Engine)
+		}
+		t.Logf("engine %s", st.Engine)
+	})
+
 	key, ws := d.ensure(t, "main")
 
 	t.Run("uid is 10001", func(t *testing.T) {
@@ -391,6 +400,48 @@ func TestDockerAcceptance(t *testing.T) {
 		}
 		if err := c.Kill(ctx, key); err != nil {
 			t.Fatal(err)
+		}
+	})
+
+	t.Run("a workspace that is a symlink never reaches a box", func(t *testing.T) {
+		// The gateway's own Ensure refuses a symlinked workspace, so this asks
+		// sandboxd directly, as a compromised gateway could. The engine
+		// resolves a bind source on its host: in the bind-mount mode it mounts
+		// the host's /tmp, and sandboxd must catch that before the box is used.
+		key := core.DerivedID(core.PrefixBox, "session:symlink"+core.NewID(core.PrefixSession))
+		ws := core.NewID(core.PrefixWorkspace)
+		link := filepath.Join(work, "ws", ws)
+		if err := os.Symlink("/tmp", link); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Remove(link) })
+		egress := filepath.Join(os.Getenv("BOTHY_TEST_RUN"), proto.EgressSubpath(key))
+		if err := os.Mkdir(egress, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Remove(egress) })
+		if err := os.Lchown(egress, -1, proto.BoxUID); err != nil {
+			t.Fatal(err)
+		}
+		be := newSandboxdBackend(os.Getenv("BOTHY_TEST_SANDBOXD_SOCKET"))
+		err := be.call(ctx, http.MethodPost, "/boxes", proto.CreateReq{Key: key, Profile: "base", Workspace: ws,
+			Limits: proto.Limits{MemoryMB: 128, CPUs: 0.5, Pids: 64}}, &proto.CreateResp{})
+		if err == nil {
+			_ = be.call(ctx, http.MethodDelete, "/boxes/"+key, nil, nil)
+			t.Fatal("sandboxd started a box on a symlinked workspace")
+		}
+		if bindMode && !strings.Contains(err.Error(), "bind mount check failed: /workspace") {
+			t.Fatalf("refused for another reason: %v", err)
+		}
+		t.Logf("refused: %v", err)
+		var boxes []proto.BoxInfo
+		if err := be.call(ctx, http.MethodGet, "/boxes", nil, &boxes); err != nil {
+			t.Fatal(err)
+		}
+		for _, b := range boxes {
+			if b.Key == key {
+				t.Fatalf("box listed: %+v", b)
+			}
 		}
 	})
 

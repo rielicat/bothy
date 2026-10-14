@@ -8,24 +8,27 @@ Files: [`deploy/aws/ecs-task-definition.json`](../../deploy/aws/ecs-task-definit
 [`iam-bedrock-policy.json`](../../deploy/aws/iam-bedrock-policy.json),
 [`iam-kek-secret-policy.json`](../../deploy/aws/iam-kek-secret-policy.json).
 
-## First: Docker 25 on the ECS-optimized AMI
+## Docker 25 on the ECS-optimized AMI
 
-sandboxd needs engine API 1.45 (Docker 26 or newer) for volume subpaths. The
-ECS-optimized AL2023 AMI ships Docker 25.0.16 as of October 2026
+The ECS-optimized AL2023 AMI ships Docker 25.0.16 as of October 2026
 ([changelog](https://github.com/aws/amazon-ecs-ami/blob/main/CHANGELOG.md)),
 and AWS documents ECS support for Docker 20.10 and 25.x only
 ([ECS: Docker support](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-agent-versions.html#docker-support)).
-So:
+Docker 25 (engine API 1.44) has no volume subpaths, which sandboxd uses on
+Docker 26+, so there it binds the same directories from the volumes' host
+paths and checks every box's mounts, by device and inode, against its own
+mounts of `bothy_work` (read-only) and `bothy_run` before the box is used. The
+sandbox works on the stock AMI with these constraints:
 
-- **On the stock AMI** sandboxd cannot start boxes. Remove it and the socket
-  mount ([below](#without-the-sandbox)) and run without the sandbox; the rest
-  of this recipe is unchanged.
-- **For the sandbox on ECS** you need a container instance with Docker 26+,
-  for example Ubuntu 24.04 with Docker Engine from Docker's repository and the
-  `amazon-ecs-init` package
-  ([ECS: installing the agent](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-agent-install.html)).
-  AWS does not list that Docker version as supported, so test it first.
-  Otherwise use the [VM recipe](vm.md) on EC2: same containers, run by compose.
+- runc only: gVisor (`runsc`) is not used without volume subpaths, and
+  `BOTHY_SBX_RUNTIME=runsc` refuses to start boxes.
+- sandboxd mounts `bothy_work` read-only at `/work` (the task definition
+  does), and both volumes stay on the `local` driver.
+- `bothy doctor` shows `sandbox.bind_mounts` (info), and the sandbox status
+  in the UI names the engine as "(api 1.44, bind mounts)".
+
+An AMI with Docker 20.10 (API 1.41) is too old: sandboxd reports "Docker 25+
+required"; run [without the sandbox](#without-the-sandbox) there.
 
 ## Layout
 
@@ -35,7 +38,7 @@ The task uses the `bridge` network mode and runs alone on its instance.
 |---|---|---|
 | `kek` | `0:0`, only `CHOWN` | Fetches `bothy/kek` with the task role, writes `/kek/bothy_kek` (0600, owner 65532) and exits. `bothy` starts only after it succeeds (`dependsOn: SUCCESS`). |
 | `bothy` | `65532:10001` | The gateway: read-only root, no capabilities, `no-new-privileges`, tmpfs `/tmp`, port 8080 on the host, health check `/bothy healthcheck`. |
-| `sandboxd` | `65532:65532` | `disableNetworking: true` (loopback only, like compose's `network_mode: none`), the Docker socket, restarted on failure without stopping the task. |
+| `sandboxd` | `65532:65532` | `disableNetworking: true` (loopback only, like compose's `network_mode: none`), the Docker socket, `bothy_work` read-only (for the Docker 25 mount check), restarted on failure without stopping the task. |
 
 Two deliberate differences from compose, because ECS task definitions have no
 supplementary groups (`--group-add`):
@@ -51,7 +54,8 @@ supplementary groups (`--group-add`):
 as the Docker volume name; task-scoped volumes get a generated one
 ([agent source](https://github.com/aws/amazon-ecs-agent/blob/master/agent/api/task/task.go)).
 sandboxd needs the fixed names: it mounts subpaths of `bothy_work` and
-`bothy_run` into boxes by engine name. They live in `/var/lib/docker/volumes` on the instance's EBS
+`bothy_run` into boxes by engine name (on Docker 25, directories under the host
+paths the engine reports for those names). They live in `/var/lib/docker/volumes` on the instance's EBS
 volume. The `kek` volume is task-scoped and deleted when the task stops. There
 is no `/keys` volume: the KEK comes from Secrets Manager.
 
@@ -103,11 +107,11 @@ Alternatives, if this does not fit:
    echo ECS_CLUSTER=bothy >> /etc/ecs/ecs.config
    ```
 
-   On a Docker 26+ instance for the sandbox, also give group 65532 access to
-   the socket, now and after every Docker restart:
+   For the sandbox, also give group 65532 access to the socket, now and
+   after every Docker restart:
 
    ```sh
-   command -v setfacl >/dev/null || apt-get install -y acl
+   command -v setfacl >/dev/null || dnf install -y acl || apt-get install -y acl
    mkdir -p /etc/systemd/system/docker.service.d
    printf '[Service]\nExecStartPost=/usr/bin/setfacl -m g:65532:rw /var/run/docker.sock\n' \
      > /etc/systemd/system/docker.service.d/bothy-sandboxd.conf
@@ -187,7 +191,8 @@ Alternatives, if this does not fit:
 
 ## Without the sandbox
 
-On the stock AMI, drop sandboxd and the socket mount and tell the gateway:
+Where a task holding the Docker socket is not acceptable, or the instance runs
+Docker 20.10, drop sandboxd and the socket mount and tell the gateway:
 
 ```sh
 jq 'del(.containerDefinitions[] | select(.name == "sandboxd"))
@@ -256,9 +261,11 @@ this server's AWS access") or with environment variables as in
 
 Run locally on Docker 27.4: the user and group layout, the init container
 and the KEK file, `disableNetworking`, real boxes with egress, and the ALB
-health check status. Validated with the AWS CLI's parameter validation: the
+health check status. The Docker 25 mode ran as the Docker acceptance suite
+with sandboxd limited to engine API 1.44 on Docker Desktop 27.4, not on a real
+Docker 25 engine. Validated with the AWS CLI's parameter validation: the
 task definition and the jq variant. Not run on AWS: the ECS agent with this
-task definition, the socket ACL, Ubuntu with `amazon-ecs-init`, IAM, the ALB.
+task definition, the stock AMI's Docker 25, the socket ACL, IAM, the ALB.
 The ECS docs say the agent must register `ECS_SELINUX_CAPABLE=true` or
 `ECS_APPARMOR_CAPABLE=true` before containers use `dockerSecurityOptions`;
 whether that applies to `no-new-privileges` is not stated. If the task does

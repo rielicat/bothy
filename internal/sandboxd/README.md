@@ -8,7 +8,16 @@ with `DisallowUnknownFields` and validating ids against the `proto` regexes.
 Boxes are built only from the compiled-in spec in `spec.go` (network none,
 read-only rootfs, no capabilities, no-new-privileges, uid 10001, pids/memory/CPU
 limits, volume subpaths derived from the request's ids) and images pinned by
-digest in `BOTHY_SBX_IMAGES`. Execs run under `sbx-init run`; Kill is
+digest in `BOTHY_SBX_IMAGES`. On engine API 1.44 (Docker 25), which has no
+volume subpaths, boxes get non-recursive bind mounts of the same directories
+under the volumes' host paths (from `GET /volumes/{name}`), runc only; before a
+box is used, `sbx-init mountids` must report for every mount the device and
+inode sandboxd finds at that subpath through its own mounts of the volumes
+(`BOTHY_SBX_WORK_DIR`, default `/work`, read-only, and the run directory), so
+a directory swapped for a symlink cannot hand a box a host path. The mode is
+`Health.Mounts` and the `bind_mounts` self-test check; binaries built with
+`-tags sbxtesthooks` honour `BOTHY_SBX_TEST_API_LIMIT` to force it on a newer
+engine. Execs run under `sbx-init run`; Kill is
 `sbx-init killall` with a container kill-and-remove fallback. A stdio stream
 whose gateway side closed is cut after a short grace, so a server that ignores
 stdin EOF cannot hold the box. At start and every `BOTHY_SBX_SELFTEST_EVERY` a
