@@ -60,8 +60,13 @@ func TestGitHubPullRequest(t *testing.T) {
 	sid := owner.NewSession(t).ID
 	run := owner.Send(t, sid, "F4-PR fix the README of octocat/Hello-World")
 	ap := owner.WaitApproval(t, run, core.ApprovalPending)
-	if ap.Action == nil || ap.Action.Tool != "repo_open_pr" || ap.Decision.Rule != "floor:always_ask" {
+	// The checkout made the session private and untrusted, so the trifecta
+	// floor asks before the always-ask one would.
+	if ap.Action == nil || ap.Action.Tool != "repo_open_pr" || ap.Decision.Rule != "floor:trifecta" || !ap.Decision.Floor {
 		t.Fatalf("approval = %+v %+v", ap.Action, ap.Decision)
+	}
+	if !slices.Contains(ap.Action.Paths, "repos/octocat/Hello-World/README.md") {
+		t.Errorf("action paths = %v", ap.Action.Paths)
 	}
 	card := ap.Card
 	if card.Title != "Open pull request" || !slices.Equal(card.Choices, []core.Choice{core.AllowOnce, core.Deny}) {
@@ -72,7 +77,7 @@ func TestGitHubPullRequest(t *testing.T) {
 		!strings.Contains(card.Code, `"title": "Clarify the README"`) {
 		t.Errorf("card fields %+v code:\n%s", card.Fields, card.Code)
 	}
-	if !strings.HasPrefix(card.Diff, "Repository: octocat/Hello-World\nBranch: bothy/clarify-the-readme-") ||
+	if !strings.HasPrefix(card.Diff, "Repository: octocat/Hello-World (private)\nBranch: bothy/clarify-the-readme-") ||
 		!strings.Contains(card.Diff, " → main\nTitle: Clarify the README\n\n    Explains what the repository is for.\n---\n") ||
 		!strings.Contains(card.Diff, "-A test repository.") || !strings.Contains(card.Diff, "+A test repository, now with a README edit by Bothy.") ||
 		!strings.Contains(card.Diff, "diff --git a/README.md b/README.md") {

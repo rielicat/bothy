@@ -2,6 +2,7 @@ package github
 
 import (
 	"archive/tar"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/github/githubtest"
@@ -27,7 +29,7 @@ func TestToolManifests(t *testing.T) {
 		core      bool
 	}{
 		repoListName:      {core.SERead, 0, false, true},
-		repoCheckoutName:  {core.SELocalWrite, core.TaintUntrusted, false, false},
+		repoCheckoutName:  {core.SELocalWrite, repoTaint, false, false},
 		repoChangesName:   {core.SERead, repoTaint, false, false},
 		repoOpenPRName:    {core.SEExternalSend, 0, true, false},
 		githubIssuesName:  {core.SERead, repoTaint, false, false},
@@ -329,6 +331,65 @@ func TestRepoChanges(t *testing.T) {
 	}
 }
 
+// TestScanSkipsHugeSparseFiles: a box can make a file of any apparent
+// size; scans tell it apart by size instead of reading it, and stop when
+// the call's context ends.
+func TestScanSkipsHugeSparseFiles(t *testing.T) {
+	f := newFx(t)
+	f.connect("octocat/Hello-World")
+	env := f.toolEnv()
+	f.checkout(env)
+	dir := "repos/octocat/Hello-World/"
+	for _, name := range []string{"huge.bin", "README.md"} {
+		fh, err := os.OpenFile(wsPath(env, dir+name), os.O_WRONLY|os.O_CREATE, 0o660)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := fh.Truncate(64 << 30); err != nil {
+			t.Fatal(err)
+		}
+		_ = fh.Close()
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, res := f.mustCall(repoChangesName, env, map[string]any{"repo": "octocat/Hello-World"})
+		if !strings.Contains(res.Content, "A huge.bin") || !strings.Contains(res.Content, "M README.md") || !strings.Contains(res.Content, "too large to compare") {
+			t.Errorf("changes:\n%s", res.Content)
+		}
+		if _, err := f.plan(repoOpenPRName, env, map[string]any{"repo": "octocat/Hello-World", "title": "x"}); !errors.Is(err, core.ErrInvalid) ||
+			!strings.Contains(err.Error(), "are not sent") {
+			t.Errorf("huge file proposed: %v", err)
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the scan read the sparse files")
+	}
+
+	ctx, cancel := context.WithCancel(f.ctx)
+	cancel()
+	root, err := workspaceRoot(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	m, _ := loadManifest(mustStore(t, f, env))
+	if _, err := scanCheckout(ctx, root, "repos/octocat/Hello-World", m, 1000); !errors.Is(err, context.Canceled) {
+		t.Errorf("scan with a cancelled context: %v", err)
+	}
+}
+
+func mustStore(t *testing.T, f *fx, env *core.ToolEnv) string {
+	t.Helper()
+	st, err := f.svc.checkoutStore(env.Principal.Workspace, "octocat", "Hello-World")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st
+}
+
 func TestOpenPR(t *testing.T) {
 	f := newFx(t)
 	f.connect("octocat/Hello-World")
@@ -354,6 +415,10 @@ func TestOpenPR(t *testing.T) {
 	if a.Kind != core.ActSend || a.SideEffect != core.SEExternalSend || a.Recipient != "github:octocat/Hello-World" {
 		t.Errorf("action = %+v", a)
 	}
+	// Workspace-relative, like every other tool's Paths, so path rules apply.
+	if !slices.Contains(a.Paths, dir+"README.md") || !slices.Contains(a.Paths, dir+"docs/a.md") || slices.Contains(a.Paths, "README.md") {
+		t.Errorf("paths = %v", a.Paths)
+	}
 	for _, want := range []string{"+Improved.", "+brand new", "deleted file mode 100644", "new file mode 100644\n"} {
 		if !strings.Contains(a.Diff, want) {
 			t.Errorf("card diff lacks %q:\n%s", want, a.Diff)
@@ -363,7 +428,7 @@ func TestOpenPR(t *testing.T) {
 	if err := json.Unmarshal(a.Payload, &p); err != nil {
 		t.Fatal(err)
 	}
-	header := "Repository: octocat/Hello-World\nBranch: " + p.Head + " → main\nTitle: Improve the README\n\n    Explains more.\n\n    Fixes #3.\n---\n"
+	header := "Repository: octocat/Hello-World (private)\nBranch: " + p.Head + " → main\nTitle: Improve the README\n\n    Explains more.\n\n    Fixes #3.\n---\n"
 	if !strings.HasPrefix(a.Diff, header) {
 		t.Errorf("card diff header:\n%s", a.Diff[:min(len(a.Diff), 300)])
 	}
@@ -422,13 +487,13 @@ func TestOpenPR(t *testing.T) {
 
 func TestPRHeaderCannotForgeDiffLines(t *testing.T) {
 	h := prHeader(openPRPayload{Repo: "o/r", Base: "main", Head: "x", Title: "t", Draft: true,
-		Body: "looks fine\ndiff --git a/README.md b/README.md\n+harmless\n" + strings.Repeat("y", 2000)})
+		Body: "looks fine\ndiff --git a/README.md b/README.md\n+harmless\n" + strings.Repeat("y", 2000)}, false)
 	for _, line := range strings.Split(h, "\n") {
 		if strings.HasPrefix(line, "diff ") || strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-") && line != "---" {
 			t.Errorf("unindented description line %q", line)
 		}
 	}
-	if !strings.Contains(h, "Draft: yes\n") || !strings.Contains(h, "    diff --git a/README.md") || len(h) > 1200 || !strings.HasSuffix(h, "…\n---\n") {
+	if !strings.HasPrefix(h, "Repository: o/r (public: anyone can read the pull request)\n") || !strings.Contains(h, "Draft: yes\n") || !strings.Contains(h, "    diff --git a/README.md") || len(h) > 1200 || !strings.HasSuffix(h, "…\n---\n") {
 		t.Errorf("header:\n%s", h)
 	}
 }

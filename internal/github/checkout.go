@@ -1,6 +1,7 @@
 package github
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -108,7 +109,10 @@ type scanResult struct {
 // scanCheckout compares repos/<owner>/<name> with its manifest. Tracked
 // files are always compared; untracked ones count unless a .gitignore
 // covers them. .git folders (a local git init in the box) are skipped.
-func scanCheckout(root *os.Root, dir string, m *manifest, maxEntries int) (*scanResult, error) {
+// Only content that could matter is hashed: a box can make a sparse file
+// of any apparent size, so a file whose size already tells it apart is
+// hashed only when small enough to be proposed.
+func scanCheckout(ctx context.Context, root *os.Root, dir string, m *manifest, maxEntries int) (*scanResult, error) {
 	res := &scanResult{}
 	prefixes := map[string]bool{}
 	for p := range m.Files {
@@ -140,6 +144,9 @@ func scanCheckout(root *os.Root, dir string, m *manifest, maxEntries int) (*scan
 			if entries++; entries > maxEntries {
 				return fmt.Errorf("github: %s holds more than %d files", dir, maxEntries)
 			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			p := path.Join(rel, name)
 			switch t := e.Type(); {
 			case t&fs.ModeSymlink != 0:
@@ -161,14 +168,18 @@ func scanCheckout(root *os.Root, dir string, m *manifest, maxEntries int) (*scan
 					res.unsafe = append(res.unsafe, p)
 					continue
 				}
-				sum, size, exec, err := hashFile(root, path.Join(dir, p))
+				hashUpTo := int64(maxPRFile)
+				if isTracked {
+					hashUpTo = max(hashUpTo, tracked.Size)
+				}
+				sum, size, exec, err := hashFile(ctx, root, path.Join(dir, p), hashUpTo)
 				if err != nil {
 					return fmt.Errorf("github: reading %s: %w", p, err)
 				}
 				switch {
 				case !isTracked:
 					res.changes = append(res.changes, change{Path: p, Op: "added", SHA256: sum, Exec: exec, Size: size})
-				case tracked.SHA256 != sum || tracked.Exec != exec:
+				case tracked.Size != size || tracked.SHA256 != sum || tracked.Exec != exec:
 					res.changes = append(res.changes, change{Path: p, Op: "modified", SHA256: sum, Exec: exec, Size: size})
 				}
 				if isTracked {
@@ -229,18 +240,40 @@ func openRegular(root *os.Root, rel string) (*os.File, fs.FileInfo, error) {
 	return f, st, nil
 }
 
-func hashFile(root *os.Root, rel string) (sum string, size int64, exec bool, err error) {
+// hashFile hashes a workspace file of at most limit bytes; a larger one
+// comes back with its size and no hash.
+func hashFile(ctx context.Context, root *os.Root, rel string, limit int64) (sum string, size int64, exec bool, err error) {
 	f, st, err := openRegular(root, rel)
 	if err != nil {
 		return "", 0, false, err
 	}
 	defer f.Close()
+	exec = st.Mode()&0o111 != 0
+	if st.Size() > limit {
+		return "", st.Size(), exec, nil
+	}
 	h := sha256.New()
-	n, err := io.Copy(h, f)
+	n, err := io.Copy(h, io.LimitReader(ctxReader{ctx, f}, limit+1))
 	if err != nil {
 		return "", 0, false, err
 	}
-	return hex.EncodeToString(h.Sum(nil)), n, st.Mode()&0o111 != 0, nil
+	if n > limit {
+		return "", n, exec, nil
+	}
+	return hex.EncodeToString(h.Sum(nil)), n, exec, nil
+}
+
+// ctxReader stops a long read once its context is done.
+type ctxReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (c ctxReader) Read(p []byte) (int, error) {
+	if err := c.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return c.r.Read(p)
 }
 
 // readFile reads a workspace file whole when it is at most limit bytes;

@@ -44,6 +44,11 @@ func TestFileDiff(t *testing.T) {
 	if complete || !strings.Contains(got, "(diff omitted: 2 B → 1.0 MB)") {
 		t.Errorf("large diff (complete=%v):\n%s", complete, got)
 	}
+	unhashed := side{present: true, data: []byte("\x00"), size: 64 << 30}
+	got, complete = fileDiff("huge.bin", side{}, unhashed)
+	if complete || !strings.Contains(got, "(too large to compare: 0 B → 65536.0 MB)") || strings.Contains(got, "sha256") {
+		t.Errorf("unhashed diff (complete=%v):\n%s", complete, got)
+	}
 }
 
 func TestFileDiffSeparateHunks(t *testing.T) {

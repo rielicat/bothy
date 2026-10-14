@@ -25,7 +25,7 @@ base, title, indented description), re-hashes every file at Exec so only the app
 are sent, and writes blobs, a tree on the checked-out commit, a commit, a
 branch and the pull request (deleting the branch if the PR is refused);
 `github_issues`, `github_pr`, `github_runs` (read) and `github_comment`
-(external_send). Content tools taint the session private and untrusted and
-mark their results untrusted, so they are spotlighted and the trifecta floor
-applies. `githubtest` is a fake GitHub API built from the examples in GitHub's
+(external_send). Content tools and `repo_checkout` taint the session private
+and untrusted and mark their results untrusted, so they are spotlighted and
+the trifecta floor applies. `githubtest` is a fake GitHub API built from the examples in GitHub's
 REST description.

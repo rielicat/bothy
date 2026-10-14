@@ -20,7 +20,9 @@ var secretRefRE = regexp.MustCompile(`^secret:[a-z0-9_.-]{1,64}$`)
 // Content from repositories, issues, pull requests and workflow runs may be
 // written by anyone, and private repositories hold company data: tools that
 // return it taint the session with both legs, so the trifecta floor guards
-// whatever could carry it out.
+// whatever could carry it out. repo_checkout carries both too: exec output
+// from the workspace is never tainted private, so the checkout is the only
+// point where the session learns that private code is now within reach.
 const repoTaint = core.TaintPrivate | core.TaintUntrusted
 
 func builtinSpec(def core.ToolDef, m core.Manifest) core.ToolSpec {

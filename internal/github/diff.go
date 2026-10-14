@@ -55,6 +55,9 @@ func fileDiff(p string, old, cur side) (text string, complete bool) {
 		oldName = "/dev/null"
 	}
 	switch {
+	case cur.present && cur.sha256 == "":
+		fmt.Fprintf(&b, "--- %s\n+++ b/%s\n(too large to compare: %s → %s)\n", oldName, p, humanSize(old.size), humanSize(cur.size))
+		return b.String(), false
 	case isBinary(old.data) || isBinary(cur.data):
 		fmt.Fprintf(&b, "Binary files %s and b/%s differ (%s → %s, new sha256 %s)\n", oldName, p,
 			humanSize(old.size), humanSize(cur.size), cur.sha256)

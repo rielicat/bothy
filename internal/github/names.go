@@ -79,7 +79,7 @@ func safeRepoPath(p string) bool {
 		return false
 	}
 	for _, r := range p {
-		if r < 0x20 || r == 0x7f || unicode.Is(unicode.Cf, r) || r == ' ' || r == ' ' {
+		if r < 0x20 || r == 0x7f || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029' {
 			return false
 		}
 	}

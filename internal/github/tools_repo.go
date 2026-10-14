@@ -69,7 +69,7 @@ type checkoutState struct {
 	scan   *scanResult
 }
 
-func (s *Service) state(root *os.Root, env *core.ToolEnv, r *core.GitHubRepo, scan bool) (*checkoutState, error) {
+func (s *Service) state(ctx context.Context, root *os.Root, env *core.ToolEnv, r *core.GitHubRepo, scan bool) (*checkoutState, error) {
 	store, err := s.checkoutStore(env.Principal.Workspace, r.Owner, r.Name)
 	if err != nil {
 		return nil, err
@@ -88,7 +88,7 @@ func (s *Service) state(root *os.Root, env *core.ToolEnv, r *core.GitHubRepo, sc
 	if st.m, err = loadManifest(store); err != nil || st.m == nil || !scan {
 		return st, err
 	}
-	st.scan, err = scanCheckout(root, checkoutDir(r), st.m, s.limits().maxFiles*scanFactor)
+	st.scan, err = scanCheckout(ctx, root, checkoutDir(r), st.m, s.limits().maxFiles*scanFactor)
 	return st, err
 }
 
@@ -167,7 +167,7 @@ func (t *repoCheckout) Spec() core.ToolSpec {
 			`"ref":{"type":"string","description":"branch, tag or commit SHA; default: the default branch"},`+
 			`"discard_changes":{"type":"boolean","description":"throw away edits made since the last checkout"}`, "repo"),
 	}, core.Manifest{Title: "Check out repository", SideEffect: core.SELocalWrite, FSPaths: []string{"repos/**"},
-		Taint: core.TaintUntrusted, Timeout: 5 * time.Minute, MaxOutputKB: 8})
+		Taint: repoTaint, Timeout: 5 * time.Minute, MaxOutputKB: 8})
 }
 
 func (t *repoCheckout) Enabled(env *core.ToolEnv) bool { return gate{t.s}.Enabled(env) }
@@ -193,7 +193,7 @@ func (t *repoCheckout) Plan(ctx context.Context, env *core.ToolEnv, args json.Ra
 		return nil, err
 	}
 	defer root.Close()
-	st, err := t.s.state(root, env, r, true)
+	st, err := t.s.state(ctx, root, env, r, true)
 	if err != nil {
 		return nil, err
 	}
@@ -243,7 +243,7 @@ func (t *repoCheckout) Exec(ctx context.Context, env *core.ToolEnv, a *core.Acti
 		return nil, err
 	}
 	defer root.Close()
-	st, err := t.s.state(root, env, r, true)
+	st, err := t.s.state(ctx, root, env, r, true)
 	if err != nil {
 		return nil, err
 	}
@@ -525,7 +525,7 @@ func (t *repoChanges) Exec(ctx context.Context, env *core.ToolEnv, a *core.Actio
 		return nil, err
 	}
 	defer root.Close()
-	st, err := t.s.state(root, env, r, true)
+	st, err := t.s.state(ctx, root, env, r, true)
 	if err != nil {
 		return nil, err
 	}
@@ -655,7 +655,7 @@ func (t *repoOpenPR) Plan(ctx context.Context, env *core.ToolEnv, args json.RawM
 		return nil, err
 	}
 	defer root.Close()
-	st, err := t.s.state(root, env, r, true)
+	st, err := t.s.state(ctx, root, env, r, true)
 	if err != nil {
 		return nil, err
 	}
@@ -699,9 +699,9 @@ func (t *repoOpenPR) Plan(ctx context.Context, env *core.ToolEnv, args json.RawM
 	paths := make([]string, len(ch))
 	for i, c := range ch {
 		p.Files = append(p.Files, prFile{Path: c.Path, Op: c.Op, SHA256: c.SHA256, Exec: c.Exec})
-		paths[i] = c.Path
+		paths[i] = path.Join(dir, c.Path)
 	}
-	card := prHeader(p) + diff
+	card := prHeader(p, r.Private) + diff
 	if len(card) > maxCardDiff {
 		return nil, fmt.Errorf("%w: the diff is %s and an approval card shows at most %s; pass paths to propose fewer files at a time",
 			core.ErrInvalid, humanSize(int64(len(card))), humanSize(maxCardDiff))
@@ -715,12 +715,17 @@ func (t *repoOpenPR) Plan(ctx context.Context, env *core.ToolEnv, args json.RawM
 }
 
 // prHeader opens the card's diff the way git format-patch opens a patch,
-// so even a chat card cut to its first lines shows where the change goes.
-// Description lines are indented like git log does, so none can pass for
-// a diff line; the whole description is in the card's arguments.
-func prHeader(p openPRPayload) string {
+// so even a chat card cut to its first lines shows where the change goes
+// and whether anyone on the internet will be able to read it. Description
+// lines are indented like git log does, so none can pass for a diff line;
+// the whole description is in the card's arguments.
+func prHeader(p openPRPayload, private bool) string {
+	vis := "public: anyone can read the pull request"
+	if private {
+		vis = "private"
+	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Repository: %s\nBranch: %s → %s\nTitle: %s\n", p.Repo, p.Head, p.Base, p.Title)
+	fmt.Fprintf(&b, "Repository: %s (%s)\nBranch: %s → %s\nTitle: %s\n", p.Repo, vis, p.Head, p.Base, p.Title)
 	if p.Draft {
 		b.WriteString("Draft: yes\n")
 	}
@@ -839,7 +844,7 @@ func (t *repoOpenPR) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action
 		return nil, err
 	}
 	defer root.Close()
-	st, err := t.s.state(root, env, r, false)
+	st, err := t.s.state(ctx, root, env, r, false)
 	if err != nil {
 		return nil, err
 	}
