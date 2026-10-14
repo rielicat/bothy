@@ -263,7 +263,14 @@
       {#if probe?.repos.length || replacing}
         <div class="mt-6 flex flex-wrap items-center gap-x-3 gap-y-2">
           {#if probe?.repos.length}
-            <Button variant="primary" loading={saving} loadingLabel="Saving…" onclick={save} reason={chosen.length ? undefined : 'Choose at least one repository.'}>Save</Button>
+            <Button
+              variant="primary"
+              class="max-sm:w-full"
+              loading={saving}
+              loadingLabel="Saving…"
+              onclick={save}
+              reason={chosen.length ? undefined : 'Choose at least one repository.'}>Save</Button
+            >
           {/if}
           {#if replacing}<Button onclick={() => ((replacing = null), load())}>Cancel</Button>{/if}
         </div>

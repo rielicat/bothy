@@ -10,7 +10,7 @@
   import { approverLine, readAt, saveConfig, type Failure } from './connections';
   import EnvironmentDialog from './EnvironmentDialog.svelte';
   import RepoPicker from './RepoPicker.svelte';
-  import type { GitHubConnection, GitHubConnectionDetail, GitHubProbe, GitHubRepo, IndexedRepo, ReleaseEnvironment, Releases } from './types';
+  import type { GitHubConnection, GitHubConnectionDetail, GitHubProbe, GitHubRepo, IndexedRepo, ReleaseEnvironment, Releases, Workflow } from './types';
 
   let {
     conn,
@@ -40,6 +40,7 @@
   let envOpen = $state(false);
   let dropping = $state('');
   let details = $state(false);
+  let flows = $state<Record<string, string>>({});
 
   const id = $derived(encodeURIComponent(conn.id));
   const full = (r: { owner: string; name: string }) => `${r.owner}/${r.name}`;
@@ -63,12 +64,25 @@
       get<User[]>('/api/users', []),
     ]);
     repos = [...(detail?.repos ?? [])].sort((a, b) => Number(b.allowed) - Number(a.allowed) || full(a).localeCompare(full(b)));
+    const lists = await Promise.all(
+      [...new Set(envs.map((e) => e.repo))].map((repo) =>
+        get<Workflow[]>(`/api/github/repos/${repo.split('/').map(encodeURIComponent).join('/')}/workflows`, []).then((l) => l.map((w) => [repo, w] as const)),
+      ),
+    );
+    flows = Object.fromEntries(lists.flat().map(([repo, w]) => [`${repo}/${w.path.split('/').pop()}`, w.name]));
   }
 
   $effect(() => {
     void conn.id;
     untrack(load);
   });
+
+  // The workflow's name from GitHub ("Deploy workflow"); its file name until S19 lists workflows.
+  function workflowLine(e: ReleaseEnvironment): string {
+    const n = flows[`${e.repo}/${e.workflow}`];
+    if (!n) return e.workflow;
+    return /workflow/i.test(n) ? n : `${n} workflow`;
+  }
 
   function readLine(r: GitHubRepo): { text: string; danger?: boolean } {
     if (!r.allowed) return { text: 'Not in use' };
@@ -181,7 +195,7 @@
       </p>
       <Button size="sm" onclick={onreplace}>{conn.auth === 'app' ? 'Change connection…' : 'Replace token'}</Button>
     </div>
-    <div class="py-3">
+    <div class="pt-3">
       <Button variant="danger-text" class="-ml-4" onclick={() => (leaving = true)}>Disconnect GitHub…</Button>
     </div>
   </SettingsSection>
@@ -221,7 +235,7 @@
         <div class="flex min-h-14 items-center gap-3 border-b border-border py-2 last:border-b-0">
           <div class="min-w-0 flex-1">
             <p class="text-body font-medium text-text">{e.name}</p>
-            <p class="text-small text-muted [overflow-wrap:anywhere]">{e.repo} · {e.workflow} · {approverLine(e)}</p>
+            <p class="text-small text-muted [overflow-wrap:anywhere]">{e.repo} · {workflowLine(e)} · {approverLine(e)}</p>
           </div>
           <Menu
             placement="bottom-end"

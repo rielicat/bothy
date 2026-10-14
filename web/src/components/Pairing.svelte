@@ -74,7 +74,8 @@
 {:else}
   <div class="flex flex-wrap items-start gap-x-6 gap-y-4">
     {#if link && channel !== 'slack'}<QRCode text={link[1]} label="QR code that opens the bot in {apps[link[0]] ?? link[0]} and links your account" />{/if}
-    <div class="min-w-0 flex-1 space-y-3">
+    <!-- The basis makes this column drop under the QR code on phones instead of squeezing beside it. -->
+    <div class="min-w-0 max-w-md flex-1 basis-56 space-y-3">
       {#if link}<Button href={link[1]} external>Open {apps[link[0]] ?? link[0]}</Button>{/if}
       <p class="text-body text-text">
         {channel === 'slack' ? `Send this to ${bot} in Slack:` : channel === 'discord' ? 'DM the bot:' : link ? 'Or send this to the bot:' : `Send this to ${bot} in a direct message:`}

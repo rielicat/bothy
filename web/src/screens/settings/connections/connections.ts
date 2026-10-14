@@ -3,7 +3,7 @@
 import { api, ApiError, errorText } from '../../../lib/api/client';
 import type { ChannelStatus, MCPStatus, SideEffect } from '../../../lib/api/types.gen';
 import { config } from '../../../lib/config.svelte';
-import { clock, plural, relTime } from '../../../lib/format';
+import { plural, relTime } from '../../../lib/format';
 import type { GitHubConnection, GitHubProbe, ReleaseEnvironment } from './types';
 
 export type AppName = 'slack' | 'telegram' | 'discord';
@@ -115,8 +115,10 @@ export function readAt(t: string, now = Date.now()): string {
   if (Number.isNaN(d.getTime()) || d.getFullYear() < 2000) return '';
   const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const days = Math.round((day(new Date(now)) - day(d)) / 86_400_000);
-  if (days === 0) return `Read today at ${clock(t)}`;
-  if (days === 1) return `Read yesterday at ${clock(t)}`;
+  // Same clock as relTime ("9:12 AM" or "09:12" by locale), not the zero-padded 12 h form.
+  const at = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  if (days === 0) return `Read today at ${at}`;
+  if (days === 1) return `Read yesterday at ${at}`;
   return `Read ${relTime(t, { now })}`;
 }
 

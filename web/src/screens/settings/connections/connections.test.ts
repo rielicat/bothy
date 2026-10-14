@@ -88,6 +88,7 @@ describe('tool and GitHub status words', () => {
     const now = new Date(2026, 9, 14, 15, 0).getTime();
     expect(readAt(new Date(2026, 9, 14, 9, 12).toISOString(), now)).toMatch(/^Read today at \d{1,2}[.:]12/);
     expect(readAt(new Date(2026, 9, 13, 14, 2).toISOString(), now)).toMatch(/^Read yesterday at /);
+    expect(readAt(new Date(2026, 9, 14, 9, 12).toISOString(), now)).not.toMatch(/at 09:12 [AP]M/);
     expect(readAt(new Date(2026, 9, 2).toISOString(), now)).toMatch(/^Read (2 Oct|Oct 2)/);
     expect(readAt('0001-01-01T00:00:00Z', now)).toBe('');
   });

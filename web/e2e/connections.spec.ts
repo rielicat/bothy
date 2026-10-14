@@ -103,6 +103,16 @@ test('fits a 360 px phone and keeps 44 px targets under a coarse pointer', async
       await frame(page);
       expect.soft(await probe(page, { overflow: true, targets: true, minText: true, blur: false, shadows: false, nesting: false, leftEdge: false }), r).toEqual([]);
     }
+    // The Telegram link step drops under its QR code; squeezed beside it, Open Telegram ran off the screen.
+    await go(page, '/settings/connections/telegram', '');
+    await page.getByRole('button', { name: 'Disconnect Telegram…' }).click();
+    await page.getByRole('dialog', { name: 'Disconnect Telegram?' }).getByRole('button', { name: 'Disconnect Telegram', exact: true }).click();
+    await page.getByLabel('Bot token').fill('123456789:' + 'AAH4kq9xV1t8mZp2Lq0wE3rTyUiOpAsDfGh');
+    await page.getByLabel('Bot token').press('Enter');
+    const open = page.getByRole('link', { name: /Open Telegram/ });
+    await open.waitFor();
+    const box = (await open.boundingBox())!;
+    expect(box.x + box.width).toBeLessThanOrEqual(viewports.phone.width - 16 + 1);
   } finally {
     await page.context().close();
   }
@@ -178,7 +188,7 @@ test('add a deploy environment that needs two approvals', async ({ page }) => {
   await expect(dialog.getByText('Two different people must approve, and neither can be the person who asked.')).toBeVisible();
   await dialog.getByRole('button', { name: 'Save environment' }).click();
   await expect(dialog).toBeHidden();
-  await expect(page.getByText('acme/api · deploy.yml · 2 approvals from any admin')).toBeVisible();
+  await expect(page.getByText('acme/api · Deploy workflow · 2 approvals from any admin')).toBeVisible();
 });
 
 test('web search: choosing SearXNG checks it and saves it', async ({ page }) => {

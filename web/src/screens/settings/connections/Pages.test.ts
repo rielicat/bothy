@@ -58,6 +58,26 @@ describe('Connections overview (§12.1)', () => {
     });
   });
 
+  it('keeps web search first and ends Tools with the add button when no servers exist', async () => {
+    await start((m, url) => (m === 'GET' && url === '/api/mcp' ? [] : undefined));
+    render(Connections);
+    const empty = await screen.findByText('No tools connected.');
+    const search = screen.getByText('Web search');
+    expect(search.compareDocumentPosition(empty) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: 'Add an MCP server' })).toHaveLength(1);
+  });
+
+  it('moves focus to the field that needs fixing when adding a server', async () => {
+    const calls = await start();
+    render(Connections);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Add an MCP server' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add an MCP server' });
+    await fireEvent.input(within(dialog).getByLabelText('Name'), { target: { value: 'sentry' } });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Add server' }));
+    await waitFor(() => expect(document.activeElement).toBe(within(dialog).getByLabelText('Address')));
+    expect(writes(calls)).toEqual([]);
+  });
+
   it('says why a command server is not an option when code cannot run', async () => {
     await start((m, url) => (url === '/api/sandbox' ? { status: { available: false } } : undefined));
     render(Connections);
@@ -96,7 +116,7 @@ describe('MCP server page (§12.4)', () => {
   it('reviews changed actions in one dialog and saves every decision at once', async () => {
     const calls = await start();
     render(McpServer, { params: { item: 'mcp-docs' } });
-    expect(await screen.findByText('1 action changed and need a review before Bothy can use them.')).toBeTruthy();
+    expect(await screen.findByText('1 action changed and needs a review before Bothy can use it.')).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: 'Review changes' }));
     const dialog = await screen.findByRole('dialog', { name: 'Review changes to Docs' });
     expect(within(dialog).getByText('Changed since you last allowed it')).toBeTruthy();
@@ -104,6 +124,18 @@ describe('MCP server page (§12.4)', () => {
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Save review' }));
     await waitFor(() => expect(writes(calls).length).toBe(1));
     expect(JSON.parse(writes(calls)[0].body)).toEqual({ tools: { search_docs: { side_effect: 'read', private: false, disable: true } } });
+  });
+
+  it('offers to try again when the server does not start', async () => {
+    const calls = await start((m, url) =>
+      m === 'GET' && url === '/api/mcp'
+        ? [{ name: 'linear', transport: 'http', state: 'error', protocol: '', tools: 0, pending: 0, since: '', error: 'POST https://mcp.linear.app/mcp: 502 Bad Gateway' }]
+        : undefined,
+    );
+    render(McpServer, { params: { item: 'mcp-linear' } });
+    expect(await screen.findByText(/^Can't start: the server didn't answer\./)).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['POST /api/mcp/linear/reload']));
   });
 
   it('says plainly when the server is gone', async () => {

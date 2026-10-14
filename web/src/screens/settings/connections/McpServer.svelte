@@ -107,6 +107,7 @@
     try {
       await api.post(`/api/mcp/${enc}/reload`);
       toast('Reload started.');
+      await load();
     } catch (e) {
       problem = { message: "Bothy couldn't reload this server. Try again.", details: errorText(e) };
     }
@@ -139,14 +140,24 @@
       {#if !status || status.state === 'connecting' || status.state === 'installing'}
         <StatusLine tone="progress" text={status?.state === 'installing' ? 'Installing…' : 'Connecting…'} />
       {:else if status.state === 'error' || status.state === 'no_sandbox'}
-        <StatusLine tone="danger" text="Can't start: {toolProblem(status)}." details={status.error} />
+        <StatusLine
+          tone="danger"
+          text="Can't start: {toolProblem(status)}."
+          details={status.error}
+          action={status.state === 'error' ? { label: 'Try again', onclick: reload } : undefined}
+        />
       {:else if status.state === 'disabled'}
         <p class="text-body text-muted">Off. Bothy doesn't use this server.</p>
       {:else}
         <p class="text-body text-muted">Ready · {plural(status.tools, 'action')}</p>
       {/if}
       {#if pending.length}
-        <StatusLine tone="warning" text="{plural(pending.length, 'action')} changed and need a review before Bothy can use them." />
+        <StatusLine
+          tone="warning"
+          text={pending.length === 1
+            ? '1 action changed and needs a review before Bothy can use it.'
+            : `${plural(pending.length, 'action')} changed and need a review before Bothy can use them.`}
+        />
         <Button onclick={openReview}>Review changes</Button>
       {/if}
       {#if problem}<StatusLine tone="danger" alert text={problem.message} details={problem.details} />{/if}
@@ -212,7 +223,7 @@
   </div>
   {#snippet footer({ close })}
     <Button data-cancel onclick={close}>Cancel</Button>
-    <Button variant="primary" loading={busy} loadingLabel="Saving…" onclick={saveReview}>Save review</Button>
+    <Button variant="primary" loading={busy} loadingLabel="Saving…" onclick={saveReview}>Save <span class="max-sm:hidden">review</span></Button>
   {/snippet}
 </Dialog>
 

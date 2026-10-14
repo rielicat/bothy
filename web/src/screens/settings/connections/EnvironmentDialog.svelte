@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { Button, Combobox, Dialog, Disclosure, IconButton, LinkButton, Segmented, Select, StatusLine, TextField, toast } from '../../../components/ui';
   import { api } from '../../../lib/api/client';
   import type { User } from '../../../lib/api/types.gen';
@@ -75,8 +75,13 @@
 
   async function save(e: SubmitEvent) {
     e.preventDefault();
+    const form = e.currentTarget as HTMLFormElement;
     tried = true;
-    if (Object.values(errors).some(Boolean)) return;
+    if (Object.values(errors).some(Boolean)) {
+      await tick();
+      form.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+      return;
+    }
     busy = true;
     const set: Record<string, unknown> = { [`releases.environments.${f.name}`]: envConfig(f) };
     if (env && env.name !== f.name) set[`releases.environments.${env.name}`] = null;
@@ -161,6 +166,7 @@
   </form>
   {#snippet footer({ close })}
     <Button data-cancel onclick={close}>Cancel</Button>
-    <Button variant="primary" type="submit" form="env-form" loading={busy} loadingLabel="Saving…">Save environment</Button>
+    <!-- On phones the button shares the sheet's header bar with the title, so it says only "Save". -->
+    <Button variant="primary" type="submit" form="env-form" loading={busy} loadingLabel="Saving…">Save <span class="max-sm:hidden">environment</span></Button>
   {/snippet}
 </Dialog>

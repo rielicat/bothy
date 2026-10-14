@@ -82,8 +82,14 @@ describe('GitHub manage view', () => {
     expect(await screen.findByText('Connected as acme-bot (personal access token)')).toBeTruthy();
     expect(await screen.findByText('acme/web')).toBeTruthy();
     expect(screen.getByText('Not in use')).toBeTruthy();
-    expect(await screen.findByText('acme/web · deploy.yml · 2 approvals from Alex, any admin')).toBeTruthy();
-    expect(screen.getByText('acme/web · deploy.yml · 1 approval from any admin')).toBeTruthy();
+    expect(await screen.findByText('acme/web · Deploy workflow · 2 approvals from Alex, any admin')).toBeTruthy();
+    expect(screen.getByText('acme/web · Deploy workflow · 1 approval from any admin')).toBeTruthy();
+  });
+
+  // S19 fallback: without the workflow list the row names the workflow file.
+  it('names the workflow file when GitHub workflows are not listed', async () => {
+    await setup((m, url) => (url.endsWith('/workflows') ? new Response('{"error":{"code":"not_found","message":"no route"}}', { status: 404 }) : undefined));
+    expect(await screen.findByText('acme/web · deploy.yml · 1 approval from any admin')).toBeTruthy();
   });
 
   it('changes which repositories Bothy may use with one switch each', async () => {
@@ -156,6 +162,15 @@ describe('Environment dialog', () => {
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Save environment' }));
     expect(await within(dialog).findByText('Choose at least two people, or Any admin.')).toBeTruthy();
     expect(calls.some((c) => c.method === 'PATCH')).toBe(false);
+  });
+
+  it('moves focus to the first field that needs fixing', async () => {
+    await open();
+    const dialog = await screen.findByRole('dialog', { name: 'Add environment' });
+    await fireEvent.input(within(dialog).getByLabelText('Name'), { target: { value: 'qa' } });
+    await fireEvent.input(within(dialog).getByLabelText('Branches'), { target: { value: ' ' } });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Save environment' }));
+    await waitFor(() => expect(document.activeElement).toBe(within(dialog).getByLabelText('Branches')));
   });
 
   it('saves through config and renames by removing the old name', async () => {

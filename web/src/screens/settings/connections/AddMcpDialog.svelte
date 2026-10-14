@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { Button, CommandBlock, Dialog, Disclosure, Notice, OptionList, StatusLine, TextField, toast } from '../../../components/ui';
   import { api, errorText } from '../../../lib/api/client';
   import type { SandboxInfo } from '../../../lib/api/types.gen';
@@ -60,8 +60,14 @@
 
   async function add(e: SubmitEvent) {
     e.preventDefault();
+    const form = e.currentTarget as HTMLFormElement;
     tried = true;
-    if (blocked || Object.values(errors).some(Boolean)) return;
+    if (blocked) return;
+    if (Object.values(errors).some(Boolean)) {
+      await tick();
+      form.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+      return;
+    }
     busy = true;
     failure = null;
     try {

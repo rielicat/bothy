@@ -24,7 +24,7 @@
 
 <div class="relative">
   <Icon name="search" class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted" />
-  <input class="input pl-9" type="search" placeholder="Filter repositories" aria-label="Filter repositories" bind:value={q} />
+  <input class="input pl-9 [&::-webkit-search-cancel-button]:appearance-none" type="search" placeholder="Filter repositories" aria-label="Filter repositories" bind:value={q} />
 </div>
 <div class="mt-2" data-copy-ignore>
   {#each shown as r (full(r))}

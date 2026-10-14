@@ -131,6 +131,27 @@ describe('Slack manage view', () => {
     expect(await screen.findByText("Couldn't save. Try again.")).toBeTruthy();
   });
 
+  it('replaces rejected tokens from a failed test, then comes back to manage', async () => {
+    let tests = 0;
+    const calls = await setup('slack', (m, url) =>
+      m === 'POST' && url === '/api/channels/slack/test' && tests++ === 0 ? refuse(502, 'slack: auth.test: invalid_auth') : undefined,
+    );
+    await fireEvent.click(await screen.findByRole('button', { name: 'Test connection' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Replace the tokens' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Connect Slack' })).toBeTruthy();
+    expect(screen.getByText(/^Slack didn't accept those tokens\./)).toBeTruthy();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Replace the bot token' }));
+    const bot = await screen.findByLabelText('Bot token');
+    await waitFor(() => expect(document.activeElement).toBe(bot));
+    await fireEvent.input(bot, { target: { value: SLACK_BOT } });
+    await tick();
+    await fireEvent.keyDown(bot, { key: 'Enter' });
+    expect(await screen.findByRole('heading', { level: 1, name: 'Slack' })).toBeTruthy();
+    const writes = calls.filter((c) => c.method !== 'GET').map((c) => `${c.method} ${c.url}`);
+    expect(writes).toEqual(['POST /api/channels/slack/test', 'PUT /api/vault/global/slack_bot_token', 'PATCH /api/config', 'POST /api/channels/slack/test']);
+  });
+
   it('disconnects after a confirmation and forgets the tokens', async () => {
     const calls = await setup('slack');
     await fireEvent.click(await screen.findByRole('button', { name: 'Disconnect Slack…' }));

@@ -98,14 +98,6 @@
     </SettingsSection>
 
     <SettingsSection title="Tools">
-      {#if !servers.length}
-        <EmptyState
-          class="pb-4"
-          text="No tools connected."
-          more="MCP servers let Bothy use other services, like Linear or your database."
-          action={{ label: 'Add an MCP server', onclick: () => (adding = true), variant: 'secondary' }}
-        />
-      {/if}
       <div>
         {#each servers as name (name)}
           {@const st = toolStatus(mcp.find((s) => s.name === name))}
@@ -113,7 +105,16 @@
         {/each}
         {@render row('Web search', { text: search, tone: 'muted', action: 'Change' }, '/settings/connections/search')}
       </div>
-      {#if servers.length}<Button class="mt-4" onclick={() => (adding = true)}>Add an MCP server</Button>{/if}
+      {#if servers.length}
+        <Button class="mt-4" onclick={() => (adding = true)}>Add an MCP server</Button>
+      {:else}
+        <EmptyState
+          class="mt-4"
+          text="No tools connected."
+          more="MCP servers let Bothy use other services, like Linear or your database."
+          action={{ label: 'Add an MCP server', onclick: () => (adding = true), variant: 'secondary' }}
+        />
+      {/if}
     </SettingsSection>
   {/if}
 </ConnPage>

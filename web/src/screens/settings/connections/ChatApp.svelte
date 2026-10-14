@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { untrack, type Snippet } from 'svelte';
+  import { tick, untrack, type Snippet } from 'svelte';
   import Pairing from '../../../components/Pairing.svelte';
-  import { Button, EmptyState, LinkButton, StatusLine, TextField } from '../../../components/ui';
+  import { Button, EmptyState, LinkButton, StatusLine, TextField, toast } from '../../../components/ui';
   import { api } from '../../../lib/api/client';
   import type { ChannelIdentity, ChannelTestResp, DiscordInvite, SecretMeta, Space, User } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
@@ -41,11 +41,12 @@
   let outcome = $state<(Failure & { ok: boolean }) | null>(null);
   let slackHref = $state('https://api.slack.com/apps?new_app=1');
   let invite = $state('');
+  let fromManage = $state(false);
   let timer: ReturnType<typeof setTimeout> | undefined;
   let run = 0;
 
   const saved = (f: Field) => !!f.secret && !replacing[f.key] && secrets.some((s) => s.name === secretName(path(f), f.secret!));
-  const connected = $derived(outcome?.ok || status?.state === 'connected');
+  const connected = $derived(outcome?.ok || (status?.state === 'connected' && !fromManage));
 
   async function load(first = false) {
     const get = <T,>(p: string, d: T) => api.get<T>(p).catch(() => d);
@@ -75,6 +76,7 @@
       view = 'loading';
       outcome = null;
       replacing = {};
+      fromManage = false;
       void load(true);
       if (a === 'slack')
         api.text('/api/channels/slack/manifest').then((m) => (slackHref = `https://api.slack.com/apps?new_app=1&manifest_yaml=${encodeURIComponent(m)}`), () => {});
@@ -117,15 +119,28 @@
       const r = await api.post<ChannelTestResp>(`/api/channels/${app}/test`);
       if (mine !== run) return;
       await load();
-      outcome = { ok: true, message: `${connectedText({ ...status!, identity: r.identity }, true)}.` };
       replacing = {};
       for (const f of fields[app]) if (f.secret) values[f.key] = '';
+      if (fromManage) {
+        fromManage = false;
+        outcome = null;
+        view = 'manage';
+        toast(`${name} reconnected.`);
+        return;
+      }
+      outcome = { ok: true, message: `${connectedText({ ...status!, identity: r.identity }, true)}.` };
       if (app === 'discord') invite = (await api.get<DiscordInvite>('/api/channels/discord/invite').catch(() => ({ url: '' }))).url;
     } catch (e) {
       if (mine === run) outcome = { ok: false, ...channelFailure(app, e) };
     } finally {
       if (mine === run) checking = false;
     }
+  }
+
+  async function replace(f: Field) {
+    replacing[f.key] = true;
+    await tick();
+    document.getElementById(`${app}-${f.key}`)?.focus();
   }
 
   const later = 'You can do this once step 2 is done.';
@@ -162,11 +177,12 @@
       <div>
         <p class="field-label">{f.label}</p>
         <p class="mt-2 text-body text-text">
-          <span aria-hidden="true">•••••</span> saved · <LinkButton onclick={() => (replacing[f.key] = true)} aria-label="Replace the {f.label.toLowerCase()}">Replace</LinkButton>
+          <span aria-hidden="true">•••••</span> saved · <LinkButton onclick={() => replace(f)} aria-label="Replace the {f.label.toLowerCase()}">Replace</LinkButton>
         </p>
       </div>
     {:else}
       <TextField
+        id="{app}-{f.key}"
         label={f.label}
         type={f.secret && !reveal[f.key] ? 'password' : 'text'}
         bind:value={values[f.key]}
@@ -202,7 +218,20 @@
 {/snippet}
 
 {#if view === 'manage' && status}
-  <ChatAppManage {app} {status} {identities} {spaces} {users} {secrets} onchanged={() => load(true)} />
+  <ChatAppManage
+    {app}
+    {status}
+    {identities}
+    {spaces}
+    {users}
+    {secrets}
+    onchanged={() => load(true)}
+    onreplace={(f) => {
+      outcome = { ok: false, message: f.message, details: f.details };
+      fromManage = true;
+      view = 'steps';
+    }}
+  />
 {:else}
   <ConnPage title="Connect {name}">
     {#if view === 'failed'}

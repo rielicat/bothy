@@ -6,7 +6,7 @@
   import { relTime } from '../../../lib/format';
   import { session } from '../../../lib/stores/session.svelte';
   import ConnPage from './ConnPage.svelte';
-  import { appStatus, appTitle, channelFailure, connectedText, saveConfig, secretName, type AppName, type AppStatus, type Failure } from './connections';
+  import { appStatus, appTitle, channelFailure, connectedText, failureCode, saveConfig, secretName, type AppName, type AppStatus, type Failure } from './connections';
 
   let {
     app,
@@ -16,6 +16,7 @@
     users,
     secrets,
     onchanged,
+    onreplace,
   }: {
     app: AppName;
     status: AppStatus;
@@ -24,6 +25,8 @@
     users: User[];
     secrets: SecretMeta[];
     onchanged: () => void;
+    /** Back to the steps to paste new tokens, keeping the failure that sent the person there. */
+    onreplace: (failure: Failure) => void;
   } = $props();
 
   const name = $derived(appTitle[app]);
@@ -31,7 +34,7 @@
   let onStatus = $state<'saving' | 'saved' | null>(null);
   let onError = $state('');
   let testing = $state(false);
-  let test = $state<(Failure & { ok: boolean }) | null>(null);
+  let test = $state<(Failure & { ok: boolean; rejected?: boolean }) | null>(null);
   let leaving = $state(false);
   let busy = $state(false);
   let unknown = $state('pair');
@@ -77,7 +80,7 @@
       const r = await api.post<ChannelTestResp>(`/api/channels/${app}/test`);
       test = { ok: true, message: `The connection works. ${name} knows Bothy as ${r.identity}.` };
     } catch (e) {
-      test = { ok: false, ...channelFailure(app, e) };
+      test = { ok: false, rejected: failureCode(e) === 'key_rejected', ...channelFailure(app, e) };
     } finally {
       testing = false;
     }
@@ -165,11 +168,20 @@
       </p>
       <Button size="sm" loading={testing} loadingLabel="Testing…" onclick={runTest}>Test connection</Button>
     </div>
-    {#if test}<StatusLine class="border-b border-border py-3" tone={test.ok ? 'success' : 'danger'} text={test.message} details={test.details} alert />{/if}
+    {#if test}
+      <StatusLine
+        class="border-b border-border py-3"
+        tone={test.ok ? 'success' : 'danger'}
+        text={test.message}
+        details={test.details}
+        action={test.rejected ? { label: app === 'slack' ? 'Replace the tokens' : 'Replace the token', onclick: () => onreplace(test!) } : undefined}
+        alert
+      />
+    {/if}
     <SettingsRow label="Turned on" inline status={onStatus} error={onError}>
       {#snippet children(c)}<Switch id={c.id} label="Turned on" hideLabel bind:checked={on} onchange={setOn} />{/snippet}
     </SettingsRow>
-    <div class="py-3">
+    <div class="pt-3">
       <Button variant="danger-text" class="-ml-4" onclick={() => (leaving = true)}>Disconnect {name}…</Button>
     </div>
   </SettingsSection>
