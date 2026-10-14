@@ -21,6 +21,8 @@ const V02_FRAME = `
 async function frame(page: Page) {
   // A constructed sheet, since the gateway's CSP refuses inline <style>.
   await page.evaluate((css) => {
+    // Only around the v0.1 shell; C1's shell is part of what the captures judge.
+    if (!document.querySelector('div:has(> #main) > header')) return;
     const sheet = new CSSStyleSheet();
     sheet.replaceSync(css);
     document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];

@@ -22,12 +22,14 @@ const framed =
   async (page: Page) => {
     // A constructed sheet: the preview's CSP refuses <style> tags, CSSOM is allowed.
     await page.evaluate((css) => {
+      // Only around the v0.1 shell; C1's shell is part of what the captures judge.
+      if (!document.querySelector('div:has(> #main) > header')) return;
       const sheet = new CSSStyleSheet();
       sheet.replaceSync(css);
       document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
     }, V02_FRAME);
     await page.locator('h1').first().waitFor();
-    if (text) await page.getByText(text, { exact: false }).first().waitFor();
+    if (text) await page.getByText(text, { exact: false }).filter({ visible: true }).first().waitFor();
     await then?.(page);
   };
 

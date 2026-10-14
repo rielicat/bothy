@@ -19,8 +19,11 @@ const V02_FRAME = `
 
 // Served from the page's own origin, so the gateway's CSP (style-src 'self') lets it in.
 async function frame(page: Page) {
-  await page.route('**/__v02-frame.css', (r) => r.fulfill({ contentType: 'text/css', body: V02_FRAME }));
-  await page.addStyleTag({ url: '/__v02-frame.css' });
+  // Only around the v0.1 shell; C1's shell is part of what the captures judge.
+  if (await page.locator('div:has(> #main) > header').count()) {
+    await page.route('**/__v02-frame.css', (r) => r.fulfill({ contentType: 'text/css', body: V02_FRAME }));
+    await page.addStyleTag({ url: '/__v02-frame.css' });
+  }
   await page.locator('h1').first().waitFor();
 }
 

@@ -23,6 +23,8 @@ const V02_FRAME = `
 // A constructed stylesheet, because the build's CSP refuses <style> tags.
 const frame = async (page: Page) => {
   await page.evaluate((css) => {
+    // Only around the v0.1 shell; C1's shell is part of what the captures judge.
+    if (!document.querySelector('div:has(> #main) > header')) return;
     const sheet = new CSSStyleSheet();
     sheet.replaceSync(css);
     document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
@@ -47,7 +49,7 @@ const send = (text: string) => async (page: Page) => {
   await page.getByRole('textbox', { name: 'Message' }).fill(text);
   await page.getByRole('button', { name: 'Send' }).click();
 };
-const waitText = (text: string) => (page: Page) => page.getByText(text).first().waitFor();
+const waitText = (text: string) => (page: Page) => page.getByText(text).filter({ visible: true }).first().waitFor();
 const menu = (item: string | RegExp) => async (page: Page) => {
   await click('Chat options')(page);
   await click(item, 'menuitem')(page);

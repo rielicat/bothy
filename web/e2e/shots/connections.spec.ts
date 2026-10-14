@@ -21,6 +21,8 @@ type Step = (page: Page) => Promise<unknown>;
 // A constructed stylesheet goes through CSSOM, which the production CSP allows; a <style> tag would be blocked.
 const frame: Step = async (page) => {
   await page.evaluate((css) => {
+    // Only around the v0.1 shell; C1's shell is part of what the captures judge.
+    if (!document.querySelector('div:has(> #main) > header')) return;
     const sheet = new CSSStyleSheet();
     sheet.replaceSync(css);
     document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
@@ -41,7 +43,7 @@ const fill = (label: string | RegExp, value: string, enter = false): Step => asy
   await field.fill(value);
   if (enter) await field.press('Enter');
 };
-const see = (text: string | RegExp): Step => (page) => page.getByText(text).first().waitFor();
+const see = (text: string | RegExp): Step => (page) => page.getByText(text).filter({ visible: true }).first().waitFor();
 const menu = (trigger: string | RegExp, item: string | RegExp): Step => async (page) => {
   await page.getByRole('button', { name: trigger }).first().click();
   await page.getByRole('menuitem', { name: item }).click();

@@ -249,7 +249,8 @@ export async function capture(page: Page, chunk: string, state: ShotState, viewp
   await page.goto(withMock(state.route, state.mock));
   await page.waitForLoadState('networkidle');
   await page.evaluate(() => document.fonts.ready);
-  if (typeof state.ready === 'string') await page.getByText(state.ready, { exact: false }).first().waitFor();
+  // Visible only: on phones the drawer's chat list repeats chat titles while hidden.
+  if (typeof state.ready === 'string') await page.getByText(state.ready, { exact: false }).filter({ visible: true }).first().waitFor();
   else if (state.ready) await state.ready(page);
   if (state.setup) {
     await state.setup(page, { viewport, theme });
