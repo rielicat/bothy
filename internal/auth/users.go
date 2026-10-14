@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"regexp"
@@ -38,6 +39,22 @@ func requireAdmin(by core.Actor) error {
 // CreateUser adds an admin or member. The owner exists exactly once and is
 // created only through setup.
 func (s *Service) CreateUser(ctx context.Context, by core.Actor, username, password, displayName string, role core.Role) (*core.User, error) {
+	return s.createUser(ctx, by, username, password, displayName, role, false)
+}
+
+// CreateUserOneTime adds an admin or member with a generated one-time
+// password, returned once, that its owner must replace at the first
+// sign-in. It is not part of core.Auth.
+func (s *Service) CreateUserOneTime(ctx context.Context, by core.Actor, username, displayName string, role core.Role) (*core.User, string, error) {
+	pw := oneTimePassword(s.conf().Auth.PasswordMinLength)
+	u, err := s.createUser(ctx, by, username, pw, displayName, role, true)
+	if err != nil {
+		return nil, "", err
+	}
+	return u, pw, nil
+}
+
+func (s *Service) createUser(ctx context.Context, by core.Actor, username, password, displayName string, role core.Role, oneTime bool) (*core.User, error) {
 	if err := requireAdmin(by); err != nil {
 		return nil, err
 	}
@@ -66,15 +83,64 @@ func (s *Service) CreateUser(ctx context.Context, by core.Actor, username, passw
 	if tz == "" {
 		tz = "UTC"
 	}
-	u := &core.User{Username: username, DisplayName: displayName, Role: role, PWHash: phc, Timezone: tz, CreatedAt: now, UpdatedAt: now}
+	u := &core.User{Username: username, DisplayName: displayName, Role: role, PWHash: phc, Timezone: tz, MustChangePassword: oneTime,
+		CreatedAt: now, UpdatedAt: now}
 	if err := s.store.Users().Create(ctx, u); err != nil {
 		if errors.Is(err, core.ErrConflict) {
 			return nil, fmt.Errorf("%w: username %q is taken", core.ErrConflict, username)
 		}
 		return nil, err
 	}
-	s.record(ctx, actorOf(by), "user.create", userTarget(u.ID), "ok", map[string]any{"username": username, "role": role})
+	s.record(ctx, actorOf(by), "user.create", userTarget(u.ID), "ok", map[string]any{"username": username, "role": role, "one_time_password": oneTime})
 	return s.store.Users().Get(ctx, u.ID)
+}
+
+// oneTimeAlphabet is Crockford's base32 in lower case: no i, l, o or u to
+// misread when the password is read out or copied by hand.
+const oneTimeAlphabet = "0123456789abcdefghjkmnpqrstvwxyz"
+
+// oneTimePassword returns groups of four random characters joined by dashes
+// ("7k2m-9qxd-…"), at least four groups (80 bits) and at least minLen long.
+func oneTimePassword(minLen int) string {
+	var b strings.Builder
+	for groups := 0; groups < 4 || b.Len() < minLen; groups++ {
+		if groups > 0 {
+			b.WriteByte('-')
+		}
+		var r [4]byte
+		_, _ = rand.Read(r[:])
+		for _, c := range r {
+			b.WriteByte(oneTimeAlphabet[c&31])
+		}
+	}
+	return b.String()
+}
+
+// ResetUserPassword gives another account a new one-time password, returned
+// once, and signs it out everywhere; its owner chooses their own at the next
+// sign-in. The owner may reset anyone else, admins only members. It is not
+// part of core.Auth.
+func (s *Service) ResetUserPassword(ctx context.Context, by core.Actor, uid core.UserID) (string, error) {
+	if err := requireAdmin(by); err != nil {
+		return "", err
+	}
+	u, err := s.store.Users().Get(ctx, uid)
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case u.ID == by.User:
+		return "", fmt.Errorf("%w: change your own password instead", core.ErrForbidden)
+	case u.Role == core.RoleOwner:
+		return "", fmt.Errorf("%w: the owner's password can only be reset with bothy user reset-password on the server", core.ErrForbidden)
+	case u.Role == core.RoleAdmin && by.Role != core.RoleOwner:
+		return "", fmt.Errorf("%w: only the owner can reset an admin's password", core.ErrForbidden)
+	}
+	pw := oneTimePassword(s.conf().Auth.PasswordMinLength)
+	if err := s.replacePassword(ctx, u, pw, true, actorOf(by), "admin"); err != nil {
+		return "", err
+	}
+	return pw, nil
 }
 
 // UpdateUser applies the role, disabled flag and display name of u. Nothing
@@ -164,8 +230,32 @@ func (s *Service) revokeAllTokens(ctx context.Context, u core.UserID, now time.T
 // SetPassword changes a password after verifying the old one. Wrong old
 // passwords count toward the username lockout, so a stolen session cannot be
 // used to brute-force the password. All sessions are deleted; the caller
-// signs in again to rotate its cookie.
+// signs in again to rotate its cookie. An account that must change its
+// one-time password may leave old empty: its session was just opened with
+// that password.
 func (s *Service) SetPassword(ctx context.Context, uid core.UserID, old, newPW string) error {
+	if old == "" {
+		u, err := s.store.Users().Get(ctx, uid)
+		if err != nil {
+			return err
+		}
+		if u.MustChangePassword {
+			// The admin who handed out the one-time password knows it, so
+			// keeping it would leave the account in their hands.
+			if err := s.hash.acquire(ctx); err != nil {
+				return err
+			}
+			same, err := s.hash.verifyHeld(u.PWHash, newPW)
+			s.hash.release()
+			if err != nil && !errors.Is(err, errPHC) {
+				return err
+			}
+			if same {
+				return fmt.Errorf("%w: choose a new password, not the one-time password", core.ErrInvalid)
+			}
+			return s.replacePassword(ctx, u, newPW, false, "user:"+string(uid), "web")
+		}
+	}
 	// As in Login, the lock check and the counted failure share the slot.
 	if err := s.hash.acquire(ctx); err != nil {
 		return err
@@ -178,7 +268,7 @@ func (s *Service) SetPassword(ctx context.Context, uid core.UserID, old, newPW s
 	if old == newPW {
 		return fmt.Errorf("%w: the new password must differ from the current one", core.ErrInvalid)
 	}
-	return s.replacePassword(ctx, u, newPW, "user:"+string(uid), "web")
+	return s.replacePassword(ctx, u, newPW, false, "user:"+string(uid), "web")
 }
 
 // checkOldPassword runs with the hashing slot held.
@@ -208,10 +298,12 @@ func (s *Service) ResetPassword(ctx context.Context, uid core.UserID, newPW stri
 	if err != nil {
 		return err
 	}
-	return s.replacePassword(ctx, u, newPW, "system", "cli")
+	return s.replacePassword(ctx, u, newPW, false, "system", "cli")
 }
 
-func (s *Service) replacePassword(ctx context.Context, u *core.User, pw, actor, via string) error {
+// replacePassword sets pw and signs the account out everywhere; oneTime
+// marks pw as one its owner must replace.
+func (s *Service) replacePassword(ctx context.Context, u *core.User, pw string, oneTime bool, actor, via string) error {
 	if err := checkPassword(pw, s.conf().Auth.PasswordMinLength); err != nil {
 		return err
 	}
@@ -224,6 +316,7 @@ func (s *Service) replacePassword(ctx context.Context, u *core.User, pw, actor, 
 		return err
 	}
 	cur.PWHash = phc
+	cur.MustChangePassword = oneTime
 	cur.UpdatedAt = s.now()
 	if err := s.store.Users().Update(ctx, cur); err != nil {
 		return err
@@ -235,6 +328,10 @@ func (s *Service) replacePassword(ctx context.Context, u *core.User, pw, actor, 
 	if err := s.store.AuthSessions().DeleteUser(ctx, u.ID); err != nil {
 		return err
 	}
-	s.record(ctx, actor, "auth.password_changed", userTarget(u.ID), "ok", map[string]any{"via": via})
+	detail := map[string]any{"via": via}
+	if oneTime {
+		detail["one_time"] = true
+	}
+	s.record(ctx, actor, "auth.password_changed", userTarget(u.ID), "ok", detail)
 	return nil
 }

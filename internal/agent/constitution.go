@@ -17,7 +17,7 @@ var (
 // constitutionVersion names the embedded constitution pair. TestConstitutionPinned
 // fails when either file changes without a bump, so meta.constitution_version
 // and GET /api/constitution always identify the text the model saw.
-const constitutionVersion = "1"
+const constitutionVersion = "2"
 
 // Constitution returns the embedded full constitution for GET /api/constitution.
 func (r *Runner) Constitution() (version, text string) {

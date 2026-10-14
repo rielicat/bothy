@@ -71,7 +71,7 @@ func (s *Server) setupState(w http.ResponseWriter, r *http.Request, _ core.Actor
 	if err != nil {
 		return err
 	}
-	st := dto.SetupState{NeedsSetup: need, Sandbox: s.sandboxAvailable(ctx)}
+	st := dto.SetupState{NeedsSetup: need, Sandbox: s.sandboxAvailable(ctx), Install: s.installKind()}
 	if sg, has := s.d.Auth.(setupGrants); has {
 		// A reload between claim and owner creation must not strand the
 		// wizard: the grant cookie's holder gets its CSRF token back.
@@ -118,7 +118,15 @@ func (s *Server) setupOwner(w http.ResponseWriter, r *http.Request, _ core.Actor
 	if err := decode(r, &req); err != nil {
 		return err
 	}
-	cookie, a, err := s.d.Auth.CreateOwner(r.Context(), cookieValue(r, cookieSetup), req.Username, req.Password, req.Timezone)
+	grant := cookieValue(r, cookieSetup)
+	var cookie string
+	var a core.Actor
+	var err error
+	if on, has := s.d.Auth.(ownerNamer); has {
+		cookie, a, err = on.CreateOwnerNamed(r.Context(), grant, req.Username, req.DisplayName, req.Password, req.Timezone)
+	} else {
+		cookie, a, err = s.d.Auth.CreateOwner(r.Context(), grant, req.Username, req.Password, req.Timezone)
+	}
 	if err != nil {
 		return err
 	}
@@ -241,18 +249,29 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request, _ core.Actor)
 
 func (s *Server) createUser(w http.ResponseWriter, r *http.Request, a core.Actor) error {
 	if s.cfg().Mode != "multi" {
-		return newError(http.StatusForbidden, "forbidden", "adding users needs household/team mode").
-			withFix("set mode: multi in Settings → General")
+		return newError(http.StatusForbidden, "forbidden", "adding people needs team mode").
+			withFix("set mode: multi in Settings → Advanced")
 	}
 	var req dto.UserCreateReq
 	if err := decode(r, &req); err != nil {
 		return err
 	}
+	if req.Password == "" {
+		ot, has := s.d.Auth.(oneTimePasswords)
+		if !has {
+			return badRequest("password is required")
+		}
+		u, pw, err := ot.CreateUserOneTime(r.Context(), a, req.Username, req.DisplayName, req.Role)
+		if err != nil {
+			return err
+		}
+		return ok(w, dto.UserCreateResp{User: *u, OneTimePassword: pw})
+	}
 	u, err := s.d.Auth.CreateUser(r.Context(), a, req.Username, req.Password, req.DisplayName, req.Role)
 	if err != nil {
 		return err
 	}
-	return ok(w, u)
+	return ok(w, dto.UserCreateResp{User: *u})
 }
 
 func (s *Server) patchUser(w http.ResponseWriter, r *http.Request, a core.Actor) error {

@@ -285,7 +285,7 @@ func TestBedrockCredentialsCheck(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("findings %+v", got)
 	}
-	if got[0].Severity != core.SevInfo || got[0].Title != "Provider aws signs in with access keys in environment variables" || got[0].Fix != "" {
+	if got[0].Severity != core.SevInfo || got[0].Title != "Provider aws signs in with access keys in the environment" || got[0].Fix != "" {
 		t.Fatalf("ok finding %+v", got[0])
 	}
 	if got[1].Severity != core.SevHigh || got[1].Title != "Provider sso cannot get AWS credentials" ||
@@ -331,14 +331,21 @@ func TestBedrockProbe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.OK || !res.ToolCalling || !res.UsageReported || res.Credentials != "access keys in environment variables" || res.Detail != "" {
+	if !res.OK || !res.ToolCalling || !res.UsageReported || res.Credentials != "access keys in the environment" || res.Detail != "" {
 		t.Fatalf("result %+v", res)
 	}
-	// The probe picks a small model that does not think by default.
-	if p := rt.paths[0]; !strings.Contains(p, "claude-haiku-4-5") {
-		t.Fatalf("probed %s", p)
+	// The probe exercises the model setup suggests, in the region's own
+	// geography.
+	var rec string
+	for _, c := range res.Choices {
+		if c.Recommended {
+			rec = c.ID
+		}
 	}
-	if res.Context != 200_000 || res.Cost == 0 || len(res.Models) < 20 || len(res.Choices) != len(res.Models) {
+	if p := rt.paths[0]; !strings.HasPrefix(rec, "us.anthropic.claude-sonnet-") || res.Model != rec || !strings.Contains(p, rec) {
+		t.Fatalf("probed %s, model %q, recommended %q", p, res.Model, rec)
+	}
+	if res.Context < 200_000 || res.Cost == 0 || len(res.Models) < 20 || len(res.Choices) != len(res.Models) {
 		t.Fatalf("result %+v", res)
 	}
 	found := false
@@ -374,8 +381,31 @@ func TestBedrockProbeWithoutCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.OK || !strings.HasPrefix(res.Detail, "Bothy could not get AWS credentials:") || !strings.Contains(res.Detail, "aws sso login") {
+	if res.OK || !strings.HasPrefix(res.Detail, "Bothy could not get AWS credentials:") || !strings.Contains(res.Detail, "aws sso login") ||
+		res.Code != core.FailAWSNoCredentials || res.Error == "" {
 		t.Fatalf("result %+v", res)
+	}
+}
+
+func TestBedrockProbeCodes(t *testing.T) {
+	h := newHarness(t, nil)
+	awsEnvCreds(t)
+	ctx := context.Background()
+	cp := &recordingHandler{replies: []func(http.ResponseWriter){
+		jsonReplyFn(200, `{"modelSummaries":[]}`),
+		jsonReplyFn(200, `{"inferenceProfileSummaries":[]}`),
+	}}
+	h.egress.Client = &http.Client{Transport: hostRouter{controlHost: cp}}
+	res, err := h.f.Probe(ctx, core.ProbeConfig{Kind: core.KindBedrock, Region: "us-west-2"})
+	if err != nil || res.OK || res.Code != core.FailAWSNoModels {
+		t.Fatalf("no models: %v %+v", err, res)
+	}
+	denied := `{"__type":"AccessDeniedException","message":"User: arn:aws:sts::123456789012:assumed-role/bothy/i-1 is not authorized to perform: bedrock:ListFoundationModels"}`
+	cp = &recordingHandler{replies: []func(http.ResponseWriter){jsonReplyFn(403, denied), jsonReplyFn(403, denied)}}
+	h.egress.Client = &http.Client{Transport: hostRouter{controlHost: cp}}
+	res, err = h.f.Probe(ctx, core.ProbeConfig{Kind: core.KindBedrock, Region: "us-west-2"})
+	if err != nil || res.OK || res.Code != core.FailAWSDenied || strings.Contains(res.Error, "123456789012") {
+		t.Fatalf("denied: %v %+v", err, res)
 	}
 }
 
@@ -407,8 +437,8 @@ func TestDetectAWS(t *testing.T) {
 		t.Fatalf("detections %+v", ds)
 	}
 	d := ds[0]
-	if d.Region != "us-west-2" || d.BaseURL != "https://"+runtimeHost || d.Source != "access keys in environment variables" ||
-		d.Note != "Use this server's AWS access (access keys in environment variables) in us-west-2." || len(d.Models) < 20 || d.Profile != "" {
+	if d.Region != "us-west-2" || d.BaseURL != "https://"+runtimeHost || d.Source != "access keys in the environment" ||
+		d.Note != "Use this server's AWS access (access keys in the environment) in us-west-2." || len(d.Models) < 20 || d.Profile != "" {
 		t.Fatalf("detection %+v", d)
 	}
 	b, _ := json.Marshal(ds)

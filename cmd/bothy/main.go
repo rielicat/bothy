@@ -26,7 +26,7 @@ commands:
   sbx-init         sandbox PID 1 / exec wrapper (inside tool boxes and bwrap)
   doctor           run health checks            [--json]
   security-audit   run security checks          [--fix] [--json]
-  setup-token      print a fresh one-time setup token (only while no owner exists)
+  setup-token      print a new setup code and link (only while no owner exists)
   user             user admin: reset-password <name> | list
   vault            secrets: set <name> (value on stdin) | list | delete <name> | status | rotate-kek (gateway stopped)
   config           check [file] | defaults | effective

@@ -43,6 +43,19 @@ func (e *apiError) Unwrap() error {
 	return nil
 }
 
+// FailureCode says why the Bot API refused, for a failed connection test.
+func (e *apiError) FailureCode() core.FailureCode {
+	switch {
+	case e.unauthorized():
+		return core.FailKeyRejected
+	case e.Code == http.StatusTooManyRequests:
+		return core.FailRateLimited
+	case e.Code >= 500:
+		return core.FailProviderError
+	}
+	return core.FailUnknown
+}
+
 // unauthorized reports a rejected token: 401, or 404 for a token so
 // malformed that no bot matches the path.
 func (e *apiError) unauthorized() bool {

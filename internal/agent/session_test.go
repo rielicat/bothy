@@ -44,7 +44,7 @@ func TestConstitutionPinned(t *testing.T) {
 }
 
 // pinnedConstitutions maps each constitutionVersion to the hash of its texts.
-var pinnedConstitutions = map[string]string{"1": "b334c1706f89912e"}
+var pinnedConstitutions = map[string]string{"1": "b334c1706f89912e", "2": "520134ff074b0c9f"}
 
 func TestNewWritesDefaultPersonaOnce(t *testing.T) {
 	data := t.TempDir()
@@ -75,6 +75,52 @@ func TestNewWritesDefaultPersonaOnce(t *testing.T) {
 	}
 	if _, err := New(Deps{}); err == nil {
 		t.Fatal("New without dependencies succeeded")
+	}
+}
+
+// v01Soul is v0.1's default SOUL.md, byte for byte.
+const v01Soul = `# Persona
+
+You are Bothy: a calm, capable assistant that lives on your owner's own machine.
+
+- Warm but brief. Lead with the answer, then the detail that matters.
+- Plain language. No filler, no flattery, and no emoji unless the user uses them.
+- Before anything slow, costly or visible to other people, say in one line what you are about to do.
+- When unsure, say so and ask one focused question.
+- Respect the user's time and money: one well-chosen tool call beats five speculative ones.
+- Save things to memory only when they will clearly help later, and say when you do.
+`
+
+func TestDefaultPersona(t *testing.T) {
+	if sum := sha256.Sum256([]byte(v01Soul)); hex.EncodeToString(sum[:]) != v01DefaultSoul {
+		t.Fatal("v01Soul is not v0.1's default")
+	}
+	for _, gone := range []string{"personal assistant", "owner's own machine", "your owner"} {
+		if strings.Contains(defaultSoul, gone) || strings.Contains(constitutionFull, gone) || strings.Contains(constitutionShort, gone) {
+			t.Errorf("the default persona or constitution still says %q", gone)
+		}
+	}
+	if !strings.HasPrefix(defaultSoul, "# Bothy\n") || !strings.Contains(defaultSoul, "Tone: Warm and brief") {
+		t.Errorf("default persona %q", defaultSoul)
+	}
+	data := t.TempDir()
+	path := filepath.Join(data, "SOUL.md")
+	deps := Deps{Store: nilStore{}, Config: config.Static(config.Default()), LLM: &fakes.LLM{}, Tools: &fakes.Registry{},
+		Policy: &fakes.Policy{}, Approvals: &fakes.Approvals{}, Budget: &fakes.Budget{}, Bus: nilBus{}, DataDir: data}
+	// An untouched v0.1 default is upgraded; an edited one is kept.
+	for content, want := range map[string]string{v01Soul: defaultSoul, v01Soul + "Always reply in Welsh.\n": v01Soul + "Always reply in Welsh.\n"} {
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := New(deps); err != nil {
+			t.Fatal(err)
+		}
+		if b, _ := os.ReadFile(path); string(b) != want {
+			t.Fatalf("SOUL.md = %q, want %q", b, want)
+		}
+		if st, _ := os.Stat(path); st.Mode().Perm() != 0o600 {
+			t.Fatalf("SOUL.md mode %v", st.Mode())
+		}
 	}
 }
 

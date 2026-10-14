@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -52,11 +53,11 @@ type Chain struct {
 	o      ChainOptions
 	router *router
 
-	mu      sync.Mutex
-	cfg     *aws.Config
-	region  string
-	profile string
-	session string
+	mu           sync.Mutex
+	cfg          *aws.Config
+	region       string
+	profile      string
+	instanceRole string
 }
 
 var _ aws.CredentialsProvider = (*Chain)(nil)
@@ -102,9 +103,6 @@ func (c *Chain) load(ctx context.Context) (*aws.Config, error) {
 		}
 	}
 	c.profile = sc.Profile
-	if sc.SSOSession != nil {
-		c.session = sc.SSOSession.Name
-	}
 	c.router.setHosts(credentialHosts(cfg, sc), c.o.System)
 	if cfg.Region == "" && c.o.IMDSRegion && c.o.Metadata != nil {
 		if r := imdsRegion(ctx, cfg); ValidRegion(r) {
@@ -202,8 +200,9 @@ func (c *Chain) Profile(ctx context.Context) string {
 }
 
 // Describe resolves credentials and says in plain words where they came
-// from ("AWS SSO, profile dev"), never what they are, and no role ARN or
-// account id.
+// from ("SSO profile acme-dev", "instance role bothy-prod", "IRSA role
+// bothy"), never what they are: role names, but no ARN, account id or
+// session.
 func (c *Chain) Describe(ctx context.Context) (string, error) {
 	cfg, err := c.load(ctx)
 	if err != nil {
@@ -216,12 +215,75 @@ func (c *Chain) Describe(ctx context.Context) (string, error) {
 	if ps, ok := cfg.Credentials.(aws.CredentialProviderSource); ok {
 		sources = ps.ProviderSources()
 	}
+	env := envConfig(*cfg)
+	src := credSource{roleARN: sharedConfig(*cfg).RoleARN, envRoleARN: env.RoleARN, containerFull: env.ContainerCredentialsEndpoint}
+	if slices.Contains(sources, aws.CredentialSourceIMDS) {
+		src.instanceRole = c.instanceRoleName(ctx, *cfg)
+	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	return describe(sources, c.profile, c.session), nil
+	src.profile = c.profile
+	c.mu.Unlock()
+	return describe(sources, src), nil
 }
 
-func describe(sources []aws.CredentialSource, profile, session string) string {
+// instanceRoleName asks the instance metadata which role the instance
+// carries (a name only; the listing holds no credentials), once per chain.
+func (c *Chain) instanceRoleName(ctx context.Context, cfg aws.Config) string {
+	c.mu.Lock()
+	name := c.instanceRole
+	c.mu.Unlock()
+	if name != "" {
+		return name
+	}
+	out, err := imds.NewFromConfig(cfg).GetMetadata(ctx, &imds.GetMetadataInput{Path: "iam/security-credentials/"})
+	if err != nil {
+		return ""
+	}
+	defer out.Content.Close()
+	b, err := io.ReadAll(io.LimitReader(out.Content, 256))
+	if err != nil {
+		return ""
+	}
+	first, _, _ := strings.Cut(strings.TrimSpace(string(b)), "\n")
+	if !roleNameRe.MatchString(first) {
+		return ""
+	}
+	c.mu.Lock()
+	c.instanceRole = first
+	c.mu.Unlock()
+	return first
+}
+
+var roleNameRe = regexp.MustCompile(`^[A-Za-z0-9+=,.@_-]{1,128}$`)
+
+// credSource is what describe knows besides the providers that resolved.
+type credSource struct {
+	profile       string
+	roleARN       string // the profile's role_arn
+	envRoleARN    string // AWS_ROLE_ARN (IRSA)
+	containerFull string // AWS_CONTAINER_CREDENTIALS_FULL_URI
+	instanceRole  string
+}
+
+// roleName is the last path segment of an IAM role ARN.
+func roleName(arn string) string {
+	_, rest, ok := strings.Cut(arn, ":role/")
+	if !ok {
+		return ""
+	}
+	if i := strings.LastIndexByte(rest, '/'); i >= 0 {
+		rest = rest[i+1:]
+	}
+	if !roleNameRe.MatchString(rest) {
+		return ""
+	}
+	return rest
+}
+
+// podIdentityHosts are the EKS Pod Identity agent's addresses.
+var podIdentityHosts = []string{"169.254.170.23", "[fd00:ec2::23]"}
+
+func describe(sources []aws.CredentialSource, src credSource) string {
 	has := func(s ...aws.CredentialSource) bool {
 		for _, x := range s {
 			if slices.Contains(sources, x) {
@@ -230,40 +292,57 @@ func describe(sources []aws.CredentialSource, profile, session string) string {
 		}
 		return false
 	}
-	named := func(what string) string {
-		if profile == "" {
+	profile := func(what string) string {
+		if src.profile == "" {
 			return what
 		}
-		return what + ", profile " + profile
+		return what + " profile " + src.profile
+	}
+	named := func(what, name string) string {
+		if name == "" {
+			return what
+		}
+		return what + " " + name
 	}
 	var base string
 	switch {
 	case has(aws.CredentialSourceSSO, aws.CredentialSourceSSOLegacy):
-		base = named("AWS SSO")
-		if session != "" {
-			base += " (session " + session + ")"
-		}
+		base = profile("SSO")
 	case has(aws.CredentialSourceLogin):
-		base = named("aws login session")
+		base = profile("AWS sign-in")
 	case has(aws.CredentialSourceProcess):
-		base = named("credential_process")
+		base = profile("credential process")
 	case has(aws.CredentialSourceEnvVarsSTSWebIDToken):
-		base = "web identity token from the environment (IRSA)"
+		base = named("IRSA role", roleName(src.envRoleARN))
 	case has(aws.CredentialSourceProfileSTSWebIDToken):
-		base = named("web identity token")
+		base = profile("web identity")
 	case has(aws.CredentialSourceHTTP):
-		base = "container credentials (ECS task role or EKS Pod Identity)"
+		base = "ECS task role"
+		for _, h := range podIdentityHosts {
+			if strings.Contains(src.containerFull, "//"+h) {
+				base = "EKS Pod Identity role"
+			}
+		}
+		if src.containerFull != "" && base == "ECS task role" {
+			base = "container role"
+		}
 	case has(aws.CredentialSourceIMDS):
-		base = "EC2 instance role (IMDSv2)"
+		base = named("instance role", src.instanceRole)
 	case has(aws.CredentialSourceEnvVars):
-		base = "access keys in environment variables"
+		base = "access keys in the environment"
 	case has(aws.CredentialSourceProfile):
-		base = named("shared credentials file")
+		base = "access keys in the AWS credentials file"
+		if src.profile != "" {
+			base = "access keys in profile " + src.profile
+		}
 	default:
-		base = named("AWS default credential chain")
+		base = profile("AWS default credentials")
+		if src.profile != "" {
+			base = "profile " + src.profile
+		}
 	}
 	if has(aws.CredentialSourceSTSAssumeRole) && !has(aws.CredentialSourceEnvVarsSTSWebIDToken, aws.CredentialSourceProfileSTSWebIDToken) {
-		base = "role assumed with " + base
+		base = named("role", roleName(src.roleARN)) + " assumed with " + base
 	}
 	return base
 }

@@ -25,6 +25,10 @@ type User struct {
 	LockedUntil  time.Time `json:"-"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
+
+	// MustChangePassword: the account has a one-time password an admin
+	// handed out; its owner must choose their own before anything else.
+	MustChangePassword bool `json:"must_change_password,omitempty"`
 }
 
 type Space struct {

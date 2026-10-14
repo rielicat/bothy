@@ -168,8 +168,20 @@ func TestSetupURLs(t *testing.T) {
 	c.Storage.DataDir = "/data"
 	var b bytes.Buffer
 	printSetupBanner(&b, c, "tok123")
-	if !strings.Contains(b.String(), "https://127.0.0.1:8443/setup#t=tok123") {
-		t.Fatalf("TLS banner: %q", b.String())
+	if out := b.String(); !strings.Contains(out, "https://127.0.0.1:8443/setup#t=tok123 on this server") ||
+		!strings.Contains(out, "setup code tok123") || !strings.Contains(out, "valid for 24 hours") {
+		t.Fatalf("TLS banner: %q", out)
+	}
+	// A known public URL makes the link usable from anywhere.
+	pub := *c
+	pub.Server.PublicURL = "https://bothy.acme.com"
+	b.Reset()
+	printSetupBanner(&b, &pub, "tok123")
+	if out := b.String(); !strings.Contains(out, "Open https://bothy.acme.com/setup#t=tok123\n") {
+		t.Fatalf("public banner: %q", out)
+	}
+	if plainDuration(30*time.Minute) != "30 minutes" || plainDuration(time.Hour) != "1 hour" || plainDuration(90*time.Second) != "1m30s" {
+		t.Fatal("plainDuration")
 	}
 
 	c.Server.TLS = config.TLS{}

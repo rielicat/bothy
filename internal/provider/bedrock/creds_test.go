@@ -144,7 +144,7 @@ func TestChainEnvironmentAndSharedFiles(t *testing.T) {
 	if err != nil || creds.AccessKeyID != "AKIDENVEXAMPLE" {
 		t.Fatalf("env: %v %+v", err, creds.AccessKeyID)
 	}
-	if src, err := c.Describe(ctx); err != nil || src != "access keys in environment variables" {
+	if src, err := c.Describe(ctx); err != nil || src != "access keys in the environment" {
 		t.Fatalf("describe %q %v", src, err)
 	}
 	if strings.Contains(fmt.Sprint(c.Describe(ctx)), "env-secret") {
@@ -157,7 +157,7 @@ func TestChainEnvironmentAndSharedFiles(t *testing.T) {
 	e.write(e.config, "[profile dev]\nregion = eu-west-1\n")
 	c, _ = chainWith(ChainOptions{Profile: "dev"}, sys, nil)
 	src, err := c.Describe(ctx)
-	if err != nil || src != "shared credentials file, profile dev" {
+	if err != nil || src != "access keys in profile dev" {
 		t.Fatalf("shared file: %q %v", src, err)
 	}
 	if c.Region(ctx) != "eu-west-1" || c.Profile(ctx) != "dev" {
@@ -213,7 +213,7 @@ sso_registration_scopes = sso:account:access
 	if err != nil {
 		t.Fatal(err)
 	}
-	if src != "AWS SSO, profile work (session corp)" {
+	if src != "SSO profile work" {
 		t.Fatalf("describe %q", src)
 	}
 	want := []string{"oidc.eu-west-1.amazonaws.com:443", "portal.sso.eu-west-1.amazonaws.com:443", "sts.amazonaws.com:443", "sts.us-west-2.amazonaws.com:443"}
@@ -284,7 +284,7 @@ func TestChainInstanceRole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if src != "EC2 instance role (IMDSv2)" || c.Region(ctx) != "eu-central-1" {
+	if src != "instance role bothy-host" || c.Region(ctx) != "eu-central-1" {
 		t.Fatalf("describe %q region %q", src, c.Region(ctx))
 	}
 	for _, r := range meta.requests() {
@@ -343,7 +343,7 @@ func TestChainWebIdentityAndNoRetries(t *testing.T) {
 	}
 	fail = false
 	src, err := c.Describe(ctx)
-	if err != nil || src != "web identity token from the environment (IRSA)" {
+	if err != nil || src != "IRSA role bothy" {
 		t.Fatalf("describe %q %v", src, err)
 	}
 	if strings.Contains(src, "111122223333") {
@@ -363,7 +363,7 @@ func TestChainContainerCredentials(t *testing.T) {
 	meta := &fakeAWS{handlers: map[string]http.HandlerFunc{"169.254.170.2": body, "localhost": body}}
 	c, _ := chainWith(ChainOptions{}, &fakeAWS{}, meta)
 	src, err := c.Describe(ctx)
-	if err != nil || src != "container credentials (ECS task role or EKS Pod Identity)" {
+	if err != nil || src != "ECS task role" {
 		t.Fatalf("describe %q %v", src, err)
 	}
 	if r := meta.requests(); len(r) != 1 || r[0] != "GET http://169.254.170.2/v2/credentials/task-1" {
@@ -441,18 +441,33 @@ credential_process = /usr/local/bin/aws-vault export --format=json dev
 func TestDescribeSources(t *testing.T) {
 	for _, tc := range []struct {
 		sources []aws.CredentialSource
-		profile string
+		src     credSource
 		want    string
 	}{
-		{[]aws.CredentialSource{aws.CredentialSourceProfileSourceProfile, aws.CredentialSourceSSO, aws.CredentialSourceProfileSSO, aws.CredentialSourceSTSAssumeRole}, "admin", "role assumed with AWS SSO, profile admin"},
-		{[]aws.CredentialSource{aws.CredentialSourceProfileLogin, aws.CredentialSourceLogin}, "me", "aws login session, profile me"},
-		{[]aws.CredentialSource{aws.CredentialSourceProfileProcess, aws.CredentialSourceProcess}, "vault", "credential_process, profile vault"},
-		{[]aws.CredentialSource{aws.CredentialSourceProfileSTSWebIDToken, aws.CredentialSourceSTSAssumeRoleWebID}, "k8s", "web identity token, profile k8s"},
-		{[]aws.CredentialSource{aws.CredentialSourceProfileNamedProvider, aws.CredentialSourceIMDS, aws.CredentialSourceSTSAssumeRole}, "x", "role assumed with EC2 instance role (IMDSv2)"},
-		{nil, "", "AWS default credential chain"},
+		{[]aws.CredentialSource{aws.CredentialSourceProfileSourceProfile, aws.CredentialSourceSSO, aws.CredentialSourceProfileSSO, aws.CredentialSourceSTSAssumeRole},
+			credSource{profile: "admin", roleARN: "arn:aws:iam::111122223333:role/ops/deploy"}, "role deploy assumed with SSO profile admin"},
+		{[]aws.CredentialSource{aws.CredentialSourceSSO}, credSource{profile: "acme-dev"}, "SSO profile acme-dev"},
+		{[]aws.CredentialSource{aws.CredentialSourceProfileLogin, aws.CredentialSourceLogin}, credSource{profile: "me"}, "AWS sign-in profile me"},
+		{[]aws.CredentialSource{aws.CredentialSourceProfileProcess, aws.CredentialSourceProcess}, credSource{profile: "vault"}, "credential process profile vault"},
+		{[]aws.CredentialSource{aws.CredentialSourceProfileSTSWebIDToken, aws.CredentialSourceSTSAssumeRoleWebID}, credSource{profile: "k8s"}, "web identity profile k8s"},
+		{[]aws.CredentialSource{aws.CredentialSourceEnvVarsSTSWebIDToken, aws.CredentialSourceSTSAssumeRoleWebID}, credSource{envRoleARN: "arn:aws:iam::111122223333:role/bothy"}, "IRSA role bothy"},
+		{[]aws.CredentialSource{aws.CredentialSourceEnvVarsSTSWebIDToken}, credSource{}, "IRSA role"},
+		{[]aws.CredentialSource{aws.CredentialSourceHTTP}, credSource{}, "ECS task role"},
+		{[]aws.CredentialSource{aws.CredentialSourceHTTP}, credSource{containerFull: "http://169.254.170.23/v1/credentials"}, "EKS Pod Identity role"},
+		{[]aws.CredentialSource{aws.CredentialSourceHTTP}, credSource{containerFull: "http://localhost:9911/creds"}, "container role"},
+		{[]aws.CredentialSource{aws.CredentialSourceIMDS}, credSource{instanceRole: "bothy-prod"}, "instance role bothy-prod"},
+		{[]aws.CredentialSource{aws.CredentialSourceProfileNamedProvider, aws.CredentialSourceIMDS, aws.CredentialSourceSTSAssumeRole}, credSource{profile: "x"}, "role assumed with instance role"},
+		{[]aws.CredentialSource{aws.CredentialSourceEnvVars}, credSource{}, "access keys in the environment"},
+		{[]aws.CredentialSource{aws.CredentialSourceProfile}, credSource{profile: "dev"}, "access keys in profile dev"},
+		{[]aws.CredentialSource{aws.CredentialSourceProfile}, credSource{}, "access keys in the AWS credentials file"},
+		{nil, credSource{}, "AWS default credentials"},
+		{nil, credSource{profile: "dev"}, "profile dev"},
 	} {
-		if got := describe(tc.sources, tc.profile, ""); got != tc.want {
-			t.Errorf("%v: %q, want %q", tc.sources, got, tc.want)
+		if got := describe(tc.sources, tc.src); got != tc.want {
+			t.Errorf("%v %+v: %q, want %q", tc.sources, tc.src, got, tc.want)
 		}
+	}
+	if got := roleName("arn:aws:iam::111122223333:role/bad name"); got != "" {
+		t.Errorf("roleName accepted %q", got)
 	}
 }

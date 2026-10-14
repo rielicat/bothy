@@ -43,7 +43,7 @@ func TestTestPAT(t *testing.T) {
 	}
 
 	p, err = f.svc.Test(f.ctx, core.GitHubCredentials{Auth: core.GitHubPAT, Token: core.NewSecret([]byte("github_pat_wrong"))})
-	if err != nil || p.OK || !strings.Contains(p.Error, "rejected the credentials") {
+	if err != nil || p.OK || !strings.Contains(p.Error, "rejected the credentials") || p.Code != core.FailKeyRejected {
 		t.Fatalf("bad token probe = %+v %v", p, err)
 	}
 }
@@ -430,7 +430,7 @@ func TestGitHubAppInstallations(t *testing.T) {
 		t.Fatalf("chosen installation probe = %+v %v", p, err)
 	}
 	p, _ = f.svc.Test(f.ctx, appCreds(k, 99))
-	if p.OK || !strings.Contains(p.Error, "found nothing") {
+	if p.OK || !strings.Contains(p.Error, "found nothing") || p.Code != core.FailUnknown {
 		t.Errorf("unknown installation = %+v", p)
 	}
 	other := testKey(t)

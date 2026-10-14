@@ -113,6 +113,7 @@ type GitHubRateLimit struct {
 type GitHubProbe struct {
 	OK             bool                 `json:"ok"`
 	Error          string               `json:"error,omitempty"`
+	Code           FailureCode          `json:"code,omitempty"` // why it failed, next to Error
 	Auth           GitHubAuth           `json:"auth"`
 	Account        string               `json:"account"`
 	AccountType    string               `json:"account_type"`

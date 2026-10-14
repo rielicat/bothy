@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -57,11 +58,13 @@ func (f *Facade) Probe(ctx context.Context, pc core.ProbeConfig) (core.ProbeResu
 	key := pc.APIKey
 	if key.IsZero() && pc.SecretRef != "" {
 		if f.d.Vault == nil {
-			return core.ProbeResult{Detail: "The vault is unavailable, so the key cannot be read."}, nil
+			return core.ProbeResult{Detail: "The vault is unavailable, so the key cannot be read.", Code: core.FailUnknown,
+				Error: "no vault"}, nil
 		}
 		s, err := f.d.Vault.Resolve(ctx, pc.SecretRef, "", "provider:probe")
 		if err != nil {
-			return core.ProbeResult{Detail: "Could not read the key from the vault: " + err.Error()}, nil
+			return core.ProbeResult{Detail: "Could not read the key from the vault: " + err.Error(), Code: core.FailUnknown,
+				Error: err.Error()}, nil
 		}
 		key = s
 	}
@@ -86,19 +89,23 @@ func (f *Facade) Probe(ctx context.Context, pc core.ProbeConfig) (core.ProbeResu
 	for _, m := range found {
 		res.Models = append(res.Models, m.Ref.Model)
 	}
-	res.Choices = choices(found)
+	f.annotate(endpoint{kind: pc.Kind, base: base}, found)
+	res.Choices = choicesFor(found)
 	model := pc.Model
-	if model == "" && len(res.Models) > 0 {
-		model = res.Models[0]
+	if i := slices.IndexFunc(found, func(m core.ModelInfo) bool { return m.Recommended }); model == "" && i >= 0 {
+		// The probe loads the model setup will suggest, so its window and
+		// tool notes are about that one.
+		model = found[i].Ref.Model
 	}
 	if model == "" {
 		if derr != nil {
-			res.Detail = plain(derr, base, pc.Kind, api)
+			res.Detail, res.Code, res.Error = plain(derr, base, pc.Kind, api), failureCode(derr, pc.Kind), rawError(derr)
 		} else {
-			res.Detail = "The server lists no models; name one to test."
+			res.Detail, res.Code = "The server lists no models; name one to test.", core.FailNoModels
 		}
 		return res, nil
 	}
+	res.Model = model
 	info := f.probeInfo(pc.Kind, base, model, found)
 	oc, isOllama := cl.(*ollama.Client)
 	trained, numCtx := 0, 0
@@ -144,7 +151,7 @@ func (f *Facade) exercise(ctx context.Context, p probeCall, res *core.ProbeResul
 	}, nil)
 	res.Latency = f.clock.Now().Sub(t0)
 	if err != nil {
-		res.Detail = plain(err, p.base, p.kind, p.api)
+		res.Detail, res.Code, res.Error = plain(err, p.base, p.kind, p.api), failureCode(err, p.kind), rawError(err)
 		return nil, false
 	}
 	res.OK = true
@@ -196,19 +203,6 @@ func (f *Facade) exercise(ctx context.Context, p probeCall, res *core.ProbeResul
 	}
 	res.Context = p.info.Context
 	return notes, true
-}
-
-// choices turns discovered models into picker entries.
-func choices(found []core.ModelInfo) []core.ModelChoice {
-	var out []core.ModelChoice
-	for _, m := range found {
-		d := m.Display
-		if d == "" {
-			d = m.Ref.Model
-		}
-		out = append(out, core.ModelChoice{ID: m.Ref.Model, Display: d})
-	}
-	return out
 }
 
 // probeInfo describes the probed model from the catalog and discovery.

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -250,7 +251,7 @@ func (r *Runner) ensurePersona() error {
 	defer root.Close()
 	f, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if errors.Is(err, fs.ErrExist) {
-		return nil
+		return upgradeDefaultPersona(root, name)
 	}
 	if err != nil {
 		return fmt.Errorf("agent: create %s: %w", name, err)
@@ -260,6 +261,46 @@ func (r *Runner) ensurePersona() error {
 		return fmt.Errorf("agent: write %s: %w", name, err)
 	}
 	return f.Close()
+}
+
+// v01DefaultSoul is the sha256 of v0.1's default SOUL.md, which spoke of a
+// personal assistant on its owner's machine.
+const v01DefaultSoul = "277f93ff394f29f1ca41d8649193afffdaff627358d6ab4a4729829fa7ac8b50"
+
+// isV01Default reports whether the persona file is v0.1's default, byte for
+// byte; an unreadable one is left to persona() to report.
+func isV01Default(root *os.Root, name string) bool {
+	b, err := root.ReadFile(name)
+	sum := sha256.Sum256(b)
+	return err == nil && hex.EncodeToString(sum[:]) == v01DefaultSoul
+}
+
+// upgradeDefaultPersona replaces a persona file nobody edited since v0.1
+// wrote it with the current default; an edited one is left alone.
+func upgradeDefaultPersona(root *os.Root, name string) error {
+	if !isV01Default(root, name) {
+		return nil
+	}
+	tmp := "." + name + ".upgrade.tmp"
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("agent: upgrade %s: %w", name, err)
+	}
+	_, err = f.WriteString(defaultSoul)
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = root.Rename(tmp, name)
+	}
+	if err != nil {
+		_ = root.Remove(tmp)
+		return fmt.Errorf("agent: upgrade %s: %w", name, err)
+	}
+	return nil
 }
 
 const personaMax = 16 << 10

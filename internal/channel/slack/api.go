@@ -156,3 +156,5 @@ func (e *authError) Error() string {
 }
 
 func (e *authError) Unwrap() error { return e.err }
+
+func (e *authError) FailureCode() core.FailureCode { return core.FailKeyRejected }

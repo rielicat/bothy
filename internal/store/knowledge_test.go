@@ -138,8 +138,13 @@ func TestKnowledgeMigratesExistingDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	u := &core.User{Username: "owner", Role: core.RoleOwner, PWHash: "h", Timezone: "UTC", CreatedAt: t0, UpdatedAt: t0}
-	if err := old.Users().Create(ctx, u); err != nil {
+	// Raw SQL: the repository writes columns later migrations add.
+	u := &core.User{ID: core.UserID(core.NewID(core.PrefixUser))}
+	if _, err := old.w.ExecContext(ctx, `INSERT INTO users(id, username, role, pw_hash, created_at, updated_at) VALUES (?, 'owner', 'owner', 'h', 1, 1)`, string(u.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := old.w.ExecContext(ctx, `INSERT INTO principals(id, kind, user_id, display_name, workspace_id, tool_profile, created_at)
+		VALUES (?, 'user', ?, 'owner', ?, 'standard', 1)`, string(u.ID), string(u.ID), core.NewID(core.PrefixWorkspace)); err != nil {
 		t.Fatal(err)
 	}
 	call := core.CallInfo{ID: core.NewID(core.PrefixLLMCall), Ref: core.ModelRef{Provider: "p", Model: "m"}, Purpose: "title",

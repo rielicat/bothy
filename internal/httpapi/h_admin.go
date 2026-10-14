@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/httpapi/dto"
 )
@@ -427,28 +426,11 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request, _ core.Act
 	if err := decode(r, &req); err != nil {
 		return err
 	}
-	switch req.Kind {
-	case core.KindAnthropic, core.KindOpenAI, core.KindGemini, core.KindOllama, core.KindOpenAICompat, core.KindBedrock:
-	default:
-		return badRequest("unknown provider kind %q", req.Kind)
+	if err := checkProbeInput(req.Kind, req.API, req.Region, req.Profile, req.APIKey != "" || req.SecretRef != ""); err != nil {
+		return err
 	}
 	if req.SecretRef != "" && !strings.HasPrefix(req.SecretRef, "secret:") {
 		return badRequest("secret_ref must be secret:<name>")
-	}
-	switch req.API {
-	case "", "auto", "responses", "chat":
-	default:
-		return badRequest("api must be auto, responses or chat")
-	}
-	switch {
-	case req.Kind != core.KindBedrock && (req.Region != "" || req.Profile != ""):
-		return badRequest("region and profile apply to kind bedrock only")
-	case req.Kind == core.KindBedrock && (req.APIKey != "" || req.SecretRef != ""):
-		return badRequest("bedrock uses the server's AWS credentials; send no api_key or secret_ref")
-	case req.Region != "" && !config.ValidAWSRegion(req.Region):
-		return badRequest("region %q is not an AWS region name", req.Region)
-	case req.Profile != "" && !config.ValidAWSProfile(req.Profile):
-		return badRequest("invalid AWS profile name")
 	}
 	if req.APIKey != "" && s.d.Vault != nil {
 		// The key is write-only: keep it out of logs and probe errors.
@@ -461,7 +443,7 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request, _ core.Act
 	if err != nil {
 		return err
 	}
-	res.Detail = s.redact(res.Detail)
+	res.Detail, res.Error = s.redact(res.Detail), s.redact(res.Error)
 	return ok(w, res)
 }
 
@@ -478,9 +460,13 @@ func (s *Server) channels(w http.ResponseWriter, _ *http.Request, _ core.Actor) 
 }
 
 func (s *Server) testChannel(w http.ResponseWriter, r *http.Request, _ core.Actor) error {
-	id, err := s.d.Hub.Test(r.Context(), r.PathValue("name"))
+	name := r.PathValue("name")
+	if !slices.ContainsFunc(s.d.Hub.Status(), func(st core.ChannelStatus) bool { return st.Name == name }) {
+		return errNotFound
+	}
+	id, err := s.d.Hub.Test(r.Context(), name)
 	if err != nil {
-		return err
+		return s.channelTestError(err)
 	}
 	return ok(w, dto.ChannelTestResp{Identity: id})
 }

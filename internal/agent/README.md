@@ -100,7 +100,10 @@ since a `/v1` client renders the text itself. A resumed heartbeat run's sink hol
 `HEARTBEAT_OK` answer like the scheduler's.
 
 The embedded `CONSTITUTION.md`, `CONSTITUTION.short.md` and default `SOUL.md`
-(written to `<data>/<agent.persona_file>` at construction when missing) are
-product prompts: changing either constitution requires bumping
+(written to `<data>/<agent.persona_file>` at construction when missing, and
+written over v0.1's default when that file was never edited) are product
+prompts: changing either constitution requires bumping
 `constitutionVersion` (a test pins their hash), which is recorded in
-`meta.constitution_version`.
+`meta.constitution_version`. Since version 2 both speak of a company's agent
+and its team; the default persona is headed `# Bothy` (the agent's name) and
+names its tone ("Tone: Warm and brief").

@@ -50,7 +50,8 @@ func testUsers(f *fx) {
 	_, err = r.Get(f.ctx, core.UserID(core.NewID(core.PrefixUser)))
 	f.want(err, core.ErrNotFound, "Get missing")
 
-	member := &core.User{ID: core.UserID(core.NewID(core.PrefixUser)), Username: "bob", Role: core.RoleMember, PWHash: "h", Timezone: "UTC", CreatedAt: at(3), UpdatedAt: at(3)}
+	member := &core.User{ID: core.UserID(core.NewID(core.PrefixUser)), Username: "bob", Role: core.RoleMember, PWHash: "h", Timezone: "UTC",
+		MustChangePassword: true, CreatedAt: at(3), UpdatedAt: at(3)}
 	wantID := member.ID
 	f.must(r.Create(f.ctx, member), "Create with explicit id")
 	f.check(member.ID == wantID, "Create replaced explicit id %q with %q", wantID, member.ID)
@@ -73,6 +74,7 @@ func testUsers(f *fx) {
 	member.Disabled = true
 	member.Timezone = "America/New_York"
 	member.PWHash = "h2"
+	member.MustChangePassword = false
 	member.UpdatedAt = at(50)
 	f.must(r.Update(f.ctx, member), "Update")
 	got, err = r.Get(f.ctx, member.ID)
