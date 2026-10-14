@@ -132,13 +132,15 @@ func TestUnknownSenderOneReplyPerDayNoRuns(t *testing.T) {
 
 // TestUnknownSenderBecomesInboxItem: the first words of someone new are kept
 // once, cleaned to one line, for the admins' inbox item (never for a run),
-// and admins' inboxes are told; a new group chat tells its owner's too.
+// and admins' inboxes are told; a new group chat tells its owner's too. The
+// "/start" Telegram sends when someone opens the bot is not their words.
 func TestUnknownSenderBecomesInboxItem(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t).start()
 		sub := h.bus.Subscribe(core.Filter{System: true, Types: []core.EventType{core.EvInboxChanged}}, 16)
 		defer sub.Close()
 		const stranger = "5006"
+		h.dm(stranger, "/start")
 		h.dm(stranger, "hi,\nis this‮ the support bot? "+strings.Repeat("x", 200))
 		h.dm(stranger, "second message")
 		id, err := h.store.Identities().Get(h.ctx, "telegram", stranger)

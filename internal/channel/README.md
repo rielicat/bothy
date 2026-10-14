@@ -34,7 +34,8 @@ danger style only for what can't be undone) and become their decided line
 shows who asked, "1 of 2 approvals", every vote and who may still approve,
 is edited after each `approval.voted`, and refuses the requester's allow
 press with a toast; the originating chat gets a waiting line. A pending
-sender's first words are kept for the admins' inbox, and new senders and
+sender's first words (their first message that is not a command such as
+Telegram's "/start") are kept for the admins' inbox, and new senders and
 group chats publish `inbox.changed`.
 It also implements `Messenger`, `PreferredChat`, `DeepLink`, `Test` and the
 doctor check `channels.auth_failed`.

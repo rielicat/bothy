@@ -185,11 +185,11 @@ func (h *Hub) unknownDM(ctx context.Context, a *adapter, in core.Inbound, ident 
 		h.log.Error("channel sender notice failed", "channel", a.name, "err", err)
 		return
 	}
+	h.keepFirstText(ctx, a.name, ident, in)
 	if !notice.Reply {
 		return
 	}
 	h.replyAsync(in.Chat, "I'm a private assistant. Ask my owner to approve code "+escapeMD(notice.Code.Code)+".")
-	h.keepFirstText(ctx, a.name, in)
 	h.notifyUnknownSender(ctx, a.name, ident)
 	h.inboxChanged("sender:"+a.name+":"+in.SenderID, "")
 }
@@ -199,17 +199,30 @@ const maxFirstText = 120
 // keepFirstText stores the start of a pending sender's first message for
 // the admins' inbox item, once. It is cleaned to one line and redacted; the
 // inbox shows it verbatim as the sender's words, and it never reaches a run.
-func (h *Hub) keepFirstText(ctx context.Context, channel string, in core.Inbound) {
-	ids := h.d.Store.Identities()
-	cur, err := ids.Get(ctx, channel, in.SenderID)
-	if err != nil || cur.Status != core.IdentityPending || cur.FirstText != "" {
+func (h *Hub) keepFirstText(ctx context.Context, channel string, ident core.ChannelIdentity, in core.Inbound) {
+	if ident.Status != core.IdentityPending || ident.FirstText != "" {
 		return
 	}
-	cur.FirstText = truncateRunes(spaceTitle(h.redact(in.Text)), maxFirstText)
-	if cur.FirstText == "" {
+	// Telegram sends "/start" when someone opens the bot; their own words
+	// come after it.
+	if _, _, cmd := parseCommand(in.Text); cmd {
 		return
 	}
-	if err := ids.Update(ctx, cur); err != nil {
+	text := truncateRunes(spaceTitle(h.redact(in.Text)), maxFirstText)
+	if text == "" {
+		return
+	}
+	// Read and write in one transaction: an admin's decision made in between
+	// must not be overwritten with the pending row read before it.
+	err := h.d.Store.Tx(ctx, func(tx core.Store) error {
+		cur, err := tx.Identities().Get(ctx, channel, in.SenderID)
+		if err != nil || cur.Status != core.IdentityPending || cur.FirstText != "" {
+			return err
+		}
+		cur.FirstText = text
+		return tx.Identities().Update(ctx, cur)
+	})
+	if err != nil {
 		h.log.Warn("channel: keeping an unknown sender's first words failed", "channel", channel, "err", err)
 	}
 }
