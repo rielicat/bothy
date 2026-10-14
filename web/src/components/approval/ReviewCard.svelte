@@ -109,7 +109,9 @@
     </ul>
   {:else if item.type === 'skill_review'}
     <!-- The server sends the skill's metadata only; its files are on the skill's page. -->
-    <p class="mt-1 text-small"><a class="link" href="/knowledge/skills/{encodeURIComponent(item.skill)}" onclick={router.link}>See the skill's files</a></p>
+    <p class="mt-1 text-small">
+      <a class="link -my-0.5 inline-flex min-h-6 items-center pointer-coarse:-my-3 pointer-coarse:min-h-11" href="/knowledge/skills/{encodeURIComponent(item.skill)}" onclick={router.link}>See the skill's files</a>
+    </p>
   {:else if item.type === 'unknown_sender'}
     <p class="mt-1 text-body text-muted" data-copy-ignore>
       <Verbatim text={item.display_name} /> (<Verbatim text={item.handle} />){#if item.text}{' wrote: '}“<Verbatim text={item.text.slice(0, 120)} />”{/if}
