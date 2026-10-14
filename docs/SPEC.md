@@ -531,8 +531,10 @@ internal/testkit/knowledgetest/ in-memory core.KnowledgeRepo passing conformance
 internal/httpapi/dto/      REST request/response shapes (§8.4); source for types.gen.ts                 [S]
 internal/store/            core.Store on modernc sqlite: Open, pragmas, version gate, migrator, repos   [M1]
 internal/store/migrations/ 0001_init.sql (§6); v0.2: 0002_repos, 0003_knowledge, 0004_approval_votes,
-                           0005_approval_comments, 0006_must_change_password, 0007_v02_fixes (§14.6)     [S]
-internal/vault/            core.Vault, core.Redactor, KEK sources, envelope crypto                      [M1]
+                           0005_approval_comments, 0006_must_change_password, 0007_v02_fixes (§14.6),
+                           0008_external_secret_refs (§14.8)                                             [S]
+internal/vault/            core.Vault, core.Redactor, KEK sources, envelope crypto, aws-sm references   [M1]
+internal/vault/awssm/      v0.2: AWS Secrets Manager GetSecretValue, hand-signed (SigV4) (§14.8)        [M1]
 internal/audit/            core.Auditor: single writer, hash chain, Verify, offline Archive             [M1]
 internal/provider/         core.LLM facade: chains, retries, breaker, estimator, catalog, probe, detect  [M2]
 internal/provider/anthropic|openai|gemini|ollama/   wire clients (openai also = openai_compat)           [M2]
@@ -584,7 +586,7 @@ scripts/                   check-imports.sh, check-ownership.sh, budgets/*, e2e-
 - Module packages import `core`, `config`, the stdlib, their own subpackages and their approved deps (§11). They never import another module's package. Exceptions: `httpapi` may import `doctor` and `dto` (same module / skeleton), adapters may import nothing from `internal/channel`, and tests may import `internal/testkit/**` and `internal/events`.
 - Only `cmd/bothy` imports concrete module packages.
 - `os/exec` only in `internal/sandbox/bwrap`. `unsafe` nowhere outside deps.
-- No provider SDK, no `net/http.DefaultClient` in gateway packages (all clients come from `core.Egress`). v0.2 exception: `internal/provider/bedrock` may import exactly the AWS SDK packages for credentials, SigV4 and event-stream framing (§11.1); `internal/provider` tests may import the event-stream package.
+- No provider SDK, no `net/http.DefaultClient` in gateway packages (all clients come from `core.Egress`). v0.2 exception: `internal/provider/bedrock` may import exactly the AWS SDK packages for credentials, SigV4 and event-stream framing (§11.1); `internal/provider` tests may import the event-stream package; `internal/vault/awssm` may import `aws` (the credential type) and `aws/signer/v4` (SigV4), and `internal/vault` tests `aws`. The vault never imports the provider module: `cmd/bothy` hands it the bedrock provider's credential chain (`vault.SetAWS`, §14.8).
 - v0.2 modules `internal/github` (owner tag F4), `internal/knowledge` (owner tag knowledge) and `internal/release` (owner tag release) import only the stdlib, `core` and `config`; `cmd/bothy` connects them (the GitHub service is the release module's `Connections` dispatcher; knowledge consumes `repo.checkout`).
 
 ---
@@ -1413,6 +1415,9 @@ const (
 	FailAWSNoCredentials FailureCode = "aws_no_credentials" // the AWS credential chain resolved nothing
 	FailAWSDenied        FailureCode = "aws_denied"         // AWS refused this identity
 	FailAWSNoModels      FailureCode = "aws_no_models"      // no Claude or Nova model is enabled in the region
+	FailNotFound         FailureCode = "not_found"          // a cloud secret store has no such secret (v0.2, §14.8)
+	FailJSONKeyMissing   FailureCode = "json_key_missing"   // the secret is a JSON object without the referenced key
+	FailNotJSON          FailureCode = "not_json"           // a JSON key was referenced but the secret is not a JSON object
 	FailUnknown          FailureCode = "unknown"
 )
 
@@ -3220,6 +3225,10 @@ type VaultStatus struct {
 	KEKID     string `json:"kek_id"`     // sha256(kek)[:8] hex
 	Colocated bool   `json:"colocated"`  // KEK file on the same volume as the DB
 	Secrets   int    `json:"secrets"`
+	// External counts the configured references to cloud secret stores by
+	// source ("aws-sm"). Their values are fetched when used, kept in memory
+	// for secrets.aws.cache_ttl and never stored. (v0.2, §14.8)
+	External map[string]int `json:"external,omitempty"`
 }
 
 // Redactor masks exact secret values (and their base64, base64url, hex and
@@ -3252,12 +3261,16 @@ type Vault interface {
 	Get(ctx context.Context, sc Scope, name, purpose string) (Secret, error)
 	// Resolve handles config references "secret:<name>" (user scope, then global;
 	// u == "" => global only, used for providers, channels, search and space
-	// principals). A ref embedded in a header value ("Bearer secret:x") resolves
-	// to the whole header with the ref substituted. Plain strings are rejected
-	// for secret-typed fields.
+	// principals) and (v0.2, §14.8) "aws-sm:<secret id or ARN>[#<json key>]"
+	// (AWS Secrets Manager, read with the server's AWS credentials; company-wide,
+	// so the same for every u). A ref embedded in a header value ("Bearer secret:x")
+	// resolves to the whole header with the ref substituted. Plain strings are
+	// rejected for secret-typed fields. Every use is audited as secret.use.
 	Resolve(ctx context.Context, ref string, u UserID, purpose string) (Secret, error)
 	Delete(ctx context.Context, sc Scope, name string, by UserID) error
-	List(ctx context.Context, sc Scope) ([]SecretMeta, error) // names, source, hint; never values
+	// List returns names, source and hint, never values; the global scope also
+	// lists the configuration's aws-sm references (source "aws-sm", no hint).
+	List(ctx context.Context, sc Scope) ([]SecretMeta, error)
 	Unseal(ctx context.Context, passphrase []byte) error
 	RotateKEK(ctx context.Context, by UserID) error
 	Status() VaultStatus
@@ -5832,7 +5845,14 @@ vault:
   kek: auto                       # auto | file:/path | systemd:<name> | passphrase | env (BOTHY_KEK; flagged high)
   keyfile: ""                     # auto-generated KEK; "" = /keys/kek if /keys is a mount point, else <data_dir>/keys/kek
 
-providers:                        # examples; the wizard writes these. api_key accepts only secret:<name>
+secrets:                          # v0.2: cloud secret stores that secret fields may reference instead of the vault
+  aws:                            # "aws-sm:<secret name or ARN>[#<json key>][?region=<r>&profile=<p>]"
+    region: ""                    # required for references without ?region= or an ARN
+    profile: ""                   # shared-config profile; "" = AWS_PROFILE or the default chain
+    cache_ttl: 5m                 # how long a fetched value is reused (memory only); 1s to 24h
+    allow_private: false          # secretsmanager.<region>.amazonaws.com may resolve to a private address (VPC endpoint)
+
+providers:                        # examples; the wizard writes these. api_key accepts only secret:<name> or aws-sm:<secret>
   - {id: anthropic, type: anthropic, api_key: "secret:anthropic_api_key"}
   - id: openai
     type: openai
@@ -6024,7 +6044,7 @@ releases:                         # v0.2: release_deploy dispatches a GitHub Act
 
 - **Env names:** `BOTHY_` + upper-cased path with `__` between segments: `BOTHY_BUDGETS__DAILY_USD=2`, `BOTHY_SERVER__PUBLIC_URL=…`. List items keyed by `id`/`name` are addressable: `BOTHY_PROVIDERS__OLLAMA__BASE_URL=…`, `BOTHY_MCP__SERVERS__DOCS__URL=…`. Lists and maps take JSON: `BOTHY_MODELS__MAIN='["openai/gpt-5.1"]'`.
 - **Merging:** deep merge; lists of objects with `id`/`name` merge by key; scalar lists replace.
-- **Secret fields** (`secret:"true"` tag: `api_key`, `token`, `app_token`, `bot_token`, `brave_api_key`, `tavily_api_key`, header values) accept only `secret:<name>` references, optionally embedded in a header string (`"Bearer secret:docs_mcp_token"`). Plaintext is a validation error: *"Move this secret to the vault: Settings → Vault, or `BOTHY_SECRET_DOCS_MCP_TOKEN`."*
+- **Secret fields** (`secret:"true"` tag: `api_key`, `token`, `app_token`, `bot_token`, `brave_api_key`, `tavily_api_key`, `github_token`, header values) accept only `secret:<name>` and (v0.2, §14.8) `aws-sm:<secret name or ARN>[#<json key>][?region=<r>&profile=<p>]` references, optionally embedded in a header string (`"Bearer secret:docs_mcp_token"`). Plaintext is a validation error: *"Move this secret to the vault: Settings → Vault, or `BOTHY_SECRET_DOCS_MCP_TOKEN`."* A malformed aws-sm reference is reported without echoing it; an aws-sm reference without `?region=` or an ARN needs `secrets.aws.region` (the error is reported on that key, and `Set` refuses the change).
 - **Secrets from env:** `BOTHY_SECRET_<NAME>` or `BOTHY_SECRET_<NAME>_FILE` (Docker secrets) satisfy `secret:<name>` with source `env`; held in memory only, never written. `<NAME>` is the vault name upper-cased with `.` and `-` replaced by `_` (`docs_mcp_token` → `BOTHY_SECRET_DOCS_MCP_TOKEN`). Env secrets apply to every scope lookup (they shadow vault entries of the same name). Well-known keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`, `XAI_API_KEY`, `DEEPSEEK_API_KEY`, `TELEGRAM_BOT_TOKEN`) are only *offered* by the wizard ("Found ANTHROPIC_API_KEY. Import into the vault?"); never used silently.
 - **Locks:** fields tagged `locked:"true"` (`server.listen`, `server.tls`, `server.trusted_proxies`, `server.local_cidrs`, `server.insecure_lan`, `storage.*` dirs, `vault.*`, `sandbox.socket`, `auth.admin_can_read_chats`, `policy.trifecta`, `memory.tainted_writes`, `skills.dir`, `channels.*.api_base`, `channels.discord.gateway_url`) are never settable from the UI layer. `BOTHY_CONFIG_LOCK="providers.*,policy.*"` additionally locks globs (GitOps); locked keys show as "locked" in the UI and the UI layer is ignored for them.
 - **Validation per key:** a key that fails validation falls back to the next lower valid layer and is reported in `Effective.Errors` (banner `config_error` + doctor). For example `agent.persona_file` must be a bare Markdown file name in `data_dir` (`*.md`, no path separators; `config.ValidPersonaFile`), since `PUT /api/persona` overwrites it next to `bothy.yaml`, the database, the setup token and the KEK: anything else is rejected and falls back to `SOUL.md`, and the persona endpoints return 503 if an invalid value still reaches them. Messages carry source and suggestions: `bothy.yaml:42: models.main[0]: unknown provider "antropic" (did you mean "anthropic"?)`.
@@ -6062,6 +6082,7 @@ type Config struct {
 	Log       Log               `yaml:"log" reload:"hot"`
 	Auth      Auth              `yaml:"auth"`
 	Vault     VaultCfg          `yaml:"vault"`
+	Secrets   SecretsCfg        `yaml:"secrets" reload:"hot"` // v0.2: aws-sm references (§14.8)
 	Providers []Provider        `yaml:"providers" reload:"hot"` // the provider facade and channel hub re-read Current() and restart clients on config.changed
 	Models    Models            `yaml:"models" reload:"hot"`
 	Pricing   map[string]PriceO `yaml:"pricing" reload:"hot"`
@@ -6146,6 +6167,19 @@ type Argon2 struct {
 type VaultCfg struct {
 	KEK     string `yaml:"kek" locked:"true"`     // auto | file:/path | systemd:<name> | passphrase | env
 	Keyfile string `yaml:"keyfile" locked:"true"` // autogen target
+}
+
+// SecretsCfg configures the cloud secret stores that secret fields may
+// reference instead of the vault (v0.2, §14.8).
+type SecretsCfg struct {
+	AWS SecretsAWS `yaml:"aws"`
+}
+
+type SecretsAWS struct {
+	Region       string   `yaml:"region"`        // required for references without ?region= or an ARN
+	Profile      string   `yaml:"profile"`       // shared-config profile; "" = AWS_PROFILE or the default chain
+	CacheTTL     Duration `yaml:"cache_ttl"`     // how long a fetched value is reused (memory only)
+	AllowPrivate bool     `yaml:"allow_private"` // an interface VPC endpoint with private DNS
 }
 
 type Provider struct {
@@ -7721,7 +7755,7 @@ Progress dots; every step revisitable; state derives from the server, so a reloa
 |---|---|---|---|
 | 1 | No unauthenticated mode; loopback publish; refuse insecure exposure; setup token; Argon2id; lockout; constant-time | Every route except health, setup (local peers, 404 after completion) and static assets requires an Actor; loopback is not trusted. Compose publishes `127.0.0.1:8080`. Exposure gate by **peer IP** (§8.1): plain HTTP only for local peers (LAN only with locked `insecure_lan`), public peers need TLS; a forwarded address never makes a request local. Host allowlist → 421 (`GET`/`HEAD` `/healthz` and `/readyz` exempt). Setup token 256-bit, single claim, 24 h, file 0600, delivered in the URL fragment. Argon2id m=19 MiB t=2 p=1, one hashing slot, dummy hash for unknown users, per-user and per-IP exponential lockout. `subtle.ConstantTimeCompare` for all secrets. | httpapi, auth, deploy |
 | 2 | Web hardening: Origin/CSRF/SameSite, no tokens in query strings, CSP, no wildcard CORS, loopback not trusted, mDNS off | SSE instead of WebSocket. `http.CrossOriginProtection` + synchroniser `X-CSRF-Token` + SameSite=Strict; `__Host-` cookie under TLS. Credential-named query params → 400; the SPA never reads tokens or gateway URLs from `location` except the one-time setup fragment, which it strips. Strict CSP without `unsafe-inline`, `frame-ancestors 'none'`. No CORS headers at all. `trusted_proxies` explicit. No mDNS code. | httpapi, auth, web |
-| 3 | Envelope-encrypted vault; KEK sources; keys only in the gateway; redaction; write-only UI; 0600 files | One active 32-byte DEK wrapped (AES-256-GCM) by the KEK; secrets AES-256-GCM with random 96-bit nonces and AAD `scope‖0‖name‖0‖version`; `kek_check` detects a wrong KEK (fail closed, vault sealed). KEK sources: Docker secret `/run/secrets/bothy_kek` → systemd `$CREDENTIALS_DIRECTORY/bothy_kek` → `file:` → passphrase (Argon2id-derived, vault sealed until unlocked in the UI) → auto keyfile in the separate `/keys` volume (colocated fallback flagged medium) → `env` (`BOTHY_KEK`, flagged high). Secrets reach only provider, channel, search and HTTP-MCP clients in the gateway; the sandbox protocol has no field that can carry them; MCP stdio gets none. Redactor: exact values plus base64/base64url/hex/percent-encoded variants and token patterns, applied to logs (slog handler), audit detail, tool results, model input, channel output and SSE. API never returns values. Umask 007; `/data` files 0600, dirs 0700. | vault, audit, sandbox, egress |
+| 3 | Envelope-encrypted vault; KEK sources; keys only in the gateway; redaction; write-only UI; 0600 files | One active 32-byte DEK wrapped (AES-256-GCM) by the KEK; secrets AES-256-GCM with random 96-bit nonces and AAD `scope‖0‖name‖0‖version`; `kek_check` detects a wrong KEK (fail closed, vault sealed). KEK sources: Docker secret `/run/secrets/bothy_kek` → systemd `$CREDENTIALS_DIRECTORY/bothy_kek` → `file:` → passphrase (Argon2id-derived, vault sealed until unlocked in the UI) → auto keyfile in the separate `/keys` volume (colocated fallback flagged medium) → `env` (`BOTHY_KEK`, flagged high). Secrets reach only provider, channel, search and HTTP-MCP clients in the gateway; the sandbox protocol has no field that can carry them; MCP stdio gets none. v0.2: `aws-sm:` references are fetched by the gateway from AWS Secrets Manager with the bedrock credential chain, through egress to the regional endpoint only, cached in memory, never stored, redacted and audited per use (§14.8). Redactor: exact values plus base64/base64url/hex/percent-encoded variants and token patterns, applied to logs (slog handler), audit detail, tool results, model input, channel output and SSE. API never returns values. Umask 007; `/data` files 0600, dirs 0700. | vault, audit, sandbox, egress |
 | 4 | Sandbox: non-root, cap_drop ALL, no-new-privileges, read-only rootfs + tmpfs, default seccomp/AppArmor, limits; workspace only; no docker.sock in the gateway; network none / proxy only; approvals stay on | Compiled-in spec (§2.6): uid 10001, `CapDrop: ALL`, `no-new-privileges`, read-only rootfs, tmpfs `/tmp` and home, default seccomp/AppArmor, pids/memory/CPU/nofile limits, `--network none`, `LogConfig none`. Mounts: own workspace subpath rw, skills ro, own egress socket dir ro, MCP tree ro (Docker 25: binds of the same directories, checked by device and inode before the box is used). The runtime socket lives only in sandboxd (no network, fixed schema, regex-validated ids). runsc auto when probed. Self-test canaries gate every box. Policy has no "in a container" bypass. bwrap backend: `--clearenv`, `--unshare-all --disable-userns`, seccomp filter, rlimits. | sandbox, sandboxd, sbxinit, policy |
 | 5 | Egress: default deny, private ranges blocked, proxy DNS with pinning, no sandbox DNS, byte caps, every destination logged | Per-box unix-socket proxy (socket = identity); port allowlist (443); allowlist from config, presets (off), box extras and narrow grants; shared-tenant suffixes admin-only; IP literals only by exact grant; full netip blocklist with `Unmap` and embedded-IPv4 re-check; resolve-then-dial pinned IP with `Control` re-check; SNI must equal the CONNECT host; redirects re-checked per hop (public dialer); asymmetric caps (10 MiB up / 200 MiB down); `egress_log` row per connection; three dialers (box, public, system), the system dialer limited to exact configured `host:port`; v0.2: a credentials-only client for the Bedrock AWS credential chain (IMDSv2 token and role paths, the exact container-credential path, logged as `credentials:aws`), and `169.254.170.2`, `169.254.170.23` and `fd00:ec2::23` blocked for every other dialer even with `allow_private` (§2.8). | egress |
 | 6 | Capability manifests for every tool, skill and MCP tool; side-effect class; deny by default; system-rendered cards | `core.Manifest` is required and validated at `Register` (zero side effect rejected, schema must compile). MCP tools are not exposed until an admin approves them with a class (config `side_effects` default `external_send`; annotations may only upgrade; `field_map` exposes recipient/URL fields for first-contact checks). Skills add no tools and never execute anything. Cards are rendered by the policy module from the Action only; channel renderers escape everything. | tools, mcp, skills, policy, channel |
@@ -7799,7 +7833,7 @@ Owners: `sqlite.*`, `data.*`, `backups.*`, `vault.*` M1; `providers.*` M2; `poli
 | `golang.org/x/net` (*verify*) | egress, policy, sandbox/bwrap | `html` (web_fetch text extraction), `idna` (punycode), `bpf` (serializing the seccomp program) |
 | `github.com/adhocore/gronx` v1.20.5 | scheduler | Cron parsing and next tick with timezone; zero deps |
 | `github.com/elastic/go-seccomp-bpf` v1.6.0 or newer (*verify* newest tag ≥ 14 days old) | sandbox/bwrap | `Policy.Assemble()` builds an arch-checked program without loading it (§2.12) |
-| `github.com/aws/aws-sdk-go-v2` v1.47.1, `…/aws/protocol/eventstream` v1.7.20, `…/config` v1.33.6, `…/credentials` v1.20.6, `…/feature/ec2/imds` v1.20.1 (v0.2; indirect: `service/sso`, `ssooidc`, `sts`, `signin`, `internal/*`, `github.com/aws/smithy-go` v1.28.1; all published 2026-08-26..09-24) | provider/bedrock only (eventstream also in `internal/provider` tests) | The AWS default credential chain (env, shared files with SSO and `aws login`, assumed roles, web identity, ECS/EKS container and EC2 IMDSv2 credentials), SigV4 signing and event-stream decoding; `scripts/check-imports.sh` allows exactly these packages |
+| `github.com/aws/aws-sdk-go-v2` v1.47.1, `…/aws/protocol/eventstream` v1.7.20, `…/config` v1.33.6, `…/credentials` v1.20.6, `…/feature/ec2/imds` v1.20.1 (v0.2; indirect: `service/sso`, `ssooidc`, `sts`, `signin`, `internal/*`, `github.com/aws/smithy-go` v1.28.1; all published 2026-08-26..09-24) | provider/bedrock (eventstream also in `internal/provider` tests); vault/awssm: `aws` and `aws/signer/v4` only (§14.8) | The AWS default credential chain (env, shared files with SSO and `aws login`, assumed roles, web identity, ECS/EKS container and EC2 IMDSv2 credentials), SigV4 signing and event-stream decoding; `scripts/check-imports.sh` allows exactly these packages |
 
 `internal/deps/deps.go` (`//go:build deps`) blank-imports each module so `go mod tidy` keeps them before modules use them. Stdlib covers HTTP/TLS, JSON, AES-GCM, HMAC, `os.Root`, `net/netip`, `log/slog`, `embed`, `testing/synctest`, `http.CrossOriginProtection`.
 
@@ -9848,7 +9882,7 @@ The accepted v0.2 brief extends this spec; where they disagree the brief wins, a
 ### 14.6 Integration notes
 
 - One checkout event: `repo.checkout` (`RepoCheckoutData`), published by F4 and consumed by F6 (F6 had defined its own `repo.checked_out`, which no module published; it was folded into `repo.checkout`).
-- Migrations 0002 (F4), 0003 (F6), 0004 (F5), 0005 (approval comments, S4/S12), 0006 (one-time passwords, S9) and 0007 (deploy `via`, per-principal index state) apply in order on a fresh database and on a v0.1 database (§6); the store's migrator tests start from `0001_init.sql` alone, and `TestIndexStateMigration` upgrades a version-4 database.
+- Migrations 0002 (F4), 0003 (F6), 0004 (F5), 0005 (approval comments, S4/S12), 0006 (one-time passwords, S9), 0007 (deploy `via`, per-principal index state) and 0008 (aws-sm GitHub connection refs, §14.8) apply in order on a fresh database and on a v0.1 database (§6); the store's migrator tests start from `0001_init.sql` alone, and `TestIndexStateMigration` upgrades a version-4 database.
 - `cmd/bothy` builds the GitHub, knowledge and release services, registers their tools and checks, passes `GitHub`, `Knowledge` and `Deploys` to the HTTP API, runs `knowledge.Run` in every mode and `release.Run` outside safe mode, and gives the runner the knowledge turn-context hook.
 
 ### 14.7 v0.2 UI server work (`docs/design/ui.md` §17)
@@ -9868,3 +9902,16 @@ The redesigned UI relies on S1–S20 of its plan; the shapes are in §4, §8.3 a
 - **S16:** each audit row has one plain `summary` from a server-side phrase table (`audit_summary.go`, `phrases.go`, after ui.md §7.4); egress rows merge decision and connection result into `outcome`.
 - **S17:** release events (§14.5, §8.2).
 - **S20:** company wording in the constitution (version 2) and the default persona (§5.6).
+
+### 14.8 External secret references (AWS Secrets Manager)
+
+A company can keep Bothy's secrets in its own secret store and have Bothy fetch them itself, instead of copying them into the vault.
+
+- **Grammar** (`config.ParseAWSSecretRef`, `FindAWSSecretRefs`): `aws-sm:<secret name or ARN>[#<json key>][?region=<region>&profile=<profile>]`; the key and the query may come in either order. Names use AWS's characters plus `!` (secrets other services manage, `rds!cluster-…`); a name never contains `:`, an ARN must be a Secrets Manager secret ARN and brings its region. A marker preceded by a letter, digit, `_`, `.` or `-` is part of a longer word, as with `secret:`; `secret:` inside an aws-sm reference (an ARN's `:secret:`) belongs to it. Accepted wherever `secret:<name>` is: every `secret:"true"` field including header values (provider `api_key`/`headers`, channel tokens, search keys, MCP headers, `releases.github_token`), `POST /api/providers/test` and `/connect` `secret_ref` (connect returns `{source: "aws-sm"}` meta without a vault lookup), and GitHub connections' `secret_ref` (migration 0008 rebuilds `github_connections`, and `repos` against it so the foreign-key cascade survives, with `CHECK (secret_ref LIKE 'secret:_%' OR secret_ref LIKE 'aws-sm:_%')` and `CHECK (owns_secret = 0 OR secret_ref LIKE 'secret:_%')`: Bothy never owns an AWS secret).
+- **Config** `secrets.aws {region, profile, cache_ttl: 5m, allow_private: false}` (hot). Validation: region and profile shapes, `cache_ttl` 1s–24h, and `secrets.aws.region` required when any reference lacks both `?region=` and an ARN. Per reference, region = `?region=` → ARN → `secrets.aws.region`; profile = `?profile=` → `secrets.aws.profile` → `AWS_PROFILE`/default chain.
+- **Resolution** (`internal/vault/external.go`, `internal/vault/awssm`): one `GetSecretValue` (AWSCURRENT) per secret, JSON 1.1 over HTTPS, signed by hand with SigV4 like the bedrock client; no SDK service client, no SDK retries, no redirects. Credentials: the bedrock provider's `Chain` (`provider.Facade.AWSCredentials`, handed over by `cmd/bothy` through `vault.SetAWS` because the vault is built before egress and the providers), one per region and profile: the full default chain, STS/SSO/sign-in through a system client for exactly the hosts the AWS config needs, IMDSv2 and container credentials through `Egress.CredentialsClient`, `credential_process` refused, renewal five minutes early, dropped when AWS rejects them (ExpiredToken, UnrecognizedClient). Secrets Manager itself: `Egress.SystemClient(SystemDest{Name: "vault:aws-sm", Hosts: ["secretsmanager.<region>.<suffix>:443"], AllowPrivate: secrets.aws.allow_private})`; a client without its own transport is refused. Offline CLI commands (no `SetAWS`) fail such references with a plain error; they resolve while the vault is sealed (they need no KEK).
+- **Values:** the whole `SecretString`/`SecretBinary` cached in memory per region|profile|secret for `cache_ttl`, one fetch for concurrent uses (detached from a caller that gives up, 20 s), failures not cached, expired values dropped from the cache; never written to disk, the database or a backup. With `#key` the value is the key's string, or the compact JSON of a non-string value; `null` counts as missing. The redactor holds the whole value and each key read, under ids carrying the `VersionId`, for the current and the previous version (a rotation's old value may still sit in recent output); a rotated secret is read when its cached value expires. Every use (cached ones too) is audited `secret.use` before release, target the canonical reference, detail `{ref, purpose, source: "aws-sm", scope: "global", region, version, cached}`; a failed use is audited with outcome `error` and its `code`; an audit failure withholds the value; no auditor, no value.
+- **Failures** are `vault.ExternalError` (a `core.FailureCoder`) with plain messages that name the reference (account ids and role sessions removed) and what to do: `aws_no_credentials` (sign in / attach a role), `aws_denied` (AccessDenied, KMS DecryptionFailure: allow `secretsmanager:GetSecretValue` and `kms:Decrypt`), `not_found` (wraps `core.ErrNotFound`; also a secret scheduled for deletion), `json_key_missing` (wraps `ErrNotFound`), `not_json` (wraps `ErrInvalid`), `rate_limited`, `provider_error`, transport codes (`private_address` names `secrets.aws.allow_private`), and a missing region (`ErrInvalid`). The provider probe reports the code (`ProbeResult.Code`).
+- **Scope and visibility:** the references are company-wide: chosen by admins in the configuration or a GitHub connection, the same value whoever's request resolves them, and a vault value that looks like a reference is never resolved again (no user-to-company indirection). `List(global)` adds each distinct reference of the configuration and of the GitHub connections as `SecretMeta{scope: global, name: <canonical ref>, source: "aws-sm", hint: "", updated_at: last fetch, last_used_at}`; user scopes never list them (so a purge never touches them); `Delete` refuses them; `Status().External["aws-sm"]` counts them. `bothy vault list` shows the configuration's references offline.
+- **Doctor** `secrets.aws_access` (vault checks): for each region and profile the references use, `Chain.Describe` within 15 s: info "AWS secret references sign in with <source>" or high with the plain cause and `aws sso login --profile <p>` as the fix; high when references have no region. It never reads a value.
+- Tests: `internal/vault/awssm` (request shape and signature, string and binary, error mapping, no redirects, credential and transport failures), `internal/vault/external_test.go` against an httptest Secrets Manager behind an egress stand-in that admits only the requested hosts (plain and JSON secrets, missing key, not JSON, not found, denied, caching, TTL, rotation, single flight, redaction, audit, IDOR, egress destinations, sealed vault, doctor), `internal/config/secretref_test.go`, `internal/store` (migration 0008), `e2e/aws_secrets_test.go` (no credentials: listing, member isolation, doctor, probe code, audit) and `e2e/live_aws_secrets_test.go` (tags `e2e,live`: a JSON key of a real secret resolves and its value appears nowhere else; skips without credentials).

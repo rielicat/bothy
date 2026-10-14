@@ -34,6 +34,15 @@ func msTime(t time.Time) time.Time {
 	return time.UnixMilli(t.UnixMilli()).UTC()
 }
 
+// secretRefOK mirrors the secret_ref CHECKs of migrations 0002 and 0008.
+func secretRefOK(c *core.GitHubConnection) bool {
+	if rest, ok := strings.CutPrefix(c.SecretRef, "secret:"); ok {
+		return rest != ""
+	}
+	rest, ok := strings.CutPrefix(c.SecretRef, "aws-sm:")
+	return ok && rest != "" && !c.OwnsSecret
+}
+
 func (s *githubStore) PutConnection(_ context.Context, c *core.GitHubConnection) error {
 	if !core.ValidID(core.PrefixGitHubConn, c.ID) {
 		return fmt.Errorf("memstore: github connection id: %w", core.ErrInvalid)
@@ -42,7 +51,7 @@ func (s *githubStore) PutConnection(_ context.Context, c *core.GitHubConnection)
 	switch {
 	case c.Auth != core.GitHubPAT && c.Auth != core.GitHubApp,
 		c.Auth == core.GitHubApp && (c.AppID == "" || c.InstallationID <= 0),
-		!strings.HasPrefix(c.SecretRef, "secret:") || len(c.SecretRef) <= len("secret:"),
+		!secretRefOK(c),
 		status != "ok" && status != "error":
 		return fmt.Errorf("memstore: github connection %s: %w", c.ID, core.ErrInvalid)
 	}

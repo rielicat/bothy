@@ -159,10 +159,20 @@ MCP clients dial exact hosts with SSRF checks. Kubernetes policies match IP
 ranges, not names, so this cannot narrow egress to Bedrock alone. Adjust it if
 you use:
 
-- VPC interface endpoints for Bedrock or STS (private IPs): allow their
-  subnets on 443.
+- VPC interface endpoints for Bedrock, STS or Secrets Manager (private IPs):
+  allow their subnets on 443, and for Secrets Manager also set
+  `secrets.aws.allow_private: true`.
 - Local model servers or private MCP servers: allow those addresses and ports.
 - An internal ALB: allow ingress on 8080 from the ALB's subnets.
+
+## Provider keys and channel tokens
+
+The IRSA role that reaches Bedrock can also read secrets from Secrets Manager:
+attach [`iam-secrets-policy.json`](../../deploy/aws/iam-secrets-policy.json) and
+reference them in the ConfigMap's `bothy.yaml` as `aws-sm:<secret>#<key>`
+([how](README.md#platform-secrets)). Unlike the Secrets Store CSI driver, which
+fits the vault key, nothing is mounted into the pod: Bothy fetches each value
+when it is used and keeps it in memory.
 
 ## An internal ALB instead of port-forward
 

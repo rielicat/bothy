@@ -279,22 +279,38 @@ func typeMessage(f *field, n *yaml.Node) string {
 	return fmt.Sprintf("expected %s, got %q", want, deref(n).Value)
 }
 
-// secretMessage checks a secret field: only "secret:<name>" (or "" for none);
-// header values may embed the ref in a longer string. The value never appears
-// in the message.
+// secretMessage checks a secret field: only "secret:<name>" or
+// "aws-sm:<secret>" (or "" for none); header values may embed the ref in a
+// longer string. The value never appears in the message.
 func secretMessage(segs []string, f *field, n *yaml.Node) string {
 	val := deref(n).Value
 	if isNull(n) || val == "" {
 		if f.embed {
-			return "a header value must contain a \"secret:<name>\" reference"
+			return "a header value must contain a \"secret:<name>\" or \"aws-sm:<secret>\" reference"
 		}
 		return ""
 	}
-	if f.embed && secretRefAny.MatchString(val) || !f.embed && secretRefExact.MatchString(val) {
-		return ""
+	if f.embed {
+		aws, err := FindAWSSecretRefs(val)
+		if err != nil {
+			return "invalid aws-sm reference: " + err.Error()
+		}
+		if len(aws) > 0 || secretRefAny.MatchString(val) {
+			return ""
+		}
+	} else {
+		if secretRefExact.MatchString(val) {
+			return ""
+		}
+		if strings.HasPrefix(val, AWSSecretPrefix) {
+			if _, err := ParseAWSSecretRef(val); err != nil {
+				return "invalid aws-sm reference: " + err.Error()
+			}
+			return ""
+		}
 	}
 	name := suggestedSecret(segs)
-	return fmt.Sprintf("plaintext secrets are not allowed; reference one as \"secret:%s\". Move this secret to the vault: Settings → Vault, or `BOTHY_SECRET_%s`.", name, envNorm(name))
+	return fmt.Sprintf("plaintext secrets are not allowed; reference one as \"secret:%s\" (or a secret in AWS Secrets Manager as \"aws-sm:<name>\"). Move this secret to the vault: Settings → Vault, or `BOTHY_SECRET_%s`.", name, envNorm(name))
 }
 
 func suggestedSecret(segs []string) string {
@@ -334,6 +350,7 @@ func validate(c *Config, v *vctx) {
 	v.enum("log.format", "log.format", c.Log.Format)
 	validateAuth(c, v)
 	validateVault(c, v)
+	validateSecrets(c, v)
 	ids := validateProviders(c, v)
 	validateModels(c, v, ids)
 	validateAgent(c, v)
@@ -442,6 +459,31 @@ func validateVault(c *Config, v *vctx) {
 		}
 	default:
 		v.add("vault.kek", "invalid value %q; want auto | file:/path | systemd:<name> | passphrase | env", k)
+	}
+}
+
+func validateSecrets(c *Config, v *vctx) {
+	a := c.Secrets.AWS
+	if a.Region != "" && !ValidAWSRegion(a.Region) {
+		v.add("secrets.aws.region", "%q is not an AWS region name (for example us-west-2)", a.Region)
+	}
+	if a.Profile != "" && !ValidAWSProfile(a.Profile) {
+		v.add("secrets.aws.profile", "invalid profile name %q", a.Profile)
+	}
+	if a.CacheTTL < Duration(time.Second) || a.CacheTTL > Duration(24*time.Hour) {
+		v.add("secrets.aws.cache_ttl", "must be between 1s and 24h, got %s", a.CacheTTL.D())
+	}
+	if a.Region != "" {
+		return
+	}
+	for _, sf := range c.SecretFields() {
+		refs, _ := FindAWSSecretRefs(sf.Value)
+		for _, r := range refs {
+			if r.Ref.RegionOr("") == "" {
+				v.add("secrets.aws.region", "is required: %s reads AWS Secrets Manager without ?region=; set the region (for example us-west-2)", sf.Path)
+				return
+			}
+		}
 	}
 }
 

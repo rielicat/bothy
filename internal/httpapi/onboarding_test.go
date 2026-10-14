@@ -172,6 +172,21 @@ func TestConnectProvider(t *testing.T) {
 	expect(t, h.do("POST", "/api/providers/connect", dto.ProviderConnectReq{Kind: core.KindOpenAICompat, BaseURL: "https://openrouter.ai/api/v1",
 		SecretRef: "secret:nothing_here"}, h.admin), http.StatusBadRequest)
 
+	// A key the company keeps in AWS Secrets Manager: only the reference is
+	// written; the vault is not asked.
+	r = connect(dto.ProviderConnectReq{Kind: core.KindAnthropic, SecretRef: "aws-sm:prod/llm?region=us-east-1#anthropic"})
+	if r.Provider != "anthropic" || r.Secret == nil || r.Secret.Source != "aws-sm" || r.Secret.Hint != "" || r.Secret.Name != "aws-sm:prod/llm#anthropic?region=us-east-1" {
+		t.Fatalf("anthropic from aws-sm = %+v", r)
+	}
+	if !strings.Contains(string(last()["providers.anthropic"]), `"api_key":"aws-sm:prod/llm#anthropic?region=us-east-1"`) {
+		t.Fatalf("provider = %s", last()["providers.anthropic"])
+	}
+	bad := h.do("POST", "/api/providers/connect", dto.ProviderConnectReq{Kind: core.KindAnthropic, SecretRef: "aws-sm:prod/llm#"}, h.admin)
+	expect(t, bad, http.StatusBadRequest)
+	if strings.Contains(bad.Body.String(), "prod/llm") {
+		t.Errorf("error echoes the reference: %s", bad.Body.String())
+	}
+
 	// A detected environment key is copied into the vault.
 	h.env["OPENAI_API_KEY"] = "sk-proj-from-the-environment-1234"
 	r = connect(dto.ProviderConnectReq{Kind: core.KindOpenAI, EnvVar: "OPENAI_API_KEY"})

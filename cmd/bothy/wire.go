@@ -38,6 +38,7 @@ import (
 	"github.com/rielicat/bothy/internal/store"
 	"github.com/rielicat/bothy/internal/tools"
 	"github.com/rielicat/bothy/internal/vault"
+	"github.com/rielicat/bothy/internal/vault/awssm"
 	"github.com/rielicat/bothy/internal/webui"
 )
 
@@ -135,6 +136,20 @@ func buildBase(ctx context.Context) (*app, error) {
 	return a, nil
 }
 
+// githubSecretRefs lists the secret references of the GitHub connections,
+// which live in the database rather than the configuration.
+func githubSecretRefs(ctx context.Context, gs core.GitHubStore) []string {
+	conns, err := gs.Connections(ctx)
+	if err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(conns))
+	for _, c := range conns {
+		out = append(out, c.SecretRef)
+	}
+	return out
+}
+
 // close flushes pending audit rows and closes the store; serve's own
 // shutdown does the same after its loops end.
 func (a *app) close() {
@@ -165,6 +180,15 @@ func (a *app) buildRest(ctx context.Context) error {
 		Credentials: a.egress.CredentialsClient}); err != nil {
 		return err
 	}
+	// aws-sm references use the bedrock provider's AWS credential chain and
+	// egress, which exist only after the vault.
+	a.vault.SetAWS(vault.AWS{
+		Credentials: func(region, profile string) awssm.Credentials {
+			return a.llm.AWSCredentials("vault:aws-sm", region, profile)
+		},
+		HTTP: a.egress.SystemClient,
+		Refs: func(ctx context.Context) []string { return githubSecretRefs(ctx, a.db.GitHub()) },
+	})
 	if a.budget, err = budget.New(budget.Deps{Store: a.db, Config: a.cfg, Bus: a.bus, Audit: a.audit, Clock: a.clock, Log: a.log}); err != nil {
 		return err
 	}

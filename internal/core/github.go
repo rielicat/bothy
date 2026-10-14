@@ -6,8 +6,9 @@ import (
 )
 
 // GitHub connections and repositories (v0.2 F4). A connection's personal
-// access token or GitHub App private key lives in the vault; the rows below
-// hold only its "secret:<name>" reference, and only the gateway resolves it.
+// access token or GitHub App private key lives in the vault or in AWS
+// Secrets Manager; the rows below hold only its "secret:<name>" or
+// "aws-sm:<secret>" reference, and only the gateway resolves it.
 
 const PrefixGitHubConn = "ghc"
 
@@ -26,7 +27,7 @@ type GitHubConnection struct {
 	AppID          string     `json:"app_id,omitempty"`
 	AppSlug        string     `json:"app_slug,omitempty"`
 	InstallationID int64      `json:"installation_id,omitempty"`
-	SecretRef      string     `json:"secret_ref"`  // "secret:<name>" of the PAT or the App private key
+	SecretRef      string     `json:"secret_ref"`  // "secret:<name>" or "aws-sm:<secret>" of the PAT or the App private key
 	OwnsSecret     bool       `json:"owns_secret"` // stored by Connect, so Disconnect deletes it
 	Status         string     `json:"status"`      // ok | error
 	Error          string     `json:"error,omitempty"`
@@ -78,7 +79,7 @@ type GitHubCredentials struct {
 	Auth           GitHubAuth
 	Token          Secret // PAT; Connect stores it in the global vault scope
 	PrivateKey     Secret // App private key (PEM); Connect stores it in the global vault scope
-	SecretRef      string // an existing "secret:<name>" instead (e.g. BOTHY_SECRET_<NAME>)
+	SecretRef      string // an existing "secret:<name>" (e.g. BOTHY_SECRET_<NAME>) or "aws-sm:<secret>" instead
 	AppID          string
 	InstallationID int64 // App: 0 picks the app's only installation
 }

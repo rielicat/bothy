@@ -41,7 +41,14 @@ vault:
   kek: auto                       # auto | file:/path | systemd:<name> | passphrase | env (BOTHY_KEK; flagged high)
   keyfile: ""                     # auto-generated KEK; "" = /keys/kek if /keys is a mount point, else <data_dir>/keys/kek
 
-providers:                        # examples; the wizard writes these. api_key accepts only secret:<name>
+secrets:                          # v0.2: cloud secret stores that secret fields may reference instead of the vault
+  aws:                            # "aws-sm:<secret name or ARN>[#<json key>][?region=<r>&profile=<p>]"
+    region: ""                    # required for references without ?region= or an ARN
+    profile: ""                   # shared-config profile; "" = AWS_PROFILE or the default chain
+    cache_ttl: 5m                 # how long a fetched value is reused (memory only); 1s to 24h
+    allow_private: false          # secretsmanager.<region>.amazonaws.com may resolve to a private address (VPC endpoint)
+
+providers:                        # examples; the wizard writes these. api_key accepts only secret:<name> or aws-sm:<secret>
   - {id: anthropic, type: anthropic, api_key: "secret:anthropic_api_key"}
   - id: openai
     type: openai

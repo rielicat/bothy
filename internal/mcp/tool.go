@@ -17,6 +17,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
 )
 
@@ -83,10 +84,22 @@ func newTool(m *Manager, s *serverSpec, p *core.MCPPin) (*tool, error) {
 	}, nil
 }
 
-// secretNames lists the vault names a server's header references use.
+// secretNames lists the vault names and aws-sm references a server's
+// header references use.
 func secretNames(headers map[string]string) []string {
 	var out []string
+	add := func(name string) {
+		if name != "" && !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
 	for _, v := range headers {
+		// An ARN's ":secret:" belongs to its aws-sm reference.
+		aws, _ := config.FindAWSSecretRefs(v)
+		for i := len(aws) - 1; i >= 0; i-- {
+			add(aws[i].Ref.String())
+			v = v[:aws[i].Start] + " " + v[aws[i].End:]
+		}
 		_, rest, ok := strings.Cut(v, "secret:")
 		if !ok {
 			continue
@@ -95,9 +108,7 @@ func secretNames(headers map[string]string) []string {
 		if end < 0 {
 			end = len(rest)
 		}
-		if end > 0 && !slices.Contains(out, rest[:end]) {
-			out = append(out, rest[:end])
-		}
+		add(rest[:end])
 	}
 	slices.Sort(out)
 	return out

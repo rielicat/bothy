@@ -26,6 +26,10 @@ type VaultStatus struct {
 	KEKID     string `json:"kek_id"`     // sha256(kek)[:8] hex
 	Colocated bool   `json:"colocated"`  // KEK file on the same volume as the DB
 	Secrets   int    `json:"secrets"`
+	// External counts the configured references to cloud secret stores by
+	// source ("aws-sm"). Their values are fetched when used, kept in memory
+	// for secrets.aws.cache_ttl and never stored.
+	External map[string]int `json:"external,omitempty"`
 }
 
 // Redactor masks exact secret values (and their base64, base64url, hex and
@@ -58,12 +62,16 @@ type Vault interface {
 	Get(ctx context.Context, sc Scope, name, purpose string) (Secret, error)
 	// Resolve handles config references "secret:<name>" (user scope, then global;
 	// u == "" => global only, used for providers, channels, search and space
-	// principals). A ref embedded in a header value ("Bearer secret:x") resolves
-	// to the whole header with the ref substituted. Plain strings are rejected
-	// for secret-typed fields.
+	// principals) and "aws-sm:<secret id or ARN>[#<json key>]" (AWS Secrets
+	// Manager, read with the server's AWS credentials; company-wide, so the
+	// same for every u). A ref embedded in a header value ("Bearer secret:x")
+	// resolves to the whole header with the ref substituted. Plain strings are
+	// rejected for secret-typed fields. Every use is audited as secret.use.
 	Resolve(ctx context.Context, ref string, u UserID, purpose string) (Secret, error)
 	Delete(ctx context.Context, sc Scope, name string, by UserID) error
-	List(ctx context.Context, sc Scope) ([]SecretMeta, error) // names, source, hint; never values
+	// List returns names, source and hint, never values; the global scope also
+	// lists the configuration's aws-sm references (source "aws-sm", no hint).
+	List(ctx context.Context, sc Scope) ([]SecretMeta, error)
 	Unseal(ctx context.Context, passphrase []byte) error
 	RotateKEK(ctx context.Context, by UserID) error
 	Status() VaultStatus

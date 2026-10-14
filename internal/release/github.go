@@ -30,7 +30,8 @@ var (
 	shaRe  = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
 )
 
-// SecretResolver resolves "secret:<name>" references (core.Vault does).
+// SecretResolver resolves "secret:<name>" and "aws-sm:<secret>" references
+// (core.Vault does).
 type SecretResolver interface {
 	Resolve(ctx context.Context, ref string, u core.UserID, purpose string) (core.Secret, error)
 }

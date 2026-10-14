@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
 )
 
@@ -42,6 +43,10 @@ func (c tokenCheck) Run(ctx context.Context) []core.Finding {
 		return nil
 	}
 	sec, err := c.s.d.Vault.Resolve(ctx, r.GitHubToken, "", "doctor:releases")
+	if err != nil && strings.HasPrefix(r.GitHubToken, config.AWSSecretPrefix) {
+		f.Detail = which + ", and releases.github_token cannot be read from AWS Secrets Manager: " + err.Error()
+		return []core.Finding{f}
+	}
 	if err != nil || strings.TrimSpace(sec.Reveal()) == "" {
 		name := strings.TrimPrefix(r.GitHubToken, "secret:")
 		f.Detail = which + ", and releases.github_token refers to the secret " + name + ", which is not in the vault. Connect the repositories in Settings → Connections → GitHub, or add a GitHub token with Actions read and write on them."

@@ -489,3 +489,43 @@ func TestBedrockUsesTheCredentialsClient(t *testing.T) {
 		}
 	}
 }
+
+// TestAWSCredentialsForTheVault: the chain the vault's aws-sm references
+// use is a bedrock provider's: credential_process refused, container
+// credentials only through the credentials client, then cached.
+func TestAWSCredentialsForTheVault(t *testing.T) {
+	h := newHarness(t, nil)
+	home := os.Getenv("HOME")
+	if err := os.MkdirAll(filepath.Join(home, ".aws"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := "[profile tool]\ncredential_process = /usr/local/bin/aws-vault export --format=json dev\n"
+	if err := os.WriteFile(filepath.Join(home, ".aws", "config"), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := h.f.AWSCredentials("vault:aws-sm", "us-west-2", "tool").Describe(ctx); err == nil || !strings.Contains(err.Error(), "credential_process") {
+		t.Fatalf("credential_process: %v", err)
+	}
+
+	t.Setenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "/v2/credentials/task")
+	h.f.d.Env = func() []string { return []string{"AWS_CONTAINER_CREDENTIALS_RELATIVE_URI=/v2/credentials/task"} }
+	calls := 0
+	h.f.d.Credentials = func(rel, _ string) *http.Client {
+		if rel != "/v2/credentials/task" {
+			t.Errorf("relative URI %q", rel)
+		}
+		return &http.Client{Transport: hostRouter{"169.254.170.2": http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			calls++
+			_, _ = w.Write([]byte(`{"AccessKeyId":"AKIDTASK","SecretAccessKey":"task-secret","Token":"t","Expiration":"2099-01-01T00:00:00Z"}`))
+		})}}
+	}
+	chain := h.f.AWSCredentials("vault:aws-sm", "us-west-2", "")
+	src, err := chain.Describe(ctx)
+	if err != nil || src != "ECS task role" || calls != 1 {
+		t.Fatalf("container credentials: %q %v (calls %d)", src, err, calls)
+	}
+	if creds, err := chain.Retrieve(ctx); err != nil || creds.AccessKeyID != "AKIDTASK" || calls != 1 {
+		t.Fatalf("cached credentials: %+v %v (calls %d)", creds, err, calls)
+	}
+}

@@ -123,7 +123,8 @@ WantedBy=multi-user.target
 
   Every container on a Docker network can then reach the role. On this host
   that is the gateway and, if enabled, SearXNG; sandboxd and the boxes have no
-  network. Keep the role to the Bedrock policy below.
+  network. Keep the role to the Bedrock policy below and, if Bothy reads
+  secrets from Secrets Manager, the secrets policy.
 - Turn on unattended OS updates.
 
 ## Models
@@ -159,9 +160,15 @@ AWS Marketplace permissions
 Do that once as an admin in the Bedrock console, so Bothy's role needs nothing
 beyond the policy above.
 
+**Provider keys in Secrets Manager.** With the instance profile also allowed
+[`iam-secrets-policy.json`](../../deploy/aws/iam-secrets-policy.json), API keys
+and channel tokens can stay in Secrets Manager:
+`"api_key": "aws-sm:bothy/providers#anthropic_api_key"` in the provider entry
+above, plus `BOTHY_SECRETS__AWS__REGION` ([how](README.md#platform-secrets)).
+
 **Elsewhere,** put provider API keys in the vault (Settings → Models), or for
-Bedrock from outside AWS mount a read-only `~/.aws` into the gateway and set
-`AWS_PROFILE`.
+Bedrock or Secrets Manager from outside AWS mount a read-only `~/.aws` into the
+gateway and set `AWS_PROFILE`.
 
 ## Reach the UI
 

@@ -16,7 +16,8 @@ import (
 //   - PutConnection with an id that is not ghc_<26> => ErrInvalid; it stamps
 //     CreatedAt (when zero) and UpdatedAt, and an empty Status becomes "ok".
 //   - An App connection needs AppID and InstallationID > 0, and SecretRef
-//     must be "secret:<name>" (CHECKs) => ErrInvalid.
+//     must be "secret:<name>" or "aws-sm:<secret>" (CHECKs, migration 0008);
+//     only a "secret:" one may be OwnsSecret => ErrInvalid.
 //   - PutRepo keeps CreatedAt of an existing row, takes GitHub's new
 //     spelling of owner/name, and with an unknown connection => ErrInvalid
 //     (foreign key). LastIndexedSHA is never stored (index state is per
@@ -123,6 +124,8 @@ func ghConnConstraints(t *testing.T, ctx context.Context, s core.GitHubStore) {
 		func(c *core.GitHubConnection) { c.Auth, c.AppID, c.InstallationID = core.GitHubApp, "", 42 },
 		func(c *core.GitHubConnection) { c.Auth, c.AppID, c.InstallationID = core.GitHubApp, "1", 0 },
 		func(c *core.GitHubConnection) { c.Status = "broken" },
+		func(c *core.GitHubConnection) { c.SecretRef = "aws-sm:" },
+		func(c *core.GitHubConnection) { c.SecretRef, c.OwnsSecret = "aws-sm:prod/github#token", true },
 	}
 	for i, mut := range bad {
 		c := ghConn(core.GitHubPAT)
@@ -133,6 +136,12 @@ func ghConnConstraints(t *testing.T, ctx context.Context, s core.GitHubStore) {
 	}
 	if err := s.DeleteConnection(ctx, core.NewID(core.PrefixGitHubConn)); !errors.Is(err, core.ErrNotFound) {
 		t.Errorf("delete missing: %v", err)
+	}
+	aws := ghConn(core.GitHubPAT)
+	aws.SecretRef = "aws-sm:prod/github#token"
+	ghPutConn(t, ctx, s, aws)
+	if got, err := s.Connection(ctx, aws.ID); err != nil || got.SecretRef != aws.SecretRef || got.OwnsSecret {
+		t.Errorf("aws-sm connection = %+v %v", got, err)
 	}
 }
 

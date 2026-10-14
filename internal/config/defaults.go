@@ -31,7 +31,8 @@ func defaults() *Config {
 			PairingTTL:        d(15 * time.Minute),
 			SetupTokenTTL:     d(24 * time.Hour),
 		},
-		Vault: VaultCfg{KEK: "auto"},
+		Vault:   VaultCfg{KEK: "auto"},
+		Secrets: SecretsCfg{AWS: SecretsAWS{CacheTTL: d(5 * time.Minute)}},
 		Agent: Agent{
 			PersonaFile:       "SOUL.md",
 			BusyMode:          "steer",

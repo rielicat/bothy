@@ -57,7 +57,15 @@ thirdparty_ok() {
 	config | e2e) case "$3" in go.yaml.in/yaml/v3*) return 0 ;; esac ;;
 	# conformance.Tool compiles tool schemas with the validator M4 uses.
 	testkit) case "$3" in go.yaml.in/yaml/v3* | github.com/google/jsonschema-go/*) return 0 ;; esac ;;
-	M1) case "$3" in modernc.org/sqlite* | modernc.org/libc* | golang.org/x/crypto/*) return 0 ;; esac ;;
+	M1)
+		case "$3" in modernc.org/sqlite* | modernc.org/libc* | golang.org/x/crypto/*) return 0 ;; esac
+		# aws-sm references: the credential type and SigV4 only; the chain
+		# itself is the bedrock provider's, wired in cmd/bothy.
+		case "$1:$3" in
+		internal/vault/awssm:github.com/aws/aws-sdk-go-v2/aws | internal/vault/awssm:github.com/aws/aws-sdk-go-v2/aws/signer/v4) return 0 ;;
+		internal/vault:github.com/aws/aws-sdk-go-v2/aws) [ "$4" = test ] && return 0 ;;
+		esac
+		;;
 	# The AWS SDK only for credential resolution, SigV4 and event-stream
 	# framing (v0.2 brief §2); the Converse mapping is hand-written.
 	M2)

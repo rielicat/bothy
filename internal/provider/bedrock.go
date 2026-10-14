@@ -67,6 +67,15 @@ func (f *Facade) awsChain(name, region, profile string, imdsRegion bool) *bedroc
 	})
 }
 
+// AWSCredentials is the AWS default credential chain of a bedrock
+// provider, for the gateway's other AWS client (the vault's aws-sm
+// references): the same egress rules for credential services, instance and
+// container credentials, the same credential_process refusal and renewal
+// window. name labels its egress connections.
+func (f *Facade) AWSCredentials(name, region, profile string) *bedrock.Chain {
+	return f.awsChain(name, region, profile, false)
+}
+
 // httpClientHosts is httpClient for a destination with several base URLs
 // (Bedrock's runtime and control-plane endpoints).
 func (f *Facade) httpClientHosts(name string, bases []string, allowPrivate bool) (*http.Client, error) {

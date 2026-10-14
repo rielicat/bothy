@@ -2,8 +2,10 @@
 
 Four recipes, one image. Each runs the signed release image
 `ghcr.io/rielicat/bothy` (uid 65532, port 8080, data under `/data`) and keeps
-the same rules: secrets live in Bothy's vault, the vault key comes from the
-platform's secret store as a file, and the web UI is reached privately.
+the same rules: provider keys and channel tokens stay in the platform's secret
+store, where Bothy reads them itself ([below](#platform-secrets)), or in
+Bothy's vault, whose key comes from that store as a file; and the web UI is
+reached privately.
 
 | Recipe | Shell, Python, MCP stdio | Vault key (KEK) | Private access | Use it when |
 |---|---|---|---|---|
@@ -50,7 +52,49 @@ In the cloud:
 **Cloud credentials.** On AWS, use the platform role: the EC2 instance role,
 the ECS task role, or IRSA on EKS. Bothy resolves them with the standard AWS
 credential chain and stores nothing. Scope the role to the models you use
-([`deploy/aws/iam-bedrock-policy.json`](../../deploy/aws/iam-bedrock-policy.json)).
+([`deploy/aws/iam-bedrock-policy.json`](../../deploy/aws/iam-bedrock-policy.json))
+and the secrets it may read
+([`deploy/aws/iam-secrets-policy.json`](../../deploy/aws/iam-secrets-policy.json)).
+
+<a id="platform-secrets"></a>**Platform secrets instead of the vault.** Keep
+the provider keys, channel tokens, search keys, MCP headers and GitHub tokens
+in AWS Secrets Manager, as your other services do, and reference them where
+Bothy's configuration takes a secret: `aws-sm:<name or ARN>`, with
+`#<json key>` for one value of a JSON secret. Bothy fetches them with the
+platform role when they are first used, through its egress control to
+`secretsmanager.<region>.amazonaws.com` only, keeps them in memory for
+`secrets.aws.cache_ttl` (5 minutes) and never writes them to disk, the
+database or a backup. Rotation needs no restart: a new version is read when
+the cached value expires. Admins see the references in Settings → Vault
+(source `aws-sm`, no hint), `bothy doctor` checks the role resolves
+(`secrets.aws_access`), and each use is audited as `secret.use` with the
+reference, never the value.
+
+```sh
+aws secretsmanager create-secret --name bothy/providers \
+  --secret-string file://providers.json   # {"anthropic_api_key": "...", "slack_bot_token": "..."}
+```
+
+```yaml
+secrets:
+  aws: {region: us-east-1}          # BOTHY_SECRETS__AWS__REGION=us-east-1
+providers:
+  - {id: anthropic, type: anthropic, api_key: "aws-sm:bothy/providers#anthropic_api_key"}
+channels:
+  slack: {enabled: true, bot_token: "aws-sm:bothy/providers#slack_bot_token", app_token: "aws-sm:bothy/providers#slack_app_token"}
+```
+
+[`iam-secrets-policy.json`](../../deploy/aws/iam-secrets-policy.json) allows `secretsmanager:GetSecretValue` on `bothy/*`. Secrets
+encrypted with the default `aws/secretsmanager` key need nothing more; for a
+customer managed key also allow `kms:Decrypt` on that key with the condition
+`"kms:ViaService": "secretsmanager.<region>.amazonaws.com"`. Where the VPC
+reaches Secrets Manager through an interface endpoint with private DNS, set
+`secrets.aws.allow_private: true` (`BOTHY_SECRETS__AWS__ALLOW_PRIVATE=true`):
+Bothy refuses private addresses for public service names otherwise. The vault
+still exists and its key still matters for whatever is saved in the UI (a key
+pasted in setup, a GitHub connection's token), so keep the KEK in the secret
+store as below; with every secret referenced this way, a lost KEK loses
+nothing that the secret store does not hold.
 
 **The sandbox.** `bothy sandboxd` is the only process that holds the container
 runtime socket, which is equivalent to root on that host. It has no network,
@@ -113,7 +157,8 @@ step 7).
 
 `bothy backup` writes a consistent tarball to `<data>/backups`: a snapshot of
 the database plus memory files, `SOUL.md` and the config files. It never
-contains the KEK or the workspaces. Restore by stopping Bothy and unpacking the
+contains the KEK, the workspaces or the values of `aws-sm` references, only
+the references. Restore by stopping Bothy and unpacking the
 tarball into the data directory. The image is distroless, so run the binary by
 path:
 
