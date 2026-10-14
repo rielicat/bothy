@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { lineDiff } from './diff';
 import { bytes, countdown, duration, estimate, expiresIn, fullTime, ms, money, parseGoDuration, plural, prettyGoDuration, relTime, tokens, usd } from './format';
-import { strength } from './password';
-import { windowNote } from './providers';
 
 describe('format', () => {
   it('formats micro-dollars', () => {
@@ -156,18 +154,5 @@ describe('helpers', () => {
   it('diffs lines', () => {
     expect(lineDiff('a\nb\nc', 'a\nc\nd')).toBe(' a\n-b\n c\n+d');
     expect(lineDiff('', 'x')).toBe('+x');
-  });
-
-  it('rates passwords locally without a word list', () => {
-    expect(strength('short').score).toBe(0);
-    expect(strength('aaaaaaaaaaaaaa').score).toBeLessThanOrEqual(1);
-    expect(strength('Granite-River-42-Lantern').score).toBe(4);
-  });
-
-  it('labels small context windows', () => {
-    expect(windowNote(200_000)).toBe('');
-    expect(windowNote(16_384)).toBe('compact mode');
-    expect(windowNote(12_000)).toBe('degraded');
-    expect(windowNote(4096)).toBe('text-only');
   });
 });

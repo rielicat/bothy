@@ -1,6 +1,4 @@
 import type { Snippet } from 'svelte';
-import { toast } from '../../components/ui/toast.svelte';
-import { errorText } from '../api/client';
 
 export type ThemePref = 'system' | 'light' | 'dark';
 
@@ -65,38 +63,3 @@ export function topBarActions(s: Snippet): () => void {
   };
 }
 
-// v0.1 screens still report through these; they forward to the v0.2 toast,
-// errors included, so no failure goes unseen until each screen's chunk
-// replaces it with an inline message (§14.4). C10 removes them.
-export const toasts = {
-  push(text: string, kind: 'ok' | 'error' | 'info' = 'info', ttl = kind === 'error' ? 8000 : 4000) {
-    toast(text, { duration: ttl });
-  },
-  ok(text: string) {
-    toast(text);
-  },
-  error(e: unknown) {
-    toast(errorText(e), { duration: 8000 });
-  },
-};
-
-// Runs fn, reports a failure as a toast and says whether it succeeded.
-export async function attempt(fn: () => Promise<unknown>, okText?: string): Promise<boolean> {
-  try {
-    await fn();
-    if (okText) toasts.ok(okText);
-    return true;
-  } catch (e) {
-    toasts.error(e);
-    return false;
-  }
-}
-
-export async function copyText(text: string, what = 'Copied.') {
-  try {
-    await navigator.clipboard.writeText(text);
-    toasts.ok(what);
-  } catch {
-    toasts.push("Couldn't copy. Select the text and copy it yourself.", 'error');
-  }
-}

@@ -1,7 +1,6 @@
 import { api, ApiError } from './api/client';
 import type { ConfigPatchResp, ConfigView, Entry, FieldError, Source } from './api/types.gen';
 import { ago } from './format';
-import { toasts } from './stores/ui.svelte';
 
 export interface SchemaNode {
   type?: string | string[];
@@ -90,34 +89,6 @@ class Config {
     return node;
   }
 
-  // Returns the field errors (also stored per path) or null on success.
-  async set(changes: Record<string, unknown>, quiet = false): Promise<FieldError[] | null> {
-    for (const p of Object.keys(changes)) delete this.errors[p];
-    try {
-      const r = await api.patch<ConfigPatchResp>('/api/config', { set: changes });
-      await this.load(true);
-      if (r?.restart_required?.length) toasts.push(`Saved. Restart Bothy to apply: ${r.restart_required.join(', ')}`, 'info', 8000);
-      else if (!quiet) toasts.ok('Saved');
-      return null;
-    } catch (e) {
-      if (e instanceof ApiError && e.fields.length) {
-        for (const f of e.fields) this.errors[f.path] = f.message;
-        return e.fields;
-      }
-      toasts.error(e);
-      return [{ path: '', source: { layer: 'ui' }, message: String(e) }];
-    }
-  }
-
-  async reset(path: string) {
-    try {
-      await this.#delete(path);
-      toasts.ok('Reset to the value from the next layer');
-    } catch (e) {
-      toasts.error(e);
-    }
-  }
-
   // {path...} takes the dotted path verbatim; keys such as model refs may hold "/".
   async #delete(path: string) {
     await api.del(`/api/config/${path.split('/').map(encodeURIComponent).join('/')}`);
@@ -125,8 +96,8 @@ class Config {
   }
 
   /**
-   * The v0.2 save: never toasts. The caller shows "Saved" next to the row and
-   * any error under its control (docs/design/ui.md §11.1).
+   * Never toasts: the caller shows "Saved" next to the row and any error
+   * under its control (docs/design/ui.md §11.1).
    */
   async save(changes: Record<string, unknown>): Promise<SaveResult> {
     for (const p of Object.keys(changes)) delete this.errors[p];

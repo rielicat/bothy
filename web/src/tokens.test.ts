@@ -193,13 +193,10 @@ describe('design tokens (§3.1)', () => {
     expect(overridden.sort()).toEqual(own.sort());
   });
 
-  it('points every legacy alias at a v0.2 token', () => {
-    const aliases = Object.entries(light).filter(([, v]) => v.startsWith('var('));
-    expect(aliases.length).toBeGreaterThan(0);
-    for (const [name, v] of aliases) {
-      const target = /^var\(--color-([a-z0-9-]+)\)$/.exec(v)?.[1];
-      expect(target && target in palette.light, `--color-${name}: ${v}`).toBe(true);
-    }
+  it("resets Tailwind's colours, sizes, radii and shadows so only these tokens compile", () => {
+    const theme = block(/@theme\s*\{/);
+    for (const ns of ['color', 'text', 'radius', 'shadow']) expect(theme, `--${ns}-*: initial`).toMatch(new RegExp(`--${ns}-\\*:\\s*initial;`));
+    expect(Object.entries(light).filter(([, v]) => v.startsWith('var(')), 'legacy aliases').toEqual([]);
   });
 
   it('gives floating layers their own dark shadow', () => {

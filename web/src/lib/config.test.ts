@@ -33,23 +33,15 @@ describe('config store', () => {
   });
 
   it('sends changes as a dotted-path patch and reloads', async () => {
-    expect(await config.set({ 'budgets.daily_usd': 7 }, true)).toBeNull();
+    expect(await config.save({ 'budgets.daily_usd': 7 })).toEqual({ ok: true, restart: [] });
     expect(calls.find((c) => c.method === 'PATCH')?.body).toBe('{"set":{"budgets.daily_usd":7}}');
     expect(config.value('budgets.daily_usd')).toBe(7);
     expect(config.entry('budgets.daily_usd')?.source.layer).toBe('ui');
   });
 
   it('keeps field errors from a 400 next to the path', async () => {
-    const errs = await config.set({ 'budgets.daily_usd': -1 }, true);
-    expect(errs?.[0].path).toBe('budgets.daily_usd');
+    await config.save({ 'budgets.daily_usd': -1 });
     expect(config.errors['budgets.daily_usd']).toMatch(/must be 0 or more/);
-  });
-
-  it('resets a UI override to the next layer', async () => {
-    await config.reset('policy.preset');
-    expect(calls.at(-2)?.method).toBe('DELETE');
-    expect(calls.at(-2)?.url).toBe('/api/config/policy.preset');
-    expect(config.value('policy.preset')).toBe('careful');
   });
 
   it('labels every source layer', () => {

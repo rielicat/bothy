@@ -187,12 +187,3 @@ export function providerEntry(def: ProviderDef, o: { base?: string; key?: boolea
   if (o.region) entry.region = o.region;
   return entry;
 }
-
-/** @deprecated v0.1 window labels; only ChainEditor (C7) and format.test.ts still use them, and both go before C10. */
-export function windowNote(context: number): string {
-  if (!context) return '';
-  if (context < 8192) return 'text-only';
-  if (context < 16384) return 'degraded';
-  if (context < 32768) return 'compact mode';
-  return '';
-}

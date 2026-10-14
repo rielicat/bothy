@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
   import Icon from '../../../components/Icon.svelte';
+  import PauseDialog from '../../../components/shell/PauseDialog.svelte';
   import { Button, CodeBlock, Disclosure, LinkButton, OptionList, Page, Select, SettingsRow, SettingsSection, Switch, toast, type Option } from '../../../components/ui';
   import { api } from '../../../lib/api/client';
   import type { DoctorReport, Finding, Grant, Me, SandboxInfo, SecretMeta, VaultStatus } from '../../../lib/api/types.gen';
@@ -12,11 +13,10 @@
   import LinkRow from './LinkRow.svelte';
   import { pauseNote, settingsBack } from './page.svelte';
   import PageState from './PageState.svelte';
-  import PauseDialog from './PauseDialog.svelte';
   import { chatChanges, chatChoice, scheduledChanges, scheduledChoice, type ApprovalConfig } from './timeouts';
   import UnlockDialog from './UnlockDialog.svelte';
 
-  // Not in types.gen.ts yet: who paused Bothy and when (flagged for the server and C10).
+  // Not in types.gen.ts yet: who paused Bothy and when (docs/design/ui.md §17).
   type PauseInfo = { paused_at?: string; paused_by_name?: string };
 
   const uid = $props.id();

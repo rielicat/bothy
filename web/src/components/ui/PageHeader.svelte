@@ -32,7 +32,8 @@
   <!-- No subtitle. Actions sit on the title's baseline and wrap under it when they don't fit. -->
   <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-3">
     <h1 class="page-title min-w-0 break-words" tabindex="-1">{title}</h1>
-    {#if actions}<div class="flex shrink-0 items-center gap-2">{@render actions()}</div>{/if}
+    <!-- An icon-only ⋯ has no text baseline, so it would push the title down; it centres instead. -->
+    {#if actions}<div class="flex shrink-0 items-center gap-2 [&:not(:has(.btn:not(.btn-icon)))]:self-center">{@render actions()}</div>{/if}
   </div>
   {#if tabs}<Tabs class="mt-4" {tabs} current={currentTab} />{/if}
 </div>

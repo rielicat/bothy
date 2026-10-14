@@ -1,5 +1,6 @@
-// Grants in plain words for "Allowed without asking" (§11.6). A local helper
-// until C4's describeGrant in lib/grants.ts lands; C10 keeps one of the two.
+// Stored grants in plain words for "Allowed without asking" (§11.6).
+// lib/grants.ts describes the grant an action would create; this reads the
+// Grant records themselves.
 import type { Grant, Principal } from '../../../lib/api/types.gen';
 import { channelName } from '../../../lib/labels';
 

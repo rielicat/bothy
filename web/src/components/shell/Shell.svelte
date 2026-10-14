@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick, untrack, type Component, type Snippet } from 'svelte';
+  import { tick, untrack, type Snippet } from 'svelte';
   import { router } from '../../lib/router.svelte';
   import { session } from '../../lib/stores/session.svelte';
   import { shell } from '../../lib/stores/ui.svelte';
@@ -14,16 +14,12 @@
   import SearchDialog from './SearchDialog.svelte';
   import ShortcutsDialog from './ShortcutsDialog.svelte';
   import Sidebar from './Sidebar.svelte';
+  import UnlockScreen from '../../screens/settings/security/UnlockScreen.svelte';
   import TopBar from './TopBar.svelte';
-  import UnlockFallback from './UnlockFallback.svelte';
 
   // The app frame (docs/design/ui.md §6.1): no app-level header, the document
   // scrolls, the sidebar is sticky with its own scroll.
   let { children }: { children: Snippet } = $props();
-
-  // C9 owns the real unlock screen; until it lands the shell's fallback stands in.
-  const owned = Object.values(import.meta.glob<Component<{ onunlocked?: () => void }>>('../../screens/settings/security/UnlockScreen.svelte', { eager: true, import: 'default' }));
-  const Unlock = owned[0] ?? UnlockFallback;
 
   const sealed = $derived(session.isAdmin && session.banners.some((b) => b.code === 'vault_sealed'));
   const inSettings = $derived(router.path === '/settings' || router.path.startsWith('/settings/'));
@@ -113,7 +109,7 @@
     <ConnectionStatus />
     <BannerHost hide={blocking ? ['vault_sealed'] : []} />
     {#if blocking}
-      <Unlock onunlocked={unlocked} />
+      <UnlockScreen onunlocked={unlocked} />
     {:else}
       {@render children()}
     {/if}

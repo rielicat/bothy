@@ -1,11 +1,14 @@
 @import 'tailwindcss' source('./');
-/* v0.1 component classes on the new tokens; removed with the aliases below in C10. */
-@import './legacy.css';
 
 /* theme.js resolves "system" into data-theme before first paint, so no media-query branch is needed. */
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
 
 @theme {
+  --color-*: initial;
+  --text-*: initial;
+  --radius-*: initial;
+  --shadow-*: initial;
+
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 
@@ -37,33 +40,6 @@
   --color-diff-add: #eaf4ec;
   --color-chart: #8f8a80;
   --color-scrim: rgb(20 19 17 / 0.4);
-
-  /* Legacy aliases for v0.1 screens (§18.3 F1). They follow the theme because both ends live on :root. */
-  --color-fg: var(--color-text);
-  --color-sunken: var(--color-subtle);
-  --color-line: var(--color-border);
-  --color-line-strong: var(--color-control);
-  --color-accent-soft: var(--color-accent-subtle);
-  --color-ok: var(--color-accent-text);
-  --color-ok-soft: var(--color-accent-subtle);
-  --color-warn: var(--color-warning-text);
-  --color-warn-soft: var(--color-warning-subtle);
-  --color-bad: var(--color-danger-text);
-  --color-bad-soft: var(--color-danger-subtle);
-  --color-info: var(--color-accent-text);
-  --color-info-soft: var(--color-accent-subtle);
-  --color-risk-read: var(--color-muted);
-  --color-risk-local: var(--color-muted);
-  --color-risk-send: var(--color-muted);
-  --color-risk-irrev: var(--color-muted);
-  --color-risk-money: var(--color-muted);
-  --color-risk-admin: var(--color-muted);
-  --color-r1: var(--color-chart);
-  --color-r2: var(--color-chart);
-  --color-r3: var(--color-chart);
-  --color-r4: var(--color-chart);
-  --color-r5: var(--color-chart);
-  --color-r6: var(--color-chart);
 
   --text-caption: 0.75rem;
   --text-caption--line-height: 1rem;
