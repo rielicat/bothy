@@ -285,7 +285,7 @@ func TestBedrockCredentialsCheck(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("findings %+v", got)
 	}
-	if got[0].Severity != core.SevInfo || got[0].Title != "Provider aws signs in with access keys in environment variables" {
+	if got[0].Severity != core.SevInfo || got[0].Title != "Provider aws signs in with access keys in environment variables" || got[0].Fix != "" {
 		t.Fatalf("ok finding %+v", got[0])
 	}
 	if got[1].Severity != core.SevHigh || got[1].Title != "Provider sso cannot get AWS credentials" ||

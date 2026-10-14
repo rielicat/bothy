@@ -338,7 +338,7 @@ func (c bedrockCredentialsCheck) Run(ctx context.Context) []core.Finding {
 		}
 		f.Title = "Provider " + p.ID + " signs in with " + src
 		f.Detail = "Bedrock in " + p.Region + ". Bothy never stores or shows these credentials; they are resolved when needed and kept in memory only."
-		f.Severity = core.SevInfo
+		f.Severity, f.Fix = core.SevInfo, ""
 		out = append(out, f)
 	}
 	return out

@@ -61,6 +61,7 @@ providers:                        # examples; the wizard writes these. api_key a
     type: bedrock                 # Amazon Bedrock: the AWS default credential chain (role, SSO profile, env), never an api_key
     region: us-west-2             # required for bedrock
     profile: ""                   # shared-config profile; "" = AWS_PROFILE or the default chain
+    discover: true                # ListInferenceProfiles + ListFoundationModels: the ids this account can invoke
     enabled: false
 
 models:                           # example chains: "<provider id>/<model>", in fallback order

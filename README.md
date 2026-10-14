@@ -191,7 +191,7 @@ never their values.
 
 ```yaml
 providers:
-  - {id: bedrock, type: bedrock, region: us-west-2}          # profile: optional shared-config profile
+  - {id: bedrock, type: bedrock, region: us-west-2, discover: true}   # profile: optional shared-config profile
 models:
   main: [bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0]
 ```
