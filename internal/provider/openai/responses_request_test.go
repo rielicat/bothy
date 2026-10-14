@@ -57,10 +57,29 @@ func TestResponsesRequestShape(t *testing.T) {
 
 	// A model known not to reason is not asked for encrypted reasoning, and
 	// without tools there is no tool_choice.
-	c := NewResponses(respOpts("openai"), func(m string) bool { return m == "gpt-4.1" })
-	got = string(marshalReq(t, c.buildRequest(&core.Request{Model: "gpt-4.1", Messages: []core.Message{userText("hi")}})))
-	if strings.Contains(got, "include") || strings.Contains(got, "tool_choice") || strings.Contains(got, "max_output_tokens") {
+	catalog := func(m string) (bool, bool) {
+		switch m {
+		case "gpt-4.1":
+			return false, true
+		case "gpt-6-astra":
+			return true, true
+		}
+		return false, false
+	}
+	c := NewResponses(respOpts("openai"), catalog)
+	got = string(marshalReq(t, c.buildRequest(&core.Request{Model: "gpt-4.1", Temperature: &temp, Messages: []core.Message{userText("hi")}})))
+	if strings.Contains(got, "include") || strings.Contains(got, "tool_choice") || strings.Contains(got, "max_output_tokens") ||
+		!strings.Contains(got, `"temperature":0.2`) {
 		t.Fatalf("request %s", got)
+	}
+	// A model the catalog knows reasons gets no temperature; an unknown one
+	// keeps it until it refuses.
+	got = string(marshalReq(t, c.buildRequest(&core.Request{Model: "gpt-6-astra", Temperature: &temp, Messages: []core.Message{userText("hi")}})))
+	if strings.Contains(got, "temperature") || strings.Contains(got, "top_p") || !strings.Contains(got, "include") {
+		t.Fatalf("reasoning model request %s", got)
+	}
+	if got := c.buildRequest(&core.Request{Model: "ft:custom", Temperature: &temp}); got.Temperature == nil || len(got.Include) != 1 {
+		t.Fatalf("unknown model request %+v", got)
 	}
 	for _, choice := range []string{"", "auto", "none"} {
 		b := c.buildRequest(&core.Request{Tools: []core.ToolDef{{Name: "x"}}, ToolChoice: choice})
@@ -133,6 +152,46 @@ func TestResponsesPrefixByteStable(t *testing.T) {
 			}
 		}
 		prev = r
+	}
+}
+
+// The session's cache key goes out as prompt_cache_key, and with the newest
+// items removed every later body serialises to exactly the earlier one: key,
+// instructions, tools and history all keep their bytes.
+func TestResponsesCacheKeyPrefixStable(t *testing.T) {
+	c := NewResponses(respOpts("openai"), nil)
+	temp := 0.3
+	base := core.Request{Model: "gpt-6-astra", System: []core.SystemBlock{{Text: "S1"}, {Text: "S2", CacheBreak: true}},
+		Tools: []core.ToolDef{{Name: "fs_read", Schema: json.RawMessage(`{"type":"object"}`)}}, ToolChoice: "auto",
+		MaxTokens: 4096, Temperature: &temp, CacheKey: "bothy-0123456789abcdef01234567"}
+	turn1 := []core.Message{userText("Compare a and b.")}
+	turn2 := append(append([]core.Message(nil), turn1...), assistantTurn("openai"), toolResults("call_a", "call_b"))
+	turn3 := append(append([]core.Message(nil), turn2...),
+		core.Message{Role: core.MsgAssistant, Parts: []core.Part{{Type: core.PartText, Text: "They match.", Sig: `openai:{"id":"msg_2","phase":"final_answer"}`, SigKind: SigResponses}}},
+		userText("Thanks."))
+	var prev []byte
+	prevItems := 0
+	for i, h := range [][]core.Message{turn1, turn2, turn3} {
+		r := base
+		r.Messages = h
+		body := c.buildRequest(&r)
+		if body.PromptCacheKey != base.CacheKey {
+			t.Fatalf("turn %d: prompt_cache_key %q", i+1, body.PromptCacheKey)
+		}
+		if i > 0 {
+			cut := body
+			cut.Input = body.Input[:prevItems]
+			if got := marshalReq(t, cut); !bytes.Equal(got, prev) {
+				t.Fatalf("turn %d changed the prefix:\n%s\n%s", i+1, got, prev)
+			}
+		}
+		prev, prevItems = marshalReq(t, body), len(body.Input)
+	}
+	if !strings.Contains(string(prev), `"prompt_cache_key":"bothy-0123456789abcdef01234567"`) {
+		t.Fatalf("body %s", prev)
+	}
+	if b := marshalReq(t, c.buildRequest(&core.Request{Model: "gpt-6-astra"})); strings.Contains(string(b), "prompt_cache_key") {
+		t.Fatalf("empty key sent: %s", b)
 	}
 }
 

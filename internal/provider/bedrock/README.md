@@ -27,9 +27,12 @@ in a tool loop Nova's tail point follows the latest message ending in
 text); at most four, the earliest system ones dropped first. Tool choice
 `required` is `any`, except on the Claude models that refuse a forced choice
 (Opus 5.5, Sonnet 5.5, Fable 5.1, Mythos 5.1), where it degrades to auto;
-`none` leaves the tools out unless the history needs their definitions (then
-auto). A history with tool blocks but no tool definitions renders them as
-text, since Converse refuses `toolUse` without a `toolConfig`. Model ids are
+`none` leaves the tools out (Converse has no "none", and a model offered
+tools may answer with a call alone, which a refine draft cannot use). A
+history with tool blocks but no tool definitions renders them as text, since
+Converse refuses `toolUse` without a `toolConfig`, and the reasoning of a
+message whose calls became text is left out. Such a request shares no cached
+prefix with the tool-using step. Model ids are
 escaped like the SDKs do (`:` and `/` too), so ids, inference-profile ids
 and ARNs all work.
 

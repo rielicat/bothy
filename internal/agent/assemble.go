@@ -40,6 +40,7 @@ type assembler struct {
 	temp     *float64 // /v1 client sampling settings
 	stop     []string
 	extra    int // tokens of messages a refine call appends after the fit
+	cacheKey string
 
 	mu    sync.Mutex
 	built map[core.ModelRef]assembled
@@ -57,6 +58,7 @@ func (r *Runner) newAssembler(rs *runState, hist []histMsg) *assembler {
 		maxOut:   rs.req.MaxOutput,
 		temp:     rs.req.Temperature,
 		stop:     rs.req.Stop,
+		cacheKey: cacheKey(rs.sess.ID),
 		built:    map[core.ModelRef]assembled{},
 	}
 }
@@ -65,7 +67,7 @@ func (r *Runner) newAssembler(rs *runState, hist []histMsg) *assembler {
 // appended to the built request.
 func (a *assembler) withExtra(extra int) *assembler {
 	return &assembler{r: a.r, ws: a.ws, standing: a.standing, s2: a.s2, specs: a.specs, snap: a.snap, hist: a.hist,
-		maxOut: a.maxOut, temp: a.temp, stop: a.stop, extra: extra, built: map[core.ModelRef]assembled{}}
+		maxOut: a.maxOut, temp: a.temp, stop: a.stop, extra: extra, cacheKey: a.cacheKey, built: map[core.ModelRef]assembled{}}
 }
 
 func (a *assembler) result(ref core.ModelRef) (assembled, bool) {
@@ -185,6 +187,7 @@ func (a *assembler) assemble(m core.ModelInfo, load bool) assembled {
 		Temperature: a.temp,
 		Stop:        a.stop,
 		NumCtx:      m.Context,
+		CacheKey:    a.cacheKey,
 	}
 	if len(defs) > 0 {
 		req.ToolsCache, req.ToolChoice = true, "auto"

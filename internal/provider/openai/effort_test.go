@@ -88,7 +88,8 @@ func TestChatToolsRefusedEvenWithReasoningOff(t *testing.T) {
 	var pe *core.ProviderError
 	if !errors.As(err, &pe) || pe.Kind != core.ErrKindInvalidRequest || pe.Status != http.StatusBadRequest ||
 		!strings.HasPrefix(pe.Msg, "Function tools with reasoning_effort") ||
-		!strings.Contains(pe.Msg, `Tools cannot be used over Chat Completions for this model: retrying with reasoning_effort "none" failed too: Unsupported value`) {
+		!strings.Contains(pe.Msg, `Tools cannot be used over Chat Completions for this model: retrying with reasoning_effort "none" failed too: Unsupported value`) ||
+		!errors.Is(err, core.ErrModelUnsupported) {
 		t.Fatalf("%v", err)
 	}
 	if len(srv.Requests()) != 2 || mem.Mode("openai", "gpt-6-sol") != EffortNoTools {
@@ -96,8 +97,15 @@ func TestChatToolsRefusedEvenWithReasoningOff(t *testing.T) {
 	}
 	// Later calls do not ask again.
 	_, err = c.Stream(context.Background(), toolReq(), nil)
-	if !errors.As(err, &pe) || !strings.Contains(pe.Msg, `an earlier retry with reasoning_effort "none" was refused too`) || len(srv.Requests()) != 3 {
+	if !errors.As(err, &pe) || !strings.Contains(pe.Msg, `an earlier retry with reasoning_effort "none" was refused too`) || len(srv.Requests()) != 3 ||
+		!errors.Is(err, core.ErrModelUnsupported) {
 		t.Fatalf("%v after %d requests", err, len(srv.Requests()))
+	}
+	// A refusal for reasoning alone (tools work with it off) is not the
+	// model's inability.
+	if _, err := NewChat(wiretest.Options(wiretest.NewServer(t, refusal(t), wiretest.JSON(http.StatusInternalServerError, []byte(`{"error":{"message":"boom","type":"server_error"}}`))), "openai"), nil).
+		Stream(context.Background(), toolReq(), nil); err == nil || errors.Is(err, core.ErrModelUnsupported) {
+		t.Fatalf("%v", err)
 	}
 }
 

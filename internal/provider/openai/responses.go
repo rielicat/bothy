@@ -22,8 +22,8 @@ import (
 // encrypted reasoning items the previous replies returned, replayed in their
 // original order with the items that followed them.
 type Responses struct {
-	o           wire.Options
-	noReasoning func(model string) bool
+	o         wire.Options
+	reasoning Reasoning
 
 	mu sync.Mutex
 	// staleBefore is when the server last refused to verify replayed
@@ -35,20 +35,33 @@ type Responses struct {
 	// plain holds models that refused encrypted content because they do not
 	// reason (and that the catalog did not know).
 	plain map[string]bool
+	// noTemp holds models that refused a temperature (and that the catalog
+	// did not mark as reasoning).
+	noTemp map[string]bool
 }
 
 var _ core.Provider = (*Responses)(nil)
 
+// Reasoning reports what the model catalog knows about a model: whether it
+// reasons, and whether the catalog lists it at all.
+type Reasoning func(model string) (reasons, known bool)
+
 // NewResponses returns a Responses client; o.Kind is KindOpenAI or
-// KindOpenAICompat. noReasoning (optional) reports models known not to
-// reason, which are not asked for encrypted reasoning.
-func NewResponses(o wire.Options, noReasoning func(model string) bool) *Responses {
-	return &Responses{o: withDefaults(o), noReasoning: noReasoning, plain: map[string]bool{}}
+// KindOpenAICompat. reasoning (optional) is the catalog's knowledge: models
+// known not to reason are not asked for encrypted reasoning, and models
+// known to reason get no temperature.
+func NewResponses(o wire.Options, reasoning Reasoning) *Responses {
+	return &Responses{o: withDefaults(o), reasoning: reasoning, plain: map[string]bool{}, noTemp: map[string]bool{}}
 }
 
-// maxPlainModels bounds Responses.plain; model names come from config and
-// discovery.
+// maxPlainModels bounds Responses.plain and Responses.noTemp; model names
+// come from config and discovery.
 const maxPlainModels = 64
+
+// maxDowngrades bounds the capability downgrades of one call: one per kind
+// of refusal (temperature, encrypted reasoning refused by the model, stale
+// encrypted reasoning), each of which changes the request it answers.
+const maxDowngrades = 3
 
 func (c *Responses) ID() string              { return c.o.ID }
 func (c *Responses) Kind() core.ProviderKind { return c.o.Kind }
@@ -63,10 +76,11 @@ func (c *Responses) Discover(ctx context.Context) ([]core.ModelInfo, error) {
 }
 
 // Stream makes one Responses call. A request the server refuses, before any
-// event, for the encrypted reasoning it asked for or carried back is sent
-// once more without it, and the client remembers why (encryptedRefusal):
-// like the Chat Completions reasoning fallback this is a capability
-// downgrade of an unbilled 400, not a retry of a failed call.
+// event, for the temperature it set (temperatureRefusal) or for the
+// encrypted reasoning it asked for or carried back (encryptedRefusal) is
+// sent again without it, and the client remembers why: like the Chat
+// Completions reasoning fallback this is a capability downgrade of an
+// unbilled 400, not a retry of a failed call.
 func (c *Responses) Stream(ctx context.Context, r *core.Request, on func(core.StreamEvent) error) (*core.Response, error) {
 	started := false
 	track := func(ev core.StreamEvent) error {
@@ -78,24 +92,36 @@ func (c *Responses) Stream(ctx context.Context, r *core.Request, on func(core.St
 	}
 	body := c.buildRequest(r)
 	resp, err := c.send(ctx, body, r, track)
-	if err == nil || started {
-		return resp, err
+	for n := 0; err != nil && !started && n < maxDowngrades && c.downgrade(err, body, r.Model); n++ {
+		body = c.buildRequest(r)
+		resp, err = c.send(ctx, body, r, track)
+	}
+	return resp, err
+}
+
+// downgrade records what a refusal showed about the model and reports
+// whether the next request differs: refusing something the request did not
+// carry would only fail again.
+func (c *Responses) downgrade(err error, body respRequest, model string) bool {
+	if body.Temperature != nil && temperatureRefusal(err) {
+		c.markNoTemp(model)
+		return true
 	}
 	switch encryptedRefusal(err) {
 	case refusedByModel:
 		if len(body.Include) == 0 && !replaysReasoning(body) {
-			return resp, err
+			return false
 		}
-		c.markPlain(r.Model)
+		c.markPlain(model)
+		return true
 	case refusedStale:
 		if !replaysReasoning(body) {
-			return resp, err
+			return false
 		}
 		c.markStale()
-	default:
-		return resp, err
+		return true
 	}
-	return c.send(ctx, c.buildRequest(r), r, track)
+	return false
 }
 
 func (c *Responses) send(ctx context.Context, body respRequest, r *core.Request, on func(core.StreamEvent) error) (*core.Response, error) {
@@ -124,6 +150,7 @@ type respRequest struct {
 	Temperature     *float64   `json:"temperature,omitempty"`
 	Store           bool       `json:"store"`
 	Include         []string   `json:"include,omitempty"`
+	PromptCacheKey  string     `json:"prompt_cache_key,omitempty"`
 	Stream          bool       `json:"stream"`
 }
 
@@ -209,20 +236,29 @@ const minOutputTokens = 16 // the API's minimum for max_output_tokens
 // rendered from that message alone.
 func (c *Responses) buildRequest(r *core.Request) respRequest {
 	out := respRequest{
-		Model:        r.Model,
-		Instructions: wire.SystemText(r.System),
-		Input:        []any{},
-		Temperature:  r.Temperature,
-		Stream:       true,
+		Model:          r.Model,
+		Instructions:   wire.SystemText(r.System),
+		Input:          []any{},
+		PromptCacheKey: r.CacheKey,
+		Stream:         true,
 	}
 	if r.MaxTokens > 0 {
 		out.MaxOutputTokens = max(minOutputTokens, r.MaxTokens)
 	}
 	c.mu.Lock()
-	plain, stale := c.plain[r.Model], c.staleBefore
+	plain, noTemp, stale := c.plain[r.Model], c.noTemp[r.Model], c.staleBefore
 	c.mu.Unlock()
-	if !plain && (c.noReasoning == nil || !c.noReasoning(r.Model)) {
+	reasons, known := false, false
+	if c.reasoning != nil {
+		reasons, known = c.reasoning(r.Model)
+	}
+	if !plain && (reasons || !known) {
 		out.Include = []string{"reasoning.encrypted_content"}
+	}
+	// No request sets an effort, so a reasoning model reasons at its
+	// default, and reasoning models refuse sampling parameters while they do.
+	if !noTemp && (!known || !reasons) {
+		out.Temperature = r.Temperature
 	}
 	for _, t := range r.Tools {
 		params := t.Schema
@@ -376,6 +412,23 @@ func encryptedRefusal(err error) encryptedReason {
 	return refusedStale
 }
 
+// temperatureRefusal recognises the 400 a reasoning model sends for a
+// sampling parameter (code unsupported_parameter or unsupported_value):
+//
+//	Unsupported parameter: 'temperature' is not supported with this model.
+//	Unsupported value: 'temperature' does not support 0.2 with this model.
+//
+// Only the key terms are matched; the wording is not documented.
+func temperatureRefusal(err error) bool {
+	var pe *core.ProviderError
+	if !errors.As(err, &pe) || pe.Kind != core.ErrKindInvalidRequest {
+		return false
+	}
+	m := strings.ToLower(pe.Msg)
+	return strings.Contains(m, "temperature") &&
+		(strings.Contains(m, "unsupported") || strings.Contains(m, "not supported") || strings.Contains(m, "does not support"))
+}
+
 func (c *Responses) markPlain(model string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -383,6 +436,15 @@ func (c *Responses) markPlain(model string) {
 		clear(c.plain)
 	}
 	c.plain[model] = true
+}
+
+func (c *Responses) markNoTemp(model string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.noTemp) >= maxPlainModels {
+		clear(c.noTemp)
+	}
+	c.noTemp[model] = true
 }
 
 func (c *Responses) markStale() {

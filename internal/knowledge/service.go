@@ -32,9 +32,6 @@ type Deps struct {
 	// Redactor masks secrets in the repository text a draft sends to the
 	// model and in the notes it writes; nil sends the text as read.
 	Redactor core.Redactor
-	// Indexed, when set, hears of every finished index of a GitHub checkout
-	// (repo is owner/name), so the repos table can keep its last indexed sha.
-	Indexed func(ctx context.Context, repo, sha string)
 }
 
 const (
@@ -281,7 +278,9 @@ func (s *Service) runJob(ctx context.Context, id int64) {
 		r.Status = core.IndexQueued
 	}
 	r.Files, r.Chunks, r.Bytes, r.Skipped, r.Truncated = st.files, st.chunks, st.bytes, st.skipped, st.truncated
-	r.IndexedAt = s.clock.Now()
+	// r.SHA is the commit this job read, even when a newer checkout has
+	// been requested meanwhile (then the row says queued again).
+	r.IndexedAt, r.IndexedSHA = s.clock.Now(), r.SHA
 	if err := s.d.Repo.UpdateIndex(ctx, r); err != nil {
 		if !errors.Is(err, core.ErrNotFound) {
 			s.log.Error("knowledge: store index state", "repo", id, "err", err)
@@ -290,9 +289,6 @@ func (s *Service) runJob(ctx context.Context, id int64) {
 	}
 	s.setHas(r.Principal, true)
 	s.publish(r, false)
-	if r.Source == core.KnowledgeGitHub && r.Status == core.IndexReady && s.d.Indexed != nil {
-		s.d.Indexed(ctx, r.Repo, r.SHA)
-	}
 	s.audit(ctx, "system", "knowledge.index", r, "ok", map[string]any{"state": "indexed", "files": st.files, "chunks": st.chunks,
 		"skipped": st.skipped, "truncated": st.truncated, "sha": r.SHA})
 	if r.Notes.Status == core.NotesNone && s.cfg().AutoNotes {

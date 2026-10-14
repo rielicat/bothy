@@ -31,4 +31,7 @@ multi-approver approvals are also visible to their voters) and
 `core.Store`). Migration 0005 adds the approver's reason
 (`approvals.comment`, `approval_votes.comment`) and a pending sender's
 `channel_identities.first_text`; 0006 adds `users.must_change_password`
-(`core.User.MustChangePassword`).
+(`core.User.MustChangePassword`); 0007 moves index state to the principal
+(`knowledge_repos.indexed_sha`, backfilled from ready rows; the shared
+`repos.last_indexed_sha` is dropped) and records which dispatcher started a
+deploy (`release_deploys.via`: `connection`, `token`, or `''` for older rows).

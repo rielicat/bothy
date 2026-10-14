@@ -13,9 +13,11 @@ keeps it for at most five minutes, and gets every HTTP client from
 `Complete` walks the slot's fallback chain: before the first streamed event a
 retryable error (429, 408, 5xx, network, overloaded) is retried once after
 250 ms ±20% or `Retry-After` (≤ 20 s), then the next candidate is tried; auth
-errors mark the provider `auth_failed` and move on; `context_length`,
-`invalid_request` and `content_filter` return to the runner; after the first
-event nothing is retried or switched. Before a call, notice messages are
+errors mark the provider `auth_failed` and move on; an error wrapping
+`core.ErrModelUnsupported` (a model that cannot call tools over Chat
+Completions) moves on without counting against the provider's breaker;
+`context_length`, other `invalid_request` and `content_filter` return to the
+runner; after the first event nothing is retried or switched. Before a call, notice messages are
 dropped and thinking parts or signatures of another SigKind than the client's
 are stripped (the Responses client writes `openai_responses`, so its
 encrypted reasoning and item ids never reach the Chat Completions client or

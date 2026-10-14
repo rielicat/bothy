@@ -15,12 +15,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/rielicat/bothy/internal/channel/telegram/telegramtest"
 	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/github/githubtest"
 	"github.com/rielicat/bothy/internal/httpapi/dto"
 	"github.com/rielicat/bothy/internal/testkit/mockllm"
 )
@@ -72,12 +74,13 @@ func pltMultipartUpload(t *testing.T, sid core.SessionID) ([]byte, http.Header) 
 // TestPrincipalIsolation is E19, in multi mode with users A (alice) and B
 // (bob) and an owner's group space: B's cookie and token get 404 from every
 // by-ID route for A's sessions, runs, approvals, memory, grants, vault
-// entries, schedules and files, see none of A's events, and B's fs tools
-// cannot see A's workspace; a space run sees no owner memory and resolves
-// vault references in the global scope only; purging A leaves no vault row,
-// grant, memory file or workspace directory behind. Sandbox boxes are not
-// part of this run (no sandbox backend); purge's box step is covered only
-// as a no-op here.
+// entries, schedules, files and knowledge index, see none of A's events or
+// index state, and B's fs tools cannot see A's workspace; a space run sees
+// no owner memory and resolves vault references in the global scope only;
+// purging A leaves no vault row, grant, memory file, workspace directory,
+// knowledge row or GitHub checkout data behind. Sandbox boxes are not part
+// of this run (no sandbox backend); purge's box step is covered only as a
+// no-op here.
 func TestPrincipalIsolation(t *testing.T) {
 	ownerMem := "OWNER-MEMORY-" + pltRand(6)
 	ownerVault := "OWNER-VAULT-" + pltRand(8)
@@ -89,8 +92,14 @@ func TestPrincipalIsolation(t *testing.T) {
 		ownerTG = 7001
 		group   = -1007001
 	)
+	gh := githubtest.New()
+	t.Cleanup(gh.Close)
+	ghRepo := gh.AddRepo("octocat", "Hello-World", true, map[string]string{"README.md": "# Hello World\n\nA test repository.\n"})
+	ghBase := ghRepo.Head("main")
 	llm := pltLLM(t,
+		mockllm.Rule{MatchSystem: `^You keep short project notes`, Text: []string{"## Summary\nHello World is a test repository.\n"}},
 		mockllm.Rule{MatchUser: `E19-`, MatchToolResult: `.`, Text: []string{"Done."}},
+		mockllm.Rule{MatchUser: `E19-A-CHECKOUT`, ToolCalls: []core.ToolCall{pltCall("call_ac", "use_tool", `{"name":"repo_checkout","args":{"repo":"octocat/Hello-World"}}`)}},
 		mockllm.Rule{MatchUser: `E19-A-WRITE`, ToolCalls: []core.ToolCall{pltCall("call_aw", "fs_write", `{"path":"ask/secret-a.txt","content":"`+aSecret+`\n"}`)}},
 		mockllm.Rule{MatchUser: `E19-A-PENDING`, ToolCalls: []core.ToolCall{pltCall("call_ap", "fs_write", `{"path":"later/pending.txt","content":"later\n"}`)}},
 		mockllm.Rule{MatchUser: `E19-B-READ`, ToolCalls: []core.ToolCall{pltCall("call_br", "fs_read", `{"path":"ask/secret-a.txt"}`)}},
@@ -101,13 +110,17 @@ func TestPrincipalIsolation(t *testing.T) {
 	)
 	mcp := pltNewMCP(t, pltLookupTool("Look up a term.", "LOOKUP-RESULT: ok"))
 	tg := pltNewTelegram()
-	g := Start(t, Options{Platforms: []Platform{tg}, Config: pltYAML(llm.URL(), nil, "mode: multi\n"+
+	g := Start(t, Options{Platforms: []Platform{tg}, Config: pltYAML(llm.URL(), nil, "mode: multi\ngithub:\n  api_base: "+gh.URL+"\n"+
 		pltMCPYAML("e19", mcp, "      headers: {X-Vault: \"secret:e19_token\"}\n")+`
 policy:
   rules:
     - {id: e19-write, tool: fs_write, verdict: ask}
 `)})
 	owner := pltOwner(t, g)
+	if code := owner.JSON(t, http.MethodPost, "/api/github/connections", dto.GitHubConnectReq{Auth: core.GitHubPAT, Token: gh.PAT,
+		Repos: []string{"octocat/Hello-World"}}, nil); code != http.StatusOK {
+		t.Fatalf("connect GitHub = %d", code)
+	}
 	put := func(t *testing.T, u *pltUser, scope, name, value string) {
 		t.Helper()
 		if code := u.JSON(t, http.MethodPut, "/api/vault/"+scope+"/"+name, dto.VaultPutReq{Value: value}, nil); code != http.StatusOK {
@@ -183,6 +196,43 @@ policy:
 			t.Fatalf("A's file %s: %v", p, err)
 		}
 	}
+	// A checks a repository out: files in A's workspace, the manifest and
+	// pristine archive under <data>/github/checkouts/<ws>, and A's own index.
+	sA3 := a.NewSession(t)
+	if d := a.Finished(t, a.Send(t, sA3.ID, "E19-A-CHECKOUT octocat/Hello-World")); d.Run.Status != core.RunDone ||
+		len(d.ToolCalls) != 1 || d.ToolCalls[0].Tool != "repo_checkout" || d.ToolCalls[0].Status != core.TCOK {
+		t.Fatalf("A's checkout = %+v %+v", d.Run, d.ToolCalls)
+	}
+	checkoutsA := filepath.Join(g.DataDir, "github", "checkouts", string(aPrincipal.Workspace))
+	if _, err := os.Stat(filepath.Join(checkoutsA, "octocat", "hello-world")); err != nil {
+		t.Fatalf("A's checkout data: %v", err)
+	}
+	var idxA core.IndexedRepo
+	for deadline := time.Now().Add(30 * time.Second); idxA.ID == 0; time.Sleep(50 * time.Millisecond) {
+		var list dto.List[core.IndexedRepo]
+		if code := a.JSON(t, http.MethodGet, "/api/knowledge/repos", nil, &list); code != http.StatusOK {
+			t.Fatalf("A's knowledge repos = %d", code)
+		}
+		for _, r := range list.Items {
+			if r.Repo == "octocat/hello-world" {
+				idxA = r
+			}
+		}
+		if idxA.ID == 0 && time.Now().After(deadline) {
+			t.Fatalf("A's checkout was not indexed: %+v", list.Items)
+		}
+	}
+	idxA = kWaitRepo(t, a, idxA.ID, func(r core.IndexedRepo) bool {
+		return r.Status == core.IndexReady && r.Notes.Status == core.NotesReady
+	})
+	if idxA.IndexedSHA != ghBase || idxA.Principal != aPrincipal.ID {
+		t.Fatalf("A's index = %+v, want indexed at %s", idxA, ghBase)
+	}
+	notesA := filepath.Join(g.DataDir, "knowledge", string(aPrincipal.ID))
+	if _, err := os.Stat(notesA); err != nil {
+		t.Fatalf("A's project notes: %v", err)
+	}
+	idxPath := "/api/knowledge/repos/" + strconv.FormatInt(idxA.ID, 10)
 
 	t.Run("B gets 404 on A's by-ID routes", func(t *testing.T) {
 		sid, run := string(sA.ID), string(runA)
@@ -225,6 +275,10 @@ policy:
 			{method: http.MethodDelete, path: "/api/schedules/" + string(schA.ID)},
 			{method: http.MethodPost, path: "/api/schedules/" + string(schA.ID) + "/run"},
 			{method: http.MethodGet, path: "/api/schedules/" + string(schA.ID) + "/runs"},
+			{method: http.MethodGet, path: idxPath},
+			{method: http.MethodGet, path: idxPath + "/files"},
+			{method: http.MethodPost, path: idxPath + "/reindex"},
+			{method: http.MethodDelete, path: idxPath},
 		}
 		// The GET probes answer A, so B's 404s come from isolation.
 		for _, p := range probes {
@@ -275,6 +329,33 @@ policy:
 		}
 		if st := a.WaitApproval(t, runP, core.ApprovalPending); st.ID != apP.ID {
 			t.Errorf("A's pending approval changed: %+v", st)
+		}
+	})
+
+	// Indexes are per principal: the shared repository list shows each
+	// caller only their own index state.
+	t.Run("B sees none of A's index state", func(t *testing.T) {
+		lastIndexed := func(u *pltUser) string {
+			t.Helper()
+			var repos []core.GitHubRepo
+			if code := u.JSON(t, http.MethodGet, "/api/github/repos", nil, &repos); code != http.StatusOK || len(repos) != 1 {
+				t.Fatalf("repos = %d %+v", code, repos)
+			}
+			return repos[0].LastIndexedSHA
+		}
+		if got := lastIndexed(a); got != ghBase {
+			t.Errorf("A's last_indexed_sha = %q, want %s", got, ghBase)
+		}
+		for name, u := range map[string]*pltUser{"B": b, "B's token": bTok, "owner": owner} {
+			if got := lastIndexed(u); got != "" {
+				t.Errorf("%s sees last_indexed_sha %q from A's index", name, got)
+			}
+			if resp := u.Do(t, http.MethodGet, "/api/knowledge/repos", nil, nil); resp.StatusCode != http.StatusOK || bytes.Contains(resp.Body, []byte("octocat/hello-world")) {
+				t.Errorf("%s's knowledge repos = %s %s", name, resp.Status, resp.Body)
+			}
+		}
+		if r := kWaitRepo(t, a, idxA.ID, func(core.IndexedRepo) bool { return true }); r.Status != core.IndexReady || r.IndexedSHA != ghBase {
+			t.Errorf("A's index after B's attempts = %+v", r)
 		}
 	})
 
@@ -437,10 +518,13 @@ policy:
 		if code := owner.JSON(t, http.MethodGet, "/api/vault?scope=user:"+string(aID), nil, &secrets); code != http.StatusOK || len(secrets) != 0 {
 			t.Fatalf("A's vault after purge = %d %+v", code, secrets)
 		}
-		for _, p := range []string{wsA, memA} {
+		for _, p := range []string{wsA, memA, checkoutsA, notesA} {
 			if _, err := os.Stat(p); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("%s after purge: %v, want it gone", p, err)
 			}
+		}
+		if _, err := os.Stat(filepath.Join(g.DataDir, "github", "checkouts")); err != nil {
+			t.Fatalf("the checkouts root went with A's data: %v", err)
 		}
 		for _, c := range []*pltUser{a, aTok} {
 			if resp := c.Do(t, http.MethodGet, "/api/auth/me", nil, nil); resp.StatusCode != http.StatusUnauthorized {
@@ -475,6 +559,7 @@ policy:
 			"SELECT count(*) FROM approvals WHERE principal_id IN " + ps,
 			"SELECT count(*) FROM memory_events WHERE principal_id IN " + ps,
 			"SELECT count(*) FROM schedules WHERE principal_id IN " + ps,
+			"SELECT count(*) FROM knowledge_repos WHERE principal_id IN " + ps,
 			"SELECT count(*) FROM api_tokens WHERE user_id = '" + string(aID) + "'",
 			"SELECT count(*) FROM auth_sessions WHERE user_id = '" + string(aID) + "'",
 		} {

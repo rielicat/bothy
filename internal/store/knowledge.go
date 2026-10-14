@@ -21,7 +21,7 @@ type knowledgeRepo struct{ h *handle }
 
 const (
 	knowledgeRepoCols = `id, principal_id, repo, source, dir, sha, status, error, files, chunks, bytes, skipped,
-		truncated, indexed_at, notes_status, notes_error, notes_untrusted, notes_updated_at, created_at, updated_at`
+		truncated, indexed_at, notes_status, notes_error, notes_untrusted, notes_updated_at, created_at, updated_at, indexed_sha`
 	knowledgeChunkCols = `id, sha, path, start_line, end_line, kind, lang, title, body, terms`
 
 	knowledgeSearchDefault = 8
@@ -36,7 +36,7 @@ func scanIndexedRepo(sc scanner) (*core.IndexedRepo, error) {
 	var truncated, untrusted bool
 	if err := sc.Scan(&r.ID, &r.Principal, &r.Repo, &r.Source, &r.Dir, &r.SHA, &r.Status, &r.Error, &r.Files,
 		&r.Chunks, &r.Bytes, &r.Skipped, &truncated, &indexed, &r.Notes.Status, &r.Notes.Error, &untrusted,
-		&notesAt, &created, &updated); err != nil {
+		&notesAt, &created, &updated, &r.IndexedSHA); err != nil {
 		return nil, err
 	}
 	r.Truncated, r.Notes.Untrusted = truncated, untrusted
@@ -58,13 +58,13 @@ func (r knowledgeRepo) Upsert(ctx context.Context, x *core.IndexedRepo) error {
 	}
 	got, err := queryOne(ctx, r.h.wq, "upsert knowledge repo", scanIndexedRepo, `INSERT INTO knowledge_repos(principal_id, repo,
 		source, dir, sha, status, error, files, chunks, bytes, skipped, truncated, indexed_at, notes_status, notes_error,
-		notes_untrusted, notes_updated_at, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		notes_untrusted, notes_updated_at, created_at, updated_at, indexed_sha)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT (principal_id, repo) DO UPDATE SET source = excluded.source, dir = excluded.dir, sha = excluded.sha,
 			status = excluded.status, error = excluded.error, updated_at = excluded.updated_at
 		RETURNING `+knowledgeRepoCols,
 		string(x.Principal), x.Repo, x.Source, x.Dir, x.SHA, x.Status, x.Error, x.Files, x.Chunks, x.Bytes, x.Skipped,
-		b2i(x.Truncated), ms(x.IndexedAt), notes, x.Notes.Error, b2i(x.Notes.Untrusted), ms(x.Notes.UpdatedAt), now, now)
+		b2i(x.Truncated), ms(x.IndexedAt), notes, x.Notes.Error, b2i(x.Notes.Untrusted), ms(x.Notes.UpdatedAt), now, now, x.IndexedSHA)
 	if err != nil {
 		return err
 	}
@@ -108,8 +108,8 @@ func (r knowledgeRepo) List(ctx context.Context, v core.Viewer, p core.Principal
 func (r knowledgeRepo) UpdateIndex(ctx context.Context, x *core.IndexedRepo) error {
 	now := r.h.now()
 	res, err := r.h.wq.ExecContext(ctx, `UPDATE knowledge_repos SET status = ?, error = ?, files = ?, chunks = ?,
-		bytes = ?, skipped = ?, truncated = ?, indexed_at = ?, updated_at = ? WHERE id = ?`,
-		x.Status, x.Error, x.Files, x.Chunks, x.Bytes, x.Skipped, b2i(x.Truncated), ms(x.IndexedAt), ms(now), x.ID)
+		bytes = ?, skipped = ?, truncated = ?, indexed_at = ?, indexed_sha = ?, updated_at = ? WHERE id = ?`,
+		x.Status, x.Error, x.Files, x.Chunks, x.Bytes, x.Skipped, b2i(x.Truncated), ms(x.IndexedAt), x.IndexedSHA, ms(now), x.ID)
 	if err := mustAffect("update knowledge index", res, err); err != nil {
 		return err
 	}

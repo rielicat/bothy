@@ -21,7 +21,10 @@ The dispatch and the record survive a cancelled tool call.
 
 **GitHub.** A deploy of a repository on a GitHub connection's allowlist is
 dispatched and followed through that connection (`Deps.Connections`, the
-GitHub module's `core.WorkflowDispatcher`), chosen per call. Every other
+GitHub module's `core.WorkflowDispatcher`), chosen per deploy and kept in
+`Deploy.Via`: the run is followed through the dispatcher that started it even
+after the repository joins or leaves an allowlist (a deploy recorded without
+`Via` is followed through the current choice). Every other
 repository uses `GitHub`, a `core.WorkflowDispatcher` over the REST API at
 `releases.github_api` (locked; https, or http only for a loopback address;
 private addresses only for a non-default host) with the token from

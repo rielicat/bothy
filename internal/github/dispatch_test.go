@@ -46,6 +46,43 @@ func TestDispatchThroughConnection(t *testing.T) {
 	}
 }
 
+// The release follower reads a deploy's run through the connection that
+// dispatched it after the repository leaves the allowlist; nothing new can
+// be dispatched, and once the connection is gone the run is unreadable.
+func TestRunStatusAfterTheRepositoryLeavesTheAllowlist(t *testing.T) {
+	f := newFx(t)
+	c := f.connect("octocat/Hello-World")
+	run, err := f.svc.Dispatch(f.ctx, core.WorkflowDispatch{Repo: "octocat/Hello-World", Workflow: "deploy.yml", Ref: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.SetRepos(f.ctx, c.ID, nil, "usr_owner"); err != nil {
+		t.Fatal(err)
+	}
+	if f.svc.Serves(f.ctx, "octocat/Hello-World") {
+		t.Fatal("Serves = true after the repository left the allowlist")
+	}
+	if _, err := f.svc.Dispatch(f.ctx, core.WorkflowDispatch{Repo: "octocat/Hello-World", Workflow: "deploy.yml", Ref: "main"}); !errors.Is(err, core.ErrInvalid) {
+		t.Fatalf("Dispatch after the repository left the allowlist = %v, want ErrInvalid", err)
+	}
+	f.repo.SetRun(run.ID, "completed", "success")
+	if got, err := f.svc.RunStatus(f.ctx, "octocat/hello-world", run.ID); err != nil || !got.Done() || got.Conclusion != "success" {
+		t.Fatalf("RunStatus after the repository left the allowlist = %+v, %v", got, err)
+	}
+	if step, err := f.svc.FailedStep(f.ctx, "octocat/hello-world", run.ID); err != nil || step != "" {
+		t.Fatalf("FailedStep after the repository left the allowlist = %q, %v", step, err)
+	}
+	if err := f.svc.Disconnect(f.ctx, c.ID, "usr_owner"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.RunStatus(f.ctx, "octocat/Hello-World", run.ID); !errors.Is(err, core.ErrInvalid) {
+		t.Fatalf("RunStatus after the connection went = %v, want ErrInvalid", err)
+	}
+	if _, err := f.svc.FailedStep(f.ctx, "octocat/Hello-World", run.ID); !errors.Is(err, core.ErrInvalid) {
+		t.Fatalf("FailedStep after the connection went = %v, want ErrInvalid", err)
+	}
+}
+
 func TestDispatchFindsRunWithoutDetails(t *testing.T) {
 	f := newFx(t)
 	f.connect("octocat/Hello-World")

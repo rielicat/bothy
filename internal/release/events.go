@@ -45,13 +45,13 @@ func (s *Service) publish(typ core.EventType, d *core.Deploy, data core.EventDat
 	}
 }
 
-// failedStep asks the deploy's dispatcher where a failed run stopped; any
-// error leaves the step out.
+// failedStep asks the dispatcher that started the deploy where a failed run
+// stopped; any error leaves the step out.
 func (s *Service) failedStep(ctx context.Context, d *core.Deploy) string {
 	if d.Status != core.DeployFailed || d.WorkflowRun == 0 {
 		return ""
 	}
-	sr, ok := s.dispatcher(ctx, d.Repo).(StepReader)
+	sr, ok := s.follower(ctx, d).(StepReader)
 	if !ok {
 		return ""
 	}

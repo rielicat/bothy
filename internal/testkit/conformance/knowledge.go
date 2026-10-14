@@ -16,7 +16,8 @@ import (
 //   - Upsert assigns ID, stamps CreatedAt/UpdatedAt (2000..3000), defaults
 //     Notes.Status to "none", and on a (principal, repo) conflict changes only
 //     Source, Dir, SHA, Status and Error; an unknown principal or a repo name
-//     without "owner/name" shape => ErrInvalid. UpdateIndex never writes SHA.
+//     without "owner/name" shape => ErrInvalid. UpdateIndex never writes SHA
+//     and is the only writer of IndexedSHA once the row exists.
 //   - Every read of a foreign repo or session => ErrNotFound; List and Search
 //     outside the Viewer return nothing; an empty Viewer sees nothing.
 //   - Apply replaces a file's chunks wholesale and sets KnowledgeFile.Chunks;
@@ -100,24 +101,26 @@ func testKnowledgeRepos(f *kfx) {
 	_, err = f.k.ByName(f.ctx, v, p, "acme/none")
 	f.want(err, core.ErrNotFound, "by unknown name")
 
+	f.eq("no indexed sha before an index", r.IndexedSHA, "")
 	r.SHA, r.Status, r.Files, r.Chunks, r.Bytes, r.Skipped, r.Truncated = "ignored", core.IndexReady, 3, 7, 900, 2, true
-	r.IndexedAt = at(5)
+	r.IndexedAt, r.IndexedSHA = at(5), "abc123"
 	f.must(f.k.UpdateIndex(f.ctx, r), "update index")
 	notes := core.NotesState{Status: core.NotesReady, Untrusted: true, UpdatedAt: at(6)}
 	f.must(f.k.UpdateNotes(f.ctx, r.ID, notes), "update notes")
 	got, err = f.k.Get(f.ctx, v, r.ID)
 	f.must(err, "get after update")
 	f.check(got.SHA == "" && got.Status == core.IndexReady && got.Files == 3 && got.Chunks == 7 && got.Bytes == 900 &&
-		got.Skipped == 2 && got.Truncated && got.IndexedAt.Equal(at(5)), "index fields not stored: %+v", got)
+		got.Skipped == 2 && got.Truncated && got.IndexedAt.Equal(at(5)) && got.IndexedSHA == "abc123", "index fields not stored: %+v", got)
 	f.eq("notes", got.Notes, notes)
 
 	again := &core.IndexedRepo{Principal: p, Repo: "acme/api", Source: core.KnowledgeGitHub, Dir: "repos/acme/api",
-		SHA: "def456", Status: core.IndexQueued, Files: 99, Notes: core.NotesState{Status: core.NotesNone}}
+		SHA: "def456", Status: core.IndexQueued, Files: 99, IndexedSHA: "zzz", Notes: core.NotesState{Status: core.NotesNone}}
 	f.must(f.k.Upsert(f.ctx, again), "re-upsert")
 	f.eq("re-upsert keeps the id", again.ID, r.ID)
 	f.check(again.Source == core.KnowledgeGitHub && again.Dir == "repos/acme/api" && again.SHA == "def456" &&
 		again.Status == core.IndexQueued, "conflict did not update source/dir/sha/status: %+v", again)
-	f.check(again.Files == 3 && again.Chunks == 7 && again.Notes == notes, "conflict overwrote counters or notes: %+v", again)
+	f.check(again.Files == 3 && again.Chunks == 7 && again.Notes == notes && again.IndexedSHA == "abc123",
+		"conflict overwrote counters, notes or the indexed sha: %+v", again)
 
 	f.repo(p, "acme/web")
 	list, err := f.k.List(f.ctx, v, "")

@@ -8,12 +8,13 @@ import (
 
 const maxStepName = 200
 
-// FailedStep names the step a failed workflow run of an allowlisted
-// repository stopped at, for the release module's release.finished event.
-// Step names are written by whoever can push to the repository: the release
-// module cleans them and they are shown verbatim, never to the model.
+// FailedStep names the step a failed workflow run stopped at, for the
+// release module's release.finished event. Like RunStatus it also reads a
+// repository its connection no longer allows. Step names are written by
+// whoever can push to the repository: the release module cleans them and
+// they are shown verbatim, never to the model.
 func (s *Service) FailedStep(ctx context.Context, repo string, runID int64) (string, error) {
-	r, cl, err := s.repoClient(ctx, repo)
+	r, cl, err := s.repoClientFor(ctx, repo, false)
 	if err != nil {
 		return "", err
 	}

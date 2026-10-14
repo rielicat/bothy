@@ -36,6 +36,10 @@ func validDeployStatus(s core.DeployStatus) bool {
 	return oneOf(s, core.DeployDispatched, core.DeployRunning, core.DeploySucceeded, core.DeployFailed, core.DeployUnknown)
 }
 
+func validDeployVia(v string) bool {
+	return oneOf(v, "", core.DeployViaConnection, core.DeployViaToken)
+}
+
 func visibleDeploy(v core.Viewer, d core.Deploy) bool { return v.Can(d.Principal) || v.Admin }
 
 func (r releaseRepo) Create(_ context.Context, d *core.Deploy) error {
@@ -46,6 +50,8 @@ func (r releaseRepo) Create(_ context.Context, d *core.Deploy) error {
 	switch {
 	case !validDeployStatus(row.Status):
 		return invalid("release_deploys.status")
+	case !validDeployVia(row.Via):
+		return invalid("release_deploys.via")
 	case st.principals[row.Principal].ID == "":
 		return invalid("release_deploys.principal_id: no such principal")
 	}
@@ -70,6 +76,8 @@ func (r releaseRepo) Update(_ context.Context, d *core.Deploy) error {
 	switch {
 	case !validDeployStatus(d.Status):
 		return invalid("release_deploys.status")
+	case !validDeployVia(d.Via):
+		return invalid("release_deploys.via")
 	case st.principals[d.Principal].ID == "":
 		return invalid("release_deploys.principal_id: no such principal")
 	}

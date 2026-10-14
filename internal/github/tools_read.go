@@ -55,7 +55,13 @@ func (s *Service) readAction(tool, apiPath string, q url.Values, payload any) (*
 // repoClient re-checks the allowlist at Exec (it may have changed since the
 // call was planned) and returns the connection's client.
 func (s *Service) repoClient(ctx context.Context, repo string) (*core.GitHubRepo, *apiClient, error) {
-	r, err := s.allowedRepo(ctx, repo)
+	return s.repoClientFor(ctx, repo, true)
+}
+
+// repoClientFor is repoClient; mustAllow false also serves a repository its
+// connection no longer allows (connectedRepo).
+func (s *Service) repoClientFor(ctx context.Context, repo string, mustAllow bool) (*core.GitHubRepo, *apiClient, error) {
+	r, err := s.connectedRepo(ctx, repo, mustAllow)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -113,10 +113,11 @@ func (t *deployTool) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action
 		return nil, fmt.Errorf("this deploy did not run: %w", err)
 	}
 	now := s.d.Clock.Now()
+	disp, via := s.dispatcher(ctx, p.Repo)
 	d := &core.Deploy{Environment: p.Environment, Repo: p.Repo, Workflow: p.Workflow, Ref: p.Ref, Principal: env.Principal.ID,
 		Session: env.Session, Run: env.Run, Approval: appr.ID, RequestedBy: env.User, ApprovedBy: voters, Chat: chatOf(env),
-		Status: core.DeployDispatched, CreatedAt: now, UpdatedAt: now}
-	run, derr := s.dispatcher(ctx, p.Repo).Dispatch(ctx, core.WorkflowDispatch{Repo: p.Repo, Workflow: p.Workflow, Ref: p.Ref, Inputs: p.Inputs})
+		Status: core.DeployDispatched, CreatedAt: now, UpdatedAt: now, Via: via}
+	run, derr := disp.Dispatch(ctx, core.WorkflowDispatch{Repo: p.Repo, Workflow: p.Workflow, Ref: p.Ref, Inputs: p.Inputs})
 	// Whatever happens to the tool call now, the dispatch is done or refused
 	// for good: record it even if the call was cancelled meanwhile.
 	bg := context.WithoutCancel(ctx)
@@ -302,7 +303,7 @@ func (t *statusTool) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action
 			state := string(d.Status)
 			if !d.Status.Terminal() && d.WorkflowRun != 0 && live > 0 {
 				live--
-				if run, err := s.dispatcher(ctx, d.Repo).RunStatus(ctx, d.Repo, d.WorkflowRun); err == nil {
+				if run, err := s.follower(ctx, d).RunStatus(ctx, d.Repo, d.WorkflowRun); err == nil {
 					state += " (GitHub: " + run.Status + ")"
 				}
 			}

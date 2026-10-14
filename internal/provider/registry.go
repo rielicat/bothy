@@ -195,9 +195,9 @@ func (f *Facade) newClient(o wire.Options, api string, effort *openai.EffortMemo
 	}
 	if api == openai.APIResponses {
 		cp := f.cat.Find(o.Kind, o.BaseURL)
-		return openai.NewResponses(o, func(model string) bool {
+		return openai.NewResponses(o, func(model string) (bool, bool) {
 			m, ok := cp.Model(model)
-			return ok && !m.Thinking
+			return m.Thinking, ok
 		})
 	}
 	return openai.NewChat(o, effort)

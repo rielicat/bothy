@@ -148,8 +148,8 @@ func TestBuildRequestToolChoice(t *testing.T) {
 		{"auto", "us.amazon.nova-lite-v1:0", "auto", nil,
 			`{"tools":[{"toolSpec":{"name":"probe_echo","inputSchema":{"json":{"type":"object"}}}}]}`},
 		{"none without tool history", "us.anthropic.claude-sonnet-4-5-20250929-v1:0", "none", nil, ""},
-		{"none with tool history keeps the definitions", "us.anthropic.claude-sonnet-4-5-20250929-v1:0", "none", []core.Message{call, result},
-			`{"tools":[{"toolSpec":{"name":"probe_echo","inputSchema":{"json":{"type":"object"}}}}]}`},
+		{"none with tool history drops the definitions", "us.anthropic.claude-sonnet-4-5-20250929-v1:0", "none", []core.Message{call, result}, ""},
+		{"none on nova with tool history", "us.amazon.nova-lite-v1:0", "none", []core.Message{call, result}, ""},
 	} {
 		msgs := append([]core.Message{userText("go")}, tc.history...)
 		r := buildRequest(&core.Request{Model: tc.model, Tools: tools, ToolChoice: tc.choice, Messages: msgs})
@@ -170,6 +170,11 @@ func TestBuildRequestToolChoice(t *testing.T) {
 		`{"role":"user","content":[{"text":"[result of tool probe_echo]\nok"}]}]`
 	if r.ToolConfig != nil || got != want {
 		t.Fatalf("tool history as text\n got %s\nwant %s", got, want)
+	}
+	// ToolChoice none renders the same history the same way.
+	r = buildRequest(&core.Request{Model: "us.anthropic.claude-haiku-4-5-20251001-v1:0", Tools: tools, ToolChoice: "none", Messages: []core.Message{userText("go"), call, result}})
+	if got := toJSON(t, r.Messages); r.ToolConfig != nil || got != want {
+		t.Fatalf("tool choice none\n got %s\nwant %s", got, want)
 	}
 }
 

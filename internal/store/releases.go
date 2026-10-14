@@ -14,8 +14,10 @@ func (h *handle) Releases() core.ReleaseRepo { return releaseRepo{h} }
 
 var deployStatuses = []core.DeployStatus{core.DeployDispatched, core.DeployRunning, core.DeploySucceeded, core.DeployFailed, core.DeployUnknown}
 
+var deployVias = []string{"", core.DeployViaConnection, core.DeployViaToken}
+
 const deployCols = `id, environment, repo, workflow, ref, principal_id, session_id, run_id, approval_id, requested_by, approved_by,
-	chat, status, workflow_run_id, run_url, conclusion, error, created_at, updated_at, finished_at`
+	chat, status, workflow_run_id, run_url, conclusion, error, created_at, updated_at, finished_at, via`
 
 func scanDeploy(sc scanner) (*core.Deploy, error) {
 	var d core.Deploy
@@ -24,7 +26,7 @@ func scanDeploy(sc scanner) (*core.Deploy, error) {
 	var created, updated, finished int64
 	if err := sc.Scan(&d.ID, &d.Environment, &d.Repo, &d.Workflow, &d.Ref, &d.Principal, &d.Session, &d.Run, &d.Approval,
 		&d.RequestedBy, &approved, &chat, &d.Status, &d.WorkflowRun, &d.RunURL, &d.Conclusion, &d.Error,
-		&created, &updated, &finished); err != nil {
+		&created, &updated, &finished, &d.Via); err != nil {
 		return nil, err
 	}
 	if err := decodeJSON("release_deploys.approved_by", approved, &d.ApprovedBy); err != nil {
@@ -64,19 +66,29 @@ func deployArgs(d *core.Deploy) ([]any, error) {
 	}
 	return []any{d.Environment, d.Repo, d.Workflow, d.Ref, string(d.Principal), string(d.Session), string(d.Run),
 		string(d.Approval), string(d.RequestedBy), ab, chat, string(d.Status), d.WorkflowRun, d.RunURL, d.Conclusion,
-		d.Error, ms(d.CreatedAt), ms(d.UpdatedAt), ms(d.FinishedAt)}, nil
+		d.Error, ms(d.CreatedAt), ms(d.UpdatedAt), ms(d.FinishedAt), d.Via}, nil
+}
+
+func validDeploy(d *core.Deploy) error {
+	if !oneOf(d.Status, deployStatuses...) {
+		return invalid("release_deploys.status")
+	}
+	if !oneOf(d.Via, deployVias...) {
+		return invalid("release_deploys.via")
+	}
+	return nil
 }
 
 func (r releaseRepo) Create(ctx context.Context, d *core.Deploy) error {
-	if !oneOf(d.Status, deployStatuses...) {
-		return invalid("release_deploys.status")
+	if err := validDeploy(d); err != nil {
+		return err
 	}
 	id := idOr(d.ID, core.PrefixDeploy)
 	args, err := deployArgs(d)
 	if err != nil {
 		return err
 	}
-	if _, err := r.h.wq.ExecContext(ctx, `INSERT INTO release_deploys(`+deployCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	if _, err := r.h.wq.ExecContext(ctx, `INSERT INTO release_deploys(`+deployCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		append([]any{id}, args...)...); err != nil {
 		return dbErr("create deploy", err)
 	}
@@ -85,8 +97,8 @@ func (r releaseRepo) Create(ctx context.Context, d *core.Deploy) error {
 }
 
 func (r releaseRepo) Update(ctx context.Context, d *core.Deploy) error {
-	if !oneOf(d.Status, deployStatuses...) {
-		return invalid("release_deploys.status")
+	if err := validDeploy(d); err != nil {
+		return err
 	}
 	args, err := deployArgs(d)
 	if err != nil {
@@ -94,7 +106,7 @@ func (r releaseRepo) Update(ctx context.Context, d *core.Deploy) error {
 	}
 	res, err := r.h.wq.ExecContext(ctx, `UPDATE release_deploys SET environment = ?, repo = ?, workflow = ?, ref = ?, principal_id = ?,
 		session_id = ?, run_id = ?, approval_id = ?, requested_by = ?, approved_by = ?, chat = ?, status = ?, workflow_run_id = ?,
-		run_url = ?, conclusion = ?, error = ?, created_at = ?, updated_at = ?, finished_at = ? WHERE id = ?`, append(args, d.ID)...)
+		run_url = ?, conclusion = ?, error = ?, created_at = ?, updated_at = ?, finished_at = ?, via = ? WHERE id = ?`, append(args, d.ID)...)
 	return mustAffect("update deploy", res, err)
 }
 

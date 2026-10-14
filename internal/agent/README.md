@@ -12,7 +12,8 @@ semaphore only while streaming or executing tools and release both while
 waiting for an approval or parked.
 
 The loop (`loop.go`) assembles a cache-stable request (`assemble.go`,
-`snapshot.go`): tools and S2 (persona, facts, USER.md, MEMORY.md, pins, skills
+`snapshot.go`) whose `CacheKey` is a hash of the session id, the same for
+every call of the session: tools and S2 (persona, facts, USER.md, MEMORY.md, pins, skills
 index) are frozen per epoch in the session row, S1 is the embedded
 `CONSTITUTION.md` (full or short by model profile) plus the administrator's
 standing rules, and each user turn carries a persisted `<turn-context>` with
