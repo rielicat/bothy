@@ -3,8 +3,9 @@
 Browser checks against the production build, served by `vite preview` with the
 fixture gateway (`web/mock`) and the gateway's CSP. Two kinds live here:
 
-- **Smoke** (`*.spec.ts` here and in `lib/`): layout at 360 px, axe with
-  contrast in both themes on every route, redirects from v0.1 addresses,
+- **Smoke** (`*.spec.ts` here and in `lib/`): layout at 360 px and the 408 px
+  left edge at 1280 px, axe with contrast in both themes on every route,
+  redirects from v0.1 addresses,
   keyboard-only approval, streaming under the CSP, tabs sharing one event
   stream, and the self-tests of the helpers below. This is gate G2.
 - **Screenshot sets** (`shots/<chunk>.spec.ts`): every route and state a chunk
@@ -19,8 +20,9 @@ cd web
 npm ci --ignore-scripts          # once
 npm run build                    # both kinds test the build, so rebuild after changes
 npm run smoke                    # G2
-SHOTS=1 npx playwright test e2e/shots/baseline.spec.ts   # one chunk's screenshots
-open e2e/shots/out/baseline/index.html                   # review them
+SHOTS=1 npx playwright test e2e/shots/all.spec.ts        # every route, all probes enforced
+SHOTS=1 npx playwright test e2e/shots/chat.spec.ts       # one area's states
+open e2e/shots/out/all/index.html                        # review them
 cd .. && make ui-reset           # before committing: put the dist placeholder back
 ```
 

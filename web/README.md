@@ -1,6 +1,6 @@
 # web
 
-The Bothy web UI (SPEC §9): a Svelte 5 single-page app built with Vite and
+The Bothy web UI (SPEC §9; every screen is specified in `docs/design/ui.md`): a Svelte 5 single-page app built with Vite and
 Tailwind into `../internal/webui/dist`, which the Go binary embeds and serves
 pre-gzipped. `svelte` is the only runtime dependency. The router, API client,
 SSE store, markdown renderer, QR encoder, charts and icons are written here.
@@ -13,10 +13,11 @@ SSE store, markdown renderer, QR encoder, charts and icons are written here.
 | `npm run mock` | dev server with the fixture gateway in `mock/`: every `/api` route, a scripted SSE run and approvals; `MOCK_SETUP=1` starts at the first-run wizard (token `demo-setup-token`, or open `/setup#t=demo-setup-token`), `MOCK_LOGIN=0` starts logged out |
 | `npm run dev` | dev server proxying `/api`, `/v1` and `/healthz` to a gateway on 127.0.0.1:8080 |
 | `npm run build` | production build into `../internal/webui/dist` (plus a `.gz` next to every text asset) |
-| `npm run check` | `svelte-check` over `src/` and `mock/`, warnings fail |
-| `npm test` | vitest: unit, component and axe tests in jsdom against the fixture gateway |
+| `npm run check` | `svelte-check` over `src/` and `mock/` (warnings fail), then `npm run ui-lint` |
+| `npm run ui-lint` | `scripts/ui-lint.sh`: the class and markup rules of `docs/design/ui.md` §18.2 G5 over `src/` (no chips, blur, large radii, stray shadows, uppercase, bold, pixel sizes, `style=`, v0.1 or palette colours) |
+| `npm test` | vitest: unit, component and axe tests in jsdom against the fixture gateway, and `src/copy.test.ts`, which holds every interface string to the copy guide (§14) |
 | `npm run preview:mock` | serves the built app with the fixture gateway and the gateway's CSP |
-| `npm run smoke` | Playwright against `preview:mock`: 360 px layout, keyboard-only approval, axe with contrast in light and dark, no CSP violations, tabs sharing one event stream; `PLAYWRIGHT_CHROMIUM=<path>` uses a local Chromium |
+| `npm run smoke` | Playwright against `preview:mock`: every route at 360 px and at the 408 px left edge, keyboard-only approval, axe with contrast in light and dark, no CSP violations, tabs sharing one event stream; `PLAYWRIGHT_CHROMIUM=<path>` uses a local Chromium (screenshot sets: `e2e/README.md`) |
 
 From the repository root, `make ui` installs and builds, `scripts/budgets/ui-size.sh`
 checks the gates, and `make ui-reset` restores the committed placeholder; run
@@ -26,27 +27,38 @@ it before committing so a build never lands in git.
 
 ```
 src/
-  App.svelte            route table, guards (setup → login → app), shell
-  app.css               design tokens (light and dark), component classes, markdown styles
+  App.svelte            route table, guards (setup → login → first password → app)
+  app.css               design tokens (light and dark; Tailwind's own reset), component classes, markdown styles
+  copy.test.ts          the copy guide over every source string
   lib/
     api/client.ts       fetch wrapper: X-CSRF-Token, dto.Error → ApiError, 401 → login
     api/types.gen.ts    generated from the Go DTOs by `make gen` (do not edit)
+    api/knowledge.ts    Knowledge client and its helpers
     router.svelte.ts    history router; safeNext() for ?next=
+    routes.ts           the routes and the v0.1 redirects (docs/design/ui.md §4.5)
     sse.svelte.ts       one EventSource per browser, shared by tabs (Web Lock + BroadcastChannel):
                         typed handlers, hello, resync, reconnect with backoff
-    stores/             session and approvals, theme and toasts, one-second clock
+    stores/             session, approvals and the inbox count, theme and shell state, one-second clock
+    format.ts           money, times, durations, countdowns and plurals in the copy guide's words
+    activity.ts         what Bothy did, said per tool and tense (chat and task pages)
+    cardcopy.ts         plain approval-card copy when a card predates the server's
     markdown.ts         escape-all renderer (security control, see below)
     text.ts             bidi/zero-width visualisation and punycode for approval cards
     transcript.ts       persisted messages + live run events → transcript rows
-    config.svelte.ts    effective config (§7.3): entries by path, schema walk, set/reset
+    config.svelte.ts    effective config (§7.3) for Security and Advanced
+    icons.ts            the 18 inline icons
     qr.ts               QR encoder, byte mode, versions 1–6, level M (lazy chunk)
-    yaml.ts, diff.ts    effective-config YAML, line diffs for memory and MCP pins
-  components/           ApprovalCard, ConfigField + SourceChip, charts, dialogs, setup pieces
-  screens/              chat, approvals, run trace, schedules, memory, usage, audit,
-                        settings (13 pages) and the first-run wizard
+  components/
+    ui/                 primitives (buttons, fields, lists, dialogs, menus, notices, DiffView…) and Gallery (/dev/ui, dev only)
+    shell/              sidebar, settings navigation, phone top bar and drawer, banners, search and dialogs
+    chat/               activity lines, composer pieces, chat dialogs and drawers
+    approval/           approval cards, votes, decided lines, inbox review cards
+  screens/              chat, approvals, knowledge, activity, settings (with connections,
+                        security and advanced), setup, sign in, first password
   test/                 jsdom shims and the fetch → fixture-gateway adapter
 mock/                   fixture gateway (dev and tests only; never bundled)
-e2e/                    Playwright smoke test
+e2e/                    Playwright smoke tests and screenshot sets
+scripts/ui-lint.sh      the G5 source rules, run by npm run check
 public/                 theme.js (sets the theme before first paint), PWA manifest, icons
 ```
 
@@ -61,7 +73,7 @@ public/                 theme.js (sets the theme before first paint), PWA manife
   a fixed tag set with attributes it builds itself; images become text links,
   only absolute http(s)/mailto links survive (with `noopener noreferrer nofollow`;
   bare domains such as `attacker.com/?q=…` are never linked, escaped or not),
-  and in Exposed sessions links become inert host chips with a copy button.
+  and in Exposed sessions links become inert hosts with a copy button.
   `Markdown.svelte` is the only `{@html}` in the app; `markdown.test.ts` holds
   the XSS corpus.
 - **Approval cards show only the card DTO**, verbatim, with bidi and zero-width
