@@ -258,7 +258,7 @@ func TestLoopWarnThenAbort(t *testing.T) {
 		if warned != 2 || n != 4 {
 			t.Fatalf("warned %d times, executed %d times", warned, n)
 		}
-		if !strings.Contains(strings.Join(h.notices(), "\n"), "loop detected") {
+		if !slicesContains(h.notices(), loopNotice) {
 			t.Fatalf("notices = %v", h.notices())
 		}
 	})
