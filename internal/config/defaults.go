@@ -41,6 +41,7 @@ func defaults() *Config {
 			MaxRunsPerUser:    2,
 			ToolOutputTokens:  4000,
 			ParallelReadTools: 4,
+			Refine:            Refine{Drafts: 3, Depth: 2, EarlyStop: true, CriticSlot: "main"},
 		},
 		Context: ContextCfg{
 			ReserveOutput: "auto",
