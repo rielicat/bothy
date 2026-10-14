@@ -279,6 +279,13 @@ func clearSetupMeta(ctx context.Context, m core.MetaRepo) error {
 // CreateOwner creates the owner account with a valid setup grant and signs
 // them in.
 func (s *Service) CreateOwner(ctx context.Context, grantCookie, username, password, timezone string) (string, core.Actor, error) {
+	return s.CreateOwnerNamed(ctx, grantCookie, username, "", password, timezone)
+}
+
+// CreateOwnerNamed is CreateOwner with the owner's display name ("" = the
+// username). It is not part of core.Auth; httpapi reaches it through an
+// interface assertion.
+func (s *Service) CreateOwnerNamed(ctx context.Context, grantCookie, username, displayName, password, timezone string) (string, core.Actor, error) {
 	if _, err := s.checkGrant(ctx, s.store.Meta(), grantCookie); err != nil {
 		return "", core.Actor{}, err
 	}
@@ -286,6 +293,12 @@ func (s *Service) CreateOwner(ctx context.Context, grantCookie, username, passwo
 		timezone = "UTC"
 	}
 	if err := validUsername(username); err != nil {
+		return "", core.Actor{}, err
+	}
+	if displayName = strings.TrimSpace(displayName); displayName == "" {
+		displayName = username
+	}
+	if err := validDisplayName(displayName); err != nil {
 		return "", core.Actor{}, err
 	}
 	if _, err := time.LoadLocation(timezone); err != nil {
@@ -299,7 +312,7 @@ func (s *Service) CreateOwner(ctx context.Context, grantCookie, username, passwo
 		return "", core.Actor{}, err
 	}
 	now := s.now()
-	u := &core.User{Username: username, DisplayName: username, Role: core.RoleOwner, PWHash: phc, Timezone: timezone,
+	u := &core.User{Username: username, DisplayName: displayName, Role: core.RoleOwner, PWHash: phc, Timezone: timezone,
 		CreatedAt: now, UpdatedAt: now}
 	err = s.store.Tx(ctx, func(tx core.Store) error {
 		if _, err := s.checkGrant(ctx, tx.Meta(), grantCookie); err != nil {

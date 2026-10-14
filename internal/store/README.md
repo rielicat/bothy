@@ -28,4 +28,5 @@ its case), kept outside `core.Store` and checked by `conformance.GitHubStore`.
 Migration 0004 adds `approval_votes` (one vote per approver and approval;
 multi-approver approvals are also visible to their voters) and
 `release_deploys`, served by `Releases()` (`core.ReleaseStore`, outside
-`core.Store`).
+`core.Store`). Migration 0005 adds `users.must_change_password`
+(`core.User.MustChangePassword`).

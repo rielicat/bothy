@@ -29,13 +29,13 @@ func (r metaRepo) Delete(ctx context.Context, k string) error {
 	return dbErr("meta delete", err)
 }
 
-const userCols = `id, username, display_name, role, pw_hash, timezone, disabled, failed_logins, locked_until, created_at, updated_at`
+const userCols = `id, username, display_name, role, pw_hash, timezone, disabled, failed_logins, locked_until, created_at, updated_at, must_change_password`
 
 func scanUser(sc scanner) (*core.User, error) {
 	var u core.User
 	var locked, created, updated int64
 	if err := sc.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &u.PWHash, &u.Timezone, &u.Disabled,
-		&u.FailedLogins, &locked, &created, &updated); err != nil {
+		&u.FailedLogins, &locked, &created, &updated, &u.MustChangePassword); err != nil {
 		return nil, err
 	}
 	u.LockedUntil, u.CreatedAt, u.UpdatedAt = fromMS(locked), fromMS(created), fromMS(updated)
@@ -47,9 +47,9 @@ type userRepo struct{ h *handle }
 func (r userRepo) Create(ctx context.Context, u *core.User) error {
 	id := idOr(u.ID, core.PrefixUser)
 	err := r.h.write(ctx, func(q querier) error {
-		if _, err := q.ExecContext(ctx, `INSERT INTO users(`+userCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		if _, err := q.ExecContext(ctx, `INSERT INTO users(`+userCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
 			string(id), u.Username, u.DisplayName, string(u.Role), u.PWHash, u.Timezone, b2i(u.Disabled),
-			u.FailedLogins, ms(u.LockedUntil), ms(u.CreatedAt), ms(u.UpdatedAt)); err != nil {
+			u.FailedLogins, ms(u.LockedUntil), ms(u.CreatedAt), ms(u.UpdatedAt), b2i(u.MustChangePassword)); err != nil {
 			return dbErr("create user", err)
 		}
 		_, err := q.ExecContext(ctx, `INSERT INTO principals(id, kind, user_id, display_name, workspace_id, tool_profile, created_at)
@@ -78,9 +78,9 @@ func (r userRepo) List(ctx context.Context) ([]*core.User, error) {
 
 func (r userRepo) Update(ctx context.Context, u *core.User) error {
 	res, err := r.h.wq.ExecContext(ctx, `UPDATE users SET username = ?, display_name = ?, role = ?, pw_hash = ?, timezone = ?,
-		disabled = ?, failed_logins = ?, locked_until = ?, updated_at = ? WHERE id = ?`,
+		disabled = ?, failed_logins = ?, locked_until = ?, updated_at = ?, must_change_password = ? WHERE id = ?`,
 		u.Username, u.DisplayName, string(u.Role), u.PWHash, u.Timezone, b2i(u.Disabled), u.FailedLogins,
-		ms(u.LockedUntil), ms(u.UpdatedAt), string(u.ID))
+		ms(u.LockedUntil), ms(u.UpdatedAt), b2i(u.MustChangePassword), string(u.ID))
 	return mustAffect("update user", res, err)
 }
 
