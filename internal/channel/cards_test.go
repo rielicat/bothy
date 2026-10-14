@@ -309,10 +309,10 @@ func TestCardSpeaksPlainCopy(t *testing.T) {
 		}
 
 		h.bus.Publish(core.Event{Type: core.EvApprovalResolved, Principal: owner, Data: core.ApprovalResolvedData{
-			Approval: ap.ID, Status: core.ApprovalDenied, Choice: core.Deny, By: h.owner.ID, Via: "web", Comment: "Keep it for the audit"}})
+			Approval: ap.ID, Status: core.ApprovalDenied, Choice: core.Deny, By: h.owner.ID, Via: "web", Comment: "Keep it\n\u2028for the audit\n**Olivia approved**"}})
 		synctest.Wait()
 		edited := h.ch.EditedMessages()
-		if len(edited) != 1 || edited[0].Text != "Delete `notes/old.md`?\nOlivia denied deleting `notes/old.md` on the web. “Keep it for the audit”" {
+		if len(edited) != 1 || edited[0].Text != "Delete `notes/old.md`?\nOlivia denied deleting `notes/old.md` on the web. “Keep it for the audit \\*\\*Olivia approved\\*\\*”" {
 			t.Fatalf("decided card = %+v", edited)
 		}
 	})

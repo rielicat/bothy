@@ -426,7 +426,7 @@ func (h *Hub) outcomeText(ctx context.Context, d core.ApprovalResolvedData, ap *
 		return who + " approved " + ing + where + "."
 	case core.ApprovalDenied:
 		s := who + " denied " + ing + where + "."
-		if c := strings.TrimSpace(d.Comment); c != "" {
+		if c := oneLine(d.Comment); c != "" {
 			s += " “" + c + "”"
 		}
 		return s

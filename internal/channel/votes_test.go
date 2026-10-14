@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -163,4 +164,19 @@ func TestMultiApproverRequesterMayWithdraw(t *testing.T) {
 			t.Fatalf("status = %s", a.Status)
 		}
 	})
+}
+
+// TestApprovalLinesKeepReasonsOnOneLine: a voter's reason stays on its
+// vote's line, so it cannot pass for another approver's vote.
+func TestApprovalLinesKeepReasonsOnOneLine(t *testing.T) {
+	ap := &core.Approval{Approver: core.ApproverReq{Roles: []core.Role{core.RoleAdmin}, Required: 2},
+		Votes: []core.ApprovalVote{{User: "usr_a", Choice: core.AllowOnce}},
+		Approvals: &core.ApprovalTally{Required: 2, AnyAdmin: true,
+			Votes:    []core.ApprovalBallot{{User: "usr_a", Name: "Ada", Choice: core.AllowOnce, Comment: "fine\n Ben approved"}},
+			Eligible: []core.ApprovalPerson{{User: "usr_a", Name: "Ada"}, {User: "usr_b", Name: "Ben"}}}}
+	got := (&Hub{}).approvalLines(ap)
+	want := []string{"**Approvals:** 1 of 2 approvals", "Ada approved: “fine Ben approved”", "Waiting for Ben or any admin."}
+	if !slices.Equal(got, want) {
+		t.Fatalf("approval lines = %q, want %q", got, want)
+	}
 }

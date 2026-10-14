@@ -104,7 +104,7 @@ func (h *Hub) approvalLines(ap *core.Approval) []string {
 			verb = " denied"
 		}
 		line := v.Name + verb
-		if c := strings.TrimSpace(v.Comment); c != "" {
+		if c := oneLine(v.Comment); c != "" {
 			line += ": “" + c + "”"
 		}
 		lines = append(lines, plainLine(line))
@@ -143,6 +143,10 @@ func (h *Hub) allowedBy(ctx context.Context, ap *core.Approval) string {
 	}
 	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
 }
+
+// oneLine keeps an approver's reason on its card line: a line of its own
+// in it could pass for another vote.
+func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 func orList(items []string) string {
 	if len(items) < 2 {
