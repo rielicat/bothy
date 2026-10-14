@@ -32,6 +32,9 @@ type Deps struct {
 	// Redactor masks secrets in the repository text a draft sends to the
 	// model and in the notes it writes; nil sends the text as read.
 	Redactor core.Redactor
+	// Indexed, when set, hears of every finished index of a GitHub checkout
+	// (repo is owner/name), so the repos table can keep its last indexed sha.
+	Indexed func(ctx context.Context, repo, sha string)
 }
 
 const (
@@ -43,7 +46,7 @@ const (
 var _ core.Knowledge = (*Service)(nil)
 
 // Service implements core.Knowledge: a background index queue fed by
-// repo.checked_out events and the HTTP API, the knowledge_search and notes
+// repo.checkout events and the HTTP API, the knowledge_search and notes
 // tools, notes drafting and the turn-context hook.
 type Service struct {
 	d     Deps
@@ -104,10 +107,10 @@ func (s *Service) caps() caps {
 
 var errDisabled = fmt.Errorf("%w: knowledge is turned off (knowledge.enabled)", core.ErrInvalid)
 
-// Run serves the index queue and repo.checked_out events until ctx ends,
+// Run serves the index queue and repo.checkout events until ctx ends,
 // then waits for its workers and notes drafts.
 func (s *Service) Run(ctx context.Context) error {
-	sub := s.d.Bus.Subscribe(core.Filter{System: true, Types: []core.EventType{core.EvRepoCheckedOut}}, eventBuffer)
+	sub := s.d.Bus.Subscribe(core.Filter{System: true, Types: []core.EventType{core.EvRepoCheckout}}, eventBuffer)
 	defer sub.Close()
 	s.recover(ctx)
 	var wg sync.WaitGroup
@@ -132,7 +135,7 @@ func (s *Service) Run(ctx context.Context) error {
 				return nil
 			}
 			if n := sub.Dropped(); n > dropped {
-				s.log.Warn("knowledge: missed repo.checked_out events; reindex the affected repos", "dropped", n-dropped)
+				s.log.Warn("knowledge: missed repo.checkout events; reindex the affected repos", "dropped", n-dropped)
 				dropped = n
 			}
 			s.onCheckout(ctx, e)
@@ -287,6 +290,9 @@ func (s *Service) runJob(ctx context.Context, id int64) {
 	}
 	s.setHas(r.Principal, true)
 	s.publish(r, false)
+	if r.Source == core.KnowledgeGitHub && r.Status == core.IndexReady && s.d.Indexed != nil {
+		s.d.Indexed(ctx, r.Repo, r.SHA)
+	}
 	s.audit(ctx, "system", "knowledge.index", r, "ok", map[string]any{"state": "indexed", "files": st.files, "chunks": st.chunks,
 		"skipped": st.skipped, "truncated": st.truncated, "sha": r.SHA})
 	if r.Notes.Status == core.NotesNone && s.cfg().AutoNotes {
@@ -360,9 +366,9 @@ func userActor(u core.UserID) string { return "user:" + string(u) }
 
 // onCheckout queues the index of a checkout another module wrote.
 func (s *Service) onCheckout(ctx context.Context, e core.Event) {
-	d, ok := e.Data.(core.RepoCheckedOutData)
+	d, ok := e.Data.(core.RepoCheckoutData)
 	if !ok || e.Principal == "" {
-		s.log.Warn("knowledge: ignoring malformed repo.checked_out event", "principal", e.Principal)
+		s.log.Warn("knowledge: ignoring malformed repo.checkout event", "principal", e.Principal)
 		return
 	}
 	if !s.cfg().Enabled {
@@ -370,7 +376,11 @@ func (s *Service) onCheckout(ctx context.Context, e core.Event) {
 	}
 	p, err := s.d.Store.Principals().Get(ctx, core.SystemViewer(), e.Principal)
 	if err != nil {
-		s.log.Warn("knowledge: repo.checked_out for an unknown principal", "principal", e.Principal, "err", err)
+		s.log.Warn("knowledge: repo.checkout for an unknown principal", "principal", e.Principal, "err", err)
+		return
+	}
+	if d.Workspace != "" && d.Workspace != p.Workspace {
+		s.log.Warn("knowledge: repo.checkout names another workspace than its principal's", "principal", e.Principal, "workspace", d.Workspace)
 		return
 	}
 	name, err := normalizeRepo(d.Repo)

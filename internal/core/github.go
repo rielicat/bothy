@@ -147,10 +147,14 @@ type GitHub interface {
 	Repos(ctx context.Context) ([]*GitHubRepo, error) // allowed repositories of every connection
 }
 
-// EvRepoCheckout is published (Principal = the workspace's principal) when
-// repo_checkout has written a repository into a workspace.
+// EvRepoCheckout is published (Principal = the workspace's principal;
+// Session and Run name the run that asked, when one did) when repo_checkout
+// has written a repository into a workspace. The knowledge module indexes it.
 const EvRepoCheckout EventType = "repo.checkout"
 
+// RepoCheckoutData: Dir holds Repo's files at commit SHA. Consumers also
+// accept an absolute path inside the principal's workspace or the path boxes
+// see (/workspace/...).
 type RepoCheckoutData struct {
 	Repo      string      `json:"repo"` // owner/name
 	Ref       string      `json:"ref"`

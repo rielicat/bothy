@@ -3,10 +3,10 @@
 `knowledge.Service` implements `core.Knowledge` (v0.2 brief §6): Bothy's own
 index of repositories and its own project notes, kept outside the repositories.
 
-**Indexing.** A `repo.checked_out` event (`core.RepoCheckedOutData{repo, sha,
-dir}` with `Event.Principal`, published by the GitHub module after
-`repo_checkout`; `dir` may be host-absolute, box-side `/workspace/...` or
-workspace-relative) or `POST /api/knowledge/repos` (any directory of the
+**Indexing.** A `repo.checkout` event (`core.RepoCheckoutData` with
+`Event.Principal`, published by the GitHub module after `repo_checkout`;
+`dir` may be host-absolute, box-side `/workspace/...` or workspace-relative,
+and a `workspace_id` other than the principal's is ignored) or `POST /api/knowledge/repos` (any directory of the
 caller's workspace; a default `local/<name>` already naming another folder is
 a 409) queues an index. Two workers walk the directory read-only through
 `os.Root`, never following symlinks and opening files with `O_NONBLOCK` (a FIFO
@@ -21,7 +21,9 @@ hostile rules end it as a truncated index. Size caps
 mark a truncated walk. Re-indexing is incremental: a file whose chunker version
 plus sha256 is unchanged is not re-chunked; changed files are replaced and
 vanished ones deleted, in batched transactions, then every chunk is relabelled
-with the new commit. A restart requeues interrupted indexes.
+with the new commit. A restart requeues interrupted indexes. A finished index
+of a GitHub checkout calls `Deps.Indexed`, which `cmd/bothy` uses to record
+the commit as the repository's `last_indexed_sha`.
 
 **Chunking** is regex-light: markdown by headings (levels 1-3, fenced code and
 front matter ignored, titles are heading paths), Go, Python, JS/TS, Rust, Java-family, C/C++,

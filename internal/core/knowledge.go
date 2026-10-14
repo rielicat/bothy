@@ -7,35 +7,20 @@ import (
 
 // ---- knowledge (v0.2 F6): repository index and project notes ----
 
-const (
-	// EvRepoCheckedOut is published by whoever wrote a repository's files into
-	// a principal's workspace (the GitHub module's repo_checkout). Event.Principal
-	// must be set; Event.Session and Event.Run name the run that asked for it.
-	EvRepoCheckedOut EventType = "repo.checked_out"
-	// EvKnowledgeUpdated reports an index or notes state change of one repo.
-	EvKnowledgeUpdated EventType = "knowledge.updated"
-)
-
-// RepoCheckedOutData: Dir holds Repo's files at commit SHA. Dir is absolute
-// (inside the event principal's workspace), the path boxes see
-// (/workspace/...), or relative to that workspace.
-type RepoCheckedOutData struct {
-	Repo string `json:"repo"` // "owner/name"
-	SHA  string `json:"sha"`
-	Dir  string `json:"dir"`
-}
+// EvKnowledgeUpdated reports an index or notes state change of one repo. The
+// knowledge module indexes the checkouts EvRepoCheckout announces.
+const EvKnowledgeUpdated EventType = "knowledge.updated"
 
 type KnowledgeUpdatedData struct {
 	Repo    IndexedRepo `json:"repo"`
 	Deleted bool        `json:"deleted,omitempty"`
 }
 
-func (RepoCheckedOutData) eventData()   {}
 func (KnowledgeUpdatedData) eventData() {}
 
 // Sources of an indexed directory.
 const (
-	KnowledgeGitHub    = "github"    // a repository checkout (repo.checked_out)
+	KnowledgeGitHub    = "github"    // a repository checkout (repo.checkout)
 	KnowledgeWorkspace = "workspace" // any directory of the principal's workspace
 )
 

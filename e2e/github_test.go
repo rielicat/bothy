@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/github/githubtest"
@@ -18,8 +19,10 @@ import (
 // fake API) with a personal access token, the agent checks a repository
 // out, edits a file with fs_write and proposes it with repo_open_pr; the
 // card shows the repository, branches and the full diff, and approving it
-// creates the pull request with exactly that change. The token reaches
-// neither the logs nor the model.
+// creates the pull request with exactly that change. The checkout also feeds
+// the knowledge index (F6), which drafts project notes and records the
+// indexed commit on the repository. The token reaches neither the logs nor
+// the model.
 func TestGitHubPullRequest(t *testing.T) {
 	gh := githubtest.New()
 	t.Cleanup(gh.Close)
@@ -31,6 +34,7 @@ func TestGitHubPullRequest(t *testing.T) {
 
 	const readme = "# Hello World\n\nA test repository, now with a README edit by Bothy.\n"
 	llm := pltLLM(t,
+		mockllm.Rule{MatchSystem: `^You keep short project notes`, Text: []string{"## Summary\nHello World is a test repository.\n"}},
 		mockllm.Rule{MatchUser: `F4-PR`, MatchToolResult: `Opened pull request`, Text: []string{"The pull request is open."}},
 		mockllm.Rule{MatchUser: `F4-PR`, MatchToolResult: `Wrote \d+ bytes`, ToolCalls: []core.ToolCall{pltCall("call_pr", "use_tool",
 			`{"name":"repo_open_pr","args":{"repo":"octocat/Hello-World","title":"Clarify the README","body":"Explains what the repository is for."}}`)}},
@@ -142,6 +146,37 @@ func TestGitHubPullRequest(t *testing.T) {
 				t.Fatal("the PAT is in the session")
 			}
 		}
+	}
+
+	// repo.checkout reached the knowledge module: the checkout is indexed for
+	// the owner at the checked-out commit, notes are drafted, and the
+	// repository row carries the indexed commit.
+	var indexed core.IndexedRepo
+	deadline := time.Now().Add(30 * time.Second)
+	for indexed.ID == 0 {
+		var list dto.List[core.IndexedRepo]
+		if code := owner.JSON(t, http.MethodGet, "/api/knowledge/repos", nil, &list); code != http.StatusOK {
+			t.Fatalf("knowledge repos = %d", code)
+		}
+		for _, r := range list.Items {
+			if r.Repo == "octocat/hello-world" {
+				indexed = r
+			}
+		}
+		if indexed.ID == 0 && time.Now().After(deadline) {
+			t.Fatalf("the checkout was not indexed: %+v", list.Items)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	indexed = kWaitRepo(t, owner, indexed.ID, func(r core.IndexedRepo) bool {
+		return r.Status == core.IndexReady && r.Notes.Status == core.NotesReady
+	})
+	if indexed.Source != core.KnowledgeGitHub || indexed.SHA != base || indexed.Dir != "repos/octocat/Hello-World" || indexed.Files != 2 ||
+		indexed.Principal != owner.Principal(t).ID {
+		t.Errorf("indexed checkout = %+v", indexed)
+	}
+	if code := owner.JSON(t, http.MethodGet, "/api/github/repos", nil, &repos); code != http.StatusOK || len(repos) != 1 || repos[0].LastIndexedSHA != base {
+		t.Errorf("repos after indexing = %d %+v, want last_indexed_sha %s", code, repos, base)
 	}
 
 	// Disconnecting removes the allowlist and the stored token.

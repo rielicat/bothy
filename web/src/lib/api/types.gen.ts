@@ -552,10 +552,16 @@ export interface GitHubProbe {
 export type GitHub = 
     ToolProvider;
 /**
- * EvRepoCheckout is published (Principal = the workspace's principal) when
- * repo_checkout has written a repository into a workspace.
+ * EvRepoCheckout is published (Principal = the workspace's principal;
+ * Session and Run name the run that asked, when one did) when repo_checkout
+ * has written a repository into a workspace. The knowledge module indexes it.
  */
 export const EvRepoCheckout: EventType = "repo.checkout";
+/**
+ * RepoCheckoutData: Dir holds Repo's files at commit SHA. Consumers also
+ * accept an absolute path inside the principal's workspace or the path boxes
+ * see (/workspace/...).
+ */
 export interface RepoCheckoutData {
   repo: string; // owner/name
   ref: string;
@@ -697,25 +703,10 @@ export const TrigResume: Trigger = "resume";
 // source: internal/core/knowledge.go
 
 /**
- * EvRepoCheckedOut is published by whoever wrote a repository's files into
- * a principal's workspace (the GitHub module's repo_checkout). Event.Principal
- * must be set; Event.Session and Event.Run name the run that asked for it.
- */
-export const EvRepoCheckedOut: EventType = "repo.checked_out";
-/**
- * EvKnowledgeUpdated reports an index or notes state change of one repo.
+ * EvKnowledgeUpdated reports an index or notes state change of one repo. The
+ * knowledge module indexes the checkouts EvRepoCheckout announces.
  */
 export const EvKnowledgeUpdated: EventType = "knowledge.updated";
-/**
- * RepoCheckedOutData: Dir holds Repo's files at commit SHA. Dir is absolute
- * (inside the event principal's workspace), the path boxes see
- * (/workspace/...), or relative to that workspace.
- */
-export interface RepoCheckedOutData {
-  repo: string; // "owner/name"
-  sha: string;
-  dir: string;
-}
 export interface KnowledgeUpdatedData {
   repo: IndexedRepo;
   deleted?: boolean;

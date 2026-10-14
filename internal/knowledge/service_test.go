@@ -55,14 +55,16 @@ func TestCheckoutEventIndexesAndTouches(t *testing.T) {
 	h := newHarness(t)
 	h.writeRepo()
 	sess := h.session(h.p.ID)
+	indexed := make(chan string, 4)
+	h.svc.d.Indexed = func(_ context.Context, repo, sha string) { indexed <- repo + "@" + sha }
 	stop := h.startRun()
 	defer stop()
 	// Run subscribes asynchronously; publish until the queue picks it up.
 	var repos []*core.IndexedRepo
 	deadline := time.Now().Add(10 * time.Second)
 	for len(repos) == 0 {
-		h.bus.Publish(core.Event{Type: core.EvRepoCheckedOut, Principal: h.p.ID, Session: sess.ID, Run: "run_x",
-			Data: core.RepoCheckedOutData{Repo: "Acme/API", SHA: "ABCDEF1234", Dir: filepath.Join(h.ws, "repos", "acme", "api")}})
+		h.bus.Publish(core.Event{Type: core.EvRepoCheckout, Principal: h.p.ID, Session: sess.ID, Run: "run_x",
+			Data: core.RepoCheckoutData{Repo: "Acme/API", SHA: "ABCDEF1234", Dir: filepath.Join(h.ws, "repos", "acme", "api")}})
 		time.Sleep(20 * time.Millisecond)
 		repos, _ = h.svc.Repos(h.ctx, h.viewer(), "")
 		if time.Now().After(deadline) {
@@ -77,15 +79,24 @@ func TestCheckoutEventIndexesAndTouches(t *testing.T) {
 	if err != nil || len(touches) != 1 || touches[0].Repo != r.ID {
 		t.Fatalf("touches = %+v %v", touches, err)
 	}
+	select {
+	case got := <-indexed:
+		if got != "acme/api@abcdef1234" {
+			t.Fatalf("Indexed heard %q", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Indexed was not called for the GitHub checkout")
+	}
 	if !strings.Contains(strings.Join(h.audit.Actions(), ","), "knowledge.index") {
 		t.Fatalf("audit = %v", h.audit.Actions())
 	}
 
 	for _, bad := range []core.Event{
-		{Type: core.EvRepoCheckedOut, Principal: h.p.ID, Data: core.RepoCheckedOutData{Repo: "evil/escape", Dir: "/etc"}},
-		{Type: core.EvRepoCheckedOut, Principal: h.p.ID, Data: core.RepoCheckedOutData{Repo: "evil/rel", Dir: "../../etc"}},
-		{Type: core.EvRepoCheckedOut, Principal: h.p.ID, Data: core.RepoCheckedOutData{Repo: "../x", Dir: "repos"}},
-		{Type: core.EvRepoCheckedOut, Data: core.RepoCheckedOutData{Repo: "no/principal", Dir: "repos"}},
+		{Type: core.EvRepoCheckout, Principal: h.p.ID, Data: core.RepoCheckoutData{Repo: "evil/escape", Dir: "/etc"}},
+		{Type: core.EvRepoCheckout, Principal: h.p.ID, Data: core.RepoCheckoutData{Repo: "evil/rel", Dir: "../../etc"}},
+		{Type: core.EvRepoCheckout, Principal: h.p.ID, Data: core.RepoCheckoutData{Repo: "../x", Dir: "repos"}},
+		{Type: core.EvRepoCheckout, Data: core.RepoCheckoutData{Repo: "no/principal", Dir: "repos"}},
+		{Type: core.EvRepoCheckout, Principal: h.p.ID, Data: core.RepoCheckoutData{Repo: "other/ws", Dir: "repos", Workspace: "ws_someoneelse"}},
 	} {
 		h.svc.onCheckout(h.ctx, bad)
 	}
@@ -345,8 +356,8 @@ func TestPurgeAndDisabled(t *testing.T) {
 	if _, err := off.svc.Index(off.ctx, off.viewer(), off.p.ID, core.KnowledgeIndexRequest{Dir: "repos"}, off.user.ID); !errors.Is(err, core.ErrInvalid) {
 		t.Fatalf("Index while disabled = %v", err)
 	}
-	off.svc.onCheckout(off.ctx, core.Event{Type: core.EvRepoCheckedOut, Principal: off.p.ID,
-		Data: core.RepoCheckedOutData{Repo: "acme/api", Dir: "repos/acme/api"}})
+	off.svc.onCheckout(off.ctx, core.Event{Type: core.EvRepoCheckout, Principal: off.p.ID,
+		Data: core.RepoCheckoutData{Repo: "acme/api", Dir: "repos/acme/api"}})
 	if list, _ := off.svc.Repos(off.ctx, off.viewer(), ""); len(list) != 0 {
 		t.Fatalf("disabled knowledge indexed a checkout: %+v", list)
 	}
