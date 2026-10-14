@@ -13,9 +13,6 @@ const (
 	ignorePatterns  = 2000     // per file; a hostile repo cannot make matching quadratic in patterns
 	ignoreTotal     = 10000    // across every ignore file of one walk
 	ignoreSegments  = 64       // per pattern
-	// ignoreWork bounds the matching cells (pattern × path segments) one
-	// walk may spend; ordinary repositories use well under a tenth of it.
-	ignoreWork = 50_000_000
 	sniffBytes      = 8 << 10  // binary detection window
 	generatedLines  = 10       // header lines searched for generated-code markers
 	maxWalkDepth    = 32
@@ -24,6 +21,10 @@ const (
 	attrVendored    = "linguist-vendored"
 	attrUnsetPrefix = "-"
 )
+
+// ignoreWork bounds the matching cells (pattern × path segments) one walk
+// may spend; ordinary repositories use well under a tenth of it.
+const ignoreWork = 50_000_000
 
 // skipDirs are vendored code, VCS metadata, caches and build output that a
 // repository often commits or that a checkout may contain; .gitignore covers
