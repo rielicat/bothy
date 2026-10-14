@@ -162,6 +162,14 @@ func ghRepos(t *testing.T, ctx context.Context, s core.GitHubStore) {
 	}
 	created := got.CreatedAt
 
+	// Another connection while a allows it: conflict, row untouched.
+	if err := put(&core.GitHubRepo{Connection: b.ID, Owner: "octocat", Name: "HELLO-WORLD", Allowed: true}); !errors.Is(err, core.ErrConflict) {
+		t.Errorf("repo another connection allows: %v, want ErrConflict", err)
+	}
+	if got, _ := s.Repo(ctx, "octocat", "hello-world"); got == nil || got.Connection != a.ID || got.DefaultBranch != "main" {
+		t.Errorf("conflicting put changed the row: %+v", got)
+	}
+
 	// Same connection: updates, takes the new spelling, keeps created_at and
 	// last_indexed_sha.
 	if err := put(&core.GitHubRepo{Connection: a.ID, GitHubID: 1296269, Owner: "Octocat", Name: "hello-world", DefaultBranch: "trunk",
@@ -177,12 +185,18 @@ func ghRepos(t *testing.T, ctx context.Context, s core.GitHubStore) {
 		t.Errorf("after update = %+v", got)
 	}
 
-	// Another connection: conflict, row untouched.
-	if err := put(&core.GitHubRepo{Connection: b.ID, Owner: "octocat", Name: "HELLO-WORLD", Allowed: true}); !errors.Is(err, core.ErrConflict) {
-		t.Errorf("repo of another connection: %v, want ErrConflict", err)
+	// a no longer allows it: another connection takes it over, keeping
+	// created_at and last_indexed_sha.
+	if err := put(&core.GitHubRepo{Connection: b.ID, GitHubID: 1296269, Owner: "octocat", Name: "Hello-World", DefaultBranch: "main",
+		Allowed: true}); err != nil {
+		t.Fatalf("taking over a repo its connection no longer allows: %v", err)
 	}
-	if got, _ := s.Repo(ctx, "octocat", "hello-world"); got == nil || got.Connection != a.ID || got.DefaultBranch != "trunk" {
-		t.Errorf("conflicting put changed the row: %+v", got)
+	got, err = s.Repo(ctx, "octocat", "hello-world")
+	if err != nil || got.Connection != b.ID || !got.Allowed || got.DefaultBranch != "main" || got.LastIndexedSHA != "abc" || !got.CreatedAt.Equal(created) {
+		t.Errorf("after takeover = %+v %v", got, err)
+	}
+	if err := put(&core.GitHubRepo{Connection: a.ID, Owner: "octocat", Name: "hello-world"}); !errors.Is(err, core.ErrConflict) {
+		t.Errorf("former connection after takeover: %v, want ErrConflict", err)
 	}
 	if err := put(&core.GitHubRepo{Connection: core.NewID(core.PrefixGitHubConn), Owner: "x", Name: "y"}); !errors.Is(err, core.ErrInvalid) {
 		t.Errorf("unknown connection: %v, want ErrInvalid", err)
@@ -195,12 +209,16 @@ func ghRepos(t *testing.T, ctx context.Context, s core.GitHubStore) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if names := repoNames(all); len(names) != 3 || names[0] != "acme/Widgets" || names[1] != "Octocat/hello-world" || names[2] != "Zed/alpha" {
+	if names := repoNames(all); len(names) != 3 || names[0] != "acme/Widgets" || names[1] != "octocat/Hello-World" || names[2] != "Zed/alpha" {
 		t.Errorf("Repos(\"\") = %v, want case-insensitive owner/name order", names)
 	}
 	mine, err := s.Repos(ctx, a.ID)
-	if err != nil || len(mine) != 2 {
+	if err != nil || len(mine) != 1 {
 		t.Errorf("Repos(a) = %v %v", repoNames(mine), err)
+	}
+	theirs, err := s.Repos(ctx, b.ID)
+	if err != nil || len(theirs) != 2 {
+		t.Errorf("Repos(b) = %v %v", repoNames(theirs), err)
 	}
 	if _, err := s.Repo(ctx, "nobody", "nothing"); !errors.Is(err, core.ErrNotFound) {
 		t.Errorf("missing repo: %v", err)

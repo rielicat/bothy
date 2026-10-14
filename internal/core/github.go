@@ -62,8 +62,9 @@ type GitHubStore interface {
 	Connection(ctx context.Context, id string) (*GitHubConnection, error) // ErrNotFound
 	Connections(ctx context.Context) ([]*GitHubConnection, error)         // oldest first
 	DeleteConnection(ctx context.Context, id string) error                // and its repos; ErrNotFound
-	// PutRepo inserts or updates by owner/name (case-insensitive). A repo held
-	// by another connection is ErrConflict; an unknown connection ErrInvalid.
+	// PutRepo inserts or updates by owner/name (case-insensitive). A repo
+	// another connection allows is ErrConflict (one it no longer allows moves
+	// over, keeping last_indexed_sha); an unknown connection ErrInvalid.
 	PutRepo(ctx context.Context, r *GitHubRepo) error
 	Repo(ctx context.Context, owner, name string) (*GitHubRepo, error)   // case-insensitive; ErrNotFound
 	Repos(ctx context.Context, connection string) ([]*GitHubRepo, error) // "" = every connection; by owner, name

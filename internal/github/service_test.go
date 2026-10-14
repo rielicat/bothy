@@ -178,6 +178,31 @@ func TestConnectPAT(t *testing.T) {
 	}
 }
 
+// TestRepoMovesToAnotherConnection: once a connection no longer allows a
+// repository, another connection can allowlist it.
+func TestRepoMovesToAnotherConnection(t *testing.T) {
+	f := newFx(t)
+	a := f.connect("octocat/Hello-World")
+	if _, err := f.svc.SetRepos(f.ctx, a.ID, nil, "usr_owner"); err != nil {
+		t.Fatal(err)
+	}
+	p, err := f.svc.Test(f.ctx, f.patCreds())
+	if err != nil || !p.OK || len(p.Repos) != 1 || p.Repos[0].Connection != "" || p.Repos[0].Allowed {
+		t.Fatalf("probe of a repository no connection allows = %+v %v", p, err)
+	}
+	b := f.connect("octocat/Hello-World")
+	r, err := f.store.Repo(f.ctx, "octocat", "Hello-World")
+	if err != nil || r.Connection != b.ID || !r.Allowed {
+		t.Fatalf("repo after the move = %+v %v", r, err)
+	}
+	if _, err := f.svc.SetRepos(f.ctx, a.ID, []string{"octocat/Hello-World"}, "usr_owner"); !errors.Is(err, core.ErrConflict) {
+		t.Errorf("former connection reclaiming an allowed repo: %v", err)
+	}
+	if held, _ := f.store.Repos(f.ctx, a.ID); len(held) != 0 {
+		t.Errorf("former connection still lists %+v", held[0])
+	}
+}
+
 func TestConnectWithSecretRef(t *testing.T) {
 	f := newFx(t)
 	if _, err := f.vault.Put(f.ctx, core.GlobalScope, "github_pat", []byte(f.gh.PAT), ""); err != nil {

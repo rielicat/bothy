@@ -217,7 +217,8 @@ func (s *Service) probe(ctx context.Context, ep endpoint, src tokenSource, auth 
 }
 
 // repoAccess describes a repository a probe found, with the allowlist
-// state of its stored row if any.
+// state of its stored row if any. A row another connection no longer
+// allows does not hold the repository: any connection may take it over.
 func repoAccess(r ghRepo, held []*core.GitHubRepo, connID string) (core.GitHubRepoAccess, bool) {
 	owner, name, ok := repoNames(r)
 	if !ok {
@@ -227,7 +228,7 @@ func repoAccess(r ghRepo, held []*core.GitHubRepo, connID string) (core.GitHubRe
 		DefaultBranch: r.DefaultBranch, Description: oneLine(r.Description, 300)}
 	if i := slices.IndexFunc(held, func(h *core.GitHubRepo) bool {
 		return strings.EqualFold(h.Owner, owner) && strings.EqualFold(h.Name, name)
-	}); i >= 0 {
+	}); i >= 0 && (held[i].Allowed || held[i].Connection == connID) {
 		acc.Connection = held[i].Connection
 		acc.Allowed = held[i].Allowed && (connID == "" || held[i].Connection == connID)
 	}

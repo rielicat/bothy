@@ -120,7 +120,7 @@ func (s *githubStore) PutRepo(_ context.Context, r *core.GitHubRepo) error {
 	k := repoKey(r.Owner, r.Name)
 	cp := *r
 	if old, ok := s.repos[k]; ok {
-		if old.Connection != r.Connection {
+		if old.Connection != r.Connection && old.Allowed {
 			return fmt.Errorf("memstore: repo %s belongs to another connection: %w", r.FullName(), core.ErrConflict)
 		}
 		cp.CreatedAt, cp.LastIndexedSHA = old.CreatedAt, old.LastIndexedSHA

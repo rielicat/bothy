@@ -90,8 +90,9 @@ func scanRepo(sc scanner) (*core.GitHubRepo, error) {
 }
 
 // PutRepo keeps created_at and last_indexed_sha of an existing row; the
-// conditional update leaves a repository of another connection untouched,
-// which RowsAffected reports as a conflict.
+// conditional update leaves a repository another connection allows
+// untouched, which RowsAffected reports as a conflict. A row its connection
+// no longer allows moves to the new one.
 func (r githubRepo) PutRepo(ctx context.Context, g *core.GitHubRepo) error {
 	if strings.TrimSpace(g.Owner) == "" || strings.TrimSpace(g.Name) == "" || g.Connection == "" {
 		return invalid("repos.owner/name/connection_id")
@@ -102,10 +103,10 @@ func (r githubRepo) PutRepo(ctx context.Context, g *core.GitHubRepo) error {
 	}
 	g.UpdatedAt = now
 	res, err := r.h.wq.ExecContext(ctx, `INSERT INTO repos(`+repoCols+`) VALUES (?,?,?,?,?,?,?,?,?,?)
-		ON CONFLICT(owner, name) DO UPDATE SET owner = excluded.owner, name = excluded.name, github_id = excluded.github_id,
-		default_branch = excluded.default_branch, private = excluded.private, allowed = excluded.allowed,
-		updated_at = excluded.updated_at
-		WHERE repos.connection_id = excluded.connection_id`,
+		ON CONFLICT(owner, name) DO UPDATE SET owner = excluded.owner, name = excluded.name, connection_id = excluded.connection_id,
+		github_id = excluded.github_id, default_branch = excluded.default_branch, private = excluded.private,
+		allowed = excluded.allowed, updated_at = excluded.updated_at
+		WHERE repos.connection_id = excluded.connection_id OR repos.allowed = 0`,
 		g.Owner, g.Name, g.Connection, g.GitHubID, g.DefaultBranch, b2i(g.Private), b2i(g.Allowed), g.LastIndexedSHA,
 		ms(g.CreatedAt), ms(g.UpdatedAt))
 	if err != nil {
