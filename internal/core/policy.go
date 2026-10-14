@@ -109,6 +109,7 @@ type ApprovalVote struct {
 	Choice   Choice     `json:"choice"` // allow_once | deny
 	Via      string     `json:"via"`    // web | telegram | discord | slack
 	At       time.Time  `json:"at"`
+	Comment  string     `json:"comment,omitempty"` // the voter's reason, e.g. for a deny
 }
 
 // AllowVotes counts the distinct allow votes that count towards Needed().
@@ -183,16 +184,36 @@ type Policy interface {
 	NextTaint(prev Taint, spec ToolSpec, a *Action, res *ToolResult, boxEgressed bool) Taint
 }
 
+// CardKind tells renderers which layout a card uses (v0.2 S2).
+type CardKind string
+
+const (
+	CardAction      CardKind = "action"
+	CardPullRequest CardKind = "pull_request" // repo_open_pr
+	CardDeploy      CardKind = "deploy"       // release_deploy
+	CardReview      CardKind = "review"       // a suggested text change (project notes)
+)
+
+// CardTone colours the primary button: destructive for irreversible and
+// financial actions, except deploys, whose safeguard is their approvers.
+type CardTone string
+
+const (
+	ToneDefault     CardTone = "default"
+	ToneDestructive CardTone = "destructive"
+)
+
 type CardField struct {
-	Label string `json:"label"`
+	Label string `json:"label"` // plain, e.g. "File", "Command", "To"
 	Value string `json:"value"` // verbatim; renderers escape and visualize bidi/zero-width chars
 	Mono  bool   `json:"mono"`
 }
 
 // Card is rendered by the policy module from the Action only, never from model
-// prose. Channel adapters format it; they never add content.
+// prose. Channel adapters format it; they never add content. Fields, Warnings
+// and the plain-copy fields below (v0.2 S2) are the words every surface shows.
 type Card struct {
-	Title    string      `json:"title"`
+	Title    string      `json:"title"` // the tool's title, e.g. "Delete file"
 	Risk     SideEffect  `json:"risk"`
 	Fields   []CardField `json:"fields"`
 	Code     string      `json:"code,omitempty"` // exact argv / JSON args
@@ -202,6 +223,13 @@ type Card struct {
 	Choices  []Choice    `json:"choices"`
 	Expires  time.Time   `json:"expires"`
 	WebURL   string      `json:"web_url"` // public_url + /approvals/<id>
+
+	Question     string   `json:"question"`              // "Delete notes/staging.md?"
+	Consequence  string   `json:"consequence,omitempty"` // "This can't be undone."
+	PrimaryLabel string   `json:"primary_label"`         // allow_once's verb ("Delete file"), else "Allow for this chat"
+	Ing          string   `json:"ing"`                   // "deleting notes/staging.md", as in "You approved …"
+	Kind         CardKind `json:"kind"`
+	Tone         CardTone `json:"tone"`
 }
 
 type ApprovalStatus string
@@ -238,6 +266,37 @@ type Approval struct {
 	// Votes of a multi-approver approval, oldest first. Approvals.Get, Pending,
 	// Recent and Resolve fill it; repositories leave it empty.
 	Votes []ApprovalVote `json:"votes,omitempty"`
+	// Comment is the deciding approver's reason (Resolution.Comment).
+	Comment string `json:"comment,omitempty"`
+	// Approvals (multi-approver only) and Requester carry display names for
+	// cards (v0.2 S4); they are filled like Votes.
+	Approvals *ApprovalTally  `json:"approvals,omitempty"`
+	Requester *ApprovalPerson `json:"requester,omitempty"`
+}
+
+// ApprovalPerson names a user on an approval card.
+type ApprovalPerson struct {
+	User UserID `json:"user"`
+	Name string `json:"name"` // display name, else username
+}
+
+// ApprovalTally is where a multi-approver approval stands.
+type ApprovalTally struct {
+	Required int              `json:"required"` // distinct approvals needed, the requester's never counting
+	Votes    []ApprovalBallot `json:"votes"`    // oldest first
+	// Eligible lists the enabled users other than the requester who may
+	// approve, leaving out admins and owners when AnyAdmin already covers them.
+	Eligible []ApprovalPerson `json:"eligible"`
+	AnyAdmin bool             `json:"any_admin"` // every admin may approve through a role
+}
+
+// ApprovalBallot is one vote with the voter's name.
+type ApprovalBallot struct {
+	User    UserID    `json:"user"`
+	Name    string    `json:"name"`
+	Choice  Choice    `json:"choice"` // allow_once | deny
+	At      time.Time `json:"at"`
+	Comment string    `json:"comment,omitempty"`
 }
 
 type ApprovalRequest struct {

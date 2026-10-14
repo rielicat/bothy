@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -73,7 +74,7 @@ func hostileActions(v string) map[string]struct {
 		"python": {action("python", core.ActExec, core.SELocalWrite, map[string]any{"argv": []string{"python3", ".bothy/tmp/x.py"}, "code": v, "cwd": v}), spec("python", core.SELocalWrite)},
 		"write": {action("fs_write", core.ActFSWrite, core.SELocalWrite, map[string]any{"path": v, "content": v, "mode": "overwrite"},
 			func(a *core.Action) { a.Paths, a.Diff = []string{v}, "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+"+v+"\n" }), spec("fs_write", core.SELocalWrite)},
-		"http": {httpAction("web_fetch", "POST", "https://example.com/"+v, core.SEExternalSend), spec("web_fetch", core.SEExternalSend)},
+		"http": {fixedHost(httpAction("web_fetch", "POST", "https://example.com/"+v, core.SEExternalSend)), spec("web_fetch", core.SEExternalSend)},
 		"send": {sendAction("send_mail", v, core.SEExternalSend), spec("send_mail", core.SEExternalSend)},
 		"mcp": {action("mcp__x__y", core.ActMCP, core.SEExternalSend, map[string]any{"to": v}, func(a *core.Action) {
 			a.MCPServer, a.MCPTool, a.Recipient = "x", "y", v
@@ -82,28 +83,61 @@ func hostileActions(v string) map[string]struct {
 	}
 }
 
-// TestCardStructureUnderHostileInput: field labels, order and choices come
-// from the Action kind and the decision only, never from the values.
+// TestCardStructureUnderHostileInput: field labels, order, choices and the
+// plain copy's shape come from the Action kind and the decision only, never
+// from the values; a value inside the question stays on its one line.
 func TestCardStructureUnderHostileInput(t *testing.T) {
 	benign := hostileActions("plain")
 	for _, v := range hostile {
 		for kind, x := range hostileActions(v) {
 			c := cardFor(x.a, x.s)
 			want := cardFor(benign[kind].a, benign[kind].s)
-			if !slices.Equal(labels(c), labels(want)) {
-				t.Errorf("%s %q: labels %v, want %v", kind, v, labels(c), labels(want))
-			}
-			if !slices.Equal(c.Choices, want.Choices) || c.Risk != want.Risk {
-				t.Errorf("%s %q: choices %v risk %s", kind, v, c.Choices, c.Risk)
-			}
+			assertSameShape(t, fmt.Sprintf("%s %q", kind, v), c, want, v, true)
 			assertNoHidden(t, kind, c)
 		}
 	}
 }
 
+func assertSameShape(t *testing.T, name string, c, want core.Card, v string, question bool) {
+	t.Helper()
+	if !slices.Equal(labels(c), labels(want)) {
+		t.Errorf("%s: labels %v, want %v", name, labels(c), labels(want))
+	}
+	if !slices.Equal(c.Choices, want.Choices) || c.Risk != want.Risk {
+		t.Errorf("%s: choices %v risk %s", name, c.Choices, c.Risk)
+	}
+	if c.PrimaryLabel != want.PrimaryLabel || c.Kind != want.Kind || c.Tone != want.Tone {
+		t.Errorf("%s: primary %q kind %s tone %s, want %q %s %s", name, c.PrimaryLabel, c.Kind, c.Tone, want.PrimaryLabel, want.Kind, want.Tone)
+	}
+	for _, s := range []string{c.Question, c.Consequence, c.Ing} {
+		if strings.ContainsAny(s, "\r\n\t ") {
+			t.Errorf("%s: a value broke the line of %q", name, s)
+		}
+	}
+	if q := strings.ReplaceAll(want.Question, "plain", inline(v)); question && c.Question != q {
+		t.Errorf("%s: question %q, want %q", name, c.Question, q)
+	}
+}
+
+// fixedHost sets the host a planned fetch carries (web_fetch normalises the
+// URL first), whatever the rest of the URL holds.
+func fixedHost(a *core.Action) *core.Action {
+	a.Host, a.Port = "example.com", 443
+	return a
+}
+
+func field(c core.Card, label string) core.CardField {
+	for _, f := range c.Fields {
+		if f.Label == label {
+			return f
+		}
+	}
+	return core.CardField{}
+}
+
 func TestCardVisualisesBidiAndZeroWidth(t *testing.T) {
 	c := cardFor(sendAction("send_mail", "bob\u202Emoc.evil@x", core.SEExternalSend), spec("send_mail", core.SEExternalSend))
-	if got := c.Fields[1].Value; got != "bob⟨U+202E⟩moc.evil@x" {
+	if got := c.Fields[0].Value; got != "bob⟨U+202E⟩moc.evil@x" {
 		t.Errorf("recipient %q", got)
 	}
 	if got := visible("a\u200Bb\u2066c\x00d\tz\n"); got != "a⟨U+200B⟩b⟨U+2066⟩c⟨U+0000⟩d\tz\n" {
@@ -116,44 +150,42 @@ func TestCardVisualisesBidiAndZeroWidth(t *testing.T) {
 
 func TestCardFields(t *testing.T) {
 	sh := cardFor(shellAction("rm -rf 'my dir'"), spec("shell", core.SELocalWrite))
-	if sh.Code != `bash -lc 'rm -rf '\''my dir'\'''` || sh.Title != "Run shell" {
-		t.Errorf("shell code %q title %q", sh.Code, sh.Title)
+	if f := field(sh, "Command"); f.Value != "rm -rf 'my dir'" || !f.Mono || sh.Code != "" || sh.Title != "Run shell" {
+		t.Errorf("shell command %+v code %q title %q", f, sh.Code, sh.Title)
+	}
+	// Any other argv is quoted so it reads back as the argv that runs.
+	odd := shellAction("x")
+	odd.Payload, _ = core.CanonicalJSON(map[string]any{"argv": []string{"bash", "-lc", "ls", "it's"}})
+	if f := field(cardFor(odd, spec("shell", core.SELocalWrite)), "Command"); f.Value != `bash -lc ls 'it'\''s'` {
+		t.Errorf("extra argv hidden: %q", f.Value)
 	}
 	py := cardFor(action("python", core.ActExec, core.SELocalWrite, map[string]any{"argv": []string{"python3", ".bothy/tmp/ab.py"}, "code": "import os\nos.remove('x')"}), spec("python", core.SELocalWrite))
-	if py.Code != "import os\nos.remove('x')" || py.Fields[1].Label != "Command" || py.Fields[1].Value != "python3 .bothy/tmp/ab.py" {
+	if py.Code != "import os\nos.remove('x')" || field(py, "Script").Value != "2 lines" {
 		t.Errorf("python card %+v", py)
 	}
 	// The card shows the payload's argv, which is what executes, even when
 	// the Action's Argv field disagrees.
 	lying := shellAction("rm -rf /")
 	lying.Argv = []string{"bash", "-lc", "ls"}
-	if c := cardFor(lying, spec("shell", core.SELocalWrite)); !strings.Contains(c.Code, "rm -rf /") {
-		t.Errorf("card trusted Action.Argv over the payload: %q", c.Code)
+	if c := cardFor(lying, spec("shell", core.SELocalWrite)); field(c, "Command").Value != "rm -rf /" {
+		t.Errorf("card trusted Action.Argv over the payload: %+v", c.Fields)
 	}
 
 	idn := cardFor(httpAction("web_fetch", "GET", "https://\u0430pple.com:8443/login?next=/", core.SERead), spec("web_fetch", core.SERead))
-	var url, host string
-	for _, f := range idn.Fields {
-		switch f.Label {
-		case "URL":
-			url = f.Value
-		case "Host":
-			host = f.Value
-		}
+	if u := field(idn, "Website").Value; u != "https://xn--pple-43d.com:8443/login?next=/" || idn.Question != "Open a page on xn--pple-43d.com?" {
+		t.Errorf("punycode url %q question %q", u, idn.Question)
 	}
-	if url != "https://xn--pple-43d.com:8443/login?next=/" || host != "xn--pple-43d.com" {
-		t.Errorf("punycode url %q host %q", url, host)
-	}
-	if !slices.ContainsFunc(idn.Warnings, func(w string) bool { return strings.Contains(w, "punycode") }) {
+	if !slices.ContainsFunc(idn.Warnings, func(w string) bool { return strings.Contains(w, "look-alike letters") }) {
 		t.Errorf("no IDN warning: %v", idn.Warnings)
 	}
 	post := cardFor(httpAction("web_fetch", "post", "https://user:pw@example.com/x", core.SEExternalSend), spec("web_fetch", core.SEExternalSend))
-	if post.Fields[1].Label != "Method" || post.Fields[1].Value != "POST" || post.Fields[2].Value != "https://user:pw@example.com/x" {
-		t.Errorf("post card %+v", post.Fields)
+	if post.Question != "Send data to example.com?" || field(post, "What").Value != "Sends data (POST)" ||
+		field(post, "Website").Value != "https://user:pw@example.com/x" || post.PrimaryLabel != "Send data" {
+		t.Errorf("post card %+v", post)
 	}
 	net := cardFor(netAction("pypi.org", 443), spec("net_allow", core.SEExternalSend))
-	if net.Fields[1].Label != "Network" || net.Fields[1].Value != "pypi.org:443" {
-		t.Errorf("net card %+v", net.Fields)
+	if field(net, "Website").Value != "pypi.org:443" || net.Question != "Let Bothy reach pypi.org?" {
+		t.Errorf("net card %+v", net)
 	}
 	big := strings.Repeat("+line of a large diff\n", 10000)
 	w := action("fs_write", core.ActFSWrite, core.SELocalWrite, map[string]any{"path": "a"}, func(a *core.Action) { a.Paths, a.Diff = []string{"a"}, big })
@@ -222,9 +254,7 @@ func FuzzCardStructure(f *testing.F) {
 		benign := hostileActions("plain")
 		for kind, x := range hostileActions(v) {
 			c := cardFor(x.a, x.s)
-			if !slices.Equal(labels(c), labels(cardFor(benign[kind].a, benign[kind].s))) {
-				t.Fatalf("%s %q: labels %v", kind, v, labels(c))
-			}
+			assertSameShape(t, fmt.Sprintf("%s %q", kind, v), c, cardFor(benign[kind].a, benign[kind].s), v, false)
 			assertNoHidden(t, kind, c)
 		}
 	})

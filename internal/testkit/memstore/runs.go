@@ -336,6 +336,7 @@ func normApproval(a core.Approval) (core.Approval, error) {
 	a.ParkUntil = ms(a.ParkUntil)
 	a.DecidedAt = ms(a.DecidedAt)
 	a.Votes = nil // approval_votes is its own table
+	a.Approvals, a.Requester = nil, nil
 	return a, nil
 }
 
@@ -573,6 +574,18 @@ func (r approvalRepo) Votes(_ context.Context, id core.ApprovalID) ([]core.Appro
 		return cmp.Or(a.At.Compare(b.At), cmp.Compare(a.User, b.User))
 	})
 	return out, nil
+}
+
+func (r approvalRepo) SetComment(_ context.Context, id core.ApprovalID, comment string) error {
+	st, unlock := r.s.begin()
+	defer unlock()
+	a, ok := st.approvals[id]
+	if !ok {
+		return notFound("set approval comment")
+	}
+	a.Comment = comment
+	st.approvals[id] = a
+	return nil
 }
 
 func normGrant(g core.Grant) (core.Grant, error) {

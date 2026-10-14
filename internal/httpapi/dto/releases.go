@@ -28,11 +28,12 @@ type ApprovalVotes struct {
 }
 
 type ApprovalVoteView struct {
-	User   core.UserID `json:"user_id"`
-	Name   string      `json:"name"`
-	Choice core.Choice `json:"choice"` // allow_once | deny
-	Via    string      `json:"via"`    // web | telegram | discord | slack
-	At     time.Time   `json:"at"`
+	User    core.UserID `json:"user_id"`
+	Name    string      `json:"name"`
+	Choice  core.Choice `json:"choice"` // allow_once | deny
+	Via     string      `json:"via"`    // web | telegram | discord | slack
+	At      time.Time   `json:"at"`
+	Comment string      `json:"comment,omitempty"`
 }
 
 // Releases is GET /api/releases: the configured environments and the newest

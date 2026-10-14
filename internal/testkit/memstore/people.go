@@ -435,6 +435,9 @@ func normIdentity(id core.ChannelIdentity) core.ChannelIdentity {
 	id.FirstSeen = ms(id.FirstSeen)
 	id.LastSeen = ms(id.LastSeen)
 	id.LastNotice = ms(id.LastNotice)
+	if id.Status != core.IdentityPending {
+		id.FirstText = ""
+	}
 	return id
 }
 
@@ -509,6 +512,10 @@ func (r identityRepo) Update(_ context.Context, id *core.ChannelIdentity) error 
 	row.Principal = id.Principal
 	row.DMChat = id.DMChat
 	row.LastNotice = ms(id.LastNotice)
+	row.FirstText = ""
+	if row.Status == core.IdentityPending {
+		row.FirstText = id.FirstText
+	}
 	if err := st.checkIdentity(row); err != nil {
 		return err
 	}

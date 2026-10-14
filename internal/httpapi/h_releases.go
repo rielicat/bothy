@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"slices"
 	"strings"
@@ -27,7 +28,8 @@ func (s *Server) approvalVotes(w http.ResponseWriter, r *http.Request, a core.Ac
 		Votes: []dto.ApprovalVoteView{}, Approvers: s.approverText(ctx, req), Requester: req.Requester,
 		RequesterName: s.userName(ctx, req.Requester)}
 	for _, v := range ap.Votes {
-		out.Votes = append(out.Votes, dto.ApprovalVoteView{User: v.User, Name: s.userName(ctx, v.User), Choice: v.Choice, Via: v.Via, At: v.At})
+		out.Votes = append(out.Votes, dto.ApprovalVoteView{User: v.User, Name: s.userName(ctx, v.User), Choice: v.Choice, Via: v.Via, At: v.At,
+			Comment: v.Comment})
 		if v.User == a.User {
 			out.YourVote = v.Choice
 		}
@@ -129,18 +131,22 @@ func (s *Server) approverText(ctx context.Context, r core.ApproverReq) string {
 	return strings.Join(parts[:len(parts)-1], ", ") + " or " + parts[len(parts)-1]
 }
 
-// withVotes fills Votes on multi-approver approvals read straight from the
-// store (run details), as core.Approvals does for its own reads.
+// withVotes rereads approvals taken straight from the store (run details,
+// already filtered for the caller) through core.Approvals, which fills
+// Votes, Approvals and Requester.
 func (s *Server) withVotes(ctx context.Context, aps []*core.Approval) error {
-	for _, ap := range aps {
-		if !ap.Approver.Multi() {
-			continue
-		}
-		votes, err := s.d.Store.Approvals().Votes(ctx, ap.ID)
-		if err != nil {
+	for i, ap := range aps {
+		full, err := s.d.Approvals.Get(ctx, core.SystemViewer(), ap.ID)
+		switch {
+		case err == nil:
+			aps[i] = full
+		case errors.Is(err, core.ErrNotFound) && ap.Approver.Multi():
+			if ap.Votes, err = s.d.Store.Approvals().Votes(ctx, ap.ID); err != nil {
+				return err
+			}
+		case !errors.Is(err, core.ErrNotFound):
 			return err
 		}
-		ap.Votes = votes
 	}
 	return nil
 }

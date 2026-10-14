@@ -217,13 +217,13 @@ func (r spaceRepo) Update(ctx context.Context, s *core.Space) error {
 }
 
 const identityCols = `channel, external_id, username, display_name, status, COALESCE(user_id, ''), COALESCE(principal_id, ''),
-	dm_chat_id, first_seen_at, last_seen_at, last_notice_at`
+	dm_chat_id, first_seen_at, last_seen_at, last_notice_at, first_text`
 
 func scanIdentity(sc scanner) (*core.ChannelIdentity, error) {
 	var id core.ChannelIdentity
 	var first, last, notice int64
 	if err := sc.Scan(&id.Channel, &id.ExternalID, &id.Username, &id.DisplayName, &id.Status, &id.User, &id.Principal,
-		&id.DMChat, &first, &last, &notice); err != nil {
+		&id.DMChat, &first, &last, &notice, &id.FirstText); err != nil {
 		return nil, err
 	}
 	id.FirstSeen, id.LastSeen, id.LastNotice = fromMS(first), fromMS(last), fromMS(notice)
@@ -252,9 +252,9 @@ func (r identityRepo) Touch(ctx context.Context, id *core.ChannelIdentity) (*cor
 				row.FirstSeen = row.LastSeen
 			}
 			if _, err := q.ExecContext(ctx, `INSERT INTO channel_identities(channel, external_id, username, display_name, status,
-				user_id, principal_id, dm_chat_id, first_seen_at, last_seen_at, last_notice_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+				user_id, principal_id, dm_chat_id, first_seen_at, last_seen_at, last_notice_at, first_text) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
 				row.Channel, row.ExternalID, row.Username, row.DisplayName, string(row.Status), nullStr(row.User),
-				nullStr(row.Principal), row.DMChat, ms(row.FirstSeen), ms(row.LastSeen), ms(row.LastNotice)); err != nil {
+				nullStr(row.Principal), row.DMChat, ms(row.FirstSeen), ms(row.LastSeen), ms(row.LastNotice), pendingText(row)); err != nil {
 				return dbErr("insert identity", err)
 			}
 		}
@@ -272,9 +272,19 @@ func (r identityRepo) Get(ctx context.Context, channel, externalID string) (*cor
 
 func (r identityRepo) Update(ctx context.Context, id *core.ChannelIdentity) error {
 	res, err := r.h.wq.ExecContext(ctx, `UPDATE channel_identities SET status = ?, user_id = ?, principal_id = ?, dm_chat_id = ?,
-		last_notice_at = ? WHERE channel = ? AND external_id = ?`,
-		string(id.Status), nullStr(id.User), nullStr(id.Principal), id.DMChat, ms(id.LastNotice), id.Channel, id.ExternalID)
+		last_notice_at = ?, first_text = ? WHERE channel = ? AND external_id = ?`,
+		string(id.Status), nullStr(id.User), nullStr(id.Principal), id.DMChat, ms(id.LastNotice), pendingText(*id),
+		id.Channel, id.ExternalID)
 	return mustAffect("update identity", res, err)
+}
+
+// pendingText keeps a sender's first words only while an admin may still
+// need them to decide; a linked or guest sender's message stays theirs.
+func pendingText(id core.ChannelIdentity) string {
+	if id.Status != core.IdentityPending {
+		return ""
+	}
+	return id.FirstText
 }
 
 func (r identityRepo) ForUser(ctx context.Context, u core.UserID) ([]*core.ChannelIdentity, error) {

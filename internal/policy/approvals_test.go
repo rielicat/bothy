@@ -142,6 +142,50 @@ func TestAdminOnlyApprovals(t *testing.T) {
 	}
 }
 
+// TestDecisionReasonAndRequester: a deny's reason is kept on the approval
+// and sent with approval.resolved; every approval names who asked, an
+// admin-only one through its run.
+func TestDecisionReasonAndRequester(t *testing.T) {
+	h := newHarness(t, nil)
+	if err := h.store.Users().Update(h.ctx, &core.User{ID: h.member.ID, Username: "member", DisplayName: "Mel", Role: core.RoleMember}); err != nil {
+		t.Fatal(err)
+	}
+	sub := h.bus.Subscribe(core.Filter{System: true, Types: []core.EventType{core.EvApprovalResolved}}, 16)
+	defer sub.Close()
+
+	ap := h.request(core.TrigMessage)
+	if ap.Requester == nil || *ap.Requester != (core.ApprovalPerson{User: h.owner.ID, Name: "owner"}) || ap.Approvals != nil {
+		t.Errorf("personal approval requester %+v approvals %+v", ap.Requester, ap.Approvals)
+	}
+	got, err := h.ap.Resolve(h.ctx, core.Resolution{ID: ap.ID, Choice: core.Deny, By: h.owner.ID, Via: "web", Comment: "Wrong address"})
+	if err != nil || got.Comment != "Wrong address" {
+		t.Fatalf("deny = %+v, %v", got, err)
+	}
+	if ev := <-sub.C(); ev.Data.(core.ApprovalResolvedData).Comment != "Wrong address" {
+		t.Errorf("resolved event %+v", ev.Data)
+	}
+	if stored, _ := h.ap.Get(h.ctx, core.SystemViewer(), ap.ID); stored.Comment != "Wrong address" {
+		t.Errorf("stored comment %q", stored.Comment)
+	}
+
+	s := spec("schedule_create", core.SEAdmin)
+	a := action("schedule_create", core.ActSchedule, core.SEAdmin, map[string]any{"name": "x"})
+	in := h.in(a, s)
+	in.Principal, in.User, in.Role, in.Session = h.memberP, h.member.ID, core.RoleMember, h.memberSession
+	run := h.newRun(h.memberSession, h.memberP.ID, h.member.ID)
+	admin, err := h.ap.Request(h.ctx, core.ApprovalRequest{Run: run, Session: h.memberSession, Principal: h.memberP.ID, Action: a, Spec: s, Decision: h.decide(in)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if admin.Requester == nil || *admin.Requester != (core.ApprovalPerson{User: h.member.ID, Name: "Mel"}) {
+		t.Errorf("admin-only requester %+v", admin.Requester)
+	}
+	list, err := h.ap.Pending(h.ctx, core.SystemViewer())
+	if err != nil || len(list) != 1 || list[0].Requester == nil || list[0].Requester.Name != "Mel" {
+		t.Errorf("pending = %+v, %v", list, err)
+	}
+}
+
 func TestResolveAuthority(t *testing.T) {
 	h := newHarness(t, nil)
 	ap := h.request(core.TrigMessage)

@@ -262,7 +262,7 @@ func (r runRepo) ToolCalls(ctx context.Context, v core.Viewer, run core.RunID) (
 }
 
 const approvalCols = `id, run_id, session_id, principal_id, tool_call_id, action, decision, card, approver, chat, status, choice,
-	on_timeout, decided_by, decided_via, created_at, expires_at, park_until, decided_at`
+	on_timeout, decided_by, decided_via, created_at, expires_at, park_until, decided_at, comment`
 
 func scanApproval(sc scanner) (*core.Approval, error) {
 	var a core.Approval
@@ -270,7 +270,7 @@ func scanApproval(sc scanner) (*core.Approval, error) {
 	var chat sql.NullString
 	var created, expires, park, decided int64
 	if err := sc.Scan(&a.ID, &a.Run, &a.Session, &a.Principal, &a.ToolCallID, &action, &decision, &card, &approver, &chat,
-		&a.Status, &a.Choice, &a.OnTimeout, &a.DecidedBy, &a.DecidedVia, &created, &expires, &park, &decided); err != nil {
+		&a.Status, &a.Choice, &a.OnTimeout, &a.DecidedBy, &a.DecidedVia, &created, &expires, &park, &decided, &a.Comment); err != nil {
 		return nil, err
 	}
 	if action != "null" {
@@ -358,10 +358,10 @@ func (r approvalRepo) Create(ctx context.Context, a *core.Approval) error {
 	if err != nil {
 		return err
 	}
-	if _, err := r.h.wq.ExecContext(ctx, `INSERT INTO approvals(`+approvalCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	if _, err := r.h.wq.ExecContext(ctx, `INSERT INTO approvals(`+approvalCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		string(id), string(a.Run), string(a.Session), string(a.Principal), a.ToolCallID, action, decision, card, approver, chat,
 		string(a.Status), string(a.Choice), string(a.OnTimeout), string(a.DecidedBy), a.DecidedVia, ms(a.CreatedAt),
-		ms(a.ExpiresAt), ms(a.ParkUntil), ms(a.DecidedAt)); err != nil {
+		ms(a.ExpiresAt), ms(a.ParkUntil), ms(a.DecidedAt), a.Comment); err != nil {
 		return dbErr("create approval", err)
 	}
 	a.ID = id
@@ -510,8 +510,8 @@ func (r approvalRepo) AddVote(ctx context.Context, v core.ApprovalVote) error {
 	if v.User == "" || !oneOf(v.Choice, core.AllowOnce, core.Deny) {
 		return invalid("approval vote")
 	}
-	_, err := r.h.wq.ExecContext(ctx, `INSERT INTO approval_votes(approval_id, user_id, choice, via, at) VALUES (?,?,?,?,?)`,
-		string(v.Approval), string(v.User), string(v.Choice), v.Via, ms(v.At))
+	_, err := r.h.wq.ExecContext(ctx, `INSERT INTO approval_votes(approval_id, user_id, choice, via, at, comment) VALUES (?,?,?,?,?,?)`,
+		string(v.Approval), string(v.User), string(v.Choice), v.Via, ms(v.At), v.Comment)
 	return dbErr("add approval vote", err)
 }
 
@@ -519,10 +519,15 @@ func (r approvalRepo) Votes(ctx context.Context, id core.ApprovalID) ([]core.App
 	return queryAll(ctx, r.h.rq, "approval votes", func(sc scanner) (core.ApprovalVote, error) {
 		var v core.ApprovalVote
 		var at int64
-		err := sc.Scan(&v.Approval, &v.User, &v.Choice, &v.Via, &at)
+		err := sc.Scan(&v.Approval, &v.User, &v.Choice, &v.Via, &at, &v.Comment)
 		v.At = fromMS(at)
 		return v, err
-	}, `SELECT approval_id, user_id, choice, via, at FROM approval_votes WHERE approval_id = ? ORDER BY at, user_id`, string(id))
+	}, `SELECT approval_id, user_id, choice, via, at, comment FROM approval_votes WHERE approval_id = ? ORDER BY at, user_id`, string(id))
+}
+
+func (r approvalRepo) SetComment(ctx context.Context, id core.ApprovalID, comment string) error {
+	res, err := r.h.wq.ExecContext(ctx, `UPDATE approvals SET comment = ? WHERE id = ?`, comment, string(id))
+	return mustAffect("set approval comment", res, err)
 }
 
 const grantCols = `id, principal_id, scope, scope_id, kind, tool, pattern, value, max_se, allow_when_tainted, uses, max_uses,
