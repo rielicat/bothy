@@ -22,8 +22,6 @@
   });
 </script>
 
-<svelte:head><title>Chat · Bothy</title></svelte:head>
-
 {#key key}
   <ConversationView id={untrack(() => id)} oncreated={(n) => (created = n)} />
 {/key}

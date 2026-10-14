@@ -45,6 +45,7 @@
   import { clock, estimate, fullTime, money } from '../../lib/format';
   import { router } from '../../lib/router.svelte';
   import { session as auth } from '../../lib/stores/session.svelte';
+  import { topBarActions } from '../../lib/stores/ui.svelte';
   import { buildBlocks, type Block } from '../../lib/transcript';
   import Composer from './Composer.svelte';
   import { Conversation } from './conversation.svelte';
@@ -489,12 +490,25 @@
     { label: 'Delete chat…', danger: true, onselect: () => ((dialogError = ''), (deleteOpen = true)) },
   ]);
 
+  // Below 1024 px the shell's top bar shows the title and this menu (§4.4); the header stays for screen readers and renaming.
+  $effect(() => {
+    if (conv.id) return topBarActions(chatMenu);
+  });
+
   function dragover(e: DragEvent) {
     if (!e.dataTransfer?.types.includes('Files') || auth.paused) return;
     e.preventDefault();
     dragging = true;
   }
 </script>
+
+{#snippet chatMenu()}
+  <Menu items={menu} placement="bottom-end">
+    {#snippet trigger(props)}<IconButton icon="more" label="Chat options" {...props} />{/snippet}
+  </Menu>
+{/snippet}
+
+<svelte:head><title>{conv.id ? chatTitle || 'Chat' : 'New chat'} · Bothy</title></svelte:head>
 
 {#snippet copyButton(text: string, at: string)}
   <button
@@ -518,7 +532,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   bind:this={root}
-  class="relative mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-6 max-sm:px-4"
+  class="relative mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-6 max-lg:min-h-[calc(100dvh-3.25rem)] max-sm:px-4"
   ondragover={dragover}
   ondragleave={(e) => {
     if (!root?.contains(e.relatedTarget as Node | null)) dragging = false;
@@ -531,7 +545,7 @@
   }}
 >
   {#if conv.id}
-    <header class="sticky top-0 z-10 flex min-h-13 items-center gap-2 border-b bg-bg py-1 {scrolled ? 'border-border' : 'border-transparent'}">
+    <header class="sticky top-0 z-10 flex min-h-13 items-center gap-2 border-b bg-bg py-1 {scrolled ? 'border-border' : 'border-transparent'} {editing ? 'max-lg:top-13' : 'max-lg:sr-only'}">
       <div class="min-w-0 flex-1">
         <!-- The chat title stays the page's h1 while it is being renamed. -->
         <h1 class="flex min-w-0" tabindex="-1">
@@ -564,9 +578,7 @@
         {#if editing && renameError}<p id="rename-error" class="field-error">{renameError}</p>{/if}
         {#if !editing && where}<p class="truncate text-small text-muted">{where}</p>{/if}
       </div>
-      <Menu items={menu} placement="bottom-end">
-        {#snippet trigger(props)}<IconButton icon="more" label="Chat options" {...props} />{/snippet}
-      </Menu>
+      <div class="max-lg:hidden">{@render chatMenu()}</div>
     </header>
   {/if}
 
