@@ -586,7 +586,7 @@ export interface RepoCheckedOutData {
   dir: string;
 }
 export interface KnowledgeUpdatedData {
-  repo?: IndexedRepo;
+  repo: IndexedRepo;
   deleted?: boolean;
 }
 /**

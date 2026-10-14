@@ -329,9 +329,8 @@ func (s *Service) fail(ctx context.Context, r *core.IndexedRepo, err error) {
 }
 
 func (s *Service) publish(r *core.IndexedRepo, deleted bool) {
-	cp := *r
 	s.d.Bus.Publish(core.Event{Type: core.EvKnowledgeUpdated, Principal: r.Principal,
-		Data: core.KnowledgeUpdatedData{Repo: &cp, Deleted: deleted}})
+		Data: core.KnowledgeUpdatedData{Repo: *r, Deleted: deleted}})
 }
 
 func (s *Service) audit(ctx context.Context, actor, action string, r *core.IndexedRepo, outcome string, detail map[string]any) {

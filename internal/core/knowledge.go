@@ -26,8 +26,8 @@ type RepoCheckedOutData struct {
 }
 
 type KnowledgeUpdatedData struct {
-	Repo    *IndexedRepo `json:"repo"`
-	Deleted bool         `json:"deleted,omitempty"`
+	Repo    IndexedRepo `json:"repo"`
+	Deleted bool        `json:"deleted,omitempty"`
 }
 
 func (RepoCheckedOutData) eventData()   {}
