@@ -98,8 +98,9 @@ func TestExampleStrictDecode(t *testing.T) {
 	if err := dec.Decode(&c); err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Providers) != 5 || c.Providers[3].ID != "ollama" || !c.Providers[3].AllowPrivate ||
-		c.Providers[3].Models[0].ID != "qwen3:14b" || !*c.Providers[3].Models[0].Tools || *c.Providers[1].Enabled {
+	if len(c.Providers) != 6 || c.Providers[3].ID != "ollama" || !c.Providers[3].AllowPrivate ||
+		c.Providers[3].Models[0].ID != "qwen3:14b" || !*c.Providers[3].Models[0].Tools || *c.Providers[1].Enabled ||
+		c.Providers[5].Type != "bedrock" || c.Providers[5].Region != "us-west-2" || *c.Providers[5].Enabled {
 		t.Errorf("providers: %+v", c.Providers)
 	}
 	if c.Models.Main[1] != "ollama/qwen3:14b" || !reflect.DeepEqual(c.Pricing["ollama/qwen3:14b"], PriceO{}) {

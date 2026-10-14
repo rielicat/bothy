@@ -102,7 +102,7 @@ type VaultCfg struct {
 
 type Provider struct {
 	ID           string            `yaml:"id"`
-	Type         string            `yaml:"type"` // anthropic | openai | gemini | ollama | openai_compat
+	Type         string            `yaml:"type"` // anthropic | openai | gemini | ollama | openai_compat | bedrock
 	BaseURL      string            `yaml:"base_url"`
 	APIKey       string            `yaml:"api_key" secret:"true"`
 	AllowPrivate bool              `yaml:"allow_private"` // exact host:port of base_url only
@@ -110,6 +110,8 @@ type Provider struct {
 	Enabled      *bool             `yaml:"enabled"` // nil = true
 	Headers      map[string]string `yaml:"headers" secret:"true"`
 	Models       []ProviderModel   `yaml:"models"`
+	Region       string            `yaml:"region"`  // bedrock only (required): the AWS region, e.g. us-west-2
+	Profile      string            `yaml:"profile"` // bedrock only: shared-config profile; "" = AWS_PROFILE or the default chain
 }
 
 type ProviderModel struct {

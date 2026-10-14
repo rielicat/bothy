@@ -29,7 +29,7 @@ var enums = map[string][]string{
 	"mode":                                   {"single", "multi"},
 	"log.level":                              {"debug", "info", "warn", "error"},
 	"log.format":                             {"text", "json"},
-	"providers.*.type":                       {"anthropic", "openai", "gemini", "ollama", "openai_compat"},
+	"providers.*.type":                       {"anthropic", "openai", "gemini", "ollama", "openai_compat", "bedrock"},
 	"agent.busy_mode":                        {"steer", "queue"},
 	"policy.preset":                          {"careful", "balanced", "hands_off"},
 	"policy.defaults.*":                      verdicts,
@@ -64,7 +64,19 @@ var (
 	digitsRe       = regexp.MustCompile(`^[0-9]*$`)
 	npmVersionRe   = regexp.MustCompile(`^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
 	pypiVersionRe  = regexp.MustCompile(`^\d+(?:\.\d+)*(?:(?:a|b|rc)\d+)?(?:\.post\d+)?(?:\.dev\d+)?$`)
+	// awsRegionRe accepts the region shapes of every AWS partition (us-west-2,
+	// us-gov-west-1, eu-isoe-west-1, cn-north-1).
+	awsRegionRe = regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-[0-9]{1,2}$`)
+	// awsProfileRe is narrower than the SDK allows: the name is interpolated
+	// into an INI section header, so whitespace and brackets are refused.
+	awsProfileRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.+@=,-]{0,127}$`)
 )
+
+// ValidAWSRegion reports whether s has the shape of an AWS region name.
+func ValidAWSRegion(s string) bool { return awsRegionRe.MatchString(s) }
+
+// ValidAWSProfile reports whether s may name a shared-config profile.
+func ValidAWSProfile(s string) bool { return awsProfileRe.MatchString(s) }
 
 type verr struct {
 	path string
@@ -445,8 +457,24 @@ func validateProviders(c *Config, v *vctx) []string {
 		case p.Type == "openai_compat" && p.BaseURL == "":
 			v.item(base, "base_url is required for openai_compat")
 			continue
+		case p.Type == "bedrock" && p.Region == "":
+			v.item(base, "region is required for bedrock (for example us-west-2)")
+			continue
+		case p.Type == "bedrock" && !ValidAWSRegion(p.Region):
+			v.item(base, "region %q is not an AWS region name (for example us-west-2)", p.Region)
+			continue
 		}
-		v.url(base+".base_url", p.BaseURL, false, "http", "https")
+		if p.Type == "bedrock" {
+			validateBedrock(p, base, v)
+		} else {
+			v.url(base+".base_url", p.BaseURL, false, "http", "https")
+			if p.Region != "" {
+				v.add(base+".region", "region applies to type bedrock only")
+			}
+			if p.Profile != "" {
+				v.add(base+".profile", "profile applies to type bedrock only")
+			}
+		}
 		for _, name := range keysOf(p.Headers) {
 			if !headerNameRe.MatchString(name) {
 				v.add(base+".headers."+name, "invalid header name")
@@ -464,6 +492,23 @@ func validateProviders(c *Config, v *vctx) []string {
 		ids = append(ids, p.ID)
 	}
 	return ids
+}
+
+// validateBedrock checks the keys a bedrock provider uses differently: AWS
+// credentials come from the default chain, never from api_key or headers,
+// and a base_url (a VPC endpoint) must be https since requests carry a
+// signature over session credentials.
+func validateBedrock(p Provider, base string, v *vctx) {
+	v.url(base+".base_url", p.BaseURL, false, "https")
+	if p.APIKey != "" {
+		v.add(base+".api_key", "bedrock uses the AWS credential chain (instance role, SSO profile, environment); remove api_key")
+	}
+	for _, name := range keysOf(p.Headers) {
+		v.add(base+".headers."+name, "bedrock requests are signed with AWS credentials; extra headers are not supported")
+	}
+	if p.Profile != "" && !ValidAWSProfile(p.Profile) {
+		v.add(base+".profile", "invalid profile name %q", p.Profile)
+	}
 }
 
 func validateModels(c *Config, v *vctx, ids []string) {

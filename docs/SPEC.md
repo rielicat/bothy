@@ -4441,6 +4441,11 @@ providers:                        # examples; the wizard writes these. api_key a
     base_url: "https://openrouter.ai/api/v1"
     api_key: "secret:openrouter_api_key"
     enabled: false
+  - id: bedrock
+    type: bedrock                 # Amazon Bedrock: the AWS default credential chain (role, SSO profile, env), never an api_key
+    region: us-west-2             # required for bedrock
+    profile: ""                   # shared-config profile; "" = AWS_PROFILE or the default chain
+    enabled: false
 
 models:                           # example chains: "<provider id>/<model>", in fallback order
   main: [anthropic/claude-sonnet-4-6, ollama/qwen3:14b]
