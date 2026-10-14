@@ -10,6 +10,18 @@ export interface ProbeRequest {
   region?: string;
   /** A well-known key variable to check in place: the server never returns its value. */
   env_var?: string;
+  /** "aws-sm:<secret>[#key]": the server reads the key from AWS Secrets Manager. */
+  secret_ref?: string;
+}
+
+/** A key field may hold a reference to AWS Secrets Manager instead of the key itself. */
+export const isSecretRef = (key: string) => key.trim().startsWith('aws-sm:');
+
+/** The request fields for what the person typed in a key field. */
+export function keyFields(key: string): { api_key?: string; secret_ref?: string } {
+  const k = key.trim();
+  if (!k) return {};
+  return isSecretRef(k) ? { secret_ref: k } : { api_key: k };
 }
 
 export interface ProviderDef {

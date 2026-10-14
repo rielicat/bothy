@@ -130,6 +130,24 @@ describe('ProviderChooser in setup', () => {
     });
   });
 
+  it('sends an AWS Secrets Manager reference as a reference, never as a key', async () => {
+    const onconnected = vi.fn();
+    const calls = withMock('detect-none');
+    render(ProviderChooser, { onconnected });
+    await fireEvent.click(await screen.findByRole('radio', { name: /^Anthropic/ }));
+    const ref = 'aws-sm:prod/llm#ANTHROPIC_API_KEY';
+    await paste(screen.getByLabelText('API key'), ref);
+    expect(await screen.findByText(/^Connected\./, {}, { timeout: 3000 })).toBeTruthy();
+    expect(tests(calls)[0]).toMatchObject({ kind: 'anthropic', secret_ref: ref });
+    expect(tests(calls)[0].api_key).toBeUndefined();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await waitFor(() => expect(onconnected).toHaveBeenCalled());
+    const saved = JSON.parse(writes(calls)[0].body);
+    expect(saved.secret_ref).toBe(ref);
+    expect(saved.api_key).toBeUndefined();
+  });
+
   it('waits for a pause before checking typed keys, and a new value cancels the old check', async () => {
     const calls = withMock('detect-none');
     render(ProviderChooser);

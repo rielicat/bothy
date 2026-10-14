@@ -18,6 +18,8 @@
     consoleLabel,
     friendlyModel,
     hostPort,
+    isSecretRef,
+    keyFields,
     modelNote,
     modelOptions,
     pickModels,
@@ -260,7 +262,7 @@
     return {
       kind: d.kind,
       base_url: (address ? s.address.trim() : d.base) || undefined,
-      api_key: s.key.trim() || undefined,
+      ...keyFields(s.key),
       model: s.main || (d.custom ? s.typedModel.trim() : '') || (r.source === 'local' ? bestModel(detected) : '') || undefined,
       allow_private: s.allowPrivate,
     };
@@ -354,7 +356,7 @@
       const address = d.local || d.custom || r.source === 'local' ? s.address.trim() : undefined;
       const req: ProviderConnectReq = { id: d.id, kind: d.kind, base_url: address ?? d.base ?? '', allow_private: s.allowPrivate };
       if (r.source === 'env' && r.detection?.env_var) req.env_var = r.detection.env_var;
-      else if (d.key && s.key.trim()) req.api_key = s.key.trim();
+      else if (d.key) Object.assign(req, keyFields(s.key));
       if (d.kind === 'bedrock') req.region = s.region;
       if (setup) Object.assign(req, { model: s.main, quick_model: s.quick || s.main });
       await api.post<ProviderConnectResp>('/api/providers/connect', req);
@@ -460,8 +462,12 @@
     />
     {#if help && r.def.console && s.status === 'idle'}
       <p id="{uid}-{v}-help" class="field-help">
-        Stored encrypted. Only sent to {r.def.name}.
-        {@render link(r.def.console, `Get a key at ${consoleLabel(r.def.console)}`, '')}
+        {#if isSecretRef(s.key)}
+          Bothy reads this key from AWS Secrets Manager each time it needs it and never saves it.
+        {:else}
+          Stored encrypted. Only sent to {r.def.name}.
+          {@render link(r.def.console, `Get a key at ${consoleLabel(r.def.console)}`, '')}
+        {/if}
       </p>
     {/if}
   </div>

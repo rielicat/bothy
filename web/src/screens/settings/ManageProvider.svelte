@@ -24,6 +24,7 @@
   import type { ProbeResult, ProviderHealth } from '../../lib/api/types.gen';
   import { duration } from '../../lib/format';
   import { failureCode } from '../../lib/providerErrors';
+  import { isSecretRef, keyFields } from '../../lib/providers';
   import ConfirmDialog from './ConfirmDialog.svelte';
   import { failureText, regionName, regions } from './modelHelpers';
   import { Saver, settingsConfig } from './store.svelte';
@@ -116,11 +117,13 @@
 
   async function checkKey(value: string, signal: AbortSignal): Promise<CheckResult> {
     if (!p) return { ok: false, message: failureText('unknown', '') };
-    const r = await api.post<ProbeResult>('/api/providers/test', body({ api_key: value, secret_ref: undefined }));
+    const r = await api.post<ProbeResult>('/api/providers/test', body({ api_key: undefined, secret_ref: undefined, ...keyFields(value) }));
     if (signal.aborted) return { ok: false, message: '' };
     if (!r.ok) return { ok: false, message: failureText(probeCode(r), p.name, p.kind, p.model), details: r.detail || undefined };
-    await api.put(`/api/vault/global/${encodeURIComponent(vaultName)}`, { value });
-    if (p.keyRef !== `secret:${vaultName}`) await settingsConfig.save({ [`providers.${p.id}.api_key`]: `secret:${vaultName}` });
+    // A Secrets Manager reference goes into the settings as is; the value never reaches Bothy's vault.
+    const ref = isSecretRef(value) ? value.trim() : `secret:${vaultName}`;
+    if (!isSecretRef(value)) await api.put(`/api/vault/global/${encodeURIComponent(vaultName)}`, { value });
+    if (p.keyRef !== ref) await settingsConfig.save({ [`providers.${p.id}.api_key`]: ref });
     check = { state: 'done', probe: r };
     onchanged?.();
     return { ok: true, message: 'Connected. Bothy uses the new key from now on.' };
