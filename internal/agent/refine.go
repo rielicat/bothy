@@ -77,7 +77,7 @@ func (r *Runner) refineAnswer(rs *runState, asm *assembler, step int, resp *core
 		model = ""
 	}
 	first := refine.Reply{Text: resp.Message.PlainText(), CallID: ci.ID, Model: model, Cost: ci.Cost}
-	rs.publish(core.EvRunStatus, core.RunStatusData{Status: "thinking", Detail: "Refining the answer"})
+	rs.publish(core.EvRunStatus, core.RunStatusData{Status: "thinking", Detail: core.RefineStatusDetail})
 	rs.publishBus(core.EvRunRefine, core.RefineData{Phase: "start", Drafts: set.Drafts, Depth: set.Depth,
 		MaxCalls: core.RefineMaxCalls(set.Drafts, set.Depth)})
 

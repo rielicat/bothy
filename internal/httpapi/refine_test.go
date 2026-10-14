@@ -3,7 +3,10 @@ package httpapi
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/rielicat/bothy/internal/config"
@@ -115,5 +118,41 @@ func TestV1RefineHeader(t *testing.T) {
 	subs := sr.Submitted()
 	if len(subs) != 3 || subs[0].Refine == nil || !*subs[0].Refine || subs[1].Refine != nil || subs[2].Refine == nil || *subs[2].Refine {
 		t.Fatalf("run requests %+v", subs)
+	}
+}
+
+func TestV1StreamKeepsAliveWhileRefining(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status core.RunStatusData
+		want   int
+	}{
+		{"refining", core.RunStatusData{Status: "thinking", Detail: core.RefineStatusDetail}, 2},
+		{"thinking", core.RunStatusData{Status: "thinking"}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				q := newRunQueue()
+				rec := httptest.NewRecorder()
+				ar := &agentRun{s: &Server{clock: core.SystemClock{}}, w: rec, r: httptest.NewRequest("POST", "/v1/chat/completions", nil),
+					req: oaRequest{Model: "bothy", Stream: true}, q: q, detach: true}
+				done := make(chan error, 1)
+				go func() { done <- ar.serve() }()
+				q.OnEvent(core.Event{Type: core.EvRunStatus, Data: tc.status})
+				time.Sleep(25 * time.Second)
+				q.OnEvent(core.Event{Type: core.EvRunDelta, Data: core.DeltaData{Text: "42"}})
+				q.OnEvent(core.Event{Type: core.EvRunFinished, Data: core.RunFinishedData{Status: core.RunDone}})
+				if err := <-done; err != nil {
+					t.Fatal(err)
+				}
+				body := rec.Body.String()
+				if n := strings.Count(body, ": refining\n"); n != tc.want {
+					t.Fatalf("%d refining comments in 25 s, want %d:\n%s", n, tc.want, body)
+				}
+				if !strings.Contains(body, `"content":"42"`) || !strings.Contains(body, "data: [DONE]") {
+					t.Fatalf("stream %s", body)
+				}
+			})
+		})
 	}
 }

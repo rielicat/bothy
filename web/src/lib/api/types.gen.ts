@@ -1047,6 +1047,11 @@ export type LLM = any;
  */
 export const EvRunRefine: EventType = "run.refine";
 /**
+ * RefineStatusDetail is the run.status detail (status "thinking") while a
+ * final answer is being refined; sinks see it, since run.refine is bus only.
+ */
+export const RefineStatusDetail = "Refining the answer";
+/**
  * PartRefine is the trace of the refinement that produced an assistant
  * message. It is stored with the message and never sent to a model.
  */
