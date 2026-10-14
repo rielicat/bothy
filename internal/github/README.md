@@ -20,7 +20,8 @@ keeps the manifest and pristine archive under `<data>/github/checkouts`, out of
 every box's reach, then publishes `repo.checkout`; `repo_changes` diffs the
 workspace copy against that base, honouring `.gitignore`; `repo_open_pr`
 (`AlwaysAsk`, recipient `github:<owner>/<name>` for first contact) puts the
-full diff on the card, re-hashes every file at Exec so only the approved bytes
+full diff on the card behind a format-patch style header (repository, head →
+base, title, indented description), re-hashes every file at Exec so only the approved bytes
 are sent, and writes blobs, a tree on the checked-out commit, a commit, a
 branch and the pull request (deleting the branch if the PR is refused);
 `github_issues`, `github_pr`, `github_runs` (read) and `github_comment`
