@@ -27,11 +27,12 @@ export interface StepInput {
 
 // ask · -ing · doing · done · failed. An empty doing or failed falls back to
 // "{-ing}…" and "Couldn't {ask}". [ … ] is dropped when a value inside it is empty.
+// "+3 −1" keeps a no-break space so the counts never split across lines.
 const T: Record<string, string[]> = {
   fs_read: ['read {path}', 'reading {path}', 'Reading {path}…', 'Read {path}', "Couldn't read {path}"],
   fs_list: ['look in {dir}', 'looking in {dir}', 'Looking in {dir}…', 'Looked in {dir}', "Couldn't open {dir}"],
   'fs_write:create': ['create {path}', 'creating {path}', 'Saving {path}…', 'Created {path}', "Couldn't save {path}"],
-  'fs_write:overwrite': ['change {path}', 'changing {path}', 'Saving {path}…', 'Changed {path}[ (+{a} −{r})]', "Couldn't save {path}"],
+  'fs_write:overwrite': ['change {path}', 'changing {path}', 'Saving {path}…', 'Changed {path}[ (+{a}\u00a0−{r})]', "Couldn't save {path}"],
   'fs_write:append': ['add to {path}', 'adding to {path}', 'Saving {path}…', 'Added to {path}', "Couldn't save {path}"],
   fs_delete: ['delete {path}', 'deleting {path}', 'Deleting {path}…', 'Deleted {path}', "Couldn't delete {path}"],
   shell: ['run {command}', 'running {command}', 'Running {command}…', 'Ran {command}', '{command} finished with errors'],

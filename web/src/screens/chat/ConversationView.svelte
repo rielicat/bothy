@@ -10,7 +10,6 @@
     drafts?: number;
   }
 
-  const CITATION = /\b([\w.-]+\/[\w.-]+)@([0-9a-f]{7,40}):([^\s#)\]`]+)#L(\d+)(?:-L(\d+))?/g;
 </script>
 
 <script lang="ts">
@@ -18,6 +17,7 @@
   import ActivityGroup from '../../components/chat/ActivityGroup.svelte';
   import ChatDetails from '../../components/chat/ChatDetails.svelte';
   import ChatNotice from '../../components/chat/ChatNotice.svelte';
+  import { linkCitations } from '../../components/chat/citations';
   import DecidedLine from '../../components/chat/DecidedLine.svelte';
   import InlineApproval from '../../components/chat/InlineApproval.svelte';
   import ModelPicker from '../../components/chat/ModelPicker.svelte';
@@ -39,7 +39,7 @@
   import Spinner from '../../components/ui/Spinner.svelte';
   import { toast } from '../../components/ui/toast.svelte';
   import { tooltip } from '../../components/ui/tooltip';
-  import { fill, type Phrase } from '../../lib/activity';
+  import { fill, prefix, type Phrase } from '../../lib/activity';
   import { api, ApiError } from '../../lib/api/client';
   import type { Approval, ChannelIdentity, SandboxInfo, Session, SubmitResult } from '../../lib/api/types.gen';
   import { clock, estimate, fullTime, money } from '../../lib/format';
@@ -58,6 +58,7 @@
   let atBottom = $state(true);
   let scrolled = $state(false);
   let editing = $state(false);
+  let titleButton: HTMLButtonElement | undefined = $state();
   let title = $state('');
   let renameError = $state('');
   let pinsOpen = $state(false);
@@ -87,10 +88,18 @@
   );
   const blocks = $derived(buildBlocks(conv.items));
   const liveRun = $derived(conv.running && conv.live ? conv.live.id : '');
+  let codeAvailable: boolean | null = $state(null);
+  const noCode = $derived(auth.sandbox === false || codeAvailable === false);
+  const isCode = (st: StepView) => (st.item.tool === 'shell' || st.item.tool === 'python') && st.state === 'failed';
   const steps = $derived.by(() => {
     const ctx = { byCall: conv.byCall, records: conv.records, liveRun };
     const out = new Map<string, StepView[]>();
-    for (const b of blocks) if (b.kind === 'steps') out.set(b.key, b.tools.map((t) => stepOf(t, ctx)));
+    for (const b of blocks) {
+      if (b.kind !== 'steps') continue;
+      const views = b.tools.map((t) => stepOf(t, ctx));
+      // Without a place to run code the command never ran, so "finished with errors" would not be true.
+      out.set(b.key, noCode ? views.map((st) => (isCode(st) ? { ...st, phrases: { ...st.phrases, failed: prefix("Couldn't ", st.phrases.ask) } } : st)) : views);
+    }
     return out;
   });
   const shownApprovals = $derived(new Set([...steps.values()].flat().map((st) => st.approval?.id)));
@@ -119,12 +128,11 @@
   const failedCode = $derived.by(() => {
     const out = new Map<string, Phrase>();
     for (const [k, ss] of steps) {
-      const st = ss.find((x) => (x.item.tool === 'shell' || x.item.tool === 'python') && x.state === 'failed');
+      const st = ss.find(isCode);
       if (st) out.set(k, [...fill("Bothy can't run code on this server, so it couldn't ", {}), ...st.phrases.ask, { k: 'text', v: '.' }]);
     }
     return out;
   });
-  let codeAvailable: boolean | null = $state(null);
   $effect(() => {
     if (!failedCode.size || codeAvailable !== null || auth.sandbox === false) return;
     void api
@@ -132,7 +140,7 @@
       .then((i) => (codeAvailable = i.status.available))
       .catch(() => (codeAvailable = true));
   });
-  const codeOff = $derived(auth.sandbox === false || codeAvailable === false ? failedCode : new Map<string, Phrase>());
+  const codeOff = $derived(noCode ? failedCode : new Map<string, Phrase>());
   const modelValue = $derived(conv.id ? (s?.model_override ?? '') : pendingModel);
   const modelLabel = $derived(modelValue ? models.name(modelValue) : models.main ? models.name(models.main) : 'Main model');
   const starter = $derived(space?.display_name ?? people.name(s?.principal_id, { you: false }));
@@ -204,9 +212,11 @@
     if (finePointer()) void tick().then(() => composer?.focus());
     const onscroll = () => measure();
     window.addEventListener('scroll', onscroll, true);
+    window.addEventListener('resize', onscroll);
     return () => {
       conv.dispose();
       window.removeEventListener('scroll', onscroll, true);
+      window.removeEventListener('resize', onscroll);
     };
   });
 
@@ -383,20 +393,23 @@
     editing = true;
   }
 
-  async function saveTitle() {
-    // Esc closes the field first, so a blur that follows saves nothing.
-    if (!editing) return;
-    const t = title.trim();
-    if (!t || t === s?.title) {
-      editing = false;
-      return;
-    }
-    try {
-      conv.setSession(await api.patch<Session>(conv.base, { title: t }));
-      editing = false;
-    } catch {
-      renameError = "Couldn't rename this chat. Try again.";
-    }
+  let renaming: Promise<void> | null = null;
+  function saveTitle(): Promise<void> {
+    // Esc closes the field first, so a blur that follows saves nothing; Enter
+    // and the blur that follows it share one request.
+    if (!editing) return Promise.resolve();
+    renaming ??= (async () => {
+      const t = title.trim();
+      try {
+        if (t && t !== s?.title) conv.setSession(await api.patch<Session>(conv.base, { title: t }));
+        editing = false;
+      } catch {
+        renameError = "Couldn't rename this chat. Try again.";
+      } finally {
+        renaming = null;
+      }
+    })();
+    return renaming;
   }
 
   async function fork() {
@@ -444,13 +457,6 @@
       const fresh = await api.get<Approval>(`/api/approvals/${encodeURIComponent(p.id)}`).catch(() => null);
       if (fresh) conv.resolved(fresh);
     }
-  }
-
-  function citations(text: string) {
-    return [...text.matchAll(CITATION)].map((m) => ({
-      label: `${m[1]} · ${m[3]}, ${m[5] ? `lines ${m[4]}–${m[5]}` : `line ${m[4]}`}`,
-      href: `https://github.com/${m[1]}/blob/${m[2]}/${m[3]}#L${m[4]}${m[5] ? `-L${m[5]}` : ''}`,
-    }));
   }
 
   function madeFiles(runId?: string) {
@@ -525,35 +531,38 @@
   }}
 >
   {#if conv.id}
-    <header class="sticky top-0 z-10 flex min-h-13 items-center gap-2 border-b bg-bg py-1.5 {scrolled ? 'border-border' : 'border-transparent'}">
+    <header class="sticky top-0 z-10 flex min-h-13 items-center gap-2 border-b bg-bg py-1 {scrolled ? 'border-border' : 'border-transparent'}">
       <div class="min-w-0 flex-1">
-        {#if editing}
-          <input
-            class="input h-8 text-heading"
-            aria-label="Chat title"
-            bind:value={title}
-            aria-invalid={!!renameError}
-            aria-describedby={renameError ? 'rename-error' : undefined}
-            {@attach (el) => el.focus()}
-            onblur={() => void saveTitle()}
-            onkeydown={(e) => {
-              if (e.key === 'Enter') void saveTitle();
-              else if (e.key === 'Escape') editing = false;
-            }}
-          />
-          {#if renameError}<p id="rename-error" class="field-error">{renameError}</p>{/if}
-        {:else}
-          <h1 class="flex min-w-0" tabindex="-1">
+        <!-- The chat title stays the page's h1 while it is being renamed. -->
+        <h1 class="flex min-w-0" tabindex="-1">
+          {#if editing}
+            <input
+              class="input -ml-3 h-8 w-[calc(100%+0.75rem)] text-heading max-sm:text-[1rem] pointer-coarse:h-11 pointer-coarse:text-[1rem]"
+              aria-label="Chat title"
+              bind:value={title}
+              aria-invalid={!!renameError}
+              aria-describedby={renameError ? 'rename-error' : undefined}
+              {@attach (el) => el.focus()}
+              onblur={() => void saveTitle()}
+              onkeydown={async (e) => {
+                if (e.key !== 'Enter' && e.key !== 'Escape') return;
+                if (e.key === 'Enter') await saveTitle();
+                else editing = false;
+                if (!editing) void tick().then(() => titleButton?.focus());
+              }}
+            />
+          {:else}
             <button
+              bind:this={titleButton}
               type="button"
               class="-mx-1 min-h-6 min-w-0 cursor-pointer truncate rounded-sm px-1 text-left text-heading text-text hover:bg-subtle pointer-coarse:min-h-11"
-              title={chatTitle}
               onclick={startRename}
               {@attach tooltip(() => 'Rename', { describe: true })}><span data-copy-ignore>{chatTitle || 'Chat'}</span></button
             >
-          </h1>
-          {#if where}<p class="truncate text-small text-muted">{where}</p>{/if}
-        {/if}
+          {/if}
+        </h1>
+        {#if editing && renameError}<p id="rename-error" class="field-error">{renameError}</p>{/if}
+        {#if !editing && where}<p class="truncate text-small text-muted">{where}</p>{/if}
       </div>
       <Menu items={menu} placement="bottom-end">
         {#snippet trigger(props)}<IconButton icon="more" label="Chat options" {...props} />{/snippet}
@@ -580,8 +589,8 @@
             <div id="m{b.msg.seq}" class="group flex flex-col items-end rounded-md">
               {#if space}<p class="mb-1 text-small font-medium text-muted">{senderOf(b.msg.sender)}</p>{/if}
               <div class="flex max-w-[85%] min-w-0 items-start gap-1">
-                <div class="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100">{@render copyButton(b.text, b.msg.created_at)}</div>
                 {#if b.text}
+                  <div class="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100">{@render copyButton(b.text, b.msg.created_at)}</div>
                   <div class="min-w-0 rounded-lg bg-subtle px-4 py-2.5 text-reading text-text [overflow-wrap:anywhere]"><Markdown text={b.text} {exposed} /></div>
                 {/if}
               </div>
@@ -593,27 +602,12 @@
               {#if b.steer}<p class="mt-1 text-small text-muted">Added while Bothy was working</p>{/if}
             </div>
           {:else if b.kind === 'assistant'}
-            {@const cites = citations(b.text)}
             {@const files = lastOfRun.has(b.key) ? madeFiles(b.msg.run_id) : []}
             <div id="m{b.msg.seq}" class="group rounded-md">
               {#if b.thinking}
                 <Disclosure label="Thought process" class="mb-2"><p class="text-small whitespace-pre-wrap text-muted" data-copy-ignore>{b.thinking}</p></Disclosure>
               {/if}
-              {#if b.text}<Markdown text={b.text} {exposed} />{/if}
-              {#if cites.length}
-                <ul class="mt-2 space-y-1 text-small">
-                  {#each cites as c (c.href)}
-                    <li data-copy-ignore>
-                      {#if exposed}
-                        <span class="text-muted">{c.label}</span>
-                        <button type="button" class="btn btn-quiet btn-sm ml-1" onclick={() => copy(c.href)}>Copy link</button>
-                      {:else}
-                        <a class="link inline-flex min-h-6 items-center pointer-coarse:min-h-11" href={c.href} target="_blank" rel="noopener noreferrer">{c.label} ↗</a>
-                      {/if}
-                    </li>
-                  {/each}
-                </ul>
-              {/if}
+              {#if b.text}<Markdown text={linkCitations(b.text, exposed)} {exposed} />{/if}
               {#if files.length}
                 <ul class="mt-3 flex flex-wrap gap-2">
                   {#each files as f (f)}<li class="max-w-full min-w-0"><FileToken name={f.split('/').pop() ?? f} href={fileHref(f)} /></li>{/each}
@@ -641,7 +635,7 @@
               {/if}
             </div>
           {:else if b.kind === 'stream'}
-            {#if b.text}<Markdown text={b.text} {exposed} />{/if}
+            {#if b.text}<Markdown text={linkCitations(b.text, exposed)} {exposed} />{/if}
           {:else if b.kind === 'notice'}
             <ChatNotice text={b.text} />
           {:else if b.kind === 'summary'}
@@ -710,8 +704,11 @@
   </div>
 
   {#if dragging}
-    <div class="pointer-events-none absolute inset-2 z-20 grid place-items-center rounded-lg border border-dashed border-control bg-subtle text-body text-muted" data-floating>
-      Drop files to attach
+    <!-- The column is as tall as the transcript; the sticky box keeps the overlay on screen. -->
+    <div class="pointer-events-none absolute inset-0 z-20 px-2">
+      <div class="sticky top-2 grid h-[calc(100dvh-1rem)] place-items-center rounded-lg border border-dashed border-control bg-subtle text-body text-muted" data-floating>
+        Drop files to attach
+      </div>
     </div>
   {/if}
 </div>

@@ -78,7 +78,7 @@ describe('phrases', () => {
 
   it('prefers the system-built action, and counts a change from its diff', () => {
     const a = act({ tool: 'fs_write', kind: 'fs.write', paths: ['src/auth.ts'], diff: '--- a/src/auth.ts\n+++ b/src/auth.ts\n@@ -1 +1,2 @@\n-old\n+new\n+more' });
-    expect(plain(phrases({ tool: 'fs_write', action: a, args: { path: 'ignored' } }).done)).toBe('Changed src/auth.ts (+2 −1)');
+    expect(plain(phrases({ tool: 'fs_write', action: a, args: { path: 'ignored' } }).done)).toBe('Changed src/auth.ts (+2\u00a0−1)');
     expect(plain(phrases({ tool: 'fs_write', action: act({ ...a, diff: '--- /dev/null\n+++ b/n.md\n+x' }) }).done)).toBe('Created src/auth.ts');
     expect(plain(phrases({ tool: 'shell', action: act({ argv: ['bash', '-lc', 'ls -la'] }) }).done)).toBe('Ran ls -la');
     expect(diffCounts('+++ b\n--- a\n+x\n-y\n-z')).toEqual({ a: 1, r: 2 });

@@ -123,7 +123,7 @@ describe('conversation', () => {
     expect(await screen.findByText(text(/^You approved changing repos\/acme\/web\/src\/auth\/callback\.ts · /))).toBeTruthy();
     expect(screen.getByText(text(/^You denied opening a pull request in acme\/web · “Not before the freeze ends” · /))).toBeTruthy();
     expect(screen.getByText(text("Didn't open a pull request in acme/web"))).toBeTruthy();
-    expect(screen.getByText(text('Changed repos/acme/web/src/auth/callback.ts (+3 −1)'))).toBeTruthy();
+    expect(screen.getByText(text('Changed repos/acme/web/src/auth/callback.ts (+3\u00a0−1)'))).toBeTruthy();
     await fireEvent.click(screen.getAllByRole('button', { name: 'Show' })[0]);
     expect(await screen.findByRole('article')).toBeTruthy();
   });
@@ -152,6 +152,41 @@ describe('conversation', () => {
     expect(document.body.textContent).not.toContain('.).');
     expect(screen.getByText('Older messages were summarised so this chat can keep going.')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
+  });
+
+  it('turns a knowledge citation into a link without the commit in the text', async () => {
+    render(ConversationView, { id: chatIds.login });
+    const link = await screen.findByRole('link', { name: 'acme/web · src/auth/callback.ts, lines 10–18 ↗' });
+    expect(link.getAttribute('href')).toBe('https://github.com/acme/web/blob/4f2c1a9/src/auth/callback.ts#L10-L18');
+    expect(link.closest('p')?.textContent).toBe('The change is in acme/web · src/auth/callback.ts, lines 10–18 ↗.');
+  });
+
+  it('says a command could not run, not that it finished with errors, when this server cannot run code', async () => {
+    session.sandbox = false;
+    render(ConversationView, { id: chatIds.notices });
+    expect(await screen.findByText(text(/^Bothy can't run code on this server, so it couldn't run python3 build_summary\.py\. How to turn it on$/))).toBeTruthy();
+    expect(screen.getByText(text("Couldn't run python3 build_summary.py"))).toBeTruthy();
+    expect(screen.queryByText(/finished with errors/)).toBeNull();
+    expect(screen.getByRole('button', { name: 'How to turn it on' })).toBeTruthy();
+  });
+
+  it('renames inline in the h1: Enter saves once, Esc cancels, and focus comes back to the title', async () => {
+    render(ConversationView, { id: chatIds.login });
+    const title = await screen.findByRole('button', { name: 'Fix login redirect' });
+    await fireEvent.click(title);
+    const field = screen.getByLabelText('Chat title') as HTMLInputElement;
+    expect(field.closest('h1')).toBeTruthy();
+    await fireEvent.input(field, { target: { value: 'Fix the sign-in return address' } });
+    await fireEvent.keyDown(field, { key: 'Enter' });
+    await fireEvent.blur(field);
+    const renamed = await screen.findByRole('button', { name: 'Fix the sign-in return address' });
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
+    await waitFor(() => expect(document.activeElement).toBe(renamed));
+
+    await fireEvent.click(renamed);
+    await fireEvent.keyDown(screen.getByLabelText('Chat title'), { key: 'Escape' });
+    expect(await screen.findByRole('button', { name: 'Fix the sign-in return address' })).toBeTruthy();
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
   });
 
   it('opens a step’s Details with the exact request and how it was allowed', async () => {

@@ -27,7 +27,11 @@ const frame = async (page: Page) => {
     sheet.replaceSync(css);
     document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
   }, V02_FRAME);
-  await page.evaluate(() => window.scrollTo(0, document.scrollingElement?.scrollHeight ?? 0));
+  // The old shell's scroll box is gone now, so the chat measures its scroll position again.
+  await page.evaluate(() => {
+    window.scrollTo(0, document.scrollingElement?.scrollHeight ?? 0);
+    window.dispatchEvent(new Event('scroll'));
+  });
 };
 
 const then =
@@ -122,6 +126,7 @@ const states: ShotState[] = [
   },
   { name: 'paused-composer', route: chat(ids.login), mock: 'paused', ready: 'Fixed. The sign-in callback', setup: frame },
   { name: 'chat-menu', route: chat(ids.login), ready: 'Fixed. The sign-in callback', setup: then(click('Chat options')) },
+  { name: 'rename', route: chat(ids.login), ready: 'Fixed. The sign-in callback', setup: then(click('Fix login redirect')) },
   {
     name: 'chat-details',
     route: chat(ids.login),
