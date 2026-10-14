@@ -212,22 +212,33 @@ func TestReleaseCard(t *testing.T) {
 		{Label: "Ref", Value: "main", Mono: true},
 		{Label: "Inputs", Value: "target=staging", Mono: true},
 		{Label: "Approvals needed", Value: "2, not counting whoever asked"},
+		{Label: "Requested by", Value: "member"},
 		{Label: "Approvers", Value: "any admin"},
 	}
 	if !slices.Equal(ap.Card.Fields, want) || ap.Card.Risk != core.SEIrreversible || ap.Card.Title != "Run release_deploy" ||
 		!slices.Equal(ap.Card.Choices, []core.Choice{core.AllowOnce, core.Deny}) || ap.Card.Code != "" {
 		t.Fatalf("card = %+v", ap.Card)
 	}
+	// The requester's session title is theirs; approvers see who asked instead.
+	if ap.Card.Context != "" {
+		t.Errorf("a multi-approver card carries the requester's session context %q", ap.Card.Context)
+	}
 	h.cfg.Releases.Environments[0].Approvers = []string{string(h.admin1.ID), "‮bob", "member"}
 	h.cfg.Releases.Environments[0].Required = 1
 	if err := h.store.Users().Update(h.ctx, &core.User{ID: h.admin1.ID, Username: "alice", DisplayName: "Alice ‮A", Role: core.RoleAdmin}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.store.Users().Update(h.ctx, &core.User{ID: h.member.ID, Username: "member", DisplayName: "Mel ‮M", Role: core.RoleMember}); err != nil {
 		t.Fatal(err)
 	}
 	ap = h.requestRelease(h.member)
 	if got := ap.Card.Fields[len(ap.Card.Fields)-1]; got.Value != "Alice ⟨U+202E⟩A or anyone" {
 		t.Errorf("approvers field = %q", got.Value)
 	}
-	if got := ap.Card.Fields[len(ap.Card.Fields)-2]; got.Value != "1, not counting whoever asked" {
+	if got := ap.Card.Fields[len(ap.Card.Fields)-2]; got.Label != "Requested by" || got.Value != "Mel ⟨U+202E⟩M" {
+		t.Errorf("requested by field = %+v", got)
+	}
+	if got := ap.Card.Fields[len(ap.Card.Fields)-3]; got.Value != "1, not counting whoever asked" {
 		t.Errorf("approvals needed = %q", got.Value)
 	}
 	preview := h.ap.RenderCard(core.ApprovalRequest{Action: ap.Action, Spec: releaseSpec(), Decision: ap.Decision})

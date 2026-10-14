@@ -74,8 +74,8 @@ releases:
 		fields[f.Label] = f.Value
 	}
 	if fields["Environment"] != "staging" || fields["Repository"] != "acme/web" || fields["Ref"] != "main" ||
-		fields["Inputs"] != "target=staging" || fields["Approvers"] != "any admin" {
-		t.Fatalf("card fields = %+v", fields)
+		fields["Inputs"] != "target=staging" || fields["Approvers"] != "any admin" || fields["Requested by"] != "owner" || a.Card.Context != "" {
+		t.Fatalf("card fields = %+v, context %q", fields, a.Card.Context)
 	}
 
 	ev := aliceEvents.WaitFor(t, core.EvApprovalRequested, 10*time.Second, func(e pltEvent) bool { return e.Run == run })

@@ -75,7 +75,9 @@ deny to withdraw), each user votes once, one deny denies, the `required`th
 distinct allow allows; every vote is audited (`approval.vote`, refusals with
 outcome `denied`), a vote that does not resolve is published as
 `approval.voted`, and requested/voted/resolved events also go to each
-eligible approver's own principal. Timeouts, parking and the button MAC and
+eligible approver's own principal. The card adds "Requested by" and
+"Approvers" and leaves out the context line, whose session title belongs to
+the requester's principal. Timeouts, parking and the button MAC and
 recorded-card rules are unchanged. `Get`, `Pending` and `Recent` fill
 `Approval.Votes`; `Voters` lists who may vote.
 

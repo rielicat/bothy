@@ -56,7 +56,14 @@ func (ap *Approvals) Request(ctx context.Context, r core.ApprovalRequest) (*core
 	}
 	a.Card = renderCard(r)
 	if a.Approver.Multi() {
-		a.Card.Fields = append(a.Card.Fields, core.CardField{Label: "Approvers", Value: visible(approverSummary(a.Approver, ap.userName(ctx)))})
+		name := ap.userName(ctx)
+		a.Card.Fields = append(a.Card.Fields,
+			core.CardField{Label: "Requested by", Value: visible(name(a.Approver.Requester))},
+			core.CardField{Label: "Approvers", Value: visible(approverSummary(a.Approver, name))})
+		// The context line names the requester's session, whose title comes
+		// from their conversation; the other approvers are outside that
+		// principal and see only who asked.
+		a.Card.Context = ""
 	}
 	a.Card.Expires = a.ExpiresAt
 	if base := strings.TrimRight(c.Server.PublicURL, "/"); base != "" {
