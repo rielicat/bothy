@@ -27,6 +27,7 @@ owner() {
 	internal/channel | internal/channel/telegram | internal/channel/telegram/*) echo M9 ;;
 	internal/httpapi/dto) echo dto ;;
 	internal/auth | internal/auth/* | internal/httpapi | internal/httpapi/* | internal/doctor | internal/doctor/* | internal/webui | internal/webui/*) echo M11 ;;
+	internal/release | internal/release/*) echo release ;; # v0.2 F5
 	internal/core) echo core ;;
 	internal/config) echo config ;;
 	internal/events) echo events ;;
