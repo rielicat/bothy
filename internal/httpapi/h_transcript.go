@@ -3,13 +3,15 @@ package httpapi
 import (
 	"context"
 	"slices"
+	"strings"
 
 	"github.com/rielicat/bothy/internal/core"
 )
 
 // annotateTools sets State and Approval on the tool_call parts of a
 // transcript page and returns the approvals they asked for, decided ones
-// included, oldest first.
+// included, oldest first: a call's own approval and the ones the egress
+// proxy held its connections for (tool_call_id "<call>#net").
 func (s *Server) annotateTools(ctx context.Context, v core.Viewer, msgs []*core.Message) ([]*core.Approval, error) {
 	type key struct {
 		run core.RunID
@@ -32,6 +34,7 @@ func (s *Server) annotateTools(ctx context.Context, v core.Viewer, msgs []*core.
 		open bool
 		recs map[string][]*core.ToolCallRecord
 		appr map[core.ApprovalID]*core.Approval
+		held map[string][]*core.Approval // by the call record they were held for
 	}
 	infos := map[core.RunID]*runInfo{}
 	var approvals []*core.Approval
@@ -48,13 +51,18 @@ func (s *Server) annotateTools(ctx context.Context, v core.Viewer, msgs []*core.
 		if err != nil {
 			return nil, err
 		}
-		ri := &runInfo{open: !run.Status.Terminal(), recs: map[string][]*core.ToolCallRecord{}, appr: map[core.ApprovalID]*core.Approval{}}
+		ri := &runInfo{open: !run.Status.Terminal(), recs: map[string][]*core.ToolCallRecord{}, appr: map[core.ApprovalID]*core.Approval{},
+			held: map[string][]*core.Approval{}}
 		for _, rec := range recs {
 			ri.recs[rec.CallID] = append(ri.recs[rec.CallID], rec)
 		}
 		for _, ap := range aps {
-			if v.Can(ap.Principal) {
-				ri.appr[ap.ID] = ap
+			if !v.Can(ap.Principal) {
+				continue
+			}
+			ri.appr[ap.ID] = ap
+			if call, ok := strings.CutSuffix(ap.ToolCallID, heldSuffix); ok {
+				ri.held[call] = append(ri.held[call], ap)
 			}
 		}
 		infos[id] = ri
@@ -82,19 +90,34 @@ func (s *Server) annotateTools(ctx context.Context, v core.Viewer, msgs []*core.
 				res = rs[n]
 			}
 			var ap *core.Approval
-			if rec != nil && rec.Approval != "" {
+			var held []*core.Approval
+			if rec != nil {
 				ap = ri.appr[rec.Approval]
+				held = ri.held[rec.ID]
 			}
 			p.State = toolState(rec, ap, res, ri.open)
-			if ap != nil {
-				p.Approval = ap.ID
-				if !slices.Contains(approvals, ap) {
-					approvals = append(approvals, ap)
+			if p.State == core.ToolRunning && slices.ContainsFunc(held, waiting) {
+				p.State = core.ToolWaitingApproval
+			}
+			shown := ap
+			if shown == nil && len(held) > 0 {
+				shown = held[len(held)-1]
+				if i := slices.IndexFunc(held, waiting); i >= 0 {
+					shown = held[i]
+				}
+			}
+			if shown != nil {
+				p.Approval = shown.ID
+			}
+			for _, a := range append([]*core.Approval{ap}, held...) {
+				if a != nil && !slices.Contains(approvals, a) {
+					approvals = append(approvals, a)
 				}
 			}
 			m.Parts[i] = p
 		}
 	}
+	slices.SortStableFunc(approvals, func(a, b *core.Approval) int { return a.CreatedAt.Compare(b.CreatedAt) })
 	if err := s.withVotes(ctx, approvals); err != nil {
 		return nil, err
 	}
@@ -102,10 +125,19 @@ func (s *Server) annotateTools(ctx context.Context, v core.Viewer, msgs []*core.
 	return approvals, nil
 }
 
+// heldSuffix marks the tool_call_id of an approval the egress proxy asked
+// for while a call's connection waited (egress/hold.go).
+const heldSuffix = "#net"
+
+func waiting(a *core.Approval) bool {
+	return a.Status == core.ApprovalPending || a.Status == core.ApprovalParked
+}
+
 // toolState is where a call stands. The approval decides while it is open or
 // when it said no; otherwise the call record does, and a call is done only
-// once its result exists. A call of a finished run with neither record
-// nor result never completed.
+// once its result exists. A call of a finished run that never started
+// (planned, or approved too late) did not happen; one that started and left
+// neither record nor result never completed.
 func toolState(rec *core.ToolCallRecord, ap *core.Approval, res *core.ToolResult, runOpen bool) core.ToolState {
 	if ap != nil {
 		switch ap.Status {
@@ -128,11 +160,14 @@ func toolState(rec *core.ToolCallRecord, ap *core.Approval, res *core.ToolResult
 				return core.ToolDenied
 			}
 			return core.ToolBlocked
-		case core.TCWaiting:
-			if runOpen {
+		case core.TCWaiting, core.TCPlanned, core.TCApproved:
+			switch {
+			case !runOpen:
+				return core.ToolExpired
+			case rec.Status == core.TCWaiting && (ap == nil || ap.Status != core.ApprovalAllowed):
 				return core.ToolWaitingApproval
 			}
-			return core.ToolExpired
+			return core.ToolRunning
 		}
 	}
 	switch {

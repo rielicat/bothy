@@ -71,11 +71,17 @@ func (f *transcriptFixture) call(id, tool, path string, st core.ToolCallStatus, 
 	}
 }
 
-func (f *transcriptFixture) approval(path string) *core.Approval {
+// approval stores a pending approval, for the tool call record named by
+// toolCallID when one is given.
+func (f *transcriptFixture) approval(path string, toolCallID ...string) *core.Approval {
 	f.h.t.Helper()
 	payload := json.RawMessage(`{"path":"` + path + `"}`)
 	now := time.Now()
-	a := &core.Approval{Run: f.run.ID, Session: f.sess.ID, Principal: f.run.Principal, ToolCallID: core.NewID(core.PrefixToolCall),
+	tc := core.NewID(core.PrefixToolCall)
+	if len(toolCallID) > 0 {
+		tc = toolCallID[0]
+	}
+	a := &core.Approval{Run: f.run.ID, Session: f.sess.ID, Principal: f.run.Principal, ToolCallID: tc,
 		Action: &core.Action{Tool: "fs_delete", Kind: core.ActFSDelete, SideEffect: core.SEIrreversible, Paths: []string{path},
 			Payload: payload, Fingerprint: core.ActionFingerprint("fs_delete", payload)},
 		Decision: core.Decision{Verdict: core.VerdictAsk, Rule: "default:irreversible", Approver: core.ApproverReq{User: f.h.member.user},
@@ -203,6 +209,47 @@ func TestToolStateNeverDoneBeforeTheResult(t *testing.T) {
 	cancelled := &core.Approval{Status: core.ApprovalCancelled}
 	if st := toolState(&core.ToolCallRecord{Status: core.TCDenied}, cancelled, nil, false); st != core.ToolExpired {
 		t.Fatalf("cancelled when the chat stopped = %q", st)
+	}
+	// Approved while the record still says waiting (the run picks the
+	// decision up, or a parked run resumes): no longer waiting, not done.
+	allowed := &core.Approval{Status: core.ApprovalAllowed}
+	parkedRes := &core.ToolResult{Content: "Parked: waiting"}
+	if st := toolState(&core.ToolCallRecord{Status: core.TCWaiting}, allowed, parkedRes, true); st != core.ToolRunning {
+		t.Fatalf("approved, not run yet = %q", st)
+	}
+	if st := toolState(&core.ToolCallRecord{Status: core.TCWaiting}, allowed, parkedRes, false); st != core.ToolExpired {
+		t.Fatalf("approved after the task ended = %q", st)
+	}
+	if st := toolState(&core.ToolCallRecord{Status: core.TCPlanned}, nil, nil, false); st != core.ToolExpired {
+		t.Fatalf("planned when the task stopped = %q", st)
+	}
+}
+
+// An exec whose connection the egress proxy held for approval waits on that
+// card, and the decided card stays in the transcript after a reload.
+func TestTranscriptKeepsHeldConnectionCards(t *testing.T) {
+	h := newHarness(t).setup()
+	f := newTranscript(t, h, core.RunRunning)
+	f.call("c_shell", "shell", "", core.TCRunning, core.VerdictAuto, nil, nil)
+	recs, err := h.store.Runs().ToolCalls(f.ctx, core.SystemViewer(), f.run.ID)
+	if err != nil || len(recs) != 1 {
+		t.Fatalf("records %v %v", recs, err)
+	}
+	first := f.approval("registry.npmjs.org", recs[0].ID+"#net")
+	second := f.approval("example.com", recs[0].ID+"#net")
+	f.decide(first, core.ApprovalAllowed, core.AllowOnce, h.member.user)
+
+	p := f.page(t)
+	part := toolParts(p)["c_shell"]
+	if part.State != core.ToolWaitingApproval || part.Approval != second.ID || len(p.Approvals) != 2 {
+		t.Fatalf("held exec = %q on %q, page approvals %d; want waiting on %s with both cards", part.State, part.Approval, len(p.Approvals), second.ID)
+	}
+	f.decide(second, core.ApprovalDenied, core.Deny, h.member.user)
+	p = f.page(t)
+	part = toolParts(p)["c_shell"]
+	if part.State != core.ToolRunning || part.Approval != second.ID || len(p.Approvals) != 2 ||
+		p.Approvals[0].ID != first.ID || p.Approvals[1].Status != core.ApprovalDenied || p.Approvals[1].DecidedByName != "member" {
+		t.Fatalf("after both decisions: %q on %q, approvals %+v", part.State, part.Approval, p.Approvals)
 	}
 }
 
