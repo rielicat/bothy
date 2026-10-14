@@ -43,8 +43,6 @@ func (e *apiError) Unwrap() error {
 	return nil
 }
 
-// unauthorized reports a rejected token: 401, or 404 for a token so
-// malformed that no bot matches the path.
 // FailureCode says why the Bot API refused, for a failed connection test.
 func (e *apiError) FailureCode() core.FailureCode {
 	switch {
@@ -58,6 +56,8 @@ func (e *apiError) FailureCode() core.FailureCode {
 	return core.FailUnknown
 }
 
+// unauthorized reports a rejected token: 401, or 404 for a token so
+// malformed that no bot matches the path.
 func (e *apiError) unauthorized() bool {
 	return e.Code == http.StatusUnauthorized || e.Code == http.StatusNotFound
 }
