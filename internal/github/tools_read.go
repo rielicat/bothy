@@ -54,20 +54,20 @@ func (s *Service) readAction(tool, apiPath string, q url.Values, payload any) (*
 
 // repoClient re-checks the allowlist at Exec (it may have changed since the
 // call was planned) and returns the connection's client.
-func (s *Service) repoClient(ctx context.Context, repo string) (*core.GitHubRepo, *core.GitHubConnection, *apiClient, error) {
+func (s *Service) repoClient(ctx context.Context, repo string) (*core.GitHubRepo, *apiClient, error) {
 	r, err := s.allowedRepo(ctx, repo)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	conn, err := s.connectionFor(ctx, r)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	cl, _, err := s.client(conn)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
-	return r, conn, cl, nil
+	return r, cl, nil
 }
 
 func repoPath(r *core.GitHubRepo) string { return "/repos/" + r.Owner + "/" + r.Name }
@@ -242,7 +242,7 @@ func (t *githubIssues) Exec(ctx context.Context, _ *core.ToolEnv, a *core.Action
 	if err := payloadOf(a, &in); err != nil {
 		return nil, err
 	}
-	r, conn, cl, err := t.s.repoClient(ctx, in.Repo)
+	r, cl, err := t.s.repoClient(ctx, in.Repo)
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +250,6 @@ func (t *githubIssues) Exec(ctx context.Context, _ *core.ToolEnv, a *core.Action
 	if in.Number > 0 {
 		var is ghIssue
 		if _, err := cl.getJSON(ctx, repoPath(r)+"/issues/"+strconv.Itoa(in.Number), nil, &is); err != nil {
-			t.s.noteFailure(ctx, conn, err)
 			return nil, err
 		}
 		kind := "Issue"
@@ -277,7 +276,6 @@ func (t *githubIssues) Exec(ctx context.Context, _ *core.ToolEnv, a *core.Action
 	}
 	items, more, err := paged(ctx, cl, repoPath(r)+"/issues", issueQuery(in), in.Limit, jsonArray[ghIssue])
 	if err != nil {
-		t.s.noteFailure(ctx, conn, err)
 		return nil, err
 	}
 	if len(items) == 0 {
@@ -414,7 +412,7 @@ func (t *githubPR) Exec(ctx context.Context, _ *core.ToolEnv, a *core.Action) (*
 	if err := payloadOf(a, &in); err != nil {
 		return nil, err
 	}
-	r, conn, cl, err := t.s.repoClient(ctx, in.Repo)
+	r, cl, err := t.s.repoClient(ctx, in.Repo)
 	if err != nil {
 		return nil, err
 	}
@@ -423,7 +421,6 @@ func (t *githubPR) Exec(ctx context.Context, _ *core.ToolEnv, a *core.Action) (*
 		items, more, err := paged(ctx, cl, repoPath(r)+"/pulls", url.Values{"state": {in.State}, "sort": {"updated"}, "direction": {"desc"}},
 			in.Limit, jsonArray[ghPull])
 		if err != nil {
-			t.s.noteFailure(ctx, conn, err)
 			return nil, err
 		}
 		if len(items) == 0 {
@@ -443,7 +440,6 @@ func (t *githubPR) Exec(ctx context.Context, _ *core.ToolEnv, a *core.Action) (*
 	n := strconv.Itoa(in.Number)
 	var p ghPull
 	if _, err := cl.getJSON(ctx, repoPath(r)+"/pulls/"+n, nil, &p); err != nil {
-		t.s.noteFailure(ctx, conn, err)
 		return nil, err
 	}
 	fmt.Fprintf(&b, "Pull request #%d [%s] %s\nAuthor: @%s · %s → %s (head %s) · opened %s · updated %s\n", p.Number, prState(p), p.Title,
@@ -564,7 +560,7 @@ func (t *githubComment) Exec(ctx context.Context, env *core.ToolEnv, a *core.Act
 	if err := payloadOf(a, &in); err != nil {
 		return nil, err
 	}
-	r, conn, cl, err := t.s.repoClient(ctx, in.Repo)
+	r, cl, err := t.s.repoClient(ctx, in.Repo)
 	if err != nil {
 		return nil, err
 	}
@@ -573,7 +569,6 @@ func (t *githubComment) Exec(ctx context.Context, env *core.ToolEnv, a *core.Act
 		HTMLURL string `json:"html_url"`
 	}
 	if err := cl.call(ctx, http.MethodPost, repoPath(r)+"/issues/"+strconv.Itoa(in.Number)+"/comments", map[string]string{"body": in.Body}, &out); err != nil {
-		t.s.noteFailure(ctx, conn, err)
 		return nil, err
 	}
 	t.s.record(ctx, "agent:"+string(env.Run), "github.comment", r.FullName(), "ok", map[string]any{"number": in.Number, "id": out.ID})
@@ -701,7 +696,7 @@ func (t *githubRuns) Exec(ctx context.Context, _ *core.ToolEnv, a *core.Action) 
 	if err := payloadOf(a, &in); err != nil {
 		return nil, err
 	}
-	r, conn, cl, err := t.s.repoClient(ctx, in.Repo)
+	r, cl, err := t.s.repoClient(ctx, in.Repo)
 	if err != nil {
 		return nil, err
 	}
@@ -710,7 +705,6 @@ func (t *githubRuns) Exec(ctx context.Context, _ *core.ToolEnv, a *core.Action) 
 		id := strconv.FormatInt(in.RunID, 10)
 		var run ghRun
 		if _, err := cl.getJSON(ctx, repoPath(r)+"/actions/runs/"+id, nil, &run); err != nil {
-			t.s.noteFailure(ctx, conn, err)
 			return nil, err
 		}
 		writeRun(&b, run)
@@ -746,7 +740,6 @@ func (t *githubRuns) Exec(ctx context.Context, _ *core.ToolEnv, a *core.Action) 
 		return page.Runs, err
 	})
 	if err != nil {
-		t.s.noteFailure(ctx, conn, err)
 		return nil, err
 	}
 	if len(runs) == 0 {

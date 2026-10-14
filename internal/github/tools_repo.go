@@ -266,7 +266,6 @@ func (t *repoCheckout) Exec(ctx context.Context, env *core.ToolEnv, a *core.Acti
 	}
 	sha, err := resolveSHA(ctx, cl, r, p.Ref)
 	if err != nil {
-		t.s.noteFailure(ctx, conn, err)
 		return nil, err
 	}
 	if err := os.MkdirAll(st.store, 0o700); err != nil {
@@ -275,7 +274,6 @@ func (t *repoCheckout) Exec(ctx context.Context, env *core.ToolEnv, a *core.Acti
 	download := filepath.Join(st.store, "download-"+randHex(6)+".tar.gz")
 	defer os.Remove(download)
 	if err := t.s.download(ctx, cl, ep, r, sha, download, lim.maxBytes); err != nil {
-		t.s.noteFailure(ctx, conn, err)
 		return nil, err
 	}
 	files, sk, err := writeCheckout(root, r, download, lim, st.exists)
@@ -848,7 +846,6 @@ func (t *repoOpenPR) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action
 	}
 	pr, err := t.s.createPR(ctx, cl, r, p, contents)
 	if err != nil {
-		t.s.noteFailure(ctx, conn, err)
 		t.s.record(ctx, "agent:"+string(env.Run), "github.pull_request", r.FullName(), "error",
 			map[string]any{"head": p.Head, "base": p.Base, "files": len(p.Files)})
 		return nil, err

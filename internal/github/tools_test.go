@@ -621,12 +621,19 @@ func TestReadToolRateLimited(t *testing.T) {
 func TestRevokedTokenMarksConnection(t *testing.T) {
 	f := newFx(t)
 	c := f.connect("octocat/Hello-World")
+	good := f.gh.PAT
 	f.gh.PAT = "github_pat_rotated"
 	if _, _, err := f.call(githubIssuesName, f.toolEnv(), map[string]any{"repo": "octocat/Hello-World"}); statusOf(err) != http.StatusUnauthorized {
 		t.Fatalf("revoked token: %v", err)
 	}
-	if stored, _ := f.store.Connection(f.ctx, c.ID); stored.Status != "error" {
+	if stored, _ := f.store.Connection(f.ctx, c.ID); stored.Status != "error" || !strings.Contains(stored.Error, "rejected") {
 		t.Errorf("connection status = %+v", stored)
+	}
+	// Working again: the next successful call clears the error.
+	f.gh.PAT = good
+	f.mustCall(githubIssuesName, f.toolEnv(), map[string]any{"repo": "octocat/Hello-World"})
+	if stored, _ := f.store.Connection(f.ctx, c.ID); stored.Status != "ok" || stored.Error != "" {
+		t.Errorf("connection status after recovery = %+v", stored)
 	}
 }
 

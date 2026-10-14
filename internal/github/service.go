@@ -165,24 +165,43 @@ func (s *Service) apiClient(ep endpoint, src tokenSource) *apiClient {
 	return &apiClient{ep: ep, http: s.httpClient(ep), auth: src.token, authFailed: src.invalidate, now: s.now}
 }
 
-// client returns an API client for a stored connection.
+// client returns an API client for a stored connection. What the calls
+// learn about the credentials is recorded on the connection, so Settings
+// shows a revoked token without waiting for a manual test.
 func (s *Service) client(c *core.GitHubConnection) (*apiClient, endpoint, error) {
 	ep, err := s.endpoint()
 	if err != nil {
 		return nil, endpoint{}, err
 	}
-	return s.apiClient(ep, s.source(c, ep)), ep, nil
+	cl := s.apiClient(ep, s.source(c, ep))
+	cl.health = s.health(c.ID, c.Status)
+	return cl, ep, nil
 }
 
-// noteFailure records a credential failure on the connection, so Settings
-// shows it without waiting for a manual test.
-func (s *Service) noteFailure(ctx context.Context, c *core.GitHubConnection, err error) {
-	if statusOf(err) != http.StatusUnauthorized {
-		return
-	}
-	c.Status, c.Error, c.CheckedAt = "error", err.Error(), s.now()
-	if perr := s.store.PutConnection(context.WithoutCancel(ctx), c); perr != nil {
-		s.log.Warn("github: recording the connection failure", "connection", c.ID, "err", perr)
+// health writes a connection's status when it changes.
+func (s *Service) health(id, status string) func(ok bool) {
+	var mu sync.Mutex
+	return func(ok bool) {
+		want, msg := "ok", ""
+		if !ok {
+			want, msg = "error", "GitHub rejected the credentials (wrong, expired or revoked token)"
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if status == want {
+			return
+		}
+		status = want
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		c, err := s.store.Connection(ctx, id)
+		if err != nil {
+			return
+		}
+		c.Status, c.Error, c.CheckedAt = want, msg, s.now()
+		if err := s.store.PutConnection(ctx, c); err != nil {
+			s.log.Warn("github: recording the connection status", "connection", id, "err", err)
+		}
 	}
 }
 

@@ -171,7 +171,10 @@ type apiClient struct {
 	// fresh one (installation tokens may be revoked before they expire).
 	authFailed func()
 	observe    func(rateInfo)
-	now        func() time.Time
+	// health learns whether the credentials work: false after a 401 that
+	// survived the retry, true after any 2xx.
+	health func(ok bool)
+	now    func() time.Time
 }
 
 func noRedirects(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
@@ -250,6 +253,9 @@ func (c *apiClient) send(ctx context.Context, method string, u *url.URL, body an
 				hop--
 				continue
 			}
+			if c.health != nil {
+				c.health(false)
+			}
 		case http.StatusMovedPermanently, http.StatusFound, http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
 			loc, lerr := resp.Location()
 			if follow && lerr == nil && hop < maxAPIHops && c.ep.sameAPI(loc) &&
@@ -258,6 +264,9 @@ func (c *apiClient) send(ctx context.Context, method string, u *url.URL, body an
 				u = loc
 				continue
 			}
+		}
+		if c.health != nil && resp.StatusCode < 300 {
+			c.health(true)
 		}
 		return resp, nil
 	}
