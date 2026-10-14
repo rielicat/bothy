@@ -48,6 +48,7 @@ func (s *Server) purgeUser(r *http.Request, by core.Actor, u *core.User) error {
 	step("vault", func() error { return s.purgeVault(ctx, u.ID, by, st) })
 	step("identities", func() error { return s.purgeIdentities(ctx, u.ID, v, st) })
 	step("memory", func() error { return s.purgeMemory(ctx, ps) })
+	step("knowledge", func() error { return s.purgeKnowledge(ctx, ps) })
 	step("files", func() error { return s.purgeFiles(ps, st) })
 	step("user", func() error {
 		if err := s.d.Store.Users().Delete(ctx, u.ID); err != nil {

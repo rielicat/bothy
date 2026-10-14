@@ -46,6 +46,7 @@ type Deps struct {
 	Restart   func() // POST /api/admin/restart: asks cmd/bothy to drain and re-exec
 	Clock     core.Clock
 	Log       *slog.Logger
+	Knowledge core.Knowledge // /api/knowledge/*; nil answers 503
 }
 
 type Server struct {
@@ -109,7 +110,7 @@ func New(d Deps) (*Server, error) {
 		v1Wait:     v1LargeWait,
 		shutdown:   make(chan struct{}),
 	}
-	s.routes = s.routeTable()
+	s.routes = append(s.routeTable(), s.knowledgeRoutes()...)
 	s.handler = s.build()
 	return s, nil
 }
