@@ -36,7 +36,7 @@ describe('accessibility (axe)', () => {
   it('settings: policy', () => check('/settings/policy', () => screen.getByText('Standing permissions')));
   // v0.2 folds budgets into General (docs/design/ui.md §4.5), so the old address lands there.
   it('settings: budgets, now part of General', () => check('/settings/budgets', () => screen.getByText('Remote access')));
-  it('settings: chat apps', () => check('/settings/channels', () => screen.getByText('Link your accounts')));
+  it('settings: connections', () => check('/settings/channels', () => screen.getByText('Connected to Acme · 2 people linked')));
   it('settings: vault', () => check('/settings/vault', () => screen.getByText('anthropic_api_key')));
   it('schedules', () => check('/schedules', () => screen.getByText('Morning briefing')));
   it('memory', () => check('/memory', () => screen.getByText('History')));

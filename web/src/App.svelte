@@ -19,8 +19,7 @@
   import RunTrace from './screens/RunTrace.svelte';
   import ScheduleEdit from './screens/ScheduleEdit.svelte';
   import Schedules from './screens/Schedules.svelte';
-  import GitHub from './screens/settings/connections/GitHub.svelte';
-  import WebSearch from './screens/settings/connections/WebSearch.svelte';
+  import { connectionsScreen } from './screens/settings/connections';
   import Settings from './screens/settings/Settings.svelte';
   import Setup from './screens/setup/Setup.svelte';
   import Usage from './screens/Usage.svelte';
@@ -63,13 +62,15 @@
       case '/knowledge/skills/:name':
         return { c: Settings, params: { ...p, page: 'skills' } };
       case '/settings/:group':
+        if (p.group === 'connections') return { c: connectionsScreen()!, params: p };
         return { c: Settings, params: { ...p, page: legacySettingsPage(p.group) ?? p.group } };
       case '/settings/:group/:item': {
+        if (p.group === 'connections') {
+          const c = connectionsScreen(p.item);
+          return c ? { c, params: p } : null;
+        }
         const page = legacySettingsPage(p.group, p.item);
-        if (page) return { c: Settings, params: { ...p, page } };
-        if (p.group === 'connections' && p.item === 'github') return { c: GitHub, params: p };
-        if (p.group === 'connections' && p.item === 'search') return { c: WebSearch, params: p };
-        return null;
+        return page ? { c: Settings, params: { ...p, page } } : null;
       }
       case '/dev/ui':
         return Gallery ? { c: Gallery, params: p } : null;

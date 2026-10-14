@@ -1,5 +1,4 @@
 <script lang="ts">
-  import ChannelSetup from '../../components/ChannelSetup.svelte';
   import Icon from '../../components/Icon.svelte';
   import { originIcon } from '../../lib/labels';
 
@@ -24,7 +23,7 @@
         <span class="min-w-0 flex-1"><span class="font-medium">{a.name}</span><span class="block text-sm text-muted">{a.text}</span></span>
         <Icon name="chevron" size={16} class="text-faint transition-transform {open === a.id ? 'rotate-180' : ''}" />
       </button>
-      {#if open === a.id}<div class="border-t border-line p-4"><ChannelSetup name={a.id} /></div>{/if}
+      {#if open === a.id}<p class="border-t border-line p-4 text-sm text-muted">Connect {a.name} after setup, in Settings → Connections.</p>{/if}
     </div>
   {/each}
 </div>

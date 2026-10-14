@@ -8,9 +8,7 @@
   import { session } from '../../lib/stores/session.svelte';
   import Advanced from './Advanced.svelte';
   import Budgets from './Budgets.svelte';
-  import Channels from './Channels.svelte';
   import General from './General.svelte';
-  import Mcp from './Mcp.svelte';
   import Models from './Models.svelte';
   import People from './People.svelte';
   import Persona from './Persona.svelte';
@@ -26,11 +24,9 @@
   const pages: Page[] = [
     { id: 'general', label: 'General', icon: 'sliders', c: General },
     { id: 'models', label: 'Models & providers', icon: 'spark', c: Models, admin: true },
-    { id: 'channels', label: 'Chat apps', icon: 'chat', c: Channels },
     { id: 'people', label: 'People', icon: 'users', c: People, admin: true, multi: true },
     { id: 'policy', label: 'Policy', icon: 'shield', c: Policy, admin: true },
     { id: 'sandbox', label: 'Sandbox & egress', icon: 'box', c: Sandbox, admin: true },
-    { id: 'mcp', label: 'MCP servers', icon: 'plug', c: Mcp, admin: true },
     { id: 'skills', label: 'Skills', icon: 'skills', c: Skills },
     { id: 'persona', label: 'Persona', icon: 'smile', c: Persona },
     { id: 'vault', label: 'Vault', icon: 'key', c: Vault },
