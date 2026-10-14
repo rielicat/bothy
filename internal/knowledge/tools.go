@@ -272,7 +272,7 @@ func (t *notesTool) Plan(ctx context.Context, env *core.ToolEnv, args json.RawMe
 	if err != nil {
 		return nil, err
 	}
-	act.Diff = notesDiff(before, after)
+	act.Diff = notesDiff(r.Repo, before, after)
 	return act, nil
 }
 

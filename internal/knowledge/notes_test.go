@@ -46,14 +46,14 @@ func TestApplyNotesOp(t *testing.T) {
 }
 
 func TestNotesDiffAndSummary(t *testing.T) {
-	d := notesDiff("a\nb\nc\n", "a\nB\nc\nd\n")
-	if d != "--- NOTES.md\n+++ NOTES.md\n@@ -2,2 +2,3 @@\n-b\n-c\n+B\n+c\n+d\n" {
+	d := notesDiff("acme/api", "a\nb\nc\n", "a\nB\nc\nd\n")
+	if d != "--- acme/api/NOTES.md\n+++ acme/api/NOTES.md\n@@ -2,2 +2,3 @@\n-b\n-c\n+B\n+c\n+d\n" {
 		t.Fatalf("diff = %q", d)
 	}
-	if d := notesDiff("a\nb\n", "a\nb\nc\n"); d != "--- NOTES.md\n+++ NOTES.md\n@@ -3,0 +3,1 @@\n+c\n" {
+	if d := notesDiff("acme/api", "a\nb\n", "a\nb\nc\n"); d != "--- acme/api/NOTES.md\n+++ acme/api/NOTES.md\n@@ -3,0 +3,1 @@\n+c\n" {
 		t.Fatalf("append diff = %q", d)
 	}
-	if d := notesDiff("", strings.Repeat("x\n", 40000)); len(d) > notesDiffMax+40 || !strings.HasSuffix(d, "(diff truncated)\n") {
+	if d := notesDiff("acme/api", "", strings.Repeat("x\n", 40000)); len(d) > notesDiffMax+40 || !strings.HasSuffix(d, "(diff truncated)\n") {
 		t.Fatalf("big diff = %d bytes", len(d))
 	}
 	sum, more := summarize("# t\n\nalpha\nbeta\ngamma\n", 12)

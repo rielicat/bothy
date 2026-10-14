@@ -214,8 +214,9 @@ func appendToSection(content, section, text string) string {
 	return strings.Join(out, "\n") + "\n"
 }
 
-// notesDiff is a one-hunk unified diff of the changed lines, for cards.
-func notesDiff(before, after string) string {
+// notesDiff is a one-hunk unified diff of the changed lines, for cards; the
+// file is named with its repo so a card says whose notes change.
+func notesDiff(repo, before, after string) string {
 	a, b := splitLines(before), splitLines(after)
 	pre := 0
 	for pre < len(a) && pre < len(b) && a[pre] == b[pre] {
@@ -226,7 +227,8 @@ func notesDiff(before, after string) string {
 		suf++
 	}
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "--- %s\n+++ %s\n@@ -%d,%d +%d,%d @@\n", notesFile, notesFile, pre+1, len(a)-pre-suf, pre+1, len(b)-pre-suf)
+	name := repo + "/" + notesFile
+	fmt.Fprintf(&sb, "--- %s\n+++ %s\n@@ -%d,%d +%d,%d @@\n", name, name, pre+1, len(a)-pre-suf, pre+1, len(b)-pre-suf)
 	for _, l := range a[pre : len(a)-suf] {
 		sb.WriteString("-" + l + "\n")
 	}
