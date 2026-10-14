@@ -153,7 +153,7 @@ test('approving the last suggestion closes the review and the notice', async ({ 
   await page.getByRole('button', { name: 'Review' }).click();
   const dialog = page.getByRole('dialog', { name: 'Suggested changes' });
   await expect(dialog.getByRole('article')).toHaveCount(2);
-  for (let i = 0; i < 2; i++) await dialog.getByRole('article').first().getByRole('button').first().click();
+  for (let i = 0; i < 2; i++) await dialog.getByRole('article').first().getByRole('button', { name: 'Update notes' }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByText(/Bothy suggested/)).toHaveCount(0);
 });

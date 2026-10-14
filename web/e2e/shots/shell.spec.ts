@@ -178,7 +178,7 @@ const states: ShotState[] = [
     setup: async (page) => {
       await page.keyboard.press('/');
       await page.getByRole('combobox', { name: 'Search chats' }).waitFor();
-      await page.getByRole('option').first().waitFor();
+      await page.getByRole('dialog').getByRole('option').first().waitFor();
     },
   },
   {

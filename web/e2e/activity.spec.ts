@@ -30,7 +30,8 @@ const withMock = (r: string) => (r.includes('mock=') ? r : `${r}${r.includes('?'
 
 async function open(page: Page, route: string, ready: string) {
   await page.goto(withMock(route));
-  await page.getByText(ready).first().waitFor();
+  // In main: the shell's chat list repeats some of these titles, hidden in the drawer on phones.
+  await page.getByRole('main').getByText(ready).first().waitFor();
   await page.waitForLoadState('networkidle');
 }
 

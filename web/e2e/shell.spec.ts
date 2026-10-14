@@ -65,7 +65,7 @@ test('search opens the chat it found, and Esc gives focus back', async ({ page }
   const trigger = sidebar(page).getByRole('button', { name: /^Search/ });
   await trigger.click();
   await page.keyboard.type('pricing');
-  await expect(page.getByRole('option').first()).toContainText('Q3 pricing notes');
+  await expect(page.getByRole('dialog').getByRole('option').first()).toContainText('Q3 pricing notes');
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/\/chat\/ses_01jteampricing00000000000000#m1$/);
 
@@ -221,7 +221,7 @@ const copyStates: [string, (page: Page) => Promise<unknown>][] = [
   ['/activity?mock=team-chats', (p) => sidebar(p).getByRole('button', { name: /^Account:/ }).click()],
   ['/activity?mock=team-chats', async (p) => (await sidebar(p).getByRole('button', { name: /^Account:/ }).click(), p.getByRole('menuitem', { name: 'Theme' }).click())],
   ['/activity?mock=team-chats', (p) => p.keyboard.press('Shift+Slash')],
-  ['/activity?mock=team-chats', async (p) => (await p.keyboard.press('/'), p.keyboard.type('launch'), p.getByRole('option').first().waitFor())],
+  ['/activity?mock=team-chats', async (p) => (await p.keyboard.press('/'), p.keyboard.type('launch'), p.getByRole('dialog').getByRole('option').first().waitFor())],
   ['/activity?mock=team-chats', async (p) => (await sidebar(p).getByRole('button', { name: /^Account:/ }).click(), p.getByRole('menuitem', { name: 'Pause Bothy…' }).click())],
   ['/activity?mock=team-chats,paused', async () => {}],
   ['/activity?mock=team-chats,provider-auth', async () => {}],

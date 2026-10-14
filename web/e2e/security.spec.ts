@@ -44,6 +44,9 @@ async function axe(page: Page) {
   });
 }
 
+// The sealed banner (C1) has an Unlock of its own; this is the Saved keys page's.
+const pageUnlock = (page: Page) => page.getByRole('button', { name: 'Unlock', exact: true }).and(page.locator(':not([role="alert"] *)'));
+
 async function go(page: Page, route: string, mock = '') {
   await page.goto(`${route}?mock=${mock}`);
   await page.waitForLoadState('networkidle');
@@ -65,7 +68,7 @@ test.describe('axe', () => {
         ['/settings/security', '', (p) => p.getByRole('button', { name: 'Pause Bothy…' }).click()],
         ['/settings/security/websites', '', (p) => p.getByRole('button', { name: 'Add website' }).click()],
         ['/settings/security/keys', '', (p) => p.getByRole('button', { name: 'Add key' }).click()],
-        ['/settings/security/keys', 'sealed', (p) => p.getByRole('button', { name: 'Unlock', exact: true }).click()],
+        ['/settings/security/keys', 'sealed', (p) => pageUnlock(p).click()],
         ['/settings/advanced', '', (p) => p.getByRole('button', { name: 'Edit rule wiki' }).click()],
         ['/settings/advanced', '', (p) => p.getByRole('button', { name: 'Test a rule…' }).click()],
       ];
@@ -128,8 +131,10 @@ test('approvals settings work from the keyboard', async ({ page }) => {
   await page.keyboard.press('Tab');
   await expect(dialog.getByRole('button', { name: 'Pause Bothy', exact: true })).toBeFocused();
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('main').getByRole('button', { name: 'Resume' })).toBeVisible();
-  await page.getByRole('main').getByRole('button', { name: 'Resume' }).press('Enter');
+  // The paused banner has its own Resume; this one is the Security page's.
+  const resume = page.getByRole('region', { name: 'Pause Bothy' }).getByRole('button', { name: 'Resume' });
+  await expect(resume).toBeVisible();
+  await resume.press('Enter');
   await expect(page.getByRole('button', { name: 'Pause Bothy…' })).toBeVisible();
   expect(problems).toEqual([]);
 });
@@ -159,7 +164,7 @@ test('saved keys: add, unlock and delete without a pointer', async ({ page }) =>
   await expect(page.getByText('Tavily API key')).toHaveCount(0);
 
   await go(page, '/settings/security/keys', 'sealed');
-  await page.getByRole('button', { name: 'Unlock', exact: true }).press('Enter');
+  await pageUnlock(page).press('Enter');
   const unlock = page.getByRole('dialog', { name: 'Unlock saved keys' });
   await expect(unlock.getByLabel('Passphrase')).toBeFocused();
   await page.keyboard.type('wrong');

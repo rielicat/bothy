@@ -29,7 +29,8 @@ async function send(page: Page, text: string) {
 test('a new chat stores nothing before the first message, and a suggestion fills the composer without sending', async ({ page }) => {
   const problems = watch(page);
   const posts: string[] = [];
-  page.on('request', (r) => r.method() === 'POST' && posts.push(new URL(r.url()).pathname));
+  // Only chat writes count: the shell's attention dot reads findings with POST /api/security-audit {fix: false}.
+  page.on('request', (r) => r.method() === 'POST' && new URL(r.url()).pathname.startsWith('/api/sessions') && posts.push(new URL(r.url()).pathname));
   await page.goto('/chat?mock=');
   await page.getByRole('button', { name: 'What can you do for our team?' }).click();
   await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue('What can you do for our team?');
