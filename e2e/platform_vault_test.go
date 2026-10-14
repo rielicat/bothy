@@ -111,7 +111,7 @@ policy:
 	// web inbox (SSE) and to the owner's Telegram DM.
 	cardRun := owner.Send(t, s.ID, "E15-CARD send the key out")
 	card := owner.WaitApproval(t, cardRun, core.ApprovalPending)
-	tg.WaitText(t, tgUser, "Write file", 10*time.Second)
+	tg.WaitText(t, tgUser, "Create outbox/key.txt?", 10*time.Second)
 	owner.Resolve(t, card.ID, core.Deny)
 	owner.Finished(t, cardRun)
 	// The provider got the secret in its header, so it was really in use.

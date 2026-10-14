@@ -4,9 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"slices"
 	"strconv"
-	"strings"
 
 	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
@@ -124,32 +122,4 @@ func canApproveText(n int) string {
 		return "only 1 other person can approve it"
 	}
 	return "only " + strconv.Itoa(n) + " other people can approve it"
-}
-
-// approverSummary describes who may approve, for cards: named users first,
-// then roles ("Alice, Bob or any admin").
-func approverSummary(r core.ApproverReq, name func(core.UserID) string) string {
-	var parts []string
-	for _, u := range r.Users {
-		parts = append(parts, name(u))
-	}
-	roles := slices.Clone(r.Roles)
-	slices.SortFunc(roles, func(a, b core.Role) int { return strings.Compare(string(a), string(b)) })
-	for _, ro := range roles {
-		switch ro {
-		case core.RoleMember:
-			parts = append(parts, "anyone")
-		case core.RoleOwner:
-			parts = append(parts, "the owner")
-		default:
-			parts = append(parts, "any "+string(ro))
-		}
-	}
-	switch len(parts) {
-	case 0:
-		return ""
-	case 1:
-		return parts[0]
-	}
-	return strings.Join(parts[:len(parts)-1], ", ") + " or " + parts[len(parts)-1]
 }

@@ -3,6 +3,7 @@ package policy
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -91,9 +92,9 @@ func TestReleaseDecisionTable(t *testing.T) {
 			c.Policy.Rules = []config.Rule{{ID: "freeze", Tool: toolReleaseDeploy, Match: map[string]string{"/environment": "staging"}, Verdict: "deny", Reason: "release freeze"}}
 		}, verdict: core.VerdictDeny, rule: "rule:freeze", reason: "release freeze"},
 		{name: "exposed session", in: func(in *core.PolicyInput) { in.Taint = core.TaintPrivate | core.TaintUntrusted },
-			verdict: core.VerdictAsk, rule: floorRelease, warn: "private data and untrusted content"},
+			verdict: core.VerdictAsk, rule: floorRelease, warn: "private information and content from outside"},
 		{name: "untrusted origin", in: func(in *core.PolicyInput) { in.Provenance = core.ProvUntrusted },
-			verdict: core.VerdictAsk, rule: floorRelease, warn: "untrusted sender"},
+			verdict: core.VerdictAsk, rule: floorRelease, warn: "not from a person"},
 		{name: "standard space", in: func(in *core.PolicyInput) { in.Principal, in.Session = standard, h.spaceSession },
 			verdict: core.VerdictDeny, rule: floorRelease, reason: "group"},
 		{name: "restricted space", in: func(in *core.PolicyInput) { in.Principal, in.Session = h.space, h.spaceSession },
@@ -205,45 +206,52 @@ func TestReleaseCard(t *testing.T) {
 	h := newReleaseHarness(t)
 	ap := h.requestRelease(h.member)
 	want := []core.CardField{
-		{Label: "Tool", Value: toolReleaseDeploy, Mono: true},
 		{Label: "Environment", Value: "staging"},
-		{Label: "Repository", Value: "acme/web", Mono: true},
+		{Label: "Version", Value: "main", Mono: true},
 		{Label: "Workflow", Value: "deploy.yml", Mono: true},
-		{Label: "Ref", Value: "main", Mono: true},
 		{Label: "Inputs", Value: "target=staging", Mono: true},
-		{Label: "Approvals needed", Value: "2, not counting whoever asked"},
-		{Label: "Requested by", Value: "member"},
-		{Label: "Approvers", Value: "any admin"},
 	}
-	if !slices.Equal(ap.Card.Fields, want) || ap.Card.Risk != core.SEIrreversible || ap.Card.Title != "Run release_deploy" ||
-		!slices.Equal(ap.Card.Choices, []core.Choice{core.AllowOnce, core.Deny}) || ap.Card.Code != "" {
-		t.Fatalf("card = %+v", ap.Card)
+	c := ap.Card
+	if !slices.Equal(c.Fields, want) || c.Risk != core.SEIrreversible || c.Title != "Run release_deploy" ||
+		!slices.Equal(c.Choices, []core.Choice{core.AllowOnce, core.Deny}) || c.Code != "" {
+		t.Fatalf("card = %+v", c)
+	}
+	if c.Question != "Deploy acme/web to staging?" || c.Consequence != "This updates staging for everyone using it." ||
+		c.PrimaryLabel != "Approve deploy" || c.Ing != "deploying acme/web to staging" || c.Kind != core.CardDeploy || c.Tone != core.ToneDefault {
+		t.Errorf("plain copy = %+v; a deploy's safeguard is its approvers, so it is not destructive", c)
 	}
 	// The requester's session title is theirs; approvers see who asked instead.
-	if ap.Card.Context != "" {
-		t.Errorf("a multi-approver card carries the requester's session context %q", ap.Card.Context)
+	if c.Context != "" {
+		t.Errorf("a multi-approver card carries the requester's session context %q", c.Context)
 	}
+	wantTally := &core.ApprovalTally{Required: 2, Votes: []core.ApprovalBallot{}, Eligible: []core.ApprovalPerson{}, AnyAdmin: true}
+	if !reflect.DeepEqual(ap.Approvals, wantTally) || ap.Requester == nil || *ap.Requester != (core.ApprovalPerson{User: h.member.ID, Name: "member"}) {
+		t.Errorf("approvals %+v requester %+v", ap.Approvals, ap.Requester)
+	}
+
 	h.cfg.Releases.Environments[0].Approvers = []string{string(h.admin1.ID), "‮bob", "member"}
 	h.cfg.Releases.Environments[0].Required = 1
-	if err := h.store.Users().Update(h.ctx, &core.User{ID: h.admin1.ID, Username: "alice", DisplayName: "Alice ‮A", Role: core.RoleAdmin}); err != nil {
-		t.Fatal(err)
-	}
+	carol := h.user("carol", core.RoleMember)
 	if err := h.store.Users().Update(h.ctx, &core.User{ID: h.member.ID, Username: "member", DisplayName: "Mel ‮M", Role: core.RoleMember}); err != nil {
 		t.Fatal(err)
 	}
 	ap = h.requestRelease(h.member)
-	if got := ap.Card.Fields[len(ap.Card.Fields)-1]; got.Value != "Alice ⟨U+202E⟩A or anyone" {
-		t.Errorf("approvers field = %q", got.Value)
+	wantTally = &core.ApprovalTally{Required: 1, Votes: []core.ApprovalBallot{},
+		Eligible: []core.ApprovalPerson{{User: carol.ID, Name: "carol"}}, AnyAdmin: true}
+	if !reflect.DeepEqual(ap.Approvals, wantTally) || ap.Requester.Name != "Mel ‮M" {
+		t.Errorf("approvals %+v requester %+v; admins are covered by any_admin, names stay verbatim for renderers", ap.Approvals, ap.Requester)
 	}
-	if got := ap.Card.Fields[len(ap.Card.Fields)-2]; got.Label != "Requested by" || got.Value != "Mel ⟨U+202E⟩M" {
-		t.Errorf("requested by field = %+v", got)
+	if _, err := h.ap.Resolve(h.ctx, core.Resolution{ID: ap.ID, Choice: core.Deny, By: carol.ID, ByRole: carol.Role, Via: "web",
+		Comment: "Not before the freeze ends"}); err != nil {
+		t.Fatal(err)
 	}
-	if got := ap.Card.Fields[len(ap.Card.Fields)-3]; got.Value != "1, not counting whoever asked" {
-		t.Errorf("approvals needed = %q", got.Value)
+	got, err := h.ap.Get(h.ctx, core.SystemViewer(), ap.ID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	preview := h.ap.RenderCard(core.ApprovalRequest{Action: ap.Action, Spec: releaseSpec(), Decision: ap.Decision})
-	if slices.ContainsFunc(preview.Fields, func(f core.CardField) bool { return f.Label == "Approvers" }) {
-		t.Errorf("preview names approvers: %+v", preview.Fields)
+	if got.Comment != "Not before the freeze ends" || len(got.Approvals.Votes) != 1 ||
+		got.Approvals.Votes[0] != (core.ApprovalBallot{User: carol.ID, Name: "carol", Choice: core.Deny, At: got.Votes[0].At, Comment: "Not before the freeze ends"}) {
+		t.Errorf("denied approval = comment %q tally %+v", got.Comment, got.Approvals)
 	}
 }
 

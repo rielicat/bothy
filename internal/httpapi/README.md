@@ -62,3 +62,8 @@ return it still pending; `GET /api/approvals/{id}/votes` gives the caller's
 view of the votes (count, who may vote, `can_vote`/`can_withdraw`), and
 `GET /api/releases` and `GET /api/releases/deploys` list the release
 environments and deploy records (own deploys; everyone's for admins).
+`GET /api/inbox` (`h_inbox.go`) lists what waits for a decision in plain
+copy, the caller's items first: approvals and note suggestions, and for
+admins MCP tools and skills to review and recent unknown senders; new group
+chats go to their owner and admins. Items are decided through their own
+endpoints.

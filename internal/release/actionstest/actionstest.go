@@ -1,7 +1,7 @@
 // Package actionstest fakes the GitHub Actions REST endpoints release_deploy
-// uses: workflow_dispatch, a workflow's runs and a run's status. It checks the
-// bearer token and API version header like GitHub does and lets tests move
-// runs through their states.
+// uses: workflow_dispatch, a workflow's runs, a run's status and its jobs.
+// It checks the bearer token and API version header like GitHub does and
+// lets tests move runs through their states.
 package actionstest
 
 import (
@@ -30,6 +30,7 @@ type Run struct {
 	HeadSHA             string
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
+	FailedStep          string // the step a failed run's job reports as failed
 }
 
 type Server struct {
@@ -52,6 +53,7 @@ func New(token string) *Server {
 	mux.HandleFunc("POST /repos/{owner}/{repo}/actions/workflows/{wf}/dispatches", s.dispatch)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/workflows/{wf}/runs", s.list)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs/{id}", s.get)
+	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs/{id}/jobs", s.jobs)
 	s.srv = httptest.NewServer(s.auth(mux))
 	return s
 }
@@ -113,6 +115,18 @@ func (s *Server) SetRun(id int64, status, conclusion string) {
 	for _, r := range s.runs {
 		if r.ID == id {
 			r.Status, r.Conclusion, r.UpdatedAt = status, conclusion, time.Now().UTC()
+		}
+	}
+}
+
+// FinishRun completes a run that took the given time, failing at step
+// when step is not empty.
+func (s *Server) FinishRun(id int64, conclusion string, took time.Duration, step string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, r := range s.runs {
+		if r.ID == id {
+			r.Status, r.Conclusion, r.UpdatedAt, r.FailedStep = "completed", conclusion, r.CreatedAt.Add(took), step
 		}
 	}
 }
@@ -218,6 +232,32 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, s.runJSON(run))
 			return
 		}
+	}
+	writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
+}
+
+// jobs lists one job whose steps end at the run's failed step, if any.
+func (s *Server) jobs(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	repo := r.PathValue("owner") + "/" + r.PathValue("repo")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, run := range s.runs {
+		if run.ID != id || run.Repo != repo {
+			continue
+		}
+		steps := []map[string]any{{"number": 1, "name": "Set up job", "conclusion": "success"}}
+		if run.FailedStep != "" {
+			steps = append(steps, map[string]any{"number": 2, "name": run.FailedStep, "conclusion": "failure"},
+				map[string]any{"number": 3, "name": "Complete job", "conclusion": "skipped"})
+		}
+		var conclusion any
+		if run.Conclusion != "" {
+			conclusion = run.Conclusion
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"total_count": 1, "jobs": []map[string]any{
+			{"id": run.ID*10 + 1, "name": "deploy", "status": run.Status, "conclusion": conclusion, "steps": steps}}})
+		return
 	}
 	writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
 }

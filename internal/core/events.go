@@ -19,6 +19,9 @@ const (
 	EvApprovalRequested EventType = "approval.requested"
 	EvApprovalResolved  EventType = "approval.resolved"
 	EvApprovalVoted     EventType = "approval.voted" // ApprovalData: a vote that did not resolve a multi-approver approval
+	EvReleaseDispatched EventType = "release.dispatched"
+	EvReleaseFinished   EventType = "release.finished"
+	EvInboxChanged      EventType = "inbox.changed" // a new unknown sender or group chat item; refetch GET /api/inbox
 	EvMessageCreated    EventType = "message.created"
 	EvSessionUpdated    EventType = "session.updated"
 	EvMemoryUpdated     EventType = "memory.updated"
@@ -109,6 +112,38 @@ type ApprovalResolvedData struct {
 	Choice   Choice         `json:"choice,omitempty"`
 	By       UserID         `json:"by,omitempty"`
 	Via      string         `json:"via"`
+	Comment  string         `json:"comment,omitempty"` // the deciding approver's reason
+}
+
+// ReleaseDispatchedData: GitHub accepted a deploy's workflow_dispatch.
+type ReleaseDispatchedData struct {
+	Deploy      string `json:"deploy_id"`
+	Environment string `json:"environment"`
+	Repo        string `json:"repo"`
+	Ref         string `json:"ref"`
+	URL         string `json:"url,omitempty"` // the workflow run's page, when identified
+}
+
+// ReleaseFinishedData: Bothy stopped following a deploy, or GitHub refused
+// to start it.
+type ReleaseFinishedData struct {
+	Deploy      string        `json:"deploy_id"`
+	Environment string        `json:"environment"`
+	Repo        string        `json:"repo"`
+	Ref         string        `json:"ref"`
+	Status      DeployStatus  `json:"status"` // succeeded | failed | unknown
+	OK          bool          `json:"ok"`
+	URL         string        `json:"url,omitempty"`
+	Duration    time.Duration `json:"duration"` // the run's own start to finish when known
+	// FailedStep names the workflow step a failed run stopped at, as written
+	// in the repository's workflow file (show it verbatim, never as markup).
+	FailedStep string `json:"failed_step,omitempty"`
+}
+
+// InboxChangedData names the approvals-inbox item that appeared, e.g.
+// "sender:telegram:42" or "group:spc_…" (dto.InboxItem.ID).
+type InboxChangedData struct {
+	Item string `json:"item"`
 }
 type MessageData struct {
 	Message *Message `json:"message"`
@@ -187,6 +222,10 @@ func (SandboxStatusData) eventData()    {}
 func (MCPPinData) eventData()           {}
 func (ConfigChangedData) eventData()    {}
 func (BannerData) eventData()           {}
+
+func (ReleaseDispatchedData) eventData() {}
+func (ReleaseFinishedData) eventData()   {}
+func (InboxChangedData) eventData()      {}
 
 type Filter struct {
 	Principals []PrincipalID // events for these principals

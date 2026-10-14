@@ -31,7 +31,7 @@ func testApprovalVotes(f *fx) {
 	f.check(len(votes) == 0, "Votes = %+v before any vote", votes)
 
 	v1 := core.ApprovalVote{Approval: a.ID, User: bob.ID, Choice: core.AllowOnce, Via: "web", At: at(10).Add(123456)}
-	v2 := core.ApprovalVote{Approval: a.ID, User: alice.ID, Choice: core.Deny, Via: "telegram", At: at(5)}
+	v2 := core.ApprovalVote{Approval: a.ID, User: alice.ID, Choice: core.Deny, Via: "telegram", At: at(5), Comment: "Not before the freeze ends"}
 	f.must(r.AddVote(f.ctx, v1), "AddVote bob")
 	f.must(r.AddVote(f.ctx, v2), "AddVote alice")
 	f.want(r.AddVote(f.ctx, core.ApprovalVote{Approval: a.ID, User: bob.ID, Choice: core.Deny, Via: "web", At: at(11)}),
@@ -55,6 +55,13 @@ func testApprovalVotes(f *fx) {
 	f.must(err, "Get")
 	f.check(len(got.Votes) == 0, "Get filled Votes %+v; repositories leave it to Approvals", got.Votes)
 	f.eq("Approver round trip", got.Approver, a.Approver)
+	f.check(got.Comment == "", "a new approval has comment %q", got.Comment)
+
+	f.must(r.SetComment(f.ctx, other.ID, "wrong “file”\nsorry"), "SetComment")
+	got, err = r.Get(f.ctx, core.SystemViewer(), other.ID)
+	f.must(err, "Get after SetComment")
+	f.eq("comment round trip", got.Comment, "wrong “file”\nsorry")
+	f.want(r.SetComment(f.ctx, core.ApprovalID(core.NewID(core.PrefixApproval)), "x"), core.ErrNotFound, "SetComment of a missing approval")
 
 	// Every concurrent vote of a distinct user lands exactly once.
 	voters := make([]*core.User, 20)

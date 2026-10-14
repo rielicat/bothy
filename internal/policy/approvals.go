@@ -56,13 +56,9 @@ func (ap *Approvals) Request(ctx context.Context, r core.ApprovalRequest) (*core
 	}
 	a.Card = renderCard(r)
 	if a.Approver.Multi() {
-		name := ap.userName(ctx)
-		a.Card.Fields = append(a.Card.Fields,
-			core.CardField{Label: "Requested by", Value: visible(name(a.Approver.Requester))},
-			core.CardField{Label: "Approvers", Value: visible(approverSummary(a.Approver, name))})
 		// The context line names the requester's session, whose title comes
 		// from their conversation; the other approvers are outside that
-		// principal and see only who asked.
+		// principal and see only who asked (Approval.Requester).
 		a.Card.Context = ""
 	}
 	a.Card.Expires = a.ExpiresAt
@@ -80,6 +76,7 @@ func (ap *Approvals) Request(ctx context.Context, r core.ApprovalRequest) (*core
 			"admin_only": r.Decision.Approver.AdminOnly, "choices": r.Decision.Choices, "approvers": approverDetail(r.Decision.Approver),
 		}),
 	})
+	ap.fillQuiet(ctx, a)
 	ap.publish(ctx, core.EvApprovalRequested, a, func(cp *core.Approval) core.EventData { return core.ApprovalData{Approval: cp} })
 	out := *a
 	return &out, nil
@@ -212,11 +209,21 @@ func (ap *Approvals) Resolve(ctx context.Context, r core.Resolution) (*core.Appr
 		return nil, fmt.Errorf("approval %s: already decided: %w", a.ID, core.ErrConflict)
 	}
 	a.Status, a.Choice, a.DecidedBy, a.DecidedVia, a.DecidedAt = to, r.Choice, r.By, r.Via, msTime(now)
+	if r.Comment != "" {
+		// The decision stands without its reason: a failed write only loses
+		// the words shown next to it.
+		if err := ap.store.Approvals().SetComment(ctx, a.ID, r.Comment); err != nil {
+			ap.log.WarnContext(ctx, "approvals: saving the decision's reason failed", "approval", a.ID, "err", err)
+		} else {
+			a.Comment = r.Comment
+		}
+	}
 	ap.audit1(ctx, core.AuditEntry{
 		Actor: "user:" + string(r.By), Action: "approval.decide", Target: string(a.ID), Outcome: "ok",
 		Session: a.Session, Run: a.Run,
 		Detail: auditDetail(map[string]any{"choice": r.Choice, "via": r.Via, "tool": toolOf(a), "fingerprint": fingerprintOf(a)}),
 	})
+	ap.fillQuiet(ctx, a)
 	ap.resolved(ctx, a)
 	out := *a
 	return &out, nil
@@ -321,7 +328,7 @@ func (ap *Approvals) Get(ctx context.Context, v core.Viewer, id core.ApprovalID)
 	if err != nil {
 		return nil, err
 	}
-	if err := ap.fillVotes(ctx, a); err != nil {
+	if err := ap.fill(ctx, a); err != nil {
 		return nil, err
 	}
 	return a, nil
@@ -333,7 +340,7 @@ func (ap *Approvals) Pending(ctx context.Context, v core.Viewer) ([]*core.Approv
 	if err != nil {
 		return nil, err
 	}
-	if err := ap.fillVotes(ctx, as...); err != nil {
+	if err := ap.fill(ctx, as...); err != nil {
 		return nil, err
 	}
 	return as, nil
@@ -345,7 +352,7 @@ func (ap *Approvals) Recent(ctx context.Context, v core.Viewer, p core.Page) ([]
 	if err != nil {
 		return nil, err
 	}
-	if err := ap.fillVotes(ctx, as...); err != nil {
+	if err := ap.fill(ctx, as...); err != nil {
 		return nil, err
 	}
 	return as, nil
@@ -468,7 +475,7 @@ func (ap *Approvals) resolved(ctx context.Context, a *core.Approval) {
 
 func (ap *Approvals) publishResolved(ctx context.Context, a *core.Approval) {
 	ap.publish(ctx, core.EvApprovalResolved, a, func(*core.Approval) core.EventData {
-		return core.ApprovalResolvedData{Approval: a.ID, Status: a.Status, Choice: a.Choice, By: a.DecidedBy, Via: a.DecidedVia}
+		return core.ApprovalResolvedData{Approval: a.ID, Status: a.Status, Choice: a.Choice, By: a.DecidedBy, Via: a.DecidedVia, Comment: a.Comment}
 	})
 }
 

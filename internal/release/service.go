@@ -150,16 +150,16 @@ func (s *Service) check(ctx context.Context, d *core.Deploy) {
 	now := s.d.Clock.Now()
 	switch {
 	case d.WorkflowRun == 0:
-		s.finish(ctx, d, core.DeployUnknown, "", "GitHub accepted the deploy but its workflow run could not be identified")
+		s.finish(ctx, d, core.DeployUnknown, "", "GitHub accepted the deploy but its workflow run could not be identified", 0)
 		return
 	case now.Sub(d.CreatedAt) > s.followFor():
-		s.finish(ctx, d, core.DeployUnknown, "", "stopped following the run after "+s.followFor().String())
+		s.finish(ctx, d, core.DeployUnknown, "", "stopped following the run after "+s.followFor().String(), 0)
 		return
 	}
 	run, err := s.dispatcher(ctx, d.Repo).RunStatus(ctx, d.Repo, d.WorkflowRun)
 	switch {
 	case errors.Is(err, core.ErrNotFound):
-		s.finish(ctx, d, core.DeployUnknown, "", "GitHub no longer knows the workflow run")
+		s.finish(ctx, d, core.DeployUnknown, "", "GitHub no longer knows the workflow run", 0)
 		return
 	case err != nil:
 		s.d.Log.WarnContext(ctx, "release: checking a workflow run failed; retrying later", "deploy", d.ID, "run", d.WorkflowRun, "err", err)
@@ -170,7 +170,11 @@ func (s *Service) check(ctx context.Context, d *core.Deploy) {
 		if run.Conclusion == "success" {
 			st = core.DeploySucceeded
 		}
-		s.finish(ctx, d, st, run.Conclusion, "")
+		var took time.Duration
+		if !run.CreatedAt.IsZero() && run.UpdatedAt.After(run.CreatedAt) {
+			took = run.UpdatedAt.Sub(run.CreatedAt)
+		}
+		s.finish(ctx, d, st, run.Conclusion, "", took)
 		return
 	}
 	if d.Status == core.DeployDispatched && run.Status == "in_progress" {
@@ -181,8 +185,9 @@ func (s *Service) check(ctx context.Context, d *core.Deploy) {
 	}
 }
 
-// finish records a deploy's end and reports it.
-func (s *Service) finish(ctx context.Context, d *core.Deploy, st core.DeployStatus, conclusion, why string) {
+// finish records a deploy's end and reports it. took is the run's own
+// start to finish when GitHub said so; otherwise the time Bothy followed it.
+func (s *Service) finish(ctx context.Context, d *core.Deploy, st core.DeployStatus, conclusion, why string, took time.Duration) {
 	now := s.d.Clock.Now()
 	d.Status, d.Conclusion, d.Error, d.UpdatedAt, d.FinishedAt = st, conclusion, clip(why, maxErrorText), now, now
 	if err := s.d.Deploys.Update(ctx, d); err != nil {
@@ -191,30 +196,58 @@ func (s *Service) finish(ctx context.Context, d *core.Deploy, st core.DeployStat
 	}
 	s.audit(ctx, core.AuditEntry{Actor: "system", Action: "release.finish", Target: d.ID, Outcome: "ok", Session: d.Session, Run: d.Run,
 		Detail: detail(map[string]any{"environment": d.Environment, "status": st, "conclusion": conclusion, "workflow_run_id": d.WorkflowRun})})
-	s.report(ctx, d, outcomeText(d, s.followFor()))
+	if took <= 0 {
+		took = max(now.Sub(d.CreatedAt), 0)
+	}
+	s.report(ctx, d, outcomeText(d, s.followFor(), took))
+	s.publishFinished(d, took, s.failedStep(ctx, d))
 }
 
-// outcomeText is the message posted when Bothy stops following a deploy.
-func outcomeText(d *core.Deploy, followed time.Duration) string {
-	what := fmt.Sprintf("%s at %s", d.Repo, d.Ref)
+// outcomeText is the message posted when Bothy stops following a deploy
+// (docs/design/ui.md §8.7). It never names a workflow step: step names are
+// written by whoever can push to the repository.
+func outcomeText(d *core.Deploy, followed, took time.Duration) string {
+	what := d.Repo + " to " + d.Environment
 	link := ""
-	if d.WorkflowRun != 0 {
-		link = fmt.Sprintf(" Run %d: %s", d.WorkflowRun, d.RunURL)
+	if d.WorkflowRun != 0 && d.RunURL != "" {
+		link = " " + d.RunURL
 	}
 	switch {
 	case d.Status == core.DeploySucceeded:
-		return fmt.Sprintf("Deploy to %s succeeded: %s.%s", d.Environment, what, link)
+		return fmt.Sprintf("Deployed %s in %s. View it on GitHub:%s", what, humanDuration(took), link)
+	case d.Status == core.DeployFailed && d.Conclusion == "cancelled":
+		return fmt.Sprintf("The deploy of %s was cancelled on GitHub. View it on GitHub:%s", what, link)
 	case d.Status == core.DeployFailed && d.Conclusion != "":
-		return fmt.Sprintf("Deploy to %s failed: %s ended with “%s”.%s", d.Environment, what, d.Conclusion, link)
+		return fmt.Sprintf("The deploy of %s failed (GitHub says “%s”). View the logs on GitHub:%s", what, d.Conclusion, link)
 	case d.Status == core.DeployFailed:
-		return fmt.Sprintf("Deploy to %s did not start: %s.", d.Environment, d.Error)
+		return fmt.Sprintf("GitHub didn't start the deploy of %s. Check the workflow and try again. Details: %s", what, d.Error)
 	case d.WorkflowRun == 0:
-		return fmt.Sprintf("Deploy to %s: GitHub accepted %s, but Bothy could not find its workflow run. Check the Actions tab of %s.",
-			d.Environment, what, d.Repo)
+		return fmt.Sprintf("GitHub accepted the deploy of %s, but Bothy couldn't find its run. Check the Actions tab of %s on GitHub.", what, d.Repo)
 	case strings.HasPrefix(d.Error, "stopped following"):
-		return fmt.Sprintf("Deploy to %s is still not finished after %s; Bothy stopped following it.%s", d.Environment, followed, link)
+		return fmt.Sprintf("The deploy of %s is still running after %s, so Bothy stopped following it. Check it on GitHub:%s",
+			what, humanDuration(followed), link)
 	}
-	return fmt.Sprintf("Deploy to %s: the outcome of %s is unknown (%s).%s", d.Environment, what, d.Error, link)
+	return fmt.Sprintf("Bothy lost track of the deploy of %s: %s. Check it on GitHub:%s", what, d.Error, link)
+}
+
+// humanDuration reads like "3 min", "2 min 10 s" or "1 h 5 min".
+func humanDuration(d time.Duration) string {
+	d = d.Round(time.Second)
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%d s", max(int(d/time.Second), 1))
+	case d < time.Hour:
+		m, sec := int(d/time.Minute), int(d%time.Minute/time.Second)
+		if sec == 0 {
+			return fmt.Sprintf("%d min", m)
+		}
+		return fmt.Sprintf("%d min %d s", m, sec)
+	}
+	h, m := int(d/time.Hour), int(d%time.Hour/time.Minute)
+	if m == 0 {
+		return fmt.Sprintf("%d h", h)
+	}
+	return fmt.Sprintf("%d h %d min", h, m)
 }
 
 // report posts a Bothy notice to the deploy's session (the web UI) and, when

@@ -141,7 +141,13 @@ func (t *deployTool) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action
 			"workflow": d.Workflow, "ref": d.Ref, "workflow_run_id": d.WorkflowRun, "approval": appr.ID, "approved_by": voters,
 			"error": d.Error})})
 	if derr != nil {
+		if recErr == nil {
+			s.publishFinished(d, 0, "")
+		}
 		return nil, fmt.Errorf("GitHub did not start the deploy: %w", derr)
+	}
+	if recErr == nil {
+		s.publishDispatched(d)
 	}
 	s.poke()
 	var b strings.Builder

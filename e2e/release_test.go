@@ -61,6 +61,7 @@ releases:
 	alice, bob := relAdmin(t, owner, "alice"), relAdmin(t, owner, "bob")
 	member := owner.CreateUser(t, "mallory")
 	aliceEvents := pltRecord(alice.Events(t))
+	ownerEvents := pltRecord(owner.Events(t))
 
 	sess := owner.NewSession(t)
 	run := owner.Send(t, sess.ID, "REL-DEPLOY ship main to staging")
@@ -74,9 +75,13 @@ releases:
 	for _, f := range a.Card.Fields {
 		fields[f.Label] = f.Value
 	}
-	if fields["Environment"] != "staging" || fields["Repository"] != "acme/web" || fields["Ref"] != "main" ||
-		fields["Inputs"] != "target=staging" || fields["Approvers"] != "any admin" || fields["Requested by"] != "owner" || a.Card.Context != "" {
-		t.Fatalf("card fields = %+v, context %q", fields, a.Card.Context)
+	if fields["Environment"] != "staging" || fields["Version"] != "main" || fields["Workflow"] != "deploy.yml" ||
+		fields["Inputs"] != "target=staging" || a.Card.Context != "" || a.Card.Question != "Deploy acme/web to staging?" ||
+		a.Card.Kind != core.CardDeploy || a.Card.Tone != core.ToneDefault {
+		t.Fatalf("card fields = %+v, context %q, card %+v", fields, a.Card.Context, a.Card)
+	}
+	if a.Requester == nil || a.Requester.User != owner.ID() || a.Approvals == nil || a.Approvals.Required != 2 || !a.Approvals.AnyAdmin {
+		t.Fatalf("requester %+v approvals %+v", a.Requester, a.Approvals)
 	}
 
 	ev := aliceEvents.WaitFor(t, core.EvApprovalRequested, 10*time.Second, func(e pltEvent) bool { return e.Run == run })
@@ -93,9 +98,14 @@ releases:
 	if resp := owner.Do(t, http.MethodPost, "/api/approvals/"+string(a.ID), dto.ApprovalResolveReq{Choice: core.AllowOnce}, nil); resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("requester's own approval = %s %s, want 403", resp.Status, resp.Body)
 	}
-	first := alice.Resolve(t, a.ID, core.AllowOnce)
-	if first.Status != core.ApprovalPending || len(first.Votes) != 1 || first.Votes[0].User != alice.ID() {
-		t.Fatalf("after alice = %+v", first)
+	var first core.Approval
+	if code := alice.JSON(t, http.MethodPost, "/api/approvals/"+string(a.ID), dto.ApprovalResolveReq{Choice: core.AllowOnce, Comment: "Checked the diff"}, &first); code != http.StatusOK ||
+		first.Status != core.ApprovalPending || len(first.Votes) != 1 || first.Votes[0].User != alice.ID() {
+		t.Fatalf("after alice = %d %+v", code, first)
+	}
+	if tl := first.Approvals; tl == nil || len(tl.Votes) != 1 || tl.Votes[0].Name != "Alice" || tl.Votes[0].Comment != "Checked the diff" ||
+		tl.Votes[0].Choice != core.AllowOnce || first.Requester == nil || first.Requester.User != owner.ID() {
+		t.Fatalf("tally after alice = %+v requester %+v", first.Approvals, first.Requester)
 	}
 	if resp := alice.Do(t, http.MethodPost, "/api/approvals/"+string(a.ID), dto.ApprovalResolveReq{Choice: core.AllowOnce}, nil); resp.StatusCode != http.StatusConflict {
 		t.Fatalf("alice voting twice = %s, want 409", resp.Status)
@@ -104,7 +114,8 @@ releases:
 	if code := bob.JSON(t, http.MethodGet, "/api/approvals/"+string(a.ID)+"/votes", nil, &votes); code != http.StatusOK {
 		t.Fatalf("votes = %d", code)
 	}
-	if votes.Approvals != 1 || votes.Required != 2 || !votes.CanVote || votes.RequesterName != "owner" || len(votes.Votes) != 1 || votes.Votes[0].Name != "Alice" {
+	if votes.Approvals != 1 || votes.Required != 2 || !votes.CanVote || votes.RequesterName != "owner" || len(votes.Votes) != 1 || votes.Votes[0].Name != "Alice" ||
+		votes.Votes[0].Comment != "Checked the diff" {
 		t.Fatalf("bob's view of the votes = %+v", votes)
 	}
 	aliceEvents.WaitFor(t, core.EvApprovalVoted, 10*time.Second, func(e pltEvent) bool { return e.Run == run })
@@ -128,15 +139,28 @@ releases:
 	}
 
 	runID := gh.Runs()[0].ID
+	runURL := fmt.Sprintf("%s/acme/web/actions/runs/%d", gh.URL(), runID)
+	ev = ownerEvents.WaitFor(t, core.EvReleaseDispatched, 10*time.Second, func(e pltEvent) bool { return e.Run == run })
+	var dispatched core.ReleaseDispatchedData
+	if err := json.Unmarshal(ev.Data, &dispatched); err != nil || dispatched.Environment != "staging" || dispatched.Repo != "acme/web" ||
+		dispatched.Ref != "main" || dispatched.URL != runURL || dispatched.Deploy == "" || ev.Session != sess.ID {
+		t.Fatalf("release.dispatched = %s (%v)", ev.Data, err)
+	}
 	gh.SetRun(runID, "in_progress", "")
 	waitDeploy(t, owner, core.DeployRunning)
-	gh.SetRun(runID, "completed", "success")
+	gh.FinishRun(runID, "success", 3*time.Minute, "")
 	dep := waitDeploy(t, owner, core.DeploySucceeded)
 	if dep.WorkflowRun != runID || dep.Approval != a.ID || !slices.Equal(dep.ApprovedBy, []core.UserID{alice.ID(), bob.ID()}) ||
-		dep.RequestedBy != owner.ID() || dep.Conclusion != "success" {
+		dep.RequestedBy != owner.ID() || dep.Conclusion != "success" || dep.ID != dispatched.Deploy {
 		t.Fatalf("deploy = %+v", dep)
 	}
-	want := fmt.Sprintf("Deploy to staging succeeded: acme/web at main. Run %d: %s/acme/web/actions/runs/%d", runID, gh.URL(), runID)
+	ev = ownerEvents.WaitFor(t, core.EvReleaseFinished, 10*time.Second, func(e pltEvent) bool { return e.Run == run })
+	var finished core.ReleaseFinishedData
+	if err := json.Unmarshal(ev.Data, &finished); err != nil || !finished.OK || finished.Status != core.DeploySucceeded ||
+		finished.URL != runURL || finished.Duration != 3*time.Minute || finished.FailedStep != "" || finished.Deploy != dep.ID {
+		t.Fatalf("release.finished = %s (%v)", ev.Data, err)
+	}
+	want := "Deployed acme/web to staging in 3 min. View it on GitHub: " + runURL
 	deadline := time.Now().Add(10 * time.Second)
 	for !slices.Contains(owner.Notices(t, sess.ID), want) {
 		if time.Now().After(deadline) {

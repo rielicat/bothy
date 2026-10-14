@@ -26,11 +26,17 @@ commands; `/compact` runs in the background and replies when done, and
 meta key `agent.refine.<session>`, which the runner reads). The hub
 delivers approval cards to the
 approver's DM (never a group), truncating cards that do not fit to Deny plus
-a web link, and edits them to the outcome. A multi-approver card (deploys)
-goes to every eligible approver's DM but never the requester's, shows
-"1 of 2 approvals", is edited after each `approval.voted`, and refuses the
-requester's allow press with a toast; the originating chat gets a waiting
-line.
+a web link, and edits them to the outcome. Cards speak the policy module's
+plain copy (question, consequence, warnings, the verb on the primary button,
+danger style only for what can't be undone) and become their decided line
+("Sam Patel denied deleting notes/a.md in Slack."). A multi-approver card
+(deploys) goes to every eligible approver's DM but never the requester's,
+shows who asked, "1 of 2 approvals", every vote and who may still approve,
+is edited after each `approval.voted`, and refuses the requester's allow
+press with a toast; the originating chat gets a waiting line. A pending
+sender's first words (their first message that is not a command such as
+Telegram's "/start") are kept for the admins' inbox, and new senders and
+group chats publish `inbox.changed`.
 It also implements `Messenger`, `PreferredChat`, `DeepLink`, `Test` and the
 doctor check `channels.auth_failed`.
 

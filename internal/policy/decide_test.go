@@ -122,7 +122,7 @@ func checkDecision(t *testing.T, name string, d core.Decision, want expect, in c
 			t.Errorf("%s: interactive timeout %v/%s", name, d.Timeout, d.OnTimeout)
 		}
 	}
-	if in.Taint.Exposed() && !slices.ContainsFunc(d.Warnings, func(w string) bool { return strings.Contains(w, "untrusted content") }) {
+	if in.Taint.Exposed() && !slices.ContainsFunc(d.Warnings, func(w string) bool { return strings.Contains(w, "content from outside") }) {
 		t.Errorf("%s: exposed ask without trifecta warning: %v", name, d.Warnings)
 	}
 }

@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -136,7 +137,7 @@ func (h *Hub) deliverCard(ctx context.Context, ap *core.Approval) {
 		h.sendCard(ctx, ap, t)
 	}
 	if fromChat && (len(targets) == 0 || targets[0].Key() != origin.Key()) {
-		h.reply(ctx, *origin, "Waiting for the owner to approve “"+escapeMD(revealInvisible(cardTitle(ap)))+"”.")
+		h.reply(ctx, *origin, plainLine("Waiting for the owner to approve "+cardIng(ap)+"."))
 	}
 }
 
@@ -167,23 +168,93 @@ func cardTitle(ap *core.Approval) string {
 	return "Approval"
 }
 
-var choiceLabels = map[core.Choice]string{
-	core.AllowOnce: "Allow once", core.AllowSession: "Allow for session", core.AllowAlways: "Always allow", core.Deny: "Deny",
+// cardQuestion is the card's plain question; cards stored before v0.2 have
+// only a title.
+func cardQuestion(ap *core.Approval) string {
+	if ap.Card.Question != "" {
+		return ap.Card.Question
+	}
+	return cardTitle(ap) + "?"
 }
 
-// renderCard formats the policy-rendered Card for chat. Every value is shown
-// verbatim (escaped, in code where it is code) with invisible characters made
-// visible. A card that does not fit, has a diff too long to show, or goes to
-// a channel without buttons is truncated: Deny plus a link to the web UI.
+// cardIng names the action in a sentence: "deleting notes/a.md".
+func cardIng(ap *core.Approval) string {
+	if ap.Card.Ing != "" {
+		return ap.Card.Ing
+	}
+	return "“" + cardTitle(ap) + "”"
+}
+
+// choiceLabel is a button's words: allow_once carries the card's verb.
+func choiceLabel(c core.Card, ch core.Choice) string {
+	switch ch {
+	case core.AllowOnce:
+		if c.PrimaryLabel != "" && c.PrimaryLabel != allowForChat {
+			return c.PrimaryLabel
+		}
+		return "Allow"
+	case core.AllowSession:
+		return allowForChat
+	case core.AllowAlways:
+		return "Always allow"
+	case core.Deny:
+		return "Deny"
+	}
+	return ""
+}
+
+const allowForChat = "Allow for this chat"
+
+// plainLine shows a sentence of card copy verbatim. Words a chat client
+// would turn into a link (a file name like staging.md passes for a domain)
+// go in code spans: one curious tap must not fetch anything.
+func plainLine(s string) string {
+	s = revealInvisible(s)
+	if !core.LooksLikeLink(s) {
+		return escapeMD(s)
+	}
+	words := strings.Split(s, " ")
+	for i, w := range words {
+		lead := strings.TrimLeft(w, "“(")
+		word := strings.TrimRight(lead, "?.,:;!”)")
+		head, tail := w[:len(w)-len(lead)], lead[len(word):]
+		if word != "" && core.LooksLikeLink(word) {
+			words[i] = escapeMD(head) + codeSpan(word) + escapeMD(tail)
+		} else {
+			words[i] = escapeMD(w)
+		}
+	}
+	return strings.Join(words, " ")
+}
+
+// heading is a card's first line: the question, bold unless it holds a code
+// span, which some platforms cannot nest in bold.
+func heading(s string) string {
+	line := plainLine(s)
+	if strings.Contains(line, "`") {
+		return line
+	}
+	return "**" + line + "**"
+}
+
+// renderCard formats the policy-rendered Card for chat in the words of the
+// web card (question, consequence, warnings, fields, the verb on the
+// button). Every value is shown verbatim (escaped, in code where it is code)
+// with invisible characters made visible. A card that does not fit, has a
+// diff too long to show, or goes to a channel without buttons is truncated:
+// Deny plus a link to the web UI.
 func (h *Hub) renderCard(ap *core.Approval, caps core.ChannelCaps) (core.OutMessage, bool) {
 	c := ap.Card
-	header := "🔐 **Approval needed: " + escapeMD(revealInvisible(cardTitle(ap))) + "**"
+	header := heading(cardQuestion(ap))
 	lines := []string{header}
-	if c.Risk.Valid() {
-		lines = append(lines, "Risk: "+escapeMD(c.Risk.String()))
+	if c.Consequence != "" {
+		lines = append(lines, plainLine(c.Consequence))
 	}
-	if ap.Approver.Multi() {
-		lines = append(lines, "**"+approvalProgress(ap)+"**")
+	if ap.Approver.Multi() && ap.Requester != nil {
+		lines = append(lines, plainLine(ap.Requester.Name+" asked."))
+	}
+	for _, w := range c.Warnings {
+		lines = append(lines, "! "+plainLine(w))
 	}
 	for _, f := range c.Fields {
 		v := revealInvisible(f.Value)
@@ -197,15 +268,15 @@ func (h *Hub) renderCard(ap *core.Approval, caps core.ChannelCaps) (core.OutMess
 			lines = append(lines, label+" "+inert(v))
 		}
 	}
+	if ap.Approver.Multi() {
+		lines = append(lines, h.approvalLines(ap)...)
+	}
 	if c.Code != "" {
 		lines = append(lines, codeBlock("", revealInvisible(c.Code)))
 	}
 	diffCut := len(c.Diff) > maxChatDiff
 	if c.Diff != "" && !diffCut {
 		lines = append(lines, codeBlock("diff", revealInvisible(c.Diff)))
-	}
-	for _, w := range c.Warnings {
-		lines = append(lines, "⚠️ "+inert(revealInvisible(w)))
 	}
 	if c.Context != "" {
 		lines = append(lines, contextLine(c.Context))
@@ -219,17 +290,22 @@ func (h *Hub) renderCard(ap *core.Approval, caps core.ChannelCaps) (core.OutMess
 		web = c.WebURL
 	}
 	var choiceRow []core.Button
+	primary := core.AllowOnce
+	if !slices.Contains(c.Choices, core.AllowOnce) {
+		primary = core.AllowSession
+	}
 	for _, ch := range c.Choices {
-		label, ok := choiceLabels[ch]
-		if !ok {
+		label := choiceLabel(c, ch)
+		if label == "" {
 			continue
 		}
+		// Deny is never red: the danger fill marks what can't be undone.
 		b := core.Button{Label: label, Data: h.d.Approvals.ButtonData(ap.ID, ch)}
-		switch ch {
-		case core.AllowOnce:
+		if ch == primary {
 			b.Style = core.BtnPrimary
-		case core.Deny:
-			b.Style = core.BtnDanger
+			if c.Tone == core.ToneDestructive {
+				b.Style = core.BtnDanger
+			}
 		}
 		choiceRow = append(choiceRow, b)
 	}
@@ -257,7 +333,7 @@ func (h *Hub) renderCard(ap *core.Approval, caps core.ChannelCaps) (core.OutMess
 	}
 	msg := core.OutMessage{Text: h.redact(strings.Join(short, "\n"))}
 	if caps.Buttons {
-		msg.Buttons = [][]core.Button{{{Label: choiceLabels[core.Deny], Data: h.d.Approvals.ButtonData(ap.ID, core.Deny), Style: core.BtnDanger}}}
+		msg.Buttons = [][]core.Button{{{Label: choiceLabel(c, core.Deny), Data: h.d.Approvals.ButtonData(ap.ID, core.Deny)}}}
 		if web != "" {
 			msg.Buttons = append(msg.Buttons, []core.Button{{Label: "Open in web to approve", URL: web}})
 		}
@@ -308,12 +384,11 @@ func (h *Hub) updateCards(ctx context.Context, d core.ApprovalResolvedData) {
 	if err != nil || len(refs) == 0 {
 		return
 	}
-	title := "Approval"
 	ap, err := h.d.Approvals.Get(ctx, core.SystemViewer(), d.Approval)
-	if err == nil {
-		title = cardTitle(ap)
+	if err != nil {
+		ap = &core.Approval{ID: d.Approval, Card: core.Card{Title: "Approval"}}
 	}
-	text := h.redact("🔐 **" + escapeMD(revealInvisible(title)) + "**\n" + h.outcomeText(ctx, d, ap))
+	text := h.redact(heading(cardQuestion(ap)) + "\n" + plainLine(h.outcomeText(ctx, d, ap)))
 	for _, r := range refs {
 		a := h.live(r.Ref.Chat.Channel)
 		if a == nil {
@@ -325,33 +400,50 @@ func (h *Hub) updateCards(ctx context.Context, d core.ApprovalResolvedData) {
 	}
 }
 
+// outcomeText is the decided line a card becomes (docs/design/ui.md §8.4),
+// e.g. "Sam Patel approved deleting notes/a.md in Telegram." It is plain
+// text; the caller formats it.
 func (h *Hub) outcomeText(ctx context.Context, d core.ApprovalResolvedData, ap *core.Approval) string {
-	var s string
+	ing := cardIng(ap)
+	who := "Someone"
+	if d.By != "" {
+		who = h.userName(ctx, d.By)
+	}
+	where := viaText(d.Via)
 	switch d.Status {
 	case core.ApprovalAllowed:
-		if ap != nil && ap.Approver.Multi() {
+		if ap.Approver.Multi() {
 			if names := h.allowedBy(ctx, ap); names != "" {
-				return "✅ Approved by " + names + "."
+				return names + " approved " + ing + "."
 			}
 		}
-		s = "✅ " + choiceToast(d.Choice)
-		if d.Choice == core.AllowOnce {
-			s = "✅ Allowed once"
+		switch d.Choice {
+		case core.AllowSession:
+			return who + " approved " + ing + where + ", and similar requests in this chat."
+		case core.AllowAlways:
+			return who + " approved " + ing + where + ", and similar requests from now on."
 		}
+		return who + " approved " + ing + where + "."
 	case core.ApprovalDenied:
-		s = "❌ Denied"
+		s := who + " denied " + ing + where + "."
+		if c := oneLine(d.Comment); c != "" {
+			s += " “" + c + "”"
+		}
+		return s
 	case core.ApprovalExpired:
-		return "⌛ Expired without an answer, so it was not allowed."
+		return "Nobody answered in time, so Bothy didn't go ahead."
 	case core.ApprovalCancelled:
-		return "Cancelled: the task was stopped."
-	default:
-		return escapeMD(string(d.Status))
+		return "Cancelled when the chat was stopped."
 	}
-	if d.By != "" {
-		s += " by " + escapeMD(h.userName(ctx, d.By))
+	return string(d.Status)
+}
+
+func viaText(via string) string {
+	switch via {
+	case "web":
+		return " on the web"
+	case "telegram", "discord", "slack":
+		return " in " + channelTitle(via)
 	}
-	if d.Via != "" {
-		s += " (" + escapeMD(d.Via) + ")"
-	}
-	return s + "."
+	return ""
 }

@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -43,7 +44,7 @@ func (ap *Approvals) vote(ctx context.Context, a *core.Approval, r core.Resoluti
 		if !slices.Contains(openStatuses, cur.Status) {
 			return fmt.Errorf("approval %s: already decided: %w", a.ID, core.ErrConflict)
 		}
-		err = s.Approvals().AddVote(ctx, core.ApprovalVote{Approval: a.ID, User: r.By, Choice: r.Choice, Via: r.Via, At: now})
+		err = s.Approvals().AddVote(ctx, core.ApprovalVote{Approval: a.ID, User: r.By, Choice: r.Choice, Via: r.Via, At: now, Comment: r.Comment})
 		if errors.Is(err, core.ErrConflict) {
 			return fmt.Errorf("approval %s: you already voted: %w", a.ID, core.ErrConflict)
 		}
@@ -71,12 +72,18 @@ func (ap *Approvals) vote(ctx context.Context, a *core.Approval, r core.Resoluti
 		if !ok {
 			return fmt.Errorf("approval %s: already decided: %w", a.ID, core.ErrConflict)
 		}
+		if r.Comment != "" {
+			return s.Approvals().SetComment(ctx, a.ID, r.Comment)
+		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	a.Votes = votes
+	if to != "" {
+		a.Comment = r.Comment
+	}
 	ap.audit1(ctx, core.AuditEntry{
 		Actor: "user:" + string(r.By), Action: "approval.vote", Target: string(a.ID), Outcome: "ok",
 		Session: a.Session, Run: a.Run,
@@ -84,11 +91,13 @@ func (ap *Approvals) vote(ctx context.Context, a *core.Approval, r core.Resoluti
 			"approvals": count, "required": a.Approver.Needed()}),
 	})
 	if to == "" {
+		ap.fillQuiet(ctx, a)
 		ap.publish(ctx, core.EvApprovalVoted, a, func(cp *core.Approval) core.EventData { return core.ApprovalData{Approval: cp} })
 		out := *a
 		return &out, nil
 	}
 	a.Status, a.Choice, a.DecidedBy, a.DecidedVia, a.DecidedAt = to, r.Choice, r.By, r.Via, msTime(now)
+	ap.fillQuiet(ctx, a)
 	ap.audit1(ctx, core.AuditEntry{
 		Actor: "user:" + string(r.By), Action: "approval.decide", Target: string(a.ID), Outcome: "ok",
 		Session: a.Session, Run: a.Run,
@@ -172,36 +181,99 @@ func (ap *Approvals) voters(ctx context.Context, r core.ApproverReq) []*core.Use
 	return us
 }
 
-// fillVotes sets Votes on multi-approver approvals.
-func (ap *Approvals) fillVotes(ctx context.Context, as ...*core.Approval) error {
+// fill sets Votes and Approvals on multi-approver approvals and Requester on
+// every approval (§4.5), looking each name up once per call.
+func (ap *Approvals) fill(ctx context.Context, as ...*core.Approval) error {
+	f := filler{ap: ap, names: map[core.UserID]string{}}
 	for _, a := range as {
-		if a == nil || !a.Approver.Multi() {
+		if a == nil {
 			continue
 		}
-		votes, err := ap.store.Approvals().Votes(ctx, a.ID)
-		if err != nil {
-			return fmt.Errorf("votes of %s: %w", a.ID, err)
+		if a.Approver.Multi() {
+			votes, err := ap.store.Approvals().Votes(ctx, a.ID)
+			if err != nil {
+				return fmt.Errorf("votes of %s: %w", a.ID, err)
+			}
+			a.Votes = votes
+			if a.Approvals, err = f.tally(ctx, a); err != nil {
+				return err
+			}
 		}
-		a.Votes = votes
+		a.Requester = f.requester(ctx, a)
 	}
 	return nil
 }
 
-// userName returns a lookup of display names for cards; unknown users show
-// their id.
-func (ap *Approvals) userName(ctx context.Context) func(core.UserID) string {
-	return func(id core.UserID) string {
-		u, err := ap.store.Users().Get(ctx, id)
-		switch {
-		case err != nil:
-			return string(id)
-		case u.DisplayName != "":
-			return u.DisplayName
-		case u.Username != "":
-			return u.Username
-		}
-		return string(id)
+// fillQuiet fills an approval about to be published or returned after a
+// change: the change has happened, so a failed lookup only costs names.
+func (ap *Approvals) fillQuiet(ctx context.Context, a *core.Approval) {
+	if err := ap.fill(ctx, a); err != nil {
+		ap.log.WarnContext(ctx, "approvals: reading votes and names failed; cards miss them", "approval", a.ID, "err", err)
 	}
+}
+
+type filler struct {
+	ap    *Approvals
+	names map[core.UserID]string
+	users []*core.User // listed once, for eligibility
+}
+
+// name is a user's display name, else username, else id.
+func (f *filler) name(ctx context.Context, id core.UserID) string {
+	if n, ok := f.names[id]; ok {
+		return n
+	}
+	n := string(id)
+	if u, err := f.ap.store.Users().Get(ctx, id); err == nil {
+		n = cmp.Or(u.DisplayName, u.Username, n)
+	}
+	f.names[id] = n
+	return n
+}
+
+// requester is who asked: a multi-approver approval names them; otherwise
+// it is the approver of a personal approval or the run's user.
+func (f *filler) requester(ctx context.Context, a *core.Approval) *core.ApprovalPerson {
+	id := a.Approver.Requester
+	if id == "" {
+		id = a.Approver.User
+	}
+	if id == "" {
+		run, err := f.ap.store.Runs().Get(ctx, core.SystemViewer(), a.Run)
+		if err != nil {
+			return nil
+		}
+		id = run.User
+	}
+	if id == "" {
+		return nil
+	}
+	return &core.ApprovalPerson{User: id, Name: f.name(ctx, id)}
+}
+
+func (f *filler) tally(ctx context.Context, a *core.Approval) (*core.ApprovalTally, error) {
+	r := a.Approver
+	t := &core.ApprovalTally{Required: r.Needed(), Votes: []core.ApprovalBallot{}, Eligible: []core.ApprovalPerson{}}
+	for _, ro := range r.Roles {
+		t.AnyAdmin = t.AnyAdmin || ro == core.RoleAdmin || ro == core.RoleMember
+	}
+	for _, v := range a.Votes {
+		t.Votes = append(t.Votes, core.ApprovalBallot{User: v.User, Name: f.name(ctx, v.User), Choice: v.Choice, At: v.At, Comment: v.Comment})
+	}
+	if f.users == nil {
+		us, err := f.ap.store.Users().List(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list approvers: %w", err)
+		}
+		f.users = us
+	}
+	for _, u := range f.users {
+		if u.Disabled || !r.Eligible(u.ID, u.Role) || t.AnyAdmin && u.Role.IsAdmin() {
+			continue
+		}
+		t.Eligible = append(t.Eligible, core.ApprovalPerson{User: u.ID, Name: f.name(ctx, u.ID)})
+	}
+	return t, nil
 }
 
 func approverDetail(r core.ApproverReq) map[string]any {

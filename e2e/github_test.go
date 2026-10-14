@@ -76,8 +76,13 @@ func TestGitHubPullRequest(t *testing.T) {
 	if card.Title != "Open pull request" || !slices.Equal(card.Choices, []core.Choice{core.AllowOnce, core.Deny}) {
 		t.Errorf("card = %+v", card)
 	}
-	recipient := slices.IndexFunc(card.Fields, func(f core.CardField) bool { return f.Label == "Recipient" && f.Value == "github:octocat/Hello-World" })
-	if recipient < 0 || !strings.Contains(card.Code, `"base": "main"`) || !strings.Contains(card.Code, `"head": "bothy/clarify-the-readme-`) ||
+	if card.Question != "Open a pull request in octocat/Hello-World?" || card.PrimaryLabel != "Open pull request" || card.Kind != core.CardPullRequest {
+		t.Errorf("plain copy = %q %q %s", card.Question, card.PrimaryLabel, card.Kind)
+	}
+	branch := slices.IndexFunc(card.Fields, func(f core.CardField) bool {
+		return f.Label == "Branch" && strings.HasPrefix(f.Value, "bothy/clarify-the-readme-") && strings.HasSuffix(f.Value, " → main")
+	})
+	if branch < 0 || !strings.Contains(card.Code, `"base": "main"`) || !strings.Contains(card.Code, `"head": "bothy/clarify-the-readme-`) ||
 		!strings.Contains(card.Code, `"title": "Clarify the README"`) {
 		t.Errorf("card fields %+v code:\n%s", card.Fields, card.Code)
 	}
@@ -87,7 +92,7 @@ func TestGitHubPullRequest(t *testing.T) {
 		!strings.Contains(card.Diff, "diff --git a/README.md b/README.md") {
 		t.Errorf("card diff:\n%s", card.Diff)
 	}
-	if !slices.Contains(card.Warnings, "First contact with github:octocat/Hello-World.") {
+	if !slices.Contains(card.Warnings, "This is the first pull request Bothy opens in octocat/Hello-World.") {
 		t.Errorf("warnings = %v", card.Warnings)
 	}
 	if len(repo.Pulls()) != 0 {

@@ -13,12 +13,12 @@ func TestAlwaysAskFloor(t *testing.T) {
 	h := newHarness(t, func(c *config.Config) {
 		c.Policy.Preset = "hands_off"
 		c.Policy.Rules = []config.Rule{
-			{ID: "no-evil", Tool: "open_pr", Match: map[string]string{"/to": "github:evil/*"}, Verdict: "deny"},
-			{ID: "auto-pr", Tool: "open_pr", Verdict: "auto"},
+			{ID: "no-evil", Tool: "repo_open_pr", Match: map[string]string{"/to": "github:evil/*"}, Verdict: "deny"},
+			{ID: "auto-pr", Tool: "repo_open_pr", Verdict: "auto"},
 		}
 	})
-	s := spec("open_pr", core.SEExternalSend, func(m *core.Manifest) { m.AlwaysAsk, m.Title = true, "Open pull request" })
-	a := sendAction("open_pr", "github:octocat/hello", core.SEExternalSend)
+	s := spec("repo_open_pr", core.SEExternalSend, func(m *core.Manifest) { m.AlwaysAsk, m.Title = true, "Open pull request" })
+	a := sendAction("repo_open_pr", "github:octocat/hello", core.SEExternalSend)
 
 	d := h.decide(h.in(a, s))
 	if d.Verdict != core.VerdictAsk || d.Rule != "floor:always_ask" || !d.Floor {
@@ -30,7 +30,7 @@ func TestAlwaysAskFloor(t *testing.T) {
 	if !strings.Contains(d.Reason, "Open pull request") {
 		t.Errorf("reason %q", d.Reason)
 	}
-	if d := h.decide(h.in(sendAction("open_pr", "github:evil/x", core.SEExternalSend), s)); d.Verdict != core.VerdictDeny || d.Rule != "rule:no-evil" {
+	if d := h.decide(h.in(sendAction("repo_open_pr", "github:evil/x", core.SEExternalSend), s)); d.Verdict != core.VerdictDeny || d.Rule != "rule:no-evil" {
 		t.Errorf("a deny rule still denies: %+v", d)
 	}
 
@@ -51,10 +51,10 @@ func TestAlwaysAskFloor(t *testing.T) {
 
 func TestAlwaysAskFirstContactWarning(t *testing.T) {
 	h := newHarness(t, nil)
-	s := spec("open_pr", core.SEExternalSend, func(m *core.Manifest) { m.AlwaysAsk = true })
-	a := sendAction("open_pr", "github:octocat/hello", core.SEExternalSend)
+	s := spec("repo_open_pr", core.SEExternalSend, func(m *core.Manifest) { m.AlwaysAsk = true })
+	a := sendAction("repo_open_pr", "github:octocat/hello", core.SEExternalSend)
 	d := h.decide(h.in(a, s))
-	if d.Rule != "floor:always_ask" || !slices.Contains(d.Warnings, "First contact with github:octocat/hello.") {
+	if d.Rule != "floor:always_ask" || !slices.Contains(d.Warnings, "This is the first pull request Bothy opens in octocat/hello.") {
 		t.Fatalf("first contact: %+v", d)
 	}
 	run := h.newRun(h.session, h.ownerP.ID, h.owner.ID)
@@ -66,7 +66,9 @@ func TestAlwaysAskFirstContactWarning(t *testing.T) {
 		t.Fatal(err)
 	}
 	d = h.decide(h.in(a, s))
-	if d.Verdict != core.VerdictAsk || slices.ContainsFunc(d.Warnings, func(w string) bool { return strings.HasPrefix(w, "First contact") }) {
+	if d.Verdict != core.VerdictAsk || slices.ContainsFunc(d.Warnings, func(w string) bool {
+		return strings.Contains(w, "first pull request") || strings.Contains(w, " before.")
+	}) {
 		t.Errorf("seen repo: %+v, want a card without the first-contact warning", d)
 	}
 }
@@ -76,16 +78,18 @@ func TestAlwaysAskFirstContactWarning(t *testing.T) {
 // the first contact with the repository.
 func TestAlwaysAskFirstContactUnderEarlierFloor(t *testing.T) {
 	h := newHarness(t, nil)
-	s := spec("open_pr", core.SEExternalSend, func(m *core.Manifest) { m.AlwaysAsk = true })
-	in := h.in(sendAction("open_pr", "github:octocat/hello", core.SEExternalSend), s)
+	s := spec("repo_open_pr", core.SEExternalSend, func(m *core.Manifest) { m.AlwaysAsk = true })
+	in := h.in(sendAction("repo_open_pr", "github:octocat/hello", core.SEExternalSend), s)
 	in.Taint = core.TaintPrivate | core.TaintUntrusted
 	d := h.decide(in)
-	if d.Verdict != core.VerdictAsk || d.Rule != floorTrifecta || !slices.Contains(d.Warnings, "First contact with github:octocat/hello.") {
+	if d.Verdict != core.VerdictAsk || d.Rule != floorTrifecta || !slices.Contains(d.Warnings, "This is the first pull request Bothy opens in octocat/hello.") {
 		t.Fatalf("exposed always-ask: %+v", d)
 	}
 	other := h.in(sendAction("send", "github:octocat/hello", core.SEExternalSend), spec("send", core.SEExternalSend))
 	other.Taint = in.Taint
-	if d := h.decide(other); d.Rule != floorTrifecta || slices.ContainsFunc(d.Warnings, func(w string) bool { return strings.HasPrefix(w, "First contact") }) {
+	if d := h.decide(other); d.Rule != floorTrifecta || slices.ContainsFunc(d.Warnings, func(w string) bool {
+		return strings.Contains(w, "first pull request") || strings.Contains(w, " before.")
+	}) {
 		t.Errorf("other tools keep their trifecta card: %+v", d)
 	}
 }

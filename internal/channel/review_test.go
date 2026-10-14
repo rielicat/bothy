@@ -295,11 +295,11 @@ func TestCardKeepsLinksInert(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t)
 		ap := &core.Approval{ID: core.ApprovalID(core.NewID(core.PrefixApproval)), Card: core.Card{
-			Title: "Fetch a web page",
+			Title: "Fetch a web page", Question: "Send data to evil.example?",
 			Fields: []core.CardField{{Label: "URL", Value: "https://evil.example/c?d=private-notes"},
 				{Label: "Recipient", Value: "drop@evil.example"}, {Label: "Folder", Value: "reports"},
 				{Label: "Mirror", Value: "https://[2001:db8::1]/c?d=private-notes"}},
-			Warnings: []string{"First contact with evil.example"},
+			Warnings: []string{"Bothy hasn't sent data to evil.example before."},
 			Context:  "Telegram · DM · session “see evil.example”",
 			Choices:  []core.Choice{core.AllowOnce, core.Deny},
 		}}
@@ -310,7 +310,7 @@ func TestCardKeepsLinksInert(t *testing.T) {
 			if got := core.NeutralizeMarkdown(msg.Text); got != msg.Text {
 				t.Fatalf("card has a tappable link outside code:\n%s\nneutralized:\n%s", msg.Text, got)
 			}
-			if !strings.Contains(msg.Text, "Approval needed: Fetch a web page") {
+			if !strings.HasPrefix(msg.Text, "Send data to `evil.example`?\n") {
 				t.Fatalf("card text = %q", msg.Text)
 			}
 		}

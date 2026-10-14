@@ -244,7 +244,18 @@ func testIdentities(f *fx) {
 	want.Username, want.DisplayName, want.LastSeen = "bobby", "Bobby", at(9)
 	f.eq("Touch refreshes names and last_seen only", got, want)
 
+	want.FirstText = "hi, I'm Bob from “accounts”"
+	f.must(r.Update(f.ctx, want), "Update a pending identity's first text")
+	stored, err = r.Get(f.ctx, "telegram", "1001")
+	f.must(err, "Get after setting the first text")
+	f.eq("a pending identity keeps its first text", stored, want)
+
 	want.Status, want.User, want.DMChat, want.LastNotice = core.IdentityLinked, u.ID, "1001", at(7)
+	f.must(r.Update(f.ctx, want), "Update to linked")
+	want.FirstText = ""
+	stored, err = r.Get(f.ctx, "telegram", "1001")
+	f.must(err, "Get after linking")
+	f.eq("linking drops the first text", stored, want)
 	f.must(r.Update(f.ctx, want), "Update")
 	stored, err = r.Get(f.ctx, "telegram", "1001")
 	f.must(err, "Get after Update")

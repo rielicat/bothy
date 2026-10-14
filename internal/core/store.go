@@ -60,6 +60,9 @@ type ChannelIdentity struct {
 	FirstSeen   time.Time      `json:"first_seen_at"`
 	LastSeen    time.Time      `json:"last_seen_at"`
 	LastNotice  time.Time      `json:"-"`
+	// FirstText is the start of a pending sender's first message, shown to
+	// admins in the approvals inbox; it is dropped once the status changes.
+	FirstText string `json:"first_text,omitempty"`
 }
 
 type PairingPurpose string
@@ -461,7 +464,7 @@ type SpaceRepo interface {
 type IdentityRepo interface {
 	Touch(ctx context.Context, id *ChannelIdentity) (*ChannelIdentity, error) // upsert names/last_seen; returns stored row
 	Get(ctx context.Context, channel, externalID string) (*ChannelIdentity, error)
-	Update(ctx context.Context, id *ChannelIdentity) error // status, user, principal, dm chat, last notice
+	Update(ctx context.Context, id *ChannelIdentity) error // status, user, principal, dm chat, last notice, first text (kept only while pending)
 	ForUser(ctx context.Context, u UserID) ([]*ChannelIdentity, error)
 	List(ctx context.Context, status IdentityStatus) ([]*ChannelIdentity, error) // "" = all
 	Delete(ctx context.Context, channel, externalID string) error
@@ -561,6 +564,8 @@ type ApprovalRepo interface {
 	// choice other than allow_once or deny.
 	AddVote(ctx context.Context, v ApprovalVote) error
 	Votes(ctx context.Context, id ApprovalID) ([]ApprovalVote, error) // oldest first
+	// SetComment records the deciding approver's reason (Approval.Comment).
+	SetComment(ctx context.Context, id ApprovalID, comment string) error
 }
 
 type GrantRepo interface {
