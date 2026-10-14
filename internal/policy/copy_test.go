@@ -266,3 +266,64 @@ func TestWarningsArePlain(t *testing.T) {
 		t.Errorf("unknown recipient: %+v", d)
 	}
 }
+
+// copyActions puts v in every string argument of each tool with its own
+// plain copy, including the parts a sentence is built from.
+func copyActions(v string) map[string]struct {
+	a *core.Action
+	s core.ToolSpec
+} {
+	type as = struct {
+		a *core.Action
+		s core.ToolSpec
+	}
+	paths := func(a *core.Action) { a.Paths = []string{v} }
+	return map[string]as{
+		"fs_write":  {action("fs_write", core.ActFSWrite, core.SELocalWrite, map[string]any{"path": v, "content": v, "mode": "create"}, paths), spec("fs_write", core.SELocalWrite)},
+		"fs_delete": {action("fs_delete", core.ActFSDelete, core.SEIrreversible, map[string]any{"path": v}, paths), spec("fs_delete", core.SEIrreversible)},
+		"fs_list":   {action("fs_list", core.ActFSRead, core.SERead, map[string]any{"path": v}, paths), spec("fs_list", core.SERead)},
+		"message": {action("message", core.ActSend, core.SELocalWrite, map[string]any{"text": v}, func(a *core.Action) { a.Recipient = v + ":1:" }),
+			spec("message", core.SELocalWrite)},
+		"memory": {action("memory", core.ActMemory, core.SELocalWrite, map[string]any{"file": "USER", "op": "replace", "old": v, "new": v}), spec("memory", core.SELocalWrite)},
+		"notes":  {action("notes", core.ActMemory, core.SELocalWrite, map[string]any{"repo": v, "op": "append", "section": v, "text": v}), spec("notes", core.SELocalWrite)},
+		"schedule_create": {action("schedule_create", core.ActSchedule, core.SEAdmin, map[string]any{"name": v, "when": v, "spec": v, "prompt": v,
+			"deliver": map[string]any{"channel": v, "chat_id": v}}), spec("schedule_create", core.SEAdmin)},
+		"schedule_delete": {action("schedule_delete", core.ActSchedule, core.SEAdmin, map[string]any{"id": "sch_x", "name": v}), spec("schedule_delete", core.SEAdmin)},
+		"repo_checkout": {action("repo_checkout", core.ActFSWrite, core.SEIrreversible, map[string]any{"repo": v, "ref": v, "discard": "d"}, paths),
+			spec("repo_checkout", core.SELocalWrite)},
+		"repo_open_pr": {action("repo_open_pr", core.ActSend, core.SEExternalSend, map[string]any{"repo": v, "base": v, "head": v, "title": v, "body": v,
+			"files": []map[string]any{{"path": v}}}), spec("repo_open_pr", core.SEExternalSend)},
+		"github_comment": {action("github_comment", core.ActSend, core.SEExternalSend, map[string]any{"repo": v, "number": 1, "body": v}), spec("github_comment", core.SEExternalSend)},
+		"github_issues":  {action("github_issues", core.ActHTTP, core.SERead, map[string]any{"repo": v}), spec("github_issues", core.SERead)},
+		"web_search":     {action("web_search", core.ActSearch, core.SERead, map[string]any{"query": v}), spec("web_search", core.SERead)},
+		"skill_read":     {action("skill_read", core.ActSkill, core.SERead, map[string]any{"name": v, "path": v}), spec("skill_read", core.SERead)},
+		"release_deploy": {action(toolReleaseDeploy, core.ActRelease, core.SEIrreversible, map[string]any{"environment": v, "repo": v, "workflow": v, "ref": v,
+			"inputs": map[string]string{v: v}}), spec(toolReleaseDeploy, core.SEIrreversible)},
+		"financial": {action("mcp__bank__pay", core.ActMCP, core.SEFinancial, map[string]any{"to": v}, func(a *core.Action) {
+			a.MCPServer, a.MCPTool, a.Recipient = "bank", "pay", v
+		}), spec("mcp__bank__pay", core.SEFinancial, func(m *core.Manifest) { m.Title = v })},
+	}
+}
+
+// TestPlainCopyUnderHostileInput: whatever the arguments hold, every tool's
+// question, consequence, verb and "-ing" phrase stay one line with every
+// hidden character shown, and the card keeps its shape.
+func TestPlainCopyUnderHostileInput(t *testing.T) {
+	benign := copyActions("plain")
+	for _, v := range hostile {
+		for tool, x := range copyActions(v) {
+			c := cardFor(x.a, x.s)
+			want := cardFor(benign[tool].a, benign[tool].s)
+			name := tool + " " + strconvQuote(v)
+			assertSameShape(t, name, c, want, v, false)
+			assertNoHidden(t, name, c)
+			for _, s := range []string{c.Question, c.Consequence, c.Ing, c.PrimaryLabel} {
+				if strings.ContainsAny(s, "\n\t") {
+					t.Errorf("%s: a value broke the line of %q", name, s)
+				}
+			}
+		}
+	}
+}
+
+func strconvQuote(s string) string { b, _ := json.Marshal(s); return string(b) }

@@ -42,7 +42,7 @@ func labels(c core.Card) []string {
 }
 
 func cardStrings(c core.Card) []string {
-	out := []string{c.Title, c.Code, c.Diff, c.Context, c.WebURL}
+	out := []string{c.Title, c.Code, c.Diff, c.Context, c.WebURL, c.Question, c.Consequence, c.Ing, c.PrimaryLabel}
 	out = append(out, c.Warnings...)
 	for _, f := range c.Fields {
 		out = append(out, f.Label, f.Value)
@@ -256,6 +256,12 @@ func FuzzCardStructure(f *testing.F) {
 			c := cardFor(x.a, x.s)
 			assertSameShape(t, fmt.Sprintf("%s %q", kind, v), c, cardFor(benign[kind].a, benign[kind].s), v, false)
 			assertNoHidden(t, kind, c)
+		}
+		plain := copyActions("plain")
+		for tool, x := range copyActions(v) {
+			c := cardFor(x.a, x.s)
+			assertSameShape(t, fmt.Sprintf("%s %q", tool, v), c, cardFor(plain[tool].a, plain[tool].s), v, false)
+			assertNoHidden(t, tool, c)
 		}
 	})
 }

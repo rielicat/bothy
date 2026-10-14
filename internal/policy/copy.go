@@ -571,7 +571,7 @@ func chatName(key string) string {
 	if ch == "" {
 		return "a chat"
 	}
-	return "the " + appName(ch) + " chat"
+	return "the " + inline(appName(ch)) + " chat"
 }
 
 // recipientText shows a recipient verbatim, a chat key as "Telegram chat
