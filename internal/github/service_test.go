@@ -3,8 +3,10 @@ package github
 import (
 	"crypto/rsa"
 	"errors"
+	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -283,6 +285,37 @@ func TestProbeRecordsStatusAndChecks(t *testing.T) {
 	}
 	if fs := f.svc.Checks()[0].Run(f.ctx); len(fs) != 1 || fs[0].ID != "github.token_expiring" {
 		t.Errorf("expiring findings = %+v", fs)
+	}
+}
+
+// TestProbeDoesNotBringBackADisconnectedConnection: a slow re-test must
+// not write back the row of a connection disconnected while it ran.
+func TestProbeDoesNotBringBackADisconnectedConnection(t *testing.T) {
+	f := newFx(t)
+	c := f.connect("octocat/Hello-World")
+	started, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	f.gh.OnRequest(func(r *http.Request) {
+		if r.URL.Path == "/user/repos" {
+			once.Do(func() { close(started) })
+			<-release
+		}
+	})
+	done := make(chan error, 1)
+	go func() {
+		_, err := f.svc.Probe(f.ctx, c.ID)
+		done <- err
+	}()
+	<-started
+	if err := f.svc.Disconnect(f.ctx, c.ID, "usr_owner"); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	if err := <-done; !errors.Is(err, core.ErrNotFound) {
+		t.Errorf("probe of a connection disconnected meanwhile: %v", err)
+	}
+	if conns, _ := f.store.Connections(f.ctx); len(conns) != 0 {
+		t.Errorf("connections after disconnect: %+v", conns[0])
 	}
 }
 

@@ -56,6 +56,7 @@ type Server struct {
 	rateLimit int
 	remaining int
 	reset     time.Time
+	before    func(*http.Request)
 }
 
 // App is the fake's GitHub App.
@@ -117,6 +118,14 @@ func New() *Server {
 }
 
 func (s *Server) Close() { s.srv.Close() }
+
+// OnRequest runs fn before each later request is handled, outside the
+// fake's lock, so fn may hold a request in flight.
+func (s *Server) OnRequest(fn func(*http.Request)) {
+	s.mu.Lock()
+	s.before = fn
+	s.mu.Unlock()
+}
 
 func randString(n int) string {
 	const abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
@@ -229,6 +238,12 @@ type reqCtx struct {
 }
 
 func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	before := s.before
+	s.mu.Unlock()
+	if before != nil {
+		before(r)
+	}
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 64<<20))
 	c := &reqCtx{s: s, w: w, r: r, body: body}
 	c.seg = strings.Split(strings.Trim(r.URL.EscapedPath(), "/"), "/")

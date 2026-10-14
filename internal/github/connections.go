@@ -453,6 +453,11 @@ func (s *Service) Probe(ctx context.Context, id string) (*core.GitHubProbe, erro
 	probeCtx, cancel := context.WithTimeout(ctx, adminTimeout)
 	defer cancel()
 	p := s.probe(probeCtx, ep, s.source(c, ep), c.Auth, c.AppID, c.InstallationID, c.ID)
+	// The probe can take minutes; writing back the row read before it would
+	// bring back a connection disconnected meanwhile.
+	if c, err = s.store.Connection(ctx, id); err != nil {
+		return nil, err
+	}
 	c.CheckedAt = s.now()
 	if p.OK {
 		c.Status, c.Error, c.Account, c.AccountType, c.TokenExpires = "ok", "", p.Account, p.AccountType, p.TokenExpires
