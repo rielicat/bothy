@@ -490,6 +490,12 @@
     { label: 'Delete chat…', danger: true, onselect: () => ((dialogError = ''), (deleteOpen = true)) },
   ]);
 
+  // Knowledge's "Ask Bothy about …" opens /chat?prompt=…: the text waits in the composer and is never sent.
+  $effect(() => {
+    const p = router.query.get('prompt');
+    if (!conv.id && p && composer) untrack(() => composer?.fill(p));
+  });
+
   // Below 1024 px the shell's top bar shows the title and this menu (§4.4); the header stays for screen readers and renaming.
   $effect(() => {
     if (conv.id) return topBarActions(chatMenu);

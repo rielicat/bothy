@@ -224,6 +224,13 @@ describe('new chat', () => {
     expect(router.path).toMatch(/^\/chat\/ses_/);
   });
 
+  it('puts a ?prompt= from Knowledge in the composer without sending it', async () => {
+    router.navigate('/chat?prompt=About%20acme%2Fweb%3A%20');
+    render(ConversationView, { id: '' });
+    await waitFor(() => expect((screen.getByLabelText('Message') as HTMLTextAreaElement).value).toBe('About acme/web: '));
+    expect(calls.some((c) => c.method === 'POST' && c.url.startsWith('/api/sessions'))).toBe(false);
+  });
+
   it('adds a line instead of sending on Enter with a touch screen', async () => {
     vi.stubGlobal('matchMedia', (q: string) => ({ matches: q.includes('coarse'), addEventListener() {}, removeEventListener() {} }));
     render(ConversationView, { id: SID });
