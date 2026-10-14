@@ -32,11 +32,11 @@ func TestNetStateRebuildIsRaceFree(t *testing.T) {
 				}
 				r := httptest.NewRequest("GET", "/", nil)
 				r.RemoteAddr = "192.0.2.1:1234"
-				if ip, _ := h.srv.peer(r); ip != netip.MustParseAddr("192.0.2.1") {
+				if ip, _, _ := h.srv.peer(r); ip != netip.MustParseAddr("192.0.2.1") {
 					t.Errorf("peer = %v", ip)
 					return
 				}
-				_ = h.srv.classify(netip.MustParseAddr("10.0.0.7"))
+				_ = h.srv.classify(netip.MustParseAddr("10.0.0.7"), false)
 			}
 		})
 	}

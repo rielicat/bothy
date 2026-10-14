@@ -14,11 +14,12 @@ import (
 // Self-test check names. sandboxd reports the engine checks; sbx-init selftest
 // reports the canary checks (SPEC §2.10, probes 1 to 7) in this order.
 const (
-	CheckEngine    = "engine"     // sandboxd can reach the engine socket
-	CheckEngineAPI = "engine_api" // engine API >= 1.45 (volume subpaths)
-	CheckImages    = "images"     // every BOTHY_SBX_IMAGES entry is present
-	CheckCanary    = "canary"     // the canary box ran sbx-init selftest
-	CheckRunsc     = "runsc"      // present only when runsc is registered but failed its canary
+	CheckEngine     = "engine"      // sandboxd can reach the engine socket
+	CheckEngineAPI  = "engine_api"  // engine API >= 1.45 (volume subpaths), or 1.44 with bind mounts
+	CheckBindMounts = "bind_mounts" // bind-mount mode only: the volumes' host paths and sandboxd's view of them
+	CheckImages     = "images"      // every BOTHY_SBX_IMAGES entry is present
+	CheckCanary     = "canary"      // the canary box ran sbx-init selftest
+	CheckRunsc      = "runsc"       // present only when runsc is registered but failed its canary
 
 	CheckNetBlocked  = "net_blocked"
 	CheckDNSBlocked  = "dns_blocked"

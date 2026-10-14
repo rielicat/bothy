@@ -61,6 +61,15 @@ func checks(s *service) []core.Check {
 				"A container escape from a box would land as an unprivileged uid on a root-owned engine. Prefer rootless Docker or gVisor (runsc).",
 				"use rootless Docker, enable userns-remap, or register runsc with: "+daemonJSON, core.SevLow, true)
 		}},
+		check{id: "sandbox.bind_mounts", svc: s, run: func(st core.SandboxStatus) []core.Finding {
+			c, ok := selfTestCheck(st, proto.CheckBindMounts)
+			if !st.Available || !ok || !c.OK {
+				return nil
+			}
+			return finding("sandbox.bind_mounts", "Tool boxes use bind mounts: Docker 25 has no volume subpaths",
+				"sandboxd checks every box's mounts against its own view of the volumes before the box is used; gVisor (runsc) is not available in this mode. "+c.Detail,
+				"upgrade Docker to 26 or newer for volume subpaths and gVisor", core.SevInfo, false)
+		}},
 		check{id: "sandbox.runsc_host_uds", svc: s, run: func(st core.SandboxStatus) []core.Finding {
 			c, ok := selfTestCheck(st, proto.CheckRunsc)
 			if !ok || c.OK {

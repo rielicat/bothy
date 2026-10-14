@@ -28,7 +28,7 @@ func TestForwardedForUnreadableHopIsPublic(t *testing.T) {
 		expect(t, rec, http.StatusForbidden)
 	}
 	expect(t, h.do("GET", "/api/setup/state", nil, nil), http.StatusOK)
-	expect(t, h.do("GET", "/api/setup/state", nil, nil, withHeader("X-Forwarded-For", "127.0.0.1")), http.StatusOK)
+	expect(t, h.do("GET", "/api/setup/state", nil, nil, withHeader("X-Forwarded-For", "127.0.0.1")), http.StatusForbidden)
 }
 
 func tokenID(c *client) string {

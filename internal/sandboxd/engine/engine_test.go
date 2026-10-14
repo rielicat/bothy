@@ -178,6 +178,62 @@ func TestNegotiatePinsVersion(t *testing.T) {
 	}
 }
 
+// LimitAPI lets a newer engine stand in for an older one: both the version
+// Negotiate reports and the request path follow the limit.
+func TestLimitAPI(t *testing.T) {
+	var gotPath string
+	c := fakeDocker(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/_ping" {
+			w.Header().Set("Api-Version", "1.47")
+			return
+		}
+		gotPath = r.URL.Path
+		_ = json.NewEncoder(w).Encode(Version{Version: "27.4.0"})
+	}))
+	c.LimitAPI("1.44")
+	v, err := c.Negotiate(context.Background())
+	if err != nil || v != "1.44" || c.APIVersion() != "1.44" {
+		t.Fatalf("Negotiate = %q (pinned %q), %v", v, c.APIVersion(), err)
+	}
+	if _, err := c.Version(context.Background()); err != nil || gotPath != "/v1.44/version" {
+		t.Fatalf("request path %q, %v", gotPath, err)
+	}
+}
+
+func TestVolumeInspectAndBindMounts(t *testing.T) {
+	var created map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /volumes/bothy_work", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"Name":"bothy_work","Driver":"local","Mountpoint":"/var/lib/docker/volumes/bothy_work/_data","Scope":"local"}`)
+	})
+	mux.HandleFunc("GET /volumes/missing", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"message":"get missing: no such volume"}`, 404)
+	})
+	mux.HandleFunc("POST /containers/create", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&created)
+		fmt.Fprint(w, `{"Id":"abc"}`)
+	})
+	c := fakeDocker(t, mux)
+	ctx := context.Background()
+	v, err := c.VolumeInspect(ctx, "bothy_work")
+	if err != nil || v != (Volume{Name: "bothy_work", Driver: "local", Mountpoint: "/var/lib/docker/volumes/bothy_work/_data"}) {
+		t.Fatalf("VolumeInspect = %+v, %v", v, err)
+	}
+	if _, err := c.VolumeInspect(ctx, "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing volume: %v", err)
+	}
+	if _, err := c.ContainerCreate(ctx, "x", &ContainerConfig{HostConfig: &HostConfig{Mounts: []Mount{{Type: "bind",
+		Source: "/v/ws/x", Target: "/w", ReadOnly: true, BindOptions: &BindOptions{Propagation: "rslave", NonRecursive: true}}}}}); err != nil {
+		t.Fatal(err)
+	}
+	m := created["HostConfig"].(map[string]any)["Mounts"].([]any)[0].(map[string]any)
+	bo := m["BindOptions"].(map[string]any)
+	if m["Type"] != "bind" || m["Source"] != "/v/ws/x" || m["ReadOnly"] != true || bo["Propagation"] != "rslave" ||
+		bo["NonRecursive"] != true || m["VolumeOptions"] != nil {
+		t.Fatalf("bind mount on the wire: %v", m)
+	}
+}
+
 func TestContainerLifecycle(t *testing.T) {
 	var created map[string]any
 	var listFilter string

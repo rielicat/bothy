@@ -8,18 +8,24 @@ that gives you shell, Python and MCP stdio tools without extra work.
 
 - **Ubuntu 24.04 or 22.04 LTS, Debian 12 or 13**, with Docker Engine from
   [Docker's apt repository](https://docs.docker.com/engine/install/ubuntu/)
-  (remove the distribution's `docker.io` first). The sandbox needs Docker 26
-  or newer, engine API 1.45, for volume subpaths:
+  (remove the distribution's `docker.io` first). The sandbox needs Docker 25
+  or newer (engine API 1.44); Docker 26+ (API 1.45) adds volume subpaths and
+  gVisor:
 
   ```sh
-  docker version --format '{{.Server.APIVersion}}'   # 1.45 or higher
+  docker version --format '{{.Server.APIVersion}}'   # 1.44 or higher
   ```
 
 - **Amazon Linux 2023** ships Docker 25 (the October 2026 ECS-optimized
   AL2023 AMI has 25.0.16, per its
   [changelog](https://github.com/aws/amazon-ecs-ami/blob/main/CHANGELOG.md)).
-  Bothy runs there, but sandboxd reports "Docker 26+ required" and shell and
-  Python stay off. Use Ubuntu or Debian for the sandbox.
+  The sandbox works there: without volume subpaths, sandboxd binds the
+  workspace and egress directories from the volumes' host paths and checks
+  every box's mounts, by device and inode, against its own mounts of the run
+  volume and, read-only, the work volume (the compose file mounts both)
+  before the box is used. Boxes
+  run under runc only (no gVisor), and `bothy doctor` shows
+  `sandbox.bind_mounts` (info).
 - Size: 2 GB of RAM covers the gateway (256 MB cap) and a few boxes; each
   running box may use up to `sandbox.limits.memory_mb` (512 MB by default).
   Encrypt the disk (EBS encryption on AWS).
@@ -102,7 +108,7 @@ WantedBy=multi-user.target
   it to admins, or run [rootless Docker](https://docs.docker.com/engine/security/rootless/)
   (`install.sh` then writes `DOCKER_SOCK=$XDG_RUNTIME_DIR/docker.sock` and
   `DOCKER_GID=0`).
-- **gVisor (optional):** install `runsc` and register it with
+- **gVisor (optional, Docker 26+):** install `runsc` and register it with
   `"runtimeArgs": ["--host-uds=open"]` in `/etc/docker/daemon.json`
   ([SPEC §2.9](../SPEC.md#29-gvisor-runsc)); sandboxd uses it when its canary
   passes.
@@ -186,7 +192,9 @@ Bedrock from outside AWS mount a read-only `~/.aws` into the gateway and set
         BOTHY_SERVER__TRUSTED_PROXIES: '["172.18.0.1/32"]'
   ```
 
-All three arrive as local peers, so first-run setup works through them.
+SSH and SSM arrive as local peers, so first-run setup works through them.
+Tailscale forwards the client's tailnet address, and a forwarded address never
+counts as local: run first-run setup through SSH or SSM.
 
 ## Backups and upgrades
 
@@ -247,6 +255,8 @@ native gateway listens on `127.0.0.1:8080`; reach it the same ways as above.
 
 ## Not tested here
 
-The compose deployment itself is covered by `make e2e-docker`. The two
+The compose deployment itself is covered by `make e2e-docker`. The Docker 25
+mode ran as the Docker acceptance suite with sandboxd limited to engine API
+1.44 on Docker Desktop 27.4, not on Amazon Linux 2023's Docker 25. The two
 systemd units, Tailscale itself (only the proxy-header handling was tested)
 and the EC2 hop-limit behaviour were not run as part of this recipe.

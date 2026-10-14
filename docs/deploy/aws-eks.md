@@ -133,8 +133,9 @@ Not tested here.
   (`automountServiceAccountToken: false`); the IRSA token is a separate
   projected volume.
 - **Probes:** `exec` of `/bothy healthcheck`, which dials the gateway on
-  loopback. An `httpGet` probe would come from the node's address, a LAN peer,
-  and get 403 or 421 from the exposure gate.
+  loopback. An `httpGet` probe of `/healthz` from the node's address works
+  too: `GET` and `HEAD` on `/healthz` and `/readyz` skip the Host check and the
+  exposure gate.
 - **Storage:** one EBS gp3 PVC, encrypted, `reclaimPolicy: Retain`. The
   Deployment uses the `Recreate` strategy: one writer, one ReadWriteOnce
   volume. `fsGroup` makes the volume root group-writable for 65532, and Bothy
@@ -170,12 +171,13 @@ With the AWS Load Balancer Controller, an Ingress with
 `alb.ingress.kubernetes.io/target-type: ip`,
 `alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'`,
 `alb.ingress.kubernetes.io/certificate-arn: <ACM certificate ARN>`,
-`alb.ingress.kubernetes.io/healthcheck-path: /healthz` and
-`alb.ingress.kubernetes.io/success-codes: "421"` (the health checker's Host is
-the pod IP, which Bothy rejects first). Then add to the container's
-environment `BOTHY_SERVER__PUBLIC_URL` (the HTTPS URL) and
+`alb.ingress.kubernetes.io/healthcheck-path: /healthz` (the default success
+code `200` holds: Bothy answers health checks whatever their Host header).
+Then add to the container's environment `BOTHY_SERVER__PUBLIC_URL` (the HTTPS
+URL) and
 `BOTHY_SERVER__TRUSTED_PROXIES` (the ALB's subnets as a JSON list), and allow
-that ingress in the NetworkPolicy. Run first-run setup through port-forward.
+that ingress in the NetworkPolicy. Run first-run setup through port-forward:
+a client behind the ALB never counts as local.
 
 ## Optional: sandboxd on a Docker node
 

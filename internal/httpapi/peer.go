@@ -128,34 +128,47 @@ func parseAddr(s string) (netip.Addr, bool) {
 	return a.WithZone("").Unmap(), true
 }
 
-// peer returns the client address and whether the request arrived over TLS.
-// X-Forwarded-For and -Proto are honoured only when the TCP peer is a trusted
-// proxy; the client is then the right-most hop that is not itself trusted.
-func (s *Server) peer(r *http.Request) (netip.Addr, bool) {
+// peer returns the client address, whether the request arrived over TLS and
+// whether it came through a trusted proxy. X-Forwarded-For and -Proto are
+// honoured only when the TCP peer is a trusted proxy; the client is then the
+// right-most hop that is not itself trusted.
+func (s *Server) peer(r *http.Request) (client netip.Addr, secure, proxied bool) {
 	ip, _ := parseAddr(r.RemoteAddr)
-	secure := r.TLS != nil
+	secure = r.TLS != nil
 	nc := s.netState()
-	if !ip.IsValid() || !contains(nc.trusted, ip) {
-		return ip, secure
+	// A trusted host that sends no forwarding header is classed by its own
+	// socket address: an ssh tunnel or health probe from a loopback proxy
+	// host stays local, while anything the proxy relays carries a header.
+	if !ip.IsValid() || !contains(nc.trusted, ip) || !forwardedHeaders(r.Header) {
+		return ip, secure, false
 	}
 	var hops []string
 	for _, v := range r.Header.Values("X-Forwarded-For") {
 		hops = append(hops, strings.Split(v, ",")...)
 	}
-	client := ip
+	client = ip
 	for i := len(hops) - 1; i >= 0; i-- {
 		a, ok := parseAddr(hops[i])
 		if !ok {
 			// An unreadable hop is an unknown client, never the trusted
-			// proxy itself (often loopback, which would make it local).
-			return netip.Addr{}, secureFromProxy(r, secure)
+			// proxy itself.
+			return netip.Addr{}, secureFromProxy(r, secure), true
 		}
 		client = a
 		if !contains(nc.trusted, a) {
 			break
 		}
 	}
-	return client, secureFromProxy(r, secure)
+	return client, secureFromProxy(r, secure), true
+}
+
+func forwardedHeaders(h http.Header) bool {
+	for k := range h {
+		if k == "Forwarded" || k == "X-Real-Ip" || strings.HasPrefix(k, "X-Forwarded-") {
+			return true
+		}
+	}
+	return false
 }
 
 // secureFromProxy reads X-Forwarded-Proto; callers have checked that the
@@ -170,12 +183,14 @@ func secureFromProxy(r *http.Request, secure bool) bool {
 
 // classify: local = loopback, the container's default gateway (where
 // Docker's published-port traffic arrives from) and local_cidrs; lan =
-// RFC1918/ULA; public = everything else. The Host header plays no part.
-func (s *Server) classify(ip netip.Addr) peerClass {
+// RFC1918/ULA; public = everything else. The Host header plays no part. A
+// proxied client is never local: every host in trusted_proxies can write any
+// address into the forwarding headers.
+func (s *Server) classify(ip netip.Addr, proxied bool) peerClass {
 	switch {
 	case !ip.IsValid():
 		return classPublic
-	case ip.IsLoopback(), contains(s.netState().local, ip), slices.Contains(s.gateways(), ip):
+	case !proxied && (ip.IsLoopback() || contains(s.netState().local, ip) || slices.Contains(s.gateways(), ip)):
 		return classLocal
 	case ip.IsPrivate():
 		return classLAN

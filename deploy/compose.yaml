@@ -41,6 +41,7 @@ services:
     volumes:
       - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
       - run:/run/bothy
+      - work:/work:ro                    # checks box mounts on Docker 25, which has no volume subpaths
     mem_limit: 64m
     pids_limit: 64
     healthcheck: {test: ["CMD", "/bothy", "healthcheck", "sandboxd"], interval: 30s, timeout: 3s, retries: 3, start_period: 30s, start_interval: 1s}

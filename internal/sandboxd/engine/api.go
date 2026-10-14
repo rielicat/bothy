@@ -21,6 +21,7 @@ type API interface {
 	ContainerRemove(ctx context.Context, id string) error
 	ContainerList(ctx context.Context, labels []string) ([]Container, error)
 	ContainerInspect(ctx context.Context, id string) (*ContainerJSON, error)
+	VolumeInspect(ctx context.Context, name string) (Volume, error)
 	ExecCreate(ctx context.Context, id string, cfg ExecConfig) (string, error)
 	ExecStart(ctx context.Context, id string) (ExecStream, error)
 	ExecInspect(ctx context.Context, id string) (ExecInspect, error)

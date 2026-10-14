@@ -80,9 +80,9 @@ Two Fargate-specific details, both in the task definition:
 
 5. **ALB.** Internal, in subnets that hold nothing else, with an HTTPS
    listener and an ACM certificate. Target group: type `ip`, HTTP, port 8080,
-   health check path `/healthz`, success codes `421` (the health checker sends
-   the task's IP as Host, which Bothy rejects first; tested). The task's
-   security group allows 8080 from the ALB's security group only.
+   health check path `/healthz`, success code `200` (Bothy answers health
+   checks whatever their Host header; tested). The task's security group
+   allows 8080 from the ALB's security group only.
 
 6. **Service.**
 
@@ -97,17 +97,36 @@ Two Fargate-specific details, both in the task definition:
    Private subnets need a NAT gateway or VPC endpoints to pull from
    `ghcr.io` and reach your model and chat providers.
 
-7. **First-run setup.** Setup is served only to local peers, and there is no
-   tunnel into a Fargate task. For the first deploy, add your own address as
-   the ALB sees it (for example your VPN's egress address) to the `bothy`
-   container's environment, then remove it and redeploy once setup is done:
+7. **First-run setup.** Setup is served only to local peers, and nothing
+   behind the ALB is one: a forwarded client address never counts as local.
+   Reach the task directly instead, once, from an instance in the VPC that
+   runs the SSM agent (any small instance with the
+   `AmazonSSMManagedInstanceCore` policy, outside the ALB's subnets):
 
-   ```json
-   {"name": "BOTHY_SERVER__LOCAL_CIDRS", "value": "[\"203.0.113.7/32\"]"}
-   ```
+   - In the task's security group, allow 8080 from the instance's security
+     group.
+   - Add the instance's private address to the `bothy` container's environment
+     and redeploy:
 
-   The setup link is in the logs (`aws logs tail /ecs/bothy --since 15m | grep setup`)
-   and already uses `server.public_url`.
+     ```json
+     {"name": "BOTHY_SERVER__LOCAL_CIDRS", "value": "[\"10.0.1.23/32\"]"}
+     ```
+
+   - Forward a local port to the task's private address (`aws ecs describe-tasks`
+     shows it):
+
+     ```sh
+     aws ssm start-session --target i-0123456789abcdef0 \
+       --document-name AWS-StartPortForwardingSessionToRemoteHost \
+       --parameters '{"host":["10.0.2.45"],"portNumber":["8080"],"localPortNumber":["8080"]}'
+     ```
+
+   - Open `http://127.0.0.1:8080/setup#t=<token>` with the token from the
+     logged setup link (`aws logs tail /ecs/bothy --since 15m | grep setup`; the
+     link itself uses `server.public_url`).
+
+   Then remove `BOTHY_SERVER__LOCAL_CIDRS` and the security group rule,
+   redeploy, and stop the instance.
 
 ## Models
 
@@ -125,7 +144,8 @@ register a revision with the new digests and run `aws ecs update-service`.
 Run locally on Docker 27.4: the access point's ownership (root 65532, 0700),
 the init container with only `CHOWN` writing the KEK and opening `/tmp`, and
 the gateway with a read-only root and no `/run/bothy` mount (healthy, vault
-open, no `data.permissions` finding); setup through a trusted proxy with
-`server.local_cidrs`. The task definition passes the AWS CLI's parameter
-validation. Not run on AWS: Fargate itself, EFS and SQLite on it, the ALB and
+open, no `data.permissions` finding). The `httpapi` tests cover setup from a
+direct peer in `server.local_cidrs` and its refusal through a trusted proxy.
+The task definition passes the AWS CLI's parameter validation. Not run on AWS:
+Fargate itself, EFS and SQLite on it, the ALB, the SSM remote-host tunnel and
 IAM.

@@ -7,8 +7,8 @@ platform's secret store as a file, and the web UI is reached privately.
 
 | Recipe | Shell, Python, MCP stdio | Vault key (KEK) | Private access | Use it when |
 |---|---|---|---|---|
-| [Single VM with compose](vm.md) (any cloud) | Yes (Docker 26+) | Docker secret file, or systemd credential for the native binary | SSH tunnel, Tailscale, SSM port forwarding | You want everything, with the least to run. Recommended. |
-| [AWS ECS on EC2](aws-ecs.md) | Only on a container instance with Docker 26+; the ECS-optimized AMI ships Docker 25 | Secrets Manager, written to a file by an init container | SSM port forwarding, internal ALB | You already run ECS and want task roles, CloudWatch logs and ECS deploys. |
+| [Single VM with compose](vm.md) (any cloud) | Yes (Docker 25+; gVisor needs 26+) | Docker secret file, or systemd credential for the native binary | SSH tunnel, Tailscale, SSM port forwarding | You want everything, with the least to run. Recommended. |
+| [AWS ECS on EC2](aws-ecs.md) | Yes, also on the ECS-optimized AMI's Docker 25 (runc only) | Secrets Manager, written to a file by an init container | SSM port forwarding, internal ALB | You already run ECS and want task roles, CloudWatch logs and ECS deploys. |
 | [AWS EKS](aws-eks.md) | No by default (EKS nodes run containerd); optional sidecar on Docker 26+ nodes | Kubernetes Secret or the Secrets Store CSI driver, mounted as a file | `kubectl port-forward`, internal ALB | Your platform is Kubernetes. |
 | [AWS Fargate](fargate.md) | Never (single-container mode) | Secrets Manager, written to a file by an init container | Internal ALB | You accept chat, channels, web and HTTP MCP tools without a sandbox. |
 
@@ -91,19 +91,23 @@ unknown Host), but the port should not be reachable in the first place.
 - `server.public_url` to the HTTPS URL users open (it also allows that Host).
 - `server.trusted_proxies` to the proxy's own addresses only, for an ALB the
   CIDRs of subnets that hold nothing but the ALB. A trusted peer's
-  `X-Forwarded-For` is believed: any other host in those ranges could claim to
-  be `127.0.0.1` and reach first-run setup.
+  `X-Forwarded-For` names the client in logs and rate limits and its
+  `X-Forwarded-Proto: https` counts as TLS, so any other host in those ranges
+  could forge both. A forwarded address never counts as local, whatever it
+  says, so it cannot open first-run setup.
 
-**ALB health checks** use plain HTTP and send the target's IP as the Host
-header, which Bothy rejects with 421 before anything else. Set the target
-group's success codes to `421`: it proves the gateway answers, and the
-container health check (`/bothy healthcheck`) remains the real liveness
-probe.
+**ALB health checks** use plain HTTP from the ALB's own address and send the
+target's IP as the Host header. Bothy answers `GET` and `HEAD` on `/healthz`
+and `/readyz` before the Host check and the exposure gate, so keep the target
+group's default success code `200` and use `/healthz` (`/readyz` also turns 503
+while the database or configuration is not ready). Every other path still gets
+421 for an unknown Host and 403 for plain HTTP.
 
-**First-run setup through an ALB** is refused (the client is not local). Run
-setup through a tunnel, or for one deploy set `server.local_cidrs` to your own
-address as the ALB reports it (`["203.0.113.7/32"]`), finish setup, then remove
-it.
+**First-run setup through an ALB** is refused, whatever client address the
+ALB forwards. Run setup through a tunnel that reaches the gateway directly:
+SSH, SSM port forwarding or `kubectl port-forward`; on Fargate, SSM port
+forwarding through an instance in the VPC ([fargate.md](fargate.md#steps),
+step 7).
 
 ## Backups
 
@@ -171,9 +175,16 @@ gateway and sandbox images built from this repository:
   point root `65532` `0700`, KEK and `/tmp` prepared by the init container):
   healthy, vault open with source `file`, no `data.permissions` finding, and
   `bothy backup` works in the Kubernetes layout.
-- The exposure gate as an ALB meets it: 421 for health checks, 403 for plain
-  HTTP from the VPC, 200 through a trusted proxy with `X-Forwarded-Proto:
-  https`; setup through the proxy 403, and 200 with `server.local_cidrs`.
+- The exposure gate as an ALB meets it (the `httpapi` tests and a native
+  gateway on macOS): 200 for `GET`/`HEAD` `/healthz` and `/readyz` with the
+  target IP as Host over plain HTTP from the VPC, 421 for any other path with
+  that Host, 403 for plain HTTP from the VPC, 200 through a trusted proxy with
+  `X-Forwarded-Proto: https`; setup through the proxy 403, also when the
+  forwarded address is loopback or in `server.local_cidrs`.
+- The sandbox on Docker 25 (API 1.44): the Docker acceptance suite with
+  sandboxd limited to API 1.44 (`API_LIMIT=1.44 deploy/sandbox/test/acceptance.sh`)
+  on Docker Desktop 27.4, including a workspace swapped for a symlink, which
+  sandboxd refuses. Not run on a real Docker 25 engine.
 - Manifests: both ECS task definitions pass the AWS CLI's parameter
   validation for `RegisterTaskDefinition`; the Kubernetes manifests render with
   `kubectl kustomize` and decode strictly into the `k8s.io/api` v0.34 types;
