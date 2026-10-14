@@ -10,7 +10,7 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
   import { api, ApiError, errorText } from '../lib/api/client';
-  import type { Detection, ProbeResult, ProviderConnectReq, ProviderConnectResp } from '../lib/api/types.gen';
+  import type { Detection, ModelChoice, ProbeResult, ProviderConnectReq, ProviderConnectResp } from '../lib/api/types.gen';
   import { plural } from '../lib/format';
   import { failure, failureCode, AWS_HELP, type Failure } from '../lib/providerErrors';
   import {
@@ -64,6 +64,8 @@
     details: string;
     byPerson: boolean;
     models: string[];
+    /** The server's plain names and suggestions for those models (S5), when it sends them. */
+    choices: ModelChoice[];
     main: string;
     quick: string;
     note: string;
@@ -74,6 +76,19 @@
   const uid = $props.id();
   const setup = $derived(mode === 'setup');
   const IDLE_MS = 800;
+
+  /** The server's name for a model, else one worked out from its id. */
+  const nameIn = (choices: ModelChoice[] | undefined, id: string) => {
+    const c = choices?.find((x) => x.id === id);
+    return c?.display_name || c?.display || friendlyModel(id);
+  };
+
+  /** The server's recommended main and quick-tasks models, else the client's pick (§5.6.3). */
+  function suggested(def: ProviderDef, s: RowState): { main: string; quick: string } {
+    const main = s.choices.find((c) => c.recommended)?.id;
+    if (!main) return pickModels(def, s.models);
+    return { main, quick: s.choices.find((c) => c.quick_tasks_default)?.id ?? main };
+  }
 
   const listRow = (def: ProviderDef): Row => ({ value: `p:${def.id}`, title: def.name, description: def.line, def, source: 'list' });
 
@@ -120,9 +135,9 @@
         const description =
           def.id === 'ollama'
             ? n > 1
-              ? `${n} models ready, including ${friendlyModel(bestModel(models))}.`
+              ? `${n} models ready, including ${nameIn(d.choices, bestModel(models))}.`
               : n
-                ? `1 model ready: ${friendlyModel(models[0])}.`
+                ? `1 model ready: ${nameIn(d.choices, models[0])}.`
                 : 'Running, but no models downloaded yet.'
             : `${plural(n, 'model')} ${def.id === 'lmstudio' ? 'ready' : 'available'}.`;
         const title = def.id === 'ollama' ? 'Ollama on this computer' : def.id === 'lmstudio' ? 'LM Studio on this computer' : 'Model server on this computer';
@@ -160,6 +175,7 @@
       details: '',
       byPerson: false,
       models: r.detection?.models ?? [],
+      choices: r.detection?.choices ?? [],
       main: '',
       quick: '',
       note: '',
@@ -232,17 +248,20 @@
 
   const checkingLabel = (r: Row) => (r.def.kind === 'bedrock' ? 'Checking AWS access…' : r.def.key && !r.def.custom ? 'Checking the key…' : 'Checking…');
 
+  // Without a model the check exercises the one the provider suggests and
+  // says which (S5); one is named only when the person chose it, typed it,
+  // or picked a local server whose models carry no suggestion.
   function request(r: Row, s: RowState): ProbeRequest {
     const d = r.def;
     const detected = r.detection?.models ?? [];
-    if (d.kind === 'bedrock') return { kind: 'bedrock', region: s.region, model: s.main || pickModels(d, detected).main || undefined };
-    if (r.source === 'env') return { kind: d.kind, base_url: d.base, env_var: r.detection?.env_var, model: s.main || d.model };
+    if (d.kind === 'bedrock') return { kind: 'bedrock', region: s.region, model: s.main || undefined };
+    if (r.source === 'env') return { kind: d.kind, base_url: d.base, env_var: r.detection?.env_var, model: s.main || undefined };
     const address = d.local || d.custom || r.source === 'local';
     return {
       kind: d.kind,
       base_url: (address ? s.address.trim() : d.base) || undefined,
       api_key: s.key.trim() || undefined,
-      model: s.main || (d.custom ? s.typedModel.trim() : '') || (r.source === 'local' ? bestModel(detected) : d.model) || undefined,
+      model: s.main || (d.custom ? s.typedModel.trim() : '') || (r.source === 'local' ? bestModel(detected) : '') || undefined,
       allow_private: s.allowPrivate,
     };
   }
@@ -268,9 +287,10 @@
     }
     if (id !== seq) return;
     if (probe?.models?.length) s.models = probe.models;
+    if (probe?.choices?.length) s.choices = probe.choices;
     if (probe?.ok) {
-      const pick = pickModels(r.def, s.models);
-      s.main = req.model || pick.main;
+      const pick = suggested(r.def, s);
+      s.main = req.model || probe.model || pick.main;
       s.quick = pick.quick === pick.main ? s.main : pick.quick;
       s.note = modelNote(probe.context, probe.tool_calling);
       s.status = 'connected';
@@ -290,7 +310,7 @@
     s.failure = failure(code, {
       name: r.def.name,
       local: !!(r.def.local || r.def.custom || r.source === 'local'),
-      model: req.model ? friendlyModel(req.model) : undefined,
+      model: req.model || probe?.model ? nameIn(s.choices, req.model || probe?.model || '') : undefined,
       region: regionName(s.region),
       regionCode: s.region,
       source: probe?.credentials ?? r.detection?.source,
@@ -302,7 +322,7 @@
     s.rejected = code === 'key_rejected';
     // The select opens on the model that was refused, so choosing another one re-checks.
     s.changing = code === 'no_model_access' && s.models.length > 0;
-    if (s.changing) s.main = req.model ?? '';
+    if (s.changing) s.main = req.model ?? probe?.model ?? '';
     s.status = 'failed';
   }
 
@@ -374,7 +394,7 @@
   {@const gap = first && !s.changing ? '' : 'mt-3'}
   {#if s.changing && s.models.length}
     <!-- Native selects clip a long value at 360 px; the ellipsis shows it was cut. -->
-    <Select class="{first ? '' : 'mt-3'} [&_select]:text-ellipsis" label="Model" options={modelOptions(s.models, pickModels(r.def, s.models).main)} value={s.main} onchange={(e) => chooseModel(v, e.currentTarget.value)} />
+    <Select class="{first ? '' : 'mt-3'} [&_select]:text-ellipsis" label="Model" options={modelOptions(s.models, suggested(r.def, s).main, (m) => nameIn(s.choices, m))} value={s.main} onchange={(e) => chooseModel(v, e.currentTarget.value)} />
   {/if}
   {#if s.status === 'checking'}
     <StatusLine class={gap} tone="progress" text={s.checking} />
@@ -383,7 +403,7 @@
       <StatusLine
         class={gap}
         tone="success"
-        text={setup ? `Connected. Bothy will use ${friendlyModel(s.main)}.` : 'Connected.'}
+        text={setup ? `Connected. Bothy will use ${nameIn(s.choices, s.main)}.` : 'Connected.'}
         action={setup && s.models.length > 1 ? { label: 'Change', onclick: () => (s.changing = true) } : undefined}
       />
     {/if}

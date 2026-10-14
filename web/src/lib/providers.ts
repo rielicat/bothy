@@ -140,11 +140,11 @@ export function pickModels(def: ProviderDef, models: string[]): { main: string; 
 }
 
 /** Models for the "Change" select: friendly names, the recommended one first. */
-export function modelOptions(models: string[], recommended: string): { value: string; label: string }[] {
+export function modelOptions(models: string[], recommended: string, name: (id: string) => string = friendlyModel): { value: string; label: string }[] {
   const seen = new Set<string>();
   const out: { value: string; label: string }[] = [];
   for (const m of [recommended, ...usable(models)]) {
-    const label = friendlyModel(m);
+    const label = name(m);
     if (!m || seen.has(label)) continue;
     seen.add(label);
     out.push({ value: m, label: m === recommended ? `${label} (recommended)` : label });

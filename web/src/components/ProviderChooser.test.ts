@@ -111,7 +111,9 @@ describe('ProviderChooser in setup', () => {
     await paste(key, LONG_KEY);
     expect(screen.getByText('Checking the key…')).toBeTruthy();
     expect(await screen.findByText(/^Connected\. Bothy will use Claude\ Sonnet\ 4\.6\./, {}, { timeout: 3000 })).toBeTruthy();
-    expect(tests(calls)).toEqual([expect.objectContaining({ kind: 'anthropic', api_key: LONG_KEY, model: 'claude-sonnet-4-6' })]);
+    // No model named: the check tries the one Anthropic suggests and says which.
+    expect(tests(calls)).toEqual([expect.objectContaining({ kind: 'anthropic', api_key: LONG_KEY })]);
+    expect(tests(calls)[0].model).toBeUndefined();
     expect(writes(calls)).toEqual([]);
 
     await fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
@@ -222,6 +224,29 @@ describe('ProviderChooser in setup', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toMatch(/^Bothy couldn't save this connection\. Try again\./);
+  });
+});
+
+describe('ProviderChooser with the server\'s model names (S5)', () => {
+  it('names and suggests models the way the check says', async () => {
+    const choices = [
+      // The server's suggestion wins over the client's own pick (Sonnet).
+      { id: 'claude-opus-4-1-20250805', display: 'claude-opus-4-1-20250805', display_name: 'Claude Opus 4.1 (team plan)', recommended: true },
+      { id: 'claude-sonnet-4-6', display: 'claude-sonnet-4-6', display_name: 'Claude Sonnet 4.6' },
+      { id: 'claude-haiku-4-5-20251001', display: 'claude-haiku-4-5-20251001', display_name: 'Claude Haiku 4.5', quick_tasks_default: true },
+    ];
+    const probe = { ok: true, latency: 1e9, tool_calling: true, usage_reported: true, context: 200000, models: choices.map((c) => c.id), cost_micros: 31, detail: '', choices };
+    const calls = installApi({ override: (m, url) => (m === 'POST' && url === '/api/providers/test' ? probe : undefined) });
+    resetMock({ mock: 'detect-none' });
+    setCsrf('mock-csrf');
+    const onconnected = vi.fn();
+    render(ProviderChooser, { onconnected });
+    await fireEvent.click(await screen.findByRole('radio', { name: /^Anthropic/ }));
+    await paste(screen.getByLabelText('API key'), LONG_KEY);
+    expect(await screen.findByText(/^Connected\. Bothy will use Claude Opus 4\.1 \(team plan\)\./, {}, { timeout: 3000 })).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await waitFor(() => expect(onconnected).toHaveBeenCalled());
+    expect(JSON.parse(writes(calls)[0].body)).toMatchObject({ model: 'claude-opus-4-1-20250805', quick_model: 'claude-haiku-4-5-20251001' });
   });
 });
 

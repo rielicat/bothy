@@ -153,6 +153,7 @@ function probe(req: Req, b: { kind: string; base_url?: string; api_key?: string;
     usage_reported: false,
     context: 0,
     models: code === 'no_model_access' ? catalog(b.kind, base) : [],
+    model: code === 'no_model_access' ? b.model || catalog(b.kind, base)[0] : b.model,
     cost_micros: 0,
     detail: failures[code] ?? code,
     error: failures[code] ?? code,
@@ -165,7 +166,8 @@ function probe(req: Req, b: { kind: string; base_url?: string; api_key?: string;
   const models = noModelList(req) && b.kind === 'openai_compat' ? [] : ollamaEmpty(req) && b.kind === 'ollama' ? [] : catalog(b.kind, base);
   if (!models.length && !b.model) return { ...failed('no_models'), error: 'The server lists no models; name one to test.' };
   const context = Number(modelContext.arg(req)) || (b.kind === 'ollama' ? 32768 : 200000);
-  return { ok: true, latency: 820e6, tool_calling: !noTools(req) && context >= 8192, usage_reported: true, context, models, cost_micros: b.kind === 'ollama' ? 0 : 31, detail: '' };
+  // Like the real probe, a check without a model exercises the first one the provider lists and says which.
+  return { ok: true, latency: 820e6, tool_calling: !noTools(req) && context >= 8192, usage_reported: true, context, models, model: b.model || models[0], cost_micros: b.kind === 'ollama' ? 0 : 31, detail: '' };
 }
 
 on('POST', '/api/providers/test', async (req, res) => {
