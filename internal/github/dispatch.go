@@ -140,9 +140,21 @@ func (s *Service) findRun(ctx context.Context, cl *apiClient, ep endpoint, r *co
 	}
 }
 
-// RunStatus implements core.WorkflowDispatcher.
+// RunStatus implements core.WorkflowDispatcher. It also reads runs of a
+// repository its connection no longer allows: the release module follows a
+// deploy through the dispatcher that started it (Deploy.Via), and reading a
+// run's status changes nothing on GitHub. A repository no connection ever
+// allowed is still refused.
 func (s *Service) RunStatus(ctx context.Context, repo string, runID int64) (*core.WorkflowRun, error) {
-	r, cl, err := s.repoClient(ctx, repo)
+	r, err := s.connectedRepo(ctx, repo, false)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := s.connectionFor(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+	cl, _, err := s.client(conn)
 	if err != nil {
 		return nil, err
 	}

@@ -595,12 +595,18 @@ func (s *Service) Repos(ctx context.Context) ([]*core.GitHubRepo, error) {
 // allowedRepo resolves a tool's "owner/name" to an allowlisted repository
 // and its connection.
 func (s *Service) allowedRepo(ctx context.Context, repo string) (*core.GitHubRepo, error) {
+	return s.connectedRepo(ctx, repo, true)
+}
+
+// connectedRepo resolves "owner/name" to its repository row; mustAllow
+// also refuses a row its connection no longer allows.
+func (s *Service) connectedRepo(ctx context.Context, repo string, mustAllow bool) (*core.GitHubRepo, error) {
 	owner, name, err := splitRepo(repo)
 	if err != nil {
 		return nil, err
 	}
 	r, err := s.store.Repo(ctx, owner, name)
-	if errors.Is(err, core.ErrNotFound) || err == nil && !r.Allowed {
+	if errors.Is(err, core.ErrNotFound) || err == nil && mustAllow && !r.Allowed {
 		return nil, fmt.Errorf("%w: %s/%s is not a connected repository (repo_list shows the connected ones)", core.ErrInvalid, owner, name)
 	}
 	if err != nil {
