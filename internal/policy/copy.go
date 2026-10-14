@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -636,18 +638,44 @@ func firstPath(a *core.Action, fallback string) string {
 	return fallback
 }
 
-// diffCounts counts the added and removed lines of a unified diff.
+var hunkRe = regexp.MustCompile(`^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@`)
+
+// diffCounts counts the added and removed lines of a unified diff. It reads
+// each hunk for the line counts its header gives, so neither a pull request
+// card's own header (which ends with a "---" line) nor a removed line that
+// begins with "--" is mistaken for something else.
 func diffCounts(d string) (added, removed int) {
+	var oldLeft, newLeft int
 	for line := range strings.Lines(d) {
+		if oldLeft == 0 && newLeft == 0 {
+			if m := hunkRe.FindStringSubmatch(line); m != nil {
+				oldLeft, newLeft = hunkLen(m[1]), hunkLen(m[2])
+			}
+			continue
+		}
 		switch {
-		case strings.HasPrefix(line, "+++ "), strings.HasPrefix(line, "--- "):
 		case strings.HasPrefix(line, "+"):
 			added++
+			newLeft--
 		case strings.HasPrefix(line, "-"):
 			removed++
+			oldLeft--
+		case strings.HasPrefix(line, "\\"): // "\ No newline at end of file"
+		default:
+			oldLeft--
+			newLeft--
 		}
+		oldLeft, newLeft = max(oldLeft, 0), max(newLeft, 0)
 	}
 	return added, removed
+}
+
+func hunkLen(s string) int {
+	if s == "" {
+		return 1
+	}
+	n, _ := strconv.Atoi(s)
+	return n
 }
 
 func contentLines(s string) int {

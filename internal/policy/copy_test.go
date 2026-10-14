@@ -188,6 +188,18 @@ func TestPlainCopy(t *testing.T) {
 	}
 }
 
+func TestDiffCounts(t *testing.T) {
+	pr := "Repository: a/b (private)\nBranch: x → main\nTitle: t\n\n    - not a removal\n---\n" +
+		"diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,3 +1,3 @@\n keep\n--- a dashed line removed\n+-- its replacement\n keep\n" +
+		"diff --git a/g b/g\n--- /dev/null\n+++ b/g\n@@ -0,0 +1 @@\n+new\n\\ No newline at end of file\n"
+	if a, r := diffCounts(pr); a != 2 || r != 1 {
+		t.Errorf("diffCounts = +%d -%d, want +2 -1", a, r)
+	}
+	if a, r := diffCounts("(folder with 3 top-level entries)\n"); a != 0 || r != 0 {
+		t.Errorf("no hunks = +%d -%d", a, r)
+	}
+}
+
 func cmpOr[T comparable](v, def T) T {
 	var zero T
 	if v == zero {
