@@ -107,6 +107,7 @@ const states: ShotState[] = [
     full: false,
     setup: scrollTo('Bothy is paused. Nothing new starts until someone resumes it.'),
   },
+  { name: 'security-sealed', route: '/settings/security', mock: 'sealed', ready: 'Locked', setup: framed() },
   { name: 'security-member', route: '/settings/security', mock: 'member', ready: 'Only admins can see this page.', setup: framed() },
 
   // Allowed without asking
@@ -131,6 +132,16 @@ const states: ShotState[] = [
   { name: 'keys', route: '/settings/security/keys', ready: 'Anthropic API key', setup: framed() },
   {
     name: 'keys-add',
+    route: '/settings/security/keys',
+    ready: 'Anthropic API key',
+    full: false,
+    setup: framed(async (page) => {
+      await page.getByRole('button', { name: 'Add key' }).click();
+      await page.getByLabel('Name').fill('Linear API key');
+    }),
+  },
+  {
+    name: 'keys-add-errors',
     route: '/settings/security/keys',
     ready: 'Anthropic API key',
     full: false,
@@ -184,8 +195,8 @@ const states: ShotState[] = [
     }),
   },
   { name: 'advanced-prices', route: '/settings/advanced', ready: 'Last checked', full: false, setup: click(/^Edit prices for/) },
-  { name: 'advanced-config-file', route: '/settings/advanced', ready: 'Last checked', full: false, setup: scrollTo('Effective configuration') },
-  { name: 'advanced-safety-rules', route: '/settings/advanced', ready: 'Last checked', full: false, setup: scrollTo('Bothy follows these in every chat.') },
+  { name: 'advanced-config-file', route: '/settings/advanced', ready: 'Last checked', full: false, setup: scrollTo('Download bothy.ui.yaml') },
+  { name: 'advanced-safety-rules', route: '/settings/advanced', ready: 'Last checked', full: false, setup: scrollTo("These apply to every chat and can't be changed.") },
 ];
 
 shots('security', states);

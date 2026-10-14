@@ -80,7 +80,7 @@ export const constitution = `1. Follow the instructions of the people Bothy work
 2. Never reveal saved keys or send private information out without approval.
 3. Ask before anything that can't be undone or that leaves your team.`;
 
-export const state = { secrets: [] as SecretMeta[], grants: [] as Grant[], fixed: [] as string[], lastBackup: '' };
+export const state = { secrets: [] as SecretMeta[], grants: [] as Grant[], fixed: [] as string[], lastBackup: '', unsealed: false };
 
 // The shared config fixture has no allowed websites, no value from the
 // environment and no UI change in an Advanced-only field; these give
@@ -115,11 +115,15 @@ function seedConfig() {
 }
 
 onReset(() => {
-  Object.assign(state, { secrets: clone(secrets), grants: clone(grants), fixed: [], lastBackup: '' });
+  Object.assign(state, { secrets: clone(secrets), grants: clone(grants), fixed: [], lastBackup: '', unsealed: false });
   seedConfig();
 });
 
-const sealed = scenario('sealed', "Bothy's saved keys are locked (vault sealed banner).", 'shell');
+const sealedScenario = scenario('sealed', "Bothy's saved keys are locked (vault sealed banner).", 'shell');
+// The scenario rides on a cookie, so a successful unseal is remembered here until the next reset.
+const sealed = (req?: Parameters<typeof sealedScenario>[0]) => sealedScenario(req) && !state.unsealed;
+
+const sealedFinding = finding({ id: 'vault.sealed', area: 'vault', title: 'The vault is sealed', detail: 'Saved secrets cannot be read until the vault is unsealed.', severity: 'high' });
 const sandboxOff = scenario('sandbox-off', 'No isolated workspace: running code is off on this server.', 'security');
 const clean = scenario('no-findings', 'The security check finds nothing to look at.', 'security');
 const empty = scenario('security-empty', 'No permissions and no saved keys yet.', 'security');
@@ -127,7 +131,7 @@ const brokenCheck = scenario('doctor-fails', 'The health check and the security 
 
 function findings(req: Parameters<typeof clean>[0], securityOnly: boolean): Finding[] {
   if (clean(req)) return [];
-  const all = [...(sandboxOff(req) ? [sandboxFinding] : []), ...doctor.findings].filter((f) => !state.fixed.includes(f.id));
+  const all = [...(sealed(req) ? [sealedFinding] : []), ...(sandboxOff(req) ? [sandboxFinding] : []), ...doctor.findings].filter((f) => !state.fixed.includes(f.id));
   return securityOnly ? all.filter((f) => f.security) : all;
 }
 
@@ -188,6 +192,7 @@ on('POST', '/api/vault/unseal', async (req, res) => {
   const { passphrase } = JSON.parse((await body(req)) || '{}');
   if (!passphrase) return fail(res, 400, 'bad_request', 'passphrase is required');
   if (passphrase === 'wrong') return fail(res, 403, 'forbidden', 'vault: wrong passphrase');
+  state.unsealed = true;
   json(res, 200, vaultStatus);
 });
 

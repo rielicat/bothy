@@ -41,22 +41,21 @@
 </script>
 
 <SettingsSection title="Configuration file">
-  <p class="text-small text-muted">The settings Bothy is running with. Each comment says where the value comes from.</p>
   {#if config.view?.safe_mode || errors.length}
-    <Notice tone="danger" class="mt-3" text={config.view?.safe_mode ? safeMode : fellBack} />
+    <Notice tone="danger" class="mb-3" text={config.view?.safe_mode ? safeMode : fellBack} />
     {#if errors.length}
-      <CodeBlock class="mt-2" label="Settings that couldn't be loaded" code={errors.map((e) => e.message).join('\n')} wrap />
+      <CodeBlock class="mb-3" label="Settings that couldn't be loaded" code={errors.map((e) => e.message).join('\n')} wrap />
     {/if}
   {/if}
   {#if restart.length}
     {#if restarting || restarted}
-      <StatusLine class="mt-3" tone="progress" text={restarted ? "Bothy is restarting. This page reconnects when it's back." : 'Restarting…'} />
+      <StatusLine class="mb-3" tone="progress" text={restarted ? "Bothy is restarting. This page reconnects when it's back." : 'Restarting…'} />
     {:else}
-      <Notice class="mt-3" text="Restart Bothy to apply changes to {restart.join(', ')}." action={{ label: 'Restart Bothy', onclick: restartNow }} />
+      <Notice class="mb-3" text="Restart Bothy to apply changes to {restart.join(', ')}." action={{ label: 'Restart Bothy', onclick: restartNow }} />
     {/if}
-    {#if restartError}<StatusLine class="mt-2" tone="danger" text="Bothy didn't restart." details={restartError} alert />{/if}
+    {#if restartError}<StatusLine class="mb-3" tone="danger" text="Bothy didn't restart." details={restartError} alert />{/if}
   {/if}
-  <CodeBlock class="mt-3" code={effective} maxLines={24} label="Effective configuration" />
+  <CodeBlock code={effective} maxLines={24} label="Effective configuration" />
   <!-- A plain link: Button has no download attribute, and the file is a blob URL. -->
   <a class="btn btn-secondary mt-3" href={download} download="bothy.ui.yaml">Download bothy.ui.yaml</a>
 </SettingsSection>

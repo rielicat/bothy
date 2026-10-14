@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from '../../../components/Icon.svelte';
   import { Button, Dialog, toast } from '../../../components/ui';
   import { api } from '../../../lib/api/client';
   import { session } from '../../../lib/stores/session.svelte';
@@ -31,7 +32,7 @@
   <p class="text-body text-text">
     Everything running stops now, and nothing new starts, including schedules, until someone resumes it. Approvals that are waiting will be cancelled.
   </p>
-  {#if error}<p class="field-error" role="alert">{error}</p>{/if}
+  {#if error}<p class="field-error" role="alert"><Icon name="alert" class="mt-px" />{error}</p>{/if}
   {#snippet footer({ close })}
     <Button data-cancel onclick={close}>Cancel</Button>
     <Button variant="danger" loading={busy} loadingLabel="Pausing…" onclick={pause}>Pause Bothy</Button>

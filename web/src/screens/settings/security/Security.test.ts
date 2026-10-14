@@ -38,6 +38,8 @@ describe('Security', () => {
     await waitFor(() => expect(screen.queryByText('Data files can be read by other users on this server.')).toBeNull());
     expect(calls.some((c) => c.method === 'POST' && c.url === '/api/security-audit' && c.body === '{"fix":true}')).toBe(true);
     expect(toaster.current?.text).toBe('Fixed.');
+    // The fixed row is gone; focus lands on the next finding's action, not the body.
+    await waitFor(() => expect(document.activeElement?.textContent?.trim()).toBe('How to fix'));
   });
 
   it('opens plain steps behind How to fix', async () => {
@@ -61,6 +63,8 @@ describe('Security', () => {
     await fireEvent.click(screen.getByRole('radio', { name: 'Careful' }));
     await waitFor(() => expect(screen.getByText('Saved')).toBeTruthy());
     expect(calls.find((c) => c.method === 'PATCH')?.body).toBe('{"set":{"policy.preset":"careful"}}');
+    // Shown for 2 s, then the line is clear again (§11.1).
+    await waitFor(() => expect(screen.queryByText('Saved')).toBeNull(), { timeout: 3000 });
   });
 
   it('writes the timeout and the outcome together', async () => {

@@ -42,7 +42,21 @@ describe('Advanced', () => {
     const report: DoctorReport = { findings: [f, { ...f, detail: 'search' }] };
     await open({ override: (_m, url) => (url === '/api/doctor' ? report : undefined) });
     await fireEvent.click(await screen.findByRole('button', { name: 'Run again' }));
-    await waitFor(() => expect(screen.getAllByText('Server changed').length).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(screen.getAllByText('Server changed.').length).toBeGreaterThanOrEqual(2));
+  });
+
+  it('counts notes as no problem, and still lists them', async () => {
+    const note: Finding = { id: 'telemetry.off', area: 'telemetry', title: 'Telemetry is off', detail: '', severity: 'info', security: false, auto_fix: false };
+    await open({ override: (_m, url) => (url === '/api/doctor' ? { findings: [note] } : undefined) });
+    expect(await screen.findByText('No problems found.')).toBeTruthy();
+    expect(screen.getByText("Bothy doesn't send usage data anywhere.")).toBeTruthy();
+  });
+
+  it('keeps focus in the health check after a fix', async () => {
+    await open();
+    await fireEvent.click(await screen.findByRole('button', { name: 'Fix' }));
+    await waitFor(() => expect(screen.queryByText('Data files can be read by other users on this server.')).toBeNull());
+    await waitFor(() => expect((document.activeElement as HTMLElement | null)?.textContent).toMatch(/Run again|Checking…/));
   });
 
   it('shows the effective configuration with where each value comes from', async () => {
@@ -107,6 +121,8 @@ describe('Advanced', () => {
 
   it('edits a model price', async () => {
     const calls = await open();
+    // Phones read the row as one line; the table cells carry the same prices on wider screens.
+    expect(document.body.textContent).toContain('Input Free\u00a0· Output Free');
     await fireEvent.click(await screen.findByRole('button', { name: /^Edit prices for/ }));
     const dialog = screen.getByRole('dialog');
     await fireEvent.input(within(dialog).getByLabelText('Input per million'), { target: { value: '0.5' } });

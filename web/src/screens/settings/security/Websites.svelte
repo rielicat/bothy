@@ -147,7 +147,9 @@
             <div class="min-w-0 flex-1">
               <p id="{uid}-blocked-{e.id}" class="font-mono text-code text-text [overflow-wrap:anywhere]" data-copy-ignore>{site}</p>
               <p class="text-small text-muted">
-                {#if e.session_id && titles[e.session_id]}From “{titles[e.session_id]}”{' · '}{/if}<time datetime={e.at} title={fullTime(e.at)}>{e.session_id && titles[e.session_id] ? relLower(e.at) : relTime(e.at)}</time>
+                {#if e.session_id && titles[e.session_id]}From “{titles[e.session_id]}”{'\u00a0· '}{/if}<time class="whitespace-nowrap" datetime={e.at} title={fullTime(e.at)}
+                  >{e.session_id && titles[e.session_id] ? relLower(e.at) : relTime(e.at)}</time
+                >
               </p>
             </div>
             {#if !readOnly}
@@ -180,7 +182,10 @@
 </Dialog>
 
 <Dialog open={!!allowing} title="Allow {allowSite}?" busy={saving} onclose={() => (allowing = null)}>
-  <p class="text-body text-text">Code Bothy runs will be able to reach {allowSite} in every chat. You can remove it from this list at any time.</p>
+  <p class="text-body text-text">
+    Code Bothy runs will be able to reach <span class="font-mono text-code [overflow-wrap:anywhere]">{allowSite}</span> in every chat. You can remove it from this list at any
+    time.
+  </p>
   {#if allowShared}
     <Notice tone="warning" class="mt-3" text="Anyone can publish on {allowShared.replace(/^\./, '')}, so this also lets Bothy reach other people's sites there." />
   {/if}

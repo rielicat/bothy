@@ -105,9 +105,14 @@ describe('Saved keys', () => {
     await signIn();
     render(SavedKeys);
     await screen.findByText('Anthropic API key');
-    expect(screen.getByText(/Used by Anthropic · last used/)).toBeTruthy();
-    expect(screen.getByText(/Used by OpenRouter · not used yet/)).toBeTruthy();
-    expect(screen.getByText(/Used by Brave Search · set on the server/)).toBeTruthy();
+    const meta = [...document.querySelectorAll('p.text-small')].map((p) => p.textContent ?? '');
+    const line = (re: RegExp) => meta.find((t) => re.test(t.replace(/\s+/g, ' ')));
+    expect(line(/^Used by Anthropic · last used \d+ min ago$/)).toBeTruthy();
+    expect(line(/^Used by OpenRouter · not used yet$/)).toBeTruthy();
+    expect(line(/^Used by Brave Search · set on the server$/)).toBeTruthy();
+    // On phones the line breaks between pieces, never before a "·" or inside "last used 2 h ago".
+    expect(line(/^Used by Anthropic/)).toContain('Anthropic\u00a0· ');
+    expect(document.querySelector('p.text-small time')?.closest('.whitespace-nowrap')?.textContent).toMatch(/^last used /);
     // A key from the server environment can't be replaced or deleted here.
     expect(screen.queryByRole('button', { name: 'Replace Brave Search API key' })).toBeNull();
     expect(document.body.textContent).not.toMatch(/x9Qa|anthropic_api_key/);
@@ -171,6 +176,8 @@ describe('Saved keys', () => {
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Unlock' }));
     await waitFor(() => expect(toaster.current?.text).toBe('Saved keys unlocked.'));
     expect(calls.filter((c) => c.url === '/api/vault/unseal')).toHaveLength(2);
+    await waitFor(() => expect(screen.queryByText('Saved keys are locked.')).toBeNull());
+    expect(screen.getByRole('button', { name: 'Add key' })).toBeTruthy();
   });
 });
 

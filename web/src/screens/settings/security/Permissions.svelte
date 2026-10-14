@@ -85,8 +85,11 @@
               <p class="text-body text-text [overflow-wrap:anywhere]">
                 {d.what}{#if d.exact}{' '}<span class="font-mono text-code" data-copy-ignore>{d.exact}</span>{/if}
               </p>
+              <!-- The non-breaking space keeps each "·" with the piece before it, so a wrapped line never starts with one. -->
               <p class="text-small text-muted">
-                {#each meta as m, i (m)}{i === 0 ? capital(m) : m}{' · '}{/each}<time datetime={g.created_at} title={fullTime(g.created_at)}>{meta.length ? relLower(g.created_at) : relTime(g.created_at)}</time>
+                {#each meta as m, i (m)}{i === 0 ? capital(m) : m}{'\u00a0· '}{/each}<time class="whitespace-nowrap" datetime={g.created_at} title={fullTime(g.created_at)}
+                  >{meta.length ? relLower(g.created_at) : relTime(g.created_at)}</time
+                >
               </p>
             </div>
             <Button variant="ghost" size="sm" data-remove loading={removing === g.id} loadingLabel="Removing…" onclick={() => remove(g, i)}>Remove</Button>

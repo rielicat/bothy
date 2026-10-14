@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import Icon from '../../../components/Icon.svelte';
   import { Button, CodeBlock, Disclosure, LinkButton, OptionList, Page, Select, SettingsRow, SettingsSection, Switch, toast, type Option } from '../../../components/ui';
   import { api } from '../../../lib/api/client';
@@ -37,6 +37,8 @@
 
   type RowState = { status: 'saving' | 'saved' | null; error?: string };
   let rows = $state<Record<string, RowState>>({});
+  const savedTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+  let attentionList: HTMLElement | undefined = $state();
   let openFinding = $state<number | null>(null);
   let fixing = $state<number | null>(null);
   let fixError = $state<{ i: number; text: string } | null>(null);
@@ -114,8 +116,11 @@
   async function save(key: string, changes: Record<string, unknown> | null) {
     if (!changes) return;
     rows[key] = { status: 'saving' };
+    clearTimeout(savedTimers[key]);
     const r = await config.save(changes);
     rows[key] = r.ok ? { status: 'saved' } : { status: null, error: saveErrorText(r) };
+    // "Saved" is shown for 2 s (§11.1). SettingsRow times its own; the preset's label lives on this page.
+    if (r.ok) savedTimers[key] = setTimeout(() => rows[key]?.status === 'saved' && (rows[key] = { status: null }), 2000);
   }
 
   async function fix(i: number) {
@@ -123,10 +128,16 @@
     fixError = null;
     const ok = await runAudit(true);
     fixing = null;
-    if (ok) {
-      toast('Fixed.');
-      void runAudit();
-    } else fixError = { i, text: "Couldn't fix this. Try again." };
+    if (!ok) {
+      fixError = { i, text: "Couldn't fix this. Try again." };
+      return;
+    }
+    toast('Fixed.');
+    await runAudit();
+    // The fixed row is gone: focus the next finding's action, else the page title, never the body.
+    await tick();
+    const actions = attentionList?.querySelectorAll<HTMLElement>('[data-finding-action]') ?? [];
+    (actions[Math.min(i, actions.length - 1)] ?? document.querySelector<HTMLElement>('h1'))?.focus();
   }
 
   function act(f: Finding, i: number) {
@@ -176,38 +187,41 @@
         {#if auditFailed}
           <p class="py-3 text-body text-muted">Couldn't check for problems. <LinkButton onclick={() => runAudit()}>Try again</LinkButton></p>
         {/if}
-        {#each attention as f, i (i)}
-          {@const c = describeFinding(f)}
-          <div class="border-b border-border py-3 last:border-b-0">
-            <div class="grid min-h-8 items-center gap-x-6 gap-y-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-              <p class="text-body text-text">{c.text}</p>
-              <div class="justify-self-start sm:justify-self-end">
-                <Button
-                  size="sm"
-                  loading={fixing === i}
-                  loadingLabel="Fixing…"
-                  aria-expanded={c.action === 'how' ? openFinding === i : undefined}
-                  aria-controls={c.action === 'how' ? `${uid}-finding-${i}` : undefined}
-                  onclick={() => act(f, i)}>{actionLabel[c.action]}</Button
-                >
+        <div bind:this={attentionList}>
+          {#each attention as f, i (i)}
+            {@const c = describeFinding(f)}
+            <div class="border-b border-border py-3 last:border-b-0">
+              <div class="grid min-h-8 items-center gap-x-6 gap-y-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                <p class="text-body text-text">{c.text}</p>
+                <div class="justify-self-start sm:justify-self-end">
+                  <Button
+                    size="sm"
+                    data-finding-action
+                    loading={fixing === i}
+                    loadingLabel="Fixing…"
+                    aria-expanded={c.action === 'how' ? openFinding === i : undefined}
+                    aria-controls={c.action === 'how' ? `${uid}-finding-${i}` : undefined}
+                    onclick={() => act(f, i)}>{actionLabel[c.action]}</Button
+                  >
+                </div>
               </div>
+              {#if fixError?.i === i}<p class="field-error" role="alert"><Icon name="alert" class="mt-px" />{fixError.text}</p>{/if}
+              {#if c.action === 'how' && openFinding === i}
+                <div id="{uid}-finding-{i}" class="mt-2 max-w-prose" data-details>
+                  {#if c.steps}<p class="text-body text-text">{c.steps}</p>{/if}
+                  {#if f.detail || f.fix}
+                    <Disclosure class="mt-2">
+                      <div class="space-y-2">
+                        {#if f.detail}<p class="text-small text-muted">{f.detail}</p>{/if}
+                        {#if f.fix}<CodeBlock code={f.fix} wrap />{/if}
+                      </div>
+                    </Disclosure>
+                  {/if}
+                </div>
+              {/if}
             </div>
-            {#if fixError?.i === i}<p class="field-error" role="alert"><Icon name="alert" class="mt-px" />{fixError.text}</p>{/if}
-            {#if c.action === 'how' && openFinding === i}
-              <div id="{uid}-finding-{i}" class="mt-2 max-w-prose" data-details>
-                {#if c.steps}<p class="text-body text-text">{c.steps}</p>{/if}
-                {#if f.detail || f.fix}
-                  <Disclosure class="mt-2">
-                    <div class="space-y-2">
-                      {#if f.detail}<p class="text-small text-muted">{f.detail}</p>{/if}
-                      {#if f.fix}<CodeBlock code={f.fix} wrap />{/if}
-                    </div>
-                  </Disclosure>
-                {/if}
-              </div>
-            {/if}
-          </div>
-        {/each}
+          {/each}
+        </div>
       </SettingsSection>
     {/if}
 
@@ -313,7 +327,7 @@
       <a
         href="/settings/security/keys"
         onclick={router.link}
-        class="-mx-2 grid min-h-11 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 rounded-md px-2 py-1 hover:bg-subtle focus-visible:outline-offset-[-2px] sm:grid-cols-[minmax(0,1fr)_minmax(0,20rem)]"
+        class="-mx-2 -my-1 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 rounded-md px-2 py-1 hover:bg-subtle focus-visible:outline-offset-[-2px] pointer-coarse:min-h-11 sm:grid-cols-[minmax(0,1fr)_minmax(0,20rem)]"
       >
         <h2 id="{uid}-keys" class="section-title">Saved keys</h2>
         <span class="inline-flex items-center gap-1 text-body {vault?.sealed ? 'text-danger-text' : 'text-muted'}"

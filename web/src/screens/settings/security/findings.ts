@@ -90,18 +90,22 @@ const copy: Record<string, { text: string; steps?: string; action?: FindingActio
   },
   'backups.none_recent': {
     text: "There's no recent backup.",
-    steps: 'Back up now from Advanced, or schedule one on the server.',
+    steps: 'Use Back up now under Backup, or schedule backups on the server.',
   },
+  'telemetry.off': { text: "Bothy doesn't send usage data anywhere." },
   'config.errors': {
     text: "Some settings couldn't be loaded, so Bothy uses safe defaults for them.",
     steps: 'See which ones in Advanced → Configuration file and correct them.',
   },
 };
 
+/** Server titles are labels ("Telemetry is off"); the line reads as a sentence. */
+const sentence = (s: string) => (/[.?!…]$/.test(s.trim()) ? s.trim() : `${s.trim()}.`);
+
 export function describeFinding(f: Finding): FindingCopy {
   const c = copy[f.id];
   const action: FindingAction = c?.action ?? (f.auto_fix ? 'fix' : 'how');
-  return { text: c?.text ?? f.title, steps: c?.steps, action };
+  return { text: c?.text ?? sentence(f.title), steps: c?.steps, action };
 }
 
 const order: Severity[] = ['critical', 'high', 'medium', 'low', 'info'];

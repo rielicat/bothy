@@ -17,7 +17,8 @@ describe('security findings in plain words', () => {
   });
 
   it('falls back to the server title for a finding it does not know', () => {
-    expect(describeFinding(finding({ id: 'new.check', title: 'Something new' }))).toEqual({ text: 'Something new', steps: undefined, action: 'how' });
+    expect(describeFinding(finding({ id: 'new.check', title: 'Something new' }))).toEqual({ text: 'Something new.', steps: undefined, action: 'how' });
+    expect(describeFinding(finding({ id: 'new.check', title: 'Is this new?' })).text).toBe('Is this new?');
   });
 
   it('keeps notes out of Needs attention and puts the worst first', () => {

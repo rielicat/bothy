@@ -61,10 +61,11 @@
 </script>
 
 <SettingsSection title="Model prices">
-  <p class="text-small text-muted">In dollars per million tokens. These replace the built-in prices for the models listed.</p>
+  <p class="text-small text-muted">In dollars per million tokens.</p>
   {#if overrides.length}
-    <table class="mt-3 w-full text-left text-body">
-      <thead>
+    <!-- Under 640 px each row folds into name, id and one price line, like Rules. -->
+    <table class="mt-3 w-full text-left text-body max-sm:block">
+      <thead class="max-sm:sr-only">
         <tr class="border-b border-border text-small text-muted">
           <th scope="col" class="py-2 pr-4 font-normal">Model</th>
           <th scope="col" class="py-2 pr-4 text-right font-normal">Input per million</th>
@@ -72,16 +73,20 @@
           <th scope="col" class="py-2"><span class="sr-only">Edit</span></th>
         </tr>
       </thead>
-      <tbody>
+      <tbody class="max-sm:block">
         {#each overrides as ref (ref)}
-          <tr class="border-b border-border last:border-b-0">
-            <td class="py-2 pr-4">
+          <tr class="border-b border-border last:border-b-0 max-sm:grid max-sm:grid-cols-[minmax(0,1fr)_auto] max-sm:items-center max-sm:gap-x-3 max-sm:py-2">
+            <td class="py-2 pr-4 max-sm:col-start-1 max-sm:py-0">
               <span class="text-text">{name(ref)}</span>
               <span class="block font-mono text-code text-muted [overflow-wrap:anywhere]">{ref}</span>
             </td>
-            <td class="py-2 pr-4 text-right tabular-nums">{dollars(price(ref, 'in'))}</td>
-            <td class="py-2 pr-4 text-right tabular-nums">{dollars(price(ref, 'out'))}</td>
-            <td class="py-2 text-right"><Button variant="ghost" size="sm" aria-label="Edit prices for {name(ref)}" onclick={() => open(ref)}>Edit</Button></td>
+            <td class="py-2 pr-4 text-right tabular-nums max-sm:col-start-1 max-sm:py-0 max-sm:text-left max-sm:text-small max-sm:text-muted">
+              <span class="sm:hidden">{'Input '}</span>{dollars(price(ref, 'in'))}<span class="sm:hidden">{`\u00a0· Output ${dollars(price(ref, 'out'))}`}</span>
+            </td>
+            <td class="py-2 pr-4 text-right tabular-nums max-sm:hidden">{dollars(price(ref, 'out'))}</td>
+            <td class="py-2 text-right max-sm:col-start-2 max-sm:row-span-2 max-sm:row-start-1 max-sm:py-0">
+              <Button variant="ghost" size="sm" aria-label="Edit prices for {name(ref)}" onclick={() => open(ref)}>Edit</Button>
+            </td>
           </tr>
         {/each}
       </tbody>

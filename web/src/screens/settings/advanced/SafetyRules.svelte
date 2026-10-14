@@ -15,7 +15,7 @@
 </script>
 
 <SettingsSection title="Built-in safety rules">
-  <p class="text-small text-muted">Bothy follows these in every chat. They can't be changed.</p>
+  <p class="text-small text-muted">These apply to every chat and can't be changed.</p>
   {#if failed}
     <StatusLine class="mt-3" tone="danger" text="The safety rules didn't load." details={failed} />
   {:else if text}
