@@ -110,7 +110,7 @@ func (t *deployTool) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action
 	if err != nil {
 		s.audit(ctx, core.AuditEntry{Actor: "agent:" + string(env.Run), Action: "release.dispatch", Target: p.Environment, Outcome: "denied",
 			Session: env.Session, Run: env.Run, Detail: detail(map[string]any{"environment": p.Environment, "reason": err.Error()})})
-		return failed("This deploy did not run: " + err.Error() + "."), nil
+		return nil, fmt.Errorf("this deploy did not run: %w", err)
 	}
 	now := s.d.Clock.Now()
 	d := &core.Deploy{Environment: p.Environment, Repo: p.Repo, Workflow: p.Workflow, Ref: p.Ref, Principal: env.Principal.ID,
@@ -140,7 +140,7 @@ func (t *deployTool) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action
 			"workflow": d.Workflow, "ref": d.Ref, "workflow_run_id": d.WorkflowRun, "approval": appr.ID, "approved_by": voters,
 			"error": d.Error})})
 	if derr != nil {
-		return failed("GitHub did not start the deploy: " + d.Error), nil
+		return nil, fmt.Errorf("GitHub did not start the deploy: %w", derr)
 	}
 	s.poke()
 	var b strings.Builder

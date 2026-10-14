@@ -223,11 +223,11 @@ func (g *GitHub) Dispatch(ctx context.Context, d core.WorkflowDispatch) (*core.W
 		return nil, err
 	}
 	if status == http.StatusOK && res.RunID > 0 {
-		run, err := g.runStatus(ctx, c, rp, d.Repo, res.RunID)
-		if err != nil {
-			return &core.WorkflowRun{ID: res.RunID, Repo: d.Repo, Status: "queued", URL: runURL(c.web, d.Repo, res.RunID)}, nil
+		if run, err := g.runStatus(ctx, c, rp, d.Repo, res.RunID); err == nil {
+			return run, nil
 		}
-		return run, nil
+		// The dispatch went through; a failed read only loses the details.
+		return &core.WorkflowRun{ID: res.RunID, Repo: d.Repo, Status: "queued", URL: runURL(c.web, d.Repo, res.RunID)}, nil
 	}
 	return g.findRun(ctx, c, rp, d, since), nil
 }

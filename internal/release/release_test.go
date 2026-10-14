@@ -125,8 +125,9 @@ func (f *fixture) approve(env *core.ToolEnv, a *core.Action, st core.ApprovalSta
 	if err := f.store.Approvals().Create(f.ctx, ap); err != nil {
 		f.t.Fatal(err)
 	}
-	for _, u := range voters {
-		if err := f.store.Approvals().AddVote(f.ctx, core.ApprovalVote{Approval: ap.ID, User: u.ID, Choice: core.AllowOnce, Via: "web", At: f.clock.Now()}); err != nil {
+	for i, u := range voters {
+		at := f.clock.Now().Add(time.Duration(i) * time.Millisecond)
+		if err := f.store.Approvals().AddVote(f.ctx, core.ApprovalVote{Approval: ap.ID, User: u.ID, Choice: core.AllowOnce, Via: "web", At: at}); err != nil {
 			f.t.Fatal(err)
 		}
 	}
@@ -155,6 +156,15 @@ func (f *fixture) notices() []string {
 		}
 	}
 	return out
+}
+
+// outcome is what the runner would show for an Exec: the error text or the
+// result, and whether the call failed.
+func outcome(res *core.ToolResult, err error) (string, bool) {
+	if err != nil {
+		return err.Error(), true
+	}
+	return res.Content, res.IsError
 }
 
 func TestToolConformance(t *testing.T) {
@@ -284,9 +294,8 @@ func TestDeployExecRefusesWithoutApproval(t *testing.T) {
 			env := f.env()
 			a := f.plan(env, `{"environment":"staging"}`)
 			tc.prep(f, env, a)
-			res, err := f.tool(deployName).Exec(f.ctx, env, a)
-			if err != nil || !res.IsError || !strings.Contains(res.Content, tc.want) {
-				t.Fatalf("Exec = %+v, %v; want a refusal containing %q", res, err, tc.want)
+			if text, failed := outcome(f.tool(deployName).Exec(f.ctx, env, a)); !failed || !strings.Contains(text, tc.want) {
+				t.Fatalf("Exec = %q (failed %v); want a refusal containing %q", text, failed, tc.want)
 			}
 			if n := len(f.gh.Dispatches()); n != 0 {
 				t.Fatalf("%d dispatches without a valid approval", n)
@@ -304,9 +313,8 @@ func TestDeployDispatchFailure(t *testing.T) {
 	env := f.env()
 	a := f.plan(env, `{"environment":"staging"}`)
 	f.approve(env, a, core.ApprovalAllowed, f.alice, f.bob)
-	res, err := f.tool(deployName).Exec(f.ctx, env, a)
-	if err != nil || !res.IsError || !strings.Contains(res.Content, "No ref found for: main") {
-		t.Fatalf("Exec = %+v, %v", res, err)
+	if text, failed := outcome(f.tool(deployName).Exec(f.ctx, env, a)); !failed || !strings.Contains(text, "No ref found for: main") {
+		t.Fatalf("Exec = %q (failed %v)", text, failed)
 	}
 	deps := f.deploys()
 	if len(deps) != 1 || deps[0].Status != core.DeployFailed || !strings.Contains(deps[0].Error, "422") || deps[0].FinishedAt.IsZero() {
