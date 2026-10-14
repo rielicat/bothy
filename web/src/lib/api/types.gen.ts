@@ -2860,7 +2860,7 @@ export interface InboxItem {
 }
 export interface InboxMCP {
   server: string;
-  tools: (MCPPin | undefined)[]; // the pending definitions, with their diffs
+  tools: (MCPPin | undefined)[]; // each changed tool's pending definition and, when it had one, its approved one
 }
 export interface InboxGroup {
   space: Space;

@@ -53,7 +53,7 @@ type InboxItem struct {
 
 type InboxMCP struct {
 	Server string         `json:"server"`
-	Tools  []*core.MCPPin `json:"tools"` // the pending definitions, with their diffs
+	Tools  []*core.MCPPin `json:"tools"` // each changed tool's pending definition and, when it had one, its approved one
 }
 
 type InboxGroup struct {

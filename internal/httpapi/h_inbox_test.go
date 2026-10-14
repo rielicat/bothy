@@ -49,6 +49,8 @@ func TestInboxItems(t *testing.T) {
 		{Server: "linear", Tool: "create_issue", Status: core.PinPending, SideEffect: core.SEExternalSend, FirstSeen: now.Add(-time.Hour)},
 		{Server: "linear", Tool: "list_issues", Status: core.PinApproved, SideEffect: core.SERead, FirstSeen: now.Add(-48 * time.Hour)},
 		{Server: "linear", Tool: "delete_issue", Status: core.PinPending, SideEffect: core.SEIrreversible, FirstSeen: now.Add(-2 * time.Hour)},
+		{Server: "linear", Tool: "delete_issue", Hash: "approved-before", Status: core.PinApproved, SideEffect: core.SEIrreversible,
+			FirstSeen: now.Add(-72 * time.Hour)},
 	}}
 	h.skills.Metas = []core.SkillMeta{{Name: "pdf", Status: core.SkillChanged, UpdatedAt: now}, {Name: "csv", Status: core.SkillEnabled},
 		{Name: "slides", Status: core.SkillPending, InstalledBy: h.admin.user, UpdatedAt: now}}
@@ -132,7 +134,8 @@ func TestInboxItems(t *testing.T) {
 			t.Errorf("admin item %s = %+v, want %+v", id, it, w)
 		}
 	}
-	if it := admin["mcp:linear"]; len(it.MCP.Tools) != 2 || it.MCP.Tools[0].Tool != "create_issue" || !it.CreatedAt.Equal(now.Add(-2*time.Hour)) {
+	if it := admin["mcp:linear"]; len(it.MCP.Tools) != 3 || it.MCP.Tools[0].Tool != "create_issue" || it.MCP.Tools[2].Hash != "approved-before" ||
+		!it.CreatedAt.Equal(now.Add(-2*time.Hour)) {
 		t.Errorf("mcp item = %+v", it.MCP)
 	}
 	if it := admin["sender:telegram:41"]; it.Sender == nil || it.Sender.FirstText != "hi, is this the support bot?" {

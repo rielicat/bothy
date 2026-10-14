@@ -107,19 +107,25 @@ func (s *Server) mcpItems(ctx context.Context) []dto.InboxItem {
 			s.log.Warn("inbox: reading MCP pins failed", "server", st.Name, "err", err)
 			continue
 		}
-		pending := slices.DeleteFunc(pins, func(p *core.MCPPin) bool { return p.Status != core.PinPending })
-		if len(pending) == 0 {
-			continue
-		}
-		first := pending[0].FirstSeen
-		for _, p := range pending {
-			if p.FirstSeen.Before(first) {
-				first = p.FirstSeen
+		// A changed tool's approved definition stays beside the pending one,
+		// so the review can show what changed.
+		changed := map[string]bool{}
+		var first time.Time
+		for _, p := range pins {
+			if p.Status == core.PinPending {
+				changed[p.Tool] = true
+				if first.IsZero() || p.FirstSeen.Before(first) {
+					first = p.FirstSeen
+				}
 			}
 		}
+		if len(changed) == 0 {
+			continue
+		}
+		pins = slices.DeleteFunc(pins, func(p *core.MCPPin) bool { return !changed[p.Tool] })
 		items = append(items, dto.InboxItem{ID: "mcp:" + st.Name, Type: dto.InboxMCPReview,
-			Question: "Review changes to " + capitalise(st.Name) + " tools", Summary: plural(len(pending), "tool changed", "tools changed"),
-			ForYou: true, CreatedAt: first, MCP: &dto.InboxMCP{Server: st.Name, Tools: pending}})
+			Question: "Review changes to " + capitalise(st.Name) + " tools", Summary: plural(len(changed), "tool changed", "tools changed"),
+			ForYou: true, CreatedAt: first, MCP: &dto.InboxMCP{Server: st.Name, Tools: pins}})
 	}
 	return items
 }
