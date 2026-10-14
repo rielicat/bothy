@@ -4,6 +4,7 @@ import { member, owner } from '../../../mock/fixtures';
 import { resetMock } from '../../../mock/server';
 import { setCsrf } from '../../lib/api/client';
 import type { Approval } from '../../lib/api/types.gen';
+import { router } from '../../lib/router.svelte';
 import { approvals, session } from '../../lib/stores/session.svelte';
 import { installApi, type Call } from '../../test/api';
 import ApprovalCard from './ApprovalCard.svelte';
@@ -70,13 +71,18 @@ describe('ApprovalCard', () => {
 
   const posts = () => calls.filter((c) => c.method === 'POST');
 
-  it('leaves "From" off a card inside its own chat', () => {
-    render(ApprovalCard, { approval: approval() });
+  it('leaves "From" off a card inside its own chat, and keeps it anywhere else', () => {
+    router.navigate('/chat/ses_1');
+    const own = render(ApprovalCard, { approval: approval() });
     expect(screen.getByRole('article').textContent).not.toContain('From');
+    own.unmount();
+    router.navigate('/knowledge/projects/acme/web');
+    render(ApprovalCard, { approval: approval() });
+    expect(screen.getByRole('article').textContent).toContain('From “Q3 report”');
   });
 
   it('asks a plain question from the Action and never shows other payload prose on its face', () => {
-    const { container } = render(ApprovalCard, { approval: approval(), mode: 'inbox' });
+    const { container } = render(ApprovalCard, { approval: approval() });
     const card = screen.getByRole('article');
     expect(within(card).getByRole('heading', { level: 2 }).textContent).toBe('Run this command?');
     expect(card.textContent).toContain('You asked on Telegram.');
