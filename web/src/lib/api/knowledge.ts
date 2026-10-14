@@ -165,7 +165,11 @@ export function progressPct(r: Pick<KnowledgeRepo, 'progress'>): number | null {
 /** The plain reason a read failed; the raw message stays behind Details. */
 export function failReason(r: Pick<KnowledgeRepo, 'error' | 'truncated'>): string {
   const e = (r.error ?? '').toLowerCase();
-  if (r.truncated || /too (many|large)|file (count|cap)|limit/.test(e)) return 'Too large to read (more than 50,000 files).';
+  // The file cap is a server setting, so the number comes from the message or isn't given.
+  const cap = Number(/more than ([\d,.]+) files/.exec(e)?.[1]?.replace(/[,.]/g, ''));
+  if (cap > 0) return `Too large to read (more than ${cap.toLocaleString()} files).`;
+  if (r.truncated || /max_files|too (many|large)|file (count|cap)/.test(e)) return 'Too large to read.';
+  if (/rate.?limit/.test(e)) return 'GitHub is limiting how often Bothy can read. Try again later.';
   if (/\b(401|403|404)\b|not found|no access|access denied|forbidden|bad credentials/.test(e)) return 'GitHub says Bothy no longer has access to this repository.';
   if (/timeout|unreachable|connection|dial/.test(e)) return "Bothy couldn't reach GitHub. It will try again later.";
   return 'Something went wrong while reading it.';

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick } from 'svelte';
+  import Icon from '../../components/Icon.svelte';
   import Markdown from '../../components/Markdown.svelte';
   import Button from '../../components/ui/Button.svelte';
   import Dialog from '../../components/ui/Dialog.svelte';
@@ -40,6 +41,7 @@
   import { changeWords, dayMonth, inSentence } from './text';
 
   let { params }: { params: Record<string, string> } = $props();
+  const uid = $props.id();
   const name = $derived(`${params.owner}/${params.repo}`);
   const key = $derived(name.toLowerCase());
 
@@ -73,6 +75,8 @@
   const firstRead = $derived(!!repo && !content.trim() && (st === 'reading' || repo.notes.status === 'drafting'));
   const size = $derived(fullness(editing ? draft : content, cap));
   const over = $derived(editing && size === 'over');
+  // Shown under the header, next to Save: below a long document it would be off screen on a phone.
+  const editError = $derived(editing ? (triedOver && over ? 'These notes are too long to save. Remove something first.' : saveError) : '');
 
   const suggestions = $derived(
     approvals.pending.filter((a) => a.action?.tool === 'notes' && String((a.action.payload as { repo?: string } | null)?.repo ?? '').toLowerCase() === key),
@@ -175,7 +179,8 @@
   }
 
   function windowKey(e: KeyboardEvent) {
-    if (!editing || e.defaultPrevented) return;
+    // Keys inside a dialog (their version, discard) belong to the dialog.
+    if (!editing || e.defaultPrevented || (e.target instanceof Element && e.target.closest('dialog'))) return;
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
       e.preventDefault();
       void save();
@@ -256,8 +261,10 @@
 {/snippet}
 
 <div class="page">
-  <PageHeader title={name} back={{ href: '/knowledge', label: 'Knowledge' }} {actions} />
-  {#if size === 'near' || (size === 'over' && !editing)}
+  <PageHeader title={name} back={{ href: '/knowledge', label: 'Knowledge' }} actions={missing ? undefined : actions} />
+  {#if editError}
+    <p id="{uid}-error" class="field-error mt-2" role="alert"><Icon name="alert" class="mt-px" /><span class="min-w-0">{editError}</span></p>
+  {:else if size === 'near' || size === 'over'}
     <p class="mt-2 text-small text-warning-text">These notes are almost full. Shorten them so Bothy has room to add more.</p>
   {/if}
 
@@ -287,7 +294,8 @@
           label="Notes for {name}"
           bind:value={draft}
           busy={saving}
-          error={triedOver && over ? 'These notes are too long to save. Remove something first.' : saveError}
+          error={editError}
+          errorId="{uid}-error"
           theirs={theirs?.content ?? null}
           conflictText="Someone else changed these notes while you were editing."
           onsave={() => save()}

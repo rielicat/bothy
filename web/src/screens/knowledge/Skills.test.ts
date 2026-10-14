@@ -57,10 +57,10 @@ describe('Skills', () => {
   it('lets an admin approve a changed skill from its page', async () => {
     const calls = await start();
     render(SkillView, { params: { name: 'incident-review' } });
-    await screen.findByText("Its files changed since an admin approved it, so it's off until someone reviews it.");
+    await screen.findByText("This skill changed since an admin approved it, so it's off until someone reviews it.");
     await fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url === '/api/skills/incident-review')).toBe(true));
     expect(JSON.parse(calls.find((c) => c.method === 'PATCH')!.body)).toEqual({ enabled: true, hash: 'h2b' });
-    await waitFor(() => expect(screen.queryByText(/Its files changed/)).toBeNull());
+    await waitFor(() => expect(screen.queryByText(/This skill changed since/)).toBeNull());
   });
 });

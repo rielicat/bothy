@@ -26,6 +26,8 @@ describe('Memory', () => {
     await fireEvent.click(within(about).getByRole('button', { name: 'Edit' }));
     const box = within(about).getByLabelText('About you') as HTMLTextAreaElement;
     expect(box.className).not.toMatch(/font-mono/);
+    // The live region is already there while editing, so writing "Saved" into it is announced.
+    expect(within(about).getByRole('status').textContent).toBe('');
     vi.useFakeTimers({ shouldAdvanceTime: true });
     await fireEvent.input(box, { target: { value: `${box.value} Based in Lisbon.` } });
     await fireEvent.click(within(about).getByRole('button', { name: 'Save' }));

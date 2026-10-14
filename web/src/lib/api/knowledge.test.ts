@@ -39,6 +39,10 @@ describe('repository state', () => {
     expect(failReason({ error: 'github: 404 Not Found', truncated: false })).toBe('GitHub says Bothy no longer has access to this repository.');
     expect(failReason({ error: 'dial tcp: i/o timeout', truncated: false })).toBe("Bothy couldn't reach GitHub. It will try again later.");
     expect(failReason({ error: 'panic: nil map', truncated: false })).toBe('Something went wrong while reading it.');
+    // The cap is configurable: never a number the message didn't give, and a rate limit is not a size problem.
+    expect(failReason({ error: 'walk stopped: more than 20000 files', truncated: true })).toBe('Too large to read (more than 20,000 files).');
+    expect(failReason({ error: 'walk stopped', truncated: true })).toBe('Too large to read.');
+    expect(failReason({ error: 'github: API rate limit exceeded', truncated: false })).toBe('GitHub is limiting how often Bothy can read. Try again later.');
   });
 });
 

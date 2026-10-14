@@ -15,6 +15,7 @@
     value = $bindable(''),
     rows = 12,
     error = '',
+    errorId,
     theirs = null,
     conflictText = 'Someone else changed this while you were editing.',
     busy = false,
@@ -28,6 +29,8 @@
     value?: string;
     rows?: number;
     error?: string;
+    /** Set when the page shows `error` itself, next to Save: the field points at it instead of repeating it. */
+    errorId?: string;
     /** The saved version someone else wrote meanwhile; shows the conflict notice. */
     theirs?: string | null;
     conflictText?: string;
@@ -75,14 +78,14 @@
   style:--rows-h="{rows * 24 + 18}px"
   spellcheck="true"
   aria-invalid={error ? 'true' : undefined}
-  aria-describedby={error ? `${uid}-error` : undefined}
+  aria-describedby={error ? (errorId ?? `${uid}-error`) : undefined}
   onkeydown={key}
 ></textarea>
-{#if error}
+{#if error && !errorId}
   <p id="{uid}-error" class="field-error"><Icon name="alert" class="mt-px" /><span class="min-w-0">{error}</span></p>
 {/if}
 
-<Dialog bind:open={compare} title="Their version and yours" size="lg" {busy}>
+<Dialog bind:open={compare} title="Compare versions" size="lg" {busy}>
   <p class="mb-4 text-body text-muted">Struck-through text is only in their version. Underlined text is only in yours.</p>
   <DiffView mode="prose" diff={proseDiff(theirs ?? '', value)} />
   {#snippet footer()}

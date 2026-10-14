@@ -85,7 +85,8 @@
 </script>
 
 {#snippet actions()}
-  {#if session.isAdmin && connected}<Button href="{GITHUB}#repositories">Add repositories</Button>{/if}
+  <!-- An empty list offers "Choose repositories" itself; a second button to the same place would only repeat it. -->
+  {#if session.isAdmin && connected && rows?.length}<Button href="{GITHUB}#repositories">Add repositories</Button>{/if}
 {/snippet}
 
 <Knowledge {actions}>

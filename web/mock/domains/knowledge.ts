@@ -111,8 +111,16 @@ const skillFiles: Record<string, Record<string, string>> = {
   },
 };
 
-const skillBody = (s: SkillMeta) =>
-  `---\nname: ${s.name}\ndescription: ${s.description}\n---\n\n# ${s.name}\n\nUse this when someone asks for release notes or a changelog.\n\n1. Find the last release tag in the repository.\n2. List the pull requests merged since then and group them as new features and fixes.\n3. Write one plain sentence per change, for customers rather than engineers.\n\nKeep the notes under a page. [Our style guide](https://example.com/style) has the tone.`;
+const skillInstructions: Record<string, string> = {
+  'release-notes':
+    'Use this when someone asks for release notes or a changelog.\n\n1. Find the last release tag in the repository.\n2. List the pull requests merged since then and group them as new features and fixes.\n3. Write one plain sentence per change, for customers rather than engineers.\n\nKeep the notes under a page. [Our style guide](https://example.com/style) has the tone.',
+  'incident-review':
+    'Use this after an outage or a customer-facing bug, when someone asks for an incident review.\n\n1. Build a timeline from the chat, the deploys and the alerts, with times in the team\'s time zone.\n2. Say what customers saw and for how long.\n3. List what made it worse and what helped, without naming anyone as the cause.\n4. End with at most three follow-ups, each with an owner.',
+  'onboarding-checklist':
+    'Use this when someone joins the team.\n\n1. Ask which team they join and who their buddy is.\n2. List the accounts to request on day one: GitHub, Slack and the staging dashboard.\n3. Add one small first task from the open issues labelled “good first issue”.',
+};
+
+const skillBody = (s: SkillMeta) => `---\nname: ${s.name}\ndescription: ${s.description}\n---\n\n# ${s.name}\n\n${skillInstructions[s.name] ?? s.description}`;
 
 const skillsEmpty = scenario('skills-empty', 'No skills are installed.', 'knowledge');
 
@@ -172,7 +180,8 @@ export const repos: KnowledgeRepo[] = [
     chunks: 5310,
     bytes: 18_400_000,
     indexed_at: ago(60 * 2),
-    notes: { status: 'ready', untrusted: false, updated_at: ago(60 * 24 * 2) },
+    // The last change in notesHistory below (Priya Rao's edit).
+    notes: { status: 'ready', untrusted: false, updated_at: ago(60 * 26) },
     summary: 'Customer-facing web app, deployed from main.',
   }),
   repo(2, 'acme/api', { sha: sha.api, status: 'indexing', files: 480, progress: { done: 480, total: 1200 }, notes: { status: 'drafting', untrusted: false, updated_at: zero }, summary: '' }),

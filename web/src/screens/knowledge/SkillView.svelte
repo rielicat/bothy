@@ -90,7 +90,7 @@
           tone="warning"
           class="mb-6"
           text={meta?.status === 'changed'
-            ? "Its files changed since an admin approved it, so it's off until someone reviews it."
+            ? "This skill changed since an admin approved it, so it's off until someone reviews it."
             : "This skill is new, so it's off until an admin reviews it."}
           action={session.isAdmin ? { label: meta?.status === 'changed' ? 'Approve' : 'Turn on', onclick: approve } : undefined}
         />
@@ -98,7 +98,9 @@
       {/if}
       <Markdown text={body} />
       <Disclosure class="mt-10" label="Files" variant="section">
-        <ul>
+        <!-- The disclosure's panel is a grid item that would grow to the longest line of an open file;
+             without an intrinsic width of its own the list stays in the column and the file scrolls instead. -->
+        <ul class="[contain:inline-size]">
           {#each skill.files as f (f)}
             <li class="border-b border-border last:border-b-0">
               <button

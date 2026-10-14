@@ -92,17 +92,19 @@
 </script>
 
 <section aria-labelledby="{uid}-h" bind:this={head}>
-  <div class="flex min-h-9 flex-wrap items-center justify-between gap-x-4 gap-y-1">
-    <h2 id="{uid}-h" class="section-title">{title}</h2>
-    <div class="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
-      {#if editing}
+  <!-- The status sits next to Edit; on phones it takes its own line under the heading so Edit never moves.
+       It stays mounted while editing so the live region exists before "Saved" is written into it. -->
+  <div class="flex min-h-9 flex-wrap items-center gap-x-3 pointer-coarse:min-h-11">
+    <h2 id="{uid}-h" class="section-title min-w-0 flex-1">{title}</h2>
+    <span class="text-small text-muted max-sm:order-last max-sm:w-full" role="status">{status === 'saved' ? 'Saved' : status === 'applies' ? 'Changes apply from your next message.' : ''}</span>
+    {#if editing}
+      <div class="ml-auto flex items-center gap-3">
         <Button size="sm" variant="primary" loading={saving} loadingLabel="Saving…" onclick={() => save()}>Save</Button>
         <Button size="sm" onclick={cancel}>Cancel</Button>
-      {:else}
-        <span class="text-small text-muted" role="status">{status === 'saved' ? 'Saved' : status === 'applies' ? 'Changes apply from your next message.' : ''}</span>
-        {#if !empty}<Button size="sm" onclick={edit}>Edit</Button>{/if}
-      {/if}
-    </div>
+      </div>
+    {:else if !empty}
+      <Button size="sm" class="ml-auto" onclick={edit}>Edit</Button>
+    {/if}
   </div>
   <div class="mt-2">
     {#if editing}

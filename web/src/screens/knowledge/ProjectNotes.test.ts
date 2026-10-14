@@ -50,7 +50,7 @@ describe('Project notes', () => {
     expect((screen.getByLabelText('Notes for acme/web') as HTMLTextAreaElement).value).toContain('Keep pull requests small.');
 
     await fireEvent.click(screen.getByRole('button', { name: 'See their version' }));
-    const dialog = screen.getByRole('dialog', { name: 'Their version and yours' });
+    const dialog = screen.getByRole('dialog', { name: 'Compare versions' });
     expect(within(dialog).getByText(/shared date helpers/)).toBeTruthy();
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Keep mine' }));
 
@@ -60,12 +60,22 @@ describe('Project notes', () => {
     expect(await screen.findByText('Saved.')).toBeTruthy();
   });
 
+  it('leaves ⌘S / Ctrl S to the person while they compare versions', async () => {
+    const calls = await start('notes-conflict');
+    await editAndSave('- Mine.');
+    await screen.findByText('Someone else changed these notes while you were editing.');
+    await fireEvent.click(screen.getByRole('button', { name: 'See their version' }));
+    const dialog = screen.getByRole('dialog', { name: 'Compare versions' });
+    await fireEvent.keyDown(within(dialog).getByRole('button', { name: 'Use theirs' }), { key: 's', ctrlKey: true });
+    expect(puts(calls)).toHaveLength(1);
+  });
+
   it('can take their version instead', async () => {
     const calls = await start('notes-conflict');
     await editAndSave('- Mine.');
     await screen.findByText('Someone else changed these notes while you were editing.');
     await fireEvent.click(screen.getByRole('button', { name: 'See their version' }));
-    await fireEvent.click(within(screen.getByRole('dialog', { name: 'Their version and yours' })).getByRole('button', { name: 'Use theirs' }));
+    await fireEvent.click(within(screen.getByRole('dialog', { name: 'Compare versions' })).getByRole('button', { name: 'Use theirs' }));
     await waitFor(() => expect(screen.queryByLabelText('Notes for acme/web')).toBeNull());
     expect(screen.getByText(/shared date helpers/)).toBeTruthy();
     expect(screen.queryByText('Mine.')).toBeNull();
@@ -76,8 +86,24 @@ describe('Project notes', () => {
     const calls = await start('notes-near-full');
     expect(screen.getByText('These notes are almost full. Shorten them so Bothy has room to add more.')).toBeTruthy();
     await editAndSave('More detail. '.repeat(40));
-    expect(await screen.findByText('These notes are too long to save. Remove something first.')).toBeTruthy();
+    // Said once, next to Save rather than under a long document, and the field points at it.
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toBe('These notes are too long to save. Remove something first.');
+    expect(screen.getAllByText('These notes are too long to save. Remove something first.')).toHaveLength(1);
+    expect(screen.getByLabelText('Notes for acme/web').getAttribute('aria-describedby')).toBe(alert.id);
+    expect(screen.getByLabelText('Notes for acme/web').getAttribute('aria-invalid')).toBe('true');
     expect(puts(calls)).toHaveLength(0);
+  });
+
+  it('offers no actions for a repository Bothy does not read', async () => {
+    installApi();
+    approvals.reset();
+    session.ready = false;
+    await session.init();
+    render(ProjectNotes, { params: { owner: 'acme', repo: 'unknown' } });
+    await screen.findByText("Bothy doesn't read this repository.");
+    expect(screen.queryByRole('button', { name: 'Project options' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
   });
 
   it('asks before throwing edits away on Escape', async () => {

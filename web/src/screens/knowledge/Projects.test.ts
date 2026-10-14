@@ -48,6 +48,8 @@ describe('Projects', () => {
     expect(await screen.findByText(text)).toBeTruthy();
     if (action) expect(screen.getByRole('link', { name: action }).getAttribute('href')).toMatch(/^\/settings\/connections\/github/);
     else expect(screen.queryByRole('link', { name: /GitHub|repositories/ })).toBeNull();
+    // The empty state carries the one action; the header doesn't repeat it.
+    expect(screen.queryByRole('link', { name: 'Add repositories' })).toBeNull();
   });
 
   it('shows how to connect GitHub, not an error, before the server has Knowledge', async () => {

@@ -115,7 +115,7 @@ const states: ShotState[] = [
       await typeAtEnd('\n- Keep pull requests small.')(page);
       await button('Save')(page);
       await button('See their version')(page);
-      await page.getByRole('dialog', { name: 'Their version and yours' }).waitFor();
+      await page.getByRole('dialog', { name: 'Compare versions' }).waitFor();
       await settle(page);
     }),
   },
@@ -248,7 +248,7 @@ const states: ShotState[] = [
       await page.getByText('git log --merges').waitFor();
     }),
   },
-  { name: 'skill-changed', route: '/knowledge/skills/incident-review', ready: framed('Its files changed since an admin approved it') },
+  { name: 'skill-changed', route: '/knowledge/skills/incident-review', ready: framed('This skill changed since an admin approved it') },
 ];
 
 shots('knowledge', states);
