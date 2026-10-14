@@ -556,6 +556,11 @@ type ApprovalRepo interface {
 	Seen(ctx context.Context, p PrincipalID, recipient, host string) (bool, error)
 	AddMessage(ctx context.Context, id ApprovalID, m CardMessage) error
 	Messages(ctx context.Context, id ApprovalID) ([]CardMessage, error)
+	// AddVote records one vote on a multi-approver approval: ErrConflict when
+	// the user already voted on it, ErrInvalid for an unknown approval or a
+	// choice other than allow_once or deny.
+	AddVote(ctx context.Context, v ApprovalVote) error
+	Votes(ctx context.Context, id ApprovalID) ([]ApprovalVote, error) // oldest first
 }
 
 type GrantRepo interface {

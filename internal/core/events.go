@@ -18,6 +18,7 @@ const (
 	EvRunFinished       EventType = "run.finished"
 	EvApprovalRequested EventType = "approval.requested"
 	EvApprovalResolved  EventType = "approval.resolved"
+	EvApprovalVoted     EventType = "approval.voted" // ApprovalData: a vote that did not resolve a multi-approver approval
 	EvMessageCreated    EventType = "message.created"
 	EvSessionUpdated    EventType = "session.updated"
 	EvMemoryUpdated     EventType = "memory.updated"

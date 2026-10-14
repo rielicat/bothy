@@ -47,9 +47,79 @@ type PolicyInput struct {
 }
 
 // ApproverReq says who may resolve an approval.
+//
+// A multi-approver approval (Users or Roles set, User empty, AdminOnly false)
+// is resolved by votes: it is allowed once Needed() distinct eligible users
+// have voted allow_once, and denied by the first eligible deny. Requester's
+// allow never counts; the requester may still deny (withdraw). Eligibility is
+// evaluated when the vote is cast, so a disabled or demoted account loses it.
 type ApproverReq struct {
-	User      UserID `json:"user_id"`    // the principal's user; empty when AdminOnly
-	AdminOnly bool   `json:"admin_only"` // admin-class actions: any owner/admin
+	User      UserID   `json:"user_id"`             // the principal's user; empty when AdminOnly or multi-approver
+	AdminOnly bool     `json:"admin_only"`          // admin-class actions: any owner/admin
+	Users     []UserID `json:"users,omitempty"`     // multi-approver: users named by id
+	Roles     []Role   `json:"roles,omitempty"`     // multi-approver: any user holding at least one of these roles
+	Required  int      `json:"required,omitempty"`  // multi-approver: distinct allow votes needed (0 means 1)
+	Requester UserID   `json:"requester,omitempty"` // multi-approver: whose allow never counts
+}
+
+// Multi reports whether the approval is resolved by votes.
+func (r ApproverReq) Multi() bool { return !r.AdminOnly && (len(r.Users) > 0 || len(r.Roles) > 0) }
+
+// Needed is the number of distinct allow votes a multi-approver approval needs.
+func (r ApproverReq) Needed() int { return max(r.Required, 1) }
+
+// Eligible reports whether a user with this role may vote allow on a
+// multi-approver approval. Roles rank owner > admin > member: naming a role
+// admits that role and every higher one. Account state (disabled) is the
+// caller's to check.
+func (r ApproverReq) Eligible(u UserID, role Role) bool {
+	if !r.Multi() || u == "" || u == r.Requester {
+		return false
+	}
+	for _, x := range r.Users {
+		if x == u {
+			return true
+		}
+	}
+	for _, x := range r.Roles {
+		if rank := roleRank(x); rank > 0 && roleRank(role) >= rank {
+			return true
+		}
+	}
+	return false
+}
+
+func roleRank(r Role) int {
+	switch r {
+	case RoleOwner:
+		return 3
+	case RoleAdmin:
+		return 2
+	case RoleMember:
+		return 1
+	}
+	return 0
+}
+
+// ApprovalVote is one approver's vote on a multi-approver approval. A user
+// votes at most once per approval.
+type ApprovalVote struct {
+	Approval ApprovalID `json:"approval_id"`
+	User     UserID     `json:"user_id"`
+	Choice   Choice     `json:"choice"` // allow_once | deny
+	Via      string     `json:"via"`    // web | telegram | discord | slack
+	At       time.Time  `json:"at"`
+}
+
+// AllowVotes counts the distinct allow votes that count towards Needed().
+func AllowVotes(votes []ApprovalVote, r ApproverReq) int {
+	seen := map[UserID]bool{}
+	for _, v := range votes {
+		if v.Choice == AllowOnce && v.User != r.Requester {
+			seen[v.User] = true
+		}
+	}
+	return len(seen)
 }
 
 type Decision struct {
@@ -165,6 +235,9 @@ type Approval struct {
 	ExpiresAt  time.Time      `json:"expires_at"`
 	ParkUntil  time.Time      `json:"park_until,omitempty"`
 	DecidedAt  time.Time      `json:"decided_at,omitempty"`
+	// Votes of a multi-approver approval, oldest first. Approvals.Get, Pending,
+	// Recent and Resolve fill it; repositories leave it empty.
+	Votes []ApprovalVote `json:"votes,omitempty"`
 }
 
 type ApprovalRequest struct {
@@ -192,15 +265,19 @@ type Resolution struct {
 type Approvals interface {
 	// Request persists, renders the Card and publishes approval.requested with
 	// Principal = r.Principal; for AdminOnly approvals it also publishes a copy
-	// with Principal "" (admin broadcast) so every admin's inbox sees it.
-	// approval.resolved is published the same way.
+	// with Principal "" (admin broadcast) so every admin's inbox sees it, and
+	// for multi-approver approvals a copy to each eligible approver's own
+	// principal. approval.resolved and approval.voted are published the same way.
 	Request(ctx context.Context, r ApprovalRequest) (*Approval, error)
 	// Await blocks until resolved, timed out, or ctx done. Timeout: deny =>
 	// ErrApprovalExpired; park => ErrParked (status parked, ParkUntil set).
 	Await(ctx context.Context, id ApprovalID) (Choice, error)
 	// Resolve is a CAS from pending|parked. It checks approver authority, that a
 	// chat press comes from a recorded card message, and that a truncated card is
-	// only ever denied from chat. Publishes approval.resolved.
+	// only ever denied from chat. Publishes approval.resolved. On a
+	// multi-approver approval it records r.By's vote (approval.voted) and
+	// resolves only on a deny or the Needed()th distinct allow; the returned
+	// approval may still be pending.
 	Resolve(ctx context.Context, r Resolution) (*Approval, error)
 	CancelRun(ctx context.Context, run RunID) error
 	// RenderCard renders without persisting (policy preview, tests).

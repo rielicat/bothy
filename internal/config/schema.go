@@ -34,6 +34,7 @@ type Config struct {
 	Skills    SkillsCfg         `yaml:"skills" reload:"hot"`
 	Scheduler SchedulerCfg      `yaml:"scheduler" reload:"hot"`
 	API       APICfg            `yaml:"api" reload:"hot"`
+	Releases  ReleasesCfg       `yaml:"releases" reload:"hot"`
 }
 
 type Server struct {
@@ -389,6 +390,26 @@ type Heartbeat struct {
 type APICfg struct {
 	OpenAICompat bool `yaml:"openai_compat"`
 	Passthrough  bool `yaml:"passthrough"`
+}
+
+// ReleasesCfg configures release_deploy: named environments whose deploys
+// dispatch a GitHub Actions workflow after their approvers agree.
+type ReleasesCfg struct {
+	GitHubToken  string       `yaml:"github_token" secret:"true"` // fine-grained token with Actions read and write on the repos below
+	GitHubAPI    string       `yaml:"github_api" locked:"true"`   // https://api.github.com; GitHub Enterprise Server: https://<host>/api/v3
+	PollInterval Duration     `yaml:"poll_interval"`              // how often a dispatched run is checked
+	FollowFor    Duration     `yaml:"follow_for"`                 // stop following a run after this long
+	Environments []ReleaseEnv `yaml:"environments"`
+}
+
+type ReleaseEnv struct {
+	Name       string            `yaml:"name"`        // ^[a-z0-9][a-z0-9_-]{0,31}$
+	Repo       string            `yaml:"repo"`        // owner/name
+	Workflow   string            `yaml:"workflow"`    // file name under .github/workflows (deploy.yml) or a numeric id
+	RefPattern string            `yaml:"ref_pattern"` // glob over the branch or tag to deploy: main, release/*, v*
+	Inputs     map[string]string `yaml:"inputs"`      // fixed workflow_dispatch inputs
+	Approvers  []string          `yaml:"approvers"`   // user ids (usr_…) or roles (owner, admin, member; a role admits higher ones)
+	Required   int               `yaml:"required"`    // distinct approvers other than the requester: 1 or 2 (0 = 1)
 }
 
 // Duration unmarshals "15m", "720h", "1200ms"; marshals back the same way.

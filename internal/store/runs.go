@@ -300,17 +300,38 @@ var approvalStatuses = []core.ApprovalStatus{core.ApprovalPending, core.Approval
 	core.ApprovalExpired, core.ApprovalParked, core.ApprovalCancelled}
 
 // approvalVisible is the approval form of the Viewer rule: the principal's
-// rows, plus admin-only approvals for admins (Viewer.Admin's first exception).
+// rows, plus admin-only approvals for admins (Viewer.Admin's first exception)
+// and multi-approver approvals the viewer may vote on, by user id or by a
+// role it may hold (Viewer carries no role: Admin stands for owner or admin).
 func approvalVisible(v core.Viewer) (cond string, args []any, ok bool) {
 	cond, args, ok = viewerCond("principal_id", v)
-	if v.System || !v.Admin {
+	if v.System {
 		return cond, args, ok
 	}
-	admin := `json_extract(approver, '$.admin_only') = 1`
-	if !ok {
-		return admin, nil, true
+	var extra []string
+	if v.Admin {
+		extra = append(extra, `json_extract(approver, '$.admin_only') = 1`)
 	}
-	return "(" + cond + " OR " + admin + ")", args, true
+	if v.User != "" {
+		roles := `'member'`
+		if v.Admin {
+			roles += `, 'admin', 'owner'`
+		}
+		extra = append(extra, `(json_extract(approver, '$.admin_only') = 0 AND (
+			EXISTS (SELECT 1 FROM json_each(approver, '$.users') WHERE value = ?) OR
+			EXISTS (SELECT 1 FROM json_each(approver, '$.roles') WHERE value IN (`+roles+`))))`)
+	}
+	if len(extra) == 0 {
+		return cond, args, ok
+	}
+	parts := extra
+	if ok {
+		parts = append([]string{cond}, extra...)
+	}
+	if v.User != "" {
+		args = append(args, string(v.User))
+	}
+	return "(" + strings.Join(parts, " OR ") + ")", args, true
 }
 
 type approvalRepo struct{ h *handle }
@@ -483,6 +504,25 @@ func (r approvalRepo) Messages(ctx context.Context, id core.ApprovalID) ([]core.
 		return m, err
 	}, `SELECT channel, chat_id, thread_id, message_id, truncated FROM approval_messages WHERE approval_id = ?
 		ORDER BY truncated, channel, chat_id, thread_id, message_id`, string(id))
+}
+
+func (r approvalRepo) AddVote(ctx context.Context, v core.ApprovalVote) error {
+	if v.User == "" || !oneOf(v.Choice, core.AllowOnce, core.Deny) {
+		return invalid("approval vote")
+	}
+	_, err := r.h.wq.ExecContext(ctx, `INSERT INTO approval_votes(approval_id, user_id, choice, via, at) VALUES (?,?,?,?,?)`,
+		string(v.Approval), string(v.User), string(v.Choice), v.Via, ms(v.At))
+	return dbErr("add approval vote", err)
+}
+
+func (r approvalRepo) Votes(ctx context.Context, id core.ApprovalID) ([]core.ApprovalVote, error) {
+	return queryAll(ctx, r.h.rq, "approval votes", func(sc scanner) (core.ApprovalVote, error) {
+		var v core.ApprovalVote
+		var at int64
+		err := sc.Scan(&v.Approval, &v.User, &v.Choice, &v.Via, &at)
+		v.At = fromMS(at)
+		return v, err
+	}, `SELECT approval_id, user_id, choice, via, at FROM approval_votes WHERE approval_id = ? ORDER BY at, user_id`, string(id))
 }
 
 const grantCols = `id, principal_id, scope, scope_id, kind, tool, pattern, value, max_se, allow_when_tainted, uses, max_uses,
