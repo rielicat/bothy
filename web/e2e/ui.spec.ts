@@ -1,24 +1,28 @@
 import { expect, test, type Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
+import { probe } from './lib/shots';
 
 const axePath = fileURLToPath(new URL('../node_modules/axe-core/axe.min.js', import.meta.url));
 
-// docs/design/ui.md §4.5, with fixture ids.
+// Every route of docs/design/ui.md §4.5 inside the app, with fixture ids.
 const routes = [
   '/chat',
   '/chat/ses_01jtrip000000000000000000',
   '/approvals',
+  '/approvals?tab=done',
   '/approvals/apr_01jshell00000000000000000',
   '/knowledge',
-  '/knowledge/search',
+  '/knowledge/search?q=redirect',
   '/knowledge/memory',
   '/knowledge/skills',
+  '/knowledge/skills/release-notes',
   '/knowledge/projects/acme/web',
   '/activity',
   '/activity/tasks/run_01jtrip1000000000000000',
   '/activity/schedules',
   '/activity/schedules/sch_01jbrief00000000000000000',
   '/activity/schedules/new',
+  '/activity/schedules/checkin',
   '/activity/releases',
   '/activity/spending',
   '/activity/audit',
@@ -27,7 +31,9 @@ const routes = [
   '/settings/general/personality',
   '/settings/models',
   '/settings/connections',
+  '/settings/connections/slack',
   '/settings/connections/telegram',
+  '/settings/connections/discord',
   '/settings/connections/github',
   '/settings/connections/search',
   '/settings/connections/mcp-docs',
@@ -38,6 +44,9 @@ const routes = [
   '/settings/security/keys',
   '/settings/advanced',
 ];
+
+// Outside the app frame: setup, sign in and the first password (§5).
+const publicRoutes = ['/setup?mock=setup', '/login?mock=logged-out', '/password'];
 
 // §4.5: links already sent to chat apps and bookmarks keep working.
 const redirects: [string, string][] = [
@@ -78,9 +87,12 @@ async function axe(page: Page) {
 }
 
 test('every screen fits a 360 px phone without sideways scrolling', async ({ page }) => {
+  test.setTimeout(240_000);
   const problems = watch(page);
   await page.setViewportSize({ width: 360, height: 760 });
-  for (const r of routes) {
+  await page.goto('/chat?mock=');
+  // The public routes switch the mock to signed out, so they come last.
+  for (const r of [...routes, '/settings', ...publicRoutes]) {
     await page.goto(r);
     await page.waitForLoadState('networkidle');
     expect(await page.evaluate(() => document.documentElement.scrollWidth), r).toBeLessThanOrEqual(360);
@@ -89,11 +101,13 @@ test('every screen fits a 360 px phone without sideways scrolling', async ({ pag
 });
 
 test('every v0.2 address shows a page and every v0.1 address moves to its new one', async ({ page }) => {
+  test.setTimeout(240_000);
   const problems = watch(page);
+  await page.goto('/chat?mock=');
   for (const r of routes) {
     await page.goto(r);
-    // h2: the v0.1 settings frame titles a page hidden in single-user mode (People) with one.
-    await expect(page.locator('h1, h2').first(), r).toBeVisible();
+    await expect(page.locator('h1').first(), r).toBeVisible();
+    expect(new URL(page.url()).pathname, r).toBe(new URL(r, 'http://x').pathname);
     await expect(page.getByText("This page doesn't exist."), r).toHaveCount(0);
   }
   for (const [from, to] of redirects) {
@@ -109,23 +123,27 @@ test('every v0.2 address shows a page and every v0.1 address moves to its new on
   expect(problems).toEqual([]);
 });
 
-// v0.1 screens that already failed axe; each goes when its chunk replaces the
-// screen (docs/design/ui.md §18.3), and §16 wants every route in the end.
-const axeKnown: Record<string, string> = {
-  '/activity/schedules': 'C6: disabled schedules fade their text below 4.5:1',
-  '/activity/schedules/sch_01jbrief00000000000000000': 'C6: the run history table has an empty header',
-  '/activity/spending': 'C6: the v0.1 usage tables overflow the 720 px column and scroll without being focusable',
-  '/settings/people': 'C7: hidden in single-user mode, so the page has no h1',
-  '/settings/advanced': 'C9: the effective config <pre> scrolls without being focusable',
-};
+// §3.3: one left edge, x = 408 at 1280 px, on every page and the chat.
+test('every page and the chat start at the same left edge', async ({ page }) => {
+  test.setTimeout(240_000);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/chat?mock=');
+  for (const r of routes) {
+    await page.goto(r);
+    await page.waitForLoadState('networkidle');
+    expect(await probe(page, { leftEdge: true, overflow: false, minText: false, blur: false, shadows: false, nesting: false, targets: false }), r).toEqual([]);
+  }
+});
 
 test.describe('axe', () => {
   // axe is injected as an inline script, which the CSP would block.
   test.use({ bypassCSP: true });
   for (const scheme of ['light', 'dark'] as const) {
     test(`including contrast, on every route (${scheme})`, async ({ page }) => {
+      test.setTimeout(480_000);
       await page.emulateMedia({ colorScheme: scheme });
-      for (const r of [...routes.filter((r) => !(r in axeKnown)), '/approvals?status=parked']) {
+      await page.goto('/chat?mock=');
+      for (const r of [...routes, '/approvals?status=parked', ...publicRoutes]) {
         await page.goto(r);
         await page.waitForLoadState('networkidle');
         expect.soft(await axe(page), `${r} (${scheme})`).toEqual([]);

@@ -13,7 +13,8 @@
     "preview:mock": "BOTHY_MOCK=1 vite preview",
     "smoke": "playwright test",
     "build": "vite build",
-    "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+    "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings && npm run ui-lint",
+    "ui-lint": "scripts/ui-lint.sh",
     "test": "vitest run"
   },
   "dependencies": {
