@@ -13,7 +13,7 @@ import (
 const (
 	// chunkerVersion prefixes stored file hashes: bumping it re-chunks every
 	// file at the next index although its content did not change.
-	chunkerVersion = "c1"
+	chunkerVersion = "c2"
 
 	chunkMaxLines = 120 // longer chunks are split into windows
 	chunkWindow   = 80
@@ -360,19 +360,19 @@ var (
 	listRE   = re(`^\s*([-*+>|]|\d+[.)])(\s|$)`)
 )
 
-// markdownSpans cuts at headings of level 1-3 outside fenced code; a title
-// is the heading path ("Install > Linux").
+// markdownSpans cuts at headings of level 1-3 outside fenced code and front
+// matter; a title is the heading path ("Install > Linux").
 func markdownSpans(lines []string) []span {
 	var stack [7]string
 	var starts []declStart
-	fence := ""
-	for i := 0; i < len(lines); i++ {
+	fence := "" // the opening run; only a run of the same character at least as long closes it
+	for i := frontMatterEnd(lines); i < len(lines); i++ {
 		l := lines[i]
 		if m := fenceRE.FindStringSubmatch(l); m != nil {
 			switch {
 			case fence == "":
-				fence = m[1][:3]
-			case strings.HasPrefix(strings.TrimSpace(l), fence):
+				fence = m[1]
+			case closesFence(l, fence):
 				fence = ""
 			}
 			continue
@@ -427,6 +427,27 @@ func markdownSpans(lines []string) []span {
 		spans = append(spans, span{s.line, end, s.kind, s.title})
 	}
 	return spans
+}
+
+// frontMatterEnd is the first line after a leading YAML front matter block
+// ("---" … "---" or "..."), whose closing line would read as a setext
+// heading; 0 when there is none.
+func frontMatterEnd(lines []string) int {
+	if len(lines) == 0 || strings.TrimRight(lines[0], " \t") != "---" {
+		return 0
+	}
+	for i := 1; i < len(lines); i++ {
+		if t := strings.TrimRight(lines[i], " \t"); t == "---" || t == "..." {
+			return i + 1
+		}
+	}
+	return 0
+}
+
+func closesFence(line, fence string) bool {
+	t := strings.TrimLeft(line, " ")
+	run := len(t) - len(strings.TrimLeft(t, fence[:1]))
+	return run >= len(fence) && blank(t[run:])
 }
 
 func btoi(b bool) int {

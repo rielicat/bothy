@@ -277,6 +277,24 @@ func TestChunkMarkdown(t *testing.T) {
 	})
 }
 
+// A longer fence holds shorter ones, a closing fence needs the same
+// character, and front matter is no heading.
+func TestChunkMarkdownFencesAndFrontMatter(t *testing.T) {
+	src := "---\ntitle: Guide\nlayout: doc\n---\n\n# Guide\n\nIntro.\n\n````md\n```sh\n# not a heading\n```\n~~~\n# still code\n````\n\n" +
+		"## Next\n\nMore.\n\n~~~\n```\n# code\n~~~~ \n\n## Last\n\nEnd.\nReally.\n"
+	checkChunks(t, "guide.md", src, []want{
+		{"text", "---", 1, 4},
+		{"heading", "Guide", 6, 16},
+		{"heading", "Guide > Next", 18, 25},
+		{"heading", "Guide > Last", 27, 30},
+	})
+	// An unclosed front matter block is ordinary text.
+	checkChunks(t, "loose.md", "---\nnot front matter\n\n# Title\n\nBody.\n", []want{
+		{"text", "---", 1, 2},
+		{"heading", "Title", 4, 6},
+	})
+}
+
 func TestChunkConfigAndText(t *testing.T) {
 	checkChunks(t, "config.toml", "# settings\n[server]\nport = 1\nhost = \"x\"\nmode = \"y\"\n\n[db]\npath = \"a\"\nwal = true\nsize = 3\n", []want{
 		{"section", "[server]", 1, 5},
