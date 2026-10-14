@@ -222,9 +222,15 @@ policy:
 			t.Fatalf("A's checkout was not indexed: %+v", list.Items)
 		}
 	}
-	idxA = kWaitRepo(t, a, idxA.ID, func(r core.IndexedRepo) bool { return r.Status == core.IndexReady })
+	idxA = kWaitRepo(t, a, idxA.ID, func(r core.IndexedRepo) bool {
+		return r.Status == core.IndexReady && r.Notes.Status == core.NotesReady
+	})
 	if idxA.IndexedSHA != ghBase || idxA.Principal != aPrincipal.ID {
 		t.Fatalf("A's index = %+v, want indexed at %s", idxA, ghBase)
+	}
+	notesA := filepath.Join(g.DataDir, "knowledge", string(aPrincipal.ID))
+	if _, err := os.Stat(notesA); err != nil {
+		t.Fatalf("A's project notes: %v", err)
 	}
 	idxPath := "/api/knowledge/repos/" + strconv.FormatInt(idxA.ID, 10)
 
@@ -512,7 +518,7 @@ policy:
 		if code := owner.JSON(t, http.MethodGet, "/api/vault?scope=user:"+string(aID), nil, &secrets); code != http.StatusOK || len(secrets) != 0 {
 			t.Fatalf("A's vault after purge = %d %+v", code, secrets)
 		}
-		for _, p := range []string{wsA, memA, checkoutsA, filepath.Join(g.DataDir, "knowledge", string(aPrincipal.ID))} {
+		for _, p := range []string{wsA, memA, checkoutsA, notesA} {
 			if _, err := os.Stat(p); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("%s after purge: %v, want it gone", p, err)
 			}
