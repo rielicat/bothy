@@ -1,6 +1,6 @@
 import { plural } from './format';
 
-// The server enforces the minimum and the common-password list (SPEC §9.1
+// The server enforces the minimum and the common-password list (SPEC §9.4
 // keeps that list out of the bundle); these only count and match.
 export const MIN_PASSWORD = 12;
 const USERNAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
