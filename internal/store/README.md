@@ -20,3 +20,8 @@ offline `bothy audit archive`, and `Checks` reports `sqlite.version`,
 `data.permissions` (auto-fixable) and `backups.none_recent`. Code inside a `Tx`
 callback must use the `core.Store` it is given: the writer pool has a single
 connection. `conformance.Store` runs against a temp database in the tests.
+Migration 0004 adds `approval_votes` (one vote per approver and approval;
+multi-approver approvals are also visible to their voters) and
+`release_deploys`, served by `Releases()` (`core.ReleaseStore`, outside
+`core.Store`). 0002 and 0003 are placeholders for the v0.2 repositories and
+knowledge migrations and are replaced when those land.

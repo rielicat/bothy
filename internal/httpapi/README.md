@@ -37,3 +37,8 @@ identities, memory files and workspaces, then deletes the user row, whose
 cascade removes sessions, messages, runs and memory events; audit rows stay.
 Compactions and MCP
 installs run in the background, one at a time per session or server.
+`POST /api/approvals/{id}` on a multi-approver approval records a vote and may
+return it still pending; `GET /api/approvals/{id}/votes` gives the caller's
+view of the votes (count, who may vote, `can_vote`/`can_withdraw`), and
+`GET /api/releases` and `GET /api/releases/deploys` list the release
+environments and deploy records (own deploys; everyone's for admins).
