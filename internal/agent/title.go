@@ -33,17 +33,19 @@ func firstAsk(msgs []*core.Message) *core.Message {
 	return nil
 }
 
-// draftTitle names an untitled session after its first message until the
-// generated title arrives; input is the turn being stored, used when no
-// earlier message has text.
-func (r *Runner) draftTitle(ctx context.Context, sid core.SessionID, input []core.Part) string {
-	text := plainText(input)
-	if msgs, err := r.d.Store.Messages().Range(ctx, core.SystemViewer(), sid, 0, titleScan); err == nil {
-		if m := firstAsk(msgs); m != nil {
-			text = m.PlainText()
-		}
+// draftTitle names an untitled session after its first message, the turn
+// just stored included, until the generated title arrives. Bothy's own turns
+// (check-ins, approved actions) name nothing.
+func (r *Runner) draftTitle(ctx context.Context, sid core.SessionID) string {
+	msgs, err := r.d.Store.Messages().Range(ctx, core.SystemViewer(), sid, 0, titleScan)
+	if err != nil {
+		return ""
 	}
-	return core.DraftTitle(r.redact(text))
+	m := firstAsk(msgs)
+	if m == nil {
+		return ""
+	}
+	return core.DraftTitle(r.redact(m.PlainText()))
 }
 
 // titleAsync names a session after its first run (fast slot, metered).

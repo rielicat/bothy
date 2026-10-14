@@ -201,6 +201,27 @@ func TestTitleGeneratedAfterFirstRun(t *testing.T) {
 	})
 }
 
+func TestBothysOwnTurnsNameNoChat(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{steps: []fakes.LLMStep{{Text: []string{"Nothing needs attention."}}}})
+		defer h.close()
+		s, err := h.r.NewSession(h.ctx, h.pid, "schedule", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.sess = s
+		req := h.req("Read HEARTBEAT.md and check the list.")
+		req.Provenance = core.ProvSystem
+		if _, err := h.r.Submit(h.ctx, req); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		if got := h.session().Title; got != "" {
+			t.Fatalf("a check-in named its chat %q", got)
+		}
+	})
+}
+
 func TestTitleKeepsARename(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t, opts{steps: []fakes.LLMStep{{Text: []string{"Sure."}}, {Text: []string{"Again."}}}})

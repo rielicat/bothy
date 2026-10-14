@@ -262,7 +262,7 @@ func (r *Runner) persistTurn(ctx context.Context, rs *runState) error {
 	tc.commit(ctx, r.log)
 	var draft string
 	if rs.sess != nil && rs.sess.Title == "" && !rs.sess.Hidden {
-		draft = r.draftTitle(ctx, req.Session, inputsOf(reqs))
+		draft = r.draftTitle(ctx, req.Session)
 	}
 	titled := false
 	s, err := r.mutateSession(ctx, req.Session, func(s *core.Session) error {
