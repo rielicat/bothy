@@ -821,6 +821,7 @@ export const KindOpenAI: ProviderKind = "openai";
 export const KindGemini: ProviderKind = "gemini";
 export const KindOllama: ProviderKind = "ollama";
 export const KindOpenAICompat: ProviderKind = "openai_compat";
+export const KindBedrock: ProviderKind = "bedrock";
 /**
  * ModelRef is "<provider id>/<model>". The model part may itself contain "/".
  */
@@ -1003,6 +1004,8 @@ export interface ProbeConfig {
   model: string;
   allow_private: boolean;
   api?: string; // openai, openai_compat: auto | responses | chat ("" = auto), as providers[].api
+  region?: string; // bedrock: AWS region; "" = the AWS config's default
+  profile?: string; // bedrock: shared-config profile; "" = AWS_PROFILE or default
 }
 export interface ProbeResult {
   ok: boolean;
@@ -1014,6 +1017,15 @@ export interface ProbeResult {
   cost_micros: Micros;
   api?: string; // openai, openai_compat: the API tested, "responses" or "chat"
   detail: string; // plain-language failure or hint (e.g. OLLAMA_CONTEXT_LENGTH)
+  choices?: ModelChoice[]; // Models with display names, for a model picker
+  credentials?: string; // bedrock: where the AWS credentials came from, never their values
+}
+/**
+ * ModelChoice is one entry of a model picker.
+ */
+export interface ModelChoice {
+  id: string;
+  display: string;
 }
 export interface Detection {
   kind: ProviderKind;
@@ -1021,6 +1033,9 @@ export interface Detection {
   env_var?: string; // e.g. ANTHROPIC_API_KEY; the value never leaves the process
   models?: string[];
   note?: string;
+  region?: string; // bedrock: the AWS config's region, "" when it names none
+  profile?: string; // bedrock: the AWS_PROFILE in use, "" for the default chain
+  source?: string; // bedrock: where the AWS credentials came from, never their values
 }
 export interface ProviderHealth {
   id: string;
@@ -2025,6 +2040,8 @@ export interface ProviderTestReq {
   model: string;
   allow_private: boolean;
   api?: string; // openai, openai_compat: auto | responses | chat, as providers[].api
+  region?: string; // bedrock: AWS region; "" = the server's AWS config
+  profile?: string; // bedrock: shared-config profile; "" = AWS_PROFILE or the default chain
 }
 export interface ChannelTestResp {
   identity: string;

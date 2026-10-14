@@ -45,6 +45,10 @@ type Model struct {
 	Thinking  bool   `json:"thinking,omitempty"`
 	Cache     string `json:"cache,omitempty"` // explicit | implicit | ""
 	Price     *Price `json:"price,omitempty"`
+	// GeoPrice is Bedrock's price for geographic cross-region profiles
+	// (us., eu., …) and in-region use where it differs from Price, the
+	// global profile's.
+	GeoPrice *Price `json:"geo_price,omitempty"`
 }
 
 // Price is USD micros per 1M tokens.
@@ -84,9 +88,12 @@ func Parse(b []byte) (*Catalog, error) {
 	if c.Version != 1 {
 		return nil, fmt.Errorf("catalog: unsupported version %d", c.Version)
 	}
+	negative := func(p *Price) bool {
+		return p != nil && (p.InPerM < 0 || p.OutPerM < 0 || p.CacheReadPerM < 0 || p.CacheWritePerM < 0)
+	}
 	for _, p := range c.Providers {
 		for _, m := range p.Models {
-			if m.Price != nil && (m.Price.InPerM < 0 || m.Price.OutPerM < 0 || m.Price.CacheReadPerM < 0 || m.Price.CacheWritePerM < 0) {
+			if negative(m.Price) || negative(m.GeoPrice) {
 				return nil, fmt.Errorf("catalog: %s/%s: negative price", p.ID, m.ID)
 			}
 		}
@@ -103,7 +110,7 @@ func (c *Catalog) Find(kind core.ProviderKind, baseURL string) *Provider {
 	for i := range c.Providers {
 		p := &c.Providers[i]
 		switch kind {
-		case core.KindAnthropic, core.KindOpenAI, core.KindGemini:
+		case core.KindAnthropic, core.KindOpenAI, core.KindGemini, core.KindBedrock:
 			if p.Kind == kind {
 				return p
 			}
@@ -127,9 +134,24 @@ func hostOf(raw string) string {
 var dateSuffix = regexp.MustCompile(`-(20[0-9]{6}|[0-9]{4}-[0-9]{2}-[0-9]{2})$`)
 
 // Model finds id exactly or, failing that, ignoring a trailing release date
-// ("claude-haiku-4-5" matches "claude-haiku-4-5-20251001" and back).
+// ("claude-haiku-4-5" matches "claude-haiku-4-5-20251001" and back). Bedrock
+// entries are keyed by base model id: a cross-region profile id or its ARN
+// finds its model, priced at GeoPrice unless it is a global. profile.
 func (p *Provider) Model(id string) (Model, bool) {
 	if p == nil {
+		return Model{}, false
+	}
+	if p.Kind == core.KindBedrock {
+		geo, base := bedrockModel(id)
+		for _, m := range p.Models {
+			if m.ID == base {
+				if geo != "global" && m.GeoPrice != nil {
+					m.Price = m.GeoPrice
+				}
+				m.GeoPrice = nil
+				return m, true
+			}
+		}
 		return Model{}, false
 	}
 	for _, m := range p.Models {
@@ -144,6 +166,23 @@ func (p *Provider) Model(id string) (Model, bool) {
 		}
 	}
 	return Model{}, false
+}
+
+var (
+	bedrockARN = regexp.MustCompile(`^arn:aws[a-z-]*:bedrock:[a-z0-9-]*:[0-9]*:(?:inference-profile|foundation-model)/(.+)$`)
+	bedrockGeo = regexp.MustCompile(`^(us|eu|apac|jp|au|ca|us-gov|global)\.(.+)$`)
+)
+
+// bedrockModel splits a Bedrock model, inference-profile id or ARN into its
+// geography ("" in-region) and base model id.
+func bedrockModel(id string) (geo, base string) {
+	if m := bedrockARN.FindStringSubmatch(id); m != nil {
+		id = m[1]
+	}
+	if m := bedrockGeo.FindStringSubmatch(id); m != nil {
+		return m[1], m[2]
+	}
+	return "", id
 }
 
 // Info converts an entry into a ModelInfo for ref.

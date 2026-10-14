@@ -6,7 +6,7 @@ contributes the `web_fetch`, `web_search` and `net_allow` tools, and the
 doctor checks `egress.wildcards`, `egress.shared_tenant_allowed`,
 `egress.presets_enabled` and `mcp.http_plaintext`.
 
-## Three dialers
+## Three dialers (and the credentials client)
 
 | Dialer | Used by | May reach |
 |---|---|---|
@@ -19,10 +19,31 @@ resolver (answers cached for `egress.dns.max_ttl`, at most 60 s), refuse the
 destination if **any** answer is blocked or denylisted, dial only address
 literals, and re-check the final socket address in `net.Dialer.Control`. The blocklist (`addr.go`) unmaps
 IPv4-mapped addresses and re-checks the IPv4 embedded in NAT64, 6to4, Teredo
-and IPv4-compatible forms. Cloud metadata addresses are refused even with
-`AllowPrivate`. Hosts are normalized to lowercase punycode; numeric forms that
-inet_aton accepts (`2130706433`, `0x7f000001`, `017700000001`, `127.1`) are
-treated as the IPv4 literals they are.
+and IPv4-compatible forms. Cloud metadata addresses, and the ECS and EKS
+container credential endpoints (`169.254.170.2`, `169.254.170.23`,
+`fd00:ec2::23`), are refused even with `AllowPrivate`. Hosts are normalized
+to lowercase punycode; numeric forms that inet_aton accepts (`2130706433`,
+`0x7f000001`, `017700000001`, `127.1`) are treated as the IPv4 literals they
+are.
+
+## Credentials client
+
+`CredentialsClient(relativeURI, fullURI)` is the one exception to the
+metadata block, for the bedrock provider's AWS credential chain only
+(`cmd/bothy` hands it to `provider.Deps.Credentials`; boxes, tools,
+`web_fetch` and MCP never get it). It dials fixed address literals with a
+socket `Control` that accepts exactly the target: the instance metadata
+service at `169.254.169.254:80` and `[fd00:ec2::254]:80`, where only the
+IMDSv2 token `PUT /latest/api/token` (with its TTL header) and token-bearing
+`GET`s of `/latest/meta-data/iam/security-credentials/[<role>]` and
+`/latest/meta-data/placement/region` pass (IMDSv1, user data and the identity
+document are refused); `GET` of exactly `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`
+on `169.254.170.2:80`; and `GET` of exactly `AWS_CONTAINER_CREDENTIALS_FULL_URI`
+(an ECS/EKS agent address or loopback is dialed directly, a host name through
+the ordinary pinned dial). No proxy, no redirects, no keep-alive, response
+bodies capped at 1 MiB, `egress.deny` honoured; every connection and refusal
+is an `egress_log` row of the system dialer with destination
+`credentials:aws`.
 
 ## Box proxy
 

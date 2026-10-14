@@ -115,10 +115,10 @@ func (f *Facade) updateBanner() {
 	}
 	f.bannerMu.Lock()
 	defer f.bannerMu.Unlock()
-	var failed []string
+	var failed []core.ProviderHealth
 	for _, h := range f.Health() {
 		if h.State == stateAuthFailed {
-			failed = append(failed, h.ID)
+			failed = append(failed, h)
 		}
 	}
 	f.mu.Lock()
@@ -128,9 +128,12 @@ func (f *Facade) updateBanner() {
 	f.mu.Unlock()
 	switch {
 	case raise:
+		text := "The " + failed[0].ID + " provider rejected its API key. Update the key in Settings → Vault."
+		if failed[0].Kind == core.KindBedrock {
+			text = "The " + failed[0].ID + " provider cannot use this server's AWS credentials. The doctor says what to fix."
+		}
 		f.d.Bus.Publish(core.Event{Type: core.EvBanner, Data: core.BannerData{
-			Level: "error", Code: "provider_auth", Action: "/settings/providers",
-			Text: "The " + failed[0] + " provider rejected its API key. Update the key in Settings → Vault.",
+			Level: "error", Code: "provider_auth", Action: "/settings/providers", Text: text,
 		}})
 	case clear:
 		f.d.Bus.Publish(core.Event{Type: core.EvBanner, Data: core.BannerData{Code: "provider_auth", Clear: true}})

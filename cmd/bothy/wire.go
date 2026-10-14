@@ -151,7 +151,8 @@ func (a *app) buildRest(ctx context.Context) error {
 		WorkDir: dirs.Work, RunDir: dirs.Run, Clock: a.clock, Log: a.log}); err != nil {
 		return err
 	}
-	if a.llm, err = provider.New(provider.Deps{Config: a.cfg, Vault: a.vault, Egress: a.egress, Env: os.Environ, Clock: a.clock, Log: a.log, Bus: a.bus}); err != nil {
+	if a.llm, err = provider.New(provider.Deps{Config: a.cfg, Vault: a.vault, Egress: a.egress, Env: os.Environ, Clock: a.clock, Log: a.log, Bus: a.bus,
+		Credentials: a.egress.CredentialsClient}); err != nil {
 		return err
 	}
 	if a.budget, err = budget.New(budget.Deps{Store: a.db, Config: a.cfg, Bus: a.bus, Audit: a.audit, Clock: a.clock, Log: a.log}); err != nil {

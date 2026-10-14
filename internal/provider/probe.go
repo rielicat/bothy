@@ -42,6 +42,9 @@ func (f *Facade) Probe(ctx context.Context, pc core.ProbeConfig) (core.ProbeResu
 	default:
 		return core.ProbeResult{}, fmt.Errorf("provider: unknown api %q: %w", pc.API, core.ErrInvalid)
 	}
+	if pc.Kind == core.KindBedrock {
+		return f.probeBedrock(ctx, pc)
+	}
 	base := strings.TrimRight(pc.BaseURL, "/")
 	if base == "" {
 		base = defaultBase(pc.Kind)
@@ -83,6 +86,7 @@ func (f *Facade) Probe(ctx context.Context, pc core.ProbeConfig) (core.ProbeResu
 	for _, m := range found {
 		res.Models = append(res.Models, m.Ref.Model)
 	}
+	res.Choices = choices(found)
 	model := pc.Model
 	if model == "" && len(res.Models) > 0 {
 		model = res.Models[0]
@@ -105,50 +109,77 @@ func (f *Facade) Probe(ctx context.Context, pc core.ProbeConfig) (core.ProbeResu
 		numCtx = info.Context
 	}
 
+	notes, ok := f.exercise(ctx, probeCall{cl: cl, effort: effort, model: model, info: info, numCtx: numCtx, firstMax: 1,
+		base: base, kind: pc.Kind, asked: pc.API, api: api}, &res)
+	if !ok {
+		return res, nil
+	}
+	if isOllama {
+		notes = append(notes, ollamaContext(ctx, oc, model, trained, &res)...)
+	}
+	res.Detail = strings.Join(notes, " ")
+	return res, nil
+}
+
+// probeCall is what exercise needs to test one model.
+type probeCall struct {
+	cl         client
+	effort     *openai.EffortMemory // nil for clients without an OpenAI API choice
+	model      string
+	info       core.ModelInfo
+	numCtx     int
+	firstMax   int // output tokens of the first completion
+	base       string
+	kind       core.ProviderKind
+	asked, api string // providers[].api as asked and as resolved
+}
+
+// exercise makes the probe's completion and forced tool call. ok is false
+// when the completion failed; res.Detail then says why.
+func (f *Facade) exercise(ctx context.Context, p probeCall, res *core.ProbeResult) (notes []string, ok bool) {
 	t0 := f.clock.Now()
-	resp, err := cl.Stream(ctx, &core.Request{
-		Model: model, MaxTokens: 1, NumCtx: numCtx,
+	resp, err := p.cl.Stream(ctx, &core.Request{
+		Model: p.model, MaxTokens: p.firstMax, NumCtx: p.numCtx,
 		Messages: []core.Message{{Role: core.MsgUser, Parts: []core.Part{{Type: core.PartText, Text: "Reply with the single word: ok"}}}},
 	}, nil)
 	res.Latency = f.clock.Now().Sub(t0)
 	if err != nil {
-		res.Detail = plain(err, base, pc.Kind, api)
-		return res, nil
+		res.Detail = plain(err, p.base, p.kind, p.api)
+		return nil, false
 	}
 	res.OK = true
 	res.UsageReported = !resp.UsageEstimated
 	// A reply cut off at the one-token limit may carry no usage (a Responses
 	// incomplete event can have none); the tool call then decides.
 	cutShort := resp.UsageEstimated && resp.Stop == core.StopMaxTokens
-	res.Cost = info.Price.Cost(resp.Usage)
+	res.Cost = p.info.Price.Cost(resp.Usage)
 
-	var notes []string
-	if n := apiNote(pc.Kind, pc.API, api); n != "" {
+	if n := apiNote(p.kind, p.asked, p.api); n != "" {
 		notes = append(notes, n)
 	}
 	toolTokens := 256
-	if api == openai.APIResponses {
+	if p.api == openai.APIResponses {
 		// Reasoning counts against max_output_tokens there, and a
 		// reasoning model can spend 256 before it calls the tool.
 		toolTokens = 1024
 	}
-	tresp, terr := cl.Stream(ctx, &core.Request{
-		Model: model, MaxTokens: toolTokens, ToolChoice: "required", NumCtx: numCtx,
+	tresp, terr := p.cl.Stream(ctx, &core.Request{
+		Model: p.model, MaxTokens: toolTokens, ToolChoice: "required", NumCtx: p.numCtx,
 		Tools:    []core.ToolDef{{Name: probeTool, Description: "Echo a value back.", Schema: probeSchema}},
 		Messages: []core.Message{{Role: core.MsgUser, Parts: []core.Part{{Type: core.PartText, Text: `Call the probe_echo tool with value "ok".`}}}},
 	}, nil)
-	mode := effort.Mode("probe", model)
+	mode := p.effort.Mode("probe", p.model)
 	switch {
 	case terr != nil && mode == openai.EffortNoTools:
-		notes = append(notes, noToolsOverChat(pc.Kind, terr))
+		notes = append(notes, noToolsOverChat(p.kind, terr))
 	case terr != nil:
-		notes = append(notes, "Tool calling failed: "+plain(terr, base, pc.Kind, api))
+		notes = append(notes, "Tool calling failed: "+plain(terr, p.base, p.kind, p.api))
 	default:
 		res.ToolCalling = calledProbe(tresp)
 		res.UsageReported = (res.UsageReported || cutShort) && !tresp.UsageEstimated
-		res.Cost += info.Price.Cost(tresp.Usage)
+		res.Cost += p.info.Price.Cost(tresp.Usage)
 		if mode == openai.EffortOff {
-			notes = append(notes, reasoningOffNote(pc.Kind))
+			notes = append(notes, reasoningOffNote(p.kind))
 		}
 		switch {
 		case res.ToolCalling:
@@ -163,12 +194,21 @@ func (f *Facade) Probe(ctx context.Context, pc core.ProbeConfig) (core.ProbeResu
 	if !res.UsageReported {
 		notes = append(notes, "The server does not report token usage; Bothy will estimate it.")
 	}
-	res.Context = info.Context
-	if isOllama {
-		notes = append(notes, ollamaContext(ctx, oc, model, trained, &res)...)
+	res.Context = p.info.Context
+	return notes, true
+}
+
+// choices turns discovered models into picker entries.
+func choices(found []core.ModelInfo) []core.ModelChoice {
+	var out []core.ModelChoice
+	for _, m := range found {
+		d := m.Display
+		if d == "" {
+			d = m.Ref.Model
+		}
+		out = append(out, core.ModelChoice{ID: m.Ref.Model, Display: d})
 	}
-	res.Detail = strings.Join(notes, " ")
-	return res, nil
+	return out
 }
 
 // probeInfo describes the probed model from the catalog and discovery.
@@ -323,6 +363,9 @@ func plain(err error, base string, kind core.ProviderKind, api string) string {
 	}
 	switch pe.Kind {
 	case core.ErrKindAuth:
+		if kind == core.KindBedrock {
+			return bedrockAuthText(pe.Msg)
+		}
 		return "The provider rejected the API key: " + pe.Msg
 	case core.ErrKindNetwork:
 		msg := "Could not reach " + host + ": " + pe.Msg

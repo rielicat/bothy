@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -49,6 +50,8 @@ type Service struct {
 	// configured system resolver.
 	resolver resolver
 	dialAddr func(ctx context.Context, network, addr string, allowPrivate bool) (net.Conn, error)
+	// dialCreds is CredentialsClient's dialer (credsDial when nil).
+	dialCreds func(ctx context.Context, ap netip.AddrPort) (net.Conn, error)
 
 	dns   dnsCache
 	logq  logQueue

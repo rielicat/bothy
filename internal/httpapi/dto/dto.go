@@ -244,7 +244,9 @@ type ProviderTestReq struct {
 	SecretRef    string            `json:"secret_ref,omitempty"`
 	Model        string            `json:"model"`
 	AllowPrivate bool              `json:"allow_private"`
-	API          string            `json:"api,omitempty"` // openai, openai_compat: auto | responses | chat, as providers[].api
+	API          string            `json:"api,omitempty"`     // openai, openai_compat: auto | responses | chat, as providers[].api
+	Region       string            `json:"region,omitempty"`  // bedrock: AWS region; "" = the server's AWS config
+	Profile      string            `json:"profile,omitempty"` // bedrock: shared-config profile; "" = AWS_PROFILE or the default chain
 }
 
 type ChannelTestResp struct {

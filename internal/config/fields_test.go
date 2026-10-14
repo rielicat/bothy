@@ -125,7 +125,7 @@ func TestSchema(t *testing.T) {
 	if p := prop("providers", "[]", "api_key"); p["x-secret"] != true || p["pattern"] == nil {
 		t.Errorf("api_key %v", p)
 	}
-	if p := prop("providers", "[]", "type"); len(p["enum"].([]any)) != 5 {
+	if p := prop("providers", "[]", "type"); len(p["enum"].([]any)) != 6 {
 		t.Errorf("type enum %v", p)
 	}
 	if p := prop("providers", "[]", "enabled"); p["type"].([]any)[1] != "null" {

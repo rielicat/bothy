@@ -16,7 +16,23 @@ services:
       BOTHY_DEPLOYMENT: container        # listen 0.0.0.0:8080 inside; exposure gate still applies
       BOTHY_SANDBOX__BACKEND: sandboxd
       GOMEMLIMIT: 48MiB
+      # Amazon Bedrock uses this server's AWS access; Bothy never stores AWS keys.
+      # On an AWS host the role works with no config here: an ECS task role, EKS
+      # IRSA / Pod Identity, or an EC2 instance role (set the metadata hop limit
+      # to 2 so containers reach IMDSv2; that opens IMDS to the host's other
+      # containers too). On a laptop, sign in on the host (aws sso login
+      # --profile <name>), name the profile and region below and mount ~/.aws
+      # read-only (the second volumes line replaces the first). Bothy cannot save
+      # a renewed SSO token there: run aws sso login on the host again when the
+      # doctor asks, or add the token cache writable to that volumes list:
+      # "${HOME}/.aws/sso/cache:/home/nonroot/.aws/sso/cache". Linux: let uid
+      # 65532 read the files (and write sso/cache when it is mounted writable):
+      # setfacl -R -m u:65532:rX ~/.aws && setfacl -R -d -m u:65532:rX ~/.aws
+      # AWS_PROFILE: my-sso-profile
+      # AWS_REGION: us-west-2
+      # HOME: /home/nonroot
     volumes: [data:/data, keys:/keys, work:/work, run:/run/bothy]
+    # volumes: [data:/data, keys:/keys, work:/work, run:/run/bothy, "${HOME}/.aws:/home/nonroot/.aws:ro"]
     tmpfs: ["/tmp:size=32m,mode=1777,nosuid,nodev,noexec"]
     mem_limit: 256m
     pids_limit: 256

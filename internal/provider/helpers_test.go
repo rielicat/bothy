@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -71,8 +73,27 @@ func (s *syncBuffer) String() string {
 	return s.b.String()
 }
 
+// isolateAWS keeps the AWS SDK, which reads the process environment and
+// ~/.aws itself, away from the developer's credentials.
+func isolateAWS(t *testing.T) string {
+	t.Helper()
+	for _, v := range []string{"AWS_PROFILE", "AWS_DEFAULT_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION", "AWS_ACCESS_KEY_ID",
+		"AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_WEB_IDENTITY_TOKEN_FILE", "AWS_ROLE_ARN",
+		"AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "AWS_CONTAINER_CREDENTIALS_FULL_URI", "AWS_CONTAINER_AUTHORIZATION_TOKEN",
+		"AWS_EC2_METADATA_SERVICE_ENDPOINT", "AWS_ENDPOINT_URL", "AWS_USE_FIPS_ENDPOINT", "AWS_USE_DUALSTACK_ENDPOINT", "AWS_CA_BUNDLE"} {
+		t.Setenv(v, "")
+		os.Unsetenv(v)
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("AWS_CONFIG_FILE", filepath.Join(home, ".aws", "config"))
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(home, ".aws", "credentials"))
+	return home
+}
+
 func newHarness(t *testing.T, providers []config.Provider, main ...string) *harness {
 	t.Helper()
+	isolateAWS(t)
 	cfg := config.Default()
 	cfg.Providers = providers
 	cfg.Models = config.Models{Main: main}
