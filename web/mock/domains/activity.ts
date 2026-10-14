@@ -459,7 +459,9 @@ on('GET', '/api/schedules/{id}/runs', (_q, res, m) => json(res, 200, { items: ru
 // Environments come from config (the connections domain) so edits in Settings show here; the approvals domain adds the deploys its approved cards started.
 on('GET', '/api/releases', (req, res) => {
   if (noReleases(req)) return json(res, 200, { environments: [], deploys: [] });
-  json(res, 200, { environments: releaseEnvironments(req), deploys: noDeploys(req) || empty(req) ? [] : [...deploys, ...approvalState.deploys] });
+  // The approvals domain's deploys carry only what its cards read; the server's always have these too.
+  const started = approvalState.deploys.map((d) => ({ session_id: '', requested_by: member.id, approved_by: [owner.id], finished_at: '0001-01-01T00:00:00Z', ...d }));
+  json(res, 200, { environments: releaseEnvironments(req), deploys: noDeploys(req) || empty(req) ? [] : [...deploys, ...started] });
 });
 
 // Today's bar on the chart matches the meter in every spending scenario.

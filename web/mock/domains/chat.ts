@@ -52,7 +52,7 @@ export const sessions: Session[] = [
   ses(S.paused, 'Plan the team offsite', 'telegram', 160),
   ses(ids.brief, 'Morning briefing · Mon 12 Oct', 'schedule', 60 * 9),
   ses(S.pricing, 'Q3 pricing notes', 'web', 60 * 22, { created_at: at(15, 2, 1), last_message_at: at(15, 10, 1) }),
-  ses('ses_01jbudget0000000000000000', 'Household budget spreadsheet', 'web', 60 * 26, { taint: 1 }),
+  ses('ses_01jbudget0000000000000000', 'Team budget spreadsheet', 'web', 60 * 26, { taint: 1 }),
   ses('ses_01jslack00000000000000000', 'Release notes draft', 'slack', 60 * 50),
   ses('ses_01jrecipe0000000000000000', 'Dinner ideas without dairy', 'discord', 60 * 24 * 9),
   ses('ses_01jfamily0000000000000000', 'Family group', 'telegram', 40, { principal_id: 'spc_01jfamily0000000000000000', taint: 2 }),
