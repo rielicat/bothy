@@ -370,7 +370,7 @@ func searchCopy(tool, query string) plainCard {
 	case toolKnowledge:
 		p = plainCard{question: "Search the code and notes for " + q + "?", verb: "Search", ing: "searching the code and notes for " + q}
 	default:
-		p = plainCard{question: "Look for more tools for " + q + "?", verb: "Look for tools", ing: "looking for more tools"}
+		p = plainCard{question: "Search Bothy's other abilities for " + q + "?", verb: "Search", ing: "searching Bothy's other abilities for " + q}
 	}
 	p.keepCode = true
 	p.add("Search", query, false)

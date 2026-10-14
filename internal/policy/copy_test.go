@@ -140,7 +140,7 @@ func TestPlainCopy(t *testing.T) {
 		{name: "knowledge_search", a: action("knowledge_search", core.ActSearch, core.SERead, map[string]any{"query": "auth"}), s: spec("knowledge_search", core.SERead),
 			question: "Search the code and notes for “auth”?", primary: "Search", ing: "searching the code and notes for “auth”", labels: []string{"Search"}},
 		{name: "tool_search", a: action("tool_search", core.ActSearch, core.SERead, map[string]any{"query": "calendar"}), s: spec("tool_search", core.SERead),
-			question: "Look for more tools for “calendar”?", primary: "Look for tools", ing: "looking for more tools", labels: []string{"Search"}},
+			question: "Search Bothy's other abilities for “calendar”?", primary: "Search", ing: "searching Bothy's other abilities for “calendar”", labels: []string{"Search"}},
 		{name: "skill_load", a: action("skill_load", core.ActSkill, core.SERead, map[string]any{"name": "pdf"}), s: spec("skill_load", core.SERead),
 			question: "Use the “pdf” skill?", primary: "Use skill", ing: "using the “pdf” skill", labels: []string{"Skill"}},
 		{name: "skill_read", a: action("skill_read", core.ActSkill, core.SERead, map[string]any{"name": "pdf", "path": "forms.md"}), s: spec("skill_read", core.SERead),

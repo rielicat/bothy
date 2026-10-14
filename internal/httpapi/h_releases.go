@@ -134,9 +134,9 @@ func (s *Server) approverText(ctx context.Context, r core.ApproverReq) string {
 // withVotes rereads approvals taken straight from the store (run details,
 // already filtered for the caller) through core.Approvals, which fills
 // Votes, Approvals and Requester.
-func (s *Server) withVotes(ctx context.Context, aps []*core.Approval) error {
+func (s *Server) withVotes(ctx context.Context, v core.Viewer, aps []*core.Approval) error {
 	for i, ap := range aps {
-		full, err := s.d.Approvals.Get(ctx, core.SystemViewer(), ap.ID)
+		full, err := s.d.Approvals.Get(ctx, v, ap.ID)
 		switch {
 		case err == nil:
 			aps[i] = full

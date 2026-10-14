@@ -224,12 +224,14 @@ type Card struct {
 	Expires  time.Time   `json:"expires"`
 	WebURL   string      `json:"web_url"` // public_url + /approvals/<id>
 
-	Question     string   `json:"question"`              // "Delete notes/staging.md?"
-	Consequence  string   `json:"consequence,omitempty"` // "This can't be undone."
-	PrimaryLabel string   `json:"primary_label"`         // allow_once's verb ("Delete file"), else "Allow for this chat"
-	Ing          string   `json:"ing"`                   // "deleting notes/staging.md", as in "You approved …"
-	Kind         CardKind `json:"kind"`
-	Tone         CardTone `json:"tone"`
+	// Plain copy, set on every card rendered since v0.2; cards stored before
+	// that lack it, hence omitempty.
+	Question     string   `json:"question,omitempty"`      // "Delete notes/staging.md?"
+	Consequence  string   `json:"consequence,omitempty"`   // "This can't be undone."
+	PrimaryLabel string   `json:"primary_label,omitempty"` // allow_once's verb ("Delete file"), else "Allow for this chat"
+	Ing          string   `json:"ing,omitempty"`           // "deleting notes/staging.md", as in "You approved …"
+	Kind         CardKind `json:"kind,omitempty"`
+	Tone         CardTone `json:"tone,omitempty"`
 }
 
 type ApprovalStatus string
