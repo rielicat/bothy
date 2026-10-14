@@ -102,7 +102,8 @@ func (r *Runner) refineAnswer(rs *runState, asm *assembler, step int, resp *core
 	msg := core.Message{Role: core.MsgAssistant}
 	text := out.Text
 	if text == "" || (trace.Winner == 0 && text == strings.TrimSpace(first.Text)) {
-		// The run's own answer won unchanged: keep its thinking parts too.
+		// No draft had text, or the run's own answer won unchanged: keep
+		// its parts, thinking included.
 		msg.Parts = slices.Clone(resp.Message.Parts)
 		text = resp.Message.PlainText()
 	} else {

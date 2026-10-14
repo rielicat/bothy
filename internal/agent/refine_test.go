@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"github.com/rielicat/bothy/internal/agent/refine"
 	"github.com/rielicat/bothy/internal/config"
@@ -386,4 +387,42 @@ func TestRefineStopsForANewMessage(t *testing.T) {
 			t.Fatalf("reply %q", msg.PlainText())
 		}
 	})
+}
+
+func TestRefineStopsBeforeTheTimeLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		maxTime time.Duration
+		calls   int
+	}{
+		{"no time left to start", 4 * time.Second, 1},
+		{"a draft outlasts the margin", time.Minute, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				slow := say("Final answer: 2")
+				slow.Block = make(chan struct{}) // never closed: only the context ends it
+				h := newHarness(t, opts{cfg: refineCfg(2, 1, true), steps: []fakes.LLMStep{say("It is 1.\nFinal answer: 1"), slow}})
+				defer h.close()
+				req := h.req("Quick")
+				on := true
+				req.Refine, req.Limits = &on, &core.RunLimits{MaxTime: tc.maxTime}
+				res, err := h.r.Submit(h.ctx, req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				synctest.Wait()
+				time.Sleep(2 * tc.maxTime)
+				synctest.Wait()
+				run := h.run(res.Run)
+				if run.Status != core.RunDone || len(h.requests()) != tc.calls {
+					t.Fatalf("run %s (%s) after %d calls", run.Status, run.Error, len(h.requests()))
+				}
+				msg, tr := h.answer()
+				if tr.Fallback != refine.FallbackTime || tr.Calls != tc.calls || msg.PlainText() != "It is 1.\nFinal answer: 1" {
+					t.Fatalf("trace %+v reply %q", tr, msg.PlainText())
+				}
+			})
+		})
+	}
 }
