@@ -207,6 +207,8 @@ func (r *Runner) renderMessage(m *core.Message, group int) histMsg {
 			}
 		case core.PartFile:
 			p = fileNote(p)
+		case core.PartRefine:
+			continue // the trace of how the answer was refined is for people only
 		}
 		cp.Parts = append(cp.Parts, p)
 		h.regions = append(h.regions, reg)

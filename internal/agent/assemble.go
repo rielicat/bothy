@@ -39,6 +39,7 @@ type assembler struct {
 	maxOut   int
 	temp     *float64 // /v1 client sampling settings
 	stop     []string
+	extra    int // tokens of messages a refine call appends after the fit
 
 	mu    sync.Mutex
 	built map[core.ModelRef]assembled
@@ -58,6 +59,13 @@ func (r *Runner) newAssembler(rs *runState, hist []histMsg) *assembler {
 		stop:     rs.req.Stop,
 		built:    map[core.ModelRef]assembled{},
 	}
+}
+
+// withExtra is a copy whose fits leave room for extra tokens of messages
+// appended to the built request.
+func (a *assembler) withExtra(extra int) *assembler {
+	return &assembler{r: a.r, ws: a.ws, standing: a.standing, s2: a.s2, specs: a.specs, snap: a.snap, hist: a.hist,
+		maxOut: a.maxOut, temp: a.temp, stop: a.stop, extra: extra, built: map[core.ModelRef]assembled{}}
 }
 
 func (a *assembler) result(ref core.ModelRef) (assembled, bool) {
@@ -107,7 +115,7 @@ func (a *assembler) assemble(m core.ModelInfo, load bool) assembled {
 		toolsTok = est(string(b))
 	}
 	reserve := reserveFor(c, p, m.Context)
-	budget := m.Context - reserve
+	budget := m.Context - reserve - a.extra
 	fixed := est(sys1) + est(s2) + toolsTok
 	if budget > 0 && fixed > budget && len(defs) > 0 {
 		defs, toolsTok = nil, 0

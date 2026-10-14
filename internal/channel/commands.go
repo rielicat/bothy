@@ -45,12 +45,13 @@ var commands = map[string]commandSpec{
 	"unpin":   {usage: "/unpin <n>", help: "remove pin number n"},
 	"compact": {usage: "/compact", help: "summarize older context now"},
 	"model":   {usage: "/model [provider/model]", help: "set or clear this conversation's model"},
+	"refine":  {usage: "/refine [on|off|default]", help: "check answers more carefully here (slower, costs more)"},
 	"usage":   {usage: "/usage", help: "today's and this conversation's cost"},
 	"pair":    {access: accessAnyone, usage: "/pair CODE", help: "link this account with a code from the web UI"},
 	"start":   {access: accessAnyone},
 }
 
-var helpOrder = []string{"stop", "new", "status", "usage", "pin", "pins", "unpin", "compact", "model", "pair", "stopall", "resume", "help"}
+var helpOrder = []string{"stop", "new", "status", "usage", "pin", "pins", "unpin", "compact", "model", "refine", "pair", "stopall", "resume", "help"}
 
 const maxPinRunes = 1000
 
@@ -122,6 +123,8 @@ func (h *Hub) runCommand(ctx context.Context, a *adapter, in core.Inbound, res c
 		}
 	case "model":
 		say(h.cmdModel(ctx, tg, chat, args))
+	case "refine":
+		say(h.cmdRefine(ctx, tg, chat, args))
 	case "usage":
 		say(h.cmdUsage(ctx, tg, chat))
 	case "pair", "start":
@@ -413,6 +416,63 @@ func (h *Hub) cmdModel(ctx context.Context, tg target, chat core.ChatRef, ref st
 		return "Model override cleared; this conversation uses the default model."
 	}
 	return "This conversation now uses " + codeSpan(ref) + "."
+}
+
+// cmdRefine shows or sets the conversation's refine mode, which the runner
+// reads from the session's meta key at the start of each run.
+func (h *Hub) cmdRefine(ctx context.Context, tg target, chat core.ChatRef, arg string) string {
+	arg = strings.ToLower(strings.TrimSpace(arg))
+	switch arg {
+	case "", core.RefineOn, core.RefineOff, "default":
+	default:
+		return "Usage: /refine on, /refine off or /refine default. /refine alone shows the setting."
+	}
+	sess, err := h.resolveSession(ctx, tg.principal.ID, chat)
+	if err != nil {
+		h.log.Error("channel /refine failed", "err", err)
+		return somethingWrong
+	}
+	key, meta := core.RefineMetaKey(sess.ID), h.d.Store.Meta()
+	switch arg {
+	case core.RefineOn, core.RefineOff:
+		err = meta.Set(ctx, key, arg)
+	case "default":
+		if err = meta.Delete(ctx, key); errors.Is(err, core.ErrNotFound) {
+			err = nil
+		}
+	default:
+		if arg, err = meta.Get(ctx, key); errors.Is(err, core.ErrNotFound) {
+			arg, err = "", nil
+		}
+	}
+	if err != nil {
+		h.log.Error("channel /refine failed", "session", sess.ID, "err", err)
+		return somethingWrong
+	}
+	c := h.d.Config.Current().Agent.Refine
+	on := arg == core.RefineOn || (arg != core.RefineOff && c.Enabled)
+	if !on {
+		if arg == core.RefineOff {
+			return "Refine is off for this conversation. /refine on turns it on."
+		}
+		return "Refine is off for this conversation, as by default. /refine on turns it on."
+	}
+	how := fmt.Sprintf("I draft each answer %s and check each draft %s before I reply, so answers are slower and can cost up to %d times as much.",
+		times(c.Drafts), times(c.Depth), core.RefineMaxCalls(c.Drafts, c.Depth))
+	if arg == core.RefineOn {
+		return "Refine is on for this conversation: " + how + " /refine off turns it off."
+	}
+	return "Refine is on for this conversation, as by default: " + how + " /refine off turns it off."
+}
+
+func times(n int) string {
+	switch n {
+	case 1:
+		return "once"
+	case 2:
+		return "twice"
+	}
+	return strconv.Itoa(n) + " times"
 }
 
 func (h *Hub) cmdUsage(ctx context.Context, tg target, chat core.ChatRef) string {

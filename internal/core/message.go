@@ -58,6 +58,7 @@ type Part struct {
 	// strips it when the next call goes to a client of another kind.
 	Sig     string       `json:"sig,omitempty"`
 	SigKind ProviderKind `json:"sig_kind,omitempty"`
+	Refine  *RefineTrace `json:"refine,omitempty"` // PartRefine only
 }
 
 // Blob points at a file in the principal's workspace. Data is filled by the

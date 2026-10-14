@@ -32,6 +32,7 @@ var enums = map[string][]string{
 	"providers.*.type":                       {"anthropic", "openai", "gemini", "ollama", "openai_compat", "bedrock"},
 	"providers.*.api":                        {"", "auto", "responses", "chat"},
 	"agent.busy_mode":                        {"steer", "queue"},
+	"agent.refine.critic_slot":               {"main", "fast"},
 	"policy.preset":                          {"careful", "balanced", "hands_off"},
 	"policy.defaults.*":                      verdicts,
 	"policy.rules.*.verdict":                 verdicts,
@@ -586,6 +587,10 @@ func validateAgent(c *Config, v *vctx) {
 	v.intMin("agent.tool_output_tokens", a.ToolOutputTokens, 100)
 	v.intMin("agent.parallel_read_tools", a.ParallelReadTools, 1)
 	v.nonNeg("agent.session_idle_reset", a.SessionIdleReset)
+	// The upper bounds are the paper's defaults (N=8, D=4): 104 calls for one answer.
+	v.intRange("agent.refine.drafts", a.Refine.Drafts, 1, 8)
+	v.intRange("agent.refine.depth", a.Refine.Depth, 1, 4)
+	v.enum("agent.refine.critic_slot", "agent.refine.critic_slot", a.Refine.CriticSlot)
 }
 
 func validateContext(c *Config, v *vctx) {

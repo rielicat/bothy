@@ -32,7 +32,14 @@ requests onto runs (`bothy`, `bothy-fast`) or onto `LLM.Passthrough` for
 decoded once; a body over 1 MiB (images) first takes the single large-body
 slot, waiting up to 10 s before a 429 with `Retry-After`, and gives it back
 once the run is submitted, so concurrent large requests cannot add up past
-the memory budget. Uploads and
+the memory budget. Refine mode (v0.2 F3) is asked for per message
+(`SendReq.refine`, or `X-Bothy-Refine: on|off` on `/v1`), per session
+(`PATCH /api/sessions/{id}` `refine`, kept in the meta key
+`agent.refine.<session>` and shown in `SessionDetail.refine`), and by the
+`agent.refine.enabled` default that `GET /api/refine` reports with the call
+bound; `GET /api/runs/{id}` adds the trace of the run's last refined answer,
+found among the session's newest messages only for runs with more agent
+calls than steps. Uploads and
 workspace downloads go through `os.Root` under `<WorkDir>/ws/<id>`, the
 persona file through `os.Root` under `<DataDir>`; `DELETE /api/users/{id}`
 with `purge=true` wipes the user's boxes, vault scope, grants, schedules,

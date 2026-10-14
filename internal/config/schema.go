@@ -157,6 +157,17 @@ type Agent struct {
 	ParallelReadTools int      `yaml:"parallel_read_tools"`
 	ShowThinking      bool     `yaml:"show_thinking"`
 	SessionIdleReset  Duration `yaml:"session_idle_reset"` // 0 = never
+	Refine            Refine   `yaml:"refine"`
+}
+
+// Refine is refine mode (v0.2 F3): off by default; a message or a session
+// can turn it on or off.
+type Refine struct {
+	Enabled    bool   `yaml:"enabled"`
+	Drafts     int    `yaml:"drafts"` // breadth: independent drafts of the final answer
+	Depth      int    `yaml:"depth"`  // rounds of continue → critique → correct per draft
+	EarlyStop  bool   `yaml:"early_stop"`
+	CriticSlot string `yaml:"critic_slot"` // main | fast
 }
 
 type ContextCfg struct {

@@ -75,6 +75,7 @@ func (s *Server) routeTable() []route {
 		// allow_always), which bearer clients get only through postMessage's
 		// trigger api and on_approval.
 		{pattern: "POST /api/runs/{id}/continue", access: accessUserCookie, h: s.continueRun},
+		{pattern: "GET /api/refine", access: accessUser, h: s.refineInfo},
 
 		{pattern: "GET /api/approvals", access: accessUser, h: s.listApprovals},
 		{pattern: "GET /api/approvals/{id}", access: accessUser, h: s.getApproval},

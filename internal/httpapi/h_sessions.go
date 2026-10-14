@@ -93,7 +93,11 @@ func (s *Server) getSession(w http.ResponseWriter, r *http.Request, a core.Actor
 	if err != nil {
 		return err
 	}
-	d := dto.SessionDetail{Session: *sess, Pins: nonNil(pins), Pending: []*core.Approval{}}
+	refine, err := s.sessionRefine(ctx, sess.ID)
+	if err != nil {
+		return err
+	}
+	d := dto.SessionDetail{Session: *sess, Pins: nonNil(pins), Pending: []*core.Approval{}, Refine: refine}
 	for _, ri := range s.d.Runner.Active() {
 		if ri.Session == sess.ID {
 			d.Active = &ri
@@ -139,9 +143,17 @@ func (s *Server) patchSession(w http.ResponseWriter, r *http.Request, a core.Act
 			sess.ModelOverride = ""
 		}
 	}
+	if req.Refine != nil && !validRefine(*req.Refine) {
+		return badRequest(`refine: want "on", "off" or ""`)
+	}
 	sess.UpdatedAt = s.now()
 	if err := s.d.Store.Sessions().Update(ctx, sess); err != nil {
 		return err
+	}
+	if req.Refine != nil {
+		if err := s.setSessionRefine(ctx, sess.ID, *req.Refine); err != nil {
+			return err
+		}
 	}
 	if s.d.Bus != nil {
 		s.d.Bus.Publish(core.Event{Type: core.EvSessionUpdated, Principal: sess.Principal, Session: sess.ID,
@@ -213,7 +225,7 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request, a core.Acto
 		parts = append(parts, core.Part{Type: pt, Blob: &core.Blob{MIME: up.MIME, Name: up.Name, Ref: up.Ref, Size: up.Size}})
 	}
 	rr := core.RunRequest{Session: sess.ID, Principal: sess.Principal, User: a.User, Trigger: core.TrigMessage, Input: parts,
-		Provenance: core.ProvUser, Sender: "web:" + string(a.User), Chat: runChat(sess.ID), OnApproval: "deny"}
+		Provenance: core.ProvUser, Sender: "web:" + string(a.User), Chat: runChat(sess.ID), OnApproval: "deny", Refine: req.Refine}
 	// Bearer clients cannot answer approval cards, so their runs follow the
 	// token's on_approval like /v1 (trigger api: admin-class actions denied).
 	if a.Via == "token" {
@@ -370,7 +382,11 @@ func (s *Server) getRun(w http.ResponseWriter, r *http.Request, a core.Actor) er
 		return err
 	}
 	aps = slices.DeleteFunc(aps, func(ap *core.Approval) bool { return !a.Viewer.Can(ap.Principal) })
-	return ok(w, dto.RunDetail{Run: run, LLMCalls: nonNil(calls), ToolCalls: nonNil(tools), Approvals: nonNil(aps)})
+	refine, err := s.runRefineTrace(ctx, a.Viewer, run, calls)
+	if err != nil {
+		return err
+	}
+	return ok(w, dto.RunDetail{Run: run, LLMCalls: nonNil(calls), ToolCalls: nonNil(tools), Approvals: nonNil(aps), Refine: refine})
 }
 
 func (s *Server) continueRun(w http.ResponseWriter, r *http.Request, a core.Actor) error {

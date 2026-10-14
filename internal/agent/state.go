@@ -59,6 +59,8 @@ type runState struct {
 	deadline   *time.Timer
 	ctxRetried bool
 	lastEst    int // estimated input of the last step, for post-run compaction
+
+	refine *refineMode // nil: final answers are not refined
 }
 
 func (r *Runner) newRunState(w *worker, j *turnJob) *runState {

@@ -448,6 +448,7 @@ func (r *Runner) startResume(rs *runState, j *resumeJob) *runEnd {
 	if end := r.resolveModel(ctx, rs); end != nil {
 		return end
 	}
+	rs.refine = r.refineModeFor(ctx, rs)
 	if err := rs.acquire(ctx); err != nil {
 		return r.ctxEnd(rs)
 	}
