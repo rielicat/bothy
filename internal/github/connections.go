@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -14,8 +15,14 @@ import (
 	"github.com/rielicat/bothy/internal/core"
 )
 
-// maxProbeRepos bounds the repositories a probe lists (ten API pages).
-const maxProbeRepos = 1000
+// maxProbeRepos bounds the repositories a probe lists (ten API pages);
+// requested repositories past it are looked up one by one. A var for tests.
+var maxProbeRepos = 1000
+
+// adminTimeout bounds one connection call from the HTTP API: a probe pages
+// through up to maxProbeRepos repositories, and nothing else stops a
+// GitHub that accepts the connection and never answers.
+const adminTimeout = 2 * time.Minute
 
 type ghUser struct {
 	Login string `json:"login"`
@@ -103,6 +110,8 @@ func (s *Service) Test(ctx context.Context, c core.GitHubCredentials) (*core.Git
 	if err := validateCreds(c); err != nil {
 		return nil, err
 	}
+	ctx, cancel := context.WithTimeout(ctx, adminTimeout)
+	defer cancel()
 	ep, err := s.endpoint()
 	if err != nil {
 		return nil, err
@@ -153,6 +162,7 @@ func (s *Service) probe(ctx context.Context, ep endpoint, src tokenSource, auth 
 				return fail(errors.New("the App is not installed on any account yet: install it on GitHub first"))
 			case 1:
 				install = insts[0].ID
+				as.setInstallation(install)
 			default:
 				return fail(fmt.Errorf("the App has %d installations: choose one", len(insts)))
 			}
@@ -162,7 +172,6 @@ func (s *Service) probe(ctx context.Context, ep endpoint, src tokenSource, auth 
 			return fail(err)
 		}
 		p.InstallationID, p.Account, p.AccountType = install, in.Account.Login, in.Account.Type
-		as.install = install
 		cl := &apiClient{ep: ep, http: as.http, auth: as.token, authFailed: as.invalidate, observe: observe, now: s.now}
 		var err error
 		repos, truncated, err = paged(ctx, cl, "/installation/repositories", nil, maxProbeRepos, func(b []byte) ([]ghRepo, error) {
@@ -194,19 +203,9 @@ func (s *Service) probe(ctx context.Context, ep endpoint, src tokenSource, auth 
 		return fail(err)
 	}
 	for _, r := range repos {
-		owner, name, ok := repoNames(r)
-		if !ok {
-			continue
+		if acc, ok := repoAccess(r, held, connID); ok {
+			p.Repos = append(p.Repos, acc)
 		}
-		acc := core.GitHubRepoAccess{GitHubID: r.ID, Owner: owner, Name: name, Private: r.Private, Archived: r.Archived,
-			DefaultBranch: r.DefaultBranch, Description: oneLine(r.Description, 300)}
-		if i := slices.IndexFunc(held, func(h *core.GitHubRepo) bool {
-			return strings.EqualFold(h.Owner, owner) && strings.EqualFold(h.Name, name)
-		}); i >= 0 {
-			acc.Connection = held[i].Connection
-			acc.Allowed = held[i].Allowed && (connID == "" || held[i].Connection == connID)
-		}
-		p.Repos = append(p.Repos, acc)
 	}
 	slices.SortFunc(p.Repos, func(a, b core.GitHubRepoAccess) int {
 		return cmp.Or(strings.Compare(strings.ToLower(a.Owner), strings.ToLower(b.Owner)),
@@ -215,6 +214,61 @@ func (s *Service) probe(ctx context.Context, ep endpoint, src tokenSource, auth 
 	p.OK, p.Truncated = true, truncated
 	p.RateLimit = core.GitHubRateLimit{Limit: last.limit, Remaining: last.remaining, Reset: last.reset, Resource: last.resource}
 	return p
+}
+
+// repoAccess describes a repository a probe found, with the allowlist
+// state of its stored row if any.
+func repoAccess(r ghRepo, held []*core.GitHubRepo, connID string) (core.GitHubRepoAccess, bool) {
+	owner, name, ok := repoNames(r)
+	if !ok {
+		return core.GitHubRepoAccess{}, false
+	}
+	acc := core.GitHubRepoAccess{GitHubID: r.ID, Owner: owner, Name: name, Private: r.Private, Archived: r.Archived,
+		DefaultBranch: r.DefaultBranch, Description: oneLine(r.Description, 300)}
+	if i := slices.IndexFunc(held, func(h *core.GitHubRepo) bool {
+		return strings.EqualFold(h.Owner, owner) && strings.EqualFold(h.Name, name)
+	}); i >= 0 {
+		acc.Connection = held[i].Connection
+		acc.Allowed = held[i].Allowed && (connID == "" || held[i].Connection == connID)
+	}
+	return acc, true
+}
+
+// lookupUnlisted adds the requested repositories a truncated probe did not
+// list, asking GitHub for each one; those it does not show stay out, and
+// pick reports them as unreachable.
+func (s *Service) lookupUnlisted(ctx context.Context, cl *apiClient, p *core.GitHubProbe, want []string, connID string) error {
+	if !p.Truncated {
+		return nil
+	}
+	var held []*core.GitHubRepo
+	for _, w := range want {
+		owner, name, err := splitRepo(w)
+		if err != nil {
+			return err
+		}
+		if slices.ContainsFunc(p.Repos, func(r core.GitHubRepoAccess) bool {
+			return strings.EqualFold(r.Owner, owner) && strings.EqualFold(r.Name, name)
+		}) {
+			continue
+		}
+		var r ghRepo
+		if _, err := cl.getJSON(ctx, "/repos/"+owner+"/"+name, nil, &r); err != nil {
+			if statusOf(err) == http.StatusNotFound {
+				continue
+			}
+			return err
+		}
+		if held == nil {
+			if held, err = s.store.Repos(ctx, ""); err != nil {
+				return err
+			}
+		}
+		if acc, ok := repoAccess(r, held, connID); ok && strings.EqualFold(acc.Owner, owner) && strings.EqualFold(acc.Name, name) {
+			p.Repos = append(p.Repos, acc)
+		}
+	}
+	return nil
 }
 
 // repoNames takes owner and name from a repository object, refusing ones
@@ -297,11 +351,16 @@ func (s *Service) Connect(ctx context.Context, c core.GitHubCredentials, repos [
 	if err != nil {
 		return nil, err
 	}
+	probeCtx, cancel := context.WithTimeout(ctx, adminTimeout)
+	defer cancel()
 	src := s.newSource(ep, c.Auth, s.credSecret(c), c.AppID, c.InstallationID, "")
-	p := s.probe(ctx, ep, src, c.Auth, c.AppID, c.InstallationID, "")
-	forget(src)
+	defer forget(src)
+	p := s.probe(probeCtx, ep, src, c.Auth, c.AppID, c.InstallationID, "")
 	if !p.OK {
 		return nil, fmt.Errorf("%w: %s", core.ErrInvalid, p.Error)
+	}
+	if err := s.lookupUnlisted(probeCtx, s.apiClient(ep, src), p, repos, ""); err != nil {
+		return nil, err
 	}
 	chosen, err := pick(p, repos, "")
 	if err != nil {
@@ -391,7 +450,9 @@ func (s *Service) Probe(ctx context.Context, id string) (*core.GitHubProbe, erro
 	if err != nil {
 		return nil, err
 	}
-	p := s.probe(ctx, ep, s.source(c, ep), c.Auth, c.AppID, c.InstallationID, c.ID)
+	probeCtx, cancel := context.WithTimeout(ctx, adminTimeout)
+	defer cancel()
+	p := s.probe(probeCtx, ep, s.source(c, ep), c.Auth, c.AppID, c.InstallationID, c.ID)
 	c.CheckedAt = s.now()
 	if p.OK {
 		c.Status, c.Error, c.Account, c.AccountType, c.TokenExpires = "ok", "", p.Account, p.AccountType, p.TokenExpires
@@ -442,9 +503,15 @@ func (s *Service) SetRepos(ctx context.Context, id string, repos []string, by co
 		if err != nil {
 			return nil, err
 		}
-		p := s.probe(ctx, ep, s.source(c, ep), c.Auth, c.AppID, c.InstallationID, c.ID)
+		probeCtx, cancel := context.WithTimeout(ctx, adminTimeout)
+		defer cancel()
+		src := s.source(c, ep)
+		p := s.probe(probeCtx, ep, src, c.Auth, c.AppID, c.InstallationID, c.ID)
 		if !p.OK {
 			return nil, fmt.Errorf("%w: %s", core.ErrInvalid, p.Error)
+		}
+		if err := s.lookupUnlisted(probeCtx, s.apiClient(ep, src), p, repos, id); err != nil {
+			return nil, err
 		}
 		if chosen, err = pick(p, repos, id); err != nil {
 			return nil, err

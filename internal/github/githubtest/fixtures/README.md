@@ -10,7 +10,7 @@ them as response templates and overwrites the fields its state decides
 | File | Operation it answers |
 |---|---|
 | `private-user-response-with-public-and-private-profile-information.json` | `GET /user` (users/get-authenticated) |
-| `repository-items-default-response.json` | item template of `GET /user/repos` (repos/list-for-authenticated-user) |
+| `repository-items-default-response.json` | item template of `GET /user/repos` (repos/list-for-authenticated-user); also answers `GET /repos/{o}/{r}` (repos/get), whose full-repository shape has the same fields Bothy reads |
 | `repository-paginated-2.json` | `GET /installation/repositories` (apps/list-repos-accessible-to-installation) |
 | `integration.json` | `GET /app` (apps/get-authenticated) |
 | `base-installation-items.json` | `GET /app/installations`, item template of `GET /app/installations/{id}` |

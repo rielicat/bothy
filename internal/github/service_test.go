@@ -60,6 +60,46 @@ func TestProbePaginatesRepos(t *testing.T) {
 	}
 }
 
+// TestConnectPastTruncatedProbe: an account with more repositories than a
+// probe lists can still allowlist the ones past the cut.
+func TestConnectPastTruncatedProbe(t *testing.T) {
+	f := newFx(t)
+	old := maxProbeRepos
+	maxProbeRepos = 100
+	t.Cleanup(func() { maxProbeRepos = old })
+	for i := 0; i < 120; i++ {
+		f.gh.AddRepo("octo-org", "repo-"+string(rune('a'+i/26))+string(rune('a'+i%26)), true, map[string]string{"x": "y"})
+	}
+	p, err := f.svc.Test(f.ctx, f.patCreds())
+	if err != nil || !p.OK || !p.Truncated || len(p.Repos) != 100 ||
+		slices.ContainsFunc(p.Repos, func(r core.GitHubRepoAccess) bool { return r.Name == "Hello-World" }) {
+		t.Fatalf("probe: %d repos, truncated %v, %v", len(p.Repos), p.Truncated, err)
+	}
+	c, err := f.svc.Connect(f.ctx, f.patCreds(), []string{"octocat/hello-world", "octo-org/repo-aa"}, "usr_owner")
+	if err != nil {
+		t.Fatalf("connect past the cut: %v", err)
+	}
+	r, err := f.store.Repo(f.ctx, "octocat", "Hello-World")
+	if err != nil || !r.Allowed || r.Connection != c.ID || r.Owner != "octocat" || r.Name != "Hello-World" || r.DefaultBranch != "main" {
+		t.Fatalf("repo = %+v %v", r, err)
+	}
+	if n := f.gh.Count("GET", "/repos/octo-org/"); n != 0 {
+		t.Errorf("a listed repository was looked up again (%d)", n)
+	}
+	if _, err := f.svc.SetRepos(f.ctx, c.ID, []string{"octocat/Hello-World", "octocat/missing"}, "usr_owner"); !errors.Is(err, core.ErrInvalid) ||
+		!strings.Contains(err.Error(), "octocat/missing is not reachable") {
+		t.Errorf("unknown repository past the cut: %v", err)
+	}
+	repos, err := f.svc.SetRepos(f.ctx, c.ID, []string{"octocat/Hello-World"}, "usr_owner")
+	allowed := map[string]bool{}
+	for _, r := range repos {
+		allowed[r.FullName()] = r.Allowed
+	}
+	if err != nil || len(repos) != 2 || !allowed["octocat/Hello-World"] || allowed["octo-org/repo-aa"] {
+		t.Errorf("set repos past the cut = %v %v", allowed, err)
+	}
+}
+
 func TestValidateCreds(t *testing.T) {
 	key := core.NewSecret([]byte("-----BEGIN RSA PRIVATE KEY-----"))
 	tok := core.NewSecret([]byte("github_pat_x"))
@@ -401,5 +441,35 @@ func TestKeyedMutex(t *testing.T) {
 	<-done
 	if len(k.locks) != 0 {
 		t.Errorf("locks left: %d", len(k.locks))
+	}
+}
+
+// TestGitHubAppProbeDuringToolCalls: re-testing a stored App connection
+// shares its token source with running tool calls (run with -race).
+func TestGitHubAppProbeDuringToolCalls(t *testing.T) {
+	f, k := appFx(t, githubtest.Installation{ID: 7, Account: "octo-org", Type: "Organization"})
+	f.gh.App.TokenTTL = 4 * time.Minute // every call mints, reading the installation id
+	c, err := f.svc.Connect(f.ctx, appCreds(k, 7), []string{"octo-org/widgets"}, "usr_owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := f.toolEnv()
+	done := make(chan error, 1)
+	go func() {
+		for i := 0; i < 5; i++ {
+			if _, _, err := f.call(githubIssuesName, env, map[string]any{"repo": "octo-org/widgets"}); err != nil {
+				done <- err
+				return
+			}
+		}
+		done <- nil
+	}()
+	for i := 0; i < 5; i++ {
+		if p, err := f.svc.Probe(f.ctx, c.ID); err != nil || !p.OK {
+			t.Fatalf("probe = %+v %v", p, err)
+		}
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }

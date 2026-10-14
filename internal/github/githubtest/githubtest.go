@@ -613,6 +613,8 @@ func gitRefURL(c *reqCtx, r *Repo, ref string) string {
 func (c *reqCtx) repo(r *Repo, seg []string) {
 	m := c.r.Method
 	switch {
+	case m == http.MethodGet && len(seg) == 0:
+		c.json(http.StatusOK, c.repoJSON(r))
 	case m == http.MethodGet && len(seg) >= 2 && seg[0] == "commits":
 		ref := strings.Join(seg[1:], "/")
 		sha := r.resolve(ref)

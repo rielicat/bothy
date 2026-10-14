@@ -150,6 +150,16 @@ func (a *appSource) token(ctx context.Context) (string, error) {
 	return a.tok, nil
 }
 
+// setInstallation picks the installation a probe found when none was
+// given; the source may already be serving tool calls.
+func (a *appSource) setInstallation(id int64) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.install != id {
+		a.install, a.tok = id, ""
+	}
+}
+
 func (a *appSource) invalidate() {
 	a.mu.Lock()
 	a.tok = ""
