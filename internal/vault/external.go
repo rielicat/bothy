@@ -360,8 +360,15 @@ func awsFailure(r config.AWSSecretRef, region string, err error) *ExternalError 
 	}
 	switch e.Code {
 	case core.FailAWSNoCredentials:
-		e.Msg = "Bothy could not get AWS credentials to read " + shown + ": " + cause + ". On a laptop, sign in with aws sso login and set AWS_PROFILE " +
-			"(or secrets.aws.profile); in a container, mount ~/.aws read-only; on AWS, give the instance, task or pod a role."
+		hint := "On a laptop, sign in with aws sso login and set AWS_PROFILE (or secrets.aws.profile); in a container, also mount ~/.aws; " +
+			"on AWS, give the instance, task or pod a role."
+		// The SDK renews an expired SSO access token in place, so a read-only
+		// ~/.aws fails here hours before the SSO session itself ends.
+		if strings.Contains(cause, "unable to cache refreshed SSO token") || strings.Contains(cause, "save token:") {
+			hint = "The AWS sign-in token needed renewing and Bothy cannot save it to ~/.aws, which is read-only here: run aws sso login on the host again, " +
+				"or mount ~/.aws/sso/cache writable as compose.yaml shows."
+		}
+		e.Msg = "Bothy could not get AWS credentials to read " + shown + ": " + cause + ". " + hint
 	case core.FailAWSDenied:
 		e.Msg = "AWS refused this server's identity access to " + shown + " in " + region + ": allow secretsmanager:GetSecretValue on the secret, " +
 			"and kms:Decrypt on its key if it uses a customer managed key (" + cause + ")."

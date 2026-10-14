@@ -295,6 +295,13 @@ func TestAWSRefsErrors(t *testing.T) {
 		t.Errorf("no credentials: %v", err)
 	}
 
+	h.fail = errors.New("refresh cached SSO token failed, unable to cache refreshed SSO token, failed to create cached SSO token file open /home/nonroot/.aws/sso/cache/x.json.tmp: read-only file system")
+	fro, _ := newAWSFixture(t)
+	_, err = fro.openAWS(h).Resolve(ctx, "aws-sm:prod/llm", "", "provider:test")
+	if core.CodeOf(err) != core.FailAWSNoCredentials || !strings.Contains(err.Error(), "~/.aws/sso/cache writable") {
+		t.Errorf("read-only token cache: %v", err)
+	}
+
 	f3, h3 := newAWSFixture(t)
 	f3.cfg.Secrets.AWS.Region = ""
 	v3 := f3.openAWS(h3)

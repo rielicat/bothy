@@ -101,7 +101,7 @@
       const n = r.models?.length ?? 0;
       return { tone: 'success', text: n ? `Connected. Bothy can use ${n === 1 ? '1 model' : `${n} models`} here.` : 'Connected.' };
     }
-    return { tone: 'danger', text: failureText(probeCode(r), p.name, p.kind), details: r.detail || undefined };
+    return { tone: 'danger', text: failureText(probeCode(r), p.name, p.kind, undefined, isSecretRef(p.keyRef)), details: r.detail || undefined };
   });
 
   async function turnOn() {
@@ -119,7 +119,7 @@
     if (!p) return { ok: false, message: failureText('unknown', '') };
     const r = await api.post<ProbeResult>('/api/providers/test', body({ api_key: undefined, secret_ref: undefined, ...keyFields(value) }));
     if (signal.aborted) return { ok: false, message: '' };
-    if (!r.ok) return { ok: false, message: failureText(probeCode(r), p.name, p.kind, p.model), details: r.detail || undefined };
+    if (!r.ok) return { ok: false, message: failureText(probeCode(r), p.name, p.kind, p.model, isSecretRef(value)), details: r.detail || undefined };
     // A Secrets Manager reference goes into the settings as is; the value never reaches Bothy's vault.
     const ref = isSecretRef(value) ? value.trim() : `secret:${vaultName}`;
     if (!isSecretRef(value)) await api.put(`/api/vault/global/${encodeURIComponent(vaultName)}`, { value });

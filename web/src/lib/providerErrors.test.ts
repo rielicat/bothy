@@ -85,4 +85,12 @@ describe('failure copy (§5.6.4)', () => {
     expect(empty.command).toBe('ollama pull qwen3:8b');
     expect(failure('no_models', { name: 'LM Studio' }).command).toBeUndefined();
   });
+
+  it('talks about the secret, not Bedrock, when the key is an AWS Secrets Manager reference', () => {
+    const ref = { name: 'OpenRouter', secretRef: true };
+    expect(failure('aws_no_credentials', ref).text).toMatch(/^Bothy couldn't read this key from AWS Secrets Manager/);
+    expect(failure('aws_no_credentials', ref).text).not.toContain('Bedrock');
+    expect(failure('aws_denied', ref).text).not.toContain('Bedrock');
+    expect(failure('aws_denied', ref).more).toEqual([expect.stringContaining('secretsmanager:GetSecretValue')]);
+  });
 });

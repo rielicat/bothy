@@ -319,6 +319,7 @@
       hostPort: req.base_url ? hostPort(req.base_url) : undefined,
       console: r.def.console,
       ollama: r.def.kind === 'ollama',
+      secretRef: !!req.secret_ref,
     });
     s.details = [detail, ...(s.failure.more ?? [])].filter(Boolean).join('\n');
     s.rejected = code === 'key_rejected';

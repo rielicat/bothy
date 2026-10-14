@@ -90,6 +90,8 @@ export interface FailureContext {
   /** Where to get a new key. */
   console?: string;
   ollama?: boolean;
+  /** The key is an aws-sm reference, so AWS failures are about reading the secret, not Bedrock. */
+  secretRef?: boolean;
 }
 
 const OLLAMA_PULL = 'ollama pull qwen3:8b';
@@ -134,12 +136,23 @@ export function failure(code: FailureCode, c: FailureContext): Failure {
     case 'not_a_model_server':
       return { text: "That address answered, but it doesn't look like a model server. Check the address; it usually ends in /v1." };
     case 'aws_no_credentials':
+      if (c.secretRef)
+        return {
+          text: "Bothy couldn't read this key from AWS Secrets Manager because this server doesn't have AWS access right now. On AWS, give it a role that can read the secret. On a laptop, sign in with the AWS CLI again.",
+          action: { kind: 'link', label: 'How to give Bothy AWS access', href: AWS_HELP },
+          more: aws,
+        };
       return {
         text: "This server doesn't have AWS access right now. On AWS, give it a role with Bedrock access. On a laptop, sign in with the AWS CLI and restart Bothy.",
         action: { kind: 'link', label: 'How to give Bothy AWS access', href: AWS_HELP },
         more: aws,
       };
     case 'aws_denied':
+      if (c.secretRef)
+        return {
+          text: `This server's AWS access isn't allowed to read that secret. Ask your AWS admin to let ${c.source || 'its role'} read it.`,
+          more: [...aws, 'Reading a secret needs: secretsmanager:GetSecretValue, and kms:Decrypt if the secret uses its own encryption key'],
+        };
       return {
         text: `This server's AWS access isn't allowed to use Bedrock. Ask your AWS admin to add Bedrock permissions to ${c.source || 'its role'}.`,
         more: [...aws, 'Bedrock needs: bedrock:InvokeModelWithResponseStream, bedrock:ListFoundationModels, bedrock:ListInferenceProfiles'],

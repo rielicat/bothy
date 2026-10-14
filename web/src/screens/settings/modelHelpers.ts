@@ -121,8 +121,8 @@ export function providerStatus(p: ProviderState): { text: string; tone: Tone } {
 const localKinds = new Set(['ollama', 'lmstudio']);
 
 /** The main line of a failed check (§5.6.4), in the words setup uses. */
-export function failureText(code: FailureCode, provider: string, kind = '', model?: string): string {
-  return failure(code, { name: provider, local: localKinds.has(kind), model, ollama: kind === 'ollama' }).text;
+export function failureText(code: FailureCode, provider: string, kind = '', model?: string, secretRef = false): string {
+  return failure(code, { name: provider, local: localKinds.has(kind), model, ollama: kind === 'ollama', secretRef }).text;
 }
 
 export type RefinePreset = 'standard' | 'thorough' | 'custom';
