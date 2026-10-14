@@ -142,12 +142,14 @@ func TestNames(t *testing.T) {
 	}
 	ws := filepath.Join(t.TempDir(), "ws", "ws_x")
 	for in, want := range map[string]string{"": ".", ".": ".", "repos/acme/api": "repos/acme/api", "a/./b/": "a/b",
-		filepath.Join(ws, "repos", "x"): "repos/x", ws: "."} {
+		filepath.Join(ws, "repos", "x"): "repos/x", ws: ".", "/workspace/repos/acme/api": "repos/acme/api", "/workspace": ".",
+		"/workspace/": "."} {
 		if got, err := relDir(ws, in); err != nil || got != want {
 			t.Errorf("relDir(%q) = %q, %v; want %q", in, got, err, want)
 		}
 	}
-	for _, bad := range []string{"..", "../other", "a/../../b", filepath.Join(filepath.Dir(ws), "other"), "/etc"} {
+	for _, bad := range []string{"..", "../other", "a/../../b", filepath.Join(filepath.Dir(ws), "other"), "/etc",
+		"/workspace/../etc", "/workspace/a/../../etc", "/workspaces/a", "/workspace-x"} {
 		if _, err := relDir(ws, bad); err == nil {
 			t.Errorf("relDir(%q) accepted", bad)
 		}

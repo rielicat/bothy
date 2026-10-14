@@ -17,7 +17,8 @@ const (
 )
 
 // RepoCheckedOutData: Dir holds Repo's files at commit SHA. Dir is absolute
-// (inside the event principal's workspace) or relative to that workspace.
+// (inside the event principal's workspace), the path boxes see
+// (/workspace/...), or relative to that workspace.
 type RepoCheckedOutData struct {
 	Repo string `json:"repo"` // "owner/name"
 	SHA  string `json:"sha"`

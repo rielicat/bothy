@@ -65,9 +65,12 @@ func workspaceDir(workDir string, p *core.Principal) string {
 	return filepath.Join(workDir, "ws", string(p.Workspace))
 }
 
+// boxWorkspace is where boxes mount the workspace (SPEC §2.6).
+const boxWorkspace = "/workspace"
+
 // relDir turns dir into a slash-separated path inside the workspace ("." for
-// the workspace itself). An absolute dir must lie inside ws; a relative one
-// may not climb out of it.
+// the workspace itself). An absolute dir must lie inside ws, or be the path
+// a box sees (/workspace/...); a relative one may not climb out of it.
 func relDir(ws, dir string) (string, error) {
 	dir = strings.TrimSpace(dir)
 	if dir == "" || dir == "." {
@@ -76,13 +79,27 @@ func relDir(ws, dir string) (string, error) {
 	if filepath.IsAbs(dir) {
 		rel, err := filepath.Rel(filepath.Clean(ws), filepath.Clean(dir))
 		if err != nil || !filepath.IsLocal(rel) {
-			return "", invalidf("directory %q is outside the workspace", dir)
+			box, ok := boxRel(dir)
+			if !ok {
+				return "", invalidf("directory %q is outside the workspace", dir)
+			}
+			rel = box
 		}
 		dir = rel
 	} else if !filepath.IsLocal(dir) {
 		return "", invalidf("directory %q is outside the workspace", dir)
 	}
 	return path.Clean(filepath.ToSlash(dir)), nil
+}
+
+// boxRel maps the box-side spelling of a workspace path to a relative one.
+func boxRel(dir string) (string, bool) {
+	clean := path.Clean(filepath.ToSlash(dir))
+	if clean == boxWorkspace {
+		return ".", true
+	}
+	rest, ok := strings.CutPrefix(clean, boxWorkspace+"/")
+	return rest, ok && filepath.IsLocal(rest)
 }
 
 // notesDir is <data>/knowledge/<principal>/<owner>/<repo>; names were checked
