@@ -43,7 +43,12 @@ vault:
 
 providers:                        # examples; the wizard writes these. api_key accepts only secret:<name>
   - {id: anthropic, type: anthropic, api_key: "secret:anthropic_api_key"}
-  - {id: openai, type: openai, base_url: "https://api.openai.com/v1", api_key: "secret:openai_api_key", enabled: false}
+  - id: openai
+    type: openai
+    base_url: "https://api.openai.com/v1"
+    api: auto                     # auto | responses | chat (openai, openai_compat); auto = responses for openai, chat for openai_compat
+    api_key: "secret:openai_api_key"
+    enabled: false
   - {id: gemini, type: gemini, api_key: "secret:gemini_api_key", enabled: false}
   - id: ollama
     type: ollama                  # native /api/chat; num_ctx = models[].context, else min(trained, max(16384, served context from /api/ps))

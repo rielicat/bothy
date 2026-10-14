@@ -21,11 +21,12 @@ const (
 )
 
 type chatRequest struct {
-	Model         string          `json:"model"`
-	Messages      []chatMessage   `json:"messages"`
-	Stream        bool            `json:"stream"`
-	StreamOptions *streamOptions  `json:"stream_options"`
-	Tools         json.RawMessage `json:"tools"`
+	Model           string          `json:"model"`
+	Messages        []chatMessage   `json:"messages"`
+	Stream          bool            `json:"stream"`
+	StreamOptions   *streamOptions  `json:"stream_options"`
+	Tools           json.RawMessage `json:"tools"`
+	ReasoningEffort string          `json:"reasoning_effort"`
 }
 
 type streamOptions struct {
@@ -57,7 +58,8 @@ func contentText(raw json.RawMessage) string {
 	}
 	var b strings.Builder
 	for _, p := range parts {
-		if p.Type == "text" {
+		// "text" in Chat Completions; input_text and output_text in Responses.
+		if p.Type == "text" || p.Type == "input_text" || p.Type == "output_text" {
 			if b.Len() > 0 {
 				b.WriteByte('\n')
 			}
@@ -114,6 +116,7 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("GET /v1/models", s.listModels)
 	mux.HandleFunc("GET /v1/models/{id...}", s.getModel)
 	mux.HandleFunc("POST /v1/chat/completions", s.chat)
+	mux.HandleFunc("POST /v1/responses", s.responses)
 	return s.record(mux)
 }
 
@@ -126,7 +129,7 @@ func (s *Server) record(next http.Handler) http.Handler {
 		}
 		s.mu.Lock()
 		s.recorded = append(s.recorded, Recorded{Method: r.Method, Path: r.URL.RequestURI(), Header: r.Header.Clone(), Body: body})
-		if r.Method == http.MethodPost && r.URL.Path == "/v1/chat/completions" {
+		if r.Method == http.MethodPost && (r.URL.Path == "/v1/chat/completions" || r.URL.Path == "/v1/responses") {
 			s.requests = append(s.requests, body)
 		}
 		s.mu.Unlock()
@@ -187,46 +190,84 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	est := estimateTokens(&req)
-	if info.Context > 0 && est > info.Context {
-		writeOverflow(w, info.Context, est)
+	rule, ok := s.begin(w, r, info, est, analyze(req.Messages))
+	if !ok {
 		return
 	}
-	rule, ok := s.match(analyze(req.Messages))
+	if hasTools(req.Tools) && refusesTools(w, rule.Fault, req.Model, req.ReasoningEffort) {
+		return
+	}
+	p := s.plan(rule, req.Model, est)
+	if req.Stream {
+		s.stream(w, r, p, rule, req.StreamOptions != nil && req.StreamOptions.IncludeUsage)
+	} else {
+		s.complete(w, r, p, rule)
+	}
+}
+
+// begin checks the window, matches a rule and serves the HTTP-level faults.
+// ok is false when a response was written; on success the rule's slow_ttft
+// wait is over.
+func (s *Server) begin(w http.ResponseWriter, r *http.Request, info core.ModelInfo, est int, t turn) (Rule, bool) {
+	if info.Context > 0 && est > info.Context {
+		writeOverflow(w, info.Context, est)
+		return Rule{}, false
+	}
+	rule, ok := s.match(t)
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid_request_error", "no_rule", "", "mockllm: no rule matched the request")
-		return
+		return Rule{}, false
 	}
 	switch rule.Fault {
 	case FaultRateLimit:
 		w.Header().Set("Retry-After", "1")
 		writeError(w, http.StatusTooManyRequests, "requests", "rate_limit_exceeded", "", "Rate limit reached for requests. Please try again in 1s.")
-		return
+		return Rule{}, false
 	case FaultServer:
 		writeError(w, http.StatusInternalServerError, "server_error", "", "", "The server had an error while processing your request.")
-		return
+		return Rule{}, false
 	case FaultOverflow:
 		window := info.Context
 		if window == 0 {
 			window = overflowContext
 		}
 		writeOverflow(w, window, max(est, window+1))
-		return
+		return Rule{}, false
 	case FaultSlowTTFT:
 		wait := rule.Delay
 		if wait <= 0 {
 			wait = DefaultSlowTTFT
 		}
 		if !s.sleep(r, wait) {
-			return
+			return Rule{}, false
 		}
 		rule.Delay = 0
 	}
-	p := s.plan(rule, &req)
-	if req.Stream {
-		s.stream(w, r, p, rule, req.StreamOptions != nil && req.StreamOptions.IncludeUsage)
-	} else {
-		s.complete(w, r, p, rule)
+	return rule, true
+}
+
+func hasTools(raw json.RawMessage) bool {
+	t := bytes.TrimSpace(raw)
+	return len(t) > 0 && string(t) != "null" && string(t) != "[]"
+}
+
+// refusesTools answers like OpenAI's Chat Completions for a model that takes
+// function tools only with reasoning off (tools_reasoning), or never
+// (tools_responses_only). The first message is OpenAI's, verbatim; the
+// second is unverified wording.
+func refusesTools(w http.ResponseWriter, fault, model, effort string) bool {
+	switch {
+	case fault != FaultToolsReasoning && fault != FaultToolsResponsesOnly:
+		return false
+	case effort != "none":
+		writeError(w, http.StatusBadRequest, "invalid_request_error", "", "", "Function tools with reasoning_effort are not supported for "+model+
+			" in /v1/chat/completions. To use function tools, use /v1/responses or set reasoning_effort to 'none'.")
+		return true
+	case fault == FaultToolsResponsesOnly:
+		writeError(w, http.StatusBadRequest, "invalid_request_error", "unsupported_value", "reasoning_effort", "Unsupported value: 'none' is not supported with the "+model+" model.")
+		return true
 	}
+	return false
 }
 
 // sleep reports false when the client went away or the server is closing.
@@ -262,16 +303,19 @@ type plannedCall struct{ id, name, args string }
 
 type planned struct {
 	id, model string
+	seq       int
+	reasoning string
 	text      []string
 	calls     []plannedCall
 	usage     *usageJSON
+	u         *core.Usage // what usage reports, in core terms
 }
 
-func (s *Server) plan(rule Rule, req *chatRequest) planned {
+func (s *Server) plan(rule Rule, model string, est int) planned {
 	s.mu.Lock()
 	s.respSeq++
-	p := planned{id: "chatcmpl-mock" + strconv.Itoa(s.respSeq), model: req.Model, text: rule.Text}
-	out := 0
+	p := planned{id: "chatcmpl-mock" + strconv.Itoa(s.respSeq), model: model, seq: s.respSeq, reasoning: rule.Reasoning, text: rule.Text}
+	out := len(rule.Reasoning)
 	for _, t := range rule.Text {
 		out += len(t)
 	}
@@ -292,10 +336,11 @@ func (s *Server) plan(rule Rule, req *chatRequest) planned {
 	if rule.NoUsage {
 		return p
 	}
-	u := core.Usage{Input: estimateTokens(req), Output: max(1, (out+3)/4)}
+	u := core.Usage{Input: est, Output: max(1, (out+3)/4)}
 	if rule.Usage != nil {
 		u = *rule.Usage
 	}
+	p.u = &u
 	prompt := u.Input + u.CacheRead + u.CacheWrite
 	p.usage = &usageJSON{
 		PromptTokens: prompt, CompletionTokens: u.Output, TotalTokens: prompt + u.Output,

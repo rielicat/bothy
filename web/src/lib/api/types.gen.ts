@@ -603,8 +603,10 @@ export interface Part {
   result?: ToolResult;
   /**
    * Sig is provider-opaque data that must round-trip verbatim (Anthropic thinking
-   * signature, Gemini thoughtSignature). SigKind is the ProviderKind that produced
-   * it; the provider facade strips it when the next call goes to another kind.
+   * signature, Gemini thoughtSignature, OpenAI Responses encrypted reasoning).
+   * SigKind is the ProviderKind that produced it, or a client's own kind where
+   * one provider kind has two wire APIs ("openai_responses"); the provider facade
+   * strips it when the next call goes to a client of another kind.
    */
   sig?: string;
   sig_kind?: ProviderKind;
@@ -1000,6 +1002,7 @@ export interface ProbeConfig {
   secret_ref: string; // alternative to APIKey: "secret:<name>"
   model: string;
   allow_private: boolean;
+  api?: string; // openai, openai_compat: auto | responses | chat ("" = auto), as providers[].api
 }
 export interface ProbeResult {
   ok: boolean;
@@ -1009,6 +1012,7 @@ export interface ProbeResult {
   context: number /* int */; // effective window
   models: string[];
   cost_micros: Micros;
+  api?: string; // openai, openai_compat: the API tested, "responses" or "chat"
   detail: string; // plain-language failure or hint (e.g. OLLAMA_CONTEXT_LENGTH)
 }
 export interface Detection {
@@ -2020,6 +2024,7 @@ export interface ProviderTestReq {
   secret_ref?: string;
   model: string;
   allow_private: boolean;
+  api?: string; // openai, openai_compat: auto | responses | chat, as providers[].api
 }
 export interface ChannelTestResp {
   identity: string;

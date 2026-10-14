@@ -12,26 +12,31 @@ import (
 
 // Models returns the configured models followed, when discovery is on, by the
 // models GET /models lists that are not configured.
-func (c *Client) Models(ctx context.Context) ([]core.ModelInfo, error) {
-	out := append([]core.ModelInfo(nil), c.o.Models...)
-	if !c.o.Discover {
+func (c *Client) Models(ctx context.Context) ([]core.ModelInfo, error) { return models(ctx, &c.o) }
+
+// Discover lists GET /models.
+func (c *Client) Discover(ctx context.Context) ([]core.ModelInfo, error) { return discover(ctx, &c.o) }
+
+func models(ctx context.Context, o *wire.Options) ([]core.ModelInfo, error) {
+	out := append([]core.ModelInfo(nil), o.Models...)
+	if !o.Discover {
 		return out, nil
 	}
-	found, err := c.Discover(ctx)
+	found, err := discover(ctx, o)
 	if err != nil {
 		return out, err
 	}
 	return wire.MergeModels(out, found), nil
 }
 
-// Discover lists GET /models. OpenRouter adds context_length and vLLM
+// discover lists GET /models. OpenRouter adds context_length and vLLM
 // max_model_len; plain OpenAI and LM Studio report no window.
-func (c *Client) Discover(ctx context.Context) ([]core.ModelInfo, error) {
-	req, err := c.o.NewRequest(ctx, http.MethodGet, c.o.URL("/models"), nil, setAuth)
+func discover(ctx context.Context, o *wire.Options) ([]core.ModelInfo, error) {
+	req, err := o.NewRequest(ctx, http.MethodGet, o.URL("/models"), nil, setAuth)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.o.Do(ctx, req, classify)
+	resp, err := o.Do(ctx, req, classify)
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +50,7 @@ func (c *Client) Discover(ctx context.Context) ([]core.ModelInfo, error) {
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&list); err != nil {
-		return nil, c.o.Malformed(err)
+		return nil, o.Malformed(err)
 	}
 	out := make([]core.ModelInfo, 0, len(list.Data))
 	for _, m := range list.Data {
@@ -54,7 +59,7 @@ func (c *Client) Discover(ctx context.Context) ([]core.ModelInfo, error) {
 			ctxLen = m.MaxModelLen
 		}
 		out = append(out, core.ModelInfo{
-			Ref:     core.ModelRef{Provider: c.o.ID, Model: m.ID},
+			Ref:     core.ModelRef{Provider: o.ID, Model: m.ID},
 			Display: m.Name, Context: ctxLen, Tools: true, Source: "discovery",
 		})
 	}

@@ -244,6 +244,7 @@ type ProviderTestReq struct {
 	SecretRef    string            `json:"secret_ref,omitempty"`
 	Model        string            `json:"model"`
 	AllowPrivate bool              `json:"allow_private"`
+	API          string            `json:"api,omitempty"` // openai, openai_compat: auto | responses | chat, as providers[].api
 }
 
 type ChannelTestResp struct {

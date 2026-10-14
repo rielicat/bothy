@@ -22,6 +22,7 @@ func TestKeysStayInHeaders(t *testing.T) {
 	anthropicOK, _ := os.ReadFile("anthropic/testdata/sdk_basic.sse")
 	geminiOK, _ := os.ReadFile("gemini/testdata/js_text_stream.sse")
 	ollamaOK, _ := os.ReadFile("ollama/testdata/docs_chat_stream.ndjson")
+	responsesOK, _ := os.ReadFile("openai/testdata/spec_stream.sse")
 	echo := "invalid key " + canary
 	for _, tc := range []struct {
 		kind   core.ProviderKind
@@ -31,7 +32,8 @@ func TestKeysStayInHeaders(t *testing.T) {
 		value  string
 	}{
 		{core.KindAnthropic, sse(string(anthropicOK)), jsonReply(401, `{"type":"error","error":{"type":"authentication_error","message":"`+echo+`"}}`), "X-Api-Key", canary},
-		{core.KindOpenAI, sse(okStream), jsonReply(401, errBody(`"invalid_api_key"`, "invalid_request_error", echo)), "Authorization", "Bearer " + canary},
+		{core.KindOpenAI, sse(string(responsesOK)), jsonReply(401, errBody(`"invalid_api_key"`, "invalid_request_error", echo)), "Authorization", "Bearer " + canary},
+		{core.KindOpenAICompat, sse(okStream), jsonReply(401, errBody(`"invalid_api_key"`, "invalid_request_error", echo)), "Authorization", "Bearer " + canary},
 		{core.KindGemini, sse(string(geminiOK)), jsonReply(400, `{"error":{"code":400,"message":"`+echo+`","status":"INVALID_ARGUMENT","details":[{"reason":"API_KEY_INVALID"}]}}`), "X-Goog-Api-Key", canary},
 		{core.KindOllama, reply{status: 200, ctype: "application/x-ndjson", body: string(ollamaOK)}, jsonReply(401, `{"error":"`+echo+`"}`), "Authorization", "Bearer " + canary},
 	} {
