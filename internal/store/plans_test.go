@@ -61,6 +61,13 @@ func TestTimerAndHotPathQueriesUseIndexes(t *testing.T) {
 			t.Errorf("retention plan without sessions_hidden_api:\n%s", p)
 		}
 	}
+	for _, q := range []string{pruneEmptyMeta, pruneEmptySessions} {
+		p := queryPlan(t, w.db, q, now)
+		noScan(t, "empty session retention", p, "es", "sessions", "messages", "runs", "pins")
+		if !strings.Contains(p, "sessions_recent") {
+			t.Errorf("empty session retention without sessions_recent:\n%s", p)
+		}
+	}
 	for _, uq := range []core.UsageQuery{
 		{From: t0, GroupBy: "schedule"},
 		{From: t0, GroupBy: "day"},

@@ -496,6 +496,7 @@ type SessionFilter struct {
 	Principal     PrincipalID // "" = all principals in the Viewer
 	Archived      bool
 	IncludeHidden bool
+	NonEmpty      bool   // only sessions holding at least one message
 	Query         string // title substring
 	Page          Page   // Before = last_message_at unix ms
 }

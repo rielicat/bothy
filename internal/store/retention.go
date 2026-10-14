@@ -27,6 +27,23 @@ const (
 		summary = '' WHERE ` + hiddenDue
 )
 
+// A web chat opened and never written in is not kept. CROSS JOIN fixes the
+// join order, so sessions_recent finds the candidates per principal
+// (last_message_at = 0) instead of every session row being read, snapshots
+// included.
+const (
+	emptySessionKeep = 24 * time.Hour
+	emptyDue         = `SELECT es.id FROM principals p
+		CROSS JOIN sessions es ON es.principal_id = p.id AND es.archived IN (0, 1) AND es.hidden = 0 AND es.last_message_at = 0
+		WHERE es.origin = 'web' AND es.created_at < ?1
+		AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.session_id = es.id)
+		AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.session_id = es.id)
+		AND NOT EXISTS (SELECT 1 FROM pins x WHERE x.session_id = es.id)
+		AND NOT EXISTS (SELECT 1 FROM schedules sc WHERE sc.session_id = es.id)`
+	pruneEmptyMeta     = `DELETE FROM meta WHERE k IN (SELECT 'agent.refine.' || id FROM (` + emptyDue + `))`
+	pruneEmptySessions = `DELETE FROM sessions WHERE id IN (` + emptyDue + `)`
+)
+
 // RunRetention prunes egress_log, inbound_dedup, expired auth sessions and old
 // runs per config every hour. Blocks until ctx is done.
 func (db *DB) RunRetention(ctx context.Context, cfg config.View) error {
@@ -83,6 +100,17 @@ func (db *DB) retain(ctx context.Context, c *config.Config) error {
 		}
 		_, err := q.ExecContext(ctx, archiveHidden, cut)
 		return dbErr("archive hidden sessions", err)
+	})
+	if err != nil {
+		errs = append(errs, err)
+	}
+	err = db.write(ctx, func(q querier) error {
+		cut := ms(now.Add(-emptySessionKeep))
+		if _, err := q.ExecContext(ctx, pruneEmptyMeta, cut); err != nil {
+			return dbErr("prune empty session settings", err)
+		}
+		_, err := q.ExecContext(ctx, pruneEmptySessions, cut)
+		return dbErr("prune empty sessions", err)
 	})
 	if err != nil {
 		errs = append(errs, err)

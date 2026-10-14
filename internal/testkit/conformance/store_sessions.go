@@ -138,6 +138,12 @@ func testSessionList(f *fx) {
 	f.eq("List next page", list(v, core.SessionFilter{Page: core.Page{Before: a2.LastMessageAt.UnixMilli(), Limit: 2}}), []*core.Session{b, a1})
 	f.eq("List with a foreign viewer", list(viewer(other), core.SessionFilter{}), []*core.Session{foreign})
 	f.eq("List with SystemViewer", list(core.SystemViewer(), core.SessionFilter{}), []*core.Session{foreign, g, a2, b, a1})
+
+	f.eq("List non-empty before any message", list(v, core.SessionFilter{NonEmpty: true}), []*core.Session{})
+	f.must(f.s.Messages().Append(f.ctx, textMsg(b.ID, core.MsgUser, core.ProvUser, "hello", 1)), "Append")
+	f.must(f.s.Messages().Append(f.ctx, textMsg(g.ID, core.MsgAssistant, core.ProvSystem, "a notice", 1)), "Append")
+	f.eq("List non-empty", list(v, core.SessionFilter{NonEmpty: true}), []*core.Session{g, b})
+	f.eq("List non-empty by title", list(v, core.SessionFilter{NonEmpty: true, Query: "beta"}), []*core.Session{b})
 }
 
 func testSessionURLs(f *fx) {

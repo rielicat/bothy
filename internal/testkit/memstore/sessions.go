@@ -104,6 +104,7 @@ func (r sessionRepo) List(_ context.Context, v core.Viewer, f core.SessionFilter
 			f.Principal != "" && s.Principal != f.Principal,
 			s.Archived != f.Archived,
 			s.Hidden && !f.IncludeHidden,
+			f.NonEmpty && st.lastSeq[s.ID] == 0,
 			!strings.Contains(asciiLower(s.Title), q),
 			f.Page.Before > 0 && unixMS(s.LastMessageAt) >= f.Page.Before:
 			continue
