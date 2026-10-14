@@ -162,8 +162,10 @@ func (c *Client) Stream(ctx context.Context, r *core.Request, on func(core.Strea
 }
 
 func (c *Client) stream(ctx context.Context, model string, body request, on func(core.StreamEvent) error) (*core.Response, error) {
-	if model == "" {
-		return nil, &core.ProviderError{Provider: c.o.ID, Kind: core.ErrKindInvalidRequest, Msg: "no model"}
+	if model == "" || model == "." || model == ".." {
+		// "." and ".." survive escapeSegment and would move the signed
+		// request to another path.
+		return nil, &core.ProviderError{Provider: c.o.ID, Kind: core.ErrKindInvalidRequest, Msg: fmt.Sprintf("invalid model id %q", model)}
 	}
 	resp, err := c.send(ctx, http.MethodPost, c.o.BaseURL, "/model/"+escapeSegment(model)+"/converse-stream", nil, body)
 	if err != nil {

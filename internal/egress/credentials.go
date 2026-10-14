@@ -252,7 +252,7 @@ func (tg credTarget) check(req *http.Request) string {
 		if req.Header.Get(imdsTokenHeader) == "" {
 			return "IMDSv1 is refused: a session token is required"
 		}
-		if p == imdsRolesPath || p == imdsRegionPath || imdsRoleRe.MatchString(p) {
+		if p == imdsRolesPath || p == imdsRegionPath || imdsRoleRe.MatchString(p) && !strings.HasSuffix(p, "/.") && !strings.HasSuffix(p, "/..") {
 			return ""
 		}
 		return "instance metadata path " + p + " is not a credential path"

@@ -88,16 +88,25 @@ func codeKind(code, msg string, status int) core.ErrorKind {
 	return wire.StatusKind(status)
 }
 
-var accountRe = regexp.MustCompile(`[0-9]{12,}`)
+var (
+	accountRe = regexp.MustCompile(`[0-9]{12,}`)
+	// sessionRe finds the session of an assumed role and a federated user's
+	// name: with SSO the session name is the person's sign-in, often an
+	// email address.
+	sessionRe = regexp.MustCompile(`(assumed-role/[\w+=,.@-]+/|federated-user/)[\w+=,.@-]+`)
+)
 
-// ScrubAccounts replaces 12-digit AWS account ids (in ARNs and messages such
-// as "User: arn:aws:sts::123456789012:assumed-role/…") so provider errors,
-// health state and logs never carry them.
+// ScrubAccounts replaces 12-digit AWS account ids and role session names (in
+// messages such as "User: arn:aws:sts::123456789012:assumed-role/Dev/jane@example.com
+// is not authorized…") so provider errors, health state and logs, which
+// members can see in a failed run, carry neither; the role name stays as
+// the clue for fixing the policy.
 func ScrubAccounts(s string) string {
-	return accountRe.ReplaceAllStringFunc(s, func(m string) string {
+	s = accountRe.ReplaceAllStringFunc(s, func(m string) string {
 		if len(m) == 12 {
 			return "<account>"
 		}
 		return m
 	})
+	return sessionRe.ReplaceAllString(s, "${1}<session>")
 }

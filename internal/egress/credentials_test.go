@@ -120,6 +120,8 @@ func TestCredentialsClientIMDSv2(t *testing.T) {
 		{http.MethodGet, "http://169.254.169.254/latest/meta-data/", tok},
 		{http.MethodGet, "http://169.254.169.254/latest/dynamic/instance-identity/document", tok},
 		{http.MethodGet, "http://169.254.169.254/latest/meta-data/iam/security-credentials/a/b", tok},
+		{http.MethodGet, "http://169.254.169.254/latest/meta-data/iam/security-credentials/..", tok},
+		{http.MethodGet, "http://169.254.169.254/latest/meta-data/iam/security-credentials/.", tok},
 		{http.MethodGet, "http://169.254.169.254/latest/meta-data/iam/security-credentials/bothy-role?x=1", tok},
 		{http.MethodPut, "http://169.254.169.254/latest/api/token", nil},
 		{http.MethodPost, "http://169.254.169.254/latest/api/token", map[string]string{imdsTTLHeader: "60"}},

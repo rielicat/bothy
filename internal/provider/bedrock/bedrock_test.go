@@ -448,7 +448,7 @@ func TestHTTPErrorFromHeaderAndCredentials(t *testing.T) {
 		Body:   []byte(`{"message":"User: arn:aws:sts::123456789012:assumed-role/AWSReservedSSO_Dev/me is not authorized to perform: bedrock:InvokeModelWithResponseStream"}`)})
 	c, _ = testClient(srv)
 	_, err = c.Stream(context.Background(), &core.Request{Model: "m", Messages: []core.Message{userText("hi")}}, nil)
-	if !errors.As(err, &pe) || strings.Contains(err.Error(), "123456789012") || !strings.Contains(pe.Msg, "arn:aws:sts::<account>:assumed-role") {
+	if !errors.As(err, &pe) || strings.Contains(err.Error(), "123456789012") || !strings.Contains(pe.Msg, "arn:aws:sts::<account>:assumed-role/AWSReservedSSO_Dev/<session> is not") {
 		t.Fatalf("account id not scrubbed: %v", err)
 	}
 
@@ -567,6 +567,15 @@ func TestRequestIsSignedAndEscaped(t *testing.T) {
 			t.Fatal("body carries credentials")
 		}
 	}
+
+	// "." and ".." would leave /model/ once the server resolves the path.
+	for _, model := range []string{".", ".."} {
+		_, _, srv, err := streamFrames(t, readFrames(t, "live_text.jsonl"), &core.Request{Model: model, Messages: []core.Message{userText("hi")}})
+		var pe *core.ProviderError
+		if !errors.As(err, &pe) || pe.Kind != core.ErrKindInvalidRequest || len(srv.Requests()) != 0 {
+			t.Fatalf("model %q: %v, %d requests", model, err, len(srv.Requests()))
+		}
+	}
 }
 
 func TestNewDefaults(t *testing.T) {
@@ -586,5 +595,14 @@ func TestNewDefaults(t *testing.T) {
 	}
 	if ScrubAccounts("arn:aws:iam::123456789012:role/x 1234567890123 12345678901") != "arn:aws:iam::<account>:role/x 1234567890123 12345678901" {
 		t.Fatal(ScrubAccounts("arn:aws:iam::123456789012:role/x"))
+	}
+	for in, want := range map[string]string{
+		"User: arn:aws:sts::123456789012:assumed-role/AWSReservedSSO_Dev_0a1b/jane.doe@example.com is not authorized": "User: arn:aws:sts::<account>:assumed-role/AWSReservedSSO_Dev_0a1b/<session> is not authorized",
+		"arn:aws-us-gov:sts::123456789012:federated-user/jane is denied":                                              "arn:aws-us-gov:sts::<account>:federated-user/<session> is denied",
+		"arn:aws:sts::123456789012:assumed-role/bothy-task/i-0abc123":                                                 "arn:aws:sts::<account>:assumed-role/bothy-task/<session>",
+	} {
+		if got := ScrubAccounts(in); got != want {
+			t.Errorf("ScrubAccounts(%q) = %q", in, got)
+		}
 	}
 }
