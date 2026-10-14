@@ -62,4 +62,14 @@ describe('router', () => {
     expect(safeNext('javascript:alert(1)')).toBe('/chat');
     expect(safeNext(null, '/usage')).toBe('/usage');
   });
+
+  it('tells Back and Forward apart from in-app navigation', () => {
+    router.navigate('/chat');
+    expect(router.popped).toBe(false);
+    history.pushState(null, '', '/approvals');
+    dispatchEvent(new PopStateEvent('popstate'));
+    expect(router.popped).toBe(true);
+    router.navigate('/activity');
+    expect(router.popped).toBe(false);
+  });
 });

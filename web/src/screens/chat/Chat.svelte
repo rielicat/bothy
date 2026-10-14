@@ -6,7 +6,6 @@
   import { router } from '../../lib/router.svelte';
   import { toasts } from '../../lib/stores/ui.svelte';
   import ConversationView from './ConversationView.svelte';
-  import Sidebar from './Sidebar.svelte';
 
   let { params }: { params: Record<string, string> } = $props();
 
@@ -26,10 +25,7 @@
 
 <div class="flex h-full">
   {#if !id}<h1 class="sr-only">Chats</h1>{/if}
-  <aside class="w-full shrink-0 border-r border-line bg-surface lg:block lg:w-72 {id ? 'hidden' : ''}" aria-label="Chats">
-    <Sidebar activeId={id} />
-  </aside>
-  <section class="min-w-0 flex-1 {id ? '' : 'hidden lg:block'}" aria-label="Conversation">
+  <section class="min-w-0 flex-1" aria-label="Conversation">
     {#if id}
       {#key id}<ConversationView {id} />{/key}
     {:else}

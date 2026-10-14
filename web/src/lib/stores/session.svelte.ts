@@ -21,6 +21,17 @@ function uniqueBanners(list: BannerData[] | null | undefined): BannerData[] {
   return [...new Map((list ?? []).filter(Boolean).map((b) => [b.code, b])).values()];
 }
 
+// Banners dismissed in this tab stay dismissed until it closes (§4.9).
+const DISMISSED = 'bothy.dismissed';
+function readDismissed(): string[] {
+  try {
+    const v: unknown = JSON.parse(sessionStorage.getItem(DISMISSED) ?? '[]');
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 // Approvals by id; the pending and parked lists may overlap.
 function uniqueById(list: Approval[]): Approval[] {
   return [...new Map(list.filter(Boolean).map((a) => [a.id, a])).values()];
@@ -33,10 +44,12 @@ class Session {
   paused = $state(false);
   sandbox: boolean | undefined = $state();
   banners: BannerData[] = $state([]);
-  dismissed: string[] = $state([]);
+  dismissed: string[] = $state(readDismissed());
   today: UsageToday | null = $state(null);
   // The wizard completed setup and stays open on its last step until left.
   finishing = $state(false);
+  /** The session ran out (401), so sign-in says why (§13.2); cleared by the next sign-in. */
+  expired = $state(false);
 
   isAdmin = $derived(this.me?.user.role === 'owner' || this.me?.user.role === 'admin');
   multi = $derived(this.me?.mode === 'multi');
@@ -61,6 +74,7 @@ class Session {
 
   login(me: Me) {
     this.me = me;
+    this.expired = false;
     setCsrf(me.csrf);
     this.paused = me.paused;
     this.sandbox = me.sandbox_available;
@@ -114,6 +128,7 @@ class Session {
   // new cookie, and each tab finds a dead session on its own.
   expire(others = false) {
     if (!this.me) return;
+    this.expired = true;
     this.#clear(others);
     const here = router.path + router.search;
     router.navigate(`/login?next=${encodeURIComponent(here)}`, { replace: true });
@@ -134,10 +149,24 @@ class Session {
     this.today = await api.get<UsageToday>('/api/usage/today').catch(() => this.today);
   }
 
+  /** Hides a dismissible banner for the rest of this tab's life. */
+  dismiss(code: string) {
+    this.#saveDismissed([...this.dismissed.filter((c) => c !== code), code]);
+  }
+
+  #saveDismissed(list: string[]) {
+    this.dismissed = list;
+    try {
+      sessionStorage.setItem(DISMISSED, JSON.stringify(list));
+    } catch {
+      // not kept past this page; the banner comes back on reload
+    }
+  }
+
   setBanner(b: BannerData) {
     const rest = this.banners.filter((x) => x.code !== b.code);
     this.banners = b.clear ? rest : [...rest, b];
-    if (!b.clear) this.dismissed = this.dismissed.filter((c) => c !== b.code);
+    if (!b.clear && this.dismissed.includes(b.code)) this.#saveDismissed(this.dismissed.filter((c) => c !== b.code));
     // The kill switch announces itself only as this banner.
     if (b.code === 'paused') this.paused = !b.clear;
   }
@@ -183,6 +212,8 @@ class Session {
 class Approvals {
   pending: Approval[] = $state([]);
   count = $derived(this.pending.length);
+  /** What the viewer can decide: admins anything, members what names them (§4.4, D40). */
+  waiting = $derived(this.pending.filter((a) => session.isAdmin || (!a.approver?.admin_only && !!a.approver?.user_id && a.approver.user_id === session.me?.user.id)).length);
 
   async load() {
     try {
