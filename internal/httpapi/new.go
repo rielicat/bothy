@@ -114,6 +114,7 @@ func New(d Deps) (*Server, error) {
 	}
 	s.routes = append(s.routeTable(), s.githubRoutes()...)
 	s.routes = append(s.routes, s.knowledgeRoutes()...)
+	s.routes = append(s.routes, s.onboardingRoutes()...)
 	s.handler = s.build()
 	return s, nil
 }

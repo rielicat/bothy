@@ -57,6 +57,17 @@ The v0.2 knowledge routes (`/api/knowledge/repos[/{id}[/files|/reindex|/notes[/d
 `/api/knowledge/search`) sit in `h_knowledge.go`, are appended to the table
 in `New`, answer foreign or malformed ids with 404 and need `If-Match` on a
 notes `PUT`.
+The v0.2 UI routes sit in `h_onboarding.go`: `POST /api/providers/connect`
+saves or picks the key (pasted, a saved `secret:<name>` or a detected
+environment variable), writes `providers.<id>` and puts the chosen models
+first in both slots in one config change, taking a saved key back if that
+change is refused; `POST /api/users/{id}/password` (admin cookie) hands out a
+one-time password. `POST /api/users` without a password returns one too. A
+cookie session of an account that must change its password gets 403
+`password_change_required` everywhere but `GET /api/auth/me`, `POST
+/api/auth/logout` and `POST /api/auth/password` (which then needs no old
+password). `GET /api/setup/state` says how Bothy was installed (`install`),
+and a failed channel test answers 502 with a `core.FailureCode` as its code.
 `POST /api/approvals/{id}` on a multi-approver approval records a vote and may
 return it still pending; `GET /api/approvals/{id}/votes` gives the caller's
 view of the votes (count, who may vote, `can_vote`/`can_withdraw`), and

@@ -251,6 +251,10 @@ func (s *Server) wrap(rt route) http.Handler {
 			s.writeError(w, r, err)
 			return
 		}
+		if a.MustChangePassword && !passwordChangeRoutes[rt.pattern] {
+			s.writeError(w, r, errPasswordChange)
+			return
+		}
 		if a.Via == "token" && a.RatePerMin > 0 {
 			if ok, retry := s.tokens.allow(a.TokenID, a.RatePerMin, a.RatePerMin); !ok {
 				e := newError(http.StatusTooManyRequests, "rate_limited", "token rate limit exceeded")

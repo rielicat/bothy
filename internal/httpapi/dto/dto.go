@@ -17,7 +17,7 @@ type Error struct {
 }
 
 type ErrorBody struct {
-	Code    string `json:"code"` // bad_request | unauthorized | forbidden | not_found | conflict | busy | paused | budget_exceeded | rate_limited | sealed | no_sandbox | unavailable | internal
+	Code    string `json:"code"` // bad_request | unauthorized | forbidden | password_change_required | not_found | conflict | busy | paused | budget_exceeded | rate_limited | sealed | no_sandbox | unavailable | internal; a failed POST /api/channels/{name}/test (502) carries a core.FailureCode
 	Message string `json:"message"`
 	Fix     string `json:"fix,omitempty"`
 }
@@ -35,7 +35,8 @@ type SetupState struct {
 	CSRF       string `json:"csrf,omitempty"` // the claimed grant's CSRF token (like dto.Me.CSRF); empty unless Claimed
 	OwnerSet   bool   `json:"owner_set"`
 	Sandbox    bool   `json:"sandbox_available"`
-	Version    string `json:"-"` // never disclosed pre-auth
+	Install    string `json:"install"` // compose | docker | binary | unknown: picks the command that prints a new setup code
+	Version    string `json:"-"`       // never disclosed pre-auth
 }
 
 type SetupClaimReq struct {
@@ -47,9 +48,10 @@ type SetupClaimResp struct {
 }
 
 type SetupOwnerReq struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Timezone string `json:"timezone"`
+	DisplayName string `json:"display_name,omitempty"` // "" = the username
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+	Timezone    string `json:"timezone"`
 }
 
 type LoginReq struct {
@@ -75,7 +77,7 @@ type Access struct {
 }
 
 type PasswordReq struct {
-	Old string `json:"old"`
+	Old string `json:"old"` // may be "" while the user's must_change_password is set
 	New string `json:"new"`
 }
 
@@ -86,7 +88,7 @@ type TokenCreateResp struct {
 
 type UserCreateReq struct {
 	Username    string    `json:"username"`
-	Password    string    `json:"password"`
+	Password    string    `json:"password,omitempty"` // "" = generate a one-time password (UserCreateResp)
 	DisplayName string    `json:"display_name"`
 	Role        core.Role `json:"role"`
 }
