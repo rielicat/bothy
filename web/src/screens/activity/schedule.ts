@@ -1,5 +1,6 @@
 import type { Grant, Schedule, User } from '../../lib/api/types.gen';
 import { localZone } from '../../lib/schedules';
+import { sendSentence, type Chats } from './tasks';
 
 export function blankSchedule(user: User | undefined): Schedule {
   return {
@@ -70,11 +71,28 @@ export function nameFrom(prompt: string): string {
 }
 
 /** A grant as the sentence people read in "Allowed without asking". */
-export function grantSentence(g: Pick<Grant, 'kind' | 'value' | 'tool'>, chatName = ''): string {
+export function grantSentence(g: Pick<Grant, 'kind' | 'value' | 'tool'>, chats: Chats = { identities: [], spaces: [] }): string {
   const host = (g.value ?? '').replace(/:443$/, '');
   if (g.kind === 'domain') return `Read websites on ${host}`;
-  if (g.kind === 'recipient') return `Send messages ${chatName || `to ${g.value}`}`;
+  if (g.kind === 'recipient') return sendSentence(g.value ?? '', chats);
   return `Use ${g.tool ?? 'a tool'} in the narrow way it was allowed`;
+}
+
+/** A date in a list of dates, without the comma some locales put inside it: "Thu Oct 15", "Thu 15 Oct". */
+export function listDate(t: string | number | Date, tz?: string, locale?: string): string {
+  const opts: Intl.DateTimeFormatOptions = { weekday: 'short', day: 'numeric', month: 'short' };
+  let f: Intl.DateTimeFormat;
+  try {
+    f = new Intl.DateTimeFormat(locale, { ...opts, timeZone: tz || undefined });
+  } catch {
+    f = new Intl.DateTimeFormat(locale, opts);
+  }
+  return f
+    .formatToParts(new Date(t))
+    .map((p) => (p.type === 'literal' ? p.value.replace(/,/g, ' ') : p.value))
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /** Website hosts mentioned in a prompt, for suggested permissions. */

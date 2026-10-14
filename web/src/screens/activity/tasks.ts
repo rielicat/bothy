@@ -26,6 +26,23 @@ export function deliverTo(ref: ChatRef | undefined, chats: Chats): string {
   return `to ${appName(ref.channel)}`;
 }
 
+/** A chat the way the server keys recipient permissions (ChatRef.Key in Go): "telegram:5512:". */
+export function chatKey(ref: ChatRef): string {
+  return `${ref.channel}:${ref.chat_id}:${ref.thread_id ?? ''}`;
+}
+
+/** A recipient permission as people read it in "Allowed without asking". */
+export function sendSentence(value: string, chats: Chats): string {
+  // Connected tools key recipients by their own field (an address, a pattern), not by chat.
+  if (!value.includes(':')) return `Send messages to ${value}`;
+  const [channel, chatId] = value.split(':');
+  const app = appName(channel);
+  const space = chats.spaces.find((s) => s.chat.channel === channel && s.chat.chat_id === chatId);
+  if (space) return `Send messages to ${space.title} on ${app}`;
+  if (chats.identities.some((i) => i.channel === channel && i.dm_chat_id === chatId)) return `Send you messages on ${app}`;
+  return `Send messages to a chat on ${app}`;
+}
+
 export interface TaskLookups {
   names: Map<string, string>;
   sessions: Map<string, Session>;
@@ -58,6 +75,20 @@ export function taskView(r: TaskRun, l: TaskLookups): TaskView {
     lead: [personName(r.user_id, l.names, r.requested_by_name), where(r.origin ?? chat?.origin, r.trigger)],
     outcome: out,
   };
+}
+
+/**
+ * The outcome a task page adds to its meta line. Finished and running tasks need none, and a
+ * waiting task already shows its waiting step.
+ */
+export function detailOutcome(r: TaskRun): Outcome | null {
+  if (['done', 'running', 'queued', 'waiting_approval', 'parked'].includes(r.status)) return null;
+  return outcome({ status: r.status, steps: r.steps, reason: r.reason });
+}
+
+/** A CodeBlock's maxLines that never hides just a line or two behind "Show all". */
+export function clampLines(code: string, max: number): number | undefined {
+  return code.replace(/\n$/, '').split('\n').length > max + 2 ? max : undefined;
 }
 
 /** Day groups for a list sorted newest first: "Today", "Yesterday", then dates. */

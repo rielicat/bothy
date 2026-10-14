@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Button, EmptyState, Spinner } from '../../components/ui';
+  import Icon from '../../components/Icon.svelte';
+  import { EmptyState, Spinner } from '../../components/ui';
   import { api } from '../../lib/api/client';
   import type { List } from '../../lib/api/types.gen';
   import { date, duration, fullTime, relTime } from '../../lib/format';
@@ -106,7 +107,11 @@
 </script>
 
 {#snippet setUp()}
-  {#if session.isAdmin && data?.environments.length}<Button href="/settings/connections/github">Set up environments</Button>{/if}
+  {#if session.isAdmin && data?.environments.length}
+    <a href="/settings/connections/github" onclick={router.link} class="inline-flex min-h-6 items-center gap-1 text-body text-muted hover:text-text pointer-coarse:min-h-11"
+      >Set up environments<Icon name="chevron-right" /></a
+    >
+  {/if}
 {/snippet}
 
 {#snippet word(s: Status)}
@@ -131,8 +136,9 @@
     <ul>
       {#each environments as { env, last, status } (env.name)}
         <li class="border-b border-border py-2 last:border-b-0">
-          <div class="flex min-h-6 items-baseline gap-4">
-            <span class="min-w-0 flex-1 truncate text-body font-medium text-text">{env.name} · {env.repo}</span>
+          <!-- Not a link to anything, so the name wraps instead of truncating; a long status moves under it. -->
+          <div class="flex min-h-6 flex-wrap items-baseline justify-between gap-x-4">
+            <span class="min-w-0 text-body font-medium text-text [overflow-wrap:anywhere]">{env.name} · {env.repo}</span>
             {@render word(status)}
           </div>
           {#if last}
@@ -159,7 +165,7 @@
                 <time class="meta min-w-20 text-right whitespace-nowrap max-sm:hidden" title={fullTime(h.at)}>{relTime(h.at)}</time>
               </div>
               <p class="text-small text-muted [overflow-wrap:anywhere]">
-                {h.facts.join(' · ')}{#if h.link}{' · '}{@render external(h.link)}{/if}<span class="sm:hidden">{' · '}{relTime(h.at)}</span>
+                {h.facts.join(' · ')}{#if h.link}{' · '}{@render external(h.link)}{/if}<span class="sm:hidden">{' · '}<span class="whitespace-nowrap">{relTime(h.at)}</span></span>
               </p>
             </li>
           {/each}

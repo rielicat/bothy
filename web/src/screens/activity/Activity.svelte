@@ -20,4 +20,15 @@
   ]);
 </script>
 
-<Page {title} {actions} {tabs}>{@render children()}</Page>
+<!--
+  A zero-width strut gives every Activity header a button's height and baseline, so the tabs
+  don't jump between pages with and without actions. Tabs keep their width: the 44 px touch
+  minimum replaces min-width:auto, which let labels overlap at 360 px. Both belong in
+  PageHeader and Tabs (F2).
+-->
+{#snippet header()}
+  <span class="btn invisible w-0 px-0" aria-hidden="true">&#8203;</span>
+  {@render actions?.()}
+{/snippet}
+
+<Page {title} actions={header} {tabs} class="[&_.tab]:shrink-0">{@render children()}</Page>

@@ -4,7 +4,7 @@
   import { api } from '../../lib/api/client';
   import type { List, Schedule, SchedulePreviewResp, ScheduleRunData } from '../../lib/api/types.gen';
   import { router } from '../../lib/router.svelte';
-  import { describeWhen, fromSpec, saveSchedule, scheduleGrants, clockLabel } from '../../lib/schedules';
+  import { clockLabel, describeWhen, fromSpec, localTimes, saveSchedule, scheduleGrants } from '../../lib/schedules';
   import { events } from '../../lib/sse.svelte';
   import { session } from '../../lib/stores/session.svelte';
   import Activity from './Activity.svelte';
@@ -31,7 +31,7 @@
       list = l;
       for (const s of l) {
         if (s.kind === 'cron' && fromSpec(s.kind, s.spec, s.tz).kind === 'custom')
-          void api.post<SchedulePreviewResp>('/api/schedules/preview', { kind: s.kind, spec: s.spec, tz: s.tz }).then((p) => (custom[s.id] = p.human.replace(/ \([^)]*\)$/, '')), () => {});
+          void api.post<SchedulePreviewResp>('/api/schedules/preview', { kind: s.kind, spec: s.spec, tz: s.tz }).then((p) => (custom[s.id] = localTimes(p.human.replace(/ \([^)]*\)$/, ''))), () => {});
         if (s.last_status === 'failed')
           void api.get<List<TaskRun>>(`/api/schedules/${encodeURIComponent(s.id)}/runs?limit=1`).then((r) => (problems[s.id] = r.items?.[0]?.reason ?? ''), () => {});
       }

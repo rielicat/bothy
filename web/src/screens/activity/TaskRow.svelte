@@ -16,7 +16,7 @@
       <time class="meta min-w-16 text-right whitespace-nowrap max-sm:hidden" title={fullTime}>{time}</time>
     </span>
     <span class="text-small text-muted sm:truncate">
-      {view.lead.join(' · ')}{' · '}<span class={toneClass[view.outcome.tone]}>{view.outcome.text}</span><span class="sm:hidden">{' · '}{time}</span>
+      {view.lead.join(' · ')}{' · '}<span class={toneClass[view.outcome.tone]}>{view.outcome.text}</span><span class="sm:hidden">{' · '}<span class="whitespace-nowrap">{time}</span></span>
     </span>
   </a>
 </li>

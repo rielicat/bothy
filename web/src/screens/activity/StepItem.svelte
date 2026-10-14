@@ -4,6 +4,7 @@
   import { CodeBlock, DiffView, Spinner } from '../../components/ui';
   import { duration } from '../../lib/format';
   import type { StepLine } from './steps';
+  import { clampLines } from './tasks';
 
   let { line, how }: { line: StepLine; how: string } = $props();
 
@@ -28,12 +29,12 @@
   <div id="{uid}-d" data-details class="pb-2 pl-6 text-small text-muted" hidden={!open}>
     {#if open}
       {#if call}
-        {#if call.action}<CodeBlock class="mt-1" label="What Bothy asked for" code={JSON.stringify(call.action, null, 2)} wrap maxLines={12} />{/if}
+        {#if call.action}{@const asked = JSON.stringify(call.action, null, 2)}<CodeBlock class="mt-1" label="What Bothy asked for" code={asked} wrap maxLines={clampLines(asked, 12)} />{/if}
         {#if call.action?.diff}
           <p class="mt-3 mb-1">Result</p>
           <DiffView diff={call.action.diff} />
         {:else if call.result_preview}
-          <CodeBlock class="mt-3" label="Result" code={call.result_preview} wrap maxLines={20} />
+          <CodeBlock class="mt-3" label="Result" code={call.result_preview} wrap maxLines={clampLines(call.result_preview, 20)} />
         {/if}
         {#if how}<p class="mt-3">How it was allowed: {how}</p>{/if}
         <p class="mt-1">

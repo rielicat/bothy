@@ -143,7 +143,11 @@
   {:else}
     <p class="text-title text-text tabular-nums">{money(total)} {range === 'today' ? 'today' : `in the last ${days} days`}</p>
     {#if today}
-      <p class="mt-1 text-body text-muted tabular-nums">Today: {money(spent)}{limit ? ` of the ${money(limit)} daily limit` : ''}</p>
+      {#if range !== 'today'}
+        <p class="mt-1 text-body text-muted tabular-nums">Today: {money(spent)}{limit ? ` of the ${money(limit)} daily limit` : ''}</p>
+      {:else if limit}
+        <p class="mt-1 text-body text-muted tabular-nums">The daily limit is {money(limit)}.</p>
+      {/if}
       {#if limit}
         <ProgressBar class="mt-2 max-w-80" value={spent} max={limit} {tone} label="Today's spending" valueText="{money(spent)} of {money(limit)}" />
         {#if tone === 'danger'}

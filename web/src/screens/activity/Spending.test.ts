@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resetMock } from '../../../mock/server';
+import { gridlines } from '../../components/BarChart.svelte';
 import { router } from '../../lib/router.svelte';
 import { session } from '../../lib/stores/session.svelte';
 import { installApi, type Call } from '../../test/api';
@@ -65,6 +66,21 @@ describe('Spending (docs/design/ui.md §10.5)', () => {
     await waitFor(() => expect(screen.getAllByRole('img').at(-1)?.getAttribute('aria-label')).toMatch(/Oct 13: \$0\.80$/));
     const from = new URL(calls.find((c) => c.url.includes('group_by=day'))!.url, 'http://bothy').searchParams.get('from');
     expect(from).toBe('2026-10-07T00:00:00.000Z');
+  });
+
+  it('labels two gridlines at round amounts under the highest day', () => {
+    expect(gridlines(4_100_000)).toEqual([2_000_000, 4_000_000]);
+    expect(gridlines(2_500_000)).toEqual([1_000_000, 2_000_000]);
+    expect(gridlines(1_200_000)).toEqual([500_000, 1_000_000]);
+    expect(gridlines(30_000)).toEqual([10_000, 20_000]);
+    expect(gridlines(0)).toEqual([]);
+  });
+
+  it("doesn't repeat today's amount in the Today view", async () => {
+    await start('/activity/spending?range=today');
+    expect(await screen.findByText('$1.20 today')).toBeTruthy();
+    expect(screen.getByText('The daily limit is $5.00.')).toBeTruthy();
+    expect(screen.queryByText(/^Today: /)).toBeNull();
   });
 
   it('warns at 80 % and stops at the limit', async () => {

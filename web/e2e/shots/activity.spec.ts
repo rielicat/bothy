@@ -94,6 +94,7 @@ const states: ShotState[] = [
     setup: then(
       (p) => p.getByLabel('What should Bothy do?').fill("Summarise yesterday's merged pull requests in acme/web and the status page at status.example.com."),
       pick('Repeat', 'weekly'),
+      (p) => p.getByText(/^Runs Mondays .+ Next: /).waitFor(),
       click('More options'),
     ),
   },

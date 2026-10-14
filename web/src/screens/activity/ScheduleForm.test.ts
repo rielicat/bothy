@@ -50,6 +50,31 @@ describe('New schedule (docs/design/ui.md §10.3)', () => {
     expect(posted()).toHaveLength(0);
   });
 
+  it('moves focus to the first field that needs fixing', async () => {
+    await fireEvent.click(screen.getByRole('button', { name: 'Create schedule' }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('What should Bothy do?')));
+  });
+
+  it('starts with sending to the results chat allowed, keyed the way the server keys chats', async () => {
+    await fireEvent.input(screen.getByLabelText('What should Bothy do?'), { target: { value: 'Summarise the open pull requests and check status.example.com.' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'More options' }));
+    const send = (await screen.findByLabelText('Send you messages on Telegram')) as HTMLInputElement;
+    const read = screen.getByLabelText('Read websites on status.example.com') as HTMLInputElement;
+    expect(send.checked).toBe(true);
+    expect(read.checked).toBe(false);
+    await fireEvent.click(screen.getByRole('button', { name: 'Create schedule' }));
+    await waitFor(() => expect(posted()).toHaveLength(1));
+    expect(JSON.parse(posted()[0].body).grants).toEqual([expect.objectContaining({ kind: 'recipient', value: 'telegram:5512:', id: '' })]);
+  });
+
+  it("never shows the previous choice's next dates", async () => {
+    const line = () => screen.getByText(/^Runs /).textContent ?? '';
+    await waitFor(() => expect(line()).toMatch(/Next: /));
+    await fireEvent.change(screen.getByLabelText('Repeat'), { target: { value: 'weekly' } });
+    expect(line()).toMatch(/^Runs Mondays at .+\)\.$/);
+    await waitFor(() => expect(line()).toMatch(/Next: /));
+  });
+
   it('saves a one-off run as wall-clock time in the schedule time zone', async () => {
     await fireEvent.change(screen.getByLabelText('Repeat'), { target: { value: 'once' } });
     await fireEvent.input(screen.getByLabelText('Date'), { target: { value: '2026-11-02' } });

@@ -92,7 +92,8 @@ const num = (s: string, max: number, min = 0) => (/^\d{1,2}$/.test(s) && +s >= m
 
 /** Reads a saved schedule back into the form's choices; anything else is Custom. */
 export function fromSpec(kind: string, spec: string, tz = 'UTC', now = new Date()): When {
-  const base: When = { kind: 'custom', time: '09:00', day: 1, date: wallClock(now, tz).slice(0, 10), rule: spec };
+  // "Once on" starts tomorrow: today at 9:00 has often passed already.
+  const base: When = { kind: 'custom', time: '09:00', day: 1, date: wallClock(new Date(now.getTime() + 86_400_000), tz).slice(0, 10), rule: spec };
   if (kind === 'once') {
     const wall = onceInput(spec, tz);
     const m = /^(\d{4}-\d\d-\d\d)T(\d\d:\d\d)/.exec(wall);
@@ -119,6 +120,11 @@ export function fromSpec(kind: string, spec: string, tz = 'UTC', now = new Date(
 export function clockLabel(hm: string, locale?: string): string {
   const [h, m] = hm.split(':').map(Number);
   return new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' }).format(Date.UTC(2000, 0, 1, h || 0, m || 0));
+}
+
+/** Times in the server's own wording ("Weekdays at 08:00") in the reader's style, to match the rest of the page. */
+export function localTimes(text: string, locale?: string): string {
+  return text.replace(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g, (hm) => clockLabel(hm, locale));
 }
 
 /** "Weekdays at 9:00", "Mondays at 8:00", "Every month on day 1 at 9:00", "Once on 16 Oct at 9:00"; null for Custom. */

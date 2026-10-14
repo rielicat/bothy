@@ -277,7 +277,7 @@ const now = Date.now();
 // Day amounts in dollars for the last 30 days, newest last; the highest is $4.10.
 const daily = [0.9, 1.1, 0.4, 0.6, 2.2, 1.7, 1.4, 0.8, 0, 0, 1.6, 2.4, 1.9, 1.2, 0.7, 4.1, 2.8, 1.5, 0.9, 0, 0.3, 1.8, 2.1, 1.6, 1.3, 0.5, 0, 1.9, 2.5, 1.2];
 
-export function usageRows(groupBy: string, days: number, user?: string) {
+export function usageRows(groupBy: string, days: number, user?: string, today = daily[daily.length - 1]) {
   const scale = days / 30;
   const row = (key: string, dollars: number, extra: Record<string, unknown> = {}) => ({
     key,
@@ -292,7 +292,7 @@ export function usageRows(groupBy: string, days: number, user?: string) {
   });
   const share = user === member.id ? 0.3 : 1;
   if (groupBy === 'day') {
-    return daily.slice(30 - days).map((v, i) => row(new Date(now - (days - 1 - i) * 86400_000).toISOString().slice(0, 10), v * share));
+    return [...daily.slice(30 - days, -1), today].map((v, i) => row(new Date(now - (days - 1 - i) * 86400_000).toISOString().slice(0, 10), v * share));
   }
   if (groupBy === 'model') {
     return [
@@ -464,10 +464,14 @@ on('GET', '/api/releases', (req, res) => {
   json(res, 200, { environments: releaseEnvs, deploys: noDeploys(req) || empty(req) ? [] : deploys });
 });
 
+// Today's bar on the chart matches the meter in every spending scenario.
+const spentToday = (req: Req) => (empty(req) ? 0 : spendLimit(req) ? 5_000_000 : spend80(req) ? 4_100_000 : spend50(req) ? 2_500_000 : 1_200_000);
+
 on('GET', '/api/usage', (req, res, _m, q) => {
   const days = Math.min(30, Math.max(1, Math.round((Date.parse(q.get('to') ?? '') - Date.parse(q.get('from') ?? '')) / 86400_000) + 1) || 7);
-  const rows = empty(req) ? [] : usageRows(q.get('group_by') ?? 'day', days, mine(req));
-  const totals = usageRows('day', days, mine(req)).reduce(
+  const today = spentToday(req) / 1e6;
+  const rows = empty(req) ? [] : usageRows(q.get('group_by') ?? 'day', days, mine(req), today);
+  const totals = usageRows('day', days, mine(req), today).reduce(
     (t, r) => ({ ...t, cost_micros: t.cost_micros + r.cost_micros, input: t.input + r.input, output: t.output + r.output, cache_read: t.cache_read + r.cache_read, cache_write: t.cache_write + r.cache_write, calls: t.calls + r.calls }),
     { key: '', cost_micros: 0, input: 0, output: 0, cache_read: 0, cache_write: 0, calls: 0, price_known: true },
   );
@@ -475,7 +479,7 @@ on('GET', '/api/usage', (req, res, _m, q) => {
 });
 on('GET', '/api/usage/today', (req, res) => {
   const limit = 5_000_000;
-  const spent = empty(req) ? 0 : spendLimit(req) ? limit : spend80(req) ? 4_100_000 : spend50(req) ? 2_500_000 : 1_200_000;
+  const spent = spentToday(req);
   json(res, 200, { spent_micros: asMember(req) ? Math.round(spent * 0.3) : spent, limit_micros: asMember(req) ? 2_000_000 : 0, global_spent_micros: spent, global_limit_micros: limit });
 });
 on('GET', '/api/audit', (req, res, _m, q) => {

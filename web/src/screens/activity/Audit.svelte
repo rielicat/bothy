@@ -65,7 +65,8 @@
   const shown = $derived(
     (rows ?? []).filter((e) => (who !== 'bothy' || /^(agent|system):?/.test(e.actor)) && (!prefixes.length || prefixes.some((p) => e.action.startsWith(p)))),
   );
-  const filtered = $derived(!!(who || kind || period !== '7'));
+  // "Last 7 days" is a filter too, and clearing goes to all time.
+  const filtered = $derived(!!(who || kind || period !== 'all'));
   const whoOptions = $derived([
     { value: '', label: 'Anyone' },
     ...[...names].map(([id, n]) => ({ value: `user:${id}`, label: id === session.me?.user.id ? 'You' : n })),
@@ -192,13 +193,15 @@
                     aria-controls="audit-{e.id}"
                     onclick={() => (expanded = expanded === e.id ? null : e.id)}
                   >
-                    <time class="w-14 shrink-0 text-muted tabular-nums max-sm:hidden" title={fullTime(e.at)}>{time(e.at)}</time>
+                    <time class="w-16 shrink-0 whitespace-nowrap text-muted tabular-nums max-sm:hidden" title={fullTime(e.at)}>{time(e.at)}</time>
                     <span class="w-30 shrink-0 truncate text-text max-sm:hidden">{actor}</span>
                     <span class="min-w-0 flex-1 text-text [overflow-wrap:anywhere]">{summarize(e)}</span>
-                    <span class="text-small text-muted sm:hidden">{time(e.at)} · {actor}</span>
-                    {#if word}<span class="shrink-0 text-small text-danger-text">{word}</span>{/if}
+                    <span class="text-small text-muted sm:hidden"
+                      ><span class="whitespace-nowrap">{time(e.at)}</span> · {actor}{#if word}{' · '}<span class="text-danger-text">{word}</span>{/if}</span
+                    >
+                    {#if word}<span class="shrink-0 text-small text-danger-text max-sm:hidden">{word}</span>{/if}
                   </button>
-                  <div id="audit-{e.id}" class="pb-3 text-small text-muted sm:pl-50" hidden={expanded !== e.id}>
+                  <div id="audit-{e.id}" class="pb-3 text-small text-muted sm:pl-52" hidden={expanded !== e.id}>
                     {#if expanded === e.id}
                       <p>Who: <span class="text-text">{actor}</span></p>
                       <p>When: <span class="text-text">{fullTime(e.at)}</span></p>
@@ -223,13 +226,18 @@
           <h2 class="mb-1 text-caption text-muted">{g.label}</h2>
           <ul>
             {#each g.items as e (e.id)}
-              <li class="flex min-h-10 flex-wrap items-center gap-x-3 border-b border-border py-2 text-body last:border-b-0 max-sm:flex-col max-sm:items-start">
-                <time class="w-14 shrink-0 text-muted tabular-nums max-sm:text-small" title={fullTime(e.at)}>{time(e.at)}</time>
-                <code class="w-48 shrink-0 truncate text-code text-text max-sm:w-auto" title={e.host} data-copy-ignore>{e.host}</code>
-                <span class="min-w-0 flex-1 {webOutcome(e) === 'blocked' ? 'text-danger-text' : 'text-text'}">
+              <!-- On phones the sentence, which names the site, leads and the time and task link fold under it. -->
+              <li class="flex min-h-10 items-center gap-x-3 border-b border-border py-2 text-body last:border-b-0 max-sm:flex-col max-sm:items-start">
+                <time class="w-16 shrink-0 whitespace-nowrap text-muted tabular-nums max-sm:hidden" title={fullTime(e.at)}>{time(e.at)}</time>
+                <code class="w-48 shrink-0 truncate text-code text-text max-sm:hidden" title={e.host} data-copy-ignore>{e.host}</code>
+                <span class="min-w-0 flex-1 [overflow-wrap:anywhere] {webOutcome(e) === 'blocked' ? 'text-danger-text' : 'text-text'}">
                   {webLine(e)}{#if webOutcome(e) === 'blocked'}{' '}<LinkButton onclick={() => ((allowing = e), (allowOpen = true))}>Allow this site…</LinkButton>{/if}
                 </span>
-                {#if e.run_id}<a class="link inline-flex min-h-6 items-center text-small pointer-coarse:min-h-11 pointer-coarse:min-w-11" href="/activity/tasks/{encodeURIComponent(e.run_id)}" onclick={router.link}>Task</a>{/if}
+                <span class="flex items-center gap-1.5 text-small text-muted">
+                  <time class="whitespace-nowrap tabular-nums sm:hidden" title={fullTime(e.at)}>{time(e.at)}</time>
+                  {#if e.run_id}<span class="sm:hidden" aria-hidden="true">·</span
+                    ><a class="link inline-flex min-h-6 items-center pointer-coarse:min-h-11 pointer-coarse:min-w-11" href="/activity/tasks/{encodeURIComponent(e.run_id)}" onclick={router.link}>Task</a>{/if}
+                </span>
               </li>
             {/each}
           </ul>

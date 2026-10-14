@@ -6,16 +6,16 @@
   import { fullTime, money, relTime } from '../../lib/format';
   import { hostPort } from '../../lib/grants';
   import { router } from '../../lib/router.svelte';
-  import { describeWhen, fromSpec, saveSchedule, scheduleGrants, timeOptions, timezones, toSpec, validRule, WEEKDAYS, ZERO, type When } from '../../lib/schedules';
+  import { describeWhen, fromSpec, localTimes, saveSchedule, scheduleGrants, timeOptions, timezones, toSpec, validRule, wallClock, WEEKDAYS, ZERO, type When } from '../../lib/schedules';
   import { session } from '../../lib/stores/session.svelte';
   import { appName } from '../../lib/taskStatus';
   import { people, type TaskRun } from './api';
   import CheckIn from './CheckIn.svelte';
   import DeleteSchedule from './DeleteSchedule.svelte';
   import Loading from './Loading.svelte';
-  import { blankSchedule, grantSentence, hostsIn, nameFrom } from './schedule';
+  import { blankSchedule, grantSentence, hostsIn, listDate, nameFrom } from './schedule';
   import TaskRow from './TaskRow.svelte';
-  import { deliverTo, loadChats, taskView, type Chats } from './tasks';
+  import { chatKey, loadChats, taskView, type Chats } from './tasks';
 
   let { params }: { params: Record<string, string> } = $props();
 
@@ -34,8 +34,9 @@
   let submitted = $state(false);
   let saving = $state(false);
   let saveError = $state('');
-  let preview = $state<SchedulePreviewResp | null>(null);
-  let ruleRejected = $state(false);
+  // Keyed by what was asked, so a new choice never shows the previous choice's dates.
+  let preview = $state<{ key: string; resp: SchedulePreviewResp } | null>(null);
+  let rejected = $state('');
   let missing = $state(false);
   let failed = $state(false);
   let removing = $state<Schedule | null>(null);
@@ -95,19 +96,17 @@
     if (s?.id && router.hash === '#recent') void tick().then(() => document.getElementById('recent')?.scrollIntoView());
   });
 
-  // Only the newest answer may show; previews can arrive out of order.
-  let seq = 0;
+  const previewKey = $derived(`${spec.kind} ${spec.spec} ${s?.tz ?? ''}`);
+  const shown = $derived(preview?.key === previewKey ? preview.resp : null);
+  const ruleRejected = $derived(rejected !== '' && rejected === previewKey);
   $effect(() => {
+    const key = previewKey;
     const req = { kind: spec.kind, spec: spec.spec, tz: s?.tz ?? 'UTC' };
-    if (!s || (w.kind === 'custom' && !validRule(w.rule)) || (w.kind === 'once' && !w.date)) {
-      preview = null;
-      return;
-    }
-    const n = ++seq;
+    if (!s || (w.kind === 'custom' && !validRule(w.rule)) || (w.kind === 'once' && !w.date)) return;
     const t = setTimeout(() => {
       api.post<SchedulePreviewResp>('/api/schedules/preview', req).then(
-        (p) => n === seq && ((preview = p), (ruleRejected = false)),
-        () => n === seq && ((preview = null), (ruleRejected = w.kind === 'custom')),
+        (resp) => (preview = { key, resp }),
+        () => (rejected = w.kind === 'custom' ? key : ''),
       );
     }, 300);
     return () => clearTimeout(t);
@@ -115,15 +114,14 @@
 
   // Weekday names keep their capital: "Runs Mondays at 9:00", "Runs weekdays at 9:00".
   const lower = (t: string) => (w.kind === 'weekly' ? t : t[0].toLowerCase() + t.slice(1));
-  const nextDays = $derived(
-    (preview?.next ?? []).slice(0, 3).map((t) => new Date(t).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', timeZone: s?.tz || undefined })),
-  );
+  const nextDays = $derived((shown?.next ?? []).slice(0, 3).map((t) => listDate(t, s?.tz)));
   const previewLine = $derived.by(() => {
     if (!s) return '';
     const plain = describeWhen(w);
-    const runsText = plain ? `Runs ${lower(plain)} (${s.tz.replace(/_/g, ' ')}).` : preview ? `Runs ${lower(preview.human)}.` : '';
+    const runsText = plain ? `Runs ${lower(plain)} (${s.tz.replace(/_/g, ' ')}).` : shown ? `Runs ${lower(localTimes(shown.human))}.` : '';
     return runsText && w.kind !== 'once' && nextDays.length ? `${runsText} Next: ${nextDays.join(', ')}.` : runsText;
   });
+  const today = $derived(s ? wallClock(new Date(), s.tz).slice(0, 10) : undefined);
 
   const promptError = $derived(submitted && !s?.prompt.trim() ? 'Tell Bothy what to do.' : '');
   const ruleError = $derived(
@@ -156,16 +154,21 @@
       if (![...saved, ...out].some((x) => x.kind === g.kind && x.value === g.value))
         out.push({ ...g, id: `new:${g.kind}:${g.value}`, principal_id: s!.principal_id, scope: 'schedule', scope_id: s!.id, allow_when_tainted: false, uses: 0, max_uses: 0, created_by: '', created_at: ZERO, expires_at: ZERO });
     };
-    if (s.deliver && s.deliver.channel !== 'web') add({ kind: 'recipient', value: refKey(s.deliver), max_se: 'external_send' });
+    if (s.deliver && s.deliver.channel !== 'web') add({ kind: 'recipient', value: chatKey(s.deliver), max_se: 'external_send' });
     for (const h of hostsIn(s.prompt)) add({ kind: 'domain', value: hostPort(h), max_se: 'read' });
     return out;
   });
-  const grantLabel = (g: Grant) => grantSentence(g, g.kind === 'recipient' && s?.deliver ? deliverTo(s.deliver, chats) : '');
+  // Every run posts to the results chat, so sending there starts allowed; websites start unticked.
+  const kept = (g: Grant) => keep[g.id] ?? (g.kind === 'recipient' && g.id.startsWith('new:'));
 
   async function save(e: SubmitEvent) {
     e.preventDefault();
     submitted = true;
-    if (!s || promptError || ruleError) return;
+    if (!s || promptError || ruleError) {
+      await tick();
+      document.querySelector<HTMLElement>('form [aria-invalid="true"]')?.focus();
+      return;
+    }
     saving = true;
     saveError = '';
     const out: Schedule = {
@@ -176,7 +179,7 @@
       active_hours: from && to ? `${from}-${to}` : '',
       limits: { ...s.limits, max_cost_micros: Math.round((Number.parseFloat(cost) || 0) * 1e6) },
     };
-    const grants = [...saved, ...suggested].filter((g) => keep[g.id]).map((g) => ({ ...g, id: g.id.startsWith('new:') ? '' : g.id }));
+    const grants = [...saved, ...suggested].filter(kept).map((g) => ({ ...g, id: g.id.startsWith('new:') ? '' : g.id }));
     try {
       await saveSchedule(out, grants);
       toast(isNew ? 'Schedule created.' : 'Saved.');
@@ -207,7 +210,7 @@
 {/snippet}
 
 {#snippet field(label: string, id: string)}
-  <label for={id} class="text-body text-text">{label}</label>
+  <label for={id} class="field-label">{label}</label>
 {/snippet}
 
 {#if params.id === 'checkin'}
@@ -241,11 +244,13 @@
           {:else if w.kind === 'monthly'}
             <Select label="Day of the month" hideLabel options={dateOptions} value={String(w.day)} onchange={(e) => (w.day = Number(e.currentTarget.value))} />
           {:else if w.kind === 'once'}
-            <input type="date" class="input w-auto" aria-label="Date" bind:value={w.date} />
+            <input type="date" class="input w-auto" aria-label="Date" min={today} bind:value={w.date} />
           {/if}
           {#if w.kind !== 'custom'}
-            <span class="text-body text-text">at</span>
-            <Select label="Time" hideLabel options={timeOptions(w.time)} bind:value={w.time} />
+            <span class="flex items-center gap-2">
+              <span class="text-body text-text">at</span>
+              <Select label="Time" hideLabel options={timeOptions(w.time)} bind:value={w.time} />
+            </span>
           {/if}
         </div>
         {#if w.kind === 'custom'}
@@ -273,21 +278,21 @@
           <Select id="sf-model" class="max-sm:mb-2 sm:max-w-64" options={[{ value: 'main', label: 'Main model' }, { value: 'fast', label: 'Quick tasks model' }]} bind:value={s.slot} />
           {@render field('Stop a run above', 'sf-cost')}
           <TextField id="sf-cost" class="max-sm:mb-2 sm:max-w-32" prefix="$" inputmode="decimal" placeholder="0.50" bind:value={cost} />
-          <span class="text-body text-text" id="sf-hours">Only run between</span>
+          <span class="field-label" id="sf-hours">Only run between</span>
           <div class="flex items-center gap-2 max-sm:mb-2" role="group" aria-labelledby="sf-hours">
             <Select label="From" hideLabel options={[{ value: '', label: 'Any time' }, ...timeOptions(from)]} bind:value={from} />
             {#if from}<span class="text-body text-text">and</span><Select label="Until" hideLabel options={timeOptions(to)} bind:value={to} />{/if}
           </div>
           {@render field('If Bothy was off', 'sf-missed')}
           <Select id="sf-missed" class="max-sm:mb-2 sm:max-w-64" options={[{ value: 'once', label: "Run when it's back" }, { value: 'skip', label: 'Skip that run' }]} bind:value={s.missed_run} />
-          <span class="text-body text-text" aria-hidden="true">Time zone</span>
-          <Combobox label="Time zone" options={zones} bind:value={s.tz} class="max-sm:mb-2 sm:max-w-80 [&>div]:mt-0 [&>label]:sr-only" />
+          <span class="field-label" aria-hidden="true">Time zone</span>
+          <Combobox label="Time zone" options={zones} bind:value={s.tz} class="max-sm:mb-2 sm:max-w-64 [&>div]:mt-0 [&>label]:sr-only" />
         </div>
         {#if saved.length || suggested.length}
           <fieldset class="mt-4">
-            <legend class="text-body text-text">Allowed without asking</legend>
+            <legend class="field-label">Allowed without asking</legend>
             {#each [...saved, ...suggested] as g (g.id)}
-              <Checkbox label={grantLabel(g)} checked={!!keep[g.id]} onchange={(e) => (keep[g.id] = e.currentTarget.checked)} />
+              <Checkbox label={grantSentence(g, chats)} checked={kept(g)} onchange={(e) => (keep[g.id] = e.currentTarget.checked)} />
             {/each}
           </fieldset>
         {/if}

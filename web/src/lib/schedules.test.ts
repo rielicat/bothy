@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeWhen, fromSpec, onceInput, timeOptions, toSpec, validRule, type When } from './schedules';
+import { describeWhen, fromSpec, localTimes, onceInput, timeOptions, toSpec, validRule, type When } from './schedules';
 
 const base: When = { kind: 'daily', time: '09:00', day: 1, date: '2026-10-16', rule: '' };
 
@@ -44,6 +44,19 @@ describe('"When" and the repeat rule (docs/design/ui.md §10.3)', () => {
     expect(describeWhen({ ...base, kind: 'monthly', day: 1 }, l)).toBe('Every month on day 1 at 9:00');
     expect(describeWhen({ ...base, kind: 'once', date: '2026-10-16' }, l)).toBe('Once on 16 Oct at 9:00');
     expect(describeWhen({ ...base, kind: 'custom', rule: '0 9 * * *' }, l)).toBeNull();
+  });
+
+  it('starts a one-off run tomorrow in the schedule time zone', () => {
+    // 23:30 on 14 October in UTC is already the 15th in Berlin.
+    const now = new Date('2026-10-14T23:30:00Z');
+    expect(fromSpec('cron', '0 9 * * 1-5', 'Europe/Berlin', now).date).toBe('2026-10-16');
+    expect(fromSpec('cron', '0 9 * * 1-5', 'UTC', now).date).toBe('2026-10-15');
+  });
+
+  it("puts the server's times in the reader's clock style", () => {
+    expect(localTimes('On the 1st and 15th of each month at 09:00', 'en-US')).toBe('On the 1st and 15th of each month at 9:00 AM');
+    expect(localTimes('Weekdays at 18:30 (Europe/London)', 'en-GB')).toBe('Weekdays at 18:30 (Europe/London)');
+    expect(localTimes('Every 30m', 'en-US')).toBe('Every 30m');
   });
 
   it('checks the shape of a repeat rule', () => {

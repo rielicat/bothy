@@ -4,12 +4,12 @@
   import { api, ApiError } from '../../lib/api/client';
   import type { MessagePage, Schedule, ToolCallRecord } from '../../lib/api/types.gen';
   import { date, duration, fullTime, money, plural } from '../../lib/format';
-  import { where } from '../../lib/taskStatus';
+  import { toneClass, where } from '../../lib/taskStatus';
   import { people, personName, type TaskDetail } from './api';
   import Loading from './Loading.svelte';
   import StepItem from './StepItem.svelte';
   import { allowedHow, decisionLine, stepLine, type StepLine } from './steps';
-  import { dayLabel } from './tasks';
+  import { clampLines, dayLabel, detailOutcome } from './tasks';
 
   let { params }: { params: Record<string, string> } = $props();
 
@@ -78,20 +78,16 @@
   });
   const refine = $derived(d?.refine);
   const agreed = $derived(refine ? `${refine.votes[0]?.count ?? 1} of ${refine.drafts} agreed` : '');
-  const meta = $derived.by(() => {
+  const who = $derived.by(() => {
     if (!run) return '';
     const scheduled = run.trigger === 'schedule' || run.trigger === 'heartbeat';
-    const t = new Date(run.created_at);
-    return [
-      scheduled ? 'Ran on a schedule' : `${personName(run.user_id, names, run.requested_by_name)} asked in ${where(chatOrigin, run.trigger)}`,
-      `${dayLabel(run.created_at)} at ${t.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`,
-      took,
-      run.cost_micros ? `Cost ${money(run.cost_micros)}` : '',
-      refine ? `Refined from ${plural(refine.drafts, 'draft')} · ${agreed}` : '',
-    ]
-      .filter(Boolean)
-      .join(' · ');
+    return scheduled ? 'Ran on a schedule' : `${personName(run.user_id, names, run.requested_by_name)} asked in ${where(chatOrigin, run.trigger)}`;
   });
+  const when = $derived(run ? `${dayLabel(run.created_at)} at ${new Date(run.created_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}` : '');
+  const facts = $derived(
+    [took, run?.cost_micros ? `Cost ${money(run.cost_micros)}` : '', refine ? `Refined from ${plural(refine.drafts, 'draft')} · ${agreed}` : ''].filter(Boolean),
+  );
+  const result = $derived(run ? detailOutcome(run) : null);
 
   $effect(() => {
     void answer;
@@ -105,7 +101,7 @@
   {#if run}<Button href="/chat/{encodeURIComponent(run.session_id)}">Open chat</Button>{/if}
 {/snippet}
 
-{#snippet facts(rows: [string, string][])}
+{#snippet table(rows: [string, string][])}
   <table class="mt-2 w-full text-small">
     <tbody>
       {#each rows.filter((r) => r[1]) as [k, v] (k)}
@@ -126,7 +122,9 @@
   <Page title="Task" back={{ href: '/activity', label: 'Activity' }}><Loading {failed} retry={load} /></Page>
 {:else}
   <Page {title} back={{ href: '/activity', label: 'Activity' }} actions={openChat}>
-    <p class="-mt-4 text-small text-muted"><time datetime={run.created_at} title={fullTime(run.created_at)}>{meta}</time></p>
+    <p class="-mt-4 text-small text-muted">
+      {who} · <time datetime={run.created_at} title={fullTime(run.created_at)}>{when}</time>{#each facts as f (f)}{' · '}{f}{/each}{#if result}{' · '}<span class={toneClass[result.tone]}>{result.text}</span>{/if}
+    </p>
 
     {#if lines.length}
       <section class="mt-10">
@@ -148,7 +146,7 @@
     <Disclosure label="Technical details" class="mt-10">
       {#each d.llm_calls ?? [] as c, i (c.id)}
         <h3 class="mt-4 text-small font-medium text-text">Model call {i + 1}</h3>
-        {@render facts([
+        {@render table([
           ['Model', `${c.ref.provider}/${c.ref.model}`],
           ['Purpose', c.purpose],
           ['Time to first word', c.ttft ? duration(c.ttft) : ''],
@@ -160,7 +158,7 @@
       {/each}
       {#each calls as t, i (t.id)}
         <h3 class="mt-4 text-small font-medium text-text">Tool call {i + 1}</h3>
-        {@render facts([
+        {@render table([
           ['Tool', t.tool],
           ['Decision', t.verdict],
           ['Rule', t.rule],
@@ -168,14 +166,14 @@
           ['Sites contacted', t.status === 'ok' ? (t.action?.host ?? '') : ''],
           ['Duration', t.duration ? duration(t.duration) : ''],
         ])}
-        {#if t.action}<CodeBlock class="mt-2" label="Exact action" code={JSON.stringify(t.action, null, 2)} wrap maxLines={8} />{/if}
+        {#if t.action}{@const code = JSON.stringify(t.action, null, 2)}<CodeBlock class="mt-2" label="Exact action" {code} wrap maxLines={clampLines(code, 8)} />{/if}
       {/each}
       {#if refine}
         <h3 class="mt-4 text-small font-medium text-text">Refine</h3>
         <p class="mt-1 text-small text-text">{plural(refine.drafts, 'draft')}, {plural(refine.rounds, 'round')}, {agreed}</p>
         {#each refine.entries ?? [] as e, i (i)}
           <Disclosure class="mt-1" label="{e.role === 'draft' ? 'Draft' : e.role === 'critique' ? 'Critique' : e.role === 'correct' ? 'Correction' : 'Continuation'} {e.draft + 1}{e.round ? `, round ${e.round}` : ''}">
-            <CodeBlock code={e.text} wrap maxLines={12} />
+            <CodeBlock code={e.text} wrap maxLines={clampLines(e.text, 12)} />
           </Disclosure>
         {/each}
       {/if}

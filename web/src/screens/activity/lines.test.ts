@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Approval, AuditEntry, EgressRecord, ToolCallRecord } from '../../lib/api/types.gen';
 import { actorName, resultWord, summarize, webLine } from './audit';
-import { every, grantSentence, nameFrom, nextRun } from './schedule';
+import { every, grantSentence, listDate, nameFrom, nextRun } from './schedule';
 import { decisionLine, stepLine, type Segment } from './steps';
-import { deliverTo, taskView, type TaskLookups } from './tasks';
+import { chatKey, clampLines, deliverTo, detailOutcome, taskView, type TaskLookups } from './tasks';
 
 const text = (s: Segment[]) => s.map((x) => x.text).join('');
 const call = (tool: string, status: string, action: Partial<NonNullable<ToolCallRecord['action']>> = {}) =>
@@ -98,6 +98,41 @@ describe('schedules and tasks in words', () => {
     expect(deliverTo({ channel: 'slack', chat_id: 'C1', kind: 'group' }, chats)).toBe('to #eng on Slack');
     expect(deliverTo({ channel: 'telegram', chat_id: '5', kind: 'dm' }, chats)).toBe('to your Telegram messages');
     expect(grantSentence({ kind: 'domain', value: 'api.example.com:443' })).toBe('Read websites on api.example.com');
+  });
+
+  it('keys a chat permission the way the server does and reads it back as a sentence', () => {
+    const chats = {
+      identities: [{ channel: 'telegram', dm_chat_id: '5512', status: 'linked' }],
+      spaces: [{ chat: { channel: 'slack', chat_id: 'C1', kind: 'group' }, title: '#eng' }],
+    } as unknown as TaskLookups['chats'];
+    expect(chatKey({ channel: 'telegram', chat_id: '5512', kind: 'dm' })).toBe('telegram:5512:');
+    expect(chatKey({ channel: 'slack', chat_id: 'C1', thread_id: '17.2', kind: 'group' })).toBe('slack:C1:17.2');
+    expect(grantSentence({ kind: 'recipient', value: 'telegram:5512:' }, chats)).toBe('Send you messages on Telegram');
+    expect(grantSentence({ kind: 'recipient', value: 'slack:C1:' }, chats)).toBe('Send messages to #eng on Slack');
+    expect(grantSentence({ kind: 'recipient', value: 'discord:99:' }, chats)).toBe('Send messages to a chat on Discord');
+    expect(grantSentence({ kind: 'recipient', value: 'ops@example.com' }, chats)).toBe('Send messages to ops@example.com');
+  });
+
+  it('lists dates without a comma inside each one', () => {
+    const t = '2026-10-15T08:00:00Z';
+    expect(listDate(t, 'Europe/London', 'en-US')).toBe('Thu Oct 15');
+    expect(listDate(t, 'Europe/London', 'en-GB')).toBe('Thu 15 Oct');
+    expect(listDate(t, 'Not/AZone', 'en-GB')).toBe('Thu 15 Oct');
+  });
+
+  it("adds a task's outcome to its page only when it didn't finish normally", () => {
+    const run = (status: string, reason?: string) => ({ status, steps: 3, reason }) as never;
+    expect(detailOutcome(run('done'))).toBeNull();
+    expect(detailOutcome(run('waiting_approval'))).toBeNull();
+    expect(detailOutcome(run('failed', 'the GitHub token was rejected'))).toEqual({ text: 'Failed: the GitHub token was rejected', tone: 'danger' });
+    expect(detailOutcome(run('stopped'))).toEqual({ text: 'Stopped', tone: 'muted' });
+  });
+
+  it('never folds away just a line or two of code', () => {
+    const lines = (n: number) => Array.from({ length: n }, (_, i) => `line ${i}`).join('\n');
+    expect(clampLines(lines(9), 8)).toBeUndefined();
+    expect(clampLines(lines(10), 8)).toBeUndefined();
+    expect(clampLines(lines(11), 8)).toBe(8);
   });
 
   it('titles a task by its chat or schedule and never shows an id', () => {

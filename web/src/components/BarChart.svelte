@@ -8,6 +8,15 @@
     /** What the bar's tooltip and the hidden table say: "Tue 14 Oct: $1.20". */
     title: string;
   }
+
+  /** Two gridlines at round amounts (1, 2 or 5 × 10ⁿ) at or under the highest bar: 2 and 4 for a high of 4.10. */
+  export function gridlines(max: number): number[] {
+    if (max <= 0) return [];
+    const half = max / 2;
+    const p = 10 ** Math.floor(Math.log10(half));
+    const step = ([5, 2, 1].find((m) => m * p <= half) ?? 1) * p;
+    return [step, step * 2];
+  }
 </script>
 
 <script lang="ts">
@@ -24,20 +33,17 @@
   }: { data: Bar[]; format: (v: number) => string; axis?: (v: number) => string; summary: string; height?: number } = $props();
 
   const max = $derived(Math.max(0, ...data.map((d) => d.value)));
-  // The top gridline lands on 1, 2, 4 or 5 × 10^n, so both labels read cleanly.
-  const top = $derived.by(() => {
-    if (max <= 0) return 1;
-    const p = 10 ** Math.floor(Math.log10(max));
-    return ([1, 2, 4, 5, 10].find((m) => m * p >= max) ?? 10) * p;
-  });
   const few = $derived(data.length <= 7);
+  const lines = $derived(gridlines(max));
+  // Headroom for the amounts printed above the bars when there are few of them.
+  const top = $derived(max > 0 ? max * (few ? 1.15 : 1) : 1);
 </script>
 
 <figure class="mt-6">
   <div role="group" aria-label={summary} class="relative pl-12" style:height="{height}px">
-    {#each [0.5, 1] as g (g)}
-      <div class="absolute right-0 left-12 border-t border-border" style:bottom="{g * 100}%" aria-hidden="true">
-        <span class="absolute -top-2 -left-12 w-10 text-right text-caption text-muted tabular-nums">{axis(top * g)}</span>
+    {#each lines as g (g)}
+      <div class="absolute right-0 left-12 border-t border-border" style:bottom="{(g / top) * 100}%" aria-hidden="true">
+        <span class="absolute -top-2 -left-12 w-10 text-right text-caption text-muted tabular-nums">{axis(g)}</span>
       </div>
     {/each}
     <div class="absolute inset-y-0 right-0 left-12 flex items-end border-b border-border {data.length > 14 ? 'gap-px' : 'gap-1'}">

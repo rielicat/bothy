@@ -23,7 +23,8 @@ describe('Audit log (docs/design/ui.md §10.6)', () => {
     await start('/activity/audit');
     expect(await screen.findByText('Approved deleting notes/staging.md')).toBeTruthy();
     expect(screen.getByText('Blocked from sending to paste.example.net')).toBeTruthy();
-    expect(screen.getAllByText('Blocked')).toHaveLength(1);
+    // The word is in the wide layout and in the phone meta line; CSS shows one of them.
+    expect(new Set(screen.getAllByText('Blocked').map((el) => el.closest('li'))).size).toBe(1);
     expect(document.body.textContent).not.toMatch(/\b(usr|run|ses)_[0-9a-z]|\bok\b/);
   });
 
@@ -36,6 +37,13 @@ describe('Audit log (docs/design/ui.md §10.6)', () => {
     await fireEvent.change(screen.getByLabelText('Action'), { target: { value: 'keys' } });
     expect(await screen.findByText('Used a saved key')).toBeTruthy();
     expect(screen.queryByText('Signed in')).toBeNull();
+  });
+
+  it('offers Clear filters when the last 7 days are empty, and clears to all time', async () => {
+    await start('/activity/audit', 'activity-empty');
+    expect(await screen.findByText('Nothing matches these filters.')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+    expect(router.query.get('period')).toBe('all');
   });
 
   it('expands a row in place with a Raw record', async () => {
