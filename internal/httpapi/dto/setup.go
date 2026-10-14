@@ -4,6 +4,10 @@ import "github.com/rielicat/bothy/internal/core"
 
 // ---- people and models setup (v0.2 UI) ----
 
+// InstallKind is how this server runs (SetupState.Install): compose, docker,
+// binary, or unknown where none of their commands applies (Kubernetes, ECS).
+type InstallKind string
+
 // UserCreateResp is POST /api/users: the new account and, when the request
 // left the password empty, the one-time password to hand to its owner
 // (shown once; they choose their own at the first sign-in).

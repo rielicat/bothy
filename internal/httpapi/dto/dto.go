@@ -30,13 +30,13 @@ type List[T any] struct {
 // ---- setup / auth ----
 
 type SetupState struct {
-	NeedsSetup bool   `json:"needs_setup"`
-	Claimed    bool   `json:"claimed"`        // a setup grant cookie is present and valid
-	CSRF       string `json:"csrf,omitempty"` // the claimed grant's CSRF token (like dto.Me.CSRF); empty unless Claimed
-	OwnerSet   bool   `json:"owner_set"`
-	Sandbox    bool   `json:"sandbox_available"`
-	Install    string `json:"install"` // compose | docker | binary | unknown: picks the command that prints a new setup code
-	Version    string `json:"-"`       // never disclosed pre-auth
+	NeedsSetup bool        `json:"needs_setup"`
+	Claimed    bool        `json:"claimed"`        // a setup grant cookie is present and valid
+	CSRF       string      `json:"csrf,omitempty"` // the claimed grant's CSRF token (like dto.Me.CSRF); empty unless Claimed
+	OwnerSet   bool        `json:"owner_set"`
+	Sandbox    bool        `json:"sandbox_available"`
+	Install    InstallKind `json:"install,omitempty"` // always set; picks the command that prints a new setup code
+	Version    string      `json:"-"`                 // never disclosed pre-auth
 }
 
 type SetupClaimReq struct {

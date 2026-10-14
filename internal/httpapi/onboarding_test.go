@@ -17,7 +17,7 @@ func TestSetupStateInstall(t *testing.T) {
 	for _, tc := range []struct {
 		env     map[string]string
 		backend string
-		want    string
+		want    dto.InstallKind
 	}{
 		{map[string]string{}, "auto", "binary"},
 		{map[string]string{"BOTHY_DEPLOYMENT": "container"}, "sandboxd", "compose"},
@@ -182,6 +182,21 @@ func TestConnectProvider(t *testing.T) {
 		t.Fatal("connect without a model changed the slots")
 	}
 	expect(t, h.do("POST", "/api/providers/connect", dto.ProviderConnectReq{Kind: core.KindOpenAI, EnvVar: "PATH"}, h.admin), http.StatusBadRequest)
+	h.env["TELEGRAM_BOT_TOKEN"] = "123:telegram"
+	expect(t, h.do("POST", "/api/providers/connect", dto.ProviderConnectReq{Kind: core.KindOpenAI, EnvVar: "TELEGRAM_BOT_TOKEN"}, h.admin), http.StatusBadRequest)
+
+	// A second server of a kind gets its own id instead of rewriting the
+	// first; the same server again keeps its id.
+	h.cfg.update(func(c *config.Config) {
+		c.Providers = append(c.Providers, config.Provider{ID: "custom", Type: "openai_compat", BaseURL: "http://10.0.0.5:8080/v1"})
+	})
+	r = connect(dto.ProviderConnectReq{Kind: core.KindOpenAICompat, BaseURL: "http://10.0.0.6:8080/v1", AllowPrivate: true, Model: "m"})
+	if r.Provider != "custom-2" || r.Main != "custom-2/m" {
+		t.Fatalf("second server = %+v", r)
+	}
+	if r = connect(dto.ProviderConnectReq{Kind: core.KindOpenAICompat, BaseURL: "http://10.0.0.5:8080/v1/", AllowPrivate: true}); r.Provider != "custom" {
+		t.Fatalf("same server = %+v", r)
+	}
 
 	// Bedrock: the server's AWS access, never a key.
 	r = connect(dto.ProviderConnectReq{Kind: core.KindBedrock, Region: "eu-west-1", Model: "eu.anthropic.claude-sonnet-4-6"})

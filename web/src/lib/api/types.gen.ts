@@ -2458,7 +2458,7 @@ export interface SetupState {
   csrf?: string; // the claimed grant's CSRF token (like dto.Me.CSRF); empty unless Claimed
   owner_set: boolean;
   sandbox_available: boolean;
-  install: string; // compose | docker | binary | unknown: picks the command that prints a new setup code
+  install?: InstallKind; // always set; picks the command that prints a new setup code
 }
 export interface SetupClaimReq {
   token: string;
@@ -2827,6 +2827,11 @@ export interface ReleaseApprover {
 //////////
 // source: internal/httpapi/dto/setup.go
 
+/**
+ * InstallKind is how this server runs (SetupState.Install): compose, docker,
+ * binary, or unknown where none of their commands applies (Kubernetes, ECS).
+ */
+export type InstallKind = "compose" | "docker" | "binary" | "unknown";
 /**
  * UserCreateResp is POST /api/users: the new account and, when the request
  * left the password empty, the one-time password to hand to its owner

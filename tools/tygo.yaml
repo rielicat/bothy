@@ -29,6 +29,7 @@ packages:
 overrides:
   SideEffect: '"read" | "local_write" | "external_send" | "irreversible" | "financial" | "admin"'
   FailureCode: '"key_rejected" | "no_model_access" | "out_of_credit" | "rate_limited" | "provider_error" | "timeout" | "unreachable" | "private_address" | "no_models" | "tls" | "not_a_model_server" | "aws_no_credentials" | "aws_denied" | "aws_no_models" | "unknown"'
+  InstallKind: '"compose" | "docker" | "binary" | "unknown"'
   Secret: '"[redacted]"'
 
 renames:

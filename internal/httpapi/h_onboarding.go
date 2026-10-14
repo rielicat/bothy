@@ -55,7 +55,7 @@ var errPasswordChange = newError(http.StatusForbidden, "password_change_required
 // installKind says how this server runs, so setup shows the command that
 // prints a new setup code: compose, docker, binary, or unknown on
 // orchestrators where none of those commands applies.
-func (s *Server) installKind() string {
+func (s *Server) installKind() dto.InstallKind {
 	switch {
 	case s.getenv("KUBERNETES_SERVICE_HOST") != "", s.getenv("ECS_CONTAINER_METADATA_URI_V4") != "",
 		s.getenv("ECS_CONTAINER_METADATA_URI") != "":
@@ -146,6 +146,33 @@ func defaultProviderID(kind core.ProviderKind, base string) string {
 	return "custom"
 }
 
+// freeProviderID is id unless another provider already has it: connecting
+// a second server gets "custom-2" instead of rewriting the first, whose
+// models the slots may still name. The same provider (a vendor of the same
+// kind, a server at the same address) keeps its id, so connecting it again
+// replaces its key or region.
+func freeProviderID(have []config.Provider, id string, kind core.ProviderKind, base string) string {
+	same := func(p config.Provider) bool {
+		if p.Type != string(kind) {
+			return false
+		}
+		if kind != core.KindOllama && kind != core.KindOpenAICompat {
+			return true
+		}
+		return strings.TrimRight(p.BaseURL, "/") == strings.TrimRight(base, "/")
+	}
+	for n := 1; ; n++ {
+		cand := id
+		if n > 1 {
+			cand = fmt.Sprintf("%s-%d", id[:min(len(id), 60)], n)
+		}
+		i := slices.IndexFunc(have, func(p config.Provider) bool { return p.ID == cand })
+		if i < 0 || same(have[i]) {
+			return cand
+		}
+	}
+}
+
 // discoverByDefault: local servers, Bedrock (which models the account may
 // invoke) and unknown compatible servers list their models; the vendors'
 // come from the catalog.
@@ -196,7 +223,10 @@ func (s *Server) connectProvider(w http.ResponseWriter, r *http.Request, a core.
 	case strings.ContainsFunc(req.Model+req.QuickModel, func(c rune) bool { return c < ' ' || c == 0x7f }):
 		return badRequest("model ids must not contain control characters")
 	}
-	id := cmp.Or(strings.TrimSpace(req.ID), defaultProviderID(req.Kind, base))
+	id := strings.TrimSpace(req.ID)
+	if id == "" {
+		id = freeProviderID(s.cfg().Providers, defaultProviderID(req.Kind, base), req.Kind, base)
+	}
 	if !providerIDRE.MatchString(id) {
 		return badRequest("id must be 1-64 of a-z, 0-9, '_' or '-', starting with a letter or digit")
 	}
@@ -228,8 +258,9 @@ func (s *Server) connectProvider(w http.ResponseWriter, r *http.Request, a core.
 	case keys == 1:
 		val, source := req.APIKey, ""
 		if req.EnvVar != "" {
-			if !slices.Contains(wellKnownEnv, req.EnvVar) {
-				return badRequest("env_var must be one of %s", strings.Join(wellKnownEnv, ", "))
+			keyVars := slices.DeleteFunc(slices.Clone(wellKnownEnv), func(v string) bool { return !strings.HasSuffix(v, "_API_KEY") })
+			if !slices.Contains(keyVars, req.EnvVar) {
+				return badRequest("env_var must be one of %s", strings.Join(keyVars, ", "))
 			}
 			if val = s.getenv(req.EnvVar); val == "" {
 				return newError(http.StatusNotFound, "not_found", req.EnvVar+" is not set in the gateway's environment")
