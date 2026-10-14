@@ -11,16 +11,19 @@ import (
 )
 
 // auditNamer phrases audit rows. Approval and tool rows name the action
-// they were about, read from the approval or the run's tool calls (cached
-// per page); a pruned run leaves the tool's generic phrase.
+// they were about, read through the admin view from the approval or the
+// run's tool calls (cached per page); a pruned run leaves the tool's generic
+// phrase. Chats and schedules are named through the reader's own view: their
+// titles stay private to their owner even in the log.
 type auditNamer struct {
 	*namer
+	av        core.Viewer
 	approvals map[core.ApprovalID]*core.Approval
 	calls     map[core.RunID][]*core.ToolCallRecord
 }
 
-func (s *Server) auditRows(ctx context.Context, v core.Viewer, es []*core.AuditEntry) []dto.AuditRow {
-	an := &auditNamer{namer: s.namer(ctx, v), approvals: map[core.ApprovalID]*core.Approval{},
+func (s *Server) auditRows(ctx context.Context, own, av core.Viewer, es []*core.AuditEntry) []dto.AuditRow {
+	an := &auditNamer{namer: s.namer(ctx, own), av: av, approvals: map[core.ApprovalID]*core.Approval{},
 		calls: map[core.RunID][]*core.ToolCallRecord{}}
 	out := make([]dto.AuditRow, 0, len(es))
 	for _, e := range es {
@@ -34,7 +37,7 @@ func (an *auditNamer) approval(id string) *core.Approval {
 	if ap, ok := an.approvals[aid]; ok {
 		return ap
 	}
-	ap, err := an.s.d.Store.Approvals().Get(an.ctx, an.v, aid)
+	ap, err := an.s.d.Store.Approvals().Get(an.ctx, an.av, aid)
 	if err != nil {
 		ap = nil
 	}
@@ -49,7 +52,7 @@ func (an *auditNamer) toolAction(run core.RunID, fingerprint string) *core.Actio
 	}
 	calls, ok := an.calls[run]
 	if !ok {
-		calls, _ = an.s.d.Store.Runs().ToolCalls(an.ctx, an.v, run)
+		calls, _ = an.s.d.Store.Runs().ToolCalls(an.ctx, an.av, run)
 		an.calls[run] = calls
 	}
 	for _, c := range calls {
@@ -201,7 +204,7 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 		}
 		return "Linked " + who
 	case "space.update":
-		if sp := an.space(core.PrincipalID(strings.TrimPrefix(e.Target, "space:"))); sp != nil && sp.Title != "" {
+		if sp, err := an.s.d.Store.Spaces().Get(an.ctx, an.av, core.PrincipalID(strings.TrimPrefix(e.Target, "space:"))); err == nil && sp.Title != "" {
 			return "Changed the group chat " + sp.Title
 		}
 		return "Changed a group chat"
@@ -243,16 +246,19 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 	case "mcp.changed":
 		return e.Target + " changed its tools"
 	case "schedule.create", "schedule.update", "schedule.delete":
-		name := quoted(cmpOr(d.str("name"), an.schedule(core.ScheduleID(strings.TrimPrefix(e.Target, "schedule:")))), "a schedule")
+		name := "a schedule"
+		if n := cmpOr(d.str("name"), an.schedule(core.ScheduleID(strings.TrimPrefix(e.Target, "schedule:")))); n != "" {
+			name = "the schedule " + quoted(n, "")
+		}
 		switch {
 		case e.Action == "schedule.create":
-			return "Created the schedule " + name
+			return "Created " + name
 		case e.Action == "schedule.delete":
-			return "Deleted the schedule " + name
+			return "Deleted " + name
 		case d.str("reason") == "consecutive_failures":
-			return "Turned off the schedule " + name + " after it failed several times"
+			return "Turned off " + name + " after it failed several times"
 		}
-		return "Changed the schedule " + name
+		return "Changed " + name
 	case "run.stop":
 		if t := an.chat(core.SessionID(e.Target)); t != "" {
 			return "Stopped the task in “" + t + "”"

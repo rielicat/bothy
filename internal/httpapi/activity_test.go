@@ -124,8 +124,13 @@ func TestRunsAndUsageCarryNames(t *testing.T) {
 	if n := names(h.admin, "user"); n[string(h.member.user)] != "Maya Chen" {
 		t.Fatalf("usage by person = %v", n)
 	}
-	if n := names(h.admin, "session"); n[string(web.ID)] != "Fix login redirect" {
-		t.Fatalf("admins name everyone's chats: %v", n)
+	// A chat's title and a schedule's name are private to their owner: an
+	// admin reading everyone's spending sees the amounts without them.
+	if n := names(h.admin, "session"); n[string(web.ID)] != "" || n[string(group.ID)] != "" {
+		t.Fatalf("an admin read the titles of someone else's chats: %v", n)
+	}
+	if n := names(h.admin, "schedule"); n[string(digest.ID)] != "" {
+		t.Fatalf("an admin read the name of someone else's schedule: %v", n)
 	}
 }
 
@@ -134,6 +139,16 @@ func TestAuditRowsAndEgressOutcomes(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 	f := newTranscript(t, h, core.RunDone)
+	f.sess.Title = "Secret merger notes"
+	if err := h.store.Sessions().Update(ctx, f.sess); err != nil {
+		t.Fatal(err)
+	}
+	sched := &core.Schedule{ID: core.ScheduleID(core.NewID(core.PrefixSchedule)), Principal: f.sess.Principal, Name: "Private digest",
+		Kind: core.SchedCron, Spec: "0 8 * * 1", TZ: "UTC", Prompt: "digest", Slot: core.SlotMain, MissedRun: "skip", Enabled: true,
+		CreatedBy: "user:x", CreatedAt: now, UpdatedAt: now}
+	if err := h.store.Schedules().Upsert(ctx, sched); err != nil {
+		t.Fatal(err)
+	}
 	ap := f.approval("notes/staging.md")
 	f.decide(ap, core.ApprovalAllowed, core.AllowOnce, h.member.user)
 	f.call("c1", "fs_delete", "notes/staging.md", core.TCOK, core.VerdictAsk, ap, &core.ToolResult{Content: "deleted"})
@@ -156,6 +171,8 @@ func TestAuditRowsAndEgressOutcomes(t *testing.T) {
 		{Actor: "system", Action: "schedule.update", Target: "schedule:sch_x", Outcome: "ok", Detail: detail(map[string]any{"name": "Daily standup", "reason": "consecutive_failures"})},
 		{Actor: "system", Action: "knowledge.index", Target: "knowledge:usr_x/acme/web", Outcome: "error"},
 		{Actor: "system", Action: "something.new", Outcome: "ok"},
+		{Actor: "user:" + string(h.member.user), Action: "run.stop", Target: string(f.sess.ID), Outcome: "ok", Session: f.sess.ID},
+		{Actor: "user:" + string(h.member.user), Action: "schedule.delete", Target: "schedule:" + string(sched.ID), Outcome: "ok"},
 	}
 	for i := range entries {
 		e := entries[i]
@@ -173,15 +190,17 @@ func TestAuditRowsAndEgressOutcomes(t *testing.T) {
 		got[r.Action+"/"+r.Target] = [2]string{r.ActorName, r.Summary}
 	}
 	for k, want := range map[string][2]string{
-		"auth.login/user:" + string(h.member.user): {"member", "Signed in"},
-		"approval.request/" + string(ap.ID):        {"Bothy", "Asked to delete notes/staging.md"},
-		"approval.decide/" + string(ap.ID):         {"member", "Approved deleting notes/staging.md in Slack"},
-		"tool.exec/fs_delete":                      {"Bothy", "Deleted notes/staging.md"},
-		"tool.exec/shell":                          {"Bothy", "A command finished with errors"},
-		"egress.deny/paste.example.net:443":        {"Bothy", "Blocked from reaching paste.example.net"},
-		"schedule.update/schedule:sch_x":           {"Bothy", "Turned off the schedule “Daily standup” after it failed several times"},
-		"knowledge.index/knowledge:usr_x/acme/web": {"Bothy", "Couldn't read acme/web"},
-		"something.new/":                           {"Bothy", "Something new"},
+		"auth.login/user:" + string(h.member.user):     {"member", "Signed in"},
+		"approval.request/" + string(ap.ID):            {"Bothy", "Asked to delete notes/staging.md"},
+		"approval.decide/" + string(ap.ID):             {"member", "Approved deleting notes/staging.md in Slack"},
+		"tool.exec/fs_delete":                          {"Bothy", "Deleted notes/staging.md"},
+		"tool.exec/shell":                              {"Bothy", "A command finished with errors"},
+		"egress.deny/paste.example.net:443":            {"Bothy", "Blocked from reaching paste.example.net"},
+		"schedule.update/schedule:sch_x":               {"Bothy", "Turned off the schedule “Daily standup” after it failed several times"},
+		"knowledge.index/knowledge:usr_x/acme/web":     {"Bothy", "Couldn't read acme/web"},
+		"something.new/":                               {"Bothy", "Something new"},
+		"run.stop/" + string(f.sess.ID):                {"member", "Stopped a task"},
+		"schedule.delete/schedule:" + string(sched.ID): {"member", "Deleted a schedule"},
 	} {
 		if got[k] != want {
 			t.Errorf("%s = %q, want %q", k, got[k], want)

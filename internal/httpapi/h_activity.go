@@ -1,8 +1,6 @@
 package httpapi
 
 import (
-	"context"
-
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/httpapi/dto"
 )
@@ -64,13 +62,4 @@ func egressRows(rs []*core.EgressRecord) []dto.EgressRow {
 		out = append(out, dto.EgressRow{EgressRecord: *e, Outcome: egressOutcome(e)})
 	}
 	return out
-}
-
-// viewerFor is the viewer that names other people's chats and schedules on
-// pages admins read for everyone.
-func (s *Server) viewerFor(ctx context.Context, a core.Actor) (core.Viewer, error) {
-	if !isAdmin(a) {
-		return a.Viewer, nil
-	}
-	return s.adminViewer(ctx, a)
 }

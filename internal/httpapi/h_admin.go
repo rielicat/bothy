@@ -695,10 +695,6 @@ func (s *Server) usage(w http.ResponseWriter, r *http.Request, a core.Actor) err
 	if err != nil {
 		return err
 	}
-	v, err := s.viewerFor(r.Context(), a)
-	if err != nil {
-		return err
-	}
 	tot := core.UsageRow{Key: "total", PriceKnown: true}
 	for _, row := range rows {
 		tot.Cost += row.Cost
@@ -709,7 +705,10 @@ func (s *Server) usage(w http.ResponseWriter, r *http.Request, a core.Actor) err
 		tot.Calls += row.Calls
 		tot.PriceKnown = tot.PriceKnown && row.PriceKnown
 	}
-	return ok(w, dto.UsageResp{Rows: s.namer(r.Context(), v).usageRows(uq.GroupBy, rows), Totals: tot})
+	// Admins read everyone's spending, but a chat's title and a schedule's
+	// name stay private to their owner (SPEC §5.9), so rows are named through
+	// the caller's own view.
+	return ok(w, dto.UsageResp{Rows: s.namer(r.Context(), a.Viewer).usageRows(uq.GroupBy, rows), Totals: tot})
 }
 
 func (s *Server) usageToday(w http.ResponseWriter, r *http.Request, a core.Actor) error {
@@ -751,7 +750,7 @@ func (s *Server) auditLog(w http.ResponseWriter, r *http.Request, a core.Actor) 
 	if err != nil {
 		return err
 	}
-	return ok(w, listOf(s.auditRows(r.Context(), av, es), p, func(e dto.AuditRow) int64 { return e.ID }))
+	return ok(w, listOf(s.auditRows(r.Context(), a.Viewer, av, es), p, func(e dto.AuditRow) int64 { return e.ID }))
 }
 
 func (s *Server) auditVerify(w http.ResponseWriter, r *http.Request, _ core.Actor) error {
