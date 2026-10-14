@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { sessions as fixtureSessions } from '../../../mock/fixtures';
 import App from '../../App.svelte';
 import { router } from '../../lib/router.svelte';
-import { session } from '../../lib/stores/session.svelte';
+import { approvals, session } from '../../lib/stores/session.svelte';
 import { shell, theme } from '../../lib/stores/ui.svelte';
 import { installApi, type Call } from '../../test/api';
 import { chats } from './chats.svelte';
@@ -387,8 +387,11 @@ describe('phones', () => {
 
   it('opens the sidebar as a drawer from the top bar and says how many approvals wait', async () => {
     await start('/activity');
-    const menu = await waitFor(() => screen.getByRole('button', { name: 'Open menu, 2 approvals waiting' }));
-    expect(screen.getByRole('link', { name: '2 waiting' }).getAttribute('href')).toBe('/approvals');
+    // The count follows the approvals fixtures, so it is read rather than fixed.
+    const menu = await waitFor(() => screen.getByRole('button', { name: /^Open menu, \d+ approvals waiting$/ }));
+    expect(approvals.waiting).toBeGreaterThan(1);
+    expect(menu.getAttribute('aria-label')).toBe(`Open menu, ${approvals.waiting} approvals waiting`);
+    expect(screen.getByRole('link', { name: `${approvals.waiting} waiting` }).getAttribute('href')).toBe('/approvals');
     await fireEvent.click(menu);
     const drawer = await waitFor(() => screen.getByRole('dialog', { name: 'Menu' }));
     expect(within(drawer).getByRole('link', { name: 'New chat' })).toBeTruthy();

@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { egress, ids } from '../../../../mock/fixtures';
 import { resetMock } from '../../../../mock/server';
 import { toaster } from '../../../components/ui';
 import { config } from '../../../lib/config.svelte';
@@ -10,8 +11,8 @@ import SavedKeys from './SavedKeys.svelte';
 import UnlockScreen from './UnlockScreen.svelte';
 import Websites from './Websites.svelte';
 
-async function signIn(mock = ''): Promise<Call[]> {
-  const calls = installApi();
+async function signIn(mock = '', override?: (m: string, url: string) => unknown): Promise<Call[]> {
+  const calls = installApi({ override });
   if (mock) resetMock({ mock });
   session.ready = false;
   await session.init();
@@ -54,12 +55,13 @@ describe('Allowed without asking', () => {
 
 describe('Websites Bothy can reach', () => {
   it('lists the sites and what was blocked recently, by chat name', async () => {
-    await signIn();
+    const inChat = { ...egress.find((e) => e.decision === 'deny')!, session_id: ids.trip };
+    await signIn('', (_m, url) => (url.startsWith('/api/egress') ? { items: [inChat] } : undefined));
     render(Websites);
     await screen.findByText('api.github.com');
     expect(screen.getByText('*.wikipedia.org')).toBeTruthy();
     const blocked = screen.getByRole('heading', { name: 'Blocked recently' }).closest('section')!;
-    await waitFor(() => expect(within(blocked).getByText('pypi.org')).toBeTruthy());
+    await waitFor(() => expect(within(blocked).getByText(inChat.host)).toBeTruthy());
     expect(within(blocked).getByText(/From “Weekend in Edinburgh”/)).toBeTruthy();
   });
 
@@ -85,10 +87,10 @@ describe('Websites Bothy can reach', () => {
     render(Websites);
     const allow = await screen.findByRole('button', { name: 'Allow this site…' });
     await fireEvent.click(allow);
-    const dialog = screen.getByRole('dialog', { name: 'Allow pypi.org?' });
+    const dialog = screen.getByRole('dialog', { name: 'Allow paste.example.net?' });
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Allow site' }));
     await waitFor(() => expect(screen.getByText('Nothing was blocked recently.')).toBeTruthy());
-    expect(JSON.parse(calls.find((c) => c.method === 'PATCH')!.body).set['egress.allow']).toContain('pypi.org');
+    expect(JSON.parse(calls.find((c) => c.method === 'PATCH')!.body).set['egress.allow']).toContain('paste.example.net');
   });
 
   it('removes a site', async () => {

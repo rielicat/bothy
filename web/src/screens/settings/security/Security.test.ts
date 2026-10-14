@@ -94,7 +94,7 @@ describe('Security', () => {
     await open();
     await waitFor(() => expect(screen.getByRole('link', { name: /Allowed without asking\s*4 permissions/ })).toBeTruthy());
     expect(screen.getByRole('link', { name: /Websites Bothy can reach\s*4 sites/ }).getAttribute('href')).toBe('/settings/security/websites');
-    await waitFor(() => expect(screen.getByRole('link', { name: /Saved keys\s*4 saved keys/ }).getAttribute('href')).toBe('/settings/security/keys'));
+    await waitFor(() => expect(screen.getByRole('link', { name: /Saved keys\s*6 saved keys/ }).getAttribute('href')).toBe('/settings/security/keys'));
   });
 
   it('explains how to turn running code on, with the commands under Details', async () => {

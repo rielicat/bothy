@@ -59,8 +59,7 @@ describe('Settings → Account', () => {
 
   it('unlinks a chat app and offers to link it again', async () => {
     const calls = await open();
-    await screen.findByText('@sam_k');
-    await fireEvent.click(screen.getByRole('button', { name: 'Unlink Telegram' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Unlink Telegram' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/identities/telegram/5512')).toBe(true));
     expect(await screen.findByText('Not linked')).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: 'Link Telegram' }));
@@ -70,7 +69,7 @@ describe('Settings → Account', () => {
   it('saves where approval requests reach you', async () => {
     const calls = await open();
     const select = (await screen.findByLabelText('Requests reach you in')) as HTMLSelectElement;
-    expect([...select.options].map((o) => o.text)).toEqual(['Bothy only', 'Telegram']);
+    expect([...select.options].map((o) => o.text)).toEqual(['Bothy only', 'Slack', 'Telegram']);
     await fireEvent.change(select, { target: { value: 'telegram' } });
     await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url === '/api/me' && JSON.parse(c.body).approvals_in === 'telegram')).toBe(true));
   });
