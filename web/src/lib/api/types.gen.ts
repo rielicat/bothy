@@ -43,6 +43,12 @@ export interface RunRequest {
   MaxOutput: number /* int */; // /v1 max_tokens cap per step; 0 = model default
   Temperature?: number /* float64 */; // /v1 client temperature; nil = model default
   Stop: string[]; // /v1 stop sequences
+  /**
+   * Refine asks for refine mode on this turn's final answer; nil follows
+   * the session's setting, then agent.refine.enabled (message and api
+   * triggers only).
+   */
+  Refine?: boolean;
 }
 export interface SubmitResult {
   run_id?: RunID;
@@ -608,6 +614,7 @@ export interface Part {
    */
   sig?: string;
   sig_kind?: ProviderKind;
+  refine?: RefineTrace; // PartRefine only
 }
 /**
  * Blob points at a file in the principal's workspace. Data is filled by the
@@ -1031,6 +1038,85 @@ export interface ProviderHealth {
  * streamed event.
  */
 export type LLM = any;
+
+//////////
+// source: internal/core/refine.go
+
+/**
+ * EvRunRefine reports refinement progress (bus only; sinks never get it).
+ */
+export const EvRunRefine: EventType = "run.refine";
+/**
+ * PartRefine is the trace of the refinement that produced an assistant
+ * message. It is stored with the message and never sent to a model.
+ */
+export const PartRefine: PartType = "refine";
+export type RefineRole = string;
+export const RefineDraft: RefineRole = "draft";
+export const RefineContinue: RefineRole = "continue";
+export const RefineCritique: RefineRole = "critique";
+export const RefineCorrect: RefineRole = "correct";
+/**
+ * A session's own refine setting is the meta value RefineMetaKey(session):
+ * RefineOn or RefineOff. Without one the session follows agent.refine.enabled.
+ */
+export const RefineOn = "on";
+/**
+ * A session's own refine setting is the meta value RefineMetaKey(session):
+ * RefineOn or RefineOff. Without one the session follows agent.refine.enabled.
+ */
+export const RefineOff = "off";
+/**
+ * RefineEntry is one model call of a refinement.
+ */
+export interface RefineEntry {
+  draft: number /* int */; // 0-based; draft 0 is the run's own answer step
+  round: number /* int */; // 0 for drafts, 1..depth for the rounds
+  role: RefineRole;
+  text: string; // redacted; long texts keep their head and tail
+  answer?: string; // normalized final answer (draft, continue, correct)
+  confirmed?: boolean;
+  abridged?: boolean; // the quoted draft was shortened to fit the model's window
+  call_id?: string; // llm_calls id
+  model?: string;
+  cost_micros: Micros;
+  error?: string;
+}
+export interface RefineVote {
+  answer: string; // normalized
+  count: number /* int */;
+  drafts: number /* int */[]; // ascending
+}
+export interface RefineTrace {
+  drafts: number /* int */; // configured breadth N
+  depth: number /* int */; // configured depth D
+  rounds: number /* int */; // rounds completed
+  early_stop: boolean;
+  /**
+   * Fallback says why refinement ended before its last round, showing the
+   * best answer so far: budget | time | new_message | stopped | failed.
+   */
+  fallback?: string;
+  winner: number /* int */; // draft shown as the reply
+  answer?: string; // the winner's normalized final answer
+  votes: RefineVote[]; // most votes first, ties by earliest draft
+  entries?: RefineEntry[];
+  calls: number /* int */; // model calls made for this answer, the first draft included
+  cost_micros: Micros;
+}
+/**
+ * RefineData is the payload of run.refine: phase "start" (Drafts, Depth,
+ * MaxCalls), "entry" (one finished call) and "done" (the trace without its
+ * entries; the persisted message carries all of it).
+ */
+export interface RefineData {
+  phase: string;
+  drafts?: number /* int */;
+  depth?: number /* int */;
+  max_calls?: number /* int */;
+  entry?: RefineEntry;
+  trace?: RefineTrace;
+}
 
 //////////
 // source: internal/core/sandbox.go
@@ -1924,12 +2010,14 @@ export interface SessionCreateReq {
 export interface SessionPatchReq {
   title?: string;
   model_override?: string; // "" clears
+  refine?: string; // "on" | "off"; "" clears (follow agent.refine.enabled)
 }
 export interface SessionDetail {
   session: Session;
   pins: (Pin | undefined)[];
   active?: RunInfo;
   pending_approvals: (Approval | undefined)[];
+  refine: string; // the session's refine setting: "on" | "off" | "" (follows agent.refine.enabled)
 }
 export interface MessagePage {
   messages: (Message | undefined)[]; // oldest first within the page
@@ -1938,6 +2026,7 @@ export interface MessagePage {
 export interface SendReq {
   text: string;
   uploads?: string[]; // upl_<26> ids from POST /api/uploads
+  refine?: boolean; // refine this turn's answer; omitted = the session's setting
 }
 export interface UploadResp {
   id: string;
@@ -1957,6 +2046,19 @@ export interface RunDetail {
   llm_calls: CallInfo[];
   tool_calls: (ToolCallRecord | undefined)[];
   approvals: (Approval | undefined)[];
+  refine?: RefineTrace; // the run's last refined answer; entries name their llm_calls
+}
+/**
+ * RefineInfo is what the composer needs to offer refine mode and say what it
+ * costs: the defaults, and the most model calls one refined answer takes.
+ */
+export interface RefineInfo {
+  enabled: boolean; // agent.refine.enabled: on for messages and sessions that do not say
+  drafts: number /* int */;
+  depth: number /* int */;
+  early_stop: boolean;
+  critic_slot: Slot;
+  max_calls: number /* int */; // drafts × (1 + 3 × depth), the answer step included
 }
 export interface ApprovalResolveReq {
   choice: Choice;
