@@ -353,6 +353,13 @@ func prefixHash(tools []core.ToolDef, system []core.SystemBlock) string {
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
+// cacheKey is a session's core.Request.CacheKey: every call of the session
+// shares it, and only its hash leaves the server.
+func cacheKey(s core.SessionID) string {
+	sum := sha256.Sum256([]byte("bothy prompt cache\x00" + string(s)))
+	return "bothy-" + hex.EncodeToString(sum[:16])
+}
+
 // snapshotSpecs resolves the frozen tool names in snapshot order; a tool that
 // disappeared (a removed MCP server) is dropped and logged as a cache break.
 func (r *Runner) snapshotSpecs(rs *runState) []core.ToolSpec {

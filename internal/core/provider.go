@@ -133,6 +133,10 @@ type Request struct {
 	ToolChoice  string // "auto" | "none" | "required" (force some tool call)
 	Stop        []string
 	NumCtx      int // Ollama native only
+	// CacheKey is stable for every call of one session and opaque (a hash,
+	// never an id); the OpenAI Responses client sends it as
+	// prompt_cache_key. "" sends none.
+	CacheKey string
 }
 
 type StreamEventType uint8
@@ -218,6 +222,13 @@ type ProviderError struct {
 	Msg        string // redacted provider message
 	Err        error
 }
+
+// ErrModelUnsupported, in a ProviderError's chain, says the model cannot
+// serve the request as built (function tools over an API that cannot call
+// them for that model). The error stays invalid_request for callers of one
+// model; the facade tries the next model of the chain instead, as it does
+// for a model without tool support.
+var ErrModelUnsupported = errors.New("model cannot serve this request")
 
 func (e *ProviderError) Error() string { return e.Provider + ": " + string(e.Kind) + ": " + e.Msg }
 func (e *ProviderError) Unwrap() error { return e.Err }

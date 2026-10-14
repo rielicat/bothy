@@ -72,6 +72,37 @@ func (h *harness) prefixHashes() []string {
 	return out
 }
 
+// Every call of a session carries the same opaque cache key, and another
+// session gets another one; the session id itself never goes out.
+func TestCacheKeyPerSession(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{tools: []core.Tool{&testTool{name: "fs_read"}}, steps: textSteps(3, "reply")})
+		defer h.close()
+		first := h.sess.ID
+		for i, sess := range []*core.Session{h.sess, h.sess, h.newSession("web", nil)} {
+			h.sess = sess
+			res := h.submit(fmt.Sprintf("turn %d", i+1))
+			synctest.Wait()
+			if st := h.run(res.Run).Status; st != core.RunDone {
+				t.Fatalf("turn %d: %s", i+1, st)
+			}
+		}
+		reqs := h.requests()
+		if len(reqs) != 3 {
+			t.Fatalf("requests = %d", len(reqs))
+		}
+		key := reqs[0].CacheKey
+		if key == "" || len(key) > 64 || reqs[1].CacheKey != key || reqs[2].CacheKey == key || key != cacheKey(first) {
+			t.Fatalf("cache keys %q %q %q", key, reqs[1].CacheKey, reqs[2].CacheKey)
+		}
+		for _, r := range reqs {
+			if strings.Contains(r.CacheKey, string(first)) || strings.Contains(r.CacheKey, string(h.sess.ID)) {
+				t.Fatalf("cache key %q carries a session id", r.CacheKey)
+			}
+		}
+	})
+}
+
 func TestPrefixStableAcrossTurnsUntilCompaction(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		tools := []core.Tool{&testTool{name: "fs_read"}, &testTool{name: "memory", se: core.SELocalWrite}}
@@ -101,7 +132,8 @@ func TestPrefixStableAcrossTurnsUntilCompaction(t *testing.T) {
 			t.Fatalf("requests = %d", len(reqs))
 		}
 		for i, req := range reqs[1:] {
-			if toolsJSON(t, req) != toolsJSON(t, reqs[0]) || req.System[0].Text != reqs[0].System[0].Text || req.System[1].Text != reqs[0].System[1].Text {
+			if toolsJSON(t, req) != toolsJSON(t, reqs[0]) || req.System[0].Text != reqs[0].System[0].Text || req.System[1].Text != reqs[0].System[1].Text ||
+				req.CacheKey != reqs[0].CacheKey {
 				t.Fatalf("prefix of turn %d differs from turn 1", i+2)
 			}
 		}

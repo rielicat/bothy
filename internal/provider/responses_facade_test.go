@@ -182,6 +182,25 @@ func TestResponsesCostFromCatalog(t *testing.T) {
 	}
 }
 
+// The catalog marks GPT-6 Astra as reasoning, so a /v1 client's temperature
+// never reaches it; a catalog model that does not reason keeps it.
+func TestResponsesTemperatureFromCatalog(t *testing.T) {
+	srv := newAPIServer(t)
+	h := newHarness(t, []config.Provider{cfgProvider("openai", core.KindOpenAI, srv.URL+"/v1",
+		config.ProviderModel{ID: "gpt-6-astra"}, config.ProviderModel{ID: "gpt-4.1"})})
+	temp := 0.2
+	for model, want := range map[string]bool{"gpt-6-astra": false, "gpt-4.1": true} {
+		req := &core.Request{Model: model, Temperature: &temp, Messages: []core.Message{{Role: core.MsgUser, Parts: []core.Part{{Type: core.PartText, Text: "hi"}}}}}
+		if _, _, err := h.f.Passthrough(context.Background(), core.ModelRef{Provider: "openai", Model: model}, req, nil); err != nil {
+			t.Fatalf("%s: %v", model, err)
+		}
+		path, body := srv.last(t)
+		if !strings.HasSuffix(path, "/responses") || strings.Contains(body, `"temperature"`) != want {
+			t.Fatalf("%s: %s %s", model, path, body)
+		}
+	}
+}
+
 func TestChatToolsReasoningOffAndDoctor(t *testing.T) {
 	srv := mockllm.New([]mockllm.Rule{{ToolCalls: []core.ToolCall{{Name: "probe_echo", Args: json.RawMessage(`{"value":"ok"}`)}}, Fault: mockllm.FaultToolsReasoning}},
 		[]core.ModelInfo{{Ref: core.ModelRef{Model: "gpt-6-sol"}}})
@@ -233,6 +252,60 @@ func TestChatToolsReasoningOffAndDoctor(t *testing.T) {
 	if len(fs) != 1 || fs[0].Severity != core.SevMedium || !strings.Contains(fs[0].Title, "cannot call tools over Chat Completions") ||
 		!strings.Contains(fs[0].Detail, "Set api: responses (or auto) on provider openai.") {
 		t.Fatalf("findings %+v", fs)
+	}
+}
+
+// A model that cannot call tools over Chat Completions is a capability of
+// that model, not a failed request: the facade moves on to the next model
+// before anything streams, leaves the provider's breaker alone, and a later
+// call pays one refused request (the remembered mode) before moving on.
+func TestChatNoToolsFallsBack(t *testing.T) {
+	astra := mockllm.New([]mockllm.Rule{{ToolCalls: []core.ToolCall{{Name: "probe_echo", Args: json.RawMessage(`{"value":"ok"}`)}}, Fault: mockllm.FaultToolsResponsesOnly}},
+		[]core.ModelInfo{{Ref: core.ModelRef{Model: "gpt-6-astra"}}})
+	t.Cleanup(astra.Close)
+	backup := newServer(t, sse(okStream))
+	q := cfgProvider("openai", core.KindOpenAI, astra.URL(), config.ProviderModel{ID: "gpt-6-astra"})
+	q.API = "chat"
+	h := newHarness(t, []config.Provider{q, cfgProvider("b", core.KindOpenAICompat, backup.URL)}, "openai/gpt-6-astra", "b/m")
+	build := func(m core.ModelInfo) (*core.Request, error) {
+		r, _ := userReq(m)
+		r.Tools = []core.ToolDef{{Name: "probe_echo"}}
+		return r, nil
+	}
+	for call := 1; call <= 2; call++ {
+		var events int
+		resp, ci, err := h.f.Complete(context.Background(), core.SlotMain, nil, build, func(core.StreamEvent) error { events++; return nil })
+		if err != nil || ci.Ref.String() != "b/m" || resp.Message.PlainText() != "Hi" || events == 0 {
+			t.Fatalf("call %d: %v %+v", call, err, ci)
+		}
+		if len(ci.Attempts) != 2 || ci.Attempts[0].Kind != core.ErrKindInvalidRequest || !strings.Contains(ci.Attempts[0].Err, "Tools cannot be used over Chat Completions") {
+			t.Fatalf("call %d: attempts %+v", call, ci.Attempts)
+		}
+	}
+	if n, b := len(astra.Requests()), backup.count(); n != 3 || b != 2 {
+		t.Fatalf("astra %d requests, backup %d; want the refused one and its retry, then one refused request", n, b)
+	}
+	for _, ph := range h.f.Health() {
+		if ph.State != "ok" {
+			t.Fatalf("health %+v", ph)
+		}
+	}
+	if len(h.sleeps) != 0 {
+		t.Fatalf("backoff %v", h.sleeps)
+	}
+
+	// Alone in the chain, the model's error is the call's error, unchanged.
+	h = newHarness(t, []config.Provider{q}, "openai/gpt-6-astra")
+	_, _, err := h.f.Complete(context.Background(), core.SlotMain, nil, build, nil)
+	var pe *core.ProviderError
+	if !errors.As(err, &pe) || pe.Kind != core.ErrKindInvalidRequest || !errors.Is(err, core.ErrModelUnsupported) {
+		t.Fatalf("%v", err)
+	}
+	// Any other invalid request still returns at once.
+	bad := newServer(t, jsonReply(400, errBody(`"invalid_value"`, "invalid_request_error", "Invalid value for 'tool_choice'.")))
+	h = newHarness(t, []config.Provider{cfgProvider("a", core.KindOpenAICompat, bad.URL), cfgProvider("b", core.KindOpenAICompat, backup.URL)}, "a/m", "b/m")
+	if _, ci, err := h.f.Complete(context.Background(), core.SlotMain, nil, build, nil); err == nil || len(ci.Attempts) != 1 {
+		t.Fatalf("%v %+v", err, ci)
 	}
 }
 
