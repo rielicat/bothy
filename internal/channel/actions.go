@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -57,8 +58,14 @@ func (h *Hub) approvalPress(ctx context.Context, a *adapter, ev core.ActionEvent
 	if err != nil {
 		return "Not allowed."
 	}
-	if !canApprove(ap.Approver, res) {
+	if ap.Approver.Multi() && res.User == ap.Approver.Requester && choice != core.Deny {
+		return "You asked for this, so someone else has to approve it."
+	}
+	if !canApprove(ap.Approver, res, choice) {
 		return "Not allowed."
+	}
+	if slices.ContainsFunc(ap.Votes, func(v core.ApprovalVote) bool { return v.User == res.User }) {
+		return "You already voted."
 	}
 	refs, err := h.d.Approvals.MessageRefs(ctx, id)
 	if err != nil {
@@ -72,8 +79,10 @@ func (h *Hub) approvalPress(ctx context.Context, a *adapter, ev core.ActionEvent
 		return "Open in web to approve."
 	}
 	msg := ev.Msg
-	_, err = h.d.Approvals.Resolve(ctx, core.Resolution{ID: id, Choice: choice, By: res.User, ByRole: res.Role, Via: a.name, ViaMsg: &msg})
+	got, err := h.d.Approvals.Resolve(ctx, core.Resolution{ID: id, Choice: choice, By: res.User, ByRole: res.Role, Via: a.name, ViaMsg: &msg})
 	switch {
+	case err == nil && got != nil && got.Approver.Multi() && got.Status == core.ApprovalPending:
+		return "Approved: " + approvalProgress(got) + " so far"
 	case err == nil:
 		return choiceToast(choice)
 	case errors.Is(err, core.ErrConflict):
@@ -87,8 +96,11 @@ func (h *Hub) approvalPress(ctx context.Context, a *adapter, ev core.ActionEvent
 	return "Could not record that; use the web UI."
 }
 
-func canApprove(req core.ApproverReq, res core.IdentityResolution) bool {
-	if req.AdminOnly {
+func canApprove(req core.ApproverReq, res core.IdentityResolution, choice core.Choice) bool {
+	switch {
+	case req.Multi():
+		return req.Eligible(res.User, res.Role) || choice == core.Deny && res.User != "" && res.User == req.Requester
+	case req.AdminOnly:
 		return res.Role.IsAdmin()
 	}
 	return req.User != "" && req.User == res.User

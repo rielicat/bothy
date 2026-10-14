@@ -123,7 +123,9 @@ func (p *Policy) NextTaint(prev core.Taint, spec core.ToolSpec, _ *core.Action, 
 // An empty Choice means allow_once. Immediate resolutions do not invoke
 // OnResolved callbacks; Resolve and Expire do, synchronously, after the fake
 // releases its lock. Await on a cancelled approval returns core.ErrStopped.
-// Resolve checks only that the approval exists and is pending or parked.
+// Resolve checks only that the approval exists and is pending or parked; on a
+// multi-approver approval it appends the vote and resolves only on a deny or
+// once core.AllowVotes reaches Needed() (no eligibility checks).
 type Approvals struct {
 	core.Approvals
 	Choice   core.Choice
@@ -186,7 +188,10 @@ func decide(a *core.Approval, c core.Choice, by core.UserID, via string, at time
 	a.Choice, a.DecidedBy, a.DecidedVia, a.DecidedAt = c, by, via, at
 }
 
-func clone(a core.Approval) *core.Approval { return &a }
+func clone(a core.Approval) *core.Approval {
+	a.Votes = slices.Clone(a.Votes)
+	return &a
+}
 
 func (ap *Approvals) notifyLocked() {
 	if ap.changed != nil {
@@ -244,6 +249,14 @@ func (ap *Approvals) Resolve(_ context.Context, r core.Resolution) (*core.Approv
 		return nil, fmt.Errorf("approval %s already decided: %w", r.ID, core.ErrConflict)
 	}
 	ap.Resolutions = append(ap.Resolutions, r)
+	if st.a.Approver.Multi() {
+		st.a.Votes = append(st.a.Votes, core.ApprovalVote{Approval: r.ID, User: r.By, Choice: r.Choice, Via: r.Via, At: time.Now()})
+		if r.Choice != core.Deny && core.AllowVotes(st.a.Votes, st.a.Approver) < st.a.Approver.Needed() {
+			a := clone(st.a)
+			ap.mu.Unlock()
+			return a, nil
+		}
+	}
 	decide(&st.a, r.Choice, r.By, r.Via, time.Now())
 	ap.notifyLocked()
 	a, cbs := st.a, slices.Clone(ap.callbacks)

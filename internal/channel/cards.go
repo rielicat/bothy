@@ -16,13 +16,21 @@ const maxChatDiff = 3 << 10
 func (h *Hub) onBusEvent(e core.Event) {
 	switch d := e.Data.(type) {
 	case core.ApprovalData:
-		if e.Type != core.EvApprovalRequested || d.Approval == nil {
+		ap := d.Approval
+		if ap == nil {
 			return
 		}
-		ap := d.Approval
-		// AdminOnly approvals are published twice (principal and admin copy).
-		if h.markDelivered(ap.ID) {
-			h.enqueueChat(cardQueue(ap.ID), func(ctx context.Context) { h.deliverCard(ctx, ap) })
+		switch e.Type {
+		case core.EvApprovalRequested:
+			// AdminOnly and multi-approver approvals are published more than
+			// once (one copy per audience principal).
+			if h.markDelivered(ap.ID) {
+				h.enqueueChat(cardQueue(ap.ID), func(ctx context.Context) { h.deliverCard(ctx, ap) })
+			}
+		case core.EvApprovalVoted:
+			if h.markResolved(ap.ID, core.ApprovalStatus(fmt.Sprintf("votes:%d", len(ap.Votes)))) {
+				h.enqueueChat(cardQueue(ap.ID), func(ctx context.Context) { h.refreshCards(ctx, ap) })
+			}
 		}
 	case core.ApprovalResolvedData:
 		if d.Status == core.ApprovalPending || d.Status == core.ApprovalParked {
@@ -84,6 +92,10 @@ func (h *Hub) resyncCards() {
 // the originating group), plus policy.approval.notify channels for runs that
 // did not start in a chat. Cards never go to a group.
 func (h *Hub) deliverCard(ctx context.Context, ap *core.Approval) {
+	if ap.Approver.Multi() {
+		h.deliverVoteCards(ctx, ap)
+		return
+	}
 	approver := ap.Approver.User
 	if ap.Approver.AdminOnly || approver == "" {
 		owner, ok := h.instanceOwner(ctx)
@@ -169,6 +181,9 @@ func (h *Hub) renderCard(ap *core.Approval, caps core.ChannelCaps) (core.OutMess
 	lines := []string{header}
 	if c.Risk.Valid() {
 		lines = append(lines, "Risk: "+escapeMD(c.Risk.String()))
+	}
+	if ap.Approver.Multi() {
+		lines = append(lines, "**"+approvalProgress(ap)+"**")
 	}
 	for _, f := range c.Fields {
 		v := revealInvisible(f.Value)
@@ -294,10 +309,11 @@ func (h *Hub) updateCards(ctx context.Context, d core.ApprovalResolvedData) {
 		return
 	}
 	title := "Approval"
-	if ap, err := h.d.Approvals.Get(ctx, core.SystemViewer(), d.Approval); err == nil {
+	ap, err := h.d.Approvals.Get(ctx, core.SystemViewer(), d.Approval)
+	if err == nil {
 		title = cardTitle(ap)
 	}
-	text := h.redact("🔐 **" + escapeMD(revealInvisible(title)) + "**\n" + h.outcomeText(ctx, d))
+	text := h.redact("🔐 **" + escapeMD(revealInvisible(title)) + "**\n" + h.outcomeText(ctx, d, ap))
 	for _, r := range refs {
 		a := h.live(r.Ref.Chat.Channel)
 		if a == nil {
@@ -309,10 +325,15 @@ func (h *Hub) updateCards(ctx context.Context, d core.ApprovalResolvedData) {
 	}
 }
 
-func (h *Hub) outcomeText(ctx context.Context, d core.ApprovalResolvedData) string {
+func (h *Hub) outcomeText(ctx context.Context, d core.ApprovalResolvedData, ap *core.Approval) string {
 	var s string
 	switch d.Status {
 	case core.ApprovalAllowed:
+		if ap != nil && ap.Approver.Multi() {
+			if names := h.allowedBy(ctx, ap); names != "" {
+				return "✅ Approved by " + names + "."
+			}
+		}
 		s = "✅ " + choiceToast(d.Choice)
 		if d.Choice == core.AllowOnce {
 			s = "✅ Allowed once"
