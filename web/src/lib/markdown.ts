@@ -93,7 +93,8 @@ function blocks(lines: string[], o: MdOptions, depth: number): string {
       continue;
     }
     if ((m = HEADING.exec(line))) {
-      const n = m[1].length;
+      // The page owns the only h1 (the chat or page title), so "#" and "##" share h2 (§3.2, §16).
+      const n = Math.max(2, m[1].length);
       out += `<h${n}>${inline(headingText(line.slice(m[0].length)), o)}</h${n}>`;
       i++;
       continue;

@@ -166,8 +166,13 @@ describe('renderMarkdown XSS corpus', () => {
 describe('renderMarkdown formatting', () => {
   it('renders headings, emphasis, code and line breaks', () => {
     expect(renderMarkdown('# Hi\n\n**b** *i* _u_ ~~s~~ `c`\nnext')).toBe(
-      '<h1>Hi</h1><p><strong>b</strong> <em>i</em> <em>u</em> <del>s</del> <code>c</code><br>next</p>',
+      '<h2>Hi</h2><p><strong>b</strong> <em>i</em> <em>u</em> <del>s</del> <code>c</code><br>next</p>',
     );
+  });
+
+  // The page title is the only h1 (§16); "#" and "##" read as the same section level.
+  it('never emits an h1 and keeps deeper levels as written', () => {
+    expect(renderMarkdown('# A\n\n## B\n\n### C\n\n###### F')).toBe('<h2>A</h2><h2>B</h2><h3>C</h3><h6>F</h6>');
   });
 
   it('leaves intraword underscores alone', () => {
@@ -220,8 +225,8 @@ describe('renderMarkdown formatting', () => {
 
   it('keeps heading closers and line-break spacing', () => {
     expect(renderMarkdown('## Title ##')).toBe('<h2>Title</h2>');
-    expect(renderMarkdown('# C#')).toBe('<h1>C#</h1>');
-    expect(renderMarkdown('# #')).toBe('<h1></h1>');
+    expect(renderMarkdown('# C#')).toBe('<h2>C#</h2>');
+    expect(renderMarkdown('# #')).toBe('<h2></h2>');
     expect(renderMarkdown('#nope')).toBe('<p>#nope</p>');
     expect(renderMarkdown('a   \nb  ')).toBe('<p>a<br>b</p>');
     expect(renderMarkdown('see http://a.example/x_(y))')).toContain('href="http://a.example/x_(y)"');
