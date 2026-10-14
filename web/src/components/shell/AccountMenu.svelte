@@ -149,7 +149,8 @@
   <!-- bg-subtle, the avatar's own fill, is almost the sidebar's colour. -->
   <Avatar {name} class="bg-selected!" />
   <span class="min-w-0 flex-1 truncate text-body font-medium text-text">{name}</span>
-  <Icon name="more" class="text-muted" />
+  <!-- On touch the chat rows' ⋯ buttons are 44 px wide; this one lines up under them. -->
+  <Icon name="more" class="text-muted pointer-coarse:mr-1.5" />
 </button>
 
 {#if open}

@@ -96,6 +96,13 @@ const states: ShotState[] = [
   // The page inside is still the v0.1 settings frame (C7), so only the sidebar is judged.
   { name: 'settings-member', route: '/settings/account', mock: m(TEAM, 'member'), probes: { leftEdge: false, nesting: false, targets: false } },
   { name: 'settings-list', route: '/settings', mock: TEAM, only: { viewports: ['phone'] } },
+  {
+    name: 'settings-drawer',
+    route: '/settings/connections/github',
+    mock: TEAM,
+    only: { viewports: ['phone'] },
+    setup: (page) => inSidebar(page, true),
+  },
   { name: 'settings-list-member', route: '/settings', mock: m(TEAM, 'member'), only: { viewports: ['phone'] } },
 
   // Phone and tablet top bar and drawer (§4.4)

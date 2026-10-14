@@ -51,6 +51,35 @@ describe('sidebar (§4.2)', () => {
     await waitFor(() => expect(n.getByText('Waiting for approval').closest('li')?.textContent).toContain('v2.3 launch checklist'));
   });
 
+  it('keeps the trailing slot only for a chat with a state, so other titles use the full width', async () => {
+    await start('/activity', { mock: 'team-chats' });
+    const n = within(nav());
+    await waitFor(() => expect(n.getByText('Waiting for approval')).toBeTruthy());
+    const row = (title: string) => n.getByRole('link', { name: title }).closest('li')!;
+    // link + ⋯ only, against link + glyph + ⋯
+    expect(row('Q3 pricing notes').children).toHaveLength(2);
+    expect(row('v2.3 launch checklist').children).toHaveLength(3);
+  });
+
+  it('keeps a row highlighted while its menu is open', async () => {
+    await start('/activity', { mock: 'team-chats' });
+    const n = within(nav());
+    const trigger = await waitFor(() => n.getByRole('button', { name: 'Options for Q3 pricing notes' }));
+    await fireEvent.click(trigger);
+    await waitFor(() => expect(screen.getByRole('menu')).toBeTruthy());
+    expect(trigger.closest('li')?.classList.contains('bg-hover')).toBe(true);
+  });
+
+  it('draws a hairline above the chats only once they have scrolled', async () => {
+    await start('/activity', { mock: 'long-chats' });
+    await waitFor(() => expect(within(nav()).getByRole('button', { name: 'Show more' })).toBeTruthy());
+    const list = within(nav()).getByRole('list', { name: 'Today' }).parentElement!;
+    expect(list.classList.contains('border-transparent')).toBe(true);
+    list.scrollTop = 120;
+    await fireEvent.scroll(list);
+    expect(list.classList.contains('border-border')).toBe(true);
+  });
+
   it('never lists a chat without messages, and titles an untitled one by its first words', async () => {
     await start('/activity', { mock: 'team-chats' });
     const n = within(nav());
@@ -210,6 +239,8 @@ describe('shortcuts (§6.4)', () => {
     await fireEvent.keyDown(window, { key: '?', shiftKey: true });
     await waitFor(() => expect(screen.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeTruthy());
     expect(screen.getByText('Stop Bothy (in a running chat) or close')).toBeTruthy();
+    // Nothing in it takes input, so focus starts on the list, not on Close.
+    await waitFor(() => expect(document.activeElement?.contains(screen.getByText('Approve'))).toBe(true));
   });
 
   it('starts a new chat with Ctrl Shift O', async () => {
@@ -364,6 +395,15 @@ describe('phones', () => {
     await fireEvent.click(within(drawer).getByRole('link', { name: 'Knowledge' }));
     await waitFor(() => expect(shell.drawer).toBe(false));
     expect(router.path).toBe('/knowledge');
+  });
+
+  it('has a close button in the drawer in Settings too', async () => {
+    await start('/settings/general');
+    await fireEvent.click(await waitFor(() => screen.getByRole('button', { name: /^Open menu/ })));
+    const drawer = await waitFor(() => screen.getByRole('dialog', { name: 'Menu' }));
+    expect(within(drawer).getByRole('link', { name: 'Back to Bothy' })).toBeTruthy();
+    await fireEvent.click(within(drawer).getByRole('button', { name: 'Close menu' }));
+    await waitFor(() => expect(shell.drawer).toBe(false));
   });
 
   it('drops the waiting button when nothing waits', async () => {

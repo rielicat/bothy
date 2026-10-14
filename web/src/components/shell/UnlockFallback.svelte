@@ -36,6 +36,6 @@
   <p class="text-reading text-text">Bothy's saved keys are locked. Enter the passphrase to unlock them.</p>
   <form class="mt-6 max-w-[30rem]" onsubmit={unlock}>
     <TextField label="Passphrase" type="password" bind:value={passphrase} {error} autocomplete="current-password" />
-    <Button class="mt-4" variant="primary" type="submit" loading={busy} loadingLabel="Unlocking…">Unlock</Button>
+    <Button class="mt-4 max-sm:w-full" variant="primary" type="submit" loading={busy} loadingLabel="Unlocking…">Unlock</Button>
   </form>
 </Page>

@@ -1,4 +1,10 @@
+<script lang="ts" module>
+  // Survives the sidebar swapping to Settings and back, and the drawer closing (§4.2).
+  let saved = 0;
+</script>
+
 <script lang="ts">
+  import type { Attachment } from 'svelte/attachments';
   import type { IconName } from '../../lib/icons';
   import { router } from '../../lib/router.svelte';
   import { approvals, session } from '../../lib/stores/session.svelte';
@@ -24,6 +30,19 @@
     { href: '/knowledge', label: 'Knowledge' },
     { href: '/activity', label: 'Activity' },
   ];
+  // The hairline appears only once rows have scrolled under the fixed items above.
+  let scrolled = $state(false);
+  const keepScroll: Attachment<HTMLElement> = (el) => {
+    el.scrollTop = saved;
+    scrolled = el.scrollTop > 0;
+    const onscroll = () => {
+      saved = el.scrollTop;
+      scrolled = saved > 0;
+    };
+    el.addEventListener('scroll', onscroll, { passive: true });
+    return () => el.removeEventListener('scroll', onscroll);
+  };
+
   const item =
     'flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-body font-medium text-muted hover:bg-hover hover:text-text focus-visible:-outline-offset-2 aria-[current=page]:bg-selected aria-[current=page]:text-text pointer-coarse:h-11';
 </script>
@@ -32,7 +51,7 @@
 
 <div class="flex h-full flex-col px-2">
   {#if settings}
-    <SettingsNav />
+    <SettingsNav {drawer} />
   {:else}
     <div class="flex h-11 shrink-0 items-center justify-between">
       <a href="/chat" onclick={router.link} class="flex h-11 items-center rounded-md px-2 text-heading text-text focus-visible:-outline-offset-2">Bothy</a>
@@ -59,7 +78,7 @@
         </li>
       {/each}
     </ul>
-    <div class="-mx-2 min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+    <div class="-mx-2 mt-2 min-h-0 flex-1 overflow-y-auto border-t px-2 pb-3 {scrolled ? 'border-border' : 'border-transparent'}" {@attach keepScroll}>
       <ChatList />
     </div>
     <div class="-mx-2 shrink-0 border-t border-border px-2 py-2">
