@@ -32,8 +32,12 @@ const (
 	FallbackFailed     = "failed"      // every draft still being refined failed
 )
 
-// traceBudget bounds the text one trace keeps across all of its entries.
-const traceBudget = 128 << 10
+// traceBudget bounds the text one trace keeps across all of its entries;
+// answerCap is the share of it an entry's or a vote's answer may use.
+const (
+	traceBudget = 128 << 10
+	answerCap   = 256
+)
 
 type Settings struct {
 	Drafts    int // breadth, >= 1
@@ -55,8 +59,9 @@ type Call struct {
 	Critique string // correct only
 }
 
-// Reply is a finished call. Callers fill CallID, Model and Cost for failed
-// calls too when the provider was reached.
+// Reply is a finished call. CallID names the call's llm_calls row, so it is
+// set only for recorded calls, failed ones included; a call cut off by the
+// context with neither CallID nor Cost leaves no entry.
 type Reply struct {
 	Text     string
 	CallID   string
@@ -117,7 +122,7 @@ func newEngine(s Settings, c Caller, onEntry func(core.RefineEntry)) *engine {
 	if onEntry == nil {
 		onEntry = func(core.RefineEntry) {}
 	}
-	textCap := min(max(traceBudget/core.RefineMaxCalls(s.Drafts, s.Depth), 512), 4096)
+	textCap := min(max(traceBudget/core.RefineMaxCalls(s.Drafts, s.Depth)-answerCap, 512), 4096)
 	return &engine{s: s, caller: c, onEntry: onEntry, textCap: textCap}
 }
 
@@ -251,12 +256,21 @@ func (e *engine) call(ctx context.Context, c Call) (Reply, bool) {
 }
 
 func (e *engine) describe(ent *core.RefineEntry, text string) {
-	ent.Text = e.clip(e.s.Redact(text))
+	red := e.s.Redact(text)
+	ent.Text = e.clip(red)
 	if ent.Role == core.RefineCritique {
 		ent.Confirmed = Confirmed(text)
 		return
 	}
-	ent.Answer = e.s.Redact(Normalize(Extract(text)))
+	ent.Answer = shownAnswer(red)
+}
+
+// shownAnswer is the final answer of an already redacted text as the trace
+// shows it. Redaction has to come first: it matches secrets exactly, and
+// normalizing lowercases and strips characters, which would let a secret
+// through.
+func shownAnswer(redacted string) string {
+	return clipBytes(Normalize(Extract(redacted)), answerCap)
 }
 
 func (e *engine) recordFirst(first Reply, d *draft) {
@@ -330,8 +344,9 @@ func (e *engine) finish(drafts []draft, rounds int, early bool) Outcome {
 	if winner < 0 {
 		winner = max(slices.IndexFunc(drafts, func(d draft) bool { return d.ok }), 0)
 	}
+	shown := func(k int) string { return shownAnswer(e.s.Redact(drafts[k].text)) }
 	for i := range votes {
-		votes[i].Answer = e.s.Redact(votes[i].Answer)
+		votes[i].Answer = shown(votes[i].Drafts[0])
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -340,7 +355,10 @@ func (e *engine) finish(drafts []draft, rounds int, early bool) Outcome {
 		return cmp.Or(cmp.Compare(a.Round, b.Round), cmp.Compare(a.Draft, b.Draft), cmp.Compare(roleOrder(a.Role), roleOrder(b.Role)))
 	})
 	t := core.RefineTrace{Drafts: e.s.Drafts, Depth: e.s.Depth, Rounds: rounds, EarlyStop: early, Winner: winner,
-		Answer: e.s.Redact(drafts[winner].answer), Votes: votes, Entries: entries, Calls: len(entries), Cost: e.cost}
+		Votes: votes, Entries: entries, Calls: len(entries), Cost: e.cost}
+	if drafts[winner].answer != "" {
+		t.Answer = shown(winner)
+	}
 	if !early && rounds < e.s.Depth {
 		t.Fallback = e.reason
 	}
@@ -391,6 +409,18 @@ func (e *engine) clip(s string) string {
 		from++
 	}
 	return s[:head] + note + s[from:]
+}
+
+// clipBytes cuts s to at most n bytes on a rune boundary, marking the cut.
+func clipBytes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	n -= len("…")
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n] + "…"
 }
 
 func clipRunes(s string, n int) string {

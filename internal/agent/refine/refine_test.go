@@ -9,6 +9,7 @@ import (
 	"testing"
 	"testing/synctest"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rielicat/bothy/internal/core"
 )
@@ -306,5 +307,68 @@ func TestSkip(t *testing.T) {
 	tr := out.Trace
 	if out.Text != "Final answer: 5" || tr.Fallback != FallbackTime || tr.Calls != 1 || tr.Cost != 4 || tr.Answer != "5" || tr.Winner != 0 {
 		t.Fatalf("outcome %+v", out)
+	}
+}
+
+func TestRunRedactsAnswersBeforeNormalizing(t *testing.T) {
+	// Normalizing lowercases; a redactor matching the secret exactly would
+	// no longer see it in the normalized answer.
+	const secret = "AbCdEf-Token-9"
+	s := &script{fn: func(c Call, _ int) (Reply, error) {
+		if c.Role == core.RefineCritique {
+			return Reply{Text: "Verdict: correct"}, nil
+		}
+		return Reply{Text: "The key is " + secret + ".\nFinal answer: " + secret}, nil
+	}}
+	red := func(t string) string { return strings.ReplaceAll(t, secret, "[redacted]") }
+	out := Run(context.Background(), Settings{Drafts: 2, Depth: 1, Redact: red, Parallel: 1}, first, s, nil)
+	low := strings.ToLower(secret)
+	tr := out.Trace
+	check := func(where, s string) {
+		t.Helper()
+		if strings.Contains(strings.ToLower(s), low) {
+			t.Fatalf("%s leaks the secret: %q", where, s)
+		}
+	}
+	check("trace answer", tr.Answer)
+	for _, v := range tr.Votes {
+		check("vote", v.Answer)
+	}
+	for _, e := range tr.Entries {
+		check("entry", e.Text+e.Answer)
+	}
+	if tr.Answer != "[redacted]" || tr.Votes[0].Answer != "[redacted]" || tr.Votes[0].Count != 2 {
+		t.Fatalf("trace %+v", tr)
+	}
+}
+
+func TestRunClipsLongAnswers(t *testing.T) {
+	long := "Final answer: " + strings.Repeat("é and more ", 2000)
+	s := &script{fn: func(c Call, _ int) (Reply, error) {
+		if c.Role == core.RefineCritique {
+			return Reply{Text: "Verdict: correct"}, nil
+		}
+		return Reply{Text: long}, nil
+	}}
+	out := Run(context.Background(), Settings{Drafts: 8, Depth: 4, Parallel: 1}, Reply{Text: long}, s, nil)
+	tr := out.Trace
+	size := len(tr.Answer)
+	for _, v := range tr.Votes {
+		size += len(v.Answer)
+	}
+	for _, e := range tr.Entries {
+		if len(e.Answer) > answerCap || !utf8.ValidString(e.Answer) {
+			t.Fatalf("entry answer of %d bytes", len(e.Answer))
+		}
+		size += len(e.Text) + len(e.Answer)
+	}
+	if len(tr.Answer) > answerCap || tr.Votes[0].Answer != tr.Answer || tr.Votes[0].Count != 8 {
+		t.Fatalf("trace answer %d bytes, votes %+v", len(tr.Answer), tr.Votes)
+	}
+	if size > traceBudget+answerCap*2+len(tr.Entries)*64 {
+		t.Fatalf("trace keeps %d bytes of text, over its %d budget", size, traceBudget)
+	}
+	if out.Text != strings.TrimSpace(long) {
+		t.Fatal("the reply itself is never clipped")
 	}
 }
