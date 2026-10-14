@@ -244,6 +244,8 @@ type ProviderTestReq struct {
 	SecretRef    string            `json:"secret_ref,omitempty"`
 	Model        string            `json:"model"`
 	AllowPrivate bool              `json:"allow_private"`
+	Region       string            `json:"region,omitempty"`  // bedrock: AWS region; "" = the server's AWS config
+	Profile      string            `json:"profile,omitempty"` // bedrock: shared-config profile; "" = AWS_PROFILE or the default chain
 }
 
 type ChannelTestResp struct {

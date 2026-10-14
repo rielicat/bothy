@@ -24,6 +24,7 @@ const (
 	KindGemini       ProviderKind = "gemini"
 	KindOllama       ProviderKind = "ollama"        // native /api/chat (num_ctx honoured)
 	KindOpenAICompat ProviderKind = "openai_compat" // LM Studio, vLLM, OpenRouter, Groq, xAI, DeepSeek…
+	KindBedrock      ProviderKind = "bedrock"       // Amazon Bedrock ConverseStream; AWS default credential chain, no API key
 )
 
 // ModelRef is "<provider id>/<model>". The model part may itself contain "/".
@@ -281,6 +282,8 @@ type ProbeConfig struct {
 	SecretRef    string       `json:"secret_ref"` // alternative to APIKey: "secret:<name>"
 	Model        string       `json:"model"`
 	AllowPrivate bool         `json:"allow_private"`
+	Region       string       `json:"region,omitempty"`  // bedrock: AWS region; "" = the AWS config's default
+	Profile      string       `json:"profile,omitempty"` // bedrock: shared-config profile; "" = AWS_PROFILE or default
 }
 
 type ProbeResult struct {
@@ -292,6 +295,15 @@ type ProbeResult struct {
 	Models        []string      `json:"models"`
 	Cost          Micros        `json:"cost_micros"`
 	Detail        string        `json:"detail"` // plain-language failure or hint (e.g. OLLAMA_CONTEXT_LENGTH)
+
+	Choices     []ModelChoice `json:"choices,omitempty"`     // Models with display names, for a model picker
+	Credentials string        `json:"credentials,omitempty"` // bedrock: where the AWS credentials came from, never their values
+}
+
+// ModelChoice is one entry of a model picker.
+type ModelChoice struct {
+	ID      string `json:"id"`
+	Display string `json:"display"`
 }
 
 type Detection struct {
@@ -300,6 +312,9 @@ type Detection struct {
 	EnvVar  string       `json:"env_var,omitempty"` // e.g. ANTHROPIC_API_KEY; the value never leaves the process
 	Models  []string     `json:"models,omitempty"`
 	Note    string       `json:"note,omitempty"`
+	Region  string       `json:"region,omitempty"`  // bedrock: the AWS config's region, "" when it names none
+	Profile string       `json:"profile,omitempty"` // bedrock: the AWS_PROFILE in use, "" for the default chain
+	Source  string       `json:"source,omitempty"`  // bedrock: where the AWS credentials came from, never their values
 }
 
 type ProviderHealth struct {
