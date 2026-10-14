@@ -128,8 +128,9 @@ func (t *deployTool) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action
 			d.Status = core.DeployRunning
 		}
 	}
-	if err := s.d.Deploys.Create(bg, d); err != nil {
-		s.d.Log.ErrorContext(bg, "release: recording a deploy failed", "environment", d.Environment, "err", err)
+	recErr := s.d.Deploys.Create(bg, d)
+	if recErr != nil {
+		s.d.Log.ErrorContext(bg, "release: recording a deploy failed", "environment", d.Environment, "err", recErr)
 	}
 	outcome := "ok"
 	if derr != nil {
@@ -151,7 +152,11 @@ func (t *deployTool) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action
 	if run.ID != 0 {
 		fmt.Fprintf(&b, ". Run %d: %s", run.ID, run.URL)
 	}
-	b.WriteString(". The outcome will be posted here when the run finishes.")
+	if recErr != nil {
+		b.WriteString(". Bothy could not record the deploy, so it will not report the outcome; follow the run on GitHub.")
+	} else {
+		b.WriteString(". The outcome will be posted here when the run finishes.")
+	}
 	return &core.ToolResult{Content: b.String()}, nil
 }
 

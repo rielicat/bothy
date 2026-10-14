@@ -553,3 +553,21 @@ func TestRunWakesOnDispatch(t *testing.T) {
 		t.Fatalf("notices = %q", n)
 	}
 }
+
+type failingDeploys struct{ core.ReleaseRepo }
+
+func (failingDeploys) Create(context.Context, *core.Deploy) error { return errors.New("disk full") }
+
+// TestDeployRecordFailure: a deploy that was started but could not be
+// recorded is reported as started, with a warning that no outcome follows.
+func TestDeployRecordFailure(t *testing.T) {
+	f := newFixture(t)
+	f.svc.d.Deploys = failingDeploys{f.svc.d.Deploys}
+	env := f.env()
+	a := f.plan(env, `{"environment":"staging"}`)
+	f.approve(env, a, core.ApprovalAllowed, f.alice, f.bob)
+	res, err := f.tool(deployName).Exec(f.ctx, env, a)
+	if err != nil || res.IsError || !strings.Contains(res.Content, "could not record the deploy") || len(f.gh.Dispatches()) != 1 {
+		t.Fatalf("Exec = %+v, %v", res, err)
+	}
+}
