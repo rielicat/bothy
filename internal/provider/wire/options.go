@@ -89,6 +89,10 @@ func (o *Options) credentialError(err error) error {
 	return &core.ProviderError{Provider: o.ID, Kind: kind, Msg: "credential unavailable: " + o.redact(err.Error()), Err: err}
 }
 
+// Redacted applies the client's redactor and the length cap every provider
+// message gets, for errors a client builds itself.
+func (o *Options) Redacted(s string) string { return o.redact(s) }
+
 func (o *Options) redact(s string) string {
 	if o.Redact != nil {
 		s = o.Redact(s)
@@ -107,6 +111,10 @@ func (o *Options) redact(s string) string {
 // Classifier maps a non-2xx response to an ErrorKind and the provider's
 // message. Each client knows its vendor's error body.
 type Classifier func(status int, body []byte) (core.ErrorKind, string)
+
+// HeaderClassifier is a Classifier for vendors that name the error in a
+// response header (AWS: X-Amzn-ErrorType).
+type HeaderClassifier func(status int, h http.Header, body []byte) (core.ErrorKind, string)
 
 // maxErrorBody bounds how much of an error response is read.
 const maxErrorBody = 64 << 10
@@ -142,6 +150,13 @@ func (b *limitedBody) Read(p []byte) (int, error) {
 // failures are ErrKindNetwork unless ctx ended, in which case the context's
 // cause is returned so a /stop is never mistaken for a retryable failure.
 func (o *Options) Do(ctx context.Context, req *http.Request, classify Classifier) (*http.Response, error) {
+	return o.DoHeader(ctx, req, func(status int, _ http.Header, body []byte) (core.ErrorKind, string) {
+		return classify(status, body)
+	})
+}
+
+// DoHeader is Do with a classifier that also sees the response headers.
+func (o *Options) DoHeader(ctx context.Context, req *http.Request, classify HeaderClassifier) (*http.Response, error) {
 	// The URL is the operator's base_url and HTTP comes from
 	// Egress.SystemClient, which dials only that exact host:port.
 	resp, err := o.HTTP.Do(req) //nolint:gosec // G704: see above
@@ -154,7 +169,7 @@ func (o *Options) Do(ctx context.Context, req *http.Request, classify Classifier
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
-	kind, msg := classify(resp.StatusCode, body)
+	kind, msg := classify(resp.StatusCode, resp.Header, body)
 	if msg == "" {
 		msg = http.StatusText(resp.StatusCode)
 	}

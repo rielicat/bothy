@@ -1,0 +1,10 @@
+{"headers":{":content-type":"application/json",":event-type":"messageStart",":message-type":"event"},"payload":"{\"p\":\"abcdefghijklmnopqrstuvwxyz\",\"role\":\"assistant\"}"}
+{"headers":{":content-type":"application/json",":event-type":"contentBlockDelta",":message-type":"event"},"payload":"{\"contentBlockIndex\":0,\"delta\":{\"reasoningContent\":{\"redactedContent\":\"RXhhbXBsZSByZWRhY3RlZCByZWFzb25pbmc=\"}}}"}
+{"headers":{":content-type":"application/json",":event-type":"contentBlockStop",":message-type":"event"},"payload":"{\"contentBlockIndex\":0}"}
+{"headers":{":content-type":"application/json",":event-type":"contentBlockDelta",":message-type":"event"},"payload":"{\"contentBlockIndex\":1,\"delta\":{\"reasoningContent\":{\"text\":\"Plain reasoning.\"}}}"}
+{"headers":{":content-type":"application/json",":event-type":"contentBlockDelta",":message-type":"event"},"payload":"{\"contentBlockIndex\":1,\"delta\":{\"reasoningContent\":{\"signature\":\"c2lnbmF0dXJlLWV4YW1wbGU=\"}}}"}
+{"headers":{":content-type":"application/json",":event-type":"contentBlockStop",":message-type":"event"},"payload":"{\"contentBlockIndex\":1}"}
+{"headers":{":content-type":"application/json",":event-type":"contentBlockDelta",":message-type":"event"},"payload":"{\"contentBlockIndex\":2,\"delta\":{\"text\":\"Done.\"}}"}
+{"headers":{":content-type":"application/json",":event-type":"contentBlockStop",":message-type":"event"},"payload":"{\"contentBlockIndex\":2}"}
+{"headers":{":content-type":"application/json",":event-type":"messageStop",":message-type":"event"},"payload":"{\"stopReason\":\"end_turn\"}"}
+{"headers":{":content-type":"application/json",":event-type":"metadata",":message-type":"event"},"payload":"{\"metrics\":{\"latencyMs\":10},\"usage\":{\"inputTokens\":12,\"outputTokens\":30,\"totalTokens\":42}}"}

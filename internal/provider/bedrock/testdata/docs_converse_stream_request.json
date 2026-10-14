@@ -1,0 +1,17 @@
+{
+    "messages": [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "text": "Write an article about impact of high inflation to GDP of a country"
+                }
+            ]
+        }
+    ],
+    "system": [{"text" : "You are an economist with access to lots of data"}],
+    "inferenceConfig": {
+        "maxTokens": 1000,
+        "temperature": 0.5
+    }
+}

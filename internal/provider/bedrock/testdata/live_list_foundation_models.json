@@ -1,0 +1,2094 @@
+{
+ "body": {
+  "enableAccessToAllModelsByDefault": true,
+  "modelSummaries": [
+   {
+    "batchSupported": {
+     "baseModelSupported": false,
+     "crossRegionSupported": true,
+     "customModelSupported": false
+    },
+    "consoleIDEMetadata": null,
+    "converse": {
+     "additionalRequestFieldsSchema": null,
+     "maxTokensDefault": 8192,
+     "maxTokensMaximum": 65536,
+     "reasoningSupported": {
+      "embedded": true
+     },
+     "stopSequencesDefault": null,
+     "systemRoleSupported": true,
+     "userDocumentTypesSupported": [
+      "pdf"
+     ],
+     "userImageTypesSupported": [
+      "jpeg",
+      "png",
+      "gif",
+      "webp"
+     ],
+     "userVideoTypesSupported": []
+    },
+    "customizationsSupported": [],
+    "description": {
+     "fullDescription": "Claude Sonnet 4 balances impressive performance for coding with the right speed and cost for high-volume use cases:\\n Coding: Handle everyday development tasks with enhanced performance-power code reviews, bug fixes, API integrations, and feature development with immediate feedback loops. AI Assistants: Power production-ready assistants for real-time applications\u2014from customer support automation to operational workflows that require both intelligence and speed.\\n Efficient research: Perform focused analysis across multiple data sources while maintaining fast response times. Ideal for rapid business intelligence, competitive analysis, and real-time decision support.\\n Large-scale content: Generate and analyze content at scale with improved quality. Create customer communications, analyze user feedback, and produce marketing materials with the right balance of quality and throughput.",
+     "invokeExample": "{\\n \"modelId\": \"anthropic.claude-sonnet-4-20250514-v1:0\",\\n \"contentType\": \"application/json\",\\n \"accept\": \"application/json\",\\n \"body\": \"{\\\"messages\\\":[{\\\"role\\\":\\\"user\\\",\\\"content\\\":\\\"hello world\\\"}],\\\"max_tokens\\\":200,\\\"temperature\\\":1,\\\"top_p\\\":0.999,\\\"top_k\\\":250}\"\\n}",
+     "maxContextWindow": "200K",
+     "modelAttributes": "Hybrid reasoning, extended thinking, efficient code generation, enhanced text generation, agentic search, efficient research, computer use, tool use, real-time support, task efficiency, text and image inputs, steering and memory.",
+     "policy": null,
+     "releaseDate": "2025-05-14T08:00:00Z",
+     "shortDescription": "Claude Sonnet 4 is Anthropic's mid-size model with several major improvements\u2014especially for coding. It is the ideal balance of performance and practicality for most internal and external use cases, including user-facing AI agents. The model is also more steerable than before, providing enhanced control over its eagerness to implement changes.",
+     "supportedFormats": null,
+     "supportedLanguages": "English, French, Modern Standard Arabic, Mandarin Chinese, Hindi, Spanish, Portuguese, Korean, Japanese, German, Russian, Polish and Other languages.",
+     "supportedUseCases": "Production AI agents, AI assistants, customer support, efficient research, rapid business intelligence, competitive analysis, and real-time decision support, coding, code review processing, bug fix automation, API integration development, operational workflow management, large-scale content generation, marketing content generation and scaled data analysis.",
+     "unsupportedUseCases": null,
+     "version": "v1"
+    },
+    "explicitPromptCaching": {
+     "isSupported": true
+    },
+    "featuresSupported": {
+     "batchInference": {
+      "crossRegion": true,
+      "inRegion": false
+     },
+     "countTokens": true,
+     "intelligentPromptRouting": false,
+     "promptCaching": true,
+     "promptOptimization": true,
+     "provisionedThroughput": false
+    },
+    "guardrailsSupported": true,
+    "inferenceAPIsSupported": {
+     "asyncInvoke": false,
+     "converse": {
+      "streaming": true,
+      "sync": true
+     },
+     "invokeModel": {
+      "bidirectionalStreaming": false,
+      "responseStreaming": true,
+      "sync": true
+     },
+     "openAiChatCompletions": false,
+     "openAiResponses": false
+    },
+    "inferenceTypesSupported": [
+     "INFERENCE_PROFILE"
+    ],
+    "inputModalities": [
+     "TEXT",
+     "IMAGE"
+    ],
+    "intelligentPromptRouting": {
+     "isSupported": false
+    },
+    "latencyOptimizationSupported": false,
+    "modelArn": "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-sonnet-4-20250514-v1:0",
+    "modelFamily": "Claude",
+    "modelId": "anthropic.claude-sonnet-4-20250514-v1:0",
+    "modelLifecycle": {
+     "endOfLifeTime": "2026-10-14T08:00:00Z",
+     "legacyTime": "2026-04-14T08:00:00Z",
+     "publicExtendedAccessTime": "2026-07-14T08:00:00Z",
+     "startOfLifeTime": "2025-05-22T00:00:00Z",
+     "status": "LEGACY"
+    },
+    "modelName": "Claude Sonnet 4",
+    "outputModalities": [
+     "TEXT"
+    ],
+    "providerName": "Anthropic",
+    "responseStreamingSupported": true
+   },
+   {
+    "batchSupported": {
+     "baseModelSupported": false,
+     "crossRegionSupported": true,
+     "customModelSupported": false
+    },
+    "consoleIDEMetadata": null,
+    "converse": {
+     "additionalRequestFieldsSchema": "{\"top_k\":{\"type\":\"number\",\"default\":250,\"minimum\":0,\"maximum\":500},\"reasoningConfig\":{\"enabled\":{\"type\":\"boolean\",\"default\":false},\"budgetTokens\":{\"type\":\"integer\",\"default\":2048,\"minimum\":1024,\"maximum\":63999}}}",
+     "maxTokensDefault": 64000,
+     "maxTokensMaximum": 64000,
+     "reasoningSupported": {
+      "embedded": false
+     },
+     "stopSequencesDefault": null,
+     "systemRoleSupported": true,
+     "userDocumentTypesSupported": [
+      "pdf"
+     ],
+     "userImageTypesSupported": [
+      "jpeg",
+      "png",
+      "gif",
+      "webp"
+     ],
+     "userVideoTypesSupported": []
+    },
+    "customizationsSupported": [],
+    "description": null,
+    "explicitPromptCaching": {
+     "isSupported": true
+    },
+    "featuresSupported": {
+     "batchInference": {
+      "crossRegion": true,
+      "inRegion": false
+     },
+     "countTokens": true,
+     "intelligentPromptRouting": false,
+     "promptCaching": true,
+     "promptOptimization": true,
+     "provisionedThroughput": false
+    },
+    "guardrailsSupported": true,
+    "inferenceAPIsSupported": {
+     "asyncInvoke": false,
+     "converse": {
+      "streaming": true,
+      "sync": true
+     },
+     "invokeModel": {
+      "bidirectionalStreaming": false,
+      "responseStreaming": true,
+      "sync": true
+     },
+     "openAiChatCompletions": false,
+     "openAiResponses": false
+    },
+    "inferenceTypesSupported": [
+     "INFERENCE_PROFILE"
+    ],
+    "inputModalities": [
+     "TEXT",
+     "IMAGE"
+    ],
+    "intelligentPromptRouting": {
+     "isSupported": false
+    },
+    "latencyOptimizationSupported": false,
+    "modelArn": "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+    "modelFamily": "Claude Haiku",
+    "modelId": "anthropic.claude-haiku-4-5-20251001-v1:0",
+    "modelLifecycle": {
+     "endOfLifeTime": null,
+     "legacyTime": null,
+     "publicExtendedAccessTime": null,
+     "startOfLifeTime": "2025-10-15T17:00:00Z",
+     "status": "ACTIVE"
+    },
+    "modelName": "Claude Haiku 4.5",
+    "outputModalities": [
+     "TEXT"
+    ],
+    "providerName": "Anthropic",
+    "responseStreamingSupported": true
+   },
+   {
+    "batchSupported": {
+     "baseModelSupported": false,
+     "crossRegionSupported": false,
+     "customModelSupported": false
+    },
+    "consoleIDEMetadata": null,
+    "converse": {
+     "additionalRequestFieldsSchema": "{\"output_config\":{\"effort\":{\"type\":\"enum\",\"default\":\"medium\",\"enum\":[\"low\",\"medium\",\"high\",\"xhigh\",\"max\"]}},\"hideSamplingParameter\":true}",
+     "maxTokensDefault": 4096,
+     "maxTokensMaximum": 128000,
+     "reasoningSupported": {
+      "embedded": false
+     },
+     "stopSequencesDefault": [],
+     "systemRoleSupported": true,
+     "userDocumentTypesSupported": [
+      "pdf"
+     ],
+     "userImageTypesSupported": [
+      "jpeg",
+      "png",
+      "gif",
+      "webp"
+     ],
+     "userVideoTypesSupported": []
+    },
+    "customizationsSupported": [],
+    "description": null,
+    "explicitPromptCaching": {
+     "isSupported": true
+    },
+    "featuresSupported": {
+     "batchInference": {
+      "crossRegion": false,
+      "inRegion": false
+     },
+     "countTokens": false,
+     "intelligentPromptRouting": false,
+     "promptCaching": true,
+     "promptOptimization": true,
+     "provisionedThroughput": false
+    },
+    "guardrailsSupported": true,
+    "inferenceAPIsSupported": {
+     "asyncInvoke": false,
+     "converse": {
+      "streaming": true,
+      "sync": true
+     },
+     "invokeModel": {
+      "bidirectionalStreaming": false,
+      "responseStreaming": true,
+      "sync": true
+     },
+     "openAiChatCompletions": false,
+     "openAiResponses": false
+    },
+    "inferenceTypesSupported": [
+     "INFERENCE_PROFILE"
+    ],
+    "inputModalities": [
+     "TEXT",
+     "IMAGE"
+    ],
+    "intelligentPromptRouting": {
+     "isSupported": false
+    },
+    "latencyOptimizationSupported": false,
+    "modelArn": "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-opus-5-5",
+    "modelFamily": "Opus",
+    "modelId": "anthropic.claude-opus-5-5",
+    "modelLifecycle": {
+     "endOfLifeTime": null,
+     "legacyTime": null,
+     "publicExtendedAccessTime": null,
+     "startOfLifeTime": "2026-09-22T10:00:00Z",
+     "status": "ACTIVE"
+    },
+    "modelName": "Claude Opus 5.5",
+    "outputModalities": [
+     "TEXT"
+    ],
+    "providerName": "Anthropic",
+    "responseStreamingSupported": true
+   },
+   {
+    "batchSupported": {
+     "baseModelSupported": false,
+     "crossRegionSupported": false,
+     "customModelSupported": false
+    },
+    "consoleIDEMetadata": null,
+    "converse": {
+     "additionalRequestFieldsSchema": "{\"reasoningConfig\":{\"enabled\":{\"type\":\"boolean\",\"default\":false},\"budgetTokens\":{\"type\":\"enum\",\"default\":\"low\",\"enum\":{\"low\":1024,\"medium\":40000,\"high\":63999},\"minimum\":1024,\"maximum\":63999}},\"hideSamplingParameter\":true}",
+     "maxTokensDefault": 4096,
+     "maxTokensMaximum": 128000,
+     "reasoningSupported": {
+      "embedded": false
+     },
+     "stopSequencesDefault": [],
+     "systemRoleSupported": true,
+     "userDocumentTypesSupported": [
+      "pdf"
+     ],
+     "userImageTypesSupported": [
+      "jpeg",
+      "png",
+      "gif",
+      "webp"
+     ],
+     "userVideoTypesSupported": []
+    },
+    "customizationsSupported": [],
+    "description": null,
+    "explicitPromptCaching": {
+     "isSupported": true
+    },
+    "featuresSupported": {
+     "batchInference": {
+      "crossRegion": false,
+      "inRegion": false
+     },
+     "countTokens": false,
+     "intelligentPromptRouting": false,
+     "promptCaching": true,
+     "promptOptimization": true,
+     "provisionedThroughput": false
+    },
+    "guardrailsSupported": true,
+    "inferenceAPIsSupported": {
+     "asyncInvoke": false,
+     "converse": {
+      "streaming": true,
+      "sync": true
+     },
+     "invokeModel": {
+      "bidirectionalStreaming": false,
+      "responseStreaming": true,
+      "sync": true
+     },
+     "openAiChatCompletions": false,
+     "openAiResponses": false
+    },
+    "inferenceTypesSupported": [
+     "INFERENCE_PROFILE"
+    ],
+    "inputModalities": [
+     "TEXT",
+     "IMAGE"
+    ],
+    "intelligentPromptRouting": {
+     "isSupported": false
+    },
+    "latencyOptimizationSupported": false,
+    "modelArn": "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-fable-5",
+    "modelFamily": "Fable",
+    "modelId": "anthropic.claude-fable-5",
+    "modelLifecycle": {
+     "endOfLifeTime": null,
+     "legacyTime": null,
+     "publicExtendedAccessTime": null,
+     "startOfLifeTime": "2026-06-09T10:00:00Z",
+     "status": "ACTIVE"
+    },
+    "modelName": "Claude Fable 5",
+    "outputModalities": [
+     "TEXT"
+    ],
+    "providerName": "Anthropic",
+    "responseStreamingSupported": true
+   },
+   {
+    "batchSupported": {
+     "baseModelSupported": false,
+     "crossRegionSupported": false,
+     "customModelSupported": false
+    },
+    "consoleIDEMetadata": null,
+    "converse": {
+     "additionalRequestFieldsSchema": "{\"output_config\":{\"effort\":{\"type\":\"enum\",\"default\":\"medium\",\"enum\":[\"low\",\"medium\",\"high\",\"xhigh\",\"max\"]}},\"hideSamplingParameter\":true}",
+     "maxTokensDefault": 4096,
+     "maxTokensMaximum": 128000,
+     "reasoningSupported": {
+      "embedded": false
+     },
+     "stopSequencesDefault": [],
+     "systemRoleSupported": true,
+     "userDocumentTypesSupported": [
+      "pdf"
+     ],
+     "userImageTypesSupported": [
+      "jpeg",
+      "png",
+      "gif",
+      "webp"
+     ],
+     "userVideoTypesSupported": []
+    },
+    "customizationsSupported": [],
+    "description": null,
+    "explicitPromptCaching": {
+     "isSupported": true
+    },
+    "featuresSupported": {
+     "batchInference": {
+      "crossRegion": false,
+      "inRegion": false
+     },
+     "countTokens": false,
+     "intelligentPromptRouting": false,
+     "promptCaching": true,
+     "promptOptimization": true,
+     "provisionedThroughput": false
+    },
+    "guardrailsSupported": true,
+    "inferenceAPIsSupported": {
+     "asyncInvoke": false,
+     "converse": {
+      "streaming": true,
+      "sync": true
+     },
+     "invokeModel": {
+      "bidirectionalStreaming": false,
+      "responseStreaming": true,
+      "sync": true
+     },
+     "openAiChatCompletions": false,
+     "openAiResponses": false
+    },
+    "inferenceTypesSupported": [
+     "INFERENCE_PROFILE"
+    ],
+    "inputModalities": [
+     "TEXT",
+     "IMAGE"
+    ],
+    "intelligentPromptRouting": {
+     "isSupported": false
+    },
+    "latencyOptimizationSupported": false,
+    "modelArn": "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-haiku-5-5",
+    "modelFamily": "Haiku",
+    "modelId": "anthropic.claude-haiku-5-5",
+    "modelLifecycle": {
+     "endOfLifeTime": null,
+     "legacyTime": null,
+     "publicExtendedAccessTime": null,
+     "startOfLifeTime": "2026-10-07T10:00:00Z",
+     "status": "ACTIVE"
+    },
+    "modelName": "Claude Haiku 5.5",
+    "outputModalities": [
+     "TEXT"
+    ],
+    "providerName": "Anthropic",
+    "responseStreamingSupported": true
+   },
+   {
+    "batchSupported": {
+     "baseModelSupported": false,
+     "crossRegionSupported": true,
+     "customModelSupported": false
+    },
+    "consoleIDEMetadata": null,
+    "converse": {
+     "additionalRequestFieldsSchema": "{\"top_k\":{\"type\":\"number\",\"default\":250,\"minimum\":0,\"maximum\":500},\"reasoningConfig\":{\"enabled\":{\"type\":\"boolean\",\"default\":false},\"budgetTokens\":{\"type\":\"enum\",\"default\":\"low\",\"enum\":{\"low\":1024,\"medium\":40000,\"high\":63999},\"minimum\":1024,\"maximum\":63999}}}",
+     "maxTokensDefault": 128000,
+     "maxTokensMaximum": 128000,
+     "reasoningSupported": {
+      "embedded": false
+     },
+     "stopSequencesDefault": [],
+     "systemRoleSupported": true,
+     "userDocumentTypesSupported": [
+      "pdf"
+     ],
+     "userImageTypesSupported": [
+      "jpeg",
+      "png",
+      "gif",
+      "webp"
+     ],
+     "userVideoTypesSupported": []
+    },
+    "customizationsSupported": [],
+    "description": null,
+    "explicitPromptCaching": {
+     "isSupported": true
+    },
+    "featuresSupported": {
+     "batchInference": {
+      "crossRegion": true,
+      "inRegion": false
+     },
+     "countTokens": true,
+     "intelligentPromptRouting": false,
+     "promptCaching": true,
+     "promptOptimization": true,
+     "provisionedThroughput": false
+    },
+    "guardrailsSupported": true,
+    "inferenceAPIsSupported": {
+     "asyncInvoke": false,
+     "converse": {
+      "streaming": true,
+      "sync": true
+     },
+     "invokeModel": {
+      "bidirectionalStreaming": false,
+      "responseStreaming": true,
+      "sync": true
+     },
+     "openAiChatCompletions": false,
+     "openAiResponses": false
+    },
+    "inferenceTypesSupported": [
+     "INFERENCE_PROFILE"
+    ],
+    "inputModalities": [
+     "TEXT",
+     "IMAGE"
+    ],
+    "intelligentPromptRouting": {
+     "isSupported": false
+    },
+    "latencyOptimizationSupported": false,
+    "modelArn": "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-sonnet-4-6",
+    "modelFamily": "Claude Sonnet",
+    "modelId": "anthropic.claude-sonnet-4-6",
+    "modelLifecycle": {
+     "endOfLifeTime": null,
+     "legacyTime": null,
+     "publicExtendedAccessTime": null,
+     "startOfLifeTime": "2026-02-17T18:00:00Z",
+     "status": "ACTIVE"
+    },
+    "modelName": "Claude Sonnet 4.6",
+    "outputModalities": [
+     "TEXT"
+    ],
+    "providerName": "Anthropic",
+    "responseStreamingSupported": true
+   },
+   {
+    "batchSupported": {
+     "baseModelSupported": true,
+     "crossRegionSupported": false,
+     "customModelSupported": false
+    },
+    "consoleIDEMetadata": null,
+    "converse": {
+     "additionalRequestFieldsSchema": "{\"reasoningConfig\":{\"enabled\":{\"type\":\"boolean\",\"default\":false}}}",
+     "maxTokensDefault": null,
+     "maxTokensMaximum": 32768,
+     "reasoningSupported": null,
+     "stopSequencesDefault": [],
+     "systemRoleSupported": true,
+     "userDocumentTypesSupported": [],
+     "userImageTypesSupported": [],
+     "userVideoTypesSupported": []
+    },
+    "customizationsSupported": [],
+    "description": null,
+    "explicitPromptCaching": {
+     "isSupported": false
+    },
+    "featuresSupported": {
+     "batchInference": {
+      "crossRegion": false,
+      "inRegion": true
+     },
+     "countTokens": false,
+     "intelligentPromptRouting": false,
+     "promptCaching": false,
+     "promptOptimization": false,
+     "provisionedThroughput": false
+    },
+    "guardrailsSupported": true,
+    "inferenceAPIsSupported": {
+     "asyncInvoke": false,
+     "converse": {
+      "streaming": true,
+      "sync": true
+     },
+     "invokeModel": {
+      "bidirectionalStreaming": false,
+      "responseStreaming": true,
+      "sync": true
+     },
+     "openAiChatCompletions": true,
+     "openAiResponses": true
+    },
+    "inferenceTypesSupported": [
+     "ON_DEMAND"
+    ],
+    "inputModalities": [
+     "SPEECH",
+     "TEXT"
+    ],
+    "intelligentPromptRouting": {
+     "isSupported": false
+    },
+    "latencyOptimizationSupported": false,
+    "modelArn": "arn:aws:bedrock:us-west-2::foundation-model/mistral.voxtral-mini-3b-2507",
+    "modelFamily": "Voxtral",
+    "modelId": "mistral.voxtral-mini-3b-2507",
+    "modelLifecycle": {
+     "endOfLifeTime": null,
+     "legacyTime": null,
+     "publicExtendedAccessTime": null,
+     "startOfLifeTime": "2025-12-02T00:00:00Z",
+     "status": "ACTIVE"
+    },
+    "modelName": "Voxtral Mini 3B 2507",
+    "outputModalities": [
+     "TEXT"
+    ],
+    "providerName": "Mistral AI",
+    "responseStreamingSupported": true
+   },
+   {
+    "batchSupported": {
+     "baseModelSupported": false,
+     "crossRegionSupported": true,
+     "customModelSupported": false
+    },
+    "consoleIDEMetadata": null,
+    "converse": {
+     "additionalRequestFieldsSchema": null,
+     "maxTokensDefault": null,
+     "maxTokensMaximum": 10000,
+     "reasoningSupported": null,
+     "stopSequencesDefault": null,
+     "systemRoleSupported": true,
+     "userDocumentTypesSupported": [
+      "pdf",
+      "docx"
+     ],
+     "userImageTypesSupported": [
+      "jpeg",
+      "png",
+      "gif",
+      "webp"
+     ],
+     "userVideoTypesSupported": [
+      "mkv",
+      "mov",
+      "mp4",
+      "webm",
+      "flv",
+      "mpeg",
+      "mpg",
+      "wmv",
+      "three_gp"
+     ]
+    },
+    "customizationsSupported": [],
+    "description": {
+     "fullDescription": "Nova Pro is a multimodal understanding foundation model. It is multilingual and can reason over text, images and videos.",
+     "invokeExample": null,
+     "maxContextWindow": null,
+     "modelAttributes": "Agents, Chat optimized, Code generation, Complex reasoning analysis, Conversation, Math, Multilingual support, Question answering, RAG, Text generation, Text summarization, Translation, Text, Image, Video-to-text.",
+     "policy": "Refer to EULA above",
+     "releaseDate": "2024-12-03T08:00:00Z",
+     "shortDescription": "Nova Pro is a multimodal understanding foundation model. It is multilingual and can reason over text, images and videos.",
+     "supportedFormats": "text, image, document, video",
+     "supportedLanguages": "200+",
+     "supportedUseCases": "text, image, document, video understanding, brainstorming, advanced reasoning, planning etc.",
+     "unsupportedUseCases": null,
+     "version": "1.0"
+    },
+    "explicitPromptCaching": {
+     "isSupported": true
+    },
+    "featuresSupported": {
+     "batchInference": {
+      "crossRegion": true,
+      "inRegion": false
+     },
+     "countTokens": false,
+     "intelligentPromptRouting": true,
+     "promptCaching": true,
+     "promptOptimization": false,
+     "provisionedThroughput": false
+    },
+    "guardrailsSupported": true,
+    "inferenceAPIsSupported": {
+     "asyncInvoke": false,
+     "converse": {
+      "streaming": true,
+      "sync": true
+     },
+     "invokeModel": {
+      "bidirectionalStreaming": false,
+      "responseStreaming": true,
+      "sync": true
+     },
+     "openAiChatCompletions": false,
+     "openAiResponses": false
+    },
+    "inferenceTypesSupported": [
+     "INFERENCE_PROFILE"
+    ],
+    "inputModalities": [
+     "TEXT",
+     "IMAGE",
+     "VIDEO"
+    ],
+    "intelligentPromptRouting": {
+     "isSupported": true
+    },
+    "latencyOptimizationSupported": false,
+    "modelArn": "arn:aws:bedrock:us-west-2::foundation-model/amazon.nova-pro-v1:0",
+    "modelFamily": "Nova",
+    "modelId": "amazon.nova-pro-v1:0",
+    "modelLifecycle": {
+     "endOfLifeTime": null,
+     "legacyTime": null,
+     "publicExtendedAccessTime": null,
+     "startOfLifeTime": "2024-12-03T00:00:00Z",
+     "status": "ACTIVE"
+    },
+    "modelName": "Nova Pro",
+    "outputModalities": [
+     "TEXT"
+    ],
+    "providerName": "Amazon",
+    "responseStreamingSupported": true
+   },
+   {
+    "batchSupported": {
+     "baseModelSupported": true,
+     "crossRegionSupported": true,
+     "customModelSupported": false
+    },
+    "consoleIDEMetadata": null,
+    "converse": {
+     "additionalRequestFieldsSchema": "{\"topK\":{\"type\":\"number\",\"default\":50,\"minimum\":1,\"maximum\":100},\"reasoningConfig\":{\"budgetTokens\":{\"type\":\"enum\",\"default\":\"low\",\"minimum\":10000,\"maximum\":64000,\"enum\":{\"low\":10000,\"medium\":40000,\"high\":64000},\"smartSyncEnabled\":true}}}",
+     "maxTokensDefault": null,
+     "maxTokensMaximum": 65535,
+     "reasoningSupported": {
+      "embedded": false
+     },
+     "stopSequencesDefault": null,
+     "systemRoleSupported": true,
+     "userDocumentTypesSupported": [
+      "pdf",
+      "docx"
+     ],
+     "userImageTypesSupported": [
+      "jpeg",
+      "png",
+      "gif",
+      "webp"
+     ],
+     "userVideoTypesSupported": [
+      "mkv",
+      "mov",
+      "mp4",
+      "webm",
+      "flv",
+      "mpeg",
+      "mpg",
+      "wmv",
+      "three_gp"
+     ]
+    },
+    "customizationsSupported": [],
+    "description": {
+     "fullDescription": "Nova 2 Lite is an advanced multimodal reasoning model that intelligently balances performance and efficiency by dynamically adjusting reasoning depth based on task complexity. With flexible controls for developers to adjust the reasoning process, Nova 2 Lite delivers superior results for agentic workflows across software development, consumer experiences and enterprise applications.",
+     "invokeExample": "{\\n \"modelId\": \"amazon.nova-2-lite-v1:0\",\\n \"contentType\": \"application/json\",\\n \"accept\": \"application/json\",\\n \"body\": \"{\\\"prompt\\\":\\\"this is where you place your input text\\\",\\\"max_gen_len\\\":512,\\\"temperature\\\":0.5,\\\"top_p\\\":0.9}\"\\n}",
+     "maxContextWindow": "1M",
+     "modelAttributes": "Image, Video, Text to Text",
+     "policy": null,
+     "releaseDate": "2025-12-02T08:00:00Z",
+     "shortDescription": "Nova 2 Lite is an advanced multimodal model geared towards adaptive reasoning, efficient thinking, customization and agentic workflows.",
+     "supportedFormats": null,
+     "supportedLanguages": "Supports 200+ languages. Optimized for English, German, Spanish, French, Italian, Japanese, Korean, Arabic, Simplified Chinese, Russian, Hindi, Portuguese, Dutch, Turkish, and Hebrew",
+     "supportedUseCases": "Image, Text, Video, Documents and Agentic AI",
+     "unsupportedUseCases": null,
+     "version": "v1"
+    },
+    "explicitPromptCaching": {
+     "isSupported": true
+    },
+    "featuresSupported": {
+     "batchInference": {
+      "crossRegion": true,
+      "inRegion": true
+     },
+     "countTokens": false,
+     "intelligentPromptRouting": false,
+     "promptCaching": true,
+     "promptOptimization": true,
+     "provisionedThroughput": false
+    },
+    "guardrailsSupported": true,
+    "inferenceAPIsSupported": {
+     "asyncInvoke": false,
+     "converse": {
+      "streaming": true,
+      "sync": true
+     },
+     "invokeModel": {
+      "bidirectionalStreaming": false,
+      "responseStreaming": true,
+      "sync": true
+     },
+     "openAiChatCompletions": false,
+     "openAiResponses": false
+    },
+    "inferenceTypesSupported": [
+     "INFERENCE_PROFILE"
+    ],
+    "inputModalities": [
+     "TEXT",
+     "IMAGE",
+     "VIDEO"
+    ],
+    "intelligentPromptRouting": {
+     "isSupported": false
+    },
+    "latencyOptimizationSupported": false,
+    "modelArn": "arn:aws:bedrock:us-west-2::foundation-model/amazon.nova-2-lite-v1:0",
+    "modelFamily": "Nova",
+    "modelId": "amazon.nova-2-lite-v1:0",
+    "modelLifecycle": {
+     "endOfLifeTime": null,
+     "legacyTime": null,
+     "publicExtendedAccessTime": null,
+     "startOfLifeTime": "2025-12-02T08:00:00Z",
+     "status": "ACTIVE"
+    },
+    "modelName": "Nova 2 Lite",
+    "outputModalities": [
+     "TEXT"
+    ],
+    "providerName": "Amazon",
+    "responseStreamingSupported": true
+   },
+   {
+    "batchSupported": {
+     "baseModelSupported": false,
+     "crossRegionSupported": false,
+     "customModelSupported": false
+    },
+    "consoleIDEMetadata": null,
+    "converse": null,
+    "customizationsSupported": [],
+    "description": null,
+    "explicitPromptCaching": {
+     "isSupported": true
+    },
+    "featuresSupported": {
+     "batchInference": {
+      "crossRegion": false,
+      "inRegion": false
+     },
+     "countTokens": false,
+     "intelligentPromptRouting": false,
+     "promptCaching": true,
+     "promptOptimization": false,
+     "provisionedThroughput": false
+    },
+    "guardrailsSupported": false,
+    "inferenceAPIsSupported": {
+     "asyncInvoke": false,
+     "converse": {
+      "streaming": true,
+      "sync": false
+     },
+     "invokeModel": {
+      "bidirectionalStreaming": true,
+      "responseStreaming": true,
+      "sync": false
+     },
+     "openAiChatCompletions": false,
+     "openAiResponses": false
+    },
+    "inferenceTypesSupported": [
+     "ON_DEMAND"
+    ],
+    "inputModalities": [
+     "SPEECH"
+    ],
+    "intelligentPromptRouting": {
+     "isSupported": false
+    },
+    "latencyOptimizationSupported": false,
+    "modelArn": "arn:aws:bedrock:us-west-2::foundation-model/amazon.nova-2-sonic-v1:0",
+    "modelFamily": "Nova",
+    "modelId": "amazon.nova-2-sonic-v1:0",
+    "modelLifecycle": {
+     "endOfLifeTime": null,
+     "legacyTime": null,
+     "publicExtendedAccessTime": null,
+     "startOfLifeTime": "2025-12-02T18:00:00Z",
+     "status": "ACTIVE"
+    },
+    "modelName": "Nova 2 Sonic",
+    "outputModalities": [
+     "SPEECH",
+     "TEXT"
+    ],
+    "providerName": "Amazon",
+    "responseStreamingSupported": true
+   },
+   {
+    "batchSupported": {
+     "baseModelSupported": false,
+     "crossRegionSupported": true,
+     "customModelSupported": false
+    },
+    "consoleIDEMetadata": null,
+    "converse": {
+     "additionalRequestFieldsSchema": "{\"top_k\":{\"type\":\"number\",\"default\":250,\"minimum\":0,\"maximum\":500},\"reasoningConfig\":{\"enabled\":{\"type\":\"boolean\",\"default\":false},\"budgetTokens\":{\"type\":\"enum\",\"default\":\"low\",\"enum\":{\"low\":1024,\"medium\":40000,\"high\":63999},\"minimum\":1024,\"maximum\":63999}}}",
+     "maxTokensDefault": 128000,
+     "maxTokensMaximum": 128000,
+     "reasoningSupported": {
+      "embedded": false
+     },
+     "stopSequencesDefault": [],
+     "systemRoleSupported": true,
+     "userDocumentTypesSupported": [
+      "pdf"
+     ],
+     "userImageTypesSupported": [
+      "jpeg",
+      "png",
+      "gif",
+      "webp"
+     ],
+     "userVideoTypesSupported": []
+    },
+    "customizationsSupported": [],
+    "description": null,
+    "explicitPromptCaching": {
+     "isSupported": true
+    },
+    "featuresSupported": {
+     "batchInference": {
+      "crossRegion": true,
+      "inRegion": false
+     },
+     "countTokens": true,
+     "intelligentPromptRouting": false,
+     "promptCaching": true,
+     "promptOptimization": true,
+     "provisionedThroughput": false
+    },
+    "guardrailsSupported": true,
+    "inferenceAPIsSupported": {
+     "asyncInvoke": false,
+     "converse": {
+      "streaming": true,
+      "sync": true
+     },
+     "invokeModel": {
+      "bidirectionalStreaming": false,
+      "responseStreaming": true,
+      "sync": true
+     },
+     "openAiChatCompletions": false,
+     "openAiResponses": false
+    },
+    "inferenceTypesSupported": [
+     "INFERENCE_PROFILE"
+    ],
+    "inputModalities": [
+     "TEXT",
+     "IMAGE"
+    ],
+    "intelligentPromptRouting": {
+     "isSupported": false
+    },
+    "latencyOptimizationSupported": false,
+    "modelArn": "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-opus-4-6-v1",
+    "modelFamily": "Claude Opus",
+    "modelId": "anthropic.claude-opus-4-6-v1",
+    "modelLifecycle": {
+     "endOfLifeTime": null,
+     "legacyTime": null,
+     "publicExtendedAccessTime": null,
+     "startOfLifeTime": "2026-02-05T18:00:00Z",
+     "status": "ACTIVE"
+    },
+    "modelName": "Claude Opus 4.6",
+    "outputModalities": [
+     "TEXT"
+    ],
+    "providerName": "Anthropic",
+    "responseStreamingSupported": true
+   },
+   {
+    "batchSupported": {
+     "baseModelSupported": false,
+     "crossRegionSupported": true,
+     "customModelSupported": false
+    },
+    "consoleIDEMetadata": null,
+    "converse": {
+     "additionalRequestFieldsSchema": "{\"reasoningConfig\":{\"enabled\":{\"type\":\"boolean\",\"default\":false},\"budgetTokens\":{\"type\":\"enum\",\"default\":\"low\",\"enum\":{\"low\":1024,\"medium\":40000,\"high\":63999},\"minimum\":1024,\"maximum\":63999}},\"hideSamplingParameter\":true}",
+     "maxTokensDefault": 4096,
+     "maxTokensMaximum": 128000,
+     "reasoningSupported": {
+      "embedded": false
+     },
+     "stopSequencesDefault": [],
+     "systemRoleSupported": true,
+     "userDocumentTypesSupported": [
+      "pdf"
+     ],
+     "userImageTypesSupported": [
+      "jpeg",
+      "png",
+      "gif",
+      "webp"
+     ],
+     "userVideoTypesSupported": []
+    },
+    "customizationsSupported": [],
+    "description": null,
+    "explicitPromptCaching": {
+     "isSupported": true
+    },
+    "featuresSupported": {
+     "batchInference": {
+      "crossRegion": true,
+      "inRegion": false
+     },
+     "countTokens": false,
+     "intelligentPromptRouting": false,
+     "promptCaching": true,
+     "promptOptimization": true,
+     "provisionedThroughput": false
+    },
+    "guardrailsSupported": true,
+    "inferenceAPIsSupported": {
+     "asyncInvoke": false,
+     "converse": {
+      "streaming": true,
+      "sync": true
+     },
+     "invokeModel": {
+      "bidirectionalStreaming": false,
+      "responseStreaming": true,
+      "sync": true
+     },
+     "openAiChatCompletions": false,
+     "openAiResponses": false
+    },
+    "inferenceTypesSupported": [
+     "INFERENCE_PROFILE"
+    ],
+    "inputModalities": [
+     "TEXT",
+     "IMAGE"
+    ],
+    "intelligentPromptRouting": {
+     "isSupported": false
+    },
+    "latencyOptimizationSupported": false,
+    "modelArn": "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-opus-5",
+    "modelFamily": "Opus",
+    "modelId": "anthropic.claude-opus-5",
+    "modelLifecycle": {
+     "endOfLifeTime": null,
+     "legacyTime": null,
+     "publicExtendedAccessTime": null,
+     "startOfLifeTime": "2026-07-23T17:00:00Z",
+     "status": "ACTIVE"
+    },
+    "modelName": "Claude Opus 5",
+    "outputModalities": [
+     "TEXT"
+    ],
+    "providerName": "Anthropic",
+    "responseStreamingSupported": true
+   },
+   {
+    "batchSupported": {
+     "baseModelSupported": false,
+     "crossRegionSupported": false,
+     "customModelSupported": false
+    },
+    "consoleIDEMetadata": null,
+    "converse": {
+     "additionalRequestFieldsSchema": "{\"reasoningConfig\":{\"enabled\":{\"type\":\"boolean\",\"default\":false},\"budgetTokens\":{\"type\":\"enum\",\"default\":\"low\",\"enum\":{\"low\":1024,\"medium\":40000,\"high\":63999},\"minimum\":1024,\"maximum\":63999}},\"hideSamplingParameter\":true}",
+     "maxTokensDefault": 4096,
+     "maxTokensMaximum": 128000,
+     "reasoningSupported": {
+      "embedded": false
+     },
+     "stopSequencesDefault": [],
+     "systemRoleSupported": true,
+     "userDocumentTypesSupported": [
+      "pdf"
+     ],
+     "userImageTypesSupported": [
+      "jpeg",
+      "png",
+      "gif",
+      "webp"
+     ],
+     "userVideoTypesSupported": []
+    },
+    "customizationsSupported": [],
+    "description": null,
+    "explicitPromptCaching": {
+     "isSupported": true
+    },
+    "featuresSupported": {
+     "batchInference": {
+      "crossRegion": false,
+      "inRegion": false
+     },
+     "countTokens": false,
+     "intelligentPromptRouting": false,
+     "promptCaching": true,
+     "promptOptimization": true,
+     "provisionedThroughput": false
+    },
+    "guardrailsSupported": true,
+    "inferenceAPIsSupported": {
+     "asyncInvoke": false,
+     "converse": {
+      "streaming": true,
+      "sync": true
+     },
+     "invokeModel": {
+      "bidirectionalStreaming": false,
+      "responseStreaming": true,
+      "sync": true
+     },
+     "openAiChatCompletions": false,
+     "openAiResponses": false
+    },
+    "inferenceTypesSupported": [
+     "INFERENCE_PROFILE"
+    ],
+    "inputModalities": [
+     "TEXT",
+     "IMAGE"
+    ],
+    "intelligentPromptRouting": {
+     "isSupported": false
+    },
+    "latencyOptimizationSupported": false,
+    "modelArn": "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-opus-4-8",
+    "modelFamily": "Opus",
+    "modelId": "anthropic.claude-opus-4-8",
+    "modelLifecycle": {
+     "endOfLifeTime": null,
+     "legacyTime": null,
+     "publicExtendedAccessTime": null,
+     "startOfLifeTime": "2026-05-28T10:00:00Z",
+     "status": "ACTIVE"
+    },
+    "modelName": "Claude Opus 4.8",
+    "outputModalities": [
+     "TEXT"
+    ],
+    "providerName": "Anthropic",
+    "responseStreamingSupported": true
+   },
+   {
+    "batchSupported": {
+     "baseModelSupported": false,
+     "crossRegionSupported": false,
+     "customModelSupported": false
+    },
+    "consoleIDEMetadata": null,
+    "converse": {
+     "additionalRequestFieldsSchema": "{\"reasoningConfig\":{\"enabled\":{\"type\":\"boolean\",\"default\":false},\"budgetTokens\":{\"type\":\"enum\",\"default\":\"low\",\"enum\":{\"low\":1024,\"medium\":40000,\"high\":63999},\"minimum\":1024,\"maximum\":63999}},\"hideSamplingParameter\":true}",
+     "maxTokensDefault": 4096,
+     "maxTokensMaximum": 128000,
+     "reasoningSupported": {
+      "embedded": false
+     },
+     "stopSequencesDefault": [],
+     "systemRoleSupported": true,
+     "userDocumentTypesSupported": [
+      "pdf"
+     ],
+     "userImageTypesSupported": [
+      "jpeg",
+      "png",
+      "gif",
+      "webp"
+     ],
+     "userVideoTypesSupported": []
+    },
+    "customizationsSupported": [],
+    "description": null,
+    "explicitPromptCaching": {
+     "isSupported": true
+    },
+    "featuresSupported": {
+     "batchInference": {
+      "crossRegion": false,
+      "inRegion": false
+     },
+     "countTokens": false,
+     "intelligentPromptRouting": false,
+     "promptCaching": true,
+     "promptOptimization": true,
+     "provisionedThroughput": false
+    },
+    "guardrailsSupported": true,
+    "inferenceAPIsSupported": {
+     "asyncInvoke": false,
+     "converse": {
+      "streaming": true,
+      "sync": true
+     },
+     "invokeModel": {
+      "bidirectionalStreaming": false,
+      "responseStreaming": true,
+      "sync": true
+     },
+     "openAiChatCompletions": false,
+     "openAiResponses": false
+    },
+    "inferenceTypesSupported": [
+     "INFERENCE_PROFILE"
+    ],
+    "inputModalities": [
+     "TEXT",
+     "IMAGE"
+    ],
+    "intelligentPromptRouting": {
+     "isSupported": false
+    },
+    "latencyOptimizationSupported": false,
+    "modelArn": "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-opus-4-7",
+    "modelFamily": "Opus",
+    "modelId": "anthropic.claude-opus-4-7",
+    "modelLifecycle": {
+     "endOfLifeTime": null,
+     "legacyTime": null,
+     "publicExtendedAccessTime": null,
+     "startOfLifeTime": "2026-04-16T14:30:00Z",
+     "status": "ACTIVE"
+    },
+    "modelName": "Claude Opus 4.7",
+    "outputModalities": [
+     "TEXT"
+    ],
+    "providerName": "Anthropic",
+    "responseStreamingSupported": true
+   },
+   {
+    "batchSupported": {
+     "baseModelSupported": false,
+     "crossRegionSupported": true,
+     "customModelSupported": false
+    },
+    "consoleIDEMetadata": null,
+    "converse": {
+     "additionalRequestFieldsSchema": "{\"top_k\":{\"type\":\"number\",\"default\":250,\"minimum\":0,\"maximum\":500},\"reasoningConfig\":{\"enabled\":{\"type\":\"boolean\",\"default\":false},\"budgetTokens\":{\"type\":\"integer\",\"default\":2048,\"minimum\":1024,\"maximum\":63999}}}",
+     "maxTokensDefault": 64000,
+     "maxTokensMaximum": 64000,
+     "reasoningSupported": {
+      "embedded": false
+     },
+     "stopSequencesDefault": null,
+     "systemRoleSupported": true,
+     "userDocumentTypesSupported": [
+      "pdf"
+     ],
+     "userImageTypesSupported": [
+      "jpeg",
+      "png",
+      "gif",
+      "webp"
+     ],
+     "userVideoTypesSupported": []
+    },
+    "customizationsSupported": [],
+    "description": null,
+    "explicitPromptCaching": {
+     "isSupported": true
+    },
+    "featuresSupported": {
+     "batchInference": {
+      "crossRegion": true,
+      "inRegion": false
+     },
+     "countTokens": true,
+     "intelligentPromptRouting": false,
+     "promptCaching": true,
+     "promptOptimization": true,
+     "provisionedThroughput": false
+    },
+    "guardrailsSupported": true,
+    "inferenceAPIsSupported": {
+     "asyncInvoke": false,
+     "converse": {
+      "streaming": true,
+      "sync": true
+     },
+     "invokeModel": {
+      "bidirectionalStreaming": false,
+      "responseStreaming": true,
+      "sync": true
+     },
+     "openAiChatCompletions": false,
+     "openAiResponses": false
+    },
+    "inferenceTypesSupported": [
+     "INFERENCE_PROFILE"
+    ],
+    "inputModalities": [
+     "TEXT",
+     "IMAGE"
+    ],
+    "intelligentPromptRouting": {
+     "isSupported": false
+    },
+    "latencyOptimizationSupported": false,
+    "modelArn": "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "modelFamily": "Sonnet",
+    "modelId": "anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "modelLifecycle": {
+     "endOfLifeTime": "2027-04-08T08:00:00Z",
+     "legacyTime": "2026-10-08T08:00:00Z",
+     "publicExtendedAccessTime": "2027-01-08T08:00:00Z",
+     "startOfLifeTime": "2025-09-29T00:00:00Z",
+     "status": "LEGACY"
+    },
+    "modelName": "Claude Sonnet 4.5",
+    "outputModalities": [
+     "TEXT"
+    ],
+    "providerName": "Anthropic",
+    "responseStreamingSupported": true
+   },
+   {
+    "batchSupported": {
+     "baseModelSupported": false,
+     "crossRegionSupported": false,
+     "customModelSupported": false
+    },
+    "consoleIDEMetadata": null,
+    "converse": {
+     "additionalRequestFieldsSchema": "{\"output_config\":{\"effort\":{\"type\":\"enum\",\"default\":\"high\",\"enum\":[\"low\",\"medium\",\"high\",\"xhigh\",\"max\"]}},\"hideSamplingParameter\":true}",
+     "maxTokensDefault": 4096,
+     "maxTokensMaximum": 128000,
+     "reasoningSupported": {
+      "embedded": false
+     },
+     "stopSequencesDefault": [],
+     "systemRoleSupported": true,
+     "userDocumentTypesSupported": [
+      "pdf"
+     ],
+     "userImageTypesSupported": [
+      "jpeg",
+      "png",
+      "gif",
+      "webp"
+     ],
+     "userVideoTypesSupported": []
+    },
+    "customizationsSupported": [],
+    "description": null,
+    "explicitPromptCaching": {
+     "isSupported": true
+    },
+    "featuresSupported": {
+     "batchInference": {
+      "crossRegion": false,
+      "inRegion": false
+     },
+     "countTokens": false,
+     "intelligentPromptRouting": false,
+     "promptCaching": true,
+     "promptOptimization": true,
+     "provisionedThroughput": false
+    },
+    "guardrailsSupported": true,
+    "inferenceAPIsSupported": {
+     "asyncInvoke": false,
+     "converse": {
+      "streaming": true,
+      "sync": true
+     },
+     "invokeModel": {
+      "bidirectionalStreaming": false,
+      "responseStreaming": true,
+      "sync": true
+     },
+     "openAiChatCompletions": false,
+     "openAiResponses": false
+    },
+    "inferenceTypesSupported": [
+     "INFERENCE_PROFILE"
+    ],
+    "inputModalities": [
+     "TEXT",
+     "IMAGE"
+    ],
+    "intelligentPromptRouting": {
+     "isSupported": false
+    },
+    "latencyOptimizationSupported": false,
+    "modelArn": "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-fable-5-1",
+    "modelFamily": "Fable",
+    "modelId": "anthropic.claude-fable-5-1",
+    "modelLifecycle": {
+     "endOfLifeTime": null,
+     "legacyTime": null,
+     "publicExtendedAccessTime": null,
+     "startOfLifeTime": "2026-08-31T16:00:00Z",
+     "status": "ACTIVE"
+    },
+    "modelName": "Claude Fable 5.1",
+    "outputModalities": [
+     "TEXT"
+    ],
+    "providerName": "Anthropic",
+    "responseStreamingSupported": true
+   },
+   {
+    "batchSupported": {
+     "baseModelSupported": false,
+     "crossRegionSupported": false,
+     "customModelSupported": false
+    },
+    "consoleIDEMetadata": null,
+    "converse": {
+     "additionalRequestFieldsSchema": "{\"output_config\":{\"effort\":{\"type\":\"enum\",\"default\":\"high\",\"enum\":[\"low\",\"medium\",\"high\",\"xhigh\",\"max\"]}},\"hideSamplingParameter\":true}",
+     "maxTokensDefault": 4096,
+     "maxTokensMaximum": 128000,
+     "reasoningSupported": {
+      "embedded": false
+     },
+     "stopSequencesDefault": [],
+     "systemRoleSupported": true,
+     "userDocumentTypesSupported": [
+      "pdf"
+     ],
+     "userImageTypesSupported": [
+      "jpeg",
+      "png",
+      "gif",
+      "webp"
+     ],
+     "userVideoTypesSupported": []
+    },
+    "customizationsSupported": [],
+    "description": null,
+    "explicitPromptCaching": {
+     "isSupported": true
+    },
+    "featuresSupported": {
+     "batchInference": {
+      "crossRegion": false,
+      "inRegion": false
+     },
+     "countTokens": false,
+     "intelligentPromptRouting": false,
+     "promptCaching": true,
+     "promptOptimization": true,
+     "provisionedThroughput": false
+    },
+    "guardrailsSupported": true,
+    "inferenceAPIsSupported": {
+     "asyncInvoke": false,
+     "converse": {
+      "streaming": true,
+      "sync": true
+     },
+     "invokeModel": {
+      "bidirectionalStreaming": false,
+      "responseStreaming": true,
+      "sync": true
+     },
+     "openAiChatCompletions": false,
+     "openAiResponses": false
+    },
+    "inferenceTypesSupported": [
+     "INFERENCE_PROFILE"
+    ],
+    "inputModalities": [
+     "TEXT",
+     "IMAGE"
+    ],
+    "intelligentPromptRouting": {
+     "isSupported": false
+    },
+    "latencyOptimizationSupported": false,
+    "modelArn": "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-sonnet-5-5",
+    "modelFamily": "Sonnet",
+    "modelId": "anthropic.claude-sonnet-5-5",
+    "modelLifecycle": {
+     "endOfLifeTime": null,
+     "legacyTime": null,
+     "publicExtendedAccessTime": null,
+     "startOfLifeTime": "2026-09-28T10:00:00Z",
+     "status": "ACTIVE"
+    },
+    "modelName": "Claude Sonnet 5.5",
+    "outputModalities": [
+     "TEXT"
+    ],
+    "providerName": "Anthropic",
+    "responseStreamingSupported": true
+   },
+   {
+    "batchSupported": {
+     "baseModelSupported": false,
+     "crossRegionSupported": false,
+     "customModelSupported": false
+    },
+    "consoleIDEMetadata": null,
+    "converse": {
+     "additionalRequestFieldsSchema": "{\"reasoningConfig\":{\"enabled\":{\"type\":\"boolean\",\"default\":false},\"budgetTokens\":{\"type\":\"enum\",\"default\":\"low\",\"enum\":{\"low\":1024,\"medium\":40000,\"high\":63999},\"minimum\":1024,\"maximum\":63999}},\"hideSamplingParameter\":true}",
+     "maxTokensDefault": 4096,
+     "maxTokensMaximum": 128000,
+     "reasoningSupported": {
+      "embedded": false
+     },
+     "stopSequencesDefault": [],
+     "systemRoleSupported": true,
+     "userDocumentTypesSupported": [
+      "pdf"
+     ],
+     "userImageTypesSupported": [
+      "jpeg",
+      "png",
+      "gif",
+      "webp"
+     ],
+     "userVideoTypesSupported": []
+    },
+    "customizationsSupported": [],
+    "description": null,
+    "explicitPromptCaching": {
+     "isSupported": true
+    },
+    "featuresSupported": {
+     "batchInference": {
+      "crossRegion": false,
+      "inRegion": false
+     },
+     "countTokens": false,
+     "intelligentPromptRouting": false,
+     "promptCaching": true,
+     "promptOptimization": true,
+     "provisionedThroughput": false
+    },
+    "guardrailsSupported": true,
+    "inferenceAPIsSupported": {
+     "asyncInvoke": false,
+     "converse": {
+      "streaming": true,
+      "sync": true
+     },
+     "invokeModel": {
+      "bidirectionalStreaming": false,
+      "responseStreaming": true,
+      "sync": true
+     },
+     "openAiChatCompletions": false,
+     "openAiResponses": false
+    },
+    "inferenceTypesSupported": [
+     "INFERENCE_PROFILE"
+    ],
+    "inputModalities": [
+     "TEXT",
+     "IMAGE"
+    ],
+    "intelligentPromptRouting": {
+     "isSupported": false
+    },
+    "latencyOptimizationSupported": false,
+    "modelArn": "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-sonnet-5",
+    "modelFamily": "Sonnet",
+    "modelId": "anthropic.claude-sonnet-5",
+    "modelLifecycle": {
+     "endOfLifeTime": null,
+     "legacyTime": null,
+     "publicExtendedAccessTime": null,
+     "startOfLifeTime": "2026-06-30T10:00:00Z",
+     "status": "ACTIVE"
+    },
+    "modelName": "Claude Sonnet 5",
+    "outputModalities": [
+     "TEXT"
+    ],
+    "providerName": "Anthropic",
+    "responseStreamingSupported": true
+   },
+   {
+    "batchSupported": {
+     "baseModelSupported": false,
+     "crossRegionSupported": false,
+     "customModelSupported": false
+    },
+    "consoleIDEMetadata": null,
+    "converse": {
+     "additionalRequestFieldsSchema": "{\"topK\":{\"type\":\"number\",\"default\":250,\"minimum\":0,\"maximum\":500},\"reasoningConfig\":{\"enabled\":{\"type\":\"boolean\",\"default\":false},\"budgetTokens\":{\"type\":\"integer\",\"default\":2048,\"minimum\":1024,\"maximum\":63999}}}",
+     "maxTokensDefault": 1024,
+     "maxTokensMaximum": 32000,
+     "reasoningSupported": {
+      "embedded": false
+     },
+     "stopSequencesDefault": null,
+     "systemRoleSupported": true,
+     "userDocumentTypesSupported": [
+      "pdf"
+     ],
+     "userImageTypesSupported": [
+      "jpeg",
+      "png",
+      "gif",
+      "webp"
+     ],
+     "userVideoTypesSupported": []
+    },
+    "customizationsSupported": [],
+    "description": {
+     "fullDescription": "Claude Opus 4.1 is Anthropic\u2019s most intelligent model and an industry leader for coding and agent capabilities, especially agentic search. It excels for customers needing frontier intelligence: Advanced coding: Independently plan and execute complex development tasks end-to-end. It adapts to your style, thoughtfully plans and pivots, and maintains high code quality throughout. Long-horizon tasks and complex problem solving (virtual collaborator): Unlock new use cases involving long-horizon tasks that require memory, sustained reasoning, and long chains of actions. AI agents: Enable agents to tackle complex, multi-step tasks that require peak accuracy. Agentic search and research: Connect to multiple data sources to synthesize comprehensive insights across repositories. Content creation: Create human-quality content with natural prose. Produce long-form creative content, technical documentation, marketing copy, and frontend design mockups. Memory and context management: Incorporates memory capabilities that allow it to effectively summarize and reference previous interactions.",
+     "invokeExample": "{\\n\"modelId\": \"anthropic.claude-opus-4-1-20250805-v1:0\",\\n\"contentType\": \"application/json\",\\n\"accept\": \"application/json\",\\n\"body\": {\\n\"anthropic_version\": \"bedrock-2023-05-31\",\\n\"max_tokens\": 200,\\n\"messages\": [\\n{\\n\"role\": \"user\",\\n\"content\": [\\n{\\n\"type\": \"image\",\\n\"source\": {\\n\"type\": \"base64\",\\n\"media_type\": \"image/jpeg\",\\n\"data\": \"iVBORw...\"\\n}\\n},\\n{\\n\"type\": \"text\",\\n\"text\": \"What's in this image?\"\\n}\\n]\\n}\\n]\\n}\\n}",
+     "maxContextWindow": "200k",
+     "modelAttributes": "Hybrid reasoning, extended thinking, efficient code generation, enhanced text generation, agentic search, efficient research, computer use, tool use, real-time support, task efficiency, text and image inputs, steering, memory.",
+     "policy": "Refer to EULA above",
+     "releaseDate": "2025-08-05T07:00:00Z",
+     "shortDescription": "The next generation of Anthropic\u2019s most powerful model yet, Claude Opus 4.1 is an industry leader for coding. It delivers sustained performance on long-running tasks that require focused effort and thousands of steps, significantly expanding what AI agents can solve. Claude Opus 4.1 is ideal for powering frontier agent products and features.",
+     "supportedFormats": null,
+     "supportedLanguages": "English, French, Modern Standard Arabic, Mandarin Chinese, Hindi, Spanish, Portuguese, Korean, Japanese, German, Russian, Polish, Other languages.",
+     "supportedUseCases": "Complex agentic systems, multi-agent orchestration, ai agents, agentic search, in-depth research, advanced coding, extended coding projects, agentic search with reasoning and synthesis, long-horizon tasks, complex problem solving, cross-functional workflow orchestration, long-form creative content generation, autonomous legacy codebase refactoring, end-to-end full-stack development, frontend design & development, computer use and vision applications, visual analysis, document processing, multi-app environments, memory and context management",
+     "unsupportedUseCases": null,
+     "version": "v1"
+    },
+    "explicitPromptCaching": {
+     "isSupported": true
+    },
+    "featuresSupported": {
+     "batchInference": {
+      "crossRegion": false,
+      "inRegion": false
+     },
+     "countTokens": true,
+     "intelligentPromptRouting": false,
+     "promptCaching": true,
+     "promptOptimization": false,
+     "provisionedThroughput": false
+    },
+    "guardrailsSupported": true,
+    "inferenceAPIsSupported": {
+     "asyncInvoke": false,
+     "converse": {
+      "streaming": true,
+      "sync": true
+     },
+     "invokeModel": {
+      "bidirectionalStreaming": false,
+      "responseStreaming": true,
+      "sync": true
+     },
+     "openAiChatCompletions": false,
+     "openAiResponses": false
+    },
+    "inferenceTypesSupported": [
+     "INFERENCE_PROFILE"
+    ],
+    "inputModalities": [
+     "TEXT",
+     "IMAGE"
+    ],
+    "intelligentPromptRouting": {
+     "isSupported": false
+    },
+    "latencyOptimizationSupported": false,
+    "modelArn": "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-opus-4-1-20250805-v1:0",
+    "modelFamily": "Claude 4.1",
+    "modelId": "anthropic.claude-opus-4-1-20250805-v1:0",
+    "modelLifecycle": {
+     "endOfLifeTime": "2027-01-08T08:00:00Z",
+     "legacyTime": "2026-07-08T08:00:00Z",
+     "publicExtendedAccessTime": "2026-10-08T08:00:00Z",
+     "startOfLifeTime": "2025-08-05T00:00:00Z",
+     "status": "LEGACY"
+    },
+    "modelName": "Claude Opus 4.1",
+    "outputModalities": [
+     "TEXT"
+    ],
+    "providerName": "Anthropic",
+    "responseStreamingSupported": true
+   },
+   {
+    "batchSupported": {
+     "baseModelSupported": false,
+     "crossRegionSupported": false,
+     "customModelSupported": false
+    },
+    "consoleIDEMetadata": null,
+    "converse": null,
+    "customizationsSupported": [],
+    "description": null,
+    "explicitPromptCaching": {
+     "isSupported": true
+    },
+    "featuresSupported": {
+     "batchInference": {
+      "crossRegion": false,
+      "inRegion": false
+     },
+     "countTokens": false,
+     "intelligentPromptRouting": false,
+     "promptCaching": true,
+     "promptOptimization": false,
+     "provisionedThroughput": false
+    },
+    "guardrailsSupported": false,
+    "inferenceAPIsSupported": {
+     "asyncInvoke": false,
+     "converse": {
+      "streaming": true,
+      "sync": false
+     },
+     "invokeModel": {
+      "bidirectionalStreaming": true,
+      "responseStreaming": true,
+      "sync": false
+     },
+     "openAiChatCompletions": false,
+     "openAiResponses": false
+    },
+    "inferenceTypesSupported": [
+     "ON_DEMAND"
+    ],
+    "inputModalities": [
+     "SPEECH",
+     "TEXT"
+    ],
+    "intelligentPromptRouting": {
+     "isSupported": false
+    },
+    "latencyOptimizationSupported": false,
+    "modelArn": "arn:aws:bedrock:us-west-2::foundation-model/amazon.nova-2-5-sonic",
+    "modelFamily": "Nova",
+    "modelId": "amazon.nova-2-5-sonic",
+    "modelLifecycle": {
+     "endOfLifeTime": null,
+     "legacyTime": null,
+     "publicExtendedAccessTime": null,
+     "startOfLifeTime": "2026-09-30T00:00:00Z",
+     "status": "ACTIVE"
+    },
+    "modelName": "Nova 2.5 Sonic",
+    "outputModalities": [
+     "SPEECH",
+     "TEXT"
+    ],
+    "providerName": "Amazon",
+    "responseStreamingSupported": true
+   },
+   {
+    "batchSupported": {
+     "baseModelSupported": false,
+     "crossRegionSupported": true,
+     "customModelSupported": false
+    },
+    "consoleIDEMetadata": null,
+    "converse": {
+     "additionalRequestFieldsSchema": "{\"top_k\":{\"type\":\"number\",\"default\":250,\"minimum\":0,\"maximum\":500},\"reasoningConfig\":{\"enabled\":{\"type\":\"boolean\",\"default\":false},\"budgetTokens\":{\"type\":\"integer\",\"default\":2048,\"minimum\":1024,\"maximum\":63999}}}",
+     "maxTokensDefault": 64000,
+     "maxTokensMaximum": 64000,
+     "reasoningSupported": {
+      "embedded": false
+     },
+     "stopSequencesDefault": [],
+     "systemRoleSupported": true,
+     "userDocumentTypesSupported": [
+      "pdf"
+     ],
+     "userImageTypesSupported": [
+      "jpeg",
+      "png",
+      "gif",
+      "webp"
+     ],
+     "userVideoTypesSupported": []
+    },
+    "customizationsSupported": [],
+    "description": null,
+    "explicitPromptCaching": {
+     "isSupported": true
+    },
+    "featuresSupported": {
+     "batchInference": {
+      "crossRegion": true,
+      "inRegion": false
+     },
+     "countTokens": true,
+     "intelligentPromptRouting": false,
+     "promptCaching": true,
+     "promptOptimization": true,
+     "provisionedThroughput": false
+    },
+    "guardrailsSupported": true,
+    "inferenceAPIsSupported": {
+     "asyncInvoke": false,
+     "converse": {
+      "streaming": true,
+      "sync": true
+     },
+     "invokeModel": {
+      "bidirectionalStreaming": false,
+      "responseStreaming": true,
+      "sync": true
+     },
+     "openAiChatCompletions": false,
+     "openAiResponses": false
+    },
+    "inferenceTypesSupported": [
+     "INFERENCE_PROFILE"
+    ],
+    "inputModalities": [
+     "TEXT",
+     "IMAGE"
+    ],
+    "intelligentPromptRouting": {
+     "isSupported": false
+    },
+    "latencyOptimizationSupported": false,
+    "modelArn": "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-opus-4-5-20251101-v1:0",
+    "modelFamily": "Claude Opus",
+    "modelId": "anthropic.claude-opus-4-5-20251101-v1:0",
+    "modelLifecycle": {
+     "endOfLifeTime": null,
+     "legacyTime": null,
+     "publicExtendedAccessTime": null,
+     "startOfLifeTime": "2025-11-24T00:00:00Z",
+     "status": "ACTIVE"
+    },
+    "modelName": "Claude Opus 4.5",
+    "outputModalities": [
+     "TEXT"
+    ],
+    "providerName": "Anthropic",
+    "responseStreamingSupported": true
+   },
+   {
+    "batchSupported": null,
+    "consoleIDEMetadata": null,
+    "converse": null,
+    "customizationsSupported": [],
+    "description": null,
+    "explicitPromptCaching": {
+     "isSupported": true
+    },
+    "featuresSupported": {
+     "batchInference": {
+      "crossRegion": true,
+      "inRegion": false
+     },
+     "countTokens": false,
+     "intelligentPromptRouting": true,
+     "promptCaching": true,
+     "promptOptimization": true,
+     "provisionedThroughput": false
+    },
+    "guardrailsSupported": true,
+    "inferenceAPIsSupported": {
+     "asyncInvoke": false,
+     "converse": {
+      "streaming": true,
+      "sync": true
+     },
+     "invokeModel": {
+      "bidirectionalStreaming": false,
+      "responseStreaming": true,
+      "sync": true
+     },
+     "openAiChatCompletions": false,
+     "openAiResponses": false
+    },
+    "inferenceTypesSupported": [
+     "ON_DEMAND",
+     "INFERENCE_PROFILE"
+    ],
+    "inputModalities": [
+     "TEXT",
+     "IMAGE",
+     "VIDEO"
+    ],
+    "intelligentPromptRouting": {
+     "isSupported": true
+    },
+    "latencyOptimizationSupported": null,
+    "modelArn": "arn:aws:bedrock:us-west-2::foundation-model/amazon.nova-lite-v1:0",
+    "modelFamily": null,
+    "modelId": "amazon.nova-lite-v1:0",
+    "modelLifecycle": {
+     "endOfLifeTime": null,
+     "legacyTime": null,
+     "publicExtendedAccessTime": null,
+     "startOfLifeTime": "2024-12-03T08:00:00Z",
+     "status": "ACTIVE"
+    },
+    "modelName": "Nova Lite",
+    "outputModalities": [
+     "TEXT"
+    ],
+    "providerName": "Amazon",
+    "responseStreamingSupported": true
+   },
+   {
+    "batchSupported": null,
+    "consoleIDEMetadata": null,
+    "converse": null,
+    "customizationsSupported": [],
+    "description": null,
+    "explicitPromptCaching": {
+     "isSupported": true
+    },
+    "featuresSupported": {
+     "batchInference": {
+      "crossRegion": true,
+      "inRegion": false
+     },
+     "countTokens": false,
+     "intelligentPromptRouting": false,
+     "promptCaching": true,
+     "promptOptimization": true,
+     "provisionedThroughput": false
+    },
+    "guardrailsSupported": true,
+    "inferenceAPIsSupported": {
+     "asyncInvoke": false,
+     "converse": {
+      "streaming": true,
+      "sync": true
+     },
+     "invokeModel": {
+      "bidirectionalStreaming": false,
+      "responseStreaming": true,
+      "sync": true
+     },
+     "openAiChatCompletions": false,
+     "openAiResponses": false
+    },
+    "inferenceTypesSupported": [
+     "INFERENCE_PROFILE"
+    ],
+    "inputModalities": [
+     "TEXT"
+    ],
+    "intelligentPromptRouting": {
+     "isSupported": false
+    },
+    "latencyOptimizationSupported": null,
+    "modelArn": "arn:aws:bedrock:us-west-2::foundation-model/amazon.nova-micro-v1:0",
+    "modelFamily": null,
+    "modelId": "amazon.nova-micro-v1:0",
+    "modelLifecycle": {
+     "endOfLifeTime": null,
+     "legacyTime": null,
+     "publicExtendedAccessTime": null,
+     "startOfLifeTime": "2024-12-03T08:00:00Z",
+     "status": "ACTIVE"
+    },
+    "modelName": "Nova Micro",
+    "outputModalities": [
+     "TEXT"
+    ],
+    "providerName": "Amazon",
+    "responseStreamingSupported": true
+   },
+   {
+    "batchSupported": null,
+    "consoleIDEMetadata": null,
+    "converse": null,
+    "customizationsSupported": [],
+    "description": null,
+    "explicitPromptCaching": {
+     "isSupported": false
+    },
+    "featuresSupported": {
+     "batchInference": {
+      "crossRegion": false,
+      "inRegion": false
+     },
+     "countTokens": false,
+     "intelligentPromptRouting": false,
+     "promptCaching": false,
+     "promptOptimization": true,
+     "provisionedThroughput": false
+    },
+    "guardrailsSupported": false,
+    "inferenceAPIsSupported": {
+     "asyncInvoke": false,
+     "converse": {
+      "streaming": false,
+      "sync": false
+     },
+     "invokeModel": {
+      "bidirectionalStreaming": false,
+      "responseStreaming": false,
+      "sync": true
+     },
+     "openAiChatCompletions": false,
+     "openAiResponses": false
+    },
+    "inferenceTypesSupported": [
+     "ON_DEMAND"
+    ],
+    "inputModalities": [
+     "TEXT"
+    ],
+    "intelligentPromptRouting": {
+     "isSupported": false
+    },
+    "latencyOptimizationSupported": null,
+    "modelArn": "arn:aws:bedrock:us-west-2::foundation-model/amazon.rerank-v1:0",
+    "modelFamily": null,
+    "modelId": "amazon.rerank-v1:0",
+    "modelLifecycle": {
+     "endOfLifeTime": null,
+     "legacyTime": null,
+     "publicExtendedAccessTime": null,
+     "startOfLifeTime": "2025-04-03T08:00:00Z",
+     "status": "ACTIVE"
+    },
+    "modelName": "Rerank 1.0",
+    "outputModalities": [
+     "TEXT"
+    ],
+    "providerName": "Amazon",
+    "responseStreamingSupported": false
+   },
+   {
+    "batchSupported": null,
+    "consoleIDEMetadata": null,
+    "converse": null,
+    "customizationsSupported": [],
+    "description": null,
+    "explicitPromptCaching": {
+     "isSupported": false
+    },
+    "featuresSupported": {
+     "batchInference": {
+      "crossRegion": true,
+      "inRegion": true
+     },
+     "countTokens": false,
+     "intelligentPromptRouting": false,
+     "promptCaching": false,
+     "promptOptimization": true,
+     "provisionedThroughput": false
+    },
+    "guardrailsSupported": true,
+    "inferenceAPIsSupported": {
+     "asyncInvoke": false,
+     "converse": {
+      "streaming": true,
+      "sync": true
+     },
+     "invokeModel": {
+      "bidirectionalStreaming": false,
+      "responseStreaming": true,
+      "sync": true
+     },
+     "openAiChatCompletions": false,
+     "openAiResponses": false
+    },
+    "inferenceTypesSupported": [
+     "ON_DEMAND"
+    ],
+    "inputModalities": [
+     "TEXT"
+    ],
+    "intelligentPromptRouting": {
+     "isSupported": false
+    },
+    "latencyOptimizationSupported": null,
+    "modelArn": "arn:aws:bedrock:us-west-2::foundation-model/meta.llama3-8b-instruct-v1:0",
+    "modelFamily": null,
+    "modelId": "meta.llama3-8b-instruct-v1:0",
+    "modelLifecycle": {
+     "endOfLifeTime": null,
+     "legacyTime": null,
+     "publicExtendedAccessTime": null,
+     "startOfLifeTime": "2024-04-23T08:00:00Z",
+     "status": "ACTIVE"
+    },
+    "modelName": "Llama 3 8B Instruct",
+    "outputModalities": [
+     "TEXT"
+    ],
+    "providerName": "Meta",
+    "responseStreamingSupported": true
+   }
+  ]
+ },
+ "content_type": "application/json",
+ "status": 200
+}

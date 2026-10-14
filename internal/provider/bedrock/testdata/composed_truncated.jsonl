@@ -1,0 +1,4 @@
+{"headers":{":content-type":"application/json",":event-type":"messageStart",":message-type":"event"},"payload":"{\"p\":\"abcdefghijklmnopqrstuvwxyz\",\"role\":\"assistant\"}"}
+{"headers":{":content-type":"application/json",":event-type":"contentBlockDelta",":message-type":"event"},"payload":"{\"contentBlockIndex\":0,\"delta\":{\"text\":\"Hello\"},\"p\":\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456\"}"}
+{"headers":{":content-type":"application/json",":event-type":"contentBlockDelta",":message-type":"event"},"payload":"{\"contentBlockIndex\":0,\"delta\":{\"text\":\" from Bedrock\"},\"p\":\"abcdefghijkl\"}"}
+{"headers":{":content-type":"application/json",":event-type":"contentBlockStop",":message-type":"event"},"payload":"{\"contentBlockIndex\":0,\"p\":\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTU\"}"}
