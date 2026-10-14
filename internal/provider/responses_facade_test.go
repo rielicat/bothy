@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -346,5 +347,43 @@ func TestProbeServerWithoutResponsesAPI(t *testing.T) {
 	}
 	if _, err := h.f.Probe(context.Background(), core.ProbeConfig{Kind: core.KindOpenAI, API: "assistants"}); !errors.Is(err, core.ErrInvalid) {
 		t.Fatalf("unknown api: %v", err)
+	}
+}
+
+// A reasoning model that spends the tool test's whole output limit thinking
+// has not shown that it cannot call tools.
+func TestProbeToolTestCutOffWhileReasoning(t *testing.T) {
+	spec, err := os.ReadFile("openai/testdata/spec_stream.sse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	incomplete, err := os.ReadFile("openai/testdata/spec_incomplete.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cut bytes.Buffer
+	if err := json.Compact(&cut, incomplete); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		if !strings.Contains(string(b), probeTool) {
+			_, _ = w.Write(spec)
+			return
+		}
+		_, _ = io.WriteString(w, `data: {"type":"response.output_item.added","output_index":0,"item":{"id":"rs_1","type":"reasoning","summary":[]},"sequence_number":0}`+"\n\n"+
+			`data: {"type":"response.output_item.done","output_index":0,"item":{"id":"rs_1","type":"reasoning","summary":[],"encrypted_content":"gAAAA1"},"sequence_number":1}`+"\n\n"+
+			"data: "+cut.String()+"\n\n")
+	}))
+	t.Cleanup(srv.Close)
+	h := newHarness(t, nil)
+	res, err := h.f.Probe(context.Background(), core.ProbeConfig{Kind: core.KindOpenAI, BaseURL: srv.URL, Model: "gpt-6-astra", AllowPrivate: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.OK || res.ToolCalling || !strings.Contains(res.Detail, "used the test's 1024-token output limit before calling the test tool") ||
+		strings.Contains(res.Detail, "tool use may be unreliable") {
+		t.Fatalf("result %+v", res)
 	}
 }

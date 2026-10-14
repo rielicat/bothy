@@ -38,6 +38,7 @@
         secret_ref: config.value(`providers.${id}.api_key`) || undefined,
         model,
         allow_private: config.value(`providers.${id}.allow_private`, false),
+        api: config.value(`providers.${id}.api`) || undefined,
       });
     } catch (e) {
       probes[id] = errorText(e);

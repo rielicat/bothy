@@ -6,8 +6,11 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/provider/wire"
@@ -21,6 +24,17 @@ import (
 type Responses struct {
 	o           wire.Options
 	noReasoning func(model string) bool
+
+	mu sync.Mutex
+	// staleBefore is when the server last refused to verify replayed
+	// encrypted reasoning: it is bound to the organization that wrote it,
+	// so a key from another organization or another endpoint rejects every
+	// request that carries it. Reasoning in messages created before then
+	// is not replayed again.
+	staleBefore time.Time
+	// plain holds models that refused encrypted content because they do not
+	// reason (and that the catalog did not know).
+	plain map[string]bool
 }
 
 var _ core.Provider = (*Responses)(nil)
@@ -29,8 +43,12 @@ var _ core.Provider = (*Responses)(nil)
 // KindOpenAICompat. noReasoning (optional) reports models known not to
 // reason, which are not asked for encrypted reasoning.
 func NewResponses(o wire.Options, noReasoning func(model string) bool) *Responses {
-	return &Responses{o: withDefaults(o), noReasoning: noReasoning}
+	return &Responses{o: withDefaults(o), noReasoning: noReasoning, plain: map[string]bool{}}
 }
+
+// maxPlainModels bounds Responses.plain; model names come from config and
+// discovery.
+const maxPlainModels = 64
 
 func (c *Responses) ID() string              { return c.o.ID }
 func (c *Responses) Kind() core.ProviderKind { return c.o.Kind }
@@ -44,8 +62,44 @@ func (c *Responses) Discover(ctx context.Context) ([]core.ModelInfo, error) {
 	return discover(ctx, &c.o)
 }
 
+// Stream makes one Responses call. A request the server refuses, before any
+// event, for the encrypted reasoning it asked for or carried back is sent
+// once more without it, and the client remembers why (encryptedRefusal):
+// like the Chat Completions reasoning fallback this is a capability
+// downgrade of an unbilled 400, not a retry of a failed call.
 func (c *Responses) Stream(ctx context.Context, r *core.Request, on func(core.StreamEvent) error) (*core.Response, error) {
-	req, err := c.o.NewRequest(ctx, http.MethodPost, c.o.URL("/responses"), c.buildRequest(r), setAuth)
+	started := false
+	track := func(ev core.StreamEvent) error {
+		started = true
+		if on == nil {
+			return nil
+		}
+		return on(ev)
+	}
+	body := c.buildRequest(r)
+	resp, err := c.send(ctx, body, r, track)
+	if err == nil || started {
+		return resp, err
+	}
+	switch encryptedRefusal(err) {
+	case refusedByModel:
+		if len(body.Include) == 0 && !replaysReasoning(body) {
+			return resp, err
+		}
+		c.markPlain(r.Model)
+	case refusedStale:
+		if !replaysReasoning(body) {
+			return resp, err
+		}
+		c.markStale()
+	default:
+		return resp, err
+	}
+	return c.send(ctx, c.buildRequest(r), r, track)
+}
+
+func (c *Responses) send(ctx context.Context, body respRequest, r *core.Request, on func(core.StreamEvent) error) (*core.Response, error) {
+	req, err := c.o.NewRequest(ctx, http.MethodPost, c.o.URL("/responses"), body, setAuth)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +218,10 @@ func (c *Responses) buildRequest(r *core.Request) respRequest {
 	if r.MaxTokens > 0 {
 		out.MaxOutputTokens = max(minOutputTokens, r.MaxTokens)
 	}
-	if c.noReasoning == nil || !c.noReasoning(r.Model) {
+	c.mu.Lock()
+	plain, stale := c.plain[r.Model], c.staleBefore
+	c.mu.Unlock()
+	if !plain && (c.noReasoning == nil || !c.noReasoning(r.Model)) {
 		out.Include = []string{"reasoning.encrypted_content"}
 	}
 	for _, t := range r.Tools {
@@ -191,7 +248,10 @@ func (c *Responses) buildRequest(r *core.Request) respRequest {
 				}
 			}
 		case core.MsgAssistant:
-			out.Input = append(out.Input, c.assistantItems(m.Parts)...)
+			// A zero CreatedAt cannot be shown to be newer, so it counts as
+			// stale: leaving reasoning out is always accepted.
+			replay := !plain && (stale.IsZero() || m.CreatedAt.After(stale))
+			out.Input = append(out.Input, c.assistantItems(m.Parts, replay)...)
 		default:
 			if parts := inputParts(m.Parts); len(parts) > 0 {
 				out.Input = append(out.Input, easyMessage{Role: "user", Content: parts})
@@ -202,8 +262,8 @@ func (c *Responses) buildRequest(r *core.Request) respRequest {
 }
 
 // assistantItems turns one assistant message back into the items it came
-// from, in their original order.
-func (c *Responses) assistantItems(parts []core.Part) []any {
+// from, in their original order; replay false leaves its reasoning out.
+func (c *Responses) assistantItems(parts []core.Part, replay bool) []any {
 	// Under store: false an item id refers to nothing stored; it only pairs
 	// an item with the reasoning item before it. When a reasoning item
 	// cannot be replayed (the server sent no encrypted content) the ids are
@@ -212,7 +272,7 @@ func (c *Responses) assistantItems(parts []core.Part) []any {
 	ids := true
 	for _, p := range parts {
 		if p.Type == core.PartThinking && p.SigKind == SigResponses {
-			if _, ok := c.reasoningItem(p); !ok {
+			if _, ok := c.reasoningItem(p); !ok || !replay {
 				ids = false
 			}
 		}
@@ -221,7 +281,7 @@ func (c *Responses) assistantItems(parts []core.Part) []any {
 	for _, p := range parts {
 		switch p.Type {
 		case core.PartThinking:
-			if item, ok := c.reasoningItem(p); ok {
+			if item, ok := c.reasoningItem(p); ok && replay {
 				out = append(out, item)
 			}
 		case core.PartText:
@@ -256,7 +316,79 @@ func (c *Responses) assistantItems(parts []core.Part) []any {
 			out = append(out, item)
 		}
 	}
+	// Reasoning that nothing of its own reply follows was cut off with the
+	// item after it (a call dropped at the output limit, an empty message).
+	// The API rejects a reasoning item sent without its following item
+	// ("provided without its required following item"), and since the whole
+	// history goes back every turn, that would fail every later call of the
+	// session; reasoning that led nowhere is not needed.
+	for len(out) > 0 {
+		if _, ok := out[len(out)-1].(json.RawMessage); !ok {
+			break
+		}
+		out = out[:len(out)-1]
+	}
 	return out
+}
+
+// replaysReasoning reports whether a request carries reasoning items back
+// (they are the only raw items in the input).
+func replaysReasoning(body respRequest) bool {
+	for _, it := range body.Input {
+		if _, ok := it.(json.RawMessage); ok {
+			return true
+		}
+	}
+	return false
+}
+
+type encryptedReason uint8
+
+const (
+	refusedByModel encryptedReason = iota + 1
+	refusedStale
+)
+
+// encryptedRefusal recognises the 400s about encrypted reasoning:
+//
+//	Encrypted content is not supported with this model.
+//
+// for a model that does not reason, and (code invalid_encrypted_content)
+//
+//	The encrypted content for item rs_… could not be verified. Reason:
+//	Encrypted content organization_id did not match the target organization.
+//
+// for reasoning written under another organization or endpoint, or no
+// longer readable. Only the key terms are matched; the wording is not
+// documented.
+func encryptedRefusal(err error) encryptedReason {
+	var pe *core.ProviderError
+	if !errors.As(err, &pe) || pe.Kind != core.ErrKindInvalidRequest {
+		return 0
+	}
+	m := strings.ToLower(pe.Msg)
+	if !strings.Contains(m, "encrypted content") && !strings.Contains(m, "encrypted_content") {
+		return 0
+	}
+	if strings.Contains(m, "not supported") || strings.Contains(m, "unsupported") {
+		return refusedByModel
+	}
+	return refusedStale
+}
+
+func (c *Responses) markPlain(model string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.plain) >= maxPlainModels {
+		clear(c.plain)
+	}
+	c.plain[model] = true
+}
+
+func (c *Responses) markStale() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.staleBefore = time.Now()
 }
 
 // reasoningItem returns the stored reasoning item of a thinking part this

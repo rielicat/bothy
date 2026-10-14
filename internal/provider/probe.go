@@ -150,7 +150,13 @@ func (f *Facade) Probe(ctx context.Context, pc core.ProbeConfig) (core.ProbeResu
 		if mode == openai.EffortOff {
 			notes = append(notes, reasoningOffNote(pc.Kind))
 		}
-		if !res.ToolCalling {
+		switch {
+		case res.ToolCalling:
+		case tresp.Stop == core.StopMaxTokens:
+			// A reasoning model can spend the whole budget thinking; that
+			// says nothing about its tool use.
+			notes = append(notes, fmt.Sprintf("The model used the test's %d-token output limit before calling the test tool, probably while reasoning, so tool calling could not be confirmed.", toolTokens))
+		default:
 			notes = append(notes, "The model answered without calling the test tool; tool use may be unreliable.")
 		}
 	}

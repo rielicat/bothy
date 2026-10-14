@@ -30,7 +30,16 @@ redacts), a function call a tool-call part (its `fc_` id as the signature).
 Signatures carry SigKind `openai_responses` and the provider id, so they go
 back verbatim only to the same provider, in the original order; a reasoning
 item without encrypted content is never replayed, and the items after it
-then go back without ids. Usage comes from the terminal event:
+then go back without ids. Reasoning that no item of its own reply follows
+(the call after it was cut off) is left out, since the API refuses a
+reasoning item without its following item and the whole history goes back
+every turn. Encrypted reasoning is bound to the organization that wrote it:
+when the server refuses it before any event (`invalid_encrypted_content`,
+e.g. after the key moved to another organization), the request is sent once
+more without the reasoning of earlier messages, which is not replayed again
+until a restart; a model that refuses encrypted content ("not supported with
+this model", one the catalog did not know does not reason) is sent once more
+without the `include` and never asked for it again. Usage comes from the terminal event:
 `input_tokens` minus cached and cache-write tokens is `Input`,
 `output_tokens` (reasoning included) is `Output`. `response.incomplete` is
 `max_tokens` (`content_filter`: refusal) with cut-off calls dropped;
