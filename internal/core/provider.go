@@ -186,7 +186,10 @@ type Response struct {
 }
 
 // Provider is one wire protocol plus credentials. It never retries, never reads
-// env vars, and uses only the http.Client given by Egress.SystemClient.
+// env vars, and uses only the http.Client given by Egress.SystemClient. One
+// exception: a bedrock provider's AWS default credential chain reads the
+// AWS_* variables and ~/.aws by design, and fetches instance or container
+// credentials only through Egress's credentials-only client.
 type Provider interface {
 	ID() string
 	Kind() ProviderKind

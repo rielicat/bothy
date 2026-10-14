@@ -91,6 +91,12 @@ agent:
   parallel_read_tools: 4
   show_thinking: false
   session_idle_reset: 0s          # 0 = never start a new channel session automatically
+  refine:                         # v0.2: drafts, critique and a vote for final answers; per message or session too
+    enabled: false
+    drafts: 3                     # 1..8 independent drafts
+    depth: 2                      # 1..4 rounds of continue → critique → correct per draft
+    early_stop: true              # stop deepening once every draft agrees
+    critic_slot: main             # main | fast
 
 context:
   reserve_output: auto            # auto = min(8192, 12% of window), floor 1024; or an integer
@@ -169,6 +175,10 @@ channels:
   slack:    {enabled: false, app_token: "secret:slack_app_token", bot_token: "secret:slack_bot_token", groups: {mention_only: true},
              api_base: "https://slack.com/api/"}
 
+github:                           # v0.2: connections and the repository allowlist live in the database (Settings → Connections)
+  api_base: "https://api.github.com"   # LOCKED; GitHub Enterprise Server: https://<host>/api/v3
+  checkout: {max_mb: 256, max_files: 20000}
+
 mcp:
   servers:                        # examples
     - name: docs
@@ -198,3 +208,20 @@ scheduler:
   heartbeat: {enabled: false, every: 30m, active_hours: "08:00-22:00", slot: fast, deliver: preferred}
 
 api: {openai_compat: true, passthrough: true}
+
+knowledge:                        # v0.2: Bothy's own index of checked-out repos and its project notes
+  enabled: true
+  auto_notes: true                # draft NOTES.md after a repo's first index (fast slot)
+  max_file_kb: 256
+  max_files: 20000
+  max_repo_mb: 64
+  notes_max_bytes: 16384
+  context_bytes: 2048             # notes of touched repos per turn-context; 0 = none
+
+releases:                         # v0.2: release_deploy dispatches a GitHub Actions workflow once approvers agree
+  github_token: "secret:github_token"   # only for repos on no GitHub connection's allowlist
+  github_api: "https://api.github.com"  # LOCKED
+  poll_interval: 15s
+  follow_for: 6h
+  environments: []                # example: [{name: staging, repo: acme/web, workflow: deploy.yml, ref_pattern: main,
+                                  #   inputs: {target: staging}, approvers: [admin], required: 2}]
