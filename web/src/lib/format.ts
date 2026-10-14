@@ -1,7 +1,5 @@
 import type { Micros } from './api/types.gen';
 
-const NS_PER_MS = 1e6;
-
 export function usd(m: Micros | undefined | null, opts: { known?: boolean } = {}): string {
   if (opts.known === false) return 'price unknown';
   const v = (m ?? 0) / 1e6;
@@ -31,11 +29,7 @@ export function bytes(n: number | undefined | null): string {
   return `${(v / 1024 / 1024).toFixed(1).replace(/\.0$/, '')} MB`;
 }
 
-// Go time.Duration fields arrive as integer nanoseconds.
-export function duration(ns: number | undefined | null): string {
-  return ms((ns ?? 0) / NS_PER_MS);
-}
-
+// v0.1 latency label; v0.2 screens use duration().
 export function ms(v: number): string {
   if (v < 1000) return `${Math.round(v)} ms`;
   const s = v / 1000;
@@ -90,10 +84,6 @@ export function countdown(t: string | undefined | null, now = Date.now()): strin
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-export function plural(n: number, one: string, many = one + 's'): string {
-  return `${n.toLocaleString()} ${n === 1 ? one : many}`;
-}
-
 // Parses Go duration strings ("1h30m", "45s", "1.2s") into nanoseconds.
 export function parseGoDuration(s: string): number | null {
   const re = /(\d+(?:\.\d+)?)(ns|us|µs|ms|s|m|h)/g;
@@ -113,4 +103,139 @@ export function parseGoDuration(s: string): number | null {
 // "15m0s" -> "15m", "24h0m0s" -> "24h".
 export function prettyGoDuration(s: string): string {
   return s.replace(/(\D)0s$/, '$1').replace(/(\D)0m$/, '$1') || s;
+}
+
+// v0.2 formats (docs/design/ui.md §14.2). `locale` and `timeZone` default to
+// the browser's; tests pin them.
+export interface FormatOpts {
+  locale?: string;
+  timeZone?: string;
+  now?: number;
+}
+
+const formats = new Map<string, Intl.NumberFormat | Intl.DateTimeFormat>();
+
+function currency(locale: string | undefined, digits: number): Intl.NumberFormat {
+  const key = `n|${locale}|${digits}`;
+  let f = formats.get(key) as Intl.NumberFormat | undefined;
+  if (!f) {
+    f = new Intl.NumberFormat(locale, { style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol', minimumFractionDigits: digits, maximumFractionDigits: digits });
+    formats.set(key, f);
+  }
+  return f;
+}
+
+function dateFormat(locale: string | undefined, timeZone: string | undefined, opts: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = `d|${locale}|${timeZone}|${JSON.stringify(opts)}`;
+  let f = formats.get(key) as Intl.DateTimeFormat | undefined;
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, { ...opts, timeZone });
+    formats.set(key, f);
+  }
+  return f;
+}
+
+/** Money from micro-dollars: "<$0.01", "$12.40", "$1,240"; "Free" for local models, "Price not set" when unknown. */
+export function money(m: Micros | undefined | null, opts: { local?: boolean; known?: boolean; locale?: string } = {}): string {
+  if (opts.local) return 'Free';
+  if (opts.known === false) return 'Price not set';
+  const v = (m ?? 0) / 1e6;
+  const abs = Math.abs(v);
+  const sign = v < 0 ? '-' : '';
+  if (abs > 0 && abs < 0.01) return `${sign}<${currency(opts.locale, 2).format(0.01)}`;
+  return sign + currency(opts.locale, abs >= 1000 ? 0 : 2).format(abs);
+}
+
+// Rounds up so an estimate never undersells: one significant figure under $1,
+// the next $0.10 below $1,000, whole dollars above. The epsilon keeps float
+// noise (0.3 / 0.1 = 2.9999…) from pushing an exact value up a step.
+function roundUp(v: number): number {
+  const step = v < 1 ? 10 ** Math.floor(Math.log10(v)) : v < 1000 ? 0.1 : 1;
+  return Math.ceil(v / step - 1e-9) * step;
+}
+
+/** A cost shown before the work: "about $0.20", "about $1.30", "less than $0.01". */
+export function estimate(m: Micros | undefined | null, opts: { local?: boolean; known?: boolean; locale?: string } = {}): string {
+  if (opts.local) return 'Free';
+  if (opts.known === false) return 'Price not set';
+  const v = Math.max(0, (m ?? 0) / 1e6);
+  if (v === 0) return 'Free';
+  if (v < 0.01) return `less than ${currency(opts.locale, 2).format(0.01)}`;
+  const r = roundUp(v);
+  return `about ${currency(opts.locale, r >= 1000 ? 0 : 2).format(r)}`;
+}
+
+function dayNumber(d: Date, timeZone: string | undefined): number {
+  const parts = dateFormat('en-CA', timeZone, { year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d);
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
+  return Date.UTC(get('year'), get('month') - 1, get('day')) / 86_400_000;
+}
+
+function clockTime(d: Date, opts: FormatOpts): string {
+  return dateFormat(opts.locale, opts.timeZone, { hour: 'numeric', minute: '2-digit' }).format(d);
+}
+
+/** "just now", "5 min ago", "2 h ago" (same day), "Yesterday at 14:02", "14 Oct", "14 Oct 2025"; future times read "in 5 min", "Tomorrow at 9:00". */
+export function relTime(t: string | undefined | null, opts: FormatOpts = {}): string {
+  const d = date(t);
+  if (!d) return '';
+  const now = opts.now ?? Date.now();
+  const past = now - d.getTime();
+  const abs = Math.abs(past);
+  if (abs < 60_000) return 'just now';
+  if (abs < 3_600_000) {
+    const m = Math.floor(abs / 60_000);
+    return past < 0 ? `in ${m} min` : `${m} min ago`;
+  }
+  const days = dayNumber(new Date(now), opts.timeZone) - dayNumber(d, opts.timeZone);
+  if (days === 0) {
+    const h = Math.floor(abs / 3_600_000);
+    return past < 0 ? `in ${h} h` : `${h} h ago`;
+  }
+  if (days === 1) return `Yesterday at ${clockTime(d, opts)}`;
+  if (days === -1) return `Tomorrow at ${clockTime(d, opts)}`;
+  const year = (x: Date) => dateFormat('en-CA', opts.timeZone, { year: 'numeric' }).format(x);
+  const style: Intl.DateTimeFormatOptions = year(d) === year(new Date(now)) ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' };
+  return dateFormat(opts.locale, opts.timeZone, style).format(d);
+}
+
+/** The full date for the title or aria-label of a relative time: "14 October 2026, 10:42". */
+export function fullTime(t: string | undefined | null, opts: Omit<FormatOpts, 'now'> = {}): string {
+  const d = date(t);
+  if (!d) return '';
+  return `${dateFormat(opts.locale, opts.timeZone, { day: 'numeric', month: 'long', year: 'numeric' }).format(d)}, ${clockTime(d, opts)}`;
+}
+
+/** A Go time.Duration (nanoseconds) as "3 s", "2 min 10 s", "1 h 5 min"; never "0 ms". Callers add "Took". */
+export function duration(ns: number | undefined | null): string {
+  const seconds = (ns ?? 0) / 1e9;
+  if (seconds < 1) return 'less than a second';
+  const s = Math.round(seconds);
+  if (s < 60) return `${s} s`;
+  if (s < 3600) {
+    const m = Math.floor(s / 60);
+    return s % 60 ? `${m} min ${s % 60} s` : `${m} min`;
+  }
+  const total = Math.round(s / 60);
+  const h = Math.floor(total / 60);
+  return total % 60 ? `${h} h ${total % 60} min` : `${h} h`;
+}
+
+/** "Expires in 14 min", "Expires in 2 h", "Expires in less than a minute", "Expired". */
+export function expiresIn(t: string | undefined | null, opts: Pick<FormatOpts, 'now'> = {}): string {
+  const d = date(t);
+  if (!d) return '';
+  const s = (d.getTime() - (opts.now ?? Date.now())) / 1000;
+  if (s <= 0) return 'Expired';
+  if (s < 60) return 'Expires in less than a minute';
+  const min = Math.round(s / 60);
+  if (min < 60) return `Expires in ${min} min`;
+  const h = Math.round(s / 3600);
+  if (h < 24) return `Expires in ${h} h`;
+  return `Expires in ${plural(Math.round(s / 86_400), 'day')}`;
+}
+
+/** "1 file", "3 files", "1,204 entries". */
+export function plural(n: number, one: string, many = one + 's', locale?: string): string {
+  return `${n.toLocaleString(locale)} ${n === 1 ? one : many}`;
 }
