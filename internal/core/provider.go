@@ -256,7 +256,7 @@ type CallInfo struct {
 	ID             string        `json:"id"` // llm_<26>
 	Ref            ModelRef      `json:"ref"`
 	Slot           Slot          `json:"slot"`
-	Purpose        string        `json:"purpose"` // agent|compaction|title|heartbeat|probe|passthrough
+	Purpose        string        `json:"purpose"` // agent|compaction|title|heartbeat|probe|passthrough|notes
 	Step           int           `json:"step"`
 	Attempts       []Attempt     `json:"attempts"`
 	Usage          Usage         `json:"usage"`

@@ -319,7 +319,8 @@ func TestFailedMigrationRollsBack(t *testing.T) {
 
 func TestLoadMigrations(t *testing.T) {
 	ms, err := loadMigrations(migrationsFS)
-	if err != nil || len(ms) < 2 || ms[0].name != "0001_init.sql" || ms[1].name != "0002_repos.sql" {
+	if err != nil || len(ms) < 3 || ms[0].name != "0001_init.sql" || ms[1].name != "0002_repos.sql" ||
+		ms[2].name != "0003_knowledge.sql" || ms[len(ms)-1].version != len(ms) {
 		names := make([]string, len(ms))
 		for i, m := range ms {
 			names[i] = m.name

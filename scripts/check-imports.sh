@@ -23,6 +23,7 @@ owner() {
 	internal/egress | internal/egress/*) echo M6 ;;
 	internal/mcp | internal/mcp/* | internal/skills | internal/skills/*) echo M7 ;;
 	internal/memory | internal/memory/* | internal/scheduler | internal/scheduler/*) echo M8 ;;
+	internal/knowledge | internal/knowledge/*) echo knowledge ;; # v0.2 F6: stdlib, core and config only
 	internal/channel/discord | internal/channel/discord/* | internal/channel/slack | internal/channel/slack/*) echo M10 ;;
 	internal/channel | internal/channel/telegram | internal/channel/telegram/*) echo M9 ;;
 	internal/httpapi/dto) echo dto ;;

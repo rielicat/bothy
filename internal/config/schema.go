@@ -35,6 +35,7 @@ type Config struct {
 	Skills    SkillsCfg         `yaml:"skills" reload:"hot"`
 	Scheduler SchedulerCfg      `yaml:"scheduler" reload:"hot"`
 	API       APICfg            `yaml:"api" reload:"hot"`
+	Knowledge KnowledgeCfg      `yaml:"knowledge" reload:"hot"`
 }
 
 type Server struct {

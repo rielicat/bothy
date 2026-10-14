@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"slices"
 	"strconv"
@@ -374,6 +375,18 @@ type turnCtx struct {
 	// legs the turn adds to the session: memory deltas are the user's
 	// private data entering context, like a snapshot with memory (SPEC §5.3).
 	legs core.Taint
+	// commits record hook blocks as delivered once the turn is stored.
+	commits []func(context.Context) error
+}
+
+// commit runs the hook commits of a stored turn; a failure only means the
+// block is offered again on a later turn.
+func (tc turnCtx) commit(ctx context.Context, log *slog.Logger) {
+	for _, c := range tc.commits {
+		if err := c(context.WithoutCancel(ctx)); err != nil {
+			log.Warn("turn-context hook commit", "err", err)
+		}
+	}
 }
 
 // turnContext renders the persisted <turn-context> of a user turn and
@@ -434,6 +447,20 @@ func (r *Runner) turnContext(ctx context.Context, rs *runState, sess *core.Sessi
 	}
 	if len(fresh) > 0 {
 		b.WriteString("new pinned instructions (follow them until removed):\n" + strings.Join(fresh, "\n") + "\n")
+	}
+	for _, h := range r.d.TurnContext {
+		blk, err := h.TurnContext(ctx, core.TurnContextInput{Principal: *rs.principal, Session: sess.ID, Epoch: sess.Epoch})
+		if err != nil {
+			r.log.Warn("turn-context hook", "session", sess.ID, "err", err)
+			continue
+		}
+		if t := strings.TrimSpace(blk.Text); t != "" {
+			b.WriteString(t + "\n")
+			tc.legs |= blk.Taint
+		}
+		if blk.Commit != nil {
+			tc.commits = append(tc.commits, blk.Commit)
+		}
 	}
 	if w := r.budgetWarning(ctx, rs, req.User); w != "" {
 		b.WriteString(w + "\n")

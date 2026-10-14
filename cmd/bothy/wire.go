@@ -26,6 +26,7 @@ import (
 	"github.com/rielicat/bothy/internal/events"
 	"github.com/rielicat/bothy/internal/github"
 	"github.com/rielicat/bothy/internal/httpapi"
+	"github.com/rielicat/bothy/internal/knowledge"
 	"github.com/rielicat/bothy/internal/mcp"
 	"github.com/rielicat/bothy/internal/memory"
 	"github.com/rielicat/bothy/internal/policy"
@@ -58,6 +59,7 @@ type app struct {
 	llm       *provider.Facade
 	budget    *budget.Service
 	memory    *memory.Service
+	knowledge *knowledge.Service
 	skills    *skills.Library
 	registry  *tools.Registry
 	mcp       *mcp.Manager
@@ -163,6 +165,10 @@ func (a *app) buildRest(ctx context.Context) error {
 	if a.memory, err = memory.New(memory.Deps{Store: a.db, Config: a.cfg, Bus: a.bus, Audit: a.audit, DataDir: dirs.Data, Clock: a.clock, Log: a.log}); err != nil {
 		return err
 	}
+	if a.knowledge, err = knowledge.New(knowledge.Deps{Repo: a.db.Knowledge(), Store: a.db, Config: a.cfg, LLM: a.llm, Budget: a.budget,
+		Redactor: a.redactor, Bus: a.bus, Audit: a.audit, DataDir: dirs.Data, WorkDir: dirs.Work, Clock: a.clock, Log: a.log}); err != nil {
+		return err
+	}
 	if a.skills, err = skills.New(skills.Deps{Store: a.db, Config: a.cfg, Audit: a.audit, Bus: a.bus, WorkDir: dirs.Work, Clock: a.clock, Log: a.log}); err != nil {
 		return err
 	}
@@ -177,7 +183,8 @@ func (a *app) buildRest(ctx context.Context) error {
 	}
 	if a.runner, err = agent.New(agent.Deps{Store: a.db, Config: a.cfg, LLM: a.llm, Tools: a.registry, Policy: a.policy,
 		Approvals: a.approvals, Budget: a.budget, Memory: a.memory, Skills: a.skills, Sandbox: a.sandbox, Egress: a.egress,
-		Redactor: a.redactor, Bus: a.bus, Audit: a.audit, DataDir: dirs.Data, WorkDir: dirs.Work, Clock: a.clock, Log: a.log}); err != nil {
+		Redactor: a.redactor, Bus: a.bus, Audit: a.audit, DataDir: dirs.Data, WorkDir: dirs.Work, Clock: a.clock, Log: a.log,
+		TurnContext: []core.TurnContextHook{a.knowledge}}); err != nil {
 		return err
 	}
 	if a.hub, err = channel.New(channel.Deps{Config: a.cfg, Auth: a.auth, Runner: a.runner, Approvals: a.approvals, Budget: a.budget,
@@ -220,7 +227,7 @@ func (a *app) buildRest(ctx context.Context) error {
 	// MCP tools register themselves later through Deps.Registry (lazy tools).
 	var all []core.Tool
 	all = append(all, tools.Builtins(tools.BuiltinDeps{Config: a.cfg, Messenger: a.hub, Sandbox: a.sandbox, Clock: a.clock})...)
-	for _, p := range []core.ToolProvider{a.sandbox, a.egress, a.memory, a.skills, a.scheduler, a.github} {
+	for _, p := range []core.ToolProvider{a.sandbox, a.egress, a.memory, a.skills, a.scheduler, a.github, a.knowledge} {
 		all = append(all, p.Tools()...)
 	}
 	for _, t := range all {
@@ -237,7 +244,7 @@ func (a *app) buildRest(ctx context.Context) error {
 		Approvals: a.approvals, Policy: a.policy, Tools: a.registry, LLM: a.llm, Budget: a.budget, Memory: a.memory, Skills: a.skills, MCP: a.mcp, GitHub: a.github,
 		Scheduler: a.scheduler, Hub: a.hub, Sandbox: a.sandbox, Egress: a.egress, Doctor: a.doctor, Audit: a.audit,
 		WebUI: webui.Handler(), Version: version, DataDir: dirs.Data, WorkDir: dirs.Work, Restart: a.requestRestart,
-		Clock: a.clock, Log: a.log})
+		Clock: a.clock, Log: a.log, Knowledge: a.knowledge})
 	return err
 }
 
@@ -285,7 +292,7 @@ func serve(ctx context.Context, args []string) error {
 	}
 	loops := []func(context.Context) error{
 		a.audit.Run, a.approvals.Run, a.egress.Run, a.sandbox.Run, a.runner.Run,
-		func(ctx context.Context) error { return a.db.RunRetention(ctx, a.cfg) }, a.api.Serve,
+		func(ctx context.Context) error { return a.db.RunRetention(ctx, a.cfg) }, a.api.Serve, a.knowledge.Run,
 	}
 	if !a.cfg.Effective().SafeMode { // safe mode: no chat intake, schedules or MCP (§7.2)
 		loops = append(loops, a.hub.Run, a.scheduler.Run, a.mcp.Start)

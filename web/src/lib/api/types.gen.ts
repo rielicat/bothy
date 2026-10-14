@@ -689,6 +689,225 @@ export const TrigAPI: Trigger = "api";
 export const TrigResume: Trigger = "resume";
 
 //////////
+// source: internal/core/knowledge.go
+
+/**
+ * EvRepoCheckedOut is published by whoever wrote a repository's files into
+ * a principal's workspace (the GitHub module's repo_checkout). Event.Principal
+ * must be set; Event.Session and Event.Run name the run that asked for it.
+ */
+export const EvRepoCheckedOut: EventType = "repo.checked_out";
+/**
+ * EvKnowledgeUpdated reports an index or notes state change of one repo.
+ */
+export const EvKnowledgeUpdated: EventType = "knowledge.updated";
+/**
+ * RepoCheckedOutData: Dir holds Repo's files at commit SHA. Dir is absolute
+ * (inside the event principal's workspace), the path boxes see
+ * (/workspace/...), or relative to that workspace.
+ */
+export interface RepoCheckedOutData {
+  repo: string; // "owner/name"
+  sha: string;
+  dir: string;
+}
+export interface KnowledgeUpdatedData {
+  repo: IndexedRepo;
+  deleted?: boolean;
+}
+/**
+ * Sources of an indexed directory.
+ */
+export const KnowledgeGitHub = "github";
+/**
+ * Sources of an indexed directory.
+ */
+export const KnowledgeWorkspace = "workspace";
+/**
+ * IndexedRepo.Status values.
+ */
+export const IndexQueued = "queued";
+/**
+ * IndexedRepo.Status values.
+ */
+export const IndexRunning = "indexing";
+/**
+ * IndexedRepo.Status values.
+ */
+export const IndexReady = "ready";
+/**
+ * IndexedRepo.Status values.
+ */
+export const IndexFailed = "error";
+/**
+ * NotesState.Status values.
+ */
+export const NotesNone = "none";
+/**
+ * NotesState.Status values.
+ */
+export const NotesDrafting = "drafting";
+/**
+ * NotesState.Status values.
+ */
+export const NotesReady = "ready";
+/**
+ * NotesState.Status values.
+ */
+export const NotesFailed = "error";
+/**
+ * IndexedRepo is one indexed directory of a principal's workspace, named like
+ * a repository. Its project notes live outside every repository, in
+ * <data>/knowledge/<principal>/<owner>/<repo>/NOTES.md.
+ */
+export interface IndexedRepo {
+  id: number /* int64 */;
+  principal_id: PrincipalID;
+  repo: string; // "owner/name", lowercase
+  source: string; // github | workspace
+  dir: string; // workspace-relative directory of the indexed copy
+  /**
+   * SHA is the commit of the latest requested index ("" for a plain
+   * directory); chunks carry the commit they were indexed at.
+   */
+  sha: string;
+  status: string; // queued | indexing | ready | error
+  error?: string;
+  files: number /* int */;
+  chunks: number /* int */;
+  bytes: number /* int64 */;
+  skipped: number /* int */; // text files left out by a size or count cap
+  truncated: boolean; // a cap stopped the walk before the end
+  indexed_at: string /* RFC 3339 */;
+  notes: NotesState;
+  created_at: string /* RFC 3339 */;
+  updated_at: string /* RFC 3339 */;
+}
+export interface NotesState {
+  status: string; // none | drafting | ready | error
+  error?: string;
+  /**
+   * Untrusted: part of the notes came from repository content or from an
+   * agent run holding untrusted content, and no user has saved them since.
+   */
+  untrusted: boolean;
+  updated_at: string /* RFC 3339 */;
+}
+/**
+ * KnowledgeChunk is one indexed slice of a file: a markdown section, a
+ * top-level declaration or a window of plain text.
+ */
+export interface KnowledgeChunk {
+  id: number /* int64 */;
+  sha: string;
+  path: string; // slash-separated, relative to IndexedRepo.Dir
+  start_line: number /* int */;
+  end_line: number /* int */;
+  kind: string; // heading | func | method | type | class | header | text | …
+  lang: string;
+  title: string;
+  body: string;
+}
+export interface KnowledgeFile {
+  path: string;
+  hash: string; // chunker version + sha256 of the content
+  size: number /* int64 */;
+  lang: string;
+  chunks: number /* int */;
+}
+/**
+ * KnowledgeFileChange replaces one file's chunks (Chunks may be empty) or,
+ * with Delete, removes the file from the index.
+ */
+export interface KnowledgeFileChange {
+  File: KnowledgeFile;
+  Chunks: KnowledgeChunk[];
+  Delete: boolean;
+}
+export interface KnowledgeQuery {
+  text: string;
+  principal_id?: PrincipalID; // "" = every principal of the Viewer
+  repo_id?: number /* int64 */; // 0 = every repo
+  limit?: number /* int */; // 0 = 8, at most 50
+}
+/**
+ * KnowledgeHit is a ranked search result. KnowledgeRepo.Search returns the
+ * whole chunk in Snippet; core.Knowledge narrows it to the lines around the
+ * match and sets Citation ("owner/repo@sha:path#L10-L42").
+ */
+export interface KnowledgeHit {
+  repo_id: number /* int64 */;
+  repo: string;
+  principal_id: PrincipalID;
+  sha: string;
+  path: string;
+  start_line: number /* int */;
+  end_line: number /* int */;
+  kind: string;
+  lang: string;
+  title: string;
+  snippet: string;
+  citation: string;
+  rank: number /* float64 */; // bm25: lower is better
+}
+/**
+ * KnowledgeTouch records that a session worked on a repo and which notes
+ * version its turn-context already carries.
+ */
+export interface KnowledgeTouch {
+  repo_id: number /* int64 */;
+  touched_at: string /* RFC 3339 */;
+  injected_epoch: number /* int */; // -1 = never injected
+  injected_hash: string;
+}
+export interface KnowledgeNotes {
+  repo_id: number /* int64 */;
+  repo: string;
+  content: string;
+  etag: string; // sha256 of Content; "" when there are no notes yet
+  cap_bytes: number /* int */;
+  status: string;
+  untrusted: boolean;
+  updated_at: string /* RFC 3339 */;
+}
+export interface KnowledgeIndexRequest {
+  dir: string; // workspace-relative directory; "" or "." = the whole workspace
+  repo: string; // "owner/name"; "" = "local/<directory name>"
+  sha: string; // optional commit id shown in citations
+}
+/**
+ * KnowledgeRepo stores the index (SQLite FTS5 in internal/store). Reads take
+ * a Viewer and answer ErrNotFound outside its principals; writes by id are
+ * for the knowledge service, which checks access first.
+ */
+export type KnowledgeRepo = any;
+/**
+ * TurnContextHook adds a block to the <turn-context> of a user turn
+ * (SPEC §5.6). The turn-context is persisted with the turn, so a block stays
+ * byte-identical in later prompts; the runner calls Commit once the turn is
+ * stored, which is when the block counts as delivered.
+ */
+export type TurnContextHook = any;
+export interface TurnContextInput {
+  Principal: Principal;
+  Session: SessionID;
+  Epoch: number /* int */;
+}
+export interface TurnContextBlock {
+  Text: string;
+  Taint: Taint; // legs the block adds to the session
+  Commit: any;
+}
+/**
+ * Knowledge indexes repository checkouts (and any workspace directory) and
+ * keeps per-repo project notes.
+ */
+export type Knowledge = 
+    ToolProvider // knowledge_search, notes
+ &
+    TurnContextHook;
+
+//////////
 // source: internal/core/links.go
 
 
@@ -1105,7 +1324,7 @@ export interface CallInfo {
   id: string; // llm_<26>
   ref: ModelRef;
   slot: Slot;
-  purpose: string; // agent|compaction|title|heartbeat|probe|passthrough
+  purpose: string; // agent|compaction|title|heartbeat|probe|passthrough|notes
   step: number /* int */;
   attempts: Attempt[];
   usage: Usage;
@@ -2364,4 +2583,28 @@ export interface GitHubReposReq {
 export interface GitHubConnectionDetail {
   connection?: GitHubConnection;
   repos: (GitHubRepo | undefined)[];
+}
+
+//////////
+// source: internal/httpapi/dto/knowledge.go
+
+/**
+ * KnowledgeIndexReq queues the index of a workspace directory
+ * (POST /api/knowledge/repos; 202 with the core.IndexedRepo).
+ */
+export interface KnowledgeIndexReq {
+  principal_id?: PrincipalID; // default: the caller's own principal
+  dir: string; // workspace-relative; "" = the whole workspace
+  repo?: string; // "owner/name"; default "local/<directory name>"
+  sha?: string; // optional commit id for citations
+}
+export interface KnowledgeSearchResp {
+  items: KnowledgeHit[];
+}
+/**
+ * KnowledgeNotesPutReq replaces a repo's notes; If-Match carries the etag
+ * from GET (`""` while there are no notes yet). Empty content removes them.
+ */
+export interface KnowledgeNotesPutReq {
+  content: string;
 }

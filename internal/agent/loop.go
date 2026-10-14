@@ -278,6 +278,7 @@ func (r *Runner) persistTurn(ctx context.Context, rs *runState) error {
 	rs.turnPersisted = true
 	rs.answered = m.Seq
 	w.merged = 0
+	tc.commit(ctx, r.log)
 	s, err := r.mutateSession(ctx, req.Session, func(s *core.Session) error {
 		s.MemorySeen, s.PinsSeen = max(s.MemorySeen, tc.memSeen), max(s.PinsSeen, tc.pinsSeen)
 		s.LastMessageAt = r.now()
@@ -384,6 +385,7 @@ func (r *Runner) persistSteer(ctx context.Context, a *runState, req core.RunRequ
 	if err := r.appendMessage(ctx, req.Principal, m, nil); err != nil {
 		return fmt.Errorf("agent: persist steer: %w", err)
 	}
+	tc.commit(ctx, r.log)
 	if _, err := r.mutateSession(ctx, req.Session, func(s *core.Session) error {
 		s.MemorySeen, s.PinsSeen = max(s.MemorySeen, tc.memSeen), max(s.PinsSeen, tc.pinsSeen)
 		s.LastMessageAt = r.now()

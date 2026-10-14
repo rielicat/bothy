@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -809,6 +810,35 @@ func TestUntrustedSessionWritesMarkTheWorkspace(t *testing.T) {
 		synctest.Wait()
 		if recs := h.toolCalls(res.Run); len(recs) != 1 || !recs[0].Untrusted || !h.session().Taint.Has(core.TaintUntrusted) {
 			t.Fatalf("a file written by an untrusted session was read as trusted: %+v", recs)
+		}
+	})
+}
+
+// A write planned in the same step as an untrusted read executes after it,
+// so its env must carry the taint that read added: memory and notes label
+// what they store by env.Taint.
+func TestExecSeesTaintFromEarlierCallsOfTheStep(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		web := &testTool{name: "web", taint: core.TaintUntrusted}
+		var seen atomic.Uint32
+		writer := &testTool{name: "writer", se: core.SELocalWrite, run: func(_ context.Context, env *core.ToolEnv, _ *core.Action) (*core.ToolResult, error) {
+			seen.Store(uint32(env.Taint) | 1<<8)
+			return &core.ToolResult{Content: "saved"}, nil
+		}}
+		h := newHarness(t, opts{tools: []core.Tool{web, writer}, steps: []fakes.LLMStep{
+			{ToolCalls: []core.ToolCall{call("web", `{}`), call("writer", `{}`)}}, {Text: []string{"ok"}}}})
+		defer h.close()
+		res := h.submit("read then save")
+		synctest.Wait()
+		if st := h.run(res.Run).Status; st != core.RunDone {
+			t.Fatalf("status %s", st)
+		}
+		got := seen.Load()
+		if got&(1<<8) == 0 {
+			t.Fatal("writer did not run")
+		}
+		if !core.Taint(got & 0xff).Has(core.TaintUntrusted) {
+			t.Fatalf("writer env taint = %v, want the untrusted leg the read added", core.Taint(got&0xff))
 		}
 	})
 }

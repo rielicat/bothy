@@ -672,9 +672,10 @@ type Store interface {
 	// Tx runs fn on the single writer connection inside BEGIN IMMEDIATE.
 	Tx(ctx context.Context, fn func(Store) error) error
 	// Backup writes <dir>/bothy-<UTC yyyymmddThhmmss>.tar (0600) holding a
-	// VACUUM INTO snapshot of the DB plus memory/**, SOUL.md, bothy.yaml and
-	// bothy.ui.yaml from the DB's directory. It never includes the KEK (/keys)
-	// or workspaces. Returns the path. Restore = stop, untar into /data.
+	// VACUUM INTO snapshot of the DB plus memory/**, knowledge/** (project
+	// notes), SOUL.md, bothy.yaml and bothy.ui.yaml from the DB's directory.
+	// It never includes the KEK (/keys) or workspaces. Returns the path.
+	// Restore = stop, untar into /data.
 	Backup(ctx context.Context, dir string) (string, error)
 	SQLiteVersion() string
 	Close() error

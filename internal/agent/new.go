@@ -38,6 +38,9 @@ type Deps struct {
 	WorkDir   string // workspaces
 	Clock     core.Clock
 	Log       *slog.Logger
+	// TurnContext hooks add blocks (knowledge notes) to each user turn's
+	// <turn-context>, after the pins and in this order.
+	TurnContext []core.TurnContextHook
 }
 
 // Meta keys owned by the runner.

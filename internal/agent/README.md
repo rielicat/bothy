@@ -16,9 +16,11 @@ The loop (`loop.go`) assembles a cache-stable request (`assemble.go`,
 index) are frozen per epoch in the session row, S1 is the embedded
 `CONSTITUTION.md` (full or short by model profile) plus the administrator's
 standing rules, and each user turn carries a persisted `<turn-context>` with
-time, sender trust, memory deltas, new pins, budget and trifecta warnings and
-spotlighted client instructions. History is re-ordered so every tool call is
-followed by exactly one result (a deterministic "Not executed" result is
+time, sender trust, memory deltas, new pins, blocks from `Deps.TurnContext`
+hooks (the knowledge module's project notes; a hook's `Commit` runs only once
+the turn is stored, its taint legs join the session's), budget and trifecta
+warnings and spotlighted client instructions. History is re-ordered so every
+tool call is followed by exactly one result (a deterministic "Not executed" result is
 synthesized, never stored), untrusted text is wrapped in `<untrusted … id=…>`
 blocks whose ids are an HMAC of their position under `meta.agent.spotlight_key`
 (stable bytes for prompt caching, unpredictable to the content's author), and
