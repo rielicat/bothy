@@ -57,32 +57,47 @@ func (s *Service) Dispatch(ctx context.Context, d core.WorkflowDispatch) (*core.
 	since := s.now().Add(-10 * time.Second)
 	path := repoPath(r) + "/actions/workflows/" + url.PathEscape(d.Workflow) + "/dispatches"
 	body := map[string]any{"ref": d.Ref, "inputs": inputs, "return_run_details": true}
-	resp, err := cl.request(ctx, http.MethodPost, path, nil, body, "")
+	runID, err := dispatchOnce(ctx, cl, path, body)
 	// Enterprise Server releases that predate return_run_details refuse the
 	// unknown key with 422 and start nothing, so asking again without it
 	// cannot dispatch twice.
 	if statusOf(err) == http.StatusUnprocessableEntity && strings.Contains(err.Error(), "return_run_details") {
 		delete(body, "return_run_details")
-		resp, err = cl.request(ctx, http.MethodPost, path, nil, body, "")
+		runID, err = dispatchOnce(ctx, cl, path, body)
 	}
-	if err != nil {
+	switch {
+	case err != nil:
 		return nil, err
+	case runID > 0:
+		if run, err := s.runStatus(ctx, cl, ep, r, runID); err == nil {
+			return run, nil
+		}
+		// The dispatch went through; a failed read only loses the details.
+		return &core.WorkflowRun{ID: runID, Repo: r.FullName(), Status: "queued", URL: runURL(ep, r, runID)}, nil
+	}
+	return s.findRun(ctx, cl, ep, r, d, since), nil
+}
+
+// dispatchOnce posts one workflow_dispatch and returns the run id GitHub
+// reported (0 when it answered without one).
+func dispatchOnce(ctx context.Context, cl *apiClient, path string, body map[string]any) (int64, error) {
+	resp, err := cl.request(ctx, http.MethodPost, path, nil, body, "")
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, nil
 	}
 	var res struct {
 		RunID int64 `json:"workflow_run_id"`
 	}
-	if resp.StatusCode == http.StatusOK {
-		err = decodeJSON(resp, &res)
+	// The dispatch happened whatever the body says; an unreadable answer
+	// only loses the run id, which findRun then looks up.
+	if decodeJSON(resp, &res) != nil {
+		return 0, nil
 	}
-	drain(resp)
-	if err == nil && res.RunID > 0 {
-		if run, err := s.runStatus(ctx, cl, ep, r, res.RunID); err == nil {
-			return run, nil
-		}
-		// The dispatch went through; a failed read only loses the details.
-		return &core.WorkflowRun{ID: res.RunID, Repo: r.FullName(), Status: "queued", URL: runURL(ep, r, res.RunID)}, nil
-	}
-	return s.findRun(ctx, cl, ep, r, d, since), nil
+	return res.RunID, nil
 }
 
 // findRun looks for the run a dispatch started; a zero ID means none showed
