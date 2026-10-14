@@ -336,6 +336,10 @@ func (r *Runner) execute(rs *runState, pc *pcall) execResult {
 	}
 	tctx, cancel := context.WithTimeoutCause(ctx, timeout, errToolTimeout)
 	defer cancel()
+	// pc.env was built at planning time; calls finished since (earlier in
+	// this step, or during an approval wait) may have tainted the session,
+	// and tools such as memory and notes label what they write by it.
+	pc.env.Taint = rs.taint
 	start := r.now()
 	res, err := pc.tool.Exec(tctx, pc.env, pc.action)
 	pc.out.close()
