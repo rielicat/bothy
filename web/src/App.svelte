@@ -1,7 +1,11 @@
 <script lang="ts">
   import { onMount, type Component } from 'svelte';
-  import Shell from './components/Shell.svelte';
-  import Toasts from './components/Toasts.svelte';
+  import NotFound from './components/shell/NotFound.svelte';
+  import { adminOnlyTitle, unknownGroup } from './components/shell/settings';
+  import SettingsIndex from './components/shell/SettingsIndex.svelte';
+  import Shell from './components/shell/Shell.svelte';
+  import LiveRegion from './components/ui/LiveRegion.svelte';
+  import ToastHost from './components/ui/ToastHost.svelte';
   import { legacySettingsPage, redirect, settingsHome, type Match, type Params } from './lib/routes';
   import { router, safeNext } from './lib/router.svelte';
   import { session } from './lib/stores/session.svelte';
@@ -62,6 +66,8 @@
       case '/knowledge/skills':
       case '/knowledge/skills/:name':
         return { c: Settings, params: { ...p, page: 'skills' } };
+      case '/settings':
+        return { c: SettingsIndex, params: p };
       case '/settings/:group':
         return { c: Settings, params: { ...p, page: legacySettingsPage(p.group) ?? p.group } };
       case '/settings/:group/:item': {
@@ -80,9 +86,15 @@
 
   const pattern = $derived(router.current?.pattern ?? '');
   const moved = $derived(redirect(router.path));
-  const current = $derived(screenFor(router.current));
+  const current = $derived(unknownGroup(router.path) ? null : screenFor(router.current));
   const isPublic = $derived(pattern === '/setup' || pattern === '/login');
   const bare = $derived(isPublic || pattern === '/password');
+  const forAdmins = $derived(session.isAdmin ? null : adminOnlyTitle(router.path));
+
+  // Wide screens have Settings in the sidebar, so /settings opens the first
+  // group there; phones and tablets get the list of groups (§4.3, §4.5).
+  const wide = () => window.matchMedia?.('(min-width: 1024px)').matches ?? true;
+  const settingsMoves = $derived(pattern === '/settings' && wide());
 
   // "Loading…" only after 400 ms (§13.2), so a fast start shows nothing at all.
   let slow = $state(false);
@@ -121,23 +133,21 @@
       if (!isPublic || pattern === '/setup') router.navigate(`/login?next=${encodeURIComponent(here)}`, { replace: true });
     } else if (isPublic && !(pattern === '/setup' && session.finishing)) {
       router.navigate(safeNext(router.query.get('next')), { replace: true });
-    } else if (pattern === '/settings') {
+    } else if (settingsMoves) {
       router.navigate(settingsHome(session.isAdmin), { replace: true });
     }
   });
 </script>
 
 {#snippet screen()}
-  {#if moved || pattern === '/settings' || (pattern === '/dev/ui' && !Gallery)}
+  {#if moved || settingsMoves || (pattern === '/dev/ui' && !Gallery)}
     <!-- on its way to another address -->
+  {:else if forAdmins}
+    <NotFound admin={forAdmins} />
   {:else if current}
     <current.c params={current.params} />
   {:else}
-    <div class="page">
-      <h1 class="page-title" tabindex="-1">Page not found</h1>
-      <p class="mt-6 text-reading text-text">This page doesn't exist.</p>
-      <a href="/chat" class="btn btn-primary mt-4" onclick={router.link}>Go to chat</a>
-    </div>
+    <NotFound />
   {/if}
 {/snippet}
 
@@ -151,4 +161,5 @@
   <Shell>{@render screen()}</Shell>
 {/if}
 
-<Toasts />
+<ToastHost inset={bare || !session.me ? 'page' : 'main'} />
+<LiveRegion />
