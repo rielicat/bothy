@@ -29,6 +29,7 @@ import (
 	"github.com/rielicat/bothy/internal/memory"
 	"github.com/rielicat/bothy/internal/policy"
 	"github.com/rielicat/bothy/internal/provider"
+	"github.com/rielicat/bothy/internal/release"
 	"github.com/rielicat/bothy/internal/sandbox"
 	"github.com/rielicat/bothy/internal/scheduler"
 	"github.com/rielicat/bothy/internal/skills"
@@ -63,6 +64,7 @@ type app struct {
 	runner    *agent.Runner
 	hub       *channel.Hub
 	scheduler *scheduler.Service
+	release   *release.Service
 	doctor    *doctor.Runner
 	api       *httpapi.Server
 	restart   chan struct{} // POST /api/admin/restart
@@ -208,12 +210,16 @@ func (a *app) buildRest(ctx context.Context) error {
 		Bus: a.bus, Audit: a.audit, Clock: a.clock, Log: a.log}); err != nil {
 		return err
 	}
+	if a.release, err = release.New(release.Deps{Config: a.cfg, Store: a.db, Deploys: a.db.Releases(), Vault: a.vault,
+		HTTP: a.egress.SystemClient, Messenger: a.hub, Bus: a.bus, Audit: a.audit, Redactor: a.redactor, Clock: a.clock, Log: a.log}); err != nil {
+		return err
+	}
 	// Late tool registration: every provider's tools, then builtins. Snapshots are
 	// frozen per session, so registration must finish before the API serves.
 	// MCP tools register themselves later through Deps.Registry (lazy tools).
 	var all []core.Tool
 	all = append(all, tools.Builtins(tools.BuiltinDeps{Config: a.cfg, Messenger: a.hub, Sandbox: a.sandbox, Clock: a.clock})...)
-	for _, p := range []core.ToolProvider{a.sandbox, a.egress, a.memory, a.skills, a.scheduler} {
+	for _, p := range []core.ToolProvider{a.sandbox, a.egress, a.memory, a.skills, a.scheduler, a.release} {
 		all = append(all, p.Tools()...)
 	}
 	for _, t := range all {
@@ -222,13 +228,13 @@ func (a *app) buildRest(ctx context.Context) error {
 		}
 	}
 	checks := doctor.ConfigChecks(a.cfg) // config.errors, config.safe_mode
-	for _, p := range []core.CheckProvider{a.db, a.vault, a.auth, a.policy, a.egress, a.sandbox, a.llm, a.memory, a.skills, a.mcp, a.hub} {
+	for _, p := range []core.CheckProvider{a.db, a.vault, a.auth, a.policy, a.egress, a.sandbox, a.llm, a.memory, a.skills, a.mcp, a.hub, a.release} {
 		checks = append(checks, p.Checks()...)
 	}
 	a.doctor = doctor.New(checks)
 	a.api, err = httpapi.New(httpapi.Deps{Config: a.cfg, Store: a.db, Auth: a.auth, Vault: a.vault, Bus: a.bus, Runner: a.runner,
 		Approvals: a.approvals, Policy: a.policy, Tools: a.registry, LLM: a.llm, Budget: a.budget, Memory: a.memory, Skills: a.skills, MCP: a.mcp,
-		Scheduler: a.scheduler, Hub: a.hub, Sandbox: a.sandbox, Egress: a.egress, Doctor: a.doctor, Audit: a.audit,
+		Scheduler: a.scheduler, Hub: a.hub, Sandbox: a.sandbox, Egress: a.egress, Doctor: a.doctor, Audit: a.audit, Deploys: a.db.Releases(),
 		WebUI: webui.Handler(), Version: version, DataDir: dirs.Data, WorkDir: dirs.Work, Restart: a.requestRestart,
 		Clock: a.clock, Log: a.log})
 	return err
@@ -281,7 +287,7 @@ func serve(ctx context.Context, args []string) error {
 		func(ctx context.Context) error { return a.db.RunRetention(ctx, a.cfg) }, a.api.Serve,
 	}
 	if !a.cfg.Effective().SafeMode { // safe mode: no chat intake, schedules or MCP (§7.2)
-		loops = append(loops, a.hub.Run, a.scheduler.Run, a.mcp.Start)
+		loops = append(loops, a.hub.Run, a.scheduler.Run, a.mcp.Start, a.release.Run)
 	}
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)

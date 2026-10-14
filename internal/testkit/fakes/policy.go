@@ -342,8 +342,18 @@ func (ap *Approvals) RenderCard(r core.ApprovalRequest) core.Card {
 	return c
 }
 
+// visible mirrors the store's approval Viewer rule, multi-approver voters
+// included.
 func visible(v core.Viewer, a *core.Approval) bool {
-	return v.Can(a.Principal) || v.Admin && a.Approver.AdminOnly
+	if v.Can(a.Principal) || v.Admin && a.Approver.AdminOnly {
+		return true
+	}
+	if v.User == "" || !a.Approver.Multi() {
+		return false
+	}
+	return slices.Contains(a.Approver.Users, v.User) || slices.ContainsFunc(a.Approver.Roles, func(r core.Role) bool {
+		return r == core.RoleMember || v.Admin && (r == core.RoleAdmin || r == core.RoleOwner)
+	})
 }
 
 func (ap *Approvals) Get(_ context.Context, v core.Viewer, id core.ApprovalID) (*core.Approval, error) {

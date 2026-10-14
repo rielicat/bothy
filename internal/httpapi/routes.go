@@ -79,6 +79,9 @@ func (s *Server) routeTable() []route {
 		{pattern: "GET /api/approvals", access: accessUser, h: s.listApprovals},
 		{pattern: "GET /api/approvals/{id}", access: accessUser, h: s.getApproval},
 		{pattern: "POST /api/approvals/{id}", access: accessUserCookie, h: s.resolveApproval},
+		{pattern: "GET /api/approvals/{id}/votes", access: accessUser, h: s.approvalVotes},
+		{pattern: "GET /api/releases", access: accessUser, h: s.releases},
+		{pattern: "GET /api/releases/deploys", access: accessUser, h: s.releaseDeploys},
 
 		{pattern: "GET /api/grants", access: accessUser, h: s.listGrants},
 		{pattern: "POST /api/grants", access: accessAdmin, h: s.createGrant},

@@ -287,6 +287,7 @@ export const EvRunParked: EventType = "run.parked";
 export const EvRunFinished: EventType = "run.finished";
 export const EvApprovalRequested: EventType = "approval.requested";
 export const EvApprovalResolved: EventType = "approval.resolved";
+export const EvApprovalVoted: EventType = "approval.voted";
 export const EvMessageCreated: EventType = "message.created";
 export const EvSessionUpdated: EventType = "session.updated";
 export const EvMemoryUpdated: EventType = "memory.updated";
@@ -544,6 +545,10 @@ export interface Principal {
  * except in exactly two places: approvals whose approver is AdminOnly
  * (ApprovalRepo.Get/Pending/Recent also return those), and egress rows of the
  * system dialer (principal_id ""). It never grants access to message content.
+ * ApprovalRepo.Get/Pending/Recent also return multi-approver approvals that
+ * name User in ApproverReq.Users or name a role the viewer may hold (member
+ * for anyone, owner/admin when Admin is set): the approvers of another
+ * principal's request must see its card to vote on it.
  */
 export interface Viewer {
   user_id: UserID;
@@ -690,10 +695,30 @@ export interface PolicyInput {
 }
 /**
  * ApproverReq says who may resolve an approval.
+ * A multi-approver approval (Users or Roles set, User empty, AdminOnly false)
+ * is resolved by votes: it is allowed once Needed() distinct eligible users
+ * have voted allow_once, and denied by the first eligible deny. Requester's
+ * allow never counts; the requester may still deny (withdraw). Eligibility is
+ * evaluated when the vote is cast, so a disabled or demoted account loses it.
  */
 export interface ApproverReq {
-  user_id: UserID; // the principal's user; empty when AdminOnly
+  user_id: UserID; // the principal's user; empty when AdminOnly or multi-approver
   admin_only: boolean; // admin-class actions: any owner/admin
+  users?: UserID[]; // multi-approver: users named by id
+  roles?: Role[]; // multi-approver: any user holding at least one of these roles
+  required?: number /* int */; // multi-approver: distinct allow votes needed (0 means 1)
+  requester?: UserID; // multi-approver: whose allow never counts
+}
+/**
+ * ApprovalVote is one approver's vote on a multi-approver approval. A user
+ * votes at most once per approval.
+ */
+export interface ApprovalVote {
+  approval_id: ApprovalID;
+  user_id: UserID;
+  choice: Choice; // allow_once | deny
+  via: string; // web | telegram | discord | slack
+  at: string /* RFC 3339 */;
 }
 export interface Decision {
   verdict: Verdict;
@@ -780,6 +805,11 @@ export interface Approval {
   expires_at: string /* RFC 3339 */;
   park_until?: string /* RFC 3339 */;
   decided_at?: string /* RFC 3339 */;
+  /**
+   * Votes of a multi-approver approval, oldest first. Approvals.Get, Pending,
+   * Recent and Resolve fill it; repositories leave it empty.
+   */
+  votes?: ApprovalVote[];
 }
 export interface ApprovalRequest {
   Run: RunID;
@@ -1031,6 +1061,90 @@ export interface ProviderHealth {
  * streamed event.
  */
 export type LLM = any;
+
+//////////
+// source: internal/core/release.go
+
+/**
+ * PrefixDeploy is the id prefix of deploy records (dep_<26>).
+ */
+export const PrefixDeploy = "dep";
+/**
+ * WorkflowDispatcher starts GitHub Actions workflow runs and reads their
+ * status for release_deploy and release_status. It runs in the gateway with
+ * the GitHub token from the vault; the token never enters a box.
+ */
+export type WorkflowDispatcher = any;
+export interface WorkflowDispatch {
+  Repo: string; // owner/name
+  Workflow: string; // workflow file name (deploy.yml) or numeric id
+  Ref: string; // branch or tag
+  Inputs: { [key: string]: string}; // workflow_dispatch inputs
+}
+/**
+ * WorkflowRun holds only structured fields of a GitHub Actions run: names and
+ * titles are authored by whoever can push to the repository, so they are left
+ * out to keep the result trusted.
+ */
+export interface WorkflowRun {
+  id: number /* int64 */;
+  repo: string;
+  number?: number /* int */;
+  status: string; // queued | in_progress | completed | waiting | requested | pending
+  conclusion?: string; // success | failure | cancelled | timed_out | action_required | neutral | skipped | stale | startup_failure
+  head_sha?: string;
+  url?: string; // web page of the run
+  created_at: string /* RFC 3339 */;
+  updated_at: string /* RFC 3339 */;
+}
+export type DeployStatus = string;
+export const DeployDispatched: DeployStatus = "dispatched";
+export const DeployRunning: DeployStatus = "running";
+export const DeploySucceeded: DeployStatus = "succeeded";
+export const DeployFailed: DeployStatus = "failed";
+export const DeployUnknown: DeployStatus = "unknown";
+/**
+ * Deploy is one approved release_deploy and what became of its workflow run.
+ */
+export interface Deploy {
+  id: string; // dep_<26>
+  environment: string;
+  repo: string;
+  workflow: string;
+  ref: string;
+  principal_id: PrincipalID;
+  session_id: SessionID;
+  run_id?: RunID; // the agent run that dispatched it
+  approval_id?: ApprovalID;
+  requested_by: UserID;
+  approved_by: UserID[];
+  chat?: ChatRef; // originating chat; the outcome is posted there
+  status: DeployStatus;
+  workflow_run_id?: number /* int64 */;
+  run_url?: string;
+  conclusion?: string;
+  error?: string;
+  created_at: string /* RFC 3339 */;
+  updated_at: string /* RFC 3339 */;
+  finished_at: string /* RFC 3339 */;
+}
+export interface DeployFilter {
+  Environment: string; // "" = all
+  Open: boolean; // only deploys still followed (dispatched or running)
+  Page: Page; // Before = created_at unix ms
+}
+/**
+ * ReleaseRepo stores deploy records. Get and List return rows of the
+ * Viewer's principals; viewers with Admin also see everyone's (deploys are
+ * operational records, never message content).
+ */
+export type ReleaseRepo = any;
+/**
+ * ReleaseStore is implemented by the stores that keep deploy records (the
+ * SQLite store and memstore). It stays outside Store so other Store
+ * implementations need not change.
+ */
+export type ReleaseStore = any;
 
 //////////
 // source: internal/core/sandbox.go
@@ -1629,6 +1743,12 @@ export const ActSkill: ActionKind = "skill";
 export const ActSearch: ActionKind = "search";
 export const ActGeneric: ActionKind = "generic";
 /**
+ * ActRelease dispatches a deploy workflow (release_deploy). Policy gives
+ * it its own floor: never auto, never via rules or grants, only in
+ * interactive runs, approved by the environment's approvers.
+ */
+export const ActRelease: ActionKind = "release";
+/**
  * Action is the structured, system-normalized form of a tool call. Policy,
  * approval cards, audit and loop detection consume only this, and Exec receives
  * exactly the Action that was decided (and, for parked runs, persisted).
@@ -2078,4 +2198,59 @@ export interface SecurityAuditReq {
 export interface DoctorReport {
   findings: Finding[];
   fixed?: string[];
+}
+
+//////////
+// source: internal/httpapi/dto/releases.go
+
+/**
+ * ApprovalVotes is GET /api/approvals/{id}/votes: the vote state of a
+ * multi-approver approval as the caller sees it ("1 of 2 approvals").
+ */
+export interface ApprovalVotes {
+  approval_id: ApprovalID;
+  status: ApprovalStatus;
+  required: number /* int */; // distinct approvals needed
+  approvals: number /* int */; // allow votes so far
+  votes: ApprovalVoteView[]; // oldest first
+  approvers: string; // who may approve, e.g. "Alice, Bob or any admin"
+  requester: UserID;
+  requester_name: string;
+  /**
+   * CanVote: the caller may still allow or deny (eligible approver, not the
+   * requester, not voted yet, approval open). CanWithdraw: the caller asked
+   * and may still deny.
+   */
+  can_vote: boolean;
+  can_withdraw: boolean;
+  your_vote?: Choice;
+}
+export interface ApprovalVoteView {
+  user_id: UserID;
+  name: string;
+  choice: Choice; // allow_once | deny
+  via: string; // web | telegram | discord | slack
+  at: string /* RFC 3339 */;
+}
+/**
+ * Releases is GET /api/releases: the configured environments and the newest
+ * deploys the caller may see (their own; everyone's for admins).
+ */
+export interface Releases {
+  environments: ReleaseEnvironment[];
+  deploys: (Deploy | undefined)[];
+}
+export interface ReleaseEnvironment {
+  name: string;
+  repo: string;
+  workflow: string;
+  ref_pattern: string;
+  inputs: { [key: string]: string};
+  required: number /* int */; // approvers besides the requester
+  approvers: ReleaseApprover[];
+}
+export interface ReleaseApprover {
+  kind: string; // user | role
+  id: string; // user id or role name
+  name: string; // display name, or the role
 }
