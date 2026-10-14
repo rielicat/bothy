@@ -21,9 +21,30 @@ const (
 // ParseAWSSecretRef also checks the ARN, the query and the lengths.
 const awsRefPattern = `aws-sm:[A-Za-z0-9/_+=.@!:-]+(?:#[A-Za-z0-9/_+=.@-]+)?(?:\?[A-Za-z0-9_+=.@,&-]+)?(?:#[A-Za-z0-9/_+=.@-]+)?`
 
-// awsSecretARNRe is a Secrets Manager secret ARN; the region it names is
-// where the secret must be read.
-var awsSecretARNRe = regexp.MustCompile(`^arn:aws[a-z-]*:secretsmanager:([a-z]{2}(?:-[a-z]+)+-[0-9]{1,2}):[0-9]{12}:secret:[A-Za-z0-9/_+=.@!-]+$`)
+// awsSecretARNRe is a Secrets Manager secret ARN in a partition whose
+// endpoints Bothy builds (awssm.DNSSuffix); the region it names is where
+// the secret must be read.
+var awsSecretARNRe = regexp.MustCompile(`^arn:(aws|aws-cn|aws-us-gov):secretsmanager:([a-z]{2}(?:-[a-z]+)+-[0-9]{1,2}):[0-9]{12}:secret:[A-Za-z0-9/_+=.@!-]+$`)
+
+// ValidAWSSecretsRegion reports whether aws-sm references can be read in
+// region: a region name outside the isolated partitions.
+func ValidAWSSecretsRegion(region string) bool {
+	return ValidAWSRegion(region) && awsPartition(region) != ""
+}
+
+// awsPartition is the partition of a region; "" for the isolated ones,
+// whose endpoints are not under amazonaws.com.
+func awsPartition(region string) string {
+	switch {
+	case strings.HasPrefix(region, "cn-"):
+		return "aws-cn"
+	case strings.HasPrefix(region, "us-gov-"):
+		return "aws-us-gov"
+	case strings.Contains(region, "-iso"):
+		return ""
+	}
+	return "aws"
+}
 
 // AWSSecretRef is a parsed "aws-sm:<secret name or ARN>[#<json key>][?region=<region>&profile=<profile>]".
 type AWSSecretRef struct {
@@ -40,7 +61,7 @@ func (r AWSSecretRef) RegionOr(def string) string {
 		return r.Region
 	}
 	if m := awsSecretARNRe.FindStringSubmatch(r.SecretID); m != nil {
-		return m[1]
+		return m[2]
 	}
 	return def
 }
@@ -100,7 +121,7 @@ func FindAWSSecretRefs(s string) ([]AWSSecretRefAt, error) {
 			break
 		}
 		start := i + j
-		if start > 0 && refWordByte(s[start-1]) {
+		if start > 0 && refWordByte(s[start-1]) || followsSecretMarker(s, start) {
 			i = start + len(AWSSecretPrefix)
 			continue
 		}
@@ -117,6 +138,14 @@ func FindAWSSecretRefs(s string) ([]AWSSecretRefAt, error) {
 // HasSecretRef reports whether s holds a secret:<name> or aws-sm reference.
 func HasSecretRef(s string) bool {
 	return strings.Contains(s, "secret:") || strings.Contains(s, AWSSecretPrefix)
+}
+
+// followsSecretMarker reports whether the aws-sm marker at start is the
+// name of a secret:<name> reference ("secret:aws-sm" then text), which the
+// vault resolves; reading it as an aws-sm reference as well would overlap.
+func followsSecretMarker(s string, start int) bool {
+	const m = "secret:"
+	return strings.HasSuffix(s[:start], m) && (start == len(m) || !refWordByte(s[start-len(m)-1]))
 }
 
 func refWordByte(c byte) bool {
@@ -156,8 +185,12 @@ func scanAWSSecretRef(s string) (int, AWSSecretRef, error) {
 	case len(r.SecretID) > maxAWSSecretID:
 		return 0, r, fmt.Errorf("the secret name or ARN is longer than %d characters", maxAWSSecretID)
 	case strings.HasPrefix(r.SecretID, "arn:"):
-		if !awsSecretARNRe.MatchString(r.SecretID) {
+		m := awsSecretARNRe.FindStringSubmatch(r.SecretID)
+		if m == nil {
 			return 0, r, errors.New("the ARN is not a Secrets Manager secret ARN (arn:aws:secretsmanager:<region>:<account>:secret:<name>)")
+		}
+		if awsPartition(m[2]) != m[1] {
+			return 0, r, errors.New("the ARN's partition does not match its region: arn:aws-cn for cn-* regions, arn:aws-us-gov for us-gov-*, arn:aws elsewhere")
 		}
 	case strings.Contains(r.SecretID, ":"):
 		return 0, r, errors.New("a secret name cannot contain ':'; use the name or the full ARN")
@@ -199,8 +232,8 @@ func parseAWSQuery(q string, r *AWSSecretRef) error {
 		seen = append(seen, k)
 		switch k {
 		case "region":
-			if !ValidAWSRegion(v) {
-				return errors.New("region= needs an AWS region name such as us-west-2")
+			if !ValidAWSSecretsRegion(v) {
+				return errors.New("region= needs an AWS region name such as us-west-2 (not one of an isolated partition)")
 			}
 			r.Region = v
 		case "profile":

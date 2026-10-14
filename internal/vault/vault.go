@@ -401,6 +401,12 @@ func findRefs(s string) ([]refSpan, error) {
 		i = end
 	}
 	slices.SortFunc(out, func(a, b refSpan) int { return a.start - b.start })
+	// Resolve splices the spans in order; overlapping ones would slice backwards.
+	for i := 1; i < len(out); i++ {
+		if out[i].start < out[i-1].end {
+			return nil, fmt.Errorf("vault: overlapping secret references: %w", core.ErrInvalid)
+		}
+	}
 	return out, nil
 }
 

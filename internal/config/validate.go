@@ -464,8 +464,8 @@ func validateVault(c *Config, v *vctx) {
 
 func validateSecrets(c *Config, v *vctx) {
 	a := c.Secrets.AWS
-	if a.Region != "" && !ValidAWSRegion(a.Region) {
-		v.add("secrets.aws.region", "%q is not an AWS region name (for example us-west-2)", a.Region)
+	if a.Region != "" && !ValidAWSSecretsRegion(a.Region) {
+		v.add("secrets.aws.region", "%q is not an AWS region name (for example us-west-2) outside the isolated partitions", a.Region)
 	}
 	if a.Profile != "" && !ValidAWSProfile(a.Profile) {
 		v.add("secrets.aws.profile", "invalid profile name %q", a.Profile)

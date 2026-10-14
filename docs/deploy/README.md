@@ -64,8 +64,10 @@ Bothy's configuration takes a secret: `aws-sm:<name or ARN>`, with
 platform role when they are first used, through its egress control to
 `secretsmanager.<region>.amazonaws.com` only, keeps them in memory for
 `secrets.aws.cache_ttl` (5 minutes) and never writes them to disk, the
-database or a backup. Rotation needs no restart: a new version is read when
-the cached value expires. Admins see the references in Settings → Vault
+database or a backup. Rotation needs no restart for provider keys, search
+keys and GitHub tokens: a new version is read when the cached value expires
+(providers keep a key 5 more minutes); a channel reads its token when it
+starts, so restart the channel after rotating one. Admins see the references in Settings → Vault
 (source `aws-sm`, no hint), `bothy doctor` checks the role resolves
 (`secrets.aws_access`), and each use is audited as `secret.use` with the
 reference, never the value.
@@ -84,7 +86,8 @@ channels:
   slack: {enabled: true, bot_token: "aws-sm:bothy/providers#slack_bot_token", app_token: "aws-sm:bothy/providers#slack_app_token"}
 ```
 
-[`iam-secrets-policy.json`](../../deploy/aws/iam-secrets-policy.json) allows `secretsmanager:GetSecretValue` on `bothy/*`. Secrets
+[`iam-secrets-policy.json`](../../deploy/aws/iam-secrets-policy.json) allows `secretsmanager:GetSecretValue` on `bothy/*`; keep it that narrow,
+since any Bothy admin can reference any secret the role can read. Secrets
 encrypted with the default `aws/secretsmanager` key need nothing more; for a
 customer managed key also allow `kms:Decrypt` on that key with the condition
 `"kms:ViaService": "secretsmanager.<region>.amazonaws.com"`. Where the VPC

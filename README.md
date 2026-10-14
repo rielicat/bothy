@@ -257,12 +257,16 @@ mcp:
   `secretsmanager:GetSecretValue` on those secrets, and `kms:Decrypt` when a
   secret uses a customer managed key
   ([`deploy/aws/iam-secrets-policy.json`](deploy/aws/iam-secrets-policy.json)).
+  Grant only the secrets Bothy uses: any Bothy admin can reference any secret
+  the role can read, so on a laptop use a profile made for Bothy rather than
+  your own.
 - **Network:** only the gateway calls Secrets Manager, through its egress
   control and only `secretsmanager.<region>.amazonaws.com`; tool boxes never
   see the credentials or the values.
 - **Values** are fetched on first use, reused for `cache_ttl`, never written to
   disk or the database, and masked in logs, tool output and chat. A rotated
-  secret is picked up when its cached value expires. Every use is audited as
+  secret is picked up when its cached value expires (providers within a
+  further 5 minutes; channel tokens when the channel restarts). Every use is audited as
   `secret.use` with the reference and its purpose, never the value.
 - **Visibility:** Settings → Vault and `bothy vault list` show the references
   as source `aws-sm`, without the last-four hint vault secrets get, to admins

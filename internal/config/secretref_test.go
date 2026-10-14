@@ -27,7 +27,9 @@ func TestParseAWSSecretRef(t *testing.T) {
 		{"aws-sm:" + testARN + "?region=eu-west-1", AWSSecretRef{SecretID: testARN, Region: "eu-west-1"}, "eu-west-1"},
 		{"aws-sm:a+b=c.d@e-f_g", AWSSecretRef{SecretID: "a+b=c.d@e-f_g"}, "us-west-2"},
 		// Secrets other AWS services manage are named "<service>!…".
-		{"aws-sm:rds!cluster-b7b9a0e0-d68a#username", AWSSecretRef{SecretID: "rds!cluster-b7b9a0e0-d68a", Key: "username"}, "us-west-2"},
+		{"aws-sm:rds!cluster-0a1b2c3d-4e5f#username", AWSSecretRef{SecretID: "rds!cluster-0a1b2c3d-4e5f", Key: "username"}, "us-west-2"},
+		{"aws-sm:arn:aws-cn:secretsmanager:cn-north-1:123456789012:secret:x", AWSSecretRef{SecretID: "arn:aws-cn:secretsmanager:cn-north-1:123456789012:secret:x"}, "cn-north-1"},
+		{"aws-sm:arn:aws-us-gov:secretsmanager:us-gov-west-1:123456789012:secret:x", AWSSecretRef{SecretID: "arn:aws-us-gov:secretsmanager:us-gov-west-1:123456789012:secret:x"}, "us-gov-west-1"},
 	} {
 		got, err := ParseAWSSecretRef(tc.in)
 		if err != nil || got != tc.want {
@@ -46,6 +48,12 @@ func TestParseAWSSecretRef(t *testing.T) {
 		"aws-sm:prod/db?zone=a", "aws-sm:prod/db?region=us-east-1&region=us-east-2", "aws-sm:prod/db?profile=a]b",
 		"aws-sm:prod:db", "aws-sm:arn:aws:s3:::bucket", "aws-sm:prod/db#a#b", "aws-sm:prod/db password",
 		"aws-sm:" + strings.Repeat("a", 2049), "aws-sm:x#" + strings.Repeat("k", 257),
+		// The partition must be one whose endpoints Bothy builds, and the region's own.
+		"aws-sm:arn:awsx:secretsmanager:us-west-2:123456789012:secret:x",
+		"aws-sm:arn:aws-cn:secretsmanager:us-west-2:123456789012:secret:x",
+		"aws-sm:arn:aws:secretsmanager:cn-north-1:123456789012:secret:x",
+		"aws-sm:arn:aws:secretsmanager:us-iso-east-1:123456789012:secret:x",
+		"aws-sm:x?region=us-iso-east-1",
 	} {
 		if r, err := ParseAWSSecretRef(in); err == nil {
 			t.Errorf("ParseAWSSecretRef(%q) = %+v, want an error", in, r)
@@ -71,6 +79,13 @@ func TestFindAWSSecretRefs(t *testing.T) {
 	}
 	if refs, err := FindAWSSecretRefs("Bearer secret:x"); err != nil || len(refs) != 0 {
 		t.Errorf("no aws refs: %+v %v", refs, err)
+	}
+	// "secret:aws-sm" is a vault reference to the secret named aws-sm; the
+	// marker after it is that name, not a second, overlapping reference.
+	for in, want := range map[string]int{"Key secret:aws-sm:prod/x": 0, "secret:aws-sm:prod/x": 0, "mysecret:aws-sm:prod/x": 1, "secret:x aws-sm:prod/x": 1} {
+		if refs, err := FindAWSSecretRefs(in); err != nil || len(refs) != want {
+			t.Errorf("FindAWSSecretRefs(%q) = %+v %v, want %d", in, refs, err, want)
+		}
 	}
 	if !HasSecretRef("Bearer aws-sm:x") || !HasSecretRef("secret:x") || HasSecretRef("Bearer abc") {
 		t.Error("HasSecretRef")
@@ -164,6 +179,13 @@ func TestAWSSecretRefValidation(t *testing.T) {
 		if len(errorsMatching(eff, w)) != 1 {
 			t.Errorf("missing error %q in %+v", w, eff.Errors)
 		}
+	}
+
+	// Isolated-partition endpoints are not under amazonaws.com.
+	dir = t.TempDir()
+	writeFile(t, filepath.Join(dir, "bothy.yaml"), "secrets:\n  aws: {region: us-iso-east-1}\n")
+	if eff = load(t, dir).Effective(); len(errorsMatching(eff, `secrets.aws.region: "us-iso-east-1" is not an AWS region name`)) != 1 {
+		t.Errorf("isolated region accepted: %+v", eff.Errors)
 	}
 }
 

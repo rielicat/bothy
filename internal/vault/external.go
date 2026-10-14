@@ -167,6 +167,12 @@ func (v *Vault) getAWS(ctx context.Context, r config.AWSSecretRef, purpose strin
 		return fail(&ExternalError{Ref: ref, Code: core.FailUnknown, errs: []error{core.ErrInvalid},
 			Msg: "no AWS region for " + awssm.ScrubAccounts(ref) + ": set secrets.aws.region (for example us-west-2) or add ?region=<region> to the reference"})
 	}
+	// The region becomes the endpoint's host name; config validation drops
+	// a malformed secrets.aws.region, but nothing here relies on it.
+	if !config.ValidAWSSecretsRegion(region) {
+		return fail(&ExternalError{Ref: ref, Code: core.FailUnknown, errs: []error{core.ErrInvalid},
+			Msg: "secrets.aws.region is not an AWS region name (for example us-west-2)"})
+	}
 	key := awsCacheKey(region, profile, r.SecretID)
 	ent, cached, err := v.awsLoad(ctx, key, ttl, func(fctx context.Context) (*awssm.Value, error) {
 		return v.fetchAWS(fctx, region, profile, r.SecretID)

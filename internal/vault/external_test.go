@@ -313,6 +313,37 @@ func TestAWSRefsErrors(t *testing.T) {
 	}
 }
 
+// TestAWSRefsAfterSecretMarker: "secret:aws-sm:…" names the vault secret
+// aws-sm followed by text, as before aws-sm references existed; reading it
+// as two overlapping references panicked.
+func TestAWSRefsAfterSecretMarker(t *testing.T) {
+	f, h := newAWSFixture(t)
+	v := f.openAWS(h)
+	mustPut(t, v, core.GlobalScope, "aws-sm", "vault-value-0123")
+	if got := resolve(t, v, "Key secret:aws-sm:prod/llm", ""); got != "Key vault-value-0123:prod/llm" {
+		t.Errorf("Resolve = %q", got)
+	}
+	if n := len(h.sm.requests()); n != 0 {
+		t.Errorf("AWS was asked: %v", h.sm.requests())
+	}
+}
+
+// TestAWSRefsRegionShape: the region is checked where it becomes a host
+// name, whatever the configuration layer let through.
+func TestAWSRefsRegionShape(t *testing.T) {
+	f, h := newAWSFixture(t)
+	f.cfg.Secrets.AWS.Region = "evil.example.com/x"
+	v := f.openAWS(h)
+	if _, err := v.Resolve(context.Background(), "aws-sm:prod/llm", "", "x"); !errors.Is(err, core.ErrInvalid) {
+		t.Errorf("Resolve = %v, want ErrInvalid", err)
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(h.dests) != 0 {
+		t.Errorf("egress was asked for %+v", h.dests)
+	}
+}
+
 func TestAWSRefsUnavailableOffline(t *testing.T) {
 	f, _ := newAWSFixture(t)
 	v := f.open()
