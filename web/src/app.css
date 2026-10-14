@@ -180,8 +180,9 @@
   .btn {
     @apply inline-flex h-9 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-md px-4 text-body font-medium whitespace-nowrap transition-colors duration-120 select-none pointer-coarse:h-11;
   }
+  /* Repeats the coarse size: as a later rule, h-8 would otherwise win on touch too (§16, 44 px targets). */
   .btn-sm {
-    @apply h-8 px-3;
+    @apply h-8 px-3 pointer-coarse:h-11;
   }
   .btn-primary {
     @apply bg-accent text-on-accent hover:bg-accent-hover active:bg-accent-active;
@@ -246,7 +247,7 @@
     @apply flex gap-6 overflow-x-auto border-b border-border [scrollbar-width:none];
   }
   .tab {
-    @apply -mb-px inline-flex h-10 items-center border-b-2 border-transparent text-body font-medium whitespace-nowrap text-muted hover:text-text aria-[current=page]:border-text aria-[current=page]:text-text;
+    @apply -mb-px inline-flex h-10 items-center border-b-2 border-transparent text-body font-medium whitespace-nowrap text-muted hover:text-text aria-[current=page]:border-text aria-[current=page]:text-text pointer-coarse:h-11;
   }
 
   .link {
