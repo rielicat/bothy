@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"cmp"
 	"context"
 	"slices"
 	"strings"
@@ -102,8 +103,8 @@ func (s *Server) annotateTools(ctx context.Context, v core.Viewer, msgs []*core.
 			shown := ap
 			if shown == nil && len(held) > 0 {
 				shown = held[len(held)-1]
-				if i := slices.IndexFunc(held, waiting); i >= 0 {
-					shown = held[i]
+				if j := slices.IndexFunc(held, waiting); j >= 0 {
+					shown = held[j]
 				}
 			}
 			if shown != nil {
@@ -117,7 +118,9 @@ func (s *Server) annotateTools(ctx context.Context, v core.Viewer, msgs []*core.
 			m.Parts[i] = p
 		}
 	}
-	slices.SortStableFunc(approvals, func(a, b *core.Approval) int { return a.CreatedAt.Compare(b.CreatedAt) })
+	slices.SortFunc(approvals, func(a, b *core.Approval) int {
+		return cmp.Or(a.CreatedAt.Compare(b.CreatedAt), cmp.Compare(a.ID, b.ID))
+	})
 	if err := s.withVotes(ctx, approvals); err != nil {
 		return nil, err
 	}

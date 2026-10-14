@@ -21,6 +21,7 @@ type transcriptFixture struct {
 	sess *core.Session
 	run  *core.Run
 	step int
+	asks int // approvals stored, each a millisecond after the last
 }
 
 func newTranscript(t *testing.T, h *harness, status core.RunStatus) *transcriptFixture {
@@ -76,7 +77,8 @@ func (f *transcriptFixture) call(id, tool, path string, st core.ToolCallStatus, 
 func (f *transcriptFixture) approval(path string, toolCallID ...string) *core.Approval {
 	f.h.t.Helper()
 	payload := json.RawMessage(`{"path":"` + path + `"}`)
-	now := time.Now()
+	f.asks++
+	now := time.Now().Add(time.Duration(f.asks) * time.Millisecond)
 	tc := core.NewID(core.PrefixToolCall)
 	if len(toolCallID) > 0 {
 		tc = toolCallID[0]
