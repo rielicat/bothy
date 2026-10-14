@@ -39,6 +39,14 @@ describe('Dialog', () => {
     expect(onclose).toHaveBeenCalledOnce();
   });
 
+  it('stays open when it is opened again before the last close event arrives', async () => {
+    await openDialog();
+    // A browser queues the close event; one that lands after a quick reopen must not close the dialog.
+    await fireEvent(dialog(), new Event('close'));
+    expect(dialog().open).toBe(true);
+    expect(screen.getByTestId('state').textContent).not.toBe('closed');
+  });
+
   it('closes from the footer and from the close button', async () => {
     await openDialog();
     await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));

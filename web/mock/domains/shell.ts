@@ -148,6 +148,17 @@ overlay(
     json(res, 200, { items });
   },
 );
+// The team's inbox is those two requests and nothing to review, so the counts match the list.
+overlay('GET', '/api/inbox', team, (req, res) => {
+  const base = approvalFixtures[0];
+  const asks = idleChats(req)
+    ? []
+    : [
+        { ...base, id: 'apr_01jteamlaunch000000000000000', session_id: T.launch, created_at: ago(20) },
+        { ...base, id: 'apr_01jteambrief0000000000000000', session_id: ids.brief, created_at: ago(40) },
+      ];
+  json(res, 200, { items: asks.map((a) => ({ id: a.id, type: 'approval', question: a.card.question ?? a.card.title, for_you: true, created_at: a.created_at, approval: a })) });
+});
 overlay('GET', '/api/search', team, (_q, res, _m, q) => {
   const term = (q.get('q') ?? '').toLowerCase();
   const hits: SearchHit[] = [];

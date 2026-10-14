@@ -126,6 +126,10 @@
     outline: 2px solid var(--color-focus);
     outline-offset: 2px;
   }
+  /* Route changes move focus to the page heading for screen readers (§16); it is not a control, so it draws no ring. */
+  :is(h1, h2)[tabindex='-1']:focus-visible {
+    outline: none;
+  }
   ::selection {
     background: var(--color-accent-subtle);
   }

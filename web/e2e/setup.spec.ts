@@ -95,6 +95,41 @@ test('a token link and detected AWS reach the first chat in 3 screens, 3 typed v
   expect(problems).toEqual([]);
 });
 
+test('a pasted key reaches the first chat in 3 screens and 4 typed values', async ({ page }) => {
+  const problems = watch(page);
+  const titles: string[] = [];
+  let typed = 0;
+  const type = async (label: string, value: string) => {
+    await page.getByLabel(label, { exact: true }).fill(value);
+    typed++;
+  };
+  const screenTitle = async (title: string) => {
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(title);
+    titles.push(title);
+  };
+
+  await page.goto(LINK('setup,detect-none'));
+  await screenTitle('Create your account');
+  await type('Your name', 'Maya Chen');
+  await type('Username', 'maya');
+  await type('Password', 'Granite-River-42-Lantern');
+  await page.getByRole('button', { name: 'Create account' }).click();
+
+  await screenTitle('Connect an AI model');
+  await page.getByRole('radio', { name: /^Anthropic/ }).check();
+  await type('API key', 'sk-ant-api03-0123456789abcdefghij');
+  await expect(page.getByText(/^Connected\. Bothy will use Claude Sonnet 4\.6\./)).toBeVisible({ timeout: 10_000 });
+  await page.getByRole('button', { name: 'Continue' }).click();
+
+  await screenTitle('Bothy is ready');
+  await page.getByRole('button', { name: 'Start chatting' }).click();
+  await expect(page).toHaveURL(/\/chat$/);
+
+  expect(titles).toHaveLength(3);
+  expect(typed).toBe(4);
+  expect(problems).toEqual([]);
+});
+
 test('trying several providers writes nothing until Continue', async ({ page }) => {
   const seen: string[] = [];
   page.on('request', (r) => writes(r) && seen.push(`${r.method()} ${new URL(r.url()).pathname}`));

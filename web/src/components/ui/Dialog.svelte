@@ -63,6 +63,8 @@
   });
 
   function closed() {
+    // The close event is queued: a dialog opened again before it arrives stays open.
+    if (el?.open) return;
     open = false;
     if (opener?.isConnected) opener.focus();
     opener = null;
