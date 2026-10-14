@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { toaster } from '../../components/ui';
 import { setCsrf } from '../../lib/api/client';
 import { session } from '../../lib/stores/session.svelte';
 import { installApi, type Call } from '../../test/api';
@@ -139,6 +140,6 @@ describe('Settings → Models', () => {
     await waitFor(() => expect(patches(calls).at(-1)).toMatchObject({ 'providers.groq': { id: 'groq', type: 'openai_compat', api_key: 'secret:groq_api_key' } }), { timeout: 3000 });
     expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/vault/global/groq_api_key')).toBe(true);
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add a provider' })).toBeNull());
-    expect(await screen.findByText('Groq connected.')).toBeTruthy();
+    await waitFor(() => expect(toaster.current?.text).toBe('Groq connected.'));
   });
 });

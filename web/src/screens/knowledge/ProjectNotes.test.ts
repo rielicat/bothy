@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { resetMock } from '../../../mock/server';
+import { toaster } from '../../components/ui';
 import { approvals, session } from '../../lib/stores/session.svelte';
 import { installApi, type Call } from '../../test/api';
 import ProjectNotes from './ProjectNotes.svelte';
@@ -10,6 +11,7 @@ const params = { owner: 'acme', repo: 'web' };
 async function start(mock = '') {
   const calls = installApi();
   if (mock) resetMock({ mock });
+  toaster.dismiss();
   approvals.reset();
   session.ready = false;
   await session.init();
@@ -37,7 +39,7 @@ describe('Project notes', () => {
     await editAndSave('- Keep pull requests small.');
     await waitFor(() => expect(puts(calls)).toHaveLength(1));
     expect(puts(calls)[0].headers['if-match']).toMatch(/^"n[0-9a-f]+"$/);
-    expect(await screen.findByText('Saved.')).toBeTruthy();
+    await waitFor(() => expect(toaster.current?.text).toBe('Saved.'));
     expect(screen.queryByLabelText('Notes for acme/web')).toBeNull();
     expect(screen.getByText('Keep pull requests small.')).toBeTruthy();
   });
@@ -57,7 +59,7 @@ describe('Project notes', () => {
     await waitFor(() => expect(puts(calls)).toHaveLength(2));
     const second = puts(calls)[1].headers['if-match'];
     expect(second).not.toBe(first);
-    expect(await screen.findByText('Saved.')).toBeTruthy();
+    await waitFor(() => expect(toaster.current?.text).toBe('Saved.'));
   });
 
   it('leaves ⌘S / Ctrl S to the person while they compare versions', async () => {

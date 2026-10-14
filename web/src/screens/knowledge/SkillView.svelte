@@ -6,7 +6,6 @@
   import EmptyState from '../../components/ui/EmptyState.svelte';
   import Notice from '../../components/ui/Notice.svelte';
   import PageHeader from '../../components/ui/PageHeader.svelte';
-  import ToastHost from '../../components/ui/ToastHost.svelte';
   import { toast } from '../../components/ui/toast.svelte';
   import { api, ApiError } from '../../lib/api/client';
   import type { SkillDetail } from '../../lib/api/types.gen';
@@ -130,4 +129,3 @@
     {/if}
   </div>
 </div>
-<ToastHost />

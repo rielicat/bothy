@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Component } from 'svelte';
-  import { EmptyState, LiveRegion, Page, ToastHost } from '../../components/ui';
+  import { EmptyState, Page } from '../../components/ui';
   import { session } from '../../lib/stores/session.svelte';
   import Account from './Account.svelte';
   import General from './General.svelte';
@@ -99,7 +99,3 @@
 {:else}
   <t.c {params} />
 {/if}
-
-<!-- Until the v0.2 shell mounts its own; only the first host and region ever render (§15.3 rows 20, §16). -->
-<ToastHost />
-<LiveRegion />

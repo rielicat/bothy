@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { recentApprovals } from '../../mock/fixtures';
 import { resetMock } from '../../mock/server';
 import { votes } from '../components/approval/votes.svelte';
+import { live as region } from '../components/ui/live.svelte';
 import { router } from '../lib/router.svelte';
 import { approvals, session } from '../lib/stores/session.svelte';
 import { installApi, type Call } from '../test/api';
@@ -14,7 +15,8 @@ const PR = 'apr_01jpr00000000000000000000';
 
 let calls: Call[];
 const posts = () => calls.filter((c) => c.method === 'POST' && c.url.startsWith('/api/approvals/'));
-const live = () => document.querySelector('[aria-live="polite"]')?.textContent ?? '';
+// The shell (App) mounts the live region; announce() writes to its store.
+const live = () => region.polite;
 const expanded = () => document.querySelector<HTMLElement>('[data-row] article');
 const row = (id: string) => document.querySelector<HTMLElement>(`[data-row="a:${id}"]`)!;
 

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import { EmptyState, LiveRegion, Page, ToastHost } from '../../../components/ui';
+  import { EmptyState, Page } from '../../../components/ui';
   import { session } from '../../../lib/stores/session.svelte';
 
   // Every Connections page: the admin check (§4.11), the column, and the toast
@@ -33,5 +33,3 @@
 {:else}
   <Page {title} {actions} back={{ href: '/settings', label: 'Settings' }} class="{iconActions} lg:[&_a[href='/settings']]:hidden">{@render children()}</Page>
 {/if}
-<ToastHost />
-<LiveRegion />

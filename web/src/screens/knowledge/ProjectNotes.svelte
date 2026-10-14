@@ -10,7 +10,6 @@
   import Menu, { type MenuItem } from '../../components/ui/Menu.svelte';
   import Notice from '../../components/ui/Notice.svelte';
   import PageHeader from '../../components/ui/PageHeader.svelte';
-  import ToastHost from '../../components/ui/ToastHost.svelte';
   import { toast } from '../../components/ui/toast.svelte';
   import { ApiError } from '../../lib/api/client';
   import {
@@ -326,7 +325,6 @@
     {/if}
   </div>
 </div>
-<ToastHost />
 
 <DiscardDialog bind:open={discard} ondiscard={leaveEdit} />
 

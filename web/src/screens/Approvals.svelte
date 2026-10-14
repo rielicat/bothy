@@ -9,7 +9,6 @@
   import { announce } from '../components/ui/live.svelte';
   import Button from '../components/ui/Button.svelte';
   import EmptyState from '../components/ui/EmptyState.svelte';
-  import LiveRegion from '../components/ui/LiveRegion.svelte';
   import Page from '../components/ui/Page.svelte';
   import { prefersReducedMotion } from '../components/ui/layer';
   import Verbatim from '../components/Verbatim.svelte';
@@ -330,7 +329,6 @@
 {/snippet}
 
 <Page title="Approvals" {tabs} currentTab={done ? '/approvals?tab=done' : '/approvals'}>
-  <LiveRegion />
   {#if done}
     {#if recentFailed}
       <EmptyState text="This page didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: loadRecent, variant: 'secondary' }} />

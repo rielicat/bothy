@@ -2,7 +2,6 @@
   import type { Snippet } from 'svelte';
   import PageHeader from '../../components/ui/PageHeader.svelte';
   import Tabs from '../../components/ui/Tabs.svelte';
-  import ToastHost from '../../components/ui/ToastHost.svelte';
   import { router } from '../../lib/router.svelte';
   import HeaderSpacer from './HeaderSpacer.svelte';
   import SearchField from './SearchField.svelte';
@@ -29,4 +28,3 @@
   <Tabs class="mt-4" {tabs} />
   <div class="mt-6">{@render children()}</div>
 </div>
-<ToastHost />
