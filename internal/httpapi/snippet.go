@@ -24,6 +24,7 @@ var (
 	mdLineHead = regexp.MustCompile(`^\s{0,3}(?:#{1,6}\s+|>\s?|[-*+]\s+(?:\[[ xX]\]\s+)?|\d{1,9}[.)]\s+)`)
 	mdFence    = regexp.MustCompile("^\\s*(?:```|~~~)")
 	mdRule     = regexp.MustCompile(`^\s*(?:[-*_]\s*){3,}$`)
+	mdTableSep = regexp.MustCompile(`^\s*\|?(?:\s*:?-{3,}:?\s*\|)*\s*:?-{3,}:?\s*\|?\s*$`)
 	mdMarks    = strings.NewReplacer("**", "", "__", "", "~~", "", "`", "", "*", "")
 )
 
@@ -31,7 +32,7 @@ var (
 func markdownPlain(s string) string {
 	var b strings.Builder
 	for _, line := range strings.Split(s, "\n") {
-		if mdFence.MatchString(line) || mdRule.MatchString(line) {
+		if mdFence.MatchString(line) || mdRule.MatchString(line) || mdTableSep.MatchString(line) {
 			continue
 		}
 		line = mdLineHead.ReplaceAllString(line, "")

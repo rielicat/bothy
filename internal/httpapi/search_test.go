@@ -27,6 +27,9 @@ func TestPlainSnippets(t *testing.T) {
 	if text != "Launch Here's a launch checklist for v2.3: Freeze main Tag 🚀 the release make release" {
 		t.Fatalf("plain = %q", text)
 	}
+	if got := markdownPlain("| Step | Owner |\n|------|:-----:|\n| Tag the release | Sam |"); got != "Step Owner Tag the release Sam" {
+		t.Fatalf("table = %q", got)
+	}
 	snip, rs := snippet(text, searchTerms("Release CHECKLIST"), true)
 	if got := marked(snip, rs); len(got) != 3 || got[0] != "checklist" || got[1] != "release" || got[2] != "release" {
 		t.Fatalf("marks %q in %q", got, snip)
