@@ -319,7 +319,7 @@ function suggestion(n: number, section: string, line: string, chat: string): App
       choices: ['allow_once', 'deny'],
       warnings: [untrusted],
     },
-    card: { title: 'Update the notes for acme/web?', risk: 'local_write', fields: [], diff, warnings: [untrusted], context: `From “${chat}”`, choices: ['allow_once', 'deny'], expires: ahead(55), web_url: '' },
+    card: { title: 'Update the notes for acme/web?', risk: 'local_write', fields: [], diff, warnings: [untrusted], context: `Web · session “${chat}”`, choices: ['allow_once', 'deny'], expires: ahead(55), web_url: '' },
     status: 'pending',
     approver: { user_id: owner.id, admin_only: false },
     on_timeout: 'park',

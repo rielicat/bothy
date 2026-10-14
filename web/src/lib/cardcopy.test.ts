@@ -178,6 +178,8 @@ describe('originOf', () => {
     expect(originOf(ap(undefined, { card: { ...ap(undefined).card, context: 'Slack · group · session “Release”' } }))).toMatchObject({ app: 'Slack', group: true });
     expect(originOf(ap(undefined, { card: { ...ap(undefined).card, context: 'Web · session “ses_01jabcdefgh”' } })).title).toBeUndefined();
     expect(originOf(ap(undefined)).app).toBeUndefined();
+    // A context line that doesn't start with an app names none.
+    expect(originOf(ap(undefined, { card: { ...ap(undefined).card, context: 'From “Login bug”' } })).app).toBeUndefined();
   });
 });
 

@@ -135,7 +135,8 @@ export function originOf(ap: Approval): Origin {
   }
   // A chat without a title is named by its id on the server; ids never reach the main flow.
   if (title && /^[a-z]{3}_[0-9a-z]{6,}$/i.test(title)) title = undefined;
-  const channel = (ap.chat?.channel ?? parts[0] ?? '').toLowerCase();
+  // The first part names where the chat came from; anything else there is not an app.
+  const channel = (ap.chat?.channel ?? (/^[a-z]+$/i.test(parts[0] ?? '') ? parts[0] : '')).toLowerCase();
   return {
     app: channel && channel !== 'web' && channel !== 'api' ? appName(channel) : undefined,
     group: ap.chat?.kind === 'group' || parts.some((p) => p.toLowerCase() === 'group'),
