@@ -269,7 +269,7 @@ func (t *repoCheckout) Exec(ctx context.Context, env *core.ToolEnv, a *core.Acti
 		return nil, err
 	}
 	if err := os.MkdirAll(st.store, 0o700); err != nil {
-		return nil, fmt.Errorf("github: creating the checkout store: %w", err)
+		return nil, fmt.Errorf("github: creating the checkout store: %w", rootErr(err))
 	}
 	download := filepath.Join(st.store, "download-"+randHex(6)+".tar.gz")
 	defer os.Remove(download)
@@ -282,7 +282,7 @@ func (t *repoCheckout) Exec(ctx context.Context, env *core.ToolEnv, a *core.Acti
 	}
 	m := &manifest{Version: 1, Repo: r.FullName(), Ref: p.Ref, SHA: sha, Dir: dir, At: t.s.now().UTC(), Files: files, Skipped: sk}
 	if err := saveCheckout(st.store, m, download); err != nil {
-		return nil, fmt.Errorf("github: saving the checkout manifest: %w", err)
+		return nil, fmt.Errorf("github: saving the checkout manifest: %w", rootErr(err))
 	}
 	var total int64
 	for _, f := range files {
@@ -390,7 +390,7 @@ func (s *Service) download(ctx context.Context, cl *apiClient, ep endpoint, r *c
 	}
 	f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
-		return fmt.Errorf("github: saving the archive: %w", err)
+		return fmt.Errorf("github: saving the archive: %w", rootErr(err))
 	}
 	n, err := io.Copy(f, io.LimitReader(body, limit+1))
 	if cerr := f.Close(); err == nil {
@@ -421,7 +421,7 @@ func writeCheckout(root *os.Root, r *core.GitHubRepo, archive string, lim archiv
 	f, err := os.Open(archive)
 	if err != nil {
 		_ = root.RemoveAll(filepath.FromSlash(tmp))
-		return nil, skips{}, err
+		return nil, skips{}, fmt.Errorf("github: opening the downloaded archive: %w", rootErr(err))
 	}
 	files, sk, err := extract(root, tmp, f, lim)
 	_ = f.Close()

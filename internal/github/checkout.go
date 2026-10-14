@@ -49,7 +49,7 @@ func loadManifest(store string) (*manifest, error) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("github: reading the checkout manifest: %w", err)
+		return nil, fmt.Errorf("github: reading the checkout manifest: %w", rootErr(err))
 	}
 	var m manifest
 	if err := json.Unmarshal(b, &m); err != nil || m.Version != 1 || !shaRE.MatchString(m.SHA) {

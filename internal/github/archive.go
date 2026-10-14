@@ -257,7 +257,7 @@ func readBase(archive string, wanted map[string]bool, lim archiveLimits) (map[st
 	}
 	f, err := os.Open(archive)
 	if err != nil {
-		return nil, fmt.Errorf("github: the checkout's base archive is missing: %w", err)
+		return nil, fmt.Errorf("github: the checkout's base archive is missing: %w", rootErr(err))
 	}
 	defer f.Close()
 	_, err = walkArchive(f, lim, func(af *archiveFile) error {
