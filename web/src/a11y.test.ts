@@ -34,11 +34,11 @@ describe('accessibility (axe)', () => {
   it('approvals, done', () => check('/approvals?tab=done', () => screen.getByRole('heading', { name: 'Today' })));
   it('settings: general', () => check('/settings/general', () => screen.getByText('Workspace')));
   it('settings: models', () => check('/settings/models', () => screen.getByText('Main model')));
-  it('settings: policy', () => check('/settings/policy', () => screen.getByText('Standing permissions')));
+  it('settings: security, the old policy address', () => check('/settings/policy', () => screen.getByText('When should Bothy ask?')));
   // v0.2 folds budgets into General (docs/design/ui.md §4.5), so the old address lands there.
   it('settings: budgets, now part of General', () => check('/settings/budgets', () => screen.getByText('Workspace')));
   it('settings: connections', () => check('/settings/channels', () => screen.getByText('Connected to Acme · 2 people linked')));
-  it('settings: vault', () => check('/settings/vault', () => screen.getByText('anthropic_api_key')));
+  it('settings: saved keys, the old vault address', () => check('/settings/vault', () => screen.getByText('Anthropic API key')));
   it('schedules', () => check('/schedules', () => screen.getByText('Morning briefing')));
   it('memory', () => check('/memory', () => screen.getByText('History')));
 });
