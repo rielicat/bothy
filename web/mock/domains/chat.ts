@@ -564,7 +564,6 @@ function seed() {
 const noChats = scenario('chat-empty', 'No chats yet: the chat list and search are empty.', 'chat');
 const hold = scenario('chat-hold', 'The scripted run stops at a phase and stays there: chat-hold:<working|streaming|tool|waiting>.', 'chat');
 const runFails = scenario('chat-fail', 'The scripted run fails after its first words, as when Anthropic is overloaded.', 'chat');
-const github = scenario('chat-github', 'GitHub is connected and acme/web was read most recently (new chat suggestions).', 'chat');
 const refineEst = scenario('refine', 'Refine cost for the composer: refine:estimate (dollars) or refine:multiplier; without it the estimate route is missing.', 'chat');
 const queuedNow = scenario('chat-queued', 'Messages sent now wait for the current step (the server answers queued).', 'chat');
 const uploadFail = scenario('upload-fail', 'Uploads fail: upload-fail:large (413) or upload-fail:type (415).', 'chat');
@@ -830,13 +829,5 @@ routes.push([
     return d ? json(res, 200, d) : fail(res, 404, 'not_found', 'No such task.');
   },
 ]);
-
-// The Knowledge API (S18) belongs to C5; this answers only until a domain
-// registered earlier serves the same path, since the first matching route wins.
-queueMicrotask(() =>
-  on('GET', '/api/knowledge/repos', (req, res) =>
-    github(req) ? json(res, 200, [{ owner: 'acme', name: 'web', indexed_at: ago(30) }, { owner: 'acme', name: 'api', indexed_at: ago(600) }]) : fail(res, 404, 'not_found', 'mock: GitHub is not connected'),
-  ),
-);
 
 export const chatIds = { ...S, runs: R };

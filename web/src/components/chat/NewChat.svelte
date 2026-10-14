@@ -1,14 +1,5 @@
-<script module lang="ts">
-  // Local until the Knowledge API (S18) is in types.gen.ts; C10 swaps it for the generated type.
-  export interface RepoLite {
-    owner: string;
-    name: string;
-    indexed_at?: string;
-  }
-</script>
-
 <script lang="ts">
-  import { api } from '../../lib/api/client';
+  import { readRepos } from '../../lib/api/knowledge';
   import { router } from '../../lib/router.svelte';
   import { session } from '../../lib/stores/session.svelte';
 
@@ -19,11 +10,10 @@
 
   let repo = $state('');
   $effect(() => {
-    api
-      .get<RepoLite[]>('/api/knowledge/repos')
+    readRepos()
       .then((rs) => {
-        const r = [...(rs ?? [])].sort((a, b) => (b.indexed_at ?? '').localeCompare(a.indexed_at ?? ''))[0];
-        if (r) repo = `${r.owner}/${r.name}`;
+        const r = rs.filter((x) => x.status === 'ready').sort((a, b) => b.indexed_at.localeCompare(a.indexed_at))[0];
+        if (r) repo = r.repo;
       })
       .catch(() => {});
   });

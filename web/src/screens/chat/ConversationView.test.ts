@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { approvals as fixtureApprovals } from '../../../mock/fixtures';
 import { chatIds } from '../../../mock/domains/chat';
+import { resetMock } from '../../../mock/server';
 import { api } from '../../lib/api/client';
 import { router } from '../../lib/router.svelte';
 import { session } from '../../lib/stores/session.svelte';
@@ -207,6 +208,7 @@ describe('new chat', () => {
   });
 
   it('fills the composer from a suggestion without sending, and stores nothing before the first message', async () => {
+    resetMock({ mock: 'knowledge-empty' });
     render(ConversationView, { id: '' });
     expect(await screen.findByRole('heading', { level: 1, name: 'What should Bothy work on?' })).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: 'What can you do for our team?' }));
