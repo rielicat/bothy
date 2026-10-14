@@ -57,6 +57,30 @@ approval was decided while the gateway was down; at shutdown, runs it
 interrupts cancel their own approvals. A zero field in requested limits means
 the trigger's default, never unlimited.
 
+Refine mode (`refine.go`, `refine/`, v0.2 F3 after arXiv:2608.05643)
+applies to the final answer only: a step that ends the turn with text and no
+tool calls. The message asks for it (`RunRequest.Refine`), else, for message
+and api runs, the session's meta key `agent.refine.<session>` (`on`/`off`),
+else `agent.refine.enabled`. While a run refines, each step's text is held
+back until a tool call shows it is not the final answer; a final answer
+becomes draft 0, `drafts − 1` more drafts repeat that step's exact request
+with tool use off, and each draft takes `depth` rounds of continue
+(generator) → critique (critic, on `critic_slot`) → correct (corrector,
+skipped when the critic confirms a text that states a final answer). Role
+calls append one Bothy-authored user message to the step's prompt: the
+quoted draft (and critique) in blocks with random closing ids, spotlighted
+when the session holds untrusted content, then the embedded role prompt;
+quotes longer than a third of the window keep their head and tail. A
+plurality vote over the normalized `Final answer:` lines picks the reply
+(ties: the earliest draft), and early stop ends deepening once every draft
+agrees. Every call is metered and recorded as an `agent` call of the same
+step but is not a step; a budget that would be exceeded counting the calls
+in flight, the run's time limit minus 5 s, a new message from the user, or
+a stop ends refinement with the best answer so far. Drafts and rounds run
+in parallel (at most 4 calls at once). Only the reply that won is streamed;
+`run.refine` events (bus only) report each call, and the persisted answer
+carries the whole trace in a `refine` part that is never sent to a model.
+
 Streamed text (`run.delta`, `run.thinking`) is coalesced to 50 ms and tool
 progress (`run.tool_output`) to 100 ms, and each flush publishes only what
 `streamCut` releases: text up to whitespace, short of any tail a registered

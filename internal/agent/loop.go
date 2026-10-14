@@ -399,6 +399,7 @@ func (r *Runner) persistSteer(ctx context.Context, a *runState, req core.RunRequ
 func (r *Runner) loop(rs *runState) *runEnd {
 	ctx := rs.ctx
 	showThinking := r.cfg().Agent.ShowThinking
+	rs.refine = r.refineModeFor(ctx, rs)
 	for {
 		if r.closing.Load() {
 			return interruptedEnd()
@@ -430,7 +431,7 @@ func (r *Runner) loop(rs *runState) *runEnd {
 		}
 		step := rs.totals().Steps
 		rs.publish(core.EvRunStatus, core.RunStatusData{Status: "thinking"})
-		text := rs.newStreamer(core.EvRunDelta, true)
+		text := &heldText{s: rs.newStreamer(core.EvRunDelta, true), hold: rs.refine != nil}
 		think := rs.newStreamer(core.EvRunThinking, false)
 		streamed := false
 		resp, ci, err := r.d.LLM.Complete(ctx, rs.slot, rs.override, asm.build, func(ev core.StreamEvent) error {
@@ -445,14 +446,21 @@ func (r *Runner) loop(rs *runState) *runEnd {
 				}
 			case core.StreamToolCallStart:
 				streamed = true
+				text.release()
 			}
 			return nil
 		})
-		text.close()
-		think.close()
 		if err == nil && resp == nil {
 			err = errors.New("the provider returned no response")
 		}
+		// Refinement replaces the text of a final answer, so that text is
+		// shown only once the refinement has picked the reply.
+		refining := err == nil && text.hold && !hasToolCalls(resp.Message)
+		if !refining {
+			text.release()
+		}
+		text.s.close()
+		think.close()
 		if err != nil {
 			if ci.Usage != (core.Usage{}) || ci.Cost > 0 {
 				r.recordCall(ctx, rs, asm, &ci, step, "agent")
@@ -484,6 +492,19 @@ func (r *Runner) loop(rs *runState) *runEnd {
 		rs.answered = rs.seenSeq
 		r.recordCall(ctx, rs, asm, &ci, step, "agent")
 		rs.lastEst = head.est
+		if refining {
+			rs.w.mu.Lock()
+			more := r.syncSteersLocked(ctx, rs)
+			rs.w.mu.Unlock()
+			if more {
+				// The next step answers the new message too; that answer is
+				// the one to refine.
+				text.release()
+				text.s.close()
+			} else {
+				resp = r.refineAnswer(rs, asm, step, resp, ci)
+			}
+		}
 		calls := r.persistAssistant(ctx, rs, resp)
 		reply := strings.TrimSpace(resp.Message.PlainText())
 		var h uint64

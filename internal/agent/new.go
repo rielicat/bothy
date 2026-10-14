@@ -99,6 +99,9 @@ type Runner struct {
 	// beforeIdle runs on a worker between finishing a job and clearing its
 	// state; tests use it to widen that window.
 	beforeIdle func()
+	// refineParallel bounds a refinement's calls in flight (0 = the refine
+	// package default); tests set 1 to make the call order deterministic.
+	refineParallel int
 }
 
 type prefixMark struct {
