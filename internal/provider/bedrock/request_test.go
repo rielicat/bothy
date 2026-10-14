@@ -86,6 +86,33 @@ func TestBuildRequestCachePoints(t *testing.T) {
 		t.Fatalf("nova system/messages cache points missing: %s", toJSON(t, r))
 	}
 
+	// In a tool loop Nova's tail point follows the latest text block: Nova
+	// refuses one after a toolResult or toolUse ("extraneous key
+	// [cachePoint] is not permitted"), Claude takes it at the very end.
+	loop := base
+	loop.Messages = []core.Message{userText("weather?"),
+		{Role: core.MsgAssistant, Parts: []core.Part{{Type: core.PartToolCall, ToolCall: &core.ToolCall{ID: "t1", Name: "a", Args: json.RawMessage(`{}`)}}}},
+		{Role: core.MsgTool, Parts: []core.Part{{Type: core.PartToolResult, ToolResult: &core.ToolResult{CallID: "t1", Name: "a", Content: "rain"}}}}}
+	loop.Model = "us.amazon.nova-lite-v1:0"
+	got = toJSON(t, buildRequest(&loop).Messages)
+	want = `[{"role":"user","content":[{"text":"weather?"},{"cachePoint":{"type":"default"}}]},` +
+		`{"role":"assistant","content":[{"toolUse":{"toolUseId":"t1","name":"a","input":{}}}]},` +
+		`{"role":"user","content":[{"toolResult":{"toolUseId":"t1","content":[{"text":"rain"}]}}]}]`
+	if got != want {
+		t.Fatalf("nova tool loop\n got %s\nwant %s", got, want)
+	}
+	loop.Model = claude.Model
+	msgs := buildRequest(&loop).Messages
+	if last := msgs[2].Content; len(last) != 2 || last[1].CachePoint == nil || len(msgs[0].Content) != 1 {
+		t.Fatalf("claude tool loop: %s", toJSON(t, msgs))
+	}
+	// Nothing ends in text: no tail point rather than an invalid one.
+	loop.Model = "us.amazon.nova-lite-v1:0"
+	loop.Messages = loop.Messages[1:]
+	if s := toJSON(t, buildRequest(&loop).Messages); strings.Contains(s, "cachePoint") {
+		t.Fatalf("nova without a text block: %s", s)
+	}
+
 	// Models without prompt caching get no cache points at all.
 	for _, m := range []string{"meta.llama3-3-70b-instruct-v1:0", "us.anthropic.claude-3-haiku-20240307-v1:0", "mistral.mistral-large-2407-v1:0"} {
 		other := base
@@ -160,7 +187,7 @@ func TestBuildMessages(t *testing.T) {
 		{Role: core.MsgTool, Parts: []core.Part{{Type: core.PartToolResult, ToolResult: &core.ToolResult{CallID: "t2", Name: "fs_read", Content: "data"}}}},
 		{Role: core.MsgUser, Parts: []core.Part{{Type: core.PartText, Text: "and?"}}},
 	}
-	got := toJSON(t, buildMessages(msgs, true))
+	got := toJSON(t, buildMessages(msgs, true, true))
 	want := `[{"role":"user","content":[{"text":"look"},{"image":{"format":"png","source":{"bytes":"iVBORw0KGgpmYWtl"}}},` +
 		`{"text":"<turn-context/>"},{"text":"[attached file b.bmp (image/bmp, 4 bytes) at in/b.bmp]"},{"text":"[attached file c.pdf (application/pdf, 9 bytes) at in/c.pdf]"}]},` +
 		`{"role":"assistant","content":[{"text":"calling"},{"toolUse":{"toolUseId":"t1","name":"shell","input":{}}},{"toolUse":{"toolUseId":"t2","name":"fs_read","input":{"path":"a"}}}]},` +
@@ -170,7 +197,7 @@ func TestBuildMessages(t *testing.T) {
 	}
 	// Images go only in user messages.
 	asst := core.Message{Role: core.MsgAssistant, Parts: []core.Part{{Type: core.PartImage, Blob: &core.Blob{MIME: "image/png", Data: png, Ref: "x.png", Size: 1}}}}
-	if s := toJSON(t, buildMessages([]core.Message{asst}, true)); strings.Contains(s, `"image"`) {
+	if s := toJSON(t, buildMessages([]core.Message{asst}, true, true)); strings.Contains(s, `"image"`) {
 		t.Fatalf("assistant image %s", s)
 	}
 }

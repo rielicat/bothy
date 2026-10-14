@@ -43,6 +43,14 @@ func SplitModel(id string) (geo, base string) {
 func isClaude(base string) bool { return strings.HasPrefix(base, "anthropic.claude") }
 func isNova(base string) bool   { return strings.HasPrefix(base, "amazon.nova") }
 
+// otherVendor reports a model of a known vendor other than Anthropic; an
+// application inference profile hides its model, so it is not one.
+func otherVendor(model string) bool {
+	_, base := SplitModel(model)
+	vendor, _, ok := strings.Cut(base, ".")
+	return ok && modelProviders[vendor] && vendor != "anthropic"
+}
+
 // claudeNoCache are the Claude generations Bedrock serves without prompt
 // caching; a cachePoint block makes their requests fail validation.
 var claudeNoCache = regexp.MustCompile(`^anthropic\.claude-(instant|v2|3-haiku|3-sonnet|3-opus|3-5-sonnet)`)

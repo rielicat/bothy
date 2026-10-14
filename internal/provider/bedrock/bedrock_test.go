@@ -161,9 +161,33 @@ func TestStreamReasoningSignatureRoundTrip(t *testing.T) {
 		{Type: core.PartThinking, Text: "unsigned", SigKind: core.KindBedrock},
 		{Type: core.PartText, Text: "answer"},
 	}}
-	got, _ = json.Marshal(buildMessages([]core.Message{userText("q"), other}, false)[1])
+	got, _ = json.Marshal(buildMessages([]core.Message{userText("q"), other}, false, true)[1])
 	if string(got) != `{"role":"assistant","content":[{"text":"answer"}]}` {
 		t.Fatalf("foreign reasoning kept: %s", got)
+	}
+
+	// A fallback from Claude to Nova in the same provider: Nova refuses
+	// reasoningContent ("This model doesn't support the
+	// reasoningContent.reasoningText.signature field"), so it is left out,
+	// while an application inference profile (opaque model) keeps it.
+	history := []core.Message{userText("Should I take an umbrella in Oslo today?"), resp.Message,
+		{Role: core.MsgTool, Parts: []core.Part{{Type: core.PartToolResult, ToolResult: &core.ToolResult{
+			CallID: "tooluse_k3cMZ8sgoQYYQEnRl1CEdk", Name: "get_weather", Content: "rain"}}}}}
+	for model, keep := range map[string]bool{
+		"us.amazon.nova-pro-v1:0":          false,
+		"global.amazon.nova-2-lite-v1:0":   false,
+		"meta.llama3-3-70b-instruct-v1:0":  false,
+		"global.anthropic.claude-opus-5-5": true,
+		"arn:aws:bedrock:us-west-2:111122223333:application-inference-profile/a1b2c3d4e5f6": true,
+	} {
+		r := buildRequest(&core.Request{Model: model, Tools: []core.ToolDef{{Name: "get_weather"}}, Messages: history})
+		s := toJSON(t, r.Messages)
+		if strings.Contains(s, "reasoningContent") != keep {
+			t.Errorf("%s: reasoning kept %v: %s", model, !keep, s)
+		}
+		if !strings.Contains(s, `"toolUse"`) || !strings.Contains(s, `"toolResult"`) {
+			t.Errorf("%s: tool blocks lost: %s", model, s)
+		}
 	}
 }
 
@@ -187,7 +211,7 @@ func TestStreamRedactedReasoning(t *testing.T) {
 			t.Fatalf("part %+v", x)
 		}
 	}
-	got, _ := json.Marshal(buildMessages([]core.Message{userText("q"), resp.Message}, false)[1].Content[:2])
+	got, _ := json.Marshal(buildMessages([]core.Message{userText("q"), resp.Message}, false, true)[1].Content[:2])
 	want := `[{"reasoningContent":{"redactedContent":"RXhhbXBsZSByZWRhY3RlZCByZWFzb25pbmc="}},{"reasoningContent":{"reasoningText":{"text":"Plain reasoning.","signature":"c2lnbmF0dXJlLWV4YW1wbGU="}}}]`
 	if string(got) != want {
 		t.Fatalf("round trip %s", got)

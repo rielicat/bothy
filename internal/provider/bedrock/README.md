@@ -17,11 +17,14 @@ becomes "(no output)" since Converse refuses blank text; `is_error` is
 round trip: a thinking part this kind produced goes back as
 `reasoningContent.reasoningText {text, signature}`, a redacted one as
 `reasoningContent.redactedContent`; thinking from another kind, or without a
-signature, is never sent. `cachePoint` blocks follow `SystemBlock.CacheBreak`,
-the tools (`ToolsCache`) and the last message (`CacheTail`) where Bedrock
-accepts them: Claude 3.5 Haiku, 3.7 Sonnet and every Claude 4+ model
-(system, messages, tools) and the Nova understanding models (system and
-messages); at most four, the earliest system ones dropped first. Tool choice
+signature, is never sent, nor any reasoning to another vendor's model (Nova
+rejects Claude's signed reasoning after a fallback). `cachePoint` blocks
+follow `SystemBlock.CacheBreak`, the tools (`ToolsCache`) and the last
+message (`CacheTail`) where Bedrock accepts them: Claude 3.5 Haiku, 3.7
+Sonnet and every Claude 4+ model (system, messages, tools) and the Nova
+understanding models (system and messages, and only after a text block, so
+in a tool loop Nova's tail point follows the latest message ending in
+text); at most four, the earliest system ones dropped first. Tool choice
 `required` is `any`, except on the Claude models that refuse a forced choice
 (Opus 5.5, Sonnet 5.5, Fable 5.1, Mythos 5.1), where it degrades to auto;
 `none` leaves the tools out unless the history needs their definitions (then

@@ -158,13 +158,32 @@ func buildRequest(r *core.Request) request {
 		}
 		out.ToolConfig = tc
 	}
-	out.Messages = buildMessages(r.Messages, withTools)
-	if r.CacheTail && cache && len(out.Messages) > 0 {
-		last := &out.Messages[len(out.Messages)-1]
-		last.Content = append(last.Content, block{CachePoint: defaultCachePoint})
+	out.Messages = buildMessages(r.Messages, withTools, !otherVendor(r.Model))
+	if r.CacheTail && cache {
+		addTailCachePoint(out.Messages, r.Model)
 	}
 	limitCachePoints(&out)
 	return out
+}
+
+// addTailCachePoint marks the end of the history for caching. Nova accepts
+// a cachePoint only after a text block (one after a toolResult or toolUse
+// fails validation), so during a tool loop its point goes after the latest
+// message that ends in text, which still caches the conversation up to the
+// turn's request.
+func addTailCachePoint(msgs []message, model string) {
+	_, base := SplitModel(model)
+	for i := len(msgs) - 1; i >= 0; i-- {
+		c := msgs[i].Content
+		if len(c) == 0 {
+			continue
+		}
+		if isNova(base) && c[len(c)-1].Text == "" {
+			continue
+		}
+		msgs[i].Content = append(c, block{CachePoint: defaultCachePoint})
+		return
+	}
 }
 
 func hasToolBlocks(msgs []core.Message) bool {
@@ -219,8 +238,10 @@ func limitCachePoints(r *request) {
 // consecutive same-role messages merge, and tool results lead the user
 // message that answers a tool call. Without tool definitions (withTools
 // false) tool calls and results become text, since Converse refuses toolUse
-// blocks in a request that defines no tools.
-func buildMessages(msgs []core.Message, withTools bool) []message {
+// blocks in a request that defines no tools. Reasoning blocks are sent back
+// only when reasoning is true: other vendors' models (Nova after a fallback
+// from Claude) reject Claude's signed reasoning.
+func buildMessages(msgs []core.Message, withTools, reasoning bool) []message {
 	var out []message
 	for _, m := range msgs {
 		role := "user"
@@ -229,6 +250,9 @@ func buildMessages(msgs []core.Message, withTools bool) []message {
 		}
 		var blocks []block
 		for _, p := range m.Parts {
+			if p.Type == core.PartThinking && !reasoning {
+				continue
+			}
 			if b, ok := partBlock(p, role, withTools); ok {
 				blocks = append(blocks, b)
 			}
