@@ -33,7 +33,14 @@ func Sum(dir string) (string, error) {
 }
 
 // SumRoot hashes the tree below root.
-func SumRoot(root *os.Root) (string, error) {
+func SumRoot(root *os.Root) (string, error) { return SumRootFiles(root, 0, nil) }
+
+// SumRootFiles is SumRoot that also hands each regular file to visit, in
+// walk order, with its contents' sha256, its size and the very bytes it
+// hashed, so a caller can keep a copy of exactly the tree the sum stands
+// for. A file over keep bytes is hashed in full but handed on with nil
+// data; keep <= 0 hands every file on with nil data.
+func SumRootFiles(root *os.Root, keep int64, visit func(p string, sum []byte, size int64, data []byte)) (string, error) {
 	h := sha256.New()
 	err := fs.WalkDir(root.FS(), ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -51,8 +58,13 @@ func SumRoot(root *os.Root) (string, error) {
 		switch {
 		case mode.IsDir():
 		case mode.IsRegular():
-			if sum, err = fileSum(root, p); err != nil {
+			var data []byte
+			var size int64
+			if sum, data, size, err = fileSum(root, p, keep); err != nil {
 				return err
+			}
+			if visit != nil {
+				visit(p, sum, size, data)
 			}
 		case mode&fs.ModeSymlink != 0:
 			target, err := root.Readlink(p)
@@ -81,15 +93,39 @@ func field(h hash.Hash, b []byte) {
 	h.Write(b)
 }
 
-func fileSum(root *os.Root, p string) ([]byte, error) {
+// fileSum hashes p and, when keep > 0, also returns its contents if they
+// are at most keep bytes.
+func fileSum(root *os.Root, p string, keep int64) (sum, data []byte, size int64, err error) {
 	f, err := root.Open(p)
 	if err != nil {
-		return nil, err
+		return nil, nil, 0, err
 	}
 	defer f.Close()
 	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return nil, err
+	var w io.Writer = h
+	var buf *capped
+	if keep > 0 {
+		buf = &capped{max: keep + 1}
+		w = io.MultiWriter(h, buf)
 	}
-	return h.Sum(nil), nil
+	if size, err = io.Copy(w, f); err != nil {
+		return nil, nil, 0, err
+	}
+	if buf != nil && size <= keep {
+		data = buf.b
+	}
+	return h.Sum(nil), data, size, nil
+}
+
+// capped keeps the first max bytes written and accepts the rest unseen.
+type capped struct {
+	b   []byte
+	max int64
+}
+
+func (c *capped) Write(p []byte) (int, error) {
+	if room := c.max - int64(len(c.b)); room > 0 {
+		c.b = append(c.b, p[:min(int64(len(p)), room)]...)
+	}
+	return len(p), nil
 }

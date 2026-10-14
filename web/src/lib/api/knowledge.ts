@@ -23,8 +23,8 @@ export const knowledge = {
   /** Every change to the notes, newest first. */
   history: async (id: number): Promise<NotesChange[]> => (await api.get<List<NotesChange>>(`${repoPath(id)}/notes/history`)).items ?? [],
   reindex: (id: number) => api.post<KnowledgeRepo>(`${repoPath(id)}/reindex`),
-  /** S18: keep_notes leaves the notes in place when the repository is dropped. */
-  stop: (id: number) => api.del(`${repoPath(id)}?keep_notes=1`),
+  /** Drops the repository's index, notes and notes history. */
+  stop: (id: number) => api.del(repoPath(id)),
   search: async (q: string, opts: { repo?: number; limit?: number } = {}) =>
     (await api.get<{ items: KnowledgeHit[] | null }>(`/api/knowledge/search${qs({ q, repo_id: opts.repo, limit: opts.limit })}`)).items ?? [],
 };

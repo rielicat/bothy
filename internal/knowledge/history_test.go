@@ -116,8 +116,9 @@ func TestSummaryOf(t *testing.T) {
 		"# acme/web\n\n## What this is\n\nCustomer-facing web app, deployed from main. Built with Next.js.": "Customer-facing web app, deployed from main.",
 		"---\ntitle: x\n---\n# Title\n\n- Uses **Go** and [SQLite](https://sqlite.org).\n- Two":             "Uses Go and SQLite.",
 		"```sh\nmake\n```\n\nRun `make test` first":                                                         "Run make test first",
-		"# Only a heading\n":                       "",
-		"> a quote\n\n| a | b |\n---\nPlain text.": "Plain text.",
+		"# Only a heading\n":                         "",
+		"> a quote\n\n| a | b |\n---\nPlain text.":   "Plain text.",
+		"Deploys \u202egnorw\u202c from main\u200b.": "Deploys gnorw from main.",
 		"": "",
 	} {
 		if got := summaryOf(in); got != want {

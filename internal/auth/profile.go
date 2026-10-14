@@ -36,6 +36,9 @@ func (s *Service) UpdateProfile(ctx context.Context, by core.Actor, p ProfileUpd
 			return nil, err
 		}
 		if name != cur.DisplayName {
+			if err := s.nameFree(ctx, by.User, name); err != nil {
+				return nil, err
+			}
 			next.DisplayName, changed["display_name"] = name, name
 		}
 	}
@@ -61,7 +64,7 @@ func (s *Service) UpdateProfile(ctx context.Context, by core.Actor, p ProfileUpd
 		return cur, nil
 	}
 	next.UpdatedAt = s.now()
-	if err := s.store.Users().Update(ctx, &next); err != nil {
+	if err := s.store.Users().SetProfile(ctx, &next); err != nil {
 		return nil, err
 	}
 	if _, renamed := changed["display_name"]; renamed {
@@ -69,6 +72,23 @@ func (s *Service) UpdateProfile(ctx context.Context, by core.Actor, p ProfileUpd
 	}
 	s.record(ctx, actorOf(by), "user.profile", userTarget(next.ID), "ok", changed)
 	return s.store.Users().Get(ctx, next.ID)
+}
+
+// nameFree refuses a name another person already goes by, as a display
+// name or a username: approval cards and vote prompts name who asked, and a
+// member must not be able to pass as a colleague there. Admins naming
+// people (UpdateUser) are trusted with look-alikes.
+func (s *Service) nameFree(ctx context.Context, self core.UserID, name string) error {
+	users, err := s.store.Users().List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, u := range users {
+		if u.ID != self && (strings.EqualFold(strings.TrimSpace(u.DisplayName), name) || strings.EqualFold(u.Username, name)) {
+			return fmt.Errorf("%w: someone else here goes by %q; add an initial or a surname", core.ErrInvalid, name)
+		}
+	}
+	return nil
 }
 
 // linkedOn reports whether u has a linked identity on channel that Bothy

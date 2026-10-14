@@ -200,6 +200,9 @@ on('PATCH', '/api/me', async (req, res) => {
   if (typeof b.display_name === 'string') {
     const name = b.display_name.trim();
     if (!name) return fail(res, 400, 'bad_request', 'enter a name');
+    const same = (s: string) => s.trim().toLowerCase() === name.toLowerCase();
+    if (name !== viewer(req).display_name && state.users.some((x) => x.id !== viewer(req).id && (same(x.display_name) || same(x.username))))
+      return fail(res, 400, 'bad_request', `invalid: someone else here goes by "${name}"; add an initial or a surname`);
     if (viewer(req).id === core.me.id) core.me.display_name = name;
     const u = state.users.find((x) => x.id === viewer(req).id);
     if (u) u.display_name = name;

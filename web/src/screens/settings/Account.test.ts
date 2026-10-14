@@ -119,6 +119,15 @@ describe('Settings → Account', () => {
     expect(screen.queryByText('Only an admin can change it.')).toBeNull();
   });
 
+  it("says why the server won't take a name, such as one a colleague has", async () => {
+    const refused = () => new Response(JSON.stringify({ error: { code: 'bad_request', message: 'invalid: someone else here goes by "Priya Rao"' } }), { status: 400 });
+    await open({ override: (m, url) => (m === 'PATCH' && url === '/api/me' ? refused() : undefined) }, 'member');
+    const name = (await screen.findByLabelText('Name')) as HTMLInputElement;
+    await fireEvent.input(name, { target: { value: 'Priya Rao' } });
+    await fireEvent.blur(name);
+    expect(await screen.findByText("Bothy can't use that name. Choose one nobody else here has, up to 64 characters.")).toBeTruthy();
+  });
+
   it('offers only the apps the server says requests can reach', async () => {
     await open({ override: (m, url) => (m === 'GET' && url === '/api/me' ? new Response(JSON.stringify({ user_id: 'usr_x', username: 'sam', display_name: 'Sam', approvals_in: 'slack', preferred_chat: '', chats: ['slack'] })) : undefined) });
     const select = (await screen.findByLabelText('Requests reach you in')) as HTMLSelectElement;

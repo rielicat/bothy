@@ -463,6 +463,11 @@ type UserRepo interface {
 	ByUsername(ctx context.Context, name string) (*User, error)
 	List(ctx context.Context) ([]*User, error)
 	Update(ctx context.Context, u *User) error
+	// SetProfile writes only u's DisplayName, PreferredChat,
+	// ApprovalsWebOnly and UpdatedAt: what people change about themselves
+	// (PATCH /api/me) must never write back a role, disabled flag or
+	// password hash that an admin or a reset changed meanwhile.
+	SetProfile(ctx context.Context, u *User) error
 	RecordLogin(ctx context.Context, id UserID, ok bool, lockUntil time.Time) error
 	// SignedIn records a successful sign-in at at: LastLoginAt, and the
 	// failure count and lock cleared.

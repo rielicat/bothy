@@ -130,6 +130,25 @@ func testUsers(f *fx) {
 		}
 	}
 
+	// SetProfile writes the profile columns only: a stale copy cannot undo
+	// a role, flag or password change made after it was read.
+	stale := *got
+	fresh := *got
+	fresh.Role, fresh.Disabled, fresh.PWHash, fresh.MustChangePassword, fresh.UpdatedAt = core.RoleMember, !stale.Disabled, "hash-after-reset",
+		!stale.MustChangePassword, at(95)
+	f.must(r.Update(f.ctx, &fresh), "Update before the stale profile write")
+	stale.DisplayName, stale.PreferredChat, stale.ApprovalsWebOnly, stale.UpdatedAt = "Renamed", "slack", false, at(96)
+	f.must(r.SetProfile(f.ctx, &stale), "SetProfile")
+	got, err = r.Get(f.ctx, member.ID)
+	f.must(err, "Get after SetProfile")
+	f.check(got.DisplayName == "Renamed" && got.PreferredChat == "slack" && !got.ApprovalsWebOnly && got.UpdatedAt.Equal(at(96)) &&
+		got.Role == core.RoleMember && got.Disabled == fresh.Disabled && got.PWHash == "hash-after-reset" &&
+		got.MustChangePassword == fresh.MustChangePassword && got.LastLoginAt.Equal(at(80)),
+		"SetProfile wrote more than the profile: %+v", got)
+	long.ID = member.ID
+	f.want(r.SetProfile(f.ctx, &long), core.ErrInvalid, "SetProfile preferred_chat length CHECK")
+	f.want(r.SetProfile(f.ctx, &core.User{ID: core.UserID(core.NewID(core.PrefixUser))}), core.ErrNotFound, "SetProfile missing")
+
 	po, err := f.s.Principals().Get(f.ctx, core.SystemViewer(), core.UserPrincipal(owner.ID))
 	f.must(err, "Create also creates the user principal")
 	f.check(po.Kind == core.PrincipalUser && po.User == owner.ID && po.ToolProfile == "standard" &&

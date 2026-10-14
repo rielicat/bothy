@@ -84,6 +84,9 @@
     if (!n) return nameSaver.fail('Enter your name.');
     if (n === nameBase || !me) return nameSaver.clear();
     const ok = await nameSaver.run(async () => (profile = await api.patch<Profile>('/api/me', { display_name: n })));
+    // The server refuses a name someone else here has, hidden characters and more than 64 characters.
+    if (!ok && nameSaver.lastError instanceof ApiError && nameSaver.lastError.status === 400)
+      nameSaver.fail("Bothy can't use that name. Choose one nobody else here has, up to 64 characters.");
     if (ok) {
       nameBase = n;
       await session.refresh().catch(() => {});

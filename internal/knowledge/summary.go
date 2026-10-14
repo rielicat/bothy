@@ -61,6 +61,14 @@ func summaryOf(md string) string {
 		para = append(para, listMarkRE.ReplaceAllString(l, ""))
 	}
 	text := mdMarkRE.ReplaceAllString(mdLinkRE.ReplaceAllString(strings.Join(para, " "), "$1"), "")
+	// Notes Bothy drafted come from repository content: a bidi override
+	// there would reorder the project list line around the summary.
+	text = strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, text)
 	text = strings.Join(strings.FieldsFunc(text, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }), " ")
 	if m := sentenceEnd.FindString(text); m != "" {
 		text = strings.TrimSpace(m)

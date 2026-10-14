@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/rielicat/bothy/internal/core"
@@ -22,8 +23,11 @@ func validUsername(name string) error {
 	return nil
 }
 
+// validDisplayName also refuses format characters: a bidi override or an
+// invisible joiner would make a name read as someone else's in cards.
 func validDisplayName(name string) error {
-	if utf8.RuneCountInString(name) > 64 || strings.ContainsFunc(name, isControl) || !utf8.ValidString(name) {
+	if utf8.RuneCountInString(name) > 64 || strings.ContainsFunc(name, isControl) || !utf8.ValidString(name) ||
+		strings.ContainsFunc(name, func(r rune) bool { return unicode.Is(unicode.Cf, r) }) {
 		return fmt.Errorf("%w: display name must be at most 64 printable characters", core.ErrInvalid)
 	}
 	return nil

@@ -410,6 +410,10 @@ on('DELETE', '/api/knowledge/repos/{id}', (req, res, m) => {
   if (!r) return fail(res, 404, 'not_found', 'not found');
   if (viewer(req).role === 'member') return fail(res, 403, 'forbidden', 'admins only');
   state.repos = state.repos.filter((x) => x !== r);
+  // As the server does: the notes and their history go with the index.
+  delete state.notes[r.id];
+  delete state.notesEtag[r.id];
+  delete state.notesHistory[r.id];
   emit('knowledge.updated', { repo: r, deleted: true });
   json(res, 204);
 });

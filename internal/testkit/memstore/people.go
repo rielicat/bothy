@@ -151,6 +151,21 @@ func (r userRepo) Update(_ context.Context, u *core.User) error {
 	return nil
 }
 
+func (r userRepo) SetProfile(_ context.Context, u *core.User) error {
+	st, unlock := r.s.begin()
+	defer unlock()
+	cur, ok := st.users[u.ID]
+	if !ok {
+		return notFound("user")
+	}
+	if utf8.RuneCountInString(u.PreferredChat) > 32 {
+		return invalid("users.preferred_chat")
+	}
+	cur.DisplayName, cur.PreferredChat, cur.ApprovalsWebOnly, cur.UpdatedAt = u.DisplayName, u.PreferredChat, u.ApprovalsWebOnly, ms(u.UpdatedAt)
+	st.users[u.ID] = cur
+	return nil
+}
+
 func (r userRepo) SignedIn(_ context.Context, id core.UserID, at time.Time) error {
 	st, unlock := r.s.begin()
 	defer unlock()

@@ -3,7 +3,6 @@ package skills
 import (
 	"cmp"
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -284,6 +283,7 @@ func (l *Library) SetEnabled(ctx context.Context, name string, on bool, hash str
 	}
 	now := l.clock.Now()
 	action := "skill.disable"
+	var approved []core.SkillFile
 	if on {
 		if hash != "" && hash != s.Hash {
 			return fmt.Errorf("skill %s: %w: it was rescanned after the review; review it again", name, core.ErrConflict)
@@ -304,10 +304,15 @@ func (l *Library) SetEnabled(ctx context.Context, name string, on bool, hash str
 		if fm.Name != name {
 			return fmt.Errorf("skill %s: %w: SKILL.md now names %q", name, core.ErrInvalid, fm.Name)
 		}
-		sum, err := treehash.SumRoot(root)
+		// The snapshot is taken in the same walk as the hash, from the bytes
+		// hashed, so it is exactly the tree approved even if the directory
+		// changes meanwhile.
+		var snap snapshot
+		sum, err := treehash.SumRootFiles(root, snapshotFileMax, snap.add)
 		if err != nil {
 			return fmt.Errorf("skill %s: %w", name, err)
 		}
+		approved = snap.files()
 		// Approve only the tree last recorded by a scan or install, the one
 		// whose hash the admin was shown, never files that changed since.
 		if sum != s.Hash {
@@ -324,7 +329,11 @@ func (l *Library) SetEnabled(ctx context.Context, name string, on bool, hash str
 		return err
 	}
 	if on {
-		l.keepApproved(ctx, name)
+		// Without its snapshot the review only says the skill changed; the
+		// approval stands.
+		if err := l.store.Skills().SetApproved(ctx, name, approved); err != nil {
+			l.log.Warn("snapshot approved skill", "skill", name, "err", err)
+		}
 	}
 	l.record(ctx, "user:"+string(by), action, name, map[string]any{"hash": s.Hash})
 	return l.refreshLocked(ctx)
@@ -335,42 +344,66 @@ const (
 	snapshotTotalMax = 1 << 20
 )
 
-// keepApproved stores the files an admin just approved, so a later change
-// can be shown as a diff against them. Files that are not text, or past
-// the caps, are kept as their hash and size only. A snapshot that cannot be
-// taken leaves the review without a diff; the approval stands.
-func (l *Library) keepApproved(ctx context.Context, name string) {
-	root, err := l.openSkill(name)
-	if err != nil {
-		l.log.Warn("snapshot approved skill", "skill", name, "err", err)
-		return
-	}
-	defer root.Close()
-	files, err := listFiles(root)
-	if err != nil {
-		l.log.Warn("snapshot approved skill", "skill", name, "err", err)
-		return
-	}
-	total := 0
-	var out []core.SkillFile
-	for _, p := range append([]string{skillFile}, files...) {
-		f := core.SkillFile{Path: p}
-		if fi, err := root.Lstat(p); err == nil {
-			f.Size = fi.Size()
+// snapshot collects the files of an approved tree as the hash walk reads
+// them: SKILL.md and the files listFiles would list, each with its hash and
+// size, and its text when it is UTF-8 within the caps. Files over the per
+// file cap are kept by size only, as readCapped cannot read them back.
+type snapshot struct {
+	list []snapFile
+	n    int
+	kept int // bytes of text held for files other than SKILL.md
+}
+
+type snapFile struct {
+	core.SkillFile
+	data []byte
+}
+
+func (s *snapshot) add(p string, sum []byte, size int64, data []byte) {
+	if p != skillFile {
+		if s.n >= maxListFiles {
+			return
 		}
-		if data, err := readCapped(root, p); err == nil {
-			sum := sha256.Sum256(data)
-			f.SHA256, f.Size = hex.EncodeToString(sum[:]), int64(len(data))
-			if isText(data) && len(data) <= snapshotFileMax && total+len(data) <= snapshotTotalMax {
-				f.Text, f.Content = true, string(data)
-				total += len(data)
+		s.n++
+	}
+	f := snapFile{SkillFile: core.SkillFile{Path: p, Size: size}}
+	if data != nil {
+		f.SHA256 = hex.EncodeToString(sum)
+		// Text past the total cap is never kept, so it need not be held.
+		if isText(data) && (p == skillFile || s.kept+len(data) <= snapshotTotalMax) {
+			f.data = data
+			if p != skillFile {
+				s.kept += len(data)
 			}
 		}
-		out = append(out, f)
 	}
-	if err := l.store.Skills().SetApproved(ctx, name, out); err != nil {
-		l.log.Warn("snapshot approved skill", "skill", name, "err", err)
+	s.list = append(s.list, f)
+}
+
+// files are the snapshot's rows, SKILL.md first so its text is kept before
+// the total cap runs out.
+func (s *snapshot) files() []core.SkillFile {
+	slices.SortStableFunc(s.list, func(a, b snapFile) int {
+		switch {
+		case a.Path == b.Path:
+			return 0
+		case a.Path == skillFile:
+			return -1
+		case b.Path == skillFile:
+			return 1
+		}
+		return 0
+	})
+	total := 0
+	out := make([]core.SkillFile, 0, len(s.list))
+	for _, f := range s.list {
+		if f.data != nil && total+len(f.data) <= snapshotTotalMax {
+			f.Text, f.Content = true, string(f.data)
+			total += len(f.data)
+		}
+		out = append(out, f.SkillFile)
 	}
+	return out
 }
 
 // isText: valid UTF-8 without NUL bytes.
