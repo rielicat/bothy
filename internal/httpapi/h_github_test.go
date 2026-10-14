@@ -171,6 +171,40 @@ func TestGitHubRoutes(t *testing.T) {
 	}
 }
 
+// Indexes are per principal: the repository list shows the commit the
+// caller's own index read, never another user's, and ignores a workspace
+// folder that only borrowed the repository's name.
+func TestGitHubReposShowCallersIndexState(t *testing.T) {
+	h := newHarness(t).setup()
+	h.srv.d.GitHub = &fakeGitHub{}
+	k := newFakeKnowledge()
+	h.srv.d.Knowledge = k
+	const adminSHA = "7638417db6d59f3c431d3e1f261cc637155684cd"
+	r := k.add(core.UserPrincipal(h.admin.user), "octocat/hello-world")
+	r.Source, r.SHA, r.IndexedSHA = core.KnowledgeGitHub, "1111111111111111111111111111111111111111", adminSHA
+	borrowed := k.add(core.UserPrincipal(h.member.user), "octocat/hello-world")
+	borrowed.IndexedSHA = "2222222222222222222222222222222222222222"
+
+	read := func(who *client) string {
+		t.Helper()
+		var repos []core.GitHubRepo
+		rec := h.do(http.MethodGet, "/api/github/repos", nil, who)
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &repos) != nil || len(repos) != 1 {
+			t.Fatalf("repos = %d %s", rec.Code, rec.Body)
+		}
+		return repos[0].LastIndexedSHA
+	}
+	if got := read(h.admin); got != adminSHA {
+		t.Errorf("admin's last_indexed_sha = %q, want %q", got, adminSHA)
+	}
+	if got := read(h.member); got != "" {
+		t.Errorf("member's last_indexed_sha = %q, want none", got)
+	}
+	if got := read(h.owner); got != "" {
+		t.Errorf("owner's last_indexed_sha = %q, want none", got)
+	}
+}
+
 func TestGitHubRouteErrors(t *testing.T) {
 	h := newHarness(t).setup()
 	if rec := h.do(http.MethodGet, "/api/github/connections", nil, h.admin); rec.Code != http.StatusServiceUnavailable {

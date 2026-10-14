@@ -74,13 +74,13 @@ func (r githubRepo) DeleteConnection(ctx context.Context, id string) error {
 	return mustAffect("delete github connection "+id, res, err)
 }
 
-const repoCols = `owner, name, connection_id, github_id, default_branch, private, allowed, last_indexed_sha, created_at, updated_at`
+const repoCols = `owner, name, connection_id, github_id, default_branch, private, allowed, created_at, updated_at`
 
 func scanRepo(sc scanner) (*core.GitHubRepo, error) {
 	var g core.GitHubRepo
 	var private, allowed int
 	var created, updated int64
-	if err := sc.Scan(&g.Owner, &g.Name, &g.Connection, &g.GitHubID, &g.DefaultBranch, &private, &allowed, &g.LastIndexedSHA,
+	if err := sc.Scan(&g.Owner, &g.Name, &g.Connection, &g.GitHubID, &g.DefaultBranch, &private, &allowed,
 		&created, &updated); err != nil {
 		return nil, err
 	}
@@ -89,10 +89,10 @@ func scanRepo(sc scanner) (*core.GitHubRepo, error) {
 	return &g, nil
 }
 
-// PutRepo keeps created_at and last_indexed_sha of an existing row; the
-// conditional update leaves a repository another connection allows
-// untouched, which RowsAffected reports as a conflict. A row its connection
-// no longer allows moves to the new one.
+// PutRepo keeps created_at of an existing row; the conditional update leaves
+// a repository another connection allows untouched, which RowsAffected
+// reports as a conflict. A row its connection no longer allows moves to the
+// new one.
 func (r githubRepo) PutRepo(ctx context.Context, g *core.GitHubRepo) error {
 	if strings.TrimSpace(g.Owner) == "" || strings.TrimSpace(g.Name) == "" || g.Connection == "" {
 		return invalid("repos.owner/name/connection_id")
@@ -102,12 +102,12 @@ func (r githubRepo) PutRepo(ctx context.Context, g *core.GitHubRepo) error {
 		g.CreatedAt = now
 	}
 	g.UpdatedAt = now
-	res, err := r.h.wq.ExecContext(ctx, `INSERT INTO repos(`+repoCols+`) VALUES (?,?,?,?,?,?,?,?,?,?)
+	res, err := r.h.wq.ExecContext(ctx, `INSERT INTO repos(`+repoCols+`) VALUES (?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(owner, name) DO UPDATE SET owner = excluded.owner, name = excluded.name, connection_id = excluded.connection_id,
 		github_id = excluded.github_id, default_branch = excluded.default_branch, private = excluded.private,
 		allowed = excluded.allowed, updated_at = excluded.updated_at
 		WHERE repos.connection_id = excluded.connection_id OR repos.allowed = 0`,
-		g.Owner, g.Name, g.Connection, g.GitHubID, g.DefaultBranch, b2i(g.Private), b2i(g.Allowed), g.LastIndexedSHA,
+		g.Owner, g.Name, g.Connection, g.GitHubID, g.DefaultBranch, b2i(g.Private), b2i(g.Allowed),
 		ms(g.CreatedAt), ms(g.UpdatedAt))
 	if err != nil {
 		return dbErr("put repo", err)
@@ -133,10 +133,4 @@ func (r githubRepo) Repos(ctx context.Context, connection string) ([]*core.GitHu
 	}
 	return queryAll(ctx, r.h.rq, "list repos", scanRepo,
 		`SELECT `+repoCols+` FROM repos WHERE connection_id = ? ORDER BY owner, name`, connection)
-}
-
-func (r githubRepo) SetIndexed(ctx context.Context, owner, name, sha string) error {
-	res, err := r.h.wq.ExecContext(ctx, `UPDATE repos SET last_indexed_sha = ?, updated_at = ? WHERE owner = ? AND name = ?`,
-		sha, ms(r.h.now()), owner, name)
-	return mustAffect("set indexed "+owner+"/"+name, res, err)
 }

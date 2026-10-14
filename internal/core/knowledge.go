@@ -63,6 +63,9 @@ type IndexedRepo struct {
 	Notes     NotesState `json:"notes"`
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
+	// IndexedSHA is the commit the latest finished index read ("" until one
+	// finished); UpdateIndex writes it.
+	IndexedSHA string `json:"indexed_sha"`
 }
 
 type NotesState struct {
@@ -169,9 +172,10 @@ type KnowledgeRepo interface {
 	ByName(ctx context.Context, v Viewer, p PrincipalID, repo string) (*IndexedRepo, error)
 	List(ctx context.Context, v Viewer, p PrincipalID) ([]*IndexedRepo, error) // p "" = all of the Viewer's; by repo name
 	// UpdateIndex writes the index state of r.ID (Status, Error, Files,
-	// Chunks, Bytes, Skipped, Truncated, IndexedAt) and r.UpdatedAt back; the
-	// requested SHA changes only through Upsert, and UpdateNotes writes only
-	// the notes state, so concurrent writers never undo each other.
+	// Chunks, Bytes, Skipped, Truncated, IndexedAt, IndexedSHA) and
+	// r.UpdatedAt back; the requested SHA changes only through Upsert, and
+	// UpdateNotes writes only the notes state, so concurrent writers never
+	// undo each other.
 	UpdateIndex(ctx context.Context, r *IndexedRepo) error
 	UpdateNotes(ctx context.Context, id int64, n NotesState) error
 	Delete(ctx context.Context, v Viewer, id int64) error                     // with its files, chunks and touches

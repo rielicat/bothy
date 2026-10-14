@@ -51,12 +51,35 @@ func (h *harness) startRun() func() {
 	}
 }
 
+// IndexedSHA is the commit the last finished index read: a newer request
+// that fails leaves it, so a caller still sees what the index holds.
+func TestIndexedSHAFollowsFinishedIndexes(t *testing.T) {
+	h := newHarness(t)
+	h.write("proj/a.go", "package a\n")
+	r := h.index("proj", "acme/proj", "aaaaaaa")
+	if r.Status != core.IndexReady || r.IndexedSHA != "aaaaaaa" {
+		t.Fatalf("first index = %+v", r)
+	}
+	q, err := h.svc.Index(h.ctx, h.viewer(), h.p.ID, core.KnowledgeIndexRequest{Dir: "proj", Repo: "acme/proj", SHA: "bbbbbbb"}, h.user.ID)
+	if err != nil || q.IndexedSHA != "aaaaaaa" || q.SHA != "bbbbbbb" {
+		t.Fatalf("queued = %+v %v", q, err)
+	}
+	if err := os.RemoveAll(filepath.Join(h.ws, "proj")); err != nil {
+		t.Fatal(err)
+	}
+	if r = h.runJob(q.ID); r.Status != core.IndexFailed || r.SHA != "bbbbbbb" || r.IndexedSHA != "aaaaaaa" {
+		t.Fatalf("failed index = %+v", r)
+	}
+	h.write("proj/a.go", "package a\n\nfunc A() {}\n")
+	if r = h.index("proj", "acme/proj", "ccccccc"); r.Status != core.IndexReady || r.IndexedSHA != "ccccccc" {
+		t.Fatalf("third index = %+v", r)
+	}
+}
+
 func TestCheckoutEventIndexesAndTouches(t *testing.T) {
 	h := newHarness(t)
 	h.writeRepo()
 	sess := h.session(h.p.ID)
-	indexed := make(chan string, 4)
-	h.svc.d.Indexed = func(_ context.Context, repo, sha string) { indexed <- repo + "@" + sha }
 	stop := h.startRun()
 	defer stop()
 	// Run subscribes asynchronously; publish until the queue picks it up.
@@ -72,20 +95,13 @@ func TestCheckoutEventIndexesAndTouches(t *testing.T) {
 		}
 	}
 	r := h.waitRepo(repos[0].ID, func(r *core.IndexedRepo) bool { return r.Status == core.IndexReady })
-	if r.Repo != "acme/api" || r.SHA != "abcdef1234" || r.Source != core.KnowledgeGitHub || r.Dir != "repos/acme/api" || r.Files != 6 {
+	if r.Repo != "acme/api" || r.SHA != "abcdef1234" || r.IndexedSHA != "abcdef1234" || r.Source != core.KnowledgeGitHub ||
+		r.Dir != "repos/acme/api" || r.Files != 6 {
 		t.Fatalf("repo = %+v", r)
 	}
 	touches, err := h.repo.Touched(h.ctx, h.viewer(), sess.ID)
 	if err != nil || len(touches) != 1 || touches[0].Repo != r.ID {
 		t.Fatalf("touches = %+v %v", touches, err)
-	}
-	select {
-	case got := <-indexed:
-		if got != "acme/api@abcdef1234" {
-			t.Fatalf("Indexed heard %q", got)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("Indexed was not called for the GitHub checkout")
 	}
 	if !strings.Contains(strings.Join(h.audit.Actions(), ","), "knowledge.index") {
 		t.Fatalf("audit = %v", h.audit.Actions())

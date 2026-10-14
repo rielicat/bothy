@@ -150,6 +150,7 @@ func (k *repo) UpdateIndex(_ context.Context, r *core.IndexedRepo) error {
 	}
 	x.Status, x.Error, x.Files, x.Chunks, x.Bytes = r.Status, r.Error, r.Files, r.Chunks, r.Bytes
 	x.Skipped, x.Truncated, x.IndexedAt, x.UpdatedAt = r.Skipped, r.Truncated, msTime(r.IndexedAt), msTime(time.Now())
+	x.IndexedSHA = r.IndexedSHA
 	r.UpdatedAt = x.UpdatedAt
 	return nil
 }

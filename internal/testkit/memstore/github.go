@@ -119,11 +119,12 @@ func (s *githubStore) PutRepo(_ context.Context, r *core.GitHubRepo) error {
 	r.UpdatedAt = now
 	k := repoKey(r.Owner, r.Name)
 	cp := *r
+	cp.LastIndexedSHA = "" // not stored: index state is per principal
 	if old, ok := s.repos[k]; ok {
 		if old.Connection != r.Connection && old.Allowed {
 			return fmt.Errorf("memstore: repo %s belongs to another connection: %w", r.FullName(), core.ErrConflict)
 		}
-		cp.CreatedAt, cp.LastIndexedSHA = old.CreatedAt, old.LastIndexedSHA
+		cp.CreatedAt = old.CreatedAt
 	}
 	cp.CreatedAt, cp.UpdatedAt = msTime(cp.CreatedAt), msTime(cp.UpdatedAt)
 	s.repos[k] = &cp
@@ -156,15 +157,4 @@ func (s *githubStore) Repos(_ context.Context, connection string) ([]*core.GitHu
 			strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)))
 	})
 	return out, nil
-}
-
-func (s *githubStore) SetIndexed(_ context.Context, owner, name, sha string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	r, ok := s.repos[repoKey(owner, name)]
-	if !ok {
-		return fmt.Errorf("memstore: repo %s/%s: %w", owner, name, core.ErrNotFound)
-	}
-	r.LastIndexedSHA, r.UpdatedAt = sha, msTime(time.Now())
-	return nil
 }

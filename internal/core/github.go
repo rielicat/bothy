@@ -39,7 +39,9 @@ type GitHubConnection struct {
 
 // GitHubRepo is a repository a connection can reach. Only Allowed ones are
 // offered to the agent. Owner and name are unique case-insensitively across
-// connections and keep GitHub's spelling.
+// connections and keep GitHub's spelling. LastIndexedSHA is never stored:
+// indexes are per principal, so GET /api/github/repos fills in the commit
+// the caller's own index of the repository last read (IndexedRepo.IndexedSHA).
 type GitHubRepo struct {
 	Connection     string    `json:"connection_id"`
 	GitHubID       int64     `json:"github_id"`
@@ -48,7 +50,7 @@ type GitHubRepo struct {
 	DefaultBranch  string    `json:"default_branch"`
 	Private        bool      `json:"private"`
 	Allowed        bool      `json:"allowed"`
-	LastIndexedSHA string    `json:"last_indexed_sha,omitempty"` // set by the knowledge index
+	LastIndexedSHA string    `json:"last_indexed_sha,omitempty"` // the caller's own index state
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 }
@@ -64,11 +66,10 @@ type GitHubStore interface {
 	DeleteConnection(ctx context.Context, id string) error                // and its repos; ErrNotFound
 	// PutRepo inserts or updates by owner/name (case-insensitive). A repo
 	// another connection allows is ErrConflict (one it no longer allows moves
-	// over, keeping last_indexed_sha); an unknown connection ErrInvalid.
+	// over, keeping created_at); an unknown connection ErrInvalid.
 	PutRepo(ctx context.Context, r *GitHubRepo) error
 	Repo(ctx context.Context, owner, name string) (*GitHubRepo, error)   // case-insensitive; ErrNotFound
 	Repos(ctx context.Context, connection string) ([]*GitHubRepo, error) // "" = every connection; by owner, name
-	SetIndexed(ctx context.Context, owner, name, sha string) error       // ErrNotFound
 }
 
 // GitHubCredentials is a connect or test request. Exactly one of Token,

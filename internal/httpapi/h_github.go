@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -10,7 +11,7 @@ import (
 
 // githubRoutes are the GitHub connection endpoints (v0.2 F4). Managing
 // connections is admin-only; any user may list the allowlisted repositories
-// their runs can use.
+// their runs can use, with their own index state.
 func (s *Server) githubRoutes() []route {
 	return []route{
 		{pattern: "GET /api/github/repos", access: accessUser, h: s.githubRepos},
@@ -45,7 +46,7 @@ func githubCreds(req dto.GitHubConnectReq) core.GitHubCredentials {
 	return c
 }
 
-func (s *Server) githubRepos(w http.ResponseWriter, r *http.Request, _ core.Actor) error {
+func (s *Server) githubRepos(w http.ResponseWriter, r *http.Request, a core.Actor) error {
 	gh, err := s.gh()
 	if err != nil {
 		return err
@@ -54,7 +55,36 @@ func (s *Server) githubRepos(w http.ResponseWriter, r *http.Request, _ core.Acto
 	if err != nil {
 		return err
 	}
+	if err := s.callerIndexState(r.Context(), a, repos); err != nil {
+		return err
+	}
 	return ok(w, nonNil(repos))
+}
+
+// callerIndexState sets each repository's LastIndexedSHA to the commit the
+// caller's own index of its checkout last read. Every principal indexes on
+// its own, so no other user's index is ever shown.
+func (s *Server) callerIndexState(ctx context.Context, a core.Actor, repos []*core.GitHubRepo) error {
+	for _, g := range repos {
+		g.LastIndexedSHA = ""
+	}
+	if s.d.Knowledge == nil || len(repos) == 0 {
+		return nil
+	}
+	indexed, err := s.d.Knowledge.Repos(ctx, a.Viewer, core.UserPrincipal(a.User))
+	if err != nil {
+		return err
+	}
+	sha := make(map[string]string, len(indexed))
+	for _, x := range indexed {
+		if x.Source == core.KnowledgeGitHub {
+			sha[x.Repo] = x.IndexedSHA
+		}
+	}
+	for _, g := range repos {
+		g.LastIndexedSHA = sha[strings.ToLower(g.FullName())]
+	}
+	return nil
 }
 
 func (s *Server) githubConnections(w http.ResponseWriter, r *http.Request, _ core.Actor) error {

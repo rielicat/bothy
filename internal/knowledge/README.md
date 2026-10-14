@@ -22,8 +22,9 @@ mark a truncated walk. Re-indexing is incremental: a file whose chunker version
 plus sha256 is unchanged is not re-chunked; changed files are replaced and
 vanished ones deleted, in batched transactions, then every chunk is relabelled
 with the new commit. A restart requeues interrupted indexes. A finished index
-of a GitHub checkout calls `Deps.Indexed`, which `cmd/bothy` uses to record
-the commit as the repository's `last_indexed_sha`.
+records the commit it read as the row's `IndexedSHA` (a failed one keeps the
+previous); the state is the principal's own, and `GET /api/github/repos`
+shows each caller theirs as `last_indexed_sha`.
 
 **Chunking** is regex-light: markdown by headings (levels 1-3, fenced code and
 front matter ignored, titles are heading paths), Go, Python, JS/TS, Rust, Java-family, C/C++,

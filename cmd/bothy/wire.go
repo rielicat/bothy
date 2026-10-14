@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 
 	"github.com/rielicat/bothy/internal/agent"
@@ -169,15 +168,8 @@ func (a *app) buildRest(ctx context.Context) error {
 		return err
 	}
 	repos := a.db.GitHub()
-	indexed := func(ctx context.Context, repo, sha string) {
-		owner, name, _ := strings.Cut(repo, "/")
-		if err := repos.SetIndexed(ctx, owner, name, sha); err != nil && !errors.Is(err, core.ErrNotFound) {
-			a.log.Warn("knowledge: recording the indexed commit failed", "repo", repo, "err", err)
-		}
-	}
 	if a.knowledge, err = knowledge.New(knowledge.Deps{Repo: a.db.Knowledge(), Store: a.db, Config: a.cfg, LLM: a.llm, Budget: a.budget,
-		Redactor: a.redactor, Bus: a.bus, Audit: a.audit, DataDir: dirs.Data, WorkDir: dirs.Work, Clock: a.clock, Log: a.log,
-		Indexed: indexed}); err != nil {
+		Redactor: a.redactor, Bus: a.bus, Audit: a.audit, DataDir: dirs.Data, WorkDir: dirs.Work, Clock: a.clock, Log: a.log}); err != nil {
 		return err
 	}
 	if a.skills, err = skills.New(skills.Deps{Store: a.db, Config: a.cfg, Audit: a.audit, Bus: a.bus, WorkDir: dirs.Work, Clock: a.clock, Log: a.log}); err != nil {

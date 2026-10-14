@@ -17,9 +17,10 @@ import (
 //     CreatedAt (when zero) and UpdatedAt, and an empty Status becomes "ok".
 //   - An App connection needs AppID and InstallationID > 0, and SecretRef
 //     must be "secret:<name>" (CHECKs) => ErrInvalid.
-//   - PutRepo keeps CreatedAt and LastIndexedSHA of an existing row, takes
-//     GitHub's new spelling of owner/name, and with an unknown connection =>
-//     ErrInvalid (foreign key).
+//   - PutRepo keeps CreatedAt of an existing row, takes GitHub's new
+//     spelling of owner/name, and with an unknown connection => ErrInvalid
+//     (foreign key). LastIndexedSHA is never stored (index state is per
+//     principal), so reads return it empty.
 //   - Repos sort by owner, then name, case-insensitively.
 //   - Times are truncated to milliseconds.
 func GitHubStore(t *testing.T, open func(t *testing.T) core.GitHubStore) {
@@ -40,7 +41,7 @@ var githubSuite = []struct {
 	{"connection constraints", ghConnConstraints},
 	{"repos upsert and conflicts", ghRepos},
 	{"delete cascades", ghDeleteCascade},
-	{"indexed sha", ghIndexed},
+	{"index state not stored", ghIndexStateNotStored},
 }
 
 func ghConn(auth core.GitHubAuth) *core.GitHubConnection {
@@ -141,7 +142,7 @@ func ghRepos(t *testing.T, ctx context.Context, s core.GitHubStore) {
 	ghPutConn(t, ctx, s, b)
 	put := func(r *core.GitHubRepo) error { return s.PutRepo(ctx, r) }
 	hello := &core.GitHubRepo{Connection: a.ID, GitHubID: 1296269, Owner: "octocat", Name: "Hello-World", DefaultBranch: "main",
-		Private: true, Allowed: true, LastIndexedSHA: "abc"}
+		Private: true, Allowed: true}
 	if err := put(hello); err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +158,7 @@ func ghRepos(t *testing.T, ctx context.Context, s core.GitHubStore) {
 		t.Fatalf("case-insensitive Repo: %v", err)
 	}
 	if got.Owner != "octocat" || got.Name != "Hello-World" || got.GitHubID != 1296269 || got.DefaultBranch != "main" ||
-		!got.Private || !got.Allowed || got.LastIndexedSHA != "abc" || got.Connection != a.ID || got.FullName() != "octocat/Hello-World" {
+		!got.Private || !got.Allowed || got.Connection != a.ID || got.FullName() != "octocat/Hello-World" {
 		t.Errorf("Repo = %+v", got)
 	}
 	created := got.CreatedAt
@@ -170,8 +171,7 @@ func ghRepos(t *testing.T, ctx context.Context, s core.GitHubStore) {
 		t.Errorf("conflicting put changed the row: %+v", got)
 	}
 
-	// Same connection: updates, takes the new spelling, keeps created_at and
-	// last_indexed_sha.
+	// Same connection: updates, takes the new spelling, keeps created_at.
 	if err := put(&core.GitHubRepo{Connection: a.ID, GitHubID: 1296269, Owner: "Octocat", Name: "hello-world", DefaultBranch: "trunk",
 		Allowed: false}); err != nil {
 		t.Fatal(err)
@@ -181,18 +181,18 @@ func ghRepos(t *testing.T, ctx context.Context, s core.GitHubStore) {
 		t.Fatal(err)
 	}
 	if got.Owner != "Octocat" || got.Name != "hello-world" || got.DefaultBranch != "trunk" || got.Allowed || got.Private ||
-		got.LastIndexedSHA != "abc" || !got.CreatedAt.Equal(created) {
+		!got.CreatedAt.Equal(created) {
 		t.Errorf("after update = %+v", got)
 	}
 
 	// a no longer allows it: another connection takes it over, keeping
-	// created_at and last_indexed_sha.
+	// created_at.
 	if err := put(&core.GitHubRepo{Connection: b.ID, GitHubID: 1296269, Owner: "octocat", Name: "Hello-World", DefaultBranch: "main",
 		Allowed: true}); err != nil {
 		t.Fatalf("taking over a repo its connection no longer allows: %v", err)
 	}
 	got, err = s.Repo(ctx, "octocat", "hello-world")
-	if err != nil || got.Connection != b.ID || !got.Allowed || got.DefaultBranch != "main" || got.LastIndexedSHA != "abc" || !got.CreatedAt.Equal(created) {
+	if err != nil || got.Connection != b.ID || !got.Allowed || got.DefaultBranch != "main" || !got.CreatedAt.Equal(created) {
 		t.Errorf("after takeover = %+v %v", got, err)
 	}
 	if err := put(&core.GitHubRepo{Connection: a.ID, Owner: "octocat", Name: "hello-world"}); !errors.Is(err, core.ErrConflict) {
@@ -258,20 +258,22 @@ func ghDeleteCascade(t *testing.T, ctx context.Context, s core.GitHubStore) {
 	}
 }
 
-func ghIndexed(t *testing.T, ctx context.Context, s core.GitHubStore) {
+// The repository row is shared by every user while each principal indexes
+// on its own, so a caller's index state never lands in it.
+func ghIndexStateNotStored(t *testing.T, ctx context.Context, s core.GitHubStore) {
 	a := ghConn(core.GitHubPAT)
 	ghPutConn(t, ctx, s, a)
-	if err := s.PutRepo(ctx, &core.GitHubRepo{Connection: a.ID, Owner: "octocat", Name: "Hello-World"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SetIndexed(ctx, "OctoCat", "hello-world", "7638417db6d59f3c431d3e1f261cc637155684cd"); err != nil {
+	r := &core.GitHubRepo{Connection: a.ID, Owner: "octocat", Name: "Hello-World", Allowed: true,
+		LastIndexedSHA: "7638417db6d59f3c431d3e1f261cc637155684cd"}
+	if err := s.PutRepo(ctx, r); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.Repo(ctx, "octocat", "Hello-World")
-	if err != nil || got.LastIndexedSHA != "7638417db6d59f3c431d3e1f261cc637155684cd" {
-		t.Errorf("after SetIndexed = %+v %v", got, err)
+	if err != nil || got.LastIndexedSHA != "" {
+		t.Errorf("Repo = %+v %v, want no indexed sha", got, err)
 	}
-	if err := s.SetIndexed(ctx, "nobody", "nothing", "x"); !errors.Is(err, core.ErrNotFound) {
-		t.Errorf("SetIndexed missing: %v", err)
+	all, err := s.Repos(ctx, "")
+	if err != nil || len(all) != 1 || all[0].LastIndexedSHA != "" {
+		t.Errorf("Repos = %+v %v", all, err)
 	}
 }

@@ -149,8 +149,8 @@ func TestGitHubPullRequest(t *testing.T) {
 	}
 
 	// repo.checkout reached the knowledge module: the checkout is indexed for
-	// the owner at the checked-out commit, notes are drafted, and the
-	// repository row carries the indexed commit.
+	// the owner at the checked-out commit, notes are drafted, and the owner's
+	// repository list shows the commit their index read.
 	var indexed core.IndexedRepo
 	deadline := time.Now().Add(30 * time.Second)
 	for indexed.ID == 0 {
@@ -171,8 +171,8 @@ func TestGitHubPullRequest(t *testing.T) {
 	indexed = kWaitRepo(t, owner, indexed.ID, func(r core.IndexedRepo) bool {
 		return r.Status == core.IndexReady && r.Notes.Status == core.NotesReady
 	})
-	if indexed.Source != core.KnowledgeGitHub || indexed.SHA != base || indexed.Dir != "repos/octocat/Hello-World" || indexed.Files != 2 ||
-		indexed.Principal != owner.Principal(t).ID {
+	if indexed.Source != core.KnowledgeGitHub || indexed.SHA != base || indexed.IndexedSHA != base || indexed.Dir != "repos/octocat/Hello-World" ||
+		indexed.Files != 2 || indexed.Principal != owner.Principal(t).ID {
 		t.Errorf("indexed checkout = %+v", indexed)
 	}
 	if code := owner.JSON(t, http.MethodGet, "/api/github/repos", nil, &repos); code != http.StatusOK || len(repos) != 1 || repos[0].LastIndexedSHA != base {

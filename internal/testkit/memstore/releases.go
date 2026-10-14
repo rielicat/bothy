@@ -36,7 +36,9 @@ func validDeployStatus(s core.DeployStatus) bool {
 	return oneOf(s, core.DeployDispatched, core.DeployRunning, core.DeploySucceeded, core.DeployFailed, core.DeployUnknown)
 }
 
-func validDeployVia(v string) bool { return oneOf(v, "", core.DeployViaConnection, core.DeployViaToken) }
+func validDeployVia(v string) bool {
+	return oneOf(v, "", core.DeployViaConnection, core.DeployViaToken)
+}
 
 func visibleDeploy(v core.Viewer, d core.Deploy) bool { return v.Can(d.Principal) || v.Admin }
 
