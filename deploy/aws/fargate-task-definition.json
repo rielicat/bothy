@@ -1,0 +1,88 @@
+{
+  "family": "bothy-fargate",
+  "requiresCompatibilities": ["FARGATE"],
+  "networkMode": "awsvpc",
+  "cpu": "256",
+  "memory": "512",
+  "runtimePlatform": {"operatingSystemFamily": "LINUX", "cpuArchitecture": "ARM64"},
+  "taskRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/bothy-task",
+  "executionRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/bothy-task-execution",
+  "containerDefinitions": [
+    {
+      "name": "kek",
+      "image": "public.ecr.aws/aws-cli/aws-cli:<AWSCLI_TAG>@sha256:<AWSCLI_DIGEST>",
+      "essential": false,
+      "user": "0:0",
+      "entryPoint": ["/bin/sh", "-c"],
+      "command": [
+        "umask 077 && aws secretsmanager get-secret-value --secret-id \"$KEK_SECRET_ID\" --query SecretString --output text > /kek/bothy_kek && chown 65532:65532 /kek/bothy_kek && chmod 1777 /scratch"
+      ],
+      "environment": [
+        {"name": "KEK_SECRET_ID", "value": "bothy/kek"},
+        {"name": "AWS_REGION", "value": "<REGION>"},
+        {"name": "HOME", "value": "/scratch"}
+      ],
+      "readonlyRootFilesystem": true,
+      "linuxParameters": {
+        "capabilities": {
+          "drop": ["AUDIT_WRITE", "DAC_OVERRIDE", "FOWNER", "FSETID", "KILL", "MKNOD", "NET_BIND_SERVICE", "NET_RAW", "SETFCAP", "SETGID", "SETPCAP", "SETUID", "SYS_CHROOT"]
+        }
+      },
+      "mountPoints": [
+        {"sourceVolume": "kek", "containerPath": "/kek"},
+        {"sourceVolume": "tmp", "containerPath": "/scratch"}
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {"awslogs-group": "/ecs/bothy", "awslogs-region": "<REGION>", "awslogs-stream-prefix": "bothy"}
+      }
+    },
+    {
+      "name": "bothy",
+      "image": "ghcr.io/rielicat/bothy:<VERSION>@sha256:<BOTHY_DIGEST>",
+      "essential": true,
+      "command": ["serve"],
+      "user": "65532:65532",
+      "portMappings": [{"containerPort": 8080, "protocol": "tcp"}],
+      "environment": [
+        {"name": "BOTHY_DEPLOYMENT", "value": "container"},
+        {"name": "BOTHY_SANDBOX__BACKEND", "value": "none"},
+        {"name": "BOTHY_VAULT__KEK", "value": "file:/run/bothy-kek/bothy_kek"},
+        {"name": "BOTHY_SERVER__PUBLIC_URL", "value": "https://bothy.internal.example.com"},
+        {"name": "BOTHY_SERVER__TRUSTED_PROXIES", "value": "[\"10.0.10.0/24\",\"10.0.11.0/24\"]"},
+        {"name": "GOMEMLIMIT", "value": "48MiB"}
+      ],
+      "readonlyRootFilesystem": true,
+      "linuxParameters": {"capabilities": {"drop": ["ALL"]}},
+      "mountPoints": [
+        {"sourceVolume": "data", "containerPath": "/data"},
+        {"sourceVolume": "kek", "containerPath": "/run/bothy-kek", "readOnly": true},
+        {"sourceVolume": "tmp", "containerPath": "/tmp"}
+      ],
+      "dependsOn": [{"containerName": "kek", "condition": "SUCCESS"}],
+      "healthCheck": {
+        "command": ["CMD", "/bothy", "healthcheck"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 30
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {"awslogs-group": "/ecs/bothy", "awslogs-region": "<REGION>", "awslogs-stream-prefix": "bothy"}
+      }
+    }
+  ],
+  "volumes": [
+    {
+      "name": "data",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "<EFS_ID>",
+        "transitEncryption": "ENABLED",
+        "authorizationConfig": {"accessPointId": "<ACCESS_POINT_ID>", "iam": "ENABLED"}
+      }
+    },
+    {"name": "kek"},
+    {"name": "tmp"}
+  ]
+}

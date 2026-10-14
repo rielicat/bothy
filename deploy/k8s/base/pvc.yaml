@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bothy-data
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: bothy-gp3
+  resources:
+    requests:
+      storage: 10Gi

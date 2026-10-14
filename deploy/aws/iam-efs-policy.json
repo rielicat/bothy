@@ -1,0 +1,16 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "MountDataThroughAccessPoint",
+      "Effect": "Allow",
+      "Action": ["elasticfilesystem:ClientMount", "elasticfilesystem:ClientWrite"],
+      "Resource": "arn:aws:elasticfilesystem:<REGION>:<ACCOUNT_ID>:file-system/<EFS_ID>",
+      "Condition": {
+        "StringEquals": {
+          "elasticfilesystem:AccessPointArn": "arn:aws:elasticfilesystem:<REGION>:<ACCOUNT_ID>:access-point/<ACCESS_POINT_ID>"
+        }
+      }
+    }
+  ]
+}
