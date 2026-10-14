@@ -1,45 +1,78 @@
+<script lang="ts" module>
+  export interface Bar {
+    /** Axis label on wide screens; '' leaves the slot empty. */
+    label: string;
+    /** Axis label under 640 px. */
+    short?: string;
+    value: number;
+    /** What the bar's tooltip and the hidden table say: "Tue 14 Oct: $1.20". */
+    title: string;
+  }
+</script>
+
 <script lang="ts">
+  import { tooltip } from './ui';
+
+  // Neutral bars, two labelled gridlines, the hovered or focused bar in ink;
+  // the summary and a visually hidden table carry the numbers (§10.5, §16).
   let {
     data,
-    label,
-    format = (v: number) => String(v),
-  }: { data: { key: string; label: string; value: number; muted?: boolean }[]; label: string; format?: (v: number) => string } = $props();
+    format,
+    axis = format,
+    summary,
+    height = 160,
+  }: { data: Bar[]; format: (v: number) => string; axis?: (v: number) => string; summary: string; height?: number } = $props();
 
-  const W = 760;
-  const H = 170;
-  const pad = { l: 44, r: 8, t: 10, b: 24 };
-  const max = $derived(Math.max(...data.map((d) => d.value), 0));
-  // Round the axis top to 1/2/5 × 10^n so gridlines land on readable values.
+  const max = $derived(Math.max(0, ...data.map((d) => d.value)));
+  // The top gridline lands on 1, 2, 4 or 5 × 10^n, so both labels read cleanly.
   const top = $derived.by(() => {
     if (max <= 0) return 1;
     const p = 10 ** Math.floor(Math.log10(max));
-    return ([1, 2, 5, 10].find((m) => m * p >= max) ?? 10) * p;
+    return ([1, 2, 4, 5, 10].find((m) => m * p >= max) ?? 10) * p;
   });
-  const bw = $derived((W - pad.l - pad.r) / Math.max(1, data.length));
-  const y = (v: number) => pad.t + (H - pad.t - pad.b) * (1 - v / top);
-  const every = $derived(Math.ceil(data.length / 8));
+  const few = $derived(data.length <= 7);
 </script>
 
-<svg viewBox="0 0 {W} {H}" class="h-auto w-full" role="img" aria-label="{label}. Highest: {format(max)}">
-  {#each [0, 0.5, 1] as g (g)}
-    <line x1={pad.l} x2={W - pad.r} y1={y(top * g)} y2={y(top * g)} class="stroke-line" stroke-dasharray={g ? '3 4' : ''} />
-    <text x={pad.l - 6} y={y(top * g) + 4} text-anchor="end" class="fill-faint text-[10px]">{format(top * g)}</text>
-  {/each}
-  {#each data as d, i (d.key)}
-    {@const h = Math.max(d.value > 0 ? 2 : 0, y(0) - y(d.value))}
-    <rect
-      x={pad.l + i * bw + bw * 0.15}
-      y={y(0) - h}
-      width={Math.max(1, bw * 0.7)}
-      height={h}
-      rx="3"
-      class={d.muted ? 'fill-warn' : 'fill-accent'}
-      opacity={d.value > 0 ? 0.9 : 0}
-    >
-      <title>{d.label}: {format(d.value)}{d.muted ? ' (includes unknown prices)' : ''}</title>
-    </rect>
-    {#if i % every === 0}
-      <text x={pad.l + i * bw + bw / 2} y={H - 6} text-anchor="middle" class="fill-faint text-[10px]">{d.label}</text>
-    {/if}
-  {/each}
-</svg>
+<figure class="mt-6">
+  <div role="group" aria-label={summary} class="relative pl-12" style:height="{height}px">
+    {#each [0.5, 1] as g (g)}
+      <div class="absolute right-0 left-12 border-t border-border" style:bottom="{g * 100}%" aria-hidden="true">
+        <span class="absolute -top-2 -left-12 w-10 text-right text-caption text-muted tabular-nums">{axis(top * g)}</span>
+      </div>
+    {/each}
+    <div class="absolute inset-y-0 right-0 left-12 flex items-end border-b border-border {data.length > 14 ? 'gap-px' : 'gap-1'}">
+      {#each data as d, i (i)}
+        <div class="flex h-full min-w-0 flex-1 flex-col items-center justify-end">
+          {#if few && d.value > 0}<span class="mb-1 text-caption text-muted tabular-nums" aria-hidden="true">{format(d.value)}</span>{/if}
+          <!-- Bars take focus so the keyboard reaches each day's tooltip (§10.5). -->
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+          <span
+            role="img"
+            tabindex="0"
+            aria-label={d.title}
+            class="block w-full max-w-12 bg-chart outline-offset-2 hover:bg-text focus-visible:bg-text"
+            style:height="{Math.max(d.value > 0 ? 2 : 0, (d.value / top) * 100)}%"
+            {@attach tooltip(() => d.title)}
+          ></span>
+        </div>
+      {/each}
+    </div>
+  </div>
+  <div class="mt-1 flex pl-12 text-caption text-muted {data.length > 14 ? 'gap-px' : 'gap-1'}" aria-hidden="true">
+    {#each data as d, i (i)}
+      {@const edge = i === 0 ? 'justify-start' : i === data.length - 1 ? 'justify-end' : 'justify-center'}
+      <span class="flex min-w-0 flex-1 whitespace-nowrap max-sm:hidden {edge}">{d.label}</span>
+      <span class="flex min-w-0 flex-1 whitespace-nowrap sm:hidden {edge}">{d.short ?? d.label}</span>
+    {/each}
+  </div>
+  <!-- sr-only on the wrapper: a table ignores the 1 px width and would widen the page. -->
+  <div class="sr-only">
+    <table>
+      <caption>{summary}</caption>
+      <thead><tr><th scope="col">Day</th><th scope="col">Spent</th></tr></thead>
+      <tbody>
+        {#each data as d, i (i)}<tr><td>{d.title.split(':')[0]}</td><td>{format(d.value)}</td></tr>{/each}
+      </tbody>
+    </table>
+  </div>
+</figure>

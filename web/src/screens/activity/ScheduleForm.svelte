@@ -1,0 +1,326 @@
+<script lang="ts">
+  import { tick, untrack } from 'svelte';
+  import { Button, Checkbox, Combobox, Disclosure, IconButton, Menu, Page, Select, TextArea, TextField, toast } from '../../components/ui';
+  import { api, ApiError } from '../../lib/api/client';
+  import type { ChatRef, Grant, List, Schedule, SchedulePreviewResp } from '../../lib/api/types.gen';
+  import { fullTime, money, relTime } from '../../lib/format';
+  import { hostPort } from '../../lib/grants';
+  import { router } from '../../lib/router.svelte';
+  import { describeWhen, fromSpec, saveSchedule, scheduleGrants, timeOptions, timezones, toSpec, validRule, WEEKDAYS, ZERO, type When } from '../../lib/schedules';
+  import { session } from '../../lib/stores/session.svelte';
+  import { appName } from '../../lib/taskStatus';
+  import { people, type TaskRun } from './api';
+  import CheckIn from './CheckIn.svelte';
+  import DeleteSchedule from './DeleteSchedule.svelte';
+  import Loading from './Loading.svelte';
+  import { blankSchedule, grantSentence, hostsIn, nameFrom } from './schedule';
+  import TaskRow from './TaskRow.svelte';
+  import { deliverTo, loadChats, taskView, type Chats } from './tasks';
+
+  let { params }: { params: Record<string, string> } = $props();
+
+  const isNew = $derived(params.id === 'new');
+  let s = $state<Schedule | null>(null);
+  let w = $state<When>(fromSpec('cron', '0 9 * * 1-5'));
+  let chats = $state<Chats>({ identities: [], spaces: [] });
+  let saved = $state<Grant[]>([]);
+  let keep = $state<Record<string, boolean>>({});
+  let runs = $state<TaskRun[]>([]);
+  let names = $state(new Map<string, string>());
+  let cost = $state('');
+  let from = $state('');
+  let to = $state('20:00');
+  let named = $state(false);
+  let submitted = $state(false);
+  let saving = $state(false);
+  let saveError = $state('');
+  let preview = $state<SchedulePreviewResp | null>(null);
+  let ruleRejected = $state(false);
+  let missing = $state(false);
+  let failed = $state(false);
+  let removing = $state<Schedule | null>(null);
+
+  const zones = timezones().map((z) => ({ value: z, label: z.replace(/_/g, ' ') }));
+
+  async function load() {
+    const id = params.id;
+    failed = missing = false;
+    try {
+      chats = await loadChats();
+      if (id === 'new') {
+        const first = chats.identities[0];
+        s = { ...blankSchedule(session.me?.user), deliver: first ? { channel: first.channel, chat_id: first.dm_chat_id!, kind: 'dm' } : { channel: 'web', chat_id: '', kind: 'dm' } };
+        saved = [];
+        runs = [];
+      } else {
+        const [sc, gr, rn, n] = await Promise.all([
+          api.get<Schedule>(`/api/schedules/${encodeURIComponent(id)}`),
+          scheduleGrants(id),
+          api.get<List<TaskRun>>(`/api/schedules/${encodeURIComponent(id)}/runs?limit=10`).catch(() => ({ items: [] as TaskRun[] })),
+          people(),
+        ]);
+        s = sc;
+        saved = gr;
+        runs = rn.items ?? [];
+        names = n;
+        named = true;
+      }
+      w = fromSpec(s.kind, s.spec, s.tz);
+      [from, to] = s.active_hours ? s.active_hours.split('-') : ['', '20:00'];
+      cost = s.limits.max_cost_micros ? (s.limits.max_cost_micros / 1e6).toFixed(2) : '';
+      keep = Object.fromEntries(saved.map((g) => [g.id, true]));
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) missing = true;
+      else failed = true;
+    }
+  }
+
+  $effect(() => {
+    void params.id;
+    s = null;
+    untrack(() => void load());
+  });
+
+  const spec = $derived(toSpec(w));
+
+  // Custom starts from the rule the last choice made, so it is a small edit rather than a blank field.
+  let lastCron = '';
+  $effect(() => {
+    if (w.kind !== 'custom' && w.kind !== 'once') lastCron = spec.spec;
+    else if (w.kind === 'custom' && !w.rule) w.rule = lastCron;
+  });
+
+  // "History" in the schedule list opens this page at its recent runs.
+  $effect(() => {
+    if (s?.id && router.hash === '#recent') void tick().then(() => document.getElementById('recent')?.scrollIntoView());
+  });
+
+  // Only the newest answer may show; previews can arrive out of order.
+  let seq = 0;
+  $effect(() => {
+    const req = { kind: spec.kind, spec: spec.spec, tz: s?.tz ?? 'UTC' };
+    if (!s || (w.kind === 'custom' && !validRule(w.rule)) || (w.kind === 'once' && !w.date)) {
+      preview = null;
+      return;
+    }
+    const n = ++seq;
+    const t = setTimeout(() => {
+      api.post<SchedulePreviewResp>('/api/schedules/preview', req).then(
+        (p) => n === seq && ((preview = p), (ruleRejected = false)),
+        () => n === seq && ((preview = null), (ruleRejected = w.kind === 'custom')),
+      );
+    }, 300);
+    return () => clearTimeout(t);
+  });
+
+  // Weekday names keep their capital: "Runs Mondays at 9:00", "Runs weekdays at 9:00".
+  const lower = (t: string) => (w.kind === 'weekly' ? t : t[0].toLowerCase() + t.slice(1));
+  const nextDays = $derived(
+    (preview?.next ?? []).slice(0, 3).map((t) => new Date(t).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', timeZone: s?.tz || undefined })),
+  );
+  const previewLine = $derived.by(() => {
+    if (!s) return '';
+    const plain = describeWhen(w);
+    const runsText = plain ? `Runs ${lower(plain)} (${s.tz.replace(/_/g, ' ')}).` : preview ? `Runs ${lower(preview.human)}.` : '';
+    return runsText && w.kind !== 'once' && nextDays.length ? `${runsText} Next: ${nextDays.join(', ')}.` : runsText;
+  });
+
+  const promptError = $derived(submitted && !s?.prompt.trim() ? 'Tell Bothy what to do.' : '');
+  const ruleError = $derived(
+    w.kind === 'custom' && ((submitted && !validRule(w.rule)) || ruleRejected) ? "That repeat rule isn't valid. Example: 0 9 * * 1-5 means weekdays at 9:00." : '',
+  );
+
+  const refKey = (r: ChatRef) => `${r.channel}:${r.kind}:${r.chat_id}`;
+  const deliverOptions = $derived([
+    ...(s && !s.deliver && !isNew ? [{ value: 'default', label: 'Your usual chat app' }] : []),
+    ...chats.identities.map((i) => ({ value: refKey({ channel: i.channel, chat_id: i.dm_chat_id!, kind: 'dm' }), label: `Your ${appName(i.channel)} messages` })),
+    ...chats.spaces.map((sp) => ({ value: refKey(sp.chat), label: `${sp.title} on ${appName(sp.chat.channel)}` })),
+    { value: 'web', label: 'Only here in Bothy' },
+  ]);
+  const deliverValue = $derived(!s?.deliver ? 'default' : s.deliver.channel === 'web' ? 'web' : refKey(s.deliver));
+
+  function setDeliver(v: string) {
+    if (!s) return;
+    if (v === 'default') s.deliver = undefined;
+    else if (v === 'web') s.deliver = { channel: 'web', chat_id: '', kind: 'dm' };
+    else {
+      const i = chats.identities.find((x) => refKey({ channel: x.channel, chat_id: x.dm_chat_id!, kind: 'dm' }) === v);
+      s.deliver = i ? { channel: i.channel, chat_id: i.dm_chat_id!, kind: 'dm' } : chats.spaces.find((x) => refKey(x.chat) === v)?.chat;
+    }
+  }
+
+  const suggested = $derived.by(() => {
+    if (!s) return [] as Grant[];
+    const out: Grant[] = [];
+    const add = (g: Pick<Grant, 'kind' | 'value' | 'max_se'>) => {
+      if (![...saved, ...out].some((x) => x.kind === g.kind && x.value === g.value))
+        out.push({ ...g, id: `new:${g.kind}:${g.value}`, principal_id: s!.principal_id, scope: 'schedule', scope_id: s!.id, allow_when_tainted: false, uses: 0, max_uses: 0, created_by: '', created_at: ZERO, expires_at: ZERO });
+    };
+    if (s.deliver && s.deliver.channel !== 'web') add({ kind: 'recipient', value: refKey(s.deliver), max_se: 'external_send' });
+    for (const h of hostsIn(s.prompt)) add({ kind: 'domain', value: hostPort(h), max_se: 'read' });
+    return out;
+  });
+  const grantLabel = (g: Grant) => grantSentence(g, g.kind === 'recipient' && s?.deliver ? deliverTo(s.deliver, chats) : '');
+
+  async function save(e: SubmitEvent) {
+    e.preventDefault();
+    submitted = true;
+    if (!s || promptError || ruleError) return;
+    saving = true;
+    saveError = '';
+    const out: Schedule = {
+      ...$state.snapshot(s),
+      kind: spec.kind,
+      spec: spec.spec,
+      name: s.name.trim() || nameFrom(s.prompt),
+      active_hours: from && to ? `${from}-${to}` : '',
+      limits: { ...s.limits, max_cost_micros: Math.round((Number.parseFloat(cost) || 0) * 1e6) },
+    };
+    const grants = [...saved, ...suggested].filter((g) => keep[g.id]).map((g) => ({ ...g, id: g.id.startsWith('new:') ? '' : g.id }));
+    try {
+      await saveSchedule(out, grants);
+      toast(isNew ? 'Schedule created.' : 'Saved.');
+      router.navigate('/activity/schedules');
+    } catch {
+      saveError = "Couldn't save. Try again.";
+    } finally {
+      saving = false;
+    }
+  }
+
+  const whenOptions = [
+    { value: 'daily', label: 'Every day' },
+    { value: 'weekdays', label: 'Every weekday' },
+    { value: 'weekly', label: 'Every week on' },
+    { value: 'monthly', label: 'Every month on day' },
+    { value: 'once', label: 'Once on' },
+    { value: 'custom', label: 'Custom' },
+  ];
+  const dayOptions = WEEKDAYS.map((d, i) => ({ value: String(i), label: d }));
+  const dateOptions = Array.from({ length: 31 }, (_, i) => ({ value: String(i + 1), label: String(i + 1) }));
+</script>
+
+{#snippet pageMenu()}
+  <Menu items={[{ label: 'Delete schedule…', danger: true, onselect: () => (removing = s) }]} placement="bottom-end">
+    {#snippet trigger(props)}<IconButton icon="more" label="More for this schedule" {...props} />{/snippet}
+  </Menu>
+{/snippet}
+
+{#snippet field(label: string, id: string)}
+  <label for={id} class="text-body text-text">{label}</label>
+{/snippet}
+
+{#if params.id === 'checkin'}
+  <CheckIn />
+{:else if missing}
+  <Page title="Schedule not found" back={{ href: '/activity/schedules', label: 'Schedules' }}>
+    <p class="text-reading text-text">This schedule doesn't exist or was deleted.</p>
+    <Button class="mt-4" variant="primary" href="/activity/schedules">Go to Schedules</Button>
+  </Page>
+{:else if !s}
+  <Page title={isNew ? 'New schedule' : 'Schedule'} back={{ href: '/activity/schedules', label: 'Schedules' }}><Loading {failed} retry={load} /></Page>
+{:else}
+  <Page title={isNew ? 'New schedule' : s.name} back={{ href: '/activity/schedules', label: 'Schedules' }} actions={isNew ? undefined : pageMenu}>
+    <form novalidate onsubmit={save}>
+      <TextArea
+        label="What should Bothy do?"
+        bind:value={s.prompt}
+        rows={3}
+        maxRows={12}
+        error={promptError}
+        placeholder="Summarise yesterday's merged pull requests and post them to the team."
+        oninput={() => !named && s && (s.name = nameFrom(s.prompt))}
+      />
+
+      <fieldset class="mt-6">
+        <legend class="field-label">When</legend>
+        <div class="mt-2 flex flex-wrap items-center gap-2">
+          <Select label="Repeat" hideLabel options={whenOptions} bind:value={w.kind} />
+          {#if w.kind === 'weekly'}
+            <Select label="Day of the week" hideLabel options={dayOptions} value={String(w.day)} onchange={(e) => (w.day = Number(e.currentTarget.value))} />
+          {:else if w.kind === 'monthly'}
+            <Select label="Day of the month" hideLabel options={dateOptions} value={String(w.day)} onchange={(e) => (w.day = Number(e.currentTarget.value))} />
+          {:else if w.kind === 'once'}
+            <input type="date" class="input w-auto" aria-label="Date" bind:value={w.date} />
+          {/if}
+          {#if w.kind !== 'custom'}
+            <span class="text-body text-text">at</span>
+            <Select label="Time" hideLabel options={timeOptions(w.time)} bind:value={w.time} />
+          {/if}
+        </div>
+        {#if w.kind === 'custom'}
+          <TextField
+            class="mt-3 [&_input]:font-mono"
+            label="Repeat rule"
+            bind:value={w.rule}
+            error={ruleError}
+            help="Five fields: minute, hour, day, month, weekday. Example: 0 9 * * 1-5 means weekdays at 9:00."
+            autocomplete="off"
+            spellcheck="false"
+            inputmode="text"
+          />
+        {/if}
+        <p class="field-help" aria-live="polite">{previewLine}</p>
+      </fieldset>
+
+      <Select class="mt-6" label="Send results to" options={deliverOptions} value={deliverValue} onchange={(e) => setDeliver(e.currentTarget.value)} />
+
+      <TextField class="mt-6" label="Name" bind:value={s.name} maxlength={80} oninput={() => (named = true)} />
+
+      <Disclosure variant="section" label="More options" class="mt-6">
+        <div class="grid grid-cols-[10rem_minmax(0,1fr)] items-center gap-x-4 gap-y-3 max-sm:grid-cols-1 max-sm:gap-y-1">
+          {@render field('Model', 'sf-model')}
+          <Select id="sf-model" class="max-sm:mb-2 sm:max-w-64" options={[{ value: 'main', label: 'Main model' }, { value: 'fast', label: 'Quick tasks model' }]} bind:value={s.slot} />
+          {@render field('Stop a run above', 'sf-cost')}
+          <TextField id="sf-cost" class="max-sm:mb-2 sm:max-w-32" prefix="$" inputmode="decimal" placeholder="0.50" bind:value={cost} />
+          <span class="text-body text-text" id="sf-hours">Only run between</span>
+          <div class="flex items-center gap-2 max-sm:mb-2" role="group" aria-labelledby="sf-hours">
+            <Select label="From" hideLabel options={[{ value: '', label: 'Any time' }, ...timeOptions(from)]} bind:value={from} />
+            {#if from}<span class="text-body text-text">and</span><Select label="Until" hideLabel options={timeOptions(to)} bind:value={to} />{/if}
+          </div>
+          {@render field('If Bothy was off', 'sf-missed')}
+          <Select id="sf-missed" class="max-sm:mb-2 sm:max-w-64" options={[{ value: 'once', label: "Run when it's back" }, { value: 'skip', label: 'Skip that run' }]} bind:value={s.missed_run} />
+          <span class="text-body text-text" aria-hidden="true">Time zone</span>
+          <Combobox label="Time zone" options={zones} bind:value={s.tz} class="max-sm:mb-2 sm:max-w-80 [&>div]:mt-0 [&>label]:sr-only" />
+        </div>
+        {#if saved.length || suggested.length}
+          <fieldset class="mt-4">
+            <legend class="text-body text-text">Allowed without asking</legend>
+            {#each [...saved, ...suggested] as g (g.id)}
+              <Checkbox label={grantLabel(g)} checked={!!keep[g.id]} onchange={(e) => (keep[g.id] = e.currentTarget.checked)} />
+            {/each}
+          </fieldset>
+        {/if}
+      </Disclosure>
+
+      <div class="mt-8 flex flex-wrap gap-2 max-sm:flex-col">
+        <Button type="submit" variant="primary" loading={saving} loadingLabel="Saving…">{isNew ? 'Create schedule' : 'Save schedule'}</Button>
+        <Button href="/activity/schedules">Cancel</Button>
+      </div>
+      {#if saveError}<p class="field-error" role="alert">{saveError}</p>{/if}
+    </form>
+
+    {#if !isNew}
+      <section id="recent" class="mt-10">
+        <h2 class="section-title">Recent runs</h2>
+        {#if runs.length}
+          <ul class="mt-2">
+            {#each runs as r (r.id)}
+              <TaskRow
+                href="/activity/tasks/{encodeURIComponent(r.id)}"
+                view={taskView({ ...r, schedule_name: r.schedule_name || s.name }, { names, sessions: new Map(), schedules: new Map([[s.id, s]]), waiting: new Map(), chats })}
+                cost={r.cost_micros ? money(r.cost_micros) : '—'}
+                time={relTime(r.created_at)}
+                fullTime={fullTime(r.created_at)}
+              />
+            {/each}
+          </ul>
+        {:else}
+          <p class="mt-2 text-body text-muted">No runs yet.</p>
+        {/if}
+      </section>
+    {/if}
+  </Page>
+
+  <DeleteSchedule bind:schedule={removing} ondeleted={() => router.navigate('/activity/schedules')} />
+{/if}

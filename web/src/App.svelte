@@ -5,10 +5,14 @@
   import { legacySettingsPage, redirect, settingsHome, type Match, type Params } from './lib/routes';
   import { router, safeNext } from './lib/router.svelte';
   import { session } from './lib/stores/session.svelte';
+  import Audit from './screens/activity/Audit.svelte';
   import Releases from './screens/activity/Releases.svelte';
+  import ScheduleForm from './screens/activity/ScheduleForm.svelte';
+  import Schedules from './screens/activity/Schedules.svelte';
+  import Spending from './screens/activity/Spending.svelte';
+  import TaskDetail from './screens/activity/TaskDetail.svelte';
   import Tasks from './screens/activity/Tasks.svelte';
   import Approvals from './screens/Approvals.svelte';
-  import Audit from './screens/Audit.svelte';
   import ChangePassword from './screens/ChangePassword.svelte';
   import Chat from './screens/chat/Chat.svelte';
   import Knowledge from './screens/knowledge/Knowledge.svelte';
@@ -16,14 +20,10 @@
   import ProjectNotes from './screens/knowledge/ProjectNotes.svelte';
   import Login from './screens/Login.svelte';
   import Memory from './screens/Memory.svelte';
-  import RunTrace from './screens/RunTrace.svelte';
-  import ScheduleEdit from './screens/ScheduleEdit.svelte';
-  import Schedules from './screens/Schedules.svelte';
   import GitHub from './screens/settings/connections/GitHub.svelte';
   import WebSearch from './screens/settings/connections/WebSearch.svelte';
   import Settings from './screens/settings/Settings.svelte';
   import Setup from './screens/setup/Setup.svelte';
-  import Usage from './screens/Usage.svelte';
 
   // Screens take different props (all accept params), so the table is loosely typed.
   type Screen = Component<any>;
@@ -45,11 +45,11 @@
     '/knowledge/memory': Memory,
     '/knowledge/projects/:owner/:repo': ProjectNotes,
     '/activity': Tasks,
-    '/activity/tasks/:id': RunTrace,
+    '/activity/tasks/:id': TaskDetail,
     '/activity/schedules': Schedules,
-    '/activity/schedules/:id': ScheduleEdit,
+    '/activity/schedules/:id': ScheduleForm,
     '/activity/releases': Releases,
-    '/activity/spending': Usage,
+    '/activity/spending': Spending,
     '/activity/audit': Audit,
   };
 
