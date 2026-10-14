@@ -54,6 +54,7 @@ type Service struct {
 	drafting map[int64]bool
 	has      map[core.PrincipalID]bool // principal has an indexed repo (tool gating)
 	wake     chan struct{}
+	stopping bool // no new drafts: bgWG is being waited on
 
 	// notesMu serialises every notes file change with its notes state row.
 	notesMu sync.Mutex
@@ -115,8 +116,7 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 	defer func() {
 		wg.Wait()
-		s.bgCancel()
-		s.bgWG.Wait()
+		s.stop()
 	}()
 	var dropped uint64
 	for {
@@ -134,6 +134,16 @@ func (s *Service) Run(ctx context.Context) error {
 			s.onCheckout(ctx, e)
 		}
 	}
+}
+
+// stop cancels running drafts and waits for them; drafts asked for later
+// are refused, so bgWG.Add never races its Wait.
+func (s *Service) stop() {
+	s.mu.Lock()
+	s.stopping = true
+	s.mu.Unlock()
+	s.bgCancel()
+	s.bgWG.Wait()
 }
 
 // recover requeues indexes a restart interrupted and fails drafts it cut off.
@@ -470,6 +480,13 @@ func (s *Service) Index(ctx context.Context, v core.Viewer, p core.PrincipalID, 
 		if name, err = normalizeRepo(req.Repo); err != nil {
 			return nil, err
 		}
+	} else if cur, err := s.d.Repo.ByName(ctx, v, prin.ID, name); err == nil && cur.Dir != dir {
+		// Two folders with the same base name would otherwise share one
+		// index and one set of notes, the second silently replacing the first.
+		return nil, fmt.Errorf("%w: %s already names the folder %s; give %s its own repo name (owner/name)",
+			core.ErrConflict, name, cur.Dir, dir)
+	} else if err != nil && !errors.Is(err, core.ErrNotFound) {
+		return nil, err
 	}
 	sha, err := normalizeSHA(req.SHA)
 	if err != nil {
@@ -604,11 +621,16 @@ func (s *Service) DraftNotes(ctx context.Context, v core.Viewer, id int64, by co
 // ErrConflict when one is already running for the repo.
 func (s *Service) startDraft(ctx context.Context, r *core.IndexedRepo, p *core.Principal, actor string) (*core.IndexedRepo, error) {
 	s.mu.Lock()
-	if s.drafting[r.ID] {
+	switch {
+	case s.stopping:
+		s.mu.Unlock()
+		return nil, fmt.Errorf("%w: the server is shutting down", core.ErrConflict)
+	case s.drafting[r.ID]:
 		s.mu.Unlock()
 		return nil, fmt.Errorf("%w: notes are already being drafted", core.ErrConflict)
 	}
 	s.drafting[r.ID] = true
+	s.bgWG.Add(1)
 	s.mu.Unlock()
 	s.notesMu.Lock()
 	base, err := s.readNotes(r)
@@ -619,11 +641,11 @@ func (s *Service) startDraft(ctx context.Context, r *core.IndexedRepo, p *core.P
 	s.notesMu.Unlock()
 	if err != nil {
 		s.endDraft(r.ID)
+		s.bgWG.Done()
 		return nil, err
 	}
 	s.publish(r, false)
 	baseTag := etagOf(base)
-	s.bgWG.Add(1)
 	go func(r core.IndexedRepo, p core.Principal) {
 		defer s.bgWG.Done()
 		defer s.endDraft(r.ID)
@@ -708,19 +730,7 @@ func (s *Service) Delete(ctx context.Context, v core.Viewer, id int64, by core.U
 	if err := s.d.Repo.Delete(ctx, v, id); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	if s.queued[id] {
-		delete(s.queued, id)
-		for i, q := range s.queue {
-			if q == id {
-				s.queue = append(s.queue[:i], s.queue[i+1:]...)
-				break
-			}
-		}
-	}
-	delete(s.again, id)
-	delete(s.has, r.Principal)
-	s.mu.Unlock()
+	s.forget(r)
 	if dir, err := notesDir(s.d.DataDir, r.Principal, r.Repo); err == nil {
 		if err := os.RemoveAll(dir); err != nil {
 			s.log.Warn("knowledge: remove notes", "repo", id, "err", err)
@@ -731,13 +741,45 @@ func (s *Service) Delete(ctx context.Context, v core.Viewer, id int64, by core.U
 	return nil
 }
 
-// Purge removes a principal's notes; its rows go with the principal (FK).
-func (s *Service) Purge(_ context.Context, p core.PrincipalID) error {
+// forget drops a deleted repo from the queue and the tool-gating cache.
+func (s *Service) forget(r *core.IndexedRepo) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.queued[r.ID] {
+		delete(s.queued, r.ID)
+		for i, q := range s.queue {
+			if q == r.ID {
+				s.queue = append(s.queue[:i], s.queue[i+1:]...)
+				break
+			}
+		}
+	}
+	delete(s.again, r.ID)
+	delete(s.has, r.Principal)
+}
+
+// Purge removes a principal's index rows and notes. The rows would also go
+// with the principal (FK), but deleting them here, under notesMu, is what
+// stops a draft that finishes before the principal row is gone from
+// writing the notes back after the purge.
+func (s *Service) Purge(ctx context.Context, p core.PrincipalID) error {
 	if !core.ValidID(core.PrefixUser, string(p)) && !core.ValidID(core.PrefixSpace, string(p)) {
 		return invalidf("bad principal id")
 	}
 	s.notesMu.Lock()
 	defer s.notesMu.Unlock()
+	repos, err := s.d.Repo.List(ctx, core.SystemViewer(), p)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, r := range repos {
+		if err := s.d.Repo.Delete(ctx, core.SystemViewer(), r.ID); err != nil && !errors.Is(err, core.ErrNotFound) {
+			errs = append(errs, err)
+			continue
+		}
+		s.forget(r)
+	}
 	s.setHas(p, false)
-	return os.RemoveAll(filepath.Join(s.d.DataDir, "knowledge", string(p)))
+	return errors.Join(append(errs, os.RemoveAll(filepath.Join(s.d.DataDir, "knowledge", string(p))))...)
 }

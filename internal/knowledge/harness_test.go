@@ -88,8 +88,7 @@ func newHarness(t *testing.T, tweak ...func(*config.Config)) *harness {
 	}
 	h.svc = svc
 	t.Cleanup(func() {
-		svc.bgCancel()
-		svc.bgWG.Wait()
+		svc.stop()
 		// The real audit writer refuses any other outcome.
 		for _, e := range h.audit.All() {
 			if e.Outcome != "ok" && e.Outcome != "denied" && e.Outcome != "error" {

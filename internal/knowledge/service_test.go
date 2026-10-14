@@ -345,3 +345,69 @@ func TestPurgeAndDisabled(t *testing.T) {
 		}
 	}
 }
+
+// A draft that finishes while a user purge runs must not write the notes
+// back: Purge drops the rows under the notes lock, so the draft finds its
+// repo gone, even though the principal row still exists at that point.
+func TestPurgeStopsADraftInFlight(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.Knowledge.AutoNotes = true })
+	h.writeRepo()
+	release := make(chan struct{})
+	h.llm.Steps = []fakes.LLMStep{{Text: []string{"## Summary\n", "Draft text.\n"}, Block: release}}
+	r := h.index("repos/acme/api", "acme/api", "")
+	h.waitRepo(r.ID, func(r *core.IndexedRepo) bool { return r.Notes.Status == core.NotesDrafting })
+	if err := h.svc.Purge(h.ctx, h.p.ID); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	h.svc.bgWG.Wait()
+	if _, err := os.Stat(filepath.Join(h.data, "knowledge", string(h.p.ID))); !os.IsNotExist(err) {
+		t.Fatalf("notes written after the purge: %v", err)
+	}
+	if list, _ := h.svc.Repos(h.ctx, h.viewer(), ""); len(list) != 0 {
+		t.Fatalf("purge left index rows: %+v", list)
+	}
+	if h.svc.hasRepos(h.ctx, h.p.ID) {
+		t.Fatal("tools still offered after the purge")
+	}
+}
+
+// After shutdown began, a draft request is refused instead of adding to a
+// WaitGroup that is being waited on.
+func TestDraftRefusedWhileStopping(t *testing.T) {
+	h := newHarness(t)
+	h.writeRepo()
+	r := h.index("repos/acme/api", "acme/api", "")
+	h.svc.stop()
+	if _, err := h.svc.DraftNotes(h.ctx, h.viewer(), r.ID, h.user.ID); !errors.Is(err, core.ErrConflict) {
+		t.Fatalf("draft after stop = %v", err)
+	}
+	if got, _ := h.repo.Get(h.ctx, core.SystemViewer(), r.ID); got.Notes.Status != core.NotesNone {
+		t.Fatalf("refused draft changed the notes state: %+v", got.Notes)
+	}
+}
+
+// Indexing two folders that share a base name without naming them would
+// make the second take over the first one's index and notes.
+func TestDefaultNameCollisionIsRefused(t *testing.T) {
+	h := newHarness(t)
+	h.write("a/api/x.go", "package x\n")
+	h.write("b/api/y.go", "package y\n")
+	first := h.index("a/api", "", "")
+	if first.Repo != "local/api" {
+		t.Fatalf("default name = %s", first.Repo)
+	}
+	if _, err := h.svc.Index(h.ctx, h.viewer(), h.p.ID, core.KnowledgeIndexRequest{Dir: "b/api"}, h.user.ID); !errors.Is(err, core.ErrConflict) ||
+		!strings.Contains(err.Error(), "a/api") {
+		t.Fatalf("colliding default name = %v", err)
+	}
+	if again := h.index("a/api", "", ""); again.ID != first.ID {
+		t.Fatalf("re-indexing the same folder made a new repo: %+v", again)
+	}
+	if named := h.index("b/api", "acme/api", ""); named.Repo != "acme/api" || named.ID == first.ID {
+		t.Fatalf("explicit name = %+v", named)
+	}
+	if got, _ := h.repo.Get(h.ctx, core.SystemViewer(), first.ID); got.Dir != "a/api" {
+		t.Fatalf("first repo re-pointed to %s", got.Dir)
+	}
+}

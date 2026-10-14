@@ -241,5 +241,5 @@ type Knowledge interface {
 	// DraftNotes regenerates the notes with the fast model in the background.
 	DraftNotes(ctx context.Context, v Viewer, id int64, by UserID) (*IndexedRepo, error)
 	Delete(ctx context.Context, v Viewer, id int64, by UserID) error // index and notes
-	Purge(ctx context.Context, p PrincipalID) error                  // every notes file of a principal (user purge)
+	Purge(ctx context.Context, p PrincipalID) error                  // every index row and notes file of a principal (user purge)
 }
