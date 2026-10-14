@@ -189,7 +189,7 @@ func (r runRepo) AddLLMCall(_ context.Context, run core.RunID, _ core.PrincipalI
 	st, unlock := r.s.begin()
 	defer unlock()
 	c.ID = idOr(c.ID, core.PrefixLLMCall)
-	if !oneOf(c.Purpose, "agent", "compaction", "title", "heartbeat", "probe", "passthrough") {
+	if !oneOf(c.Purpose, "agent", "compaction", "title", "heartbeat", "probe", "passthrough", "notes") {
 		return invalid("llm_calls.purpose")
 	}
 	if _, ok := st.runs[run]; run != "" && !ok {
