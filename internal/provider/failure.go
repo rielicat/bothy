@@ -15,8 +15,8 @@ import (
 // and Google's names the exceeded per-minute quota, both mere rate limits.
 var (
 	creditWords = []string{"credit balance", "insufficient_quota", "exceeded your current quota", "insufficient credits",
-		"insufficient balance", "payment required", "out of credits", "more credits", "used all available credits",
-		"spending limit", "enable billing"}
+		"insufficient balance", "insufficient funds", "payment required", "out of credits", "more credits", "purchase credits",
+		"used all available credits", "spending limit", "spend limit", "enable billing"}
 	modelWords = []string{"does not have access to model", "do not have access to", "don't have access to the model",
 		"model_not_found", "model not found", "not found: model", "no such model", "unknown model", "invalid model",
 		"model identifier is invalid", "not allowed to use", "is not supported for this"}
@@ -56,7 +56,9 @@ func failureCode(err error, kind core.ProviderKind) core.FailureCode {
 		switch {
 		case strings.HasPrefix(pe.Msg, "credential unavailable: "):
 			return core.FailUnknown
-		case pe.Status == http.StatusPaymentRequired || hasAny(msg, creditWords):
+		// The OpenAI client reports its 429 billing codes (spend and usage
+		// limits, exhausted credit) as auth errors; a rejected key is 401/403.
+		case pe.Status == http.StatusPaymentRequired || pe.Status == http.StatusTooManyRequests || hasAny(msg, creditWords):
 			return core.FailOutOfCredit
 		case hasAny(msg, modelWords):
 			return core.FailNoModelAccess

@@ -334,11 +334,18 @@ func TestBedrockProbe(t *testing.T) {
 	if !res.OK || !res.ToolCalling || !res.UsageReported || res.Credentials != "access keys in the environment" || res.Detail != "" {
 		t.Fatalf("result %+v", res)
 	}
-	// The probe picks a small model that does not think by default.
-	if p := rt.paths[0]; !strings.Contains(p, "claude-haiku-4-5") {
-		t.Fatalf("probed %s", p)
+	// The probe exercises the model setup suggests, in the region's own
+	// geography.
+	var rec string
+	for _, c := range res.Choices {
+		if c.Recommended {
+			rec = c.ID
+		}
 	}
-	if res.Context != 200_000 || res.Cost == 0 || len(res.Models) < 20 || len(res.Choices) != len(res.Models) {
+	if p := rt.paths[0]; !strings.HasPrefix(rec, "us.anthropic.claude-sonnet-") || res.Model != rec || !strings.Contains(p, rec) {
+		t.Fatalf("probed %s, model %q, recommended %q", p, res.Model, rec)
+	}
+	if res.Context < 200_000 || res.Cost == 0 || len(res.Models) < 20 || len(res.Choices) != len(res.Models) {
 		t.Fatalf("result %+v", res)
 	}
 	found := false

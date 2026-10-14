@@ -122,8 +122,8 @@ func (f *Facade) buildBedrock(p config.Provider, fp string) (*entry, error) {
 // probeBedrock tests Bedrock access before the provider is saved: it
 // resolves the AWS credentials (reporting their source, never their
 // values), lists the usable Claude and Nova models for the picker, and runs
-// the probe's completion and tool call on the chosen model, by default a
-// small one.
+// the probe's completion and tool call on the chosen model, by default the
+// suggested main model.
 func (f *Facade) probeBedrock(ctx context.Context, pc core.ProbeConfig) (core.ProbeResult, error) {
 	if pc.Region != "" && !bedrock.ValidRegion(pc.Region) {
 		return core.ProbeResult{}, fmt.Errorf("provider: region %q is not an AWS region name: %w", pc.Region, core.ErrInvalid)
@@ -173,6 +173,12 @@ func (f *Facade) probeBedrock(ctx context.Context, pc core.ProbeConfig) (core.Pr
 	f.annotate(endpoint{kind: core.KindBedrock, base: runtime, region: region}, found)
 	res.Choices = choicesFor(found)
 	model := pc.Model
+	if i := slices.IndexFunc(found, func(m core.ModelInfo) bool { return m.Recommended }); model == "" && i >= 0 {
+		// As for the other kinds, the check exercises the model setup
+		// will say Bothy uses, so a role allowed only a smaller model fails
+		// here rather than in the first chat.
+		model = found[i].Ref.Model
+	}
 	if model == "" {
 		model = probeModel(res.Models)
 	}
@@ -195,7 +201,7 @@ func (f *Facade) probeBedrock(ctx context.Context, pc core.ProbeConfig) (core.Pr
 }
 
 // probeModel picks a small, fast model that does not think by default for
-// an unattended probe.
+// an unattended probe of a model list without a suggestion.
 func probeModel(models []string) string {
 	for _, want := range []string{"anthropic.claude-haiku-4-5", "amazon.nova-lite", "amazon.nova-micro", "amazon.nova-2-lite"} {
 		if i := slices.IndexFunc(models, func(m string) bool { return strings.Contains(m, want) }); i >= 0 {

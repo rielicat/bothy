@@ -224,6 +224,7 @@ func TestFailureCodes(t *testing.T) {
 			"You can increase your rate limit by adding a payment method to your account at https://platform.openai.com/account/billing."), core.KindOpenAI, core.FailRateLimited},
 		{pe(core.ErrKindRateLimit, 429, "Quota exceeded for quota metric 'Generate Content API requests per minute'"), core.KindGemini, core.FailRateLimited},
 		{pe(core.ErrKindAuth, 403, "Your team has either used all available credits or reached its monthly spending limit."), core.KindOpenAICompat, core.FailOutOfCredit},
+		{pe(core.ErrKindAuth, 429, "You have hit your organization's usage limit for this month."), core.KindOpenAI, core.FailOutOfCredit},
 		{pe(core.ErrKindInvalidRequest, 404, "The model `gpt-9` does not exist or you do not have access to it."), core.KindOpenAI, core.FailNoModelAccess},
 		{pe(core.ErrKindInvalidRequest, 404, "not_found_error: model: claude-x"), core.KindAnthropic, core.FailNoModelAccess},
 		{pe(core.ErrKindInvalidRequest, 404, "Not Found"), core.KindOpenAICompat, core.FailNotAModelServer},
