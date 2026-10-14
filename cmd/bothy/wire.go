@@ -163,7 +163,7 @@ func (a *app) buildRest(ctx context.Context) error {
 		return err
 	}
 	if a.knowledge, err = knowledge.New(knowledge.Deps{Repo: a.db.Knowledge(), Store: a.db, Config: a.cfg, LLM: a.llm, Budget: a.budget,
-		Bus: a.bus, Audit: a.audit, DataDir: dirs.Data, WorkDir: dirs.Work, Clock: a.clock, Log: a.log}); err != nil {
+		Redactor: a.redactor, Bus: a.bus, Audit: a.audit, DataDir: dirs.Data, WorkDir: dirs.Work, Clock: a.clock, Log: a.log}); err != nil {
 		return err
 	}
 	if a.skills, err = skills.New(skills.Deps{Store: a.db, Config: a.cfg, Audit: a.audit, Bus: a.bus, WorkDir: dirs.Work, Clock: a.clock, Log: a.log}); err != nil {

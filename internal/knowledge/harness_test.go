@@ -28,6 +28,7 @@ type harness struct {
 	audit  *fakes.Auditor
 	llm    *fakes.LLM
 	budget *fakes.Budget
+	redact *fakes.Redactor
 	clock  *fakes.Clock
 	data   string
 	work   string
@@ -73,7 +74,7 @@ func newHarness(t *testing.T, tweak ...func(*config.Config)) *harness {
 	}
 	st := memstore.New()
 	h := &harness{t: t, ctx: context.Background(), cfg: cfg, store: st, repo: &countingRepo{KnowledgeRepo: knowledgetest.New(st)},
-		bus: events.New(events.Options{Ring: 256}), audit: &fakes.Auditor{}, llm: &fakes.LLM{}, budget: &fakes.Budget{},
+		bus: events.New(events.Options{Ring: 256}), audit: &fakes.Auditor{}, llm: &fakes.LLM{}, budget: &fakes.Budget{}, redact: fakes.NewRedactor(),
 		clock: fakes.NewClock(time.Date(2026, 10, 14, 9, 0, 0, 0, time.UTC)), data: t.TempDir(), work: t.TempDir()}
 	h.user = h.newUser("owner", core.RoleOwner)
 	h.p = h.principal(h.user)
@@ -81,7 +82,7 @@ func newHarness(t *testing.T, tweak ...func(*config.Config)) *harness {
 	if err := os.MkdirAll(h.ws, 0o750); err != nil {
 		t.Fatal(err)
 	}
-	svc, err := New(Deps{Repo: h.repo, Store: st, Config: config.Static(cfg), LLM: h.llm, Budget: h.budget, Bus: h.bus,
+	svc, err := New(Deps{Repo: h.repo, Store: st, Config: config.Static(cfg), LLM: h.llm, Budget: h.budget, Redactor: h.redact, Bus: h.bus,
 		Audit: h.audit, DataDir: h.data, WorkDir: h.work, Clock: h.clock})
 	if err != nil {
 		t.Fatal(err)

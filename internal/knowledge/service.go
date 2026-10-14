@@ -28,6 +28,10 @@ type Deps struct {
 	WorkDir string // workspaces under <work>/ws/<id>
 	Clock   core.Clock
 	Log     *slog.Logger
+
+	// Redactor masks secrets in the repository text a draft sends to the
+	// model and in the notes it writes; nil sends the text as read.
+	Redactor core.Redactor
 }
 
 const (

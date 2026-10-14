@@ -271,6 +271,7 @@ func (s *Service) draft(ctx context.Context, r *core.IndexedRepo, p *core.Princi
 	if err != nil {
 		return "", &errUser{"The repository files could not be read."}
 	}
+	input = s.redact(input)
 	slot := core.SlotFast
 	if len(s.d.LLM.Chain(core.SlotFast, nil)) == 0 {
 		slot = core.SlotMain
@@ -313,11 +314,18 @@ func (s *Service) draft(ctx context.Context, r *core.IndexedRepo, p *core.Princi
 	if resp == nil {
 		return "", errors.New("the model returned no reply")
 	}
-	notes := cleanDraft(resp.Message.PlainText(), r.Repo, s.cfg().NotesMaxBytes)
+	notes := cleanDraft(s.redact(resp.Message.PlainText()), r.Repo, s.cfg().NotesMaxBytes)
 	if notes == "" {
 		return "", &errUser{"The model returned empty notes."}
 	}
 	return notes, nil
+}
+
+func (s *Service) redact(text string) string {
+	if s.d.Redactor == nil {
+		return text
+	}
+	return s.d.Redactor.Redact(text)
 }
 
 func shortSHA(sha string) string {
