@@ -25,6 +25,10 @@ type User struct {
 	LockedUntil  time.Time `json:"-"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
+
+	// MustChangePassword: the account has a one-time password an admin
+	// handed out; its owner must choose their own before anything else.
+	MustChangePassword bool `json:"must_change_password,omitempty"`
 }
 
 type Space struct {
@@ -60,6 +64,9 @@ type ChannelIdentity struct {
 	FirstSeen   time.Time      `json:"first_seen_at"`
 	LastSeen    time.Time      `json:"last_seen_at"`
 	LastNotice  time.Time      `json:"-"`
+	// FirstText is the start of a pending sender's first message, shown to
+	// admins in the approvals inbox; it is dropped once the status changes.
+	FirstText string `json:"first_text,omitempty"`
 }
 
 type PairingPurpose string
@@ -461,7 +468,7 @@ type SpaceRepo interface {
 type IdentityRepo interface {
 	Touch(ctx context.Context, id *ChannelIdentity) (*ChannelIdentity, error) // upsert names/last_seen; returns stored row
 	Get(ctx context.Context, channel, externalID string) (*ChannelIdentity, error)
-	Update(ctx context.Context, id *ChannelIdentity) error // status, user, principal, dm chat, last notice
+	Update(ctx context.Context, id *ChannelIdentity) error // status, user, principal, dm chat, last notice, first text (kept only while pending)
 	ForUser(ctx context.Context, u UserID) ([]*ChannelIdentity, error)
 	List(ctx context.Context, status IdentityStatus) ([]*ChannelIdentity, error) // "" = all
 	Delete(ctx context.Context, channel, externalID string) error
@@ -496,6 +503,7 @@ type SessionFilter struct {
 	Principal     PrincipalID // "" = all principals in the Viewer
 	Archived      bool
 	IncludeHidden bool
+	NonEmpty      bool   // only sessions holding at least one message
 	Query         string // title substring
 	Page          Page   // Before = last_message_at unix ms
 }
@@ -556,6 +564,13 @@ type ApprovalRepo interface {
 	Seen(ctx context.Context, p PrincipalID, recipient, host string) (bool, error)
 	AddMessage(ctx context.Context, id ApprovalID, m CardMessage) error
 	Messages(ctx context.Context, id ApprovalID) ([]CardMessage, error)
+	// AddVote records one vote on a multi-approver approval: ErrConflict when
+	// the user already voted on it, ErrInvalid for an unknown approval or a
+	// choice other than allow_once or deny.
+	AddVote(ctx context.Context, v ApprovalVote) error
+	Votes(ctx context.Context, id ApprovalID) ([]ApprovalVote, error) // oldest first
+	// SetComment records the deciding approver's reason (Approval.Comment).
+	SetComment(ctx context.Context, id ApprovalID, comment string) error
 }
 
 type GrantRepo interface {
@@ -672,9 +687,10 @@ type Store interface {
 	// Tx runs fn on the single writer connection inside BEGIN IMMEDIATE.
 	Tx(ctx context.Context, fn func(Store) error) error
 	// Backup writes <dir>/bothy-<UTC yyyymmddThhmmss>.tar (0600) holding a
-	// VACUUM INTO snapshot of the DB plus memory/**, SOUL.md, bothy.yaml and
-	// bothy.ui.yaml from the DB's directory. It never includes the KEK (/keys)
-	// or workspaces. Returns the path. Restore = stop, untar into /data.
+	// VACUUM INTO snapshot of the DB plus memory/**, knowledge/** (project
+	// notes), SOUL.md, bothy.yaml and bothy.ui.yaml from the DB's directory.
+	// It never includes the KEK (/keys) or workspaces. Returns the path.
+	// Restore = stop, untar into /data.
 	Backup(ctx context.Context, dir string) (string, error)
 	SQLiteVersion() string
 	Close() error

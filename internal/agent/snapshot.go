@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"slices"
 	"strconv"
@@ -212,7 +213,7 @@ func (r *Runner) rebuildSnapshot(ctx context.Context, rs *runState, promote []st
 		rs.publish(core.EvSessionUpdated, core.SessionData{Title: s.Title, Taint: s.Taint, Epoch: s.Epoch})
 	}
 	if p == profileTextOnly {
-		rs.notice(ctx, fmt.Sprintf("This model's window (%d tokens) is too small for tools, so it can only chat.", window))
+		rs.notice(ctx, textOnlyNotice)
 	}
 	return nil
 }
@@ -352,6 +353,13 @@ func prefixHash(tools []core.ToolDef, system []core.SystemBlock) string {
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
+// cacheKey is a session's core.Request.CacheKey: every call of the session
+// shares it, and only its hash leaves the server.
+func cacheKey(s core.SessionID) string {
+	sum := sha256.Sum256([]byte("bothy prompt cache\x00" + string(s)))
+	return "bothy-" + hex.EncodeToString(sum[:16])
+}
+
 // snapshotSpecs resolves the frozen tool names in snapshot order; a tool that
 // disappeared (a removed MCP server) is dropped and logged as a cache break.
 func (r *Runner) snapshotSpecs(rs *runState) []core.ToolSpec {
@@ -374,6 +382,18 @@ type turnCtx struct {
 	// legs the turn adds to the session: memory deltas are the user's
 	// private data entering context, like a snapshot with memory (SPEC §5.3).
 	legs core.Taint
+	// commits record hook blocks as delivered once the turn is stored.
+	commits []func(context.Context) error
+}
+
+// commit runs the hook commits of a stored turn; a failure only means the
+// block is offered again on a later turn.
+func (tc turnCtx) commit(ctx context.Context, log *slog.Logger) {
+	for _, c := range tc.commits {
+		if err := c(context.WithoutCancel(ctx)); err != nil {
+			log.Warn("turn-context hook commit", "err", err)
+		}
+	}
 }
 
 // turnContext renders the persisted <turn-context> of a user turn and
@@ -434,6 +454,20 @@ func (r *Runner) turnContext(ctx context.Context, rs *runState, sess *core.Sessi
 	}
 	if len(fresh) > 0 {
 		b.WriteString("new pinned instructions (follow them until removed):\n" + strings.Join(fresh, "\n") + "\n")
+	}
+	for _, h := range r.d.TurnContext {
+		blk, err := h.TurnContext(ctx, core.TurnContextInput{Principal: *rs.principal, Session: sess.ID, Epoch: sess.Epoch})
+		if err != nil {
+			r.log.Warn("turn-context hook", "session", sess.ID, "err", err)
+			continue
+		}
+		if t := strings.TrimSpace(blk.Text); t != "" {
+			b.WriteString(t + "\n")
+			tc.legs |= blk.Taint
+		}
+		if blk.Commit != nil {
+			tc.commits = append(tc.commits, blk.Commit)
+		}
 	}
 	if w := r.budgetWarning(ctx, rs, req.User); w != "" {
 		b.WriteString(w + "\n")

@@ -1,29 +1,25 @@
 <script lang="ts">
-  import { untrack, type Component } from 'svelte';
+  import { untrack } from 'svelte';
   import { Button, Dialog, SettingsRow, SettingsSection, StatusLine, toast } from '../../components/ui';
+  import ProviderChooser, { type Connected } from '../../components/ProviderChooser.svelte';
   import { api } from '../../lib/api/client';
-  import AddProvider from './AddProvider.svelte';
+  import type { ModelInfo } from '../../lib/api/types.gen';
   import BackupModels from './BackupModels.svelte';
   import ItemRow from './ItemRow.svelte';
   import ManageProvider, { type ManagedProvider } from './ManageProvider.svelte';
   import ModelDialog, { type ModelOption } from './ModelDialog.svelte';
-  import { makePrimary, modelName, modelProvider, providerName, providerStatus, refineDrafts, refineMultiplier, splitRef, type ModelInfoV2, type ProviderHealthV2 } from './modelHelpers';
+  import { makePrimary, modelName, modelProvider, providerName, providerStatus, refineDrafts, refineMultiplier, splitRef, type ProviderHealthV2 } from './modelHelpers';
   import SelectSetting from './SelectSetting.svelte';
   import SettingsFrame from './SettingsFrame.svelte';
   import { Saver, settingsConfig } from './store.svelte';
   import SwitchSetting from './SwitchSetting.svelte';
 
-  // ProviderChooser (C2) takes over from the local fallback as soon as it is
-  // in the tree; the glob keeps this file building before and after.
-  const Chooser: Component<any> =
-    Object.values(import.meta.glob<Component<any>>('../../components/ProviderChooser.svelte', { eager: true, import: 'default' }))[0] ?? AddProvider;
-
   const uid = $props.id();
-  let models = $state<ModelInfoV2[]>([]);
+  let models = $state<ModelInfo[]>([]);
   let health = $state<ProviderHealthV2[]>([]);
 
   async function refresh() {
-    const [m, h] = await Promise.all([api.get<ModelInfoV2[]>('/api/models').catch(() => models), api.get<ProviderHealthV2[]>('/api/providers').catch(() => health)]);
+    const [m, h] = await Promise.all([api.get<ModelInfo[]>('/api/models').catch(() => models), api.get<ProviderHealthV2[]>('/api/providers').catch(() => health)]);
     models = m;
     health = h;
   }
@@ -113,14 +109,12 @@
     adding = true;
   }
 
-  // ProviderChooser may report the provider in more than one shape; the name is all the toast needs.
-  async function connected(p?: unknown) {
+  async function connected(p: Connected) {
     adding = false;
     await settingsConfig.load(true);
     void refresh();
-    const named = typeof p === 'string' ? p : p && typeof p === 'object' ? ((p as Record<string, unknown>).name ?? (p as Record<string, unknown>).label) : undefined;
     const added = ids.find((id) => !before.has(id));
-    const name = typeof named === 'string' && named ? named : added ? providerName(added, kinds[added]) : '';
+    const name = p.name || (added ? providerName(added, kinds[added]) : '');
     toast(name ? `${name} connected.` : 'Connected.');
   }
 
@@ -227,7 +221,7 @@
 <ManageProvider bind:open={manageOpen} provider={managedNow} onchanged={refresh} />
 
 <Dialog bind:open={adding} title="Add a provider" size="md">
-  <Chooser mode="settings" exclude={[...before]} onconnected={connected} />
+  <ProviderChooser mode="settings" exclude={[...before]} onconnected={connected} />
   {#snippet footer({ close })}
     <Button data-cancel onclick={close}>Cancel</Button>
   {/snippet}

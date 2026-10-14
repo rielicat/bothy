@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ApprovalV2, ApprovalVotes } from '../components/approval/types';
-import type { Action, Approval, SideEffect } from './api/types.gen';
+import type { Action, Approval, ApprovalVotes, SideEffect } from './api/types.gen';
 import { busyLabel, cardCopy, decidable, decidedLine, expiryOf, humanize, joinNames, originOf, plainWarnings, segText, splitFiles, type CardCopy } from './cardcopy';
 
 const me = 'usr_01jsam0000000000000000000';
@@ -10,7 +9,7 @@ function act(tool: string, kind: string, se: SideEffect, payload: Record<string,
   return { tool, kind, side_effect: se, payload, fingerprint: 'f', ...extra };
 }
 
-function ap(a: Action | undefined, extra: Partial<ApprovalV2> = {}): ApprovalV2 {
+function ap(a: Action | undefined, extra: Partial<Approval> = {}): Approval {
   return {
     id: 'apr_01jtest000000000000000000',
     run_id: 'run_1',
@@ -207,7 +206,7 @@ describe('expiry and buttons', () => {
 describe('decidable', () => {
   const sam = { id: me, role: 'owner' };
   const member = { id: alex, role: 'member' };
-  const multi = (extra: Partial<ApprovalV2> = {}) => ap(undefined, { approver: { user_id: '', admin_only: false, users: [me], roles: ['admin'], required: 2, requester: alex }, ...extra });
+  const multi = (extra: Partial<Approval> = {}) => ap(undefined, { approver: { user_id: '', admin_only: false, users: [me], roles: ['admin'], required: 2, requester: alex }, ...extra });
   const view = (v: Partial<ApprovalVotes>): ApprovalVotes => ({ approval_id: 'a', status: 'pending', required: 2, approvals: 0, votes: [], approvers: '', requester: alex, requester_name: 'Alex', can_vote: false, can_withdraw: false, ...v });
 
   it('lets only the named approver, or any admin for admin actions, decide one-person approvals', () => {
@@ -238,7 +237,7 @@ describe('decidedLine', () => {
     const d = decidedLine(a, { me, name: (id) => names[id] ?? '', now, ...extra });
     return segText(d.segs) + (d.reason ? ` · “${d.reason}”` : '');
   };
-  const decided = (a: Action, extra: Partial<ApprovalV2>) => ap(a, { decided_at: at, decided_via: 'web', decided_by: me, ...extra });
+  const decided = (a: Action, extra: Partial<Approval>) => ap(a, { decided_at: at, decided_via: 'web', decided_by: me, ...extra });
 
   it('says who decided what, in the tense of the record (§8.4)', () => {
     expect(line(decided(del, { status: 'allowed', choice: 'allow_once' }))).toBe('You approved deleting notes/staging.md');

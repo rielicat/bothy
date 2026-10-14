@@ -15,6 +15,12 @@ and `ResolveIdentity`. Passwords are checked against
 `auth.password_min_length` and the embedded `common_passwords.txt` (matched on
 the password and on its de-leeted, digit-stripped core, plus keyboard and
 repetition patterns). `SetupGrant`, `SetIdentityStatus` and `UnlinkIdentity`
-are extras outside `core.Auth` that `httpapi` reaches by interface assertion.
+are extras outside `core.Auth` that `httpapi` reaches by interface assertion,
+as are the v0.2 UI ones: `CreateOwnerNamed` (the owner's display name),
+`CreateUserOneTime` (a generated one-time password, four or more groups of
+four Crockford characters, returned once) and `ResetUserPassword` (the owner
+resets anyone else, admins only members; sessions end). Both mark the account
+`must_change_password`: cookie actors carry the flag, and `SetPassword`
+accepts an empty old password while it is set and clears it.
 `Checks` contributes `server.exposure`, `server.insecure_lan`,
 `tokens.admin_scope` and `tokens.expired_unrevoked` (auto-fix: revoke).

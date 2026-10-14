@@ -17,7 +17,7 @@ type Error struct {
 }
 
 type ErrorBody struct {
-	Code    string `json:"code"` // bad_request | unauthorized | forbidden | not_found | conflict | busy | paused | budget_exceeded | rate_limited | sealed | no_sandbox | unavailable | internal
+	Code    string `json:"code"` // bad_request | unauthorized | forbidden | password_change_required | not_found | conflict | busy | paused | budget_exceeded | rate_limited | sealed | no_sandbox | unavailable | internal; a failed POST /api/channels/{name}/test (502) carries a core.FailureCode
 	Message string `json:"message"`
 	Fix     string `json:"fix,omitempty"`
 }
@@ -30,12 +30,13 @@ type List[T any] struct {
 // ---- setup / auth ----
 
 type SetupState struct {
-	NeedsSetup bool   `json:"needs_setup"`
-	Claimed    bool   `json:"claimed"`        // a setup grant cookie is present and valid
-	CSRF       string `json:"csrf,omitempty"` // the claimed grant's CSRF token (like dto.Me.CSRF); empty unless Claimed
-	OwnerSet   bool   `json:"owner_set"`
-	Sandbox    bool   `json:"sandbox_available"`
-	Version    string `json:"-"` // never disclosed pre-auth
+	NeedsSetup bool        `json:"needs_setup"`
+	Claimed    bool        `json:"claimed"`        // a setup grant cookie is present and valid
+	CSRF       string      `json:"csrf,omitempty"` // the claimed grant's CSRF token (like dto.Me.CSRF); empty unless Claimed
+	OwnerSet   bool        `json:"owner_set"`
+	Sandbox    bool        `json:"sandbox_available"`
+	Install    InstallKind `json:"install,omitempty"` // always set; picks the command that prints a new setup code
+	Version    string      `json:"-"`                 // never disclosed pre-auth
 }
 
 type SetupClaimReq struct {
@@ -47,9 +48,10 @@ type SetupClaimResp struct {
 }
 
 type SetupOwnerReq struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Timezone string `json:"timezone"`
+	DisplayName string `json:"display_name,omitempty"` // "" = the username
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+	Timezone    string `json:"timezone"`
 }
 
 type LoginReq struct {
@@ -75,7 +77,7 @@ type Access struct {
 }
 
 type PasswordReq struct {
-	Old string `json:"old"`
+	Old string `json:"old"` // may be "" while the user's must_change_password is set
 	New string `json:"new"`
 }
 
@@ -86,7 +88,7 @@ type TokenCreateResp struct {
 
 type UserCreateReq struct {
 	Username    string    `json:"username"`
-	Password    string    `json:"password"`
+	Password    string    `json:"password,omitempty"` // "" = generate a one-time password (UserCreateResp)
 	DisplayName string    `json:"display_name"`
 	Role        core.Role `json:"role"`
 }
@@ -120,11 +122,15 @@ type SpacePatchReq struct {
 type SessionCreateReq struct {
 	Principal core.PrincipalID `json:"principal_id,omitempty"` // default: caller's own
 	Title     string           `json:"title,omitempty"`
+	// Message, when set, is sent as the first message in the same request, so
+	// a chat is stored only together with its first message (202 SessionCreated).
+	Message *SendReq `json:"message,omitempty"`
 }
 
 type SessionPatchReq struct {
 	Title         *string `json:"title,omitempty"`
 	ModelOverride *string `json:"model_override,omitempty"` // "" clears
+	Refine        *string `json:"refine,omitempty"`         // "on" | "off"; "" clears (follow agent.refine.enabled)
 }
 
 type SessionDetail struct {
@@ -132,16 +138,21 @@ type SessionDetail struct {
 	Pins    []*core.Pin      `json:"pins"`
 	Active  *core.RunInfo    `json:"active,omitempty"`
 	Pending []*core.Approval `json:"pending_approvals"`
+	Refine  string           `json:"refine"` // the session's refine setting: "on" | "off" | "" (follows agent.refine.enabled)
 }
 
 type MessagePage struct {
-	Messages []*core.Message `json:"messages"` // oldest first within the page
+	Messages []*core.Message `json:"messages"` // oldest first within the page; tool_call parts carry state and approval_id
 	HasMore  bool            `json:"has_more"`
+	// Approvals the page's tool calls asked for, pending or decided, so a
+	// decided card stays in the transcript after a reload.
+	Approvals []*core.Approval `json:"approvals"`
 }
 
 type SendReq struct {
 	Text    string   `json:"text"`
 	Uploads []string `json:"uploads,omitempty"` // upl_<26> ids from POST /api/uploads
+	Refine  *bool    `json:"refine,omitempty"`  // refine this turn's answer; omitted = the session's setting
 }
 
 type Upload struct {
@@ -161,10 +172,26 @@ type StopResp struct {
 }
 
 type RunDetail struct {
-	Run       *core.Run              `json:"run"`
+	Run       *RunView               `json:"run"`
 	LLMCalls  []core.CallInfo        `json:"llm_calls"`
 	ToolCalls []*core.ToolCallRecord `json:"tool_calls"`
 	Approvals []*core.Approval       `json:"approvals"`
+	Refine    *core.RefineTrace      `json:"refine,omitempty"` // the run's last refined answer; entries name their llm_calls
+}
+
+// RefineInfo is what the composer needs to offer refine mode and say what it
+// costs: the defaults, and the most model calls one refined answer takes.
+type RefineInfo struct {
+	Enabled    bool      `json:"enabled"` // agent.refine.enabled: on for messages and sessions that do not say
+	Drafts     int       `json:"drafts"`
+	Depth      int       `json:"depth"`
+	EarlyStop  bool      `json:"early_stop"`
+	CriticSlot core.Slot `json:"critic_slot"`
+	MaxCalls   int       `json:"max_calls"` // drafts × (1 + 3 × depth), the answer step included
+	// Multiplier is about how many normal replies a refined one costs, early
+	// stop considered: the refine estimate of a chat with no priced answer
+	// yet, or of a new chat not stored until its first message.
+	Multiplier float64 `json:"multiplier"`
 }
 
 type ApprovalResolveReq struct {
@@ -244,7 +271,9 @@ type ProviderTestReq struct {
 	SecretRef    string            `json:"secret_ref,omitempty"`
 	Model        string            `json:"model"`
 	AllowPrivate bool              `json:"allow_private"`
-	API          string            `json:"api,omitempty"` // openai, openai_compat: auto | responses | chat, as providers[].api
+	API          string            `json:"api,omitempty"`     // openai, openai_compat: auto | responses | chat, as providers[].api
+	Region       string            `json:"region,omitempty"`  // bedrock: AWS region; "" = the server's AWS config
+	Profile      string            `json:"profile,omitempty"` // bedrock: shared-config profile; "" = AWS_PROFILE or the default chain
 }
 
 type ChannelTestResp struct {
@@ -295,8 +324,8 @@ type UnsealReq struct {
 }
 
 type UsageResp struct {
-	Rows   []core.UsageRow `json:"rows"`
-	Totals core.UsageRow   `json:"totals"`
+	Rows   []UsageRowView `json:"rows"`
+	Totals core.UsageRow  `json:"totals"`
 }
 
 type UsageToday struct {

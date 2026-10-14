@@ -66,6 +66,7 @@ func TestBackup(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(dir, "memory", "usr_a", "MEMORY.md"), "likes tea")
 	writeFile(t, filepath.Join(dir, "memory", "spc_b", "USER.md"), "group")
+	writeFile(t, filepath.Join(dir, "knowledge", "usr_a", "acme", "api", "NOTES.md"), "# acme/api")
 	writeFile(t, filepath.Join(dir, "SOUL.md"), "persona")
 	writeFile(t, filepath.Join(dir, "bothy.yaml"), "log: {level: info}")
 	writeFile(t, filepath.Join(dir, "bothy.ui.yaml"), "{}")
@@ -119,7 +120,7 @@ func TestBackup(t *testing.T) {
 	}
 	for name, want := range map[string]string{
 		"memory/usr_a/MEMORY.md": "likes tea", "memory/spc_b/USER.md": "group", "SOUL.md": "persona",
-		"bothy.yaml": "log: {level: info}", "bothy.ui.yaml": "{}",
+		"bothy.yaml": "log: {level: info}", "bothy.ui.yaml": "{}", "knowledge/usr_a/acme/api/NOTES.md": "# acme/api",
 	} {
 		if got[name] != want {
 			t.Errorf("%s = %q, want %q", name, got[name], want)
@@ -260,6 +261,56 @@ func TestRetention(t *testing.T) {
 	}
 	if _, err := db.Runs().Get(ctx, core.SystemViewer(), newDone.ID); err != nil {
 		t.Error("runs retention 0 must keep runs")
+	}
+}
+
+func TestRetentionDropsEmptyWebSessions(t *testing.T) {
+	now := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	db := openAt(t, t.TempDir(), fixedClock{now})
+	w := &world{t: t, ctx: context.Background(), db: db}
+	ctx := w.ctx
+	u := w.user(core.RoleMember)
+	pu := core.UserPrincipal(u.ID)
+	old := now.Add(-2 * 24 * time.Hour)
+	empty := func(mod ...func(*core.Session)) *core.Session {
+		return w.session(pu, append([]func(*core.Session){func(x *core.Session) {
+			x.CreatedAt, x.UpdatedAt, x.LastMessageAt = old, old, time.Time{}
+		}}, mod...)...)
+	}
+	gone := empty()
+	goneArchived := empty(func(x *core.Session) { x.Archived = true })
+	fresh := w.session(pu, func(x *core.Session) {
+		x.CreatedAt, x.UpdatedAt, x.LastMessageAt = now.Add(-time.Hour), now, time.Time{}
+	})
+	withNotice := empty()
+	w.message(withNotice.ID, core.ProvSystem, "Clean fork of “x”.")
+	withRun := empty()
+	w.run(withRun, core.RunQueued)
+	withPin := empty()
+	w.must(db.Pins().Add(ctx, &core.Pin{Session: withPin.ID, Text: "keep", Source: "user", CreatedAt: old}))
+	scheduled := empty()
+	w.must(db.Schedules().Upsert(ctx, &core.Schedule{Principal: pu, Name: "s", Kind: core.SchedCron, Spec: "0 9 * * *", TZ: "UTC",
+		Prompt: "p", Session: scheduled.ID, Slot: core.SlotMain, MissedRun: "skip", Enabled: true, CreatedBy: "user:" + string(u.ID),
+		CreatedAt: old, UpdatedAt: old}))
+	channel := empty(func(x *core.Session) { x.Origin = "telegram" })
+	w.must(db.Meta().Set(ctx, core.RefineMetaKey(gone.ID), core.RefineOn))
+	w.must(db.Meta().Set(ctx, core.RefineMetaKey(fresh.ID), core.RefineOn))
+
+	if err := db.retain(ctx, config.Default()); err != nil {
+		t.Fatal(err)
+	}
+	for s, keep := range map[*core.Session]bool{gone: false, goneArchived: false, fresh: true, withNotice: true, withRun: true,
+		withPin: true, scheduled: true, channel: true} {
+		_, err := db.Sessions().Get(ctx, core.SystemViewer(), s.ID)
+		if (err == nil) != keep {
+			t.Errorf("session %s kept=%t, want %t (err %v)", s.ID, err == nil, keep, err)
+		}
+	}
+	if _, err := db.Meta().Get(ctx, core.RefineMetaKey(gone.ID)); !errors.Is(err, core.ErrNotFound) {
+		t.Errorf("refine setting of a pruned session: %v", err)
+	}
+	if _, err := db.Meta().Get(ctx, core.RefineMetaKey(fresh.ID)); err != nil {
+		t.Errorf("refine setting of a kept session: %v", err)
 	}
 }
 

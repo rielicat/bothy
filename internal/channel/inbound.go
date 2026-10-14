@@ -185,11 +185,58 @@ func (h *Hub) unknownDM(ctx context.Context, a *adapter, in core.Inbound, ident 
 		h.log.Error("channel sender notice failed", "channel", a.name, "err", err)
 		return
 	}
+	h.keepFirstText(ctx, a.name, ident, in)
 	if !notice.Reply {
 		return
 	}
 	h.replyAsync(in.Chat, "I'm a private assistant. Ask my owner to approve code "+escapeMD(notice.Code.Code)+".")
 	h.notifyUnknownSender(ctx, a.name, ident)
+	h.inboxChanged("sender:"+a.name+":"+in.SenderID, "")
+}
+
+const maxFirstText = 120
+
+// keepFirstText stores the start of a pending sender's first message for
+// the admins' inbox item, once. It is cleaned to one line and redacted; the
+// inbox shows it verbatim as the sender's words, and it never reaches a run.
+func (h *Hub) keepFirstText(ctx context.Context, channel string, ident core.ChannelIdentity, in core.Inbound) {
+	if ident.Status != core.IdentityPending || ident.FirstText != "" {
+		return
+	}
+	// Telegram sends "/start" when someone opens the bot; their own words
+	// come after it.
+	if _, _, cmd := parseCommand(in.Text); cmd {
+		return
+	}
+	text := truncateRunes(spaceTitle(h.redact(in.Text)), maxFirstText)
+	if text == "" {
+		return
+	}
+	// Read and write in one transaction: an admin's decision made in between
+	// must not be overwritten with the pending row read before it.
+	err := h.d.Store.Tx(ctx, func(tx core.Store) error {
+		cur, err := tx.Identities().Get(ctx, channel, in.SenderID)
+		if err != nil || cur.Status != core.IdentityPending || cur.FirstText != "" {
+			return err
+		}
+		cur.FirstText = text
+		return tx.Identities().Update(ctx, cur)
+	})
+	if err != nil {
+		h.log.Warn("channel: keeping an unknown sender's first words failed", "channel", channel, "err", err)
+	}
+}
+
+// inboxChanged tells admins' inboxes, and owner's when set, that an item
+// appeared.
+func (h *Hub) inboxChanged(item string, owner core.UserID) {
+	ps := []core.PrincipalID{""}
+	if owner != "" {
+		ps = append(ps, core.UserPrincipal(owner))
+	}
+	for _, p := range ps {
+		h.d.Bus.Publish(core.Event{Type: core.EvInboxChanged, Principal: p, Data: core.InboxChangedData{Item: item}})
+	}
 }
 
 func helloText(name string) string {
@@ -413,6 +460,7 @@ func (h *Hub) firstSighting(ctx context.Context, a *adapter, in core.Inbound, re
 		}
 		return
 	}
+	h.inboxChanged("group:"+string(sp.Principal), owner)
 	chat, ok := h.PreferredChat(ctx, owner)
 	if !ok {
 		return

@@ -110,6 +110,7 @@ func newHarness(t *testing.T, opts ...func(*harness)) *harness {
 		sandbox: &sandboxtest.Sandbox{}, bus: events.New(events.Options{}), work: t.TempDir(),
 	}
 	h.runner.Store = h.store
+	h.approvals.Render = plainRender(h.approvals)
 	h.auth = &fakes.Auth{Identities: map[string]core.IdentityResolution{}}
 	h.owner = h.user("olivia", "Olivia", core.RoleOwner)
 	h.member = h.user("mark", "Mark", core.RoleMember)
@@ -291,4 +292,29 @@ func (h *harness) session(p core.PrincipalID, chat core.ChatRef) *core.Session {
 func bubble(t *testing.T, f func(t *testing.T)) {
 	t.Helper()
 	synctest.Test(t, f)
+}
+
+// plainRender adds the plain copy the policy module writes for the tools
+// these tests request (shell, release_deploy), so the hub is tested on the
+// words real cards carry.
+func plainRender(fake *fakes.Approvals) func(core.ApprovalRequest) core.Card {
+	return func(r core.ApprovalRequest) core.Card {
+		c := fake.RenderCard(r)
+		if r.Action == nil {
+			return c
+		}
+		c.Kind, c.Tone = core.CardAction, core.ToneDefault
+		switch r.Action.Tool {
+		case "shell":
+			c.Question, c.PrimaryLabel, c.Ing = "Run this command?", "Run command", "running a command"
+			c.Fields, c.Code = []core.CardField{{Label: "Command", Value: r.Action.Argv[len(r.Action.Argv)-1], Mono: true}}, ""
+		case "release_deploy":
+			c.Question, c.PrimaryLabel, c.Ing = "Deploy acme/web to staging?", "Approve deploy", "deploying acme/web to staging"
+			c.Consequence, c.Kind, c.Code = "This updates staging for everyone using it.", core.CardDeploy, ""
+		case "fs_delete":
+			c.Question, c.PrimaryLabel, c.Ing = "Delete notes/old.md?", "Delete file", "deleting notes/old.md"
+			c.Consequence, c.Tone = "This can't be undone.", core.ToneDestructive
+		}
+		return c
+	}
 }

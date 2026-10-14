@@ -47,6 +47,7 @@ var (
 		{"unpin", "Remove a pin"},
 		{"compact", "Summarize older context now"},
 		{"model", "Set or clear this conversation's model"},
+		{"refine", "Check answers more carefully: on, off or default"},
 		{"pair", "Link this account with a code"},
 		{"help", "List commands"},
 	}

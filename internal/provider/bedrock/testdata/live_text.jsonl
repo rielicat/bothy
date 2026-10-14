@@ -1,0 +1,6 @@
+{"headers":{":content-type":"application/json",":event-type":"messageStart",":message-type":"event"},"payload":"{\"p\":\"abcdefghijklmnopqrstuvwxyz\",\"role\":\"assistant\"}"}
+{"headers":{":content-type":"application/json",":event-type":"contentBlockDelta",":message-type":"event"},"payload":"{\"contentBlockIndex\":0,\"delta\":{\"text\":\"Hello\"},\"p\":\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456\"}"}
+{"headers":{":content-type":"application/json",":event-type":"contentBlockDelta",":message-type":"event"},"payload":"{\"contentBlockIndex\":0,\"delta\":{\"text\":\" from Bedrock\"},\"p\":\"abcdefghijkl\"}"}
+{"headers":{":content-type":"application/json",":event-type":"contentBlockStop",":message-type":"event"},"payload":"{\"contentBlockIndex\":0,\"p\":\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTU\"}"}
+{"headers":{":content-type":"application/json",":event-type":"messageStop",":message-type":"event"},"payload":"{\"p\":\"abcdefghijklmnop\",\"stopReason\":\"end_turn\"}"}
+{"headers":{":content-type":"application/json",":event-type":"metadata",":message-type":"event"},"payload":"{\"metrics\":{\"latencyMs\":3038},\"p\":\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJK\",\"usage\":{\"inputTokens\":23,\"outputTokens\":8,\"serverToolUsage\":{},\"totalTokens\":31}}"}

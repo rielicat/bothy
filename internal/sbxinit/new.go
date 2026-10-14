@@ -24,9 +24,10 @@ const usage = `usage: sbx-init                                  PID 1: reap, rel
        sbx-init [--relay <sock>] run --timeout <d> [--kill-after <d>] -- argv...
        sbx-init killall | count
        sbx-init selftest [--runtime runc|runsc] [--canary <nonce>]
+       sbx-init mountids <path>...
 `
 
-// Main implements `sbx-init [run|killall|count|selftest] …`; returns the exit code.
+// Main implements `sbx-init [run|killall|count|selftest|mountids] …`; returns the exit code.
 func Main(args []string) int {
 	// The argv that ran sbx-init: "/opt/bothy/sbx-init" in a box, "/opt/bothy/bothy
 	// sbx-init" in a bwrap jail. run re-invokes it for its output drainer.
@@ -65,6 +66,8 @@ func dispatch(args []string, stdout, stderr io.Writer) int {
 		return countMain(stdout, stderr)
 	case "selftest":
 		return selftestMain(args[1:], stdout, stderr)
+	case "mountids":
+		return mountidsMain(args[1:], stdout, stderr)
 	case "drain":
 		return drainMain()
 	default:

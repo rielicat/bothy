@@ -7,6 +7,11 @@ package deps
 
 import (
 	_ "github.com/adhocore/gronx"
+	_ "github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
+	_ "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+	_ "github.com/aws/aws-sdk-go-v2/config"
+	_ "github.com/aws/aws-sdk-go-v2/credentials/endpointcreds"
+	_ "github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 	_ "github.com/disgoorg/disgo"
 	_ "github.com/elastic/go-seccomp-bpf"
 	_ "github.com/google/jsonschema-go/jsonschema"

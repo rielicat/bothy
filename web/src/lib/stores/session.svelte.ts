@@ -243,6 +243,10 @@ class Approvals {
         const a = (e.data as ApprovalData).approval;
         if (a) this.upsert(a);
       }),
+      events.on('approval.voted', (e) => {
+        const a = (e.data as ApprovalData).approval;
+        if (a) this.upsert(a);
+      }),
       events.on('approval.resolved', (e) => {
         const d = e.data as ApprovalResolvedData;
         const cur = this.pending.find((x) => x.id === d.approval_id);

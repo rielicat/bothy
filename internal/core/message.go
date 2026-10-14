@@ -2,7 +2,9 @@ package core
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
+	"unicode"
 )
 
 // Provenance says who authored content. Anything not ProvUser/ProvSystem/ProvTool
@@ -58,7 +60,26 @@ type Part struct {
 	// strips it when the next call goes to a client of another kind.
 	Sig     string       `json:"sig,omitempty"`
 	SigKind ProviderKind `json:"sig_kind,omitempty"`
+	Refine  *RefineTrace `json:"refine,omitempty"` // PartRefine only
+	// State and Approval are set on tool_call parts by API reads and never
+	// stored: where the call stands, and the approval it waited on.
+	State    ToolState  `json:"state,omitempty"`
+	Approval ApprovalID `json:"approval_id,omitempty"`
 }
+
+// ToolState is where a transcript tool call stands. A call is done only once
+// its result exists, so a pending action never reads as finished.
+type ToolState string
+
+const (
+	ToolRunning         ToolState = "running"
+	ToolWaitingApproval ToolState = "waiting_approval"
+	ToolDone            ToolState = "done"
+	ToolFailed          ToolState = "failed"
+	ToolDenied          ToolState = "denied"  // an approver said no
+	ToolExpired         ToolState = "expired" // nobody answered in time, or the task stopped first
+	ToolBlocked         ToolState = "blocked" // refused by policy, never asked
+)
 
 // Blob points at a file in the principal's workspace. Data is filled by the
 // agent just before a provider call and is never persisted.
@@ -111,6 +132,21 @@ func (m *Message) PlainText() string {
 			}
 			s += p.Text
 		}
+	}
+	return s
+}
+
+// TitleChars is how much of a chat's first message names the chat until its
+// generated title arrives.
+const TitleChars = 48
+
+// DraftTitle is that name: the text on one line, cut to TitleChars characters.
+func DraftTitle(text string) string {
+	s := strings.Join(strings.FieldsFunc(text, func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.IsControl(r) || unicode.Is(unicode.Cf, r)
+	}), " ")
+	if r := []rune(s); len(r) > TitleChars {
+		s = strings.TrimSpace(string(r[:TitleChars]))
 	}
 	return s
 }

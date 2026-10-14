@@ -35,6 +35,10 @@ type RunRequest struct {
 	MaxOutput   int      // /v1 max_tokens cap per step; 0 = model default
 	Temperature *float64 // /v1 client temperature; nil = model default
 	Stop        []string // /v1 stop sequences
+	// Refine asks for refine mode on this turn's final answer; nil follows
+	// the session's setting, then agent.refine.enabled (message and api
+	// triggers only).
+	Refine *bool
 }
 
 type SubmitResult struct {

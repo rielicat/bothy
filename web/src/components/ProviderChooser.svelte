@@ -10,6 +10,7 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
   import { api, ApiError, errorText } from '../lib/api/client';
+  import type { Detection, ProbeResult } from '../lib/api/types.gen';
   import { plural } from '../lib/format';
   import { failure, failureCode, AWS_HELP, type Failure } from '../lib/providerErrors';
   import {
@@ -25,9 +26,7 @@
     providers,
     regionName,
     regions,
-    type DetectionV2,
     type ProbeRequest,
-    type ProbeV2,
     type ProviderDef,
   } from '../lib/providers';
   import Icon from './Icon.svelte';
@@ -51,7 +50,7 @@
   interface Row extends Option {
     def: ProviderDef;
     source: Source;
-    detection?: DetectionV2;
+    detection?: Detection;
   }
   interface RowState {
     key: string;
@@ -80,7 +79,7 @@
   const listRow = (def: ProviderDef): Row => ({ value: `p:${def.id}`, title: def.name, description: def.line, def, source: 'list' });
 
   let root: HTMLElement | undefined = $state();
-  let detections = $state<DetectionV2[] | null>(null);
+  let detections = $state<Detection[] | null>(null);
   let slow = $state(false);
   let selected = $state<string | undefined>();
   // The provider list is usable while detection runs, so its rows have state from the start.
@@ -95,12 +94,12 @@
   let seq = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
-  const localDef = (d: DetectionV2): ProviderDef =>
+  const localDef = (d: Detection): ProviderDef =>
     d.kind === 'ollama' ? provider('ollama') : /:1234\b/.test(d.base_url) ? provider('lmstudio') : { ...provider('custom'), id: 'local', name: 'The model server', key: undefined };
 
   // AWS, Ollama, LM Studio, other local servers, then keys in the server's environment (§5.6.1).
-  function detectedRows(list: DetectionV2[]): Row[] {
-    const rank = (d: DetectionV2) => (d.kind === 'bedrock' ? 0 : d.env_var ? 4 : d.kind === 'ollama' ? 1 : /:1234\b/.test(d.base_url) ? 2 : 3);
+  function detectedRows(list: Detection[]): Row[] {
+    const rank = (d: Detection) => (d.kind === 'bedrock' ? 0 : d.env_var ? 4 : d.kind === 'ollama' ? 1 : /:1234\b/.test(d.base_url) ? 2 : 3);
     const seen = new Set<string>();
     const rows: Row[] = [];
     for (const d of [...list].sort((a, b) => rank(a) - rank(b))) {
@@ -172,7 +171,7 @@
 
   onMount(() => {
     const t = setTimeout(() => (slow = true), 400);
-    api.post<DetectionV2[]>('/api/providers/detect').then(
+    api.post<Detection[]>('/api/providers/detect').then(
       (d) => (detections = d ?? []),
       () => (detections = []),
     );
@@ -259,11 +258,11 @@
     s.failure = null;
     s.byPerson = !!o.byPerson;
     const req = request(r, s);
-    let probe: ProbeV2 | null = null;
+    let probe: ProbeResult | null = null;
     let raw = '';
     let status: number | undefined;
     try {
-      probe = await api.post<ProbeV2>('/api/providers/test', req);
+      probe = await api.post<ProbeResult>('/api/providers/test', req);
     } catch (e) {
       raw = errorText(e);
       status = e instanceof ApiError ? e.status : undefined;
@@ -280,7 +279,8 @@
       if (!setup) void save();
       return;
     }
-    const detail = probe?.detail || raw;
+    // The raw message goes behind Details; `detail` is the server's plain sentence.
+    const detail = probe?.error || probe?.detail || raw;
     const code = failureCode({ code: probe?.code, detail, status, aws: r.def.kind === 'bedrock' });
     // An address that answers with an empty model list: ask for the model by name (§5.6.2).
     if (r.def.custom && code === 'no_models' && !s.typedModel.trim()) {
@@ -294,7 +294,7 @@
       model: req.model ? friendlyModel(req.model) : undefined,
       region: regionName(s.region),
       regionCode: s.region,
-      source: probe?.source ?? r.detection?.source,
+      source: probe?.credentials ?? r.detection?.source,
       hostPort: req.base_url ? hostPort(req.base_url) : undefined,
       console: r.def.console,
       ollama: r.def.kind === 'ollama',

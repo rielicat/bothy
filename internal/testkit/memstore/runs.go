@@ -189,7 +189,7 @@ func (r runRepo) AddLLMCall(_ context.Context, run core.RunID, _ core.PrincipalI
 	st, unlock := r.s.begin()
 	defer unlock()
 	c.ID = idOr(c.ID, core.PrefixLLMCall)
-	if !oneOf(c.Purpose, "agent", "compaction", "title", "heartbeat", "probe", "passthrough") {
+	if !oneOf(c.Purpose, "agent", "compaction", "title", "heartbeat", "probe", "passthrough", "notes") {
 		return invalid("llm_calls.purpose")
 	}
 	if _, ok := st.runs[run]; run != "" && !ok {
@@ -335,6 +335,8 @@ func normApproval(a core.Approval) (core.Approval, error) {
 	a.ExpiresAt = ms(a.ExpiresAt)
 	a.ParkUntil = ms(a.ParkUntil)
 	a.DecidedAt = ms(a.DecidedAt)
+	a.Votes = nil // approval_votes is its own table
+	a.Approvals, a.Requester = nil, nil
 	return a, nil
 }
 
@@ -347,10 +349,22 @@ func openStatus(s core.ApprovalStatus) bool {
 	return s == core.ApprovalPending || s == core.ApprovalParked
 }
 
-// visibleApproval applies Viewer.Admin's approval exception: every admin sees
-// admin-only approvals.
+// visibleApproval applies Viewer.Admin's approval exception (every admin sees
+// admin-only approvals) and the multi-approver one (a voter by id, or by a
+// role the viewer may hold: member for anyone, owner/admin for admins).
 func visibleApproval(v core.Viewer, a core.Approval) bool {
-	return v.Can(a.Principal) || (v.Admin && a.Approver.AdminOnly)
+	if v.Can(a.Principal) || v.Admin && a.Approver.AdminOnly {
+		return true
+	}
+	if v.System || v.User == "" || a.Approver.AdminOnly {
+		return false
+	}
+	if slices.Contains(a.Approver.Users, v.User) {
+		return true
+	}
+	return slices.ContainsFunc(a.Approver.Roles, func(r core.Role) bool {
+		return r == core.RoleMember || v.Admin && (r == core.RoleAdmin || r == core.RoleOwner)
+	})
 }
 
 type approvalRepo struct{ s *store }
@@ -522,6 +536,56 @@ func (r approvalRepo) Messages(_ context.Context, id core.ApprovalID) ([]core.Ca
 		}
 	}
 	return out, nil
+}
+
+type voteKey struct {
+	approval core.ApprovalID
+	user     core.UserID
+}
+
+func (r approvalRepo) AddVote(_ context.Context, v core.ApprovalVote) error {
+	st, unlock := r.s.begin()
+	defer unlock()
+	switch {
+	case v.User == "" || !oneOf(v.Choice, core.AllowOnce, core.Deny):
+		return invalid("approval_votes")
+	case st.approvals[v.Approval].ID == "":
+		return invalid("approval_votes.approval_id: no such approval")
+	}
+	k := voteKey{v.Approval, v.User}
+	if _, ok := st.votes[k]; ok {
+		return conflict("approval_votes primary key")
+	}
+	v.At = ms(v.At)
+	st.votes[k] = v
+	return nil
+}
+
+func (r approvalRepo) Votes(_ context.Context, id core.ApprovalID) ([]core.ApprovalVote, error) {
+	st, unlock := r.s.begin()
+	defer unlock()
+	var out []core.ApprovalVote
+	for k, v := range st.votes {
+		if k.approval == id {
+			out = append(out, v)
+		}
+	}
+	slices.SortFunc(out, func(a, b core.ApprovalVote) int {
+		return cmp.Or(a.At.Compare(b.At), cmp.Compare(a.User, b.User))
+	})
+	return out, nil
+}
+
+func (r approvalRepo) SetComment(_ context.Context, id core.ApprovalID, comment string) error {
+	st, unlock := r.s.begin()
+	defer unlock()
+	a, ok := st.approvals[id]
+	if !ok {
+		return notFound("set approval comment")
+	}
+	a.Comment = comment
+	st.approvals[id] = a
+	return nil
 }
 
 func normGrant(g core.Grant) (core.Grant, error) {

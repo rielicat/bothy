@@ -1,9 +1,6 @@
-import type { Detection, ProbeResult, ProviderKind } from './api/types.gen';
+import type { ProviderKind } from './api/types.gen';
 
-// Local until S3, S5 and S13 land in types.gen.ts (docs/design/ui.md §17); C10 moves them.
-export type Kind = ProviderKind | 'bedrock';
-export type DetectionV2 = Omit<Detection, 'kind'> & { kind: Kind; region?: string; source?: string };
-export type ProbeV2 = ProbeResult & { code?: string; source?: string };
+export type Kind = ProviderKind;
 export interface ProbeRequest {
   kind: Kind;
   base_url?: string;

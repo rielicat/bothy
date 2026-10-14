@@ -24,6 +24,7 @@ const (
 	KindGemini       ProviderKind = "gemini"
 	KindOllama       ProviderKind = "ollama"        // native /api/chat (num_ctx honoured)
 	KindOpenAICompat ProviderKind = "openai_compat" // LM Studio, vLLM, OpenRouter, Groq, xAI, DeepSeek…
+	KindBedrock      ProviderKind = "bedrock"       // Amazon Bedrock ConverseStream; AWS default credential chain, no API key
 )
 
 // ModelRef is "<provider id>/<model>". The model part may itself contain "/".
@@ -107,6 +108,17 @@ type ModelInfo struct {
 	Local     bool      `json:"local"`
 	Price     Price     `json:"price"`
 	Source    string    `json:"source"` // catalog | config | discovery
+
+	// Plain names for the UI (v0.2): DisplayName "Claude Sonnet 4.5",
+	// ShortName "Sonnet 4.5" for narrow screens, ProviderName "Anthropic".
+	// Recommended marks the provider's suggested main model and
+	// QuickTasksDefault its suggested quick tasks model, among the models
+	// listed together.
+	DisplayName       string `json:"display_name,omitempty"`
+	ShortName         string `json:"short_name,omitempty"`
+	ProviderName      string `json:"provider_name,omitempty"`
+	Recommended       bool   `json:"recommended,omitempty"`
+	QuickTasksDefault bool   `json:"quick_tasks_default,omitempty"`
 }
 
 type ToolDef struct {
@@ -132,6 +144,10 @@ type Request struct {
 	ToolChoice  string // "auto" | "none" | "required" (force some tool call)
 	Stop        []string
 	NumCtx      int // Ollama native only
+	// CacheKey is stable for every call of one session and opaque (a hash,
+	// never an id); the OpenAI Responses client sends it as
+	// prompt_cache_key. "" sends none.
+	CacheKey string
 }
 
 type StreamEventType uint8
@@ -185,7 +201,10 @@ type Response struct {
 }
 
 // Provider is one wire protocol plus credentials. It never retries, never reads
-// env vars, and uses only the http.Client given by Egress.SystemClient.
+// env vars, and uses only the http.Client given by Egress.SystemClient. One
+// exception: a bedrock provider's AWS default credential chain reads the
+// AWS_* variables and ~/.aws by design, and fetches instance or container
+// credentials only through Egress's credentials-only client.
 type Provider interface {
 	ID() string
 	Kind() ProviderKind
@@ -214,6 +233,13 @@ type ProviderError struct {
 	Msg        string // redacted provider message
 	Err        error
 }
+
+// ErrModelUnsupported, in a ProviderError's chain, says the model cannot
+// serve the request as built (function tools over an API that cannot call
+// them for that model). The error stays invalid_request for callers of one
+// model; the facade tries the next model of the chain instead, as it does
+// for a model without tool support.
+var ErrModelUnsupported = errors.New("model cannot serve this request")
 
 func (e *ProviderError) Error() string { return e.Provider + ": " + string(e.Kind) + ": " + e.Msg }
 func (e *ProviderError) Unwrap() error { return e.Err }
@@ -255,7 +281,7 @@ type CallInfo struct {
 	ID             string        `json:"id"` // llm_<26>
 	Ref            ModelRef      `json:"ref"`
 	Slot           Slot          `json:"slot"`
-	Purpose        string        `json:"purpose"` // agent|compaction|title|heartbeat|probe|passthrough
+	Purpose        string        `json:"purpose"` // agent|compaction|title|heartbeat|probe|passthrough|notes
 	Step           int           `json:"step"`
 	Attempts       []Attempt     `json:"attempts"`
 	Usage          Usage         `json:"usage"`
@@ -281,7 +307,9 @@ type ProbeConfig struct {
 	SecretRef    string       `json:"secret_ref"` // alternative to APIKey: "secret:<name>"
 	Model        string       `json:"model"`
 	AllowPrivate bool         `json:"allow_private"`
-	API          string       `json:"api,omitempty"` // openai, openai_compat: auto | responses | chat ("" = auto), as providers[].api
+	API          string       `json:"api,omitempty"`     // openai, openai_compat: auto | responses | chat ("" = auto), as providers[].api
+	Region       string       `json:"region,omitempty"`  // bedrock: AWS region; "" = the AWS config's default
+	Profile      string       `json:"profile,omitempty"` // bedrock: shared-config profile; "" = AWS_PROFILE or default
 }
 
 type ProbeResult struct {
@@ -294,6 +322,25 @@ type ProbeResult struct {
 	Cost          Micros        `json:"cost_micros"`
 	API           string        `json:"api,omitempty"` // openai, openai_compat: the API tested, "responses" or "chat"
 	Detail        string        `json:"detail"`        // plain-language failure or hint (e.g. OLLAMA_CONTEXT_LENGTH)
+
+	Choices     []ModelChoice `json:"choices,omitempty"`     // Models with display names, for a model picker
+	Credentials string        `json:"credentials,omitempty"` // bedrock: where the AWS credentials came from, never their values
+
+	Model string      `json:"model,omitempty"` // the model the probe exercised
+	Code  FailureCode `json:"code,omitempty"`  // why the check failed (OK false)
+	Error string      `json:"error,omitempty"` // the raw, redacted message behind Code
+}
+
+// ModelChoice is one entry of a model picker, with the plain names and
+// suggestions of ModelInfo.
+type ModelChoice struct {
+	ID                string `json:"id"`
+	Display           string `json:"display"`
+	DisplayName       string `json:"display_name,omitempty"`
+	ShortName         string `json:"short_name,omitempty"`
+	ProviderName      string `json:"provider_name,omitempty"`
+	Recommended       bool   `json:"recommended,omitempty"`
+	QuickTasksDefault bool   `json:"quick_tasks_default,omitempty"`
 }
 
 type Detection struct {
@@ -302,6 +349,13 @@ type Detection struct {
 	EnvVar  string       `json:"env_var,omitempty"` // e.g. ANTHROPIC_API_KEY; the value never leaves the process
 	Models  []string     `json:"models,omitempty"`
 	Note    string       `json:"note,omitempty"`
+	Region  string       `json:"region,omitempty"`  // bedrock: the AWS config's region, "" when it names none
+	Profile string       `json:"profile,omitempty"` // bedrock: the AWS_PROFILE in use, "" for the default chain
+	Source  string       `json:"source,omitempty"`  // bedrock: where the AWS credentials came from in plain words ("instance role bothy-prod"), never their values
+
+	Choices    []ModelChoice `json:"choices,omitempty"`     // Models with plain names and suggestions
+	SecretRef  string        `json:"secret_ref,omitempty"`  // a provider key already saved in the global vault: "secret:<name>"
+	SecretHint string        `json:"secret_hint,omitempty"` // its last four characters ("" for short values)
 }
 
 type ProviderHealth struct {

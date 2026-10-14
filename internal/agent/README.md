@@ -12,13 +12,16 @@ semaphore only while streaming or executing tools and release both while
 waiting for an approval or parked.
 
 The loop (`loop.go`) assembles a cache-stable request (`assemble.go`,
-`snapshot.go`): tools and S2 (persona, facts, USER.md, MEMORY.md, pins, skills
+`snapshot.go`) whose `CacheKey` is a hash of the session id, the same for
+every call of the session: tools and S2 (persona, facts, USER.md, MEMORY.md, pins, skills
 index) are frozen per epoch in the session row, S1 is the embedded
 `CONSTITUTION.md` (full or short by model profile) plus the administrator's
 standing rules, and each user turn carries a persisted `<turn-context>` with
-time, sender trust, memory deltas, new pins, budget and trifecta warnings and
-spotlighted client instructions. History is re-ordered so every tool call is
-followed by exactly one result (a deterministic "Not executed" result is
+time, sender trust, memory deltas, new pins, blocks from `Deps.TurnContext`
+hooks (the knowledge module's project notes; a hook's `Commit` runs only once
+the turn is stored, its taint legs join the session's), budget and trifecta
+warnings and spotlighted client instructions. History is re-ordered so every
+tool call is followed by exactly one result (a deterministic "Not executed" result is
 synthesized, never stored), untrusted text is wrapped in `<untrusted … id=…>`
 blocks whose ids are an HMAC of their position under `meta.agent.spotlight_key`
 (stable bytes for prompt caching, unpredictable to the content's author), and
@@ -57,6 +60,35 @@ approval was decided while the gateway was down; at shutdown, runs it
 interrupts cancel their own approvals. A zero field in requested limits means
 the trigger's default, never unlimited.
 
+Refine mode (`refine.go`, `refine/`, v0.2 F3 after arXiv:2608.05643)
+applies to the final answer only: a step that ends the turn with text and no
+tool calls. The message asks for it (`RunRequest.Refine`), else, for message
+and api runs, the session's meta key `agent.refine.<session>` (`on`/`off`),
+else `agent.refine.enabled`, decided when the run starts; a message that
+asks for the other mode is queued as a turn of its own instead of steering
+into the run. While a run refines, each step's text is held
+back until a tool call shows it is not the final answer; a final answer
+becomes draft 0, `drafts − 1` more drafts repeat that step's exact request
+with tool use off, and each draft takes `depth` rounds of continue
+(generator) → critique (critic, on `critic_slot`) → correct (corrector,
+skipped when the critic confirms a text that states a final answer). Role
+calls append one Bothy-authored user message to the step's prompt: the
+quoted draft (and critique) in blocks with random closing ids, spotlighted
+when the session holds untrusted content, then the embedded role prompt;
+quotes longer than a third of the window keep their head and tail. A
+plurality vote over the normalized `Final answer:` lines picks the reply
+(ties: the earliest draft), and early stop ends deepening once every draft
+agrees. Every call is metered and recorded as an `agent` call of the same
+step but is not a step; a budget that would be exceeded counting the calls
+in flight, the run's time limit minus 5 s, a new message from the user, or
+a stop ends refinement with the best answer so far. Drafts and rounds run
+in parallel (at most 4 calls at once). Only the reply that won is streamed;
+`run.refine` events (bus only) report each call, and the persisted answer
+carries the whole trace in a `refine` part that is never sent to a model.
+The trace redacts each text before extracting and normalizing its answer
+(normalizing lowercases, which exact-match redaction would miss), caps
+answers at 256 bytes, and names an `llm_calls` row only for recorded calls.
+
 Streamed text (`run.delta`, `run.thinking`) is coalesced to 50 ms and tool
 progress (`run.tool_output`) to 100 ms, and each flush publishes only what
 `streamCut` releases: text up to whitespace, short of any tail a registered
@@ -69,7 +101,21 @@ since a `/v1` client renders the text itself. A resumed heartbeat run's sink hol
 `HEARTBEAT_OK` answer like the scheduler's.
 
 The embedded `CONSTITUTION.md`, `CONSTITUTION.short.md` and default `SOUL.md`
-(written to `<data>/<agent.persona_file>` at construction when missing) are
-product prompts: changing either constitution requires bumping
+(written to `<data>/<agent.persona_file>` at construction when missing, and
+written over v0.1's default when that file was never edited) are product
+prompts: changing either constitution requires bumping
 `constitutionVersion` (a test pins their hash), which is recorded in
-`meta.constitution_version`.
+`meta.constitution_version`. Since version 2 both speak of a company's agent
+and its team; the default persona is headed `# Bothy` (the agent's name) and
+names its tone ("Tone: Warm and brief").
+
+The first stored turn of an untitled session names it after its first message
+(`core.DraftTitle`, 48 characters) and publishes `session.updated`; after the
+first run that is done (a parked, failed or stopped one leaves it to the next)
+a fast-slot call writes the title, which replaces only that draft, never a
+name someone chose. Notices (`notices.go`) follow the UI copy guide: a
+failed answer names the party at fault once ("Anthropic had a problem
+answering.", "No AI model could answer right now.", a rejected key told
+differently to admins and members) while the raw provider message stays in
+the run's error, and limits, restarts, stops and forks are said in plain
+words with amounts as money.

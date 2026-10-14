@@ -253,6 +253,16 @@ func chButton(m telegramtest.Message, label string) (telegramtest.Button, bool) 
 	return telegramtest.Button{}, false
 }
 
+// chField is the card field with this label.
+func chField(c core.Card, label string) core.CardField {
+	for _, f := range c.Fields {
+		if f.Label == label {
+			return f
+		}
+	}
+	return core.CardField{}
+}
+
 func chButtonCount(m telegramtest.Message) int {
 	n := 0
 	for _, row := range m.Buttons {

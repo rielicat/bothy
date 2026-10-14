@@ -112,12 +112,7 @@ func (r *Runner) Fork(ctx context.Context, v core.Viewer, id core.SessionID, by 
 	if err != nil {
 		return nil, fmt.Errorf("agent: fork %s: %w", id, err)
 	}
-	name := title
-	if name == "" {
-		name = string(old.ID)
-	}
-	r.notice(ctx, fork.ID, fork.Principal, "", fmt.Sprintf("Clean fork of “%s” (%s). History and taint were not carried over; "+
-		"the workspace files are shared, so reading ones that came from untrusted sources taints this session too.", name, old.ID), nil)
+	r.notice(ctx, fork.ID, fork.Principal, "", forkNotice(title), nil)
 	r.d.Bus.Publish(core.Event{Type: core.EvSessionUpdated, Principal: fork.Principal, Session: fork.ID,
 		Data: core.SessionData{Title: fork.Title}})
 	return fork, nil

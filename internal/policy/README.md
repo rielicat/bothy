@@ -25,7 +25,12 @@ irreversible actions, scheduled/heartbeat/API triggers and shared-tenant
 hosts; Exposed and admin-class decisions offer neither. F1 checks trigger,
 role, principal kind and the kill switch (`meta.paused`); sandbox
 availability is enforced by the registry (`ToolRegistry.Available`) before
-`Decide`, since the policy has no sandbox dependency.
+`Decide`, since the policy has no sandbox dependency. A tool whose manifest
+sets `AlwaysAsk` (v0.2: `repo_open_pr`) meets one more floor after F9,
+`floor:always_ask`: every call asks with `allow_once`/`deny` whatever the
+preset, a `deny` rule still denies, no grant answers it, and whichever
+floor asks first (trifecta, untrusted origin or always-ask) carries the
+first-contact warning onto its card.
 
 **Rules** match tool globs, `argv0` (the first word of a `bash -lc` command
 line, never when it contains a shell metacharacter, and never a relative or
@@ -58,5 +63,41 @@ sweeps due approvals every 30 s, including expired parks. `OnResolved`
 callbacks run synchronously after allow, deny and expiry, not after
 `CancelRun`. Button data is `a:<id>:<o|s|a|d>:<mac8>` with an HMAC key kept
 in `meta.approval_mac_key` (created on first boot; a corrupt key fails `New`).
+
+**Releases and votes.** A deploy (`release_deploy`, or any `ActRelease`
+action) has its own floor after the restricted-space check: denied outside
+interactive runs and outside a user's own principal, denied when the payload
+does not match its `releases.environments` entry (repository, workflow,
+inputs, `ref_pattern`) or when fewer enabled users than `required` could
+approve it besides the requester; otherwise an ask that no preset, default,
+rule or grant relaxes (a deny rule still refuses it), offering only
+`allow_once`/`deny`, with a multi-approver `ApproverReq` (`users`, `roles`,
+`required`, `requester`). Such an approval resolves by votes
+(`approval_votes`): the status check, the vote, the recount of still-eligible
+allow votes and the decision share one store transaction, so concurrent votes
+count once and resolve it once. The requester's allow is refused (they may
+deny to withdraw), each user votes once, one deny denies, the `required`th
+distinct allow allows; every vote is audited (`approval.vote`, refusals with
+outcome `denied`), a vote that does not resolve is published as
+`approval.voted`, and requested/voted/resolved events also go to each
+eligible approver's own principal. The card leaves out the context line,
+whose session title belongs to the requester's principal. Timeouts, parking
+and the button MAC and recorded-card rules are unchanged. `Get`, `Pending`,
+`Recent`, `Resolve` and the published events fill `Approval.Votes`,
+`Approval.Approvals` (required, votes with names and comments, eligible
+approvers, `any_admin`) and `Approval.Requester`; a decision's or vote's
+reason (`Resolution.Comment`) is stored and sent with `approval.resolved`.
+`Voters` lists who may vote.
+
+**Plain copy** (`copy.go`, v0.2 S2). `renderCard` also writes the words every
+surface shows, from the Action, the spec and the decision only: `question`,
+`consequence`, `primary_label` (allow_once's verb, else "Allow for this
+chat"), the `ing` phrase, `kind` (`action`, `pull_request`, `deploy`,
+`review` for notes edits) and `tone` (`destructive` for irreversible and
+financial actions and schedule deletion, never for deploys), plain field
+labels per tool with MCP (schema-declared scalar arguments), admin and
+unknown-tool fallbacks, and plain decision warnings. A field that shows the
+exact action (a shell command, a message, a comment) replaces `Code`; a value
+inside a sentence goes through `inline()`, so it can never break the line.
 
 Checks: `policy.hands_off`, `policy.auto_external_rules`, `budgets.unlimited`.

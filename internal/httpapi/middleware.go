@@ -62,7 +62,8 @@ func unsafeMethod(m string) bool {
 
 // build assembles the outer chain: request id, panic recovery, security
 // headers, Host check, exposure gate and query-credential rejection, in
-// front of the mux. Body limit, authentication, CSRF, authorization and rate
+// front of the mux (health probes skip the Host check and exposure gate,
+// see healthProbe). Body limit, authentication, CSRF, authorization and rate
 // limiting run per route in wrap.
 func (s *Server) build() http.Handler {
 	mux := http.NewServeMux()
@@ -78,12 +79,17 @@ func (s *Server) build() http.Handler {
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ri := &reqInfo{id: requestID()}
-		ri.ip, ri.secure = s.peer(r)
-		ri.class = s.classify(ri.ip)
+		var proxied bool
+		ri.ip, ri.secure, proxied = s.peer(r)
+		ri.class = s.classify(ri.ip, proxied)
 		r = r.WithContext(withInfo(r.Context(), ri))
 		w.Header().Set("X-Request-Id", ri.id)
 		defer s.recoverPanic(w, r)
 		s.securityHeaders(w, r, ri)
+		if healthProbe(r) {
+			mux.ServeHTTP(w, r)
+			return
+		}
 		if !s.hostAllowed(r.Host) {
 			s.writeError(w, r, newError(http.StatusMisdirectedRequest, "bad_request", "unknown Host header").
 				withFix("add this host name to server.allowed_hosts or server.public_url"))
@@ -105,6 +111,14 @@ func (s *Server) build() http.Handler {
 		}
 		mux.ServeHTTP(w, r)
 	})
+}
+
+// healthProbe: load balancer health checks send the target IP as Host, over
+// plain HTTP from the balancer's own address, and with no cookies. The two
+// health routes disclose nothing, so they skip the Host check and the
+// exposure gate; every other route keeps both.
+func healthProbe(r *http.Request) bool {
+	return (r.Method == http.MethodGet || r.Method == http.MethodHead) && (r.URL.Path == "/healthz" || r.URL.Path == "/readyz")
 }
 
 // plainAllowed: plain HTTP goes to local peers, to LAN peers only with the
@@ -235,6 +249,10 @@ func (s *Server) wrap(rt route) http.Handler {
 		}
 		if err := authorize(r, rt, a); err != nil {
 			s.writeError(w, r, err)
+			return
+		}
+		if a.MustChangePassword && !passwordChangeRoutes[rt.pattern] {
+			s.writeError(w, r, errPasswordChange)
 			return
 		}
 		if a.Via == "token" && a.RatePerMin > 0 {

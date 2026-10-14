@@ -139,6 +139,17 @@ func TestSandboxdEndToEnd(t *testing.T) {
 	}
 }
 
+func TestStatusNamesTheMountMode(t *testing.T) {
+	h := proto.Health{OK: true, Engine: "docker 25.0.16", API: "1.44", Runtime: "runc", Mounts: proto.MountsBind}
+	if st := statusFromHealth(h, nil); !st.Available || st.Engine != "docker 25.0.16 (api 1.44, bind mounts)" {
+		t.Fatalf("status = %+v", st)
+	}
+	h.API, h.Mounts = "1.47", proto.MountsSubpath
+	if st := statusFromHealth(h, nil); st.Engine != "docker 25.0.16 (api 1.47)" {
+		t.Fatalf("engine = %q", st.Engine)
+	}
+}
+
 func TestValidationHappensBeforeTheSidecar(t *testing.T) {
 	e, eng := newEnv(t, opts{sandboxd: true})
 	ctx := context.Background()
@@ -786,8 +797,8 @@ func TestChecks(t *testing.T) {
 	for _, ch := range e.c.Checks() {
 		ids = append(ids, ch.ID())
 	}
-	if !slices.Equal(ids, []string{"sandbox.unavailable", "sandbox.not_isolated", "sandbox.rootful_runc", "sandbox.runsc_host_uds",
-		"sandbox.bwrap_limits", "docker.socket_access"}) {
+	if !slices.Equal(ids, []string{"sandbox.unavailable", "sandbox.not_isolated", "sandbox.rootful_runc", "sandbox.bind_mounts",
+		"sandbox.runsc_host_uds", "sandbox.bwrap_limits", "docker.socket_access"}) {
 		t.Fatalf("check ids = %v", ids)
 	}
 	set := func(st core.SandboxStatus) { e.c.svc.setStatus(st) }
@@ -811,6 +822,20 @@ func TestChecks(t *testing.T) {
 	set(core.SandboxStatus{Backend: "bwrap", Available: true, Runtime: "bwrap"})
 	if f := findings(t, e.c, "sandbox.bwrap_limits"); len(f) != 1 || f[0].Severity != core.SevLow || !f[0].Security || !workingComposeFix(f[0].Fix) {
 		t.Fatalf("bwrap_limits = %+v", f)
+	}
+
+	if len(findings(t, e.c, "sandbox.bind_mounts")) != 0 {
+		t.Fatal("bind_mounts with volume subpaths")
+	}
+	bind := []core.SelfTestCheck{{Name: proto.CheckBindMounts, OK: true, Detail: "work volume at /var/lib/docker/volumes/bothy_work/_data"}}
+	set(core.SandboxStatus{Backend: "sandboxd", Available: true, Runtime: "runc", Rootless: true, SelfTest: bind})
+	if f := findings(t, e.c, "sandbox.bind_mounts"); len(f) != 1 || f[0].Severity != core.SevInfo || f[0].Security ||
+		!strings.Contains(f[0].Detail, "bothy_work/_data") || !strings.Contains(f[0].Fix, "Docker to 26") {
+		t.Fatalf("bind_mounts = %+v", f)
+	}
+	set(core.SandboxStatus{Backend: "sandboxd", Runtime: "runc", Rootless: true, SelfTest: bind})
+	if len(findings(t, e.c, "sandbox.bind_mounts")) != 0 {
+		t.Fatal("bind_mounts on an unavailable sandbox")
 	}
 
 	set(core.SandboxStatus{Backend: "sandboxd", Available: true, Runtime: "runc", Rootless: true,

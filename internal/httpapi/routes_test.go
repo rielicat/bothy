@@ -856,8 +856,8 @@ func TestMiscReads(t *testing.T) {
 		t.Fatal("models")
 	}
 	h.memory.Files = nil
-	if hits := decodeAs[[]core.SearchHit](t, h.do("GET", "/api/search?q=", nil, h.member)); len(hits) != 0 {
-		t.Fatal("empty search")
+	if res := decodeAs[dto.SearchResp](t, h.do("GET", "/api/search?q=", nil, h.member)); res.Chats == nil || len(res.Chats)+len(res.Notes)+len(res.Code) != 0 {
+		t.Fatalf("empty search = %+v", res)
 	}
 	if l := decodeAs[[]core.ChannelStatus](t, h.do("GET", "/api/channels", nil, h.admin)); l == nil {
 		t.Fatal("channels must be a list")

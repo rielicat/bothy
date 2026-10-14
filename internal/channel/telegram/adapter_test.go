@@ -394,7 +394,7 @@ func TestAuthFailureNeverLeaksToken(t *testing.T) {
 	if !strings.Contains(st.Detail, "401") || strings.Contains(st.Detail, "WRONG-token") {
 		t.Fatalf("auth_failed detail = %q", st.Detail)
 	}
-	if _, err := bad.SelfTest(context.Background()); err == nil || strings.Contains(err.Error(), "WRONG-token") {
+	if _, err := bad.SelfTest(context.Background()); err == nil || strings.Contains(err.Error(), "WRONG-token") || core.CodeOf(err) != core.FailKeyRejected {
 		t.Fatalf("SelfTest error = %v", err)
 	}
 

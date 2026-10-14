@@ -93,7 +93,8 @@
       "linuxParameters": {"capabilities": {"drop": ["ALL"]}},
       "mountPoints": [
         {"sourceVolume": "docker-sock", "containerPath": "/var/run/docker.sock"},
-        {"sourceVolume": "bothy_run", "containerPath": "/run/bothy"}
+        {"sourceVolume": "bothy_run", "containerPath": "/run/bothy"},
+        {"sourceVolume": "bothy_work", "containerPath": "/work", "readOnly": true}
       ],
       "restartPolicy": {"enabled": true, "restartAttemptPeriod": 60},
       "healthCheck": {

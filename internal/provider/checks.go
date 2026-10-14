@@ -10,7 +10,7 @@ import (
 )
 
 func (f *Facade) Checks() []core.Check {
-	return []core.Check{authCheck{f}, ollamaContextCheck{f}, chatToolsCheck{f}}
+	return []core.Check{authCheck{f}, ollamaContextCheck{f}, chatToolsCheck{f}, bedrockCredentialsCheck{f}}
 }
 
 // chatToolsCheck is the doctor's providers.chat_tools: a model that Chat
@@ -73,10 +73,14 @@ func (c authCheck) Run(context.Context) []core.Finding {
 		if h.State != stateAuthFailed {
 			continue
 		}
+		what := "its API key"
+		if h.Kind == core.KindBedrock {
+			what = "its AWS credentials"
+		}
 		out = append(out, core.Finding{
 			ID:       "providers.auth_failed",
 			Area:     "providers",
-			Title:    "Provider " + h.ID + " rejects its API key",
+			Title:    "Provider " + h.ID + " rejects " + what,
 			Detail:   h.LastError,
 			Fix:      "/settings/providers",
 			Severity: core.SevHigh,

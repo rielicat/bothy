@@ -85,7 +85,8 @@ func (s *Server) openWorkspace(ws core.WorkspaceID, create bool) (*os.Root, erro
 
 // upload streams a multipart "file" part into the session principal's
 // workspace at .bothy/in/<upl>/<name>. The session_id field must precede the
-// file part (or be given as ?session_id=) so nothing is buffered.
+// file part (or be given as ?session_id=) so nothing is buffered. A file for
+// the first message of a chat not stored yet names its principal_id instead.
 func (s *Server) upload(w http.ResponseWriter, r *http.Request, a core.Actor) error {
 	mr, err := r.MultipartReader()
 	if err != nil {
@@ -93,6 +94,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request, a core.Actor) er
 	}
 	ctx := r.Context()
 	sid := core.SessionID(r.URL.Query().Get("session_id"))
+	pid := core.PrincipalID(r.URL.Query().Get("principal_id"))
 	for {
 		part, err := mr.NextPart()
 		if errors.Is(err, io.EOF) {
@@ -109,22 +111,35 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request, a core.Actor) er
 			}
 			sid = core.SessionID(strings.TrimSpace(string(b)))
 			continue
+		case "principal_id":
+			b, err := io.ReadAll(io.LimitReader(part, 64))
+			if err != nil {
+				return badRequest("malformed principal_id")
+			}
+			pid = core.PrincipalID(strings.TrimSpace(string(b)))
+			continue
 		case "file":
 		default:
 			continue
 		}
-		if sid == "" {
-			return badRequest("session_id must come before the file part")
+		owner := pid
+		switch {
+		case sid != "":
+			sess, err := s.session(ctx, a, sid)
+			if err != nil {
+				return err
+			}
+			owner = sess.Principal
+		case pid == "":
+			return badRequest("session_id or principal_id must come before the file part")
+		case !a.Viewer.Can(pid):
+			return errNotFound
 		}
-		sess, err := s.session(ctx, a, sid)
+		pr, err := s.d.Store.Principals().Get(ctx, a.Viewer, owner)
 		if err != nil {
 			return err
 		}
-		pr, err := s.d.Store.Principals().Get(ctx, a.Viewer, sess.Principal)
-		if err != nil {
-			return err
-		}
-		up, err := s.storeUpload(r, pr, sess.ID, part)
+		up, err := s.storeUpload(r, pr, sid, part)
 		if err != nil {
 			return err
 		}

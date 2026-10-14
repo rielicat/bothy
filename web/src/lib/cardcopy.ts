@@ -3,8 +3,7 @@
 // words; until then they are built here from the structured Action. Only the
 // known fields of each tool's payload are read. The full Action stays behind
 // Details as "Exact action", so nothing the card leaves out is hidden.
-import type { Action, Approval } from './api/types.gen';
-import type { ApprovalV2, ApprovalVotes, CardV2 } from '../components/approval/types';
+import type { Action, Approval, ApprovalVotes, Card } from './api/types.gen';
 import { fileLines, parseDiff } from '../components/ui/diff';
 import { date, expiresIn, plural, relTime } from './format';
 import { commandOf, describeGrantParts, EXACT_GRANT, hostOf } from './grants';
@@ -43,6 +42,7 @@ export interface CopyField {
 }
 
 export type CardKind = 'action' | 'pull_request' | 'deploy' | 'review';
+const kinds: CardKind[] = ['action', 'pull_request', 'deploy', 'review'];
 
 export interface CardCopy {
   kind: CardKind;
@@ -198,7 +198,7 @@ function payloadFields(p: Payload, skip: string[] = []): CopyField[] {
   return out;
 }
 
-function fsWrite(a: Action, p: Payload, card: CardV2): Built {
+function fsWrite(a: Action, p: Payload, card: Card): Built {
   const path = str(p.path) || a.paths?.[0] || '';
   const diff = a.diff || card.diff || '';
   const content = str(p.content);
@@ -238,7 +238,7 @@ function fsWrite(a: Action, p: Payload, card: CardV2): Built {
   };
 }
 
-function fsDelete(a: Action, p: Payload, card: CardV2): Built {
+function fsDelete(a: Action, p: Payload, card: Card): Built {
   const path = str(p.path) || a.paths?.[0] || '';
   const diff = a.diff || card.diff || '';
   const folder = /^\(folder with (\d+) top-level entries\)$/m.exec(diff);
@@ -254,7 +254,7 @@ function fsDelete(a: Action, p: Payload, card: CardV2): Built {
   };
 }
 
-function shell(a: Action, p: Payload, card: CardV2): Built {
+function shell(a: Action, p: Payload, card: Card): Built {
   const cmd = commandOf(a) || card.fields?.find((f) => f.label === 'Command')?.value || card.code || '';
   const cwd = str(p.cwd) || a.cwd || '';
   return {
@@ -266,7 +266,7 @@ function shell(a: Action, p: Payload, card: CardV2): Built {
   };
 }
 
-function python(_a: Action, p: Payload, card: CardV2): Built {
+function python(_a: Action, p: Payload, card: Card): Built {
   const script = str(p.code) || card.code || '';
   return {
     question: ['Run this Python script?'],
@@ -337,7 +337,7 @@ function memory(_a: Action, p: Payload): Built {
   };
 }
 
-function notes(a: Action, p: Payload, card: CardV2): Built {
+function notes(a: Action, p: Payload, card: Card): Built {
   const repo = str(p.repo);
   const diff = a.diff || card.diff || '';
   return {
@@ -382,7 +382,7 @@ function scheduleDelete(_a: Action, p: Payload): Built {
   };
 }
 
-function openPR(a: Action, p: Payload, card: CardV2): Built {
+function openPR(a: Action, p: Payload, card: Card): Built {
   const repo = str(p.repo) || (a.recipient ?? '').replace(/^github:/, '');
   const files = splitFiles(a.diff || card.diff || '');
   const added = files.reduce((n, f) => n + f.added, 0);
@@ -474,7 +474,7 @@ function unknown(a: Action, p: Payload): Built {
   return { question: [`Let Bothy use ${name}?`], primary: 'Allow', ing: [`using ${name}`], ask: [`use ${name}`], fields: payloadFields(p) };
 }
 
-const builders: Record<string, (a: Action, p: Payload, card: CardV2) => Built> = {
+const builders: Record<string, (a: Action, p: Payload, card: Card) => Built> = {
   fs_write: fsWrite,
   fs_delete: fsDelete,
   shell,
@@ -494,7 +494,7 @@ const builders: Record<string, (a: Action, p: Payload, card: CardV2) => Built> =
 // v0.1 card labels, for approvals that arrive without an Action.
 const legacyLabels: Record<string, string> = { Path: 'File', Paths: 'Files', Recipient: 'To', URL: 'Website', Network: 'Website', Folder: 'In', 'MCP server': 'Server', 'MCP tool': 'Action' };
 
-function legacy(card: CardV2): Built {
+function legacy(card: Card): Built {
   const title = card.title || 'Allow this';
   const fields: CopyField[] = (card.fields ?? [])
     .filter((f) => !['Tool', 'Host', 'Approvals needed'].includes(f.label))
@@ -517,7 +517,7 @@ function grantOf(a: Action | undefined, b: Built): Seg[] {
 
 /** The plain copy of an approval card: from the server's S2 fields when present, else from the Action. */
 export function cardCopy(ap: Approval): CardCopy {
-  const card = ap.card as CardV2;
+  const card = ap.card;
   const a = ap.action;
   const p = payloadOf(a);
   let b: Built;
@@ -552,8 +552,9 @@ export function cardCopy(ap: Approval): CardCopy {
     copy.consequence = card.consequence || undefined;
     copy.primary = card.primary_label || copy.primary;
     if (card.ing) copy.ing = [card.ing];
-    copy.kind = card.kind ?? copy.kind;
-    copy.tone = card.tone ?? copy.tone;
+    // The generated kind and tone are open strings; an unknown value keeps the client's.
+    if (card.kind && kinds.includes(card.kind as CardKind)) copy.kind = card.kind as CardKind;
+    if (card.tone === 'default' || card.tone === 'destructive') copy.tone = card.tone;
     copy.warnings = card.warnings ?? [];
   }
   return copy;
@@ -590,7 +591,7 @@ export function isOpen(ap: Approval): boolean {
 
 /** Multi-approver approvals are decided by votes (S4); without the S4 fields every approval is single-approver. */
 export function isMulti(ap: Approval): boolean {
-  const r = (ap as ApprovalV2).approver;
+  const r = ap.approver;
   return !!r && !r.user_id && !r.admin_only && (!!r.users?.length || !!r.roles?.length);
 }
 
@@ -603,17 +604,17 @@ export interface Who {
 
 /** Whose request this is: the voter whose approval never counts, or the person whose chat asked. */
 export function requesterOf(ap: Approval, vv?: ApprovalVotes | null): string | undefined {
-  if (isMulti(ap)) return vv?.requester || (ap as ApprovalV2).approver.requester || undefined;
+  if (isMulti(ap)) return vv?.requester || ap.approver.requester || undefined;
   return ap.principal_id?.startsWith('usr_') ? ap.principal_id : undefined;
 }
 
 /** Whether `me` can decide this open approval now (and so sees its buttons). */
 export function decidable(ap: Approval, me: Who | undefined, vv?: ApprovalVotes | null): boolean {
   if (!isOpen(ap) || !me) return false;
-  const r = (ap as ApprovalV2).approver;
+  const r = ap.approver;
   if (isMulti(ap)) {
     if (vv) return vv.can_vote;
-    if (r.requester === me.id || (ap as ApprovalV2).votes?.some((v) => v.user_id === me.id)) return false;
+    if (r.requester === me.id || ap.votes?.some((v) => v.user_id === me.id)) return false;
     return !!r.users?.includes(me.id) || !!r.roles?.some((ro) => (rank[me.role] ?? 0) >= (rank[ro] ?? 9));
   }
   // Fails closed: an approval that names no approver shows no buttons.
@@ -643,7 +644,7 @@ export interface DecidedOpts {
 
 /** The one-line record of a decided approval (§8.4). */
 export function decidedLine(ap: Approval, o: DecidedOpts): DecidedCopy {
-  const a2 = ap as ApprovalV2;
+  const a2 = ap;
   const copy = cardCopy(ap);
   const at = ap.decided_at && date(ap.decided_at) ? ap.decided_at : undefined;
   const now = o.now ?? Date.now();

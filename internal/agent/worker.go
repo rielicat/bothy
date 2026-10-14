@@ -238,7 +238,7 @@ func (w *worker) retireForShutdown() {
 	w.r.dropForShutdown(jobs)
 }
 
-const droppedAtShutdown = "Bothy restarted before it got to this message. Send 'retry' to continue."
+const droppedAtShutdown = "Bothy restarted before it got to this message. Send “retry” to continue."
 
 // dropForShutdown disposes of jobs no worker will run. A waiting /compact
 // gets an error instead of blocking its caller; queued resumes keep their
@@ -350,7 +350,12 @@ func mergeable(a, b core.RunRequest) bool {
 		a.Instructions == "" && b.Instructions == "" &&
 		len(a.Ephemeral) == 0 && len(b.Ephemeral) == 0 &&
 		a.OnApproval == b.OnApproval && a.MaxOutput == b.MaxOutput &&
-		a.Temperature == nil && b.Temperature == nil && len(a.Stop) == 0 && len(b.Stop) == 0
+		a.Temperature == nil && b.Temperature == nil && len(a.Stop) == 0 && len(b.Stop) == 0 &&
+		sameRefine(a.Refine, b.Refine)
+}
+
+func sameRefine(a, b *bool) bool {
+	return a == nil && b == nil || a != nil && b != nil && *a == *b
 }
 
 // inputsOf flattens the inputs of merged requests in arrival order.

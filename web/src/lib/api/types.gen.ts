@@ -43,6 +43,12 @@ export interface RunRequest {
   MaxOutput: number /* int */; // /v1 max_tokens cap per step; 0 = model default
   Temperature?: number /* float64 */; // /v1 client temperature; nil = model default
   Stop: string[]; // /v1 stop sequences
+  /**
+   * Refine asks for refine mode on this turn's final answer; nil follows
+   * the session's setting, then agent.refine.enabled (message and api
+   * triggers only).
+   */
+  Refine?: boolean;
 }
 export interface SubmitResult {
   run_id?: RunID;
@@ -287,6 +293,10 @@ export const EvRunParked: EventType = "run.parked";
 export const EvRunFinished: EventType = "run.finished";
 export const EvApprovalRequested: EventType = "approval.requested";
 export const EvApprovalResolved: EventType = "approval.resolved";
+export const EvApprovalVoted: EventType = "approval.voted";
+export const EvReleaseDispatched: EventType = "release.dispatched";
+export const EvReleaseFinished: EventType = "release.finished";
+export const EvInboxChanged: EventType = "inbox.changed";
 export const EvMessageCreated: EventType = "message.created";
 export const EvSessionUpdated: EventType = "session.updated";
 export const EvMemoryUpdated: EventType = "memory.updated";
@@ -375,6 +385,43 @@ export interface ApprovalResolvedData {
   choice?: Choice;
   by?: UserID;
   via: string;
+  comment?: string; // the deciding approver's reason
+}
+/**
+ * ReleaseDispatchedData: GitHub accepted a deploy's workflow_dispatch.
+ */
+export interface ReleaseDispatchedData {
+  deploy_id: string;
+  environment: string;
+  repo: string;
+  ref: string;
+  url?: string; // the workflow run's page, when identified
+}
+/**
+ * ReleaseFinishedData: Bothy stopped following a deploy, or GitHub refused
+ * to start it.
+ */
+export interface ReleaseFinishedData {
+  deploy_id: string;
+  environment: string;
+  repo: string;
+  ref: string;
+  status: DeployStatus; // succeeded | failed | unknown
+  ok: boolean;
+  url?: string;
+  duration: number /* nanoseconds */; // the run's own start to finish when known
+  /**
+   * FailedStep names the workflow step a failed run stopped at, as written
+   * in the repository's workflow file (show it verbatim, never as markup).
+   */
+  failed_step?: string;
+}
+/**
+ * InboxChangedData names the approvals-inbox item that appeared, e.g.
+ * "sender:telegram:42" or "group:spc_…" (dto.InboxItem.ID).
+ */
+export interface InboxChangedData {
+  item: string;
 }
 export interface MessageData {
   message?: Message;
@@ -437,6 +484,149 @@ export interface Filter {
 }
 export type Subscription = any;
 export type Bus = any;
+
+//////////
+// source: internal/core/failure.go
+
+/**
+ * FailureCode names why a provider, channel or GitHub check failed, so the
+ * web UI picks its sentence from a code instead of parsing messages (v0.2
+ * UI §5.6.4). The raw message always travels next to it.
+ */
+export type FailureCode = "key_rejected" | "no_model_access" | "out_of_credit" | "rate_limited" | "provider_error" | "timeout" | "unreachable" | "private_address" | "no_models" | "tls" | "not_a_model_server" | "aws_no_credentials" | "aws_denied" | "aws_no_models" | "unknown";
+/**
+ * FailureCoder is an error that knows its FailureCode.
+ */
+export type FailureCoder = any;
+
+//////////
+// source: internal/core/github.go
+
+export const PrefixGitHubConn = "ghc";
+export type GitHubAuth = string;
+export const GitHubPAT: GitHubAuth = "pat";
+export const GitHubApp: GitHubAuth = "app";
+export interface GitHubConnection {
+  id: string; // ghc_<26>
+  auth: GitHubAuth;
+  account: string; // the token's user, or the installation's account
+  account_type: string; // User | Organization
+  app_id?: string;
+  app_slug?: string;
+  installation_id?: number /* int64 */;
+  secret_ref: string; // "secret:<name>" of the PAT or the App private key
+  owns_secret: boolean; // stored by Connect, so Disconnect deletes it
+  status: string; // ok | error
+  error?: string;
+  token_expires_at: string /* RFC 3339 */; // PAT expiry as GitHub reports it; zero = none
+  checked_at: string /* RFC 3339 */;
+  created_by: UserID;
+  created_at: string /* RFC 3339 */;
+  updated_at: string /* RFC 3339 */;
+}
+/**
+ * GitHubRepo is a repository a connection can reach. Only Allowed ones are
+ * offered to the agent. Owner and name are unique case-insensitively across
+ * connections and keep GitHub's spelling. LastIndexedSHA is never stored:
+ * indexes are per principal, so GET /api/github/repos fills in the commit
+ * the caller's own index of the repository last read (IndexedRepo.IndexedSHA).
+ */
+export interface GitHubRepo {
+  connection_id: string;
+  github_id: number /* int64 */;
+  owner: string;
+  name: string;
+  default_branch: string;
+  private: boolean;
+  allowed: boolean;
+  last_indexed_sha?: string; // the caller's own index state
+  created_at: string /* RFC 3339 */;
+  updated_at: string /* RFC 3339 */;
+}
+/**
+ * GitHubStore persists connections and repositories (migration 0002). It is
+ * not part of Store: *store.DB and memstore provide it through GitHub().
+ */
+export type GitHubStore = any;
+/**
+ * GitHubCredentials is a connect or test request. Exactly one of Token,
+ * PrivateKey or SecretRef carries the secret.
+ */
+export interface GitHubCredentials {
+  Auth: GitHubAuth;
+  Token: Secret; // PAT; Connect stores it in the global vault scope
+  PrivateKey: Secret; // App private key (PEM); Connect stores it in the global vault scope
+  SecretRef: string; // an existing "secret:<name>" instead (e.g. BOTHY_SECRET_<NAME>)
+  AppID: string;
+  InstallationID: number /* int64 */; // App: 0 picks the app's only installation
+}
+export interface GitHubInstallation {
+  id: number /* int64 */;
+  account: string;
+  account_type: string;
+  repository_selection: string; // all | selected
+}
+export interface GitHubRepoAccess {
+  github_id: number /* int64 */;
+  owner: string;
+  name: string;
+  private: boolean;
+  archived: boolean;
+  default_branch: string;
+  description?: string; // repository-authored text
+  allowed: boolean;
+  connection_id?: string; // the connection that holds it, if any
+}
+export interface GitHubRateLimit {
+  limit: number /* int */;
+  remaining: number /* int */;
+  reset: string /* RFC 3339 */;
+  resource?: string;
+}
+/**
+ * GitHubProbe is what a credential test found. OK is false with Error set
+ * when GitHub refused the credentials or could not be reached.
+ */
+export interface GitHubProbe {
+  ok: boolean;
+  error?: string;
+  code?: FailureCode; // why it failed, next to Error
+  auth: GitHubAuth;
+  account: string;
+  account_type: string;
+  app_slug?: string;
+  installation_id?: number /* int64 */;
+  installations?: GitHubInstallation[]; // App: set when one must be chosen
+  repos: GitHubRepoAccess[];
+  truncated: boolean; // more repositories than were listed
+  token_expires_at: string /* RFC 3339 */;
+  rate_limit: GitHubRateLimit;
+}
+/**
+ * GitHub manages connections for the HTTP API and contributes the repo_* and
+ * github_* tools. Every method needs an admin caller except Repos.
+ */
+export type GitHub = 
+    ToolProvider;
+/**
+ * EvRepoCheckout is published (Principal = the workspace's principal;
+ * Session and Run name the run that asked, when one did) when repo_checkout
+ * has written a repository into a workspace. The knowledge module indexes it.
+ */
+export const EvRepoCheckout: EventType = "repo.checkout";
+/**
+ * RepoCheckoutData: Dir holds Repo's files at commit SHA. Consumers also
+ * accept an absolute path inside the principal's workspace or the path boxes
+ * see (/workspace/...).
+ */
+export interface RepoCheckoutData {
+  repo: string; // owner/name
+  ref: string;
+  sha: string;
+  workspace_id: WorkspaceID;
+  dir: string; // workspace-relative: repos/<owner>/<name>
+  files: number /* int */;
+}
 
 //////////
 // source: internal/core/ids.go
@@ -544,6 +734,10 @@ export interface Principal {
  * except in exactly two places: approvals whose approver is AdminOnly
  * (ApprovalRepo.Get/Pending/Recent also return those), and egress rows of the
  * system dialer (principal_id ""). It never grants access to message content.
+ * ApprovalRepo.Get/Pending/Recent also return multi-approver approvals that
+ * name User in ApproverReq.Users or name a role the viewer may hold (member
+ * for anyone, owner/admin when Admin is set): the approvers of another
+ * principal's request must see its card to vote on it.
  */
 export interface Viewer {
   user_id: UserID;
@@ -561,6 +755,215 @@ export const TrigAPI: Trigger = "api";
  * original trigger, so floors such as F3 still apply after a resume.
  */
 export const TrigResume: Trigger = "resume";
+
+//////////
+// source: internal/core/knowledge.go
+
+/**
+ * EvKnowledgeUpdated reports an index or notes state change of one repo. The
+ * knowledge module indexes the checkouts EvRepoCheckout announces.
+ */
+export const EvKnowledgeUpdated: EventType = "knowledge.updated";
+export interface KnowledgeUpdatedData {
+  repo: IndexedRepo;
+  deleted?: boolean;
+}
+/**
+ * Sources of an indexed directory.
+ */
+export const KnowledgeGitHub = "github";
+/**
+ * Sources of an indexed directory.
+ */
+export const KnowledgeWorkspace = "workspace";
+/**
+ * IndexedRepo.Status values.
+ */
+export const IndexQueued = "queued";
+/**
+ * IndexedRepo.Status values.
+ */
+export const IndexRunning = "indexing";
+/**
+ * IndexedRepo.Status values.
+ */
+export const IndexReady = "ready";
+/**
+ * IndexedRepo.Status values.
+ */
+export const IndexFailed = "error";
+/**
+ * NotesState.Status values.
+ */
+export const NotesNone = "none";
+/**
+ * NotesState.Status values.
+ */
+export const NotesDrafting = "drafting";
+/**
+ * NotesState.Status values.
+ */
+export const NotesReady = "ready";
+/**
+ * NotesState.Status values.
+ */
+export const NotesFailed = "error";
+/**
+ * IndexedRepo is one indexed directory of a principal's workspace, named like
+ * a repository. Its project notes live outside every repository, in
+ * <data>/knowledge/<principal>/<owner>/<repo>/NOTES.md.
+ */
+export interface IndexedRepo {
+  id: number /* int64 */;
+  principal_id: PrincipalID;
+  repo: string; // "owner/name", lowercase
+  source: string; // github | workspace
+  dir: string; // workspace-relative directory of the indexed copy
+  /**
+   * SHA is the commit of the latest requested index ("" for a plain
+   * directory); chunks carry the commit they were indexed at.
+   */
+  sha: string;
+  status: string; // queued | indexing | ready | error
+  error?: string;
+  files: number /* int */;
+  chunks: number /* int */;
+  bytes: number /* int64 */;
+  skipped: number /* int */; // text files left out by a size or count cap
+  truncated: boolean; // a cap stopped the walk before the end
+  indexed_at: string /* RFC 3339 */;
+  notes: NotesState;
+  created_at: string /* RFC 3339 */;
+  updated_at: string /* RFC 3339 */;
+  /**
+   * IndexedSHA is the commit the latest finished index read ("" until one
+   * finished); UpdateIndex writes it.
+   */
+  indexed_sha: string;
+}
+export interface NotesState {
+  status: string; // none | drafting | ready | error
+  error?: string;
+  /**
+   * Untrusted: part of the notes came from repository content or from an
+   * agent run holding untrusted content, and no user has saved them since.
+   */
+  untrusted: boolean;
+  updated_at: string /* RFC 3339 */;
+}
+/**
+ * KnowledgeChunk is one indexed slice of a file: a markdown section, a
+ * top-level declaration or a window of plain text.
+ */
+export interface KnowledgeChunk {
+  id: number /* int64 */;
+  sha: string;
+  path: string; // slash-separated, relative to IndexedRepo.Dir
+  start_line: number /* int */;
+  end_line: number /* int */;
+  kind: string; // heading | func | method | type | class | header | text | …
+  lang: string;
+  title: string;
+  body: string;
+}
+export interface KnowledgeFile {
+  path: string;
+  hash: string; // chunker version + sha256 of the content
+  size: number /* int64 */;
+  lang: string;
+  chunks: number /* int */;
+}
+/**
+ * KnowledgeFileChange replaces one file's chunks (Chunks may be empty) or,
+ * with Delete, removes the file from the index.
+ */
+export interface KnowledgeFileChange {
+  File: KnowledgeFile;
+  Chunks: KnowledgeChunk[];
+  Delete: boolean;
+}
+export interface KnowledgeQuery {
+  text: string;
+  principal_id?: PrincipalID; // "" = every principal of the Viewer
+  repo_id?: number /* int64 */; // 0 = every repo
+  limit?: number /* int */; // 0 = 8, at most 50
+}
+/**
+ * KnowledgeHit is a ranked search result. KnowledgeRepo.Search returns the
+ * whole chunk in Snippet; core.Knowledge narrows it to the lines around the
+ * match and sets Citation ("owner/repo@sha:path#L10-L42").
+ */
+export interface KnowledgeHit {
+  repo_id: number /* int64 */;
+  repo: string;
+  principal_id: PrincipalID;
+  sha: string;
+  path: string;
+  start_line: number /* int */;
+  end_line: number /* int */;
+  kind: string;
+  lang: string;
+  title: string;
+  snippet: string;
+  citation: string;
+  rank: number /* float64 */; // bm25: lower is better
+}
+/**
+ * KnowledgeTouch records that a session worked on a repo and which notes
+ * version its turn-context already carries.
+ */
+export interface KnowledgeTouch {
+  repo_id: number /* int64 */;
+  touched_at: string /* RFC 3339 */;
+  injected_epoch: number /* int */; // -1 = never injected
+  injected_hash: string;
+}
+export interface KnowledgeNotes {
+  repo_id: number /* int64 */;
+  repo: string;
+  content: string;
+  etag: string; // sha256 of Content; "" when there are no notes yet
+  cap_bytes: number /* int */;
+  status: string;
+  untrusted: boolean;
+  updated_at: string /* RFC 3339 */;
+}
+export interface KnowledgeIndexRequest {
+  dir: string; // workspace-relative directory; "" or "." = the whole workspace
+  repo: string; // "owner/name"; "" = "local/<directory name>"
+  sha: string; // optional commit id shown in citations
+}
+/**
+ * KnowledgeRepo stores the index (SQLite FTS5 in internal/store). Reads take
+ * a Viewer and answer ErrNotFound outside its principals; writes by id are
+ * for the knowledge service, which checks access first.
+ */
+export type KnowledgeRepo = any;
+/**
+ * TurnContextHook adds a block to the <turn-context> of a user turn
+ * (SPEC §5.6). The turn-context is persisted with the turn, so a block stays
+ * byte-identical in later prompts; the runner calls Commit once the turn is
+ * stored, which is when the block counts as delivered.
+ */
+export type TurnContextHook = any;
+export interface TurnContextInput {
+  Principal: Principal;
+  Session: SessionID;
+  Epoch: number /* int */;
+}
+export interface TurnContextBlock {
+  Text: string;
+  Taint: Taint; // legs the block adds to the session
+  Commit: any;
+}
+/**
+ * Knowledge indexes repository checkouts (and any workspace directory) and
+ * keeps per-repo project notes.
+ */
+export type Knowledge = 
+    ToolProvider // knowledge_search, notes
+ &
+    TurnContextHook;
 
 //////////
 // source: internal/core/links.go
@@ -610,7 +1013,26 @@ export interface Part {
    */
   sig?: string;
   sig_kind?: ProviderKind;
+  refine?: RefineTrace; // PartRefine only
+  /**
+   * State and Approval are set on tool_call parts by API reads and never
+   * stored: where the call stands, and the approval it waited on.
+   */
+  state?: ToolState;
+  approval_id?: ApprovalID;
 }
+/**
+ * ToolState is where a transcript tool call stands. A call is done only once
+ * its result exists, so a pending action never reads as finished.
+ */
+export type ToolState = string;
+export const ToolRunning: ToolState = "running";
+export const ToolWaitingApproval: ToolState = "waiting_approval";
+export const ToolDone: ToolState = "done";
+export const ToolFailed: ToolState = "failed";
+export const ToolDenied: ToolState = "denied";
+export const ToolExpired: ToolState = "expired";
+export const ToolBlocked: ToolState = "blocked";
 /**
  * Blob points at a file in the principal's workspace. Data is filled by the
  * agent just before a provider call and is never persisted.
@@ -648,6 +1070,11 @@ export interface Message {
   tokens: number /* int */; // estimate, calibrated
   created_at: string /* RFC 3339 */;
 }
+/**
+ * TitleChars is how much of a chat's first message names the chat until its
+ * generated title arrives.
+ */
+export const TitleChars = 48;
 export interface Pin {
   id: number /* int64 */;
   session_id: SessionID;
@@ -692,10 +1119,31 @@ export interface PolicyInput {
 }
 /**
  * ApproverReq says who may resolve an approval.
+ * A multi-approver approval (Users or Roles set, User empty, AdminOnly false)
+ * is resolved by votes: it is allowed once Needed() distinct eligible users
+ * have voted allow_once, and denied by the first eligible deny. Requester's
+ * allow never counts; the requester may still deny (withdraw). Eligibility is
+ * evaluated when the vote is cast, so a disabled or demoted account loses it.
  */
 export interface ApproverReq {
-  user_id: UserID; // the principal's user; empty when AdminOnly
+  user_id: UserID; // the principal's user; empty when AdminOnly or multi-approver
   admin_only: boolean; // admin-class actions: any owner/admin
+  users?: UserID[]; // multi-approver: users named by id
+  roles?: Role[]; // multi-approver: any user holding at least one of these roles
+  required?: number /* int */; // multi-approver: distinct allow votes needed (0 means 1)
+  requester?: UserID; // multi-approver: whose allow never counts
+}
+/**
+ * ApprovalVote is one approver's vote on a multi-approver approval. A user
+ * votes at most once per approval.
+ */
+export interface ApprovalVote {
+  approval_id: ApprovalID;
+  user_id: UserID;
+  choice: Choice; // allow_once | deny
+  via: string; // web | telegram | discord | slack
+  at: string /* RFC 3339 */;
+  comment?: string; // the voter's reason, e.g. for a deny
 }
 export interface Decision {
   verdict: Verdict;
@@ -734,17 +1182,33 @@ export interface Grant {
   expires_at: string /* RFC 3339 */; // zero = never
 }
 export type Policy = any;
+/**
+ * CardKind tells renderers which layout a card uses (v0.2 S2).
+ */
+export type CardKind = string;
+export const CardAction: CardKind = "action";
+export const CardPullRequest: CardKind = "pull_request";
+export const CardDeploy: CardKind = "deploy";
+export const CardReview: CardKind = "review";
+/**
+ * CardTone colours the primary button: destructive for irreversible and
+ * financial actions, except deploys, whose safeguard is their approvers.
+ */
+export type CardTone = string;
+export const ToneDefault: CardTone = "default";
+export const ToneDestructive: CardTone = "destructive";
 export interface CardField {
-  label: string;
+  label: string; // plain, e.g. "File", "Command", "To"
   value: string; // verbatim; renderers escape and visualize bidi/zero-width chars
   mono: boolean;
 }
 /**
  * Card is rendered by the policy module from the Action only, never from model
- * prose. Channel adapters format it; they never add content.
+ * prose. Channel adapters format it; they never add content. Fields, Warnings
+ * and the plain-copy fields below (v0.2 S2) are the words every surface shows.
  */
 export interface Card {
-  title: string;
+  title: string; // the tool's title, e.g. "Delete file"
   risk: SideEffect;
   fields: CardField[];
   code?: string; // exact argv / JSON args
@@ -754,6 +1218,16 @@ export interface Card {
   choices: Choice[];
   expires: string /* RFC 3339 */;
   web_url: string; // public_url + /approvals/<id>
+  /**
+   * Plain copy, set on every card rendered since v0.2; cards stored before
+   * that lack it, hence omitempty.
+   */
+  question?: string; // "Delete notes/staging.md?"
+  consequence?: string; // "This can't be undone."
+  primary_label?: string; // allow_once's verb ("Delete file"), else "Allow for this chat"
+  ing?: string; // "deleting notes/staging.md", as in "You approved …"
+  kind?: CardKind;
+  tone?: CardTone;
 }
 export type ApprovalStatus = string;
 export const ApprovalPending: ApprovalStatus = "pending";
@@ -782,6 +1256,55 @@ export interface Approval {
   expires_at: string /* RFC 3339 */;
   park_until?: string /* RFC 3339 */;
   decided_at?: string /* RFC 3339 */;
+  /**
+   * DecidedByName is DecidedBy's display name; the HTTP API fills it on reads.
+   */
+  decided_by_name?: string;
+  /**
+   * Votes of a multi-approver approval, oldest first. Approvals.Get, Pending,
+   * Recent and Resolve fill it; repositories leave it empty.
+   */
+  votes?: ApprovalVote[];
+  /**
+   * Comment is the deciding approver's reason (Resolution.Comment).
+   */
+  comment?: string;
+  /**
+   * Approvals (multi-approver only) and Requester carry display names for
+   * cards (v0.2 S4); they are filled like Votes.
+   */
+  approvals?: ApprovalTally;
+  requester?: ApprovalPerson;
+}
+/**
+ * ApprovalPerson names a user on an approval card.
+ */
+export interface ApprovalPerson {
+  user: UserID;
+  name: string; // display name, else username
+}
+/**
+ * ApprovalTally is where a multi-approver approval stands.
+ */
+export interface ApprovalTally {
+  required: number /* int */; // distinct approvals needed, the requester's never counting
+  votes: ApprovalBallot[]; // oldest first
+  /**
+   * Eligible lists the enabled users other than the requester who may
+   * approve, leaving out admins and owners when AnyAdmin already covers them.
+   */
+  eligible: ApprovalPerson[];
+  any_admin: boolean; // every admin may approve through a role
+}
+/**
+ * ApprovalBallot is one vote with the voter's name.
+ */
+export interface ApprovalBallot {
+  user: UserID;
+  name: string;
+  choice: Choice; // allow_once | deny
+  at: string /* RFC 3339 */;
+  comment?: string;
 }
 export interface ApprovalRequest {
   Run: RunID;
@@ -821,6 +1344,7 @@ export const KindOpenAI: ProviderKind = "openai";
 export const KindGemini: ProviderKind = "gemini";
 export const KindOllama: ProviderKind = "ollama";
 export const KindOpenAICompat: ProviderKind = "openai_compat";
+export const KindBedrock: ProviderKind = "bedrock";
 /**
  * ModelRef is "<provider id>/<model>". The model part may itself contain "/".
  */
@@ -868,6 +1392,18 @@ export interface ModelInfo {
   local: boolean;
   price: Price;
   source: string; // catalog | config | discovery
+  /**
+   * Plain names for the UI (v0.2): DisplayName "Claude Sonnet 4.5",
+   * ShortName "Sonnet 4.5" for narrow screens, ProviderName "Anthropic".
+   * Recommended marks the provider's suggested main model and
+   * QuickTasksDefault its suggested quick tasks model, among the models
+   * listed together.
+   */
+  display_name?: string;
+  short_name?: string;
+  provider_name?: string;
+  recommended?: boolean;
+  quick_tasks_default?: boolean;
 }
 export interface ToolDef {
   name: string;
@@ -890,6 +1426,12 @@ export interface Request {
   ToolChoice: string; // "auto" | "none" | "required" (force some tool call)
   Stop: string[];
   NumCtx: number /* int */; // Ollama native only
+  /**
+   * CacheKey is stable for every call of one session and opaque (a hash,
+   * never an id); the OpenAI Responses client sends it as
+   * prompt_cache_key. "" sends none.
+   */
+  CacheKey: string;
 }
 export type StreamEventType = number /* uint8 */;
 export const StreamTextDelta: StreamEventType = 0 + 1;
@@ -927,7 +1469,10 @@ export interface Response {
 }
 /**
  * Provider is one wire protocol plus credentials. It never retries, never reads
- * env vars, and uses only the http.Client given by Egress.SystemClient.
+ * env vars, and uses only the http.Client given by Egress.SystemClient. One
+ * exception: a bedrock provider's AWS default credential chain reads the
+ * AWS_* variables and ~/.aws by design, and fetches instance or container
+ * credentials only through Egress's credentials-only client.
  */
 export type Provider = any;
 export type ErrorKind = string;
@@ -977,7 +1522,7 @@ export interface CallInfo {
   id: string; // llm_<26>
   ref: ModelRef;
   slot: Slot;
-  purpose: string; // agent|compaction|title|heartbeat|probe|passthrough
+  purpose: string; // agent|compaction|title|heartbeat|probe|passthrough|notes
   step: number /* int */;
   attempts: Attempt[];
   usage: Usage;
@@ -1003,6 +1548,8 @@ export interface ProbeConfig {
   model: string;
   allow_private: boolean;
   api?: string; // openai, openai_compat: auto | responses | chat ("" = auto), as providers[].api
+  region?: string; // bedrock: AWS region; "" = the AWS config's default
+  profile?: string; // bedrock: shared-config profile; "" = AWS_PROFILE or default
 }
 export interface ProbeResult {
   ok: boolean;
@@ -1014,6 +1561,24 @@ export interface ProbeResult {
   cost_micros: Micros;
   api?: string; // openai, openai_compat: the API tested, "responses" or "chat"
   detail: string; // plain-language failure or hint (e.g. OLLAMA_CONTEXT_LENGTH)
+  choices?: ModelChoice[]; // Models with display names, for a model picker
+  credentials?: string; // bedrock: where the AWS credentials came from, never their values
+  model?: string; // the model the probe exercised
+  code?: FailureCode; // why the check failed (OK false)
+  error?: string; // the raw, redacted message behind Code
+}
+/**
+ * ModelChoice is one entry of a model picker, with the plain names and
+ * suggestions of ModelInfo.
+ */
+export interface ModelChoice {
+  id: string;
+  display: string;
+  display_name?: string;
+  short_name?: string;
+  provider_name?: string;
+  recommended?: boolean;
+  quick_tasks_default?: boolean;
 }
 export interface Detection {
   kind: ProviderKind;
@@ -1021,6 +1586,12 @@ export interface Detection {
   env_var?: string; // e.g. ANTHROPIC_API_KEY; the value never leaves the process
   models?: string[];
   note?: string;
+  region?: string; // bedrock: the AWS config's region, "" when it names none
+  profile?: string; // bedrock: the AWS_PROFILE in use, "" for the default chain
+  source?: string; // bedrock: where the AWS credentials came from in plain words ("instance role bothy-prod"), never their values
+  choices?: ModelChoice[]; // Models with plain names and suggestions
+  secret_ref?: string; // a provider key already saved in the global vault: "secret:<name>"
+  secret_hint?: string; // its last four characters ("" for short values)
 }
 export interface ProviderHealth {
   id: string;
@@ -1035,6 +1606,188 @@ export interface ProviderHealth {
  * streamed event.
  */
 export type LLM = any;
+
+//////////
+// source: internal/core/refine.go
+
+/**
+ * EvRunRefine reports refinement progress (bus only; sinks never get it).
+ */
+export const EvRunRefine: EventType = "run.refine";
+/**
+ * RefineStatusDetail is the run.status detail (status "thinking") while a
+ * final answer is being refined; sinks see it, since run.refine is bus only.
+ */
+export const RefineStatusDetail = "Refining the answer";
+/**
+ * PartRefine is the trace of the refinement that produced an assistant
+ * message. It is stored with the message and never sent to a model.
+ */
+export const PartRefine: PartType = "refine";
+export type RefineRole = string;
+export const RefineDraft: RefineRole = "draft";
+export const RefineContinue: RefineRole = "continue";
+export const RefineCritique: RefineRole = "critique";
+export const RefineCorrect: RefineRole = "correct";
+/**
+ * A session's own refine setting is the meta value RefineMetaKey(session):
+ * RefineOn or RefineOff. Without one the session follows agent.refine.enabled.
+ */
+export const RefineOn = "on";
+/**
+ * A session's own refine setting is the meta value RefineMetaKey(session):
+ * RefineOn or RefineOff. Without one the session follows agent.refine.enabled.
+ */
+export const RefineOff = "off";
+/**
+ * RefineEntry is one model call of a refinement.
+ */
+export interface RefineEntry {
+  draft: number /* int */; // 0-based; draft 0 is the run's own answer step
+  round: number /* int */; // 0 for drafts, 1..depth for the rounds
+  role: RefineRole;
+  text: string; // redacted; long texts keep their head and tail
+  answer?: string; // normalized final answer (draft, continue, correct)
+  confirmed?: boolean;
+  abridged?: boolean; // the quoted draft was shortened to fit the model's window
+  call_id?: string; // llm_calls id
+  model?: string;
+  cost_micros: Micros;
+  error?: string;
+}
+export interface RefineVote {
+  answer: string; // normalized
+  count: number /* int */;
+  drafts: number /* int */[]; // ascending
+}
+export interface RefineTrace {
+  drafts: number /* int */; // configured breadth N
+  depth: number /* int */; // configured depth D
+  rounds: number /* int */; // rounds completed
+  early_stop: boolean;
+  /**
+   * Fallback says why refinement ended before its last round, showing the
+   * best answer so far: budget | time | new_message | stopped | failed.
+   */
+  fallback?: string;
+  winner: number /* int */; // draft shown as the reply
+  answer?: string; // the winner's normalized final answer
+  votes: RefineVote[]; // most votes first, ties by earliest draft
+  entries?: RefineEntry[];
+  calls: number /* int */; // model calls made for this answer, the first draft included
+  cost_micros: Micros;
+}
+/**
+ * RefineData is the payload of run.refine: phase "start" (Drafts, Depth,
+ * MaxCalls), "entry" (one finished call) and "done" (the trace without its
+ * entries; the persisted message carries all of it).
+ */
+export interface RefineData {
+  phase: string;
+  drafts?: number /* int */;
+  depth?: number /* int */;
+  max_calls?: number /* int */;
+  entry?: RefineEntry;
+  trace?: RefineTrace;
+}
+
+//////////
+// source: internal/core/release.go
+
+/**
+ * PrefixDeploy is the id prefix of deploy records (dep_<26>).
+ */
+export const PrefixDeploy = "dep";
+/**
+ * WorkflowDispatcher starts GitHub Actions workflow runs and reads their
+ * status for release_deploy and release_status. It runs in the gateway with
+ * the GitHub token from the vault; the token never enters a box.
+ */
+export type WorkflowDispatcher = any;
+export interface WorkflowDispatch {
+  Repo: string; // owner/name
+  Workflow: string; // workflow file name (deploy.yml) or numeric id
+  Ref: string; // branch or tag
+  Inputs: { [key: string]: string}; // workflow_dispatch inputs
+}
+/**
+ * WorkflowRun holds only structured fields of a GitHub Actions run: names and
+ * titles are authored by whoever can push to the repository, so they are left
+ * out to keep the result trusted.
+ */
+export interface WorkflowRun {
+  id: number /* int64 */;
+  repo: string;
+  number?: number /* int */;
+  status: string; // queued | in_progress | completed | waiting | requested | pending
+  conclusion?: string; // success | failure | cancelled | timed_out | action_required | neutral | skipped | stale | startup_failure
+  head_sha?: string;
+  url?: string; // web page of the run
+  created_at: string /* RFC 3339 */;
+  updated_at: string /* RFC 3339 */;
+}
+export type DeployStatus = string;
+export const DeployDispatched: DeployStatus = "dispatched";
+export const DeployRunning: DeployStatus = "running";
+export const DeploySucceeded: DeployStatus = "succeeded";
+export const DeployFailed: DeployStatus = "failed";
+export const DeployUnknown: DeployStatus = "unknown";
+/**
+ * Deploy is one approved release_deploy and what became of its workflow run.
+ */
+export interface Deploy {
+  id: string; // dep_<26>
+  environment: string;
+  repo: string;
+  workflow: string;
+  ref: string;
+  principal_id: PrincipalID;
+  session_id: SessionID;
+  run_id?: RunID; // the agent run that dispatched it
+  approval_id?: ApprovalID;
+  requested_by: UserID;
+  approved_by: UserID[];
+  chat?: ChatRef; // originating chat; the outcome is posted there
+  status: DeployStatus;
+  workflow_run_id?: number /* int64 */;
+  run_url?: string;
+  conclusion?: string;
+  error?: string;
+  created_at: string /* RFC 3339 */;
+  updated_at: string /* RFC 3339 */;
+  finished_at: string /* RFC 3339 */;
+  /**
+   * Via is who dispatched the deploy, so the follower reads its run
+   * through the same credentials whatever the allowlists say later. A
+   * deploy recorded before Via was kept has "" and follows today's choice.
+   */
+  via?: string; // DeployViaConnection | DeployViaToken
+}
+/**
+ * Deploy.Via values.
+ */
+export const DeployViaConnection = "connection";
+/**
+ * Deploy.Via values.
+ */
+export const DeployViaToken = "token";
+export interface DeployFilter {
+  Environment: string; // "" = all
+  Open: boolean; // only deploys still followed (dispatched or running)
+  Page: Page; // Before = created_at unix ms
+}
+/**
+ * ReleaseRepo stores deploy records. Get and List return rows of the
+ * Viewer's principals; viewers with Admin also see everyone's (deploys are
+ * operational records, never message content).
+ */
+export type ReleaseRepo = any;
+/**
+ * ReleaseStore is implemented by the stores that keep deploy records (the
+ * SQLite store and memstore). It stays outside Store so other Store
+ * implementations need not change.
+ */
+export type ReleaseStore = any;
 
 //////////
 // source: internal/core/sandbox.go
@@ -1224,6 +1977,11 @@ export interface User {
   disabled: boolean;
   created_at: string /* RFC 3339 */;
   updated_at: string /* RFC 3339 */;
+  /**
+   * MustChangePassword: the account has a one-time password an admin
+   * handed out; its owner must choose their own before anything else.
+   */
+  must_change_password?: boolean;
 }
 export interface Space {
   principal_id: PrincipalID;
@@ -1252,6 +2010,11 @@ export interface ChannelIdentity {
   dm_chat_id?: string;
   first_seen_at: string /* RFC 3339 */;
   last_seen_at: string /* RFC 3339 */;
+  /**
+   * FirstText is the start of a pending sender's first message, shown to
+   * admins in the approvals inbox; it is dropped once the status changes.
+   */
+  first_text?: string;
 }
 export type PairingPurpose = string;
 export const PairLinkIdentity: PairingPurpose = "link_identity";
@@ -1560,6 +2323,7 @@ export interface SessionFilter {
   Principal: PrincipalID; // "" = all principals in the Viewer
   Archived: boolean;
   IncludeHidden: boolean;
+  NonEmpty: boolean; // only sessions holding at least one message
   Query: string; // title substring
   Page: Page; // Before = last_message_at unix ms
 }
@@ -1611,6 +2375,7 @@ export interface Manifest {
   core: boolean; // schema always in the tools block; else via tool_search
   timeout: number /* nanoseconds */;
   max_output_kb: number /* int */;
+  always_ask?: boolean; // every call is a card (policy floor): no preset, rule or grant allows it, no allow_session
 }
 export interface ToolSpec {
   def: ToolDef;
@@ -1632,6 +2397,12 @@ export const ActSchedule: ActionKind = "schedule";
 export const ActSkill: ActionKind = "skill";
 export const ActSearch: ActionKind = "search";
 export const ActGeneric: ActionKind = "generic";
+/**
+ * ActRelease dispatches a deploy workflow (release_deploy). Policy gives
+ * it its own floor: never auto, never via rules or grants, only in
+ * interactive runs, approved by the environment's approvers.
+ */
+export const ActRelease: ActionKind = "release";
 /**
  * Action is the structured, system-normalized form of a tool call. Policy,
  * approval cards, audit and loop detection consume only this, and Exec receives
@@ -1831,6 +2602,120 @@ export interface Dirs {
 }
 
 //////////
+// source: internal/httpapi/dto/activity.go
+
+/**
+ * SessionCreated answers POST /api/sessions: the session, plus the submitted
+ * run when the request carried the first message.
+ */
+export interface SessionCreated extends Session {
+  run?: SubmitResult;
+}
+/**
+ * RunView is a run with the names shown instead of its ids.
+ */
+export interface RunView extends Run {
+  requested_by_name: string; // who asked; "" for schedules and check-ins
+  chat_title: string; // as the chat list shows it
+  schedule_name: string; // "" unless a schedule started it; the heartbeat is "Check-in"
+}
+/**
+ * UsageRowView is a usage bucket with its name: the person (group_by user),
+ * schedule (schedule) or chat (session). Day and model buckets, and keys
+ * that no longer resolve, have none.
+ */
+export interface UsageRowView extends UsageRow {
+  name: string;
+}
+/**
+ * AuditRow is an audit entry as the log lists it.
+ */
+export interface AuditRow extends AuditEntry {
+  actor_name: string; // "Maya Chen", "Bothy" (agent and system)
+  summary: string; // one plain line: "Approved deleting notes/staging.md"
+}
+/**
+ * EgressOutcome is a website access row's decision and connection result in
+ * one word.
+ */
+export type EgressOutcome = string;
+export const EgressReached: EgressOutcome = "reached";
+export const EgressAllowedUnreachable: EgressOutcome = "allowed_unreachable";
+export const EgressBlocked: EgressOutcome = "blocked";
+/**
+ * EgressRow is a website access row with its merged outcome.
+ */
+export interface EgressRow extends EgressRecord {
+  outcome: EgressOutcome;
+}
+/**
+ * RefineEstimate is GET /api/sessions/{id}/refine-estimate: what refining the
+ * next reply of the chat would cost, for the composer's cost line.
+ */
+export interface RefineEstimate {
+  /**
+   * USD is the estimated cost of one refined reply, from the chat's recent
+   * answer steps; absent when the chat has no priced answer yet.
+   */
+  usd?: number /* float64 */;
+  multiplier: number /* float64 */; // a refined reply costs about this many normal ones
+  drafts: number /* int */;
+}
+/**
+ * TextRange marks a match in a snippet: [Start, End) in UTF-16 code units,
+ * the indices of a JavaScript string.
+ */
+export interface TextRange {
+  start: number /* int */;
+  end: number /* int */;
+}
+/**
+ * SearchResp is GET /api/search: plain-text snippets with their matches,
+ * grouped by where they were found.
+ */
+export interface SearchResp {
+  chats: ChatSearchHit[];
+  notes: NoteSearchHit[];
+  code: CodeSearchHit[];
+}
+/**
+ * ChatSearchHit is the best-matching message of one chat.
+ */
+export interface ChatSearchHit {
+  session_id: SessionID;
+  title: string; // as the chat list shows it
+  seq: number /* int64 */;
+  at: string /* RFC 3339 */;
+  snippet: string;
+  ranges: TextRange[];
+  trusted: boolean; // written by the person or Bothy, not by others or tools
+}
+/**
+ * NoteSearchHit is a matching section of a repository's project notes.
+ */
+export interface NoteSearchHit {
+  repo_id: number /* int64 */;
+  repo: string; // owner/name
+  title: string; // the section's heading; "" before the first heading
+  snippet: string;
+  ranges: TextRange[];
+}
+/**
+ * CodeSearchHit is a matching chunk of an indexed repository; Snippet is its
+ * first matching line.
+ */
+export interface CodeSearchHit {
+  repo_id: number /* int64 */;
+  repo: string;
+  path: string;
+  start_line: number /* int */;
+  end_line: number /* int */;
+  citation: string; // owner/repo@sha:path#La-Lb
+  snippet: string;
+  ranges: TextRange[];
+}
+
+//////////
 // source: internal/httpapi/dto/dto.go
 
 /**
@@ -1840,7 +2725,7 @@ export interface Error {
   error: ErrorBody;
 }
 export interface ErrorBody {
-  code: string; // bad_request | unauthorized | forbidden | not_found | conflict | busy | paused | budget_exceeded | rate_limited | sealed | no_sandbox | unavailable | internal
+  code: string; // bad_request | unauthorized | forbidden | password_change_required | not_found | conflict | busy | paused | budget_exceeded | rate_limited | sealed | no_sandbox | unavailable | internal; a failed POST /api/channels/{name}/test (502) carries a core.FailureCode
   message: string;
   fix?: string;
 }
@@ -1854,6 +2739,7 @@ export interface SetupState {
   csrf?: string; // the claimed grant's CSRF token (like dto.Me.CSRF); empty unless Claimed
   owner_set: boolean;
   sandbox_available: boolean;
+  install?: InstallKind; // always set; picks the command that prints a new setup code
 }
 export interface SetupClaimReq {
   token: string;
@@ -1862,6 +2748,7 @@ export interface SetupClaimResp {
   csrf: string;
 }
 export interface SetupOwnerReq {
+  display_name?: string; // "" = the username
   username: string;
   password: string;
   timezone: string;
@@ -1888,7 +2775,7 @@ export interface Access {
   tls: boolean; // native TLS or X-Forwarded-Proto https from a trusted proxy
 }
 export interface PasswordReq {
-  old: string;
+  old: string; // may be "" while the user's must_change_password is set
   new: string;
 }
 export interface TokenCreateResp {
@@ -1897,7 +2784,7 @@ export interface TokenCreateResp {
 }
 export interface UserCreateReq {
   username: string;
-  password: string;
+  password?: string; // "" = generate a one-time password (UserCreateResp)
   display_name: string;
   role: Role;
 }
@@ -1924,24 +2811,37 @@ export interface SpacePatchReq {
 export interface SessionCreateReq {
   principal_id?: PrincipalID; // default: caller's own
   title?: string;
+  /**
+   * Message, when set, is sent as the first message in the same request, so
+   * a chat is stored only together with its first message (202 SessionCreated).
+   */
+  message?: SendReq;
 }
 export interface SessionPatchReq {
   title?: string;
   model_override?: string; // "" clears
+  refine?: string; // "on" | "off"; "" clears (follow agent.refine.enabled)
 }
 export interface SessionDetail {
   session: Session;
   pins: (Pin | undefined)[];
   active?: RunInfo;
   pending_approvals: (Approval | undefined)[];
+  refine: string; // the session's refine setting: "on" | "off" | "" (follows agent.refine.enabled)
 }
 export interface MessagePage {
-  messages: (Message | undefined)[]; // oldest first within the page
+  messages: (Message | undefined)[]; // oldest first within the page; tool_call parts carry state and approval_id
   has_more: boolean;
+  /**
+   * Approvals the page's tool calls asked for, pending or decided, so a
+   * decided card stays in the transcript after a reload.
+   */
+  approvals: (Approval | undefined)[];
 }
 export interface SendReq {
   text: string;
   uploads?: string[]; // upl_<26> ids from POST /api/uploads
+  refine?: boolean; // refine this turn's answer; omitted = the session's setting
 }
 export interface UploadResp {
   id: string;
@@ -1957,10 +2857,29 @@ export interface StopResp {
   stopped: boolean;
 }
 export interface RunDetail {
-  run?: Run;
+  run?: RunView;
   llm_calls: CallInfo[];
   tool_calls: (ToolCallRecord | undefined)[];
   approvals: (Approval | undefined)[];
+  refine?: RefineTrace; // the run's last refined answer; entries name their llm_calls
+}
+/**
+ * RefineInfo is what the composer needs to offer refine mode and say what it
+ * costs: the defaults, and the most model calls one refined answer takes.
+ */
+export interface RefineInfo {
+  enabled: boolean; // agent.refine.enabled: on for messages and sessions that do not say
+  drafts: number /* int */;
+  depth: number /* int */;
+  early_stop: boolean;
+  critic_slot: Slot;
+  max_calls: number /* int */; // drafts × (1 + 3 × depth), the answer step included
+  /**
+   * Multiplier is about how many normal replies a refined one costs, early
+   * stop considered: the refine estimate of a chat with no priced answer
+   * yet, or of a new chat not stored until its first message.
+   */
+  multiplier: number /* float64 */;
 }
 export interface ApprovalResolveReq {
   choice: Choice;
@@ -2025,6 +2944,8 @@ export interface ProviderTestReq {
   model: string;
   allow_private: boolean;
   api?: string; // openai, openai_compat: auto | responses | chat, as providers[].api
+  region?: string; // bedrock: AWS region; "" = the server's AWS config
+  profile?: string; // bedrock: shared-config profile; "" = AWS_PROFILE or the default chain
 }
 export interface ChannelTestResp {
   identity: string;
@@ -2061,7 +2982,7 @@ export interface UnsealReq {
   passphrase: string;
 }
 export interface UsageResp {
-  rows: UsageRow[];
+  rows: UsageRowView[];
   totals: UsageRow;
 }
 export interface UsageToday {
@@ -2083,4 +3004,232 @@ export interface SecurityAuditReq {
 export interface DoctorReport {
   findings: Finding[];
   fixed?: string[];
+}
+
+//////////
+// source: internal/httpapi/dto/github.go
+
+/**
+ * GitHubConnectReq is the body of POST /api/github/connections (connect) and
+ * POST /api/github/connections/test (probe only, nothing stored). Give
+ * exactly one of Token (auth "pat"), PrivateKey (auth "app", the .pem GitHub
+ * generated) or SecretRef (an existing "secret:<name>"). Token and PrivateKey
+ * are write-only: Connect stores them in the global vault scope and no
+ * response ever carries them.
+ */
+export interface GitHubConnectReq {
+  auth: GitHubAuth;
+  token?: string;
+  private_key?: string;
+  secret_ref?: string;
+  app_id?: string;
+  installation_id?: number /* int64 */; // App: 0 = its only installation
+  repos?: string[]; // connect: owner/name to allowlist
+}
+/**
+ * GitHubReposReq replaces a connection's allowlist (PUT
+ * /api/github/connections/{id}/repos); an empty list allows none.
+ */
+export interface GitHubReposReq {
+  repos: string[];
+}
+/**
+ * GitHubConnectionDetail is GET /api/github/connections/{id}: the stored
+ * connection and every repository it holds, allowed or not.
+ */
+export interface GitHubConnectionDetail {
+  connection?: GitHubConnection;
+  repos: (GitHubRepo | undefined)[];
+}
+
+//////////
+// source: internal/httpapi/dto/inbox.go
+
+/**
+ * InboxType is the kind of an approvals-inbox item.
+ */
+export type InboxType = string;
+export const InboxApproval: InboxType = "approval";
+export const InboxNoteSuggestion: InboxType = "note_suggestion";
+export const InboxMCPReview: InboxType = "mcp_review";
+export const InboxSkillReview: InboxType = "skill_review";
+export const InboxUnknownSender: InboxType = "unknown_sender";
+export const InboxGroupChat: InboxType = "group_chat";
+/**
+ * Inbox is GET /api/inbox: what is waiting for a decision, the caller's
+ * items first ("For you"), then those waiting for others, oldest first.
+ * Each item is decided through the endpoint its type already has:
+ * POST /api/approvals/{id}; POST /api/mcp/{server}/approve; PATCH
+ * /api/skills/{name}; PATCH /api/identities/{channel}/{external}
+ * (guest, linked or blocked); PATCH /api/spaces/{id} (enabled true turns a
+ * group chat on, any other change records it as seen).
+ */
+export interface Inbox {
+  items: InboxItem[];
+}
+export interface InboxItem {
+  /**
+   * ID is the approval id, or "mcp:<server>", "skill:<name>",
+   * "sender:<channel>:<external_id>", "group:<space principal id>".
+   */
+  id: string;
+  type: InboxType;
+  /**
+   * Question is the item's title in plain copy, e.g. "Review changes to
+   * Linear tools"; Summary the facts beside it ("2 tools changed",
+   * "Jordan K (@jordan_k)", "Added by Sam Patel").
+   */
+  question: string;
+  summary?: string;
+  for_you: boolean; // the caller can decide it now
+  created_at: string /* RFC 3339 */;
+  approval?: Approval;
+  mcp?: InboxMCP;
+  skill?: SkillMeta;
+  sender?: ChannelIdentity; // first_text holds the start of their message
+  group?: InboxGroup;
+}
+export interface InboxMCP {
+  server: string;
+  tools: (MCPPin | undefined)[]; // each changed tool's pending definition and, when it had one, its approved one
+}
+export interface InboxGroup {
+  space: Space;
+  added_by: string; // display name of whoever added Bothy (else the owner)
+}
+
+//////////
+// source: internal/httpapi/dto/knowledge.go
+
+/**
+ * KnowledgeIndexReq queues the index of a workspace directory
+ * (POST /api/knowledge/repos; 202 with the core.IndexedRepo).
+ */
+export interface KnowledgeIndexReq {
+  principal_id?: PrincipalID; // default: the caller's own principal
+  dir: string; // workspace-relative; "" = the whole workspace
+  repo?: string; // "owner/name"; default "local/<directory name>"
+  sha?: string; // optional commit id for citations
+}
+export interface KnowledgeSearchResp {
+  items: KnowledgeHit[];
+}
+/**
+ * KnowledgeNotesPutReq replaces a repo's notes; If-Match carries the etag
+ * from GET (`""` while there are no notes yet). Empty content removes them.
+ */
+export interface KnowledgeNotesPutReq {
+  content: string;
+}
+
+//////////
+// source: internal/httpapi/dto/releases.go
+
+/**
+ * ApprovalVotes is GET /api/approvals/{id}/votes: the vote state of a
+ * multi-approver approval as the caller sees it ("1 of 2 approvals").
+ */
+export interface ApprovalVotes {
+  approval_id: ApprovalID;
+  status: ApprovalStatus;
+  required: number /* int */; // distinct approvals needed
+  approvals: number /* int */; // allow votes so far
+  votes: ApprovalVoteView[]; // oldest first
+  approvers: string; // who may approve, e.g. "Alice, Bob or any admin"
+  requester: UserID;
+  requester_name: string;
+  /**
+   * CanVote: the caller may still allow or deny (eligible approver, not the
+   * requester, not voted yet, approval open). CanWithdraw: the caller asked
+   * and may still deny.
+   */
+  can_vote: boolean;
+  can_withdraw: boolean;
+  your_vote?: Choice;
+}
+export interface ApprovalVoteView {
+  user_id: UserID;
+  name: string;
+  choice: Choice; // allow_once | deny
+  via: string; // web | telegram | discord | slack
+  at: string /* RFC 3339 */;
+  comment?: string;
+}
+/**
+ * Releases is GET /api/releases: the configured environments and the newest
+ * deploys the caller may see (their own; everyone's for admins).
+ */
+export interface Releases {
+  environments: ReleaseEnvironment[];
+  deploys: (Deploy | undefined)[];
+}
+export interface ReleaseEnvironment {
+  name: string;
+  repo: string;
+  workflow: string;
+  ref_pattern: string;
+  inputs: { [key: string]: string};
+  required: number /* int */; // approvers besides the requester
+  approvers: ReleaseApprover[];
+}
+export interface ReleaseApprover {
+  kind: string; // user | role
+  id: string; // user id or role name
+  name: string; // display name, or the role
+}
+
+//////////
+// source: internal/httpapi/dto/setup.go
+
+/**
+ * InstallKind is how this server runs (SetupState.Install): compose, docker,
+ * binary, or unknown where none of their commands applies (Kubernetes, ECS).
+ */
+export type InstallKind = "compose" | "docker" | "binary" | "unknown";
+/**
+ * UserCreateResp is POST /api/users: the new account and, when the request
+ * left the password empty, the one-time password to hand to its owner
+ * (shown once; they choose their own at the first sign-in).
+ */
+export interface UserCreateResp extends User {
+  one_time_password?: string;
+}
+/**
+ * PasswordResetResp is POST /api/users/{id}/password: the account's new
+ * one-time password, shown once.
+ */
+export interface PasswordResetResp {
+  one_time_password: string;
+}
+/**
+ * ProviderConnectReq is POST /api/providers/connect: one call that saves the
+ * key, writes providers[id] and sets the model slots in one config change.
+ * Give at most one of APIKey (pasted; saved in the global vault as
+ * "<id>_api_key"), SecretRef (a saved key, "secret:<name>", from a detection)
+ * or EnvVar (a detected well-known key variable, copied into the vault).
+ * Bedrock takes none of them.
+ */
+export interface ProviderConnectReq {
+  id?: string; // providers[].id; "" = from kind and address (anthropic, openrouter, ollama, lmstudio, custom, …)
+  kind: ProviderKind;
+  base_url?: string;
+  api_key?: string; // write-only
+  secret_ref?: string;
+  env_var?: string;
+  allow_private: boolean; // a detected local server, or an address the person allowed
+  api?: string; // openai, openai_compat: auto | responses | chat
+  region?: string; // bedrock
+  profile?: string; // bedrock
+  model?: string; // main model id; "" leaves both slots as they are
+  quick_model?: string; // quick tasks model id; "" = Model
+}
+/**
+ * ProviderConnectResp says what POST /api/providers/connect wrote.
+ */
+export interface ProviderConnectResp {
+  provider: string; // the providers[].id written
+  main?: string; // "<provider>/<model>", now first in models.main
+  fast?: string; // now first in models.fast
+  secret?: SecretMeta;
+  restart_required: string[];
 }

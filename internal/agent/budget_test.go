@@ -81,11 +81,11 @@ func TestBudgetPathsEndWithTheRightStatus(t *testing.T) {
 					t.Fatalf("run = %s %q", run.Status, run.Error)
 				}
 				notes := h.notices()
-				if len(notes) != 1 || !strings.Contains(notes[0], "Settings → Budgets") {
+				if len(notes) != 1 || !strings.HasPrefix(notes[0], "Bothy ") || strings.Contains(notes[0], "token") {
 					t.Fatalf("notices = %v", notes)
 				}
-				if tc.kind == core.BudgetSteps && !strings.Contains(notes[0], "Continue") {
-					t.Fatalf("steps notice lacks Continue: %q", notes[0])
+				if tc.kind == core.BudgetSteps && !strings.Contains(notes[0], "to check in") {
+					t.Fatalf("steps notice does not offer to keep going: %q", notes[0])
 				}
 				if !slicesContains(h.audit.Actions(), "budget.exceeded") {
 					t.Fatal("budget.exceeded not audited")
@@ -226,7 +226,7 @@ func TestDailyCapRefusesRunWithoutRow(t *testing.T) {
 		if len(h.runs()) != 0 {
 			t.Fatal("a run row was created")
 		}
-		if n := h.notices(); len(n) != 1 || !strings.Contains(n[0], "New runs start again at 00:00") {
+		if n := h.notices(); len(n) != 1 || !strings.Contains(n[0], "It can start again at midnight (UTC).") {
 			t.Fatalf("notices = %v", n)
 		}
 	})
@@ -258,7 +258,7 @@ func TestLoopWarnThenAbort(t *testing.T) {
 		if warned != 2 || n != 4 {
 			t.Fatalf("warned %d times, executed %d times", warned, n)
 		}
-		if !strings.Contains(strings.Join(h.notices(), "\n"), "loop detected") {
+		if !slicesContains(h.notices(), loopNotice) {
 			t.Fatalf("notices = %v", h.notices())
 		}
 	})

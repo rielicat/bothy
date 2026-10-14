@@ -153,6 +153,11 @@ func UserPrincipal(u UserID) PrincipalID { return PrincipalID(u) }
 // except in exactly two places: approvals whose approver is AdminOnly
 // (ApprovalRepo.Get/Pending/Recent also return those), and egress rows of the
 // system dialer (principal_id ""). It never grants access to message content.
+//
+// ApprovalRepo.Get/Pending/Recent also return multi-approver approvals that
+// name User in ApproverReq.Users or name a role the viewer may hold (member
+// for anyone, owner/admin when Admin is set): the approvers of another
+// principal's request must see its card to vote on it.
 type Viewer struct {
 	User       UserID        `json:"user_id"`
 	Principals []PrincipalID `json:"principals"`

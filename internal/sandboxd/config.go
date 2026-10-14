@@ -26,7 +26,10 @@ type Config struct {
 	MaxExec       time.Duration     // BOTHY_SBX_MAX_EXEC, cap on ExecReq.TimeoutMS
 	Socket        string            // BOTHY_SBX_SOCKET, /run/bothy/sandboxd.sock
 	RunDir        string            // BOTHY_SBX_RUN_DIR, where the run volume is mounted here
+	WorkDir       string            // BOTHY_SBX_WORK_DIR, where the work volume is mounted here (bind-mount mode only)
 	SelfTestEvery time.Duration     // BOTHY_SBX_SELFTEST_EVERY
+
+	apiLimit string // see testAPILimit
 }
 
 var (
@@ -58,6 +61,8 @@ func ParseConfig(environ []string) (Config, error) {
 		Socket:     get("BOTHY_SBX_SOCKET", "/run/bothy/sandboxd.sock"),
 	}
 	c.RunDir = get("BOTHY_SBX_RUN_DIR", filepath.Dir(c.Socket))
+	c.WorkDir = get("BOTHY_SBX_WORK_DIR", "/work")
+	c.apiLimit = testAPILimit(env)
 	var err error
 	if c.MaxBoxes, err = intEnv(get("BOTHY_SBX_MAX_BOXES", "8"), 1, 256); err != nil {
 		return c, fmt.Errorf("BOTHY_SBX_MAX_BOXES: %w", err)
@@ -88,8 +93,8 @@ func ParseConfig(environ []string) (Config, error) {
 			return c, fmt.Errorf("%s: %q is not a volume name", v.key, v.val)
 		}
 	}
-	if !filepath.IsAbs(c.Socket) || !filepath.IsAbs(c.RunDir) {
-		return c, fmt.Errorf("BOTHY_SBX_SOCKET and BOTHY_SBX_RUN_DIR must be absolute paths")
+	if !filepath.IsAbs(c.Socket) || !filepath.IsAbs(c.RunDir) || !filepath.IsAbs(c.WorkDir) {
+		return c, fmt.Errorf("BOTHY_SBX_SOCKET, BOTHY_SBX_RUN_DIR and BOTHY_SBX_WORK_DIR must be absolute paths")
 	}
 	if c.Images, err = parseImages(env["BOTHY_SBX_IMAGES"]); err != nil {
 		return c, fmt.Errorf("BOTHY_SBX_IMAGES: %w", err)

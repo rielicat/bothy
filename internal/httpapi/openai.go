@@ -586,6 +586,10 @@ func (s *Server) agentCompletion(w http.ResponseWriter, r *http.Request, a core.
 			return invalidParam("messages", "unknown role %q", m.Role)
 		}
 	}
+	refine, err := refineHeader(r.Header.Get("X-Bothy-Refine"))
+	if err != nil {
+		return err
+	}
 	ctx := r.Context()
 	sess, mapped, err := s.apiSession(ctx, a, core.SessionID(r.Header.Get("X-Bothy-Session")))
 	if err != nil {
@@ -629,7 +633,8 @@ func (s *Server) agentCompletion(w http.ResponseWriter, r *http.Request, a core.
 	rr := core.RunRequest{Session: sess.ID, Principal: sess.Principal, User: a.User, Trigger: core.TrigAPI, Slot: slot, Input: input,
 		Provenance: core.ProvUser, Sender: "api:" + a.TokenID, Chat: &core.ChatRef{Channel: "api", ChatID: string(sess.ID), Kind: core.ChatAPI},
 		Sink: q, Instructions: strings.Join(instructions, "\n\n"), OnApproval: a.OnApproval,
-		ApprovalWait: s.cfg().Policy.Approval.APIWait.D(), MaxOutput: maxOut, Temperature: req.Temperature, Stop: stop}
+		ApprovalWait: s.cfg().Policy.Approval.APIWait.D(), MaxOutput: maxOut, Temperature: req.Temperature, Stop: stop,
+		Refine: refine}
 	if !mapped {
 		rr.Ephemeral = history
 	}
@@ -754,6 +759,7 @@ type agentRun struct {
 	toolSince bool // a tool ran since the last text: the next text starts a new paragraph
 	stop      core.StopReason
 	waiting   bool
+	refining  bool
 }
 
 func finishReason(status core.RunStatus, stop core.StopReason) string {
@@ -786,10 +792,21 @@ func (ar *agentRun) serve() error {
 			}
 			return nil
 		case <-wait.C:
-			if ar.waiting && cs != nil {
-				if err := cs.comment("waiting-approval"); err != nil {
-					return nil
-				}
+			if cs == nil {
+				continue
+			}
+			// Refinement holds the reply back until it ends, which can take
+			// minutes; without a byte now and then, proxies and clients
+			// drop the idle stream, and the hang-up would stop the run.
+			var err error
+			switch {
+			case ar.waiting:
+				err = cs.comment("waiting-approval")
+			case ar.refining:
+				err = cs.comment("refining")
+			}
+			if err != nil {
+				return nil
 			}
 		case <-ar.q.notify:
 			for _, e := range ar.q.drain() {
@@ -832,6 +849,7 @@ func (ar *agentRun) handle(cs *chunkStream, e core.Event) (*core.RunFinishedData
 		}
 	case core.RunStatusData:
 		ar.waiting = d.Status == "waiting_approval"
+		ar.refining = d.Detail == core.RefineStatusDetail
 		if ar.waiting && cs != nil {
 			return nil, cs.comment("waiting-approval")
 		}

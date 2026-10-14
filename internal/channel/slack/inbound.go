@@ -26,6 +26,7 @@ const (
 var commands = map[string]bool{
 	"stop": true, "stopall": true, "resume": true, "new": true, "status": true, "pin": true, "pins": true,
 	"unpin": true, "compact": true, "model": true, "usage": true, "help": true, "pair": true, "start": true,
+	"refine": true,
 }
 
 // eventJob turns an Events API callback into a job, or nil for events the

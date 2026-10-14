@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -101,9 +102,13 @@ func (c *Client) Stream(ctx context.Context, r *core.Request, on func(core.Strea
 	return nil, c.noTools(first, `retrying with reasoning_effort "none" failed too: `+second.Msg)
 }
 
+// noTools is the error of a model that cannot call tools over Chat
+// Completions at all; ErrModelUnsupported lets the facade try the next
+// model of the chain.
 func (c *Client) noTools(first *core.ProviderError, why string) error {
 	return &core.ProviderError{Provider: c.o.ID, Kind: core.ErrKindInvalidRequest, Status: first.Status,
-		Msg: first.Msg + " Tools cannot be used over Chat Completions for this model: " + why, Err: first}
+		Msg: first.Msg + " Tools cannot be used over Chat Completions for this model: " + why,
+		Err: fmt.Errorf("%w: %w", core.ErrModelUnsupported, first)}
 }
 
 func (c *Client) stream(ctx context.Context, r *core.Request, effortNone bool, on func(core.StreamEvent) error) (*core.Response, error) {

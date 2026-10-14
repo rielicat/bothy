@@ -21,8 +21,9 @@ const (
 // Complete streams one model turn with fallback (SPEC §5.14): per candidate,
 // before the first streamed event, one retry of a retryable error after
 // backoff (or Retry-After up to 20s), then the next candidate; auth errors
-// move on; context_length, invalid_request and content_filter return. After
-// the first event nothing is retried or switched.
+// and errors carrying core.ErrModelUnsupported move on; context_length,
+// other invalid_request and content_filter return. After the first event
+// nothing is retried or switched.
 func (f *Facade) Complete(ctx context.Context, slot core.Slot, override *core.ModelRef, build core.BuildFunc, on func(core.StreamEvent) error) (*core.Response, core.CallInfo, error) {
 	ci := core.CallInfo{ID: core.NewID(core.PrefixLLMCall), Slot: slot}
 	chain := f.Chain(slot, override)
@@ -107,6 +108,13 @@ func (f *Facade) run(ctx context.Context, chain []core.ModelInfo, build core.Bui
 			if pe.Kind == core.ErrKindAuth {
 				f.log.Warn("provider rejected credentials", "provider", e.id, "status", pe.Status)
 				f.authFailed(e, err)
+				last = err
+				break
+			}
+			// A capability of the model, not the provider's health: no
+			// breaker count, and the next model may serve the same request.
+			if errors.Is(err, core.ErrModelUnsupported) {
+				f.log.Info("model cannot serve the request, trying next candidate", "provider", e.id, "model", m.Ref.Model)
 				last = err
 				break
 			}

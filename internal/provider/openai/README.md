@@ -14,12 +14,18 @@ models the catalog knows do not reason), the system blocks as `instructions`,
 tools with `strict: false` (the API would otherwise coerce schemas to strict
 mode), user parts as `input_text`/`input_image` (data URL, `detail: auto`),
 tool results as `function_call_output`, and call ids longer than the API's 64
-characters hashed alike on the call and its output. `temperature` goes out
-only when the request sets one; `stop`, `reasoning` and `prompt_cache_key`
-never do: the API has no stop sequences, so `Request.Stop` is ignored, the
-model's default effort applies, and `core.Request` carries no per-session
-key. Every history item renders from
-its own message only, so the prefix stays byte-identical across turns. The
+characters hashed alike on the call and its output. `prompt_cache_key` is
+`Request.CacheKey` (the agent's per-session hash), left out when empty.
+`temperature` goes out only when the request sets one and the model is not
+known to reason: the catalog marks reasoning models, which refuse sampling
+parameters at their default effort, and a model that refuses a temperature
+anyway (`unsupported_parameter` / `unsupported_value` naming it, before any
+event) is sent once more without it and never sent one again (remembered per
+model, at most 64). `top_p` is never sent (`core.Request` has none). `stop`
+and `reasoning` never go out: the API has no stop sequences, so
+`Request.Stop` is ignored, and the model's default effort applies. Every
+history item renders from its own message only, so the prefix stays
+byte-identical across turns. The
 reader keys every delta by output index, treats `output_item.done` (or,
 when a stream never sends it, the terminal response's `output`) as
 authoritative, and maps items to parts in output order: a reasoning item
@@ -39,7 +45,8 @@ e.g. after the key moved to another organization), the request is sent once
 more without the reasoning of earlier messages, which is not replayed again
 until a restart; a model that refuses encrypted content ("not supported with
 this model", one the catalog did not know does not reason) is sent once more
-without the `include` and never asked for it again. Usage comes from the terminal event:
+without the `include` and never asked for it again. Each kind of downgrade
+happens at most once per call. Usage comes from the terminal event:
 `input_tokens` minus cached and cache-write tokens is `Input`,
 `output_tokens` (reasoning included) is `Output`. `response.incomplete` is
 `max_tokens` (`content_filter`: refusal) with cut-off calls dropped;
@@ -57,7 +64,8 @@ more with `reasoning_effort: "none"`; an `EffortMemory` shared by the
 facade's clients remembers per provider and model that tools need reasoning
 off (later calls send it at once) or, when "none" is refused too (GPT-6
 Astra), that tools do not work over Chat Completions at all (later calls
-fail without asking again). The reader
+fail without asking again). That failure wraps `core.ErrModelUnsupported`,
+so the facade moves on to the next model of the chain. The reader
 assembles tool-call deltas by index (synthesizing `call_<n>` ids, telling
 apart calls that all claim index 0 by id, accepting whole arguments in one
 delta or as a JSON object; on `finish_reason: "length"` a call with cut-off

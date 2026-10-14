@@ -33,7 +33,7 @@ Rules:
 - Keep names, numbers, paths and decisions exact. Do not invent anything.
 - Reply with the summary only.`
 
-const droppedNotice = "Older context was dropped because summarizing failed."
+const droppedNotice = "Older messages were set aside because Bothy couldn't summarise them."
 
 type standingLine struct {
 	text string
@@ -132,11 +132,7 @@ func (r *Runner) compact(ctx context.Context, rs *runState, force, manual bool) 
 		rs.notice(ctx, droppedNotice)
 	}
 	if len(pinned) > 0 {
-		quoted := make([]string, len(pinned))
-		for i, p := range pinned {
-			quoted[i] = "'" + truncateRunes(p, 200) + "'"
-		}
-		rs.notice(ctx, "I'll keep following: "+strings.Join(quoted, ", ")+". /pins to manage.")
+		rs.notice(ctx, autoPinNotice(pinned))
 	}
 	return err
 }

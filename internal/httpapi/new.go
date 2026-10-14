@@ -33,12 +33,14 @@ type Deps struct {
 	Memory    core.Memory
 	Skills    core.Skills
 	MCP       core.MCP
+	GitHub    core.GitHub // nil: the /api/github routes answer 503
 	Scheduler core.Scheduler
 	Hub       core.ChannelHub
 	Sandbox   core.Sandbox
 	Egress    core.Egress
 	Doctor    *doctor.Runner
 	Audit     core.Auditor
+	Deploys   core.ReleaseRepo // GET /api/releases; nil lists no deploys
 	WebUI     http.Handler
 	Version   string
 	DataDir   string // persona file (agent.persona_file), backups
@@ -46,6 +48,7 @@ type Deps struct {
 	Restart   func() // POST /api/admin/restart: asks cmd/bothy to drain and re-exec
 	Clock     core.Clock
 	Log       *slog.Logger
+	Knowledge core.Knowledge // /api/knowledge/*; nil answers 503
 }
 
 type Server struct {
@@ -109,7 +112,10 @@ func New(d Deps) (*Server, error) {
 		v1Wait:     v1LargeWait,
 		shutdown:   make(chan struct{}),
 	}
-	s.routes = s.routeTable()
+	s.routes = append(s.routeTable(), s.githubRoutes()...)
+	s.routes = append(s.routes, s.knowledgeRoutes()...)
+	s.routes = append(s.routes, s.inboxRoutes()...)
+	s.routes = append(s.routes, s.onboardingRoutes()...)
 	s.handler = s.build()
 	return s, nil
 }

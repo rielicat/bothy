@@ -11,4 +11,7 @@ or `ext` transports). `Dockerfile.dockerignore` limits the build context to the
 few paths the stages read. Releases build the same targets through goreleaser
 with `SBXINIT=release`, which copies the signed release `sbx-init` binary
 instead of compiling it. `test/acceptance.sh` runs the Docker (and, with
-`MODE=bwrap`, bubblewrap) acceptance suites in throwaway containers.
+`MODE=bwrap`, bubblewrap) acceptance suites in throwaway containers;
+`API_LIMIT=1.44` runs the Docker suite in the Docker 25 bind-mount mode on a
+newer engine, and `PREFIX` renames every container, volume and image it
+creates.

@@ -40,7 +40,7 @@ policy:
 `
 
 // dockerShellApproval is E2: a rule makes shell ask, the card arrives over
-// SSE with the exact command, nothing runs before approval, and after it the
+// SSE with the exact command (its Command field), nothing runs before approval, and after it the
 // command runs in a real box whose output reaches the model.
 func dockerShellApproval(t *testing.T, s *dockerSuite) {
 	const cmd = "touch e2-ran; uname -s; id"
@@ -56,7 +56,7 @@ func dockerShellApproval(t *testing.T, s *dockerSuite) {
 
 	a := tr.awaitApproval(t, sess, 60*time.Second)
 	if a.Action == nil || a.Action.Tool != "shell" || !slices.Equal(a.Action.Argv, []string{"bash", "-lc", cmd}) ||
-		a.Decision.Rule != "rule:ask-shell" || !strings.Contains(a.Card.Code, cmd) || !slices.Contains(a.Decision.Choices, core.AllowOnce) {
+		a.Decision.Rule != "rule:ask-shell" || chField(a.Card, "Command").Value != cmd || !slices.Contains(a.Decision.Choices, core.AllowOnce) {
 		t.Fatalf("approval = %+v\ncard %+v", a, a.Card)
 	}
 	if _, ok := workspaceFile(t, st.Gateway, "e2-ran"); ok {

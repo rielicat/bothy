@@ -24,7 +24,7 @@
   import Self from './ApprovalCard.svelte';
   import DecidedLine from './DecidedLine.svelte';
   import { people } from './people.svelte';
-  import type { ApprovalV2, Viewer } from './types';
+  import type { Viewer } from './types';
   import { votes } from './votes.svelte';
   import Words from './Words.svelte';
 
@@ -74,7 +74,7 @@
   let swallowRepeat = false;
 
   // An event can bring a newer copy than this card's own result, but a stale prop never undoes a decision.
-  const view = $derived((resolved && resolved.id === approval.id && isOpen(approval) ? resolved : approval) as ApprovalV2);
+  const view = $derived((resolved && resolved.id === approval.id && isOpen(approval) ? resolved : approval));
   const copy = $derived(cardCopy(view));
   const open = $derived(isOpen(view));
   const multi = $derived(isMulti(view));

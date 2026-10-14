@@ -337,7 +337,7 @@ func (s *Server) scheduleRuns(w http.ResponseWriter, r *http.Request, a core.Act
 	if err != nil {
 		return err
 	}
-	return ok(w, listOf(derefs(runs), p, func(r core.Run) int64 { return ms(r.CreatedAt) }))
+	return ok(w, listOf(s.namer(ctx, a.Viewer).runViews(runs), p, func(r dto.RunView) int64 { return ms(r.CreatedAt) }))
 }
 
 func (s *Server) previewSchedule(w http.ResponseWriter, r *http.Request, _ core.Actor) error {
@@ -426,18 +426,11 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request, _ core.Act
 	if err := decode(r, &req); err != nil {
 		return err
 	}
-	switch req.Kind {
-	case core.KindAnthropic, core.KindOpenAI, core.KindGemini, core.KindOllama, core.KindOpenAICompat:
-	default:
-		return badRequest("unknown provider kind %q", req.Kind)
+	if err := checkProbeInput(req.Kind, req.API, req.Region, req.Profile, req.APIKey != "" || req.SecretRef != ""); err != nil {
+		return err
 	}
 	if req.SecretRef != "" && !strings.HasPrefix(req.SecretRef, "secret:") {
 		return badRequest("secret_ref must be secret:<name>")
-	}
-	switch req.API {
-	case "", "auto", "responses", "chat":
-	default:
-		return badRequest("api must be auto, responses or chat")
 	}
 	if req.APIKey != "" && s.d.Vault != nil {
 		// The key is write-only: keep it out of logs and probe errors.
@@ -446,11 +439,11 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request, _ core.Act
 		defer s.d.Vault.Redactor().Remove(id)
 	}
 	res, err := s.d.LLM.Probe(r.Context(), core.ProbeConfig{Kind: req.Kind, BaseURL: req.BaseURL, APIKey: core.NewSecret([]byte(req.APIKey)),
-		SecretRef: req.SecretRef, Model: req.Model, AllowPrivate: req.AllowPrivate, API: req.API})
+		SecretRef: req.SecretRef, Model: req.Model, AllowPrivate: req.AllowPrivate, API: req.API, Region: req.Region, Profile: req.Profile})
 	if err != nil {
 		return err
 	}
-	res.Detail = s.redact(res.Detail)
+	res.Detail, res.Error = s.redact(res.Detail), s.redact(res.Error)
 	return ok(w, res)
 }
 
@@ -467,9 +460,13 @@ func (s *Server) channels(w http.ResponseWriter, _ *http.Request, _ core.Actor) 
 }
 
 func (s *Server) testChannel(w http.ResponseWriter, r *http.Request, _ core.Actor) error {
-	id, err := s.d.Hub.Test(r.Context(), r.PathValue("name"))
+	name := r.PathValue("name")
+	if !slices.ContainsFunc(s.d.Hub.Status(), func(st core.ChannelStatus) bool { return st.Name == name }) {
+		return errNotFound
+	}
+	id, err := s.d.Hub.Test(r.Context(), name)
 	if err != nil {
-		return err
+		return s.channelTestError(err)
 	}
 	return ok(w, dto.ChannelTestResp{Identity: id})
 }
@@ -694,7 +691,10 @@ func (s *Server) usage(w http.ResponseWriter, r *http.Request, a core.Actor) err
 		tot.Calls += row.Calls
 		tot.PriceKnown = tot.PriceKnown && row.PriceKnown
 	}
-	return ok(w, dto.UsageResp{Rows: nonNil(rows), Totals: tot})
+	// Admins read everyone's spending, but a chat's title and a schedule's
+	// name stay private to their owner (SPEC §5.9), so rows are named through
+	// the caller's own view.
+	return ok(w, dto.UsageResp{Rows: s.namer(r.Context(), a.Viewer).usageRows(uq.GroupBy, rows), Totals: tot})
 }
 
 func (s *Server) usageToday(w http.ResponseWriter, r *http.Request, a core.Actor) error {
@@ -714,7 +714,7 @@ func (s *Server) usageToday(w http.ResponseWriter, r *http.Request, a core.Actor
 	return ok(w, out)
 }
 
-func (s *Server) auditLog(w http.ResponseWriter, r *http.Request, _ core.Actor) error {
+func (s *Server) auditLog(w http.ResponseWriter, r *http.Request, a core.Actor) error {
 	p, err := page(r)
 	if err != nil {
 		return err
@@ -732,7 +732,11 @@ func (s *Server) auditLog(w http.ResponseWriter, r *http.Request, _ core.Actor) 
 	if err != nil {
 		return err
 	}
-	return ok(w, listOf(es, p, func(e *core.AuditEntry) int64 { return e.ID }))
+	av, err := s.adminViewer(r.Context(), a)
+	if err != nil {
+		return err
+	}
+	return ok(w, listOf(s.auditRows(r.Context(), a.Viewer, av, es), p, func(e dto.AuditRow) int64 { return e.ID }))
 }
 
 func (s *Server) auditVerify(w http.ResponseWriter, r *http.Request, _ core.Actor) error {
@@ -752,7 +756,7 @@ func (s *Server) egressLog(w http.ResponseWriter, r *http.Request, a core.Actor)
 	if err != nil {
 		return err
 	}
-	return ok(w, listOf(rs, p, func(e *core.EgressRecord) int64 { return e.ID }))
+	return ok(w, listOf(egressRows(rs), p, func(e dto.EgressRow) int64 { return e.ID }))
 }
 
 func (s *Server) sandboxInfo(w http.ResponseWriter, r *http.Request, a core.Actor) error {

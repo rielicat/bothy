@@ -28,6 +28,9 @@ type daemon struct {
 	health         proto.Health
 	runtime        string // engine runtime name passed to boxes
 	seccompBuiltin bool
+	binds          *bindRoots // bind-mount mode; nil with volume subpaths
+
+	mounted func(dir string) bool // isMountPoint, replaced in tests
 
 	mu      sync.Mutex
 	boxes   map[string]*box
@@ -48,7 +51,7 @@ type box struct {
 
 func newDaemon(cfg Config, eng Engine, log *slog.Logger, now func() time.Time) *daemon {
 	return &daemon{
-		cfg: cfg, eng: eng, log: log, now: now, stdioGrace: 5 * time.Second,
+		cfg: cfg, eng: eng, log: log, now: now, stdioGrace: 5 * time.Second, mounted: isMountPoint,
 		health: proto.Health{Version: proto.Version, MaxBoxes: cfg.MaxBoxes, SelfTest: []proto.Check{},
 			Reason: "the sandbox self-test has not finished yet"},
 		boxes:   map[string]*box{},
@@ -188,16 +191,23 @@ func (d *daemon) lruIdleLocked() *box {
 
 func (d *daemon) start(ctx context.Context, req proto.CreateReq) (proto.CreateResp, error) {
 	d.hmu.RLock()
-	rt, label, builtin := d.runtime, d.health.Runtime, d.seccompBuiltin
+	rt, label, builtin, binds := d.runtime, d.health.Runtime, d.seccompBuiltin, d.binds
 	d.hmu.RUnlock()
-	cfg := boxSpec(specInput{
+	in := specInput{
 		Key: req.Key, Profile: req.Profile, Workspace: req.Workspace, MCPTree: req.MCPTree, MCPTreeRW: req.MCPTreeRW,
 		Limits: req.Limits, Image: d.cfg.Images[req.Profile], Runtime: rt,
-		WorkVolume: d.cfg.WorkVolume, RunVolume: d.cfg.RunVolume, SeccompBuiltin: builtin,
-	})
-	id, err := d.createAndStart(ctx, d.containerName(req.Key), cfg)
+		WorkVolume: d.cfg.WorkVolume, RunVolume: d.cfg.RunVolume, SeccompBuiltin: builtin, Binds: binds,
+	}
+	id, err := d.createAndStart(ctx, d.containerName(req.Key), boxSpec(in))
 	if err != nil {
 		return proto.CreateResp{}, errEngine(err)
+	}
+	if binds != nil {
+		if err := d.verifyBinds(ctx, id, in); err != nil {
+			_ = d.eng.ContainerRemove(context.WithoutCancel(ctx), id)
+			d.log.Error("bind mount check failed: box removed", "key", req.Key, "err", err)
+			return proto.CreateResp{}, errEngine(fmt.Errorf("bind mount check failed: %w", err))
+		}
 	}
 	now := d.now()
 	d.mu.Lock()

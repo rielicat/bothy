@@ -133,7 +133,7 @@ func (s *Service) startSession(ctx context.Context, u *core.User, ip string) (st
 	if err != nil {
 		return "", core.Actor{}, err
 	}
-	return cookie, core.Actor{User: u.ID, Role: u.Role, Via: "cookie", CSRF: csrf, Viewer: v, OnApproval: "deny"}, nil
+	return cookie, core.Actor{User: u.ID, Role: u.Role, Via: "cookie", CSRF: csrf, Viewer: v, OnApproval: "deny", MustChangePassword: u.MustChangePassword}, nil
 }
 
 // FromCookie resolves a session cookie, enforcing idle and absolute expiry.
@@ -184,7 +184,7 @@ func (s *Service) FromCookie(ctx context.Context, cookie string) (core.Actor, er
 	if err != nil {
 		return core.Actor{}, err
 	}
-	return core.Actor{User: u.ID, Role: u.Role, Via: "cookie", CSRF: sess.CSRF, Viewer: v, OnApproval: "deny"}, nil
+	return core.Actor{User: u.ID, Role: u.Role, Via: "cookie", CSRF: sess.CSRF, Viewer: v, OnApproval: "deny", MustChangePassword: u.MustChangePassword}, nil
 }
 
 func (s *Service) Logout(ctx context.Context, cookie string) error {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/provider/bedrock"
 	"github.com/rielicat/bothy/internal/provider/ollama"
 )
 
@@ -29,6 +30,7 @@ var defaultContext = map[core.ProviderKind]int{
 	core.KindGemini:       1_000_000,
 	core.KindOpenAICompat: 32_768,
 	core.KindOllama:       8_192,
+	core.KindBedrock:      128_000, // the catalog covers Claude and Nova; other Bedrock vendors start here
 }
 
 type discovery struct {
@@ -149,6 +151,11 @@ func (f *Facade) resolve(e *entry, model string) core.ModelInfo {
 		if ci.MaxOutput == 0 {
 			ci.MaxOutput = info.MaxOutput
 		}
+		// The listing's name says which geography a Bedrock profile routes
+		// in ("Claude Sonnet 4.6 (US)"); the catalog knows only the model.
+		if e.kind == core.KindBedrock && info.Source == "discovery" && info.Display != "" {
+			ci.Display = info.Display
+		}
 		info = ci
 	}
 	if pm := configured(e.cfg, model); pm.ID != "" {
@@ -184,8 +191,19 @@ func (f *Facade) resolve(e *entry, model string) core.ModelInfo {
 		}
 	case core.KindOllama:
 		info.Cache = core.CacheNone
+	case core.KindBedrock:
+		// Cache points are sent only where Bedrock accepts them.
+		info.Cache = core.CacheNone
+		if bedrock.SupportsCache(model) {
+			info.Cache = core.CacheExplicit
+		}
+		if info.Source == "config" && !info.Vision {
+			info.Vision = bedrock.SupportsVision(model)
+		}
 	}
-	info.Local = e.kind == core.KindOllama || e.cfg.AllowPrivate
+	// A bedrock VPC endpoint resolves to private addresses (allow_private)
+	// but still bills like the public one.
+	info.Local = e.kind == core.KindOllama || e.cfg.AllowPrivate && e.kind != core.KindBedrock
 	if info.Local && !info.Price.Known {
 		info.Price = core.Price{Known: true}
 	}
@@ -198,7 +216,12 @@ func (f *Facade) resolve(e *entry, model string) core.ModelInfo {
 			}
 		}
 	}
+	f.name(e.endpoint(), &info)
 	return info
+}
+
+func (e *entry) endpoint() endpoint {
+	return endpoint{kind: e.kind, base: e.base, region: e.cfg.Region}
 }
 
 // overrideTiers converts a pricing override's tiers (keys validated by
@@ -290,13 +313,17 @@ func (f *Facade) Models(ctx context.Context) []core.ModelInfo {
 		}
 	}
 	wg.Wait()
-	byRef := map[string]core.ModelInfo{}
+	var out []core.ModelInfo
+	seen := map[string]bool{}
 	for _, e := range es {
 		var names []string
 		for _, m := range e.cfg.Models {
 			names = append(names, m.ID)
 		}
-		if cp := f.cat.Find(e.kind, e.base); cp != nil {
+		// Bedrock's catalog is keyed by base model id, which most current
+		// models cannot be invoked by (only through a us./eu./global.
+		// profile); discovery lists what the account can call.
+		if cp := f.cat.Find(e.kind, e.base); cp != nil && e.kind != core.KindBedrock {
 			for _, m := range cp.Models {
 				names = append(names, m.ID)
 			}
@@ -308,16 +335,18 @@ func (f *Facade) Models(ctx context.Context) []core.ModelInfo {
 			}
 		}
 		f.mu.Unlock()
+		var group []core.ModelInfo
 		for _, n := range names {
 			ref := core.ModelRef{Provider: e.id, Model: n}
-			if _, ok := byRef[ref.String()]; !ok {
-				byRef[ref.String()] = f.resolve(e, n)
+			if !seen[ref.String()] {
+				seen[ref.String()] = true
+				group = append(group, f.resolve(e, n))
 			}
 		}
-	}
-	out := make([]core.ModelInfo, 0, len(byRef))
-	for _, m := range byRef {
-		out = append(out, m)
+		// Suggestions are made among one provider's models, in a stable order.
+		slices.SortFunc(group, func(a, b core.ModelInfo) int { return cmp.Compare(a.Ref.Model, b.Ref.Model) })
+		f.annotate(e.endpoint(), group)
+		out = append(out, group...)
 	}
 	slices.SortFunc(out, func(a, b core.ModelInfo) int { return cmp.Compare(a.Ref.String(), b.Ref.String()) })
 	return out

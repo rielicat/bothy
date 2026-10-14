@@ -35,5 +35,28 @@ go run ./catalog-gen -source "catwalk v0.52.69 (dea274af)" \
 
 The committed catalog was generated from catwalk v0.52.69 (commit
 `dea274af`), files `anthropic`, `openai`, `gemini`, `xai`, `deepseek`, `groq`
-and `openrouter`, with the tiers of `tiers.json` as read on 2026-10-13.
+and `openrouter`, with the tiers of `tiers.json` as read on 2026-10-13 and
+the Bedrock overlay of `bedrock.json` as read on 2026-10-14.
 `testdata/` holds two of those files verbatim.
+
+## Amazon Bedrock
+
+catwalk's Bedrock files carry Anthropic's prices on `us.` ids, but AWS bills
+geographic profiles (and in-region use) 10% above global ones for Claude
+Sonnet 4.5 and later, and they lack Nova. `bedrock.json` (embedded, hand
+maintained) is the source instead: one entry per base model id with the
+global `price` and, where higher, the `geo_price`, both in USD per 1M tokens
+from the AWS Price List API (`AmazonBedrockFoundationModels` for Anthropic,
+`AmazonBedrock` for Nova; us-east-1 and us-west-2 agree), plus optional
+`tiers`. A Claude entry names the Anthropic model it `like`s, whose window,
+output limit and capabilities it copies from the generated catalog (so the
+anthropic file must be among the inputs); other entries state them with a
+`note` on their source. Re-read the price list offers (`curl
+https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/<offer>/current/region_index.json`)
+when updating; `TestCommittedCatalogMatchesBedrockOverlay` fails when
+`catalog.json` and `bedrock.json` disagree.
+
+Not in the overlay: models this account's listings did not offer or that
+are retiring (Claude 3.x, Claude Mythos 5.1, Nova 2 Pro and Omni, which were
+priced but not listed in us-west-2), and every non-Anthropic, non-Amazon
+vendor; Bothy still runs them with unknown prices (`pricing` sets one).

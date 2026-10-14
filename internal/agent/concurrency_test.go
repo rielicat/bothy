@@ -41,7 +41,7 @@ func TestStopWhileStreaming(t *testing.T) {
 		if run.Status != core.RunStopped || run.StoppedBy != h.user.ID {
 			t.Fatalf("run = %s by %q", run.Status, run.StoppedBy)
 		}
-		if !slicesContains(h.notices(), "Stopped. 1 step, $0.0000") {
+		if !slicesContains(h.notices(), stopNotice) {
 			t.Fatalf("notices = %v", h.notices())
 		}
 		ev, err := h.sink.Wait(h.ctx, core.EvRunFinished)
@@ -565,7 +565,7 @@ func TestShutdownCancelsTheApprovalOfAnInterruptedRun(t *testing.T) {
 		if st := h.appr.All()[0].Status; st != core.ApprovalCancelled {
 			t.Fatalf("approval after shutdown = %s", st)
 		}
-		if !slicesContains(h.notices(), "I was restarted mid-task. Send 'retry' to continue.") {
+		if !slicesContains(h.notices(), interruptedNotice) {
 			t.Fatalf("notices = %v", h.notices())
 		}
 	})
@@ -610,7 +610,7 @@ func TestShutdownTellsChatsAndKeepsQueuedMessages(t *testing.T) {
 			t.Fatalf("first run = %s", st)
 		}
 		sent := h.hub.Messages()
-		for _, want := range []string{"I was restarted mid-task. Send 'retry' to continue.", droppedAtShutdown} {
+		for _, want := range []string{interruptedNotice, droppedAtShutdown} {
 			if !slicesContains(sent, chat.Key()+"|"+want) {
 				t.Errorf("chat never heard %q: %v", want, sent)
 			}
@@ -622,7 +622,7 @@ func TestShutdownTellsChatsAndKeepsQueuedMessages(t *testing.T) {
 		if !kept {
 			t.Error("the queued message is gone from the history")
 		}
-		if n := h.notices(); !slicesContains(n, droppedAtShutdown) || strings.Count(strings.Join(n, "\n"), "restarted mid-task") != 1 {
+		if n := h.notices(); !slicesContains(n, droppedAtShutdown) || strings.Count(strings.Join(n, "\n"), interruptedNotice) != 1 {
 			t.Errorf("notices = %q", n)
 		}
 		if d, ok := sinkFinished(queuedSink); !ok || d.Status != core.RunInterrupted {

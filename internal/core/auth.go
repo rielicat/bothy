@@ -17,6 +17,9 @@ type Actor struct {
 	// OnApproval and RatePerMin come from the token (cookie actors: "deny", 0).
 	OnApproval string `json:"-"`
 	RatePerMin int    `json:"-"`
+	// MustChangePassword (cookie actors): until the one-time password is
+	// replaced, only signing out and choosing a new password are allowed.
+	MustChangePassword bool `json:"-"`
 }
 
 func (a Actor) HasScope(s string) bool {

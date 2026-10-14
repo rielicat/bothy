@@ -1,7 +1,7 @@
 // Approvals (C4): waiting and decided requests, multi-approver votes, the
 // other inbox items (S12) and the deploys approvals start (S17).
-import type { Action, Approval, Card, Choice, SideEffect } from '../../src/lib/api/types.gen.ts';
-import type { ApprovalV2, ApprovalVotes, Deploy, InboxItem } from '../../src/components/approval/types.ts';
+import type { Action, Approval, ApprovalVotes, Card, Choice, SideEffect } from '../../src/lib/api/types.gen.ts';
+import type { Deploy, InboxItem } from '../../src/components/approval/types.ts';
 import { body, clone, core, emit, fail, ids, json, member, nowISO, on, onReset, owner, scenario, sleep, viewer, type Req } from './core.ts';
 
 const none = scenario('approvals-empty', 'Nothing waits for approval and nothing was decided.', 'approvals');
@@ -39,11 +39,11 @@ interface Spec {
   created: number;
   expires?: number;
   status?: string;
-  extra?: Partial<ApprovalV2>;
+  extra?: Partial<Approval>;
 }
 
 // The v0.1 card the gateway renders today; the UI builds its words from the Action (lib/cardcopy.ts).
-function make(s: Spec): ApprovalV2 {
+function make(s: Spec): Approval {
   const choices = s.choices ?? choicesFor(s.act.side_effect, s.act.tool);
   const card: Card = {
     title: s.title,
@@ -116,7 +116,7 @@ const deployAction = (repo: string, env = 'production', ref = 'main') =>
   action('release_deploy', 'release', 'irreversible', { environment: env, repo, workflow: 'deploy.yml', ref, inputs: {} }, { recipient: `github:${repo}` });
 
 // Deploys wait for two approvals; whoever asked never counts.
-function deploy(id: string, repo: string, opts: { requester: string; created: number; votes?: { user: string; choice: Choice; at: number; comment?: string }[]; status?: string; context?: string }): ApprovalV2 {
+function deploy(id: string, repo: string, opts: { requester: string; created: number; votes?: { user: string; choice: Choice; at: number; comment?: string }[]; status?: string; context?: string }): Approval {
   return make({
     id,
     title: 'Deploy a release',
@@ -135,7 +135,7 @@ function deploy(id: string, repo: string, opts: { requester: string; created: nu
 }
 
 // The trip chat's request stays first: chat tests take it as fixtures.approvals[0].
-function waitingList(): ApprovalV2[] {
+function waitingList(): Approval[] {
   return [
     make({
       id: 'apr_01jshell00000000000000000',
@@ -190,7 +190,7 @@ function waitingList(): ApprovalV2[] {
 }
 
 // One waiting card per row of docs/design/ui.md §8.2, for review shots.
-function everyKind(): ApprovalV2[] {
+function everyKind(): Approval[] {
   const k = (id: string, title: string, act: Action, extra: Partial<Spec> = {}) => make({ id: `apr_01jrow${id}`.padEnd(30, '0'), title, act, created: 5, expires: 50, session: 'ses_01jrows000000000000000000', ...extra });
   return [
     k('create', 'Write file', action('fs_write', 'fs.write', 'local_write', { path: 'notes/launch-checklist.md', content: '# v2.3 launch\n- Freeze main on Monday\n- Tag the release\n- Post in #eng', mode: 'create' }, { paths: ['notes/launch-checklist.md'], diff: '--- /dev/null\n+++ b/notes/launch-checklist.md\n@@ -0,0 +1,4 @@\n+# v2.3 launch\n+- Freeze main on Monday\n+- Tag the release\n+- Post in #eng\n' })),
@@ -234,9 +234,9 @@ function items(): InboxItem[] {
   ];
 }
 
-const decided = (a: ApprovalV2, status: string, choice: Choice | undefined, by: string, via: string, at: number, extra: Partial<ApprovalV2> = {}): ApprovalV2 => ({ ...a, status, choice, decided_by: by, decided_via: via, decided_at: ago(at), created_at: ago(at + 1), ...extra });
+const decided = (a: Approval, status: string, choice: Choice | undefined, by: string, via: string, at: number, extra: Partial<Approval> = {}): Approval => ({ ...a, status, choice, decided_by: by, decided_via: via, decided_at: ago(at), created_at: ago(at + 1), ...extra });
 
-function recentList(): ApprovalV2[] {
+function recentList(): Approval[] {
   const fsDel = (id: string, path: string) => make({ id, title: 'Delete file', act: action('fs_delete', 'fs.delete', 'irreversible', { path }, { paths: [path] }), created: 0 });
   const write = make({ id: 'apr_01jdonewrite0000000000000', title: 'Write file', act: action('fs_write', 'fs.write', 'local_write', { path: 'notes/q3-pricing.md', content: '…', mode: 'overwrite' }, { paths: ['notes/q3-pricing.md'] }), created: 0 });
   const msg = make({ id: 'apr_01jdonemsg000000000000000', title: 'Send a message', act: action('message', 'send', 'external_send', { text: 'Stand-up starts in five minutes.' }, { recipient: 'slack:C01ENG' }), created: 0, context: 'Slack · group · session “Stand-up”' });
@@ -283,7 +283,7 @@ function deployList(): Deploy[] {
 export const approvals: Approval[] = waitingList();
 export const recentApprovals: Approval[] = recentList();
 
-export const state = { approvals: [] as ApprovalV2[], recent: [] as ApprovalV2[], items: [] as InboxItem[], deploys: [] as Deploy[] };
+export const state = { approvals: [] as Approval[], recent: [] as Approval[], items: [] as InboxItem[], deploys: [] as Deploy[] };
 onReset(() => {
   t0 = Date.now();
   Object.assign(state, { approvals: [...waitingList(), ...everyKind()], recent: recentList(), items: items(), deploys: deployList() });
@@ -291,7 +291,7 @@ onReset(() => {
 
 // Scenarios ride along on every request (?mock= sets a cookie), so the every-kind cards are stored
 // always and listed only when asked for.
-const everyKindCard = (a: ApprovalV2) => a.id.startsWith('apr_01jrow');
+const everyKindCard = (a: Approval) => a.id.startsWith('apr_01jrow');
 
 /** Runs waiting on a decision, by approval id; chat.ts parks its scripted run here. */
 export const waiting = new Map<string, (choice: string) => void>();
@@ -299,7 +299,7 @@ export const waiting = new Map<string, (choice: string) => void>();
 const rank: Record<string, number> = { member: 1, admin: 2, owner: 3 };
 
 /** The deploy fixture as one viewer state or another. */
-function asSeen(a: ApprovalV2, req?: Req): ApprovalV2 {
+function asSeen(a: Approval, req?: Req): Approval {
   if (a.id !== 'apr_01jdeployweb0000000000000' || a.status !== 'pending') return a;
   const me = viewer(req).id;
   const out = clone(a);
@@ -309,11 +309,11 @@ function asSeen(a: ApprovalV2, req?: Req): ApprovalV2 {
   return out;
 }
 
-export function list(req: Req): ApprovalV2[] {
+export function list(req: Req): Approval[] {
   return state.approvals.filter((a) => all(req) || !everyKindCard(a)).map((a) => asSeen(a, req));
 }
 
-function votesOf(a: ApprovalV2, req: Req): ApprovalVotes {
+function votesOf(a: Approval, req: Req): ApprovalVotes {
   const me = viewer(req);
   const r = a.approver;
   const vs = (a.votes ?? []).map((v) => ({ user_id: v.user_id, name: names[v.user_id] ?? 'Someone', choice: v.choice, via: v.via, at: v.at, comment: v.comment }));
@@ -338,7 +338,7 @@ function votesOf(a: ApprovalV2, req: Req): ApprovalVotes {
   };
 }
 
-const multi = (a: ApprovalV2) => !a.approver.user_id && !a.approver.admin_only && !!(a.approver.users?.length || a.approver.roles?.length);
+const multi = (a: Approval) => !a.approver.user_id && !a.approver.admin_only && !!(a.approver.users?.length || a.approver.roles?.length);
 
 on('GET', '/api/approvals', (req, res, _m, q) => {
   if (listDown(req)) return fail(res, 503, 'unavailable', 'mock: approvals-down');

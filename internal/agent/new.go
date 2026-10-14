@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -38,6 +39,9 @@ type Deps struct {
 	WorkDir   string // workspaces
 	Clock     core.Clock
 	Log       *slog.Logger
+	// TurnContext hooks add blocks (knowledge notes) to each user turn's
+	// <turn-context>, after the pins and in this order.
+	TurnContext []core.TurnContextHook
 }
 
 // Meta keys owned by the runner.
@@ -96,9 +100,18 @@ type Runner struct {
 	bgCtx   context.Context
 	bgStop  context.CancelFunc // cancels bg work when shutdown stops waiting
 
+	// drafts (under mu) holds the titles still made of a chat's first words,
+	// so a task that ends before the generated title (parked, failed, over
+	// budget) leaves the naming to the next one. Lost on restart: the draft
+	// then stays.
+	drafts map[core.SessionID]string
+
 	// beforeIdle runs on a worker between finishing a job and clearing its
 	// state; tests use it to widen that window.
 	beforeIdle func()
+	// refineParallel bounds a refinement's calls in flight (0 = the refine
+	// package default); tests set 1 to make the call order deterministic.
+	refineParallel int
 }
 
 type prefixMark struct {
@@ -130,6 +143,7 @@ func New(d Deps) (*Runner, error) {
 		users:   map[core.UserID]*semaphore{},
 		prefix:  map[core.SessionID]prefixMark{},
 		wsMarks: map[core.WorkspaceID]bool{},
+		drafts:  map[core.SessionID]string{},
 	}
 	r.bgCtx, r.bgStop = context.WithCancel(context.Background())
 	r.global = newSemaphore(func() int { return r.cfg().Agent.MaxConcurrentRuns })
@@ -244,7 +258,7 @@ func (r *Runner) ensurePersona() error {
 	defer root.Close()
 	f, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if errors.Is(err, fs.ErrExist) {
-		return nil
+		return upgradeDefaultPersona(root, name)
 	}
 	if err != nil {
 		return fmt.Errorf("agent: create %s: %w", name, err)
@@ -254,6 +268,46 @@ func (r *Runner) ensurePersona() error {
 		return fmt.Errorf("agent: write %s: %w", name, err)
 	}
 	return f.Close()
+}
+
+// v01DefaultSoul is the sha256 of v0.1's default SOUL.md, which spoke of a
+// personal assistant on its owner's machine.
+const v01DefaultSoul = "277f93ff394f29f1ca41d8649193afffdaff627358d6ab4a4729829fa7ac8b50"
+
+// isV01Default reports whether the persona file is v0.1's default, byte for
+// byte; an unreadable one is left to persona() to report.
+func isV01Default(root *os.Root, name string) bool {
+	b, err := root.ReadFile(name)
+	sum := sha256.Sum256(b)
+	return err == nil && hex.EncodeToString(sum[:]) == v01DefaultSoul
+}
+
+// upgradeDefaultPersona replaces a persona file nobody edited since v0.1
+// wrote it with the current default; an edited one is left alone.
+func upgradeDefaultPersona(root *os.Root, name string) error {
+	if !isV01Default(root, name) {
+		return nil
+	}
+	tmp := "." + name + ".upgrade.tmp"
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("agent: upgrade %s: %w", name, err)
+	}
+	_, err = f.WriteString(defaultSoul)
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = root.Rename(tmp, name)
+	}
+	if err != nil {
+		_ = root.Remove(tmp)
+		return fmt.Errorf("agent: upgrade %s: %w", name, err)
+	}
+	return nil
 }
 
 const personaMax = 16 << 10
@@ -378,14 +432,13 @@ func (r *Runner) recover(ctx context.Context) error {
 		if err := r.d.Approvals.CancelRun(ctx, run.ID); err != nil {
 			r.log.Warn("cancel approvals of interrupted run", "run", run.ID, "err", err)
 		}
-		const text = "I was restarted mid-task. Send 'retry' to continue."
-		r.notice(ctx, run.Session, run.Principal, run.ID, text, nil)
+		r.notice(ctx, run.Session, run.Principal, run.ID, interruptedNotice, nil)
 		sess, err := r.d.Store.Sessions().Get(ctx, core.SystemViewer(), run.Session)
 		if err != nil || sess.Chat == nil {
 			continue
 		}
 		if h := r.hubOrNil(); h != nil {
-			if _, err := h.Send(ctx, *sess.Chat, text); err != nil {
+			if _, err := h.Send(ctx, *sess.Chat, interruptedNotice); err != nil {
 				r.log.Warn("restart notice", "session", run.Session, "err", err)
 			}
 		}

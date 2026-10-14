@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -130,6 +131,88 @@ func TestResponsesModelWithoutEncryptedContent(t *testing.T) {
 		if b, raw := decodeBody(t, reqs[i].Body); len(b.Include) != want {
 			t.Fatalf("request %d: %s", i, raw)
 		}
+	}
+}
+
+const tempRefused = `{"error":{"message":"Unsupported parameter: 'temperature' is not supported with this model.","type":"invalid_request_error","param":"temperature","code":"unsupported_parameter"}}`
+
+// A reasoning model the catalog does not know refuses the temperature a /v1
+// client set: the request goes once more without it, and later requests for
+// that model leave it out at once while other models keep theirs.
+func TestResponsesTemperatureRefused(t *testing.T) {
+	ok := wiretest.SSE(wiretest.File(t, "testdata/spec_stream.sse"))
+	srv := wiretest.NewServer(t, wiretest.JSON(http.StatusBadRequest, []byte(tempRefused)), ok)
+	c := NewResponses(wiretest.Options(srv, "openai"), nil)
+	temp := 0.2
+	for _, model := range []string{"ft:o9-mini:acme::x1", "ft:o9-mini:acme::x1", "gpt-4.1"} {
+		if _, err := c.Stream(context.Background(), &core.Request{Model: model, Temperature: &temp, Messages: []core.Message{userText("hi")}}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reqs := srv.Requests()
+	if len(reqs) != 4 {
+		t.Fatalf("requests %d", len(reqs))
+	}
+	for i, want := range []bool{true, false, false, true} {
+		if got := strings.Contains(string(reqs[i].Body), `"temperature":0.2`); got != want {
+			t.Fatalf("request %d temperature %v: %s", i, got, reqs[i].Body)
+		}
+	}
+
+	// Without a temperature to drop, the same refusal is final.
+	srv = wiretest.NewServer(t, wiretest.JSON(http.StatusBadRequest, []byte(tempRefused)), ok)
+	if _, err := NewResponses(wiretest.Options(srv, "openai"), nil).Stream(context.Background(), &core.Request{Model: "m", Messages: []core.Message{userText("hi")}}, nil); err == nil || len(srv.Requests()) != 1 {
+		t.Fatalf("%v, %d requests", err, len(srv.Requests()))
+	}
+}
+
+// A model can refuse the temperature and then the encrypted reasoning; each
+// downgrade happens once, and the call still succeeds.
+func TestResponsesStackedDowngrades(t *testing.T) {
+	refused := []byte(`{"error":{"message":"Encrypted content is not supported with this model.","type":"invalid_request_error","param":"include","code":null}}`)
+	ok := wiretest.SSE(wiretest.File(t, "testdata/spec_stream.sse"))
+	srv := wiretest.NewServer(t, wiretest.JSON(http.StatusBadRequest, []byte(tempRefused)), wiretest.JSON(http.StatusBadRequest, refused), ok)
+	temp := 1.0
+	if _, err := NewResponses(wiretest.Options(srv, "openai"), nil).Stream(context.Background(), &core.Request{Model: "m", Temperature: &temp, Messages: []core.Message{userText("hi")}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	reqs := srv.Requests()
+	if len(reqs) != 3 {
+		t.Fatalf("requests %d", len(reqs))
+	}
+	last, raw := decodeBody(t, reqs[2].Body)
+	if len(last.Include) != 0 || strings.Contains(raw, "temperature") {
+		t.Fatalf("last request %s", raw)
+	}
+}
+
+func TestTemperatureRefusalMatching(t *testing.T) {
+	for msg, want := range map[string]bool{
+		"Unsupported parameter: 'temperature' is not supported with this model.":                                          true,
+		"Unsupported value: 'temperature' does not support 0.2 with this model. Only the default (1) value is supported.": true,
+		"Invalid type for 'temperature': expected a decimal, but got a string instead.":                                   false,
+		"Unsupported parameter: 'max_tokens' is not supported with this model.":                                           false,
+	} {
+		err := &core.ProviderError{Kind: core.ErrKindInvalidRequest, Msg: msg}
+		if got := temperatureRefusal(err); got != want {
+			t.Errorf("%q: %v", msg, got)
+		}
+	}
+	if temperatureRefusal(&core.ProviderError{Kind: core.ErrKindServer, Msg: "temperature not supported"}) {
+		t.Error("a server error matched")
+	}
+}
+
+func TestResponsesTemperatureMemoryBounded(t *testing.T) {
+	c := NewResponses(respOpts("openai"), nil)
+	for i := range maxPlainModels + 5 {
+		c.markNoTemp(fmt.Sprintf("m%d", i))
+	}
+	c.mu.Lock()
+	n := len(c.noTemp)
+	c.mu.Unlock()
+	if n > maxPlainModels || n == 0 {
+		t.Fatalf("remembered %d models", n)
 	}
 }
 

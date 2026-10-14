@@ -14,14 +14,19 @@ import (
 )
 
 // backupFiles are the top-level files of the data directory a backup carries
-// next to the database snapshot and memory/**. The KEK and workspaces are
+// next to the database snapshot and backupTrees. The KEK and workspaces are
 // deliberately absent.
 var backupFiles = []string{"SOUL.md", "bothy.yaml", "bothy.ui.yaml"}
 
+// backupTrees are data-directory trees copied whole: memory files and the
+// knowledge module's project notes.
+var backupTrees = []string{"memory", "knowledge"}
+
 // Backup writes <dir>/bothy-<UTC yyyymmddThhmmss>.tar (0600) holding a VACUUM
-// INTO snapshot of the database plus memory/**, SOUL.md, bothy.yaml and
-// bothy.ui.yaml from the database's directory. Data-directory files are read
-// through os.Root and symlinks are skipped, so nothing outside it is copied.
+// INTO snapshot of the database plus memory/**, knowledge/**, SOUL.md,
+// bothy.yaml and bothy.ui.yaml from the database's directory. Data-directory
+// files are read through os.Root and symlinks are skipped, so nothing outside
+// it is copied.
 func (db *DB) Backup(ctx context.Context, dir string) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("store: backup: %w", err)
@@ -116,20 +121,22 @@ func (db *DB) writeBackup(w io.Writer, snap string) error {
 			return err
 		}
 	}
-	err = fs.WalkDir(root.FS(), "memory", func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				return fs.SkipDir // no memory yet, or a principal's directory removed mid-walk
+	for _, top := range backupTrees {
+		err = fs.WalkDir(root.FS(), top, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				if errors.Is(err, fs.ErrNotExist) {
+					return fs.SkipDir // nothing yet, or a principal's directory removed mid-walk
+				}
+				return err
 			}
-			return err
+			if d.Type().IsRegular() {
+				return addRootFile(tw, root, p)
+			}
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("store: backup %s: %w", top, err)
 		}
-		if d.Type().IsRegular() {
-			return addRootFile(tw, root, p)
-		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("store: backup memory: %w", err)
 	}
 	if err := tw.Close(); err != nil {
 		return fmt.Errorf("store: backup: %w", err)

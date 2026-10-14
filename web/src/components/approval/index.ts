@@ -14,4 +14,4 @@ export { default as AlwaysAllowDialog } from './AlwaysAllowDialog.svelte';
 export { default as DecidedLine } from './DecidedLine.svelte';
 export { default as DeployFollowUp } from './DeployFollowUp.svelte';
 export { default as ReviewCard } from './ReviewCard.svelte';
-export type { ApprovalV2, ApprovalVotes as ApprovalVotesView, InboxItem, Viewer } from './types';
+export type { InboxItem, Viewer } from './types';

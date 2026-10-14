@@ -158,6 +158,7 @@ func TestCleanTitle(t *testing.T) {
 		"\"Weekend plans.\"":        "Weekend plans",
 		"# **Trip to Rome**\nextra": "Trip to Rome",
 		"  spaced   out   title  ":  "spaced out title",
+		"Launch day 🚀✨!":            "Launch day",
 		strings.Repeat("long ", 40): strings.Repeat("long ", 16)[:79] + "…",
 	}
 	for in, want := range cases {

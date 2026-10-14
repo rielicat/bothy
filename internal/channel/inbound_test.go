@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -125,6 +126,50 @@ func TestUnknownSenderOneReplyPerDayNoRuns(t *testing.T) {
 		}
 		if n := len(h.runner.Submitted()); n != 0 {
 			t.Fatalf("an unknown sender reached the runner %d times", n)
+		}
+	})
+}
+
+// TestUnknownSenderBecomesInboxItem: the first words of someone new are kept
+// once, cleaned to one line, for the admins' inbox item (never for a run),
+// and admins' inboxes are told; a new group chat tells its owner's too. The
+// "/start" Telegram sends when someone opens the bot is not their words.
+func TestUnknownSenderBecomesInboxItem(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		sub := h.bus.Subscribe(core.Filter{System: true, Types: []core.EventType{core.EvInboxChanged}}, 16)
+		defer sub.Close()
+		const stranger = "5006"
+		h.dm(stranger, "/start")
+		h.dm(stranger, "hi,\nis this‮ the support bot? "+strings.Repeat("x", 200))
+		h.dm(stranger, "second message")
+		id, err := h.store.Identities().Get(h.ctx, "telegram", stranger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "hi, is this the support bot? " + strings.Repeat("x", 119-len("hi, is this the support bot? ")) + "…"
+		if id.FirstText != want {
+			t.Fatalf("first text = %q, want %q", id.FirstText, want)
+		}
+		if e := <-sub.C(); e.Principal != "" || e.Data.(core.InboxChangedData).Item != "sender:telegram:"+stranger {
+			t.Fatalf("inbox event = %+v", e)
+		}
+
+		h.inject(core.Inbound{Chat: h.groupChat("-777"), MsgID: "-777:joined:1", SenderID: memberChat, AddedBy: memberChat, ChatTitle: "Ops"})
+		sp, err := h.store.Spaces().ByChat(h.ctx, "telegram", "-777")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []core.PrincipalID
+		for range 2 {
+			e := <-sub.C()
+			if e.Data.(core.InboxChangedData).Item != "group:"+string(sp.Principal) {
+				t.Fatalf("inbox event = %+v", e)
+			}
+			got = append(got, e.Principal)
+		}
+		if !slices.Equal(got, []core.PrincipalID{"", core.UserPrincipal(h.member.ID)}) {
+			t.Fatalf("group inbox events went to %v", got)
 		}
 	})
 }

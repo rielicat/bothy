@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -53,6 +54,9 @@ func newHarness(t *testing.T, mut func(*Config, *enginetest.Fake)) *harness {
 	}
 	h := &harness{t: t, eng: eng, now: time.Unix(1_800_000_000, 0), conf: cfg}
 	h.d = newDaemon(cfg, eng, slog.New(slog.DiscardHandler), h.clock)
+	// No mountinfo here: every directory counts as a mount point but one
+	// named not-mounted.
+	h.d.mounted = func(dir string) bool { return filepath.Base(dir) != "not-mounted" }
 	h.srv = httptest.NewServer(h.d.routes())
 	t.Cleanup(h.srv.Close)
 	h.d.selfTest(context.Background())
@@ -166,7 +170,8 @@ func TestConfig(t *testing.T) {
 	}
 	if c.Engine != "unix:///var/run/docker.sock" || c.WorkVolume != "bothy_work" || c.RunVolume != "bothy_run" ||
 		c.Runtime != "auto" || c.MaxBoxes != 8 || c.GatewayUID != 65532 || c.Idle != time.Minute ||
-		c.MaxLifetime != 4*time.Hour || c.Socket != "/run/bothy/sandboxd.sock" || c.RunDir != "/run/bothy" || len(c.Images) != 2 {
+		c.MaxLifetime != 4*time.Hour || c.Socket != "/run/bothy/sandboxd.sock" || c.RunDir != "/run/bothy" || c.WorkDir != "/work" ||
+		len(c.Images) != 2 || c.apiLimit != "" {
 		t.Fatalf("defaults: %+v", c)
 	}
 	if c.canaryProfile() != "base" {
@@ -183,6 +188,7 @@ func TestConfig(t *testing.T) {
 		"bad volume":      {"BOTHY_SBX_IMAGES=base=" + testImage, "BOTHY_SBX_WORK_VOLUME=../x"},
 		"bad duration":    {"BOTHY_SBX_IMAGES=base=" + testImage, "BOTHY_SBX_IDLE=soon"},
 		"relative socket": {"BOTHY_SBX_IMAGES=base=" + testImage, "BOTHY_SBX_SOCKET=sandboxd.sock"},
+		"relative work":   {"BOTHY_SBX_IMAGES=base=" + testImage, "BOTHY_SBX_WORK_DIR=work"},
 	} {
 		if _, err := ParseConfig(env); err == nil {
 			t.Errorf("%s: accepted", name)
@@ -235,7 +241,7 @@ func TestSelfTestFailuresRefuseBoxes(t *testing.T) {
 	}{
 		"isolation": {func(_ *Config, e *enginetest.Fake) { e.FailChecks = map[string][]string{"runc": {proto.CheckCaps}} },
 			"box isolation self-test failed: caps", proto.CheckCaps},
-		"old engine": {func(_ *Config, e *enginetest.Fake) { e.ServerAPI = "1.44" }, "Docker 26+ required", proto.CheckEngineAPI},
+		"old engine": {func(_ *Config, e *enginetest.Fake) { e.ServerAPI = "1.43" }, "Docker 25+ required", proto.CheckEngineAPI},
 		"socket": {func(_ *Config, e *enginetest.Fake) {
 			e.NegotiateErr = &net.OpError{Op: "dial", Net: "unix", Err: os.ErrPermission}
 			e.SocketPath = os.TempDir()

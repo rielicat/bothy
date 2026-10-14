@@ -3,10 +3,8 @@
 import type { ModelInfo, ProbeResult, ProviderHealth } from '../../lib/api/types.gen';
 import { plural } from '../../lib/format';
 
-// Local until S3, S5 and S13 are in types.gen.ts (docs/design/ui.md §17); C10 removes them.
-export type ModelInfoV2 = ModelInfo & { display_name?: string; short_name?: string; provider_name?: string; recommended?: boolean; quick_tasks_default?: boolean };
+// Where a provider's credentials come from; GET /api/providers does not say yet (docs/design/ui.md §17).
 export type ProviderHealthV2 = ProviderHealth & { source?: string };
-export type ProbeResultV2 = ProbeResult & { code?: string };
 
 const providerNames: Record<string, string> = {
   anthropic: 'Anthropic',
@@ -33,19 +31,19 @@ export function splitRef(ref: string): { provider: string; model: string } {
   return i < 0 ? { provider: '', model: ref } : { provider: ref.slice(0, i), model: ref.slice(i + 1) };
 }
 
-export function findModel(ref: string, models: ModelInfoV2[]): ModelInfoV2 | undefined {
+export function findModel(ref: string, models: ModelInfo[]): ModelInfo | undefined {
   const { provider, model } = splitRef(ref);
   return models.find((m) => m.ref.provider === provider && m.ref.model === model);
 }
 
 /** The friendly name ("Claude Sonnet 4.5"); without one (S5), the model id without its provider prefix. */
-export function modelName(ref: string, models: ModelInfoV2[]): string {
+export function modelName(ref: string, models: ModelInfo[]): string {
   const m = findModel(ref, models);
   const name = m?.display_name || m?.display?.replace(/\s*\((local|free)\)$/i, '');
   return name || splitRef(ref).model;
 }
 
-export function modelProvider(ref: string, models: ModelInfoV2[], kinds: Record<string, string> = {}): string {
+export function modelProvider(ref: string, models: ModelInfo[], kinds: Record<string, string> = {}): string {
   const m = findModel(ref, models);
   const id = splitRef(ref).provider;
   return m?.provider_name || providerName(id, kinds[id]);

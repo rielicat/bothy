@@ -63,6 +63,7 @@ func (s *Server) routeTable() []route {
 		{pattern: "POST /api/sessions/{id}/stop", access: accessUser, h: s.stopSession},
 		{pattern: "POST /api/sessions/{id}/compact", access: accessUser, h: s.compactSession},
 		{pattern: "GET /api/sessions/{id}/context", access: accessUser, h: s.sessionContext},
+		{pattern: "GET /api/sessions/{id}/refine-estimate", access: accessUser, h: s.refineEstimate},
 		{pattern: "POST /api/sessions/{id}/fork", access: accessUser, h: s.forkSession},
 		{pattern: "GET /api/sessions/{id}/pins", access: accessUser, h: s.listPins},
 		{pattern: "POST /api/sessions/{id}/pins", access: accessUser, h: s.addPin},
@@ -75,10 +76,14 @@ func (s *Server) routeTable() []route {
 		// allow_always), which bearer clients get only through postMessage's
 		// trigger api and on_approval.
 		{pattern: "POST /api/runs/{id}/continue", access: accessUserCookie, h: s.continueRun},
+		{pattern: "GET /api/refine", access: accessUser, h: s.refineInfo},
 
 		{pattern: "GET /api/approvals", access: accessUser, h: s.listApprovals},
 		{pattern: "GET /api/approvals/{id}", access: accessUser, h: s.getApproval},
 		{pattern: "POST /api/approvals/{id}", access: accessUserCookie, h: s.resolveApproval},
+		{pattern: "GET /api/approvals/{id}/votes", access: accessUser, h: s.approvalVotes},
+		{pattern: "GET /api/releases", access: accessUser, h: s.releases},
+		{pattern: "GET /api/releases/deploys", access: accessUser, h: s.releaseDeploys},
 
 		{pattern: "GET /api/grants", access: accessUser, h: s.listGrants},
 		{pattern: "POST /api/grants", access: accessAdmin, h: s.createGrant},

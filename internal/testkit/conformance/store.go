@@ -39,6 +39,12 @@ import (
 //   - Grants: Active omits used-up grants, Use of a revoked or used-up grant
 //     => ErrConflict, List omits revoked grants, a second Revoke => ErrNotFound.
 //   - Approvals.Park moves only pending or parked approvals (else ErrConflict).
+//   - Approvals.AddVote: a second vote by one user => ErrConflict; Votes come
+//     oldest first; repositories never fill Approval.Votes. Multi-approver
+//     approvals are visible to their voters (ApproverReq.Users, Roles). Tx
+//     serializes concurrent vote transactions (status, vote, count, Decide).
+//   - core.ReleaseStore is optional (the suite skips it); deploy records
+//     follow the Viewer rule with admins seeing every row.
 //   - Runs.MarkInterrupted sets FinishedAt to now.
 //   - Audit: Head of an empty log is (0, nil, nil); Range bounds are inclusive
 //     and toID <= 0 means the end; Append ignores AuditEntry.ID and stores an
@@ -91,6 +97,10 @@ var storeSuite = []struct {
 	{"ApprovalVisibility", testApprovalVisibility},
 	{"ApprovalDecideCAS", testApprovalDecideCAS},
 	{"ApprovalSeen", testApprovalSeen},
+	{"ApprovalVotes", testApprovalVotes},
+	{"ApprovalVoteTx", testApprovalVoteTx},
+	{"ApprovalMultiVisibility", testApprovalMultiVisibility},
+	{"Releases", testReleases},
 	{"Grants", testGrants},
 	{"GrantsActive", testGrantsActive},
 	{"Schedules", testSchedules},

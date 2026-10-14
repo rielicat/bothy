@@ -23,10 +23,13 @@ owner() {
 	internal/egress | internal/egress/*) echo M6 ;;
 	internal/mcp | internal/mcp/* | internal/skills | internal/skills/*) echo M7 ;;
 	internal/memory | internal/memory/* | internal/scheduler | internal/scheduler/*) echo M8 ;;
+	internal/knowledge | internal/knowledge/*) echo knowledge ;; # v0.2 F6: stdlib, core and config only
 	internal/channel/discord | internal/channel/discord/* | internal/channel/slack | internal/channel/slack/*) echo M10 ;;
 	internal/channel | internal/channel/telegram | internal/channel/telegram/*) echo M9 ;;
 	internal/httpapi/dto) echo dto ;;
 	internal/auth | internal/auth/* | internal/httpapi | internal/httpapi/* | internal/doctor | internal/doctor/* | internal/webui | internal/webui/*) echo M11 ;;
+	internal/github | internal/github/*) echo F4 ;; # v0.2 brief §4: stdlib, core and config only
+	internal/release | internal/release/*) echo release ;; # v0.2 F5
 	internal/core) echo core ;;
 	internal/config) echo config ;;
 	internal/events) echo events ;;
@@ -40,7 +43,8 @@ owner() {
 }
 
 # thirdparty_ok reports whether package dir $1 (owner $2) may import the
-# non-stdlib, non-module path $3 (SPEC §11.1 "Used by").
+# non-stdlib, non-module path $3 (SPEC §11.1 "Used by"); $4 is "prod" or
+# "test".
 thirdparty_ok() {
 	case "$3" in
 	github.com/anthropics/* | github.com/openai/* | github.com/sashabaranov/* | google.golang.org/genai | google.golang.org/genai/* | \
@@ -54,6 +58,18 @@ thirdparty_ok() {
 	# conformance.Tool compiles tool schemas with the validator M4 uses.
 	testkit) case "$3" in go.yaml.in/yaml/v3* | github.com/google/jsonschema-go/*) return 0 ;; esac ;;
 	M1) case "$3" in modernc.org/sqlite* | modernc.org/libc* | golang.org/x/crypto/*) return 0 ;; esac ;;
+	# The AWS SDK only for credential resolution, SigV4 and event-stream
+	# framing (v0.2 brief §2); the Converse mapping is hand-written.
+	M2)
+		case "$1:$3" in
+		internal/provider/bedrock:github.com/aws/aws-sdk-go-v2/aws | internal/provider/bedrock:github.com/aws/aws-sdk-go-v2/aws/signer/v4 | \
+			internal/provider/bedrock:github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream | internal/provider/bedrock:github.com/aws/aws-sdk-go-v2/config | \
+			internal/provider/bedrock:github.com/aws/aws-sdk-go-v2/credentials/endpointcreds | internal/provider/bedrock:github.com/aws/aws-sdk-go-v2/feature/ec2/imds)
+			return 0
+			;;
+		internal/provider:github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream) [ "$4" = test ] && return 0 ;;
+		esac
+		;;
 	M4) case "$3" in github.com/google/jsonschema-go/* | golang.org/x/net/*) return 0 ;; esac ;;
 	M5) case "$1:$3" in internal/sandbox/bwrap*:github.com/elastic/go-seccomp-bpf* | internal/sandbox/bwrap*:golang.org/x/net/*) return 0 ;; esac ;;
 	M6) case "$3" in golang.org/x/net/*) return 0 ;; esac ;;
@@ -144,7 +160,7 @@ check_pkg() {
 				;;
 			*)
 				if ! stdlib "$imp"; then
-					thirdparty_ok "$p" "$(owner "$p")" "$imp" || err "$p ($kind) imports $imp (not approved for $(owner "$p") in SPEC §11.1)"
+					thirdparty_ok "$p" "$(owner "$p")" "$imp" $kind || err "$p ($kind) imports $imp (not approved for $(owner "$p") in SPEC §11.1)"
 				fi
 				;;
 			esac

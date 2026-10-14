@@ -3,19 +3,21 @@
 `provider.Facade` implements `core.LLM` (SPEC §4.3, §5.14) over hand-written
 clients for the Anthropic Messages API, the OpenAI Responses API and Chat
 Completions (`providers[].api`: `auto` picks Responses for type `openai` and
-Chat Completions for `openai_compat`), Gemini `streamGenerateContent` and
-native Ollama `/api/chat`. It re-reads the `providers` config on every call
-(hot reload, so providers added by the setup wizard, or a changed `api`, work
-without a restart), resolves each `secret:<name>` key through the vault and
+Chat Completions for `openai_compat`), Gemini `streamGenerateContent`, native
+Ollama `/api/chat` and Amazon Bedrock `ConverseStream`. It re-reads the
+`providers` config on every call (hot reload, so providers added by the setup
+wizard, or a changed `api`, work without a restart), resolves each `secret:<name>` key through the vault and
 keeps it for at most five minutes, and gets every HTTP client from
 `core.Egress.SystemClient`, hardened to no proxy, TLS 1.2+ and no redirects
 (`base_url` must be http(s) without credentials, query or fragment).
 `Complete` walks the slot's fallback chain: before the first streamed event a
 retryable error (429, 408, 5xx, network, overloaded) is retried once after
 250 ms ±20% or `Retry-After` (≤ 20 s), then the next candidate is tried; auth
-errors mark the provider `auth_failed` and move on; `context_length`,
-`invalid_request` and `content_filter` return to the runner; after the first
-event nothing is retried or switched. Before a call, notice messages are
+errors mark the provider `auth_failed` and move on; an error wrapping
+`core.ErrModelUnsupported` (a model that cannot call tools over Chat
+Completions) moves on without counting against the provider's breaker;
+`context_length`, other `invalid_request` and `content_filter` return to the
+runner; after the first event nothing is retried or switched. Before a call, notice messages are
 dropped and thinking parts or signatures of another SigKind than the client's
 are stripped (the Responses client writes `openai_responses`, so its
 encrypted reasoning and item ids never reach the Chat Completions client or
@@ -36,5 +38,41 @@ the Chat Completions clients share, which a provider config change clears).
 An Ollama model without a configured context never gets its trained maximum
 as num_ctx: `ollama.Window` caps it at 16,384, or at the served context when
 Ollama already runs the model with more.
+
+**Amazon Bedrock** (`type: bedrock`, `bedrock/`) has no key: each provider
+builds an AWS default credential chain for its `region` and optional
+`profile`, whose instance and container credential requests go through
+`Deps.Credentials` (egress's credentials-only client) and whose STS/SSO
+calls go through a system client for exactly the hosts the AWS config
+needs. The runtime endpoint (or a `base_url` VPC endpoint, https only) and
+the control-plane endpoint share one egress destination. An auth failure
+also drops the chain's cached credentials, and the banner and doctor speak
+of AWS credentials instead of a key. Bedrock models get explicit caching
+only where Bedrock takes cache points, and an `allow_private` VPC endpoint
+does not make them local (free). `Probe` resolves the credentials and
+reports their source, lists the usable Claude and Nova models with display
+names (`ProbeResult.Choices`) and tests the suggested main model by
+default (a small one when the list suggests none); `Detect`
+offers "Use this server's AWS access" first when the chain resolves (within
+4 s when the environment or `~/.aws` suggests AWS, else within the local
+detection timeout for IMDS), with region and models; the doctor check
+`providers.bedrock_credentials` reports each bedrock provider's credential
+source (info) or why there is none (high), never values.
+For the v0.2 UI (`friendly.go`, `failure.go`) every `ModelInfo` and
+`ModelChoice` carries a plain `display_name` (the catalog's or vendor's
+name, else one built from the id: `qwen3:14b` → "Qwen3 14B"; Bedrock
+geographies only when a list holds the same model twice), a `short_name`
+("Sonnet 4.5") and the `provider_name`; `/api/models`, probe choices and
+detections mark one `recommended` main model and one `quick_tasks_default`
+per provider: the newest Sonnet and Haiku (Claude vendors, Bedrock with the
+region's own geography first, then global), the newest plain GPT and its
+mini, the newest Gemini Pro and Flash-Lite, the largest local model up to
+40B for both slots, else the first model and the cheapest priced one. A
+probe without a model tests the recommended one, Bedrock too, and names it
+in `model`; a failed probe sets `code`
+(`core.FailureCode`) and the raw `error`. Bedrock credential sources read
+"SSO profile acme-dev", "instance role bothy-prod" (the role name from IMDS),
+"IRSA role bothy", "ECS task role". `Detect` also lists provider keys saved
+in the global vault (`secret_ref`, last four characters as `secret_hint`).
 `wire/` holds what the clients share; `wiretest/` serves recorded vendor
 responses in tests.

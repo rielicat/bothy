@@ -2,6 +2,7 @@ package policy
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -20,7 +21,28 @@ const (
 
 	floorTrifecta  = "floor:trifecta"
 	trifectaReason = "this session has seen private data and untrusted content, so anything leaving it needs approval"
+
+	unknownRecipient = "an unknown recipient"
+	unknownHost      = "an unknown host"
+
+	warnExposed   = "This chat has seen private information and content from outside. Check carefully before letting anything leave."
+	warnUntrusted = "This request came from content Bothy read (a web page, repository or message), not from a person."
 )
+
+// contactWarning is the card line for a first contact (§8.3 of the UI plan).
+func contactWarning(a *core.Action, kind, target string) string {
+	switch {
+	case kind == "domain" && target == unknownHost:
+		return "Bothy can't tell which website this sends data to."
+	case kind == "domain":
+		return "Bothy hasn't sent data to " + inline(target) + " before."
+	case target == unknownRecipient:
+		return "Bothy can't tell who this goes to."
+	case a.Tool == toolRepoOpenPR && strings.HasPrefix(target, "github:"):
+		return "This is the first pull request Bothy opens in " + inline(strings.TrimPrefix(target, "github:")) + "."
+	}
+	return "Bothy hasn't sent anything to " + inline(recipientText(target)) + " before."
+}
 
 // Defaults used when the configured approval timeouts are unset (§5.9).
 const (
@@ -232,7 +254,15 @@ func (e *Engine) floors(ctx context.Context, x *input, rule *config.Rule) (core.
 		if rule != nil && core.Verdict(rule.Verdict) == core.VerdictDeny {
 			return ruleDenied(rule), true
 		}
-		return e.ask(x, askSpec{rule: name, reason: reason, floor: true, admin: admin}), true
+		d := e.ask(x, askSpec{rule: name, reason: reason, floor: true, admin: admin})
+		// An always-ask tool never reaches step C: whichever floor asks
+		// first carries its first-contact warning.
+		if m.AlwaysAsk {
+			if kind, target, first := e.firstContact(ctx, x); first {
+				d.Warnings = append(d.Warnings, contactWarning(x.a, kind, target))
+			}
+		}
+		return d, true
 	}
 
 	// F4 is applied before the F2/F3 asks: an admin's approval must not open
@@ -263,6 +293,9 @@ func (e *Engine) floors(ctx context.Context, x *input, rule *config.Rule) (core.
 	if restricted {
 		return denied("floor:restricted_space", "restricted spaces can only use read-only tools", true), true
 	}
+	if isRelease(x.a) {
+		return e.releaseFloor(ctx, x, rule), true
+	}
 	if x.exposed() && (x.se == core.SEExternalSend || x.se == core.SEIrreversible) {
 		x.only = e.taintedRecipientGrant(ctx, x)
 		if x.only == nil {
@@ -286,6 +319,9 @@ func (e *Engine) floors(ctx context.Context, x *input, rule *config.Rule) (core.
 			return ruleDenied(rule), true
 		}
 		return e.ask(x, askSpec{rule: "floor:net_allow", reason: "network access for the sandbox always needs approval", floor: true, grants: true, noOnce: true}), true
+	}
+	if m.AlwaysAsk {
+		return askFloor("floor:always_ask", cmp.Or(m.Title, x.a.Tool)+" always needs approval", false)
 	}
 	return core.Decision{}, false
 }
@@ -374,7 +410,7 @@ func (e *Engine) contactOrDefault(ctx context.Context, x *input) core.Decision {
 	if kind, target, first := e.firstContact(ctx, x); first {
 		return e.ask(x, askSpec{
 			rule: "first_contact:" + kind, reason: "first contact with " + target, grants: true,
-			warnings: []string{"First contact with " + target + "."},
+			warnings: []string{contactWarning(x.a, kind, target)},
 		})
 	}
 	if v == core.VerdictAsk {
@@ -411,7 +447,7 @@ func (e *Engine) firstContact(ctx context.Context, x *input) (kind, target strin
 	case a.Kind == core.ActSend || a.Kind == core.ActMCP && a.Recipient != "":
 		r := a.Recipient
 		if r == "" {
-			return "recipient", "an unknown recipient", true
+			return "recipient", unknownRecipient, true
 		}
 		if x.Chat != nil && r == x.Chat.Key() {
 			return "", "", false
@@ -428,7 +464,7 @@ func (e *Engine) firstContact(ctx context.Context, x *input) (kind, target strin
 	case a.Kind == core.ActHTTP && a.Method != "" && !strings.EqualFold(a.Method, "GET"):
 		h := x.primary()
 		if h.host == "" {
-			return "domain", "an unknown host", true
+			return "domain", unknownHost, true
 		}
 		for _, s := range x.cfg.Egress.Allow {
 			if p, ok := parseHostPattern(s); ok && p.match(h) {
@@ -489,10 +525,10 @@ func (e *Engine) ask(x *input, s askSpec) core.Decision {
 	}
 	d.Choices = append(d.Choices, core.Deny)
 	if x.exposed() {
-		d.Warnings = append(d.Warnings, "This session has seen private data and untrusted content; anything sent out could leak it.")
+		d.Warnings = append(d.Warnings, warnExposed)
 	}
 	if x.Provenance == core.ProvUntrusted {
-		d.Warnings = append(d.Warnings, "Started by a message from an untrusted sender.")
+		d.Warnings = append(d.Warnings, warnUntrusted)
 	}
 	d.Warnings = append(d.Warnings, s.warnings...)
 	return d

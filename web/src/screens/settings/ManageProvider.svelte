@@ -21,16 +21,17 @@
   import { untrack } from 'svelte';
   import { Button, Dialog, Disclosure, KeyField, LinkButton, Select, StatusLine, toast, type CheckResult } from '../../components/ui';
   import { api, ApiError } from '../../lib/api/client';
+  import type { ProbeResult } from '../../lib/api/types.gen';
   import { duration } from '../../lib/format';
   import ConfirmDialog from './ConfirmDialog.svelte';
-  import { failureCode, failureText, regionName, regions, type ProbeResultV2, type ProviderHealthV2 } from './modelHelpers';
+  import { failureCode, failureText, regionName, regions, type ProviderHealthV2 } from './modelHelpers';
   import { Saver, settingsConfig } from './store.svelte';
 
   // Manage one provider (§11.4): its state, a new key, the region for
   // Bedrock, what the last check found, and removing it.
   let { open = $bindable(false), provider, onchanged }: { open?: boolean; provider: ManagedProvider | null; onchanged?: () => void } = $props();
 
-  type Check = { state: 'checking' } | { state: 'done'; probe: ProbeResultV2 } | { state: 'error'; message: string };
+  type Check = { state: 'checking' } | { state: 'done'; probe: ProbeResult } | { state: 'error'; message: string };
   let check = $state<Check | null>(null);
   let key = $state('');
   let confirmOpen = $state(false);
@@ -63,7 +64,7 @@
     ctrl = c;
     check = { state: 'checking' };
     try {
-      const probe = await api.post<ProbeResultV2>('/api/providers/test', body());
+      const probe = await api.post<ProbeResult>('/api/providers/test', body());
       if (!c.signal.aborted) check = { state: 'done', probe };
     } catch (e) {
       if (!c.signal.aborted) check = { state: 'error', message: e instanceof ApiError ? e.message : String(e) };
@@ -112,7 +113,7 @@
 
   async function checkKey(value: string, signal: AbortSignal): Promise<CheckResult> {
     if (!p) return { ok: false, message: failureText('unknown', '') };
-    const r = await api.post<ProbeResultV2>('/api/providers/test', body({ api_key: value, secret_ref: undefined }));
+    const r = await api.post<ProbeResult>('/api/providers/test', body({ api_key: value, secret_ref: undefined }));
     if (signal.aborted) return { ok: false, message: '' };
     if (!r.ok) return { ok: false, message: failureText(failureCode(r), p.name, p.kind, p.model), details: r.detail || undefined };
     await api.put(`/api/vault/global/${encodeURIComponent(vaultName)}`, { value });

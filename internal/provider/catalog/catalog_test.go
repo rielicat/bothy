@@ -21,7 +21,7 @@ func TestEmbeddedCatalogParses(t *testing.T) {
 		}
 		seen[p.ID] = true
 		switch p.Kind {
-		case core.KindAnthropic, core.KindOpenAI, core.KindGemini, core.KindOpenAICompat:
+		case core.KindAnthropic, core.KindOpenAI, core.KindGemini, core.KindOpenAICompat, core.KindBedrock:
 		default:
 			t.Fatalf("%s: kind %q", p.ID, p.Kind)
 		}
@@ -29,8 +29,13 @@ func TestEmbeddedCatalogParses(t *testing.T) {
 		// a higher read price is a source-data error that overbills every
 		// cached prompt.
 		for _, m := range p.Models {
-			if m.Price != nil && m.Price.CacheReadPerM > m.Price.InPerM {
-				t.Errorf("%s/%s: cache read %d above input %d per M", p.ID, m.ID, m.Price.CacheReadPerM, m.Price.InPerM)
+			for _, pr := range []*Price{m.Price, m.GeoPrice} {
+				if pr != nil && pr.CacheReadPerM > pr.InPerM {
+					t.Errorf("%s/%s: cache read %d above input %d per M", p.ID, m.ID, pr.CacheReadPerM, pr.InPerM)
+				}
+			}
+			if m.GeoPrice != nil && p.Kind != core.KindBedrock {
+				t.Errorf("%s/%s: geo_price outside bedrock", p.ID, m.ID)
 			}
 		}
 	}
@@ -82,9 +87,50 @@ func TestInfo(t *testing.T) {
 }
 
 func TestParseRejects(t *testing.T) {
-	for _, b := range []string{`{`, `{"version":2}`, `{"version":1,"providers":[{"id":"p","models":[{"id":"m","price":{"in_per_m":-1,"out_per_m":0}}]}]}`} {
+	for _, b := range []string{`{`, `{"version":2}`, `{"version":1,"providers":[{"id":"p","models":[{"id":"m","price":{"in_per_m":-1,"out_per_m":0}}]}]}`,
+		`{"version":1,"providers":[{"id":"p","models":[{"id":"m","geo_price":{"in_per_m":1,"out_per_m":-1}}]}]}`} {
 		if _, err := Parse([]byte(b)); err == nil {
 			t.Fatalf("accepted %s", b)
 		}
+	}
+}
+
+func TestBedrockLookup(t *testing.T) {
+	b := Default().Find(core.KindBedrock, "https://bedrock-runtime.eu-west-1.amazonaws.com")
+	if b == nil || b.ID != "bedrock" {
+		t.Fatalf("bedrock provider %+v", b)
+	}
+	for _, tc := range []struct {
+		id       string
+		in, out  core.Micros
+		cacheRd  core.Micros
+		display  string
+		hasTiers bool
+	}{
+		{"global.anthropic.claude-sonnet-4-5-20250929-v1:0", 3_000_000, 15_000_000, 300_000, "Claude Sonnet 4.5", false},
+		{"us.anthropic.claude-sonnet-4-5-20250929-v1:0", 3_300_000, 16_500_000, 330_000, "Claude Sonnet 4.5", false},
+		{"eu.anthropic.claude-opus-5-5", 4_400_000, 22_000_000, 220_000, "Claude Opus 5.5", false},
+		{"arn:aws:bedrock:us-west-2:111122223333:inference-profile/global.anthropic.claude-opus-5-5", 4_000_000, 20_000_000, 200_000, "Claude Opus 5.5", false},
+		{"anthropic.claude-sonnet-4-20250514-v1:0", 3_000_000, 15_000_000, 300_000, "Claude Sonnet 4", false},
+		{"us.amazon.nova-pro-v1:0", 800_000, 3_200_000, 200_000, "Nova Pro", false},
+		{"amazon.nova-2-lite-v1:0", 330_000, 2_750_000, 82_500, "Nova 2 Lite", false},
+		{"global.anthropic.claude-haiku-5-5", 100_000, 500_000, 10_000, "Claude Haiku 5.5", true},
+	} {
+		m, ok := b.Model(tc.id)
+		if !ok || m.Price == nil || m.Price.InPerM != tc.in || m.Price.OutPerM != tc.out || m.Price.CacheReadPerM != tc.cacheRd ||
+			m.Display != tc.display || m.Cache != "explicit" || !m.Tools || m.GeoPrice != nil || (len(m.Price.Tiers) > 0) != tc.hasTiers {
+			t.Errorf("%s: %v %+v %+v", tc.id, ok, m, m.Price)
+		}
+	}
+	m, _ := b.Model("global.anthropic.claude-haiku-5-5")
+	// Above 100K prompt tokens Haiku 5.5 bills 5x.
+	if got := m.Info(core.ModelRef{}).Price.Cost(core.Usage{Input: 200_000, Output: 1_000}); got != 102_500 {
+		t.Fatalf("long-context cost %d", got)
+	}
+	if _, ok := b.Model("us.meta.llama3-3-70b-instruct-v1:0"); ok {
+		t.Fatal("unknown model found")
+	}
+	if _, ok := b.Model("claude-sonnet-4-5"); ok {
+		t.Fatal("an Anthropic API id must not match a Bedrock entry")
 	}
 }

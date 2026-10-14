@@ -22,7 +22,7 @@ const chOwnerTG = 5001 // the owner's Telegram user id (and DM chat id)
 
 // TestTelegramDM is E4: pair through the t.me deep link, then a DM run whose
 // reply streams as edits, asks for approval on a card in the same DM, runs
-// after the "Allow once" press and reports the result. Every send and edit
+// after the "Create file" press and reports the result. Every send and edit
 // has link previews disabled. No sandbox is needed: a policy rule makes
 // fs_write ask, which exercises the same card and button path as an exec.
 func TestTelegramDM(t *testing.T) {
@@ -49,14 +49,14 @@ func TestTelegramDM(t *testing.T) {
 
 	e.tg.Inject(telegramtest.Inbound{ChatID: chOwnerTG, SenderID: chOwnerTG, FirstName: "Olivia", Text: "Please save a note: buy oat milk"})
 	card := e.tgMessage(t, chOwnerTG, "the approval card", func(m telegramtest.Message) bool {
-		_, ok := chButton(m, "Allow once")
+		_, ok := chButton(m, "Create file")
 		return ok
 	})
-	if !strings.Contains(card.Text, "Approval needed: Write file") || !strings.Contains(card.Text, "notes.txt") ||
+	if !strings.HasPrefix(card.Text, "Create notes.txt?\n") || !strings.Contains(card.Text, "Content: 1 line") ||
 		!strings.Contains(card.Text, "buy oat milk") || strings.Contains(card.Text, "save that note") {
 		t.Fatalf("card text = %q", card.Text)
 	}
-	for _, label := range []string{"Allow once", "Allow for session", "Always allow", "Deny"} {
+	for _, label := range []string{"Create file", "Allow for this chat", "Always allow", "Deny"} {
 		if _, ok := chButton(card, label); !ok {
 			t.Fatalf("card lacks %q: %+v", label, card.Buttons)
 		}
@@ -71,7 +71,7 @@ func TestTelegramDM(t *testing.T) {
 		t.Fatalf("pending approvals = %+v", aps)
 	}
 
-	allow, _ := chButton(card, "Allow once")
+	allow, _ := chButton(card, "Create file")
 	e.tg.Press(chOwnerTG, card.ID, chOwnerTG, allow.CallbackData)
 	if toast := e.tgAnswer(t, 1); toast != "Approved" {
 		t.Fatalf("toast = %q", toast)
@@ -80,7 +80,7 @@ func TestTelegramDM(t *testing.T) {
 		return strings.Contains(m.Text, "Saved it to notes.txt.") && strings.Contains(m.Text, "notes-help")
 	})
 	e.tgMessage(t, chOwnerTG, "the card edited to its outcome", func(m telegramtest.Message) bool {
-		return m.ID == card.ID && strings.Contains(m.Text, "Allowed once") && len(m.Buttons) == 0
+		return m.ID == card.ID && strings.Contains(m.Text, "owner approved creating notes.txt in Telegram.") && len(m.Buttons) == 0
 	})
 	if got := e.Do(t, http.MethodGet, "/api/workspace/files?path=notes.txt", nil, nil); got.StatusCode != http.StatusOK || string(got.Body) != "buy oat milk\n" {
 		t.Fatalf("workspace notes.txt = %s %q", got.Status, got.Body)
@@ -154,14 +154,14 @@ func TestGroupSpace(t *testing.T) {
 	e.tg.Inject(telegramtest.Inbound{ChatID: group, SenderID: member, FirstName: "Mel", Mention: true, Text: "what is in the shared folder? Please check."})
 
 	card := e.tgMessage(t, chOwnerTG, "the approval card in the owner's DM", func(m telegramtest.Message) bool {
-		_, ok := chButton(m, "Allow once")
+		_, ok := chButton(m, "List files")
 		return ok
 	})
-	if !strings.Contains(card.Text, "Approval needed: List files") {
+	if !strings.Contains(card.Text, "List the files in Bothy's files?") {
 		t.Fatalf("card = %q", card.Text)
 	}
 	e.tgMessage(t, group, "the waiting line in the group", func(m telegramtest.Message) bool {
-		return strings.Contains(m.Text, "Waiting for the owner to approve “List files”")
+		return strings.Contains(m.Text, "Waiting for the owner to approve listing the files in Bothy's files.")
 	})
 	for _, m := range e.tg.Messages(group) {
 		for _, row := range m.Buttons {
@@ -199,7 +199,7 @@ func TestGroupSpace(t *testing.T) {
 		t.Fatalf("group message not spotlighted as untrusted: %q", u)
 	}
 
-	allow, _ := chButton(card, "Allow once")
+	allow, _ := chButton(card, "List files")
 	e.tg.Press(chOwnerTG, card.ID, chOwnerTG, allow.CallbackData)
 	if toast := e.tgAnswer(t, 1); toast != "Approved" {
 		t.Fatalf("toast = %q", toast)
@@ -402,7 +402,7 @@ func TestForgedApproval(t *testing.T) {
 	})
 	e.pairTelegram(t, chOwnerTG, "Olivia")
 	isCard := func(m telegramtest.Message) bool {
-		return strings.Contains(m.Text, "Approval needed: Run shell command")
+		return strings.Contains(m.Text, "Run this command?")
 	}
 
 	e.tg.Inject(telegramtest.Inbound{ChatID: chOwnerTG, SenderID: chOwnerTG, FirstName: "Olivia", Text: "please tidy up my workspace"})
@@ -416,8 +416,8 @@ func TestForgedApproval(t *testing.T) {
 	if apA.Action == nil || !slices.Equal(apA.Action.Argv, []string{"bash", "-lc", cmdA}) {
 		t.Fatalf("approval action = %+v", apA.Action)
 	}
-	if want := "bash -lc '" + visibleA + "'"; apA.Card.Code != want {
-		t.Fatalf("card code = %q, want %q", apA.Card.Code, want)
+	if f := chField(apA.Card, "Command"); f.Value != visibleA || !f.Mono || apA.Card.Code != "" {
+		t.Fatalf("card command = %+v code %q, want exactly %q", f, apA.Card.Code, visibleA)
 	}
 	cardJSON, _ := json.Marshal(apA.Card)
 	for _, prose := range []string{"temporary files", "nothing important", "Sure!"} {
@@ -428,8 +428,8 @@ func TestForgedApproval(t *testing.T) {
 	if !strings.Contains(card.Text, visibleA) || strings.ContainsRune(card.Text, '‮') {
 		t.Fatalf("telegram card does not show the exact command with the override visible: %q", card.Text)
 	}
-	if _, ok := chButton(card, "Allow once"); !ok {
-		t.Fatalf("full card lacks Allow once: %+v", card.Buttons)
+	if _, ok := chButton(card, "Run command"); !ok {
+		t.Fatalf("full card lacks Run command: %+v", card.Buttons)
 	}
 	e.tgMessage(t, chOwnerTG, "the streamed preamble", func(m telegramtest.Message) bool {
 		return strings.Contains(m.Text, "nothing important will be touched.")
@@ -460,7 +460,7 @@ func TestForgedApproval(t *testing.T) {
 		t.Fatalf("pending approvals = %+v", aps)
 	}
 	apB := aps[0]
-	if !strings.Contains(apB.Card.Code, cmdB) {
+	if chField(apB.Card, "Command").Value != cmdB {
 		t.Fatal("the web card does not carry the whole command")
 	}
 	key := chMACKey(t, e.DataDir)

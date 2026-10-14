@@ -111,7 +111,7 @@ export class Conversation {
   /** A new chat got its session on the first send; events for it are already being followed. */
   adopt(s: Session) {
     this.id = s.id;
-    this.detail = { session: s, pins: [], pending_approvals: [] };
+    this.detail = { session: s, pins: [], pending_approvals: [], refine: '' };
   }
 
   // Also the resync handler: what the server says is pending replaces the
@@ -311,6 +311,10 @@ export class Conversation {
         if (this.detail) this.detail.session = { ...this.detail.session, title: d.title, taint: d.taint, epoch: d.epoch };
       }),
       on('approval.requested', (e) => {
+        const a = (e.data as ApprovalData).approval;
+        if (a) this.#upsertApproval(a);
+      }),
+      on('approval.voted', (e) => {
         const a = (e.data as ApprovalData).approval;
         if (a) this.#upsertApproval(a);
       }),

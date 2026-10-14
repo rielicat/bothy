@@ -95,7 +95,7 @@ policy:
 		if d.Run.Status != core.RunInterrupted {
 			t.Fatalf("run after restart = %+v, want interrupted", d.Run)
 		}
-		const notice = "I was restarted mid-task"
+		const notice = "restarted before it finished this task"
 		if n := owner.Notices(t, slow.Session); !slices.ContainsFunc(n, func(s string) bool { return strings.Contains(s, notice) }) {
 			t.Fatalf("session notices = %q, want the restart notice", n)
 		}
@@ -191,7 +191,7 @@ agent:
 	tg.WaitText(t, tgUser, "Queued", 10*time.Second)
 
 	_ = g.Stop() // drains for 10 s, then interrupts the run
-	tg.WaitText(t, tgUser, "I was restarted mid-task", 5*time.Second)
+	tg.WaitText(t, tgUser, "restarted before it finished this task", 5*time.Second)
 	tg.WaitText(t, tgUser, "restarted before it got to this message", 5*time.Second)
 
 	g = Start(t, Options{DataDir: g.DataDir, Config: cfg, Platforms: []Platform{tg}})
@@ -206,7 +206,7 @@ agent:
 	if !kept {
 		t.Fatal("the queued message is gone from the session after a graceful restart")
 	}
-	if n := owner.Notices(t, slow.Session); strings.Count(strings.Join(n, "\n"), "restarted mid-task") != 1 {
+	if n := owner.Notices(t, slow.Session); strings.Count(strings.Join(n, "\n"), "restarted before it finished this task") != 1 {
 		t.Fatalf("session notices = %q, want one restart notice", n)
 	}
 }

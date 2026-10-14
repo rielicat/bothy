@@ -123,12 +123,17 @@ func (p *Policy) NextTaint(prev core.Taint, spec core.ToolSpec, _ *core.Action, 
 // An empty Choice means allow_once. Immediate resolutions do not invoke
 // OnResolved callbacks; Resolve and Expire do, synchronously, after the fake
 // releases its lock. Await on a cancelled approval returns core.ErrStopped.
-// Resolve checks only that the approval exists and is pending or parked.
+// Resolve checks only that the approval exists and is pending or parked; on a
+// multi-approver approval it appends the vote and resolves only on a deny or
+// once core.AllowVotes reaches Needed() (no eligibility checks).
 type Approvals struct {
 	core.Approvals
 	Choice   core.Choice
 	Manual   bool
 	Requests []core.ApprovalRequest
+	// Render, when set, replaces RenderCard for Request (a module test that
+	// needs the plain-copy fields the policy module would fill).
+	Render func(core.ApprovalRequest) core.Card
 
 	mu          sync.Mutex
 	Resolutions []core.Resolution
@@ -155,7 +160,11 @@ func (ap *Approvals) Request(_ context.Context, r core.ApprovalRequest) (*core.A
 		Status: core.ApprovalPending, Approver: r.Decision.Approver, Chat: r.Chat,
 		OnTimeout: r.Decision.OnTimeout, CreatedAt: now, ExpiresAt: now.Add(timeout),
 	}
-	a.Card = ap.RenderCard(r)
+	if ap.Render != nil {
+		a.Card = ap.Render(r)
+	} else {
+		a.Card = ap.RenderCard(r)
+	}
 	a.Card.Expires = a.ExpiresAt
 	a.Card.WebURL = "/approvals/" + string(a.ID)
 
@@ -186,7 +195,10 @@ func decide(a *core.Approval, c core.Choice, by core.UserID, via string, at time
 	a.Choice, a.DecidedBy, a.DecidedVia, a.DecidedAt = c, by, via, at
 }
 
-func clone(a core.Approval) *core.Approval { return &a }
+func clone(a core.Approval) *core.Approval {
+	a.Votes = slices.Clone(a.Votes)
+	return &a
+}
 
 func (ap *Approvals) notifyLocked() {
 	if ap.changed != nil {
@@ -244,6 +256,14 @@ func (ap *Approvals) Resolve(_ context.Context, r core.Resolution) (*core.Approv
 		return nil, fmt.Errorf("approval %s already decided: %w", r.ID, core.ErrConflict)
 	}
 	ap.Resolutions = append(ap.Resolutions, r)
+	if st.a.Approver.Multi() {
+		st.a.Votes = append(st.a.Votes, core.ApprovalVote{Approval: r.ID, User: r.By, Choice: r.Choice, Via: r.Via, At: time.Now()})
+		if r.Choice != core.Deny && core.AllowVotes(st.a.Votes, st.a.Approver) < st.a.Approver.Needed() {
+			a := clone(st.a)
+			ap.mu.Unlock()
+			return a, nil
+		}
+	}
 	decide(&st.a, r.Choice, r.By, r.Via, time.Now())
 	ap.notifyLocked()
 	a, cbs := st.a, slices.Clone(ap.callbacks)
@@ -329,8 +349,18 @@ func (ap *Approvals) RenderCard(r core.ApprovalRequest) core.Card {
 	return c
 }
 
+// visible mirrors the store's approval Viewer rule, multi-approver voters
+// included.
 func visible(v core.Viewer, a *core.Approval) bool {
-	return v.Can(a.Principal) || v.Admin && a.Approver.AdminOnly
+	if v.Can(a.Principal) || v.Admin && a.Approver.AdminOnly {
+		return true
+	}
+	if v.User == "" || !a.Approver.Multi() {
+		return false
+	}
+	return slices.Contains(a.Approver.Users, v.User) || slices.ContainsFunc(a.Approver.Roles, func(r core.Role) bool {
+		return r == core.RoleMember || v.Admin && (r == core.RoleAdmin || r == core.RoleOwner)
+	})
 }
 
 func (ap *Approvals) Get(_ context.Context, v core.Viewer, id core.ApprovalID) (*core.Approval, error) {

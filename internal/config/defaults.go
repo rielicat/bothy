@@ -41,6 +41,7 @@ func defaults() *Config {
 			MaxRunsPerUser:    2,
 			ToolOutputTokens:  4000,
 			ParallelReadTools: 4,
+			Refine:            Refine{Drafts: 3, Depth: 2, EarlyStop: true, CriticSlot: "main"},
 		},
 		Context: ContextCfg{
 			ReserveOutput: "auto",
@@ -110,9 +111,17 @@ func defaults() *Config {
 			Slack: Slack{AppToken: "secret:slack_app_token", BotToken: "secret:slack_bot_token", Groups: Groups{MentionOnly: true},
 				APIBase: "https://slack.com/api/"},
 		},
+		GitHub:    GitHubCfg{APIBase: "https://api.github.com", Checkout: GitHubCheckout{MaxMB: 256, MaxFiles: 20000}},
 		Memory:    MemoryCfg{MemoryMaxBytes: 4096, UserMaxBytes: 2048, HeartbeatMaxBytes: 2048, TaintedWrites: "ask"},
 		Skills:    SkillsCfg{IndexBudgetTokens: 600},
 		Scheduler: SchedulerCfg{Enabled: true, MissedRun: "skip", Heartbeat: Heartbeat{Every: d(30 * time.Minute), ActiveHours: "08:00-22:00", Slot: "fast", Deliver: "preferred"}},
 		API:       APICfg{OpenAICompat: true, Passthrough: true},
+		Knowledge: defaultKnowledge(),
+		Releases: ReleasesCfg{
+			GitHubToken:  "secret:github_token",
+			GitHubAPI:    "https://api.github.com",
+			PollInterval: d(15 * time.Second),
+			FollowFor:    d(6 * time.Hour),
+		},
 	}
 }

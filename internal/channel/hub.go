@@ -82,7 +82,7 @@ func (h *Hub) Run(ctx context.Context) error {
 	}
 	h.mu.Unlock()
 
-	sub := h.d.Bus.Subscribe(core.Filter{System: true, Types: []core.EventType{core.EvApprovalRequested, core.EvApprovalResolved}}, 256)
+	sub := h.d.Bus.Subscribe(core.Filter{System: true, Types: []core.EventType{core.EvApprovalRequested, core.EvApprovalResolved, core.EvApprovalVoted}}, 256)
 	stopWatch := h.d.Config.Watch(func(_, _ *config.Config) { h.requestReconcile() })
 	h.reconcile()
 	h.contain("approval card resync", h.resyncCards)

@@ -130,6 +130,7 @@ type Manifest struct {
 	Core        bool          `json:"core"`               // schema always in the tools block; else via tool_search
 	Timeout     time.Duration `json:"timeout"`
 	MaxOutputKB int           `json:"max_output_kb"`
+	AlwaysAsk   bool          `json:"always_ask,omitempty"` // every call is a card (policy floor): no preset, rule or grant allows it, no allow_session
 }
 
 type ToolSpec struct {
@@ -155,6 +156,10 @@ const (
 	ActSkill    ActionKind = "skill"  // skill_load / skill_read
 	ActSearch   ActionKind = "search" // web_search, session_search
 	ActGeneric  ActionKind = "generic"
+	// ActRelease dispatches a deploy workflow (release_deploy). Policy gives
+	// it its own floor: never auto, never via rules or grants, only in
+	// interactive runs, approved by the environment's approvers.
+	ActRelease ActionKind = "release"
 )
 
 // Action is the structured, system-normalized form of a tool call. Policy,

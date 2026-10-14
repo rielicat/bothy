@@ -1,12 +1,9 @@
 // Setup and sign-in (C2): the setup code, the owner account, signing in, and
 // the provider detection and checks the model step runs.
-import type { Detection, ProbeResult } from '../../src/lib/api/types.gen.ts';
+import type { Detection, FailureCode, ProbeResult } from '../../src/lib/api/types.gen.ts';
 import { body, core, fail, json, on, SETUP_TOKEN, scenario, sleep, type Req } from './core.ts';
 import { me } from './shell.ts';
 
-// Local until S1, S3, S9 and S13 land in types.gen.ts (docs/design/ui.md §17); C10 removes them.
-export type DetectionV2 = Omit<Detection, 'kind'> & { kind: string; region?: string; source?: string };
-export type ProbeResultV2 = ProbeResult & { code?: string; source?: string };
 
 export const detections: Detection[] = [
   { kind: 'ollama', base_url: 'http://host.docker.internal:11434', models: ['qwen3:14b', 'qwen3:4b', 'llama3.2:3b'], note: '3 models' },
@@ -14,7 +11,7 @@ export const detections: Detection[] = [
 ];
 
 const bedrockModels = ['us.anthropic.claude-sonnet-4-5-20250929-v1:0', 'us.anthropic.claude-haiku-4-5-20251001-v1:0', 'us.amazon.nova-pro-v1:0'];
-const awsDetection: DetectionV2 = { kind: 'bedrock', base_url: '', region: 'us-east-1', source: 'instance role bothy-prod', models: bedrockModels };
+const awsDetection: Detection = { kind: 'bedrock', base_url: '', region: 'us-east-1', source: 'instance role bothy-prod', models: bedrockModels };
 
 const detectNone = scenario('detect-none', 'Setup finds no local models, keys or cloud access.', 'setup');
 const detectOllama = scenario('detect-ollama', 'Setup finds only Ollama on this computer.', 'setup');
@@ -144,9 +141,9 @@ function catalog(kind: string, base: string): string[] {
   return ['llama-3.3-70b-instruct'];
 }
 
-function probe(req: Req, b: { kind: string; base_url?: string; api_key?: string; model?: string; allow_private?: boolean; region?: string }): ProbeResultV2 {
+function probe(req: Req, b: { kind: string; base_url?: string; api_key?: string; model?: string; allow_private?: boolean; region?: string }): ProbeResult {
   const base = b.base_url ?? '';
-  const failed = (code: string): ProbeResultV2 => ({
+  const failed = (code: FailureCode): ProbeResult => ({
     ok: false,
     latency: 300e6,
     tool_calling: false,
@@ -155,14 +152,15 @@ function probe(req: Req, b: { kind: string; base_url?: string; api_key?: string;
     models: code === 'no_model_access' ? catalog(b.kind, base) : [],
     cost_micros: 0,
     detail: failures[code] ?? code,
+    error: failures[code] ?? code,
     code,
-    source: b.kind === 'bedrock' ? 'instance role bothy-prod' : undefined,
+    credentials: b.kind === 'bedrock' ? 'instance role bothy-prod' : undefined,
   });
-  const code = providerFail(req) ? providerFail.arg(req) || 'key_rejected' : b.api_key === 'bad' ? 'key_rejected' : '';
+  const code = (providerFail(req) ? providerFail.arg(req) || 'key_rejected' : b.api_key === 'bad' ? 'key_rejected' : '') as FailureCode | '';
   if (code) return failed(code);
-  if (base && privateHost(base) && !b.allow_private) return { ...failed('private_address'), detail: `Could not reach ${new URL(base).host}: destination address blocked` };
+  if (base && privateHost(base) && !b.allow_private) return { ...failed('private_address'), error: `Could not reach ${new URL(base).host}: destination address blocked` };
   const models = noModelList(req) && b.kind === 'openai_compat' ? [] : ollamaEmpty(req) && b.kind === 'ollama' ? [] : catalog(b.kind, base);
-  if (!models.length && !b.model) return { ...failed('no_models'), detail: 'The server lists no models; name one to test.' };
+  if (!models.length && !b.model) return { ...failed('no_models'), error: 'The server lists no models; name one to test.' };
   const context = Number(modelContext.arg(req)) || (b.kind === 'ollama' ? 32768 : 200000);
   return { ok: true, latency: 820e6, tool_calling: !noTools(req) && context >= 8192, usage_reported: true, context, models, cost_micros: b.kind === 'ollama' ? 0 : 31, detail: '' };
 }

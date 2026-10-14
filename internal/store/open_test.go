@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -39,10 +40,20 @@ func userVersion(t *testing.T, db *sql.DB) int {
 	return v
 }
 
+// latestVersion is the version of the newest embedded migration.
+func latestVersion(t *testing.T) int {
+	t.Helper()
+	ms, err := loadMigrations(migrationsFS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ms[len(ms)-1].version
+}
+
 func TestOpenFresh(t *testing.T) {
 	db, dir := openTemp(t)
-	if v := userVersion(t, db.w); v != 1 {
-		t.Fatalf("user_version = %d, want 1", v)
+	if v, want := userVersion(t, db.w), latestVersion(t); v != want {
+		t.Fatalf("user_version = %d, want %d", v, want)
 	}
 	if c, _ := compareVersions(db.SQLiteVersion(), minSQLiteVersion); c < 0 {
 		t.Fatalf("SQLiteVersion = %q", db.SQLiteVersion())
@@ -167,7 +178,7 @@ func TestReopen(t *testing.T) {
 	if err := db.r.QueryRow(`SELECT v FROM meta WHERE k = 'install_id'`).Scan(&v); err != nil || v != id {
 		t.Fatalf("install_id changed across reopen: %q -> %q %v", id, v, err)
 	}
-	if n := userVersion(t, db.w); n != 1 {
+	if n := userVersion(t, db.w); n != latestVersion(t) {
 		t.Fatalf("user_version = %d", n)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "backups")); !os.IsNotExist(err) {
@@ -191,13 +202,20 @@ func TestOpenRefusesNewerSchema(t *testing.T) {
 	}
 }
 
-func testMigrations(t *testing.T, extra map[string]string) []migration {
+// initOnlyFS holds just 0001_init.sql, so the migrator tests start from
+// version 1 however many migrations the binary embeds.
+func initOnlyFS(t *testing.T) fstest.MapFS {
 	t.Helper()
 	init, err := migrationsFS.ReadFile("migrations/0001_init.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
-	fsys := fstest.MapFS{"migrations/0001_init.sql": {Data: init}}
+	return fstest.MapFS{"migrations/0001_init.sql": {Data: init}}
+}
+
+func testMigrations(t *testing.T, extra map[string]string) []migration {
+	t.Helper()
+	fsys := initOnlyFS(t)
 	for name, body := range extra {
 		fsys["migrations/"+name] = &fstest.MapFile{Data: []byte(body)}
 	}
@@ -215,7 +233,7 @@ func TestMigratorBackupAndPrune(t *testing.T) {
 	ctx := context.Background()
 	clock := &stepClock{t: time.Date(2026, 10, 12, 9, 0, 0, 0, time.UTC)}
 
-	db, err := open(ctx, Options{Path: p, BackupDir: backups, BackupsKeep: 2, Clock: clock}, migrationsFS, queryVersion)
+	db, err := open(ctx, Options{Path: p, BackupDir: backups, BackupsKeep: 2, Clock: clock}, initOnlyFS(t), queryVersion)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +300,7 @@ func TestMigratorBackupAndPrune(t *testing.T) {
 func TestFailedMigrationRollsBack(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()
-	db, err := Open(ctx, Options{Path: filepath.Join(dir, "bothy.db")})
+	db, err := open(ctx, Options{Path: filepath.Join(dir, "bothy.db")}, initOnlyFS(t), queryVersion)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,8 +320,19 @@ func TestFailedMigrationRollsBack(t *testing.T) {
 
 func TestLoadMigrations(t *testing.T) {
 	ms, err := loadMigrations(migrationsFS)
-	if err != nil || len(ms) != 1 || ms[0].version != 1 || ms[0].name != "0001_init.sql" {
-		t.Fatalf("embedded migrations = %+v, %v", ms, err)
+	names := make([]string, len(ms))
+	for i, m := range ms {
+		names[i] = m.name
+	}
+	want := []string{"0001_init.sql", "0002_repos.sql", "0003_knowledge.sql", "0004_approval_votes.sql",
+		"0005_approval_comments.sql", "0006_must_change_password.sql", "0007_v02_fixes.sql"}
+	if err != nil || len(ms) < len(want) || !slices.Equal(names[:len(want)], want) {
+		t.Fatalf("embedded migrations = %v, %v", names, err)
+	}
+	for i, m := range ms {
+		if m.version != i+1 {
+			t.Fatalf("embedded migration %s has version %d, want %d", m.name, m.version, i+1)
+		}
 	}
 	bad := []fstest.MapFS{
 		{},

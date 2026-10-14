@@ -1,0 +1,5 @@
+{"headers":{":content-type":"application/json",":event-type":"messageStart",":message-type":"event"},"payload":"{\"p\":\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0\",\"role\":\"assistant\"}"}
+{"headers":{":content-type":"application/json",":event-type":"contentBlockDelta",":message-type":"event"},"payload":"{\"contentBlockIndex\":0,\"delta\":{\"text\":\"red\"},\"p\":\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTU\"}"}
+{"headers":{":content-type":"application/json",":event-type":"contentBlockStop",":message-type":"event"},"payload":"{\"contentBlockIndex\":0,\"p\":\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJ\"}"}
+{"headers":{":content-type":"application/json",":event-type":"messageStop",":message-type":"event"},"payload":"{\"p\":\"abcdefghijklmnopqrstuvwxyzABCDEFG\",\"stopReason\":\"end_turn\"}"}
+{"headers":{":content-type":"application/json",":event-type":"metadata",":message-type":"event"},"payload":"{\"metrics\":{\"latencyMs\":1387},\"p\":\"abc\",\"usage\":{\"inputTokens\":25,\"outputTokens\":4,\"serverToolUsage\":{},\"totalTokens\":29}}"}

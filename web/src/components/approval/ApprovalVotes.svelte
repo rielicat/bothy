@@ -2,7 +2,7 @@
   import { timeOfDay } from '../../lib/cardcopy';
   import { fullTime, plural } from '../../lib/format';
   import Avatar from '../ui/Avatar.svelte';
-  import type { ApprovalVotes } from './types';
+  import type { ApprovalVotes } from '../../lib/api/types.gen';
 
   // The Approvals row of a multi-approver card (§8.5): "1 of 2", each vote
   // with a name and time, and who can still approve.

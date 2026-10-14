@@ -2,7 +2,7 @@
 // viewer sees it. The event stream does not carry approval.voted to the web
 // yet, so open cards re-read it every 15 s and after each decision.
 import { api } from '../../lib/api/client';
-import type { ApprovalVotes } from './types';
+import type { ApprovalVotes } from '../../lib/api/types.gen';
 
 class Votes {
   /** null: the server has no vote state for this approval (single approver, or before S4). */

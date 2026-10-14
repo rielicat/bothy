@@ -1,6 +1,8 @@
 package sandboxd
 
 import (
+	"path"
+
 	"github.com/rielicat/bothy/internal/sandboxd/engine"
 	"github.com/rielicat/bothy/internal/sandboxd/proto"
 )
@@ -36,6 +38,59 @@ type specInput struct {
 	// Canary omits the skills mount: sandboxd cannot create directories on the
 	// work volume, and a volume subpath must exist before the mount.
 	Canary bool
+	// Binds selects the bind-mount mode for engines without volume subpaths
+	// (nil: subpath mounts).
+	Binds *bindRoots
+}
+
+// bindRoots are the host paths of the work and run volumes as the engine
+// reports them.
+type bindRoots struct{ work, run string }
+
+// boxMount is one mount of the spec: a subpath of the work or run volume,
+// derived from validated ids only.
+type boxMount struct {
+	work     bool // work volume, else run volume
+	sub      string
+	target   string
+	readOnly bool
+}
+
+func boxMounts(in specInput) []boxMount {
+	var ms []boxMount
+	if in.Workspace != "" {
+		ms = append(ms, boxMount{work: true, sub: "ws/" + in.Workspace, target: "/workspace"})
+	}
+	ms = append(ms, boxMount{sub: proto.EgressSubpath(in.Key), target: "/run/egress", readOnly: true})
+	if !in.Canary {
+		ms = append(ms, boxMount{work: true, sub: "skills", target: "/skills", readOnly: true})
+	}
+	if in.MCPTree != "" {
+		ms = append(ms, boxMount{work: true, sub: in.MCPTree, target: "/opt/mcp", readOnly: !in.MCPTreeRW})
+	}
+	return ms
+}
+
+// engineMount is m as a volume subpath mount or, in the bind-mount mode, as a
+// non-recursive bind of the same directory under the volume's host path.
+// The engine follows symlinks in a bind source, so such a box is used only
+// after verifyBinds. Propagation stays the engine's default: Docker refuses
+// rprivate for sources inside its data root and uses rslave there.
+func (in specInput) engineMount(m boxMount) engine.Mount {
+	if in.Binds == nil {
+		vol := in.RunVolume
+		if m.work {
+			vol = in.WorkVolume
+		}
+		return engine.Mount{Type: "volume", Source: vol, Target: m.target, ReadOnly: m.readOnly,
+			VolumeOptions: &engine.VolumeOptions{Subpath: m.sub, NoCopy: true}}
+	}
+	root := in.Binds.run
+	if m.work {
+		root = in.Binds.work
+	}
+	return engine.Mount{Type: "bind", Source: path.Join(root, m.sub), Target: m.target, ReadOnly: m.readOnly,
+		BindOptions: &engine.BindOptions{NonRecursive: true}}
 }
 
 // boxSpec is the compiled-in container spec of SPEC §2.6.
@@ -49,19 +104,8 @@ func boxSpec(in specInput) *engine.ContainerConfig {
 		secOpt = append(secOpt, "seccomp=builtin")
 	}
 	var mounts []engine.Mount
-	if in.Workspace != "" {
-		mounts = append(mounts, engine.Mount{Type: "volume", Source: in.WorkVolume, Target: "/workspace",
-			VolumeOptions: &engine.VolumeOptions{Subpath: "ws/" + in.Workspace, NoCopy: true}})
-	}
-	mounts = append(mounts, engine.Mount{Type: "volume", Source: in.RunVolume, Target: "/run/egress", ReadOnly: true,
-		VolumeOptions: &engine.VolumeOptions{Subpath: proto.EgressSubpath(in.Key), NoCopy: true}})
-	if !in.Canary {
-		mounts = append(mounts, engine.Mount{Type: "volume", Source: in.WorkVolume, Target: "/skills", ReadOnly: true,
-			VolumeOptions: &engine.VolumeOptions{Subpath: "skills", NoCopy: true}})
-	}
-	if in.MCPTree != "" {
-		mounts = append(mounts, engine.Mount{Type: "volume", Source: in.WorkVolume, Target: "/opt/mcp", ReadOnly: !in.MCPTreeRW,
-			VolumeOptions: &engine.VolumeOptions{Subpath: in.MCPTree, NoCopy: true}})
+	for _, m := range boxMounts(in) {
+		mounts = append(mounts, in.engineMount(m))
 	}
 	return &engine.ContainerConfig{
 		Image:      in.Image,

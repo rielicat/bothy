@@ -100,16 +100,40 @@ func publishConfigBanners(bus core.Bus, eff config.Effective) {
 	}
 }
 
+// printSetupBanner prints the setup link and code. With a public URL the
+// link works as printed; without one it names this server's own address,
+// which only a browser on this server (or through a tunnel) can open.
 func printSetupBanner(w io.Writer, c *config.Config, token string) {
-	fmt.Fprintf(w, "\n  Bothy is ready for setup.\n  Open %s/setup#t=%s\n  (token also in %s/setup-token; valid %s)\n\n",
-		baseURL(c), token, c.Storage.DataDir, c.Auth.SetupTokenTTL.D())
+	where := " on this server"
+	if c.Server.PublicURL != "" {
+		where = ""
+	}
+	fmt.Fprintf(w, "\n  Bothy is ready for setup.\n  Open %s/setup#t=%s%s\n  or paste the setup code %s\n  (also in %s/setup-token; valid for %s)\n\n",
+		baseURL(c), token, where, token, c.Storage.DataDir, plainDuration(c.Auth.SetupTokenTTL.D()))
 }
 
 // printSetupPending is the boot notice while setup is unfinished and the
-// token minted earlier is still valid; the token itself is not repeated.
+// code minted earlier is still valid; the code itself is not repeated.
 func printSetupPending(w io.Writer, c *config.Config) {
-	fmt.Fprintf(w, "\n  Bothy is waiting for setup.\n  Open %s/setup and paste the token from %s/setup-token\n  (or print a fresh one with: bothy setup-token)\n\n",
+	fmt.Fprintf(w, "\n  Bothy is waiting for setup.\n  Open %s/setup and paste the setup code from %s/setup-token\n  (or print a new one with: bothy setup-token)\n\n",
 		baseURL(c), c.Storage.DataDir)
+}
+
+// plainDuration says 24h as "24 hours" and 30m as "30 minutes".
+func plainDuration(d time.Duration) string {
+	unit := func(n int64, one string) string {
+		if n == 1 {
+			return "1 " + one
+		}
+		return fmt.Sprintf("%d %ss", n, one)
+	}
+	switch {
+	case d > 0 && d%time.Hour == 0:
+		return unit(int64(d/time.Hour), "hour")
+	case d > 0 && d%time.Minute == 0:
+		return unit(int64(d/time.Minute), "minute")
+	}
+	return d.String()
 }
 
 func tlsOn(c *config.Config) bool { return c.Server.TLS.CertFile != "" && c.Server.TLS.KeyFile != "" }

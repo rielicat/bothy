@@ -33,6 +33,9 @@ func Main(ctx context.Context, args []string, env func() []string) error {
 	if err != nil {
 		return err
 	}
+	if cfg.apiLimit != "" {
+		cli.LimitAPI(cfg.apiLimit)
+	}
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil)).With("component", "sandboxd")
 	ln, err := listenSocket(cfg.Socket, cfg.RunDir)
 	if err != nil {

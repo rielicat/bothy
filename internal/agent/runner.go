@@ -89,10 +89,7 @@ func (r *Runner) refuseDaily(ctx context.Context, sess *core.Session, req core.R
 	if !errors.As(err, &be) {
 		return
 	}
-	reset := r.resetTime()
-	text := fmt.Sprintf("Today's spending cap is reached (%s of %s). New runs start again at %s. Settings → Budgets has the limits.",
-		core.Micros(be.Used), core.Micros(be.Limit), reset.Format("15:04 MST"))
-	r.notice(ctx, sess.ID, sess.Principal, "", text, req.Sink)
+	r.notice(ctx, sess.ID, sess.Principal, "", r.budgetNotice(be), req.Sink)
 	r.auditf(ctx, "user:"+string(req.User), "budget.exceeded", string(sess.ID), "denied", sess.ID, "",
 		map[string]any{"kind": be.Kind, "limit": be.Limit, "used": be.Used})
 }
@@ -177,7 +174,17 @@ func (r *Runner) place(ctx context.Context, w *worker, req core.RunRequest) (cor
 func (r *Runner) steerable(a *runState, req core.RunRequest) bool {
 	return r.cfg().Agent.BusyMode != "queue" && a.turn != nil &&
 		req.Trigger == core.TrigMessage && a.req.Trigger == core.TrigMessage &&
-		req.User == a.req.User && req.Provenance == a.req.Provenance && len(req.Ephemeral) == 0
+		req.User == a.req.User && req.Provenance == a.req.Provenance && len(req.Ephemeral) == 0 &&
+		refineAgrees(a, req)
+}
+
+// refineAgrees: a message that asks for refine mode on or off when the run
+// is the other way gets a turn of its own, since folded into this run its
+// toggle would be ignored. w.mu is held; a.refine is read only once the turn
+// is persisted, because startTurn sets it before persistTurn flips that flag
+// under w.mu (before then, mergeable compares the requests instead).
+func refineAgrees(a *runState, req core.RunRequest) bool {
+	return req.Refine == nil || !a.turnPersisted || *req.Refine == (a.refine != nil)
 }
 
 func coalescible(req core.RunRequest) bool {
@@ -285,7 +292,7 @@ func (r *Runner) stopSession(ctx context.Context, sess *core.Session, by core.Us
 	if runStopped {
 		tot := rs.totals()
 		detail = map[string]any{"run": rs.id, "steps": tot.Steps, "cost_micros": tot.Cost}
-		r.notice(kctx, sess.ID, sess.Principal, rs.id, fmt.Sprintf("Stopped. %s, %s", plural(tot.Steps, "step"), tot.Cost), nil)
+		r.notice(kctx, sess.ID, sess.Principal, rs.id, stopNotice, nil)
 		time.AfterFunc(abandonAfter, func() { r.abandon(rs) })
 	}
 	var runID core.RunID

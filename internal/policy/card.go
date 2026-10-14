@@ -2,7 +2,6 @@ package policy
 
 import (
 	"bytes"
-	"cmp"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -30,12 +29,15 @@ func renderCard(r core.ApprovalRequest) core.Card {
 		Title:   visible(title),
 		Context: visible(r.Context),
 		Choices: slices.Clone(r.Decision.Choices),
+		Kind:    core.CardAction,
+		Tone:    core.ToneDefault,
 	}
 	for _, w := range r.Decision.Warnings {
 		c.Warnings = append(c.Warnings, visible(w))
 	}
 	a := r.Action
 	if a == nil {
+		c.Question, c.PrimaryLabel, c.Ing = toolQuestion(r)
 		return c
 	}
 	if c.Title == "" {
@@ -43,12 +45,6 @@ func renderCard(r core.ApprovalRequest) core.Card {
 	}
 	c.Risk = max(validOrZero(a.SideEffect), validOrZero(r.Spec.Manifest.SideEffect))
 	doc, _ := decodePayload(a.Payload)
-	add := func(label, value string, mono bool) {
-		if value != "" {
-			c.Fields = append(c.Fields, core.CardField{Label: label, Value: visible(value), Mono: mono})
-		}
-	}
-	add("Tool", a.Tool, true)
 
 	switch a.Kind {
 	case core.ActExec:
@@ -58,30 +54,16 @@ func renderCard(r core.ApprovalRequest) core.Card {
 				argv = list
 			}
 		}
-		cwd := a.Cwd
-		if s, ok := mustPointer(doc, "/cwd").(string); ok && s != "" {
-			cwd = s
-		}
 		if code, ok := mustPointer(doc, "/code").(string); ok {
-			add("Command", shellJoin(argv), true)
 			c.Code = visible(code)
 		} else {
 			c.Code = visible(shellJoin(argv))
 		}
-		add("Folder", cwd, true)
-	case core.ActFSRead, core.ActFSWrite, core.ActFSDelete:
-		label := "Path"
-		if len(a.Paths) > 1 {
-			label = "Paths"
-		}
-		add(label, strings.Join(a.Paths, "\n"), true)
-		if m, ok := mustPointer(doc, "/mode").(string); ok {
-			add("Mode", m, false)
-		}
+	case core.ActFSWrite:
 		// The diff stands for the content only when it is a complete text
 		// diff; an empty, omitted, binary or truncated one would let a card
 		// approve bytes nobody was shown.
-		if a.Kind == core.ActFSWrite && !completeDiff(a.Diff, a.Paths) {
+		if !completeDiff(a.Diff, a.Paths) {
 			if content, ok := mustPointer(doc, "/content").(string); ok {
 				c.Code = visible(content)
 			} else {
@@ -89,37 +71,15 @@ func renderCard(r core.ApprovalRequest) core.Card {
 			}
 		}
 	case core.ActHTTP:
-		if a.Method != "" && !strings.EqualFold(a.Method, "GET") {
-			add("Method", strings.ToUpper(a.Method), true)
+		if _, idn := punycodeURL(a.URL); idn {
+			c.Warnings = append(c.Warnings, "The address uses international characters. It's shown in a form that reveals look-alike letters.")
 		}
-		u, idn := punycodeURL(a.URL)
-		add("URL", u, true)
-		host := "unknown"
-		if hp := actionHosts(a); len(hp) > 0 && hp[0].host != "" {
-			host = hp[0].host
-		}
-		add("Host", host, true)
-		if idn {
-			c.Warnings = append(c.Warnings, "The address uses an internationalized domain name; it is shown in its ASCII (punycode) form.")
-		}
-	case core.ActNet:
-		if hp := actionHosts(a); len(hp) > 0 {
-			add("Network", hp[0].String(), true)
-		}
-	case core.ActSend:
-		add("Recipient", cmp.Or(a.Recipient, "unknown"), false)
-		c.Code = visible(prettyPayload(a.Payload))
-	case core.ActMCP:
-		add("MCP server", a.MCPServer, true)
-		add("MCP tool", a.MCPTool, true)
-		add("Recipient", a.Recipient, false)
-		u, _ := punycodeURL(a.URL)
-		add("URL", u, true)
-		c.Code = visible(prettyPayload(a.Payload))
+	case core.ActFSRead, core.ActFSDelete, core.ActNet, core.ActRelease:
 	default:
 		c.Code = visible(prettyPayload(a.Payload))
 	}
-	if len(a.Domains) > 0 {
+	applyPlain(&c, r, doc)
+	if len(a.Domains) > 0 && a.Kind != core.ActHTTP && a.Kind != core.ActNet {
 		hosts := make([]string, 0, len(a.Domains))
 		for _, d := range a.Domains {
 			if hp, ok := splitHostPort(d); ok {
@@ -128,7 +88,7 @@ func renderCard(r core.ApprovalRequest) core.Card {
 				hosts = append(hosts, d)
 			}
 		}
-		add("Domains", strings.Join(hosts, "\n"), true)
+		c.Fields = append(c.Fields, core.CardField{Label: "Websites", Value: visible(strings.Join(hosts, "\n")), Mono: true})
 	}
 	c.Diff = visible(capDiff(a.Diff))
 	return c

@@ -100,6 +100,9 @@ func (r sessionRepo) List(ctx context.Context, v core.Viewer, f core.SessionFilt
 	if !f.IncludeHidden {
 		q += ` AND hidden = 0`
 	}
+	if f.NonEmpty {
+		q += ` AND EXISTS (SELECT 1 FROM messages m WHERE m.session_id = sessions.id)`
+	}
 	if f.Query != "" {
 		q += ` AND title LIKE ? ESCAPE '\'`
 		args = append(args, "%"+escapeLike(f.Query)+"%")
