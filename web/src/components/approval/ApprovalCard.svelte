@@ -105,7 +105,16 @@
   const whoCan = $derived(
     multi ? vv?.approvers || 'the approvers this environment names' : view.approver?.admin_only ? 'any admin' : people.name(view.approver?.user_id) || 'the person who asked',
   );
-  const asked = $derived(origin.app ? `${someoneElse ? requesterName : 'You'} asked ${origin.group ? 'in a group chat on' : 'on'} ${origin.app}.` : '');
+  // A schedule's request was asked for by nobody in the moment, so it says where it came from instead.
+  // Someone else's request names the person and the chat once, here, so the meta line below leaves them out (§8.5).
+  const askedIn = $derived(someoneElse && !origin.schedule && !!origin.app && !!origin.title);
+  const asked = $derived(
+    origin.schedule
+      ? `Started by a schedule${origin.app ? ` on ${origin.app}` : ''}.`
+      : origin.app
+        ? `${someoneElse ? requesterName : 'You'} asked ${origin.group ? 'in a group chat on' : 'on'} ${origin.app}.`
+        : '',
+  );
   const left = $derived(vv ? Math.max(0, vv.required - vv.approvals) : 1);
   const technical = $derived<[string, string | undefined][]>([
     ['Tool', view.action?.tool],
@@ -209,7 +218,11 @@
   >
     <svelte:element this={level === 3 ? 'h3' : 'h2'} id="{uid}-q" class="text-heading text-text [overflow-wrap:anywhere]"><Words segs={copy.question} /></svelte:element>
     {#if copy.consequence}<p class="mt-1 text-body text-muted">{copy.consequence}</p>{/if}
-    {#if asked}<p class="text-body text-muted {copy.consequence ? '' : 'mt-1'}">{asked}</p>{/if}
+    {#if asked}
+      <p class="text-body text-muted {copy.consequence ? '' : 'mt-1'}">
+        {#if askedIn}{requesterName} asked in <span data-copy-ignore>“<Verbatim text={origin.title ?? ''} />”</span> on {origin.app}.{:else}{asked}{/if}
+      </p>
+    {/if}
 
     {#if warnings.length}
       <ul class="mt-3 space-y-1">
@@ -277,7 +290,7 @@
         </div>
         {#if always}
           <p class="mt-2 text-small">
-            <LinkButton disabled={!!busy} onclick={() => (alwaysOpen = true)}>Always allow <span class="contents" data-copy-ignore><Verbatim text={copy.grant} /></span>…</LinkButton>
+            <LinkButton class="text-left" disabled={!!busy} onclick={() => (alwaysOpen = true)}><span>Always allow <Words segs={copy.grant} />…</span></LinkButton>
           </p>
         {/if}
       {:else if open}
@@ -299,7 +312,7 @@
     {/if}
 
     <p class="mt-3 text-small text-muted">
-      {#if view.session_id && (!someoneElse || origin.title)}
+      {#if view.session_id && (!someoneElse || (origin.title && !askedIn))}
         {#if someoneElse}
           Requested by {requesterName} in <span data-copy-ignore>“<Verbatim text={origin.title ?? ''} />”</span>
         {:else}

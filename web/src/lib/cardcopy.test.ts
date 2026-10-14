@@ -132,9 +132,16 @@ describe('cardCopy, one row per action', () => {
   });
 
   it('describes the narrow permission "Allow for this chat" grants', () => {
-    expect(cardCopy(ap(rows[1][1])).grant).toBe('changes to files in notes/');
-    expect(cardCopy(ap(rows[7][1])).grant).toBe('sending messages to this Slack chat');
-    expect(cardCopy(ap(rows[12][1])).grant).toBe('contacting pypi.org');
+    expect(cardCopy(ap(rows[1][1])).grant).toEqual(['changes to files in ', { code: 'notes/' }]);
+    expect(segText(cardCopy(ap(rows[7][1])).grant)).toBe('sending messages to this Slack chat');
+    expect(segText(cardCopy(ap(rows[12][1])).grant)).toBe('contacting pypi.org');
+  });
+
+  it('says what a grant that pins the whole request is about', () => {
+    const g = (a: Action) => segText(cardCopy(ap(a)).grant);
+    expect(g(act('memory', 'memory', 'local_write', { op: 'add', new: 'x' }))).toBe('remembering this exact note');
+    expect(g(act('notes', 'memory', 'local_write', { repo: 'acme/web' }))).toBe('making this exact change to the notes for acme/web');
+    expect(g(act('mcp__linear__create_issue', 'mcp', 'external_send', { title: 't' }, { mcp_server: 'linear', mcp_tool: 'create_issue' }))).toBe('using Linear: Create issue with these exact details');
   });
 
   it('prefers the server copy once the card carries it (S2)', () => {

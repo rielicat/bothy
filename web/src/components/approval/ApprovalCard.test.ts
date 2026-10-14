@@ -82,6 +82,25 @@ describe('ApprovalCard', () => {
     expect(container.querySelector('img')).toBeNull();
   });
 
+  it('says a schedule started a request instead of saying you asked', () => {
+    const a = approval();
+    render(ApprovalCard, { approval: { ...a, card: { ...a.card, context: 'Telegram · DM · schedule · session “Morning briefing”' } } });
+    const card = screen.getByRole('article');
+    expect(card.textContent).toContain('Started by a schedule on Telegram.');
+    expect(card.textContent).not.toContain('You asked');
+  });
+
+  it('names a grant that pins the whole request by what it does', async () => {
+    const a = approval();
+    render(ApprovalCard, {
+      approval: {
+        ...a,
+        action: { tool: 'memory', kind: 'memory', side_effect: 'local_write', payload: { op: 'add', new: 'Releases go out on Tuesdays.' }, fingerprint: 'f' },
+      },
+    });
+    expect(screen.getByRole('button', { name: 'Always allow remembering this exact note…' })).toBeTruthy();
+  });
+
   it('shows bidi and zero-width characters instead of applying them', () => {
     const { container } = render(ApprovalCard, { approval: approval() });
     expect(container.textContent).toContain('⟨U+202E⟩');
@@ -152,7 +171,9 @@ describe('ApprovalCard', () => {
     render(ApprovalCard, { approval: approval() });
     await fireEvent.click(screen.getByRole('button', { name: /Always allow/ }));
     const dialog = await screen.findByRole('dialog');
-    expect(dialog.textContent).toContain("Bothy won't ask again before “running");
+    // The grant is Bothy's wording, not something the person typed, so no curly quotes (§14.2); the command is in mono.
+    expect(dialog.textContent).toContain("Bothy won't ask again before running rm -rf build ⟨U+202E⟩/ txt.exe, in any chat.");
+    expect(dialog.querySelector('.font-mono')?.textContent).toContain('rm -rf build');
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Always allow' }));
     await waitFor(() => expect(posts()).toHaveLength(1));
     expect(JSON.parse(posts()[0].body)).toEqual({ choice: 'allow_always' });
@@ -230,7 +251,8 @@ describe('ApprovalCard with several approvers', () => {
     expect(card.textContent).toContain('Maya Chen approved');
     expect(card.textContent).toContain('One more from Sam, Priya Rao or any admin');
     expect(card.textContent).toContain('This updates production for everyone using it.');
-    expect(card.textContent).toContain('Alex asked in a group chat on Slack.');
+    expect(card.textContent).toContain('Alex asked in “Release train” on Slack.');
+    expect(card.textContent).not.toContain('Requested by');
     expect(buttons(card).map((b) => b.textContent?.trim())).toEqual(['Approve deploy', 'Deny']);
     expect(buttons(card)[0].className).toContain('btn-primary');
     expect(screen.queryByRole('button', { name: /Allow for this chat|Always allow/ })).toBeNull();

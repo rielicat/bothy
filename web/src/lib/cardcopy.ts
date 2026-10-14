@@ -7,7 +7,7 @@ import type { Action, Approval } from './api/types.gen';
 import type { ApprovalV2, ApprovalVotes, CardV2 } from '../components/approval/types';
 import { fileLines, parseDiff } from '../components/ui/diff';
 import { date, expiresIn, plural, relTime } from './format';
-import { commandOf, describeGrant, hostOf } from './grants';
+import { commandOf, describeGrantParts, EXACT_GRANT, hostOf } from './grants';
 
 /** Text with identifiers (paths, hosts, commands) marked for `text-code` rendering through Verbatim. */
 export type Seg = string | { code: string };
@@ -56,7 +56,7 @@ export interface CardCopy {
   /** "delete notes/staging.md", for "Expired: Bothy didn't …". */
   ask: Seg[];
   /** What "Allow for this chat" lets through: "changes to files in notes/". */
-  grant: string;
+  grant: Seg[];
   warnings: string[];
   fields: CopyField[];
 }
@@ -177,6 +177,8 @@ interface Built {
   ask: Seg[];
   consequence?: string;
   fields: (CopyField | null | undefined | false | "")[];
+  /** The grant's words when the gateway pins the whole request (memory, notes). */
+  exact?: Seg[];
   kind?: CardKind;
   destructive?: boolean;
 }
@@ -322,7 +324,7 @@ function message(a: Action, p: Payload): Built {
 function memory(_a: Action, p: Payload): Built {
   if (str(p.op) === 'remove') {
     const old = str(p.old);
-    return { question: ['Forget this?'], primary: 'Forget', ing: [`forgetting “${clip(old, 60)}”`], ask: ['forget something'], fields: [{ label: 'Note', value: old }] };
+    return { question: ['Forget this?'], primary: 'Forget', ing: [`forgetting “${clip(old, 60)}”`], ask: ['forget something'], exact: ['forgetting this exact note'], fields: [{ label: 'Note', value: old }] };
   }
   const note = str(p.new);
   return {
@@ -330,6 +332,7 @@ function memory(_a: Action, p: Payload): Built {
     primary: 'Remember',
     ing: [`remembering “${clip(note, 60)}”`],
     ask: ['remember something'],
+    exact: ['remembering this exact note'],
     fields: [{ label: 'Note', value: note }, str(p.op) === 'replace' && { label: 'Replaces', value: str(p.old) }],
   };
 }
@@ -342,6 +345,7 @@ function notes(a: Action, p: Payload, card: CardV2): Built {
     primary: 'Update notes',
     ing: ['updating the notes for ', code(repo)],
     ask: ['update the notes for ', code(repo)],
+    exact: ['making this exact change to the notes for ', code(repo)],
     fields: [diff && { label: 'Change', show: { kind: 'prose', content: diff } }],
   };
 }
@@ -504,6 +508,13 @@ function legacy(card: CardV2): Built {
   return { question: [`${title}?`], primary: 'Allow', ing: [lower.replace(/^(\w+)/, (w) => (w.endsWith('e') ? w.slice(0, -1) : w) + 'ing')], ask: [lower], fields };
 }
 
+// A grant that pins the whole request still says what it is about: "using Linear: Create issue with these exact details".
+function grantOf(a: Action | undefined, b: Built): Seg[] {
+  const parts = describeGrantParts(a);
+  if (!a || parts.length !== 1 || parts[0] !== EXACT_GRANT) return parts;
+  return b.exact ?? [...b.ing, ' with these exact details'];
+}
+
 /** The plain copy of an approval card: from the server's S2 fields when present, else from the Action. */
 export function cardCopy(ap: Approval): CardCopy {
   const card = ap.card as CardV2;
@@ -531,7 +542,7 @@ export function cardCopy(ap: Approval): CardCopy {
     primary: b.primary,
     ing: b.ing,
     ask: b.ask,
-    grant: describeGrant(a),
+    grant: grantOf(a, b),
     warnings: plainWarnings(ap),
     fields: b.fields.filter((f): f is CopyField => !!f),
   };
@@ -666,8 +677,8 @@ export function decidedLine(ap: Approval, o: DecidedOpts): DecidedCopy {
   if (isMulti(ap) && yes.length) return { glyph: 'check', tone: 'accent', segs: [`${joinNames(yes.map(voteName))} approved `, ...copy.ing], time, at };
   const name = who(ap.decided_by, a2.decided_by_name);
   let segs: Seg[];
-  if (ap.choice === 'allow_session') segs = [`${name} allowed ${copy.grant} for this chat`];
-  else if (ap.choice === 'allow_always') segs = [`${name} ${name === 'You' ? 'always allow' : 'always allows'} ${copy.grant}`];
+  if (ap.choice === 'allow_session') segs = [`${name} allowed `, ...copy.grant, ' for this chat'];
+  else if (ap.choice === 'allow_always') segs = [`${name} ${name === 'You' ? 'always allow' : 'always allows'} `, ...copy.grant];
   else if (name !== 'You' && !o.list) segs = [`${name} approved${via ? ` in ${via}` : ''}`];
   else segs = [`${name} approved `, ...copy.ing];
   return { glyph: 'check', tone: 'accent', segs, time, at };

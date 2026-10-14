@@ -48,46 +48,59 @@ export function hostOf(a: Pick<Action, 'host' | 'port' | 'url'>): string {
 
 const capital = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
+/** Grant wording with identifiers (paths, hosts, commands, repositories) marked for `text-code`. */
+export type GrantPart = string | { code: string };
+
+/** The wording for a grant that pins the whole request, used when nothing narrower can be named. */
+export const EXACT_GRANT = 'this exact request';
+
 /**
  * What "Allow for this chat" or "Always allow" lets through, in words: the
  * narrow grant the gateway forms from the Action (policy/grants.go
  * narrowGrant). "changes to files in notes/", "contacting api.example.com".
  */
-export function describeGrant(a: Action | undefined): string {
-  if (!a) return 'this exact request';
+export function describeGrantParts(a: Action | undefined): GrantPart[] {
+  if (!a) return [EXACT_GRANT];
   const p = payloadOf(a);
+  const code = (c: string) => ({ code: c });
   switch (a.kind) {
     case 'exec': {
-      if (typeof p.code === 'string') return 'running this exact script';
+      if (typeof p.code === 'string') return ['running this exact script'];
       const argv = Array.isArray(p.argv) ? (p.argv as string[]) : (a.argv ?? []);
       const prog = base(argv[0] ?? '');
       if (!prog) break;
-      return interpreters.includes(prog) ? `running ${commandOf(a)}` : `running ${prog} commands`;
+      return interpreters.includes(prog) ? ['running ', code(commandOf(a))] : ['running ', code(prog), ' commands'];
     }
     case 'fs.write':
     case 'fs.delete': {
       const path = (typeof p.path === 'string' ? p.path : (a.paths?.[0] ?? '')).replace(/^\.\//, '');
       if (!path) break;
       const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
-      if (a.kind === 'fs.delete') return dir ? `deleting files in ${dir}/` : `deleting ${path}`;
-      return dir ? `changes to files in ${dir}/` : `changes to ${path}`;
+      if (a.kind === 'fs.delete') return dir ? ['deleting files in ', code(`${dir}/`)] : ['deleting ', code(path)];
+      return dir ? ['changes to files in ', code(`${dir}/`)] : ['changes to ', code(path)];
     }
     case 'http':
     case 'net': {
       const host = hostOf(a);
-      if (host) return `contacting ${host}`;
+      if (host) return ['contacting ', code(host)];
       break;
     }
     case 'send': {
       const r = a.recipient ?? '';
       if (!r) break;
-      if (r.startsWith('github:')) return `${a.tool === 'repo_open_pr' ? 'pull requests' : 'comments'} in ${r.slice(7)}`;
+      if (r.startsWith('github:')) return [`${a.tool === 'repo_open_pr' ? 'pull requests' : 'comments'} in `, code(r.slice(7))];
       const app = r.includes(':') ? r.slice(0, r.indexOf(':')) : '';
-      return app ? `sending messages to this ${capital(app)} chat` : `sending messages to ${r}`;
+      return app ? [`sending messages to this ${capital(app)} chat`] : [`sending messages to ${r}`];
     }
     case 'mcp':
-      if (a.recipient) return `using ${capital(a.mcp_server ?? 'this tool')} with ${a.recipient}`;
+      if (a.recipient) return [`using ${capital(a.mcp_server ?? 'this tool')} with ${a.recipient}`];
       break;
   }
-  return 'this exact request';
+  return [EXACT_GRANT];
+}
+
+export function describeGrant(a: Action | undefined): string {
+  return describeGrantParts(a)
+    .map((x) => (typeof x === 'string' ? x : x.code))
+    .join('');
 }

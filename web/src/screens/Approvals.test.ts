@@ -145,6 +145,13 @@ describe('Approvals inbox, other states', () => {
     expect(screen.queryByRole('heading', { name: 'For you' })).toBeNull();
   });
 
+  it('counts only what waits for the viewer on the Waiting tab', async () => {
+    await open('/approvals', {}, 'member');
+    await screen.findByText('Nothing needs your approval.');
+    expect(screen.getByRole('heading', { name: 'Waiting for others' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: /Waiting/ }).textContent).toBe('Waiting');
+  });
+
   it('lists only action approvals before the server lists review items', async () => {
     await open('/approvals', {}, 'approvals-no-items');
     await screen.findByRole('heading', { name: 'For you' });

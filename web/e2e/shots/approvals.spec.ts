@@ -40,6 +40,8 @@ const inCard = (id: string, name: string | RegExp) => async (page: Page) => {
 const openRow = (key: string, then?: (page: Page) => Promise<unknown>) => async (page: Page) => {
   await page.locator(`[data-row="${key}"] button[aria-expanded]`).click();
   await page.locator(`[data-row="${key}"] article`).waitFor();
+  // The rows moved under the pointer when the card opened; a stale hover would show in the capture.
+  await page.mouse.move(0, 0);
   await then?.(page);
 };
 const showOn = (text: string) => async (page: Page) => {
@@ -82,6 +84,8 @@ const states: ShotState[] = [
   { name: 'inbox-actions-only', route: '/approvals', mock: 'approvals-no-items', ready: frame },
   { name: 'empty-waiting', route: '/approvals', mock: 'approvals-empty', ready: frame },
   { name: 'empty-done', route: '/approvals?tab=done', mock: 'approvals-empty', ready: frame },
+  { name: 'load-failed', route: '/approvals', mock: 'approvals-down', ready: frame },
+  { name: 'load-failed-done', route: '/approvals?tab=done', mock: 'approvals-down', ready: frame },
   { name: 'done', route: '/approvals?tab=done', ready: frame, full: true },
   { name: 'done-show-multi-approved', route: '/approvals?tab=done', ready: frame, setup: showOn('Maya Chen and Priya Rao approved') },
   { name: 'done-show-multi-denied', route: '/approvals?tab=done', ready: frame, setup: showOn('Maya Chen denied') },

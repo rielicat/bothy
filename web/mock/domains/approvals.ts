@@ -12,6 +12,7 @@ const noItems = scenario('approvals-no-items', 'The server lists no review items
 const voted = scenario('deploy-voted', 'You already approved the production deploy; it waits for one more.', 'approvals');
 const requester = scenario('deploy-requester', 'You asked for the production deploy, so others must approve it.', 'approvals');
 const ineligible = scenario('deploy-ineligible', 'You are not one of the production deploy approvers.', 'approvals');
+const listDown = scenario('approvals-down', "Listing approvals fails, to show the page that didn't load.", 'approvals');
 
 const maya = 'usr_01jmaya000000000000000000';
 const priya = 'usr_01jpriya00000000000000000';
@@ -340,6 +341,7 @@ function votesOf(a: ApprovalV2, req: Req): ApprovalVotes {
 const multi = (a: ApprovalV2) => !a.approver.user_id && !a.approver.admin_only && !!(a.approver.users?.length || a.approver.roles?.length);
 
 on('GET', '/api/approvals', (req, res, _m, q) => {
+  if (listDown(req)) return fail(res, 503, 'unavailable', 'mock: approvals-down');
   if (none(req)) return json(res, 200, { items: [] });
   const status = q.get('status') ?? 'pending';
   json(res, 200, { items: status === 'recent' ? state.recent : list(req).filter((a) => a.status === status) });

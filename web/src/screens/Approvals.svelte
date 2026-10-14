@@ -7,6 +7,7 @@
   import type { InboxItem } from '../components/approval/types';
   import { votes } from '../components/approval/votes.svelte';
   import { announce } from '../components/ui/live.svelte';
+  import Button from '../components/ui/Button.svelte';
   import EmptyState from '../components/ui/EmptyState.svelte';
   import LiveRegion from '../components/ui/LiveRegion.svelte';
   import Page from '../components/ui/Page.svelte';
@@ -70,7 +71,8 @@
       .sort(byCreated),
   );
   const rows = $derived([...forYou, ...others]);
-  const count = $derived(rows.length);
+  // Counts only what waits on the viewer, so the tab never shows a number above "Nothing needs your approval".
+  const count = $derived(forYou.length);
 
   async function loadWaiting() {
     failed = false;
@@ -288,8 +290,10 @@
 {#snippet chatLink(a: Approval)}
   {@const o = originOf(a)}
   {#if a.session_id}
-    <a class="link -my-0.5 inline-flex min-h-6 items-center pointer-coarse:-my-3 pointer-coarse:min-h-11" href="/chat/{encodeURIComponent(a.session_id)}" onclick={router.link}
-      >{#if o.title}From&nbsp;<span data-copy-ignore>“<Verbatim text={o.title} />”</span>{:else}Open the chat{/if}</a
+    {#if o.title}From{' '}{/if}<a
+      class="link -my-0.5 inline-flex min-h-6 items-center pointer-coarse:-my-3 pointer-coarse:min-h-11"
+      href="/chat/{encodeURIComponent(a.session_id)}"
+      onclick={router.link}>{#if o.title}<span data-copy-ignore>“<Verbatim text={o.title} />”</span>{:else}Open the chat{/if}</a
     >
   {/if}
 {/snippet}
@@ -353,8 +357,9 @@
   {:else}
     {#if missing || target}
       <div class="mb-10">
-        <EmptyState text="This request was already decided or doesn't exist." action={{ label: 'Go to Approvals', href: '/approvals', variant: 'secondary' }} />
-        {#if target}<div class="mt-4"><DecidedLine approval={target} list /></div>{/if}
+        <EmptyState text="This request was already decided or doesn't exist." />
+        {#if target}<div class="mt-2"><DecidedLine approval={target} list /></div>{/if}
+        <Button class="mt-4" href="/approvals">Go to Approvals</Button>
       </div>
     {/if}
     {#if failed}

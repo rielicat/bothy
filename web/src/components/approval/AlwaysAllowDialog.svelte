@@ -1,7 +1,8 @@
 <script lang="ts">
+  import type { Seg } from '../../lib/cardcopy';
   import Button from '../ui/Button.svelte';
   import Dialog from '../ui/Dialog.svelte';
-  import Verbatim from '../Verbatim.svelte';
+  import Words from './Words.svelte';
 
   // Confirms a standing permission (§8.3). It has no keyboard shortcut, so a
   // stray key press can never create one.
@@ -13,7 +14,7 @@
   }: {
     open?: boolean;
     /** "sending messages to this Slack chat" */
-    grant: string;
+    grant: Seg[];
     busy?: boolean;
     onconfirm: () => void;
   } = $props();
@@ -21,7 +22,7 @@
 
 <Dialog bind:open title="Always allow this?" {busy}>
   <p class="text-body text-text">
-    Bothy won't ask again before <span data-copy-ignore>“<Verbatim text={grant} />”</span>, in any chat. You can remove this in Settings → Security.
+    Bothy won't ask again before <Words segs={grant} />, in any chat. You can remove this in Settings → Security.
   </p>
   {#snippet footer({ close })}
     <Button data-cancel disabled={busy} onclick={close}>Cancel</Button>
