@@ -203,8 +203,8 @@ Skip the ACL in step 1. Bothy shows the "No sandbox" banner.
 
 - An internal ALB in subnets that hold nothing else, an HTTPS listener with an
   ACM certificate, and a target group of type `instance`, protocol HTTP, port
-  8080, health check path `/healthz`, success codes `421` (the health checker
-  sends the target IP as Host, which Bothy rejects first; tested). Attach it
+  8080, health check path `/healthz`, success code `200` (Bothy answers health
+  checks whatever their Host header; tested). Attach it
   with `--load-balancers targetGroupArn=<arn>,containerName=bothy,containerPort=8080`
   on `create-service`.
 - Instance security group: port 8080 from the ALB's security group only.

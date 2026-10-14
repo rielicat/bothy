@@ -96,11 +96,12 @@ unknown Host), but the port should not be reachable in the first place.
   could forge both. A forwarded address never counts as local, whatever it
   says, so it cannot open first-run setup.
 
-**ALB health checks** use plain HTTP and send the target's IP as the Host
-header, which Bothy rejects with 421 before anything else. Set the target
-group's success codes to `421`: it proves the gateway answers, and the
-container health check (`/bothy healthcheck`) remains the real liveness
-probe.
+**ALB health checks** use plain HTTP from the ALB's own address and send the
+target's IP as the Host header. Bothy answers `GET` and `HEAD` on `/healthz`
+and `/readyz` before the Host check and the exposure gate, so keep the target
+group's default success code `200` and use `/healthz` (`/readyz` also turns 503
+while the database or configuration is not ready). Every other path still gets
+421 for an unknown Host and 403 for plain HTTP.
 
 **First-run setup through an ALB** is refused, whatever client address the
 ALB forwards. Run setup through a tunnel that reaches the gateway directly:
@@ -174,11 +175,12 @@ gateway and sandbox images built from this repository:
   point root `65532` `0700`, KEK and `/tmp` prepared by the init container):
   healthy, vault open with source `file`, no `data.permissions` finding, and
   `bothy backup` works in the Kubernetes layout.
-- The exposure gate as an ALB meets it: 421 for health checks, 403 for plain
-  HTTP from the VPC, 200 through a trusted proxy with `X-Forwarded-Proto:
-  https`; setup through the proxy 403, also when the forwarded address is
-  loopback or in `server.local_cidrs` (the `httpapi` tests and a native
-  gateway on macOS).
+- The exposure gate as an ALB meets it (the `httpapi` tests and a native
+  gateway on macOS): 200 for `GET`/`HEAD` `/healthz` and `/readyz` with the
+  target IP as Host over plain HTTP from the VPC, 421 for any other path with
+  that Host, 403 for plain HTTP from the VPC, 200 through a trusted proxy with
+  `X-Forwarded-Proto: https`; setup through the proxy 403, also when the
+  forwarded address is loopback or in `server.local_cidrs`.
 - Manifests: both ECS task definitions pass the AWS CLI's parameter
   validation for `RegisterTaskDefinition`; the Kubernetes manifests render with
   `kubectl kustomize` and decode strictly into the `k8s.io/api` v0.34 types;

@@ -80,9 +80,9 @@ Two Fargate-specific details, both in the task definition:
 
 5. **ALB.** Internal, in subnets that hold nothing else, with an HTTPS
    listener and an ACM certificate. Target group: type `ip`, HTTP, port 8080,
-   health check path `/healthz`, success codes `421` (the health checker sends
-   the task's IP as Host, which Bothy rejects first; tested). The task's
-   security group allows 8080 from the ALB's security group only.
+   health check path `/healthz`, success code `200` (Bothy answers health
+   checks whatever their Host header; tested). The task's security group
+   allows 8080 from the ALB's security group only.
 
 6. **Service.**
 

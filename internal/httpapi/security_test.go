@@ -90,10 +90,10 @@ func TestExposureGate(t *testing.T) {
 func TestDefaultGatewayIsLocal(t *testing.T) {
 	h := newHarness(t)
 	h.srv.gateways = func() []netip.Addr { return []netip.Addr{netip.MustParseAddr("172.17.0.1")} }
-	if rec := h.do("GET", "/healthz", nil, nil, fromAddr("172.17.0.1:5000")); rec.Code != http.StatusOK {
+	if rec := h.do("GET", "/api/setup/state", nil, nil, fromAddr("172.17.0.1:5000")); rec.Code != http.StatusOK {
 		t.Fatalf("docker gateway = %d", rec.Code)
 	}
-	if rec := h.do("GET", "/healthz", nil, nil, fromAddr("172.17.0.5:5000")); rec.Code != http.StatusForbidden {
+	if rec := h.do("GET", "/api/auth/me", nil, nil, fromAddr("172.17.0.5:5000")); rec.Code != http.StatusForbidden {
 		t.Fatalf("other bridge peer = %d", rec.Code)
 	}
 }
@@ -156,6 +156,41 @@ func TestForwardedAddressNeverLocal(t *testing.T) {
 		expect(t, h.do("GET", "/api/setup/state", nil, nil, fromAddr(addr)), http.StatusOK)
 	}
 	expect(t, h.do("GET", "/api/setup/state", nil, nil, fromAddr("10.0.0.2:40000")), http.StatusForbidden)
+}
+
+// Load balancers probe with the target IP as Host, over plain HTTP from
+// their own address and without cookies: the health routes answer them,
+// and every other route keeps the Host check and the exposure gate.
+func TestHealthProbesSkipHostAndExposureChecks(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) {
+		c.Server.PublicURL = "https://bothy.example.com"
+		c.Server.TrustedProxies = []string{"10.0.10.0/24"}
+	})
+	probe := []reqOpt{withHost("10.0.20.7:8080"), fromAddr("10.0.10.5:41000")}
+	for _, m := range []string{"GET", "HEAD"} {
+		expect(t, h.do(m, "/healthz", nil, nil, probe...), http.StatusOK)
+		expect(t, h.do(m, "/readyz", nil, nil, probe...), http.StatusOK)
+	}
+	expect(t, h.do("GET", "/healthz", nil, nil, withHost("evil.example"), fromAddr("203.0.113.9:1")), http.StatusOK)
+	for _, tc := range []struct {
+		method, path string
+		opts         []reqOpt
+		want         int
+	}{
+		{"GET", "/api/auth/me", probe, http.StatusMisdirectedRequest},
+		{"GET", "/api/setup/state", probe, http.StatusMisdirectedRequest},
+		{"GET", "/", probe, http.StatusMisdirectedRequest},
+		{"GET", "/healthz/", probe, http.StatusMisdirectedRequest},
+		{"GET", "/healthzx", probe, http.StatusMisdirectedRequest},
+		{"POST", "/healthz", probe, http.StatusMisdirectedRequest},
+		{"OPTIONS", "/readyz", probe, http.StatusMisdirectedRequest},
+		{"GET", "/api/auth/me", []reqOpt{withHost("bothy.example.com"), fromAddr("10.0.10.5:41000")}, http.StatusForbidden},
+		{"GET", "/", []reqOpt{withHost("bothy.example.com"), fromAddr("203.0.113.9:1")}, http.StatusForbidden},
+	} {
+		if rec := h.do(tc.method, tc.path, nil, nil, tc.opts...); rec.Code != tc.want {
+			t.Errorf("%s %s = %d, want %d", tc.method, tc.path, rec.Code, tc.want)
+		}
+	}
 }
 
 func TestParseRoutes(t *testing.T) {
