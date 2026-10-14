@@ -38,6 +38,7 @@ type Server struct {
 
 	mu         sync.Mutex
 	legacy     bool
+	strict     bool
 	rejectRefs []string
 	dispatches []Dispatch
 	runs       []*Run
@@ -63,6 +64,15 @@ func (s *Server) Close() { s.srv.Close() }
 func (s *Server) SetLegacy(on bool) {
 	s.mu.Lock()
 	s.legacy = on
+	s.mu.Unlock()
+}
+
+// SetStrict makes dispatches reject body keys the server does not know with
+// 422, as a GitHub Enterprise Server release without return_run_details
+// does, and answer 204 otherwise.
+func (s *Server) SetStrict(on bool) {
+	s.mu.Lock()
+	s.strict = on
 	s.mu.Unlock()
 }
 
@@ -132,16 +142,27 @@ func (s *Server) auth(next http.Handler) http.Handler {
 }
 
 func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
+	var raw map[string]json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": "Problems parsing JSON"})
+		return
+	}
 	var body struct {
 		Ref              string            `json:"ref"`
 		Inputs           map[string]string `json:"inputs"`
 		ReturnRunDetails bool              `json:"return_run_details"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Ref == "" {
+	b, _ := json.Marshal(raw)
+	if err := json.Unmarshal(b, &body); err != nil || body.Ref == "" {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": "Invalid request: ref is required"})
 		return
 	}
 	s.mu.Lock()
+	if _, ok := raw["return_run_details"]; ok && s.strict {
+		s.mu.Unlock()
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": "Invalid request.\n\n\"return_run_details\" is not a permitted key."})
+		return
+	}
 	if slices.Contains(s.rejectRefs, body.Ref) {
 		s.mu.Unlock()
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": "No ref found for: " + body.Ref})
@@ -154,7 +175,7 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 	run := &Run{ID: int64(9000 + len(s.runs) + 1), Number: len(s.runs) + 1, Repo: repo, Workflow: r.PathValue("wf"), Ref: body.Ref,
 		Status: "queued", HeadSHA: strings.Repeat("ab", 20), CreatedAt: now, UpdatedAt: now}
 	s.runs = append(s.runs, run)
-	legacy := s.legacy
+	legacy := s.legacy || s.strict
 	s.mu.Unlock()
 	if legacy || !body.ReturnRunDetails {
 		w.WriteHeader(http.StatusNoContent)

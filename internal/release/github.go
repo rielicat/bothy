@@ -89,6 +89,9 @@ func (g *GitHub) connect(ctx context.Context) (*conn, error) {
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil || u.RawQuery != "" {
 		return nil, fmt.Errorf("release: invalid releases.github_api %q: %w", base, core.ErrInvalid)
 	}
+	if u.Scheme == "http" && !config.PlainHTTPAllowed(u.Hostname()) {
+		return nil, fmt.Errorf("release: releases.github_api %q must use https to carry the GitHub token: %w", base, core.ErrInvalid)
+	}
 	port := u.Port()
 	if port == "" {
 		port = "443"
@@ -217,8 +220,17 @@ func (g *GitHub) Dispatch(ctx context.Context, d core.WorkflowDispatch) (*core.W
 	var res struct {
 		RunID int64 `json:"workflow_run_id"`
 	}
-	status, err := c.do(ctx, http.MethodPost, rp+"/actions/workflows/"+url.PathEscape(d.Workflow)+"/dispatches",
-		map[string]any{"ref": d.Ref, "inputs": inputs, "return_run_details": true}, &res)
+	path := rp + "/actions/workflows/" + url.PathEscape(d.Workflow) + "/dispatches"
+	body := map[string]any{"ref": d.Ref, "inputs": inputs, "return_run_details": true}
+	status, err := c.do(ctx, http.MethodPost, path, body, &res)
+	// Enterprise Server releases that predate return_run_details refuse the
+	// unknown key with 422 and start nothing, so asking again without it
+	// cannot dispatch twice.
+	var ae *apiError
+	if errors.As(err, &ae) && ae.status == http.StatusUnprocessableEntity && strings.Contains(ae.message, "return_run_details") {
+		delete(body, "return_run_details")
+		status, err = c.do(ctx, http.MethodPost, path, body, &res)
+	}
 	if err != nil {
 		return nil, err
 	}

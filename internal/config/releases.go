@@ -1,6 +1,8 @@
 package config
 
 import (
+	"net"
+	"net/url"
 	"path"
 	"regexp"
 	"slices"
@@ -88,9 +90,23 @@ func ValidReleaseRef(ref string) bool {
 	return true
 }
 
+// PlainHTTPAllowed reports whether releases.github_api may use http rather
+// than https: only for a loopback host, so the GitHub token never crosses a
+// network unencrypted.
+func PlainHTTPAllowed(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 func validateReleases(c *Config, v *vctx) {
 	r := c.Releases
 	v.url("releases.github_api", r.GitHubAPI, true, "http", "https")
+	if u, err := url.Parse(r.GitHubAPI); err == nil && u.Scheme == "http" && u.Host != "" && !PlainHTTPAllowed(u.Hostname()) {
+		v.add("releases.github_api", "use https: plain http would send the GitHub token unencrypted (http is accepted only for a loopback address)")
+	}
 	v.positive("releases.poll_interval", r.PollInterval)
 	v.positive("releases.follow_for", r.FollowFor)
 	for _, e := range r.Environments {

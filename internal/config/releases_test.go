@@ -97,6 +97,29 @@ func TestReleasesValidation(t *testing.T) {
 	}
 }
 
+// TestReleasesGitHubAPIScheme: the GitHub token travels over https unless
+// the API is on this machine (a fake or a tunnel).
+func TestReleasesGitHubAPIScheme(t *testing.T) {
+	for _, tc := range []struct {
+		api string
+		bad bool
+	}{
+		{"https://ghe.example.com/api/v3", false},
+		{"http://127.0.0.1:8080", false},
+		{"http://localhost:8080/api/v3", false},
+		{"http://[::1]:8080", false},
+		{"http://ghe.example.com/api/v3", true},
+		{"http://10.0.0.5", true},
+	} {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, "bothy.yaml"), "releases:\n  github_api: "+tc.api+"\n")
+		got := len(errorsMatching(load(t, dir).Effective(), "use https"))
+		if (got > 0) != tc.bad {
+			t.Errorf("%s: %d https errors, want bad=%v", tc.api, got, tc.bad)
+		}
+	}
+}
+
 func TestReleaseRefs(t *testing.T) {
 	for _, ref := range []string{"main", "release/1.2", "v1.2.3", "feature/x_y-z"} {
 		if !ValidReleaseRef(ref) {
