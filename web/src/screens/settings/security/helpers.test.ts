@@ -59,11 +59,11 @@ describe('grants in plain words', () => {
   it('says who it is for and where it applies, by name', () => {
     const principals = [
       { id: 'usr_1', kind: 'user', display_name: 'Maya Chen' },
-      { id: 'spc_1', kind: 'space', display_name: 'Family group' },
+      { id: 'spc_1', kind: 'space', display_name: 'Ops team' },
     ] as Principal[];
     expect(grantMeta(g({}), { principals, titles: {}, when: '3 days ago' })).toEqual(['for Maya Chen', '3 days ago']);
     expect(grantMeta(g({ principal_id: 'spc_1', scope: 'session', scope_id: 'ses_9' }), { principals, titles: { ses_9: 'Weekly report' }, when: '' })).toEqual([
-      'in the group chat “Family group”',
+      'in the group chat “Ops team”',
       'only in “Weekly report”',
     ]);
     expect(grantMeta(g({ scope: 'schedule', scope_id: 'sch_1' }), { principals, titles: {}, when: '' })).toEqual(['for Maya Chen', 'only for one schedule']);

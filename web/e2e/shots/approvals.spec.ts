@@ -122,16 +122,17 @@ const states: ShotState[] = [
     },
   },
 
-  { name: 'item-mcp-review', route: '/approvals', ready: frame, setup: openRow('i:itm_01jlinear0000000000000000', (p) => p.getByRole('button', { name: 'Show what changed' }).first().click()) },
-  { name: 'item-skill-review', route: '/approvals', ready: frame, setup: openRow('i:itm_01jskill00000000000000000', (p) => p.getByRole('button', { name: 'Show what changed' }).click()) },
-  { name: 'item-unknown-sender', route: '/approvals', ready: frame, setup: openRow('i:itm_01jjordan0000000000000000') },
-  { name: 'item-group-chat', route: '/approvals', ready: frame, setup: openRow('i:itm_01jgroup00000000000000000') },
-  { name: 'item-note-suggestion', route: '/approvals', ready: frame, setup: openRow('i:itm_01jnote000000000000000000') },
+  { name: 'item-mcp-review', route: '/approvals', ready: frame, setup: openRow('i:mcp:docs', (p) => p.getByRole('button', { name: 'Show what changed' }).first().click()) },
+  { name: 'item-skill-review', route: '/approvals', ready: frame, setup: openRow('i:skill:incident-review') },
+  { name: 'item-unknown-sender', route: '/approvals', ready: frame, setup: openRow('i:sender:slack:U03JORDAN') },
+  { name: 'item-group-chat', route: '/approvals', ready: frame, setup: openRow('i:group:spc_01jsupport0000000000000000') },
+  // A note suggestion is an approval whose card is a review (S12).
+  { name: 'item-note-suggestion', route: '/approvals', mock: 'approvals-all', ready: frame, setup: openRow(`a:${row('notes')}`) },
   {
     name: 'item-link-person',
     route: '/approvals',
     ready: frame,
-    setup: openRow('i:itm_01jjordan0000000000000000', async (p) => {
+    setup: openRow('i:sender:slack:U03JORDAN', async (p) => {
       await p.getByRole('button', { name: 'Link to a person…' }).click();
       await p.getByRole('dialog').waitFor();
     }),

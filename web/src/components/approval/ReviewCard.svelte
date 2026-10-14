@@ -4,9 +4,9 @@
   import type { User } from '../../lib/api/types.gen';
   import { busyLabel, humanize } from '../../lib/cardcopy';
   import { relTime, fullTime } from '../../lib/format';
+  import { router } from '../../lib/router.svelte';
   import { session } from '../../lib/stores/session.svelte';
   import { clock } from '../../lib/stores/clock.svelte';
-  import Icon from '../Icon.svelte';
   import { tooltip } from '../ui/tooltip';
   import Button from '../ui/Button.svelte';
   import Dialog from '../ui/Dialog.svelte';
@@ -62,11 +62,6 @@
           { choice: 'turn_on', label: 'Turn on', variant: 'primary', key: 'allow_once' },
           { choice: 'ignore', label: 'Ignore', variant: 'secondary', key: 'deny' },
         ];
-      case 'note_suggestion':
-        return [
-          { choice: 'approve', label: 'Update notes', variant: 'primary', key: 'allow_once' },
-          { choice: 'deny', label: 'Deny', variant: 'secondary', key: 'deny' },
-        ];
     }
   });
 
@@ -75,7 +70,7 @@
     busy = a.choice;
     failed = false;
     try {
-      await decideItem(item.id, { choice: a.choice, ...(item.type === 'mcp_review' && a.choice === 'approve' ? { side_effects: effects } : {}), ...extra });
+      await decideItem(item, a.choice, { ...(item.type === 'mcp_review' ? { side_effects: effects } : {}), ...extra });
       linking = false;
       onresolve?.(a.choice, a.label);
     } catch {
@@ -113,18 +108,14 @@
       {/each}
     </ul>
   {:else if item.type === 'skill_review'}
-    {@render changed('skill', item.diff)}
+    <!-- The server sends the skill's metadata only; its files are on the skill's page. -->
+    <p class="mt-1 text-small"><a class="link" href="/knowledge/skills/{encodeURIComponent(item.skill)}" onclick={router.link}>See the skill's files</a></p>
   {:else if item.type === 'unknown_sender'}
     <p class="mt-1 text-body text-muted" data-copy-ignore>
       <Verbatim text={item.display_name} /> (<Verbatim text={item.handle} />){#if item.text}{' wrote: '}“<Verbatim text={item.text.slice(0, 120)} />”{/if}
     </p>
   {:else if item.type === 'group_chat'}
     <p class="mt-1 text-body text-muted">{item.added_by ? `Added by ${item.added_by}. ` : ''}Bothy will answer only when mentioned.</p>
-  {:else if item.type === 'note_suggestion'}
-    <p class="mt-3 flex items-start gap-1.5 text-small text-warning-text">
-      <span class="flex h-[1.125rem] w-4 shrink-0 items-center justify-center"><Icon name="alert" /></span>This request came from content Bothy read (a web page, repository or message), not from a person.
-    </p>
-    <div class="mt-4"><DiffView diff={item.diff} mode="prose" /></div>
   {/if}
 
   {#if failed}<Notice class="mt-4" tone="danger" text="Couldn't send your decision. Try again." role="alert" />{/if}

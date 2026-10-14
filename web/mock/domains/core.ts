@@ -64,7 +64,7 @@ export const member: User = {
 
 export const principals: Principal[] = [
   { id: owner.id, kind: 'user', user_id: owner.id, display_name: 'Sam', workspace_id: 'ws_01jsamws000000000000000000', tool_profile: 'standard', created_at: owner.created_at },
-  { id: 'spc_01jfamily0000000000000000', kind: 'space', user_id: owner.id, display_name: 'Family group', workspace_id: 'ws_01jfamws000000000000000000', tool_profile: 'restricted', created_at: ago(60 * 24 * 9) },
+  { id: 'spc_01jfamily0000000000000000', kind: 'space', user_id: owner.id, display_name: 'Ops team', workspace_id: 'ws_01jfamws000000000000000000', tool_profile: 'restricted', created_at: ago(60 * 24 * 9) },
 ];
 
 export const SETUP_TOKEN = 'demo-setup-token';

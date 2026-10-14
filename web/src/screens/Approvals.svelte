@@ -95,7 +95,9 @@
 
   $effect(() => {
     void loadWaiting();
-    const offs = [events.onResync(() => void loadWaiting())];
+    // Reviews, new senders and new group chats change without an approval event.
+    const fresh = () => void loadItems().then((its) => (items = its));
+    const offs = [events.onResync(() => void loadWaiting()), events.on('inbox.changed', fresh), events.on('mcp.pin_pending', fresh)];
     return () => offs.forEach((f) => f());
   });
 

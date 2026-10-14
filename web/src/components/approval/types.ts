@@ -19,12 +19,11 @@ export interface Deploy {
 }
 
 /**
- * S12: the inbox items that are not action approvals. SV1 has not fixed the
- * endpoint yet; the client reads GET /api/approvals/items and decides with
- * POST /api/approvals/items/{id} {choice}. Without the endpoint the inbox
- * shows action approvals only and these stay on their settings pages.
+ * The inbox items that are not action approvals (S12), as the cards show
+ * them; items.ts reads them from GET /api/inbox. Note suggestions are
+ * approvals there, so they come with the other approvals.
  */
-export type InboxItem = McpReviewItem | SkillReviewItem | SenderItem | GroupChatItem | NoteSuggestionItem;
+export type InboxItem = McpReviewItem | SkillReviewItem | SenderItem | GroupChatItem;
 
 interface ItemBase {
   id: string;
@@ -34,18 +33,19 @@ interface ItemBase {
 export interface McpReviewItem extends ItemBase {
   type: 'mcp_review';
   server: string;
-  tools: { name: string; title?: string; description: string; side_effect: string; diff?: string }[];
+  tools: { name: string; title?: string; description: string; side_effect: string; diff?: string; hash: string; private: boolean; field_map?: Record<string, string> }[];
 }
 
 export interface SkillReviewItem extends ItemBase {
   type: 'skill_review';
   skill: string;
-  diff: string;
+  hash: string;
 }
 
 export interface SenderItem extends ItemBase {
   type: 'unknown_sender';
   app: string;
+  external_id: string;
   display_name: string;
   handle: string;
   text?: string;
@@ -55,13 +55,8 @@ export interface GroupChatItem extends ItemBase {
   type: 'group_chat';
   app: string;
   chat: string;
+  space: string;
   added_by?: string;
-}
-
-export interface NoteSuggestionItem extends ItemBase {
-  type: 'note_suggestion';
-  repo: string;
-  diff: string;
 }
 
 /** The person looking at a card. Defaults to the signed-in user. */

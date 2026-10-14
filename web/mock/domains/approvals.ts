@@ -1,14 +1,13 @@
-// Approvals (C4): waiting and decided requests, multi-approver votes, the
-// other inbox items (S12) and the deploys approvals start (S17).
+// Approvals (C4): waiting and decided requests, multi-approver votes
+// and the deploys approvals start (S17); inbox.ts lists the other inbox items (S12).
 import type { Action, Approval, ApprovalVotes, Card, Choice, SideEffect } from '../../src/lib/api/types.gen.ts';
-import type { Deploy, InboxItem } from '../../src/components/approval/types.ts';
+import type { Deploy } from '../../src/components/approval/types.ts';
 import { body, clone, core, emit, fail, ids, json, member, nowISO, on, onReset, owner, scenario, sleep, viewer, type Req } from './core.ts';
 
 const none = scenario('approvals-empty', 'Nothing waits for approval and nothing was decided.', 'approvals');
 const all = scenario('approvals-all', 'Adds one waiting card for every kind of action (docs/design/ui.md §8.2).', 'approvals');
 const hold = scenario('approvals-hold', 'Decisions are never answered, to show the sending state.', 'approvals');
 const decideFails = scenario('approvals-fail', 'Decisions fail, to show "Couldn\'t send your decision".', 'approvals');
-const noItems = scenario('approvals-no-items', 'The server lists no review items (before S12): the inbox shows actions only.', 'approvals');
 const voted = scenario('deploy-voted', 'You already approved the production deploy; it waits for one more.', 'approvals');
 const requester = scenario('deploy-requester', 'You asked for the production deploy, so others must approve it.', 'approvals');
 const ineligible = scenario('deploy-ineligible', 'You are not one of the production deploy approvers.', 'approvals');
@@ -215,25 +214,6 @@ function everyKind(): Approval[] {
   ];
 }
 
-function items(): InboxItem[] {
-  return [
-    {
-      id: 'itm_01jlinear0000000000000000',
-      type: 'mcp_review',
-      created_at: ago(60),
-      server: 'linear',
-      tools: [
-        { name: 'create_issue', title: 'Create issue', description: 'Creates an issue in a Linear team.', side_effect: 'external_send', diff: '--- a/create_issue\n+++ b/create_issue\n@@ -3,3 +3,4 @@\n   "title": {"type": "string"},\n-  "team": {"type": "string"}\n+  "team": {"type": "string"},\n+  "assignee": {"type": "string"}\n' },
-        { name: 'archive_project', title: 'Archive project', description: 'Archives a project and its issues.', side_effect: 'irreversible', diff: '--- /dev/null\n+++ b/archive_project\n@@ -0,0 +1,2 @@\n+{"name": "archive_project",\n+ "description": "Archives a project and its issues."}\n' },
-      ],
-    },
-    { id: 'itm_01jjordan0000000000000000', type: 'unknown_sender', created_at: ago(60 * 26), app: 'telegram', display_name: 'Jordan Kay', handle: '@jordan_k', text: 'Hi, I run the Edinburgh office. Can Bothy send me the weekly sales summary too?' },
-    { id: 'itm_01jskill00000000000000000', type: 'skill_review', created_at: ago(60 * 3), skill: 'release-notes', diff: '--- a/SKILL.md\n+++ b/SKILL.md\n@@ -1,3 +1,4 @@\n # Release notes\n Write release notes from merged pull requests.\n+Group the changes by area.\n' },
-    { id: 'itm_01jgroup00000000000000000', type: 'group_chat', created_at: ago(60 * 5), app: 'slack', chat: '#design', added_by: 'Priya Rao' },
-    { id: 'itm_01jnote000000000000000000', type: 'note_suggestion', created_at: ago(60 * 8), repo: 'acme/web', diff: '--- a/notes\n+++ b/notes\n@@ -1,2 +1,2 @@\n Deploys run from the release branch.\n-Run migrations by hand.\n+Migrations run in the deploy workflow.\n' },
-  ];
-}
-
 const decided = (a: Approval, status: string, choice: Choice | undefined, by: string, via: string, at: number, extra: Partial<Approval> = {}): Approval => ({ ...a, status, choice, decided_by: by, decided_via: via, decided_at: ago(at), created_at: ago(at + 1), ...extra });
 
 function recentList(): Approval[] {
@@ -283,10 +263,10 @@ function deployList(): Deploy[] {
 export const approvals: Approval[] = waitingList();
 export const recentApprovals: Approval[] = recentList();
 
-export const state = { approvals: [] as Approval[], recent: [] as Approval[], items: [] as InboxItem[], deploys: [] as Deploy[] };
+export const state = { approvals: [] as Approval[], recent: [] as Approval[], deploys: [] as Deploy[] };
 onReset(() => {
   t0 = Date.now();
-  Object.assign(state, { approvals: [...waitingList(), ...everyKind()], recent: recentList(), items: items(), deploys: deployList() });
+  Object.assign(state, { approvals: [...waitingList(), ...everyKind()], recent: recentList(), deploys: deployList() });
 });
 
 // Scenarios ride along on every request (?mock= sets a cookie), so the every-kind cards are stored
@@ -345,21 +325,6 @@ on('GET', '/api/approvals', (req, res, _m, q) => {
   if (none(req)) return json(res, 200, { items: [] });
   const status = q.get('status') ?? 'pending';
   json(res, 200, { items: status === 'recent' ? state.recent : list(req).filter((a) => a.status === status) });
-});
-
-// Registered before /api/approvals/{id}, which would otherwise take "items" for an id.
-on('GET', '/api/approvals/items', (req, res) => {
-  if (noItems(req)) return fail(res, 404, 'not_found', 'mock: no route for GET /api/approvals/items');
-  const admin = (rank[viewer(req).role] ?? 0) >= rank.admin;
-  json(res, 200, { items: none(req) || !admin ? [] : state.items });
-});
-on('POST', '/api/approvals/items/{id}', async (req, res, m) => {
-  const i = state.items.find((x) => x.id === m[1]);
-  if (!i) return fail(res, 404, 'not_found', 'No such item.');
-  await body(req);
-  if (decideFails(req)) return fail(res, 500, 'internal', 'mock: approvals-fail');
-  state.items = state.items.filter((x) => x !== i);
-  json(res, 204);
 });
 
 on('GET', '/api/approvals/{id}', (req, res, m) => {

@@ -85,7 +85,16 @@ export const identities: ChannelIdentity[] = [
   { channel: 'telegram', external_id: '5512', username: 'sam', display_name: 'Sam', status: 'linked', user_id: owner.id, dm_chat_id: '5512', first_seen_at: ago(60 * 24 * 20), last_seen_at: ago(95) },
   { channel: 'slack', external_id: 'U01SAM', username: 'sam', display_name: 'Sam', status: 'linked', user_id: owner.id, dm_chat_id: 'D01SAM', first_seen_at: ago(60 * 24 * 14), last_seen_at: ago(30) },
   { channel: 'slack', external_id: 'U02ALEX', username: 'alex', display_name: 'Alex', status: 'linked', user_id: member.id, dm_chat_id: 'D02ALEX', first_seen_at: ago(60 * 24 * 9), last_seen_at: ago(240) },
-  { channel: 'slack', external_id: 'U03JORDAN', username: 'jordan', display_name: 'Jordan Lee', status: 'pending', first_seen_at: ago(300), last_seen_at: ago(300) },
+  {
+    channel: 'slack',
+    external_id: 'U03JORDAN',
+    username: 'jordan',
+    display_name: 'Jordan Lee',
+    status: 'pending',
+    first_seen_at: ago(300),
+    last_seen_at: ago(300),
+    first_text: 'Hi, I run the Edinburgh office. Can Bothy send me the weekly sales summary too?',
+  },
 ];
 
 const space = (principal_id: string, channel: string, chat_id: string, title: string, enabled: boolean, mention_only: boolean): Space => ({

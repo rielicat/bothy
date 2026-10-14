@@ -40,7 +40,10 @@ describe('Approvals inbox', () => {
     expect(within(expanded()!).getByRole('heading', { level: 3 }).textContent).toBe('Deploy acme/web to production?');
     const collapsed = [...document.querySelectorAll<HTMLButtonElement>('[data-row] button[aria-expanded="false"]')].map((b) => b.querySelector('span')?.textContent);
     expect(collapsed).toContain('Delete notes/staging.md?');
-    expect(collapsed).toContain('Review changes to Linear tools');
+    expect(collapsed).toContain('Review changes to Docs tools');
+    expect(collapsed).toContain('Someone new messaged Bothy on Slack');
+    expect(collapsed).toContain('Review changes to the “incident-review” skill');
+    expect(collapsed).toContain('Bothy was added to #support in Slack');
     expect(collapsed.at(-1)).toBe('Deploy acme/api to production?');
     expect(forYou).toBeTruthy();
     expect(screen.getByRole('link', { name: /Waiting/ }).getAttribute('aria-current')).toBe('page');
@@ -113,15 +116,24 @@ describe('Approvals inbox', () => {
 
   it('decides review items through their own endpoint', async () => {
     await screen.findByRole('heading', { name: 'For you' });
-    const mcp = document.querySelector<HTMLElement>('[data-row="i:itm_01jlinear0000000000000000"] button')!;
-    await fireEvent.click(mcp);
-    const card = await waitFor(() => document.querySelector<HTMLElement>('[data-item="itm_01jlinear0000000000000000"]')!);
-    const selects = within(card).getAllByLabelText('What this does') as HTMLSelectElement[];
-    await fireEvent.change(selects[0], { target: { value: 'read' } });
+    await fireEvent.click(document.querySelector<HTMLElement>('[data-row="i:mcp:docs"] button')!);
+    const card = await waitFor(() => document.querySelector<HTMLElement>('[data-item="mcp:docs"]')!);
+    const select = within(card).getByLabelText('What this does') as HTMLSelectElement;
+    await fireEvent.change(select, { target: { value: 'external_send' } });
     await fireEvent.click(within(card).getByRole('button', { name: 'Approve tools' }));
-    await waitFor(() => expect(posts()).toHaveLength(1));
-    expect(posts()[0].url).toBe('/api/approvals/items/itm_01jlinear0000000000000000');
-    expect(JSON.parse(posts()[0].body)).toEqual({ choice: 'approve', side_effects: { create_issue: 'read', archive_project: 'irreversible' } });
+    const approve = () => calls.filter((c) => c.method === 'POST' && c.url === '/api/mcp/docs/approve');
+    await waitFor(() => expect(approve()).toHaveLength(1));
+    expect(JSON.parse(approve()[0].body)).toEqual({ tools: { search_docs: { side_effect: 'external_send', private: false, hash: 'b3c1' } } });
+    await waitFor(() => expect(document.querySelector('[data-row="i:mcp:docs"]')).toBeNull());
+  });
+
+  it('lets a new sender chat as a guest', async () => {
+    await screen.findByRole('heading', { name: 'For you' });
+    await fireEvent.click(document.querySelector<HTMLElement>('[data-row="i:sender:slack:U03JORDAN"] button')!);
+    const card = await waitFor(() => document.querySelector<HTMLElement>('[data-item="sender:slack:U03JORDAN"]')!);
+    expect(card.textContent).toContain('Jordan Lee (@jordan) wrote: “Hi, I run the Edinburgh office.');
+    await fireEvent.click(within(card).getByRole('button', { name: 'Let them chat as a guest' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url === '/api/identities/slack/U03JORDAN' && JSON.parse(c.body).status === 'guest')).toBe(true));
   });
 });
 
@@ -154,7 +166,7 @@ describe('Approvals inbox, other states', () => {
     expect(screen.getByRole('link', { name: /Waiting/ }).textContent).toBe('Waiting');
   });
 
-  it('lists only action approvals before the server lists review items', async () => {
+  it("lists only action approvals when the inbox can't be read", async () => {
     await open('/approvals', {}, 'approvals-no-items');
     await screen.findByRole('heading', { name: 'For you' });
     expect(document.querySelector('[data-row^="i:"]')).toBeNull();
