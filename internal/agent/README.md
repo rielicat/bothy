@@ -61,7 +61,9 @@ Refine mode (`refine.go`, `refine/`, v0.2 F3 after arXiv:2608.05643)
 applies to the final answer only: a step that ends the turn with text and no
 tool calls. The message asks for it (`RunRequest.Refine`), else, for message
 and api runs, the session's meta key `agent.refine.<session>` (`on`/`off`),
-else `agent.refine.enabled`. While a run refines, each step's text is held
+else `agent.refine.enabled`, decided when the run starts; a message that
+asks for the other mode is queued as a turn of its own instead of steering
+into the run. While a run refines, each step's text is held
 back until a tool call shows it is not the final answer; a final answer
 becomes draft 0, `drafts − 1` more drafts repeat that step's exact request
 with tool use off, and each draft takes `depth` rounds of continue
@@ -80,6 +82,9 @@ a stop ends refinement with the best answer so far. Drafts and rounds run
 in parallel (at most 4 calls at once). Only the reply that won is streamed;
 `run.refine` events (bus only) report each call, and the persisted answer
 carries the whole trace in a `refine` part that is never sent to a model.
+The trace redacts each text before extracting and normalizing its answer
+(normalizing lowercases, which exact-match redaction would miss), caps
+answers at 256 bytes, and names an `llm_calls` row only for recorded calls.
 
 Streamed text (`run.delta`, `run.thinking`) is coalesced to 50 ms and tool
 progress (`run.tool_output`) to 100 ms, and each flush publishes only what

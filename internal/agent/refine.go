@@ -202,12 +202,15 @@ func (c *refineCaller) Call(ctx context.Context, call refine.Call) (refine.Reply
 	if err == nil && resp == nil {
 		err = errors.New("the provider returned no response")
 	}
+	rep := refine.Reply{Cost: ci.Cost, Abridged: abridged}
 	if err == nil || ci.Usage != (core.Usage{}) || ci.Cost > 0 {
 		// Role calls append to the step's prompt, so their breakdown and
 		// prefix would not describe what was sent.
 		r.recordCall(ctx, rs, asm, &ci, c.step, "agent")
+		// The facade names every call, but only recorded ones have a row
+		// for the trace to point at.
+		rep.CallID = ci.ID
 	}
-	rep := refine.Reply{CallID: ci.ID, Cost: ci.Cost, Abridged: abridged}
 	if ci.Ref.Model != "" {
 		rep.Model = ci.Ref.String()
 	}

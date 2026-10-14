@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -394,9 +395,10 @@ func TestRefineStopsBeforeTheTimeLimit(t *testing.T) {
 		name    string
 		maxTime time.Duration
 		calls   int
+		traced  int // a draft cut off before it was metered has no row to show
 	}{
-		{"no time left to start", 4 * time.Second, 1},
-		{"a draft outlasts the margin", time.Minute, 2},
+		{"no time left to start", 4 * time.Second, 1, 1},
+		{"a draft outlasts the margin", time.Minute, 2, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
@@ -419,10 +421,131 @@ func TestRefineStopsBeforeTheTimeLimit(t *testing.T) {
 					t.Fatalf("run %s (%s) after %d calls", run.Status, run.Error, len(h.requests()))
 				}
 				msg, tr := h.answer()
-				if tr.Fallback != refine.FallbackTime || tr.Calls != tc.calls || msg.PlainText() != "It is 1.\nFinal answer: 1" {
+				if tr.Fallback != refine.FallbackTime || tr.Calls != tc.traced || msg.PlainText() != "It is 1.\nFinal answer: 1" {
 					t.Fatalf("trace %+v reply %q", tr, msg.PlainText())
 				}
 			})
 		})
 	}
+}
+
+func TestRefineParallelCallsAreMeteredOnce(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		// Every call answers alike, so the order parallel calls take steps
+		// in does not matter: each continued text states a final answer and
+		// each critique confirms it.
+		same := func() fakes.LLMStep { return say("Verdict: correct\nFinal answer: 7") }
+		steps := make([]fakes.LLMStep, 12)
+		for i := range steps {
+			steps[i] = same()
+		}
+		info := core.ModelInfo{Ref: core.ModelRef{Provider: "p", Model: "m"}, Context: 128_000, MaxOutput: 500, Tools: true}
+		h := newHarness(t, opts{realBudget: true, info: info, cfg: refineCfg(4, 1, false), steps: steps})
+		defer h.close()
+		id := h.submitRefine("Count", true)
+		synctest.Wait()
+
+		run := h.run(id)
+		if run.Status != core.RunDone || run.Steps != 1 {
+			t.Fatalf("run %s (%s), %d steps", run.Status, run.Error, run.Steps)
+		}
+		// 1 answer + 3 drafts + 4 × (continue, critique): confirmed, so no corrections.
+		if n := len(h.requests()); n != 12 {
+			t.Fatalf("%d calls, want 12", n)
+		}
+		calls, err := h.store.Runs().LLMCalls(h.ctx, core.SystemViewer(), id)
+		if err != nil || len(calls) != 12 {
+			t.Fatalf("recorded calls %d %v", len(calls), err)
+		}
+		ids := map[string]bool{}
+		for _, c := range calls {
+			ids[c.ID] = true
+		}
+		_, tr := h.answer()
+		if tr == nil || tr.Calls != 12 || tr.Rounds != 1 || tr.Answer != "7" || tr.Votes[0].Count != 4 {
+			t.Fatalf("trace %+v", tr)
+		}
+		for _, e := range tr.Entries {
+			if !ids[e.CallID] {
+				t.Fatalf("entry %+v names no recorded call", e)
+			}
+		}
+		if run.Usage.Input != 12*1000 || run.Usage.Output != 12*50 {
+			t.Fatalf("run usage %+v, want every call counted once", run.Usage)
+		}
+	})
+}
+
+func TestRefineTraceNamesOnlyRecordedCalls(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{cfg: refineCfg(2, 1, true), steps: []fakes.LLMStep{
+			say("A."),
+			{Err: errors.New("overloaded")}, // draft 1 fails before any usage
+			say("A.\nFinal answer: a"), say("Verdict: correct"),
+		}})
+		defer h.close()
+		h.r.refineParallel = 1
+		id := h.submitRefine("Letter?", true)
+		synctest.Wait()
+		calls, err := h.store.Runs().LLMCalls(h.ctx, core.SystemViewer(), id)
+		if err != nil || len(calls) != 3 {
+			t.Fatalf("recorded calls %d %v", len(calls), err)
+		}
+		ids := map[string]bool{}
+		for _, c := range calls {
+			ids[c.ID] = true
+		}
+		msg, tr := h.answer()
+		if tr == nil || tr.Calls != 4 || msg.PlainText() != "A.\nFinal answer: a" {
+			t.Fatalf("trace %+v reply %q", tr, msg.PlainText())
+		}
+		for _, e := range tr.Entries {
+			switch {
+			case e.Error != "" && e.CallID != "":
+				t.Fatalf("a call that was never recorded names a row: %+v", e)
+			case e.Error == "" && !ids[e.CallID]:
+				t.Fatalf("entry %+v names no recorded call", e)
+			}
+		}
+	})
+}
+
+func TestRefineMessageToggleIsNotFoldedIntoARunTheOtherWay(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		gate := make(chan struct{})
+		blocked := say("Final answer: A")
+		blocked.Block = gate
+		h := newHarness(t, opts{cfg: refineCfg(2, 1, true), steps: []fakes.LLMStep{
+			say("A."), blocked, // the first answer and its draft
+			say("B.\nFinal answer: B"), say("Final answer: B"), // the steer's answer, refined like its run
+			say("Plain."), // the message that asked for no refinement, in a run of its own
+		}})
+		defer h.close()
+		first := h.submitRefine("First", true)
+		synctest.Wait()
+
+		off, on := false, true
+		req := h.req("Quick one, no refining")
+		req.Refine = &off
+		res, err := h.r.Submit(h.ctx, req)
+		if err != nil || res.Steered || !res.Queued {
+			t.Fatalf("refine off during a refining run = %+v %v, want its own queued turn", res, err)
+		}
+		req = h.req("Also this")
+		req.Refine = &on
+		if res, err := h.r.Submit(h.ctx, req); err != nil || !res.Steered {
+			t.Fatalf("refine on during a refining run = %+v %v, want a steer", res, err)
+		}
+		close(gate)
+		synctest.Wait()
+
+		runs := h.runs()
+		if len(runs) != 2 || h.run(first).Status != core.RunDone || len(h.requests()) != 5 {
+			t.Fatalf("%d runs, first %s, %d calls", len(runs), h.run(first).Status, len(h.requests()))
+		}
+		msg, tr := h.answer()
+		if tr != nil || msg.PlainText() != "Plain." {
+			t.Fatalf("the unrefined turn's reply %q has trace %+v", msg.PlainText(), tr)
+		}
+	})
 }

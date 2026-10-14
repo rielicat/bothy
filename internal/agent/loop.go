@@ -180,6 +180,9 @@ func (r *Runner) startTurn(rs *runState) *runEnd {
 		r.persistTurnOrLog(ctx, rs)
 		return end
 	}
+	// Before persistTurn: once the turn is persisted, place reads it to
+	// decide whether a message may steer into this run.
+	rs.refine = r.refineModeFor(ctx, rs)
 	if err := r.ensureSnapshot(ctx, rs); err != nil {
 		r.persistTurnOrLog(ctx, rs)
 		return failEnd(err.Error())
@@ -399,7 +402,6 @@ func (r *Runner) persistSteer(ctx context.Context, a *runState, req core.RunRequ
 func (r *Runner) loop(rs *runState) *runEnd {
 	ctx := rs.ctx
 	showThinking := r.cfg().Agent.ShowThinking
-	rs.refine = r.refineModeFor(ctx, rs)
 	for {
 		if r.closing.Load() {
 			return interruptedEnd()
