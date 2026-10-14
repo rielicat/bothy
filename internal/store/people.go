@@ -29,16 +29,18 @@ func (r metaRepo) Delete(ctx context.Context, k string) error {
 	return dbErr("meta delete", err)
 }
 
-const userCols = `id, username, display_name, role, pw_hash, timezone, disabled, failed_logins, locked_until, created_at, updated_at, must_change_password`
+const userCols = `id, username, display_name, role, pw_hash, timezone, disabled, failed_logins, locked_until, created_at, updated_at, must_change_password, last_login_at, preferred_chat, approvals_web_only`
 
 func scanUser(sc scanner) (*core.User, error) {
 	var u core.User
-	var locked, created, updated int64
+	var locked, created, updated, lastLogin int64
 	if err := sc.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &u.PWHash, &u.Timezone, &u.Disabled,
-		&u.FailedLogins, &locked, &created, &updated, &u.MustChangePassword); err != nil {
+		&u.FailedLogins, &locked, &created, &updated, &u.MustChangePassword, &lastLogin, &u.PreferredChat,
+		&u.ApprovalsWebOnly); err != nil {
 		return nil, err
 	}
 	u.LockedUntil, u.CreatedAt, u.UpdatedAt = fromMS(locked), fromMS(created), fromMS(updated)
+	u.LastLoginAt = fromMS(lastLogin)
 	return &u, nil
 }
 
@@ -47,9 +49,10 @@ type userRepo struct{ h *handle }
 func (r userRepo) Create(ctx context.Context, u *core.User) error {
 	id := idOr(u.ID, core.PrefixUser)
 	err := r.h.write(ctx, func(q querier) error {
-		if _, err := q.ExecContext(ctx, `INSERT INTO users(`+userCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		if _, err := q.ExecContext(ctx, `INSERT INTO users(`+userCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			string(id), u.Username, u.DisplayName, string(u.Role), u.PWHash, u.Timezone, b2i(u.Disabled),
-			u.FailedLogins, ms(u.LockedUntil), ms(u.CreatedAt), ms(u.UpdatedAt), b2i(u.MustChangePassword)); err != nil {
+			u.FailedLogins, ms(u.LockedUntil), ms(u.CreatedAt), ms(u.UpdatedAt), b2i(u.MustChangePassword),
+			ms(u.LastLoginAt), u.PreferredChat, b2i(u.ApprovalsWebOnly)); err != nil {
 			return dbErr("create user", err)
 		}
 		_, err := q.ExecContext(ctx, `INSERT INTO principals(id, kind, user_id, display_name, workspace_id, tool_profile, created_at)
@@ -78,9 +81,10 @@ func (r userRepo) List(ctx context.Context) ([]*core.User, error) {
 
 func (r userRepo) Update(ctx context.Context, u *core.User) error {
 	res, err := r.h.wq.ExecContext(ctx, `UPDATE users SET username = ?, display_name = ?, role = ?, pw_hash = ?, timezone = ?,
-		disabled = ?, failed_logins = ?, locked_until = ?, updated_at = ?, must_change_password = ? WHERE id = ?`,
+		disabled = ?, failed_logins = ?, locked_until = ?, updated_at = ?, must_change_password = ?, preferred_chat = ?,
+		approvals_web_only = ? WHERE id = ?`,
 		u.Username, u.DisplayName, string(u.Role), u.PWHash, u.Timezone, b2i(u.Disabled), u.FailedLogins,
-		ms(u.LockedUntil), ms(u.UpdatedAt), b2i(u.MustChangePassword), string(u.ID))
+		ms(u.LockedUntil), ms(u.UpdatedAt), b2i(u.MustChangePassword), u.PreferredChat, b2i(u.ApprovalsWebOnly), string(u.ID))
 	return mustAffect("update user", res, err)
 }
 
@@ -88,6 +92,18 @@ func (r userRepo) RecordLogin(ctx context.Context, id core.UserID, ok bool, lock
 	res, err := r.h.wq.ExecContext(ctx, `UPDATE users SET failed_logins = CASE WHEN ? THEN 0 ELSE failed_logins + 1 END,
 		locked_until = ? WHERE id = ?`, b2i(ok), ms(lockUntil), string(id))
 	return mustAffect("record login", res, err)
+}
+
+func (r userRepo) SetProfile(ctx context.Context, u *core.User) error {
+	res, err := r.h.wq.ExecContext(ctx, `UPDATE users SET display_name = ?, preferred_chat = ?, approvals_web_only = ?, updated_at = ?
+		WHERE id = ?`, u.DisplayName, u.PreferredChat, b2i(u.ApprovalsWebOnly), ms(u.UpdatedAt), string(u.ID))
+	return mustAffect("update profile", res, err)
+}
+
+func (r userRepo) SignedIn(ctx context.Context, id core.UserID, at time.Time) error {
+	res, err := r.h.wq.ExecContext(ctx, `UPDATE users SET last_login_at = ?, failed_logins = 0, locked_until = 0 WHERE id = ?`,
+		ms(at), string(id))
+	return mustAffect("record sign-in", res, err)
 }
 
 // Delete relies on the schema's ON DELETE CASCADE chains; a linked or

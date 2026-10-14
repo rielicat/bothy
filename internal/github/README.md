@@ -36,6 +36,10 @@ the web base. RunStatus and `FailedStep` also read a repository its connection
 no longer allows (the release module follows a deploy through the dispatcher
 that started it); one no connection holds is refused. `FailedStep` names the
 step a failed run stopped at for `release.finished` (the release module cleans
-it and never shows it to the model). `githubtest` is a fake GitHub API built
+it and never shows it to the model). `Workflows` lists an allowed
+repository's `.github/workflows/` files (names cleaned to one plain line),
+`BranchHead` reads its default branch's commit, and `CommitSubject` a
+commit's first line for deploy lists (also after the allowlist drops the
+repository, like `FailedStep`). `githubtest` is a fake GitHub API built
 from the examples in
 GitHub's REST description, including `workflow_dispatch`.

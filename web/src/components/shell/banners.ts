@@ -2,7 +2,8 @@
 // stop work or need an admin, one at a time, highest priority first. The
 // server's banner text is never shown; each code has its own sentence.
 import type { BannerData, UsageToday } from '../../lib/api/types.gen';
-import { money } from '../../lib/format';
+import { clock, date, fullTime, money } from '../../lib/format';
+import type { PauseInfo } from '../../lib/stores/session.svelte';
 
 export type BannerAction = { label: string; href: string } | { label: string; run: 'resume' | 'unlock' };
 
@@ -23,6 +24,17 @@ export interface BannerInput {
   dismissed: string[];
   /** Codes another surface already says (the unlock screen says the keys are locked). */
   hide?: string[];
+  /** Who paused Bothy and when, when the server says. */
+  pause?: PauseInfo | null;
+}
+
+/** "since 10:42 by Maya Chen", "since 12 October 2026, 10:42", "by Maya Chen", or "" when nothing is known. */
+export function pausedSince(p: PauseInfo | null | undefined, now = new Date()): string {
+  const d = date(p?.at);
+  const parts: string[] = [];
+  if (d) parts.push(`since ${d.toDateString() === now.toDateString() ? clock(p?.at) : fullTime(p?.at)}`);
+  if (p?.by) parts.push(`by ${p.by}`);
+  return parts.join(' ');
 }
 
 const providers: Record<string, string> = {
@@ -50,14 +62,16 @@ export function providerName(text: string): string | null {
 export function chooseBanner(input: BannerInput): ShellBanner | null {
   const find = (code: string) => input.banners.find((b) => b.code === code);
   const out: ShellBanner[] = [];
-  if (input.paused || find('paused'))
+  if (input.paused || find('paused')) {
+    const since = pausedSince(input.pause);
     out.push({
       code: 'paused',
       tone: 'warning',
-      text: 'Bothy is paused. Nothing new will start until an admin resumes it.',
+      text: `${since ? `Bothy has been paused ${since}.` : 'Bothy is paused.'} Nothing new will start until an admin resumes it.`,
       action: input.admin ? { label: 'Resume', run: 'resume' } : undefined,
       dismissible: false,
     });
+  }
   if (input.admin) {
     if (find('vault_sealed'))
       out.push({

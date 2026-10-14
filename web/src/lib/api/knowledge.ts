@@ -1,34 +1,13 @@
-// Knowledge API (docs/design/ui.md §9, server need S18). Fields marked "S18"
-// are what the screens need beyond today's server; each is optional and the
-// screens fall back when it is missing.
+// Knowledge API (docs/design/ui.md §9): repositories with their reading
+// progress, notes and the notes' history, and search over code.
 import { api, ApiError, qs } from './client';
 import { listRepos } from './repos';
-import type { IndexedRepo, KnowledgeHit as Hit, KnowledgeNotes } from './types.gen';
+import type { IndexedRepo, KnowledgeHit as Hit, KnowledgeNotes, List, NotesChange } from './types.gen';
 
-export type { KnowledgeNotes };
+export type { KnowledgeNotes, NotesChange };
 export { isUnavailable, readRepos } from './repos';
 
-export type KnowledgeRepo = IndexedRepo & {
-  /** S18: files read so far and the total expected, while reading. */
-  progress?: { done: number; total: number };
-  /** S18: the default branch moved on since the last read. */
-  stale?: boolean;
-  /** S18: the first sentence of the notes, for the project list. */
-  summary?: string;
-};
-
-/** S18: one change to a project's notes. */
-export interface NotesChange {
-  id: number;
-  /** "bothy" or a person. */
-  actor: 'bothy' | 'user';
-  name?: string;
-  user_id?: string;
-  before: string;
-  after: string;
-  at: string;
-  chat?: { id: string; title: string };
-}
+export type KnowledgeRepo = IndexedRepo;
 
 export type KnowledgeHit = Hit & {
   /** S18: where the hit came from; the server searches code only today. */
@@ -41,18 +20,11 @@ export const knowledge = {
   repos: listRepos,
   notes: (id: number) => api.get<KnowledgeNotes>(`${repoPath(id)}/notes`),
   saveNotes: (id: number, content: string, etag: string) => api.put<KnowledgeNotes>(`${repoPath(id)}/notes`, { content }, { 'If-Match': `"${etag}"` }),
-  /** S18. Null when the server has no notes history yet, so the screens hide it. */
-  history: async (id: number): Promise<NotesChange[] | null> => {
-    try {
-      return (await api.get<{ items: NotesChange[] | null }>(`${repoPath(id)}/notes/history`)).items ?? [];
-    } catch (e) {
-      if (e instanceof ApiError && (e.status === 404 || e.status === 405 || e.status === 501)) return null;
-      throw e;
-    }
-  },
+  /** Every change to the notes, newest first. */
+  history: async (id: number): Promise<NotesChange[]> => (await api.get<List<NotesChange>>(`${repoPath(id)}/notes/history`)).items ?? [],
   reindex: (id: number) => api.post<KnowledgeRepo>(`${repoPath(id)}/reindex`),
-  /** S18: keep_notes leaves the notes in place when the repository is dropped. */
-  stop: (id: number) => api.del(`${repoPath(id)}?keep_notes=1`),
+  /** Drops the repository's index, notes and notes history. */
+  stop: (id: number) => api.del(repoPath(id)),
   search: async (q: string, opts: { repo?: number; limit?: number } = {}) =>
     (await api.get<{ items: KnowledgeHit[] | null }>(`/api/knowledge/search${qs({ q, repo_id: opts.repo, limit: opts.limit })}`)).items ?? [],
 };
@@ -94,6 +66,7 @@ export function queuedRepo(repo: string): KnowledgeRepo {
     notes: { status: 'none', untrusted: false, updated_at: zero },
     created_at: zero,
     updated_at: zero,
+    summary: '',
   };
 }
 
@@ -136,32 +109,6 @@ export function plainText(md: string): string {
     .replace(/[`*_~]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
-}
-
-/** The first sentence of a Markdown document, as plain text. */
-export function firstSentence(md: string, max = 160): string {
-  const lines = md
-    .replace(/^---\n[\s\S]*?\n---\n/, '')
-    .replace(/```[\s\S]*?```/g, '')
-    .split('\n')
-    .map((l) => l.trim());
-  const para: string[] = [];
-  for (const l of lines) {
-    if (!l || /^(#|>|\||[-*_]{3,}$)/.test(l)) {
-      if (para.length) break;
-      continue;
-    }
-    para.push(l.replace(/^([-*+]|\d+\.)\s+/, ''));
-  }
-  const text = para
-    .join(' ')
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/[`*_~]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const m = /^.+?[.!?](?=\s|$)/.exec(text);
-  const s = m ? m[0] : text;
-  return s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s;
 }
 
 export const byteLength = (s: string) => new TextEncoder().encode(s).length;

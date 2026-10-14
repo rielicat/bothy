@@ -58,6 +58,8 @@ type Chain struct {
 	region       string
 	profile      string
 	instanceRole string
+	retrieved    bool   // credentials resolved at least once
+	described    string // the last Describe
 }
 
 var _ aws.CredentialsProvider = (*Chain)(nil)
@@ -136,7 +138,36 @@ func (c *Chain) Retrieve(ctx context.Context) (aws.Credentials, error) {
 	if err != nil {
 		return aws.Credentials{}, err
 	}
-	return cfg.Credentials.Retrieve(ctx)
+	creds, err := cfg.Credentials.Retrieve(ctx)
+	if err == nil {
+		c.mu.Lock()
+		c.retrieved = true
+		c.mu.Unlock()
+	}
+	return creds, err
+}
+
+// Source is Describe without resolving anything: "" until credentials
+// were resolved once, then where they came from, as far as the loaded
+// configuration tells (an instance role is named only once Describe read
+// it from the metadata service).
+func (c *Chain) Source() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.described != "" {
+		return c.described
+	}
+	if !c.retrieved || c.cfg == nil {
+		return ""
+	}
+	var sources []aws.CredentialSource
+	if ps, ok := c.cfg.Credentials.(aws.CredentialProviderSource); ok {
+		sources = ps.ProviderSources()
+	}
+	env := envConfig(*c.cfg)
+	src := credSource{roleARN: sharedConfig(*c.cfg).RoleARN, envRoleARN: env.RoleARN, containerFull: env.ContainerCredentialsEndpoint,
+		profile: c.profile, instanceRole: c.instanceRole}
+	return describe(sources, src)
 }
 
 // Invalidate drops the cached credentials; the next Retrieve resolves
@@ -223,7 +254,11 @@ func (c *Chain) Describe(ctx context.Context) (string, error) {
 	c.mu.Lock()
 	src.profile = c.profile
 	c.mu.Unlock()
-	return describe(sources, src), nil
+	out := describe(sources, src)
+	c.mu.Lock()
+	c.retrieved, c.described = true, out
+	c.mu.Unlock()
+	return out, nil
 }
 
 // instanceRoleName asks the instance metadata which role the instance

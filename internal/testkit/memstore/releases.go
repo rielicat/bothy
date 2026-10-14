@@ -2,6 +2,7 @@ package memstore
 
 import (
 	"context"
+	"unicode/utf8"
 
 	"github.com/rielicat/bothy/internal/core"
 )
@@ -52,6 +53,8 @@ func (r releaseRepo) Create(_ context.Context, d *core.Deploy) error {
 		return invalid("release_deploys.status")
 	case !validDeployVia(row.Via):
 		return invalid("release_deploys.via")
+	case utf8.RuneCountInString(row.Subject) > 400:
+		return invalid("release_deploys.subject")
 	case st.principals[row.Principal].ID == "":
 		return invalid("release_deploys.principal_id: no such principal")
 	}
@@ -78,6 +81,8 @@ func (r releaseRepo) Update(_ context.Context, d *core.Deploy) error {
 		return invalid("release_deploys.status")
 	case !validDeployVia(d.Via):
 		return invalid("release_deploys.via")
+	case utf8.RuneCountInString(d.Subject) > 400:
+		return invalid("release_deploys.subject")
 	case st.principals[d.Principal].ID == "":
 		return invalid("release_deploys.principal_id: no such principal")
 	}

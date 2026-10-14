@@ -532,7 +532,7 @@ internal/httpapi/dto/      REST request/response shapes (§8.4); source for type
 internal/store/            core.Store on modernc sqlite: Open, pragmas, version gate, migrator, repos   [M1]
 internal/store/migrations/ 0001_init.sql (§6); v0.2: 0002_repos, 0003_knowledge, 0004_approval_votes,
                            0005_approval_comments, 0006_must_change_password, 0007_v02_fixes (§14.6),
-                           0008_external_secret_refs (§14.8)                                             [S]
+                           0008_external_secret_refs (§14.8), 0009_ui_state (§14.7)                      [S]
 internal/vault/            core.Vault, core.Redactor, KEK sources, envelope crypto, aws-sm references   [M1]
 internal/vault/awssm/      v0.2: AWS Secrets Manager GetSecretValue, hand-signed (SigV4) (§14.8)        [M1]
 internal/audit/            core.Auditor: single writer, hash chain, Verify, offline Archive             [M1]
@@ -1356,6 +1356,10 @@ type ProviderHealth struct {
 	State     string       `json:"state"` // ok | degraded | down | auth_failed
 	LastError string       `json:"last_error,omitempty"`
 	Since     time.Time    `json:"since"`
+	// Source says in plain words where the credentials come from ("Saved
+	// key", "AWS Secrets Manager", "This server's AWS access (SSO profile
+	// demo)"), never what they are; "" when the provider needs none.
+	Source string `json:"source,omitempty"`
 }
 
 // LLM is the fallback-aware facade the agent uses. It owns retries, circuit
@@ -2526,6 +2530,16 @@ type User struct {
 	// MustChangePassword: the account has a one-time password an admin
 	// handed out; its owner must choose their own before anything else.
 	MustChangePassword bool `json:"must_change_password,omitempty"`
+
+	// LastLoginAt is the last sign-in with a password; zero = never.
+	// UserRepo.SignedIn writes it, Update leaves it alone.
+	LastLoginAt time.Time `json:"last_login_at"`
+	// PreferredChat is the linked chat app Bothy messages this person in;
+	// "" = the linked one they used last. ApprovalsWebOnly keeps approval
+	// requests on Bothy's Approvals page instead. The person sets both
+	// (GET/PATCH /api/me), so they stay out of the user listing.
+	PreferredChat    string `json:"-"`
+	ApprovalsWebOnly bool   `json:"-"`
 }
 
 type Space struct {
@@ -2676,6 +2690,7 @@ type Run struct {
 	Limits     RunLimits   `json:"limits"`
 	ParkedOn   ApprovalID  `json:"parked_on,omitempty"`
 	StoppedBy  UserID      `json:"stopped_by,omitempty"`
+	Refined    bool        `json:"refined"` // refine mode wrote the answer
 	CreatedAt  time.Time   `json:"created_at"`
 	StartedAt  time.Time   `json:"started_at"`
 	FinishedAt time.Time   `json:"finished_at"`
@@ -2873,6 +2888,17 @@ type SkillMeta struct {
 	UpdatedAt    time.Time   `json:"updated_at"`
 }
 
+// SkillFile is one file of a skill's approved snapshot. Content is kept
+// for text files within the snapshot caps; Text is false for the others,
+// which only their hash and size describe.
+type SkillFile struct {
+	Path    string `json:"path"`
+	SHA256  string `json:"sha256"`
+	Size    int64  `json:"size"`
+	Text    bool   `json:"text"`
+	Content string `json:"content,omitempty"`
+}
+
 type MemoryFile string
 
 const (
@@ -2938,7 +2964,15 @@ type UserRepo interface {
 	ByUsername(ctx context.Context, name string) (*User, error)
 	List(ctx context.Context) ([]*User, error)
 	Update(ctx context.Context, u *User) error
+	// SetProfile writes only u's DisplayName, PreferredChat,
+	// ApprovalsWebOnly and UpdatedAt: what people change about themselves
+	// (PATCH /api/me) must never write back a role, disabled flag or
+	// password hash that an admin or a reset changed meanwhile.
+	SetProfile(ctx context.Context, u *User) error
 	RecordLogin(ctx context.Context, id UserID, ok bool, lockUntil time.Time) error
+	// SignedIn records a successful sign-in at at: LastLoginAt, and the
+	// failure count and lock cleared.
+	SignedIn(ctx context.Context, id UserID, at time.Time) error
 	Count(ctx context.Context) (int, error)
 	// Delete removes the users row (user purge). Foreign keys cascade to its
 	// principals, spaces, sessions (messages, pins, runs, approvals), grants,
@@ -3125,7 +3159,11 @@ type SkillRepo interface {
 	Upsert(ctx context.Context, s *SkillMeta) error
 	Get(ctx context.Context, name string) (*SkillMeta, error)
 	List(ctx context.Context) ([]*SkillMeta, error)
-	Delete(ctx context.Context, name string) error
+	Delete(ctx context.Context, name string) error // with its approved files
+	// SetApproved replaces the snapshot of the files an admin approved
+	// (ErrNotFound for an unknown skill); Approved reads it back by path.
+	SetApproved(ctx context.Context, name string, files []SkillFile) error
+	Approved(ctx context.Context, name string) ([]SkillFile, error)
 }
 
 type MemoryEventRepo interface {
@@ -3481,6 +3519,19 @@ type BannerData struct {
 	Text   string `json:"text"`
 	Action string `json:"action,omitempty"` // SPA route, e.g. "/settings/sandbox"
 	Clear  bool   `json:"clear,omitempty"`  // true removes the banner with this Code
+	// By, ByName and At say who raised it and when (paused: who paused).
+	By     UserID    `json:"by,omitempty"`
+	ByName string    `json:"by_name,omitempty"`
+	At     time.Time `json:"at,omitzero"`
+}
+
+// PausedBanner is the paused banner, naming who paused and when.
+func PausedBanner(by UserID, name string, at time.Time) BannerData {
+	text := "Bothy is paused by an admin."
+	if name != "" {
+		text = "Bothy is paused by " + name + "."
+	}
+	return BannerData{Level: "error", Code: "paused", Text: text, Action: "/settings/security", By: by, ByName: name, At: at}
 }
 
 func (RunQueuedData) eventData()        {}
@@ -3808,6 +3859,9 @@ type Runner interface {
 	// nothing. Callers run StopAll and report its count (§5.11).
 	SetPaused(ctx context.Context, paused bool, by UserID) error
 	Paused() bool
+	// PausedBy is who engaged the kill switch and when (zero while it is
+	// off, and for a pause recorded before who and when were kept).
+	PausedBy() (UserID, time.Time)
 	// Resume continues a parked run after its approval resolved: allowed =>
 	// execute the stored Action exactly once and continue the loop; denied =>
 	// record the denial and continue the loop; expired/cancelled => run stopped
@@ -4272,6 +4326,21 @@ type GitHub interface {
 	// Disconnect deletes the connection, its repositories and a secret it owns.
 	Disconnect(ctx context.Context, id string, by UserID) error
 	Repos(ctx context.Context) ([]*GitHubRepo, error) // allowed repositories of every connection
+	// Workflows lists the GitHub Actions workflows of an allowed repository
+	// (ErrNotFound for any other), for picking a deploy workflow.
+	Workflows(ctx context.Context, repo string) ([]GitHubWorkflow, error)
+	// BranchHead is the commit the default branch of an allowed repository
+	// points at now (ErrNotFound for any other).
+	BranchHead(ctx context.Context, repo string) (string, error)
+}
+
+// GitHubWorkflow is one workflow file of a repository. Name is written by
+// whoever can push to it.
+type GitHubWorkflow struct {
+	ID    int64  `json:"id"`
+	Name  string `json:"name"`
+	Path  string `json:"path"`  // .github/workflows/deploy.yml
+	State string `json:"state"` // active | disabled_manually | disabled_inactivity | …
 }
 
 // EvRepoCheckout is published (Principal = the workspace's principal;
@@ -4367,6 +4436,21 @@ type IndexedRepo struct {
 	// IndexedSHA is the commit the latest finished index read ("" until one
 	// finished); UpdateIndex writes it.
 	IndexedSHA string `json:"indexed_sha"`
+
+	// Filled on read, never stored. Progress counts the files read so far
+	// while the repo is queued or indexing; Summary is the first sentence
+	// of the notes as plain text ("" without notes); Stale says the
+	// repository's default branch has moved past IndexedSHA on GitHub.
+	Progress *IndexProgress `json:"progress,omitempty"`
+	Summary  string         `json:"summary"`
+	Stale    bool           `json:"stale,omitempty"`
+}
+
+// IndexProgress is how far a running index got. Total is an estimate: the
+// previous index's file count, else a count of the directory's files.
+type IndexProgress struct {
+	Done  int `json:"done"`
+	Total int `json:"total"`
 }
 
 type NotesState struct {
@@ -4455,6 +4539,26 @@ type KnowledgeNotes struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// NotesVersion is one change to a repo's project notes: the text before
+// and after it, who made it and, for Bothy's edits, the chat and run it was
+// made in.
+type NotesVersion struct {
+	ID      int64     `json:"id"`
+	Actor   string    `json:"actor"` // NotesByBothy | NotesByUser
+	User    UserID    `json:"user_id,omitempty"`
+	Session SessionID `json:"session_id,omitempty"`
+	Run     RunID     `json:"run_id,omitempty"`
+	Before  string    `json:"before"`
+	After   string    `json:"after"`
+	At      time.Time `json:"at"`
+}
+
+// NotesVersion.Actor values.
+const (
+	NotesByBothy = "bothy"
+	NotesByUser  = "user"
+)
+
 type KnowledgeIndexRequest struct {
 	Dir  string `json:"dir"`  // workspace-relative directory; "" or "." = the whole workspace
 	Repo string `json:"repo"` // "owner/name"; "" = "local/<directory name>"
@@ -4532,6 +4636,10 @@ type Knowledge interface {
 	WriteNotes(ctx context.Context, v Viewer, id int64, content, etag string, by UserID) (*KnowledgeNotes, error)
 	// DraftNotes regenerates the notes with the fast model in the background.
 	DraftNotes(ctx context.Context, v Viewer, id int64, by UserID) (*IndexedRepo, error)
+	// NotesHistory lists the notes' changes, newest first; NotesVersion
+	// reads one (ErrNotFound for an id the repo's history does not hold).
+	NotesHistory(ctx context.Context, v Viewer, id int64) ([]NotesVersion, error)
+	NotesVersion(ctx context.Context, v Viewer, id, version int64) (*NotesVersion, error)
 	Delete(ctx context.Context, v Viewer, id int64, by UserID) error // index and notes
 	Purge(ctx context.Context, p PrincipalID) error                  // every index row and notes file of a principal (user purge)
 }
@@ -4630,6 +4738,12 @@ type Deploy struct {
 	// through the same credentials whatever the allowlists say later. A
 	// deploy recorded before Via was kept has "" and follows today's choice.
 	Via string `json:"via,omitempty"` // DeployViaConnection | DeployViaToken
+	// SHA is the commit the workflow run built, once the run is known.
+	// Subject is that commit's first line, cleaned to one plain line: it is
+	// written by whoever can push to the repository, so it is shown only as
+	// quoted text and never goes into cards, notices or prompts.
+	SHA     string `json:"sha,omitempty"`
+	Subject string `json:"subject,omitempty"`
 }
 
 // Deploy.Via values.
@@ -4908,7 +5022,7 @@ S1 is outside compaction by construction; session taint and policy state live in
 5. clear the session mailbox (each dropped request whose sink got `run.queued` gets `run.finished` with `stopped`); mark the run `stopped` (`stopped_by`), audit `run.stop`, reply "Stopped." in the chat; the session gets the notice *"You stopped Bothy."*
 `/stop` also cancels a finished run's post-run compaction (§5.10; also cancelled by `StopAll` and shutdown, and skipped while paused), and returns true when it cancelled that or dropped accepted messages, even with no active run. If the run goroutine has not exited after 5 s it is abandoned (sink detached, later emits ignored; its queue and pending turn move to the fresh worker, §5.4). Targets: cancel path p99 < 100 ms; processes gone < 1 s.
 
-Kill switch: `/stopall` or `POST /api/admin/pause {paused:true}` → `Runner.SetPaused(true)`, then `StopAll` (every active run stopped, every session box killed), whose count the caller reports. `Runner.SetPaused` only persists `meta.paused` (survives restart), publishes the banner `paused` and audits. The scheduler fires nothing while `Runner.Paused()`, which is its only kill-switch input: `POST /api/admin/pause` does not call `Scheduler.SetPaused`, an independent scheduler-only pause that nothing in the gateway uses. New runs get `ErrPaused`; read-only HTTP keeps working. Only admins disengage it (`/resume` or the API).
+Kill switch: `/stopall` or `POST /api/admin/pause {paused:true}` → `Runner.SetPaused(true)`, then `StopAll` (every active run stopped, every session box killed), whose count the caller reports. `Runner.SetPaused` only persists `meta.paused` and, since v0.2 UI, `meta.paused_by` (who and when; both survive restart, and pausing again keeps the first), publishes the banner `paused` (`core.PausedBanner`, naming who paused) and audits. The scheduler fires nothing while `Runner.Paused()`, which is its only kill-switch input: `POST /api/admin/pause` does not call `Scheduler.SetPaused`, an independent scheduler-only pause that nothing in the gateway uses. New runs get `ErrPaused`; read-only HTTP keeps working. Only admins disengage it (`/resume` or the API).
 
 ### 5.12 Budgets
 
@@ -5891,6 +6005,8 @@ pricing:                          # USD per 1M tokens; overrides the embedded ca
   "ollama/qwen3:14b": {in: 0, out: 0}
 
 agent:
+  name: Bothy                     # what it calls itself in chats; 1-40 characters, one line
+  tone: warm                      # warm | direct | formal
   persona_file: SOUL.md           # a Markdown file name (*.md, no path) in data_dir; admin-editable only
   standing_rules: []              # admin-only lines appended to the constitution block
   busy_mode: steer                # steer | queue
@@ -6228,6 +6344,8 @@ type PriceTierO struct {
 }
 
 type Agent struct {
+	Name              string   `yaml:"name"` // what Bothy calls itself in chats
+	Tone              string   `yaml:"tone"` // warm | direct | formal
 	PersonaFile       string   `yaml:"persona_file"`
 	StandingRules     []string `yaml:"standing_rules"`
 	BusyMode          string   `yaml:"busy_mode"` // steer | queue
@@ -6554,6 +6672,7 @@ type KnowledgeCfg struct {
 **v0.2 validation** (`validate.go`, `knowledge.go`, `releases.go`):
 - `providers.*.type` enum gains `bedrock`. A bedrock provider requires `region` in AWS region shape (`config.ValidAWSRegion`), refuses `api_key` and `headers` (requests are SigV4-signed), takes only an https `base_url` (VPC endpoint) and checks `profile` against the shared-config name charset (`config.ValidAWSProfile`); `region` and `profile` are refused on every other type. `api` stays openai/openai_compat only.
 - `agent.refine`: `drafts` 1..8, `depth` 1..4, `critic_slot` main | fast.
+- `agent.name` (v0.2 UI, hot): 1–40 runes, no leading or trailing space, no control or format characters, no `<` or `>` (`config.ValidAgentName`); `agent.tone` enum `warm` | `direct` | `formal`.
 - `github` (hot): `api_base` a required http(s) URL (locked), `checkout.max_mb` 1..8192, `checkout.max_files` 1..1000000.
 - `knowledge` (hot): `max_file_kb` 1..4096, `max_files` 1..1000000, `max_repo_mb` 1..4096, `notes_max_bytes` 1024..1 MiB, `context_bytes` 0..65536.
 - `releases` (hot): `github_token` is a secret reference (default `secret:github_token`); `github_api` (locked) is a required http(s) URL and http only for a loopback address (`config.PlainHTTPAllowed`); `poll_interval` and `follow_for` positive; each environment has a unique `name` (`^[a-z0-9][a-z0-9_-]{0,31}$`), `repo` owner/name, `workflow` a `.yml`/`.yaml` file name or numeric id, a `ref_pattern` glob, at most a bounded number of `inputs` with valid names, `approvers` as user ids (`usr_…`) or roles (owner, admin, member; no duplicates) and `required` 0..2 (0 means 1), with enough listed users when only users are named.
@@ -6814,12 +6933,14 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `POST /api/setup/complete` | admin (during setup) | — | `204`; deletes the token file; setup routes 404 afterwards |
 | `POST /api/auth/login` | none (rate-limited) | `dto.LoginReq` | `dto.Me` + cookie |
 | `POST /api/auth/logout` | user | — | `204` |
-| `GET /api/auth/me` | user | — | `dto.Me` |
+| `GET /api/auth/me` | user | — | `dto.Me` (v0.2 UI: `paused_by`, `paused_by_name`, `paused_at` while paused) |
+| `GET /api/me` | user | — | `dto.Profile` (v0.2 UI; `h_uistate.go`: the caller's display name, linked chat apps, preferred chat and where approval requests reach them: `web` when they chose Bothy only, else the preferred chat while it is linked, else the linked app they used last, else `web`) |
+| `PATCH /api/me` | user (cookie only) | `dto.ProfilePatch` | `dto.Profile` (v0.2 UI: anyone renames themselves (at most 64 printable characters without format characters, as for admin renames, and not another person's display name or username: 400) and chooses where approval requests and Bothy's messages reach them; 400 for a chat app they have not linked, or `approvals_in` and `preferred_chat` naming different apps; audited `user.profile`. Bearer tokens → 403, like voting) |
 | `POST /api/auth/password` | user (cookie) | `dto.PasswordReq` | `204` (rotates the session). v0.2 UI: `old` may be empty while `must_change_password` is set, which this clears; the one-time password itself is refused as the new one (400) |
 | `GET /api/tokens` | user (cookie) | — | `[]core.TokenRecord` (own) |
 | `POST /api/tokens` | user (cookie) | `core.TokenSpec` | `dto.TokenCreateResp` (plaintext once) |
 | `DELETE /api/tokens/{id}` | user (cookie) | — | `204` |
-| `GET /api/users` | admin | — | `[]core.User` |
+| `GET /api/users` | admin | — | `[]core.User` (v0.2 UI: `last_login_at`, the last password sign-in; zero = never) |
 | `POST /api/users` | admin (multi mode) | `dto.UserCreateReq` | `dto.UserCreateResp` (v0.2 UI: `core.User` plus `one_time_password` when no password was sent; that account has `must_change_password`) |
 | `PATCH /api/users/{id}` | admin | `dto.UserPatchReq` | `core.User` |
 | `POST /api/users/{id}/password` | admin (cookie) | — | `dto.PasswordResetResp` (v0.2 UI: a new one-time password, shown once; ends that user's sessions; the owner resets anyone else, admins only members, 403 otherwise; `h_onboarding.go`) |
@@ -6847,7 +6968,7 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `POST /api/sessions/{id}/pins` | user | `dto.PinReq` | `core.Pin` |
 | `DELETE /api/sessions/{id}/pins/{pin}` | user | — | `204` |
 | `POST /api/uploads` | user | multipart `file`, field `session_id` (v0.2 UI: or `principal_id`, as a form field or query parameter, for a chat not stored yet) | `dto.Upload` (streamed to `<work>/ws/<principal workspace>/.bothy/in/<upl>/<sanitized name>`, 0660, ≤ `upload_max_mb`; `uploads` row) |
-| `GET /api/runs` | user | `?session=&schedule=&status=&before=&limit=` | `dto.List[dto.RunView]` (v0.2 UI: `requested_by_name`, `chat_title`, `schedule_name`) |
+| `GET /api/runs` | user | `?session=&schedule=&status=&before=&limit=` | `dto.List[dto.RunView]` (v0.2 UI: `requested_by_name`, `chat_title`, `schedule_name`, `origin` (web, slack, telegram, discord, api or schedule), `reason` (the plain end of "Failed: …" or "Stopped …") and `refined`) |
 | `GET /api/runs/{id}` | user | — | `dto.RunDetail` (v0.2: approvals carry their votes; `refine` is the run's last refine trace; v0.2 UI: `run` is a `dto.RunView`) |
 | `GET /api/refine` | user | — | `dto.RefineInfo{enabled, drafts, depth, early_stop, critic_slot, max_calls, multiplier}` (v0.2; `max_calls` = drafts·(1+3·depth), for the composer's cost note; `multiplier` as in the refine estimate, for chats not stored yet) |
 | `POST /api/runs/{id}/continue` | user (cookie only) | — | `202 core.SubmitResult` (bearer tokens → 403: a continued run is interactive and keeps the provenance of the run it continues) |
@@ -6874,6 +6995,7 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `POST /api/skills` | admin | multipart zip (≤ 5 MB, ≤ 200 files) | `core.SkillMeta` (status pending) |
 | `PATCH /api/skills/{name}` | admin | `dto.SkillPatchReq` | `core.SkillMeta` |
 | `DELETE /api/skills/{name}` | admin | — | `204` |
+| `GET /api/skills/{name}/files/{path...}` | user (enabled) / admin (all) | — | the file as `text/plain; charset=utf-8` with `Content-Security-Policy: sandbox` and `nosniff` (v0.2 UI: read through the skill's `os.Root`; 400 for a path that is not clean and relative (`..`, absolute, backslash), a special file or one over 256 KB; 404 for an unknown or, for members, disabled skill, a symlinked component or a missing file; 415 for a file that is not UTF-8 text) |
 | `POST /api/skills/rescan` | admin | — | `[]core.SkillMeta` |
 | `GET /api/schedules` | user | — | `[]core.Schedule` (own) |
 | `POST /api/schedules` | user (own principals; humans need no approval: the self-modification lock targets the agent, whose `schedule_*` tools are admin-class under F3; members stay bounded by their daily cap) | `dto.ScheduleUpsertReq` | `core.Schedule` (`Scheduler.Upsert` assigns the id, then each `grants[]` entry goes through `Policy.Grant` with scope `schedule`, `scope_id` = the id, `principal_id` = the schedule's principal; whole-tool or admin/financial `max_se` grants → 400; non-empty `grants` from an API token → 403, since pre-authorized grants answer approvals in advance and need a browser session; audited `schedule.create`) |
@@ -6888,12 +7010,13 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `POST /api/mcp/{server}/approve` | admin | `dto.MCPApproveReq` | `204` |
 | `POST /api/mcp/{server}/install` | admin | — | `202` |
 | `POST /api/mcp/{server}/reload` | admin | — | `202` |
-| `GET /api/providers` | admin | — | `[]core.ProviderHealth` |
+| `GET /api/providers` | admin | — | `[]core.ProviderHealth` (v0.2 UI: `source`, where the credentials come from in plain words: "Saved key", "Environment variable", "AWS Secrets Manager", or for bedrock "This server's AWS access (<how it signs in>)" once the chain has resolved; never the credentials) |
 | `POST /api/providers/test` | admin | `dto.ProviderTestReq` | `core.ProbeResult` (v0.2 bedrock: `region` (AWS region shape) and optional `profile`; 400 for a bad region or profile, for `api_key`/`secret_ref` with bedrock and for region/profile on other kinds; the result carries `choices` and `credentials`. v0.2 UI: `model` (a probe without a model tests the recommended one), `code` (`core.FailureCode`) and the raw redacted `error` when it failed, and `choices` with plain names and suggestions) |
 | `POST /api/providers/detect` | admin | — | `[]core.Detection` (v0.2: the bedrock detection, "Use this server's AWS access", comes first when the AWS chain resolves. v0.2 UI: `choices` with plain names, and provider keys already saved in the global vault as `{kind, base_url, secret_ref: "secret:<name>", secret_hint: <last 4>, note}`, matched by name prefix) |
 | `POST /api/providers/connect` | admin | `dto.ProviderConnectReq` | `dto.ProviderConnectResp` (v0.2 UI, S6; `h_onboarding.go`: saves a pasted key or a well-known env var as `<id>_api_key` (or the next `_N` name a `BOTHY_SECRET_` variable does not shadow), or uses an existing `secret_ref`, then writes the provider and both slots, the chosen models first, in one `Config.Set`; without `id`, the kind's default id, or the next free one when another server holds it; a refused config write deletes a newly saved key and puts a replaced one back) |
 | `GET /api/models` | user | — | `[]core.ModelInfo` (v0.2 UI: `display_name`, `short_name`, `provider_name`, and one `recommended` and one `quick_tasks_default` per provider) |
 | `GET /api/github/repos` | user | — | `[]core.GitHubRepo` (v0.2: allowlisted repositories of every connection; `last_indexed_sha` is the commit the caller's own principal's GitHub-source index of the repository last read, omitted when none; 503 without a GitHub service, as every `/api/github` route) |
+| `GET /api/github/repos/{owner}/{repo}/workflows` | admin | — | `[]core.GitHubWorkflow` (v0.2 UI: the repository's `.github/workflows/` files through its connection, for the environment dialog; 404 for a repository no connection allows; names cleaned to one plain line) |
 | `GET /api/github/connections` | admin | — | `[]core.GitHubConnection` |
 | `POST /api/github/connections/test` | admin | `dto.GitHubConnectReq` | `core.GitHubProbe` (stores nothing; an App with several installations returns them to choose from) |
 | `POST /api/github/connections` | admin | `dto.GitHubConnectReq` | `core.GitHubConnection` (400 with GitHub's reason; 409 when a repo belongs to another connection that still allows it; 503 `sealed` when the vault is sealed) |
@@ -6901,7 +7024,7 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `POST /api/github/connections/{id}/test` | admin | — | `core.GitHubProbe` (live re-test; records the status; lists reachable repos with `allowed`/`connection_id`) |
 | `PUT /api/github/connections/{id}/repos` | admin | `dto.GitHubReposReq` | `[]core.GitHubRepo` (replaces the allowlist; empty allows none) |
 | `DELETE /api/github/connections/{id}` | admin | — | `204` (removes the connection, its repos and the vault secret it created) |
-| `GET /api/knowledge/repos` | user | `?principal=` | `dto.List[core.IndexedRepo]` (v0.2; all of the caller's principals by default) |
+| `GET /api/knowledge/repos` | user | `?principal=` | `dto.List[core.IndexedRepo]` (v0.2; all of the caller's principals by default. v0.2 UI: `progress` while queued or indexing, `summary`, and `stale` when a GitHub repository's default branch has moved past `indexed_sha`, also on `GET …/{id}`) |
 | `POST /api/knowledge/repos` | user | `dto.KnowledgeIndexReq` | `202 core.IndexedRepo` (status queued; 400 for a directory outside the workspace, a bad repo name or sha; 409 when a default `local/<name>` names another folder) |
 | `GET /api/knowledge/repos/{id}` | user | — | `core.IndexedRepo` |
 | `DELETE /api/knowledge/repos/{id}` | user | — | `204` (the index and the notes) |
@@ -6910,11 +7033,14 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `GET /api/knowledge/repos/{id}/notes` | user | — | `core.KnowledgeNotes` + `ETag` (`""` when there are no notes) |
 | `PUT /api/knowledge/repos/{id}/notes` | user | `If-Match` + `dto.KnowledgeNotesPutReq` | `core.KnowledgeNotes` + `ETag` (428 without If-Match, 409 stale, 400 over the cap; empty content deletes; a user save makes the notes trusted) |
 | `POST /api/knowledge/repos/{id}/notes/draft` | user | — | `202 core.IndexedRepo` (409 while a draft runs) |
+| `GET /api/knowledge/repos/{id}/notes/history` | user | — | `dto.List[dto.NotesChange]` (v0.2 UI: the notes' changes, newest first, at most 50 kept; 404 like the repo) |
+| `GET /api/knowledge/repos/{id}/notes/history/{version}` | user | — | `dto.NotesChange` |
 | `GET /api/knowledge/search` | user | `?q=&repo_id=&principal=&limit=` (1..50, default 20) | `dto.KnowledgeSearchResp` |
-| `GET /api/releases` | user | — | `dto.Releases` (v0.2: environments and the newest 20 deploys: own, everyone's for admins) |
-| `GET /api/releases/deploys` | user | `?environment=&before=&limit=` | `dto.List[core.Deploy]` (paged by `created_at` ms) |
+| `GET /api/releases` | user | — | `dto.Releases` (v0.2: environments and the newest 20 deploys: own, everyone's for admins. v0.2 UI: deploys are `dto.DeployView`s with `requested_by_name`, `approved_by_names`, `short_sha` and the commit `subject`) |
+| `GET /api/releases/deploys` | user | `?environment=&before=&limit=` | `dto.List[dto.DeployView]` (paged by `created_at` ms) |
 | `GET /api/channels` | admin | — | `[]core.ChannelStatus` |
 | `POST /api/channels/{name}/test` | admin | — | `dto.ChannelTestResp` (v0.2 UI: a failed test answers 502 with a `core.FailureCode` as the error code and the raw message, e.g. `key_rejected` for a refused Slack, Discord or Telegram token) |
+| `POST /api/search/test` | admin | `dto.SearchTestReq` | `dto.SearchTestResp` (v0.2 UI: one search with unsaved settings, through the same egress path and checks as the `web_search` tool; a pasted key is used for this check only, redacted from the answer and never stored; without one the saved key is used. 400 for a bad provider or address; a failed search is 200 with `ok: false`, a `core.FailureCode` (`key_rejected`, `rate_limited`, `provider_error`, transport codes) and the raw redacted message) |
 | `GET /api/channels/slack/manifest` | admin | — | `text/yaml` app manifest |
 | `GET /api/channels/discord/invite` | admin | — | `dto.DiscordInvite` |
 | `GET /api/config` | admin | `?schema=1` | `dto.ConfigView` |
@@ -6933,7 +7059,7 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `GET /api/egress` | user | `?session=&before=&limit=` | `dto.List[dto.EgressRow]` (own principals; admins also see system-dialer rows; v0.2 UI: `outcome` `reached`, `allowed_unreachable` or `blocked`) |
 | `GET /api/sandbox` | user | — | `dto.SandboxInfo` (`UsedMB`/`QuotaMB` from `Sandbox.Usage` of the caller's own workspace) |
 | `GET /api/workspace/files` | user | `?principal=&path=` | directory listing JSON or file download (`Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`) via `os.Root` |
-| `POST /api/admin/pause` | admin | `dto.PauseReq` | `204` |
+| `POST /api/admin/pause` | admin | `dto.PauseReq` | `204` (v0.2 UI: the `paused` banner names who paused and when, `core.PausedBanner`) |
 | `POST /api/admin/restart` | admin | — | `202` (calls `Deps.Restart`; `cmd/bothy` drains every loop, then re-execs itself) |
 | `POST /api/admin/backup` | admin | — | `{"path":"…"}` (`Store.Backup(<data>/backups)`, audited `backup.create`) |
 | `GET /api/doctor` | admin | — | `dto.DoctorReport` |
@@ -7016,9 +7142,41 @@ type Me struct {
 	Mode       string            `json:"mode"` // single | multi
 	Principals []*core.Principal `json:"principals"`
 	Paused     bool              `json:"paused"`
-	Sandbox    bool              `json:"sandbox_available"`
-	Banners    []core.BannerData `json:"banners"`
-	Access     Access            `json:"access"` // how this request reached the server
+	// PausedBy, PausedByName and PausedAt say who paused Bothy and when,
+	// while it is paused (empty for a pause recorded before they were kept).
+	PausedBy     core.UserID       `json:"paused_by,omitempty"`
+	PausedByName string            `json:"paused_by_name,omitempty"`
+	PausedAt     time.Time         `json:"paused_at,omitzero"`
+	Sandbox      bool              `json:"sandbox_available"`
+	Banners      []core.BannerData `json:"banners"`
+	Access       Access            `json:"access"` // how this request reached the server
+}
+
+// Profile is GET and PATCH /api/me: what people set about themselves.
+type Profile struct {
+	User        core.UserID `json:"user_id"`
+	Username    string      `json:"username"`
+	DisplayName string      `json:"display_name"`
+	// ApprovalsIn is where approval requests reach the person besides
+	// Bothy's Approvals page: "web" (Bothy only) or the chat app Bothy
+	// messages them in ("slack", "telegram", "discord").
+	ApprovalsIn string `json:"approvals_in"`
+	// PreferredChat is the chat app the person chose for Bothy's messages
+	// to them (scheduled results, check-ins and approval requests); "" =
+	// the linked one they used last.
+	PreferredChat string `json:"preferred_chat"`
+	// Chats are the chat apps the person has linked, which ApprovalsIn and
+	// PreferredChat may name.
+	Chats []string `json:"chats"`
+}
+
+// ProfilePatch changes the caller's own profile; absent fields stay.
+// ApprovalsIn "web" keeps approval requests in Bothy; a chat app sends them
+// there and makes it the preferred chat.
+type ProfilePatch struct {
+	DisplayName   *string `json:"display_name,omitempty"`
+	ApprovalsIn   *string `json:"approvals_in,omitempty"`
+	PreferredChat *string `json:"preferred_chat,omitempty"`
 }
 
 // Access is the caller's remote-access status for Settings > General.
@@ -7231,6 +7389,23 @@ type ChannelTestResp struct {
 	Identity string `json:"identity"`
 }
 
+// SearchTestReq is POST /api/search/test: one search with these settings
+// before they are saved. Without api_key the saved key is used; a private
+// SearXNG address needs search.searxng_allow_private, as for the tool.
+type SearchTestReq struct {
+	Provider   string `json:"provider"`              // searxng | brave | tavily
+	SearxngURL string `json:"searxng_url,omitempty"` // searxng
+	APIKey     string `json:"api_key,omitempty"`     // brave, tavily; write-only, used for this check only
+}
+
+// SearchTestResp says whether the search worked; a failure carries why
+// (Code) and the raw message (Error).
+type SearchTestResp struct {
+	OK    bool             `json:"ok"`
+	Code  core.FailureCode `json:"code,omitempty"`
+	Error string           `json:"error,omitempty"`
+}
+
 type DiscordInvite struct {
 	URL string `json:"url"`
 }
@@ -7356,6 +7531,21 @@ type KnowledgeSearchResp struct {
 	Items []core.KnowledgeHit `json:"items"`
 }
 
+// NotesChange is one change in a repo's notes history
+// (GET /api/knowledge/repos/{id}/notes/history[/{version}]), with names
+// for the people and chats it mentions.
+type NotesChange struct {
+	core.NotesVersion
+	Name string    `json:"name,omitempty"` // the person's name, for actor user
+	Chat *ChatLink `json:"chat,omitempty"` // the chat Bothy made the change in, when the caller can open it
+}
+
+// ChatLink names a chat for a link to it.
+type ChatLink struct {
+	ID    core.SessionID `json:"id"`
+	Title string         `json:"title"`
+}
+
 // KnowledgeNotesPutReq replaces a repo's notes; If-Match carries the etag
 // from GET (`""` while there are no notes yet). Empty content removes them.
 type KnowledgeNotesPutReq struct {
@@ -7397,7 +7587,17 @@ type ApprovalVoteView struct {
 // deploys the caller may see (their own; everyone's for admins).
 type Releases struct {
 	Environments []ReleaseEnvironment `json:"environments"`
-	Deploys      []*core.Deploy       `json:"deploys"`
+	Deploys      []DeployView         `json:"deploys"`
+}
+
+// DeployView is a deploy record with names instead of user ids. Subject
+// (core.Deploy) is the commit's subject line as its author wrote it: show
+// it as quoted text, never as a heading, a question or a link.
+type DeployView struct {
+	core.Deploy
+	RequestedByName string   `json:"requested_by_name"`
+	ApprovedByNames []string `json:"approved_by_names"`
+	ShortSHA        string   `json:"short_sha"` // the first 7 characters of SHA
 }
 
 type ReleaseEnvironment struct {
@@ -7458,8 +7658,30 @@ type InboxItem struct {
 	Approval *core.Approval        `json:"approval,omitempty"`
 	MCP      *InboxMCP             `json:"mcp,omitempty"`
 	Skill    *core.SkillMeta       `json:"skill,omitempty"`
-	Sender   *core.ChannelIdentity `json:"sender,omitempty"` // first_text holds the start of their message
+	Changes  *SkillChanges         `json:"skill_changes,omitempty"` // with Skill: what changed since it was approved
+	Sender   *core.ChannelIdentity `json:"sender,omitempty"`        // first_text holds the start of their message
 	Group    *InboxGroup           `json:"group,omitempty"`
+}
+
+// SkillChanges is how a skill's files differ from the ones an admin
+// approved (every file is added for a skill never approved).
+type SkillChanges struct {
+	Files []SkillFileChange `json:"files"`
+	// NoBaseline: the skill was approved before Bothy kept approved files,
+	// so only that it changed is known.
+	NoBaseline bool `json:"no_baseline,omitempty"`
+	// Truncated: more changed files or text than one review shows; the
+	// skill's page has every file.
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+type SkillFileChange struct {
+	Path   string `json:"path"`
+	Change string `json:"change"` // added | removed | changed
+	Before string `json:"before,omitempty"`
+	After  string `json:"after,omitempty"`
+	// Opaque: not text, or too large to show, so neither side is included.
+	Opaque bool `json:"opaque,omitempty"`
 }
 
 type InboxMCP struct {
@@ -7539,6 +7761,13 @@ type RunView struct {
 	RequestedByName string `json:"requested_by_name"` // who asked; "" for schedules and check-ins
 	ChatTitle       string `json:"chat_title"`        // as the chat list shows it
 	ScheduleName    string `json:"schedule_name"`     // "" unless a schedule started it; the heartbeat is "Check-in"
+	// Origin is where the task came from: web, slack, telegram, discord
+	// (the chat it ran in), api or schedule.
+	Origin string `json:"origin"`
+	// Reason completes the outcome of a task that did not finish, after
+	// "Failed: " ("the AI model didn't answer") or "Stopped " ("by Maya
+	// Chen"); "" when there is nothing to add.
+	Reason string `json:"reason,omitempty"`
 }
 
 // UsageRowView is a usage bucket with its name: the person (group_by user),
@@ -7699,7 +7928,7 @@ Gates: `npm run check` (svelte-check, then `scripts/ui-lint.sh` for the class an
 
 Cards render only from the server's `core.Card` (plain copy, S2) and the structured `Action`; fields that leave Bothy or can't be undone stay on the card in full, verbatim, with bidi and zero-width characters made visible and domains in punycode (ui.md §8). Buttons are real `<button>` elements built from `card.choices`; a multi-approver card shows the tally and names from `Approval.approvals` and `GET /api/approvals/{id}/votes`, and the requester gets no decision buttons. Keyboard flow (ui.md §8.8, §16): J/K move, Enter opens, A/S/D decide in the inbox or a focused card; a held key decides one item (repeats are ignored and the next decision waits for the key to be released); focus moves to the next waiting item and a polite live region announces the result. Resolving anywhere updates every surface live (`approval.resolved`, `approval.voted`).
 
-**The inbox (S12).** `GET /api/inbox` returns `dto.Inbox{items}`, the caller's items first (`for_you`: they can still decide), then oldest first. Item types and how each is decided, all through existing endpoints: `approval` and `note_suggestion` (an approval whose card kind is `review`; `summary` "n of k approvals" on multi-approver ones) → `POST /api/approvals/{id}`; for admins only, `mcp_review` (`mcp:<server>`: servers with pending pins, each changed tool's approved pin kept beside the pending one) → `POST /api/mcp/{server}/approve`; `skill_review` (`skill:<name>`: skills `changed` or `pending`, `SkillMeta` only, the current files through `GET /api/skills/{name}`) → `PATCH /api/skills/{name}`; `unknown_sender` (`sender:<channel>:<external_id>`: pending DM senders told how to get access who wrote within 30 days, at most 50, newest first, with `first_text`) → `PATCH /api/identities/{channel}/{external}`; and, for the owner of the group and admins, `group_chat` (`group:<space principal>`: groups Bothy was added to that are disabled and never changed) → `PATCH /api/spaces/{id}`, where any change marks the group as seen. Clients refetch the inbox on `approval.requested`, `approval.voted`, `approval.resolved`, `mcp.pin_pending`, `inbox.changed` and the banner codes `skills_changed`, `mcp_pins` and `unknown_sender` (still published; the inbox replaces them in the v0.2 UI).
+**The inbox (S12).** `GET /api/inbox` returns `dto.Inbox{items}`, the caller's items first (`for_you`: they can still decide), then oldest first. Item types and how each is decided, all through existing endpoints: `approval` and `note_suggestion` (an approval whose card kind is `review`; `summary` "n of k approvals" on multi-approver ones) → `POST /api/approvals/{id}`; for admins only, `mcp_review` (`mcp:<server>`: servers with pending pins, each changed tool's approved pin kept beside the pending one) → `POST /api/mcp/{server}/approve`; `skill_review` (`skill:<name>`: skills `changed` or `pending`, `SkillMeta` plus `skill_changes`, the files that differ from the approved snapshot (§14.7), each file through `GET /api/skills/{name}/files/{path...}`) → `PATCH /api/skills/{name}`; `unknown_sender` (`sender:<channel>:<external_id>`: pending DM senders told how to get access who wrote within 30 days, at most 50, newest first, with `first_text`) → `PATCH /api/identities/{channel}/{external}`; and, for the owner of the group and admins, `group_chat` (`group:<space principal>`: groups Bothy was added to that are disabled and never changed) → `PATCH /api/spaces/{id}`, where any change marks the group as seen. Clients refetch the inbox on `approval.requested`, `approval.voted`, `approval.resolved`, `mcp.pin_pending`, `inbox.changed` and the banner codes `skills_changed`, `mcp_pins` and `unknown_sender` (still published; the inbox replaces them in the v0.2 UI).
 
 ### 9.4 Setup, sign in and people
 
@@ -7842,7 +8071,7 @@ No router, markdown, chart, icon, date or QR libraries.
 | MCP go-sdk + jsonschema | ~1.2 MB |
 | yaml, x/net, x/crypto, gronx, seccomp-bpf | ~1.2 MB |
 | Bothy code + catalog.json + pre-gzipped UI (only the `.gz` variant of compressible assets is embedded; `index.html` stays raw) | ~4.5 MB |
-| Web UI inside that, gzip (`scripts/budgets/ui-size.sh`) | first screen ≤ 120 KB JS and ≤ 20 KB CSS, all JS chunks ≤ 260 KB; measured 99,625 B JS (theme.js and one module) and 11,640 B CSS for the first screen, 249,424 B JS in 10 files (the single bundle before route chunks: 236,142 B) |
+| Web UI inside that, gzip (`scripts/budgets/ui-size.sh`) | first screen ≤ 120 KB JS and ≤ 20 KB CSS, all JS chunks ≤ 260 KB; measured 99,676 B JS (theme.js and one module) and 11,626 B CSS for the first screen, 249,511 B JS in 10 files (the single bundle before route chunks: 236,142 B) |
 | **Binary** | **~23 MB → ~9 MB gzip** (v0.1) |
 | v0.2 measured (placeholder UI) | linux/amd64 22.92 MB → 26.56 MB (+3.65 MB: AWS SDK ~2.4 MB, GitHub, knowledge, releases and refine ~1.2 MB), gzip 9.03 → 10.31 MB; linux/arm64 21.23 → 24.51 MB, gzip 8.27 → 9.42 MB; with the UI built, linux/amd64 25.5 MiB, gzip 10.0 MiB; gateway image (linux/arm64) 10.2 MiB compressed, against 9.1 MiB for v0.1 and the 30 MB budget; idle RSS with three fake channels 40.4 MiB on darwin/arm64 (v0.1: 35.1 MiB), cold start median 58 ms; with the redesigned UI and aws-sm references merged, linux/amd64 26.1 MiB, gzip 10.3 MiB, linux/arm64 24.1 MiB, gzip 9.4 MiB, gateway image (linux/arm64) 10.6 MiB compressed, idle RSS 40.9 MiB after 10 minutes, cold start median 69 ms, fixed token overhead 1,951 |
 | **Gateway image** (distroless static ≈ 1 MB) | **~10–11 MB compressed** (budget 30, CI warns at 20); measured 9.1 MiB (arm64), 9.8 MiB (amd64), 9.3 MiB (armv7) |
@@ -9849,7 +10078,7 @@ The accepted v0.2 brief extends this spec; where they disagree the brief wins, a
 ### 14.6 Integration notes
 
 - One checkout event: `repo.checkout` (`RepoCheckoutData`), published by F4 and consumed by F6 (F6 had defined its own `repo.checked_out`, which no module published; it was folded into `repo.checkout`).
-- Migrations 0002 (F4), 0003 (F6), 0004 (F5), 0005 (approval comments, S4/S12), 0006 (one-time passwords, S9), 0007 (deploy `via`, per-principal index state) and 0008 (aws-sm GitHub connection refs, §14.8) apply in order on a fresh database and on a v0.1 database (§6); the store's migrator tests start from `0001_init.sql` alone, and `TestIndexStateMigration` upgrades a version-4 database.
+- Migrations 0002 (F4), 0003 (F6), 0004 (F5), 0005 (approval comments, S4/S12), 0006 (one-time passwords, S9), 0007 (deploy `via`, per-principal index state), 0008 (aws-sm GitHub connection refs, §14.8) and 0009 (UI state, §14.7) apply in order on a fresh database and on a v0.1 database (§6); the store's migrator tests start from `0001_init.sql` alone, and `TestIndexStateMigration` upgrades a version-4 database.
 - `cmd/bothy` builds the GitHub, knowledge and release services, registers their tools and checks, passes `GitHub`, `Knowledge` and `Deploys` to the HTTP API, runs `knowledge.Run` in every mode and `release.Run` outside safe mode, and gives the runner the knowledge turn-context hook.
 
 ### 14.7 v0.2 UI server work (`docs/design/ui.md` §17)
@@ -9869,6 +10098,18 @@ The redesigned UI relies on S1–S20 of its plan; the shapes are in §4, §8.3 a
 - **S16:** each audit row has one plain `summary` from a server-side phrase table (`audit_summary.go`, `phrases.go`, after ui.md §7.4); egress rows merge decision and connection result into `outcome`.
 - **S17:** release events (§14.5, §8.2).
 - **S20:** company wording in the constitution (version 2) and the default persona (§5.6).
+- **UI state (fallbacks removed):** the server now carries what the redesigned screens used to guess or hide; migration 0009 adds `users.last_login_at`, `preferred_chat` (≤ 32) and `approvals_web_only`, `runs.refined`, `release_deploys.sha` and `subject` (≤ 400), and `skill_approved_files` (STRICT, cascading with the skill), and `TestUIStateMigration` upgrades a version-8 database.
+  - *Profile:* `GET`/`PATCH /api/me` (`dto.Profile`, `auth.Service.UpdateProfile`): anyone renames themselves (the principal's display name follows, as for admin renames; no control or format characters, and not a name or username someone else has, so nobody can pass as a colleague in approval cards) and chooses where approval requests reach them. A preferred chat app is used for Bothy's messages while it is linked (`channel.Messenger.PreferredChat`); `web` keeps approval requests to the Approvals page (no chat card, no group vote prompt), except a card in the chat that asked, which still goes there. Both fields stay out of `GET /api/users`. The change is written with `UserRepo.SetProfile`, which touches only those columns, so a rename racing an admin's role change, turn-off or password reset cannot undo it.
+  - *Persona:* `agent.name` (default "Bothy"; 1–40 runes, no control or format characters, no `<` or `>`) and `agent.tone` (`warm` | `direct` | `formal`) are hot and go into the turn context's facts ("Your name", "Tone"), never into the constitution.
+  - *Sign-ins:* `UserRepo.SignedIn` records `last_login_at` on each password sign-in (and clears the failure count and lock); `Update` leaves it alone.
+  - *Credentials:* `ProviderHealth.source` (§8.3); the bedrock source comes from `Chain.Source()`, which reads what the chain already resolved and never calls AWS.
+  - *Pause:* `Runner.PausedBy()` and `meta.paused_by` (`<user id> <unix ms>`) keep the first pause's who and when across restarts and repeated pauses; the banner text is "Bothy is paused by <name>." and `dto.Me` carries the same fields for a client that missed the event.
+  - *Project notes:* each change (a user save, Bothy's `notes` edits with their chat and run, a draft) appends `{before, after}` to `history.jsonl` beside `NOTES.md` (0600, newest 50 entries and at most 4 MiB kept, damaged lines skipped, deleted with the repo); a save that changes nothing adds nothing. History is read through the caller's view like the notes; the chat link is named only when the caller can open that chat. `summary` is the first sentence of the notes as plain text (≤ 160 runes); `progress` counts files read against an estimate (the last index's count, else the directory's files counted up to the index's file cap), published at most once a second; `stale` compares a GitHub index's `indexed_sha` with the default branch head (`GitHub.BranchHead`, cached per repository for 10 minutes, a failure for 1, at most 20 lookups and 4 s per listing).
+  - *Skills:* enabling a skill stores its approved snapshot in the database (`SkillRepo.SetApproved`: SKILL.md and every listed file with its hash and size, text kept when it is UTF-8 within 256 KB per file and 1 MiB in all), out of the skills directory so whoever can write there cannot change it. The snapshot is the bytes the approval's own hash walk read (`treehash.SumRootFiles`), so a file swapped while an admin approves cannot become the baseline. The inbox's `skill_review` item carries `skill_changes` (added, removed and changed files with both sides as text, at most 50 files and 512 KiB, else `truncated`; `no_baseline` for skills approved before 0009). Skill files are served inert (§8.3).
+  - *GitHub:* `GitHub.Workflows` lists an allowlisted repository's workflow files (every page, `.github/workflows/` paths only, names cleaned); any other repository is `ErrNotFound`, as for `BranchHead`.
+  - *Web search:* `POST /api/search/test` runs `egress.TestSearch`, the tool's own request path and checks, with search failures as `core.FailureCode`s.
+  - *Tasks:* `RunView.origin` comes from the run's trigger and session channel; `reason` from who stopped it ("by you", "by <name>", "while it waited for approval") or a plain phrase mapped from the run's error (never the error itself, which can hold a provider's message); `Run.Refined` is set when refine mode wrote the answer.
+  - *Deploys:* `Deploy.SHA` is recorded at dispatch and when the follower first sees the run's `head_sha`; `Subject` is read once through the dispatcher's optional `release.CommitReader` (`github.Service.CommitSubject`, `release.GitHub.CommitSubject`), cleaned to one plain line of at most 120 runes. The subject is written by whoever can push, so it appears only in deploy lists as quoted, inert text: never in cards, notices, events, `release_status` or prompts; the deploy card's Version field still shows the ref only (S2).
 
 ### 14.8 External secret references (AWS Secrets Manager)
 

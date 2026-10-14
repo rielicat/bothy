@@ -86,6 +86,7 @@
   }
 
   const keyHint = (a: Action) => (a.key ? `${a.label} (${a.key === 'allow_once' ? 'A' : 'D'})` : undefined);
+  const changeWord: Record<string, string> = { added: 'new', removed: 'removed', changed: 'changed' };
 </script>
 
 {#snippet changed(key: string, diff: string, label = 'Show what changed')}
@@ -108,9 +109,22 @@
       {/each}
     </ul>
   {:else if item.type === 'skill_review'}
-    <!-- The server sends the skill's metadata only; its files are on the skill's page. -->
+    {#if item.files.length}
+      <ul class="mt-3">
+        {#each item.files as f (f.path)}
+          <li class="border-b border-border py-3 last:border-b-0">
+            <p class="text-body text-text"><span class="font-mono text-code [overflow-wrap:anywhere]" data-copy-ignore>{f.path}</span><span class="text-muted">{' · '}{changeWord[f.change] ?? 'changed'}</span></p>
+            {#if f.diff}{@render changed(f.path, f.diff, f.change === 'changed' ? 'Show what changed' : 'Show the file')}{:else}<p class="mt-1 text-small text-muted">Not text, or too long to show here.</p>{/if}
+          </li>
+        {/each}
+      </ul>
+    {:else if item.noBaseline}
+      <p class="mt-1 text-body text-muted">It was approved before Bothy kept a copy of approved files, so what changed can't be shown.</p>
+    {/if}
     <p class="mt-1 text-small">
-      <a class="link -my-0.5 inline-flex min-h-6 items-center pointer-coarse:-my-3 pointer-coarse:min-h-11" href="/knowledge/skills/{encodeURIComponent(item.skill)}" onclick={router.link}>See the skill's files</a>
+      <a class="link -my-0.5 inline-flex min-h-6 items-center pointer-coarse:-my-3 pointer-coarse:min-h-11" href="/knowledge/skills/{encodeURIComponent(item.skill)}" onclick={router.link}
+        >{item.truncated ? "More changed than fits here. See all the skill's files" : "See the skill's files"}</a
+      >
     </p>
   {:else if item.type === 'unknown_sender'}
     <p class="mt-1 text-body text-muted" data-copy-ignore>

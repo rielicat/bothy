@@ -2,7 +2,7 @@
 // and the audit log. Rows carry the names and plain lines the server tracks
 // add (S8, S16, docs/design/ui.md §17) where the UI shows them; a few rows
 // leave them out so the client-side fallbacks show too.
-import type { Approval, AuditEntry, EgressRecord, Run, Schedule, ToolCallRecord } from '../../src/lib/api/types.gen.ts';
+import type { Approval, AuditEntry, EgressRecord, Run, RunView, Schedule, ToolCallRecord } from '../../src/lib/api/types.gen.ts';
 import { list as approvalList, state as approvalState } from './approvals.ts';
 import { breakdown } from './chat.ts';
 import { releaseEnvironments } from './connections.ts';
@@ -61,7 +61,8 @@ export const schedules: Schedule[] = [
   sched('sch_01jinvoices0000000000000', 'Invoice reminder', 'cron', '0 9 1,15 * *', { prompt: 'List the client invoices that are still unpaid.', slot: 'main', next_run_at: dayAt(new Date().getUTCDate() < 15 ? 15 - new Date().getUTCDate() : 3, 8) }),
 ];
 
-type TaskRun = Run & { requested_by_name?: string; chat_title?: string; schedule_name?: string; origin?: string; reason?: string; refined?: boolean };
+// Runs as h_activity.go runView sends them: names, where they came from and a plain reason.
+type TaskRun = Omit<RunView, 'chat_title'> & { chat_title?: string };
 
 const task = (id: string, minAgo: number, extra: Partial<TaskRun>): TaskRun => ({
   id,
@@ -79,6 +80,9 @@ const task = (id: string, minAgo: number, extra: Partial<TaskRun>): TaskRun => (
   created_at: ago(minAgo),
   started_at: ago(minAgo),
   finished_at: ago(minAgo - 2),
+  refined: false,
+  requested_by_name: '',
+  schedule_name: '',
   origin: 'web',
   ...extra,
 });
@@ -108,9 +112,9 @@ export const runs: TaskRun[] = [
     reason: 'the GitHub token was rejected',
     cost_micros: 80_000,
   }),
-  task(ids.tripRun, D + 60, { chat_title: undefined, session_id: ids.trip, cost_micros: 18_400, origin: undefined }),
+  task(ids.tripRun, D + 60, { chat_title: undefined, session_id: ids.trip, cost_micros: 18_400 }),
   task('run_01jpricing00000000000000', D + 120, { chat_title: 'Q3 pricing summary', refined: true, steps: 4, cost_micros: 420_000 }),
-  task('run_01jnotes0000000000000000', D + 200, { chat_title: 'Draft the release notes', user_id: member.id, principal_id: member.id, requested_by_name: 'Alex', origin: 'telegram', status: 'stopped', cost_micros: 50_000 }),
+  task('run_01jnotes0000000000000000', D + 200, { chat_title: 'Draft the release notes', user_id: member.id, principal_id: member.id, requested_by_name: 'Alex', origin: 'telegram', status: 'stopped', reason: 'by Alex', cost_micros: 50_000 }),
   task('run_01jissues000000000000000', 3 * D, { chat_title: 'Summarise all open issues', origin: 'discord', status: 'budget_exceeded', steps: 9, cost_micros: 500_000 }),
   task('run_01jstaging00000000000000', 3 * D + 30, { chat_title: 'Check staging health', user_id: member.id, principal_id: member.id, requested_by_name: 'Alex', trigger: 'api', origin: 'api', status: 'interrupted', cost_micros: 9_000 }),
   task('run_01jbrief1000000000000000', 4 * D, { trigger: 'schedule', schedule_id: ids.briefSchedule, schedule_name: 'Morning briefing', origin: 'schedule', status: 'skipped', steps: 0, cost_micros: 0 }),
@@ -320,6 +324,7 @@ export function usageRows(groupBy: string, days: number, user?: string, today = 
   return [];
 }
 
+// As h_activity.go deployViews sends them: names for the people, the commit's short sha and subject.
 const deploy = (id: string, env: string, sha: string, subject: string, status: string, minAgo: number, extra: Record<string, unknown> = {}) => ({
   id,
   environment: env,
@@ -332,16 +337,19 @@ const deploy = (id: string, env: string, sha: string, subject: string, status: s
   approved_by: [member.id],
   status,
   sha,
+  short_sha: sha.slice(0, 7),
   subject,
+  requested_by_name: 'Sam',
+  approved_by_names: ['Alex'],
   created_at: ago(minAgo),
   updated_at: ago(minAgo),
   finished_at: status === 'running' ? '0001-01-01T00:00:00Z' : ago(minAgo - 3),
   ...extra,
 });
 export const deploys = [
-  deploy('dep_01jrunning0000000000000000', 'staging', '9e1b3c0a1', 'Add audit export', 'running', 2, { run_url: 'https://github.com/acme/web/actions/runs/912', approved_by_names: ['Alex'] }),
-  deploy('dep_01jprod00000000000000000', 'production', '4f2c1a9d2', 'Fix login redirect loop', 'succeeded', 2 * D, { run_id: 'run_01jfixlogin0000000000000', approved_by: [member.id, 'usr_01jmaya0000000000000000'], approved_by_names: ['Alex', 'Maya Chen'] }),
-  deploy('dep_01jfailed00000000000000', 'staging', '1b2c3d4e5', 'Upgrade the router', 'failed', 8 * D, { requested_by: member.id, requested_by_name: 'Alex', approved_by: [owner.id], run_url: 'https://github.com/acme/web/actions/runs/877' }),
+  deploy('dep_01jrunning0000000000000000', 'staging', '9e1b3c0a1f7d2e4b6a8c0d1e2f3a4b5c6d7e8f90', 'Add audit export', 'running', 2, { run_url: 'https://github.com/acme/web/actions/runs/912' }),
+  deploy('dep_01jprod00000000000000000', 'production', '4f2c1a9d2e8b7c6a5f4e3d2c1b0a9f8e7d6c5b4a', 'Fix login redirect loop', 'succeeded', 2 * D, { run_id: 'run_01jfixlogin0000000000000', approved_by: [member.id, 'usr_01jmaya0000000000000000'], approved_by_names: ['Alex', 'Maya Chen'] }),
+  deploy('dep_01jfailed00000000000000', 'staging', '1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e', 'Upgrade the router', 'failed', 8 * D, { requested_by: member.id, requested_by_name: 'Alex', approved_by: [owner.id], approved_by_names: ['Sam'], run_url: 'https://github.com/acme/web/actions/runs/877' }),
 ];
 
 // Deploy approvals live in the approvals domain; this scenario adds a waiting
@@ -462,7 +470,16 @@ on('GET', '/api/schedules/{id}/runs', (_q, res, m) => json(res, 200, { items: ru
 on('GET', '/api/releases', (req, res) => {
   if (noReleases(req)) return json(res, 200, { environments: [], deploys: [] });
   // The approvals domain's deploys carry only what its cards read; the server's always have these too.
-  const started = approvalState.deploys.map((d) => ({ session_id: '', requested_by: member.id, approved_by: [owner.id], finished_at: '0001-01-01T00:00:00Z', ...d }));
+  const started = approvalState.deploys.map((d) => ({
+    session_id: '',
+    requested_by: member.id,
+    approved_by: [owner.id],
+    requested_by_name: 'Alex',
+    approved_by_names: ['Sam'],
+    short_sha: '',
+    finished_at: '0001-01-01T00:00:00Z',
+    ...d,
+  }));
   json(res, 200, { environments: releaseEnvironments(req), deploys: noDeploys(req) || empty(req) ? [] : deployWaiting(req) ? deploys : [...deploys, ...started] });
 });
 

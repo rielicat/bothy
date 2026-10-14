@@ -27,7 +27,7 @@ func (h *Hub) deliverVoteCards(ctx context.Context, ap *core.Approval) {
 		targets = append(targets, c)
 	}
 	for _, u := range users {
-		if u.Disabled || !ap.Approver.Eligible(u.ID, u.Role) {
+		if u.Disabled || u.ApprovalsWebOnly || !ap.Approver.Eligible(u.ID, u.Role) {
 			continue
 		}
 		if c, ok := h.PreferredChat(ctx, u.ID); ok {

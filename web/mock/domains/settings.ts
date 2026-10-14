@@ -1,6 +1,6 @@
 // Settings (C7): people, API tokens, the personality, models and providers,
 // and the effective config every settings page reads and writes.
-import type { Entry, ModelInfo, ProviderHealth, TokenRecord, User } from '../../src/lib/api/types.gen.ts';
+import type { Entry, ModelInfo, Profile, ProviderHealth, TokenRecord, User } from '../../src/lib/api/types.gen.ts';
 import effectiveFixture from '../fixtures/effective.json' with { type: 'json' };
 import schema from '../fixtures/schema.json' with { type: 'json' };
 import { ago, ahead, body, clone, core, emit, fail, json, member, newId, nowISO, on, onReset, owner, scenario, viewer, ZERO, type Req } from './core.ts';
@@ -38,7 +38,7 @@ const bedrockModels: ModelInfo[] = [
 ];
 
 export const providers: ProviderHealth[] = [
-  { id: 'anthropic', kind: 'anthropic', state: 'ok', since: ago(60 * 24) },
+  { id: 'anthropic', kind: 'anthropic', state: 'ok', since: ago(60 * 24), source: 'Saved key' },
   { id: 'ollama', kind: 'ollama', state: 'down', last_error: 'Post "http://host.docker.internal:11434/api/chat": dial tcp 172.17.0.1:11434: connect: connection refused', since: ago(60 * 3) },
 ];
 
@@ -51,7 +51,7 @@ Ask before doing anything that leaves the company or can't be undone.`;
 const changedPersona = `${persona}
 When someone asks about a release, check the release checklist in acme/web first.`;
 
-// Bothy's name and tone aren't server settings yet, so General shows their rows only when the config lists them.
+// Settings the effective.json fixture predates.
 const pending: Entry[] = [
   { path: 'agent.name', value: 'Bothy', source: { layer: 'default' }, shadowed: [], locked: false, hot: true, secret: false },
   { path: 'agent.tone', value: 'warm', source: { layer: 'default' }, shadowed: [], locked: false, hot: true, secret: false },
@@ -67,11 +67,9 @@ const bedrockEntries: Entry[] = [
   ['region', 'us-east-1'],
 ].map(([k, v]) => ({ path: `providers.bedrock.${k}`, value: v, source: { layer: 'ui' }, shadowed: [], locked: false, hot: true, secret: false }));
 
-type UserV2 = User & { last_login_at?: string };
-
-const people: UserV2[] = [
-  { ...owner, last_login_at: ago(2) },
-  { ...member, last_login_at: ago(60 * 5) },
+const people: User[] = [
+  owner,
+  member,
   { ...member, id: 'usr_01jpriya00000000000000000', username: 'priya', display_name: 'Priya Rao', role: 'admin', created_at: ago(60 * 24 * 10), last_login_at: ago(60 * 24 * 3) },
   { ...member, id: 'usr_01jjordan0000000000000000', username: 'jordan', display_name: 'Jordan Kim', created_at: ago(60 * 24), last_login_at: ZERO, must_change_password: true },
 ];
@@ -80,10 +78,11 @@ type Effective = { entries: Entry[]; errors: unknown[]; safe_mode: boolean; rest
 
 export const state = {
   tokens: [] as TokenRecord[],
-  users: [] as UserV2[],
+  users: [] as User[],
   persona: '',
   personaReads: 0,
-  approvalsIn: 'web',
+  approvalsIn: '',
+  preferredChat: '',
   effective: {} as Effective,
 };
 onReset(() =>
@@ -92,7 +91,8 @@ onReset(() =>
     users: clone(people),
     persona,
     personaReads: 0,
-    approvalsIn: 'web',
+    approvalsIn: '',
+    preferredChat: '',
     effective: { ...(clone(effectiveFixture) as Effective), entries: [...(clone(effectiveFixture) as Effective).entries, ...clone(pending)] },
   }),
 );
@@ -169,7 +169,7 @@ on('DELETE', '/api/config/{path...}', (_q, res, m) => {
 });
 
 on('GET', '/api/providers', (req, res) =>
-  json(res, 200, bedrock(req) ? [...providers, { id: 'bedrock', kind: 'bedrock', state: 'ok', since: ago(60 * 24 * 2), source: 'instance role bothy-prod' }] : providers),
+  json(res, 200, bedrock(req) ? [...providers, { id: 'bedrock', kind: 'bedrock', state: 'ok', since: ago(60 * 24 * 2), source: "This server's AWS access (instance role bothy-prod)" }] : providers),
 );
 on('GET', '/api/models', (req, res) => json(res, 200, bedrock(req) ? [...models, ...bedrockModels] : models));
 
@@ -182,18 +182,37 @@ on('PUT', '/api/persona', async (req, res) => {
   json(res, 204);
 });
 
-// The signed-in person's own profile (server need: self-service name and approval delivery).
-on('GET', '/api/me', (req, res) => json(res, 200, { display_name: viewer(req).display_name, approvals_in: state.approvalsIn }));
+// The signed-in person's own profile, worked out as h_uistate.go profile() does.
+// Linked identities belong to connections.ts, which reads this domain's state at reset, so it is imported late.
+async function profile(req: Req): Promise<Profile> {
+  const { state: connections } = await import('./connections.ts');
+  const me = viewer(req);
+  const linked = connections.identities.filter((i) => i.status === 'linked' && i.user_id === me.id && i.dm_chat_id);
+  const chats = [...new Set(linked.map((i) => i.channel))].sort();
+  const last = [...linked].sort((a, b) => b.last_seen_at.localeCompare(a.last_seen_at))[0];
+  let approvalsIn = 'web';
+  if (state.approvalsIn !== 'web') approvalsIn = chats.includes(state.preferredChat) ? state.preferredChat : (last?.channel ?? 'web');
+  return { user_id: me.id, username: me.username, display_name: me.display_name, approvals_in: approvalsIn, preferred_chat: state.preferredChat, chats };
+}
+on('GET', '/api/me', async (req, res) => json(res, 200, await profile(req)));
 on('PATCH', '/api/me', async (req, res) => {
   const b = JSON.parse(await body(req));
   if (typeof b.display_name === 'string') {
-    if (!b.display_name.trim()) return fail(res, 400, 'bad_request', 'display_name must not be empty');
-    if (viewer(req).id === core.me.id) core.me.display_name = b.display_name;
+    const name = b.display_name.trim();
+    if (!name) return fail(res, 400, 'bad_request', 'enter a name');
+    const same = (s: string) => s.trim().toLowerCase() === name.toLowerCase();
+    if (name !== viewer(req).display_name && state.users.some((x) => x.id !== viewer(req).id && (same(x.display_name) || same(x.username))))
+      return fail(res, 400, 'bad_request', `invalid: someone else here goes by "${name}"; add an initial or a surname`);
+    if (viewer(req).id === core.me.id) core.me.display_name = name;
     const u = state.users.find((x) => x.id === viewer(req).id);
-    if (u) u.display_name = b.display_name;
+    if (u) u.display_name = name;
   }
-  if (typeof b.approvals_in === 'string') state.approvalsIn = b.approvals_in;
-  json(res, 200, { display_name: viewer(req).display_name, approvals_in: state.approvalsIn });
+  if (typeof b.approvals_in === 'string') {
+    if (b.approvals_in !== 'web' && !(await profile(req)).chats.includes(b.approvals_in)) return fail(res, 400, 'bad_request', `link ${b.approvals_in} to your account first`);
+    state.approvalsIn = b.approvals_in === 'web' ? 'web' : '';
+    if (b.approvals_in !== 'web') state.preferredChat = b.approvals_in;
+  }
+  json(res, 200, await profile(req));
 });
 
 on('GET', '/api/tokens', (_q, res) => json(res, 200, state.tokens));
@@ -214,7 +233,7 @@ on('POST', '/api/users', async (req, res) => {
   const b = JSON.parse(await body(req));
   if (state.users.some((u) => u.username.toLowerCase() === String(b.username).toLowerCase())) return fail(res, 409, 'conflict', `username "${b.username}" is taken`);
   // S9: without a password the server makes a one-time password, replaced at the first sign-in.
-  const u: UserV2 = { ...clone(member), id: newId('usr'), username: b.username, display_name: b.display_name, role: b.role, created_at: nowISO(), last_login_at: ZERO, must_change_password: !b.password };
+  const u: User = { ...clone(member), id: newId('usr'), username: b.username, display_name: b.display_name, role: b.role, created_at: nowISO(), last_login_at: ZERO, must_change_password: !b.password };
   state.users.push(u);
   json(res, 200, b.password ? u : { ...u, one_time_password: 'h7Fq-2mKx-9wPr-tB4n' });
 });

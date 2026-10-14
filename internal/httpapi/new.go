@@ -75,6 +75,7 @@ type Server struct {
 	ssePing    time.Duration
 	sseRecheck time.Duration
 	jobs       *jobs         // background compactions and MCP installs, one per key
+	heads      branchHeads   // default-branch heads for the knowledge stale flag
 	v1Large    chan struct{} // slots for /v1 bodies over v1SmallBody
 	v1Wait     time.Duration // how long a large /v1 body waits for a slot
 
@@ -116,6 +117,7 @@ func New(d Deps) (*Server, error) {
 	s.routes = append(s.routes, s.knowledgeRoutes()...)
 	s.routes = append(s.routes, s.inboxRoutes()...)
 	s.routes = append(s.routes, s.onboardingRoutes()...)
+	s.routes = append(s.routes, s.uiStateRoutes()...)
 	s.handler = s.build()
 	return s, nil
 }

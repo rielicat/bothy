@@ -4,9 +4,6 @@ import type { ModelInfo, ProviderHealth } from '../../lib/api/types.gen';
 import { plural } from '../../lib/format';
 import { failure, type FailureCode } from '../../lib/providerErrors';
 
-// Where a provider's credentials come from; GET /api/providers does not say yet (docs/design/ui.md §17).
-export type ProviderHealthV2 = ProviderHealth & { source?: string };
-
 const providerNames: Record<string, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
@@ -101,7 +98,7 @@ export type Tone = 'muted' | 'warning' | 'danger';
 export interface ProviderState {
   kind: string;
   enabled: boolean;
-  health?: ProviderHealthV2;
+  health?: ProviderHealth;
   models: number;
   region?: string;
 }

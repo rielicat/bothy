@@ -140,6 +140,9 @@ func (s *Server) skillItems(ctx context.Context, items []dto.InboxItem) ([]dto.I
 	}
 	for _, m := range all {
 		it := dto.InboxItem{ID: "skill:" + m.Name, Type: dto.InboxSkillReview, ForYou: true, CreatedAt: m.UpdatedAt, Skill: m}
+		if m.Status == core.SkillChanged || m.Status == core.SkillPending {
+			it.Changes = s.skillChanges(ctx, m)
+		}
 		switch m.Status {
 		case core.SkillChanged:
 			it.Question, it.Summary = "Review changes to the “"+m.Name+"” skill", "Changed since it was approved"

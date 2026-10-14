@@ -40,7 +40,17 @@ type ApprovalVoteView struct {
 // deploys the caller may see (their own; everyone's for admins).
 type Releases struct {
 	Environments []ReleaseEnvironment `json:"environments"`
-	Deploys      []*core.Deploy       `json:"deploys"`
+	Deploys      []DeployView         `json:"deploys"`
+}
+
+// DeployView is a deploy record with names instead of user ids. Subject
+// (core.Deploy) is the commit's subject line as its author wrote it: show
+// it as quoted text, never as a heading, a question or a link.
+type DeployView struct {
+	core.Deploy
+	RequestedByName string   `json:"requested_by_name"`
+	ApprovedByNames []string `json:"approved_by_names"`
+	ShortSHA        string   `json:"short_sha"` // the first 7 characters of SHA
 }
 
 type ReleaseEnvironment struct {

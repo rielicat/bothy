@@ -24,7 +24,7 @@ export function where(origin: string | undefined, trigger: string): string {
 export interface OutcomeInput {
   status: RunStatus;
   steps: number;
-  /** A plain one-line reason for a failure, when the server gives one. */
+  /** The server's plain reason: a clause after "Failed:", a phrase after "Stopped" ("by Maya Chen"). */
   reason?: string;
   refined?: boolean;
   /** Multi-approver progress of the approval the task waits on. */
@@ -46,7 +46,7 @@ export function outcome(t: OutcomeInput): Outcome {
     case 'budget_exceeded':
       return { text: 'Hit the spending limit', tone: 'warning' };
     case 'stopped':
-      return { text: 'Stopped', tone: 'muted' };
+      return { text: t.reason ? `Stopped ${t.reason}` : 'Stopped', tone: 'muted' };
     case 'interrupted':
       return { text: 'Interrupted', tone: 'muted' };
     case 'skipped':

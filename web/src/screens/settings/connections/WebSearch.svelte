@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { Button, KeyField, OptionList, StatusLine, TextField, toast, type CheckResult } from '../../../components/ui';
-  import { api, ApiError, errorText } from '../../../lib/api/client';
+  import { api, errorText } from '../../../lib/api/client';
   import type { SecretMeta } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
   import { hostPort } from '../../../lib/providers';
@@ -38,17 +38,14 @@
     return () => clearTimeout(timer);
   });
 
-  /**
-   * Checks a search provider, then saves it. Until the server has the check
-   * (POST /api/search/test), a missing endpoint saves without one.
-   */
+  /** Checks a search provider with one search (POST /api/search/test), then saves it. */
   async function check(p: SearchProvider, key = ''): Promise<CheckResult & { allow?: string }> {
     const body = { provider: p, searxng_url: p === 'searxng' ? address.trim() : undefined, api_key: key || undefined };
     let r: SearchCheck;
     try {
       r = await api.post<SearchCheck>('/api/search/test', body);
     } catch (e) {
-      r = e instanceof ApiError && (e.status === 404 || e.status === 405) ? { ok: true } : { ok: false, code: failureCode(e), error: errorText(e) };
+      r = { ok: false, code: failureCode(e) as SearchCheck['code'], error: errorText(e) };
     }
     if (!r.ok) {
       const f = searchFailure(p, r.code ?? 'unknown', r.error ?? '');

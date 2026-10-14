@@ -2,6 +2,7 @@ package release
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -21,6 +22,69 @@ type StepReader interface {
 }
 
 var _ StepReader = (*GitHub)(nil)
+
+// CommitReader is a dispatcher that can read a commit's subject line, for
+// the deploy history. The GitHub module's connections implement it too; a
+// dispatcher without it leaves the subject out.
+type CommitReader interface {
+	CommitSubject(ctx context.Context, repo, sha string) (string, error)
+}
+
+var _ CommitReader = (*GitHub)(nil)
+
+const maxSubject = 120
+
+// noteCommit records the commit a deploy's run built and its subject, once
+// GitHub names it; it reports whether d changed. The subject is written by
+// whoever can push to the repository, so it is cleaned to one plain line
+// and kept out of notices, events and the model's view.
+func (s *Service) noteCommit(ctx context.Context, d *core.Deploy, run *core.WorkflowRun) bool {
+	changed := false
+	if d.SHA == "" && run != nil && run.HeadSHA != "" {
+		d.SHA, changed = run.HeadSHA, true
+	}
+	if d.SHA == "" || d.Subject != "" {
+		return changed
+	}
+	cr, ok := s.follower(ctx, d).(CommitReader)
+	if !ok {
+		return changed
+	}
+	subject, err := cr.CommitSubject(ctx, d.Repo, d.SHA)
+	if err != nil {
+		s.d.Log.WarnContext(ctx, "release: reading the deployed commit failed", "deploy", d.ID, "err", err)
+		return changed
+	}
+	if subject = plainLine(subject, maxSubject); subject != "" {
+		d.Subject, changed = subject, true
+	}
+	return changed
+}
+
+// CommitSubject implements CommitReader with the commit's message.
+func (g *GitHub) CommitSubject(ctx context.Context, repo, sha string) (string, error) {
+	if !shaRe.MatchString(sha) {
+		return "", fmt.Errorf("release: %q is not a commit id: %w", sha, core.ErrInvalid)
+	}
+	c, err := g.connect(ctx)
+	if err != nil {
+		return "", err
+	}
+	rp, err := repoPath(repo)
+	if err != nil {
+		return "", err
+	}
+	var out struct {
+		Commit struct {
+			Message string `json:"message"`
+		} `json:"commit"`
+	}
+	if _, err := c.do(ctx, http.MethodGet, rp+"/commits/"+sha, nil, &out); err != nil {
+		return "", err
+	}
+	first, _, _ := strings.Cut(out.Commit.Message, "\n")
+	return first, nil
+}
 
 // publishDispatched tells the requester's session (and admins' release
 // pages) that GitHub took the deploy.
@@ -105,7 +169,11 @@ func (j ghJobs) failedStep() string {
 // stepName cleans a workflow step's name for display: one line without
 // control or invisible characters, at most 100 characters. The name stays
 // untrusted text; renderers show it verbatim.
-func stepName(s string) string {
+func stepName(s string) string { return plainLine(s, maxStepName) }
+
+// plainLine is s on one line without control or invisible characters, cut
+// to n characters.
+func plainLine(s string, n int) string {
 	var b strings.Builder
 	gap := false
 	for _, r := range s {
@@ -123,8 +191,8 @@ func stepName(s string) string {
 		b.WriteRune(r)
 	}
 	out := b.String()
-	if r := []rune(out); len(r) > maxStepName {
-		out = string(r[:maxStepName-1]) + "…"
+	if r := []rune(out); len(r) > n {
+		out = string(r[:n-1]) + "…"
 	}
 	return out
 }

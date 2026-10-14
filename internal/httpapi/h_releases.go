@@ -48,7 +48,7 @@ func (s *Server) approvalVotes(w http.ResponseWriter, r *http.Request, a core.Ac
 // releases is GET /api/releases.
 func (s *Server) releases(w http.ResponseWriter, r *http.Request, a core.Actor) error {
 	ctx := r.Context()
-	out := dto.Releases{Environments: []dto.ReleaseEnvironment{}, Deploys: []*core.Deploy{}}
+	out := dto.Releases{Environments: []dto.ReleaseEnvironment{}, Deploys: []dto.DeployView{}}
 	for _, e := range s.d.Config.Current().Releases.Environments {
 		env := dto.ReleaseEnvironment{Name: e.Name, Repo: e.Repo, Workflow: e.Workflow, RefPattern: e.RefPattern,
 			Inputs: e.Inputs, Required: e.Needed(), Approvers: []dto.ReleaseApprover{}}
@@ -69,7 +69,7 @@ func (s *Server) releases(w http.ResponseWriter, r *http.Request, a core.Actor) 
 		if err != nil {
 			return err
 		}
-		out.Deploys = nonNil(ds)
+		out.Deploys = s.namer(ctx, a.Viewer).deployViews(ds)
 	}
 	return ok(w, out)
 }
@@ -87,7 +87,7 @@ func (s *Server) releaseDeploys(w http.ResponseWriter, r *http.Request, a core.A
 	if err != nil {
 		return err
 	}
-	return ok(w, listOf(ds, p, func(d *core.Deploy) int64 { return ms(d.CreatedAt) }))
+	return ok(w, listOf(s.namer(r.Context(), a.Viewer).deployViews(ds), p, func(d dto.DeployView) int64 { return ms(d.CreatedAt) }))
 }
 
 func (s *Server) userName(ctx context.Context, id core.UserID) string {

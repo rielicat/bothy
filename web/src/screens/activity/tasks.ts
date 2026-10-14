@@ -72,7 +72,7 @@ export function taskView(r: TaskRun, l: TaskLookups): TaskView {
   }
   return {
     title: r.chat_title || chat?.title || 'A chat',
-    lead: [personName(r.user_id, l.names, r.requested_by_name), where(r.origin ?? chat?.origin, r.trigger)],
+    lead: [personName(r.user_id, l.names, r.requested_by_name), where(r.origin, r.trigger)],
     outcome: out,
   };
 }

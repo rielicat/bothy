@@ -180,6 +180,7 @@ func (s *Service) check(ctx context.Context, d *core.Deploy) {
 		s.d.Log.WarnContext(ctx, "release: checking a workflow run failed; retrying later", "deploy", d.ID, "run", d.WorkflowRun, "err", err)
 		return
 	}
+	changed := s.noteCommit(ctx, d, run)
 	if run.Done() {
 		st := core.DeployFailed
 		if run.Conclusion == "success" {
@@ -193,7 +194,10 @@ func (s *Service) check(ctx context.Context, d *core.Deploy) {
 		return
 	}
 	if d.Status == core.DeployDispatched && run.Status == "in_progress" {
-		d.Status, d.UpdatedAt = core.DeployRunning, now
+		d.Status, changed = core.DeployRunning, true
+	}
+	if changed {
+		d.UpdatedAt = now
 		if err := s.d.Deploys.Update(ctx, d); err != nil {
 			s.d.Log.ErrorContext(ctx, "release: saving deploy progress failed", "deploy", d.ID, "err", err)
 		}

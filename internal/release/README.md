@@ -48,7 +48,10 @@ to the originating chat, and audited as `release.finish`
 principal and as an admin broadcast; `failed_step` comes from the run's jobs
 through `StepReader` (implemented by `GitHub` and the GitHub connections),
 cleaned to one line, and never appears in the notice: step names are written
-by whoever can push to the repository.
+by whoever can push to the repository. A deploy records the commit the run
+built (`sha`) and, through `CommitReader`, that commit's subject line,
+cleaned the same way; the subject is for deploy lists only, shown as quoted
+text, and stays out of cards, notices, events and `release_status`.
 
 **release_status** `{environment?}` (read) lists environments with who
 approves and their last three deploys visible to the caller, with the live

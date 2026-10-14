@@ -4,20 +4,18 @@
   import PauseDialog from '../../../components/shell/PauseDialog.svelte';
   import { Button, CodeBlock, Disclosure, LinkButton, OptionList, Page, Select, SettingsRow, SettingsSection, Switch, toast, type Option } from '../../../components/ui';
   import { api } from '../../../lib/api/client';
-  import type { DoctorReport, Finding, Grant, Me, SandboxInfo, SecretMeta, VaultStatus } from '../../../lib/api/types.gen';
+  import type { DoctorReport, Finding, Grant, SandboxInfo, SecretMeta, VaultStatus } from '../../../lib/api/types.gen';
   import { config, saveErrorText } from '../../../lib/config.svelte';
-  import { clock, date, fullTime, plural } from '../../../lib/format';
+  import { plural } from '../../../lib/format';
+  import { pausedSince } from '../../../components/shell/banners';
   import { router } from '../../../lib/router.svelte';
   import { session } from '../../../lib/stores/session.svelte';
   import { describeFinding, needsAttention } from './findings';
   import LinkRow from './LinkRow.svelte';
-  import { pauseNote, settingsBack } from './page.svelte';
+  import { settingsBack } from './page.svelte';
   import PageState from './PageState.svelte';
   import { chatChanges, chatChoice, scheduledChanges, scheduledChoice, type ApprovalConfig } from './timeouts';
   import UnlockDialog from './UnlockDialog.svelte';
-
-  // Not in types.gen.ts yet: who paused Bothy and when (docs/design/ui.md §17).
-  type PauseInfo = { paused_at?: string; paused_by_name?: string };
 
   const uid = $props.id();
   const presets: Option[] = [
@@ -67,13 +65,9 @@
   };
   const presetFixed = $derived(fixed('policy.preset'));
 
-  const pausedAt = $derived((session.me as (Me & PauseInfo) | null)?.paused_at || pauseNote.at);
-  const pausedBy = $derived((session.me as (Me & PauseInfo) | null)?.paused_by_name || pauseNote.by);
   const pausedText = $derived.by(() => {
-    const d = date(pausedAt);
-    if (!d) return 'Bothy is paused. Nothing new starts until someone resumes it.';
-    const today = d.toDateString() === new Date().toDateString();
-    return `Bothy has been paused since ${today ? clock(pausedAt) : fullTime(pausedAt)}${pausedBy ? ` by ${pausedBy}` : ''}.`;
+    const since = pausedSince(session.pause);
+    return since ? `Bothy has been paused ${since}.` : 'Bothy is paused. Nothing new starts until someone resumes it.';
   });
 
   async function runAudit(fix = false): Promise<boolean> {
@@ -159,7 +153,6 @@
     try {
       await api.post('/api/admin/pause', { paused: false });
       session.paused = false;
-      pauseNote.at = pauseNote.by = '';
       toast('Bothy resumed.');
     } catch {
       resumeError = "Couldn't resume Bothy. Try again.";
@@ -168,9 +161,9 @@
     }
   }
 
+  // The paused banner names who paused and when; sign-in data says it too, for tabs without the stream.
   function paused() {
-    pauseNote.at = new Date().toISOString();
-    pauseNote.by = session.me?.user.display_name || session.me?.user.username || '';
+    void session.refresh().catch(() => {});
   }
 </script>
 

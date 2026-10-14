@@ -168,6 +168,8 @@ type PriceTierO struct {
 }
 
 type Agent struct {
+	Name              string   `yaml:"name"` // what Bothy calls itself in chats
+	Tone              string   `yaml:"tone"` // warm | direct | formal
 	PersonaFile       string   `yaml:"persona_file"`
 	StandingRules     []string `yaml:"standing_rules"`
 	BusyMode          string   `yaml:"busy_mode"` // steer | queue

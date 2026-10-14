@@ -35,6 +35,15 @@ type Repo struct {
 	tarballs map[string][]byte // commit sha -> archive served instead of a generated one
 	symlinks map[string]string // extra symlinks (path -> target) put into generated archives
 	seq      int
+
+	// Workflows are listed by GET actions/workflows.
+	Workflows []Workflow
+}
+
+// Workflow is one entry of a repository's workflow list.
+type Workflow struct {
+	ID                int64
+	Name, Path, State string
 }
 
 type entry struct {

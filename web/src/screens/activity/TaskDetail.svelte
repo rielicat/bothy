@@ -32,14 +32,13 @@
       names = n;
       const run = detail.run;
       if (run) {
-        const [chat, schedule, page] = await Promise.all([
-          api.get<{ title: string; origin: string }>(`/api/sessions/${encodeURIComponent(run.session_id)}`).catch(() => null),
+        const [schedule, page] = await Promise.all([
           run.schedule_id && !run.schedule_name ? api.get<Schedule>(`/api/schedules/${encodeURIComponent(run.schedule_id)}`).catch(() => null) : null,
           detail.answer ? null : api.get<MessagePage>(`/api/sessions/${encodeURIComponent(run.session_id)}/messages?limit=100`).catch(() => null),
         ]);
         const scheduled = run.trigger === 'schedule' || run.trigger === 'heartbeat';
-        title = scheduled ? run.schedule_name || schedule?.name || 'A schedule' : run.chat_title || chat?.title || 'A chat';
-        chatOrigin = run.origin ?? chat?.origin;
+        title = scheduled ? run.schedule_name || schedule?.name || 'A schedule' : run.chat_title || 'A chat';
+        chatOrigin = run.origin;
         const reply = page?.messages?.filter((m) => m?.run_id === run.id && m.role === 'assistant').pop();
         answer = detail.answer ?? reply?.parts?.map((p) => (p.t === 'text' ? (p.text ?? '') : '')).join('') ?? '';
       }

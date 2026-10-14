@@ -435,6 +435,8 @@ function fixtureRun(id: string, session: string, status: string, extra: Partial<
     created_at: ago(40),
     started_at: ago(40),
     finished_at: ago(39),
+    refined: false,
+    origin: 'web',
     ...extra,
   };
 }

@@ -34,6 +34,8 @@ func defaults() *Config {
 		Vault:   VaultCfg{KEK: "auto"},
 		Secrets: SecretsCfg{AWS: SecretsAWS{CacheTTL: d(5 * time.Minute)}},
 		Agent: Agent{
+			Name:              "Bothy",
+			Tone:              "warm",
 			PersonaFile:       "SOUL.md",
 			BusyMode:          "steer",
 			CoalesceWindow:    d(1200 * time.Millisecond),

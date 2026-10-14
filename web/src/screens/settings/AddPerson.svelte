@@ -4,13 +4,13 @@
   import type { UserCreateResp } from '../../lib/api/types.gen';
   import { usernameError } from '../../lib/password';
   import { session } from '../../lib/stores/session.svelte';
-  import type { UserV2 } from './accountHelpers';
+  import type { User } from '../../lib/api/types.gen';
   import { focusDialogResult } from './dialogFocus';
   import { settingsConfig } from './store.svelte';
 
   // Add person (§11.5): a name, a username and a role, then the details to
   // send them with a one-time password.
-  let { open = $bindable(false), onadded }: { open?: boolean; onadded?: (u: UserV2) => void } = $props();
+  let { open = $bindable(false), onadded }: { open?: boolean; onadded?: (u: User) => void } = $props();
 
   const formId = $props.id();
   const roles = [

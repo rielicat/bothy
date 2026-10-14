@@ -110,6 +110,12 @@ func (r *Runner) refineAnswer(rs *runState, asm *assembler, step int, resp *core
 		msg.Parts = []core.Part{{Type: core.PartText, Text: text}}
 	}
 	msg.Parts = append(msg.Parts, core.Part{Type: core.PartRefine, Refine: &trace})
+	// An answer refinement had no time for is the run's own, not a refined one.
+	if trace.Calls > 1 {
+		rs.mu.Lock()
+		rs.run.Refined = true
+		rs.mu.Unlock()
+	}
 	s := rs.newStreamer(core.EvRunDelta, true)
 	s.add(text)
 	s.close()

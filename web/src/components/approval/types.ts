@@ -40,6 +40,12 @@ export interface SkillReviewItem extends ItemBase {
   type: 'skill_review';
   skill: string;
   hash: string;
+  /** Files that differ from the approved ones, each with its diff when it is text. */
+  files: { path: string; change: 'added' | 'removed' | 'changed' | string; diff?: string }[];
+  /** The skill was approved before Bothy kept approved files: only that it changed is known. */
+  noBaseline: boolean;
+  /** More changed than the card shows; the skill's page has every file. */
+  truncated: boolean;
 }
 
 export interface SenderItem extends ItemBase {

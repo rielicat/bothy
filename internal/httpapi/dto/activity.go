@@ -21,6 +21,13 @@ type RunView struct {
 	RequestedByName string `json:"requested_by_name"` // who asked; "" for schedules and check-ins
 	ChatTitle       string `json:"chat_title"`        // as the chat list shows it
 	ScheduleName    string `json:"schedule_name"`     // "" unless a schedule started it; the heartbeat is "Check-in"
+	// Origin is where the task came from: web, slack, telegram, discord
+	// (the chat it ran in), api or schedule.
+	Origin string `json:"origin"`
+	// Reason completes the outcome of a task that did not finish, after
+	// "Failed: " ("the AI model didn't answer") or "Stopped " ("by Maya
+	// Chen"); "" when there is nothing to add.
+	Reason string `json:"reason,omitempty"`
 }
 
 // UsageRowView is a usage bucket with its name: the person (group_by user),

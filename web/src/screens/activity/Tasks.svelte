@@ -61,7 +61,7 @@
   });
 
   const shown = $derived(
-    (runs ?? []).filter((r) => (!person || r.user_id === person) && matchesWhere(r.origin ?? lookups.sessions.get(r.session_id)?.origin, r.trigger, place) && matchesResult(r.status, result)),
+    (runs ?? []).filter((r) => (!person || r.user_id === person) && matchesWhere(r.origin, r.trigger, place) && matchesResult(r.status, result)),
   );
   const groups = $derived(groupByDay(shown, (r) => r.created_at));
   const filtered = $derived(!!(person || place || result));

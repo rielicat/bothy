@@ -309,6 +309,34 @@ func testSkills(f *fx) {
 	f.must(err, "List")
 	f.eq("List", sortBy(list, func(s *core.SkillMeta) string { return s.Name }), []*core.SkillMeta{csv, pdf})
 	f.want(r.Upsert(f.ctx, &core.SkillMeta{Name: "x", Status: "on"}), core.ErrInvalid, "status CHECK")
+
+	files, err := r.Approved(f.ctx, "pdf")
+	f.must(err, "Approved before a snapshot")
+	f.check(len(files) == 0, "Approved before a snapshot = %+v", files)
+	snap := []core.SkillFile{
+		{Path: "SKILL.md", SHA256: "aa", Size: 12, Text: true, Content: "Read PDFs.\n"},
+		{Path: "bin/tool", SHA256: "bb", Size: 9000},
+		{Path: "empty.md", SHA256: "cc", Size: 0, Text: true, Content: ""},
+	}
+	f.must(r.SetApproved(f.ctx, "pdf", snap), "SetApproved")
+	files, err = r.Approved(f.ctx, "pdf")
+	f.must(err, "Approved")
+	f.eq("Approved round trip", files, snap)
+	f.must(r.SetApproved(f.ctx, "pdf", snap[:1]), "SetApproved again")
+	files, err = r.Approved(f.ctx, "pdf")
+	f.must(err, "Approved")
+	f.eq("SetApproved replaces the snapshot", files, snap[:1])
+	f.want(r.SetApproved(f.ctx, "nope", snap), core.ErrNotFound, "SetApproved of an unknown skill")
+	pdf.Status, pdf.UpdatedAt = core.SkillChanged, at(4)
+	f.must(r.Upsert(f.ctx, pdf), "Upsert keeps the snapshot")
+	files, err = r.Approved(f.ctx, "pdf")
+	f.must(err, "Approved after Upsert")
+	f.check(len(files) == 1, "Upsert dropped the snapshot: %+v", files)
+	f.must(r.Delete(f.ctx, "pdf"), "Delete")
+	files, err = r.Approved(f.ctx, "pdf")
+	f.must(err, "Approved after Delete")
+	f.check(len(files) == 0, "Delete kept the snapshot: %+v", files)
+	f.must(r.Upsert(f.ctx, pdf), "Upsert again")
 	f.must(r.Delete(f.ctx, "pdf"), "Delete")
 	_, err = r.Get(f.ctx, "pdf")
 	f.want(err, core.ErrNotFound, "Get after Delete")

@@ -3,16 +3,6 @@
 import type { TokenRecord, User } from '../../lib/api/types.gen';
 import { isZeroTime, relTime } from '../../lib/format';
 
-// GET /api/users does not say when someone last signed in yet (docs/design/ui.md §17).
-export type UserV2 = User & { last_login_at?: string };
-
-/** The signed-in person's own profile (server need: self-service name and approval delivery). */
-export interface Profile {
-  display_name: string;
-  /** Where approval requests reach this person: "web" or a linked chat app. */
-  approvals_in: string;
-}
-
 export interface ScopeChoice {
   value: string;
   label: string;
@@ -54,11 +44,10 @@ export function displayName(u: Pick<User, 'display_name' | 'username'>): string 
 }
 
 /** "Member", "Member · hasn't signed in yet", "Admin · Turned off". */
-export function roleLine(u: UserV2): string {
+export function roleLine(u: Pick<User, 'role' | 'disabled' | 'last_login_at'>): string {
   const parts = [roleWord[u.role] ?? u.role];
   if (u.disabled) parts.push('Turned off');
-  // Only a server that reports sign-ins (S9) can say nobody has signed in.
-  else if ('last_login_at' in u && isZeroTime(u.last_login_at)) parts.push("hasn't signed in yet");
+  else if (isZeroTime(u.last_login_at)) parts.push("hasn't signed in yet");
   return parts.join(' · ');
 }
 

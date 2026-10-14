@@ -70,6 +70,9 @@ type Runner interface {
 	// nothing. Callers run StopAll and report its count (§5.11).
 	SetPaused(ctx context.Context, paused bool, by UserID) error
 	Paused() bool
+	// PausedBy is who engaged the kill switch and when (zero while it is
+	// off, and for a pause recorded before who and when were kept).
+	PausedBy() (UserID, time.Time)
 	// Resume continues a parked run after its approval resolved: allowed =>
 	// execute the stored Action exactly once and continue the loop; denied =>
 	// record the denial and continue the loop; expired/cancelled => run stopped

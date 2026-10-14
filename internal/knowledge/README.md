@@ -56,7 +56,13 @@ exact text) them; edits plan a diff, use `Action.Kind` memory so policy's
 tainted-memory floor asks for approval once untrusted content is in the
 session, re-apply against the current file in `Exec`, and keep the notes
 untrusted when written under untrusted taint. A user's save from the web UI
-(etag-guarded) makes them trusted.
+(etag-guarded) makes them trusted. Every change that alters the text (save,
+`notes` edit, draft) appends `{actor, user, session, run, before, after}` to
+`history.jsonl` beside `NOTES.md` (0600; newest 50 entries and 4 MiB kept,
+damaged lines skipped), read through `NotesHistory`/`NotesVersion` with the
+same Viewer scoping as the notes. Reads fill `summary` (the notes' first
+sentence as plain text) and, while indexing, `progress` (files read against
+an estimate, published at most once a second).
 
 **Turn-context.** `TurnContext` (the runner's hook) adds, most recently
 touched repo first and within `knowledge.context_bytes`, the notes of repos the

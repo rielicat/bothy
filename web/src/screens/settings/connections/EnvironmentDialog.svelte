@@ -55,7 +55,7 @@
 
   const file = (w: Workflow) => w.path.split('/').pop() ?? w.path;
 
-  // S19 lists a repository's workflows; until the server has it, a text field takes the file name.
+  // A picker of the repository's workflows; a text field takes the file name when GitHub lists none or can't be asked.
   $effect(() => {
     const repo = f.repo;
     if (!open || !repo) return;

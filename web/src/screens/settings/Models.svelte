@@ -3,12 +3,12 @@
   import ProviderChooser, { type Connected } from '../../components/ProviderChooser.svelte';
   import { Button, Dialog, SettingsRow, SettingsSection, StatusLine, toast } from '../../components/ui';
   import { api } from '../../lib/api/client';
-  import type { ModelInfo, RefineInfo } from '../../lib/api/types.gen';
+  import type { ModelInfo, ProviderHealth, RefineInfo } from '../../lib/api/types.gen';
   import BackupModels from './BackupModels.svelte';
   import ItemRow from './ItemRow.svelte';
   import ManageProvider, { type ManagedProvider } from './ManageProvider.svelte';
   import ModelDialog, { type ModelOption } from './ModelDialog.svelte';
-  import { makePrimary, modelName, modelProvider, providerName, providerStatus, splitRef, type ProviderHealthV2 } from './modelHelpers';
+  import { makePrimary, modelName, modelProvider, providerName, providerStatus, splitRef } from './modelHelpers';
   import SettingsFrame from './SettingsFrame.svelte';
   import { Saver, settingsConfig } from './store.svelte';
   import SwitchSetting from './SwitchSetting.svelte';
@@ -16,10 +16,10 @@
 
   const uid = $props.id();
   let models = $state<ModelInfo[]>([]);
-  let health = $state<ProviderHealthV2[]>([]);
+  let health = $state<ProviderHealth[]>([]);
 
   async function refresh() {
-    const [m, h] = await Promise.all([api.get<ModelInfo[]>('/api/models').catch(() => models), api.get<ProviderHealthV2[]>('/api/providers').catch(() => health)]);
+    const [m, h] = await Promise.all([api.get<ModelInfo[]>('/api/models').catch(() => models), api.get<ProviderHealth[]>('/api/providers').catch(() => health)]);
     models = m;
     health = h;
   }

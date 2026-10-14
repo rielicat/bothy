@@ -86,6 +86,12 @@ type Deploy struct {
 	// through the same credentials whatever the allowlists say later. A
 	// deploy recorded before Via was kept has "" and follows today's choice.
 	Via string `json:"via,omitempty"` // DeployViaConnection | DeployViaToken
+	// SHA is the commit the workflow run built, once the run is known.
+	// Subject is that commit's first line, cleaned to one plain line: it is
+	// written by whoever can push to the repository, so it is shown only as
+	// quoted text and never goes into cards, notices or prompts.
+	SHA     string `json:"sha,omitempty"`
+	Subject string `json:"subject,omitempty"`
 }
 
 // Deploy.Via values.

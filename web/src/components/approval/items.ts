@@ -26,8 +26,12 @@ function fromServer(i: ServerItem): InboxItem | null {
         });
       return tools.length ? { ...base, type: 'mcp_review', server: i.mcp.server, tools } : null;
     }
-    case 'skill_review':
-      return i.skill ? { ...base, type: 'skill_review', skill: i.skill.name, hash: i.skill.hash } : null;
+    case 'skill_review': {
+      if (!i.skill) return null;
+      const c = i.skill_changes;
+      const files = (c?.files ?? []).map((f) => ({ path: f.path, change: f.change, diff: f.opaque ? undefined : lineDiff(f.before ?? '', f.after ?? '') }));
+      return { ...base, type: 'skill_review', skill: i.skill.name, hash: i.skill.hash, files, noBaseline: !!c?.no_baseline, truncated: !!c?.truncated };
+    }
     case 'unknown_sender': {
       const s = i.sender;
       if (!s) return null;
@@ -88,7 +92,7 @@ export function itemSource(i: InboxItem): string {
     case 'mcp_review':
       return `${plural(i.tools.length, 'tool')} changed`;
     case 'skill_review':
-      return 'Changed files';
+      return i.files.length ? `${plural(i.files.length, 'file')} changed` : 'Changed files';
     case 'unknown_sender':
       return i.handle;
     case 'group_chat':

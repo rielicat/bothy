@@ -380,7 +380,37 @@ func (r skillRepo) Delete(_ context.Context, name string) error {
 		return notFound("skill " + name)
 	}
 	delete(st.skills, name)
+	delete(st.skillFiles, name)
 	return nil
+}
+
+func (r skillRepo) SetApproved(_ context.Context, name string, files []core.SkillFile) error {
+	st, unlock := r.s.begin()
+	defer unlock()
+	if _, ok := st.skills[name]; !ok {
+		return notFound("skill " + name)
+	}
+	out := make([]core.SkillFile, 0, len(files))
+	seen := map[string]bool{}
+	for _, f := range files {
+		if seen[f.Path] {
+			return conflict("skill_approved_files primary key")
+		}
+		seen[f.Path] = true
+		if !f.Text {
+			f.Content = ""
+		}
+		out = append(out, f)
+	}
+	slices.SortFunc(out, func(a, b core.SkillFile) int { return cmp.Compare(a.Path, b.Path) })
+	st.skillFiles[name] = out
+	return nil
+}
+
+func (r skillRepo) Approved(_ context.Context, name string) ([]core.SkillFile, error) {
+	st, unlock := r.s.begin()
+	defer unlock()
+	return slices.Clone(st.skillFiles[name]), nil
 }
 
 func normMemoryEvent(e core.MemoryEvent) core.MemoryEvent {

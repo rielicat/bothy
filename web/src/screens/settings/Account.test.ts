@@ -101,19 +101,37 @@ describe('Settings → Account', () => {
     expect(await within(dialog).findByText("That's not your current password.")).toBeTruthy();
   });
 
-  it('saves your name, and on servers without a self-service profile only admins can', async () => {
+  it('saves your name through your own profile', async () => {
     const calls = await open();
     const name = (await screen.findByLabelText('Name')) as HTMLInputElement;
     await fireEvent.input(name, { target: { value: 'Sam Patel' } });
     await fireEvent.blur(name);
     await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url === '/api/me' && JSON.parse(c.body).display_name === 'Sam Patel')).toBe(true));
+    expect(calls.some((c) => c.url.startsWith('/api/users/'))).toBe(false);
   });
 
-  it('shows a member their name as text when the server has no self-service profile', async () => {
-    const notFound = () => new Response(JSON.stringify({ error: { code: 'not_found', message: 'not found' } }), { status: 404 });
-    await open({ override: (m, url) => (url === '/api/me' ? notFound() : undefined) }, 'member');
-    await waitFor(() => expect(screen.getByText('Only an admin can change it.')).toBeTruthy());
-    expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull();
-    expect(screen.queryByText('Requests reach you in')).toBeNull();
+  it('lets a member rename themselves', async () => {
+    const calls = await open({}, 'member');
+    const name = (await screen.findByLabelText('Name')) as HTMLInputElement;
+    await fireEvent.input(name, { target: { value: 'Alex Kim' } });
+    await fireEvent.keyDown(name, { key: 'Enter' });
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url === '/api/me' && JSON.parse(c.body).display_name === 'Alex Kim')).toBe(true));
+    expect(screen.queryByText('Only an admin can change it.')).toBeNull();
+  });
+
+  it("says why the server won't take a name, such as one a colleague has", async () => {
+    const refused = () => new Response(JSON.stringify({ error: { code: 'bad_request', message: 'invalid: someone else here goes by "Priya Rao"' } }), { status: 400 });
+    await open({ override: (m, url) => (m === 'PATCH' && url === '/api/me' ? refused() : undefined) }, 'member');
+    const name = (await screen.findByLabelText('Name')) as HTMLInputElement;
+    await fireEvent.input(name, { target: { value: 'Priya Rao' } });
+    await fireEvent.blur(name);
+    expect(await screen.findByText("Bothy can't use that name. Choose one nobody else here has, up to 64 characters.")).toBeTruthy();
+  });
+
+  it('offers only the apps the server says requests can reach', async () => {
+    await open({ override: (m, url) => (m === 'GET' && url === '/api/me' ? new Response(JSON.stringify({ user_id: 'usr_x', username: 'sam', display_name: 'Sam', approvals_in: 'slack', preferred_chat: '', chats: ['slack'] })) : undefined) });
+    const select = (await screen.findByLabelText('Requests reach you in')) as HTMLSelectElement;
+    expect([...select.options].map((o) => o.text)).toEqual(['Bothy only', 'Slack']);
+    expect(select.value).toBe('slack');
   });
 });

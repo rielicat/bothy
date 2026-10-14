@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"slices"
 	"time"
@@ -401,6 +402,42 @@ func (r skillRepo) List(ctx context.Context) ([]*core.SkillMeta, error) {
 func (r skillRepo) Delete(ctx context.Context, name string) error {
 	res, err := r.h.wq.ExecContext(ctx, `DELETE FROM skills WHERE name = ?`, name)
 	return mustAffect("delete skill "+name, res, err)
+}
+
+func (r skillRepo) SetApproved(ctx context.Context, name string, files []core.SkillFile) error {
+	return r.h.write(ctx, func(q querier) error {
+		var n int
+		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM skills WHERE name = ?`, name).Scan(&n); err != nil {
+			return dbErr("approved skill files", err)
+		}
+		if n == 0 {
+			return notFound("skill " + name)
+		}
+		if _, err := q.ExecContext(ctx, `DELETE FROM skill_approved_files WHERE skill = ?`, name); err != nil {
+			return dbErr("approved skill files", err)
+		}
+		for _, f := range files {
+			var content any
+			if f.Text {
+				content = f.Content
+			}
+			if _, err := q.ExecContext(ctx, `INSERT INTO skill_approved_files(skill, path, sha256, size, content) VALUES (?,?,?,?,?)`,
+				name, f.Path, f.SHA256, f.Size, content); err != nil {
+				return dbErr("approved skill file", err)
+			}
+		}
+		return nil
+	})
+}
+
+func (r skillRepo) Approved(ctx context.Context, name string) ([]core.SkillFile, error) {
+	return queryAll(ctx, r.h.rq, "approved skill files", func(sc scanner) (core.SkillFile, error) {
+		var f core.SkillFile
+		var content sql.NullString
+		err := sc.Scan(&f.Path, &f.SHA256, &f.Size, &content)
+		f.Text, f.Content = content.Valid, content.String
+		return f, err
+	}, `SELECT path, sha256, size, content FROM skill_approved_files WHERE skill = ? ORDER BY path`, name)
 }
 
 const memoryEventCols = `id, principal_id, file, op, before, after, run_id, actor, provenance, created_at`

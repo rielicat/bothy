@@ -124,6 +124,7 @@ const states: ShotState[] = [
 
   { name: 'item-mcp-review', route: '/approvals', ready: frame, setup: openRow('i:mcp:docs', (p) => p.getByRole('button', { name: 'Show what changed' }).first().click()) },
   { name: 'item-skill-review', route: '/approvals', ready: frame, setup: openRow('i:skill:incident-review') },
+  { name: 'item-skill-review-diff', route: '/approvals', ready: frame, setup: openRow('i:skill:incident-review', (p) => p.getByRole('button', { name: 'Show what changed' }).first().click()) },
   { name: 'item-unknown-sender', route: '/approvals', ready: frame, setup: openRow('i:sender:slack:U03JORDAN') },
   { name: 'item-group-chat', route: '/approvals', ready: frame, setup: openRow('i:group:spc_01jsupport0000000000000000') },
   // A note suggestion is an approval whose card is a review (S12).

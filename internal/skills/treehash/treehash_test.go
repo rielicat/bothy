@@ -1,6 +1,8 @@
 package treehash
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
@@ -79,5 +81,44 @@ func TestSumDoesNotFollowSymlinks(t *testing.T) {
 	}
 	if sum(t, dir) != before {
 		t.Fatal("hash followed a symlink out of the tree")
+	}
+}
+
+// SumRootFiles hashes like SumRoot and hands on the bytes it hashed, so a
+// copy taken from it is the tree the sum stands for.
+func TestSumRootFilesHandsOnWhatItHashed(t *testing.T) {
+	dir := build(t)
+	if err := os.WriteFile(filepath.Join(dir, "big"), []byte("0123456789"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	type seen struct {
+		sum  string
+		size int64
+		data []byte
+	}
+	got := map[string]seen{}
+	s, err := SumRootFiles(root, 5, func(p string, sum []byte, size int64, data []byte) {
+		got[p] = seen{hex.EncodeToString(sum), size, data}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s != sum(t, dir) {
+		t.Fatal("SumRootFiles and Sum disagree")
+	}
+	hello := sha256.Sum256([]byte("hello"))
+	if f := got["a/b/f.txt"]; string(f.data) != "hello" || f.size != 5 || f.sum != hex.EncodeToString(hello[:]) {
+		t.Fatalf("a/b/f.txt = %+v", f)
+	}
+	if f := got["big"]; f.data != nil || f.size != 10 || f.sum == "" {
+		t.Fatalf("a file over keep = %+v; want its hash and size only", f)
+	}
+	if _, ok := got["link"]; ok || len(got) != 3 {
+		t.Fatalf("visited %v; want the regular files only", got)
 	}
 }

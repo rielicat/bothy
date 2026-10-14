@@ -46,7 +46,7 @@
 
   let repo = $state<KnowledgeRepo | null>(null);
   let notes = $state<KnowledgeNotes | null>(null);
-  /** null: the server keeps no notes history yet, so History is hidden. */
+  /** null: the history didn't load, so History is hidden. */
   let history = $state<NotesChange[] | null>(null);
   let missing = $state(false);
   let failed = $state(false);
@@ -329,7 +329,8 @@
 <DiscardDialog bind:open={discard} ondiscard={leaveEdit} />
 
 <Dialog bind:open={stop} title="Stop reading {name}?" initialFocus="cancel" busy={stopping}>
-  <p class="text-body text-text">Bothy will stop reading this repository and won't use it to answer questions. The project notes are kept.</p>
+  <!-- The server deletes the notes with the index: keeping them would bring them back unmarked as outside content if the repository is read again. -->
+  <p class="text-body text-text">Bothy will stop reading this repository and won't use it to answer questions. Its project notes and their history are deleted too.</p>
   {#if stopError}<p class="field-error">{stopError}</p>{/if}
   {#snippet footer({ close })}
     <Button onclick={close}>Cancel</Button>

@@ -25,6 +25,7 @@ type fakeKnowledge struct {
 	lastQuery core.KnowledgeQuery
 	purged    []core.PrincipalID
 	drafted   []int64
+	history   map[int64][]core.NotesVersion
 }
 
 func newFakeKnowledge() *fakeKnowledge {

@@ -66,6 +66,21 @@ type IndexedRepo struct {
 	// IndexedSHA is the commit the latest finished index read ("" until one
 	// finished); UpdateIndex writes it.
 	IndexedSHA string `json:"indexed_sha"`
+
+	// Filled on read, never stored. Progress counts the files read so far
+	// while the repo is queued or indexing; Summary is the first sentence
+	// of the notes as plain text ("" without notes); Stale says the
+	// repository's default branch has moved past IndexedSHA on GitHub.
+	Progress *IndexProgress `json:"progress,omitempty"`
+	Summary  string         `json:"summary"`
+	Stale    bool           `json:"stale,omitempty"`
+}
+
+// IndexProgress is how far a running index got. Total is an estimate: the
+// previous index's file count, else a count of the directory's files.
+type IndexProgress struct {
+	Done  int `json:"done"`
+	Total int `json:"total"`
 }
 
 type NotesState struct {
@@ -154,6 +169,26 @@ type KnowledgeNotes struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// NotesVersion is one change to a repo's project notes: the text before
+// and after it, who made it and, for Bothy's edits, the chat and run it was
+// made in.
+type NotesVersion struct {
+	ID      int64     `json:"id"`
+	Actor   string    `json:"actor"` // NotesByBothy | NotesByUser
+	User    UserID    `json:"user_id,omitempty"`
+	Session SessionID `json:"session_id,omitempty"`
+	Run     RunID     `json:"run_id,omitempty"`
+	Before  string    `json:"before"`
+	After   string    `json:"after"`
+	At      time.Time `json:"at"`
+}
+
+// NotesVersion.Actor values.
+const (
+	NotesByBothy = "bothy"
+	NotesByUser  = "user"
+)
+
 type KnowledgeIndexRequest struct {
 	Dir  string `json:"dir"`  // workspace-relative directory; "" or "." = the whole workspace
 	Repo string `json:"repo"` // "owner/name"; "" = "local/<directory name>"
@@ -231,6 +266,10 @@ type Knowledge interface {
 	WriteNotes(ctx context.Context, v Viewer, id int64, content, etag string, by UserID) (*KnowledgeNotes, error)
 	// DraftNotes regenerates the notes with the fast model in the background.
 	DraftNotes(ctx context.Context, v Viewer, id int64, by UserID) (*IndexedRepo, error)
+	// NotesHistory lists the notes' changes, newest first; NotesVersion
+	// reads one (ErrNotFound for an id the repo's history does not hold).
+	NotesHistory(ctx context.Context, v Viewer, id int64) ([]NotesVersion, error)
+	NotesVersion(ctx context.Context, v Viewer, id, version int64) (*NotesVersion, error)
 	Delete(ctx context.Context, v Viewer, id int64, by UserID) error // index and notes
 	Purge(ctx context.Context, p PrincipalID) error                  // every index row and notes file of a principal (user purge)
 }

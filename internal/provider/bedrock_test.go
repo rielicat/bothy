@@ -117,6 +117,10 @@ func TestBedrockThroughTheFacade(t *testing.T) {
 	}
 	rt := &recordingHandler{replies: []func(http.ResponseWriter){eventReply(raw)}}
 	h.egress.Client = &http.Client{Transport: hostRouter{runtimeHost: rt}}
+	// Before any call nothing is known about where credentials come from.
+	if hs := h.f.Health(); len(hs) != 1 || hs[0].Source != "This server's AWS access" {
+		t.Fatalf("health before a call = %+v", hs)
+	}
 
 	hist := []core.Message{
 		{Role: core.MsgUser, Parts: []core.Part{{Type: core.PartText, Text: "hi"}}},
@@ -150,6 +154,10 @@ func TestBedrockThroughTheFacade(t *testing.T) {
 	}
 	if strings.Contains(h.logs.String(), awsSecret) {
 		t.Fatal("the secret key reached the logs")
+	}
+	if hs := h.f.Health(); len(hs) != 1 || hs[0].Source != "This server's AWS access (access keys in the environment)" ||
+		strings.Contains(hs[0].Source, awsKeyID) {
+		t.Fatalf("health after a call = %+v", hs)
 	}
 
 	m, ok := h.f.Model(core.ModelRef{Provider: "aws", Model: model})

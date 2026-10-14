@@ -86,18 +86,22 @@ export function saveError(e: unknown): string {
 export class Saver {
   status: 'saving' | 'saved' | null = $state(null);
   error = $state('');
+  /** What the last failed run threw, for rows with their own wording. */
+  lastError: unknown = null;
   #timer: ReturnType<typeof setTimeout> | undefined;
 
   async run(fn: () => Promise<unknown>): Promise<boolean> {
     clearTimeout(this.#timer);
     this.status = 'saving';
     this.error = '';
+    this.lastError = null;
     try {
       await fn();
       this.done();
       return true;
     } catch (e) {
       this.status = null;
+      this.lastError = e;
       this.error = saveError(e);
       return false;
     }

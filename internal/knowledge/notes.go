@@ -89,6 +89,12 @@ func (s *Service) writeNotesFile(r *core.IndexedRepo, content string) error {
 		}
 		return nil
 	}
+	return writeFileAtomic(p, []byte(content))
+}
+
+// writeFileAtomic replaces p with data: temp file, fsync, rename; 0600 in
+// 0700 directories.
+func writeFileAtomic(p string, data []byte) error {
 	dir := filepath.Dir(p)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
@@ -102,7 +108,7 @@ func (s *Service) writeNotesFile(r *core.IndexedRepo, content string) error {
 		tmp.Close()
 		return err
 	}
-	if _, err := tmp.WriteString(content); err != nil {
+	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
 		return err
 	}

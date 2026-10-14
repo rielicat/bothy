@@ -7,11 +7,12 @@
   import AddPerson from './AddPerson.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
   import { focusDialogResult } from './dialogFocus';
-  import { displayName, moneyText, parseMoney, roleLine, type UserV2 } from './accountHelpers';
+  import type { User } from '../../lib/api/types.gen';
+  import { displayName, moneyText, parseMoney, roleLine } from './accountHelpers';
   import SettingsFrame from './SettingsFrame.svelte';
   import { settingsConfig } from './store.svelte';
 
-  let users = $state<UserV2[]>([]);
+  let users = $state<User[]>([]);
   let loaded = $state(false);
   let failed = $state(false);
   let actionError = $state('');
@@ -20,7 +21,7 @@
   async function load() {
     failed = false;
     try {
-      users = await api.get<UserV2[]>('/api/users');
+      users = await api.get<User[]>('/api/users');
       loaded = true;
     } catch {
       failed = true;
@@ -43,17 +44,17 @@
   const solo = $derived(loaded && users.length <= 1);
   const meId = $derived(session.me?.user.id);
 
-  async function patch(u: UserV2, body: Partial<UserV2>, ok: string, fail: string) {
+  async function patch(u: User, body: Partial<User>, ok: string, fail: string) {
     actionError = '';
     try {
-      Object.assign(u, await api.patch<UserV2>(`/api/users/${encodeURIComponent(u.id)}`, body));
+      Object.assign(u, await api.patch<User>(`/api/users/${encodeURIComponent(u.id)}`, body));
       toast(ok);
     } catch {
       actionError = fail;
     }
   }
 
-  function items(u: UserV2): MenuItem[] {
+  function items(u: User): MenuItem[] {
     const name = displayName(u);
     return [
       { label: 'Member', group: 'Change role', checked: u.role === 'member', onselect: () => u.role !== 'member' && patch(u, { role: 'member' }, 'Role changed.', `Couldn't change ${name}'s role. Try again.`) },
@@ -68,7 +69,7 @@
   }
 
   // Spending limit: budgets.per_user_daily_usd is keyed by username.
-  let limitFor = $state<UserV2 | null>(null);
+  let limitFor = $state<User | null>(null);
   let limitText = $state('');
   let noLimit = $state(true);
   let limitBusy = $state(false);
@@ -83,7 +84,7 @@
     return typeof map?.[username] === 'number' ? map[username] : null;
   }
 
-  function openLimit(u: UserV2) {
+  function openLimit(u: User) {
     const v = personalLimit(u.username);
     limitFor = u;
     noLimit = v === null;
@@ -114,12 +115,12 @@
   }
 
   // Reset password (S9): the server makes a one-time password.
-  let resetFor = $state<UserV2 | null>(null);
+  let resetFor = $state<User | null>(null);
   let resetBusy = $state(false);
   let resetError = $state('');
   let resetPassword = $state('');
 
-  function openReset(u: UserV2) {
+  function openReset(u: User) {
     resetFor = u;
     resetError = resetPassword = '';
   }
@@ -143,7 +144,7 @@
     }
   }
 
-  let turningOff = $state<UserV2 | null>(null);
+  let turningOff = $state<User | null>(null);
   let offBusy = $state(false);
   let offError = $state('');
 

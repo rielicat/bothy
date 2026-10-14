@@ -68,6 +68,15 @@
   const peerWords: Record<string, string> = { local: 'this computer', lan: 'your local network', public: 'the internet' };
   let connectionDetails = $state(false);
 
+  // The server's rule for agent.name (config.ValidAgentName), said before the save is refused.
+  function agentName(s: string): { value?: string; error?: string } {
+    const t = s.trim();
+    if (!t) return { error: 'Enter a name.' };
+    if ([...t].length > 40) return { error: 'Use at most 40 characters.' };
+    if (/[<>]/.test(t)) return { error: 'Leave out < and >.' };
+    return { value: t };
+  }
+
   const tones = [
     { value: 'warm', label: 'Warm and brief' },
     { value: 'direct', label: 'Straight to the point' },
@@ -155,12 +164,8 @@
     </SettingsSection>
 
     <SettingsSection title="Bothy">
-      {#if settingsConfig.has('agent.name')}
-        <TextSetting label="Name" path="agent.name" parse={(s) => (s.trim() ? { value: s.trim() } : { error: 'Enter a name.' })} />
-      {/if}
-      {#if settingsConfig.has('agent.tone')}
-        <SelectSetting label="Tone" path="agent.tone" options={tones} fallback="warm" />
-      {/if}
+      <TextSetting label="Name" path="agent.name" parse={agentName} />
+      <SelectSetting label="Tone" path="agent.tone" options={tones} fallback="warm" />
       <div class="border-b border-border py-3">
         <!-- "Saved" goes right after the label, as on the other rows (§11.1). -->
         <TextArea

@@ -28,6 +28,9 @@ type Runner struct {
 	Stops   []core.SessionID
 	Resumed []core.ApprovalID
 	PausedV bool
+	// PausedByV and PausedAtV are who paused and when; SetPaused fills them.
+	PausedByV core.UserID
+	PausedAtV time.Time
 
 	mu       sync.Mutex
 	StopAlls int
@@ -69,14 +72,26 @@ func (r *Runner) StopAll(context.Context, core.UserID) (int, error) {
 	return 0, nil
 }
 
-func (r *Runner) SetPaused(_ context.Context, paused bool, _ core.UserID) error {
+func (r *Runner) SetPaused(_ context.Context, paused bool, by core.UserID) error {
 	r.mu.Lock()
+	defer r.mu.Unlock()
+	switch {
+	case !paused:
+		r.PausedByV, r.PausedAtV = "", time.Time{}
+	case !r.PausedV:
+		r.PausedByV, r.PausedAtV = by, time.Now()
+	}
 	r.PausedV = paused
-	r.mu.Unlock()
 	return nil
 }
 
 func (r *Runner) Paused() bool { r.mu.Lock(); defer r.mu.Unlock(); return r.PausedV }
+
+func (r *Runner) PausedBy() (core.UserID, time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.PausedByV, r.PausedAtV
+}
 
 func (r *Runner) Resume(_ context.Context, a *core.Approval) error {
 	r.mu.Lock()

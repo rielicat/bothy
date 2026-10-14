@@ -190,7 +190,7 @@ func waitDeploy(t *testing.T, u *pltUser, st core.DeployStatus) *core.Deploy {
 			t.Fatalf("releases = %d", code)
 		}
 		if len(r.Deploys) > 0 && r.Deploys[0].Status == st {
-			return r.Deploys[0]
+			return &r.Deploys[0].Deploy
 		}
 		if time.Now().After(deadline) {
 			b, _ := json.Marshal(r.Deploys)

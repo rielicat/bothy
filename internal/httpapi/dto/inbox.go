@@ -47,8 +47,30 @@ type InboxItem struct {
 	Approval *core.Approval        `json:"approval,omitempty"`
 	MCP      *InboxMCP             `json:"mcp,omitempty"`
 	Skill    *core.SkillMeta       `json:"skill,omitempty"`
-	Sender   *core.ChannelIdentity `json:"sender,omitempty"` // first_text holds the start of their message
+	Changes  *SkillChanges         `json:"skill_changes,omitempty"` // with Skill: what changed since it was approved
+	Sender   *core.ChannelIdentity `json:"sender,omitempty"`        // first_text holds the start of their message
 	Group    *InboxGroup           `json:"group,omitempty"`
+}
+
+// SkillChanges is how a skill's files differ from the ones an admin
+// approved (every file is added for a skill never approved).
+type SkillChanges struct {
+	Files []SkillFileChange `json:"files"`
+	// NoBaseline: the skill was approved before Bothy kept approved files,
+	// so only that it changed is known.
+	NoBaseline bool `json:"no_baseline,omitempty"`
+	// Truncated: more changed files or text than one review shows; the
+	// skill's page has every file.
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+type SkillFileChange struct {
+	Path   string `json:"path"`
+	Change string `json:"change"` // added | removed | changed
+	Before string `json:"before,omitempty"`
+	After  string `json:"after,omitempty"`
+	// Opaque: not text, or too large to show, so neither side is included.
+	Opaque bool `json:"opaque,omitempty"`
 }
 
 type InboxMCP struct {

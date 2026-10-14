@@ -124,7 +124,7 @@ func (t *deployTool) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action
 	if derr != nil {
 		d.Status, d.Error, d.FinishedAt = core.DeployFailed, clip(derr.Error(), maxErrorText), now
 	} else {
-		d.WorkflowRun, d.RunURL = run.ID, run.URL
+		d.WorkflowRun, d.RunURL, d.SHA = run.ID, run.URL, run.HeadSHA
 		if run.Status == "in_progress" {
 			d.Status = core.DeployRunning
 		}

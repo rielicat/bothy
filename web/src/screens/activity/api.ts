@@ -1,13 +1,12 @@
 // Activity's API types and shared lookups. The generated server types,
-// plus the fields the screens can use that the server doesn't send yet
-// (docs/design/ui.md §17); each screen has a fallback without them.
+// plus the few fields some records were stored without.
 import { api } from '../../lib/api/client';
 import type {
   Approval,
   AuditEntry,
   AuditRow as ServerAuditRow,
   AuditVerify,
-  Deploy as ServerDeploy,
+  DeployView,
   EgressRecord,
   ReleaseEnvironment,
   RunDetail,
@@ -20,22 +19,11 @@ import { session } from '../../lib/stores/session.svelte';
 
 export type { RefineEntry, RefineTrace, RefineVote, ReleaseEnvironment } from '../../lib/api/types.gen';
 
-export type TaskRun = RunView & {
-  /** The chat's origin: web, slack, telegram, discord, api, schedule. */
-  origin?: string;
-  /** A plain one-line reason for a failure. */
-  reason?: string;
-  refined?: boolean;
-};
+export type TaskRun = RunView;
 
 export type TaskDetail = Omit<RunDetail, 'run'> & { run?: TaskRun; answer?: string };
 
-export type Deploy = ServerDeploy & {
-  requested_by_name?: string;
-  approved_by_names?: string[];
-  sha?: string;
-  subject?: string;
-};
+export type Deploy = DeployView;
 
 export interface Releases {
   environments: ReleaseEnvironment[];
