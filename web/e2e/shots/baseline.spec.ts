@@ -11,7 +11,8 @@ const states: ShotState[] = [
   { name: 'login', route: '/login', mock: 'logged-out' },
   { name: 'chat-new', route: '/chat' },
   { name: 'chat', route: '/chat/ses_01jtrip000000000000000000', ready: 'gentle plan' },
-  { name: 'chat-paused', route: '/chat/ses_01jtrip000000000000000000', mock: 'paused,sealed', ready: 'gentle plan' },
+  // Not sealed: C1's shell blocks the app with the unlock screen for admins while saved keys are locked.
+  { name: 'chat-paused', route: '/chat/ses_01jtrip000000000000000000', mock: 'paused', ready: 'gentle plan' },
   { name: 'approvals', route: '/approvals' },
   { name: 'approvals-parked', route: '/approvals?status=parked' },
   { name: 'knowledge', route: '/knowledge' },

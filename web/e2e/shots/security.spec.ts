@@ -137,7 +137,7 @@ const states: ShotState[] = [
     full: false,
     setup: framed(async (page) => {
       await page.getByRole('button', { name: 'Add key' }).click();
-      await page.getByLabel('Name').fill('Linear API key');
+      await page.getByLabel('Name', { exact: true }).fill('Linear API key');
     }),
   },
   {
@@ -169,7 +169,8 @@ const states: ShotState[] = [
     ready: 'Saved keys are locked.',
     full: false,
     setup: framed(async (page) => {
-      await page.getByRole('button', { name: 'Unlock', exact: true }).click();
+      // The sealed banner has an Unlock of its own; this is the page's.
+      await page.getByRole('button', { name: 'Unlock', exact: true }).and(page.locator(':not([role="alert"] *)')).click();
       await page.getByLabel('Passphrase').fill('wrong');
       await page.getByRole('dialog').getByRole('button', { name: 'Unlock', exact: true }).click();
       await page.getByText("That passphrase didn't work.").waitFor();

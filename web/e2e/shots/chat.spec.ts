@@ -128,7 +128,8 @@ const states: ShotState[] = [
   },
   { name: 'paused-composer', route: chat(ids.login), mock: 'paused', ready: 'Fixed. The sign-in callback', setup: frame },
   { name: 'chat-menu', route: chat(ids.login), ready: 'Fixed. The sign-in callback', setup: then(click('Chat options')) },
-  { name: 'rename', route: chat(ids.login), ready: 'Fixed. The sign-in callback', setup: then(click('Fix login redirect')) },
+  // Through the menu: below 1024 px the title lives in the shell's top bar, which doesn't rename.
+  { name: 'rename', route: chat(ids.login), ready: 'Fixed. The sign-in callback', setup: then(menu('Rename')) },
   {
     name: 'chat-details',
     route: chat(ids.login),

@@ -44,7 +44,7 @@ const reachedAs = (access: { peer: string; tls: boolean }, then?: (page: Page) =
   await page.reload();
   await page.waitForLoadState('networkidle');
   await frame(page);
-  await page.getByText('Workspace').waitFor();
+  await page.getByRole('heading', { name: 'Workspace' }).waitFor();
   await then?.(page);
 };
 
