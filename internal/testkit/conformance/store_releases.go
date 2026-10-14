@@ -210,13 +210,19 @@ func testReleases(f *fx) {
 	d1 := mk(pa, "staging", 1)
 	d1.Chat = &core.ChatRef{Channel: "telegram", ChatID: "42", Kind: core.ChatDM}
 	d1.ApprovedBy = []core.UserID{bob.ID}
+	d1.Via = core.DeployViaConnection
 	f.must(r.Create(f.ctx, d1), "Create")
 	f.check(core.ValidID(core.PrefixDeploy, d1.ID), "Create assigned id %q, want a dep_ id", d1.ID)
 	d2, d3 := mk(pa, "prod", 2), mk(pb, "staging", 3)
+	d3.Via = core.DeployViaToken
 	f.must(r.Create(f.ctx, d2), "Create d2")
 	f.must(r.Create(f.ctx, d3), "Create d3")
 	f.want(r.Create(f.ctx, &core.Deploy{ID: d1.ID, Principal: pa, Status: core.DeployDispatched}), core.ErrConflict, "duplicate id")
 	f.want(r.Create(f.ctx, func() *core.Deploy { d := mk(pa, "x", 4); d.Status = "lost"; return d }()), core.ErrInvalid, "status CHECK")
+	f.want(r.Create(f.ctx, func() *core.Deploy { d := mk(pa, "x", 4); d.Via = "elsewhere"; return d }()), core.ErrInvalid, "via CHECK")
+	if got, err := r.Get(f.ctx, core.SystemViewer(), d2.ID); err == nil {
+		f.eq("Via defaults to empty", got.Via, "")
+	}
 	f.want(r.Create(f.ctx, mk(core.PrincipalID(core.NewID(core.PrefixUser)), "x", 4)), core.ErrInvalid, "principal foreign key")
 
 	got, err := r.Get(f.ctx, viewer(alice), d1.ID)

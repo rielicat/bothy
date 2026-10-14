@@ -82,7 +82,17 @@ type Deploy struct {
 	CreatedAt   time.Time    `json:"created_at"`
 	UpdatedAt   time.Time    `json:"updated_at"`
 	FinishedAt  time.Time    `json:"finished_at"`
+	// Via is who dispatched the deploy, so the follower reads its run
+	// through the same credentials whatever the allowlists say later;
+	// "" (deploys recorded before v0.2 kept it) picks per call.
+	Via string `json:"via,omitempty"` // DeployViaConnection | DeployViaToken
 }
+
+// Deploy.Via values.
+const (
+	DeployViaConnection = "connection" // the GitHub connection that allowlists the repository
+	DeployViaToken      = "token"      // releases.github_token
+)
 
 type DeployFilter struct {
 	Environment string // "" = all

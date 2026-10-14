@@ -661,6 +661,59 @@ func (c *connected) RunStatus(_ context.Context, repo string, id int64) (*core.W
 	return &core.WorkflowRun{ID: id, Repo: repo, Status: c.status, Conclusion: c.conclusion}, nil
 }
 
+// A run is followed through the dispatcher that started it, whatever the
+// allowlists say meanwhile: the other dispatcher may not see the run at all.
+func TestFollowerKeepsItsDispatcher(t *testing.T) {
+	deploy := func(f *fixture) *core.Deploy {
+		t.Helper()
+		env := f.env()
+		a := f.plan(env, `{"environment":"staging"}`)
+		f.approve(env, a, core.ApprovalAllowed, f.alice, f.bob)
+		if res, err := f.tool(deployName).Exec(f.ctx, env, a); err != nil || res.IsError {
+			t.Fatalf("Exec = %+v, %v", res, err)
+		}
+		return f.deploys()[0]
+	}
+
+	// Started through a connection; the repository then leaves its allowlist.
+	f := newFixture(t)
+	conn := &connected{repo: "acme/web", status: "in_progress"}
+	f.svc.d.Connections = conn
+	if d := deploy(f); d.Via != core.DeployViaConnection || d.WorkflowRun != 77 {
+		t.Fatalf("deploy = %+v", d)
+	}
+	conn.repo, conn.status, conn.conclusion = "acme/other", "completed", "success"
+	before := f.gh.Requests()
+	f.svc.poll(f.ctx)
+	if d := f.deploys()[0]; d.Status != core.DeploySucceeded || f.gh.Requests() != before {
+		t.Fatalf("deploy %+v; token client asked %d times", d, f.gh.Requests()-before)
+	}
+
+	// Started with releases.github_token; the repository then joins a
+	// connection whose credentials do not know the run.
+	f = newFixture(t)
+	conn = &connected{repo: "acme/other", status: "completed", conclusion: "failure"}
+	f.svc.d.Connections = conn
+	d := deploy(f)
+	if d.Via != core.DeployViaToken || d.WorkflowRun == 0 || len(conn.dispatches) != 0 {
+		t.Fatalf("deploy = %+v", d)
+	}
+	conn.repo = "acme/web"
+	f.gh.SetRun(d.WorkflowRun, "completed", "success")
+	f.svc.poll(f.ctx)
+	if d = f.deploys()[0]; d.Status != core.DeploySucceeded || d.Conclusion != "success" {
+		t.Fatalf("deploy after the run finished = %+v", d)
+	}
+
+	// A deploy recorded before Via existed follows today's choice.
+	if got := f.svc.follower(f.ctx, &core.Deploy{Repo: "acme/web"}); got != core.WorkflowDispatcher(conn) {
+		t.Fatalf("legacy deploy followed by %T", got)
+	}
+	if got := f.svc.follower(f.ctx, &core.Deploy{Repo: "acme/x"}); got != f.svc.d.Dispatcher {
+		t.Fatalf("legacy deploy of an unconnected repository followed by %T", got)
+	}
+}
+
 func TestConnectionsDispatchTheirRepositories(t *testing.T) {
 	f := newFixture(t)
 	conn := &connected{repo: "Acme/Web", status: "in_progress"}

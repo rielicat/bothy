@@ -51,14 +51,29 @@ type RepoDispatcher interface {
 	Serves(ctx context.Context, repo string) bool
 }
 
-// dispatcher picks who dispatches and follows repo's runs. The choice is
-// made per call, so a repository that joins or leaves a connection's
-// allowlist moves with it.
-func (s *Service) dispatcher(ctx context.Context, repo string) core.WorkflowDispatcher {
+// dispatcher picks who dispatches a new deploy of repo and names the choice
+// (Deploy.Via). It is made per deploy, so a repository that joins or leaves
+// a connection's allowlist moves with it for the next one.
+func (s *Service) dispatcher(ctx context.Context, repo string) (core.WorkflowDispatcher, string) {
 	if s.d.Connections != nil && s.d.Connections.Serves(ctx, repo) {
-		return s.d.Connections
+		return s.d.Connections, core.DeployViaConnection
 	}
-	return s.d.Dispatcher
+	return s.d.Dispatcher, core.DeployViaToken
+}
+
+// follower reads d's run through the dispatcher that started it, even after
+// the repository joined or left an allowlist: the other one may hold
+// credentials that cannot see the run, or none at all. A deploy recorded
+// without Via is followed through today's choice.
+func (s *Service) follower(ctx context.Context, d *core.Deploy) core.WorkflowDispatcher {
+	switch {
+	case d.Via == core.DeployViaConnection && s.d.Connections != nil:
+		return s.d.Connections
+	case d.Via == core.DeployViaToken:
+		return s.d.Dispatcher
+	}
+	disp, _ := s.dispatcher(ctx, d.Repo)
+	return disp
 }
 
 // Service provides the release tools and follows dispatched runs.
@@ -156,7 +171,7 @@ func (s *Service) check(ctx context.Context, d *core.Deploy) {
 		s.finish(ctx, d, core.DeployUnknown, "", "stopped following the run after "+s.followFor().String())
 		return
 	}
-	run, err := s.dispatcher(ctx, d.Repo).RunStatus(ctx, d.Repo, d.WorkflowRun)
+	run, err := s.follower(ctx, d).RunStatus(ctx, d.Repo, d.WorkflowRun)
 	switch {
 	case errors.Is(err, core.ErrNotFound):
 		s.finish(ctx, d, core.DeployUnknown, "", "GitHub no longer knows the workflow run")
