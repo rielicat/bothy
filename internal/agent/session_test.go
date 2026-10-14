@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -175,10 +176,19 @@ func TestTitleGeneratedAfterFirstRun(t *testing.T) {
 			t.Fatal(err)
 		}
 		h.sess = s
-		h.submit("Help me plan the weekend")
+		sub := h.bus.Subscribe(core.Filter{System: true, Types: []core.EventType{core.EvSessionUpdated}}, 64)
+		defer sub.Close()
+		h.submit("Help me plan the weekend\n\nwith  the whole family, somewhere near the coast")
 		synctest.Wait()
 		if got := h.session().Title; got != "Weekend plans" {
 			t.Fatalf("title = %q", got)
+		}
+		var titles []string
+		for len(sub.C()) > 0 {
+			titles = append(titles, (<-sub.C()).Data.(core.SessionData).Title)
+		}
+		if want := []string{"Help me plan the weekend with the whole family,", "Weekend plans"}; !slices.Equal(titles, want) {
+			t.Fatalf("session titles %q, want the first message's start, then the generated title %q", titles, want)
 		}
 		var titled bool
 		for _, c := range h.budget.(*fakes.Budget).Calls {
@@ -186,6 +196,33 @@ func TestTitleGeneratedAfterFirstRun(t *testing.T) {
 		}
 		if !titled {
 			t.Fatal("title call not metered")
+		}
+	})
+}
+
+func TestTitleKeepsARename(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{steps: []fakes.LLMStep{{Text: []string{"Sure."}}, {Text: []string{"Again."}}}})
+		defer h.close()
+		s, err := h.r.NewSession(h.ctx, h.pid, "web", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.Title = "Renamed"
+		if err := h.store.Sessions().Update(h.ctx, s); err != nil {
+			t.Fatal(err)
+		}
+		h.sess = s
+		h.submit("Help me plan the weekend")
+		synctest.Wait()
+		if got := h.session().Title; got != "Renamed" {
+			t.Fatalf("title = %q, want the name the person chose", got)
+		}
+		h.llm.mu.Lock()
+		n := h.llm.titles
+		h.llm.mu.Unlock()
+		if n != 0 {
+			t.Fatalf("%d title calls for a named chat", n)
 		}
 	})
 }

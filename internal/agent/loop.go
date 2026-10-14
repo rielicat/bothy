@@ -21,8 +21,7 @@ type runEnd struct {
 }
 
 func loopEnd() *runEnd {
-	return &runEnd{status: core.RunLoopDetected, err: "loop detected",
-		notice: "Stopped: I was repeating myself (loop detected). Rephrase the request or press Retry."}
+	return &runEnd{status: core.RunLoopDetected, err: "loop detected", notice: loopNotice}
 }
 
 func interruptedEnd() *runEnd {
@@ -31,7 +30,7 @@ func interruptedEnd() *runEnd {
 }
 
 func failEnd(msg string) *runEnd {
-	return &runEnd{status: core.RunFailed, err: msg, notice: "The run failed: " + msg}
+	return &runEnd{status: core.RunFailed, err: msg, notice: failedNotice}
 }
 
 func budgetEnd(be *core.BudgetError) *runEnd {
@@ -279,14 +278,27 @@ func (r *Runner) persistTurn(ctx context.Context, rs *runState) error {
 	rs.answered = m.Seq
 	w.merged = 0
 	tc.commit(ctx, r.log)
+	var draft string
+	if rs.sess != nil && rs.sess.Title == "" && !rs.sess.Hidden {
+		draft = r.draftTitle(ctx, req.Session, inputsOf(reqs))
+	}
+	titled := false
 	s, err := r.mutateSession(ctx, req.Session, func(s *core.Session) error {
 		s.MemorySeen, s.PinsSeen = max(s.MemorySeen, tc.memSeen), max(s.PinsSeen, tc.pinsSeen)
 		s.LastMessageAt = r.now()
 		s.Taint |= legs
+		if titled = s.Title == "" && draft != ""; titled {
+			s.Title = draft
+		}
 		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("agent: update session: %w", err)
+	}
+	if titled {
+		rs.draftTitle = draft
+		r.d.Bus.Publish(core.Event{Type: core.EvSessionUpdated, Principal: s.Principal, Session: s.ID,
+			Data: core.SessionData{Title: s.Title, Taint: s.Taint, Epoch: s.Epoch}})
 	}
 	if s.Taint != rs.taint {
 		rs.taint = s.Taint
@@ -482,15 +494,14 @@ func (r *Runner) loop(rs *runState) *runEnd {
 			if pe != nil {
 				msg = r.redact(pe.Msg)
 			}
+			notice := r.modelErrorNotice(rs, ci, pe)
 			if streamed {
 				if resp != nil {
 					r.persistAssistant(ctx, rs, resp)
 				}
-				return &runEnd{status: core.RunFailed, err: "model error mid-reply: " + msg,
-					notice: "Model error mid-reply. Press Retry to try again."}
+				return &runEnd{status: core.RunFailed, err: "model error mid-reply: " + msg, notice: notice}
 			}
-			return &runEnd{status: core.RunFailed, err: "model error: " + msg,
-				notice: "The model could not answer (" + truncateRunes(msg, 200) + "). Press Retry to try again."}
+			return &runEnd{status: core.RunFailed, err: "model error: " + msg, notice: notice}
 		}
 		rs.ctxRetried = false
 		rs.answered = rs.seenSeq
@@ -793,7 +804,7 @@ func (r *Runner) finish(rs *runState, end *runEnd) {
 		return
 	}
 	// Hidden /v1 sessions are never listed, so a title would only cost a call.
-	if rs.sess.Title == "" && !rs.sess.Hidden {
+	if !rs.sess.Hidden && (rs.sess.Title == "" || rs.sess.Title == rs.draftTitle) {
 		r.titleAsync(rs)
 	}
 	if len(rs.chain) > 0 && rs.lastEst*10 > rs.chain[0].Context*6 && !r.paused.Load() && !r.closing.Load() {

@@ -61,6 +61,9 @@ type runState struct {
 	lastEst    int // estimated input of the last step, for post-run compaction
 
 	refine *refineMode // nil: final answers are not refined
+	// draftTitle is the name this run gave an untitled session (its first
+	// message), which the generated title may replace.
+	draftTitle string
 }
 
 func (r *Runner) newRunState(w *worker, j *turnJob) *runState {
