@@ -90,7 +90,7 @@ func seedPurge(t *testing.T, h *harness) purgeFixture {
 	p, _ := h.store.Principals().Get(ctx, core.SystemViewer(), ap)
 	f.ws = p.Workspace
 	for _, dir := range []string{filepath.Join(h.dataDir, "memory", string(ap)), filepath.Join(h.workDir, "ws", string(f.ws), ".bothy"),
-		filepath.Join(h.workDir, "ws", string(f.spcWS))} {
+		filepath.Join(h.workDir, "ws", string(f.spcWS)), filepath.Join(h.dataDir, "github", "checkouts", string(f.ws), "octocat", "hello-world")} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -151,7 +151,7 @@ func TestPurgeWipesPrincipalData(t *testing.T) {
 		t.Errorf("identities left: %+v", ids)
 	}
 	for _, dir := range []string{filepath.Join(h.dataDir, "memory", string(f.ap)), filepath.Join(h.workDir, "ws", string(f.ws)),
-		filepath.Join(h.workDir, "ws", string(f.spcWS))} {
+		filepath.Join(h.workDir, "ws", string(f.spcWS)), filepath.Join(h.dataDir, "github", "checkouts", string(f.ws))} {
 		if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("%s still exists", dir)
 		}

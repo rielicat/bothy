@@ -274,6 +274,13 @@ func (s *Server) purgeFiles(ps []*core.Principal, st purgeStats) error {
 				errs = append(errs, err)
 			}
 		}
+		// The github module keeps each workspace's checkout manifests and
+		// pristine repository archives here, outside the workspace.
+		if s.d.DataDir != "" && core.ValidID(core.PrefixWorkspace, string(p.Workspace)) {
+			if err := os.RemoveAll(filepath.Join(s.d.DataDir, "github", "checkouts", string(p.Workspace))); err != nil {
+				errs = append(errs, err)
+			}
+		}
 	}
 	return errors.Join(errs...)
 }
