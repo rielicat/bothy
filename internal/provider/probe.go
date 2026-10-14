@@ -35,6 +35,9 @@ func (f *Facade) Probe(ctx context.Context, pc core.ProbeConfig) (core.ProbeResu
 	if !validKind(pc.Kind) {
 		return core.ProbeResult{}, fmt.Errorf("provider: unknown kind %q: %w", pc.Kind, core.ErrInvalid)
 	}
+	if pc.Kind == core.KindBedrock {
+		return f.probeBedrock(ctx, pc)
+	}
 	base := strings.TrimRight(pc.BaseURL, "/")
 	if base == "" {
 		base = defaultBase(pc.Kind)
@@ -72,6 +75,7 @@ func (f *Facade) Probe(ctx context.Context, pc core.ProbeConfig) (core.ProbeResu
 	for _, m := range found {
 		res.Models = append(res.Models, m.Ref.Model)
 	}
+	res.Choices = choices(found)
 	model := pc.Model
 	if model == "" && len(res.Models) > 0 {
 		model = res.Models[0]
@@ -94,28 +98,42 @@ func (f *Facade) Probe(ctx context.Context, pc core.ProbeConfig) (core.ProbeResu
 		numCtx = info.Context
 	}
 
+	notes, ok := f.exercise(ctx, cl, model, info, numCtx, 1, base, pc.Kind, &res)
+	if !ok {
+		return res, nil
+	}
+	if isOllama {
+		notes = append(notes, ollamaContext(ctx, oc, model, trained, &res)...)
+	}
+	res.Detail = strings.Join(notes, " ")
+	return res, nil
+}
+
+// exercise makes the probe's completion (firstMax output tokens) and forced
+// tool call. ok is false when the completion failed; res.Detail then says
+// why.
+func (f *Facade) exercise(ctx context.Context, cl client, model string, info core.ModelInfo, numCtx, firstMax int, base string, kind core.ProviderKind, res *core.ProbeResult) (notes []string, ok bool) {
 	t0 := f.clock.Now()
 	resp, err := cl.Stream(ctx, &core.Request{
-		Model: model, MaxTokens: 1, NumCtx: numCtx,
+		Model: model, MaxTokens: firstMax, NumCtx: numCtx,
 		Messages: []core.Message{{Role: core.MsgUser, Parts: []core.Part{{Type: core.PartText, Text: "Reply with the single word: ok"}}}},
 	}, nil)
 	res.Latency = f.clock.Now().Sub(t0)
 	if err != nil {
-		res.Detail = plain(err, base, pc.Kind)
-		return res, nil
+		res.Detail = plain(err, base, kind)
+		return nil, false
 	}
 	res.OK = true
 	res.UsageReported = !resp.UsageEstimated
 	res.Cost = info.Price.Cost(resp.Usage)
 
-	var notes []string
 	tresp, terr := cl.Stream(ctx, &core.Request{
 		Model: model, MaxTokens: 256, ToolChoice: "required", NumCtx: numCtx,
 		Tools:    []core.ToolDef{{Name: probeTool, Description: "Echo a value back.", Schema: probeSchema}},
 		Messages: []core.Message{{Role: core.MsgUser, Parts: []core.Part{{Type: core.PartText, Text: `Call the probe_echo tool with value "ok".`}}}},
 	}, nil)
 	if terr != nil {
-		notes = append(notes, "Tool calling failed: "+plain(terr, base, pc.Kind))
+		notes = append(notes, "Tool calling failed: "+plain(terr, base, kind))
 	} else {
 		res.ToolCalling = calledProbe(tresp)
 		res.UsageReported = res.UsageReported && !tresp.UsageEstimated
@@ -128,11 +146,20 @@ func (f *Facade) Probe(ctx context.Context, pc core.ProbeConfig) (core.ProbeResu
 		notes = append(notes, "The server does not report token usage; Bothy will estimate it.")
 	}
 	res.Context = info.Context
-	if isOllama {
-		notes = append(notes, ollamaContext(ctx, oc, model, trained, &res)...)
+	return notes, true
+}
+
+// choices turns discovered models into picker entries.
+func choices(found []core.ModelInfo) []core.ModelChoice {
+	var out []core.ModelChoice
+	for _, m := range found {
+		d := m.Display
+		if d == "" {
+			d = m.Ref.Model
+		}
+		out = append(out, core.ModelChoice{ID: m.Ref.Model, Display: d})
 	}
-	res.Detail = strings.Join(notes, " ")
-	return res, nil
+	return out
 }
 
 // probeInfo describes the probed model from the catalog and discovery.
@@ -246,6 +273,9 @@ func plain(err error, base string, kind core.ProviderKind) string {
 	}
 	switch pe.Kind {
 	case core.ErrKindAuth:
+		if kind == core.KindBedrock {
+			return bedrockAuthText(pe.Msg)
+		}
 		return "The provider rejected the API key: " + pe.Msg
 	case core.ErrKindNetwork:
 		msg := "Could not reach " + host + ": " + pe.Msg

@@ -75,6 +75,7 @@ type model struct {
 	Thinking  bool   `json:"thinking,omitempty"`
 	Cache     string `json:"cache,omitempty"`
 	Price     *price `json:"price,omitempty"`
+	GeoPrice  *price `json:"geo_price,omitempty"` // bedrock only: geographic profiles and in-region use
 }
 
 type price struct {
@@ -159,6 +160,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, "catalog-gen:", err)
 		os.Exit(1)
 	}
+	overlay, err := parseBedrock(bedrockJSON)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "catalog-gen:", err)
+		os.Exit(1)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	var all []cwProvider
@@ -173,6 +179,10 @@ func main() {
 	c, unused := convert(all, *source, rules)
 	for _, r := range unused {
 		fmt.Fprintf(os.Stderr, "catalog-gen: warning: tiers.json rule %s %q matched no priced model; check for renamed models\n", r.Provider, r.Models)
+	}
+	if c, err = withBedrock(c, overlay); err != nil {
+		fmt.Fprintln(os.Stderr, "catalog-gen:", err, "(load catwalk's anthropic.json too)")
+		os.Exit(1)
 	}
 	b, err := render(c)
 	if err != nil {

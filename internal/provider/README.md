@@ -2,8 +2,8 @@
 
 `provider.Facade` implements `core.LLM` (SPEC §4.3, §5.14) over hand-written
 clients for the Anthropic Messages API, OpenAI Chat Completions (also every
-`openai_compat` server), Gemini `streamGenerateContent` and native Ollama
-`/api/chat`. It re-reads the `providers` config on every call (hot reload, so
+`openai_compat` server), Gemini `streamGenerateContent`, native Ollama
+`/api/chat` and Amazon Bedrock `ConverseStream`. It re-reads the `providers` config on every call (hot reload, so
 providers added by the setup wizard work without a restart), resolves each
 `secret:<name>` key through the vault and keeps it for at most five minutes,
 and gets every HTTP client from `core.Egress.SystemClient`, hardened to no
@@ -28,5 +28,24 @@ the `providers.auth_failed` and `providers.ollama_context` checks. An Ollama
 model without a configured context never gets its trained maximum as
 num_ctx: `ollama.Window` caps it at 16,384, or at the served context when
 Ollama already runs the model with more.
+
+**Amazon Bedrock** (`type: bedrock`, `bedrock/`) has no key: each provider
+builds an AWS default credential chain for its `region` and optional
+`profile`, whose instance and container credential requests go through
+`Deps.Credentials` (egress's credentials-only client) and whose STS/SSO
+calls go through a system client for exactly the hosts the AWS config
+needs. The runtime endpoint (or a `base_url` VPC endpoint, https only) and
+the control-plane endpoint share one egress destination. An auth failure
+also drops the chain's cached credentials, and the banner and doctor speak
+of AWS credentials instead of a key. Bedrock models get explicit caching
+only where Bedrock takes cache points, and an `allow_private` VPC endpoint
+does not make them local (free). `Probe` resolves the credentials and
+reports their source, lists the usable Claude and Nova models with display
+names (`ProbeResult.Choices`) and tests a small one by default; `Detect`
+offers "Use this server's AWS access" first when the chain resolves (within
+4 s when the environment or `~/.aws` suggests AWS, else within the local
+detection timeout for IMDS), with region and models; the doctor check
+`providers.bedrock_credentials` reports each bedrock provider's credential
+source (info) or why there is none (high), never values.
 `wire/` holds what the clients share; `wiretest/` serves recorded vendor
 responses in tests.

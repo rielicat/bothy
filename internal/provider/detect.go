@@ -50,16 +50,21 @@ var keyEnvVars = []struct {
 	{"DEEPSEEK_API_KEY", core.KindOpenAICompat, "https://api.deepseek.com/v1"},
 }
 
-// Detect finds local model servers and well-known key variables for the
-// setup wizard.
+// Detect finds this server's AWS access (offered first, as Bedrock), local
+// model servers and well-known key variables for the setup wizard.
 func (f *Facade) Detect(ctx context.Context) []core.Detection {
-	results := make([]*core.Detection, len(localServers))
+	results := make([]*core.Detection, len(localServers)+1)
 	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		results[0] = f.detectAWS(ctx)
+	}()
 	for i, s := range localServers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			results[i] = f.detectServer(ctx, s.kind, s.base, s.note)
+			results[i+1] = f.detectServer(ctx, s.kind, s.base, s.note)
 		}()
 	}
 	wg.Wait()

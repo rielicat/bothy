@@ -81,6 +81,9 @@ func TestCommittedCatalogMatchesOverlay(t *testing.T) {
 	}
 	tiered := 0
 	for _, p := range c.Providers {
+		if p.ID == "bedrock" {
+			continue // its tiers come from bedrock.json (TestCommittedCatalogMatchesBedrockOverlay)
+		}
 		for _, m := range p.Models {
 			var want []tier
 			for _, r := range rules {

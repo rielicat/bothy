@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"math/rand/v2"
+	"net/http"
 	"sync"
 	"time"
 
@@ -18,10 +19,15 @@ type Deps struct {
 	Config config.View
 	Vault  core.Vault
 	Egress core.Egress     // SystemClient per provider base URL
-	Env    func() []string // Detect only: names of well-known key env vars
+	Env    func() []string // Detect: names of well-known key env vars; bedrock: the AWS container credential URIs
 	Clock  core.Clock
 	Log    *slog.Logger
 	Bus    core.Bus // optional: provider_auth banner on a rejected key (§5.14)
+	// Credentials is egress's credentials-only client for the AWS instance
+	// metadata and container credential endpoints (egress.CredentialsClient),
+	// used by bedrock's credential chain alone. Nil leaves instance and
+	// container roles unavailable.
+	Credentials func(containerRelativeURI, containerFullURI string) *http.Client
 }
 
 // Facade implements core.LLM and core.CheckProvider.

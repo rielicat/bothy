@@ -8,7 +8,9 @@ import (
 	"github.com/rielicat/bothy/internal/provider/ollama"
 )
 
-func (f *Facade) Checks() []core.Check { return []core.Check{authCheck{f}, ollamaContextCheck{f}} }
+func (f *Facade) Checks() []core.Check {
+	return []core.Check{authCheck{f}, ollamaContextCheck{f}, bedrockCredentialsCheck{f}}
+}
 
 // authCheck is the doctor's providers.auth_failed: a provider whose last call
 // was refused for its credentials.
@@ -22,10 +24,14 @@ func (c authCheck) Run(context.Context) []core.Finding {
 		if h.State != stateAuthFailed {
 			continue
 		}
+		what := "its API key"
+		if h.Kind == core.KindBedrock {
+			what = "its AWS credentials"
+		}
 		out = append(out, core.Finding{
 			ID:       "providers.auth_failed",
 			Area:     "providers",
-			Title:    "Provider " + h.ID + " rejects its API key",
+			Title:    "Provider " + h.ID + " rejects " + what,
 			Detail:   h.LastError,
 			Fix:      "/settings/providers",
 			Severity: core.SevHigh,

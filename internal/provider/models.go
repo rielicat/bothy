@@ -10,6 +10,7 @@ import (
 
 	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/provider/bedrock"
 	"github.com/rielicat/bothy/internal/provider/ollama"
 )
 
@@ -29,6 +30,7 @@ var defaultContext = map[core.ProviderKind]int{
 	core.KindGemini:       1_000_000,
 	core.KindOpenAICompat: 32_768,
 	core.KindOllama:       8_192,
+	core.KindBedrock:      128_000, // the catalog covers Claude and Nova; other Bedrock vendors start here
 }
 
 type discovery struct {
@@ -184,8 +186,19 @@ func (f *Facade) resolve(e *entry, model string) core.ModelInfo {
 		}
 	case core.KindOllama:
 		info.Cache = core.CacheNone
+	case core.KindBedrock:
+		// Cache points are sent only where Bedrock accepts them.
+		info.Cache = core.CacheNone
+		if bedrock.SupportsCache(model) {
+			info.Cache = core.CacheExplicit
+		}
+		if info.Source == "config" && !info.Vision {
+			info.Vision = bedrock.SupportsVision(model)
+		}
 	}
-	info.Local = e.kind == core.KindOllama || e.cfg.AllowPrivate
+	// A bedrock VPC endpoint resolves to private addresses (allow_private)
+	// but still bills like the public one.
+	info.Local = e.kind == core.KindOllama || e.cfg.AllowPrivate && e.kind != core.KindBedrock
 	if info.Local && !info.Price.Known {
 		info.Price = core.Price{Known: true}
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/provider/anthropic"
+	"github.com/rielicat/bothy/internal/provider/bedrock"
 	"github.com/rielicat/bothy/internal/provider/gemini"
 	"github.com/rielicat/bothy/internal/provider/ollama"
 	"github.com/rielicat/bothy/internal/provider/openai"
@@ -46,6 +47,7 @@ type entry struct {
 	hc    *http.Client
 	cl    client
 	creds *credentials
+	chain *bedrock.Chain // bedrock only: the AWS credential chain
 }
 
 func defaultBase(kind core.ProviderKind) string {
@@ -64,7 +66,7 @@ func defaultBase(kind core.ProviderKind) string {
 
 func validKind(k core.ProviderKind) bool {
 	switch k {
-	case core.KindAnthropic, core.KindOpenAI, core.KindGemini, core.KindOllama, core.KindOpenAICompat:
+	case core.KindAnthropic, core.KindOpenAI, core.KindGemini, core.KindOllama, core.KindOpenAICompat, core.KindBedrock:
 		return true
 	}
 	return false
@@ -133,6 +135,9 @@ func (f *Facade) entry(id string) (*entry, error) {
 
 func (f *Facade) build(p config.Provider, fp string) (*entry, error) {
 	kind := core.ProviderKind(p.Type)
+	if kind == core.KindBedrock {
+		return f.buildBedrock(p, fp)
+	}
 	base := strings.TrimRight(p.BaseURL, "/")
 	if base == "" {
 		base = defaultBase(kind)
@@ -241,6 +246,9 @@ type credentials struct {
 	id      string
 	keyRef  string
 	headers map[string]string
+	// onInvalidate drops credentials held outside the vault (the AWS chain
+	// of a bedrock provider).
+	onInvalidate func()
 
 	mu      sync.Mutex
 	secret  core.Secret
@@ -301,6 +309,9 @@ func (c *credentials) invalidate() {
 	c.mu.Lock()
 	c.expires = time.Time{}
 	c.mu.Unlock()
+	if c.onInvalidate != nil {
+		c.onInvalidate()
+	}
 }
 
 // redact masks the resolved values in provider messages (some vendors echo
