@@ -31,6 +31,31 @@ func TestModelErrorIsSaidOnceInPlainWords(t *testing.T) {
 	})
 }
 
+func TestNoticeMoneyAndLimits(t *testing.T) {
+	for m, want := range map[core.Micros]string{0: "$0.00", 4_000: "<$0.01", 70_000: "$0.07", 12_400_000: "$12.40",
+		999_994_999: "$999.99", 1_240_000_000: "$1,240", 1_234_567_000_000: "$1,234,567"} {
+		if got := money(m); got != want {
+			t.Errorf("money(%d) = %q, want %q", m, got, want)
+		}
+	}
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{cfg: func(c *config.Config) { c.Timezone = "Europe/London" }})
+		defer h.close()
+		for be, want := range map[core.BudgetError]string{
+			{Kind: core.BudgetSteps, Limit: 10}:          "Bothy paused after 10 steps to check in.",
+			{Kind: core.BudgetRunCost, Limit: 500_000}:   "Bothy stopped because this task reached its $0.50 limit.",
+			{Kind: core.BudgetDailyCost, Limit: 5000000}: "Bothy has reached today's $5.00 spending limit. It can start again at midnight (Europe/London).",
+		} {
+			if got := h.r.budgetNotice(&be); got != want {
+				t.Errorf("notice = %q, want %q", got, want)
+			}
+		}
+	})
+	if got := autoPinNotice([]string{"Answer in French.", "Use  metric\nunits."}); got != "Pinned “Answer in French.” and “Use metric units.” so Bothy keeps them in mind." {
+		t.Errorf("auto-pin notice = %q", got)
+	}
+}
+
 func TestModelErrorNotice(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t, opts{cfg: func(c *config.Config) {

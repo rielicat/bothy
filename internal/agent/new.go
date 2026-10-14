@@ -384,14 +384,13 @@ func (r *Runner) recover(ctx context.Context) error {
 		if err := r.d.Approvals.CancelRun(ctx, run.ID); err != nil {
 			r.log.Warn("cancel approvals of interrupted run", "run", run.ID, "err", err)
 		}
-		const text = "I was restarted mid-task. Send 'retry' to continue."
-		r.notice(ctx, run.Session, run.Principal, run.ID, text, nil)
+		r.notice(ctx, run.Session, run.Principal, run.ID, interruptedNotice, nil)
 		sess, err := r.d.Store.Sessions().Get(ctx, core.SystemViewer(), run.Session)
 		if err != nil || sess.Chat == nil {
 			continue
 		}
 		if h := r.hubOrNil(); h != nil {
-			if _, err := h.Send(ctx, *sess.Chat, text); err != nil {
+			if _, err := h.Send(ctx, *sess.Chat, interruptedNotice); err != nil {
 				r.log.Warn("restart notice", "session", run.Session, "err", err)
 			}
 		}

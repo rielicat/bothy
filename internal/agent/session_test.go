@@ -123,7 +123,8 @@ func TestSessionsResolveForkAndNew(t *testing.T) {
 			t.Fatal("the chat did not move to the fork")
 		}
 		msgs, _ := h.store.Messages().Range(h.ctx, core.SystemViewer(), fork.ID, 0, 0)
-		if len(msgs) != 1 || msgs[0].Kind != core.KindNotice || !strings.Contains(msgs[0].PlainText(), string(s3.ID)) {
+		if len(msgs) != 1 || msgs[0].Kind != core.KindNotice || strings.Contains(msgs[0].PlainText(), string(s3.ID)) ||
+			!strings.HasPrefix(msgs[0].PlainText(), "This is a clean chat continued from ") {
 			t.Fatalf("fork note = %+v", msgs)
 		}
 		if _, err := h.r.Fork(h.ctx, core.Viewer{User: "usr_x"}, s3.ID, "usr_x"); !errors.Is(err, core.ErrNotFound) {
@@ -267,7 +268,7 @@ func TestBootRecovery(t *testing.T) {
 		if st := h.run(run.ID).Status; st != core.RunInterrupted {
 			t.Fatalf("status = %s", st)
 		}
-		if sent := h.hub.Messages(); len(sent) != 1 || sent[0] != chat.Key()+"|I was restarted mid-task. Send 'retry' to continue." {
+		if sent := h.hub.Messages(); len(sent) != 1 || sent[0] != chat.Key()+"|"+interruptedNotice {
 			t.Fatalf("hub = %v", sent)
 		}
 		if st := h.appr.All()[0].Status; st != core.ApprovalCancelled {

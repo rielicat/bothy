@@ -25,32 +25,15 @@ func loopEnd() *runEnd {
 }
 
 func interruptedEnd() *runEnd {
-	return &runEnd{status: core.RunInterrupted, err: "interrupted by shutdown",
-		notice: "I was restarted mid-task. Send 'retry' to continue."}
+	return &runEnd{status: core.RunInterrupted, err: "interrupted by shutdown", notice: interruptedNotice}
 }
 
 func failEnd(msg string) *runEnd {
 	return &runEnd{status: core.RunFailed, err: msg, notice: failedNotice}
 }
 
-func budgetEnd(be *core.BudgetError) *runEnd {
-	var what string
-	switch be.Kind {
-	case core.BudgetSteps:
-		what = fmt.Sprintf("its step limit (%d steps). Press Continue to allow 10 more steps", be.Limit)
-	case core.BudgetTokens:
-		what = fmt.Sprintf("its token limit (%d tokens)", be.Limit)
-	case core.BudgetTime:
-		what = "its time limit"
-	case core.BudgetRunCost:
-		what = fmt.Sprintf("its cost limit (%s)", core.Micros(be.Limit))
-	case core.BudgetDailyCost:
-		what = fmt.Sprintf("today's spending cap (%s)", core.Micros(be.Limit))
-	default:
-		what = "a budget limit"
-	}
-	return &runEnd{status: core.RunBudgetExceeded, err: be.Error(), budget: be,
-		notice: "Stopped: this run reached " + what + ". Limits are in Settings → Budgets."}
+func (r *Runner) budgetEnd(be *core.BudgetError) *runEnd {
+	return &runEnd{status: core.RunBudgetExceeded, err: be.Error(), budget: be, notice: r.budgetNotice(be)}
 }
 
 // ctxEnd classifies a cancelled run by its cause.
@@ -59,7 +42,7 @@ func (r *Runner) ctxEnd(rs *runState) *runEnd {
 	var be *core.BudgetError
 	switch {
 	case errors.As(cause, &be):
-		return budgetEnd(be)
+		return r.budgetEnd(be)
 	case errors.Is(cause, errShutdown):
 		return interruptedEnd()
 	}
@@ -103,7 +86,7 @@ func (r *Runner) resolveModel(ctx context.Context, rs *runState) *runEnd {
 			}
 		}
 		if err != nil {
-			rs.notice(ctx, fmt.Sprintf("The model override %q is not a known model, so I cleared it and used the default.", o))
+			rs.notice(ctx, overrideGoneNotice)
 			if s, merr := r.mutateSession(ctx, rs.sess.ID, func(s *core.Session) error { s.ModelOverride = ""; return nil }); merr == nil {
 				rs.sess = s
 			}
@@ -113,8 +96,7 @@ func (r *Runner) resolveModel(ctx context.Context, rs *runState) *runEnd {
 	}
 	rs.chain = r.d.LLM.Chain(rs.slot, rs.override)
 	if len(rs.chain) == 0 {
-		return &runEnd{status: core.RunFailed, err: "no model configured",
-			notice: fmt.Sprintf("No model is configured for the %s slot. Add one in Settings → Models.", rs.slot)}
+		return &runEnd{status: core.RunFailed, err: fmt.Sprintf("no model configured for the %s slot", rs.slot), notice: noModelSetNotice}
 	}
 	r.refreshSelection(ctx, rs)
 	return nil
@@ -433,7 +415,7 @@ func (r *Runner) loop(rs *runState) *runEnd {
 		var be *core.BudgetError
 		if err := rs.meter.Step(); err != nil {
 			if errors.As(err, &be) {
-				return budgetEnd(be)
+				return r.budgetEnd(be)
 			}
 			return failEnd(err.Error())
 		}
@@ -441,7 +423,7 @@ func (r *Runner) loop(rs *runState) *runEnd {
 		info.MaxOutput = head.req.MaxTokens
 		if err := rs.meter.BeforeCall(ctx, head.est, info); err != nil {
 			if errors.As(err, &be) {
-				return budgetEnd(be)
+				return r.budgetEnd(be)
 			}
 			return failEnd(err.Error())
 		}
@@ -711,7 +693,7 @@ func (r *Runner) checkPrefix(rs *runState, hash string) {
 	r.prefix[rs.req.Session] = prefixMark{epoch: rs.sess.Epoch, hash: hash}
 }
 
-const steerUnreadNotice = "The run ended before it read your latest message. It is kept in the conversation, so your next message picks it up."
+const steerUnreadNotice = "Bothy stopped before reading your latest message. It stays in this chat, so your next message picks it up."
 
 // unreadSteers reports whether a steer for this run arrived after the last
 // model call that completed, so the model never answered it.

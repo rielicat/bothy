@@ -238,7 +238,7 @@ func (w *worker) retireForShutdown() {
 	w.r.dropForShutdown(jobs)
 }
 
-const droppedAtShutdown = "Bothy restarted before it got to this message. Send 'retry' to continue."
+const droppedAtShutdown = "Bothy restarted before it got to this message. Send “retry” to continue."
 
 // dropForShutdown disposes of jobs no worker will run. A waiting /compact
 // gets an error instead of blocking its caller; queued resumes keep their

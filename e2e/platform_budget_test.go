@@ -59,8 +59,8 @@ budgets:
 			t.Fatalf("session %s has %d runs after the refusal, want %d (no run row for a refused submission)", sid, len(runs.Items), want)
 		}
 		notices := owner.Notices(t, sid)
-		if len(notices) == 0 || !strings.Contains(notices[len(notices)-1], "spending cap is reached") ||
-			!strings.Contains(notices[len(notices)-1], "start again at") {
+		if len(notices) == 0 || !strings.Contains(notices[len(notices)-1], "spending limit") ||
+			!strings.Contains(notices[len(notices)-1], "start again at midnight") {
 			t.Fatalf("session %s notices = %q, want the daily-cap notice with the reset time", sid, notices)
 		}
 	}
