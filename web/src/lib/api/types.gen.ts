@@ -1193,7 +1193,7 @@ export interface CallInfo {
   id: string; // llm_<26>
   ref: ModelRef;
   slot: Slot;
-  purpose: string; // agent|compaction|title|heartbeat|probe|passthrough
+  purpose: string; // agent|compaction|title|heartbeat|probe|passthrough|notes
   step: number /* int */;
   attempts: Attempt[];
   usage: Usage;
