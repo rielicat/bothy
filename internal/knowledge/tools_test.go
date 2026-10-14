@@ -157,6 +157,24 @@ func TestNotesToolEdits(t *testing.T) {
 	}
 }
 
+// Search output is workspace content (private, like fs_read) that anyone may
+// have authored (untrusted); notes are the principal's own knowledge. Both
+// legs together are what arms the trifecta floor for a later send.
+func TestToolTaintLegs(t *testing.T) {
+	h := newHarness(t)
+	if got := h.tool(searchToolName).Spec().Manifest.Taint; got != core.TaintPrivate|core.TaintUntrusted {
+		t.Errorf("knowledge_search taint = %v", got)
+	}
+	if got := h.tool(notesToolName).Spec().Manifest.Taint; got != core.TaintPrivate {
+		t.Errorf("notes taint = %v", got)
+	}
+	for _, name := range []string{searchToolName, notesToolName} {
+		if m := h.tool(name).Spec().Manifest; m.SideEffect != core.SERead || !m.SpaceOK {
+			t.Errorf("%s manifest = %+v", name, m)
+		}
+	}
+}
+
 func TestNotesToolCap(t *testing.T) {
 	h := newHarness(t, func(c *config.Config) { c.Knowledge.NotesMaxBytes = 1024 })
 	h.writeRepo()

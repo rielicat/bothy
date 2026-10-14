@@ -123,10 +123,13 @@ func newSearchTool(s *Service) *searchTool {
 			`"limit":{"type":"integer","minimum":1,"maximum":20,"description":"maximum results (default 8)"}},` +
 			`"required":["query"],"additionalProperties":false}`),
 	}
+	// Untrusted: anyone may have authored repository content. Private: the
+	// index holds the principal's workspace, which fs_read reads as private,
+	// so a search must not dodge the trifecta floor that a read would raise.
 	return &searchTool{s: s, spec: makeSpec(def, core.Manifest{
 		Title:       "Search indexed code and docs",
 		SideEffect:  core.SERead,
-		Taint:       core.TaintUntrusted,
+		Taint:       core.TaintPrivate | core.TaintUntrusted,
 		SpaceOK:     true,
 		Core:        true,
 		Timeout:     20 * time.Second,
@@ -216,10 +219,12 @@ func newNotesTool(s *Service) *notesTool {
 			`"required":["repo","op"],"additionalProperties":false}`),
 	}
 	// Reads are read; edits escalate to local_write with Action.Kind memory,
-	// so policy applies the tainted-memory floor to them.
+	// so policy applies the tainted-memory floor to them. Notes are the
+	// principal's own knowledge, like MEMORY.md, hence the private leg.
 	return &notesTool{s: s, spec: makeSpec(def, core.Manifest{
 		Title:       "Project notes",
 		SideEffect:  core.SERead,
+		Taint:       core.TaintPrivate,
 		SpaceOK:     true,
 		Core:        true,
 		Timeout:     10 * time.Second,

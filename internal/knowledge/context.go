@@ -23,7 +23,8 @@ type injected struct {
 // knowledge.context_bytes. A repo's notes enter once per epoch and again
 // only when they change: the turn-context is persisted with the turn, so
 // earlier prompts stay byte-identical (cache-stable) and later turns do not
-// repeat it. Untrusted notes are spotlighted and taint the session.
+// repeat it. Notes are the principal's private data, like memory deltas;
+// untrusted ones are also spotlighted and add the untrusted leg.
 func (s *Service) TurnContext(ctx context.Context, in core.TurnContextInput) (core.TurnContextBlock, error) {
 	c := s.cfg()
 	if !c.Enabled || c.ContextBytes <= 0 || in.Session == "" {
@@ -62,6 +63,7 @@ func (s *Service) TurnContext(ctx context.Context, in core.TurnContextInput) (co
 			break
 		}
 		b.WriteString(block)
+		taint |= core.TaintPrivate
 		if r.Notes.Untrusted {
 			taint |= core.TaintUntrusted
 		}
