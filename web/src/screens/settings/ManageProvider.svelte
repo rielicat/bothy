@@ -9,7 +9,7 @@
     allowPrivate: boolean;
     api: string;
     region: string;
-    health?: ProviderHealthV2;
+    health?: ProviderHealth;
     /** The model the check asks, from the slots or the provider's own list. */
     model: string;
     /** Why it can't be removed, when it can't. */
@@ -21,11 +21,11 @@
   import { untrack } from 'svelte';
   import { Button, Dialog, Disclosure, KeyField, LinkButton, Select, StatusLine, toast, type CheckResult } from '../../components/ui';
   import { api, ApiError } from '../../lib/api/client';
-  import type { ProbeResult } from '../../lib/api/types.gen';
+  import type { ProbeResult, ProviderHealth } from '../../lib/api/types.gen';
   import { duration } from '../../lib/format';
   import { failureCode } from '../../lib/providerErrors';
   import ConfirmDialog from './ConfirmDialog.svelte';
-  import { failureText, regionName, regions, type ProviderHealthV2 } from './modelHelpers';
+  import { failureText, regionName, regions } from './modelHelpers';
   import { Saver, settingsConfig } from './store.svelte';
 
   // Manage one provider (§11.4): its state, a new key, the region for
@@ -167,7 +167,10 @@
       {/if}
 
       {#if hasKey}
-        <KeyField label="API key" bind:value={key} saved={!!p.keyRef} check={checkKey} checkingLabel="Checking the key…" help="Stored encrypted. Only sent to {p.name}." />
+        <div>
+          <KeyField label="API key" bind:value={key} saved={!!p.keyRef} check={checkKey} checkingLabel="Checking the key…" help="Stored encrypted. Only sent to {p.name}." />
+          {#if p.health?.source}<p class="mt-2 text-small text-muted">Credentials from: {p.health.source}</p>{/if}
+        </div>
       {/if}
 
       {#if p.kind === 'bedrock'}

@@ -7,6 +7,7 @@ import (
 	"maps"
 	"slices"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rielicat/bothy/internal/core"
 )
@@ -39,6 +40,7 @@ func (r metaRepo) Delete(_ context.Context, k string) error {
 
 func normUser(u core.User) core.User {
 	u.LockedUntil = ms(u.LockedUntil)
+	u.LastLoginAt = ms(u.LastLoginAt)
 	u.CreatedAt = ms(u.CreatedAt)
 	u.UpdatedAt = ms(u.UpdatedAt)
 	return u
@@ -53,6 +55,9 @@ func validRole(r core.Role) bool {
 func (st *state) checkUser(u core.User) error {
 	if !validRole(u.Role) {
 		return invalid("users.role")
+	}
+	if utf8.RuneCountInString(u.PreferredChat) > 32 {
+		return invalid("users.preferred_chat")
 	}
 	name := asciiLower(u.Username)
 	for id, o := range st.users {
@@ -141,8 +146,20 @@ func (r userRepo) Update(_ context.Context, u *core.User) error {
 		return err
 	}
 	row := normUser(*u)
-	row.CreatedAt = cur.CreatedAt
+	row.CreatedAt, row.LastLoginAt = cur.CreatedAt, cur.LastLoginAt
 	st.users[u.ID] = row
+	return nil
+}
+
+func (r userRepo) SignedIn(_ context.Context, id core.UserID, at time.Time) error {
+	st, unlock := r.s.begin()
+	defer unlock()
+	u, found := st.users[id]
+	if !found {
+		return notFound("user")
+	}
+	u.LastLoginAt, u.FailedLogins, u.LockedUntil = ms(at), 0, time.Time{}
+	st.users[id] = u
 	return nil
 }
 

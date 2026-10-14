@@ -42,21 +42,23 @@ func (e *errUser) Error() string { return e.msg }
 // indexer walks one directory read-only (os.Root, symlinks never followed)
 // and brings the stored index in line with it.
 type indexer struct {
-	repo  core.KnowledgeRepo
-	id    int64
-	sha   string
-	caps  caps
-	root  *os.Root
-	ig    *ignorer
-	known map[string]core.KnowledgeFile
+	repo   core.KnowledgeRepo
+	id     int64
+	sha    string
+	caps   caps
+	root   *os.Root
+	ig     *ignorer
+	known  map[string]core.KnowledgeFile
+	onFile func(done int) // after each file read; nil = no progress
 
 	stats      indexStats
 	batch      []core.KnowledgeFileChange
 	batchBytes int
 }
 
-// indexDir indexes dir (slash path inside ws) for repo id at sha.
-func indexDir(ctx context.Context, repo core.KnowledgeRepo, id int64, sha, ws, dir string, c caps) (indexStats, error) {
+// indexDir indexes dir (slash path inside ws) for repo id at sha; onFile
+// hears how many files it has read so far.
+func indexDir(ctx context.Context, repo core.KnowledgeRepo, id int64, sha, ws, dir string, c caps, onFile func(done int)) (indexStats, error) {
 	if ws == "" {
 		return indexStats{}, &errUser{"This principal has no workspace."}
 	}
@@ -83,7 +85,7 @@ func indexDir(ctx context.Context, repo core.KnowledgeRepo, id int64, sha, ws, d
 		return indexStats{}, err
 	}
 	ix := &indexer{repo: repo, id: id, sha: sha, caps: c, root: root, ig: &ignorer{dirs: map[string]ruleSet{}, limit: ignoreWork},
-		known: make(map[string]core.KnowledgeFile, len(files))}
+		known: make(map[string]core.KnowledgeFile, len(files)), onFile: onFile}
 	for _, f := range files {
 		ix.known[f.Path] = f
 	}
@@ -110,6 +112,54 @@ func indexDir(ctx context.Context, repo core.KnowledgeRepo, id int64, sha, ws, d
 		return indexStats{}, err
 	}
 	return ix.stats, nil
+}
+
+// estimateFiles counts the regular files under dir that a first index may
+// read, up to max, for the progress a first read shows. Ignore rules and
+// content checks are left to the index itself, so it errs high.
+func estimateFiles(ws, dir string, max int) int {
+	if ws == "" {
+		return 0
+	}
+	root, err := os.OpenRoot(ws)
+	if err != nil {
+		return 0
+	}
+	defer root.Close()
+	if dir != "." {
+		sub, err := root.OpenRoot(filepath.FromSlash(dir))
+		if err != nil {
+			return 0
+		}
+		defer sub.Close()
+		root = sub
+	}
+	n := 0
+	_ = fs.WalkDir(root.FS(), ".", func(p string, d fs.DirEntry, err error) error {
+		switch {
+		case err != nil:
+			if d != nil && d.IsDir() && p != "." {
+				return fs.SkipDir
+			}
+			return nil
+		case p == ".":
+			return nil
+		case d.Type()&fs.ModeSymlink != 0:
+			return nil
+		case d.IsDir():
+			if skipDirs[d.Name()] || strings.Count(p, "/") >= maxWalkDepth {
+				return fs.SkipDir
+			}
+			return nil
+		case d.Type().IsRegular() && !skipByName(d.Name()):
+			n++
+			if n >= max {
+				return fs.SkipAll
+			}
+		}
+		return nil
+	})
+	return n
 }
 
 func (ix *indexer) visit(ctx context.Context, p string, d fs.DirEntry, err error) error {
@@ -221,6 +271,9 @@ func (ix *indexer) file(ctx context.Context, p string, d fs.DirEntry) error {
 	hash := chunkerVersion + ":" + hex.EncodeToString(sum[:])
 	ix.stats.files++
 	ix.stats.bytes += int64(len(data))
+	if ix.onFile != nil {
+		ix.onFile(ix.stats.files)
+	}
 	old, seen := ix.known[p]
 	delete(ix.known, p)
 	if seen && old.Hash == hash {

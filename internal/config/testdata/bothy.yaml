@@ -87,6 +87,8 @@ pricing:                          # USD per 1M tokens; overrides the embedded ca
   "ollama/qwen3:14b": {in: 0, out: 0}
 
 agent:
+  name: Bothy                     # what it calls itself in chats; 1-40 characters, one line
+  tone: warm                      # warm | direct | formal
   persona_file: SOUL.md           # a Markdown file name (*.md, no path) in data_dir; admin-editable only
   standing_rules: []              # admin-only lines appended to the constitution block
   busy_mode: steer                # steer | queue

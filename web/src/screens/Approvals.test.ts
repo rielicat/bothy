@@ -49,6 +49,25 @@ describe('Approvals inbox', () => {
     expect(screen.getByRole('link', { name: /Waiting/ }).getAttribute('aria-current')).toBe('page');
   });
 
+  it("shows what changed in a skill since it was approved, file by file", async () => {
+    await screen.findByRole('heading', { name: 'For you' });
+    const toggle = [...document.querySelectorAll<HTMLButtonElement>('[data-row] button[aria-expanded="false"]')].find((b) => b.textContent?.includes('incident-review'))!;
+    expect(toggle.textContent).toContain('2 files changed');
+    await fireEvent.click(toggle);
+    const card = await waitFor(() => {
+      const a = document.querySelector<HTMLElement>('article[data-item="skill:incident-review"]');
+      if (!a) throw new Error('not open');
+      return a;
+    });
+    expect(within(card).getByText('scripts/post.sh')).toBeTruthy();
+    expect(card.textContent).toContain('SKILL.md · changed');
+    expect(card.textContent).toContain('scripts/post.sh · new');
+    await fireEvent.click(within(card).getByRole('button', { name: 'Show what changed' }));
+    expect(card.textContent).toContain('Post the review to #incidents when it is done.');
+    await fireEvent.click(within(card).getByRole('button', { name: 'Show the file' }));
+    expect(card.textContent).toContain('SLACK_WEBHOOK');
+  });
+
   it('moves with J and K, opens with Enter and decides the open card with A', async () => {
     await screen.findByRole('heading', { name: 'For you' });
     await fireEvent.keyDown(window, { key: 'j' });

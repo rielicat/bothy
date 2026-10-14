@@ -66,6 +66,7 @@ func testRuns(f *fx) {
 	run.ParkedOn = "apr_01aaaaaaaaaaaaaaaaaaaaaaaa"
 	run.StoppedBy = u.ID
 	run.FinishedAt = at(9)
+	run.Refined = true
 	f.must(r.Update(f.ctx, run), "Update")
 	got, err = r.Get(f.ctx, v, run.ID)
 	f.must(err, "Get after Update")

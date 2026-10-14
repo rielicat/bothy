@@ -207,6 +207,9 @@ func (s *Service) UpdateUser(ctx context.Context, by core.Actor, u *core.User) e
 			return err
 		}
 	}
+	if _, renamed := changed["display_name"]; renamed {
+		s.renamePrincipal(ctx, next.ID, next.DisplayName)
+	}
 	s.record(ctx, actorOf(by), "user.update", userTarget(next.ID), "ok", changed)
 	return nil
 }

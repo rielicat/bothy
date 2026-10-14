@@ -2,7 +2,7 @@
 // scenarios that fill the sidebar for review (a team's chat list, a long one).
 import type { Approval, BannerData, Me, Message, Principal, Run, SearchHit, Session } from '../../src/lib/api/types.gen.ts';
 import { approvals as approvalFixtures } from './approvals.ts';
-import { active, ago, body, boot, clients, core, emit, fail, ids, isPaused, json, on, onReset, owner, pausedNow, principals, routes, scenario, scenarios, viewer, ZERO, type Handler, type Req } from './core.ts';
+import { active, ago, body, boot, clients, core, emit, fail, ids, isPaused, json, nowISO, on, onReset, owner, pausedBanner, pauseInfo, pausedNow, principals, routes, scenario, scenarios, viewer, ZERO, type Handler, type Req } from './core.ts';
 
 const sealed = scenario('sealed', "Bothy's saved keys are locked (vault sealed banner).", 'shell');
 const providerAuth = scenario('provider-auth', 'Anthropic stopped accepting the key (provider banner).', 'shell');
@@ -18,7 +18,7 @@ const team = (req?: Req) => teamChats(req) || longChats(req) || idleChats(req);
 /** The banners this request should see: stored ones plus the scenario ones. */
 export function banners(req?: Req): BannerData[] {
   const out = noBanners(req) ? [] : [...core.banners];
-  if (pausedNow(req) && !out.some((b) => b.code === 'paused')) out.push({ level: 'error', code: 'paused', text: 'Bothy is paused. Every run was stopped; only admins can resume.' });
+  if (pausedNow(req) && !out.some((b) => b.code === 'paused')) out.push(pausedBanner(req));
   if (sealed(req)) out.push({ level: 'error', code: 'vault_sealed', text: 'The vault is sealed.', action: '/settings/security/keys' });
   if (providerAuth(req)) out.push({ level: 'error', code: 'provider_auth', text: 'anthropic: 401 invalid x-api-key', action: '/settings/models' });
   if (safeMode(req)) out.push({ level: 'error', code: 'safe_mode', text: 'Started in safe mode: bothy.ui.yaml could not be loaded.', action: '/settings/advanced' });
@@ -128,7 +128,7 @@ overlay(
   (_q, res, m) => json(res, 200, { messages: [message(m[1], said[m[1]])], has_more: false }),
 );
 overlay('GET', '/api/runs', (req) => team(req), (req, res, _m, q) => {
-  const run = { id: 'run_01jteamfix00000000000000000', session_id: T.fix, principal_id: owner.id, user_id: owner.id, trigger: 'message', status: 'running', steps: 3, tool_calls: 2, usage: { input: 0, output: 0, cache_read: 0, cache_write: 0, reasoning: 0 }, cost_micros: 40_000, models: [], limits: { max_steps: 30, max_tokens: 0, max_time: 0, max_cost_micros: 0 }, created_at: ago(3), started_at: ago(3), finished_at: ZERO } as Run;
+  const run = { id: 'run_01jteamfix00000000000000000', session_id: T.fix, principal_id: owner.id, user_id: owner.id, trigger: 'message', status: 'running', steps: 3, tool_calls: 2, usage: { input: 0, output: 0, cache_read: 0, cache_write: 0, reasoning: 0 }, cost_micros: 40_000, models: [], limits: { max_steps: 30, max_tokens: 0, max_time: 0, max_cost_micros: 0 }, created_at: ago(3), started_at: ago(3), finished_at: ZERO, refined: false } as Run;
   json(res, 200, { items: !idleChats(req) && (!q.get('status') || q.get('status') === 'running') ? [run] : [] });
 });
 overlay(
@@ -171,7 +171,18 @@ overlay('GET', '/api/search', team, (_q, res, _m, q) => {
 
 export function me(req?: Req): Me {
   const user = team(req) && viewer(req).role !== 'member' ? { ...viewer(req), display_name: 'Maya Chen', username: 'maya' } : viewer(req);
-  return { user, csrf: 'mock-csrf', mode: core.mode, principals: team(req) ? [principals[0], eng] : principals, paused: isPaused(req), sandbox_available: true, banners: banners(req), access: { peer: 'local', tls: false } };
+  const p = pauseInfo(req);
+  return {
+    user,
+    csrf: 'mock-csrf',
+    mode: core.mode,
+    principals: team(req) ? [principals[0], eng] : principals,
+    paused: isPaused(req),
+    ...(p ? { paused_by: p.by.id, paused_by_name: p.by.display_name, paused_at: p.at } : {}),
+    sandbox_available: true,
+    banners: banners(req),
+    access: { peer: 'local', tls: false },
+  };
 }
 
 on('GET', '/api/auth/me', (req, res) => json(res, 200, me(req)));
@@ -194,8 +205,11 @@ on('GET', '/api/events', (req, res) => {
 });
 
 on('POST', '/api/admin/pause', async (req, res) => {
+  const was = core.paused;
   core.paused = JSON.parse(await body(req)).paused;
-  const b: BannerData = core.paused ? { level: 'error', code: 'paused', text: 'Bothy is paused. Every run was stopped; only admins can resume.' } : { level: 'error', code: 'paused', text: '', clear: true };
+  if (core.paused && !was) Object.assign(core, { pausedBy: viewer(req), pausedAt: nowISO() });
+  if (!core.paused) Object.assign(core, { pausedBy: null, pausedAt: '' });
+  const b: BannerData = core.paused ? pausedBanner(req) : { level: 'error', code: 'paused', text: '', clear: true };
   core.banners = core.paused ? [...core.banners, b] : core.banners.filter((x) => x.code !== 'paused');
   emit('banner', b);
   json(res, 204);

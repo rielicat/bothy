@@ -77,7 +77,7 @@
     untrack(load);
   });
 
-  // The workflow's name from GitHub ("Deploy workflow"); its file name until S19 lists workflows.
+  // The workflow's name from GitHub ("Deploy workflow"); its file name when GitHub can't list them.
   function workflowLine(e: ReleaseEnvironment): string {
     const n = flows[`${e.repo}/${e.workflow}`];
     if (!n) return e.workflow;

@@ -41,6 +41,10 @@ func (s *Server) me(ctx context.Context, a core.Actor) (*dto.Me, error) {
 	}
 	if s.d.Runner != nil {
 		m.Paused = s.d.Runner.Paused()
+		if m.Paused {
+			m.PausedBy, m.PausedAt = s.d.Runner.PausedBy()
+			m.PausedByName = s.namer(ctx, a.Viewer).user(m.PausedBy)
+		}
 	}
 	if s.d.Bus != nil {
 		m.Banners = banners(s.d.Bus, filterFor(a))

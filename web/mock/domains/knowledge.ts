@@ -1,8 +1,7 @@
 // Knowledge (C5): repositories Bothy reads, project notes and their history,
 // knowledge search, memory files and skills. The repository, notes and search
-// routes follow internal/httpapi/h_knowledge.go plus the S18 additions the
-// screens use (progress, out of date, summary, notes history), as typed in
-// src/lib/api/knowledge.ts.
+// routes follow internal/httpapi/h_knowledge.go and h_uistate.go (reading
+// progress, out of date, summary, notes history).
 import type { KnowledgeHit, KnowledgeRepo, NotesChange } from '../../src/lib/api/knowledge.ts';
 import type { Approval, MemoryEvent, SkillMeta } from '../../src/lib/api/types.gen.ts';
 import { state as approvalState, waiting } from './approvals.ts';
@@ -173,6 +172,7 @@ const repo = (id: number, name: string, extra: Partial<KnowledgeRepo>): Knowledg
   notes: { status: 'none', untrusted: false, updated_at: zero },
   created_at: ago(60 * 24 * 3),
   updated_at: ago(60),
+  summary: '',
   ...extra,
 });
 
@@ -454,6 +454,10 @@ on('GET', '/api/knowledge/repos/{id}/notes/history', (req, res, m) => {
   const r = findRepo(req, m[1]);
   return r ? json(res, 200, { items: state.notesHistory[r.id] ?? [] }) : fail(res, 404, 'not_found', 'not found');
 });
+on('GET', '/api/knowledge/repos/{id}/notes/history/{version}', (req, res, m) => {
+  const v = findRepo(req, m[1]) && state.notesHistory[Number(m[1])]?.find((c) => c.id === Number(m[2]));
+  return v ? json(res, 200, v) : fail(res, 404, 'not_found', 'not found');
+});
 
 on('GET', '/api/knowledge/search', (req, res, _m, q) => {
   const words = (q.get('q') ?? '')
@@ -524,7 +528,7 @@ on('GET', '/api/skills/{name}', (_q, res, m) => {
   if (!s) return fail(res, 404, 'not_found', 'no such skill');
   json(res, 200, { meta: s, body: skillBody(s), files: ['SKILL.md', ...Object.keys(skillFiles[s.name] ?? {})] });
 });
-// S18-adjacent: one file of a skill, for the skill page's Files list.
+// One file of a skill as plain text, for the skill page's Files list.
 on('GET', '/api/skills/{name}/files/{path...}', (_q, res, m) => {
   const text = skillFiles[m[1]]?.[decodeURIComponent(m[2])];
   if (text === undefined) return fail(res, 404, 'not_found', 'no such file');

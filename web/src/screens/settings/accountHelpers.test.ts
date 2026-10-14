@@ -32,7 +32,7 @@ describe('API tokens', () => {
 });
 
 describe('people', () => {
-  it('says someone has not signed in only when the server reports sign-ins', () => {
+  it('says when someone has not signed in yet', () => {
     expect(roleLine(member)).toBe('Member');
     expect(roleLine({ ...member, last_login_at: ZERO })).toBe("Member · hasn't signed in yet");
     expect(roleLine({ ...member, last_login_at: '2026-10-01T09:00:00Z' })).toBe('Member');

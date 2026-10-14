@@ -31,6 +31,7 @@ describe('Tasks (docs/design/ui.md §10.1)', () => {
     expect(screen.getByText('$0.12')).toBeTruthy();
     expect(screen.getByText('Failed: the GitHub token was rejected')).toBeTruthy();
     expect(screen.getByText('Hit the spending limit')).toBeTruthy();
+    expect(screen.getByText('Stopped by Alex')).toBeTruthy();
     expect(screen.getAllByText(/Alex · (Slack|Telegram|API)/).length).toBeGreaterThan(0);
     expect(document.body.textContent).not.toMatch(/\b(usr|ses|run|sch)_[0-9a-z]/);
     expect(calls.some((c) => c.url.startsWith('/api/runs?'))).toBe(true);

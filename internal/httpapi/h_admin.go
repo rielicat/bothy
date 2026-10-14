@@ -418,8 +418,10 @@ func (s *Server) mcpReload(w http.ResponseWriter, r *http.Request, _ core.Actor)
 
 // ---- providers, models, channels ----
 
-func (s *Server) providers(w http.ResponseWriter, _ *http.Request, _ core.Actor) error {
-	return ok(w, nonNil(s.d.LLM.Health()))
+func (s *Server) providers(w http.ResponseWriter, r *http.Request, _ core.Actor) error {
+	rows := nonNil(s.d.LLM.Health())
+	s.credentialSources(r.Context(), rows)
+	return ok(w, rows)
 }
 
 func (s *Server) testProvider(w http.ResponseWriter, r *http.Request, _ core.Actor) error {
@@ -798,8 +800,12 @@ func (s *Server) pause(w http.ResponseWriter, r *http.Request, a core.Actor) err
 		}
 	}
 	if s.d.Bus != nil {
-		s.d.Bus.Publish(core.Event{Type: core.EvBanner, Data: core.BannerData{Level: "warn", Code: "paused",
-			Text: "Bothy is paused: no runs start until an admin resumes.", Action: "/settings/advanced", Clear: !req.Paused}})
+		banner := core.BannerData{Code: "paused", Clear: true}
+		if req.Paused {
+			by, at := s.d.Runner.PausedBy()
+			banner = core.PausedBanner(by, s.namer(ctx, a.Viewer).user(by), at)
+		}
+		s.d.Bus.Publish(core.Event{Type: core.EvBanner, Data: banner})
 	}
 	s.audit(r, a, action, "runner", "ok", nil)
 	return noContent(w)

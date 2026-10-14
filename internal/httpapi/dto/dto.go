@@ -65,9 +65,41 @@ type Me struct {
 	Mode       string            `json:"mode"` // single | multi
 	Principals []*core.Principal `json:"principals"`
 	Paused     bool              `json:"paused"`
-	Sandbox    bool              `json:"sandbox_available"`
-	Banners    []core.BannerData `json:"banners"`
-	Access     Access            `json:"access"` // how this request reached the server
+	// PausedBy, PausedByName and PausedAt say who paused Bothy and when,
+	// while it is paused (empty for a pause recorded before they were kept).
+	PausedBy     core.UserID       `json:"paused_by,omitempty"`
+	PausedByName string            `json:"paused_by_name,omitempty"`
+	PausedAt     time.Time         `json:"paused_at,omitzero"`
+	Sandbox      bool              `json:"sandbox_available"`
+	Banners      []core.BannerData `json:"banners"`
+	Access       Access            `json:"access"` // how this request reached the server
+}
+
+// Profile is GET and PATCH /api/me: what people set about themselves.
+type Profile struct {
+	User        core.UserID `json:"user_id"`
+	Username    string      `json:"username"`
+	DisplayName string      `json:"display_name"`
+	// ApprovalsIn is where approval requests reach the person besides
+	// Bothy's Approvals page: "web" (Bothy only) or the chat app Bothy
+	// messages them in ("slack", "telegram", "discord").
+	ApprovalsIn string `json:"approvals_in"`
+	// PreferredChat is the chat app the person chose for Bothy's messages
+	// to them (scheduled results, check-ins and approval requests); "" =
+	// the linked one they used last.
+	PreferredChat string `json:"preferred_chat"`
+	// Chats are the chat apps the person has linked, which ApprovalsIn and
+	// PreferredChat may name.
+	Chats []string `json:"chats"`
+}
+
+// ProfilePatch changes the caller's own profile; absent fields stay.
+// ApprovalsIn "web" keeps approval requests in Bothy; a chat app sends them
+// there and makes it the preferred chat.
+type ProfilePatch struct {
+	DisplayName   *string `json:"display_name,omitempty"`
+	ApprovalsIn   *string `json:"approvals_in,omitempty"`
+	PreferredChat *string `json:"preferred_chat,omitempty"`
 }
 
 // Access is the caller's remote-access status for Settings > General.
@@ -278,6 +310,23 @@ type ProviderTestReq struct {
 
 type ChannelTestResp struct {
 	Identity string `json:"identity"`
+}
+
+// SearchTestReq is POST /api/search/test: one search with these settings
+// before they are saved. Without api_key the saved key is used; a private
+// SearXNG address needs search.searxng_allow_private, as for the tool.
+type SearchTestReq struct {
+	Provider   string `json:"provider"`              // searxng | brave | tavily
+	SearxngURL string `json:"searxng_url,omitempty"` // searxng
+	APIKey     string `json:"api_key,omitempty"`     // brave, tavily; write-only, used for this check only
+}
+
+// SearchTestResp says whether the search worked; a failure carries why
+// (Code) and the raw message (Error).
+type SearchTestResp struct {
+	OK    bool             `json:"ok"`
+	Code  core.FailureCode `json:"code,omitempty"`
+	Error string           `json:"error,omitempty"`
 }
 
 type DiscordInvite struct {

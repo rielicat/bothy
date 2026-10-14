@@ -148,6 +148,21 @@ type GitHub interface {
 	// Disconnect deletes the connection, its repositories and a secret it owns.
 	Disconnect(ctx context.Context, id string, by UserID) error
 	Repos(ctx context.Context) ([]*GitHubRepo, error) // allowed repositories of every connection
+	// Workflows lists the GitHub Actions workflows of an allowed repository
+	// (ErrNotFound for any other), for picking a deploy workflow.
+	Workflows(ctx context.Context, repo string) ([]GitHubWorkflow, error)
+	// BranchHead is the commit the default branch of an allowed repository
+	// points at now (ErrNotFound for any other).
+	BranchHead(ctx context.Context, repo string) (string, error)
+}
+
+// GitHubWorkflow is one workflow file of a repository. Name is written by
+// whoever can push to it.
+type GitHubWorkflow struct {
+	ID    int64  `json:"id"`
+	Name  string `json:"name"`
+	Path  string `json:"path"`  // .github/workflows/deploy.yml
+	State string `json:"state"` // active | disabled_manually | disabled_inactivity | …
 }
 
 // EvRepoCheckout is published (Principal = the workspace's principal;

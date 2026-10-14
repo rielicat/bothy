@@ -474,6 +474,12 @@ export interface BannerData {
   text: string;
   action?: string; // SPA route, e.g. "/settings/sandbox"
   clear?: boolean; // true removes the banner with this Code
+  /**
+   * By, ByName and At say who raised it and when (paused: who paused).
+   */
+  by?: UserID;
+  by_name?: string;
+  at?: string /* RFC 3339 */;
 }
 export interface Filter {
   Principals: PrincipalID[]; // events for these principals
@@ -609,6 +615,16 @@ export interface GitHubProbe {
  */
 export type GitHub = 
     ToolProvider;
+/**
+ * GitHubWorkflow is one workflow file of a repository. Name is written by
+ * whoever can push to it.
+ */
+export interface GitHubWorkflow {
+  id: number /* int64 */;
+  name: string;
+  path: string; // .github/workflows/deploy.yml
+  state: string; // active | disabled_manually | disabled_inactivity | …
+}
 /**
  * EvRepoCheckout is published (Principal = the workspace's principal;
  * Session and Run name the run that asked, when one did) when repo_checkout
@@ -841,6 +857,23 @@ export interface IndexedRepo {
    * finished); UpdateIndex writes it.
    */
   indexed_sha: string;
+  /**
+   * Filled on read, never stored. Progress counts the files read so far
+   * while the repo is queued or indexing; Summary is the first sentence
+   * of the notes as plain text ("" without notes); Stale says the
+   * repository's default branch has moved past IndexedSHA on GitHub.
+   */
+  progress?: IndexProgress;
+  summary: string;
+  stale?: boolean;
+}
+/**
+ * IndexProgress is how far a running index got. Total is an estimate: the
+ * previous index's file count, else a count of the directory's files.
+ */
+export interface IndexProgress {
+  done: number /* int */;
+  total: number /* int */;
 }
 export interface NotesState {
   status: string; // none | drafting | ready | error
@@ -929,6 +962,29 @@ export interface KnowledgeNotes {
   untrusted: boolean;
   updated_at: string /* RFC 3339 */;
 }
+/**
+ * NotesVersion is one change to a repo's project notes: the text before
+ * and after it, who made it and, for Bothy's edits, the chat and run it was
+ * made in.
+ */
+export interface NotesVersion {
+  id: number /* int64 */;
+  actor: string; // NotesByBothy | NotesByUser
+  user_id?: UserID;
+  session_id?: SessionID;
+  run_id?: RunID;
+  before: string;
+  after: string;
+  at: string /* RFC 3339 */;
+}
+/**
+ * NotesVersion.Actor values.
+ */
+export const NotesByBothy = "bothy";
+/**
+ * NotesVersion.Actor values.
+ */
+export const NotesByUser = "user";
 export interface KnowledgeIndexRequest {
   dir: string; // workspace-relative directory; "" or "." = the whole workspace
   repo: string; // "owner/name"; "" = "local/<directory name>"
@@ -1600,6 +1656,12 @@ export interface ProviderHealth {
   state: string; // ok | degraded | down | auth_failed
   last_error?: string;
   since: string /* RFC 3339 */;
+  /**
+   * Source says in plain words where the credentials come from ("Saved
+   * key", "AWS Secrets Manager", "This server's AWS access (SSO profile
+   * demo)"), never what they are; "" when the provider needs none.
+   */
+  source?: string;
 }
 /**
  * LLM is the fallback-aware facade the agent uses. It owns retries, circuit
@@ -1763,6 +1825,14 @@ export interface Deploy {
    * deploy recorded before Via was kept has "" and follows today's choice.
    */
   via?: string; // DeployViaConnection | DeployViaToken
+  /**
+   * SHA is the commit the workflow run built, once the run is known.
+   * Subject is that commit's first line, cleaned to one plain line: it is
+   * written by whoever can push to the repository, so it is shown only as
+   * quoted text and never goes into cards, notices or prompts.
+   */
+  sha?: string;
+  subject?: string;
 }
 /**
  * Deploy.Via values.
@@ -1983,6 +2053,11 @@ export interface User {
    * handed out; its owner must choose their own before anything else.
    */
   must_change_password?: boolean;
+  /**
+   * LastLoginAt is the last sign-in with a password; zero = never.
+   * UserRepo.SignedIn writes it, Update leaves it alone.
+   */
+  last_login_at: string /* RFC 3339 */;
 }
 export interface Space {
   principal_id: PrincipalID;
@@ -2100,6 +2175,7 @@ export interface Run {
   limits: RunLimits;
   parked_on?: ApprovalID;
   stopped_by?: UserID;
+  refined: boolean; // refine mode wrote the answer
   created_at: string /* RFC 3339 */;
   started_at: string /* RFC 3339 */;
   finished_at: string /* RFC 3339 */;
@@ -2268,6 +2344,18 @@ export interface SkillMeta {
   approved_by?: UserID;
   installed_at: string /* RFC 3339 */;
   updated_at: string /* RFC 3339 */;
+}
+/**
+ * SkillFile is one file of a skill's approved snapshot. Content is kept
+ * for text files within the snapshot caps; Text is false for the others,
+ * which only their hash and size describe.
+ */
+export interface SkillFile {
+  path: string;
+  sha256: string;
+  size: number /* int64 */;
+  text: boolean;
+  content?: string;
 }
 export type MemoryFile = string;
 export const FileMemory: MemoryFile = "MEMORY";
@@ -2625,6 +2713,17 @@ export interface RunView extends Run {
   requested_by_name: string; // who asked; "" for schedules and check-ins
   chat_title: string; // as the chat list shows it
   schedule_name: string; // "" unless a schedule started it; the heartbeat is "Check-in"
+  /**
+   * Origin is where the task came from: web, slack, telegram, discord
+   * (the chat it ran in), api or schedule.
+   */
+  origin: string;
+  /**
+   * Reason completes the outcome of a task that did not finish, after
+   * "Failed: " ("the AI model didn't answer") or "Stopped " ("by Maya
+   * Chen"); "" when there is nothing to add.
+   */
+  reason?: string;
 }
 /**
  * UsageRowView is a usage bucket with its name: the person (group_by user),
@@ -2770,9 +2869,51 @@ export interface Me {
   mode: string; // single | multi
   principals: (Principal | undefined)[];
   paused: boolean;
+  /**
+   * PausedBy, PausedByName and PausedAt say who paused Bothy and when,
+   * while it is paused (empty for a pause recorded before they were kept).
+   */
+  paused_by?: UserID;
+  paused_by_name?: string;
+  paused_at?: string /* RFC 3339 */;
   sandbox_available: boolean;
   banners: BannerData[];
   access: Access; // how this request reached the server
+}
+/**
+ * Profile is GET and PATCH /api/me: what people set about themselves.
+ */
+export interface Profile {
+  user_id: UserID;
+  username: string;
+  display_name: string;
+  /**
+   * ApprovalsIn is where approval requests reach the person besides
+   * Bothy's Approvals page: "web" (Bothy only) or the chat app Bothy
+   * messages them in ("slack", "telegram", "discord").
+   */
+  approvals_in: string;
+  /**
+   * PreferredChat is the chat app the person chose for Bothy's messages
+   * to them (scheduled results, check-ins and approval requests); "" =
+   * the linked one they used last.
+   */
+  preferred_chat: string;
+  /**
+   * Chats are the chat apps the person has linked, which ApprovalsIn and
+   * PreferredChat may name.
+   */
+  chats: string[];
+}
+/**
+ * ProfilePatch changes the caller's own profile; absent fields stay.
+ * ApprovalsIn "web" keeps approval requests in Bothy; a chat app sends them
+ * there and makes it the preferred chat.
+ */
+export interface ProfilePatch {
+  display_name?: string;
+  approvals_in?: string;
+  preferred_chat?: string;
 }
 /**
  * Access is the caller's remote-access status for Settings > General.
@@ -2957,6 +3098,25 @@ export interface ProviderTestReq {
 export interface ChannelTestResp {
   identity: string;
 }
+/**
+ * SearchTestReq is POST /api/search/test: one search with these settings
+ * before they are saved. Without api_key the saved key is used; a private
+ * SearXNG address needs search.searxng_allow_private, as for the tool.
+ */
+export interface SearchTestReq {
+  provider: string; // searxng | brave | tavily
+  searxng_url?: string; // searxng
+  api_key?: string; // brave, tavily; write-only, used for this check only
+}
+/**
+ * SearchTestResp says whether the search worked; a failure carries why
+ * (Code) and the raw message (Error).
+ */
+export interface SearchTestResp {
+  ok: boolean;
+  code?: FailureCode;
+  error?: string;
+}
 export interface DiscordInvite {
   url: string;
 }
@@ -3093,8 +3253,36 @@ export interface InboxItem {
   approval?: Approval;
   mcp?: InboxMCP;
   skill?: SkillMeta;
+  skill_changes?: SkillChanges; // with Skill: what changed since it was approved
   sender?: ChannelIdentity; // first_text holds the start of their message
   group?: InboxGroup;
+}
+/**
+ * SkillChanges is how a skill's files differ from the ones an admin
+ * approved (every file is added for a skill never approved).
+ */
+export interface SkillChanges {
+  files: SkillFileChange[];
+  /**
+   * NoBaseline: the skill was approved before Bothy kept approved files,
+   * so only that it changed is known.
+   */
+  no_baseline?: boolean;
+  /**
+   * Truncated: more changed files or text than one review shows; the
+   * skill's page has every file.
+   */
+  truncated?: boolean;
+}
+export interface SkillFileChange {
+  path: string;
+  change: string; // added | removed | changed
+  before?: string;
+  after?: string;
+  /**
+   * Opaque: not text, or too large to show, so neither side is included.
+   */
+  opaque?: boolean;
 }
 export interface InboxMCP {
   server: string;
@@ -3120,6 +3308,22 @@ export interface KnowledgeIndexReq {
 }
 export interface KnowledgeSearchResp {
   items: KnowledgeHit[];
+}
+/**
+ * NotesChange is one change in a repo's notes history
+ * (GET /api/knowledge/repos/{id}/notes/history[/{version}]), with names
+ * for the people and chats it mentions.
+ */
+export interface NotesChange extends NotesVersion {
+  name?: string; // the person's name, for actor user
+  chat?: ChatLink; // the chat Bothy made the change in, when the caller can open it
+}
+/**
+ * ChatLink names a chat for a link to it.
+ */
+export interface ChatLink {
+  id: SessionID;
+  title: string;
 }
 /**
  * KnowledgeNotesPutReq replaces a repo's notes; If-Match carries the etag
@@ -3168,7 +3372,17 @@ export interface ApprovalVoteView {
  */
 export interface Releases {
   environments: ReleaseEnvironment[];
-  deploys: (Deploy | undefined)[];
+  deploys: DeployView[];
+}
+/**
+ * DeployView is a deploy record with names instead of user ids. Subject
+ * (core.Deploy) is the commit's subject line as its author wrote it: show
+ * it as quoted text, never as a heading, a question or a link.
+ */
+export interface DeployView extends Deploy {
+  requested_by_name: string;
+  approved_by_names: string[];
+  short_sha: string; // the first 7 characters of SHA
 }
 export interface ReleaseEnvironment {
   name: string;

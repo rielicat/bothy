@@ -3,6 +3,8 @@ package skills
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/skills/treehash"
@@ -320,9 +323,58 @@ func (l *Library) SetEnabled(ctx context.Context, name string, on bool, hash str
 	if err := l.store.Skills().Upsert(ctx, s); err != nil {
 		return err
 	}
+	if on {
+		l.keepApproved(ctx, name)
+	}
 	l.record(ctx, "user:"+string(by), action, name, map[string]any{"hash": s.Hash})
 	return l.refreshLocked(ctx)
 }
+
+const (
+	snapshotFileMax  = maxReadBytes
+	snapshotTotalMax = 1 << 20
+)
+
+// keepApproved stores the files an admin just approved, so a later change
+// can be shown as a diff against them. Files that are not text, or past
+// the caps, are kept as their hash and size only. A snapshot that cannot be
+// taken leaves the review without a diff; the approval stands.
+func (l *Library) keepApproved(ctx context.Context, name string) {
+	root, err := l.openSkill(name)
+	if err != nil {
+		l.log.Warn("snapshot approved skill", "skill", name, "err", err)
+		return
+	}
+	defer root.Close()
+	files, err := listFiles(root)
+	if err != nil {
+		l.log.Warn("snapshot approved skill", "skill", name, "err", err)
+		return
+	}
+	total := 0
+	var out []core.SkillFile
+	for _, p := range append([]string{skillFile}, files...) {
+		f := core.SkillFile{Path: p}
+		if fi, err := root.Lstat(p); err == nil {
+			f.Size = fi.Size()
+		}
+		if data, err := readCapped(root, p); err == nil {
+			sum := sha256.Sum256(data)
+			f.SHA256, f.Size = hex.EncodeToString(sum[:]), int64(len(data))
+			if isText(data) && len(data) <= snapshotFileMax && total+len(data) <= snapshotTotalMax {
+				f.Text, f.Content = true, string(data)
+				total += len(data)
+			}
+		}
+		out = append(out, f)
+	}
+	if err := l.store.Skills().SetApproved(ctx, name, out); err != nil {
+		l.log.Warn("snapshot approved skill", "skill", name, "err", err)
+	}
+}
+
+// isText: valid UTF-8 without NUL bytes.
+func isText(b []byte) bool { return utf8.Valid(b) && !slices.Contains(b, 0) }
 
 // Remove deletes the skill's directory and row.
 func (l *Library) Remove(ctx context.Context, name string, by core.UserID) error {

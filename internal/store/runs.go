@@ -13,7 +13,7 @@ import (
 
 const runCols = `id, session_id, principal_id, user_id, trigger, COALESCE(schedule_id, ''), status, error, steps, tool_calls,
 	input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_micros, models, limits, parked_on, stopped_by,
-	created_at, started_at, finished_at`
+	created_at, started_at, finished_at, refined`
 
 func scanRun(sc scanner) (*core.Run, error) {
 	var r core.Run
@@ -21,7 +21,7 @@ func scanRun(sc scanner) (*core.Run, error) {
 	var created, started, finished int64
 	if err := sc.Scan(&r.ID, &r.Session, &r.Principal, &r.User, &r.Trigger, &r.Schedule, &r.Status, &r.Error, &r.Steps,
 		&r.ToolCalls, &r.Usage.Input, &r.Usage.Output, &r.Usage.CacheRead, &r.Usage.CacheWrite, &r.Cost, &models, &limits,
-		&r.ParkedOn, &r.StoppedBy, &created, &started, &finished); err != nil {
+		&r.ParkedOn, &r.StoppedBy, &created, &started, &finished, &r.Refined); err != nil {
 		return nil, err
 	}
 	if err := decodeJSON("runs.models", models, &r.Models); err != nil {
@@ -54,11 +54,11 @@ func (r runRepo) Create(ctx context.Context, run *core.Run) error {
 	if err != nil {
 		return err
 	}
-	if _, err := r.h.wq.ExecContext(ctx, `INSERT INTO runs(`+runColsInsert+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	if _, err := r.h.wq.ExecContext(ctx, `INSERT INTO runs(`+runColsInsert+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		string(id), string(run.Session), string(run.Principal), string(run.User), string(run.Trigger), nullStr(run.Schedule),
 		string(run.Status), run.Error, run.Steps, run.ToolCalls, run.Usage.Input, run.Usage.Output, run.Usage.CacheRead,
 		run.Usage.CacheWrite, int64(run.Cost), models, limits, string(run.ParkedOn), string(run.StoppedBy),
-		ms(run.CreatedAt), ms(run.StartedAt), ms(run.FinishedAt)); err != nil {
+		ms(run.CreatedAt), ms(run.StartedAt), ms(run.FinishedAt), b2i(run.Refined)); err != nil {
 		return dbErr("create run", err)
 	}
 	run.ID = id
@@ -67,7 +67,7 @@ func (r runRepo) Create(ctx context.Context, run *core.Run) error {
 
 const runColsInsert = `id, session_id, principal_id, user_id, trigger, schedule_id, status, error, steps, tool_calls,
 	input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_micros, models, limits, parked_on, stopped_by,
-	created_at, started_at, finished_at`
+	created_at, started_at, finished_at, refined`
 
 // Update leaves session_id, principal_id and created_at as created.
 func (r runRepo) Update(ctx context.Context, run *core.Run) error {
@@ -77,10 +77,10 @@ func (r runRepo) Update(ctx context.Context, run *core.Run) error {
 	}
 	res, err := r.h.wq.ExecContext(ctx, `UPDATE runs SET user_id = ?, trigger = ?, schedule_id = ?, status = ?, error = ?,
 		steps = ?, tool_calls = ?, input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_write_tokens = ?,
-		cost_micros = ?, models = ?, limits = ?, parked_on = ?, stopped_by = ?, started_at = ?, finished_at = ? WHERE id = ?`,
+		cost_micros = ?, models = ?, limits = ?, parked_on = ?, stopped_by = ?, started_at = ?, finished_at = ?, refined = ? WHERE id = ?`,
 		string(run.User), string(run.Trigger), nullStr(run.Schedule), string(run.Status), run.Error, run.Steps, run.ToolCalls,
 		run.Usage.Input, run.Usage.Output, run.Usage.CacheRead, run.Usage.CacheWrite, int64(run.Cost), models, limits,
-		string(run.ParkedOn), string(run.StoppedBy), ms(run.StartedAt), ms(run.FinishedAt), string(run.ID))
+		string(run.ParkedOn), string(run.StoppedBy), ms(run.StartedAt), ms(run.FinishedAt), b2i(run.Refined), string(run.ID))
 	return mustAffect("update run", res, err)
 }
 

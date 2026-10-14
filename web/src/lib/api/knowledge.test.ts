@@ -3,7 +3,6 @@ import { installApi } from '../../test/api';
 import { setCsrf } from './client';
 import {
   failReason,
-  firstSentence,
   fullness,
   githubState,
   githubUrl,
@@ -47,13 +46,6 @@ describe('repository state', () => {
 });
 
 describe('notes text', () => {
-  it('takes the first sentence of the first paragraph as plain text', () => {
-    expect(firstSentence('## What this is\n\nCustomer-facing web app, deployed from `main`. Built with Next.js.')).toBe('Customer-facing web app, deployed from main.');
-    expect(firstSentence('---\nname: x\n---\n# Title\n\n- A [linked](https://x.test) item without a stop')).toBe('A linked item without a stop');
-    expect(firstSentence('')).toBe('');
-    expect(firstSentence(`${'word '.repeat(60)}end.`, 20)).toHaveLength(20);
-  });
-
   it('turns a Markdown snippet into one plain line', () => {
     expect(plainText('- Login redirects stay on `our` domain. - **We** stay [here](x).')).toBe('Login redirects stay on our domain. We stay here.');
   });
@@ -98,10 +90,18 @@ describe('knowledge API', () => {
     expect(put?.headers['if-match']).toBe(`"${n.etag}"`);
   });
 
-  it('treats a server without notes history or knowledge as "not yet"', async () => {
+  it('treats a server without knowledge as "not yet", but a history that fails as an error', async () => {
     installApi({ override: (_m, url) => (url.includes('/notes/history') || url === '/api/knowledge/repos' ? new Response('{}', { status: 404 }) : undefined) });
-    expect(await knowledge.history(1)).toBeNull();
+    await expect(knowledge.history(1)).rejects.toThrow();
     expect(await readRepos()).toEqual([]);
+  });
+
+  it('reads the notes history with names and chats', async () => {
+    installApi();
+    const list = await knowledge.history(1);
+    expect(list.map((c) => c.id)).toEqual([3, 2, 1]);
+    expect(list[0]).toMatchObject({ actor: 'user', name: 'Priya Rao' });
+    expect(list[1].chat).toEqual({ id: 'ses_01jlogin00000000000000000', title: 'Login bug' });
   });
 
   it('asks members only for the repositories, not the connections', async () => {

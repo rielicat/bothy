@@ -14,8 +14,16 @@ import type {
   UsageData,
   UsageToday,
 } from '../api/types.gen';
+import { isZeroTime } from '../format';
 import { router } from '../router.svelte';
 import { events } from '../sse.svelte';
+
+export interface PauseInfo {
+  /** RFC 3339, "" when the server does not know. */
+  at: string;
+  /** Who paused, by name; "" when unknown. */
+  by: string;
+}
 
 // The banner list is keyed by code in the shell.
 function uniqueBanners(list: BannerData[] | null | undefined): BannerData[] {
@@ -57,6 +65,13 @@ class Session {
   principals: Principal[] = $derived((this.me?.principals ?? []).filter((p): p is Principal => !!p));
   spaces: Principal[] = $derived(this.principals.filter((p) => p.kind === 'space'));
   visibleBanners: BannerData[] = $derived(this.banners.filter((b) => !this.dismissed.includes(b.code)));
+  /** Who paused Bothy and when, while it is paused: the live banner's, else what sign-in said. */
+  pause: PauseInfo | null = $derived.by(() => {
+    if (!this.paused) return null;
+    const b = this.banners.find((x) => x.code === 'paused' && !x.clear);
+    const at = b?.at || this.me?.paused_at || '';
+    return { at: isZeroTime(at) ? '' : at, by: b?.by_name || this.me?.paused_by_name || '' };
+  });
 
   #offs: (() => void)[] = [];
   #held = false;

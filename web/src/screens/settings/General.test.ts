@@ -46,6 +46,20 @@ describe('Settings → General', () => {
     await waitFor(() => expect(patches(calls)).toEqual([{ 'agent.name': 'Ada' }]));
   });
 
+  it("checks Bothy's name the way the server does", async () => {
+    const name = screen.getByLabelText('Name') as HTMLInputElement;
+    for (const [value, error] of [
+      ['   ', 'Enter a name.'],
+      ['x'.repeat(41), 'Use at most 40 characters.'],
+      ['<b>Ada</b>', 'Leave out < and >.'],
+    ]) {
+      await fireEvent.input(name, { target: { value } });
+      await fireEvent.keyDown(name, { key: 'Enter' });
+      expect(await screen.findByText(error)).toBeTruthy();
+    }
+    expect(patches(calls)).toEqual([]);
+  });
+
   it('saves a choice as soon as it changes', async () => {
     const tone = screen.getByLabelText('Tone') as HTMLSelectElement;
     await fireEvent.change(tone, { target: { value: 'formal' } });

@@ -196,6 +196,19 @@ type BannerData struct {
 	Text   string `json:"text"`
 	Action string `json:"action,omitempty"` // SPA route, e.g. "/settings/sandbox"
 	Clear  bool   `json:"clear,omitempty"`  // true removes the banner with this Code
+	// By, ByName and At say who raised it and when (paused: who paused).
+	By     UserID    `json:"by,omitempty"`
+	ByName string    `json:"by_name,omitempty"`
+	At     time.Time `json:"at,omitzero"`
+}
+
+// PausedBanner is the paused banner, naming who paused and when.
+func PausedBanner(by UserID, name string, at time.Time) BannerData {
+	text := "Bothy is paused by an admin."
+	if name != "" {
+		text = "Bothy is paused by " + name + "."
+	}
+	return BannerData{Level: "error", Code: "paused", Text: text, Action: "/settings/security", By: by, ByName: name, At: at}
 }
 
 func (RunQueuedData) eventData()        {}

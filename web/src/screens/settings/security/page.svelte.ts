@@ -37,8 +37,3 @@ export function relLower(t: string): string {
 /** The first letter up: meta lines start with whichever piece is present. */
 export const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-/**
- * When this tab paused Bothy and who did, until the server reports it
- * (paused_at and paused_by_name are not in Me yet).
- */
-export const pauseNote = $state({ at: '', by: '' });

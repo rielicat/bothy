@@ -24,3 +24,8 @@ or in one top-level folder) through `os.Root`, refusing unsafe names,
 symlinks and special files; files are written 0640 (dirs 0750) and nothing
 is ever executed. `Rescan` removes leftovers of installs that never
 finished. `Checks` provides `skills.changed` (fix: disable).
+
+Enabling a skill also stores the approved files in the database
+(`SkillRepo.SetApproved`: path, sha256, size, and the text of UTF-8 files
+within 256 KB each and 1 MiB in all), so a review of a later change can
+show what differs; a snapshot that cannot be taken is logged, not fatal.

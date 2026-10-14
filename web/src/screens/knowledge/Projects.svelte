@@ -6,7 +6,6 @@
   import Spinner from '../../components/ui/Spinner.svelte';
   import {
     failReason,
-    firstSentence,
     githubState,
     knowledge,
     progressPct,
@@ -29,29 +28,20 @@
   let rows = $state<KnowledgeRepo[] | null>(null);
   let connected = $state<boolean | null>(null);
   let failed = $state(false);
-  let summaries = $state<Record<string, string>>({});
   let details = $state<Record<string, boolean>>({});
   let rowError = $state<Record<string, string>>({});
 
   async function load() {
     failed = false;
     try {
-      // Until the server answers /api/knowledge (S18) this shows how to connect GitHub, not an error (§17).
+      // A server without the knowledge module shows how to connect GitHub, not an error.
       const [repos, gh] = await Promise.all([readRepos(), githubState(session.isAdmin)]);
       const known = new Set(repos.map((r) => r.repo.toLowerCase()));
       rows = [...repos, ...gh.allowed.filter((n) => !known.has(n)).map(queuedRepo)];
       connected = gh.connected;
-      void fillSummaries(repos);
     } catch {
       failed = true;
     }
-  }
-
-  // The first sentence of the notes, for servers that don't send `summary` yet.
-  async function fillSummaries(repos: KnowledgeRepo[]) {
-    const need = repos.filter((r) => r.summary === undefined && r.notes.status === 'ready').slice(0, 30);
-    const found = await Promise.all(need.map((r) => knowledge.notes(r.id).then((n) => [r.repo, firstSentence(n.content)] as const, () => null)));
-    summaries = { ...summaries, ...Object.fromEntries(found.filter((x) => !!x)) };
   }
 
   $effect(() => {
@@ -76,7 +66,7 @@
   }
 
   function line2(r: KnowledgeRepo): string {
-    const summary = r.summary || summaries[r.repo] || '';
+    const summary = r.summary;
     if (repoState(r) === 'failed') return failReason(r);
     if (r.notes.status !== 'ready') return summary || 'Bothy is writing notes for this project.';
     const updated = `Notes updated ${inSentence(relTime(r.notes.updated_at))}.`;

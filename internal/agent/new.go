@@ -47,6 +47,7 @@ type Deps struct {
 // Meta keys owned by the runner.
 const (
 	metaPaused       = "paused"
+	metaPausedBy     = "paused_by" // "<user id> <unix ms>" while paused
 	metaConstitution = "constitution_version"
 	metaSpotlightKey = "agent.spotlight_key"
 	// metaWorkspaceUntrusted + workspace id is "1" once untrusted content
@@ -88,6 +89,10 @@ type Runner struct {
 
 	paused  atomic.Bool
 	closing atomic.Bool
+
+	pauseMu  sync.Mutex
+	pausedBy core.UserID
+	pausedAt time.Time
 
 	mu      sync.Mutex
 	workers map[core.SessionID]*worker
@@ -196,6 +201,16 @@ func (r *Runner) ensureInit(ctx context.Context) error {
 		r.paused.Store(v == "1")
 	case !errors.Is(err, core.ErrNotFound):
 		return fmt.Errorf("agent: read meta.paused: %w", err)
+	}
+	if r.paused.Load() {
+		if v, err := meta.Get(ctx, metaPausedBy); err == nil {
+			by, at := parsePausedBy(v)
+			r.pauseMu.Lock()
+			r.pausedBy, r.pausedAt = by, at
+			r.pauseMu.Unlock()
+		} else if !errors.Is(err, core.ErrNotFound) {
+			return fmt.Errorf("agent: read meta.%s: %w", metaPausedBy, err)
+		}
 	}
 	key, err := meta.Get(ctx, metaSpotlightKey)
 	switch {

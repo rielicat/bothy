@@ -504,6 +504,22 @@ func TestStandingRulesAndSkillsIndex(t *testing.T) {
 	})
 }
 
+func TestAgentNameAndToneInFacts(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{cfg: func(c *config.Config) { c.Agent.Name, c.Agent.Tone = "Ada", "formal" },
+			steps: []fakes.LLMStep{{Text: []string{"hi"}}}})
+		defer h.close()
+		h.submit("hello")
+		synctest.Wait()
+		s2 := h.requests()[0].System[1].Text
+		facts := s2[strings.Index(s2, "<facts>"):]
+		if !strings.Contains(facts, "- Your name: Ada (use it when you introduce yourself)\n") ||
+			!strings.Contains(facts, "- Tone: Calm and formal") || strings.Contains(facts, "Warm and brief") {
+			t.Fatalf("facts:\n%s", s2)
+		}
+	})
+}
+
 func TestTurnContextNamesTheChannelOnce(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t, opts{steps: []fakes.LLMStep{{Text: []string{"one"}}, {Text: []string{"two"}}}})

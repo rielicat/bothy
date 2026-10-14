@@ -664,3 +664,56 @@ func TestCompactRefusedWhilePaused(t *testing.T) {
 		}
 	})
 }
+
+// Who paused and when survive a restart and go with a resume; pausing
+// again keeps the first pause's.
+func TestPausedByPersists(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{})
+		defer h.close()
+		if by, at := h.r.PausedBy(); by != "" || !at.IsZero() {
+			t.Fatalf("not paused, PausedBy = %q %v", by, at)
+		}
+		sub := h.bus.Subscribe(core.Filter{Admin: true, Types: []core.EventType{core.EvBanner}}, 4)
+		defer sub.Close()
+		if err := h.r.SetPaused(h.ctx, true, h.user.ID); err != nil {
+			t.Fatal(err)
+		}
+		by, at := h.r.PausedBy()
+		if by != h.user.ID || at.IsZero() {
+			t.Fatalf("PausedBy = %q %v", by, at)
+		}
+		select {
+		case e := <-sub.C():
+			if b := e.Data.(core.BannerData); b.Code != "paused" || b.By != h.user.ID || b.ByName != "Olive" || !b.At.Equal(at) {
+				t.Fatalf("banner = %+v", b)
+			}
+		default:
+			t.Fatal("no paused banner")
+		}
+		time.Sleep(time.Minute)
+		other := &core.User{Username: "admin2", Role: core.RoleAdmin, PWHash: "x", Timezone: "UTC", CreatedAt: time.Now()}
+		if err := h.store.Users().Create(h.ctx, other); err != nil {
+			t.Fatal(err)
+		}
+		if err := h.r.SetPaused(h.ctx, true, other.ID); err != nil {
+			t.Fatal(err)
+		}
+		if by2, at2 := h.r.PausedBy(); by2 != h.user.ID || !at2.Equal(at) {
+			t.Fatalf("pausing again moved PausedBy to %q %v", by2, at2)
+		}
+		restarted := h.newRunner()
+		if by2, at2 := restarted.PausedBy(); by2 != h.user.ID || at2.UnixMilli() != at.UnixMilli() {
+			t.Fatalf("after a restart PausedBy = %q %v, want %q %v", by2, at2, h.user.ID, at)
+		}
+		if err := h.r.SetPaused(h.ctx, false, other.ID); err != nil {
+			t.Fatal(err)
+		}
+		if by2, _ := h.newRunner().PausedBy(); by2 != "" {
+			t.Fatalf("resumed, PausedBy = %q", by2)
+		}
+		if _, err := h.store.Meta().Get(h.ctx, metaPausedBy); !errors.Is(err, core.ErrNotFound) {
+			t.Fatalf("meta.%s after resume: %v", metaPausedBy, err)
+		}
+	})
+}

@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -31,6 +33,7 @@ var enums = map[string][]string{
 	"log.format":                             {"text", "json"},
 	"providers.*.type":                       {"anthropic", "openai", "gemini", "ollama", "openai_compat", "bedrock"},
 	"providers.*.api":                        {"", "auto", "responses", "chat"},
+	"agent.tone":                             {"warm", "direct", "formal"},
 	"agent.busy_mode":                        {"steer", "queue"},
 	"agent.refine.critic_slot":               {"main", "fast"},
 	"policy.preset":                          {"careful", "balanced", "hands_off"},
@@ -616,8 +619,21 @@ func ValidPersonaFile(name string) bool {
 		strings.EqualFold(filepath.Ext(name), ".md")
 }
 
+// ValidAgentName reports whether name may be agent.name: one line of 1 to
+// 40 printable characters, without the angle brackets that delimit the
+// prompt's sections.
+func ValidAgentName(name string) bool {
+	n := utf8.RuneCountInString(name)
+	return n >= 1 && n <= 40 && utf8.ValidString(name) && strings.TrimSpace(name) == name &&
+		!strings.ContainsFunc(name, func(r rune) bool { return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '<' || r == '>' })
+}
+
 func validateAgent(c *Config, v *vctx) {
 	a := c.Agent
+	if !ValidAgentName(a.Name) {
+		v.add("agent.name", "must be 1 to 40 characters on one line, without < or >, got %q", a.Name)
+	}
+	v.enum("agent.tone", "agent.tone", a.Tone)
 	if !ValidPersonaFile(a.PersonaFile) {
 		v.add("agent.persona_file", "must be a Markdown file name in the data dir (like SOUL.md), got %q", a.PersonaFile)
 	}

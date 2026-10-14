@@ -662,7 +662,11 @@ func (c *reqCtx) repo(r *Repo, seg []string) {
 			_, _ = io.WriteString(c.w, sha)
 			return
 		}
-		c.json(http.StatusOK, map[string]any{"sha": sha})
+		msg := ""
+		if cm := r.commits[sha]; cm != nil {
+			msg = cm.message
+		}
+		c.json(http.StatusOK, map[string]any{"sha": sha, "commit": map[string]any{"message": msg}})
 	case m == http.MethodGet && len(seg) >= 2 && seg[0] == "tarball":
 		sha := r.resolve(strings.Join(seg[1:], "/"))
 		if sha == "" {
@@ -1121,6 +1125,13 @@ func (c *reqCtx) actions(r *Repo, seg []string) {
 		c.dispatch(r, seg[1])
 	case c.r.Method != http.MethodGet:
 		c.error(http.StatusNotFound, "Not Found")
+	case len(seg) == 1 && seg[0] == "workflows":
+		lo, hi := c.paginate(len(r.Workflows))
+		items := []any{}
+		for _, w := range r.Workflows[lo:hi] {
+			items = append(items, map[string]any{"id": w.ID, "name": w.Name, "path": w.Path, "state": cmp.Or(w.State, "active")})
+		}
+		c.json(http.StatusOK, map[string]any{"total_count": len(r.Workflows), "workflows": items})
 	case len(seg) == 1 && seg[0] == "runs":
 		list("")
 	case len(seg) == 3 && seg[0] == "workflows" && seg[2] == "runs":

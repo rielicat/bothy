@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import Icon from '../../components/Icon.svelte';
+  import Verbatim from '../../components/Verbatim.svelte';
   import { EmptyState, Spinner } from '../../components/ui';
   import { api } from '../../lib/api/client';
   import type { List } from '../../lib/api/types.gen';
@@ -52,8 +53,7 @@
 
   const deploys = $derived((data?.deploys ?? []).filter((d): d is Deploy => !!d).sort((a, b) => b.created_at.localeCompare(a.created_at)));
   const and = (list: string[]) => new Intl.ListFormat('en', { type: 'conjunction' }).format(list);
-  const approvers = (d: Deploy) => and(d.approved_by_names ?? d.approved_by.map((id) => personName(id, names)));
-  const version = (d: Deploy) => [d.ref, d.sha?.slice(0, 7), d.subject].filter(Boolean).join(' · ');
+  const approvers = (d: Deploy) => and(d.approved_by_names);
   const took = (d: Deploy) => {
     const s = date(d.created_at)?.getTime();
     const f = date(d.finished_at)?.getTime();
@@ -84,10 +84,10 @@
       ...deploys.map((d) => ({
         key: d.id,
         at: d.created_at,
-        title: `Deploy ${d.repo} to ${d.environment} · ${d.ref}${d.sha ? ` at ${d.sha.slice(0, 7)}` : ''}`,
+        title: `Deploy ${d.repo} to ${d.environment} · ${d.ref}${d.short_sha ? ` at ${d.short_sha}` : ''}`,
         href: d.run_id ? `/activity/tasks/${encodeURIComponent(d.run_id)}` : `/chat/${encodeURIComponent(d.session_id)}`,
         status: deployStatus(d),
-        facts: [`${personName(d.requested_by, names, d.requested_by_name)} asked`, d.approved_by.length || d.approved_by_names?.length ? `${approvers(d)} approved` : '', d.status === 'failed' ? '' : took(d)].filter(Boolean),
+        facts: [`${personName(d.requested_by, names, d.requested_by_name)} asked`, d.approved_by_names.length ? `${approvers(d)} approved` : '', d.status === 'failed' ? '' : took(d)].filter(Boolean),
         link: d.run_url ? { href: d.run_url, label: d.status === 'failed' ? 'View logs on GitHub' : 'View on GitHub' } : undefined,
       })),
       ...denied.map((a) => {
@@ -113,6 +113,9 @@
     >
   {/if}
 {/snippet}
+
+<!-- The commit subject is written by whoever can push to the repository: quoted, shown as typed, never as markup. -->
+{#snippet version(d: Deploy)}{d.ref}{#if d.short_sha}{' · '}<span class="tabular-nums">{d.short_sha}</span>{/if}{#if d.subject}{' · '}<q data-copy-ignore data-subject><Verbatim text={d.subject} /></q>{/if}{/snippet}
 
 {#snippet word(s: Status)}
   <span class="inline-flex shrink-0 items-center gap-1.5 text-small {toneClass[s.tone] || 'text-muted'}">{#if s.spin}<Spinner size={12} />{/if}{s.text}</span>
@@ -143,7 +146,7 @@
           </div>
           {#if last}
             <p class="text-small text-muted [overflow-wrap:anywhere]">
-              {version(last)} · {#if open(last)}started {relTime(last.created_at)}{:else}<time title={fullTime(last.created_at)}>{relTime(last.created_at)}</time>{/if}{#if !open(last) && (last.approved_by.length || last.approved_by_names?.length)}{` · approved by ${approvers(last)}`}{/if}{#if open(last) && last.run_url}{' · '}{@render external({ href: last.run_url, label: 'View on GitHub' })}{/if}
+              {@render version(last)} · {#if open(last)}started {relTime(last.created_at)}{:else}<time title={fullTime(last.created_at)}>{relTime(last.created_at)}</time>{/if}{#if !open(last) && last.approved_by_names.length}{` · approved by ${approvers(last)}`}{/if}{#if open(last) && last.run_url}{' · '}{@render external({ href: last.run_url, label: 'View on GitHub' })}{/if}
             </p>
           {/if}
         </li>

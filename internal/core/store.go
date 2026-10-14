@@ -29,6 +29,16 @@ type User struct {
 	// MustChangePassword: the account has a one-time password an admin
 	// handed out; its owner must choose their own before anything else.
 	MustChangePassword bool `json:"must_change_password,omitempty"`
+
+	// LastLoginAt is the last sign-in with a password; zero = never.
+	// UserRepo.SignedIn writes it, Update leaves it alone.
+	LastLoginAt time.Time `json:"last_login_at"`
+	// PreferredChat is the linked chat app Bothy messages this person in;
+	// "" = the linked one they used last. ApprovalsWebOnly keeps approval
+	// requests on Bothy's Approvals page instead. The person sets both
+	// (GET/PATCH /api/me), so they stay out of the user listing.
+	PreferredChat    string `json:"-"`
+	ApprovalsWebOnly bool   `json:"-"`
 }
 
 type Space struct {
@@ -179,6 +189,7 @@ type Run struct {
 	Limits     RunLimits   `json:"limits"`
 	ParkedOn   ApprovalID  `json:"parked_on,omitempty"`
 	StoppedBy  UserID      `json:"stopped_by,omitempty"`
+	Refined    bool        `json:"refined"` // refine mode wrote the answer
 	CreatedAt  time.Time   `json:"created_at"`
 	StartedAt  time.Time   `json:"started_at"`
 	FinishedAt time.Time   `json:"finished_at"`
@@ -376,6 +387,17 @@ type SkillMeta struct {
 	UpdatedAt    time.Time   `json:"updated_at"`
 }
 
+// SkillFile is one file of a skill's approved snapshot. Content is kept
+// for text files within the snapshot caps; Text is false for the others,
+// which only their hash and size describe.
+type SkillFile struct {
+	Path    string `json:"path"`
+	SHA256  string `json:"sha256"`
+	Size    int64  `json:"size"`
+	Text    bool   `json:"text"`
+	Content string `json:"content,omitempty"`
+}
+
 type MemoryFile string
 
 const (
@@ -442,6 +464,9 @@ type UserRepo interface {
 	List(ctx context.Context) ([]*User, error)
 	Update(ctx context.Context, u *User) error
 	RecordLogin(ctx context.Context, id UserID, ok bool, lockUntil time.Time) error
+	// SignedIn records a successful sign-in at at: LastLoginAt, and the
+	// failure count and lock cleared.
+	SignedIn(ctx context.Context, id UserID, at time.Time) error
 	Count(ctx context.Context) (int, error)
 	// Delete removes the users row (user purge). Foreign keys cascade to its
 	// principals, spaces, sessions (messages, pins, runs, approvals), grants,
@@ -628,7 +653,11 @@ type SkillRepo interface {
 	Upsert(ctx context.Context, s *SkillMeta) error
 	Get(ctx context.Context, name string) (*SkillMeta, error)
 	List(ctx context.Context) ([]*SkillMeta, error)
-	Delete(ctx context.Context, name string) error
+	Delete(ctx context.Context, name string) error // with its approved files
+	// SetApproved replaces the snapshot of the files an admin approved
+	// (ErrNotFound for an unknown skill); Approved reads it back by path.
+	SetApproved(ctx context.Context, name string, files []SkillFile) error
+	Approved(ctx context.Context, name string) ([]SkillFile, error)
 }
 
 type MemoryEventRepo interface {

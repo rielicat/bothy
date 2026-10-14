@@ -19,7 +19,7 @@ const githubNone = scenario('github-none', 'GitHub is not connected.', 'connecti
 const githubNoRepos = scenario('github-no-repos', 'GitHub is connected but no repository is chosen.', 'connections');
 const githubApp = scenario('github-app', 'GitHub is connected through a GitHub App.', 'connections');
 const githubFail = scenario('github-fail', 'GitHub checks fail; github-fail:<rejected|empty|unreachable|not-installed|installations>.', 'connections');
-const noWorkflows = scenario('no-workflows', "The repository workflow list isn't available (S19 fallback: a text field).", 'connections');
+const noWorkflows = scenario('no-workflows', "GitHub can't list the repository's workflows, so the dialog takes a file name.", 'connections');
 const noEnvs = scenario('no-environments', 'No deploy environments are set up.', 'connections');
 const searchFail = scenario('search-fail', 'The web search check fails; search-fail:<code> picks the S13 code.', 'connections');
 const searchPrivate = scenario('search-private', 'SearXNG is on a private address that is not allowed yet.', 'connections');
@@ -424,12 +424,12 @@ on('DELETE', '/api/github/connections/{id}', (_q, res) => {
   json(res, 204);
 });
 on('GET', '/api/github/repos', (req, res) => json(res, 200, connected(req) && !(githubNoRepos(req) && !state.madeHere) ? state.held.filter((h) => h.allowed) : []));
-// S19 asks the server for this list; the dialog falls back to a text field without it.
+// The repository's workflows (h_uistate.go githubWorkflows); the dialog falls back to a text field when GitHub can't list them.
 on('GET', '/api/github/repos/{owner}/{repo}/workflows', (req, res) => {
-  if (noWorkflows(req)) return fail(res, 404, 'not_found', 'mock: no workflow list');
+  if (noWorkflows(req)) return fail(res, 502, 'unavailable', 'mock: GitHub did not list the workflows');
   const list: Workflow[] = [
-    { name: 'CI', path: '.github/workflows/ci.yml' },
-    { name: 'Deploy', path: '.github/workflows/deploy.yml' },
+    { id: 101, name: 'CI', path: '.github/workflows/ci.yml', state: 'active' },
+    { id: 102, name: 'Deploy', path: '.github/workflows/deploy.yml', state: 'active' },
   ];
   json(res, 200, list);
 });
@@ -454,7 +454,7 @@ export function releaseEnvironments(req: Req): ReleaseEnvironment[] {
       }));
 }
 
-// ---- routes: web search check (not on the server yet) ----
+// ---- routes: web search check (h_uistate.go testSearch) ----
 
 const privateHost = (u: string) => {
   try {

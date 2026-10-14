@@ -91,7 +91,10 @@ append-only audit log; approved holds audit `egress.allow`.
   `SystemClient`; keys come from the vault (global scope). Result URLs are
   recorded in `session_urls` in the same normalized form `web_fetch` uses, so
   the F8 provenance check matches them. Hidden when `search.provider` is
-  `none`.
+  `none`. `TestSearch` runs one query with unsaved settings through the same
+  request path (`POST /api/search/test`); failures carry a
+  `core.FailureCode` (`key_rejected`, `rate_limited`, `provider_error` or a
+  transport code).
 - `net_allow` (external_send, lazy): plans `{kind: net, host, port}` for the
   F9 card; the runner stores the grant on approval and `Exec` reports whether
   one the proxy would honour is active (and whether the trifecta suspends

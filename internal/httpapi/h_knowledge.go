@@ -70,6 +70,7 @@ func (s *Server) listKnowledgeRepos(w http.ResponseWriter, r *http.Request, a co
 	if err != nil {
 		return err
 	}
+	s.markStale(r.Context(), repos)
 	items := make([]core.IndexedRepo, 0, len(repos))
 	for _, x := range repos {
 		items = append(items, *x)
@@ -113,6 +114,7 @@ func (s *Server) getKnowledgeRepo(w http.ResponseWriter, r *http.Request, a core
 	if err != nil {
 		return err
 	}
+	s.markStale(r.Context(), []*core.IndexedRepo{repo})
 	return ok(w, repo)
 }
 

@@ -329,6 +329,7 @@ func (s *Service) agentEdit(ctx context.Context, env *core.ToolEnv, r *core.Inde
 	if err := s.writeNotesFile(cur, after); err != nil {
 		return nil, err
 	}
+	s.recordVersion(cur, core.NotesVersion{Actor: core.NotesByBothy, Session: env.Session, Run: env.Run, Before: before, After: after})
 	cur.Notes = core.NotesState{Status: core.NotesReady, Untrusted: cur.Notes.Untrusted || env.Taint.Has(core.TaintUntrusted),
 		UpdatedAt: s.clock.Now()}
 	if after == "" {

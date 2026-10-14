@@ -263,6 +263,10 @@ func (t *webSearch) braveSearch(ctx context.Context, sc config.Search, q string,
 	if err != nil {
 		return nil, err
 	}
+	return t.braveWith(ctx, key, q, n)
+}
+
+func (t *webSearch) braveWith(ctx context.Context, key core.Secret, q string, n int) ([]searchHit, error) {
 	c, u, err := t.client("brave", t.braveURL(), false)
 	if err != nil {
 		return nil, err
@@ -298,6 +302,10 @@ func (t *webSearch) tavilySearch(ctx context.Context, sc config.Search, q string
 	if err != nil {
 		return nil, err
 	}
+	return t.tavilyWith(ctx, key, q, n)
+}
+
+func (t *webSearch) tavilyWith(ctx context.Context, key core.Secret, q string, n int) ([]searchHit, error) {
 	c, u, err := t.client("tavily", t.tavilyURL(), false)
 	if err != nil {
 		return nil, err
@@ -349,27 +357,27 @@ func (t *webSearch) tavilyURL() string {
 func doJSON(c *http.Client, req *http.Request, name string, v any) error {
 	resp, err := c.Do(req)
 	if err != nil {
-		return fmt.Errorf("%s unreachable: %s", name, fetchError(err))
+		return &searchError{code: transportCode(err), msg: fmt.Sprintf("%s unreachable: %s", name, fetchError(err))}
 	}
 	defer resp.Body.Close()
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxSearchBody))
-		return fmt.Errorf("%s rejected the request (%s); check its API key or settings", name, resp.Status)
+		return &searchError{code: core.FailKeyRejected, msg: fmt.Sprintf("%s rejected the request (%s); check its API key or settings", name, resp.Status)}
 	case resp.StatusCode == http.StatusTooManyRequests:
-		return fmt.Errorf("%s rate limit reached; try again later", name)
+		return &searchError{code: core.FailRateLimited, msg: name + " rate limit reached; try again later"}
 	case resp.StatusCode != http.StatusOK:
-		return fmt.Errorf("%s answered %s", name, resp.Status)
+		return &searchError{code: core.FailProviderError, msg: fmt.Sprintf("%s answered %s", name, resp.Status)}
 	}
 	b, truncated, err := readLimited(resp.Body, maxSearchBody)
 	if err != nil {
-		return fmt.Errorf("%s: reading response: %w", name, err)
+		return &searchError{code: transportCode(err), msg: fmt.Sprintf("%s: reading response: %s", name, err)}
 	}
 	if truncated {
-		return fmt.Errorf("%s response larger than %d bytes", name, maxSearchBody)
+		return &searchError{code: core.FailProviderError, msg: fmt.Sprintf("%s response larger than %d bytes", name, maxSearchBody)}
 	}
 	if err := json.Unmarshal(b, v); err != nil {
-		return fmt.Errorf("%s returned invalid JSON", name)
+		return &searchError{code: core.FailProviderError, msg: name + " returned invalid JSON"}
 	}
 	return nil
 }

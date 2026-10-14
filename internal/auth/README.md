@@ -22,5 +22,8 @@ four Crockford characters, returned once) and `ResetUserPassword` (the owner
 resets anyone else, admins only members; sessions end). Both mark the account
 `must_change_password`: cookie actors carry the flag, and `SetPassword`
 accepts an empty old password while it is set and clears it.
+`UpdateProfile` lets anyone change their own display name, preferred chat
+app (one they have linked) and whether approval requests stay in the web UI
+(audited `user.profile`). A password sign-in records `last_login_at`.
 `Checks` contributes `server.exposure`, `server.insecure_lan`,
 `tokens.admin_scope` and `tokens.expired_unrevoked` (auto-fix: revoke).

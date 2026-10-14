@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rielicat/bothy/internal/core"
@@ -416,15 +418,39 @@ func (r *Runner) SetPaused(ctx context.Context, paused bool, by core.UserID) err
 	if paused {
 		v = "1"
 	}
-	if err := r.d.Store.Meta().Set(ctx, metaPaused, v); err != nil {
+	r.pauseMu.Lock()
+	defer r.pauseMu.Unlock()
+	// Pausing again keeps the first pause's who and when.
+	who, at := by, r.now()
+	if paused && r.paused.Load() && r.pausedBy != "" {
+		who, at = r.pausedBy, r.pausedAt
+	}
+	meta := r.d.Store.Meta()
+	if paused {
+		if err := meta.Set(ctx, metaPausedBy, string(who)+" "+strconv.FormatInt(at.UnixMilli(), 10)); err != nil {
+			return fmt.Errorf("agent: persist kill switch: %w", err)
+		}
+	}
+	if err := meta.Set(ctx, metaPaused, v); err != nil {
 		return fmt.Errorf("agent: persist kill switch: %w", err)
 	}
+	if !paused {
+		if err := meta.Delete(ctx, metaPausedBy); err != nil {
+			r.log.Warn("forget who paused", "err", err)
+		}
+		who, at = "", time.Time{}
+	}
 	r.paused.Store(paused)
+	r.pausedBy, r.pausedAt = who, at
 	action := "admin.resume"
 	banner := core.BannerData{Code: "paused", Clear: true}
 	if paused {
 		action = "admin.pause"
-		banner = core.BannerData{Level: "error", Code: "paused", Text: "Bothy is paused by an admin.", Action: "/settings"}
+		name := ""
+		if u, err := r.d.Store.Users().Get(ctx, who); err == nil {
+			name = cmpOr(u.DisplayName, u.Username)
+		}
+		banner = core.PausedBanner(who, name, at)
 	}
 	r.d.Bus.Publish(core.Event{Type: core.EvBanner, Data: banner})
 	r.auditf(ctx, "user:"+string(by), action, "runner", "ok", "", "", nil)
@@ -436,6 +462,25 @@ func (r *Runner) Paused() bool {
 		r.log.Warn("load kill switch", "err", err)
 	}
 	return r.paused.Load()
+}
+
+func (r *Runner) PausedBy() (core.UserID, time.Time) {
+	if !r.Paused() {
+		return "", time.Time{}
+	}
+	r.pauseMu.Lock()
+	defer r.pauseMu.Unlock()
+	return r.pausedBy, r.pausedAt
+}
+
+// parsePausedBy reads meta.paused_by ("<user id> <unix ms>").
+func parsePausedBy(v string) (core.UserID, time.Time) {
+	id, msText, ok := strings.Cut(v, " ")
+	n, err := strconv.ParseInt(msText, 10, 64)
+	if !ok || err != nil || n <= 0 || !core.ValidID(core.PrefixUser, id) {
+		return "", time.Time{}
+	}
+	return core.UserID(id), time.UnixMilli(n).UTC()
 }
 
 func (r *Runner) Active() []core.RunInfo {

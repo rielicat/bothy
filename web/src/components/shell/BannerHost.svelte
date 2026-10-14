@@ -9,7 +9,7 @@
 
   let { hide = [] }: { hide?: string[] } = $props();
 
-  const b = $derived(chooseBanner({ banners: session.banners, paused: session.paused, admin: session.isAdmin, today: session.today, dismissed: session.dismissed, hide }));
+  const b = $derived(chooseBanner({ banners: session.banners, paused: session.paused, admin: session.isAdmin, today: session.today, dismissed: session.dismissed, hide, pause: session.pause }));
   let failed = $state('');
 
   async function resume() {

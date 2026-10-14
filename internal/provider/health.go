@@ -140,6 +140,10 @@ func (f *Facade) updateBanner() {
 	}
 }
 
+// awsAccess is how a bedrock provider's credentials are named: the server's
+// own, whatever the default chain finds.
+const awsAccess = "This server's AWS access"
+
 // Health reports every enabled provider; providers not called yet are ok.
 func (f *Facade) Health() []core.ProviderHealth {
 	cfg := f.d.Config.Current()
@@ -156,6 +160,14 @@ func (f *Facade) Health() []core.ProviderHealth {
 		ph := core.ProviderHealth{ID: p.ID, Kind: core.ProviderKind(p.Type), State: stateOK, Since: f.boot}
 		if h := f.health[p.ID]; h != nil {
 			ph.State, ph.LastError, ph.Since = h.state, h.lastErr, h.since
+		}
+		if ph.Kind == core.KindBedrock {
+			ph.Source = awsAccess
+			if e := f.entries[p.ID]; e != nil && e.chain != nil {
+				if src := e.chain.Source(); src != "" {
+					ph.Source += " (" + src + ")"
+				}
+			}
 		}
 		out = append(out, ph)
 	}

@@ -93,6 +93,13 @@ func (r *Runner) selection(ctx context.Context, p profile) core.Selection {
 	}
 }
 
+// tones are agent.tone in the words the General page offers.
+var tones = map[string]string{
+	"warm":   "Warm and brief: lead with the answer, then the detail that matters.",
+	"direct": "Straight to the point: answer first, as short as it can be, no pleasantries.",
+	"formal": "Calm and formal: complete sentences, measured and polite.",
+}
+
 var profileLine = regexp.MustCompile(`(?m)^- Profile: ([a-z-]+)$`)
 var sandboxLine = regexp.MustCompile(`(?m)^- Sandbox: (available|unavailable)`)
 
@@ -240,6 +247,15 @@ func (r *Runner) renderS2(ctx context.Context, rs *runState, p profile, window i
 	section("persona", "", r.persona())
 
 	var f strings.Builder
+	// The administrator's name and tone (Settings → General) win over what
+	// the persona file says.
+	ag := r.cfg().Agent
+	if ag.Name != "" {
+		fmt.Fprintf(&f, "- Your name: %s (use it when you introduce yourself)\n", attrValue(ag.Name))
+	}
+	if t := tones[ag.Tone]; t != "" {
+		fmt.Fprintf(&f, "- Tone: %s\n", t)
+	}
 	kind := "personal account"
 	if rs.principal.Kind == core.PrincipalSpace {
 		kind = "shared space (other people may be present; no private memory)"

@@ -2556,6 +2556,18 @@ The UI never parses error strings or invents sentences from model output where s
 | S18 | Knowledge HTTP API (F6): repositories with index status and progress; project notes get / put (`If-Match`) / history; search over code and notes with citations | §9 | Mock only; Knowledge shows the "Connect GitHub" state in production until it lands | SV4 |
 | S19 | GitHub connect API (F4, F5): test a token or app → account + accessible repositories; repository allowlist; list a repository's workflows; environments read and write through config | §12.2 | Workflow as a text field | SV4 |
 | S20 | Default persona text in company voice (the default SOUL.md no longer says "personal assistant running on your owner's own machine"); default tone "Warm and brief" | §11.3 | — (one embedded file) | SV2 |
+| S21 | Self-service profile `GET`/`PATCH /api/me`: display name, preferred chat app, where approval requests reach me | §11.2 | Admins edit through `/api/users`; members see their name read-only | SV5 |
+| S22 | `agent.name` and `agent.tone` in config (validated, hot) | §11.3 | General rows hidden | SV5 |
+| S23 | `last_login_at` on users | §11.5 | "Joined {date}" | SV5 |
+| S24 | Plain credential `source` on `/api/providers` rows | §11.4 | No "Credentials from" line | SV5 |
+| S25 | Who paused and when: `paused_by`, `paused_by_name`, `paused_at` on Me and in the paused banner | §4.9, §11.6 | "Bothy is paused." without a name | SV5 |
+| S26 | Knowledge notes history, indexing progress, `stale`, one-line `summary` per project | §9 | No history; indeterminate progress; first sentence built client-side | SV5 |
+| S27 | Skill file endpoint and the changed-skill diff on inbox items | §8.8 | "Open the skill" link only | SV5 |
+| S28 | `POST /api/search/test` for web search settings | §12.5 | Save, then wait for the first search | SV5 |
+| S29 | Task rows with `origin`, a plain `reason` when stopped or failed, and `refined` | §10.1, §10.2 | Origin from the chat list; "Stopped" alone | SV5 |
+| S30 | Deploy rows with requester and approver names, short sha and commit subject (untrusted: quoted, inert, never in card questions) | §10.4 | Usernames; ref only | SV5 |
+
+S21–S30 landed together (SPEC §14.7, "UI state"); their fallbacks are gone from the UI.
 
 ---
 

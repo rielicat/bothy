@@ -119,6 +119,8 @@ func (h *Hub) deliverCard(ctx context.Context, ap *core.Approval) {
 	switch {
 	case fromChat && h.isDMOf(ctx, approver, *origin):
 		add(*origin)
+	case h.webOnly(ctx, approver):
+		// They answer in Bothy's Approvals page; a chat run still hears it waits.
 	case fromChat:
 		if c, ok := h.PreferredChat(ctx, approver); ok {
 			add(c)
@@ -139,6 +141,13 @@ func (h *Hub) deliverCard(ctx context.Context, ap *core.Approval) {
 	if fromChat && (len(targets) == 0 || targets[0].Key() != origin.Key()) {
 		h.reply(ctx, *origin, plainLine("Waiting for the owner to approve "+cardIng(ap)+"."))
 	}
+}
+
+// webOnly reports whether u keeps approval requests on Bothy's Approvals
+// page (Settings → Account) instead of a chat app.
+func (h *Hub) webOnly(ctx context.Context, u core.UserID) bool {
+	usr, err := h.d.Store.Users().Get(ctx, u)
+	return err == nil && usr.ApprovalsWebOnly
 }
 
 func (h *Hub) sendCard(ctx context.Context, ap *core.Approval, chat core.ChatRef) {

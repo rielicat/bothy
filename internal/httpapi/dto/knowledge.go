@@ -17,6 +17,21 @@ type KnowledgeSearchResp struct {
 	Items []core.KnowledgeHit `json:"items"`
 }
 
+// NotesChange is one change in a repo's notes history
+// (GET /api/knowledge/repos/{id}/notes/history[/{version}]), with names
+// for the people and chats it mentions.
+type NotesChange struct {
+	core.NotesVersion
+	Name string    `json:"name,omitempty"` // the person's name, for actor user
+	Chat *ChatLink `json:"chat,omitempty"` // the chat Bothy made the change in, when the caller can open it
+}
+
+// ChatLink names a chat for a link to it.
+type ChatLink struct {
+	ID    core.SessionID `json:"id"`
+	Title string         `json:"title"`
+}
+
 // KnowledgeNotesPutReq replaces a repo's notes; If-Match carries the etag
 // from GET (`""` while there are no notes yet). Empty content removes them.
 type KnowledgeNotesPutReq struct {

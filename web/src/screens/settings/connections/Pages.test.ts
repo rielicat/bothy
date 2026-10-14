@@ -169,11 +169,31 @@ describe('Web search (§12.5)', () => {
     expect(JSON.parse(writes(calls).find((c) => c.method === 'PATCH')!.body).set).toEqual({ 'search.searxng_allow_private': true });
   });
 
-  // Until the server has the check, choosing a provider still saves it.
-  it('saves without a check when the server has none yet', async () => {
-    const calls = await start((m, url) => (m === 'POST' && url === '/api/search/test' ? new Response('{"error":{"code":"not_found","message":"no route"}}', { status: 404 }) : undefined));
+  it('saves nothing when the check itself fails', async () => {
+    const calls = await start((m, url) => (m === 'POST' && url === '/api/search/test' ? new Response('{"error":{"code":"internal","message":"boom"}}', { status: 500 }) : undefined));
     render(WebSearch);
     await fireEvent.click(await screen.findByRole('radio', { name: /SearXNG/ }));
-    await waitFor(() => expect(writes(calls).some((c) => c.method === 'PATCH')).toBe(true));
+    await waitFor(() => expect(writes(calls).some((c) => c.url === '/api/search/test')).toBe(true));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(writes(calls).some((c) => c.method === 'PATCH')).toBe(false);
+    expect(screen.queryByText('Search works.')).toBeNull();
+  });
+
+  it('checks a pasted Brave key before saving it', async () => {
+    // The mock gateway rejects keys containing "bad".
+    const calls = await start();
+    render(WebSearch);
+    await fireEvent.click(await screen.findByRole('radio', { name: /Brave Search/ }));
+    // The saved key is checked first, without sending it.
+    await waitFor(() => expect(writes(calls).filter((c) => c.url === '/api/search/test')).toHaveLength(1));
+    expect(JSON.parse(writes(calls)[0].body)).toEqual({ provider: 'brave' });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Replace' }));
+    const key = (await screen.findByLabelText('API key')) as HTMLInputElement;
+    await fireEvent.input(key, { target: { value: 'BSA-bad-key' } });
+    await fireEvent.keyDown(key, { key: 'Enter' });
+    await waitFor(() => expect(writes(calls).filter((c) => c.url === '/api/search/test')).toHaveLength(2));
+    expect(JSON.parse(writes(calls).filter((c) => c.url === '/api/search/test')[1].body)).toEqual({ provider: 'brave', api_key: 'BSA-bad-key' });
+    expect(await screen.findByText(/That key wasn't accepted/)).toBeTruthy();
+    expect(writes(calls).some((c) => c.url.startsWith('/api/vault'))).toBe(false);
   });
 });

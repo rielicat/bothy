@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/rielicat/bothy/internal/config"
@@ -60,6 +61,11 @@ type Service struct {
 	wake     chan struct{}
 	stopping bool // no new drafts: bgWG is being waited on
 
+	// progress is how far each running index got (under mu); progressAt
+	// when it was last announced.
+	progress   map[int64]core.IndexProgress
+	progressAt map[int64]time.Time
+
 	// notesMu serialises every notes file change with its notes state row.
 	notesMu sync.Mutex
 
@@ -86,6 +92,7 @@ func New(d Deps) (*Service, error) {
 	}
 	s := &Service{d: d, log: d.Log, clock: d.Clock, queued: map[int64]bool{}, running: map[int64]bool{},
 		again: map[int64]bool{}, drafting: map[int64]bool{}, has: map[core.PrincipalID]bool{},
+		progress: map[int64]core.IndexProgress{}, progressAt: map[int64]time.Time{},
 		wake: make(chan struct{}, 1), draftSem: make(chan struct{}, draftSlots)}
 	s.bg, s.bgCancel = context.WithCancel(context.Background())
 	s.tools = []core.Tool{newSearchTool(s), newNotesTool(s)}
@@ -264,8 +271,19 @@ func (s *Service) runJob(ctx context.Context, id int64) {
 		s.log.Warn("knowledge: mark indexing", "repo", id, "err", err)
 		return
 	}
+	ws := workspaceDir(s.d.WorkDir, p)
+	total := r.Files
+	if total == 0 {
+		total = estimateFiles(ws, r.Dir, s.caps().files)
+	}
+	s.setProgress(r.ID, core.IndexProgress{Total: total})
+	defer s.clearProgress(r.ID)
 	s.publish(r, false)
-	st, err := indexDir(ctx, s.d.Repo, r.ID, r.SHA, workspaceDir(s.d.WorkDir, p), r.Dir, s.caps())
+	st, err := indexDir(ctx, s.d.Repo, r.ID, r.SHA, ws, r.Dir, s.caps(), func(done int) {
+		if s.stepProgress(id, done) {
+			s.publish(r, false)
+		}
+	})
 	if ctx.Err() != nil {
 		return
 	}
@@ -331,8 +349,12 @@ func (s *Service) fail(ctx context.Context, r *core.IndexedRepo, err error) {
 }
 
 func (s *Service) publish(r *core.IndexedRepo, deleted bool) {
+	cp := *r
+	if !deleted {
+		s.fill(&cp)
+	}
 	s.d.Bus.Publish(core.Event{Type: core.EvKnowledgeUpdated, Principal: r.Principal,
-		Data: core.KnowledgeUpdatedData{Repo: *r, Deleted: deleted}})
+		Data: core.KnowledgeUpdatedData{Repo: cp, Deleted: deleted}})
 }
 
 func (s *Service) audit(ctx context.Context, actor, action string, r *core.IndexedRepo, outcome string, detail map[string]any) {
@@ -455,11 +477,20 @@ func (s *Service) hasRepos(ctx context.Context, p core.PrincipalID) bool {
 // ---- core.Knowledge ----
 
 func (s *Service) Repos(ctx context.Context, v core.Viewer, p core.PrincipalID) ([]*core.IndexedRepo, error) {
-	return s.d.Repo.List(ctx, v, p)
+	repos, err := s.d.Repo.List(ctx, v, p)
+	for _, r := range repos {
+		s.fill(r)
+	}
+	return repos, err
 }
 
 func (s *Service) Repo(ctx context.Context, v core.Viewer, id int64) (*core.IndexedRepo, error) {
-	return s.d.Repo.Get(ctx, v, id)
+	r, err := s.d.Repo.Get(ctx, v, id)
+	if err != nil {
+		return nil, err
+	}
+	s.fill(r)
+	return r, nil
 }
 
 func (s *Service) Files(ctx context.Context, v core.Viewer, id int64) ([]core.KnowledgeFile, error) {
@@ -510,6 +541,7 @@ func (s *Service) Index(ctx context.Context, v core.Viewer, p core.PrincipalID, 
 		return nil, err
 	}
 	s.audit(ctx, userActor(by), "knowledge.index", r, "ok", map[string]any{"state": "queued", "source": r.Source, "dir": dir, "sha": sha})
+	s.fill(r)
 	return r, nil
 }
 
@@ -542,6 +574,7 @@ func (s *Service) Reindex(ctx context.Context, v core.Viewer, id int64, by core.
 	s.schedule(r.ID)
 	s.publish(r, false)
 	s.audit(ctx, userActor(by), "knowledge.index", r, "ok", map[string]any{"state": "queued", "source": r.Source, "dir": r.Dir, "sha": r.SHA})
+	s.fill(r)
 	return r, nil
 }
 
@@ -603,6 +636,7 @@ func (s *Service) WriteNotes(ctx context.Context, v core.Viewer, id int64, conte
 	if err := s.writeNotesFile(r, content); err != nil {
 		return nil, err
 	}
+	s.recordVersion(r, core.NotesVersion{Actor: core.NotesByUser, User: by, Before: cur, After: content})
 	r.Notes = core.NotesState{Status: core.NotesReady, UpdatedAt: s.clock.Now()}
 	if content == "" {
 		r.Notes.Status = core.NotesNone
@@ -724,6 +758,7 @@ func (s *Service) runDraft(ctx context.Context, r *core.IndexedRepo, p *core.Pri
 		s.audit(bg, actor, "knowledge.notes_draft", cur, "error", map[string]any{"error": cur.Notes.Error})
 		return
 	}
+	s.recordVersion(cur, core.NotesVersion{Actor: core.NotesByBothy, Before: now, After: notes})
 	cur.Notes = core.NotesState{Status: core.NotesReady, Untrusted: true, UpdatedAt: s.clock.Now()}
 	if err := s.d.Repo.UpdateNotes(bg, cur.ID, cur.Notes); err != nil {
 		s.log.Warn("knowledge: store draft state", "repo", r.ID, "err", err)

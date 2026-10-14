@@ -3,7 +3,7 @@
   import Pairing from '../../components/Pairing.svelte';
   import { Button, Dialog, Segmented, Select, SettingsRow, SettingsSection, StatusLine, TextField, toast } from '../../components/ui';
   import { api, ApiError } from '../../lib/api/client';
-  import type { ChannelIdentity, ChannelStatus, TokenRecord } from '../../lib/api/types.gen';
+  import type { ChannelIdentity, ChannelStatus, Profile, TokenRecord } from '../../lib/api/types.gen';
   import { isZeroTime, relTime } from '../../lib/format';
   import { events } from '../../lib/sse.svelte';
   import { session } from '../../lib/stores/session.svelte';
@@ -11,7 +11,7 @@
   import ConfirmDialog from './ConfirmDialog.svelte';
   import ItemRow from './ItemRow.svelte';
   import PasswordDialog from './PasswordDialog.svelte';
-  import { expired, lastUsed, scopeSummary, type Profile } from './accountHelpers';
+  import { expired, lastUsed, scopeSummary } from './accountHelpers';
   import { Saver } from './store.svelte';
   import SettingsFrame from './SettingsFrame.svelte';
   import TokenDialog from './TokenDialog.svelte';
@@ -21,9 +21,7 @@
 
   const me = $derived(session.me?.user);
 
-  // undefined while loading; null when this server has no self-service profile yet.
-  let profile = $state<Profile | null | undefined>(undefined);
-  let profileLoad: Promise<unknown> = Promise.resolve();
+  let profile = $state<Profile | null>(null);
   let identities = $state<ChannelIdentity[]>([]);
   let channels = $state<ChannelStatus[] | null>(null);
   let tokens = $state<TokenRecord[]>([]);
@@ -42,6 +40,11 @@
     identities = all.filter((i) => i.status === 'linked' && i.user_id === me?.id);
   }
 
+  // Linking or unlinking an app changes where approval requests can go.
+  async function loadProfile() {
+    profile = await api.get<Profile>('/api/me').catch(() => profile);
+  }
+
   async function loadTokens() {
     try {
       tokens = await api.get<TokenRecord[]>('/api/tokens');
@@ -55,18 +58,16 @@
     untrack(() => {
       void loadIdentities();
       void loadTokens();
-      profileLoad = api.get<Profile>('/api/me').then(
-        (p) => (profile = p),
-        () => (profile = null),
-      );
+      void loadProfile();
       // Members can't list chat apps yet, so they see only the apps they've linked.
       if (session.isAdmin) api.get<ChannelStatus[]>('/api/channels').then((c) => (channels = c), () => (channels = []));
     });
-    return events.on('pairing.linked', () => void loadIdentities());
+    return events.on('pairing.linked', () => {
+      void loadIdentities();
+      void loadProfile();
+    });
   });
 
-  // Name: anyone with the self-service profile; until the server has it, admins through the people API.
-  const canEditName = $derived(profile !== null || session.isAdmin);
   const nameSaver = new Saver();
   let name = $state('');
   let nameBase = '';
@@ -82,10 +83,7 @@
     const n = name.trim();
     if (!n) return nameSaver.fail('Enter your name.');
     if (n === nameBase || !me) return nameSaver.clear();
-    const ok = await nameSaver.run(async () => {
-      await profileLoad;
-      return profile ? api.patch('/api/me', { display_name: n }) : api.patch(`/api/users/${encodeURIComponent(me.id)}`, { display_name: n });
-    });
+    const ok = await nameSaver.run(async () => (profile = await api.patch<Profile>('/api/me', { display_name: n })));
     if (ok) {
       nameBase = n;
       await session.refresh().catch(() => {});
@@ -100,13 +98,15 @@
   );
 
   const approvalsSaver = new Saver();
-  const approvalOptions = $derived([{ value: 'web', label: 'Bothy only' }, ...linkedApps.map((c) => ({ value: c, label: apps[c] }))]);
+  // The apps the server lets requests go to: the ones linked with a chat Bothy can write to.
+  const approvalApps = $derived(appOrder.filter((c) => profile?.chats.includes(c)));
+  const approvalOptions = $derived([{ value: 'web', label: 'Bothy only' }, ...approvalApps.map((c) => ({ value: c, label: apps[c] }))]);
 
   async function saveApprovals(v: string) {
     const was = profile;
     if (!was) return;
     profile = { ...was, approvals_in: v };
-    if (!(await approvalsSaver.run(() => api.patch('/api/me', { approvals_in: v })))) profile = was;
+    if (!(await approvalsSaver.run(async () => (profile = await api.patch<Profile>('/api/me', { approvals_in: v }))))) profile = was;
   }
 
   let unlinkError = $state('');
@@ -116,6 +116,7 @@
     try {
       await api.del(`/api/identities/${encodeURIComponent(i.channel)}/${encodeURIComponent(i.external_id)}`);
       identities = identities.filter((x) => x !== i);
+      void loadProfile();
       toast(`${apps[i.channel] ?? 'App'} unlinked.`);
     } catch {
       unlinkError = `Bothy couldn't unlink ${apps[i.channel] ?? 'the app'}. Try again.`;
@@ -154,26 +155,22 @@
 
 <SettingsFrame title="Account">
   <SettingsSection title="Profile">
-    <SettingsRow label="Name" status={nameSaver.status} error={nameSaver.error} help={canEditName ? undefined : 'Only an admin can change it.'}>
+    <SettingsRow label="Name" status={nameSaver.status} error={nameSaver.error}>
       {#snippet children(c)}
-        {#if canEditName}
-          <TextField
-            id={c.id}
-            bind:value={name}
-            autocomplete="name"
-            aria-describedby={c.describedBy}
-            aria-invalid={c.invalid || undefined}
-            onblur={saveName}
-            onkeydown={(e: KeyboardEvent) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                void saveName();
-              }
-            }}
-          />
-        {:else}
-          <output id={c.id} class="block text-body break-words text-text">{name}</output>
-        {/if}
+        <TextField
+          id={c.id}
+          bind:value={name}
+          autocomplete="name"
+          aria-describedby={c.describedBy}
+          aria-invalid={c.invalid || undefined}
+          onblur={saveName}
+          onkeydown={(e: KeyboardEvent) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              void saveName();
+            }
+          }}
+        />
       {/snippet}
     </SettingsRow>
     <SettingsRow label="Username">
@@ -190,7 +187,7 @@
     </SettingsRow>
   </SettingsSection>
 
-  {#if profile && linkedApps.length}
+  {#if profile && approvalApps.length}
     <SettingsSection title="Approvals">
       <SettingsRow label="Requests reach you in" help="Bothy also shows them in Approvals." status={approvalsSaver.status} error={approvalsSaver.error}>
         {#snippet children(c)}

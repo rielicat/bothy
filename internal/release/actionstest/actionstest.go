@@ -44,6 +44,7 @@ type Server struct {
 	dispatches []Dispatch
 	runs       []*Run
 	requests   int
+	messages   map[string]string // commit sha -> message
 }
 
 // New starts a fake that accepts only "Bearer <token>".
@@ -54,11 +55,33 @@ func New(token string) *Server {
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/workflows/{wf}/runs", s.list)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs/{id}", s.get)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs/{id}/jobs", s.jobs)
+	mux.HandleFunc("GET /repos/{owner}/{repo}/commits/{sha}", s.commit)
 	s.srv = httptest.NewServer(s.auth(mux))
 	return s
 }
 
 func (s *Server) URL() string { return s.srv.URL }
+
+// SetCommitMessage gives a commit the message GET commits/{sha} returns.
+func (s *Server) SetCommitMessage(sha, msg string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.messages == nil {
+		s.messages = map[string]string{}
+	}
+	s.messages[sha] = msg
+}
+
+func (s *Server) commit(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	msg, ok := s.messages[r.PathValue("sha")]
+	s.mu.Unlock()
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"message": "Not Found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sha": r.PathValue("sha"), "commit": map[string]any{"message": msg}})
+}
 
 func (s *Server) Close() { s.srv.Close() }
 

@@ -129,6 +129,9 @@ func (s *Service) startSession(ctx context.Context, u *core.User, ip string) (st
 	if err := s.store.AuthSessions().Create(ctx, sess); err != nil {
 		return "", core.Actor{}, err
 	}
+	if err := s.store.Users().SignedIn(ctx, u.ID, now); err != nil {
+		return "", core.Actor{}, err
+	}
 	v, err := s.viewerOf(ctx, u)
 	if err != nil {
 		return "", core.Actor{}, err

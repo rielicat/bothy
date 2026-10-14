@@ -364,6 +364,10 @@ type ProviderHealth struct {
 	State     string       `json:"state"` // ok | degraded | down | auth_failed
 	LastError string       `json:"last_error,omitempty"`
 	Since     time.Time    `json:"since"`
+	// Source says in plain words where the credentials come from ("Saved
+	// key", "AWS Secrets Manager", "This server's AWS access (SSO profile
+	// demo)"), never what they are; "" when the provider needs none.
+	Source string `json:"source,omitempty"`
 }
 
 // LLM is the fallback-aware facade the agent uses. It owns retries, circuit

@@ -86,7 +86,7 @@ describe('GitHub manage view', () => {
     expect(screen.getByText('acme/web · Deploy workflow · 1 approval from any admin')).toBeTruthy();
   });
 
-  // S19 fallback: without the workflow list the row names the workflow file.
+  // When GitHub can't list the workflows, the row names the workflow file.
   it('names the workflow file when GitHub workflows are not listed', async () => {
     await setup((m, url) => (url.endsWith('/workflows') ? new Response('{"error":{"code":"not_found","message":"no route"}}', { status: 404 }) : undefined));
     expect(await screen.findByText('acme/web · deploy.yml · 1 approval from any admin')).toBeTruthy();
@@ -126,8 +126,8 @@ describe('GitHub manage view', () => {
 
 describe('Environment dialog', () => {
   const users = [
-    { id: 'usr_01jsam0000000000000000000', username: 'sam', display_name: 'Sam', role: 'owner', timezone: '', disabled: false, created_at: '', updated_at: '' },
-    { id: 'usr_01jalex000000000000000000', username: 'alex', display_name: 'Alex', role: 'member', timezone: '', disabled: false, created_at: '', updated_at: '' },
+    { id: 'usr_01jsam0000000000000000000', username: 'sam', display_name: 'Sam', role: 'owner', timezone: '', disabled: false, created_at: '', updated_at: '', last_login_at: '' },
+    { id: 'usr_01jalex000000000000000000', username: 'alex', display_name: 'Alex', role: 'member', timezone: '', disabled: false, created_at: '', updated_at: '', last_login_at: '' },
   ];
 
   async function open(props: Record<string, unknown> = {}) {

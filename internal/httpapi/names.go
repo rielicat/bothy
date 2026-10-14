@@ -16,6 +16,7 @@ type namer struct {
 	v         core.Viewer
 	users     map[core.UserID]string
 	sessions  map[core.SessionID]string
+	origins   map[core.SessionID]string
 	schedules map[core.ScheduleID]string
 	idents    map[string]string
 	tokens    map[string]string
@@ -32,7 +33,7 @@ const (
 
 func (s *Server) namer(ctx context.Context, v core.Viewer) *namer {
 	return &namer{s: s, ctx: ctx, v: v, users: map[core.UserID]string{}, sessions: map[core.SessionID]string{},
-		schedules: map[core.ScheduleID]string{}, idents: map[string]string{}, tokens: map[string]string{},
+		origins: map[core.SessionID]string{}, schedules: map[core.ScheduleID]string{}, idents: map[string]string{}, tokens: map[string]string{},
 		spaces: map[core.PrincipalID]*core.Space{}, senders: map[core.SessionID]map[core.RunID]string{}}
 }
 
@@ -69,8 +70,19 @@ func (n *namer) chat(id core.SessionID) string {
 	return t
 }
 
+// origin is where a chat lives (web, telegram, slack, discord, api), as
+// far as the viewer may open it.
+func (n *namer) origin(id core.SessionID) string {
+	if id == "" {
+		return ""
+	}
+	n.chat(id)
+	return n.origins[id]
+}
+
 // title names a session already loaded through the viewer.
 func (n *namer) title(sess *core.Session) string {
+	n.origins[sess.ID] = sess.Origin
 	if t, ok := n.sessions[sess.ID]; ok {
 		return t
 	}

@@ -2,7 +2,7 @@
 // domains the way internal/httpapi/h_inbox.go does, so deciding an item
 // through its own endpoint (a pin approval, a skill or identity change, a
 // group chat change) takes it off the list.
-import type { InboxItem, MCPPin } from '../../src/lib/api/types.gen.ts';
+import type { InboxItem, MCPPin, SkillChanges, SkillMeta } from '../../src/lib/api/types.gen.ts';
 import { list as approvals, forYou } from './approvals.ts';
 import { state as connections } from './connections.ts';
 import { fail, json, member, on, owner, scenario, viewer, type Req } from './core.ts';
@@ -19,6 +19,22 @@ function serverOff(name: string): boolean {
   return settings.effective.entries?.some((e) => e.path === `mcp.servers.${name}.enabled` && e.value === false) ?? false;
 }
 
+// What changed since approval, as h_uistate.go skillChanges sends it.
+function skillChanges(s: SkillMeta): SkillChanges {
+  if (s.status === 'pending') return { files: [{ path: 'SKILL.md', change: 'added', after: `---\nname: ${s.name}\ndescription: ${s.description}\n---\n\nUploaded from a zip file.\n` }] };
+  return {
+    files: [
+      {
+        path: 'SKILL.md',
+        change: 'changed',
+        before: '1. Build a timeline from the chat, the deploys and the alerts.\n2. Say what customers saw and for how long.\n',
+        after: '1. Build a timeline from the chat, the deploys and the alerts.\n2. Say what customers saw and for how long.\n3. Post the review to #incidents when it is done.\n',
+      },
+      { path: 'scripts/post.sh', change: 'added', after: '#!/bin/sh\ncurl -s -X POST "$SLACK_WEBHOOK" -d @review.json\n' },
+    ],
+  };
+}
+
 export function inbox(req: Req): InboxItem[] {
   const me = viewer(req);
   const admin = (rank[me.role] ?? 0) >= rank.admin;
@@ -33,7 +49,8 @@ export function inbox(req: Req): InboxItem[] {
       const before = mine.map((p) => connections.pins.find((x) => x.server === server && x.tool === p.tool && x !== p && x.status !== 'pending')).filter((p): p is MCPPin => !!p);
       out.push({ id: `mcp:${server}`, type: 'mcp_review', question: '', summary: `${mine.length} ${mine.length === 1 ? 'tool' : 'tools'} changed`, for_you: true, created_at: mine[0].first_seen_at, mcp: { server, tools: [...mine, ...before] } });
     }
-    for (const s of knowledge.skills.filter((x) => x.status === 'changed' || x.status === 'pending')) out.push({ id: `skill:${s.name}`, type: 'skill_review', question: '', for_you: true, created_at: s.updated_at, skill: s });
+    for (const s of knowledge.skills.filter((x) => x.status === 'changed' || x.status === 'pending'))
+      out.push({ id: `skill:${s.name}`, type: 'skill_review', question: '', for_you: true, created_at: s.updated_at, skill: s, skill_changes: skillChanges(s) });
     for (const i of connections.identities.filter((x) => x.status === 'pending')) out.push({ id: `sender:${i.channel}:${i.external_id}`, type: 'unknown_sender', question: '', for_you: true, created_at: i.first_seen_at, sender: i });
   }
   for (const sp of connections.spaces.filter((x) => x.kind === 'group' && !x.enabled && x.updated_at === x.created_at && (admin || x.owner_user_id === me.id))) {

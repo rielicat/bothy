@@ -46,7 +46,7 @@
 
   let repo = $state<KnowledgeRepo | null>(null);
   let notes = $state<KnowledgeNotes | null>(null);
-  /** null: the server keeps no notes history yet, so History is hidden. */
+  /** null: the history didn't load, so History is hidden. */
   let history = $state<NotesChange[] | null>(null);
   let missing = $state(false);
   let failed = $state(false);

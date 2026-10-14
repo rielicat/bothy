@@ -19,6 +19,7 @@ describe('task outcome words (docs/design/ui.md §10.1)', () => {
       ['skipped', 'Skipped'],
     ])
       expect(outcome({ status, steps: 0 })).toEqual({ text, tone: 'muted' });
+    expect(outcome({ status: 'stopped', steps: 3, reason: 'by Maya Chen' })).toEqual({ text: 'Stopped by Maya Chen', tone: 'muted' });
   });
 
   it('names where a task came from', () => {

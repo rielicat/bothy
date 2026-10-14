@@ -88,6 +88,13 @@ describe('Settings → Models', () => {
     expect(key.value).toBe('sk-ant-0123456789abcdefghijkl');
   });
 
+  it('says where a provider gets its credentials, never what they are', async () => {
+    await fireEvent.click(screen.getByRole('button', { name: 'Manage Anthropic' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Anthropic' });
+    expect(within(dialog).getByText('Credentials from: Saved key')).toBeTruthy();
+    expect(dialog.textContent).not.toMatch(/sk-ant|secret:/);
+  });
+
   it('turns an off provider on from Manage', async () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Manage Google Gemini' }));
     const dialog = await screen.findByRole('dialog', { name: 'Google Gemini' });

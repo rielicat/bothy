@@ -2,6 +2,7 @@ package conformance
 
 import (
 	"crypto/sha256"
+	"strings"
 	"time"
 
 	"github.com/rielicat/bothy/internal/core"
@@ -102,6 +103,32 @@ func testUsers(f *fx) {
 	f.must(err, "Get")
 	f.check(got.FailedLogins == 0 && got.LockedUntil.IsZero(), "after success: failed=%d locked=%v", got.FailedLogins, got.LockedUntil)
 	f.want(r.RecordLogin(f.ctx, core.UserID(core.NewID(core.PrefixUser)), true, time.Time{}), core.ErrNotFound, "RecordLogin missing")
+
+	f.check(got.LastLoginAt.IsZero(), "LastLoginAt before any sign-in = %v", got.LastLoginAt)
+	f.must(r.RecordLogin(f.ctx, member.ID, false, at(70)), "RecordLogin failure")
+	f.must(r.SignedIn(f.ctx, member.ID, at(80)), "SignedIn")
+	got, err = r.Get(f.ctx, member.ID)
+	f.must(err, "Get after SignedIn")
+	f.check(got.LastLoginAt.Equal(at(80)) && got.FailedLogins == 0 && got.LockedUntil.IsZero(),
+		"after SignedIn: last=%v failed=%d locked=%v", got.LastLoginAt, got.FailedLogins, got.LockedUntil)
+	f.want(r.SignedIn(f.ctx, core.UserID(core.NewID(core.PrefixUser)), at(80)), core.ErrNotFound, "SignedIn missing")
+	prefs := *got
+	prefs.PreferredChat, prefs.ApprovalsWebOnly, prefs.LastLoginAt, prefs.UpdatedAt = "telegram", true, at(1), at(90)
+	f.must(r.Update(f.ctx, &prefs), "Update preferences")
+	got, err = r.Get(f.ctx, member.ID)
+	f.must(err, "Get after Update")
+	f.check(got.PreferredChat == "telegram" && got.ApprovalsWebOnly && got.LastLoginAt.Equal(at(80)),
+		"Update stores the preferences and leaves the sign-in time: %+v", got)
+	long := prefs
+	long.PreferredChat = strings.Repeat("x", 33)
+	f.want(r.Update(f.ctx, &long), core.ErrInvalid, "preferred_chat length CHECK")
+	if list, err := r.List(f.ctx); err == nil {
+		for _, u := range list {
+			if u.ID == member.ID {
+				f.check(u.LastLoginAt.Equal(at(80)) && u.PreferredChat == "telegram", "List row = %+v", u)
+			}
+		}
+	}
 
 	po, err := f.s.Principals().Get(f.ctx, core.SystemViewer(), core.UserPrincipal(owner.ID))
 	f.must(err, "Create also creates the user principal")

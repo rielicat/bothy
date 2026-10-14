@@ -49,6 +49,7 @@ export const owner: User = {
   disabled: false,
   created_at: ago(60 * 24 * 30),
   updated_at: ago(60 * 24 * 2),
+  last_login_at: ago(2),
 };
 
 export const member: User = {
@@ -60,6 +61,7 @@ export const member: User = {
   disabled: false,
   created_at: ago(60 * 24 * 12),
   updated_at: ago(60 * 24 * 12),
+  last_login_at: ago(60 * 5),
 };
 
 export const principals: Principal[] = [
@@ -84,6 +86,9 @@ export const core = {
   me: clone(owner),
   mode: 'single',
   paused: false,
+  // Who paused and when, while paused from the UI.
+  pausedBy: null as User | null,
+  pausedAt: '',
   banners: [] as BannerData[],
   // Never reset: open event streams would take a lower id for a replay.
   seq: 0,
@@ -106,6 +111,8 @@ export function resetAll(opts: ResetOpts = {}) {
     me: clone(owner),
     mode: 'single',
     paused: false,
+    pausedBy: null,
+    pausedAt: '',
     banners: [{ level: 'warn', code: 'mcp_pins', text: 'One MCP tool changed and waits for your review.', action: '/settings/mcp' }],
   });
   for (const fn of resets) fn({ ...opts, setup, login });
@@ -213,3 +220,14 @@ export const apiDown = scenario('api-down', 'Every /api call fails with 503, as 
 
 export const viewer = (req?: Req): User => (asMember(req) ? clone(member) : core.me);
 export const isPaused = (req?: Req) => core.paused || pausedNow(req);
+
+/** Who paused and when, as Me and the paused banner say: the paused scenario was Sam, 42 minutes ago. */
+export function pauseInfo(req?: Req): { by: User; at: string } | null {
+  if (core.paused && core.pausedBy) return { by: core.pausedBy, at: core.pausedAt };
+  return pausedNow(req) ? { by: owner, at: ago(42) } : null;
+}
+
+export function pausedBanner(req?: Req): BannerData {
+  const p = pauseInfo(req);
+  return { level: 'error', code: 'paused', text: `Bothy is paused by ${p?.by.display_name ?? 'an admin'}.`, action: '/settings/security', by: p?.by.id, by_name: p?.by.display_name, at: p?.at };
+}

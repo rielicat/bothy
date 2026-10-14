@@ -219,6 +219,7 @@ type state struct {
 	mcpPins     map[pinKey]mcpPinRow
 	installs    map[string]installRow
 	skills      map[string]core.SkillMeta
+	skillFiles  map[string][]core.SkillFile
 	memEvents   []core.MemoryEvent
 	vaultKeys   []vaultKeyRow
 	secrets     map[secretKey]secretRow
@@ -250,6 +251,7 @@ func newState() state {
 		mcpPins:     map[pinKey]mcpPinRow{},
 		installs:    map[string]installRow{},
 		skills:      map[string]core.SkillMeta{},
+		skillFiles:  map[string][]core.SkillFile{},
 		secrets:     map[secretKey]secretRow{},
 		dedup:       map[dedupKey]time.Time{},
 		uploads:     map[string]core.Upload{},
@@ -286,6 +288,7 @@ func (st *state) clone() state {
 	c.mcpPins = maps.Clone(st.mcpPins)
 	c.installs = maps.Clone(st.installs)
 	c.skills = maps.Clone(st.skills)
+	c.skillFiles = maps.Clone(st.skillFiles)
 	c.memEvents = slices.Clone(st.memEvents)
 	c.vaultKeys = slices.Clone(st.vaultKeys)
 	c.secrets = maps.Clone(st.secrets)

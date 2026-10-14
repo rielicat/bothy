@@ -85,6 +85,9 @@ func TestRefineVotesOverDraftsAndStopsEarly(t *testing.T) {
 		synctest.Wait()
 
 		run := h.run(id)
+		if !run.Refined {
+			t.Fatal("a refined answer's run is not marked refined")
+		}
 		if run.Status != core.RunDone || run.Steps != 1 {
 			t.Fatalf("run %s (%s), %d steps; notices %v", run.Status, run.Error, run.Steps, h.notices())
 		}
@@ -423,6 +426,9 @@ func TestRefineStopsBeforeTheTimeLimit(t *testing.T) {
 				msg, tr := h.answer()
 				if tr.Fallback != refine.FallbackTime || tr.Calls != tc.traced || msg.PlainText() != "It is 1.\nFinal answer: 1" {
 					t.Fatalf("trace %+v reply %q", tr, msg.PlainText())
+				}
+				if run.Refined != (tc.traced > 1) {
+					t.Fatalf("refined = %v with %d traced calls", run.Refined, tc.traced)
 				}
 			})
 		})

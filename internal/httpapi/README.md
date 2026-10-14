@@ -80,6 +80,14 @@ copy, the caller's items first: approvals and note suggestions, and for
 admins MCP tools and skills to review and recent unknown senders; new group
 chats go to their owner and admins. Items are decided through their own
 endpoints.
+`h_uistate.go` holds what the redesigned screens used to fall back on:
+`GET`/`PATCH /api/me` (the caller's own name and where approval requests
+reach them; the patch is cookie-only), `POST /api/search/test` (admin),
+`GET /api/skills/{name}/files/{path...}` (served as sandboxed `text/plain`,
+404 for anything the caller cannot see), the notes history routes and
+`GET /api/github/repos/{owner}/{repo}/workflows` (admin). It also fills the
+provider credential `source`, a changed skill's file diff on its inbox item
+and the knowledge `stale` flag (default branch heads cached per repository).
 
 For the v0.2 UI (docs/design/ui.md §17) responses carry names instead of
 ids (`names.go`, cached per response and resolved through the caller's own

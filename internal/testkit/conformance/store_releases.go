@@ -3,6 +3,7 @@ package conformance
 import (
 	"errors"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -227,6 +228,7 @@ func testReleases(f *fx) {
 	f.want(r.Create(f.ctx, &core.Deploy{ID: d1.ID, Principal: pa, Status: core.DeployDispatched}), core.ErrConflict, "duplicate id")
 	f.want(r.Create(f.ctx, func() *core.Deploy { d := mk(pa, "x", 4); d.Status = "lost"; return d }()), core.ErrInvalid, "status CHECK")
 	f.want(r.Create(f.ctx, func() *core.Deploy { d := mk(pa, "x", 4); d.Via = "elsewhere"; return d }()), core.ErrInvalid, "via CHECK")
+	f.want(r.Create(f.ctx, func() *core.Deploy { d := mk(pa, "x", 4); d.Subject = strings.Repeat("s", 401); return d }()), core.ErrInvalid, "subject length CHECK")
 	if got, err := r.Get(f.ctx, core.SystemViewer(), d2.ID); err == nil {
 		f.eq("Via defaults to empty", got.Via, "")
 	}
@@ -244,6 +246,7 @@ func testReleases(f *fx) {
 
 	got.Status, got.WorkflowRun, got.RunURL, got.Conclusion, got.UpdatedAt, got.FinishedAt =
 		core.DeploySucceeded, 77, "https://github.com/acme/web/actions/runs/77", "success", at(9), at(9)
+	got.SHA, got.Subject = "4f2c1a9e8b7d6c5f4e3d2c1b0a9f8e7d6c5b4a39", "Fix the login redirect"
 	f.must(r.Update(f.ctx, got), "Update")
 	again, err := r.Get(f.ctx, core.SystemViewer(), d1.ID)
 	f.must(err, "Get after Update")

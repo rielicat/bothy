@@ -75,10 +75,20 @@ func (h *Hub) PreferredChat(ctx context.Context, u core.UserID) (core.ChatRef, b
 		h.log.Error("channel: listing identities failed", "user", u, "err", err)
 		return core.ChatRef{}, false
 	}
+	// The chat app the person chose (Settings → Account) wins while it is
+	// connected; otherwise the linked one they used last.
+	pref := ""
+	if usr, err := h.d.Store.Users().Get(ctx, u); err == nil {
+		pref = usr.PreferredChat
+	}
 	var best *core.ChannelIdentity
 	for _, id := range ids {
 		if id.Status != core.IdentityLinked || id.User != u || id.DMChat == "" || h.live(id.Channel) == nil {
 			continue
+		}
+		if id.Channel == pref {
+			best = id
+			break
 		}
 		if best == nil || id.LastSeen.After(best.LastSeen) {
 			best = id
