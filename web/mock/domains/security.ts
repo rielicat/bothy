@@ -30,10 +30,10 @@ const grant = (id: string, g: Partial<Grant>): Grant => ({
 });
 
 export const grants: Grant[] = [
-  grant('grt_01jbooks000000000000000000', { value: 'www.edinburghbookshops.example:443', uses: 4, created_at: ago(60 * 24 * 3) }),
+  grant('grt_01jbooks000000000000000000', { value: 'www.edinburghvenues.example:443', uses: 4, created_at: ago(60 * 24 * 3) }),
   grant('grt_01jslack000000000000000000', { kind: 'recipient', value: 'slack:C04ENG:', max_se: 'external_send', uses: 12, created_at: ago(60 * 24 * 6) }),
   grant('grt_01jshell000000000000000000', { kind: 'tool', tool: 'shell', pattern: { '/argv/0': 'pytest*' }, max_se: 'local_write', created_at: ago(60 * 5) }),
-  grant('grt_01jfamily00000000000000000', { principal_id: principals[1].id, kind: 'domain', value: 'api.met.no:443', created_at: ago(60 * 24 * 12) }),
+  grant('grt_01jfamily00000000000000000', { principal_id: principals[1].id, kind: 'domain', value: 'status.acme.example:443', created_at: ago(60 * 24 * 12) }),
 ];
 
 export const sandbox: SandboxInfo = {

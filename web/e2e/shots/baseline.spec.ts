@@ -10,9 +10,9 @@ const states: ShotState[] = [
   { name: 'setup-account', route: '/setup#t=demo-setup-token', mock: 'setup', ready: 'Create your account' },
   { name: 'login', route: '/login', mock: 'logged-out' },
   { name: 'chat-new', route: '/chat' },
-  { name: 'chat', route: '/chat/ses_01jtrip000000000000000000', ready: 'gentle plan' },
+  { name: 'chat', route: '/chat/ses_01jtrip000000000000000000', ready: 'simple plan' },
   // Not sealed: C1's shell blocks the app with the unlock screen for admins while saved keys are locked.
-  { name: 'chat-paused', route: '/chat/ses_01jtrip000000000000000000', mock: 'paused', ready: 'gentle plan' },
+  { name: 'chat-paused', route: '/chat/ses_01jtrip000000000000000000', mock: 'paused', ready: 'simple plan' },
   { name: 'approvals', route: '/approvals' },
   { name: 'approvals-parked', route: '/approvals?status=parked' },
   { name: 'knowledge', route: '/knowledge' },

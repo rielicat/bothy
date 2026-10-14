@@ -27,7 +27,7 @@ describe('accessibility (axe)', () => {
     await session.init();
   });
 
-  it('chat', () => check('/chat/ses_01jtrip000000000000000000', () => screen.getByText(/Here's a gentle plan/)));
+  it('chat', () => check('/chat/ses_01jtrip000000000000000000', () => screen.getByText(/Here's a simple plan/)));
   // v0.2 lists chats in the shell sidebar (C1); /chat is the new chat itself (docs/design/ui.md §7.2).
   it('new chat', () => check('/chat', () => screen.getByText('What should Bothy work on?')));
   it('approvals', () => check('/approvals', () => screen.getByRole('heading', { name: 'Waiting for others' })));

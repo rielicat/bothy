@@ -27,7 +27,7 @@ describe('Allowed without asking', () => {
     await signIn();
     render(Permissions);
     await screen.findByText('Send messages to a chat in Slack');
-    expect(screen.getByText('www.edinburghbookshops.example')).toBeTruthy();
+    expect(screen.getByText('www.edinburghvenues.example')).toBeTruthy();
     expect(screen.getByText('pytest*')).toBeTruthy();
     expect(screen.getAllByText(/^For Sam ·/).length).toBeGreaterThan(0);
     expect(screen.getByText(/In the group chat “Ops team” ·/)).toBeTruthy();
@@ -62,7 +62,7 @@ describe('Websites Bothy can reach', () => {
     expect(screen.getByText('*.wikipedia.org')).toBeTruthy();
     const blocked = screen.getByRole('heading', { name: 'Blocked recently' }).closest('section')!;
     await waitFor(() => expect(within(blocked).getByText(inChat.host)).toBeTruthy());
-    expect(within(blocked).getByText(/From “Weekend in Edinburgh”/)).toBeTruthy();
+    expect(within(blocked).getByText(/From “Edinburgh team offsite”/)).toBeTruthy();
   });
 
   it('adds what someone types as a clean site name', async () => {

@@ -139,11 +139,11 @@ function waitingList(): Approval[] {
     make({
       id: 'apr_01jshell00000000000000000',
       title: 'Run shell command',
-      act: action('shell', 'exec', 'local_write', { argv: ['bash', '-lc', "python3 build_itinerary.py --out maps/edinburgh.html --city 'Edinburgh'"], cwd: 'trips/' }, {
-        argv: ['bash', '-lc', "python3 build_itinerary.py --out maps/edinburgh.html --city 'Edinburgh'"],
-        cwd: 'trips/',
+      act: action('shell', 'exec', 'local_write', { argv: ['bash', '-lc', "python3 build_agenda.py --out plans/offsite-agenda.html --city 'Edinburgh'"], cwd: 'plans/' }, {
+        argv: ['bash', '-lc', "python3 build_agenda.py --out plans/offsite-agenda.html --city 'Edinburgh'"],
+        cwd: 'plans/',
       }),
-      context: 'Web · session “Weekend in Edinburgh”',
+      context: 'Web · session “Edinburgh team offsite”',
       session: ids.trip,
       created: 30,
       expires: 10,

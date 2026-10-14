@@ -239,8 +239,8 @@ export function runDetail(id: string) {
     return { run, llm_calls: [llm(1)], tool_calls: [call(id, 1, 'github_runs', { payload: { repo: 'acme/web' } }, { status: 'error', result_preview: 'GitHub answered 401: Bad credentials' })], approvals: [] };
   }
   if (id === ids.tripRun) {
-    const search = call(id, 1, 'web_search', { kind: 'search', payload: { query: 'Edinburgh weekend weather forecast' } }, { untrusted: true, result_preview: 'Sat: 14°C, light showers in the morning. Sun: 16°C, sunny spells.', session_id: ids.trip });
-    const fetch = call(id, 2, 'web_fetch', { kind: 'http', method: 'GET', url: 'https://www.edinburghbookshops.example/guide', host: 'www.edinburghbookshops.example', payload: { url: 'https://www.edinburghbookshops.example/guide' } }, { untrusted: true, rule: 'grant:grt_01jbooks000000000000000000', session_id: ids.trip });
+    const search = call(id, 1, 'web_search', { kind: 'search', payload: { query: 'Edinburgh weather next week' } }, { untrusted: true, result_preview: 'Tue: 14°C, light showers in the morning. Wed: 16°C, sunny spells.', session_id: ids.trip });
+    const fetch = call(id, 2, 'web_fetch', { kind: 'http', method: 'GET', url: 'https://www.edinburghvenues.example/guide', host: 'www.edinburghvenues.example', payload: { url: 'https://www.edinburghvenues.example/guide' } }, { untrusted: true, rule: 'grant:grt_01jbooks000000000000000000', session_id: ids.trip });
     return { run: { ...run, session_id: ids.trip }, llm_calls: [llm(1), llm(2)], tool_calls: [search, fetch], approvals: [] };
   }
   return { run, llm_calls: [llm(1)], tool_calls: [], approvals: [] };
@@ -270,7 +270,7 @@ export const egress: EgressRow[] = [
   { id: 93, at: ago(20), dialer: 'public', principal_id: owner.id, run_id: 'run_01jfixlogin0000000000000', dest: '', host: 'api.github.com', port: 443, decision: 'allow', bytes_up: 820, bytes_down: 48211, duration: 900e6, outcome: 'reached' },
   { id: 92, at: ago(60), dialer: 'public', principal_id: owner.id, run_id: 'run_01jstandup10000000000000', dest: '', host: 'api.example.com', port: 443, decision: 'allow', bytes_up: 300, bytes_down: 0, duration: 10e9 },
   { id: 91, at: ago(93), dialer: 'box', principal_id: owner.id, run_id: 'run_01jstandup10000000000000', dest: '', host: 'paste.example.net', port: 443, decision: 'deny', reason: 'not on the allowlist', bytes_up: 0, bytes_down: 0, duration: 0, outcome: 'blocked' },
-  { id: 90, at: ago(D + 61), dialer: 'public', session_id: ids.trip, principal_id: owner.id, run_id: ids.tripRun, dest: '', host: 'www.edinburghbookshops.example', port: 443, ip: '93.184.216.34', decision: 'allow', bytes_up: 820, bytes_down: 48211, duration: 900e6 },
+  { id: 90, at: ago(D + 61), dialer: 'public', session_id: ids.trip, principal_id: owner.id, run_id: ids.tripRun, dest: '', host: 'www.edinburghvenues.example', port: 443, ip: '93.184.216.34', decision: 'allow', bytes_up: 820, bytes_down: 48211, duration: 900e6 },
 ];
 
 const now = Date.now();
