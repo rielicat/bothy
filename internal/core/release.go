@@ -83,8 +83,8 @@ type Deploy struct {
 	UpdatedAt   time.Time    `json:"updated_at"`
 	FinishedAt  time.Time    `json:"finished_at"`
 	// Via is who dispatched the deploy, so the follower reads its run
-	// through the same credentials whatever the allowlists say later;
-	// "" (deploys recorded before v0.2 kept it) picks per call.
+	// through the same credentials whatever the allowlists say later. A
+	// deploy recorded before Via was kept has "" and follows today's choice.
 	Via string `json:"via,omitempty"` // DeployViaConnection | DeployViaToken
 }
 

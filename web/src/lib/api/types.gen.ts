@@ -473,7 +473,9 @@ export interface GitHubConnection {
 /**
  * GitHubRepo is a repository a connection can reach. Only Allowed ones are
  * offered to the agent. Owner and name are unique case-insensitively across
- * connections and keep GitHub's spelling.
+ * connections and keep GitHub's spelling. LastIndexedSHA is never stored:
+ * indexes are per principal, so GET /api/github/repos fills in the commit
+ * the caller's own index of the repository last read (IndexedRepo.IndexedSHA).
  */
 export interface GitHubRepo {
   connection_id: string;
@@ -483,7 +485,7 @@ export interface GitHubRepo {
   default_branch: string;
   private: boolean;
   allowed: boolean;
-  last_indexed_sha?: string; // set by the knowledge index
+  last_indexed_sha?: string; // the caller's own index state
   created_at: string /* RFC 3339 */;
   updated_at: string /* RFC 3339 */;
 }
@@ -778,6 +780,11 @@ export interface IndexedRepo {
   notes: NotesState;
   created_at: string /* RFC 3339 */;
   updated_at: string /* RFC 3339 */;
+  /**
+   * IndexedSHA is the commit the latest finished index read ("" until one
+   * finished); UpdateIndex writes it.
+   */
+  indexed_sha: string;
 }
 export interface NotesState {
   status: string; // none | drafting | ready | error
@@ -1258,6 +1265,12 @@ export interface Request {
   ToolChoice: string; // "auto" | "none" | "required" (force some tool call)
   Stop: string[];
   NumCtx: number /* int */; // Ollama native only
+  /**
+   * CacheKey is stable for every call of one session and opaque (a hash,
+   * never an id); the OpenAI Responses client sends it as
+   * prompt_cache_key. "" sends none.
+   */
+  CacheKey: string;
 }
 export type StreamEventType = number /* uint8 */;
 export const StreamTextDelta: StreamEventType = 0 + 1;
@@ -1570,7 +1583,21 @@ export interface Deploy {
   created_at: string /* RFC 3339 */;
   updated_at: string /* RFC 3339 */;
   finished_at: string /* RFC 3339 */;
+  /**
+   * Via is who dispatched the deploy, so the follower reads its run
+   * through the same credentials whatever the allowlists say later. A
+   * deploy recorded before Via was kept has "" and follows today's choice.
+   */
+  via?: string; // DeployViaConnection | DeployViaToken
 }
+/**
+ * Deploy.Via values.
+ */
+export const DeployViaConnection = "connection";
+/**
+ * Deploy.Via values.
+ */
+export const DeployViaToken = "token";
 export interface DeployFilter {
   Environment: string; // "" = all
   Open: boolean; // only deploys still followed (dispatched or running)
