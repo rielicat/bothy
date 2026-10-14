@@ -2,6 +2,7 @@ package policy
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -286,6 +287,15 @@ func (e *Engine) floors(ctx context.Context, x *input, rule *config.Rule) (core.
 			return ruleDenied(rule), true
 		}
 		return e.ask(x, askSpec{rule: "floor:net_allow", reason: "network access for the sandbox always needs approval", floor: true, grants: true, noOnce: true}), true
+	}
+	if m.AlwaysAsk {
+		d, done := askFloor("floor:always_ask", cmp.Or(m.Title, x.a.Tool)+" always needs approval", false)
+		// The floor decides before step C, so its first-contact warning is
+		// carried over here.
+		if _, target, first := e.firstContact(ctx, x); first && d.Verdict == core.VerdictAsk {
+			d.Warnings = append(d.Warnings, "First contact with "+target+".")
+		}
+		return d, done
 	}
 	return core.Decision{}, false
 }
