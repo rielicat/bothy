@@ -50,5 +50,5 @@ describe('accessibility (axe), first run', () => {
     await session.init();
   });
 
-  it('setup wizard', () => check('/setup', () => screen.getByText('Welcome to your own assistant')));
+  it('setup wizard', () => check('/setup', () => screen.getByText('Set up Bothy')));
 });
