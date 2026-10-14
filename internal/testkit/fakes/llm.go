@@ -28,6 +28,7 @@ type LLM struct {
 	Steps    []LLMStep
 	Requests []*core.Request
 	Info     core.ModelInfo
+	Probes   []core.ProbeConfig // every Probe call's config
 
 	mu      sync.Mutex
 	next    int
@@ -202,7 +203,11 @@ func (l *LLM) Estimate(text string, _ core.ModelRef) int { return (len(text)*10 
 
 func (l *LLM) Calibrate(core.ModelRef, int, int) {}
 
-func (l *LLM) Probe(context.Context, core.ProbeConfig) (core.ProbeResult, error) {
+// Probe records cfg in Probes and reports the one model as working.
+func (l *LLM) Probe(_ context.Context, cfg core.ProbeConfig) (core.ProbeResult, error) {
+	l.mu.Lock()
+	l.Probes = append(l.Probes, cfg)
+	l.mu.Unlock()
 	info := l.model(nil)
 	return core.ProbeResult{OK: true, ToolCalling: info.Tools, UsageReported: true, Context: info.Context, Models: []string{info.Ref.Model}}, nil
 }

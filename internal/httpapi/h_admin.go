@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/httpapi/dto"
 )
@@ -427,12 +428,22 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request, _ core.Act
 		return err
 	}
 	switch req.Kind {
-	case core.KindAnthropic, core.KindOpenAI, core.KindGemini, core.KindOllama, core.KindOpenAICompat:
+	case core.KindAnthropic, core.KindOpenAI, core.KindGemini, core.KindOllama, core.KindOpenAICompat, core.KindBedrock:
 	default:
 		return badRequest("unknown provider kind %q", req.Kind)
 	}
 	if req.SecretRef != "" && !strings.HasPrefix(req.SecretRef, "secret:") {
 		return badRequest("secret_ref must be secret:<name>")
+	}
+	switch {
+	case req.Kind != core.KindBedrock && (req.Region != "" || req.Profile != ""):
+		return badRequest("region and profile apply to kind bedrock only")
+	case req.Kind == core.KindBedrock && (req.APIKey != "" || req.SecretRef != ""):
+		return badRequest("bedrock uses the server's AWS credentials; send no api_key or secret_ref")
+	case req.Region != "" && !config.ValidAWSRegion(req.Region):
+		return badRequest("region %q is not an AWS region name", req.Region)
+	case req.Profile != "" && !config.ValidAWSProfile(req.Profile):
+		return badRequest("invalid AWS profile name")
 	}
 	if req.APIKey != "" && s.d.Vault != nil {
 		// The key is write-only: keep it out of logs and probe errors.
@@ -441,7 +452,7 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request, _ core.Act
 		defer s.d.Vault.Redactor().Remove(id)
 	}
 	res, err := s.d.LLM.Probe(r.Context(), core.ProbeConfig{Kind: req.Kind, BaseURL: req.BaseURL, APIKey: core.NewSecret([]byte(req.APIKey)),
-		SecretRef: req.SecretRef, Model: req.Model, AllowPrivate: req.AllowPrivate})
+		SecretRef: req.SecretRef, Model: req.Model, AllowPrivate: req.AllowPrivate, Region: req.Region, Profile: req.Profile})
 	if err != nil {
 		return err
 	}
