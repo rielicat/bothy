@@ -294,6 +294,9 @@ export const EvRunFinished: EventType = "run.finished";
 export const EvApprovalRequested: EventType = "approval.requested";
 export const EvApprovalResolved: EventType = "approval.resolved";
 export const EvApprovalVoted: EventType = "approval.voted";
+export const EvReleaseDispatched: EventType = "release.dispatched";
+export const EvReleaseFinished: EventType = "release.finished";
+export const EvInboxChanged: EventType = "inbox.changed";
 export const EvMessageCreated: EventType = "message.created";
 export const EvSessionUpdated: EventType = "session.updated";
 export const EvMemoryUpdated: EventType = "memory.updated";
@@ -382,6 +385,43 @@ export interface ApprovalResolvedData {
   choice?: Choice;
   by?: UserID;
   via: string;
+  comment?: string; // the deciding approver's reason
+}
+/**
+ * ReleaseDispatchedData: GitHub accepted a deploy's workflow_dispatch.
+ */
+export interface ReleaseDispatchedData {
+  deploy_id: string;
+  environment: string;
+  repo: string;
+  ref: string;
+  url?: string; // the workflow run's page, when identified
+}
+/**
+ * ReleaseFinishedData: Bothy stopped following a deploy, or GitHub refused
+ * to start it.
+ */
+export interface ReleaseFinishedData {
+  deploy_id: string;
+  environment: string;
+  repo: string;
+  ref: string;
+  status: DeployStatus; // succeeded | failed | unknown
+  ok: boolean;
+  url?: string;
+  duration: number /* nanoseconds */; // the run's own start to finish when known
+  /**
+   * FailedStep names the workflow step a failed run stopped at, as written
+   * in the repository's workflow file (show it verbatim, never as markup).
+   */
+  failed_step?: string;
+}
+/**
+ * InboxChangedData names the approvals-inbox item that appeared, e.g.
+ * "sender:telegram:42" or "group:spc_…" (dto.InboxItem.ID).
+ */
+export interface InboxChangedData {
+  item: string;
 }
 export interface MessageData {
   message?: Message;
@@ -1058,6 +1098,7 @@ export interface ApprovalVote {
   choice: Choice; // allow_once | deny
   via: string; // web | telegram | discord | slack
   at: string /* RFC 3339 */;
+  comment?: string; // the voter's reason, e.g. for a deny
 }
 export interface Decision {
   verdict: Verdict;
@@ -1096,17 +1137,33 @@ export interface Grant {
   expires_at: string /* RFC 3339 */; // zero = never
 }
 export type Policy = any;
+/**
+ * CardKind tells renderers which layout a card uses (v0.2 S2).
+ */
+export type CardKind = string;
+export const CardAction: CardKind = "action";
+export const CardPullRequest: CardKind = "pull_request";
+export const CardDeploy: CardKind = "deploy";
+export const CardReview: CardKind = "review";
+/**
+ * CardTone colours the primary button: destructive for irreversible and
+ * financial actions, except deploys, whose safeguard is their approvers.
+ */
+export type CardTone = string;
+export const ToneDefault: CardTone = "default";
+export const ToneDestructive: CardTone = "destructive";
 export interface CardField {
-  label: string;
+  label: string; // plain, e.g. "File", "Command", "To"
   value: string; // verbatim; renderers escape and visualize bidi/zero-width chars
   mono: boolean;
 }
 /**
  * Card is rendered by the policy module from the Action only, never from model
- * prose. Channel adapters format it; they never add content.
+ * prose. Channel adapters format it; they never add content. Fields, Warnings
+ * and the plain-copy fields below (v0.2 S2) are the words every surface shows.
  */
 export interface Card {
-  title: string;
+  title: string; // the tool's title, e.g. "Delete file"
   risk: SideEffect;
   fields: CardField[];
   code?: string; // exact argv / JSON args
@@ -1116,6 +1173,16 @@ export interface Card {
   choices: Choice[];
   expires: string /* RFC 3339 */;
   web_url: string; // public_url + /approvals/<id>
+  /**
+   * Plain copy, set on every card rendered since v0.2; cards stored before
+   * that lack it, hence omitempty.
+   */
+  question?: string; // "Delete notes/staging.md?"
+  consequence?: string; // "This can't be undone."
+  primary_label?: string; // allow_once's verb ("Delete file"), else "Allow for this chat"
+  ing?: string; // "deleting notes/staging.md", as in "You approved …"
+  kind?: CardKind;
+  tone?: CardTone;
 }
 export type ApprovalStatus = string;
 export const ApprovalPending: ApprovalStatus = "pending";
@@ -1149,6 +1216,46 @@ export interface Approval {
    * Recent and Resolve fill it; repositories leave it empty.
    */
   votes?: ApprovalVote[];
+  /**
+   * Comment is the deciding approver's reason (Resolution.Comment).
+   */
+  comment?: string;
+  /**
+   * Approvals (multi-approver only) and Requester carry display names for
+   * cards (v0.2 S4); they are filled like Votes.
+   */
+  approvals?: ApprovalTally;
+  requester?: ApprovalPerson;
+}
+/**
+ * ApprovalPerson names a user on an approval card.
+ */
+export interface ApprovalPerson {
+  user: UserID;
+  name: string; // display name, else username
+}
+/**
+ * ApprovalTally is where a multi-approver approval stands.
+ */
+export interface ApprovalTally {
+  required: number /* int */; // distinct approvals needed, the requester's never counting
+  votes: ApprovalBallot[]; // oldest first
+  /**
+   * Eligible lists the enabled users other than the requester who may
+   * approve, leaving out admins and owners when AnyAdmin already covers them.
+   */
+  eligible: ApprovalPerson[];
+  any_admin: boolean; // every admin may approve through a role
+}
+/**
+ * ApprovalBallot is one vote with the voter's name.
+ */
+export interface ApprovalBallot {
+  user: UserID;
+  name: string;
+  choice: Choice; // allow_once | deny
+  at: string /* RFC 3339 */;
+  comment?: string;
 }
 export interface ApprovalRequest {
   Run: RunID;
@@ -1805,6 +1912,11 @@ export interface ChannelIdentity {
   dm_chat_id?: string;
   first_seen_at: string /* RFC 3339 */;
   last_seen_at: string /* RFC 3339 */;
+  /**
+   * FirstText is the start of a pending sender's first message, shown to
+   * admins in the approvals inbox; it is dropped once the status changes.
+   */
+  first_text?: string;
 }
 export type PairingPurpose = string;
 export const PairLinkIdentity: PairingPurpose = "link_identity";
@@ -2700,6 +2812,62 @@ export interface GitHubConnectionDetail {
 }
 
 //////////
+// source: internal/httpapi/dto/inbox.go
+
+/**
+ * InboxType is the kind of an approvals-inbox item.
+ */
+export type InboxType = string;
+export const InboxApproval: InboxType = "approval";
+export const InboxNoteSuggestion: InboxType = "note_suggestion";
+export const InboxMCPReview: InboxType = "mcp_review";
+export const InboxSkillReview: InboxType = "skill_review";
+export const InboxUnknownSender: InboxType = "unknown_sender";
+export const InboxGroupChat: InboxType = "group_chat";
+/**
+ * Inbox is GET /api/inbox: what is waiting for a decision, the caller's
+ * items first ("For you"), then those waiting for others, oldest first.
+ * Each item is decided through the endpoint its type already has:
+ * POST /api/approvals/{id}; POST /api/mcp/{server}/approve; PATCH
+ * /api/skills/{name}; PATCH /api/identities/{channel}/{external}
+ * (guest, linked or blocked); PATCH /api/spaces/{id} (enabled true turns a
+ * group chat on, any other change records it as seen).
+ */
+export interface Inbox {
+  items: InboxItem[];
+}
+export interface InboxItem {
+  /**
+   * ID is the approval id, or "mcp:<server>", "skill:<name>",
+   * "sender:<channel>:<external_id>", "group:<space principal id>".
+   */
+  id: string;
+  type: InboxType;
+  /**
+   * Question is the item's title in plain copy, e.g. "Review changes to
+   * Linear tools"; Summary the facts beside it ("2 tools changed",
+   * "Jordan K (@jordan_k)", "Added by Sam Patel").
+   */
+  question: string;
+  summary?: string;
+  for_you: boolean; // the caller can decide it now
+  created_at: string /* RFC 3339 */;
+  approval?: Approval;
+  mcp?: InboxMCP;
+  skill?: SkillMeta;
+  sender?: ChannelIdentity; // first_text holds the start of their message
+  group?: InboxGroup;
+}
+export interface InboxMCP {
+  server: string;
+  tools: (MCPPin | undefined)[]; // the pending definitions, with their diffs
+}
+export interface InboxGroup {
+  space: Space;
+  added_by: string; // display name of whoever added Bothy (else the owner)
+}
+
+//////////
 // source: internal/httpapi/dto/knowledge.go
 
 /**
@@ -2754,6 +2922,7 @@ export interface ApprovalVoteView {
   choice: Choice; // allow_once | deny
   via: string; // web | telegram | discord | slack
   at: string /* RFC 3339 */;
+  comment?: string;
 }
 /**
  * Releases is GET /api/releases: the configured environments and the newest
