@@ -159,6 +159,7 @@ func TestIDORThroughHTTP(t *testing.T) {
 		{"POST", "/api/sessions/" + sid + "/stop"},
 		{"POST", "/api/sessions/" + sid + "/compact"},
 		{"GET", "/api/sessions/" + sid + "/context"},
+		{"GET", "/api/sessions/" + sid + "/refine-estimate"},
 		{"POST", "/api/sessions/" + sid + "/fork"},
 		{"GET", "/api/sessions/" + sid + "/pins"},
 		{"POST", "/api/sessions/" + sid + "/pins"},

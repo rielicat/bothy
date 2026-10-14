@@ -36,10 +36,14 @@ func (s *Server) listSessions(w http.ResponseWriter, r *http.Request, a core.Act
 		return err
 	}
 	q := r.URL.Query()
-	f := core.SessionFilter{Principal: core.PrincipalID(q.Get("principal")), Archived: archived, Query: q.Get("q"), Page: p}
+	f := core.SessionFilter{Principal: core.PrincipalID(q.Get("principal")), Archived: archived, NonEmpty: true, Query: q.Get("q"), Page: p}
 	ss, err := s.d.Store.Sessions().List(r.Context(), a.Viewer, f)
 	if err != nil {
 		return err
+	}
+	n := s.namer(r.Context(), a.Viewer)
+	for _, sess := range ss {
+		sess.Title = n.title(sess)
 	}
 	return ok(w, listOf(derefs(ss), p, func(s core.Session) int64 { return ms(s.LastMessageAt) }))
 }
@@ -69,6 +73,13 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request, a core.Ac
 		return badRequest("title must be at most %d characters", maxTitle)
 	}
 	ctx := r.Context()
+	var parts []core.Part
+	if req.Message != nil {
+		var err error
+		if parts, err = s.messageParts(ctx, a, p, *req.Message); err != nil {
+			return err
+		}
+	}
 	sess, err := s.d.Runner.NewSession(ctx, p, "web", nil)
 	if err != nil {
 		return err
@@ -80,7 +91,18 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request, a core.Ac
 			return err
 		}
 	}
-	return ok(w, sess)
+	if req.Message == nil {
+		return ok(w, dto.SessionCreated{Session: *sess})
+	}
+	res, err := s.submitMessage(ctx, a, sess, parts, req.Message.Refine)
+	if err != nil {
+		// Nothing was said in it, so it is never listed; retention deletes it.
+		if aerr := s.d.Store.Sessions().Archive(context.WithoutCancel(ctx), a.Viewer, sess.ID); aerr != nil {
+			s.log.Warn("archive a chat whose first message was refused", "session", sess.ID, "err", aerr)
+		}
+		return err
+	}
+	return accepted(w, dto.SessionCreated{Session: *sess, Run: &res})
 }
 
 func (s *Server) getSession(w http.ResponseWriter, r *http.Request, a core.Actor) error {
@@ -97,6 +119,7 @@ func (s *Server) getSession(w http.ResponseWriter, r *http.Request, a core.Actor
 	if err != nil {
 		return err
 	}
+	sess.Title = s.namer(ctx, a.Viewer).title(sess)
 	d := dto.SessionDetail{Session: *sess, Pins: nonNil(pins), Pending: []*core.Approval{}, Refine: refine}
 	for _, ri := range s.d.Runner.Active() {
 		if ri.Session == sess.ID {
@@ -181,7 +204,11 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request, a core.Act
 		return err
 	}
 	slices.Reverse(msgs)
-	return ok(w, dto.MessagePage{Messages: nonNil(msgs), HasMore: len(msgs) >= pageLimit(p)})
+	aps, err := s.annotateTools(r.Context(), a.Viewer, msgs)
+	if err != nil {
+		return err
+	}
+	return ok(w, dto.MessagePage{Messages: nonNil(msgs), HasMore: len(msgs) >= pageLimit(p), Approvals: nonNil(aps)})
 }
 
 // runChat is the web ChatRef of a session (message tool target, card routing).
@@ -202,9 +229,23 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request, a core.Acto
 	if sess.Archived {
 		return newError(http.StatusConflict, "conflict", "this session is archived")
 	}
+	parts, err := s.messageParts(ctx, a, sess.Principal, req)
+	if err != nil {
+		return err
+	}
+	res, err := s.submitMessage(ctx, a, sess, parts, req.Refine)
+	if err != nil {
+		return err
+	}
+	return accepted(w, res)
+}
+
+// messageParts checks a message for a chat of principal p and builds its
+// parts; uploads must belong to p.
+func (s *Server) messageParts(ctx context.Context, a core.Actor, p core.PrincipalID, req dto.SendReq) ([]core.Part, error) {
 	text := strings.TrimSpace(req.Text)
 	if text == "" && len(req.Uploads) == 0 {
-		return badRequest("text or uploads required")
+		return nil, badRequest("text or uploads required")
 	}
 	var parts []core.Part
 	if text != "" {
@@ -213,10 +254,10 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request, a core.Acto
 	for _, id := range req.Uploads {
 		up, err := s.d.Store.Uploads().Get(ctx, a.Viewer, id)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if up.Principal != sess.Principal {
-			return errNotFound
+		if up.Principal != p {
+			return nil, errNotFound
 		}
 		pt := core.PartFile
 		if strings.HasPrefix(up.MIME, "image/") {
@@ -224,19 +265,19 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request, a core.Acto
 		}
 		parts = append(parts, core.Part{Type: pt, Blob: &core.Blob{MIME: up.MIME, Name: up.Name, Ref: up.Ref, Size: up.Size}})
 	}
+	return parts, nil
+}
+
+func (s *Server) submitMessage(ctx context.Context, a core.Actor, sess *core.Session, parts []core.Part, refine *bool) (core.SubmitResult, error) {
 	rr := core.RunRequest{Session: sess.ID, Principal: sess.Principal, User: a.User, Trigger: core.TrigMessage, Input: parts,
-		Provenance: core.ProvUser, Sender: "web:" + string(a.User), Chat: runChat(sess.ID), OnApproval: "deny", Refine: req.Refine}
+		Provenance: core.ProvUser, Sender: "web:" + string(a.User), Chat: runChat(sess.ID), OnApproval: "deny", Refine: refine}
 	// Bearer clients cannot answer approval cards, so their runs follow the
 	// token's on_approval like /v1 (trigger api: admin-class actions denied).
 	if a.Via == "token" {
 		rr.Trigger, rr.Sender, rr.OnApproval = core.TrigAPI, "api:"+a.TokenID, a.OnApproval
 		rr.ApprovalWait = s.cfg().Policy.Approval.APIWait.D()
 	}
-	res, err := s.d.Runner.Submit(ctx, rr)
-	if err != nil {
-		return err
-	}
-	return accepted(w, res)
+	return s.d.Runner.Submit(ctx, rr)
 }
 
 // Handlers that delegate to the runner check visibility through the store
@@ -359,7 +400,7 @@ func (s *Server) listRuns(w http.ResponseWriter, r *http.Request, a core.Actor) 
 	if err != nil {
 		return err
 	}
-	return ok(w, listOf(derefs(runs), p, func(r core.Run) int64 { return ms(r.CreatedAt) }))
+	return ok(w, listOf(s.namer(r.Context(), a.Viewer).runViews(runs), p, func(r dto.RunView) int64 { return ms(r.CreatedAt) }))
 }
 
 func (s *Server) getRun(w http.ResponseWriter, r *http.Request, a core.Actor) error {
@@ -389,7 +430,9 @@ func (s *Server) getRun(w http.ResponseWriter, r *http.Request, a core.Actor) er
 	if err != nil {
 		return err
 	}
-	return ok(w, dto.RunDetail{Run: run, LLMCalls: nonNil(calls), ToolCalls: nonNil(tools), Approvals: nonNil(aps), Refine: refine})
+	n := s.namer(ctx, a.Viewer)
+	n.nameApprovals(aps...)
+	return ok(w, dto.RunDetail{Run: n.runView(run), LLMCalls: nonNil(calls), ToolCalls: nonNil(tools), Approvals: nonNil(aps), Refine: refine})
 }
 
 func (s *Server) continueRun(w http.ResponseWriter, r *http.Request, a core.Actor) error {
@@ -416,6 +459,7 @@ func (s *Server) listApprovals(w http.ResponseWriter, r *http.Request, a core.Ac
 		if err != nil {
 			return err
 		}
+		s.namer(ctx, a.Viewer).nameApprovals(aps...)
 		return ok(w, listOf(aps, p, func(ap *core.Approval) int64 { return ms(ap.CreatedAt) }))
 	case "", "pending", "parked":
 		aps, err := s.d.Approvals.Pending(ctx, a.Viewer)
@@ -436,6 +480,7 @@ func (s *Server) getApproval(w http.ResponseWriter, r *http.Request, a core.Acto
 	if err != nil {
 		return err
 	}
+	s.namer(r.Context(), a.Viewer).nameApprovals(ap)
 	return ok(w, ap)
 }
 
@@ -461,6 +506,7 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, a core.
 	if err != nil {
 		return err
 	}
+	s.namer(ctx, a.Viewer).nameApprovals(ap)
 	return ok(w, ap)
 }
 
@@ -618,27 +664,4 @@ func (s *Server) workspaceDir(ws core.WorkspaceID) string {
 		return ""
 	}
 	return filepath.Join(s.d.WorkDir, "ws", string(ws))
-}
-
-func (s *Server) search(w http.ResponseWriter, r *http.Request, a core.Actor) error {
-	q := strings.TrimSpace(r.URL.Query().Get("q"))
-	limit := 20
-	if v := r.URL.Query().Get("limit"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || n > 100 {
-			return badRequest("limit must be between 1 and 100")
-		}
-		limit = n
-	}
-	if q == "" {
-		return ok(w, []core.SearchHit{})
-	}
-	if utf8.RuneCountInString(q) > 500 {
-		return badRequest("query too long")
-	}
-	hits, err := s.d.Store.Messages().Search(r.Context(), a.Viewer, q, limit)
-	if err != nil {
-		return err
-	}
-	return ok(w, nonNil(hits))
 }

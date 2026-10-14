@@ -120,6 +120,9 @@ type SpacePatchReq struct {
 type SessionCreateReq struct {
 	Principal core.PrincipalID `json:"principal_id,omitempty"` // default: caller's own
 	Title     string           `json:"title,omitempty"`
+	// Message, when set, is sent as the first message in the same request, so
+	// a chat is stored only together with its first message (202 SessionCreated).
+	Message *SendReq `json:"message,omitempty"`
 }
 
 type SessionPatchReq struct {
@@ -137,8 +140,11 @@ type SessionDetail struct {
 }
 
 type MessagePage struct {
-	Messages []*core.Message `json:"messages"` // oldest first within the page
+	Messages []*core.Message `json:"messages"` // oldest first within the page; tool_call parts carry state and approval_id
 	HasMore  bool            `json:"has_more"`
+	// Approvals the page's tool calls asked for, pending or decided, so a
+	// decided card stays in the transcript after a reload.
+	Approvals []*core.Approval `json:"approvals"`
 }
 
 type SendReq struct {
@@ -164,7 +170,7 @@ type StopResp struct {
 }
 
 type RunDetail struct {
-	Run       *core.Run              `json:"run"`
+	Run       *RunView               `json:"run"`
 	LLMCalls  []core.CallInfo        `json:"llm_calls"`
 	ToolCalls []*core.ToolCallRecord `json:"tool_calls"`
 	Approvals []*core.Approval       `json:"approvals"`
@@ -312,8 +318,8 @@ type UnsealReq struct {
 }
 
 type UsageResp struct {
-	Rows   []core.UsageRow `json:"rows"`
-	Totals core.UsageRow   `json:"totals"`
+	Rows   []UsageRowView `json:"rows"`
+	Totals core.UsageRow  `json:"totals"`
 }
 
 type UsageToday struct {

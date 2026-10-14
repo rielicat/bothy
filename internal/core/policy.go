@@ -235,6 +235,8 @@ type Approval struct {
 	ExpiresAt  time.Time      `json:"expires_at"`
 	ParkUntil  time.Time      `json:"park_until,omitempty"`
 	DecidedAt  time.Time      `json:"decided_at,omitempty"`
+	// DecidedByName is DecidedBy's display name; the HTTP API fills it on reads.
+	DecidedByName string `json:"decided_by_name,omitempty"`
 	// Votes of a multi-approver approval, oldest first. Approvals.Get, Pending,
 	// Recent and Resolve fill it; repositories leave it empty.
 	Votes []ApprovalVote `json:"votes,omitempty"`

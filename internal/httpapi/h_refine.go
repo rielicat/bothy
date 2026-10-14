@@ -108,3 +108,82 @@ func (s *Server) runRefineTrace(ctx context.Context, v core.Viewer, run *core.Ru
 	}
 	return nil, nil
 }
+
+const (
+	// refineEstimateRuns and refineEstimateSteps bound how far back the
+	// estimate looks for the chat's answer steps.
+	refineEstimateRuns  = 10
+	refineEstimateSteps = 3
+)
+
+// refineEstimate is GET /api/sessions/{id}/refine-estimate: what refining the
+// chat's next reply would cost, from its recent answer steps.
+func (s *Server) refineEstimate(w http.ResponseWriter, r *http.Request, a core.Actor) error {
+	ctx := r.Context()
+	sess, err := s.session(ctx, a, sessionID(r))
+	if err != nil {
+		return err
+	}
+	c := s.cfg().Agent.Refine
+	drafts, depth := max(c.Drafts, 1), max(c.Depth, 0)
+	out := dto.RefineEstimate{Multiplier: refineMultiplier(drafts, depth, c.EarlyStop), Drafts: drafts}
+	base, found, err := s.answerStepCost(ctx, a.Viewer, sess.ID)
+	if err != nil {
+		return err
+	}
+	if found {
+		usd := float64(base) * out.Multiplier / 1e6
+		out.USD = &usd
+	}
+	return ok(w, out)
+}
+
+// refineMultiplier is how many answer steps a refined reply costs: every
+// draft once, and continue, critique and correct for each draft in every
+// round. Early stop is counted as ending halfway through the rounds, since
+// drafts that agree stop deepening.
+func refineMultiplier(drafts, depth int, earlyStop bool) float64 {
+	rounds := depth
+	if earlyStop {
+		rounds = (depth + 1) / 2
+	}
+	return float64(drafts * (1 + 3*rounds))
+}
+
+// answerStepCost averages the cost of the chat's latest priced answer steps:
+// the first model call of each run's last step, which refine mode repeats.
+func (s *Server) answerStepCost(ctx context.Context, v core.Viewer, id core.SessionID) (core.Micros, bool, error) {
+	runs, err := s.d.Store.Runs().List(ctx, v, core.RunFilter{Session: id, Page: core.Page{Limit: refineEstimateRuns}})
+	if err != nil {
+		return 0, false, err
+	}
+	var sum core.Micros
+	n := 0
+	for _, run := range runs {
+		if n == refineEstimateSteps {
+			break
+		}
+		if run.Status != core.RunDone {
+			continue // its last step may not be an answer
+		}
+		calls, err := s.d.Store.Runs().LLMCalls(ctx, v, run.ID)
+		if err != nil {
+			return 0, false, err
+		}
+		var answer *core.CallInfo
+		for i := range calls {
+			c := &calls[i]
+			if c.Purpose == "agent" && c.Error == "" && (answer == nil || c.Step > answer.Step) {
+				answer = c
+			}
+		}
+		if answer != nil && answer.PriceKnown {
+			sum += answer.Cost
+			n++
+		}
+	}
+	if n == 0 {
+		return 0, false, nil
+	}
+	return sum / core.Micros(n), true, nil
+}
