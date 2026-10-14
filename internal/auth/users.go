@@ -240,6 +240,19 @@ func (s *Service) SetPassword(ctx context.Context, uid core.UserID, old, newPW s
 			return err
 		}
 		if u.MustChangePassword {
+			// The admin who handed out the one-time password knows it, so
+			// keeping it would leave the account in their hands.
+			if err := s.hash.acquire(ctx); err != nil {
+				return err
+			}
+			same, err := s.hash.verifyHeld(u.PWHash, newPW)
+			s.hash.release()
+			if err != nil && !errors.Is(err, errPHC) {
+				return err
+			}
+			if same {
+				return fmt.Errorf("%w: choose a new password, not the one-time password", core.ErrInvalid)
+			}
 			return s.replacePassword(ctx, u, newPW, false, "user:"+string(uid), "web")
 		}
 	}

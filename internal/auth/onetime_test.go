@@ -63,6 +63,14 @@ func TestCreateUserOneTimeAndFirstChange(t *testing.T) {
 	if a, err := e.s.FromCookie(ctx, cookie); err != nil || !a.MustChangePassword {
 		t.Fatalf("FromCookie = %+v %v", a, err)
 	}
+	// The admin knows the one-time password, so it cannot become the
+	// account's own.
+	if err := e.s.SetPassword(ctx, u.ID, "", pw); !errors.Is(err, core.ErrInvalid) {
+		t.Fatalf("keeping the one-time password: %v", err)
+	}
+	if got, _ := e.store.Users().Get(ctx, u.ID); !got.MustChangePassword {
+		t.Fatal("a refused change cleared the flag")
+	}
 	// The one-time password replaces the old one: no old password needed.
 	if err := e.s.SetPassword(ctx, u.ID, "", "harbour lantern quietly folds"); err != nil {
 		t.Fatal(err)
