@@ -73,11 +73,13 @@ from the approval or tool call the row was about). Egress rows add one
 `outcome` (`reached`, `allowed_unreachable`, `blocked`). Transcript pages set
 `state` and `approval_id` on tool_call parts from the call record, its
 approval and its result (`h_transcript.go`; never stored) and list the
-approvals those calls asked for, decided ones included. `POST /api/sessions`
+approvals those calls asked for, decided ones included, with the ones the
+egress proxy held their connections for (`<call>#net`). `POST /api/sessions`
 may carry the first message (202 `SessionCreated`), uploads for such a chat
 name `principal_id`, session lists hide sessions without messages, and an
 untitled session is named after its first message in lists, details, runs
 and search. `GET /api/search` returns chats, project-notes sections and
 knowledge code hits as plain-text snippets with UTF-16 match ranges
 (`snippet.go`); `GET /api/sessions/{id}/refine-estimate` multiplies the
-chat's recent answer-step cost by the configured refine work.
+chat's recent answer-step cost by the configured refine work, whose
+multiplier `GET /api/refine` also gives for chats not stored yet.
