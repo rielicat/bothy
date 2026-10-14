@@ -1,70 +1,196 @@
+<script module lang="ts">
+  // Refine belongs to the chat (§7.5) and has no server field yet, so it is
+  // remembered here for the life of the page.
+  const refineByChat = new Map<string, boolean>();
+
+  // Local until S10 is in types.gen.ts (C10 swaps it for the generated type).
+  interface RefineEstimate {
+    usd?: number;
+    multiplier?: number;
+    drafts?: number;
+  }
+
+  const CITATION = /\b([\w.-]+\/[\w.-]+)@([0-9a-f]{7,40}):([^\s#)\]`]+)#L(\d+)(?:-L(\d+))?/g;
+</script>
+
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import ApprovalCard from '../../components/ApprovalCard.svelte';
-  import Dialog from '../../components/Dialog.svelte';
+  import ActivityGroup from '../../components/chat/ActivityGroup.svelte';
+  import ChatDetails from '../../components/chat/ChatDetails.svelte';
+  import ChatNotice from '../../components/chat/ChatNotice.svelte';
+  import DecidedLine from '../../components/chat/DecidedLine.svelte';
+  import InlineApproval from '../../components/chat/InlineApproval.svelte';
+  import ModelPicker from '../../components/chat/ModelPicker.svelte';
+  import { models, providerName } from '../../components/chat/models.svelte';
+  import NewChat from '../../components/chat/NewChat.svelte';
+  import { appName, people } from '../../components/chat/people.svelte';
+  import PinnedDrawer from '../../components/chat/PinnedDrawer.svelte';
+  import { stepOf, type StepView } from '../../components/chat/steps';
   import Icon from '../../components/Icon.svelte';
   import Markdown from '../../components/Markdown.svelte';
-  import StackedBar from '../../components/StackedBar.svelte';
+  import Button from '../../components/ui/Button.svelte';
+  import Dialog from '../../components/ui/Dialog.svelte';
+  import Disclosure from '../../components/ui/Disclosure.svelte';
+  import FileToken from '../../components/ui/FileToken.svelte';
+  import IconButton from '../../components/ui/IconButton.svelte';
+  import { finePointer } from '../../components/ui/layer';
+  import { announce } from '../../components/ui/live.svelte';
+  import Menu, { type MenuItem } from '../../components/ui/Menu.svelte';
+  import Spinner from '../../components/ui/Spinner.svelte';
+  import { toast } from '../../components/ui/toast.svelte';
+  import { tooltip } from '../../components/ui/tooltip';
+  import { fill, type Phrase } from '../../lib/activity';
   import { api, ApiError } from '../../lib/api/client';
-  import type { ModelInfo, Pin, RunDetail, Session, SubmitResult } from '../../lib/api/types.gen';
-  import { bytes, clock as fmtClock, duration, tokens, usd } from '../../lib/format';
+  import type { Approval, ChannelIdentity, SandboxInfo, Session, SubmitResult } from '../../lib/api/types.gen';
+  import { clock, estimate, fullTime, money } from '../../lib/format';
   import { router } from '../../lib/router.svelte';
   import { session as auth } from '../../lib/stores/session.svelte';
-  import { attempt, toasts } from '../../lib/stores/ui.svelte';
+  import { buildBlocks, type Block } from '../../lib/transcript';
   import Composer from './Composer.svelte';
   import { Conversation } from './conversation.svelte';
-  import ToolRow from './ToolRow.svelte';
 
-  let { id }: { id: string } = $props();
+  let { id, oncreated }: { id: string; oncreated?: (id: string) => void } = $props();
 
-  // The parent keys this component by id, so capturing it once is intended.
-  // svelte-ignore state_referenced_locally
-  const conv = new Conversation(id);
-  let scroller: HTMLDivElement;
-  let stick = $state(true);
+  // The parent keeps this component while a new chat gets its id, so the id is read once.
+  const conv = new Conversation(untrack(() => id));
+  let root: HTMLElement | undefined = $state();
+  let composer: Composer | undefined = $state();
+  let atBottom = $state(true);
+  let scrolled = $state(false);
   let editing = $state(false);
   let title = $state('');
-  let models: ModelInfo[] = $state([]);
+  let renameError = $state('');
   let pinsOpen = $state(false);
-  let ctxOpen = $state(false);
-  let trifectaOpen = $state(false);
-  let newPin = $state('');
-  let calls: RunDetail | null = $state(null);
+  let pinAdding = $state(false);
+  let detailsOpen = $state(false);
+  let detailsRun = $state('');
+  let cleanOpen = $state(false);
+  let deleteOpen = $state(false);
+  let busy = $state(false);
+  let dialogError = $state('');
+  let sendError = $state('');
+  let dragging = $state(false);
+  let pendingModel = $state('');
+  let refine = $state(untrack(() => refineByChat.get(id)) ?? models.refine?.enabled ?? false);
+  let est: RefineEstimate | null = $state(null);
+  let senders: Record<string, string> = $state({});
+  let creating: Promise<string> | null = null;
+  let liveSays = '';
 
   const s = $derived(conv.session);
-  const taint = $derived(s?.taint ?? 0);
-  const exposed = $derived((taint & 3) === 3);
-  const running = $derived(!!conv.live && conv.live.status !== 'finished');
-  const breakdown = $derived(conv.usage?.call.breakdown ?? conv.preview);
-  const used = $derived(breakdown ? breakdown.total / Math.max(1, breakdown.window) : 0);
-  const lastUserText = $derived(
-    [...conv.messages]
-      .reverse()
-      .find((m) => m.role === 'user' && m.kind !== 'notice')
-      ?.parts.find((p) => p.t === 'text')?.text ?? '',
+  const exposed = $derived(((s?.taint ?? 0) & 3) === 3);
+  const space = $derived(s?.principal_id.startsWith('spc_') ? auth.principals.find((p) => p.id === s.principal_id) : undefined);
+  const firstText = $derived(conv.items.find((i) => i.kind === 'user')?.text ?? '');
+  const chatTitle = $derived(s?.title || firstText.slice(0, 48));
+  const where = $derived(
+    s && ['telegram', 'slack', 'discord'].includes(s.origin) ? (space ? `In ${space.display_name} on ${appName[s.origin]}` : appName[s.origin]) : '',
   );
-  // Continue adds steps (core.Runner.Continue), so it is offered only when
-  // the steps budget stopped the run.
-  const stepsStop = $derived(conv.finished?.status === 'budget_exceeded' && conv.finished.budget === 'steps');
-  const statusLine = $derived.by(() => {
-    const l = conv.live;
-    if (!l) return '';
-    switch (l.status) {
-      case 'queued':
-        return l.queued ? `Queued (${l.queued} ahead)` : 'Queued';
-      case 'waiting_approval':
-        return 'Waiting for your approval';
-      case 'parked':
-        return 'Parked until someone approves';
-      case 'compacting':
-        return 'Summarizing older messages…';
-      case 'tool':
-        return l.detail ? `Running ${l.detail}…` : 'Running a tool…';
-      case 'finished':
-        return '';
-      default:
-        return l.detail || 'Thinking…';
+  const blocks = $derived(buildBlocks(conv.items));
+  const liveRun = $derived(conv.running && conv.live ? conv.live.id : '');
+  const steps = $derived.by(() => {
+    const ctx = { byCall: conv.byCall, records: conv.records, liveRun };
+    const out = new Map<string, StepView[]>();
+    for (const b of blocks) if (b.kind === 'steps') out.set(b.key, b.tools.map((t) => stepOf(t, ctx)));
+    return out;
+  });
+  const shownApprovals = $derived(new Set([...steps.values()].flat().map((st) => st.approval?.id)));
+  const strayApprovals = $derived(conv.approvals.filter((a) => (a.status === 'pending' || a.status === 'parked') && !shownApprovals.has(a.id)));
+  // Reply actions go under the last message of each turn; Try again only under the latest.
+  // A turn that ends in steps rather than words has no reply to act on.
+  const lastOfRun = $derived.by(() => {
+    const out = new Map<string, Block>();
+    for (const b of blocks) {
+      const run = b.kind === 'assistant' ? b.msg.run_id : b.kind === 'steps' ? b.runId : undefined;
+      if (run) out.set(run, b);
     }
+    return new Set([...out.values()].filter((b) => b.kind === 'assistant' && b.text).map((b) => b.key));
+  });
+  const latestReply = $derived([...blocks].reverse().find((b) => b.kind === 'assistant' && b.text)?.key ?? '');
+  const lastUser = $derived([...conv.items].reverse().find((i) => i.kind === 'user'));
+  const working = $derived(
+    !!conv.live && conv.running && !conv.live.text && !conv.live.tools.length && !conv.messages.some((m) => m.role === 'assistant' && m.run_id === conv.live?.id),
+  );
+  const exposedAfter = $derived.by(() => {
+    if (!exposed) return '';
+    const hit = blocks.find((b) => b.kind === 'steps' && b.tools.some((t) => t.result?.untrusted || t.live?.untrusted));
+    return hit?.key ?? blocks.find((b) => b.kind === 'user')?.key ?? '';
+  });
+  // A command that failed because this server can't run code gets one plain line (§7.6).
+  const failedCode = $derived.by(() => {
+    const out = new Map<string, Phrase>();
+    for (const [k, ss] of steps) {
+      const st = ss.find((x) => (x.item.tool === 'shell' || x.item.tool === 'python') && x.state === 'failed');
+      if (st) out.set(k, [...fill("Bothy can't run code on this server, so it couldn't ", {}), ...st.phrases.ask, { k: 'text', v: '.' }]);
+    }
+    return out;
+  });
+  let codeAvailable: boolean | null = $state(null);
+  $effect(() => {
+    if (!failedCode.size || codeAvailable !== null || auth.sandbox === false) return;
+    void api
+      .get<SandboxInfo>('/api/sandbox')
+      .then((i) => (codeAvailable = i.status.available))
+      .catch(() => (codeAvailable = true));
+  });
+  const codeOff = $derived(auth.sandbox === false || codeAvailable === false ? failedCode : new Map<string, Phrase>());
+  const modelValue = $derived(conv.id ? (s?.model_override ?? '') : pendingModel);
+  const modelLabel = $derived(modelValue ? models.name(modelValue) : models.main ? models.name(models.main) : 'Main model');
+  const starter = $derived(space?.display_name ?? people.name(s?.principal_id, { you: false }));
+
+  const refineLine = $derived.by(() => {
+    const n = est?.drafts ?? models.refine?.drafts ?? 3;
+    const head = `Refine is on: Bothy writes ${n} drafts, checks them and sends the best.`;
+    if (est?.usd != null) {
+      const e = estimate(est.usd * 1e6);
+      return `${head} ${e.charAt(0).toUpperCase()}${e.slice(1)} for this reply.`;
+    }
+    // Without the server's estimate (S10): every draft gets `depth` rounds of continue, critique and correct.
+    const m = est?.multiplier ?? (models.refine ? models.refine.drafts * (1 + 3 * models.refine.depth) : 0);
+    return m ? `${head} Costs about ${m}× a normal reply.` : `${head} Slower, and costs several times more.`;
+  });
+
+  const outcome = $derived.by((): { text: string; error?: boolean; action?: { label: string; onclick: () => void }; details?: string } | null => {
+    const o = conv.outcome;
+    if (!o) return null;
+    const admin = auth.isAdmin;
+    switch (o.status) {
+      case 'stopped':
+        return { text: 'You stopped Bothy.' };
+      case 'loop_detected':
+        return { text: 'Bothy stopped because it kept repeating the same step. Try asking in a different way.' };
+      case 'budget_exceeded': {
+        const run = conv.runs[o.run_id]?.run;
+        if (o.budget === 'steps') return { text: `Bothy paused after ${o.steps ?? run?.steps ?? 0} steps to check in.`, action: { label: 'Keep going', onclick: () => keepGoing(o.run_id) } };
+        if (o.budget === 'daily_cost') {
+          const limit = auth.today?.limit_micros ? ` ${money(auth.today.limit_micros)}` : '';
+          return {
+            text: `Bothy has reached today's${limit} spending limit. It can start again at midnight (${auth.me?.user.timezone || 'server time'}).`,
+            action: admin ? { label: 'Change limit', onclick: () => router.navigate('/settings/general') } : undefined,
+          };
+        }
+        const limit = run?.limits.max_cost_micros ? ` ${money(run.limits.max_cost_micros)}` : '';
+        return {
+          text: o.budget === 'run_cost' ? `Bothy stopped because this task reached its${limit} limit.` : 'Bothy stopped because this task reached its limit.',
+          action: admin && o.budget === 'run_cost' ? { label: 'Keep going', onclick: () => keepGoing(o.run_id) } : undefined,
+        };
+      }
+      case 'failed':
+      case 'interrupted': {
+        const calls = conv.runs[o.run_id]?.llm_calls ?? [];
+        const attempts = calls.flatMap((c) => c.attempts ?? []).filter((a) => a.err);
+        const again = { label: 'Try again', onclick: retry };
+        if (attempts.length && attempts.every((a) => a.kind === 'auth')) {
+          const who = providerName(attempts[0].ref.provider);
+          return admin
+            ? { text: `${who} stopped accepting Bothy's key.`, error: true, action: { label: 'Update key', onclick: () => router.navigate('/settings/models') } }
+            : { text: "Bothy can't reach its AI model right now. An admin has been told.", error: true };
+        }
+        if (new Set(attempts.map((a) => `${a.ref.provider}/${a.ref.model}`)).size > 1) return { text: 'No AI model could answer right now.', error: true, action: again };
+        const ref = attempts[0]?.ref.provider ?? (conv.runs[o.run_id]?.run?.models?.[0] ?? models.main).split('/')[0];
+        return { text: `${ref ? providerName(ref) : 'The AI model'} had a problem answering.`, error: true, action: again, details: o.error || attempts[0]?.err };
+      }
+    }
+    return null;
   });
 
   let loaded = $state(false);
@@ -73,11 +199,49 @@
   $effect(() => {
     conv.listen();
     void conv.load().then(() => (loaded = true));
-    api
-      .get<ModelInfo[]>('/api/models')
-      .then((m) => (models = m))
+    void models.load(auth.isAdmin);
+    people.load();
+    if (finePointer()) void tick().then(() => composer?.focus());
+    const onscroll = () => measure();
+    window.addEventListener('scroll', onscroll, true);
+    return () => {
+      conv.dispose();
+      window.removeEventListener('scroll', onscroll, true);
+    };
+  });
+
+  $effect(() => {
+    if (!space || !conv.id) return;
+    void api
+      .get<ChannelIdentity[]>('/api/identities')
+      .then((list) => {
+        for (const i of list ?? []) senders[`${i.channel}:${i.external_id}`] = i.display_name || i.username;
+      })
       .catch(() => {});
-    return () => conv.dispose();
+  });
+
+  // Until the person picks, the chat follows Settings → Models → "Refine by default".
+  $effect(() => {
+    const d = models.refine?.enabled;
+    if (d !== undefined && !untrack(() => refineByChat.has(conv.id))) refine = d;
+  });
+
+  // The estimate follows the chat's recent replies, so it is asked again after each run.
+  $effect(() => {
+    void conv.lastRunId;
+    if (!refine || !conv.id) return;
+    void api
+      .get<RefineEstimate>(`${conv.base}/refine-estimate`)
+      .then((e) => (est = e))
+      .catch(() => (est = null));
+  });
+
+  $effect(() => {
+    const f = conv.finished;
+    if (f && f.status === 'done' && f.run_id !== liveSays) {
+      liveSays = f.run_id;
+      announce('Bothy replied.');
+    }
   });
 
   // A search hit links to #m<seq>: on open, and again for each hit clicked
@@ -92,440 +256,487 @@
     if (seq) await conv.loadUntil(seq).catch(() => {});
     await tick();
     const el = seq ? document.getElementById(`m${seq}`) : null;
-    hit?.classList.remove('ring-2', 'ring-warn');
+    hit?.classList.remove('bg-warning-subtle');
     hit = el;
     if (el) {
-      stick = false;
+      atBottom = false;
       el.scrollIntoView({ block: 'center' });
-      el.classList.add('ring-2', 'ring-warn');
+      el.classList.add('bg-warning-subtle');
     } else scrollDown();
   }
 
   $effect(() => {
     void conv.items.length;
     void conv.live?.text.length;
-    void conv.pending.length;
-    if (stick) void tick().then(scrollDown);
+    void conv.approvals.length;
+    void working;
+    // The composer strip grows with the Refine line and errors; keep the latest words above it.
+    void refine;
+    void sendError;
+    if (untrack(() => atBottom)) void tick().then(scrollDown);
   });
 
-  function scrollDown() {
-    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+  function scroller(): HTMLElement {
+    for (let el = root?.parentElement; el && el !== document.body; el = el.parentElement) {
+      const o = getComputedStyle(el).overflowY;
+      if ((o === 'auto' || o === 'scroll') && el.scrollHeight > el.clientHeight) return el;
+    }
+    return (document.scrollingElement as HTMLElement) ?? document.documentElement;
   }
 
-  function onscroll() {
-    if (scroller) stick = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
+  function measure() {
+    const sc = scroller();
+    atBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 120;
+    scrolled = sc.scrollTop > 0;
+  }
+
+  function scrollDown() {
+    const sc = scroller();
+    sc.scrollTop = sc.scrollHeight;
+    measure();
+  }
+
+  function ensureSession(): Promise<string> {
+    if (conv.id) return Promise.resolve(conv.id);
+    creating ??= api
+      .post<Session>('/api/sessions', {})
+      .then(async (n) => {
+        conv.adopt(n);
+        refineByChat.set(n.id, refine);
+        oncreated?.(n.id);
+        router.navigate(`/chat/${encodeURIComponent(n.id)}`, { replace: true });
+        if (pendingModel) conv.setSession(await api.patch<Session>(conv.base, { model_override: pendingModel }).catch(() => n));
+        return n.id;
+      })
+      .finally(() => (creating = null));
+    return creating;
   }
 
   async function send(text: string, uploads: string[]): Promise<boolean> {
+    sendError = '';
     try {
-      const r = await api.post<SubmitResult>(`${conv.base}/messages`, { text, uploads });
-      if (r?.queued) toasts.push('Queued: Bothy will read this when the current task ends.');
-      stick = true;
+      await ensureSession();
+      const r = await api.post<SubmitResult>(`${conv.base}/messages`, { text, uploads, ...(refine ? { refine: true } : {}) });
+      if (r?.queued) conv.queued = [...conv.queued, text];
+      atBottom = true;
       return true;
     } catch (e) {
-      if (e instanceof ApiError && e.code === 'busy') toasts.push('Busy with this chat. Stop the run or wait a moment.', 'error');
-      else toasts.error(e);
+      sendError =
+        e instanceof ApiError && e.code === 'busy'
+          ? 'Bothy is busy with this chat. Stop it or wait a moment.'
+          : e instanceof ApiError && e.code === 'paused'
+            ? "Bothy is paused. Your message will be answered when it's resumed."
+            : "Couldn't send your message. Try again.";
       return false;
     }
   }
 
-  async function stop() {
-    await attempt(() => api.post(`${conv.base}/stop`));
+  function retry() {
+    if (lastUser?.kind === 'user' && lastUser.text) void send(lastUser.text, []);
   }
 
-  async function patch(body: { title?: string; model_override?: string }) {
+  async function stop() {
+    if (conv.id) await api.post(`${conv.base}/stop`).catch(() => {});
+  }
+
+  async function keepGoing(runId: string) {
+    await api.post(`/api/runs/${encodeURIComponent(runId)}/continue`).catch(() => (sendError = "Couldn't continue. Try again."));
+  }
+
+  async function setModel(v: string) {
+    if (!conv.id) {
+      pendingModel = v;
+      return;
+    }
     try {
-      conv.setSession(await api.patch<Session>(conv.base, body));
-    } catch (e) {
-      toasts.error(e);
+      conv.setSession(await api.patch<Session>(conv.base, { model_override: v }));
+    } catch {
+      sendError = "Couldn't change the model. Try again.";
     }
   }
 
   async function command(cmd: string, arg: string) {
     switch (cmd) {
-      case 'pin':
-        if (arg) await addPin(arg);
-        else pinsOpen = true;
-        break;
-      case 'new': {
-        try {
-          const n = await api.post<Session>('/api/sessions', {});
-          router.navigate(`/chat/${encodeURIComponent(n.id)}`);
-        } catch (e) {
-          toasts.error(e);
-        }
-        break;
-      }
-      case 'model':
-        await patch({ model_override: arg });
-        toasts.ok(arg ? `This chat now uses ${arg}.` : 'This chat uses the default model again.');
-        break;
-      case 'compact':
-        await attempt(() => api.post(`${conv.base}/compact`), 'Summarizing older messages…');
-        break;
+      case 'new':
+        return router.navigate('/chat');
       case 'stop':
-        await stop();
-        break;
+        return stop();
+      case 'pin':
+        if (!conv.id) return;
+        if (arg && (await conv.addPin(arg).then(() => true, () => false))) return toast('Pinned.');
+        pinAdding = !arg;
+        pinsOpen = true;
+        return;
+      case 'model': {
+        const m = models.list.find((x) => x.display.toLowerCase().includes(arg.toLowerCase()) || `${x.ref.provider}/${x.ref.model}` === arg);
+        if (arg && m) return setModel(`${m.ref.provider}/${m.ref.model}`);
+        return document.querySelector<HTMLElement>('[aria-label^="Model:"]')?.click();
+      }
+      case 'compact':
+        if (conv.id) await api.post(`${conv.base}/compact`).catch(() => (sendError = "Couldn't summarise this chat. Try again."));
     }
   }
 
-  async function addPin(text: string) {
+  function startRename() {
+    title = chatTitle;
+    renameError = '';
+    editing = true;
+  }
+
+  async function saveTitle() {
+    // Esc closes the field first, so a blur that follows saves nothing.
+    if (!editing) return;
+    const t = title.trim();
+    if (!t || t === s?.title) {
+      editing = false;
+      return;
+    }
     try {
-      const p = await api.post<Pin>(`${conv.base}/pins`, { text });
-      conv.setPins([...conv.pins, p]);
-      newPin = '';
-      toasts.ok('Pinned. Bothy keeps this in mind for the whole chat.');
-    } catch (e) {
-      toasts.error(e);
+      conv.setSession(await api.patch<Session>(conv.base, { title: t }));
+      editing = false;
+    } catch {
+      renameError = "Couldn't rename this chat. Try again.";
     }
-  }
-
-  async function removePin(p: Pin) {
-    if (await attempt(() => api.del(`${conv.base}/pins/${p.id}`))) conv.setPins(conv.pins.filter((x) => x.id !== p.id));
   }
 
   async function fork() {
+    busy = true;
+    dialogError = '';
     try {
       const n = await api.post<Session>(`${conv.base}/fork`);
-      trifectaOpen = false;
+      cleanOpen = false;
       router.navigate(`/chat/${encodeURIComponent(n.id)}`);
-      toasts.ok('Started a clean fork without the untrusted content.');
-    } catch (e) {
-      toasts.error(e);
+      toast('Started a clean chat.');
+    } catch {
+      dialogError = "Couldn't start a clean chat. Try again.";
+    } finally {
+      busy = false;
     }
   }
 
-  async function cont(runId: string) {
-    await attempt(() => api.post(`/api/runs/${encodeURIComponent(runId)}/continue`), 'Continuing with 10 more steps.');
+  async function remove() {
+    busy = true;
+    dialogError = '';
+    try {
+      await api.del(conv.base);
+      deleteOpen = false;
+      router.navigate('/chat');
+      toast('Chat deleted.');
+    } catch {
+      dialogError = "Couldn't delete this chat. Try again.";
+    } finally {
+      busy = false;
+    }
   }
 
-  async function openContext() {
-    ctxOpen = true;
-    const runId = conv.finished?.run_id ?? conv.live?.id ?? [...conv.messages].reverse().find((m) => m.run_id)?.run_id;
-    if (runId) calls = await api.get<RunDetail>(`/api/runs/${encodeURIComponent(runId)}`).catch(() => null);
+  async function copy(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('Copied.');
+    } catch {
+      // No clipboard on plain http; the text stays selectable.
+    }
   }
 
-  function saveTitle(e: SubmitEvent) {
+  async function decided(a?: Approval) {
+    if (a) return conv.resolved(a);
+    for (const p of conv.approvals.filter((x) => x.status === 'pending' || x.status === 'parked')) {
+      const fresh = await api.get<Approval>(`/api/approvals/${encodeURIComponent(p.id)}`).catch(() => null);
+      if (fresh) conv.resolved(fresh);
+    }
+  }
+
+  function citations(text: string) {
+    return [...text.matchAll(CITATION)].map((m) => ({
+      label: `${m[1]} · ${m[3]}, ${m[5] ? `lines ${m[4]}–${m[5]}` : `line ${m[4]}`}`,
+      href: `https://github.com/${m[1]}/blob/${m[2]}/${m[3]}#L${m[4]}${m[5] ? `-L${m[5]}` : ''}`,
+    }));
+  }
+
+  function madeFiles(runId?: string) {
+    if (!runId) return [];
+    const out: string[] = [];
+    for (const ss of steps.values()) for (const st of ss) if (st.item.runId === runId && st.item.tool === 'fs_write' && st.state === 'done' && st.input.action?.paths?.[0]) out.push(st.input.action.paths[0]);
+    return [...new Set(out)];
+  }
+
+  const fileHref = (path: string) => `/api/workspace/files?principal=${encodeURIComponent(s?.principal_id ?? '')}&path=${encodeURIComponent(path)}`;
+
+  // 24 px between turns, 16 px from a message to the reply, 12 px from steps to the text after them (§7.1).
+  function gap(prev: Block | undefined, b: Block): string {
+    if (!prev) return '';
+    if (b.kind === 'day') return 'mt-6';
+    if (prev.kind === 'day') return 'mt-2';
+    if (b.kind === 'user') return 'mt-6';
+    if (prev.kind === 'user') return 'mt-4';
+    return 'mt-3';
+  }
+
+  const senderOf = (sender?: string) => (sender?.startsWith('web:') ? people.name(sender.slice(4)) : (sender && senders[sender]) || `Someone on ${appName[sender?.split(':')[0] ?? ''] ?? 'a chat app'}`);
+
+  const menu: MenuItem[] = $derived([
+    { label: 'Rename', onselect: startRename },
+    { label: `Pinned (${conv.pins.length})`, onselect: () => ((pinAdding = false), (pinsOpen = true)) },
+    { label: 'Chat details', onselect: () => ((detailsRun = ''), (detailsOpen = true)) },
+    { label: 'Continue in a clean chat', onselect: () => ((dialogError = ''), (cleanOpen = true)) },
+    'separator',
+    { label: 'Delete chat…', danger: true, onselect: () => ((dialogError = ''), (deleteOpen = true)) },
+  ]);
+
+  function dragover(e: DragEvent) {
+    if (!e.dataTransfer?.types.includes('Files') || auth.paused) return;
     e.preventDefault();
-    editing = false;
-    if (title.trim() && title !== s?.title) void patch({ title: title.trim() });
+    dragging = true;
   }
-
-  const legs = [
-    { bit: 1, k: 'P', name: 'Private data', desc: 'memory, your files or private tool output is in context' },
-    { bit: 2, k: 'U', name: 'Untrusted content', desc: 'web pages, search results or messages from others are in context' },
-    { bit: 4, k: 'S', name: 'Can send', desc: 'tools that can send data out are available' },
-  ];
 </script>
 
-<div class="flex h-full min-w-0 flex-col">
-  <header class="flex h-14 shrink-0 items-center gap-2 border-b border-line px-3 sm:px-4">
-    <a href="/chat" onclick={router.link} class="btn btn-ghost btn-icon btn-sm lg:hidden" aria-label="All chats"><Icon name="left" /></a>
-    {#if editing}
-      <form class="min-w-0 flex-1" onsubmit={saveTitle}>
-        <!-- svelte-ignore a11y_autofocus -->
-        <input class="input h-8" aria-label="Chat title" bind:value={title} autofocus onblur={() => (editing = false)} onkeydown={(e) => e.key === 'Escape' && (editing = false)} />
-      </form>
-    {:else}
-      <h1 class="flex min-w-0 flex-1">
-        <button
-          type="button"
-          class="group flex min-w-0 items-center gap-1.5 truncate text-left font-semibold"
-          title="Rename"
-          onclick={() => {
-            title = s?.title ?? '';
-            editing = true;
-          }}
-        >
-          <span class="truncate">{s?.title || 'New chat'}</span>
-          <Icon name="edit" size={13} class="text-faint opacity-0 group-hover:opacity-100" />
-        </button>
-      </h1>
-    {/if}
+{#snippet copyButton(text: string, at: string)}
+  <button
+    type="button"
+    class="btn btn-quiet btn-sm btn-icon"
+    aria-label="Copy"
+    onclick={() => copy(text)}
+    {@attach tooltip(() => (at ? `Copy · ${clock(at)}` : 'Copy'))}><Icon name="copy" /><time class="sr-only" datetime={at}>{fullTime(at)}</time></button
+  >
+{/snippet}
 
-    <button
-      type="button"
-      class="flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold tracking-wider {exposed ? 'border-bad/40 bg-bad-soft text-bad' : 'border-line text-muted'}"
-      aria-label="Trifecta status: {legs.filter((l) => taint & l.bit).map((l) => l.name).join(', ') || 'clean'}{exposed ? '. Exposed.' : ''}"
-      title={exposed ? 'Exposed: private and untrusted data are both in context' : 'Lethal-trifecta status'}
-      onclick={() => (trifectaOpen = true)}
-    >
-      {#each legs as l (l.k)}<span class="flex items-center gap-0.5"
-          ><span class="size-1.5 rounded-full {taint & l.bit ? (exposed ? 'bg-bad' : 'bg-warn') : 'bg-line-strong'}"></span>{l.k}</span
-        >{/each}
-    </button>
+{#snippet approvalFor(st: StepView)}
+  {@const a = st.approval!}
+  {#if a.status === 'pending' || a.status === 'parked'}
+    <div class="mt-2 mb-3"><InlineApproval approval={a} onresolved={decided} /></div>
+  {:else}
+    <DecidedLine approval={a} phrases={st.phrases} />
+  {/if}
+{/snippet}
 
-    <select
-      class="input h-8 w-auto max-w-40 py-0 text-xs max-sm:hidden"
-      aria-label="Model for this chat"
-      value={s?.model_override ?? ''}
-      onchange={(e) => patch({ model_override: e.currentTarget.value })}
-    >
-      <option value="">Default model</option>
-      {#each models as m, i (i)}
-        <option value="{m.ref.provider}/{m.ref.model}">{m.display || m.ref.model}</option>
-      {/each}
-    </select>
-
-    <button type="button" class="btn btn-ghost btn-sm" onclick={() => (pinsOpen = true)} aria-label="{conv.pins.length} pins">
-      <Icon name="pin" size={15} /><span class="tabular-nums">{conv.pins.length}</span>
-    </button>
-
-    {#if breakdown}
-      <button
-        type="button"
-        class="relative grid size-8 place-items-center rounded-full hover:bg-sunken"
-        aria-label="Context: {Math.round(used * 100)}% of the window used. Open breakdown"
-        title="{tokens(breakdown.total)} / {tokens(breakdown.window)} tokens{conv.usage ? ` · ${usd(conv.usage.run_cost_micros)} this run` : ''}"
-        onclick={openContext}
-      >
-        <svg viewBox="0 0 36 36" class="size-7 -rotate-90" aria-hidden="true">
-          <circle cx="18" cy="18" r="15" fill="none" stroke-width="4" class="stroke-sunken" />
-          <circle
-            cx="18"
-            cy="18"
-            r="15"
-            fill="none"
-            stroke-width="4"
-            stroke-linecap="round"
-            class={used > 0.85 ? 'stroke-bad' : used > 0.65 ? 'stroke-warn' : 'stroke-accent'}
-            stroke-dasharray="{Math.max(1, used * 94.25)} 94.25"
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+  bind:this={root}
+  class="relative mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-6 max-sm:px-4"
+  ondragover={dragover}
+  ondragleave={(e) => {
+    if (!root?.contains(e.relatedTarget as Node | null)) dragging = false;
+  }}
+  ondrop={(e) => {
+    if (!dragging) return;
+    e.preventDefault();
+    dragging = false;
+    if (e.dataTransfer?.files.length) composer?.addFiles(e.dataTransfer.files);
+  }}
+>
+  {#if conv.id}
+    <header class="sticky top-0 z-10 flex min-h-13 items-center gap-2 border-b bg-bg py-1.5 {scrolled ? 'border-border' : 'border-transparent'}">
+      <div class="min-w-0 flex-1">
+        {#if editing}
+          <input
+            class="input h-8 text-heading"
+            aria-label="Chat title"
+            bind:value={title}
+            aria-invalid={!!renameError}
+            aria-describedby={renameError ? 'rename-error' : undefined}
+            {@attach (el) => el.focus()}
+            onblur={() => void saveTitle()}
+            onkeydown={(e) => {
+              if (e.key === 'Enter') void saveTitle();
+              else if (e.key === 'Escape') editing = false;
+            }}
           />
-        </svg>
-      </button>
-    {/if}
-  </header>
-
-  <div bind:this={scroller} {onscroll} class="min-h-0 flex-1 overflow-y-auto">
-    <div class="mx-auto w-full max-w-3xl space-y-4 px-3 py-6 sm:px-6" aria-live="off">
-      {#if conv.loading}
-        <div class="space-y-4" aria-busy="true">
-          <div class="skeleton ml-auto h-10 w-2/3 rounded-2xl"></div>
-          <div class="skeleton h-24 w-5/6 rounded-2xl"></div>
-        </div>
-      {:else if conv.error}
-        <p class="alert-bad" role="alert">{conv.error}</p>
-      {:else}
-        {#if conv.hasMore}
-          <button type="button" class="btn btn-ghost btn-sm mx-auto flex" onclick={() => conv.loadEarlier().catch((e) => toasts.error(e))}>
-            Load earlier messages
-          </button>
+          {#if renameError}<p id="rename-error" class="field-error">{renameError}</p>{/if}
+        {:else}
+          <h1 class="flex min-w-0" tabindex="-1">
+            <button
+              type="button"
+              class="-mx-1 min-h-6 min-w-0 cursor-pointer truncate rounded-sm px-1 text-left text-heading text-text hover:bg-subtle pointer-coarse:min-h-11"
+              title={chatTitle}
+              onclick={startRename}
+              {@attach tooltip(() => 'Rename', { describe: true })}><span data-copy-ignore>{chatTitle || 'Chat'}</span></button
+            >
+          </h1>
+          {#if where}<p class="truncate text-small text-muted">{where}</p>{/if}
         {/if}
-        {#if !conv.items.length && !running}
-          <div class="py-10 text-center">
-            <span class="mx-auto mb-4 grid size-12 place-items-center rounded-2xl bg-accent-soft text-accent"><Icon name="bothy" size={24} /></span>
-            <h2 class="text-lg font-semibold">What can I help with?</h2>
-            <p class="mt-1 text-sm text-muted">Ask anything. Bothy asks before it does anything risky.</p>
-            <div class="mx-auto mt-6 grid max-w-lg gap-2 sm:grid-cols-2">
-              {#each ['What can you do, and what will you ask me before doing?', 'Summarize the latest news on a topic I care about', 'Help me plan my week', 'Set up a short daily briefing for me'] as t (t)}
-                <button type="button" class="card px-4 py-3 text-left text-sm hover:border-accent hover:bg-accent-soft/40" onclick={() => send(t, [])}>{t}</button>
-              {/each}
-            </div>
-          </div>
-        {/if}
+      </div>
+      <Menu items={menu} placement="bottom-end">
+        {#snippet trigger(props)}<IconButton icon="more" label="Chat options" {...props} />{/snippet}
+      </Menu>
+    </header>
+  {/if}
 
-        {#each conv.items as it (it.key)}
-          {#if it.kind === 'user'}
-            <div id="m{it.msg.seq}" class="ml-auto flex max-w-[85%] flex-col items-end gap-1 rounded-2xl">
-              {#if it.steer}<span class="text-[11px] text-faint">added while working</span>{/if}
-              {#if it.text}
-                <div class="rounded-2xl rounded-br-md bg-accent-soft px-4 py-2.5 text-fg">
-                  <Markdown text={it.text} {exposed} />
-                </div>
-              {/if}
-              {#if it.files.length}
-                <ul class="flex flex-wrap justify-end gap-1">
-                  {#each it.files as f (f.ref)}<li class="chip"><Icon name="file" size={13} />{f.name || f.ref.split('/').pop()} · {bytes(f.size)}</li>{/each}
+  <section class="flex-1 pt-4 pb-6" aria-label="Messages">
+    {#if !conv.id}
+      <NewChat onpick={(t) => composer?.fill(t)} />
+    {:else if conv.loading}
+      <p class="text-body text-muted" aria-busy="true">Loading…</p>
+    {:else if conv.error}
+      <ChatNotice error text="This chat didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: () => conv.load() }} details={conv.error} />
+    {:else}
+      {#if conv.hasMore}
+        <div class="mb-4 flex justify-center"><Button size="sm" variant="ghost" onclick={() => conv.loadEarlier().catch(() => {})}>Load earlier messages</Button></div>
+      {/if}
+      {#each blocks as b, i (b.key)}
+        <div class={gap(blocks[i - 1], b)}>
+          {#if b.kind === 'day'}
+            <p class="text-center text-caption text-muted">{b.label}</p>
+          {:else if b.kind === 'user'}
+            <div id="m{b.msg.seq}" class="group flex flex-col items-end rounded-md">
+              {#if space}<p class="mb-1 text-small font-medium text-muted">{senderOf(b.msg.sender)}</p>{/if}
+              <div class="flex max-w-[85%] min-w-0 items-start gap-1">
+                <div class="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100">{@render copyButton(b.text, b.msg.created_at)}</div>
+                {#if b.text}
+                  <div class="min-w-0 rounded-lg bg-subtle px-4 py-2.5 text-reading text-text [overflow-wrap:anywhere]"><Markdown text={b.text} {exposed} /></div>
+                {/if}
+              </div>
+              {#if b.files.length}
+                <ul class="mt-2 flex max-w-[85%] flex-wrap justify-end gap-2">
+                  {#each b.files as f (f.ref)}<li class="max-w-full min-w-0"><FileToken name={f.name || f.ref.split('/').pop() || f.ref} size={f.size} href={fileHref(f.ref)} /></li>{/each}
                 </ul>
               {/if}
-              <span class="text-[11px] text-faint">{fmtClock(it.msg.created_at)}{it.msg.sender && !it.msg.sender.startsWith('web:') ? ` · ${it.msg.sender.split(':')[0]}` : ''}</span>
+              {#if b.steer}<p class="mt-1 text-small text-muted">Added while Bothy was working</p>{/if}
             </div>
-          {:else if it.kind === 'assistant'}
-            <div id="m{it.msg.seq}" class="max-w-full">
-              {#if it.thinking}
-                <details class="mb-2 text-sm text-muted"><summary class="cursor-pointer">Thought process</summary><p class="mt-1 whitespace-pre-wrap">{it.thinking}</p></details>
+          {:else if b.kind === 'assistant'}
+            {@const cites = citations(b.text)}
+            {@const files = lastOfRun.has(b.key) ? madeFiles(b.msg.run_id) : []}
+            <div id="m{b.msg.seq}" class="group rounded-md">
+              {#if b.thinking}
+                <Disclosure label="Thought process" class="mb-2"><p class="text-small whitespace-pre-wrap text-muted" data-copy-ignore>{b.thinking}</p></Disclosure>
               {/if}
-              {#if it.text}<Markdown text={it.text} {exposed} />{/if}
+              {#if b.text}<Markdown text={b.text} {exposed} />{/if}
+              {#if cites.length}
+                <ul class="mt-2 space-y-1 text-small">
+                  {#each cites as c (c.href)}
+                    <li data-copy-ignore>
+                      {#if exposed}
+                        <span class="text-muted">{c.label}</span>
+                        <button type="button" class="btn btn-quiet btn-sm ml-1" onclick={() => copy(c.href)}>Copy link</button>
+                      {:else}
+                        <a class="link inline-flex min-h-6 items-center pointer-coarse:min-h-11" href={c.href} target="_blank" rel="noopener noreferrer">{c.label} ↗</a>
+                      {/if}
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+              {#if files.length}
+                <ul class="mt-3 flex flex-wrap gap-2">
+                  {#each files as f (f)}<li class="max-w-full min-w-0"><FileToken name={f.split('/').pop() ?? f} href={fileHref(f)} /></li>{/each}
+                </ul>
+              {/if}
+              {#if lastOfRun.has(b.key) && !(conv.running && b.msg.run_id === liveRun)}
+                <div
+                  class="mt-1 -ml-2 flex items-center gap-0.5 {b.key === latestReply
+                    ? ''
+                    : 'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100'}"
+                >
+                  {@render copyButton(b.text, b.msg.created_at)}
+                  {#if b.key === latestReply && lastUser && !conv.running && !outcome}<IconButton icon="refresh" label="Try again" size="sm" variant="quiet" onclick={retry} />{/if}
+                  <IconButton
+                    icon="more"
+                    label="Details"
+                    size="sm"
+                    variant="quiet"
+                    onclick={() => {
+                      detailsRun = b.msg.run_id ?? '';
+                      detailsOpen = true;
+                    }}
+                  />
+                </div>
+              {/if}
             </div>
-          {:else if it.kind === 'notice'}
-            <div id="m{it.msg.seq}" class="flex items-start justify-center gap-2 px-4 text-center text-xs text-muted">
-              <Icon name="info" size={14} class="mt-px" /><span class="max-w-prose">{it.text}</span>
-            </div>
-          {:else if it.kind === 'summary'}
-            <details id="m{it.msg.seq}" class="rounded-xl border border-dashed border-line px-4 py-2 text-sm">
-              <summary class="cursor-pointer text-muted">Earlier messages were summarized</summary>
-              <div class="mt-2"><Markdown text={it.text} {exposed} /></div>
-            </details>
-          {:else if it.kind === 'tool'}
-            <ToolRow call={it.call} result={it.result} live={it.live} runId={it.runId} />
-          {:else if it.kind === 'stream'}
-            <div>
-              {#if it.thinking && !it.text}<p class="text-sm text-muted italic">{it.thinking.slice(-280)}</p>{/if}
-              {#if it.text}<Markdown text={it.text} {exposed} class="streaming" />{/if}
+          {:else if b.kind === 'stream'}
+            {#if b.text}<Markdown text={b.text} {exposed} />{/if}
+          {:else if b.kind === 'notice'}
+            <ChatNotice text={b.text} />
+          {:else if b.kind === 'summary'}
+            <ChatNotice text="Older messages were summarised so this chat can keep going." detailsLabel="Show summary">
+              {#snippet more()}<div class="text-small"><Markdown text={b.text} {exposed} /></div>{/snippet}
+            </ChatNotice>
+          {:else if b.kind === 'steps'}
+            <ActivityGroup steps={steps.get(b.key) ?? []} live={!!liveRun && b.runId === liveRun && i === blocks.length - 1} approval={approvalFor} />
+            {#if codeOff.has(b.key)}
+              <ChatNotice
+                phrase={codeOff.get(b.key)}
+                action={auth.isAdmin ? { label: 'How to turn it on', onclick: () => router.navigate('/settings/security') } : undefined}
+              />
+            {/if}
+          {/if}
+          {#if b.key === exposedAfter}
+            <div class="mt-3">
+              <ChatNotice text="From now on, Bothy will ask before sending anything out of this chat." detailsLabel="Why?">
+                {#snippet more()}
+                  <p class="text-small text-muted">
+                    This chat has used private information and content from outside your team, like a web page. To keep that information from leaking, Bothy now asks first.
+                    Continue in a clean chat to reset this.
+                  </p>
+                {/snippet}
+              </ChatNotice>
             </div>
           {/if}
-        {/each}
+        </div>
+      {/each}
 
-        {#each conv.pending as a (a.id)}
-          <ApprovalCard approval={a} compact onresolved={(x) => conv.resolved(x)} />
-        {/each}
+      {#each strayApprovals as a (a.id)}<div class="mt-3"><InlineApproval approval={a} onresolved={decided} /></div>{/each}
 
-        {#if running && statusLine}
-          <p class="flex items-center gap-2 text-sm text-muted" role="status">
-            <span class="flex gap-1" aria-hidden="true">
-              <span class="size-1.5 animate-bounce rounded-full bg-accent"></span><span class="size-1.5 animate-bounce rounded-full bg-accent [animation-delay:120ms]"></span><span
-                class="size-1.5 animate-bounce rounded-full bg-accent [animation-delay:240ms]"
-              ></span>
-            </span>
-            {statusLine}
-          </p>
-        {/if}
-
-        {#if !running && conv.finished}
-          {#if conv.finished.status === 'budget_exceeded'}
-            <div class="flex flex-wrap items-center gap-2">
-              {#if stepsStop}
-                <button type="button" class="btn btn-sm" onclick={() => cont(conv.finished!.run_id)}><Icon name="play" size={14} />Continue (+10 steps)</button>
-              {:else if conv.finished.error}
-                <span class="text-xs text-bad">{conv.finished.error}</span>
-              {/if}
-              <a href="/settings/budgets" onclick={router.link} class="text-xs text-muted underline">Budget settings</a>
-            </div>
-          {:else if conv.finished.status === 'failed' || conv.finished.status === 'loop_detected' || conv.finished.status === 'interrupted'}
-            <div class="flex flex-wrap items-center gap-2">
-              {#if conv.finished.error}<span class="text-xs text-bad">{conv.finished.error}</span>{/if}
-              <button type="button" class="btn btn-sm" disabled={!lastUserText} onclick={() => send(lastUserText, [])}><Icon name="refresh" size={14} />Retry</button>
-            </div>
-          {/if}
-        {/if}
+      {#if conv.queued.length}<div class="mt-3"><ChatNotice text="Bothy will read this when it finishes the current step." /></div>{/if}
+      {#if working}
+        <p class="mt-3 flex min-h-8 items-center gap-2 text-body text-muted" role="status"><Spinner size={16} />Working…</p>
       {/if}
-    </div>
+      {#if outcome}
+        <div class="mt-3"><ChatNotice {...outcome} alert={!!outcome.error && conv.finished?.run_id === conv.outcome?.run_id} /></div>
+      {:else if auth.paused && lastUser && conv.items[conv.items.length - 1] === lastUser}
+        <div class="mt-3"><ChatNotice text="Bothy is paused. Your message will be answered when it's resumed." /></div>
+      {/if}
+    {/if}
+  </section>
+
+  <div class="sticky bottom-0 z-10 bg-bg pt-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
+    {#if !atBottom && conv.id}
+      <div class="pointer-events-none absolute inset-x-0 -top-11 flex justify-center">
+        <Button size="sm" class="pointer-events-auto" onclick={scrollDown}>Jump to latest</Button>
+      </div>
+    {/if}
+    <Composer
+      bind:this={composer}
+      bind:refine
+      onrefine={(on) => refineByChat.set(conv.id, on)}
+      running={conv.running}
+      paused={auth.paused}
+      {refineLine}
+      {ensureSession}
+      onsend={send}
+      oncommand={command}
+      onstop={stop}
+    >
+      {#snippet picker()}<ModelPicker value={modelValue} onchange={setModel} />{/snippet}
+    </Composer>
+    {#if sendError}<p class="mt-2 text-small text-danger-text" role="alert">{sendError}</p>{/if}
   </div>
 
-  <div class="shrink-0 px-3 pt-2 pb-3 sm:px-6">
-    <div class="relative mx-auto max-w-3xl">
-      {#if !stick}
-        <button type="button" class="btn btn-sm absolute -top-11 left-1/2 -translate-x-1/2 !rounded-full shadow-md" onclick={() => ((stick = true), scrollDown())}>
-          <Icon name="down" size={14} />Latest
-        </button>
-      {/if}
-      {#if exposed}
-        <p class="mb-2 flex items-center gap-2 rounded-lg bg-bad-soft px-3 py-1.5 text-xs text-bad">
-          <Icon name="shield" size={14} />Exposed chat: anything that sends data out needs your approval, and links are disabled.
-          <button type="button" class="ml-auto font-medium underline" onclick={fork}>Fork clean</button>
-        </p>
-      {/if}
-      <Composer sessionId={id} {running} paused={auth.paused} onsend={send} oncommand={command} onstop={stop} />
+  {#if dragging}
+    <div class="pointer-events-none absolute inset-2 z-20 grid place-items-center rounded-lg border border-dashed border-control bg-subtle text-body text-muted" data-floating>
+      Drop files to attach
     </div>
-  </div>
+  {/if}
 </div>
 
-<Dialog bind:open={pinsOpen} title="Pinned for this chat" kind="sheet">
-  <p class="mb-4 text-sm text-muted">Pins stay in Bothy's context for the whole chat, even after older messages are summarized.</p>
-  <form
-    class="mb-4 flex gap-2"
-    onsubmit={(e) => {
-      e.preventDefault();
-      if (newPin.trim()) void addPin(newPin.trim());
-    }}
-  >
-    <input class="input" placeholder="e.g. Don't send anything until I say so" aria-label="New pin" bind:value={newPin} />
-    <button class="btn btn-primary" disabled={!newPin.trim()}>Pin</button>
-  </form>
-  {#if conv.pins.length}
-    <ul class="space-y-2">
-      {#each conv.pins as p (p.id)}
-        <li class="card flex items-start gap-2 p-3 text-sm">
-          <Icon name="pin" size={15} class="mt-0.5 text-accent" />
-          <p class="min-w-0 flex-1 whitespace-pre-wrap">{p.text}</p>
-          {#if p.source === 'auto'}<span class="chip">auto</span>{/if}
-          <button type="button" class="btn btn-ghost btn-icon btn-sm" aria-label="Remove pin" onclick={() => removePin(p)}><Icon name="trash" size={14} /></button>
-        </li>
-      {/each}
-    </ul>
-  {:else}
-    <p class="py-6 text-center text-sm text-muted">Nothing pinned yet.</p>
-  {/if}
-</Dialog>
+{#if s}
+  <ChatDetails bind:open={detailsOpen} {conv} session={s} {starter} model={modelLabel} {refine} runId={detailsRun} />
+  <PinnedDrawer bind:open={pinsOpen} bind:adding={pinAdding} {conv} />
+{/if}
 
-<Dialog bind:open={trifectaOpen} title="What Bothy can reach in this chat">
-  <ul class="space-y-3">
-    {#each legs as l (l.k)}
-      <li class="flex gap-3">
-        <span class="mt-1 size-2.5 shrink-0 rounded-full {taint & l.bit ? (exposed ? 'bg-bad' : 'bg-warn') : 'bg-line-strong'}"></span>
-        <div class="text-sm">
-          <p class="font-medium">{l.k} · {l.name} <span class="font-normal text-muted">{taint & l.bit ? 'yes' : 'no'}</span></p>
-          <p class="text-muted">{l.desc}</p>
-        </div>
-      </li>
-    {/each}
-  </ul>
-  <p class="mt-4 rounded-lg px-3 py-2 text-sm {exposed ? 'bg-bad-soft text-bad' : 'bg-sunken text-muted'}">
-    {exposed
-      ? 'Private and untrusted data are both in context, so an injected instruction could try to leak data. Every send now needs your approval, session grants are paused and links are disabled. A clean fork starts over without this history.'
-      : 'When private and untrusted data meet in one chat, Bothy locks down sending until you fork clean.'}
+<Dialog bind:open={cleanOpen} title="Continue in a clean chat?" {busy}>
+  <p class="text-body text-text">
+    Bothy will start a new chat with a summary of this one, without the private information and outside content it has seen. This chat stays as it is.
   </p>
-  {#snippet footer()}
-    <button type="button" class="btn" onclick={() => (trifectaOpen = false)}>Close</button>
-    <button type="button" class="btn btn-primary" onclick={fork}><Icon name="fork" size={15} />Fork clean</button>
+  {#if dialogError}<p class="mt-2 text-small text-danger-text" role="alert">{dialogError}</p>{/if}
+  {#snippet footer({ close })}
+    <Button onclick={close}>Cancel</Button>
+    <Button variant="primary" loading={busy} onclick={fork}>Continue in a clean chat</Button>
   {/snippet}
 </Dialog>
 
-<Dialog bind:open={ctxOpen} title="Context breakdown" kind="sheet">
-  {#if breakdown}
-    <p class="mb-3 text-sm">
-      <span class="text-2xl font-semibold tabular-nums">{tokens(breakdown.total)}</span>
-      <span class="text-muted">of {tokens(breakdown.window)} tokens · {Math.round(used * 100)}%</span>
-    </p>
-    <StackedBar b={breakdown} marker={0.7} legend />
-    <p class="mt-2 text-xs text-muted">The marker shows roughly where older messages get summarized.</p>
-    {#if conv.usage}
-      {@const u = conv.usage.call.usage}
-      {@const cacheable = u.input + u.cache_read + u.cache_write}
-      <dl class="mt-5 grid grid-cols-2 gap-3 text-sm">
-        <div class="card p-3"><dt class="text-xs text-muted">Cache hits</dt><dd class="text-lg font-semibold tabular-nums">{cacheable ? Math.round((u.cache_read / cacheable) * 100) : 0}%</dd></div>
-        <div class="card p-3"><dt class="text-xs text-muted">This run</dt><dd class="text-lg font-semibold tabular-nums">{usd(conv.usage.run_cost_micros)}</dd></div>
-      </dl>
-    {/if}
-    {#if calls?.llm_calls?.length}
-      <h3 class="mt-6 mb-2 section-title">Model calls in the last run</h3>
-      <ol class="space-y-2">
-        {#each calls.llm_calls as c (c.id)}
-          <li class="card p-3 text-sm">
-            <div class="flex items-center gap-2">
-              <span class="chip">step {c.step}</span>
-              <span class="min-w-0 flex-1 truncate font-medium">{c.ref.provider}/{c.ref.model}</span>
-              <span class="tabular-nums">{c.price_known ? usd(c.cost_micros) : 'price unknown'}</span>
-            </div>
-            <p class="mt-1 text-xs text-muted">
-              {c.purpose} · {tokens(c.usage.input + c.usage.cache_read + c.usage.cache_write)} in · {tokens(c.usage.output)} out · TTFT {duration(c.ttft)} · {duration(c.latency)}
-            </p>
-            {#if c.attempts?.length > 1}
-              <ul class="mt-1 space-y-0.5 text-xs">
-                {#each c.attempts as at, i (i)}
-                  <li class={at.err ? 'text-bad' : 'text-ok'}>{at.ref.provider}/{at.ref.model}: {at.err ? `${at.kind ?? 'error'}: ${at.err}` : 'ok'} · {duration(at.latency)}</li>
-                {/each}
-              </ul>
-            {/if}
-          </li>
-        {/each}
-      </ol>
-    {/if}
-  {:else}
-    <p class="text-sm text-muted">No context data yet. Send a message first.</p>
-  {/if}
+<Dialog bind:open={deleteOpen} title="Delete this chat?" initialFocus="cancel" {busy}>
+  <p class="text-body text-text">The messages will be deleted. Anything Bothy already did stays done, and its record stays in Activity. This can't be undone.</p>
+  {#if dialogError}<p class="mt-2 text-small text-danger-text" role="alert">{dialogError}</p>{/if}
+  {#snippet footer({ close })}
+    <Button data-cancel onclick={close}>Cancel</Button>
+    <Button variant="danger" loading={busy} loadingLabel="Deleting…" onclick={remove}>Delete chat</Button>
+  {/snippet}
 </Dialog>
-
-<style>
-  :global(.streaming > :last-child)::after {
-    content: '▍';
-    margin-left: 1px;
-    animation: blink 1s steps(2) infinite;
-    color: var(--color-accent);
-  }
-  @keyframes blink {
-    to {
-      visibility: hidden;
-    }
-  }
-</style>

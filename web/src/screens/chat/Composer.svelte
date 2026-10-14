@@ -1,64 +1,103 @@
 <script lang="ts">
-  import Icon from '../../components/Icon.svelte';
-  import { api } from '../../lib/api/client';
+  import type { Snippet } from 'svelte';
+  import { api, ApiError } from '../../lib/api/client';
   import type { UploadResp } from '../../lib/api/types.gen';
-  import { bytes } from '../../lib/format';
-  import { toasts } from '../../lib/stores/ui.svelte';
+  import Button from '../../components/ui/Button.svelte';
+  import FileToken from '../../components/ui/FileToken.svelte';
+  import IconButton from '../../components/ui/IconButton.svelte';
+  import ToggleButton from '../../components/ui/ToggleButton.svelte';
 
+  // §7.5. Enter sends on a fine pointer and adds a line on touch; "/" opens
+  // the commands; Esc stops a running task.
   let {
-    sessionId,
     running = false,
     paused = false,
+    refine = $bindable(false),
+    onrefine,
+    refineLine = '',
+    ensureSession,
     onsend,
     oncommand,
     onstop,
+    picker,
   }: {
-    sessionId: string;
     running?: boolean;
     paused?: boolean;
+    refine?: boolean;
+    /** The person switched Refine for this chat. */
+    onrefine?: (on: boolean) => void;
+    /** The cost sentence shown while Refine is on. */
+    refineLine?: string;
+    /** The chat's id, creating the chat first when it is new (uploads need one). */
+    ensureSession: () => Promise<string>;
     onsend: (text: string, uploads: string[]) => Promise<boolean>;
     oncommand: (cmd: string, arg: string) => void;
     onstop: () => void;
+    /** The model picker, beside Send. */
+    picker?: Snippet;
   } = $props();
 
+  const MAX_MB = 20;
   const commands = [
-    { cmd: '/pin', arg: 'text', desc: 'Pin an instruction to this chat' },
-    { cmd: '/new', arg: '', desc: 'Start a new chat' },
-    { cmd: '/model', arg: 'provider/model', desc: 'Switch model for this chat (empty resets)' },
-    { cmd: '/compact', arg: '', desc: 'Summarize older messages now' },
-    { cmd: '/stop', arg: '', desc: 'Stop the current run' },
+    { cmd: '/new', desc: 'New chat', arg: false },
+    { cmd: '/stop', desc: 'Stop', arg: false },
+    { cmd: '/pin', desc: 'Keep a file in mind', arg: true },
+    { cmd: '/model', desc: 'Change model', arg: true },
+    { cmd: '/compact', desc: 'Summarise this chat so far', arg: false },
   ];
 
+  interface Attached {
+    key: number;
+    name: string;
+    size: number;
+    id?: string;
+    error?: string;
+    job?: Promise<void>;
+  }
+
   let text = $state('');
-  let files: UploadResp[] = $state([]);
-  let uploading = $state(0);
+  let files: Attached[] = $state([]);
   let sending = $state(false);
   let index = $state(0);
-  let ta: HTMLTextAreaElement;
-  let picker: HTMLInputElement;
+  let ta: HTMLTextAreaElement | undefined = $state();
+  let input: HTMLInputElement | undefined = $state();
+  let seq = 0;
   const id = $props.id();
 
   const matches = $derived(/^\/\S*$/.test(text) ? commands.filter((c) => c.cmd.startsWith(text)) : []);
   const menu = $derived(matches.length > 0);
+  const hasContent = $derived(!!text.trim() || files.some((f) => f.id || f.job));
+  const errors = $derived(files.filter((f) => f.error).map((f) => f.error!));
 
-  // Sized on input rather than in an effect: at mount the textarea may not be
-  // laid out yet and would measure its placeholder at zero width. CSSOM writes
-  // are allowed under style-src 'self'; only style attributes in markup are not.
-  function fit() {
-    ta.style.height = 'auto';
-    if (ta.value) ta.style.height = `${Math.min(ta.scrollHeight, 240)}px`;
-  }
+  const coarse = () => !!window.matchMedia?.('(pointer: coarse)').matches;
 
   $effect(() => {
     if (index >= matches.length) index = 0;
   });
 
+  export function focus() {
+    ta?.focus();
+  }
+
+  /** Puts a suggestion in the box to edit; it is never sent from here. */
+  export function fill(t: string) {
+    text = t;
+    ta?.focus();
+    queueMicrotask(fit);
+  }
+
+  // field-sizing grows the box where supported; elsewhere it is measured.
+  function fit() {
+    if (!ta || CSS.supports?.('field-sizing', 'content')) return;
+    ta.style.height = 'auto';
+    if (ta.value) ta.style.height = `${Math.min(ta.scrollHeight, window.innerHeight * 0.4)}px`;
+  }
+
   function pick(i: number) {
     const c = matches[i];
     if (!c) return;
     text = c.cmd + (c.arg ? ' ' : '');
-    ta.focus();
-    queueMicrotask(fit);
+    ta?.focus();
     if (!c.arg) void submit();
   }
 
@@ -75,11 +114,17 @@
         return;
       }
       if (e.key === 'Escape') {
+        e.preventDefault();
         text = '';
         return;
       }
     }
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    if (e.key === 'Escape' && running) {
+      e.preventDefault();
+      onstop();
+      return;
+    }
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !coarse()) {
       e.preventDefault();
       void submit();
     }
@@ -93,10 +138,14 @@
       oncommand(cmd[1], (cmd[2] ?? '').trim());
       return;
     }
-    if ((!t && !files.length) || uploading || sending) return;
+    if (paused || sending || (!t && !files.length)) return;
     sending = true;
     try {
-      if (await onsend(t, files.map((f) => f.id))) {
+      // Send waits for uploads still in flight.
+      await Promise.all(files.map((f) => f.job));
+      const ids = files.filter((f) => f.id).map((f) => f.id!);
+      if (!t && !ids.length) return;
+      if (await onsend(t, ids)) {
         text = '';
         files = [];
         queueMicrotask(fit);
@@ -107,19 +156,31 @@
     }
   }
 
-  async function upload(list: FileList | File[]) {
+  export function addFiles(list: FileList | File[]) {
     for (const f of list) {
-      uploading++;
+      const item: Attached = { key: ++seq, name: f.name, size: f.size };
+      if (f.size > MAX_MB * 1024 * 1024) item.error = `${f.name} is larger than ${MAX_MB} MB.`;
+      else item.job = upload(item, f);
+      files.push(item);
+    }
+  }
+
+  async function upload(item: Attached, f: File) {
+    const at = () => files.find((x) => x.key === item.key);
+    try {
       const fd = new FormData();
       fd.append('file', f);
-      fd.append('session_id', sessionId);
-      try {
-        files.push(await api.post<UploadResp>('/api/uploads', fd));
-      } catch (e) {
-        toasts.error(e);
-      } finally {
-        uploading--;
-      }
+      fd.append('session_id', await ensureSession());
+      const r = await api.post<UploadResp>('/api/uploads', fd);
+      const x = at();
+      if (x) x.id = r.id;
+    } catch (e) {
+      const why = e instanceof ApiError && e.status === 413 ? `it's larger than ${MAX_MB} MB` : e instanceof ApiError && e.status === 415 ? "this file type isn't supported" : '';
+      const x = at();
+      if (x) x.error = why ? `Couldn't attach ${f.name}: ${why}.` : `Couldn't attach ${f.name}. Try again.`;
+    } finally {
+      const x = at();
+      if (x) x.job = undefined;
     }
   }
 
@@ -127,7 +188,7 @@
     const list = e.clipboardData?.files;
     if (list?.length) {
       e.preventDefault();
-      void upload(list);
+      addFiles(list);
     }
   }
 </script>
@@ -136,37 +197,43 @@
   {#if menu}
     <ul
       id="{id}-cmds"
-      class="absolute bottom-full left-0 mb-2 w-full max-w-sm overflow-hidden rounded-xl border border-line bg-surface py-1 shadow-lg"
       role="listbox"
       aria-label="Commands"
+      data-floating
+      class="absolute bottom-full left-0 mb-2 w-full max-w-80 rounded-lg border border-border bg-surface p-1 shadow-[var(--shadow-overlay)]"
     >
       {#each matches as c, i (c.cmd)}
-        <li role="option" aria-selected={i === index}>
+        <li role="option" aria-selected={i === index} id="{id}-cmd-{i}">
           <button
             type="button"
             tabindex="-1"
-            class="flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-sm hover:bg-sunken {i === index ? 'bg-sunken' : ''}"
+            class="flex min-h-8 w-full cursor-pointer items-baseline gap-3 rounded-md px-2 py-1.5 text-left text-body pointer-coarse:min-h-11 {i === index ? 'bg-hover' : 'hover:bg-hover'}"
             onmousedown={(e) => e.preventDefault()}
             onclick={() => pick(i)}
           >
-            <code class="font-mono font-medium">{c.cmd}</code>{#if c.arg}<span class="text-xs text-faint">{c.arg}</span>{/if}
-            <span class="ml-auto truncate text-xs text-muted">{c.desc}</span>
+            <code class="w-16 shrink-0 font-mono text-code text-text">{c.cmd}</code><span class="text-muted">{c.desc}</span>
           </button>
         </li>
       {/each}
     </ul>
   {/if}
 
-  <div class="rounded-2xl border border-line bg-surface shadow-sm transition-colors focus-within:border-accent">
-    {#if files.length || uploading}
-      <ul class="flex flex-wrap gap-1.5 px-3 pt-3">
-        {#each files as f, i (f.id)}
-          <li class="chip !pr-1">
-            <Icon name="file" size={13} /><span class="max-w-40 truncate">{f.name}</span><span class="text-faint">{bytes(f.size)}</span>
-            <button type="button" class="rounded-full p-0.5 hover:bg-sunken" aria-label="Remove {f.name}" onclick={() => files.splice(i, 1)}><Icon name="x" size={12} /></button>
+  <div
+    class="rounded-lg border border-border-strong bg-surface p-3 transition-colors duration-120 has-[textarea:focus]:border-focus has-[textarea:focus]:shadow-[0_0_0_1px_var(--color-focus)]"
+  >
+    {#if files.length}
+      <ul class="mb-2 flex flex-wrap gap-2" aria-label="Attached files">
+        {#each files as f (f.key)}
+          <li class="max-w-full min-w-0">
+            <FileToken
+              name={f.name}
+              size={f.size}
+              state={f.job ? 'uploading' : f.error ? 'error' : undefined}
+              class={f.error ? 'text-danger-text' : ''}
+              onremove={() => (files = files.filter((x) => x.key !== f.key))}
+            />
           </li>
         {/each}
-        {#if uploading}<li class="chip animate-pulse">Uploading…</li>{/if}
       </ul>
     {/if}
     <label for="{id}-ta" class="sr-only">Message</label>
@@ -175,46 +242,54 @@
       bind:this={ta}
       bind:value={text}
       rows="1"
-      class="block max-h-60 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-[15px] leading-relaxed placeholder:text-faint focus:outline-none"
-      placeholder={paused ? 'Bothy is paused by an admin' : running ? 'Add to the current task…' : 'Message Bothy…  (/ for commands)'}
+      disabled={paused}
+      class="block max-h-[40vh] min-h-6 w-full resize-none bg-transparent text-reading text-text [field-sizing:content] placeholder:text-faint focus:outline-none disabled:cursor-not-allowed max-sm:text-[1rem] pointer-coarse:-my-2.5 pointer-coarse:py-2.5 pointer-coarse:text-[1rem]"
+      placeholder={paused ? 'Bothy is paused' : running ? 'Add to the current task' : 'Message Bothy'}
       aria-autocomplete="list"
       aria-controls={menu ? `${id}-cmds` : undefined}
+      aria-activedescendant={menu ? `${id}-cmd-${index}` : undefined}
+      aria-describedby={paused ? `${id}-why` : undefined}
       onkeydown={keydown}
       oninput={fit}
       onpaste={paste}
     ></textarea>
-    <div class="flex items-center gap-1 px-2 pb-2">
+    <div class="mt-2 flex items-center gap-1">
       <input
-        bind:this={picker}
+        bind:this={input}
         type="file"
         multiple
         class="hidden"
         tabindex="-1"
-        aria-label="Attach files"
-        onchange={async (e) => {
-          await upload(e.currentTarget.files ?? []);
-          picker.value = '';
+        aria-hidden="true"
+        onchange={(e) => {
+          addFiles(e.currentTarget.files ?? []);
+          e.currentTarget.value = '';
         }}
       />
-      <button type="button" class="btn btn-ghost btn-icon btn-sm" aria-label="Attach files" title="Attach files" onclick={() => picker.click()}>
-        <Icon name="clip" size={17} />
-      </button>
-      <span class="flex-1 truncate px-1 text-xs text-faint max-sm:hidden">
-        {running ? 'Messages you send now are added to the running task.' : 'Enter to send · Shift+Enter for a new line'}
-      </span>
-      <span class="flex-1 sm:hidden"></span>
+      <IconButton icon="plus" label="Attach files" size="sm" disabled={paused} onclick={() => input?.click()} />
+      <ToggleButton label="Refine" bind:pressed={refine} onchange={onrefine} tooltip="Bothy writes several drafts, checks them and sends the best one. Slower, and costs more." />
+      <span class="flex-1"></span>
+      {@render picker?.()}
       {#if running}
-        <button type="button" class="btn btn-sm" onclick={onstop} title="Stop the run"><Icon name="stop" size={14} />Stop</button>
+        <Button size="sm" icon="stop" onclick={onstop}>Stop</Button>
       {/if}
-      <button
-        type="button"
-        class="btn btn-primary btn-icon btn-sm !rounded-full"
-        aria-label="Send"
-        disabled={sending || !!uploading || (!text.trim() && !files.length)}
-        onclick={submit}
-      >
-        <Icon name="up" size={16} />
-      </button>
+      {#if !running || hasContent}
+        <IconButton
+          icon="arrow-up"
+          label="Send"
+          size="sm"
+          variant="primary"
+          disabled={paused || !hasContent || sending}
+          aria-describedby={paused ? `${id}-why` : undefined}
+          onclick={submit}
+        />
+      {/if}
     </div>
   </div>
+  {#each errors as e (e)}<p class="mt-2 text-small text-danger-text">{e}</p>{/each}
+  {#if paused}
+    <p id="{id}-why" class="mt-2 text-small text-muted">Bothy is paused.</p>
+  {:else if refine && refineLine}
+    <p class="mt-2 text-small text-muted">{refineLine}</p>
+  {/if}
 </div>
