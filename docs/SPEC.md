@@ -7216,7 +7216,7 @@ No router, markdown, chart, icon, date or QR libraries.
 | yaml, x/net, x/crypto, gronx, seccomp-bpf | ~1.2 MB |
 | Bothy code + catalog.json + pre-gzipped UI (only the `.gz` variant of compressible assets is embedded; `index.html` stays raw) | ~4.5 MB |
 | **Binary** | **~23 MB → ~9 MB gzip** (v0.1) |
-| v0.2 measured (placeholder UI) | linux/amd64 22.92 MB → 26.56 MB (+3.65 MB: AWS SDK ~2.4 MB, GitHub, knowledge, releases and refine ~1.2 MB), gzip 9.03 → 10.31 MB; linux/arm64 21.23 → 24.51 MB, gzip 8.27 → 9.42 MB |
+| v0.2 measured (placeholder UI) | linux/amd64 22.92 MB → 26.56 MB (+3.65 MB: AWS SDK ~2.4 MB, GitHub, knowledge, releases and refine ~1.2 MB), gzip 9.03 → 10.31 MB; linux/arm64 21.23 → 24.51 MB, gzip 8.27 → 9.42 MB; with the UI built, linux/amd64 25.5 MiB, gzip 10.0 MiB; gateway image (linux/arm64) 10.2 MiB compressed, against 9.1 MiB for v0.1 and the 30 MB budget; idle RSS with three fake channels 40.4 MiB on darwin/arm64 (v0.1: 35.1 MiB), cold start median 58 ms |
 | **Gateway image** (distroless static ≈ 1 MB) | **~10–11 MB compressed** (budget 30, CI warns at 20); measured 9.1 MiB (arm64), 9.8 MiB (amd64), 9.3 MiB (armv7) |
 | Sandbox images (compose only) | measured 105.8 MiB (base) and 152.5 MiB (node) compressed on linux/arm64, against the original ~50 and ~80 MB estimates (apt layer ~173 MB unpacked, uv ~48 MB); no hard budget |
 
