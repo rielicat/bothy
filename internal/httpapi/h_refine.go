@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/httpapi/dto"
 )
@@ -22,8 +23,9 @@ func (s *Server) refineInfo(w http.ResponseWriter, _ *http.Request, _ core.Actor
 	if c.CriticSlot == string(core.SlotFast) {
 		slot = core.SlotFast
 	}
+	_, mult := refineWork(c)
 	return ok(w, dto.RefineInfo{Enabled: c.Enabled, Drafts: c.Drafts, Depth: c.Depth, EarlyStop: c.EarlyStop, CriticSlot: slot,
-		MaxCalls: core.RefineMaxCalls(c.Drafts, c.Depth)})
+		MaxCalls: core.RefineMaxCalls(c.Drafts, c.Depth), Multiplier: mult})
 }
 
 // sessionRefine is the session's own refine setting, "" when it has none.
@@ -124,9 +126,8 @@ func (s *Server) refineEstimate(w http.ResponseWriter, r *http.Request, a core.A
 	if err != nil {
 		return err
 	}
-	c := s.cfg().Agent.Refine
-	drafts, depth := max(c.Drafts, 1), max(c.Depth, 0)
-	out := dto.RefineEstimate{Multiplier: refineMultiplier(drafts, depth, c.EarlyStop), Drafts: drafts}
+	drafts, mult := refineWork(s.cfg().Agent.Refine)
+	out := dto.RefineEstimate{Multiplier: mult, Drafts: drafts}
 	base, found, err := s.answerStepCost(ctx, a.Viewer, sess.ID)
 	if err != nil {
 		return err
@@ -138,16 +139,17 @@ func (s *Server) refineEstimate(w http.ResponseWriter, r *http.Request, a core.A
 	return ok(w, out)
 }
 
-// refineMultiplier is how many answer steps a refined reply costs: every
-// draft once, and continue, critique and correct for each draft in every
-// round. Early stop is counted as ending halfway through the rounds, since
-// drafts that agree stop deepening.
-func refineMultiplier(drafts, depth int, earlyStop bool) float64 {
+// refineWork is the configured drafts and how many answer steps a refined
+// reply costs: every draft once, and continue, critique and correct for each
+// draft in every round. Early stop is counted as ending halfway through the
+// rounds, since drafts that agree stop deepening.
+func refineWork(c config.Refine) (int, float64) {
+	drafts, depth := max(c.Drafts, 1), max(c.Depth, 0)
 	rounds := depth
-	if earlyStop {
+	if c.EarlyStop {
 		rounds = (depth + 1) / 2
 	}
-	return float64(drafts * (1 + 3*rounds))
+	return drafts, float64(drafts * (1 + 3*rounds))
 }
 
 // answerStepCost averages the cost of the chat's latest priced answer steps:

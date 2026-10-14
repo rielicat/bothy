@@ -19,7 +19,7 @@ func TestRefineInfo(t *testing.T) {
 		c.Agent.Refine = config.Refine{Enabled: true, Drafts: 4, Depth: 1, CriticSlot: "fast"}
 	}).setup()
 	got := decodeAs[dto.RefineInfo](t, h.do("GET", "/api/refine", nil, h.member))
-	want := dto.RefineInfo{Enabled: true, Drafts: 4, Depth: 1, CriticSlot: core.SlotFast, MaxCalls: 16}
+	want := dto.RefineInfo{Enabled: true, Drafts: 4, Depth: 1, CriticSlot: core.SlotFast, MaxCalls: 16, Multiplier: 16}
 	if got != want {
 		t.Fatalf("refine info = %+v, want %+v", got, want)
 	}
@@ -142,6 +142,9 @@ func TestRefineEstimate(t *testing.T) {
 		t.Fatalf("estimate = %+v, want (10000+30000)/2 µ$ × 12 = $0.24", got)
 	}
 
+	if info := decodeAs[dto.RefineInfo](t, h.do("GET", "/api/refine", nil, h.member)); info.Multiplier != got.Multiplier {
+		t.Fatalf("a new chat's multiplier %v differs from the estimate's %v", info.Multiplier, got.Multiplier)
+	}
 	h.cfg.update(func(c *config.Config) { c.Agent.Refine.EarlyStop = false })
 	if got := decodeAs[dto.RefineEstimate](t, h.do("GET", url, nil, h.member)); got.Multiplier != 21 {
 		t.Fatalf("without early stop every round counts: %+v", got)

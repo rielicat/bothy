@@ -2689,6 +2689,12 @@ export interface RefineInfo {
   early_stop: boolean;
   critic_slot: Slot;
   max_calls: number /* int */; // drafts × (1 + 3 × depth), the answer step included
+  /**
+   * Multiplier is about how many normal replies a refined one costs, early
+   * stop considered: the refine estimate of a chat with no priced answer
+   * yet, or of a new chat not stored until its first message.
+   */
+  multiplier: number /* float64 */;
 }
 export interface ApprovalResolveReq {
   choice: Choice;

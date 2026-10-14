@@ -186,6 +186,10 @@ type RefineInfo struct {
 	EarlyStop  bool      `json:"early_stop"`
 	CriticSlot core.Slot `json:"critic_slot"`
 	MaxCalls   int       `json:"max_calls"` // drafts × (1 + 3 × depth), the answer step included
+	// Multiplier is about how many normal replies a refined one costs, early
+	// stop considered: the refine estimate of a chat with no priced answer
+	// yet, or of a new chat not stored until its first message.
+	Multiplier float64 `json:"multiplier"`
 }
 
 type ApprovalResolveReq struct {
