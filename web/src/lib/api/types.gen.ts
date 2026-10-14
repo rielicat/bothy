@@ -446,6 +446,20 @@ export type Subscription = any;
 export type Bus = any;
 
 //////////
+// source: internal/core/failure.go
+
+/**
+ * FailureCode names why a provider, channel or GitHub check failed, so the
+ * web UI picks its sentence from a code instead of parsing messages (v0.2
+ * UI §5.6.4). The raw message always travels next to it.
+ */
+export type FailureCode = "key_rejected" | "no_model_access" | "out_of_credit" | "rate_limited" | "provider_error" | "timeout" | "unreachable" | "private_address" | "no_models" | "tls" | "not_a_model_server" | "aws_no_credentials" | "aws_denied" | "aws_no_models" | "unknown";
+/**
+ * FailureCoder is an error that knows its FailureCode.
+ */
+export type FailureCoder = any;
+
+//////////
 // source: internal/core/github.go
 
 export const PrefixGitHubConn = "ghc";
@@ -534,6 +548,7 @@ export interface GitHubRateLimit {
 export interface GitHubProbe {
   ok: boolean;
   error?: string;
+  code?: FailureCode; // why it failed, next to Error
   auth: GitHubAuth;
   account: string;
   account_type: string;
@@ -1236,6 +1251,18 @@ export interface ModelInfo {
   local: boolean;
   price: Price;
   source: string; // catalog | config | discovery
+  /**
+   * Plain names for the UI (v0.2): DisplayName "Claude Sonnet 4.5",
+   * ShortName "Sonnet 4.5" for narrow screens, ProviderName "Anthropic".
+   * Recommended marks the provider's suggested main model and
+   * QuickTasksDefault its suggested quick tasks model, among the models
+   * listed together.
+   */
+  display_name?: string;
+  short_name?: string;
+  provider_name?: string;
+  recommended?: boolean;
+  quick_tasks_default?: boolean;
 }
 export interface ToolDef {
   name: string;
@@ -1389,13 +1416,22 @@ export interface ProbeResult {
   detail: string; // plain-language failure or hint (e.g. OLLAMA_CONTEXT_LENGTH)
   choices?: ModelChoice[]; // Models with display names, for a model picker
   credentials?: string; // bedrock: where the AWS credentials came from, never their values
+  model?: string; // the model the probe exercised
+  code?: FailureCode; // why the check failed (OK false)
+  error?: string; // the raw, redacted message behind Code
 }
 /**
- * ModelChoice is one entry of a model picker.
+ * ModelChoice is one entry of a model picker, with the plain names and
+ * suggestions of ModelInfo.
  */
 export interface ModelChoice {
   id: string;
   display: string;
+  display_name?: string;
+  short_name?: string;
+  provider_name?: string;
+  recommended?: boolean;
+  quick_tasks_default?: boolean;
 }
 export interface Detection {
   kind: ProviderKind;
@@ -1405,7 +1441,10 @@ export interface Detection {
   note?: string;
   region?: string; // bedrock: the AWS config's region, "" when it names none
   profile?: string; // bedrock: the AWS_PROFILE in use, "" for the default chain
-  source?: string; // bedrock: where the AWS credentials came from, never their values
+  source?: string; // bedrock: where the AWS credentials came from in plain words ("instance role bothy-prod"), never their values
+  choices?: ModelChoice[]; // Models with plain names and suggestions
+  secret_ref?: string; // a provider key already saved in the global vault: "secret:<name>"
+  secret_hint?: string; // its last four characters ("" for short values)
 }
 export interface ProviderHealth {
   id: string;
@@ -1777,6 +1816,11 @@ export interface User {
   disabled: boolean;
   created_at: string /* RFC 3339 */;
   updated_at: string /* RFC 3339 */;
+  /**
+   * MustChangePassword: the account has a one-time password an admin
+   * handed out; its owner must choose their own before anything else.
+   */
+  must_change_password?: boolean;
 }
 export interface Space {
   principal_id: PrincipalID;
@@ -2400,7 +2444,7 @@ export interface Error {
   error: ErrorBody;
 }
 export interface ErrorBody {
-  code: string; // bad_request | unauthorized | forbidden | not_found | conflict | busy | paused | budget_exceeded | rate_limited | sealed | no_sandbox | unavailable | internal
+  code: string; // bad_request | unauthorized | forbidden | password_change_required | not_found | conflict | busy | paused | budget_exceeded | rate_limited | sealed | no_sandbox | unavailable | internal; a failed POST /api/channels/{name}/test (502) carries a core.FailureCode
   message: string;
   fix?: string;
 }
@@ -2414,6 +2458,7 @@ export interface SetupState {
   csrf?: string; // the claimed grant's CSRF token (like dto.Me.CSRF); empty unless Claimed
   owner_set: boolean;
   sandbox_available: boolean;
+  install: string; // compose | docker | binary | unknown: picks the command that prints a new setup code
 }
 export interface SetupClaimReq {
   token: string;
@@ -2422,6 +2467,7 @@ export interface SetupClaimResp {
   csrf: string;
 }
 export interface SetupOwnerReq {
+  display_name?: string; // "" = the username
   username: string;
   password: string;
   timezone: string;
@@ -2448,7 +2494,7 @@ export interface Access {
   tls: boolean; // native TLS or X-Forwarded-Proto https from a trusted proxy
 }
 export interface PasswordReq {
-  old: string;
+  old: string; // may be "" while the user's must_change_password is set
   new: string;
 }
 export interface TokenCreateResp {
@@ -2457,7 +2503,7 @@ export interface TokenCreateResp {
 }
 export interface UserCreateReq {
   username: string;
-  password: string;
+  password?: string; // "" = generate a one-time password (UserCreateResp)
   display_name: string;
   role: Role;
 }
@@ -2776,4 +2822,55 @@ export interface ReleaseApprover {
   kind: string; // user | role
   id: string; // user id or role name
   name: string; // display name, or the role
+}
+
+//////////
+// source: internal/httpapi/dto/setup.go
+
+/**
+ * UserCreateResp is POST /api/users: the new account and, when the request
+ * left the password empty, the one-time password to hand to its owner
+ * (shown once; they choose their own at the first sign-in).
+ */
+export interface UserCreateResp extends User {
+  one_time_password?: string;
+}
+/**
+ * PasswordResetResp is POST /api/users/{id}/password: the account's new
+ * one-time password, shown once.
+ */
+export interface PasswordResetResp {
+  one_time_password: string;
+}
+/**
+ * ProviderConnectReq is POST /api/providers/connect: one call that saves the
+ * key, writes providers[id] and sets the model slots in one config change.
+ * Give at most one of APIKey (pasted; saved in the global vault as
+ * "<id>_api_key"), SecretRef (a saved key, "secret:<name>", from a detection)
+ * or EnvVar (a detected well-known key variable, copied into the vault).
+ * Bedrock takes none of them.
+ */
+export interface ProviderConnectReq {
+  id?: string; // providers[].id; "" = from kind and address (anthropic, openrouter, ollama, lmstudio, custom, …)
+  kind: ProviderKind;
+  base_url?: string;
+  api_key?: string; // write-only
+  secret_ref?: string;
+  env_var?: string;
+  allow_private: boolean; // a detected local server, or an address the person allowed
+  api?: string; // openai, openai_compat: auto | responses | chat
+  region?: string; // bedrock
+  profile?: string; // bedrock
+  model?: string; // main model id; "" leaves both slots as they are
+  quick_model?: string; // quick tasks model id; "" = Model
+}
+/**
+ * ProviderConnectResp says what POST /api/providers/connect wrote.
+ */
+export interface ProviderConnectResp {
+  provider: string; // the providers[].id written
+  main?: string; // "<provider>/<model>", now first in models.main
+  fast?: string; // now first in models.fast
+  secret?: SecretMeta;
+  restart_required: string[];
 }
