@@ -129,7 +129,7 @@ func (s *Service) probe(ctx context.Context, ep endpoint, src tokenSource, auth 
 	var last rateInfo
 	observe := func(ri rateInfo) { last = ri }
 	fail := func(err error) *core.GitHubProbe {
-		p.OK, p.Error = false, probeError(err)
+		p.OK, p.Error, p.Code = false, probeError(err), probeCode(err)
 		p.RateLimit = core.GitHubRateLimit{Limit: last.limit, Remaining: last.remaining, Reset: last.reset, Resource: last.resource}
 		return p
 	}
@@ -302,6 +302,26 @@ func probeError(err error) string {
 		return "the secret reference names no stored secret"
 	}
 	return err.Error()
+}
+
+// probeCode says why a probe failed, for the connect screen.
+func probeCode(err error) core.FailureCode {
+	var ae *apiError
+	var re *rateLimitError
+	switch {
+	case errors.As(err, &re):
+		return core.FailRateLimited
+	case errors.As(err, &ae) && ae.status == http.StatusUnauthorized:
+		return core.FailKeyRejected
+	case errors.As(err, &ae) && ae.status >= 500:
+		return core.FailProviderError
+	case errors.As(err, &ae):
+		return core.FailUnknown
+	}
+	if c := core.CodeOf(err); c != "" {
+		return c
+	}
+	return core.FailUnknown
 }
 
 // tokenExpiry parses GitHub-Authentication-Token-Expiration, sent for

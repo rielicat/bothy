@@ -144,6 +144,8 @@ func (e *authError) Error() string {
 
 func (e *authError) Unwrap() error { return e.err }
 
+func (e *authError) FailureCode() core.FailureCode { return core.FailKeyRejected }
+
 type disgoAPI struct {
 	r     rest.Rest
 	token func(context.Context) (string, error)

@@ -108,6 +108,17 @@ type ModelInfo struct {
 	Local     bool      `json:"local"`
 	Price     Price     `json:"price"`
 	Source    string    `json:"source"` // catalog | config | discovery
+
+	// Plain names for the UI (v0.2): DisplayName "Claude Sonnet 4.5",
+	// ShortName "Sonnet 4.5" for narrow screens, ProviderName "Anthropic".
+	// Recommended marks the provider's suggested main model and
+	// QuickTasksDefault its suggested quick tasks model, among the models
+	// listed together.
+	DisplayName       string `json:"display_name,omitempty"`
+	ShortName         string `json:"short_name,omitempty"`
+	ProviderName      string `json:"provider_name,omitempty"`
+	Recommended       bool   `json:"recommended,omitempty"`
+	QuickTasksDefault bool   `json:"quick_tasks_default,omitempty"`
 }
 
 type ToolDef struct {
@@ -303,12 +314,22 @@ type ProbeResult struct {
 
 	Choices     []ModelChoice `json:"choices,omitempty"`     // Models with display names, for a model picker
 	Credentials string        `json:"credentials,omitempty"` // bedrock: where the AWS credentials came from, never their values
+
+	Model string      `json:"model,omitempty"` // the model the probe exercised
+	Code  FailureCode `json:"code,omitempty"`  // why the check failed (OK false)
+	Error string      `json:"error,omitempty"` // the raw, redacted message behind Code
 }
 
-// ModelChoice is one entry of a model picker.
+// ModelChoice is one entry of a model picker, with the plain names and
+// suggestions of ModelInfo.
 type ModelChoice struct {
-	ID      string `json:"id"`
-	Display string `json:"display"`
+	ID                string `json:"id"`
+	Display           string `json:"display"`
+	DisplayName       string `json:"display_name,omitempty"`
+	ShortName         string `json:"short_name,omitempty"`
+	ProviderName      string `json:"provider_name,omitempty"`
+	Recommended       bool   `json:"recommended,omitempty"`
+	QuickTasksDefault bool   `json:"quick_tasks_default,omitempty"`
 }
 
 type Detection struct {
@@ -319,7 +340,11 @@ type Detection struct {
 	Note    string       `json:"note,omitempty"`
 	Region  string       `json:"region,omitempty"`  // bedrock: the AWS config's region, "" when it names none
 	Profile string       `json:"profile,omitempty"` // bedrock: the AWS_PROFILE in use, "" for the default chain
-	Source  string       `json:"source,omitempty"`  // bedrock: where the AWS credentials came from, never their values
+	Source  string       `json:"source,omitempty"`  // bedrock: where the AWS credentials came from in plain words ("instance role bothy-prod"), never their values
+
+	Choices    []ModelChoice `json:"choices,omitempty"`     // Models with plain names and suggestions
+	SecretRef  string        `json:"secret_ref,omitempty"`  // a provider key already saved in the global vault: "secret:<name>"
+	SecretHint string        `json:"secret_hint,omitempty"` // its last four characters ("" for short values)
 }
 
 type ProviderHealth struct {

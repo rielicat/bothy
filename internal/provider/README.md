@@ -55,5 +55,21 @@ offers "Use this server's AWS access" first when the chain resolves (within
 detection timeout for IMDS), with region and models; the doctor check
 `providers.bedrock_credentials` reports each bedrock provider's credential
 source (info) or why there is none (high), never values.
+For the v0.2 UI (`friendly.go`, `failure.go`) every `ModelInfo` and
+`ModelChoice` carries a plain `display_name` (the catalog's or vendor's
+name, else one built from the id: `qwen3:14b` → "Qwen3 14B"; Bedrock
+geographies only when a list holds the same model twice), a `short_name`
+("Sonnet 4.5") and the `provider_name`; `/api/models`, probe choices and
+detections mark one `recommended` main model and one `quick_tasks_default`
+per provider: the newest Sonnet and Haiku (Claude vendors, Bedrock with the
+region's own geography first, then global), the newest plain GPT and its
+mini, the newest Gemini Pro and Flash-Lite, the largest local model up to
+40B for both slots, else the first model and the cheapest priced one. A
+probe without a model tests the recommended one (Bedrock keeps its small
+default) and names it in `model`; a failed probe sets `code`
+(`core.FailureCode`) and the raw `error`. Bedrock credential sources read
+"SSO profile acme-dev", "instance role bothy-prod" (the role name from IMDS),
+"IRSA role bothy", "ECS task role". `Detect` also lists provider keys saved
+in the global vault (`secret_ref`, last four characters as `secret_hint`).
 `wire/` holds what the clients share; `wiretest/` serves recorded vendor
 responses in tests.

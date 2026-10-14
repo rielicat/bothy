@@ -298,7 +298,7 @@ func TestBadTokenReportsAuthFailed(t *testing.T) {
 	if st := f.a.Status(); !strings.Contains(st.Detail, "bot token") {
 		t.Fatalf("status = %+v, want a token hint", st)
 	}
-	if _, err := f.a.SelfTest(context.Background()); !isAuthErr(err) {
+	if _, err := f.a.SelfTest(context.Background()); !isAuthErr(err) || core.CodeOf(err) != core.FailKeyRejected {
 		t.Fatalf("SelfTest = %v, want an auth error", err)
 	}
 }

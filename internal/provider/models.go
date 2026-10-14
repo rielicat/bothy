@@ -216,7 +216,12 @@ func (f *Facade) resolve(e *entry, model string) core.ModelInfo {
 			}
 		}
 	}
+	f.name(e.endpoint(), &info)
 	return info
+}
+
+func (e *entry) endpoint() endpoint {
+	return endpoint{kind: e.kind, base: e.base, region: e.cfg.Region}
 }
 
 // overrideTiers converts a pricing override's tiers (keys validated by
@@ -308,7 +313,8 @@ func (f *Facade) Models(ctx context.Context) []core.ModelInfo {
 		}
 	}
 	wg.Wait()
-	byRef := map[string]core.ModelInfo{}
+	var out []core.ModelInfo
+	seen := map[string]bool{}
 	for _, e := range es {
 		var names []string
 		for _, m := range e.cfg.Models {
@@ -329,16 +335,18 @@ func (f *Facade) Models(ctx context.Context) []core.ModelInfo {
 			}
 		}
 		f.mu.Unlock()
+		var group []core.ModelInfo
 		for _, n := range names {
 			ref := core.ModelRef{Provider: e.id, Model: n}
-			if _, ok := byRef[ref.String()]; !ok {
-				byRef[ref.String()] = f.resolve(e, n)
+			if !seen[ref.String()] {
+				seen[ref.String()] = true
+				group = append(group, f.resolve(e, n))
 			}
 		}
-	}
-	out := make([]core.ModelInfo, 0, len(byRef))
-	for _, m := range byRef {
-		out = append(out, m)
+		// Suggestions are made among one provider's models, in a stable order.
+		slices.SortFunc(group, func(a, b core.ModelInfo) int { return cmp.Compare(a.Ref.Model, b.Ref.Model) })
+		f.annotate(e.endpoint(), group)
+		out = append(out, group...)
 	}
 	slices.SortFunc(out, func(a, b core.ModelInfo) int { return cmp.Compare(a.Ref.String(), b.Ref.String()) })
 	return out

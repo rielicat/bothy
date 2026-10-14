@@ -141,7 +141,7 @@ func (f *Facade) probeBedrock(ctx context.Context, pc core.ProbeConfig) (core.Pr
 	defer chain.CloseIdleConnections()
 	src, err := chain.Describe(ctx)
 	if err != nil {
-		res.Detail = awsCredentialsText(err)
+		res.Detail, res.Code, res.Error = awsCredentialsText(err), core.FailAWSNoCredentials, bedrock.ScrubAccounts(err.Error())
 		return res, nil
 	}
 	res.Credentials = src
@@ -151,6 +151,7 @@ func (f *Facade) probeBedrock(ctx context.Context, pc core.ProbeConfig) (core.Pr
 	}
 	if region == "" {
 		res.Detail = "AWS access works (" + src + "), but no region is configured; choose the AWS region to use Bedrock in."
+		res.Code, res.Error = core.FailUnknown, "no AWS region configured"
 		return res, nil
 	}
 	runtime, control, err := bedrockEndpoints(pc.BaseURL, region)
@@ -169,19 +170,22 @@ func (f *Facade) probeBedrock(ctx context.Context, pc core.ProbeConfig) (core.Pr
 	for _, m := range found {
 		res.Models = append(res.Models, m.Ref.Model)
 	}
-	res.Choices = choices(found)
+	f.annotate(endpoint{kind: core.KindBedrock, base: runtime, region: region}, found)
+	res.Choices = choicesFor(found)
 	model := pc.Model
 	if model == "" {
 		model = probeModel(res.Models)
 	}
 	if model == "" {
 		if derr != nil {
-			res.Detail = plain(derr, runtime, core.KindBedrock, "")
+			res.Detail, res.Code, res.Error = plain(derr, runtime, core.KindBedrock, ""), failureCode(derr, core.KindBedrock), rawError(derr)
 		} else {
 			res.Detail = "This AWS account lists no Claude or Nova models in " + region + "; name a model id to test."
+			res.Code = core.FailAWSNoModels
 		}
 		return res, nil
 	}
+	res.Model = model
 	info := f.probeInfo(core.KindBedrock, runtime, model, found)
 	notes, ok := f.exercise(ctx, probeCall{cl: cl, model: model, info: info, firstMax: bedrockFirstMax, base: runtime, kind: core.KindBedrock}, &res)
 	if ok {
@@ -297,6 +301,8 @@ func (f *Facade) detectAWS(ctx context.Context) *core.Detection {
 		for _, m := range ms {
 			d.Models = append(d.Models, m.Ref.Model)
 		}
+		f.annotate(endpoint{kind: core.KindBedrock, base: d.BaseURL, region: d.Region}, ms)
+		d.Choices = choicesFor(ms)
 	}
 	return d
 }

@@ -411,7 +411,7 @@ func TestAuthFailures(t *testing.T) {
 			if st := f.a.Status(); !strings.Contains(st.Detail, tt.hint) {
 				t.Fatalf("status = %+v, want a hint mentioning %q", st, tt.hint)
 			}
-			if _, err := f.a.SelfTest(context.Background()); !isAuthErr(err) {
+			if _, err := f.a.SelfTest(context.Background()); !isAuthErr(err) || core.CodeOf(err) != core.FailKeyRejected {
 				t.Fatalf("SelfTest = %v, want an auth error", err)
 			}
 		})
