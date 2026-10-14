@@ -8,7 +8,7 @@
 </script>
 
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { api, ApiError, errorText } from '../lib/api/client';
   import { plural } from '../lib/format';
   import { failure, failureCode, AWS_HELP, type Failure } from '../lib/providerErrors';
@@ -76,11 +76,15 @@
   const setup = $derived(mode === 'setup');
   const IDLE_MS = 800;
 
+  const listRow = (def: ProviderDef): Row => ({ value: `p:${def.id}`, title: def.name, description: def.line, def, source: 'list' });
+
   let root: HTMLElement | undefined = $state();
   let detections = $state<DetectionV2[] | null>(null);
   let slow = $state(false);
   let selected = $state<string | undefined>();
-  let states = $state<Record<string, RowState>>({});
+  // The provider list is usable while detection runs, so its rows have state from the start.
+  let states = $state<Record<string, RowState>>(Object.fromEntries(providers.map((p) => [`p:${p.id}`, blank(listRow(p))])));
+  let settled = false;
   let more = $state(false);
   let reveal = $state(false);
   let saving = $state(false);
@@ -130,8 +134,10 @@
   }
 
   const found = $derived(detectedRows(detections ?? []));
-  const hide = $derived(new Set(found.map((r) => (r.source === 'aws' ? 'bedrock' : r.source === 'local' ? r.def.id : ''))));
-  const listRow = (def: ProviderDef): Row => ({ value: `p:${def.id}`, title: def.name, description: def.line, def, source: 'list' });
+  // A provider found on the server leaves the list, unless it was chosen there before detection finished.
+  const hide = $derived(new Set(found.map((r) => (r.source === 'aws' ? 'bedrock' : r.source === 'local' ? r.def.id : '')).filter((id) => id && `p:${id}` !== selected)));
+  const looking = $derived(detections === null && slow);
+  const pad = $derived(setup ? '[&>div>label]:px-4 [&>div>div]:mr-4 [&>div>div]:ml-11' : '');
   const base = $derived(providers.filter((p) => !p.more && !hide.has(p.id)).map(listRow));
   const extra = $derived(providers.filter((p) => p.more && !hide.has(p.id)).map(listRow));
   const rows = $derived([...found, ...base, ...extra]);
@@ -176,15 +182,17 @@
     };
   });
 
-  // Runs once, when detection settles: every row gets its state, and a single
-  // AWS or local option is chosen and checked at once (§5.6.1).
+  // Runs once, when detection settles: the found rows get their state, and a
+  // single AWS or local option is chosen and checked at once (§5.6.1), unless
+  // the person already chose something while detection ran.
   $effect(() => {
-    if (detections === null || Object.keys(states).length) return;
-    const next: Record<string, RowState> = {};
-    for (const r of rows) next[r.value] = blank(r);
-    states = next;
-    const auto = found.filter((r) => r.source !== 'env');
-    if (auto.length === 1) void tick().then(() => select(auto[0].value));
+    if (detections === null || settled) return;
+    settled = true;
+    untrack(() => {
+      for (const r of found) states[r.value] ??= blank(r);
+      const auto = found.filter((r) => r.source !== 'env');
+      if (auto.length === 1 && selected === undefined) void tick().then(() => selected === undefined && select(auto[0].value));
+    });
   });
 
   function stop() {
@@ -284,6 +292,7 @@
       local: !!(r.def.local || r.def.custom || r.source === 'local'),
       model: req.model ? friendlyModel(req.model) : undefined,
       region: regionName(s.region),
+      regionCode: s.region,
       source: probe?.source ?? r.detection?.source,
       hostPort: req.base_url ? hostPort(req.base_url) : undefined,
       console: r.def.console,
@@ -351,6 +360,7 @@
 
 {#snippet regionSelect(v: string)}
   <Select
+    class="[&_select]:text-ellipsis"
     label="Region"
     options={regions.map(([value, label]) => ({ value, label, description: value }))}
     value={states[v].region}
@@ -365,7 +375,7 @@
 {/snippet}
 
 {#snippet link(href: string, label: string, cls: string)}
-  <a class="link {cls}" {href} target="_blank" rel="noopener noreferrer">{label}<span aria-hidden="true">{' ↗'}</span><span class="sr-only">{' (opens in a new tab)'}</span></a>
+  <a class="link {cls}" {href} target="_blank" rel="noopener noreferrer">{label}<span aria-hidden="true">{'\u00a0↗'}</span><span class="sr-only">{' (opens in a new tab)'}</span></a>
 {/snippet}
 
 {#snippet status(v: string, first: boolean)}
@@ -373,7 +383,8 @@
   {@const r = row(v)}
   {@const gap = first && !s.changing ? '' : 'mt-3'}
   {#if s.changing && s.models.length}
-    <Select class={first ? '' : 'mt-3'} label="Model" options={modelOptions(s.models, pickModels(r.def, s.models).main)} value={s.main} onchange={(e) => chooseModel(v, e.currentTarget.value)} />
+    <!-- Native selects clip a long value at 360 px; the ellipsis shows it was cut. -->
+    <Select class="{first ? '' : 'mt-3'} [&_select]:text-ellipsis" label="Model" options={modelOptions(s.models, pickModels(r.def, s.models).main)} value={s.main} onchange={(e) => chooseModel(v, e.currentTarget.value)} />
   {/if}
   {#if s.status === 'checking'}
     <StatusLine class={gap} tone="progress" text={s.checking} />
@@ -392,8 +403,13 @@
     <div class="text-body {gap}">
       <div class="flex items-start gap-2">
         <span class="flex h-5 w-4 shrink-0 items-center justify-center"><Icon name="alert" class="text-danger-text" /></span>
-        <p class="min-w-0 flex-1 text-danger-text" role={s.byPerson ? 'alert' : undefined}>
-          {f.text}
+        <p id="{uid}-{v}-status" class="min-w-0 flex-1 text-danger-text" role={s.byPerson ? 'alert' : undefined}>
+          {#if f.command}
+            {@const [before, after] = f.text.split(f.command)}
+            {before}<code class="rounded-sm bg-subtle px-1 text-code">{f.command}</code>{after}
+          {:else}
+            {f.text}
+          {/if}
           {#if f.action?.kind === 'retry'}
             <LinkButton class="ml-1" onclick={() => check(v, { byPerson: true })}>{f.action.label}</LinkButton>
           {:else if f.action?.kind === 'link'}
@@ -428,7 +444,7 @@
       spellcheck="false"
       bind:value={states[v].key}
       aria-invalid={s.status === 'failed' && s.rejected ? 'true' : undefined}
-      aria-describedby={help && s.status === 'idle' ? `${uid}-${v}-help` : undefined}
+      aria-describedby={s.status === 'failed' ? `${uid}-${v}-status` : help && s.status === 'idle' ? `${uid}-${v}-help` : undefined}
       oninput={(e) => edited(v, (e as unknown as InputEvent).inputType === 'insertFromPaste')}
       onkeydown={(e) => enter(e, v)}
     />
@@ -465,6 +481,7 @@
         autocomplete="off"
         autocapitalize="off"
         spellcheck="false"
+        aria-describedby={s.status === 'failed' ? `${uid}-${v}-status` : undefined}
         oninput={() => edited(v)}
         onkeydown={(e) => enter(e, v)}
       />
@@ -498,57 +515,54 @@
 {/snippet}
 
 <div bind:this={root}>
-  {#if detections === null}
-    {#if slow}<p class="text-body text-muted" role="status">Looking for models on this server…</p>{/if}
-  {:else}
-    {#if found.length}
-      <h2 id="{uid}-found" class="text-small font-medium text-muted">Found on this server</h2>
-      <div class="mt-2 {setup ? 'card py-0' : ''}">
-        <OptionList name="{uid}-found" label="Found on this server" options={found} framed={false} bind:value={selected} onchange={select} expanded={expand} />
-      </div>
-    {/if}
-    <h2 class="text-small font-medium text-muted {found.length ? 'mt-8' : ''}">{found.length ? 'Or choose a provider' : 'Choose a provider'}</h2>
-    <div class="mt-2 {setup ? 'card py-0' : ''}">
-      <OptionList name="{uid}-list" label="Providers" options={base} framed={false} bind:value={selected} onchange={select} expanded={expand} />
-      <div class="border-t border-border">
-        <button
-          type="button"
-          class="flex min-h-12 w-full cursor-pointer items-center gap-2 text-left text-body font-medium text-text"
-          aria-expanded={showMore}
-          aria-controls="{uid}-more"
-          onclick={() => (more = !showMore)}
-        >
-          <Icon name="chevron-right" size={16} class="text-muted transition-transform duration-160 {showMore ? 'rotate-90' : ''}" />
-          More providers
-        </button>
-      </div>
-      <div id="{uid}-more">
-        {#if showMore}
-          <div class="border-t border-border">
-            <OptionList name="{uid}-more" label="More providers" options={extra} framed={false} bind:value={selected} onchange={select} expanded={expand} />
-          </div>
-        {/if}
-      </div>
+  {#if found.length}
+    <h2 class="text-small font-medium text-muted">Found on this server</h2>
+    <OptionList class="mt-2" name="{uid}-found" label="Found on this server" options={found} framed={setup} bind:value={selected} onchange={select} expanded={expand} />
+  {:else if looking}
+    <p class="text-body text-muted" role="status">Looking for models on this server…</p>
+  {/if}
+  <h2 class="text-small font-medium text-muted {found.length || looking ? 'mt-8' : ''}">{found.length || looking ? 'Or choose a provider' : 'Choose a provider'}</h2>
+  <!-- One card holds both lists and the More providers row, so the lists are unframed and take a framed list's row padding from here. -->
+  <div class="mt-2 {setup ? 'card p-0' : ''}">
+    <OptionList name="{uid}-list" label="Providers" options={base} framed={false} class={pad} bind:value={selected} onchange={select} expanded={expand} />
+    <div class="border-t border-border">
+      <button
+        type="button"
+        class="flex min-h-12 w-full cursor-pointer items-center gap-2 text-left text-body font-medium text-text {setup ? 'px-4' : ''}"
+        aria-expanded={showMore}
+        aria-controls="{uid}-more"
+        onclick={() => (more = !showMore)}
+      >
+        <Icon name="chevron-right" size={16} class="text-muted transition-transform duration-160 {showMore ? 'rotate-90' : ''}" />
+        More providers
+      </button>
     </div>
+    <div id="{uid}-more">
+      {#if showMore}
+        <div class="border-t border-border">
+          <OptionList name="{uid}-more" label="More providers" options={extra} framed={false} class={pad} bind:value={selected} onchange={select} expanded={expand} />
+        </div>
+      {/if}
+    </div>
+  </div>
 
-    {#if setup}
-      <div class="mt-8 flex flex-wrap items-center gap-x-4 gap-y-2 max-sm:flex-col max-sm:items-stretch">
-        <Button
-          variant="primary"
-          class="h-10 max-sm:w-full pointer-coarse:h-11"
-          reason={ready ? undefined : 'Connect a model to continue.'}
-          onblocked={focusChoices}
-          loading={saving}
-          loadingLabel="Saving…"
-          onclick={save}>Continue</Button
-        >
-      </div>
-    {/if}
-    {#if saveError}
-      <div class="mt-3">
-        <p class="field-error" role="alert"><Icon name="alert" class="mt-px" /><span class="min-w-0">{saveError}</span></p>
-        {#if saveDetails}<Disclosure class="mt-1"><CodeBlock code={saveDetails} wrap /></Disclosure>{/if}
-      </div>
-    {/if}
+  {#if setup}
+    <div class="mt-8 flex flex-wrap items-center gap-x-4 gap-y-2 max-sm:flex-col max-sm:items-stretch">
+      <Button
+        variant="primary"
+        class="h-10 max-sm:w-full pointer-coarse:h-11"
+        reason={ready ? undefined : 'Connect a model to continue.'}
+        onblocked={focusChoices}
+        loading={saving}
+        loadingLabel="Saving…"
+        onclick={save}>Continue</Button
+      >
+    </div>
+  {/if}
+  {#if saveError}
+    <div class="mt-3">
+      <p class="field-error" role="alert"><Icon name="alert" class="mt-px" /><span class="min-w-0">{saveError}</span></p>
+      {#if saveDetails}<Disclosure class="mt-1"><CodeBlock code={saveDetails} wrap /></Disclosure>{/if}
+    </div>
   {/if}
 </div>

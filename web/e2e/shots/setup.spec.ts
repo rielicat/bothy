@@ -165,7 +165,7 @@ const states: ShotState[] = [
   }),
   step2('model-found-ollama-and-key', '', async (page) => {
     await account(page);
-    await page.getByText('Found on this server').waitFor();
+    await connected(page);
   }),
   step2('model-continue-reason', 'detect-none', async (page) => {
     await account(page);

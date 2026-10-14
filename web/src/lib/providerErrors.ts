@@ -64,6 +64,8 @@ export type FailureAction =
 
 export interface Failure {
   text: string;
+  /** A command inside `text`, shown in mono. */
+  command?: string;
   action?: FailureAction;
   /** Lines added under the raw message in Details. */
   more?: string[];
@@ -75,7 +77,9 @@ export interface FailureContext {
   /** A server on this computer or the network, not a cloud provider. */
   local?: boolean;
   model?: string;
+  /** The region's readable name for the sentence, and its code for the console link. */
   region?: string;
+  regionCode?: string;
   /** Where the AWS credentials come from, never their value: "instance role bothy-prod". */
   source?: string;
   /** For "Allow {host:port}". */
@@ -84,6 +88,8 @@ export interface FailureContext {
   console?: string;
   ollama?: boolean;
 }
+
+const OLLAMA_PULL = 'ollama pull qwen3:8b';
 
 export const AWS_HELP = 'https://github.com/rielicat/bothy/blob/main/docs/deploy/README.md';
 
@@ -116,7 +122,8 @@ export function failure(code: FailureCode, c: FailureContext): Failure {
       return { text: 'Bothy blocks addresses on your private network unless you allow them.', action: c.hostPort ? { kind: 'allow', label: `Allow ${c.hostPort}` } : undefined };
     case 'no_models':
       return {
-        text: `${c.name} is running but has no models yet. Install one on the server${c.ollama ? ', for example ollama pull qwen3:8b,' : ','} then check again.`,
+        text: `${c.name} is running but has no models yet. Install one on the server${c.ollama ? `, for example ${OLLAMA_PULL},` : ','} then check again.`,
+        command: c.ollama ? OLLAMA_PULL : undefined,
         action: { kind: 'retry', label: 'Check again' },
       };
     case 'tls':
@@ -137,7 +144,7 @@ export function failure(code: FailureCode, c: FailureContext): Failure {
     case 'aws_no_models':
       return {
         text: `No Claude or Nova models are turned on for this AWS account in ${c.region || 'this region'}. Turn on model access in the Bedrock console, or choose another region.`,
-        action: { kind: 'link', label: 'Open the Bedrock console', href: `https://console.aws.amazon.com/bedrock/home?region=${encodeURIComponent(c.region ?? 'us-east-1')}#/modelaccess` },
+        action: { kind: 'link', label: 'Open the Bedrock console', href: `https://console.aws.amazon.com/bedrock/home?region=${encodeURIComponent(c.regionCode ?? 'us-east-1')}#/modelaccess` },
         more: aws,
       };
     default:

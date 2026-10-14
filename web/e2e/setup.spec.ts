@@ -10,6 +10,14 @@ if (process.env.E2E_BASE_URL) test.use({ baseURL: process.env.E2E_BASE_URL });
 const LINK = (mock: string) => `/setup?mock=${mock}#t=demo-setup-token`;
 const writes = (r: Request) => r.method() !== 'GET' && /\/api\/(config|vault)/.test(new URL(r.url()).pathname);
 
+// The spec files after this one share the mock gateway and expect its default
+// fixtures, not a half-finished setup.
+test.afterAll(async ({ playwright }) => {
+  const api = await playwright.request.newContext({ baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:5197' });
+  await api.get('/?mock=');
+  await api.dispose();
+});
+
 function watch(page: Page) {
   const problems: string[] = [];
   page.on('console', (m) => m.type() === 'error' && /Content Security Policy|Refused to/.test(m.text()) && problems.push(m.text()));

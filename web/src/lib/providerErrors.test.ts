@@ -59,6 +59,8 @@ describe('failure copy (§5.6.4)', () => {
     expect(failure('out_of_credit', ctx).text).toBe('Your Anthropic account is out of credit. Add credit with Anthropic, then try again.');
     expect(failure('unreachable', ctx).text).toBe("Bothy couldn't reach Anthropic from this server. Check the server's internet connection or firewall.");
     expect(failure('aws_no_models', ctx).text).toMatch(/in US East \(N\. Virginia\)\./);
+    // The console link takes the region's code, never its readable name.
+    expect(failure('aws_no_models', { ...ctx, regionCode: 'eu-west-1' }).action).toMatchObject({ href: 'https://console.aws.amazon.com/bedrock/home?region=eu-west-1#/modelaccess' });
     expect(failure('aws_denied', ctx).text).toMatch(/to instance role bothy-prod\.$/);
   });
 
@@ -71,6 +73,9 @@ describe('failure copy (§5.6.4)', () => {
     expect(local.text).toBe("Ollama isn't answering at that address. Make sure it's running.");
     expect(local.more?.[0]).toMatch(/OLLAMA_HOST=0\.0\.0\.0.*http:\/\/host\.docker\.internal:11434\.$/);
     expect(failure('aws_denied', ctx).more).toEqual(['Credentials from: instance role bothy-prod', expect.stringContaining('bedrock:InvokeModelWithResponseStream')]);
-    expect(failure('no_models', { name: 'Ollama', ollama: true }).text).toMatch(/ollama pull qwen3:8b/);
+    const empty = failure('no_models', { name: 'Ollama', ollama: true });
+    expect(empty.text).toContain(`for example ${empty.command},`);
+    expect(empty.command).toBe('ollama pull qwen3:8b');
+    expect(failure('no_models', { name: 'LM Studio' }).command).toBeUndefined();
   });
 });

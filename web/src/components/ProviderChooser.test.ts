@@ -55,6 +55,36 @@ describe('ProviderChooser in setup', () => {
     expect(screen.queryByText(/Connected\. Bothy will use/)).toBeNull();
   });
 
+  it('offers the provider list while detection runs and keeps a choice made meanwhile', async () => {
+    const calls = withMock('detect-aws');
+    render(ProviderChooser);
+    // Detection answers after 600 ms in the mock; the list is there before that.
+    await fireEvent.click(radio('Amazon Bedrock'));
+    expect(await screen.findByText('Found on this server', {}, { timeout: 3000 })).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(radio('Amazon Bedrock')).toHaveProperty('checked', true);
+    expect(radio("Use this server's AWS access")).toHaveProperty('checked', false);
+    expect(tests(calls)).toEqual([]);
+  });
+
+  it('links a failure to the field that caused it', async () => {
+    withMock('detect-none,provider-fail:key_rejected');
+    render(ProviderChooser);
+    await fireEvent.click(radio('Anthropic'));
+    const key = screen.getByLabelText('API key');
+    await paste(key, LONG_KEY);
+    const line = await screen.findByText(/^That key wasn't accepted\./, {}, { timeout: 3000 });
+    expect(key.getAttribute('aria-invalid')).toBe('true');
+    expect(key.getAttribute('aria-describedby')).toBe(line.closest('p')!.id);
+  });
+
+  it('shows the install command for an empty Ollama in code type', async () => {
+    withMock('ollama-empty');
+    render(ProviderChooser);
+    const code = await screen.findByText('ollama pull qwen3:8b', { selector: 'code' }, { timeout: 3000 });
+    expect(code.closest('p')!.textContent).toMatch(/Install one on the server, for example ollama pull qwen3:8b, then check again\./);
+  });
+
   it('shows "Choose a provider" when nothing was found and keeps Continue disabled with its reason', async () => {
     withMock('detect-none');
     render(ProviderChooser);

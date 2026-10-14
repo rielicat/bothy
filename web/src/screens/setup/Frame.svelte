@@ -7,8 +7,8 @@
 
 <svelte:head><title>{title.includes('Bothy') ? title : `${title} · Bothy`}</title></svelte:head>
 
-<main class="min-h-dvh bg-bg">
-  <div class="mx-auto w-full max-w-[30rem] px-6 pt-[15vh] pb-16 max-sm:px-4 max-sm:pt-6">
+<main class="min-h-dvh bg-bg px-6 max-sm:px-4">
+  <div class="mx-auto w-full max-w-[30rem] pt-[15vh] pb-16 max-sm:pt-6">
     <div class="flex items-baseline justify-between gap-4">
       <p class="text-heading text-text">Bothy</p>
       {#if step}<p class="text-small text-muted">Step {step} of 3</p>{/if}
