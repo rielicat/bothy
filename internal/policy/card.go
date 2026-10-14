@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net"
 	"net/url"
 	"slices"
@@ -109,6 +110,20 @@ func renderCard(r core.ApprovalRequest) core.Card {
 	case core.ActSend:
 		add("Recipient", cmp.Or(a.Recipient, "unknown"), false)
 		c.Code = visible(prettyPayload(a.Payload))
+	case core.ActRelease:
+		text := func(ptr string) string { s, _ := mustPointer(doc, ptr).(string); return s }
+		add("Environment", text("/environment"), false)
+		add("Repository", text("/repo"), true)
+		add("Workflow", text("/workflow"), true)
+		add("Ref", text("/ref"), true)
+		if m, ok := mustPointer(doc, "/inputs").(map[string]any); ok && len(m) > 0 {
+			lines := make([]string, 0, len(m))
+			for _, k := range slices.Sorted(maps.Keys(m)) {
+				v, _ := pointerText(m, "/"+strings.ReplaceAll(strings.ReplaceAll(k, "~", "~0"), "/", "~1"))
+				lines = append(lines, k+"="+v)
+			}
+			add("Inputs", strings.Join(lines, "\n"), true)
+		}
 	case core.ActMCP:
 		add("MCP server", a.MCPServer, true)
 		add("MCP tool", a.MCPTool, true)
@@ -129,6 +144,9 @@ func renderCard(r core.ApprovalRequest) core.Card {
 			}
 		}
 		add("Domains", strings.Join(hosts, "\n"), true)
+	}
+	if ap := r.Decision.Approver; ap.Multi() {
+		add("Approvals needed", fmt.Sprintf("%d, not counting whoever asked", ap.Needed()), false)
 	}
 	c.Diff = visible(capDiff(a.Diff))
 	return c
