@@ -18,6 +18,7 @@ import (
 
 	"github.com/rielicat/bothy/internal/audit"
 	"github.com/rielicat/bothy/internal/config"
+	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/doctor"
 )
 
@@ -91,6 +92,17 @@ var adminOps = map[string]adminOp{
 		return resetPassword(ctx, a, args[1], os.Stdin)
 	}},
 	"vault status": {1, func(_ context.Context, a *app, _ []string) error { return printJSON(a.vault.Status()) }},
+	"vault list":   {1, func(ctx context.Context, a *app, _ []string) error { return listSecrets(ctx, a, os.Stdout) }},
+	"vault set": {2, func(ctx context.Context, a *app, args []string) error {
+		return setSecret(ctx, a, args[1], os.Stdin, os.Stderr)
+	}},
+	"vault delete": {2, func(ctx context.Context, a *app, args []string) error {
+		if err := a.vault.Delete(ctx, core.GlobalScope, args[1], ""); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "Deleted secret %s.\n", args[1])
+		return nil
+	}},
 	"vault rotate-kek": {1, func(ctx context.Context, a *app, _ []string) error {
 		if err := a.vault.RotateKEK(ctx, ""); err != nil {
 			return err
@@ -189,6 +201,54 @@ func resetPassword(ctx context.Context, a *app, username string, in io.Reader) e
 	}
 	fmt.Fprintf(os.Stderr, "Password reset for %s.\n", u.Username)
 	return nil
+}
+
+// maxSecretBytes bounds what vault set reads, so a mistaken pipe (a whole file
+// or log) fails instead of being stored as one secret.
+const maxSecretBytes = 64 << 10
+
+// setSecret stores standard input as a global vault secret. It is meant for
+// pipes from other secret stores, so the value never touches disk or the
+// shell history; one trailing newline (from echo or a terminal) is dropped.
+func setSecret(ctx context.Context, a *app, name string, in io.Reader, msg io.Writer) error {
+	if f, ok := in.(*os.File); ok {
+		if fi, err := f.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
+			fmt.Fprintf(msg, "Paste the value for %s, then press Enter and Ctrl-D (input is visible; prefer a pipe).\n", name)
+		}
+	}
+	b, err := io.ReadAll(io.LimitReader(in, maxSecretBytes+1))
+	if err != nil {
+		return err
+	}
+	if len(b) > maxSecretBytes {
+		return fmt.Errorf("secret %s: more than %d KiB on standard input", name, maxSecretBytes>>10)
+	}
+	b = []byte(strings.TrimSuffix(strings.TrimSuffix(string(b), "\n"), "\r"))
+	if len(b) == 0 {
+		return fmt.Errorf("secret %s: nothing on standard input", name)
+	}
+	if _, err := a.vault.Put(ctx, core.GlobalScope, name, b, ""); err != nil {
+		return err
+	}
+	fmt.Fprintf(msg, "Stored secret %s. Use it in settings as secret:%s.\n", name, name)
+	return nil
+}
+
+func listSecrets(ctx context.Context, a *app, out io.Writer) error {
+	metas, err := a.vault.List(ctx, core.GlobalScope)
+	if err != nil {
+		return err
+	}
+	tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(tw, "NAME\tSOURCE\tENDS IN\tUPDATED")
+	for _, m := range metas {
+		updated := "-"
+		if !m.UpdatedAt.IsZero() {
+			updated = m.UpdatedAt.Local().Format(time.DateTime)
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", m.Name, m.Source, m.Hint, updated)
+	}
+	return tw.Flush()
 }
 
 // auditArchive runs with the gateway stopped and opens the database itself.

@@ -28,7 +28,7 @@ commands:
   security-audit   run security checks          [--fix] [--json]
   setup-token      print a fresh one-time setup token (only while no owner exists)
   user             user admin: reset-password <name> | list
-  vault            vault admin: rotate-kek (gateway stopped) | status
+  vault            secrets: set <name> (value on stdin) | list | delete <name> | status | rotate-kek (gateway stopped)
   config           check [file] | defaults | effective
   audit            verify | archive --before <date> (gateway stopped)
   backup           write a consistent backup to <data>/backups
