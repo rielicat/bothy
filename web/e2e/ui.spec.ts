@@ -3,25 +3,60 @@ import { fileURLToPath } from 'node:url';
 
 const axePath = fileURLToPath(new URL('../node_modules/axe-core/axe.min.js', import.meta.url));
 
+// docs/design/ui.md §4.5, with fixture ids.
 const routes = [
   '/chat',
   '/chat/ses_01jtrip000000000000000000',
   '/approvals',
-  '/schedules',
-  '/schedules/sch_01jbrief00000000000000000',
-  '/memory',
-  '/usage',
-  '/audit',
-  '/runs/run_01jtrip1000000000000000',
+  '/approvals/apr_01jshell00000000000000000',
+  '/knowledge',
+  '/knowledge/search',
+  '/knowledge/memory',
+  '/knowledge/skills',
+  '/knowledge/projects/acme/web',
+  '/activity',
+  '/activity/tasks/run_01jtrip1000000000000000',
+  '/activity/schedules',
+  '/activity/schedules/sch_01jbrief00000000000000000',
+  '/activity/schedules/new',
+  '/activity/releases',
+  '/activity/spending',
+  '/activity/audit',
+  '/settings/account',
   '/settings/general',
+  '/settings/general/personality',
   '/settings/models',
-  '/settings/channels',
-  '/settings/policy',
-  '/settings/sandbox',
-  '/settings/mcp',
-  '/settings/vault',
-  '/settings/tokens',
+  '/settings/connections',
+  '/settings/connections/telegram',
+  '/settings/connections/github',
+  '/settings/connections/search',
+  '/settings/connections/mcp-docs',
+  '/settings/people',
+  '/settings/security',
+  '/settings/security/permissions',
+  '/settings/security/websites',
+  '/settings/security/keys',
   '/settings/advanced',
+];
+
+// §4.5: links already sent to chat apps and bookmarks keep working.
+const redirects: [string, string][] = [
+  ['/runs/run_01jtrip1000000000000000?x=1', '/activity/tasks/run_01jtrip1000000000000000?x=1'],
+  ['/schedules', '/activity/schedules'],
+  ['/schedules/sch_01jbrief00000000000000000', '/activity/schedules/sch_01jbrief00000000000000000'],
+  ['/memory', '/knowledge/memory'],
+  ['/usage', '/activity/spending'],
+  ['/audit?tab=egress', '/activity/audit?tab=egress'],
+  ['/settings/channels', '/settings/connections'],
+  ['/settings/mcp', '/settings/connections'],
+  ['/settings/policy', '/settings/security'],
+  ['/settings/sandbox', '/settings/security'],
+  ['/settings/vault', '/settings/security/keys'],
+  ['/settings/tokens', '/settings/account'],
+  ['/settings/persona', '/settings/general'],
+  ['/settings/budgets', '/settings/general'],
+  ['/settings/skills', '/knowledge/skills'],
+  ['/settings', '/settings/general'],
 ];
 
 // Collects CSP violations and page errors; the build must run under the
@@ -53,16 +88,47 @@ test('every screen fits a 360 px phone without sideways scrolling', async ({ pag
   expect(problems).toEqual([]);
 });
 
+test('every v0.2 address shows a page and every v0.1 address moves to its new one', async ({ page }) => {
+  const problems = watch(page);
+  for (const r of routes) {
+    await page.goto(r);
+    // h2: the v0.1 settings frame titles a page hidden in single-user mode (People) with one.
+    await expect(page.locator('h1, h2').first(), r).toBeVisible();
+    await expect(page.getByText("This page doesn't exist."), r).toHaveCount(0);
+  }
+  for (const [from, to] of redirects) {
+    await page.goto(from);
+    await expect.poll(() => new URL(page.url()).pathname + new URL(page.url()).search, from).toBe(to);
+  }
+  // replaceState, not pushState: Back leaves the moved address behind.
+  await page.goto('/chat');
+  await page.goto('/memory');
+  await expect(page).toHaveURL(/\/knowledge\/memory$/);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/chat$/);
+  expect(problems).toEqual([]);
+});
+
+// v0.1 screens that already failed axe; each goes when its chunk replaces the
+// screen (docs/design/ui.md §18.3), and §16 wants every route in the end.
+const axeKnown: Record<string, string> = {
+  '/activity/schedules': 'C6: disabled schedules fade their text below 4.5:1',
+  '/activity/schedules/sch_01jbrief00000000000000000': 'C6: the run history table has an empty header',
+  '/activity/spending': 'C6: the v0.1 usage tables overflow the 720 px column and scroll without being focusable',
+  '/settings/people': 'C7: hidden in single-user mode, so the page has no h1',
+  '/settings/advanced': 'C9: the effective config <pre> scrolls without being focusable',
+};
+
 test.describe('axe', () => {
   // axe is injected as an inline script, which the CSP would block.
   test.use({ bypassCSP: true });
   for (const scheme of ['light', 'dark'] as const) {
-    test(`including contrast, on chat, approvals and settings (${scheme})`, async ({ page }) => {
+    test(`including contrast, on every route (${scheme})`, async ({ page }) => {
       await page.emulateMedia({ colorScheme: scheme });
-      for (const r of ['/chat/ses_01jtrip000000000000000000', '/approvals', '/approvals?status=parked', '/settings/general', '/settings/policy', '/settings/budgets']) {
-      await page.goto(r);
-      await page.waitForLoadState('networkidle');
-        expect(await axe(page), `${r} (${scheme})`).toEqual([]);
+      for (const r of [...routes.filter((r) => !(r in axeKnown)), '/approvals?status=parked']) {
+        await page.goto(r);
+        await page.waitForLoadState('networkidle');
+        expect.soft(await axe(page), `${r} (${scheme})`).toEqual([]);
       }
     });
   }
