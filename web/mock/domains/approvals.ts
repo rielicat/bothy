@@ -309,7 +309,7 @@ function asSeen(a: ApprovalV2, req?: Req): ApprovalV2 {
   return out;
 }
 
-function list(req: Req): ApprovalV2[] {
+export function list(req: Req): ApprovalV2[] {
   return state.approvals.filter((a) => all(req) || !everyKindCard(a)).map((a) => asSeen(a, req));
 }
 

@@ -3,7 +3,7 @@
 // add (S8, S16, docs/design/ui.md §17) where the UI shows them; a few rows
 // leave them out so the client-side fallbacks show too.
 import type { Approval, AuditEntry, EgressRecord, Run, Schedule, ToolCallRecord } from '../../src/lib/api/types.gen.ts';
-import { state as approvalState } from './approvals.ts';
+import { list as approvalList, state as approvalState } from './approvals.ts';
 import { breakdown } from './chat.ts';
 import { releaseEnvironments } from './connections.ts';
 import { ago, asMember, body, clone, fail, ids, json, member, newId, nowISO, on, onReset, owner, routes, scenario, viewer, type Req, type Res } from './core.ts';
@@ -388,7 +388,7 @@ routes.unshift([
     if ((!deployWaiting(req) && !noDeploys(req)) || !listApprovals) return listApprovals?.[2](req, res, m, q);
     const status = q.get('status') ?? 'pending';
     // These scenarios set the deploy approvals themselves, so the approvals domain's own deploy cards stay out.
-    const seed = (status === 'recent' ? approvalState.recent : approvalState.approvals.filter((a) => a.status === status)).filter((a) => a.action?.tool !== 'release_deploy');
+    const seed = (status === 'recent' ? approvalState.recent : approvalList(req).filter((a) => a.status === status)).filter((a) => a.action?.tool !== 'release_deploy');
     const extra = deployWaiting(req) ? deployApprovals().filter((a) => (status === 'recent' ? a.status !== 'pending' : a.status === status)) : [];
     json(res, 200, { items: [...seed, ...extra] });
   },
@@ -470,7 +470,8 @@ on('GET', '/api/releases', (req, res) => {
 const spentToday = (req: Req) => (empty(req) ? 0 : spendLimit(req) ? 5_000_000 : spend80(req) ? 4_100_000 : spend50(req) ? 2_500_000 : 1_200_000);
 
 on('GET', '/api/usage', (req, res, _m, q) => {
-  const days = Math.min(30, Math.max(1, Math.round((Date.parse(q.get('to') ?? '') - Date.parse(q.get('from') ?? '')) / 86400_000) + 1) || 7);
+  // from is a UTC midnight and to is now, so whole days are floored: rounding counted an extra day after 12:00 UTC.
+  const days = Math.min(30, Math.max(1, Math.floor((Date.parse(q.get('to') ?? '') - Date.parse(q.get('from') ?? '')) / 86400_000) + 1) || 7);
   const today = spentToday(req) / 1e6;
   const rows = empty(req) ? [] : usageRows(q.get('group_by') ?? 'day', days, mine(req), today);
   const totals = usageRows('day', days, mine(req), today).reduce(
