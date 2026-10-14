@@ -459,6 +459,7 @@ func TestDescribeSources(t *testing.T) {
 		{[]aws.CredentialSource{aws.CredentialSourceProfileNamedProvider, aws.CredentialSourceIMDS, aws.CredentialSourceSTSAssumeRole}, credSource{profile: "x"}, "role assumed with instance role"},
 		{[]aws.CredentialSource{aws.CredentialSourceEnvVars}, credSource{}, "access keys in the environment"},
 		{[]aws.CredentialSource{aws.CredentialSourceProfile}, credSource{profile: "dev"}, "access keys in profile dev"},
+		{[]aws.CredentialSource{aws.CredentialSourceProfile}, credSource{}, "access keys in the AWS credentials file"},
 		{nil, credSource{}, "AWS default credentials"},
 		{nil, credSource{profile: "dev"}, "profile dev"},
 	} {

@@ -10,10 +10,13 @@ import (
 )
 
 // Vendors' wording for an account without credit or quota, and for a key
-// that works but may not use the model asked for.
+// that works but may not use the model asked for. Bare "billing" and "quota
+// exceeded" are left out: OpenAI's per-minute limit links its billing page
+// and Google's names the exceeded per-minute quota, both mere rate limits.
 var (
 	creditWords = []string{"credit balance", "insufficient_quota", "exceeded your current quota", "insufficient credits",
-		"insufficient balance", "billing", "payment required", "out of credits", "more credits", "quota exceeded"}
+		"insufficient balance", "payment required", "out of credits", "more credits", "used all available credits",
+		"spending limit", "enable billing"}
 	modelWords = []string{"does not have access to model", "do not have access to", "don't have access to the model",
 		"model_not_found", "model not found", "not found: model", "no such model", "unknown model", "invalid model",
 		"model identifier is invalid", "not allowed to use", "is not supported for this"}

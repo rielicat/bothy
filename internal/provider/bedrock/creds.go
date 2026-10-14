@@ -331,7 +331,10 @@ func describe(sources []aws.CredentialSource, src credSource) string {
 	case has(aws.CredentialSourceEnvVars):
 		base = "access keys in the environment"
 	case has(aws.CredentialSourceProfile):
-		base = profile("access keys in")
+		base = "access keys in the AWS credentials file"
+		if src.profile != "" {
+			base = "access keys in profile " + src.profile
+		}
 	default:
 		base = profile("AWS default credentials")
 		if src.profile != "" {
