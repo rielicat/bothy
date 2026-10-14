@@ -19,8 +19,13 @@
   import RunTrace from './screens/RunTrace.svelte';
   import ScheduleEdit from './screens/ScheduleEdit.svelte';
   import Schedules from './screens/Schedules.svelte';
+  import Advanced from './screens/settings/advanced/Advanced.svelte';
   import GitHub from './screens/settings/connections/GitHub.svelte';
   import WebSearch from './screens/settings/connections/WebSearch.svelte';
+  import Permissions from './screens/settings/security/Permissions.svelte';
+  import SavedKeys from './screens/settings/security/SavedKeys.svelte';
+  import Security from './screens/settings/security/Security.svelte';
+  import Websites from './screens/settings/security/Websites.svelte';
   import Settings from './screens/settings/Settings.svelte';
   import Setup from './screens/setup/Setup.svelte';
   import Usage from './screens/Usage.svelte';
@@ -63,8 +68,14 @@
       case '/knowledge/skills/:name':
         return { c: Settings, params: { ...p, page: 'skills' } };
       case '/settings/:group':
+        if (p.group === 'security') return { c: Security, params: p };
+        if (p.group === 'advanced') return { c: Advanced, params: p };
         return { c: Settings, params: { ...p, page: legacySettingsPage(p.group) ?? p.group } };
       case '/settings/:group/:item': {
+        if (p.group === 'security') {
+          const c = ({ permissions: Permissions, websites: Websites, keys: SavedKeys } as Partial<Record<string, Screen>>)[p.item];
+          return c ? { c, params: p } : null;
+        }
         const page = legacySettingsPage(p.group, p.item);
         if (page) return { c: Settings, params: { ...p, page } };
         if (p.group === 'connections' && p.item === 'github') return { c: GitHub, params: p };

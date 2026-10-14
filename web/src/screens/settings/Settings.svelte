@@ -6,7 +6,6 @@
   import type { IconName } from '../../lib/icons';
   import { router } from '../../lib/router.svelte';
   import { session } from '../../lib/stores/session.svelte';
-  import Advanced from './Advanced.svelte';
   import Budgets from './Budgets.svelte';
   import Channels from './Channels.svelte';
   import General from './General.svelte';
@@ -14,11 +13,8 @@
   import Models from './Models.svelte';
   import People from './People.svelte';
   import Persona from './Persona.svelte';
-  import Policy from './Policy.svelte';
-  import Sandbox from './Sandbox.svelte';
   import Skills from './Skills.svelte';
   import Tokens from './Tokens.svelte';
-  import Vault from './Vault.svelte';
 
   let { params }: { params: Record<string, string> } = $props();
 
@@ -28,15 +24,11 @@
     { id: 'models', label: 'Models & providers', icon: 'spark', c: Models, admin: true },
     { id: 'channels', label: 'Chat apps', icon: 'chat', c: Channels },
     { id: 'people', label: 'People', icon: 'users', c: People, admin: true, multi: true },
-    { id: 'policy', label: 'Policy', icon: 'shield', c: Policy, admin: true },
-    { id: 'sandbox', label: 'Sandbox & egress', icon: 'box', c: Sandbox, admin: true },
     { id: 'mcp', label: 'MCP servers', icon: 'plug', c: Mcp, admin: true },
     { id: 'skills', label: 'Skills', icon: 'skills', c: Skills },
     { id: 'persona', label: 'Persona', icon: 'smile', c: Persona },
-    { id: 'vault', label: 'Vault', icon: 'key', c: Vault },
     { id: 'tokens', label: 'API tokens', icon: 'code', c: Tokens },
     { id: 'budgets', label: 'Budgets', icon: 'wallet', c: Budgets, admin: true },
-    { id: 'advanced', label: 'Advanced', icon: 'terminal', c: Advanced, admin: true },
   ];
 
   const visible = $derived(pages.filter((p) => (!p.admin || session.isAdmin) && (!p.multi || session.multi)));
