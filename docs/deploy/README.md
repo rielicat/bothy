@@ -1,0 +1,184 @@
+# Deploying Bothy in your cloud
+
+Four recipes, one image. Each runs the signed release image
+`ghcr.io/rielicat/bothy` (uid 65532, port 8080, data under `/data`) and keeps
+the same rules: secrets live in Bothy's vault, the vault key comes from the
+platform's secret store as a file, and the web UI is reached privately.
+
+| Recipe | Shell, Python, MCP stdio | Vault key (KEK) | Private access | Use it when |
+|---|---|---|---|---|
+| [Single VM with compose](vm.md) (any cloud) | Yes (Docker 26+) | Docker secret file, or systemd credential for the native binary | SSH tunnel, Tailscale, SSM port forwarding | You want everything, with the least to run. Recommended. |
+| [AWS ECS on EC2](aws-ecs.md) | Only on a container instance with Docker 26+; the ECS-optimized AMI ships Docker 25 | Secrets Manager, written to a file by an init container | SSM port forwarding, internal ALB | You already run ECS and want task roles, CloudWatch logs and ECS deploys. |
+| [AWS EKS](aws-eks.md) | No by default (EKS nodes run containerd); optional sidecar on Docker 26+ nodes | Kubernetes Secret or the Secrets Store CSI driver, mounted as a file | `kubectl port-forward`, internal ALB | Your platform is Kubernetes. |
+| [AWS Fargate](fargate.md) | Never (single-container mode) | Secrets Manager, written to a file by an init container | Internal ALB | You accept chat, channels, web and HTTP MCP tools without a sandbox. |
+
+Without a sandbox, Bothy works but `shell`, `python` and MCP stdio servers are
+absent and a red banner says so. Nothing ever falls back to running on the
+host.
+
+The recipes assume a published release. Until then, build the images from
+source (see the [README](../../README.md#from-source)), push them to your
+registry and use those digests.
+
+## Security model
+
+**The vault key.** Bothy encrypts every stored secret with a data key wrapped
+by a key encryption key (KEK). With `vault.kek: auto` it looks for, in order:
+a Docker or Podman secret at `/run/secrets/bothy_kek`, a systemd credential
+`$CREDENTIALS_DIRECTORY/bothy_kek`, then an auto-generated keyfile on the
+separate `/keys` volume (or next to the database, flagged, when there is no
+such volume). `vault.kek: file:/path` names a file, `passphrase`
+keeps the vault sealed after every start until an admin unlocks it in the UI,
+and `env` (`BOTHY_KEK`) works but is flagged high by `bothy security-audit`.
+
+In the cloud:
+
+- Generate the KEK once (`openssl rand -hex 32`, 64 hex characters) and keep it
+  in the platform's secret store: AWS Secrets Manager, a Kubernetes Secret, a
+  Docker secret file on the VM.
+- Give it to Bothy as a file. Never put it in an environment variable of a task
+  definition, a manifest or a compose file. ECS can only inject secrets as
+  environment variables, so the ECS and Fargate recipes fetch it with an init
+  container instead ([why](aws-ecs.md#the-vault-key)).
+- The key must exist before the first start and must never change silently: a
+  new key cannot open an existing vault, and Bothy then stays sealed (fail
+  closed). To move an existing install, put its current key in the store
+  (`docker run --rm -v bothy_keys:/k:ro busybox cat /k/kek`).
+- `bothy vault status` shows the source (`docker_secret`, `systemd`, `file`,
+  ...) and the key id, never the key.
+
+**Cloud credentials.** On AWS, use the platform role: the EC2 instance role,
+the ECS task role, or IRSA on EKS. Bothy resolves them with the standard AWS
+credential chain and stores nothing. Scope the role to the models you use
+([`deploy/aws/iam-bedrock-policy.json`](../../deploy/aws/iam-bedrock-policy.json)).
+
+**The sandbox.** `bothy sandboxd` is the only process that holds the container
+runtime socket, which is equivalent to root on that host. It has no network,
+serves a fixed-schema API on a unix socket, accepts only the gateway's uid and
+builds every box from a compiled-in spec (no network, read-only root, no
+capabilities, uid 10001, digest-pinned images). Prefer rootless Docker or
+gVisor (`runsc`) where you can. Where mounting the runtime socket is not
+acceptable, run without the sandbox.
+
+## Reaching the UI privately
+
+Bothy refuses to be exposed carelessly. Its exposure gate decides by the peer
+address, never the Host header:
+
+- Plain HTTP is served only to local peers: loopback, the container's default
+  gateway (where Docker's published-port traffic comes from) and
+  `server.local_cidrs`. LAN peers get plain HTTP only with the locked
+  `server.insecure_lan`; public peers never do.
+- Over TLS (`server.tls`, or a proxy listed in `server.trusted_proxies` that
+  sends `X-Forwarded-Proto: https`) every peer passes the gate, and every route
+  still requires a login.
+- First-run setup works only from a local peer.
+
+| Method | Recipes | How |
+|---|---|---|
+| SSH tunnel | VM | `ssh -L 8080:127.0.0.1:8080 <host>`, open `http://127.0.0.1:8080` |
+| AWS SSM port forwarding | VM, ECS | no inbound port at all; see [vm.md](vm.md#reach-the-ui) |
+| Tailscale | VM | `tailscale serve` in front of `127.0.0.1:8080` |
+| `kubectl port-forward` | EKS | `kubectl -n bothy port-forward svc/bothy 8080:8080` |
+| Internal ALB with TLS | ECS, EKS, Fargate | HTTPS listener with an ACM certificate, Bothy login behind it, optional ALB OIDC or Cognito login in front |
+
+Never publish the port to the internet without TLS and authentication in
+front of it. Bothy refuses plain HTTP from such peers (403, or 421 for an
+unknown Host), but the port should not be reachable in the first place.
+
+**Behind a proxy or ALB**, set:
+
+- `server.public_url` to the HTTPS URL users open (it also allows that Host).
+- `server.trusted_proxies` to the proxy's own addresses only, for an ALB the
+  CIDRs of subnets that hold nothing but the ALB. A trusted peer's
+  `X-Forwarded-For` is believed: any other host in those ranges could claim to
+  be `127.0.0.1` and reach first-run setup.
+
+**ALB health checks** use plain HTTP and send the target's IP as the Host
+header, which Bothy rejects with 421 before anything else. Set the target
+group's success codes to `421`: it proves the gateway answers, and the
+container health check (`/bothy healthcheck`) remains the real liveness
+probe.
+
+**First-run setup through an ALB** is refused (the client is not local). Run
+setup through a tunnel, or for one deploy set `server.local_cidrs` to your own
+address as the ALB reports it (`["203.0.113.7/32"]`), finish setup, then remove
+it.
+
+## Backups
+
+`bothy backup` writes a consistent tarball to `<data>/backups`: a snapshot of
+the database plus memory files, `SOUL.md` and the config files. It never
+contains the KEK or the workspaces. Restore by stopping Bothy and unpacking the
+tarball into the data directory. The image is distroless, so run the binary by
+path:
+
+| Recipe | Back up | Copy out |
+|---|---|---|
+| VM | `docker compose exec bothy /bothy backup` | `docker compose cp bothy:/data/backups/<file> .` |
+| ECS | on the instance: `docker exec <bothy container> /bothy backup` | `docker cp <bothy container>:/data/backups/<file> .` |
+| EKS, Fargate | `kubectl exec` (EKS); not available on Fargate | restore from volume snapshots |
+
+Also snapshot the volumes: EBS snapshots with Data Lifecycle Manager or AWS
+Backup for VMs, ECS instances and EKS volumes, AWS Backup for EFS. A snapshot
+of a running SQLite database in WAL mode is crash-consistent; take `bothy
+backup` first so the snapshot also holds a clean copy.
+
+Keep the KEK in the secret store with its own backup and access policy. The
+backup without the KEK holds only sealed secrets; the KEK without the backup is
+useless. Store them apart.
+
+## Upgrades
+
+There is no auto-update. Every release is a signed tag; images are multi-arch,
+signed with cosign (keyless, by the release workflow) and carry SLSA
+provenance.
+
+1. Read the release notes, then take a backup (above).
+2. Pin the new version by digest. `sh install.sh --version X.Y.Z --compose DIR`
+   verifies the signed compose bundle, whose `image:` lines carry the digests.
+   For ECS and Kubernetes, copy those digests or read them with
+   `docker buildx imagetools inspect ghcr.io/rielicat/bothy:X.Y.Z --format '{{json .Manifest}}' | jq -r .digest`.
+3. Verify what you pin:
+
+   ```sh
+   cosign verify ghcr.io/rielicat/bothy@sha256:<digest> \
+     --certificate-identity https://github.com/rielicat/bothy/.github/workflows/release.yml@refs/tags/vX.Y.Z \
+     --certificate-oidc-issuer https://token.actions.githubusercontent.com
+   gh attestation verify oci://ghcr.io/rielicat/bothy@sha256:<digest> --repo rielicat/bothy
+   ```
+
+4. Roll forward by changing the digest. Database migrations run at start and
+   take a backup first; to roll back after a migration, restore the backup
+   from step 1 with the old image.
+
+Use the same version for the gateway, sandboxd and the sandbox images.
+
+## What was tested
+
+With throwaway scripts on Docker 27.4 (Docker Desktop, linux/arm64) and
+gateway and sandbox images built from this repository:
+
+- The ECS layout without supplementary groups (gateway `65532:10001`, sandboxd
+  `65532:65532`, KEK file written by a root init container that keeps only
+  `CHOWN`): a box ran a command, wrote to the workspace and reached
+  `example.com` through the egress proxy. With the gateway as `65532:65532`
+  boxes fail closed.
+- `disableNetworking` maps to Docker's `NetworkDisabled`: the container gets
+  loopback only, like `network_mode: none`.
+- The Kubernetes layout (read-only root, fsGroup-owned volume root, KEK from a
+  secret-style symlinked file, sandbox `none`) and the Fargate layout (access
+  point root `65532` `0700`, KEK and `/tmp` prepared by the init container):
+  healthy, vault open with source `file`, no `data.permissions` finding, and
+  `bothy backup` works in the Kubernetes layout.
+- The exposure gate as an ALB meets it: 421 for health checks, 403 for plain
+  HTTP from the VPC, 200 through a trusted proxy with `X-Forwarded-Proto:
+  https`; setup through the proxy 403, and 200 with `server.local_cidrs`.
+- Manifests: both ECS task definitions pass the AWS CLI's parameter
+  validation for `RegisterTaskDefinition`; the Kubernetes manifests render with
+  `kubectl kustomize` and decode strictly into the `k8s.io/api` v0.34 types;
+  all JSON parses.
+
+Not tested against real AWS accounts: the ECS agent's handling of these task
+definitions, IAM policy evaluation, IRSA, ALB, EFS and the EKS sandboxd
+overlay. Each recipe lists its own gaps.

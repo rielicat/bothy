@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bothy
+spec:
+  template:
+    spec:
+      nodeSelector:
+        bothy-docker-engine: "true"
+      tolerations:
+        - key: bothy-docker-engine
+          operator: Exists
+          effect: NoSchedule
+      securityContext:
+        supplementalGroups: [10001, 999]
+      containers:
+        - name: bothy
+          env:
+            - name: BOTHY_SANDBOX__BACKEND
+              value: sandboxd
+          volumeMounts:
+            - name: work
+              mountPath: /work
+        - name: sandboxd
+          image: ghcr.io/rielicat/bothy
+          args: [sandboxd]
+          env:
+            - name: BOTHY_SBX_ENGINE
+              value: unix:///var/run/docker.sock
+            - name: BOTHY_SBX_WORK_VOLUME
+              value: bothy_work
+            - name: BOTHY_SBX_RUN_VOLUME
+              value: bothy_run
+            - name: BOTHY_SBX_IMAGES
+              value: base=ghcr.io/rielicat/bothy-sandbox:<VERSION>@sha256:<SANDBOX_DIGEST>,node=ghcr.io/rielicat/bothy-sandbox-node:<VERSION>@sha256:<SANDBOX_NODE_DIGEST>
+            - name: BOTHY_SBX_RUNTIME
+              value: auto
+            - name: BOTHY_SBX_MAX_BOXES
+              value: "8"
+            - name: BOTHY_SBX_GATEWAY_UID
+              value: "65532"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          livenessProbe:
+            exec:
+              command: [/bothy, healthcheck, sandboxd]
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+            - name: run
+              mountPath: /run/bothy
+      volumes:
+        - name: run
+          emptyDir: null
+          hostPath:
+            path: /var/lib/docker/volumes/bothy_run/_data
+            type: Directory
+        - name: work
+          hostPath:
+            path: /var/lib/docker/volumes/bothy_work/_data
+            type: Directory
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+            type: Socket
