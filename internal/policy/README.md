@@ -28,8 +28,9 @@ availability is enforced by the registry (`ToolRegistry.Available`) before
 `Decide`, since the policy has no sandbox dependency. A tool whose manifest
 sets `AlwaysAsk` (v0.2: `repo_open_pr`) meets one more floor after F9,
 `floor:always_ask`: every call asks with `allow_once`/`deny` whatever the
-preset, a `deny` rule still denies, no grant answers it, and the
-first-contact warning is carried onto its card.
+preset, a `deny` rule still denies, no grant answers it, and whichever
+floor asks first (trifecta, untrusted origin or always-ask) carries the
+first-contact warning onto its card.
 
 **Rules** match tool globs, `argv0` (the first word of a `bash -lc` command
 line, never when it contains a shell metacharacter, and never a relative or

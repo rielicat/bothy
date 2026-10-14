@@ -70,3 +70,22 @@ func TestAlwaysAskFirstContactWarning(t *testing.T) {
 		t.Errorf("seen repo: %+v, want a card without the first-contact warning", d)
 	}
 }
+
+// TestAlwaysAskFirstContactUnderEarlierFloor: an exposed session asks at the
+// trifecta floor before the always-ask floor; the card still says it is
+// the first contact with the repository.
+func TestAlwaysAskFirstContactUnderEarlierFloor(t *testing.T) {
+	h := newHarness(t, nil)
+	s := spec("open_pr", core.SEExternalSend, func(m *core.Manifest) { m.AlwaysAsk = true })
+	in := h.in(sendAction("open_pr", "github:octocat/hello", core.SEExternalSend), s)
+	in.Taint = core.TaintPrivate | core.TaintUntrusted
+	d := h.decide(in)
+	if d.Verdict != core.VerdictAsk || d.Rule != floorTrifecta || !slices.Contains(d.Warnings, "First contact with github:octocat/hello.") {
+		t.Fatalf("exposed always-ask: %+v", d)
+	}
+	other := h.in(sendAction("send", "github:octocat/hello", core.SEExternalSend), spec("send", core.SEExternalSend))
+	other.Taint = in.Taint
+	if d := h.decide(other); d.Rule != floorTrifecta || slices.ContainsFunc(d.Warnings, func(w string) bool { return strings.HasPrefix(w, "First contact") }) {
+		t.Errorf("other tools keep their trifecta card: %+v", d)
+	}
+}
