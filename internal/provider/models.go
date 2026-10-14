@@ -151,6 +151,11 @@ func (f *Facade) resolve(e *entry, model string) core.ModelInfo {
 		if ci.MaxOutput == 0 {
 			ci.MaxOutput = info.MaxOutput
 		}
+		// The listing's name says which geography a Bedrock profile routes
+		// in ("Claude Sonnet 4.6 (US)"); the catalog knows only the model.
+		if e.kind == core.KindBedrock && info.Source == "discovery" && info.Display != "" {
+			ci.Display = info.Display
+		}
 		info = ci
 	}
 	if pm := configured(e.cfg, model); pm.ID != "" {
@@ -309,7 +314,10 @@ func (f *Facade) Models(ctx context.Context) []core.ModelInfo {
 		for _, m := range e.cfg.Models {
 			names = append(names, m.ID)
 		}
-		if cp := f.cat.Find(e.kind, e.base); cp != nil {
+		// Bedrock's catalog is keyed by base model id, which most current
+		// models cannot be invoked by (only through a us./eu./global.
+		// profile); discovery lists what the account can call.
+		if cp := f.cat.Find(e.kind, e.base); cp != nil && e.kind != core.KindBedrock {
 			for _, m := range cp.Models {
 				names = append(names, m.ID)
 			}

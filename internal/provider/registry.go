@@ -114,7 +114,7 @@ func (f *Facade) entry(id string) (*entry, error) {
 	f.mu.Lock()
 	if cur := f.entries[id]; cur != nil && cur.fp == fp {
 		f.mu.Unlock()
-		e.hc.CloseIdleConnections()
+		e.closeIdle()
 		return cur, nil
 	}
 	old = f.entries[id]
@@ -127,10 +127,17 @@ func (f *Facade) entry(id string) (*entry, error) {
 	if old != nil {
 		// Each entry owns a cloned transport; the replaced one's idle
 		// connections would otherwise linger.
-		old.hc.CloseIdleConnections()
+		old.closeIdle()
 		f.updateBanner()
 	}
 	return e, nil
+}
+
+func (e *entry) closeIdle() {
+	e.hc.CloseIdleConnections()
+	if e.chain != nil {
+		e.chain.CloseIdleConnections()
+	}
 }
 
 func (f *Facade) build(p config.Provider, fp string) (*entry, error) {

@@ -138,6 +138,7 @@ func (f *Facade) probeBedrock(ctx context.Context, pc core.ProbeConfig) (core.Pr
 	defer cancel()
 	var res core.ProbeResult
 	chain := f.awsChain("provider:probe", pc.Region, pc.Profile, true)
+	defer chain.CloseIdleConnections()
 	src, err := chain.Describe(ctx)
 	if err != nil {
 		res.Detail = awsCredentialsText(err)
@@ -263,6 +264,7 @@ func (f *Facade) detectAWS(ctx context.Context) *core.Detection {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	chain := f.awsChain("provider:detect", "", "", true)
+	defer chain.CloseIdleConnections()
 	src, err := chain.Describe(ctx)
 	if err != nil {
 		return nil

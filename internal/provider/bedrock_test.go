@@ -158,6 +158,43 @@ func TestBedrockThroughTheFacade(t *testing.T) {
 	}
 }
 
+// The model list shows what the account can invoke (configured and
+// discovered ids), not the catalog's base ids, most of which only work
+// through a cross-region profile.
+func TestBedrockModelsList(t *testing.T) {
+	p := bedrockProvider("aws")
+	p.Models = []config.ProviderModel{{ID: "us.amazon.nova-pro-v1:0"}}
+	h := newHarness(t, []config.Provider{p})
+	awsEnvCreds(t)
+	ms := h.f.Models(context.Background())
+	if len(ms) != 1 || ms[0].Ref.Model != "us.amazon.nova-pro-v1:0" || ms[0].Display != "Nova Pro" || !ms[0].Price.Known {
+		t.Fatalf("without discovery %+v", ms)
+	}
+
+	p.Discover = true
+	h.view.set(func() *config.Config { c := h.view.Current(); c.Providers = []config.Provider{p}; return c }())
+	cp := &recordingHandler{replies: []func(http.ResponseWriter){
+		jsonReplyFn(200, recordedList(t, "live_list_foundation_models.json")),
+		jsonReplyFn(200, recordedList(t, "live_list_inference_profiles.json")),
+	}}
+	h.egress.Client = &http.Client{Transport: hostRouter{controlHost: cp}}
+	ms = h.f.Models(context.Background())
+	byID := map[string]core.ModelInfo{}
+	for _, m := range ms {
+		byID[m.Ref.Model] = m
+	}
+	if _, ok := byID["anthropic.claude-sonnet-4-6"]; ok {
+		t.Fatal("a profile-only base id is listed")
+	}
+	m, ok := byID["global.anthropic.claude-sonnet-4-6"]
+	if !ok || m.Price.InPerM != 3_000_000 || m.Context != 200_000 || m.Cache != core.CacheExplicit || m.Display != "Claude Sonnet 4.6 (Global)" {
+		t.Fatalf("global sonnet 4.6 %+v (%d models)", m, len(ms))
+	}
+	if m := byID["us.anthropic.claude-sonnet-4-6"]; m.Price.InPerM != 3_300_000 {
+		t.Fatalf("us sonnet 4.6 price %+v", m.Price)
+	}
+}
+
 func TestBedrockModelInfo(t *testing.T) {
 	p := bedrockProvider("aws")
 	p.AllowPrivate = true // a VPC endpoint

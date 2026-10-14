@@ -70,6 +70,13 @@ type fakeAWS struct {
 	handlers map[string]http.HandlerFunc
 	seen     []string
 	allowed  map[string]bool // nil = any
+	closed   int
+}
+
+func (f *fakeAWS) CloseIdleConnections() {
+	f.mu.Lock()
+	f.closed++
+	f.mu.Unlock()
 }
 
 func (f *fakeAWS) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -220,6 +227,10 @@ sso_registration_scopes = sso:account:access
 	c.Invalidate()
 	if _, err := c.Retrieve(ctx); err != nil || calls != 2 {
 		t.Fatalf("after Invalidate: %v %d calls", err, calls)
+	}
+	c.CloseIdleConnections()
+	if sys.closed != 1 {
+		t.Fatalf("idle connections closed %d times", sys.closed)
 	}
 }
 

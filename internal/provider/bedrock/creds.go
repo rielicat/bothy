@@ -157,6 +157,20 @@ func (c *Chain) Region(ctx context.Context) string {
 	return c.region
 }
 
+// CloseIdleConnections closes the pooled connections of the clients the
+// chain made, for chains that are dropped (a probe, a rebuilt provider).
+func (c *Chain) CloseIdleConnections() {
+	c.router.mu.Lock()
+	sys := c.router.system
+	c.router.mu.Unlock()
+	if sys != nil {
+		sys.CloseIdleConnections()
+	}
+	if c.router.metadata != nil {
+		c.router.metadata.CloseIdleConnections()
+	}
+}
+
 // CredentialHosts lists the AWS credential service hosts ("host:443") the
 // chain may reach for its configuration.
 func (c *Chain) CredentialHosts(ctx context.Context) []string {
