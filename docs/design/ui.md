@@ -1576,7 +1576,7 @@ Important decisions
 Written by Bothy on 12 October · Edited by Maya Chen yesterday · History      text-small muted
 ```
 
-- `⋯` menu: "Ask Bothy about this project" (new chat with the repository in context), "Read the repository again" (admins), "View on GitHub ↗", "Technical details" (dialog: commit read `4f2c1a9`, files indexed 1,204, last read today 09:12, notes size 3.1 KB of 8 KB), "Stop reading this repository…" (admins; confirm, removes it from the allowlist; notes are kept).
+- `⋯` menu: "Ask Bothy about this project" (new chat with the repository in context), "Read the repository again" (admins), "View on GitHub ↗", "Technical details" (dialog: commit read `4f2c1a9`, files indexed 1,204, last read today 09:12, notes size 3.1 KB of 8 KB), "Stop reading this repository…" (admins; confirm, removes it from the allowlist; the project notes and their history are deleted with the index, SPEC §8.3).
 - **Edit in place:** the rendered document becomes a sans `TextArea` (`text-reading`, auto-grow, Markdown source) in the same position; header actions become [Save] (primary) [Cancel]. ⌘S / Ctrl S saves. Esc cancels, after "Discard your changes?" (Discard / Keep editing) if anything changed. Saved: toast "Saved."
 - **Conflict** (`If-Match` failed): warning `Notice` above the editor: "Someone else changed these notes while you were editing." Buttons [See their version] (opens a 720 dialog with a prose diff and [Keep mine] / [Use theirs]).
 - **Size:** above 80 % of the cap a `text-small warning-text` line under the header: "These notes are almost full. Shorten them so Bothy has room to add more." At the cap Save shows "These notes are too long to save. Remove something first."
