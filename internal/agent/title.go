@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	titlePrompt = "Name this conversation in at most six plain words, in sentence case, with no quotes, emoji or full stop. " +
-		"Reply with the name only."
+	titlePrompt = "Write a title of at most six words for this conversation, in plain words and sentence case, " +
+		"with no quotes, emoji or full stop. Reply with the title only."
 	titleMaxTokens = 300
 	titleTimeout   = time.Minute
 	// titleScan is how many of a session's first messages are read to find

@@ -269,7 +269,7 @@ func (u *pltUser) WaitRun(t testing.TB, id core.RunID, timeout time.Duration, co
 		// The run row appears shortly after Submit returns its id.
 		var d dto.RunDetail
 		resp := u.Do(t, http.MethodGet, "/api/runs/"+string(id), nil, nil)
-		if resp.StatusCode == http.StatusOK && json.Unmarshal(resp.Body, &d) == nil && d.Run != nil && cond(d.Run) {
+		if resp.StatusCode == http.StatusOK && json.Unmarshal(resp.Body, &d) == nil && d.Run != nil && cond(&d.Run.Run) {
 			return &d
 		}
 		if time.Now().After(deadline) {

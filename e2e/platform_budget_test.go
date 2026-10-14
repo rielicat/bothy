@@ -145,8 +145,8 @@ func TestLoopDetected(t *testing.T) {
 		t.Fatalf("run.finished = %s, want status loop_detected", fin.Data)
 	}
 	notices := owner.Notices(t, s.ID)
-	if len(notices) == 0 || !strings.Contains(strings.ToLower(strings.Join(notices, "\n")), "retry") {
-		t.Fatalf("notices = %q, want a loop notice with a Retry hint", notices)
+	if len(notices) == 0 || !strings.Contains(notices[len(notices)-1], "kept repeating the same step") {
+		t.Fatalf("notices = %q, want the plain loop notice", notices)
 	}
 	// The third identical call's result already carried the warning.
 	warned := false
