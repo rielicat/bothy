@@ -107,8 +107,9 @@ product prompts: changing either constitution requires bumping
 
 The first stored turn of an untitled session names it after its first message
 (`core.DraftTitle`, 48 characters) and publishes `session.updated`; after the
-run is done a fast-slot call writes the title, which replaces only that draft,
-never a name someone chose. Notices (`notices.go`) follow the UI copy guide: a
+first run that is done (a parked, failed or stopped one leaves it to the next)
+a fast-slot call writes the title, which replaces only that draft, never a
+name someone chose. Notices (`notices.go`) follow the UI copy guide: a
 failed answer names the party at fault once ("Anthropic had a problem
 answering.", "No AI model could answer right now.", a rejected key told
 differently to admins and members) while the raw provider message stays in

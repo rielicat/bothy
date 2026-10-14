@@ -63,8 +63,9 @@ view of the votes (count, who may vote, `can_vote`/`can_withdraw`), and
 `GET /api/releases` and `GET /api/releases/deploys` list the release
 environments and deploy records (own deploys; everyone's for admins).
 For the v0.2 UI (docs/design/ui.md §17) responses carry names instead of
-ids (`names.go`, cached per response and resolved through the caller's
-Viewer, an admin's for the audit log and everyone's usage): runs list as
+ids (`names.go`, cached per response and resolved through the caller's own
+Viewer, so a chat's title or a schedule's name never reaches anyone else, not
+even an admin reading everyone's usage or the audit log): runs list as
 `dto.RunView` (`requested_by_name`, `chat_title`, `schedule_name`), usage rows
 name people, schedules and chats, approvals carry `decided_by_name`, and audit
 rows carry `actor_name` and a one-line `summary` (`audit_summary.go`, phrased

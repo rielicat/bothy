@@ -48,6 +48,25 @@ func (r *Runner) draftTitle(ctx context.Context, sid core.SessionID) string {
 	return core.DraftTitle(r.redact(m.PlainText()))
 }
 
+func (r *Runner) setDraft(sid core.SessionID, title string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if title == "" {
+		delete(r.drafts, sid)
+		return
+	}
+	r.drafts[sid] = title
+}
+
+// isDraft reports whether the session's title is still the draft a task gave
+// it, waiting for the generated one.
+func (r *Runner) isDraft(s *core.Session) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	d, ok := r.drafts[s.ID]
+	return ok && d == s.Title
+}
+
 // titleAsync names a session after its first run (fast slot, metered).
 func (r *Runner) titleAsync(rs *runState) {
 	if r.paused.Load() || r.closing.Load() {
@@ -126,6 +145,9 @@ func (r *Runner) makeTitle(ctx context.Context, sid core.SessionID, p core.Princ
 		s.Title = title
 		return nil
 	})
+	if err == nil || errors.Is(err, errTitled) {
+		r.setDraft(sid, "")
+	}
 	if err != nil {
 		return
 	}

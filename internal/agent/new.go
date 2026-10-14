@@ -93,6 +93,10 @@ type Runner struct {
 	users   map[core.UserID]*semaphore
 	prefix  map[core.SessionID]prefixMark
 	wsMarks map[core.WorkspaceID]bool // workspaces known to hold untrusted content
+	// drafts holds the titles still made of a chat's first words, so a task
+	// that ends before the generated title (parked, failed, over budget) leaves
+	// the naming to the next one. Lost on restart: the draft then stays.
+	drafts map[core.SessionID]string
 	global  *semaphore
 	loops   sync.WaitGroup // worker goroutines
 	bg      sync.WaitGroup // titles, notices
@@ -136,6 +140,7 @@ func New(d Deps) (*Runner, error) {
 		users:   map[core.UserID]*semaphore{},
 		prefix:  map[core.SessionID]prefixMark{},
 		wsMarks: map[core.WorkspaceID]bool{},
+		drafts:  map[core.SessionID]string{},
 	}
 	r.bgCtx, r.bgStop = context.WithCancel(context.Background())
 	r.global = newSemaphore(func() int { return r.cfg().Agent.MaxConcurrentRuns })

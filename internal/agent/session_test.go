@@ -201,6 +201,44 @@ func TestTitleGeneratedAfterFirstRun(t *testing.T) {
 	})
 }
 
+// A chat whose first task ended before an answer keeps its draft title, and
+// the next finished task generates the title once, even when it reads the
+// same as the draft.
+func TestTitleAfterAnEarlierTaskEndedEarly(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{steps: []fakes.LLMStep{
+			{Err: &core.ProviderError{Provider: "fake", Kind: core.ErrKindServer, Msg: "overloaded"}},
+			{Text: []string{"Sure."}}, {Text: []string{"Again."}},
+		}})
+		defer h.close()
+		s, err := h.r.NewSession(h.ctx, h.pid, "web", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.sess = s
+		titles := func() int {
+			h.llm.mu.Lock()
+			defer h.llm.mu.Unlock()
+			return h.llm.titles
+		}
+		h.submit("Weekend plans")
+		synctest.Wait()
+		if got, n := h.session().Title, titles(); got != "Weekend plans" || n != 0 {
+			t.Fatalf("after a failed task: title %q, %d title calls; want the draft and none", got, n)
+		}
+		h.submit("Try again")
+		synctest.Wait()
+		if n := titles(); n != 1 {
+			t.Fatalf("%d title calls after the first finished task, want 1", n)
+		}
+		h.submit("And once more")
+		synctest.Wait()
+		if got, n := h.session().Title, titles(); got != "Weekend plans" || n != 1 {
+			t.Fatalf("title %q after %d title calls: a generated title is never generated again", got, n)
+		}
+	})
+}
+
 func TestBothysOwnTurnsNameNoChat(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t, opts{steps: []fakes.LLMStep{{Text: []string{"Nothing needs attention."}}}})

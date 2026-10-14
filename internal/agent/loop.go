@@ -278,7 +278,7 @@ func (r *Runner) persistTurn(ctx context.Context, rs *runState) error {
 		return fmt.Errorf("agent: update session: %w", err)
 	}
 	if titled {
-		rs.draftTitle = draft
+		r.setDraft(s.ID, draft)
 		r.d.Bus.Publish(core.Event{Type: core.EvSessionUpdated, Principal: s.Principal, Session: s.ID,
 			Data: core.SessionData{Title: s.Title, Taint: s.Taint, Epoch: s.Epoch}})
 	}
@@ -786,7 +786,7 @@ func (r *Runner) finish(rs *runState, end *runEnd) {
 		return
 	}
 	// Hidden /v1 sessions are never listed, so a title would only cost a call.
-	if !rs.sess.Hidden && (rs.sess.Title == "" || rs.sess.Title == rs.draftTitle) {
+	if !rs.sess.Hidden && (rs.sess.Title == "" || r.isDraft(rs.sess)) {
 		r.titleAsync(rs)
 	}
 	if len(rs.chain) > 0 && rs.lastEst*10 > rs.chain[0].Context*6 && !r.paused.Load() && !r.closing.Load() {
