@@ -241,9 +241,9 @@ func limitCachePoints(r *request) {
 // blocks in a request that defines no tools. Reasoning blocks are sent back
 // only when reasoning is true: other vendors' models (Nova after a fallback
 // from Claude) reject Claude's signed reasoning. A message whose calls became
-// text loses its reasoning too: signed reasoning must reach Claude exactly as
-// it was produced, followed by the call it led to, and leaving out an earlier
-// turn's reasoning is always accepted.
+// text loses its reasoning too: the signed block would no longer precede the
+// call it led to, and leaving out an earlier turn's reasoning is always
+// accepted.
 func buildMessages(msgs []core.Message, withTools, reasoning bool) []message {
 	var out []message
 	for _, m := range msgs {
