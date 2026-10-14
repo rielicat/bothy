@@ -29,8 +29,8 @@ describe('accessibility (axe)', () => {
 
   it('chat', () => check('/chat/ses_01jtrip000000000000000000', () => screen.getByText(/Here's a gentle plan/)));
   it('chat list', () => check('/chat', () => screen.getByText('Weekend in Edinburgh')));
-  it('approvals', () => check('/approvals', () => screen.getByText('Run shell command')));
-  it('approvals, parked', () => check('/approvals?status=parked', () => screen.getByText('Send a message')));
+  it('approvals', () => check('/approvals', () => screen.getByRole('heading', { name: 'Waiting for others' })));
+  it('approvals, done', () => check('/approvals?tab=done', () => screen.getByRole('heading', { name: 'Today' })));
   it('settings: general', () => check('/settings/general', () => screen.getByText('Remote access')));
   it('settings: models', () => check('/settings/models', () => screen.getByText('Model chains')));
   it('settings: policy', () => check('/settings/policy', () => screen.getByText('Standing permissions')));

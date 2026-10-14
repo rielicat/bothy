@@ -134,26 +134,21 @@ test.describe('axe', () => {
   }
 });
 
+// The shortcut path (J/K/Enter/A/S/D) is in approvals.spec.ts.
 test('approve from the keyboard alone', async ({ page }) => {
   const problems = watch(page);
-  await page.goto('/approvals');
-  await expect(page.getByRole('article')).toHaveCount(1);
+  await page.goto('/approvals?mock=');
+  await expect(page.locator('[data-row] article')).toHaveCount(1);
   // Tab through the page until the first decision button has focus, then press Enter.
   for (let i = 0; i < 80; i++) {
     await page.keyboard.press('Tab');
-    if ((await page.evaluate(() => document.activeElement?.textContent?.trim())) === 'Allow once a') break;
+    if ((await page.evaluate(() => document.activeElement?.getAttribute('data-choice'))) === 'allow_once') break;
   }
-  await expect(page.locator(':focus')).toHaveText(/Allow once/);
+  await expect(page.locator(':focus')).toHaveText('Approve deploy');
   await page.keyboard.press('Enter');
-  await expect(page.getByText('All clear')).toBeVisible();
-  await page.getByRole('tab', { name: /Recent/ }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Allowed once · by you · via Web' }).first()).toBeVisible();
-  // and the shortcut path on the parked tab
-  await page.getByRole('tab', { name: /Parked/ }).focus();
-  await page.keyboard.press('Enter');
-  await expect(page.getByRole('article')).toHaveCount(1);
-  await page.keyboard.press('d');
-  await expect(page.getByText('Nothing parked')).toBeVisible();
+  await expect(page.locator('[aria-live="polite"]').first()).toHaveText(/^Approved\. Next: /);
+  await page.goto('/approvals?tab=done');
+  await expect(page.getByText(/approved deploying acme\/web to production/).first()).toBeVisible();
   expect(problems).toEqual([]);
 });
 
@@ -164,7 +159,7 @@ test('chat streams a reply and an inline approval under the CSP', async ({ page 
   await page.keyboard.press('Enter');
   const card = page.getByRole('article').filter({ hasText: 'tidy.py' });
   await expect(card).toBeVisible({ timeout: 10_000 });
-  await card.getByRole('button', { name: /Allow once/ }).click();
+  await card.getByRole('button', { name: 'Run command' }).click();
   await expect(page.getByText('The dry run found')).toBeVisible({ timeout: 10_000 });
   expect(problems).toEqual([]);
 });

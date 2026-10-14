@@ -21,22 +21,23 @@ export const riskBar: Record<SideEffect, string> = {
 
 export const sideEffects = Object.keys(risk) as SideEffect[];
 
+// The card's own verb ("Delete file") replaces "Allow" on the primary button (lib/cardcopy.ts).
 export const choiceLabel: Record<Choice, string> = {
-  allow_once: 'Allow once',
-  allow_session: 'Allow for this session',
+  allow_once: 'Allow',
+  allow_session: 'Allow for this chat',
   allow_always: 'Always allow',
   deny: 'Deny',
 };
 
 export const choiceDone: Record<Choice, string> = {
-  allow_once: 'Allowed once',
-  allow_session: 'Allowed for this session',
+  allow_once: 'Approved',
+  allow_session: 'Allowed for this chat',
   allow_always: 'Always allowed',
   deny: 'Denied',
 };
 
-// SPEC §9.3 shortcuts. "Always allow" creates a standing grant, so it has no
-// single-key shortcut that a stray keypress could trigger; it stays a button.
+// "Always allow" creates a standing grant, so it has no single-key shortcut
+// that a stray keypress could trigger; it stays a button.
 export const choiceKey: Partial<Record<Choice, string>> = { allow_once: 'a', allow_session: 's', deny: 'd' };
 
 export const verdictChip: Record<Verdict | 'granted' | 'approved' | 'denied', string> = {
