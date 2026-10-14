@@ -2,11 +2,13 @@ package knowledge
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
@@ -132,6 +134,40 @@ func TestIndexCaps(t *testing.T) {
 	}
 	if got := h.paths(r.ID); !slices.Equal(got, []string{"a.txt", "b.txt"}) {
 		t.Fatalf("indexed %v", got)
+	}
+}
+
+// A repo with thousands of "**" patterns in every directory would make the
+// walk spend hours matching; the work cap ends it as a truncated index.
+func TestIndexHostileIgnoreRulesEndTheWalk(t *testing.T) {
+	h := newHarness(t)
+	var rules strings.Builder
+	for i := range ignorePatterns {
+		fmt.Fprintf(&rules, "**/d/**/d/**/d/**/x%d*\n", i)
+	}
+	dir := "hostile"
+	for range 20 {
+		h.write(dir+"/.gitignore", rules.String())
+		dir += "/d"
+	}
+	for i := range 300 {
+		h.write(fmt.Sprintf("%s/f%03d.txt", dir, i), "kept\n")
+	}
+	start := time.Now()
+	r := h.index("hostile", "", "")
+	if d := time.Since(start); d > 20*time.Second {
+		t.Fatalf("index took %s", d)
+	}
+	if r.Status != core.IndexReady || !r.Truncated || r.Files >= 300 {
+		t.Fatalf("hostile index = %+v", r)
+	}
+
+	ig := &ignorer{dirs: map[string]ruleSet{}}
+	for i := range 8 {
+		ig.add(parseIgnore(strings.Repeat("d/", i), []byte(rules.String())))
+	}
+	if ig.loaded != ignoreTotal {
+		t.Fatalf("loaded %d patterns, want the walk cap %d", ig.loaded, ignoreTotal)
 	}
 }
 

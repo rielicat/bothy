@@ -82,7 +82,7 @@ func indexDir(ctx context.Context, repo core.KnowledgeRepo, id int64, sha, ws, d
 	if err != nil {
 		return indexStats{}, err
 	}
-	ix := &indexer{repo: repo, id: id, sha: sha, caps: c, root: root, ig: &ignorer{dirs: map[string]ruleSet{}},
+	ix := &indexer{repo: repo, id: id, sha: sha, caps: c, root: root, ig: &ignorer{dirs: map[string]ruleSet{}, limit: ignoreWork},
 		known: make(map[string]core.KnowledgeFile, len(files))}
 	for _, f := range files {
 		ix.known[f.Path] = f
@@ -131,15 +131,25 @@ func (ix *indexer) visit(ctx context.Context, p string, d fs.DirEntry, err error
 	}
 	if d.IsDir() {
 		if skipDirs[d.Name()] || strings.Count(p, "/") >= maxWalkDepth || ix.ig.ignored(p, true) {
-			return fs.SkipDir
+			return ix.skip(fs.SkipDir)
 		}
 		ix.loadIgnore(p)
 		return nil
 	}
 	if !d.Type().IsRegular() || skipByName(d.Name()) || ix.ig.ignored(p, false) {
-		return nil
+		return ix.skip(nil)
 	}
 	return ix.file(ctx, p, d)
+}
+
+// skip passes the walk's verdict through, unless the ignore rules spent
+// their work cap: then the walk ends where it is, as with the size caps.
+func (ix *indexer) skip(verdict error) error {
+	if ix.ig.exhausted() {
+		ix.stats.truncated = true
+		return fs.SkipAll
+	}
+	return verdict
 }
 
 func (ix *indexer) loadIgnore(dir string) {
@@ -148,7 +158,7 @@ func (ix *indexer) loadIgnore(dir string) {
 		if base == "." {
 			base = ""
 		}
-		ix.ig.dirs[base] = parseIgnore(base, data)
+		ix.ig.add(parseIgnore(base, data))
 	}
 }
 

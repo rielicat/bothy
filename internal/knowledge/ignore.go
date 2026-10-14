@@ -11,7 +11,11 @@ import (
 const (
 	ignoreFileMax   = 64 << 10 // .gitignore / .gitattributes bytes read
 	ignorePatterns  = 2000     // per file; a hostile repo cannot make matching quadratic in patterns
+	ignoreTotal     = 10000    // across every ignore file of one walk
 	ignoreSegments  = 64       // per pattern
+	// ignoreWork bounds the matching cells (pattern × path segments) one
+	// walk may spend; ordinary repositories use well under a tenth of it.
+	ignoreWork = 50_000_000
 	sniffBytes      = 8 << 10  // binary detection window
 	generatedLines  = 10       // header lines searched for generated-code markers
 	maxWalkDepth    = 32
@@ -256,12 +260,37 @@ func matchSegs(p, s []string) bool {
 type ignorer struct {
 	attrs ruleSet
 	dirs  map[string]ruleSet // by base
+	// loaded counts patterns across the walk's ignore files; limit > 0 caps
+	// the matching work and spent tracks it, so hostile rules (thousands of
+	// "**" patterns in every directory) end the walk instead of stalling it.
+	loaded       int
+	limit, spent int64
 }
+
+// add keeps the rule set of one ignore file within the walk's pattern cap.
+func (ig *ignorer) add(rs ruleSet) {
+	if room := ignoreTotal - ig.loaded; len(rs.pats) > room {
+		rs.pats = rs.pats[:max(room, 0)]
+	}
+	ig.loaded += len(rs.pats)
+	ig.dirs[rs.base] = rs
+}
+
+// exhausted reports that the work cap was reached; ignored answers true from
+// then on.
+func (ig *ignorer) exhausted() bool { return ig.limit > 0 && ig.spent >= ig.limit }
 
 func (ig *ignorer) ignored(rel string, isDir bool) bool {
 	ignored := false
+	depth := int64(strings.Count(rel, "/") + 2)
 	apply := func(rs ruleSet, sub string) {
 		for _, p := range rs.pats {
+			if ig.limit > 0 {
+				if ig.exhausted() {
+					return
+				}
+				ig.spent += int64(len(p.segs)) * depth
+			}
 			if p.match(sub, isDir) {
 				ignored = !p.negate
 			}
@@ -279,5 +308,5 @@ func (ig *ignorer) ignored(rel string, isDir bool) bool {
 			apply(rs, rel[i+1:])
 		}
 	}
-	return ignored
+	return ignored || ig.exhausted()
 }
