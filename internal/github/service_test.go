@@ -118,6 +118,7 @@ func TestValidateCreds(t *testing.T) {
 		"unknown auth":       {Auth: "oauth", Token: tok},
 		"pat with install":   {Auth: core.GitHubPAT, Token: tok, InstallationID: 3},
 		"ref with uppercase": {Auth: core.GitHubPAT, SecretRef: "secret:GITHUB"},
+		"broken aws-sm ref":  {Auth: core.GitHubPAT, SecretRef: "aws-sm:prod/github#"},
 	} {
 		if err := validateCreds(c); !errors.Is(err, core.ErrInvalid) {
 			t.Errorf("%s: %v, want ErrInvalid", name, err)
@@ -125,6 +126,9 @@ func TestValidateCreds(t *testing.T) {
 	}
 	if err := validateCreds(core.GitHubCredentials{Auth: core.GitHubApp, PrivateKey: key, AppID: "Iv1.ab1112223334445c"}); err != nil {
 		t.Errorf("client id: %v", err)
+	}
+	if err := validateCreds(core.GitHubCredentials{Auth: core.GitHubPAT, SecretRef: "aws-sm:prod/github#token"}); err != nil {
+		t.Errorf("aws-sm ref: %v", err)
 	}
 }
 

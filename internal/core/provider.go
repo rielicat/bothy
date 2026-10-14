@@ -304,7 +304,7 @@ type ProbeConfig struct {
 	Kind         ProviderKind `json:"kind"`
 	BaseURL      string       `json:"base_url"`
 	APIKey       Secret       `json:"-"`          // transient; never persisted by Probe
-	SecretRef    string       `json:"secret_ref"` // alternative to APIKey: "secret:<name>"
+	SecretRef    string       `json:"secret_ref"` // alternative to APIKey: "secret:<name>" or "aws-sm:<secret>"
 	Model        string       `json:"model"`
 	AllowPrivate bool         `json:"allow_private"`
 	API          string       `json:"api,omitempty"`     // openai, openai_compat: auto | responses | chat ("" = auto), as providers[].api

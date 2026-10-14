@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/httpapi/dto"
 )
@@ -429,8 +430,8 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request, _ core.Act
 	if err := checkProbeInput(req.Kind, req.API, req.Region, req.Profile, req.APIKey != "" || req.SecretRef != ""); err != nil {
 		return err
 	}
-	if req.SecretRef != "" && !strings.HasPrefix(req.SecretRef, "secret:") {
-		return badRequest("secret_ref must be secret:<name>")
+	if req.SecretRef != "" && !strings.HasPrefix(req.SecretRef, "secret:") && !strings.HasPrefix(req.SecretRef, config.AWSSecretPrefix) {
+		return badRequest("secret_ref must be secret:<name> or aws-sm:<secret>")
 	}
 	if req.APIKey != "" && s.d.Vault != nil {
 		// The key is write-only: keep it out of logs and probe errors.

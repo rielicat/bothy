@@ -175,7 +175,7 @@ type ChannelHub interface {
 // AdapterDeps is what channel adapters may use. Adapters import only core,
 // config and their protocol library.
 type AdapterDeps struct {
-	Secret   func(ctx context.Context, ref string) (Secret, error) // resolves "secret:<name>" (global scope)
+	Secret   func(ctx context.Context, ref string) (Secret, error) // resolves "secret:<name>" (global scope) and "aws-sm:<secret>"
 	HTTP     func(d SystemDest) *http.Client                       // Egress.SystemClient
 	Meta     MetaRepo                                              // long-poll offsets, resume cursors (keys "channel.<name>.*")
 	StateDir string                                                // <data>/channels/<name>/ (0700): P1 adapters with their own state (Matrix crypto store, WhatsApp device store)

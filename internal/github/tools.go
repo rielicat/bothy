@@ -12,10 +12,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
 )
 
 var secretRefRE = regexp.MustCompile(`^secret:[a-z0-9_.-]{1,64}$`)
+
+// validSecretRef accepts a vault reference or one to AWS Secrets Manager.
+func validSecretRef(s string) bool {
+	if secretRefRE.MatchString(s) {
+		return true
+	}
+	_, err := config.ParseAWSSecretRef(s)
+	return err == nil
+}
 
 // Content from repositories, issues, pull requests and workflow runs may be
 // written by anyone, and private repositories hold company data: tools that

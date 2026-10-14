@@ -62,9 +62,9 @@ func schemaOf(f *field, def *yaml.Node, pattern string) map[string]any {
 		s = scalarSchema(f.typ)
 		switch {
 		case f.embed:
-			s["pattern"] = secretRefAny.String()
+			s["pattern"] = secretRefAny.String() + "|" + awsRefPattern
 		case f.secret:
-			s["pattern"] = "^$|" + secretRefExact.String()
+			s["pattern"] = "^$|" + secretRefExact.String() + "|^" + awsRefPattern + "$"
 		}
 		if e := enums[pattern]; e != nil {
 			s["enum"] = e

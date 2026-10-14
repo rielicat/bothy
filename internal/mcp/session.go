@@ -7,12 +7,12 @@ import (
 	"maps"
 	"net/http"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
 )
 
@@ -426,7 +426,7 @@ func (m *Manager) connectHTTP(ctx context.Context, s *server, u core.UserID) (*c
 	}
 	headers := make(map[string]core.Secret, len(s.spec.headers))
 	for k, ref := range s.spec.headers {
-		if !strings.Contains(ref, "secret:") {
+		if !config.HasSecretRef(ref) {
 			headers[k] = core.NewSecret([]byte(ref))
 			continue
 		}

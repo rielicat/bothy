@@ -9,18 +9,29 @@ import (
 type check struct {
 	id  string
 	run func() []core.Finding
+	ctx func(context.Context) []core.Finding
 }
 
-func (c check) ID() string                              { return c.id }
-func (c check) Run(context.Context) []core.Finding      { return c.run() }
+func (c check) ID() string { return c.id }
+
+func (c check) Run(ctx context.Context) []core.Finding {
+	if c.ctx != nil {
+		return c.ctx(ctx)
+	}
+	return c.run()
+}
+
 func (c check) Fix(context.Context, core.Finding) error { return core.ErrNotImplemented }
 
-// Checks returns vault.kek_colocated, vault.kek_env and vault.sealed.
+// Checks returns vault.kek_colocated, vault.kek_env, vault.sealed and
+// secrets.aws_access (whether the AWS credentials for aws-sm references
+// resolve; it never reads a value).
 func (v *Vault) Checks() []core.Check {
 	return []core.Check{
 		check{id: "vault.kek_colocated", run: v.checkColocated},
 		check{id: "vault.kek_env", run: v.checkEnv},
 		check{id: "vault.sealed", run: v.checkSealed},
+		check{id: "secrets.aws_access", ctx: v.checkAWSAccess},
 	}
 }
 

@@ -245,10 +245,18 @@ func (s *Server) connectProvider(w http.ResponseWriter, r *http.Request, a core.
 	resp := dto.ProviderConnectResp{Provider: id}
 	var undo func()
 	switch {
+	case strings.HasPrefix(req.SecretRef, config.AWSSecretPrefix):
+		ref, err := config.ParseAWSSecretRef(req.SecretRef)
+		if err != nil {
+			return badRequest("secret_ref: %s", err.Error())
+		}
+		// Bothy reads it with the server's AWS credentials when the provider
+		// first needs it; the config write below checks the region.
+		resp.Secret, p["api_key"] = &core.SecretMeta{Scope: core.GlobalScope, Name: ref.String(), Source: "aws-sm"}, ref.String()
 	case req.SecretRef != "":
 		name, found := strings.CutPrefix(req.SecretRef, "secret:")
 		if !found || !secretNameRE.MatchString(name) {
-			return badRequest("secret_ref must be secret:<name>")
+			return badRequest("secret_ref must be secret:<name> or aws-sm:<secret>")
 		}
 		m, err := s.savedSecret(ctx, name)
 		if err != nil {

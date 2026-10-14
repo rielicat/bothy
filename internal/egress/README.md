@@ -30,8 +30,9 @@ are.
 
 `CredentialsClient(relativeURI, fullURI)` is the one exception to the
 metadata block, for the bedrock provider's AWS credential chain only
-(`cmd/bothy` hands it to `provider.Deps.Credentials`; boxes, tools,
-`web_fetch` and MCP never get it). It dials fixed address literals with a
+(`cmd/bothy` hands it to `provider.Deps.Credentials`, and the vault's aws-sm
+references borrow that chain; boxes, tools, `web_fetch` and MCP never get
+it). It dials fixed address literals with a
 socket `Control` that accepts exactly the target: the instance metadata
 service at `169.254.169.254:80` and `[fd00:ec2::254]:80`, where only the
 IMDSv2 token `PUT /latest/api/token` (with its TTL header) and token-bearing

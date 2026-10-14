@@ -66,8 +66,8 @@ func validateCreds(c core.GitHubCredentials) error {
 	if given != 1 {
 		return bad("give exactly one of token, private_key or secret_ref")
 	}
-	if c.SecretRef != "" && !secretRefRE.MatchString(c.SecretRef) {
-		return bad(`secret_ref must look like "secret:<name>"`)
+	if c.SecretRef != "" && !validSecretRef(c.SecretRef) {
+		return bad(`secret_ref must look like "secret:<name>" or "aws-sm:<secret>[#<json key>]"`)
 	}
 	switch c.Auth {
 	case core.GitHubPAT:

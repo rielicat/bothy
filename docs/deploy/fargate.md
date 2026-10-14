@@ -131,7 +131,12 @@ Two Fargate-specific details, both in the task definition:
 ## Models
 
 The task role reaches Amazon Bedrock with no keys; see [vm.md](vm.md#models)
-for the provider settings and model access.
+for the provider settings and model access. Other providers' keys and channel
+tokens can stay in Secrets Manager: reference them as `aws-sm:<secret>#<key>`
+and allow the task role
+[`iam-secrets-policy.json`](../../deploy/aws/iam-secrets-policy.json)
+([how](README.md#platform-secrets); environment variables as in
+[aws-ecs.md](aws-ecs.md#provider-keys-and-channel-tokens)).
 
 ## Backups and upgrades
 

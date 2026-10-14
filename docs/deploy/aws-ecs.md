@@ -6,7 +6,8 @@ and an init container that fetches the vault key from AWS Secrets Manager.
 Files: [`deploy/aws/ecs-task-definition.json`](../../deploy/aws/ecs-task-definition.json),
 [`ecs-task-role-trust-policy.json`](../../deploy/aws/ecs-task-role-trust-policy.json),
 [`iam-bedrock-policy.json`](../../deploy/aws/iam-bedrock-policy.json),
-[`iam-kek-secret-policy.json`](../../deploy/aws/iam-kek-secret-policy.json).
+[`iam-kek-secret-policy.json`](../../deploy/aws/iam-kek-secret-policy.json),
+[`iam-secrets-policy.json`](../../deploy/aws/iam-secrets-policy.json).
 
 ## Docker 25 on the ECS-optimized AMI
 
@@ -127,15 +128,18 @@ Alternatives, if this does not fit:
      --policy-document file://deploy/aws/iam-bedrock-policy.json
    aws iam put-role-policy --role-name bothy-task --policy-name vault-key \
      --policy-document file://deploy/aws/iam-kek-secret-policy.json
+   aws iam put-role-policy --role-name bothy-task --policy-name secrets \
+     --policy-document file://deploy/aws/iam-secrets-policy.json
    aws iam create-role --role-name bothy-task-execution \
      --assume-role-policy-document file://deploy/aws/ecs-task-role-trust-policy.json
    aws iam attach-role-policy --role-name bothy-task-execution \
      --policy-arn arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
    ```
 
-   The task role is what the containers use: Bedrock and the vault key. With a
-   task role, SDKs in the task use only its credentials, never the instance's.
-   The execution role only lets ECS write the logs.
+   The task role is what the containers use: Bedrock, the vault key and the
+   secrets Bothy references in Secrets Manager. With a task role, SDKs in the
+   task use only its credentials, never the instance's. The execution role
+   only lets ECS write the logs.
 
 3. **Vault key and log group.**
 
@@ -234,6 +238,22 @@ The task role reaches Amazon Bedrock with no keys: Bothy picks up the ECS
 container credentials like any AWS SDK. Configure the provider in setup ("Use
 this server's AWS access") or with environment variables as in
 [vm.md](vm.md#models), which also covers model access and global profiles.
+
+## Provider keys and channel tokens
+
+Leave them in Secrets Manager and reference them
+([how](README.md#platform-secrets)): the gateway reads them with the task role,
+so no key passes through the task definition, ECS's environment injection or
+the vault. Add to the `bothy` container's environment, for example:
+
+```json
+{"name": "BOTHY_SECRETS__AWS__REGION", "value": "us-east-1"},
+{"name": "BOTHY_CHANNELS__SLACK__BOT_TOKEN", "value": "aws-sm:bothy/providers#slack_bot_token"}
+```
+
+and for a provider the whole entry, as [vm.md](vm.md#models) shows, with
+`"api_key": "aws-sm:bothy/providers#anthropic_api_key"`. These are references,
+not secrets, so environment variables are fine here.
 
 ## Operations
 

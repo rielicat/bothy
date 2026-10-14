@@ -3,7 +3,8 @@ package config
 import "time"
 
 // Tags: yaml = key name; reload:"hot" fields apply without restart (default
-// "restart"); secret:"true" fields accept only "secret:<name>" references;
+// "restart"); secret:"true" fields accept only "secret:<name>" and
+// "aws-sm:<secret>" references;
 // locked:"true" fields are never settable from the UI layer.
 
 type Config struct {
@@ -17,6 +18,7 @@ type Config struct {
 	Log       Log               `yaml:"log" reload:"hot"`
 	Auth      Auth              `yaml:"auth"`
 	Vault     VaultCfg          `yaml:"vault"`
+	Secrets   SecretsCfg        `yaml:"secrets" reload:"hot"`
 	Providers []Provider        `yaml:"providers" reload:"hot"`
 	Models    Models            `yaml:"models" reload:"hot"`
 	Pricing   map[string]PriceO `yaml:"pricing" reload:"hot"`
@@ -101,6 +103,23 @@ type Argon2 struct {
 type VaultCfg struct {
 	KEK     string `yaml:"kek" locked:"true"`     // auto | file:/path | systemd:<name> | passphrase | env
 	Keyfile string `yaml:"keyfile" locked:"true"` // autogen target
+}
+
+// SecretsCfg configures the cloud secret stores that secret fields may
+// reference instead of the vault.
+type SecretsCfg struct {
+	AWS SecretsAWS `yaml:"aws"`
+}
+
+// SecretsAWS is where "aws-sm:" references are read: AWS Secrets Manager,
+// with the AWS credential chain the bedrock provider uses.
+type SecretsAWS struct {
+	Region   string   `yaml:"region"`    // required for references without ?region= or an ARN
+	Profile  string   `yaml:"profile"`   // shared-config profile; "" = AWS_PROFILE or the default chain
+	CacheTTL Duration `yaml:"cache_ttl"` // how long a fetched value is reused (memory only)
+	// AllowPrivate lets secretsmanager.<region>.amazonaws.com resolve to a
+	// private address: an interface VPC endpoint with private DNS.
+	AllowPrivate bool `yaml:"allow_private"`
 }
 
 type Provider struct {

@@ -45,7 +45,7 @@ safe before you configure anything.
 | Image size | ≤ 30 MB, CI-enforced | 1,121 MB | 1,236 MB | n/a | 1,416 MB, amd64 only |
 | Idle memory | ≤ 60 MB with 3 channels, CI-enforced | 1 GB minimum (its docs) | 150–500 MB (unverified, third-party) | n/a | not published |
 | Tool sandbox | on by default; no network except a per-box egress proxy | host execution on native installs | off by default | one shared cloud computer per account | bot runs only; kernel-dependent (its docs) |
-| Secrets | envelope-encrypted vault, never inside a box | — | store not encrypted at rest (its docs) | n/a (hosted) | encrypted vault |
+| Secrets | envelope-encrypted vault or references to AWS Secrets Manager, never inside a box | — | store not encrypted at rest (its docs) | n/a (hosted) | encrypted vault |
 | Models | any provider or local model, from 16K context | rejects models under 64K context | any | no model choice; requests may route to third-party models (its docs) | 20+ providers |
 | License | Apache-2.0 | MIT | MIT | proprietary | AGPL-3.0 |
 
@@ -218,6 +218,67 @@ Only the gateway's credential chain may reach the instance metadata service
 and the container credential endpoints; tool boxes, `web_fetch` and MCP
 servers cannot. `credential_process` profiles are refused, since the program
 would run outside Bothy's egress control.
+
+## Secrets
+
+Secret fields never hold a value, only a reference: provider `api_key` and
+`headers`, channel tokens, search API keys, MCP server headers,
+`releases.github_token` and the token or key of a GitHub connection. A
+plaintext value is a configuration error. Two kinds of reference work
+everywhere, also inside a header value (`"Bearer secret:docs_token"`):
+
+- `secret:<name>` is a secret in Bothy's own vault (Settings → Vault),
+  encrypted at rest under the vault key (KEK). `BOTHY_SECRET_<NAME>` or
+  `BOTHY_SECRET_<NAME>_FILE` in the environment overrides it.
+- `aws-sm:<secret name or ARN>` is a secret your company keeps in AWS Secrets
+  Manager, which Bothy reads itself. `#<json key>` picks one value of a JSON
+  secret, `?region=<region>&profile=<profile>` overrides the defaults for one
+  reference, and an ARN brings its own region.
+
+```yaml
+secrets:
+  aws:
+    region: us-west-2       # required for aws-sm references without ?region= or an ARN
+    profile: ""             # shared-config profile; "" = AWS_PROFILE or the default chain
+    cache_ttl: 5m           # how long a fetched value is reused, in memory only
+    allow_private: false    # true when an interface VPC endpoint answers for Secrets Manager
+providers:
+  - {id: anthropic, type: anthropic, api_key: "aws-sm:prod/bothy#anthropic_api_key"}
+channels:
+  slack: {enabled: true, app_token: "aws-sm:prod/bothy#slack_app_token", bot_token: "aws-sm:prod/bothy#slack_bot_token"}
+mcp:
+  servers:
+    - {name: docs, transport: http, url: "https://mcp.example.com/mcp", headers: {Authorization: "Bearer aws-sm:prod/docs-mcp"}}
+```
+
+- **Credentials** come from the same AWS chain as [Bedrock](#amazon-bedrock)
+  (environment, SSO profiles, IRSA, ECS and EKS container credentials, EC2
+  instance roles over IMDSv2; `credential_process` refused). The role needs
+  `secretsmanager:GetSecretValue` on those secrets, and `kms:Decrypt` when a
+  secret uses a customer managed key
+  ([`deploy/aws/iam-secrets-policy.json`](deploy/aws/iam-secrets-policy.json)).
+  Grant only the secrets Bothy uses: any Bothy admin can reference any secret
+  the role can read, so on a laptop use a profile made for Bothy rather than
+  your own.
+- **Network:** only the gateway calls Secrets Manager, through its egress
+  control and only `secretsmanager.<region>.amazonaws.com`; tool boxes never
+  see the credentials or the values.
+- **Values** are fetched on first use, reused for `cache_ttl`, never written to
+  disk or the database, and masked in logs, tool output and chat. A rotated
+  secret is picked up when its cached value expires (providers within a
+  further 5 minutes; channel tokens when the channel restarts). Every use is audited as
+  `secret.use` with the reference and its purpose, never the value.
+- **Visibility:** Settings → Vault and `bothy vault list` show the references
+  as source `aws-sm`, without the last-four hint vault secrets get, to admins
+  only. `bothy doctor` (`secrets.aws_access`) checks that the AWS credentials
+  resolve without reading a value. Failures say what to fix: no credentials,
+  access denied, no such secret, a missing JSON key or a secret that is not
+  JSON.
+
+With every secret in Secrets Manager the vault holds nothing you could lose,
+and these references keep working while a passphrase vault is sealed. Keep
+the vault key anyway: secrets saved in the UI (a key pasted in setup, a
+GitHub token) go into the vault.
 
 ## Development
 

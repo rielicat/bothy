@@ -127,6 +127,19 @@ func TestToolName(t *testing.T) {
 	}
 }
 
+func TestSecretNames(t *testing.T) {
+	got := secretNames(map[string]string{
+		"Authorization": "Bearer secret:docs_token",
+		"X-Org":         "Org aws-sm:prod/mcp#org",
+		"X-Arn":         "aws-sm:arn:aws:secretsmanager:us-west-2:123456789012:secret:prod/db-AbCdEf#password",
+		"X-Both":        "secret:docs_token aws-sm:prod/mcp#org",
+	})
+	want := []string{"aws-sm:arn:aws:secretsmanager:us-west-2:123456789012:secret:prod/db-AbCdEf#password", "aws-sm:prod/mcp#org", "docs_token"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("secretNames = %q, want %q", got, want)
+	}
+}
+
 func TestPunycode(t *testing.T) {
 	for in, want := range map[string]string{
 		"example.com":        "example.com",

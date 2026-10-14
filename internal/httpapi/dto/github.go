@@ -7,9 +7,9 @@ import "github.com/rielicat/bothy/internal/core"
 // GitHubConnectReq is the body of POST /api/github/connections (connect) and
 // POST /api/github/connections/test (probe only, nothing stored). Give
 // exactly one of Token (auth "pat"), PrivateKey (auth "app", the .pem GitHub
-// generated) or SecretRef (an existing "secret:<name>"). Token and PrivateKey
-// are write-only: Connect stores them in the global vault scope and no
-// response ever carries them.
+// generated) or SecretRef (an existing "secret:<name>", or "aws-sm:<secret>"
+// in AWS Secrets Manager). Token and PrivateKey are write-only: Connect
+// stores them in the global vault scope and no response ever carries them.
 type GitHubConnectReq struct {
 	Auth           core.GitHubAuth `json:"auth"`
 	Token          string          `json:"token,omitempty"`

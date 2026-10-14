@@ -421,8 +421,8 @@ type Upload struct {
 type SecretMeta struct {
 	Scope     Scope     `json:"scope"`
 	Name      string    `json:"name"`
-	Source    string    `json:"source"` // vault | env
-	Hint      string    `json:"hint"`   // last 4 chars
+	Source    string    `json:"source"` // vault | env | aws-sm (a reference in the configuration; never a value)
+	Hint      string    `json:"hint"`   // last 4 chars; always "" for aws-sm
 	UpdatedAt time.Time `json:"updated_at"`
 	LastUsed  time.Time `json:"last_used_at"`
 }

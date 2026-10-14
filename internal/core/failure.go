@@ -12,9 +12,10 @@ import (
 	"syscall"
 )
 
-// FailureCode names why a provider, channel or GitHub check failed, so the
-// web UI picks its sentence from a code instead of parsing messages (v0.2
-// UI §5.6.4). The raw message always travels next to it.
+// FailureCode names why a provider, channel or GitHub check, or an external
+// secret reference, failed, so the web UI picks its sentence from a code
+// instead of parsing messages (v0.2 UI §5.6.4). The raw message always
+// travels next to it.
 type FailureCode string
 
 const (
@@ -32,6 +33,9 @@ const (
 	FailAWSNoCredentials FailureCode = "aws_no_credentials" // the AWS credential chain resolved nothing
 	FailAWSDenied        FailureCode = "aws_denied"         // AWS refused this identity
 	FailAWSNoModels      FailureCode = "aws_no_models"      // no Claude or Nova model is enabled in the region
+	FailNotFound         FailureCode = "not_found"          // a cloud secret store has no such secret
+	FailJSONKeyMissing   FailureCode = "json_key_missing"   // the secret is a JSON object without the referenced key
+	FailNotJSON          FailureCode = "not_json"           // a JSON key was referenced but the secret is not a JSON object
 	FailUnknown          FailureCode = "unknown"
 )
 

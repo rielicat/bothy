@@ -57,7 +57,9 @@ offers "Use this server's AWS access" first when the chain resolves (within
 4 s when the environment or `~/.aws` suggests AWS, else within the local
 detection timeout for IMDS), with region and models; the doctor check
 `providers.bedrock_credentials` reports each bedrock provider's credential
-source (info) or why there is none (high), never values.
+source (info) or why there is none (high), never values. `AWSCredentials`
+hands the same chain, with the same egress rules, to the vault for its
+aws-sm references (`cmd/bothy`, `vault.SetAWS`).
 For the v0.2 UI (`friendly.go`, `failure.go`) every `ModelInfo` and
 `ModelChoice` carries a plain `display_name` (the catalog's or vendor's
 name, else one built from the id: `qwen3:14b` → "Qwen3 14B"; Bedrock

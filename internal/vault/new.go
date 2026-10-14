@@ -32,6 +32,7 @@ type Deps struct {
 // KEK leaves it sealed until Unseal.
 type Vault struct {
 	store core.Store
+	cfg   config.View
 	red   *Redactor
 	audit core.Auditor
 	clock core.Clock
@@ -59,6 +60,8 @@ type Vault struct {
 	keyID   int64
 	count   int // secrets stored in the vault
 	touched map[string]time.Time
+
+	aws awsState // aws-sm references: chains, cached values, uses
 }
 
 var (
@@ -83,9 +86,10 @@ func newVault(d Deps, o options) (*Vault, error) {
 		return nil, errors.New("vault: no store")
 	}
 	v := &Vault{
-		store: d.Store, red: d.Redactor, audit: d.Audit, clock: d.Clock, log: d.Log, opts: o,
+		store: d.Store, cfg: d.Config, red: d.Redactor, audit: d.Audit, clock: d.Clock, log: d.Log, opts: o,
 		envVars: map[string]string{}, envSecs: map[string][]byte{}, touched: map[string]time.Time{},
 	}
+	v.aws.init()
 	if v.red == nil {
 		v.red = NewRedactor()
 	}

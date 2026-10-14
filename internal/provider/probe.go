@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -63,7 +64,7 @@ func (f *Facade) Probe(ctx context.Context, pc core.ProbeConfig) (core.ProbeResu
 		}
 		s, err := f.d.Vault.Resolve(ctx, pc.SecretRef, "", "provider:probe")
 		if err != nil {
-			return core.ProbeResult{Detail: "Could not read the key from the vault: " + err.Error(), Code: core.FailUnknown,
+			return core.ProbeResult{Detail: "Could not read the key from the vault: " + err.Error(), Code: cmp.Or(core.CodeOf(err), core.FailUnknown),
 				Error: err.Error()}, nil
 		}
 		key = s

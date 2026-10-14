@@ -325,7 +325,7 @@ func TestLoadMigrations(t *testing.T) {
 		names[i] = m.name
 	}
 	want := []string{"0001_init.sql", "0002_repos.sql", "0003_knowledge.sql", "0004_approval_votes.sql",
-		"0005_approval_comments.sql", "0006_must_change_password.sql", "0007_v02_fixes.sql"}
+		"0005_approval_comments.sql", "0006_must_change_password.sql", "0007_v02_fixes.sql", "0008_external_secret_refs.sql"}
 	if err != nil || len(ms) < len(want) || !slices.Equal(names[:len(want)], want) {
 		t.Fatalf("embedded migrations = %v, %v", names, err)
 	}

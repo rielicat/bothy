@@ -25,8 +25,9 @@ type PasswordResetResp struct {
 // ProviderConnectReq is POST /api/providers/connect: one call that saves the
 // key, writes providers[id] and sets the model slots in one config change.
 // Give at most one of APIKey (pasted; saved in the global vault as
-// "<id>_api_key"), SecretRef (a saved key, "secret:<name>", from a detection)
-// or EnvVar (a detected well-known key variable, copied into the vault).
+// "<id>_api_key"), SecretRef (a saved key, "secret:<name>", from a detection,
+// or "aws-sm:<secret>" in AWS Secrets Manager) or EnvVar (a detected
+// well-known key variable, copied into the vault).
 // Bedrock takes none of them.
 type ProviderConnectReq struct {
 	ID           string            `json:"id,omitempty"` // providers[].id; "" = from kind and address (anthropic, openrouter, ollama, lmstudio, custom, …)

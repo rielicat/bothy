@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
 )
 
@@ -318,46 +319,95 @@ func (v *Vault) touch(ctx context.Context, sc core.Scope, name string) {
 }
 
 // Resolve substitutes every "secret:<name>" reference in ref (user scope of u,
-// then global; u == "" means global only). Input without a reference is
-// rejected and never echoed: it may itself be a plaintext secret.
+// then global; u == "" means global only) and every "aws-sm:" reference (AWS
+// Secrets Manager; the same for every u, since it names a company secret
+// that the configuration, not the user, chose). Input without a reference
+// is rejected and never echoed: it may itself be a plaintext secret. A
+// resolved value is never resolved again, so a vault value that looks like
+// a reference stays text.
 func (v *Vault) Resolve(ctx context.Context, ref string, u core.UserID, purpose string) (core.Secret, error) {
-	const marker = "secret:"
 	sc := core.GlobalScope
 	if u != "" {
 		sc = core.UserScope(u)
 	}
+	spans, err := findRefs(ref)
+	if err != nil {
+		return core.Secret{}, err
+	}
+	if len(spans) == 0 {
+		return core.Secret{}, fmt.Errorf("vault: not a secret:<name> or aws-sm:<secret> reference: %w", core.ErrInvalid)
+	}
 	var out []byte
-	last, found := 0, false
-	for i := 0; i < len(ref); {
-		j := strings.Index(ref[i:], marker)
+	last := 0
+	for _, sp := range spans {
+		var s core.Secret
+		if sp.aws != nil {
+			s, err = v.getAWS(ctx, *sp.aws, purpose)
+		} else {
+			s, err = v.Get(ctx, sc, sp.name, purpose)
+		}
+		if err != nil {
+			return core.Secret{}, err
+		}
+		out = append(out, ref[last:sp.start]...)
+		out = append(out, s.Bytes()...)
+		last = sp.end
+	}
+	return core.NewSecret(append(out, ref[last:]...)), nil
+}
+
+// refSpan is one reference inside a Resolve input.
+type refSpan struct {
+	start, end int
+	name       string               // secret:<name>
+	aws        *config.AWSSecretRef // aws-sm:…
+}
+
+// findRefs lists the references in s in order. "secret:" inside an aws-sm
+// reference (a secret ARN has ":secret:") is part of that reference.
+func findRefs(s string) ([]refSpan, error) {
+	const marker = "secret:"
+	awsRefs, err := config.FindAWSSecretRefs(s)
+	if err != nil {
+		return nil, fmt.Errorf("vault: %s: %w", err.Error(), core.ErrInvalid)
+	}
+	var out []refSpan
+	for _, a := range awsRefs {
+		out = append(out, refSpan{start: a.Start, end: a.End, aws: &a.Ref})
+	}
+	for i := 0; i < len(s); {
+		j := strings.Index(s[i:], marker)
 		if j < 0 {
 			break
 		}
 		start := i + j
-		if start > 0 && (isNameByte(ref[start-1]) || isUpper(ref[start-1])) {
+		if k := slices.IndexFunc(awsRefs, func(a config.AWSSecretRefAt) bool { return start >= a.Start && start < a.End }); k >= 0 {
+			i = awsRefs[k].End
+			continue
+		}
+		if start > 0 && (isNameByte(s[start-1]) || isUpper(s[start-1])) {
 			i = start + len(marker)
 			continue
 		}
 		end := start + len(marker)
-		for end < len(ref) && isNameByte(ref[end]) {
+		for end < len(s) && isNameByte(s[end]) {
 			end++
 		}
-		name := ref[start+len(marker) : end]
+		name := s[start+len(marker) : end]
 		if name == "" {
-			return core.Secret{}, fmt.Errorf("vault: empty secret reference: %w", core.ErrInvalid)
+			return nil, fmt.Errorf("vault: empty secret reference: %w", core.ErrInvalid)
 		}
-		s, err := v.Get(ctx, sc, name, purpose)
-		if err != nil {
-			return core.Secret{}, err
+		out = append(out, refSpan{start: start, end: end, name: name})
+		i = end
+	}
+	slices.SortFunc(out, func(a, b refSpan) int { return a.start - b.start })
+	// Resolve splices the spans in order; overlapping ones would slice backwards.
+	for i := 1; i < len(out); i++ {
+		if out[i].start < out[i-1].end {
+			return nil, fmt.Errorf("vault: overlapping secret references: %w", core.ErrInvalid)
 		}
-		out = append(out, ref[last:start]...)
-		out = append(out, s.Bytes()...)
-		last, i, found = end, end, true
 	}
-	if !found {
-		return core.Secret{}, fmt.Errorf("vault: not a secret:<name> reference: %w", core.ErrInvalid)
-	}
-	return core.NewSecret(append(out, ref[last:]...)), nil
+	return out, nil
 }
 
 func isUpper(c byte) bool { return c >= 'A' && c <= 'Z' }
@@ -415,6 +465,9 @@ func (v *Vault) Delete(ctx context.Context, sc core.Scope, name string, by core.
 	if err := validScope(sc); err != nil {
 		return err
 	}
+	if strings.HasPrefix(name, config.AWSSecretPrefix) {
+		return fmt.Errorf("vault: an aws-sm reference is not stored in the vault; remove it from the configuration or the GitHub connection that uses it: %w", core.ErrInvalid)
+	}
 	if !validName(name) {
 		return errBadName
 	}
@@ -431,7 +484,9 @@ func (v *Vault) Delete(ctx context.Context, sc core.Scope, name string, by core.
 
 // List returns names and hints, never values. Environment secrets apply to
 // every scope but are listed once, under the global scope, by the lower-cased
-// variable suffix.
+// variable suffix. The global scope also lists the aws-sm references the
+// server makes (company secrets, so never under a user's scope), with no
+// hint: their values are not Bothy's to show.
 func (v *Vault) List(ctx context.Context, sc core.Scope) ([]core.SecretMeta, error) {
 	if err := validScope(sc); err != nil {
 		return nil, err
@@ -444,6 +499,7 @@ func (v *Vault) List(ctx context.Context, sc core.Scope) ([]core.SecretMeta, err
 		for _, name := range slices.Sorted(maps.Keys(v.envSecs)) {
 			out = append(out, core.SecretMeta{Scope: core.GlobalScope, Name: strings.ToLower(name), Source: "env", Hint: hint(v.envSecs[name])})
 		}
+		out = append(out, v.awsMetas(ctx)...)
 	}
 	if out == nil {
 		out = []core.SecretMeta{}
@@ -609,6 +665,9 @@ func renameKeyfile(from, to string) error {
 }
 
 func (v *Vault) Status() core.VaultStatus {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	refs := v.awsRefs(ctx)
+	cancel()
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	st := core.VaultStatus{
@@ -616,6 +675,9 @@ func (v *Vault) Status() core.VaultStatus {
 		KEKSource: v.plan.source,
 		Colocated: v.plan.source == srcAutogen && v.colocated,
 		Secrets:   v.count + len(v.envSecs),
+	}
+	if len(refs) > 0 {
+		st.External = map[string]int{awsSource: len(refs)}
 	}
 	if v.kek != nil {
 		st.KEKID = kekID(v.kek)

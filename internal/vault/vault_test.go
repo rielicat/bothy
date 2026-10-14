@@ -28,6 +28,7 @@ type fixture struct {
 	env        []string
 	secretsDir string
 	colocated  bool
+	clock      core.Clock
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -46,6 +47,7 @@ func (f *fixture) open() *Vault {
 		Config: config.Static(f.cfg),
 		Audit:  f.audit,
 		Env:    func() []string { return f.env },
+		Clock:  f.clock,
 	}, options{
 		secretsDir: f.secretsDir,
 		resolveDirs: func(c *config.Config) config.Dirs {

@@ -268,7 +268,7 @@ export type ChannelHub =
  * config and their protocol library.
  */
 export interface AdapterDeps {
-  Secret: any; // resolves "secret:<name>" (global scope)
+  Secret: any; // resolves "secret:<name>" (global scope) and "aws-sm:<secret>"
   HTTP: any; // Egress.SystemClient
   Meta: MetaRepo; // long-poll offsets, resume cursors (keys "channel.<name>.*")
   StateDir: string; // <data>/channels/<name>/ (0700): P1 adapters with their own state (Matrix crypto store, WhatsApp device store)
@@ -489,11 +489,12 @@ export type Bus = any;
 // source: internal/core/failure.go
 
 /**
- * FailureCode names why a provider, channel or GitHub check failed, so the
- * web UI picks its sentence from a code instead of parsing messages (v0.2
- * UI §5.6.4). The raw message always travels next to it.
+ * FailureCode names why a provider, channel or GitHub check, or an external
+ * secret reference, failed, so the web UI picks its sentence from a code
+ * instead of parsing messages (v0.2 UI §5.6.4). The raw message always
+ * travels next to it.
  */
-export type FailureCode = "key_rejected" | "no_model_access" | "out_of_credit" | "rate_limited" | "provider_error" | "timeout" | "unreachable" | "private_address" | "no_models" | "tls" | "not_a_model_server" | "aws_no_credentials" | "aws_denied" | "aws_no_models" | "unknown";
+export type FailureCode = "key_rejected" | "no_model_access" | "out_of_credit" | "rate_limited" | "provider_error" | "timeout" | "unreachable" | "private_address" | "no_models" | "tls" | "not_a_model_server" | "aws_no_credentials" | "aws_denied" | "aws_no_models" | "not_found" | "json_key_missing" | "not_json" | "unknown";
 /**
  * FailureCoder is an error that knows its FailureCode.
  */
@@ -514,7 +515,7 @@ export interface GitHubConnection {
   app_id?: string;
   app_slug?: string;
   installation_id?: number /* int64 */;
-  secret_ref: string; // "secret:<name>" of the PAT or the App private key
+  secret_ref: string; // "secret:<name>" or "aws-sm:<secret>" of the PAT or the App private key
   owns_secret: boolean; // stored by Connect, so Disconnect deletes it
   status: string; // ok | error
   error?: string;
@@ -556,7 +557,7 @@ export interface GitHubCredentials {
   Auth: GitHubAuth;
   Token: Secret; // PAT; Connect stores it in the global vault scope
   PrivateKey: Secret; // App private key (PEM); Connect stores it in the global vault scope
-  SecretRef: string; // an existing "secret:<name>" instead (e.g. BOTHY_SECRET_<NAME>)
+  SecretRef: string; // an existing "secret:<name>" (e.g. BOTHY_SECRET_<NAME>) or "aws-sm:<secret>" instead
   AppID: string;
   InstallationID: number /* int64 */; // App: 0 picks the app's only installation
 }
@@ -1544,7 +1545,7 @@ export type BuildFunc = any;
 export interface ProbeConfig {
   kind: ProviderKind;
   base_url: string;
-  secret_ref: string; // alternative to APIKey: "secret:<name>"
+  secret_ref: string; // alternative to APIKey: "secret:<name>" or "aws-sm:<secret>"
   model: string;
   allow_private: boolean;
   api?: string; // openai, openai_compat: auto | responses | chat ("" = auto), as providers[].api
@@ -2306,8 +2307,8 @@ export interface Upload {
 export interface SecretMeta {
   scope: Scope;
   name: string;
-  source: string; // vault | env
-  hint: string; // last 4 chars
+  source: string; // vault | env | aws-sm (a reference in the configuration; never a value)
+  hint: string; // last 4 chars; always "" for aws-sm
   updated_at: string /* RFC 3339 */;
   last_used_at: string /* RFC 3339 */;
 }
@@ -2489,6 +2490,12 @@ export interface VaultStatus {
   kek_id: string; // sha256(kek)[:8] hex
   colocated: boolean; // KEK file on the same volume as the DB
   secrets: number /* int */;
+  /**
+   * External counts the configured references to cloud secret stores by
+   * source ("aws-sm"). Their values are fetched when used, kept in memory
+   * for secrets.aws.cache_ttl and never stored.
+   */
+  external?: { [key: string]: number /* int */};
 }
 /**
  * Redactor masks exact secret values (and their base64, base64url, hex and
@@ -3013,9 +3020,9 @@ export interface DoctorReport {
  * GitHubConnectReq is the body of POST /api/github/connections (connect) and
  * POST /api/github/connections/test (probe only, nothing stored). Give
  * exactly one of Token (auth "pat"), PrivateKey (auth "app", the .pem GitHub
- * generated) or SecretRef (an existing "secret:<name>"). Token and PrivateKey
- * are write-only: Connect stores them in the global vault scope and no
- * response ever carries them.
+ * generated) or SecretRef (an existing "secret:<name>", or "aws-sm:<secret>"
+ * in AWS Secrets Manager). Token and PrivateKey are write-only: Connect
+ * stores them in the global vault scope and no response ever carries them.
  */
 export interface GitHubConnectReq {
   auth: GitHubAuth;
@@ -3205,8 +3212,9 @@ export interface PasswordResetResp {
  * ProviderConnectReq is POST /api/providers/connect: one call that saves the
  * key, writes providers[id] and sets the model slots in one config change.
  * Give at most one of APIKey (pasted; saved in the global vault as
- * "<id>_api_key"), SecretRef (a saved key, "secret:<name>", from a detection)
- * or EnvVar (a detected well-known key variable, copied into the vault).
+ * "<id>_api_key"), SecretRef (a saved key, "secret:<name>", from a detection,
+ * or "aws-sm:<secret>" in AWS Secrets Manager) or EnvVar (a detected
+ * well-known key variable, copied into the vault).
  * Bedrock takes none of them.
  */
 export interface ProviderConnectReq {
