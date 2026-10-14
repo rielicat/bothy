@@ -104,10 +104,14 @@ describe('session', () => {
     expect(session.expired).toBe(false);
   });
 
-  it('counts as waiting only what the viewer can decide', async () => {
+  it('counts as waiting what the inbox says the viewer can decide', async () => {
     installApi();
     await session.init();
     const ask = (user_id: string, admin_only = false) => ({ id: `apr_${user_id}${admin_only}`, status: 'pending', approver: { user_id, admin_only } }) as never;
+    approvals.forYou = 4;
+    expect(approvals.waiting).toBe(4);
+    // Without the inbox: admins count everything open, members what names them.
+    approvals.forYou = null;
     approvals.pending = [ask(session.me!.user.id), ask('usr_other'), ask('', true)];
     expect(approvals.waiting).toBe(3);
     session.me = { ...session.me!, user: { ...member } } as Me;

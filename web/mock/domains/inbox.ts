@@ -3,7 +3,7 @@
 // through its own endpoint (a pin approval, a skill or identity change, a
 // group chat change) takes it off the list.
 import type { InboxItem, MCPPin } from '../../src/lib/api/types.gen.ts';
-import { list as approvals } from './approvals.ts';
+import { list as approvals, forYou } from './approvals.ts';
 import { state as connections } from './connections.ts';
 import { fail, json, member, on, owner, scenario, viewer, type Req } from './core.ts';
 import { state as knowledge } from './knowledge.ts';
@@ -24,7 +24,7 @@ export function inbox(req: Req): InboxItem[] {
   const admin = (rank[me.role] ?? 0) >= rank.admin;
   const out: InboxItem[] = approvals(req)
     .filter((a) => a.status === 'pending' || a.status === 'parked')
-    .map((a) => ({ id: a.id, type: a.card.kind === 'review' || a.action?.tool === 'notes' ? 'note_suggestion' : 'approval', question: a.card.question ?? a.card.title, for_you: true, created_at: a.created_at, approval: a }));
+    .map((a) => ({ id: a.id, type: a.card.kind === 'review' || a.action?.tool === 'notes' ? 'note_suggestion' : 'approval', question: a.card.question ?? a.card.title, for_you: forYou(a, req), created_at: a.created_at, approval: a }));
   if (admin) {
     const pending = connections.pins.filter((p) => p.status === 'pending' && !serverOff(p.server));
     for (const server of [...new Set(pending.map((p) => p.server))]) {

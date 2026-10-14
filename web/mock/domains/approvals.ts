@@ -320,6 +320,14 @@ function votesOf(a: Approval, req: Req): ApprovalVotes {
 
 const multi = (a: Approval) => !a.approver.user_id && !a.approver.admin_only && !!(a.approver.users?.length || a.approver.roles?.length);
 
+/** Whether the viewer can decide it now: the inbox's for_you (S12). */
+export function forYou(a: Approval, req: Req): boolean {
+  const me = viewer(req);
+  if (multi(a)) return votesOf(a, req).can_vote;
+  if (a.approver.admin_only) return (rank[me.role] ?? 0) >= rank.admin;
+  return a.approver.user_id === me.id;
+}
+
 on('GET', '/api/approvals', (req, res, _m, q) => {
   if (listDown(req)) return fail(res, 503, 'unavailable', 'mock: approvals-down');
   if (none(req)) return json(res, 200, { items: [] });

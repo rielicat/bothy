@@ -5,6 +5,7 @@ import type {
   Approval,
   BannerData,
   BudgetWarningData,
+  Inbox,
   List,
   Me,
   Principal,
@@ -212,10 +213,14 @@ class Session {
 class Approvals {
   pending: Approval[] = $state([]);
   count = $derived(this.pending.length);
-  /** What the viewer can decide: admins anything, members what names them (§4.4, D40). */
-  waiting = $derived(this.pending.filter((a) => session.isAdmin || (!a.approver?.admin_only && !!a.approver?.user_id && a.approver.user_id === session.me?.user.id)).length);
+  /** Inbox items the viewer can decide now (GET /api/inbox for_you), reviews and new senders included; null when the inbox can't be read. */
+  forYou: number | null = $state(null);
+  /** What the viewer can decide (§4.4, D40): the inbox's count, else admins anything and members what names them. */
+  waiting = $derived(this.forYou ?? this.pending.filter((a) => session.isAdmin || (!a.approver?.admin_only && !!a.approver?.user_id && a.approver.user_id === session.me?.user.id)).length);
+  #inbox: ReturnType<typeof setTimeout> | undefined;
 
   async load() {
+    void this.loadInbox();
     try {
       const [p, k] = await Promise.all([
         api.get<List<Approval>>('/api/approvals?status=pending&limit=200'),
@@ -227,8 +232,23 @@ class Approvals {
     }
   }
 
+  async loadInbox() {
+    try {
+      this.forYou = ((await api.get<Inbox>('/api/inbox')).items ?? []).filter((i) => i.for_you).length;
+    } catch {
+      this.forYou = null;
+    }
+  }
+
+  // Events come in bursts (a vote, then its resolution), so the count is asked once they settle.
+  #refresh() {
+    clearTimeout(this.#inbox);
+    this.#inbox = setTimeout(() => void this.loadInbox(), 300);
+  }
+
   reset() {
     this.pending = [];
+    this.forYou = null;
   }
 
   upsert(a: Approval) {
@@ -253,6 +273,8 @@ class Approvals {
         if (d.status === 'parked' && cur) this.upsert({ ...cur, status: 'parked' });
         else if (d.status !== 'pending') this.pending = this.pending.filter((x) => x.id !== d.approval_id);
       }),
+      ...(['approval.requested', 'approval.voted', 'approval.resolved', 'inbox.changed', 'mcp.pin_pending'] as const).map((t) => events.on(t, () => this.#refresh())),
+      events.onResync(() => this.#refresh()),
     ];
     return () => offs.forEach((f) => f());
   }

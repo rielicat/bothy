@@ -37,7 +37,11 @@ describe('sidebar (§4.2)', () => {
     expect(n.getByRole('link', { name: 'New chat' })).toBeTruthy();
     expect(n.getByRole('button', { name: /Search/ })).toBeTruthy();
     expect(n.getByRole('link', { name: 'Activity' }).getAttribute('aria-current')).toBe('page');
-    await waitFor(() => expect(n.getByRole('link', { name: /^Approvals\s*2\s*waiting$/ })).toBeTruthy());
+    // The count is what GET /api/inbox says the viewer can decide now.
+    const inbox = (await (await fetch('/api/inbox')).json()) as { items: { for_you: boolean }[] };
+    const mine = inbox.items.filter((i) => i.for_you).length;
+    expect(mine).toBeGreaterThan(0);
+    await waitFor(() => expect(n.getByRole('link', { name: new RegExp(`^Approvals\\s*${mine}\\s*waiting$`) })).toBeTruthy());
     await waitFor(() => expect(n.getByRole('link', { name: 'Fix login redirect' })).toBeTruthy());
     for (const label of ['Group chats', 'Today', 'Previous 7 days', 'Older']) expect(n.getByRole('list', { name: label })).toBeTruthy();
     expect(within(n.getByRole('list', { name: 'Group chats' })).getByRole('link', { name: '#eng' })).toBeTruthy();
