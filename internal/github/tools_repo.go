@@ -335,7 +335,9 @@ func (s *Service) room(ctx context.Context, env *core.ToolEnv, st *checkoutState
 func resolveSHA(ctx context.Context, cl *apiClient, r *core.GitHubRepo, ref string) (string, error) {
 	body, _, err := cl.getText(ctx, "/repos/"+r.Owner+"/"+r.Name+"/commits/"+escapeRef(ref), nil, "application/vnd.github.sha", 128)
 	if err != nil {
-		if st := statusOf(err); st == http.StatusNotFound || st == http.StatusUnprocessableEntity {
+		// GitHub answers an unknown ref with 422; 404 means the repository
+		// itself is out of reach and keeps its own message.
+		if statusOf(err) == http.StatusUnprocessableEntity {
 			return "", fmt.Errorf("%w: %s has no branch, tag or commit %q", core.ErrInvalid, r.FullName(), ref)
 		}
 		return "", err

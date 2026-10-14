@@ -29,7 +29,7 @@ const (
 var archiveSlack int64 = 64 << 20
 
 var (
-	errTooLarge = errors.New("larger than github.checkout.max_mb")
+	errTooLarge = errors.New("larger than github.checkout.max_mb or the room left by the workspace quota")
 	errTooMany  = errors.New("more files than github.checkout.max_files")
 	errOverRead = errors.New("archive expands past its size limit")
 )
