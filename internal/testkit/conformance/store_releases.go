@@ -1,8 +1,10 @@
 package conformance
 
 import (
+	"errors"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/rielicat/bothy/internal/core"
 )
@@ -77,6 +79,68 @@ func testApprovalVotes(f *fx) {
 	votes, err = r.Votes(f.ctx, b.ID)
 	f.must(err, "Votes after concurrent voting")
 	f.check(len(votes) == len(voters), "%d votes stored, want %d", len(votes), len(voters))
+}
+
+// testApprovalVoteTx runs the vote transaction policy.Approvals uses (read
+// the status, add the vote, recount, decide) from many goroutines at once:
+// Tx must serialize them, so exactly the first two allows land and decide.
+func testApprovalVoteTx(f *fx) {
+	req := f.user(core.RoleMember)
+	run := f.run(f.session(core.UserPrincipal(req.ID)), core.RunWaitingApproval)
+	a := f.multiApproval(run, core.ApproverReq{Roles: []core.Role{core.RoleMember}, Required: 2, Requester: req.ID}, 1)
+	voters := make([]*core.User, 16)
+	for i := range voters {
+		voters[i] = f.user(core.RoleMember)
+	}
+	errDecided := errors.New("already decided")
+	var decided atomic.Int32
+	errs := make([]error, len(voters))
+	var wg sync.WaitGroup
+	for i, u := range voters {
+		wg.Go(func() {
+			errs[i] = f.s.Tx(f.ctx, func(s core.Store) error {
+				cur, err := s.Approvals().Get(f.ctx, core.SystemViewer(), a.ID)
+				if err != nil {
+					return err
+				}
+				if cur.Status != core.ApprovalPending {
+					return errDecided
+				}
+				if err := s.Approvals().AddVote(f.ctx, core.ApprovalVote{Approval: a.ID, User: u.ID, Choice: core.AllowOnce, Via: "web", At: at(10)}); err != nil {
+					return err
+				}
+				votes, err := s.Approvals().Votes(f.ctx, a.ID)
+				if err != nil || core.AllowVotes(votes, cur.Approver) < 2 {
+					return err
+				}
+				ok, err := s.Approvals().Decide(f.ctx, a.ID, []core.ApprovalStatus{core.ApprovalPending}, core.ApprovalAllowed, core.AllowOnce, u.ID, "web", at(11))
+				if err == nil && !ok {
+					err = errDecided
+				}
+				if err == nil {
+					decided.Add(1)
+				}
+				return err
+			})
+		})
+	}
+	wg.Wait()
+	landed := 0
+	for i, err := range errs {
+		switch {
+		case err == nil:
+			landed++
+		case !errors.Is(err, errDecided):
+			f.t.Errorf("voter %d: %v", i, err)
+		}
+	}
+	votes, err := f.s.Approvals().Votes(f.ctx, a.ID)
+	f.must(err, "Votes after concurrent vote transactions")
+	got, err := f.s.Approvals().Get(f.ctx, core.SystemViewer(), a.ID)
+	f.must(err, "Get after concurrent vote transactions")
+	f.check(landed == 2 && len(votes) == 2 && decided.Load() == 1 && got.Status == core.ApprovalAllowed,
+		"concurrent vote transactions: %d landed, %d votes stored, %d decisions, status %s; want 2, 2, 1, allowed",
+		landed, len(votes), decided.Load(), got.Status)
 }
 
 func testApprovalMultiVisibility(f *fx) {
