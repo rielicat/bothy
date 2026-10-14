@@ -38,7 +38,9 @@ and ARNs all work.
 `contentBlockStop`, `messageStop` and `metadata` (usage: `inputTokens`
 already excludes `cacheReadInputTokens` and `cacheWriteInputTokens`, as the
 recordings show) build the response through `wire.Builder`; thinking parts
-carry `SigKind` `bedrock`. Stop reasons: `tool_use`; `max_tokens` and
+carry `SigKind` `bedrock`. Nova understanding models write their plan as a
+`<thinking>…</thinking>` preamble in the text, which becomes an unsigned
+thinking part (shown, never sent back) instead of reply text. Stop reasons: `tool_use`; `max_tokens` and
 `model_context_window_exceeded` are `max_tokens`; `guardrail_intervened` and
 `content_filtered` are `refusal`; the rest `end_turn`. A stream that ends
 before `messageStop` is a network failure, a corrupt frame a server fault,

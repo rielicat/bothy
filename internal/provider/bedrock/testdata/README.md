@@ -26,6 +26,7 @@ unchanged and no longer verifies with AWS, which the unit tests do not need).
 | `live_image.jsonl` | Claude Opus 4.5 (`us.`), a 16×16 PNG |
 | `live_max_tokens.jsonl` | Sonnet 4.5, `maxTokens: 3` |
 | `live_nova_tool.jsonl` | Nova Lite (`us.`), a forced tool call (`toolChoice: any`) and a system `cachePoint` |
+| `live_nova_thinking.jsonl`, `live_nova_tool_loop.jsonl` | Nova Lite, a tool loop with automatic tool choice and cache points: the `<thinking>` preamble before the call, then the answer to the tool result (the tail `cachePoint` after the user's text, since Nova refuses one after a `toolResult`) |
 | `live_error_unknown_model.json` | an unknown model id: 400 `ValidationException` |
 | `live_list_foundation_models.json` | `ListFoundationModels?byOutputModality=TEXT`, trimmed to the Anthropic and Amazon entries plus the first Meta and Mistral AI ones (93 → 25), order and fields unchanged |
 | `live_list_inference_profiles.json` | `ListInferenceProfiles?type=SYSTEM_DEFINED`, trimmed to the Anthropic and Amazon profiles plus the first Meta one (97 → 40), order and fields unchanged |

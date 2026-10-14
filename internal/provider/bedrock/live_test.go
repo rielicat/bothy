@@ -6,7 +6,7 @@
 //	BOTHY_LIVE_AWS_PROFILE=<profile> BOTHY_LIVE_AWS_REGION=us-west-2 \
 //	  go test -tags live -run Live -v ./internal/provider/bedrock/
 //
-// and BOTHY_RECORD=1 to rewrite the testdata/live_* fixtures. It makes nine
+// and BOTHY_RECORD=1 to rewrite the testdata/live_* fixtures. It makes eleven
 // small model calls (a few cents) and two free control-plane listings.
 package bedrock
 
@@ -302,6 +302,42 @@ func TestLiveBedrock(t *testing.T) {
 			t.Fatalf("resp %+v", resp)
 		}
 		t.Logf("nova call %s %s usage %+v", call.Name, call.Args, resp.Usage)
+	})
+
+	t.Run("nova_tool_loop", func(t *testing.T) {
+		req := &core.Request{Model: liveNova, MaxTokens: 300, Tools: []core.ToolDef{weatherTool}, ToolChoice: "auto", ToolsCache: true, CacheTail: true,
+			System:   []core.SystemBlock{{Text: "Use the tools to answer.", CacheBreak: true}},
+			Messages: []core.Message{user("What is the weather in Lisbon? Check with the tool, then answer in one sentence.")}}
+		rec.use("live_nova_thinking")
+		first, err := c.Stream(ctx, req, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var call *core.ToolCall
+		thought := ""
+		for _, p := range first.Message.Parts {
+			switch p.Type {
+			case core.PartToolCall:
+				call = p.ToolCall
+			case core.PartThinking:
+				thought += p.Text
+			}
+		}
+		if call == nil || strings.Contains(first.Message.PlainText(), "<thinking>") {
+			t.Fatalf("first step %+v", first.Message.Parts)
+		}
+		// The second step ends in a toolResult, where Nova refuses a cachePoint.
+		req.Messages = append(req.Messages, first.Message, core.Message{Role: core.MsgTool, Parts: []core.Part{{Type: core.PartToolResult,
+			ToolResult: &core.ToolResult{CallID: call.ID, Name: call.Name, Content: `{"city":"Lisbon","forecast":"sunny","temp_c":24}`}}}})
+		rec.use("live_nova_tool_loop")
+		second, err := c.Stream(ctx, req, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if answer := second.Message.PlainText(); answer == "" || strings.Contains(answer, "<thinking>") {
+			t.Fatalf("second step %+v", second.Message.Parts)
+		}
+		t.Logf("thinking %q; answer %q; usage %+v then %+v", thought, second.Message.PlainText(), first.Usage, second.Usage)
 	})
 
 	t.Run("errors", func(t *testing.T) {

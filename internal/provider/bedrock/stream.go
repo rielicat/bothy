@@ -54,6 +54,7 @@ type openBlock struct {
 	kind string // text | reasoning | tool
 	call *wire.Call
 	args strings.Builder
+	nova *novaThinking // a Nova text block's <thinking> preamble
 }
 
 func headerString(m eventstream.Message, name string) string {
@@ -67,6 +68,8 @@ func headerString(m eventstream.Message, name string) string {
 // messageStop; usage arrives in the metadata event after it.
 func (c *Client) read(ctx context.Context, body io.Reader, model string, on func(core.StreamEvent) error) (*core.Response, error) {
 	b := wire.NewBuilder(core.KindBedrock, on)
+	_, base := SplitModel(model)
+	nova := isNova(base)
 	dec := eventstream.NewDecoder()
 	blocks := map[int]*openBlock{}
 	var payload []byte
@@ -115,7 +118,9 @@ func (c *Client) read(ctx context.Context, body io.Reader, model string, on func
 			if ev.Start == nil || ev.Start.ToolUse == nil {
 				continue
 			}
-			c.closeOthers(b, blocks, ev.ContentBlockIndex)
+			if err := c.closeOthers(b, blocks, ev.ContentBlockIndex); err != nil {
+				return nil, err
+			}
 			call, err := b.StartCall(ev.Start.ToolUse.ToolUseID, ev.Start.ToolUse.Name)
 			if err != nil {
 				return nil, err
@@ -125,7 +130,7 @@ func (c *Client) read(ctx context.Context, body io.Reader, model string, on func
 			if ev.Delta == nil {
 				continue
 			}
-			if err := c.delta(b, blocks, ev); err != nil {
+			if err := c.delta(b, blocks, ev, nova); err != nil {
 				return nil, err
 			}
 		case "contentBlockStop":
@@ -139,7 +144,9 @@ func (c *Client) read(ctx context.Context, body io.Reader, model string, on func
 					return nil, err
 				}
 			}
-			b.Close()
+			if err := endBlock(b, ob); err != nil {
+				return nil, err
+			}
 		case "messageStop":
 			stopped = true
 			stop = mapStop(ev.StopReason)
@@ -154,6 +161,9 @@ func (c *Client) read(ctx context.Context, body io.Reader, model string, on func
 	if !stopped {
 		return nil, c.o.NetError(ctx, fmt.Errorf("stream ended before messageStop"))
 	}
+	if err := c.closeOthers(b, blocks, -1); err != nil {
+		return nil, err
+	}
 	if usageSeen {
 		if err := b.Usage(u); err != nil {
 			return nil, err
@@ -164,25 +174,49 @@ func (c *Client) read(ctx context.Context, body io.Reader, model string, on func
 
 // closeOthers ends an open text or reasoning block when a new block starts
 // without its predecessor's contentBlockStop (the builder holds one open
-// part at a time).
-func (c *Client) closeOthers(b *wire.Builder, blocks map[int]*openBlock, idx int) {
+// part at a time), and every such block at the end of the stream (idx -1).
+func (c *Client) closeOthers(b *wire.Builder, blocks map[int]*openBlock, idx int) error {
 	for i, ob := range blocks {
 		if i != idx && ob.call == nil {
 			delete(blocks, i)
-			b.Close()
+			if err := endBlock(b, ob); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
-func (c *Client) delta(b *wire.Builder, blocks map[int]*openBlock, ev streamEvent) error {
+// endBlock closes a block's open part, after what a Nova preamble still
+// holds back.
+func endBlock(b *wire.Builder, ob *openBlock) error {
+	if ob.nova != nil {
+		if err := ob.nova.flush(b.Thinking, b.Text); err != nil {
+			return err
+		}
+	}
+	b.Close()
+	return nil
+}
+
+func (c *Client) delta(b *wire.Builder, blocks map[int]*openBlock, ev streamEvent, nova bool) error {
 	d := ev.Delta
 	ob := blocks[ev.ContentBlockIndex]
 	switch {
 	case d.Text != nil:
 		if ob == nil {
-			c.closeOthers(b, blocks, ev.ContentBlockIndex)
+			if err := c.closeOthers(b, blocks, ev.ContentBlockIndex); err != nil {
+				return err
+			}
 			b.Close()
-			blocks[ev.ContentBlockIndex] = &openBlock{kind: "text"}
+			ob = &openBlock{kind: "text"}
+			if nova {
+				ob.nova = &novaThinking{}
+			}
+			blocks[ev.ContentBlockIndex] = ob
+		}
+		if ob.nova != nil {
+			return ob.nova.feed(*d.Text, b.Thinking, b.Text)
 		}
 		return b.Text(*d.Text)
 	case d.ToolUse != nil:
@@ -192,7 +226,9 @@ func (c *Client) delta(b *wire.Builder, blocks map[int]*openBlock, ev streamEven
 	case d.ReasoningContent != nil:
 		rc := d.ReasoningContent
 		if ob == nil {
-			c.closeOthers(b, blocks, ev.ContentBlockIndex)
+			if err := c.closeOthers(b, blocks, ev.ContentBlockIndex); err != nil {
+				return err
+			}
 			b.OpenThinking()
 			blocks[ev.ContentBlockIndex] = &openBlock{kind: "reasoning"}
 		}
