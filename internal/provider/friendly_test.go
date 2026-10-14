@@ -170,7 +170,7 @@ func TestBedrockNames(t *testing.T) {
 			t.Errorf("%s provider %q", m.Ref.Model, m.ProviderName)
 		}
 	}
-	if ms[2].ShortName != "Sonnet 4.6" {
+	if ms[2].ShortName != "Sonnet 4.6" || shortName("Claude 3 Haiku") != "Claude 3 Haiku" {
 		t.Errorf("short name %q", ms[2].ShortName)
 	}
 }
@@ -197,7 +197,8 @@ func TestModelsFriendly(t *testing.T) {
 		}
 	}
 	for _, m := range by["anthropic"] {
-		if m.ProviderName != "Anthropic" || !strings.HasPrefix(m.DisplayName, "Claude ") || strings.HasPrefix(m.ShortName, "Claude ") {
+		old := strings.HasPrefix(m.DisplayName, "Claude 3")
+		if m.ProviderName != "Anthropic" || !strings.HasPrefix(m.DisplayName, "Claude ") || strings.HasPrefix(m.ShortName, "Claude ") != old {
 			t.Fatalf("anthropic names %+v", m)
 		}
 	}

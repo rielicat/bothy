@@ -161,8 +161,14 @@ func (f *Facade) displayName(e endpoint, model, listed string) string {
 	return name
 }
 
+// shortName drops "Claude " for narrow screens, but not from the old
+// "Claude 3 Haiku" style, where "3 Haiku" would read as a count.
 func shortName(display string) string {
-	return cmp.Or(strings.TrimPrefix(display, "Claude "), display)
+	rest, ok := strings.CutPrefix(display, "Claude ")
+	if !ok || rest == "" || rest[0] >= '0' && rest[0] <= '9' {
+		return display
+	}
+	return rest
 }
 
 // name fills a model's plain names.
