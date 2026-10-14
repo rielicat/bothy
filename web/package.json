@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "sideEffects": [
+    "*.css"
+  ],
   "license": "Apache-2.0",
   "engines": {
     "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
@@ -13,7 +16,8 @@
     "preview:mock": "BOTHY_MOCK=1 vite preview",
     "smoke": "playwright test",
     "build": "vite build",
-    "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+    "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings && npm run ui-lint",
+    "ui-lint": "scripts/ui-lint.sh",
     "test": "vitest run"
   },
   "dependencies": {

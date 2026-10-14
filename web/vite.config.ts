@@ -82,6 +82,24 @@ export default defineConfig({
     modulePreload: { polyfill: false },
     sourcemap: false,
     target: 'es2022',
+    // Route groups are dynamic imports (src/lazy), each its own chunk.
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            // One file for the first screen: one request, and gzip sees all its words at once.
+            { name: 'index', tags: ['$initial'] },
+            // What two or more route groups share, as one chunk rather than a request each.
+            // Provider code stays with ProviderChooser, which only setup and Settings load.
+            {
+              name: 'shared',
+              test: (id) => /[\\/]src[\\/](components[\\/]ui|lib)[\\/]/.test(id) && !/[\\/]lib[\\/]provider/.test(id),
+              minShareCount: 2,
+            },
+          ],
+        },
+      },
+    },
   },
   server: {
     proxy: mock

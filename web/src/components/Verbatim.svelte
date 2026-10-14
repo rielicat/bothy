@@ -6,6 +6,6 @@
 </script>
 
 {#each segs as s, i (i)}{#if s.hidden}<span
-      class="mx-px rounded bg-bad-soft px-0.5 font-mono text-[0.8em] text-bad"
+      class="mx-px rounded-sm bg-danger-subtle px-0.5 font-mono text-danger-text"
       title="Invisible character {s.text}">⟨{s.text}⟩</span
     >{:else}{s.text}{/if}{/each}

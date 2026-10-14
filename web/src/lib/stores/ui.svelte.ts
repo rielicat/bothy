@@ -1,4 +1,4 @@
-import { errorText } from '../api/client';
+import type { Snippet } from 'svelte';
 
 export type ThemePref = 'system' | 'light' | 'dark';
 
@@ -36,54 +36,30 @@ class Theme {
 
 export const theme = new Theme();
 
-export interface Toast {
-  id: number;
-  text: string;
-  kind: 'ok' | 'error' | 'info';
+// The shell's overlays, opened from the sidebar, the account menu, shortcuts
+// and other screens (Security opens the pause dialog too).
+class Shell {
+  drawer = $state(false);
+  search = $state(false);
+  shortcuts = $state(false);
+  pause = $state(false);
+  unlock = $state(false);
+  /** The page's control for the right end of the phone top bar (§4.4). */
+  actions: Snippet | null = $state(null);
+  /** Where "Back to Bothy" returns: the last address outside Settings. */
+  back = $state('/chat');
 }
 
-class Toasts {
-  items: Toast[] = $state([]);
-  #id = 0;
+export const shell = new Shell();
 
-  push(text: string, kind: Toast['kind'] = 'info', ttl = kind === 'error' ? 8000 : 4000) {
-    const id = ++this.#id;
-    this.items.push({ id, text, kind });
-    setTimeout(() => this.dismiss(id), ttl);
-  }
-
-  ok(text: string) {
-    this.push(text, 'ok');
-  }
-
-  error(e: unknown) {
-    this.push(errorText(e), 'error');
-  }
-
-  dismiss(id: number) {
-    this.items = this.items.filter((t) => t.id !== id);
-  }
+/**
+ * Shows a page's control (the chat ⋯, a project's Edit) at the right of the
+ * phone top bar while the page is mounted: `$effect(() => topBarActions(menu))`.
+ */
+export function topBarActions(s: Snippet): () => void {
+  shell.actions = s;
+  return () => {
+    if (shell.actions === s) shell.actions = null;
+  };
 }
 
-export const toasts = new Toasts();
-
-// Runs fn, reports a failure as a toast and says whether it succeeded.
-export async function attempt(fn: () => Promise<unknown>, okText?: string): Promise<boolean> {
-  try {
-    await fn();
-    if (okText) toasts.ok(okText);
-    return true;
-  } catch (e) {
-    toasts.error(e);
-    return false;
-  }
-}
-
-export async function copyText(text: string, what = 'Copied') {
-  try {
-    await navigator.clipboard.writeText(text);
-    toasts.ok(what);
-  } catch {
-    toasts.push('Copy failed: select the text and copy it manually.', 'error');
-  }
-}

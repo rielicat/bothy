@@ -1,7 +1,6 @@
 import { api, ApiError } from './api/client';
 import type { ConfigPatchResp, ConfigView, Entry, FieldError, Source } from './api/types.gen';
 import { ago } from './format';
-import { toasts } from './stores/ui.svelte';
 
 export interface SchemaNode {
   type?: string | string[];
@@ -15,6 +14,10 @@ export interface SchemaNode {
   additionalProperties?: SchemaNode | boolean;
   'x-locked'?: boolean;
 }
+
+export type SaveResult = { ok: true; restart: string[] } | { ok: false; errors: Record<string, string>; message: string; status?: number };
+
+const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 // Effective config (SPEC §7.3) for the settings pages: one fetch, entries by
 // dotted path, and PATCH/DELETE helpers that refresh it.
@@ -86,35 +89,86 @@ class Config {
     return node;
   }
 
-  // Returns the field errors (also stored per path) or null on success.
-  async set(changes: Record<string, unknown>, quiet = false): Promise<FieldError[] | null> {
+  // {path...} takes the dotted path verbatim; keys such as model refs may hold "/".
+  async #delete(path: string) {
+    await api.del(`/api/config/${path.split('/').map(encodeURIComponent).join('/')}`);
+    await this.load(true);
+  }
+
+  /**
+   * Never toasts: the caller shows "Saved" next to the row and any error
+   * under its control (docs/design/ui.md §11.1).
+   */
+  async save(changes: Record<string, unknown>): Promise<SaveResult> {
     for (const p of Object.keys(changes)) delete this.errors[p];
     try {
       const r = await api.patch<ConfigPatchResp>('/api/config', { set: changes });
       await this.load(true);
-      if (r?.restart_required?.length) toasts.push(`Saved. Restart Bothy to apply: ${r.restart_required.join(', ')}`, 'info', 8000);
-      else if (!quiet) toasts.ok('Saved');
-      return null;
+      return { ok: true, restart: r?.restart_required ?? [] };
     } catch (e) {
-      if (e instanceof ApiError && e.fields.length) {
-        for (const f of e.fields) this.errors[f.path] = f.message;
-        return e.fields;
-      }
-      toasts.error(e);
-      return [{ path: '', source: { layer: 'ui' }, message: String(e) }];
+      return this.#failed(e);
     }
   }
 
-  async reset(path: string) {
-    try {
-      // {path...} takes the dotted path verbatim; keys such as model refs may hold "/".
-      await api.del(`/api/config/${path.split('/').map(encodeURIComponent).join('/')}`);
-      await this.load(true);
-      toasts.ok('Reset to the value from the next layer');
-    } catch (e) {
-      toasts.error(e);
-    }
+  #failed(e: unknown): SaveResult {
+    const errors: Record<string, string> = {};
+    if (e instanceof ApiError) for (const f of e.fields) errors[f.path] = f.message;
+    Object.assign(this.errors, errors);
+    return { ok: false, errors, message: e instanceof Error ? e.message : String(e), status: e instanceof ApiError ? e.status : undefined };
   }
+
+  /** The built-in value: the default layer under the effective one, else the schema default. */
+  defaultValue(path: string): unknown {
+    const e = this.entry(path);
+    if (e?.source.layer === 'default') return e.value;
+    const d = e?.shadowed?.find((s) => s.source.layer === 'default');
+    return d ? d.value : this.schema(path)?.default;
+  }
+
+  /** True when the effective value differs from the built-in one. */
+  changed(path: string): boolean {
+    const e = this.entry(path);
+    if (!e || e.source.layer === 'default') return false;
+    return !same(e.value, this.defaultValue(path));
+  }
+
+  /**
+   * Drops the UI override when what lies under it is already the default;
+   * otherwise writes the default over a value from bothy.yaml or the
+   * environment, which the UI layer cannot delete.
+   */
+  async resetToDefault(path: string): Promise<SaveResult> {
+    const e = this.entry(path);
+    const d = this.defaultValue(path);
+    const below = e?.shadowed?.[0];
+    if (e?.source.layer === 'ui' && (!below || same(below.value, d))) {
+      try {
+        await this.#delete(path);
+        return { ok: true, restart: [] };
+      } catch (err) {
+        return this.#failed(err);
+      }
+    }
+    return this.save({ [path]: d });
+  }
+}
+
+/**
+ * The sentence under a control after a failed save (§13.2). Main-flow pages
+ * pass technical: false so config paths and server wording never show.
+ */
+export function saveErrorText(r: SaveResult, path?: string, opts: { technical?: boolean } = {}): string {
+  if (r.ok) return '';
+  if (r.status === 403) return "You can't do this. Ask an admin.";
+  if (r.status === 409) return 'Someone else changed this setting. Reload to see their change.';
+  const field = (path && r.errors[path]) || Object.values(r.errors)[0];
+  if (opts.technical && field) {
+    // "bothy.ui.yaml: budgets.daily_usd: must be 0 or more" → "Must be 0 or more."
+    const reason = field.slice(field.lastIndexOf(': ') + 1).trim() || field;
+    const sentence = reason.charAt(0).toUpperCase() + reason.slice(1);
+    return `Couldn't save. ${/[.?]$/.test(sentence) ? sentence : sentence + '.'}`;
+  }
+  return "Couldn't save. Try again.";
 }
 
 export const config = new Config();

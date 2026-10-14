@@ -1,12 +1,12 @@
 {
   "name": "Bothy",
   "short_name": "Bothy",
-  "description": "Your self-hosted assistant",
+  "description": "Bothy, your company's self-hosted AI agent",
   "start_url": "/chat",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#f6f5f1",
-  "theme_color": "#2d6a55",
+  "background_color": "#FFFFFF",
+  "theme_color": "#FFFFFF",
   "icons": [
     { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" },
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },

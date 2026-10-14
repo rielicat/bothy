@@ -1,76 +1,186 @@
 <script lang="ts">
-  import ConfigField from '../../components/ConfigField.svelte';
-  import Icon from '../../components/Icon.svelte';
-  import Section from '../../components/Section.svelte';
-  import { api, errorText } from '../../lib/api/client';
-  import { timezones } from '../../lib/schedules';
+  import { untrack } from 'svelte';
+  import { Button, Combobox, Disclosure, SettingsRow, SettingsSection, StatusLine, TextArea, type ComboboxOption } from '../../components/ui';
   import { session } from '../../lib/stores/session.svelte';
-  import { toasts } from '../../lib/stores/ui.svelte';
+  import { moneyText, parseMoney } from './accountHelpers';
+  import SelectSetting from './SelectSetting.svelte';
+  import SettingsFrame from './SettingsFrame.svelte';
+  import { helpFor, Saver, settingsConfig } from './store.svelte';
+  import TextSetting from './TextSetting.svelte';
 
-  const zones = timezones().map((z): [string, string] => [z, z]);
-  const host = location.hostname;
-  const tls = location.protocol === 'https:';
-  const peer = /^(localhost|127\.|\[::1\]$)/.test(host) ? 'this computer' : /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[f[cd])/i.test(host) ? 'your local network' : 'the internet';
+  /** "Europe/London" → "London (Europe)", so typing a city finds it. */
+  function zoneLabel(z: string): string {
+    const parts = z.split('/').map((p) => p.replace(/_/g, ' '));
+    const city = parts.pop() ?? z;
+    return parts.length ? `${city} (${parts.join(', ')})` : city;
+  }
 
-  let old = $state('');
-  let next = $state('');
-  let again = $state('');
-  let error = $state('');
-
-  async function changePassword(e: SubmitEvent) {
-    e.preventDefault();
-    error = next !== again ? 'The new passwords do not match.' : next.length < 12 ? 'Use at least 12 characters.' : '';
-    if (error) return;
+  function zoneList(): string[] {
     try {
-      await api.post('/api/auth/password', { old, new: next });
-      old = next = again = '';
-      // The server rotated the session, and with it the CSRF token.
-      await session.refresh().catch(() => {});
-      toasts.ok('Password changed.');
-    } catch (err) {
-      error = errorText(err);
+      return Intl.supportedValuesOf('timeZone');
+    } catch {
+      return ['UTC'];
     }
+  }
+
+  const zone = $derived(settingsConfig.value<string>('timezone', 'UTC'));
+  const zones: ComboboxOption[] = $derived.by(() => {
+    const list = zoneList();
+    if (!list.includes(zone)) list.unshift(zone);
+    return list.map((z) => ({ value: z, label: zoneLabel(z) }));
+  });
+  const zoneSaver = new Saver();
+  let zoneValue = $state('');
+  $effect.pre(() => {
+    zoneValue = zone;
+  });
+
+  async function saveZone(v: string | string[]) {
+    if (typeof v !== 'string' || v === zone) return;
+    if (!(await zoneSaver.run(() => settingsConfig.save({ timezone: v })))) zoneValue = zone;
+  }
+
+  function webAddress(s: string): { value?: string; error?: string } {
+    const t = s.trim().replace(/\/+$/, '');
+    if (!t) return { value: '' };
+    try {
+      const u = new URL(t);
+      if ((u.protocol === 'https:' || u.protocol === 'http:') && u.hostname) return { value: t };
+    } catch {
+      // falls through to the error
+    }
+    return { error: 'Use a full address, like https://bothy.acme.com.' };
+  }
+
+  function dailyLimit(s: string): { value?: number; error?: string } {
+    const v = parseMoney(s);
+    return v === null ? { error: 'Enter an amount in dollars, like 5.00.' } : { value: v };
+  }
+
+  // How this browser reached Bothy (dto.Access), for the Connection row.
+  const access = $derived(session.me?.access);
+  const connection = $derived.by(() => {
+    if (!access) return null;
+    if (access.tls) return { text: 'Reached securely over HTTPS', warn: false };
+    if (access.peer === 'local') return { text: 'Only reachable from this computer', warn: false };
+    return { text: 'Reached over plain HTTP from another computer', warn: true };
+  });
+  const peerWords: Record<string, string> = { local: 'this computer', lan: 'your local network', public: 'the internet' };
+  let connectionDetails = $state(false);
+
+  const tones = [
+    { value: 'warm', label: 'Warm and brief' },
+    { value: 'direct', label: 'Straight to the point' },
+    { value: 'formal', label: 'Calm and formal' },
+  ];
+
+  // Standing instructions are a list in the config, one instruction per line here.
+  const rulesSaver = new Saver();
+  const rulesText = $derived((settingsConfig.value<string[]>('agent.standing_rules', []) ?? []).join('\n'));
+  let rules = $state('');
+  let rulesBase = '';
+  $effect.pre(() => {
+    const t = rulesText;
+    untrack(() => {
+      if (rules === rulesBase) rules = t;
+      rulesBase = t;
+    });
+  });
+
+  async function saveRules() {
+    if (rules === rulesBase) return;
+    const list = rules
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const was = rulesBase;
+    rulesBase = rules;
+    if (!(await rulesSaver.run(() => settingsConfig.save({ 'agent.standing_rules': list })))) rulesBase = was;
   }
 </script>
 
-<Section title="Remote access" desc="How this browser reaches Bothy.">
-  <div class="flex items-start gap-3 py-4 text-sm">
-    <span class="grid size-9 place-items-center rounded-lg {tls ? 'bg-ok-soft text-ok' : peer === 'this computer' ? 'bg-info-soft text-info' : 'bg-warn-soft text-warn'}">
-      <Icon name={tls ? 'lock' : 'globe'} size={18} />
-    </span>
-    <div>
-      <p class="font-medium">Connected from {peer} over {tls ? 'HTTPS' : 'plain HTTP'}</p>
-      <p class="mt-0.5 text-muted">
-        {tls
-          ? 'Traffic is encrypted. Cookies use the __Host- prefix.'
-          : peer === 'this computer'
-            ? 'Plain HTTP is fine on this computer. To reach Bothy from elsewhere, put it behind Tailscale or a TLS proxy such as Caddy.'
-            : 'Plain HTTP outside this computer is only allowed with insecure_lan. Prefer Tailscale or a TLS proxy.'}
-      </p>
-    </div>
-  </div>
-</Section>
+<SettingsFrame title="General" loading={!settingsConfig.view && !settingsConfig.failed}>
+  {#if settingsConfig.failed}
+    <StatusLine tone="danger" text="This page didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: () => settingsConfig.load(true) }} />
+  {:else if settingsConfig.view}
+    <SettingsSection title="Workspace">
+      <SettingsRow label="Time zone" help={helpFor('timezone', 'Used for schedules and the daily spending limit.')} status={zoneSaver.status} error={zoneSaver.error}>
+        {#snippet children()}
+          <!-- The row's label is the visible one; the combobox keeps its own for screen readers. -->
+          <Combobox label="Time zone" class="[&>div]:mt-0 [&>label]:sr-only" bind:value={zoneValue} options={zones} onchange={saveZone} />
+        {/snippet}
+      </SettingsRow>
+      <TextSetting
+        label="Web address"
+        path="server.public_url"
+        placeholder="https://bothy.acme.com"
+        inputmode="url"
+        autocomplete="url"
+        help="The address your team uses. Links in chat apps point here."
+        parse={webAddress}
+      />
+      {#if connection}
+        <!-- Open Details make the value several lines tall; the label stays on the first one. -->
+        <div class={connectionDetails ? '[&>div]:sm:items-start' : ''}>
+          <SettingsRow label="Connection">
+            {#snippet children(c)}
+              <output id={c.id} class="block text-body {connection.warn ? 'text-warning-text' : 'text-muted'}">{connection.text}</output>
+              {#if connection.warn && access}
+                <Disclosure class="mt-1" bind:open={connectionDetails}>
+                  <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 text-small text-muted">
+                    <dt>Reached from</dt>
+                    <dd class="text-text">{peerWords[access.peer] ?? access.peer} ({access.peer})</dd>
+                    <dt>HTTPS</dt>
+                    <dd class="text-text">No</dd>
+                  </dl>
+                  <p class="mt-2 text-small text-muted">Put Bothy behind HTTPS, for example with Tailscale or Caddy, before your team uses it from other computers.</p>
+                </Disclosure>
+              {/if}
+            {/snippet}
+          </SettingsRow>
+        </div>
+      {/if}
+    </SettingsSection>
 
-{#if session.isAdmin}
-  <Section title="Instance">
-    <ConfigField path="mode" label="Mode" help="Household/team mode adds users, roles and per-person spend caps." options={[['single', 'Just me'], ['multi', 'Household or team']]} />
-    <ConfigField path="timezone" label="Timezone" help="Used for schedules and the daily spend reset." type="select" options={zones} />
-    <ConfigField path="server.public_url" label="Public URL" help="The https address people use to reach Bothy. Approval cards link here." placeholder="https://bothy.example.com" />
-    <ConfigField path="server.allowed_hosts" label="Extra host names" help="Other Host headers to accept besides the public URL and localhost." />
-    <ConfigField path="log.level" label="Log level" />
-  </Section>
-{/if}
+    <SettingsSection title="Spending">
+      <TextSetting
+        label="Daily limit"
+        path="budgets.daily_usd"
+        prefix="$"
+        inputmode="decimal"
+        help="Bothy stops starting new work when everyone's spending reaches this. It resets at midnight."
+        format={moneyText}
+        parse={dailyLimit}
+      />
+    </SettingsSection>
 
-<Section title="Your password">
-  <form class="grid gap-3 py-4 sm:max-w-sm" onsubmit={changePassword}>
-    <input type="text" class="hidden" autocomplete="username" aria-label="Username" tabindex="-1" readonly value={session.me?.user.username} />
-    <label class="label" for="pw-old">Current password</label>
-    <input id="pw-old" class="input -mt-2" type="password" autocomplete="current-password" required bind:value={old} />
-    <label class="label" for="pw-new">New password</label>
-    <input id="pw-new" class="input -mt-2" type="password" autocomplete="new-password" minlength="12" required bind:value={next} />
-    <label class="label" for="pw-again">Repeat new password</label>
-    <input id="pw-again" class="input -mt-2" type="password" autocomplete="new-password" required bind:value={again} />
-    {#if error}<p class="alert-bad" role="alert">{error}</p>{/if}
-    <button class="btn btn-primary justify-self-start">Change password</button>
-  </form>
-</Section>
+    <SettingsSection title="Bothy">
+      {#if settingsConfig.has('agent.name')}
+        <TextSetting label="Name" path="agent.name" parse={(s) => (s.trim() ? { value: s.trim() } : { error: 'Enter a name.' })} />
+      {/if}
+      {#if settingsConfig.has('agent.tone')}
+        <SelectSetting label="Tone" path="agent.tone" options={tones} fallback="warm" />
+      {/if}
+      <div class="border-b border-border py-3">
+        <!-- "Saved" goes right after the label, as on the other rows (§11.1). -->
+        <TextArea
+          class="[&>div:first-child]:justify-start [&>div:first-child]:gap-x-2"
+          label="Standing instructions"
+          rows={4}
+          bind:value={rules}
+          placeholder="Always reply in British English. Our main product is the Acme web app."
+          help={rulesSaver.error ? undefined : helpFor('agent.standing_rules', 'Bothy follows these in every chat.')}
+          error={rulesSaver.error || undefined}
+          onblur={saveRules}
+        >
+          {#snippet labelAction()}
+            <span class="text-muted" aria-live="polite">{rulesSaver.status === 'saving' ? 'Saving…' : rulesSaver.status === 'saved' ? 'Saved' : ''}</span>
+          {/snippet}
+        </TextArea>
+      </div>
+      <SettingsRow label="Personality">
+        {#snippet children()}<Button href="/settings/general/personality">Edit personality</Button>{/snippet}
+      </SettingsRow>
+    </SettingsSection>
+  {/if}
+</SettingsFrame>

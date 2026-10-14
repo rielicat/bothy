@@ -27,16 +27,18 @@ describe('accessibility (axe)', () => {
     await session.init();
   });
 
-  it('chat', () => check('/chat/ses_01jtrip000000000000000000', () => screen.getByText(/Here's a gentle plan/)));
-  it('chat list', () => check('/chat', () => screen.getByText('Weekend in Edinburgh')));
-  it('approvals', () => check('/approvals', () => screen.getByText('Run shell command')));
-  it('approvals, parked', () => check('/approvals?status=parked', () => screen.getByText('Send a message')));
-  it('settings: general', () => check('/settings/general', () => screen.getByText('Remote access')));
-  it('settings: models', () => check('/settings/models', () => screen.getByText('Model chains')));
-  it('settings: policy', () => check('/settings/policy', () => screen.getByText('Standing permissions')));
-  it('settings: budgets', () => check('/settings/budgets', () => screen.getByText('Daily caps')));
-  it('settings: chat apps', () => check('/settings/channels', () => screen.getByText('Link your accounts')));
-  it('settings: vault', () => check('/settings/vault', () => screen.getByText('anthropic_api_key')));
+  it('chat', () => check('/chat/ses_01jtrip000000000000000000', () => screen.getByText(/Here's a simple plan/)));
+  // v0.2 lists chats in the shell sidebar (C1); /chat is the new chat itself (docs/design/ui.md §7.2).
+  it('new chat', () => check('/chat', () => screen.getByText('What should Bothy work on?')));
+  it('approvals', () => check('/approvals', () => screen.getByRole('heading', { name: 'Waiting for others' })));
+  it('approvals, done', () => check('/approvals?tab=done', () => screen.getByRole('heading', { name: 'Today' })));
+  it('settings: general', () => check('/settings/general', () => screen.getByRole('heading', { name: 'Workspace' })));
+  it('settings: models', () => check('/settings/models', () => screen.getByText('Main model')));
+  it('settings: security, the old policy address', () => check('/settings/policy', () => screen.getByText('When should Bothy ask?')));
+  // v0.2 folds budgets into General (docs/design/ui.md §4.5), so the old address lands there.
+  it('settings: budgets, now part of General', () => check('/settings/budgets', () => screen.getByRole('heading', { name: 'Workspace' })));
+  it('settings: connections', () => check('/settings/channels', () => screen.getByText('Connected to Acme · 2 people linked')));
+  it('settings: saved keys, the old vault address', () => check('/settings/vault', () => screen.getByText('Anthropic API key')));
   it('schedules', () => check('/schedules', () => screen.getByText('Morning briefing')));
   it('memory', () => check('/memory', () => screen.getByText('History')));
 });
@@ -49,5 +51,5 @@ describe('accessibility (axe), first run', () => {
     await session.init();
   });
 
-  it('setup wizard', () => check('/setup', () => screen.getByText('Welcome to your own assistant')));
+  it('setup wizard', () => check('/setup', () => screen.getByText('Set up Bothy')));
 });

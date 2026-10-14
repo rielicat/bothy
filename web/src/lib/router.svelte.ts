@@ -20,9 +20,12 @@ class Router {
   hash = $state(window.location.hash);
   current: Match | null = $derived(resolve(this.path));
   query: URLSearchParams = $derived(new URLSearchParams(this.search));
+  /** The last change came from Back or Forward, which restore their own scroll position. */
+  popped = false;
 
   constructor() {
     const sync = () => {
+      this.popped = true;
       this.path = window.location.pathname;
       this.search = window.location.search;
       this.hash = window.location.hash;
@@ -36,6 +39,7 @@ class Router {
     if (url.origin !== window.location.origin) return;
     if (opts.replace) history.replaceState(null, '', url);
     else history.pushState(null, '', url);
+    this.popped = false;
     this.path = url.pathname;
     this.search = url.search;
     this.hash = url.hash;

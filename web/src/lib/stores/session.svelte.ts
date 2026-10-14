@@ -5,6 +5,7 @@ import type {
   Approval,
   BannerData,
   BudgetWarningData,
+  Inbox,
   List,
   Me,
   Principal,
@@ -21,6 +22,17 @@ function uniqueBanners(list: BannerData[] | null | undefined): BannerData[] {
   return [...new Map((list ?? []).filter(Boolean).map((b) => [b.code, b])).values()];
 }
 
+// Banners dismissed in this tab stay dismissed until it closes (§4.9).
+const DISMISSED = 'bothy.dismissed';
+function readDismissed(): string[] {
+  try {
+    const v: unknown = JSON.parse(sessionStorage.getItem(DISMISSED) ?? '[]');
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 // Approvals by id; the pending and parked lists may overlap.
 function uniqueById(list: Approval[]): Approval[] {
   return [...new Map(list.filter(Boolean).map((a) => [a.id, a])).values()];
@@ -33,10 +45,12 @@ class Session {
   paused = $state(false);
   sandbox: boolean | undefined = $state();
   banners: BannerData[] = $state([]);
-  dismissed: string[] = $state([]);
+  dismissed: string[] = $state(readDismissed());
   today: UsageToday | null = $state(null);
   // The wizard completed setup and stays open on its last step until left.
   finishing = $state(false);
+  /** The session ran out (401), so sign-in says why (§13.2); cleared by the next sign-in. */
+  expired = $state(false);
 
   isAdmin = $derived(this.me?.user.role === 'owner' || this.me?.user.role === 'admin');
   multi = $derived(this.me?.mode === 'multi');
@@ -45,6 +59,7 @@ class Session {
   visibleBanners: BannerData[] = $derived(this.banners.filter((b) => !this.dismissed.includes(b.code)));
 
   #offs: (() => void)[] = [];
+  #held = false;
 
   async init() {
     onUnauthorized(() => this.expire());
@@ -61,11 +76,14 @@ class Session {
 
   login(me: Me) {
     this.me = me;
+    this.expired = false;
     setCsrf(me.csrf);
     this.paused = me.paused;
     this.sandbox = me.sandbox_available;
     this.banners = uniqueBanners(me.banners);
-    this.#live();
+    // Until a one-time password is replaced the server refuses everything else (S9).
+    this.#held = !!me.user.must_change_password;
+    if (!this.#held) this.#live();
   }
 
   // Re-reads the session after the server rotated it (password change), which
@@ -74,6 +92,10 @@ class Session {
     const me = await api.get<Me>('/api/auth/me');
     this.me = me;
     setCsrf(me.csrf);
+    if (this.#held && !me.user.must_change_password) {
+      this.#held = false;
+      this.#live();
+    }
   }
 
   // The cookie is shared by every tab, so another tab may have rotated the
@@ -114,6 +136,7 @@ class Session {
   // new cookie, and each tab finds a dead session on its own.
   expire(others = false) {
     if (!this.me) return;
+    this.expired = true;
     this.#clear(others);
     const here = router.path + router.search;
     router.navigate(`/login?next=${encodeURIComponent(here)}`, { replace: true });
@@ -134,10 +157,24 @@ class Session {
     this.today = await api.get<UsageToday>('/api/usage/today').catch(() => this.today);
   }
 
+  /** Hides a dismissible banner for the rest of this tab's life. */
+  dismiss(code: string) {
+    this.#saveDismissed([...this.dismissed.filter((c) => c !== code), code]);
+  }
+
+  #saveDismissed(list: string[]) {
+    this.dismissed = list;
+    try {
+      sessionStorage.setItem(DISMISSED, JSON.stringify(list));
+    } catch {
+      // not kept past this page; the banner comes back on reload
+    }
+  }
+
   setBanner(b: BannerData) {
     const rest = this.banners.filter((x) => x.code !== b.code);
     this.banners = b.clear ? rest : [...rest, b];
-    if (!b.clear) this.dismissed = this.dismissed.filter((c) => c !== b.code);
+    if (!b.clear && this.dismissed.includes(b.code)) this.#saveDismissed(this.dismissed.filter((c) => c !== b.code));
     // The kill switch announces itself only as this banner.
     if (b.code === 'paused') this.paused = !b.clear;
   }
@@ -183,8 +220,14 @@ class Session {
 class Approvals {
   pending: Approval[] = $state([]);
   count = $derived(this.pending.length);
+  /** Inbox items the viewer can decide now (GET /api/inbox for_you), reviews and new senders included; null when the inbox can't be read. */
+  forYou: number | null = $state(null);
+  /** What the viewer can decide (§4.4, D40): the inbox's count, else admins anything and members what names them. */
+  waiting = $derived(this.forYou ?? this.pending.filter((a) => session.isAdmin || (!a.approver?.admin_only && !!a.approver?.user_id && a.approver.user_id === session.me?.user.id)).length);
+  #inbox: ReturnType<typeof setTimeout> | undefined;
 
   async load() {
+    void this.loadInbox();
     try {
       const [p, k] = await Promise.all([
         api.get<List<Approval>>('/api/approvals?status=pending&limit=200'),
@@ -196,8 +239,23 @@ class Approvals {
     }
   }
 
+  async loadInbox() {
+    try {
+      this.forYou = ((await api.get<Inbox>('/api/inbox')).items ?? []).filter((i) => i.for_you).length;
+    } catch {
+      this.forYou = null;
+    }
+  }
+
+  // Events come in bursts (a vote, then its resolution), so the count is asked once they settle.
+  #refresh() {
+    clearTimeout(this.#inbox);
+    this.#inbox = setTimeout(() => void this.loadInbox(), 300);
+  }
+
   reset() {
     this.pending = [];
+    this.forYou = null;
   }
 
   upsert(a: Approval) {
@@ -222,6 +280,8 @@ class Approvals {
         if (d.status === 'parked' && cur) this.upsert({ ...cur, status: 'parked' });
         else if (d.status !== 'pending') this.pending = this.pending.filter((x) => x.id !== d.approval_id);
       }),
+      ...(['approval.requested', 'approval.voted', 'approval.resolved', 'inbox.changed', 'mcp.pin_pending'] as const).map((t) => events.on(t, () => this.#refresh())),
+      events.onResync(() => this.#refresh()),
     ];
     return () => offs.forEach((f) => f());
   }

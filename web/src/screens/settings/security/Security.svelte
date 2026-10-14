@@ -1,0 +1,359 @@
+<script lang="ts">
+  import { tick, untrack } from 'svelte';
+  import Icon from '../../../components/Icon.svelte';
+  import PauseDialog from '../../../components/shell/PauseDialog.svelte';
+  import { Button, CodeBlock, Disclosure, LinkButton, OptionList, Page, Select, SettingsRow, SettingsSection, Switch, toast, type Option } from '../../../components/ui';
+  import { api } from '../../../lib/api/client';
+  import type { DoctorReport, Finding, Grant, Me, SandboxInfo, SecretMeta, VaultStatus } from '../../../lib/api/types.gen';
+  import { config, saveErrorText } from '../../../lib/config.svelte';
+  import { clock, date, fullTime, plural } from '../../../lib/format';
+  import { router } from '../../../lib/router.svelte';
+  import { session } from '../../../lib/stores/session.svelte';
+  import { describeFinding, needsAttention } from './findings';
+  import LinkRow from './LinkRow.svelte';
+  import { pauseNote, settingsBack } from './page.svelte';
+  import PageState from './PageState.svelte';
+  import { chatChanges, chatChoice, scheduledChanges, scheduledChoice, type ApprovalConfig } from './timeouts';
+  import UnlockDialog from './UnlockDialog.svelte';
+
+  // Not in types.gen.ts yet: who paused Bothy and when (docs/design/ui.md §17).
+  type PauseInfo = { paused_at?: string; paused_by_name?: string };
+
+  const uid = $props.id();
+  const presets: Option[] = [
+    { value: 'careful', title: 'Careful', description: 'Asks before sending anything out, opening a pull request or changing a file.' },
+    { value: 'balanced', title: 'Balanced', description: "Asks the first time it contacts a new person or website, and before anything that can't be undone." },
+    { value: 'hands_off', title: 'Hands-off', description: 'Asks only before deleting, deploying or spending money.' },
+  ];
+  // The compose deployment from the README, for servers that don't send their own lines.
+  const COMPOSE = 'sh install.sh --compose ~/bothy\ncd ~/bothy && docker compose up -d';
+
+  let audit = $state<Finding[] | null>(null);
+  let auditFailed = $state(false);
+  let sandbox = $state<SandboxInfo | null>(null);
+  let grants = $state<Grant[] | null>(null);
+  let keys = $state<SecretMeta[] | null>(null);
+  let vault = $state<VaultStatus | null>(null);
+
+  type RowState = { status: 'saving' | 'saved' | null; error?: string };
+  let rows = $state<Record<string, RowState>>({});
+  const savedTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+  let attentionList: HTMLElement | undefined = $state();
+  let openFinding = $state<number | null>(null);
+  let fixing = $state<number | null>(null);
+  let fixError = $state<{ i: number; text: string } | null>(null);
+  let howOpen = $state(false);
+  let howButton: HTMLButtonElement | undefined = $state();
+  let pausing = $state(false);
+  let unlocking = $state(false);
+  let resuming = $state(false);
+  let resumeError = $state('');
+
+  const attention = $derived(needsAttention(audit));
+  const approval = $derived<ApprovalConfig>({
+    interactiveTimeout: config.value('policy.approval.interactive_timeout'),
+    interactiveOnTimeout: config.value('policy.approval.interactive_on_timeout'),
+    scheduledTimeout: config.value('policy.approval.scheduled_timeout'),
+    scheduledOnTimeout: config.value('policy.approval.scheduled_on_timeout'),
+    parkTtl: config.value('policy.approval.park_ttl'),
+  });
+  const chat = $derived(chatChoice(approval));
+  const scheduled = $derived(scheduledChoice(approval));
+  const sites = $derived((config.value<string[]>('egress.allow', []) ?? []).length);
+  const codeOn = $derived(sandbox?.status.available);
+  const fixed = (path: string) => {
+    const e = config.entry(path);
+    return !!e && (e.locked || e.source.layer === 'env');
+  };
+  const presetFixed = $derived(fixed('policy.preset'));
+
+  const pausedAt = $derived((session.me as (Me & PauseInfo) | null)?.paused_at || pauseNote.at);
+  const pausedBy = $derived((session.me as (Me & PauseInfo) | null)?.paused_by_name || pauseNote.by);
+  const pausedText = $derived.by(() => {
+    const d = date(pausedAt);
+    if (!d) return 'Bothy is paused. Nothing new starts until someone resumes it.';
+    const today = d.toDateString() === new Date().toDateString();
+    return `Bothy has been paused since ${today ? clock(pausedAt) : fullTime(pausedAt)}${pausedBy ? ` by ${pausedBy}` : ''}.`;
+  });
+
+  async function runAudit(fix = false): Promise<boolean> {
+    try {
+      const r = await api.post<DoctorReport>('/api/security-audit', { fix });
+      audit = r.findings ?? [];
+      auditFailed = false;
+      return true;
+    } catch {
+      if (!fix) auditFailed = true;
+      return false;
+    }
+  }
+
+  function loadSandbox() {
+    api.get<SandboxInfo>('/api/sandbox').then((s) => (sandbox = s), () => {});
+  }
+
+  function load() {
+    void config.load(true);
+    void runAudit();
+    loadSandbox();
+    api.get<Grant[]>('/api/grants').then((g) => (grants = g ?? []), () => {});
+    api.get<SecretMeta[]>('/api/vault?scope=global').then((k) => (keys = k ?? []), () => {});
+    api.get<VaultStatus>('/api/vault/status').then((v) => (vault = v), () => {});
+  }
+
+  $effect(() => {
+    if (session.isAdmin) untrack(load);
+  });
+
+  // The server announces a change of the isolated workspace on the event stream.
+  let lastSandbox: boolean | undefined;
+  $effect(() => {
+    const now = session.sandbox;
+    if (lastSandbox !== undefined && now !== lastSandbox) loadSandbox();
+    lastSandbox = now;
+  });
+
+  async function save(key: string, changes: Record<string, unknown> | null) {
+    if (!changes) return;
+    rows[key] = { status: 'saving' };
+    clearTimeout(savedTimers[key]);
+    const r = await config.save(changes);
+    rows[key] = r.ok ? { status: 'saved' } : { status: null, error: saveErrorText(r) };
+    // "Saved" is shown for 2 s (§11.1). SettingsRow times its own; the preset's label lives on this page.
+    if (r.ok) savedTimers[key] = setTimeout(() => rows[key]?.status === 'saved' && (rows[key] = { status: null }), 2000);
+  }
+
+  async function fix(i: number) {
+    fixing = i;
+    fixError = null;
+    const ok = await runAudit(true);
+    fixing = null;
+    if (!ok) {
+      fixError = { i, text: "Couldn't fix this. Try again." };
+      return;
+    }
+    toast('Fixed.');
+    await runAudit();
+    // The fixed row is gone: focus the next finding's action, else the page title, never the body.
+    await tick();
+    const actions = attentionList?.querySelectorAll<HTMLElement>('[data-finding-action]') ?? [];
+    (actions[Math.min(i, actions.length - 1)] ?? document.querySelector<HTMLElement>('h1'))?.focus();
+  }
+
+  function act(f: Finding, i: number) {
+    const a = describeFinding(f).action;
+    if (a === 'fix') void fix(i);
+    else if (a === 'unlock') unlocking = true;
+    else if (a === 'running-code') {
+      howOpen = true;
+      howButton?.scrollIntoView({ block: 'center' });
+      howButton?.focus();
+    } else openFinding = openFinding === i ? null : i;
+  }
+
+  const actionLabel = { fix: 'Fix', how: 'How to fix', 'running-code': 'How to turn it on', unlock: 'Unlock' };
+
+  async function resume() {
+    resuming = true;
+    resumeError = '';
+    try {
+      await api.post('/api/admin/pause', { paused: false });
+      session.paused = false;
+      pauseNote.at = pauseNote.by = '';
+      toast('Bothy resumed.');
+    } catch {
+      resumeError = "Couldn't resume Bothy. Try again.";
+    } finally {
+      resuming = false;
+    }
+  }
+
+  function paused() {
+    pauseNote.at = new Date().toISOString();
+    pauseNote.by = session.me?.user.display_name || session.me?.user.username || '';
+  }
+</script>
+
+<Page title="Security" back={settingsBack()}>
+  {#if !session.isAdmin}
+    <PageState kind="forbidden" />
+  {:else if !config.view && config.error}
+    <PageState kind="failed" onretry={load} />
+  {:else if !config.view}
+    <PageState kind="loading" />
+  {:else}
+    {#if attention.length || auditFailed}
+      <SettingsSection title="Needs attention">
+        {#if auditFailed}
+          <p class="py-3 text-body text-muted">Couldn't check for problems. <LinkButton onclick={() => runAudit()}>Try again</LinkButton></p>
+        {/if}
+        <div bind:this={attentionList}>
+          {#each attention as f, i (i)}
+            {@const c = describeFinding(f)}
+            <div class="border-b border-border py-3 last:border-b-0">
+              <div class="grid min-h-8 items-center gap-x-6 gap-y-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                <p class="text-body text-text">{c.text}</p>
+                <div class="justify-self-start sm:justify-self-end">
+                  <Button
+                    size="sm"
+                    data-finding-action
+                    loading={fixing === i}
+                    loadingLabel="Fixing…"
+                    aria-expanded={c.action === 'how' ? openFinding === i : undefined}
+                    aria-controls={c.action === 'how' ? `${uid}-finding-${i}` : undefined}
+                    onclick={() => act(f, i)}>{actionLabel[c.action]}</Button
+                  >
+                </div>
+              </div>
+              {#if fixError?.i === i}<p class="field-error" role="alert"><Icon name="alert" class="mt-px" />{fixError.text}</p>{/if}
+              {#if c.action === 'how' && openFinding === i}
+                <div id="{uid}-finding-{i}" class="mt-2 max-w-prose" data-details>
+                  {#if c.steps}<p class="text-body text-text">{c.steps}</p>{/if}
+                  {#if f.detail || f.fix}
+                    <Disclosure class="mt-2">
+                      <div class="space-y-2">
+                        {#if f.detail}<p class="text-small text-muted">{f.detail}</p>{/if}
+                        {#if f.fix}<CodeBlock code={f.fix} wrap />{/if}
+                      </div>
+                    </Disclosure>
+                  {/if}
+                </div>
+              {/if}
+            </div>
+          {/each}
+        </div>
+      </SettingsSection>
+    {/if}
+
+    <SettingsSection title="Approvals">
+      <div class="py-3">
+        <div class="flex flex-wrap items-baseline gap-x-2">
+          <p id="{uid}-ask" class="text-body font-medium text-text">When should Bothy ask?</p>
+          <span class="text-small text-muted" aria-live="polite">{rows.preset?.status === 'saving' ? 'Saving…' : rows.preset?.status === 'saved' ? 'Saved' : ''}</span>
+        </div>
+        {#if presetFixed}<p class="mt-0.5 text-small text-muted">This is set on the server and can't be changed here.</p>{/if}
+        <OptionList
+          class="mt-3"
+          name="{uid}-preset"
+          label="When should Bothy ask?"
+          options={presets.map((p) => ({ ...p, disabled: presetFixed }))}
+          value={config.value<string>('policy.preset', 'careful')}
+          onchange={(v) => save('preset', { 'policy.preset': v })}
+        />
+        {#if rows.preset?.error}<p class="field-error" role="alert"><Icon name="alert" class="mt-px" />{rows.preset.error}</p>{/if}
+      </div>
+      <SettingsRow label="If nobody answers a chat request" status={rows.chat?.status} error={rows.chat?.error}>
+        {#snippet children(c)}
+          <Select
+            id={c.id}
+            aria-describedby={c.describedBy}
+            disabled={fixed('policy.approval.interactive_on_timeout') || fixed('policy.approval.interactive_timeout')}
+            options={chat.options}
+            value={chat.value}
+            onchange={(e) => save('chat', chatChanges(e.currentTarget.value))}
+          />
+        {/snippet}
+      </SettingsRow>
+      <SettingsRow label="If nobody answers a scheduled request" status={rows.scheduled?.status} error={rows.scheduled?.error}>
+        {#snippet children(c)}
+          <Select
+            id={c.id}
+            aria-describedby={c.describedBy}
+            disabled={fixed('policy.approval.scheduled_on_timeout') || fixed('policy.approval.scheduled_timeout')}
+            options={scheduled.options}
+            value={scheduled.value}
+            onchange={(e) => save('scheduled', scheduledChanges(e.currentTarget.value))}
+          />
+        {/snippet}
+      </SettingsRow>
+      <LinkRow label="Allowed without asking" value={grants === null ? '' : grants.length ? plural(grants.length, 'permission') : 'None'} href="/settings/security/permissions" />
+    </SettingsSection>
+
+    <SettingsSection title="Running code">
+      {#if sandbox}
+        <div class="border-b border-border py-3">
+          <div class="flex min-h-8 flex-wrap items-center justify-between gap-x-6 gap-y-1">
+            <p class="text-body text-text">{codeOn ? 'On. Code runs in an isolated workspace.' : "Off on this server. Bothy can't run commands or scripts."}</p>
+            {#if !codeOn}
+              <button
+                bind:this={howButton}
+                type="button"
+                class="-my-0.5 inline-flex min-h-6 cursor-pointer items-center gap-1 text-body text-text hover:text-muted pointer-coarse:min-h-11"
+                aria-expanded={howOpen}
+                aria-controls="{uid}-how"
+                onclick={() => (howOpen = !howOpen)}
+                ><Icon name="chevron-right" size={12} class="transition-transform duration-160 {howOpen ? 'rotate-90' : ''}" />How to turn it on</button
+              >
+            {/if}
+          </div>
+          {#if !codeOn && howOpen}
+            <div id="{uid}-how" class="mt-3 max-w-prose space-y-3">
+              <p class="text-body text-text">Start Bothy with the compose file from the deployment guide, which includes the isolated workspace service, then restart Bothy.</p>
+              <Disclosure>
+                <CodeBlock code={sandbox.compose_hint || sandbox.status.fix || COMPOSE} label="Commands" />
+              </Disclosure>
+              <Disclosure label="Technical details">
+                <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-small">
+                  <dt class="text-muted">Backend</dt>
+                  <dd class="text-text">{sandbox.status.backend || 'none'}</dd>
+                  <dt class="text-muted">Runtime</dt>
+                  <dd class="text-text">{sandbox.status.runtime || 'none'}</dd>
+                  {#if sandbox.status.reason}
+                    <dt class="text-muted">Reason</dt>
+                    <dd class="text-text">{sandbox.status.reason}</dd>
+                  {/if}
+                  {#each sandbox.status.self_test ?? [] as t, i (i)}
+                    <dt class="text-muted">{t.name}</dt>
+                    <dd class={t.ok ? 'text-text' : 'text-danger-text'}>{t.ok ? 'Passed' : `Failed${t.detail ? `: ${t.detail}` : ''}`}</dd>
+                  {/each}
+                </dl>
+              </Disclosure>
+            </div>
+          {/if}
+        </div>
+      {/if}
+      {#each [['egress.presets.python_packages', 'Python packages (PyPI)'], ['egress.presets.npm_packages', 'JavaScript packages (npm)']] as [path, label] (path)}
+        <SettingsRow {label} inline status={rows[path]?.status} error={rows[path]?.error}>
+          {#snippet children(c)}
+            <Switch id={c.id} {label} hideLabel checked={config.flag(path)} disabled={fixed(path)} onchange={(v) => save(path, { [path]: v })} />
+          {/snippet}
+        </SettingsRow>
+      {/each}
+      <LinkRow label="Websites Bothy can reach" value={plural(sites, 'site')} href="/settings/security/websites" />
+    </SettingsSection>
+
+    <!-- The heading and its one value share a line, so the whole line is the link (§11.6 wireframe). -->
+    <section class="mt-10" aria-labelledby="{uid}-keys">
+      <a
+        href="/settings/security/keys"
+        onclick={router.link}
+        class="-mx-2 -my-1 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 rounded-md px-2 py-1 hover:bg-subtle focus-visible:outline-offset-[-2px] pointer-coarse:min-h-11 sm:grid-cols-[minmax(0,1fr)_minmax(0,20rem)]"
+      >
+        <h2 id="{uid}-keys" class="section-title">Saved keys</h2>
+        <span class="inline-flex items-center gap-1 text-body {vault?.sealed ? 'text-danger-text' : 'text-muted'}"
+          >{vault?.sealed ? 'Locked' : keys === null ? '' : keys.length ? plural(keys.length, 'saved key') : 'None'}<Icon name="chevron-right" /></span
+        >
+      </a>
+    </section>
+
+    <SettingsSection title="Pause Bothy">
+      {#if session.paused}
+        <p class="text-body text-text">{pausedText}</p>
+        <Button variant="primary" class="mt-3" loading={resuming} loadingLabel="Resuming…" onclick={resume}>Resume</Button>
+        {#if resumeError}<p class="field-error" role="alert"><Icon name="alert" class="mt-px" />{resumeError}</p>{/if}
+      {:else}
+        <p class="text-body text-muted">Stops everything that's running and keeps anything new from starting until someone resumes it.</p>
+        <Button class="mt-3 text-danger-text" onclick={() => (pausing = true)}>Pause Bothy…</Button>
+      {/if}
+    </SettingsSection>
+  {/if}
+</Page>
+
+<PauseDialog bind:open={pausing} onpaused={paused} />
+<UnlockDialog
+  bind:open={unlocking}
+  onunlocked={() => {
+    vault = vault ? { ...vault, sealed: false } : vault;
+    void runAudit();
+  }}
+/>

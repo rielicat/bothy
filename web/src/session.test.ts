@@ -3,7 +3,7 @@ import { member } from '../mock/fixtures';
 import { api, setCsrf } from './lib/api/client';
 import type { Me } from './lib/api/types.gen';
 import { events } from './lib/sse.svelte';
-import { session } from './lib/stores/session.svelte';
+import { approvals, session } from './lib/stores/session.svelte';
 import { installApi } from './test/api';
 import { FakeEventSource } from './test/setup';
 
@@ -81,5 +81,41 @@ describe('session', () => {
     await expect(api.post('/api/admin/pause', { paused: false })).rejects.toMatchObject({ status: 403 });
     expect(calls.filter((c) => c.url === '/api/admin/pause')).toHaveLength(1);
     expect(session.me).toBeNull();
+  });
+
+  it('keeps dismissed banners for the tab, and brings one back when it is raised again', async () => {
+    installApi();
+    sessionStorage.clear();
+    await session.init();
+    session.dismiss('restart_required');
+    expect(JSON.parse(sessionStorage.getItem('bothy.dismissed')!)).toEqual(['restart_required']);
+    FakeEventSource.last.emit('banner', { seq: 1, type: 'banner', at: '2026-10-12T00:00:00Z', data: { level: 'info', code: 'restart_required', text: 'Restart to apply: x' } });
+    expect(session.dismissed).toEqual([]);
+    expect(JSON.parse(sessionStorage.getItem('bothy.dismissed')!)).toEqual([]);
+  });
+
+  it('remembers that the session ran out, until the next sign-in', async () => {
+    installApi();
+    await session.init();
+    session.expire();
+    expect(session.expired).toBe(true);
+    await api.post('/api/auth/login', { username: 'sam', password: 'Granite-River-42-Lantern' });
+    await session.init();
+    expect(session.expired).toBe(false);
+  });
+
+  it('counts as waiting what the inbox says the viewer can decide', async () => {
+    installApi();
+    await session.init();
+    const ask = (user_id: string, admin_only = false) => ({ id: `apr_${user_id}${admin_only}`, status: 'pending', approver: { user_id, admin_only } }) as never;
+    approvals.forYou = 4;
+    expect(approvals.waiting).toBe(4);
+    // Without the inbox: admins count everything open, members what names them.
+    approvals.forYou = null;
+    approvals.pending = [ask(session.me!.user.id), ask('usr_other'), ask('', true)];
+    expect(approvals.waiting).toBe(3);
+    session.me = { ...session.me!, user: { ...member } } as Me;
+    approvals.pending = [ask(member.id), ask('usr_other'), ask('', true)];
+    expect(approvals.waiting).toBe(1);
   });
 });

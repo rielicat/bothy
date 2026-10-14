@@ -20,7 +20,7 @@ describe('streaming', () => {
     await session.init();
     const sid = 'ses_01jtrip000000000000000000';
     render(ConversationView, { id: sid });
-    await screen.findByText(/Here's a gentle plan/);
+    await screen.findByText(/Here's a simple plan/);
     await new Promise((r) => setTimeout(r, 20));
     const before = renders.n;
     for (let i = 0; i < 5; i++) {

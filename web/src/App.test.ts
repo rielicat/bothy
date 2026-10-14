@@ -23,13 +23,14 @@ describe('route guard during setup', () => {
       render(App);
       await waitFor(() => expect(router.path).toBe('/login'));
       expect(router.query.get('next')).toBe('/setup');
-      expect(screen.getByText('Log in to finish setting up Bothy.')).toBeTruthy();
+      expect(await screen.findByText('Sign in to finish setting up Bothy.')).toBeTruthy();
 
       await fireEvent.input(screen.getByLabelText('Username'), { target: { value: 'sam' } });
       await fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'Granite-River-42-Lantern' } });
       await fireEvent.submit(screen.getByLabelText('Username').closest('form')!);
       await waitFor(() => expect(router.path).toBe('/setup'));
-      expect(await screen.findByText('Connect a model')).toBeTruthy();
+      // The fixture config already has a main model, so setup resumes at its last step.
+      expect(await screen.findByText('Bothy is ready')).toBeTruthy();
     });
   }
 });
@@ -52,5 +53,22 @@ describe('route guard after the wizard finished', () => {
     router.navigate('/chat');
     await new Promise((r) => setTimeout(r, 20));
     expect(router.path).toBe('/chat');
+  });
+});
+
+describe('route guard for a one-time password', () => {
+  beforeEach(async () => {
+    installApi();
+    session.ready = false;
+    await session.init();
+  });
+
+  it('keeps someone who must choose a password on that screen after a reload', async () => {
+    session.me = { ...session.me!, user: { ...session.me!.user, must_change_password: true } };
+    router.navigate('/approvals');
+    render(App);
+    await waitFor(() => expect(router.path).toBe('/password'));
+    expect(router.query.get('next')).toBe('/approvals');
+    expect(await screen.findByText('Choose a new password')).toBeTruthy();
   });
 });

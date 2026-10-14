@@ -2588,7 +2588,7 @@ A chunk merges only when all of these pass:
 
 | Gate | Check |
 |---|---|
-| G1 Build | `cd web && npm run check && npm test && npm run build`, then `scripts/budgets/ui-size.sh`: **JS ≤ 120 KB gz, CSS ≤ 20 KB gz**, no inline `<script>`, no `<style>` or `style=` in the built `index.html`, no other origins. The PR states the JS and CSS gzip delta. |
+| G1 Build | `cd web && npm run check && npm test && npm run build`, then `scripts/budgets/ui-size.sh`: **first screen (the scripts `index.html` loads, their static imports and its stylesheets) JS ≤ 120 KB gz and CSS ≤ 20 KB gz; all JS chunks together ≤ 260 KB gz**, no inline `<script>`, no `<style>` or `style=` in the built `index.html`, no other origins. Chat, the shell and their primitives are the entry; setup and sign in, the approvals inbox, Knowledge, Activity and Settings are lazy route chunks, prefetched on idle and on hover or focus. The PR states the first-screen and total gzip delta. |
 | G2 Smoke | `npm run smoke` (production build, mock gateway, gateway CSP): no CSP violations, page errors or external requests; axe passes on the chunk's routes in light and dark. |
 | G3 Screenshots | The chunk's shot spec (`web/e2e/shots/<chunk>.spec.ts`) captures **every route and state the chunk owns at 1280 × 800 and 360 × 780, in light and dark** (4 images per state, plus `-full` when the page overflows). A second engineer reviews them against this document; the PR links the set. |
 | G4 Layout probes | Run by the shot helper on every capture: `document.scrollingElement.scrollWidth <= 360` at 360 px; the `h1` left edge is x = 408 ± 1 at 1280 px on column pages and chat; no rendered text under 12 px; no `backdrop-filter`; no `box-shadow` outside floating layers; no bordered element inside another bordered element except overlays. |
@@ -2750,7 +2750,7 @@ Acceptance: every gate over the whole app; `--color-*: initial` in place and the
 - [ ] Names, never ids, outside Details; money, never tokens, outside Details.
 - [ ] Refine shows its cost before sending; Bedrock appears as "Use this server's AWS access" when detected; GitHub, repositories, PR cards, release approvals and Knowledge with project notes all have their screens.
 - [ ] axe clean on every route in both themes; keyboard-only approval flow works end to end.
-- [ ] `scripts/budgets/ui-size.sh` passes: JS ≤ 120 KB gz, CSS ≤ 20 KB gz, no inline scripts or styles, no other origins.
+- [ ] `scripts/budgets/ui-size.sh` passes: first-screen JS ≤ 120 KB gz and CSS ≤ 20 KB gz, all JS chunks ≤ 260 KB gz, no inline scripts or styles, no other origins.
 
 ---
 

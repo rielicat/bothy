@@ -1,0 +1,67 @@
+// Shapes the approval UI reads that types.gen.ts does not have (docs/design/ui.md §17).
+import type { ChatRef } from '../../lib/api/types.gen';
+
+/** S17: one deploy as GET /api/releases lists it. */
+export interface Deploy {
+  id: string;
+  environment: string;
+  repo: string;
+  ref: string;
+  approval_id?: string;
+  status: 'dispatched' | 'running' | 'succeeded' | 'failed' | 'unknown' | string;
+  run_url?: string;
+  error?: string;
+  /** The workflow step that failed, when the server knows it (S17). */
+  failed_step?: string;
+  created_at: string;
+  finished_at?: string;
+  chat?: ChatRef;
+}
+
+/**
+ * The inbox items that are not action approvals (S12), as the cards show
+ * them; items.ts reads them from GET /api/inbox. Note suggestions are
+ * approvals there, so they come with the other approvals.
+ */
+export type InboxItem = McpReviewItem | SkillReviewItem | SenderItem | GroupChatItem;
+
+interface ItemBase {
+  id: string;
+  created_at: string;
+}
+
+export interface McpReviewItem extends ItemBase {
+  type: 'mcp_review';
+  server: string;
+  tools: { name: string; title?: string; description: string; side_effect: string; diff?: string; hash: string; private: boolean; field_map?: Record<string, string> }[];
+}
+
+export interface SkillReviewItem extends ItemBase {
+  type: 'skill_review';
+  skill: string;
+  hash: string;
+}
+
+export interface SenderItem extends ItemBase {
+  type: 'unknown_sender';
+  app: string;
+  external_id: string;
+  display_name: string;
+  handle: string;
+  text?: string;
+}
+
+export interface GroupChatItem extends ItemBase {
+  type: 'group_chat';
+  app: string;
+  chat: string;
+  space: string;
+  added_by?: string;
+}
+
+/** The person looking at a card. Defaults to the signed-in user. */
+export interface Viewer {
+  id: string;
+  role: string;
+  name?: string;
+}

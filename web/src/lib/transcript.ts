@@ -32,12 +32,24 @@ export interface LiveRun {
   skip: number;
 }
 
+export type ToolItem = {
+  kind: 'tool';
+  key: string;
+  runId?: string;
+  /** The tool that ran: use_tool calls show the tool they reached (§7.4). */
+  tool: string;
+  args?: unknown;
+  call?: ToolCall;
+  result?: ToolResult;
+  live?: LiveTool;
+};
+
 export type Item =
   | { kind: 'user'; key: string; msg: Message; text: string; files: Blob[]; steer: boolean }
   | { kind: 'assistant'; key: string; msg: Message; text: string; thinking: string }
   | { kind: 'notice'; key: string; msg: Message; text: string }
   | { kind: 'summary'; key: string; msg: Message; text: string }
-  | { kind: 'tool'; key: string; runId?: string; call?: ToolCall; result?: ToolResult; live?: LiveTool }
+  | ToolItem
   | { kind: 'stream'; key: string; text: string; thinking: string };
 
 function text(m: Message, t = 'text'): string {
@@ -46,6 +58,14 @@ function text(m: Message, t = 'text'): string {
     .map((p) => p.text!)
     .join('\n\n');
 }
+
+/** use_tool {name, args} is the tool it calls; tool_search is plumbing and never shown. */
+export function unwrap(name: string, args: unknown): { tool: string; args: unknown } {
+  const a = args as { name?: unknown; args?: unknown } | null;
+  return name === 'use_tool' && typeof a?.name === 'string' ? { tool: a.name, args: a.args } : { tool: name, args };
+}
+
+const hidden = (tool: string) => tool === 'tool_search' || tool === 'use_tool';
 
 // Builds the transcript rows: tool results are folded into their calls, and a
 // live run's streamed tool rows replace the matching persisted parts in order
@@ -84,22 +104,65 @@ export function buildItems(messages: Message[], live: LiveRun | null, known?: Ma
     const ofLive = !!live && m.run_id === live.id;
     for (const [n, p] of m.parts.entries()) {
       if (p.t !== 'tool_call' || !p.call) continue;
+      const { tool, args } = unwrap(p.call.name, p.call.args);
       let lt: LiveTool | undefined;
       if (ofLive) {
         if (skip > 0) skip--;
-        else if (queue[0]?.tool === p.call.name) lt = queue.shift();
+        else if (queue[0] && (queue[0].tool === tool || queue[0].tool === p.call.name)) lt = queue.shift();
       }
-      items.push({ kind: 'tool', key: `t${m.id}:${n}`, runId: m.run_id, call: p.call, result: results.get(p.call.id), live: lt ?? known?.get(p.call.id) });
+      if (hidden(tool)) continue;
+      items.push({ kind: 'tool', key: `t${m.id}:${n}`, runId: m.run_id, tool, args, call: p.call, result: results.get(p.call.id), live: lt ?? known?.get(p.call.id) });
     }
     if (ofLive) lastOfRun = items.length;
   }
 
   if (live) {
-    const trailing: Item[] = queue.map((lt) => ({ kind: 'tool', key: `l${lt.callId}`, runId: live.id, live: lt }));
+    const trailing: Item[] = queue
+      .map((lt) => ({ kind: 'tool' as const, key: `l${lt.callId}`, runId: live.id, tool: lt.tool === 'use_tool' && lt.action?.tool ? lt.action.tool : lt.tool, live: lt }))
+      .filter((t) => !hidden(t.tool));
     items.splice(lastOfRun < 0 ? items.length : lastOfRun, 0, ...trailing);
     if (live.text || live.thinking) items.push({ kind: 'stream', key: `s${live.id}`, text: live.text, thinking: live.thinking });
   }
   return items;
+}
+
+export type Block =
+  | { kind: 'day'; key: string; label: string }
+  | { kind: 'steps'; key: string; runId?: string; tools: ToolItem[] }
+  | Exclude<Item, ToolItem>;
+
+/** "Today", "Yesterday", "Saturday 12 October" (with the year outside this one). */
+export function dayLabel(iso: string, opts: { now?: number; locale?: string; timeZone?: string } = {}): string {
+  const d = new Date(iso);
+  const now = new Date(opts.now ?? Date.now());
+  const day = (x: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: opts.timeZone }).format(x);
+  const diff = (Date.parse(day(now)) - Date.parse(day(d))) / 86_400_000;
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  const year = day(d).slice(0, 4) !== day(now).slice(0, 4);
+  return new Intl.DateTimeFormat(opts.locale, { weekday: 'long', day: 'numeric', month: 'long', year: year ? 'numeric' : undefined, timeZone: opts.timeZone }).format(d);
+}
+
+// Consecutive steps of one run share a block (its activity group); a day
+// separator goes before the first message of each calendar day.
+export function buildBlocks(items: Item[], label: (iso: string) => string = (iso) => dayLabel(iso)): Block[] {
+  const out: Block[] = [];
+  let day = '';
+  for (const it of items) {
+    if (it.kind === 'tool') {
+      const last = out[out.length - 1];
+      if (last?.kind === 'steps' && last.runId === it.runId) last.tools.push(it);
+      else out.push({ kind: 'steps', key: `g${it.key}`, runId: it.runId, tools: [it] });
+      continue;
+    }
+    if (it.kind !== 'stream') {
+      const l = label(it.msg.created_at);
+      if (l !== day) out.push({ kind: 'day', key: `d${it.key}`, label: l });
+      day = l;
+    }
+    out.push(it);
+  }
+  return out;
 }
 
 export function countToolParts(messages: Message[], runId: string): number {
@@ -122,8 +185,8 @@ function pathOf(url: string): string {
   }
 }
 
-// One-line description of a tool call, from the system-built Action when we
-// have it, else from the tool name and arguments.
+// One-line description of a tool call for the v0.1 run trace, which C6
+// replaces; the chat says what Bothy did with lib/activity.ts.
 export function describe(tool: string, action?: Action, args?: unknown, title = ''): string {
   const a = (action?.payload ?? args ?? {}) as Record<string, unknown>;
   const argv = action?.argv?.length ? action.argv : null;
