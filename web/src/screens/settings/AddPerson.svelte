@@ -2,8 +2,9 @@
   import { Button, CodeBlock, Dialog, Notice, Segmented, TextField } from '../../components/ui';
   import { api, ApiError } from '../../lib/api/client';
   import type { UserCreateResp } from '../../lib/api/types.gen';
+  import { usernameError } from '../../lib/password';
   import { session } from '../../lib/stores/session.svelte';
-  import { usernameError, type UserV2 } from './accountHelpers';
+  import type { UserV2 } from './accountHelpers';
   import { focusDialogResult } from './dialogFocus';
   import { settingsConfig } from './store.svelte';
 
@@ -51,7 +52,7 @@
         await session.refresh().catch(() => {});
       }
       // No password in the request: the server makes a one-time password they replace at first sign-in (S9).
-      const u = await api.post<UserCreateResp>('/api/users', { display_name: name.trim(), username, role });
+      const u = await api.post<UserCreateResp>('/api/users', { display_name: name.trim(), username: username.trim(), role });
       done = { name: u.display_name || name.trim(), username: u.username, password: u.one_time_password ?? '' };
       onadded?.(u);
       void focusDialogResult();

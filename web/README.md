@@ -27,13 +27,16 @@ it before committing so a build never lands in git.
 
 ```
 src/
-  App.svelte            route table, guards (setup → login → first password → app)
+  App.svelte            routing, guards (setup → login → first password → app)
+  lazy/                 the route groups loaded on demand (setup and sign in, approvals,
+                        knowledge, activity, settings) and their prefetching
   app.css               design tokens (light and dark; Tailwind's own reset), component classes, markdown styles
   copy.test.ts          the copy guide over every source string
   lib/
     api/client.ts       fetch wrapper: X-CSRF-Token, dto.Error → ApiError, 401 → login
     api/types.gen.ts    generated from the Go DTOs by `make gen` (do not edit)
     api/knowledge.ts    Knowledge client and its helpers
+    api/repos.ts        the repositories Bothy reads (new chat; kept out of the Knowledge chunk)
     router.svelte.ts    history router; safeNext() for ?next=
     routes.ts           the routes and the v0.1 redirects (docs/design/ui.md §4.5)
     sse.svelte.ts       one EventSource per browser, shared by tabs (Web Lock + BroadcastChannel):
@@ -86,6 +89,20 @@ public/                 theme.js (sets the theme before first paint), PWA manife
 
 ## Budgets
 
-JS ≤ 120 KB gz (target 90), CSS ≤ 20 KB gz, enforced by
-`scripts/budgets/ui-size.sh`. Everything but the QR encoder ships as one bundle,
-which compresses better than a chunk per screen.
+`scripts/budgets/ui-size.sh` holds the first screen (the scripts `index.html`
+loads, their static imports and its stylesheet) to ≤ 120 KB gz of JS and
+≤ 20 KB gz of CSS, and every JS chunk together to ≤ 260 KB gz, and prints each
+file's size.
+
+Chat, the shell and the primitives they use are the entry, built as one file
+(`vite.config.ts`). Setup and sign in, Approvals, Knowledge, Activity and
+Settings are each a chunk behind a dynamic import (`src/lazy`); what two or more
+of them share is one more chunk, and the QR encoder is its own. `package.json`
+marks only CSS as having side effects, so a module that imports the
+`components/ui` barrel pulls in only the primitives it uses. Once someone is
+signed in, the groups load one at a time while the browser is idle (not with
+Save-Data on), and a link starts loading its group as soon as a pointer, finger
+or focus reaches it, so moving between areas stays instant. Vite's module
+preload adds `<link rel="modulepreload">` from script, never inline code, so the
+CSP stays `script-src 'self'`. A chunk that fails to arrive (offline, or a build
+that replaced it) shows "This page didn't load" with Try again, which reloads.

@@ -1,102 +1,35 @@
 <script lang="ts">
-  import { onMount, type Component } from 'svelte';
+  import { onMount } from 'svelte';
   import NotFound from './components/shell/NotFound.svelte';
+  import ScreenLoading from './components/shell/ScreenLoading.svelte';
   import { adminOnlyTitle, unknownGroup } from './components/shell/settings';
-  import SettingsIndex from './components/shell/SettingsIndex.svelte';
   import Shell from './components/shell/Shell.svelte';
   import LiveRegion from './components/ui/LiveRegion.svelte';
   import ToastHost from './components/ui/ToastHost.svelte';
+  import { groupOf, load, prefetchIdle, prefetchLinks, type Group, type RouteGroup, type Screen } from './lazy';
   import { redirect, settingsHome, type Match, type Params } from './lib/routes';
   import { router, safeNext } from './lib/router.svelte';
   import { session } from './lib/stores/session.svelte';
-  import Audit from './screens/activity/Audit.svelte';
-  import Releases from './screens/activity/Releases.svelte';
-  import ScheduleForm from './screens/activity/ScheduleForm.svelte';
-  import Schedules from './screens/activity/Schedules.svelte';
-  import Spending from './screens/activity/Spending.svelte';
-  import TaskDetail from './screens/activity/TaskDetail.svelte';
-  import Tasks from './screens/activity/Tasks.svelte';
-  import Approvals from './screens/Approvals.svelte';
-  import ChangePassword from './screens/ChangePassword.svelte';
   import Chat from './screens/chat/Chat.svelte';
-  import KnowledgeSearch from './screens/knowledge/KnowledgeSearch.svelte';
-  import Memory from './screens/knowledge/Memory.svelte';
-  import ProjectNotes from './screens/knowledge/ProjectNotes.svelte';
-  import Projects from './screens/knowledge/Projects.svelte';
-  import SkillView from './screens/knowledge/SkillView.svelte';
-  import Skills from './screens/knowledge/Skills.svelte';
-  import Login from './screens/Login.svelte';
-  import Advanced from './screens/settings/advanced/Advanced.svelte';
-  import { connectionsScreen } from './screens/settings/connections';
-  import Permissions from './screens/settings/security/Permissions.svelte';
-  import SavedKeys from './screens/settings/security/SavedKeys.svelte';
-  import Security from './screens/settings/security/Security.svelte';
-  import Websites from './screens/settings/security/Websites.svelte';
-  import Settings from './screens/settings/Settings.svelte';
-  import Setup from './screens/setup/Setup.svelte';
-
-  // Screens take different props (all accept params), so the table is loosely typed.
-  type Screen = Component<any>;
-
-  // One bundle: it compresses far better than a chunk per screen (shared
-  // Svelte and Tailwind vocabulary), and the JS budget counts every chunk.
-  const screens: Partial<Record<string, Screen>> = {
-    '/setup': Setup,
-    '/login': Login,
-    '/password': ChangePassword,
-    '/chat': Chat,
-    '/chat/:id': Chat,
-    '/approvals': Approvals,
-    '/approvals/:id': Approvals,
-    '/knowledge': Projects,
-    '/knowledge/search': KnowledgeSearch,
-    '/knowledge/memory': Memory,
-    '/knowledge/skills': Skills,
-    '/knowledge/skills/:name': SkillView,
-    '/knowledge/projects/:owner/:repo': ProjectNotes,
-    '/activity': Tasks,
-    '/activity/tasks/:id': TaskDetail,
-    '/activity/schedules': Schedules,
-    '/activity/schedules/:id': ScheduleForm,
-    '/activity/releases': Releases,
-    '/activity/spending': Spending,
-    '/activity/audit': Audit,
-  };
 
   let Gallery: Screen | null = $state(null);
 
-  function screenFor(m: Match | null): { c: Screen; params: Params } | null {
+  // Groups whose chunk has arrived; the module objects never change, hence raw.
+  let groups: Partial<Record<Group, RouteGroup>> = $state.raw({});
+  let failed: Group | null = $state(null);
+
+  function screenFor(m: Match | null, routes: RouteGroup | undefined): { c: Screen; params: Params } | null {
     if (!m) return null;
-    const p = m.params;
-    switch (m.pattern) {
-      case '/settings':
-        return { c: SettingsIndex, params: p };
-      case '/settings/:group':
-        if (p.group === 'connections') return { c: connectionsScreen()!, params: p };
-        if (p.group === 'security') return { c: Security, params: p };
-        if (p.group === 'advanced') return { c: Advanced, params: p };
-        return { c: Settings, params: p };
-      case '/settings/:group/:item': {
-        if (p.group === 'connections') {
-          const c = connectionsScreen(p.item);
-          return c ? { c, params: p } : null;
-        }
-        if (p.group === 'security') {
-          const c = ({ permissions: Permissions, websites: Websites, keys: SavedKeys } as Partial<Record<string, Screen>>)[p.item];
-          return c ? { c, params: p } : null;
-        }
-        return p.group === 'general' && p.item === 'personality' ? { c: Settings, params: p } : null;
-      }
-      case '/dev/ui':
-        return Gallery ? { c: Gallery, params: p } : null;
-    }
-    const c = screens[m.pattern];
-    return c ? { c, params: p } : null;
+    const c = m.pattern === '/chat' || m.pattern === '/chat/:id' ? Chat : m.pattern === '/dev/ui' ? Gallery : (routes?.screen(m) ?? null);
+    return c ? { c, params: m.params } : null;
   }
 
   const pattern = $derived(router.current?.pattern ?? '');
   const moved = $derived(redirect(router.path));
-  const current = $derived(unknownGroup(router.path) ? null : screenFor(router.current));
+  const group = $derived(groupOf(pattern));
+  const routes = $derived(group ? groups[group] : undefined);
+  const loading = $derived(!!group && !routes && !unknownGroup(router.path));
+  const current = $derived(unknownGroup(router.path) ? null : screenFor(router.current, routes));
   const isPublic = $derived(pattern === '/setup' || pattern === '/login');
   const bare = $derived(isPublic || pattern === '/password');
   const forAdmins = $derived(session.isAdmin ? null : adminOnlyTitle(router.path));
@@ -111,7 +44,27 @@
   onMount(() => {
     void session.init();
     const t = setTimeout(() => (slow = true), 400);
-    return () => clearTimeout(t);
+    const off = prefetchLinks();
+    return () => {
+      clearTimeout(t);
+      off();
+    };
+  });
+
+  // Fetched alongside the session check, so a deep link doesn't wait twice.
+  $effect(() => {
+    const g = group;
+    if (!g || groups[g]) return;
+    failed = null;
+    load(g).then(
+      (r) => (groups = { ...groups, [g]: r }),
+      () => (failed = g),
+    );
+  });
+
+  const signedIn = $derived(!!session.me);
+  $effect(() => {
+    if (signedIn) return prefetchIdle(['approvals', 'activity', 'knowledge', 'settings']);
   });
 
   // The gallery stays out of production builds: DEV is a build-time constant,
@@ -157,6 +110,8 @@
     <!-- on its way to another address -->
   {:else if forAdmins}
     <NotFound admin={forAdmins} />
+  {:else if loading}
+    <ScreenLoading failed={failed === group} />
   {:else if current}
     <current.c params={current.params} />
   {:else}

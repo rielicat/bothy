@@ -13,23 +13,6 @@ export interface Profile {
   approvals_in: string;
 }
 
-export const USERNAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
-
-export function usernameError(u: string): string {
-  return USERNAME.test(u) ? '' : 'Use up to 32 letters, numbers, dots, dashes or underscores, starting with a letter or number.';
-}
-
-export const MIN_PASSWORD = 12;
-
-/** Live help under a new password, the same words as setup (§5.5). */
-export function passwordHelp(pw: string): string {
-  const n = [...pw].length;
-  if (!n) return 'At least 12 characters.';
-  if (n >= MIN_PASSWORD) return 'Long enough.';
-  const left = MIN_PASSWORD - n;
-  return `${left} more ${left === 1 ? 'character' : 'characters'} needed.`;
-}
-
 export interface ScopeChoice {
   value: string;
   label: string;

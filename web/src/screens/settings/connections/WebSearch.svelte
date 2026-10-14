@@ -4,8 +4,9 @@
   import { api, ApiError, errorText } from '../../../lib/api/client';
   import type { SecretMeta } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
+  import { hostPort } from '../../../lib/providers';
   import ConnPage from './ConnPage.svelte';
-  import { failureCode, hostPort, saveConfig, searchFailure, secretName, type SearchProvider } from './connections';
+  import { failureCode, saveConfig, searchFailure, secretName, type SearchProvider } from './connections';
   import Loading from './Loading.svelte';
   import type { SearchCheck } from './types';
 

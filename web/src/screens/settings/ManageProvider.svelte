@@ -23,8 +23,9 @@
   import { api, ApiError } from '../../lib/api/client';
   import type { ProbeResult } from '../../lib/api/types.gen';
   import { duration } from '../../lib/format';
+  import { failureCode } from '../../lib/providerErrors';
   import ConfirmDialog from './ConfirmDialog.svelte';
-  import { failureCode, failureText, regionName, regions, type ProviderHealthV2 } from './modelHelpers';
+  import { failureText, regionName, regions, type ProviderHealthV2 } from './modelHelpers';
   import { Saver, settingsConfig } from './store.svelte';
 
   // Manage one provider (§11.4): its state, a new key, the region for
@@ -88,6 +89,8 @@
     });
   });
 
+  const probeCode = (r: ProbeResult) => failureCode({ code: r.code, detail: r.detail, aws: p?.kind === 'bedrock' });
+
   const status = $derived.by((): { tone: 'progress' | 'success' | 'danger'; text: string; details?: string } | null => {
     if (!p || !check) return null;
     if (check.state === 'checking') return { tone: 'progress', text: p.kind === 'bedrock' ? 'Checking AWS access…' : 'Checking…' };
@@ -97,7 +100,7 @@
       const n = r.models?.length ?? 0;
       return { tone: 'success', text: n ? `Connected. Bothy can use ${n === 1 ? '1 model' : `${n} models`} here.` : 'Connected.' };
     }
-    return { tone: 'danger', text: failureText(failureCode(r), p.name, p.kind), details: r.detail || undefined };
+    return { tone: 'danger', text: failureText(probeCode(r), p.name, p.kind), details: r.detail || undefined };
   });
 
   async function turnOn() {
@@ -115,7 +118,7 @@
     if (!p) return { ok: false, message: failureText('unknown', '') };
     const r = await api.post<ProbeResult>('/api/providers/test', body({ api_key: value, secret_ref: undefined }));
     if (signal.aborted) return { ok: false, message: '' };
-    if (!r.ok) return { ok: false, message: failureText(failureCode(r), p.name, p.kind, p.model), details: r.detail || undefined };
+    if (!r.ok) return { ok: false, message: failureText(probeCode(r), p.name, p.kind, p.model), details: r.detail || undefined };
     await api.put(`/api/vault/global/${encodeURIComponent(vaultName)}`, { value });
     if (p.keyRef !== `secret:${vaultName}`) await settingsConfig.save({ [`providers.${p.id}.api_key`]: `secret:${vaultName}` });
     check = { state: 'done', probe: r };

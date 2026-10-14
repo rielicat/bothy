@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { models as fixtureModels } from '../../../mock/fixtures';
 import {
   addBackup,
-  failureCode,
   failureText,
   makePrimary,
   modelName,
@@ -82,14 +81,6 @@ describe('provider status', () => {
 });
 
 describe('failed checks', () => {
-  it('prefers the server category (S13) and guesses from the message until then', () => {
-    expect(failureCode({ code: 'out_of_credit', detail: '401' })).toBe('out_of_credit');
-    expect(failureCode({ detail: '401: invalid x-api-key' })).toBe('key_rejected');
-    expect(failureCode({ detail: 'egress: 127.0.0.1:9 is a private address (providers[].allow_private)' })).toBe('private_address');
-    expect(failureCode({ detail: 'dial tcp 10.0.0.12:443: connect: connection refused' })).toBe('unreachable');
-    expect(failureCode({ detail: 'something odd' })).toBe('unknown');
-  });
-
   it('says what happened and what to do, naming the provider', () => {
     expect(failureText('rate_limited', 'Anthropic')).toBe('Anthropic is limiting requests right now. Wait a minute and try again.');
     expect(failureText('unreachable', 'Ollama', 'ollama')).toBe("Ollama isn't answering at that address. Make sure it's running.");

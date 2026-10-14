@@ -1,22 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { member, ZERO } from '../../../mock/fixtures';
 import type { TokenRecord } from '../../lib/api/types.gen';
-import { lastUsed, moneyText, parseMoney, passwordHelp, roleLine, scopeSummary, usernameError } from './accountHelpers';
-
-describe('passwords', () => {
-  it('counts down to 12 characters in the words setup uses', () => {
-    expect(passwordHelp('')).toBe('At least 12 characters.');
-    expect(passwordHelp('a'.repeat(4))).toBe('8 more characters needed.');
-    expect(passwordHelp('a'.repeat(11))).toBe('1 more character needed.');
-    expect(passwordHelp('a'.repeat(12))).toBe('Long enough.');
-  });
-});
-
-it('checks usernames like setup does', () => {
-  expect(usernameError('maya.chen')).toBe('');
-  expect(usernameError('-maya')).toMatch(/^Use up to 32 letters/);
-  expect(usernameError('a'.repeat(33))).not.toBe('');
-});
+import { lastUsed, moneyText, parseMoney, roleLine, scopeSummary } from './accountHelpers';
 
 describe('API tokens', () => {
   const token = (over: Partial<TokenRecord>): TokenRecord => ({

@@ -120,7 +120,7 @@ jobs:
       - name: unit tests
         working-directory: web
         run: npm test
-      - name: size and CSP gates
+      - name: size (first screen, all chunks) and CSP gates
         run: scripts/budgets/ui-size.sh
 
   e2e:

@@ -23,7 +23,7 @@ describe('route guard during setup', () => {
       render(App);
       await waitFor(() => expect(router.path).toBe('/login'));
       expect(router.query.get('next')).toBe('/setup');
-      expect(screen.getByText('Sign in to finish setting up Bothy.')).toBeTruthy();
+      expect(await screen.findByText('Sign in to finish setting up Bothy.')).toBeTruthy();
 
       await fireEvent.input(screen.getByLabelText('Username'), { target: { value: 'sam' } });
       await fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'Granite-River-42-Lantern' } });

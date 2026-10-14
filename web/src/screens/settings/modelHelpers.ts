@@ -1,7 +1,8 @@
 // Plain words for models, providers and their state on Settings → Models
 // (docs/design/ui.md §11.4, §14.3).
-import type { ModelInfo, ProbeResult, ProviderHealth } from '../../lib/api/types.gen';
+import type { ModelInfo, ProviderHealth } from '../../lib/api/types.gen';
 import { plural } from '../../lib/format';
+import { failure, type FailureCode } from '../../lib/providerErrors';
 
 // Where a provider's credentials come from; GET /api/providers does not say yet (docs/design/ui.md §17).
 export type ProviderHealthV2 = ProviderHealth & { source?: string };
@@ -122,57 +123,9 @@ export function providerStatus(p: ProviderState): { text: string; tone: Tone } {
 
 const localKinds = new Set(['ollama', 'lmstudio']);
 
-/** The S13 category of a failed check; until the server sends one, a guess from the raw message. */
-export function failureCode(r: { code?: string; detail?: string }, status?: number): string {
-  if (r.code) return r.code;
-  const d = (r.detail ?? '').toLowerCase();
-  if (status === 401 || /\b401\b|invalid.*key|unauthori[sz]ed|api key/.test(d)) return 'key_rejected';
-  if (/allow_private|private address/.test(d)) return 'private_address';
-  if (/\b429\b|rate limit/.test(d)) return 'rate_limited';
-  if (/credit|billing|quota/.test(d)) return 'out_of_credit';
-  if (/deadline|timeout|timed out/.test(d)) return 'timeout';
-  if (/x509|certificate|tls/.test(d)) return 'tls';
-  if (/connection refused|no such host|dial tcp|unreachable/.test(d)) return 'unreachable';
-  if (/\b5\d\d\b/.test(d)) return 'provider_error';
-  return 'unknown';
-}
-
-/** The main line of a failed check (§5.6.4): what happened, then what to do. */
-export function failureText(code: string, provider: string, kind = '', model = 'this model'): string {
-  switch (code) {
-    case 'key_rejected':
-      return "That key wasn't accepted. Check you copied all of it, or create a new one.";
-    case 'no_model_access':
-      return `This key works, but it can't use ${model}. Choose another model.`;
-    case 'out_of_credit':
-      return `Your ${provider} account is out of credit. Add credit with ${provider}, then try again.`;
-    case 'rate_limited':
-      return `${provider} is limiting requests right now. Wait a minute and try again.`;
-    case 'provider_error':
-      return `${provider} isn't responding properly right now. Try again in a few minutes.`;
-    case 'timeout':
-      return `${provider} took too long to answer. Try again.`;
-    case 'unreachable':
-      return localKinds.has(kind)
-        ? `${provider} isn't answering at that address. Make sure it's running.`
-        : `Bothy couldn't reach ${provider} from this server. Check the server's internet connection or firewall.`;
-    case 'private_address':
-      return 'Bothy blocks addresses on your private network unless you allow them.';
-    case 'no_models':
-      return `${provider} is running but has no models yet. Install one on the server, then check again.`;
-    case 'tls':
-      return "The connection to that address isn't secure because of a certificate problem. Check the address. For a server on your own network you can use http://.";
-    case 'not_a_model_server':
-      return "That address answered, but it doesn't look like a model server. Check the address; it usually ends in /v1.";
-    case 'aws_no_credentials':
-      return "This server doesn't have AWS access right now. On AWS, give it a role with Bedrock access. On a laptop, sign in with the AWS CLI and restart Bothy.";
-    case 'aws_denied':
-      return "This server's AWS access isn't allowed to use Bedrock. Ask your AWS admin to add Bedrock permissions.";
-    case 'aws_no_models':
-      return 'No Claude or Nova models are turned on for this AWS account in this region. Turn on model access in the Bedrock console, or choose another region.';
-    default:
-      return 'Something went wrong while checking. Try again, or choose another option.';
-  }
+/** The main line of a failed check (§5.6.4), in the words setup uses. */
+export function failureText(code: FailureCode, provider: string, kind = '', model?: string): string {
+  return failure(code, { name: provider, local: localKinds.has(kind), model, ollama: kind === 'ollama' }).text;
 }
 
 export type RefinePreset = 'standard' | 'thorough' | 'custom';

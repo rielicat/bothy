@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { readRepos } from '../../lib/api/knowledge';
+  import { readRepos } from '../../lib/api/repos';
   import { router } from '../../lib/router.svelte';
   import { session } from '../../lib/stores/session.svelte';
 

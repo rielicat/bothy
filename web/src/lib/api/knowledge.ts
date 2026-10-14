@@ -2,9 +2,11 @@
 // are what the screens need beyond today's server; each is optional and the
 // screens fall back when it is missing.
 import { api, ApiError, qs } from './client';
+import { listRepos } from './repos';
 import type { IndexedRepo, KnowledgeHit as Hit, KnowledgeNotes } from './types.gen';
 
 export type { KnowledgeNotes };
+export { isUnavailable, readRepos } from './repos';
 
 export type KnowledgeRepo = IndexedRepo & {
   /** S18: files read so far and the total expected, while reading. */
@@ -36,7 +38,7 @@ export type KnowledgeHit = Hit & {
 const repoPath = (id: number) => `/api/knowledge/repos/${id}`;
 
 export const knowledge = {
-  repos: async () => (await api.get<{ items: KnowledgeRepo[] | null }>('/api/knowledge/repos')).items ?? [],
+  repos: listRepos,
   notes: (id: number) => api.get<KnowledgeNotes>(`${repoPath(id)}/notes`),
   saveNotes: (id: number, content: string, etag: string) => api.put<KnowledgeNotes>(`${repoPath(id)}/notes`, { content }, { 'If-Match': `"${etag}"` }),
   /** S18. Null when the server has no notes history yet, so the screens hide it. */
@@ -96,12 +98,6 @@ export function queuedRepo(repo: string): KnowledgeRepo {
 }
 
 export const isConflict = (e: unknown) => e instanceof ApiError && (e.status === 409 || e.status === 412);
-
-/** The server has no Knowledge API yet (S18): the screens show the empty state, not an error. */
-export const isUnavailable = (e: unknown) => e instanceof ApiError && (e.status === 404 || e.status === 501 || e.status === 503);
-
-/** The repositories Bothy reads, or none when the server can't say. */
-export const readRepos = () => knowledge.repos().catch((e) => (isUnavailable(e) ? [] : Promise.reject(e)));
 
 /** What the project list says about a repository (§9.1). */
 export type RepoState = 'ready' | 'reading' | 'stale' | 'failed';

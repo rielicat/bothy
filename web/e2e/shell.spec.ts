@@ -163,6 +163,41 @@ test('after a route change focus is on the new page’s h1', async ({ page }) =>
   await expect(page.getByRole('heading', { level: 1, name: 'Knowledge' })).toBeFocused();
 });
 
+// Route groups are lazy chunks (docs/design/ui.md §18.2 G1): "activity" for /assets/activity-<hash>.js.
+function chunks(page: Page) {
+  const seen = new Set<string>();
+  page.on('request', (r) => {
+    const m = /^\/assets\/([A-Za-z]+)-[\w-]+\.js$/.exec(new URL(r.url()).pathname);
+    if (m) seen.add(m[1]);
+  });
+  return seen;
+}
+
+test('the first screen loads one script, and a hovered link fetches its chunk before the click', async ({ page }) => {
+  const problems = watch(page);
+  // Save-Data turns idle prefetching off, so only the hover can fetch a chunk.
+  await page.addInitScript(() => Object.defineProperty(navigator, 'connection', { value: { saveData: true } }));
+  const seen = chunks(page);
+  await page.goto('/chat');
+  await expect(page.getByRole('heading', { level: 1, name: 'What should Bothy work on?' })).toBeVisible();
+  expect([...seen]).toEqual(['index']);
+  const activity = sidebar(page).getByRole('link', { name: 'Activity' });
+  await activity.hover();
+  await expect.poll(() => seen.has('activity')).toBe(true);
+  await activity.click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Activity' })).toBeFocused();
+  expect(problems).toEqual([]);
+});
+
+test('once someone is signed in, idle time loads every route chunk', async ({ page }) => {
+  const problems = watch(page);
+  const seen = chunks(page);
+  await page.goto('/chat');
+  await expect.poll(() => ['approvals', 'activity', 'knowledge', 'settings'].filter((c) => !seen.has(c)), { timeout: 20_000 }).toEqual([]);
+  expect(seen.has('auth')).toBe(false);
+  expect(problems).toEqual([]);
+});
+
 test('the account menu works from the keyboard, Theme included', async ({ page }) => {
   await page.goto('/activity?mock=team-chats');
   const trigger = sidebar(page).getByRole('button', { name: 'Account: Maya Chen' });

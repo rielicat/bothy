@@ -2,8 +2,8 @@
   import { untrack } from 'svelte';
   import { Button, Dialog, LinkButton, Notice, TextField, toast } from '../../components/ui';
   import { api, ApiError } from '../../lib/api/client';
+  import { passwordError, passwordHelp } from '../../lib/password';
   import { session } from '../../lib/stores/session.svelte';
-  import { MIN_PASSWORD, passwordHelp } from './accountHelpers';
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
@@ -29,7 +29,7 @@
   });
 
   const currentError = $derived(serverError.current ?? (submitted && !current ? 'Enter your current password.' : undefined));
-  const nextError = $derived(serverError.next ?? (submitted && [...next].length < MIN_PASSWORD ? 'Use at least 12 characters.' : undefined));
+  const nextError = $derived(serverError.next ?? (submitted ? passwordError(next) || undefined : undefined));
 
   $effect(() => {
     if (open) return;

@@ -10,7 +10,6 @@ import {
   failureCode,
   githubOutcome,
   githubStatus,
-  hostPort,
   needsAttention,
   readAt,
   searchFailure,
@@ -132,13 +131,11 @@ describe('failures (§5.6.4, §12)', () => {
     expect(githubOutcome(p({ ok: false, error: 'the App is not installed on any account yet' }), null, true)).toMatchObject({ notInstalled: true, message: "The app isn't installed on any organisation yet." });
   });
 
-  it('words web search failures and finds the address to allow', () => {
+  it('words web search failures', () => {
     expect(searchFailure('searxng', 'private_address', 'raw')).toEqual({ message: 'Bothy blocks addresses on your private network unless you allow them.', details: 'raw', allow: true });
     expect(searchFailure('searxng', 'unreachable', '').message).toBe("SearXNG isn't answering at that address. Make sure it's running.");
     expect(searchFailure('brave', 'out_of_credit', '').message).toBe('Your Brave Search account is out of credit. Add credit with Brave Search, then try again.');
     expect(searchFailure('tavily', 'nonsense', '').message).toBe('Something went wrong while checking. Try again, or choose another option.');
-    expect(hostPort('http://searxng:8080')).toBe('searxng:8080');
-    expect(hostPort('https://search.acme.dev')).toBe('search.acme.dev:443');
   });
 });
 

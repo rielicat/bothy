@@ -4,6 +4,7 @@ import { api, ApiError, errorText } from '../../../lib/api/client';
 import type { ChannelStatus, MCPStatus, SideEffect } from '../../../lib/api/types.gen';
 import { config } from '../../../lib/config.svelte';
 import { plural, relTime } from '../../../lib/format';
+import { failure, type FailureCode } from '../../../lib/providerErrors';
 import type { GitHubConnection, GitHubProbe, ReleaseEnvironment } from './types';
 
 export type AppName = 'slack' | 'telegram' | 'discord';
@@ -215,33 +216,15 @@ export function githubOutcome(p: GitHubProbe | null, e: unknown, app: boolean): 
 
 export type SearchProvider = 'searxng' | 'brave' | 'tavily';
 
-export function searchFailure(provider: SearchProvider, code: string, details: string): Failure & { allow?: boolean } {
-  const name = searchTitle[provider];
-  const messages: Record<string, string> = {
-    key_rejected: "That key wasn't accepted. Check you copied all of it, or create a new one.",
-    out_of_credit: `Your ${name} account is out of credit. Add credit with ${name}, then try again.`,
-    rate_limited: `${name} is limiting requests right now. Wait a minute and try again.`,
-    provider_error: `${name} isn't responding properly right now. Try again in a few minutes.`,
-    timeout: `${name} took too long to answer. Try again.`,
-    unreachable:
-      provider === 'searxng'
-        ? "SearXNG isn't answering at that address. Make sure it's running."
-        : `Bothy couldn't reach ${name} from this server. Check the server's internet connection or firewall.`,
-    private_address: 'Bothy blocks addresses on your private network unless you allow them.',
-    tls: "The connection to that address isn't secure because of a certificate problem. Check the address. For a server on your own network you can use http://.",
-    not_a_model_server: "That address answered, but it doesn't look like SearXNG. Check the address.",
-  };
-  return { message: messages[code] ?? 'Something went wrong while checking. Try again, or choose another option.', details, allow: code === 'private_address' };
-}
+// The model-check codes a search check can produce; the rest read as unknown.
+const searchCodes = new Set(['key_rejected', 'out_of_credit', 'rate_limited', 'provider_error', 'timeout', 'unreachable', 'private_address', 'tls']);
 
-/** host:port of an address, for "Allow {host:port}". */
-export function hostPort(address: string): string {
-  try {
-    const u = new URL(address);
-    return `${u.hostname}:${u.port || (u.protocol === 'https:' ? '443' : '80')}`;
-  } catch {
-    return address;
-  }
+export function searchFailure(provider: SearchProvider, code: string, details: string): Failure & { allow?: boolean } {
+  const message =
+    code === 'not_a_model_server'
+      ? "That address answered, but it doesn't look like SearXNG. Check the address."
+      : failure(searchCodes.has(code) ? (code as FailureCode) : 'unknown', { name: searchTitle[provider], local: provider === 'searxng' }).text;
+  return { message, details, allow: code === 'private_address' };
 }
 
 /** The vault name a config field points at ("secret:slack_bot_token"), or the default. */
