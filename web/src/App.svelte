@@ -26,8 +26,7 @@
   import SkillView from './screens/knowledge/SkillView.svelte';
   import Skills from './screens/knowledge/Skills.svelte';
   import Login from './screens/Login.svelte';
-  import GitHub from './screens/settings/connections/GitHub.svelte';
-  import WebSearch from './screens/settings/connections/WebSearch.svelte';
+  import { connectionsScreen } from './screens/settings/connections';
   import Settings from './screens/settings/Settings.svelte';
   import Setup from './screens/setup/Setup.svelte';
 
@@ -70,13 +69,15 @@
       case '/settings':
         return { c: SettingsIndex, params: p };
       case '/settings/:group':
+        if (p.group === 'connections') return { c: connectionsScreen()!, params: p };
         return { c: Settings, params: { ...p, page: legacySettingsPage(p.group) ?? p.group } };
       case '/settings/:group/:item': {
+        if (p.group === 'connections') {
+          const c = connectionsScreen(p.item);
+          return c ? { c, params: p } : null;
+        }
         const page = legacySettingsPage(p.group, p.item);
-        if (page) return { c: Settings, params: { ...p, page } };
-        if (p.group === 'connections' && p.item === 'github') return { c: GitHub, params: p };
-        if (p.group === 'connections' && p.item === 'search') return { c: WebSearch, params: p };
-        return null;
+        return page ? { c: Settings, params: { ...p, page } } : null;
       }
       case '/dev/ui':
         return Gallery ? { c: Gallery, params: p } : null;

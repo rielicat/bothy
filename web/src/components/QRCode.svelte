@@ -12,12 +12,13 @@
   );
 </script>
 
+<!-- Dark on white in both themes, because phone cameras need that contrast; on-accent is the one token that stays white. -->
 {#await path}
-  <div class="skeleton size-44 rounded-xl"></div>
+  <div class="size-44 shrink-0 rounded-md bg-subtle"></div>
 {:then q}
-  <svg viewBox="0 0 {q.n} {q.n}" class="size-44 rounded-xl bg-white p-1 shadow-sm" role="img" aria-label={label} shape-rendering="crispEdges">
-    <path d={q.d} fill="#111" />
+  <svg viewBox="0 0 {q.n} {q.n}" class="size-44 shrink-0 rounded-md bg-on-accent" role="img" aria-label={label} shape-rendering="crispEdges">
+    <path d={q.d} fill="#1e1d1a" />
   </svg>
 {:catch}
-  <p class="text-sm text-muted">This link is too long for a QR code; use the button instead.</p>
+  <p class="text-body text-muted">This link is too long for a QR code. Use the button instead.</p>
 {/await}
