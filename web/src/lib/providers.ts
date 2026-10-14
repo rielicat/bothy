@@ -174,16 +174,3 @@ export function hostPort(address: string): string {
 
 export const portOf = (address: string) => hostPort(address).split(':').pop() ?? '';
 
-/** The providers.<id> entry written on Continue. */
-export function providerEntry(def: ProviderDef, o: { base?: string; key?: boolean; allowPrivate?: boolean; region?: string }): Record<string, unknown> {
-  const entry: Record<string, unknown> = {
-    id: def.id,
-    type: def.kind,
-    base_url: o.base ?? def.base ?? '',
-    api_key: o.key && def.key ? `secret:${def.key}` : '',
-    allow_private: !!o.allowPrivate,
-    discover: def.kind === 'ollama',
-  };
-  if (o.region) entry.region = o.region;
-  return entry;
-}

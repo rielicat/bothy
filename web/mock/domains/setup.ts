@@ -1,7 +1,9 @@
 // Setup and sign-in (C2): the setup code, the owner account, signing in, and
 // the provider detection and checks the model step runs.
-import type { Detection, FailureCode, ProbeResult } from '../../src/lib/api/types.gen.ts';
-import { body, core, fail, json, on, SETUP_TOKEN, scenario, sleep, type Req } from './core.ts';
+import type { Detection, FailureCode, ProbeResult, ProviderConnectReq } from '../../src/lib/api/types.gen.ts';
+import { body, core, fail, json, nowISO, on, SETUP_TOKEN, scenario, sleep, ZERO, type Req } from './core.ts';
+import { state as security } from './security.ts';
+import { state as settings, writeConfig } from './settings.ts';
 import { me } from './shell.ts';
 
 
@@ -171,6 +173,27 @@ on('POST', '/api/providers/test', async (req, res) => {
   await sleep(checkSlow(req) ? 20000 : 900);
   if (!['anthropic', 'openai', 'gemini', 'ollama', 'openai_compat', 'bedrock'].includes(b.kind)) return fail(res, 400, 'bad_request', `unknown provider kind "${b.kind}"`);
   json(res, 200, probe(req, b));
+});
+// S6: the key, the provider and both model slots in one call, as h_onboarding.go connectProvider does.
+on('POST', '/api/providers/connect', async (req, res) => {
+  const b = JSON.parse(await body(req)) as ProviderConnectReq;
+  if (b.kind === 'openai_compat' && !b.base_url) return fail(res, 400, 'bad_request', 'base_url is required for openai_compat');
+  if (b.kind === 'bedrock' && !b.region) return fail(res, 400, 'bad_request', 'region is required for bedrock');
+  const id = b.id || b.kind;
+  const p: Record<string, unknown> = { id, type: b.kind, base_url: b.base_url ?? '', allow_private: b.allow_private, discover: b.kind === 'ollama' };
+  if (b.region) p.region = b.region;
+  if (b.api_key || b.env_var) {
+    const name = `${id}_api_key`;
+    security.secrets = [...security.secrets.filter((x) => x.name !== name), { scope: 'global', name, source: 'vault', hint: (b.api_key ?? 'env').slice(-4), updated_at: nowISO(), last_used_at: ZERO }];
+    p.api_key = `secret:${name}`;
+  } else if (b.secret_ref) p.api_key = b.secret_ref;
+  const set: Record<string, unknown> = { [`providers.${id}`]: p };
+  const chain = (path: string) => (settings.effective.entries.find((e) => e.path === path)?.value as string[] | undefined) ?? [];
+  const front = (ref: string, list: string[]) => [ref, ...list.filter((x) => x !== ref)];
+  const main = b.model ? `${id}/${b.model}` : undefined;
+  const fast = b.model ? `${id}/${b.quick_model || b.model}` : undefined;
+  if (main && fast) Object.assign(set, { 'models.main': front(main, chain('models.main')), 'models.fast': front(fast, chain('models.fast')) });
+  json(res, 200, { provider: id, main, fast, restart_required: writeConfig(set) });
 });
 on('POST', '/api/providers/detect', async (req, res) => {
   await sleep(detectSlow(req) ? 20000 : 600);

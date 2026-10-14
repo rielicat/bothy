@@ -8,7 +8,7 @@ const axePath = fileURLToPath(new URL('../node_modules/axe-core/axe.min.js', imp
 if (process.env.E2E_BASE_URL) test.use({ baseURL: process.env.E2E_BASE_URL });
 
 const LINK = (mock: string) => `/setup?mock=${mock}#t=demo-setup-token`;
-const writes = (r: Request) => r.method() !== 'GET' && /\/api\/(config|vault)/.test(new URL(r.url()).pathname);
+const writes = (r: Request) => r.method() !== 'GET' && /\/api\/(config|vault|providers\/connect)/.test(new URL(r.url()).pathname);
 
 // The spec files after this one share the mock gateway and expect its default
 // fixtures, not a half-finished setup.
@@ -85,7 +85,7 @@ test('a token link and detected AWS reach the first chat in 3 screens, 3 typed v
   await press('Continue');
 
   await screenTitle('Bothy is ready');
-  await expect.poll(() => early).toEqual(['PATCH /api/config', 'PATCH /api/config']);
+  await expect.poll(() => early).toEqual(['PATCH /api/config', 'POST /api/providers/connect']);
   await press('Start chatting');
   await expect(page).toHaveURL(/\/chat$/);
 
@@ -119,7 +119,7 @@ test('trying several providers writes nothing until Continue', async ({ page }) 
   await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page.getByText('Bothy is ready')).toBeVisible();
   await completed;
-  expect(seen.slice(afterStep1)).toEqual(['PUT /api/vault/global/openai_api_key', 'PATCH /api/config']);
+  expect(seen.slice(afterStep1)).toEqual(['POST /api/providers/connect']);
 });
 
 test('the whole setup works from the keyboard alone', async ({ page }) => {

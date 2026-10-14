@@ -13,7 +13,7 @@ function withMock(mock: string): Call[] {
   return calls;
 }
 
-const writes = (calls: Call[]) => calls.filter((c) => c.method !== 'GET' && /\/api\/(config|vault)/.test(c.url));
+const writes = (calls: Call[]) => calls.filter((c) => c.method !== 'GET' && /\/api\/(config|vault|providers\/connect)/.test(c.url));
 
 async function fillAccount(name = 'Maya Chen', username = 'maya', password = 'Granite-River-42-Lantern') {
   await fireEvent.input(await screen.findByLabelText('Your name'), { target: { value: name } });
@@ -204,11 +204,15 @@ describe('steps 2 and 3', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     expect(await screen.findByText('Bothy is ready')).toBeTruthy();
     const save = writes(calls).slice(before);
-    expect(save.map((c) => `${c.method} ${c.url}`)).toEqual(['PATCH /api/config']);
-    const set = JSON.parse(save[0].body).set;
-    expect(set['providers.bedrock']).toMatchObject({ type: 'bedrock', region: 'us-east-1' });
-    expect(set['models.main']).toEqual(['bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0']);
-    expect(set['models.fast']).toEqual(['bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0']);
+    expect(save.map((c) => `${c.method} ${c.url}`)).toEqual(['POST /api/providers/connect']);
+    const req = JSON.parse(save[0].body);
+    expect(req).toMatchObject({
+      id: 'bedrock',
+      kind: 'bedrock',
+      region: 'us-east-1',
+      model: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
+      quick_model: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+    });
 
     await waitFor(() => expect(session.finishing).toBe(true));
     expect(calls.some((c) => c.url === '/api/setup/complete')).toBe(true);

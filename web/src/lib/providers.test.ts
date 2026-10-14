@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bestModel, friendlyModel, hostPort, modelNote, modelOptions, pickModels, provider, providerEntry, providers, regionName } from './providers';
+import { bestModel, friendlyModel, hostPort, modelNote, modelOptions, pickModels, provider, providers, regionName } from './providers';
 
 describe('friendly model names (S5 fallback)', () => {
   it.each([
@@ -62,12 +62,6 @@ describe('provider entries', () => {
   it('lists the plan providers in order, with More providers last', () => {
     expect(providers.filter((p) => !p.more).map((p) => p.name)).toEqual(['Anthropic', 'OpenAI', 'Google Gemini', 'OpenRouter', 'Amazon Bedrock']);
     expect(providers.filter((p) => p.more).map((p) => p.name)).toEqual(['Groq', 'xAI', 'DeepSeek', 'Ollama', 'LM Studio', 'Other server']);
-  });
-
-  it('writes a provider with its saved key, private-address permission and region', () => {
-    expect(providerEntry(provider('anthropic'), { key: true })).toEqual({ id: 'anthropic', type: 'anthropic', base_url: '', api_key: 'secret:anthropic_api_key', allow_private: false, discover: false });
-    expect(providerEntry(provider('ollama'), { base: 'http://10.0.0.5:11434', allowPrivate: true })).toMatchObject({ type: 'ollama', base_url: 'http://10.0.0.5:11434', api_key: '', allow_private: true, discover: true });
-    expect(providerEntry(provider('bedrock'), { region: 'eu-west-1' })).toMatchObject({ type: 'bedrock', region: 'eu-west-1' });
   });
 
   it('names hosts and regions for people', () => {

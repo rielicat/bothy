@@ -12,7 +12,7 @@ function withMock(mock = ''): Call[] {
   return calls;
 }
 
-const writes = (calls: Call[]) => calls.filter((c) => c.method !== 'GET' && /\/api\/(config|vault)/.test(c.url));
+const writes = (calls: Call[]) => calls.filter((c) => c.method !== 'GET' && /\/api\/(config|vault|providers\/connect)/.test(c.url));
 const tests = (calls: Call[]) => calls.filter((c) => c.url === '/api/providers/test').map((c) => JSON.parse(c.body));
 const radio = (name: string) => screen.getByRole('radio', { name: new RegExp(`^${name}`) });
 const LONG_KEY = 'sk-ant-api03-0123456789abcdefghij';
@@ -116,12 +116,15 @@ describe('ProviderChooser in setup', () => {
 
     await fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     await waitFor(() => expect(onconnected).toHaveBeenCalled());
-    expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['PUT /api/vault/global/anthropic_api_key', 'PATCH /api/config']);
-    const set = JSON.parse(writes(calls)[1].body).set;
-    expect(set).toEqual({
-      'providers.anthropic': { id: 'anthropic', type: 'anthropic', base_url: '', api_key: 'secret:anthropic_api_key', allow_private: false, discover: false },
-      'models.main': ['anthropic/claude-sonnet-4-6'],
-      'models.fast': ['anthropic/claude-haiku-4-5-20251001'],
+    expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['POST /api/providers/connect']);
+    expect(JSON.parse(writes(calls)[0].body)).toEqual({
+      id: 'anthropic',
+      kind: 'anthropic',
+      base_url: '',
+      allow_private: false,
+      api_key: LONG_KEY,
+      model: 'claude-sonnet-4-6',
+      quick_model: 'claude-haiku-4-5-20251001',
     });
   });
 
@@ -211,7 +214,7 @@ describe('ProviderChooser in setup', () => {
   });
 
   it('shows the save failure under Continue', async () => {
-    installApi({ override: (m, url) => (m === 'PATCH' && url === '/api/config' ? new Response('{"error":{"code":"internal","message":"disk full"}}', { status: 500 }) : undefined) });
+    installApi({ override: (m, url) => (m === 'POST' && url === '/api/providers/connect' ? new Response('{"error":{"code":"internal","message":"disk full"}}', { status: 500 }) : undefined) });
     resetMock({ mock: 'detect-aws' });
     setCsrf('mock-csrf');
     render(ProviderChooser);
@@ -231,8 +234,9 @@ describe('ProviderChooser in settings', () => {
     await paste(screen.getByLabelText('API key'), 'AIzaSy0123456789abcdefghijk');
     await waitFor(() => expect(onconnected).toHaveBeenCalledWith(expect.objectContaining({ id: 'gemini', name: 'Google Gemini' })), { timeout: 3000 });
     expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull();
-    const set = JSON.parse(writes(calls).at(-1)!.body).set;
-    expect(Object.keys(set)).toEqual(['providers.gemini']);
+    const req = JSON.parse(writes(calls).at(-1)!.body);
+    expect(req).toMatchObject({ id: 'gemini', kind: 'gemini' });
+    expect(req.model).toBeUndefined();
     expect(within(document.body).getByText('Connected.')).toBeTruthy();
   });
 });

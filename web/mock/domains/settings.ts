@@ -145,13 +145,18 @@ on('PATCH', '/api/config', async (req, res) => {
     .map(([p]) => ({ path: p, source: { layer: 'ui' }, message: p.startsWith('server.listen') ? `bothy.ui.yaml: ${p}: locked; set it in bothy.yaml or the environment` : `bothy.ui.yaml: ${p}: must be 0 or more` }));
   if (bad.length) return json(res, 400, { error: { code: 'bad_request', message: bad.map((b) => b.message).join('; ') }, fields: bad });
   if (bedrock(req) && !state.effective.entries.some((e) => e.path.startsWith('providers.bedrock.'))) state.effective.entries.push(...clone(bedrockEntries));
-  for (const [p, v] of Object.entries(set as Record<string, unknown>)) setConfig(p, v, `user:${core.me.id}`);
+  json(res, 200, { restart_required: writeConfig(set) });
+});
+
+/** Applies a config change set as PATCH /api/config does; returns what needs a restart. */
+export function writeConfig(set: Record<string, unknown>): string[] {
+  for (const [p, v] of Object.entries(set)) setConfig(p, v, `user:${core.me.id}`);
   const paths = Object.keys(set);
   const restart = paths.filter((p) => p.startsWith('sandbox.backend') || state.effective.entries.some((e) => e.path === p && !e.hot));
   state.effective.restart_required = [...new Set([...state.effective.restart_required, ...restart])];
   emit('config.changed', { paths, restart_required: restart });
-  json(res, 200, { restart_required: restart });
-});
+  return restart;
+}
 on('DELETE', '/api/config/{path...}', (_q, res, m) => {
   const e = state.effective.entries.find((x) => x.path === decodeURIComponent(m[1]));
   if (e?.source.layer === 'ui' && e.shadowed?.length) {

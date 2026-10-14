@@ -10,7 +10,7 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
   import { api, ApiError, errorText } from '../lib/api/client';
-  import type { Detection, ProbeResult } from '../lib/api/types.gen';
+  import type { Detection, ProbeResult, ProviderConnectReq, ProviderConnectResp } from '../lib/api/types.gen';
   import { plural } from '../lib/format';
   import { failure, failureCode, AWS_HELP, type Failure } from '../lib/providerErrors';
   import {
@@ -22,7 +22,6 @@
     modelOptions,
     pickModels,
     provider,
-    providerEntry,
     providers,
     regionName,
     regions,
@@ -322,8 +321,8 @@
     (radios.find((r) => r.checked) ?? radios[0])?.focus();
   }
 
-  // One commit per intent (D13): the key, the provider and both model slots
-  // are written only here. Until S6 lands these are the existing calls in sequence.
+  // One commit per intent (D13): POST /api/providers/connect stores the key,
+  // writes the provider and, in setup, puts the models first in both slots (S6).
   async function save() {
     if (!selected || !ready || saving) return;
     const r = row(selected);
@@ -332,23 +331,13 @@
     saving = true;
     saveError = '';
     try {
-      let key = false;
-      if (r.source === 'env' && d.key) {
-        await api.post('/api/vault/import', { env_var: r.detection?.env_var, name: d.key });
-        key = true;
-      } else if (d.key && s.key.trim()) {
-        await api.put(`/api/vault/global/${encodeURIComponent(d.key)}`, { value: s.key.trim() });
-        key = true;
-      }
       const address = d.local || d.custom || r.source === 'local' ? s.address.trim() : undefined;
-      const set: Record<string, unknown> = {
-        [`providers.${d.id}`]: providerEntry(d, { base: address, key, allowPrivate: s.allowPrivate, region: d.kind === 'bedrock' ? s.region : undefined }),
-      };
-      if (setup) {
-        set['models.main'] = [`${d.id}/${s.main}`];
-        set['models.fast'] = [`${d.id}/${s.quick || s.main}`];
-      }
-      await api.patch('/api/config', { set });
+      const req: ProviderConnectReq = { id: d.id, kind: d.kind, base_url: address ?? d.base ?? '', allow_private: s.allowPrivate };
+      if (r.source === 'env' && r.detection?.env_var) req.env_var = r.detection.env_var;
+      else if (d.key && s.key.trim()) req.api_key = s.key.trim();
+      if (d.kind === 'bedrock') req.region = s.region;
+      if (setup) Object.assign(req, { model: s.main, quick_model: s.quick || s.main });
+      await api.post<ProviderConnectResp>('/api/providers/connect', req);
       onconnected?.({ id: d.id, name: d.name, main: s.main, quick: s.quick || s.main });
     } catch (e) {
       saveError = "Bothy couldn't save this connection. Try again. If it keeps happening, check that the server's data folder isn't full or read-only.";

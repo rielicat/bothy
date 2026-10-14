@@ -137,8 +137,10 @@ describe('Settings → Models', () => {
     const key = within(dialog).getByLabelText('API key');
     await fireEvent.input(key, { target: { value: 'gsk_0123456789abcdefghij' } });
     await fireEvent.keyDown(key, { key: 'Enter' });
-    await waitFor(() => expect(patches(calls).at(-1)).toMatchObject({ 'providers.groq': { id: 'groq', type: 'openai_compat', api_key: 'secret:groq_api_key' } }), { timeout: 3000 });
-    expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/vault/global/groq_api_key')).toBe(true);
+    const connect = () => calls.find((c) => c.method === 'POST' && c.url === '/api/providers/connect');
+    await waitFor(() => expect(connect()).toBeTruthy(), { timeout: 3000 });
+    // Settings adds the provider only; the model slots stay as they are.
+    expect(JSON.parse(connect()!.body)).toEqual({ id: 'groq', kind: 'openai_compat', base_url: 'https://api.groq.com/openai/v1', allow_private: false, api_key: 'gsk_0123456789abcdefghij' });
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add a provider' })).toBeNull());
     await waitFor(() => expect(toaster.current?.text).toBe('Groq connected.'));
   });
