@@ -16,7 +16,6 @@
   import Persona from './Persona.svelte';
   import Policy from './Policy.svelte';
   import Sandbox from './Sandbox.svelte';
-  import Skills from './Skills.svelte';
   import Tokens from './Tokens.svelte';
   import Vault from './Vault.svelte';
 
@@ -31,7 +30,6 @@
     { id: 'policy', label: 'Policy', icon: 'shield', c: Policy, admin: true },
     { id: 'sandbox', label: 'Sandbox & egress', icon: 'box', c: Sandbox, admin: true },
     { id: 'mcp', label: 'MCP servers', icon: 'plug', c: Mcp, admin: true },
-    { id: 'skills', label: 'Skills', icon: 'skills', c: Skills },
     { id: 'persona', label: 'Persona', icon: 'smile', c: Persona },
     { id: 'vault', label: 'Vault', icon: 'key', c: Vault },
     { id: 'tokens', label: 'API tokens', icon: 'code', c: Tokens },
