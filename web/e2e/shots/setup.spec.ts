@@ -277,15 +277,15 @@ const states: ShotState[] = [
   step2('model-saving', 'detect-aws', async (page) => {
     await account(page);
     await connected(page);
-    await page.route('**/api/config', (r) => (r.request().method() === 'PATCH' ? new Promise(() => {}) : r.fallback()));
+    await page.route('**/api/providers/connect', () => new Promise(() => {}));
     await page.getByRole('button', { name: 'Continue' }).click();
     await page.getByText('Saving…').waitFor();
   }),
   step2('model-save-failed', 'detect-aws', async (page) => {
     await account(page);
     await connected(page);
-    await page.route('**/api/config', (r) =>
-      r.request().method() === 'PATCH' ? r.fulfill({ status: 500, contentType: 'application/json', body: '{"error":{"code":"internal","message":"write /data/bothy.ui.yaml: read-only file system"}}' }) : r.fallback(),
+    await page.route('**/api/providers/connect', (r) =>
+      r.fulfill({ status: 500, contentType: 'application/json', body: '{"error":{"code":"internal","message":"write /data/bothy.ui.yaml: read-only file system"}}' }),
     );
     await page.getByRole('button', { name: 'Continue' }).click();
     await page.getByText("Bothy couldn't save this connection.").waitFor();
