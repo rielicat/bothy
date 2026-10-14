@@ -104,3 +104,13 @@ The embedded `CONSTITUTION.md`, `CONSTITUTION.short.md` and default `SOUL.md`
 product prompts: changing either constitution requires bumping
 `constitutionVersion` (a test pins their hash), which is recorded in
 `meta.constitution_version`.
+
+The first stored turn of an untitled session names it after its first message
+(`core.DraftTitle`, 48 characters) and publishes `session.updated`; after the
+run is done a fast-slot call writes the title, which replaces only that draft,
+never a name someone chose. Notices (`notices.go`) follow the UI copy guide: a
+failed answer names the party at fault once ("Anthropic had a problem
+answering.", "No AI model could answer right now.", a rejected key told
+differently to admins and members) while the raw provider message stays in
+the run's error, and limits, restarts, stops and forks are said in plain
+words with amounts as money.

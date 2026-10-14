@@ -62,3 +62,21 @@ return it still pending; `GET /api/approvals/{id}/votes` gives the caller's
 view of the votes (count, who may vote, `can_vote`/`can_withdraw`), and
 `GET /api/releases` and `GET /api/releases/deploys` list the release
 environments and deploy records (own deploys; everyone's for admins).
+For the v0.2 UI (docs/design/ui.md §17) responses carry names instead of
+ids (`names.go`, cached per response and resolved through the caller's
+Viewer, an admin's for the audit log and everyone's usage): runs list as
+`dto.RunView` (`requested_by_name`, `chat_title`, `schedule_name`), usage rows
+name people, schedules and chats, approvals carry `decided_by_name`, and audit
+rows carry `actor_name` and a one-line `summary` (`audit_summary.go`, phrased
+from the approval or tool call the row was about). Egress rows add one
+`outcome` (`reached`, `allowed_unreachable`, `blocked`). Transcript pages set
+`state` and `approval_id` on tool_call parts from the call record, its
+approval and its result (`h_transcript.go`; never stored) and list the
+approvals those calls asked for, decided ones included. `POST /api/sessions`
+may carry the first message (202 `SessionCreated`), uploads for such a chat
+name `principal_id`, session lists hide sessions without messages, and an
+untitled session is named after its first message in lists, details, runs
+and search. `GET /api/search` returns chats, project-notes sections and
+knowledge code hits as plain-text snippets with UTF-16 match ranges
+(`snippet.go`); `GET /api/sessions/{id}/refine-estimate` multiplies the
+chat's recent answer-step cost by the configured refine work.
