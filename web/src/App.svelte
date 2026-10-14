@@ -6,7 +6,7 @@
   import Shell from './components/shell/Shell.svelte';
   import LiveRegion from './components/ui/LiveRegion.svelte';
   import ToastHost from './components/ui/ToastHost.svelte';
-  import { legacySettingsPage, redirect, settingsHome, type Match, type Params } from './lib/routes';
+  import { redirect, settingsHome, type Match, type Params } from './lib/routes';
   import { router, safeNext } from './lib/router.svelte';
   import { session } from './lib/stores/session.svelte';
   import Audit from './screens/activity/Audit.svelte';
@@ -40,8 +40,6 @@
 
   // One bundle: it compresses far better than a chunk per screen (shared
   // Svelte and Tailwind vocabulary), and the JS budget counts every chunk.
-  // v0.2 addresses point at the v0.1 screen that covers them until the chunk
-  // that owns the address replaces it (docs/design/ui.md §18.1).
   const screens: Partial<Record<string, Screen>> = {
     '/setup': Setup,
     '/login': Login,
@@ -77,7 +75,7 @@
         if (p.group === 'connections') return { c: connectionsScreen()!, params: p };
         if (p.group === 'security') return { c: Security, params: p };
         if (p.group === 'advanced') return { c: Advanced, params: p };
-        return { c: Settings, params: { ...p, page: legacySettingsPage(p.group) ?? p.group } };
+        return { c: Settings, params: p };
       case '/settings/:group/:item': {
         if (p.group === 'connections') {
           const c = connectionsScreen(p.item);
@@ -87,8 +85,7 @@
           const c = ({ permissions: Permissions, websites: Websites, keys: SavedKeys } as Partial<Record<string, Screen>>)[p.item];
           return c ? { c, params: p } : null;
         }
-        const page = legacySettingsPage(p.group, p.item);
-        return page ? { c: Settings, params: { ...p, page } } : null;
+        return p.group === 'general' && p.item === 'personality' ? { c: Settings, params: p } : null;
       }
       case '/dev/ui':
         return Gallery ? { c: Gallery, params: p } : null;
@@ -144,6 +141,9 @@
       if (pattern !== '/setup') router.navigate('/setup', { replace: true });
     } else if (!session.me) {
       if (!isPublic || pattern === '/setup') router.navigate(`/login?next=${encodeURIComponent(here)}`, { replace: true });
+    } else if (session.me.user.must_change_password) {
+      // The server refuses everything else until the one-time password is replaced (S9).
+      if (pattern !== '/password') router.navigate(`/password?next=${encodeURIComponent(isPublic ? safeNext(router.query.get('next')) : here)}`, { replace: true });
     } else if (isPublic && !(pattern === '/setup' && session.finishing)) {
       router.navigate(safeNext(router.query.get('next')), { replace: true });
     } else if (settingsMoves) {

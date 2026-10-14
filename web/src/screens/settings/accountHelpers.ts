@@ -3,9 +3,8 @@
 import type { TokenRecord, User } from '../../lib/api/types.gen';
 import { isZeroTime, relTime } from '../../lib/format';
 
-// Local until S9 is in types.gen.ts (docs/design/ui.md §17); C10 removes them.
-export type UserV2 = User & { last_login_at?: string; must_change_password?: boolean };
-export type UserCreateResp = UserV2 & { one_time_password?: string };
+// GET /api/users does not say when someone last signed in yet (docs/design/ui.md §17).
+export type UserV2 = User & { last_login_at?: string };
 
 /** The signed-in person's own profile (server need: self-service name and approval delivery). */
 export interface Profile {
@@ -29,16 +28,6 @@ export function passwordHelp(pw: string): string {
   if (n >= MIN_PASSWORD) return 'Long enough.';
   const left = MIN_PASSWORD - n;
   return `${left} more ${left === 1 ? 'character' : 'characters'} needed.`;
-}
-
-// No 0/O, 1/l/I: the password is read off a screen and typed by someone else.
-const ALPHABET = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-
-/** A one-time password in four groups of four, "h7Fq-2mKx-9wPr-tB4n". */
-export function generatePassword(random: (n: number) => Uint32Array = (n) => crypto.getRandomValues(new Uint32Array(n))): string {
-  const r = random(16);
-  const chars = Array.from(r, (v) => ALPHABET[v % ALPHABET.length]);
-  return [0, 4, 8, 12].map((i) => chars.slice(i, i + 4).join('')).join('-');
 }
 
 export interface ScopeChoice {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { legacyPatterns, legacySettingsPage, match, patterns, redirect, resolve, settingsHome } from './routes';
+import { legacyPatterns, match, patterns, redirect, resolve, settingsHome } from './routes';
 
 describe('routes', () => {
   it('matches static and parameterised patterns', () => {
@@ -100,30 +100,5 @@ describe('redirects (§4.5)', () => {
   it('sends /settings to the first group the viewer can open', () => {
     expect(settingsHome(true)).toBe('/settings/general');
     expect(settingsHome(false)).toBe('/settings/account');
-  });
-});
-
-describe('v0.1 screens behind v0.2 settings addresses', () => {
-  it('maps groups', () => {
-    expect(legacySettingsPage('account')).toBe('tokens');
-    expect(legacySettingsPage('general')).toBe('general');
-    expect(legacySettingsPage('models')).toBe('models');
-    expect(legacySettingsPage('connections')).toBe('channels');
-    expect(legacySettingsPage('people')).toBe('people');
-    expect(legacySettingsPage('security')).toBe('policy');
-    expect(legacySettingsPage('advanced')).toBe('advanced');
-  });
-
-  it('maps items, and leaves new screens to their stubs', () => {
-    expect(legacySettingsPage('general', 'personality')).toBe('persona');
-    expect(legacySettingsPage('connections', 'telegram')).toBe('channels');
-    expect(legacySettingsPage('connections', 'mcp-docs')).toBe('mcp');
-    expect(legacySettingsPage('security', 'permissions')).toBe('policy');
-    expect(legacySettingsPage('security', 'websites')).toBe('sandbox');
-    expect(legacySettingsPage('security', 'keys')).toBe('vault');
-    expect(legacySettingsPage('connections', 'github')).toBeNull();
-    expect(legacySettingsPage('connections', 'search')).toBeNull();
-    expect(legacySettingsPage('security', 'nope')).toBeNull();
-    expect(legacySettingsPage('models', 'x')).toBeNull();
   });
 });

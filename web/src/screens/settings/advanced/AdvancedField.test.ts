@@ -114,7 +114,7 @@ describe('AdvancedField', () => {
   });
 
   it('shows nothing for a setting this server does not have', () => {
-    const { container } = render(AdvancedField, { path: 'agent.refine.drafts', label: 'Drafts', type: 'number' });
+    const { container } = render(AdvancedField, { path: 'agent.not_a_setting', label: 'Not a setting', type: 'number' });
     expect(container.textContent?.trim()).toBe('');
   });
 });

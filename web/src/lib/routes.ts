@@ -102,29 +102,7 @@ export function redirect(path: string): string | null {
   return null;
 }
 
-/** Where /settings lands on a wide screen (§4.5); phones get the group list once C1 builds it. */
+/** Where /settings lands on a wide screen (§4.5); phones and tablets get the group list. */
 export function settingsHome(admin: boolean): string {
   return admin ? '/settings/general' : '/settings/account';
-}
-
-/**
- * The v0.1 settings page that covers a v0.2 settings address until the chunk
- * that owns it replaces it (§18.1 migration rule). Null means a stub screen.
- */
-export function legacySettingsPage(group: string, item?: string): string | null {
-  if (item === undefined) {
-    const groups: Record<string, string> = { account: 'tokens', connections: 'channels', security: 'policy' };
-    return groups[group] ?? group;
-  }
-  if (group === 'general' && item === 'personality') return 'persona';
-  if (group === 'connections') {
-    if (item === 'slack' || item === 'telegram' || item === 'discord') return 'channels';
-    if (item.startsWith('mcp-')) return 'mcp';
-    return null;
-  }
-  if (group === 'security') {
-    const items: Record<string, string> = { permissions: 'policy', websites: 'sandbox', keys: 'vault' };
-    return items[item] ?? null;
-  }
-  return null;
 }

@@ -4,7 +4,7 @@
   import type { Effective, SetupClaimResp } from '../../lib/api/types.gen';
   import { router } from '../../lib/router.svelte';
   import { session } from '../../lib/stores/session.svelte';
-  import { codeError, type SetupStateV2 } from './auth';
+  import { codeError } from './auth';
   import SetupCode from './SetupCode.svelte';
   import StepAccount, { type Account } from './StepAccount.svelte';
   import StepModel from './StepModel.svelte';
@@ -15,7 +15,7 @@
   // owner → the model step until a main model is set, then the last step.
   type Screen = 'wait' | 'code' | 'account' | 'model' | 'ready';
 
-  const setupState = session.setup as SetupStateV2 | null;
+  const setupState = session.setup;
   const token = /^#t=([^&]+)/.exec(location.hash)?.[1];
 
   function initial(): Screen {

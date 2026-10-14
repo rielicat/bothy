@@ -1,53 +1,19 @@
-// Knowledge API (docs/design/ui.md §9, server need S18). The types mirror
-// internal/core/knowledge.go; they are local until types.gen.ts carries them
-// (C10 swaps them for the generated ones). Fields marked "S18" are what the
-// screens need beyond today's server; every one of them is optional and the
+// Knowledge API (docs/design/ui.md §9, server need S18). Fields marked "S18"
+// are what the screens need beyond today's server; each is optional and the
 // screens fall back when it is missing.
 import { api, ApiError, qs } from './client';
+import type { IndexedRepo, KnowledgeHit as Hit, KnowledgeNotes } from './types.gen';
 
-export type IndexStatus = 'queued' | 'indexing' | 'ready' | 'error';
+export type { KnowledgeNotes };
 
-export interface NotesState {
-  status: 'none' | 'drafting' | 'ready' | 'error';
-  error?: string;
-  untrusted: boolean;
-  updated_at: string;
-}
-
-export interface KnowledgeRepo {
-  id: number;
-  repo: string;
-  source: string;
-  sha: string;
-  status: IndexStatus;
-  error?: string;
-  files: number;
-  chunks: number;
-  bytes: number;
-  skipped: number;
-  truncated: boolean;
-  indexed_at: string;
-  notes: NotesState;
-  created_at: string;
-  updated_at: string;
+export type KnowledgeRepo = IndexedRepo & {
   /** S18: files read so far and the total expected, while reading. */
   progress?: { done: number; total: number };
   /** S18: the default branch moved on since the last read. */
   stale?: boolean;
   /** S18: the first sentence of the notes, for the project list. */
   summary?: string;
-}
-
-export interface KnowledgeNotes {
-  repo_id: number;
-  repo: string;
-  content: string;
-  etag: string;
-  cap_bytes: number;
-  status: string;
-  untrusted: boolean;
-  updated_at: string;
-}
+};
 
 /** S18: one change to a project's notes. */
 export interface NotesChange {
@@ -62,22 +28,10 @@ export interface NotesChange {
   chat?: { id: string; title: string };
 }
 
-export interface KnowledgeHit {
-  repo_id: number;
-  repo: string;
-  sha: string;
-  path: string;
-  start_line: number;
-  end_line: number;
-  kind: string;
-  lang: string;
-  title: string;
-  snippet: string;
-  citation: string;
-  rank: number;
+export type KnowledgeHit = Hit & {
   /** S18: where the hit came from; the server searches code only today. */
   source?: 'code' | 'notes';
-}
+};
 
 const repoPath = (id: number) => `/api/knowledge/repos/${id}`;
 
@@ -122,9 +76,12 @@ export function queuedRepo(repo: string): KnowledgeRepo {
   const zero = '0001-01-01T00:00:00Z';
   return {
     id: 0,
+    principal_id: '',
     repo,
     source: 'github',
+    dir: '',
     sha: '',
+    indexed_sha: '',
     status: 'queued',
     files: 0,
     chunks: 0,

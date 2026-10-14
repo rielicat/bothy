@@ -175,11 +175,15 @@ export function failureText(code: string, provider: string, kind = '', model = '
   }
 }
 
-/** Refine's cost from configuration alone (S10 fallback): every draft plus one check. */
-export function refineDrafts(preset: string): number {
-  return preset === 'thorough' ? 8 : 3;
-}
+export type RefinePreset = 'standard' | 'thorough' | 'custom';
 
-export function refineMultiplier(preset: string): number {
-  return refineDrafts(preset) + 1;
+/** "How thorough" as agent.refine numbers; Standard is the server's default. */
+export const refinePresets = {
+  standard: { drafts: 3, depth: 2 },
+  thorough: { drafts: 5, depth: 2 },
+} as const;
+
+export function refinePresetOf(drafts: number, depth: number): RefinePreset {
+  for (const k of ['standard', 'thorough'] as const) if (refinePresets[k].drafts === drafts && refinePresets[k].depth === depth) return k;
+  return 'custom';
 }

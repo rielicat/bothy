@@ -1,18 +1,26 @@
-// Activity's API types and shared lookups.
-//
-// Local types, to swap for types.gen.ts in C10 once the server tracks land
-// (docs/design/ui.md §17): S8 names on runs, usage, audit rows and deploys;
-// S16 audit summaries and egress outcomes; the release, vote and refine
-// shapes as internal/core on main defines them. Every extra field is
-// optional, and each screen has a fallback for when it is missing.
+// Activity's API types and shared lookups. The generated server types,
+// plus the fields the screens can use that the server doesn't send yet
+// (docs/design/ui.md §17); each screen has a fallback without them.
 import { api } from '../../lib/api/client';
-import type { Approval, AuditEntry, AuditVerify, EgressRecord, Run, RunDetail, Session, UsageRow, User } from '../../lib/api/types.gen';
+import type {
+  Approval,
+  AuditEntry,
+  AuditRow as ServerAuditRow,
+  AuditVerify,
+  Deploy as ServerDeploy,
+  EgressRecord,
+  ReleaseEnvironment,
+  RunDetail,
+  RunView,
+  Session,
+  UsageRowView,
+  User,
+} from '../../lib/api/types.gen';
 import { session } from '../../lib/stores/session.svelte';
 
-export type TaskRun = Run & {
-  requested_by_name?: string;
-  chat_title?: string;
-  schedule_name?: string;
+export type { RefineEntry, RefineTrace, RefineVote, ReleaseEnvironment } from '../../lib/api/types.gen';
+
+export type TaskRun = RunView & {
   /** The chat's origin: web, slack, telegram, discord, api, schedule. */
   origin?: string;
   /** A plain one-line reason for a failure. */
@@ -20,85 +28,28 @@ export type TaskRun = Run & {
   refined?: boolean;
 };
 
-export interface RefineVote {
-  answer: string;
-  count: number;
-  drafts: number[];
-}
+export type TaskDetail = Omit<RunDetail, 'run'> & { run?: TaskRun; answer?: string };
 
-export interface RefineEntry {
-  draft: number;
-  round: number;
-  role: string;
-  text: string;
-  model?: string;
-  cost_micros: number;
-  error?: string;
-}
-
-export interface RefineTrace {
-  drafts: number;
-  depth: number;
-  rounds: number;
-  early_stop: boolean;
-  fallback?: string;
-  winner: number;
-  votes: RefineVote[];
-  entries?: RefineEntry[];
-  calls: number;
-  cost_micros: number;
-}
-
-export type TaskDetail = Omit<RunDetail, 'run'> & { run?: TaskRun; refine?: RefineTrace; answer?: string };
-
-export interface ReleaseEnvironment {
-  name: string;
-  repo: string;
-  workflow: string;
-  ref_pattern: string;
-  required: number;
-  approvers: { kind: string; id: string; name: string }[];
-}
-
-export interface Deploy {
-  id: string;
-  environment: string;
-  repo: string;
-  ref: string;
-  session_id: string;
-  run_id?: string;
-  approval_id?: string;
-  requested_by: string;
-  approved_by: string[];
-  status: string;
-  run_url?: string;
-  conclusion?: string;
-  error?: string;
-  created_at: string;
-  finished_at: string;
+export type Deploy = ServerDeploy & {
   requested_by_name?: string;
   approved_by_names?: string[];
   sha?: string;
   subject?: string;
-}
+};
 
 export interface Releases {
   environments: ReleaseEnvironment[];
   deploys: (Deploy | undefined)[];
 }
 
-export type VotedApproval = Approval & {
-  votes?: { user_id: string; choice: string; at: string }[];
-  approver: Approval['approver'] & { required?: number; requester?: string };
-  requested_by_name?: string;
-  decided_by_name?: string;
-  comment?: string;
-};
+export type VotedApproval = Approval & { requested_by_name?: string };
 
-export type AuditRow = AuditEntry & { actor_name?: string; summary?: string };
-export type EgressRow = EgressRecord & { outcome?: 'reached' | 'allowed_unreachable' | 'blocked' };
-export type NamedUsageRow = UsageRow & { name?: string };
 export type AuditCheck = AuditVerify & { checked?: number; bad_at?: string };
+
+// Optional here so the line builders keep their own wording for rows recorded without them.
+export type AuditRow = AuditEntry & Partial<Pick<ServerAuditRow, 'actor_name' | 'summary'>>;
+export type EgressRow = EgressRecord & { outcome?: 'reached' | 'allowed_unreachable' | 'blocked' };
+export type NamedUsageRow = Omit<UsageRowView, 'name'> & { name?: string };
 
 /** Allow votes so far and votes needed, for "(1 of 2)". */
 export function votesOf(a: VotedApproval | undefined): { approved: number; required: number } | undefined {

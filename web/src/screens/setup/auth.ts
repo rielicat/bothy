@@ -2,13 +2,10 @@
 // (docs/design/ui.md §5.3, §5.5, §5.9). Server messages are matched here so
 // none of them reaches the screen.
 import { ApiError } from '../../lib/api/client';
-import type { Me, SetupState } from '../../lib/api/types.gen';
+import type { InstallKind } from '../../lib/api/types.gen';
 import { parseGoDuration, plural } from '../../lib/format';
 
-// Local until S1 and S9 land in types.gen.ts (docs/design/ui.md §17); C10 moves them.
-export type Install = 'compose' | 'docker' | 'binary' | 'unknown';
-export type SetupStateV2 = SetupState & { install?: Install };
-export type MeV2 = Me & { must_change_password?: boolean };
+export type Install = InstallKind;
 
 export const NO_RESPONSE = "Bothy didn't respond. Check that it's still running, then try again.";
 

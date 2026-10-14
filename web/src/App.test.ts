@@ -55,3 +55,20 @@ describe('route guard after the wizard finished', () => {
     expect(router.path).toBe('/chat');
   });
 });
+
+describe('route guard for a one-time password', () => {
+  beforeEach(async () => {
+    installApi();
+    session.ready = false;
+    await session.init();
+  });
+
+  it('keeps someone who must choose a password on that screen after a reload', async () => {
+    session.me = { ...session.me!, user: { ...session.me!.user, must_change_password: true } };
+    router.navigate('/approvals');
+    render(App);
+    await waitFor(() => expect(router.path).toBe('/password'));
+    expect(router.query.get('next')).toBe('/approvals');
+    expect(await screen.findByText('Choose a new password')).toBeTruthy();
+  });
+});

@@ -51,12 +51,14 @@ Ask before doing anything that leaves the company or can't be undone.`;
 const changedPersona = `${persona}
 When someone asks about a release, check the release checklist in acme/web first.`;
 
-// Settings the server doesn't have yet (Bothy's name and tone, Refine); C7 shows their rows only when the config lists them.
+// Bothy's name and tone aren't server settings yet, so General shows their rows only when the config lists them.
 const pending: Entry[] = [
   { path: 'agent.name', value: 'Bothy', source: { layer: 'default' }, shadowed: [], locked: false, hot: true, secret: false },
   { path: 'agent.tone', value: 'warm', source: { layer: 'default' }, shadowed: [], locked: false, hot: true, secret: false },
-  { path: 'refine.default', value: false, source: { layer: 'default' }, shadowed: [], locked: false, hot: true, secret: false },
-  { path: 'refine.preset', value: 'standard', source: { layer: 'default' }, shadowed: [], locked: false, hot: true, secret: false },
+  { path: 'agent.refine.enabled', value: false, source: { layer: 'default' }, shadowed: [], locked: false, hot: true, secret: false },
+  { path: 'agent.refine.drafts', value: 3, source: { layer: 'default' }, shadowed: [], locked: false, hot: true, secret: false },
+  { path: 'agent.refine.depth', value: 2, source: { layer: 'default' }, shadowed: [], locked: false, hot: true, secret: false },
+  { path: 'agent.refine.early_stop', value: true, source: { layer: 'default' }, shadowed: [], locked: false, hot: true, secret: false },
 ];
 
 const bedrockEntries: Entry[] = [
@@ -65,7 +67,7 @@ const bedrockEntries: Entry[] = [
   ['region', 'us-east-1'],
 ].map(([k, v]) => ({ path: `providers.bedrock.${k}`, value: v, source: { layer: 'ui' }, shadowed: [], locked: false, hot: true, secret: false }));
 
-type UserV2 = User & { last_login_at?: string; must_change_password?: boolean };
+type UserV2 = User & { last_login_at?: string };
 
 const people: UserV2[] = [
   { ...owner, last_login_at: ago(2) },
@@ -94,6 +96,16 @@ onReset(() =>
     effective: { ...(clone(effectiveFixture) as Effective), entries: [...(clone(effectiveFixture) as Effective).entries, ...clone(pending)] },
   }),
 );
+
+// GET /api/refine: the defaults and the cost the server works out from them (h_refine.go refineWork).
+on('GET', '/api/refine', (_q, res) => {
+  const v = (p: string, d: unknown) => state.effective.entries.find((e) => e.path === p)?.value ?? d;
+  const drafts = Math.max(Number(v('agent.refine.drafts', 3)), 1);
+  const depth = Math.max(Number(v('agent.refine.depth', 2)), 0);
+  const early = v('agent.refine.early_stop', true) !== false;
+  const rounds = early ? Math.floor((depth + 1) / 2) : depth;
+  json(res, 200, { enabled: v('agent.refine.enabled', false) === true, drafts, depth, early_stop: early, critic_slot: 'main', max_calls: drafts * (1 + 3 * depth), multiplier: drafts * (1 + 3 * rounds) });
+});
 
 const solo = scenario('people-solo', 'Only the owner has an account (People shows its empty state).', 'settings');
 const bedrock = scenario('provider-bedrock', "A Bedrock provider using this server's AWS role (S3 shape).", 'settings');
@@ -192,10 +204,10 @@ on('GET', '/api/users', (req, res) => json(res, 200, solo(req) ? state.users.fil
 on('POST', '/api/users', async (req, res) => {
   const b = JSON.parse(await body(req));
   if (state.users.some((u) => u.username.toLowerCase() === String(b.username).toLowerCase())) return fail(res, 409, 'conflict', `username "${b.username}" is taken`);
-  // S9: people an admin adds sign in once with the password they were given, then choose their own.
-  const u: UserV2 = { ...clone(member), id: newId('usr'), username: b.username, display_name: b.display_name, role: b.role, created_at: nowISO(), last_login_at: ZERO, must_change_password: true };
+  // S9: without a password the server makes a one-time password, replaced at the first sign-in.
+  const u: UserV2 = { ...clone(member), id: newId('usr'), username: b.username, display_name: b.display_name, role: b.role, created_at: nowISO(), last_login_at: ZERO, must_change_password: !b.password };
   state.users.push(u);
-  json(res, 200, u);
+  json(res, 200, b.password ? u : { ...u, one_time_password: 'h7Fq-2mKx-9wPr-tB4n' });
 });
 on('PATCH', '/api/users/{id}', async (req, res, m) => {
   const u = state.users.find((x) => x.id === m[1]);

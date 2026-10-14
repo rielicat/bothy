@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { member, ZERO } from '../../../mock/fixtures';
 import type { TokenRecord } from '../../lib/api/types.gen';
-import { generatePassword, lastUsed, moneyText, parseMoney, passwordHelp, roleLine, scopeSummary, usernameError } from './accountHelpers';
+import { lastUsed, moneyText, parseMoney, passwordHelp, roleLine, scopeSummary, usernameError } from './accountHelpers';
 
 describe('passwords', () => {
   it('counts down to 12 characters in the words setup uses', () => {
@@ -9,13 +9,6 @@ describe('passwords', () => {
     expect(passwordHelp('a'.repeat(4))).toBe('8 more characters needed.');
     expect(passwordHelp('a'.repeat(11))).toBe('1 more character needed.');
     expect(passwordHelp('a'.repeat(12))).toBe('Long enough.');
-  });
-
-  it('makes one-time passwords people can read off a screen', () => {
-    const pw = generatePassword();
-    expect(pw).toMatch(/^[a-zA-Z2-9]{4}(-[a-zA-Z2-9]{4}){3}$/);
-    expect(pw).not.toMatch(/[01lIoO]/);
-    expect(generatePassword()).not.toBe(pw);
   });
 });
 

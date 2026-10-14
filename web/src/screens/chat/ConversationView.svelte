@@ -1,15 +1,7 @@
 <script module lang="ts">
-  // Refine belongs to the chat (§7.5) and has no server field yet, so it is
-  // remembered here for the life of the page.
+  // Refine belongs to the chat (§7.5). The server keeps each chat's choice;
+  // this remembers it between pages until the chat's detail reloads.
   const refineByChat = new Map<string, boolean>();
-
-  // Local until S10 is in types.gen.ts (C10 swaps it for the generated type).
-  interface RefineEstimate {
-    usd?: number;
-    multiplier?: number;
-    drafts?: number;
-  }
-
 </script>
 
 <script lang="ts">
@@ -41,7 +33,7 @@
   import { tooltip } from '../../components/ui/tooltip';
   import { fill, prefix, type Phrase } from '../../lib/activity';
   import { api, ApiError } from '../../lib/api/client';
-  import type { Approval, ChannelIdentity, SandboxInfo, Session, SubmitResult } from '../../lib/api/types.gen';
+  import type { Approval, ChannelIdentity, RefineEstimate, SandboxInfo, Session, SubmitResult } from '../../lib/api/types.gen';
   import { clock, estimate, fullTime, money } from '../../lib/format';
   import { router } from '../../lib/router.svelte';
   import { session as auth } from '../../lib/stores/session.svelte';
@@ -75,6 +67,7 @@
   let pendingModel = $state('');
   let refine = $state(untrack(() => refineByChat.get(id)) ?? models.refine?.enabled ?? false);
   let est: RefineEstimate | null = $state(null);
+  const chosen = (v: string | undefined) => (v === 'on' ? true : v === 'off' ? false : undefined);
   let senders: Record<string, string> = $state({});
   let creating: Promise<string> | null = null;
   let liveSays = '';
@@ -153,9 +146,8 @@
       const e = estimate(est.usd * 1e6);
       return `${head} ${e.charAt(0).toUpperCase()}${e.slice(1)} for this reply.`;
     }
-    // Without the server's estimate (S10): every draft gets `depth` rounds of continue, critique and correct.
-    const m = est?.multiplier ?? (models.refine ? models.refine.drafts * (1 + 3 * models.refine.depth) : 0);
-    return m ? `${head} Costs about ${m}× a normal reply.` : `${head} Slower, and costs several times more.`;
+    const m = Math.round(est?.multiplier ?? models.refine?.multiplier ?? 0);
+    return m > 1 ? `${head} Costs about ${m}× a normal reply.` : `${head} Slower, and costs several times more.`;
   });
 
   const outcome = $derived.by((): { text: string; error?: boolean; action?: { label: string; onclick: () => void }; details?: string } | null => {
@@ -231,11 +223,16 @@
       .catch(() => {});
   });
 
-  // Until the person picks, the chat follows Settings → Models → "Refine by default".
+  // The chat's own choice, else Settings → Models → "Refine by default".
   $effect(() => {
-    const d = models.refine?.enabled;
+    const d = chosen(conv.detail?.refine) ?? models.refine?.enabled;
     if (d !== undefined && !untrack(() => refineByChat.has(conv.id))) refine = d;
   });
+
+  function setRefine(on: boolean) {
+    refineByChat.set(conv.id, on);
+    if (conv.id) void api.patch(conv.base, { refine: on ? 'on' : 'off' }).catch(() => {});
+  }
 
   // The estimate follows the chat's recent replies, so it is asked again after each run.
   $effect(() => {
@@ -314,6 +311,7 @@
       .then(async (n) => {
         conv.adopt(n);
         refineByChat.set(n.id, refine);
+        if (refine !== !!models.refine?.enabled) void api.patch(conv.base, { refine: refine ? 'on' : 'off' }).catch(() => {});
         oncreated?.(n.id);
         router.navigate(`/chat/${encodeURIComponent(n.id)}`, { replace: true });
         if (pendingModel) conv.setSession(await api.patch<Session>(conv.base, { model_override: pendingModel }).catch(() => n));
@@ -327,7 +325,7 @@
     sendError = '';
     try {
       await ensureSession();
-      const r = await api.post<SubmitResult>(`${conv.base}/messages`, { text, uploads, ...(refine ? { refine: true } : {}) });
+      const r = await api.post<SubmitResult>(`${conv.base}/messages`, { text, uploads, refine });
       if (r?.queued) conv.queued = [...conv.queued, text];
       atBottom = true;
       return true;
@@ -707,7 +705,7 @@
     <Composer
       bind:this={composer}
       bind:refine
-      onrefine={(on) => refineByChat.set(conv.id, on)}
+      onrefine={setRefine}
       running={conv.running}
       paused={auth.paused}
       {refineLine}

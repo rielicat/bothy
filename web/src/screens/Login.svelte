@@ -5,9 +5,10 @@
   import Notice from '../components/ui/Notice.svelte';
   import TextField from '../components/ui/TextField.svelte';
   import { api, ApiError } from '../lib/api/client';
+  import type { Me } from '../lib/api/types.gen';
   import { router } from '../lib/router.svelte';
   import { session } from '../lib/stores/session.svelte';
-  import { loginError, rememberOneTime, type MeV2 } from './setup/auth';
+  import { loginError, rememberOneTime } from './setup/auth';
   import Frame from './setup/Frame.svelte';
   import PasswordField from './setup/PasswordField.svelte';
   import RemoteSetup from './setup/RemoteSetup.svelte';
@@ -46,9 +47,9 @@
     busy = true;
     error = '';
     try {
-      const me = await api.post<MeV2>('/api/auth/login', { username: username.trim(), password });
+      const me = await api.post<Me>('/api/auth/login', { username: username.trim(), password });
       // An account an admin just created signs in with a one-time password (S9).
-      if (me.must_change_password) {
+      if (me.user.must_change_password) {
         rememberOneTime(password);
         router.navigate(next ? `/password?next=${encodeURIComponent(next)}` : '/password', { replace: true });
       }

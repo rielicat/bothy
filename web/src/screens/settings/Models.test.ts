@@ -118,14 +118,14 @@ describe('Settings → Models', () => {
   });
 
   it('asks how thorough only while Refine is on', async () => {
-    expect(screen.getByText(/costs about 4× more\./)).toBeTruthy();
+    expect(await screen.findByText(/costs about 12× more\./)).toBeTruthy();
     expect(screen.queryByLabelText('How thorough')).toBeNull();
     await fireEvent.click(screen.getByRole('switch', { name: 'Refine answers by default' }));
-    await waitFor(() => expect(patches(calls)).toEqual([{ 'refine.default': true }]));
+    await waitFor(() => expect(patches(calls)).toEqual([{ 'agent.refine.enabled': true }]));
     const how = (await screen.findByLabelText('How thorough')) as HTMLSelectElement;
     await fireEvent.change(how, { target: { value: 'thorough' } });
-    await waitFor(() => expect(patches(calls).at(-1)).toEqual({ 'refine.preset': 'thorough' }));
-    expect(await screen.findByText(/costs about 9× more\./)).toBeTruthy();
+    await waitFor(() => expect(patches(calls).at(-1)).toEqual({ 'agent.refine.drafts': 5, 'agent.refine.depth': 2 }));
+    expect(await screen.findByText(/costs about 20× more\./)).toBeTruthy();
   });
 
   it('adds a provider with a pasted key and says so', async () => {

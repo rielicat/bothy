@@ -550,9 +550,10 @@ export const state = {
   messages: {} as Record<string, Message[]>,
   pins: {} as typeof pins,
   runs: {} as Record<string, RunDetail>,
+  refine: {} as Record<string, string>,
   seeded: false,
 };
-onReset(() => Object.assign(state, { sessions: clone(sessions), messages: clone(messages), pins: clone(pins), runs: {}, seeded: false }));
+onReset(() => Object.assign(state, { sessions: clone(sessions), messages: clone(messages), pins: clone(pins), runs: {}, refine: {}, seeded: false }));
 
 // The approvals domain resets after this one, so the waiting card of 'Clean up
 // staging notes' joins its list (where a decision can find it) only once that
@@ -567,7 +568,7 @@ function seed() {
 const noChats = scenario('chat-empty', 'No chats yet: the chat list and search are empty.', 'chat');
 const hold = scenario('chat-hold', 'The scripted run stops at a phase and stays there: chat-hold:<working|streaming|tool|waiting>.', 'chat');
 const runFails = scenario('chat-fail', 'The scripted run fails after its first words, as when Anthropic is overloaded.', 'chat');
-const refineEst = scenario('refine', 'Refine cost for the composer: refine:estimate (dollars) or refine:multiplier; without it the estimate route is missing.', 'chat');
+const refineEst = scenario('refine', 'Refine cost for the composer: refine:estimate adds dollars to the multiplier; refine:none fails the estimate.', 'chat');
 const queuedNow = scenario('chat-queued', 'Messages sent now wait for the current step (the server answers queued).', 'chat');
 const uploadFail = scenario('upload-fail', 'Uploads fail: upload-fail:large (413) or upload-fail:type (415).', 'chat');
 
@@ -720,6 +721,7 @@ on('GET', '/api/sessions/{id}', (_q, res, m) => {
     session: s,
     pins: state.pins[s.id] ?? [],
     pending_approvals: pending,
+    refine: state.refine[s.id] ?? '',
     active: runId ? { run_id: runId, session_id: s.id, principal_id: s.principal_id, status: live?.run?.status ?? 'waiting_approval', started_at: ago(4), queued: 0 } : undefined,
   });
 });
@@ -729,6 +731,7 @@ on('PATCH', '/api/sessions/{id}', async (req, res, m) => {
   const b = JSON.parse(await body(req));
   if (b.title !== undefined) s.title = b.title;
   if (b.model_override !== undefined) s.model_override = b.model_override || undefined;
+  if (b.refine !== undefined) state.refine[s.id] = b.refine;
   json(res, 200, s);
 });
 on('DELETE', '/api/sessions/{id}', (_q, res, m) => {
@@ -775,9 +778,8 @@ on('POST', '/api/sessions/{id}/compact', (_q, res) => json(res, 202));
 on('GET', '/api/sessions/{id}/context', (_q, res) => json(res, 200, breakdown));
 on('GET', '/api/sessions/{id}/refine-estimate', (req, res) => {
   const kind = refineEst.arg(req);
-  if (kind === 'estimate') return json(res, 200, { usd: 0.18, drafts: 3 });
-  if (kind === 'multiplier') return json(res, 200, { multiplier: 12, drafts: 3 });
-  fail(res, 404, 'not_found', 'mock: no refine estimate (S10) without ?mock=refine:…');
+  if (kind === 'none') return fail(res, 500, 'internal', 'mock: refine estimate failed');
+  json(res, 200, { multiplier: 12, drafts: 3, ...(kind === 'estimate' ? { usd: 0.18 } : {}) });
 });
 on('POST', '/api/sessions/{id}/fork', (_q, res, m) => {
   const old = session(m[1]);

@@ -157,9 +157,12 @@ Run \`npm ci\`, then \`npm run build\`. Links are checked on every pull request.
 const zero = '0001-01-01T00:00:00Z';
 const repo = (id: number, name: string, extra: Partial<KnowledgeRepo>): KnowledgeRepo => ({
   id,
+  principal_id: owner.id,
   repo: name,
   source: 'github',
+  dir: `repos/${name}`,
   sha: '',
+  indexed_sha: '',
   status: 'ready',
   files: 0,
   chunks: 0,
@@ -473,6 +476,7 @@ on('GET', '/api/knowledge/search', (req, res, _m, q) => {
     hits.push({
       repo_id: r.id,
       repo: r.repo,
+      principal_id: r.principal_id,
       sha: r.sha,
       path: c.path,
       start_line: c.start,

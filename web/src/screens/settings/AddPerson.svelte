@@ -1,8 +1,9 @@
 <script lang="ts">
   import { Button, CodeBlock, Dialog, Notice, Segmented, TextField } from '../../components/ui';
   import { api, ApiError } from '../../lib/api/client';
+  import type { UserCreateResp } from '../../lib/api/types.gen';
   import { session } from '../../lib/stores/session.svelte';
-  import { generatePassword, usernameError, type UserCreateResp, type UserV2 } from './accountHelpers';
+  import { usernameError, type UserV2 } from './accountHelpers';
   import { focusDialogResult } from './dialogFocus';
   import { settingsConfig } from './store.svelte';
 
@@ -23,7 +24,7 @@
   let busy = $state(false);
   let taken = $state('');
   let failed = $state('');
-  let done = $state<{ name: string; username: string; password: string; mustChange: boolean } | null>(null);
+  let done = $state<{ name: string; username: string; password: string } | null>(null);
 
   const nameError = $derived(submitted && !name.trim() ? 'Enter their name.' : undefined);
   const userError = $derived(taken === username && taken ? 'That username is taken. Try another.' : submitted ? usernameError(username) || undefined : undefined);
@@ -43,15 +44,15 @@
     failed = '';
     if (nameError || usernameError(username)) return;
     busy = true;
-    const password = generatePassword();
     try {
       // Installs from before team mode was on by default still run in single mode, which can't add people.
       if (session.me && session.me.mode !== 'multi') {
         await settingsConfig.save({ mode: 'multi' });
         await session.refresh().catch(() => {});
       }
-      const u = await api.post<UserCreateResp>('/api/users', { display_name: name.trim(), username, role, password });
-      done = { name: u.display_name || name.trim(), username: u.username, password: u.one_time_password || password, mustChange: !!u.must_change_password };
+      // No password in the request: the server makes a one-time password they replace at first sign-in (S9).
+      const u = await api.post<UserCreateResp>('/api/users', { display_name: name.trim(), username, role });
+      done = { name: u.display_name || name.trim(), username: u.username, password: u.one_time_password ?? '' };
       onadded?.(u);
       void focusDialogResult();
     } catch (err) {
@@ -66,10 +67,8 @@
 <Dialog bind:open title="Add person" size="md" {busy} dirty={!done && !!(name || username)}>
   {#if done}
     <p class="text-body text-text">{done.name} can sign in now. Send them these details:</p>
-    <CodeBlock class="mt-3" code={`Address: ${address}\nUsername: ${done.username}\n${done.mustChange ? 'One-time password' : 'Password'}: ${done.password}`} wrap />
-    <p class="mt-3 text-body text-muted">
-      {done.mustChange ? "They'll choose their own password when they first sign in." : 'They can choose their own password in Settings → Account after they sign in.'}
-    </p>
+    <CodeBlock class="mt-3" code={`Address: ${address}\nUsername: ${done.username}\nOne-time password: ${done.password}`} wrap />
+    <p class="mt-3 text-body text-muted">They'll choose their own password when they first sign in.</p>
   {:else}
     <form id={formId} class="grid gap-5" onsubmit={create} novalidate>
       <TextField label="Name" bind:value={name} autocomplete="off" error={nameError} />

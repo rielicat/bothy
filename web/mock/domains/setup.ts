@@ -107,7 +107,8 @@ on(
     if (loginDisabled(req)) return fail(res, 403, 'forbidden', 'account disabled');
     if (!b.username || b.password === 'wrong') return fail(res, 401, 'unauthorized', 'invalid username or password');
     core.loggedIn = true;
-    json(res, 200, { ...me(req), must_change_password: mustChange(req) || undefined });
+    const m = me(req);
+    json(res, 200, { ...m, user: { ...m.user, must_change_password: mustChange(req) || undefined } });
   },
   { open: true },
 );

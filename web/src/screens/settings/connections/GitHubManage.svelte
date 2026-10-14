@@ -60,10 +60,10 @@
     [detail, indexed, envs, users] = await Promise.all([
       get<GitHubConnectionDetail | null>(`/api/github/connections/${id}`, null),
       get<{ items: IndexedRepo[] }>('/api/knowledge/repos', { items: [] }).then((r) => r.items ?? []),
-      get<Releases>('/api/releases', { environments: [] }).then((r) => r.environments ?? []),
+      get<Releases>('/api/releases', { environments: [], deploys: [] }).then((r) => r.environments ?? []),
       get<User[]>('/api/users', []),
     ]);
-    repos = [...(detail?.repos ?? [])].sort((a, b) => Number(b.allowed) - Number(a.allowed) || full(a).localeCompare(full(b)));
+    repos = (detail?.repos ?? []).filter((r): r is GitHubRepo => !!r).sort((a, b) => Number(b.allowed) - Number(a.allowed) || full(a).localeCompare(full(b)));
     const lists = await Promise.all(
       [...new Set(envs.map((e) => e.repo))].map((repo) =>
         get<Workflow[]>(`/api/github/repos/${repo.split('/').map(encodeURIComponent).join('/')}/workflows`, []).then((l) => l.map((w) => [repo, w] as const)),

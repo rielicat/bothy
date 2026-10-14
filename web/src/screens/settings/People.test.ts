@@ -46,8 +46,8 @@ describe('Settings → People', () => {
     await waitFor(() => expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: 'Copy' })));
     const post = JSON.parse(calls.find((c) => c.method === 'POST' && c.url === '/api/users')!.body);
     expect(post).toMatchObject({ display_name: 'Maya Chen', username: 'maya', role: 'admin' });
-    expect(post.password).toMatch(/^[a-zA-Z2-9]{4}(-[a-zA-Z2-9]{4}){3}$/);
-    expect(within(dialog).getByText(new RegExp(`One-time password: ${post.password}`))).toBeTruthy();
+    expect(post.password).toBeUndefined();
+    expect(within(dialog).getByText(/One-time password: h7Fq-2mKx-9wPr-tB4n/)).toBeTruthy();
     expect(within(dialog).getByText("They'll choose their own password when they first sign in.")).toBeTruthy();
     // Single-user installs switch to team mode first, silently (D19).
     expect(calls.some((c) => c.method === 'PATCH' && c.url === '/api/config' && JSON.parse(c.body).set.mode === 'multi')).toBe(true);

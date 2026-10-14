@@ -1,18 +1,18 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Button, Dialog, SettingsRow, SettingsSection, StatusLine, toast } from '../../components/ui';
   import ProviderChooser, { type Connected } from '../../components/ProviderChooser.svelte';
+  import { Button, Dialog, SettingsRow, SettingsSection, StatusLine, toast } from '../../components/ui';
   import { api } from '../../lib/api/client';
-  import type { ModelInfo } from '../../lib/api/types.gen';
+  import type { ModelInfo, RefineInfo } from '../../lib/api/types.gen';
   import BackupModels from './BackupModels.svelte';
   import ItemRow from './ItemRow.svelte';
   import ManageProvider, { type ManagedProvider } from './ManageProvider.svelte';
   import ModelDialog, { type ModelOption } from './ModelDialog.svelte';
-  import { makePrimary, modelName, modelProvider, providerName, providerStatus, refineDrafts, refineMultiplier, splitRef, type ProviderHealthV2 } from './modelHelpers';
-  import SelectSetting from './SelectSetting.svelte';
+  import { makePrimary, modelName, modelProvider, providerName, providerStatus, splitRef, type ProviderHealthV2 } from './modelHelpers';
   import SettingsFrame from './SettingsFrame.svelte';
   import { Saver, settingsConfig } from './store.svelte';
   import SwitchSetting from './SwitchSetting.svelte';
+  import ThoroughSetting from './ThoroughSetting.svelte';
 
   const uid = $props.id();
   let models = $state<ModelInfo[]>([]);
@@ -118,8 +118,17 @@
     toast(name ? `${name} connected.` : 'Connected.');
   }
 
-  const preset = $derived(settingsConfig.value<string>('refine.preset', 'standard'));
-  const refineOn = $derived(settingsConfig.value<unknown>('refine.default') === true);
+  const refineOn = $derived(settingsConfig.value<unknown>('agent.refine.enabled') === true);
+  // The server works out the cost from the drafts, rounds and early stop, so it is asked again after each change.
+  let multiplier = $state(0);
+  $effect(() => {
+    void settingsConfig.value('agent.refine.drafts');
+    void settingsConfig.value('agent.refine.depth');
+    void api
+      .get<RefineInfo>('/api/refine')
+      .then((r) => (multiplier = Math.round(r.multiplier)))
+      .catch(() => (multiplier = 0));
+  });
 </script>
 
 {#snippet slotRow(path: Slot, title: string, help: string)}
@@ -184,24 +193,14 @@
       </div>
     </section>
 
-    {#if settingsConfig.has('refine.default')}
+    {#if settingsConfig.has('agent.refine.enabled')}
       <SettingsSection title="Refine">
         <SwitchSetting
           label="Refine answers by default"
-          path="refine.default"
-          help="Bothy writes several drafts, checks them and sends the best one. Slower, and costs about {refineMultiplier(preset)}× more."
+          path="agent.refine.enabled"
+          help="Bothy writes several drafts, checks them and sends the best one. {multiplier > 1 ? `Slower, and costs about ${multiplier}× more.` : 'Slower, and costs several times more.'}"
         />
-        {#if refineOn}
-          <SelectSetting
-            label="How thorough"
-            path="refine.preset"
-            fallback="standard"
-            options={[
-              { value: 'standard', label: `Standard (${refineDrafts('standard')} drafts)` },
-              { value: 'thorough', label: `Thorough (${refineDrafts('thorough')} drafts, slower)` },
-            ]}
-          />
-        {/if}
+        {#if refineOn}<ThoroughSetting />{/if}
       </SettingsSection>
     {/if}
   {/if}

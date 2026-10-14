@@ -10,7 +10,7 @@ import {
   moveBackup,
   providerName,
   providerStatus,
-  refineMultiplier,
+  refinePresetOf,
   regionName,
   removeAt,
   splitRef,
@@ -98,7 +98,8 @@ describe('failed checks', () => {
   });
 });
 
-it('estimates Refine from its drafts plus one check', () => {
-  expect(refineMultiplier('standard')).toBe(4);
-  expect(refineMultiplier('thorough')).toBe(9);
+it('reads "How thorough" back from the refine numbers', () => {
+  expect(refinePresetOf(3, 2)).toBe('standard');
+  expect(refinePresetOf(5, 2)).toBe('thorough');
+  expect(refinePresetOf(4, 1)).toBe('custom');
 });

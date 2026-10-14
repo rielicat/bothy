@@ -120,8 +120,8 @@ describe('failures (§5.6.4, §12)', () => {
   });
 
   it('turns a GitHub check into the §12.2 sentences', () => {
-    const p = (over: Partial<GitHubProbe>): GitHubProbe => ({ ok: true, auth: 'pat', account: 'maya-acme', repos: [], truncated: false, rate_limit: { limit: 0, remaining: 0, reset: '' }, ...over });
-    const repo = { owner: 'acme', name: 'web', private: true, archived: false, default_branch: 'main', allowed: false };
+    const p = (over: Partial<GitHubProbe>): GitHubProbe => ({ ok: true, auth: 'pat', account: 'maya-acme', account_type: 'User', repos: [], truncated: false, token_expires_at: '', rate_limit: { limit: 0, remaining: 0, reset: '' }, ...over });
+    const repo = { github_id: 1, owner: 'acme', name: 'web', private: true, archived: false, default_branch: 'main', allowed: false };
     expect(githubOutcome(p({ repos: Array(14).fill(repo) }), null, false)).toEqual({ ok: true, message: 'Connected as maya-acme. Bothy can see 14 repositories.' });
     expect(githubOutcome(p({ auth: 'app', account: 'acme', repos: [repo] }), null, true)).toEqual({ ok: true, message: 'Installed on acme · 1 repository' });
     expect(githubOutcome(p({}), null, false)).toMatchObject({ ok: false, message: "The token works but can't see any repositories. Give it access to at least one repository on GitHub." });

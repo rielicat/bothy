@@ -154,7 +154,9 @@ export const mcpPins: MCPPin[] = [
 
 // ---- GitHub ----
 
+let githubId = 7_100_000;
 const access = (name: string, description: string, archived = false): GitHubRepoAccess => ({
+  github_id: ++githubId,
   owner: 'acme',
   name,
   private: true,
@@ -185,9 +187,14 @@ function connection(app: boolean): GitHubConnection {
     app_id: app ? '123456' : undefined,
     app_slug: app ? 'acme-bothy' : undefined,
     installation_id: app ? 4242 : undefined,
+    secret_ref: app ? 'secret:github_app_key' : 'secret:github_token',
+    owns_secret: true,
     status: 'ok',
+    token_expires_at: app ? ZERO : ahead(60 * 24 * 80),
     checked_at: ago(30),
+    created_by: owner.id,
     created_at: ago(60 * 24 * 3),
+    updated_at: ago(30),
   };
 }
 
@@ -201,7 +208,17 @@ export const state = {
   madeHere: false,
 };
 
-const held = (name: string, allowed: boolean): GitHubRepo => ({ connection_id: CONN, owner: 'acme', name, default_branch: 'main', private: true, allowed });
+const held = (name: string, allowed: boolean): GitHubRepo => ({
+  connection_id: CONN,
+  github_id: githubRepos.find((r) => r.name === name)?.github_id ?? 0,
+  owner: 'acme',
+  name,
+  default_branch: 'main',
+  private: true,
+  allowed,
+  created_at: ago(60 * 24 * 3),
+  updated_at: ago(60 * 24 * 3),
+});
 
 onReset(() => {
   Object.assign(state, {
@@ -321,6 +338,7 @@ function probe(req: Req, auth: string, connected: boolean, installation?: number
     ok: true,
     auth,
     account: app ? 'acme' : connected ? (state.github?.account ?? 'acme-bot') : 'maya-acme',
+    account_type: app ? 'Organization' : 'User',
     app_slug: app ? 'acme-bothy' : undefined,
     installation_id: app ? (installation ?? 4242) : undefined,
     repos: githubRepos.map((r) => {
@@ -328,6 +346,7 @@ function probe(req: Req, auth: string, connected: boolean, installation?: number
       return { ...r, allowed: !!h?.allowed, connection_id: h ? CONN : undefined };
     }),
     truncated: false,
+    token_expires_at: app ? ZERO : ahead(60 * 24 * 80),
     rate_limit: { limit: 5000, remaining: 4812, reset: ahead(40) },
   };
   switch (kind) {
@@ -346,8 +365,8 @@ function probe(req: Req, auth: string, connected: boolean, installation?: number
             ok: false,
             repos: [],
             installations: [
-              { id: 4242, account: 'acme', account_type: 'Organization' },
-              { id: 4343, account: 'acme-labs', account_type: 'Organization' },
+              { id: 4242, account: 'acme', account_type: 'Organization', repository_selection: 'all' },
+              { id: 4343, account: 'acme-labs', account_type: 'Organization', repository_selection: 'selected' },
             ],
             error: 'the App has 2 installations: choose one',
           }
