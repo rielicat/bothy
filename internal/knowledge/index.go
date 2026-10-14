@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/rielicat/bothy/internal/core"
 )
@@ -151,13 +152,32 @@ func (ix *indexer) loadIgnore(dir string) {
 	}
 }
 
-// readSmall reads a regular file of at most ignoreFileMax bytes.
+var errNotRegular = errors.New("not a regular file")
+
+// openRegular opens a slash path under root read-only. O_NONBLOCK: boxes
+// write the workspace, and a FIFO planted there (or swapped in after a
+// check saw a regular file) would otherwise park the caller until something
+// writes to it.
+func openRegular(root *os.Root, name string) (*os.File, error) {
+	f, err := root.OpenFile(filepath.FromSlash(name), os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	if fi, err := f.Stat(); err != nil || !fi.Mode().IsRegular() {
+		f.Close()
+		return nil, errNotRegular
+	}
+	return f, nil
+}
+
+// readSmall reads a regular file (not a symlink) of at most ignoreFileMax
+// bytes.
 func (ix *indexer) readSmall(name string) ([]byte, bool) {
 	fi, err := ix.root.Lstat(filepath.FromSlash(name))
 	if err != nil || !fi.Mode().IsRegular() {
 		return nil, false
 	}
-	f, err := ix.root.Open(filepath.FromSlash(name))
+	f, err := openRegular(ix.root, name)
 	if err != nil {
 		return nil, false
 	}
@@ -215,17 +235,14 @@ func entrySize(d fs.DirEntry) (int64, bool) {
 	return info.Size(), true
 }
 
-// read opens through the root (a file swapped for a symlink after the walk
-// saw it is refused) and reads at most the per-file cap.
+// read opens through the root (a symlink swapped in after the walk saw the
+// file cannot leave it) and reads at most the per-file cap.
 func (ix *indexer) read(p string) ([]byte, bool) {
-	f, err := ix.root.Open(filepath.FromSlash(p))
+	f, err := openRegular(ix.root, p)
 	if err != nil {
 		return nil, false
 	}
 	defer f.Close()
-	if fi, err := f.Stat(); err != nil || !fi.Mode().IsRegular() {
-		return nil, false
-	}
 	data, err := io.ReadAll(io.LimitReader(f, ix.caps.fileBytes+1))
 	if err != nil || int64(len(data)) > ix.caps.fileBytes {
 		return nil, false

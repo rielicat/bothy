@@ -78,7 +78,7 @@ func draftInput(ws, dir string, files []core.KnowledgeFile) (string, error) {
 		if err != nil || !fi.Mode().IsRegular() {
 			return ""
 		}
-		f, err := root.Open(filepath.FromSlash(name))
+		f, err := openRegular(root, name)
 		if err != nil {
 			return ""
 		}
