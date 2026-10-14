@@ -385,10 +385,12 @@ routes.unshift([
   'GET',
   /^\/api\/approvals$/,
   (req, res, m, q) => {
-    if (!deployWaiting(req) || !listApprovals) return listApprovals?.[2](req, res, m, q);
+    if ((!deployWaiting(req) && !noDeploys(req)) || !listApprovals) return listApprovals?.[2](req, res, m, q);
     const status = q.get('status') ?? 'pending';
-    const seed = status === 'recent' ? approvalState.recent : approvalState.approvals.filter((a) => a.status === status);
-    json(res, 200, { items: [...seed, ...deployApprovals().filter((a) => (status === 'recent' ? a.status !== 'pending' : a.status === status))] });
+    // These scenarios set the deploy approvals themselves, so the approvals domain's own deploy cards stay out.
+    const seed = (status === 'recent' ? approvalState.recent : approvalState.approvals.filter((a) => a.status === status)).filter((a) => a.action?.tool !== 'release_deploy');
+    const extra = deployWaiting(req) ? deployApprovals().filter((a) => (status === 'recent' ? a.status !== 'pending' : a.status === status)) : [];
+    json(res, 200, { items: [...seed, ...extra] });
   },
 ]);
 
@@ -461,7 +463,7 @@ on('GET', '/api/releases', (req, res) => {
   if (noReleases(req)) return json(res, 200, { environments: [], deploys: [] });
   // The approvals domain's deploys carry only what its cards read; the server's always have these too.
   const started = approvalState.deploys.map((d) => ({ session_id: '', requested_by: member.id, approved_by: [owner.id], finished_at: '0001-01-01T00:00:00Z', ...d }));
-  json(res, 200, { environments: releaseEnvironments(req), deploys: noDeploys(req) || empty(req) ? [] : [...deploys, ...started] });
+  json(res, 200, { environments: releaseEnvironments(req), deploys: noDeploys(req) || empty(req) ? [] : deployWaiting(req) ? deploys : [...deploys, ...started] });
 });
 
 // Today's bar on the chart matches the meter in every spending scenario.
