@@ -201,13 +201,17 @@ models:
   `bedrock:ListFoundationModels`, `bedrock:ListInferenceProfiles` for the
   model list); no Bothy config beyond the provider is needed. For the gateway
   container on EC2, set the instance metadata hop limit to 2 so it reaches
-  IMDSv2.
+  IMDSv2 (other containers on that host can then reach it too; tool boxes
+  have no network of their own).
 - **On a laptop**, sign in on the host (`aws sso login --profile dev`). A
   native `bothy serve` reads `~/.aws` itself. With compose, uncomment the
   Bedrock lines of the bothy service in `compose.yaml`: they set `AWS_PROFILE`
   and `AWS_REGION` and mount `~/.aws` read-only into the gateway (on Linux
-  also grant uid 65532 read access with the `setfacl` line shown there). Run
-  `aws sso login` again on the host when the session expires.
+  also grant uid 65532 read access with the `setfacl` line shown there).
+  The SDK renews the short-lived SSO sign-in token in `~/.aws/sso/cache`,
+  which a read-only mount refuses: run `aws sso login` on the host again
+  when the doctor says so, or mount that cache directory writable as the
+  comment there shows.
 
 Only the gateway's credential chain may reach the instance metadata service
 and the container credential endpoints; tool boxes, `web_fetch` and MCP

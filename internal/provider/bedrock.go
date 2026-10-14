@@ -212,8 +212,14 @@ func awsCredentialsText(err error) string {
 		msg = msg[:400] + "…"
 	}
 	hint := "On a laptop, sign in with the AWS CLI (aws sso login) and, in a container, mount ~/.aws read-only and set AWS_PROFILE; on a cloud host, attach a role to the instance, task or service account."
-	if strings.Contains(msg, "credential_process") {
+	switch {
+	case strings.Contains(msg, "credential_process"):
 		hint = "Use an SSO profile, a role or access keys instead."
+	case strings.Contains(msg, "unable to cache refreshed SSO token") || strings.Contains(msg, "save token:"):
+		// The SDK renews short-lived SSO and aws login tokens in place; a
+		// read-only ~/.aws mount makes that fail long before the session
+		// itself ends.
+		hint = "The AWS sign-in token needed renewing and Bothy cannot save it to ~/.aws, which is read-only here: run aws sso login (or aws login) on the host again, or mount ~/.aws/sso/cache writable as compose.yaml shows."
 	}
 	return "Bothy could not get AWS credentials: " + msg + ". " + hint
 }

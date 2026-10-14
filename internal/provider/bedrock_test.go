@@ -379,6 +379,19 @@ func TestBedrockProbeWithoutCredentials(t *testing.T) {
 	}
 }
 
+func TestAWSCredentialsText(t *testing.T) {
+	for msg, want := range map[string]string{
+		"refresh cached SSO token failed, unable to cache refreshed SSO token, failed to create cached SSO token file open /home/nonroot/.aws/sso/cache/x.json.tmp-1: read-only file system": "cannot save it to ~/.aws",
+		"save token: open /home/nonroot/.aws/login/cache/y.json: read-only file system":                                                                                                      "cannot save it to ~/.aws",
+		`profile "tool" uses credential_process, which Bothy does not run`:                                                                                                                   "Use an SSO profile",
+		"failed to refresh cached credentials, no EC2 IMDS role found":                                                                                                                       "attach a role",
+	} {
+		if got := awsCredentialsText(errors.New(msg)); !strings.HasPrefix(got, "Bothy could not get AWS credentials: ") || !strings.Contains(got, want) {
+			t.Errorf("%q: %q", msg, got)
+		}
+	}
+}
+
 func TestDetectAWS(t *testing.T) {
 	h := newHarness(t, nil)
 	awsEnvCreds(t)
