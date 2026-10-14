@@ -6,6 +6,7 @@
   import { session } from '../../lib/stores/session.svelte';
   import AddPerson from './AddPerson.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
+  import { focusDialogResult } from './dialogFocus';
   import { displayName, moneyText, parseMoney, roleLine, type UserV2 } from './accountHelpers';
   import SettingsFrame from './SettingsFrame.svelte';
   import { settingsConfig } from './store.svelte';
@@ -131,6 +132,7 @@
     try {
       const r = await api.post<{ one_time_password: string }>(`/api/users/${encodeURIComponent(u.id)}/password`);
       resetPassword = r.one_time_password;
+      void focusDialogResult();
     } catch (err) {
       resetError =
         err instanceof ApiError && (err.status === 404 || err.status === 405 || err.status === 501)
@@ -222,7 +224,13 @@
   {/snippet}
 </Dialog>
 
-<Dialog open={!!resetFor} title="Reset {resetFor ? displayName(resetFor) : ''}'s password?" busy={resetBusy} initialFocus="cancel" onclose={() => (resetFor = null)}>
+<Dialog
+  open={!!resetFor}
+  title={resetFor ? (resetPassword ? `New password for ${displayName(resetFor)}` : `Reset ${displayName(resetFor)}'s password?`) : ''}
+  busy={resetBusy}
+  initialFocus="cancel"
+  onclose={() => (resetFor = null)}
+>
   {#if resetFor && resetPassword}
     <p class="text-body text-text">Send {displayName(resetFor)} these details:</p>
     <CodeBlock class="mt-3" code={`Address: ${address}\nUsername: ${resetFor.username}\nOne-time password: ${resetPassword}`} wrap />

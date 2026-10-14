@@ -5,6 +5,7 @@
   import type { TokenCreateResp, TokenRecord } from '../../lib/api/types.gen';
   import { session } from '../../lib/stores/session.svelte';
   import { scopeChoices } from './accountHelpers';
+  import { focusDialogResult } from './dialogFocus';
 
   let { open = $bindable(false), oncreated }: { open?: boolean; oncreated?: (t: TokenRecord) => void } = $props();
 
@@ -53,6 +54,7 @@
       const r = await api.post<TokenCreateResp>('/api/tokens', { name: name.trim(), scopes: chosen, ttl: Number(days) * DAY, on_approval: 'deny', rate_per_min: 30 });
       created = r.token;
       if (r.meta) oncreated?.(r.meta);
+      void focusDialogResult();
     } catch {
       failed = "Bothy couldn't create the token. Try again.";
     } finally {

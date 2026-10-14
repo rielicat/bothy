@@ -49,7 +49,7 @@ describe('Settings → Account', () => {
 
   it('revokes a token only after the confirmation', async () => {
     const calls = await open();
-    await fireEvent.click((await screen.findAllByRole('button', { name: 'Revoke…' }))[0]);
+    await fireEvent.click((await screen.findAllByRole('button', { name: /^Revoke .+…$/ }))[0]);
     const dialog = await screen.findByRole('dialog', { name: 'Revoke Open WebUI?' });
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Revoke token' }));
@@ -60,10 +60,10 @@ describe('Settings → Account', () => {
   it('unlinks a chat app and offers to link it again', async () => {
     const calls = await open();
     await screen.findByText('@sam_k');
-    await fireEvent.click(screen.getByRole('button', { name: 'Unlink' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Unlink Telegram' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/identities/telegram/5512')).toBe(true));
     expect(await screen.findByText('Not linked')).toBeTruthy();
-    await fireEvent.click(screen.getByRole('button', { name: 'Link' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Link Telegram' }));
     expect(await screen.findByRole('dialog', { name: 'Link Telegram' })).toBeTruthy();
   });
 

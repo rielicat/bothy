@@ -43,6 +43,7 @@ describe('Settings → People', () => {
     await fireEvent.click(within(dialog).getByRole('radio', { name: 'Admin' }));
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
     expect(await within(dialog).findByText('Maya Chen can sign in now. Send them these details:')).toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: 'Copy' })));
     const post = JSON.parse(calls.find((c) => c.method === 'POST' && c.url === '/api/users')!.body);
     expect(post).toMatchObject({ display_name: 'Maya Chen', username: 'maya', role: 'admin' });
     expect(post.password).toMatch(/^[a-zA-Z2-9]{4}(-[a-zA-Z2-9]{4}){3}$/);
@@ -118,6 +119,7 @@ describe('Settings → People', () => {
     const dialog = await screen.findByRole('dialog', { name: "Reset Jordan Kim's password?" });
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Reset password' }));
     expect(await within(dialog).findByText(/One-time password: Wd4k-7RmP-q9Xz-3hTn/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole('dialog', { name: 'New password for Jordan Kim' })).toBe(dialog));
   });
 
   it("opens Add person when setup's \"Add your team\" sends someone here", async () => {

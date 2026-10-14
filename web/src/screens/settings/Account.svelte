@@ -214,9 +214,9 @@
             {#snippet trailing()}
               {#if r.identity}
                 {@const i = r.identity}
-                <Button size="sm" onclick={() => unlink(i)}>Unlink</Button>
+                <Button size="sm" aria-label="Unlink {r.label}" onclick={() => unlink(i)}>Unlink</Button>
               {:else}
-                <Button size="sm" onclick={() => link(r.channel)}>Link</Button>
+                <Button size="sm" aria-label="Link {r.label}" onclick={() => link(r.channel)}>Link</Button>
               {/if}
             {/snippet}
           </ItemRow>
@@ -241,7 +241,7 @@
           {#each activeTokens as t (t.id)}
             {@const old = expired(t)}
             <ItemRow name={t.name} stacked tone={old ? 'warning' : 'muted'} status="{scopeSummary(t.scopes)} · {old ? `Expired ${relTime(t.expires_at)}` : lastUsed(t)}">
-              {#snippet trailing()}<Button size="sm" onclick={() => (revoking = t)}>Revoke…</Button>{/snippet}
+              {#snippet trailing()}<Button size="sm" aria-label="Revoke {t.name}…" onclick={() => (revoking = t)}>Revoke…</Button>{/snippet}
             </ItemRow>
           {/each}
         </div>

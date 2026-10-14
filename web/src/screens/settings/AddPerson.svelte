@@ -3,6 +3,7 @@
   import { api, ApiError } from '../../lib/api/client';
   import { session } from '../../lib/stores/session.svelte';
   import { generatePassword, usernameError, type UserCreateResp, type UserV2 } from './accountHelpers';
+  import { focusDialogResult } from './dialogFocus';
   import { settingsConfig } from './store.svelte';
 
   // Add person (§11.5): a name, a username and a role, then the details to
@@ -52,6 +53,7 @@
       const u = await api.post<UserCreateResp>('/api/users', { display_name: name.trim(), username, role, password });
       done = { name: u.display_name || name.trim(), username: u.username, password: u.one_time_password || password, mustChange: !!u.must_change_password };
       onadded?.(u);
+      void focusDialogResult();
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) taken = username;
       else failed = "Bothy couldn't add them. Try again.";

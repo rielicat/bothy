@@ -69,7 +69,7 @@ test.describe('settings: axe and plain copy', () => {
         expect.soft(await axe(page), `${r} → ${name} (${scheme})`).toEqual([]);
       }
       await go(page, '/settings/models', 'provider-bedrock');
-      await page.getByRole('button', { name: 'Change', exact: true }).first().click();
+      await page.getByRole('button', { name: 'Change main model' }).click();
       await page.waitForTimeout(400);
       expect.soft(await axe(page), `/settings/models → Change (${scheme})`).toEqual([]);
     });
@@ -97,7 +97,7 @@ test('no page scrolls sideways at 360 px', async ({ page }) => {
 
 test('change the main model from the keyboard alone, and focus comes back', async ({ page }) => {
   await go(page, '/settings/models');
-  const change = page.getByRole('button', { name: 'Change', exact: true }).first();
+  const change = page.getByRole('button', { name: 'Change main model' });
   await change.focus();
   await page.keyboard.press('Enter');
   const dialog = page.getByRole('dialog', { name: 'Main model' });
@@ -137,7 +137,9 @@ test('create a token from the keyboard and see it once', async ({ page }) => {
   await expect(dialog.getByLabel('Name')).toBeFocused();
   await page.keyboard.type('Laptop');
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('dialog', { name: 'Copy your token' }).getByText(/^bothy_pat_/)).toBeVisible();
+  const result = page.getByRole('dialog', { name: 'Copy your token' });
+  await expect(result.getByText(/^bothy_pat_/)).toBeVisible();
+  await expect(result.getByRole('button', { name: /^Copy/ }).first()).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(page.getByText('Laptop')).toBeVisible();
   await expect(page.getByText(/^bothy_pat_/)).toHaveCount(0);

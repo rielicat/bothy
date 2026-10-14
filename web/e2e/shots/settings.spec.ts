@@ -62,7 +62,7 @@ const states: ShotState[] = [
     route: '/settings/account',
     ready: 'Linked chat apps',
     setup: async (page) => {
-      await button('Unlink')(page);
+      await button('Unlink Telegram')(page);
       await page.getByText('Not linked').waitFor();
     },
   },
@@ -77,10 +77,10 @@ const states: ShotState[] = [
       await page.route('**/api/pairing', (r) =>
         r.fulfill({ json: { code: '7KQ2MX4D', expires_at: new Date(Date.now() + 15 * 60_000).toISOString(), deep_links: { telegram: 'https://t.me/sams_bothy_bot?start=7KQ2MX4D' } } }),
       );
-      await button('Unlink')(page);
+      await button('Unlink Telegram')(page);
       // From the keyboard: on a phone the "Telegram unlinked." toast sits over the
       // button, and a pointer resting on it holds the toast open.
-      await page.getByRole('button', { name: 'Link', exact: true }).focus();
+      await page.getByRole('button', { name: 'Link Telegram' }).focus();
       await page.keyboard.press('Enter');
       await page.getByRole('dialog').getByRole('button', { name: /Link your account/ }).click();
       await page.getByRole('dialog').getByText(/pair/).first().waitFor();
@@ -137,7 +137,7 @@ const states: ShotState[] = [
       await settle(page);
     },
   },
-  { name: 'account-revoke', route: '/settings/account', ready: 'Linked chat apps', full: false, setup: button('Revoke…') },
+  { name: 'account-revoke', route: '/settings/account', ready: 'Linked chat apps', full: false, setup: button('Revoke Open WebUI…') },
   { name: 'account-member', route: '/settings/account', mock: 'member', ready: 'Linked chat apps', setup: frame },
 
   // General
@@ -232,7 +232,7 @@ const states: ShotState[] = [
     full: false,
     setup: async (page) => {
       await frame(page);
-      await page.getByRole('button', { name: 'Change', exact: true }).first().click();
+      await page.getByRole('button', { name: 'Change main model' }).click();
       await settle(page);
     },
   },

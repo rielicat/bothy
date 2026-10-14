@@ -192,7 +192,8 @@
       </Disclosure>
 
       <div class="flex flex-col items-start gap-1 border-t border-border pt-4">
-        <Button variant="danger-text" reason={p.keep} onclick={() => (confirmOpen = true)}>Remove provider…</Button>
+        <!-- Enabled, only the words show, so they take the content edge; disabled, the grey box does. -->
+        <Button variant="danger-text" class={p.keep ? '' : '-ml-4'} reason={p.keep} onclick={() => (confirmOpen = true)}>Remove provider…</Button>
       </div>
     </div>
   {/if}

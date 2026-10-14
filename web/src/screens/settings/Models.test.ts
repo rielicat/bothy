@@ -30,7 +30,7 @@ describe('Settings → Models', () => {
   });
 
   it('changes the main model and keeps its backups', async () => {
-    await fireEvent.click(screen.getAllByRole('button', { name: 'Change' })[0]);
+    await fireEvent.click(screen.getByRole('button', { name: 'Change main model' }));
     const dialog = await screen.findByRole('dialog', { name: 'Main model' });
     const list = within(dialog).getByRole('listbox', { name: 'Main model' });
     expect(within(list).getByRole('option', { name: 'Claude Sonnet 4.6' }).getAttribute('aria-selected')).toBe('true');
@@ -42,7 +42,7 @@ describe('Settings → Models', () => {
   });
 
   it('chooses a model from the keyboard', async () => {
-    await fireEvent.click(screen.getAllByRole('button', { name: 'Change' })[1]);
+    await fireEvent.click(screen.getByRole('button', { name: 'Change quick tasks model' }));
     const dialog = await screen.findByRole('dialog', { name: 'Quick tasks model' });
     const list = within(dialog).getByRole('listbox');
     await fireEvent.keyDown(list, { key: 'Home' });

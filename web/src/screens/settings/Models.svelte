@@ -137,6 +137,7 @@
           {#if ref}{label(ref).name} <span class="text-muted">· {label(ref).provider}</span>{:else}<span class="text-muted">Not chosen</span>{/if}
         </span>
         <Button
+          aria-label="Change {title.toLowerCase()}"
           onclick={() => {
             changing = path;
             changeOpen = true;
@@ -184,7 +185,7 @@
             {/snippet}
           </ItemRow>
         {:else}
-          <p class="py-2 text-body text-muted">No providers yet. Add one so Bothy has a model to think with.</p>
+          <p class="py-2 text-body text-muted">No providers yet. Add one so Bothy can answer chats.</p>
         {/each}
       </div>
     </section>

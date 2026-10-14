@@ -66,6 +66,7 @@
     return { text: 'Reached over plain HTTP from another computer', warn: true };
   });
   const peerWords: Record<string, string> = { local: 'this computer', lan: 'your local network', public: 'the internet' };
+  let connectionDetails = $state(false);
 
   const tones = [
     { value: 'warm', label: 'Warm and brief' },
@@ -119,22 +120,25 @@
         parse={webAddress}
       />
       {#if connection}
-        <SettingsRow label="Connection">
-          {#snippet children(c)}
-            <output id={c.id} class="block text-body {connection.warn ? 'text-warning-text' : 'text-muted'}">{connection.text}</output>
-            {#if connection.warn && access}
-              <Disclosure class="mt-1">
-                <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 text-small text-muted">
-                  <dt>Reached from</dt>
-                  <dd class="text-text">{peerWords[access.peer] ?? access.peer} ({access.peer})</dd>
-                  <dt>HTTPS</dt>
-                  <dd class="text-text">No</dd>
-                </dl>
-                <p class="mt-2 text-small text-muted">Put Bothy behind HTTPS, for example with Tailscale or Caddy, before your team uses it from other computers.</p>
-              </Disclosure>
-            {/if}
-          {/snippet}
-        </SettingsRow>
+        <!-- Open Details make the value several lines tall; the label stays on the first one. -->
+        <div class={connectionDetails ? '[&>div]:sm:items-start' : ''}>
+          <SettingsRow label="Connection">
+            {#snippet children(c)}
+              <output id={c.id} class="block text-body {connection.warn ? 'text-warning-text' : 'text-muted'}">{connection.text}</output>
+              {#if connection.warn && access}
+                <Disclosure class="mt-1" bind:open={connectionDetails}>
+                  <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 text-small text-muted">
+                    <dt>Reached from</dt>
+                    <dd class="text-text">{peerWords[access.peer] ?? access.peer} ({access.peer})</dd>
+                    <dt>HTTPS</dt>
+                    <dd class="text-text">No</dd>
+                  </dl>
+                  <p class="mt-2 text-small text-muted">Put Bothy behind HTTPS, for example with Tailscale or Caddy, before your team uses it from other computers.</p>
+                </Disclosure>
+              {/if}
+            {/snippet}
+          </SettingsRow>
+        </div>
       {/if}
     </SettingsSection>
 
@@ -158,7 +162,9 @@
         <SelectSetting label="Tone" path="agent.tone" options={tones} fallback="warm" />
       {/if}
       <div class="border-b border-border py-3">
+        <!-- "Saved" goes right after the label, as on the other rows (§11.1). -->
         <TextArea
+          class="[&>div:first-child]:justify-start [&>div:first-child]:gap-x-2"
           label="Standing instructions"
           rows={4}
           bind:value={rules}
