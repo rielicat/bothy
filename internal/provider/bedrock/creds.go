@@ -11,12 +11,17 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials/endpointcreds"
 	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 )
+
+// credsExpiryWindow is how long before their expiry cached AWS credentials
+// are renewed.
+const credsExpiryWindow = 5 * time.Minute
 
 // ChainOptions configure the AWS default credential chain for one provider.
 type ChainOptions struct {
@@ -72,6 +77,10 @@ func (c *Chain) load(ctx context.Context) (*aws.Config, error) {
 		// The container credential provider ignores the config's HTTP client
 		// and would dial the network directly.
 		config.WithEndpointCredentialOptions(func(o *endpointcreds.Options) { o.HTTPClient = c.router }),
+		// Without a window SSO and role credentials are used up to their
+		// last second, and a request signed just before expiry fails as an
+		// auth error the facade does not retry on the same model.
+		config.WithCredentialsCacheOptions(func(o *aws.CredentialsCacheOptions) { o.ExpiryWindow = credsExpiryWindow }),
 	}
 	if c.o.Region != "" {
 		opts = append(opts, config.WithRegion(c.o.Region))

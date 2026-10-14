@@ -232,6 +232,24 @@ sso_registration_scopes = sso:account:access
 	if sys.closed != 1 {
 		t.Fatalf("idle connections closed %d times", sys.closed)
 	}
+
+	// Credentials within the expiry window are renewed before use.
+	lifetime := 2 * time.Minute
+	sys.handlers["portal.sso.eu-west-1.amazonaws.com"] = func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		fmt.Fprintf(w, `{"roleCredentials":{"accessKeyId":"AKIDSSOEXAMPLE","secretAccessKey":"sso-secret","sessionToken":"sso-token","expiration":%d}}`,
+			time.Now().Add(lifetime).UnixMilli())
+	}
+	c, _ = chainWith(ChainOptions{Region: "us-west-2", Profile: "work"}, sys, nil)
+	calls = 0
+	for range 2 {
+		if _, err := c.Retrieve(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls != 2 {
+		t.Fatalf("credentials expiring in %s were reused: %d calls", lifetime, calls)
+	}
 }
 
 // imdsFake answers the IMDSv2 role flow.
