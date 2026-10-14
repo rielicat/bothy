@@ -337,7 +337,7 @@ func (s *Server) scheduleRuns(w http.ResponseWriter, r *http.Request, a core.Act
 	if err != nil {
 		return err
 	}
-	return ok(w, listOf(derefs(runs), p, func(r core.Run) int64 { return ms(r.CreatedAt) }))
+	return ok(w, listOf(s.namer(ctx, a.Viewer).runViews(runs), p, func(r dto.RunView) int64 { return ms(r.CreatedAt) }))
 }
 
 func (s *Server) previewSchedule(w http.ResponseWriter, r *http.Request, _ core.Actor) error {
@@ -691,7 +691,10 @@ func (s *Server) usage(w http.ResponseWriter, r *http.Request, a core.Actor) err
 		tot.Calls += row.Calls
 		tot.PriceKnown = tot.PriceKnown && row.PriceKnown
 	}
-	return ok(w, dto.UsageResp{Rows: nonNil(rows), Totals: tot})
+	// Admins read everyone's spending, but a chat's title and a schedule's
+	// name stay private to their owner (SPEC §5.9), so rows are named through
+	// the caller's own view.
+	return ok(w, dto.UsageResp{Rows: s.namer(r.Context(), a.Viewer).usageRows(uq.GroupBy, rows), Totals: tot})
 }
 
 func (s *Server) usageToday(w http.ResponseWriter, r *http.Request, a core.Actor) error {
@@ -711,7 +714,7 @@ func (s *Server) usageToday(w http.ResponseWriter, r *http.Request, a core.Actor
 	return ok(w, out)
 }
 
-func (s *Server) auditLog(w http.ResponseWriter, r *http.Request, _ core.Actor) error {
+func (s *Server) auditLog(w http.ResponseWriter, r *http.Request, a core.Actor) error {
 	p, err := page(r)
 	if err != nil {
 		return err
@@ -729,7 +732,11 @@ func (s *Server) auditLog(w http.ResponseWriter, r *http.Request, _ core.Actor) 
 	if err != nil {
 		return err
 	}
-	return ok(w, listOf(es, p, func(e *core.AuditEntry) int64 { return e.ID }))
+	av, err := s.adminViewer(r.Context(), a)
+	if err != nil {
+		return err
+	}
+	return ok(w, listOf(s.auditRows(r.Context(), a.Viewer, av, es), p, func(e dto.AuditRow) int64 { return e.ID }))
 }
 
 func (s *Server) auditVerify(w http.ResponseWriter, r *http.Request, _ core.Actor) error {
@@ -749,7 +756,7 @@ func (s *Server) egressLog(w http.ResponseWriter, r *http.Request, a core.Actor)
 	if err != nil {
 		return err
 	}
-	return ok(w, listOf(rs, p, func(e *core.EgressRecord) int64 { return e.ID }))
+	return ok(w, listOf(egressRows(rs), p, func(e dto.EgressRow) int64 { return e.ID }))
 }
 
 func (s *Server) sandboxInfo(w http.ResponseWriter, r *http.Request, a core.Actor) error {

@@ -432,7 +432,8 @@ func (s *Server) deleteIdentity(w http.ResponseWriter, r *http.Request, a core.A
 }
 
 // adminViewer covers every principal. It is used only for space and grant
-// administration (metadata, never message content) by owners and admins.
+// administration and for naming the actions audit rows were about (metadata,
+// never message content or chat titles) by owners and admins.
 func (s *Server) adminViewer(ctx context.Context, a core.Actor) (core.Viewer, error) {
 	users, err := s.d.Store.Users().List(ctx)
 	if err != nil {

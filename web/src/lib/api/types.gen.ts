@@ -1007,7 +1007,25 @@ export interface Part {
   sig?: string;
   sig_kind?: ProviderKind;
   refine?: RefineTrace; // PartRefine only
+  /**
+   * State and Approval are set on tool_call parts by API reads and never
+   * stored: where the call stands, and the approval it waited on.
+   */
+  state?: ToolState;
+  approval_id?: ApprovalID;
 }
+/**
+ * ToolState is where a transcript tool call stands. A call is done only once
+ * its result exists, so a pending action never reads as finished.
+ */
+export type ToolState = string;
+export const ToolRunning: ToolState = "running";
+export const ToolWaitingApproval: ToolState = "waiting_approval";
+export const ToolDone: ToolState = "done";
+export const ToolFailed: ToolState = "failed";
+export const ToolDenied: ToolState = "denied";
+export const ToolExpired: ToolState = "expired";
+export const ToolBlocked: ToolState = "blocked";
 /**
  * Blob points at a file in the principal's workspace. Data is filled by the
  * agent just before a provider call and is never persisted.
@@ -1045,6 +1063,11 @@ export interface Message {
   tokens: number /* int */; // estimate, calibrated
   created_at: string /* RFC 3339 */;
 }
+/**
+ * TitleChars is how much of a chat's first message names the chat until its
+ * generated title arrives.
+ */
+export const TitleChars = 48;
 export interface Pin {
   id: number /* int64 */;
   session_id: SessionID;
@@ -1226,6 +1249,10 @@ export interface Approval {
   expires_at: string /* RFC 3339 */;
   park_until?: string /* RFC 3339 */;
   decided_at?: string /* RFC 3339 */;
+  /**
+   * DecidedByName is DecidedBy's display name; the HTTP API fills it on reads.
+   */
+  decided_by_name?: string;
   /**
    * Votes of a multi-approver approval, oldest first. Approvals.Get, Pending,
    * Recent and Resolve fill it; repositories leave it empty.
@@ -2269,6 +2296,7 @@ export interface SessionFilter {
   Principal: PrincipalID; // "" = all principals in the Viewer
   Archived: boolean;
   IncludeHidden: boolean;
+  NonEmpty: boolean; // only sessions holding at least one message
   Query: string; // title substring
   Page: Page; // Before = last_message_at unix ms
 }
@@ -2547,6 +2575,120 @@ export interface Dirs {
 }
 
 //////////
+// source: internal/httpapi/dto/activity.go
+
+/**
+ * SessionCreated answers POST /api/sessions: the session, plus the submitted
+ * run when the request carried the first message.
+ */
+export interface SessionCreated extends Session {
+  run?: SubmitResult;
+}
+/**
+ * RunView is a run with the names shown instead of its ids.
+ */
+export interface RunView extends Run {
+  requested_by_name: string; // who asked; "" for schedules and check-ins
+  chat_title: string; // as the chat list shows it
+  schedule_name: string; // "" unless a schedule started it; the heartbeat is "Check-in"
+}
+/**
+ * UsageRowView is a usage bucket with its name: the person (group_by user),
+ * schedule (schedule) or chat (session). Day and model buckets, and keys
+ * that no longer resolve, have none.
+ */
+export interface UsageRowView extends UsageRow {
+  name: string;
+}
+/**
+ * AuditRow is an audit entry as the log lists it.
+ */
+export interface AuditRow extends AuditEntry {
+  actor_name: string; // "Maya Chen", "Bothy" (agent and system)
+  summary: string; // one plain line: "Approved deleting notes/staging.md"
+}
+/**
+ * EgressOutcome is a website access row's decision and connection result in
+ * one word.
+ */
+export type EgressOutcome = string;
+export const EgressReached: EgressOutcome = "reached";
+export const EgressAllowedUnreachable: EgressOutcome = "allowed_unreachable";
+export const EgressBlocked: EgressOutcome = "blocked";
+/**
+ * EgressRow is a website access row with its merged outcome.
+ */
+export interface EgressRow extends EgressRecord {
+  outcome: EgressOutcome;
+}
+/**
+ * RefineEstimate is GET /api/sessions/{id}/refine-estimate: what refining the
+ * next reply of the chat would cost, for the composer's cost line.
+ */
+export interface RefineEstimate {
+  /**
+   * USD is the estimated cost of one refined reply, from the chat's recent
+   * answer steps; absent when the chat has no priced answer yet.
+   */
+  usd?: number /* float64 */;
+  multiplier: number /* float64 */; // a refined reply costs about this many normal ones
+  drafts: number /* int */;
+}
+/**
+ * TextRange marks a match in a snippet: [Start, End) in UTF-16 code units,
+ * the indices of a JavaScript string.
+ */
+export interface TextRange {
+  start: number /* int */;
+  end: number /* int */;
+}
+/**
+ * SearchResp is GET /api/search: plain-text snippets with their matches,
+ * grouped by where they were found.
+ */
+export interface SearchResp {
+  chats: ChatSearchHit[];
+  notes: NoteSearchHit[];
+  code: CodeSearchHit[];
+}
+/**
+ * ChatSearchHit is the best-matching message of one chat.
+ */
+export interface ChatSearchHit {
+  session_id: SessionID;
+  title: string; // as the chat list shows it
+  seq: number /* int64 */;
+  at: string /* RFC 3339 */;
+  snippet: string;
+  ranges: TextRange[];
+  trusted: boolean; // written by the person or Bothy, not by others or tools
+}
+/**
+ * NoteSearchHit is a matching section of a repository's project notes.
+ */
+export interface NoteSearchHit {
+  repo_id: number /* int64 */;
+  repo: string; // owner/name
+  title: string; // the section's heading; "" before the first heading
+  snippet: string;
+  ranges: TextRange[];
+}
+/**
+ * CodeSearchHit is a matching chunk of an indexed repository; Snippet is its
+ * first matching line.
+ */
+export interface CodeSearchHit {
+  repo_id: number /* int64 */;
+  repo: string;
+  path: string;
+  start_line: number /* int */;
+  end_line: number /* int */;
+  citation: string; // owner/repo@sha:path#La-Lb
+  snippet: string;
+  ranges: TextRange[];
+}
+
+//////////
 // source: internal/httpapi/dto/dto.go
 
 /**
@@ -2642,6 +2784,11 @@ export interface SpacePatchReq {
 export interface SessionCreateReq {
   principal_id?: PrincipalID; // default: caller's own
   title?: string;
+  /**
+   * Message, when set, is sent as the first message in the same request, so
+   * a chat is stored only together with its first message (202 SessionCreated).
+   */
+  message?: SendReq;
 }
 export interface SessionPatchReq {
   title?: string;
@@ -2656,8 +2803,13 @@ export interface SessionDetail {
   refine: string; // the session's refine setting: "on" | "off" | "" (follows agent.refine.enabled)
 }
 export interface MessagePage {
-  messages: (Message | undefined)[]; // oldest first within the page
+  messages: (Message | undefined)[]; // oldest first within the page; tool_call parts carry state and approval_id
   has_more: boolean;
+  /**
+   * Approvals the page's tool calls asked for, pending or decided, so a
+   * decided card stays in the transcript after a reload.
+   */
+  approvals: (Approval | undefined)[];
 }
 export interface SendReq {
   text: string;
@@ -2678,7 +2830,7 @@ export interface StopResp {
   stopped: boolean;
 }
 export interface RunDetail {
-  run?: Run;
+  run?: RunView;
   llm_calls: CallInfo[];
   tool_calls: (ToolCallRecord | undefined)[];
   approvals: (Approval | undefined)[];
@@ -2695,6 +2847,12 @@ export interface RefineInfo {
   early_stop: boolean;
   critic_slot: Slot;
   max_calls: number /* int */; // drafts × (1 + 3 × depth), the answer step included
+  /**
+   * Multiplier is about how many normal replies a refined one costs, early
+   * stop considered: the refine estimate of a chat with no priced answer
+   * yet, or of a new chat not stored until its first message.
+   */
+  multiplier: number /* float64 */;
 }
 export interface ApprovalResolveReq {
   choice: Choice;
@@ -2797,7 +2955,7 @@ export interface UnsealReq {
   passphrase: string;
 }
 export interface UsageResp {
-  rows: UsageRow[];
+  rows: UsageRowView[];
   totals: UsageRow;
 }
 export interface UsageToday {

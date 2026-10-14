@@ -19,7 +19,7 @@ func TestRefineInfo(t *testing.T) {
 		c.Agent.Refine = config.Refine{Enabled: true, Drafts: 4, Depth: 1, CriticSlot: "fast"}
 	}).setup()
 	got := decodeAs[dto.RefineInfo](t, h.do("GET", "/api/refine", nil, h.member))
-	want := dto.RefineInfo{Enabled: true, Drafts: 4, Depth: 1, CriticSlot: core.SlotFast, MaxCalls: 16}
+	want := dto.RefineInfo{Enabled: true, Drafts: 4, Depth: 1, CriticSlot: core.SlotFast, MaxCalls: 16, Multiplier: 16}
 	if got != want {
 		t.Fatalf("refine info = %+v, want %+v", got, want)
 	}
@@ -100,6 +100,56 @@ func TestRunDetailCarriesTheRefineTrace(t *testing.T) {
 		t.Fatalf("a run that did not refine has no trace: %+v", d.Refine)
 	}
 	expect(t, h.do("GET", "/api/runs/"+string(refined.ID), nil, h.admin), http.StatusNotFound)
+}
+
+func TestRefineEstimate(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) {
+		c.Agent.Refine = config.Refine{Drafts: 3, Depth: 2, EarlyStop: true, CriticSlot: "main"}
+	}).setup()
+	ctx := context.Background()
+	mp := core.UserPrincipal(h.member.user)
+	sess := decodeAs[core.Session](t, h.do("POST", "/api/sessions", dto.SessionCreateReq{}, h.member))
+	url := "/api/sessions/" + string(sess.ID) + "/refine-estimate"
+
+	got := decodeAs[dto.RefineEstimate](t, h.do("GET", url, nil, h.member))
+	if got.USD != nil || got.Drafts != 3 || got.Multiplier != 12 {
+		t.Fatalf("a chat with no answer yet = %+v (3 drafts, early stop counted as 1 of 2 rounds: 3×(1+3))", got)
+	}
+	mkRun := func(status core.RunStatus, at time.Time, calls ...core.CallInfo) {
+		run := &core.Run{ID: core.RunID(core.NewID(core.PrefixRun)), Session: sess.ID, Principal: mp, User: h.member.user,
+			Trigger: core.TrigMessage, Status: status, CreatedAt: at}
+		if err := h.store.Runs().Create(ctx, run); err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range calls {
+			c.ID, c.Ref, c.PriceKnown = core.NewID(core.PrefixLLMCall), core.ModelRef{Provider: "p", Model: "m"}, true
+			if err := h.store.Runs().AddLLMCall(ctx, run.ID, mp, h.member.user, c); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	base := time.Now().Add(-time.Hour)
+	step := func(n int, cost core.Micros) core.CallInfo {
+		return core.CallInfo{Purpose: "agent", Step: n, Cost: cost}
+	}
+	// The answer step is the first call of a run's last step; tool steps,
+	// titles and refine calls after it do not count.
+	mkRun(core.RunDone, base, step(1, 50_000), step(2, 10_000), core.CallInfo{Purpose: "title", Cost: 900_000})
+	mkRun(core.RunDone, base.Add(time.Minute), step(1, 30_000), step(1, 99_000), step(1, 99_000))
+	mkRun(core.RunFailed, base.Add(2*time.Minute), step(1, 5_000_000))
+	got = decodeAs[dto.RefineEstimate](t, h.do("GET", url, nil, h.member))
+	if got.USD == nil || *got.USD < 0.2399 || *got.USD > 0.2401 {
+		t.Fatalf("estimate = %+v, want (10000+30000)/2 µ$ × 12 = $0.24", got)
+	}
+
+	if info := decodeAs[dto.RefineInfo](t, h.do("GET", "/api/refine", nil, h.member)); info.Multiplier != got.Multiplier {
+		t.Fatalf("a new chat's multiplier %v differs from the estimate's %v", info.Multiplier, got.Multiplier)
+	}
+	h.cfg.update(func(c *config.Config) { c.Agent.Refine.EarlyStop = false })
+	if got := decodeAs[dto.RefineEstimate](t, h.do("GET", url, nil, h.member)); got.Multiplier != 21 {
+		t.Fatalf("without early stop every round counts: %+v", got)
+	}
+	expect(t, h.do("GET", url, nil, h.admin), http.StatusNotFound)
 }
 
 func TestV1RefineHeader(t *testing.T) {

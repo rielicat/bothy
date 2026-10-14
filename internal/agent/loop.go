@@ -21,37 +21,19 @@ type runEnd struct {
 }
 
 func loopEnd() *runEnd {
-	return &runEnd{status: core.RunLoopDetected, err: "loop detected",
-		notice: "Stopped: I was repeating myself (loop detected). Rephrase the request or press Retry."}
+	return &runEnd{status: core.RunLoopDetected, err: "loop detected", notice: loopNotice}
 }
 
 func interruptedEnd() *runEnd {
-	return &runEnd{status: core.RunInterrupted, err: "interrupted by shutdown",
-		notice: "I was restarted mid-task. Send 'retry' to continue."}
+	return &runEnd{status: core.RunInterrupted, err: "interrupted by shutdown", notice: interruptedNotice}
 }
 
 func failEnd(msg string) *runEnd {
-	return &runEnd{status: core.RunFailed, err: msg, notice: "The run failed: " + msg}
+	return &runEnd{status: core.RunFailed, err: msg, notice: failedNotice}
 }
 
-func budgetEnd(be *core.BudgetError) *runEnd {
-	var what string
-	switch be.Kind {
-	case core.BudgetSteps:
-		what = fmt.Sprintf("its step limit (%d steps). Press Continue to allow 10 more steps", be.Limit)
-	case core.BudgetTokens:
-		what = fmt.Sprintf("its token limit (%d tokens)", be.Limit)
-	case core.BudgetTime:
-		what = "its time limit"
-	case core.BudgetRunCost:
-		what = fmt.Sprintf("its cost limit (%s)", core.Micros(be.Limit))
-	case core.BudgetDailyCost:
-		what = fmt.Sprintf("today's spending cap (%s)", core.Micros(be.Limit))
-	default:
-		what = "a budget limit"
-	}
-	return &runEnd{status: core.RunBudgetExceeded, err: be.Error(), budget: be,
-		notice: "Stopped: this run reached " + what + ". Limits are in Settings → Budgets."}
+func (r *Runner) budgetEnd(be *core.BudgetError) *runEnd {
+	return &runEnd{status: core.RunBudgetExceeded, err: be.Error(), budget: be, notice: r.budgetNotice(be)}
 }
 
 // ctxEnd classifies a cancelled run by its cause.
@@ -60,7 +42,7 @@ func (r *Runner) ctxEnd(rs *runState) *runEnd {
 	var be *core.BudgetError
 	switch {
 	case errors.As(cause, &be):
-		return budgetEnd(be)
+		return r.budgetEnd(be)
 	case errors.Is(cause, errShutdown):
 		return interruptedEnd()
 	}
@@ -104,7 +86,7 @@ func (r *Runner) resolveModel(ctx context.Context, rs *runState) *runEnd {
 			}
 		}
 		if err != nil {
-			rs.notice(ctx, fmt.Sprintf("The model override %q is not a known model, so I cleared it and used the default.", o))
+			rs.notice(ctx, overrideGoneNotice)
 			if s, merr := r.mutateSession(ctx, rs.sess.ID, func(s *core.Session) error { s.ModelOverride = ""; return nil }); merr == nil {
 				rs.sess = s
 			}
@@ -114,8 +96,7 @@ func (r *Runner) resolveModel(ctx context.Context, rs *runState) *runEnd {
 	}
 	rs.chain = r.d.LLM.Chain(rs.slot, rs.override)
 	if len(rs.chain) == 0 {
-		return &runEnd{status: core.RunFailed, err: "no model configured",
-			notice: fmt.Sprintf("No model is configured for the %s slot. Add one in Settings → Models.", rs.slot)}
+		return &runEnd{status: core.RunFailed, err: fmt.Sprintf("no model configured for the %s slot", rs.slot), notice: noModelSetNotice}
 	}
 	r.refreshSelection(ctx, rs)
 	return nil
@@ -279,14 +260,27 @@ func (r *Runner) persistTurn(ctx context.Context, rs *runState) error {
 	rs.answered = m.Seq
 	w.merged = 0
 	tc.commit(ctx, r.log)
+	var draft string
+	if rs.sess != nil && rs.sess.Title == "" && !rs.sess.Hidden {
+		draft = r.draftTitle(ctx, req.Session)
+	}
+	titled := false
 	s, err := r.mutateSession(ctx, req.Session, func(s *core.Session) error {
 		s.MemorySeen, s.PinsSeen = max(s.MemorySeen, tc.memSeen), max(s.PinsSeen, tc.pinsSeen)
 		s.LastMessageAt = r.now()
 		s.Taint |= legs
+		if titled = s.Title == "" && draft != ""; titled {
+			s.Title = draft
+		}
 		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("agent: update session: %w", err)
+	}
+	if titled {
+		r.setDraft(s.ID, draft)
+		r.d.Bus.Publish(core.Event{Type: core.EvSessionUpdated, Principal: s.Principal, Session: s.ID,
+			Data: core.SessionData{Title: s.Title, Taint: s.Taint, Epoch: s.Epoch}})
 	}
 	if s.Taint != rs.taint {
 		rs.taint = s.Taint
@@ -421,7 +415,7 @@ func (r *Runner) loop(rs *runState) *runEnd {
 		var be *core.BudgetError
 		if err := rs.meter.Step(); err != nil {
 			if errors.As(err, &be) {
-				return budgetEnd(be)
+				return r.budgetEnd(be)
 			}
 			return failEnd(err.Error())
 		}
@@ -429,7 +423,7 @@ func (r *Runner) loop(rs *runState) *runEnd {
 		info.MaxOutput = head.req.MaxTokens
 		if err := rs.meter.BeforeCall(ctx, head.est, info); err != nil {
 			if errors.As(err, &be) {
-				return budgetEnd(be)
+				return r.budgetEnd(be)
 			}
 			return failEnd(err.Error())
 		}
@@ -482,15 +476,14 @@ func (r *Runner) loop(rs *runState) *runEnd {
 			if pe != nil {
 				msg = r.redact(pe.Msg)
 			}
+			notice := r.modelErrorNotice(rs, ci, pe)
 			if streamed {
 				if resp != nil {
 					r.persistAssistant(ctx, rs, resp)
 				}
-				return &runEnd{status: core.RunFailed, err: "model error mid-reply: " + msg,
-					notice: "Model error mid-reply. Press Retry to try again."}
+				return &runEnd{status: core.RunFailed, err: "model error mid-reply: " + msg, notice: notice}
 			}
-			return &runEnd{status: core.RunFailed, err: "model error: " + msg,
-				notice: "The model could not answer (" + truncateRunes(msg, 200) + "). Press Retry to try again."}
+			return &runEnd{status: core.RunFailed, err: "model error: " + msg, notice: notice}
 		}
 		rs.ctxRetried = false
 		rs.answered = rs.seenSeq
@@ -700,7 +693,7 @@ func (r *Runner) checkPrefix(rs *runState, hash string) {
 	r.prefix[rs.req.Session] = prefixMark{epoch: rs.sess.Epoch, hash: hash}
 }
 
-const steerUnreadNotice = "The run ended before it read your latest message. It is kept in the conversation, so your next message picks it up."
+const steerUnreadNotice = "Bothy stopped before reading your latest message. It stays in this chat, so your next message picks it up."
 
 // unreadSteers reports whether a steer for this run arrived after the last
 // model call that completed, so the model never answered it.
@@ -793,7 +786,7 @@ func (r *Runner) finish(rs *runState, end *runEnd) {
 		return
 	}
 	// Hidden /v1 sessions are never listed, so a title would only cost a call.
-	if rs.sess.Title == "" && !rs.sess.Hidden {
+	if !rs.sess.Hidden && (rs.sess.Title == "" || r.isDraft(rs.sess)) {
 		r.titleAsync(rs)
 	}
 	if len(rs.chain) > 0 && rs.lastEst*10 > rs.chain[0].Context*6 && !r.paused.Load() && !r.closing.Load() {

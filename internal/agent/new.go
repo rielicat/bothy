@@ -100,6 +100,12 @@ type Runner struct {
 	bgCtx   context.Context
 	bgStop  context.CancelFunc // cancels bg work when shutdown stops waiting
 
+	// drafts (under mu) holds the titles still made of a chat's first words,
+	// so a task that ends before the generated title (parked, failed, over
+	// budget) leaves the naming to the next one. Lost on restart: the draft
+	// then stays.
+	drafts map[core.SessionID]string
+
 	// beforeIdle runs on a worker between finishing a job and clearing its
 	// state; tests use it to widen that window.
 	beforeIdle func()
@@ -137,6 +143,7 @@ func New(d Deps) (*Runner, error) {
 		users:   map[core.UserID]*semaphore{},
 		prefix:  map[core.SessionID]prefixMark{},
 		wsMarks: map[core.WorkspaceID]bool{},
+		drafts:  map[core.SessionID]string{},
 	}
 	r.bgCtx, r.bgStop = context.WithCancel(context.Background())
 	r.global = newSemaphore(func() int { return r.cfg().Agent.MaxConcurrentRuns })
@@ -425,14 +432,13 @@ func (r *Runner) recover(ctx context.Context) error {
 		if err := r.d.Approvals.CancelRun(ctx, run.ID); err != nil {
 			r.log.Warn("cancel approvals of interrupted run", "run", run.ID, "err", err)
 		}
-		const text = "I was restarted mid-task. Send 'retry' to continue."
-		r.notice(ctx, run.Session, run.Principal, run.ID, text, nil)
+		r.notice(ctx, run.Session, run.Principal, run.ID, interruptedNotice, nil)
 		sess, err := r.d.Store.Sessions().Get(ctx, core.SystemViewer(), run.Session)
 		if err != nil || sess.Chat == nil {
 			continue
 		}
 		if h := r.hubOrNil(); h != nil {
-			if _, err := h.Send(ctx, *sess.Chat, text); err != nil {
+			if _, err := h.Send(ctx, *sess.Chat, interruptedNotice); err != nil {
 				r.log.Warn("restart notice", "session", run.Session, "err", err)
 			}
 		}

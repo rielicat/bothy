@@ -199,7 +199,7 @@ func TestConstitutionAndInstructionsSurviveCompactions(t *testing.T) {
 		if auto != 1 {
 			t.Fatalf("auto pins = %d", auto)
 		}
-		if !slicesContains(h.notices(), "I'll keep following: '"+standing+"'. /pins to manage.") {
+		if !slicesContains(h.notices(), "Pinned “"+standing+"” so Bothy keeps it in mind.") {
 			t.Fatalf("auto-pin not announced: %v", h.notices())
 		}
 	})
@@ -421,7 +421,7 @@ func TestProfilesShapeTheToolsBlock(t *testing.T) {
 				if !req.System[1].CacheBreak || !req.CacheTail {
 					t.Fatal("cache breakpoints missing")
 				}
-				if !tc.tools && !slicesContains(h.notices(), "This model's window (4096 tokens) is too small for tools, so it can only chat.") {
+				if !tc.tools && !slicesContains(h.notices(), textOnlyNotice) {
 					t.Fatalf("notices = %v", h.notices())
 				}
 			})
@@ -444,7 +444,7 @@ func TestModelOverrideUnknownIsCleared(t *testing.T) {
 		if h.session().ModelOverride != "" {
 			t.Fatal("override not cleared")
 		}
-		if len(h.notices()) != 1 || !strings.Contains(h.notices()[0], `"nope/model" is not a known model`) {
+		if len(h.notices()) != 1 || h.notices()[0] != overrideGoneNotice {
 			t.Fatalf("notices = %v", h.notices())
 		}
 	})

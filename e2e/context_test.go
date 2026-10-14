@@ -237,7 +237,7 @@ func TestCompaction(t *testing.T) {
 	if code := e.JSON(t, http.MethodGet, "/api/sessions/"+string(sid)+"/messages?limit=200", nil, &page); code != http.StatusOK {
 		t.Fatalf("messages = %d", code)
 	}
-	announce := "I'll keep following: '" + standing + "'. /pins to manage."
+	announce := "Pinned “" + standing + "” so Bothy keeps it in mind."
 	announced := 0
 	for _, m := range page.Messages {
 		if m.Kind != core.KindNotice {

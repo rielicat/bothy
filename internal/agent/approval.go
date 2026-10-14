@@ -147,7 +147,7 @@ func (r *Runner) park(rs *runState, pc *pcall, appr *core.Approval, rest []core.
 		ttl = 24 * time.Hour
 	}
 	return &runEnd{status: core.RunParked, parkedOn: appr.ID,
-		notice: fmt.Sprintf("Parked. Approve any time in the next %s.", humanDuration(ttl))}
+		notice: fmt.Sprintf("Waiting for approval. It can be approved any time in the next %s.", humanDuration(ttl))}
 }
 
 // resumeIfResolved runs once the parked row is saved. The approval parks
@@ -304,7 +304,7 @@ func resolved(st core.ApprovalStatus) bool {
 	return false
 }
 
-const pausedParkedNotice = "Bothy is paused by an admin, so the parked run stopped."
+const pausedParkedNotice = "Bothy is paused by an admin, so the task waiting for approval was stopped."
 
 // endParked finishes a parked run whose approval expired or was cancelled
 // (or that cannot resume because Bothy is paused).

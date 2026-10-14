@@ -83,7 +83,7 @@ func TestParkPlaceholderKeepsHistoryValid(t *testing.T) {
 		if !placeholder {
 			t.Fatal("no parked placeholder result")
 		}
-		if !slicesContains(h.notices(), "Parked. Approve any time in the next 24 h.") {
+		if !slicesContains(h.notices(), "Waiting for approval. It can be approved any time in the next 24 h.") {
 			t.Fatalf("notices = %v", h.notices())
 		}
 		if !hasType(h.sink.Types(), core.EvRunParked) || hasType(h.sink.Types(), core.EvRunFinished) {

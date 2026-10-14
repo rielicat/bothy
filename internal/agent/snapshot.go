@@ -213,7 +213,7 @@ func (r *Runner) rebuildSnapshot(ctx context.Context, rs *runState, promote []st
 		rs.publish(core.EvSessionUpdated, core.SessionData{Title: s.Title, Taint: s.Taint, Epoch: s.Epoch})
 	}
 	if p == profileTextOnly {
-		rs.notice(ctx, fmt.Sprintf("This model's window (%d tokens) is too small for tools, so it can only chat.", window))
+		rs.notice(ctx, textOnlyNotice)
 	}
 	return nil
 }

@@ -763,7 +763,7 @@ func TestWorkspaceProvenanceOutlivesTheSession(t *testing.T) {
 		if !strings.Contains(allText(h.requests()[3]), `<untrusted source="fs_read"`) {
 			t.Fatal("workspace file not spotlighted")
 		}
-		if n := h.notices(); len(n) == 0 || !strings.Contains(n[0], "workspace files are shared") {
+		if n := h.notices(); len(n) == 0 || !strings.Contains(n[0], "Bothy's files are shared") {
 			t.Fatalf("fork notice = %q", n)
 		}
 

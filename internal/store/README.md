@@ -17,7 +17,7 @@ KEY, NOT NULL and STRICT type errors become `ErrInvalid`. `Messages.Search` turn
 user input into an AND of quoted FTS5 terms, so no input can inject FTS syntax.
 `Backup` writes a 0600 tarball with a `VACUUM INTO` snapshot plus `memory/**`,
 `knowledge/**`, `SOUL.md`, `bothy.yaml` and `bothy.ui.yaml` (never the KEK or workspaces),
-`RunRetention` prunes hourly (never `audit_log`), `PruneAudit` serves only the
+`RunRetention` prunes hourly (never `audit_log`; web sessions left empty for a day go too), `PruneAudit` serves only the
 offline `bothy audit archive`, and `Checks` reports `sqlite.version`,
 `data.permissions` (auto-fixable) and `backups.none_recent`. Code inside a `Tx`
 callback must use the `core.Store` it is given: the writer pool has a single

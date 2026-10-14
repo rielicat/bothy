@@ -107,3 +107,14 @@ prompts: changing either constitution requires bumping
 `meta.constitution_version`. Since version 2 both speak of a company's agent
 and its team; the default persona is headed `# Bothy` (the agent's name) and
 names its tone ("Tone: Warm and brief").
+
+The first stored turn of an untitled session names it after its first message
+(`core.DraftTitle`, 48 characters) and publishes `session.updated`; after the
+first run that is done (a parked, failed or stopped one leaves it to the next)
+a fast-slot call writes the title, which replaces only that draft, never a
+name someone chose. Notices (`notices.go`) follow the UI copy guide: a
+failed answer names the party at fault once ("Anthropic had a problem
+answering.", "No AI model could answer right now.", a rejected key told
+differently to admins and members) while the raw provider message stays in
+the run's error, and limits, restarts, stops and forks are said in plain
+words with amounts as money.

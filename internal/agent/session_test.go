@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -168,7 +169,8 @@ func TestSessionsResolveForkAndNew(t *testing.T) {
 			t.Fatal("the chat did not move to the fork")
 		}
 		msgs, _ := h.store.Messages().Range(h.ctx, core.SystemViewer(), fork.ID, 0, 0)
-		if len(msgs) != 1 || msgs[0].Kind != core.KindNotice || !strings.Contains(msgs[0].PlainText(), string(s3.ID)) {
+		if len(msgs) != 1 || msgs[0].Kind != core.KindNotice || strings.Contains(msgs[0].PlainText(), string(s3.ID)) ||
+			!strings.HasPrefix(msgs[0].PlainText(), "This is a clean chat continued from ") {
 			t.Fatalf("fork note = %+v", msgs)
 		}
 		if _, err := h.r.Fork(h.ctx, core.Viewer{User: "usr_x"}, s3.ID, "usr_x"); !errors.Is(err, core.ErrNotFound) {
@@ -221,10 +223,19 @@ func TestTitleGeneratedAfterFirstRun(t *testing.T) {
 			t.Fatal(err)
 		}
 		h.sess = s
-		h.submit("Help me plan the weekend")
+		sub := h.bus.Subscribe(core.Filter{System: true, Types: []core.EventType{core.EvSessionUpdated}}, 64)
+		defer sub.Close()
+		h.submit("Help me plan the weekend\n\nwith  the whole family, somewhere near the coast")
 		synctest.Wait()
 		if got := h.session().Title; got != "Weekend plans" {
 			t.Fatalf("title = %q", got)
+		}
+		var titles []string
+		for len(sub.C()) > 0 {
+			titles = append(titles, (<-sub.C()).Data.(core.SessionData).Title)
+		}
+		if want := []string{"Help me plan the weekend with the whole family,", "Weekend plans"}; !slices.Equal(titles, want) {
+			t.Fatalf("session titles %q, want the first message's start, then the generated title %q", titles, want)
 		}
 		var titled bool
 		for _, c := range h.budget.(*fakes.Budget).Calls {
@@ -232,6 +243,92 @@ func TestTitleGeneratedAfterFirstRun(t *testing.T) {
 		}
 		if !titled {
 			t.Fatal("title call not metered")
+		}
+	})
+}
+
+// A chat whose first task ended before an answer keeps its draft title, and
+// the next finished task generates the title once, even when it reads the
+// same as the draft.
+func TestTitleAfterAnEarlierTaskEndedEarly(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{steps: []fakes.LLMStep{
+			{Err: &core.ProviderError{Provider: "fake", Kind: core.ErrKindServer, Msg: "overloaded"}},
+			{Text: []string{"Sure."}}, {Text: []string{"Again."}},
+		}})
+		defer h.close()
+		s, err := h.r.NewSession(h.ctx, h.pid, "web", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.sess = s
+		titles := func() int {
+			h.llm.mu.Lock()
+			defer h.llm.mu.Unlock()
+			return h.llm.titles
+		}
+		h.submit("Weekend plans")
+		synctest.Wait()
+		if got, n := h.session().Title, titles(); got != "Weekend plans" || n != 0 {
+			t.Fatalf("after a failed task: title %q, %d title calls; want the draft and none", got, n)
+		}
+		h.submit("Try again")
+		synctest.Wait()
+		if n := titles(); n != 1 {
+			t.Fatalf("%d title calls after the first finished task, want 1", n)
+		}
+		h.submit("And once more")
+		synctest.Wait()
+		if got, n := h.session().Title, titles(); got != "Weekend plans" || n != 1 {
+			t.Fatalf("title %q after %d title calls: a generated title is never generated again", got, n)
+		}
+	})
+}
+
+func TestBothysOwnTurnsNameNoChat(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{steps: []fakes.LLMStep{{Text: []string{"Nothing needs attention."}}}})
+		defer h.close()
+		s, err := h.r.NewSession(h.ctx, h.pid, "schedule", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.sess = s
+		req := h.req("Read HEARTBEAT.md and check the list.")
+		req.Provenance = core.ProvSystem
+		if _, err := h.r.Submit(h.ctx, req); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		if got := h.session().Title; got != "" {
+			t.Fatalf("a check-in named its chat %q", got)
+		}
+	})
+}
+
+func TestTitleKeepsARename(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{steps: []fakes.LLMStep{{Text: []string{"Sure."}}, {Text: []string{"Again."}}}})
+		defer h.close()
+		s, err := h.r.NewSession(h.ctx, h.pid, "web", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.Title = "Renamed"
+		if err := h.store.Sessions().Update(h.ctx, s); err != nil {
+			t.Fatal(err)
+		}
+		h.sess = s
+		h.submit("Help me plan the weekend")
+		synctest.Wait()
+		if got := h.session().Title; got != "Renamed" {
+			t.Fatalf("title = %q, want the name the person chose", got)
+		}
+		h.llm.mu.Lock()
+		n := h.llm.titles
+		h.llm.mu.Unlock()
+		if n != 0 {
+			t.Fatalf("%d title calls for a named chat", n)
 		}
 	})
 }
@@ -276,7 +373,7 @@ func TestBootRecovery(t *testing.T) {
 		if st := h.run(run.ID).Status; st != core.RunInterrupted {
 			t.Fatalf("status = %s", st)
 		}
-		if sent := h.hub.Messages(); len(sent) != 1 || sent[0] != chat.Key()+"|I was restarted mid-task. Send 'retry' to continue." {
+		if sent := h.hub.Messages(); len(sent) != 1 || sent[0] != chat.Key()+"|"+interruptedNotice {
 			t.Fatalf("hub = %v", sent)
 		}
 		if st := h.appr.All()[0].Status; st != core.ApprovalCancelled {
