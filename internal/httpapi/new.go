@@ -33,6 +33,7 @@ type Deps struct {
 	Memory    core.Memory
 	Skills    core.Skills
 	MCP       core.MCP
+	GitHub    core.GitHub // nil: the /api/github routes answer 503
 	Scheduler core.Scheduler
 	Hub       core.ChannelHub
 	Sandbox   core.Sandbox
@@ -109,7 +110,7 @@ func New(d Deps) (*Server, error) {
 		v1Wait:     v1LargeWait,
 		shutdown:   make(chan struct{}),
 	}
-	s.routes = s.routeTable()
+	s.routes = append(s.routeTable(), s.githubRoutes()...)
 	s.handler = s.build()
 	return s, nil
 }

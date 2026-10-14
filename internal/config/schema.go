@@ -29,6 +29,7 @@ type Config struct {
 	Search    Search            `yaml:"search" reload:"hot"`
 	WebFetch  WebFetch          `yaml:"web_fetch" reload:"hot"`
 	Channels  Channels          `yaml:"channels"`
+	GitHub    GitHubCfg         `yaml:"github" reload:"hot"`
 	MCP       MCPCfg            `yaml:"mcp" reload:"hot"`
 	Memory    MemoryCfg         `yaml:"memory" reload:"hot"`
 	Skills    SkillsCfg         `yaml:"skills" reload:"hot"`
@@ -398,6 +399,20 @@ type Heartbeat struct {
 	ActiveHours string   `yaml:"active_hours"`
 	Slot        string   `yaml:"slot"`
 	Deliver     string   `yaml:"deliver"` // preferred | web | <channel name>
+}
+
+// GitHubCfg holds the operator-level GitHub settings; connections and the
+// repository allowlist live in the database (Settings > Connections).
+type GitHubCfg struct {
+	// APIBase is locked because a non-default base (GitHub Enterprise Server,
+	// tests) may sit on a private network, which the gateway then dials.
+	APIBase  string         `yaml:"api_base" locked:"true"` // https://api.github.com; Enterprise Server: https://<host>/api/v3
+	Checkout GitHubCheckout `yaml:"checkout"`
+}
+
+type GitHubCheckout struct {
+	MaxMB    int `yaml:"max_mb"`    // unpacked size of one checkout; the download is capped at the same size
+	MaxFiles int `yaml:"max_files"` // files of one checkout
 }
 
 type APICfg struct {

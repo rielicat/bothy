@@ -344,6 +344,7 @@ func validate(c *Config, v *vctx) {
 	validateEgress(c, v)
 	validateSearch(c, v)
 	validateChannels(c, v)
+	validateGitHub(c, v)
 	validateMCP(c, v)
 	validateMisc(c, v)
 }
@@ -845,6 +846,13 @@ func validateMCP(c *Config, v *vctx) {
 			}
 		}
 	}
+}
+
+func validateGitHub(c *Config, v *vctx) {
+	g := c.GitHub
+	v.url("github.api_base", g.APIBase, true, "http", "https")
+	v.intRange("github.checkout.max_mb", g.Checkout.MaxMB, 1, 8192)
+	v.intRange("github.checkout.max_files", g.Checkout.MaxFiles, 1, 1_000_000)
 }
 
 func validateMisc(c *Config, v *vctx) {

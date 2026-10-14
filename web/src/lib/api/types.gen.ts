@@ -445,6 +445,126 @@ export type Subscription = any;
 export type Bus = any;
 
 //////////
+// source: internal/core/github.go
+
+export const PrefixGitHubConn = "ghc";
+export type GitHubAuth = string;
+export const GitHubPAT: GitHubAuth = "pat";
+export const GitHubApp: GitHubAuth = "app";
+export interface GitHubConnection {
+  id: string; // ghc_<26>
+  auth: GitHubAuth;
+  account: string; // the token's user, or the installation's account
+  account_type: string; // User | Organization
+  app_id?: string;
+  app_slug?: string;
+  installation_id?: number /* int64 */;
+  secret_ref: string; // "secret:<name>" of the PAT or the App private key
+  owns_secret: boolean; // stored by Connect, so Disconnect deletes it
+  status: string; // ok | error
+  error?: string;
+  token_expires_at: string /* RFC 3339 */; // PAT expiry as GitHub reports it; zero = none
+  checked_at: string /* RFC 3339 */;
+  created_by: UserID;
+  created_at: string /* RFC 3339 */;
+  updated_at: string /* RFC 3339 */;
+}
+/**
+ * GitHubRepo is a repository a connection can reach. Only Allowed ones are
+ * offered to the agent. Owner and name are unique case-insensitively across
+ * connections and keep GitHub's spelling.
+ */
+export interface GitHubRepo {
+  connection_id: string;
+  github_id: number /* int64 */;
+  owner: string;
+  name: string;
+  default_branch: string;
+  private: boolean;
+  allowed: boolean;
+  last_indexed_sha?: string; // set by the knowledge index
+  created_at: string /* RFC 3339 */;
+  updated_at: string /* RFC 3339 */;
+}
+/**
+ * GitHubStore persists connections and repositories (migration 0002). It is
+ * not part of Store: *store.DB and memstore provide it through GitHub().
+ */
+export type GitHubStore = any;
+/**
+ * GitHubCredentials is a connect or test request. Exactly one of Token,
+ * PrivateKey or SecretRef carries the secret.
+ */
+export interface GitHubCredentials {
+  Auth: GitHubAuth;
+  Token: Secret; // PAT; Connect stores it in the global vault scope
+  PrivateKey: Secret; // App private key (PEM); Connect stores it in the global vault scope
+  SecretRef: string; // an existing "secret:<name>" instead (e.g. BOTHY_SECRET_<NAME>)
+  AppID: string;
+  InstallationID: number /* int64 */; // App: 0 picks the app's only installation
+}
+export interface GitHubInstallation {
+  id: number /* int64 */;
+  account: string;
+  account_type: string;
+  repository_selection: string; // all | selected
+}
+export interface GitHubRepoAccess {
+  github_id: number /* int64 */;
+  owner: string;
+  name: string;
+  private: boolean;
+  archived: boolean;
+  default_branch: string;
+  description?: string; // repository-authored text
+  allowed: boolean;
+  connection_id?: string; // the connection that holds it, if any
+}
+export interface GitHubRateLimit {
+  limit: number /* int */;
+  remaining: number /* int */;
+  reset: string /* RFC 3339 */;
+  resource?: string;
+}
+/**
+ * GitHubProbe is what a credential test found. OK is false with Error set
+ * when GitHub refused the credentials or could not be reached.
+ */
+export interface GitHubProbe {
+  ok: boolean;
+  error?: string;
+  auth: GitHubAuth;
+  account: string;
+  account_type: string;
+  app_slug?: string;
+  installation_id?: number /* int64 */;
+  installations?: GitHubInstallation[]; // App: set when one must be chosen
+  repos: GitHubRepoAccess[];
+  truncated: boolean; // more repositories than were listed
+  token_expires_at: string /* RFC 3339 */;
+  rate_limit: GitHubRateLimit;
+}
+/**
+ * GitHub manages connections for the HTTP API and contributes the repo_* and
+ * github_* tools. Every method needs an admin caller except Repos.
+ */
+export type GitHub = 
+    ToolProvider;
+/**
+ * EvRepoCheckout is published (Principal = the workspace's principal) when
+ * repo_checkout has written a repository into a workspace.
+ */
+export const EvRepoCheckout: EventType = "repo.checkout";
+export interface RepoCheckoutData {
+  repo: string; // owner/name
+  ref: string;
+  sha: string;
+  workspace_id: WorkspaceID;
+  dir: string; // workspace-relative: repos/<owner>/<name>
+  files: number /* int */;
+}
+
+//////////
 // source: internal/core/ids.go
 
 export type UserID = string; // usr_<26>
@@ -1717,6 +1837,7 @@ export interface Manifest {
   core: boolean; // schema always in the tools block; else via tool_search
   timeout: number /* nanoseconds */;
   max_output_kb: number /* int */;
+  always_ask?: boolean; // every call is a card (policy floor): no preset, rule or grant allows it, no allow_session
 }
 export interface ToolSpec {
   def: ToolDef;
@@ -2207,4 +2328,40 @@ export interface SecurityAuditReq {
 export interface DoctorReport {
   findings: Finding[];
   fixed?: string[];
+}
+
+//////////
+// source: internal/httpapi/dto/github.go
+
+/**
+ * GitHubConnectReq is the body of POST /api/github/connections (connect) and
+ * POST /api/github/connections/test (probe only, nothing stored). Give
+ * exactly one of Token (auth "pat"), PrivateKey (auth "app", the .pem GitHub
+ * generated) or SecretRef (an existing "secret:<name>"). Token and PrivateKey
+ * are write-only: Connect stores them in the global vault scope and no
+ * response ever carries them.
+ */
+export interface GitHubConnectReq {
+  auth: GitHubAuth;
+  token?: string;
+  private_key?: string;
+  secret_ref?: string;
+  app_id?: string;
+  installation_id?: number /* int64 */; // App: 0 = its only installation
+  repos?: string[]; // connect: owner/name to allowlist
+}
+/**
+ * GitHubReposReq replaces a connection's allowlist (PUT
+ * /api/github/connections/{id}/repos); an empty list allows none.
+ */
+export interface GitHubReposReq {
+  repos: string[];
+}
+/**
+ * GitHubConnectionDetail is GET /api/github/connections/{id}: the stored
+ * connection and every repository it holds, allowed or not.
+ */
+export interface GitHubConnectionDetail {
+  connection?: GitHubConnection;
+  repos: (GitHubRepo | undefined)[];
 }

@@ -130,6 +130,7 @@ type Manifest struct {
 	Core        bool          `json:"core"`               // schema always in the tools block; else via tool_search
 	Timeout     time.Duration `json:"timeout"`
 	MaxOutputKB int           `json:"max_output_kb"`
+	AlwaysAsk   bool          `json:"always_ask,omitempty"` // every call is a card (policy floor): no preset, rule or grant allows it, no allow_session
 }
 
 type ToolSpec struct {
