@@ -1,144 +1,233 @@
 <script lang="ts">
-  import ChainEditor from '../../components/ChainEditor.svelte';
-  import Icon from '../../components/Icon.svelte';
-  import ProviderSetup from '../../components/ProviderSetup.svelte';
-  import Section from '../../components/Section.svelte';
-  import { api, errorText } from '../../lib/api/client';
-  import type { Detection, ModelInfo, ProbeResult, ProviderHealth } from '../../lib/api/types.gen';
-  import { config } from '../../lib/config.svelte';
-  import { duration } from '../../lib/format';
-  import { toasts } from '../../lib/stores/ui.svelte';
+  import { untrack, type Component } from 'svelte';
+  import { Button, Dialog, SettingsRow, SettingsSection, StatusLine, toast } from '../../components/ui';
+  import { api } from '../../lib/api/client';
+  import AddProvider from './AddProvider.svelte';
+  import BackupModels from './BackupModels.svelte';
+  import ItemRow from './ItemRow.svelte';
+  import ManageProvider, { type ManagedProvider } from './ManageProvider.svelte';
+  import ModelDialog, { type ModelOption } from './ModelDialog.svelte';
+  import { makePrimary, modelName, modelProvider, providerName, providerStatus, refineDrafts, refineMultiplier, splitRef, type ModelInfoV2, type ProviderHealthV2 } from './modelHelpers';
+  import SelectSetting from './SelectSetting.svelte';
+  import SettingsFrame from './SettingsFrame.svelte';
+  import { Saver, settingsConfig } from './store.svelte';
+  import SwitchSetting from './SwitchSetting.svelte';
 
-  let models = $state<ModelInfo[]>([]);
-  let health = $state<ProviderHealth[]>([]);
-  let detected = $state<Detection[] | null>(null);
-  let adding = $state(false);
-  let probes = $state<Record<string, ProbeResult | string>>({});
-  let price = $state({ ref: '', inp: '', out: '' });
+  // ProviderChooser (C2) takes over from the local fallback as soon as it is
+  // in the tree; the glob keeps this file building before and after.
+  const Chooser: Component<any> =
+    Object.values(import.meta.glob<Component<any>>('../../components/ProviderChooser.svelte', { eager: true, import: 'default' }))[0] ?? AddProvider;
 
-  const ids = $derived(config.keys('providers'));
-  const prices = $derived(config.keys('pricing', 'tail'));
+  const uid = $props.id();
+  let models = $state<ModelInfoV2[]>([]);
+  let health = $state<ProviderHealthV2[]>([]);
 
   async function refresh() {
-    [models, health] = await Promise.all([api.get<ModelInfo[]>('/api/models').catch(() => []), api.get<ProviderHealth[]>('/api/providers').catch(() => [])]);
+    const [m, h] = await Promise.all([api.get<ModelInfoV2[]>('/api/models').catch(() => models), api.get<ProviderHealthV2[]>('/api/providers').catch(() => health)]);
+    models = m;
+    health = h;
   }
 
   $effect(() => {
-    void refresh();
+    untrack(() => void refresh());
   });
 
-  async function test(id: string) {
-    const chain = [...config.value<string[]>('models.main', []), ...config.value<string[]>('models.fast', [])];
-    const model = chain.find((r) => r.startsWith(id + '/'))?.slice(id.length + 1) ?? config.keys(`providers.${id}.models`, 'tail')[0] ?? '';
-    probes[id] = 'testing';
-    try {
-      probes[id] = await api.post<ProbeResult>('/api/providers/test', {
-        kind: config.value(`providers.${id}.type`),
-        base_url: config.value(`providers.${id}.base_url`) || undefined,
-        secret_ref: config.value(`providers.${id}.api_key`) || undefined,
-        model,
-        allow_private: config.value(`providers.${id}.allow_private`, false),
-        api: config.value(`providers.${id}.api`) || undefined,
+  const enabled = (id: string) => settingsConfig.value(`providers.${id}.enabled`, null) !== false;
+  // Providers in use first, those turned off after them.
+  const ids = $derived(settingsConfig.keys('providers').sort((a, b) => Number(enabled(b)) - Number(enabled(a))));
+  const kinds = $derived(Object.fromEntries(ids.map((id) => [id, settingsConfig.value<string>(`providers.${id}.type`, '')])));
+
+  const slots = $derived({
+    'models.main': settingsConfig.value<string[]>('models.main', []) ?? [],
+    'models.fast': settingsConfig.value<string[]>('models.fast', []) ?? [],
+  });
+  type Slot = keyof typeof slots;
+
+  const label = (ref: string) => ({ name: modelName(ref, models), provider: modelProvider(ref, models, kinds) });
+
+  // Connected models by provider, plus any model a slot names that the list doesn't (yet) report.
+  const options: ModelOption[] = $derived.by(() => {
+    const refs = models.filter((m) => ids.includes(m.ref.provider) && enabled(m.ref.provider)).map((m) => `${m.ref.provider}/${m.ref.model}`);
+    for (const r of [...slots['models.main'], ...slots['models.fast']]) if (!refs.includes(r) && ids.includes(splitRef(r).provider)) refs.push(r);
+    const order = (r: string) => ids.indexOf(splitRef(r).provider);
+    return refs
+      .sort((a, b) => order(a) - order(b))
+      .map((r) => {
+        const m = models.find((x) => `${x.ref.provider}/${x.ref.model}` === r);
+        return { value: r, label: label(r).name + (m?.recommended ? ' (recommended)' : ''), group: label(r).provider };
       });
-    } catch (e) {
-      probes[id] = errorText(e);
-    }
-  }
+  });
 
-  async function detect() {
-    detected = null;
+  const savers: Record<Slot, Saver> = { 'models.main': new Saver(), 'models.fast': new Saver() };
+  let changing = $state<Slot | null>(null);
+  let changeOpen = $state(false);
+
+  async function saveSlot(path: Slot, ref: string): Promise<boolean> {
     try {
-      detected = await api.post<Detection[]>('/api/providers/detect');
-    } catch (e) {
-      toasts.error(e);
-      detected = [];
+      await settingsConfig.save({ [path]: makePrimary(slots[path], ref) });
+      savers[path].done();
+      return true;
+    } catch {
+      return false;
     }
   }
 
-  async function addPrice(e: SubmitEvent) {
-    e.preventDefault();
-    if (!(await config.set({ [`pricing.${price.ref}`]: { in: Number(price.inp), out: Number(price.out) } }))) price = { ref: '', inp: '', out: '' };
+  function managed(id: string): ManagedProvider {
+    const kind = kinds[id];
+    const name = providerName(id, kind);
+    const inSlots = [...slots['models.main'], ...slots['models.fast']].find((r) => splitRef(r).provider === id);
+    const model = inSlots ? splitRef(inSlots).model : (models.find((m) => m.ref.provider === id)?.ref.model ?? settingsConfig.keys(`providers.${id}.models`)[0] ?? '');
+    const uses = (path: Slot) => splitRef(slots[path][0] ?? '').provider === id;
+    const keep = settingsConfig.locked(`providers.${id}.id`)
+      ? `${name} is set up in the server's settings file, so it can't be removed here.`
+      : uses('models.main')
+        ? `Bothy uses ${name} for the main model. Choose another main model first.`
+        : uses('models.fast')
+          ? `Bothy uses ${name} for quick tasks. Choose another quick tasks model first.`
+          : undefined;
+    return {
+      id,
+      kind,
+      name,
+      enabled: enabled(id),
+      baseUrl: settingsConfig.value<string>(`providers.${id}.base_url`, ''),
+      keyRef: settingsConfig.value<string>(`providers.${id}.api_key`, ''),
+      allowPrivate: settingsConfig.value<unknown>(`providers.${id}.allow_private`) === true,
+      api: settingsConfig.value<string>(`providers.${id}.api`, ''),
+      region: settingsConfig.value<string>(`providers.${id}.region`, 'us-east-1'),
+      health: health.find((h) => h.id === id),
+      model,
+      keep,
+    };
   }
+
+  let managing = $state<string | null>(null);
+  let manageOpen = $state(false);
+  const managedNow = $derived(managing ? managed(managing) : null);
+
+  let adding = $state(false);
+  let before = new Set<string>();
+
+  function add() {
+    before = new Set(ids);
+    adding = true;
+  }
+
+  // ProviderChooser may report the provider in more than one shape; the name is all the toast needs.
+  async function connected(p?: unknown) {
+    adding = false;
+    await settingsConfig.load(true);
+    void refresh();
+    const named = typeof p === 'string' ? p : p && typeof p === 'object' ? ((p as Record<string, unknown>).name ?? (p as Record<string, unknown>).label) : undefined;
+    const added = ids.find((id) => !before.has(id));
+    const name = typeof named === 'string' && named ? named : added ? providerName(added, kinds[added]) : '';
+    toast(name ? `${name} connected.` : 'Connected.');
+  }
+
+  const preset = $derived(settingsConfig.value<string>('refine.preset', 'standard'));
+  const refineOn = $derived(settingsConfig.value<unknown>('refine.default') === true);
 </script>
 
-<Section title="Providers" desc="Where Bothy sends model requests, using your own keys.">
-  {#snippet actions()}
-    <button type="button" class="btn btn-sm" onclick={() => (adding = !adding)}><Icon name="plus" size={14} />Add provider</button>
+{#snippet slotRow(path: Slot, title: string, help: string)}
+  {@const ref = slots[path][0]}
+  <SettingsRow label={title} {help} status={savers[path].status}>
+    {#snippet children()}
+      <div class="flex items-center justify-between gap-3">
+        <span class="min-w-0 truncate text-body text-text">
+          {#if ref}{label(ref).name} <span class="text-muted">· {label(ref).provider}</span>{:else}<span class="text-muted">Not chosen</span>{/if}
+        </span>
+        <Button
+          onclick={() => {
+            changing = path;
+            changeOpen = true;
+          }}>Change</Button
+        >
+      </div>
+    {/snippet}
+  </SettingsRow>
+{/snippet}
+
+<SettingsFrame title="Models" loading={!settingsConfig.view && !settingsConfig.failed}>
+  {#if settingsConfig.failed}
+    <StatusLine tone="danger" text="This page didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: () => settingsConfig.load(true) }} />
+  {:else if settingsConfig.view}
+    <div>
+      {@render slotRow('models.main', 'Main model', 'Used for chats and most work.')}
+      {@render slotRow('models.fast', 'Quick tasks model', 'Used for titles, summaries and check-ins. A cheaper model works well.')}
+    </div>
+    <BackupModels {options} {label} />
+
+    <section class="mt-10" aria-labelledby="{uid}-providers">
+      <div class="flex items-center justify-between gap-4">
+        <h2 id="{uid}-providers" class="section-title">Providers</h2>
+        <Button size="sm" onclick={add}>Add a provider</Button>
+      </div>
+      <div class="mt-2">
+        {#each ids as id (id)}
+          {@const st = providerStatus({
+            kind: kinds[id],
+            enabled: enabled(id),
+            health: health.find((h) => h.id === id),
+            models: models.filter((m) => m.ref.provider === id).length,
+            region: settingsConfig.value<string>(`providers.${id}.region`, ''),
+          })}
+          <ItemRow name={providerName(id, kinds[id])} status={st.text} tone={st.tone}>
+            {#snippet trailing()}
+              <Button
+                size="sm"
+                aria-label="Manage {providerName(id, kinds[id])}"
+                onclick={() => {
+                  managing = id;
+                  manageOpen = true;
+                }}>Manage</Button
+              >
+            {/snippet}
+          </ItemRow>
+        {:else}
+          <p class="py-2 text-body text-muted">No providers yet. Add one so Bothy has a model to think with.</p>
+        {/each}
+      </div>
+    </section>
+
+    {#if settingsConfig.has('refine.default')}
+      <SettingsSection title="Refine">
+        <SwitchSetting
+          label="Refine answers by default"
+          path="refine.default"
+          help="Bothy writes several drafts, checks them and sends the best one. Slower, and costs about {refineMultiplier(preset)}× more."
+        />
+        {#if refineOn}
+          <SelectSetting
+            label="How thorough"
+            path="refine.preset"
+            fallback="standard"
+            options={[
+              { value: 'standard', label: `Standard (${refineDrafts('standard')} drafts)` },
+              { value: 'thorough', label: `Thorough (${refineDrafts('thorough')} drafts, slower)` },
+            ]}
+          />
+        {/if}
+      </SettingsSection>
+    {/if}
+  {/if}
+</SettingsFrame>
+
+{#if changing}
+  {@const path = changing}
+  <ModelDialog
+    bind:open={changeOpen}
+    title={path === 'models.main' ? 'Main model' : 'Quick tasks model'}
+    value={slots[path][0] ?? ''}
+    {options}
+    onsave={(ref) => saveSlot(path, ref)}
+  />
+{/if}
+
+<ManageProvider bind:open={manageOpen} provider={managedNow} onchanged={refresh} />
+
+<Dialog bind:open={adding} title="Add a provider" size="md">
+  <Chooser mode="settings" onconnected={connected} />
+  {#snippet footer({ close })}
+    <Button data-cancel onclick={close}>Cancel</Button>
   {/snippet}
-  {#if adding}
-    <div class="py-4">
-      <ProviderSetup
-        onadded={() => {
-          adding = false;
-          void refresh();
-        }}
-      />
-    </div>
-  {/if}
-  {#each ids as id (id)}
-    {@const h = health.find((x) => x.id === id)}
-    {@const p = probes[id]}
-    {@const enabled = config.value(`providers.${id}.enabled`, null) !== false}
-    <div class="flex flex-wrap items-center gap-3 py-3.5">
-      <input
-        type="checkbox"
-        class="switch"
-        checked={enabled}
-        aria-label="Enable {id}"
-        disabled={config.entry(`providers.${id}.enabled`)?.locked}
-        onchange={(e) => config.set({ [`providers.${id}.enabled`]: e.currentTarget.checked })}
-      />
-      <div class="min-w-0 flex-1">
-        <p class="font-medium">{id} <span class="text-xs font-normal text-muted">{config.value(`providers.${id}.type`)}</span></p>
-        <p class="mono truncate text-xs text-muted">{config.value(`providers.${id}.base_url`) || 'default endpoint'}</p>
-        {#if h?.last_error}<p class="text-xs text-bad">{h.last_error}</p>{/if}
-        {#if typeof p === 'string' && p !== 'testing'}<p class="text-xs text-bad">{p}</p>
-        {:else if p && typeof p === 'object'}<p class="text-xs {p.ok ? 'text-ok' : 'text-bad'}">{p.ok ? `Works · ${duration(p.latency)} · tools ${p.tool_calling ? 'yes' : 'no'}` : 'Failed'}{p.detail ? ` · ${p.detail}` : ''}</p>{/if}
-      </div>
-      {#if h}<span class="chip {h.state === 'ok' ? 'chip-ok' : h.state === 'degraded' ? 'chip-warn' : 'chip-bad'}">{h.state}</span>{/if}
-      <button type="button" class="btn btn-sm" disabled={p === 'testing'} onclick={() => test(id)}>{p === 'testing' ? 'Testing…' : 'Test'}</button>
-      {#if !config.entry(`providers.${id}.id`)?.locked}
-        <button type="button" class="btn btn-ghost btn-icon btn-sm" aria-label="Remove {id}" title="Remove the web UI entry" onclick={() => config.set({ [`providers.${id}`]: null })}><Icon name="trash" size={14} /></button>
-      {/if}
-    </div>
-  {:else}
-    <p class="py-6 text-center text-sm text-muted">No providers yet. Add one to start chatting.</p>
-  {/each}
-</Section>
-
-<Section title="Model chains" desc="Bothy tries models in order and falls back before the first word streams. Drag or use the arrows to reorder.">
-  <ChainEditor path="models.main" label="Main" help="Everyday replies and tool use." {models} />
-  <ChainEditor path="models.fast" label="Fast" help="Titles, summaries, heartbeats and cheap schedules." {models} />
-</Section>
-
-<Section title="Local models" desc="Ollama, LM Studio and vLLM running next to Bothy.">
-  {#snippet actions()}<button type="button" class="btn btn-sm" onclick={detect}><Icon name="search" size={14} />Detect</button>{/snippet}
-  {#if detected === null}
-    <p class="py-4 text-sm text-muted">Press Detect to look for local servers and API keys in the environment.</p>
-  {:else if !detected.length}
-    <p class="py-4 text-sm text-muted">Nothing found.</p>
-  {:else}
-    {#each detected as d, i (i)}
-      <div class="flex flex-wrap items-center gap-3 py-3 text-sm">
-        <Icon name={d.env_var ? 'key' : 'monitor'} size={16} class="text-muted" />
-        <p class="min-w-0 flex-1">{d.env_var ? `${d.env_var} found in the environment` : `${d.kind} at ${d.base_url}`}{d.models?.length ? `: ${d.models.length} models` : ''}{d.note ? ` · ${d.note}` : ''}</p>
-      </div>
-    {/each}
-  {/if}
-</Section>
-
-<Section title="Price overrides" desc="USD per million tokens; overrides the built-in catalog, for example 0 for local models.">
-  {#each prices as ref (ref)}
-    <div class="flex items-center gap-3 py-3 text-sm">
-      <span class="mono min-w-0 flex-1 truncate">{ref}</span>
-      <span class="tabular-nums text-muted">in ${config.value(`pricing.${ref}.in`, 0)} · out ${config.value(`pricing.${ref}.out`, 0)}</span>
-      <button type="button" class="btn btn-ghost btn-icon btn-sm" aria-label="Remove price for {ref}" onclick={() => config.set({ [`pricing.${ref}`]: null })}><Icon name="trash" size={14} /></button>
-    </div>
-  {/each}
-  <form class="grid gap-2 py-4 sm:grid-cols-[1fr_6rem_6rem_auto]" onsubmit={addPrice}>
-    <input class="input mono" placeholder="provider/model" aria-label="Model" required bind:value={price.ref} />
-    <input class="input" type="number" min="0" step="any" placeholder="in $/M" aria-label="Input price per million tokens" required bind:value={price.inp} />
-    <input class="input" type="number" min="0" step="any" placeholder="out $/M" aria-label="Output price per million tokens" required bind:value={price.out} />
-    <button class="btn">Add</button>
-  </form>
-</Section>
+</Dialog>

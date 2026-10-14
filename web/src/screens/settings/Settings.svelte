@@ -1,91 +1,105 @@
 <script lang="ts">
   import type { Component } from 'svelte';
-  import Empty from '../../components/Empty.svelte';
-  import Icon from '../../components/Icon.svelte';
-  import { config } from '../../lib/config.svelte';
-  import type { IconName } from '../../lib/icons';
-  import { router } from '../../lib/router.svelte';
+  import { EmptyState, LiveRegion, Page, ToastHost } from '../../components/ui';
   import { session } from '../../lib/stores/session.svelte';
-  import Advanced from './Advanced.svelte';
-  import Budgets from './Budgets.svelte';
-  import Channels from './Channels.svelte';
+  import Account from './Account.svelte';
   import General from './General.svelte';
-  import Mcp from './Mcp.svelte';
   import Models from './Models.svelte';
   import People from './People.svelte';
-  import Persona from './Persona.svelte';
-  import Policy from './Policy.svelte';
-  import Sandbox from './Sandbox.svelte';
-  import Skills from './Skills.svelte';
-  import Tokens from './Tokens.svelte';
-  import Vault from './Vault.svelte';
+  import Personality from './Personality.svelte';
+  import { settingsConfig } from './store.svelte';
 
   let { params }: { params: Record<string, string> } = $props();
 
-  type Page = { id: string; label: string; icon: IconName; c: Component; admin?: boolean; multi?: boolean };
-  const pages: Page[] = [
-    { id: 'general', label: 'General', icon: 'sliders', c: General },
-    { id: 'models', label: 'Models & providers', icon: 'spark', c: Models, admin: true },
-    { id: 'channels', label: 'Chat apps', icon: 'chat', c: Channels },
-    { id: 'people', label: 'People', icon: 'users', c: People, admin: true, multi: true },
-    { id: 'policy', label: 'Policy', icon: 'shield', c: Policy, admin: true },
-    { id: 'sandbox', label: 'Sandbox & egress', icon: 'box', c: Sandbox, admin: true },
-    { id: 'mcp', label: 'MCP servers', icon: 'plug', c: Mcp, admin: true },
-    { id: 'skills', label: 'Skills', icon: 'skills', c: Skills },
-    { id: 'persona', label: 'Persona', icon: 'smile', c: Persona },
-    { id: 'vault', label: 'Vault', icon: 'key', c: Vault },
-    { id: 'tokens', label: 'API tokens', icon: 'code', c: Tokens },
-    { id: 'budgets', label: 'Budgets', icon: 'wallet', c: Budgets, admin: true },
-    { id: 'advanced', label: 'Advanced', icon: 'terminal', c: Advanced, admin: true },
-  ];
+  type Screen = Component<any>;
 
-  const visible = $derived(pages.filter((p) => (!p.admin || session.isAdmin) && (!p.multi || session.multi)));
-  const page = $derived(visible.find((p) => p.id === params.page));
+  // Groups other chunks own render through here until the router takes them
+  // (docs/design/ui.md §18.1 migration rule): their v0.2 screen when it
+  // exists, else the v0.1 page. Globs instead of imports keep this file
+  // building while those chunks add their screens and delete the old pages.
+  const v1: Partial<Record<string, Screen>> = import.meta.glob<Screen>('./{Channels,Mcp,Policy,Sandbox,Vault,Advanced,Skills}.svelte', { eager: true, import: 'default' });
+  const v2: Partial<Record<string, Screen>> = import.meta.glob<Screen>(
+    ['./connections/{Connections,ChatApp,McpServer}.svelte', './security/{Security,Permissions,Websites,SavedKeys}.svelte', './advanced/Advanced.svelte'],
+    { eager: true, import: 'default' },
+  );
+  const v1Config = import.meta.glob<{ config: { load(): Promise<void> } }>('../../lib/config.svelte.ts', { eager: true });
 
+  interface Target {
+    title: string;
+    admin: boolean;
+    c?: Screen;
+    /** A v0.1 page, which expects the old frame around it. */
+    legacy?: boolean;
+  }
+
+  const mine: Record<string, { title: string; c: Screen; admin: boolean }> = {
+    account: { title: 'Account', c: Account, admin: false },
+    general: { title: 'General', c: General, admin: true },
+    models: { title: 'Models', c: Models, admin: true },
+    people: { title: 'People', c: People, admin: true },
+  };
+
+  function pick(next: string, old: string, title: string): Target {
+    const c = v2[`./${next}.svelte`];
+    if (c) return { title, admin: true, c };
+    return { title, admin: true, c: v1[`./${old}.svelte`], legacy: true };
+  }
+
+  function target(group: string | undefined, item: string | undefined, page: string | undefined): Target | null {
+    if (page === 'skills') return { title: 'Skills', admin: false, c: v1['./Skills.svelte'], legacy: true };
+    if (!group) return null;
+    if (!item) {
+      if (mine[group]) return mine[group];
+      if (group === 'connections') return pick('connections/Connections', 'Channels', 'Connections');
+      if (group === 'security') return pick('security/Security', 'Policy', 'Security');
+      if (group === 'advanced') return pick('advanced/Advanced', 'Advanced', 'Advanced');
+      return null;
+    }
+    if (group === 'general' && item === 'personality') return { title: 'Personality', c: Personality, admin: true };
+    if (group === 'connections') {
+      if (['slack', 'telegram', 'discord'].includes(item)) return pick('connections/ChatApp', 'Channels', 'Chat apps');
+      if (item.startsWith('mcp-')) return pick('connections/McpServer', 'Mcp', 'Tools');
+    }
+    if (group === 'security') {
+      const items: Record<string, [string, string, string]> = {
+        permissions: ['security/Permissions', 'Policy', 'Allowed without asking'],
+        websites: ['security/Websites', 'Sandbox', 'Websites Bothy can reach'],
+        keys: ['security/SavedKeys', 'Vault', 'Saved keys'],
+      };
+      if (items[item]) return pick(...items[item]);
+    }
+    return null;
+  }
+
+  const t = $derived(target(params.group, params.item, params.page));
+  const allowed = $derived(!!t && (!t.admin || session.isAdmin));
+
+  // A fresh read on every settings page: nothing listened for changes while the person was elsewhere.
   $effect(() => {
-    if (session.isAdmin) void config.load();
+    if (!session.isAdmin) return;
+    void settingsConfig.load(true);
+    const off = settingsConfig.listen();
+    if (t?.legacy) for (const m of Object.values(v1Config)) void m.config.load();
+    return off;
   });
 </script>
 
-<svelte:head><title>{page?.label ?? 'Settings'} · Bothy</title></svelte:head>
+{#if !t?.c}
+  <Page title="Page not found">
+    <EmptyState text="This page doesn't exist." action={{ label: 'Go to chat', href: '/chat' }} />
+  </Page>
+{:else if !allowed}
+  <Page title={t.title}>
+    <EmptyState text="Only admins can see this page." action={{ label: 'Go to chat', href: '/chat' }} />
+  </Page>
+{:else if t.legacy}
+  <Page title={t.title}>
+    <t.c {params} />
+  </Page>
+{:else}
+  <t.c {params} />
+{/if}
 
-<div class="mx-auto flex w-full max-w-6xl gap-8 px-4 py-6 sm:px-6 sm:py-8">
-  <nav aria-label="Settings" class="hidden w-52 shrink-0 md:block">
-    <p class="mb-3 px-3 text-lg font-semibold">Settings</p>
-    <ul class="space-y-0.5">
-      {#each visible as p (p.id)}
-        <li>
-          <a
-            href="/settings/{p.id}"
-            onclick={router.link}
-            aria-current={p.id === params.page ? 'page' : undefined}
-            class="flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm text-muted hover:bg-sunken hover:text-fg aria-[current=page]:bg-sunken aria-[current=page]:font-medium aria-[current=page]:text-fg"
-          >
-            <Icon name={p.icon} size={16} />{p.label}
-          </a>
-        </li>
-      {/each}
-    </ul>
-  </nav>
-
-  <div class="min-w-0 flex-1">
-    <label class="mb-4 block md:hidden">
-      <span class="sr-only">Settings page</span>
-      <select class="input" value={params.page} onchange={(e) => router.navigate(`/settings/${e.currentTarget.value}`)}>
-        {#each visible as p (p.id)}<option value={p.id}>{p.label}</option>{/each}
-      </select>
-    </label>
-    {#if !page}
-      <Empty icon="sliders" title="No such settings page">
-        {#snippet action()}<a class="btn" href="/settings/general" onclick={router.link}>General settings</a>{/snippet}
-      </Empty>
-    {:else}
-      <h1 class="page-title mb-6">{page.label}</h1>
-      {#if config.error && page.admin}<p class="alert-bad mb-4" role="alert">{config.error}</p>{/if}
-      {#if config.view?.restart_required?.length && session.isAdmin}
-        <p class="alert-info mb-4">Restart needed for: {config.view.restart_required.join(', ')}. Use Restart in the banner or under Advanced.</p>
-      {/if}
-      <page.c />
-    {/if}
-  </div>
-</div>
+<!-- Until the v0.2 shell mounts its own; only the first host and region ever render (§15.3 rows 20, §16). -->
+<ToastHost />
+<LiveRegion />

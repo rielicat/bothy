@@ -31,11 +31,11 @@ describe('accessibility (axe)', () => {
   it('chat list', () => check('/chat', () => screen.getByText('Weekend in Edinburgh')));
   it('approvals', () => check('/approvals', () => screen.getByText('Run shell command')));
   it('approvals, parked', () => check('/approvals?status=parked', () => screen.getByText('Send a message')));
-  it('settings: general', () => check('/settings/general', () => screen.getByText('Remote access')));
-  it('settings: models', () => check('/settings/models', () => screen.getByText('Model chains')));
+  it('settings: general', () => check('/settings/general', () => screen.getByText('Workspace')));
+  it('settings: models', () => check('/settings/models', () => screen.getByText('Main model')));
   it('settings: policy', () => check('/settings/policy', () => screen.getByText('Standing permissions')));
   // v0.2 folds budgets into General (docs/design/ui.md §4.5), so the old address lands there.
-  it('settings: budgets, now part of General', () => check('/settings/budgets', () => screen.getByText('Remote access')));
+  it('settings: budgets, now part of General', () => check('/settings/budgets', () => screen.getByText('Workspace')));
   it('settings: chat apps', () => check('/settings/channels', () => screen.getByText('Link your accounts')));
   it('settings: vault', () => check('/settings/vault', () => screen.getByText('anthropic_api_key')));
   it('schedules', () => check('/schedules', () => screen.getByText('Morning briefing')));

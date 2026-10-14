@@ -1,120 +1,256 @@
 <script lang="ts">
-  import ConfigField from '../../components/ConfigField.svelte';
-  import Dialog from '../../components/Dialog.svelte';
-  import Section from '../../components/Section.svelte';
-  import { api, errorText } from '../../lib/api/client';
-  import type { User } from '../../lib/api/types.gen';
-  import { config } from '../../lib/config.svelte';
+  import { untrack } from 'svelte';
+  import { Avatar, Button, Checkbox, CodeBlock, Dialog, EmptyState, IconButton, Menu, Notice, StatusLine, TextField, toast, type MenuItem } from '../../components/ui';
+  import { api, ApiError } from '../../lib/api/client';
+  import { router } from '../../lib/router.svelte';
   import { session } from '../../lib/stores/session.svelte';
-  import { toasts } from '../../lib/stores/ui.svelte';
+  import AddPerson from './AddPerson.svelte';
+  import ConfirmDialog from './ConfirmDialog.svelte';
+  import { displayName, moneyText, parseMoney, roleLine, type UserV2 } from './accountHelpers';
+  import SettingsFrame from './SettingsFrame.svelte';
+  import { settingsConfig } from './store.svelte';
 
-  let users = $state<User[]>([]);
-  let form = $state({ username: '', display_name: '', password: '', role: 'member' });
-  let error = $state('');
-  let removing = $state<User | null>(null);
-  let purge = $state(false);
+  let users = $state<UserV2[]>([]);
+  let loaded = $state(false);
+  let failed = $state(false);
+  let actionError = $state('');
+  let addOpen = $state(false);
+
+  async function load() {
+    failed = false;
+    try {
+      users = await api.get<UserV2[]>('/api/users');
+      loaded = true;
+    } catch {
+      failed = true;
+    }
+  }
 
   $effect(() => {
-    api.get<User[]>('/api/users').then((u) => (users = u), (e) => (error = errorText(e)));
+    untrack(() => {
+      void load();
+      // Setup's "Add your team" lands here with the dialog open (§5.7).
+      if (router.query.get('add') === '1') {
+        addOpen = true;
+        router.setQuery({ add: null });
+      }
+    });
   });
 
-  async function patch(u: User, body: Partial<User>) {
+  const order: Record<string, number> = { owner: 0, admin: 1, member: 2 };
+  const sorted = $derived([...users].sort((a, b) => (order[a.role] ?? 3) - (order[b.role] ?? 3) || displayName(a).localeCompare(displayName(b))));
+  const solo = $derived(loaded && users.length <= 1);
+  const meId = $derived(session.me?.user.id);
+
+  async function patch(u: UserV2, body: Partial<UserV2>, ok: string, fail: string) {
+    actionError = '';
     try {
-      Object.assign(u, await api.patch<User>(`/api/users/${encodeURIComponent(u.id)}`, body));
-    } catch (e) {
-      toasts.error(e);
+      Object.assign(u, await api.patch<UserV2>(`/api/users/${encodeURIComponent(u.id)}`, body));
+      toast(ok);
+    } catch {
+      actionError = fail;
     }
   }
 
-  async function add(e: SubmitEvent) {
+  function items(u: UserV2): MenuItem[] {
+    const name = displayName(u);
+    return [
+      { label: 'Member', group: 'Change role', checked: u.role === 'member', onselect: () => u.role !== 'member' && patch(u, { role: 'member' }, 'Role changed.', `Couldn't change ${name}'s role. Try again.`) },
+      { label: 'Admin', group: 'Change role', checked: u.role === 'admin', onselect: () => u.role !== 'admin' && patch(u, { role: 'admin' }, 'Role changed.', `Couldn't change ${name}'s role. Try again.`) },
+      'separator',
+      { label: 'Spending limit…', onselect: () => openLimit(u) },
+      { label: 'Reset password…', onselect: () => openReset(u) },
+      u.disabled
+        ? { label: 'Turn on account', onselect: () => patch(u, { disabled: false }, 'Account turned on.', `Couldn't turn on ${name}'s account. Try again.`) }
+        : { label: 'Turn off account…', danger: true, onselect: () => (turningOff = u) },
+    ];
+  }
+
+  // Spending limit: budgets.per_user_daily_usd is keyed by username.
+  let limitFor = $state<UserV2 | null>(null);
+  let limitText = $state('');
+  let noLimit = $state(true);
+  let limitBusy = $state(false);
+  let limitError = $state('');
+  let limitSubmitted = $state(false);
+  const memberDefault = $derived(settingsConfig.value<number>('budgets.member_daily_usd', 0));
+
+  function personalLimit(username: string): number | null {
+    const own = settingsConfig.value<number | null>(`budgets.per_user_daily_usd.${username}`, null);
+    if (typeof own === 'number') return own;
+    const map = settingsConfig.value<Record<string, number>>('budgets.per_user_daily_usd', {});
+    return typeof map?.[username] === 'number' ? map[username] : null;
+  }
+
+  function openLimit(u: UserV2) {
+    const v = personalLimit(u.username);
+    limitFor = u;
+    noLimit = v === null;
+    limitText = v === null ? '' : moneyText(v);
+    limitError = '';
+    limitSubmitted = false;
+  }
+
+  const limitFieldError = $derived(limitSubmitted && !noLimit && parseMoney(limitText) === null ? 'Enter an amount in dollars, like 5.00.' : undefined);
+
+  async function saveLimit(e: SubmitEvent) {
     e.preventDefault();
-    error = '';
+    const u = limitFor;
+    if (!u) return;
+    limitSubmitted = true;
+    if (limitFieldError) return;
+    limitBusy = true;
+    limitError = '';
     try {
-      users.push(await api.post<User>('/api/users', form));
-      form = { username: '', display_name: '', password: '', role: 'member' };
-      toasts.ok('Added. Share the password privately; they can change it under Settings → General.');
-    } catch (err) {
-      error = errorText(err);
+      await settingsConfig.save({ [`budgets.per_user_daily_usd.${u.username}`]: noLimit ? null : parseMoney(limitText) });
+      limitBusy = false;
+      limitFor = null;
+      toast('Limit saved.');
+    } catch {
+      limitBusy = false;
+      limitError = "Couldn't save. Try again.";
     }
   }
 
-  async function remove() {
-    const u = removing!;
+  // Reset password (S9): the server makes a one-time password.
+  let resetFor = $state<UserV2 | null>(null);
+  let resetBusy = $state(false);
+  let resetError = $state('');
+  let resetPassword = $state('');
+
+  function openReset(u: UserV2) {
+    resetFor = u;
+    resetError = resetPassword = '';
+  }
+
+  async function reset() {
+    const u = resetFor;
+    if (!u) return;
+    resetBusy = true;
+    resetError = '';
     try {
-      await api.del(`/api/users/${encodeURIComponent(u.id)}${purge ? '?purge=true' : ''}`);
-      u.disabled = true;
-      if (purge) users = users.filter((x) => x.id !== u.id);
-      toasts.ok(purge ? `${u.username} and their data were deleted.` : `${u.username} can no longer sign in.`);
+      const r = await api.post<{ one_time_password: string }>(`/api/users/${encodeURIComponent(u.id)}/password`);
+      resetPassword = r.one_time_password;
     } catch (err) {
-      toasts.error(err);
+      resetError =
+        err instanceof ApiError && (err.status === 404 || err.status === 405 || err.status === 501)
+          ? "This version of Bothy can't reset passwords yet. Update Bothy, then try again."
+          : "Bothy couldn't reset the password. Try again.";
     } finally {
-      removing = null;
-      purge = false;
+      resetBusy = false;
     }
   }
+
+  let turningOff = $state<UserV2 | null>(null);
+  let offBusy = $state(false);
+  let offError = $state('');
+
+  async function turnOff() {
+    const u = turningOff;
+    if (!u) return;
+    offBusy = true;
+    offError = '';
+    try {
+      await api.del(`/api/users/${encodeURIComponent(u.id)}`);
+      u.disabled = true;
+      offBusy = false;
+      turningOff = null;
+      toast('Account turned off.');
+    } catch {
+      offBusy = false;
+      offError = `Bothy couldn't turn off ${displayName(u)}'s account. Try again.`;
+    }
+  }
+
+  const address = $derived(settingsConfig.value<string>('server.public_url', '') || location.origin);
 </script>
 
-<Section title="People" desc="Everyone gets their own chats, memory, workspace and vault. Admins never see other people's messages.">
-  {#if error}<p class="alert-bad my-3" role="alert">{error}</p>{/if}
-  {#each users as u (u.id)}
-    <div class="flex flex-wrap items-center gap-3 py-3.5 {u.disabled ? 'opacity-60' : ''}">
-      <span class="grid size-9 place-items-center rounded-full bg-accent-soft font-semibold text-accent">{(u.display_name || u.username).slice(0, 1).toUpperCase()}</span>
-      <div class="min-w-0 flex-1">
-        <p class="font-medium">{u.display_name || u.username} {#if u.id === session.me?.user.id}<span class="chip">you</span>{/if}</p>
-        <p class="text-xs text-muted">@{u.username}{u.disabled ? ' · disabled' : ''}</p>
-      </div>
-      {#if u.role === 'owner'}
-        <span class="chip chip-accent">owner</span>
-      {:else}
-        <select class="input h-8 w-auto text-sm" aria-label="Role of {u.username}" value={u.role} onchange={(e) => patch(u, { role: e.currentTarget.value })}>
-          <option value="member">Member</option>
-          <option value="admin">Admin</option>
-        </select>
-        {#if u.disabled}
-          <button type="button" class="btn btn-sm" onclick={() => patch(u, { disabled: false })}>Enable</button>
-        {:else}
-          <button type="button" class="btn btn-sm btn-ghost text-bad" onclick={() => (removing = u)}>Remove…</button>
-        {/if}
-      {/if}
-    </div>
-  {/each}
-</Section>
+<SettingsFrame title="People" loading={!loaded && !failed}>
+  {#snippet actions()}
+    {#if loaded && !solo}<Button onclick={() => (addOpen = true)}>Add person</Button>{/if}
+  {/snippet}
 
-<Section title="Daily spend caps" desc="Members get the default cap unless they have their own. Owners and admins are bounded by the global cap.">
-  <ConfigField path="budgets.member_daily_usd" label="Default for members" type="usd" />
-  {#each users.filter((u) => u.role === 'member') as u (u.id)}
-    {#if config.entry(`budgets.per_user_daily_usd.${u.username}`)}
-      <ConfigField path="budgets.per_user_daily_usd.{u.username}" label={u.display_name || u.username} type="usd" />
-    {:else}
-      <div class="flex items-center justify-between py-3 text-sm">
-        <span>{u.display_name || u.username} <span class="text-muted">· default cap</span></span>
-        <button type="button" class="btn btn-sm" onclick={() => config.set({ [`budgets.per_user_daily_usd.${u.username}`]: config.value('budgets.member_daily_usd', 2) })}>Set own cap</button>
-      </div>
-    {/if}
-  {/each}
-</Section>
+  {#if failed}
+    <StatusLine tone="danger" text="This page didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: load }} />
+  {:else if solo}
+    <EmptyState text="It's just you so far. Add teammates so they get their own sign-in." action={{ label: 'Add person', onclick: () => (addOpen = true) }} />
+  {:else if loaded}
+    {#if actionError}<Notice class="mb-4" tone="danger" text={actionError} role="alert" />{/if}
+    <ul>
+      {#each sorted as u (u.id)}
+        {@const name = displayName(u)}
+        <li class="flex min-h-14 items-center gap-3 border-b border-border py-2 last:border-b-0">
+          <Avatar {name} size={32} />
+          <div class="min-w-0 flex-1 sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,9rem)_minmax(0,14rem)] sm:items-center sm:gap-4">
+            <p class="truncate text-body font-medium text-text" title={name}>{name}</p>
+            <p class="truncate text-small text-muted max-sm:hidden">{u.username}</p>
+            <p class="truncate text-small text-muted max-sm:hidden">{roleLine(u)}</p>
+            <p class="truncate text-small text-muted sm:hidden">{u.username} · {roleLine(u)}</p>
+          </div>
+          <!-- The owner can't be changed, and nobody changes their own role or account here. -->
+          <div class="flex size-8 shrink-0 items-center justify-center pointer-coarse:size-11">
+            {#if u.role !== 'owner' && u.id !== meId}
+              <Menu items={items(u)} placement="bottom-end">
+                {#snippet trigger(props)}<IconButton icon="more" label="Options for {name}" size="sm" variant="quiet" {...props} />{/snippet}
+              </Menu>
+            {/if}
+          </div>
+        </li>
+      {/each}
+    </ul>
+  {/if}
+</SettingsFrame>
 
-<Section title="Add someone">
-  <form class="grid gap-3 py-4 sm:grid-cols-2" onsubmit={add}>
-    <div><label class="label" for="pu-user">Username</label><input id="pu-user" class="input" required autocapitalize="none" bind:value={form.username} /></div>
-    <div><label class="label" for="pu-name">Display name</label><input id="pu-name" class="input" bind:value={form.display_name} /></div>
-    <div><label class="label" for="pu-pass">Initial password</label><input id="pu-pass" class="input" type="password" autocomplete="new-password" minlength="12" required bind:value={form.password} /></div>
-    <div>
-      <label class="label" for="pu-role">Role</label>
-      <select id="pu-role" class="input" bind:value={form.role}><option value="member">Member</option><option value="admin">Admin</option></select>
-    </div>
-    <button class="btn btn-primary justify-self-start">Add person</button>
-  </form>
-</Section>
+<AddPerson bind:open={addOpen} onadded={(u) => (users = [...users, u])} />
 
-<Dialog open={!!removing} title="Remove {removing?.display_name || removing?.username}?" onclose={() => (removing = null)}>
-  <p class="text-sm text-muted">They are signed out everywhere and their API tokens stop working.</p>
-  <label class="mt-4 flex items-start gap-2 text-sm">
-    <input type="checkbox" class="mt-0.5 size-4 accent-bad" bind:checked={purge} />
-    <span>Also delete everything they own: chats, memory, workspace files, vault secrets, grants and linked chat accounts. Audit entries are kept. This cannot be undone.</span>
-  </label>
-  {#snippet footer()}
-    <button type="button" class="btn" onclick={() => (removing = null)}>Cancel</button>
-    <button type="button" class="btn btn-danger" onclick={remove}>{purge ? 'Delete everything' : 'Remove'}</button>
+<Dialog open={!!limitFor} title="Spending limit" size="md" busy={limitBusy} onclose={() => (limitFor = null)}>
+  {#if limitFor}
+    {@const u = limitFor}
+    <form id="limit-form" class="grid gap-3" onsubmit={saveLimit} novalidate>
+      <TextField label="Daily limit for {displayName(u)}" prefix="$" inputmode="decimal" bind:value={limitText} disabled={noLimit} error={limitFieldError} />
+      <Checkbox
+        label="No personal limit"
+        description={u.role === 'member' && memberDefault > 0 ? `Members without their own limit can spend up to $${moneyText(memberDefault)} a day.` : undefined}
+        bind:checked={noLimit}
+      />
+      {#if limitError}<Notice tone="danger" text={limitError} role="alert" />{/if}
+    </form>
+  {/if}
+  {#snippet footer({ close })}
+    <Button data-cancel onclick={close} disabled={limitBusy}>Cancel</Button>
+    <Button variant="primary" type="submit" form="limit-form" loading={limitBusy} loadingLabel="Saving…">Save</Button>
   {/snippet}
 </Dialog>
+
+<Dialog open={!!resetFor} title="Reset {resetFor ? displayName(resetFor) : ''}'s password?" busy={resetBusy} initialFocus="cancel" onclose={() => (resetFor = null)}>
+  {#if resetFor && resetPassword}
+    <p class="text-body text-text">Send {displayName(resetFor)} these details:</p>
+    <CodeBlock class="mt-3" code={`Address: ${address}\nUsername: ${resetFor.username}\nOne-time password: ${resetPassword}`} wrap />
+    <p class="mt-3 text-body text-muted">They'll choose their own password when they sign in.</p>
+  {:else}
+    <p class="text-body text-text">Bothy makes a one-time password for them to sign in with. Their current password stops working.</p>
+    {#if resetError}<Notice class="mt-3" tone="danger" text={resetError} role="alert" />{/if}
+  {/if}
+  {#snippet footer({ close })}
+    {#if resetPassword}
+      <Button variant="primary" onclick={close}>Done</Button>
+    {:else}
+      <Button data-cancel onclick={close} disabled={resetBusy}>Cancel</Button>
+      <Button variant="primary" loading={resetBusy} loadingLabel="Resetting…" onclick={reset}>Reset password</Button>
+    {/if}
+  {/snippet}
+</Dialog>
+
+<ConfirmDialog
+  open={!!turningOff}
+  title="Turn off {turningOff ? displayName(turningOff) : ''}'s account?"
+  confirm="Turn off account"
+  busyLabel="Turning off…"
+  busy={offBusy}
+  error={offError}
+  onconfirm={turnOff}
+  onclose={() => {
+    turningOff = null;
+    offError = '';
+  }}>They're signed out everywhere and can't sign in until an admin turns the account back on. Their chats and memory are kept.</ConfirmDialog
+>
