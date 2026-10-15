@@ -333,7 +333,8 @@ describe('banners and blocking states', () => {
     await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Unlock Bothy' })).toBeTruthy());
     await fireEvent.input(screen.getByLabelText('Passphrase'), { target: { value: 'correct horse' } });
     await fireEvent.click(screen.getByRole('button', { name: 'Unlock' }));
-    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'GitHub' })).toBeTruthy());
+    // Settings is its own chunk, loaded only after the unlock: slow on a busy CI runner.
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'GitHub' })).toBeTruthy(), { timeout: 5000 });
   });
 
   it('lets a dismissible banner go for the rest of the session', async () => {
