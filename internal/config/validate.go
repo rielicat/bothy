@@ -911,6 +911,9 @@ func validateMCP(c *Config, v *vctx) {
 func validateGitHub(c *Config, v *vctx) {
 	g := c.GitHub
 	v.url("github.api_base", g.APIBase, true, "http", "https")
+	if u, err := url.Parse(g.APIBase); err == nil && u.Scheme == "http" && u.Host != "" && !PlainHTTPAllowed(u.Hostname()) {
+		v.add("github.api_base", "use https: plain http would send the GitHub token unencrypted (http is accepted only for a loopback address)")
+	}
 	v.intRange("github.checkout.max_mb", g.Checkout.MaxMB, 1, 8192)
 	v.intRange("github.checkout.max_files", g.Checkout.MaxFiles, 1, 1_000_000)
 }

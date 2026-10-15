@@ -90,9 +90,9 @@ func ValidReleaseRef(ref string) bool {
 	return true
 }
 
-// PlainHTTPAllowed reports whether releases.github_api may use http rather
-// than https: only for a loopback host, so the GitHub token never crosses a
-// network unencrypted.
+// PlainHTTPAllowed reports whether github.api_base or releases.github_api may
+// use http rather than https: only for a loopback host, so the GitHub token
+// never crosses a network unencrypted.
 func PlainHTTPAllowed(host string) bool {
 	if strings.EqualFold(host, "localhost") {
 		return true

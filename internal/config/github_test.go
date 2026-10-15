@@ -18,6 +18,8 @@ func TestGitHubConfig(t *testing.T) {
 		{func(c *Config) { c.GitHub.APIBase = "" }, "github.api_base"},
 		{func(c *Config) { c.GitHub.APIBase = "ftp://ghe.example.com" }, "github.api_base"},
 		{func(c *Config) { c.GitHub.APIBase = "https://user:pw@ghe.example.com/api/v3" }, "github.api_base"},
+		// Plain http would carry the token in the clear past the loopback.
+		{func(c *Config) { c.GitHub.APIBase = "http://ghe.example.com/api/v3" }, "github.api_base"},
 		{func(c *Config) { c.GitHub.Checkout.MaxMB = 0 }, "github.checkout.max_mb"},
 		{func(c *Config) { c.GitHub.Checkout.MaxFiles = -1 }, "github.checkout.max_files"},
 	} {
@@ -45,5 +47,17 @@ func TestGitHubConfig(t *testing.T) {
 	mustSet(t, m, map[string]string{"github.checkout.max_mb": "128"})
 	if m.Current().GitHub.Checkout.MaxMB != 128 {
 		t.Fatalf("max_mb after set = %d", m.Current().GitHub.Checkout.MaxMB)
+	}
+}
+
+func TestGitHubAPIBaseLoopbackHTTP(t *testing.T) {
+	c := Default()
+	c.GitHub.APIBase = "http://127.0.0.1:8081"
+	v := &vctx{layerOf: func(string) int { return 0 }}
+	validate(c, v)
+	for _, e := range v.errs {
+		if e.path == "github.api_base" {
+			t.Fatalf("loopback http refused: %+v", e)
+		}
 	}
 }
