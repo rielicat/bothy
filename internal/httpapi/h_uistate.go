@@ -42,6 +42,8 @@ type profileEditor interface {
 	UpdateProfile(ctx context.Context, by core.Actor, p auth.ProfileUpdate) (*core.User, error)
 }
 
+type heartbeatSyncer interface{ ResyncHeartbeat() }
+
 const approvalsWeb = "web"
 
 // profile describes u's own settings: the chat apps they linked, and where
@@ -51,8 +53,8 @@ func (s *Server) profile(ctx context.Context, u *core.User) (*dto.Profile, error
 	if err != nil {
 		return nil, err
 	}
-	p := &dto.Profile{User: u.ID, Username: u.Username, DisplayName: cmpOr(u.DisplayName, u.Username), PreferredChat: u.PreferredChat,
-		ApprovalsIn: approvalsWeb, Chats: []string{}}
+	p := &dto.Profile{User: u.ID, Username: u.Username, DisplayName: cmpOr(u.DisplayName, u.Username), Timezone: u.Timezone,
+		PreferredChat: u.PreferredChat, ApprovalsIn: approvalsWeb, Chats: []string{}}
 	var last *core.ChannelIdentity
 	for _, id := range ids {
 		if id.Status != core.IdentityLinked || id.User != u.ID || id.DMChat == "" {
@@ -97,7 +99,7 @@ func (s *Server) patchProfile(w http.ResponseWriter, r *http.Request, a core.Act
 	if err := decode(r, &req); err != nil {
 		return err
 	}
-	up := auth.ProfileUpdate{DisplayName: req.DisplayName, PreferredChat: req.PreferredChat}
+	up := auth.ProfileUpdate{DisplayName: req.DisplayName, Timezone: req.Timezone, PreferredChat: req.PreferredChat}
 	if req.ApprovalsIn != nil {
 		webOnly := *req.ApprovalsIn == approvalsWeb
 		up.ApprovalsWebOnly = &webOnly
@@ -111,6 +113,11 @@ func (s *Server) patchProfile(w http.ResponseWriter, r *http.Request, a core.Act
 	u, err := ed.UpdateProfile(r.Context(), a, up)
 	if err != nil {
 		return err
+	}
+	// The owner's check-in runs in their time zone, which the scheduler
+	// otherwise reads again only when the configuration changes.
+	if hb, has := s.d.Scheduler.(heartbeatSyncer); has && req.Timezone != nil && u.Role == core.RoleOwner {
+		hb.ResyncHeartbeat()
 	}
 	p, err := s.profile(r.Context(), u)
 	if err != nil {

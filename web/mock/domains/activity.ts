@@ -6,6 +6,7 @@ import type { Approval, AuditEntry, EgressRecord, Run, RunView, Schedule, ToolCa
 import { list as approvalList, state as approvalState } from './approvals.ts';
 import { breakdown } from './chat.ts';
 import { releaseEnvironments } from './connections.ts';
+import { state as settings } from './settings.ts';
 import { ago, asMember, body, clone, fail, ids, json, member, newId, nowISO, on, onReset, owner, routes, scenario, viewer, type Req, type Res } from './core.ts';
 
 const limits = { max_steps: 0, max_tokens: 0, max_time: 0, max_cost_micros: 0 };
@@ -500,7 +501,8 @@ on('GET', '/api/usage', (req, res, _m, q) => {
 on('GET', '/api/usage/today', (req, res) => {
   const limit = 5_000_000;
   const spent = spentToday(req);
-  json(res, 200, { spent_micros: asMember(req) ? Math.round(spent * 0.3) : spent, limit_micros: asMember(req) ? 2_000_000 : 0, global_spent_micros: spent, global_limit_micros: limit });
+  const timezone = String(settings.effective.entries.find((e) => e.path === 'timezone')?.value ?? 'UTC');
+  json(res, 200, { spent_micros: asMember(req) ? Math.round(spent * 0.3) : spent, limit_micros: asMember(req) ? 2_000_000 : 0, global_spent_micros: spent, global_limit_micros: limit, timezone });
 });
 on('GET', '/api/audit', (req, res, _m, q) => {
   if (viewer(req).role === 'member') return fail(res, 403, 'forbidden', 'Admins only.');

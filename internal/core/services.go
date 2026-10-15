@@ -102,7 +102,7 @@ type Scheduler interface {
 	// "heartbeat", kind heartbeat, created_by "system") for the owner's principal
 	// in sync with scheduler.heartbeat (hot reload enables/disables it).
 	Run(ctx context.Context) error
-	Upsert(ctx context.Context, v Viewer, s *Schedule, by string) error // validates spec+tz, computes NextRunAt, wakes loop
+	Upsert(ctx context.Context, v Viewer, s *Schedule, by string) error // validates spec+tz (empty tz = v.User's own), computes NextRunAt, wakes loop
 	Delete(ctx context.Context, v Viewer, id ScheduleID, by UserID) error
 	RunNow(ctx context.Context, v Viewer, id ScheduleID, by UserID) (RunID, error)
 	Preview(kind ScheduleKind, spec, tz string, n int) ([]time.Time, error)

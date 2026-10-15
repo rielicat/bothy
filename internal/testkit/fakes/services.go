@@ -348,6 +348,7 @@ type Scheduler struct {
 	mu      sync.Mutex
 	RunNows []core.ScheduleID
 	PausedV bool
+	Resyncs int // ResyncHeartbeat calls
 }
 
 func (s *Scheduler) Tools() []core.Tool { return nil }
@@ -456,5 +457,11 @@ func (s *Scheduler) Describe(kind core.ScheduleKind, spec, tz string) (string, e
 func (s *Scheduler) SetPaused(paused bool) {
 	s.mu.Lock()
 	s.PausedV = paused
+	s.mu.Unlock()
+}
+
+func (s *Scheduler) ResyncHeartbeat() {
+	s.mu.Lock()
+	s.Resyncs++
 	s.mu.Unlock()
 }

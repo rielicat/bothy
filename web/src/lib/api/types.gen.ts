@@ -2895,6 +2895,11 @@ export interface Profile {
   username: string;
   display_name: string;
   /**
+   * Timezone is the person's IANA time zone, which their new schedules
+   * and their chats with Bothy use.
+   */
+  timezone: string;
+  /**
    * ApprovalsIn is where approval requests reach the person besides
    * Bothy's Approvals page: "web" (Bothy only) or the chat app Bothy
    * messages them in ("slack", "telegram", "discord").
@@ -2919,6 +2924,7 @@ export interface Profile {
  */
 export interface ProfilePatch {
   display_name?: string;
+  timezone?: string;
   approvals_in?: string;
   preferred_chat?: string;
 }
@@ -3172,6 +3178,7 @@ export interface UsageToday {
   limit_micros: Micros;
   global_spent_micros: Micros; // admins only
   global_limit_micros: Micros;
+  timezone: string; // the configured zone, whose midnight resets the daily limits
 }
 export interface AuditVerify {
   ok: boolean;

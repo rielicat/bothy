@@ -341,14 +341,14 @@ func (s *Server) scheduleRuns(w http.ResponseWriter, r *http.Request, a core.Act
 	return ok(w, listOf(s.namer(ctx, a.Viewer).runViews(runs), p, func(r dto.RunView) int64 { return ms(r.CreatedAt) }))
 }
 
-func (s *Server) previewSchedule(w http.ResponseWriter, r *http.Request, _ core.Actor) error {
+func (s *Server) previewSchedule(w http.ResponseWriter, r *http.Request, a core.Actor) error {
 	var req dto.SchedulePreviewReq
 	if err := decode(r, &req); err != nil {
 		return err
 	}
 	tz := req.TZ
 	if tz == "" {
-		tz = s.cfg().Timezone
+		tz = s.userZone(r.Context(), a.User)
 	}
 	next, err := s.d.Scheduler.Preview(req.Kind, req.Spec, tz, 5)
 	if err != nil {
@@ -359,6 +359,17 @@ func (s *Server) previewSchedule(w http.ResponseWriter, r *http.Request, _ core.
 		return err
 	}
 	return ok(w, dto.SchedulePreviewResp{Next: nonNil(next), Human: human})
+}
+
+// userZone is u's own time zone, which a schedule saved without one gets
+// (scheduler.Upsert), so its preview reads the same.
+func (s *Server) userZone(ctx context.Context, u core.UserID) string {
+	if usr, err := s.d.Store.Users().Get(ctx, u); err == nil && usr.Timezone != "" {
+		if _, err := time.LoadLocation(usr.Timezone); err == nil {
+			return usr.Timezone
+		}
+	}
+	return s.cfg().Timezone
 }
 
 // ---- MCP ----
@@ -706,7 +717,7 @@ func (s *Server) usageToday(w http.ResponseWriter, r *http.Request, a core.Actor
 	if err != nil {
 		return err
 	}
-	out := dto.UsageToday{Spent: spent, Limit: limit}
+	out := dto.UsageToday{Spent: spent, Limit: limit, Timezone: s.location().String()}
 	if isAdmin(a) {
 		day := s.now().In(s.location()).Format(time.DateOnly)
 		if out.GlobalSpent, err = s.d.Store.Usage().Spend(ctx, "", day); err != nil {

@@ -192,9 +192,18 @@ async function profile(req: Req): Promise<Profile> {
   const last = [...linked].sort((a, b) => b.last_seen_at.localeCompare(a.last_seen_at))[0];
   let approvalsIn = 'web';
   if (state.approvalsIn !== 'web') approvalsIn = chats.includes(state.preferredChat) ? state.preferredChat : (last?.channel ?? 'web');
-  return { user_id: me.id, username: me.username, display_name: me.display_name, approvals_in: approvalsIn, preferred_chat: state.preferredChat, chats };
+  const tz = state.users.find((x) => x.id === me.id)?.timezone || me.timezone;
+  return { user_id: me.id, username: me.username, display_name: me.display_name, timezone: tz, approvals_in: approvalsIn, preferred_chat: state.preferredChat, chats };
 }
 on('GET', '/api/me', async (req, res) => json(res, 200, await profile(req)));
+function knownZone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
 on('PATCH', '/api/me', async (req, res) => {
   const b = JSON.parse(await body(req));
   if (typeof b.display_name === 'string') {
@@ -206,6 +215,14 @@ on('PATCH', '/api/me', async (req, res) => {
     if (viewer(req).id === core.me.id) core.me.display_name = name;
     const u = state.users.find((x) => x.id === viewer(req).id);
     if (u) u.display_name = name;
+  }
+  if (typeof b.timezone === 'string') {
+    // auth.validTimezone: IANA names only.
+    const tz = b.timezone.trim();
+    if (!tz || tz.toLowerCase() === 'local' || !knownZone(tz)) return fail(res, 400, 'bad_request', 'invalid: time zone must be an IANA name, like Europe/London');
+    if (viewer(req).id === core.me.id) core.me.timezone = tz;
+    const u = state.users.find((x) => x.id === viewer(req).id);
+    if (u) u.timezone = tz;
   }
   if (typeof b.approvals_in === 'string') {
     if (b.approvals_in !== 'web' && !(await profile(req)).chats.includes(b.approvals_in)) return fail(res, 400, 'bad_request', `link ${b.approvals_in} to your account first`);

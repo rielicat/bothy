@@ -153,8 +153,10 @@ func TestSetupLifecycle(t *testing.T) {
 	if _, _, err := e.s.CreateOwner(ctx, grant, "owner", "short", "UTC"); !errors.Is(err, core.ErrInvalid) {
 		t.Fatalf("short password: %v", err)
 	}
-	if _, _, err := e.s.CreateOwner(ctx, grant, "owner", goodPassword, "Mars/Olympus"); !errors.Is(err, core.ErrInvalid) {
-		t.Fatalf("bad timezone: %v", err)
+	for _, tz := range []string{"Mars/Olympus", "Local"} {
+		if _, _, err := e.s.CreateOwner(ctx, grant, "owner", goodPassword, tz); !errors.Is(err, core.ErrInvalid) {
+			t.Fatalf("bad timezone %q: %v", tz, err)
+		}
 	}
 	cookie, a, err := e.s.CreateOwner(ctx, grant, "owner", goodPassword, "Europe/London")
 	if err != nil {

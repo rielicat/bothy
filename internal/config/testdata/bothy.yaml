@@ -4,7 +4,7 @@
 # result with a source comment on every line.
 version: 1
 mode: single                      # single | multi (multi enables users, roles, per-user caps)
-timezone: UTC                     # schedules and spend days; the wizard sets the owner's browser zone
+timezone: UTC                     # new accounts' zone and spend days; the wizard sets the owner's browser zone
 telemetry: false                  # reserved; no phone-home code exists
 
 server:

@@ -21,11 +21,13 @@ Heartbeats run every interval ±10% inside their active hours; `once` takes RFC
 when the newest missed occurrence is under an hour old. While `SetPaused`, the
 runner's kill switch or `scheduler.enabled: false` is on, due ticks are skipped,
 not replayed. The owner's `heartbeat` schedule (`created_by: system`) is kept
-in sync with `scheduler.heartbeat` on start and on every config change; each
+in sync with `scheduler.heartbeat`, in the owner's time zone, on start, on
+every config change and on `ResyncHeartbeat` (the owner changed zone); each
 tick inlines `HEARTBEAT.md`, skips without an LLM call when it is blank or when
 today's spend of the schedule's runs reaches `budgets.heartbeat_daily_usd` (0
 = no cap), and holds the run's events back so a reply starting with
-`HEARTBEAT_OK` is never delivered. `Upsert` validates everything (spec, zone,
+`HEARTBEAT_OK` is never delivered. `Upsert` gives a schedule without a zone
+the viewer's own, validates everything (spec, zone,
 active hours, limits, a target session of the same principal), ignores caller
 values for run state, computes `next_run_at` and audits
 `schedule.create`/`update`/`delete`; `RunNow` audits `schedule.run` with the

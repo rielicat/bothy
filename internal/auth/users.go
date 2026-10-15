@@ -33,6 +33,17 @@ func validDisplayName(name string) error {
 	return nil
 }
 
+// validTimezone takes IANA names only: time.LoadLocation also accepts ""
+// and "Local", which would quietly mean UTC or this server's own clock.
+func validTimezone(name string) error {
+	if name != "" && len(name) <= 64 && !strings.EqualFold(name, "local") {
+		if _, err := time.LoadLocation(name); err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: time zone must be an IANA name, like Europe/London", core.ErrInvalid)
+}
+
 func requireAdmin(by core.Actor) error {
 	if !by.Role.IsAdmin() || !by.HasScope("admin") {
 		return fmt.Errorf("%w: admin only", core.ErrForbidden)

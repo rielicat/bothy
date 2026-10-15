@@ -153,6 +153,20 @@ func newHarness(t *testing.T, tweak ...func(*config.Config)) *harness {
 	return h
 }
 
+// setZone changes the owner's own time zone, as PATCH /api/me does.
+func (h *harness) setZone(tz string) {
+	h.t.Helper()
+	ctx := context.Background()
+	u, err := h.store.Users().Get(ctx, h.owner)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	u.Timezone = tz
+	if err := h.store.Users().SetProfile(ctx, u); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
 func (h *harness) viewer() core.Viewer {
 	return core.Viewer{User: h.owner, Principals: []core.PrincipalID{h.p}}
 }

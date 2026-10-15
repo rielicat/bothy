@@ -67,6 +67,13 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 }
 
+// ResyncHeartbeat has the loop sync the owner's heartbeat again, as a
+// config change does: its time zone is the owner's, kept on their account.
+func (s *Service) ResyncHeartbeat() {
+	s.syncHB.Store(true)
+	s.poke()
+}
+
 // step syncs the heartbeat when asked, fires everything due and returns how
 // long to sleep.
 func (s *Service) step(ctx context.Context) time.Duration {

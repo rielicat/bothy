@@ -301,8 +301,8 @@ func (s *Service) CreateOwnerNamed(ctx context.Context, grantCookie, username, d
 	if err := validDisplayName(displayName); err != nil {
 		return "", core.Actor{}, err
 	}
-	if _, err := time.LoadLocation(timezone); err != nil {
-		return "", core.Actor{}, fmt.Errorf("%w: unknown timezone %q", core.ErrInvalid, timezone)
+	if err := validTimezone(timezone); err != nil {
+		return "", core.Actor{}, err
 	}
 	if err := checkPassword(password, s.conf().Auth.PasswordMinLength); err != nil {
 		return "", core.Actor{}, err

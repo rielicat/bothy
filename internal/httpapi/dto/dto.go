@@ -80,6 +80,9 @@ type Profile struct {
 	User        core.UserID `json:"user_id"`
 	Username    string      `json:"username"`
 	DisplayName string      `json:"display_name"`
+	// Timezone is the person's IANA time zone, which their new schedules
+	// and their chats with Bothy use.
+	Timezone string `json:"timezone"`
 	// ApprovalsIn is where approval requests reach the person besides
 	// Bothy's Approvals page: "web" (Bothy only) or the chat app Bothy
 	// messages them in ("slack", "telegram", "discord").
@@ -98,6 +101,7 @@ type Profile struct {
 // there and makes it the preferred chat.
 type ProfilePatch struct {
 	DisplayName   *string `json:"display_name,omitempty"`
+	Timezone      *string `json:"timezone,omitempty"`
 	ApprovalsIn   *string `json:"approvals_in,omitempty"`
 	PreferredChat *string `json:"preferred_chat,omitempty"`
 }
@@ -390,6 +394,7 @@ type UsageToday struct {
 	Limit       core.Micros `json:"limit_micros"`
 	GlobalSpent core.Micros `json:"global_spent_micros"` // admins only
 	GlobalLimit core.Micros `json:"global_limit_micros"`
+	Timezone    string      `json:"timezone"` // the configured zone, whose midnight resets the daily limits
 }
 
 type AuditVerify struct {

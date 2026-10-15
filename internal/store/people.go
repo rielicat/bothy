@@ -95,8 +95,8 @@ func (r userRepo) RecordLogin(ctx context.Context, id core.UserID, ok bool, lock
 }
 
 func (r userRepo) SetProfile(ctx context.Context, u *core.User) error {
-	res, err := r.h.wq.ExecContext(ctx, `UPDATE users SET display_name = ?, preferred_chat = ?, approvals_web_only = ?, updated_at = ?
-		WHERE id = ?`, u.DisplayName, u.PreferredChat, b2i(u.ApprovalsWebOnly), ms(u.UpdatedAt), string(u.ID))
+	res, err := r.h.wq.ExecContext(ctx, `UPDATE users SET display_name = ?, timezone = ?, preferred_chat = ?, approvals_web_only = ?,
+		updated_at = ? WHERE id = ?`, u.DisplayName, u.Timezone, u.PreferredChat, b2i(u.ApprovalsWebOnly), ms(u.UpdatedAt), string(u.ID))
 	return mustAffect("update profile", res, err)
 }
 

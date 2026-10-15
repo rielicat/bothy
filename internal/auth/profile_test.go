@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/rielicat/bothy/internal/config"
@@ -86,5 +87,36 @@ func TestUpdateProfileRefusesLookalikeNames(t *testing.T) {
 	}
 	if u, err := e.s.UpdateProfile(ctx, by, ProfileUpdate{DisplayName: new("Sam Patel")}); err != nil || u.DisplayName != "Sam Patel" {
 		t.Fatalf("rename = %+v %v", u, err)
+	}
+}
+
+// People set their own time zone; only IANA names are kept, so a schedule
+// never quietly runs on UTC or this server's clock.
+func TestUpdateProfileTimezone(t *testing.T) {
+	e := newEnv(t, func(c *config.Config) { c.Mode = "multi"; c.Timezone = "Europe/London" })
+	owner := e.owner(t)
+	sam := e.user(t, owner, "sam", core.RoleMember)
+	if sam.Timezone != "Europe/London" {
+		t.Fatalf("new account zone = %q; want the configured one", sam.Timezone)
+	}
+	by := core.Actor{User: sam.ID, Role: core.RoleMember, Via: "cookie"}
+	for _, tz := range []string{"", "  ", "Local", "local", "Mars/Olympus", "../../etc/passwd", "Europe/" + strings.Repeat("x", 64)} {
+		if _, err := e.s.UpdateProfile(ctx, by, ProfileUpdate{Timezone: new(tz)}); !errors.Is(err, core.ErrInvalid) {
+			t.Errorf("time zone %q: %v", tz, err)
+		}
+	}
+	u, err := e.s.UpdateProfile(ctx, by, ProfileUpdate{Timezone: new(" America/Santiago ")})
+	if err != nil || u.Timezone != "America/Santiago" {
+		t.Fatalf("set time zone = %+v %v", u, err)
+	}
+	if u, err := e.s.UpdateProfile(ctx, by, ProfileUpdate{DisplayName: new("Sam Patel")}); err != nil || u.Timezone != "America/Santiago" {
+		t.Fatalf("a rename changed the time zone: %+v %v", u, err)
+	}
+	audited := false
+	for _, a := range e.audit.All() {
+		audited = audited || a.Action == "user.profile" && strings.Contains(string(a.Detail), `"timezone":"America/Santiago"`)
+	}
+	if !audited {
+		t.Fatalf("time zone change not audited: %+v", e.audit.All())
 	}
 }

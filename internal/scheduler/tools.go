@@ -72,10 +72,20 @@ func errorResult(name string, err error) (*core.ToolResult, error) {
 	return nil, err
 }
 
+// userTZ is u's own time zone, which their schedules use unless they name
+// another; the configured one stands in when theirs cannot be loaded.
 func (s *Service) userTZ(ctx context.Context, u core.UserID) string {
-	if usr, err := s.store.Users().Get(ctx, u); err == nil && usr.Timezone != "" {
-		if _, err := loadLocation(usr.Timezone); err == nil {
-			return usr.Timezone
+	usr, err := s.store.Users().Get(ctx, u)
+	if err != nil {
+		return s.cfg.Current().Timezone
+	}
+	return s.zoneOf(usr)
+}
+
+func (s *Service) zoneOf(u *core.User) string {
+	if u != nil && u.Timezone != "" {
+		if _, err := loadLocation(u.Timezone); err == nil {
+			return u.Timezone
 		}
 	}
 	return s.cfg.Current().Timezone

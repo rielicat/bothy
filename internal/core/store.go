@@ -463,7 +463,7 @@ type UserRepo interface {
 	ByUsername(ctx context.Context, name string) (*User, error)
 	List(ctx context.Context) ([]*User, error)
 	Update(ctx context.Context, u *User) error
-	// SetProfile writes only u's DisplayName, PreferredChat,
+	// SetProfile writes only u's DisplayName, Timezone, PreferredChat,
 	// ApprovalsWebOnly and UpdatedAt: what people change about themselves
 	// (PATCH /api/me) must never write back a role, disabled flag or
 	// password hash that an admin or a reset changed meanwhile.

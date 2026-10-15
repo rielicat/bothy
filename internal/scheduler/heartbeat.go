@@ -23,8 +23,9 @@ func (e skipError) Error() string   { return e.err.Error() }
 func (e skipError) Unwrap() []error { return []error{errSkipped, e.err} }
 
 // syncHeartbeat keeps exactly one system heartbeat schedule, for the owner's
-// principal, matching scheduler.heartbeat. pending reports that the heartbeat
-// is enabled but there is no owner yet (first run before setup).
+// principal, matching scheduler.heartbeat in the owner's time zone. pending
+// reports that the heartbeat is enabled but there is no owner yet (first run
+// before setup).
 func (s *Service) syncHeartbeat(ctx context.Context) (pending bool, err error) {
 	cfg := s.cfg.Current()
 	hb := cfg.Scheduler.Heartbeat
@@ -58,7 +59,7 @@ func (s *Service) syncHeartbeat(ctx context.Context) (pending bool, err error) {
 	}
 	want := &core.Schedule{
 		Principal: core.UserPrincipal(owner.ID), Name: heartbeatName, Kind: core.SchedHeartbeat,
-		Spec: hb.Every.D().String(), TZ: cfg.Timezone, ActiveHours: hb.ActiveHours, Prompt: heartbeatInstruction,
+		Spec: hb.Every.D().String(), TZ: s.zoneOf(owner), ActiveHours: hb.ActiveHours, Prompt: heartbeatInstruction,
 		Slot: core.Slot(hb.Slot), Deliver: heartbeatDeliver(hb.Deliver), MissedRun: "skip", Enabled: hb.Enabled,
 	}
 	if mine == nil {

@@ -101,6 +101,44 @@ func TestProfileRoutes(t *testing.T) {
 
 }
 
+// People see and change their own time zone; their schedule previews read
+// it, while the daily limits keep the configured one.
+func TestProfileTimezone(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.Timezone = "Europe/London" }).setup()
+
+	if p := decodeAs[dto.Profile](t, h.do(http.MethodGet, "/api/me", nil, h.member)); p.Timezone != "Europe/London" {
+		t.Fatalf("new member's zone = %q; want the configured one", p.Timezone)
+	}
+	for _, bad := range []string{"", "Local", "Mars/Olympus", "Europe/London\x00"} {
+		expect(t, h.do(http.MethodPatch, "/api/me", dto.ProfilePatch{Timezone: &bad}, h.member), http.StatusBadRequest)
+	}
+	expect(t, h.do(http.MethodPatch, "/api/me", dto.ProfilePatch{Timezone: new("Asia/Tokyo")}, h.tokenFor(h.member, "chat", "read")),
+		http.StatusForbidden)
+	if p := decodeAs[dto.Profile](t, h.do(http.MethodPatch, "/api/me", dto.ProfilePatch{Timezone: new("Asia/Tokyo")}, h.member)); p.Timezone != "Asia/Tokyo" {
+		t.Fatalf("patched = %+v", p)
+	}
+	if me := decodeAs[dto.Me](t, h.do(http.MethodGet, "/api/auth/me", nil, h.member)); me.User.Timezone != "Asia/Tokyo" {
+		t.Fatalf("me = %+v", me.User)
+	}
+	prev := decodeAs[dto.SchedulePreviewResp](t, h.do(http.MethodPost, "/api/schedules/preview",
+		dto.SchedulePreviewReq{Kind: core.SchedHeartbeat, Spec: "30m"}, h.member))
+	if prev.Human != "heartbeat 30m (Asia/Tokyo)" {
+		t.Fatalf("preview without a zone = %q; want the member's own", prev.Human)
+	}
+	if today := decodeAs[dto.UsageToday](t, h.do(http.MethodGet, "/api/usage/today", nil, h.member)); today.Timezone != "Europe/London" {
+		t.Fatalf("today = %+v; daily limits reset on the configured zone", today)
+	}
+
+	// Only the owner's change can move the check-in.
+	if h.scheduler.Resyncs != 0 {
+		t.Fatalf("a member's change resynced the check-in %d times", h.scheduler.Resyncs)
+	}
+	expect(t, h.do(http.MethodPatch, "/api/me", dto.ProfilePatch{Timezone: new("America/Santiago")}, h.owner), http.StatusOK)
+	if h.scheduler.Resyncs != 1 {
+		t.Fatalf("owner's change resynced the check-in %d times", h.scheduler.Resyncs)
+	}
+}
+
 func mustActor(t *testing.T, h *harness, c *client) core.Actor {
 	t.Helper()
 	a, err := h.auth.FromCookie(context.Background(), c.cookie)

@@ -161,7 +161,8 @@ func (r userRepo) SetProfile(_ context.Context, u *core.User) error {
 	if utf8.RuneCountInString(u.PreferredChat) > 32 {
 		return invalid("users.preferred_chat")
 	}
-	cur.DisplayName, cur.PreferredChat, cur.ApprovalsWebOnly, cur.UpdatedAt = u.DisplayName, u.PreferredChat, u.ApprovalsWebOnly, ms(u.UpdatedAt)
+	cur.DisplayName, cur.Timezone, cur.PreferredChat, cur.ApprovalsWebOnly, cur.UpdatedAt = u.DisplayName, u.Timezone, u.PreferredChat,
+		u.ApprovalsWebOnly, ms(u.UpdatedAt)
 	st.users[u.ID] = cur
 	return nil
 }

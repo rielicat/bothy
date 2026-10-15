@@ -2971,7 +2971,7 @@ type UserRepo interface {
 	ByUsername(ctx context.Context, name string) (*User, error)
 	List(ctx context.Context) ([]*User, error)
 	Update(ctx context.Context, u *User) error
-	// SetProfile writes only u's DisplayName, PreferredChat,
+	// SetProfile writes only u's DisplayName, Timezone, PreferredChat,
 	// ApprovalsWebOnly and UpdatedAt: what people change about themselves
 	// (PATCH /api/me) must never write back a role, disabled flag or
 	// password hash that an admin or a reset changed meanwhile.
@@ -4002,7 +4002,7 @@ type Scheduler interface {
 	// "heartbeat", kind heartbeat, created_by "system") for the owner's principal
 	// in sync with scheduler.heartbeat (hot reload enables/disables it).
 	Run(ctx context.Context) error
-	Upsert(ctx context.Context, v Viewer, s *Schedule, by string) error // validates spec+tz, computes NextRunAt, wakes loop
+	Upsert(ctx context.Context, v Viewer, s *Schedule, by string) error // validates spec+tz (empty tz = v.User's own), computes NextRunAt, wakes loop
 	Delete(ctx context.Context, v Viewer, id ScheduleID, by UserID) error
 	RunNow(ctx context.Context, v Viewer, id ScheduleID, by UserID) (RunID, error)
 	Preview(kind ScheduleKind, spec, tz string, n int) ([]time.Time, error)
@@ -5096,7 +5096,7 @@ Ring of the last 16 `(tool, fnv64(args), fnv64(result))`:
 - Limits = schedule limits (defaults `budgets.scheduled`). Pre-authorized grants (`scope=schedule`) apply. `schedule_*` tools are absent (`Manifest.Triggers = [message]`), and F3 denies all admin-class actions: cron cannot create cron.
 - Approvals park (§5.9). Delivery: `Hub.StreamTo(deliver or PreferredChat, "final")`. A delivered result opens with a line naming where it came from, since nobody asked for it in that chat: *"From the schedule “Weekly PR digest” · change it under Schedules"* (a check-in: *"From your check-in · change it under Schedules"*), in italics; the final-mode sink reads the run's trigger and schedule from the store. A `HEARTBEAT_OK` reply sends nothing, header included.
 - `schedule_create` plans an Action with every default resolved. With no set chat (`deliver: preferred`) it also carries `owner` (the principal's user's name) and `usual_chat` (the chat app `PreferredChat` reaches when planned, "" when none is linked) for the card only, so "Sends to" says *"Sam Patel's usual chat app (Telegram)"* or *"Bothy on the web (Sam Patel has no chat app linked)"*, never "your" to an admin approving someone else's schedule. Its result tells the model where runs will post. F3's reason reads *"creating a schedule needs an admin's approval"* (`schedule_delete`: *"deleting a schedule …"*; other admin-class tools: *"changes to how Bothy works need an admin's approval"*).
-- Heartbeat (`scheduler.heartbeat`, off by default): one schedule of kind `heartbeat` for the owner's principal, kept in sync by the scheduler (`every` ± 10% jitter, `active_hours`, `deliver`: `preferred` = PreferredChat, `web`, or a channel name = the owner's DM there), fast slot. Memory files are not in the workspace, so the scheduler inlines the file: the prompt is *"Here is HEARTBEAT.md. If nothing needs the user's attention, reply exactly HEARTBEAT_OK."* followed by the content of `HEARTBEAT.md` (`Memory.Read`, `SystemViewer`). An empty or whitespace-only HEARTBEAT.md skips the tick with no LLM call. Delivery is suppressed when the final text starts with `HEARTBEAT_OK` (emphasis, blockquote or code ticks around the token are tolerated by the scheduler, the runner and the channel alike), including for a resumed (previously parked) heartbeat run: the runner wraps the resume sink so a `HEARTBEAT_OK` answer is not delivered then either; capped by `heartbeat_daily_usd` (§5.12). Members may create their own `heartbeat`-kind schedules in the Schedules UI.
+- Heartbeat (`scheduler.heartbeat`, off by default): one schedule of kind `heartbeat` for the owner's principal, kept in sync by the scheduler (`every` ± 10% jitter, `active_hours` in the owner's own time zone, `deliver`: `preferred` = PreferredChat, `web`, or a channel name = the owner's DM there), fast slot; a config change or the owner changing their time zone (`PATCH /api/me` calls `ResyncHeartbeat`) re-syncs it. Memory files are not in the workspace, so the scheduler inlines the file: the prompt is *"Here is HEARTBEAT.md. If nothing needs the user's attention, reply exactly HEARTBEAT_OK."* followed by the content of `HEARTBEAT.md` (`Memory.Read`, `SystemViewer`). An empty or whitespace-only HEARTBEAT.md skips the tick with no LLM call. Delivery is suppressed when the final text starts with `HEARTBEAT_OK` (emphasis, blockquote or code ticks around the token are tolerated by the scheduler, the runner and the channel alike), including for a resumed (previously parked) heartbeat run: the runner wraps the resume sink so a `HEARTBEAT_OK` answer is not delivered then either; capped by `heartbeat_daily_usd` (§5.12). Members may create their own `heartbeat`-kind schedules in the Schedules UI.
 - Missed runs at boot: `missed_run: skip` (default) records nothing; `once` fires one catch-up run if missed by < 1 h. Three consecutive failures auto-disable the schedule and notify the owner.
 
 ### 5.17 Run-end notices (v0.2 UI, `internal/agent/notices.go`)
@@ -5945,7 +5945,7 @@ Zero-config works with no file at all. This example decodes strictly (`KnownFiel
 # result with a source comment on every line.
 version: 1
 mode: single                      # single | multi (multi enables users, roles, per-user caps)
-timezone: UTC                     # schedules and spend days; the wizard sets the owner's browser zone
+timezone: UTC                     # new accounts' zone and spend days; the wizard sets the owner's browser zone
 telemetry: false                  # reserved; no phone-home code exists
 
 server:
@@ -6957,8 +6957,8 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `POST /api/auth/login` | none (rate-limited) | `dto.LoginReq` | `dto.Me` + cookie |
 | `POST /api/auth/logout` | user | — | `204` |
 | `GET /api/auth/me` | user | — | `dto.Me` (v0.2 UI: `paused_by`, `paused_by_name`, `paused_at` while paused) |
-| `GET /api/me` | user | — | `dto.Profile` (v0.2 UI; `h_uistate.go`: the caller's display name, linked chat apps, preferred chat and where approval requests reach them: `web` when they chose Bothy only, else the preferred chat while it is linked, else the linked app they used last, else `web`) |
-| `PATCH /api/me` | user (cookie only) | `dto.ProfilePatch` | `dto.Profile` (v0.2 UI: anyone renames themselves (at most 64 printable characters without format characters, as for admin renames, and not another person's display name or username: 400) and chooses where approval requests and Bothy's messages reach them; 400 for a chat app they have not linked, or `approvals_in` and `preferred_chat` naming different apps; audited `user.profile`. Bearer tokens → 403, like voting) |
+| `GET /api/me` | user | — | `dto.Profile` (v0.2 UI; `h_uistate.go`: the caller's display name, time zone, linked chat apps, preferred chat and where approval requests reach them: `web` when they chose Bothy only, else the preferred chat while it is linked, else the linked app they used last, else `web`) |
+| `PATCH /api/me` | user (cookie only) | `dto.ProfilePatch` | `dto.Profile` (v0.2 UI: anyone renames themselves (at most 64 printable characters without format characters, as for admin renames, and not another person's display name or username: 400), sets their own time zone (an IANA name; empty, `Local` or unknown: 400; the owner's change re-syncs their heartbeat) and chooses where approval requests and Bothy's messages reach them; 400 for a chat app they have not linked, or `approvals_in` and `preferred_chat` naming different apps; audited `user.profile`. Bearer tokens → 403, like voting) |
 | `POST /api/auth/password` | user (cookie) | `dto.PasswordReq` | `204` (rotates the session). v0.2 UI: `old` may be empty while `must_change_password` is set, which this clears; the one-time password itself is refused as the new one (400) |
 | `GET /api/tokens` | user (cookie) | — | `[]core.TokenRecord` (own) |
 | `POST /api/tokens` | user (cookie) | `core.TokenSpec` | `dto.TokenCreateResp` (plaintext once) |
@@ -7021,13 +7021,13 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `GET /api/skills/{name}/files/{path...}` | user (enabled) / admin (all) | — | the file as `text/plain; charset=utf-8` with `Content-Security-Policy: sandbox` and `nosniff` (v0.2 UI: read through the skill's `os.Root`; 400 for a path that is not clean and relative (`..`, absolute, backslash), a special file or one over 256 KB; 404 for an unknown or, for members, disabled skill, a symlinked component or a missing file; 415 for a file that is not UTF-8 text) |
 | `POST /api/skills/rescan` | admin | — | `[]core.SkillMeta` |
 | `GET /api/schedules` | user | — | `[]core.Schedule` (own) |
-| `POST /api/schedules` | user (own principals; humans need no approval: the self-modification lock targets the agent, whose `schedule_*` tools are admin-class under F3; members stay bounded by their daily cap) | `dto.ScheduleUpsertReq` | `core.Schedule` (`Scheduler.Upsert` assigns the id, then each `grants[]` entry goes through `Policy.Grant` with scope `schedule`, `scope_id` = the id, `principal_id` = the schedule's principal; whole-tool or admin/financial `max_se` grants → 400; non-empty `grants` from an API token → 403, since pre-authorized grants answer approvals in advance and need a browser session; audited `schedule.create`) |
+| `POST /api/schedules` | user (own principals; humans need no approval: the self-modification lock targets the agent, whose `schedule_*` tools are admin-class under F3; members stay bounded by their daily cap) | `dto.ScheduleUpsertReq` | `core.Schedule` (`Scheduler.Upsert` assigns the id and gives an empty `tz` the caller's own time zone, as `schedule_create` does, then each `grants[]` entry goes through `Policy.Grant` with scope `schedule`, `scope_id` = the id, `principal_id` = the schedule's principal; whole-tool or admin/financial `max_se` grants → 400; non-empty `grants` from an API token → 403, since pre-authorized grants answer approvals in advance and need a browser session; audited `schedule.create`) |
 | `GET /api/schedules/{id}` | user | — | `core.Schedule` |
 | `PATCH /api/schedules/{id}` | user | `dto.ScheduleUpsertReq` | `core.Schedule` (the schedule's grants are replaced: old ones revoked, new ones granted as above; non-empty `grants` from an API token → 403) |
 | `DELETE /api/schedules/{id}` | user | — | `204` |
 | `POST /api/schedules/{id}/run` | user | — | `202 {"run_id":"…"}` (the run is the schedule owner's; `Scheduler.RunNow` audits `schedule.run` with the user who pressed it and the run) |
 | `GET /api/schedules/{id}/runs` | user | `?before=&limit=` | `dto.List[dto.RunView]` |
-| `POST /api/schedules/preview` | user | `dto.SchedulePreviewReq` | `dto.SchedulePreviewResp` |
+| `POST /api/schedules/preview` | user | `dto.SchedulePreviewReq` | `dto.SchedulePreviewResp` (an empty `tz` is the caller's own time zone, as on save) |
 | `GET /api/mcp` | admin | — | `[]core.MCPStatus` |
 | `GET /api/mcp/{server}/pins` | admin | — | `[]core.MCPPin` (pending ones include the previous approved definition for diffing) |
 | `POST /api/mcp/{server}/approve` | admin | `dto.MCPApproveReq` | `204` |
@@ -7077,7 +7077,7 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `DELETE /api/vault/{scope}/{name}` | admin / user (own scope) | — | `204` |
 | `POST /api/vault/unseal` | admin | `dto.UnsealReq` | `core.VaultStatus` |
 | `GET /api/usage` | user (own) / admin (all, `?user=`) | `?from=&to=&group_by=day\|model\|user\|schedule\|session` | `dto.UsageResp` (v0.2 UI: rows are `dto.UsageRowView` with a `name`: the person, the schedule or the chat title through the caller's own view, `""` for day and model; `group_by=day` keys are UTC dates, as the store documents; spend caps use days in the configured `timezone`, so the two can differ near midnight) |
-| `GET /api/usage/today` | user | — | `dto.UsageToday` |
+| `GET /api/usage/today` | user | — | `dto.UsageToday` (`timezone` is the configured one, whose midnight resets the daily limits, which the UI names in the daily-limit stop) |
 | `GET /api/audit` | admin | `?actor=&action=&from=&to=&before=&limit=` | `dto.List[dto.AuditRow]` (v0.2 UI: `actor_name` and a one-line plain `summary`) |
 | `GET /api/audit/verify` | admin | — | `dto.AuditVerify` |
 | `GET /api/egress` | user | `?session=&before=&limit=` | `dto.List[dto.EgressRow]` (own principals; admins also see system-dialer rows; v0.2 UI: `outcome` `reached`, `allowed_unreachable` or `blocked`) |
@@ -7181,6 +7181,9 @@ type Profile struct {
 	User        core.UserID `json:"user_id"`
 	Username    string      `json:"username"`
 	DisplayName string      `json:"display_name"`
+	// Timezone is the person's IANA time zone, which their new schedules
+	// and their chats with Bothy use.
+	Timezone string `json:"timezone"`
 	// ApprovalsIn is where approval requests reach the person besides
 	// Bothy's Approvals page: "web" (Bothy only) or the chat app Bothy
 	// messages them in ("slack", "telegram", "discord").
@@ -7199,6 +7202,7 @@ type Profile struct {
 // there and makes it the preferred chat.
 type ProfilePatch struct {
 	DisplayName   *string `json:"display_name,omitempty"`
+	Timezone      *string `json:"timezone,omitempty"`
 	ApprovalsIn   *string `json:"approvals_in,omitempty"`
 	PreferredChat *string `json:"preferred_chat,omitempty"`
 }
@@ -7491,6 +7495,7 @@ type UsageToday struct {
 	Limit       core.Micros `json:"limit_micros"`
 	GlobalSpent core.Micros `json:"global_spent_micros"` // admins only
 	GlobalLimit core.Micros `json:"global_limit_micros"`
+	Timezone    string      `json:"timezone"` // the configured zone, whose midnight resets the daily limits
 }
 
 type AuditVerify struct {
@@ -9924,7 +9929,7 @@ Every module: implements its `new.go` signatures; ships `README.md`; `go test -r
 
 #### M8 · Memory, scheduler
 
-- **Implements:** `memory.Service` (`core.Memory`): files under `<data>/memory/<principal>/` (0600, atomic temp+rename), ops with byte caps and helpful errors, `memory_events`, ETags, `DeltasSince` text, history, `Search` (delegates to `Messages().Search`); tools `memory` (Action kind `memory`, provenance recorded; F7) and `session_search` (Taint Private, + Untrusted on untrusted hits). Spaces have no memory: neither tool is `SpaceOK`. `scheduler.Service` (`core.Scheduler`): single timer on `NextDue`, gronx with timezones and DST, heartbeat (owner schedule kept in sync with config, HEARTBEAT.md inlined into the prompt, empty file = no call, jitter, active hours, `HEARTBEAT_OK` suppression, daily cap from `UsageRepo.Report`), once, missed-run policy, auto-disable after 3 failures, fires nothing while `Runner.Paused()` (the kill switch; `SetPaused` is an independent scheduler-only pause), `Preview` (+ human description), delivery via `Hub.StreamTo(…, "final")`; tools `schedule_list` (read), `schedule_create`, `schedule_delete` (admin class, `Triggers: [message]`).
+- **Implements:** `memory.Service` (`core.Memory`): files under `<data>/memory/<principal>/` (0600, atomic temp+rename), ops with byte caps and helpful errors, `memory_events`, ETags, `DeltasSince` text, history, `Search` (delegates to `Messages().Search`); tools `memory` (Action kind `memory`, provenance recorded; F7) and `session_search` (Taint Private, + Untrusted on untrusted hits). Spaces have no memory: neither tool is `SpaceOK`. `scheduler.Service` (`core.Scheduler`): single timer on `NextDue`, gronx with timezones and DST, heartbeat (owner schedule kept in sync with config, in the owner's time zone, HEARTBEAT.md inlined into the prompt, empty file = no call, jitter, active hours, `HEARTBEAT_OK` suppression, daily cap from `UsageRepo.Report`), once, missed-run policy, auto-disable after 3 failures, fires nothing while `Runner.Paused()` (the kill switch; `SetPaused` is an independent scheduler-only pause), `Preview` (+ human description), delivery via `Hub.StreamTo(…, "final")`; tools `schedule_list` (read), `schedule_create`, `schedule_delete` (admin class, `Triggers: [message]`).
 - **Consumes:** config, `core.Store`, `core.Runner`, `core.ChannelHub`, `core.Memory`, `core.Bus`, `core.Auditor` (memstore, fakes.Runner, fakes.Hub in tests).
 - **Acceptance tests:** cap enforcement with remaining-bytes message; concurrent `Apply` serialized; ETag conflict → `ErrConflict`; delta text after add/replace/remove; DST spring-forward and fall-back (Europe/London March/October) next-run correctness; `once` missed-run fires exactly once; paused scheduler fires nothing and resumes; heartbeat output `HEARTBEAT_OK` is not delivered; 3 failures disable and notify; tools pass `conformance.Tool`.
 
@@ -10132,7 +10137,7 @@ The redesigned UI relies on S1–S20 of its plan; the shapes are in §4, §8.3 a
 - **S17:** release events (§14.5, §8.2).
 - **S20:** company wording in the constitution (version 2) and the default persona (§5.6).
 - **UI state (fallbacks removed):** the server now carries what the redesigned screens used to guess or hide; migration 0009 adds `users.last_login_at`, `preferred_chat` (≤ 32) and `approvals_web_only`, `runs.refined`, `release_deploys.sha` and `subject` (≤ 400), and `skill_approved_files` (STRICT, cascading with the skill), and `TestUIStateMigration` upgrades a version-8 database.
-  - *Profile:* `GET`/`PATCH /api/me` (`dto.Profile`, `auth.Service.UpdateProfile`): anyone renames themselves (the principal's display name follows, as for admin renames; no control or format characters, and not a name or username someone else has, so nobody can pass as a colleague in approval cards) and chooses where approval requests reach them. A preferred chat app is used for Bothy's messages while it is linked (`channel.Messenger.PreferredChat`); `web` keeps approval requests to the Approvals page (no chat card, no group vote prompt), except a card in the chat that asked, which still goes there. Both fields stay out of `GET /api/users`. The change is written with `UserRepo.SetProfile`, which touches only those columns, so a rename racing an admin's role change, turn-off or password reset cannot undo it.
+  - *Profile:* `GET`/`PATCH /api/me` (`dto.Profile`, `auth.Service.UpdateProfile`): anyone renames themselves (the principal's display name follows, as for admin renames; no control or format characters, and not a name or username someone else has, so nobody can pass as a colleague in approval cards), sets their own time zone and chooses where approval requests reach them. A new account starts in the configured `timezone`; the person's zone then serves their chats (turn context) and is the default for the schedules they make (form, API, `schedule_create`) and the zone of the owner's heartbeat, while daily limits keep counting days in the configured one. A preferred chat app is used for Bothy's messages while it is linked (`channel.Messenger.PreferredChat`); `web` keeps approval requests to the Approvals page (no chat card, no group vote prompt), except a card in the chat that asked, which still goes there. The two chat fields stay out of `GET /api/users`. The change is written with `UserRepo.SetProfile`, which touches only the profile columns, so a rename racing an admin's role change, turn-off or password reset cannot undo it.
   - *Persona:* `agent.name` (default "Bothy"; 1–40 runes, no control or format characters, no `<` or `>`) and `agent.tone` (`warm` | `direct` | `formal`) are hot and go into the turn context's facts ("Your name", "Tone"), never into the constitution.
   - *Sign-ins:* `UserRepo.SignedIn` records `last_login_at` on each password sign-in (and clears the failure count and lock); `Update` leaves it alone.
   - *Credentials:* `ProviderHealth.source` (§8.3); the bedrock source comes from `Chain.Source()`, which reads what the chain already resolved and never calls AWS.

@@ -4,7 +4,7 @@ import { chooseBanner, pausedSince, providerName, type BannerInput } from './ban
 
 const b = (code: string, text = ''): BannerData => ({ level: 'error', code, text });
 const input = (over: Partial<BannerInput> = {}): BannerInput => ({ banners: [], paused: false, admin: true, today: null, dismissed: [], ...over });
-const limit = (spent: number, cap: number): UsageToday => ({ spent_micros: 0, limit_micros: 0, global_spent_micros: spent, global_limit_micros: cap });
+const limit = (spent: number, cap: number): UsageToday => ({ spent_micros: 0, limit_micros: 0, global_spent_micros: spent, global_limit_micros: cap, timezone: 'UTC' });
 
 describe('chooseBanner (§4.9)', () => {
   it('shows nothing when nothing stops work', () => {

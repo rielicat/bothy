@@ -137,11 +137,12 @@ func testUsers(f *fx) {
 	fresh.Role, fresh.Disabled, fresh.PWHash, fresh.MustChangePassword, fresh.UpdatedAt = core.RoleMember, !stale.Disabled, "hash-after-reset",
 		!stale.MustChangePassword, at(95)
 	f.must(r.Update(f.ctx, &fresh), "Update before the stale profile write")
-	stale.DisplayName, stale.PreferredChat, stale.ApprovalsWebOnly, stale.UpdatedAt = "Renamed", "slack", false, at(96)
+	stale.DisplayName, stale.Timezone, stale.PreferredChat, stale.ApprovalsWebOnly, stale.UpdatedAt = "Renamed", "Asia/Tokyo", "slack", false, at(96)
 	f.must(r.SetProfile(f.ctx, &stale), "SetProfile")
 	got, err = r.Get(f.ctx, member.ID)
 	f.must(err, "Get after SetProfile")
-	f.check(got.DisplayName == "Renamed" && got.PreferredChat == "slack" && !got.ApprovalsWebOnly && got.UpdatedAt.Equal(at(96)) &&
+	f.check(got.DisplayName == "Renamed" && got.Timezone == "Asia/Tokyo" && got.PreferredChat == "slack" && !got.ApprovalsWebOnly &&
+		got.UpdatedAt.Equal(at(96)) &&
 		got.Role == core.RoleMember && got.Disabled == fresh.Disabled && got.PWHash == "hash-after-reset" &&
 		got.MustChangePassword == fresh.MustChangePassword && got.LastLoginAt.Equal(at(80)),
 		"SetProfile wrote more than the profile: %+v", got)

@@ -81,8 +81,9 @@ admins MCP tools and skills to review and recent unknown senders; new group
 chats go to their owner and admins. Items are decided through their own
 endpoints.
 `h_uistate.go` holds what the redesigned screens used to fall back on:
-`GET`/`PATCH /api/me` (the caller's own name and where approval requests
-reach them; the patch is cookie-only), `POST /api/search/test` (admin),
+`GET`/`PATCH /api/me` (the caller's own name, time zone and where approval
+requests reach them; the patch is cookie-only, and the owner's new zone
+re-syncs their heartbeat), `POST /api/search/test` (admin),
 `GET /api/skills/{name}/files/{path...}` (served as sandboxed `text/plain`,
 404 for anything the caller cannot see), the notes history routes and
 `GET /api/github/repos/{owner}/{repo}/workflows` (admin). It also fills the

@@ -72,6 +72,32 @@ func TestUpsertNormalizesAndManagesState(t *testing.T) {
 	})
 }
 
+// A schedule saved without a time zone, from the API or the form, runs on
+// its maker's clock, as one made in chat does; the configured zone is only
+// for callers who are nobody in particular.
+func TestUpsertDefaultsToTheViewersZone(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t)
+		h.setZone("America/Santiago")
+		sleepUntil(utc(2026, 10, 12, 10, 7))
+		sc := h.upsert(&core.Schedule{Name: "brief", Kind: core.SchedCron, Spec: "0 8 * * *", Prompt: "Brief me", Enabled: true})
+		if got := h.get(sc.ID); got.TZ != "America/Santiago" || !got.NextRunAt.Equal(utc(2026, 10, 12, 11, 0)) {
+			t.Fatalf("stored = %+v; want the owner's zone", got)
+		}
+		named := h.upsert(&core.Schedule{Name: "tokyo", Kind: core.SchedCron, Spec: "0 8 * * *", TZ: "Asia/Tokyo", Prompt: "Brief me", Enabled: true})
+		if got := h.get(named.ID); got.TZ != "Asia/Tokyo" {
+			t.Fatalf("a named zone was replaced: %+v", got)
+		}
+		sys := &core.Schedule{Principal: h.p, Name: "system", Kind: core.SchedCron, Spec: "0 8 * * *", Prompt: "Brief me", Enabled: true}
+		if err := h.svc.Upsert(context.Background(), core.SystemViewer(), sys, "system"); err != nil {
+			t.Fatal(err)
+		}
+		if got := h.get(sys.ID); got.TZ != "Europe/London" {
+			t.Fatalf("system schedule zone = %q; want the configured one", got.TZ)
+		}
+	})
+}
+
 func TestUpsertValidation(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()

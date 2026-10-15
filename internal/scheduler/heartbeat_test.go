@@ -249,6 +249,29 @@ func TestHeartbeatSyncHotReload(t *testing.T) {
 	})
 }
 
+// The check-in keeps the owner's hours where they are: it follows their own
+// time zone, and a change to it, not only a config change, moves it.
+func TestHeartbeatFollowsTheOwnersZone(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, heartbeatOn)
+		h.setZone("America/New_York")
+		sleepUntil(utc(2026, 10, 12, 9, 0))
+		stop := h.start()
+		defer stop()
+		synctest.Wait()
+		if hb := h.heartbeat(); hb == nil || hb.TZ != "America/New_York" || !hb.NextRunAt.Equal(utc(2026, 10, 12, 12, 0)) {
+			t.Fatalf("heartbeat = %+v; want the owner's zone, not the configured Europe/London", hb)
+		}
+
+		h.setZone("Asia/Tokyo")
+		h.svc.ResyncHeartbeat()
+		synctest.Wait()
+		if hb := h.heartbeat(); hb.TZ != "Asia/Tokyo" || !hb.NextRunAt.Equal(utc(2026, 10, 12, 9, 30)) {
+			t.Fatalf("after the owner moved = %+v", hb)
+		}
+	})
+}
+
 func TestHeartbeatDeliveryToChannelDM(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t, heartbeatOn, func(c *config.Config) { c.Scheduler.Heartbeat.Deliver = "telegram" })

@@ -12,14 +12,17 @@ import (
 // as they are.
 type ProfileUpdate struct {
 	DisplayName *string
+	// Timezone is an IANA name; the person's new schedules and chats use it.
+	Timezone *string
 	// PreferredChat is a chat app the person has linked, or "" for the
 	// linked one they used last.
 	PreferredChat    *string
 	ApprovalsWebOnly *bool
 }
 
-// UpdateProfile changes the caller's own name and where Bothy reaches them.
-// It needs no admin: the account changed is always the caller's.
+// UpdateProfile changes the caller's own name, time zone and where Bothy
+// reaches them. It needs no admin: the account changed is always the
+// caller's.
 func (s *Service) UpdateProfile(ctx context.Context, by core.Actor, p ProfileUpdate) (*core.User, error) {
 	cur, err := s.store.Users().Get(ctx, by.User)
 	if err != nil {
@@ -40,6 +43,15 @@ func (s *Service) UpdateProfile(ctx context.Context, by core.Actor, p ProfileUpd
 				return nil, err
 			}
 			next.DisplayName, changed["display_name"] = name, name
+		}
+	}
+	if p.Timezone != nil {
+		tz := strings.TrimSpace(*p.Timezone)
+		if err := validTimezone(tz); err != nil {
+			return nil, err
+		}
+		if tz != cur.Timezone {
+			next.Timezone, changed["timezone"] = tz, tz
 		}
 	}
 	if p.PreferredChat != nil {

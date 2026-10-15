@@ -42,6 +42,7 @@ func invalidf(format string, args ...any) error {
 
 // Upsert validates and stores a schedule. Run-state fields (failures, last
 // run, next run, created_by) are system-managed: caller values are ignored.
+// A schedule without a time zone gets the viewer's own.
 func (s *Service) Upsert(ctx context.Context, v core.Viewer, sc *core.Schedule, by string) error {
 	if sc == nil {
 		return invalidf("schedule is required")
@@ -76,6 +77,9 @@ func (s *Service) upsertLocked(ctx context.Context, v core.Viewer, in *core.Sche
 	}
 	if in.Principal == "" || !v.Can(in.Principal) {
 		return fmt.Errorf("principal %q: %w", in.Principal, core.ErrNotFound)
+	}
+	if strings.TrimSpace(in.TZ) == "" && v.User != "" {
+		in.TZ = s.userTZ(ctx, v.User)
 	}
 	sc, p, err := s.normalize(ctx, in)
 	if err != nil {
