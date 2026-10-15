@@ -10,7 +10,7 @@ about them while the web banner counts every one), space gating and provenance, 
 sender rate limit (after gating, so the bot never answers in a group it must
 stay silent in), the command fast path, attachment download into
 `<work>/ws/<workspace>/.bothy/in/<msgid>/`, then `Runner.Submit`.
-`StreamTo` streams a run back to a chat (typing, a "Thinking…" placeholder
+`StreamTo` streams a run back to a chat (typing, a "Working…" placeholder
 with a Stop button, edits no faster than the channel's `EditMinInterval`,
 splits at `MaxLen` without breaking code fences, redaction always (model
 text enters the reply only redacted and once no later delta can complete a

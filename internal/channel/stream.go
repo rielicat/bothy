@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	placeholderText = "Thinking…"
+	placeholderText = "Working…"
 	defaultOpGap    = time.Second
 )
 
@@ -177,7 +177,7 @@ func (st *streamState) apply(ctx context.Context, e core.Event) {
 		case "waiting_approval":
 			st.status = "_Waiting for approval…_"
 		case "compacting":
-			st.status = "_Compacting context…_"
+			st.status = "_Summarising older messages…_"
 		case "tool":
 			st.status = st.toolStatus
 		case "thinking":
@@ -388,7 +388,7 @@ func (st *streamState) buttons() [][]core.Button {
 	if !st.caps.Buttons || st.run == "" {
 		return nil
 	}
-	return [][]core.Button{{{Label: "Stop", Data: "s:" + string(st.run), Style: core.BtnDanger}}}
+	return [][]core.Button{{{Label: "Stop", Data: "s:" + string(st.run)}}}
 }
 
 // pending is the not-yet-finalized part of the reply. While the model is
@@ -585,7 +585,7 @@ func (st *streamState) finish(ctx context.Context) {
 	}
 	body := strings.TrimRightFunc(raw[st.commit:], unicode.IsSpace)
 	st.defanged = st.exposed && core.NeutralizeMarkdown(raw) != raw
-	if note := st.finishNote(); note != "" {
+	if note := st.finishNote(ctx); note != "" {
 		if open, _, marker := fenceState(st.carry, body); open {
 			body += "\n" + marker
 		}
@@ -666,7 +666,7 @@ func heartbeatOK(s string) bool {
 
 // finishNote is the closing line: the runner's notices when it sent any,
 // else a short word on how the run ended, plus the optional usage footer.
-func (st *streamState) finishNote() string {
+func (st *streamState) finishNote(ctx context.Context) string {
 	var lines []string
 	f := st.finished
 	switch {
@@ -675,22 +675,22 @@ func (st *streamState) finishNote() string {
 			lines = append(lines, escapeMD(n))
 		}
 	case st.parked:
-		lines = append(lines, "_Parked: waiting for approval. Approve any time in the next 24 h._")
+		ttl := durationText(st.s.h.cfg().Policy.Approval.ParkTTL.D())
+		lines = append(lines, "_Bothy stopped waiting. Approve within "+ttl+" to let it carry on._")
 	case f != nil:
-		errText := strings.TrimSpace(st.s.h.redact(f.Error))
 		switch f.Status {
 		case core.RunStopped:
 			lines = append(lines, "_Stopped._")
 		case core.RunInterrupted:
 			lines = append(lines, "_Interrupted._")
 		case core.RunLoopDetected:
-			lines = append(lines, "_Stopped: I kept repeating myself. Try rephrasing the request._")
+			lines = append(lines, "_Bothy stopped because it kept repeating the same step. Try asking in a different way._")
 		case core.RunBudgetExceeded:
-			lines = append(lines, "Budget exceeded"+suffix(errText))
+			lines = append(lines, "_"+st.s.h.budgetText(f.Budget, st.budgetLimit(ctx, f))+"_")
 		case core.RunFailed:
 			// The error may name secrets or internal hosts and the chat may
 			// hold a guest; what happened is in the web UI's Activity.
-			lines = append(lines, "_Something went wrong, so I couldn't finish. An admin can see what happened in Activity._")
+			lines = append(lines, "_Bothy couldn't finish this task. An admin can see what happened in Activity._")
 		}
 	}
 	if st.defanged && st.session != "" && st.s.h.firstLinkNote(st.session) {
@@ -718,11 +718,22 @@ func (h *Hub) firstLinkNote(s core.SessionID) bool {
 	return true
 }
 
-func suffix(errText string) string {
-	if errText == "" {
-		return "."
+// budgetLimit is the limit that stopped the run, from the run's limits
+// snapshot; 0 when it isn't known.
+func (st *streamState) budgetLimit(ctx context.Context, f *core.RunFinishedData) int64 {
+	var lim core.RunLimits
+	if st.run != "" {
+		if run, err := st.s.h.d.Store.Runs().Get(ctx, core.SystemViewer(), st.run); err == nil {
+			lim = run.Limits
+		}
 	}
-	return ": " + escapeMD(truncateRunes(errText, 300))
+	switch f.Budget {
+	case core.BudgetSteps:
+		return int64(cmp.Or(lim.MaxSteps, f.Steps))
+	case core.BudgetRunCost:
+		return int64(lim.MaxCost)
+	}
+	return 0
 }
 
 func usageFooter(f *core.RunFinishedData) string {
@@ -730,22 +741,5 @@ func usageFooter(f *core.RunFinishedData) string {
 	if f.Steps == 1 {
 		steps = "1 step"
 	}
-	return steps + " · " + tokenCount(f.Usage.TotalInput()+f.Usage.Output) + " tok · " + costText(f.Cost)
-}
-
-func tokenCount(n int) string {
-	switch {
-	case n >= 1_000_000:
-		return fmt.Sprintf("%.1fM", float64(n)/1e6)
-	case n >= 1000:
-		return fmt.Sprintf("%.1fK", float64(n)/1e3)
-	}
-	return fmt.Sprintf("%d", n)
-}
-
-func costText(m core.Micros) string {
-	if m.USD() < 0.1 {
-		return fmt.Sprintf("$%.3f", m.USD())
-	}
-	return fmt.Sprintf("$%.2f", m.USD())
+	return steps + " · " + moneyText(f.Cost)
 }

@@ -96,8 +96,8 @@ func TestMultiApproverCardsGoToEveryApprover(t *testing.T) {
 		h.ch.Press(got[adaChat].Ref, adaChat, allow)
 		synctest.Wait()
 		toasts := h.ch.AckToasts()
-		if len(toasts) != 3 || toasts[0] != "You asked for this, so someone else has to approve it." || toasts[1] != "Not allowed." ||
-			toasts[2] != "Approved: 1 of 2 approvals so far" {
+		if len(toasts) != 3 || toasts[0] != "You asked for this, so someone else has to approve it." || toasts[1] != "Only an admin can approve this." ||
+			toasts[2] != "You approved. Waiting for one more." {
 			t.Fatalf("toasts = %q", toasts)
 		}
 
@@ -126,7 +126,7 @@ func TestMultiApproverCardsGoToEveryApprover(t *testing.T) {
 		h.ch.Press(got[benChat].Ref, benChat, allow)
 		synctest.Wait()
 		toasts = h.ch.AckToasts()
-		if toasts[3] != "You already voted." || toasts[4] != "Approved" {
+		if toasts[3] != "You already voted." || toasts[4] != "Approved." {
 			t.Fatalf("toasts = %q", toasts)
 		}
 		done, _ := h.approvals.Get(h.ctx, core.SystemViewer(), ap.ID)
@@ -167,7 +167,7 @@ func TestMultiApproverRequesterMayWithdraw(t *testing.T) {
 		}
 		h.ch.Press(refs[0].Ref, memberChat, h.approvals.ButtonData(ap.ID, core.Deny))
 		synctest.Wait()
-		if got := h.ch.AckToasts(); len(got) != 1 || got[0] != "Denied" {
+		if got := h.ch.AckToasts(); len(got) != 1 || got[0] != "Denied." {
 			t.Fatalf("toasts = %q", got)
 		}
 		if a, _ := h.approvals.Get(h.ctx, core.SystemViewer(), ap.ID); a.Status != core.ApprovalDenied {

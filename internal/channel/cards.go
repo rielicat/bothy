@@ -140,7 +140,7 @@ func (h *Hub) deliverCard(ctx context.Context, ap *core.Approval) {
 		h.sendCard(ctx, ap, t)
 	}
 	if fromChat && (len(targets) == 0 || targets[0].Key() != origin.Key()) {
-		h.reply(ctx, *origin, plainLine("Waiting for the owner to approve "+cardIng(ap)+"."))
+		h.reply(ctx, *origin, plainLine("Waiting for "+h.approvers(ctx, ap)+" to approve "+cardIng(ap)+"."))
 	}
 }
 
@@ -395,19 +395,23 @@ func contextLine(ctx string) string {
 	return "_" + plainLine(ctx) + "_"
 }
 
+// expiresText is the card's countdown in the web's words (docs/design/ui.md
+// §14.2): "in less than a minute", "in 14 min", "in 2 h", "in 3 days".
 func (h *Hub) expiresText(t time.Time) string {
 	d := t.Sub(h.clock.Now())
-	switch {
-	case d <= 0:
-		return "now"
-	case d < time.Hour:
-		return fmt.Sprintf("in %d min", int((d+time.Minute-1)/time.Minute))
+	if d < time.Minute {
+		return "in less than a minute"
 	}
-	loc, err := time.LoadLocation(h.cfg().Timezone)
-	if err != nil {
-		loc = time.UTC
+	if m := d.Round(time.Minute) / time.Minute; m < 60 {
+		return fmt.Sprintf("in %d min", m)
 	}
-	return "at " + t.In(loc).Format("Jan 2 15:04 MST")
+	if hr := d.Round(time.Hour) / time.Hour; hr < 24 {
+		return fmt.Sprintf("in %d h", hr)
+	}
+	if days := d.Round(24*time.Hour) / (24 * time.Hour); days > 1 {
+		return fmt.Sprintf("in %d days", days)
+	}
+	return "in 1 day"
 }
 
 // updateCards edits every delivered card of a resolved approval to its

@@ -89,6 +89,7 @@ type harness struct {
 	work      string
 
 	runner2 core.Runner                             // overrides runner in Deps when set
+	llm     core.LLM                                // Deps.LLM; nil leaves models unnamed
 	wrap    func(*channeltest.Channel) core.Channel // wraps the adapter the hub sees
 	cancel  context.CancelFunc
 	done    chan error
@@ -128,7 +129,7 @@ func newHarness(t *testing.T, opts ...func(*harness)) *harness {
 		runner = h.runner2
 	}
 	hub, err := New(Deps{
-		Config: h.cfg, Auth: h.auth, Runner: runner, Approvals: h.approvals, Budget: h.budget, Sandbox: h.sandbox,
+		Config: h.cfg, Auth: h.auth, Runner: runner, Approvals: h.approvals, Budget: h.budget, Sandbox: h.sandbox, LLM: h.llm,
 		Store: h.store, Bus: h.bus, Audit: h.audit, Redactor: h.redactor, WorkDir: h.work,
 		Log: slog.New(slog.DiscardHandler),
 	})

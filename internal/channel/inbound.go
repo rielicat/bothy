@@ -171,13 +171,13 @@ func (h *Hub) unknownDM(ctx context.Context, a *adapter, in core.Inbound, ident 
 		linked, err := h.d.Auth.RedeemPairing(ctx, ident, code)
 		if err != nil {
 			h.log.Info("channel pairing failed", "channel", a.name, "err", err)
-			h.replyAsync(in.Chat, "That code did not work. Codes expire after a while; create a new one in the web UI under Settings → Channels.")
+			h.replyAsync(in.Chat, "That code didn't work. It may have expired, so create a new one in Bothy under Settings → Account.")
 			return
 		}
 		name := h.userName(ctx, linked.User)
 		h.enqueueChat(in.Chat.Key(), func(ctx context.Context) {
 			h.reply(ctx, in.Chat, "Linked to "+escapeMD(name)+".")
-			h.reply(ctx, in.Chat, helloText(name))
+			h.reply(ctx, in.Chat, helloText)
 		})
 		return
 	}
@@ -193,7 +193,7 @@ func (h *Hub) unknownDM(ctx context.Context, a *adapter, in core.Inbound, ident 
 	if !notice.Reply {
 		return
 	}
-	h.replyAsync(in.Chat, "I only work with people on this team. Ask an admin to approve code "+escapeMD(notice.Code.Code)+".")
+	h.replyAsync(in.Chat, "Bothy only works with people on this team. Ask an admin to approve code "+escapeMD(notice.Code.Code)+".")
 	h.notifyUnknownSender(ctx, a.name, ident)
 	h.inboxChanged("sender:"+a.name+":"+in.SenderID, "")
 }
@@ -243,9 +243,7 @@ func (h *Hub) inboxChanged(item string, owner core.UserID) {
 	}
 }
 
-func helloText(name string) string {
-	return "Hi " + escapeMD(name) + "! I'm your Bothy assistant. Write to me here any time; /help lists the commands."
-}
+const helloText = "Write to Bothy here any time; /help lists the commands."
 
 const (
 	// askDMs bounds the admin DMs about unknown senders per askWindow: each
@@ -289,13 +287,13 @@ func (h *Hub) notifyUnknownSender(ctx context.Context, channel string, ident cor
 	h.mu.Lock()
 	asked, dm, held := h.asks.note(h.clock.Now())
 	h.mu.Unlock()
-	banner := who + " on " + channelTitle(channel) + " asked for access. Approve the code they were given in Settings → People."
+	banner := who + " on " + channelTitle(channel) + " asked for access. Let them chat, link them or block them in Approvals."
 	if asked > 1 {
-		banner = fmt.Sprintf("%d people asked for access in the past hour, most recently %s on %s. Approve the codes they were given in Settings → People.",
+		banner = fmt.Sprintf("%d people asked for access in the past hour, most recently %s on %s. Let them chat, link them or block them in Approvals.",
 			asked, who, channelTitle(channel))
 	}
 	h.d.Bus.Publish(core.Event{Type: core.EvBanner, Data: core.BannerData{
-		Level: "warn", Code: "unknown_sender", Action: "/settings/people", Text: banner,
+		Level: "warn", Code: "unknown_sender", Action: "/approvals", Text: banner,
 	}})
 	if !dm {
 		return
@@ -305,12 +303,15 @@ func (h *Hub) notifyUnknownSender(ctx context.Context, channel string, ident cor
 		h.log.Error("channel: listing admins failed", "err", err)
 		return
 	}
-	text := "Someone new wrote to me on " + channelTitle(channel) + ": " + inert(revealInvisible(who)) +
-		". If you know them, approve the code they received in Settings → People."
-	if held > 0 {
-		text += fmt.Sprintf(" %d more asked since my last message about this; Settings → People lists everyone.", held)
+	text := "Someone new messaged Bothy on " + channelTitle(channel) + ": " + inert(revealInvisible(who)) +
+		". Let them chat, link them or block them in Approvals."
+	switch {
+	case held == 1:
+		text += " 1 more person has messaged Bothy since then."
+	case held > 1:
+		text += fmt.Sprintf(" %d more people have messaged Bothy since then.", held)
 	}
-	buttons := h.webButton("Open Settings → People", "/settings/people")
+	buttons := h.webButton("Open Approvals", "/approvals")
 	for _, u := range users {
 		if !u.Role.IsAdmin() || u.Disabled {
 			continue
@@ -359,7 +360,7 @@ func (h *Hub) slowDown(chat core.ChatRef, key string, retry time.Duration) {
 	h.slowed[key] = now.Add(window)
 	h.mu.Unlock()
 	secs := int(max(retry, time.Second).Round(time.Second) / time.Second)
-	h.replyAsync(chat, fmt.Sprintf("Slow down a little; I'll read new messages again in about %d s.", secs))
+	h.replyAsync(chat, fmt.Sprintf("Bothy will read new messages again in about %d s.", secs))
 }
 
 // gate maps the message to a principal (SPEC §5.1 step 7) or rejects it.
@@ -469,9 +470,9 @@ func (h *Hub) firstSighting(ctx context.Context, a *adapter, in core.Inbound, re
 	if !ok {
 		return
 	}
-	text := "I was added to “" + inert(title) + "” on " + channelTitle(a.name) +
-		". I stay silent there until you enable it in Settings → Spaces."
-	buttons := h.webButton("Open Settings → Spaces", "/settings/spaces")
+	text := "Bothy was added to “" + inert(title) + "” in " + channelTitle(a.name) +
+		". It stays silent there until you turn it on in Approvals."
+	buttons := h.webButton("Open Approvals", "/approvals")
 	h.enqueueChat(chat.Key(), func(ctx context.Context) { h.sendWithButtons(ctx, chat, text, buttons) })
 }
 
@@ -560,13 +561,13 @@ func (h *Hub) submit(ctx context.Context, a *adapter, in core.Inbound, tg target
 	case res.Steered:
 		key, waiting := h.activeRunKey(sess.ID, res.Run)
 		if waiting {
-			h.replyOnce(ctx, chat, key+":wait", "Waiting for your approval above; I'll read this after.")
+			h.replyOnce(ctx, chat, key+":wait", "Bothy will read this after you answer the approval above.")
 		} else {
 			h.replyOnce(ctx, chat, key+":steer", "Got it, adding that to the current task.")
 		}
 	case res.Queued:
 		key, _ := h.activeRunKey(sess.ID, res.Run)
-		h.replyOnce(ctx, chat, key+":queue", "Queued; I'll get to it when the current task is done.")
+		h.replyOnce(ctx, chat, key+":queue", "Bothy will read this when it finishes the current task.")
 	}
 }
 
@@ -613,10 +614,34 @@ func (h *Hub) submitError(err error) string {
 	case errors.As(err, &be) && be.Kind == core.BudgetDailyCost:
 		return "Today's budget is used up; it resets at midnight (" + escapeMD(h.cfg().Timezone) + ")."
 	case errors.As(err, &be):
-		return "Budget exceeded (" + escapeMD(string(be.Kind)) + ")."
+		return h.budgetText(be.Kind, be.Limit)
 	}
 	h.log.Error("channel submit failed", "err", err)
 	return "Sorry, something went wrong. Try again in a moment."
+}
+
+// budgetText says which limit stopped a task in the runner's words
+// (docs/design/ui.md §7.6); limit is 0 when it isn't known.
+func (h *Hub) budgetText(kind core.BudgetKind, limit int64) string {
+	switch {
+	case kind == core.BudgetSteps && limit > 0:
+		return fmt.Sprintf("Bothy paused after %d steps to check in.", limit)
+	case kind == core.BudgetTokens:
+		return "Bothy stopped because this task reached its length limit."
+	case kind == core.BudgetTime:
+		return "Bothy stopped because this task ran out of time."
+	case kind == core.BudgetRunCost && limit > 0:
+		return "Bothy stopped because this task reached its " + moneyText(core.Micros(limit)) + " limit."
+	case kind == core.BudgetRunCost:
+		return "Bothy stopped because this task reached its spending limit."
+	case kind == core.BudgetDailyCost:
+		amount := ""
+		if limit > 0 {
+			amount = moneyText(core.Micros(limit)) + " "
+		}
+		return "Bothy has reached today's " + amount + "spending limit. It can start again at midnight (" + escapeMD(h.cfg().Timezone) + ")."
+	}
+	return "Bothy stopped because this task reached a limit."
 }
 
 // ---- per-chat serial work ----

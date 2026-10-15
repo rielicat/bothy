@@ -73,7 +73,8 @@ func TestStreamEditsAtMostOncePerInterval(t *testing.T) {
 			}
 		}
 		first := ops[0]
-		if first.kind != "send" || len(first.msg.Buttons) != 1 || first.msg.Buttons[0][0].Data != "s:"+string(f.run) {
+		if first.kind != "send" || len(first.msg.Buttons) != 1 || first.msg.Buttons[0][0].Data != "s:"+string(f.run) ||
+			first.msg.Buttons[0][0].Style != core.BtnDefault {
 			t.Fatalf("first op = %+v, want the live message with a Stop button", first)
 		}
 		last := ops[len(ops)-1]
@@ -99,7 +100,7 @@ func TestStreamPlaceholderTypingAndStatus(t *testing.T) {
 		}
 		time.Sleep(1600 * time.Millisecond)
 		synctest.Wait()
-		if v := h.visible(ownerChat); len(v) != 1 || v[0] != "Thinking…" {
+		if v := h.visible(ownerChat); len(v) != 1 || v[0] != "Working…" {
 			t.Fatalf("after 1.5 s the chat shows %q, want the placeholder", v)
 		}
 		time.Sleep(4 * time.Second)
@@ -479,7 +480,7 @@ func TestStreamFinishNotesAndFooter(t *testing.T) {
 		f.delta("partial answer ")
 		f.finish(core.RunStopped)
 		got := h.lastText(ownerChat)
-		if !strings.Contains(got, "partial answer") || !strings.Contains(got, "_Stopped._") || !strings.Contains(got, "3 steps · 12.4K tok · $0.006") {
+		if !strings.Contains(got, "partial answer") || !strings.Contains(got, "_Stopped._") || !strings.HasSuffix(got, "\n_· 3 steps · $0.01_") {
 			t.Fatalf("final text = %q", got)
 		}
 
@@ -496,8 +497,30 @@ func TestStreamFinishNotesAndFooter(t *testing.T) {
 		p.emit(core.EvRunParked, core.RunParkedData{Approval: core.ApprovalID(core.NewID(core.PrefixApproval))})
 		time.Sleep(10 * time.Second)
 		synctest.Wait()
-		if got := h.lastText(ownerChat); !strings.Contains(got, "Parked") {
+		if got := h.lastText(ownerChat); !strings.Contains(got, "_Bothy stopped waiting. Approve within 24 h to let it carry on._") {
 			t.Fatalf("parked run ends with %q", got)
+		}
+
+		// Without the runner's notice, a run's end is still said in plain words.
+		for st, want := range map[core.RunStatus]string{
+			core.RunLoopDetected:   "_Bothy stopped because it kept repeating the same step. Try asking in a different way._",
+			core.RunFailed:         "_Bothy couldn't finish this task. An admin can see what happened in Activity._",
+			core.RunBudgetExceeded: "_Bothy stopped because this task reached a limit._",
+		} {
+			e := h.feed(h.dmChat(ownerChat), "stream")
+			e.delta("partial ")
+			e.finish(st)
+			if got := h.lastText(ownerChat); !strings.Contains(got, want) {
+				t.Fatalf("%s ends with %q, want %q", st, got, want)
+			}
+		}
+		b := h.feed(h.dmChat(ownerChat), "stream")
+		b.delta("partial ")
+		b.emit(core.EvRunFinished, core.RunFinishedData{Status: core.RunBudgetExceeded, Error: "budget exceeded: steps", Budget: core.BudgetSteps, Steps: 10})
+		time.Sleep(30 * time.Second)
+		synctest.Wait()
+		if got := h.lastText(ownerChat); !strings.Contains(got, "_Bothy paused after 10 steps to check in._") || strings.Contains(got, "budget exceeded") {
+			t.Fatalf("steps stop ends with %q", got)
 		}
 	})
 }

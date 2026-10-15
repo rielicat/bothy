@@ -46,7 +46,7 @@ var commands = map[string]commandSpec{
 	"pins":    {usage: "/pins", help: "list pinned instructions"},
 	"unpin":   {usage: "/unpin <n>", help: "remove pin number n"},
 	"compact": {usage: "/compact", help: "summarise older messages now"},
-	"model":   {usage: "/model [provider/model|default]", help: "show or change the AI model of this conversation"},
+	"model":   {usage: "/model [model name|default]", help: "show or change the AI model of this conversation"},
 	"refine":  {usage: "/refine [on|off|default]", help: "check answers more carefully here (slower, costs more)"},
 	"usage":   {usage: "/usage", help: "today's spending and this conversation's cost"},
 	"pair":    {access: accessAnyone, usage: "/pair CODE", help: "link this account with a code from the web UI"},
@@ -118,7 +118,11 @@ func (h *Hub) runCommand(ctx context.Context, a *adapter, in core.Inbound, res c
 		say = func(text string) { h.replyAsync(chat, text) }
 	}
 	if !allowed(spec.access, res, tg.principal) {
-		say("Not allowed: only this conversation's owner or an admin can use /" + cmd + ".")
+		if spec.access == accessAdmin {
+			say("Only an admin can use /" + cmd + ".")
+		} else {
+			say("Only the person this chat belongs to or an admin can use /" + cmd + ".")
+		}
 		return
 	}
 	switch cmd {
@@ -154,13 +158,13 @@ func (h *Hub) runCommand(ctx context.Context, a *adapter, in core.Inbound, res c
 		switch {
 		case args != "" && chat.Kind != core.ChatDM:
 			// Codes are single use: anyone here could now redeem it first.
-			say("Pairing codes only work in a direct message with me. This one is now visible here, so create a new code in the web UI and send it to me privately.")
+			say("Pairing codes only work in a direct message with Bothy. This one is now visible here, so create a new code in Settings → Account and send it to Bothy privately.")
 		case args != "" && res.Status == core.IdentityGuest:
 			say("This account is a guest; an admin can link it to a user in Settings → People.")
 		case args != "":
 			say("This account is already linked.")
 		case res.Status == core.IdentityLinked && chat.Kind == core.ChatDM:
-			say(helloText(h.userName(ctx, res.User)))
+			say(helloText)
 		default:
 			say(helpText(isAdmin(res)))
 		}
@@ -218,7 +222,13 @@ func (h *Hub) cmdStopAll(ctx context.Context, channel, ext string, by core.UserI
 		h.log.Error("channel /stopall: stop failed", "err", err)
 	}
 	h.audit(ctx, "admin.pause", channel, ext, by)
-	return fmt.Sprintf("Paused. Stopped %d task(s). /resume lifts the pause.", n)
+	switch n {
+	case 0:
+		return "Paused. No tasks were running. /resume lifts the pause."
+	case 1:
+		return "Paused. Stopped 1 task. /resume lifts the pause."
+	}
+	return fmt.Sprintf("Paused. Stopped %d tasks. /resume lifts the pause.", n)
 }
 
 func (h *Hub) cmdResume(ctx context.Context, channel, ext string, by core.UserID) string {
@@ -429,7 +439,7 @@ func (h *Hub) cmdUnpin(ctx context.Context, tg target, chat core.ChatRef, arg st
 // session's active run before saying it is still queued.
 const compactWait = 15 * time.Minute
 
-const compactFailed = "Compaction failed; it will run again automatically when needed."
+const compactFailed = "Bothy couldn't summarise older messages. It will try again when the chat gets long."
 
 // cmdCompact starts the compaction in the background and replies when it is
 // done. Runner.Compact queues behind the session's active run, and waiting
@@ -438,7 +448,7 @@ const compactFailed = "Compaction failed; it will run again automatically when n
 func (h *Hub) cmdCompact(ctx context.Context, tg target, chat core.ChatRef) string {
 	sess, err := h.chatSession(ctx, tg, chat)
 	if errors.Is(err, core.ErrNotFound) {
-		return "Nothing to compact yet."
+		return "Nothing to summarise yet."
 	}
 	if err != nil {
 		h.log.Warn("channel /compact failed", "err", err)
@@ -447,7 +457,7 @@ func (h *Hub) cmdCompact(ctx context.Context, tg target, chat core.ChatRef) stri
 	h.mu.Lock()
 	if _, ok := h.compacting[sess.ID]; ok {
 		h.mu.Unlock()
-		return "Already compacting this conversation."
+		return "Already summarising older messages in this chat."
 	}
 	h.compacting[sess.ID] = struct{}{}
 	h.mu.Unlock()
@@ -462,12 +472,12 @@ func (h *Hub) cmdCompact(ctx context.Context, tg target, chat core.ChatRef) stri
 		wait, cancel := context.WithTimeout(ctx, compactWait)
 		err := h.d.Runner.Compact(wait, core.SystemViewer(), sess.ID)
 		cancel()
-		text := "Compacted."
+		text := "Older messages were summarised."
 		switch {
 		case ctx.Err() != nil:
 			return
 		case errors.Is(err, context.DeadlineExceeded):
-			text = "Compaction is still waiting for the current task; it runs when that ends."
+			text = "Bothy will summarise older messages when the current task ends."
 		case err != nil:
 			h.log.Warn("channel /compact failed", "session", sess.ID, "err", err)
 			text = compactFailed
@@ -479,13 +489,13 @@ func (h *Hub) cmdCompact(ctx context.Context, tg target, chat core.ChatRef) stri
 		return ""
 	}
 	if busy {
-		return "I'll compact this conversation when the current task is done."
+		return "Bothy will summarise older messages when the current task is done."
 	}
 	return ""
 }
 
-// cmdModel shows the conversation's model, or sets it; only an explicit
-// word clears the override, so checking the model never changes it.
+// cmdModel shows the chat's model, or sets it; only an explicit word clears
+// the override, so checking the model never changes it.
 func (h *Hub) cmdModel(ctx context.Context, tg target, chat core.ChatRef, arg string) string {
 	main := h.cfg().Models.Main
 	switch strings.ToLower(arg) {
@@ -496,12 +506,12 @@ func (h *Hub) cmdModel(ctx context.Context, tg target, chat core.ChatRef, arg st
 			return somethingWrong
 		}
 		if err == nil && sess.ModelOverride != "" {
-			return "This conversation uses " + codeSpan(sess.ModelOverride) + ". /model default goes back to the default model."
+			return "This chat uses " + h.modelText(sess.ModelOverride) + ". /model default goes back to the main model."
 		}
 		if len(main) > 0 {
-			return "This conversation uses the default model, " + codeSpan(main[0]) + ". /model provider/model changes it."
+			return "This chat uses the main model, " + h.modelText(main[0]) + ". /model <model name> changes it."
 		}
-		return "This conversation uses the default model. /model provider/model changes it."
+		return "This chat uses the main model. /model <model name> changes it."
 	case "default", "clear", "reset":
 		sess, err := h.chatSession(ctx, tg, chat)
 		if err == nil && sess.ModelOverride != "" {
@@ -512,25 +522,73 @@ func (h *Hub) cmdModel(ctx context.Context, tg target, chat core.ChatRef, arg st
 			h.log.Error("channel /model failed", "err", err)
 			return somethingWrong
 		}
-		return "This conversation uses the default model again."
+		return "This chat uses the main model again."
 	}
-	if _, err := core.ParseModelRef(arg); err != nil || strings.ContainsFunc(arg, unicode.IsSpace) {
-		example := "anthropic/claude-sonnet-4-6"
+	ref, ok := h.findModel(ctx, arg)
+	if !ok {
+		example := ""
 		if len(main) > 0 {
-			example = main[0]
+			example = ", for example " + codeSpan("/model "+cmp.Or(h.modelName(main[0]), main[0]))
 		}
-		return "Usage: /model <provider/model>, for example " + codeSpan("/model "+example) + ". /model alone shows the model; /model default goes back to the default one."
+		return "Usage: /model <model name>" + example + ". /model alone shows the model; /model default goes back to the main model."
 	}
 	sess, err := h.resolveSession(ctx, tg.principal.ID, chat)
 	if err == nil {
-		sess.ModelOverride = arg
+		sess.ModelOverride = ref
 		err = h.d.Store.Sessions().Update(ctx, sess)
 	}
 	if err != nil {
 		h.log.Error("channel /model failed", "err", err)
 		return somethingWrong
 	}
-	return "This conversation now uses " + codeSpan(arg) + "."
+	return "This chat now uses " + h.modelText(ref) + "."
+}
+
+// findModel resolves what was typed after /model to a model ref: a model's
+// plain or short name ("Claude Sonnet 4.6", "sonnet 4.6"), else a
+// provider/model ref, stored as typed.
+func (h *Hub) findModel(ctx context.Context, arg string) (string, bool) {
+	arg = oneLine(arg)
+	if h.d.LLM != nil {
+		ms := h.d.LLM.Models(ctx)
+		// A name several providers offer goes to the first one configured.
+		for _, name := range []func(core.ModelInfo) string{
+			func(m core.ModelInfo) string { return m.DisplayName },
+			func(m core.ModelInfo) string { return m.ShortName },
+		} {
+			for _, m := range ms {
+				if n := name(m); n != "" && strings.EqualFold(n, arg) {
+					return m.Ref.String(), true
+				}
+			}
+		}
+	}
+	if _, err := core.ParseModelRef(arg); err != nil || strings.ContainsFunc(arg, unicode.IsSpace) {
+		return "", false
+	}
+	return arg, true
+}
+
+// modelName is a model's plain name, "" when no provider can name the ref.
+func (h *Hub) modelName(ref string) string {
+	r, err := core.ParseModelRef(ref)
+	if err != nil || h.d.LLM == nil {
+		return ""
+	}
+	m, ok := h.d.LLM.Model(r)
+	if !ok {
+		return ""
+	}
+	return m.DisplayName
+}
+
+// modelText names a model in a reply; a ref nobody can name is shown as
+// stored, in code.
+func (h *Hub) modelText(ref string) string {
+	if n := h.modelName(ref); n != "" {
+		return escapeMD(n)
+	}
+	return codeSpan(ref)
 }
 
 // cmdRefine shows or sets the conversation's refine mode, which the runner
@@ -571,8 +629,11 @@ func (h *Hub) cmdRefine(ctx context.Context, tg target, chat core.ChatRef, arg s
 		return "Refine is off for this conversation, as by default. /refine on turns it on."
 	}
 	c := h.cfg().Agent.Refine
-	how := fmt.Sprintf("I draft each answer %s and check each draft %s before I reply, so answers are slower and cost about %d times as much.",
-		times(c.Drafts), times(c.Depth), core.RefineTypicalCalls(c.Drafts, c.Depth, c.EarlyStop))
+	calls := core.RefineTypicalCalls(c.Drafts, c.Depth, c.EarlyStop)
+	how := fmt.Sprintf("Bothy writes %d drafts, checks them and sends the best, so answers are slower and cost about %d times as much.", c.Drafts, calls)
+	if c.Drafts <= 1 {
+		how = fmt.Sprintf("Bothy checks each answer before sending it, so answers are slower and cost about %d times as much.", calls)
+	}
 	if arg == core.RefineOn {
 		return "Refine is on for this conversation: " + how + " /refine off turns it off."
 	}
@@ -594,16 +655,6 @@ func (h *Hub) refineSetting(ctx context.Context, s core.SessionID) (string, bool
 		}
 	}
 	return arg, arg == core.RefineOn || (arg != core.RefineOff && h.cfg().Agent.Refine.Enabled), nil
-}
-
-func times(n int) string {
-	switch n {
-	case 1:
-		return "once"
-	case 2:
-		return "twice"
-	}
-	return strconv.Itoa(n) + " times"
 }
 
 func (h *Hub) cmdUsage(ctx context.Context, tg target, chat core.ChatRef) string {

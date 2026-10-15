@@ -28,7 +28,7 @@ func TestRefineCommand(t *testing.T) {
 		h.dm(ownerChat, "/refine")
 		h.wantVisible(ownerChat, "Refine is off for this conversation, as by default.")
 		h.dm(ownerChat, "/refine ON")
-		h.wantVisible(ownerChat, "I draft each answer 3 times and check each draft twice before I reply")
+		h.wantVisible(ownerChat, "Refine is on for this conversation: Bothy writes 3 drafts, checks them and sends the best, so answers are slower")
 		h.wantVisible(ownerChat, "cost about 12 times as much")
 		if setting() != core.RefineOn {
 			t.Fatalf("setting = %q after /refine on", setting())
@@ -40,7 +40,7 @@ func TestRefineCommand(t *testing.T) {
 		}
 		h.cfg.Set(func(c *config.Config) { c.Agent.Refine.Enabled, c.Agent.Refine.Drafts = true, 1 })
 		h.dm(ownerChat, "/refine default")
-		h.wantVisible(ownerChat, "Refine is on for this conversation, as by default: I draft each answer once")
+		h.wantVisible(ownerChat, "Refine is on for this conversation, as by default: Bothy checks each answer before sending it")
 		if setting() != "" {
 			t.Fatalf("setting = %q after /refine default", setting())
 		}

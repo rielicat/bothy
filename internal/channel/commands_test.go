@@ -60,20 +60,20 @@ func TestCommandsManageSession(t *testing.T) {
 		}
 		h.cfg.Set(func(c *config.Config) { c.Models.Main = []string{"openrouter/qwen/qwen3-coder"} })
 		h.dm(ownerChat, "/model not-a-ref")
-		h.wantVisible(ownerChat, "Usage: /model <provider/model>, for example `/model openrouter/qwen/qwen3-coder`.")
+		h.wantVisible(ownerChat, "Usage: /model <model name>, for example `/model openrouter/qwen/qwen3-coder`.")
 		// Checking the model must not change it; only an explicit word clears it.
 		h.dm(ownerChat, "/model")
-		h.wantVisible(ownerChat, "This conversation uses `anthropic/claude-sonnet-4-6`. /model default goes back to the default model.")
+		h.wantVisible(ownerChat, "This chat uses `anthropic/claude-sonnet-4-6`. /model default goes back to the main model.")
 		if s := h.session(p, chat); s.ModelOverride != "anthropic/claude-sonnet-4-6" {
 			t.Fatalf("bare /model changed the override to %q", s.ModelOverride)
 		}
 		h.dm(ownerChat, "/model default")
-		h.wantVisible(ownerChat, "This conversation uses the default model again.")
+		h.wantVisible(ownerChat, "This chat uses the main model again.")
 		if s := h.session(p, chat); s.ModelOverride != "" {
 			t.Fatalf("override not cleared: %q", s.ModelOverride)
 		}
 		h.dm(ownerChat, "/model")
-		if got := h.lastText(ownerChat); got != "This conversation uses the default model, `openrouter/qwen/qwen3-coder`. /model provider/model changes it." {
+		if got := h.lastText(ownerChat); got != "This chat uses the main model, `openrouter/qwen/qwen3-coder`. /model <model name> changes it." {
 			t.Fatalf("/model without an override = %q", got)
 		}
 
@@ -88,7 +88,7 @@ func TestCommandsManageSession(t *testing.T) {
 			t.Fatal("the next message went to the archived session")
 		}
 		h.dm(ownerChat, "/compact")
-		h.wantVisible(ownerChat, "Compacted.")
+		h.wantVisible(ownerChat, "Older messages were summarised.")
 		if n := len(h.runner.Submitted()); n != 1 {
 			t.Fatalf("commands reached the runner as messages: %d submits", n)
 		}
@@ -196,13 +196,13 @@ func TestCommandAuthorization(t *testing.T) {
 		h := newHarness(t).start()
 		h.space("-500", true, false)
 		h.group("-500", memberChat, "/stop", true)
-		h.wantVisible("-500", "Not allowed")
+		h.wantVisible("-500", "Only the person this chat belongs to or an admin can use /stop.")
 		h.group("-500", "9009", "/new", true)
 		if n := len(h.runner.Stopped()); n != 0 {
 			t.Fatalf("a non-owner stopped a run")
 		}
 		h.dm(memberChat, "/stopall")
-		h.wantVisible(memberChat, "Not allowed")
+		h.wantVisible(memberChat, "Only an admin can use /stopall.")
 		if h.runner.Paused() {
 			t.Fatal("a member engaged the kill switch")
 		}
@@ -226,7 +226,7 @@ func TestCommandAuthorization(t *testing.T) {
 
 		h.group("-500", ownerChat, "/stop", true)
 		h.wantVisible("-500", "Nothing to stop.")
-		if v := h.visible("-500"); strings.Count(strings.Join(v, "\n"), "Not allowed") != 2 {
+		if v := h.visible("-500"); strings.Count(strings.Join(v, "\n"), "Only the person this chat belongs to") != 2 {
 			t.Fatalf("group replies = %q", v)
 		}
 	})
@@ -240,12 +240,12 @@ func TestStopButton(t *testing.T) {
 			h.runner2 = &activeRunner{Runner: h.runner, info: core.RunInfo{Run: run, Session: sess,
 				Principal: core.UserPrincipal(h.owner.ID), Status: core.RunRunning}}
 		}).start()
-		ref, _ := h.ch.Send(h.ctx, core.OutMessage{Chat: h.dmChat(ownerChat), Text: "Thinking…"})
+		ref, _ := h.ch.Send(h.ctx, core.OutMessage{Chat: h.dmChat(ownerChat), Text: "Working…"})
 		h.ch.Press(ref, memberChat, "s:"+string(run))
 		synctest.Wait()
 		h.ch.Press(ref, ownerChat, "s:"+string(run))
 		synctest.Wait()
-		if got := h.ch.AckToasts(); !slices.Equal(got, []string{"Not allowed.", "Stopped."}) {
+		if got := h.ch.AckToasts(); !slices.Equal(got, []string{"Only the person this chat belongs to or an admin can stop it.", "Stopped."}) {
 			t.Fatalf("toasts = %q", got)
 		}
 		if got := h.runner.Stopped(); len(got) != 1 || got[0] != sess {
@@ -275,13 +275,13 @@ func TestCompactDoesNotHoldTheChat(t *testing.T) {
 			t.Fatalf("submits while compacting = %+v", subs)
 		}
 		h.dm(ownerChat, "/compact")
-		h.wantVisible(ownerChat, "Already compacting this conversation.")
+		h.wantVisible(ownerChat, "Already summarising older messages in this chat.")
 		if n := cr.calls.Load(); n != 1 {
 			t.Fatalf("compactions started = %d, want 1", n)
 		}
 		close(cr.release)
 		synctest.Wait()
-		h.wantVisible(ownerChat, "Compacted.")
+		h.wantVisible(ownerChat, "Older messages were summarised.")
 		h.dm(ownerChat, "/compact")
 		if n := cr.calls.Load(); n != 2 {
 			t.Fatalf("compactions after the first finished = %d, want 2", n)
@@ -313,3 +313,82 @@ type activeRunner struct {
 }
 
 func (a *activeRunner) Active() []core.RunInfo { return []core.RunInfo{a.info} }
+
+// /model names models in plain words and finds them by plain or short name;
+// a provider/model ref still works.
+func TestModelCommandUsesPlainNames(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		sonnet := core.ModelInfo{Ref: core.ModelRef{Provider: "anthropic", Model: "claude-sonnet-4-6"}, DisplayName: "Claude Sonnet 4.6", ShortName: "Sonnet 4.6"}
+		haiku := core.ModelInfo{Ref: core.ModelRef{Provider: "anthropic", Model: "claude-haiku-4-5"}, DisplayName: "Claude Haiku 4.5", ShortName: "Haiku 4.5"}
+		h := newHarness(t, func(h *harness) { h.llm = namedModels{models: []core.ModelInfo{sonnet, haiku}} }).start()
+		h.cfg.Set(func(c *config.Config) { c.Models.Main = []string{"anthropic/claude-sonnet-4-6"} })
+		p, chat := core.UserPrincipal(h.owner.ID), h.dmChat(ownerChat)
+		override := func() string { return h.session(p, chat).ModelOverride }
+
+		h.dm(ownerChat, "/model")
+		if got := h.lastText(ownerChat); got != "This chat uses the main model, Claude Sonnet 4.6. /model <model name> changes it." {
+			t.Fatalf("/model = %q", got)
+		}
+		h.dm(ownerChat, "/model haiku  4.5")
+		if got := h.lastText(ownerChat); got != "This chat now uses Claude Haiku 4.5." || override() != "anthropic/claude-haiku-4-5" {
+			t.Fatalf("/model by short name = %q, override %q", got, override())
+		}
+		h.dm(ownerChat, "/model claude sonnet 4.6")
+		h.dm(ownerChat, "/model")
+		if got := h.lastText(ownerChat); got != "This chat uses Claude Sonnet 4.6. /model default goes back to the main model." || override() != "anthropic/claude-sonnet-4-6" {
+			t.Fatalf("/model after choosing by name = %q, override %q", got, override())
+		}
+		h.dm(ownerChat, "/model anthropic/claude-haiku-4-5")
+		if got := h.lastText(ownerChat); got != "This chat now uses Claude Haiku 4.5." {
+			t.Fatalf("/model by ref = %q", got)
+		}
+		h.dm(ownerChat, "/model gpt nine")
+		want := "Usage: /model <model name>, for example `/model Claude Sonnet 4.6`. /model alone shows the model; /model default goes back to the main model."
+		if got := h.lastText(ownerChat); got != want || override() != "anthropic/claude-haiku-4-5" {
+			t.Fatalf("/model with an unknown name = %q, override %q", got, override())
+		}
+	})
+}
+
+// namedModels is an LLM that only names models, all /model asks of it.
+type namedModels struct {
+	core.LLM
+	models []core.ModelInfo
+}
+
+func (n namedModels) Models(context.Context) []core.ModelInfo { return n.models }
+
+func (n namedModels) Model(ref core.ModelRef) (core.ModelInfo, bool) {
+	for _, m := range n.models {
+		if m.Ref == ref {
+			return m, true
+		}
+	}
+	return core.ModelInfo{}, false
+}
+
+func TestStopAllCountsTasks(t *testing.T) {
+	for n, want := range map[int]string{
+		0: "Paused. No tasks were running. /resume lifts the pause.",
+		1: "Paused. Stopped 1 task. /resume lifts the pause.",
+		3: "Paused. Stopped 3 tasks. /resume lifts the pause.",
+	} {
+		bubble(t, func(t *testing.T) {
+			h := newHarness(t, func(h *harness) { h.runner2 = &stopAllRunner{Runner: h.runner, n: n} }).start()
+			h.dm(ownerChat, "/stopall")
+			if got := h.lastText(ownerChat); got != want {
+				t.Fatalf("/stopall with %d tasks = %q, want %q", n, got, want)
+			}
+		})
+	}
+}
+
+type stopAllRunner struct {
+	*fakes.Runner
+	n int
+}
+
+func (s *stopAllRunner) StopAll(ctx context.Context, by core.UserID) (int, error) {
+	_, err := s.Runner.StopAll(ctx, by)
+	return s.n, err
+}

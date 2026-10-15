@@ -183,7 +183,7 @@ func TestFirstGroupMessageIsOwnedByInstanceOwner(t *testing.T) {
 		if sp.Owner != h.owner.ID || sp.Enabled {
 			t.Fatalf("space = %+v; a member who merely spoke first must not own it", sp)
 		}
-		h.wantVisible(ownerChat, "I was added to")
+		h.wantVisible(ownerChat, "Bothy was added to")
 		if v := h.visible(memberChat); len(v) != 0 {
 			t.Fatalf("the member was told about the space: %q", v)
 		}
@@ -282,7 +282,7 @@ func TestPressCannotMatchAnotherChannelsCard(t *testing.T) {
 		h.hub.OnAction(h.ctx, core.ActionEvent{Chat: h.dmChat(ownerChat), Msg: discord, SenderID: ownerChat,
 			Data: h.approvals.ButtonData(ap.ID, core.AllowOnce), AckRef: "ack-x"})
 		synctest.Wait()
-		if toasts := h.ch.AckToasts(); len(toasts) != 1 || toasts[0] != "Not allowed." {
+		if toasts := h.ch.AckToasts(); len(toasts) != 1 || toasts[0] != "Couldn't record your decision. Try again in Bothy on the web." {
 			t.Fatalf("toasts = %q", toasts)
 		}
 		if len(h.approvals.Resolutions) != 0 {

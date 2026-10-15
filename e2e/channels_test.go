@@ -73,7 +73,7 @@ func TestTelegramDM(t *testing.T) {
 
 	allow, _ := chButton(card, "Create file")
 	e.tg.Press(chOwnerTG, card.ID, chOwnerTG, allow.CallbackData)
-	if toast := e.tgAnswer(t, 1); toast != "Approved" {
+	if toast := e.tgAnswer(t, 1); toast != "Approved." {
 		t.Fatalf("toast = %q", toast)
 	}
 	e.tgMessage(t, chOwnerTG, "the final answer", func(m telegramtest.Message) bool {
@@ -129,7 +129,7 @@ func TestGroupSpace(t *testing.T) {
 
 	e.tg.InjectBotAdded(group, "Book club", chOwnerTG)
 	e.tgMessage(t, chOwnerTG, "the added-to-group notice", func(m telegramtest.Message) bool {
-		return strings.Contains(m.Text, "I was added to “Book club”")
+		return strings.Contains(m.Text, "Bothy was added to “Book club”")
 	})
 	var spaces []core.Space
 	if code := e.JSON(t, http.MethodGet, "/api/spaces", nil, &spaces); code != http.StatusOK || len(spaces) != 1 {
@@ -161,7 +161,7 @@ func TestGroupSpace(t *testing.T) {
 		t.Fatalf("card = %q", card.Text)
 	}
 	e.tgMessage(t, group, "the waiting line in the group", func(m telegramtest.Message) bool {
-		return strings.Contains(m.Text, "Waiting for the owner to approve listing the files in Bothy's files.")
+		return strings.Contains(m.Text, "Waiting for owner to approve listing the files in Bothy's files.")
 	})
 	for _, m := range e.tg.Messages(group) {
 		for _, row := range m.Buttons {
@@ -201,7 +201,7 @@ func TestGroupSpace(t *testing.T) {
 
 	allow, _ := chButton(card, "List files")
 	e.tg.Press(chOwnerTG, card.ID, chOwnerTG, allow.CallbackData)
-	if toast := e.tgAnswer(t, 1); toast != "Approved" {
+	if toast := e.tgAnswer(t, 1); toast != "Approved." {
 		t.Fatalf("toast = %q", toast)
 	}
 	e.tgMessage(t, group, "the answer in the group", func(m telegramtest.Message) bool {
@@ -240,11 +240,11 @@ func TestUnknownSender(t *testing.T) {
 		e.tg.Inject(telegramtest.Inbound{ChatID: stranger, SenderID: stranger, FirstName: "Mallory", Username: "mallory", Text: text})
 	}
 	notice := e.tgMessage(t, stranger, "the approve-sender notice", func(telegramtest.Message) bool { return true })
-	if !regexp.MustCompile(`^I only work with people on this team\. Ask an admin to approve code [0-9A-Z]{4}-[0-9A-Z]{4}\.$`).MatchString(notice.Text) {
+	if !regexp.MustCompile(`^Bothy only works with people on this team\. Ask an admin to approve code [0-9A-Z]{4}-[0-9A-Z]{4}\.$`).MatchString(notice.Text) {
 		t.Fatalf("notice = %q", notice.Text)
 	}
 	e.tgMessage(t, chOwnerTG, "the admin's new-sender notice", func(m telegramtest.Message) bool {
-		return strings.Contains(m.Text, "Someone new wrote to me on Telegram") && strings.Contains(m.Text, "mallory")
+		return strings.Contains(m.Text, "Someone new messaged Bothy on Telegram") && strings.Contains(m.Text, "mallory")
 	})
 	time.Sleep(1500 * time.Millisecond) // the later DMs are handled; any reply they caused would have been sent
 	if n := len(e.llm.Requests()); n != 0 {
@@ -311,7 +311,7 @@ func TestTelegramKillSwitch(t *testing.T) {
 	})
 	say("/stopall")
 	e.tgMessage(t, chOwnerTG, "the /stopall reply", func(m telegramtest.Message) bool {
-		return strings.Contains(m.Text, "Paused. Stopped 1 task(s).")
+		return strings.Contains(m.Text, "Paused. Stopped 1 task.")
 	})
 	say("/resume")
 	chEventually(t, 10*time.Second, "the first /resume reply", func() bool { return count("Resumed.") == 1 })
@@ -436,7 +436,7 @@ func TestForgedApproval(t *testing.T) {
 	})
 	deny, _ := chButton(card, "Deny")
 	e.tg.Press(chOwnerTG, card.ID, chOwnerTG, deny.CallbackData)
-	if toast := e.tgAnswer(t, 1); toast != "Denied" {
+	if toast := e.tgAnswer(t, 1); toast != "Denied." {
 		t.Fatalf("deny toast = %q", toast)
 	}
 	e.tgMessage(t, chOwnerTG, "the answer after the denial", func(m telegramtest.Message) bool {
@@ -482,7 +482,7 @@ func TestForgedApproval(t *testing.T) {
 		t.Fatalf("approval after forged presses = %+v", ap)
 	}
 	e.tg.Press(chOwnerTG, short.ID, chOwnerTG, shortDeny.CallbackData)
-	if toast := e.tgAnswer(t, 2+len(presses)); toast != "Denied" {
+	if toast := e.tgAnswer(t, 2+len(presses)); toast != "Denied." {
 		t.Fatalf("deny on the truncated card: toast %q", toast)
 	}
 	chEventually(t, 10*time.Second, "the denial to be recorded", func() bool { return e.approval(t, apB.ID).Status == core.ApprovalDenied })

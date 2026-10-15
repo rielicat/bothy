@@ -20,6 +20,7 @@ type Deps struct {
 	Approvals core.Approvals
 	Budget    core.Budget
 	Sandbox   core.Sandbox // /status only
+	LLM       core.LLM     // /model only: plain model names; nil shows refs
 	Store     core.Store
 	Bus       core.Bus
 	Audit     core.Auditor

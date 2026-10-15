@@ -97,7 +97,8 @@ func TestCardInApproverDMAndNonApproverRejected(t *testing.T) {
 		synctest.Wait()
 		h.ch.Press(refs[0].Ref, "9009", allow)
 		synctest.Wait()
-		if got := h.ch.AckToasts(); len(got) != 2 || got[0] != "Not allowed." || got[1] != "Not allowed." {
+		if got := h.ch.AckToasts(); len(got) != 2 || got[0] != "Only Olivia can approve this." ||
+			got[1] != "Link this account first: send /pair with a code from Settings → Account." {
 			t.Fatalf("toasts = %q", got)
 		}
 		if a, _ := h.approvals.Get(h.ctx, core.SystemViewer(), ap.ID); a.Status != core.ApprovalPending {
@@ -109,7 +110,7 @@ func TestCardInApproverDMAndNonApproverRejected(t *testing.T) {
 		h.ch.Press(refs[0].Ref, ownerChat, allow)
 		synctest.Wait()
 		toasts := h.ch.AckToasts()
-		if toasts[2] != "This button is not valid." || toasts[3] != "Approved" {
+		if toasts[2] != "This button is not valid." || toasts[3] != "Approved." {
 			t.Fatalf("toasts = %q", toasts)
 		}
 		res := h.approvals.Resolutions
@@ -142,7 +143,7 @@ func TestGroupRunCardGoesToOwnerDM(t *testing.T) {
 			t.Fatalf("owner DM got %+v", cards)
 		}
 		inGroup := h.sent("-500")
-		if len(inGroup) != 1 || len(inGroup[0].Buttons) != 0 || !strings.Contains(inGroup[0].Text, "Waiting for the owner to approve") {
+		if len(inGroup) != 1 || len(inGroup[0].Buttons) != 0 || inGroup[0].Text != "Waiting for Olivia to approve running a command." {
 			t.Fatalf("group got %+v; want only a waiting line without buttons", inGroup)
 		}
 		for _, r := range h.refs(ap.ID) {
@@ -218,11 +219,11 @@ func TestAdminOnlyCardGoesToOwnerOnce(t *testing.T) {
 				t.Fatalf("the member's DM got approve buttons: %+v", m)
 			}
 		}
-		h.wantVisible(memberChat, "Waiting for the owner")
+		h.wantVisible(memberChat, "Waiting for an admin to approve running a command.")
 		refs := h.refs(ap.ID)
 		h.ch.Press(refs[0].Ref, ownerChat, h.approvals.ButtonData(ap.ID, core.AllowOnce))
 		synctest.Wait()
-		if got := h.ch.AckToasts(); got[0] != "Approved" {
+		if got := h.ch.AckToasts(); got[0] != "Approved." {
 			t.Fatalf("admin press toast = %q", got)
 		}
 	})
@@ -401,6 +402,21 @@ func TestDecidedCardNamesItsReader(t *testing.T) {
 		}
 		if got[ownerChat] != "✗ You denied running a command." || got[memberChat] != "✗ Olivia denied running a command in Telegram." {
 			t.Fatalf("decided cards = %q", got)
+		}
+	})
+}
+
+func TestExpiresText(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t)
+		now := time.Now()
+		for d, want := range map[time.Duration]string{
+			-time.Minute: "in less than a minute", 30 * time.Second: "in less than a minute", 14*time.Minute + 20*time.Second: "in 14 min",
+			59 * time.Minute: "in 59 min", 100 * time.Minute: "in 2 h", 23 * time.Hour: "in 23 h", 24 * time.Hour: "in 1 day", 72 * time.Hour: "in 3 days",
+		} {
+			if got := h.hub.expiresText(now.Add(d)); got != want {
+				t.Errorf("expiresText(now+%v) = %q, want %q", d, got, want)
+			}
 		}
 	})
 }

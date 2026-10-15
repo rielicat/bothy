@@ -143,7 +143,7 @@ func TestTelegramEndToEnd(t *testing.T) {
 	}
 	srv.Press(1001, card.ID, 1001, card.Buttons[0][0].CallbackData)
 	eventually(t, "the press acknowledgement", func() bool {
-		return slices.ContainsFunc(srv.Answers(), func(a telegramtest.CallbackAnswer) bool { return a.Text == "Approved" })
+		return slices.ContainsFunc(srv.Answers(), func(a telegramtest.CallbackAnswer) bool { return a.Text == "Approved." })
 	})
 
 	srv.Inject(telegramtest.Inbound{ChatID: 3003, SenderID: 3003, Text: "/start ABCD-EFGH"})

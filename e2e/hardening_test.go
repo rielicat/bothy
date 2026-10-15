@@ -300,7 +300,7 @@ func TestHardeningUnknownSenderAdminDMsBounded(t *testing.T) {
 	time.Sleep(time.Second) // admin DMs go out on the owner's chat queue
 	n := 0
 	for _, txt := range tg.SentTexts(ownerChat) {
-		if strings.Contains(txt, "Someone new wrote to me") {
+		if strings.Contains(txt, "Someone new messaged Bothy") {
 			n++
 		}
 	}

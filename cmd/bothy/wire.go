@@ -223,7 +223,7 @@ func (a *app) buildRest(ctx context.Context) error {
 		return err
 	}
 	if a.hub, err = channel.New(channel.Deps{Config: a.cfg, Auth: a.auth, Runner: a.runner, Approvals: a.approvals, Budget: a.budget,
-		Sandbox: a.sandbox, Store: a.db, Bus: a.bus, Audit: a.audit, Redactor: a.redactor, WorkDir: dirs.Work, Clock: a.clock, Log: a.log}); err != nil {
+		Sandbox: a.sandbox, LLM: a.llm, Store: a.db, Bus: a.bus, Audit: a.audit, Redactor: a.redactor, WorkDir: dirs.Work, Clock: a.clock, Log: a.log}); err != nil {
 		return err
 	}
 	a.runner.SetHub(a.hub) // breaks the runner <-> hub cycle: resumed-run sinks and restart notices
