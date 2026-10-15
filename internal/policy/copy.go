@@ -462,7 +462,7 @@ func deployCopy(doc any, text func(string) string) plainCard {
 }
 
 func mcpCopy(r core.ApprovalRequest, a *core.Action, doc any, se core.SideEffect) plainCard {
-	what := serverName(a.MCPServer) + ": " + mcpAction(r.Spec.Manifest.Title, a)
+	what := serviceName(a.MCPServer) + ": " + mcpAction(r.Spec.Manifest.Title, a)
 	p := plainCard{question: "Use " + inline(what) + "?", verb: "Allow", ing: "using " + inline(what), keepCode: true}
 	if se == core.SEFinancial {
 		p.question, p.verb, p.ing = "Make a payment with "+inline(what)+"?", "Pay", "making a payment with "+inline(what)
@@ -609,8 +609,6 @@ func appName(ch string) string {
 	return serverName(ch)
 }
 
-// serverName capitalises a configured name for a question ("linear" →
-// "Linear").
 // mcpAction names an MCP tool for a card: its title without the
 // "MCP <server>: " its manifest starts with, and a bare tool name such as
 // read_wiki_structure made readable.
@@ -623,6 +621,43 @@ func mcpAction(title string, a *core.Action) string {
 	return serverName(strings.TrimSpace(strings.NewReplacer("_", " ", "-", " ").Replace(t)))
 }
 
+// serviceNames spells the services a plain capital gets wrong: MCP servers are
+// named by their lowercase config ids. web/src/lib/format.ts has the same list.
+var serviceNames = map[string]string{
+	"bigquery":     "BigQuery",
+	"circleci":     "CircleCI",
+	"clickup":      "ClickUp",
+	"deepwiki":     "DeepWiki",
+	"dynamodb":     "DynamoDB",
+	"github":       "GitHub",
+	"gitlab":       "GitLab",
+	"google-drive": "Google Drive",
+	"hubspot":      "HubSpot",
+	"launchdarkly": "LaunchDarkly",
+	"mongodb":      "MongoDB",
+	"mysql":        "MySQL",
+	"openai":       "OpenAI",
+	"pagerduty":    "PagerDuty",
+	"posthog":      "PostHog",
+	"postgres":     "Postgres",
+	"postgresql":   "PostgreSQL",
+	"pypi":         "PyPI",
+	"sendgrid":     "SendGrid",
+	"sqlite":       "SQLite",
+	"youtube":      "YouTube",
+}
+
+// serviceName names a configured MCP server for a question: "deepwiki" →
+// "DeepWiki", "team-docs" → "Team docs".
+func serviceName(id string) string {
+	if n, ok := serviceNames[strings.ToLower(id)]; ok {
+		return n
+	}
+	return serverName(strings.TrimSpace(strings.NewReplacer("_", " ", "-", " ").Replace(id)))
+}
+
+// serverName capitalises a configured name for a question ("linear" →
+// "Linear").
 func serverName(s string) string {
 	r, n := utf8.DecodeRuneInString(s)
 	if n == 0 {

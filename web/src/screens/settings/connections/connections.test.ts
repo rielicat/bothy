@@ -75,6 +75,8 @@ describe('tool and GitHub status words', () => {
   it('titles servers and lists approvers in plain words', () => {
     expect(serverTitle('linear')).toBe('Linear');
     expect(serverTitle('team-docs')).toBe('Team docs');
+    expect(serverTitle('deepwiki')).toBe('DeepWiki');
+    expect(serverTitle('github')).toBe('GitHub');
     const approvers = [
       { kind: 'user', id: 'usr_1', name: 'Alex Kim' },
       { kind: 'role', id: 'admin', name: 'admin' },

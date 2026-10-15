@@ -4,6 +4,7 @@
 // render in mono ('code' segments); names people chose ('name' segments) stay
 // verbatim in the body font.
 import type { Action, ApprovalStatus, ToolCallStatus } from './api/types.gen';
+import { serviceName } from './format';
 
 export type SegKind = 'text' | 'code' | 'name';
 export interface Seg {
@@ -195,7 +196,7 @@ function values(s: StepInput, a: Record<string, unknown>): Record<string, string
     env: str('environment', 'env'),
     a: act?.diff ? String(added) : '',
     r: act?.diff ? String(removed) : '',
-    server: humanise(server ?? ''),
+    server: serviceName(server ?? ''),
     title: mcpTitle(s.title) || humanise(rest.join('__')),
     tool: s.tool,
   };

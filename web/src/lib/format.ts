@@ -239,3 +239,37 @@ export function expiresIn(t: string | undefined | null, opts: Pick<FormatOpts, '
 export function plural(n: number, one: string, many = one + 's', locale?: string): string {
   return `${n.toLocaleString(locale)} ${n === 1 ? one : many}`;
 }
+
+// The services a plain capital spells wrong: MCP servers are named by their
+// lowercase config ids. internal/policy/copy.go has the same list.
+const serviceNames: Record<string, string> = {
+  bigquery: 'BigQuery',
+  circleci: 'CircleCI',
+  clickup: 'ClickUp',
+  deepwiki: 'DeepWiki',
+  dynamodb: 'DynamoDB',
+  github: 'GitHub',
+  gitlab: 'GitLab',
+  'google-drive': 'Google Drive',
+  hubspot: 'HubSpot',
+  launchdarkly: 'LaunchDarkly',
+  mongodb: 'MongoDB',
+  mysql: 'MySQL',
+  openai: 'OpenAI',
+  pagerduty: 'PagerDuty',
+  posthog: 'PostHog',
+  postgres: 'Postgres',
+  postgresql: 'PostgreSQL',
+  pypi: 'PyPI',
+  sendgrid: 'SendGrid',
+  sqlite: 'SQLite',
+  youtube: 'YouTube',
+};
+
+/** A configured MCP server's name for people: "deepwiki" → "DeepWiki", "team-docs" → "Team docs". */
+export function serviceName(id: string): string {
+  const known = serviceNames[id.toLowerCase()];
+  if (known) return known;
+  const s = id.replace(/[-_]+/g, ' ').trim();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}

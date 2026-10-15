@@ -5,7 +5,7 @@
 // Details as "Exact action", so nothing the card leaves out is hidden.
 import type { Action, Approval, ApprovalVotes, Card } from './api/types.gen';
 import { fileLines, parseDiff } from '../components/ui/diff';
-import { date, expiresIn, plural, relTime } from './format';
+import { date, expiresIn, plural, relTime, serviceName } from './format';
 import { commandOf, describeGrantParts, EXACT_GRANT, hostOf } from './grants';
 
 /** Text with identifiers (paths, hosts, commands) marked for `text-code` rendering through Verbatim. */
@@ -437,7 +437,7 @@ function deploy(_a: Action, p: Payload): Built {
 
 function mcp(a: Action, p: Payload): Built {
   const [, srv = '', tl = ''] = a.tool.split('__');
-  const server = capital(a.mcp_server || srv);
+  const server = serviceName(a.mcp_server || srv);
   const title = humanize(a.mcp_tool || tl || a.tool);
   const what = `${server}: ${title}`;
   const skip = Object.entries(p)

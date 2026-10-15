@@ -3,7 +3,7 @@
 import { api, ApiError, errorText } from '../../../lib/api/client';
 import type { ChannelStatus, MCPStatus, SideEffect } from '../../../lib/api/types.gen';
 import { config } from '../../../lib/config.svelte';
-import { plural, relTime } from '../../../lib/format';
+import { plural, relTime, serviceName } from '../../../lib/format';
 import { failure, type FailureCode } from '../../../lib/providerErrors';
 import type { GitHubConnection, GitHubProbe, ReleaseEnvironment } from './types';
 
@@ -88,11 +88,8 @@ export function needsAttention(apps: AppStatus[], tools: MCPStatus[], github: Gi
 
 export const searchTitle: Record<string, string> = { none: 'Off', searxng: 'SearXNG', brave: 'Brave Search', tavily: 'Tavily' };
 
-/** "linear" → "Linear", "team-docs" → "Team docs". */
-export function serverTitle(name: string): string {
-  const s = name.replace(/[-_]+/g, ' ').trim();
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
+/** "linear" → "Linear", "team-docs" → "Team docs", "deepwiki" → "DeepWiki". */
+export const serverTitle = serviceName;
 
 export const effects: { value: SideEffect; label: string }[] = [
   { value: 'read', label: 'Only reads information' },

@@ -2,6 +2,9 @@ package policy
 
 import (
 	"encoding/json"
+	"maps"
+	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -150,7 +153,7 @@ func TestPlainCopy(t *testing.T) {
 		{name: "MCP tool titled by its manifest", a: action("mcp__deepwiki__read_wiki_structure", core.ActMCP, core.SERead, map[string]any{"repoName": "sveltejs/svelte"},
 			func(a *core.Action) { a.MCPServer, a.MCPTool = "deepwiki", "read_wiki_structure" }),
 			s:        spec("mcp__deepwiki__read_wiki_structure", core.SERead, func(m *core.Manifest) { m.Title = "MCP deepwiki: read_wiki_structure" }),
-			question: "Use Deepwiki: Read wiki structure?", primary: "Allow", ing: "using Deepwiki: Read wiki structure"},
+			question: "Use DeepWiki: Read wiki structure?", primary: "Allow", ing: "using DeepWiki: Read wiki structure"},
 		{name: "MCP tool that can't be undone", a: mcpGone, s: spec("mcp__linear__delete_issue", core.SEIrreversible, func(m *core.Manifest) { m.Title = "Delete issue" }),
 			question: "Use Linear: Delete issue?", primary: "Allow", ing: "using Linear: Delete issue", consequence: "This can't be undone.", tone: core.ToneDestructive},
 		{name: "financial", a: pay, s: spec("mcp__bank__pay", core.SEFinancial, func(m *core.Manifest) { m.Title = "Pay" }),
@@ -331,3 +334,27 @@ func TestPlainCopyUnderHostileInput(t *testing.T) {
 }
 
 func strconvQuote(s string) string { b, _ := json.Marshal(s); return string(b) }
+
+func TestServiceNames(t *testing.T) {
+	for id, want := range map[string]string{"deepwiki": "DeepWiki", "GitHub": "GitHub", "team-docs": "Team docs", "linear": "Linear", "my_wiki": "My wiki"} {
+		if got := serviceName(id); got != want {
+			t.Errorf("serviceName(%q) = %q, want %q", id, got, want)
+		}
+	}
+	// Cards are worded on the server and in the browser; both spell services alike.
+	src, err := os.ReadFile("../../web/src/lib/format.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	block := regexp.MustCompile(`(?s)const serviceNames: Record<string, string> = \{(.*?)\};`).FindSubmatch(src)
+	if block == nil {
+		t.Fatal("serviceNames not found in web/src/lib/format.ts")
+	}
+	web := map[string]string{}
+	for _, m := range regexp.MustCompile(`'?([a-z0-9-]+)'?: '([^']+)'`).FindAllSubmatch(block[1], -1) {
+		web[string(m[1])] = string(m[2])
+	}
+	if !maps.Equal(web, serviceNames) {
+		t.Fatalf("web/src/lib/format.ts serviceNames = %v, want %v", web, serviceNames)
+	}
+}
