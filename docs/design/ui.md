@@ -1187,7 +1187,7 @@ What Bothy does shows as **activity lines**: `text-body muted`, no box, 32 px ro
 | Waiting for approval | `clock` in `warning-text` | "Waiting for approval to {ask}" in `warning-text`; the approval card follows directly |
 | Done | none | the "done" phrase |
 | Failed | `alert` in `danger-text` | the "failed" phrase, text stays muted; Details has the reason |
-| Denied, expired, blocked | `close` in muted | "Didn't {ask}"; the decided line (§8.4) says who and why. A blocked step has no decided line, so one `text-small` line under it says why: a deploy refusal that already reads as a sentence ("A deploy to production needs 2 approvers other than you, …"), "Bothy is paused.", or "Bothy's rules don't allow this."; the server's reason stays in Details |
+| Denied, expired, blocked | `close` in muted | "Didn't {ask}"; the decided line (§8.4) says who and why. A blocked step has no decided line, so one `text-small` line under it says why, in the server's plain words ("A deploy to production needs 2 approvers other than you, …", "Bothy can't create the schedule “Daily” during a check-in.") or an admin rule's own reason; a reason stored in the old technical wording reads "Bothy's rules don't allow this."; the full result stays in Details |
 
 Live behaviour:
 - Before the first step or the first word, one "Working…" line with a spinner. It disappears as soon as text streams or a step appears. Nothing else indicates streaming; the Stop button and the sidebar spinner show Bothy is busy.

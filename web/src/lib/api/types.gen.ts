@@ -2282,6 +2282,16 @@ export interface AuditEntry {
   ip?: string;
   detail: unknown; // redacted JSON; never message content
 }
+/**
+ * AuditOrigin is who and where a change came from, for an audit row written
+ * further down than the request: the vault records its own key changes, and
+ * the API passes the token, client address and source along with ctx.
+ */
+export interface AuditOrigin {
+  Actor: string; // token:<id> or user:<id>; "" keeps the writer's
+  IP: string; // client address
+  Detail: { [key: string]: any}; // merged into the row's detail, such as {"source": "env:OPENAI_API_KEY"}
+}
 export interface AuditFilter {
   Actor: string;
   ActionPrefix: string;
