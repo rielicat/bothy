@@ -71,7 +71,17 @@ export class Conversation {
   byCall = $derived.by(() => {
     const out = new Map<string, Approval>();
     for (const d of Object.values(this.runs)) for (const a of defined(d.approvals)) out.set(a.tool_call_id, a);
-    for (const a of this.approvals) out.set(a.tool_call_id, a);
+    for (const a of this.approvals) {
+      // An event's copy is newer but may lack the names a stored read fills
+      // in (ballots, decider), which a two-person decision needs.
+      const stored = out.get(a.tool_call_id);
+      const ballots = (x?: Approval) => x?.approvals?.votes?.length ?? x?.votes?.length ?? 0;
+      const fuller = stored && ballots(stored) > ballots(a) ? stored : a;
+      out.set(
+        a.tool_call_id,
+        stored ? { ...stored, ...a, approvals: fuller.approvals ?? stored.approvals, votes: fuller.votes ?? stored.votes, decided_by_name: a.decided_by_name || stored.decided_by_name } : a,
+      );
+    }
     return out;
   });
 
