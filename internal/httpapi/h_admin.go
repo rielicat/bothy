@@ -520,7 +520,8 @@ func (s *Server) resetConfig(w http.ResponseWriter, r *http.Request, a core.Acto
 // ---- vault ----
 
 // Vault.Put and Vault.Delete write their own vault.put and vault.delete
-// audit rows, for every caller, so these handlers write none.
+// audit rows, for every caller, so these handlers write none; withOrigin
+// gives those rows the token, client address and source.
 
 func (s *Server) vaultStatus(w http.ResponseWriter, _ *http.Request, _ core.Actor) error {
 	return ok(w, s.d.Vault.Status())
@@ -541,7 +542,7 @@ func (s *Server) vaultImport(w http.ResponseWriter, r *http.Request, a core.Acto
 	if val == "" {
 		return newError(http.StatusNotFound, "not_found", req.EnvVar+" is not set in the gateway's environment")
 	}
-	meta, err := s.d.Vault.Put(r.Context(), core.GlobalScope, req.Name, []byte(val), a.User)
+	meta, err := s.d.Vault.Put(withOrigin(r, a, map[string]any{"source": "env:" + req.EnvVar}), core.GlobalScope, req.Name, []byte(val), a.User)
 	if err != nil {
 		return err
 	}
@@ -618,7 +619,7 @@ func (s *Server) vaultPut(w http.ResponseWriter, r *http.Request, a core.Actor) 
 	if req.Value == "" || len(req.Value) > maxSecretValue {
 		return badRequest("value must be 1 byte to 64 KB")
 	}
-	meta, err := s.d.Vault.Put(r.Context(), sc, name, []byte(req.Value), a.User)
+	meta, err := s.d.Vault.Put(withOrigin(r, a, nil), sc, name, []byte(req.Value), a.User)
 	if err != nil {
 		return err
 	}
@@ -631,7 +632,7 @@ func (s *Server) vaultDelete(w http.ResponseWriter, r *http.Request, a core.Acto
 		return err
 	}
 	name := r.PathValue("name")
-	if err := s.d.Vault.Delete(r.Context(), sc, name, a.User); err != nil {
+	if err := s.d.Vault.Delete(withOrigin(r, a, nil), sc, name, a.User); err != nil {
 		return err
 	}
 	return noContent(w)

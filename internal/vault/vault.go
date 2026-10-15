@@ -2,6 +2,7 @@ package vault
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -192,11 +193,20 @@ func (v *Vault) record(ctx context.Context, action, actor, target, outcome strin
 	if v.audit == nil {
 		return nil
 	}
+	var ip string
+	if o, ok := core.AuditOriginFrom(ctx); ok {
+		actor, ip = cmp.Or(o.Actor, actor), o.IP
+		if len(o.Detail) > 0 {
+			merged := maps.Clone(o.Detail)
+			maps.Copy(merged, detail)
+			detail = merged
+		}
+	}
 	d, err := json.Marshal(detail)
 	if err != nil {
 		return err
 	}
-	return v.audit.Record(ctx, core.AuditEntry{At: v.clock.Now(), Actor: actor, Action: action, Target: target, Outcome: outcome, Detail: d})
+	return v.audit.Record(ctx, core.AuditEntry{At: v.clock.Now(), Actor: actor, Action: action, Target: target, Outcome: outcome, IP: ip, Detail: d})
 }
 
 // loadSecrets counts the stored secrets and, when the vault is open,

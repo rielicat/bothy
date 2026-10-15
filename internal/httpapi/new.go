@@ -196,6 +196,12 @@ func (s *Server) audit(r *http.Request, a core.Actor, action, target, outcome st
 	}
 }
 
+// withOrigin returns r's context carrying who made the request and from
+// where, for audit rows written below the handler (the vault's key changes).
+func withOrigin(r *http.Request, a core.Actor, detail map[string]any) context.Context {
+	return core.WithAuditOrigin(r.Context(), core.AuditOrigin{Actor: actorString(a), IP: clientIP(r), Detail: detail})
+}
+
 func actorString(a core.Actor) string {
 	switch {
 	case a.Via == "token" && a.TokenID != "":

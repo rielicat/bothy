@@ -190,6 +190,12 @@ func TestAuditRowsAndEgressOutcomes(t *testing.T) {
 			Detail: detail(map[string]any{"via": "admin", "one_time": true})},
 		{Actor: "user:" + string(h.admin.user), Action: "provider.connect", Target: "provider:anthropic", Outcome: "ok",
 			Detail: detail(map[string]any{"kind": "anthropic"})},
+		{Actor: "user:" + string(h.member.user), Action: "approval.decide", Target: "apr_withdrawn", Outcome: "ok",
+			Detail: detail(map[string]any{"choice": "deny", "tool": "fs_delete", "withdrawn": true})},
+		{Actor: "system", Action: "release.finish", Target: "dep_lost", Outcome: "ok",
+			Detail: detail(map[string]any{"environment": "production", "status": "unknown", "conclusion": ""})},
+		{Actor: "system", Action: "release.finish", Target: "dep_failed", Outcome: "ok",
+			Detail: detail(map[string]any{"environment": "production", "status": "failed", "conclusion": "failure"})},
 	}
 	for i := range entries {
 		e := entries[i]
@@ -225,6 +231,9 @@ func TestAuditRowsAndEgressOutcomes(t *testing.T) {
 		"schedule.run/schedule:sch_y":                         {"admin", "Started the schedule “Weekly PR digest” by hand"},
 		"auth.password_changed/user:" + string(h.member.user): {"admin", "Gave member a one-time password"},
 		"provider.connect/provider:anthropic":                 {"admin", "Connected an AI model"},
+		"approval.decide/apr_withdrawn":                       {"member", "Cancelled the request to delete a file"},
+		"release.finish/dep_lost":                             {"Bothy", "Bothy stopped following the deploy to production"},
+		"release.finish/dep_failed":                           {"Bothy", "The deploy to production didn't finish"},
 	} {
 		if got[k] != want {
 			t.Errorf("%s = %q, want %q", k, got[k], want)
@@ -265,7 +274,7 @@ func TestActionPhrases(t *testing.T) {
 		{"shell", &core.Action{Argv: []string{"bash", "-lc", "npm   test"}}, phrase{"run npm test", "running npm test", "Ran npm test", "npm test finished with errors"}},
 		{"web_fetch", &core.Action{Host: "api.example.com", Method: "POST"}, phrase{"send data to api.example.com", "sending data to api.example.com", "Sent data to api.example.com", "Couldn't reach api.example.com"}},
 		{"fs_write", &core.Action{Paths: []string{"a.md"}, Payload: json.RawMessage(`{"mode":"append"}`)}, phrase{"add to a.md", "adding to a.md", "Added to a.md", "Couldn't save a.md"}},
-		{"release_deploy", &core.Action{Payload: json.RawMessage(`{"environment":"production","repo":"acme/web"}`)}, phrase{"deploy acme/web to production", "deploying acme/web to production", "Deployed acme/web to production", "Deploy to production failed"}},
+		{"release_deploy", &core.Action{Payload: json.RawMessage(`{"environment":"production","repo":"acme/web"}`)}, phrase{"deploy acme/web to production", "deploying acme/web to production", "Started deploying acme/web to production", "Deploy to production failed"}},
 		{"memory", &core.Action{Payload: json.RawMessage(`{"file":"MEMORY","op":"add","new":"x"}`)}, phrase{"remember something", "remembering something", "Remembered something", "Couldn't save that"}},
 		{"memory", &core.Action{Payload: json.RawMessage(`{"file":"MEMORY","op":"replace","old":"x","new":"y"}`)}, phrase{"update a saved note", "updating a saved note", "Updated a saved note", "Couldn't update that note"}},
 		{"memory", &core.Action{Payload: json.RawMessage(`{"file":"USER","op":"remove","old":"x"}`)}, phrase{"forget something", "forgetting something", "Forgot something", "Couldn't remove that note"}},

@@ -470,6 +470,9 @@ func (h *Hub) outcomeText(ctx context.Context, d core.ApprovalResolvedData, ap *
 		// The requester's deny is how they withdraw a multi-approver request.
 		if ap.Approver.Multi() && d.By != "" && d.By == ap.Approver.Requester {
 			s = "✗ Cancelled by " + who + where + "."
+			if who == "You" {
+				s = "✗ You cancelled the request" + where + "."
+			}
 		}
 		if c := oneLine(d.Comment); c != "" {
 			s += " “" + c + "”"

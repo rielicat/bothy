@@ -264,7 +264,7 @@ func (s *Server) connectProvider(w http.ResponseWriter, r *http.Request, a core.
 		}
 		resp.Secret, p["api_key"] = m, req.SecretRef
 	case keys == 1:
-		val := req.APIKey
+		val, source := req.APIKey, ""
 		if req.EnvVar != "" {
 			keyVars := slices.DeleteFunc(slices.Clone(wellKnownEnv), func(v string) bool { return !strings.HasSuffix(v, "_API_KEY") })
 			if !slices.Contains(keyVars, req.EnvVar) {
@@ -273,8 +273,9 @@ func (s *Server) connectProvider(w http.ResponseWriter, r *http.Request, a core.
 			if val = s.getenv(req.EnvVar); val == "" {
 				return newError(http.StatusNotFound, "not_found", req.EnvVar+" is not set in the gateway's environment")
 			}
+			source = "env:" + req.EnvVar
 		}
-		m, u, err := s.saveProviderKey(r, a, id, []byte(val))
+		m, u, err := s.saveProviderKey(r, a, id, []byte(val), source)
 		if err != nil {
 			return err
 		}
@@ -334,8 +335,12 @@ func (s *Server) savedSecret(ctx context.Context, name string) (*core.SecretMeta
 // vault and returns how to take the write back. A name already set by a
 // BOTHY_SECRET_ variable would shadow the new value, so the next free
 // "<id>_api_key_<n>" is used instead.
-func (s *Server) saveProviderKey(r *http.Request, a core.Actor, id string, val []byte) (*core.SecretMeta, func(), error) {
-	ctx := r.Context()
+func (s *Server) saveProviderKey(r *http.Request, a core.Actor, id string, val []byte, source string) (*core.SecretMeta, func(), error) {
+	var detail map[string]any
+	if source != "" {
+		detail = map[string]any{"source": source}
+	}
+	ctx := withOrigin(r, a, detail)
 	metas, err := s.d.Vault.List(ctx, core.GlobalScope)
 	if err != nil {
 		return nil, nil, err

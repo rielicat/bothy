@@ -106,6 +106,9 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 		if d.str("status") == string(core.ApprovalCancelled) {
 			return "Stopped asking to " + p.ask
 		}
+		if d["withdrawn"] == true {
+			return "Cancelled the request to " + p.ask
+		}
 		line := "Approved " + p.ing
 		switch core.Choice(d.str("choice")) {
 		case core.AllowSession:
@@ -338,8 +341,11 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 		return "Started deploying " + what
 	case "release.finish":
 		env := cmpOr(d.str("environment"), "an environment")
-		if d.str("conclusion") == "success" {
+		switch {
+		case d.str("conclusion") == "success":
 			return "The deploy to " + env + " finished"
+		case d.str("status") == string(core.DeployUnknown):
+			return "Bothy stopped following the deploy to " + env
 		}
 		return "The deploy to " + env + " didn't finish"
 	}

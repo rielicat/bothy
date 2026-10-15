@@ -102,7 +102,8 @@ func (ap *Approvals) vote(ctx context.Context, a *core.Approval, r core.Resoluti
 		Actor: "user:" + string(r.By), Action: "approval.decide", Target: string(a.ID), Outcome: "ok",
 		Session: a.Session, Run: a.Run,
 		Detail: auditDetail(map[string]any{"choice": r.Choice, "via": r.Via, "tool": toolOf(a), "fingerprint": fingerprintOf(a),
-			"approvals": count, "required": a.Approver.Needed(), "voters": voterIDs(votes)}),
+			"approvals": count, "required": a.Approver.Needed(), "voters": voterIDs(votes),
+			"withdrawn": r.Choice == core.Deny && r.By == a.Approver.Requester}),
 	})
 	ap.resolved(ctx, a)
 	out := *a

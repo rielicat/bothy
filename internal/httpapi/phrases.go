@@ -142,7 +142,8 @@ func actionPhrase(tool string, a *core.Action) phrase {
 		if repo != "" {
 			what = repo + " to " + env
 		}
-		return verbs("deploy "+what, "deploying "+what, "Deployed "+what, "Deploy to "+env+" failed")
+		// The tool only starts the workflow; release.finish says how it ended.
+		return verbs("deploy "+what, "deploying "+what, "Started deploying "+what, "Deploy to "+env+" failed")
 	case tool == "release_status":
 		return verbs("check the deploys", "checking the deploys", "Checked the deploys", "Couldn't check the deploys")
 	case tool == "knowledge_search":

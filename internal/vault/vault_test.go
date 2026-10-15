@@ -741,3 +741,32 @@ func TestNewRequiresStore(t *testing.T) {
 		t.Fatal("New without a store succeeded")
 	}
 }
+
+// The API's token, client address and source reach the vault's own rows.
+func TestKeyChangesCarryTheRequestOrigin(t *testing.T) {
+	f := newFixture(t)
+	v := f.open()
+	u := f.user()
+	ctx := core.WithAuditOrigin(context.Background(), core.AuditOrigin{Actor: "token:tok_1", IP: "203.0.113.7", Detail: map[string]any{"source": "env:OPENAI_API_KEY"}})
+	if _, err := v.Put(ctx, core.GlobalScope, "openai_key", []byte("sk-origin-0123456789abcdefghij"), u); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.Delete(context.Background(), core.GlobalScope, "openai_key", u); err != nil {
+		t.Fatal(err)
+	}
+	var put, del *core.AuditEntry
+	for _, e := range f.entries() {
+		switch e.Action {
+		case "vault.put":
+			put = &e
+		case "vault.delete":
+			del = &e
+		}
+	}
+	if put == nil || put.Actor != "token:tok_1" || put.IP != "203.0.113.7" || !strings.Contains(string(put.Detail), `"source":"env:OPENAI_API_KEY"`) {
+		t.Fatalf("put row = %+v (%s)", put, put.Detail)
+	}
+	if del == nil || del.Actor != "user:"+string(u) || del.IP != "" {
+		t.Fatalf("delete row without an origin = %+v", del)
+	}
+}

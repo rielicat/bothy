@@ -304,6 +304,28 @@ type AuditEntry struct {
 	Detail  json.RawMessage `json:"detail"` // redacted JSON; never message content
 }
 
+// AuditOrigin is who and where a change came from, for an audit row written
+// further down than the request: the vault records its own key changes, and
+// the API passes the token, client address and source along with ctx.
+type AuditOrigin struct {
+	Actor  string         // token:<id> or user:<id>; "" keeps the writer's
+	IP     string         // client address
+	Detail map[string]any // merged into the row's detail, such as {"source": "env:OPENAI_API_KEY"}
+}
+
+type auditOriginKey struct{}
+
+// WithAuditOrigin returns ctx carrying o.
+func WithAuditOrigin(ctx context.Context, o AuditOrigin) context.Context {
+	return context.WithValue(ctx, auditOriginKey{}, o)
+}
+
+// AuditOriginFrom returns the origin ctx carries, if any.
+func AuditOriginFrom(ctx context.Context) (AuditOrigin, bool) {
+	o, ok := ctx.Value(auditOriginKey{}).(AuditOrigin)
+	return o, ok
+}
+
 type AuditFilter struct {
 	Actor        string
 	ActionPrefix string
