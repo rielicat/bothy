@@ -678,11 +678,10 @@ func (s *Service) decide(ctx context.Context, b *box, be core.BoxEgress, bind co
 		}
 	}
 	if grants {
-		if b.allowedOnce(bind.ToolCallID, h.hostport(port)) {
-			return verdict{allow: true}
-		}
-		if s.grantAllows(ctx, be, bind, h, port, shared) {
-			return verdict{allow: true}
+		for _, gh := range grantHosts(h) {
+			if b.allowedOnce(bind.ToolCallID, gh.hostport(port)) || s.grantAllows(ctx, be, bind, gh, port, shared) {
+				return verdict{allow: true}
+			}
 		}
 	}
 	switch {

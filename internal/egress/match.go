@@ -13,6 +13,19 @@ var (
 	presetNPM    = []string{"registry.npmjs.org:443"}
 )
 
+// downloadHosts maps a host that only serves another's downloads to that
+// host: pip and uv fetch from files.pythonhosted.org whatever pypi.org
+// points them to, so one approval for pypi.org covers both.
+var downloadHosts = map[string]string{"files.pythonhosted.org": "pypi.org"}
+
+// grantHosts returns h and the host whose approvals and grants also admit it.
+func grantHosts(h hostname) []hostname {
+	if p, ok := downloadHosts[h.name]; ok {
+		return []hostname{h, {name: p}}
+	}
+	return []hostname{h}
+}
+
 func presetHosts(p config.EgressPresets) []string {
 	var out []string
 	if p.PythonPackages {

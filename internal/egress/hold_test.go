@@ -148,7 +148,7 @@ func TestHoldAllowSessionAndAlwaysCreateGrants(t *testing.T) {
 			Choices: []core.Choice{core.AllowSession, core.AllowAlways, core.Deny}}
 	}
 	e.res.set("pypi.org", []string{publicIP})
-	e.res.set("files.pythonhosted.org", []string{publicIP})
+	e.res.set("api.example.com", []string{publicIP})
 	e.tlsUpstream(http.HandlerFunc(hello))
 	key, sock := e.openBox(core.BoxEgress{})
 	e.bind(key, true)
@@ -162,7 +162,7 @@ func TestHoldAllowSessionAndAlwaysCreateGrants(t *testing.T) {
 	if r := result(t, ch); r.code != http.StatusOK {
 		t.Fatalf("request after allow_session = %+v", r)
 	}
-	ch = asyncGet(sock, "https://files.pythonhosted.org/")
+	ch = asyncGet(sock, "https://api.example.com/")
 	e.resolve(e.pendingApproval(2).ID, core.AllowAlways)
 	if r := result(t, ch); r.code != http.StatusOK {
 		t.Fatalf("request after allow_always = %+v", r)
@@ -176,6 +176,44 @@ func TestHoldAllowSessionAndAlwaysCreateGrants(t *testing.T) {
 	}
 	if g := gs[1]; g.Scope != core.GrantPrincipal || g.ScopeID != "" || g.Principal != e.principal() {
 		t.Fatalf("principal grant = %+v", g)
+	}
+}
+
+func TestPyPIApprovalCoversItsFileHost(t *testing.T) {
+	e := newEnv(t, nil)
+	e.res.set("pypi.org", []string{publicIP})
+	e.res.set("files.pythonhosted.org", []string{publicIP})
+	e.tlsUpstream(http.HandlerFunc(hello))
+	key, sock := e.openBox(core.BoxEgress{})
+	e.bind(key, true)
+
+	ch := asyncGet(sock, "https://pypi.org/simple/requests/")
+	e.resolve(e.pendingApproval(1).ID, core.AllowOnce)
+	if r := result(t, ch); r.code != http.StatusOK {
+		t.Fatalf("index request = %+v", r)
+	}
+	if r := result(t, asyncGet(sock, "https://files.pythonhosted.org/packages/requests.whl")); r.code != http.StatusOK {
+		t.Fatalf("download in the same tool call = %+v", r)
+	}
+	if n := len(e.apr.All()); n != 1 {
+		t.Fatalf("the download asked again (%d approvals)", n)
+	}
+
+	e.bind(key, true)
+	ch = asyncGet(sock, "https://files.pythonhosted.org/packages/other.whl")
+	e.resolve(e.pendingApproval(2).ID, core.AllowSession)
+	if r := result(t, ch); r.code != http.StatusOK {
+		t.Fatalf("download after its own approval = %+v", r)
+	}
+	e.bind(key, true)
+	ch = asyncGet(sock, "https://pypi.org/simple/")
+	if ap := e.pendingApproval(3); ap.Action.Host != "pypi.org" {
+		t.Fatalf("approval = %+v", ap.Action)
+	} else {
+		e.resolve(ap.ID, core.Deny)
+	}
+	if r := result(t, ch); r.code == http.StatusOK {
+		t.Fatalf("a grant for the file host admitted pypi.org: %+v", r)
 	}
 }
 
