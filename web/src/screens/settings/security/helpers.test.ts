@@ -51,7 +51,7 @@ describe('grants in plain words', () => {
     expect(describeGrant(g({ kind: 'recipient', value: 'slack:C04ENG:' }))).toEqual({ what: 'Send messages to a chat in Slack', exact: '' });
     expect(describeGrant(g({ kind: 'recipient', value: 'ops@acme.com' }))).toEqual({ what: 'Send messages to', exact: 'ops@acme.com' });
     expect(describeGrant(g({ kind: 'tool', tool: 'shell', pattern: { '/argv/0': 'pytest*' } }))).toEqual({ what: 'Run commands matching', exact: 'pytest*' });
-    expect(describeGrant(g({ kind: 'tool', tool: 'mcp__linear__create_issue' })).what).toBe('Use create issue in linear');
+    expect(describeGrant(g({ kind: 'tool', tool: 'mcp__linear__create_issue' })).what).toBe('Use create issue in Linear');
     expect(describeGrant(g({ kind: 'tool', tool: 'schedule_create' })).what).toBe('Change schedules');
     expect(siteName('a.example:443')).toBe('a.example');
   });

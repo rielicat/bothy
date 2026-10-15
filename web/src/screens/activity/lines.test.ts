@@ -127,6 +127,12 @@ describe('schedules and tasks in words', () => {
     expect(grantSentence({ kind: 'recipient', value: 'ops@example.com' }, chats)).toBe('Send messages to ops@example.com');
   });
 
+  it('says what a tool permission allows without naming the tool', () => {
+    expect(grantSentence({ kind: 'tool', tool: 'fs_write', pattern: { '/path': 'notes/*' } })).toBe('Change files matching notes/*');
+    expect(grantSentence({ kind: 'tool', tool: 'mcp__linear__create_issue' })).toBe('Use create issue in Linear');
+    expect(grantSentence({ kind: 'tool', tool: 'shell' })).toBe('Run commands');
+  });
+
   it('lists dates without a comma inside each one', () => {
     const t = '2026-10-15T08:00:00Z';
     expect(listDate(t, 'Europe/London', 'en-US')).toBe('Thu Oct 15');

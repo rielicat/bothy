@@ -39,6 +39,18 @@ describe('Spending (docs/design/ui.md §10.5)', () => {
     expect(document.body.textContent).not.toMatch(/\b(usr|ses|sch)_[0-9a-z]|micro|tokens? (in|out)/i);
   });
 
+  it('names a model the server no longer lists, and its provider, without their ids', async () => {
+    const row = { key: 'openrouter/anthropic/claude-sonnet-4-5-20250929', cost_micros: 500_000, input: 1000, output: 100, cache_read: 0, cache_write: 0, calls: 1, price_known: true };
+    await start('/activity/spending', {
+      override: (_m, url) => {
+        if (!url.startsWith('/api/usage?')) return undefined;
+        const model = new URLSearchParams(url.split('?')[1]).get('group_by') === 'model';
+        return { rows: model ? [row] : [], totals: { ...row, key: '' } };
+      },
+    });
+    expect(await screen.findByText('Claude Sonnet 4.5 · OpenRouter')).toBeTruthy();
+  });
+
   it('makes every bar focusable and matches the hidden table to the bars', async () => {
     await start('/activity/spending?range=7');
     await screen.findByText(/in the last 7 days$/);

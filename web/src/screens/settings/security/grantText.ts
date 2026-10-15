@@ -2,32 +2,12 @@
 // lib/grants.ts describes the grant an action would create; this reads the
 // Grant records themselves.
 import type { Grant, Principal } from '../../../lib/api/types.gen';
+import { toolGrantPhrase as tool } from '../../../lib/grants';
 import { channelName } from '../../../lib/labels';
-
-const toolPhrase: Record<string, string> = {
-  shell: 'Run commands',
-  python: 'Run Python scripts',
-  fs_write: 'Change files',
-  fs_delete: 'Delete files',
-  fs_read: 'Read files',
-  web_fetch: 'Open web pages',
-  web_search: 'Search the web',
-  message: 'Send messages',
-  memory: 'Update what Bothy remembers',
-  net_allow: 'Let running code reach new websites',
-};
 
 /** "api.example.com:443" → "api.example.com"; other ports stay. */
 export function siteName(value: string): string {
   return value.replace(/:443$/, '');
-}
-
-function tool(name: string): string {
-  if (toolPhrase[name]) return toolPhrase[name];
-  if (name.startsWith('schedule_')) return 'Change schedules';
-  const mcp = /^mcp__([^_]+(?:_[^_]+)*)__(.+)$/.exec(name);
-  if (mcp) return `Use ${mcp[2].replace(/_/g, ' ')} in ${mcp[1]}`;
-  return `Use ${name.replace(/_/g, ' ')}`;
 }
 
 export interface GrantParts {

@@ -1,4 +1,5 @@
 import type { Grant, Schedule, User } from '../../lib/api/types.gen';
+import { toolGrantPhrase } from '../../lib/grants';
 import { localZone } from '../../lib/schedules';
 import { sendSentence, type Chats } from './tasks';
 
@@ -71,11 +72,12 @@ export function nameFrom(prompt: string): string {
 }
 
 /** A grant as the sentence people read in "Allowed without asking". */
-export function grantSentence(g: Pick<Grant, 'kind' | 'value' | 'tool'>, chats: Chats = { identities: [], spaces: [] }): string {
+export function grantSentence(g: Pick<Grant, 'kind' | 'value' | 'tool' | 'pattern'>, chats: Chats = { identities: [], spaces: [] }): string {
   const host = (g.value ?? '').replace(/:443$/, '');
   if (g.kind === 'domain') return `Read websites on ${host}`;
   if (g.kind === 'recipient') return sendSentence(g.value ?? '', chats);
-  return `Use ${g.tool ?? 'a tool'} in the narrow way it was allowed`;
+  const globs = Object.values(g.pattern ?? {});
+  return globs.length ? `${toolGrantPhrase(g.tool ?? '')} matching ${globs.join(', ')}` : toolGrantPhrase(g.tool ?? '');
 }
 
 /** A date in a list of dates, without the comma some locales put inside it: "Thu Oct 15", "Thu 15 Oct". */

@@ -4,6 +4,7 @@
   import { api, qs } from '../../lib/api/client';
   import type { ModelInfo, Schedule, UsageResp, UsageToday } from '../../lib/api/types.gen';
   import { money } from '../../lib/format';
+  import { friendlyModel, provider } from '../../lib/providers';
   import { router } from '../../lib/router.svelte';
   import { session } from '../../lib/stores/session.svelte';
   import Activity from './Activity.svelte';
@@ -63,15 +64,15 @@
   });
 
   const total = $derived(byDay?.totals.cost_micros ?? 0);
-  const providers: Record<string, string> = { anthropic: 'Anthropic', openai: 'OpenAI', ollama: 'Ollama', gemini: 'Google', bedrock: 'Amazon Bedrock' };
   const model = (key: string) => models.find((m) => `${m.ref.provider}/${m.ref.model}` === key);
 
   function lines(g: Group): Line[] {
     return (groups[g] ?? []).map((r) => {
       if (g === 'model') {
-        const [provider, ...rest] = r.key.split('/');
+        // Model rows carry no name, and a model replaced since is no longer listed; its key stays in Technical details.
+        const [providerId, ...rest] = r.key.split('/');
         const info = model(r.key);
-        const name = `${r.name ?? info?.display ?? rest.join('/')} · ${providers[provider] ?? provider}`;
+        const name = `${info?.display_name || friendlyModel(rest.join('/'))} · ${info?.provider_name || provider(providerId).name}`;
         return { key: r.key, name, amount: money(r.cost_micros, { local: info?.local, known: r.price_known }), unpriced: !r.price_known && !info?.local };
       }
       const name = r.name ?? labels[g]?.get(r.key) ?? (g === 'session' ? 'A chat' : g === 'schedule' ? 'A schedule' : 'Someone');

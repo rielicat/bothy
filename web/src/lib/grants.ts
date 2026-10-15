@@ -1,4 +1,5 @@
 import type { Action, GrantCreateReq, PrincipalID } from './api/types.gen';
+import { serviceName } from './format';
 
 // core.GrantDomain values are exact "host:port" (IPv6 in brackets); a bare
 // host would never match a connection, so the port is always spelled out.
@@ -103,4 +104,26 @@ export function describeGrant(a: Action | undefined): string {
   return describeGrantParts(a)
     .map((x) => (typeof x === 'string' ? x : x.code))
     .join('');
+}
+
+const toolPhrase: Record<string, string> = {
+  shell: 'Run commands',
+  python: 'Run Python scripts',
+  fs_write: 'Change files',
+  fs_delete: 'Delete files',
+  fs_read: 'Read files',
+  web_fetch: 'Open web pages',
+  web_search: 'Search the web',
+  message: 'Send messages',
+  memory: 'Update what Bothy remembers',
+  net_allow: 'Let running code reach new websites',
+};
+
+/** What a stored tool grant lets Bothy do, from its tool: "Change files", "Use create issue in Linear". */
+export function toolGrantPhrase(name: string): string {
+  if (toolPhrase[name]) return toolPhrase[name];
+  if (name.startsWith('schedule_')) return 'Change schedules';
+  const mcp = /^mcp__([^_]+(?:_[^_]+)*)__(.+)$/.exec(name);
+  if (mcp) return `Use ${mcp[2].replace(/_/g, ' ')} in ${serviceName(mcp[1])}`;
+  return `Use ${name.replace(/_/g, ' ')}`;
 }

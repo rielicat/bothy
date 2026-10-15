@@ -1,5 +1,6 @@
-import { render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
+import { toaster } from '../../components/ui';
 import type { ChannelIdentity } from '../../lib/api/types.gen';
 import { router } from '../../lib/router.svelte';
 import { session } from '../../lib/stores/session.svelte';
@@ -37,5 +38,14 @@ describe('Schedules (docs/design/ui.md §10.3)', () => {
 
   it("says it posts here when only other people's chat apps are linked", async () => {
     expect(await start(someoneElses)).toContain('Posts here');
+  });
+
+  it('confirms Run now in a short toast that opens the task', async () => {
+    toaster.dismiss();
+    await start();
+    await fireEvent.click(screen.getByRole('button', { name: 'More for Morning briefing' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Run now' }));
+    await waitFor(() => expect(toaster.current?.text).toBe('Schedule started.'));
+    expect(toaster.current?.action?.label).toBe('View');
   });
 });
