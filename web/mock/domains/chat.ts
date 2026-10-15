@@ -248,7 +248,10 @@ export const messages: Record<string, Message[]> = {
       S.pricing,
       4,
       'assistant',
-      [text(['Two of the three publish their prices; the third page did not load.', '', '| Plan | Us | Rival one |', '| --- | ---: | ---: |', '| Team | $9 | $8 |', '| Business | $16 | $15 |'].join('\n'))],
+      [
+        text(['Two of the three publish their prices; the third page did not load.', '', '| Plan | Us | Rival one |', '| --- | ---: | ---: |', '| Team | $9 | $8 |', '| Business | $16 | $15 |'].join('\n')),
+        { t: 'refine', refine: { drafts: 3, depth: 2, rounds: 1, early_stop: true, winner: 0, votes: [{ answer: 'team $9 vs $8', count: 3, drafts: [0, 1, 2] }], calls: 10, cost_micros: 110_000 } },
+      ],
       { run_id: R.pricing, created_at: at(15, 10, 1) },
     ),
   ],

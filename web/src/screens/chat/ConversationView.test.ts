@@ -156,6 +156,11 @@ describe('conversation', () => {
     expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
   });
 
+  it('marks a refined reply with the drafts it was chosen from', async () => {
+    render(ConversationView, { id: chatIds.pricing });
+    expect(await screen.findByText('Refined from 3 drafts')).toBeTruthy();
+  });
+
   it('turns a knowledge citation into a link without the commit in the text', async () => {
     render(ConversationView, { id: chatIds.login });
     const link = await screen.findByRole('link', { name: 'acme/web · src/auth/callback.ts, lines 10–18 ↗' });

@@ -35,7 +35,7 @@
   import { fill, prefix, type Phrase } from '../../lib/activity';
   import { api, ApiError } from '../../lib/api/client';
   import type { Approval, ChannelIdentity, RefineData, RefineEstimate, SandboxInfo, Session, SubmitResult } from '../../lib/api/types.gen';
-  import { clock, estimate, fullTime, money } from '../../lib/format';
+  import { clock, estimate, fullTime, money, plural } from '../../lib/format';
   import { router } from '../../lib/router.svelte';
   import { events } from '../../lib/sse.svelte';
   import { session as auth } from '../../lib/stores/session.svelte';
@@ -632,6 +632,7 @@
             </div>
           {:else if b.kind === 'assistant'}
             {@const files = lastOfRun.has(b.key) ? madeFiles(b.msg.run_id) : []}
+            {@const refined = b.msg.parts?.find((p) => p.t === 'refine')?.refine}
             <div id="m{b.msg.seq}" class="group rounded-md">
               {#if b.thinking}
                 <Disclosure label="Thought process" variant="step"><p class="text-small whitespace-pre-wrap text-muted" data-copy-ignore>{b.thinking}</p></Disclosure>
@@ -648,6 +649,7 @@
                     ? ''
                     : 'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100'}"
                 >
+                  {#if refined}<span class="mr-1 pl-2 text-small text-muted">Refined from {plural(refined.drafts, 'draft')}</span>{/if}
                   {@render copyButton(b.text, b.msg.created_at)}
                   {#if b.key === latestReply && lastUser && !conv.running && !outcome}<IconButton icon="refresh" label="Try again" size="sm" variant="quiet" onclick={retry} />{/if}
                   <IconButton
