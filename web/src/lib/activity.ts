@@ -41,7 +41,9 @@ const T: Record<string, string[]> = {
   'web_fetch:get': ['read {host}', 'reading {host}', 'Opening {host}…', 'Read {hostpath}', "Couldn't open {host}"],
   'web_fetch:send': ['send data to {host}', 'sending data to {host}', 'Sending data to {host}…', 'Sent data to {host}', "Couldn't reach {host}"],
   net_allow: ['reach {host}', 'letting Bothy reach {host}', '', 'Can now reach {host}', ''],
-  memory: ['remember something', 'remembering “{note}”', '', 'Remembered “{note}”', "Couldn't save that"],
+  memory: ['remember something', 'remembering {note}', '', 'Remembered {note}', "Couldn't save that"],
+  'memory:replace': ['update a saved note', 'updating a saved note to {note}', '', 'Updated a saved note to {note}', "Couldn't update that note"],
+  'memory:remove': ['forget something', 'forgetting {note}', '', 'Forgot {note}', "Couldn't remove that note"],
   session_search: ['search past chats', 'searching past chats', 'Searching past chats[ for “{q}”]…', 'Searched past chats[ for “{q}”]', ''],
   message: ['send a message to {chat}', 'sending a message to {chat}', 'Sending…', 'Sent a message to {chat}', "Couldn't send the message"],
   skill_load: ['follow the “{skill}” skill', 'following “{skill}”', '', 'Followed the “{skill}” skill', ''],
@@ -120,6 +122,7 @@ function keyOf(s: StepInput, a: Record<string, unknown>): string {
     const method = String(s.action?.method ?? a.method ?? 'GET').toUpperCase();
     return method === 'GET' || method === 'HEAD' ? 'web_fetch:get' : 'web_fetch:send';
   }
+  if (t === 'memory' && (a.op === 'replace' || a.op === 'remove')) return `memory:${a.op}`;
   if (t.startsWith('mcp__') || s.action?.kind === 'mcp') return 'mcp';
   return t in T ? t : 'other';
 }
@@ -145,7 +148,8 @@ function values(s: StepInput, a: Record<string, unknown>): Record<string, string
   } catch {
     // no URL: the host alone
   }
-  const note = str('text', 'content', 'entry', 'note');
+  // The memory tool sends the entry as new (add, replace) or old (remove).
+  const note = str('new', 'old', 'text', 'content', 'entry', 'note');
   const { a: added, r: removed } = diffCounts(act?.diff);
   const r = resultJSON(s.result);
   const files = typeof r.files === 'number' ? r.files : Array.isArray(r.files) ? r.files.length : 0;
@@ -157,7 +161,7 @@ function values(s: StepInput, a: Record<string, unknown>): Record<string, string
     host,
     hostpath: host + tail,
     q: str('query', 'q'),
-    note: note.length > 60 ? note.slice(0, 59) + '…' : note,
+    note: note ? `“${note.length > 60 ? note.slice(0, 59) + '…' : note}”` : 'something',
     chat: act?.recipient || str('to', 'chat') || 'this chat',
     skill: str('name', 'skill'),
     name: str('name', 'title'),

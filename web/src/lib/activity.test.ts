@@ -18,7 +18,9 @@ const tools: [string, StepInput][] = [
   ['web_fetch GET', { tool: 'web_fetch', args: { url: 'https://api.github.com/repos' } }],
   ['web_fetch other', { tool: 'web_fetch', args: { url: 'https://hooks.example/x', method: 'POST' } }],
   ['net_allow', { tool: 'net_allow', action: act({ tool: 'net_allow', kind: 'net', host: 'pypi.org' }) }],
-  ['memory', { tool: 'memory', args: { text: 'Deploys happen on Tuesdays' } }],
+  ['memory', { tool: 'memory', args: { file: 'MEMORY', op: 'add', new: 'Deploys happen on Tuesdays' } }],
+  ['memory replace', { tool: 'memory', args: { file: 'MEMORY', op: 'replace', old: 'Mondays', new: 'Deploys happen on Tuesdays' } }],
+  ['memory remove', { tool: 'memory', args: { file: 'MEMORY', op: 'remove', old: 'Deploys happen on Tuesdays' } }],
   ['session_search', { tool: 'session_search', args: { query: 'launch' } }],
   ['message', { tool: 'message', action: act({ tool: 'message', kind: 'send', recipient: '#eng' }) }],
   ['skill_load', { tool: 'skill_load', args: { name: 'Release notes' } }],
@@ -88,6 +90,13 @@ describe('phrases', () => {
     expect(plain(phrases({ tool: 'mcp__linear__create_issue' }).done)).toBe('Used Linear: Create issue');
     expect(plain(phrases({ tool: 'mcp__linear__create_issue', title: 'File an issue' }).ask)).toBe('use Linear: File an issue');
     expect(plain(phrases({ tool: 'make_coffee' }).failed)).toBe('make_coffee failed');
+  });
+
+  it('quotes the remembered entry, and never shows empty quotes', () => {
+    expect(plain(phrases({ tool: 'memory', args: { file: 'MEMORY', op: 'add', new: 'Staging is staging.acme.test' } }).done)).toBe('Remembered “Staging is staging.acme.test”');
+    expect(plain(phrases({ tool: 'memory', args: { file: 'MEMORY', op: 'remove', old: 'Old fact' } }).done)).toBe('Forgot “Old fact”');
+    expect(plain(phrases({ tool: 'memory', args: { file: 'MEMORY', op: 'replace', old: 'a', new: 'b' } }).done)).toBe('Updated a saved note to “b”');
+    expect(plain(phrases({ tool: 'memory', args: { file: 'MEMORY', op: 'add' } }).done)).toBe('Remembered something');
   });
 
   it('drops an optional part when its value is missing', () => {
