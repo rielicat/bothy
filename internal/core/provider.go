@@ -3,6 +3,8 @@ package core
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -294,6 +296,22 @@ type CallInfo struct {
 	PrefixHash     string        `json:"prefix_hash"` // sha256(tools bytes || system bytes), hex[:16]
 	Stop           StopReason    `json:"stop"`
 	Error          string        `json:"error,omitempty"`
+}
+
+// PrefixHash is sha256(tools bytes || system bytes) as hex[:16]: equal hashes
+// mean the cacheable prompt prefix did not change. The agent and the provider
+// facade both use it, so their hashes of one request agree.
+func PrefixHash(tools []ToolDef, system []SystemBlock) string {
+	h := sha256.New()
+	if len(tools) > 0 {
+		b, _ := json.Marshal(tools)
+		h.Write(b)
+	}
+	for _, s := range system {
+		h.Write([]byte(s.Text))
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
 // BuildFunc assembles the request for the concrete model picked. The facade calls

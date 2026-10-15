@@ -211,8 +211,8 @@ func (c *refineCaller) Call(ctx context.Context, call refine.Call) (refine.Reply
 	}
 	rep := refine.Reply{Cost: ci.Cost, Abridged: abridged}
 	if err == nil || ci.Usage != (core.Usage{}) || ci.Cost > 0 {
-		// Role calls append to the step's prompt, so their breakdown and
-		// prefix would not describe what was sent.
+		// Role calls append to the step's prompt, so the step's breakdown
+		// would not describe what was sent; the facade's prefix hash does.
 		r.recordCall(ctx, rs, asm, &ci, c.step, "agent")
 		// The facade names every call, but only recorded ones have a row
 		// for the trace to point at.

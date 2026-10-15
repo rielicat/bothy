@@ -49,7 +49,7 @@ func (h *harness) prefixHashes() []string {
 	h.t.Helper()
 	var out []string
 	for _, req := range h.requests() {
-		out = append(out, prefixHash(req.Tools, req.System))
+		out = append(out, core.PrefixHash(req.Tools, req.System))
 	}
 	var stored []string
 	for _, run := range h.runs() {
@@ -576,7 +576,7 @@ func TestLongSingleTurnKeepsItsEpoch(t *testing.T) {
 		if h.session().Epoch != 0 {
 			t.Fatalf("epoch = %d; one turn has nothing to fold", h.session().Epoch)
 		}
-		if first, last := prefixHash(reqs[0].Tools, reqs[0].System), prefixHash(reqs[len(reqs)-1].Tools, reqs[len(reqs)-1].System); first != last {
+		if first, last := core.PrefixHash(reqs[0].Tools, reqs[0].System), core.PrefixHash(reqs[len(reqs)-1].Tools, reqs[len(reqs)-1].System); first != last {
 			t.Fatal("the prefix changed within one turn")
 		}
 	})

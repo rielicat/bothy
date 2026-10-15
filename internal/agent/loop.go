@@ -662,8 +662,10 @@ func (r *Runner) recordCall(ctx context.Context, rs *runState, asm *assembler, c
 	if ok && !ci.UsageEstimated && ci.Usage.TotalInput() > 0 && built.est > 0 {
 		r.d.LLM.Calibrate(ci.Ref, built.est, ci.Usage.TotalInput())
 	}
-	if purpose == "agent" && ci.PrefixHash != "" {
-		r.checkPrefix(rs, ci.PrefixHash)
+	// Only a step's own prompt is checked: a refine critique or revision
+	// appends to it, and its hash comes from the facade instead.
+	if purpose == "agent" && ok {
+		r.checkPrefix(rs, ci.Ref, ci.PrefixHash)
 	}
 	tot := rs.totals()
 	rs.mu.Lock()
@@ -681,16 +683,17 @@ func (r *Runner) recordCall(ctx context.Context, rs *runState, asm *assembler, c
 }
 
 // checkPrefix logs a cache-stability bug when the prefix changes within one
-// session epoch.
-func (r *Runner) checkPrefix(rs *runState, hash string) {
+// session epoch on the same model. Another model (a fallback, or a critic on
+// its own slot) has its own cache and may fit the prompt to its own window.
+func (r *Runner) checkPrefix(rs *runState, ref core.ModelRef, hash string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	prev, ok := r.prefix[rs.req.Session]
-	if ok && prev.epoch == rs.sess.Epoch && prev.hash != hash {
+	if ok && prev.epoch == rs.sess.Epoch && prev.ref == ref && prev.hash != hash {
 		r.log.Warn("prompt prefix changed within an epoch (cache-stability bug)", "session", rs.req.Session,
-			"epoch", rs.sess.Epoch, "from", prev.hash, "to", hash)
+			"epoch", rs.sess.Epoch, "model", ref.String(), "from", prev.hash, "to", hash)
 	}
-	r.prefix[rs.req.Session] = prefixMark{epoch: rs.sess.Epoch, hash: hash}
+	r.prefix[rs.req.Session] = prefixMark{epoch: rs.sess.Epoch, ref: ref, hash: hash}
 }
 
 const steerUnreadNotice = "Bothy stopped before reading your latest message. It stays in this chat, so your next message picks it up."

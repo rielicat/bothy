@@ -83,6 +83,7 @@ func (l *LLM) play(ctx context.Context, slot core.Slot, info core.ModelInfo, req
 	ci := core.CallInfo{
 		ID: core.NewID(core.PrefixLLMCall), Ref: info.Ref, Slot: slot,
 		Attempts: []core.Attempt{{Ref: info.Ref}}, PriceKnown: info.Price.Known,
+		PrefixHash: core.PrefixHash(req.Tools, req.System),
 	}
 	l.mu.Lock()
 	l.Requests = append(l.Requests, req)

@@ -121,6 +121,7 @@ type Runner struct {
 
 type prefixMark struct {
 	epoch int
+	ref   core.ModelRef
 	hash  string
 }
 

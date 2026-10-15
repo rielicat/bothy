@@ -1,7 +1,10 @@
 package agent
 
 import (
+	"bytes"
+	"context"
 	"errors"
+	"log/slog"
 	"slices"
 	"strings"
 	"testing"
@@ -552,6 +555,70 @@ func TestRefineMessageToggleIsNotFoldedIntoARunTheOtherWay(t *testing.T) {
 		msg, tr := h.answer()
 		if tr != nil || msg.PlainText() != "Plain." {
 			t.Fatalf("the unrefined turn's reply %q has trace %+v", msg.PlainText(), tr)
+		}
+	})
+}
+
+// facadeHashLLM stamps each call with a prefix hash of its own, as a provider
+// facade does for the request it sent.
+type facadeHashLLM struct{ *routerLLM }
+
+func (l facadeHashLLM) Complete(ctx context.Context, slot core.Slot, override *core.ModelRef, build core.BuildFunc, on func(core.StreamEvent) error) (*core.Response, core.CallInfo, error) {
+	resp, ci, err := l.routerLLM.Complete(ctx, slot, override, build, on)
+	ci.PrefixHash = "0000facade000000"
+	return resp, ci, err
+}
+
+func TestRefineRoleCallsLeaveThePrefixCheckAlone(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		steps := []fakes.LLMStep{
+			say("Six times seven is 42."), say("Final answer: 42"),
+			say("Six times seven is 42.\nFinal answer: 42"), say("Verdict: correct"),
+			say("Final answer: 42"), say("Verdict: correct"),
+			say("Noted."),
+		}
+		h := newHarness(t, opts{cfg: refineCfg(2, 1, false), steps: steps})
+		defer h.close()
+		var logs bytes.Buffer
+		h.r = h.newRunnerWith(func(d *Deps) {
+			d.LLM = facadeHashLLM{h.llm}
+			d.Log = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn}))
+		})
+		h.r.SetHub(h.hub)
+		h.r.refineParallel = 1
+		id := h.submitRefine("What is 6 × 7?", true)
+		synctest.Wait()
+		h.submit("Thanks.")
+		synctest.Wait()
+		if strings.Contains(logs.String(), "prompt prefix changed") {
+			t.Fatalf("a refine role call tripped the prefix check:\n%s", logs.String())
+		}
+		calls, err := h.store.Runs().LLMCalls(h.ctx, core.SystemViewer(), id)
+		if err != nil || len(calls) != 6 {
+			t.Fatalf("recorded calls %d %v", len(calls), err)
+		}
+	})
+}
+
+func TestRefineCallsRecordOnePrefix(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{tools: []core.Tool{&testTool{name: "echo"}}, cfg: refineCfg(2, 1, false), steps: []fakes.LLMStep{
+			say("Six times seven is 42."), say("Final answer: 42"),
+			say("Six times seven is 42.\nFinal answer: 42"), say("Verdict: correct"),
+			say("Final answer: 42"), say("Verdict: correct"),
+		}})
+		defer h.close()
+		h.r.refineParallel = 1
+		id := h.submitRefine("What is 6 × 7?", true)
+		synctest.Wait()
+		calls, err := h.store.Runs().LLMCalls(h.ctx, core.SystemViewer(), id)
+		if err != nil || len(calls) != 6 {
+			t.Fatalf("recorded calls %d %v", len(calls), err)
+		}
+		for _, c := range calls {
+			if c.PrefixHash != calls[0].PrefixHash {
+				t.Fatalf("prefix hashes differ within one refined step: %q vs %q", c.PrefixHash, calls[0].PrefixHash)
+			}
 		}
 	})
 }

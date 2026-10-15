@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -199,7 +198,7 @@ func (r *Runner) rebuildSnapshot(ctx context.Context, rs *runState, promote []st
 			legs |= core.TaintSend
 		}
 	}
-	hash := prefixHash(toolDefs(specs), []core.SystemBlock{{Text: s1(p, c.Agent.StandingRules)}, {Text: s2}})
+	hash := core.PrefixHash(toolDefs(specs), []core.SystemBlock{{Text: s1(p, c.Agent.StandingRules)}, {Text: s2}})
 	s, err := r.mutateSession(ctx, rs.sess.ID, func(s *core.Session) error {
 		if edit != nil {
 			edit(s)
@@ -353,20 +352,6 @@ func toolDefs(specs []core.ToolSpec) []core.ToolDef {
 		defs[i] = s.Def
 	}
 	return defs
-}
-
-// prefixHash is sha256(tools bytes || system bytes) as hex[:16].
-func prefixHash(tools []core.ToolDef, system []core.SystemBlock) string {
-	h := sha256.New()
-	if len(tools) > 0 {
-		b, _ := json.Marshal(tools)
-		h.Write(b)
-	}
-	for _, s := range system {
-		h.Write([]byte(s.Text))
-		h.Write([]byte{0})
-	}
-	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
 // cacheKey is a session's core.Request.CacheKey: every call of the session

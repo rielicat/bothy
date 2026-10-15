@@ -2,9 +2,6 @@ package provider
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -220,21 +217,9 @@ func (f *Facade) finish(e *entry, m core.ModelInfo, req *core.Request, resp *cor
 	ci.Cost = m.Price.Cost(resp.Usage)
 	ci.PriceKnown = m.Price.Known
 	ci.Stop = resp.Stop
-	ci.PrefixHash = prefixHash(req)
+	ci.PrefixHash = core.PrefixHash(req.Tools, req.System)
 	ci.Latency = f.clock.Now().Sub(start)
 	return resp, ci, nil
-}
-
-// prefixHash is sha256(tools bytes || system bytes), hex[:16]: equal hashes
-// across calls mean the cacheable prefix did not change.
-func prefixHash(r *core.Request) string {
-	h := sha256.New()
-	tb, _ := json.Marshal(r.Tools)
-	h.Write(tb)
-	for _, s := range r.System {
-		h.Write([]byte(s.Text))
-	}
-	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
 // prepare applies the provider rules the wire format depends on, on a copy

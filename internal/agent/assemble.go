@@ -192,7 +192,7 @@ func (a *assembler) assemble(m core.ModelInfo, load bool) assembled {
 	if len(defs) > 0 {
 		req.ToolsCache, req.ToolChoice = true, "auto"
 	}
-	return assembled{req: req, est: bd.Total, bd: bd, hash: prefixHash(defs, system)}
+	return assembled{req: req, est: bd.Total, bd: bd, hash: core.PrefixHash(defs, system)}
 }
 
 func sum(xs []int) int {
