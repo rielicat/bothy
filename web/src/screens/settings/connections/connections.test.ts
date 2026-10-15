@@ -46,7 +46,7 @@ describe('chat app status words (§12.1)', () => {
 describe('tool and GitHub status words', () => {
   it('covers every MCP state without the word MCP', () => {
     expect(toolStatus(tool({}))).toEqual({ text: 'Ready · 12 actions', tone: 'muted', action: 'Manage' });
-    expect(toolStatus(tool({ state: 'pins_pending', pending: 2 }))).toEqual({ text: 'Needs review: 2 actions changed', tone: 'warning', action: 'Review' });
+    expect(toolStatus(tool({ state: 'pins_pending', pending: 2 }))).toEqual({ text: 'Needs review: 2 actions', tone: 'warning', action: 'Review' });
     expect(toolStatus(tool({ state: 'installing' })).text).toBe('Installing…');
     expect(toolStatus(tool({ state: 'disabled' })).text).toBe('Off');
     expect(toolStatus(tool({ state: 'error' }))).toEqual({ text: "Can't connect: the server didn't answer", tone: 'danger', action: 'Reconnect' });

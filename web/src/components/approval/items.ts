@@ -76,7 +76,7 @@ export function decideItem(item: InboxItem, choice: string, extra: { side_effect
 export function itemQuestion(i: InboxItem): string {
   switch (i.type) {
     case 'mcp_review':
-      return `Review changes to ${humanize(i.server)} tools`;
+      return `Review ${humanize(i.server)} actions`;
     case 'skill_review':
       return `Review changes to the “${i.skill}” skill`;
     case 'unknown_sender':
@@ -86,11 +86,11 @@ export function itemQuestion(i: InboxItem): string {
   }
 }
 
-/** The collapsed row's source: "2 tools changed", "@jordan_k". */
+/** The collapsed row's source: "2 actions to review", "@jordan_k". */
 export function itemSource(i: InboxItem): string {
   switch (i.type) {
     case 'mcp_review':
-      return `${plural(i.tools.length, 'tool')} changed`;
+      return `${plural(i.tools.length, 'action')} to review`;
     case 'skill_review':
       return i.files.length ? `${plural(i.files.length, 'file')} changed` : 'Changed files';
     case 'unknown_sender':

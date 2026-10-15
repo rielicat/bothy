@@ -24,7 +24,7 @@ describe('Connections overview (§12.1)', () => {
     expect(screen.getByText('Connected as @acme_bothy_bot · 1 person linked')).toBeTruthy();
     expect(screen.getByText('Not connected')).toBeTruthy();
     expect(screen.getByText('Connected as acme-bot · 2 repositories')).toBeTruthy();
-    expect(screen.getByText('Needs review: 1 action changed')).toBeTruthy();
+    expect(screen.getByText('Needs review: 1 action')).toBeTruthy();
     expect(screen.getByText('Ready · 12 actions')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Review Docs' }).getAttribute('href')).toBe('/settings/connections/mcp-docs?review=1');
     expect(screen.getByRole('link', { name: 'Connect Discord' }).getAttribute('href')).toBe('/settings/connections/discord');

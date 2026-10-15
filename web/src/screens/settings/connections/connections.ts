@@ -62,7 +62,7 @@ export function toolStatus(s: MCPStatus | undefined): RowStatus {
     case 'ready':
       return { text: `Ready · ${plural(s.tools, 'action')}`, tone: 'muted', action: 'Manage' };
     case 'pins_pending':
-      return { text: `Needs review: ${plural(s.pending, 'action')} changed`, tone: 'warning', action: 'Review' };
+      return { text: `Needs review: ${plural(s.pending, 'action')}`, tone: 'warning', action: 'Review' };
     default:
       return { text: `Can't connect: ${toolProblem(s)}`, tone: 'danger', action: s.state === 'no_sandbox' ? 'Manage' : 'Reconnect' };
   }

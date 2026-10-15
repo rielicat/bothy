@@ -40,7 +40,7 @@ describe('Approvals inbox', () => {
     expect(within(expanded()!).getByRole('heading', { level: 3 }).textContent).toBe('Deploy acme/web to production?');
     const collapsed = [...document.querySelectorAll<HTMLButtonElement>('[data-row] button[aria-expanded="false"]')].map((b) => b.querySelector('span')?.textContent);
     expect(collapsed).toContain('Delete notes/staging.md?');
-    expect(collapsed).toContain('Review changes to Docs tools');
+    expect(collapsed).toContain('Review Docs actions');
     expect(collapsed).toContain('Someone new messaged Bothy on Slack');
     expect(collapsed).toContain('Review changes to the “incident-review” skill');
     expect(collapsed).toContain('Bothy was added to #support in Slack');

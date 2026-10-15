@@ -54,6 +54,8 @@
   const known = (e: SideEffect) => (effects.some((x) => x.value === e) ? e : 'irreversible');
   const pretty = (p?: MCPPin) => (p ? JSON.stringify(p.definition ?? {}, null, 2) : '');
   const before = (p: MCPPin) => pins.find((x) => x.tool === p.tool && x.status === 'approved') ?? pins.find((x) => x.tool === p.tool && x.status !== 'pending');
+  // A server just added has only new actions: nothing "changed".
+  const allNew = $derived(pending.length > 0 && pending.every((p) => !before(p)));
 
   async function approve(tools: Record<string, unknown>, done?: string): Promise<boolean> {
     problem = null;
@@ -154,11 +156,15 @@
       {#if pending.length}
         <StatusLine
           tone="warning"
-          text={pending.length === 1
-            ? '1 action changed and needs a review before Bothy can use it.'
-            : `${plural(pending.length, 'action')} changed and need a review before Bothy can use them.`}
+          text={allNew
+            ? pending.length === 1
+              ? '1 new action needs a review before Bothy can use it.'
+              : `${plural(pending.length, 'new action')} need a review before Bothy can use them.`
+            : pending.length === 1
+              ? '1 action changed and needs a review before Bothy can use it.'
+              : `${plural(pending.length, 'action')} changed and need a review before Bothy can use them.`}
         />
-        <Button onclick={openReview}>Review changes</Button>
+        <Button onclick={openReview}>{allNew ? 'Review actions' : 'Review changes'}</Button>
       {/if}
       {#if problem}<StatusLine tone="danger" alert text={problem.message} details={problem.details} />{/if}
     </div>
@@ -203,7 +209,7 @@
   {/if}
 </ConnPage>
 
-<Dialog bind:open={reviewing} title="Review changes to {title}" size="lg" {busy}>
+<Dialog bind:open={reviewing} title={allNew ? `Review actions from ${title}` : `Review changes to ${title}`} size="lg" {busy}>
   <div class="space-y-8">
     {#each pending as p (p.tool)}
       {@const d = drafts[p.tool]}
@@ -212,7 +218,14 @@
           <h3 class="text-heading text-text">{label(p)}</h3>
           <p class="text-small text-muted">{before(p) ? 'Changed since you last allowed it' : 'New action'}</p>
           {#if def(p).description}<p class="mt-1 text-body text-text" data-copy-ignore>{def(p).description}</p>{/if}
-          <DiffView class="mt-3" diff={lineDiff(pretty(before(p)), pretty(p))} maxLines={40} />
+          {#if before(p)}
+            <DiffView class="mt-3" diff={lineDiff(pretty(before(p)), pretty(p))} maxLines={40} />
+          {:else}
+            <!-- A new action has nothing to compare; its definition stays one click away. -->
+            <Disclosure class="mt-1">
+              <CodeBlock code={JSON.stringify(def(p).inputSchema ?? p.definition ?? {}, null, 2)} maxLines={12} />
+            </Disclosure>
+          {/if}
           <div class="mt-3 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
             <Select class="w-full sm:w-72" label="What this does" bind:value={d.effect} options={effects} />
             <Switch label="Allow this action" bind:checked={d.on} />
