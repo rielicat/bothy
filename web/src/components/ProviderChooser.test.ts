@@ -40,6 +40,48 @@ describe('ProviderChooser in setup', () => {
     expect(writes(calls)).toEqual([]);
   });
 
+  it('keeps AWS settings whose sign-in expired, says how to fix them and checks only when asked', async () => {
+    const calls = withMock('aws-expired');
+    render(ProviderChooser);
+    expect(await screen.findByText("This server's AWS sign-in has expired.")).toBeTruthy();
+    expect(screen.getByText('Choose a provider', { exact: false })).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(radio("Use this server's AWS access")).toHaveProperty('checked', false);
+    await fireEvent.click(radio("Use this server's AWS access"));
+    expect(screen.getByText('aws sso login')).toBeTruthy();
+    expect(tests(calls)).toEqual([]);
+    await fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+    expect(await screen.findByText(/^Connected\. Bothy will use Claude\ Sonnet\ 4\.5\./, {}, { timeout: 3000 })).toBeTruthy();
+    expect(tests(calls)).toEqual([expect.objectContaining({ kind: 'bedrock', region: 'us-east-1' })]);
+    expect(screen.queryByText("This server's AWS sign-in has expired.")).toBeNull();
+  });
+
+  it('keeps Check again after a failed check of AWS settings without access', async () => {
+    const calls = withMock('aws-expired,provider-fail:aws_no_credentials');
+    render(ProviderChooser);
+    await fireEvent.click(await screen.findByRole('radio', { name: /^Use this server's AWS access/ }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+    expect(await screen.findByText(/doesn't have AWS access right now/, {}, { timeout: 3000 })).toBeTruthy();
+    expect(screen.queryByText(/restart Bothy/)).toBeNull();
+    expect(screen.getByText("This server's AWS sign-in has expired.")).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+    await waitFor(() => expect(tests(calls)).toHaveLength(2), { timeout: 3000 });
+  });
+
+  it('says AWS settings give no access, and lists them after a working local server', async () => {
+    const calls = withMock('aws-expired:no_credentials,detect-ollama');
+    render(ProviderChooser);
+    expect(await screen.findByText("AWS settings found, but they don't give access right now.")).toBeTruthy();
+    const found = within(screen.getByRole('radiogroup', { name: 'Found on this server' }))
+      .getAllByRole('radio')
+      .map((r) => r.getAttribute('aria-label') ?? r.closest('label')?.textContent ?? '');
+    expect(found.findIndex((t) => /Ollama/.test(t))).toBeLessThan(found.findIndex((t) => /AWS access/.test(t)));
+    await waitFor(() => expect(radio('Ollama on this computer')).toHaveProperty('checked', true));
+    await fireEvent.click(radio("Use this server's AWS access"));
+    expect(screen.getByText(/Give this server an AWS role or sign in with the AWS CLI/)).toBeTruthy();
+    expect(tests(calls).some((t) => t.kind === 'bedrock')).toBe(false);
+  });
+
   it('re-checks on a region change and lists models by friendly name behind Change', async () => {
     const calls = withMock('detect-aws');
     render(ProviderChooser);

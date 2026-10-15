@@ -18,6 +18,7 @@ const awsDetection: Detection = { kind: 'bedrock', base_url: '', region: 'us-eas
 const detectNone = scenario('detect-none', 'Setup finds no local models, keys or cloud access.', 'setup');
 const detectOllama = scenario('detect-ollama', 'Setup finds only Ollama on this computer.', 'setup');
 const detectAws = scenario('detect-aws', "Setup finds this server's AWS access (Bedrock, S3 shape).", 'setup');
+const awsExpired = scenario('aws-expired', "Setup finds AWS settings that give no access: aws-expired:<problem> (default signin_expired); checks succeed, as after aws sso login.", 'setup');
 const detectSlow = scenario('detect-slow', 'Detection takes 20 s, to show "Looking for models on this server…".', 'setup');
 const ollamaEmpty = scenario('ollama-empty', 'The detected Ollama has no models downloaded.', 'setup');
 const checkSlow = scenario('check-slow', 'Every provider check takes 20 s, to show the checking line.', 'setup');
@@ -202,7 +203,9 @@ on('POST', '/api/providers/detect', async (req, res) => {
   await sleep(detectSlow(req) ? 20000 : 600);
   if (detectNone(req)) return json(res, 200, []);
   if (detectAws(req)) return json(res, 200, [awsDetection]);
+  const expired: Detection[] = awsExpired(req) ? [{ kind: 'bedrock', base_url: '', region: 'us-east-1', problem: awsExpired.arg(req) || 'signin_expired' }] : [];
   const ollama = detections.filter((d) => d.kind === 'ollama').map((d) => (ollamaEmpty(req) ? { ...d, models: [] } : d));
-  if (detectOllama(req) || ollamaEmpty(req)) return json(res, 200, ollama);
+  if (detectOllama(req) || ollamaEmpty(req)) return json(res, 200, [...expired, ...ollama]);
+  if (awsExpired(req)) return json(res, 200, expired);
   json(res, 200, [...ollama, ...detections.filter((d) => d.kind !== 'ollama')]);
 });

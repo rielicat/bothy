@@ -72,7 +72,8 @@ thirdparty_ok() {
 		case "$1:$3" in
 		internal/provider/bedrock:github.com/aws/aws-sdk-go-v2/aws | internal/provider/bedrock:github.com/aws/aws-sdk-go-v2/aws/signer/v4 | \
 			internal/provider/bedrock:github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream | internal/provider/bedrock:github.com/aws/aws-sdk-go-v2/config | \
-			internal/provider/bedrock:github.com/aws/aws-sdk-go-v2/credentials/endpointcreds | internal/provider/bedrock:github.com/aws/aws-sdk-go-v2/feature/ec2/imds)
+			internal/provider/bedrock:github.com/aws/aws-sdk-go-v2/credentials/endpointcreds | internal/provider/bedrock:github.com/aws/aws-sdk-go-v2/credentials/ssocreds | \
+			internal/provider/bedrock:github.com/aws/aws-sdk-go-v2/feature/ec2/imds)
 			return 0
 			;;
 		internal/provider:github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream) [ "$4" = test ] && return 0 ;;

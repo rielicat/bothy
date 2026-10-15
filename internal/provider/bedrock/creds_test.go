@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/sha1" //nolint:gosec // the SDK names SSO token cache files by SHA-1
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,6 +19,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials/ssocreds"
 )
 
 // awsEnv isolates the AWS SDK from the developer's environment: no AWS_*
@@ -469,5 +472,28 @@ func TestDescribeSources(t *testing.T) {
 	}
 	if got := roleName("arn:aws:iam::111122223333:role/bad name"); got != "" {
 		t.Errorf("roleName accepted %q", got)
+	}
+}
+
+func TestSignInExpired(t *testing.T) {
+	cached := func(err error) error { return fmt.Errorf("failed to refresh cached credentials, %w", err) }
+	for _, c := range []struct {
+		err  error
+		want bool
+	}{
+		{errors.New("failed to refresh cached credentials, refresh cached SSO token failed, cached SSO token is expired, or not present, and cannot be refreshed"), true},
+		{cached(&ssocreds.InvalidTokenError{}), true},
+		{errors.New("refresh cached SSO token failed, unable to refresh SSO token, operation error SSO OIDC: CreateToken, https response error StatusCode: 400, InvalidGrantException: "), true},
+		// A cache the server cannot read is not fixed by signing in on the host.
+		{cached(&ssocreds.InvalidTokenError{Err: fmt.Errorf("failed to read cached SSO token file, %w", &fs.PathError{Op: "open", Path: "/home/nonroot/.aws/sso/cache/x.json", Err: fs.ErrPermission})}), false},
+		{errors.New("refresh cached SSO token failed, unable to refresh SSO token, operation error SSO OIDC: CreateToken, dial tcp: lookup oidc.eu-west-1.amazonaws.com: no such host"), false},
+		{errors.New("refresh cached SSO token failed, unable to refresh SSO token, operation error SSO OIDC: CreateToken, tls: failed to verify certificate: x509: certificate has expired or is not yet valid"), false},
+		{errors.New("refresh cached SSO token failed, unable to cache refreshed SSO token, failed to create cached SSO token file: read-only file system"), false},
+		{errors.New("failed to refresh cached credentials, no EC2 IMDS role found"), false},
+		{nil, false},
+	} {
+		if got := SignInExpired(c.err); got != c.want {
+			t.Errorf("%v: %v", c.err, got)
+		}
 	}
 }

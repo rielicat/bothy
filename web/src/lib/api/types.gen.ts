@@ -1652,6 +1652,7 @@ export interface Detection {
   region?: string; // bedrock: the AWS config's region, "" when it names none
   profile?: string; // bedrock: the AWS_PROFILE in use, "" for the default chain
   source?: string; // bedrock: where the AWS credentials came from in plain words ("instance role bothy-prod"), never their values
+  problem?: string; // bedrock: why AWS settings found give no access yet: "signin_expired" (an SSO sign-in ended) or "no_credentials"
   choices?: ModelChoice[]; // Models with plain names and suggestions
   secret_ref?: string; // a provider key already saved in the global vault: "secret:<name>"
   secret_hint?: string; // its last four characters ("" for short values)

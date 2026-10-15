@@ -17,6 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials/endpointcreds"
+	"github.com/aws/aws-sdk-go-v2/credentials/ssocreds"
 	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 )
 
@@ -259,6 +260,28 @@ func (c *Chain) Describe(ctx context.Context) (string, error) {
 	c.retrieved, c.described = true, out
 	c.mu.Unlock()
 	return out, nil
+}
+
+// SignInExpired reports whether a credential error says an SSO sign-in has
+// ended, so only signing in again (aws sso login) brings access back. A token
+// cache Bothy cannot read, or a failure to reach AWS while renewing, is not.
+func SignInExpired(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Legacy SSO profiles wrap every token cache failure in this error; only
+	// one without a cause is an expired token.
+	if ite, ok := errors.AsType[*ssocreds.InvalidTokenError](err); ok {
+		return ite.Err == nil
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "cached sso token is expired"):
+		return true
+	case strings.Contains(msg, "unable to refresh sso token"):
+		return strings.Contains(msg, "invalidgrantexception") || strings.Contains(msg, "expiredtokenexception")
+	}
+	return false
 }
 
 // instanceRoleName asks the instance metadata which role the instance

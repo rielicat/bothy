@@ -113,14 +113,22 @@
   const localDef = (d: Detection): ProviderDef =>
     d.kind === 'ollama' ? provider('ollama') : /:1234\b/.test(d.base_url) ? provider('lmstudio') : { ...provider('custom'), id: 'local', name: 'The model server', key: undefined };
 
-  // AWS, Ollama, LM Studio, other local servers, then keys in the server's environment (§5.6.1).
+  // AWS settings that give no access yet (an ended sign-in) say so in their row, which is never chosen for the person.
+  const awsProblems: Record<string, string> = {
+    signin_expired: "This server's AWS sign-in has expired.",
+    no_credentials: "AWS settings found, but they don't give access right now.",
+  };
+  const awsProblem = (d?: Detection) => (d?.kind === 'bedrock' && d.problem ? (awsProblems[d.problem] ?? awsProblems.no_credentials) : '');
+
+  // AWS, Ollama, LM Studio, other local servers, keys in the server's environment, then AWS settings without access (§5.6.1).
   function detectedRows(list: Detection[]): Row[] {
-    const rank = (d: Detection) => (d.kind === 'bedrock' ? 0 : d.env_var ? 4 : d.kind === 'ollama' ? 1 : /:1234\b/.test(d.base_url) ? 2 : 3);
+    const rank = (d: Detection) => (d.kind === 'bedrock' ? (d.problem ? 5 : 0) : d.env_var ? 4 : d.kind === 'ollama' ? 1 : /:1234\b/.test(d.base_url) ? 2 : 3);
     const seen = new Set<string>();
     const rows: Row[] = [];
     for (const d of [...list].sort((a, b) => rank(a) - rank(b))) {
       if (d.kind === 'bedrock') {
-        rows.push({ value: 'aws', title: "Use this server's AWS access", description: `Amazon Bedrock in ${regionName(states.aws?.region ?? d.region ?? 'us-east-1')}. No keys needed.`, def: provider('bedrock'), source: 'aws', detection: d });
+        const description = awsProblem(d) || `Amazon Bedrock in ${regionName(states.aws?.region ?? d.region ?? 'us-east-1')}. No keys needed.`;
+        rows.push({ value: 'aws', title: "Use this server's AWS access", description, def: provider('bedrock'), source: 'aws', detection: d });
       } else if (d.env_var) {
         const def = providers.find((p) => p.env === d.env_var);
         if (def && !seen.has(d.env_var)) {
@@ -207,7 +215,7 @@
     settled = true;
     untrack(() => {
       for (const r of found) states[r.value] ??= blank(r);
-      const auto = found.filter((r) => r.source !== 'env');
+      const auto = found.filter((r) => r.source !== 'env' && !awsProblem(r.detection));
       if (auto.length === 1 && selected === undefined) void tick().then(() => selected === undefined && select(auto[0].value));
     });
   });
@@ -223,7 +231,7 @@
     selected = v;
     const r = row(v);
     const s = states[v];
-    if (s.status !== 'idle') return;
+    if (s.status !== 'idle' || awsProblem(r.detection)) return;
     if (r.source !== 'list' || r.def.local || (r.def.custom && s.address.trim()) || (r.def.key && !r.def.custom && s.key.trim().length >= 20)) void check(v);
   }
 
@@ -297,6 +305,8 @@
       s.note = modelNote(probe.context, probe.tool_calling);
       s.status = 'connected';
       s.needsModel = false;
+      // Access proven: from now on it is the ordinary AWS row.
+      if (r.source === 'aws' && r.detection) r.detection.problem = undefined;
       if (!setup) void save();
       return;
     }
@@ -478,7 +488,21 @@
   {@const r = row(v)}
   {@const s = states[v]}
   {#if s}
-    {#if r.source === 'aws'}
+    {#if r.source === 'aws' && awsProblem(r.detection)}
+      <p class="text-body text-text">
+        {#if r.detection?.problem === 'signin_expired'}
+          Sign in again on the server with <code class="rounded-sm bg-subtle px-1 text-code whitespace-nowrap">aws sso login</code>, then check again.
+        {:else}
+          Give this server an AWS role or sign in with the AWS CLI, then check again.
+        {/if}
+      </p>
+      <div class="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <Button size="sm" onclick={() => check(v, { byPerson: true })}>Check again</Button>
+        <!-- A failed check links the same help itself. -->
+        {#if s.status !== 'failed'}{@render link(AWS_HELP, 'How to give Bothy AWS access', 'inline-flex min-h-6 items-center text-body pointer-coarse:min-h-11')}{/if}
+      </div>
+      {@render status(v, false)}
+    {:else if r.source === 'aws'}
       {@render regionSelect(v)}
       {@render status(v, false)}
     {:else if r.def.kind === 'bedrock'}

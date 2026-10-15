@@ -143,7 +143,7 @@ export function failure(code: FailureCode, c: FailureContext): Failure {
           more: aws,
         };
       return {
-        text: "This server doesn't have AWS access right now. On AWS, give it a role with Bedrock access. On a laptop, sign in with the AWS CLI and restart Bothy.",
+        text: "This server doesn't have AWS access right now. On AWS, give it a role with Bedrock access. On a laptop, sign in with the AWS CLI again.",
         action: { kind: 'link', label: 'How to give Bothy AWS access', href: AWS_HELP },
         more: aws,
       };

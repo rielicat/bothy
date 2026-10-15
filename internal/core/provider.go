@@ -370,6 +370,7 @@ type Detection struct {
 	Region  string       `json:"region,omitempty"`  // bedrock: the AWS config's region, "" when it names none
 	Profile string       `json:"profile,omitempty"` // bedrock: the AWS_PROFILE in use, "" for the default chain
 	Source  string       `json:"source,omitempty"`  // bedrock: where the AWS credentials came from in plain words ("instance role bothy-prod"), never their values
+	Problem string       `json:"problem,omitempty"` // bedrock: why AWS settings found give no access yet: "signin_expired" (an SSO sign-in ended) or "no_credentials"
 
 	Choices    []ModelChoice `json:"choices,omitempty"`     // Models with plain names and suggestions
 	SecretRef  string        `json:"secret_ref,omitempty"`  // a provider key already saved in the global vault: "secret:<name>"

@@ -3,6 +3,8 @@ package provider
 import (
 	"bytes"
 	"context"
+	"crypto/sha1" //nolint:gosec // the SDK names SSO token cache files by SHA-1
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -11,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
 
@@ -463,6 +466,95 @@ func TestDetectAWSNothingFound(t *testing.T) {
 		if d.Kind == core.KindBedrock {
 			t.Fatalf("detected %+v", d)
 		}
+	}
+}
+
+// unansweredTransport is a metadata service whose packets are dropped.
+type unansweredTransport struct{}
+
+func (unansweredTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	<-r.Context().Done()
+	return nil, r.Context().Err()
+}
+
+// AWS settings whose SSO sign-in ended stay on the setup screen with the
+// reason instead of vanishing; settings that never resolved say so too.
+func TestDetectAWSWithoutAccess(t *testing.T) {
+	h := newHarness(t, nil)
+	home := os.Getenv("HOME")
+	cfg := filepath.Join(home, ".aws", "config")
+	if err := os.MkdirAll(filepath.Join(home, ".aws", "sso", "cache"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	write := func(path, content string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(cfg, `[profile work]
+sso_session = corp
+sso_account_id = 111122223333
+sso_role_name = Developer
+region = us-west-2
+
+[sso-session corp]
+sso_region = eu-west-1
+sso_start_url = https://example.awsapps.com/start
+`)
+	sum := sha1.Sum([]byte("corp")) //nolint:gosec // see import
+	write(filepath.Join(home, ".aws", "sso", "cache", hex.EncodeToString(sum[:])+".json"),
+		`{"accessToken":"sso-bearer-CANARY","expiresAt":"2020-01-01T00:00:00Z","region":"eu-west-1","startUrl":"https://example.awsapps.com/start"}`)
+	t.Setenv("AWS_PROFILE", "work")
+	h.f.d.Env = func() []string { return []string{"AWS_PROFILE=work", "HOME=" + home} }
+	h.egress.Client = &http.Client{Transport: hostRouter{}}
+	aws := func() *core.Detection {
+		for _, d := range h.f.Detect(context.Background()) {
+			if d.Kind == core.KindBedrock {
+				return &d
+			}
+		}
+		return nil
+	}
+	d := aws()
+	if d == nil || d.Problem != "signin_expired" || d.Region != "us-west-2" || d.BaseURL != "https://"+runtimeHost || d.Source != "" || len(d.Models) != 0 {
+		t.Fatalf("expired sign-in: %+v", d)
+	}
+	// A legacy SSO profile's expired token says so through its own error.
+	write(cfg, `[profile work]
+sso_start_url = https://example.awsapps.com/start
+sso_region = eu-west-1
+sso_account_id = 111122223333
+sso_role_name = Developer
+region = us-west-2
+`)
+	sum = sha1.Sum([]byte("https://example.awsapps.com/start")) //nolint:gosec // see import
+	write(filepath.Join(home, ".aws", "sso", "cache", hex.EncodeToString(sum[:])+".json"),
+		`{"accessToken":"sso-bearer-CANARY","expiresAt":"2020-01-01T00:00:00Z","region":"eu-west-1","startUrl":"https://example.awsapps.com/start"}`)
+	if d := aws(); d == nil || d.Problem != "signin_expired" {
+		t.Fatalf("legacy expired sign-in: %+v", d)
+	}
+	write(cfg, "[profile work]\nregion = us-west-2\n")
+	if d := aws(); d == nil || d.Problem != "no_credentials" {
+		t.Fatalf("profile without credentials: %+v", d)
+	}
+	// Off AWS the metadata service may never answer: running out of time is
+	// no access, not access that looks checked.
+	t.Setenv("AWS_PROFILE", "")
+	h.f.d.Env = func() []string { return []string{"HOME=" + home} }
+	h.f.d.Credentials = func(string, string) *http.Client {
+		return &http.Client{Transport: unansweredTransport{}}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	var slow *core.Detection
+	for _, d := range h.f.Detect(ctx) {
+		if d.Kind == core.KindBedrock {
+			slow = &d
+		}
+	}
+	if slow == nil || slow.Problem != "no_credentials" {
+		t.Fatalf("detection that ran out of time: %+v", slow)
 	}
 }
 

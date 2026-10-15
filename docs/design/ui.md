@@ -893,8 +893,8 @@ Or choose a provider                                       "Choose a provider" w
 
 - Each group is one `OptionList` (§15): a single `border-strong` `rounded-lg` container, rows split by hairlines. The selected row expands inside the same row, indented to the title. Nothing else on the screen has a border.
 - Detection runs once on entry; after 400 ms without a result, the "Found on this server" area shows one muted line "Looking for models on this server…".
-- Order of detected rows: AWS, Ollama, LM Studio, other local servers, then keys found in the server's environment.
-- If exactly one AWS or local option is detected it is pre-selected and its check starts at once, so the person may only need to press Continue. A detected environment key is never pre-selected, because choosing it copies the key into Bothy's saved keys.
+- Order of detected rows: AWS, Ollama, LM Studio, other local servers, keys found in the server's environment, then AWS settings without access (`problem`).
+- If exactly one AWS or local option with access is detected it is pre-selected and its check starts at once, so the person may only need to press Continue. A detected environment key is never pre-selected, because choosing it copies the key into Bothy's saved keys; nor is an AWS row with a `problem`, whose check fails until the person signs in again.
 - Only one row is open at a time. Changing the selection cancels a running check (AbortController).
 - "More providers" is a disclosure row inside the provider list. Ollama and LM Studio appear there only when not detected.
 
@@ -903,6 +903,7 @@ Or choose a provider                                       "Choose a provider" w
 | Option | Title | Line 2 | Expanded content |
 |---|---|---|---|
 | AWS detected (S3) | "Use this server's AWS access" | "Amazon Bedrock in {Region name}. No keys needed." | Region select (readable names, code as secondary text), default from detection; the check starts on selection and re-runs on region change |
+| AWS settings without access (`problem`) | "Use this server's AWS access" | "This server's AWS sign-in has expired." (`signin_expired`) / "AWS settings found, but they don't give access right now." (`no_credentials`) | Listed last among found options and never chosen for the person. Text "Sign in again on the server with `aws sso login`, then check again." (or "Give this server an AWS role or sign in with the AWS CLI, then check again."), secondary button "Check again" (it stays, with the check's progress or failure under it, until a check succeeds), link "How to give Bothy AWS access ↗"; a successful check turns it into the AWS detected row |
 | Ollama detected | "Ollama on this computer" | "{n} models ready, including {best model}." / "Running, but no models downloaded yet." | the check, then the success line |
 | LM Studio detected | "LM Studio on this computer" | "{n} models ready." | same |
 | Other local server detected | "Model server on this computer" | "{n} models available." | same |
@@ -947,7 +948,7 @@ Every failure is a `StatusLine` in danger tone: alert glyph, one or two sentence
 | `no_models` | "{Name} is running but has no models yet. Install one on the server, for example `ollama pull qwen3:8b`, then check again." | "Check again" |
 | `tls` | "The connection to that address isn't secure because of a certificate problem. Check the address. For a server on your own network you can use http://." | none |
 | `not_a_model_server` | "That address answered, but it doesn't look like a model server. Check the address; it usually ends in /v1." | none |
-| `aws_no_credentials` | "This server doesn't have AWS access right now. On AWS, give it a role with Bedrock access. On a laptop, sign in with the AWS CLI and restart Bothy." | Link "How to give Bothy AWS access ↗" |
+| `aws_no_credentials` | "This server doesn't have AWS access right now. On AWS, give it a role with Bedrock access. On a laptop, sign in with the AWS CLI again." | Link "How to give Bothy AWS access ↗" |
 | `aws_denied` | "This server's AWS access isn't allowed to use Bedrock. Ask your AWS admin to add Bedrock permissions to {source}." | Details lists `bedrock:InvokeModelWithResponseStream`, `bedrock:ListFoundationModels`, `bedrock:ListInferenceProfiles` |
 | `aws_no_models` | "No Claude or Nova models are turned on for this AWS account in {Region name}. Turn on model access in the Bedrock console, or choose another region." | Link "Open the Bedrock console ↗" |
 | `unknown` | "Something went wrong while checking. Try again, or choose another option." | "Try again" |

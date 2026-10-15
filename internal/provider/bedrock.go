@@ -279,11 +279,13 @@ func awsSignals(env map[string]string) bool {
 }
 
 // detectAWS offers Bedrock when this server's AWS credentials resolve
-// ("Use this server's AWS access"), with the region and models when known.
+// ("Use this server's AWS access"), with the region and models when known,
+// or with a Problem when AWS settings are present but give no access.
 func (f *Facade) detectAWS(ctx context.Context) *core.Detection {
 	env := envMap(f.d.Env())
+	signals := awsSignals(env)
 	timeout := detectTimeout
-	if awsSignals(env) {
+	if signals {
 		timeout = awsDetectTimeout
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -292,7 +294,22 @@ func (f *Facade) detectAWS(ctx context.Context) *core.Detection {
 	defer chain.CloseIdleConnections()
 	src, err := chain.Describe(ctx)
 	if err != nil {
-		return nil
+		// AWS settings that give no access, such as an ended SSO sign-in,
+		// are still offered with the reason, so setup does not silently
+		// lose them.
+		if !signals {
+			return nil
+		}
+		// Running out of time counts as no access too: off AWS it is the
+		// metadata service not answering, and Check again takes longer.
+		d := &core.Detection{Kind: core.KindBedrock, Region: chain.Region(ctx), Problem: "no_credentials"}
+		if bedrock.SignInExpired(err) {
+			d.Problem = "signin_expired"
+		}
+		if d.Region != "" {
+			d.BaseURL = bedrock.RuntimeURL(d.Region)
+		}
+		return d
 	}
 	d := &core.Detection{Kind: core.KindBedrock, Source: src, Region: chain.Region(ctx)}
 	if env["AWS_PROFILE"] != "" {
