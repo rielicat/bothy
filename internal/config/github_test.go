@@ -61,3 +61,18 @@ func TestGitHubAPIBaseLoopbackHTTP(t *testing.T) {
 		}
 	}
 }
+
+func TestChannelAPIBaseHTTPOnlyForLoopback(t *testing.T) {
+	c := Default()
+	c.Channels.Telegram.APIBase = "http://tg.example.com"
+	c.Channels.Slack.APIBase = "http://127.0.0.1:9000/api/"
+	v := &vctx{layerOf: func(string) int { return 0 }}
+	validate(c, v)
+	var paths []string
+	for _, e := range v.errs {
+		paths = append(paths, e.path)
+	}
+	if len(paths) != 1 || paths[0] != "channels.telegram.api_base" {
+		t.Fatalf("errors on %v", paths)
+	}
+}

@@ -6107,7 +6107,7 @@ channels:
   unknown_senders: pair           # pair | ignore
   usage_footer: false
   telegram: {enabled: false, token: "secret:telegram_bot_token", groups: {mention_only: true},
-             api_base: "https://api.telegram.org"}                           # api_base fields are LOCKED
+             api_base: "https://api.telegram.org"}                           # api_base fields are LOCKED; http only for a loopback host
   discord:  {enabled: false, token: "secret:discord_bot_token", application_id: "", groups: {mention_only: true},
              api_base: "https://discord.com/api/v10", gateway_url: ""}
   slack:    {enabled: false, app_token: "secret:slack_app_token", bot_token: "secret:slack_bot_token", groups: {mention_only: true},

@@ -832,6 +832,18 @@ func validateChannels(c *Config, v *vctx) {
 		v.add("channels.discord.application_id", "must be a numeric Discord id")
 	}
 	v.url("channels.slack.api_base", ch.Slack.APIBase, true, "http", "https")
+	// Each carries its bot token (Telegram in the URL itself).
+	v.httpsUnlessLoopback("channels.telegram.api_base", ch.Telegram.APIBase)
+	v.httpsUnlessLoopback("channels.discord.api_base", ch.Discord.APIBase)
+	v.httpsUnlessLoopback("channels.slack.api_base", ch.Slack.APIBase)
+}
+
+// httpsUnlessLoopback refuses plain http for an API that carries a token,
+// except to a loopback host, so the token never crosses a network in the clear.
+func (v *vctx) httpsUnlessLoopback(path, raw string) {
+	if u, err := url.Parse(raw); err == nil && u.Scheme == "http" && u.Host != "" && !PlainHTTPAllowed(u.Hostname()) {
+		v.add(path, "use https: plain http would send the token unencrypted (http is accepted only for a loopback address)")
+	}
 }
 
 func validateMCP(c *Config, v *vctx) {
@@ -911,9 +923,7 @@ func validateMCP(c *Config, v *vctx) {
 func validateGitHub(c *Config, v *vctx) {
 	g := c.GitHub
 	v.url("github.api_base", g.APIBase, true, "http", "https")
-	if u, err := url.Parse(g.APIBase); err == nil && u.Scheme == "http" && u.Host != "" && !PlainHTTPAllowed(u.Hostname()) {
-		v.add("github.api_base", "use https: plain http would send the GitHub token unencrypted (http is accepted only for a loopback address)")
-	}
+	v.httpsUnlessLoopback("github.api_base", g.APIBase)
 	v.intRange("github.checkout.max_mb", g.Checkout.MaxMB, 1, 8192)
 	v.intRange("github.checkout.max_files", g.Checkout.MaxFiles, 1, 1_000_000)
 }
