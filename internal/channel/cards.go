@@ -395,23 +395,22 @@ func contextLine(ctx string) string {
 	return "_" + plainLine(ctx) + "_"
 }
 
-// expiresText is the card's countdown in the web's words (docs/design/ui.md
-// §14.2): "in less than a minute", "in 14 min", "in 2 h", "in 3 days".
+// expiresText is the card's expiry. A short wait is a countdown in the
+// web's words ("in less than a minute", "in 14 min"); a longer one is a
+// clock time, because a card is drawn once and a countdown would go stale.
 func (h *Hub) expiresText(t time.Time) string {
 	d := t.Sub(h.clock.Now())
 	if d < time.Minute {
 		return "in less than a minute"
 	}
-	if m := d.Round(time.Minute) / time.Minute; m < 60 {
-		return fmt.Sprintf("in %d min", m)
+	if d < time.Hour {
+		return fmt.Sprintf("in %d min", d.Round(time.Minute)/time.Minute)
 	}
-	if hr := d.Round(time.Hour) / time.Hour; hr < 24 {
-		return fmt.Sprintf("in %d h", hr)
+	loc, err := time.LoadLocation(h.cfg().Timezone)
+	if err != nil {
+		loc = time.UTC
 	}
-	if days := d.Round(24*time.Hour) / (24 * time.Hour); days > 1 {
-		return fmt.Sprintf("in %d days", days)
-	}
-	return "in 1 day"
+	return "at " + t.In(loc).Format("15:04 MST on Jan 2")
 }
 
 // updateCards edits every delivered card of a resolved approval to its

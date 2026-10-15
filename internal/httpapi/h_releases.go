@@ -98,8 +98,12 @@ func (s *Server) userName(ctx context.Context, id core.UserID) string {
 	}
 	u, err := s.d.Store.Users().Get(ctx, id)
 	switch {
-	case err != nil:
+	case errors.Is(err, core.ErrNotFound):
 		return ""
+	case err != nil:
+		// A failed lookup is not a removed person: keep them, unnamed.
+		s.log.Warn("look up a user's name", "user", id, "err", err)
+		return "someone on the team"
 	case u.DisplayName != "":
 		return u.DisplayName
 	}

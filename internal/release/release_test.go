@@ -500,6 +500,7 @@ func TestFollowerEndings(t *testing.T) {
 		{"timed out", func(f *fixture, run int64) { f.gh.SetRun(run, "completed", "timed_out") }, core.DeployFailed, "The deploy of acme/web to staging timed out on GitHub."},
 		{"startup failure", func(f *fixture, run int64) { f.gh.SetRun(run, "completed", "startup_failure") }, core.DeployFailed, "staging failed. View the logs"},
 		{"cancelled", func(f *fixture, run int64) { f.gh.SetRun(run, "completed", "cancelled") }, core.DeployFailed, "was cancelled on GitHub"},
+		{"skipped", func(f *fixture, run int64) { f.gh.SetRun(run, "completed", "skipped") }, core.DeployFailed, "The deploy of acme/web to staging didn't run: GitHub marked it skipped."},
 		{"run deleted", func(f *fixture, run int64) { f.gh.DeleteRun(run) }, core.DeployUnknown, "no longer knows"},
 		{"followed too long", func(f *fixture, run int64) { f.clock.Advance(7 * time.Hour) }, core.DeployUnknown, "stopped following it"},
 	}

@@ -409,14 +409,20 @@ func TestDecidedCardNamesItsReader(t *testing.T) {
 func TestExpiresText(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t)
+		h.cfg.Set(func(c *config.Config) { c.Timezone = "UTC" })
 		now := time.Now()
 		for d, want := range map[time.Duration]string{
 			-time.Minute: "in less than a minute", 30 * time.Second: "in less than a minute", 14*time.Minute + 20*time.Second: "in 14 min",
-			59 * time.Minute: "in 59 min", 100 * time.Minute: "in 2 h", 23 * time.Hour: "in 23 h", 24 * time.Hour: "in 1 day", 72 * time.Hour: "in 3 days",
+			59 * time.Minute: "in 59 min",
 		} {
 			if got := h.hub.expiresText(now.Add(d)); got != want {
 				t.Errorf("expiresText(now+%v) = %q, want %q", d, got, want)
 			}
+		}
+		// A card is drawn once, so a long wait shows when it ends.
+		at := now.Add(8 * time.Hour)
+		if got, want := h.hub.expiresText(at), "at "+at.UTC().Format("15:04 MST on Jan 2"); got != want {
+			t.Errorf("expiresText(now+8h) = %q, want %q", got, want)
 		}
 	})
 }

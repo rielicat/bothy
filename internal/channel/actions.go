@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -141,7 +142,11 @@ func (h *Hub) approvers(ctx context.Context, ap *core.Approval) string {
 	case req.AdminOnly || req.User == "":
 		return "an admin"
 	}
-	return h.userName(ctx, req.User)
+	// userName falls back to the id, which never belongs in a chat.
+	if u, err := h.d.Store.Users().Get(ctx, req.User); err == nil {
+		return cmp.Or(u.DisplayName, u.Username)
+	}
+	return "the approver"
 }
 
 func canApprove(req core.ApproverReq, res core.IdentityResolution, choice core.Choice) bool {

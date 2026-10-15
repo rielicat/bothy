@@ -221,7 +221,7 @@ func TestUnknownSenderAdminDMsThrottled(t *testing.T) {
 		if n := dms(); n != askDMs+1 {
 			t.Fatalf("a new window allowed %d DMs in total, want %d", n, askDMs+1)
 		}
-		if got := h.lastText(ownerChat); !strings.HasSuffix(got, "in Approvals. 7 more people have messaged Bothy since then.") {
+		if got := h.lastText(ownerChat); !strings.HasSuffix(got, "in Approvals. 7 other people have also messaged Bothy since the last notice.") {
 			t.Fatalf("the first DM of a new window does not mention the backlog: %q", got)
 		}
 	})

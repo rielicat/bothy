@@ -241,6 +241,9 @@ func outcomeText(d *core.Deploy, followed, took time.Duration) string {
 		return fmt.Sprintf("The deploy of %s timed out on GitHub. View the logs on GitHub:%s", what, link)
 	case d.Status == core.DeployFailed && d.Conclusion == "action_required":
 		return fmt.Sprintf("The deploy of %s stopped because GitHub needs someone to act on it. View it on GitHub:%s", what, link)
+	case d.Status == core.DeployFailed && (d.Conclusion == "skipped" || d.Conclusion == "neutral" || d.Conclusion == "stale"):
+		// Not a failure the logs explain: the workflow chose not to run, or GitHub dropped it.
+		return fmt.Sprintf("The deploy of %s didn't run: GitHub marked it %s. View it on GitHub:%s", what, strings.ReplaceAll(d.Conclusion, "_", " "), link)
 	case d.Status == core.DeployFailed && d.Conclusion != "":
 		return fmt.Sprintf("The deploy of %s failed. View the logs on GitHub:%s", what, link)
 	case d.Status == core.DeployFailed:

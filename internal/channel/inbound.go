@@ -307,9 +307,9 @@ func (h *Hub) notifyUnknownSender(ctx context.Context, channel string, ident cor
 		". Let them chat, link them or block them in Approvals."
 	switch {
 	case held == 1:
-		text += " 1 more person has messaged Bothy since then."
+		text += " 1 other person has also messaged Bothy since the last notice."
 	case held > 1:
-		text += fmt.Sprintf(" %d more people have messaged Bothy since then.", held)
+		text += fmt.Sprintf(" %d other people have also messaged Bothy since the last notice.", held)
 	}
 	buttons := h.webButton("Open Approvals", "/approvals")
 	for _, u := range users {
