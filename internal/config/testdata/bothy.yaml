@@ -185,7 +185,7 @@ channels:
              api_base: "https://slack.com/api/"}
 
 github:                           # v0.2: connections and the repository allowlist live in the database (Settings → Connections)
-  api_base: "https://api.github.com"   # LOCKED; GitHub Enterprise Server: https://<host>/api/v3
+  api_base: "https://api.github.com"   # LOCKED; GitHub Enterprise Server: https://<host>/api/v3; http only for a loopback host
   checkout: {max_mb: 256, max_files: 20000}
 
 mcp:
