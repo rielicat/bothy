@@ -42,7 +42,8 @@ describe('Settings → Account', () => {
 
   it('describes tokens in plain words and never says "never"', async () => {
     await open();
-    expect(await screen.findByText('Can chat · Last used 3 h ago')).toBeTruthy();
+    // The fixture was used three hours ago, which reads "yesterday …" just after midnight.
+    expect(await screen.findByText(/^Can chat · Last used (3 h ago|yesterday)/i)).toBeTruthy();
     expect(screen.getByText('Can chat and read · Not used yet')).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/\bnever\b/i);
   });
