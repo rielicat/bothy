@@ -161,20 +161,27 @@ func (s *Server) securityHeaders(w http.ResponseWriter, r *http.Request, ri *req
 	}
 }
 
-const insecureFix = "Use HTTPS: put Bothy behind Caddy or Tailscale (tailscale serve) and list the proxy in server.trusted_proxies, " +
-	"or set server.tls. From this machine, tunnel instead: ssh -L 8080:127.0.0.1:8080 <host>, then open http://127.0.0.1:8080."
+const (
+	insecureMsg    = "Bothy only accepts plain HTTP from the server it runs on"
+	insecureTunnel = "ssh -L 8080:127.0.0.1:8080 <host>"
+	insecureOpen   = "http://127.0.0.1:8080"
+	insecureSetup  = "put Bothy behind Caddy or Tailscale (tailscale serve) and list the proxy in server.trusted_proxies, or set server.tls"
+)
 
-// refuseInsecure answers a plain-HTTP request from a lan or public peer.
+// refuseInsecure answers a plain-HTTP request from a lan or public peer. The
+// page leads with what to do; the settings behind HTTPS go under Details.
 func (s *Server) refuseInsecure(w http.ResponseWriter, r *http.Request) {
-	msg := "plain HTTP is only served to this machine"
 	if isAPI(r.URL.Path) {
-		s.writeError(w, r, newError(http.StatusForbidden, "forbidden", msg).withFix(insecureFix))
+		fix := "Use HTTPS: " + insecureSetup + ". Or tunnel to the server: " + insecureTunnel + ", then open " + insecureOpen + "."
+		s.writeError(w, r, newError(http.StatusForbidden, "forbidden", insecureMsg).withFix(fix))
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusForbidden)
 	fmt.Fprintf(w, "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Bothy: HTTPS required</title></head>"+
-		"<body><h1>HTTPS required</h1><p>Bothy %s.</p><p>%s</p></body></html>\n", html.EscapeString(msg), html.EscapeString(insecureFix))
+		"<body><h1>HTTPS required</h1><p>%s. Open it over HTTPS, or tunnel to the server: <code>%s</code>, then open %s.</p>"+
+		"<details><summary>Details</summary><p>To set up HTTPS, %s.</p></details></body></html>\n",
+		html.EscapeString(insecureMsg), html.EscapeString(insecureTunnel), html.EscapeString(insecureOpen), html.EscapeString(insecureSetup))
 }
 
 func (s *Server) uploadLimit() int64 { return int64(max(s.cfg().Server.UploadMaxMB, 1)) << 20 }

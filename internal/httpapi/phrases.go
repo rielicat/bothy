@@ -151,9 +151,12 @@ func actionPhrase(tool string, a *core.Action) phrase {
 	case tool == "notes":
 		r := cmpOr(repo, "a repository")
 		return verbs("update the notes for "+r, "updating the notes for "+r, "Updated the notes for "+r, "Couldn't update the notes for "+r)
+	case tool == "tool_search":
+		return verbs("search for other things Bothy can do", "searching for other things Bothy can do",
+			"Searched for other things Bothy can do", "Couldn't search for other things Bothy can do")
 	case strings.HasPrefix(tool, "mcp__"):
 		server, t, _ := strings.Cut(strings.TrimPrefix(tool, "mcp__"), "__")
-		u := server + ": " + humanize(t)
+		u := core.ServiceName(server) + ": " + humanize(t)
 		return verbs("use "+u, "using "+u, "Used "+u, u+" failed")
 	case tool == "":
 		return phrase{}

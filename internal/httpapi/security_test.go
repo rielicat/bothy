@@ -82,6 +82,13 @@ func TestExposureGate(t *testing.T) {
 				if page.Code != http.StatusForbidden || !strings.Contains(page.Header().Get("Content-Type"), "text/html") {
 					t.Fatalf("SPA refusal = %d %s", page.Code, page.Header().Get("Content-Type"))
 				}
+				// What happened and what to do first; setting names only under Details.
+				body := page.Body.String()
+				main, details, ok := strings.Cut(body, "<details>")
+				if !ok || !strings.Contains(main, "<p>Bothy only accepts plain HTTP from the server it runs on. Open it over HTTPS") ||
+					strings.Contains(main, "server.") || !strings.Contains(details, "server.trusted_proxies") {
+					t.Fatalf("SPA refusal page = %s", body)
+				}
 			}
 		})
 	}

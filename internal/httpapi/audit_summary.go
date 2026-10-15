@@ -189,6 +189,9 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 			return "Removed " + targetUser() + " and their data"
 		}
 		return "Changed the account of " + targetUser()
+	case "user.profile":
+		// Only ever the actor's own: auth.UpdateProfile changes the caller.
+		return "Changed their profile"
 	case "pairing.create":
 		return "Started linking a chat app account"
 	case "pairing.redeem":
@@ -196,9 +199,10 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 			return "A chat app account used a link code that didn't work"
 		}
 		return "Linked a chat app account"
-	case "identity.link", "identity.guest", "identity.block":
+	case "identity.link", "identity.guest", "identity.block", "identity.unlink":
 		ch, ext, _ := strings.Cut(strings.TrimPrefix(e.Target, "channel:"), ":")
-		who := cmpOr(an.identity(ch, ext), "an account")
+		// An unlinked identity is gone from the store; the detail's user names it.
+		who := cmpOr(an.identity(ch, ext), an.user(core.UserID(d.str("user"))), "an account")
 		if app := viaNames[ch]; app != "" {
 			who += " on " + app
 		}
@@ -207,6 +211,8 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 			return "Let " + who + " chat as a guest"
 		case "identity.block":
 			return "Blocked " + who
+		case "identity.unlink":
+			return "Unlinked " + who
 		}
 		return "Linked " + who
 	case "space.update":
@@ -243,20 +249,28 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 		return "Remembered something"
 	case "memory.edit":
 		return "Edited what Bothy remembers"
-	case "skill.install":
-		return "Installed the skill " + quoted(e.Target, "")
-	case "skill.enable":
-		return "Turned on the skill " + quoted(e.Target, "")
-	case "skill.disable":
-		return "Turned off the skill " + quoted(e.Target, "")
-	case "skill.changed":
-		return "The skill " + quoted(e.Target, "") + " changed"
-	case "mcp.install":
-		return "Installed the connected tool " + e.Target
-	case "mcp.approve":
-		return "Approved the tools of " + e.Target
-	case "mcp.changed":
-		return e.Target + " changed its tools"
+	case "skill.install", "skill.enable", "skill.disable", "skill.changed":
+		name := quoted(strings.TrimPrefix(e.Target, "skill:"), "")
+		switch e.Action {
+		case "skill.install":
+			return "Installed the skill " + name
+		case "skill.enable":
+			return "Turned on the skill " + name
+		case "skill.disable":
+			return "Turned off the skill " + name
+		}
+		return "The skill " + name + " changed"
+	case "mcp.install", "mcp.approve", "mcp.changed":
+		server := core.ServiceName(strings.TrimPrefix(e.Target, "mcp:"))
+		switch {
+		case e.Action == "mcp.install" && failed:
+			return "Couldn't install " + server
+		case e.Action == "mcp.install":
+			return "Installed " + server
+		case e.Action == "mcp.approve":
+			return "Approved " + server + "'s actions"
+		}
+		return server + " changed its actions"
 	case "schedule.create", "schedule.update", "schedule.delete", "schedule.run":
 		name := "a schedule"
 		if n := cmpOr(d.str("name"), an.schedule(core.ScheduleID(strings.TrimPrefix(e.Target, "schedule:")))); n != "" {
@@ -316,6 +330,9 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 	case "github.disconnect":
 		return "Disconnected GitHub"
 	case "github.checkout":
+		if failed {
+			return "Couldn't get a copy of " + e.Target
+		}
 		return "Got a copy of " + e.Target
 	case "github.pull_request":
 		if failed {

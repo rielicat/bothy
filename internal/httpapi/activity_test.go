@@ -196,6 +196,18 @@ func TestAuditRowsAndEgressOutcomes(t *testing.T) {
 			Detail: detail(map[string]any{"environment": "production", "status": "unknown", "conclusion": ""})},
 		{Actor: "system", Action: "release.finish", Target: "dep_failed", Outcome: "ok",
 			Detail: detail(map[string]any{"environment": "production", "status": "failed", "conclusion": "failure"})},
+		{Actor: "user:" + string(h.admin.user), Action: "mcp.install", Target: "mcp:deepwiki", Outcome: "ok"},
+		{Actor: "user:" + string(h.admin.user), Action: "mcp.install", Target: "mcp:team-docs", Outcome: "error"},
+		{Actor: "user:" + string(h.admin.user), Action: "mcp.approve", Target: "mcp:linear", Outcome: "ok"},
+		{Actor: "system", Action: "mcp.changed", Target: "mcp:github", Outcome: "ok"},
+		{Actor: "user:" + string(h.admin.user), Action: "skill.install", Target: "skill:pdf", Outcome: "ok"},
+		{Actor: "system", Action: "skill.changed", Target: "skill:slides", Outcome: "ok"},
+		{Actor: agent, Action: "github.checkout", Target: "acme/web", Outcome: "error"},
+		{Actor: agent, Action: "tool.exec", Target: "tool_search", Outcome: "ok", Run: f.run.ID, Detail: detail(map[string]any{"tool": "tool_search"})},
+		{Actor: "user:" + string(h.member.user), Action: "identity.unlink", Target: "channel:slack:U123", Outcome: "ok",
+			Detail: detail(map[string]any{"user": string(h.member.user)})},
+		{Actor: "user:" + string(h.member.user), Action: "user.profile", Target: "user:" + string(h.member.user), Outcome: "ok",
+			Detail: detail(map[string]any{"timezone": "Europe/London"})},
 	}
 	for i := range entries {
 		e := entries[i]
@@ -234,6 +246,16 @@ func TestAuditRowsAndEgressOutcomes(t *testing.T) {
 		"approval.decide/apr_withdrawn":                       {"member", "Cancelled the request to delete a file"},
 		"release.finish/dep_lost":                             {"Bothy", "Bothy stopped following the deploy to production"},
 		"release.finish/dep_failed":                           {"Bothy", "The deploy to production didn't finish"},
+		"mcp.install/mcp:deepwiki":                            {"admin", "Installed DeepWiki"},
+		"mcp.install/mcp:team-docs":                           {"admin", "Couldn't install Team docs"},
+		"mcp.approve/mcp:linear":                              {"admin", "Approved Linear's actions"},
+		"mcp.changed/mcp:github":                              {"Bothy", "GitHub changed its actions"},
+		"skill.install/skill:pdf":                             {"admin", "Installed the skill “pdf”"},
+		"skill.changed/skill:slides":                          {"Bothy", "The skill “slides” changed"},
+		"github.checkout/acme/web":                            {"Bothy", "Couldn't get a copy of acme/web"},
+		"tool.exec/tool_search":                               {"Bothy", "Searched for other things Bothy can do"},
+		"identity.unlink/channel:slack:U123":                  {"member", "Unlinked member on Slack"},
+		"user.profile/user:" + string(h.member.user):          {"member", "Changed their profile"},
 	} {
 		if got[k] != want {
 			t.Errorf("%s = %q, want %q", k, got[k], want)
@@ -278,7 +300,9 @@ func TestActionPhrases(t *testing.T) {
 		{"memory", &core.Action{Payload: json.RawMessage(`{"file":"MEMORY","op":"add","new":"x"}`)}, phrase{"remember something", "remembering something", "Remembered something", "Couldn't save that"}},
 		{"memory", &core.Action{Payload: json.RawMessage(`{"file":"MEMORY","op":"replace","old":"x","new":"y"}`)}, phrase{"update a saved note", "updating a saved note", "Updated a saved note", "Couldn't update that note"}},
 		{"memory", &core.Action{Payload: json.RawMessage(`{"file":"USER","op":"remove","old":"x"}`)}, phrase{"forget something", "forgetting something", "Forgot something", "Couldn't remove that note"}},
-		{"mcp__linear__create_issue", nil, phrase{"use linear: Create issue", "using linear: Create issue", "Used linear: Create issue", "linear: Create issue failed"}},
+		{"mcp__linear__create_issue", nil, phrase{"use Linear: Create issue", "using Linear: Create issue", "Used Linear: Create issue", "Linear: Create issue failed"}},
+		{"mcp__deepwiki__read_wiki_structure", nil, phrase{"use DeepWiki: Read wiki structure", "using DeepWiki: Read wiki structure", "Used DeepWiki: Read wiki structure", "DeepWiki: Read wiki structure failed"}},
+		{"tool_search", nil, phrase{"search for other things Bothy can do", "searching for other things Bothy can do", "Searched for other things Bothy can do", "Couldn't search for other things Bothy can do"}},
 	} {
 		if got := actionPhrase(c.tool, c.a); got != c.want {
 			t.Errorf("%s = %+v, want %+v", c.tool, got, c.want)
