@@ -26,6 +26,9 @@ export interface PauseInfo {
 }
 
 // The banner list is keyed by code in the shell.
+// Banners whose clearing means an inbox review was decided.
+const reviewBanners = new Set(['mcp_pins', 'mcp_drifted', 'skills_changed', 'unknown_sender']);
+
 function uniqueBanners(list: BannerData[] | null | undefined): BannerData[] {
   return [...new Map((list ?? []).filter(Boolean).map((b) => [b.code, b])).values()];
 }
@@ -296,6 +299,10 @@ class Approvals {
         else if (d.status !== 'pending') this.pending = this.pending.filter((x) => x.id !== d.approval_id);
       }),
       ...(['approval.requested', 'approval.voted', 'approval.resolved', 'inbox.changed', 'mcp.pin_pending'] as const).map((t) => events.on(t, () => this.#refresh())),
+      // A review decided elsewhere (Settings) only clears its banner.
+      events.on('banner', (e) => {
+        if (reviewBanners.has((e.data as BannerData).code)) this.#refresh();
+      }),
       events.onResync(() => this.#refresh()),
     ];
     return () => offs.forEach((f) => f());
