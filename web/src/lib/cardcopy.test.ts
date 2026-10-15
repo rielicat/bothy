@@ -121,6 +121,14 @@ describe('cardCopy, one row per action', () => {
     expect(pr.kind).toBe('pull_request');
   });
 
+  it('says where schedule results really go, naming whose usual chat app it is', () => {
+    const sendsTo = (payload: Record<string, unknown>) => cardCopy(ap(act('schedule_create', 'schedule', 'admin', { name: 'Digest', prompt: 'x', ...payload }))).fields[1].value;
+    expect(sendsTo({ owner: 'Sam Patel', usual_chat: 'telegram' })).toBe("Sam Patel's usual chat app (Telegram)");
+    expect(sendsTo({ owner: 'Sam Patel' })).toBe('Bothy on the web (Sam Patel has no chat app linked)');
+    expect(sendsTo({ deliver: { channel: 'web' } })).toBe('Bothy on the web');
+    expect(sendsTo({ deliver: { channel: 'slack', chat_id: 'C1' } })).toBe('Slack');
+  });
+
   it('uses red only for actions that cannot be undone or spend money, never for deploys', () => {
     const tone = (r: (typeof rows)[number]) => cardCopy(ap(r[1])).tone;
     const red = rows.filter((r) => tone(r) === 'destructive').map((r) => r[0]);

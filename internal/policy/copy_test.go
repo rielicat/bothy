@@ -298,6 +298,45 @@ func TestWarningsArePlain(t *testing.T) {
 	}
 }
 
+// TestAdminReasonIsPlain: "Why Bothy asked" on an admin-class card says in
+// plain words what needs an admin.
+func TestAdminReasonIsPlain(t *testing.T) {
+	h := newHarness(t, nil)
+	for tool, want := range map[string]string{
+		"schedule_create": "creating a schedule needs an admin's approval",
+		"schedule_delete": "deleting a schedule needs an admin's approval",
+		"tune":            "changes to how Bothy works need an admin's approval",
+	} {
+		d := h.decide(h.in(action(tool, core.ActSchedule, core.SEAdmin, map[string]any{"name": "x"}), spec(tool, core.SEAdmin)))
+		if d.Verdict != core.VerdictAsk || d.Reason != want {
+			t.Errorf("%s: %s %q, want ask %q", tool, d.Verdict, d.Reason, want)
+		}
+	}
+}
+
+// TestScheduleSendsTo: a schedule card says where results really go. A
+// preferred delivery names whose usual chat app it is, since an admin may be
+// approving someone else's schedule.
+func TestScheduleSendsTo(t *testing.T) {
+	for _, tc := range []struct {
+		payload map[string]any
+		want    string
+	}{
+		{map[string]any{"owner": "Sam Patel", "usual_chat": "telegram"}, "Sam Patel's usual chat app (Telegram)"},
+		{map[string]any{"owner": "Sam Patel"}, "Bothy on the web (Sam Patel has no chat app linked)"},
+		{map[string]any{}, "Usual chat app, or Bothy on the web if none is linked"},
+		{map[string]any{"deliver": map[string]any{"channel": "web"}}, "Bothy on the web"},
+		{map[string]any{"deliver": map[string]any{"channel": "slack", "chat_id": "C1"}}, "Slack chat C1"},
+	} {
+		p := map[string]any{"name": "Digest", "when": "Mondays at 08:00", "prompt": "Summarise the open pull requests"}
+		maps.Copy(p, tc.payload)
+		c := cardFor(action("schedule_create", core.ActSchedule, core.SEAdmin, p), spec("schedule_create", core.SEAdmin))
+		if got := field(c, "Sends to").Value; got != tc.want {
+			t.Errorf("%v: Sends to %q, want %q", tc.payload, got, tc.want)
+		}
+	}
+}
+
 // copyActions puts v in every string argument of each tool with its own
 // plain copy, including the parts a sentence is built from.
 func copyActions(v string) map[string]struct {

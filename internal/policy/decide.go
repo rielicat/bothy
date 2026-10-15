@@ -330,7 +330,7 @@ func (e *Engine) floors(ctx context.Context, x *input, rule *config.Rule) (core.
 			return denied("floor:admin", "self-modification is not allowed in scheduled, heartbeat or API runs", true), true
 		}
 		if !restricted {
-			return askFloor("floor:admin", "self-modification: an admin must approve it", true)
+			return askFloor("floor:admin", adminReason(x.a.Tool), true)
 		}
 	}
 	if restricted {
@@ -367,6 +367,17 @@ func (e *Engine) floors(ctx context.Context, x *input, rule *config.Rule) (core.
 		return askFloor("floor:always_ask", cmp.Or(m.Title, x.a.Tool)+" always needs approval", false)
 	}
 	return core.Decision{}, false
+}
+
+// adminReason is F3's reason as the approval card's "Why Bothy asked" shows it.
+func adminReason(tool string) string {
+	switch tool {
+	case toolScheduleNew:
+		return "creating a schedule needs an admin's approval"
+	case toolScheduleDel:
+		return "deleting a schedule needs an admin's approval"
+	}
+	return "changes to how Bothy works need an admin's approval"
 }
 
 func (e *Engine) paused(ctx context.Context) bool {

@@ -141,3 +141,39 @@ func TestScheduleToolsExec(t *testing.T) {
 		t.Fatalf("deliver=here from the web UI = %s", a.Payload)
 	}
 }
+
+// TestScheduleCreateSaysWhereResultsGo: the card and the tool result say
+// where runs will post, so neither promises a chat app nobody linked.
+func TestScheduleCreateSaysWhereResultsGo(t *testing.T) {
+	h := newHarness(t)
+	env := h.env(&h.dm)
+	create := func(deliver string) (createPayload, string) {
+		t.Helper()
+		args := `{"name":"Digest","kind":"cron","spec":"0 9 * * 1","prompt":"Summarise the open pull requests"` + deliver + `}`
+		a, res := run(t, h.tool("schedule_create"), env, args)
+		var p createPayload
+		if err := json.Unmarshal(a.Payload, &p); err != nil {
+			t.Fatal(err)
+		}
+		return p, res.Content
+	}
+
+	p, res := create("")
+	if p.Deliver != nil || p.Owner != "owner" || p.Usual != "telegram" || !strings.HasSuffix(res, " Results go to the user's direct messages on telegram.") {
+		t.Fatalf("preferred delivery with a linked chat app = %+v, %q", p, res)
+	}
+	p, res = create(`,"deliver":"here"`)
+	if p.Owner != "" || p.Usual != "" || !strings.HasSuffix(res, " Results go to the user's direct messages on telegram.") {
+		t.Fatalf("delivery here = %+v, %q", p, res)
+	}
+	p, res = create(`,"deliver":"web"`)
+	if p.Owner != "" || !strings.HasSuffix(res, " Results stay in Bothy on the web.") {
+		t.Fatalf("web delivery = %+v, %q", p, res)
+	}
+
+	delete(h.hub.PreferredChats, h.owner)
+	p, res = create("")
+	if p.Owner != "owner" || p.Usual != "" || !strings.HasSuffix(res, " Results stay in Bothy on the web: the user has no chat app linked.") {
+		t.Fatalf("preferred delivery with no chat app linked = %+v, %q", p, res)
+	}
+}

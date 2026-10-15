@@ -351,11 +351,21 @@ function notes(a: Action, p: Payload, card: Card): Built {
   };
 }
 
+// Where a schedule's results go, as internal/policy/copy.go deliverText says it. Without a set chat they follow the
+// owner's usual chat app, named with the owner since an admin may approve someone else's schedule.
+function sendsTo(p: Payload): string {
+  const deliver = p.deliver && typeof p.deliver === 'object' ? (p.deliver as { channel?: string }) : undefined;
+  if (deliver) return deliver.channel && deliver.channel !== 'web' ? appName(deliver.channel) : 'Bothy on the web';
+  const owner = str(p.owner);
+  const usual = str(p.usual_chat);
+  if (!owner) return 'Usual chat app, or Bothy on the web if none is linked';
+  return usual ? `${owner}'s usual chat app (${appName(usual)})` : `Bothy on the web (${owner} has no chat app linked)`;
+}
+
 function scheduleCreate(_a: Action, p: Payload): Built {
   const name = str(p.name);
   const prompt = str(p.prompt);
   const lines = prompt.split('\n');
-  const deliver = p.deliver && typeof p.deliver === 'object' ? (p.deliver as { channel?: string }) : undefined;
   return {
     question: [`Create the schedule “${name}”?`],
     primary: 'Create schedule',
@@ -363,7 +373,7 @@ function scheduleCreate(_a: Action, p: Payload): Built {
     ask: [`create the schedule “${name}”`],
     fields: [
       { label: 'When', value: str(p.when) || str(p.spec) },
-      { label: 'Sends to', value: deliver?.channel && deliver.channel !== 'web' ? appName(deliver.channel) : 'Bothy on the web' },
+      { label: 'Sends to', value: sendsTo(p) },
       lines.length > 3 ? { label: 'Does', summary: lines.slice(0, 3).join('\n'), show: { kind: 'text', content: prompt } } : { label: 'Does', value: prompt },
     ],
   };

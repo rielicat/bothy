@@ -562,10 +562,21 @@ func humanLabel(k string) string {
 	return string(unicode.ToUpper(r)) + s[n:]
 }
 
+// deliverText says where a schedule's results go. Without a set chat they
+// follow the owner's usual chat app, named with the owner since an admin may
+// approve someone else's schedule; with none linked they stay in Bothy.
 func deliverText(doc any) string {
 	d, ok := mustPointer(doc, "/deliver").(map[string]any)
 	if !ok {
-		return "Your usual chat"
+		owner, _ := mustPointer(doc, "/owner").(string)
+		usual, _ := mustPointer(doc, "/usual_chat").(string)
+		switch {
+		case owner == "":
+			return "Usual chat app, or Bothy on the web if none is linked"
+		case usual == "":
+			return "Bothy on the web (" + owner + " has no chat app linked)"
+		}
+		return owner + "'s usual chat app (" + appName(usual) + ")"
 	}
 	ch, _ := d["channel"].(string)
 	if ch == "web" || ch == "" {

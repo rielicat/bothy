@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -164,7 +165,9 @@ type createArgs struct {
 }
 
 // createPayload is what the approval card shows and Exec runs: every default
-// resolved, delivery pinned to a concrete chat.
+// resolved, delivery pinned to a concrete chat or left to the owner's usual
+// chat app. Owner and Usual are only for the card: whose usual chat app that
+// is and which app it is today ("" while none is linked).
 type createPayload struct {
 	Name    string        `json:"name"`
 	Kind    string        `json:"kind"`
@@ -173,6 +176,8 @@ type createPayload struct {
 	When    string        `json:"when"`
 	Prompt  string        `json:"prompt"`
 	Deliver *core.ChatRef `json:"deliver,omitempty"`
+	Owner   string        `json:"owner,omitempty"`
+	Usual   string        `json:"usual_chat,omitempty"`
 }
 
 func newCreateTool(s *Service) *createTool {
@@ -181,7 +186,7 @@ func newCreateTool(s *Service) *createTool {
 		Description: "Create a scheduled task: the prompt runs later as a new conversation and its final answer is sent to the user. " +
 			"kind=cron takes a 5-field cron spec (minute hour day-of-month month day-of-week), e.g. \"0 8 * * 1-5\"; " +
 			"kind=once takes a date-time, e.g. \"2026-10-12T09:00\". Times are in tz (default: the user's time zone). " +
-			"deliver: preferred (default, the user's usual chat), here (this chat) or web. Needs an admin's approval.",
+			"deliver: preferred (default: the user's usual chat app, or only the web while none is linked), here (this chat) or web. Needs an admin's approval.",
 		Schema: json.RawMessage(`{"type":"object","properties":{` +
 			`"name":{"type":"string","minLength":1,"maxLength":100},` +
 			`"kind":{"type":"string","enum":["cron","once"]},` +
@@ -239,10 +244,26 @@ func (t *createTool) Plan(ctx context.Context, env *core.ToolEnv, args json.RawM
 	if next.IsZero() {
 		return nil, invalidf("%s is in the past", norm.Spec)
 	}
-	return newAction(createToolName, core.SEAdmin, createPayload{
-		Name: norm.Name, Kind: string(norm.Kind), Spec: norm.Spec, TZ: norm.TZ, When: describe(p),
-		Prompt: norm.Prompt, Deliver: norm.Deliver,
-	})
+	payload := createPayload{Name: norm.Name, Kind: string(norm.Kind), Spec: norm.Spec, TZ: norm.TZ, When: describe(p),
+		Prompt: norm.Prompt, Deliver: norm.Deliver}
+	if norm.Deliver == nil {
+		payload.Owner, payload.Usual = t.s.usualChat(ctx, env.Principal.User)
+	}
+	return newAction(createToolName, core.SEAdmin, payload)
+}
+
+// usualChat names the person a preferred delivery belongs to and the chat app
+// it reaches today, "" while they have none linked.
+func (s *Service) usualChat(ctx context.Context, u core.UserID) (owner, channel string) {
+	if usr, err := s.store.Users().Get(ctx, u); err == nil {
+		owner = cmp.Or(usr.DisplayName, usr.Username)
+	}
+	if s.hub != nil {
+		if chat, ok := s.hub.PreferredChat(ctx, u); ok {
+			channel = chat.Channel
+		}
+	}
+	return owner, channel
 }
 
 func (t *createTool) Exec(ctx context.Context, env *core.ToolEnv, act *core.Action) (*core.ToolResult, error) {
@@ -255,8 +276,23 @@ func (t *createTool) Exec(ctx context.Context, env *core.ToolEnv, act *core.Acti
 	if err := t.s.Upsert(ctx, ownViewer(env), sc, "run:"+string(env.Run)); err != nil {
 		return errorResult(createToolName, err)
 	}
-	return &core.ToolResult{Name: createToolName, Content: fmt.Sprintf("Created schedule %s “%s”: %s. Next run: %s.",
-		sc.ID, sc.Name, t.s.summary(sc), formatNext(sc))}, nil
+	return &core.ToolResult{Name: createToolName, Content: fmt.Sprintf("Created schedule %s “%s”: %s. Next run: %s. %s",
+		sc.ID, sc.Name, t.s.summary(sc), formatNext(sc), t.s.resultsGo(ctx, sc, &env.Principal))}, nil
+}
+
+// resultsGo tells the model where runs post, so its reply never promises a
+// chat app the user has not linked.
+func (s *Service) resultsGo(ctx context.Context, sc *core.Schedule, prin *core.Principal) string {
+	chat, ok := s.deliveryChat(ctx, sc, prin)
+	switch {
+	case ok && chat.Kind == core.ChatDM:
+		return "Results go to the user's direct messages on " + chat.Channel + "."
+	case ok:
+		return "Results go to this " + chat.Channel + " group chat."
+	case sc.Deliver == nil:
+		return "Results stay in Bothy on the web: the user has no chat app linked."
+	}
+	return "Results stay in Bothy on the web."
 }
 
 // ---- schedule_delete ----
