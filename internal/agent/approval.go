@@ -113,8 +113,12 @@ func (r *Runner) denialText(ctx context.Context, rs *runState, a *core.Approval)
 	who := "The user"
 	if a.DecidedBy != rs.req.User {
 		who = "An approver"
+		// Anyone can set their own display name, so it is quoted like the
+		// reason rather than read as Bothy's own words.
 		if u, err := r.d.Store.Users().Get(ctx, a.DecidedBy); err == nil {
-			who = cmpOr(attrValue(cmpOr(u.DisplayName, u.Username)), who)
+			if name := quoteReason(cmpOr(u.DisplayName, u.Username), 64); name != "" {
+				who = "An approver, " + name + ","
+			}
 		}
 	}
 	text := who + " denied this action."

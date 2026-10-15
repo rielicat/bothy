@@ -375,9 +375,9 @@ func TestDenialSaysWhoDecidedAndWhy(t *testing.T) {
 			"The user denied this action. Their reason: “Not now, I will edit #1 myself.”"},
 		{"the user, no reason", single, self, "", "The user denied this action."},
 		{"an admin", adminOnly, approver, "member-secrets test: not today",
-			"Priya Shah denied this action. Their reason: “member-secrets test: not today”"},
+			"An approver, “Priya Shah”, denied this action. Their reason: “member-secrets test: not today”"},
 		{"another approver", multi, approver, "one production deploy is already queued, wait for it",
-			"Priya Shah denied this action. Their reason: “one production deploy is already queued, wait for it”"},
+			"An approver, “Priya Shah”, denied this action. Their reason: “one production deploy is already queued, wait for it”"},
 		{"the requester withdraws", multi, self, "", "The user cancelled the request before it was approved."},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
