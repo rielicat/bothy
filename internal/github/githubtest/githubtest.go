@@ -1,9 +1,10 @@
 // Package githubtest is a fake GitHub REST API for tests: personal access
 // tokens, a GitHub App with installations and minted tokens, repositories
 // with git objects, archive downloads through a codeload redirect, the Git
-// Data API, pull requests, issues, comments and workflow runs, with GitHub's
-// pagination, rate-limit headers and error bodies. Response bodies start from
-// the examples in GitHub's REST API description (fixtures/README.md).
+// Data API, pull requests and their reviews, issues, comments and workflow
+// runs, with GitHub's pagination, rate-limit headers and error bodies.
+// Response bodies start from the examples in GitHub's REST API description
+// (fixtures/README.md).
 package githubtest
 
 import (
@@ -17,6 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -864,7 +866,38 @@ func (c *reqCtx) pullJSON(r *Repo, p *Pull, template map[string]any) map[string]
 	if _, ok := j["changed_files"]; ok {
 		j["changed_files"] = len(r.changed(p.BaseSHA, p.HeadSHA))
 	}
+	if users, ok := j["requested_reviewers"].([]any); ok && len(users) > 0 {
+		out := []any{}
+		for _, login := range p.Reviewers {
+			u := maps.Clone(obj(users[0]))
+			u["login"] = login
+			out = append(out, u)
+		}
+		j["requested_reviewers"] = out
+	}
+	if teams, ok := j["requested_teams"].([]any); ok && len(teams) > 0 {
+		out := []any{}
+		for _, slug := range p.Teams {
+			t := maps.Clone(obj(teams[0]))
+			t["slug"], t["name"] = slug, slug
+			out = append(out, t)
+		}
+		j["requested_teams"] = out
+	}
 	return j
+}
+
+// reviewJSON is a pulls/list-reviews item, written by hand in the
+// documented shape (fixtures/README.md).
+func (c *reqCtx) reviewJSON(r *Repo, p *Pull, rv Review) map[string]any {
+	u := obj(obj(fixture("pull-request"))["user"])
+	u["login"] = rv.User
+	html := "https://github.com/" + r.FullName() + "/pull/" + strconv.Itoa(p.Number) + "#pullrequestreview-" + strconv.FormatInt(rv.ID, 10)
+	return map[string]any{
+		"id": rv.ID, "node_id": "PRR_" + strconv.FormatInt(rv.ID, 10), "user": u, "body": rv.Body, "state": rv.State,
+		"html_url": html, "pull_request_url": "http://" + c.r.Host + "/repos/" + r.FullName() + "/pulls/" + strconv.Itoa(p.Number),
+		"submitted_at": "2026-10-14T12:00:00Z", "commit_id": p.HeadSHA, "author_association": "COLLABORATOR",
+	}
 }
 
 func (c *reqCtx) findPull(r *Repo, n string) *Pull {
@@ -943,6 +976,13 @@ func (c *reqCtx) pulls(r *Repo, seg []string) {
 			c.json(http.StatusOK, items)
 		case m == http.MethodGet && len(seg) == 2 && seg[1] == "comments":
 			c.json(http.StatusOK, fixture("pull-request-review-comment-items"))
+		case m == http.MethodGet && len(seg) == 2 && seg[1] == "reviews":
+			lo, hi := c.paginate(len(p.Reviews))
+			items := []any{}
+			for _, rv := range p.Reviews[lo:hi] {
+				items = append(items, c.reviewJSON(r, p, rv))
+			}
+			c.json(http.StatusOK, items)
 		default:
 			c.error(http.StatusNotFound, "Not Found")
 		}

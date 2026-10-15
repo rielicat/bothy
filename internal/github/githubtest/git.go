@@ -84,6 +84,18 @@ type Pull struct {
 	BaseSHA string
 	Draft   bool
 	State   string
+	// Reviewers and Teams are still asked to review (logins, team slugs).
+	Reviewers []string
+	Teams     []string
+	Reviews   []Review
+}
+
+// Review is a submitted pull request review.
+type Review struct {
+	ID    int64
+	User  string
+	State string // APPROVED | CHANGES_REQUESTED | COMMENTED | DISMISSED
+	Body  string
 }
 
 // Run is a seeded workflow run.
@@ -285,6 +297,40 @@ func (r *Repo) SetRun(id int64, status, conclusion string) {
 	}
 }
 
+// RequestReview asks users and teams (slugs prefixed "team:") to review a
+// pull request.
+func (r *Repo) RequestReview(number int, who ...string) {
+	r.srv.mu.Lock()
+	defer r.srv.mu.Unlock()
+	for _, p := range r.pulls {
+		if p.Number != number {
+			continue
+		}
+		for _, w := range who {
+			if slug, ok := strings.CutPrefix(w, "team:"); ok {
+				p.Teams = append(p.Teams, slug)
+			} else {
+				p.Reviewers = append(p.Reviewers, w)
+			}
+		}
+	}
+}
+
+// AddReview submits a review of a pull request; the reviewer is no longer
+// asked to review, as on GitHub.
+func (r *Repo) AddReview(number int, rv Review) {
+	r.srv.mu.Lock()
+	defer r.srv.mu.Unlock()
+	for _, p := range r.pulls {
+		if p.Number == number {
+			r.srv.nextID++
+			rv.ID = r.srv.nextID
+			p.Reviews = append(p.Reviews, rv)
+			p.Reviewers = slices.DeleteFunc(p.Reviewers, func(u string) bool { return u == rv.User })
+		}
+	}
+}
+
 // Pulls returns the repository's pull requests.
 func (r *Repo) Pulls() []Pull {
 	r.srv.mu.Lock()
@@ -292,6 +338,7 @@ func (r *Repo) Pulls() []Pull {
 	out := make([]Pull, len(r.pulls))
 	for i, p := range r.pulls {
 		out[i] = *p
+		out[i].Reviewers, out[i].Teams, out[i].Reviews = slices.Clone(p.Reviewers), slices.Clone(p.Teams), slices.Clone(p.Reviews)
 	}
 	return out
 }

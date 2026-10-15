@@ -30,7 +30,8 @@ const (
 
 // manifest records what repo_checkout wrote. It is kept with the pristine
 // archive outside the workspace, so nothing a box runs can rewrite the base
-// that repo_changes and repo_open_pr diff against.
+// that repo_changes and repo_open_pr diff against, nor what they count as
+// already sent.
 type manifest struct {
 	Version int                     `json:"version"`
 	Repo    string                  `json:"repo"` // owner/name
@@ -40,6 +41,21 @@ type manifest struct {
 	At      time.Time               `json:"checked_out_at"`
 	Files   map[string]manifestFile `json:"files"`
 	Skipped skips                   `json:"skipped"`
+	Sent    map[string]sentFile     `json:"sent,omitempty"` // by path: what the latest pull request carrying it sent
+}
+
+// sentFile is one file of a pull request opened from the checkout.
+type sentFile struct {
+	Op     string    `json:"op"`
+	SHA256 string    `json:"sha256,omitempty"`
+	Exec   bool      `json:"exec,omitempty"`
+	PR     int       `json:"pr"`
+	At     time.Time `json:"at"`
+}
+
+// carries reports whether the pull request sent exactly this change.
+func (s sentFile) carries(c change) bool {
+	return s.Op == c.Op && s.SHA256 == c.SHA256 && s.Exec == c.Exec
 }
 
 // loadManifest returns nil without an error when nothing was checked out.
@@ -64,12 +80,8 @@ func loadManifest(store string) (*manifest, error) {
 // saveCheckout stores the manifest and moves the downloaded archive next to
 // it, replacing the previous checkout's.
 func saveCheckout(store string, m *manifest, archive string) error {
-	b, err := json.Marshal(m)
+	tmp, err := writeManifestTemp(store, m)
 	if err != nil {
-		return err
-	}
-	tmp := filepath.Join(store, "."+manifestName+"."+randHex(6))
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return err
 	}
 	if err := os.Rename(archive, filepath.Join(store, archiveName)); err != nil {
@@ -81,6 +93,32 @@ func saveCheckout(store string, m *manifest, archive string) error {
 		return err
 	}
 	return nil
+}
+
+// saveManifest replaces the manifest of the checkout already stored.
+func saveManifest(store string, m *manifest) error {
+	tmp, err := writeManifestTemp(store, m)
+	if err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, filepath.Join(store, manifestName)); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+func writeManifestTemp(store string, m *manifest) (string, error) {
+	b, err := json.Marshal(m)
+	if err != nil {
+		return "", err
+	}
+	tmp := filepath.Join(store, "."+manifestName+"."+randHex(6))
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		_ = os.Remove(tmp)
+		return "", err
+	}
+	return tmp, nil
 }
 
 func randHex(n int) string {
@@ -98,10 +136,12 @@ type change struct {
 	SHA256 string `json:"sha256,omitempty"` // of the workspace content (added, modified)
 	Exec   bool   `json:"exec,omitempty"`
 	Size   int64  `json:"size,omitempty"`
+	SentIn int    `json:"-"` // the pull request that last carried this path, with this content or (in changes) older content
 }
 
 type scanResult struct {
-	changes  []change
+	changes  []change // not yet sent as they are now
+	sent     []change // exactly as a pull request already sent them
 	symlinks []string // untracked symbolic links: never committed
 	unsafe   []string // untracked files whose names cannot be committed
 }
@@ -198,6 +238,19 @@ func scanCheckout(ctx context.Context, root *os.Root, dir string, m *manifest, m
 		}
 	}
 	sort.Slice(res.changes, func(i, j int) bool { return res.changes[i].Path < res.changes[j].Path })
+	pending := res.changes[:0]
+	for _, c := range res.changes {
+		s, ok := m.Sent[c.Path]
+		if ok {
+			c.SentIn = s.PR
+		}
+		if ok && s.carries(c) {
+			res.sent = append(res.sent, c)
+		} else {
+			pending = append(pending, c)
+		}
+	}
+	res.changes = pending
 	return res, nil
 }
 
@@ -351,9 +404,46 @@ func changeSummary(changes []change, limit int) string {
 			fmt.Fprintf(&b, "… and %d more\n", len(changes)-limit)
 			break
 		}
-		fmt.Fprintf(&b, "%s %s\n", strings.ToUpper(c.Op[:1]), c.Path)
+		fmt.Fprintf(&b, "%s %s", strings.ToUpper(c.Op[:1]), c.Path)
+		if c.SentIn > 0 {
+			fmt.Fprintf(&b, " (changed again after pull request #%d)", c.SentIn)
+		}
+		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// sentSummary lists changes a pull request already carried.
+func sentSummary(sent []change, limit int) string {
+	var b strings.Builder
+	for i, c := range sent {
+		if i == limit {
+			fmt.Fprintf(&b, "… and %d more\n", len(sent)-limit)
+			break
+		}
+		fmt.Fprintf(&b, "%s %s (#%d)\n", strings.ToUpper(c.Op[:1]), c.Path, c.SentIn)
+	}
+	return b.String()
+}
+
+// pullRequests names the pull requests that carried the changes:
+// "pull request #3" or "pull requests #1, #3".
+func pullRequests(sent []change) string {
+	var ns []int
+	for _, c := range sent {
+		if !slices.Contains(ns, c.SentIn) {
+			ns = append(ns, c.SentIn)
+		}
+	}
+	slices.Sort(ns)
+	refs := make([]string, len(ns))
+	for i, n := range ns {
+		refs[i] = fmt.Sprintf("#%d", n)
+	}
+	if len(ns) == 1 {
+		return "pull request " + refs[0]
+	}
+	return "pull requests " + strings.Join(refs, ", ")
 }
 
 // changesDigest identifies a set of changes exactly.

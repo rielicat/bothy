@@ -40,7 +40,9 @@ rate-limit headers and secondary-limit `retry-after` of
 [Using pagination in the REST API](https://docs.github.com/en/rest/using-the-rest-api/using-pagination-in-the-rest-api);
 the bare SHA of the `application/vnd.github.sha` media type of
 `GET /repos/{o}/{r}/commits/{ref}`; the `302` of
-`GET /repos/{o}/{r}/tarball/{ref}` to a codeload URL and the archive layout
+`GET /repos/{o}/{r}/tarball/{ref}` to a codeload URL; the review items of
+`GET /repos/{o}/{r}/pulls/{n}/reviews` (pulls/list-reviews), with the user
+object of `pull-request.json`; and the archive layout
 `git archive` produces (one `<owner>-<repo>-<sha7>/` folder, a pax global
 header carrying the commit SHA); and the `GitHub-Authentication-Token-Expiration`
 header of expiring tokens.

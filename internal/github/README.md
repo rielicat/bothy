@@ -13,7 +13,9 @@ primary or secondary rate limits (`x-ratelimit-*`, `retry-after`) into plain
 errors; a 401 drops the cached token and retries once.
 
 Tools (gated on an allowlisted repository; never offered to restricted spaces):
-`repo_list`; `repo_checkout` downloads the tarball of a resolved commit and
+`repo_list` names the account Bothy acts as and counts each checkout's
+unsent and already-sent changes (never paths: it is trusted metadata);
+`repo_checkout` downloads the tarball of a resolved commit and
 extracts it through `os.Root` into `repos/<owner>/<name>` (size and file caps,
 links, devices, `.git` and unsafe names dropped, swapped in atomically) and
 keeps the manifest and pristine archive under `<data>/github/checkouts`, out of
@@ -23,9 +25,12 @@ workspace copy against that base, honouring `.gitignore`; `repo_open_pr`
 full diff on the card behind a format-patch style header (repository, head →
 base, title, indented description), re-hashes every file at Exec so only the approved bytes
 are sent, and writes blobs, a tree on the checked-out commit, a commit, a
-branch and the pull request (deleting the branch if the PR is refused);
-`github_issues`, `github_pr`, `github_runs` (read) and `github_comment`
-(external_send). Content tools and `repo_checkout` taint the session private
+branch and the pull request (deleting the branch if the PR is refused), then
+records in the manifest what each file was when sent, so `repo_changes` and
+later pull requests set it apart until it changes again (the checkout is
+shared by all of a principal's sessions); `github_issues`, `github_pr` (with each
+reviewer's latest verdict and the reviews still requested), `github_runs`
+(read) and `github_comment` (external_send). Content tools and `repo_checkout` taint the session private
 and untrusted and mark their results untrusted, so they are spotlighted and
 the trifecta floor applies. The service is also the `core.WorkflowDispatcher`
 the release module uses for allowlisted repositories (`Serves`): Dispatch
