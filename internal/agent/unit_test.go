@@ -155,11 +155,13 @@ func TestProfilesAndReserve(t *testing.T) {
 
 func TestCleanTitle(t *testing.T) {
 	cases := map[string]string{
-		"\"Weekend plans.\"":        "Weekend plans",
-		"# **Trip to Rome**\nextra": "Trip to Rome",
-		"  spaced   out   title  ":  "spaced out title",
-		"Launch day 🚀✨!":            "Launch day",
-		strings.Repeat("long ", 40): strings.Repeat("long ", 16)[:79] + "…",
+		"\"Weekend plans.\"":                         "Weekend plans",
+		"# **Trip to Rome**\nextra":                  "Trip to Rome",
+		"  spaced   out   title  ":                   "spaced out title",
+		"Launch day 🚀✨!":                             "Launch day",
+		"Open redirect via unvalidated `next` param": "Open redirect via unvalidated next param",
+		"Fix the **login** bug":                      "Fix the login bug",
+		strings.Repeat("long ", 40):                  strings.Repeat("long ", 16)[:79] + "…",
 	}
 	for in, want := range cases {
 		if got := cleanTitle(in); got != want {

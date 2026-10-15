@@ -162,6 +162,11 @@ func cleanTitle(s string) string {
 		s = s[:i]
 	}
 	s = strings.Map(func(r rune) rune {
+		// Backticks and emphasis marks inside the title show up literally
+		// in the sidebar ("Open redirect via unvalidated `next` param").
+		if r == '`' || r == '*' {
+			return -1
+		}
 		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.So, r) || unicode.Is(unicode.Variation_Selector, r) {
 			return -1
 		}

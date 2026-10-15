@@ -42,8 +42,9 @@ export function linkCitations(text: string, exposed = false): string {
       return outsideCode(line, (s) =>
         s.replace(CITATION, (whole: string, ...rest: unknown[]) => {
           const at = rest[5] as number;
-          // Already the target of a Markdown link or an autolink.
-          if (s[at - 1] === '(' || s[at - 1] === '<') return whole;
+          // Already the target of a Markdown link or an autolink; plain
+          // parentheses around a citation are prose ("… (acme/web@…)").
+          if ((s[at - 1] === '(' && s[at - 2] === ']') || s[at - 1] === '<') return whole;
           const c = cite([whole, ...(rest.slice(0, 5) as string[])]);
           return `[${c.label.replace(MD_PUNCT, '\\$&')}${exposed ? '' : ' ↗'}](<${c.href}>)`;
         }),

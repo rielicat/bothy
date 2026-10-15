@@ -36,4 +36,9 @@ describe('linkCitations', () => {
     expect(linkCitations(linked)).toBe(linked);
     expect(linkCitations('Mail sam@acme.example about it')).toBe('Mail sam@acme.example about it');
   });
+
+  it('links a citation the reply puts in parentheses', () => {
+    const out = linkCitations('This is in handleCallback (acme/web@a227002a1647:src/auth/callback.ts#L1-L5):');
+    expect(out).toContain('(acme/web · src/auth/callback.ts, lines 1–5 ↗](<https://github.com/acme/web/blob/a227002a1647/src/auth/callback.ts#L1-L5>)'.replace('(acme', '([acme'));
+  });
 });
