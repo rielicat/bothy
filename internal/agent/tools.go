@@ -124,6 +124,9 @@ func (r *Runner) runTools(rs *runState, step int, calls []core.ToolCall) *runEnd
 			if end := flush(); end != nil {
 				return end
 			}
+			// Announced like any call, so a live client shows the failure in
+			// its place instead of handing the row to the next call.
+			r.publishToolCall(rs, pc)
 			res := &core.ToolResult{Content: pc.fail, IsError: true}
 			if end := r.finishCall(rs, pc, execResult{res: res, status: pc.failSt}, false); end != nil {
 				return end
@@ -280,7 +283,7 @@ func (r *Runner) decide(ctx context.Context, rs *runState, pc *pcall, taint core
 
 func (r *Runner) publishToolCall(rs *runState, pc *pcall) {
 	rs.publish(core.EvToolCall, core.ToolCallData{CallID: pc.rec.ID, Tool: pc.name, Title: pc.spec.Manifest.Title,
-		Action: r.redactAction(pc.action), Verdict: pc.dec.Verdict, Rule: pc.dec.Rule})
+		Action: r.redactAction(pc.action), Verdict: pc.dec.Verdict, Rule: pc.dec.Rule, ProviderID: pc.call.ID})
 }
 
 func (r *Runner) handleDecision(rs *runState, pc *pcall, rest []core.ToolCall) *runEnd {

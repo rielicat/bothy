@@ -344,6 +344,12 @@ export interface ToolCallData {
   action?: Action;
   verdict: Verdict;
   rule: string;
+  /**
+   * ProviderID is the model's own id of the call (the persisted
+   * tool_call part's id), so a client matches live rows to the
+   * transcript exactly.
+   */
+  provider_call_id?: string;
 }
 export interface ToolOutputData {
   call_id: string;

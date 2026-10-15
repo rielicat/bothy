@@ -451,13 +451,48 @@ func (e *entry) validate(args json.RawMessage) (json.RawMessage, error) {
 	if err := json.Unmarshal(args, &v); err != nil {
 		return nil, fmt.Errorf("%w: arguments for %s are not valid JSON: %w", core.ErrInvalid, name, err)
 	}
-	if _, ok := v.(map[string]any); !ok {
+	obj, ok := v.(map[string]any)
+	if !ok {
 		return nil, fmt.Errorf("%w: arguments for %s must be a JSON object", core.ErrInvalid, name)
+	}
+	if unquoteJSONArgs(e.schema.Schema(), obj) {
+		b, err := json.Marshal(obj)
+		if err != nil {
+			return nil, fmt.Errorf("%w: arguments for %s: %w", core.ErrInvalid, name, err)
+		}
+		args = b
 	}
 	if err := e.schema.Validate(v); err != nil {
 		return nil, fmt.Errorf("%w: arguments for %s: %w", core.ErrInvalid, name, err)
 	}
 	return args, nil
+}
+
+// unquoteJSONArgs replaces a top-level argument the schema types as an
+// array or object, but that the model sent as a string holding exactly that
+// JSON ("paths": "[\"a.ts\"]"), with the decoded value. Models do this often
+// enough that refusing costs a round trip. It reports whether it changed obj.
+func unquoteJSONArgs(s *jsonschema.Schema, obj map[string]any) bool {
+	if s == nil {
+		return false
+	}
+	changed := false
+	for key, prop := range s.Properties {
+		str, ok := obj[key].(string)
+		if !ok || prop == nil || (prop.Type != "array" && prop.Type != "object") {
+			continue
+		}
+		var dec any
+		if json.Unmarshal([]byte(str), &dec) != nil {
+			continue
+		}
+		_, isArr := dec.([]any)
+		_, isObj := dec.(map[string]any)
+		if prop.Type == "array" && isArr || prop.Type == "object" && isObj {
+			obj[key], changed = dec, true
+		}
+	}
+	return changed
 }
 
 func normalizeAction(spec core.ToolSpec, a *core.Action) (*core.Action, error) {

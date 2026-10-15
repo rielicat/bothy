@@ -485,3 +485,29 @@ func TestToolSearchTool(t *testing.T) {
 		{Name: "too long", Args: json.RawMessage(`{"query":"` + strings.Repeat("x", 201) + `"}`), WantErr: true},
 	})
 }
+
+// Models sometimes send an array or object argument as a string of JSON; the
+// registry decodes it when the schema says what it must be.
+func TestGetDecodesJSONStringArgs(t *testing.T) {
+	r := NewRegistry(RegistryDeps{})
+	pr := stub{spec: core.ToolSpec{
+		Def: core.ToolDef{Name: "pr", Description: "opens", Schema: json.RawMessage(`{"type":"object","properties":{` +
+			`"paths":{"type":"array","items":{"type":"string"}},"meta":{"type":"object"},"title":{"type":"string"}},"additionalProperties":false}`)},
+		Source: "builtin", Manifest: core.Manifest{Title: "Open", SideEffect: core.SEExternalSend},
+	}}
+	if err := r.Register(pr); err != nil {
+		t.Fatal(err)
+	}
+	tool, _ := r.Get("pr")
+	a, err := tool.Plan(context.Background(), ownerEnv(), json.RawMessage(`{"paths":"[\"src/a.ts\"]","meta":"{\"k\":1}","title":"[not decoded]"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(a.Payload) != `{"meta":{"k":1},"paths":["src/a.ts"],"title":"[not decoded]"}` {
+		t.Errorf("payload = %s", a.Payload)
+	}
+	// A string that isn't the JSON the schema wants stays a string and fails.
+	if _, err := tool.Plan(context.Background(), ownerEnv(), json.RawMessage(`{"paths":"src/a.ts"}`)); !errors.Is(err, core.ErrInvalid) {
+		t.Errorf("plain string for an array: %v", err)
+	}
+}

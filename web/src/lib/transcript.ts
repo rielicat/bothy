@@ -3,6 +3,8 @@ import type { Action, Blob, Message, ToolCall, ToolCallStatus, ToolResult, Verdi
 // A tool call as the run streams it (run.tool_call / tool_output / tool_result).
 export interface LiveTool {
   callId: string; // tcl_<26>
+  /** The model's id of the call, as in the persisted tool_call part. */
+  providerId?: string;
   tool: string;
   title: string;
   action?: Action;
@@ -107,8 +109,13 @@ export function buildItems(messages: Message[], live: LiveRun | null, known?: Ma
       const { tool, args } = unwrap(p.call.name, p.call.args);
       let lt: LiveTool | undefined;
       if (ofLive) {
-        if (skip > 0) skip--;
-        else if (queue[0] && (queue[0].tool === tool || queue[0].tool === p.call.name)) lt = queue.shift();
+        // The model's call id matches exactly; order and name are the
+        // fallback for rows that don't carry it.
+        const id = p.call.id;
+        const exact = queue.findIndex((q) => !!q.providerId && q.providerId === id);
+        if (exact >= 0) lt = queue.splice(exact, 1)[0];
+        else if (skip > 0) skip--;
+        else if (queue[0] && !queue[0].providerId && (queue[0].tool === tool || queue[0].tool === p.call.name)) lt = queue.shift();
       }
       if (hidden(tool)) continue;
       items.push({ kind: 'tool', key: `t${m.id}:${n}`, runId: m.run_id, tool, args, call: p.call, result: results.get(p.call.id), live: lt ?? known?.get(p.call.id) });

@@ -265,8 +265,8 @@ export class Conversation {
         const d = e.data as ToolCallData;
         const tools = this.#run(e).tools;
         const t = tools.find((x) => x.callId === d.call_id);
-        if (t) Object.assign(t, { tool: d.tool, title: d.title, action: d.action, verdict: d.verdict, rule: d.rule });
-        else tools.push({ callId: d.call_id, tool: d.tool, title: d.title, action: d.action, verdict: d.verdict, rule: d.rule, out: [] });
+        if (t) Object.assign(t, { tool: d.tool, title: d.title, action: d.action, verdict: d.verdict, rule: d.rule, providerId: d.provider_call_id });
+        else tools.push({ callId: d.call_id, providerId: d.provider_call_id, tool: d.tool, title: d.title, action: d.action, verdict: d.verdict, rule: d.rule, out: [] });
       }),
       on('run.tool_output', (e) => {
         const d = e.data as ToolOutputData;

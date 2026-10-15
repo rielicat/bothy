@@ -64,6 +64,21 @@ describe('buildItems', () => {
     expect(tools.map((t) => t.kind === 'tool' && t.live?.callId)).toEqual(['tcl_0', 'tcl_1']);
   });
 
+  it("matches a streamed row by the model's call id, so a call without a row can't take another's", () => {
+    // The first repo_open_pr failed validation; the retry through use_tool was approved.
+    const messages = [
+      msg(1, 'user', [{ t: 'text', text: 'go' }]),
+      msg(2, 'assistant', [call('toolu_a', 'repo_open_pr')], { run_id: 'run_1' }),
+      msg(3, 'assistant', [{ t: 'tool_call', call: { id: 'toolu_b', name: 'use_tool', args: { name: 'repo_open_pr', args: {} } } }], { run_id: 'run_1' }),
+    ];
+    const items = buildItems(messages, live([{ tool: 'repo_open_pr', providerId: 'toolu_b', status: 'ok' }]));
+    const tools = items.filter((i) => i.kind === 'tool');
+    expect(tools.map((t) => t.kind === 'tool' && [t.call?.id, t.live?.callId ?? null])).toEqual([
+      ['toolu_a', null],
+      ['toolu_b', 'tcl_0'],
+    ]);
+  });
+
   it('places streamed rows whose message is not persisted yet after the run, before the stream', () => {
     const messages = [msg(1, 'user', [{ t: 'text', text: 'go' }]), msg(2, 'assistant', [{ t: 'text', text: 'step one' }], { run_id: 'run_1' })];
     const items = buildItems(messages, live([{ tool: 'shell' }], { text: 'writing…' }));
