@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Disclosure, IconButton, Menu, Select, type MenuItem } from '../../components/ui';
-  import type { ModelOption } from './ModelDialog.svelte';
+  import type { ModelOption } from '../../components/ModelDialog.svelte';
   import { addBackup, moveBackup, removeAt } from './modelHelpers';
   import { Saver, settingsConfig } from './store.svelte';
 

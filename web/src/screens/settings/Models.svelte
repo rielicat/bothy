@@ -7,7 +7,7 @@
   import BackupModels from './BackupModels.svelte';
   import ItemRow from './ItemRow.svelte';
   import ManageProvider, { type ManagedProvider } from './ManageProvider.svelte';
-  import ModelDialog, { type ModelOption } from './ModelDialog.svelte';
+  import ModelDialog, { type ModelOption } from '../../components/ModelDialog.svelte';
   import { makePrimary, modelName, modelProvider, providerName, providerStatus, splitRef } from './modelHelpers';
   import SettingsFrame from './SettingsFrame.svelte';
   import { Saver, settingsConfig } from './store.svelte';

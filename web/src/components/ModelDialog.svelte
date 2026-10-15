@@ -8,9 +8,9 @@
 
 <script lang="ts">
   import { tick } from 'svelte';
-  import Icon from '../../components/Icon.svelte';
-  import { Button, Dialog, Notice, TextField } from '../../components/ui';
-  import { findTypeahead, typeahead } from '../../components/ui/layer';
+  import Icon from './Icon.svelte';
+  import { Button, Dialog, Notice, TextField } from './ui';
+  import { findTypeahead, typeahead } from './ui/layer';
 
   // Change a model slot (§11.4): connected models by friendly name, grouped by
   // provider, as a listbox that stays open in the dialog so one click chooses.
