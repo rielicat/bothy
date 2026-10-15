@@ -119,6 +119,7 @@ func (s *Server) routeTable() []route {
 
 		{pattern: "GET /api/mcp", access: accessAdmin, h: s.mcpStatus},
 		{pattern: "GET /api/mcp/{server}/pins", access: accessAdmin, h: s.mcpPins},
+		{pattern: "POST /api/mcp/resolve", access: accessAdmin, h: s.mcpResolve},
 		{pattern: "POST /api/mcp/{server}/approve", access: accessAdmin, h: s.mcpApprove},
 		{pattern: "POST /api/mcp/{server}/install", access: accessAdmin, h: s.mcpInstall},
 		{pattern: "POST /api/mcp/{server}/reload", access: accessAdmin, h: s.mcpReload},

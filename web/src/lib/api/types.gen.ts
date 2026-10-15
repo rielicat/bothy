@@ -3154,6 +3154,22 @@ export interface DiscordInvite {
 export interface MCPApproveReq {
   tools: { [key: string]: MCPToolApproval};
 }
+/**
+ * MCPResolveReq names an npm package to pin; Version "" means the latest.
+ */
+export interface MCPResolveReq {
+  name: string;
+  version?: string;
+}
+/**
+ * MCPResolveResp is the exact version and the registry's integrity hash to
+ * pin, so the admin never types a hash.
+ */
+export interface MCPResolveResp {
+  name: string;
+  version: string;
+  integrity: string;
+}
 export interface SandboxInfo {
   status: SandboxStatus;
   compose_hint?: string; // shown when unavailable

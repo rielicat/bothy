@@ -7031,6 +7031,7 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `GET /api/mcp` | admin | — | `[]core.MCPStatus` |
 | `GET /api/mcp/{server}/pins` | admin | — | `[]core.MCPPin` (pending ones include the previous approved definition for diffing) |
 | `POST /api/mcp/{server}/approve` | admin | `dto.MCPApproveReq` | `204` |
+| `POST /api/mcp/resolve` | admin | `MCPResolveReq{name, version?}` | `MCPResolveResp{name, version, integrity}`: the exact version (latest when omitted) and npm's `dist.integrity` (sha512), fetched from `registry.npmjs.org` through the egress system client; nothing is installed. `400` for a name or version that isn't an npm one, `404` when npm has no such package or version |
 | `POST /api/mcp/{server}/install` | admin | — | `202` |
 | `POST /api/mcp/{server}/reload` | admin | — | `202` |
 | `GET /api/providers` | admin | — | `[]core.ProviderHealth` (v0.2 UI: `source`, where the credentials come from in plain words: "Saved key", "Environment variable", "AWS Secrets Manager", or for bedrock "This server's AWS access (<how it signs in>)" once the chain has resolved; never the credentials) |

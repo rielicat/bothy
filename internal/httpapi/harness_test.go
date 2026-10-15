@@ -93,6 +93,7 @@ type harness struct {
 	scheduler *fakes.Scheduler
 	hub       *fakes.Hub
 	sandbox   *sandboxtest.Sandbox
+	egress    *sandboxtest.Egress
 	audit     *fakes.Auditor
 	dataDir   string
 	workDir   string
@@ -125,7 +126,7 @@ func newHarness(t *testing.T, mut ...func(*config.Config)) *harness {
 	h := &harness{t: t, cfg: &testConfig{cfg: cfg}, store: memstore.New(), bus: events.New(events.Options{}),
 		vault: fakes.NewVault(nil), approvals: &fakes.Approvals{Manual: true}, policy: &fakes.Policy{},
 		llm: &fakes.LLM{}, budget: &fakes.Budget{}, memory: &fakes.Memory{}, skills: &fakes.Skills{Bodies: map[string]string{}},
-		mcp: &fakes.MCP{}, scheduler: &fakes.Scheduler{}, hub: &fakes.Hub{}, sandbox: &sandboxtest.Sandbox{},
+		mcp: &fakes.MCP{}, scheduler: &fakes.Scheduler{}, hub: &fakes.Hub{}, sandbox: &sandboxtest.Sandbox{}, egress: &sandboxtest.Egress{},
 		audit: &fakes.Auditor{}, dataDir: t.TempDir(), workDir: t.TempDir(), env: map[string]string{}}
 	h.runner = &fakes.Runner{Store: h.store}
 	a, err := auth.New(auth.Deps{Store: h.store, Config: h.cfg, Audit: h.audit, Bus: h.bus, Redactor: h.vault.Redactor(),
@@ -136,7 +137,7 @@ func newHarness(t *testing.T, mut ...func(*config.Config)) *harness {
 	h.auth = a
 	srv, err := New(Deps{Config: h.cfg, Store: h.store, Auth: a, Vault: h.vault, Bus: h.bus, Runner: h.runner,
 		Approvals: h.approvals, Policy: h.policy, LLM: h.llm, Budget: h.budget, Memory: h.memory, Skills: h.skills,
-		MCP: h.mcp, Scheduler: h.scheduler, Hub: h.hub, Sandbox: h.sandbox, Egress: &sandboxtest.Egress{},
+		MCP: h.mcp, Scheduler: h.scheduler, Hub: h.hub, Sandbox: h.sandbox, Egress: h.egress,
 		Doctor: doctor.New(a.Checks()), Audit: h.audit, WebUI: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			_, _ = io.WriteString(w, "<!doctype html><title>Bothy</title>")

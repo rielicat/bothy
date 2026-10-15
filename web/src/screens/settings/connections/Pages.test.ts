@@ -58,6 +58,26 @@ describe('Connections overview (§12.1)', () => {
     });
   });
 
+  it('adds a command server from its package name and pins what npm reports', async () => {
+    const calls = await start();
+    render(Connections);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Add an MCP server' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add an MCP server' });
+    await fireEvent.input(within(dialog).getByLabelText('Name'), { target: { value: 'tracker' } });
+    await fireEvent.click(within(dialog).getByRole('radio', { name: 'A command on this server' }));
+    expect(within(dialog).queryByLabelText(/Integrity/)).toBeNull();
+    await fireEvent.input(within(dialog).getByLabelText('Package'), { target: { value: 'missing-pkg' } });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Add server' }));
+    expect(await within(dialog).findByText('npm has no package called missing-pkg.')).toBeTruthy();
+    expect(writes(calls).filter((c) => c.url === '/api/config')).toEqual([]);
+
+    await fireEvent.input(within(dialog).getByLabelText('Package'), { target: { value: '@linear/mcp' } });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Add server' }));
+    await waitFor(() => expect(writes(calls).some((c) => c.method === 'PATCH' && c.url === '/api/config')).toBe(true));
+    const set = JSON.parse(writes(calls).find((c) => c.url === '/api/config')!.body).set['mcp.servers.tracker'];
+    expect(set.package).toEqual({ ecosystem: 'npm', name: '@linear/mcp', version: '1.4.2', integrity: 'sha512-mockIntegrityHash==' });
+  });
+
   it('keeps web search first and ends Tools with the add button when no servers exist', async () => {
     await start((m, url) => (m === 'GET' && url === '/api/mcp' ? [] : undefined));
     render(Connections);

@@ -1,8 +1,8 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
   import { Button, CommandBlock, Dialog, Disclosure, Notice, OptionList, StatusLine, TextField, toast } from '../../../components/ui';
-  import { api, errorText } from '../../../lib/api/client';
-  import type { SandboxInfo } from '../../../lib/api/types.gen';
+  import { api, ApiError, errorText } from '../../../lib/api/client';
+  import type { MCPResolveResp, SandboxInfo } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
   import { session } from '../../../lib/stores/session.svelte';
   import { saveConfig, type Failure } from './connections';
@@ -15,7 +15,9 @@
   let header = $state('');
   let pkg = $state('');
   let version = $state('');
-  let integrity = $state('');
+  // The exact version and integrity hash npm reports for pkg@version, which the server is pinned to.
+  let pinned = $state<MCPResolveResp | null>(null);
+  let pkgError = $state('');
   let hosts = $state('');
   let tried = $state(false);
   let busy = $state(false);
@@ -23,7 +25,8 @@
   let codeRuns = $state<boolean | undefined>(undefined);
 
   function reset() {
-    name = address = header = pkg = version = integrity = hosts = '';
+    name = address = header = pkg = version = hosts = pkgError = '';
+    pinned = null;
     how = 'http';
     tried = false;
     failure = null;
@@ -46,9 +49,8 @@
           ? 'There is already a server with this name.'
           : undefined,
     address: how === 'http' && !/^https?:\/\/\S+$/.test(address.trim()) ? 'Enter the full address, like https://mcp.linear.app/mcp.' : undefined,
-    pkg: how === 'stdio' && !pkg.trim() ? 'Enter the npm package, like @linear/mcp.' : undefined,
-    version: how === 'stdio' && !/^\d+\.\d+\.\d+\S*$/.test(version.trim()) ? 'Enter an exact version, like 1.4.0.' : undefined,
-    integrity: how === 'stdio' && !/^sha(256|384|512)-\S+$/.test(integrity.trim()) ? 'Paste the integrity hash from npm, starting with sha512-.' : undefined,
+    pkg: how === 'stdio' && !pkg.trim() ? 'Enter the npm package, like @linear/mcp.' : how === 'stdio' && pkgError ? pkgError : undefined,
+    version: how === 'stdio' && version.trim() && !/^\d+\.\d+\.\d+\S*$/.test(version.trim()) ? 'Enter an exact version, like 1.4.0, or leave it empty.' : undefined,
   });
   const show = (k: keyof typeof errors) => (tried ? errors[k] : undefined);
   const egress = $derived(
@@ -57,6 +59,23 @@
       .map((h) => h.trim())
       .filter(Boolean),
   );
+
+  // pin asks the server for the exact version and hash; a package npm doesn't
+  // know is a field error, anything else a failure under the form.
+  async function pin(): Promise<MCPResolveResp | null> {
+    const want = { name: pkg.trim(), version: version.trim() || undefined };
+    if (pinned && pinned.name === want.name && (!want.version || pinned.version === want.version)) return pinned;
+    pkgError = '';
+    try {
+      pinned = await api.post<MCPResolveResp>('/api/mcp/resolve', want);
+      return pinned;
+    } catch (err) {
+      pinned = null;
+      if (err instanceof ApiError && (err.status === 404 || err.status === 400)) pkgError = err.message;
+      else failure = { message: "Bothy couldn't look this package up on npm. Try again.", details: errorText(err) };
+      return null;
+    }
+  }
 
   async function add(e: SubmitEvent) {
     e.preventDefault();
@@ -80,7 +99,13 @@
         }
         Object.assign(server, { url: address.trim(), headers });
       } else {
-        Object.assign(server, { package: { ecosystem: 'npm', name: pkg.trim(), version: version.trim(), integrity: integrity.trim() }, egress, workspace: 'none' });
+        const p = await pin();
+        if (!p) {
+          await tick();
+          form.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+          return;
+        }
+        Object.assign(server, { package: { ecosystem: 'npm', name: p.name, version: p.version, integrity: p.integrity }, egress, workspace: 'none' });
       }
       failure = await saveConfig({ [`mcp.servers.${name}`]: server });
       if (failure) {
@@ -132,11 +157,27 @@
             <Notice tone="warning" text="This server runs as a command, and code can't run on this server. Use its web address instead, or turn on running code in Security." />
           {:else}
             <div class="space-y-4">
-              <TextField label="Package" bind:value={pkg} error={show('pkg')} placeholder="@linear/mcp" spellcheck="false" help="From npm. Bothy installs it in an isolated workspace." />
-              <div class="grid gap-4 sm:grid-cols-2">
-                <TextField label="Version" bind:value={version} error={show('version')} placeholder="1.4.0" spellcheck="false" />
-                <TextField label="Integrity hash" bind:value={integrity} error={show('integrity')} placeholder="sha512-…" spellcheck="false" />
-              </div>
+              <TextField
+                label="Package"
+                bind:value={pkg}
+                error={show('pkg') || pkgError || undefined}
+                placeholder="@linear/mcp"
+                spellcheck="false"
+                help="From npm. Bothy installs it in an isolated workspace."
+                oninput={() => ((pinned = null), (pkgError = ''))}
+                onblur={() => pkg.trim() && void pin()}
+              />
+              <TextField
+                label="Version"
+                optional
+                bind:value={version}
+                error={show('version')}
+                placeholder="Latest"
+                spellcheck="false"
+                help={pinned ? `Bothy will install version ${pinned.version} and check it hasn't changed.` : 'Leave it empty for the latest version.'}
+                oninput={() => (pinned = null)}
+                onblur={() => pkg.trim() && void pin()}
+              />
               <TextField
                 label="Websites it can reach"
                 optional
@@ -145,9 +186,10 @@
                 spellcheck="false"
                 help={egress.length ? `It will be able to reach ${egress.join(', ')}, and nothing else.` : "Leave this empty if it doesn't need the internet."}
               />
-              {#if pkg.trim() && version.trim()}
+              {#if pinned}
                 <Disclosure>
-                  <CommandBlock label="Install command" code="npm install --ignore-scripts --no-audit --no-fund --save-exact {pkg.trim()}@{version.trim()}" />
+                  <CommandBlock label="Install command" code="npm install --ignore-scripts --no-audit --no-fund --save-exact {pinned.name}@{pinned.version}" />
+                  <CommandBlock class="mt-3" label="Integrity hash" code={pinned.integrity} />
                 </Disclosure>
               {/if}
             </div>

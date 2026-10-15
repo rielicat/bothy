@@ -349,6 +349,20 @@ type MCPApproveReq struct {
 	Tools map[string]core.MCPToolApproval `json:"tools"`
 }
 
+// MCPResolveReq names an npm package to pin; Version "" means the latest.
+type MCPResolveReq struct {
+	Name    string `json:"name"`
+	Version string `json:"version,omitempty"`
+}
+
+// MCPResolveResp is the exact version and the registry's integrity hash to
+// pin, so the admin never types a hash.
+type MCPResolveResp struct {
+	Name      string `json:"name"`
+	Version   string `json:"version"`
+	Integrity string `json:"integrity"`
+}
+
 type SandboxInfo struct {
 	Status  core.SandboxStatus `json:"status"`
 	Compose string             `json:"compose_hint,omitempty"` // shown when unavailable

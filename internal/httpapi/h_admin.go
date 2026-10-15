@@ -3,10 +3,14 @@ package httpapi
 import (
 	"archive/zip"
 	"bytes"
+	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -418,6 +422,65 @@ func (s *Server) mcpInstall(w http.ResponseWriter, r *http.Request, a core.Actor
 		}
 	})
 	return accepted(w, nil)
+}
+
+var (
+	npmName    = regexp.MustCompile(`^(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$`)
+	npmVersion = regexp.MustCompile(`^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`)
+)
+
+// mcpResolve looks an npm package up in the public registry and returns the
+// exact version and integrity hash a command MCP server is pinned to. The
+// admin sees both before adding the server; Bothy installs nothing here.
+func (s *Server) mcpResolve(w http.ResponseWriter, r *http.Request, _ core.Actor) error {
+	var req dto.MCPResolveReq
+	if err := decode(r, &req); err != nil {
+		return err
+	}
+	name, version := strings.TrimSpace(req.Name), strings.TrimSpace(req.Version)
+	if len(name) > 214 || !npmName.MatchString(name) {
+		return badRequest("That isn't an npm package name. Use one like @linear/mcp.")
+	}
+	if version != "" && !npmVersion.MatchString(version) {
+		return badRequest("Use an exact version, like 1.4.0, or leave it empty for the latest.")
+	}
+	hc := s.d.Egress.SystemClient(core.SystemDest{Name: "mcp:resolve", Hosts: []string{"registry.npmjs.org:443"}})
+	if hc == nil {
+		return newError(http.StatusServiceUnavailable, "unavailable", "Bothy can't reach the npm registry right now.")
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	u := "https://registry.npmjs.org/" + url.PathEscape(name) + "/" + url.PathEscape(cmp.Or(version, "latest"))
+	hreq, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return err
+	}
+	hreq.Header.Set("Accept", "application/json")
+	resp, err := hc.Do(hreq)
+	if err != nil {
+		return newError(http.StatusBadGateway, "unreachable", "Bothy couldn't reach the npm registry. Try again in a moment.")
+	}
+	defer resp.Body.Close()
+	switch {
+	case resp.StatusCode == http.StatusNotFound && version != "":
+		return newError(http.StatusNotFound, "not_found", "npm has no version "+version+" of "+name+".")
+	case resp.StatusCode == http.StatusNotFound:
+		return newError(http.StatusNotFound, "not_found", "npm has no package called "+name+".")
+	case resp.StatusCode != http.StatusOK:
+		return newError(http.StatusBadGateway, "provider_error", fmt.Sprintf("The npm registry answered %d. Try again in a moment.", resp.StatusCode))
+	}
+	var meta struct {
+		Name    string `json:"name"`
+		Version string `json:"version"`
+		Dist    struct {
+			Integrity string `json:"integrity"`
+		} `json:"dist"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&meta); err != nil || meta.Name != name ||
+		!npmVersion.MatchString(meta.Version) || !strings.HasPrefix(meta.Dist.Integrity, "sha512-") {
+		return newError(http.StatusBadGateway, "provider_error", "The npm registry sent something Bothy can't pin. Try again in a moment.")
+	}
+	return ok(w, dto.MCPResolveResp{Name: meta.Name, Version: meta.Version, Integrity: meta.Dist.Integrity})
 }
 
 func (s *Server) mcpReload(w http.ResponseWriter, r *http.Request, _ core.Actor) error {
