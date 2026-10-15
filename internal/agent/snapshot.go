@@ -278,6 +278,11 @@ func (r *Runner) renderS2(ctx context.Context, rs *runState, p profile, window i
 	} else {
 		f.WriteString("- Sandbox: unavailable (shell, python and MCP stdio tools are off; never claim to run code)\n")
 	}
+	// Without this the model guesses how a saved key reaches a command and
+	// asks a non-technical user how their setup exposes it.
+	f.WriteString("- Saved keys: only Bothy's own connections use them (AI models, chat apps, web search, connected services, GitHub). " +
+		"They never reach you, commands or files, so no command can read one; if asked, say so plainly. " +
+		"\"[redacted]\" in any text marks a key or token Bothy hid.\n")
 	if len(services) > 0 {
 		names := make([]string, 0, min(len(services), maxServicesListed)+1)
 		for _, s := range services[:min(len(services), maxServicesListed)] {

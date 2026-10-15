@@ -4895,7 +4895,9 @@ Web (`POST /api/sessions/{id}/messages`) and API (`/v1/chat/completions`) skip s
 [tools]   core tool specs from ToolRegistry.ForRun, sorted, frozen per epoch       ← breakpoint 1 (ToolsCache)
 [S1]      CONSTITUTION.md (embedded, versioned) + admin standing rules
 [S2]      persona (SOUL.md) · facts (principal display name, kind, timezone, channel,
-          sandbox available, connected MCP servers when tool_search is offered,
+          sandbox available, saved keys (used only by Bothy's own connections,
+          never by commands or files; "[redacted]" marks a hidden one),
+          connected MCP servers when tool_search is offered,
           model window, profile) · USER.md · MEMORY.md ·
           pinned instructions · skills index                                         ← breakpoint 2 (CacheBreak)
 [M0]      <context-summary epoch="N"> … </context-summary>   (when epoch > 0)

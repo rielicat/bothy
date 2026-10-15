@@ -520,6 +520,23 @@ func TestAgentNameAndToneInFacts(t *testing.T) {
 	})
 }
 
+// Saved keys never enter a box (SPEC D17); the facts say so, so the model
+// explains it instead of guessing how a command could read one.
+func TestFactsExplainSavedKeys(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{steps: []fakes.LLMStep{{Text: []string{"hi"}}}})
+		defer h.close()
+		h.submit("hello")
+		synctest.Wait()
+		s2 := h.requests()[0].System[1].Text
+		for _, want := range []string{"- Saved keys: only Bothy's own connections use them", "They never reach you, commands or files", `"[redacted]" in any text marks a key or token Bothy hid.`} {
+			if !strings.Contains(s2, want) {
+				t.Fatalf("facts lack %q:\n%s", want, s2)
+			}
+		}
+	})
+}
+
 func TestFactsNameConnectedServices(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		tools := []core.Tool{&testTool{name: "echo"}, &testTool{name: "tool_search", lazy: true},
