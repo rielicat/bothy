@@ -350,6 +350,43 @@ func TestModelCommandUsesPlainNames(t *testing.T) {
 	})
 }
 
+// Names several models share never choose one silently.
+func TestModelCommandSharedNames(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		us := core.ModelInfo{Ref: core.ModelRef{Provider: "bedrock", Model: "us.anthropic.claude-sonnet-4-6"}, DisplayName: "Claude Sonnet 4.6 (US)", ShortName: "Sonnet 4.6"}
+		global := core.ModelInfo{Ref: core.ModelRef{Provider: "bedrock", Model: "global.anthropic.claude-sonnet-4-6"}, DisplayName: "Claude Sonnet 4.6 (Global)", ShortName: "Sonnet 4.6"}
+		direct := core.ModelInfo{Ref: core.ModelRef{Provider: "anthropic", Model: "claude-sonnet-4-6"}, DisplayName: "Claude Sonnet 4.6", ShortName: "Sonnet 4.6"}
+		h := newHarness(t, func(h *harness) { h.llm = namedModels{models: []core.ModelInfo{direct, global, us}} }).start()
+		h.cfg.Set(func(c *config.Config) { c.Models.Main = []string{"bedrock/us.anthropic.claude-sonnet-4-6"} })
+		p, chat := core.UserPrincipal(h.owner.ID), h.dmChat(ownerChat)
+		override := func() string { return h.session(p, chat).ModelOverride }
+
+		// The main model is named with the region that sets it apart, and
+		// that name chooses it.
+		h.dm(ownerChat, "/model")
+		if got := h.lastText(ownerChat); got != "This chat uses the main model, Claude Sonnet 4.6 (US). /model <model name> changes it." {
+			t.Fatalf("/model = %q", got)
+		}
+		// A short name several share goes to the one already in use.
+		h.dm(ownerChat, "/model sonnet 4.6")
+		if got := h.lastText(ownerChat); got != "This chat now uses Claude Sonnet 4.6 (US)." || override() != "bedrock/us.anthropic.claude-sonnet-4-6" {
+			t.Fatalf("/model sonnet 4.6 = %q, override %q", got, override())
+		}
+		// With none of them in use, Bothy asks which one.
+		h.cfg.Set(func(c *config.Config) { c.Models.Main = []string{"openai/gpt-6"} })
+		h.dm(ownerChat, "/model sonnet 4.6")
+		got := h.lastText(ownerChat)
+		if !strings.HasPrefix(got, "That name matches several models: ") || !strings.Contains(got, "Claude Sonnet 4.6 (Global) (`bedrock/global.anthropic.claude-sonnet-4-6`)") ||
+			!strings.Contains(got, "Claude Sonnet 4.6 (`anthropic/claude-sonnet-4-6`)") || override() != "bedrock/us.anthropic.claude-sonnet-4-6" {
+			t.Fatalf("/model with a shared name = %q, override %q", got, override())
+		}
+		h.dm(ownerChat, "/model Claude Sonnet 4.6 (Global)")
+		if got := h.lastText(ownerChat); got != "This chat now uses Claude Sonnet 4.6 (Global)." {
+			t.Fatalf("/model by full name = %q", got)
+		}
+	})
+}
+
 // namedModels is an LLM that only names models, all /model asks of it.
 type namedModels struct {
 	core.LLM

@@ -506,10 +506,10 @@ func (h *Hub) cmdModel(ctx context.Context, tg target, chat core.ChatRef, arg st
 			return somethingWrong
 		}
 		if err == nil && sess.ModelOverride != "" {
-			return "This chat uses " + h.modelText(sess.ModelOverride) + ". /model default goes back to the main model."
+			return "This chat uses " + h.modelText(ctx, sess.ModelOverride) + ". /model default goes back to the main model."
 		}
 		if len(main) > 0 {
-			return "This chat uses the main model, " + h.modelText(main[0]) + ". /model <model name> changes it."
+			return "This chat uses the main model, " + h.modelText(ctx, main[0]) + ". /model <model name> changes it."
 		}
 		return "This chat uses the main model. /model <model name> changes it."
 	case "default", "clear", "reset":
@@ -524,11 +524,19 @@ func (h *Hub) cmdModel(ctx context.Context, tg target, chat core.ChatRef, arg st
 		}
 		return "This chat uses the main model again."
 	}
-	ref, ok := h.findModel(ctx, arg)
-	if !ok {
+	ref, choices := h.findModel(ctx, arg)
+	if len(choices) > 0 {
+		return "That name matches several models: " + strings.Join(choices, ", ") + ". Type one of those names."
+	}
+	if ref == "" {
 		example := ""
 		if len(main) > 0 {
-			example = ", for example " + codeSpan("/model "+cmp.Or(h.modelName(main[0]), main[0]))
+			// Suggest the name only if typing it would choose that very model.
+			name := h.modelName(ctx, main[0])
+			if r, _ := h.findModel(ctx, name); name == "" || r != main[0] {
+				name = main[0]
+			}
+			example = ", for example " + codeSpan("/model "+name)
 		}
 		return "Usage: /model <model name>" + example + ". /model alone shows the model; /model default goes back to the main model."
 	}
@@ -541,39 +549,70 @@ func (h *Hub) cmdModel(ctx context.Context, tg target, chat core.ChatRef, arg st
 		h.log.Error("channel /model failed", "err", err)
 		return somethingWrong
 	}
-	return "This chat now uses " + h.modelText(ref) + "."
+	return "This chat now uses " + h.modelText(ctx, ref) + "."
 }
 
 // findModel resolves what was typed after /model to a model ref: a model's
-// plain or short name ("Claude Sonnet 4.6", "sonnet 4.6"), else a
-// provider/model ref, stored as typed.
-func (h *Hub) findModel(ctx context.Context, arg string) (string, bool) {
+// plain or short name ("Claude Sonnet 4.6 (US)", "sonnet 4.6"), else a
+// provider/model ref, stored as typed. A name several models share chooses
+// the one the main or quick-tasks model already uses; otherwise choices lists
+// them, by the names that tell them apart, and ref is "".
+func (h *Hub) findModel(ctx context.Context, arg string) (ref string, choices []string) {
 	arg = oneLine(arg)
+	if arg == "" {
+		return "", nil
+	}
 	if h.d.LLM != nil {
 		ms := h.d.LLM.Models(ctx)
-		// A name several providers offer goes to the first one configured.
+		models := h.cfg().Models
 		for _, name := range []func(core.ModelInfo) string{
 			func(m core.ModelInfo) string { return m.DisplayName },
 			func(m core.ModelInfo) string { return m.ShortName },
 		} {
+			var hits []core.ModelInfo
 			for _, m := range ms {
-				if n := name(m); n != "" && strings.EqualFold(n, arg) {
-					return m.Ref.String(), true
+				if n := name(m); n != "" && strings.EqualFold(n, arg) && !slices.ContainsFunc(hits, func(x core.ModelInfo) bool { return x.Ref == m.Ref }) {
+					hits = append(hits, m)
 				}
 			}
+			switch len(hits) {
+			case 0:
+				continue
+			case 1:
+				return hits[0].Ref.String(), nil
+			}
+			var inUse []string
+			for _, m := range hits {
+				if r := m.Ref.String(); slices.Contains(models.Main, r) || slices.Contains(models.Fast, r) {
+					inUse = append(inUse, r)
+				}
+			}
+			if len(inUse) == 1 {
+				return inUse[0], nil
+			}
+			for _, m := range hits {
+				choices = append(choices, escapeMD(cmp.Or(m.DisplayName, m.ShortName))+" ("+codeSpan(m.Ref.String())+")")
+			}
+			return "", choices
 		}
 	}
 	if _, err := core.ParseModelRef(arg); err != nil || strings.ContainsFunc(arg, unicode.IsSpace) {
-		return "", false
+		return "", nil
 	}
-	return arg, true
+	return arg, nil
 }
 
-// modelName is a model's plain name, "" when no provider can name the ref.
-func (h *Hub) modelName(ref string) string {
+// modelName is a model's plain name as listed (with the region that sets it
+// apart, "Claude Sonnet 4.6 (US)"), "" when no provider can name the ref.
+func (h *Hub) modelName(ctx context.Context, ref string) string {
 	r, err := core.ParseModelRef(ref)
 	if err != nil || h.d.LLM == nil {
 		return ""
+	}
+	for _, m := range h.d.LLM.Models(ctx) {
+		if m.Ref == r && m.DisplayName != "" {
+			return m.DisplayName
+		}
 	}
 	m, ok := h.d.LLM.Model(r)
 	if !ok {
@@ -584,8 +623,8 @@ func (h *Hub) modelName(ref string) string {
 
 // modelText names a model in a reply; a ref nobody can name is shown as
 // stored, in code.
-func (h *Hub) modelText(ref string) string {
-	if n := h.modelName(ref); n != "" {
+func (h *Hub) modelText(ctx context.Context, ref string) string {
+	if n := h.modelName(ctx, ref); n != "" {
 		return escapeMD(n)
 	}
 	return codeSpan(ref)
