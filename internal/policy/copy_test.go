@@ -3,8 +3,6 @@ package policy
 import (
 	"encoding/json"
 	"maps"
-	"os"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -121,7 +119,9 @@ func TestPlainCopy(t *testing.T) {
 		{name: "github_pr", a: action("github_pr", core.ActHTTP, core.SERead, map[string]any{"repo": "acme/web", "number": 7}), s: spec("github_pr", core.SERead),
 			question: "Read pull request #7 in acme/web?", primary: "Read pull request", ing: "reading pull request #7 in acme/web", labels: []string{"Repository"}},
 		{name: "github_runs", a: action("github_runs", core.ActHTTP, core.SERead, map[string]any{"repo": "acme/web"}), s: spec("github_runs", core.SERead),
-			question: "Check the workflow runs in acme/web?", primary: "Check runs", ing: "checking the workflow runs in acme/web", labels: []string{"Repository"}},
+			question: "Check the builds in acme/web?", primary: "Check builds", ing: "checking the builds in acme/web", labels: []string{"Repository"}},
+		{name: "github_runs one", a: action("github_runs", core.ActHTTP, core.SERead, map[string]any{"repo": "acme/web", "run_id": 9876543210}), s: spec("github_runs", core.SERead),
+			question: "Check a build in acme/web?", primary: "Check build", ing: "checking a build in acme/web", labels: []string{"Repository"}},
 		{name: "repo_list", a: action("repo_list", core.ActGeneric, core.SERead, map[string]any{}), s: spec("repo_list", core.SERead),
 			question: "List the connected repositories?", primary: "List repositories", ing: "listing the connected repositories"},
 		{name: "repo_checkout", a: action("repo_checkout", core.ActFSWrite, core.SELocalWrite, map[string]any{"repo": "acme/web", "ref": "main"},
@@ -397,27 +397,3 @@ func TestPlainCopyUnderHostileInput(t *testing.T) {
 }
 
 func strconvQuote(s string) string { b, _ := json.Marshal(s); return string(b) }
-
-func TestServiceNames(t *testing.T) {
-	for id, want := range map[string]string{"deepwiki": "DeepWiki", "GitHub": "GitHub", "team-docs": "Team docs", "linear": "Linear", "my_wiki": "My wiki"} {
-		if got := serviceName(id); got != want {
-			t.Errorf("serviceName(%q) = %q, want %q", id, got, want)
-		}
-	}
-	// Cards are worded on the server and in the browser; both spell services alike.
-	src, err := os.ReadFile("../../web/src/lib/format.ts")
-	if err != nil {
-		t.Fatal(err)
-	}
-	block := regexp.MustCompile(`(?s)const serviceNames: Record<string, string> = \{(.*?)\};`).FindSubmatch(src)
-	if block == nil {
-		t.Fatal("serviceNames not found in web/src/lib/format.ts")
-	}
-	web := map[string]string{}
-	for _, m := range regexp.MustCompile(`'?([a-z0-9-]+)'?: '([^']+)'`).FindAllSubmatch(block[1], -1) {
-		web[string(m[1])] = string(m[2])
-	}
-	if !maps.Equal(web, serviceNames) {
-		t.Fatalf("web/src/lib/format.ts serviceNames = %v, want %v", web, serviceNames)
-	}
-}

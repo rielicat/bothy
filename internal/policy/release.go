@@ -26,7 +26,7 @@ func isRelease(a *core.Action) bool { return a.Kind == core.ActRelease || a.Tool
 func (e *Engine) releaseFloor(ctx context.Context, x *input, rule *config.Rule) core.Decision {
 	switch {
 	case x.Trigger != core.TrigMessage:
-		return denied(floorRelease, "deploys are not allowed in scheduled, heartbeat or API runs", true)
+		return denied(floorRelease, "deploys can only start from a chat, not from a schedule, check-in or API request", true)
 	case x.Principal.Kind != core.PrincipalUser:
 		return denied(floorRelease, "deploys can only be requested from your own chats, not from a group", true)
 	case rule != nil && core.Verdict(rule.Verdict) == core.VerdictDeny:
@@ -35,10 +35,10 @@ func (e *Engine) releaseFloor(ctx context.Context, x *input, rule *config.Rule) 
 	name, _ := mustPointer(x.payload, "/environment").(string)
 	env, ok := x.cfg.Releases.Env(name)
 	if !ok {
-		return denied(floorRelease, "there is no release environment named "+strconv.Quote(name), true)
+		return denied(floorRelease, "there's no environment called "+quoted(name), true)
 	}
 	if why := releaseMismatch(x.payload, env); why != "" {
-		return denied(floorRelease, "this deploy does not match the "+env.Name+" environment: "+why, true)
+		return denied(floorRelease, why, true)
 	}
 	users, roles := env.ApproverSet()
 	approver := core.ApproverReq{Users: users, Roles: roles, Required: env.Needed(), Requester: x.User}
@@ -48,7 +48,7 @@ func (e *Engine) releaseFloor(ctx context.Context, x *input, rule *config.Rule) 
 	n, err := e.eligibleApprovers(ctx, approver)
 	if err != nil {
 		e.log.WarnContext(ctx, "policy: listing release approvers failed", "environment", env.Name, "err", err)
-		return denied(floorRelease, "could not check who may approve this deploy", true)
+		return denied(floorRelease, "Bothy couldn't check who can approve this deploy", true)
 	}
 	if n < approver.Needed() {
 		return denied(floorRelease, fmt.Sprintf("a deploy to %s needs %s other than you, and %s", env.Name,
@@ -63,22 +63,25 @@ func (e *Engine) releaseFloor(ctx context.Context, x *input, rule *config.Rule) 
 
 // releaseMismatch compares a release action's payload with the environment it
 // names, so the card can show the payload and still be what gets configured.
+// The reason never quotes the ref pattern: that is configuration, not words.
 func releaseMismatch(doc any, env config.ReleaseEnv) string {
 	text := func(ptr string) string { s, _ := mustPointer(doc, ptr).(string); return s }
+	the := "the " + inline(env.Name) + " environment"
 	switch {
 	case text("/repo") != env.Repo:
-		return "the repository differs"
+		return the + " doesn't deploy the repository " + inline(text("/repo"))
 	case text("/workflow") != env.Workflow:
-		return "the workflow differs"
+		return the + " doesn't use the workflow " + inline(text("/workflow"))
 	case !env.AllowsRef(text("/ref")):
-		return "ref " + strconv.Quote(text("/ref")) + " is not allowed (" + env.RefPattern + ")"
+		return the + " doesn't deploy " + inline(text("/ref"))
 	}
+	inputs := "the workflow inputs don't match " + the
 	got := map[string]string{}
 	if m, ok := mustPointer(doc, "/inputs").(map[string]any); ok {
 		for k, v := range m {
 			s, ok := v.(string)
 			if !ok {
-				return "input " + k + " is not text"
+				return inputs
 			}
 			got[k] = s
 		}
@@ -88,7 +91,7 @@ func releaseMismatch(doc any, env config.ReleaseEnv) string {
 		want = map[string]string{}
 	}
 	if !maps.Equal(got, want) {
-		return "the workflow inputs differ"
+		return inputs
 	}
 	return ""
 }

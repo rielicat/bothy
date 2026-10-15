@@ -73,13 +73,13 @@ func TestReleaseDecisionTable(t *testing.T) {
 		{name: "interactive member", in: func(in *core.PolicyInput) {
 			in.User, in.Role, in.Principal, in.Session = h.member.ID, core.RoleMember, h.memberP, h.memberSession
 		}, verdict: core.VerdictAsk, rule: floorRelease},
-		{name: "schedule", in: func(in *core.PolicyInput) { in.Trigger = core.TrigSchedule }, verdict: core.VerdictDeny, rule: floorRelease, reason: "scheduled"},
+		{name: "schedule", in: func(in *core.PolicyInput) { in.Trigger = core.TrigSchedule }, verdict: core.VerdictDeny, rule: floorRelease, reason: "not from a schedule"},
 		{name: "heartbeat", in: func(in *core.PolicyInput) { in.Trigger = core.TrigHeartbeat }, verdict: core.VerdictDeny, rule: floorRelease},
-		{name: "api", in: func(in *core.PolicyInput) { in.Trigger = core.TrigAPI }, verdict: core.VerdictDeny, rule: floorRelease, reason: "API"},
+		{name: "api", in: func(in *core.PolicyInput) { in.Trigger = core.TrigAPI }, verdict: core.VerdictDeny, rule: floorRelease, reason: "API request"},
 		{name: "manifest limits triggers", in: func(in *core.PolicyInput) {
 			in.Trigger = core.TrigSchedule
 			in.Spec = releaseSpec(func(m *core.Manifest) { m.Triggers = []core.Trigger{core.TrigMessage} })
-		}, verdict: core.VerdictDeny, rule: "floor:unavailable"},
+		}, verdict: core.VerdictDeny, rule: "floor:unavailable", reason: "Bothy can't deploy acme/web to staging from a schedule"},
 		{name: "hands_off preset", cfg: func(c *config.Config) { c.Policy.Preset = "hands_off" }, verdict: core.VerdictAsk, rule: floorRelease},
 		{name: "balanced preset", cfg: func(c *config.Config) { c.Policy.Preset = "balanced" }, verdict: core.VerdictAsk, rule: floorRelease},
 		{name: "irreversible default auto", cfg: func(c *config.Config) { c.Policy.Defaults = map[string]string{"irreversible": "auto"} },
@@ -100,17 +100,17 @@ func TestReleaseDecisionTable(t *testing.T) {
 		{name: "standard space", in: func(in *core.PolicyInput) { in.Principal, in.Session = standard, h.spaceSession },
 			verdict: core.VerdictDeny, rule: floorRelease, reason: "group"},
 		{name: "restricted space", in: func(in *core.PolicyInput) { in.Principal, in.Session = h.space, h.spaceSession },
-			verdict: core.VerdictDeny, rule: "floor:unavailable"},
+			verdict: core.VerdictDeny, rule: "floor:unavailable", reason: "Bothy can't deploy acme/web to staging in this group chat"},
 		{name: "unknown environment", in: func(in *core.PolicyInput) { in.Action = releaseAction("dev", "main", stagingInputs) },
-			verdict: core.VerdictDeny, rule: floorRelease, reason: `"dev"`},
+			verdict: core.VerdictDeny, rule: floorRelease, reason: "there's no environment called “dev”"},
 		{name: "ref outside the pattern", in: func(in *core.PolicyInput) { in.Action = releaseAction("staging", "feature/x", stagingInputs) },
-			verdict: core.VerdictDeny, rule: floorRelease, reason: "is not allowed"},
+			verdict: core.VerdictDeny, rule: floorRelease, reason: "the staging environment doesn't deploy feature/x"},
 		{name: "repository differs", in: func(in *core.PolicyInput) {
 			in.Action = releaseAction("staging", "main", stagingInputs, func(p map[string]any) { p["repo"] = "evil/web" })
-		}, verdict: core.VerdictDeny, rule: floorRelease, reason: "repository"},
+		}, verdict: core.VerdictDeny, rule: floorRelease, reason: "doesn't deploy the repository evil/web"},
 		{name: "workflow differs", in: func(in *core.PolicyInput) {
 			in.Action = releaseAction("staging", "main", stagingInputs, func(p map[string]any) { p["workflow"] = "other.yml" })
-		}, verdict: core.VerdictDeny, rule: floorRelease, reason: "workflow differs"},
+		}, verdict: core.VerdictDeny, rule: floorRelease, reason: "doesn't use the workflow other.yml"},
 		{name: "inputs differ", in: func(in *core.PolicyInput) {
 			in.Action = releaseAction("staging", "main", map[string]string{"target": "prod"})
 		}, verdict: core.VerdictDeny, rule: floorRelease, reason: "inputs"},

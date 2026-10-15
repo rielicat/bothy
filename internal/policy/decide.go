@@ -241,7 +241,8 @@ func (e *Engine) activeGrants(ctx context.Context, x *input) []*core.Grant {
 func (e *Engine) Decide(ctx context.Context, in core.PolicyInput) core.Decision {
 	x, err := newInput(in, e.cfg.Current())
 	if err != nil {
-		return denied("floor:invalid", "the tool call could not be checked: "+err.Error(), true)
+		e.log.WarnContext(ctx, "policy: the tool call could not be checked", "tool", in.Spec.Def.Name, "err", err)
+		return denied("floor:invalid", "Bothy couldn't check this step, so it didn't run it", true)
 	}
 	rule := firstRule(x)
 	if d, done := e.floors(ctx, x, rule); done {
@@ -284,13 +285,13 @@ func (e *Engine) floors(ctx context.Context, x *input, rule *config.Rule) (core.
 	m := x.Spec.Manifest
 	switch {
 	case len(m.Triggers) > 0 && !slices.Contains(m.Triggers, x.Trigger):
-		return denied("floor:unavailable", fmt.Sprintf("%s is not available in %s runs", x.a.Tool, triggerName(x.Trigger)), true), true
+		return denied("floor:unavailable", "Bothy can't "+x.askPhrase()+" "+triggerPlace(x.Trigger), true), true
 	case m.MinRole != "" && roleRank(x.Role) < roleRank(m.MinRole):
-		return denied("floor:unavailable", fmt.Sprintf("%s needs the %s role", x.a.Tool, m.MinRole), true), true
+		return denied("floor:unavailable", roleOnly(m.MinRole)+" can "+x.askPhrase(), true), true
 	case x.Principal.Restricted() && !m.SpaceOK:
-		return denied("floor:unavailable", x.a.Tool+" is not available in restricted spaces", true), true
+		return denied("floor:unavailable", "Bothy can't "+x.askPhrase()+" in this group chat", true), true
 	case x.se != core.SERead && e.paused(ctx):
-		return denied("floor:paused", "Bothy is paused by an admin; only read-only tools run", true), true
+		return denied("floor:paused", "Bothy is paused, so it can only read until an admin resumes it", true), true
 	}
 
 	askFloor := func(name, reason string, admin bool) (core.Decision, bool) {
@@ -327,14 +328,14 @@ func (e *Engine) floors(ctx context.Context, x *input, rule *config.Rule) (core.
 		return e.ask(x, askSpec{rule: "floor:financial", reason: "financial action: an admin must approve it", floor: true, admin: true}), true
 	case core.SEAdmin:
 		if x.Trigger.Scheduled() || x.Trigger == core.TrigAPI {
-			return denied("floor:admin", "self-modification is not allowed in scheduled, heartbeat or API runs", true), true
+			return denied("floor:admin", "Bothy can't change its settings "+triggerPlace(x.Trigger), true), true
 		}
 		if !restricted {
 			return askFloor("floor:admin", adminReason(x.a.Tool), true)
 		}
 	}
 	if restricted {
-		return denied("floor:restricted_space", "restricted spaces can only use read-only tools", true), true
+		return denied("floor:restricted_space", "in this group chat Bothy can only read", true), true
 	}
 	if isRelease(x.a) {
 		return e.releaseFloor(ctx, x, rule), true
@@ -350,7 +351,7 @@ func (e *Engine) floors(ctx context.Context, x *input, rule *config.Rule) (core.
 	}
 	if x.a.Kind == core.ActMemory && x.Taint.Has(core.TaintUntrusted) {
 		if x.cfg.Memory.TaintedWrites == "deny" {
-			return denied("floor:tainted_memory", "memory writes are off after untrusted content entered the session", true), true
+			return denied("floor:tainted_memory", "Bothy can't remember new things in this chat because it has seen content from outside your team", true), true
 		}
 		return askFloor("floor:tainted_memory", "untrusted content entered this session, so memory writes need approval", false)
 	}
@@ -459,7 +460,7 @@ func (e *Engine) contactOrDefault(ctx context.Context, x *input) core.Decision {
 	class := x.se.String()
 	v := defaultVerdict(x.cfg, x.se)
 	if v == core.VerdictDeny {
-		return denied("default:"+class, class+" actions are denied by the policy defaults", false)
+		return denied("default:"+class, "Bothy isn't allowed to "+classPhrase(x.se)+" on this server", false)
 	}
 	if kind, target, first := e.firstContact(ctx, x); first {
 		return e.ask(x, askSpec{
@@ -644,8 +645,10 @@ func allowed(rule, reason string) core.Decision {
 	return core.Decision{Verdict: core.VerdictAuto, Rule: rule, Reason: reason}
 }
 
+// ruleDenied keeps the rule's id in Decision.Rule only: the reason is shown
+// under the blocked step, where ids don't belong.
 func ruleDenied(r *config.Rule) core.Decision {
-	return denied("rule:"+r.ID, ruleReason(r), false)
+	return denied("rule:"+r.ID, cmp.Or(r.Reason, "a rule an admin set doesn't allow this"), false)
 }
 
 func ruleReason(r *config.Rule) string {
@@ -667,9 +670,45 @@ func roleRank(r core.Role) int {
 	return 0
 }
 
-func triggerName(t core.Trigger) string {
-	if t == "" {
-		return "these"
+// triggerPlace finishes "Bothy can't … " with where the task came from.
+func triggerPlace(t core.Trigger) string {
+	switch t {
+	case core.TrigMessage:
+		return "from a chat"
+	case core.TrigSchedule:
+		return "from a schedule"
+	case core.TrigHeartbeat:
+		return "during a check-in"
+	case core.TrigAPI:
+		return "from an API request"
 	}
-	return string(t)
+	return "in this task"
 }
+
+// roleOnly names who may use a tool that needs role r.
+func roleOnly(r core.Role) string {
+	switch r {
+	case core.RoleOwner:
+		return "only the owner"
+	case core.RoleAdmin:
+		return "only admins"
+	}
+	return "only people on the team"
+}
+
+// classPhrase finishes "Bothy isn't allowed to … " for a side-effect class.
+func classPhrase(se core.SideEffect) string {
+	switch se {
+	case core.SERead:
+		return "read or look things up"
+	case core.SELocalWrite:
+		return "change files"
+	case core.SEExternalSend:
+		return "send data out"
+	case core.SEIrreversible:
+		return "do things that can't be undone"
+	}
+	return "do this"
+}
+
+func (x *input) askPhrase() string { return askPhrase(x.Spec, x.a, x.payload, x.se) }

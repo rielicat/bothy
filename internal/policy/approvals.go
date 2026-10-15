@@ -240,11 +240,11 @@ func (ap *Approvals) authorize(ctx context.Context, a *core.Approval, r core.Res
 		return fmt.Errorf("%w: %s", core.ErrForbidden, why)
 	}
 	if r.By == "" {
-		return forbid("not an approver")
+		return forbid(notApprover)
 	}
 	u, err := ap.store.Users().Get(ctx, r.By)
 	if err != nil || u.Disabled {
-		return forbid("not an approver")
+		return forbid(notApprover)
 	}
 	if a.Approver.AdminOnly {
 		if !u.Role.IsAdmin() {
@@ -254,7 +254,7 @@ func (ap *Approvals) authorize(ctx context.Context, a *core.Approval, r core.Res
 			return forbid("admin-class actions are approved one at a time")
 		}
 	} else if a.Approver.User == "" || r.By != a.Approver.User {
-		return forbid("not an approver")
+		return forbid(notApprover)
 	}
 	return ap.checkVia(ctx, a, r)
 }

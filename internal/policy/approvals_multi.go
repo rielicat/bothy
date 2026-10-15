@@ -10,7 +10,10 @@ import (
 	"github.com/rielicat/bothy/internal/core"
 )
 
-const selfApproval = "you asked for this, so someone else has to approve it"
+const (
+	selfApproval = "you asked for this, so someone else has to approve it"
+	notApprover  = "you can't approve this request"
+)
 
 // vote records r.By's vote on a multi-approver approval and resolves it on a
 // deny or once enough distinct eligible approvers have allowed. The status
@@ -118,11 +121,11 @@ func (ap *Approvals) authorizeVote(ctx context.Context, a *core.Approval, r core
 		return fmt.Errorf("%w: %s", core.ErrForbidden, why)
 	}
 	if r.By == "" {
-		return forbid("not an approver")
+		return forbid(notApprover)
 	}
 	u, err := ap.store.Users().Get(ctx, r.By)
 	if err != nil || u.Disabled {
-		return forbid("not an approver")
+		return forbid(notApprover)
 	}
 	switch {
 	case a.Approver.Eligible(u.ID, u.Role):
@@ -130,7 +133,7 @@ func (ap *Approvals) authorizeVote(ctx context.Context, a *core.Approval, r core
 	case u.ID == a.Approver.Requester:
 		return forbid(selfApproval)
 	default:
-		return forbid("not an approver")
+		return forbid(notApprover)
 	}
 	return ap.checkVia(ctx, a, r)
 }

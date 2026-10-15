@@ -241,7 +241,7 @@ export function plural(n: number, one: string, many = one + 's', locale?: string
 }
 
 // The services a plain capital spells wrong: MCP servers are named by their
-// lowercase config ids. internal/policy/copy.go has the same list.
+// lowercase config ids. internal/core/names.go has the same list.
 const serviceNames: Record<string, string> = {
   bigquery: 'BigQuery',
   circleci: 'CircleCI',

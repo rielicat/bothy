@@ -628,3 +628,85 @@ func TestDefaultsOverride(t *testing.T) {
 		t.Errorf("grants come before class defaults: %+v", d)
 	}
 }
+
+// Refusals show under the blocked step, so they name the action the way its
+// card does, with no tool names, rule ids or Go errors.
+func TestRefusalReasons(t *testing.T) {
+	sched := action(toolScheduleNew, core.ActSchedule, core.SEAdmin, map[string]any{"name": "Daily digest"})
+	schedSpec := spec(toolScheduleNew, core.SEAdmin, func(m *core.Manifest) { m.Triggers = []core.Trigger{core.TrigMessage} })
+	del := action(toolFSDelete, core.ActFSDelete, core.SEIrreversible, map[string]any{"path": "notes/a.md"},
+		func(a *core.Action) { a.Paths = []string{"notes/a.md"} })
+	list := action(toolScheduleList, core.ActSchedule, core.SERead, map[string]any{})
+	write := action("w", core.ActGeneric, core.SELocalWrite, map[string]any{"x": 1})
+	memory := action(toolMemory, core.ActMemory, core.SELocalWrite, map[string]any{"op": "add", "new": "x"})
+
+	for _, tc := range []struct {
+		name string
+		cfg  func(*config.Config)
+		in   func(h *harness) core.PolicyInput
+		rule string
+		want string
+	}{
+		{name: "check-in", in: func(h *harness) core.PolicyInput {
+			in := h.in(sched, schedSpec)
+			in.Trigger = core.TrigHeartbeat
+			return in
+		}, rule: "floor:unavailable", want: "Bothy can't create the schedule “Daily digest” during a check-in"},
+		{name: "API request", in: func(h *harness) core.PolicyInput {
+			in := h.in(sched, schedSpec)
+			in.Trigger = core.TrigAPI
+			return in
+		}, rule: "floor:unavailable", want: "Bothy can't create the schedule “Daily digest” from an API request"},
+		{name: "role", in: func(h *harness) core.PolicyInput {
+			in := h.in(del, spec(toolFSDelete, core.SEIrreversible, func(m *core.Manifest) { m.MinRole = core.RoleAdmin }))
+			in.Role = core.RoleMember
+			return in
+		}, rule: "floor:unavailable", want: "only admins can delete notes/a.md"},
+		{name: "group chat tool", in: func(h *harness) core.PolicyInput {
+			in := h.in(list, spec(toolScheduleList, core.SERead, func(m *core.Manifest) { m.SpaceOK = false }))
+			in.Principal, in.Session = h.space, h.spaceSession
+			return in
+		}, rule: "floor:unavailable", want: "Bothy can't list your schedules in this group chat"},
+		{name: "group chat write", in: func(h *harness) core.PolicyInput {
+			in := h.in(write, spec("w", core.SELocalWrite))
+			in.Principal, in.Session = h.space, h.spaceSession
+			return in
+		}, rule: "floor:restricted_space", want: "in this group chat Bothy can only read"},
+		{name: "settings from a schedule", in: func(h *harness) core.PolicyInput {
+			in := h.in(sched, spec(toolScheduleNew, core.SEAdmin))
+			in.Trigger = core.TrigSchedule
+			return in
+		}, rule: "floor:admin", want: "Bothy can't change its settings from a schedule"},
+		{name: "memory after outside content", cfg: func(c *config.Config) { c.Memory.TaintedWrites = "deny" }, in: func(h *harness) core.PolicyInput {
+			in := h.in(memory, spec(toolMemory, core.SELocalWrite))
+			in.Taint = core.TaintUntrusted
+			return in
+		}, rule: "floor:tainted_memory", want: "Bothy can't remember new things in this chat because it has seen content from outside your team"},
+		{name: "class default", cfg: func(c *config.Config) { c.Policy.Defaults = map[string]string{"external_send": "deny"} }, in: func(h *harness) core.PolicyInput {
+			return h.in(sendAction("send_mail", "bob@example.com", core.SEExternalSend), spec("send_mail", core.SEExternalSend))
+		}, rule: "default:external_send", want: "Bothy isn't allowed to send data out on this server"},
+		{name: "rule without a reason", cfg: func(c *config.Config) {
+			c.Policy.Rules = []config.Rule{{ID: "no-delete", Tool: toolFSDelete, Verdict: "deny"}}
+		}, in: func(h *harness) core.PolicyInput {
+			return h.in(del, spec(toolFSDelete, core.SEIrreversible))
+		}, rule: "rule:no-delete", want: "a rule an admin set doesn't allow this"},
+		{name: "unreadable payload", in: func(h *harness) core.PolicyInput {
+			return h.in(&core.Action{Tool: "x", Kind: core.ActGeneric, SideEffect: core.SERead, Payload: []byte(`{"argv":`)}, spec("x", core.SERead))
+		}, rule: "floor:invalid", want: "Bothy couldn't check this step, so it didn't run it"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t, tc.cfg)
+			if d := h.decide(tc.in(h)); d.Verdict != core.VerdictDeny || d.Rule != tc.rule || d.Reason != tc.want {
+				t.Errorf("decision = %s %s %q, want deny %s %q", d.Verdict, d.Rule, d.Reason, tc.rule, tc.want)
+			}
+		})
+	}
+
+	h := newHarness(t, nil)
+	if err := h.store.Meta().Set(h.ctx, "paused", "1"); err != nil {
+		t.Fatal(err)
+	}
+	if d := h.decide(h.in(write, spec("w", core.SELocalWrite))); d.Reason != "Bothy is paused, so it can only read until an admin resumes it" {
+		t.Errorf("paused: %q", d.Reason)
+	}
+}
