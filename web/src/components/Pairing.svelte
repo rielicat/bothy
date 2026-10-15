@@ -30,7 +30,8 @@
   let busy = $state(false);
   let error = $state('');
 
-  const pretty = $derived(code ? `${code.code.slice(0, 4)}-${code.code.slice(4)}` : '');
+  // The server sends the code already split ("BYTT-5PK8"); older servers sent it bare.
+  const pretty = $derived(code ? (code.code.includes('-') ? code.code : `${code.code.slice(0, 4)}-${code.code.slice(4)}`) : '');
   const link = $derived(Object.entries(code?.deep_links ?? {}).find(([c, u]) => (!channel || c === channel) && u.startsWith('https://')));
   const left = $derived(code ? expiresIn(code.expires_at, { now: clock.now }) : '');
   const command = $derived(channel === 'slack' ? `/bothy pair ${pretty}` : `/pair ${pretty}`);

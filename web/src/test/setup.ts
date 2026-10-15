@@ -1,7 +1,13 @@
 // jsdom lacks a few browser APIs the app touches; these stand-ins keep
 // component tests on the real code paths.
-import { afterEach } from 'vitest';
+import { afterEach, vi } from 'vitest';
 import { cleanup } from '@testing-library/svelte';
+
+// Mock fixtures are relative to now and screens group by "Today" and
+// "Yesterday", so a run just after midnight saw "30 min ago" as yesterday.
+// The clock starts at midday and still advances in real time.
+vi.useFakeTimers({ toFake: ['Date'], shouldAdvanceTime: true });
+vi.setSystemTime(new Date(2026, 9, 14, 12, 0, 0));
 
 const dialog = HTMLDialogElement.prototype;
 if (!('showModal' in dialog) || typeof dialog.showModal !== 'function') {

@@ -283,7 +283,7 @@ on('POST', '/api/pairing', (req, res) => {
   const app = paired.arg(req);
   const linked = app ? { channel: app, external_id: 'U01SAM', display: '@sam' } : { channel: 'telegram', external_id: '5512', display: '@sam' };
   setTimeout(() => emit('pairing.linked', linked), app ? 800 : 6000);
-  json(res, 200, { code: '7KQ2MX4D', expires_at: new Date(Date.now() + 15 * 60_000).toISOString(), deep_links: { telegram: 'https://t.me/acme_bothy_bot?start=7KQ2MX4D' } });
+  json(res, 200, { code: '7KQ2-MX4D', expires_at: new Date(Date.now() + 15 * 60_000).toISOString(), deep_links: { telegram: 'https://t.me/acme_bothy_bot?start=7KQ2MX4D' } });
 });
 on('POST', '/api/pairing/approve', (_q, res) => json(res, 200, state.identities[3]));
 on('GET', '/api/identities', (_q, res) => json(res, 200, state.identities));
