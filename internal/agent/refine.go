@@ -107,6 +107,7 @@ func (r *Runner) refineAnswer(rs *runState, asm *assembler, step int, resp *core
 		msg.Parts = slices.Clone(resp.Message.Parts)
 		text = resp.Message.PlainText()
 	} else {
+		text = refine.Strip(text)
 		msg.Parts = []core.Part{{Type: core.PartText, Text: text}}
 	}
 	msg.Parts = append(msg.Parts, core.Part{Type: core.PartRefine, Refine: &trace})

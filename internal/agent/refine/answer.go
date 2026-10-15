@@ -31,6 +31,24 @@ func Extract(text string) string {
 	return ""
 }
 
+// Strip removes the closing "Final answer:" section that drafts end with
+// for the vote, since the reader has the full answer above it. A text that
+// is only that section keeps the answer it gives.
+func Strip(text string) string {
+	lines := strings.Split(text, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		rest, ok := afterMarker(lines[i])
+		if !ok {
+			continue
+		}
+		if body := strings.TrimSpace(strings.Join(lines[:i], "\n")); body != "" {
+			return body
+		}
+		return strings.TrimSpace(rest + "\n" + strings.Join(lines[i+1:], "\n"))
+	}
+	return strings.TrimSpace(text)
+}
+
 func afterMarker(line string) (string, bool) {
 	s := strings.TrimLeft(line, " \t>#*_`")
 	if len(s) < len(marker) || !strings.EqualFold(s[:len(marker)], marker) {

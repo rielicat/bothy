@@ -119,7 +119,7 @@ func TestRefineVotesOverDraftsAndStopsEarly(t *testing.T) {
 		}
 
 		msg, tr := h.answer()
-		if msg.PlainText() != "Six times seven is 42.\nFinal answer: 42" {
+		if msg.PlainText() != "Six times seven is 42." {
 			t.Fatalf("reply %q", msg.PlainText())
 		}
 		if tr == nil || !tr.EarlyStop || tr.Rounds != 1 || tr.Winner != 0 || tr.Answer != "42" || tr.Calls != 10 || tr.Fallback != "" {
@@ -183,7 +183,7 @@ func TestRefineVotesOverDraftsAndStopsEarly(t *testing.T) {
 				}
 			}
 		}
-		if !strings.Contains(allText(next), "Six times seven is 42.\nFinal answer: 42") {
+		if !strings.Contains(allText(next), "Six times seven is 42.") || strings.Contains(allText(next), "Final answer: 42") {
 			t.Fatal("the refined reply is part of the history")
 		}
 	})
@@ -249,7 +249,7 @@ func TestRefineBudgetFallsBackToTheBestAnswerSoFar(t *testing.T) {
 		if tr.Fallback != refine.FallbackBudget || tr.Rounds != 0 || tr.Calls != 4 || tr.Winner != 1 {
 			t.Fatalf("trace %+v", tr)
 		}
-		if msg.PlainText() != "It is 5.\nFinal answer: 5" {
+		if msg.PlainText() != "It is 5." {
 			t.Fatalf("reply %q, want the vote's winner so far", msg.PlainText())
 		}
 	})
@@ -350,7 +350,7 @@ func TestRefineSmallWindowAbridgesTheDraft(t *testing.T) {
 			t.Fatal("a draft too long for the window keeps its head and its final answer line")
 		}
 		msg, tr := h.answer()
-		if !tr.Entries[1].Abridged || msg.PlainText() != "Shorter.\nFinal answer: 9" {
+		if !tr.Entries[1].Abridged || msg.PlainText() != "Shorter." {
 			t.Fatalf("trace %+v reply %q", tr.Entries[1], msg.PlainText())
 		}
 	})
@@ -502,7 +502,7 @@ func TestRefineTraceNamesOnlyRecordedCalls(t *testing.T) {
 			ids[c.ID] = true
 		}
 		msg, tr := h.answer()
-		if tr == nil || tr.Calls != 4 || msg.PlainText() != "A.\nFinal answer: a" {
+		if tr == nil || tr.Calls != 4 || msg.PlainText() != "A." {
 			t.Fatalf("trace %+v reply %q", tr, msg.PlainText())
 		}
 		for _, e := range tr.Entries {

@@ -134,3 +134,17 @@ func TestMessage(t *testing.T) {
 		t.Error("drafts have no role prompt; a critique quotes only the draft")
 	}
 }
+
+func TestStrip(t *testing.T) {
+	for in, want := range map[string]string{
+		"Six times seven is 42.\nFinal answer: 42":         "Six times seven is 42.",
+		"Final answer: 42":                                 "42",
+		"Paris is the capital.\n\n**Final answer:** Paris": "Paris is the capital.",
+		"Run this:\nFinal answer:\n```\nls -la\n```":       "Run this:",
+		"No marker here.":                                  "No marker here.",
+	} {
+		if got := Strip(in); got != want {
+			t.Errorf("Strip(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
