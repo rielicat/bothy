@@ -121,8 +121,8 @@ agent:
 		t.Fatalf("refined run: %d calls (bound %d), %d steps", n, bound, d.Run.Steps)
 	}
 	reply, tr := lastAnswer(t, owner, s.ID)
-	if !strings.HasSuffix(reply, "Final answer: 42") || strings.Contains(reply, "41") {
-		t.Fatalf("reply %q, want the voted answer 42", reply)
+	if !strings.Contains(reply, "42") || strings.Contains(reply, "41") || strings.Contains(reply, "Final answer") {
+		t.Fatalf("reply %q, want the voted answer 42 without the vote's line", reply)
 	}
 	if tr == nil || tr.Answer != "42" || !tr.EarlyStop || tr.Rounds != 1 || tr.Calls != 10 || len(tr.Votes) != 1 || tr.Votes[0].Count != 3 {
 		t.Fatalf("trace %+v", tr)
@@ -177,7 +177,7 @@ agent:
 	}
 	d = send("Once more: what is six times seven?", &on)
 	reply, tr = lastAnswer(t, owner, s.ID)
-	if n := agentCalls(d); n != 15 || n > bound || tr == nil || tr.EarlyStop || tr.Rounds != 2 || !strings.HasSuffix(reply, "Final answer: 42") {
+	if n := agentCalls(d); n != 15 || n > bound || tr == nil || tr.EarlyStop || tr.Rounds != 2 || !strings.Contains(reply, "42") || strings.Contains(reply, "Final answer") {
 		t.Fatalf("without early stop: %d calls (bound %d), trace %+v, reply %q", n, bound, tr, reply)
 	}
 }
