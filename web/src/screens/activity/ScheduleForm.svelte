@@ -130,9 +130,10 @@
 
   const refKey = (r: ChatRef) => `${r.channel}:${r.kind}:${r.chat_id}`;
   const deliverOptions = $derived([
-    ...(s && !s.deliver && !isNew ? [{ value: 'default', label: 'Your usual chat app' }] : []),
+    ...(s && !s.deliver && !isNew ? [{ value: 'default', label: chats.identities.length ? 'Your usual chat app' : 'Here until you link a chat app' }] : []),
     ...chats.identities.map((i) => ({ value: refKey({ channel: i.channel, chat_id: i.dm_chat_id!, kind: 'dm' }), label: `Your ${appName(i.channel)} messages` })),
-    ...chats.spaces.map((sp) => ({ value: refKey(sp.chat), label: `${sp.title} on ${appName(sp.chat.channel)}` })),
+    // The server lets a group chat's own schedules post there, and no one else's.
+    ...chats.spaces.filter((sp) => sp.principal_id === s?.principal_id).map((sp) => ({ value: refKey(sp.chat), label: `${sp.title} on ${appName(sp.chat.channel)}` })),
     { value: 'web', label: 'Only here in Bothy' },
   ]);
   const deliverValue = $derived(!s?.deliver ? 'default' : s.deliver.channel === 'web' ? 'web' : refKey(s.deliver));

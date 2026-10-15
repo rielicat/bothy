@@ -1,5 +1,6 @@
 import { api } from '../../lib/api/client';
 import type { ChannelIdentity, ChatRef, Schedule, Session, Space } from '../../lib/api/types.gen';
+import { session } from '../../lib/stores/session.svelte';
 import { appName, outcome, where, type Outcome } from '../../lib/taskStatus';
 import { personName, votesOf, type TaskRun, type VotedApproval } from './api';
 
@@ -9,11 +10,16 @@ export interface Chats {
 }
 
 export async function loadChats(): Promise<Chats> {
+  const me = session.me?.user?.id;
   const [identities, spaces] = await Promise.all([
     api.get<ChannelIdentity[]>('/api/identities').catch(() => [] as ChannelIdentity[]),
     api.get<Space[]>('/api/spaces').catch(() => [] as Space[]),
   ]);
-  return { identities: identities.filter((i) => i.status === 'linked' && i.dm_chat_id), spaces: spaces.filter((s) => s.kind === 'group') };
+  // Admins are sent everyone's identities; a schedule can only post to its owner's own.
+  return {
+    identities: identities.filter((i) => i.status === 'linked' && i.dm_chat_id && i.user_id === me),
+    spaces: spaces.filter((s) => s.kind === 'group'),
+  };
 }
 
 /** Where results go, after "Posts" or "Posted": "here", "to your Telegram messages", "to #eng on Slack". */
