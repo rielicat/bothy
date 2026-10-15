@@ -312,7 +312,7 @@
   @apply border-b border-border px-2 py-1 text-left;
 }
 .md th {
-  @apply border-border-strong font-medium;
+  @apply font-medium;
 }
 .md .md-inert {
   @apply inline-flex items-center gap-1 rounded-sm bg-warning-subtle px-1 font-mono text-[0.875em] text-warning-text;
