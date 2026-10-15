@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { egress, ids } from '../../../../mock/fixtures';
+import { egress, ids, member } from '../../../../mock/fixtures';
 import { resetMock } from '../../../../mock/server';
 import { toaster } from '../../../components/ui';
 import { config } from '../../../lib/config.svelte';
@@ -180,6 +180,42 @@ describe('Saved keys', () => {
     expect(calls.filter((c) => c.url === '/api/vault/unseal')).toHaveLength(2);
     await waitFor(() => expect(screen.queryByText('Saved keys are locked.')).toBeNull());
     expect(screen.getByRole('button', { name: 'Add key' })).toBeTruthy();
+  });
+});
+
+describe('Your saved keys', () => {
+  it("lets a member add and delete their own keys, and lists no one else's", async () => {
+    const calls = await signIn('member');
+    render(SavedKeys, { params: { group: 'account', item: 'keys' } });
+    expect(await screen.findByText('No saved keys yet.')).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'Your saved keys' })).toBeTruthy();
+    expect(screen.getByText('Keys only you use. When Bothy works for you, a key here takes the place of the shared key with the same name.')).toBeTruthy();
+    expect(screen.queryByText('Anthropic API key')).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Add key' }));
+    const dialog = screen.getByRole('dialog', { name: 'Add key' });
+    expect(within(dialog).getByText('Use the name of the shared key you want to replace. An admin can tell you what it is.')).toBeTruthy();
+    await fireEvent.input(within(dialog).getByLabelText('Name'), { target: { value: 'mcp_linear_header' } });
+    await fireEvent.input(within(dialog).getByLabelText('Value'), { target: { value: 'Bearer lin-own-1234' } });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Save key' }));
+    await screen.findByText('Mcp linear header');
+    const put = calls.find((c) => c.method === 'PUT')!;
+    expect(put.url).toBe(`/api/vault/${encodeURIComponent(`user:${member.id}`)}/mcp_linear_header`);
+    // Admin-only reads would only fail for a member.
+    expect(calls.some((c) => c.url.startsWith('/api/vault/status') || c.url.startsWith('/api/config'))).toBe(false);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'More for Mcp linear header' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Delete…' }));
+    const del = await screen.findByRole('dialog', { name: 'Delete Mcp linear header?' });
+    expect(within(del).getByText("This can't be undone.")).toBeTruthy();
+    await fireEvent.click(within(del).getByRole('button', { name: 'Delete key' }));
+    await waitFor(() => expect(screen.queryByText('Mcp linear header')).toBeNull());
+    expect(calls.some((c) => c.method === 'DELETE' && c.url === put.url)).toBe(true);
+  });
+
+  it('still shows a member the workspace keys page as admins only', async () => {
+    await signIn('member');
+    render(SavedKeys);
+    expect(await screen.findByText('Only admins can see this page.')).toBeTruthy();
   });
 });
 

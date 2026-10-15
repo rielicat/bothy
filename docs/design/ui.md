@@ -567,7 +567,7 @@ On phones and tablets `/settings` is a list page of the same groups; each group 
 | `/activity/audit` | Audit log (admins) |
 | `/settings` | Group list (phones) or redirect to `/settings/general` (admins) / `/settings/account` (members) |
 | `/settings/:group` | `account`, `general`, `models`, `connections`, `people`, `security`, `advanced` |
-| `/settings/:group/:item` | `general/personality`; `connections/{slack,discord,telegram,github,search,mcp-<name>}`; `security/{permissions,websites,keys}` |
+| `/settings/:group/:item` | `general/personality`; `account/keys` (everyone); `connections/{slack,discord,telegram,github,search,mcp-<name>}`; `security/{permissions,websites,keys}` |
 
 Patterns never overlap: owners of repositories can be called anything, so project notes live under `/knowledge/projects/`.
 
@@ -707,7 +707,7 @@ An 8 px `rounded-full bg-warning-text` dot with visually hidden text "Needs atte
 | Activity → Schedules | all | their own |
 | Activity → Releases | yes | yes, read-only |
 | Activity → Audit log | yes | hidden |
-| Settings → Account | yes | yes |
+| Settings → Account | yes | yes (their own saved keys included) |
 | Settings → workspace groups | yes | hidden |
 | Account menu → Pause Bothy | yes | hidden |
 | Banners | all that apply | "Paused" only |
@@ -1901,6 +1901,7 @@ Page title is the group name, no subtitle.
 | Appearance | Theme | Segmented: System, Light, Dark |
 | Approvals | Requests reach you in | select: "Bothy only", then linked apps ("Slack", "Telegram", "Discord"); help "Bothy also shows them in Approvals." |
 | Linked chat apps | one row per app | "Slack · @maya in Acme" + "Unlink"; "Telegram · Not linked" + "Link" → pairing dialog (code, QR, live check "Linked as @maya.") |
+| Saved keys | — | "Your own keys for connected tools, used instead of the shared ones when Bothy works for you." + secondary "Manage your keys" → `/settings/account/keys` (§11.6) |
 | API access | one row per token | name, plain scope ("Can chat and read"), "Last used 2 days ago", "Revoke…"; [Create token] → dialog: Name, "What it can do" (checkboxes in plain words), Expires (select); then the token once in a `CodeBlock` with Copy and example snippets (curl, Open WebUI) under Details |
 | | | [Sign out] (secondary) at the bottom |
 
@@ -2011,6 +2012,7 @@ Stops everything that's running and keeps anything new from starting until someo
 - **Allowed without asking** (`/settings/security/permissions`): rows in plain words "Send messages to #eng in Slack · for Sam Patel · given in “Weekly report” · 3 days ago" + "Remove".
 - **Websites Bothy can reach** (`/settings/security/websites`): list of hosts (`text-code`) with Remove; [Add website]; "Blocked recently" rows "example.com · from “Login bug” · 2 h ago" + "Allow this site…".
 - **Saved keys** (`/settings/security/keys`): rows "Anthropic API key · used by Anthropic · last used 2 h ago" + "Replace" + `⋯` Delete… Values are write-only, never shown. [Add key] dialog: Name, Value (password field, help "Stored encrypted. Only sent to the service that uses it."). When sealed: a top row "Saved keys are locked." + [Unlock] (passphrase dialog).
+- **Your saved keys** (`/settings/account/keys`, everyone, from Account): the same list, dialogs and actions for the person's own keys (`user:<id>` scope; SPEC §2.11), back to Account. Intro (`text-body muted`): "Keys only you use. When Bothy works for you, a key here takes the place of the shared key with the same name." Rows have no "used by"; the Add dialog's Name help is "Use the name of the shared key you want to replace. An admin can tell you what it is."; empty: "No saved keys yet." + "Add one when a connected tool should use your own account." Members never see the locked row or Unlock.
 - **Pause dialog** (440): title "Pause Bothy?"; body "Everything running stops now, and nothing new starts, including schedules, until someone resumes it. Approvals that are waiting will be cancelled."; [Pause Bothy] (danger) [Cancel] (focused). While paused this section reads "Bothy has been paused since 10:42 by Maya Chen." with [Resume] (primary).
 
 ### 11.7 Advanced (admins)

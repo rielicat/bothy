@@ -232,6 +232,11 @@
     {/if}
   </SettingsSection>
 
+  <SettingsSection title="Saved keys">
+    <p class="py-2 text-body text-muted">Your own keys for connected tools, used instead of the shared ones when Bothy works for you.</p>
+    <Button class="mt-2" href="/settings/account/keys">Manage your keys</Button>
+  </SettingsSection>
+
   <SettingsSection title="API access">
     {#if tokensFailed}
       <StatusLine tone="danger" text="Your tokens didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: loadTokens }} />

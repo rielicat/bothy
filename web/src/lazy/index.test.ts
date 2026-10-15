@@ -15,6 +15,7 @@ const params: Record<string, Record<string, string>[]> = {
     { group: 'security', item: 'permissions' },
     { group: 'security', item: 'websites' },
     { group: 'security', item: 'keys' },
+    { group: 'account', item: 'keys' },
     { group: 'connections', item: 'slack' },
     { group: 'connections', item: 'github' },
     { group: 'connections', item: 'search' },
@@ -47,6 +48,7 @@ describe('route groups', () => {
     const settings = await load('settings');
     expect(settings.screen({ pattern: '/settings/:group/:item', params: { group: 'security', item: 'nope' } })).toBeNull();
     expect(settings.screen({ pattern: '/settings/:group/:item', params: { group: 'people', item: 'x' } })).toBeNull();
+    expect(settings.screen({ pattern: '/settings/:group/:item', params: { group: 'account', item: 'x' } })).toBeNull();
     expect((await load('auth')).screen({ pattern: '/chat', params: {} })).toBeNull();
   });
 

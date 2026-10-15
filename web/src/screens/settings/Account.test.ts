@@ -40,6 +40,12 @@ describe('Settings → Account', () => {
     expect(screen.queryByText(/^bothy_pat_/)).toBeNull();
   });
 
+  it('leads members to their own saved keys', async () => {
+    await open({}, 'member');
+    expect(screen.getByText('Your own keys for connected tools, used instead of the shared ones when Bothy works for you.')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Manage your keys' }).getAttribute('href')).toBe('/settings/account/keys');
+  });
+
   it('describes tokens in plain words and never says "never"', async () => {
     await open();
     // The fixture was used three hours ago, which reads "yesterday …" just after midnight.

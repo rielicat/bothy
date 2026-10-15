@@ -24,6 +24,7 @@ export function screen(m: Match): Screen | null {
     case '/settings/:group/:item':
       if (p.group === 'connections') return connectionsScreen(p.item);
       if (p.group === 'security') return security[p.item] ?? null;
+      if (p.group === 'account' && p.item === 'keys') return SavedKeys;
       return p.group === 'general' && p.item === 'personality' ? Settings : null;
   }
   return null;

@@ -12,8 +12,14 @@
   import PageState from './PageState.svelte';
   import UnlockDialog from './UnlockDialog.svelte';
 
+  let { params = {} }: { params?: Record<string, string> } = $props();
+
   const uid = $props.id();
-  const SCOPE = 'global';
+  // The workspace's keys (Security, admins) or the viewer's own (Account), which
+  // take the place of the shared key of the same name when Bothy works for them (SPEC §2.11).
+  const personal = $derived(params.group === 'account');
+  const scope = $derived(personal ? `user:${session.me?.user.id ?? ''}` : 'global');
+  const accountBack = { href: '/settings/account', label: 'Account' };
 
   let keys = $state<SecretMeta[] | null>(null);
   let failed = $state(false);
@@ -32,25 +38,29 @@
   let deleteError = $state('');
 
   const entries = $derived(config.view?.entries ?? []);
-  const users = (k: SecretMeta) => joinNames(usedBy(k.name, entries));
+  // Settings point at the shared keys; a personal one is used in their place only by connected tools.
+  const users = (k: SecretMeta) => (personal ? '' : joinNames(usedBy(k.name, entries)));
   const sorted = $derived([...(keys ?? [])].sort((a, b) => keyName(a.name).localeCompare(keyName(b.name))));
 
   async function load() {
     failed = false;
-    void config.load();
-    api.get<VaultStatus>('/api/vault/status').then((v) => (vault = v), () => {});
+    // What uses a key, and whether the keys are locked, are for admins to see.
+    if (session.isAdmin) {
+      void config.load();
+      api.get<VaultStatus>('/api/vault/status').then((v) => (vault = v), () => {});
+    }
     try {
-      keys = (await api.get<SecretMeta[]>(`/api/vault?scope=${SCOPE}`)) ?? [];
+      keys = (await api.get<SecretMeta[]>(`/api/vault?scope=${encodeURIComponent(scope)}`)) ?? [];
     } catch {
       failed = true;
     }
   }
 
   $effect(() => {
-    if (session.isAdmin) untrack(load);
+    if (personal || session.isAdmin) untrack(load);
   });
 
-  const path = (n: string) => `/api/vault/${encodeURIComponent(SCOPE)}/${encodeURIComponent(n)}`;
+  const path = (n: string) => `/api/vault/${encodeURIComponent(scope)}/${encodeURIComponent(n)}`;
 
   function openAdd() {
     target = null;
@@ -117,17 +127,20 @@
   };
 </script>
 
-<Page title="Saved keys" back={securityBack}>
+<Page title={personal ? 'Your saved keys' : 'Saved keys'} back={personal ? accountBack : securityBack}>
   {#snippet actions()}
-    {#if session.isAdmin && keys && !vault?.sealed}<Button onclick={openAdd}>Add key</Button>{/if}
+    {#if (personal || session.isAdmin) && keys && !vault?.sealed}<Button onclick={openAdd}>Add key</Button>{/if}
   {/snippet}
-  {#if !session.isAdmin}
+  {#if !personal && !session.isAdmin}
     <PageState kind="forbidden" />
   {:else if failed}
     <PageState kind="failed" onretry={load} />
   {:else if keys === null}
     <PageState kind="loading" />
   {:else}
+    {#if personal}
+      <p class="mb-4 text-body text-muted">Keys only you use. When Bothy works for you, a key here takes the place of the shared key with the same name.</p>
+    {/if}
     {#if vault?.sealed}
       <div class="flex min-h-14 flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-border py-3">
         <p class="text-body text-text">Saved keys are locked.</p>
@@ -135,7 +148,7 @@
       </div>
     {/if}
     {#if !sorted.length}
-      <EmptyState text="No saved keys yet." more="Keys you add for models and connections show up here." />
+      <EmptyState text="No saved keys yet." more={personal ? 'Add one when a connected tool should use your own account.' : 'Keys you add for models and connections show up here.'} />
     {:else}
       {#each sorted as k (k.source + ':' + k.name)}
         {@const who = users(k)}
@@ -168,7 +181,14 @@
 <Dialog bind:open={editing} title={target ? `Replace ${keyName(target.name)}` : 'Add key'} size="md" busy={saving} dirty={!!(name || value)} onclose={resetForm}>
   <form id="{uid}-key" class="space-y-5" onsubmit={submit} novalidate>
     {#if !target}
-      <TextField label="Name" placeholder="Brave Search API key" autocomplete="off" bind:value={name} error={tried ? nameError : ''} />
+      <TextField
+        label="Name"
+        placeholder="Brave Search API key"
+        autocomplete="off"
+        bind:value={name}
+        help={personal ? 'Use the name of the shared key you want to replace. An admin can tell you what it is.' : undefined}
+        error={tried ? nameError : ''}
+      />
     {/if}
     <TextField label={target ? 'New value' : 'Value'} type="password" autocomplete="off" bind:value help={helpFor(target)} error={tried ? valueError : ''} />
     {#if formError}<p class="field-error" role="alert"><Icon name="alert" class="mt-px" />{formError}</p>{/if}

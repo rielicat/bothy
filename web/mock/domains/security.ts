@@ -1,7 +1,7 @@
 // Security and Advanced (C9): permissions, the policy tester, saved keys,
 // running code, the doctor, backups and restarts.
 import type { DoctorReport, Entry, Finding, Grant, SandboxInfo, SecretMeta, VaultStatus } from '../../src/lib/api/types.gen.ts';
-import { ago, body, clone, core, fail, json, newId, nowISO, on, onReset, owner, principals, scenario, ZERO } from './core.ts';
+import { ago, body, clone, core, fail, json, newId, nowISO, on, onReset, owner, principals, scenario, viewer, ZERO } from './core.ts';
 import { state as settings } from './settings.ts';
 
 export const secrets: SecretMeta[] = [
@@ -176,7 +176,14 @@ on('POST', '/api/vault/import', async (req, res) => {
   state.secrets.push(s);
   json(res, 200, s);
 });
-on('GET', '/api/vault', (req, res) => json(res, 200, empty(req) ? [] : state.secrets));
+// Everyone lists their own scope; admins any scope, the global one by default.
+on('GET', '/api/vault', (req, res, _m, q) => {
+  const me = viewer(req);
+  const own = `user:${me.id}`;
+  const scope = q.get('scope') || (me.role === 'member' ? own : 'global');
+  if (me.role === 'member' && scope !== own) return fail(res, 404, 'not_found', 'not found');
+  json(res, 200, empty(req) ? [] : state.secrets.filter((s) => s.scope === scope));
+});
 on('PUT', '/api/vault/{scope}/{name}', async (req, res, m) => {
   const { value } = JSON.parse(await body(req));
   const s = { scope: decodeURIComponent(m[1]), name: m[2], source: 'vault', hint: String(value).slice(-4), updated_at: nowISO(), last_used_at: ZERO };
