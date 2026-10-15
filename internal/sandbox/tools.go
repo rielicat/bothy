@@ -178,7 +178,8 @@ func newShell(cfg config.View) *execTool {
 	def := core.ToolDef{
 		Name: "shell",
 		Description: "Run a bash command in this session's sandbox. The working directory is /workspace (your files); " +
-			"network access goes through an approval-gated proxy. Returns the exit code, stdout and stderr.",
+			"network access goes through an approval-gated proxy. Has git, curl, jq, rg and Python 3; there is no pip: " +
+			"use uv (uv run --with <pkg> python x.py, uvx <tool>). Returns the exit code, stdout and stderr.",
 		Schema: json.RawMessage(`{"type":"object","properties":{` +
 			`"command":{"type":"string","description":"bash command line"},` +
 			`"cwd":{"type":"string","description":"directory relative to /workspace (default: /workspace)"}},` +
