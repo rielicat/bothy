@@ -198,7 +198,8 @@ var (
 		main:  res(`anthropic\.claude-sonnet`, `anthropic\.claude-opus`, `amazon\.nova-pro`, `amazon\.nova-2-lite`, `amazon\.nova-premier`, `amazon\.nova-lite`),
 		quick: res(`anthropic\.claude-haiku`, `amazon\.nova-2-lite`, `amazon\.nova-lite`, `amazon\.nova-micro`),
 	}
-	openaiSuggest     = suggestions{main: res(`^gpt-\d+(\.\d+)?$`), quick: res(`^gpt-\d+(\.\d+)?-mini$`)}
+	// GPT-5.6 on are tiers: Astra (largest), Sol, Terra, Luna (smallest).
+	openaiSuggest     = suggestions{main: res(`^gpt-\d+(\.\d+)?-sol$`, `^gpt-\d+(\.\d+)?$`), quick: res(`^gpt-\d+(\.\d+)?-luna$`, `^gpt-\d+(\.\d+)?-mini$`)}
 	geminiSuggest     = suggestions{main: res(`^gemini-\d+(\.\d+)?-pro(-preview)?$`), quick: res(`^gemini-\d+(\.\d+)?-flash-lite$`, `^gemini-\d+(\.\d+)?-flash$`)}
 	openrouterSuggest = suggestions{main: res(`^anthropic/claude-sonnet`), quick: res(`^anthropic/claude-haiku`)}
 	compatSuggest     = map[string]suggestions{

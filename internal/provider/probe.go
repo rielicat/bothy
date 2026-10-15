@@ -165,11 +165,13 @@ func (f *Facade) exercise(ctx context.Context, p probeCall, res *core.ProbeResul
 	if n := apiNote(p.kind, p.asked, p.api); n != "" {
 		notes = append(notes, n)
 	}
-	toolTokens := 256
-	if p.api == openai.APIResponses {
-		// Reasoning counts against max_output_tokens there, and a
-		// reasoning model can spend 256 before it calls the tool.
-		toolTokens = 1024
+	toolTokens := 1024
+	if (endpoint{kind: p.kind, base: p.base}).local() {
+		// Hosted reasoning models (Responses, Gemini, routers) count their
+		// thinking against the output limit and can spend 256 tokens before
+		// calling the tool; a local model that rambles to 1024 would take
+		// minutes on a CPU instead.
+		toolTokens = 256
 	}
 	toolReq := &core.Request{
 		Model: p.model, MaxTokens: toolTokens, ToolChoice: "required", NumCtx: p.numCtx,
