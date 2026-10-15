@@ -40,6 +40,15 @@ describe('ModelPicker', () => {
     expect(onchange).toHaveBeenCalledWith('openrouter/vendor/model-3');
   });
 
+  it('never shows a model id as its name', () => {
+    expect(models.name('anthropic/claude-sonnet-4-5-20250929')).toBe('Claude Sonnet 4.5');
+    models.list = [info('openai', 'gpt-6.1-sol', 'GPT-6.1 Sol'), info('openai', 'gpt-6-mini', 'GPT-6 Mini')];
+    models.main = 'bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0';
+    expect(models.name(models.main)).toBe('Claude Sonnet 4.5');
+    expect(models.name('anthropic/claude-opus-4-1-20250805')).toBe("A model that's no longer connected");
+    expect(models.name('openai/gpt-6.1-sol')).toBe('GPT-6.1 Sol');
+  });
+
   it('names routers the way they write their names', () => {
     expect(['openrouter', 'xai', 'deepseek', 'acme'].map(providerName)).toEqual(['OpenRouter', 'xAI', 'DeepSeek', 'Acme']);
   });

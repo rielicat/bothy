@@ -5,7 +5,7 @@
 
   // Chat details → Technical details (§7.7): the only place in the chat where
   // context size, tokens and model ids appear.
-  let { breakdown, calls, chatId }: { breakdown: Breakdown | null; calls: CallInfo[]; chatId: string } = $props();
+  let { breakdown, calls, chatId, modelId = '' }: { breakdown: Breakdown | null; calls: CallInfo[]; chatId: string; modelId?: string } = $props();
 
   const n = (v: number) => v.toLocaleString();
   const secs = (ns: number) => `${(ns / 1e9).toFixed(1)} s`;
@@ -60,6 +60,12 @@
           </li>
         {/each}
       </ul>
+    </div>
+  {/if}
+  {#if modelId}
+    <div>
+      <p class="mb-1 text-muted">Model id</p>
+      <CodeBlock code={modelId} />
     </div>
   {/if}
   <div>

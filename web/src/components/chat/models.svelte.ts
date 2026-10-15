@@ -3,6 +3,7 @@
 // admins can read; members see "Main model" without its name.
 import { api } from '../../lib/api/client';
 import type { ConfigView, ModelInfo, RefineInfo } from '../../lib/api/types.gen';
+import { friendlyModel } from '../../lib/providers';
 
 export type RefineConfig = Pick<RefineInfo, 'enabled' | 'drafts' | 'depth' | 'multiplier'>;
 
@@ -47,10 +48,15 @@ class Models {
     return this.#loading;
   }
 
-  /** "Claude Sonnet 4.5"; the id without its provider when the server has no name for it. */
+  /** "Claude Sonnet 4.5". Ids stay in Chat details → Technical details (§14.3). */
   name(ref: string): string {
     const m = this.list.find((x) => `${x.ref.provider}/${x.ref.model}` === ref);
-    return m?.display_name || m?.display || ref.slice(ref.indexOf('/') + 1);
+    const named = m?.display_name || m?.display;
+    if (named) return named;
+    // A chat can keep a model that has since been disconnected. With no list
+    // at all there is nothing to compare against, and the slots stay configured.
+    if (this.list.length && ref !== this.main && ref !== this.fast) return "A model that's no longer connected";
+    return friendlyModel(ref.slice(ref.indexOf('/') + 1));
   }
 }
 

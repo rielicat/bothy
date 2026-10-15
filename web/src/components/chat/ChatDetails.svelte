@@ -14,9 +14,10 @@
     session,
     starter,
     model,
+    modelId = '',
     refine,
     runId = '',
-  }: { open?: boolean; conv: Conversation; session: Session; starter: string; model: string; refine: boolean; runId?: string } = $props();
+  }: { open?: boolean; conv: Conversation; session: Session; starter: string; model: string; modelId?: string; refine: boolean; runId?: string } = $props();
 
   let technical = $state(false);
 
@@ -50,6 +51,6 @@
     {/if}
   </dl>
   <Disclosure label="Technical details" class="mt-6" bind:open={technical}>
-    <TechnicalDetails {breakdown} {calls} chatId={session.id} />
+    <TechnicalDetails {breakdown} {calls} chatId={session.id} {modelId} />
   </Disclosure>
 </Drawer>

@@ -746,7 +746,7 @@
 </div>
 
 {#if s}
-  <ChatDetails bind:open={detailsOpen} {conv} session={s} {starter} model={modelLabel} {refine} runId={detailsRun} />
+  <ChatDetails bind:open={detailsOpen} {conv} session={s} {starter} model={modelLabel} modelId={modelValue || models.main} {refine} runId={detailsRun} />
   <PinnedDrawer bind:open={pinsOpen} bind:adding={pinAdding} {conv} />
 {/if}
 
