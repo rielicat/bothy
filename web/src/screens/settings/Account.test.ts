@@ -64,7 +64,9 @@ describe('Settings → Account', () => {
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/identities/telegram/5512')).toBe(true));
     expect(await screen.findByText('Not linked')).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: 'Link Telegram' }));
-    expect(await screen.findByRole('dialog', { name: 'Link Telegram' })).toBeTruthy();
+    const dialog = await screen.findByRole('dialog', { name: 'Link Telegram' });
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/pairing')).toBe(true));
+    expect(await within(dialog).findByText('/pair 7KQ2-MX4D')).toBeTruthy();
   });
 
   it('saves where approval requests reach you', async () => {

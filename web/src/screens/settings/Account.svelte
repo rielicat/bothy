@@ -261,7 +261,7 @@
 <TokenDialog bind:open={tokenOpen} oncreated={(t) => (tokens = [...tokens, t])} />
 
 <Dialog bind:open={pairOpen} title={pairChannel ? `Link ${apps[pairChannel]}` : 'Link a chat app'} onclose={loadIdentities}>
-  <Pairing channel={pairChannel} />
+  <Pairing channel={pairChannel} auto />
   {#snippet footer({ close })}
     <Button onclick={close}>Done</Button>
   {/snippet}

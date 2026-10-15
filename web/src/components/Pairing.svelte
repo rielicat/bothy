@@ -69,7 +69,7 @@
 {:else if error}
   <StatusLine tone="danger" text="Bothy couldn't make a code. Try again." details={error} action={{ label: 'Try again', onclick: create }} />
 {:else if !code}
-  {#if !auto}<Button loading={busy} loadingLabel="Making a code…" onclick={create}>Link your account</Button>{/if}
+  {#if !auto}<Button loading={busy} loadingLabel="Making a code…" onclick={create}>Link your account</Button>{:else}<p class="text-body text-muted">Making a code…</p>{/if}
 {:else if left === 'Expired'}
   <p class="text-body text-muted">This code expired. <LinkButton onclick={create}>Make a new code</LinkButton></p>
 {:else}
