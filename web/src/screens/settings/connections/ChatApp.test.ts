@@ -72,6 +72,18 @@ describe('Connect Slack (§12.3)', () => {
     expect(screen.queryByText('slack: auth.test: invalid_auth')).toBeNull();
   });
 
+  it('keeps neither the refused tokens nor Slack switched on after a failed first connection', async () => {
+    const calls = await setup(
+      'slack',
+      fresh((m, url) => (m === 'POST' && url === '/api/channels/slack/test' ? refuse(502, 'slack: auth.test: invalid_auth') : undefined)),
+    );
+    await pasteTokens();
+    await screen.findByRole('alert');
+    await waitFor(() => expect(calls.filter((c) => c.method === 'DELETE' && c.url.startsWith('/api/vault/global/')).length).toBe(2));
+    const patches = calls.filter((c) => c.method === 'PATCH' && c.url === '/api/config').map((c) => JSON.parse(c.body).set);
+    expect(patches.at(-1)).toEqual({ 'channels.slack.enabled': false });
+  });
+
   it('shows "Linked as" when the person sends the code', async () => {
     await setup('slack', fresh());
     await pasteTokens();

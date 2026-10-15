@@ -99,6 +99,15 @@
     const mine = ++run;
     checking = true;
     outcome = null;
+    // A first connection whose test fails is undone, so a token the app
+    // refused is neither kept nor left switched on.
+    const firstTime = status?.state !== 'connected' && !fromManage;
+    const added: string[] = [];
+    const undo = async () => {
+      if (!firstTime) return;
+      await saveConfig({ [`channels.${app}.enabled`]: false }).catch(() => {});
+      for (const n of added) await api.del(`/api/vault/global/${n}`).catch(() => {});
+    };
     try {
       const set: Record<string, unknown> = { [`channels.${app}.enabled`]: true };
       for (const f of fields[app]) {
@@ -106,7 +115,10 @@
         if (!f.secret) set[path(f)] = v;
         else {
           const n = secretName(path(f), f.secret);
-          if (v) await api.put(`/api/vault/global/${n}`, { value: v });
+          if (v) {
+            if (!secrets.some((x) => x.name === n)) added.push(n);
+            await api.put(`/api/vault/global/${n}`, { value: v });
+          }
           set[path(f)] = `secret:${n}`;
         }
       }
@@ -131,7 +143,11 @@
       outcome = { ok: true, message: `${connectedText({ ...status!, identity: r.identity }, true)}.` };
       if (app === 'discord') invite = (await api.get<DiscordInvite>('/api/channels/discord/invite').catch(() => ({ url: '' }))).url;
     } catch (e) {
-      if (mine === run) outcome = { ok: false, ...channelFailure(app, e) };
+      await undo();
+      if (mine === run) {
+        outcome = { ok: false, ...channelFailure(app, e) };
+        await load();
+      }
     } finally {
       if (mine === run) checking = false;
     }
