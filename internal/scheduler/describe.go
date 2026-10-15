@@ -51,7 +51,7 @@ func plural(n int, unit string) string {
 func describeCron(spec string) string {
 	f := strings.Fields(spec)
 	minute, hour, dom, mon, dow := f[0], f[1], f[2], f[3], f[4]
-	fallback := "Cron " + spec
+	fallback := "Repeat rule " + spec
 	if minute == "*" && hour == "*" && dom == "*" && mon == "*" && dow == "*" {
 		return "Every minute"
 	}

@@ -553,11 +553,22 @@ func (s *Service) disabled(ctx context.Context, sc *core.Schedule, last core.Run
 	if !ok {
 		return
 	}
-	msg := fmt.Sprintf("Schedule “%s” was turned off after %d failed runs in a row (last: %s). Turn it back on under Schedules once it is fixed.",
-		plain(sc.Name), maxFailures, last)
+	msg := fmt.Sprintf("The schedule “%s” was turned off because its last %d tasks failed%s. Turn it back on under Schedules once it's fixed.",
+		plain(sc.Name), maxFailures, lastFailure(last))
 	if _, err := s.hub.Send(ctx, chat, msg); err != nil {
 		s.log.Warn("scheduler: notify owner", "schedule", sc.ID, "err", err)
 	}
+}
+
+// lastFailure says how the last task ended when that helps fix the schedule.
+func lastFailure(st core.RunStatus) string {
+	switch st {
+	case core.RunBudgetExceeded:
+		return " and the last one hit the spending limit"
+	case core.RunLoopDetected:
+		return " and in the last one Bothy kept repeating the same step"
+	}
+	return ""
 }
 
 // plain strips characters the chat markdown subset gives meaning to, so a

@@ -12,6 +12,19 @@ import (
 	"github.com/rielicat/bothy/internal/core"
 )
 
+// The owner notice says how the last task ended in words, never as a status.
+func TestLastFailure(t *testing.T) {
+	for st, want := range map[core.RunStatus]string{
+		core.RunFailed:         "",
+		core.RunBudgetExceeded: " and the last one hit the spending limit",
+		core.RunLoopDetected:   " and in the last one Bothy kept repeating the same step",
+	} {
+		if got := lastFailure(st); got != want {
+			t.Errorf("lastFailure(%s) = %q, want %q", st, got, want)
+		}
+	}
+}
+
 func fireTimes(fs []fired) []time.Time {
 	out := make([]time.Time, len(fs))
 	for i, f := range fs {
@@ -224,7 +237,7 @@ func TestLoopThreeFailuresDisableAndNotify(t *testing.T) {
 			t.Fatalf("third failure must disable: %+v", got)
 		}
 		msgs := h.hub.Messages()
-		if len(msgs) != 1 || !strings.HasPrefix(msgs[0], h.dm.Key()+"|Schedule “report linkx” was turned off after 3 failed runs") {
+		if len(msgs) != 1 || msgs[0] != h.dm.Key()+"|The schedule “report linkx” was turned off because its last 3 tasks failed. Turn it back on under Schedules once it's fixed." {
 			t.Fatalf("owner notice = %q", msgs)
 		}
 		if !slices.ContainsFunc(h.audit.All(), func(e core.AuditEntry) bool {

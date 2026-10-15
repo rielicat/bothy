@@ -238,8 +238,8 @@ func TestDescribe(t *testing.T) {
 		"0 7 * * 1,3,5":     "Mondays, Wednesdays and Fridays at 07:00",
 		"0 6 1 * *":         "Monthly on day 1 at 06:00",
 		"0 6 5 3 *":         "Every year on 5 March at 06:00",
-		"0 6 1-7 * 1":       "Cron 0 6 1-7 * 1",
-		"0-30/5 8-10 * * *": "Cron 0-30/5 8-10 * * *",
+		"0 6 1-7 * 1":       "Repeat rule 0 6 1-7 * 1",
+		"0-30/5 8-10 * * *": "Repeat rule 0-30/5 8-10 * * *",
 	} {
 		p, err := parsePlan(core.SchedCron, spec, "Europe/London", "")
 		if err != nil {
