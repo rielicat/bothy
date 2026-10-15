@@ -85,6 +85,11 @@ describe('Settings → General', () => {
     expect(within(row('Daily limit')).queryByText(/Takes effect after a restart\./)).toBeNull();
   });
 
+  it("says the workspace time zone is new people's default and the daily limit's clock, not everyone's schedules", () => {
+    expect(screen.getByText('New people start with this time zone. The daily spending limit resets at midnight here.')).toBeTruthy();
+    expect(screen.queryByText(/Used for schedules/)).toBeNull();
+  });
+
   it('keeps the standing instructions as one list item per line', async () => {
     const box = screen.getByLabelText('Standing instructions');
     await fireEvent.input(box, { target: { value: 'Reply in British English.\n\n  Link to the code.  ' } });

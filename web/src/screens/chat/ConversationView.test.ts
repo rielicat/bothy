@@ -89,7 +89,8 @@ describe('conversation', () => {
     await loaded();
     emit('run.started', { trigger: 'message', model: 'anthropic/claude-sonnet-4-6' });
     emit('run.finished', { status: 'budget_exceeded', budget: 'daily_cost', error: 'budget exceeded: daily_cost', steps: 3, usage: { input: 1, output: 1, cache_read: 0, cache_write: 0, reasoning: 0 }, cost_micros: 5000 });
-    expect(await screen.findByText(/Bothy has reached today's .*spending limit\. It can start again at midnight/)).toBeTruthy();
+    // Daily limits reset on the workspace's clock (UTC in the mock), not the person's own (Europe/London).
+    expect(await screen.findByText(/Bothy has reached today's .*spending limit\. It can start again at midnight \(UTC\)\./)).toBeTruthy();
     expect(screen.queryByText('budget exceeded: daily_cost')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Keep going' })).toBeNull();
 

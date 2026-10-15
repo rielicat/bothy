@@ -28,6 +28,20 @@ export function localZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 }
 
+/** "Europe/London" → "London (Europe)", so typing a city finds it. */
+export function zoneLabel(z: string): string {
+  const parts = z.split('/').map((p) => p.replace(/_/g, ' '));
+  const city = parts.pop() ?? z;
+  return parts.length ? `${city} (${parts.join(', ')})` : city;
+}
+
+/** Every zone the browser knows, by city, plus `current` when the browser leaves it out (browsers list no "UTC"). */
+export function zoneOptions(current: string): { value: string; label: string }[] {
+  const list = timezones();
+  if (current && !list.includes(current)) list.unshift(current);
+  return list.map((z) => ({ value: z, label: zoneLabel(z) }));
+}
+
 // The wall-clock time of d in tz as YYYY-MM-DDTHH:MM, which is what the
 // server reads in the schedule's tz for a once spec without an offset.
 export function wallClock(d: Date, tz: string): string {

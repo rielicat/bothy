@@ -174,7 +174,7 @@
         if (o.budget === 'daily_cost') {
           const limit = auth.today?.limit_micros ? ` ${money(auth.today.limit_micros)}` : '';
           return {
-            text: `Bothy has reached today's${limit} spending limit. It can start again at midnight (${auth.me?.user.timezone || 'server time'}).`,
+            text: `Bothy has reached today's${limit} spending limit. It can start again at midnight (${auth.today?.timezone || 'server time'}).`,
             action: admin ? { label: 'Change limit', onclick: () => router.navigate('/settings/general') } : undefined,
           };
         }

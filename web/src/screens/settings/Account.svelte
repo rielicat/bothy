@@ -1,10 +1,11 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import Pairing from '../../components/Pairing.svelte';
-  import { Button, Dialog, Segmented, Select, SettingsRow, SettingsSection, StatusLine, TextField, toast } from '../../components/ui';
+  import { Button, Combobox, Dialog, LinkButton, Segmented, Select, SettingsRow, SettingsSection, StatusLine, TextField, toast } from '../../components/ui';
   import { api, ApiError } from '../../lib/api/client';
   import type { ChannelIdentity, ChannelStatus, Profile, TokenRecord } from '../../lib/api/types.gen';
   import { isZeroTime, relTime } from '../../lib/format';
+  import { localZone, zoneLabel, zoneOptions } from '../../lib/schedules';
   import { events } from '../../lib/sse.svelte';
   import { session } from '../../lib/stores/session.svelte';
   import { theme, type ThemePref } from '../../lib/stores/ui.svelte';
@@ -93,6 +94,28 @@
     }
   }
 
+  const zoneSaver = new Saver();
+  const zone = $derived(profile?.timezone || me?.timezone || '');
+  const zones = $derived(zoneOptions(zone));
+  const browserZone = localZone();
+  let zoneValue = $state('');
+  $effect.pre(() => {
+    zoneValue = zone;
+  });
+
+  async function saveZone(v: string | string[]) {
+    if (typeof v !== 'string' || !v || v === zone) return;
+    zoneValue = v;
+    const ok = await zoneSaver.run(async () => (profile = await api.patch<Profile>('/api/me', { timezone: v })));
+    if (!ok) {
+      zoneValue = zone;
+      if (zoneSaver.lastError instanceof ApiError && zoneSaver.lastError.status === 400) zoneSaver.fail("Bothy doesn't know that time zone. Choose one from the list.");
+      return;
+    }
+    // New schedules start in the zone session.me carries.
+    await session.refresh().catch(() => {});
+  }
+
   const linkedApps = $derived(appOrder.filter((c) => identities.some((i) => i.channel === c)));
   const appRows = $derived(
     appOrder
@@ -156,6 +179,10 @@
   ];
 </script>
 
+{#snippet browserZoneNote()}
+  This browser uses {zoneLabel(browserZone)}. <LinkButton aria-label="Use {zoneLabel(browserZone)}" onclick={() => saveZone(browserZone)}>Use it</LinkButton>
+{/snippet}
+
 <SettingsFrame title="Account">
   <SettingsSection title="Profile">
     <SettingsRow label="Name" status={nameSaver.status} error={nameSaver.error}>
@@ -178,6 +205,18 @@
     </SettingsRow>
     <SettingsRow label="Username">
       {#snippet children(c)}<output id={c.id} class="block text-body break-words text-text">{me?.username}</output>{/snippet}
+    </SettingsRow>
+    <SettingsRow
+      label="Time zone"
+      help="Bothy uses it in your chats and for new schedules."
+      note={zone && browserZone !== zone ? browserZoneNote : undefined}
+      status={zoneSaver.status}
+      error={zoneSaver.error}
+    >
+      {#snippet children()}
+        <!-- The row's label is the visible one; the combobox keeps its own for screen readers. -->
+        <Combobox label="Time zone" class="[&>div]:mt-0 [&>label]:sr-only" bind:value={zoneValue} options={zones} onchange={saveZone} />
+      {/snippet}
     </SettingsRow>
     <SettingsRow label="Password">
       {#snippet children()}<Button onclick={() => (pwOpen = true)}>Change password…</Button>{/snippet}

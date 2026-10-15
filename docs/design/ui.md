@@ -989,7 +989,7 @@ Give teammates their own sign-in.
 | Setting | Default | Where to change it |
 |---|---|---|
 | Team mode | On (`mode: multi`) | not shown (Advanced → Configuration file) |
-| Time zone | The browser's at setup | Settings → General → Workspace |
+| Time zone | The browser's at setup, for you and as new people's default | Settings → Account (yours), Settings → General → Workspace (new people's) |
 | When Bothy asks (preset) | Careful (unchanged config default) | Settings → Security → Approvals |
 | If nobody answers | Chats: deny after 15 minutes; schedules: wait up to 24 hours | Settings → Security → Approvals |
 | Daily spending limit | $5.00 for everyone | Settings → General → Spending |
@@ -1295,7 +1295,7 @@ A notice is a system line at the column edge: `text-small muted`, no box, at mos
 | Step limit | "Bothy paused after {n} steps to check in." | "Keep going" |
 | Loop detected | "Bothy stopped because it kept repeating the same step. Try asking in a different way." | — |
 | Task spending limit | "Bothy stopped because this task reached its {$0.50} limit." | Admins: "Keep going" (raises once) |
-| Daily limit | "Bothy has reached today's {$5.00} spending limit. It can start again at midnight ({time zone})." | Admins: "Change limit" |
+| Daily limit | "Bothy has reached today's {$5.00} spending limit. It can start again at midnight ({workspace time zone})." | Admins: "Change limit" |
 | Compaction | "Older messages were summarised so this chat can keep going." | — |
 | Auto-pin | "Pinned {file} so Bothy keeps it in mind." | — |
 | Becomes exposed (once per chat) | "From now on, Bothy will ask before sending anything out of this chat." | "Why?" → Details: "This chat has used private information and content from outside your team, like a web page. To keep that information from leaking, Bothy now asks first. Continue in a clean chat to reset this." |
@@ -1769,6 +1769,7 @@ Name
 
 - "When" options: Every day, Every weekday, Every week on {day}, Every month on day {n}, Once on {date}, Custom. "Custom" reveals "Repeat rule" (a cron expression in a text field, `text-code`, help "Five fields: minute, hour, day, month, weekday. Example: 0 9 * * 1-5 means weekdays at 9:00."). Cron appears nowhere else. The preview line comes from `/api/schedules/preview`.
 - "Send results to" offers only chats the server lets the schedule post to: the signed-in person's own linked chats (an admin is sent everyone's identities, and the others are left out) and, for a group chat's own schedule, that group chat. A new schedule starts on the first of them, else "Only here in Bothy". A schedule without a set chat shows "Your usual chat app", or "Here until you link a chat app" while none is linked.
+- Time zone starts as the person's own (Settings → Account); the preview and the saved schedule use the zone chosen here.
 - "Allowed without asking" lists the pre-authorised narrow grants as plain sentences (`lib/grants.ts` descriptions). Deploys never appear.
 - Errors: empty prompt "Tell Bothy what to do."; invalid repeat rule "That repeat rule isn't valid. Example: 0 9 * * 1-5 means weekdays at 9:00."
 - Edit pages add "Recent runs" below (task rows from §10.1, linking to task detail; failures show the plain reason) and "Delete schedule…" in the page `⋯`.
@@ -1897,6 +1898,7 @@ Page title is the group name, no subtitle.
 |---|---|---|
 | Profile | Name | text |
 | | Username | read-only plain text (no border) |
+| | Time zone | searchable `Combobox` (cities, as in General); help "Bothy uses it in your chats and for new schedules."; when this browser's zone differs, a second line "This browser uses {Santiago (America)}." + link button "Use it" (saves it). Saves on choosing, through `PATCH /api/me`; a refused zone says "Bothy doesn't know that time zone. Choose one from the list." |
 | | Password | secondary "Change password…" → dialog: Current password, New password (Step 1 help text), [Save password] |
 | Appearance | Theme | Segmented: System, Light, Dark |
 | Approvals | Requests reach you in | select: "Bothy only", then linked apps ("Slack", "Telegram", "Discord"); help "Bothy also shows them in Approvals." |
@@ -1909,7 +1911,7 @@ Page title is the group name, no subtitle.
 
 | Section | Row | Control | Help / default |
 |---|---|---|---|
-| Workspace | Time zone | searchable `Combobox` | "Used for schedules and the daily spending limit." / from setup |
+| Workspace | Time zone | searchable `Combobox` | "New people start with this time zone. The daily spending limit resets at midnight here." / from setup. Each person's schedules use their own zone (Account). |
 | | Web address | text, placeholder `https://bothy.acme.com` | "The address your team uses. Links in chat apps point here." |
 | | Connection | status text: "Reached securely over HTTPS", "Only reachable from this computer", or `warning-text` "Reached over plain HTTP from another computer" + Details (peer class, TLS) | — |
 | Spending | Daily limit | money input with `$` prefix, 2 decimals | "Bothy stops starting new work when everyone's spending reaches this. It resets at midnight." / $5.00 |

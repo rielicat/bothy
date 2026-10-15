@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setCsrf } from '../../lib/api/client';
 import { session } from '../../lib/stores/session.svelte';
 import { installApi } from '../../test/api';
@@ -16,7 +16,17 @@ async function open(opts: Parameters<typeof installApi>[0] = {}, role?: string) 
   return calls;
 }
 
+// localZone() reads the browser's zone from here.
+function browserIn(timeZone: string) {
+  const real = Intl.DateTimeFormat.prototype.resolvedOptions;
+  vi.spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions').mockImplementation(function (this: Intl.DateTimeFormat) {
+    return { ...real.call(this), timeZone };
+  });
+}
+
 describe('Settings → Account', () => {
+  afterEach(() => vi.restoreAllMocks());
+
   it('shows a new token once, with how to use it behind Details', async () => {
     const calls = await open();
     await fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
@@ -135,6 +145,43 @@ describe('Settings → Account', () => {
     await fireEvent.input(name, { target: { value: 'Priya Rao' } });
     await fireEvent.blur(name);
     expect(await screen.findByText("Bothy can't use that name. Choose one nobody else here has, up to 64 characters.")).toBeTruthy();
+  });
+
+  it("shows your own time zone, offers the browser's and saves a new one to your profile", async () => {
+    browserIn('America/Santiago');
+    const calls = await open({}, 'member');
+    const box = (await screen.findByRole('combobox', { name: 'Time zone' })) as HTMLInputElement;
+    expect(box.value).toBe('London (Europe)');
+    expect(screen.getByText('Bothy uses it in your chats and for new schedules.')).toBeTruthy();
+    expect(screen.getByText(/This browser uses Santiago \(America\)\./)).toBeTruthy();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Use Santiago (America)' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url === '/api/me' && JSON.parse(c.body).timezone === 'America/Santiago')).toBe(true));
+    await waitFor(() => expect(screen.queryByText(/This browser uses/)).toBeNull());
+    expect(box.value).toBe('Santiago (America)');
+    // New schedules start in session.me's zone.
+    await waitFor(() => expect(session.me?.user.timezone).toBe('America/Santiago'));
+
+    await fireEvent.input(box, { target: { value: 'tokyo' } });
+    await fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url === '/api/me' && JSON.parse(c.body).timezone === 'Asia/Tokyo')).toBe(true));
+    expect(calls.some((c) => c.method === 'PATCH' && c.url.startsWith('/api/config'))).toBe(false);
+  });
+
+  it("offers nothing when the browser's time zone is already yours", async () => {
+    browserIn('Europe/London');
+    await open();
+    await screen.findByRole('combobox', { name: 'Time zone' });
+    expect(screen.queryByText(/This browser uses/)).toBeNull();
+  });
+
+  it("keeps your time zone and says so when the server won't take it", async () => {
+    const refused = () => new Response(JSON.stringify({ error: { code: 'bad_request', message: 'invalid: time zone must be an IANA name, like Europe/London' } }), { status: 400 });
+    browserIn('America/Santiago');
+    await open({ override: (m, url) => (m === 'PATCH' && url === '/api/me' ? refused() : undefined) });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Use Santiago (America)' }));
+    expect(await screen.findByText("Bothy doesn't know that time zone. Choose one from the list.")).toBeTruthy();
+    expect((screen.getByRole('combobox', { name: 'Time zone' }) as HTMLInputElement).value).toBe('London (Europe)');
   });
 
   it('offers only the apps the server says requests can reach', async () => {

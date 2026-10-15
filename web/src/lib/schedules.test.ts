@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeWhen, fromSpec, localTimes, onceInput, timeOptions, toSpec, validRule, type When } from './schedules';
+import { describeWhen, fromSpec, localTimes, onceInput, timeOptions, toSpec, validRule, zoneLabel, zoneOptions, type When } from './schedules';
 
 const base: When = { kind: 'daily', time: '09:00', day: 1, date: '2026-10-16', rule: '' };
 
@@ -69,5 +69,19 @@ describe('"When" and the repeat rule (docs/design/ui.md §10.3)', () => {
     expect(opts).toHaveLength(49);
     expect(opts.map((o) => o.value)).toContain('08:15');
     expect(opts[0]).toEqual({ value: '00:00', label: '0:00' });
+  });
+});
+
+describe('time zone choices', () => {
+  it('names zones by city so typing one finds it', () => {
+    expect(zoneLabel('Europe/London')).toBe('London (Europe)');
+    expect(zoneLabel('America/Argentina/Buenos_Aires')).toBe('Buenos Aires (America, Argentina)');
+    expect(zoneLabel('UTC')).toBe('UTC');
+  });
+
+  it('keeps a saved zone the browser leaves out', () => {
+    const opts = zoneOptions('UTC');
+    expect(opts.filter((o) => o.value === 'UTC')).toEqual([{ value: 'UTC', label: 'UTC' }]);
+    expect(zoneOptions('Asia/Tokyo').filter((o) => o.value === 'Asia/Tokyo')).toHaveLength(1);
   });
 });

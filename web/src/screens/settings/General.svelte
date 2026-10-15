@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Button, Combobox, Disclosure, SettingsRow, SettingsSection, StatusLine, TextArea, type ComboboxOption } from '../../components/ui';
+  import { Button, Combobox, Disclosure, SettingsRow, SettingsSection, StatusLine, TextArea } from '../../components/ui';
+  import { zoneOptions } from '../../lib/schedules';
   import { session } from '../../lib/stores/session.svelte';
   import { moneyText, parseMoney } from './accountHelpers';
   import SelectSetting from './SelectSetting.svelte';
@@ -8,27 +9,8 @@
   import { helpFor, Saver, settingsConfig } from './store.svelte';
   import TextSetting from './TextSetting.svelte';
 
-  /** "Europe/London" → "London (Europe)", so typing a city finds it. */
-  function zoneLabel(z: string): string {
-    const parts = z.split('/').map((p) => p.replace(/_/g, ' '));
-    const city = parts.pop() ?? z;
-    return parts.length ? `${city} (${parts.join(', ')})` : city;
-  }
-
-  function zoneList(): string[] {
-    try {
-      return Intl.supportedValuesOf('timeZone');
-    } catch {
-      return ['UTC'];
-    }
-  }
-
   const zone = $derived(settingsConfig.value<string>('timezone', 'UTC'));
-  const zones: ComboboxOption[] = $derived.by(() => {
-    const list = zoneList();
-    if (!list.includes(zone)) list.unshift(zone);
-    return list.map((z) => ({ value: z, label: zoneLabel(z) }));
-  });
+  const zones = $derived(zoneOptions(zone));
   const zoneSaver = new Saver();
   let zoneValue = $state('');
   $effect.pre(() => {
@@ -113,7 +95,7 @@
     <StatusLine tone="danger" text="This page didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: () => settingsConfig.load(true) }} />
   {:else if settingsConfig.view}
     <SettingsSection title="Workspace">
-      <SettingsRow label="Time zone" help={helpFor('timezone', 'Used for schedules and the daily spending limit.')} status={zoneSaver.status} error={zoneSaver.error}>
+      <SettingsRow label="Time zone" help={helpFor('timezone', 'New people start with this time zone. The daily spending limit resets at midnight here.')} status={zoneSaver.status} error={zoneSaver.error}>
         {#snippet children()}
           <!-- The row's label is the visible one; the combobox keeps its own for screen readers. -->
           <Combobox label="Time zone" class="[&>div]:mt-0 [&>label]:sr-only" bind:value={zoneValue} options={zones} onchange={saveZone} />
