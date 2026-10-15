@@ -36,6 +36,46 @@ func TestMessagePlainText(t *testing.T) {
 	}
 }
 
+// maskRedactor masks one value, like the vault's redactor with one saved key.
+type maskRedactor string
+
+func (r maskRedactor) Redact(s string) string { return strings.ReplaceAll(s, string(r), "[redacted]") }
+func (r maskRedactor) RedactBytes(b []byte) []byte {
+	return bytes.ReplaceAll(b, []byte(r), []byte("[redacted]"))
+}
+func (maskRedactor) Add(string, []byte) {}
+func (maskRedactor) Remove(string)      {}
+
+func TestMessageRedacted(t *testing.T) {
+	const key = "KEY-0123456789"
+	m := &Message{ID: 7, Seq: 3, Parts: []Part{
+		{Type: PartContext, Text: "ctx " + key},
+		{Type: PartText, Text: "text " + key, Sig: "gemini"},
+		{Type: PartThinking, Text: "signed " + key, Sig: "c2ln"},
+		{Type: PartThinking, Text: "unsigned " + key},
+		{Type: PartToolCall, ToolCall: &ToolCall{ID: "c1", Name: "echo", Args: json.RawMessage(`{"v":"` + key + `"}`)}},
+		{Type: PartToolResult, ToolResult: &ToolResult{CallID: "c1", Content: "out " + key}},
+	}}
+	before, _ := json.Marshal(m)
+	for _, keep := range []bool{false, true} {
+		out := m.Redacted(maskRedactor(key), keep)
+		b, _ := json.Marshal(out)
+		got := string(b)
+		if signed := strings.Contains(got, "signed "+key); signed != keep || strings.Count(got, key) != map[bool]int{false: 0, true: 1}[keep] {
+			t.Errorf("keepSigned=%v: %s", keep, got)
+		}
+		if out.ID != 7 || out.Seq != 3 || out.Parts[1].Sig != "gemini" {
+			t.Errorf("keepSigned=%v: lost fields: %+v", keep, out)
+		}
+	}
+	if after, _ := json.Marshal(m); !bytes.Equal(before, after) {
+		t.Fatalf("the original changed: %s", after)
+	}
+	if out := m.Redacted(nil, false); out == m || out.Parts[0].Text != m.Parts[0].Text {
+		t.Fatalf("nil redactor: %+v", out)
+	}
+}
+
 func TestChatRefKey(t *testing.T) {
 	tests := []struct {
 		c    ChatRef

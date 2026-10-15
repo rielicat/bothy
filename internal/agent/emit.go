@@ -319,28 +319,10 @@ func (r *Runner) redactAction(a *core.Action) *core.Action {
 	return &out
 }
 
-// redactMessage copies a message for publishing with every text masked.
-func (r *Runner) redactMessage(m *core.Message) *core.Message {
-	out := *m
-	out.Parts = make([]core.Part, len(m.Parts))
-	for i, p := range m.Parts {
-		p.Text = r.redact(p.Text)
-		if p.ToolResult != nil {
-			tr := *p.ToolResult
-			tr.Content = r.redact(tr.Content)
-			p.ToolResult = &tr
-		}
-		if p.ToolCall != nil && r.d.Redactor != nil {
-			tc := *p.ToolCall
-			tc.Args = r.d.Redactor.RedactBytes(tc.Args)
-			p.ToolCall = &tc
-		}
-		out.Parts[i] = p
-	}
-	return &out
-}
-
-// appendMessage persists a message and publishes message.created.
+// appendMessage persists a message and publishes message.created. Both are
+// masked: a key pasted into a chat is never stored, so the history, search
+// and the API show what the live event showed, even once the key is deleted
+// and the redactor no longer knows it.
 func (r *Runner) appendMessage(ctx context.Context, p core.PrincipalID, m *core.Message, sink core.RunSink) error {
 	if m.CreatedAt.IsZero() {
 		m.CreatedAt = r.now()
@@ -348,11 +330,13 @@ func (r *Runner) appendMessage(ctx context.Context, p core.PrincipalID, m *core.
 	if m.Kind == "" {
 		m.Kind = core.KindNormal
 	}
-	if err := r.d.Store.Messages().Append(context.WithoutCancel(ctx), m); err != nil {
+	stored := m.Redacted(r.d.Redactor, true)
+	if err := r.d.Store.Messages().Append(context.WithoutCancel(ctx), stored); err != nil {
 		return err
 	}
+	m.ID, m.Seq = stored.ID, stored.Seq
 	ev := r.d.Bus.Publish(core.Event{Type: core.EvMessageCreated, Principal: p, Session: m.Session, Run: m.Run,
-		Data: core.MessageData{Message: r.redactMessage(m)}})
+		Data: core.MessageData{Message: m.Redacted(r.d.Redactor, false)}})
 	if sink != nil && m.Kind == core.KindNotice {
 		sink.OnEvent(ev)
 	}

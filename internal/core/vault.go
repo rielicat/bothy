@@ -35,10 +35,10 @@ type VaultStatus struct {
 // Redactor masks exact secret values (and their base64, base64url, hex and
 // percent-encoded forms, for values >= 8 bytes) plus token patterns: sk-…,
 // sk-ant-…, xox[abpr]-…, xapp-…, ghp_/gho_/github_pat_…, AIza…, JWTs,
-// bothy_pat_…. Applied to logs, audit detail, tool results, channel output,
-// SSE payloads and model input. Redact and RedactBytes return their input
-// unchanged when nothing is masked; RedactBytes may return its argument, so
-// callers that keep or modify the result copy it first.
+// bothy_pat_…. Applied to logs, audit detail, tool results, stored messages,
+// channel output, SSE payloads and model input. Redact and RedactBytes return
+// their input unchanged when nothing is masked; RedactBytes may return its
+// argument, so callers that keep or modify the result copy it first.
 type Redactor interface {
 	Redact(s string) string
 	RedactBytes(b []byte) []byte

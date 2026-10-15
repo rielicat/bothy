@@ -210,3 +210,32 @@ policy:
 		leak("run detail of the failed run", string(b))
 	}
 }
+
+// A saved key pasted into a chat by mistake is masked before the message is
+// stored, so reloading the chat or searching never shows it, even after the
+// key is deleted and nothing would mask it any more.
+func TestVaultPastedKeyStaysMasked(t *testing.T) {
+	key := "pasted-" + pltRand(16)
+	llm := pltLLM(t, mockllm.Rule{MatchUser: `by mistake`, Text: []string{"Delete that key and save a new one."}})
+	g := Start(t, Options{Config: pltYAML(llm.URL(), nil, "")})
+	owner := pltOwner(t, g)
+	if code := owner.JSON(t, http.MethodPut, "/api/vault/global/pasted_demo", dto.VaultPutReq{Value: key}, nil); code != http.StatusOK {
+		t.Fatalf("vault put = %d", code)
+	}
+	s := owner.NewSession(t)
+	if d := owner.Finished(t, owner.Send(t, s.ID, "Oops, I pasted my key here by mistake: "+key+". Is that bad?")); d.Run.Status != core.RunDone {
+		t.Fatalf("run = %+v\nlogs:\n%s", d.Run, g.Logs())
+	}
+	if code := owner.JSON(t, http.MethodDelete, "/api/vault/global/pasted_demo", nil, nil); code != http.StatusNoContent {
+		t.Fatalf("vault delete = %d", code)
+	}
+	resp := owner.Do(t, http.MethodGet, "/api/sessions/"+string(s.ID)+"/messages", nil, nil)
+	if body := string(resp.Body); resp.StatusCode != http.StatusOK || strings.Contains(body, key) || !strings.Contains(body, "by mistake: [redacted]. Is that bad?") {
+		t.Fatalf("messages = %s %s", resp.Status, body)
+	}
+	var res dto.SearchResp
+	if code := owner.JSON(t, http.MethodGet, "/api/search?q=mistake", nil, &res); code != http.StatusOK || len(res.Chats) != 1 ||
+		strings.Contains(res.Chats[0].Snippet, key) || !strings.Contains(res.Chats[0].Snippet, "[redacted]") {
+		t.Fatalf("search = %d %+v", code, res.Chats)
+	}
+}

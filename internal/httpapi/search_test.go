@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 	"unicode/utf16"
@@ -134,4 +135,40 @@ func TestSearchGroupsChatsNotesAndCode(t *testing.T) {
 		t.Fatalf("no section has every word: sections with any = %+v", res.Notes)
 	}
 	expect(t, h.do("GET", "/api/search?q=x&limit=0", nil, h.member), http.StatusBadRequest)
+}
+
+// The runner masks messages before storing them; a row stored before it did,
+// and signed thinking, which is stored as the model wrote it, are masked when
+// read back, in the transcript and in search snippets alike.
+func TestSavedKeyInStoredMessageIsMasked(t *testing.T) {
+	h := newHarness(t).setup()
+	ctx := context.Background()
+	const key = "member-key-0123456789"
+	s := &core.Session{ID: core.SessionID(core.NewID(core.PrefixSession)), Principal: core.UserPrincipal(h.member.user), Origin: "web",
+		Title: "Oops", CreatedAt: time.Now(), UpdatedAt: time.Now(), LastMessageAt: time.Now()}
+	if err := h.store.Sessions().Create(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []*core.Message{
+		{Session: s.ID, Role: core.MsgUser, Kind: core.KindNormal, Provenance: core.ProvUser,
+			Parts: []core.Part{{Type: core.PartText, Text: "I pasted my key here by mistake: " + key}}},
+		{Session: s.ID, Role: core.MsgAssistant, Kind: core.KindNormal, Provenance: core.ProvSystem,
+			Parts: []core.Part{{Type: core.PartThinking, Text: "They pasted " + key, Sig: "c2ln"}, {Type: core.PartText, Text: "Delete it."}}},
+	} {
+		m.CreatedAt = time.Now()
+		if err := h.store.Messages().Append(ctx, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	expect(t, h.do("PUT", "/api/vault/user:"+string(h.member.user)+"/demo", dto.VaultPutReq{Value: key}, h.member), http.StatusOK)
+
+	rec := h.do("GET", "/api/sessions/"+string(s.ID)+"/messages", nil, h.member)
+	expect(t, rec, http.StatusOK)
+	if body := rec.Body.String(); strings.Contains(body, key) || strings.Count(body, "[redacted]") != 2 {
+		t.Fatalf("messages = %s", body)
+	}
+	res := decodeAs[dto.SearchResp](t, h.do("GET", "/api/search?q=pasted", nil, h.member))
+	if len(res.Chats) != 1 || res.Chats[0].Snippet != "I pasted my key here by mistake: [redacted]" {
+		t.Fatalf("chats = %+v", res.Chats)
+	}
 }

@@ -204,6 +204,13 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request, a core.Act
 		return err
 	}
 	slices.Reverse(msgs)
+	// The runner masks messages before storing them; this also covers rows
+	// stored before it did, and signed thinking, stored as the model wrote it.
+	if s.d.Vault != nil {
+		for i, m := range msgs {
+			msgs[i] = m.Redacted(s.d.Vault.Redactor(), false)
+		}
+	}
 	aps, err := s.annotateTools(r.Context(), a.Viewer, msgs)
 	if err != nil {
 		return err

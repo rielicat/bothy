@@ -80,7 +80,7 @@ func (s *Server) searchChats(ctx context.Context, v core.Viewer, q string, terms
 		if err != nil || len(msgs) == 0 || msgs[0].Seq != h.Seq {
 			continue
 		}
-		text, ranges := snippet(markdownPlain(msgs[0].PlainText()), terms, true)
+		text, ranges := snippet(markdownPlain(s.redact(msgs[0].PlainText())), terms, true)
 		out = append(out, dto.ChatSearchHit{Session: h.Session, Title: n.title(sess), Seq: h.Seq, At: h.At, Snippet: text,
 			Ranges: ranges, Trusted: h.Trusted})
 	}

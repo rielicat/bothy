@@ -136,6 +136,35 @@ func (m *Message) PlainText() string {
 	return s
 }
 
+// Redacted returns a copy of m with every text, tool argument and tool result
+// masked by r (nil masks nothing); m is unchanged. With keepSigned, thinking
+// that carries a signature keeps its text: the provider checks the two
+// together when the step is sent back.
+func (m *Message) Redacted(r Redactor, keepSigned bool) *Message {
+	out := *m
+	if r == nil {
+		return &out
+	}
+	out.Parts = make([]Part, len(m.Parts))
+	for i, p := range m.Parts {
+		if p.Text != "" && (!keepSigned || p.Type != PartThinking || p.Sig == "") {
+			p.Text = r.Redact(p.Text)
+		}
+		if p.ToolResult != nil {
+			tr := *p.ToolResult
+			tr.Content = r.Redact(tr.Content)
+			p.ToolResult = &tr
+		}
+		if p.ToolCall != nil {
+			tc := *p.ToolCall
+			tc.Args = r.RedactBytes(tc.Args)
+			p.ToolCall = &tc
+		}
+		out.Parts[i] = p
+	}
+	return &out
+}
+
 // TitleChars is how much of a chat's first message names the chat until its
 // generated title arrives.
 const TitleChars = 48

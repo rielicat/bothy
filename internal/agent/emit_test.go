@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -70,6 +71,57 @@ func TestSecretSplitAcrossToolOutputStaysRedacted(t *testing.T) {
 		}
 		if text := out.String(); strings.Contains(text, "0123456789abcdef") || !strings.Contains(text, "key=") || !strings.Contains(text, "done") {
 			t.Fatalf("tool output = %q, want it with the secret masked", text)
+		}
+	})
+}
+
+// A key pasted into a chat is masked before the message is stored, so the
+// history, search and the API never hold it, even after the key is deleted
+// and the redactor forgets it; the live event carries the same text.
+func TestPastedSecretIsStoredMasked(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		const secret = "CANARY-0123456789abcdef"
+		echo := &testTool{name: "echo", run: func(context.Context, *core.ToolEnv, *core.Action) (*core.ToolResult, error) {
+			return &core.ToolResult{Content: "echoed " + secret}, nil
+		}}
+		h := newHarness(t, opts{tools: []core.Tool{echo}, steps: []fakes.LLMStep{
+			{Text: []string{"Checking " + secret}, ToolCalls: []core.ToolCall{call("echo", `{"text":"`+secret+`"}`)}},
+			{Text: []string{"The key " + secret + " is saved."}},
+		}})
+		defer h.close()
+		h.red.Add("vault:global/canary", []byte(secret))
+		res := h.submit("I pasted my key by mistake: " + secret)
+		synctest.Wait()
+		if st := h.run(res.Run).Status; st != core.RunDone {
+			t.Fatalf("run = %s", st)
+		}
+		live := map[int64]string{}
+		for _, ev := range h.busEvents(res.Run) {
+			if d, ok := ev.Data.(core.MessageData); ok && ev.Type == core.EvMessageCreated {
+				b, _ := json.Marshal(d.Message.Parts)
+				live[d.Message.Seq] = string(b)
+			}
+		}
+		h.red.Remove("vault:global/canary")
+		var user string
+		for _, m := range h.messages() {
+			b, _ := json.Marshal(m.Parts)
+			if strings.Contains(string(b), "0123456789abcdef") {
+				t.Fatalf("message %d stored with the key: %s", m.Seq, b)
+			}
+			if live[m.Seq] != string(b) {
+				t.Errorf("message %d: stored %s, live event %s", m.Seq, b, live[m.Seq])
+			}
+			if m.Role == core.MsgUser {
+				user = m.PlainText()
+			}
+		}
+		if user != "I pasted my key by mistake: [redacted]" {
+			t.Fatalf("stored user text = %q", user)
+		}
+		hits, err := h.store.Messages().Search(h.ctx, core.SystemViewer(), "pasted", 10)
+		if err != nil || len(hits) != 1 || strings.Contains(hits[0].Snippet, "0123456789abcdef") {
+			t.Fatalf("search = %+v, %v", hits, err)
 		}
 	})
 }
