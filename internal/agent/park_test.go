@@ -260,11 +260,40 @@ func TestExpiredParkedApprovalStopsRun(t *testing.T) {
 		if st := h.run(id).Status; st != core.RunStopped {
 			t.Fatalf("status = %s", st)
 		}
-		if !slicesContains(h.notices(), "The parked action was not approved in time, so the run stopped.") {
+		if !slicesContains(h.notices(), "Nobody approved in time, so Bothy stopped this task.") {
 			t.Fatalf("notices = %v", h.notices())
 		}
 		if act.calls.Load() != 0 {
 			t.Fatal("expired action ran")
+		}
+	})
+}
+
+func TestCancelledParkedApprovalStopsRun(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		act := &testTool{name: "act", se: core.SEExternalSend}
+		h := parkHarness(t, act)
+		defer h.close()
+		id, a := parkRun(t, h)
+		if err := h.appr.CancelRun(h.ctx, id); err != nil {
+			t.Fatal(err)
+		}
+		cur, err := h.appr.Get(h.ctx, core.SystemViewer(), a.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := h.r.Resume(context.Background(), cur); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		if st := h.run(id).Status; st != core.RunStopped {
+			t.Fatalf("status = %s", st)
+		}
+		if !slicesContains(h.notices(), "The request was cancelled, so Bothy stopped this task.") {
+			t.Fatalf("notices = %v", h.notices())
+		}
+		if act.calls.Load() != 0 {
+			t.Fatal("cancelled action ran")
 		}
 	})
 }

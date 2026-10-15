@@ -344,11 +344,11 @@ const pausedParkedNotice = "Bothy is paused by an admin, so the task waiting for
 // endParked finishes a parked run whose approval expired or was cancelled
 // (or that cannot resume because Bothy is paused).
 func (r *Runner) endParked(ctx context.Context, run *core.Run, a *core.Approval) {
-	text := "The parked action was not approved in time, so the run stopped."
+	text := "Nobody approved in time, so Bothy stopped this task."
 	st := core.TCTimeout
 	switch {
 	case a.Status == core.ApprovalCancelled:
-		text, st = "The parked action was cancelled, so the run stopped.", core.TCDenied
+		text, st = "The request was cancelled, so Bothy stopped this task.", core.TCDenied
 	case a.Status != core.ApprovalExpired && r.paused.Load():
 		text, st = pausedParkedNotice, core.TCStopped
 	}
@@ -551,7 +551,7 @@ func (r *Runner) executeApproved(rs *runState, a *core.Approval) *runEnd {
 	// run planned.
 	action := a.Action
 	if rec == nil || action == nil || a.Run != rs.id {
-		rs.notice(ctx, "The approved action could not be found, so it did not run.")
+		rs.notice(ctx, "Bothy couldn't find the approved action, so it didn't run it.")
 		return nil
 	}
 	pc := &pcall{call: core.ToolCall{ID: rec.CallID, Name: action.Tool}, name: action.Tool, action: action, rec: rec,
