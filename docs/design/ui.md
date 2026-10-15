@@ -1187,7 +1187,7 @@ What Bothy does shows as **activity lines**: `text-body muted`, no box, 32 px ro
 | Waiting for approval | `clock` in `warning-text` | "Waiting for approval to {ask}" in `warning-text`; the approval card follows directly |
 | Done | none | the "done" phrase |
 | Failed | `alert` in `danger-text` | the "failed" phrase, text stays muted; Details has the reason |
-| Denied, expired, blocked | `close` in muted | "Didn't {ask}"; the decided line (§8.4) says who and why |
+| Denied, expired, blocked | `close` in muted | "Didn't {ask}"; the decided line (§8.4) says who and why. A blocked step has no decided line, so one `text-small` line under it says why: a deploy refusal that already reads as a sentence ("A deploy to production needs 2 approvers other than you, …"), "Bothy is paused.", or "Bothy's rules don't allow this."; the server's reason stays in Details |
 
 Live behaviour:
 - Before the first step or the first word, one "Working…" line with a spinner. It disappears as soon as text streams or a step appears. Nothing else indicates streaming; the Stop button and the sidebar spinner show Bothy is busy.
@@ -1320,8 +1320,10 @@ A notice is a system line at the column edge: `text-small muted`, no box, at mos
       Memory, Skills, Pinned, Tools, Summary, History, Tool results, Turn context, Reply reserve
       Cache hits 64% · Time to first word 0.8 s
       Per-step calls: model id, attempts, time to first word, cost
+      Model id anthropic/claude-sonnet-4-5 [Copy]
       Chat id ses_01m… [Copy]
   ```
+  The Model row and the model picker never show a model id: a model without a name from the server reads as its friendly name ("Claude Sonnet 4.5"), and a chat's model that is no longer connected reads "A model that's no longer connected".
 - **Pinned** (`Drawer`): title "Pinned to this chat", sentence "Bothy keeps these in mind for every reply in this chat.", list of pins (name, "Unpin" ghost), secondary "Pin a file".
 - **Continue in a clean chat** (`Dialog` 440): title "Continue in a clean chat?"; body "Bothy will start a new chat with a summary of this one, without the private information and outside content it has seen. This chat stays as it is."; buttons [Continue in a clean chat] (primary) [Cancel]. On confirm the new chat opens with the toast "Started a clean chat."
 - **Delete chat** (`Dialog` 440): title "Delete this chat?"; body "The messages will be deleted. Anything Bothy already did stays done, and its record stays in Activity. This can't be undone."; buttons [Delete chat] (danger) [Cancel] (focused). Then toast "Chat deleted."
@@ -1522,7 +1524,7 @@ Deploy acme/api to production               1 of 2 approvals · 20 min ago
 | Action approval | from §8.2 | the card |
 | MCP tool review (admins) | "Review changes to {Server} tools" | One row per tool: plain name, what it does, "What this does" select (Only reads information / Changes things inside Bothy / Sends data out / Can't be undone), "Show what changed" (`DiffView` of the definition). Buttons: [Approve tools] [Turn off {Server}]. |
 | Changed skill (admins) | "Review changes to the “{skill}” skill" | "Show what changed" (diff of SKILL.md and files). Buttons: [Approve] [Turn off skill]. |
-| Unknown sender | "Someone new messaged Bothy on {App}" | "{display name} ({handle}) wrote: “{first 120 chars, Verbatim}”". Buttons: [Let them chat as a guest] [Link to a person…] [Block]. |
+| Unknown sender | "Someone new messaged Bothy on {App}" | "{display name} ({handle}) wrote: “{first 120 chars, Verbatim}”"; without a username, "{display name} wrote: …" ("Someone" without a name). Details: the account's id on {App}, with Copy. Buttons: [Let them chat as a guest] [Link to a person…] [Block]. |
 | New group chat | "Bothy was added to {chat} in {App}" | "Added by {person}. Bothy will answer only when mentioned." Buttons: [Turn on] [Ignore]. |
 | Note suggestion | "Update the notes for {repo}?" | the card with a prose diff |
 
@@ -1588,7 +1590,7 @@ Important decisions
 Written by Bothy on 12 October · Edited by Maya Chen yesterday · History      text-small muted
 ```
 
-- `⋯` menu: "Ask Bothy about this project" (new chat with the repository in context), "Read the repository again" (admins), "View on GitHub ↗", "Technical details" (dialog: commit read `4f2c1a9`, files indexed 1,204, last read today 09:12, notes size 3.1 KB of 8 KB), "Stop reading this repository…" (admins; confirm, removes it from the allowlist; the project notes and their history are deleted with the index, SPEC §8.3).
+- `⋯` menu: "Ask Bothy about this project" (new chat with the repository in context), "Read the repository again" (admins), "View on GitHub ↗", "Technical details" (dialog: commit read `4f2c1a9`, files indexed 1,204, last read today 09:12, notes size 3.1 KB of 8 KB), "Stop reading this repository…" (admins; confirm "Stop reading {name}?", body "Bothy won't use {name} to answer questions, and its project notes and their history will be deleted. This can't be undone.", [Stop reading] (danger) [Cancel]; removes it from the allowlist; the project notes and their history are deleted with the index, SPEC §8.3).
 - **Edit in place:** the rendered document becomes a sans `TextArea` (`text-reading`, auto-grow, Markdown source) in the same position; header actions become [Save] (primary) [Cancel]. ⌘S / Ctrl S saves. Esc cancels, after "Discard your changes?" (Discard / Keep editing) if anything changed. Saved: toast "Saved."
 - **Conflict** (`If-Match` failed): warning `Notice` above the editor: "Someone else changed these notes while you were editing." Buttons [See their version] (opens a 720 dialog with a prose diff and [Keep mine] / [Use theirs]).
 - **Size:** above 80 % of the cap a `text-small warning-text` line under the header: "These notes are almost full. Shorten them so Bothy has room to add more." At the cap Save shows "These notes are too long to save. Remove something first."
