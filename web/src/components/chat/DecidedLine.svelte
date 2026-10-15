@@ -17,9 +17,13 @@
 
   const line = $derived.by((): { phrase: Phrase; tone: string; icon: 'check' | 'close' } => {
     const a = approval;
-    const by = people.name(a.decided_by);
+    // Ballots carry names a member can't look up and each voter's reason.
+    const ballots = a.approvals?.votes ?? (a.votes ?? []).map((v) => ({ user: v.user_id, name: '', choice: v.choice, comment: v.comment }));
+    const nameOf = (id?: string, name?: string) => (id && people.name(id) !== 'Someone' ? people.name(id) : name || people.name(id));
+    const denial = ballots.find((v) => v.choice === 'deny');
+    const by = denial ? nameOf(denial.user, denial.name) : nameOf(a.decided_by, a.decided_by_name);
     const via = a.decided_via && !['web', 'timeout', 'stop'].includes(a.decided_via) ? appName[a.decided_via] : '';
-    const comment = (a as Approval & { comment?: string }).comment;
+    const comment = denial?.comment || a.comment;
     if (a.status === 'expired') return { phrase: prefix("Expired: Bothy didn't ", phrases.ask), tone: 'text-muted', icon: 'close' };
     if (a.status === 'cancelled') return { phrase: fill(a.decided_via === 'stop' ? 'Cancelled when the chat was stopped' : 'Cancelled by the person who asked', {}), tone: 'text-muted', icon: 'close' };
     const denied = a.status === 'denied';
@@ -30,8 +34,8 @@
     else if (a.choice === 'allow_always') phrase = prefix(`${by} always ${by === 'You' ? 'allow' : 'allows'} `, phrases.ing);
     else {
       // A two-person rule: everyone who approved, not only the last.
-      const yes = (a.votes ?? []).filter((v) => v.choice === 'allow_once');
-      phrase = prefix(`${yes.length > 1 ? joinNames(yes.map((v) => people.name(v.user_id))) : by} approved `, phrases.ing);
+      const yes = ballots.filter((v) => v.choice === 'allow_once');
+      phrase = prefix(`${yes.length > 1 ? joinNames(yes.map((v) => nameOf(v.user, v.name))) : by} approved `, phrases.ing);
     }
     return { phrase, tone: denied ? 'text-danger-text' : 'text-accent-text', icon: denied ? 'close' : 'check' };
   });
