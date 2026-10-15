@@ -346,12 +346,23 @@ policy:
 		if got := lastIndexed(a); got != ghBase {
 			t.Errorf("A's last_indexed_sha = %q, want %s", got, ghBase)
 		}
-		for name, u := range map[string]*pltUser{"B": b, "B's token": bTok, "owner": owner} {
+		for name, u := range map[string]*pltUser{"B": b, "B's token": bTok} {
 			if got := lastIndexed(u); got != "" {
 				t.Errorf("%s sees last_indexed_sha %q from A's index", name, got)
 			}
 			if resp := u.Do(t, http.MethodGet, "/api/knowledge/repos", nil, nil); resp.StatusCode != http.StatusOK || bytes.Contains(resp.Body, []byte("octocat/hello-world")) {
 				t.Errorf("%s's knowledge repos = %s %s", name, resp.Status, resp.Body)
+			}
+		}
+		// The owner allowed the repository, so Bothy read it into the owner's
+		// own workspace too: that index is the owner's, never A's.
+		var mine struct{ Items []core.IndexedRepo }
+		if code := owner.JSON(t, http.MethodGet, "/api/knowledge/repos", nil, &mine); code != http.StatusOK {
+			t.Fatalf("owner's knowledge repos = %d", code)
+		}
+		for _, r := range mine.Items {
+			if r.Principal == aPrincipal.ID {
+				t.Errorf("owner sees A's index: %+v", r)
 			}
 		}
 		if r := kWaitRepo(t, a, idxA.ID, func(core.IndexedRepo) bool { return true }); r.Status != core.IndexReady || r.IndexedSHA != ghBase {
