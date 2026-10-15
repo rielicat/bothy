@@ -150,8 +150,10 @@ func (db *DB) checkBackups(context.Context) []core.Finding {
 		return []core.Finding{{ID: "backups.none_recent", Area: "backups", Severity: core.SevLow,
 			Title: "Backups could not be listed", Detail: err.Error()}}
 	}
+	upgradeCopies := false
 	for _, e := range entries {
 		n := e.Name()
+		upgradeCopies = upgradeCopies || strings.HasPrefix(n, "pre-") && strings.HasSuffix(n, ".db")
 		if !strings.HasPrefix(n, "bothy-") || !strings.HasSuffix(n, ".tar") {
 			continue
 		}
@@ -163,6 +165,10 @@ func (db *DB) checkBackups(context.Context) []core.Finding {
 		return nil
 	}
 	detail := "No backup has been written to " + db.backupDir + "."
+	if upgradeCopies {
+		// Pre-migration copies hold the database only, not settings or keys.
+		detail = "No full backup has been written to " + db.backupDir + ", only the database copies Bothy makes before an upgrade."
+	}
 	if !newest.IsZero() {
 		detail = fmt.Sprintf("The newest backup in %s is from %s.", db.backupDir, newest.UTC().Format(time.DateOnly))
 	}

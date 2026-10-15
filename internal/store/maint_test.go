@@ -356,6 +356,10 @@ func TestChecks(t *testing.T) {
 	if f, ok := fs["backups.none_recent"]; !ok || f.Severity != core.SevLow || !strings.Contains(f.Fix, "docker compose exec bothy /bothy backup") {
 		t.Errorf("backups.none_recent = %+v", f)
 	}
+	writeFile(t, filepath.Join(db.backupDir, "pre-9-20261012T000000Z.db"), "x")
+	if f := findings(t, db)["backups.none_recent"]; !strings.Contains(f.Detail, "only the database copies Bothy makes before an upgrade") {
+		t.Errorf("upgrade copies only: %q", f.Detail)
+	}
 	if runtime.GOOS != "windows" {
 		if _, ok := fs["data.permissions"]; ok {
 			t.Errorf("data.permissions fired on a fresh data dir: %+v", fs["data.permissions"])
