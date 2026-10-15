@@ -3,7 +3,9 @@ package httpapi
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/httpapi/dto"
@@ -128,6 +130,7 @@ func (s *Server) githubConnect(w http.ResponseWriter, r *http.Request, a core.Ac
 	if err != nil {
 		return err
 	}
+	s.prefetchRepos(r.Context(), gh, a, req.Repos)
 	return ok(w, c)
 }
 
@@ -168,6 +171,7 @@ func (s *Server) githubSetRepos(w http.ResponseWriter, r *http.Request, a core.A
 	if err != nil {
 		return err
 	}
+	s.prefetchRepos(r.Context(), gh, a, req.Repos)
 	return ok(w, nonNil(repos))
 }
 
@@ -180,4 +184,30 @@ func (s *Server) githubDisconnect(w http.ResponseWriter, r *http.Request, a core
 		return err
 	}
 	return noContent(w)
+}
+
+// prefetchLimit bounds one background read of newly allowed repositories.
+const prefetchLimit = 15 * time.Minute
+
+// prefetchRepos checks newly allowed repositories out into the admin's own
+// workspace in the background, so Knowledge starts reading them now, as the
+// GitHub page says, instead of when a chat first needs one.
+func (s *Server) prefetchRepos(ctx context.Context, gh core.GitHub, a core.Actor, repos []string) {
+	if len(repos) == 0 || s.d.Knowledge == nil {
+		return
+	}
+	pr, err := s.d.Store.Principals().Get(ctx, a.Viewer, core.UserPrincipal(a.User))
+	if err != nil {
+		s.log.Warn("github: no workspace to read repositories into", "user", a.User, "err", err)
+		return
+	}
+	root, err := s.openWorkspace(pr.Workspace, true)
+	if err != nil {
+		s.log.Warn("github: no workspace to read repositories into", "user", a.User, "err", err)
+		return
+	}
+	_ = root.Close()
+	env := &core.ToolEnv{User: a.User, Role: a.Role, Principal: *pr, Workspace: s.workspaceDir(pr.Workspace), Sandbox: s.d.Sandbox}
+	list := slices.Clone(repos)
+	s.jobs.start(ctx, "github-prefetch:"+string(a.User), prefetchLimit, func(ctx context.Context) { gh.Prefetch(ctx, env, list) })
 }

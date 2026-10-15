@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -17,11 +18,23 @@ import (
 // fakeGitHub records what the handlers pass to core.GitHub.
 type fakeGitHub struct {
 	core.GitHub
-	mu    sync.Mutex
-	creds []core.GitHubCredentials
-	repos [][]string
-	by    []core.UserID
-	err   error
+	mu       sync.Mutex
+	creds    []core.GitHubCredentials
+	repos    [][]string
+	by       []core.UserID
+	err      error
+	prefetch []prefetchCall
+}
+
+type prefetchCall struct {
+	env   *core.ToolEnv
+	repos []string
+}
+
+func (f *fakeGitHub) Prefetch(_ context.Context, env *core.ToolEnv, repos []string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.prefetch = append(f.prefetch, prefetchCall{env, repos})
 }
 
 const ghConnID = "ghc_01m4wa97e4s0p3qgcng95bcyhf"
@@ -168,6 +181,31 @@ func TestGitHubRoutes(t *testing.T) {
 		if rec := h.do(method, path, nil, h.member); rec.Code != http.StatusForbidden {
 			t.Errorf("member %s = %d", rt.pattern, rec.Code)
 		}
+	}
+}
+
+// Saving repositories starts reading them into the saver's own workspace,
+// so Knowledge has them before a chat needs one.
+func TestGitHubSavePrefetchesIntoSaversWorkspace(t *testing.T) {
+	h := newHarness(t).setup()
+	gh := &fakeGitHub{}
+	h.srv.d.GitHub = gh
+	h.srv.d.Knowledge = newFakeKnowledge()
+	if rec := h.do(http.MethodPut, "/api/github/connections/"+ghConnID+"/repos", dto.GitHubReposReq{Repos: []string{"acme/web"}}, h.admin); rec.Code != http.StatusOK {
+		t.Fatalf("set repos = %d %s", rec.Code, rec.Body)
+	}
+	h.srv.jobs.wait()
+	gh.mu.Lock()
+	defer gh.mu.Unlock()
+	if len(gh.prefetch) != 1 || !slices.Equal(gh.prefetch[0].repos, []string{"acme/web"}) {
+		t.Fatalf("prefetch calls = %+v", gh.prefetch)
+	}
+	env := gh.prefetch[0].env
+	if env.User != h.admin.user || env.Principal.ID != core.UserPrincipal(h.admin.user) || !strings.HasPrefix(env.Workspace, h.workDir) {
+		t.Errorf("prefetch env = %+v", env)
+	}
+	if fi, err := os.Stat(env.Workspace); err != nil || !fi.IsDir() {
+		t.Errorf("workspace not created: %v", err)
 	}
 }
 

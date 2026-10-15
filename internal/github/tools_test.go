@@ -734,3 +734,35 @@ func TestRepoList(t *testing.T) {
 		t.Errorf("list = %+v", res)
 	}
 }
+
+func TestPrefetch(t *testing.T) {
+	f := newFx(t)
+	f.connect("octocat/Hello-World")
+	sub := f.bus.Subscribe(core.Filter{System: true, Types: []core.EventType{core.EvRepoCheckout}}, 4)
+	defer sub.Close()
+	env := f.toolEnv()
+	f.svc.Prefetch(f.ctx, env, []string{"octocat/hello-world", "octocat/not-allowed"})
+	if b, err := os.ReadFile(wsPath(env, "repos/octocat/Hello-World/README.md")); err != nil || string(b) != helloFiles["README.md"] {
+		t.Fatalf("prefetched README = %q %v", b, err)
+	}
+	select {
+	case ev := <-sub.C():
+		if d := ev.Data.(core.RepoCheckoutData); ev.Principal != env.Principal.ID || d.Repo != "octocat/Hello-World" || d.Ref != "main" {
+			t.Errorf("event = %+v %+v", ev, d)
+		}
+	default:
+		t.Fatal("no repo.checkout event: Knowledge would never read it")
+	}
+	// Work in progress is never replaced, even by a newer commit.
+	writeWS(t, env, "repos/octocat/Hello-World/README.md", "edited\n")
+	f.repo.Commit(map[string]string{"README.md": "# v2\n"}, "v2")
+	f.svc.Prefetch(f.ctx, env, []string{"octocat/Hello-World"})
+	if b, _ := os.ReadFile(wsPath(env, "repos/octocat/Hello-World/README.md")); string(b) != "edited\n" {
+		t.Errorf("prefetch overwrote edits: %q", b)
+	}
+	select {
+	case ev := <-sub.C():
+		t.Errorf("second prefetch announced a checkout: %+v", ev)
+	default:
+	}
+}

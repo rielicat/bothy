@@ -225,6 +225,30 @@ func (t *repoCheckout) Exec(ctx context.Context, env *core.ToolEnv, a *core.Acti
 	if err := payloadOf(a, &p); err != nil {
 		return nil, err
 	}
+	return t.s.checkout(ctx, env, p, "agent:"+string(env.Run), false)
+}
+
+// Prefetch implements core.GitHub.
+func (s *Service) Prefetch(ctx context.Context, env *core.ToolEnv, repos []string) {
+	for _, name := range repos {
+		r, err := s.allowedRepo(ctx, name)
+		if err == nil && r.DefaultBranch == "" {
+			err = fmt.Errorf("%w: %s has no known default branch", core.ErrInvalid, r.FullName())
+		}
+		if err == nil {
+			_, err = s.checkout(ctx, env, checkoutPayload{Repo: r.FullName(), Ref: r.DefaultBranch}, userActor(env.User), true)
+		}
+		if err != nil {
+			s.log.Warn("github: reading a repository for Knowledge failed", "repo", name, "err", err)
+			s.record(ctx, userActor(env.User), "github.checkout", name, "error", map[string]any{"prefetch": true, "error": err.Error()})
+		}
+	}
+}
+
+// checkout downloads p.Repo at p.Ref into the workspace. onlyNew leaves an
+// existing checkout alone (Prefetch never touches work in progress).
+func (s *Service) checkout(ctx context.Context, env *core.ToolEnv, p checkoutPayload, actor string, onlyNew bool) (*core.ToolResult, error) {
+	t := &repoCheckout{s: s}
 	if err := checkRef(p.Ref); err != nil {
 		return nil, err
 	}
@@ -243,12 +267,14 @@ func (t *repoCheckout) Exec(ctx context.Context, env *core.ToolEnv, a *core.Acti
 		return nil, err
 	}
 	defer root.Close()
-	st, err := t.s.state(ctx, root, env, r, true)
+	st, err := t.s.state(ctx, root, env, r, !onlyNew)
 	if err != nil {
 		return nil, err
 	}
 	dir := checkoutDir(r)
 	switch {
+	case onlyNew && st.exists:
+		return &core.ToolResult{Content: dir + " is already checked out."}, nil
 	case st.exists && st.m == nil:
 		return nil, fmt.Errorf("%w: %s exists but was not made by repo_checkout; move or delete it first", core.ErrInvalid, dir)
 	case st.scan != nil && len(st.scan.changes) > 0 && p.Discard == "":
@@ -292,7 +318,7 @@ func (t *repoCheckout) Exec(ctx context.Context, env *core.ToolEnv, a *core.Acti
 		t.s.bus.Publish(core.Event{Type: core.EvRepoCheckout, Principal: env.Principal.ID, Session: env.Session, Run: env.Run,
 			Data: core.RepoCheckoutData{Repo: r.FullName(), Ref: p.Ref, SHA: sha, Workspace: env.Principal.Workspace, Dir: dir, Files: len(files)}})
 	}
-	t.s.record(ctx, "agent:"+string(env.Run), "github.checkout", r.FullName(), "ok",
+	t.s.record(ctx, actor, "github.checkout", r.FullName(), "ok",
 		map[string]any{"ref": p.Ref, "sha": sha, "files": len(files), "bytes": total, "discarded": p.Discard != ""})
 	text := fmt.Sprintf("Checked out %s at %s (%s) into %s: %s, %s.", r.FullName(), p.Ref, sha[:12], dir,
 		plural(len(files), "file", "files"), humanSize(total))

@@ -154,6 +154,11 @@ type GitHub interface {
 	// BranchHead is the commit the default branch of an allowed repository
 	// points at now (ErrNotFound for any other).
 	BranchHead(ctx context.Context, repo string) (string, error)
+	// Prefetch checks allowed repositories out into env's workspace on their
+	// default branch, skipping any already checked out there, so Knowledge
+	// reads them (EvRepoCheckout) without waiting for a chat to need them.
+	// Failures are logged and audited, not returned.
+	Prefetch(ctx context.Context, env *ToolEnv, repos []string)
 }
 
 // GitHubWorkflow is one workflow file of a repository. Name is written by

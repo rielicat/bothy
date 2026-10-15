@@ -15,6 +15,8 @@ const providerNames: Record<string, string> = {
   groq: 'Groq',
   xai: 'xAI',
   deepseek: 'DeepSeek',
+  // "Other server" in the chooser; the server names its models' provider the same.
+  custom: 'Model server',
 };
 
 /** "Anthropic" for the id or kind; an unknown id keeps its own spelling, capitalised. */
