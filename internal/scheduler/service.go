@@ -111,7 +111,7 @@ func (s *Service) upsertLocked(ctx context.Context, v core.Viewer, in *core.Sche
 	if cur == nil {
 		action = "schedule.create"
 	}
-	s.auditf(ctx, action, auditActor(by), sc, nil)
+	s.auditf(ctx, action, auditActor(by), sc, "", nil)
 	return nil
 }
 
@@ -239,30 +239,35 @@ func (s *Service) deleteAs(ctx context.Context, v core.Viewer, id core.ScheduleI
 		return err
 	}
 	delete(s.unsaved, id)
-	s.auditf(ctx, "schedule.delete", auditActor(by), sc, nil)
+	s.auditf(ctx, "schedule.delete", auditActor(by), sc, "", nil)
 	s.poke()
 	return nil
 }
 
-// RunNow fires a schedule immediately without moving its next run.
-func (s *Service) RunNow(ctx context.Context, v core.Viewer, id core.ScheduleID, _ core.UserID) (core.RunID, error) {
+// RunNow fires a schedule immediately without moving its next run. The run
+// is the schedule owner's, so the audit is what says who started it.
+func (s *Service) RunNow(ctx context.Context, v core.Viewer, id core.ScheduleID, by core.UserID) (core.RunID, error) {
 	s.mu.Lock()
-	run, err := s.runNowLocked(ctx, v, id)
+	sc, run, err := s.runNowLocked(ctx, v, id)
 	notes := s.takeNotices()
 	s.mu.Unlock()
+	if err == nil {
+		s.auditf(ctx, "schedule.run", "user:"+string(by), sc, run, nil)
+	}
 	s.sendNotices(ctx, notes)
 	return run, err
 }
 
-func (s *Service) runNowLocked(ctx context.Context, v core.Viewer, id core.ScheduleID) (core.RunID, error) {
+func (s *Service) runNowLocked(ctx context.Context, v core.Viewer, id core.ScheduleID) (*core.Schedule, core.RunID, error) {
 	sc, err := s.store.Schedules().Get(ctx, v, id)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
 	if s.isPaused() {
-		return "", fmt.Errorf("scheduler: %w", core.ErrPaused)
+		return nil, "", fmt.Errorf("scheduler: %w", core.ErrPaused)
 	}
-	return s.fire(ctx, sc, s.clock.Now(), sc.NextRunAt, sc.Enabled, true)
+	run, err := s.fire(ctx, sc, s.clock.Now(), sc.NextRunAt, sc.Enabled, true)
+	return sc, run, err
 }
 
 // Preview returns the next n fire times in tz (heartbeats without jitter).
@@ -334,7 +339,9 @@ func auditActor(by string) string {
 	return by
 }
 
-func (s *Service) auditf(ctx context.Context, action, actor string, sc *core.Schedule, extra map[string]any) {
+// auditf records an action on sc; run is the task it is about, and an agent
+// actor's own run when empty.
+func (s *Service) auditf(ctx context.Context, action, actor string, sc *core.Schedule, run core.RunID, extra map[string]any) {
 	if s.audit == nil {
 		return
 	}
@@ -344,9 +351,9 @@ func (s *Service) auditf(ctx context.Context, action, actor string, sc *core.Sch
 		d[k] = v
 	}
 	detail, _ := json.Marshal(d)
-	e := core.AuditEntry{At: s.clock.Now(), Actor: actor, Action: action, Target: "schedule:" + string(sc.ID), Outcome: "ok", Detail: detail}
-	if run, ok := strings.CutPrefix(actor, "agent:"); ok {
-		e.Run = core.RunID(run)
+	e := core.AuditEntry{At: s.clock.Now(), Actor: actor, Action: action, Target: "schedule:" + string(sc.ID), Outcome: "ok", Detail: detail, Run: run}
+	if agentRun, ok := strings.CutPrefix(actor, "agent:"); ok && run == "" {
+		e.Run = core.RunID(agentRun)
 	}
 	if err := s.audit.Record(ctx, e); err != nil {
 		s.log.Error("scheduler: audit", "action", action, "err", err)

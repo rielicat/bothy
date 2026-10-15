@@ -250,6 +250,20 @@ func TestRunNowAndSessions(t *testing.T) {
 			s1.Title != "Digest · 2026-10-12" || s2.Title != "Digest · 2026-10-13" {
 			t.Fatalf("sessions = %+v %+v (%v %v)", s1, s2, err1, err2)
 		}
+		// The run is the owner's; the audit says who pressed Run now.
+		started := func() []core.AuditEntry {
+			var out []core.AuditEntry
+			for _, e := range h.audit.All() {
+				if e.Action == "schedule.run" {
+					out = append(out, e)
+				}
+			}
+			return out
+		}
+		if a := started(); len(a) != 2 || a[0].Actor != "user:"+string(h.owner) || a[0].Target != "schedule:"+string(sc.ID) ||
+			a[0].Run != run1 || a[1].Run != run2 {
+			t.Fatalf("Run now audit = %+v", a)
+		}
 
 		h.runner.fail(errors.New("boom"))
 		if _, err := h.svc.RunNow(ctx, h.viewer(), sc.ID, h.owner); err == nil {
@@ -264,6 +278,9 @@ func TestRunNowAndSessions(t *testing.T) {
 		}
 		if got := h.get(sc.ID); got.Failures != 1 || got.LastStatus != core.RunBudgetExceeded {
 			t.Fatalf("a daily-cap refusal is not the schedule's failure: %+v", got)
+		}
+		if n := len(started()); n != 2 {
+			t.Fatalf("a Run now that started nothing was audited (%d entries)", n)
 		}
 	})
 }

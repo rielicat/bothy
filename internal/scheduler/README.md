@@ -28,7 +28,11 @@ today's spend of the schedule's runs reaches `budgets.heartbeat_daily_usd` (0
 `HEARTBEAT_OK` is never delivered. `Upsert` validates everything (spec, zone,
 active hours, limits, a target session of the same principal), ignores caller
 values for run state, computes `next_run_at` and audits
-`schedule.create`/`update`/`delete`. Delivery is confined to the principal's
+`schedule.create`/`update`/`delete`; `RunNow` audits `schedule.run` with the
+user who pressed it, since the run itself is the owner's. A
+`schedule_create` card without a set chat names the owner and the chat app
+their results reach today (`owner`, `usual_chat`), and the tool's result
+tells the model where runs post. Delivery is confined to the principal's
 own chats: a linked DM of its user or, for a space, that space's chat; a user
 schedule never posts into a group. The target is checked again at every fire,
 so a chat that was unlinked or re-linked to another account falls back to web

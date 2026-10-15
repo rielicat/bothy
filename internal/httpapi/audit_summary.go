@@ -254,7 +254,7 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 		return "Approved the tools of " + e.Target
 	case "mcp.changed":
 		return e.Target + " changed its tools"
-	case "schedule.create", "schedule.update", "schedule.delete":
+	case "schedule.create", "schedule.update", "schedule.delete", "schedule.run":
 		name := "a schedule"
 		if n := cmpOr(d.str("name"), an.schedule(core.ScheduleID(strings.TrimPrefix(e.Target, "schedule:")))); n != "" {
 			name = "the schedule " + quoted(n, "")
@@ -264,6 +264,8 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 			return "Created " + name
 		case e.Action == "schedule.delete":
 			return "Deleted " + name
+		case e.Action == "schedule.run":
+			return "Started " + name + " by hand"
 		case d.str("reason") == "consecutive_failures":
 			return "Turned off " + name + " after it failed several times"
 		}

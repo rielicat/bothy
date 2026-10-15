@@ -534,7 +534,7 @@ func (s *Service) publishRun(sc *core.Schedule, run core.RunID, status core.RunS
 func (s *Service) disabled(ctx context.Context, sc *core.Schedule, last core.RunStatus) {
 	off := *sc
 	off.Enabled = false
-	s.auditf(ctx, "schedule.update", systemActor, &off, map[string]any{"reason": "consecutive_failures", "failures": maxFailures})
+	s.auditf(ctx, "schedule.update", systemActor, &off, "", map[string]any{"reason": "consecutive_failures", "failures": maxFailures})
 	if s.hub == nil {
 		return
 	}

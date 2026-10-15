@@ -184,6 +184,8 @@ func TestAuditRowsAndEgressOutcomes(t *testing.T) {
 		{Actor: "system", Action: "something.new", Outcome: "ok"},
 		{Actor: "user:" + string(h.member.user), Action: "run.stop", Target: string(f.sess.ID), Outcome: "ok", Session: f.sess.ID},
 		{Actor: "user:" + string(h.member.user), Action: "schedule.delete", Target: "schedule:" + string(sched.ID), Outcome: "ok"},
+		{Actor: "user:" + string(h.admin.user), Action: "schedule.run", Target: "schedule:sch_y", Outcome: "ok", Run: f.run.ID,
+			Detail: detail(map[string]any{"name": "Weekly PR digest"})},
 		{Actor: "user:" + string(h.admin.user), Action: "auth.password_changed", Target: "user:" + string(h.member.user), Outcome: "ok",
 			Detail: detail(map[string]any{"via": "admin", "one_time": true})},
 		{Actor: "user:" + string(h.admin.user), Action: "provider.connect", Target: "provider:anthropic", Outcome: "ok",
@@ -220,6 +222,7 @@ func TestAuditRowsAndEgressOutcomes(t *testing.T) {
 		"something.new/":                                      {"Bothy", "Something new"},
 		"run.stop/" + string(f.sess.ID):                       {"member", "Stopped a task"},
 		"schedule.delete/schedule:" + string(sched.ID):        {"member", "Deleted a schedule"},
+		"schedule.run/schedule:sch_y":                         {"admin", "Started the schedule “Weekly PR digest” by hand"},
 		"auth.password_changed/user:" + string(h.member.user): {"admin", "Gave member a one-time password"},
 		"provider.connect/provider:anthropic":                 {"admin", "Connected an AI model"},
 	} {

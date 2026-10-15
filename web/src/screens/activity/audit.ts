@@ -73,6 +73,7 @@ const actions: Record<string, string> = {
   'schedule.create': 'Created a schedule',
   'schedule.update': 'Changed a schedule',
   'schedule.delete': 'Deleted a schedule',
+  'schedule.run': 'Started a schedule by hand',
   'run.stop': 'Stopped a task',
   'budget.exceeded': 'Hit the spending limit',
   'admin.pause': 'Paused Bothy',
