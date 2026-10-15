@@ -37,6 +37,7 @@ export const eventTypes: EventType[] = [
   'sandbox.status',
   'mcp.pin_pending',
   'inbox.changed',
+  'knowledge.updated',
   'config.changed',
   'banner',
 ];
