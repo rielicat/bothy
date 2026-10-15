@@ -14,16 +14,31 @@ export interface StepView {
   approval?: Approval;
   record?: ToolCallRecord;
   link: string;
-  /** Why a rule refused the step, in the server's words: "a deploy to production needs 2 approvers…". */
+  /** Why Bothy didn't do the step, in plain words: "A deploy to production needs 2 approvers…". */
   why: string;
 }
 
-/** The reason in "Denied by policy (floor:release): <reason>", as a sentence. */
+// The deploy refusals that already read as plain sentences; the person can act on them.
+const plainRelease = [/^a deploy to .+ needs .+ other than you/, /^the .+ environment has no approvers$/, /^deploys can only be requested from your own chats/, /^could not check who may approve this deploy$/];
+
+/**
+ * Why "Denied by policy (<rule>): <reason>" refused a step, as a sentence. Other
+ * refusals name rules, tools and errors, so they get one plain sentence and the
+ * server's words stay in the step's Details.
+ */
 export function refusalReason(result: string | undefined): string {
-  const m = /^Denied by policy \([^)]*\): (.+)$/s.exec(result?.trim() ?? '');
+  const m = /^Denied by policy \(([^)]*)\): (.+)$/s.exec(result?.trim() ?? '');
   if (!m) return '';
-  const r = m[1].trim();
-  return r.charAt(0).toUpperCase() + r.slice(1) + (/[.!?]$/.test(r) ? '' : '.');
+  const rule = m[1];
+  const reason = m[2].trim();
+  if (rule === 'floor:paused') return 'Bothy is paused.';
+  if (rule === 'floor:release') {
+    if (plainRelease.some((re) => re.test(reason))) return reason.charAt(0).toUpperCase() + reason.slice(1) + (/[.!?]$/.test(reason) ? '' : '.');
+    if (/^deploys are not allowed in /.test(reason)) return 'Deploys can only be asked for by a person in a chat.';
+    const env = /^this deploy does not match the (.+) environment: /.exec(reason);
+    if (env) return `This deploy doesn't match how ${env[1]} is set up.`;
+  }
+  return "Bothy's rules don't allow this.";
 }
 
 export interface StepContext {
