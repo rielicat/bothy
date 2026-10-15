@@ -3,9 +3,9 @@
 // them; each is decided through the endpoint its kind already has.
 import { api } from '../../lib/api/client';
 import type { Inbox, InboxItem as ServerItem, MCPPin } from '../../lib/api/types.gen';
-import { appName, humanize } from '../../lib/cardcopy';
+import { appName } from '../../lib/cardcopy';
 import { lineDiff } from '../../lib/diff';
-import { plural } from '../../lib/format';
+import { plural, serviceName } from '../../lib/format';
 import type { InboxItem } from './types';
 
 const enc = encodeURIComponent;
@@ -35,7 +35,8 @@ function fromServer(i: ServerItem): InboxItem | null {
     case 'unknown_sender': {
       const s = i.sender;
       if (!s) return null;
-      return { ...base, type: 'unknown_sender', app: s.channel, external_id: s.external_id, display_name: s.display_name || s.username || s.external_id, handle: s.username ? `@${s.username}` : s.external_id, text: s.first_text };
+      // Many chat accounts have no username; their numeric id stays in the card's Details.
+      return { ...base, type: 'unknown_sender', app: s.channel, external_id: s.external_id, display_name: s.display_name || s.username || 'Someone', handle: s.username ? `@${s.username}` : '', text: s.first_text };
     }
     case 'group_chat': {
       const g = i.group;
@@ -76,7 +77,7 @@ export function decideItem(item: InboxItem, choice: string, extra: { side_effect
 export function itemQuestion(i: InboxItem): string {
   switch (i.type) {
     case 'mcp_review':
-      return `Review ${humanize(i.server)} actions`;
+      return `Review ${serviceName(i.server)} actions`;
     case 'skill_review':
       return `Review changes to the “${i.skill}” skill`;
     case 'unknown_sender':
@@ -94,7 +95,7 @@ export function itemSource(i: InboxItem): string {
     case 'skill_review':
       return i.files.length ? `${plural(i.files.length, 'file')} changed` : 'Changed files';
     case 'unknown_sender':
-      return i.handle;
+      return i.handle || appName(i.app);
     case 'group_chat':
       return i.added_by ? `Added by ${i.added_by}` : appName(i.app);
   }

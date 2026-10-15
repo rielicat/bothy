@@ -2,14 +2,16 @@
   import { untrack } from 'svelte';
   import { api } from '../../lib/api/client';
   import type { User } from '../../lib/api/types.gen';
-  import { busyLabel, humanize } from '../../lib/cardcopy';
-  import { relTime, fullTime } from '../../lib/format';
+  import { appName, busyLabel, humanize } from '../../lib/cardcopy';
+  import { relTime, fullTime, serviceName } from '../../lib/format';
   import { router } from '../../lib/router.svelte';
   import { session } from '../../lib/stores/session.svelte';
   import { clock } from '../../lib/stores/clock.svelte';
   import { tooltip } from '../ui/tooltip';
   import Button from '../ui/Button.svelte';
+  import CodeBlock from '../ui/CodeBlock.svelte';
   import Dialog from '../ui/Dialog.svelte';
+  import Disclosure from '../ui/Disclosure.svelte';
   import DiffView from '../ui/DiffView.svelte';
   import LinkButton from '../ui/LinkButton.svelte';
   import Notice from '../ui/Notice.svelte';
@@ -44,7 +46,7 @@
       case 'mcp_review':
         return [
           { choice: 'approve', label: 'Approve tools', variant: 'primary', key: 'allow_once' },
-          { choice: 'turn_off', label: `Turn off ${humanize(item.server)}`, variant: 'secondary', key: 'deny' },
+          { choice: 'turn_off', label: `Turn off ${serviceName(item.server)}`, variant: 'secondary', key: 'deny' },
         ];
       case 'skill_review':
         return [
@@ -128,8 +130,9 @@
     </p>
   {:else if item.type === 'unknown_sender'}
     <p class="mt-1 text-body text-muted" data-copy-ignore>
-      <Verbatim text={item.display_name} /> (<Verbatim text={item.handle} />){#if item.text}{' wrote: '}“<Verbatim text={item.text.slice(0, 120)} />”{/if}
+      <Verbatim text={item.display_name} />{#if item.handle}{' ('}<Verbatim text={item.handle} />){/if}{#if item.text}{' wrote: '}“<Verbatim text={item.text.slice(0, 120)} />”{/if}
     </p>
+    <Disclosure class="mt-1"><CodeBlock label="{appName(item.app)} id" code={item.external_id} /></Disclosure>
   {:else if item.type === 'group_chat'}
     <p class="mt-1 text-body text-muted">{item.added_by ? `Added by ${item.added_by}. ` : ''}Bothy will answer only when mentioned.</p>
   {/if}
