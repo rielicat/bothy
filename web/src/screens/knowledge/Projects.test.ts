@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
 import { resetMock } from '../../../mock/server';
 import { router } from '../../lib/router.svelte';
@@ -8,10 +8,11 @@ import KnowledgeSearch from './KnowledgeSearch.svelte';
 import Projects from './Projects.svelte';
 
 async function start(mock = '', override?: (m: string, url: string) => unknown) {
-  installApi({ override });
+  const calls = installApi({ override });
   if (mock) resetMock({ mock });
   session.ready = false;
   await session.init();
+  return calls;
 }
 
 describe('Projects', () => {
@@ -28,6 +29,20 @@ describe('Projects', () => {
     expect(within(row('acme/docs')).getByText('Out of date')).toBeTruthy();
     expect(within(row('acme/docs')).getByRole('button', { name: 'Read again' })).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Add repositories' })).toBeTruthy();
+  });
+
+  it("offers to read a connected repository this person's Bothy hasn't read", async () => {
+    const calls = await start('member', (m, url) =>
+      m === 'GET' && url.startsWith('/api/knowledge/repos') ? Response.json({ items: [] }) : m === 'POST' && url === '/api/github/repos/read' ? Response.json({ repos: ['acme/web'] }, { status: 202 }) : undefined,
+    );
+    render(Projects);
+    const list = await screen.findByRole('list', { name: 'Projects' });
+    const first = within(list).getAllByRole('listitem')[0];
+    expect(first.textContent).toContain('Not read yet');
+    expect(first.textContent).not.toContain('Reading');
+    await fireEvent.click(within(first).getByRole('button', { name: 'Read now' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/github/repos/read')).toBe(true));
+    expect(first.textContent).toContain('Reading…');
   });
 
   it('gives members no Read again', async () => {

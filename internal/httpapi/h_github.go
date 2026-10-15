@@ -17,6 +17,7 @@ import (
 func (s *Server) githubRoutes() []route {
 	return []route{
 		{pattern: "GET /api/github/repos", access: accessUser, h: s.githubRepos},
+		{pattern: "POST /api/github/repos/read", access: accessUser, h: s.githubRead},
 		{pattern: "GET /api/github/connections", access: accessAdmin, h: s.githubConnections},
 		{pattern: "POST /api/github/connections", access: accessAdmin, h: s.githubConnect},
 		{pattern: "POST /api/github/connections/test", access: accessAdmin, h: s.githubTest},
@@ -184,6 +185,35 @@ func (s *Server) githubDisconnect(w http.ResponseWriter, r *http.Request, a core
 		return err
 	}
 	return noContent(w)
+}
+
+// githubRead reads allowed repositories into the caller's own workspace,
+// so Knowledge has them for that person too (indexes are per principal).
+// Any user may: the agent could check the same repositories out for them.
+func (s *Server) githubRead(w http.ResponseWriter, r *http.Request, a core.Actor) error {
+	gh, err := s.gh()
+	if err != nil {
+		return err
+	}
+	var req dto.GitHubReposReq
+	if err := decode(r, &req); err != nil {
+		return err
+	}
+	allowed, err := gh.Repos(r.Context())
+	if err != nil {
+		return err
+	}
+	var list []string
+	for _, g := range allowed {
+		if len(req.Repos) == 0 || slices.ContainsFunc(req.Repos, func(n string) bool { return strings.EqualFold(n, g.FullName()) }) {
+			list = append(list, g.FullName())
+		}
+	}
+	if len(list) == 0 {
+		return badRequest("none of those repositories is connected")
+	}
+	s.prefetchRepos(r.Context(), gh, a, list)
+	return accepted(w, map[string]any{"repos": list})
 }
 
 // prefetchLimit bounds one background read of newly allowed repositories.

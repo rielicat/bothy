@@ -71,7 +71,22 @@
   const content = $derived(notes?.content ?? '');
   const cap = $derived(notes?.cap_bytes ?? 0);
   const st = $derived(repo ? repoState(repo) : 'ready');
-  const firstRead = $derived(!!repo && !content.trim() && (st === 'reading' || repo.notes.status === 'drafting'));
+  // A connected repository this person's Bothy hasn't read (no index yet): offer to read it.
+  let requested = $state(false);
+  const unread = $derived(!!repo && repo.id === 0 && !requested);
+  const firstRead = $derived(!!repo && !unread && !content.trim() && (st === 'reading' || repo.notes.status === 'drafting'));
+
+  async function readNow() {
+    if (!repo) return;
+    readError = '';
+    requested = true;
+    try {
+      await knowledge.readConnected([repo.repo]);
+    } catch {
+      requested = false;
+      readError = "Couldn't start reading. Try again.";
+    }
+  }
   const size = $derived(fullness(editing ? draft : content, cap));
   const over = $derived(editing && size === 'over');
   // Shown under the header, next to Save: below a long document it would be off screen on a phone.
@@ -304,6 +319,12 @@
         />
       {:else if content.trim()}
         <Markdown text={content} />
+      {:else if unread}
+        <EmptyState
+          text="Bothy hasn't read {name} for you yet."
+          more="It reads the code and writes notes, so you can ask about this project."
+          action={{ label: 'Read now', onclick: readNow }}
+        />
       {:else if firstRead}
         <p class="text-reading text-text">Bothy is reading {name} and writing notes. This usually takes a few minutes.</p>
         {#if repo.progress?.total}

@@ -65,7 +65,24 @@
     }
   }
 
+  // A connected repository this person's Bothy hasn't read: indexes are per
+  // person, so nothing reads it until they ask (or a chat checks it out).
+  let requested = $state<Record<string, boolean>>({});
+  const unread = (r: KnowledgeRepo) => r.id === 0 && !requested[r.repo];
+
+  async function readNow(r: KnowledgeRepo) {
+    rowError = { ...rowError, [r.repo]: '' };
+    requested = { ...requested, [r.repo]: true };
+    try {
+      await knowledge.readConnected([r.repo]);
+    } catch {
+      requested = { ...requested, [r.repo]: false };
+      rowError = { ...rowError, [r.repo]: "Couldn't start reading. Try again." };
+    }
+  }
+
   function line2(r: KnowledgeRepo): string {
+    if (unread(r)) return "Bothy hasn't read this project for you yet.";
     const summary = r.summary;
     if (repoState(r) === 'failed') return failReason(r);
     if (r.notes.status !== 'ready') return summary || 'Bothy is writing notes for this project.';
@@ -112,15 +129,17 @@
               onclick={router.link}>{r.repo}</a
             >
             <span class="flex items-center gap-1.5 text-small {st === 'failed' ? 'text-danger-text' : 'text-muted'} tabular-nums">
-              {#if st === 'ready'}Up to date{:else if st === 'stale'}Out of date{:else if st === 'failed'}Couldn't read{:else}<Spinner size={12} />Reading…{#if pct !== null}{' '}{pct}%{/if}{/if}
+              {#if unread(r)}Not read yet{:else if st === 'ready'}Up to date{:else if st === 'stale'}Out of date{:else if st === 'failed'}Couldn't read{:else}<Spinner size={12} />Reading…{#if pct !== null}{' '}{pct}%{/if}{/if}
             </span>
             <div class="col-span-2 flex items-baseline gap-4">
               <p class="min-w-0 flex-1 text-small text-muted {st === 'failed' ? '' : 'truncate'}" title={r.notes.status === 'ready' ? fullTime(r.notes.updated_at) : undefined}>
                 {#if rowError[r.repo]}<span class="text-danger-text">{rowError[r.repo]}</span>{:else}{line2(r)}{/if}
               </p>
-              {#if (st === 'stale' && session.isAdmin) || (st === 'failed' && r.error)}
+              {#if unread(r) || (st === 'stale' && session.isAdmin) || (st === 'failed' && r.error)}
                 <span class="relative z-10 shrink-0 text-small">
-                  {#if st === 'stale'}
+                  {#if unread(r)}
+                    <LinkButton onclick={() => readNow(r)}>Read now</LinkButton>
+                  {:else if st === 'stale'}
                     <LinkButton onclick={() => readAgain(r)}>Read again</LinkButton>
                   {:else}
                     <button

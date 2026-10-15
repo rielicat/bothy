@@ -23,6 +23,8 @@ export const knowledge = {
   /** Every change to the notes, newest first. */
   history: async (id: number): Promise<NotesChange[]> => (await api.get<List<NotesChange>>(`${repoPath(id)}/notes/history`)).items ?? [],
   reindex: (id: number) => api.post<KnowledgeRepo>(`${repoPath(id)}/reindex`),
+  /** Reads connected repositories into the viewer's own workspace (indexes are per person). */
+  readConnected: (repos: string[]) => api.post<{ repos: string[] }>('/api/github/repos/read', { repos }),
   /** Drops the repository's index, notes and notes history. */
   stop: (id: number) => api.del(repoPath(id)),
   search: async (q: string, opts: { repo?: number; limit?: number } = {}) =>

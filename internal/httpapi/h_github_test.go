@@ -209,6 +209,27 @@ func TestGitHubSavePrefetchesIntoSaversWorkspace(t *testing.T) {
 	}
 }
 
+// Anyone can have Bothy read connected repositories into their own
+// workspace; only connected ones.
+func TestGitHubReadIntoOwnWorkspace(t *testing.T) {
+	h := newHarness(t).setup()
+	gh := &fakeGitHub{}
+	h.srv.d.GitHub = gh
+	h.srv.d.Knowledge = newFakeKnowledge()
+	if rec := h.do(http.MethodPost, "/api/github/repos/read", dto.GitHubReposReq{Repos: []string{"elsewhere/nope"}}, h.member); rec.Code != http.StatusBadRequest {
+		t.Fatalf("unconnected repo = %d %s", rec.Code, rec.Body)
+	}
+	if rec := h.do(http.MethodPost, "/api/github/repos/read", dto.GitHubReposReq{}, h.member); rec.Code != http.StatusAccepted {
+		t.Fatalf("read = %d %s", rec.Code, rec.Body)
+	}
+	h.srv.jobs.wait()
+	gh.mu.Lock()
+	defer gh.mu.Unlock()
+	if len(gh.prefetch) != 1 || gh.prefetch[0].env.User != h.member.user || !slices.Equal(gh.prefetch[0].repos, []string{"octocat/Hello-World"}) {
+		t.Fatalf("prefetch = %+v", gh.prefetch)
+	}
+}
+
 // Indexes are per principal: the repository list shows the commit the
 // caller's own index read, never another user's, and ignores a workspace
 // folder that only borrowed the repository's name.
