@@ -49,6 +49,9 @@ type Facade struct {
 	disc    map[string]*discovery
 	corr    map[string]float64
 	banner  bool // provider_auth banner raised
+	// unforced holds kind|base|model of models whose provider refused a
+	// forced tool_choice, so the next probe asks without forcing.
+	unforced map[string]bool
 
 	// effort is shared by every Chat Completions client, so what one call
 	// learned survives the client being rebuilt for another provider's
@@ -90,6 +93,8 @@ func New(d Deps) (*Facade, error) {
 		health:  map[string]*health{},
 		disc:    map[string]*discovery{},
 		corr:    map[string]float64{},
+
+		unforced: map[string]bool{},
 	}
 	f.effort = openai.NewEffortMemory(maxEffortEntries, func(e openai.EffortEntry) {
 		f.log.Warn("chat completions rejects tools with reasoning on", "provider", e.Provider, "model", e.Model,

@@ -26,6 +26,7 @@ const (
 	// agent (SPEC §5.6 degraded profile and below).
 	smallContext = 16_384
 	probeTool    = "probe_echo"
+	maxUnforced  = 256
 )
 
 var probeSchema = json.RawMessage(`{"type":"object","properties":{"value":{"type":"string"}},"required":["value"]}`)
@@ -145,6 +146,18 @@ type probeCall struct {
 // exercise makes the probe's completion and forced tool call. ok is false
 // when the completion failed; res.Detail then says why.
 func (f *Facade) exercise(ctx context.Context, p probeCall, res *core.ProbeResult) (notes []string, ok bool) {
+	local := (endpoint{kind: p.kind, base: p.base}).local()
+	var tool toolCheck
+	done := make(chan struct{})
+	tctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if local {
+		close(done)
+	} else {
+		// A hosted model is asked both questions at once; a local server
+		// would load or queue the second behind the first anyway.
+		go func() { defer close(done); tool = f.checkTools(tctx, p, local) }()
+	}
 	t0 := f.clock.Now()
 	resp, err := p.cl.Stream(ctx, &core.Request{
 		Model: p.model, MaxTokens: p.firstMax, NumCtx: p.numCtx,
@@ -152,6 +165,8 @@ func (f *Facade) exercise(ctx context.Context, p probeCall, res *core.ProbeResul
 	}, nil)
 	res.Latency = f.clock.Now().Sub(t0)
 	if err != nil {
+		cancel()
+		<-done
 		res.Detail, res.Code, res.Error = plain(err, p.base, p.kind, p.api), failureCode(err, p.kind), rawError(err)
 		return nil, false
 	}
@@ -165,26 +180,11 @@ func (f *Facade) exercise(ctx context.Context, p probeCall, res *core.ProbeResul
 	if n := apiNote(p.kind, p.asked, p.api); n != "" {
 		notes = append(notes, n)
 	}
-	toolTokens := 1024
-	if (endpoint{kind: p.kind, base: p.base}).local() {
-		// Hosted reasoning models (Responses, Gemini, routers) count their
-		// thinking against the output limit and can spend 256 tokens before
-		// calling the tool; a local model that rambles to 1024 would take
-		// minutes on a CPU instead.
-		toolTokens = 256
+	if local {
+		tool = f.checkTools(ctx, p, local)
 	}
-	toolReq := &core.Request{
-		Model: p.model, MaxTokens: toolTokens, ToolChoice: "required", NumCtx: p.numCtx,
-		Tools:    []core.ToolDef{{Name: probeTool, Description: "Echo a value back.", Schema: probeSchema}},
-		Messages: []core.Message{{Role: core.MsgUser, Parts: []core.Part{{Type: core.PartText, Text: `Call the probe_echo tool with value "ok".`}}}},
-	}
-	tresp, terr := p.cl.Stream(ctx, toolReq, nil)
-	if terr != nil && forcedChoiceRefused(terr) {
-		// Some models (Claude 5.5 on Bedrock, thinking models) refuse a
-		// forced tool_choice; the agent never forces one, so ask normally.
-		toolReq.ToolChoice = ""
-		tresp, terr = p.cl.Stream(ctx, toolReq, nil)
-	}
+	<-done
+	tresp, terr := tool.resp, tool.err
 	mode := p.effort.Mode("probe", p.model)
 	switch {
 	case terr != nil && mode == openai.EffortNoTools:
@@ -203,7 +203,7 @@ func (f *Facade) exercise(ctx context.Context, p probeCall, res *core.ProbeResul
 		case tresp.Stop == core.StopMaxTokens:
 			// A reasoning model can spend the whole budget thinking; that
 			// says nothing about its tool use.
-			notes = append(notes, fmt.Sprintf("The model used the test's %d-token output limit before calling the test tool, probably while reasoning, so tool calling could not be confirmed.", toolTokens))
+			notes = append(notes, fmt.Sprintf("The model used the test's %d-token output limit before calling the test tool, probably while reasoning, so tool calling could not be confirmed.", tool.tokens))
 		default:
 			notes = append(notes, "The model answered without calling the test tool; tool use may be unreliable.")
 		}
@@ -213,6 +213,50 @@ func (f *Facade) exercise(ctx context.Context, p probeCall, res *core.ProbeResul
 	}
 	res.Context = p.info.Context
 	return notes, true
+}
+
+type toolCheck struct {
+	resp   *core.Response
+	err    error
+	tokens int // the output limit it was given
+}
+
+// checkTools asks the model to call the probe tool, forcing the choice
+// unless its provider refused that before.
+func (f *Facade) checkTools(ctx context.Context, p probeCall, local bool) toolCheck {
+	c := toolCheck{tokens: 1024}
+	if local {
+		// Hosted reasoning models (Responses, Gemini, routers) count their
+		// thinking against the output limit and can spend 256 tokens before
+		// calling the tool; a local model that rambles to 1024 would take
+		// minutes on a CPU instead.
+		c.tokens = 256
+	}
+	req := &core.Request{
+		Model: p.model, MaxTokens: c.tokens, ToolChoice: "required", NumCtx: p.numCtx,
+		Tools:    []core.ToolDef{{Name: probeTool, Description: "Echo a value back.", Schema: probeSchema}},
+		Messages: []core.Message{{Role: core.MsgUser, Parts: []core.Part{{Type: core.PartText, Text: `Call the probe_echo tool with value "ok".`}}}},
+	}
+	key := string(p.kind) + "|" + p.base + "|" + p.model
+	f.mu.Lock()
+	if f.unforced[key] {
+		req.ToolChoice = ""
+	}
+	f.mu.Unlock()
+	c.resp, c.err = p.cl.Stream(ctx, req, nil)
+	if c.err != nil && req.ToolChoice != "" && forcedChoiceRefused(c.err) {
+		// Some models (Claude 5.5 on Bedrock, thinking models) refuse a
+		// forced tool_choice; the agent never forces one, so ask normally.
+		f.mu.Lock()
+		if len(f.unforced) >= maxUnforced {
+			clear(f.unforced)
+		}
+		f.unforced[key] = true
+		f.mu.Unlock()
+		req.ToolChoice = ""
+		c.resp, c.err = p.cl.Stream(ctx, req, nil)
+	}
+	return c
 }
 
 // probeInfo describes the probed model from the catalog and discovery.

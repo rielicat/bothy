@@ -9,7 +9,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/provider/ollama"
@@ -203,15 +205,36 @@ func TestProbeToolCallingWhenForcedChoiceRefused(t *testing.T) {
 		{MatchUser: "single word", Text: []string{"ok"}},
 	}, []core.ModelInfo{{Ref: core.ModelRef{Model: "anthropic/claude-sonnet-5.5"}}})
 	t.Cleanup(srv.Close)
+	var mu sync.Mutex
 	forced := 0
-	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		if strings.Contains(string(body), `"tool_choice":"required"`) {
+	toolAsked := make(chan struct{})
+	var once sync.Once
+	router := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body []byte
+		if r.Body != nil {
+			body, _ = io.ReadAll(r.Body)
+		}
+		switch {
+		case strings.Contains(string(body), `"tool_choice":"required"`):
+			mu.Lock()
 			forced++
+			mu.Unlock()
+			once.Do(func() { close(toolAsked) })
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(400)
 			_, _ = io.WriteString(w, `{"error":{"message":"Provider returned error","code":400,"metadata":{"raw":"{\"message\":\"tool_choice: type \\\"tool\\\" and \\\"any\\\" are not supported for this model.\"}","provider_name":"Amazon Bedrock"}}}`)
 			return
+		case strings.Contains(string(body), "probe_echo"):
+			once.Do(func() { close(toolAsked) })
+		case strings.Contains(string(body), "single word"):
+			// A hosted model gets both questions at once: the reply check
+			// waits here for the tool check to arrive.
+			select {
+			case <-toolAsked:
+			case <-time.After(5 * time.Second):
+				w.WriteHeader(504)
+				return
+			}
 		}
 		req, _ := http.NewRequestWithContext(r.Context(), r.Method, srv.URL()+r.URL.Path, strings.NewReader(string(body)))
 		req.Header = r.Header.Clone()
@@ -226,16 +249,24 @@ func TestProbeToolCallingWhenForcedChoiceRefused(t *testing.T) {
 		}
 		w.WriteHeader(resp.StatusCode)
 		_, _ = io.Copy(w, resp.Body)
-	}))
-	t.Cleanup(router.Close)
-	h := newHarness(t, nil)
-	res, err := h.f.Probe(context.Background(), core.ProbeConfig{
-		Kind: core.KindOpenAICompat, BaseURL: router.URL, AllowPrivate: true, APIKey: core.NewSecret([]byte(canary)), Model: "anthropic/claude-sonnet-5.5",
 	})
-	if err != nil {
-		t.Fatal(err)
+	h := newHarness(t, nil)
+	h.egress.Client = &http.Client{Transport: hostRouter{"router.example": router}}
+	probe := func() core.ProbeResult {
+		t.Helper()
+		res, err := h.f.Probe(context.Background(), core.ProbeConfig{
+			Kind: core.KindOpenAICompat, BaseURL: "https://router.example", APIKey: core.NewSecret([]byte(canary)), Model: "anthropic/claude-sonnet-5.5",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
 	}
-	if !res.OK || !res.ToolCalling || forced != 1 {
+	if res := probe(); !res.OK || !res.ToolCalling || forced != 1 {
 		t.Fatalf("forced requests %d, result %+v", forced, res)
+	}
+	// The second check of the same model does not force the choice again.
+	if res := probe(); !res.OK || !res.ToolCalling || forced != 1 {
+		t.Fatalf("forced requests %d after a second probe, result %+v", forced, res)
 	}
 }
