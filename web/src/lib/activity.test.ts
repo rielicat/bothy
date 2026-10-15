@@ -87,6 +87,13 @@ describe('phrases', () => {
     expect(diffCounts('+++ b\n--- a\n+x\n-y\n-z')).toEqual({ a: 1, r: 2 });
   });
 
+  it('names the chat a message goes to by its app, never by its key', () => {
+    const msg = (recipient: string) => phrases({ tool: 'message', action: act({ tool: 'message', kind: 'send', recipient }) });
+    expect(plain(msg('telegram:42:').done)).toBe('Sent a message to the Telegram chat');
+    expect(plain(lineFor(msg('slack:C04ENG:17.2'), 'waiting'))).toBe('Waiting for approval to send a message to the Slack chat');
+    expect(plain(msg('').done)).toBe('Sent a message to this chat');
+  });
+
   it('names MCP tools by server and title', () => {
     expect(plain(phrases({ tool: 'mcp__linear__create_issue' }).done)).toBe('Used Linear: Create issue');
     expect(plain(phrases({ tool: 'mcp__linear__create_issue', title: 'File an issue' }).ask)).toBe('use Linear: File an issue');

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { fill, prefix, type Phrase, type Phrases } from '../../lib/activity';
-  import { joinNames, withdrawn } from '../../lib/cardcopy';
+  import { cardCopy, joinNames, withdrawn } from '../../lib/cardcopy';
   import type { Approval } from '../../lib/api/types.gen';
   import { clock, fullTime } from '../../lib/format';
   import Icon from '../Icon.svelte';
@@ -14,6 +14,10 @@
   let { approval, phrases }: { approval: Approval; phrases: Phrases } = $props();
 
   let show = $state(false);
+
+  // A grant lets through more than this one action ("running `rm` commands"),
+  // so the line names the grant (§8.4). Its plain parts can quote a recipient.
+  const grant = (): Phrase => cardCopy(approval).grant.map((s) => (typeof s === 'string' ? { k: 'name', v: s } : { k: 'code', v: s.code }));
 
   const line = $derived.by((): { phrase: Phrase; tone: string; icon: 'check' | 'close' } => {
     const a = approval;
@@ -31,8 +35,8 @@
     let phrase: Phrase;
     if (via) phrase = fill(`${by} ${denied ? 'denied' : 'approved'} in ${via}`, {});
     else if (denied) phrase = [...prefix(`${by} denied `, phrases.ing), ...(comment ? fill(' · “{c}”', { c: comment }) : [])];
-    else if (a.choice === 'allow_session') phrase = [...prefix(`${by} allowed `, phrases.ing), { k: 'text', v: ' for this chat' }];
-    else if (a.choice === 'allow_always') phrase = prefix(`${by} always ${by === 'You' ? 'allow' : 'allows'} `, phrases.ing);
+    else if (a.choice === 'allow_session') phrase = [...prefix(`${by} allowed `, grant()), { k: 'text', v: ' for this chat' }];
+    else if (a.choice === 'allow_always') phrase = prefix(`${by} always ${by === 'You' ? 'allow' : 'allows'} `, grant());
     else {
       // A two-person rule: everyone who approved, not only the last.
       const yes = ballots.filter((v) => v.choice === 'allow_once');

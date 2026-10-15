@@ -79,6 +79,25 @@ export function appName(channel: string | undefined): string {
   return apps[channel.toLowerCase()] ?? capital(channel);
 }
 
+/** "the Telegram chat" for a chat key ("telegram:42:"), as the server's chatName says it; "this chat" without one. */
+export function chatName(key: string | undefined): string {
+  const i = key?.indexOf(':') ?? -1;
+  return key && i > 0 ? `the ${appName(key.slice(0, i))} chat` : 'this chat';
+}
+
+/** A recipient as the server's recipientText shows it: "Telegram chat 42", "acme/web on GitHub", anything else verbatim. */
+export function recipientName(key: string): string {
+  const i = key.indexOf(':');
+  if (i < 0) return key;
+  const ch = key.slice(0, i);
+  const rest = key.slice(i + 1);
+  if (ch === 'github') return `${rest} on GitHub`;
+  if (!['telegram', 'slack', 'discord'].includes(ch)) return key;
+  const j = rest.indexOf(':');
+  const thread = j < 0 ? '' : rest.slice(j + 1);
+  return `${appName(ch)} chat ${j < 0 ? rest : rest.slice(0, j)}${thread ? `, thread ${thread}` : ''}`;
+}
+
 /** "create_issue" → "Create issue", "dueDate" → "Due date". */
 export function humanize(key: string): string {
   const words = key
@@ -156,9 +175,9 @@ export function plainWarnings(ap: Approval): string[] {
       const target = first[1].replace(/^github:/, '');
       if (a?.tool === 'repo_open_pr') t = `This is the first pull request Bothy opens in ${target} for ${ap.principal_id.startsWith('spc_') ? 'this group chat' : 'you'}.`;
       else if (a?.kind === 'http' || a?.kind === 'net' || /^[a-z0-9.-]+\.[a-z]{2,}(:\d+)?$/i.test(target)) t = `Bothy hasn't sent data to ${target} before.`;
-      else t = `Bothy hasn't sent anything to ${target} before.`;
+      else t = `Bothy hasn't sent anything to ${recipientName(target)} before.`;
     } else if (/first time sending to this recipient/i.test(w)) {
-      t = `Bothy hasn't sent anything to ${a?.recipient || 'this recipient'} before.`;
+      t = `Bothy hasn't sent anything to ${a?.recipient ? recipientName(a.recipient) : 'this recipient'} before.`;
     } else if (/private (data|information).*untrusted|untrusted.*private|read untrusted|holds private/i.test(w)) {
       t = 'This chat has seen private information and content from outside. Check carefully before letting anything leave.';
     } else if (/untrusted sender|untrusted (content|origin)/i.test(w)) {
@@ -309,16 +328,16 @@ function netAllow(a: Action, p: Payload): Built {
   };
 }
 
-function message(a: Action, p: Payload): Built {
+function message(a: Action, p: Payload, card: Card): Built {
   const to = a.recipient ?? '';
-  const app = to.includes(':') ? appName(to.slice(0, to.indexOf(':'))) : '';
-  const chat = app ? `the ${app} chat` : 'this chat';
+  const chat = chatName(to);
+  const toText = card?.fields?.find((f) => f.label === 'To')?.value || (to && recipientName(to));
   return {
     question: [`Send a message to ${chat}?`],
     primary: 'Send message',
     ing: [`sending a message to ${chat}`],
     ask: [`send a message to ${chat}`],
-    fields: [to && { label: 'To', value: to, mono: true }, { label: 'Message', value: str(p.text) }],
+    fields: [toText && { label: 'To', value: toText }, { label: 'Message', value: str(p.text) }],
   };
 }
 
@@ -575,7 +594,19 @@ export function cardCopy(ap: Approval): CardCopy {
 /** The label a button shows while its decision is being sent: "Deleting…". */
 export function busyLabel(label: string): string {
   const [verb] = label.split(' ');
-  const irregular: Record<string, string> = { Run: 'Running', Deny: 'Denying', Pay: 'Paying', Cancel: 'Cancelling', Allow: 'Allowing', Always: 'Allowing' };
+  const irregular: Record<string, string> = {
+    Run: 'Running',
+    Deny: 'Denying',
+    Pay: 'Paying',
+    Cancel: 'Cancelling',
+    Allow: 'Allowing',
+    Always: 'Allowing',
+    Forget: 'Forgetting',
+    Let: 'Letting',
+    Get: 'Getting',
+    Set: 'Setting',
+    Stop: 'Stopping',
+  };
   const ing = irregular[verb] ?? (verb.endsWith('e') ? verb.slice(0, -1) + 'ing' : verb + 'ing');
   return `${ing}…`;
 }

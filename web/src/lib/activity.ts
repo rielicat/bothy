@@ -4,6 +4,7 @@
 // render in mono ('code' segments); names people chose ('name' segments) stay
 // verbatim in the body font.
 import type { Action, ApprovalStatus, ToolCallStatus } from './api/types.gen';
+import { chatName } from './cardcopy';
 import { serviceName } from './format';
 
 export type SegKind = 'text' | 'code' | 'name';
@@ -201,7 +202,7 @@ function values(s: StepInput, a: Record<string, unknown>): Record<string, string
     hostpath: host + tail,
     q: str('query', 'q'),
     note: note ? `“${note.length > 60 ? note.slice(0, 59) + '…' : note}”` : 'something',
-    chat: act?.recipient || str('to', 'chat') || 'this chat',
+    chat: chatName(act?.recipient || str('to', 'chat')),
     skill: str('name', 'skill'),
     name: str('name', 'title'),
     repo: str('repo', 'repository') || [str('owner'), str('name')].filter(Boolean).join('/'),

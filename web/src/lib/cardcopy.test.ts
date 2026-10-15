@@ -121,6 +121,13 @@ describe('cardCopy, one row per action', () => {
     expect(pr.kind).toBe('pull_request');
   });
 
+  it('names the chat a message goes to without its key, preferring the server words', () => {
+    const msg = act('message', 'send', 'external_send', { text: 'Done' }, { recipient: 'telegram:42:' });
+    expect(cardCopy(ap(msg)).fields[0]).toEqual({ label: 'To', value: 'Telegram chat 42' });
+    const server = ap(msg, { card: { ...ap(msg).card, fields: [{ label: 'To', value: 'Telegram chat 42 (Ops)', mono: false }] } });
+    expect(cardCopy(server).fields[0]).toEqual({ label: 'To', value: 'Telegram chat 42 (Ops)' });
+  });
+
   it('says where schedule results really go, naming whose usual chat app it is', () => {
     const sendsTo = (payload: Record<string, unknown>) => cardCopy(ap(act('schedule_create', 'schedule', 'admin', { name: 'Digest', prompt: 'x', ...payload }))).fields[1].value;
     expect(sendsTo({ owner: 'Sam Patel', usual_chat: 'telegram' })).toBe("Sam Patel's usual chat app (Telegram)");
@@ -176,7 +183,8 @@ describe('plainWarnings', () => {
     expect(plainWarnings(ap(pr, { principal_id: 'spc_1', card: { ...ap(pr).card, warnings: ['First contact with github:acme/web.'] } }))).toEqual([
       'This is the first pull request Bothy opens in acme/web for this group chat.',
     ]);
-    expect(w(['First contact with telegram:55.'], act('message', 'send', 'external_send', {}, { recipient: 'telegram:55' }))).toEqual(["Bothy hasn't sent anything to telegram:55 before."]);
+    expect(w(['First contact with telegram:55.'], act('message', 'send', 'external_send', {}, { recipient: 'telegram:55' }))).toEqual(["Bothy hasn't sent anything to Telegram chat 55 before."]);
+    expect(w(['First time sending to this recipient.'], act('message', 'send', 'external_send', {}, { recipient: 'slack:C1:17.2' }))).toEqual(["Bothy hasn't sent anything to Slack chat C1, thread 17.2 before."]);
     expect(w(['This session has seen private data and untrusted content; anything sent out could leak it.'])).toEqual([
       'This chat has seen private information and content from outside. Check carefully before letting anything leave.',
     ]);
@@ -214,6 +222,7 @@ describe('expiry and buttons', () => {
       'Denying…',
       'Saving…',
     ]);
+    expect(['Forget', 'Let them chat as a guest', 'Stop reading'].map(busyLabel)).toEqual(['Forgetting…', 'Letting…', 'Stopping…']);
   });
 });
 

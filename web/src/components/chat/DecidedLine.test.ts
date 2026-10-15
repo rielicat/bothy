@@ -42,4 +42,16 @@ describe('DecidedLine', () => {
     });
     expect(container.textContent).toContain('Priya Shah and Sam Lee approved deploying acme/web to production');
   });
+
+  it('names what a saved permission lets through, not only the one action', () => {
+    const rm = { tool: 'shell', kind: 'exec', side_effect: 'irreversible', payload: { argv: ['rm', '-rf', 'build'] }, fingerprint: '' };
+    const approval = { ...base, status: 'allowed', decided_by_name: 'Tess', action: rm, card: { title: 'Run rm -rf build?', fields: [] } } as unknown as Approval;
+    const p = phrases({ tool: 'shell', action: approval.action });
+    const session = render(DecidedLine, { approval: { ...approval, choice: 'allow_session' }, phrases: p });
+    expect(session.container.textContent).toContain('Tess allowed running rm commands for this chat');
+    session.unmount();
+    const always = render(DecidedLine, { approval: { ...approval, choice: 'allow_always' }, phrases: p });
+    expect(always.container.textContent).toContain('Tess always allows running rm commands');
+    expect(always.container.textContent).not.toContain('rm -rf build');
+  });
 });
