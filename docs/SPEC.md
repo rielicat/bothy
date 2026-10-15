@@ -4332,6 +4332,11 @@ type GitHub interface {
 	// BranchHead is the commit the default branch of an allowed repository
 	// points at now (ErrNotFound for any other).
 	BranchHead(ctx context.Context, repo string) (string, error)
+	// Prefetch checks allowed repositories out into env's workspace on their
+	// default branch, skipping any already checked out there, so Knowledge
+	// reads them (EvRepoCheckout) without waiting for a chat to need them.
+	// Failures are logged and audited, not returned.
+	Prefetch(ctx context.Context, env *ToolEnv, repos []string)
 }
 
 // GitHubWorkflow is one workflow file of a repository. Name is written by
@@ -6105,7 +6110,7 @@ channels:
              api_base: "https://slack.com/api/"}
 
 github:                           # v0.2: connections and the repository allowlist live in the database (Settings → Connections)
-  api_base: "https://api.github.com"   # LOCKED; GitHub Enterprise Server: https://<host>/api/v3
+  api_base: "https://api.github.com"   # LOCKED; GitHub Enterprise Server: https://<host>/api/v3; http only for a loopback host
   checkout: {max_mb: 256, max_files: 20000}
 
 mcp:
@@ -7018,13 +7023,14 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `POST /api/providers/connect` | admin | `dto.ProviderConnectReq` | `dto.ProviderConnectResp` (v0.2 UI, S6; `h_onboarding.go`: saves a pasted key or a well-known env var as `<id>_api_key` (or the next `_N` name a `BOTHY_SECRET_` variable does not shadow), or uses an existing `secret_ref`, then writes the provider and both slots, the chosen models first, in one `Config.Set`; without `id`, the kind's default id, or the next free one when another server holds it; a refused config write deletes a newly saved key and puts a replaced one back) |
 | `GET /api/models` | user | — | `[]core.ModelInfo` (v0.2 UI: `display_name`, `short_name`, `provider_name`, and one `recommended` and one `quick_tasks_default` per provider) |
 | `GET /api/github/repos` | user | — | `[]core.GitHubRepo` (v0.2: allowlisted repositories of every connection; `last_indexed_sha` is the commit the caller's own principal's GitHub-source index of the repository last read, omitted when none; 503 without a GitHub service, as every `/api/github` route) |
+| `POST /api/github/repos/read` | user | `dto.GitHubReposReq` | `202 {"repos": [...]}` (checks the named allowlisted repositories, or all of them when `repos` is empty, out into the caller's own workspace in the background so Knowledge indexes them for that principal; existing checkouts are left alone; 400 when none of them is allowlisted) |
 | `GET /api/github/repos/{owner}/{repo}/workflows` | admin | — | `[]core.GitHubWorkflow` (v0.2 UI: the repository's `.github/workflows/` files through its connection, for the environment dialog; 404 for a repository no connection allows; names cleaned to one plain line) |
 | `GET /api/github/connections` | admin | — | `[]core.GitHubConnection` |
 | `POST /api/github/connections/test` | admin | `dto.GitHubConnectReq` | `core.GitHubProbe` (stores nothing; an App with several installations returns them to choose from) |
-| `POST /api/github/connections` | admin | `dto.GitHubConnectReq` | `core.GitHubConnection` (400 with GitHub's reason; 409 when a repo belongs to another connection that still allows it; 503 `sealed` when the vault is sealed) |
+| `POST /api/github/connections` | admin | `dto.GitHubConnectReq` | `core.GitHubConnection` (400 with GitHub's reason; 409 when a repo belongs to another connection that still allows it; 503 `sealed` when the vault is sealed; the allowed repositories are then read into the admin's own workspace as `POST /api/github/repos/read` does) |
 | `GET /api/github/connections/{id}` | admin | — | `dto.GitHubConnectionDetail` |
 | `POST /api/github/connections/{id}/test` | admin | — | `core.GitHubProbe` (live re-test; records the status; lists reachable repos with `allowed`/`connection_id`) |
-| `PUT /api/github/connections/{id}/repos` | admin | `dto.GitHubReposReq` | `[]core.GitHubRepo` (replaces the allowlist; empty allows none) |
+| `PUT /api/github/connections/{id}/repos` | admin | `dto.GitHubReposReq` | `[]core.GitHubRepo` (replaces the allowlist; empty allows none; newly allowed repositories are read into the admin's own workspace) |
 | `DELETE /api/github/connections/{id}` | admin | — | `204` (removes the connection, its repos and the vault secret it created) |
 | `GET /api/knowledge/repos` | user | `?principal=` | `dto.List[core.IndexedRepo]` (v0.2; all of the caller's principals by default. v0.2 UI: `progress` while queued or indexing, `summary`, and `stale` when a GitHub repository's default branch has moved past `indexed_sha`, also on `GET …/{id}`) |
 | `POST /api/knowledge/repos` | user | `dto.KnowledgeIndexReq` | `202 core.IndexedRepo` (status queued; 400 for a directory outside the workspace, a bad repo name or sha; 409 when a default `local/<name>` names another folder) |
