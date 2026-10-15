@@ -1380,7 +1380,7 @@ The table is the copy contract for S2 and `lib/cardcopy.ts`.
 | `message`, first contact | "Send a message to {chat}?" | "Send message" | — | To · Message (full) |
 | `memory`, from outside content | "Remember this?" | "Remember" | — | Note (full) |
 | `notes`, from outside content | "Update the notes for {repo}?" | "Update notes" | — | Change (prose diff · Show) |
-| `schedule_create` | "Create the schedule “{name}”?" | "Create schedule" | — | When · Sends to · Does (first 3 lines · Show) |
+| `schedule_create` | "Create the schedule “{name}”?" | "Create schedule" | — | When · Sends to (the chat app, "Bothy on the web", or for no set chat whose usual chat app it is, since an admin may approve someone else's: "Sam Patel's usual chat app (Telegram)", "Bothy on the web (Sam Patel has no chat app linked)") · Does (first 3 lines · Show) |
 | `schedule_delete` | "Delete the schedule “{name}”?" | "Delete schedule" (danger) | "This can't be undone." | When |
 | `net_allow` | "Let Bothy reach {host}?" | "Allow for this chat" (the gateway offers no one-time choice here) | — | Website |
 | `repo_open_pr` | "Open a pull request in {repo}?" | "Open pull request" | — | Branch ("{head} → {base}") · Title · Changes ("{n} files, +{a} −{r} · Show") |
@@ -1721,7 +1721,9 @@ Mondays at 8:00 · Posts here · Last run failed: the GitHub token was rejected
 ```
 
 - Row: line 1 the name (`text-body` 500) across the full width minus the switch and `⋯` (72 px); line 2 `text-small muted`, wrapping freely: when · where · next run or last problem (problems in `danger-text`). The name never shares a column with the meta, so it never wraps one word per line at 360 px (fixes `44`).
-- `⋯`: Run now · Edit · History · Delete… (`danger-text`, confirm dialog "Delete the schedule “{name}”? This can't be undone.").
+- Where: "Posts to your Telegram messages", "Posts to #standup on Slack" (a group chat's own schedule), "Posts here", and for a schedule without a set chat "Posts to your chat app" while the person has one of their own linked, else "Posts here". Only the viewer's own linked chats count, even for an admin, who is sent everyone's.
+- `⋯`: Run now · Edit · History · Delete… (`danger-text`, confirm dialog "Delete the schedule “{name}”? This can't be undone."). Run now is audited with who pressed it ("Started the schedule “{name}” by hand").
+- A result posted to a chat opens with an italic line "From the schedule “{name}” · change it under Schedules" (a check-in: "From your check-in · change it under Schedules"), since nobody asked for it there.
 - **Check-in** is always listed first (the heartbeat). Edit opens `/activity/schedules/checkin`: "How often" (Every 15 min / 30 min / hour), "Between" (active hours, two time selects), "What to check" (sans `TextArea` editing the HEARTBEAT.md checklist as prose), help "Bothy looks through this list regularly and messages you only when something needs attention.", cost line "About $0.05 a day with {Quick tasks model}." [Save] [Cancel].
 - Empty (only Check-in exists): under it, "Bothy can do things on a schedule, like a Monday summary of open pull requests." + "New schedule".
 
@@ -1732,7 +1734,7 @@ Mondays at 8:00 · Posts here · Last run failed: the GitHub token was rejected
 New schedule
 
 What should Bothy do?
-[ Summarise yesterday's merged pull requests in acme/web and post them to #eng.  ]
+[ Summarise yesterday's merged pull requests in acme/web.                        ]
 [                                                                                ]
 
 When
@@ -1740,7 +1742,7 @@ When
 Runs weekdays at 9:00 (Europe/London). Next: Wed 15 Oct, Thu 16 Oct, Fri 17 Oct.
 
 Send results to
-[ #eng in Slack ⌄ ]                      options: "Your Slack messages", linked chats, "Only here in Bothy"
+[ Your Slack messages ⌄ ]                options: the person's own linked chats, the group chat for a group chat's own schedule, "Only here in Bothy"
 
 Name
 [ Summarise yesterday's merged pull requests ]    filled from the first words; editable
@@ -1751,7 +1753,7 @@ Name
    Only run between      [ 08:00 ] and [ 20:00 ]
    If Bothy was off      [ Run when it's back ⌄ ]       / Skip that run
    Allowed without asking
-     [x] Send messages to #eng in Slack
+     [x] Send you messages on Slack
      [ ] Read websites on api.example.com
    Time zone             [ Europe/London ⌄ ]
 
@@ -1759,6 +1761,7 @@ Name
 ```
 
 - "When" options: Every day, Every weekday, Every week on {day}, Every month on day {n}, Once on {date}, Custom. "Custom" reveals "Repeat rule" (a cron expression in a text field, `text-code`, help "Five fields: minute, hour, day, month, weekday. Example: 0 9 * * 1-5 means weekdays at 9:00."). Cron appears nowhere else. The preview line comes from `/api/schedules/preview`.
+- "Send results to" offers only chats the server lets the schedule post to: the signed-in person's own linked chats (an admin is sent everyone's identities, and the others are left out) and, for a group chat's own schedule, that group chat. A new schedule starts on the first of them, else "Only here in Bothy". A schedule without a set chat shows "Your usual chat app", or "Here until you link a chat app" while none is linked.
 - "Allowed without asking" lists the pre-authorised narrow grants as plain sentences (`lib/grants.ts` descriptions). Deploys never appear.
 - Errors: empty prompt "Tell Bothy what to do."; invalid repeat rule "That repeat rule isn't valid. Example: 0 9 * * 1-5 means weekdays at 9:00."
 - Edit pages add "Recent runs" below (task rows from §10.1, linking to task detail; failures show the plain reason) and "Delete schedule…" in the page `⋯`.
