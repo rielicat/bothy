@@ -1,5 +1,6 @@
 <script lang="ts">
   import { fill, prefix, type Phrase, type Phrases } from '../../lib/activity';
+  import { joinNames } from '../../lib/cardcopy';
   import type { Approval } from '../../lib/api/types.gen';
   import { clock, fullTime } from '../../lib/format';
   import Icon from '../Icon.svelte';
@@ -27,7 +28,11 @@
     else if (denied) phrase = [...prefix(`${by} denied `, phrases.ing), ...(comment ? fill(' · “{c}”', { c: comment }) : [])];
     else if (a.choice === 'allow_session') phrase = [...prefix(`${by} allowed `, phrases.ing), { k: 'text', v: ' for this chat' }];
     else if (a.choice === 'allow_always') phrase = prefix(`${by} always ${by === 'You' ? 'allow' : 'allows'} `, phrases.ing);
-    else phrase = prefix(`${by} approved `, phrases.ing);
+    else {
+      // A two-person rule: everyone who approved, not only the last.
+      const yes = (a.votes ?? []).filter((v) => v.choice === 'allow_once');
+      phrase = prefix(`${yes.length > 1 ? joinNames(yes.map((v) => people.name(v.user_id))) : by} approved `, phrases.ing);
+    }
     return { phrase, tone: denied ? 'text-danger-text' : 'text-accent-text', icon: denied ? 'close' : 'check' };
   });
 </script>

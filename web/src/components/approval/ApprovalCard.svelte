@@ -314,9 +314,10 @@
 
     <p class="mt-3 text-small text-muted">
       <!-- Inside its own chat the card needs no "From" (§7.1). -->
-      {#if !inOwnChat && view.session_id && (!someoneElse || (origin.title && !askedIn))}
+      <!-- Someone else's chat title may be private; who asked never is. -->
+      {#if !inOwnChat && view.session_id && (!someoneElse || !askedIn)}
         {#if someoneElse}
-          Requested by {requesterName} in <span data-copy-ignore>“<Verbatim text={origin.title ?? ''} />”</span>
+          Requested by {requesterName}{#if origin.title}{' '}in <span data-copy-ignore>“<Verbatim text={origin.title} />”</span>{/if}
         {:else}
           From
           <a class="link" href="/chat/{encodeURIComponent(view.session_id)}" onclick={router.link}

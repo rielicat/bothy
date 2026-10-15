@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { readRepos } from '../../lib/api/repos';
+  import { connectedRepos, readRepos } from '../../lib/api/repos';
   import { router } from '../../lib/router.svelte';
   import { session } from '../../lib/stores/session.svelte';
 
@@ -10,12 +10,12 @@
 
   let repo = $state('');
   $effect(() => {
+    // Indexes are per person: a teammate may not have read a repository yet
+    // although GitHub is connected, so fall back to the connected ones.
     readRepos()
-      .then((rs) => {
-        const r = rs.filter((x) => x.status === 'ready').sort((a, b) => b.indexed_at.localeCompare(a.indexed_at))[0];
-        if (r) repo = r.repo;
-      })
-      .catch(() => {});
+      .then((rs) => rs.filter((x) => x.status === 'ready').sort((a, b) => b.indexed_at.localeCompare(a.indexed_at))[0]?.repo ?? '')
+      .catch(() => '')
+      .then(async (r) => (repo = r || (await connectedRepos())[0] || ''));
   });
 
   const rows = $derived<{ text: string; href?: string }[]>(

@@ -43,10 +43,12 @@ export function displayName(u: Pick<User, 'display_name' | 'username'>): string 
   return u.display_name || u.username;
 }
 
-/** "Member", "Member · hasn't signed in yet", "Admin · Turned off". */
-export function roleLine(u: Pick<User, 'role' | 'disabled' | 'last_login_at'>): string {
+/** "Member", "Member · hasn't signed in yet", "Admin · Turned off", "Owner · You". */
+export function roleLine(u: Pick<User, 'role' | 'disabled' | 'last_login_at'>, you = false): string {
   const parts = [roleWord[u.role] ?? u.role];
-  if (u.disabled) parts.push('Turned off');
+  // A session from before sign-in times were kept has none; the viewer is signed in either way.
+  if (you) parts.push('You');
+  else if (u.disabled) parts.push('Turned off');
   else if (isZeroTime(u.last_login_at)) parts.push("hasn't signed in yet");
   return parts.join(' · ');
 }

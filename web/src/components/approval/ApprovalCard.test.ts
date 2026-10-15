@@ -269,6 +269,15 @@ describe('ApprovalCard with several approvers', () => {
     expect(screen.queryByRole('button', { name: /Allow for this chat|Always allow/ })).toBeNull();
   });
 
+  it("names who asked when the other person's chat is private", async () => {
+    as(owner);
+    render(ApprovalCard, { approval: deploy({ card: { ...deploy().card, context: '' } }), mode: 'inbox' });
+    const card = screen.getByRole('article');
+    await waitFor(() => expect(card.textContent).toContain('1 of 2'));
+    expect(card.textContent).toMatch(/Requested by \S/);
+    expect(card.textContent).not.toContain('Requested by Someone in');
+  });
+
   it('gives the requester no decision buttons, only Cancel request', async () => {
     as(member);
     render(ApprovalCard, { approval: deploy() });

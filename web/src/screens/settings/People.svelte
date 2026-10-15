@@ -187,8 +187,8 @@
           <div class="min-w-0 flex-1 sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,9rem)_minmax(0,14rem)] sm:items-center sm:gap-4">
             <p class="truncate text-body font-medium text-text" title={name}>{name}</p>
             <p class="truncate text-small text-muted max-sm:hidden">{u.username}</p>
-            <p class="truncate text-small text-muted max-sm:hidden">{roleLine(u)}</p>
-            <p class="truncate text-small text-muted sm:hidden">{u.username} · {roleLine(u)}</p>
+            <p class="truncate text-small text-muted max-sm:hidden">{roleLine(u, u.id === session.me?.user.id)}</p>
+            <p class="truncate text-small text-muted sm:hidden">{u.username} · {roleLine(u, u.id === session.me?.user.id)}</p>
           </div>
           <!-- The owner can't be changed, and nobody changes their own role or account here. -->
           <div class="flex size-8 shrink-0 items-center justify-center pointer-coarse:size-11">

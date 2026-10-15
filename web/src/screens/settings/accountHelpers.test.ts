@@ -35,6 +35,7 @@ describe('people', () => {
   it('says when someone has not signed in yet', () => {
     expect(roleLine(member)).toBe('Member');
     expect(roleLine({ ...member, last_login_at: ZERO })).toBe("Member · hasn't signed in yet");
+    expect(roleLine({ ...member, role: 'owner', last_login_at: ZERO }, true)).toBe('Owner · You');
     expect(roleLine({ ...member, last_login_at: '2026-10-01T09:00:00Z' })).toBe('Member');
     expect(roleLine({ ...member, role: 'admin', disabled: true, last_login_at: ZERO })).toBe('Admin · Turned off');
   });
