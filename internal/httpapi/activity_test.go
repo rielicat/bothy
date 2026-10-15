@@ -267,3 +267,14 @@ func TestFailureReasonUnreadableKey(t *testing.T) {
 		}
 	}
 }
+
+func TestActionPhraseListsPullRequests(t *testing.T) {
+	list := actionPhrase("github_pr", &core.Action{Tool: "github_pr", Payload: json.RawMessage(`{"repo":"acme/web","state":"open"}`)})
+	if list.done != "Listed pull requests in acme/web" {
+		t.Errorf("list = %+v", list)
+	}
+	one := actionPhrase("github_pr", &core.Action{Tool: "github_pr", Payload: json.RawMessage(`{"repo":"acme/web","number":7}`)})
+	if one.done != "Read pull request #7" {
+		t.Errorf("one = %+v", one)
+	}
+}

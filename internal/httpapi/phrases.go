@@ -120,8 +120,11 @@ func actionPhrase(tool string, a *core.Action) phrase {
 	case tool == "github_issues":
 		r := cmpOr(repo, "a repository")
 		return verbs("read issues in "+r, "reading issues in "+r, "Read issues in "+r, "Couldn't read issues in "+r)
+	case tool == "github_pr" && num("number") == "":
+		in := " in " + cmpOr(repo, "a repository")
+		return verbs("list pull requests"+in, "listing pull requests"+in, "Listed pull requests"+in, "Couldn't list pull requests"+in)
 	case tool == "github_pr":
-		pr := strings.TrimSpace("pull request " + num("number"))
+		pr := "pull request " + num("number")
 		return verbs("read "+pr, "reading "+pr, "Read "+pr, "Couldn't read "+pr)
 	case tool == "github_comment":
 		on := strings.TrimSpace(num("number") + " in " + cmpOr(repo, "a repository"))

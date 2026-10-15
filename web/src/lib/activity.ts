@@ -56,6 +56,7 @@ const T: Record<string, string[]> = {
   repo_open_pr: ['open a pull request in {repo}', 'opening a pull request in {repo}', 'Opening a pull request…', 'Opened pull request[ #{n}] in {repo}', "Couldn't open the pull request"],
   github_issues: ['read issues in {repo}', 'reading issues', '', 'Read issues in {repo}', "Couldn't read issues in {repo}"],
   github_pr: ['read pull request #{n}', 'reading #{n}', '', 'Read pull request #{n} in {repo}', "Couldn't read pull request #{n}"],
+  'github_pr:list': ['list pull requests in {repo}', 'listing pull requests', '', 'Listed pull requests in {repo}', "Couldn't list pull requests in {repo}"],
   github_comment: ['comment on #{n} in {repo}', 'commenting on #{n} in {repo}', '', 'Commented on #{n} in {repo}', "Couldn't post the comment"],
   github_runs: ['check builds in {repo}', 'checking builds', '', 'Checked recent builds in {repo}', ''],
   release_deploy: ['deploy {repo} to {env}', 'deploying {repo} to {env}', 'Deploying {repo} to {env}…', 'Deployed {repo} to {env}', 'Deploy to {env} failed'],
@@ -123,6 +124,8 @@ function keyOf(s: StepInput, a: Record<string, unknown>): string {
     return method === 'GET' || method === 'HEAD' ? 'web_fetch:get' : 'web_fetch:send';
   }
   if (t === 'memory' && (a.op === 'replace' || a.op === 'remove')) return `memory:${a.op}`;
+  // Without a number github_pr lists the repository's pull requests.
+  if (t === 'github_pr' && a.number == null && a.pr == null) return 'github_pr:list';
   if (t.startsWith('mcp__') || s.action?.kind === 'mcp') return 'mcp';
   return t in T ? t : 'other';
 }

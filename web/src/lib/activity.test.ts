@@ -34,6 +34,7 @@ const tools: [string, StepInput][] = [
   ['repo_open_pr', { tool: 'repo_open_pr', args: { repo: 'acme/web' } }],
   ['github_issues', { tool: 'github_issues', args: { repo: 'acme/web' } }],
   ['github_pr', { tool: 'github_pr', args: { repo: 'acme/web', number: 482 } }],
+  ['github_pr list', { tool: 'github_pr', args: { repo: 'acme/web', state: 'open' } }],
   ['github_comment', { tool: 'github_comment', args: { repo: 'acme/web', number: 482 } }],
   ['github_runs', { tool: 'github_runs', args: { repo: 'acme/web' } }],
   ['release_deploy', { tool: 'release_deploy', args: { repo: 'acme/web', environment: 'production' } }],
@@ -103,6 +104,11 @@ describe('phrases', () => {
     const p = phrases({ tool: 'mcp__deepwiki__read_wiki_structure', title: 'MCP deepwiki: read_wiki_structure', args: {} });
     expect(plain(p.ask)).not.toContain('MCP');
     expect(plain(p.ask)).toContain('Read wiki structure');
+  });
+
+  it('says listing pull requests, not "pull request #", when no number is given', () => {
+    expect(plain(phrases({ tool: 'github_pr', args: { repo: 'acme/web', state: 'open' } }).done)).toBe('Listed pull requests in acme/web');
+    expect(plain(phrases({ tool: 'github_pr', args: { repo: 'acme/web', number: 7 } }).done)).toBe('Read pull request #7 in acme/web');
   });
 
   it('drops an optional part when its value is missing', () => {
