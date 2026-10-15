@@ -212,6 +212,7 @@ type runState struct {
 type notice struct {
 	sc   *core.Schedule
 	last core.RunStatus
+	kind core.BudgetKind // which limit stopped the last task, when it hit one
 }
 
 // fire submits one run of sc and records the outcome in the schedule row. For
@@ -264,7 +265,7 @@ func (s *Service) takeNotices() []notice {
 
 func (s *Service) sendNotices(ctx context.Context, notes []notice) {
 	for _, n := range notes {
-		s.disabled(ctx, n.sc, n.last)
+		s.disabled(ctx, n.sc, n.last, n.kind)
 	}
 }
 
@@ -491,12 +492,13 @@ func (s *Service) onFinished(ctx context.Context, e core.Event) {
 		return
 	}
 	status := run.Status
+	var kind core.BudgetKind
 	switch d := e.Data.(type) {
 	case core.RunFinishedData:
-		status = d.Status
+		status, kind = d.Status, d.Budget
 	case *core.RunFinishedData:
 		if d != nil {
-			status = d.Status
+			status, kind = d.Status, d.Budget
 		}
 	}
 
@@ -525,7 +527,7 @@ func (s *Service) onFinished(ctx context.Context, e core.Event) {
 	}
 	s.publishRun(sc, e.Run, status)
 	if disable {
-		s.sendNotices(ctx, []notice{{sc: sc, last: status}})
+		s.sendNotices(ctx, []notice{{sc: sc, last: status, kind: kind}})
 	}
 }
 
@@ -538,7 +540,7 @@ func (s *Service) publishRun(sc *core.Schedule, run core.RunID, status core.RunS
 }
 
 // disabled audits an automatic disable and tells the owner in their DM.
-func (s *Service) disabled(ctx context.Context, sc *core.Schedule, last core.RunStatus) {
+func (s *Service) disabled(ctx context.Context, sc *core.Schedule, last core.RunStatus, kind core.BudgetKind) {
 	off := *sc
 	off.Enabled = false
 	s.auditf(ctx, "schedule.update", systemActor, &off, "", map[string]any{"reason": "consecutive_failures", "failures": maxFailures})
@@ -554,17 +556,28 @@ func (s *Service) disabled(ctx context.Context, sc *core.Schedule, last core.Run
 		return
 	}
 	msg := fmt.Sprintf("The schedule “%s” was turned off because its last %d tasks failed%s. Turn it back on under Schedules once it's fixed.",
-		plain(sc.Name), maxFailures, lastFailure(last))
+		plain(sc.Name), maxFailures, lastFailure(last, kind))
 	if _, err := s.hub.Send(ctx, chat, msg); err != nil {
 		s.log.Warn("scheduler: notify owner", "schedule", sc.ID, "err", err)
 	}
 }
 
-// lastFailure says how the last task ended when that helps fix the schedule.
-func lastFailure(st core.RunStatus) string {
+// lastFailure says how the last task ended when that helps fix the schedule,
+// naming the limit it hit so the owner raises the right one.
+func lastFailure(st core.RunStatus, kind core.BudgetKind) string {
 	switch st {
 	case core.RunBudgetExceeded:
-		return " and the last one hit the spending limit"
+		switch kind {
+		case core.BudgetRunCost, core.BudgetDailyCost:
+			return " and the last one hit the spending limit"
+		case core.BudgetSteps:
+			return " and the last one hit the step limit"
+		case core.BudgetTime:
+			return " and the last one ran out of time"
+		case core.BudgetTokens:
+			return " and the last one grew too long"
+		}
+		return " and the last one hit one of its limits"
 	case core.RunLoopDetected:
 		return " and in the last one Bothy kept repeating the same step"
 	}

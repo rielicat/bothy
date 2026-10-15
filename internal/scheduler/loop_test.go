@@ -12,15 +12,25 @@ import (
 	"github.com/rielicat/bothy/internal/core"
 )
 
-// The owner notice says how the last task ended in words, never as a status.
+// The owner notice says how the last task ended in words, never as a status,
+// and names the limit it hit.
 func TestLastFailure(t *testing.T) {
-	for st, want := range map[core.RunStatus]string{
-		core.RunFailed:         "",
-		core.RunBudgetExceeded: " and the last one hit the spending limit",
-		core.RunLoopDetected:   " and in the last one Bothy kept repeating the same step",
+	for _, c := range []struct {
+		st   core.RunStatus
+		kind core.BudgetKind
+		want string
+	}{
+		{core.RunFailed, "", ""},
+		{core.RunBudgetExceeded, core.BudgetRunCost, " and the last one hit the spending limit"},
+		{core.RunBudgetExceeded, core.BudgetDailyCost, " and the last one hit the spending limit"},
+		{core.RunBudgetExceeded, core.BudgetSteps, " and the last one hit the step limit"},
+		{core.RunBudgetExceeded, core.BudgetTime, " and the last one ran out of time"},
+		{core.RunBudgetExceeded, core.BudgetTokens, " and the last one grew too long"},
+		{core.RunBudgetExceeded, "", " and the last one hit one of its limits"},
+		{core.RunLoopDetected, "", " and in the last one Bothy kept repeating the same step"},
 	} {
-		if got := lastFailure(st); got != want {
-			t.Errorf("lastFailure(%s) = %q, want %q", st, got, want)
+		if got := lastFailure(c.st, c.kind); got != c.want {
+			t.Errorf("lastFailure(%s, %q) = %q, want %q", c.st, c.kind, got, c.want)
 		}
 	}
 }
