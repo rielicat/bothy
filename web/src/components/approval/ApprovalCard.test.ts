@@ -278,14 +278,29 @@ describe('ApprovalCard with several approvers', () => {
     expect(card.textContent).not.toContain('Requested by Someone in');
   });
 
-  it('gives the requester no decision buttons, only Cancel request', async () => {
-    as(member);
-    render(ApprovalCard, { approval: deploy() });
-    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('You asked for this, so 2 other people need to approve it.'));
+  it('gives the requester no decision buttons, only Cancel request, and counts the approvals so far', async () => {
+    as(owner);
+    resetMock({ mock: 'deploy-requester' });
+    render(ApprovalCard, { approval: deploy({ principal_id: owner.id, approver: { ...deploy().approver, requester: owner.id } }) });
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('You asked for this. 1 of 2 approvals so far; one more person needs to approve it.'));
     expect(buttons(screen.getByRole('article'))).toHaveLength(0);
     await fireEvent.click(screen.getByRole('button', { name: 'Cancel request' }));
     await waitFor(() => expect(calls.filter((c) => c.method === 'POST')).toHaveLength(1));
     expect(JSON.parse(calls.find((c) => c.method === 'POST')!.body)).toEqual({ choice: 'deny' });
+  });
+
+  it('tells the requester how many people must approve before anyone has', async () => {
+    as(member);
+    const id = deploy().id;
+    installApi({
+      override: (m, url) =>
+        m === 'GET' && url === `/api/approvals/${id}/votes`
+          ? { approval_id: id, status: 'pending', required: 2, approvals: 0, votes: [], approvers: 'Sam or any admin', requester: member.id, requester_name: 'Alex', can_vote: false, can_withdraw: true }
+          : undefined,
+    });
+    render(ApprovalCard, { approval: deploy() });
+    await waitFor(() => expect(votes.byId[id]?.approvals).toBe(0));
+    expect(screen.getByRole('status').textContent).toContain('You asked for this, so 2 other people need to approve it.');
   });
 
   it('tells someone who already approved that it waits for one more', async () => {

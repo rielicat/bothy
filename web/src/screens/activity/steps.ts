@@ -1,7 +1,8 @@
 // The lines under "What Bothy did" on a task (docs/design/ui.md §10.2), in
 // the chat's own words for each tool (lib/activity.ts, §7.4).
-import { lineFor, phrases, prefix, type Phrase } from '../../lib/activity';
+import { fill, lineFor, phrases, prefix, type Phrase } from '../../lib/activity';
 import type { Approval, ToolCallRecord } from '../../lib/api/types.gen';
+import { withdrawn } from '../../lib/cardcopy';
 
 export type Segment = { text: string; code: boolean };
 
@@ -36,7 +37,16 @@ export function stepLine(t: ToolCallRecord): StepLine {
 export function decisionLine(a: Approval, who: string): StepLine | null {
   if (!a.action) return null;
   const p = phrases({ tool: a.action.tool, action: a.action });
-  const line = a.status === 'allowed' ? prefix(`${who} approved `, p.ing) : a.status === 'denied' ? prefix(`${who} denied `, p.ing) : a.status === 'expired' ? prefix("Nobody answered, so Bothy didn't ", p.ask) : null;
+  const line =
+    a.status === 'allowed'
+      ? prefix(`${who} approved `, p.ing)
+      : withdrawn(a)
+        ? fill('Cancelled by {who}', { who: who === 'You' ? 'you' : who })
+        : a.status === 'denied'
+          ? prefix(`${who} denied `, p.ing)
+          : a.status === 'expired'
+            ? prefix("Nobody answered, so Bothy didn't ", p.ask)
+            : null;
   return line ? { key: a.id, state: a.status === 'allowed' ? 'done' : 'denied', segments: segments(line), approval: a } : null;
 }
 

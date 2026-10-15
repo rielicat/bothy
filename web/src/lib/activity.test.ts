@@ -113,10 +113,48 @@ describe('phrases', () => {
 
   it('drops an optional part when its value is missing', () => {
     expect(plain(phrases({ tool: 'repo_checkout', args: { repo: 'acme/web' } }).done)).toBe('Got a copy of acme/web');
-    expect(plain(phrases({ tool: 'repo_open_pr', args: { repo: 'acme/web' }, result: '{"number":482,"html_url":"https://github.com/acme/web/pull/482"}' }).done)).toBe('Opened pull request #482 in acme/web');
-    expect(stepLink({ tool: 'repo_open_pr', result: '{"html_url":"https://github.com/acme/web/pull/482"}' })).toBe('https://github.com/acme/web/pull/482');
-    expect(stepLink({ tool: 'repo_open_pr', result: '{"html_url":"javascript:alert(1)"}' })).toBe('');
+    expect(plain(phrases({ tool: 'repo_open_pr', args: { repo: 'acme/web' } }).done)).toBe('Opened pull request in acme/web');
+    expect(plain(phrases({ tool: 'repo_changes', args: { repo: 'acme/web' }, result: 'repos/acme/web, checked out at main (4f2c1a9d2e8b) on Oct 14.\nNo changes since the checkout.\n' }).done)).toBe(
+      'Reviewed changes in acme/web',
+    );
     expect(fill('a[ {x}] b', {})).toEqual([{ k: 'text', v: 'a b' }]);
+  });
+});
+
+// The results as the GitHub and release tools write them (internal/github, internal/release).
+describe('results', () => {
+  const pr = 'Opened pull request #482: https://github.com/acme/web/pull/482\nBranch bothy/fix-login → main, one commit, 1 file.';
+
+  it('reads the pull request number and link', () => {
+    const step = { tool: 'repo_open_pr', args: { repo: 'acme/web' }, result: pr };
+    expect(plain(phrases(step).done)).toBe('Opened pull request #482 in acme/web');
+    expect(stepLink(step)).toBe('https://github.com/acme/web/pull/482');
+    expect(stepLink({ tool: 'repo_open_pr', result: 'Opened pull request #482: javascript:alert(1)' })).toBe('');
+  });
+
+  it('links a comment and a started deploy to GitHub', () => {
+    expect(stepLink({ tool: 'github_comment', result: 'Commented on acme/web#482: https://github.com/acme/web/pull/482#issuecomment-1' })).toBe(
+      'https://github.com/acme/web/pull/482#issuecomment-1',
+    );
+    const deploy =
+      'Started deploy.yml on acme/web at main for production, approved by Priya Shah and Sam Lee. Run 1003: https://github.com/acme/web/actions/runs/1003. The outcome will be posted here when the run finishes.';
+    expect(stepLink({ tool: 'release_deploy', result: deploy })).toBe('https://github.com/acme/web/actions/runs/1003');
+    expect(stepLink({ tool: 'release_deploy', result: 'Started deploy.yml on acme/web at main for production. The outcome will be posted here when the run finishes.' })).toBe('');
+  });
+
+  it('says a deploy started, not that it is done', () => {
+    const p = phrases({ tool: 'release_deploy', args: { repo: 'acme/web', environment: 'production' } });
+    expect(plain(p.done)).toBe('Started deploying acme/web to production');
+  });
+
+  it('counts the files repo_changes found', () => {
+    const changes = 'repos/acme/web, checked out at main (4f2c1a9d2e8b) on Oct 14.\n3 changed files:\nM src/a.ts\nA src/b.ts\nD old.md\n';
+    expect(plain(phrases({ tool: 'repo_changes', args: { repo: 'acme/web' }, result: changes }).done)).toBe('Reviewed changes in acme/web (3 files)');
+  });
+
+  it("never links what another tool's result says", () => {
+    expect(stepLink({ tool: 'web_fetch', result: 'Opened pull request #1: https://evil.example' })).toBe('');
+    expect(stepLink({ tool: 'mcp__github__create_issue', result: '{"html_url":"https://evil.example"}' })).toBe('');
   });
 });
 

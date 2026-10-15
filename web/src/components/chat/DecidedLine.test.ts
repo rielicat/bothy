@@ -17,6 +17,20 @@ describe('DecidedLine', () => {
     expect(container.textContent).not.toContain('Someone');
   });
 
+  it('says the person who asked cancelled it, not that they denied it', () => {
+    const { container } = render(DecidedLine, {
+      approval: {
+        ...base,
+        decided_by: 'usr_tess',
+        approver: { user_id: '', admin_only: false, roles: ['admin'], required: 2, requester: 'usr_tess' },
+        approvals: { required: 2, eligible: [], any_admin: true, votes: [{ user: 'usr_tess', name: 'Tess', choice: 'deny', at: base.decided_at! }] },
+      } as Approval,
+      phrases: deploy,
+    });
+    expect(container.textContent).toContain('Cancelled by Tess');
+    expect(container.textContent).not.toContain('denied');
+  });
+
   it('credits everyone who approved a two-person request', () => {
     const votes = [
       { user: 'usr_p', name: 'Priya Shah', choice: 'allow_once', at: base.decided_at! },

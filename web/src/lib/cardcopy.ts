@@ -439,6 +439,7 @@ function deploy(_a: Action, p: Payload): Built {
     fields: [
       { label: 'Environment', value: env },
       { label: 'Version', value: str(p.ref), mono: true },
+      str(p.workflow) && { label: 'Workflow', value: str(p.workflow), mono: true },
       inputs.length > 0 && { label: 'Inputs', value: inputs.map(([k, v]) => `${k}=${str(v)}`).join('\n'), mono: true },
       { label: 'Approvals', votes: true },
     ],
@@ -617,6 +618,18 @@ export interface Who {
 export function requesterOf(ap: Approval, vv?: ApprovalVotes | null): string | undefined {
   if (isMulti(ap)) return vv?.requester || ap.approver.requester || undefined;
   return ap.principal_id?.startsWith('usr_') ? ap.principal_id : undefined;
+}
+
+/**
+ * Whether a denied request was withdrawn by the person who asked: on a
+ * multi-approver request their deny is the only vote they have (§8.5), so it
+ * reads "Cancelled by …", never "denied".
+ */
+export function withdrawn(ap: Approval): boolean {
+  const r = ap.approver?.requester;
+  if (ap.status !== 'denied' || !r) return false;
+  const denier = ap.votes?.find((v) => v.choice === 'deny')?.user_id ?? ap.approvals?.votes?.find((v) => v.choice === 'deny')?.user ?? ap.decided_by;
+  return denier === r;
 }
 
 /** Whether `me` can decide this open approval now (and so sees its buttons). */

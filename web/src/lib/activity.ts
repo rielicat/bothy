@@ -60,7 +60,8 @@ const T: Record<string, string[]> = {
   'github_pr:list': ['list pull requests in {repo}', 'listing pull requests', '', 'Listed pull requests in {repo}', "Couldn't list pull requests in {repo}"],
   github_comment: ['comment on #{n} in {repo}', 'commenting on #{n} in {repo}', '', 'Commented on #{n} in {repo}', "Couldn't post the comment"],
   github_runs: ['check builds in {repo}', 'checking builds', '', 'Checked recent builds in {repo}', ''],
-  release_deploy: ['deploy {repo} to {env}', 'deploying {repo} to {env}', 'Deploying {repo} to {env}…', 'Deployed {repo} to {env}', 'Deploy to {env} failed'],
+  // The tool only starts the workflow; the outcome is posted to the chat when the run ends.
+  release_deploy: ['deploy {repo} to {env}', 'deploying {repo} to {env}', 'Deploying {repo} to {env}…', 'Started deploying {repo} to {env}', 'Deploy to {env} failed'],
   release_status: ['check the {env} deploy', 'checking {env}', '', 'Checked the {env} deploy', ''],
   knowledge_search: ['search project knowledge', 'searching project knowledge', '', 'Searched project knowledge[ for “{q}”]', ''],
   notes: ['update the notes for {repo}', 'updating the notes for {repo}', '', 'Updated the notes for {repo}', ''],
@@ -117,20 +118,32 @@ export function diffCounts(diff = ''): { a: number; r: number } {
   return { a, r };
 }
 
-function resultJSON(s?: string): Record<string, unknown> {
-  if (!s || s[0] !== '{') return {};
-  try {
-    return JSON.parse(s) as Record<string, unknown>;
-  } catch {
-    return {};
+// What only the result knows, read from the words Bothy's own tools write:
+// "Opened pull request #482: https://…", "Commented on acme/web#482: https://…",
+// "… Run 1003: https://…/actions/runs/1003. The outcome will be posted…" and
+// repo_changes' "3 changed files:" on its second line. Other tools' results
+// hold whatever a page or a command printed, so they never become a link.
+function fromResult(tool: string, s = ''): { n: string; files: number; link: string } {
+  let n = '';
+  let link = '';
+  let files = 0;
+  if (tool === 'repo_open_pr') {
+    const m = /^Opened pull request #(\d+): (\S+)/.exec(s);
+    if (m) [, n, link] = m;
+  } else if (tool === 'github_comment') {
+    link = /^Commented on \S+#\d+: (\S+)/.exec(s)?.[1] ?? '';
+  } else if (tool === 'release_deploy') {
+    // The last one: the approvers' names come earlier in the sentence.
+    link = [...s.matchAll(/\. Run \d+: (\S+?)\.(?=\s|$)/g)].pop()?.[1] ?? '';
+  } else if (tool === 'repo_changes') {
+    files = Number(/^[^\n]*\n(\d+) changed files?:/.exec(s)?.[1] ?? 0);
   }
+  return { n, files, link: /^https:\/\//.test(link) ? link : '' };
 }
 
-/** A link the step's result points at (an opened pull request, a deploy run), for "↗". */
+/** A link the step's result points at (an opened pull request, a comment, a deploy run), for "↗". */
 export function stepLink(s: StepInput): string {
-  const r = resultJSON(s.result);
-  const u = [r.html_url, r.url, r.run_url].find((x) => typeof x === 'string' && /^https:\/\//.test(x));
-  return (u as string | undefined) ?? '';
+  return fromResult(s.tool, s.result).link;
 }
 
 function keyOf(s: StepInput, a: Record<string, unknown>): string {
@@ -175,8 +188,7 @@ function values(s: StepInput, a: Record<string, unknown>): Record<string, string
   // The memory tool sends the entry as new (add, replace) or old (remove).
   const note = str('new', 'old', 'text', 'content', 'entry', 'note');
   const { a: added, r: removed } = diffCounts(act?.diff);
-  const r = resultJSON(s.result);
-  const files = typeof r.files === 'number' ? r.files : Array.isArray(r.files) ? r.files.length : 0;
+  const r = fromResult(s.tool, s.result);
   const [server, ...rest] = (act?.mcp_server ? `${act.mcp_server}__${act.mcp_tool ?? ''}` : s.tool.replace(/^mcp__/, '')).split('__');
   return {
     path,
@@ -191,8 +203,8 @@ function values(s: StepInput, a: Record<string, unknown>): Record<string, string
     name: str('name', 'title'),
     repo: str('repo', 'repository') || [str('owner'), str('name')].filter(Boolean).join('/'),
     ref: str('ref', 'branch'),
-    files: files ? `${files} ${files === 1 ? 'file' : 'files'}` : '',
-    n: str('number', 'pr', 'issue') || (typeof r.number === 'number' ? String(r.number) : ''),
+    files: r.files ? `${r.files} ${r.files === 1 ? 'file' : 'files'}` : '',
+    n: str('number', 'pr', 'issue') || r.n,
     env: str('environment', 'env'),
     a: act?.diff ? String(added) : '',
     r: act?.diff ? String(removed) : '',

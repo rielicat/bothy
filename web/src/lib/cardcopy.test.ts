@@ -83,11 +83,11 @@ describe('cardCopy, one row per action', () => {
     ['github_comment', act('github_comment', 'send', 'external_send', { repo: 'acme/web', number: 482, body: 'Ready.' }), 'Comment on #482 in acme/web?', 'Post comment', undefined, ['On', 'Comment']],
     [
       'release_deploy',
-      act('release_deploy', 'release', 'irreversible', { environment: 'production', repo: 'acme/web', ref: 'main', inputs: {} }),
+      act('release_deploy', 'release', 'irreversible', { environment: 'production', repo: 'acme/web', ref: 'main', workflow: 'deploy.yml', inputs: {} }),
       'Deploy acme/web to production?',
       'Approve deploy',
       'This updates production for everyone using it.',
-      ['Environment', 'Version', 'Approvals'],
+      ['Environment', 'Version', 'Workflow', 'Approvals'],
     ],
     ['MCP tool', act('mcp__linear__create_issue', 'mcp', 'external_send', { title: 'Bug' }, { mcp_server: 'linear', mcp_tool: 'create_issue' }), 'Use Linear: Create issue?', 'Allow', undefined, ['Title']],
     ['admin class', act('config_set', 'generic', 'admin', { setting: 'Daily limit', value: '$20' }), "Change Bothy's settings?", 'Allow', undefined, ['Setting', 'Value']],

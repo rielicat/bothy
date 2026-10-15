@@ -173,6 +173,14 @@ func TestMultiApproverRequesterMayWithdraw(t *testing.T) {
 		if a, _ := h.approvals.Get(h.ctx, core.SystemViewer(), ap.ID); a.Status != core.ApprovalDenied {
 			t.Fatalf("status = %s", a.Status)
 		}
+		// The approver's card says the request was withdrawn, not denied.
+		h.bus.Publish(core.Event{Type: core.EvApprovalResolved, Principal: ap.Principal, Data: core.ApprovalResolvedData{
+			Approval: ap.ID, Status: core.ApprovalDenied, Choice: core.Deny, By: h.member.ID, Via: "telegram"}})
+		synctest.Wait()
+		edits := h.ch.EditedMessages()
+		if len(edits) == 0 || edits[len(edits)-1].Text != "**Deploy acme/web to staging?**\nCancelled by Mark in Telegram." {
+			t.Fatalf("decided card edits = %+v", edits)
+		}
 	})
 }
 

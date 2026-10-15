@@ -1,6 +1,6 @@
 <script lang="ts">
   import { fill, prefix, type Phrase, type Phrases } from '../../lib/activity';
-  import { joinNames } from '../../lib/cardcopy';
+  import { joinNames, withdrawn } from '../../lib/cardcopy';
   import type { Approval } from '../../lib/api/types.gen';
   import { clock, fullTime } from '../../lib/format';
   import Icon from '../Icon.svelte';
@@ -26,6 +26,7 @@
     const comment = denial?.comment || a.comment;
     if (a.status === 'expired') return { phrase: prefix("Expired: Bothy didn't ", phrases.ask), tone: 'text-muted', icon: 'close' };
     if (a.status === 'cancelled') return { phrase: fill(a.decided_via === 'stop' ? 'Cancelled when the chat was stopped' : 'Cancelled by the person who asked', {}), tone: 'text-muted', icon: 'close' };
+    if (withdrawn(a)) return { phrase: fill('Cancelled by {who}', { who: by === 'You' ? 'you' : by }), tone: 'text-muted', icon: 'close' };
     const denied = a.status === 'denied';
     let phrase: Phrase;
     if (via) phrase = fill(`${by} ${denied ? 'denied' : 'approved'} in ${via}`, {});

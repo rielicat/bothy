@@ -5,6 +5,7 @@
   import { EmptyState, Spinner } from '../../components/ui';
   import { api } from '../../lib/api/client';
   import type { List } from '../../lib/api/types.gen';
+  import { withdrawn } from '../../lib/cardcopy';
   import { date, duration, fullTime, relTime } from '../../lib/format';
   import { router } from '../../lib/router.svelte';
   import { session } from '../../lib/stores/session.svelte';
@@ -61,14 +62,24 @@
   };
 
   type Status = { text: string; tone: Tone; spin?: boolean };
+  // unknown: Bothy stopped following the run, so how it ended is on GitHub, not here.
   const deployStatus = (d: Deploy): Status =>
-    open(d) ? { text: 'Deploying…', tone: 'muted', spin: true } : d.status === 'succeeded' ? { text: 'Deployed', tone: 'muted' } : { text: 'Failed', tone: 'danger' };
+    open(d)
+      ? { text: 'Deploying…', tone: 'muted', spin: true }
+      : d.status === 'succeeded'
+        ? { text: 'Deployed', tone: 'muted' }
+        : d.status === 'unknown'
+          ? { text: 'Not tracked', tone: 'muted' }
+          : { text: 'Failed', tone: 'danger' };
+  const github = (d: Deploy) =>
+    d.run_url ? { href: d.run_url, label: d.status === 'failed' ? 'View logs on GitHub' : d.status === 'unknown' ? 'Check on GitHub' : 'View on GitHub' } : undefined;
 
   const environments = $derived(
     (data?.environments ?? []).map((env) => {
       const last = deploys.find((d) => d.environment === env.name);
       const wait = pending.find((a) => envOf(a) === env.name);
-      const no = denied.find((a) => envOf(a) === env.name && (!last || a.created_at > last.created_at));
+      // A request its asker cancelled says nothing about the environment, so it shows the last deploy.
+      const no = denied.find((a) => envOf(a) === env.name && !withdrawn(a) && (!last || a.created_at > last.created_at));
       let status: Status = { text: 'Not deployed yet', tone: 'muted' };
       if (last && open(last)) status = deployStatus(last);
       else if (wait) status = { text: `Waiting for approval${votesOf(wait) ? ` (${votesOf(wait)!.approved} of ${votesOf(wait)!.required})` : ''}`, tone: 'warning' };
@@ -87,19 +98,26 @@
         title: `Deploy ${d.repo} to ${d.environment} · ${d.ref}${d.short_sha ? ` at ${d.short_sha}` : ''}`,
         href: d.run_id ? `/activity/tasks/${encodeURIComponent(d.run_id)}` : `/chat/${encodeURIComponent(d.session_id)}`,
         status: deployStatus(d),
-        facts: [`${personName(d.requested_by, names, d.requested_by_name)} asked`, d.approved_by_names.length ? `${approvers(d)} approved` : '', d.status === 'failed' ? '' : took(d)].filter(Boolean),
-        link: d.run_url ? { href: d.run_url, label: d.status === 'failed' ? 'View logs on GitHub' : 'View on GitHub' } : undefined,
+        facts: [
+          `${personName(d.requested_by, names, d.requested_by_name)} asked`,
+          d.approved_by_names.length ? `${approvers(d)} approved` : '',
+          // A deploy Bothy stopped following has no end it saw, so no "took".
+          d.status === 'failed' || d.status === 'unknown' ? '' : took(d),
+        ].filter(Boolean),
+        link: github(d),
       })),
       ...denied.map((a) => {
         const p = (a.action?.payload ?? {}) as Record<string, unknown>;
         const reason = a.comment ? `: “${a.comment}”` : '';
+        const asker = personName(a.approver?.requester, names, a.requested_by_name);
+        const cancelled = withdrawn(a);
         return {
           key: a.id,
           at: a.created_at,
           title: `Deploy ${String(p.repo ?? '')} to ${envOf(a)} · ${String(p.ref ?? '')}`,
           href: `/activity/tasks/${encodeURIComponent(a.run_id)}`,
-          status: { text: 'Denied', tone: 'muted' as Tone },
-          facts: [`${personName(a.approver?.requester, names, a.requested_by_name)} asked`, `${personName(a.decided_by, names, a.decided_by_name)} denied${reason}`],
+          status: { text: cancelled ? 'Cancelled' : 'Denied', tone: 'muted' as Tone },
+          facts: [`${asker} asked`, cancelled ? `Cancelled by ${asker === 'You' ? 'you' : asker}${reason}` : `${personName(a.decided_by, names, a.decided_by_name)} denied${reason}`],
         };
       }),
     ].sort((a, b) => b.at.localeCompare(a.at)),
@@ -146,7 +164,7 @@
           </div>
           {#if last}
             <p class="text-small text-muted [overflow-wrap:anywhere]">
-              {@render version(last)} · {#if open(last)}started {relTime(last.created_at)}{:else}<time title={fullTime(last.created_at)}>{relTime(last.created_at)}</time>{/if}{#if !open(last) && last.approved_by_names.length}{` · approved by ${approvers(last)}`}{/if}{#if open(last) && last.run_url}{' · '}{@render external({ href: last.run_url, label: 'View on GitHub' })}{/if}
+              {@render version(last)} · {#if open(last)}started {relTime(last.created_at)}{:else}<time title={fullTime(last.created_at)}>{relTime(last.created_at)}</time>{/if}{#if !open(last) && last.approved_by_names.length}{` · approved by ${approvers(last)}`}{/if}{#if (open(last) || last.status === 'unknown') && github(last)}{' · '}{@render external(github(last)!)}{/if}
             </p>
           {/if}
         </li>

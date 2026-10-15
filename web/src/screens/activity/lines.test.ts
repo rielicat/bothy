@@ -38,6 +38,20 @@ describe('task steps (docs/design/ui.md §10.2, §7.4)', () => {
     expect(text(decisionLine(a, 'Maya Chen')!.segments)).toBe('Maya Chen approved opening a pull request in acme/web');
     expect(text(decisionLine({ ...a, status: 'denied' }, 'You')!.segments)).toBe('You denied opening a pull request in acme/web');
   });
+
+  it('says the person who asked cancelled their own request', () => {
+    const a = {
+      id: 'a',
+      status: 'denied',
+      decided_by: 'usr_alex',
+      approver: { user_id: '', admin_only: false, roles: ['admin'], required: 2, requester: 'usr_alex' },
+      votes: [{ approval_id: 'a', user_id: 'usr_alex', choice: 'deny', via: 'web', at: '' }],
+      action: { tool: 'release_deploy', payload: { repo: 'acme/web', environment: 'production' } },
+    } as unknown as Approval;
+    expect(text(decisionLine(a, 'Alex Kim')!.segments)).toBe('Cancelled by Alex Kim');
+    expect(text(decisionLine(a, 'You')!.segments)).toBe('Cancelled by you');
+    expect(text(decisionLine({ ...a, decided_by: 'usr_maya', votes: [{ ...a.votes![0], user_id: 'usr_maya' }] }, 'Maya Chen')!.segments)).toBe('Maya Chen denied deploying acme/web to production');
+  });
 });
 
 describe('audit lines (docs/design/ui.md §10.6)', () => {

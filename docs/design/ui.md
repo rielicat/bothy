@@ -1242,7 +1242,7 @@ Each line is a `<button aria-expanded>` that opens **Details** (indented 24 px, 
 | `github_pr` | read pull request #{n} | reading #{n} | — | Read pull request #{n} in {repo} | Couldn't read pull request #{n} |
 | `github_comment` | comment on #{n} in {repo} | commenting on #{n} in {repo} | — | Commented on #{n} in {repo} ↗ | Couldn't post the comment |
 | `github_runs` | check builds in {repo} | checking builds | — | Checked recent builds in {repo} | — |
-| `release_deploy` | deploy {repo} to {env} | deploying {repo} to {env} | Deploying {repo} to {env}… ↗ | Deployed {repo} to {env} | Deploy to {env} failed ↗ |
+| `release_deploy` | deploy {repo} to {env} | deploying {repo} to {env} | Deploying {repo} to {env}… | Started deploying {repo} to {env} ↗ (the tool only starts the workflow; the outcome is posted to the chat when the run ends) | Deploy to {env} failed |
 | `release_status` | check the {env} deploy | checking {env} | — | Checked the {env} deploy | — |
 | `knowledge_search` | search project knowledge | searching project knowledge | — | Searched project knowledge for “{q}” | — |
 | `notes` | update the notes for {repo} | updating the notes for {repo} | — | Updated the notes for {repo} | — |
@@ -1250,6 +1250,8 @@ Each line is a `<button aria-expanded>` that opens **Details** (indented 24 px, 
 | Unknown | use {tool} | using {tool} | Using {tool}… | Used {tool} | {tool} failed |
 
 Tool titles come from the MCP `title` annotation, else the name humanised ("create_issue" → "Create issue").
+
+What only the result knows is read from the words the tool writes: the pull request's number and link from "Opened pull request #482: https://…", the comment's link from "Commented on acme/web#482: https://…", the run's link from a started deploy's "Run 1003: https://…", and repo_changes' file count from "3 changed files:". Only `repo_open_pr`, `github_comment` and `release_deploy` get a ↗ link, and only to an `https://` address; any other result holds what a page or a command printed and never becomes a link.
 
 ### 7.5 Composer, Refine and model picker
 
@@ -1385,7 +1387,7 @@ The table is the copy contract for S2 and `lib/cardcopy.ts`.
 | `net_allow` | "Let Bothy reach {host}?" | "Allow for this chat" (the gateway offers no one-time choice here) | — | Website |
 | `repo_open_pr` | "Open a pull request in {repo}?" | "Open pull request" | — | Branch ("{head} → {base}") · Title · Changes ("{n} files, +{a} −{r} · Show") |
 | `github_comment` | "Comment on #{n} in {repo}?" | "Post comment" | — | On ("{PR or issue title}") · Comment (full) |
-| `release_deploy` | "Deploy {repo} to {env}?" | "Approve deploy" | "This updates {env} for everyone using it." | Environment · Version ("{ref} ({short sha}) · {commit subject}") · Changes ("{n} commits since the last deploy · View on GitHub ↗") · Approvals (§8.5) |
+| `release_deploy` | "Deploy {repo} to {env}?" | "Approve deploy" | "This updates {env} for everyone using it." | Environment · Version ("{ref} ({short sha}) · {commit subject}") · Workflow (the file that runs, e.g. `deploy.yml`) · Inputs (when set, one `key=value` per line) · Changes ("{n} commits since the last deploy · View on GitHub ↗") · Approvals (§8.5). The repository is named in the question. |
 | MCP tool | "Use {Server}: {Tool title}?" | "Allow" (danger when the class is irreversible) | "This can't be undone." when irreversible | `field_map` fields, labels humanised |
 | Admin class | "Change Bothy's settings?" | "Allow" | — | What (setting labels) · Value |
 | Financial | "Pay {amount} to {recipient}?" | "Pay {amount}" (danger) | "Money will leave your account. This can't be undone." | To · Amount |
@@ -1428,7 +1430,7 @@ The card stays in the transcript (fixes audit `27`). It collapses to one line, `
 | Multi-approver approved | "Alex Kim and Maya Chen approved {ing} · 11:02" |
 | Multi-approver denied | "Alex Kim denied {ing} · “Not before the freeze ends” · 10:40" |
 | Expired | "Expired: Bothy didn't {ask}" (close, muted) |
-| Cancelled | "Cancelled when the chat was stopped" / "Cancelled by {requester}" |
+| Cancelled | "Cancelled when the chat was stopped" / "Cancelled by {requester}" ("Cancelled by you" for the viewer). A multi-approver request its requester withdraws is stored as denied by their vote; every surface (chat, inbox, task detail, Releases, chat-app cards) still says "Cancelled by {requester}", never "denied". |
 
 Chat apps (SPEC §5.9) edit a card to its decided line in place of the question, with ✓ or ✗ for the glyph and "You" for the approver who reads it: "✓ You approved deleting notes/staging.md.", "✗ Sam Patel denied deleting notes/staging.md in Slack." A pending chat card starts each warning with ⚠ for the alert glyph.
 
@@ -1456,7 +1458,7 @@ Chat apps (SPEC §5.9) edit a card to its decided line in place of the question,
 |---|---|
 | Eligible, not voted | [Approve deploy] [Deny] |
 | Eligible, already approved | Text "You approved. Waiting for one more." (no buttons) |
-| The requester | Text "You asked for this, so {required} other people need to approve it." plus secondary "Cancel request" (the requester's vote never counts) |
+| The requester | Text "You asked for this, so {required} other people need to approve it."; once someone approved, "You asked for this. {approvals} of {required} approvals so far; one more person needs to approve it." ("{n} more people need" when more are missing). Plus secondary "Cancel request" (the requester's vote never counts) |
 | Not eligible | Text "Waiting for Maya Chen, Priya Rao or any admin." |
 
 - One deny resolves it as denied; the k-th distinct approval resolves it as approved. Every vote is shown with name and time. Chat-app cards route to every eligible approver (SPEC); deciding anywhere updates every surface live through `approval.resolved` and vote events (S4).
@@ -1486,7 +1488,10 @@ Chat apps (SPEC §5.9) edit a card to its decided line in place of the question,
 After approval, the originating chat (and the web chat) gets activity lines updated in place (S17; until then the client polls `release_status`):
 1. "◌ Deploying acme/web to production… View on GitHub ↗"
 2. "Deployed acme/web to production in 3 min" (check glyph), or
-3. "! Deploy to production failed at “Run migrations” · View logs on GitHub ↗" (`danger-text`).
+3. "! Deploy to production failed at “Run migrations” · View logs on GitHub ↗" (`danger-text`), or
+4. "! Bothy stopped tracking the deploy of acme/web to production · Check on GitHub ↗" (alert glyph and text muted, never red) when the deploy's status is `unknown`: Bothy lost the run or stopped following it, so the outcome is only on GitHub.
+
+The client stops asking once the deploy has succeeded, failed or is `unknown`.
 
 ### 8.8 Approvals inbox (`/approvals`)
 
@@ -1793,8 +1798,9 @@ Deploy acme/web to staging · main at 1b2c3d4                          Failed   
 Maya Chen asked · Sam Patel approved · View logs on GitHub ↗
 ```
 
-- Environment rows: name · repository, status word at the right ("Deployed" muted, "◌ Deploying…" muted, "Waiting for approval (1 of 2)" `warning-text`, "Failed" `danger-text`, "Denied" muted), line 2 the last-deploy facts.
-- History rows link to task detail.
+- Environment rows: name · repository, status word at the right ("Deployed" muted, "◌ Deploying…" muted, "Waiting for approval (1 of 2)" `warning-text`, "Failed" `danger-text`, "Denied" muted, "Not tracked" muted), line 2 the last-deploy facts. A request its requester cancelled leaves the row on the last deploy.
+- "Not tracked" is a deploy whose status is `unknown` (Bothy lost the run or stopped following it): never "Failed", no "took", and "Check on GitHub ↗" when the run is known. The page stops refreshing once no deploy is running.
+- History rows link to task detail. A request its requester withdrew reads "Cancelled" (muted) with "{requester} asked · Cancelled by {requester}".
 - Everyone can read this page. Admins see "Set up environments ›" in the page actions (to §12.2).
 - The tab is hidden until an environment exists. With environments but no deploys yet: "No deploys yet. Ask Bothy in a chat, for example “Deploy main to staging”."
 

@@ -299,7 +299,11 @@
           {#if multi && myVote === 'allow_once'}
             <p>You approved. {left === 1 ? 'Waiting for one more.' : `Waiting for ${left} more.`}</p>
           {:else if isRequester}
-            <p>You asked for this, so {vv?.required ?? view.approver.required ?? 1} other {(vv?.required ?? view.approver.required ?? 1) === 1 ? 'person needs' : 'people need'} to approve it.</p>
+            {#if vv?.approvals}
+              <p>You asked for this. {vv.approvals} of {vv.required} approvals so far; {left === 1 ? 'one more person needs' : `${left} more people need`} to approve it.</p>
+            {:else}
+              <p>You asked for this, so {vv?.required ?? view.approver.required ?? 1} other {(vv?.required ?? view.approver.required ?? 1) === 1 ? 'person needs' : 'people need'} to approve it.</p>
+            {/if}
             <Button class="mt-3" loading={busy === 'deny'} loadingLabel="Cancelling…" onclick={() => resolve('deny')}>Cancel request</Button>
           {:else if multi}
             <p>Waiting for {vv?.approvers || 'the other approvers'}.</p>

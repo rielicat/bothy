@@ -467,6 +467,10 @@ func (h *Hub) outcomeText(ctx context.Context, d core.ApprovalResolvedData, ap *
 		return "✓ " + who + " approved " + ing + where + "."
 	case core.ApprovalDenied:
 		s := "✗ " + who + " denied " + ing + where + "."
+		// The requester's deny is how they withdraw a multi-approver request.
+		if ap.Approver.Multi() && d.By != "" && d.By == ap.Approver.Requester {
+			s = "✗ Cancelled by " + who + where + "."
+		}
 		if c := oneLine(d.Comment); c != "" {
 			s += " “" + c + "”"
 		}

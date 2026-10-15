@@ -13,7 +13,8 @@
   let { approval, small = false }: { approval: Approval; /** Sized to sit under a decided line in a list. */ small?: boolean } = $props();
 
   let deploy = $state<Deploy | null>(null);
-  const running = $derived(!deploy || deploy.status === 'dispatched' || deploy.status === 'running' || deploy.status === 'unknown');
+  // unknown is final: Bothy stopped following the run, so asking again changes nothing.
+  const running = $derived(!deploy || deploy.status === 'dispatched' || deploy.status === 'running');
 
   async function load() {
     try {
@@ -57,6 +58,8 @@
         <Icon name="check" class="text-accent-text" />
       {:else if deploy.status === 'failed'}
         <Icon name="alert" class="text-danger-text" />
+      {:else if deploy.status === 'unknown'}
+        <Icon name="alert" />
       {:else}
         <Spinner size={16} />
       {/if}
@@ -66,6 +69,8 @@
         Deployed <span class="font-mono text-code" data-copy-ignore><Verbatim text={deploy.repo} /></span> to {deploy.environment}{took ? ` in ${took}` : ''}
       {:else if deploy.status === 'failed'}
         Deploy to {deploy.environment} failed{#if deploy.failed_step}{' at '}<span data-copy-ignore>“<Verbatim text={deploy.failed_step} />”</span>{/if}{@render github('View logs on GitHub')}
+      {:else if deploy.status === 'unknown'}
+        Bothy stopped tracking the deploy of <span class="font-mono text-code" data-copy-ignore><Verbatim text={deploy.repo} /></span> to {deploy.environment}{@render github('Check on GitHub')}
       {:else}
         Deploying <span class="font-mono text-code" data-copy-ignore><Verbatim text={deploy.repo} /></span> to {deploy.environment}…{@render github('View on GitHub')}
       {/if}
