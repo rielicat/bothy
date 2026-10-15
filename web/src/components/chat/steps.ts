@@ -14,6 +14,16 @@ export interface StepView {
   approval?: Approval;
   record?: ToolCallRecord;
   link: string;
+  /** Why a rule refused the step, in the server's words: "a deploy to production needs 2 approvers…". */
+  why: string;
+}
+
+/** The reason in "Denied by policy (floor:release): <reason>", as a sentence. */
+export function refusalReason(result: string | undefined): string {
+  const m = /^Denied by policy \([^)]*\): (.+)$/s.exec(result?.trim() ?? '');
+  if (!m) return '';
+  const r = m[1].trim();
+  return r.charAt(0).toUpperCase() + r.slice(1) + (/[.!?]$/.test(r) ? '' : '.');
 }
 
 export interface StepContext {
@@ -42,5 +52,15 @@ export function stepOf(t: ToolItem, ctx: StepContext): StepView {
     approval,
     live: !!ctx.liveRun && t.runId === ctx.liveRun,
   });
-  return { key: t.key, item: t, input, phrases: phrases(input), state, approval, record, link: state === 'done' || state === 'failed' ? stepLink(input) : '' };
+  return {
+    key: t.key,
+    item: t,
+    input,
+    phrases: phrases(input),
+    state,
+    approval,
+    record,
+    link: state === 'done' || state === 'failed' ? stepLink(input) : '',
+    why: state === 'blocked' ? refusalReason(result) : '',
+  };
 }

@@ -286,3 +286,26 @@ export function envConfig(f: EnvForm): Record<string, unknown> {
     inputs: Object.fromEntries(f.inputs.filter((i) => i.key.trim()).map((i) => [i.key.trim(), i.value])),
   };
 }
+
+const rank: Record<string, number> = { member: 1, admin: 2, owner: 3 };
+
+/**
+ * Whether the chosen approvers can ever meet the number needed: approvers
+ * never count for a deploy they asked for themselves (SPEC two-person rule),
+ * so a deploy one of them asks for needs `required` others. "" when it can.
+ */
+export function approverShortfall(approvers: string[], required: number, users: { id: string; role: string; disabled: boolean; display_name: string; username: string }[]): string {
+  const active = users.filter((u) => !u.disabled);
+  const eligible = active.filter((u) => approvers.some((a) => a === u.id || (rank[a] !== undefined && (rank[u.role] ?? 0) >= rank[a])));
+  const n = eligible.length;
+  if (n > required) return '';
+  if (n < required)
+    return n === 0
+      ? 'Nobody can approve these deploys yet. Choose who can approve.'
+      : `Only ${plural(n, 'person', 'people')} can approve, so a deploy could never get ${required} approvals. Add approvers or ask for fewer.`;
+  if (n === 1) {
+    const who = eligible[0].display_name || eligible[0].username;
+    return `Only ${who} can approve, so a deploy ${who} asks for can't be approved. Add another approver.`;
+  }
+  return `Only ${n} people can approve. A deploy one of them asks for can't get ${required} approvals from the others. Add another approver or ask for ${required - 1}.`;
+}

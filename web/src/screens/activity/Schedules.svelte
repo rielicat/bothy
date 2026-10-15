@@ -71,7 +71,7 @@
   async function runNow(s: Schedule) {
     try {
       const r = await api.post<{ run_id: string }>(`/api/schedules/${encodeURIComponent(s.id)}/run`);
-      toast('Started.', r?.run_id ? { action: { label: 'View', onclick: () => router.navigate(`/activity/tasks/${encodeURIComponent(r.run_id)}`) } } : {});
+      toast(`Started “${s.name}”.`, r?.run_id ? { action: { label: 'View', onclick: () => router.navigate(`/activity/tasks/${encodeURIComponent(r.run_id)}`) } } : {});
     } catch {
       errors[s.id] = "Couldn't start it. Try again.";
     }

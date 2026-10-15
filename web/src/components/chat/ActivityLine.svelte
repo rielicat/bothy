@@ -61,5 +61,6 @@
       >
     {/if}
   </div>
+  {#if step.why}<p class="pb-1 pl-6 text-small text-muted">{step.why}</p>{/if}
   {#if open}<StepDetails {step} />{/if}
 </div>

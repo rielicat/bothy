@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ApiError } from '../../../lib/api/client';
 import type { MCPStatus } from '../../../lib/api/types.gen';
 import {
+  approverShortfall,
   appStatus,
   approverLine,
   channelFailure,
@@ -167,5 +168,22 @@ describe('deploy environments', () => {
       required: 1,
       inputs: { version: '1.2' },
     });
+  });
+});
+
+describe('approverShortfall', () => {
+  const u = (id: string, role: string, name: string, disabled = false) => ({ id, role, disabled, display_name: name, username: name.toLowerCase() });
+  const team = [u('usr_o', 'owner', 'Tess'), u('usr_p', 'admin', 'Priya'), u('usr_m', 'member', 'Max'), u('usr_x', 'admin', 'Gone', true)];
+
+  it('passes when enough other people can approve', () => {
+    expect(approverShortfall(['admin'], 1, team)).toBe('');
+    expect(approverShortfall(['member'], 2, team)).toBe('');
+  });
+
+  it('warns when an approver asking could never get enough others', () => {
+    expect(approverShortfall(['admin'], 2, team)).toBe("Only 2 people can approve. A deploy one of them asks for can't get 2 approvals from the others. Add another approver or ask for 1.");
+    expect(approverShortfall(['usr_p'], 1, team)).toBe("Only Priya can approve, so a deploy Priya asks for can't be approved. Add another approver.");
+    expect(approverShortfall(['usr_p'], 2, team)).toBe('Only 1 person can approve, so a deploy could never get 2 approvals. Add approvers or ask for fewer.');
+    expect(approverShortfall([], 1, team)).toBe('Nobody can approve these deploys yet. Choose who can approve.');
   });
 });

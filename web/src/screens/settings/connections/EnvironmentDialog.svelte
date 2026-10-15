@@ -3,7 +3,7 @@
   import { Button, Combobox, Dialog, Disclosure, IconButton, LinkButton, Segmented, Select, StatusLine, TextField, toast } from '../../../components/ui';
   import { api } from '../../../lib/api/client';
   import type { User } from '../../../lib/api/types.gen';
-  import { envConfig, envErrors, saveConfig, type EnvForm, type Failure } from './connections';
+  import { approverShortfall, envConfig, envErrors, saveConfig, type EnvForm, type Failure } from './connections';
   import type { ReleaseEnvironment, Workflow } from './types';
 
   let {
@@ -71,6 +71,7 @@
   });
 
   const errors = $derived(envErrors(f, taken));
+  const shortfall = $derived(approverShortfall(f.approvers, f.required, users));
   const show = (k: keyof typeof errors) => (tried ? errors[k] : undefined);
 
   async function save(e: SubmitEvent) {
@@ -146,6 +147,7 @@
         ]}
       />
       {#if f.required === 2}<p class="field-help">Two different people must approve, and neither can be the person who asked.</p>{/if}
+      {#if shortfall}<StatusLine class="mt-2" tone="warning" text={shortfall} />{/if}
     </div>
     <Disclosure variant="section" label="Workflow inputs" open={f.inputs.length > 0}>
       <div class="space-y-3">
