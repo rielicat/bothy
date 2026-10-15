@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { egress, ids, member } from '../../../../mock/fixtures';
+import { egress, grants, ids, member } from '../../../../mock/fixtures';
 import { resetMock } from '../../../../mock/server';
 import { toaster } from '../../../components/ui';
 import { config } from '../../../lib/config.svelte';
@@ -32,6 +32,16 @@ describe('Allowed without asking', () => {
     expect(screen.getAllByText(/^For Sam ·/).length).toBeGreaterThan(0);
     expect(screen.getByText(/In the group chat “Ops team” ·/)).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/grt_|usr_|shell/);
+  });
+
+  it('names a pinned request in words and keeps its pattern behind Details', async () => {
+    const pinned = { ...grants[2], id: 'grt_pinned', tool: 'mcp__linear__create_issue', pattern: { '': '{"title":"Fix login"}' } };
+    await signIn('', (m, url) => (m === 'GET' && url === '/api/grants' ? [pinned] : undefined));
+    render(Permissions);
+    await screen.findByText('Use create issue in Linear with these exact details');
+    expect(document.body.textContent).not.toMatch(/Fix login|mcp__/);
+    await fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+    expect(document.body.textContent).toMatch(/mcp__linear__create_issue/);
   });
 
   it('removes one, keeps focus in the list and confirms', async () => {

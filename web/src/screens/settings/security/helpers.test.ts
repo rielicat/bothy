@@ -53,7 +53,32 @@ describe('grants in plain words', () => {
     expect(describeGrant(g({ kind: 'tool', tool: 'shell', pattern: { '/argv/0': 'pytest*' } }))).toEqual({ what: 'Run commands matching', exact: 'pytest*' });
     expect(describeGrant(g({ kind: 'tool', tool: 'mcp__linear__create_issue' })).what).toBe('Use create issue in Linear');
     expect(describeGrant(g({ kind: 'tool', tool: 'schedule_create' })).what).toBe('Change schedules');
+    expect(describeGrant(g({ kind: 'recipient', value: 'github:acme/web' }))).toEqual({ what: 'Open pull requests or comment in', exact: 'acme/web' });
     expect(siteName('a.example:443')).toBe('a.example');
+  });
+
+  it('puts a pinned request in words and keeps its pattern for Details', () => {
+    const whole = describeGrant(g({ kind: 'tool', tool: 'mcp__linear__create_issue', pattern: { '': '{"title":"Fix login\\*"}' } }));
+    expect(whole).toMatchObject({ what: 'Use create issue in Linear with these exact details', exact: '' });
+    expect(whole.raw).toContain('mcp__linear__create_issue');
+
+    const bash = describeGrant(g({ kind: 'tool', tool: 'shell', pattern: { '/argv/0': 'bash', '/argv': '\\["bash","-lc","ls -la \\*.txt"]' } }));
+    expect(bash).toMatchObject({ what: 'Run', exact: 'ls -la *.txt' });
+    expect(bash.raw).toContain('/argv/0');
+
+    const env = describeGrant(g({ kind: 'tool', tool: 'shell', pattern: { '/argv/0': '/usr/bin/env', '/argv': '\\["/usr/bin/env","python3","-c","1"]' } }));
+    expect(env.exact).toBe('/usr/bin/env python3 -c 1');
+
+    const py = describeGrant(g({ kind: 'tool', tool: 'python', pattern: { '/argv/0': 'python3', '/argv': '\\["python3",".bothy/tmp/run.py"]', '/code': 'print(1)' } }));
+    expect(py).toMatchObject({ what: 'Run this exact script', exact: '' });
+    expect(py.raw).toContain('print(1)');
+
+    // A live wildcard is a real pattern, so it stays verbatim on the line.
+    expect(describeGrant(g({ kind: 'tool', tool: 'shell', pattern: { '/argv': '\\["bash","-lc","make *"]' } }))).toEqual({
+      what: 'Run commands matching',
+      exact: '\\["bash","-lc","make *"]',
+    });
+    expect(describeGrant(g({ kind: 'tool', tool: 'shell', pattern: { '/argv/0': 'pytest*' } })).raw).toBeUndefined();
   });
 
   it('says who it is for and where it applies, by name', () => {
