@@ -28,6 +28,7 @@
     help,
     error,
     id: idProp,
+    describedBy: outer,
     onchange,
     class: cls = '',
   }: {
@@ -40,6 +41,8 @@
     help?: string | Snippet;
     error?: string;
     id?: string;
+    /** Help or an error shown outside the field, such as a settings row's. */
+    describedBy?: string;
     onchange?: (value: string | string[]) => void;
     class?: string;
   } = $props();
@@ -65,7 +68,7 @@
 
   const filtered = $derived(!multiple && query === selectedLabel ? options : filterOptions(options, query));
   const describedBy = $derived(
-    [error ? `${uid}-error` : help ? `${uid}-help` : '', multiple && chosen.length ? `${uid}-chosen` : ''].filter(Boolean).join(' ') || undefined,
+    [outer ?? '', error ? `${uid}-error` : help ? `${uid}-help` : '', multiple && chosen.length ? `${uid}-chosen` : ''].filter(Boolean).join(' ') || undefined,
   );
 
   function show() {

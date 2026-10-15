@@ -180,7 +180,7 @@
 </script>
 
 {#snippet browserZoneNote()}
-  This browser uses {zoneLabel(browserZone)}. <LinkButton aria-label="Use {zoneLabel(browserZone)}" onclick={() => saveZone(browserZone)}>Use it</LinkButton>
+  This browser uses {zoneLabel(browserZone)}. <LinkButton onclick={() => saveZone(browserZone)}>Use it</LinkButton>
 {/snippet}
 
 <SettingsFrame title="Account">
@@ -213,9 +213,16 @@
       status={zoneSaver.status}
       error={zoneSaver.error}
     >
-      {#snippet children()}
+      {#snippet children(c)}
         <!-- The row's label is the visible one; the combobox keeps its own for screen readers. -->
-        <Combobox label="Time zone" class="[&>div]:mt-0 [&>label]:sr-only" bind:value={zoneValue} options={zones} onchange={saveZone} />
+        <Combobox
+          describedBy={c.describedBy}
+          label="Time zone"
+          class="[&>div]:mt-0 [&>label]:sr-only"
+          bind:value={zoneValue}
+          options={zones}
+          onchange={saveZone}
+        />
       {/snippet}
     </SettingsRow>
     <SettingsRow label="Password">

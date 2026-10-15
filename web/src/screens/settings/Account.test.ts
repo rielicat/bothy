@@ -155,7 +155,7 @@ describe('Settings → Account', () => {
     expect(screen.getByText('Bothy uses it in your chats and for new schedules.')).toBeTruthy();
     expect(screen.getByText(/This browser uses Santiago \(America\)\./)).toBeTruthy();
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Use Santiago (America)' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Use it' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url === '/api/me' && JSON.parse(c.body).timezone === 'America/Santiago')).toBe(true));
     await waitFor(() => expect(screen.queryByText(/This browser uses/)).toBeNull());
     expect(box.value).toBe('Santiago (America)');
@@ -179,7 +179,7 @@ describe('Settings → Account', () => {
     const refused = () => new Response(JSON.stringify({ error: { code: 'bad_request', message: 'invalid: time zone must be an IANA name, like Europe/London' } }), { status: 400 });
     browserIn('America/Santiago');
     await open({ override: (m, url) => (m === 'PATCH' && url === '/api/me' ? refused() : undefined) });
-    await fireEvent.click(await screen.findByRole('button', { name: 'Use Santiago (America)' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Use it' }));
     expect(await screen.findByText("Bothy doesn't know that time zone. Choose one from the list.")).toBeTruthy();
     expect((screen.getByRole('combobox', { name: 'Time zone' }) as HTMLInputElement).value).toBe('London (Europe)');
   });

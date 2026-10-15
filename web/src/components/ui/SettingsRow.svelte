@@ -72,7 +72,7 @@
   <div class="min-w-0 {inline ? 'justify-self-end' : ''}">
     {@render children({ id: controlId, labelId: `${uid}-label`, describedBy, invalid: !!error })}
     {#if error}
-      <p id="{uid}-error" class="field-error"><Icon name="alert" class="mt-px" /><span class="min-w-0">{error}</span></p>
+      <p id="{uid}-error" class="field-error" role="alert"><Icon name="alert" class="mt-px" /><span class="min-w-0">{error}</span></p>
     {/if}
   </div>
 </div>

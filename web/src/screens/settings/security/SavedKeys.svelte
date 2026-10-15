@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import Icon from '../../../components/Icon.svelte';
   import { Button, Dialog, EmptyState, IconButton, Menu, Page, TextField, toast } from '../../../components/ui';
-  import { api } from '../../../lib/api/client';
+  import { api, ApiError } from '../../../lib/api/client';
   import type { SecretMeta, VaultStatus } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
   import { date, fullTime, relTime } from '../../../lib/format';
@@ -86,6 +86,14 @@
   });
   const valueError = $derived(value ? '' : 'Paste the key.');
 
+  // Members don't see the vault's status, so they learn it is locked from a refused change.
+  let locked = $state(false);
+  function lockedError(e: unknown): string {
+    if (!(e instanceof ApiError) || e.code !== 'sealed') return '';
+    locked = true;
+    return session.isAdmin ? 'Saved keys are locked. Unlock them first.' : 'Saved keys are locked right now. An admin needs to unlock them first.';
+  }
+
   async function submit(e: SubmitEvent) {
     e.preventDefault();
     tried = true;
@@ -98,8 +106,8 @@
       editing = false;
       toast(target ? 'Key replaced.' : 'Key saved.');
       void load();
-    } catch {
-      formError = "Couldn't save the key. Try again.";
+    } catch (e) {
+      formError = lockedError(e) || "Couldn't save the key. Try again.";
     } finally {
       saving = false;
     }
@@ -114,8 +122,8 @@
       keys = (keys ?? []).filter((k) => k.name !== deleting!.name);
       deleting = null;
       toast('Key deleted.');
-    } catch {
-      deleteError = "Couldn't delete the key. Try again.";
+    } catch (e) {
+      deleteError = lockedError(e) || "Couldn't delete the key. Try again.";
     } finally {
       saving = false;
     }
@@ -129,7 +137,7 @@
 
 <Page title={personal ? 'Your saved keys' : 'Saved keys'} back={personal ? accountBack : securityBack}>
   {#snippet actions()}
-    {#if (personal || session.isAdmin) && keys && !vault?.sealed}<Button onclick={openAdd}>Add key</Button>{/if}
+    {#if (personal || session.isAdmin) && keys && !vault?.sealed && !locked}<Button onclick={openAdd}>Add key</Button>{/if}
   {/snippet}
   {#if !personal && !session.isAdmin}
     <PageState kind="forbidden" />
@@ -139,7 +147,7 @@
     <PageState kind="loading" />
   {:else}
     {#if personal}
-      <p class="mb-4 text-body text-muted">Keys only you use. When Bothy works for you, a key here takes the place of the shared key with the same name.</p>
+      <p class="mb-4 text-body text-muted">Keys only you use. When a connected tool works for you, it uses your key in place of the shared key with the same name.</p>
     {/if}
     {#if vault?.sealed}
       <div class="flex min-h-14 flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-border py-3">
@@ -166,7 +174,7 @@
               >
             </p>
           </div>
-          {#if k.source === 'vault' && !vault?.sealed}
+          {#if k.source === 'vault' && !vault?.sealed && !locked}
             <Button size="sm" aria-label="Replace {label}" onclick={() => openReplace(k)}>Replace</Button>
             <Menu items={[{ label: 'Delete…', danger: true, onselect: () => ((deleting = k), (deleteError = '')) }]} placement="bottom-end">
               {#snippet trigger(props)}<IconButton {...props} icon="more" label="More for {label}" size="sm" />{/snippet}
@@ -186,7 +194,7 @@
         placeholder="Brave Search API key"
         autocomplete="off"
         bind:value={name}
-        help={personal ? 'Use the name of the shared key you want to replace. An admin can tell you what it is.' : undefined}
+        help={personal ? 'Use the name of the shared key the connected tool uses. An admin can tell you what it is.' : undefined}
         error={tried ? nameError : ''}
       />
     {/if}
