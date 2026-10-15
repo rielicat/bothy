@@ -90,6 +90,10 @@ func actionPhrase(tool string, a *core.Action) phrase {
 	case tool == "net_allow" || a != nil && a.Kind == core.ActNet:
 		h := cmpOr(host, "a website")
 		return verbs("reach "+h, "letting Bothy reach "+h, "Can now reach "+h, "Couldn't reach "+h)
+	case tool == "memory" && str("op") == "replace":
+		return verbs("update a saved note", "updating a saved note", "Updated a saved note", "Couldn't update that note")
+	case tool == "memory" && str("op") == "remove":
+		return verbs("forget something", "forgetting something", "Forgot something", "Couldn't remove that note")
 	case tool == "memory":
 		return verbs("remember something", "remembering something", "Remembered something", "Couldn't save that")
 	case tool == "session_search":

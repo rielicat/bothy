@@ -231,6 +231,12 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 	case "grant.revoke":
 		return "Removed a permission"
 	case "memory.write":
+		switch d.str("op") {
+		case "replace":
+			return "Updated a saved note"
+		case "remove":
+			return "Forgot something"
+		}
 		return "Remembered something"
 	case "memory.edit":
 		return "Edited what Bothy remembers"

@@ -158,6 +158,13 @@ func TestAuditRowsAndEgressOutcomes(t *testing.T) {
 	if err := h.store.Runs().UpdateToolCall(ctx, recs[0]); err != nil {
 		t.Fatal(err)
 	}
+	memPayload := json.RawMessage(`{"file":"MEMORY","op":"remove","old":"Staging resets on Mondays"}`)
+	memFP := core.ActionFingerprint("memory", memPayload)
+	if err := h.store.Runs().AddToolCall(ctx, &core.ToolCallRecord{Run: f.run.ID, Session: f.sess.ID, Principal: f.run.Principal, Step: 9,
+		CallID: "c9", Tool: "memory", Source: "builtin", SideEffect: core.SELocalWrite, Verdict: core.VerdictAuto, Status: core.TCOK, CreatedAt: now,
+		Action: &core.Action{Tool: "memory", Kind: core.ActMemory, SideEffect: core.SELocalWrite, Payload: memPayload, Fingerprint: memFP}}); err != nil {
+		t.Fatal(err)
+	}
 	agent := "agent:" + string(f.run.ID)
 	detail := func(m map[string]any) json.RawMessage { b, _ := json.Marshal(m); return b }
 	entries := []core.AuditEntry{
@@ -167,6 +174,10 @@ func TestAuditRowsAndEgressOutcomes(t *testing.T) {
 			Detail: detail(map[string]any{"choice": "allow_once", "via": "slack", "tool": "fs_delete"})},
 		{Actor: agent, Action: "tool.exec", Target: "fs_delete", Outcome: "ok", Run: f.run.ID, Detail: detail(map[string]any{"tool": "fs_delete", "fingerprint": fp})},
 		{Actor: agent, Action: "tool.exec", Target: "shell", Outcome: "error", Run: "run_gone", Detail: detail(map[string]any{"tool": "shell", "fingerprint": "x"})},
+		{Actor: agent, Action: "tool.exec", Target: "memory", Outcome: "ok", Run: f.run.ID, Detail: detail(map[string]any{"tool": "memory", "fingerprint": memFP})},
+		{Actor: agent, Action: "memory.write", Target: "memory:usr_a/MEMORY", Outcome: "ok", Run: f.run.ID, Detail: detail(map[string]any{"file": "MEMORY", "op": "add"})},
+		{Actor: agent, Action: "memory.write", Target: "memory:usr_b/MEMORY", Outcome: "ok", Run: f.run.ID, Detail: detail(map[string]any{"file": "MEMORY", "op": "replace"})},
+		{Actor: agent, Action: "memory.write", Target: "memory:usr_c/MEMORY", Outcome: "ok", Run: f.run.ID, Detail: detail(map[string]any{"file": "MEMORY", "op": "remove"})},
 		{Actor: agent, Action: "egress.deny", Target: "paste.example.net:443", Outcome: "denied", Run: f.run.ID},
 		{Actor: "system", Action: "schedule.update", Target: "schedule:sch_x", Outcome: "ok", Detail: detail(map[string]any{"name": "Daily standup", "reason": "consecutive_failures"})},
 		{Actor: "system", Action: "knowledge.index", Target: "knowledge:usr_x/acme/web", Outcome: "error"},
@@ -199,6 +210,10 @@ func TestAuditRowsAndEgressOutcomes(t *testing.T) {
 		"approval.decide/" + string(ap.ID):                    {"member", "Approved deleting notes/staging.md in Slack"},
 		"tool.exec/fs_delete":                                 {"Bothy", "Deleted notes/staging.md"},
 		"tool.exec/shell":                                     {"Bothy", "A command finished with errors"},
+		"tool.exec/memory":                                    {"Bothy", "Forgot something"},
+		"memory.write/memory:usr_a/MEMORY":                    {"Bothy", "Remembered something"},
+		"memory.write/memory:usr_b/MEMORY":                    {"Bothy", "Updated a saved note"},
+		"memory.write/memory:usr_c/MEMORY":                    {"Bothy", "Forgot something"},
 		"egress.deny/paste.example.net:443":                   {"Bothy", "Blocked from reaching paste.example.net"},
 		"schedule.update/schedule:sch_x":                      {"Bothy", "Turned off the schedule “Daily standup” after it failed several times"},
 		"knowledge.index/knowledge:usr_x/acme/web":            {"Bothy", "Couldn't read acme/web"},
@@ -248,6 +263,9 @@ func TestActionPhrases(t *testing.T) {
 		{"web_fetch", &core.Action{Host: "api.example.com", Method: "POST"}, phrase{"send data to api.example.com", "sending data to api.example.com", "Sent data to api.example.com", "Couldn't reach api.example.com"}},
 		{"fs_write", &core.Action{Paths: []string{"a.md"}, Payload: json.RawMessage(`{"mode":"append"}`)}, phrase{"add to a.md", "adding to a.md", "Added to a.md", "Couldn't save a.md"}},
 		{"release_deploy", &core.Action{Payload: json.RawMessage(`{"environment":"production","repo":"acme/web"}`)}, phrase{"deploy acme/web to production", "deploying acme/web to production", "Deployed acme/web to production", "Deploy to production failed"}},
+		{"memory", &core.Action{Payload: json.RawMessage(`{"file":"MEMORY","op":"add","new":"x"}`)}, phrase{"remember something", "remembering something", "Remembered something", "Couldn't save that"}},
+		{"memory", &core.Action{Payload: json.RawMessage(`{"file":"MEMORY","op":"replace","old":"x","new":"y"}`)}, phrase{"update a saved note", "updating a saved note", "Updated a saved note", "Couldn't update that note"}},
+		{"memory", &core.Action{Payload: json.RawMessage(`{"file":"USER","op":"remove","old":"x"}`)}, phrase{"forget something", "forgetting something", "Forgot something", "Couldn't remove that note"}},
 		{"mcp__linear__create_issue", nil, phrase{"use linear: Create issue", "using linear: Create issue", "Used linear: Create issue", "linear: Create issue failed"}},
 	} {
 		if got := actionPhrase(c.tool, c.a); got != c.want {

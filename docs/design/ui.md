@@ -1226,6 +1226,8 @@ Each line is a `<button aria-expanded>` that opens **Details** (indented 24 px, 
 | `web_fetch` other | send data to {host} | sending data to {host} | Sending data to {host}… | Sent data to {host} | Couldn't reach {host} |
 | `net_allow` | reach {host} | letting Bothy reach {host} | — | Can now reach {host} | — |
 | `memory` | remember something | remembering “{first 60 chars}” | — | Remembered “{first 60 chars}” | Couldn't save that |
+| `memory` replace | update a saved note | updating a saved note to “{first 60 chars}” | — | Updated a saved note to “{first 60 chars}” | Couldn't update that note |
+| `memory` remove | forget something | forgetting “{first 60 chars}” | — | Forgot “{first 60 chars}” | Couldn't remove that note |
 | `session_search` | search past chats | searching past chats | Searching past chats for “{q}”… | Searched past chats for “{q}” | — |
 | `message` | send a message to {chat} | sending a message to {chat} | Sending… | Sent a message to {chat} | Couldn't send the message |
 | `skill_load`, `skill_read` | follow the “{skill}” skill | following “{skill}” | — | Followed the “{skill}” skill | — |
@@ -1845,6 +1847,7 @@ Today
 ```
 
 - Rows 40 px: time (`tabular-nums muted`, 56 px), actor name (120 px), one-line summary (S16). A result word appears only when not a success: "Blocked", "Failed" in `danger-text`. No "ok" pills (fixes `47`).
+- Memory rows say what changed, never the note itself: "Remembered something", "Updated a saved note", "Forgot something" (the same for Bothy's memory steps).
 - Clicking a row expands it in place: Who, When, Where (chat link), Task (link), and a "Raw record" disclosure with the redacted JSON in a `CodeBlock`.
 - "Check the log" runs the hash-chain check and shows a `StatusLine` under the header: "The log is intact. 1,284 entries checked." or (danger) "The entry from 12 Oct at 10:42 doesn't match the ones before it. Entries from there on may have been changed." with Details and "Export".
 - **Website access** rows: time · site (`text-code`) · what happened · task link. Outcomes (S16): "Reached api.github.com"; "Allowed, but api.example.com didn't answer"; "Blocked: example.com isn't on the allowed list" with "Allow this site…" → dialog "Allow Bothy to send data to {host}? This applies to everyone's tasks until you remove it in Settings → Security." [Allow site] [Cancel] (creates the same narrow grant as v0.1).
