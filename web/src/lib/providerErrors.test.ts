@@ -61,7 +61,7 @@ describe('failure copy (§5.6.4)', () => {
     expect(failure('aws_no_models', ctx).text).toMatch(/in US East \(N\. Virginia\)\./);
     // The console link takes the region's code, never its readable name.
     expect(failure('aws_no_models', { ...ctx, regionCode: 'eu-west-1' }).action).toMatchObject({ href: 'https://console.aws.amazon.com/bedrock/home?region=eu-west-1#/modelaccess' });
-    expect(failure('aws_denied', ctx).text).toMatch(/to instance role bothy-prod\.$/);
+    expect(failure('aws_denied', ctx).text).toBe("This server's AWS access isn't allowed to use Bedrock. Ask your AWS admin to allow it.");
   });
 
   it('blames the AWS secret, not the provider, for a key reference that fails', () => {
@@ -89,6 +89,10 @@ describe('failure copy (§5.6.4)', () => {
   it('talks about the secret, not Bedrock, when the key is an AWS Secrets Manager reference', () => {
     const ref = { name: 'OpenRouter', secretRef: true };
     expect(failure('aws_no_credentials', ref).text).toMatch(/^Bothy couldn't read this key from AWS Secrets Manager/);
+    expect(failure('aws_denied', { name: 'Amazon Bedrock', source: 'access keys in the environment' })).toMatchObject({
+      text: "This server's AWS access isn't allowed to use Bedrock. Ask your AWS admin to allow it.",
+      more: expect.arrayContaining(['Credentials from: access keys in the environment']),
+    });
     expect(failure('aws_no_credentials', ref).text).not.toContain('Bedrock');
     expect(failure('aws_denied', ref).text).not.toContain('Bedrock');
     expect(failure('aws_denied', ref).more).toEqual([expect.stringContaining('secretsmanager:GetSecretValue')]);

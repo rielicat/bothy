@@ -949,7 +949,7 @@ Every failure is a `StatusLine` in danger tone: alert glyph, one or two sentence
 | `tls` | "The connection to that address isn't secure because of a certificate problem. Check the address. For a server on your own network you can use http://." | none |
 | `not_a_model_server` | "That address answered, but it doesn't look like a model server. Check the address; it usually ends in /v1." | none |
 | `aws_no_credentials` | "This server doesn't have AWS access right now. On AWS, give it a role with Bedrock access. On a laptop, sign in with the AWS CLI again." | Link "How to give Bothy AWS access ↗" |
-| `aws_denied` | "This server's AWS access isn't allowed to use Bedrock. Ask your AWS admin to add Bedrock permissions to {source}." | Details lists `bedrock:InvokeModelWithResponseStream`, `bedrock:ListFoundationModels`, `bedrock:ListInferenceProfiles` |
+| `aws_denied` | "This server's AWS access isn't allowed to use Bedrock. Ask your AWS admin to allow it." | Details names where the access comes from ("Credentials from: {source}") and lists `bedrock:InvokeModelWithResponseStream`, `bedrock:ListFoundationModels`, `bedrock:ListInferenceProfiles` |
 | `aws_no_models` | "No Claude or Nova models are turned on for this AWS account in {Region name}. Turn on model access in the Bedrock console, or choose another region." | Link "Open the Bedrock console ↗" |
 | `unknown` | "Something went wrong while checking. Try again, or choose another option." | "Try again" |
 

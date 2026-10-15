@@ -150,11 +150,13 @@ export function failure(code: FailureCode, c: FailureContext): Failure {
     case 'aws_denied':
       if (c.secretRef)
         return {
-          text: `This server's AWS access isn't allowed to read that secret. Ask your AWS admin to let ${c.source || 'its role'} read it.`,
+          text: "This server's AWS access isn't allowed to read that secret. Ask your AWS admin to allow it.",
           more: [...aws, 'Reading a secret needs: secretsmanager:GetSecretValue, and kms:Decrypt if the secret uses its own encryption key'],
         };
       return {
-        text: `This server's AWS access isn't allowed to use Bedrock. Ask your AWS admin to add Bedrock permissions to ${c.source || 'its role'}.`,
+        // Where the access comes from ("access keys in the environment") reads badly
+        // inside the sentence, so it goes with the details.
+        text: "This server's AWS access isn't allowed to use Bedrock. Ask your AWS admin to allow it.",
         more: [...aws, 'Bedrock needs: bedrock:InvokeModelWithResponseStream, bedrock:ListFoundationModels, bedrock:ListInferenceProfiles'],
       };
     case 'aws_no_models':
