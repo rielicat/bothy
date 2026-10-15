@@ -18,27 +18,36 @@ export interface StepView {
   why: string;
 }
 
-// The deploy refusals that already read as plain sentences; the person can act on them.
-const plainRelease = [/^a deploy to .+ needs .+ other than you/, /^the .+ environment has no approvers$/, /^deploys can only be requested from your own chats/, /^could not check who may approve this deploy$/];
+// Reasons stored before the server wrote them in plain words name tools,
+// rules, run kinds or Go errors; they get one plain sentence instead.
+const technical = [
+  /actions are denied by the policy defaults$/,
+  /is not available in .+ runs$/,
+  /needs the \w+ role$/,
+  /restricted spaces/,
+  /^the tool call could not be checked/,
+  /^self-modification /,
+  /^memory writes are off /,
+];
 
 /**
- * Why "Denied by policy (<rule>): <reason>" refused a step, as a sentence. Other
- * refusals name rules, tools and errors, so they get one plain sentence and the
- * server's words stay in the step's Details.
+ * Why "Denied by policy (<rule>): <reason>" refused a step, as a sentence: the
+ * server says it in plain words (an admin writes a rule's own reason). The
+ * full result stays in the step's Details.
  */
 export function refusalReason(result: string | undefined): string {
   const m = /^Denied by policy \(([^)]*)\): (.+)$/s.exec(result?.trim() ?? '');
   if (!m) return '';
   const rule = m[1];
   const reason = m[2].trim();
-  if (rule === 'floor:paused') return 'Bothy is paused.';
+  if (rule === 'floor:paused' && /^Bothy is paused by an admin/.test(reason)) return 'Bothy is paused.';
   if (rule === 'floor:release') {
-    if (plainRelease.some((re) => re.test(reason))) return reason.charAt(0).toUpperCase() + reason.slice(1) + (/[.!?]$/.test(reason) ? '' : '.');
     if (/^deploys are not allowed in /.test(reason)) return 'Deploys can only be asked for by a person in a chat.';
     const env = /^this deploy does not match the (.+) environment: /.exec(reason);
     if (env) return `This deploy doesn't match how ${env[1]} is set up.`;
   }
-  return "Bothy's rules don't allow this.";
+  if (technical.some((re) => re.test(reason))) return "Bothy's rules don't allow this.";
+  return reason.charAt(0).toUpperCase() + reason.slice(1) + (/[.!?]$/.test(reason) ? '' : '.');
 }
 
 export interface StepContext {
