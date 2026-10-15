@@ -634,7 +634,7 @@
             {@const files = lastOfRun.has(b.key) ? madeFiles(b.msg.run_id) : []}
             <div id="m{b.msg.seq}" class="group rounded-md">
               {#if b.thinking}
-                <Disclosure label="Thought process" class="mb-2"><p class="text-small whitespace-pre-wrap text-muted" data-copy-ignore>{b.thinking}</p></Disclosure>
+                <Disclosure label="Thought process" variant="step"><p class="text-small whitespace-pre-wrap text-muted" data-copy-ignore>{b.thinking}</p></Disclosure>
               {/if}
               {#if b.text}<Markdown text={linkCitations(b.text, exposed)} {exposed} />{/if}
               {#if files.length}

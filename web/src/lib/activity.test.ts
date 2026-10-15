@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { diffCounts, fill, lineFor, phrases, plain, stepLink, stepState, summarize, type StepInput, type StepState } from './activity';
+import { diffCounts, fill, lineFor, phrases, plain, shortCommand, stepLink, stepState, summarize, type StepInput, type StepState } from './activity';
 import type { Action } from './api/types.gen';
 
 const act = (a: Partial<Action>): Action => ({ tool: 'x', kind: 'generic', side_effect: 'read', payload: {}, fingerprint: '', ...a });
@@ -162,5 +162,19 @@ describe('summarize', () => {
     const failed = summarize([read('a'), step({ tool: 'web_fetch', args: { url: 'https://x.example' } }, 'failed')]);
     expect(plain(failed.phrase)).toBe("Took 2 steps, 1 didn't work");
     expect(failed.failed).toBe(1);
+  });
+});
+
+describe('shortCommand', () => {
+  it('keeps short commands and drops a leading cd', () => {
+    expect(shortCommand('npm test')).toBe('npm test');
+    expect(shortCommand('cd repos/acme/api && go test ./...')).toBe('go test ./...');
+  });
+  it('cuts a long command at its first separator outside quotes', () => {
+    expect(shortCommand('cd repos/acme/api && find . -type f | head; echo ---; cat * 2>/dev/null | head -50')).toBe('find . -type f …');
+    expect(shortCommand(`uv run --with humanize python -c "import humanize; print(humanize.intcomma(1234567))"`)).toBe(
+      'uv run --with humanize python -c "import humanize; print(hu…',
+    );
+    expect(shortCommand('go build ./... 2>&1 && go vet ./... 2>&1 && go test -race -count=1 ./internal/...')).toBe('go build ./... 2>&1 …');
   });
 });

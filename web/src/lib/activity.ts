@@ -85,6 +85,26 @@ export function shellCommand(action?: Action, args?: Record<string, unknown>): s
   return typeof args?.command === 'string' ? args.command : '';
 }
 
+/** A command as a step's line shows it: no leading cd, cut at its first
+ * separator and at 60 characters. Details keep the whole command. */
+export function shortCommand(cmd: string): string {
+  let c = cmd.trim().replace(/^(cd\s+\S+\s*&&\s*)+/, '');
+  if (c.length <= 60) return c;
+  let quote = '';
+  for (let i = 1; i < c.length; i++) {
+    const ch = c[i];
+    if (quote) {
+      if (ch === quote) quote = '';
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+    } else if (ch === ';' || ch === '|' || (ch === '&' && c[i - 1] !== '>' && c[i + 1] !== '>')) {
+      c = c.slice(0, i).trimEnd() + ' …';
+      break;
+    }
+  }
+  return c.length <= 62 ? c : c.slice(0, 59).trimEnd() + '…';
+}
+
 /** "+3 −1" counts of a unified diff. */
 export function diffCounts(diff = ''): { a: number; r: number } {
   let a = 0;
@@ -160,7 +180,7 @@ function values(s: StepInput, a: Record<string, unknown>): Record<string, string
   return {
     path,
     dir: path || str('dir'),
-    command: shellCommand(act, a),
+    command: shortCommand(shellCommand(act, a)),
     host,
     hostpath: host + tail,
     q: str('query', 'q'),
