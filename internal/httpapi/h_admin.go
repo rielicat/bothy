@@ -508,6 +508,9 @@ func (s *Server) resetConfig(w http.ResponseWriter, r *http.Request, a core.Acto
 
 // ---- vault ----
 
+// Vault.Put and Vault.Delete write their own vault.put and vault.delete
+// audit rows, for every caller, so these handlers write none.
+
 func (s *Server) vaultStatus(w http.ResponseWriter, _ *http.Request, _ core.Actor) error {
 	return ok(w, s.d.Vault.Status())
 }
@@ -531,7 +534,6 @@ func (s *Server) vaultImport(w http.ResponseWriter, r *http.Request, a core.Acto
 	if err != nil {
 		return err
 	}
-	s.audit(r, a, "vault.put", string(core.GlobalScope)+"/"+req.Name, "ok", map[string]any{"source": "env:" + req.EnvVar})
 	return ok(w, meta)
 }
 
@@ -609,7 +611,6 @@ func (s *Server) vaultPut(w http.ResponseWriter, r *http.Request, a core.Actor) 
 	if err != nil {
 		return err
 	}
-	s.audit(r, a, "vault.put", string(sc)+"/"+name, "ok", nil)
 	return ok(w, meta)
 }
 
@@ -622,7 +623,6 @@ func (s *Server) vaultDelete(w http.ResponseWriter, r *http.Request, a core.Acto
 	if err := s.d.Vault.Delete(r.Context(), sc, name, a.User); err != nil {
 		return err
 	}
-	s.audit(r, a, "vault.delete", string(sc)+"/"+name, "ok", nil)
 	return noContent(w)
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -109,6 +110,9 @@ func TestSetupFlowWithConnect(t *testing.T) {
 	got, err := h.vault.Get(context.Background(), core.GlobalScope, "anthropic_api_key", "test")
 	if err != nil || got.Reveal() != req.APIKey {
 		t.Fatalf("vault = %v", err)
+	}
+	if acts := h.audit.Actions(); slices.Contains(acts, "vault.put") || !slices.Contains(acts, "provider.connect") {
+		t.Fatalf("audit = %v, want provider.connect only: the vault audits its own write", acts)
 	}
 	sets := h.cfg.sets
 	if len(sets) != 1 {

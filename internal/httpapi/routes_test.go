@@ -698,8 +698,9 @@ func TestVaultEndpoints(t *testing.T) {
 	if st.Sealed || st.Secrets != 2 {
 		t.Fatalf("status = %+v", st)
 	}
+	// The vault audits its own writes; a handler row on top listed each twice.
 	acts := strings.Join(h.audit.Actions(), " ")
-	if strings.Count(acts, "vault.put") != 3 || !strings.Contains(acts, "vault.delete") || !strings.Contains(acts, "vault.unseal") {
+	if strings.Contains(acts, "vault.put") || strings.Contains(acts, "vault.delete") || !strings.Contains(acts, "vault.unseal") {
 		t.Fatalf("audit = %s", acts)
 	}
 	for _, e := range h.audit.All() {
