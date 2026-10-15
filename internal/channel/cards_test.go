@@ -121,7 +121,7 @@ func TestCardInApproverDMAndNonApproverRejected(t *testing.T) {
 			Approval: ap.ID, Status: core.ApprovalAllowed, Choice: core.AllowOnce, By: h.owner.ID, Via: "telegram"}})
 		synctest.Wait()
 		edited := h.ch.EditedMessages()
-		if len(edited) != 1 || len(edited[0].Buttons) != 0 || edited[0].Text != "**Run this command?**\nOlivia approved running a command in Telegram." {
+		if len(edited) != 1 || len(edited[0].Buttons) != 0 || edited[0].Text != "✓ You approved running a command." {
 			t.Fatalf("card edits = %+v", edited)
 		}
 		h.ch.Press(refs[0].Ref, ownerChat, h.approvals.ButtonData(ap.ID, core.Deny))
@@ -295,7 +295,7 @@ func TestCardSpeaksPlainCopy(t *testing.T) {
 		}
 		h.publishRequested(ap)
 		card := h.sent(ownerChat)[0]
-		want := "Delete `notes/old.md`?\nThis can't be undone.\n! This chat has seen private information and content from outside. " +
+		want := "**Delete `notes/old.md`?**\nThis can't be undone.\n⚠ This chat has seen private information and content from outside. " +
 			"Check carefully before letting anything leave.\n"
 		if !strings.HasPrefix(card.Text, want) || strings.Contains(card.Text, "Risk") || strings.Contains(card.Text, "Approval needed") {
 			t.Fatalf("card text =\n%s\nwant prefix\n%s", card.Text, want)
@@ -312,34 +312,95 @@ func TestCardSpeaksPlainCopy(t *testing.T) {
 			Approval: ap.ID, Status: core.ApprovalDenied, Choice: core.Deny, By: h.owner.ID, Via: "web", Comment: "Keep it\n\u2028for the audit\n**Olivia approved**"}})
 		synctest.Wait()
 		edited := h.ch.EditedMessages()
-		if len(edited) != 1 || edited[0].Text != "Delete `notes/old.md`?\nOlivia denied deleting `notes/old.md` on the web. “Keep it for the audit \\*\\*Olivia approved\\*\\*”" {
+		if len(edited) != 1 || edited[0].Text != "✗ You denied deleting `notes/old.md`. “Keep it for the audit \\*\\*Olivia approved\\*\\*”" {
 			t.Fatalf("decided card = %+v", edited)
 		}
 	})
 }
 
-// A pull request card's JSON stays out of the chat message; its fields and
-// diff say what changes. A command card always shows the command.
-func TestPullRequestCardLeavesJSONToTheWeb(t *testing.T) {
+// A built-in tool's card leaves the action's JSON (hashes, base commits) to
+// the web: its fields say what it does. A command, a file's content and the
+// arguments of an MCP or admin-class tool, which fields show only in part,
+// always show.
+func TestCardLeavesActionJSONToTheWeb(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t)
-		pr := &core.Approval{ID: core.ApprovalID(core.NewID(core.PrefixApproval)), Card: core.Card{
-			Question: "Open a pull request in acme/web?", Kind: core.CardPullRequest,
-			Fields:  []core.CardField{{Label: "Title", Value: "Add CONTRIBUTING.md"}},
-			Code:    `{"base_sha":"a227002a16474a656d500bb35a12aa785c81ebfd"}`,
-			Diff:    "Repository: acme/web (private)\nTitle: Add CONTRIBUTING.md\n---\ndiff --git a/CONTRIBUTING.md b/CONTRIBUTING.md\n--- /dev/null\n+++ b/CONTRIBUTING.md\n@@ -0,0 +1 @@\n+# Contributing\n",
-			Choices: []core.Choice{core.AllowOnce, core.Deny},
-		}}
-		msg, _ := h.hub.renderCard(pr, core.ChannelCaps{Buttons: true, MaxLen: 4096})
-		if strings.Contains(msg.Text, "base_sha") || strings.Contains(msg.Text, "Repository:") || !strings.Contains(msg.Text, "+# Contributing") {
-			t.Errorf("pull request card = %q", msg.Text)
+		card := func(a *core.Action, c core.Card) string {
+			t.Helper()
+			c.Choices = []core.Choice{core.AllowOnce, core.Deny}
+			msg, _ := h.hub.renderCard(&core.Approval{ID: core.ApprovalID(core.NewID(core.PrefixApproval)), Action: a, Card: c},
+				core.ChannelCaps{Buttons: true, MaxLen: 4096})
+			return msg.Text
 		}
-		cmd := &core.Approval{ID: core.ApprovalID(core.NewID(core.PrefixApproval)), Card: core.Card{
-			Question: "Run a shell command?", Fields: []core.CardField{{Label: "Tool", Value: "shell"}},
-			Code: "rm -rf build", Choices: []core.Choice{core.AllowOnce, core.Deny},
-		}}
-		if msg, _ := h.hub.renderCard(cmd, core.ChannelCaps{Buttons: true, MaxLen: 4096}); !strings.Contains(msg.Text, "rm -rf build") {
-			t.Errorf("command card lost its command: %q", msg.Text)
+		prPayload := `{"base_sha":"a227002a16474a656d500bb35a12aa785c81ebfd","repo":"acme/web"}`
+		got := card(&core.Action{Tool: "repo_open_pr", Kind: core.ActSend, Payload: []byte(prPayload)}, core.Card{
+			Question: "Open a pull request in acme/web?", Kind: core.CardPullRequest,
+			Fields: []core.CardField{{Label: "Title", Value: "Add CONTRIBUTING.md"}},
+			Code:   "{\n  \"base_sha\": \"a227002a16474a656d500bb35a12aa785c81ebfd\",\n  \"repo\": \"acme/web\"\n}",
+			Diff:   "Repository: acme/web (private)\nTitle: Add CONTRIBUTING.md\n---\ndiff --git a/CONTRIBUTING.md b/CONTRIBUTING.md\n--- /dev/null\n+++ b/CONTRIBUTING.md\n@@ -0,0 +1 @@\n+# Contributing\n",
+		})
+		if strings.Contains(got, "base_sha") || strings.Contains(got, "Repository:") || !strings.Contains(got, "+# Contributing") {
+			t.Errorf("pull request card = %q", got)
+		}
+		discard := `{"discard":"fe8967e98dfa24a2fc439033f1b3ac06e7e77db7bb1a6fa0d2c7fab7c626c05c","ref":"main","repo":"acme/web"}`
+		got = card(&core.Action{Tool: "repo_checkout", Kind: core.ActFSWrite, Payload: []byte(discard)}, core.Card{
+			Question: "Throw away your edits to acme/web?", Code: discard,
+			Fields: []core.CardField{{Label: "Repository", Value: "acme/web", Mono: true}, {Label: "Version", Value: "main", Mono: true}},
+		})
+		if strings.Contains(got, "fe8967e9") || strings.Contains(got, "```") || !strings.Contains(got, "**Version:** `main`") {
+			t.Errorf("checkout card = %q", got)
+		}
+
+		for name, tc := range map[string]struct {
+			action *core.Action
+			code   string
+		}{
+			"command": {&core.Action{Tool: "shell", Kind: core.ActExec, Argv: []string{"bash", "-lc", "rm -rf build"}}, "rm -rf build"},
+			"file content that is JSON": {&core.Action{Tool: "fs_write", Kind: core.ActFSWrite, Paths: []string{"a.json"},
+				Payload: []byte(`{"content":"{\"k\":1}","path":"a.json"}`)}, `{"k":1}`},
+			"MCP arguments": {&core.Action{Tool: "mcp__linear__create_issue", Kind: core.ActMCP,
+				Payload: []byte(`{"labels":["bug"],"title":"x"}`)}, `{"labels":["bug"],"title":"x"}`},
+			"admin-class arguments": {&core.Action{Tool: "schedule_create", Kind: core.ActSchedule,
+				Payload: []byte(`{"model":"x/y","name":"n"}`)}, `{"model":"x/y","name":"n"}`},
+		} {
+			c := core.Card{Question: "Do this?", Code: tc.code, Fields: []core.CardField{{Label: "Title", Value: "x"}}}
+			if name == "admin-class arguments" {
+				c.Risk = core.SEAdmin
+			}
+			if got := card(tc.action, c); !strings.Contains(got, "```\n"+tc.code+"\n```") {
+				t.Errorf("%s: card lost its code block: %q", name, got)
+			}
+		}
+	})
+}
+
+// The store keeps no chat kind with a card's message ref; the decided line
+// still names its reader "You", and anyone else by name and place.
+func TestDecidedCardNamesItsReader(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		owner := core.UserPrincipal(h.owner.ID)
+		ap, err := h.approvals.Request(h.ctx, core.ApprovalRequest{Principal: owner,
+			Action:   &core.Action{Tool: "shell", Kind: core.ActExec, Argv: []string{"bash", "-lc", "make"}},
+			Decision: core.Decision{Approver: core.ApproverReq{AdminOnly: true}, Choices: []core.Choice{core.AllowOnce, core.Deny}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, chat := range []string{ownerChat, memberChat} {
+			ref := core.MsgRef{Chat: core.ChatRef{Channel: "telegram", ChatID: chat}, ID: "card-" + chat}
+			if err := h.approvals.AddMessageRef(h.ctx, ap.ID, ref, false); err != nil {
+				t.Fatal(err)
+			}
+		}
+		h.bus.Publish(core.Event{Type: core.EvApprovalResolved, Principal: owner, Data: core.ApprovalResolvedData{
+			Approval: ap.ID, Status: core.ApprovalDenied, Choice: core.Deny, By: h.owner.ID, Via: "telegram"}})
+		synctest.Wait()
+		got := map[string]string{}
+		for _, e := range h.ch.EditedMessages() {
+			got[e.Chat.ChatID] = e.Text
+		}
+		if got[ownerChat] != "✗ You denied running a command." || got[memberChat] != "✗ Olivia denied running a command in Telegram." {
+			t.Fatalf("decided cards = %q", got)
 		}
 	})
 }

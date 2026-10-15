@@ -111,7 +111,7 @@ func TestStreamPlaceholderTypingAndStatus(t *testing.T) {
 			Action: &core.Action{Kind: core.ActExec, Argv: []string{"bash", "-lc", "pip install pandas"}}})
 		time.Sleep(time.Second)
 		synctest.Wait()
-		h.wantVisible(ownerChat, "Running `pip install pandas`…")
+		h.wantVisible(ownerChat, "_Running `pip install pandas`…_")
 		f.emit(core.EvToolResult, core.ToolResultData{Status: core.TCOK})
 		f.finish(core.RunDone)
 		if v := h.visible(ownerChat); len(v) != 1 || v[0] != "Done." {
@@ -218,6 +218,95 @@ func TestStreamNeutralizesLinksWhenExposed(t *testing.T) {
 			t.Fatal("a clean session's links were neutralized")
 		}
 	})
+}
+
+// The first time a conversation's links are neutralized, the reply says why
+// and how to get clickable links back; it says so once.
+func TestStreamExplainsNeutralizedLinksOnce(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		chat := h.dmChat(ownerChat)
+		sess, err := h.runner.NewSession(h.ctx, core.UserPrincipal(h.owner.ID), "telegram", &chat)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := h.store.Sessions().SetTaint(h.ctx, sess.ID, core.TaintPrivate|core.TaintUntrusted); err != nil {
+			t.Fatal(err)
+		}
+		reply := func(text string) string {
+			f := h.feed(chat, "stream")
+			f.sess = sess.ID
+			f.delta(text)
+			f.finish(core.RunDone)
+			return h.lastText(ownerChat)
+		}
+		if got := reply("No links in this one. "); strings.Contains(got, linkNote) {
+			t.Fatalf("a reply without links got the note: %q", got)
+		}
+		got := reply("I opened PR #2: https://github.com/acme/web/pull/2 ")
+		if !strings.Contains(got, "hxxps://github[.]com/acme/web/pull/2") || !strings.HasSuffix(got, "\n\n_"+linkNote+"_") {
+			t.Fatalf("first neutralized reply = %q", got)
+		}
+		if got := reply("Again: https://github.com/acme/web/pull/3 "); strings.Contains(got, linkNote) {
+			t.Fatalf("the note came twice: %q", got)
+		}
+	})
+}
+
+// Refine mode works for a while before the answer appears; the chat says
+// so instead of a bare "Thinking…", until the refined answer streams.
+func TestStreamShowsRefining(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		f := h.feed(h.dmChat(ownerChat), "stream")
+		f.emit(core.EvRunStarted, core.RunStartedData{Trigger: core.TrigMessage})
+		f.emit(core.EvRunStatus, core.RunStatusData{Status: "thinking"})
+		f.emit(core.EvRunStatus, core.RunStatusData{Status: "thinking", Detail: core.RefineStatusDetail})
+		time.Sleep(2 * time.Second)
+		synctest.Wait()
+		if v := h.visible(ownerChat); len(v) != 1 || v[0] != "_Refining the answer…_" {
+			t.Fatalf("while refining the chat shows %q", v)
+		}
+		f.delta("The answer is 42. ")
+		time.Sleep(2 * time.Second)
+		synctest.Wait()
+		if got := h.lastText(ownerChat); strings.Contains(got, "Refining") {
+			t.Fatalf("the refined answer still says it is refining: %q", got)
+		}
+		f.finish(core.RunDone)
+	})
+}
+
+// A tool's status line says what it does in plain words, its identifiers in
+// code so none is a tappable link.
+func TestToolDoing(t *testing.T) {
+	redact := fakes.NewRedactor()
+	redact.Add("k", []byte("SECRETQUERY"))
+	for _, tc := range []struct {
+		d    core.ToolCallData
+		want string
+	}{
+		{core.ToolCallData{Tool: "fs_delete", Title: "Delete file", Action: &core.Action{Kind: core.ActFSDelete, Paths: []string{"telegram-del.txt"}}},
+			"Deleting `telegram-del.txt`"},
+		{core.ToolCallData{Tool: "fs_list", Title: "List files", Action: &core.Action{Kind: core.ActFSRead, Paths: []string{"."}}},
+			"Looking in Bothy's files"},
+		{core.ToolCallData{Tool: "web_search", Title: "Search the web", Action: &core.Action{Kind: core.ActSearch,
+			Payload: []byte(`{"query":"pandas SECRETQUERY"}`)}}, "Searching the web for “pandas " + escapeMD(fakes.Mask) + "”"},
+		{core.ToolCallData{Tool: "web_fetch", Title: "Fetch web page", Action: &core.Action{Kind: core.ActHTTP, URL: "https://docs.example.com/a?b=c", Method: "GET"}},
+			"Opening `docs.example.com`"},
+		{core.ToolCallData{Tool: "repo_checkout", Title: "Check out repository", Action: &core.Action{Kind: core.ActFSWrite,
+			Payload: []byte(`{"repo":"acme/web","ref":"main"}`)}}, "Getting a copy of `acme/web` (`main`)"},
+		{core.ToolCallData{Tool: "python", Title: "Run Python", Action: &core.Action{Kind: core.ActExec, Argv: []string{"python3", "-c", "print(1)"}}},
+			"Running a Python script"},
+		{core.ToolCallData{Tool: "mcp__linear__create_issue", Title: "MCP linear: Create issue", Action: &core.Action{Kind: core.ActMCP, MCPServer: "linear"}},
+			"Create issue"},
+		{core.ToolCallData{Tool: "schedule_list", Title: "List schedules"}, "List schedules"},
+		{core.ToolCallData{Tool: "fs_read", Title: "Read file", Action: &core.Action{Kind: core.ActFSRead}}, "Read file"},
+	} {
+		if got := toolDoing(tc.d, redact.Redact); got != tc.want {
+			t.Errorf("toolDoing(%s) = %q, want %q", tc.d.Tool, got, tc.want)
+		}
+	}
 }
 
 func TestStreamRedactsAndHoldsBackPartialSecrets(t *testing.T) {

@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"slices"
@@ -236,14 +237,33 @@ func plainLine(s string) string {
 	return strings.Join(words, " ")
 }
 
-// heading is a card's first line: the question, bold unless it holds a code
-// span, which some platforms cannot nest in bold.
+// heading is a card's first line: the question in bold. Telegram cannot
+// nest code in bold, so its renderer breaks the bold around a code span.
 func heading(s string) string {
-	line := plainLine(s)
-	if strings.Contains(line, "`") {
-		return line
+	return "**" + plainLine(s) + "**"
+}
+
+// chatCode is the code block a chat card shows. A command, a script or a
+// file's content is the action itself and always shows. Elsewhere Code is
+// the action's JSON (hashes, base commits): a built-in tool's fields already
+// say what it does, so in a chat message the JSON stays behind the web UI's
+// Details. MCP, admin-class and unknown tools keep it, since their fields
+// show only some of the arguments, and so do cards from before v0.2.
+func chatCode(ap *core.Approval) string {
+	c, a := ap.Card, ap.Action
+	if c.Code == "" || a == nil || c.Question == "" || c.Risk == core.SEAdmin {
+		return c.Code
 	}
-	return "**" + line + "**"
+	switch a.Kind {
+	case core.ActExec, core.ActMCP, core.ActGeneric:
+		return c.Code
+	}
+	code, err := core.CanonicalJSON([]byte(c.Code))
+	payload, perr := core.CanonicalJSON(a.Payload)
+	if err != nil || perr != nil || !bytes.Equal(code, payload) {
+		return c.Code
+	}
+	return ""
 }
 
 // renderCard formats the policy-rendered Card for chat in the words of the
@@ -263,7 +283,7 @@ func (h *Hub) renderCard(ap *core.Approval, caps core.ChannelCaps) (core.OutMess
 		lines = append(lines, plainLine(ap.Requester.Name+" asked."))
 	}
 	for _, w := range c.Warnings {
-		lines = append(lines, "! "+plainLine(w))
+		lines = append(lines, "⚠ "+plainLine(w))
 	}
 	for _, f := range c.Fields {
 		v := revealInvisible(f.Value)
@@ -280,12 +300,8 @@ func (h *Hub) renderCard(ap *core.Approval, caps core.ChannelCaps) (core.OutMess
 	if ap.Approver.Multi() {
 		lines = append(lines, h.approvalLines(ap)...)
 	}
-	// A pull request card's code is the action's JSON (file hashes, base
-	// commit); its fields and diff already show the change, so in a chat
-	// message the JSON stays behind the web UI's Details. Every other card
-	// keeps its code: for a command it is the command itself.
-	if c.Code != "" && (c.Kind != core.CardPullRequest || c.Diff == "") {
-		lines = append(lines, codeBlock("", revealInvisible(c.Code)))
+	if code := chatCode(ap); code != "" {
+		lines = append(lines, codeBlock("", revealInvisible(code)))
 	}
 	diff := c.Diff
 	if c.Kind == core.CardPullRequest {
@@ -373,14 +389,10 @@ func inert(v string) string {
 	return escapeMD(v)
 }
 
-// contextLine is the card's italic context line; italics cannot hold a code
-// span on every platform, so a link-like context is shown as code alone.
+// contextLine is the card's italic context line; a link-like word in it,
+// such as a file name in the chat's title, is a code span.
 func contextLine(ctx string) string {
-	ctx = revealInvisible(ctx)
-	if core.LooksLikeLink(ctx) {
-		return codeSpan(ctx)
-	}
-	return "_" + escapeMD(ctx) + "_"
+	return "_" + plainLine(ctx) + "_"
 }
 
 func (h *Hub) expiresText(t time.Time) string {
@@ -399,7 +411,8 @@ func (h *Hub) expiresText(t time.Time) string {
 }
 
 // updateCards edits every delivered card of a resolved approval to its
-// outcome and removes the buttons.
+// outcome and removes the buttons. Each card is its approver's DM, so the
+// outcome names its reader "You".
 func (h *Hub) updateCards(ctx context.Context, d core.ApprovalResolvedData) {
 	refs, err := h.d.Approvals.MessageRefs(ctx, d.Approval)
 	if err != nil || len(refs) == 0 {
@@ -409,50 +422,57 @@ func (h *Hub) updateCards(ctx context.Context, d core.ApprovalResolvedData) {
 	if err != nil {
 		ap = &core.Approval{ID: d.Approval, Card: core.Card{Title: "Approval"}}
 	}
-	text := h.redact(heading(cardQuestion(ap)) + "\n" + plainLine(h.outcomeText(ctx, d, ap)))
 	for _, r := range refs {
 		a := h.live(r.Ref.Chat.Channel)
 		if a == nil {
 			continue
 		}
+		// Cards only go to DMs, and a stored card ref keeps no chat kind.
+		dm := r.Ref.Chat
+		dm.Kind = core.ChatDM
+		reader := func(u core.UserID) bool { return u != "" && h.isDMOf(ctx, u, dm) }
+		text := h.redact(plainLine(h.outcomeText(ctx, d, ap, reader)))
 		if err := a.ch.Edit(ctx, r.Ref, core.OutMessage{Chat: r.Ref.Chat, Text: text}); err != nil {
 			h.log.Warn("channel: updating approval card failed", "approval", d.Approval, "err", err)
 		}
 	}
 }
 
-// outcomeText is the decided line a card becomes (docs/design/ui.md §8.4),
-// e.g. "Sam Patel approved deleting notes/a.md in Telegram." It is plain
-// text; the caller formats it.
-func (h *Hub) outcomeText(ctx context.Context, d core.ApprovalResolvedData, ap *core.Approval) string {
+// outcomeText is the decided line a card becomes in place of its question
+// (docs/design/ui.md §8.4), e.g. "✓ You approved deleting notes/a.md." or
+// "✗ Sam Patel denied deleting notes/a.md on the web."; reader tells which
+// user reads the card. It is plain text; the caller formats it.
+func (h *Hub) outcomeText(ctx context.Context, d core.ApprovalResolvedData, ap *core.Approval, reader func(core.UserID) bool) string {
 	ing := cardIng(ap)
-	who := "Someone"
-	if d.By != "" {
+	who, where := "Someone", viaText(d.Via)
+	switch {
+	case reader(d.By):
+		who, where = "You", ""
+	case d.By != "":
 		who = h.userName(ctx, d.By)
 	}
-	where := viaText(d.Via)
 	switch d.Status {
 	case core.ApprovalAllowed:
 		if ap.Approver.Multi() {
-			if names := h.allowedBy(ctx, ap); names != "" {
-				return names + " approved " + ing + "."
+			if names := h.allowedBy(ctx, ap, reader); names != "" {
+				return "✓ " + names + " approved " + ing + "."
 			}
 		}
 		switch d.Choice {
 		case core.AllowSession:
-			return who + " approved " + ing + where + ", and similar requests in this chat."
+			return "✓ " + who + " approved " + ing + where + ", and similar requests in this chat."
 		case core.AllowAlways:
-			return who + " approved " + ing + where + ", and similar requests from now on."
+			return "✓ " + who + " approved " + ing + where + ", and similar requests from now on."
 		}
-		return who + " approved " + ing + where + "."
+		return "✓ " + who + " approved " + ing + where + "."
 	case core.ApprovalDenied:
-		s := who + " denied " + ing + where + "."
+		s := "✗ " + who + " denied " + ing + where + "."
 		if c := oneLine(d.Comment); c != "" {
 			s += " “" + c + "”"
 		}
 		return s
 	case core.ApprovalExpired:
-		return "Nobody answered in time, so Bothy didn't go ahead."
+		return "✗ Nobody answered in time, so Bothy didn't go ahead."
 	case core.ApprovalCancelled:
 		return "Cancelled when the chat was stopped."
 	}

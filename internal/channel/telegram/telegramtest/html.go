@@ -14,7 +14,8 @@ var allowedTags = map[string]bool{
 // Visible returns the text a Telegram user sees for text sent with
 // parseMode, validating HTML as strictly as Telegram does: only the
 // supported tags, properly nested, nothing inside code (except code in pre),
-// and every "<", ">" and "&" outside markup escaped.
+// code and pre inside nothing else, and every "<", ">" and "&" outside
+// markup escaped.
 func Visible(text, parseMode string) (string, error) {
 	if !strings.EqualFold(parseMode, "HTML") {
 		return text, nil
@@ -43,7 +44,9 @@ func Visible(text, parseMode string) (string, error) {
 				}
 				if n := len(stack); n > 0 {
 					top := stack[n-1]
-					if top == "code" || (top == "pre" && name != "code") {
+					// Code and pre can't be part of other entities either,
+					// except code in pre.
+					if top == "code" || (top == "pre" && name != "code") || (name == "code" || name == "pre") && top != "pre" {
 						return "", parseErr("entity \"" + name + "\" can't be nested in \"" + top + "\"")
 					}
 				}

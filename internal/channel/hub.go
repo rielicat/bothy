@@ -430,4 +430,9 @@ func (h *Hub) prune() {
 			delete(h.replied, k)
 		}
 	}
+	for s, at := range h.linkNoted {
+		if now.Sub(at) > 7*24*time.Hour {
+			delete(h.linkNoted, s)
+		}
+	}
 }

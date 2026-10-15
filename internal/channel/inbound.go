@@ -132,6 +132,10 @@ func (h *Hub) handleMessage(ctx context.Context, a *adapter, in core.Inbound) {
 			h.runCommand(ctx, a, in, res, tg, cmd, args)
 			return
 		}
+		if word, ok := unknownCommand(in.Text); ok && !in.Forwarded && len(in.Attachments) == 0 {
+			h.reply(ctx, in.Chat, "There's no "+escapeMD(word)+" command. /help lists the commands.")
+			return
+		}
 		h.submit(ctx, a, in, tg)
 	})
 }

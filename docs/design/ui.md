@@ -1430,6 +1430,8 @@ The card stays in the transcript (fixes audit `27`). It collapses to one line, `
 | Expired | "Expired: Bothy didn't {ask}" (close, muted) |
 | Cancelled | "Cancelled when the chat was stopped" / "Cancelled by {requester}" |
 
+Chat apps (SPEC §5.9) edit a card to its decided line in place of the question, with ✓ or ✗ for the glyph and "You" for the approver who reads it: "✓ You approved deleting notes/staging.md.", "✗ Sam Patel denied deleting notes/staging.md in Slack." A pending chat card starts each warning with ⚠ for the alert glyph.
+
 ### 8.5 Multiple approvers ("1 of 2")
 
 ```

@@ -9,6 +9,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/testkit/fakes"
 )
@@ -57,16 +58,28 @@ func TestCommandsManageSession(t *testing.T) {
 		if s := h.session(p, chat); s.ModelOverride != "anthropic/claude-sonnet-4-6" {
 			t.Fatalf("override = %q", s.ModelOverride)
 		}
+		h.cfg.Set(func(c *config.Config) { c.Models.Main = []string{"openrouter/qwen/qwen3-coder"} })
 		h.dm(ownerChat, "/model not-a-ref")
-		h.wantVisible(ownerChat, "Usage: /model")
+		h.wantVisible(ownerChat, "Usage: /model <provider/model>, for example `/model openrouter/qwen/qwen3-coder`.")
+		// Checking the model must not change it; only an explicit word clears it.
 		h.dm(ownerChat, "/model")
+		h.wantVisible(ownerChat, "This conversation uses `anthropic/claude-sonnet-4-6`. /model default goes back to the default model.")
+		if s := h.session(p, chat); s.ModelOverride != "anthropic/claude-sonnet-4-6" {
+			t.Fatalf("bare /model changed the override to %q", s.ModelOverride)
+		}
+		h.dm(ownerChat, "/model default")
+		h.wantVisible(ownerChat, "This conversation uses the default model again.")
 		if s := h.session(p, chat); s.ModelOverride != "" {
 			t.Fatalf("override not cleared: %q", s.ModelOverride)
+		}
+		h.dm(ownerChat, "/model")
+		if got := h.lastText(ownerChat); got != "This conversation uses the default model, `openrouter/qwen/qwen3-coder`. /model provider/model changes it." {
+			t.Fatalf("/model without an override = %q", got)
 		}
 
 		old := h.session(p, chat).ID
 		h.dm(ownerChat, "/new")
-		h.wantVisible(ownerChat, "Started a fresh conversation.")
+		h.wantVisible(ownerChat, "Started a fresh conversation. The previous one is archived; Activity in the web UI still opens it.")
 		if _, err := h.store.Sessions().ByChannelKey(h.ctx, p, chat.Key()); err == nil {
 			t.Fatal("/new left the session open")
 		}
@@ -93,12 +106,88 @@ func TestStatusUsageHelp(t *testing.T) {
 			t.Fatal(err)
 		}
 		h.dm(ownerChat, "/usage")
-		h.wantVisible(ownerChat, "This conversation: $0.0123.")
+		h.wantVisible(ownerChat, "Today: $0.00, no daily limit. This conversation: $0.01.")
 		h.dm(ownerChat, "/status")
-		h.wantVisible(ownerChat, "No task running.")
-		h.wantVisible(ownerChat, "Sandbox: fake (fake).")
+		if got := h.lastText(ownerChat); got != "No task running.\nToday: $0.00, no daily limit." {
+			t.Fatalf("/status = %q", got)
+		}
+		h.sandbox.SetStatus(core.SandboxStatus{Backend: "none", Reason: "the sandbox self-test has not finished yet"})
+		if err := h.store.Meta().Set(h.ctx, core.RefineMetaKey(sess.ID), core.RefineOn); err != nil {
+			t.Fatal(err)
+		}
+		h.dm(ownerChat, "/status")
+		want := "No task running.\nToday: $0.00, no daily limit.\n" +
+			"Refine is on for this conversation, so answers are slower and cost more. /refine off turns it off.\n" +
+			"Running code is off on this server."
+		if got := h.lastText(ownerChat); got != want {
+			t.Fatalf("/status = %q, want %q", got, want)
+		}
 		h.dm(ownerChat, "/help")
 		h.wantVisible(ownerChat, "/stop · stop the current task")
+		if got := h.lastText(ownerChat); !strings.Contains(got, "/stopall") {
+			t.Fatalf("an admin's /help lacks /stopall: %q", got)
+		}
+		h.dm(memberChat, "/help")
+		if got := h.lastText(memberChat); strings.Contains(got, "/stopall") || strings.Contains(got, "/resume") || !strings.Contains(got, "/new") {
+			t.Fatalf("a member's /help = %q; want no admin-only commands", got)
+		}
+	})
+}
+
+func TestStatusNamesTheTask(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		ar := &activeRunner{}
+		h := newHarness(t, func(h *harness) {
+			ar.Runner = h.runner
+			h.runner2 = ar
+		}).start()
+		h.dm(ownerChat, "hi")
+		sess := h.session(core.UserPrincipal(h.owner.ID), h.dmChat(ownerChat)).ID
+		ar.info = core.RunInfo{Session: sess, Status: core.RunWaitingApproval, Started: time.Now().Add(-130 * time.Second), Queued: 2}
+		h.dm(ownerChat, "/status")
+		h.wantVisible(ownerChat, "Waiting for approval for 2 min 10 s. 2 more messages are waiting.")
+	})
+}
+
+func TestMoneyAndDurationText(t *testing.T) {
+	for m, want := range map[core.Micros]string{
+		0: "$0.00", core.MicrosFromUSD(0.0042): "<$0.01", core.MicrosFromUSD(0.8745): "$0.87", core.MicrosFromUSD(2): "$2.00",
+		core.MicrosFromUSD(999.996): "$1,000", core.MicrosFromUSD(1240.4): "$1,240", core.MicrosFromUSD(1234567): "$1,234,567",
+	} {
+		if got := moneyText(m); got != want {
+			t.Errorf("moneyText(%d) = %q, want %q", m, got, want)
+		}
+	}
+	if got := spendText(core.MicrosFromUSD(0.8745), core.MicrosFromUSD(2)); got != "$0.87 of the $2.00 daily limit" {
+		t.Errorf("spendText = %q", got)
+	}
+	for d, want := range map[time.Duration]string{
+		0: "1 s", 3 * time.Second: "3 s", 2 * time.Minute: "2 min", 130 * time.Second: "2 min 10 s", 65 * time.Minute: "1 h 5 min", 2 * time.Hour: "2 h",
+	} {
+		if got := durationText(d); got != want {
+			t.Errorf("durationText(%v) = %q, want %q", d, got, want)
+		}
+	}
+}
+
+// A lone mistyped command gets a short reply instead of a model run; a path
+// or a forwarded message still reaches the agent.
+func TestUnknownCommandIsNotAModelRun(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		h.dm(ownerChat, "/foo")
+		h.wantVisible(ownerChat, "There's no /foo command. /help lists the commands.")
+		h.dm(ownerChat, "/stat_us@bothy_bot")
+		h.wantVisible(ownerChat, `There's no /stat\_us command.`)
+		if n := len(h.runner.Submitted()); n != 0 {
+			t.Fatalf("a mistyped command started %d runs", n)
+		}
+		h.dm(ownerChat, "/etc/hosts")
+		h.dm(ownerChat, "/foo bar")
+		h.inject(core.Inbound{Chat: h.dmChat(ownerChat), SenderID: ownerChat, Text: "/foo", Mentioned: true, Forwarded: true})
+		if n := len(h.runner.Submitted()); n != 3 {
+			t.Fatalf("submits = %d; want the path, the command with words and the forwarded message", n)
+		}
 	})
 }
 

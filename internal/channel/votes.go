@@ -124,8 +124,9 @@ func (h *Hub) approvalLines(ap *core.Approval) []string {
 	return lines
 }
 
-// allowedBy names the users whose allow votes approved ap ("Alice and Bob").
-func (h *Hub) allowedBy(ctx context.Context, ap *core.Approval) string {
+// allowedBy names the users whose allow votes approved ap ("Alice and Bob"),
+// the card's reader as "you" ("You and Bob").
+func (h *Hub) allowedBy(ctx context.Context, ap *core.Approval, reader func(core.UserID) bool) string {
 	var names []string
 	seen := map[core.UserID]bool{}
 	for _, v := range ap.Votes {
@@ -133,7 +134,14 @@ func (h *Hub) allowedBy(ctx context.Context, ap *core.Approval) string {
 			continue
 		}
 		seen[v.User] = true
-		names = append(names, h.userName(ctx, v.User))
+		name := h.userName(ctx, v.User)
+		if reader(v.User) {
+			name = "you"
+			if len(names) == 0 {
+				name = "You"
+			}
+		}
+		names = append(names, name)
 	}
 	switch len(names) {
 	case 0:

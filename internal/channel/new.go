@@ -67,7 +67,9 @@ type Hub struct {
 	replied   map[string]time.Time
 	// compacting holds the sessions with a /compact in flight.
 	compacting map[core.SessionID]struct{}
-	asks       askLimiter
+	// linkNoted holds the sessions told why their links show as plain text.
+	linkNoted map[core.SessionID]time.Time
+	asks      askLimiter
 }
 
 func New(d Deps) (*Hub, error) {
@@ -106,6 +108,7 @@ func New(d Deps) (*Hub, error) {
 		slowed:        map[string]time.Time{},
 		replied:       map[string]time.Time{},
 		compacting:    map[core.SessionID]struct{}{},
+		linkNoted:     map[core.SessionID]time.Time{},
 	}, nil
 }
 

@@ -3,6 +3,7 @@ package telegram
 import (
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -12,8 +13,10 @@ import (
 // other text, and also returns the plain text the reader sees (sent without
 // parse mode if Telegram ever rejects the HTML).
 //
-// Telegram forbids code inside bold, italic or links, so code spans there are
-// rendered as plain text.
+// Telegram forbids code inside bold, italic or links. A code span in bold or
+// italic text closes them and opens them again after it, so it keeps its
+// code style, which is what keeps a file name from becoming a link; in a
+// link's text it is plain text.
 func render(md string) (html, plain string) {
 	var hb, pb strings.Builder
 	lines := strings.Split(md, "\n")
@@ -47,19 +50,19 @@ func render(md string) (html, plain string) {
 			continue
 		}
 		if m := headingRe.FindStringSubmatch(line); m != nil {
-			h, p := inline(strings.TrimRight(strings.TrimRight(m[1], "#"), " "), true, false)
-			hb.WriteString("<b>" + h + "</b>")
+			h, p := inline(strings.TrimRight(strings.TrimRight(m[1], "#"), " "), []string{"b"}, false)
+			hb.WriteString(dropEmpty("<b>" + h + "</b>"))
 			pb.WriteString(p)
 			continue
 		}
 		if m := bulletRe.FindStringSubmatch(line); m != nil {
-			h, p := inline(m[2], false, false)
-			hb.WriteString(m[1] + "• " + h)
+			h, p := inline(m[2], nil, false)
+			hb.WriteString(m[1] + "• " + dropEmpty(h))
 			pb.WriteString(m[1] + "• " + p)
 			continue
 		}
-		h, p := inline(line, false, false)
-		hb.WriteString(h)
+		h, p := inline(line, nil, false)
+		hb.WriteString(dropEmpty(h))
 		pb.WriteString(p)
 	}
 	return hb.String(), pb.String()
@@ -79,9 +82,10 @@ func codeLang(info string) string {
 	return f[0]
 }
 
-// inline renders one line's inline markup. inEntity disables code tags
-// (inside bold, italic or links); inLink disables nested links.
-func inline(s string, inEntity, inLink bool) (string, string) {
+// inline renders one line's inline markup. open holds the bold and italic
+// tags s sits in, which a code span closes and reopens; inLink disables code
+// tags and nested links.
+func inline(s string, open []string, inLink bool) (string, string) {
 	var hb, pb strings.Builder
 	lit := func(x string) {
 		hb.WriteString(escapeHTML(x))
@@ -105,10 +109,16 @@ func inline(s string, inEntity, inLink bool) (string, string) {
 			if len(code) >= 2 && code[0] == ' ' && code[len(code)-1] == ' ' && strings.Trim(code, " ") != "" {
 				code = code[1 : len(code)-1]
 			}
-			if inEntity {
+			if inLink {
 				lit(code)
 			} else {
+				for j := len(open) - 1; j >= 0; j-- {
+					hb.WriteString("</" + open[j] + ">")
+				}
 				hb.WriteString("<code>" + escapeHTML(code) + "</code>")
+				for _, t := range open {
+					hb.WriteString("<" + t + ">")
+				}
 				pb.WriteString(code)
 			}
 			i += 2*run + closeAt
@@ -119,7 +129,7 @@ func inline(s string, inEntity, inLink bool) (string, string) {
 				i++
 				continue
 			}
-			h, p := inline(text, true, true)
+			h, p := inline(text, open, true)
 			hb.WriteString(`<a href="` + escapeHTML(href) + `">` + h + "</a>")
 			pb.WriteString(p)
 			i += n
@@ -130,7 +140,7 @@ func inline(s string, inEntity, inLink bool) (string, string) {
 				i += 2
 				continue
 			}
-			h, p := inline(s[i+2:end], true, inLink)
+			h, p := inline(s[i+2:end], append(slices.Clip(open), "b"), inLink)
 			hb.WriteString("<b>" + h + "</b>")
 			pb.WriteString(p)
 			i = end + 2
@@ -141,7 +151,7 @@ func inline(s string, inEntity, inLink bool) (string, string) {
 				i++
 				continue
 			}
-			h, p := inline(s[i+1:end], true, inLink)
+			h, p := inline(s[i+1:end], append(slices.Clip(open), "i"), inLink)
 			hb.WriteString("<i>" + h + "</i>")
 			pb.WriteString(p)
 			i = end + 1
@@ -155,16 +165,44 @@ func inline(s string, inEntity, inLink bool) (string, string) {
 }
 
 // closingDelim finds delim closing an emphasis opened just before from: the
-// content must be non-empty and not start or end with a space.
+// content must be non-empty and not start or end with a space. A delimiter
+// inside a code span closes nothing.
 func closingDelim(s string, from int, delim string) int {
 	if from >= len(s) || s[from] == ' ' {
 		return -1
 	}
-	j := strings.Index(s[from:], delim)
-	if j <= 0 || s[from+j-1] == ' ' {
-		return -1
+	for j := from; j < len(s); j++ {
+		if s[j] == '`' {
+			j = codeSpanEnd(s, j) - 1
+			continue
+		}
+		if strings.HasPrefix(s[j:], delim) {
+			if j == from || s[j-1] == ' ' {
+				return -1
+			}
+			return j
+		}
 	}
-	return from + j
+	return -1
+}
+
+// codeSpanEnd returns the index just past the code span opening at i, or
+// past the backtick run there when nothing closes it.
+func codeSpanEnd(s string, i int) int {
+	n := runLen(s[i:], '`')
+	if end := findRun(s[i+n:], n); end >= 0 {
+		return i + n + end + n
+	}
+	return i + n
+}
+
+// dropEmpty removes the empty bold and italic pairs left where a code span
+// starts or ends one.
+func dropEmpty(h string) string {
+	for strings.Contains(h, "<b></b>") || strings.Contains(h, "<i></i>") {
+		h = strings.ReplaceAll(strings.ReplaceAll(h, "<b></b>", ""), "<i></i>", "")
+	}
+	return h
 }
 
 // italicEnd finds the closing delimiter of a single * or _ at i. Underscores
@@ -180,6 +218,10 @@ func italicEnd(s string, i int) int {
 	for j := i + 1; j < len(s); j++ {
 		if s[j] == '\\' {
 			j++
+			continue
+		}
+		if s[j] == '`' {
+			j = codeSpanEnd(s, j) - 1
 			continue
 		}
 		if s[j] != c || s[j-1] == ' ' {

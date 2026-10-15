@@ -310,7 +310,8 @@ func TestCardKeepsLinksInert(t *testing.T) {
 			if got := core.NeutralizeMarkdown(msg.Text); got != msg.Text {
 				t.Fatalf("card has a tappable link outside code:\n%s\nneutralized:\n%s", msg.Text, got)
 			}
-			if !strings.HasPrefix(msg.Text, "Send data to `evil.example`?\n") {
+			if !strings.HasPrefix(msg.Text, "**Send data to `evil.example`?**\n") ||
+				!strings.Contains(msg.Text, "\n_Telegram · DM · session “see `evil.example`”_") {
 				t.Fatalf("card text = %q", msg.Text)
 			}
 		}

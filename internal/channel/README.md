@@ -15,23 +15,28 @@ with a Stop button, edits no faster than the channel's `EditMinInterval`,
 splits at `MaxLen` without breaking code fences, redaction always (model
 text enters the reply only redacted and once no later delta can complete a
 secret in it, so neither a live edit nor a split shows part of one), status
-line included, and link neutralization once the session is Exposed,
+line included (in plain words: "Deleting `notes/a.md`…", "Refining the
+answer…"), and link neutralization once the session is Exposed,
 re-checked after every tool result: scheme URLs (IPv6 hosts included),
 markdown and autolinks, bare domains and IPv4 addresses, also when only
 rendering joins them, as in `evil\.com` or `evil**.**com`; the rules live in
-`core.NeutralizeMarkdown`, shared with the agent's sink). In `final` mode
+`core.NeutralizeMarkdown`, shared with the agent's sink; the first
+neutralized reply of a conversation says why, once). In `final` mode
 (schedule delivery) the reply opens with a line naming the schedule or
 check-in that sent it and where to change it. Forwarded messages
 (`Inbound.Forwarded`) are untrusted whoever forwards them and never run as
-commands; `/compact` runs in the background and replies when done, and
+commands; a lone unknown `/word` gets a short reply instead of a run;
+`/compact` runs in the background and replies when done, and
 `/refine on|off|default` sets the conversation's refine mode (the session's
 meta key `agent.refine.<session>`, which the runner reads). The hub
 delivers approval cards to the
 approver's DM (never a group), truncating cards that do not fit to Deny plus
 a web link, and edits them to the outcome. Cards speak the policy module's
 plain copy (question, consequence, warnings, the verb on the primary button,
-danger style only for what can't be undone) and become their decided line
-("Sam Patel denied deleting notes/a.md in Slack."). A multi-approver card
+danger style only for what can't be undone; a built-in tool's action JSON
+stays in the web UI) and become their decided line in place of the question,
+naming their reader "You" ("✓ You approved deleting notes/a.md.", "✗ Sam
+Patel denied deleting notes/a.md in Slack."). A multi-approver card
 (deploys) goes to every eligible approver's DM but never the requester's,
 shows who asked, "1 of 2 approvals", every vote and who may still approve,
 is edited after each `approval.voted`, and refuses the requester's allow

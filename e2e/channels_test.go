@@ -80,7 +80,7 @@ func TestTelegramDM(t *testing.T) {
 		return strings.Contains(m.Text, "Saved it to notes.txt.") && strings.Contains(m.Text, "notes-help")
 	})
 	e.tgMessage(t, chOwnerTG, "the card edited to its outcome", func(m telegramtest.Message) bool {
-		return m.ID == card.ID && strings.Contains(m.Text, "owner approved creating notes.txt in Telegram.") && len(m.Buttons) == 0
+		return m.ID == card.ID && m.Text == "✓ You approved creating notes.txt." && len(m.Buttons) == 0
 	})
 	if got := e.Do(t, http.MethodGet, "/api/workspace/files?path=notes.txt", nil, nil); got.StatusCode != http.StatusOK || string(got.Body) != "buy oat milk\n" {
 		t.Fatalf("workspace notes.txt = %s %q", got.Status, got.Body)

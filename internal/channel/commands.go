@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -35,18 +37,18 @@ type commandSpec struct {
 
 var commands = map[string]commandSpec{
 	"stop":    {urgent: true, usage: "/stop", help: "stop the current task"},
-	"status":  {urgent: true, usage: "/status", help: "current task, queue, today's spend and the sandbox"},
-	"stopall": {urgent: true, access: accessAdmin, usage: "/stopall", help: "pause Bothy and stop every task (admins)"},
-	"resume":  {urgent: true, access: accessAdmin, usage: "/resume", help: "lift the pause (admins)"},
+	"status":  {urgent: true, usage: "/status", help: "what Bothy is doing and today's spending"},
+	"stopall": {urgent: true, access: accessAdmin, usage: "/stopall", help: "pause Bothy and stop every task"},
+	"resume":  {urgent: true, access: accessAdmin, usage: "/resume", help: "lift the pause"},
 	"help":    {urgent: true, access: accessAnyone, usage: "/help", help: "this list"},
 	"new":     {usage: "/new", help: "start a fresh conversation"},
 	"pin":     {usage: "/pin <text>", help: "keep an instruction in view"},
 	"pins":    {usage: "/pins", help: "list pinned instructions"},
 	"unpin":   {usage: "/unpin <n>", help: "remove pin number n"},
-	"compact": {usage: "/compact", help: "summarize older context now"},
-	"model":   {usage: "/model [provider/model]", help: "set or clear this conversation's model"},
+	"compact": {usage: "/compact", help: "summarise older messages now"},
+	"model":   {usage: "/model [provider/model|default]", help: "show or change the AI model of this conversation"},
 	"refine":  {usage: "/refine [on|off|default]", help: "check answers more carefully here (slower, costs more)"},
-	"usage":   {usage: "/usage", help: "today's and this conversation's cost"},
+	"usage":   {usage: "/usage", help: "today's spending and this conversation's cost"},
 	"pair":    {access: accessAnyone, usage: "/pair CODE", help: "link this account with a code from the web UI"},
 	"start":   {access: accessAnyone},
 }
@@ -77,14 +79,35 @@ func parseCommand(text string) (name, args string, ok bool) {
 	return name, strings.TrimSpace(rest), true
 }
 
+var commandWord = regexp.MustCompile(`^/([A-Za-z0-9_]{1,32})(@[A-Za-z0-9_]+)?$`)
+
+// unknownCommand recognises a message that is only "/word" (or Telegram's
+// "/word@bot") naming no command: almost always a mistyped one, so it gets a
+// short reply instead of a model run. A path such as "/etc/hosts" is not a
+// word and still reaches the agent.
+func unknownCommand(text string) (string, bool) {
+	m := commandWord.FindStringSubmatch(strings.TrimSpace(text))
+	if m == nil {
+		return "", false
+	}
+	if _, known := commands[strings.ToLower(m[1])]; known {
+		return "", false
+	}
+	return "/" + m[1], true
+}
+
 func allowed(acc access, res core.IdentityResolution, p *core.Principal) bool {
 	switch acc {
 	case accessAnyone:
 		return true
 	case accessAdmin:
-		return res.Status == core.IdentityLinked && res.Role.IsAdmin()
+		return isAdmin(res)
 	}
 	return res.Status == core.IdentityLinked && (res.User == p.User || res.Role.IsAdmin())
+}
+
+func isAdmin(res core.IdentityResolution) bool {
+	return res.Status == core.IdentityLinked && res.Role.IsAdmin()
 }
 
 func (h *Hub) runCommand(ctx context.Context, a *adapter, in core.Inbound, res core.IdentityResolution, tg target, cmd, args string) {
@@ -108,7 +131,7 @@ func (h *Hub) runCommand(ctx context.Context, a *adapter, in core.Inbound, res c
 	case "status":
 		say(h.cmdStatus(ctx, tg, chat))
 	case "help":
-		say(helpText())
+		say(helpText(isAdmin(res)))
 	case "new":
 		say(h.cmdNew(ctx, tg, chat))
 	case "pin":
@@ -139,18 +162,22 @@ func (h *Hub) runCommand(ctx context.Context, a *adapter, in core.Inbound, res c
 		case res.Status == core.IdentityLinked && chat.Kind == core.ChatDM:
 			say(helloText(h.userName(ctx, res.User)))
 		default:
-			say(helpText())
+			say(helpText(isAdmin(res)))
 		}
 	}
 }
 
 const somethingWrong = "Sorry, something went wrong. Try again in a moment."
 
-func helpText() string {
+// helpText lists the commands; the admin-only ones only for admins.
+func helpText(admin bool) string {
 	var b strings.Builder
 	b.WriteString("Commands:")
 	for _, name := range helpOrder {
 		spec := commands[name]
+		if spec.access == accessAdmin && !admin {
+			continue
+		}
 		b.WriteString("\n" + escapeMD(spec.usage) + " · " + escapeMD(spec.help))
 	}
 	return b.String()
@@ -215,47 +242,105 @@ func (h *Hub) audit(ctx context.Context, action, channel, ext string, by core.Us
 	}
 }
 
+// cmdStatus says, in plain words, what the chat's task is doing, today's
+// spending, whether refine is on here (it multiplies the cost of every
+// answer) and, only when it is off, that running code is unavailable.
 func (h *Hub) cmdStatus(ctx context.Context, tg target, chat core.ChatRef) string {
 	var lines []string
 	if h.d.Runner.Paused() {
 		lines = append(lines, "Bothy is paused by an admin.")
 	}
 	task := "No task running."
+	var sessID core.SessionID
 	if sess, err := h.chatSession(ctx, tg, chat); err == nil {
+		sessID = sess.ID
 		for _, ri := range h.d.Runner.Active() {
-			if ri.Session != sess.ID {
-				continue
+			if ri.Session == sess.ID {
+				task = h.taskText(ri)
 			}
-			task = "Task: " + strings.ReplaceAll(string(ri.Status), "_", " ")
-			if !ri.Started.IsZero() {
-				task += fmt.Sprintf(" for %s", h.clock.Now().Sub(ri.Started).Round(time.Second))
-			}
-			if ri.Queued > 0 {
-				task += fmt.Sprintf(", %d queued", ri.Queued)
-			}
-			task += "."
 		}
 	}
 	lines = append(lines, task)
 	if spent, limit, err := h.d.Budget.Daily(ctx, tg.principal.User); err == nil {
 		lines = append(lines, "Today: "+spendText(spent, limit)+".")
 	}
-	if h.d.Sandbox != nil {
-		st := h.d.Sandbox.Status(ctx)
-		if st.Available {
-			lines = append(lines, "Sandbox: "+escapeMD(st.Backend)+" ("+escapeMD(st.Runtime)+").")
-		} else {
-			lines = append(lines, "Sandbox: off. "+escapeMD(st.Reason))
-		}
+	if _, on, err := h.refineSetting(ctx, sessID); err == nil && on {
+		lines = append(lines, "Refine is on for this conversation, so answers are slower and cost more. /refine off turns it off.")
+	}
+	if h.d.Sandbox != nil && !h.d.Sandbox.Status(ctx).Available {
+		lines = append(lines, "Running code is off on this server.")
 	}
 	return strings.Join(lines, "\n")
 }
 
+// taskText is the /status line of the chat's task, e.g. "Working on a task
+// for 2 min 10 s. 1 more message is waiting."
+func (h *Hub) taskText(ri core.RunInfo) string {
+	var s string
+	switch ri.Status {
+	case core.RunWaitingApproval, core.RunParked:
+		s = "Waiting for approval"
+	case core.RunQueued:
+		s = "A task is about to start"
+	default:
+		s = "Working on a task"
+	}
+	if !ri.Started.IsZero() && ri.Status != core.RunQueued {
+		s += " for " + durationText(h.clock.Now().Sub(ri.Started))
+	}
+	s += "."
+	switch {
+	case ri.Queued == 1:
+		s += " 1 more message is waiting."
+	case ri.Queued > 1:
+		s += fmt.Sprintf(" %d more messages are waiting.", ri.Queued)
+	}
+	return s
+}
+
+// durationText follows the UI's durations (docs/design/ui.md §14.2): "3 s",
+// "2 min 10 s", "1 h 5 min".
+func durationText(d time.Duration) string {
+	d = max(d.Round(time.Second), time.Second)
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%d s", d/time.Second)
+	case d < time.Hour:
+		m, sec := d/time.Minute, d%time.Minute/time.Second
+		if sec == 0 {
+			return fmt.Sprintf("%d min", m)
+		}
+		return fmt.Sprintf("%d min %d s", m, sec)
+	}
+	hr, m := d/time.Hour, d%time.Hour/time.Minute
+	if m == 0 {
+		return fmt.Sprintf("%d h", hr)
+	}
+	return fmt.Sprintf("%d h %d min", hr, m)
+}
+
 func spendText(spent, limit core.Micros) string {
 	if limit <= 0 {
-		return spent.String() + " (no cap)"
+		return moneyText(spent) + ", no daily limit"
 	}
-	return spent.String() + " of " + limit.String()
+	return moneyText(spent) + " of the " + moneyText(limit) + " daily limit"
+}
+
+// moneyText follows the UI's money rule (docs/design/ui.md §14.2): "<$0.01"
+// for less than a cent, two decimals under $1,000, whole dollars above.
+func moneyText(m core.Micros) string {
+	cents := math.Round(m.USD() * 100)
+	switch {
+	case m > 0 && cents < 1:
+		return "<$0.01"
+	case cents < 100_000:
+		return fmt.Sprintf("$%.2f", cents/100)
+	}
+	whole := strconv.FormatInt(int64(math.Round(m.USD())), 10)
+	for i := len(whole) - 3; i > 0; i -= 3 {
+		whole = whole[:i] + "," + whole[i:]
+	}
+	return "$" + whole
 }
 
 func (h *Hub) cmdNew(ctx context.Context, tg target, chat core.ChatRef) string {
@@ -270,7 +355,9 @@ func (h *Hub) cmdNew(ctx context.Context, tg target, chat core.ChatRef) string {
 		h.log.Error("channel /new failed", "err", err)
 		return somethingWrong
 	}
-	return "Started a fresh conversation."
+	// Archived chats leave the web UI's chat list; their tasks in Activity
+	// still open them.
+	return "Started a fresh conversation. The previous one is archived; Activity in the web UI still opens it."
 }
 
 func (h *Hub) cmdPin(ctx context.Context, tg target, chat core.ChatRef, text string) string {
@@ -397,25 +484,53 @@ func (h *Hub) cmdCompact(ctx context.Context, tg target, chat core.ChatRef) stri
 	return ""
 }
 
-func (h *Hub) cmdModel(ctx context.Context, tg target, chat core.ChatRef, ref string) string {
-	if ref != "" {
-		if _, err := core.ParseModelRef(ref); err != nil || strings.ContainsFunc(ref, unicode.IsSpace) {
-			return "Usage: /model <provider/model>, for example /model anthropic/claude-sonnet-4-6. /model alone clears it."
+// cmdModel shows the conversation's model, or sets it; only an explicit
+// word clears the override, so checking the model never changes it.
+func (h *Hub) cmdModel(ctx context.Context, tg target, chat core.ChatRef, arg string) string {
+	main := h.cfg().Models.Main
+	switch strings.ToLower(arg) {
+	case "":
+		sess, err := h.chatSession(ctx, tg, chat)
+		if err != nil && !errors.Is(err, core.ErrNotFound) {
+			h.log.Error("channel /model failed", "err", err)
+			return somethingWrong
 		}
+		if err == nil && sess.ModelOverride != "" {
+			return "This conversation uses " + codeSpan(sess.ModelOverride) + ". /model default goes back to the default model."
+		}
+		if len(main) > 0 {
+			return "This conversation uses the default model, " + codeSpan(main[0]) + ". /model provider/model changes it."
+		}
+		return "This conversation uses the default model. /model provider/model changes it."
+	case "default", "clear", "reset":
+		sess, err := h.chatSession(ctx, tg, chat)
+		if err == nil && sess.ModelOverride != "" {
+			sess.ModelOverride = ""
+			err = h.d.Store.Sessions().Update(ctx, sess)
+		}
+		if err != nil && !errors.Is(err, core.ErrNotFound) {
+			h.log.Error("channel /model failed", "err", err)
+			return somethingWrong
+		}
+		return "This conversation uses the default model again."
+	}
+	if _, err := core.ParseModelRef(arg); err != nil || strings.ContainsFunc(arg, unicode.IsSpace) {
+		example := "anthropic/claude-sonnet-4-6"
+		if len(main) > 0 {
+			example = main[0]
+		}
+		return "Usage: /model <provider/model>, for example " + codeSpan("/model "+example) + ". /model alone shows the model; /model default goes back to the default one."
 	}
 	sess, err := h.resolveSession(ctx, tg.principal.ID, chat)
 	if err == nil {
-		sess.ModelOverride = ref
+		sess.ModelOverride = arg
 		err = h.d.Store.Sessions().Update(ctx, sess)
 	}
 	if err != nil {
 		h.log.Error("channel /model failed", "err", err)
 		return somethingWrong
 	}
-	if ref == "" {
-		return "Model override cleared; this conversation uses the default model."
-	}
-	return "This conversation now uses " + codeSpan(ref) + "."
+	return "This conversation now uses " + codeSpan(arg) + "."
 }
 
 // cmdRefine shows or sets the conversation's refine mode, which the runner
@@ -440,29 +555,45 @@ func (h *Hub) cmdRefine(ctx context.Context, tg target, chat core.ChatRef, arg s
 		if err = meta.Delete(ctx, key); errors.Is(err, core.ErrNotFound) {
 			err = nil
 		}
-	default:
-		if arg, err = meta.Get(ctx, key); errors.Is(err, core.ErrNotFound) {
-			arg, err = "", nil
-		}
+	}
+	var on bool
+	if err == nil {
+		arg, on, err = h.refineSetting(ctx, sess.ID)
 	}
 	if err != nil {
 		h.log.Error("channel /refine failed", "session", sess.ID, "err", err)
 		return somethingWrong
 	}
-	c := h.d.Config.Current().Agent.Refine
-	on := arg == core.RefineOn || (arg != core.RefineOff && c.Enabled)
 	if !on {
 		if arg == core.RefineOff {
 			return "Refine is off for this conversation. /refine on turns it on."
 		}
 		return "Refine is off for this conversation, as by default. /refine on turns it on."
 	}
+	c := h.cfg().Agent.Refine
 	how := fmt.Sprintf("I draft each answer %s and check each draft %s before I reply, so answers are slower and cost about %d times as much.",
 		times(c.Drafts), times(c.Depth), core.RefineTypicalCalls(c.Drafts, c.Depth, c.EarlyStop))
 	if arg == core.RefineOn {
 		return "Refine is on for this conversation: " + how + " /refine off turns it off."
 	}
 	return "Refine is on for this conversation, as by default: " + how + " /refine off turns it off."
+}
+
+// refineSetting returns the session's own refine setting ("" when it follows
+// agent.refine.enabled) and whether refine is on for it; a chat without a
+// session yet follows the default.
+func (h *Hub) refineSetting(ctx context.Context, s core.SessionID) (string, bool, error) {
+	var arg string
+	if s != "" {
+		v, err := h.d.Store.Meta().Get(ctx, core.RefineMetaKey(s))
+		switch {
+		case err == nil:
+			arg = v
+		case !errors.Is(err, core.ErrNotFound):
+			return "", false, err
+		}
+	}
+	return arg, arg == core.RefineOn || (arg != core.RefineOff && h.cfg().Agent.Refine.Enabled), nil
 }
 
 func times(n int) string {
@@ -485,7 +616,7 @@ func (h *Hub) cmdUsage(ctx context.Context, tg target, chat core.ChatRef) string
 	if sess, err := h.chatSession(ctx, tg, chat); err == nil {
 		sessCost = h.sessionCost(ctx, sess.ID)
 	}
-	return "Today: " + spendText(spent, limit) + ". This conversation: " + sessCost.String() + "."
+	return "Today: " + spendText(spent, limit) + ". This conversation: " + moneyText(sessCost) + "."
 }
 
 func (h *Hub) sessionCost(ctx context.Context, s core.SessionID) core.Micros {

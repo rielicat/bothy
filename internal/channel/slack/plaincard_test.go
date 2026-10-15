@@ -12,9 +12,9 @@ import (
 // words on Slack, and its primary button is red only when the hub says the
 // action can't be undone.
 func TestRenderPlainCard(t *testing.T) {
-	card := "Delete `notes/old.md`?\nThis can't be undone.\n! Bothy hasn't sent anything to `bob@example.com` before.\n" +
+	card := "**Delete `notes/old.md`?**\nThis can't be undone.\n⚠ Bothy hasn't sent anything to `bob@example.com` before.\n" +
 		"**File:** `notes/old.md`"
-	want := "Delete `notes/old.md`?\nThis can't be undone.\n! Bothy hasn't sent anything to `bob@example.com` before.\n" +
+	want := "*Delete `notes/old.md`?*\nThis can't be undone.\n⚠ Bothy hasn't sent anything to `bob@example.com` before.\n" +
 		"*File:* `notes/old.md`"
 	if got := render(card); got != want {
 		t.Errorf("render =\n%q\nwant\n%q", got, want)

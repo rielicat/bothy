@@ -1,8 +1,11 @@
 package channel
 
 import (
+	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -154,6 +157,7 @@ type streamState struct {
 	parked   bool
 	finished *core.RunFinishedData
 	notices  []string
+	defanged bool // the reply had links neutralized
 }
 
 func (st *streamState) apply(ctx context.Context, e core.Event) {
@@ -178,16 +182,23 @@ func (st *streamState) apply(ctx context.Context, e core.Event) {
 			st.status = st.toolStatus
 		case "thinking":
 			st.status = ""
+			if d.Detail == core.RefineStatusDetail {
+				st.status = "_" + core.RefineStatusDetail + "…_"
+			}
 		}
 	case core.RunQueuedData:
 		st.status = fmt.Sprintf("_Queued (%d ahead)…_", d.Position)
 	case core.DeltaData:
 		if e.Type == core.EvRunDelta && d.Text != "" {
+			// A refined answer arrives only once refining is done.
+			if st.statusKind == "thinking" {
+				st.status = ""
+			}
 			st.appendText(d.Text)
 		}
 	case core.ToolCallData:
 		st.releaseTail()
-		st.toolStatus = "_Running " + toolLabel(d, st.s.h.redact) + "…_"
+		st.toolStatus = "_" + toolDoing(d, st.s.h.redact) + "…_"
 		st.status = st.toolStatus
 		st.stepBreak = true
 	case core.ToolResultData:
@@ -285,24 +296,73 @@ func (st *streamState) refreshTaint(ctx context.Context) {
 	}
 }
 
-// toolLabel is the status-line form of a tool call: the command line for
-// exec actions ("Running `pip install pandas`…"), else the tool's title. The
-// command is redacted before it is shortened, since a cut secret no longer
-// matches the redactor.
-func toolLabel(d core.ToolCallData, redact func(string) string) string {
-	if a := d.Action; a != nil && a.Kind == core.ActExec && len(a.Argv) > 0 {
+// toolDoing is a tool call's status line in the words of the web's activity
+// lines (docs/design/ui.md §7.4): "Running `pip install pandas`", "Deleting
+// `notes/a.md`", "Searching the web for “pandas”"; a tool without such a
+// phrase shows its title. Paths, hosts and repositories go in code spans, so
+// none of them is a tappable link. Values are redacted before they are
+// shortened, since a cut secret no longer matches the redactor.
+func toolDoing(d core.ToolCallData, redact func(string) string) string {
+	a := d.Action
+	if a == nil {
+		a = &core.Action{}
+	}
+	var args map[string]any
+	_ = json.Unmarshal(a.Payload, &args)
+	arg := func(k string) string { s, _ := args[k].(string); return strings.TrimSpace(s) }
+	code := func(s string) string {
+		s, _, _ = strings.Cut(strings.TrimSpace(redact(s)), "\n")
+		return codeSpan(truncateRunes(s, 60))
+	}
+	quote := func(s string) string { return "“" + escapeMD(truncateRunes(oneLine(redact(s)), 60)) + "”" }
+	path := ""
+	if len(a.Paths) > 0 {
+		path = a.Paths[0]
+	}
+	host := ""
+	if u, err := url.Parse(a.URL); err == nil {
+		host = u.Hostname()
+	}
+	switch {
+	case d.Tool == "python":
+		return "Running a Python script"
+	case a.Kind == core.ActExec && len(a.Argv) > 0:
 		cmd := strings.Join(a.Argv, " ")
 		if len(a.Argv) >= 3 && (a.Argv[1] == "-lc" || a.Argv[1] == "-c") {
 			cmd = a.Argv[2]
 		}
-		cmd, _, _ = strings.Cut(strings.TrimSpace(redact(cmd)), "\n")
-		return codeSpan(truncateRunes(cmd, 60))
+		return "Running " + code(cmd)
+	case path != "" && (d.Tool == "fs_read" || d.Tool == "fs_list" || d.Tool == "fs_write" || d.Tool == "fs_delete"):
+		verb := map[string]string{"fs_read": "Reading ", "fs_list": "Looking in ", "fs_write": "Saving ", "fs_delete": "Deleting "}[d.Tool]
+		if d.Tool == "fs_list" && path == "." {
+			return "Looking in Bothy's files"
+		}
+		return verb + code(path)
+	case arg("query") != "" && (d.Tool == "web_search" || d.Tool == "session_search" || d.Tool == "knowledge_search"):
+		where := map[string]string{"web_search": "the web", "session_search": "past chats", "knowledge_search": "project knowledge"}[d.Tool]
+		return "Searching " + where + " for " + quote(arg("query"))
+	case d.Tool == "web_fetch" && host != "":
+		if a.Method != "" && !strings.EqualFold(a.Method, "GET") {
+			return "Sending data to " + code(host)
+		}
+		return "Opening " + code(host)
+	case d.Tool == "message":
+		return "Sending a message"
+	case d.Tool == "repo_checkout" && arg("repo") != "":
+		if ref := arg("ref"); ref != "" {
+			return "Getting a copy of " + code(arg("repo")) + " (" + code(ref) + ")"
+		}
+		return "Getting a copy of " + code(arg("repo"))
+	case d.Tool == "repo_open_pr" && arg("repo") != "":
+		return "Opening a pull request in " + code(arg("repo"))
+	case d.Tool == "release_deploy" && arg("repo") != "" && arg("environment") != "":
+		return "Deploying " + code(arg("repo")) + " to " + code(arg("environment"))
 	}
-	title := d.Title
-	if title == "" {
-		title = d.Tool
+	title := cmp.Or(d.Title, d.Tool)
+	if a.Kind == core.ActMCP {
+		title = strings.TrimPrefix(title, "MCP "+a.MCPServer+": ")
 	}
-	return escapeMD(truncateRunes(title, 60))
+	return escapeMD(truncateRunes(oneLine(redact(title)), 60))
 }
 
 // render applies the channel output rules: redaction always, link
@@ -313,6 +373,15 @@ func (st *streamState) render(md string) string {
 		out = core.NeutralizeMarkdown(out)
 	}
 	return out
+}
+
+// statusLine is the rendered status line: a search query in it is prose,
+// so its links are neutralized like the reply's.
+func (st *streamState) statusLine() string {
+	if st.status == "" {
+		return ""
+	}
+	return st.render(st.status)
 }
 
 func (st *streamState) buttons() [][]core.Button {
@@ -371,11 +440,11 @@ func (st *streamState) liveText() string {
 		body = st.carry + "\n" + body
 	}
 	text := st.render(body)
-	if st.status != "" {
+	if status := st.statusLine(); status != "" {
 		if strings.TrimSpace(text) != "" {
 			text += "\n\n"
 		}
-		text += st.status
+		text += status
 	}
 	if strings.TrimSpace(text) == "" {
 		text = placeholderText
@@ -409,8 +478,8 @@ func (st *streamState) step(ctx context.Context) {
 // forward, and reports whether it made one.
 func (st *streamState) liveOp(ctx context.Context) bool {
 	reserve := 0
-	if st.status != "" {
-		reserve = ulen(st.status) + 2
+	if status := st.statusLine(); status != "" {
+		reserve = ulen(status) + 2
 	}
 	if text, used, next, over := st.firstPiece(st.pending(true), reserve); over {
 		// The live message is full: finalize it with the first piece.
@@ -515,6 +584,7 @@ func (st *streamState) finish(ctx context.Context) {
 		return
 	}
 	body := strings.TrimRightFunc(raw[st.commit:], unicode.IsSpace)
+	st.defanged = st.exposed && core.NeutralizeMarkdown(raw) != raw
 	if note := st.finishNote(); note != "" {
 		if open, _, marker := fenceState(st.carry, body); open {
 			body += "\n" + marker
@@ -623,10 +693,29 @@ func (st *streamState) finishNote() string {
 			lines = append(lines, "_Something went wrong, so I couldn't finish. An admin can see what happened in Activity._")
 		}
 	}
+	if st.defanged && st.session != "" && st.s.h.firstLinkNote(st.session) {
+		lines = append(lines, "_"+linkNote+"_")
+	}
 	if f != nil && f.Steps > 0 && st.s.h.cfg().Channels.UsageFooter {
 		lines = append(lines, "_· "+usageFooter(f)+"_")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// linkNote explains, once per conversation, why its links show as plain text
+// and how to get clickable ones back without loosening the rule.
+const linkNote = "Links here are shown as plain text because this chat has seen private information and content from outside. /new starts a fresh conversation with clickable links."
+
+// firstLinkNote reports whether session s has not had linkNote yet, and
+// records that it has now.
+func (h *Hub) firstLinkNote(s core.SessionID) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, ok := h.linkNoted[s]; ok {
+		return false
+	}
+	h.linkNoted[s] = time.Now()
+	return true
 }
 
 func suffix(errText string) string {

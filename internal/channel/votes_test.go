@@ -137,9 +137,19 @@ func TestMultiApproverCardsGoToEveryApprover(t *testing.T) {
 			Approval: ap.ID, Status: core.ApprovalAllowed, Choice: core.AllowOnce, By: ben.ID, Via: "telegram"}})
 		synctest.Wait()
 		edits = h.ch.EditedMessages()
-		last := edits[len(edits)-1]
-		if len(edits) != 6 || len(last.Buttons) != 0 || last.Text != "**Deploy acme/web to staging?**\nAda and Ben approved deploying acme/web to staging." {
-			t.Fatalf("final card edits = %d, last %+v", len(edits), last)
+		if len(edits) != 6 {
+			t.Fatalf("final card edits = %d, want 6", len(edits))
+		}
+		// Each card names its own reader "you".
+		want := map[string]string{
+			ownerChat: "✓ Ada and Ben approved deploying acme/web to staging.",
+			adaChat:   "✓ You and Ben approved deploying acme/web to staging.",
+			benChat:   "✓ Ada and you approved deploying acme/web to staging.",
+		}
+		for _, e := range edits[3:] {
+			if len(e.Buttons) != 0 || e.Text != want[e.Chat.ChatID] {
+				t.Fatalf("decided card in %s = %+v, want %q", e.Chat.ChatID, e, want[e.Chat.ChatID])
+			}
 		}
 	})
 }
