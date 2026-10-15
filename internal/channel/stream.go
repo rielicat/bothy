@@ -592,7 +592,9 @@ func (st *streamState) finishNote() string {
 		case core.RunBudgetExceeded:
 			lines = append(lines, "Budget exceeded"+suffix(errText))
 		case core.RunFailed:
-			lines = append(lines, "Something went wrong"+suffix(errText))
+			// The error may name secrets or internal hosts and the chat may
+			// hold a guest; what happened is in the web UI's Activity.
+			lines = append(lines, "_Something went wrong, so I couldn't finish. An admin can see what happened in Activity._")
 		}
 	}
 	if f != nil && f.Steps > 0 && st.s.h.cfg().Channels.UsageFooter {

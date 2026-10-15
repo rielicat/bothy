@@ -445,9 +445,14 @@ func (s *Server) patchIdentity(w http.ResponseWriter, r *http.Request, a core.Ac
 	if err := decode(r, &req); err != nil {
 		return err
 	}
+	before, _ := s.d.Store.Identities().Get(r.Context(), r.PathValue("channel"), r.PathValue("external"))
 	id, err := ed.SetIdentityStatus(r.Context(), a, r.PathValue("channel"), r.PathValue("external"), req.Status, req.UserID)
 	if err != nil {
 		return err
+	}
+	// The approvals inbox lets a waiting sender in here, not through the code.
+	if before != nil && before.Status == core.IdentityPending && (id.Status == core.IdentityLinked || id.Status == core.IdentityGuest) {
+		s.welcomeApproved(r.Context(), id)
 	}
 	return ok(w, id)
 }

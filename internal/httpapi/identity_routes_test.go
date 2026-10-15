@@ -69,3 +69,24 @@ func TestApprovedSenderIsWelcomed(t *testing.T) {
 		t.Fatalf("welcome = %q", sent)
 	}
 }
+
+func TestSenderLetInFromTheInboxIsWelcomed(t *testing.T) {
+	h := newHarness(t).setup()
+	ctx := context.Background()
+	ident := core.ChannelIdentity{Channel: "telegram", ExternalID: "888", DMChat: "888", DisplayName: "New"}
+	if _, err := h.auth.SenderNotice(ctx, ident); err != nil {
+		t.Fatal(err)
+	}
+	expect(t, h.do("PATCH", "/api/identities/telegram/888", dto.IdentityPatchReq{Status: core.IdentityGuest}, h.owner), http.StatusOK)
+	// Blocking afterwards says nothing more.
+	expect(t, h.do("PATCH", "/api/identities/telegram/888", dto.IdentityPatchReq{Status: core.IdentityBlocked}, h.owner), http.StatusOK)
+	var sent []string
+	for _, s := range h.hub.Sent {
+		if strings.HasPrefix(s, "telegram:888:") {
+			sent = append(sent, s)
+		}
+	}
+	if len(sent) != 1 || !strings.Contains(sent[0], "Hi! An admin approved you") {
+		t.Fatalf("welcome = %q", sent)
+	}
+}

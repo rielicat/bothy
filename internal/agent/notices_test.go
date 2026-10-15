@@ -28,6 +28,12 @@ func TestModelErrorIsSaidOnceInPlainWords(t *testing.T) {
 		if strings.Contains(notices[0], ").") || strings.Contains(notices[0], "Overloaded") {
 			t.Fatalf("the notice repeats the raw error: %q", notices[0])
 		}
+		// A chat app stops listening at run.finished and falls back to its own
+		// text, so the notice must arrive first.
+		types := h.sink.Types()
+		if len(types) < 2 || types[len(types)-2] != core.EvMessageCreated || types[len(types)-1] != core.EvRunFinished {
+			t.Fatalf("sink events = %v", types)
+		}
 	})
 }
 

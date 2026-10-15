@@ -750,9 +750,10 @@ func (r *Runner) finish(rs *runState, end *runEnd) {
 	rs.mu.Unlock()
 	if end.status == core.RunParked {
 		rs.publish(core.EvRunParked, core.RunParkedData{Approval: end.parkedOn})
-	} else {
-		rs.publishFinished()
 	}
+	// The notice goes out before run.finished: a chat's stream closes on
+	// run.finished, and without the notice it can only say something
+	// generic about how the run ended.
 	switch {
 	case end.notice == "":
 	case end.status == core.RunInterrupted && rs.sess != nil && r.sendChat(ctx, rs.sess.Chat, end.notice):
@@ -768,7 +769,10 @@ func (r *Runner) finish(rs *runState, end *runEnd) {
 		if r.unreadSteers(ctx, rs) {
 			rs.notice(ctx, steerUnreadNotice)
 		}
-	case core.RunParked:
+	}
+	if end.status != core.RunParked {
+		rs.publishFinished()
+	} else {
 		r.resumeIfResolved(ctx, end.parkedOn)
 	}
 	if end.budget != nil {
