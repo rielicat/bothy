@@ -89,7 +89,7 @@
     failure = await saveConfig(set);
     busy = false;
     if (failure) {
-      failure.message = "Bothy couldn't save this environment.";
+      failure.message = "Bothy couldn't save this environment. Check the details and try again.";
       return;
     }
     open = false;

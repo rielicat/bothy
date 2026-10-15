@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
+import { toaster } from '../../../components/ui';
 import { session } from '../../../lib/stores/session.svelte';
 import { installApi, type Call } from '../../../test/api';
 import EnvironmentDialog from './EnvironmentDialog.svelte';
@@ -113,6 +114,23 @@ describe('GitHub manage view', () => {
     expect(writes).toEqual(['DELETE', 'POST']);
   });
 
+  it('starts reading a repository again from its menu', async () => {
+    const calls = await setup();
+    await fireEvent.click(await screen.findByRole('button', { name: 'Options for acme/web' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Read again' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/reindex'))).toBe(true));
+    await waitFor(() => expect(toaster.current?.text).toBe('Started reading again.'));
+  });
+
+  it('says deleting an environment is permanent before it does', async () => {
+    const calls = await setup();
+    await fireEvent.click(await screen.findByRole('button', { name: 'Options for staging' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete environment…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Delete staging?' });
+    expect(within(dialog).getByText("Bothy can no longer deploy to staging. Past deploys stay in Activity. This can't be undone.")).toBeTruthy();
+    expect(calls.some((c) => c.method === 'PATCH')).toBe(false);
+  });
+
   it('disconnects only after the confirmation', async () => {
     const calls = await setup();
     await fireEvent.click(await screen.findByRole('button', { name: 'Disconnect GitHub…' }));
@@ -130,8 +148,8 @@ describe('Environment dialog', () => {
     { id: 'usr_01jalex000000000000000000', username: 'alex', display_name: 'Alex', role: 'member', timezone: '', disabled: false, created_at: '', updated_at: '', last_login_at: '' },
   ];
 
-  async function open(props: Record<string, unknown> = {}) {
-    const calls = installApi();
+  async function open(props: Record<string, unknown> = {}, override?: (m: string, url: string) => unknown) {
+    const calls = installApi({ override });
     await session.init();
     let saved = 0;
     render(EnvironmentDialog, { open: true, repos: ['acme/web', 'acme/api'], users, taken: ['staging'], onsaved: () => saved++, ondelete: () => {}, ...props });
@@ -185,5 +203,16 @@ describe('Environment dialog', () => {
       'releases.environments.qa-eu': { name: 'qa-eu', repo: 'acme/api', workflow: 'deploy.yml', ref_pattern: 'main', approvers: ['admin'], required: 1, inputs: { region: 'eu' } },
       'releases.environments.qa': null,
     });
+  });
+
+  it('says what to do when the server turns the environment down, with its reason under Details', async () => {
+    const refused = { fields: [{ path: 'releases.environments.qa.workflow', message: 'workflow not found in acme/web' }] };
+    await open({ taken: [] }, (m, url) => (m === 'PATCH' && url === '/api/config' ? new Response(JSON.stringify(refused), { status: 400 }) : undefined));
+    const dialog = await screen.findByRole('dialog', { name: 'Add environment' });
+    await waitFor(() => expect((within(dialog).getByRole('combobox', { name: 'Deploy workflow' }) as HTMLSelectElement).value).toBe('deploy.yml'));
+    await fireEvent.input(within(dialog).getByLabelText('Name'), { target: { value: 'qa' } });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Save environment' }));
+    expect(await within(dialog).findByText("Bothy couldn't save this environment. Check the details and try again.")).toBeTruthy();
+    expect(within(dialog).queryByText('workflow not found in acme/web')).toBeNull();
   });
 });

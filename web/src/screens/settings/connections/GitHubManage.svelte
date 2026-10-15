@@ -114,7 +114,7 @@
     if (!k) return;
     try {
       await api.post(`/api/knowledge/repos/${k.id}/reindex`);
-      toast('Reading it again.');
+      toast('Started reading again.');
       await load();
     } catch (e) {
       problem = { message: "Bothy couldn't start reading it again. Try again.", details: errorText(e) };
@@ -290,7 +290,7 @@
 </Dialog>
 
 <Dialog open={!!dropping} onclose={() => (dropping = '')} title="Delete {dropping}?" initialFocus="cancel" {busy}>
-  <p class="text-body text-text">Bothy can no longer deploy to {dropping}. Past deploys stay in Activity.</p>
+  <p class="text-body text-text">Bothy can no longer deploy to {dropping}. Past deploys stay in Activity. This can't be undone.</p>
   {#snippet footer({ close })}
     <Button data-cancel onclick={close}>Cancel</Button>
     <Button variant="danger" loading={busy} loadingLabel="Deleting…" onclick={dropEnv}>Delete environment</Button>
