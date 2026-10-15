@@ -115,7 +115,7 @@
   let refining = $state<RefineProgress | null>(null);
   $effect(() =>
     events.on('run.refine', (e) => {
-      if (e.session_id === id && e.run_id) refining = refineStep(refining, e.run_id, e.data as RefineData);
+      if (conv.id && e.session_id === conv.id && e.run_id) refining = refineStep(refining, e.run_id, e.data as RefineData);
     }),
   );
   const workingLabel = $derived(refining && refining.run === liveRun ? refineLabel(refining) : 'Working…');
