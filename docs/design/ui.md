@@ -1364,7 +1364,7 @@ The card is still rendered from the structured Action by the policy module, neve
 | Details | "Bothy's explanation (written by the AI, not checked)", collapsed, only when present · "Why Bothy asked: {plain reason}" · "If nobody answers: it will be denied" (or "it will wait") · "Who can approve: Maya Chen, or any admin" · "Exact action" (`CodeBlock` of the Action JSON) · tool, rule and approval id, each with Copy. |
 | Deny | Pressing Deny shows an inline "Reason (optional)" field with [Deny] and [Cancel]; Enter submits. The reason is stored as `Resolution.Comment` and shown to the requester. Bothy is told who denied and their reason (SPEC §5.7 g), so its reply can answer it, also in a chat app. |
 | Submitting | The pressed button shows a spinner and its "-ing" label; the others are disabled. |
-| Submit failed | Notice in the card: "Couldn't send your decision. Try again." with the buttons re-enabled. |
+| Submit failed | Notice in the card: "Couldn't send your decision. Try again." with the buttons re-enabled. When the server refuses with a reason (409, 403), trying again can't help: the card reloads the request and says why instead, "This request was already decided." (an inline card folds into its decided line and announces it) or the server's reason as a sentence ("You already voted.", "You asked for this, so someone else has to approve it."). |
 
 ### 8.2 Copy per action
 

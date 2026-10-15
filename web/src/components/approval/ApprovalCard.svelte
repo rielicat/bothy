@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import { api } from '../../lib/api/client';
+  import { api, ApiError } from '../../lib/api/client';
   import type { Approval, Choice } from '../../lib/api/types.gen';
   import { busyLabel, cardCopy, decidable, expiryOf, isMulti, isOpen, originOf, requesterOf } from '../../lib/cardcopy';
   import { choiceDone, choiceKey } from '../../lib/labels';
@@ -61,7 +61,7 @@
   const uid = $props.id();
   let resolved = $state<Approval | null>(null);
   let busy: Choice | '' = $state('');
-  let failed = $state(false);
+  let failed = $state('');
   let denying = $state(false);
   let comment = $state('');
   let reasonInput: HTMLInputElement | undefined = $state();
@@ -135,7 +135,7 @@
     if (!open || busy) return;
     if (!canDecide && !(isRequester && choice === 'deny')) return;
     busy = choice;
-    failed = false;
+    failed = '';
     try {
       const note = text?.trim() || undefined;
       const a = await api.post<Approval>(`/api/approvals/${encodeURIComponent(view.id)}`, note ? { choice, comment: note } : { choice });
@@ -152,11 +152,34 @@
         // The pressed button is gone; focus goes to the line that replaced it.
         if (!document.activeElement || document.activeElement === document.body) (decidedLine ?? article)?.focus();
       }
-    } catch {
-      failed = true;
+    } catch (e) {
+      failed = await refusal(e);
     } finally {
       busy = '';
     }
+  }
+
+  // A refusal the server explains (decided, already voted, asked by you) won't
+  // go away by trying again: the card says why and shows where the request stands.
+  async function refusal(e: unknown): Promise<string> {
+    const retry = "Couldn't send your decision. Try again.";
+    if (!(e instanceof ApiError) || (e.status !== 403 && e.status !== 409)) return retry;
+    const id = view.id;
+    const fresh = await api.get<Approval>(`/api/approvals/${encodeURIComponent(id)}`).catch(() => null);
+    if (multi) void votes.load(id);
+    if (fresh) {
+      resolved = fresh;
+      approvals.upsert(fresh);
+      if (!isOpen(fresh)) {
+        onresolved?.(fresh);
+        // An inline card folds into its decided line, which has no room for the notice.
+        if (mode === 'inline') announce('This request was already decided.');
+        return 'This request was already decided.';
+      }
+    }
+    const why = e.message.trim();
+    if (!why) return retry;
+    return `${why[0].toUpperCase()}${why.slice(1)}${/[.?]$/.test(why) ? '' : '.'}`;
   }
 
   async function startDeny() {
@@ -243,7 +266,7 @@
 
     {#if mode !== 'readonly'}
       {#if failed}
-        <Notice class="mt-4" tone="danger" text="Couldn't send your decision. Try again." role="alert" />
+        <Notice class="mt-4" tone="danger" text={failed} role="alert" />
       {/if}
 
       {#if open && canDecide && denying}

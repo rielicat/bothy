@@ -112,8 +112,9 @@ export const api = {
   del: <T = void>(path: string) => request<T>('DELETE', path),
 };
 
+// A fix that is a route ("/settings/security/keys") is for a link, not for the sentence.
 export function errorText(e: unknown): string {
-  if (e instanceof ApiError) return e.fix ? `${e.message} ${e.fix}` : e.message;
+  if (e instanceof ApiError) return e.fix && !e.fix.startsWith('/') ? `${e.message} ${e.fix}` : e.message;
   if (e instanceof Error) return e.message;
   return String(e);
 }

@@ -58,6 +58,9 @@ const deploy = (extra: Partial<Approval> = {}) =>
 
 const buttons = (root: HTMLElement) => [...root.querySelectorAll<HTMLButtonElement>('button[data-choice]')];
 
+const refused = (status: number, code: string, message: string) =>
+  new Response(JSON.stringify({ error: { code, message } }), { status, headers: { 'Content-Type': 'application/json' } });
+
 describe('ApprovalCard', () => {
   let calls: Call[];
 
@@ -176,6 +179,26 @@ describe('ApprovalCard', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Run command' }));
     expect((await screen.findByRole('alert')).textContent).toContain("Couldn't send your decision. Try again.");
     expect(screen.getByRole('button', { name: 'Run command' }).getAttribute('aria-disabled')).toBeNull();
+  });
+
+  it('says a request was already decided instead of asking to try again, and shows how it ended', async () => {
+    const decided = approval({ status: 'allowed', choice: 'allow_once', decided_by: owner.id, decided_via: 'telegram', decided_at: '2026-10-12T10:05:00Z' });
+    calls = installApi({
+      override: (method, url) =>
+        method === 'POST' ? refused(409, 'conflict', 'already decided') : method === 'GET' && url === `/api/approvals/${decided.id}` ? decided : undefined,
+    });
+    render(ApprovalCard, { approval: approval(), mode: 'inbox' });
+    await fireEvent.click(screen.getByRole('button', { name: 'Run command' }));
+    expect((await screen.findByRole('alert')).textContent?.trim()).toBe('This request was already decided.');
+    expect(buttons(screen.getByRole('article'))).toHaveLength(0);
+  });
+
+  it("gives the server's reason when it refuses the decision", async () => {
+    calls = installApi({ override: (method) => (method === 'POST' ? refused(403, 'forbidden', 'you asked for this, so someone else has to approve it') : undefined) });
+    render(ApprovalCard, { approval: approval() });
+    await fireEvent.click(screen.getByRole('button', { name: 'Run command' }));
+    expect((await screen.findByRole('alert')).textContent?.trim()).toBe('You asked for this, so someone else has to approve it.');
+    expect(calls.some((c) => c.method === 'GET' && c.url === '/api/approvals/apr_01jshell00000000000000000')).toBe(true);
   });
 
   it('confirms "Always allow" in a dialog before creating a standing permission', async () => {
@@ -301,6 +324,18 @@ describe('ApprovalCard with several approvers', () => {
     render(ApprovalCard, { approval: deploy() });
     await waitFor(() => expect(votes.byId[id]?.approvals).toBe(0));
     expect(screen.getByRole('status').textContent).toContain('You asked for this, so 2 other people need to approve it.');
+  });
+
+  it('says you already voted when the server has your vote, and reloads the votes', async () => {
+    as(owner);
+    calls = installApi({ override: (method) => (method === 'POST' ? refused(409, 'conflict', 'you already voted') : undefined) });
+    render(ApprovalCard, { approval: deploy(), mode: 'inbox' });
+    await waitFor(() => expect(screen.getByRole('article').textContent).toContain('1 of 2'));
+    const loads = () => calls.filter((c) => c.url.endsWith('/votes')).length;
+    const before = loads();
+    await fireEvent.click(screen.getByRole('button', { name: 'Approve deploy' }));
+    expect((await screen.findByRole('alert')).textContent?.trim()).toBe('You already voted.');
+    expect(loads()).toBeGreaterThan(before);
   });
 
   it('tells someone who already approved that it waits for one more', async () => {
