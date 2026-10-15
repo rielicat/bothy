@@ -119,24 +119,27 @@ export function diffCounts(diff = ''): { a: number; r: number } {
 }
 
 // What only the result knows, read from the words Bothy's own tools write:
-// "Opened pull request #482: https://…", "Commented on acme/web#482: https://…",
-// "… Run 1003: https://…/actions/runs/1003. The outcome will be posted…" and
-// repo_changes' "3 changed files:" on its second line. Other tools' results
-// hold whatever a page or a command printed, so they never become a link.
+// "Opened pull request #482 as @octocat: https://…", "Commented on
+// acme/web#482: https://…", "Started deploy.yml on acme/web at main for
+// production. Run 1003: https://…/actions/runs/1003. Approved by …" and
+// repo_changes' "3 changed files not in a pull request yet:" on its second
+// line. Other tools' results hold whatever a page or a command printed, so
+// they never become a link.
 function fromResult(tool: string, s = ''): { n: string; files: number; link: string } {
   let n = '';
   let link = '';
   let files = 0;
   if (tool === 'repo_open_pr') {
-    const m = /^Opened pull request #(\d+): (\S+)/.exec(s);
+    const m = /^Opened pull request #(\d+)(?: as @\S+)?: (\S+)/.exec(s);
     if (m) [, n, link] = m;
   } else if (tool === 'github_comment') {
     link = /^Commented on \S+#\d+: (\S+)/.exec(s)?.[1] ?? '';
   } else if (tool === 'release_deploy') {
-    // The last one: the approvers' names come earlier in the sentence.
-    link = [...s.matchAll(/\. Run \d+: (\S+?)\.(?=\s|$)/g)].pop()?.[1] ?? '';
+    // Only right after the opening clause: the approvers' names, which anyone
+    // can set, come later.
+    link = /^Started \S+ on \S+ at \S+ for \S+\. Run \d+: (\S+?)\.(?=\s|$)/.exec(s)?.[1] ?? '';
   } else if (tool === 'repo_changes') {
-    files = Number(/^[^\n]*\n(\d+) changed files?:/.exec(s)?.[1] ?? 0);
+    files = Number(/^[^\n]*\n(\d+) changed files?(?: not in a pull request yet)?:/.exec(s)?.[1] ?? 0);
   }
   return { n, files, link: /^https:\/\//.test(link) ? link : '' };
 }

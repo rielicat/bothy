@@ -229,7 +229,7 @@ func TestDeployExecDispatchesAfterApproval(t *testing.T) {
 		t.Fatalf("dispatches = %+v", ds)
 	}
 	runs := f.gh.Runs()
-	if !strings.Contains(res.Content, "approved by Alice and Bob") || !strings.Contains(res.Content, "Run 9001") || strings.Contains(res.Content, "evil.example") {
+	if !strings.Contains(res.Content, "Approved by Alice and Bob") || !strings.Contains(res.Content, "Run 9001") || strings.Contains(res.Content, "evil.example") {
 		t.Fatalf("result = %q", res.Content)
 	}
 	deps := f.deploys()

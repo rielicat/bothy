@@ -130,7 +130,7 @@ releases:
 	if d.Run.Status != core.RunDone || len(d.ToolCalls) != 1 || d.ToolCalls[0].Status != core.TCOK || d.ToolCalls[0].Rule != "floor:release" {
 		t.Fatalf("run = %+v tool calls %+v", d.Run, d.ToolCalls)
 	}
-	if !strings.Contains(d.ToolCalls[0].ResultPreview, "approved by Alice and Bob") {
+	if !strings.Contains(d.ToolCalls[0].ResultPreview, "Approved by Alice and Bob") {
 		t.Fatalf("tool result = %q", d.ToolCalls[0].ResultPreview)
 	}
 	disp := gh.Dispatches()

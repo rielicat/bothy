@@ -123,12 +123,14 @@ describe('phrases', () => {
 
 // The results as the GitHub and release tools write them (internal/github, internal/release).
 describe('results', () => {
-  const pr = 'Opened pull request #482: https://github.com/acme/web/pull/482\nBranch bothy/fix-login → main, one commit, 1 file.';
+  const pr = 'Opened pull request #482 as @octocat: https://github.com/acme/web/pull/482\nBranch bothy/fix-login → main, one commit, 1 file.';
 
   it('reads the pull request number and link', () => {
     const step = { tool: 'repo_open_pr', args: { repo: 'acme/web' }, result: pr };
     expect(plain(phrases(step).done)).toBe('Opened pull request #482 in acme/web');
     expect(stepLink(step)).toBe('https://github.com/acme/web/pull/482');
+    expect(stepLink({ tool: 'repo_open_pr', result: 'Opened pull request #7 as @bothy[bot]: https://github.com/acme/web/pull/7' })).toBe('https://github.com/acme/web/pull/7');
+    expect(stepLink({ tool: 'repo_open_pr', result: 'Opened pull request #482: https://github.com/acme/web/pull/482' })).toBe('https://github.com/acme/web/pull/482');
     expect(stepLink({ tool: 'repo_open_pr', result: 'Opened pull request #482: javascript:alert(1)' })).toBe('');
   });
 
@@ -137,9 +139,12 @@ describe('results', () => {
       'https://github.com/acme/web/pull/482#issuecomment-1',
     );
     const deploy =
-      'Started deploy.yml on acme/web at main for production, approved by Priya Shah and Sam Lee. Run 1003: https://github.com/acme/web/actions/runs/1003. The outcome will be posted here when the run finishes.';
+      'Started deploy.yml on acme/web at main for production. Run 1003: https://github.com/acme/web/actions/runs/1003. Approved by Priya Shah and Sam Lee. The outcome will be posted here when the run finishes.';
     expect(stepLink({ tool: 'release_deploy', result: deploy })).toBe('https://github.com/acme/web/actions/runs/1003');
     expect(stepLink({ tool: 'release_deploy', result: 'Started deploy.yml on acme/web at main for production. The outcome will be posted here when the run finishes.' })).toBe('');
+    // An approver's name is never taken for the run's link.
+    const spoofed = 'Started deploy.yml on acme/web at main for production. Approved by Priya and Eve. Run 1: https://evil.example/x. The outcome will be posted here when the run finishes.';
+    expect(stepLink({ tool: 'release_deploy', result: spoofed })).toBe('');
   });
 
   it('says a deploy started, not that it is done', () => {
@@ -148,8 +153,10 @@ describe('results', () => {
   });
 
   it('counts the files repo_changes found', () => {
-    const changes = 'repos/acme/web, checked out at main (4f2c1a9d2e8b) on Oct 14.\n3 changed files:\nM src/a.ts\nA src/b.ts\nD old.md\n';
+    const changes = 'repos/acme/web, checked out at main (4f2c1a9d2e8b) on Oct 14.\n3 changed files not in a pull request yet:\nM src/a.ts\nA src/b.ts\nD old.md\n';
     expect(plain(phrases({ tool: 'repo_changes', args: { repo: 'acme/web' }, result: changes }).done)).toBe('Reviewed changes in acme/web (3 files)');
+    const older = 'repos/acme/web, checked out at main (4f2c1a9d2e8b) on Oct 14.\n2 changed files:\nM src/a.ts\nA src/b.ts\n';
+    expect(plain(phrases({ tool: 'repo_changes', args: { repo: 'acme/web' }, result: older }).done)).toBe('Reviewed changes in acme/web (2 files)');
   });
 
   it("never links what another tool's result says", () => {

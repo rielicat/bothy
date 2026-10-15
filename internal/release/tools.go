@@ -153,11 +153,13 @@ func (t *deployTool) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action
 	s.poke()
 	var b strings.Builder
 	fmt.Fprintf(&b, "Started %s on %s at %s for %s", p.Workflow, p.Repo, p.Ref, p.Environment)
-	if names := s.names(bg, voters); names != "" {
-		fmt.Fprintf(&b, ", approved by %s", names)
-	}
+	// The run comes before the approvers' names, which anyone can set, so
+	// the web UI takes its link only from right after the opening clause.
 	if run.ID != 0 {
 		fmt.Fprintf(&b, ". Run %d: %s", run.ID, run.URL)
+	}
+	if names := s.names(bg, voters); names != "" {
+		fmt.Fprintf(&b, ". Approved by %s", names)
 	}
 	if recErr != nil {
 		b.WriteString(". Bothy could not record the deploy, so it will not report the outcome; follow the run on GitHub.")
