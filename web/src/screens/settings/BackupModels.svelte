@@ -23,8 +23,8 @@
   function items(path: string, i: number, n: number): MenuItem[] {
     const c = chain(path);
     return [
-      { label: 'Move up', disabled: i <= 1, onselect: () => void save(path, moveBackup(c, i, -1)) },
-      { label: 'Move down', disabled: i >= n - 1, onselect: () => void save(path, moveBackup(c, i, 1)) },
+      { label: 'Move up', disabled: i <= 1, reason: "It's already first.", onselect: () => void save(path, moveBackup(c, i, -1)) },
+      { label: 'Move down', disabled: i >= n - 1, reason: "It's already last.", onselect: () => void save(path, moveBackup(c, i, 1)) },
       'separator',
       { label: 'Remove', onselect: () => void save(path, removeAt(c, i)) },
     ];

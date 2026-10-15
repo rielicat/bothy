@@ -71,6 +71,9 @@ describe('Settings → Models', () => {
     await fireEvent.change(add, { target: { value: 'anthropic/claude-haiku-4-5' } });
     await waitFor(() => expect(patches(calls)).toEqual([{ 'models.main': ['anthropic/claude-sonnet-4-6', 'ollama/qwen3:14b', 'anthropic/claude-haiku-4-5'] }]));
     await fireEvent.click(await screen.findByRole('button', { name: 'Options for Claude Haiku 4.5' }));
+    const down = await screen.findByRole('menuitem', { name: /^Move down/ });
+    expect(down.getAttribute('aria-disabled')).toBe('true');
+    expect(down.textContent).toContain("It's already last.");
     await fireEvent.click(await screen.findByRole('menuitem', { name: 'Move up' }));
     await waitFor(() => expect(patches(calls).at(-1)).toEqual({ 'models.main': ['anthropic/claude-sonnet-4-6', 'anthropic/claude-haiku-4-5', 'ollama/qwen3:14b'] }));
   });
