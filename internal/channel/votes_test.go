@@ -178,7 +178,7 @@ func TestMultiApproverRequesterMayWithdraw(t *testing.T) {
 			Approval: ap.ID, Status: core.ApprovalDenied, Choice: core.Deny, By: h.member.ID, Via: "telegram"}})
 		synctest.Wait()
 		edits := h.ch.EditedMessages()
-		if len(edits) == 0 || edits[len(edits)-1].Text != "**Deploy acme/web to staging?**\nCancelled by Mark in Telegram." {
+		if len(edits) == 0 || edits[len(edits)-1].Text != "✗ Cancelled by Mark in Telegram." {
 			t.Fatalf("decided card edits = %+v", edits)
 		}
 	})
