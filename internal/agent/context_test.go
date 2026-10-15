@@ -520,6 +520,32 @@ func TestAgentNameAndToneInFacts(t *testing.T) {
 	})
 }
 
+func TestFactsNameConnectedServices(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		tools := []core.Tool{&testTool{name: "echo"}, &testTool{name: "tool_search", lazy: true},
+			&testTool{name: "read_wiki", lazy: true, source: "mcp:deepwiki"}, &testTool{name: "ask_wiki", lazy: true, source: "mcp:deepwiki"},
+			&testTool{name: "create_issue", lazy: true, source: "mcp:linear"}}
+		h := newHarness(t, opts{tools: tools, steps: []fakes.LLMStep{{Text: []string{"hi"}}}})
+		defer h.close()
+		h.submit("hello")
+		synctest.Wait()
+		s2 := h.requests()[0].System[1].Text
+		if !strings.Contains(s2, "- Connected services: deepwiki, linear (find their actions with tool_search") {
+			t.Fatalf("facts:\n%s", s2)
+		}
+	})
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{tools: []core.Tool{&testTool{name: "read_wiki", lazy: true, source: "mcp:deepwiki"}},
+			steps: []fakes.LLMStep{{Text: []string{"hi"}}}})
+		defer h.close()
+		h.submit("hello")
+		synctest.Wait()
+		if s2 := h.requests()[0].System[1].Text; strings.Contains(s2, "Connected services") {
+			t.Fatalf("services named without tool_search to reach them:\n%s", s2)
+		}
+	})
+}
+
 func TestTurnContextNamesTheChannelOnce(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t, opts{steps: []fakes.LLMStep{{Text: []string{"one"}}, {Text: []string{"two"}}}})

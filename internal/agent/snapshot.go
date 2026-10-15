@@ -187,7 +187,11 @@ func (r *Runner) rebuildSnapshot(ctx context.Context, rs *runState, promote []st
 	if r.d.Skills != nil && (p == profileStandard || p == profileCompact) {
 		skills = r.d.Skills.Index(ctx)
 	}
-	s2 := r.renderS2(ctx, rs, p, window, rs.sel.SandboxOK, mem, pins, skills)
+	var services []string
+	if slices.Contains(names, "tool_search") {
+		services = r.connectedServices(env, rs.sel)
+	}
+	s2 := r.renderS2(ctx, rs, p, window, rs.sel.SandboxOK, services, mem, pins, skills)
 
 	legs := core.Taint(0)
 	if mem.Private {
@@ -226,7 +230,7 @@ func (r *Runner) rebuildSnapshot(ctx context.Context, rs *runState, promote []st
 
 // renderS2 builds the per-epoch system block: persona, facts, the user's
 // profile and memory, pins and the skills index (SPEC §5.6).
-func (r *Runner) renderS2(ctx context.Context, rs *runState, p profile, window int, sandbox bool,
+func (r *Runner) renderS2(ctx context.Context, rs *runState, p profile, window int, sandbox bool, services []string,
 	mem core.MemorySnapshot, pins []*core.Pin, skills []core.SkillMeta) string {
 	var b strings.Builder
 	section := func(tag, intro, body string) {
@@ -274,6 +278,16 @@ func (r *Runner) renderS2(ctx context.Context, rs *runState, p profile, window i
 	} else {
 		f.WriteString("- Sandbox: unavailable (shell, python and MCP stdio tools are off; never claim to run code)\n")
 	}
+	if len(services) > 0 {
+		names := make([]string, 0, min(len(services), maxServicesListed)+1)
+		for _, s := range services[:min(len(services), maxServicesListed)] {
+			names = append(names, attrValue(s))
+		}
+		if n := len(services) - maxServicesListed; n > 0 {
+			names = append(names, fmt.Sprintf("%d more", n))
+		}
+		fmt.Fprintf(&f, "- Connected services: %s (find their actions with tool_search and prefer them to fetching the service's website)\n", strings.Join(names, ", "))
+	}
 	fmt.Fprintf(&f, "- Model window: %d tokens\n", window)
 	fmt.Fprintf(&f, "- Profile: %s", p)
 	if p == profileTextOnly {
@@ -289,6 +303,24 @@ func (r *Runner) renderS2(ctx context.Context, rs *runState, p profile, window i
 	section("pins", "Pinned instructions. Follow them until the user removes them:", pb.String())
 	section("skills", "Skills you can load with skill_load when relevant:", r.skillsIndex(rs, p, skills))
 	return b.String()
+}
+
+// maxServicesListed bounds the connected services named in the facts.
+const maxServicesListed = 12
+
+// connectedServices names the MCP servers whose actions this run may use:
+// their actions are lazy, so without the names the model reaches for a
+// service's website before it thinks to search for its tools.
+func (r *Runner) connectedServices(env *core.ToolEnv, sel core.Selection) []string {
+	var out []string
+	for _, spec := range r.d.Tools.All() {
+		server, ok := strings.CutPrefix(spec.Source, "mcp:")
+		if ok && server != "" && !slices.Contains(out, server) && r.d.Tools.Available(spec.Def.Name, env, sel) {
+			out = append(out, server)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // skillsIndex lists skills within skills.index_budget_tokens, degrading to

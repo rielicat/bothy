@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -329,6 +330,7 @@ type testTool struct {
 	exec   bool
 	taint  core.Taint
 	lazy   bool
+	source string // "builtin" when empty
 	schema string
 	fs     bool // a workspace file tool (Manifest.FSPaths)
 	// planErr stands in for the registry's schema check (ErrInvalid).
@@ -352,7 +354,7 @@ func (t *testTool) Spec() core.ToolSpec {
 	}
 	return core.ToolSpec{
 		Def:      core.ToolDef{Name: t.name, Description: "test tool " + t.name, Schema: json.RawMessage(schema)},
-		Source:   "builtin",
+		Source:   cmp.Or(t.source, "builtin"),
 		Manifest: m,
 	}
 }

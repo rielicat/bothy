@@ -4889,7 +4889,8 @@ Web (`POST /api/sessions/{id}/messages`) and API (`/v1/chat/completions`) skip s
 [tools]   core tool specs from ToolRegistry.ForRun, sorted, frozen per epoch       ← breakpoint 1 (ToolsCache)
 [S1]      CONSTITUTION.md (embedded, versioned) + admin standing rules
 [S2]      persona (SOUL.md) · facts (principal display name, kind, timezone, channel,
-          sandbox available, model window, profile) · USER.md · MEMORY.md ·
+          sandbox available, connected MCP servers when tool_search is offered,
+          model window, profile) · USER.md · MEMORY.md ·
           pinned instructions · skills index                                         ← breakpoint 2 (CacheBreak)
 [M0]      <context-summary epoch="N"> … </context-summary>   (when epoch > 0)
 [M1..]    history from summary_upto+1, byte-identical to earlier calls              ← breakpoint 3 (CacheTail, rolling)
