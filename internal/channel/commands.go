@@ -457,8 +457,8 @@ func (h *Hub) cmdRefine(ctx context.Context, tg target, chat core.ChatRef, arg s
 		}
 		return "Refine is off for this conversation, as by default. /refine on turns it on."
 	}
-	how := fmt.Sprintf("I draft each answer %s and check each draft %s before I reply, so answers are slower and can cost up to %d times as much.",
-		times(c.Drafts), times(c.Depth), core.RefineMaxCalls(c.Drafts, c.Depth))
+	how := fmt.Sprintf("I draft each answer %s and check each draft %s before I reply, so answers are slower and cost about %d times as much.",
+		times(c.Drafts), times(c.Depth), core.RefineTypicalCalls(c.Drafts, c.Depth, c.EarlyStop))
 	if arg == core.RefineOn {
 		return "Refine is on for this conversation: " + how + " /refine off turns it off."
 	}

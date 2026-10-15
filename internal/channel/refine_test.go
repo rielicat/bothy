@@ -29,7 +29,7 @@ func TestRefineCommand(t *testing.T) {
 		h.wantVisible(ownerChat, "Refine is off for this conversation, as by default.")
 		h.dm(ownerChat, "/refine ON")
 		h.wantVisible(ownerChat, "I draft each answer 3 times and check each draft twice before I reply")
-		h.wantVisible(ownerChat, "can cost up to 21 times as much")
+		h.wantVisible(ownerChat, "cost about 12 times as much")
 		if setting() != core.RefineOn {
 			t.Fatalf("setting = %q after /refine on", setting())
 		}

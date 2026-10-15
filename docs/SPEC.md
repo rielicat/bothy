@@ -4811,7 +4811,7 @@ type ReleaseStore interface {
 | `/compact` | `Runner.Compact`, in the background so the chat's later messages are not held behind it: replies "Compacted." when done; while a task runs it says it will compact when that task is done and waits up to 15 min, then says it is still waiting; a second `/compact` for the same session is refused while one is in flight |
 | `/model <provider/model>`, `/model` | set or clear the session model override (stored as-is; the runner rejects an unknown ref at the next run with a notice and clears it) |
 | `/usage` | today's and this session's cost |
-| `/refine [on\|off\|default]` | v0.2: set this session's refine mode (owner or admin; `default` follows `agent.refine.enabled`); `/refine` alone shows the setting. Also in the Telegram menu and as a Slack `/bothy` subcommand |
+| `/refine [on\|off\|default]` | v0.2: set this session's refine mode (owner or admin; `default` follows `agent.refine.enabled`); `/refine` alone shows the setting, with the same typical cost as the composer's note (`core.RefineTypicalCalls`, the refine estimate's `multiplier`). Also in the Telegram menu and as a Slack `/bothy` subcommand |
 | `/help` | list commands |
 | `/pair CODE`, `/start CODE` | pairing (step 3) |
 

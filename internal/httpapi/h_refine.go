@@ -144,12 +144,7 @@ func (s *Server) refineEstimate(w http.ResponseWriter, r *http.Request, a core.A
 // draft in every round. Early stop is counted as ending halfway through the
 // rounds, since drafts that agree stop deepening.
 func refineWork(c config.Refine) (int, float64) {
-	drafts, depth := max(c.Drafts, 1), max(c.Depth, 0)
-	rounds := depth
-	if c.EarlyStop {
-		rounds = (depth + 1) / 2
-	}
-	return drafts, float64(drafts * (1 + 3*rounds))
+	return max(c.Drafts, 1), float64(core.RefineTypicalCalls(c.Drafts, c.Depth, c.EarlyStop))
 }
 
 // answerStepCost averages the cost of the chat's latest priced answer steps:
