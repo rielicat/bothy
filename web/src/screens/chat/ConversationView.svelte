@@ -17,6 +17,7 @@
   import NewChat from '../../components/chat/NewChat.svelte';
   import { appName, people } from '../../components/chat/people.svelte';
   import PinnedDrawer from '../../components/chat/PinnedDrawer.svelte';
+  import { refineLabel, refineStep, type RefineProgress } from '../../components/chat/refine';
   import { stepOf, type StepView } from '../../components/chat/steps';
   import Icon from '../../components/Icon.svelte';
   import Markdown from '../../components/Markdown.svelte';
@@ -33,9 +34,10 @@
   import { tooltip } from '../../components/ui/tooltip';
   import { fill, prefix, type Phrase } from '../../lib/activity';
   import { api, ApiError } from '../../lib/api/client';
-  import type { Approval, ChannelIdentity, RefineEstimate, SandboxInfo, Session, SubmitResult } from '../../lib/api/types.gen';
+  import type { Approval, ChannelIdentity, RefineData, RefineEstimate, SandboxInfo, Session, SubmitResult } from '../../lib/api/types.gen';
   import { clock, estimate, fullTime, money } from '../../lib/format';
   import { router } from '../../lib/router.svelte';
+  import { events } from '../../lib/sse.svelte';
   import { session as auth } from '../../lib/stores/session.svelte';
   import { topBarActions } from '../../lib/stores/ui.svelte';
   import { buildBlocks, type Block } from '../../lib/transcript';
@@ -110,6 +112,13 @@
   });
   const latestReply = $derived([...blocks].reverse().find((b) => b.kind === 'assistant' && b.text)?.key ?? '');
   const lastUser = $derived([...conv.items].reverse().find((i) => i.kind === 'user'));
+  let refining = $state<RefineProgress | null>(null);
+  $effect(() =>
+    events.on('run.refine', (e) => {
+      if (e.session_id === id && e.run_id) refining = refineStep(refining, e.run_id, e.data as RefineData);
+    }),
+  );
+  const workingLabel = $derived(refining && refining.run === liveRun ? refineLabel(refining) : 'Working…');
   const working = $derived(
     !!conv.live && conv.running && !conv.live.text && !conv.live.tools.length && !conv.messages.some((m) => m.role === 'assistant' && m.run_id === conv.live?.id),
   );
@@ -691,7 +700,7 @@
 
       {#if conv.queued.length}<div class="mt-3"><ChatNotice text="Bothy will read this when it finishes the current step." /></div>{/if}
       {#if working}
-        <p class="mt-3 flex min-h-8 items-center gap-2 text-body text-muted" role="status"><Spinner size={16} />Working…</p>
+        <p class="mt-3 flex min-h-8 items-center gap-2 text-body text-muted" role="status"><Spinner size={16} />{workingLabel}</p>
       {/if}
       {#if outcome}
         <div class="mt-3"><ChatNotice {...outcome} alert={!!outcome.error && conv.finished?.run_id === conv.outcome?.run_id} /></div>

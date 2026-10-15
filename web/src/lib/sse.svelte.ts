@@ -23,6 +23,7 @@ export const eventTypes: EventType[] = [
   'run.usage',
   'run.parked',
   'run.finished',
+  'run.refine',
   'approval.requested',
   'approval.resolved',
   'approval.voted',
