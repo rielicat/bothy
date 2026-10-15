@@ -148,8 +148,8 @@ func (s *Server) skillItems(ctx context.Context, items []dto.InboxItem) ([]dto.I
 			it.Question, it.Summary = "Review changes to the “"+m.Name+"” skill", "Changed since it was approved"
 		case core.SkillPending:
 			it.Question = "Review the new “" + m.Name + "” skill"
-			if m.InstalledBy != "" {
-				it.Summary = "Added by " + s.userName(ctx, m.InstalledBy)
+			if by := s.userName(ctx, m.InstalledBy); by != "" {
+				it.Summary = "Added by " + by
 			}
 		default:
 			continue
@@ -199,9 +199,13 @@ func (s *Server) groupItems(ctx context.Context, a core.Actor, items []dto.Inbox
 			continue
 		}
 		by := s.userName(ctx, sp.Owner)
-		items = append(items, dto.InboxItem{ID: "group:" + string(sp.Principal), Type: dto.InboxGroupChat,
-			Question: "Bothy was added to " + sp.Title + " in " + appTitle(sp.Chat.Channel), Summary: "Added by " + by,
-			ForYou: isAdmin(a) || sp.Owner == a.User, CreatedAt: sp.CreatedAt, Group: &dto.InboxGroup{Space: *sp, AddedBy: by}})
+		it := dto.InboxItem{ID: "group:" + string(sp.Principal), Type: dto.InboxGroupChat,
+			Question: "Bothy was added to " + sp.Title + " in " + appTitle(sp.Chat.Channel),
+			ForYou:   isAdmin(a) || sp.Owner == a.User, CreatedAt: sp.CreatedAt, Group: &dto.InboxGroup{Space: *sp, AddedBy: by}}
+		if by != "" {
+			it.Summary = "Added by " + by
+		}
+		items = append(items, it)
 	}
 	return items, nil
 }

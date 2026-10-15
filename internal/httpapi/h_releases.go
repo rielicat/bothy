@@ -90,6 +90,8 @@ func (s *Server) releaseDeploys(w http.ResponseWriter, r *http.Request, a core.A
 	return ok(w, listOf(s.namer(r.Context(), a.Viewer).deployViews(ds), p, func(d dto.DeployView) int64 { return ms(d.CreatedAt) }))
 }
 
+// userName is "" for a user that no longer exists (deleted with purge, or
+// named in config by mistake), so a user id never reaches a person.
 func (s *Server) userName(ctx context.Context, id core.UserID) string {
 	if id == "" {
 		return ""
@@ -97,18 +99,21 @@ func (s *Server) userName(ctx context.Context, id core.UserID) string {
 	u, err := s.d.Store.Users().Get(ctx, id)
 	switch {
 	case err != nil:
-		return string(id)
+		return ""
 	case u.DisplayName != "":
 		return u.DisplayName
 	}
 	return u.Username
 }
 
-// approverText describes who may vote: named users, then roles.
+// approverText describes who may vote: named users, then roles. A user
+// that no longer exists can't vote, so it isn't named.
 func (s *Server) approverText(ctx context.Context, r core.ApproverReq) string {
 	var parts []string
 	for _, u := range r.Users {
-		parts = append(parts, s.userName(ctx, u))
+		if name := s.userName(ctx, u); name != "" {
+			parts = append(parts, name)
+		}
 	}
 	roles := slices.Clone(r.Roles)
 	slices.Sort(roles)

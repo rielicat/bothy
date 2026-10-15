@@ -3418,7 +3418,7 @@ export interface ReleaseEnvironment {
 export interface ReleaseApprover {
   kind: string; // user | role
   id: string; // user id or role name
-  name: string; // display name, or the role
+  name: string; // display name ("" for a user that no longer exists), or the role
 }
 
 //////////

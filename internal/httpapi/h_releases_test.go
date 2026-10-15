@@ -110,3 +110,24 @@ func TestReleasesRoutes(t *testing.T) {
 	expect(t, h.do(http.MethodGet, "/api/releases/deploys?limit=0", nil, h.admin), http.StatusBadRequest)
 	expect(t, h.do(http.MethodGet, "/api/releases", nil, nil), http.StatusUnauthorized)
 }
+
+// A user that no longer exists is named nowhere by id: no name on the
+// environment's approver and left out of who can still vote.
+func TestReleasesWithRemovedApprover(t *testing.T) {
+	gone := core.UserID(core.NewID(core.PrefixUser))
+	h := newHarness(t, func(c *config.Config) {
+		c.Releases.Environments = []config.ReleaseEnv{{Name: "staging", Repo: "acme/web", Workflow: "deploy.yml", RefPattern: "main",
+			Approvers: []string{string(gone), "admin"}, Required: 1}}
+	}).setup()
+	r := decodeAs[dto.Releases](t, h.do(http.MethodGet, "/api/releases", nil, h.admin))
+	if len(r.Environments) != 1 || len(r.Environments[0].Approvers) != 2 ||
+		r.Environments[0].Approvers[0] != (dto.ReleaseApprover{Kind: "user", ID: string(gone)}) {
+		t.Fatalf("approvers = %+v", r.Environments)
+	}
+
+	ap := h.multiApproval(h.member, core.ApproverReq{Users: []core.UserID{gone, h.owner.user}, Required: 2, Requester: h.member.user})
+	v := decodeAs[dto.ApprovalVotes](t, h.do(http.MethodGet, "/api/approvals/"+string(ap.ID)+"/votes", nil, h.owner))
+	if v.Approvers != "owner" {
+		t.Fatalf("approvers = %q; want only the owner", v.Approvers)
+	}
+}

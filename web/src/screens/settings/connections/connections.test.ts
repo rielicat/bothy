@@ -84,6 +84,7 @@ describe('tool and GitHub status words', () => {
     ];
     expect(approverLine({ required: 2, approvers })).toBe('2 approvals from Alex Kim, Priya Rao, any admin');
     expect(approverLine({ required: 0, approvers: [approvers[1]] })).toBe('1 approval from any admin');
+    expect(approverLine({ required: 1, approvers: [{ kind: 'user', id: 'usr_gone', name: '' }] })).toBe('1 approval from a removed person');
   });
 
   it('says when a repository was last read', () => {

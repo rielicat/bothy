@@ -102,7 +102,8 @@ const roleWords: Record<string, string> = { admin: 'any admin', owner: 'the owne
 
 /** "2 approvals from Alex Kim, Priya Rao, any admin". */
 export function approverLine(env: Pick<ReleaseEnvironment, 'required' | 'approvers'>): string {
-  const people = env.approvers.filter((a) => a.kind !== 'role').map((a) => a.name || a.id);
+  // The server sends no name for a user that no longer exists.
+  const people = env.approvers.filter((a) => a.kind !== 'role').map((a) => a.name || 'a removed person');
   const roles = env.approvers.filter((a) => a.kind === 'role').map((a) => roleWords[a.id] ?? a.name);
   return `${plural(Math.max(env.required, 1), 'approval')} from ${[...people, ...roles].join(', ')}`;
 }

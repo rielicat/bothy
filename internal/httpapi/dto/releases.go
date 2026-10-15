@@ -66,5 +66,5 @@ type ReleaseEnvironment struct {
 type ReleaseApprover struct {
 	Kind string `json:"kind"` // user | role
 	ID   string `json:"id"`   // user id or role name
-	Name string `json:"name"` // display name, or the role
+	Name string `json:"name"` // display name ("" for a user that no longer exists), or the role
 }
