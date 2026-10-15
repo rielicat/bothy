@@ -37,7 +37,7 @@
           detail.answer ? null : api.get<MessagePage>(`/api/sessions/${encodeURIComponent(run.session_id)}/messages?limit=100`).catch(() => null),
         ]);
         const scheduled = run.trigger === 'schedule' || run.trigger === 'heartbeat';
-        title = scheduled ? run.schedule_name || schedule?.name || 'A schedule' : run.chat_title || 'A chat';
+        title = scheduled ? run.schedule_name || schedule?.name || (run.trigger === 'heartbeat' ? 'Check-in' : run.schedule_id ? 'A schedule' : 'Deleted schedule') : run.chat_title || 'A chat';
         chatOrigin = run.origin;
         const reply = page?.messages?.filter((m) => m?.run_id === run.id && m.role === 'assistant').pop();
         answer = detail.answer ?? reply?.parts?.map((p) => (p.t === 'text' ? (p.text ?? '') : '')).join('') ?? '';

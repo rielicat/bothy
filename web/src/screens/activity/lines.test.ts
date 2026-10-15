@@ -157,5 +157,7 @@ describe('schedules and tasks in words', () => {
     expect(v.lead).toEqual(['Someone', 'Web']);
     expect(JSON.stringify(v)).not.toMatch(/usr_|ses_|run_/);
     expect(taskView({ ...(run as object), trigger: 'schedule', schedule_name: 'Daily standup summary' } as never, l)).toMatchObject({ title: 'Daily standup summary', lead: ['Schedule'] });
+    // A run whose schedule was deleted keeps no name of its own.
+    expect(taskView({ ...(run as object), trigger: 'schedule', schedule_id: undefined, schedule_name: undefined } as never, l)).toMatchObject({ title: 'Deleted schedule' });
   });
 });

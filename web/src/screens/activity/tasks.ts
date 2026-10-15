@@ -73,7 +73,8 @@ export function taskView(r: TaskRun, l: TaskLookups): TaskView {
   if (scheduled) {
     // A finished schedule says where its result went instead of counting steps.
     if (r.status === 'done' && schedule) out = { text: `Posted ${deliverTo(schedule.deliver, l.chats)}`, tone: 'muted' };
-    const title = r.schedule_name || schedule?.name || (r.trigger === 'heartbeat' ? 'Check-in' : 'A schedule');
+    // A run keeps no name of its own: once its schedule is deleted, say so.
+    const title = r.schedule_name || schedule?.name || (r.trigger === 'heartbeat' ? 'Check-in' : r.schedule_id ? 'A schedule' : 'Deleted schedule');
     return { title, lead: ['Schedule'], outcome: out };
   }
   return {
