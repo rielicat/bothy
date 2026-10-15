@@ -25,6 +25,7 @@ describe('refusalReason', () => {
       'Denied by policy (default:local_write): local_write actions are denied by the policy defaults',
       'Denied by policy (floor:unavailable): shell is not available in schedule runs',
       'Denied by policy (floor:invalid): the tool call could not be checked: unexpected EOF',
+      'Denied by policy (rule:no-pipe): matched policy rule no-pipe',
     ]) {
       expect(refusalReason(r)).toBe("Bothy's rules don't allow this.");
     }

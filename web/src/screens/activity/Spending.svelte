@@ -3,8 +3,8 @@
   import { Disclosure, EmptyState, LinkButton, ProgressBar, Segmented } from '../../components/ui';
   import { api, qs } from '../../lib/api/client';
   import type { ModelInfo, Schedule, UsageResp, UsageToday } from '../../lib/api/types.gen';
-  import { money } from '../../lib/format';
-  import { friendlyModel, provider } from '../../lib/providers';
+  import { money, serviceName } from '../../lib/format';
+  import { friendlyModel, provider, providers } from '../../lib/providers';
   import { router } from '../../lib/router.svelte';
   import { session } from '../../lib/stores/session.svelte';
   import Activity from './Activity.svelte';
@@ -72,7 +72,9 @@
         // Model rows carry no name, and a model replaced since is no longer listed; its key stays in Technical details.
         const [providerId, ...rest] = r.key.split('/');
         const info = model(r.key);
-        const name = `${info?.display_name || friendlyModel(rest.join('/'))} · ${info?.provider_name || provider(providerId).name}`;
+        // An id the built-in list doesn't know names its own provider (a removed or custom one), not "Other server".
+        const known = providers.some((p) => p.id === providerId);
+        const name = `${info?.display_name || friendlyModel(rest.join('/'))} · ${info?.provider_name || (known ? provider(providerId).name : serviceName(providerId))}`;
         return { key: r.key, name, amount: money(r.cost_micros, { local: info?.local, known: r.price_known }), unpriced: !r.price_known && !info?.local };
       }
       const name = r.name ?? labels[g]?.get(r.key) ?? (g === 'session' ? 'A chat' : g === 'schedule' ? 'A schedule' : 'Someone');

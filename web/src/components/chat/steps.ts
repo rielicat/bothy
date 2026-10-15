@@ -28,6 +28,7 @@ const technical = [
   /^the tool call could not be checked/,
   /^self-modification /,
   /^memory writes are off /,
+  /^matched policy rule /,
 ];
 
 /**

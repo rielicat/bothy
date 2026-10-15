@@ -42,6 +42,7 @@ describe('describeGrant', () => {
     expect(describeGrant(a('web_fetch', 'http', {}, { host: 'api.example.com', port: 443 }))).toBe('contacting api.example.com');
     expect(describeGrant(a('net_allow', 'net', {}, { host: 'db.internal', port: 5432 }))).toBe('contacting db.internal:5432');
     expect(describeGrant(a('message', 'send', {}, { recipient: 'slack:C1' }))).toBe('sending messages to this Slack chat');
+    expect(describeGrant(a('mcp__github__create_issue', 'mcp', {}, { mcp_server: 'github', recipient: 'acme/web' }))).toBe('using GitHub with acme/web');
     expect(describeGrant(a('skill', 'generic', { name: 'x' }))).toBe('this exact request');
     expect(describeGrant(undefined)).toBe('this exact request');
   });

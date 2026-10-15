@@ -94,7 +94,7 @@ export function describeGrantParts(a: Action | undefined): GrantPart[] {
       return app ? [`sending messages to this ${capital(app)} chat`] : [`sending messages to ${r}`];
     }
     case 'mcp':
-      if (a.recipient) return [`using ${capital(a.mcp_server ?? 'this tool')} with ${a.recipient}`];
+      if (a.recipient) return [`using ${a.mcp_server ? serviceName(a.mcp_server) : 'this tool'} with ${a.recipient}`];
       break;
   }
   return [EXACT_GRANT];
