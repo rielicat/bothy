@@ -496,7 +496,9 @@ func TestFollowerEndings(t *testing.T) {
 		status core.DeployStatus
 		want   string
 	}{
-		{"failure", func(f *fixture, run int64) { f.gh.SetRun(run, "completed", "failure") }, core.DeployFailed, "failed (GitHub says “failure”)"},
+		{"failure", func(f *fixture, run int64) { f.gh.SetRun(run, "completed", "failure") }, core.DeployFailed, "The deploy of acme/web to staging failed. View the logs on GitHub: "},
+		{"timed out", func(f *fixture, run int64) { f.gh.SetRun(run, "completed", "timed_out") }, core.DeployFailed, "The deploy of acme/web to staging timed out on GitHub."},
+		{"startup failure", func(f *fixture, run int64) { f.gh.SetRun(run, "completed", "startup_failure") }, core.DeployFailed, "staging failed. View the logs"},
 		{"cancelled", func(f *fixture, run int64) { f.gh.SetRun(run, "completed", "cancelled") }, core.DeployFailed, "was cancelled on GitHub"},
 		{"run deleted", func(f *fixture, run int64) { f.gh.DeleteRun(run) }, core.DeployUnknown, "no longer knows"},
 		{"followed too long", func(f *fixture, run int64) { f.clock.Advance(7 * time.Hour) }, core.DeployUnknown, "stopped following it"},
@@ -658,9 +660,17 @@ func TestTokenCheck(t *testing.T) {
 		t.Fatalf("findings with a token = %+v", got)
 	}
 	f.svc.d.Vault = fakes.NewVault(nil)
-	if got := check.Run(f.ctx); len(got) != 1 || got[0].ID != "releases.github_token" || !strings.Contains(got[0].Detail, "github_token") {
+	got := check.Run(f.ctx)
+	if len(got) != 1 || got[0].ID != "releases.github_token" || !strings.Contains(got[0].Detail, "github_token") ||
+		got[0].Title != "Deploys to staging can't start because Bothy has no GitHub access to its repository" {
 		t.Fatalf("findings without the secret = %+v", got)
 	}
+	f.cfg.Releases.Environments = append(f.cfg.Releases.Environments, config.ReleaseEnv{Name: "production", Repo: "acme/web"})
+	if got := check.Run(f.ctx); len(got) != 1 ||
+		got[0].Title != "Deploys to staging and production can't start because Bothy has no GitHub access to their repositories" {
+		t.Fatalf("findings for two environments = %+v", got)
+	}
+	f.cfg.Releases.Environments = f.cfg.Releases.Environments[:1]
 	f.cfg.Releases.GitHubToken = ""
 	if got := check.Run(f.ctx); len(got) != 1 || !strings.Contains(got[0].Detail, "empty") {
 		t.Fatalf("findings with no reference = %+v", got)

@@ -224,7 +224,8 @@ func (s *Service) finish(ctx context.Context, d *core.Deploy, st core.DeployStat
 
 // outcomeText is the message posted when Bothy stops following a deploy
 // (docs/design/ui.md §8.7). It never names a workflow step: step names are
-// written by whoever can push to the repository.
+// written by whoever can push to the repository. GitHub's conclusion is an
+// API code, so only the ones worth telling apart get words of their own.
 func outcomeText(d *core.Deploy, followed, took time.Duration) string {
 	what := d.Repo + " to " + d.Environment
 	link := ""
@@ -236,8 +237,12 @@ func outcomeText(d *core.Deploy, followed, took time.Duration) string {
 		return fmt.Sprintf("Deployed %s in %s. View it on GitHub:%s", what, humanDuration(took), link)
 	case d.Status == core.DeployFailed && d.Conclusion == "cancelled":
 		return fmt.Sprintf("The deploy of %s was cancelled on GitHub. View it on GitHub:%s", what, link)
+	case d.Status == core.DeployFailed && d.Conclusion == "timed_out":
+		return fmt.Sprintf("The deploy of %s timed out on GitHub. View the logs on GitHub:%s", what, link)
+	case d.Status == core.DeployFailed && d.Conclusion == "action_required":
+		return fmt.Sprintf("The deploy of %s stopped because GitHub needs someone to act on it. View it on GitHub:%s", what, link)
 	case d.Status == core.DeployFailed && d.Conclusion != "":
-		return fmt.Sprintf("The deploy of %s failed (GitHub says “%s”). View the logs on GitHub:%s", what, d.Conclusion, link)
+		return fmt.Sprintf("The deploy of %s failed. View the logs on GitHub:%s", what, link)
 	case d.Status == core.DeployFailed:
 		return fmt.Sprintf("GitHub didn't start the deploy of %s. Check the workflow and try again. Details: %s", what, d.Error)
 	case d.WorkflowRun == 0:

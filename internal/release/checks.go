@@ -32,8 +32,12 @@ func (c tokenCheck) Run(ctx context.Context) []core.Finding {
 	if len(uncovered) == 0 {
 		return nil
 	}
+	envs, whose := uncovered[0], "its repository"
+	if n := len(uncovered); n > 1 {
+		envs, whose = strings.Join(uncovered[:n-1], ", ")+" and "+uncovered[n-1], "their repositories"
+	}
 	f := core.Finding{ID: "releases.github_token", Area: "releases", Severity: core.SevMedium,
-		Title: "Deploys cannot start: no GitHub token", Fix: "/settings/vault"}
+		Title: "Deploys to " + envs + " can't start because Bothy has no GitHub access to " + whose, Fix: "/settings/vault"}
 	which := "The repositories of " + strings.Join(uncovered, ", ") + " are on no GitHub connection's allowlist"
 	switch {
 	case strings.TrimSpace(r.GitHubToken) == "":
