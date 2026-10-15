@@ -47,9 +47,21 @@ describe('Settings → Models', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Quick tasks model' });
     const list = within(dialog).getByRole('listbox');
     await fireEvent.keyDown(list, { key: 'Home' });
-    expect(list.getAttribute('aria-activedescendant')).toBe(within(list).getAllByRole('option')[0].id);
+    const options = within(list).getAllByRole('option');
+    expect(list.getAttribute('aria-activedescendant')).toBe(options[0].id);
+    const target = options.findIndex((o) => /Claude Sonnet 4\.6/.test(o.textContent ?? ''));
+    for (let i = 0; i < target; i++) await fireEvent.keyDown(list, { key: 'ArrowDown' });
+    expect(list.getAttribute('aria-activedescendant')).toBe(options[target].id);
     await fireEvent.keyDown(list, { key: 'Enter' });
     await waitFor(() => expect(patches(calls)).toEqual([{ 'models.fast': ['anthropic/claude-sonnet-4-6', 'ollama/qwen3:4b'] }]));
+  });
+
+  it("lists a provider's models recommended first, then by name", async () => {
+    await fireEvent.click(screen.getByRole('button', { name: 'Change main model' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Main model' });
+    const names = within(dialog).getAllByRole('option').map((o) => o.textContent?.trim() ?? '');
+    const anthropic = names.filter((n) => n.startsWith('Claude'));
+    expect(anthropic).toEqual([...anthropic].sort((a, b) => Number(b.includes('recommended')) - Number(a.includes('recommended')) || a.localeCompare(b)));
   });
 
   it('reorders and adds backup models', async () => {

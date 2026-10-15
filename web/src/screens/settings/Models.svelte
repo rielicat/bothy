@@ -46,12 +46,11 @@
     const refs = models.filter((m) => ids.includes(m.ref.provider) && enabled(m.ref.provider)).map((m) => `${m.ref.provider}/${m.ref.model}`);
     for (const r of [...slots['models.main'], ...slots['models.fast']]) if (!refs.includes(r) && ids.includes(splitRef(r).provider)) refs.push(r);
     const order = (r: string) => ids.indexOf(splitRef(r).provider);
+    const recommended = (r: string) => !!models.find((x) => `${x.ref.provider}/${x.ref.model}` === r)?.recommended;
+    // Within a provider: recommended first, then by name, not by id.
     return refs
-      .sort((a, b) => order(a) - order(b))
-      .map((r) => {
-        const m = models.find((x) => `${x.ref.provider}/${x.ref.model}` === r);
-        return { value: r, label: label(r).name + (m?.recommended ? ' (recommended)' : ''), group: label(r).provider };
-      });
+      .sort((a, b) => order(a) - order(b) || Number(recommended(b)) - Number(recommended(a)) || label(a).name.localeCompare(label(b).name))
+      .map((r) => ({ value: r, label: label(r).name + (recommended(r) ? ' (recommended)' : ''), group: label(r).provider }));
   });
 
   const savers: Record<Slot, Saver> = { 'models.main': new Saver(), 'models.fast': new Saver() };
