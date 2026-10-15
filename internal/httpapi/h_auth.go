@@ -1,10 +1,12 @@
 package httpapi
 
 import (
+	"cmp"
 	"context"
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/rielicat/bothy/internal/core"
@@ -377,7 +379,36 @@ func (s *Server) approvePairing(w http.ResponseWriter, r *http.Request, a core.A
 	if err != nil {
 		return err
 	}
+	s.welcomeApproved(r.Context(), id)
 	return ok(w, id)
+}
+
+// welcomeApproved tells someone an admin let in that they can write now;
+// otherwise their last word from Bothy is "ask an admin to approve code …".
+func (s *Server) welcomeApproved(ctx context.Context, id *core.ChannelIdentity) {
+	if s.d.Hub == nil || id == nil || id.DMChat == "" {
+		return
+	}
+	hi := "Hi!"
+	if id.User != "" {
+		if u, err := s.d.Store.Users().Get(ctx, id.User); err == nil {
+			if n := strings.Map(func(r rune) rune {
+				if strings.ContainsRune("*_`[]~>#|\\", r) {
+					return -1
+				}
+				return r
+			}, cmp.Or(u.DisplayName, u.Username)); n != "" {
+				hi = "Hi " + n + "!"
+			}
+		}
+	}
+	text := hi + " An admin approved you, so you can write to me here any time; /help lists the commands."
+	chat := core.ChatRef{Channel: id.Channel, ChatID: id.DMChat, Kind: core.ChatDM}
+	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	if _, err := s.d.Hub.Send(sctx, chat, text); err != nil {
+		s.log.Warn("welcome after approving a sender failed", "channel", id.Channel, "err", err)
+	}
 }
 
 func (s *Server) listIdentities(w http.ResponseWriter, r *http.Request, a core.Actor) error {

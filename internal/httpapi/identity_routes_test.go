@@ -1,7 +1,9 @@
 package httpapi
 
 import (
+	"context"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/rielicat/bothy/internal/core"
@@ -43,4 +45,27 @@ func TestScheduleGrantsRefuseTokens(t *testing.T) {
 		http.StatusForbidden)
 	expect(t, h.do("PATCH", "/api/schedules/"+string(id), dto.ScheduleUpsertReq{Schedule: core.Schedule{Name: "weather"}, Grants: grants}, h.member),
 		http.StatusOK)
+}
+
+// Someone an admin lets in hears so in their chat; their last word from
+// Bothy was "ask an admin to approve code …".
+func TestApprovedSenderIsWelcomed(t *testing.T) {
+	h := newHarness(t).setup()
+	ctx := context.Background()
+	ident := core.ChannelIdentity{Channel: "telegram", ExternalID: "777", DMChat: "777", DisplayName: "Guest"}
+	notice, err := h.auth.SenderNotice(ctx, ident)
+	if err != nil || !notice.Reply {
+		t.Fatalf("notice = %+v %v", notice, err)
+	}
+	expect(t, h.do("POST", "/api/pairing/approve", dto.PairingApproveReq{Code: notice.Code.Code, As: "link", UserID: h.member.user}, h.owner),
+		http.StatusOK)
+	var sent []string
+	for _, s := range h.hub.Sent {
+		if strings.HasPrefix(s, "telegram:777:") {
+			sent = append(sent, s)
+		}
+	}
+	if len(sent) != 1 || !strings.Contains(sent[0], "Hi member! An admin approved you") {
+		t.Fatalf("welcome = %q", sent)
+	}
 }

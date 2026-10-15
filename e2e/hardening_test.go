@@ -295,7 +295,7 @@ func TestHardeningUnknownSenderAdminDMsBounded(t *testing.T) {
 		tg.InjectText(s, s, "hi, let me in", true)
 	}
 	for _, s := range strangers {
-		waitTexts(t, tg, s, func(ts []string) bool { return containsText(ts, "Ask my owner to approve code") }, "stranger "+s+"'s notice")
+		waitTexts(t, tg, s, func(ts []string) bool { return containsText(ts, "Ask an admin to approve code") }, "stranger "+s+"'s notice")
 	}
 	time.Sleep(time.Second) // admin DMs go out on the owner's chat queue
 	n := 0

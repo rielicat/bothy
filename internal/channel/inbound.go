@@ -189,7 +189,7 @@ func (h *Hub) unknownDM(ctx context.Context, a *adapter, in core.Inbound, ident 
 	if !notice.Reply {
 		return
 	}
-	h.replyAsync(in.Chat, "I'm a private assistant. Ask my owner to approve code "+escapeMD(notice.Code.Code)+".")
+	h.replyAsync(in.Chat, "I only work with people on this team. Ask an admin to approve code "+escapeMD(notice.Code.Code)+".")
 	h.notifyUnknownSender(ctx, a.name, ident)
 	h.inboxChanged("sender:"+a.name+":"+in.SenderID, "")
 }

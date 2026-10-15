@@ -240,7 +240,7 @@ func TestUnknownSender(t *testing.T) {
 		e.tg.Inject(telegramtest.Inbound{ChatID: stranger, SenderID: stranger, FirstName: "Mallory", Username: "mallory", Text: text})
 	}
 	notice := e.tgMessage(t, stranger, "the approve-sender notice", func(telegramtest.Message) bool { return true })
-	if !regexp.MustCompile(`^I'm a private assistant\. Ask my owner to approve code [0-9A-Z]{4}-[0-9A-Z]{4}\.$`).MatchString(notice.Text) {
+	if !regexp.MustCompile(`^I only work with people on this team\. Ask an admin to approve code [0-9A-Z]{4}-[0-9A-Z]{4}\.$`).MatchString(notice.Text) {
 		t.Fatalf("notice = %q", notice.Text)
 	}
 	e.tgMessage(t, chOwnerTG, "the admin's new-sender notice", func(m telegramtest.Message) bool {
