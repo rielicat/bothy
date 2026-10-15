@@ -163,7 +163,11 @@ describe('plainWarnings', () => {
   it('rewrites the gateway warnings in plain words', () => {
     const w = (warnings: string[], a?: Action) => plainWarnings(ap(a, { card: { ...ap(a).card, warnings } }));
     expect(w(['First contact with api.example.com.'], act('web_fetch', 'http', 'external_send', {}))).toEqual(["Bothy hasn't sent data to api.example.com before."]);
-    expect(w(['First contact with github:acme/web.'], act('repo_open_pr', 'send', 'external_send', {}))).toEqual(['This is the first pull request Bothy opens in acme/web.']);
+    expect(w(['First contact with github:acme/web.'], act('repo_open_pr', 'send', 'external_send', {}))).toEqual(['This is the first pull request Bothy opens in acme/web for you.']);
+    const pr = act('repo_open_pr', 'send', 'external_send', {});
+    expect(plainWarnings(ap(pr, { principal_id: 'spc_1', card: { ...ap(pr).card, warnings: ['First contact with github:acme/web.'] } }))).toEqual([
+      'This is the first pull request Bothy opens in acme/web for this group chat.',
+    ]);
     expect(w(['First contact with telegram:55.'], act('message', 'send', 'external_send', {}, { recipient: 'telegram:55' }))).toEqual(["Bothy hasn't sent anything to telegram:55 before."]);
     expect(w(['This session has seen private data and untrusted content; anything sent out could leak it.'])).toEqual([
       'This chat has seen private information and content from outside. Check carefully before letting anything leave.',

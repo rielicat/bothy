@@ -19,8 +19,9 @@ const (
 	toolNetAllow = "net_allow"
 	metaPaused   = "paused"
 
-	floorTrifecta  = "floor:trifecta"
-	trifectaReason = "this session has seen private data and untrusted content, so anything leaving it needs approval"
+	floorTrifecta        = "floor:trifecta"
+	trifectaReason       = "this session has seen private data and untrusted content, so anything leaving it needs approval"
+	trifectaUndoneReason = "this session has seen private data and untrusted content, so anything that can't be undone needs approval"
 
 	unknownRecipient = "an unknown recipient"
 	unknownHost      = "an unknown host"
@@ -30,7 +31,7 @@ const (
 )
 
 // contactWarning is the card line for a first contact (§8.3 of the UI plan).
-func contactWarning(a *core.Action, kind, target string) string {
+func contactWarning(a *core.Action, p core.Principal, kind, target string) string {
 	switch {
 	case kind == "domain" && target == unknownHost:
 		return "Bothy can't tell which website this sends data to."
@@ -39,7 +40,13 @@ func contactWarning(a *core.Action, kind, target string) string {
 	case target == unknownRecipient:
 		return "Bothy can't tell who this goes to."
 	case a.Tool == toolRepoOpenPR && strings.HasPrefix(target, "github:"):
-		return "This is the first pull request Bothy opens in " + inline(strings.TrimPrefix(target, "github:")) + "."
+		// First contact is per principal: another person's pull requests in
+		// the repository don't count.
+		who := "you"
+		if p.Kind == core.PrincipalSpace {
+			who = "this group chat"
+		}
+		return "This is the first pull request Bothy opens in " + inline(strings.TrimPrefix(target, "github:")) + " for " + who + "."
 	}
 	return "Bothy hasn't sent anything to " + inline(recipientText(target)) + " before."
 }
@@ -73,7 +80,7 @@ type input struct {
 	core.PolicyInput
 	cfg     *config.Config
 	a       *core.Action
-	se      core.SideEffect // max(Action, Manifest): an Action may escalate, never lower
+	se      core.SideEffect // actionClass: an Action may escalate, never lower
 	payload any
 	argv    []string   // what an exec action runs: the payload's argv when present
 	hosts   []hostPort // every destination the action names
@@ -92,7 +99,7 @@ func newInput(in core.PolicyInput, c *config.Config) (*input, error) {
 	if in.Spec.Def.Name == "" || a.Tool != in.Spec.Def.Name {
 		return nil, fmt.Errorf("action tool %q does not match tool %q", a.Tool, in.Spec.Def.Name)
 	}
-	se := max(validOrZero(a.SideEffect), validOrZero(in.Spec.Manifest.SideEffect))
+	se := actionClass(a, in.Spec.Manifest)
 	if !se.Valid() {
 		return nil, errors.New("no valid side-effect class")
 	}
@@ -103,14 +110,33 @@ func newInput(in core.PolicyInput, c *config.Config) (*input, error) {
 	if x.payload, ok = decodePayload(a.Payload); !ok && len(bytes.TrimSpace(a.Payload)) > 0 {
 		return nil, errors.New("the action payload is not JSON")
 	}
-	x.argv = a.Argv
-	if v, ok := pointer(x.payload, "/argv"); ok {
-		if list, ok := stringList(v); ok {
-			x.argv = list
-		}
-	}
+	x.argv = execArgv(a, x.payload)
 	x.hosts = actionHosts(a)
 	return x, nil
+}
+
+// actionClass is the side-effect class an action is decided and shown as:
+// the higher of the Action's and the Manifest's, and irreversible for a
+// command that deletes files, as fs_delete is, whatever its tool declares.
+func actionClass(a *core.Action, m core.Manifest) core.SideEffect {
+	se := max(validOrZero(a.SideEffect), validOrZero(m.SideEffect))
+	if a.Kind == core.ActExec && se.Valid() && se < core.SEIrreversible {
+		doc, _ := decodePayload(a.Payload)
+		if deletesFiles(execArgv(a, doc)) {
+			return core.SEIrreversible
+		}
+	}
+	return se
+}
+
+// execArgv is what an exec action runs: the payload's argv when present.
+func execArgv(a *core.Action, doc any) []string {
+	if v, ok := pointer(doc, "/argv"); ok {
+		if list, ok := stringList(v); ok {
+			return list
+		}
+	}
+	return a.Argv
 }
 
 func validOrZero(s core.SideEffect) core.SideEffect {
@@ -176,6 +202,23 @@ func (x *input) primary() hostPort {
 }
 
 func (x *input) exposed() bool { return x.Taint.Exposed() }
+
+// staysLocal reports whether an action only touches Bothy's own files and
+// memory, so nothing it does can carry data out.
+func (x *input) staysLocal() bool {
+	switch x.a.Kind {
+	case core.ActFSRead, core.ActFSWrite, core.ActFSDelete, core.ActMemory:
+		return x.se != core.SEExternalSend && x.se < core.SEFinancial
+	}
+	return false
+}
+
+func (x *input) trifectaReason() string {
+	if x.se == core.SEIrreversible {
+		return trifectaUndoneReason
+	}
+	return trifectaReason
+}
 
 // activeGrants loads the principal's applicable grants once per decision. A
 // store failure yields none: grants only ever relax a decision.
@@ -259,7 +302,7 @@ func (e *Engine) floors(ctx context.Context, x *input, rule *config.Rule) (core.
 		// first carries its first-contact warning.
 		if m.AlwaysAsk {
 			if kind, target, first := e.firstContact(ctx, x); first {
-				d.Warnings = append(d.Warnings, contactWarning(x.a, kind, target))
+				d.Warnings = append(d.Warnings, contactWarning(x.a, x.Principal, kind, target))
 			}
 		}
 		return d, true
@@ -299,7 +342,7 @@ func (e *Engine) floors(ctx context.Context, x *input, rule *config.Rule) (core.
 	if x.exposed() && (x.se == core.SEExternalSend || x.se == core.SEIrreversible) {
 		x.only = e.taintedRecipientGrant(ctx, x)
 		if x.only == nil {
-			return askFloor(floorTrifecta, trifectaReason, false)
+			return askFloor(floorTrifecta, x.trifectaReason(), false)
 		}
 	}
 	if x.Provenance == core.ProvUntrusted && x.se >= core.SELocalWrite {
@@ -362,7 +405,7 @@ func (e *Engine) taintedException(ctx context.Context, x *input, rule *config.Ru
 	if g := e.useGrant(ctx, x); g != nil {
 		return allowed("grant:"+string(g.ID), "allowed by an earlier approval")
 	}
-	return e.ask(x, askSpec{rule: floorTrifecta, reason: trifectaReason, floor: true})
+	return e.ask(x, askSpec{rule: floorTrifecta, reason: x.trifectaReason(), floor: true})
 }
 
 // taintedRecipientGrant finds the only kind of grant that lifts the
@@ -410,7 +453,7 @@ func (e *Engine) contactOrDefault(ctx context.Context, x *input) core.Decision {
 	if kind, target, first := e.firstContact(ctx, x); first {
 		return e.ask(x, askSpec{
 			rule: "first_contact:" + kind, reason: "first contact with " + target, grants: true,
-			warnings: []string{contactWarning(x.a, kind, target)},
+			warnings: []string{contactWarning(x.a, x.Principal, kind, target)},
 		})
 	}
 	if v == core.VerdictAsk {
@@ -524,7 +567,7 @@ func (e *Engine) ask(x *input, s askSpec) core.Decision {
 		d.Choices = append(d.Choices, core.AllowOnce)
 	}
 	d.Choices = append(d.Choices, core.Deny)
-	if x.exposed() {
+	if x.exposed() && !x.staysLocal() {
 		d.Warnings = append(d.Warnings, warnExposed)
 	}
 	if x.Provenance == core.ProvUntrusted {

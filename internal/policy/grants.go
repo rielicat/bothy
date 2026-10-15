@@ -32,12 +32,16 @@ func (e *Engine) NarrowGrant(a *core.Action, p core.PrincipalID, scope core.Gran
 // narrowGrant builds the narrowest grant that still lets the same kind of
 // call through again. It never yields a whole-tool grant.
 func narrowGrant(c *config.Config, a *core.Action, p core.PrincipalID, scope core.GrantScope, scopeID string, by core.UserID, now time.Time) (core.Grant, bool) {
-	if a == nil || p == "" || a.Tool == "" || !a.SideEffect.Valid() || a.SideEffect >= core.SEFinancial {
+	if a == nil {
+		return core.Grant{}, false
+	}
+	se := actionClass(a, core.Manifest{})
+	if p == "" || a.Tool == "" || !se.Valid() || se >= core.SEFinancial {
 		return core.Grant{}, false
 	}
 	switch scope {
 	case core.GrantPrincipal:
-		if scopeID != "" || a.SideEffect == core.SEIrreversible {
+		if scopeID != "" || se == core.SEIrreversible {
 			return core.Grant{}, false
 		}
 	case core.GrantSession, core.GrantSchedule:
@@ -47,7 +51,7 @@ func narrowGrant(c *config.Config, a *core.Action, p core.PrincipalID, scope cor
 	default:
 		return core.Grant{}, false
 	}
-	g := core.Grant{Principal: p, Scope: scope, ScopeID: scopeID, MaxSE: a.SideEffect, CreatedBy: by, CreatedAt: now}
+	g := core.Grant{Principal: p, Scope: scope, ScopeID: scopeID, MaxSE: se, CreatedBy: by, CreatedAt: now}
 	doc, _ := decodePayload(a.Payload)
 	tool := func(pattern map[string]string) (core.Grant, bool) {
 		g.Kind, g.Tool, g.Pattern = core.GrantTool, a.Tool, pattern

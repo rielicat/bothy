@@ -93,7 +93,7 @@ func (ap *Approvals) offered(ctx context.Context, r core.ApprovalRequest) ([]cor
 	// the others next time.
 	admin := r.Decision.Approver.AdminOnly || r.Decision.Approver.Multi()
 	always := !admin && slices.Contains(in, core.AllowAlways) && slices.Contains(in, core.AllowSession) &&
-		max(validOrZero(r.Action.SideEffect), validOrZero(r.Spec.Manifest.SideEffect)) != core.SEIrreversible
+		actionClass(r.Action, r.Spec.Manifest) != core.SEIrreversible
 	if always {
 		run, err := ap.store.Runs().Get(ctx, core.SystemViewer(), r.Run)
 		if err != nil {

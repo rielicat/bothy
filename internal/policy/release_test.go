@@ -67,7 +67,9 @@ func TestReleaseDecisionTable(t *testing.T) {
 		reason  string
 		warn    string
 	}{
-		{name: "interactive owner", verdict: core.VerdictAsk, rule: floorRelease},
+		// Every approver reads the reason, so it must not say "you".
+		{name: "interactive owner", verdict: core.VerdictAsk, rule: floorRelease,
+			reason: "deploy to staging: 2 approvers other than the person who asked must approve"},
 		{name: "interactive member", in: func(in *core.PolicyInput) {
 			in.User, in.Role, in.Principal, in.Session = h.member.ID, core.RoleMember, h.memberP, h.memberSession
 		}, verdict: core.VerdictAsk, rule: floorRelease},

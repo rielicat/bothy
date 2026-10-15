@@ -92,7 +92,7 @@ func TestGitHubPullRequest(t *testing.T) {
 		!strings.Contains(card.Diff, "diff --git a/README.md b/README.md") {
 		t.Errorf("card diff:\n%s", card.Diff)
 	}
-	if !slices.Contains(card.Warnings, "This is the first pull request Bothy opens in octocat/Hello-World.") {
+	if !slices.Contains(card.Warnings, "This is the first pull request Bothy opens in octocat/Hello-World for you.") {
 		t.Errorf("warnings = %v", card.Warnings)
 	}
 	if len(repo.Pulls()) != 0 {

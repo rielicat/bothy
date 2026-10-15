@@ -54,7 +54,7 @@ func TestAlwaysAskFirstContactWarning(t *testing.T) {
 	s := spec("repo_open_pr", core.SEExternalSend, func(m *core.Manifest) { m.AlwaysAsk = true })
 	a := sendAction("repo_open_pr", "github:octocat/hello", core.SEExternalSend)
 	d := h.decide(h.in(a, s))
-	if d.Rule != "floor:always_ask" || !slices.Contains(d.Warnings, "This is the first pull request Bothy opens in octocat/hello.") {
+	if d.Rule != "floor:always_ask" || !slices.Contains(d.Warnings, "This is the first pull request Bothy opens in octocat/hello for you.") {
 		t.Fatalf("first contact: %+v", d)
 	}
 	run := h.newRun(h.session, h.ownerP.ID, h.owner.ID)
@@ -82,7 +82,7 @@ func TestAlwaysAskFirstContactUnderEarlierFloor(t *testing.T) {
 	in := h.in(sendAction("repo_open_pr", "github:octocat/hello", core.SEExternalSend), s)
 	in.Taint = core.TaintPrivate | core.TaintUntrusted
 	d := h.decide(in)
-	if d.Verdict != core.VerdictAsk || d.Rule != floorTrifecta || !slices.Contains(d.Warnings, "This is the first pull request Bothy opens in octocat/hello.") {
+	if d.Verdict != core.VerdictAsk || d.Rule != floorTrifecta || !slices.Contains(d.Warnings, "This is the first pull request Bothy opens in octocat/hello for you.") {
 		t.Fatalf("exposed always-ask: %+v", d)
 	}
 	other := h.in(sendAction("send", "github:octocat/hello", core.SEExternalSend), spec("send", core.SEExternalSend))

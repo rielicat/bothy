@@ -64,6 +64,10 @@ type plainCard struct {
 	// keepCode is false where a field already shows the exact action (a
 	// shell command, a message), so no surface shows it twice.
 	keepCode bool
+	// repoNamed: the copy names the GitHub repository the action reaches.
+	// Its host is Bothy's own GitHub setting, not the model's choice, so
+	// the card shows no Websites field for it.
+	repoNamed bool
 }
 
 func (p *plainCard) add(label, value string, mono bool) {
@@ -103,6 +107,17 @@ func applyPlain(c *core.Card, r core.ApprovalRequest, doc any) {
 		c.PrimaryLabel = allowForChat
 	}
 	c.Fields = p.fields
+	if len(a.Domains) > 0 && a.Kind != core.ActHTTP && a.Kind != core.ActNet && !p.repoNamed {
+		hosts := make([]string, 0, len(a.Domains))
+		for _, d := range a.Domains {
+			if hp, ok := splitHostPort(d); ok {
+				hosts = append(hosts, hp.String())
+			} else {
+				hosts = append(hosts, d)
+			}
+		}
+		c.Fields = append(c.Fields, core.CardField{Label: "Websites", Value: visible(strings.Join(hosts, "\n")), Mono: true})
+	}
 	if !p.keepCode {
 		c.Code = ""
 	}
@@ -198,7 +213,7 @@ func plainFor(r core.ApprovalRequest, a *core.Action, doc any, se core.SideEffec
 	case toolGitHubComment:
 		repo, n := text("/repo"), number("/number")
 		on := "#" + n + " in " + inline(repo)
-		p := plainCard{question: "Comment on " + on + "?", verb: "Post comment", ing: "commenting on " + on}
+		p := plainCard{question: "Comment on " + on + "?", verb: "Post comment", ing: "commenting on " + on, repoNamed: true}
 		p.add("On", "#"+n+" in "+repo, false)
 		p.add("Comment", text("/body"), false)
 		return p
@@ -311,7 +326,7 @@ func memoryCopy(file, op, old, neu string) plainCard {
 
 func checkoutCopy(a *core.Action, repo, ref string, discard bool) plainCard {
 	p := plainCard{question: "Download " + inline(repo) + " at " + inline(ref) + "?", verb: "Download",
-		ing: "downloading " + inline(repo), keepCode: true}
+		ing: "downloading " + inline(repo), keepCode: true, repoNamed: true}
 	if discard {
 		p.question, p.verb, p.ing = "Throw away your edits to "+inline(repo)+"?", "Discard edits", "throwing away your edits to "+inline(repo)
 		p.consequence, p.destructive = "Your edits will be lost and "+inline(repo)+" downloaded again. "+cantUndo, true
@@ -325,7 +340,7 @@ func checkoutCopy(a *core.Action, repo, ref string, discard bool) plainCard {
 func pullRequestCopy(a *core.Action, doc any, text func(string) string) plainCard {
 	repo := text("/repo")
 	p := plainCard{question: "Open a pull request in " + inline(repo) + "?", verb: "Open pull request",
-		ing: "opening a pull request in " + inline(repo), kind: core.CardPullRequest, keepCode: true}
+		ing: "opening a pull request in " + inline(repo), kind: core.CardPullRequest, keepCode: true, repoNamed: true}
 	if head, base := text("/head"), text("/base"); head != "" || base != "" {
 		p.add("Branch", head+" → "+base, true)
 	}
@@ -382,12 +397,7 @@ func searchCopy(tool, query string) plainCard {
 // execCopy shows the command exactly: bash -lc's script as it runs, any
 // other argv shell-quoted so it reads back as the argv it is.
 func execCopy(a *core.Action, doc any) plainCard {
-	argv := a.Argv
-	if v, ok := pointer(doc, "/argv"); ok {
-		if list, ok := stringList(v); ok {
-			argv = list
-		}
-	}
+	argv := execArgv(a, doc)
 	cwd := a.Cwd
 	if s, ok := mustPointer(doc, "/cwd").(string); ok && s != "" {
 		cwd = s

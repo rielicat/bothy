@@ -154,7 +154,7 @@ export function plainWarnings(ap: Approval): string[] {
     const first = /^First contact with (.+?)\.?$/.exec(w);
     if (first) {
       const target = first[1].replace(/^github:/, '');
-      if (a?.tool === 'repo_open_pr') t = `This is the first pull request Bothy opens in ${target}.`;
+      if (a?.tool === 'repo_open_pr') t = `This is the first pull request Bothy opens in ${target} for ${ap.principal_id.startsWith('spc_') ? 'this group chat' : 'you'}.`;
       else if (a?.kind === 'http' || a?.kind === 'net' || /^[a-z0-9.-]+\.[a-z]{2,}(:\d+)?$/i.test(target)) t = `Bothy hasn't sent data to ${target} before.`;
       else t = `Bothy hasn't sent anything to ${target} before.`;
     } else if (/first time sending to this recipient/i.test(w)) {

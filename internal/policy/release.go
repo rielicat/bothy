@@ -54,8 +54,9 @@ func (e *Engine) releaseFloor(ctx context.Context, x *input, rule *config.Rule) 
 		return denied(floorRelease, fmt.Sprintf("a deploy to %s needs %s other than you, and %s", env.Name,
 			plural(approver.Needed(), "approver"), canApproveText(n)), true)
 	}
+	// Every approver reads this reason, not only the requester.
 	d := e.ask(x, askSpec{rule: floorRelease, floor: true,
-		reason: fmt.Sprintf("deploy to %s: %s other than you must approve", env.Name, plural(approver.Needed(), "approver"))})
+		reason: fmt.Sprintf("deploy to %s: %s other than the person who asked must approve", env.Name, plural(approver.Needed(), "approver"))})
 	d.Approver = approver
 	return d
 }

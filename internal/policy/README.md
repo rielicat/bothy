@@ -32,6 +32,13 @@ preset, a `deny` rule still denies, no grant answers it, and whichever
 floor asks first (trifecta, untrusted origin or always-ask) carries the
 first-contact warning onto its card.
 
+**Classes.** An action is decided, carded and granted at the higher of its
+own and its manifest's side-effect class (`actionClass`), and an exec
+command that deletes files (`rm`, `find -delete`, `git clean`, also behind
+`sudo`, `xargs`, `sh -c` and the like; `deletes.go`) at `irreversible`,
+like `fs_delete`. In an Exposed session the "before letting anything
+leave" warning is left off file and memory actions, where nothing leaves.
+
 **Rules** match tool globs, `argv0` (the first word of a `bash -lc` command
 line, never when it contains a shell metacharacter, and never a relative or
 workspace path such as `./ls`), domains (`host[:port]`, `*.suffix`), paths

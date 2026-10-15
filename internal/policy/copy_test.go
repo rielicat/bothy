@@ -75,6 +75,9 @@ func TestPlainCopy(t *testing.T) {
 			s: spec("fs_list", core.SERead), question: "List the files in Bothy's files?", primary: "List files", ing: "listing the files in Bothy's files", labels: []string{"Folder"}},
 		{name: "shell", a: shellAction("make test"), s: spec("shell", core.SELocalWrite),
 			question: "Run this command?", primary: "Run command", ing: "running a command", labels: []string{"Command"}},
+		{name: "shell deleting files", a: shellAction("rm notes.txt && ls"), s: spec("shell", core.SELocalWrite),
+			question: "Run this command?", primary: "Run command", ing: "running a command", consequence: "This can't be undone.",
+			tone: core.ToneDestructive, labels: []string{"Command"}},
 		{name: "python", a: action("python", core.ActExec, core.SELocalWrite, map[string]any{"argv": []string{"python3", "x.py"}, "code": "print(1)", "cwd": "work"}),
 			s: spec("python", core.SELocalWrite), question: "Run this Python script?", primary: "Run script", ing: "running a Python script", labels: []string{"Script", "In"}},
 		{name: "web_fetch", a: httpAction("web_fetch", "GET", "https://example.com/a", core.SERead), s: spec("web_fetch", core.SERead),
@@ -109,8 +112,8 @@ func TestPlainCopy(t *testing.T) {
 			question: "Let Bothy reach db.internal:5432?", primary: "Allow access", ing: "letting Bothy reach db.internal:5432", labels: []string{"Website"}},
 		{name: "repo_open_pr", a: pr, s: spec("repo_open_pr", core.SEExternalSend),
 			question: "Open a pull request in acme/web?", primary: "Open pull request", ing: "opening a pull request in acme/web",
-			kind: core.CardPullRequest, labels: []string{"Branch", "Title", "Changes", "Websites"}},
-		{name: "github_comment", a: action("github_comment", core.ActSend, core.SEExternalSend, map[string]any{"repo": "acme/web", "number": 482, "body": "LGTM"}),
+			kind: core.CardPullRequest, labels: []string{"Branch", "Title", "Changes"}},
+		{name: "github_comment", a: action("github_comment", core.ActSend, core.SEExternalSend, map[string]any{"repo": "acme/web", "number": 482, "body": "LGTM"}, onGitHub),
 			s: spec("github_comment", core.SEExternalSend), question: "Comment on #482 in acme/web?", primary: "Post comment", ing: "commenting on #482 in acme/web",
 			labels: []string{"On", "Comment"}},
 		{name: "github_issues", a: action("github_issues", core.ActHTTP, core.SERead, map[string]any{"repo": "acme/web"}), s: spec("github_issues", core.SERead),
@@ -122,7 +125,7 @@ func TestPlainCopy(t *testing.T) {
 		{name: "repo_list", a: action("repo_list", core.ActGeneric, core.SERead, map[string]any{}), s: spec("repo_list", core.SERead),
 			question: "List the connected repositories?", primary: "List repositories", ing: "listing the connected repositories"},
 		{name: "repo_checkout", a: action("repo_checkout", core.ActFSWrite, core.SELocalWrite, map[string]any{"repo": "acme/web", "ref": "main"},
-			func(a *core.Action) { a.Paths = []string{"repos/acme/web"} }), s: spec("repo_checkout", core.SELocalWrite),
+			func(a *core.Action) { a.Paths = []string{"repos/acme/web"} }, onGitHub), s: spec("repo_checkout", core.SELocalWrite),
 			question: "Download acme/web at main?", primary: "Download", ing: "downloading acme/web", labels: []string{"Repository", "Version", "Folder"}},
 		{name: "repo_checkout discarding edits", a: action("repo_checkout", core.ActFSWrite, core.SEIrreversible, map[string]any{"repo": "acme/web", "ref": "main", "discard": "abc"},
 			func(a *core.Action) { a.Paths = []string{"repos/acme/web"} }), s: spec("repo_checkout", core.SELocalWrite),
@@ -204,6 +207,27 @@ func TestDiffCounts(t *testing.T) {
 	}
 	if a, r := diffCounts("(folder with 3 top-level entries)\n"); a != 0 || r != 0 {
 		t.Errorf("no hunks = +%d -%d", a, r)
+	}
+}
+
+// onGitHub gives a GitHub tool's action the API host it reaches.
+func onGitHub(a *core.Action) { a.Domains = []string{"api.github.com:443"} }
+
+// TestWebsitesField: an action that names its hosts in Domains shows them,
+// except a GitHub tool's, whose card names the repository and whose host is
+// Bothy's own setting.
+func TestWebsitesField(t *testing.T) {
+	upload := action("sync_files", core.ActGeneric, core.SEExternalSend, map[string]any{"v": 1}, func(a *core.Action) {
+		a.Domains = []string{"files.example.com:443", "cdn.example.com"}
+	})
+	if f := field(cardFor(upload, spec("sync_files", core.SEExternalSend)), "Websites"); f.Value != "files.example.com:443\ncdn.example.com" || !f.Mono {
+		t.Errorf("generic tool: %+v", f)
+	}
+	for _, tool := range []string{"repo_open_pr", "github_comment", "repo_checkout"} {
+		a := action(tool, core.ActSend, core.SEExternalSend, map[string]any{"repo": "acme/web"}, onGitHub)
+		if c := cardFor(a, spec(tool, core.SEExternalSend)); slices.Contains(labels(c), "Websites") {
+			t.Errorf("%s card shows Websites: %v", tool, labels(c))
+		}
 	}
 }
 

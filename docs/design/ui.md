@@ -1372,7 +1372,7 @@ The table is the copy contract for S2 and `lib/cardcopy.ts`.
 | `fs_write` overwrite | "Change {path}?" | "Save changes" | — | File · Changes ("+{a} −{r} · Show") |
 | `fs_write` append | "Add to {path}?" | "Add to file" | — | File · Adds ("{n} lines · Show") |
 | `fs_delete` | "Delete {path}?" | "Delete file" (danger) | "This can't be undone." | File · Content ("{n} lines · Show") |
-| `shell` | "Run this command?" | "Run command" | — | Command (full) · In (working folder) |
+| `shell` | "Run this command?" | "Run command" (danger when it deletes files) | "This can't be undone." when it deletes files (`rm`, `find -delete`, …) | Command (full) · In (working folder) |
 | `python` | "Run this Python script?" | "Run script" | — | Script ("{n} lines · Show") |
 | `web_fetch` non-GET, first contact | "Send data to {host}?" | "Send data" | — | Website · What ("Sends data") · Data ("Show") |
 | `message`, first contact | "Send a message to {chat}?" | "Send message" | — | To · Message (full) |
@@ -1389,7 +1389,9 @@ The table is the copy contract for S2 and `lib/cardcopy.ts`.
 | Financial | "Pay {amount} to {recipient}?" | "Pay {amount}" (danger) | "Money will leave your account. This can't be undone." | To · Amount |
 | Unknown tool | "Let Bothy use {tool}?" | "Allow" | — | the Action's fields, labels humanised |
 
-Danger fill rule (server-provided `card.tone`, S2): `destructive` when the side-effect class is irreversible or financial, except `release_deploy`, whose safeguard is its approvers.
+Danger fill rule (server-provided `card.tone`, S2): `destructive` when the side-effect class is irreversible or financial (a shell command that deletes files is irreversible, like `fs_delete`), except `release_deploy`, whose safeguard is its approvers.
+
+The GitHub cards (`repo_open_pr`, `github_comment`, `repo_checkout`) have no Websites field: they name the repository, and the host they reach is Bothy's own GitHub setting, not something the AI chose. Other actions that name the websites they reach list them under Websites.
 
 ### 8.3 Choices and warnings
 
@@ -1406,8 +1408,8 @@ Warnings (from `Decision.Warnings`, rewritten server-side, S2):
 |---|---|
 | First contact, recipient | "Bothy hasn't sent anything to {recipient} before." |
 | First contact, domain | "Bothy hasn't sent data to {host} before." |
-| First pull request in a repository | "This is the first pull request Bothy opens in {repo}." |
-| Exposed chat | "This chat has seen private information and content from outside. Check carefully before letting anything leave." |
+| First pull request in a repository | "This is the first pull request Bothy opens in {repo} for you." ("… for this group chat." in a group chat). Earlier pull requests opened for other people don't count. |
+| Exposed chat | "This chat has seen private information and content from outside. Check carefully before letting anything leave." Not on actions where nothing leaves, such as deleting a file or throwing away edits. |
 | Untrusted origin | "This request came from content Bothy read (a web page, repository or message), not from a person." |
 
 ### 8.4 Decided state
@@ -1462,7 +1464,7 @@ The card stays in the transcript (fixes audit `27`). It collapses to one line, `
 ┌──────────────────────────────────────────────────────────────────┐
 │ Open a pull request in acme/web?                                  │
 │                                                                   │
-│ ! This is the first pull request Bothy opens in acme/web.         │
+│ ! This is the first pull request Bothy opens in acme/web for you. │
 │                                                                   │
 │ Branch     bothy/fix-login-redirect → main                        │ text-code
 │ Title      Fix login redirect losing the return address           │

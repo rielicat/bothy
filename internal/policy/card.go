@@ -43,21 +43,15 @@ func renderCard(r core.ApprovalRequest) core.Card {
 	if c.Title == "" {
 		c.Title = visible(a.Tool)
 	}
-	c.Risk = max(validOrZero(a.SideEffect), validOrZero(r.Spec.Manifest.SideEffect))
+	c.Risk = actionClass(a, r.Spec.Manifest)
 	doc, _ := decodePayload(a.Payload)
 
 	switch a.Kind {
 	case core.ActExec:
-		argv := a.Argv
-		if v, ok := pointer(doc, "/argv"); ok {
-			if list, ok := stringList(v); ok {
-				argv = list
-			}
-		}
 		if code, ok := mustPointer(doc, "/code").(string); ok {
 			c.Code = visible(code)
 		} else {
-			c.Code = visible(shellJoin(argv))
+			c.Code = visible(shellJoin(execArgv(a, doc)))
 		}
 	case core.ActFSWrite:
 		// The diff stands for the content only when it is a complete text
@@ -79,17 +73,6 @@ func renderCard(r core.ApprovalRequest) core.Card {
 		c.Code = visible(prettyPayload(a.Payload))
 	}
 	applyPlain(&c, r, doc)
-	if len(a.Domains) > 0 && a.Kind != core.ActHTTP && a.Kind != core.ActNet {
-		hosts := make([]string, 0, len(a.Domains))
-		for _, d := range a.Domains {
-			if hp, ok := splitHostPort(d); ok {
-				hosts = append(hosts, hp.String())
-			} else {
-				hosts = append(hosts, d)
-			}
-		}
-		c.Fields = append(c.Fields, core.CardField{Label: "Websites", Value: visible(strings.Join(hosts, "\n")), Mono: true})
-	}
 	c.Diff = visible(capDiff(a.Diff))
 	return c
 }

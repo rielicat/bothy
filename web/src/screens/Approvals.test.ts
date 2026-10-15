@@ -162,7 +162,7 @@ describe('Approvals inbox, other states', () => {
     await waitFor(() => expect(expanded()?.dataset.approval).toBe(PR));
     expect(expanded()!.textContent).toContain('Open a pull request in acme/web?');
     expect(within(expanded()!).getByRole('group', { name: 'Changes to src/auth/redirect.ts' })).toBeTruthy();
-    expect(expanded()!.textContent).toContain('This is the first pull request Bothy opens in acme/web.');
+    expect(expanded()!.textContent).toContain('This is the first pull request Bothy opens in acme/web for you.');
   });
 
   it('says a request was already decided, with its decided line', async () => {
