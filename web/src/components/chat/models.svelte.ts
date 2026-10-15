@@ -10,8 +10,15 @@ const providerNames: Record<string, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
   gemini: 'Google',
+  google: 'Google',
   ollama: 'Ollama',
   bedrock: 'Amazon Bedrock',
+  openrouter: 'OpenRouter',
+  groq: 'Groq',
+  deepseek: 'DeepSeek',
+  xai: 'xAI',
+  mistral: 'Mistral',
+  lmstudio: 'LM Studio',
 };
 
 export const providerName = (id: string) => providerNames[id] ?? id.charAt(0).toUpperCase() + id.slice(1);

@@ -2,7 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ModelInfo } from '../../lib/api/types.gen';
 import ModelPicker from './ModelPicker.svelte';
-import { models } from './models.svelte';
+import { models, providerName } from './models.svelte';
 
 const info = (provider: string, model: string, display: string, extra: Partial<ModelInfo> = {}) =>
   ({ ref: { provider, model }, display, display_name: display, ...extra }) as ModelInfo;
@@ -38,5 +38,9 @@ describe('ModelPicker', () => {
     await fireEvent.click(within(dialog).getByRole('option', { name: 'Model 3' }));
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
     expect(onchange).toHaveBeenCalledWith('openrouter/vendor/model-3');
+  });
+
+  it('names routers the way they write their names', () => {
+    expect(['openrouter', 'xai', 'deepseek', 'acme'].map(providerName)).toEqual(['OpenRouter', 'xAI', 'DeepSeek', 'Acme']);
   });
 });
