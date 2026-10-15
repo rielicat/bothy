@@ -3394,6 +3394,10 @@ type ToolCallData struct {
 	Action  *Action `json:"action"`
 	Verdict Verdict `json:"verdict"`
 	Rule    string  `json:"rule"`
+	// ProviderID is the model's own id of the call (the persisted
+	// tool_call part's id), so a client matches live rows to the
+	// transcript exactly. Calls that fail validation are announced too.
+	ProviderID string `json:"provider_call_id,omitempty"`
 }
 type ToolOutputData struct {
 	CallID string `json:"call_id"`
