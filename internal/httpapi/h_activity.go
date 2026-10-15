@@ -62,6 +62,10 @@ func failureReason(e string) string {
 		return "Bothy couldn't load the chat"
 	case !strings.HasPrefix(msg, "model error"):
 		return ""
+	// Checked first: the message names the store, and often "access denied"
+	// or a timeout of its own, which are about AWS, not the AI model.
+	case strings.Contains(msg, "credential unavailable"):
+		return "Bothy couldn't read its key for the AI model"
 	case containsAny(msg, "context length", "context_length", "too many tokens", "prompt is too long", "maximum context"):
 		return "the conversation was too long for the AI model"
 	case containsAny(msg, "credit", "quota", "billing", "insufficient", "payment"):

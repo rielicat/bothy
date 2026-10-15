@@ -255,3 +255,15 @@ func TestActionPhrases(t *testing.T) {
 		}
 	}
 }
+
+func TestFailureReasonUnreadableKey(t *testing.T) {
+	for msg, want := range map[string]string{
+		"model error: credential unavailable: vault: AWS refused this server's identity access to aws-sm:x": "Bothy couldn't read its key for the AI model",
+		"model error: credential unavailable: vault: Bothy could not reach AWS Secrets Manager: timeout":    "Bothy couldn't read its key for the AI model",
+		"model error: openai: auth: 401 invalid api key":                                                    "the AI model service didn't accept Bothy's key",
+	} {
+		if got := failureReason(msg); got != want {
+			t.Errorf("failureReason(%q) = %q, want %q", msg, got, want)
+		}
+	}
+}
