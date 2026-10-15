@@ -462,7 +462,7 @@ func deployCopy(doc any, text func(string) string) plainCard {
 }
 
 func mcpCopy(r core.ApprovalRequest, a *core.Action, doc any, se core.SideEffect) plainCard {
-	what := serverName(a.MCPServer) + ": " + cmp.Or(r.Spec.Manifest.Title, a.MCPTool, a.Tool)
+	what := serverName(a.MCPServer) + ": " + mcpAction(r.Spec.Manifest.Title, a)
 	p := plainCard{question: "Use " + inline(what) + "?", verb: "Allow", ing: "using " + inline(what), keepCode: true}
 	if se == core.SEFinancial {
 		p.question, p.verb, p.ing = "Make a payment with "+inline(what)+"?", "Pay", "making a payment with "+inline(what)
@@ -611,6 +611,18 @@ func appName(ch string) string {
 
 // serverName capitalises a configured name for a question ("linear" →
 // "Linear").
+// mcpAction names an MCP tool for a card: its title without the
+// "MCP <server>: " its manifest starts with, and a bare tool name such as
+// read_wiki_structure made readable.
+func mcpAction(title string, a *core.Action) string {
+	t := cmp.Or(title, a.MCPTool, a.Tool)
+	t = strings.TrimPrefix(t, "MCP "+a.MCPServer+": ")
+	if strings.ContainsAny(t, " \t") {
+		return t
+	}
+	return serverName(strings.TrimSpace(strings.NewReplacer("_", " ", "-", " ").Replace(t)))
+}
+
 func serverName(s string) string {
 	r, n := utf8.DecodeRuneInString(s)
 	if n == 0 {
