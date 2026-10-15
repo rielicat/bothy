@@ -17,6 +17,7 @@ describe('chooseBanner (§4.9)', () => {
       [[b('paused', 'Bothy is paused by an admin.')], 'Bothy is paused. Nothing new will start until an admin resumes it.', 'Resume', false],
       [[b('vault_sealed', 'The vault is sealed.')], "Bothy's saved keys are locked, so it can't reach its models or connections.", 'Unlock', false],
       [[b('provider_auth', 'anthropic: 401 invalid x-api-key')], "Anthropic stopped accepting Bothy's key. Chats will fail until it's replaced.", 'Update key', false],
+      [[b('provider_key_unread', "openrouter: Bothy could not read the provider's key from where it is kept.")], "Bothy couldn't read its key for OpenRouter. Chats will fail until it can.", "See what's wrong", false],
       [[b('safe_mode', 'Started in safe mode: bothy.ui.yaml could not be loaded.')], "Bothy started with safe defaults because some settings couldn't be loaded.", "See what's wrong", true],
       [[b('config_error', 'yaml: line 3')], "Bothy started with safe defaults because some settings couldn't be loaded.", "See what's wrong", true],
       [limit(5_000_000, 5_000_000), "Bothy reached today's $5.00 spending limit. New work waits until midnight.", 'Change limit', false],

@@ -81,6 +81,17 @@ export function chooseBanner(input: BannerInput): ShellBanner | null {
         action: { label: 'Unlock', run: 'unlock' },
         dismissible: false,
       });
+    const unread = find('provider_key_unread');
+    if (unread) {
+      const name = providerName(unread.text);
+      out.push({
+        code: 'provider_key_unread',
+        tone: 'danger',
+        text: name ? `Bothy couldn't read its key for ${name}. Chats will fail until it can.` : "Bothy couldn't read its AI model's key. Chats will fail until it can.",
+        action: { label: "See what's wrong", href: '/settings/models' },
+        dismissible: false,
+      });
+    }
     const auth = find('provider_auth');
     if (auth) {
       const name = providerName(auth.text);

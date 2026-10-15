@@ -470,7 +470,7 @@ export interface ConfigChangedData {
 }
 export interface BannerData {
   level: string; // info | warn | error
-  code: string; // no_sandbox | sandbox_not_isolated | config_error | provider_auth | paused | mcp_pins | mcp_drifted | budget_80 | vault_sealed | safe_mode | restart_required | unknown_sender | skills_changed
+  code: string; // no_sandbox | sandbox_not_isolated | config_error | provider_auth | provider_key_unread | paused | mcp_pins | mcp_drifted | budget_80 | vault_sealed | safe_mode | restart_required | unknown_sender | skills_changed
   text: string;
   action?: string; // SPA route, e.g. "/settings/sandbox"
   clear?: boolean; // true removes the banner with this Code

@@ -199,6 +199,15 @@ func TestOptionsErrors(t *testing.T) {
 	if errors.As(o.credentialError(core.ErrSealed), &pe); pe.Kind != core.ErrKindServer {
 		t.Fatalf("sealed kind %s", pe.Kind)
 	}
+	// An external store that timed out passes; one that refused access doesn't.
+	for code, want := range map[core.FailureCode]core.ErrorKind{
+		core.FailTimeout: core.ErrKindNetwork, core.FailTLS: core.ErrKindNetwork, core.FailRateLimited: core.ErrKindRateLimit,
+		core.FailAWSDenied: core.ErrKindAuth, core.FailNotFound: core.ErrKindAuth,
+	} {
+		if errors.As(o.credentialError(codedErr(code)), &pe); pe.Kind != want {
+			t.Errorf("%s: kind %s, want %s", code, pe.Kind, want)
+		}
+	}
 	long := o.redact(strings.Repeat("é", 400))
 	if len(long) > 520 || !strings.HasSuffix(long, "…") {
 		t.Fatalf("truncation %d", len(long))
@@ -291,3 +300,8 @@ func TestLimitedBody(t *testing.T) {
 		t.Fatalf("%q %v", got, err)
 	}
 }
+
+type codedErr core.FailureCode
+
+func (e codedErr) Error() string                 { return "vault: " + string(e) }
+func (e codedErr) FailureCode() core.FailureCode { return core.FailureCode(e) }

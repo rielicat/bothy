@@ -3,6 +3,7 @@ package provider
 import (
 	"cmp"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/rielicat/bothy/internal/core"
@@ -128,15 +129,24 @@ func (f *Facade) updateBanner() {
 	f.mu.Unlock()
 	switch {
 	case raise:
-		text := "The " + failed[0].ID + " provider rejected its API key. Update the key in Settings → Vault."
-		if failed[0].Kind == core.KindBedrock {
-			text = "The " + failed[0].ID + " provider cannot use this server's AWS credentials. The doctor says what to fix."
+		// The text starts "<id>: " so the UI can name the provider.
+		h := failed[0]
+		code, text := "provider_auth", h.ID+": the provider rejected its API key. Update the key in Settings → Models."
+		switch {
+		case h.Kind == core.KindBedrock:
+			text = h.ID + ": the provider cannot use this server's AWS credentials. The doctor says what to fix."
+		case strings.Contains(h.LastError, "credential unavailable: "):
+			// The key was never sent: replacing it won't help, where it is
+			// kept (AWS Secrets Manager) needs fixing.
+			code, text = "provider_key_unread", h.ID+": Bothy could not read the provider's key from where it is kept."
 		}
 		f.d.Bus.Publish(core.Event{Type: core.EvBanner, Data: core.BannerData{
-			Level: "error", Code: "provider_auth", Action: "/settings/providers", Text: text,
+			Level: "error", Code: code, Action: "/settings/models", Text: text,
 		}})
 	case clear:
-		f.d.Bus.Publish(core.Event{Type: core.EvBanner, Data: core.BannerData{Code: "provider_auth", Clear: true}})
+		for _, code := range []string{"provider_auth", "provider_key_unread"} {
+			f.d.Bus.Publish(core.Event{Type: core.EvBanner, Data: core.BannerData{Code: code, Clear: true}})
+		}
 	}
 }
 

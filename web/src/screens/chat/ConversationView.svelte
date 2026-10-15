@@ -182,9 +182,12 @@
         const again = { label: 'Try again', onclick: retry };
         if (attempts.length && attempts.every((a) => a.kind === 'auth')) {
           const who = providerName(attempts[0].ref.provider);
-          return admin
-            ? { text: `${who} stopped accepting Bothy's key.`, error: true, action: { label: 'Update key', onclick: () => router.navigate('/settings/models') } }
-            : { text: "Bothy can't reach its AI model right now. An admin has been told.", error: true };
+          // The key was never sent when Bothy couldn't read it from where it's kept.
+          const unread = attempts.every((a) => a.err?.includes('credential unavailable: '));
+          if (!admin) return { text: "Bothy can't reach its AI model right now. An admin has been told.", error: true };
+          return unread
+            ? { text: `Bothy couldn't read its key for ${who}.`, error: true, action: { label: "See what's wrong", onclick: () => router.navigate('/settings/models') }, details: attempts[0].err }
+            : { text: `${who} stopped accepting Bothy's key.`, error: true, action: { label: 'Update key', onclick: () => router.navigate('/settings/models') } };
         }
         if (new Set(attempts.map((a) => `${a.ref.provider}/${a.ref.model}`)).size > 1) return { text: 'No AI model could answer right now.', error: true, action: again };
         const ref = attempts[0]?.ref.provider ?? (conv.runs[o.run_id]?.run?.models?.[0] ?? models.main).split('/')[0];

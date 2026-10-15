@@ -55,6 +55,10 @@ func failureCode(err error, kind core.ProviderKind) core.FailureCode {
 	case core.ErrKindAuth:
 		switch {
 		case strings.HasPrefix(pe.Msg, "credential unavailable: "):
+			// An aws-sm reference says why (aws_denied, not_found, …).
+			if c := core.CodeOf(pe.Err); c != "" {
+				return c
+			}
 			return core.FailUnknown
 		// The OpenAI client reports its 429 billing codes (spend and usage
 		// limits, exhausted credit) as auth errors; a rejected key is 401/403.

@@ -80,11 +80,22 @@ func (o *Options) NewRequest(ctx context.Context, method, url string, body any, 
 }
 
 // credentialError reports a secret that could not be resolved. A sealed vault
-// is a server-side condition; a missing secret is the operator's to fix.
+// or an external store that timed out or failed is a server-side condition
+// that passes; a missing secret or refused access is the operator's to fix.
 func (o *Options) credentialError(err error) error {
 	kind := core.ErrKindAuth
-	if errors.Is(err, core.ErrSealed) {
+	switch {
+	case errors.Is(err, core.ErrSealed):
 		kind = core.ErrKindServer
+	default:
+		switch core.CodeOf(err) {
+		case core.FailTimeout, core.FailUnreachable, core.FailTLS:
+			kind = core.ErrKindNetwork
+		case core.FailRateLimited:
+			kind = core.ErrKindRateLimit
+		case core.FailProviderError:
+			kind = core.ErrKindServer
+		}
 	}
 	return &core.ProviderError{Provider: o.ID, Kind: kind, Msg: "credential unavailable: " + o.redact(err.Error()), Err: err}
 }

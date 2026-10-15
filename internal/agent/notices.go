@@ -119,23 +119,33 @@ func (r *Runner) providerName(id string) string {
 func (r *Runner) modelErrorNotice(rs *runState, ci core.CallInfo, pe *core.ProviderError) string {
 	var providers []string
 	auth := len(ci.Attempts) > 0
+	// unread: the key itself was never sent; Bothy could not read it from
+	// where it is kept (an aws-sm reference), so replacing it won't help.
+	unread := auth
 	for _, a := range ci.Attempts {
 		if a.Err == "" {
 			continue
 		}
 		auth = auth && a.Kind == core.ErrKindAuth
+		unread = unread && strings.Contains(a.Err, "credential unavailable: ")
 		if !slices.Contains(providers, a.Ref.Provider) {
 			providers = append(providers, a.Ref.Provider)
 		}
 	}
 	if len(providers) == 0 && pe != nil {
 		providers, auth = []string{pe.Provider}, pe.Kind == core.ErrKindAuth
+		unread = auth && strings.HasPrefix(pe.Msg, "credential unavailable: ")
 	}
 	switch {
 	case len(providers) == 0:
 		return noModelNotice
 	case auth && (rs.user == nil || !rs.user.Role.IsAdmin()):
 		return memberAuthNotice
+	case auth && unread:
+		if n := r.providerName(providers[0]); n != "The AI model" {
+			return "Bothy couldn't read its key for " + n + ". Check where the key is kept in Settings → Models."
+		}
+		return "Bothy couldn't read its AI model's key. Check where the key is kept in Settings → Models."
 	case auth:
 		return r.providerName(providers[0]) + " stopped accepting Bothy's key."
 	case len(providers) > 1:
