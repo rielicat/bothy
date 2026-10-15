@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Button, Dialog, DiffView, Disclosure, CodeBlock, EmptyState, IconButton, Menu, Select, SettingsRow, SettingsSection, StatusLine, Switch, toast } from '../../../components/ui';
+  import { Button, Dialog, DiffView, Disclosure, CodeBlock, EmptyState, IconButton, LinkButton, Menu, Select, SettingsRow, SettingsSection, StatusLine, Switch, toast } from '../../../components/ui';
   import { api, errorText } from '../../../lib/api/client';
   import type { MCPPin, MCPStatus, SideEffect } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
@@ -22,6 +22,7 @@
   let problem = $state<Failure | null>(null);
   let reviewing = $state(false);
   let drafts = $state<Record<string, { effect: SideEffect; on: boolean }>>({});
+  let shown = $state<Record<string, boolean>>({});
   let removing = $state(false);
   let busy = $state(false);
   let enabled = $state(true);
@@ -77,6 +78,7 @@
 
   function openReview() {
     drafts = Object.fromEntries(pending.map((p) => [p.tool, { effect: known(p.side_effect || 'external_send'), on: true }]));
+    shown = {};
     reviewing = true;
   }
 
@@ -219,7 +221,10 @@
           <p class="text-small text-muted">{before(p) ? 'Changed since you last allowed it' : 'New action'}</p>
           {#if def(p).description}<p class="mt-1 text-body text-text" data-copy-ignore>{def(p).description}</p>{/if}
           {#if before(p)}
-            <DiffView class="mt-3" diff={lineDiff(pretty(before(p)), pretty(p))} maxLines={40} />
+            <p class="mt-1 text-small">
+              <LinkButton aria-expanded={!!shown[p.tool]} onclick={() => (shown[p.tool] = !shown[p.tool])}>{shown[p.tool] ? 'Hide what changed' : 'Show what changed'}</LinkButton>
+            </p>
+            {#if shown[p.tool]}<DiffView class="mt-2" diff={lineDiff(pretty(before(p)), pretty(p))} maxLines={40} />{/if}
           {:else}
             <!-- A new action has nothing to compare; its definition stays one click away. -->
             <Disclosure class="mt-1">

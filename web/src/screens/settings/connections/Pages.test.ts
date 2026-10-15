@@ -120,6 +120,10 @@ describe('MCP server page (§12.4)', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Review changes' }));
     const dialog = await screen.findByRole('dialog', { name: 'Review changes to Docs' });
     expect(within(dialog).getByText('Changed since you last allowed it')).toBeTruthy();
+    expect(within(dialog).queryByRole('group', { name: 'Changes' })).toBeNull();
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Show what changed' }));
+    expect(within(dialog).getByRole('group', { name: 'Changes' })).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'Hide what changed' }).getAttribute('aria-expanded')).toBe('true');
     await fireEvent.click(within(dialog).getByRole('switch', { name: 'Allow this action' }));
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Save review' }));
     await waitFor(() => expect(writes(calls).length).toBe(1));
