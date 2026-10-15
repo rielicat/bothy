@@ -357,6 +357,71 @@ func TestUnexpectedApprovalChoiceFailsClosed(t *testing.T) {
 	})
 }
 
+func TestDenialSaysWhoDecidedAndWhy(t *testing.T) {
+	const self, approver = false, true
+	single := func(user, _ core.UserID) core.ApproverReq { return core.ApproverReq{User: user} }
+	adminOnly := func(core.UserID, core.UserID) core.ApproverReq { return core.ApproverReq{AdminOnly: true} }
+	multi := func(user, other core.UserID) core.ApproverReq {
+		return core.ApproverReq{Users: []core.UserID{other}, Required: 1, Requester: user}
+	}
+	for _, tc := range []struct {
+		name     string
+		approver func(user, other core.UserID) core.ApproverReq
+		byOther  bool
+		comment  string
+		want     string
+	}{
+		{"the user, with a reason", single, self, "Not now,\nI will edit #1 myself.",
+			"The user denied this action. Their reason: “Not now, I will edit #1 myself.”"},
+		{"the user, no reason", single, self, "", "The user denied this action."},
+		{"an admin", adminOnly, approver, "member-secrets test: not today",
+			"Priya Shah denied this action. Their reason: “member-secrets test: not today”"},
+		{"another approver", multi, approver, "one production deploy is already queued, wait for it",
+			"Priya Shah denied this action. Their reason: “one production deploy is already queued, wait for it”"},
+		{"the requester withdraws", multi, self, "", "The user cancelled the request before it was approved."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				send := &testTool{name: "send", se: core.SEExternalSend}
+				var other core.UserID
+				pol := &fakes.Policy{Func: func(in core.PolicyInput) core.Decision {
+					return core.Decision{Verdict: core.VerdictAsk, Rule: "fake", Approver: tc.approver(in.User, other),
+						Choices: []core.Choice{core.AllowOnce, core.Deny}, Timeout: time.Minute, OnTimeout: core.TimeoutDeny}
+				}}
+				h := newHarness(t, opts{tools: []core.Tool{send}, pol: pol, appr: &fakes.Approvals{Manual: true},
+					steps: []fakes.LLMStep{{ToolCalls: []core.ToolCall{call("send", `{}`)}}, {Text: []string{"ok"}}}})
+				defer h.close()
+				priya := &core.User{Username: "priya", DisplayName: "Priya Shah", Role: core.RoleAdmin, PWHash: "x", Timezone: "UTC", CreatedAt: time.Now()}
+				if err := h.store.Users().Create(h.ctx, priya); err != nil {
+					t.Fatal(err)
+				}
+				other = priya.ID
+				res := h.submit("send it")
+				synctest.Wait()
+				by := h.user.ID
+				if tc.byOther {
+					by = priya.ID
+				}
+				a := h.appr.All()[0]
+				if _, err := h.appr.Resolve(h.ctx, core.Resolution{ID: a.ID, Choice: core.Deny, By: by, Via: "web", Comment: tc.comment}); err != nil {
+					t.Fatal(err)
+				}
+				synctest.Wait()
+				recs := h.toolCalls(res.Run)
+				if len(recs) != 1 || recs[0].Status != core.TCDenied || send.calls.Load() != 0 {
+					t.Fatalf("tool calls = %+v", recs)
+				}
+				if recs[0].ResultPreview != tc.want {
+					t.Fatalf("denied result = %q, want %q", recs[0].ResultPreview, tc.want)
+				}
+				if !strings.Contains(allText(h.requests()[1]), tc.want) {
+					t.Fatal("the model did not get the denial")
+				}
+			})
+		})
+	}
+}
+
 func TestParallelReadsRunTogether(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		started := make(chan struct{}, 2)

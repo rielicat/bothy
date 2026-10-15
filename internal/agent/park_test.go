@@ -229,7 +229,7 @@ func TestResumeDeniedContinuesTheLoop(t *testing.T) {
 		defer h.close()
 		h.appr.OnResolved(func(a *core.Approval) { _ = h.r.Resume(context.Background(), a) })
 		id, a := parkRun(t, h)
-		if _, err := h.appr.Resolve(h.ctx, core.Resolution{ID: a.ID, Choice: core.Deny, By: h.user.ID, Via: "web"}); err != nil {
+		if _, err := h.appr.Resolve(h.ctx, core.Resolution{ID: a.ID, Choice: core.Deny, By: h.user.ID, Via: "web", Comment: "Not tonight"}); err != nil {
 			t.Fatal(err)
 		}
 		synctest.Wait()
@@ -240,7 +240,7 @@ func TestResumeDeniedContinuesTheLoop(t *testing.T) {
 			t.Fatal("denied action ran")
 		}
 		reqs := h.requests()
-		if !strings.Contains(allText(reqs[len(reqs)-1]), "The user denied this action.") {
+		if !strings.Contains(allText(reqs[len(reqs)-1]), "The user denied this action. Their reason: “Not tonight”") {
 			t.Fatal("denial not recorded for the model")
 		}
 	})

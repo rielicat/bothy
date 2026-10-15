@@ -125,7 +125,8 @@ func (p *Policy) NextTaint(prev core.Taint, spec core.ToolSpec, _ *core.Action, 
 // releases its lock. Await on a cancelled approval returns core.ErrStopped.
 // Resolve checks only that the approval exists and is pending or parked; on a
 // multi-approver approval it appends the vote and resolves only on a deny or
-// once core.AllowVotes reaches Needed() (no eligibility checks).
+// once core.AllowVotes reaches Needed() (no eligibility checks). The deciding
+// resolution's Comment becomes the approval's.
 type Approvals struct {
 	core.Approvals
 	Choice   core.Choice
@@ -257,7 +258,7 @@ func (ap *Approvals) Resolve(_ context.Context, r core.Resolution) (*core.Approv
 	}
 	ap.Resolutions = append(ap.Resolutions, r)
 	if st.a.Approver.Multi() {
-		st.a.Votes = append(st.a.Votes, core.ApprovalVote{Approval: r.ID, User: r.By, Choice: r.Choice, Via: r.Via, At: time.Now()})
+		st.a.Votes = append(st.a.Votes, core.ApprovalVote{Approval: r.ID, User: r.By, Choice: r.Choice, Via: r.Via, At: time.Now(), Comment: r.Comment})
 		if r.Choice != core.Deny && core.AllowVotes(st.a.Votes, st.a.Approver) < st.a.Approver.Needed() {
 			a := clone(st.a)
 			ap.mu.Unlock()
@@ -265,6 +266,7 @@ func (ap *Approvals) Resolve(_ context.Context, r core.Resolution) (*core.Approv
 		}
 	}
 	decide(&st.a, r.Choice, r.By, r.Via, time.Now())
+	st.a.Comment = r.Comment
 	ap.notifyLocked()
 	a, cbs := st.a, slices.Clone(ap.callbacks)
 	ap.mu.Unlock()

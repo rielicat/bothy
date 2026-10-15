@@ -82,6 +82,36 @@ func attrValue(s string) string {
 	return b.String()
 }
 
+// quoteReason quotes, on one line and within n runes, a reason a person
+// typed: hidden characters go, and nothing in it can close the quotation or
+// open a tag. Blank text gives "".
+func quoteReason(s string, n int) string {
+	var b strings.Builder
+	count := 0
+	for _, r := range strings.Join(strings.Fields(s), " ") {
+		if count == n {
+			b.WriteString("…")
+			break
+		}
+		switch {
+		case r == '“' || r == '”' || r == '"':
+			r = '\''
+		case r == '<':
+			r = '‹'
+		case r == '>':
+			r = '›'
+		case unicode.IsControl(r) || unicode.Is(unicode.Cf, r):
+			continue
+		}
+		b.WriteRune(r)
+		count++
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return "“" + b.String() + "”"
+}
+
 // escapeSection keeps embedded content from closing the S2 section it sits in.
 func escapeSection(content, tag string) string {
 	return strings.ReplaceAll(content, "</"+tag+">", "</ "+tag+">")

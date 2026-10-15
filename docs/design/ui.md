@@ -1358,7 +1358,7 @@ The card is still rendered from the structured Action by the policy module, neve
 | Meta | `mt-3 text-small muted`: "From “{chat title}”" (links to the chat) or "Requested by {name} in “{chat}”"; then the expiry; then a "Details" disclosure trigger. |
 | Expiry | "Expires in 15 min" (whole minutes), "Expires in 2 h", "Expires in less than a minute"; switches to `warning-text` under 2 minutes. Parked: "Bothy stopped waiting. Approve to let it carry on." Never a bare countdown. |
 | Details | "Bothy's explanation (written by the AI, not checked)", collapsed, only when present · "Why Bothy asked: {plain reason}" · "If nobody answers: it will be denied" (or "it will wait") · "Who can approve: Maya Chen, or any admin" · "Exact action" (`CodeBlock` of the Action JSON) · tool, rule and approval id, each with Copy. |
-| Deny | Pressing Deny shows an inline "Reason (optional)" field with [Deny] and [Cancel]; Enter submits. The reason is stored as `Resolution.Comment` and shown to the requester. |
+| Deny | Pressing Deny shows an inline "Reason (optional)" field with [Deny] and [Cancel]; Enter submits. The reason is stored as `Resolution.Comment` and shown to the requester. Bothy is told who denied and their reason (SPEC §5.7 g), so its reply can answer it, also in a chat app. |
 | Submitting | The pressed button shows a spinner and its "-ing" label; the others are disabled. |
 | Submit failed | Notice in the card: "Couldn't send your decision. Try again." with the buttons re-enabled. |
 

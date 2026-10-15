@@ -13,8 +13,8 @@ import (
 
 const (
 	apiDenied      = "Requires approval, unavailable via API."
-	userDenied     = "The user denied this action."
-	approvalExpiry = "Approval expired (denied)."
+	approvalExpiry = "Nobody answered the approval in time, so this action did not run."
+	maxDenyReason  = 300 // runes of an approver's reason the model reads
 )
 
 var errNotParked = errors.New("run is not parked on this approval")
@@ -82,7 +82,11 @@ func (r *Runner) ask(rs *runState, pc *pcall, rest []core.ToolCall) *runEnd {
 	switch {
 	case err == nil && !allows(choice): // deny, or anything unexpected: fail closed
 		pc.rec.Status = core.TCDenied
-		return r.finishCall(rs, pc, textResult(core.TCDenied, userDenied), false)
+		decided, gerr := r.d.Approvals.Get(ctx, core.SystemViewer(), appr.ID)
+		if gerr != nil {
+			r.log.Warn("read the denied approval", "approval", appr.ID, "err", gerr)
+		}
+		return r.finishCall(rs, pc, textResult(core.TCDenied, r.denialText(ctx, rs, decided)), false)
 	case err == nil:
 		r.grantFor(ctx, rs, pc, choice)
 		pc.rec.Status = core.TCApproved
@@ -96,6 +100,33 @@ func (r *Runner) ask(rs *runState, pc *pcall, rest []core.ToolCall) *runEnd {
 
 func allows(c core.Choice) bool {
 	return c == core.AllowOnce || c == core.AllowSession || c == core.AllowAlways
+}
+
+// denialText is the result the model reads for a denied approval: who
+// decided and, when they gave one, their reason, so the reply neither blames
+// the wrong person nor asks again for what they already said. The reason is
+// typed by a person who may not be the run's user, so it stays a quotation.
+func (r *Runner) denialText(ctx context.Context, rs *runState, a *core.Approval) string {
+	if a == nil || a.Status != core.ApprovalDenied || a.DecidedBy == "" {
+		return "This action was denied."
+	}
+	who := "The user"
+	if a.DecidedBy != rs.req.User {
+		who = "An approver"
+		if u, err := r.d.Store.Users().Get(ctx, a.DecidedBy); err == nil {
+			who = cmpOr(attrValue(cmpOr(u.DisplayName, u.Username)), who)
+		}
+	}
+	text := who + " denied this action."
+	// The requester of a multi-approver approval can never approve it, so
+	// their deny is a withdrawal.
+	if a.Approver.Multi() && a.DecidedBy == a.Approver.Requester {
+		text = who + " cancelled the request before it was approved."
+	}
+	if c := quoteReason(a.Comment, maxDenyReason); c != "" {
+		text += " Their reason: " + c
+	}
+	return text
 }
 
 // grantFor creates the narrow grant an allow_session or allow_always choice
@@ -526,7 +557,7 @@ func (r *Runner) executeApproved(rs *runState, a *core.Approval) *runEnd {
 	pc.spec = core.ToolSpec{Def: core.ToolDef{Name: action.Tool}}
 	if a.Status != core.ApprovalAllowed || !allows(a.Choice) {
 		pc.rec.Status = core.TCDenied
-		return r.finishCall(rs, pc, textResult(core.TCDenied, userDenied), true)
+		return r.finishCall(rs, pc, textResult(core.TCDenied, r.denialText(ctx, rs, a)), true)
 	}
 	if rec.Action == nil || rec.Action.Tool != action.Tool || rec.Action.Fingerprint != action.Fingerprint {
 		return r.finishCall(rs, pc, textResult(core.TCError,
