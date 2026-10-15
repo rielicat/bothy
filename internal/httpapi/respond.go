@@ -77,28 +77,37 @@ func (s *Server) mapError(err error) (int, errorEnvelope, time.Duration) {
 		return http.StatusUnauthorized, body("unauthorized", err.Error(), ""), 0
 	case errors.As(err, &limitErr):
 		return http.StatusTooManyRequests, body("rate_limited", err.Error(), ""), limitErr.RetryAfter()
+	case errors.As(err, &be) && be.Kind == core.BudgetDailyCost:
+		return http.StatusTooManyRequests, body("budget_exceeded", "Bothy has reached today's spending limit. It can start again at midnight.", "/settings/general"), 0
 	case errors.As(err, &be):
-		return http.StatusTooManyRequests, body("budget_exceeded", "budget exceeded: "+string(be.Kind), "/settings/budgets"), 0
+		return http.StatusTooManyRequests, body("budget_exceeded", "Bothy stopped because this task reached its limit.", "/settings/advanced"), 0
 	case errors.Is(err, core.ErrNotFound):
 		return http.StatusNotFound, body("not_found", "not found", ""), 0
 	case errors.Is(err, core.ErrForbidden):
-		return http.StatusForbidden, body("forbidden", err.Error(), ""), 0
+		return http.StatusForbidden, body("forbidden", bare(err, core.ErrForbidden), ""), 0
 	case errors.Is(err, core.ErrConflict):
-		return http.StatusConflict, body("conflict", err.Error(), ""), 0
+		return http.StatusConflict, body("conflict", bare(err, core.ErrConflict), ""), 0
 	case errors.Is(err, core.ErrInvalid):
-		return http.StatusBadRequest, body("bad_request", err.Error(), ""), 0
+		return http.StatusBadRequest, body("bad_request", bare(err, core.ErrInvalid), ""), 0
 	case errors.Is(err, core.ErrBusy):
 		return http.StatusTooManyRequests, body("busy", "busy: send stop to interrupt the current run", ""), time.Second
 	case errors.Is(err, core.ErrPaused):
 		return http.StatusServiceUnavailable, body("paused", "Bothy is paused by an admin", ""), 0
 	case errors.Is(err, core.ErrSealed):
-		return http.StatusServiceUnavailable, body("sealed", "the vault is sealed", "/settings/vault"), 0
+		return http.StatusServiceUnavailable, body("sealed", "Bothy's saved keys are locked.", "/settings/security/keys"), 0
 	case errors.Is(err, core.ErrNoSandbox):
-		return http.StatusServiceUnavailable, body("no_sandbox", "no sandbox is available", "/settings/sandbox"), 0
+		return http.StatusServiceUnavailable, body("no_sandbox", "Bothy can't run code on this server.", "/settings/security"), 0
 	case errors.Is(err, core.ErrNotImplemented):
 		return http.StatusServiceUnavailable, body("unavailable", "not available in this build", ""), 0
 	}
 	return http.StatusInternalServerError, body("internal", "internal error", ""), 0
+}
+
+// bare is err's message without the sentinel's own word ("forbidden: admin
+// only" → "admin only"), which the envelope code already says.
+func bare(err, sentinel error) string {
+	msg := strings.TrimPrefix(err.Error(), sentinel.Error()+": ")
+	return strings.TrimSuffix(msg, ": "+sentinel.Error())
 }
 
 func (s *Server) redact(msg string) string {

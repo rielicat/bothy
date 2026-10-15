@@ -17,6 +17,10 @@ const sweepInterval = 30 * time.Second
 var (
 	openStatuses = []core.ApprovalStatus{core.ApprovalPending, core.ApprovalParked}
 	channelRe    = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
+	// The API shows these to the person who pressed the button, so they name
+	// no approval id.
+	errDecided = fmt.Errorf("%w: already decided", core.ErrConflict)
+	errVoted   = fmt.Errorf("%w: you already voted", core.ErrConflict)
 )
 
 // Request implements core.Approvals.
@@ -189,7 +193,7 @@ func (ap *Approvals) Resolve(ctx context.Context, r core.Resolution) (*core.Appr
 		return nil, fmt.Errorf("approval %s: %w", r.ID, err)
 	}
 	if !slices.Contains(openStatuses, a.Status) {
-		return nil, fmt.Errorf("approval %s: already decided: %w", r.ID, core.ErrConflict)
+		return nil, errDecided
 	}
 	if a.Approver.Multi() {
 		return ap.vote(ctx, a, r)
@@ -206,7 +210,7 @@ func (ap *Approvals) Resolve(ctx context.Context, r core.Resolution) (*core.Appr
 		return nil, fmt.Errorf("decide approval %s: %w", a.ID, err)
 	}
 	if !ok {
-		return nil, fmt.Errorf("approval %s: already decided: %w", a.ID, core.ErrConflict)
+		return nil, errDecided
 	}
 	a.Status, a.Choice, a.DecidedBy, a.DecidedVia, a.DecidedAt = to, r.Choice, r.By, r.Via, msTime(now)
 	if r.Comment != "" {

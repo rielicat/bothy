@@ -242,7 +242,7 @@ func TestResolveAuthority(t *testing.T) {
 	if err != nil || got.Status != core.ApprovalDenied || got.DecidedVia != "telegram" {
 		t.Errorf("deny from a truncated card: %+v %v", got, err)
 	}
-	if _, err := h.ap.Resolve(h.ctx, core.Resolution{ID: ap.ID, Choice: core.AllowOnce, By: h.owner.ID, Via: "web"}); !errors.Is(err, core.ErrConflict) {
+	if _, err := h.ap.Resolve(h.ctx, core.Resolution{ID: ap.ID, Choice: core.AllowOnce, By: h.owner.ID, Via: "web"}); !errors.Is(err, core.ErrConflict) || strings.Contains(err.Error(), string(ap.ID)) {
 		t.Errorf("second resolve: %v", err)
 	}
 

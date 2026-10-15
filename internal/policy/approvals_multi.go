@@ -42,11 +42,11 @@ func (ap *Approvals) vote(ctx context.Context, a *core.Approval, r core.Resoluti
 			return fmt.Errorf("approval %s: %w", a.ID, err)
 		}
 		if !slices.Contains(openStatuses, cur.Status) {
-			return fmt.Errorf("approval %s: already decided: %w", a.ID, core.ErrConflict)
+			return errDecided
 		}
 		err = s.Approvals().AddVote(ctx, core.ApprovalVote{Approval: a.ID, User: r.By, Choice: r.Choice, Via: r.Via, At: now, Comment: r.Comment})
 		if errors.Is(err, core.ErrConflict) {
-			return fmt.Errorf("approval %s: you already voted: %w", a.ID, core.ErrConflict)
+			return errVoted
 		}
 		if err != nil {
 			return fmt.Errorf("record vote on %s: %w", a.ID, err)
@@ -70,7 +70,7 @@ func (ap *Approvals) vote(ctx context.Context, a *core.Approval, r core.Resoluti
 			return fmt.Errorf("decide approval %s: %w", a.ID, err)
 		}
 		if !ok {
-			return fmt.Errorf("approval %s: already decided: %w", a.ID, core.ErrConflict)
+			return errDecided
 		}
 		if r.Comment != "" {
 			return s.Approvals().SetComment(ctx, a.ID, r.Comment)

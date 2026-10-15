@@ -294,7 +294,8 @@ func TestTwoPersonRule(t *testing.T) {
 	if err != nil || got.Status != core.ApprovalPending || len(got.Votes) != 1 || got.Votes[0].User != h.admin2.ID {
 		t.Fatalf("first vote = %+v, %v; want pending with one vote", got, err)
 	}
-	if _, err := h.vote(ap.ID, h.admin2, core.AllowOnce); !errors.Is(err, core.ErrConflict) {
+	// The API shows these words to the person who pressed the button.
+	if _, err := h.vote(ap.ID, h.admin2, core.AllowOnce); !errors.Is(err, core.ErrConflict) || err.Error() != "conflict: you already voted" {
 		t.Fatalf("second vote by the same approver = %v, want conflict", err)
 	}
 	if st := h.status(ap.ID).Status; st != core.ApprovalPending {
@@ -321,7 +322,7 @@ func TestTwoPersonRule(t *testing.T) {
 	if !slices.Equal(log.list(), []core.ApprovalStatus{core.ApprovalAllowed}) {
 		t.Fatalf("OnResolved = %v", log.list())
 	}
-	if _, err := h.vote(ap.ID, h.member, core.Deny); !errors.Is(err, core.ErrConflict) {
+	if _, err := h.vote(ap.ID, h.member, core.Deny); !errors.Is(err, core.ErrConflict) || err.Error() != "conflict: already decided" {
 		t.Fatalf("vote after resolution = %v", err)
 	}
 
