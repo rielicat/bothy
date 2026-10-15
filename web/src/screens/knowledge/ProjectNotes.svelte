@@ -351,7 +351,7 @@
 
 <Dialog bind:open={stop} title="Stop reading {name}?" initialFocus="cancel" busy={stopping}>
   <!-- The server deletes the notes with the index: keeping them would bring them back unmarked as outside content if the repository is read again. -->
-  <p class="text-body text-text">Bothy will stop reading this repository and won't use it to answer questions. Its project notes and their history are deleted too.</p>
+  <p class="text-body text-text">Bothy won't use {name} to answer questions, and its project notes and their history will be deleted. This can't be undone.</p>
   {#if stopError}<p class="field-error">{stopError}</p>{/if}
   {#snippet footer({ close })}
     <Button onclick={close}>Cancel</Button>

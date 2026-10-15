@@ -133,6 +133,14 @@ describe('Project notes', () => {
     expect(screen.queryByText(/Bothy suggested/)).toBeNull();
   });
 
+  it('says stopping deletes the notes for good before it does', async () => {
+    await start();
+    await fireEvent.click(screen.getByRole('button', { name: 'Project options' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Stop reading this repository…' }));
+    const dialog = screen.getByRole('dialog', { name: 'Stop reading acme/web?' });
+    expect(dialog.textContent).toContain("Bothy won't use acme/web to answer questions, and its project notes and their history will be deleted. This can't be undone.");
+  });
+
   it('gives members no admin actions', async () => {
     await start('member');
     await fireEvent.click(screen.getByRole('button', { name: 'Project options' }));
