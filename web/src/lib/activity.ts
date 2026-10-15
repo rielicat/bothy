@@ -173,7 +173,7 @@ function values(s: StepInput, a: Record<string, unknown>): Record<string, string
     a: act?.diff ? String(added) : '',
     r: act?.diff ? String(removed) : '',
     server: humanise(server ?? ''),
-    title: s.title || humanise(rest.join('__')),
+    title: mcpTitle(s.title) || humanise(rest.join('__')),
     tool: s.tool,
   };
 }
@@ -334,4 +334,14 @@ export function summarize(steps: { input: StepInput; phrases: Phrases; state: St
     }
   }
   return { phrase: fill(`Took ${n} steps`, {}), failed };
+}
+
+/**
+ * An MCP tool's title without the server's "MCP <server>: " prefix, and a
+ * bare tool name ("read_wiki_structure") in words, since the line already
+ * names the server.
+ */
+function mcpTitle(t: string | undefined): string {
+  const bare = (t ?? '').replace(/^MCP [^:]+: /, '');
+  return /^[a-z0-9_-]+$/.test(bare) ? humanise(bare) : bare;
 }

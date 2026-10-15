@@ -99,6 +99,12 @@ describe('phrases', () => {
     expect(plain(phrases({ tool: 'memory', args: { file: 'MEMORY', op: 'add' } }).done)).toBe('Remembered something');
   });
 
+  it("doesn't repeat the server's internal title on an MCP step", () => {
+    const p = phrases({ tool: 'mcp__deepwiki__read_wiki_structure', title: 'MCP deepwiki: read_wiki_structure', args: {} });
+    expect(plain(p.ask)).not.toContain('MCP');
+    expect(plain(p.ask)).toContain('Read wiki structure');
+  });
+
   it('drops an optional part when its value is missing', () => {
     expect(plain(phrases({ tool: 'repo_checkout', args: { repo: 'acme/web' } }).done)).toBe('Got a copy of acme/web');
     expect(plain(phrases({ tool: 'repo_open_pr', args: { repo: 'acme/web' }, result: '{"number":482,"html_url":"https://github.com/acme/web/pull/482"}' }).done)).toBe('Opened pull request #482 in acme/web');
