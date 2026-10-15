@@ -16,9 +16,24 @@ var (
 		"stdbuf", "setsid", "xargs", "parallel", "busybox", "watch", "flock", "chroot", "unbuffer", "strace"}
 	// preCommand are the reserved words after which a command starts.
 	preCommand = []string{"!", "{", "}", "if", "then", "else", "elif", "fi", "do", "done", "while", "until", "esac"}
+	// runnerValueOpts are runner options whose value is the next word, so
+	// that word is not the command.
+	runnerValueOpts = map[string][]string{
+		"sudo": {"-u", "-g", "-h", "-p", "-C", "-U", "-r", "-t", "-T", "-D", "--user", "--group", "--host", "--prompt", "--chdir"},
+		"doas": {"-u", "-C"}, "env": {"-u", "-C", "--unset", "--chdir"}, "nice": {"-n", "--adjustment"},
+		"ionice": {"-c", "-n", "-p", "--class", "--classdata"}, "timeout": {"-s", "-k", "--signal", "--kill-after"},
+		"xargs":    {"-I", "-n", "-P", "-L", "-s", "-d", "-E", "-a", "--max-args", "--max-procs", "--delimiter", "--arg-file", "--max-lines"},
+		"parallel": {"-j", "--jobs", "-S"}, "flock": {"-w", "-E", "--timeout", "--conflict-exit-code"}, "watch": {"-n", "--interval"},
+		"chroot": {"--userspec", "--groups"}, "strace": {"-o", "-e", "-p", "-s", "-u"},
+	}
+	// runnerOperands counts the operands a runner takes before its command:
+	// timeout DURATION, flock FILE, chroot NEWROOT.
+	runnerOperands = map[string]int{"timeout": 1, "flock": 1, "chroot": 1}
 	// gitValueOpts are git's global options that take the next word.
 	gitValueOpts = []string{"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env"}
 	assignRe     = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*\+?=`)
+	// numberRe is a runner's numeric value or duration ("10", "5s", "1.5m").
+	numberRe = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?[smhd]?$`)
 )
 
 // maxScriptDepth bounds nested scripts (bash -c "sh -c '…'", find -exec,
@@ -57,22 +72,36 @@ func commandDeletes(words []string, depth int) bool {
 	case slices.Contains(shells, name):
 		return shellDeletes(args, depth)
 	case slices.Contains(runners, name):
-		if slices.ContainsFunc(args, func(a string) bool { return slices.Contains(deleters, path.Base(a)) }) {
-			return true
+		// "command -v rm" only says where rm is.
+		if name == "command" && slices.ContainsFunc(args, func(a string) bool { return a == "-v" || a == "-V" }) {
+			return false
 		}
-		// Only the first program is followed, so a long argument list
-		// costs one pass.
-		if i := slices.IndexFunc(args, inspected); i >= 0 {
-			return commandDeletes(args[i:], depth+1)
-		}
+		return commandDeletes(runnerCommand(name, args), depth+1)
 	}
 	return false
 }
 
-// inspected reports whether commandDeletes looks into a program's arguments.
-func inspected(word string) bool {
-	n := path.Base(word)
-	return n == "find" || n == "git" || n == "rsync" || n == "eval" || slices.Contains(shells, n)
+// runnerCommand returns the command a runner runs: its arguments after the
+// runner's own options, their values, variable assignments and leading
+// operands. "xargs grep -n unlink" runs grep, not unlink.
+func runnerCommand(name string, args []string) []string {
+	operands := runnerOperands[name]
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--":
+			return args[i+1:]
+		case slices.Contains(runnerValueOpts[name], a):
+			i++
+		case len(a) > 1 && a[0] == '-', assignRe.MatchString(a):
+		case operands > 0:
+			operands--
+		case numberRe.MatchString(a):
+		default:
+			return args[i:]
+		}
+	}
+	return nil
 }
 
 // commandWords drops what comes before a command's program: variable
@@ -170,9 +199,18 @@ func scriptDeletes(s string, depth int) bool {
 		return true
 	}
 	cmds, nested := splitScript(s)
-	for _, c := range cmds {
+	for i, c := range cmds {
 		if commandDeletes(c.words, depth) {
 			return true
+		}
+		// A script piped into a shell is what the command before it
+		// writes: a here-document ("cat <<EOF | bash") or echo's words.
+		if c.piped && i > 0 && readsScript(c.words) {
+			for _, in := range written(cmds[i-1]) {
+				if scriptDeletes(in, depth+1) {
+					return true
+				}
+			}
 		}
 		if len(c.input) > 0 && slices.ContainsFunc(c.words, func(w string) bool { n := path.Base(w); return n == "eval" || slices.Contains(shells, n) }) {
 			for _, in := range c.input {
@@ -191,10 +229,45 @@ func scriptDeletes(s string, depth int) bool {
 }
 
 // simpleCommand is one command of a script: its words without quotes and
-// backslashes, and the here-documents and here-strings it reads.
+// backslashes, the here-documents and here-strings it reads, and whether a
+// pipe feeds it.
 type simpleCommand struct {
 	words []string
 	input []string
+	piped bool
+}
+
+// written returns the text a command writes that a shell after a pipe would
+// run: its here-documents and here-strings, or the words echo and printf
+// print. A file it reads (cat script.sh) cannot be checked here.
+func written(c *simpleCommand) []string {
+	out := slices.Clone(c.input)
+	if words := commandWords(c.words); len(words) > 1 {
+		if n := path.Base(words[0]); n == "echo" || n == "printf" {
+			out = append(out, strings.Join(words[1:], " "))
+		}
+	}
+	return out
+}
+
+// readsScript reports whether a shell reads its script from stdin: no -c
+// and no script file, or -s.
+func readsScript(words []string) bool {
+	words = commandWords(words)
+	if len(words) == 0 || !slices.Contains(shells, path.Base(words[0])) {
+		return false
+	}
+	for _, a := range words[1:] {
+		switch {
+		case len(a) > 1 && a[0] == '-' && a[1] != '-' && strings.ContainsRune(a[1:], 's'):
+			return true
+		case len(a) > 1 && a[0] == '-' && a[1] != '-' && strings.ContainsRune(a[1:], 'c'):
+			return false
+		case !strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "+"):
+			return false
+		}
+	}
+	return true
 }
 
 type redirect int
@@ -216,16 +289,19 @@ const (
 // returned as nested scripts.
 func splitScript(s string) (cmds []*simpleCommand, nested []string) {
 	type pending struct {
-		delim string
-		tabs  bool
-		cmd   *simpleCommand
+		delim  string
+		tabs   bool
+		expand bool // an unquoted delimiter: the body's substitutions run
+		cmd    *simpleCommand
 	}
 	var (
 		cur    = &simpleCommand{}
 		word   strings.Builder
 		inWord bool
+		quoted bool // the word being read had quotes or backslashes
 		target redirect
 		docs   []pending
+		piped  bool // the next command reads this one's output
 	)
 	endWord := func() {
 		if !inWord {
@@ -234,11 +310,13 @@ func splitScript(s string) (cmds []*simpleCommand, nested []string) {
 		w := word.String()
 		word.Reset()
 		inWord = false
+		q := quoted
+		quoted = false
 		switch target {
 		case noRedirect:
 			cur.words = append(cur.words, w)
 		case heredoc, heredocTabs:
-			docs = append(docs, pending{delim: w, tabs: target == heredocTabs, cmd: cur})
+			docs = append(docs, pending{delim: w, tabs: target == heredocTabs, expand: !q, cmd: cur})
 		case hereString:
 			cur.input = append(cur.input, w)
 		}
@@ -250,7 +328,25 @@ func splitScript(s string) (cmds []*simpleCommand, nested []string) {
 		if len(cur.words) > 0 || len(cur.input) > 0 {
 			cmds = append(cmds, cur)
 		}
-		cur = &simpleCommand{}
+		cur = &simpleCommand{piped: piped}
+		piped = false
+	}
+	// substitutions adds the command substitutions in t as nested scripts.
+	substitutions := func(t string) {
+		for j := 0; j < len(t); j++ {
+			switch {
+			case t[j] == '\\':
+				j++
+			case t[j] == '`':
+				end := closing(t, j+1, '`')
+				nested = append(nested, t[j+1:min(end, len(t))])
+				j = end
+			case t[j] == '$' && j+1 < len(t) && t[j+1] == '(':
+				end := closing(t, j+2, ')')
+				nested = append(nested, t[j+2:min(end, len(t))])
+				j = end
+			}
+		}
 	}
 	// readBodies consumes the here-documents started on the line that
 	// ends before s[from] and returns where the next line starts.
@@ -267,6 +363,9 @@ func splitScript(s string) (cmds []*simpleCommand, nested []string) {
 				body.WriteByte('\n')
 			}
 			d.cmd.input = append(d.cmd.input, body.String())
+			if d.expand {
+				substitutions(body.String())
+			}
 		}
 		docs = nil
 		return min(from, len(s))
@@ -280,11 +379,11 @@ func splitScript(s string) (cmds []*simpleCommand, nested []string) {
 				i++
 				if s[i] != '\n' {
 					word.WriteByte(s[i])
-					inWord = true
+					inWord, quoted = true, true
 				}
 			}
 		case c == '\'':
-			inWord = true
+			inWord, quoted = true, true
 			end := strings.IndexByte(s[i+1:], '\'')
 			if end < 0 {
 				end = len(s) - i - 1
@@ -292,7 +391,7 @@ func splitScript(s string) (cmds []*simpleCommand, nested []string) {
 			word.WriteString(s[i+1 : i+1+end])
 			i += end + 1
 		case c == '$' && i+1 < len(s) && s[i+1] == '\'':
-			inWord = true
+			inWord, quoted = true, true
 			for i += 2; i < len(s) && s[i] != '\''; i++ {
 				if s[i] == '\\' && i+1 < len(s) {
 					i++
@@ -300,7 +399,7 @@ func splitScript(s string) (cmds []*simpleCommand, nested []string) {
 				word.WriteByte(s[i])
 			}
 		case c == '"':
-			inWord = true
+			inWord, quoted = true, true
 			for i++; i < len(s) && s[i] != '"'; i++ {
 				switch {
 				case s[i] == '\\' && i+1 < len(s) && strings.IndexByte("$`\"\\\n", s[i+1]) >= 0:
@@ -331,9 +430,18 @@ func splitScript(s string) (cmds []*simpleCommand, nested []string) {
 			if len(docs) > 0 {
 				i = readBodies(i+1) - 1
 			}
-		case c == '$' && i+1 < len(s) && s[i+1] == '(':
-			endCommand()
-			i++
+		case c == '$' && i+1 < len(s) && s[i+1] == '(' || c == '`':
+			// The substitution's output is part of this word, and what
+			// follows it belongs to the same command.
+			start := i
+			if c == '`' {
+				i = closing(s, i+1, '`')
+			} else {
+				i = closing(s, i+2, ')')
+			}
+			substitutions(s[start:min(i+1, len(s))])
+			word.WriteString("$()")
+			inWord = true
 		case c == '&' && i+1 < len(s) && s[i+1] == '>':
 			endWord()
 			i++
@@ -359,7 +467,14 @@ func splitScript(s string) (cmds []*simpleCommand, nested []string) {
 			case strings.HasPrefix(rest, ">") || strings.HasPrefix(rest, "&") || strings.HasPrefix(rest, "|"):
 				i++
 			}
-		case strings.IndexByte(";&|()`", c) >= 0:
+		case c == '|' && i+1 < len(s) && s[i+1] == '|':
+			endCommand()
+			i++
+		case c == '|':
+			endCommand()
+			piped = true
+			cur.piped = true
+		case strings.IndexByte(";&()", c) >= 0:
 			endCommand()
 		default:
 			word.WriteByte(c)
