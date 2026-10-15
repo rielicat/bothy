@@ -289,18 +289,27 @@ func (r *Runner) ensurePersona() error {
 // personal assistant on its owner's machine.
 const v01DefaultSoul = "277f93ff394f29f1ca41d8649193afffdaff627358d6ab4a4729829fa7ac8b50"
 
-// isV01Default reports whether the persona file is v0.1's default, byte for
-// byte; an unreadable one is left to persona() to report.
-func isV01Default(root *os.Root, name string) bool {
+// v02DefaultSoul is the sha256 of v0.2's first default SOUL.md, before it
+// asked Bothy not to name its tools and ids.
+const v02DefaultSoul = "bbefb4b1d22cd8748e4df7c874921926177f239412f74a1c3e41f666f6ab761e"
+
+// isOldDefault reports whether the persona file is an earlier default, byte
+// for byte; an unreadable one is left to persona() to report.
+func isOldDefault(root *os.Root, name string) bool {
 	b, err := root.ReadFile(name)
+	if err != nil {
+		return false
+	}
 	sum := sha256.Sum256(b)
-	return err == nil && hex.EncodeToString(sum[:]) == v01DefaultSoul
+	h := hex.EncodeToString(sum[:])
+	return h == v01DefaultSoul || h == v02DefaultSoul
 }
 
-// upgradeDefaultPersona replaces a persona file nobody edited since v0.1
-// wrote it with the current default; an edited one is left alone.
+// upgradeDefaultPersona replaces a persona file nobody edited since an
+// earlier version wrote it with the current default; an edited one is left
+// alone.
 func upgradeDefaultPersona(root *os.Root, name string) error {
-	if !isV01Default(root, name) {
+	if !isOldDefault(root, name) {
 		return nil
 	}
 	tmp := "." + name + ".upgrade.tmp"

@@ -280,7 +280,11 @@ func (h *Hub) renderCard(ap *core.Approval, caps core.ChannelCaps) (core.OutMess
 	if ap.Approver.Multi() {
 		lines = append(lines, h.approvalLines(ap)...)
 	}
-	if c.Code != "" {
+	// A pull request card's code is the action's JSON (file hashes, base
+	// commit); its fields and diff already show the change, so in a chat
+	// message the JSON stays behind the web UI's Details. Every other card
+	// keeps its code: for a command it is the command itself.
+	if c.Code != "" && (c.Kind != core.CardPullRequest || c.Diff == "") {
 		lines = append(lines, codeBlock("", revealInvisible(c.Code)))
 	}
 	diffCut := len(c.Diff) > maxChatDiff

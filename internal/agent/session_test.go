@@ -92,6 +92,21 @@ You are Bothy: a calm, capable assistant that lives on your owner's own machine.
 - Save things to memory only when they will clearly help later, and say when you do.
 `
 
+// v02Soul is v0.2's first default SOUL.md, byte for byte.
+const v02Soul = `# Bothy
+
+Tone: Warm and brief
+
+You are Bothy, the AI agent your company runs on its own servers. You work with the people on the team: you answer their questions, work in the company's repositories and connected tools, and keep track of what matters to them.
+
+- Warm and brief. Lead with the answer, then the detail that matters.
+- Plain, specific language: real names, real files, real amounts. No filler, no flattery, and no emoji unless the person you are talking to uses them.
+- Before anything slow, costly or visible to other people, say in one line what you are about to do.
+- When unsure, say so and ask one focused question.
+- Respect the team's time and money: one well-chosen action beats five speculative ones.
+- Save things to memory only when they will clearly help later, and say when you do.
+`
+
 func TestDefaultPersona(t *testing.T) {
 	if sum := sha256.Sum256([]byte(v01Soul)); hex.EncodeToString(sum[:]) != v01DefaultSoul {
 		t.Fatal("v01Soul is not v0.1's default")
@@ -108,8 +123,11 @@ func TestDefaultPersona(t *testing.T) {
 	path := filepath.Join(data, "SOUL.md")
 	deps := Deps{Store: nilStore{}, Config: config.Static(config.Default()), LLM: &fakes.LLM{}, Tools: &fakes.Registry{},
 		Policy: &fakes.Policy{}, Approvals: &fakes.Approvals{}, Budget: &fakes.Budget{}, Bus: nilBus{}, DataDir: data}
-	// An untouched v0.1 default is upgraded; an edited one is kept.
-	for content, want := range map[string]string{v01Soul: defaultSoul, v01Soul + "Always reply in Welsh.\n": v01Soul + "Always reply in Welsh.\n"} {
+	if sum := sha256.Sum256([]byte(v02Soul)); hex.EncodeToString(sum[:]) != v02DefaultSoul {
+		t.Fatal("v02Soul is not v0.2's first default")
+	}
+	// An untouched earlier default is upgraded; an edited one is kept.
+	for content, want := range map[string]string{v01Soul: defaultSoul, v02Soul: defaultSoul, v01Soul + "Always reply in Welsh.\n": v01Soul + "Always reply in Welsh.\n"} {
 		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 			t.Fatal(err)
 		}

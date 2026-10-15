@@ -317,3 +317,29 @@ func TestCardSpeaksPlainCopy(t *testing.T) {
 		}
 	})
 }
+
+// A pull request card's JSON stays out of the chat message; its fields and
+// diff say what changes. A command card always shows the command.
+func TestPullRequestCardLeavesJSONToTheWeb(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t)
+		pr := &core.Approval{ID: core.ApprovalID(core.NewID(core.PrefixApproval)), Card: core.Card{
+			Question: "Open a pull request in acme/web?", Kind: core.CardPullRequest,
+			Fields:  []core.CardField{{Label: "Title", Value: "Add CONTRIBUTING.md"}},
+			Code:    `{"base_sha":"a227002a16474a656d500bb35a12aa785c81ebfd"}`,
+			Diff:    "--- /dev/null\n+++ b/CONTRIBUTING.md\n@@ -0,0 +1 @@\n+# Contributing\n",
+			Choices: []core.Choice{core.AllowOnce, core.Deny},
+		}}
+		msg, _ := h.hub.renderCard(pr, core.ChannelCaps{Buttons: true, MaxLen: 4096})
+		if strings.Contains(msg.Text, "base_sha") || !strings.Contains(msg.Text, "+# Contributing") {
+			t.Errorf("pull request card = %q", msg.Text)
+		}
+		cmd := &core.Approval{ID: core.ApprovalID(core.NewID(core.PrefixApproval)), Card: core.Card{
+			Question: "Run a shell command?", Fields: []core.CardField{{Label: "Tool", Value: "shell"}},
+			Code: "rm -rf build", Choices: []core.Choice{core.AllowOnce, core.Deny},
+		}}
+		if msg, _ := h.hub.renderCard(cmd, core.ChannelCaps{Buttons: true, MaxLen: 4096}); !strings.Contains(msg.Text, "rm -rf build") {
+			t.Errorf("command card lost its command: %q", msg.Text)
+		}
+	})
+}
