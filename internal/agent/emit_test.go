@@ -125,3 +125,47 @@ func TestPastedSecretIsStoredMasked(t *testing.T) {
 		}
 	})
 }
+
+// scopedRedactor stands in for vault.Redactor: ForScope masks only what
+// the scope's owner may have chosen plus shared keys.
+type scopedRedactor struct {
+	*fakes.Redactor
+	shared *fakes.Redactor
+	asked  []core.Scope
+}
+
+func (s *scopedRedactor) ForScope(own core.Scope) core.Redactor {
+	s.asked = append(s.asked, own)
+	return s.shared
+}
+
+func TestStoredMessagesKeepOtherPeoplesKeyWords(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{steps: []fakes.LLMStep{{Text: []string{"Deploying with the shared key."}}}})
+		defer h.close()
+		full, shared := fakes.NewRedactor(), fakes.NewRedactor()
+		full.Add("user:usr_other/k", []byte("deploy"))
+		full.Add("global/key", []byte("shared-key-0123456789"))
+		shared.Add("global/key", []byte("shared-key-0123456789"))
+		red := &scopedRedactor{Redactor: full, shared: shared}
+		h.r = h.newRunnerWith(func(d *Deps) { d.Redactor = red })
+		h.r.SetHub(h.hub)
+		res := h.submit("deploy main with shared-key-0123456789")
+		synctest.Wait()
+		if st := h.run(res.Run).Status; st != core.RunDone {
+			t.Fatalf("run = %s", st)
+		}
+		var user string
+		for _, m := range h.messages() {
+			if m.Role == core.MsgUser {
+				user = m.PlainText()
+			}
+		}
+		if user != "deploy main with [redacted]" {
+			t.Fatalf("stored user text = %q", user)
+		}
+		if len(red.asked) == 0 || red.asked[0] != core.UserScope(h.user.ID) {
+			t.Fatalf("store scopes = %v", red.asked)
+		}
+	})
+}

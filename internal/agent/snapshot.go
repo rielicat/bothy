@@ -303,7 +303,7 @@ func (r *Runner) renderS2(ctx context.Context, rs *runState, p profile, window i
 	section("memory", "Notes you saved earlier (MEMORY.md):", mem.Memory)
 	var pb strings.Builder
 	for _, pin := range pins {
-		pb.WriteString("- " + strings.ReplaceAll(strings.TrimSpace(pin.Text), "\n", " ") + "\n")
+		pb.WriteString("- " + strings.ReplaceAll(strings.TrimSpace(r.redact(pin.Text)), "\n", " ") + "\n")
 	}
 	section("pins", "Pinned instructions. Follow them until the user removes them:", pb.String())
 	section("skills", "Skills you can load with skill_load when relevant:", r.skillsIndex(rs, p, skills))

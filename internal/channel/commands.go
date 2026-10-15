@@ -369,7 +369,7 @@ func (h *Hub) cmdPin(ctx context.Context, tg target, chat core.ChatRef, text str
 	}
 	sess, err := h.resolveSession(ctx, tg.principal.ID, chat)
 	if err == nil {
-		err = h.d.Store.Pins().Add(ctx, &core.Pin{Session: sess.ID, Text: text, Source: "user", CreatedAt: h.clock.Now()})
+		err = h.d.Store.Pins().Add(ctx, &core.Pin{Session: sess.ID, Text: h.redactFor(tg.principal, text), Source: "user", CreatedAt: h.clock.Now()})
 	}
 	if err != nil {
 		h.log.Error("channel /pin failed", "err", err)

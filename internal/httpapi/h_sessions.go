@@ -347,6 +347,10 @@ func (s *Server) listPins(w http.ResponseWriter, r *http.Request, a core.Actor) 
 	if err != nil {
 		return err
 	}
+	// Pins made before keys were masked on the way in may still hold one.
+	for _, p := range pins {
+		p.Text = s.redact(p.Text)
+	}
 	return ok(w, nonNil(pins))
 }
 
@@ -377,7 +381,7 @@ func (s *Server) addPin(w http.ResponseWriter, r *http.Request, a core.Actor) er
 	if utf8.RuneCountInString(text) > maxPinChars {
 		return badRequest("a pin holds at most %d characters", maxPinChars)
 	}
-	p := &core.Pin{Session: sess.ID, Text: text, Source: "user", MsgSeq: req.MsgSeq, CreatedAt: s.now()}
+	p := &core.Pin{Session: sess.ID, Text: s.redactFor(a, text), Source: "user", MsgSeq: req.MsgSeq, CreatedAt: s.now()}
 	if err := s.d.Store.Pins().Add(ctx, p); err != nil {
 		return err
 	}

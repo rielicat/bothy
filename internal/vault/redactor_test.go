@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/rielicat/bothy/internal/core"
 )
 
 const canary = "CANARY-s3cr3t/value+with=odd&chars"
@@ -219,4 +221,38 @@ func TestRedactorConcurrent(t *testing.T) {
 		})
 	}
 	wg.Wait()
+}
+
+func TestRedactorForScope(t *testing.T) {
+	r := NewRedactor()
+	r.Add("global/openai", []byte("shared-key-0123456789"))
+	r.Add("env:ANTHROPIC_API_KEY", []byte("env-key-0123456789"))
+	r.Add("user:usr_a/mine", []byte("deploy"))
+	r.Add("user:usr_b/theirs", []byte("staging"))
+	text := "deploy to staging with shared-key-0123456789 and env-key-0123456789 or sk-abcdefghijklmnopqrstuvwxyz"
+	want := map[string]string{
+		"user:usr_a": "[redacted] to staging with [redacted] and [redacted] or [redacted]",
+		"user:usr_b": "deploy to [redacted] with [redacted] and [redacted] or [redacted]",
+		"":           "deploy to staging with [redacted] and [redacted] or [redacted]",
+	}
+	for own, w := range want {
+		red := r.ForScope(core.Scope(own))
+		if got := red.Redact(text); got != w {
+			t.Errorf("ForScope(%q).Redact = %q, want %q", own, got, w)
+		}
+		if got := string(red.RedactBytes([]byte(text))); got != w {
+			t.Errorf("ForScope(%q).RedactBytes = %q, want %q", own, got, w)
+		}
+	}
+	// A personal key is still masked everywhere else: display and model input.
+	if got := r.Redact(text); strings.Contains(got, "deploy") || strings.Contains(got, "staging") {
+		t.Errorf("Redact = %q", got)
+	}
+	// Changes reach the scoped snapshots.
+	red := r.ForScope("user:usr_b")
+	r.Remove("user:usr_b/theirs")
+	r.Add("global/web", []byte("deploy"))
+	if got := red.Redact("deploy to staging"); got != "[redacted] to staging" {
+		t.Errorf("after changes = %q", got)
+	}
 }

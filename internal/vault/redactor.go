@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // Mask replaces every redacted value.
@@ -61,6 +63,7 @@ type Redactor struct {
 	mu     sync.Mutex
 	values map[string][]byte
 	snap   atomic.Pointer[snapshot]
+	scoped map[string]*snapshot // ForScope snapshots by owner prefix, dropped on every change
 }
 
 // snapshot is the compiled form of the registered values.
@@ -132,15 +135,20 @@ func (r *Redactor) Remove(id string) {
 // argument order at each position, so a value containing another is masked
 // whole.
 func (r *Redactor) rebuild() {
+	r.scoped = nil
+	r.snap.Store(compile(r.values))
+}
+
+// compile builds the snapshot for values; nil when there is nothing to mask.
+func compile(values map[string][]byte) *snapshot {
 	set := map[string]struct{}{}
-	for _, v := range r.values {
+	for _, v := range values {
 		for _, n := range needles(v) {
 			set[n] = struct{}{}
 		}
 	}
 	if len(set) == 0 {
-		r.snap.Store(nil)
-		return
+		return nil
 	}
 	sorted := slices.Sorted(maps.Keys(set))
 	list := slices.Clone(sorted)
@@ -155,8 +163,58 @@ func (r *Redactor) rebuild() {
 		sn.byHead[k] = append(sn.byHead[k], n)
 	}
 	sn.rep = strings.NewReplacer(args...)
-	r.snap.Store(sn)
+	return sn
 }
+
+// ForScope masks only values no member chooses (shared, environment and the
+// vault's own keys) plus own's personal keys, and the credential patterns.
+// Text stored for good is masked with it: a member's personal key such as
+// "deploy" must not erase that word from everyone else's chats.
+func (r *Redactor) ForScope(own core.Scope) core.Redactor {
+	return scopedRedactor{r: r, own: string(own) + "/"}
+}
+
+func (r *Redactor) scopedSnap(own string) *snapshot {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if sn, ok := r.scoped[own]; ok {
+		return sn
+	}
+	vals := map[string][]byte{}
+	for id, v := range r.values {
+		if !strings.HasPrefix(id, "user:") || strings.HasPrefix(id, own) {
+			vals[id] = v
+		}
+	}
+	sn := compile(vals)
+	if r.scoped == nil {
+		r.scoped = map[string]*snapshot{}
+	}
+	r.scoped[own] = sn
+	return sn
+}
+
+type scopedRedactor struct {
+	r   *Redactor
+	own string // "<scope>/", the id prefix of the owner's keys
+}
+
+func (s scopedRedactor) Redact(str string) string {
+	if sn := s.r.scopedSnap(s.own); sn != nil && contains(sn, str) {
+		str = sn.rep.Replace(str)
+	}
+	return redactPatterns(str)
+}
+
+func (s scopedRedactor) RedactBytes(b []byte) []byte {
+	if sn := s.r.scopedSnap(s.own); (sn == nil || !contains(sn, b)) && !hasMarker(b) {
+		return b
+	}
+	return []byte(s.Redact(string(b)))
+}
+
+func (s scopedRedactor) Add(id string, value []byte) { s.r.Add(id, value) }
+func (s scopedRedactor) Remove(id string)            { s.r.Remove(id) }
 
 // Redact returns s itself when nothing in it is masked.
 func (r *Redactor) Redact(s string) string {

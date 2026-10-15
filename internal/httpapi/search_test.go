@@ -171,4 +171,21 @@ func TestSavedKeyInStoredMessageIsMasked(t *testing.T) {
 	if len(res.Chats) != 1 || res.Chats[0].Snippet != "I pasted my key here by mistake: [redacted]" {
 		t.Fatalf("chats = %+v", res.Chats)
 	}
+
+	// Pinning that message or typing the key into a pin stores it masked, and
+	// a pin stored before masking is masked on the way out.
+	expect(t, h.do("POST", "/api/sessions/"+string(s.ID)+"/pins", dto.PinReq{MsgSeq: 1}, h.member), http.StatusOK)
+	expect(t, h.do("POST", "/api/sessions/"+string(s.ID)+"/pins", dto.PinReq{Text: "Use " + key}, h.member), http.StatusOK)
+	if err := h.store.Pins().Add(ctx, &core.Pin{Session: s.ID, Text: "old " + key, Source: "user", CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := h.store.Pins().List(ctx, core.SystemViewer(), s.ID)
+	if err != nil || len(stored) != 3 || strings.Contains(stored[0].Text+stored[1].Text, key) {
+		t.Fatalf("stored pins = %+v, %v", stored, err)
+	}
+	rec = h.do("GET", "/api/sessions/"+string(s.ID)+"/pins", nil, h.member)
+	expect(t, rec, http.StatusOK)
+	if body := rec.Body.String(); strings.Contains(body, key) || strings.Count(body, "[redacted]") != 3 {
+		t.Fatalf("pins = %s", body)
+	}
 }

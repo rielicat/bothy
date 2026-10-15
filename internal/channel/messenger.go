@@ -144,6 +144,22 @@ func (h *Hub) redact(s string) string {
 	return h.d.Redactor.Redact(s)
 }
 
+// redactFor masks text kept for good on p's behalf: shared keys and the
+// user's own personal keys, never another person's (vault.Redactor.ForScope).
+func (h *Hub) redactFor(p *core.Principal, s string) string {
+	sc, ok := h.d.Redactor.(interface {
+		ForScope(core.Scope) core.Redactor
+	})
+	if !ok {
+		return h.redact(s)
+	}
+	var own core.Scope
+	if p != nil && p.Kind == core.PrincipalUser {
+		own = core.UserScope(p.User)
+	}
+	return sc.ForScope(own).Redact(s)
+}
+
 // sendText redacts and splits markdown and sends the pieces in order; buttons
 // go on the last piece. It returns the first piece's ref.
 func (h *Hub) sendText(ctx context.Context, chat core.ChatRef, markdown string, buttons [][]core.Button) (core.MsgRef, error) {

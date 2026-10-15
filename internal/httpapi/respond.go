@@ -117,6 +117,25 @@ func (s *Server) redact(msg string) string {
 	return s.d.Vault.Redactor().Redact(msg)
 }
 
+// redactFor masks text kept for good on a's behalf: shared keys and a's own
+// personal keys, never another person's (see vault.Redactor.ForScope).
+func (s *Server) redactFor(a core.Actor, text string) string {
+	if s.d.Vault == nil {
+		return text
+	}
+	red := s.d.Vault.Redactor()
+	if sc, ok := red.(interface {
+		ForScope(core.Scope) core.Redactor
+	}); ok {
+		var own core.Scope
+		if a.User != "" {
+			own = core.UserScope(a.User)
+		}
+		red = sc.ForScope(own)
+	}
+	return red.Redact(text)
+}
+
 // errAborted marks a failure after the response started: nothing more can
 // be sent, so writeError only logs it.
 var errAborted = errors.New("response aborted")

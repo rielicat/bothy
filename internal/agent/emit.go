@@ -319,6 +319,26 @@ func (r *Runner) redactAction(a *core.Action) *core.Action {
 	return &out
 }
 
+// scoper is vault.Redactor's ForScope.
+type scoper interface {
+	ForScope(core.Scope) core.Redactor
+}
+
+// storeRedactor masks what a message keeps for good: shared keys and p's own
+// personal keys, never another person's, so their choice of value cannot
+// erase words from this chat.
+func (r *Runner) storeRedactor(p core.PrincipalID) core.Redactor {
+	s, ok := r.d.Redactor.(scoper)
+	if !ok {
+		return r.d.Redactor
+	}
+	var own core.Scope
+	if strings.HasPrefix(string(p), core.PrefixUser+"_") {
+		own = core.UserScope(core.UserID(p))
+	}
+	return s.ForScope(own)
+}
+
 // appendMessage persists a message and publishes message.created. Both are
 // masked: a key pasted into a chat is never stored, so the history, search
 // and the API show what the live event showed, even once the key is deleted
@@ -330,7 +350,7 @@ func (r *Runner) appendMessage(ctx context.Context, p core.PrincipalID, m *core.
 	if m.Kind == "" {
 		m.Kind = core.KindNormal
 	}
-	stored := m.Redacted(r.d.Redactor, true)
+	stored := m.Redacted(r.storeRedactor(p), true)
 	if err := r.d.Store.Messages().Append(context.WithoutCancel(ctx), stored); err != nil {
 		return err
 	}
