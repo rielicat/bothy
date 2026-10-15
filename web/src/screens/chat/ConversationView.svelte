@@ -178,7 +178,8 @@
       case 'failed':
       case 'interrupted': {
         const calls = conv.runs[o.run_id]?.llm_calls ?? [];
-        const attempts = calls.flatMap((c) => c.attempts ?? []).filter((a) => a.err);
+        // A model skipped because its provider just failed says nothing new.
+        const attempts = calls.flatMap((c) => c.attempts ?? []).filter((a) => a.err && a.err !== 'circuit open');
         const again = { label: 'Try again', onclick: retry };
         if (attempts.length && attempts.every((a) => a.kind === 'auth')) {
           const who = providerName(attempts[0].ref.provider);
@@ -656,7 +657,8 @@
           {:else if b.kind === 'stream'}
             {#if b.text}<Markdown text={linkCitations(b.text, exposed)} {exposed} />{/if}
           {:else if b.kind === 'notice'}
-            <ChatNotice text={b.text} />
+            <!-- The outcome below says the same about its run, with what to do next. -->
+            {#if !(outcome && b.msg.run_id && b.msg.run_id === conv.outcome?.run_id)}<ChatNotice text={b.text} />{/if}
           {:else if b.kind === 'summary'}
             <ChatNotice text="Older messages were summarised so this chat can keep going." detailsLabel="Show summary">
               {#snippet more()}<div class="text-small"><Markdown text={b.text} {exposed} /></div>{/snippet}
