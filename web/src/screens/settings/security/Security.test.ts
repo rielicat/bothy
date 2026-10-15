@@ -90,6 +90,23 @@ describe('Security', () => {
     await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toBe('{"set":{"egress.presets.python_packages":true}}'));
   });
 
+  it('says why a value set on the server is greyed out, next to it', async () => {
+    await open();
+    for (const e of config.view!.entries) {
+      if (e.path === 'policy.approval.scheduled_timeout') e.source = { layer: 'env', env_var: 'BOTHY_POLICY__APPROVAL__SCHEDULED_TIMEOUT' };
+      if (e.path === 'egress.presets.npm_packages') e.locked = true;
+    }
+    const why = (el: HTMLElement) => document.getElementById(el.getAttribute('aria-describedby') ?? '')?.textContent;
+    const scheduled = screen.getByLabelText('If nobody answers a scheduled request') as HTMLSelectElement;
+    await waitFor(() => expect(scheduled.disabled).toBe(true));
+    expect(why(scheduled)).toBe("This is set on the server and can't be changed here.");
+    const npm = screen.getByRole('switch', { name: 'JavaScript packages (npm)' });
+    expect(npm.getAttribute('aria-disabled')).toBe('true');
+    expect(why(npm)).toBe("This is set on the server and can't be changed here.");
+    expect(screen.getByLabelText('If nobody answers a chat request').getAttribute('aria-describedby')).toBeNull();
+    expect(screen.getByRole('switch', { name: 'Python packages (PyPI)' }).getAttribute('aria-describedby')).toBeNull();
+  });
+
   it('counts permissions, sites and saved keys, linking each page', async () => {
     await open();
     await waitFor(() => expect(screen.getByRole('link', { name: /Allowed without asking\s*4 permissions/ })).toBeTruthy());

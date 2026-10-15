@@ -64,6 +64,9 @@
     return !!e && (e.locked || e.source.layer === 'env');
   };
   const presetFixed = $derived(fixed('policy.preset'));
+  const chatFixed = $derived(fixed('policy.approval.interactive_on_timeout') || fixed('policy.approval.interactive_timeout'));
+  const scheduledFixed = $derived(fixed('policy.approval.scheduled_on_timeout') || fixed('policy.approval.scheduled_timeout'));
+  const FIXED_HELP = "This is set on the server and can't be changed here.";
 
   const pausedText = $derived.by(() => {
     const since = pausedSince(session.pause);
@@ -224,7 +227,7 @@
           <p id="{uid}-ask" class="text-body font-medium text-text">When should Bothy ask?</p>
           <span class="text-small text-muted" aria-live="polite">{rows.preset?.status === 'saving' ? 'Saving…' : rows.preset?.status === 'saved' ? 'Saved' : ''}</span>
         </div>
-        {#if presetFixed}<p class="mt-0.5 text-small text-muted">This is set on the server and can't be changed here.</p>{/if}
+        {#if presetFixed}<p class="mt-0.5 text-small text-muted">{FIXED_HELP}</p>{/if}
         <OptionList
           class="mt-3"
           name="{uid}-preset"
@@ -235,24 +238,24 @@
         />
         {#if rows.preset?.error}<p class="field-error" role="alert"><Icon name="alert" class="mt-px" />{rows.preset.error}</p>{/if}
       </div>
-      <SettingsRow label="If nobody answers a chat request" status={rows.chat?.status} error={rows.chat?.error}>
+      <SettingsRow label="If nobody answers a chat request" help={chatFixed ? FIXED_HELP : undefined} status={rows.chat?.status} error={rows.chat?.error}>
         {#snippet children(c)}
           <Select
             id={c.id}
             aria-describedby={c.describedBy}
-            disabled={fixed('policy.approval.interactive_on_timeout') || fixed('policy.approval.interactive_timeout')}
+            disabled={chatFixed}
             options={chat.options}
             value={chat.value}
             onchange={(e) => save('chat', chatChanges(e.currentTarget.value))}
           />
         {/snippet}
       </SettingsRow>
-      <SettingsRow label="If nobody answers a scheduled request" status={rows.scheduled?.status} error={rows.scheduled?.error}>
+      <SettingsRow label="If nobody answers a scheduled request" help={scheduledFixed ? FIXED_HELP : undefined} status={rows.scheduled?.status} error={rows.scheduled?.error}>
         {#snippet children(c)}
           <Select
             id={c.id}
             aria-describedby={c.describedBy}
-            disabled={fixed('policy.approval.scheduled_on_timeout') || fixed('policy.approval.scheduled_timeout')}
+            disabled={scheduledFixed}
             options={scheduled.options}
             value={scheduled.value}
             onchange={(e) => save('scheduled', scheduledChanges(e.currentTarget.value))}
@@ -306,9 +309,9 @@
         </div>
       {/if}
       {#each [['egress.presets.python_packages', 'Python packages (PyPI)'], ['egress.presets.npm_packages', 'JavaScript packages (npm)']] as [path, label] (path)}
-        <SettingsRow {label} inline status={rows[path]?.status} error={rows[path]?.error}>
+        <SettingsRow {label} inline help={fixed(path) ? FIXED_HELP : undefined} status={rows[path]?.status} error={rows[path]?.error}>
           {#snippet children(c)}
-            <Switch id={c.id} {label} hideLabel checked={config.flag(path)} disabled={fixed(path)} onchange={(v) => save(path, { [path]: v })} />
+            <Switch id={c.id} {label} hideLabel aria-describedby={c.describedBy} checked={config.flag(path)} disabled={fixed(path)} onchange={(v) => save(path, { [path]: v })} />
           {/snippet}
         </SettingsRow>
       {/each}
