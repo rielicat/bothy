@@ -327,11 +327,11 @@ func TestPullRequestCardLeavesJSONToTheWeb(t *testing.T) {
 			Question: "Open a pull request in acme/web?", Kind: core.CardPullRequest,
 			Fields:  []core.CardField{{Label: "Title", Value: "Add CONTRIBUTING.md"}},
 			Code:    `{"base_sha":"a227002a16474a656d500bb35a12aa785c81ebfd"}`,
-			Diff:    "--- /dev/null\n+++ b/CONTRIBUTING.md\n@@ -0,0 +1 @@\n+# Contributing\n",
+			Diff:    "Repository: acme/web (private)\nTitle: Add CONTRIBUTING.md\n---\ndiff --git a/CONTRIBUTING.md b/CONTRIBUTING.md\n--- /dev/null\n+++ b/CONTRIBUTING.md\n@@ -0,0 +1 @@\n+# Contributing\n",
 			Choices: []core.Choice{core.AllowOnce, core.Deny},
 		}}
 		msg, _ := h.hub.renderCard(pr, core.ChannelCaps{Buttons: true, MaxLen: 4096})
-		if strings.Contains(msg.Text, "base_sha") || !strings.Contains(msg.Text, "+# Contributing") {
+		if strings.Contains(msg.Text, "base_sha") || strings.Contains(msg.Text, "Repository:") || !strings.Contains(msg.Text, "+# Contributing") {
 			t.Errorf("pull request card = %q", msg.Text)
 		}
 		cmd := &core.Approval{ID: core.ApprovalID(core.NewID(core.PrefixApproval)), Card: core.Card{

@@ -469,9 +469,10 @@ func (e *entry) validate(args json.RawMessage) (json.RawMessage, error) {
 }
 
 // unquoteJSONArgs replaces a top-level argument the schema types as an
-// array or object, but that the model sent as a string holding exactly that
-// JSON ("paths": "[\"a.ts\"]"), with the decoded value. Models do this often
-// enough that refusing costs a round trip. It reports whether it changed obj.
+// array, object, boolean, integer or number, but that the model sent as a
+// string holding exactly that JSON ("paths": "[\"a.ts\"]", "diff": "false"),
+// with the decoded value. Models do this often enough that refusing costs a
+// round trip each time. It reports whether it changed obj.
 func unquoteJSONArgs(s *jsonschema.Schema, obj map[string]any) bool {
 	if s == nil {
 		return false
@@ -479,16 +480,25 @@ func unquoteJSONArgs(s *jsonschema.Schema, obj map[string]any) bool {
 	changed := false
 	for key, prop := range s.Properties {
 		str, ok := obj[key].(string)
-		if !ok || prop == nil || (prop.Type != "array" && prop.Type != "object") {
+		if !ok || prop == nil {
 			continue
 		}
 		var dec any
 		if json.Unmarshal([]byte(str), &dec) != nil {
 			continue
 		}
-		_, isArr := dec.([]any)
-		_, isObj := dec.(map[string]any)
-		if prop.Type == "array" && isArr || prop.Type == "object" && isObj {
+		var fits bool
+		switch v := dec.(type) {
+		case []any:
+			fits = prop.Type == "array"
+		case map[string]any:
+			fits = prop.Type == "object"
+		case bool:
+			fits = prop.Type == "boolean"
+		case float64:
+			fits = prop.Type == "number" || prop.Type == "integer" && v == float64(int64(v))
+		}
+		if fits {
 			obj[key], changed = dec, true
 		}
 	}

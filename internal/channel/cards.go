@@ -287,9 +287,17 @@ func (h *Hub) renderCard(ap *core.Approval, caps core.ChannelCaps) (core.OutMess
 	if c.Code != "" && (c.Kind != core.CardPullRequest || c.Diff == "") {
 		lines = append(lines, codeBlock("", revealInvisible(c.Code)))
 	}
-	diffCut := len(c.Diff) > maxChatDiff
-	if c.Diff != "" && !diffCut {
-		lines = append(lines, codeBlock("diff", revealInvisible(c.Diff)))
+	diff := c.Diff
+	if c.Kind == core.CardPullRequest {
+		// The pull request's diff opens with its own repository, branch,
+		// title and body; the card's fields already say those.
+		if i := strings.Index(diff, "diff --git "); i > 0 {
+			diff = diff[i:]
+		}
+	}
+	diffCut := len(diff) > maxChatDiff
+	if diff != "" && !diffCut {
+		lines = append(lines, codeBlock("diff", revealInvisible(diff)))
 	}
 	if c.Context != "" {
 		lines = append(lines, contextLine(c.Context))
