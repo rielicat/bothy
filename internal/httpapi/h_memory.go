@@ -130,7 +130,35 @@ func (s *Server) memoryHistory(w http.ResponseWriter, r *http.Request, a core.Ac
 	if err != nil {
 		return err
 	}
-	return ok(w, listOf(evs, pg, func(e *core.MemoryEvent) int64 { return e.ID }))
+	return ok(w, listOf(s.memoryChanges(r.Context(), a.Viewer, evs), pg, func(c dto.MemoryChange) int64 { return c.ID }))
+}
+
+// memoryChanges names the person behind each edit and the chat each of
+// Bothy's changes was made in; a chat the caller cannot open names nothing.
+func (s *Server) memoryChanges(ctx context.Context, v core.Viewer, evs []*core.MemoryEvent) []dto.MemoryChange {
+	n := s.namer(ctx, v)
+	chats := map[core.RunID]*dto.ChatLink{}
+	out := make([]dto.MemoryChange, 0, len(evs))
+	for _, e := range evs {
+		c := dto.MemoryChange{MemoryEvent: *e}
+		if id, ok := strings.CutPrefix(e.Actor, "user:"); ok {
+			c.ActorName = n.user(core.UserID(id))
+		}
+		if e.Run != "" {
+			link, seen := chats[e.Run]
+			if !seen {
+				if run, err := s.d.Store.Runs().Get(ctx, v, e.Run); err == nil {
+					if title := n.chat(run.Session); title != "" {
+						link = &dto.ChatLink{ID: run.Session, Title: title}
+					}
+				}
+				chats[e.Run] = link
+			}
+			c.Chat = link
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 // memoryExport streams a tar of the three memory files and every memory

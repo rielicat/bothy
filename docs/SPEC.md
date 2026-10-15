@@ -6999,7 +6999,7 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `GET /api/search` | user | `?q=&limit=` (per group, default 20, max 100) | `dto.SearchResp{chats, notes, code}` (v0.2 UI, replacing `[]core.SearchHit`: own principals; one row per chat, its best message, deleted chats left out; project-notes sections holding every word, else any word; knowledge code hits; plain-text snippets with UTF-16 `ranges`) |
 | `GET /api/memory/{file}` | user | `?principal=` (default own) | `dto.MemoryDoc` |
 | `PUT /api/memory/{file}` | user | `If-Match: <etag>` + `dto.MemoryPutReq` | `dto.MemoryDoc` / `409` |
-| `GET /api/memory/{file}/history` | user | `?before=&limit=` | `dto.List[core.MemoryEvent]` |
+| `GET /api/memory/{file}/history` | user | `?before=&limit=` | `dto.List[dto.MemoryChange]` (the events with `actor_name` for a person's edit and `chat {id, title}` for the chat Bothy made the change in, when the caller can open it) |
 | `GET /api/memory/export` | user | `?principal=` (default own) | `application/x-tar` of MEMORY.md, USER.md, HEARTBEAT.md and `events.jsonl` (`Content-Disposition: attachment`, `CSP: sandbox`) |
 | `GET /api/persona` | user | — | `{"content":"…"}` (reads `<data>/<agent.persona_file>`; the runner writes the default SOUL.md at boot when missing) |
 | `PUT /api/persona` | admin | `{"content":"…"}` | `204` (atomic write 0600, ≤ 16 KB, audited `persona.update`; used at the next snapshot) |
@@ -7357,6 +7357,14 @@ type MemoryDoc struct {
 
 type MemoryPutReq struct {
 	Content string `json:"content"` // If-Match header carries the etag
+}
+
+// MemoryChange is one change in a memory file's history
+// (GET /api/memory/{file}/history), with names for the person and chat.
+type MemoryChange struct {
+	core.MemoryEvent
+	ActorName string    `json:"actor_name,omitempty"` // the person's name, for actor user:<id>
+	Chat      *ChatLink `json:"chat,omitempty"`       // the chat Bothy made the change in, when the caller can open it
 }
 
 type SkillDetail struct {

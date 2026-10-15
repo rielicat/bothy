@@ -3069,6 +3069,14 @@ export interface MemoryDoc {
 export interface MemoryPutReq {
   content: string; // If-Match header carries the etag
 }
+/**
+ * MemoryChange is one change in a memory file's history
+ * (GET /api/memory/{file}/history), with names for the person and chat.
+ */
+export interface MemoryChange extends MemoryEvent {
+  actor_name?: string; // the person's name, for actor user:<id>
+  chat?: ChatLink; // the chat Bothy made the change in, when the caller can open it
+}
 export interface SkillDetail {
   meta?: SkillMeta;
   body: string;

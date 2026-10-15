@@ -267,6 +267,14 @@ type MemoryPutReq struct {
 	Content string `json:"content"` // If-Match header carries the etag
 }
 
+// MemoryChange is one change in a memory file's history
+// (GET /api/memory/{file}/history), with names for the person and chat.
+type MemoryChange struct {
+	core.MemoryEvent
+	ActorName string    `json:"actor_name,omitempty"` // the person's name, for actor user:<id>
+	Chat      *ChatLink `json:"chat,omitempty"`       // the chat Bothy made the change in, when the caller can open it
+}
+
 type SkillDetail struct {
 	Meta  *core.SkillMeta `json:"meta"`
 	Body  string          `json:"body"`

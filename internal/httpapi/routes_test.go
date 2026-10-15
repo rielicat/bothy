@@ -394,8 +394,8 @@ func TestMemoryEndpoints(t *testing.T) {
 	if d := decodeAs[dto.MemoryDoc](t, rec); d.Content != "likes coffee" || d.ETag == doc.ETag {
 		t.Fatalf("put = %+v", d)
 	}
-	hist := decodeAs[dto.List[*core.MemoryEvent]](t, h.do("GET", "/api/memory/MEMORY/history", nil, h.member))
-	if len(hist.Items) != 1 || hist.Items[0].Op != "edit" {
+	hist := decodeAs[dto.List[dto.MemoryChange]](t, h.do("GET", "/api/memory/MEMORY/history", nil, h.member))
+	if len(hist.Items) != 1 || hist.Items[0].Op != "edit" || hist.Items[0].ActorName != "member" || hist.Items[0].Chat != nil {
 		t.Fatalf("history = %+v", hist)
 	}
 	expect(t, h.do("GET", "/api/memory/NOTES", nil, h.member), http.StatusNotFound)
@@ -443,6 +443,59 @@ func TestMemoryEndpoints(t *testing.T) {
 	ma, _ := h.auth.FromCookie(ctx, m2)
 	member2 := &client{name: "member", user: h.member.user, cookie: m2, csrf: ma.CSRF}
 	expect(t, h.do("GET", "/api/memory/MEMORY?principal="+string(pr.ID), nil, member2), http.StatusForbidden)
+}
+
+// Memory history names who changed what: an admin's edit by name, Bothy's
+// changes with the chat they came from, but only a chat the caller can open.
+func TestMemoryHistoryNamesPeopleAndChats(t *testing.T) {
+	h := newHarness(t).setup()
+	ctx := context.Background()
+	mp := core.UserPrincipal(h.member.user)
+	h.memory.Files = map[core.PrincipalID]map[core.MemoryFile]string{mp: {core.FileMemory: "likes tea"}}
+	f := newTranscript(t, h, core.RunDone)
+	f.sess.Title = "Fix login redirect"
+	if err := h.store.Sessions().Update(ctx, f.sess); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	hidden := &core.Session{ID: core.SessionID(core.NewID(core.PrefixSession)), Principal: core.UserPrincipal(h.owner.user), Origin: "web",
+		Title: "Owner's private plans", CreatedAt: now, UpdatedAt: now}
+	if err := h.store.Sessions().Create(ctx, hidden); err != nil {
+		t.Fatal(err)
+	}
+	other := &core.Run{ID: core.RunID(core.NewID(core.PrefixRun)), Session: hidden.ID, Principal: hidden.Principal, User: h.owner.user,
+		Trigger: core.TrigMessage, Status: core.RunDone, CreatedAt: now}
+	if err := h.store.Runs().Create(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.memory.Apply(ctx, mp, f.run.ID, core.MemoryOp{File: core.FileMemory, Op: "add", New: "staging resets on Mondays"}, core.ProvUser); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.memory.Apply(ctx, mp, other.ID, core.MemoryOp{File: core.FileMemory, Op: "remove", Old: "likes tea"}, core.ProvUser); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.memory.Write(ctx, core.SystemViewer(), mp, core.FileMemory, "staging resets on Mondays at 9", "", h.admin.user); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := h.do("GET", "/api/memory/MEMORY/history", nil, h.member)
+	expect(t, rec, http.StatusOK)
+	if strings.Contains(rec.Body.String(), "Owner's private plans") {
+		t.Fatalf("history names a chat the member cannot open: %s", rec.Body.String())
+	}
+	hist := decodeAs[dto.List[dto.MemoryChange]](t, rec)
+	if len(hist.Items) != 3 {
+		t.Fatalf("history = %+v", hist.Items)
+	}
+	if c := hist.Items[0]; c.Op != "edit" || c.ActorName != "admin" || c.Chat != nil {
+		t.Errorf("admin edit = %+v", c)
+	}
+	if c := hist.Items[1]; c.Op != "remove" || c.ActorName != "" || c.Chat != nil {
+		t.Errorf("change from a chat the member cannot open = %+v", c)
+	}
+	if c := hist.Items[2]; c.Op != "add" || c.Chat == nil || c.Chat.ID != f.sess.ID || c.Chat.Title != "Fix login redirect" {
+		t.Errorf("Bothy's change = %+v", c)
+	}
 }
 
 func TestPersona(t *testing.T) {

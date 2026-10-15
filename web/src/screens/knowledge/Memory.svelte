@@ -2,7 +2,7 @@
   import Icon from '../../components/Icon.svelte';
   import LinkButton from '../../components/ui/LinkButton.svelte';
   import { api } from '../../lib/api/client';
-  import type { List, MemoryData, MemoryDoc, MemoryEvent } from '../../lib/api/types.gen';
+  import type { List, MemoryChange, MemoryData, MemoryDoc } from '../../lib/api/types.gen';
   import { events } from '../../lib/sse.svelte';
   import { session } from '../../lib/stores/session.svelte';
   import Knowledge from './Knowledge.svelte';
@@ -17,9 +17,6 @@
     { file: 'USER', title: 'About you' },
     { file: 'MEMORY', title: 'Things Bothy remembers' },
   ] as const;
-
-  /** MemoryEvent plus the names S8 adds; until then the history falls back to "Bothy" and "An admin". */
-  type MemoryChange = MemoryEvent & { actor_name?: string; chat?: { id: string; title: string } };
 
   let docs = $state<Record<string, MemoryDoc> | null>(null);
   let failed = $state(false);

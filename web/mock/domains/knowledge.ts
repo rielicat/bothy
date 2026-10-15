@@ -3,7 +3,7 @@
 // routes follow internal/httpapi/h_knowledge.go and h_uistate.go (reading
 // progress, out of date, summary, notes history).
 import type { KnowledgeHit, KnowledgeRepo, NotesChange } from '../../src/lib/api/knowledge.ts';
-import type { Approval, MemoryEvent, SkillMeta } from '../../src/lib/api/types.gen.ts';
+import type { Approval, MemoryChange, SkillMeta } from '../../src/lib/api/types.gen.ts';
 import { state as approvalState, waiting } from './approvals.ts';
 import { ago, ahead, body, clone, core, emit, fail, json, newId, nowISO, on, onReset, owner, scenario, viewer, type Req } from './core.ts';
 
@@ -15,9 +15,6 @@ export const memory: Record<string, string> = {
     '- The v2.3 release freeze starts on Thursdays at 14:00.\n- Staging is reset every Monday morning.\n- Customer-facing changes need a line in the release notes.\n- The design team reviews anything that changes the sign-in pages.',
   HEARTBEAT: '- [ ] Tell me if a deploy to production failed overnight\n- [ ] Remind me to send the release notes on Fridays',
 };
-
-/** MemoryEvent plus the S8 names the history shows instead of ids. */
-type MemoryChange = MemoryEvent & { actor_name?: string; chat?: { id: string; title: string } };
 
 export const memoryHistory: MemoryChange[] = [
   {
