@@ -73,13 +73,9 @@ func capLine(l string) string {
 // the citation to exactly those lines.
 func refine(h core.KnowledgeHit, words []string) core.KnowledgeHit {
 	lines := strings.Split(h.Snippet, "\n")
-	first := 0
-	for i, l := range lines {
-		ll := strings.ToLower(l)
-		if containsAny(ll, words) {
-			first = i
-			break
-		}
+	first := firstMatch(lines, words)
+	if first < 0 {
+		first = max(firstMatch(lines, stems(words)), 0)
 	}
 	start := 0
 	if len(lines) > snippetLines {
@@ -103,6 +99,32 @@ func refine(h core.KnowledgeHit, words []string) core.KnowledgeHit {
 	h.StartLine, h.EndLine = chunkStart+start, chunkStart+end-1
 	h.Citation = citation(h.Repo, h.SHA, h.Path, h.StartLine, h.EndLine)
 	return h
+}
+
+func firstMatch(lines, words []string) int {
+	for i, l := range lines {
+		if containsAny(strings.ToLower(l), words) {
+			return i
+		}
+	}
+	return -1
+}
+
+// stems cuts common English endings off the query words. The index stems
+// words (porter), so a chunk found for "redirects" may only say "redirect";
+// this rougher cut is enough to find the line it says it on.
+func stems(words []string) []string {
+	out := make([]string, len(words))
+	for i, w := range words {
+		out[i] = w
+		for _, suffix := range []string{"ies", "ing", "es", "ed", "s"} {
+			if s, ok := strings.CutSuffix(w, suffix); ok && utf8.RuneCountInString(s) >= 3 {
+				out[i] = s
+				break
+			}
+		}
+	}
+	return out
 }
 
 func containsAny(s string, words []string) bool {

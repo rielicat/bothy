@@ -46,6 +46,13 @@ func TestRefineNarrowsToTheMatch(t *testing.T) {
 	if lines := strings.Count(h.Snippet, "\n") + 1; lines != h.EndLine-h.StartLine+1 {
 		t.Fatalf("snippet has %d lines for citation %s", lines, h.Citation)
 	}
+	// The index matched another form of the word; the window still lands on it.
+	body[59] = "return Response.redirect(next, 302);"
+	h = refine(core.KnowledgeHit{Repo: "acme/api", Path: "a.go", StartLine: 101, EndLine: 200, Snippet: strings.Join(body, "\n")},
+		queryWords("redirects"))
+	if h.StartLine != 157 {
+		t.Fatalf("stemmed window starts at %d, want 157", h.StartLine)
+	}
 	short := refine(core.KnowledgeHit{Repo: "r/x", Path: "b.md", StartLine: 5, EndLine: 7, Snippet: "a\nneedle\nc"}, []string{"needle"})
 	if short.StartLine != 5 || short.EndLine != 7 || short.Snippet != "a\nneedle\nc" || short.Citation != "r/x:b.md#L5-L7" {
 		t.Fatalf("short chunk = %+v", short)

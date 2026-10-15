@@ -213,3 +213,53 @@ func TestKnowledgeMigratesExistingDatabase(t *testing.T) {
 		t.Fatalf("llm_calls indexes = %d %v", idx, err)
 	}
 }
+
+// 0010 stems knowledge search: a database indexed before it finds
+// "redirect" for "redirects" once upgraded, and new chunks keep reaching the
+// rebuilt index through the old triggers.
+func TestKnowledgeStemmingMigration(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "bothy.db")
+	ctx := context.Background()
+	old, err := open(ctx, Options{Path: p}, migrationsUpTo(t, 9), queryVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := &world{t: t, ctx: ctx, db: old}
+	u := w.user(core.RoleOwner)
+	r := w.knowledgeRepo(core.UserPrincipal(u.ID), "acme/web")
+	w.knowledgeFile(r.ID, "src/auth/callback.ts", kchunk(1, 3, "callback", "return Response.redirect(next, 302);"))
+	search := func(q string) []core.KnowledgeHit {
+		t.Helper()
+		hits, err := w.db.Knowledge().Search(ctx, viewerOf(u), core.KnowledgeQuery{Text: q})
+		w.must(err)
+		return hits
+	}
+	if hits := search("redirects"); len(hits) != 0 {
+		t.Fatalf("before 0010 a plural matched: %+v", hits)
+	}
+	old.Close()
+
+	db, err := Open(ctx, Options{Path: p, BackupDir: filepath.Join(dir, "backups")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	w.db = db
+	w.ftsIntegrity()
+	for _, q := range []string{"redirect", "redirects", "redirecting", "Redirected"} {
+		if hits := search(q); len(hits) != 1 || hits[0].Path != "src/auth/callback.ts" {
+			t.Errorf("search %q after 0010 = %+v", q, hits)
+		}
+	}
+	w.knowledgeFile(r.ID, "src/auth/session.ts", kchunk(1, 2, "session", "res.cookie(name, value)"))
+	w.ftsIntegrity()
+	if hits := search("cookies"); len(hits) != 1 || hits[0].Path != "src/auth/session.ts" {
+		t.Errorf("a chunk added after 0010 is not stemmed: %+v", hits)
+	}
+	w.must(db.Knowledge().Apply(ctx, r.ID, "sha2", []core.KnowledgeFileChange{{File: core.KnowledgeFile{Path: "src/auth/callback.ts"}, Delete: true}}))
+	w.ftsIntegrity()
+	if n := w.ftsRows(); n != 1 {
+		t.Fatalf("fts rows after a delete = %d, want 1", n)
+	}
+}

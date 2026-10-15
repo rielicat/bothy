@@ -245,7 +245,8 @@ func testKnowledgeSearch(f *kfx) {
 	r2 := f.repo(p, "acme/web")
 	r3 := f.repo(sp.Principal, "acme/space")
 	f.file(r1.ID, "c1", "limit.go", chunk("", 10, 20, "Allow", "func Allow() bool { return bucket.tokens > 0 } // rate limiter"))
-	f.file(r1.ID, "c1", "docs.md", chunk("", 1, 5, "Rate", "Rate limits protect the API."))
+	// No other form of "limiter" here: SQLite stems words, so "limits" would match it.
+	f.file(r1.ID, "c1", "docs.md", chunk("", 1, 5, "Rate", "Rate caps protect the API."))
 	f.file(r2.ID, "c2", "app.ts", chunk("", 3, 4, "limiter", "export const limiter = makeLimiter()"))
 	f.file(r3.ID, "c3", "notes.txt", chunk("", 1, 1, "x", "rate limiter for the space"))
 
