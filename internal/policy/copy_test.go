@@ -149,7 +149,7 @@ func TestPlainCopy(t *testing.T) {
 			labels: []string{"Dry run", "Team id", "Title"}},
 		{name: "MCP tool titled by its manifest", a: action("mcp__deepwiki__read_wiki_structure", core.ActMCP, core.SERead, map[string]any{"repoName": "sveltejs/svelte"},
 			func(a *core.Action) { a.MCPServer, a.MCPTool = "deepwiki", "read_wiki_structure" }),
-			s: spec("mcp__deepwiki__read_wiki_structure", core.SERead, func(m *core.Manifest) { m.Title = "MCP deepwiki: read_wiki_structure" }),
+			s:        spec("mcp__deepwiki__read_wiki_structure", core.SERead, func(m *core.Manifest) { m.Title = "MCP deepwiki: read_wiki_structure" }),
 			question: "Use Deepwiki: Read wiki structure?", primary: "Allow", ing: "using Deepwiki: Read wiki structure"},
 		{name: "MCP tool that can't be undone", a: mcpGone, s: spec("mcp__linear__delete_issue", core.SEIrreversible, func(m *core.Manifest) { m.Title = "Delete issue" }),
 			question: "Use Linear: Delete issue?", primary: "Allow", ing: "using Linear: Delete issue", consequence: "This can't be undone.", tone: core.ToneDestructive},
