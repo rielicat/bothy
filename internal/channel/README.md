@@ -19,7 +19,9 @@ line included, and link neutralization once the session is Exposed,
 re-checked after every tool result: scheme URLs (IPv6 hosts included),
 markdown and autolinks, bare domains and IPv4 addresses, also when only
 rendering joins them, as in `evil\.com` or `evil**.**com`; the rules live in
-`core.NeutralizeMarkdown`, shared with the agent's sink). Forwarded messages
+`core.NeutralizeMarkdown`, shared with the agent's sink). In `final` mode
+(schedule delivery) the reply opens with a line naming the schedule or
+check-in that sent it and where to change it. Forwarded messages
 (`Inbound.Forwarded`) are untrusted whoever forwards them and never run as
 commands; `/compact` runs in the background and replies when done, and
 `/refine on|off|default` sets the conversation's refine mode (the session's

@@ -332,6 +332,56 @@ func TestStreamFinalModeAndHeartbeat(t *testing.T) {
 	})
 }
 
+// TestStreamScheduleHeader: a delivered schedule result arrives unasked, so
+// it opens with the schedule that sent it and where to change it.
+func TestStreamScheduleHeader(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		p := core.UserPrincipal(h.owner.ID)
+		sess, err := h.runner.NewSession(h.ctx, p, "schedule", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		now := time.Now()
+		sc := &core.Schedule{ID: core.ScheduleID(core.NewID(core.PrefixSchedule)), Principal: p, Name: "Weekly PR digest", Kind: core.SchedCron,
+			Spec: "0 8 * * 1", TZ: "UTC", Prompt: "digest", Slot: core.SlotMain, MissedRun: "skip", Enabled: true,
+			CreatedBy: "user:" + string(h.owner.ID), CreatedAt: now, UpdatedAt: now}
+		if err := h.store.Schedules().Upsert(h.ctx, sc); err != nil {
+			t.Fatal(err)
+		}
+		feed := func(trigger core.Trigger, schedule core.ScheduleID) *runFeed {
+			r := &core.Run{Session: sess.ID, Principal: p, User: h.owner.ID, Trigger: trigger, Schedule: schedule, Status: core.RunDone, CreatedAt: now}
+			if err := h.store.Runs().Create(h.ctx, r); err != nil {
+				t.Fatal(err)
+			}
+			f := h.feed(h.dmChat(ownerChat), "final")
+			f.run, f.sess = r.ID, sess.ID
+			return f
+		}
+
+		f := feed(core.TrigSchedule, sc.ID)
+		f.delta("There is 1 open PR in acme/web.")
+		f.finish(core.RunDone)
+		if got, want := h.lastText(ownerChat), "_From the schedule “Weekly PR digest” · change it under Schedules_\n\nThere is 1 open PR in acme/web."; got != want {
+			t.Fatalf("schedule delivery = %q, want %q", got, want)
+		}
+
+		hb := feed(core.TrigHeartbeat, "")
+		hb.delta("The staging deploy failed overnight.")
+		hb.finish(core.RunDone)
+		if got := h.lastText(ownerChat); got != "_From your check-in · change it under Schedules_\n\nThe staging deploy failed overnight." {
+			t.Fatalf("check-in delivery = %q", got)
+		}
+
+		quiet := feed(core.TrigHeartbeat, "")
+		quiet.delta("HEARTBEAT_OK")
+		quiet.finish(core.RunDone)
+		if n := len(h.visible(ownerChat)); n != 2 {
+			t.Fatalf("a quiet check-in sent its header alone (%d messages)", n)
+		}
+	})
+}
+
 func TestStreamFinishNotesAndFooter(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t).start()

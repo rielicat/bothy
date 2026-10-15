@@ -524,6 +524,9 @@ func (st *streamState) finish(ctx context.Context) {
 		}
 		body += note
 	}
+	if header := st.scheduleHeader(ctx); header != "" && strings.TrimSpace(body) != "" {
+		body = header + "\n\n" + body
+	}
 	var pieces []string
 	for strings.TrimSpace(body) != "" {
 		text, used, next, over := st.firstPiece(body, 0)
@@ -558,6 +561,29 @@ func (st *streamState) finish(ctx context.Context) {
 		}
 		st.lastOp = time.Now()
 	}
+}
+
+// scheduleHeader opens a delivered schedule result with where it came from:
+// nobody asked for it in this chat, so it says which schedule sent it and
+// where to change it.
+func (st *streamState) scheduleHeader(ctx context.Context) string {
+	if st.s.mode != "final" || st.run == "" {
+		return ""
+	}
+	run, err := st.s.h.d.Store.Runs().Get(ctx, core.SystemViewer(), st.run)
+	switch {
+	case err != nil:
+		return ""
+	case run.Trigger == core.TrigHeartbeat:
+		return "_From your check-in · change it under Schedules_"
+	case run.Trigger != core.TrigSchedule || run.Schedule == "":
+		return ""
+	}
+	sc, err := st.s.h.d.Store.Schedules().Get(ctx, core.SystemViewer(), run.Schedule)
+	if err != nil {
+		return ""
+	}
+	return "_From the schedule “" + escapeMD(truncateRunes(sc.Name, 60)) + "” · change it under Schedules_"
 }
 
 // heartbeatOK reports a heartbeat reply that must not be delivered (SPEC
