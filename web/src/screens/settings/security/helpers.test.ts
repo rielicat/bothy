@@ -233,7 +233,10 @@ describe('sign-in list and provider rows', () => {
     expect(entryProblem('acme.com')).toBe('');
     expect(entryProblem('pat@gmail.com')).toBe('');
     expect(entryProblem("o'brien+bothy@acme.co.uk")).toBe('');
-    for (const d of ['gmail.com', 'outlook.com', 'proton.me', 'qq.com']) expect(entryProblem(d)).toBe(`Anyone can get an address at ${d}. List each person's address instead.`);
+    for (const d of ['gmail.com', 'outlook.com', 'proton.me', 'qq.com', 'users.noreply.github.com', 'duck.com', 'yahoo.co.jp', 'att.net'])
+      expect(entryProblem(d)).toBe(`Anyone can get an address at ${d}. List each person's address instead.`);
+    expect(entryProblem('kim@duck.com')).toBe('');
+    expect(entryProblem('583231+octo@users.noreply.github.com')).toBe('');
     expect(entryProblem('acme')).toMatch(/isn't an email address or a domain/);
     expect(entryProblem('pat@acme')).toMatch(/isn't an email address\./);
     expect(entryProblem('a b@acme.com')).toMatch(/isn't an email address\./);

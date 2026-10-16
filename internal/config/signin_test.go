@@ -51,6 +51,9 @@ func TestSignInValidation(t *testing.T) {
 		{"gmail as a domain", allow("gmail.com"), "auth.sign_in.allow", "anyone can get an address at gmail.com; list each person's address instead"},
 		{"proton as a domain", allow("proton.me"), "auth.sign_in.allow", "anyone can get an address at proton.me"},
 		{"qq as a domain", allow("qq.com"), "auth.sign_in.allow", "anyone can get an address at qq.com"},
+		{"GitHub noreply as a domain", allow("users.noreply.github.com"), "auth.sign_in.allow", "anyone can get an address at users.noreply.github.com"},
+		{"a relay as a domain", allow("privaterelay.appleid.com"), "auth.sign_in.allow", "anyone can get an address at privaterelay.appleid.com"},
+		{"regional free mail as a domain", allow("yahoo.co.jp"), "auth.sign_in.allow", "anyone can get an address at yahoo.co.jp"},
 		{"two @", allow("pat@x@acme.com"), "auth.sign_in.allow", "not an email address"},
 		{"empty local part", allow("@acme.com"), "auth.sign_in.allow", "not an email address"},
 		{"space in local part", allow("pat smith@acme.com"), "auth.sign_in.allow", "not an email address"},
@@ -91,7 +94,7 @@ func TestSignInValidation(t *testing.T) {
 	ok := []func(*Config){
 		readyGoogle,
 		readyGitHub,
-		allow("acme.com", "pat@gmail.com", "sam@outlook.com", "o'brien+bothy@acme.co.uk", "eng.acme.io"),
+		allow("acme.com", "pat@gmail.com", "sam@outlook.com", "o'brien+bothy@acme.co.uk", "eng.acme.io", "583231+octo@users.noreply.github.com", "kim@duck.com"),
 		// GitHub alone may rely on the allow list instead of organizations.
 		func(c *Config) {
 			readyGitHub(c)

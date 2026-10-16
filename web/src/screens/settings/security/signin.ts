@@ -10,7 +10,7 @@ const DOMAIN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0
 const LOCAL = /^[\x21-\x3f\x41-\x7e]{1,64}$/;
 const ORG = /^[A-Za-z0-9](?:[A-Za-z0-9]|-[A-Za-z0-9]){0,38}$/;
 
-// Mail services that give anyone an address; as a domain they would let strangers in.
+// Mail services and relays that give anyone an address; as a domain they would let strangers in.
 const PUBLIC_MAIL = new Set([
   'gmail.com',
   'googlemail.com',
@@ -29,6 +29,37 @@ const PUBLIC_MAIL = new Set([
   'mail.com',
   'yandex.com',
   'qq.com',
+  'users.noreply.github.com',
+  'duck.com',
+  'privaterelay.appleid.com',
+  'pm.me',
+  'fastmail.com',
+  'hey.com',
+  'yahoo.co.uk',
+  'yahoo.co.jp',
+  'hotmail.co.uk',
+  'hotmail.fr',
+  'outlook.fr',
+  'live.co.uk',
+  'gmx.de',
+  'gmx.net',
+  'web.de',
+  'mail.ru',
+  '163.com',
+  '126.com',
+  'naver.com',
+  'zoho.com',
+  'tutanota.com',
+  'yandex.ru',
+  'rambler.ru',
+  'libero.it',
+  'orange.fr',
+  'free.fr',
+  't-online.de',
+  'btinternet.com',
+  'comcast.net',
+  'verizon.net',
+  'att.net',
 ]);
 
 /** One entry per line, commas also accepted; lower case, "@acme.com" read as the domain, repeats dropped. */

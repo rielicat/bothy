@@ -196,7 +196,13 @@ on('DELETE', '/api/me/sign-ins/{p}', (req, res, m) => {
 });
 
 // The server's checks (internal/config/signin.go), enough to show field errors.
-const PUBLIC_MAIL = ['gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com', 'msn.com', 'yahoo.com', 'icloud.com', 'me.com', 'mac.com', 'aol.com', 'proton.me', 'protonmail.com', 'gmx.com', 'mail.com', 'yandex.com', 'qq.com'];
+const PUBLIC_MAIL = [
+  'gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com', 'msn.com', 'yahoo.com', 'icloud.com', 'me.com', 'mac.com', 'aol.com',
+  'proton.me', 'protonmail.com', 'gmx.com', 'mail.com', 'yandex.com', 'qq.com', 'users.noreply.github.com', 'duck.com', 'privaterelay.appleid.com',
+  'pm.me', 'fastmail.com', 'hey.com', 'yahoo.co.uk', 'yahoo.co.jp', 'hotmail.co.uk', 'hotmail.fr', 'outlook.fr', 'live.co.uk', 'gmx.de', 'gmx.net',
+  'web.de', 'mail.ru', '163.com', '126.com', 'naver.com', 'zoho.com', 'tutanota.com', 'yandex.ru', 'rambler.ru', 'libero.it', 'orange.fr', 'free.fr',
+  't-online.de', 'btinternet.com', 'comcast.net', 'verizon.net', 'att.net',
+];
 
 function fieldError(res: Res, path: string, message: string) {
   json(res, 400, { error: { code: 'bad_request', message: `bothy.ui.yaml: ${path}: ${message}` }, fields: [{ path, source: { layer: 'ui' }, message: `bothy.ui.yaml: ${path}: ${message}` }] });

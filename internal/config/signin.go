@@ -20,12 +20,19 @@ const (
 	maxSignInOrgs  = 20
 )
 
-// publicMailDomains hand out addresses to anyone who asks, so listing one as
-// a domain would let strangers in. An exact address there is fine.
+// publicMailDomains hand out addresses to anyone who asks (relays and
+// GitHub's noreply addresses included), so listing one as a domain would
+// let strangers in. An exact address there is fine.
 var publicMailDomains = map[string]bool{
 	"gmail.com": true, "googlemail.com": true, "outlook.com": true, "hotmail.com": true, "live.com": true, "msn.com": true,
 	"yahoo.com": true, "icloud.com": true, "me.com": true, "mac.com": true, "aol.com": true, "proton.me": true,
 	"protonmail.com": true, "gmx.com": true, "mail.com": true, "yandex.com": true, "qq.com": true,
+	"users.noreply.github.com": true, "duck.com": true, "privaterelay.appleid.com": true, "pm.me": true, "fastmail.com": true,
+	"hey.com": true, "yahoo.co.uk": true, "yahoo.co.jp": true, "hotmail.co.uk": true, "hotmail.fr": true, "outlook.fr": true,
+	"live.co.uk": true, "gmx.de": true, "gmx.net": true, "web.de": true, "mail.ru": true, "163.com": true, "126.com": true,
+	"naver.com": true, "zoho.com": true, "tutanota.com": true, "yandex.ru": true, "rambler.ru": true, "libero.it": true,
+	"orange.fr": true, "free.fr": true, "t-online.de": true, "btinternet.com": true, "comcast.net": true, "verizon.net": true,
+	"att.net": true,
 }
 
 // SignInEntryProblem says why e cannot be listed in auth.sign_in.allow, or
