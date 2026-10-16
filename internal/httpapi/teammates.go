@@ -154,8 +154,8 @@ func (s *Server) listTeammates(w http.ResponseWriter, r *http.Request, _ core.Ac
 }
 
 // forgetTeammate deletes the data of someone blocked or no longer in the
-// team: their chats, runs, schedules, grants, memory and files. The
-// identity stays, so a blocked person stays blocked.
+// team: their chats, runs, schedules, grants, memory, project notes and
+// files. The identity stays, so a blocked person stays blocked.
 func (s *Server) forgetTeammate(w http.ResponseWriter, r *http.Request, a core.Actor) error {
 	ed, has := s.d.Auth.(teamEditor)
 	if !has {
@@ -198,6 +198,7 @@ func (s *Server) forgetTeammate(w http.ResponseWriter, r *http.Request, a core.A
 		step("schedules", func() error { return s.purgeSchedules(ctx, v, a, st) })
 		step("grants", func() error { return s.purgeGrants(ctx, v, a, st) })
 		step("memory", func() error { return s.purgeMemory(ctx, ps) })
+		step("knowledge", func() error { return s.purgeKnowledge(ctx, ps) })
 		step("files", func() error { return s.purgeFiles(ps, st) })
 	}
 	if len(errs) > 0 {

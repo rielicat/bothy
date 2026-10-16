@@ -176,13 +176,17 @@ func TestListTeammates(t *testing.T) {
 }
 
 // TestForgetTeammate: only someone blocked (or no longer in the team) can
-// have their data deleted; their principal goes, they stay blocked.
+// have their data deleted, project notes included; their principal goes,
+// they stay blocked.
 func TestForgetTeammate(t *testing.T) {
 	h := newHarness(t).setup()
 	ctx := context.Background()
+	k := newFakeKnowledge()
+	h.srv.d.Knowledge = k
 	let, block := core.IdentityTeammate, core.IdentityBlocked
 	h.touch("telegram", "777", "Jordan", core.MemberUnknown)
 	tm := decodeAs[dto.Teammate](t, h.do("PATCH", "/api/identities/telegram/777", dto.IdentityPatchReq{Status: &let}, h.owner))
+	k.add(tm.Principal, "acme/web")
 	rec := h.do("DELETE", "/api/teammates/telegram/777", nil, h.owner)
 	expect(t, rec, http.StatusBadRequest)
 	if msg := errMessage(t, rec); msg != "Block them first." {
@@ -196,6 +200,9 @@ func TestForgetTeammate(t *testing.T) {
 	id, _ := h.store.Identities().Get(ctx, "telegram", "777")
 	if id.Status != core.IdentityBlocked || id.Principal != "" {
 		t.Fatalf("identity after forgetting = %+v", id)
+	}
+	if !slices.Equal(k.purged, []core.PrincipalID{tm.Principal}) {
+		t.Fatalf("knowledge purged = %v, want their project notes gone", k.purged)
 	}
 	rows := h.actions("identity.forget")
 	if len(rows) != 1 {
