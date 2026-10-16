@@ -35,7 +35,7 @@ func (s *Service) Login(ctx context.Context, username, password, ip string) (str
 	if err != nil {
 		return "", core.Actor{}, err
 	}
-	s.record(ctx, userTarget(u.ID), "auth.login", userTarget(u.ID), "ok", map[string]any{"ip": ip})
+	s.record(ctx, userTarget(u.ID), "auth.login", userTarget(u.ID), "ok", map[string]any{"ip": ip, "method": "password"})
 	return cookie, a, nil
 }
 
@@ -60,7 +60,9 @@ func (s *Service) checkLogin(ctx context.Context, username, password, ip string)
 		return nil, limited("account temporarily locked", d)
 	}
 	ok := false
-	if u != nil && len(password) <= maxPassword {
+	// An account made by provider sign-in has no password; it fails like an
+	// unknown username, after the same work.
+	if u != nil && u.PWHash != noPassword && len(password) <= maxPassword {
 		ok, err = s.hash.verifyHeld(u.PWHash, password)
 		if err != nil && !errors.Is(err, errPHC) {
 			return nil, err
@@ -104,7 +106,7 @@ func (s *Service) loginFailed(ctx context.Context, u *core.User, username, ip st
 			s.log.Error("record failed login", "err", err)
 		}
 	}
-	s.record(ctx, "system", "auth.login_failed", target, "denied", map[string]any{"ip": ip})
+	s.record(ctx, "system", "auth.login_failed", target, "denied", map[string]any{"ip": ip, "method": "password"})
 	if lockIP > 0 || lockName > 0 {
 		s.record(ctx, "system", "auth.lockout", target, "denied",
 			map[string]any{"ip": ip, "ip_seconds": int(lockIP.Seconds()), "user_seconds": int(lockName.Seconds())})

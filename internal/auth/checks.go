@@ -27,15 +27,42 @@ func (c check) Fix(ctx context.Context, f core.Finding) error {
 	return c.fix(ctx, f)
 }
 
-// Checks returns server.exposure, server.insecure_lan, tokens.admin_scope and
-// tokens.expired_unrevoked (auto-fix: revoke).
+// Checks returns server.exposure, server.insecure_lan, tokens.admin_scope,
+// tokens.expired_unrevoked (auto-fix: revoke) and auth.sign_in.
 func (s *Service) Checks() []core.Check {
 	return []core.Check{
 		check{id: "server.exposure", run: s.checkExposure},
 		check{id: "server.insecure_lan", run: s.checkInsecureLAN},
 		check{id: "tokens.admin_scope", run: s.checkAdminTokens},
 		check{id: "tokens.expired_unrevoked", run: s.checkExpiredTokens, fix: s.fixExpiredTokens},
+		check{id: "auth.sign_in", run: s.checkSignIn},
 	}
+}
+
+// checkSignIn reports a provider that is on but whose client secret can't
+// be read, so its button has quietly left the sign-in page.
+func (s *Service) checkSignIn(ctx context.Context) []core.Finding {
+	if s.signIn.Load() == nil {
+		return nil
+	}
+	var out []core.Finding
+	for _, p := range core.SignInProviders {
+		pc := s.providerConf(ctx, p)
+		if !pc.enabled || (pc.problem != "no_secret" && pc.problem != "sealed") {
+			continue
+		}
+		detail := "The saved key " + pc.secretRef + " is missing."
+		if pc.problem == "sealed" {
+			detail = "Saved keys are locked, so " + pc.secretRef + " can't be read."
+		}
+		out = append(out, core.Finding{
+			ID: "auth.sign_in", Area: "auth", Severity: core.SevMedium, Security: true,
+			Title:  p.Name() + " sign-in is on, but its client secret isn't available",
+			Detail: detail + " The sign-in page no longer offers " + p.Name() + ".",
+			Fix:    "/settings/security/" + string(p) + "-sign-in",
+		})
+	}
+	return out
 }
 
 func loopbackListen(listen string) bool {

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/rielicat/bothy/internal/config"
@@ -40,6 +41,9 @@ type Service struct {
 	hash  *hasher
 	locks *lockouts
 	pairs *attempts
+
+	signIn atomic.Pointer[SignInDeps]
+	flows  *flowStore
 }
 
 var (
@@ -76,6 +80,7 @@ func New(d Deps) (*Service, error) {
 		hash:     newHasher(paramsFrom(d.Config.Current().Auth.Argon2)),
 		locks:    newLockouts(),
 		pairs:    newAttempts(pairAttempts, pairAttemptsWindow),
+		flows:    newFlowStore(d.Clock),
 	}, nil
 }
 
