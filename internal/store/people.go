@@ -326,6 +326,12 @@ func (r identityRepo) Update(ctx context.Context, id *core.ChannelIdentity) erro
 	return mustAffect("update identity", res, err)
 }
 
+func (r identityRepo) SetDMChat(ctx context.Context, channel, externalID, chatID string) error {
+	res, err := r.h.wq.ExecContext(ctx, `UPDATE channel_identities SET dm_chat_id = ? WHERE channel = ? AND external_id = ?`,
+		chatID, channel, externalID)
+	return mustAffect("set identity dm chat", res, err)
+}
+
 // pendingText keeps a sender's first words only while an admin may still
 // need them to decide; a teammate's or blocked sender's message stays theirs.
 func pendingText(id core.ChannelIdentity) string {

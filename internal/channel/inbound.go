@@ -143,21 +143,17 @@ func (h *Hub) touchIdentity(ctx context.Context, a *adapter, in core.Inbound, no
 }
 
 // rememberDM records chatID as the identity's DM chat, which PrincipalChat
-// and card routing use to reach the person later.
+// and card routing use to reach the person later. It writes that column
+// alone: row may be older than an admin's block or an approver change.
 func (h *Hub) rememberDM(ctx context.Context, row core.ChannelIdentity, chatID string) (core.ChannelIdentity, error) {
 	if row.DMChat == chatID {
 		return row, nil
 	}
-	ids := h.d.Store.Identities()
-	cur, err := ids.Get(ctx, row.Channel, row.ExternalID)
-	if err != nil {
+	if err := h.d.Store.Identities().SetDMChat(ctx, row.Channel, row.ExternalID, chatID); err != nil {
 		return core.ChannelIdentity{}, err
 	}
-	cur.DMChat = chatID
-	if err := ids.Update(ctx, cur); err != nil {
-		return core.ChannelIdentity{}, err
-	}
-	return *cur, nil
+	row.DMChat = chatID
+	return row, nil
 }
 
 const (

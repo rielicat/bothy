@@ -539,3 +539,55 @@ func TestInboundBufferOverflowDrops(t *testing.T) {
 		}
 	})
 }
+
+// racyIdentities lets an admin's change commit just before the hub writes
+// an identity, the way a block can while a write waits for the lock.
+type racyIdentities struct {
+	core.IdentityRepo
+	before func()
+}
+
+func (r *racyIdentities) fire() {
+	if f := r.before; f != nil {
+		r.before = nil
+		f()
+	}
+}
+
+func (r *racyIdentities) Update(ctx context.Context, id *core.ChannelIdentity) error {
+	r.fire()
+	return r.IdentityRepo.Update(ctx, id)
+}
+
+func (r *racyIdentities) SetDMChat(ctx context.Context, channel, ext, chat string) error {
+	r.fire()
+	return r.IdentityRepo.SetDMChat(ctx, channel, ext, chat)
+}
+
+type racyStore struct {
+	core.Store
+	ids *racyIdentities
+}
+
+func (s racyStore) Identities() core.IdentityRepo { return s.ids }
+
+// TestRememberDMNeverUndoesABlock: remembering a DM chat writes only that,
+// so a block or an approver change committed meanwhile stays.
+func TestRememberDMNeverUndoesABlock(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		block := core.IdentityBlocked
+		ids := &racyIdentities{IdentityRepo: h.store.Identities(), before: func() {
+			if _, err := h.auth.SetTeammate(h.ctx, h.admin(), "telegram", ownerChat, authPatch(&block, nil)); err != nil {
+				t.Error(err)
+			}
+		}}
+		h.hub.d.Store = racyStore{Store: h.store, ids: ids}
+		if _, err := h.hub.rememberDM(h.ctx, *h.ident(ownerChat), "9001"); err != nil {
+			t.Fatal(err)
+		}
+		if id := h.ident(ownerChat); id.Status != core.IdentityBlocked || id.CanApprove || id.DMChat != "9001" {
+			t.Fatalf("identity = %+v, want still blocked, not an approver, with the new DM chat", id)
+		}
+	})
+}

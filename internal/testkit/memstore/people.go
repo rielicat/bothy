@@ -591,6 +591,19 @@ func (r identityRepo) Update(_ context.Context, id *core.ChannelIdentity) error 
 	return nil
 }
 
+func (r identityRepo) SetDMChat(_ context.Context, channel, externalID, chatID string) error {
+	st, unlock := r.s.begin()
+	defer unlock()
+	k := identKey{channel, externalID}
+	cur, ok := st.identities[k]
+	if !ok {
+		return notFound("channel identity")
+	}
+	cur.id.DMChat = chatID
+	st.identities[k] = cur
+	return nil
+}
+
 func (r identityRepo) ByPrincipal(_ context.Context, p core.PrincipalID) (*core.ChannelIdentity, error) {
 	list, err := r.filter(func(id core.ChannelIdentity) bool { return p != "" && id.Principal == p })
 	if err != nil {

@@ -541,6 +541,10 @@ type IdentityRepo interface {
 	Touch(ctx context.Context, id *ChannelIdentity) (*ChannelIdentity, error)
 	Get(ctx context.Context, channel, externalID string) (*ChannelIdentity, error)
 	Update(ctx context.Context, id *ChannelIdentity) error // every mutable column; first text kept only while pending
+	// SetDMChat records the identity's DM chat and nothing else, so the hub
+	// can remember it without a read-modify-write that could undo a block,
+	// an approver change or a verdict committed meanwhile.
+	SetDMChat(ctx context.Context, channel, externalID, chatID string) error
 	// ByPrincipal returns the identity of a teammate's person space (ErrNotFound when none).
 	ByPrincipal(ctx context.Context, p PrincipalID) (*ChannelIdentity, error)
 	List(ctx context.Context, status IdentityStatus) ([]*ChannelIdentity, error) // "" = all

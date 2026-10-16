@@ -362,6 +362,18 @@ func testIdentities(f *fx) {
 	f.must(err, "List teammates")
 	f.check(len(mates) == 2, "List(teammate) returned %d identities, want 2", len(mates))
 
+	// SetDMChat writes the DM chat alone: whatever else changed since the
+	// caller read the row stays.
+	before, err := r.Get(f.ctx, "telegram", "1001")
+	f.must(err, "Get before SetDMChat")
+	f.must(r.SetDMChat(f.ctx, "telegram", "1001", "dm-1001"), "SetDMChat")
+	stored, err = r.Get(f.ctx, "telegram", "1001")
+	f.must(err, "Get after SetDMChat")
+	wantDM := *before
+	wantDM.DMChat = "dm-1001"
+	f.eq("SetDMChat changes only the DM chat", stored, &wantDM)
+	f.want(r.SetDMChat(f.ctx, "telegram", "nobody", "x"), core.ErrNotFound, "SetDMChat of an unknown identity")
+
 	f.must(r.ResetMembership(f.ctx, "telegram"), "ResetMembership")
 	stored, err = r.Get(f.ctx, "telegram", "1001")
 	f.must(err, "Get after ResetMembership")
