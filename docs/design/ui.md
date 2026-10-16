@@ -2136,7 +2136,7 @@ GitHub opens in this tab. Sign in there if asked, then create the app and instal
 › Using GitHub Enterprise?                                           reveals "GitHub address"
 ```
 
-- The proposed name is "Bothy ({organization, or your username})", cut to GitHub's 34 characters (the server proposes the same). An organization name that can't be one: "That isn't an organization name on GitHub. Use the name from its address, like acme in github.com/acme." A longer name: "Use 34 characters or fewer."
+- The proposed name is "Bothy ({organization, or your username})", cut to GitHub's 34 characters, or "Bothy (acme) 2" and on when an app Bothy recorded already has that name (the server proposes the same). An organization name that can't be one: "That isn't an organization name on GitHub. Use the name from its address, like acme in github.com/acme." A longer name: "Use 34 characters or fewer."
 - Continue on GitHub goes through a Bothy page that posts the app's details to GitHub. Failures under the button: "Open Bothy at {address} to create the app. GitHub sends you back to that address." [Open {address}] / "Bothy's saved keys are locked. Unlock them, then try again." [Unlock saved keys] / otherwise "Bothy couldn't start creating the app. Try again." + Details. If another app is already waiting, the page shows it instead.
 - **Waiting to be installed** (replaces the create form; one quiet check on load):
   ```

@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
@@ -81,7 +82,7 @@ func (f *fx) makeApp(org string) *core.GitHubOwnApp { return f.makeAppReplacing(
 func (f *fx) makeAppReplacing(org, replaces string) *core.GitHubOwnApp {
 	f.t.Helper()
 	tgt := core.GitHubAppTarget{Org: org, Fallback: "octocat"}
-	h, err := f.svc.AppManifest(tgt, bothyOrigin)
+	h, err := f.svc.AppManifest(f.ctx, tgt, bothyOrigin)
 	if err != nil {
 		f.t.Fatal(err)
 	}
@@ -142,14 +143,14 @@ func TestAppManifest(t *testing.T) {
 		{"https://ghe.example/api/v3", "", "https://ghe.example/settings/apps/new", "https://ghe.example"},
 	} {
 		f := newFx(t, func(c *config.Config) { c.GitHub.APIBase = tc.base })
-		h, err := f.svc.AppManifest(core.GitHubAppTarget{Org: tc.org, Fallback: "sam"}, "https://bothy.acme.dev")
+		h, err := f.svc.AppManifest(f.ctx, core.GitHubAppTarget{Org: tc.org, Fallback: "sam"}, "https://bothy.acme.dev")
 		if err != nil || h.Action != tc.action || h.WebOrigin != tc.web || h.Org != tc.org {
 			t.Errorf("%s: handoff = %+v %v", tc.base, h, err)
 		}
 	}
 
 	f := newFx(t)
-	h, err := f.svc.AppManifest(core.GitHubAppTarget{Org: "acme", Fallback: "sam"}, bothyOrigin+"/")
+	h, err := f.svc.AppManifest(f.ctx, core.GitHubAppTarget{Org: "acme", Fallback: "sam"}, bothyOrigin+"/")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,20 +197,39 @@ func TestAppManifest(t *testing.T) {
 		}
 	}
 
-	h, err = f.svc.AppManifest(core.GitHubAppTarget{Fallback: "sam"}, bothyOrigin)
+	h, err = f.svc.AppManifest(f.ctx, core.GitHubAppTarget{Fallback: "sam"}, bothyOrigin)
 	if err != nil || h.Name != "Bothy (sam)" || h.Action != f.gh.URL+"/settings/apps/new" || h.Org != "" {
 		t.Errorf("personal handoff = %+v %v", h, err)
 	}
-	h, err = f.svc.AppManifest(core.GitHubAppTarget{Org: "acme", Name: "  Acme deploys  "}, bothyOrigin)
+	h, err = f.svc.AppManifest(f.ctx, core.GitHubAppTarget{Org: "acme", Name: "  Acme deploys  "}, bothyOrigin)
 	if err != nil || h.Name != "Acme deploys" {
 		t.Errorf("named handoff = %+v %v", h, err)
 	}
 	long := strings.Repeat("a", 30)
-	if got := defaultAppName(long); got != "Bothy ("+long[:26]+")" || len([]rune(got)) != 34 {
-		t.Errorf("defaultAppName(30 chars) = %q", got)
+	for _, tc := range []struct {
+		x     string
+		taken []string
+		want  string
+	}{
+		{"acme", nil, "Bothy (acme)"},
+		{long, nil, "Bothy (" + long[:26] + ")"},
+		{"", nil, "Bothy"},
+		{"acme", []string{"Bothy (labs)", "bothy (ACME)"}, "Bothy (acme) 2"},
+		{"acme", []string{"Bothy (acme)", "Bothy (acme) 2"}, "Bothy (acme) 3"},
+		{long, []string{"Bothy (" + long[:26] + ")"}, "Bothy (" + long[:24] + ") 2"},
+		{"", []string{"Bothy"}, "Bothy 2"},
+	} {
+		if got := defaultAppName(tc.x, tc.taken); got != tc.want || utf8.RuneCountInString(got) > maxAppName {
+			t.Errorf("defaultAppName(%q, %q) = %q, want %q", tc.x, tc.taken, got, tc.want)
+		}
 	}
-	if got := defaultAppName("acme"); got != "Bothy (acme)" {
-		t.Errorf("defaultAppName = %q", got)
+	// An app Bothy recorded, retired or not, has the proposed name already.
+	made := f.makeApp("acme")
+	if _, err := f.svc.RetireApp(f.ctx, made.ID, "usr_owner"); err != nil {
+		t.Fatal(err)
+	}
+	if h, err := f.svc.AppManifest(f.ctx, core.GitHubAppTarget{Org: "acme"}, bothyOrigin); err != nil || h.Name != "Bothy (acme) 2" {
+		t.Errorf("handoff beside %s = %+v %v", made.Name, h, err)
 	}
 
 	for _, bad := range []struct {
@@ -227,7 +247,7 @@ func TestAppManifest(t *testing.T) {
 		{core.GitHubAppTarget{Org: "acme"}, "http://bothy?x=1"},
 		{core.GitHubAppTarget{Org: "acme"}, "http://bothy#f"},
 	} {
-		if _, err := f.svc.AppManifest(bad.t, bad.origin); !errors.Is(err, core.ErrInvalid) {
+		if _, err := f.svc.AppManifest(f.ctx, bad.t, bad.origin); !errors.Is(err, core.ErrInvalid) {
 			t.Errorf("AppManifest(%+v, %q) = %v, want ErrInvalid", bad.t, bad.origin, err)
 		}
 	}
@@ -237,7 +257,7 @@ func TestCreateApp(t *testing.T) {
 	f := newFx(t)
 	logs := f.logTo()
 	tgt := core.GitHubAppTarget{Org: "acme"}
-	h, err := f.svc.AppManifest(tgt, bothyOrigin)
+	h, err := f.svc.AppManifest(f.ctx, tgt, bothyOrigin)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +360,7 @@ func TestCreateAppEnterprise(t *testing.T) {
 func TestCreateAppSealed(t *testing.T) {
 	f := newFx(t)
 	tgt := core.GitHubAppTarget{Org: "acme"}
-	h, _ := f.svc.AppManifest(tgt, bothyOrigin)
+	h, _ := f.svc.AppManifest(f.ctx, tgt, bothyOrigin)
 	code := f.postManifest(h, "s1")
 	f.vault.Seal()
 	if _, err := f.svc.CreateApp(f.ctx, code, tgt, "", "usr_owner"); !errors.Is(err, core.ErrSealed) {

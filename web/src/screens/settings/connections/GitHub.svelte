@@ -276,7 +276,7 @@
       {#if pending}
         <GitHubAppPending app={pending} requested={landing === 'requested'} failed={landing === 'install_failed'} oninstalled={installed} onretired={load} />
       {:else}
-        <GitHubCreateApp username={session.me?.user.username ?? ''} {replacing} oncancel={cancelReplace} onpending={load} />
+        <GitHubCreateApp username={session.me?.user.username ?? ''} taken={apps.map((a) => a.name)} {replacing} oncancel={cancelReplace} onpending={load} />
       {/if}
 
       <Disclosure class="mt-10" variant="section" label="Other ways to connect">

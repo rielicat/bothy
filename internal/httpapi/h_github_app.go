@@ -137,7 +137,7 @@ func (s *Server) githubAppStart(w http.ResponseWriter, r *http.Request, a core.A
 	if u, err := s.d.Store.Users().Get(ctx, a.User); err == nil {
 		t.Fallback = u.Username
 	}
-	h, err := mk.AppManifest(t, origin)
+	h, err := mk.AppManifest(ctx, t, origin)
 	if err != nil {
 		return err
 	}

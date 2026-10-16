@@ -64,7 +64,7 @@ type fakeMaker struct {
 
 func newFakeMaker() *fakeMaker { return &fakeMaker{fakeGitHub: &fakeGitHub{}} }
 
-func (m *fakeMaker) AppManifest(t core.GitHubAppTarget, origin string) (*core.GitHubAppHandoff, error) {
+func (m *fakeMaker) AppManifest(_ context.Context, t core.GitHubAppTarget, origin string) (*core.GitHubAppHandoff, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.targets, m.origins = append(m.targets, t), append(m.origins, origin)

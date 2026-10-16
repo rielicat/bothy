@@ -119,7 +119,7 @@ type GitHubOwnApp struct {
 // GitHubAppTarget is where a manifest flow creates the app.
 type GitHubAppTarget struct {
 	Org      string // organization login; "" = the admin's personal account
-	Name     string // "" = "Bothy (<Org, or Fallback>)", cut to GitHub's 34 characters
+	Name     string // "" = "Bothy (<Org, or Fallback>)", cut to GitHub's 34 characters; "… 2" and on while an app Bothy recorded has it
 	Fallback string // the admin's username, naming a personal account's app
 }
 
@@ -138,7 +138,7 @@ type GitHubAppHandoff struct {
 type GitHubAppMaker interface {
 	// AppManifest builds the manifest for an app reached back at origin
 	// (Bothy's own address); ErrInvalid for a bad target or origin.
-	AppManifest(t GitHubAppTarget, origin string) (*GitHubAppHandoff, error)
+	AppManifest(ctx context.Context, t GitHubAppTarget, origin string) (*GitHubAppHandoff, error)
 	// CreateApp redeems the code GitHub's redirect carried and keeps the new
 	// app's keys. ErrSealed before redeeming while the vault is locked.
 	CreateApp(ctx context.Context, code string, t GitHubAppTarget, replaces string, by UserID) (*GitHubOwnApp, error)

@@ -118,6 +118,10 @@ describe("Bothy's own GitHub App (§12.2)", () => {
     expect([...defaultAppName('a'.repeat(30))]).toHaveLength(34);
     expect(defaultAppName('sam')).toBe('Bothy (sam)');
     expect(defaultAppName('')).toBe('Bothy');
+    expect(defaultAppName('acme', ['Bothy (labs)', 'bothy (ACME)'])).toBe('Bothy (acme) 2');
+    expect(defaultAppName('acme', ['Bothy (acme)', 'Bothy (acme) 2'])).toBe('Bothy (acme) 3');
+    expect(defaultAppName('a'.repeat(30), [`Bothy (${'a'.repeat(26)})`])).toBe(`Bothy (${'a'.repeat(24)}) 2`);
+    expect(defaultAppName('', ['Bothy'])).toBe('Bothy 2');
   });
 
   it('links GitHub pages on github.com', () => {

@@ -10,12 +10,15 @@
   // its own, which pull requests and comments then come from.
   let {
     username = '',
+    taken = [],
     replacing = null,
     oncancel,
     onpending,
   }: {
     /** Names a personal account's app, as the server does. */
     username?: string;
+    /** Names of the apps Bothy recorded, which the proposed name avoids. */
+    taken?: string[];
     /** The connection the new app replaces once it is installed. */
     replacing?: GitHubConnection | null;
     oncancel?: () => void;
@@ -37,7 +40,7 @@
       : undefined,
   );
   const nameError = $derived([...name.trim()].length > MAX_APP_NAME ? `Use ${MAX_APP_NAME} characters or fewer.` : undefined);
-  const proposed = $derived(defaultAppName(account === 'organization' ? orgValue || username : username));
+  const proposed = $derived(defaultAppName(account === 'organization' ? orgValue || username : username, taken));
   const reason = $derived(account === 'organization' && !orgValue ? "Enter the organization's name." : undefined);
 
   async function start() {

@@ -188,6 +188,13 @@ describe("Bothy's own GitHub App (§12.2)", () => {
     expect(screen.queryByLabelText('Token')).toBeNull();
   });
 
+  it('proposes a name no app Bothy recorded has', async () => {
+    await app('github-app-retired');
+    await fireEvent.input(await screen.findByLabelText('Organization'), { target: { value: 'acme' } });
+    await fireEvent.click(screen.getByRole('button', { name: "Change the app's name" }));
+    expect((screen.getByLabelText('App name') as HTMLInputElement).placeholder).toBe('Bothy (acme) 2');
+  });
+
   it('starts on GitHub for an organization', async () => {
     const calls = await app('github-none');
     await fireEvent.input(await screen.findByLabelText('Organization'), { target: { value: 'acme' } });

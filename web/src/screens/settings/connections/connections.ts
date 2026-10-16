@@ -79,12 +79,19 @@ export function githubStatus(c: GitHubConnection | undefined, repos: number, pen
 /** GitHub's limit on an app's name. */
 export const MAX_APP_NAME = 34;
 
-/** "Bothy (acme)", cut to fit GitHub's 34 characters: the name the server proposes (github.defaultAppName). */
-export function defaultAppName(x: string): string {
-  if (!x) return 'Bothy';
-  const chars = [...x];
-  const room = MAX_APP_NAME - 'Bothy ()'.length;
-  return `Bothy (${chars.length > room ? chars.slice(0, room).join('') : x})`;
+/**
+ * "Bothy (acme)", or "Bothy (acme) 2" and on while an app Bothy recorded has the name (names are unique on GitHub),
+ * cut to fit GitHub's 34 characters: the name the server proposes (github.defaultAppName).
+ */
+export function defaultAppName(x: string, taken: string[] = []): string {
+  const used = new Set(taken.map((t) => t.toLowerCase()));
+  for (let n = 1; ; n++) {
+    const suffix = n > 1 ? ` ${n}` : '';
+    const room = MAX_APP_NAME - 'Bothy ()'.length - suffix.length;
+    const chars = [...x];
+    const name = x ? `Bothy (${chars.length > room ? chars.slice(0, room).join('') : x})${suffix}` : `Bothy${suffix}`;
+    if (!used.has(name.toLowerCase())) return name;
+  }
 }
 
 /** A GitHub organization's login, as in github.com/acme. */

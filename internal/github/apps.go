@@ -57,16 +57,26 @@ const maxAppName = 34
 
 const appCreateTimeout = 30 * time.Second
 
-// defaultAppName is "Bothy (<x>)", cutting x so the name fits GitHub's 34
-// characters. The web app proposes the same name.
-func defaultAppName(x string) string {
-	if x == "" {
-		return "Bothy"
+// defaultAppName is "Bothy (<x>)", or "Bothy (<x>) 2" and on while an app
+// Bothy recorded has the name (names are unique on GitHub), cutting x so the
+// name fits GitHub's 34 characters. The web app proposes the same name.
+func defaultAppName(x string, taken []string) string {
+	for n := 1; ; n++ {
+		suffix := ""
+		if n > 1 {
+			suffix = " " + strconv.Itoa(n)
+		}
+		name := "Bothy" + suffix
+		if x != "" {
+			if room := maxAppName - len("Bothy ()") - len(suffix); utf8.RuneCountInString(x) > room {
+				x = string([]rune(x)[:room])
+			}
+			name = "Bothy (" + x + ")" + suffix
+		}
+		if !slices.ContainsFunc(taken, func(t string) bool { return strings.EqualFold(t, name) }) {
+			return name
+		}
 	}
-	if n := maxAppName - len("Bothy ()"); utf8.RuneCountInString(x) > n {
-		x = string([]rune(x)[:n])
-	}
-	return "Bothy (" + x + ")"
 }
 
 func appSettingsURL(web, owner, ownerType, slug string) string {
@@ -122,7 +132,7 @@ type appManifest struct {
 	DefaultPermissions map[string]string `json:"default_permissions"`
 }
 
-func (s *Service) AppManifest(t core.GitHubAppTarget, origin string) (*core.GitHubAppHandoff, error) {
+func (s *Service) AppManifest(ctx context.Context, t core.GitHubAppTarget, origin string) (*core.GitHubAppHandoff, error) {
 	o, err := url.Parse(origin)
 	if err != nil || o.Scheme != "http" && o.Scheme != "https" || o.Host == "" || o.User != nil || o.Opaque != "" ||
 		o.RawQuery != "" || o.Fragment != "" || o.Path != "" && o.Path != "/" {
@@ -134,7 +144,15 @@ func (s *Service) AppManifest(t core.GitHubAppTarget, origin string) (*core.GitH
 	}
 	name := strings.TrimSpace(t.Name)
 	if name == "" {
-		name = defaultAppName(cmp.Or(t.Org, t.Fallback))
+		apps, err := s.store.Apps(ctx)
+		if err != nil {
+			return nil, err
+		}
+		taken := make([]string, 0, len(apps))
+		for _, a := range apps {
+			taken = append(taken, a.Name)
+		}
+		name = defaultAppName(cmp.Or(t.Org, t.Fallback), taken)
 	}
 	if n := utf8.RuneCountInString(name); n < 1 || n > maxAppName || strings.ContainsFunc(name, unicode.IsControl) {
 		return nil, invalidf("the app name must be 1 to %d characters", maxAppName)
