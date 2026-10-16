@@ -49,7 +49,8 @@ type Inbound struct {
 	Attachments    []Attachment
 	At             time.Time
 	// ChatTitle is the group's title as the platform reports it (names a
-	// newly sighted space); "" when unknown.
+	// newly sighted space, and renames one still under its fallback name);
+	// "" when unknown.
 	ChatTitle string
 	// AddedBy is the platform user id that added the bot to this group or
 	// owns it, when the platform reports it (Telegram my_chat_member.from,
@@ -60,6 +61,11 @@ type Inbound struct {
 	// (Telegram forward_origin or via_bot). The hub treats it as untrusted
 	// even from a linked user and never as a command.
 	Forwarded bool
+	// Private marks a message only its sender saw (a Slack slash command),
+	// so a code in it was not shown to the chat. In a group it never creates
+	// a space, since slash commands work in channels the bot is not in, and
+	// the hub answers anyone it would not answer in that group in their DM.
+	Private bool
 }
 
 type MsgRef struct {

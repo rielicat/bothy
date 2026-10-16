@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -155,6 +156,47 @@ func (s *sink) action(t *testing.T) core.ActionEvent {
 		t.Fatal("no action event")
 		return core.ActionEvent{}
 	}
+}
+
+// callsTo counts the Web API calls of method so far.
+func (f *fixture) callsTo(method string) int {
+	n := 0
+	for _, c := range f.srv.Calls() {
+		if c.Method == method {
+			n++
+		}
+	}
+	return n
+}
+
+// logRecorder is a slog.Handler keeping every message logged.
+type logRecorder struct {
+	mu   sync.Mutex
+	msgs []string
+}
+
+func (r *logRecorder) Enabled(context.Context, slog.Level) bool { return true }
+
+func (r *logRecorder) Handle(_ context.Context, rec slog.Record) error {
+	r.mu.Lock()
+	r.msgs = append(r.msgs, rec.Message)
+	r.mu.Unlock()
+	return nil
+}
+
+func (r *logRecorder) WithAttrs([]slog.Attr) slog.Handler { return r }
+func (r *logRecorder) WithGroup(string) slog.Handler      { return r }
+
+func (r *logRecorder) count(sub string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for _, m := range r.msgs {
+		if strings.Contains(m, sub) {
+			n++
+		}
+	}
+	return n
 }
 
 func isAuthErr(err error) bool {

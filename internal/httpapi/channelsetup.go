@@ -27,8 +27,8 @@ features:
     - {command: /bothy, description: "Talk to {{name}} (stop, new, status, help)", should_escape: false}
 oauth_config:
   scopes:
-    bot: [app_mentions:read, channels:history, groups:history, im:history, im:read, im:write,
-          chat:write, commands, users:read, files:read, reactions:write]
+    bot: [app_mentions:read, channels:history, channels:read, groups:history, groups:read, im:history, im:read,
+          im:write, chat:write, commands, users:read, files:read, reactions:write]
 settings:
   event_subscriptions:
     bot_events: [app_mention, message.im, message.channels, message.groups]   # channel messages only matter for spaces with mention_only off; duplicates of app_mention are dropped by inbound dedup (same ts)

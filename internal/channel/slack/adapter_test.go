@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
+	"os"
 	"runtime"
 	"strings"
 	"sync/atomic"
@@ -262,9 +264,86 @@ func TestSlashCommand(t *testing.T) {
 	} {
 		f.srv.InjectSlash(dm, user, tt.text)
 		in := f.sink.message(t)
-		if in.Text != tt.want || !in.Mentioned || in.SenderID != user || in.Chat.Kind != core.ChatDM || !strings.HasPrefix(in.MsgID, dm+":cmd:") {
+		if in.Text != tt.want || !in.Mentioned || in.SenderID != user || in.Chat.Kind != core.ChatDM || !strings.HasPrefix(in.MsgID, dm+":cmd:") ||
+			!in.Private || in.ChatTitle != "" {
 			t.Fatalf("/bothy %q = %+v, want text %q", tt.text, in, tt.want)
 		}
+	}
+}
+
+// Only its sender sees a slash command, so it is Private wherever it was
+// typed. A public channel is named by the payload's channel_name; for a
+// private one Slack sends a placeholder, so the adapter asks
+// conversations.info, which fails for one the app is not in.
+func TestSlashCommandInChannel(t *testing.T) {
+	f := newFixture(t)
+	f.start(t, stateConnected)
+	const user = "U0000510"
+	f.srv.SetChannel("C0000510", "ops")
+	f.srv.SetChannel("G0000510", "secret-plans")
+
+	f.srv.InjectSlash("C0000510", user, "pair ABCD-EFGH")
+	in := f.sink.message(t)
+	if !in.Private || in.Chat.Kind != core.ChatGroup || in.ChatTitle != "#ops" || in.Text != "/pair ABCD-EFGH" {
+		t.Fatalf("slash command in a public channel = %+v", in)
+	}
+	if n := f.callsTo("conversations.info"); n != 0 {
+		t.Fatalf("conversations.info called %d times for a channel the payload named", n)
+	}
+
+	f.srv.InjectSlash("G0000510", user, "help")
+	if in = f.sink.message(t); !in.Private || in.Chat.Kind != core.ChatGroup || in.ChatTitle != "#secret-plans" {
+		t.Fatalf("slash command in a private channel = %+v", in)
+	}
+	f.srv.InjectSlash("G0000511", user, "help")
+	if in = f.sink.message(t); !in.Private || in.ChatTitle != "" {
+		t.Fatalf("slash command in a private channel the app cannot see = %+v", in)
+	}
+}
+
+// Group messages carry the channel's "#name", looked up once per channel;
+// DMs carry none, and nothing but a slash command is Private.
+func TestChannelTitles(t *testing.T) {
+	f := newFixture(t)
+	f.start(t, stateConnected)
+	const channel, user = "C0000520", "U0000520"
+	f.srv.SetChannel(channel, "eng")
+	for _, text := range []string{"one", "two"} {
+		f.srv.InjectText(channel, user, text, false)
+		if in := f.sink.message(t); in.ChatTitle != "#eng" || in.Private {
+			t.Fatalf("channel message = %+v, want titled #eng and not private", in)
+		}
+	}
+	dm, _ := f.srv.ConformanceIDs()
+	f.srv.InjectText(dm, user, "hi", false)
+	if in := f.sink.message(t); in.ChatTitle != "" || in.Private {
+		t.Fatalf("DM = %+v, want no title", in)
+	}
+	if n := f.callsTo("conversations.info"); n != 1 {
+		t.Fatalf("conversations.info called %d times, want 1 (cached, none for the DM)", n)
+	}
+}
+
+// An app installed before the manifest asked for channels:read and
+// groups:read gets missing_scope: messages still arrive, untitled, and the
+// warning to reinstall is logged once, not once per channel.
+func TestChannelTitleMissingScope(t *testing.T) {
+	logs := &logRecorder{}
+	f := newFixture(t, func(_ *config.Slack, d *core.AdapterDeps) { d.Log = slog.New(logs) })
+	f.start(t, stateConnected)
+	f.srv.SetChannel("C0000530", "eng")
+	f.srv.SetChannelInfoError("missing_scope")
+	for _, ch := range []string{"C0000530", "C0000531", "C0000530"} {
+		f.srv.InjectText(ch, "U0000530", "hello", false)
+		if in := f.sink.message(t); in.ChatTitle != "" || in.Text != "hello" {
+			t.Fatalf("message without the scope = %+v", in)
+		}
+	}
+	if n := logs.count("cannot read channel names"); n != 1 {
+		t.Fatalf("missing scope warned %d times, want 1", n)
+	}
+	if n := f.callsTo("conversations.info"); n != 2 {
+		t.Fatalf("conversations.info called %d times, want 2 (the miss is cached)", n)
 	}
 }
 
@@ -298,9 +377,28 @@ func TestFetchFile(t *testing.T) {
 	}
 }
 
-// manifestScopes are the bot scopes of the SPEC §8.6 app manifest.
-var manifestScopes = []string{"app_mentions:read", "channels:history", "groups:history", "im:history", "im:read", "im:write",
-	"chat:write", "commands", "users:read", "files:read", "reactions:write"}
+// servedManifest is the manifest GET /api/channels/slack/manifest serves
+// (SPEC §8.6), as httpapi's golden test pins it.
+const servedManifest = "../../httpapi/testdata/slack_manifest.golden.yaml"
+
+// manifestScopes reads the bot scopes of the served manifest.
+func manifestScopes(t *testing.T) []string {
+	t.Helper()
+	b, err := os.ReadFile(servedManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, list, ok := strings.Cut(string(b), "bot: [")
+	list, _, ok2 := strings.Cut(list, "]")
+	if !ok || !ok2 {
+		t.Fatalf("no bot scopes in %s", servedManifest)
+	}
+	var out []string
+	for s := range strings.SplitSeq(list, ",") {
+		out = append(out, strings.TrimSpace(s))
+	}
+	return out
+}
 
 // methodScopes lists what each Web API call the adapter makes needs.
 var methodScopes = map[string][]string{
@@ -311,6 +409,7 @@ var methodScopes = map[string][]string{
 	"chat.delete":           {"chat:write"},
 	"conversations.open":    {"im:write"},
 	"users.info":            {"users:read"},
+	"conversations.info":    {"channels:read", "groups:read"}, // public, private channels
 }
 
 // eventScopes lists what each event the adapter consumes needs.
@@ -352,7 +451,7 @@ func TestManifestScopesCoverEveryCall(t *testing.T) {
 	f.sink.message(t)
 
 	granted := map[string]bool{}
-	for _, s := range manifestScopes {
+	for _, s := range manifestScopes(t) {
 		granted[s] = true
 	}
 	seen := map[string]bool{}

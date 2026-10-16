@@ -62,9 +62,12 @@ type adapter struct {
 	selfID   string
 	selfBot  string
 	identity string
+	// scopeWarned is when missing channel scopes were last logged.
+	scopeWarned time.Time
 
-	names   nameCache
-	dropped atomic.Int64
+	names    nameCache // users: display name and handle
+	channels nameCache // channels: "#name" as display
+	dropped  atomic.Int64
 }
 
 // New returns the adapter; it performs no network I/O until Run.

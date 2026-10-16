@@ -22,6 +22,7 @@ type slackAPI interface {
 	DeleteMessageContext(ctx context.Context, channel, messageTimestamp string) (string, string, error)
 	OpenConversationContext(ctx context.Context, params *slack.OpenConversationParameters) (*slack.Channel, bool, bool, error)
 	GetUserInfoContext(ctx context.Context, user string, options ...slack.GetUserInfoOption) (*slack.User, error)
+	GetConversationInfoContext(ctx context.Context, input *slack.GetConversationInfoInput) (*slack.Channel, error)
 }
 
 // socket is the Socket Mode connection: slack-go's socketmode client in

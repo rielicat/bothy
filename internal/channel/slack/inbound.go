@@ -15,10 +15,11 @@ import (
 )
 
 const (
-	lookupTimeout = 5 * time.Second
-	namesMax      = 512
-	nameTTL       = time.Hour
-	nameMissTTL   = time.Minute
+	lookupTimeout  = 5 * time.Second
+	namesMax       = 512
+	nameTTL        = time.Hour
+	nameMissTTL    = time.Minute
+	scopeWarnEvery = time.Hour
 )
 
 // commands are the hub's chat commands (SPEC §5.1); "/bothy stop" arrives
@@ -49,6 +50,9 @@ func (a *adapter) eventJob(e slackevents.EventsAPIEvent) job {
 	}
 	return func(ctx context.Context, sink core.InboundSink) {
 		in.SenderName, in.SenderUsername = a.userNames(ctx, in.SenderID)
+		if in.Chat.Kind == core.ChatGroup {
+			in.ChatTitle = a.channelTitle(ctx, in.Chat.ChatID)
+		}
 		sink.OnMessage(ctx, in)
 	}
 }
@@ -100,6 +104,8 @@ func (a *adapter) fromMessage(e *slackevents.MessageEvent) (core.Inbound, bool) 
 	return in, in.Text != "" || len(in.Attachments) > 0
 }
 
+// slashJob maps a /bothy command. Slack shows it to no one but its sender,
+// so it is Private, and it works in channels the app is not in.
 func (a *adapter) slashJob(c slack.SlashCommand) job {
 	in := core.Inbound{
 		Chat: chatRef(c.ChannelID, "", ""),
@@ -110,11 +116,31 @@ func (a *adapter) slashJob(c slack.SlashCommand) job {
 		Text:           slashText(c.Text),
 		Mentioned:      true,
 		At:             a.clock.Now(),
+		Private:        true,
+	}
+	lookup := false
+	if in.Chat.Kind == core.ChatGroup {
+		in.ChatTitle = hashName(c.ChannelName)
+		lookup = in.ChatTitle == "" && !strings.HasPrefix(c.ChannelName, "mpdm-")
 	}
 	return func(ctx context.Context, sink core.InboundSink) {
 		in.SenderName, _ = a.userNames(ctx, in.SenderID)
+		if lookup {
+			in.ChatTitle = a.channelTitle(ctx, in.Chat.ChatID)
+		}
 		sink.OnMessage(ctx, in)
 	}
+}
+
+// hashName is a channel as Slack shows it, "#name"; "" for the placeholders
+// a slash command sends instead ("directmessage", and "privategroup" for a
+// private channel) and for group DMs, whose "mpdm-…" names are no title.
+func hashName(name string) string {
+	switch {
+	case name == "", name == "directmessage", name == "privategroup", strings.HasPrefix(name, "mpdm-"):
+		return ""
+	}
+	return "#" + name
 }
 
 func slashText(text string) string {
@@ -278,6 +304,60 @@ func (a *adapter) userNames(ctx context.Context, id string) (display, handle str
 	}
 	a.names.put(id, e, a.clock.Now().Add(ttl))
 	return e.display, e.handle
+}
+
+// channelTitle returns a channel's "#name" via conversations.info, cached
+// like userNames, or "" when Slack will not say. An app installed before
+// the manifest asked for channels:read and groups:read gets missing_scope
+// until it is reinstalled; its spaces keep their fallback names meanwhile.
+func (a *adapter) channelTitle(ctx context.Context, id string) string {
+	if id == "" {
+		return ""
+	}
+	if e, ok := a.channels.get(id, a.clock.Now()); ok {
+		return e.display
+	}
+	var e nameEntry
+	api, err := a.client(ctx)
+	if err == nil {
+		lctx, cancel := context.WithTimeout(ctx, lookupTimeout)
+		var ch *slack.Channel
+		ch, err = api.GetConversationInfoContext(lctx, &slack.GetConversationInfoInput{ChannelID: id})
+		cancel()
+		if err == nil && !ch.IsIM && !ch.IsMpIM {
+			e.display = hashName(ch.Name)
+		}
+	}
+	ttl := nameTTL
+	if err != nil {
+		ttl = nameMissTTL
+		switch slackCode(err) {
+		case "missing_scope":
+			a.warnScope(err)
+		case "channel_not_found":
+			// A slash command from a private channel the app is not in.
+		default:
+			a.log.Warn("slack: conversations.info failed", "channel", id, "err", err)
+		}
+	}
+	a.channels.put(id, e, a.clock.Now().Add(ttl))
+	return e.display
+}
+
+// warnScope logs at most once per scopeWarnEvery: every new channel of an
+// app without the scopes would otherwise repeat it.
+func (a *adapter) warnScope(err error) {
+	now := a.clock.Now()
+	a.mu.Lock()
+	warn := a.scopeWarned.IsZero() || now.Sub(a.scopeWarned) >= scopeWarnEvery
+	if warn {
+		a.scopeWarned = now
+	}
+	a.mu.Unlock()
+	if warn {
+		a.log.Warn("slack: the app cannot read channel names; reinstall it to your workspace to grant channels:read and groups:read",
+			"err", err)
+	}
 }
 
 type nameEntry struct {

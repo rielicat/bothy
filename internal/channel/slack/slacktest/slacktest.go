@@ -113,6 +113,8 @@ type Server struct {
 	users     map[string][2]string
 	files     map[string]File
 	dms       map[string]string
+	channels  map[string]string
+	infoErr   string
 }
 
 // New starts a fake with the Default* identities.
@@ -129,6 +131,7 @@ func New() *Server {
 		users:        map[string][2]string{},
 		files:        map[string]File{},
 		dms:          map[string]string{},
+		channels:     map[string]string{},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/{method}", s.api)
@@ -154,6 +157,24 @@ func (s *Server) Close() {
 
 // URL is the Web API base (channels.slack.api_base), ending in a slash.
 func (s *Server) URL() string { return s.srv.URL + "/api/" }
+
+// SetChannel names a channel for conversations.info and for the
+// channel_name of slash commands in a public one; conversations.info
+// answers channel_not_found for a channel that was never named.
+func (s *Server) SetChannel(id, name string) {
+	s.mu.Lock()
+	s.channels[id] = name
+	s.mu.Unlock()
+}
+
+// SetChannelInfoError makes conversations.info fail with code, as
+// "missing_scope" does for an app installed without channels:read and
+// groups:read; "" restores it.
+func (s *Server) SetChannelInfoError(code string) {
+	s.mu.Lock()
+	s.infoErr = code
+	s.mu.Unlock()
+}
 
 // SetUser sets what users.info returns for id.
 func (s *Server) SetUser(id, name, displayName string) {
@@ -240,12 +261,23 @@ func (s *Server) Inject(in Incoming) string {
 	return ts
 }
 
-// InjectSlash delivers the /bothy slash command.
+// InjectSlash delivers the /bothy slash command. Its channel_name is what
+// Slack sends: "directmessage" in a DM, "privategroup" in a private
+// channel, otherwise the name SetChannel gave (default "general").
 func (s *Server) InjectSlash(chatID, senderID, text string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	channelName := "general"
+	switch {
+	case channelType(chatID) == "im":
+		channelName = "directmessage"
+	case channelType(chatID) == "group":
+		channelName = "privategroup"
+	case s.channels[chatID] != "":
+		channelName = s.channels[chatID]
+	}
 	s.envelopeLocked("slash_commands", map[string]any{
-		"token": "verification", "team_id": s.TeamID, "team_domain": "fake", "channel_id": chatID, "channel_name": "general",
+		"token": "verification", "team_id": s.TeamID, "team_domain": "fake", "channel_id": chatID, "channel_name": channelName,
 		"user_id": senderID, "user_name": "user-" + senderID, "command": "/bothy", "text": text, "api_app_id": DefaultAppID,
 		"is_enterprise_install": "false", "response_url": s.srv.URL + "/response/" + s.idLocked(), "trigger_id": s.idLocked(),
 	}, true)
@@ -529,6 +561,20 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, map[string]any{"ok": true, "user": map[string]any{"id": id, "team_id": s.TeamID, "name": name, "real_name": display,
 			"is_bot": false, "profile": map[string]any{"display_name": display, "real_name": display}}})
+	case "conversations.info":
+		id := r.PostFormValue("channel")
+		name, named := s.channels[id]
+		switch {
+		case s.infoErr != "":
+			writeJSON(w, map[string]any{"ok": false, "error": s.infoErr})
+		case channelType(id) == "im":
+			writeJSON(w, map[string]any{"ok": true, "channel": map[string]any{"id": id, "is_im": true}})
+		case !named:
+			writeJSON(w, map[string]any{"ok": false, "error": "channel_not_found"})
+		default:
+			writeJSON(w, map[string]any{"ok": true, "channel": map[string]any{"id": id, "name": name, "is_channel": channelType(id) == "channel",
+				"is_group": channelType(id) == "group", "is_private": channelType(id) == "group", "is_mpim": strings.HasPrefix(name, "mpdm-")}})
+		}
 	default:
 		writeJSON(w, map[string]any{"ok": false, "error": "unknown_method"})
 	}
