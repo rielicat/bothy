@@ -245,7 +245,7 @@
             bind:value={unknown}
             onchange={() => setUnknown(unknown)}
             options={[
-              { value: 'pair', label: 'Ask an admin to let them in (recommended)' },
+              { value: 'pair', label: 'Ask an admin (recommended)' },
               { value: 'ignore', label: "Don't reply or notify anyone" },
             ]}
           />

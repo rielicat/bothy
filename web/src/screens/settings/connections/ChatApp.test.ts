@@ -191,7 +191,7 @@ describe('Discord and Telegram', () => {
     const s = await who();
     expect(s.getByText('People you let in from Approvals.')).toBeTruthy();
     const select = s.getByLabelText('When someone new messages Bothy') as HTMLSelectElement;
-    expect([...select.options].map((o) => o.text)).toEqual(['Ask an admin to let them in (recommended)', "Don't reply or notify anyone"]);
+    expect([...select.options].map((o) => o.text)).toEqual(['Ask an admin (recommended)', "Don't reply or notify anyone"]);
     expect(s.getByText("Either way, they're listed in Approvals. Applies to Telegram and Discord.")).toBeTruthy();
     await fireEvent.change(select, { target: { value: 'ignore' } });
     await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url === '/api/config' && JSON.parse(c.body).set['channels.unknown_senders'] === 'ignore')).toBe(true));

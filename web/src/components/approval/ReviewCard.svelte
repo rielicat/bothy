@@ -128,7 +128,7 @@
   {:else if item.type === 'group_chat'}
     {#each groupLines(item) as l (l)}<p class="mt-1 text-body text-muted" data-copy-ignore>{l}</p>{/each}
     <h4 class="mt-4 text-body font-medium text-text">What Bothy can do there</h4>
-    <OptionList class="mt-2" name="{uid}-profile" label="What Bothy can do there" options={profiles} bind:value={profile} />
+    <OptionList class="mt-1" framed={false} name="{uid}-profile" label="What Bothy can do there" options={profiles} bind:value={profile} />
     {#if item.mention_only}<p class="mt-3 text-body text-muted">Bothy answers only when mentioned.</p>{/if}
   {/if}
 

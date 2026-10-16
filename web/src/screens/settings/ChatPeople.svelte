@@ -116,10 +116,10 @@
     busy = true;
     dialogError = '';
     try {
+      // Updated in place: a reload would move the row to the blocked ones under the pointer.
       Object.assign(t, await api.patch<Teammate>(path(t), { status: 'blocked' }));
       blocking = null;
       toast('Blocked.');
-      void load();
     } catch {
       dialogError = "Couldn't save. Try again.";
     } finally {
@@ -194,7 +194,7 @@
               <div class="min-w-0 flex-1">
                 <p class="truncate text-body font-medium text-text" title={t.name} data-copy-ignore>{t.name}</p>
                 <p class="truncate text-small text-muted" data-copy-ignore>{meta(t)}</p>
-                {#if t.status !== 'blocked'}<p class="truncate text-small text-muted tabular-nums">{active(t)}</p>{/if}
+                {#if t.status !== 'blocked'}<p class="text-small text-muted tabular-nums">{active(t)}</p>{/if}
               </div>
               {#if t.status !== 'blocked' && !narrow}
                 <Switch
