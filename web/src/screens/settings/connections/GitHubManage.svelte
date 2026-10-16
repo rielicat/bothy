@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { untrack, type Snippet } from 'svelte';
   import { Button, Dialog, Disclosure, EmptyState, IconButton, Menu, SettingsSection, StatusLine, Switch, toast } from '../../../components/ui';
   import { api, errorText } from '../../../lib/api/client';
   import type { User } from '../../../lib/api/types.gen';
@@ -7,22 +7,31 @@
   import { fullTime, plural } from '../../../lib/format';
   import { router } from '../../../lib/router.svelte';
   import ConnPage from './ConnPage.svelte';
-  import { approverLine, readAt, saveConfig, type Failure } from './connections';
+  import { approverLine, githubWeb, installationSettingsURL, readAt, saveConfig, type Failure } from './connections';
   import EnvironmentDialog from './EnvironmentDialog.svelte';
   import RepoPicker from './RepoPicker.svelte';
-  import type { GitHubConnection, GitHubConnectionDetail, GitHubProbe, GitHubRepo, IndexedRepo, ReleaseEnvironment, Releases, Workflow } from './types';
+  import type { GitHubApp, GitHubConnection, GitHubConnectionDetail, GitHubProbe, GitHubRepo, IndexedRepo, ReleaseEnvironment, Releases, Workflow } from './types';
 
   let {
     conn,
+    app,
+    landing,
     reading = 0,
     onchanged,
     onreplace,
+    top,
   }: {
     conn: GitHubConnection;
+    /** The app Bothy created for this connection, if it did. */
+    app?: GitHubApp;
+    /** The app's installation just made this connection, or changed its repositories on GitHub: the picker opens. */
+    landing?: 'installed' | 'updated';
     /** Repositories just saved, which Bothy starts reading now. */
     reading?: number;
     onchanged: () => void;
     onreplace: () => void;
+    /** Lines above the sections: a GitHub round trip's outcome, apps to delete on GitHub. */
+    top?: Snippet;
   } = $props();
 
   let repos = $state<GitHubRepo[]>([]);
@@ -41,18 +50,14 @@
   let dropping = $state('');
   let details = $state(false);
   let flows = $state<Record<string, string>>({});
+  let added = $state(0);
+  let checking = $state(false);
 
   const id = $derived(encodeURIComponent(conn.id));
   const full = (r: { owner: string; name: string }) => `${r.owner}/${r.name}`;
   const allowed = $derived(repos.filter((r) => r.allowed).map(full));
-  const web = $derived.by(() => {
-    try {
-      const u = new URL(config.value<string>('github.api_base', 'https://api.github.com'));
-      return u.host === 'api.github.com' ? 'https://github.com' : `${u.protocol}//${u.host}`;
-    } catch {
-      return 'https://github.com';
-    }
-  });
+  const web = $derived(githubWeb());
+  const installation = $derived(conn.auth === 'app' && conn.installation_id ? installationSettingsURL(conn) : '');
 
   async function load() {
     const get = <T,>(p: string, d: T) => api.get<T>(p).catch(() => d);
@@ -74,8 +79,28 @@
 
   $effect(() => {
     void conn.id;
-    untrack(load);
+    untrack(async () => {
+      await load();
+      if (landing) void openAdd();
+    });
   });
+
+  // GitHub may have stopped accepting the app because it was uninstalled:
+  // a new installation moves the connection, then the connection is tested.
+  async function checkAgain() {
+    if (!app) return;
+    checking = true;
+    problem = null;
+    try {
+      await api.post(`/api/github/apps/${encodeURIComponent(app.id)}/check`);
+      await api.post(`/api/github/connections/${id}/test`);
+      onchanged();
+    } catch (e) {
+      problem = { message: "Bothy couldn't check with GitHub. Try again.", details: errorText(e) };
+    } finally {
+      checking = false;
+    }
+  }
 
   // The workflow's name from GitHub ("Deploy workflow"); its file name when GitHub can't list them.
   function workflowLine(e: ReleaseEnvironment): string {
@@ -139,6 +164,7 @@
     busy = true;
     if (await putRepos([...allowed, ...more])) {
       adding = false;
+      added = more.length;
       toast(`${plural(more.length, 'repository', 'repositories')} added.`);
     }
     busy = false;
@@ -176,11 +202,12 @@
 </script>
 
 <ConnPage title="GitHub">
-  {#if reading}
+  {@render top?.()}
+  {#if reading || added}
     <StatusLine
       class="mb-6"
       tone="progress"
-      text="Bothy is reading {plural(reading, 'repository', 'repositories')}. You can keep working; this takes a few minutes."
+      text="Bothy is reading {plural(reading || added, 'repository', 'repositories')}. You can keep working; this takes a few minutes."
       action={{ label: 'See progress in Knowledge ›', onclick: () => router.navigate('/knowledge') }}
     />
   {/if}
@@ -188,12 +215,28 @@
 
   <SettingsSection title="Account">
     <div class="flex min-h-14 flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-border py-3">
-      <p class="min-w-0 text-body {conn.status === 'error' ? 'text-danger-text' : 'text-text'}">
-        {conn.status === 'error'
-          ? `GitHub stopped accepting the ${conn.auth === 'app' ? 'app' : 'token'}. Replace it to reconnect.`
-          : `Connected as ${conn.account} (${conn.auth === 'app' ? 'GitHub App' : 'personal access token'})`}
-      </p>
-      <Button size="sm" onclick={onreplace}>{conn.auth === 'app' ? 'Change connection…' : 'Replace token'}</Button>
+      <div class="min-w-0">
+        {#if conn.status === 'error'}
+          <p class="text-body text-danger-text">
+            {app
+              ? `GitHub stopped accepting ${app.name}. If it was uninstalled, install it again.`
+              : `GitHub stopped accepting the ${conn.auth === 'app' ? 'app' : 'token'}. Replace it to reconnect.`}
+          </p>
+        {:else if app}
+          <p class="text-body text-text">Connected to {conn.account} as {app.name}</p>
+          <p class="text-small text-muted">Pull requests and comments show as {app.slug}[bot].</p>
+        {:else}
+          <p class="text-body text-text">{conn.auth === 'app' ? `Connected to ${conn.account} (GitHub App)` : `Connected as ${conn.account} (personal access token)`}</p>
+        {/if}
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        {#if app && conn.status === 'error'}
+          <Button size="sm" href={app.install_url} external>Install on GitHub</Button>
+          <Button size="sm" loading={checking} loadingLabel="Checking…" onclick={checkAgain}>Check again</Button>
+        {:else}
+          <Button size="sm" onclick={onreplace}>{conn.auth === 'app' ? 'Change connection…' : 'Replace token'}</Button>
+        {/if}
+      </div>
     </div>
     <div class="pt-3">
       <Button variant="danger-text" class="-ml-4" onclick={() => (leaving = true)}>Disconnect GitHub…</Button>
@@ -261,27 +304,47 @@
       </div>
       <div><dt class="inline">Last checked:</dt> <dd class="inline">{fullTime(conn.checked_at)}</dd></div>
       <div><dt class="inline">GitHub address:</dt> <dd class="inline">{config.value<string>('github.api_base', 'https://api.github.com')}</dd></div>
+      {#if app}
+        <div><dt class="inline">GitHub App:</dt> <dd class="inline">{app.name}</dd></div>
+        <div>
+          <a class="link -my-0.5 inline-flex min-h-6 items-center pointer-coarse:-my-3 pointer-coarse:min-h-11" href={app.settings_url} target="_blank" rel="noopener noreferrer"
+            >App settings<span aria-hidden="true">&nbsp;↗</span><span class="sr-only"> (opens in a new tab)</span></a
+          >
+        </div>
+      {/if}
     </dl>
   </Disclosure>
 </ConnPage>
 
 <Dialog bind:open={leaving} title="Disconnect GitHub?" initialFocus="cancel" {busy}>
-  <p class="text-body text-text">Bothy will stop reading these repositories and can't open pull requests or deploy. Project notes are kept.</p>
+  <p class="text-body text-text">
+    Bothy will stop reading these repositories and can't open pull requests or deploy. Project notes are kept.{app ? ` ${app.name} stays on GitHub until you delete it there.` : ''}
+  </p>
   {#snippet footer({ close })}
     <Button data-cancel onclick={close}>Cancel</Button>
     <Button variant="danger" loading={busy} loadingLabel="Disconnecting…" onclick={disconnect}>Disconnect GitHub</Button>
   {/snippet}
 </Dialog>
 
-<Dialog bind:open={adding} title="Add repositories" size="md" {busy}>
+<Dialog bind:open={adding} title={allowed.length ? 'Add repositories' : 'Which repositories can Bothy use?'} size="md" {busy}>
   {#if probeError}
     <StatusLine tone="danger" text="Bothy couldn't ask GitHub for more repositories. Try again." details={probeError} />
   {:else if !probe}
     <p class="text-body text-muted">Asking GitHub…</p>
+  {:else if !addable.length && installation}
+    <p class="text-body text-text">Bothy already uses every repository the app can reach. Give it access to more on GitHub, then come back.</p>
+    <Button class="mt-4" href={installation} external>Choose repositories on GitHub</Button>
   {:else if !addable.length}
     <p class="text-body text-text">Bothy already uses every repository this connection can see. Give it access to more on GitHub first.</p>
   {:else}
     <RepoPicker repos={addable} bind:selected={more} />
+    {#if installation}
+      <p class="mt-3 text-small text-muted">
+        Missing a repository? <a class="link -my-0.5 inline-flex min-h-6 items-center pointer-coarse:-my-3 pointer-coarse:min-h-11" href={installation} target="_blank" rel="noopener noreferrer"
+          >Give the app access on GitHub<span aria-hidden="true">&nbsp;↗</span><span class="sr-only"> (opens in a new tab)</span></a
+        >
+      </p>
+    {/if}
   {/if}
   {#snippet footer({ close })}
     <Button data-cancel onclick={close}>Cancel</Button>

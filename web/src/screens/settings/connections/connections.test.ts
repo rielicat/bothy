@@ -2,15 +2,20 @@ import { describe, expect, it } from 'vitest';
 import { ApiError } from '../../../lib/api/client';
 import type { MCPStatus } from '../../../lib/api/types.gen';
 import {
+  appLanding,
+  appStartFailure,
   approverShortfall,
   appStatus,
   approverLine,
   channelFailure,
+  defaultAppName,
   envConfig,
   envErrors,
   failureCode,
+  githubAppsListURL,
   githubOutcome,
   githubStatus,
+  installationSettingsURL,
   needsAttention,
   readAt,
   searchFailure,
@@ -19,7 +24,7 @@ import {
   type AppStatus,
   type EnvForm,
 } from './connections';
-import type { GitHubConnection, GitHubProbe } from './types';
+import type { GitHubApp, GitHubConnection, GitHubProbe } from './types';
 
 const app = (over: Partial<AppStatus>): AppStatus => ({ name: 'slack', enabled: true, state: 'connected', since: '', deep_links: false, ...over });
 const tool = (over: Partial<MCPStatus>): MCPStatus => ({ name: 'linear', transport: 'http', state: 'ready', protocol: '', tools: 12, pending: 0, since: '', ...over });
@@ -63,6 +68,14 @@ describe('tool and GitHub status words', () => {
     expect(githubStatus({ ...c, status: 'error' }, 6).tone).toBe('danger');
   });
 
+  it('says where an app connection works, and that an app Bothy made still needs installing', () => {
+    const appConn = { account: 'acme', auth: 'app', status: 'ok' } as GitHubConnection;
+    expect(githubStatus(appConn, 2).text).toBe('Connected to acme · 2 repositories');
+    const pending = { name: 'Bothy (acme)', state: 'pending' } as GitHubApp;
+    expect(githubStatus(undefined, 0, pending)).toEqual({ text: "Not connected: Bothy (acme) isn't installed yet", tone: 'warning', action: 'Connect' });
+    expect(githubStatus(appConn, 2, pending).text).toBe('Connected to acme · 2 repositories');
+  });
+
   it('asks for attention only when something is broken or waits for review', () => {
     const ok = app({});
     expect(needsAttention([ok], [tool({})], [])).toBe(false);
@@ -94,6 +107,39 @@ describe('tool and GitHub status words', () => {
     expect(readAt(new Date(2026, 9, 14, 9, 12).toISOString(), now)).not.toMatch(/at 09:12 [AP]M/);
     expect(readAt(new Date(2026, 9, 2).toISOString(), now)).toMatch(/^Read (2 Oct|Oct 2)/);
     expect(readAt('0001-01-01T00:00:00Z', now)).toBe('');
+  });
+});
+
+describe("Bothy's own GitHub App (§12.2)", () => {
+  // The same cases as the server's TestAppManifest (github.defaultAppName).
+  it('proposes the name the server does', () => {
+    expect(defaultAppName('acme')).toBe('Bothy (acme)');
+    expect(defaultAppName('a'.repeat(30))).toBe(`Bothy (${'a'.repeat(26)})`);
+    expect([...defaultAppName('a'.repeat(30))]).toHaveLength(34);
+    expect(defaultAppName('sam')).toBe('Bothy (sam)');
+    expect(defaultAppName('')).toBe('Bothy');
+  });
+
+  it('links GitHub pages on github.com', () => {
+    expect(installationSettingsURL({ account: 'acme', account_type: 'Organization', installation_id: 7 })).toBe('https://github.com/organizations/acme/settings/installations/7');
+    expect(installationSettingsURL({ account: 'sam', account_type: 'User', installation_id: 8 })).toBe('https://github.com/settings/installations/8');
+    expect(githubAppsListURL('me')).toBe('https://github.com/settings/apps');
+    expect(githubAppsListURL('acme')).toBe('https://github.com/organizations/acme/settings/apps');
+    expect(githubAppsListURL('../evil')).toBeUndefined();
+    expect(githubAppsListURL(null)).toBeUndefined();
+  });
+
+  it('words each unfinished round trip, and nothing for the others', () => {
+    expect(appLanding('sealed', 'acme')).toMatchObject({ unlock: true, link: 'https://github.com/organizations/acme/settings/apps' });
+    expect(appLanding('expired', 'acme')?.link).toBeUndefined();
+    for (const ok of ['installed', 'check', 'requested', 'updated', 'install_failed', null]) expect(appLanding(ok, null)).toBeNull();
+  });
+
+  it('says why a start failed', () => {
+    expect(appStartFailure(new ApiError(409, 'wrong_address', 'x', 'https://bothy.acme.dev'))).toMatchObject({ fix: 'https://bothy.acme.dev' });
+    expect(appStartFailure(new ApiError(503, 'sealed', 'x')).unlock).toBe(true);
+    expect(appStartFailure(new ApiError(409, 'conflict', 'x')).pending).toBe(true);
+    expect(appStartFailure(new Error('boom')).message).toBe("Bothy couldn't start creating the app. Try again.");
   });
 });
 

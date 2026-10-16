@@ -3,7 +3,7 @@
 // search check. Chat app and MCP state follows the config the settings domain
 // keeps, so turning things on and off in the UI shows up in their status.
 import type { ChannelIdentity, ChannelStatus, Entry, MCPPin, MCPStatus, SideEffect, Space } from '../../src/lib/api/types.gen.ts';
-import type { GitHubConnection, GitHubProbe, GitHubRepo, GitHubRepoAccess, ReleaseEnvironment, Workflow } from '../../src/screens/settings/connections/types.ts';
+import type { GitHubApp, GitHubConnection, GitHubProbe, GitHubRepo, GitHubRepoAccess, ReleaseEnvironment, Workflow } from '../../src/screens/settings/connections/types.ts';
 import { ago, ahead, body, clone, emit, fail, json, member, nowISO, on, onReset, owner, scenario, sleep, ZERO, type Req } from './core.ts';
 import { state as security } from './security.ts';
 import { state as settings } from './settings.ts';
@@ -19,6 +19,11 @@ const githubNone = scenario('github-none', 'GitHub is not connected.', 'connecti
 const githubNoRepos = scenario('github-no-repos', 'GitHub is connected but no repository is chosen.', 'connections');
 const githubApp = scenario('github-app', 'GitHub is connected through a GitHub App.', 'connections');
 const githubFail = scenario('github-fail', 'GitHub checks fail; github-fail:<rejected|empty|unreachable|not-installed|installations>.', 'connections');
+const appPending = scenario('github-app-pending', 'GitHub is not connected; the app Bothy created, Bothy (acme), is not installed yet.', 'connections');
+const appInstalls = scenario('github-app-installs', 'Like github-app-pending, but Check again finds the app installed.', 'connections');
+const appMade = scenario('github-app-made', 'GitHub is connected through the app Bothy created, Bothy (acme).', 'connections');
+const appRetired = scenario('github-app-retired', 'GitHub is not connected; Bothy no longer uses Bothy (acme), still on GitHub.', 'connections');
+const appStartFail = scenario('github-app-start-fail', 'Creating the app fails to start; github-app-start-fail:<wrong_address|sealed|conflict>.', 'connections');
 const noWorkflows = scenario('no-workflows', "GitHub can't list the repository's workflows, so the dialog takes a file name.", 'connections');
 const noEnvs = scenario('no-environments', 'No deploy environments are set up.', 'connections');
 const searchFail = scenario('search-fail', 'The web search check fails; search-fail:<code> picks the S13 code.', 'connections');
@@ -207,6 +212,37 @@ function connection(app: boolean): GitHubConnection {
   };
 }
 
+const APP = 'gha_01jacme00000000000000000000';
+
+/** The app Bothy created for acme, in one of its states (§12.2). */
+function madeApp(st: 'pending' | 'connected' | 'retired'): GitHubApp {
+  return {
+    id: APP,
+    app_id: 912345,
+    slug: 'bothy-acme',
+    name: 'Bothy (acme)',
+    owner: 'acme',
+    owner_type: 'Organization',
+    client_id: 'Iv23liAbCdEfGhIj',
+    key_ref: st === 'retired' ? '' : `secret:github_${APP}_key`,
+    client_secret_ref: st === 'retired' ? '' : `secret:github_${APP}_client_secret`,
+    connection_id: st === 'connected' ? CONN : undefined,
+    retired_at: st === 'retired' ? ago(30) : ZERO,
+    created_by: owner.id,
+    created_at: ago(60 * 24),
+    updated_at: ago(30),
+    state: st,
+    html_url: 'https://github.com/apps/bothy-acme',
+    install_url: 'https://github.com/apps/bothy-acme/installations/new',
+    settings_url: 'https://github.com/organizations/acme/settings/apps/bothy-acme',
+  };
+}
+
+/** A connection through the app Bothy created. */
+function appConnection(): GitHubConnection {
+  return { ...connection(true), app_id: '912345', app_slug: 'bothy-acme', installation_id: 5151, secret_ref: `secret:github_${APP}_key`, checked_at: nowISO() };
+}
+
 export const state = {
   identities: [] as ChannelIdentity[],
   spaces: [] as Space[],
@@ -215,6 +251,9 @@ export const state = {
   github: null as GitHubConnection | null,
   held: [] as GitHubRepo[],
   madeHere: false,
+  // Apps Bothy created; scenarios seed them until the UI changes one.
+  apps: [] as GitHubApp[],
+  appsChanged: false,
 };
 
 const held = (name: string, allowed: boolean): GitHubRepo => ({
@@ -238,6 +277,8 @@ onReset(() => {
     github: connection(false),
     held: [held('web', true), held('api', true), held('infra', false)],
     madeHere: false,
+    apps: [],
+    appsChanged: false,
   });
   seed('channels.slack.enabled', true);
   seed('channels.telegram.enabled', true);
@@ -389,8 +430,80 @@ function probe(req: Req, auth: string, connected: boolean, installation?: number
   return base;
 }
 
-// github-none starts disconnected; a connection made in the UI then sticks.
-const connected = (req: Req) => (githubNone(req) && !state.madeHere ? null : state.github && { ...state.github, ...(githubApp(req) && !state.madeHere ? connection(true) : {}) });
+// github-none and the app scenarios without a connection start disconnected;
+// a connection made in the UI then sticks.
+function connected(req: Req): GitHubConnection | null {
+  if (state.madeHere) return state.github;
+  if (githubNone(req) || appPending(req) || appInstalls(req) || appRetired(req)) return null;
+  if (appMade(req)) return appConnection();
+  return state.github && { ...state.github, ...(githubApp(req) ? connection(true) : {}) };
+}
+
+function appsFor(req: Req): GitHubApp[] {
+  if (state.appsChanged) return state.apps;
+  if (appPending(req) || appInstalls(req)) return [madeApp('pending')];
+  if (appMade(req)) return [madeApp('connected')];
+  if (appRetired(req)) return [madeApp('retired')];
+  return [];
+}
+
+function setApps(apps: GitHubApp[]) {
+  state.apps = apps;
+  state.appsChanged = true;
+}
+
+// The app's installation connected: no repository is chosen yet, so the page opens the picker.
+function connectApp(): GitHubConnection {
+  state.github = appConnection();
+  state.madeHere = true;
+  state.held = [];
+  setApps([madeApp('connected')]);
+  return state.github;
+}
+
+// ---- routes: Bothy's own GitHub App (h_github_app.go) ----
+
+on('GET', '/api/github/apps', (req, res) => json(res, 200, appsFor(req)));
+on('POST', '/api/github/apps', async (req, res) => {
+  await body(req);
+  switch (appStartFail.arg(req)) {
+    case 'wrong_address':
+      return fail(res, 409, 'wrong_address', 'open Bothy at https://bothy.acme.dev to create the GitHub App', 'https://bothy.acme.dev');
+    case 'sealed':
+      return fail(res, 503, 'sealed', "Bothy's saved keys are locked.", '/settings/security/keys');
+    case 'conflict':
+      setApps([madeApp('pending')]);
+      return fail(res, 409, 'conflict', 'finish installing Bothy (acme) on GitHub, or start over');
+  }
+  json(res, 200, { handoff_url: '/api/github/apps/handoff' });
+});
+// Mock only: stands in for GitHub's create and install pages and the two redirects back.
+on('GET', '/api/github/apps/handoff', (_q, res) => {
+  connectApp();
+  res.statusCode = 303;
+  res.setHeader('Location', '/settings/connections/github?github_app=installed');
+  res.end();
+});
+on('POST', '/api/github/apps/{id}/check', async (req, res) => {
+  await sleep(300);
+  if (appInstalls(req) && appsFor(req).some((a) => a.state === 'pending')) return json(res, 200, { installed: true, connection: connectApp() });
+  json(res, 200, { installed: false });
+});
+on('POST', '/api/github/apps/{id}/retire', (req, res, m) => {
+  const a = appsFor(req).find((x) => x.id === m[1]);
+  if (!a) return fail(res, 404, 'not_found', 'not found');
+  if (a.state === 'connected') return fail(res, 409, 'conflict', 'disconnect GitHub first');
+  const r = madeApp('retired');
+  setApps(appsFor(req).map((x) => (x.id === m[1] ? r : x)));
+  json(res, 200, r);
+});
+on('DELETE', '/api/github/apps/{id}', (req, res, m) => {
+  const a = appsFor(req).find((x) => x.id === m[1]);
+  if (!a) return fail(res, 404, 'not_found', 'not found');
+  if (a.state !== 'retired') return fail(res, 409, 'conflict', 'only an app Bothy no longer uses can be dismissed');
+  setApps(appsFor(req).filter((x) => x.id !== m[1]));
+  json(res, 204);
+});
 
 on('GET', '/api/github/connections', (req, res) => {
   const c = connected(req);
@@ -414,18 +527,23 @@ on('POST', '/api/github/connections', async (req, res) => {
 on('GET', '/api/github/connections/{id}', (req, res) => {
   const c = connected(req);
   if (!c) return fail(res, 404, 'not_found', 'no such GitHub connection');
-  json(res, 200, { connection: c, repos: githubNoRepos(req) && !state.madeHere ? state.held.map((h) => ({ ...h, allowed: false })) : state.held });
+  const app = appsFor(req).find((a) => a.connection_id === c.id);
+  json(res, 200, { connection: c, repos: githubNoRepos(req) && !state.madeHere ? state.held.map((h) => ({ ...h, allowed: false })) : state.held, ...(app ? { app } : {}) });
 });
-on('POST', '/api/github/connections/{id}/test', (req, res) => json(res, 200, probe(req, state.github?.auth ?? 'pat', true)));
+on('POST', '/api/github/connections/{id}/test', (req, res) => json(res, 200, probe(req, connected(req)?.auth ?? 'pat', true)));
 on('PUT', '/api/github/connections/{id}/repos', async (req, res) => {
   const want = (JSON.parse(await body(req)).repos as string[]).map((r) => r.split('/')[1]);
   for (const h of state.held) h.allowed = want.includes(h.name);
   for (const name of want) if (!state.held.some((h) => h.name === name)) state.held.push(held(name, true));
   json(res, 200, state.held);
 });
-on('DELETE', '/api/github/connections/{id}', (_q, res) => {
+on('DELETE', '/api/github/connections/{id}', (req, res) => {
+  // Disconnecting retires the app Bothy made for the connection.
+  const made = appsFor(req).some((a) => a.state === 'connected');
+  if (made) setApps(appsFor(req).map((a) => (a.state === 'connected' ? madeApp('retired') : a)));
   state.github = null;
   state.held = [];
+  state.madeHere = made || state.madeHere;
   json(res, 204);
 });
 on('GET', '/api/github/repos', (req, res) => json(res, 200, connected(req) && !(githubNoRepos(req) && !state.madeHere) ? state.held.filter((h) => h.allowed) : []));

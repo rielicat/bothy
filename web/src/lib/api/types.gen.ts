@@ -575,10 +575,68 @@ export interface GitHubRepo {
   updated_at: string /* RFC 3339 */;
 }
 /**
- * GitHubStore persists connections and repositories (migration 0002). It is
- * not part of Store: *store.DB and memstore provide it through GitHub().
+ * GitHubStore persists connections, repositories (migration 0002) and
+ * Bothy-made apps (0012). It is not part of Store: *store.DB and memstore
+ * provide it through GitHub().
  */
 export type GitHubStore = any;
+export const PrefixGitHubApp = "gha";
+/**
+ * GitHubOwnApp is a GitHub App Bothy created from a manifest (migration 0012).
+ * Its private key and client secret live in the global vault scope; the row
+ * holds their references. Pending until installed, connected while a
+ * connection uses it, retired once that connection is gone or the admin
+ * started over (secrets deleted; kept so Settings can say where to delete it
+ * on GitHub, which Bothy never does itself).
+ */
+export interface GitHubOwnApp {
+  id: string; // gha_<26>
+  app_id: number /* int64 */;
+  slug: string;
+  name: string;
+  owner: string;
+  owner_type: string; // Organization | User
+  client_id: string;
+  key_ref: string; // "secret:github_<id>_key"; "" once retired
+  client_secret_ref: string; // "secret:github_<id>_client_secret"; kept for a possible GitHub sign-in, unused today
+  connection_id?: string;
+  replaces?: string; // connection swapped out once the app is installed
+  retired_at: string /* RFC 3339 */;
+  created_by: UserID;
+  created_at: string /* RFC 3339 */;
+  updated_at: string /* RFC 3339 */;
+  /**
+   * Filled in by the GitHub service from github.api_base; never stored.
+   */
+  state: string; // pending | connected | retired
+  html_url: string; // <web>/apps/<slug>
+  install_url: string; // <web>/apps/<slug>/installations/new
+  settings_url: string; // <web>/organizations/<owner>/settings/apps/<slug> or <web>/settings/apps/<slug>
+}
+/**
+ * GitHubAppTarget is where a manifest flow creates the app.
+ */
+export interface GitHubAppTarget {
+  Org: string; // organization login; "" = the admin's personal account
+  Name: string; // "" = "Bothy (<Org, or Fallback>)", cut to GitHub's 34 characters
+  Fallback: string; // the admin's username, naming a personal account's app
+}
+/**
+ * GitHubAppHandoff is what the handoff page posts to GitHub.
+ */
+export interface GitHubAppHandoff {
+  Action: string; // https://<web>/organizations/<org>/settings/apps/new or …/settings/apps/new, without query
+  WebOrigin: string; // scheme://host[:port] of Action, for the page's form-action
+  Manifest: string; // JSON for the form field "manifest"
+  Name: string; // the proposed app name
+  Org: string; // "" for a personal account
+}
+/**
+ * GitHubAppMaker is the extra *github.Service implements: Bothy's own
+ * GitHub App created from a manifest and connected through its installation
+ * (SPEC §14.3). Every method needs an admin caller.
+ */
+export type GitHubAppMaker = any;
 /**
  * GitHubCredentials is a connect or test request. Exactly one of Token,
  * PrivateKey or SecretRef carries the secret.
@@ -3327,6 +3385,32 @@ export interface GitHubReposReq {
 export interface GitHubConnectionDetail {
   connection?: GitHubConnection;
   repos: (GitHubRepo | undefined)[];
+  app?: GitHubOwnApp; // set when Bothy created the connection's app
+}
+/**
+ * GitHubAppStartReq starts creating Bothy's own GitHub App (POST
+ * /api/github/apps).
+ */
+export interface GitHubAppStartReq {
+  account: string; // organization | personal
+  org?: string; // organization: its login
+  name?: string; // "" = "Bothy (<org or your username>)"
+  replaces?: string; // connection to swap out once the app is installed
+}
+/**
+ * GitHubAppStartResp is where the browser goes next: a same-origin page
+ * that posts the manifest to GitHub.
+ */
+export interface GitHubAppStartResp {
+  handoff_url: string;
+}
+/**
+ * GitHubAppCheck is POST /api/github/apps/{id}/check: whether the app is
+ * installed, and the connection its installation made.
+ */
+export interface GitHubAppCheck {
+  installed: boolean;
+  connection?: GitHubConnection;
 }
 
 //////////

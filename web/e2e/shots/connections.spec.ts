@@ -62,7 +62,9 @@ const disconnect = (app: string): Step[] => [
   see(/Paste the/),
 ];
 const slackTokens: Step[] = [fill('App-level token', SLACK_APP), fill('Bot token', SLACK_BOT, true)];
-const appKey: Step[] = [click('GitHub App', 'radio'), fill('App ID', '123456'), click('Paste instead'), fill('Private key', PEM)];
+// The token and existing-app paths sit under "Other ways to connect".
+const other: Step = click('Other ways to connect');
+const appKey: Step[] = [other, click('A GitHub App you already have', 'radio'), fill('App ID', '123456'), click('Paste instead'), fill('Private key', PEM)];
 
 const states: ShotState[] = [
   // Overview (§12.1)
@@ -92,14 +94,22 @@ const states: ShotState[] = [
   },
 
   // GitHub (§12.2)
-  { name: 'github-connect', route: '/settings/connections/github', mock: 'github-none', setup: steps(see('How do you want to connect?')) },
-  { name: 'github-permissions', route: '/settings/connections/github', mock: 'github-none', setup: steps(click('Which permissions?')) },
-  { name: 'github-token-connected', route: '/settings/connections/github', mock: 'github-none', setup: steps(fill('Token', 'github_pat_11ABCDEFG0123456789abcdef', true), see('Bothy can see')) },
-  { name: 'github-token-filtered', route: '/settings/connections/github', mock: 'github-none', setup: steps(fill('Token', 'github_pat_11ABCDEFG0123456789abcdef', true), see('Bothy can see'), fill('Filter repositories', 'de')) },
-  { name: 'github-fail-rejected', route: '/settings/connections/github', mock: 'github-none', setup: steps(fill('Token', 'github_pat_bad0123456789abcdefghij', true), see("didn't accept"), click('Details')) },
-  { name: 'github-fail-empty', route: '/settings/connections/github', mock: 'github-none', setup: steps(fill('Token', 'github_pat_empty0123456789abcdefgh', true), see("can't see any")) },
-  { name: 'github-fail-unreachable', route: '/settings/connections/github', mock: 'github-none,github-fail:unreachable', setup: steps(fill('Token', 'github_pat_11ABCDEFG0123456789abcdef', true), see("couldn't reach")) },
-  { name: 'github-app', route: '/settings/connections/github', mock: 'github-none', setup: steps(click('GitHub App', 'radio')) },
+  { name: 'github-create-app', route: '/settings/connections/github', mock: 'github-none', setup: steps(fill('Organization', 'acme'), see('Continue on GitHub')) },
+  { name: 'github-create-personal', route: '/settings/connections/github', mock: 'github-none', setup: steps(click('Your personal account', 'radio'), click("Change the app's name"), click('What can the app do?')) },
+  { name: 'github-app-pending', route: '/settings/connections/github', mock: 'github-app-pending', setup: steps(see('Finish installing Bothy (acme) on GitHub')) },
+  { name: 'github-app-requested', route: '/settings/connections/github?github_app=requested', mock: 'github-app-pending', setup: steps(see('needs to approve')) },
+  { name: 'github-app-retired', route: '/settings/connections/github', mock: 'github-app-retired', setup: steps(see('Bothy no longer uses Bothy (acme).')) },
+  { name: 'github-app-landing-installed', route: '/settings/connections/github?github_app=installed', mock: 'github-app-made', setup: steps(dialog('Add repositories'), see('acme/mobile')), full: false },
+  { name: 'github-app-not-finished', route: '/settings/connections/github?github_app=not_finished&apps=acme', mock: 'github-none', setup: steps(see("couldn't finish setting up the app")) },
+  { name: 'github-app-manage', route: '/settings/connections/github', mock: 'github-app-made', setup: steps(see('Connected to acme as Bothy (acme)')) },
+  { name: 'github-connect', route: '/settings/connections/github', mock: 'github-none', setup: steps(other, see('How do you want to connect?')) },
+  { name: 'github-permissions', route: '/settings/connections/github', mock: 'github-none', setup: steps(other, click('Which permissions?')) },
+  { name: 'github-token-connected', route: '/settings/connections/github', mock: 'github-none', setup: steps(other, fill('Token', 'github_pat_11ABCDEFG0123456789abcdef', true), see('Bothy can see')) },
+  { name: 'github-token-filtered', route: '/settings/connections/github', mock: 'github-none', setup: steps(other, fill('Token', 'github_pat_11ABCDEFG0123456789abcdef', true), see('Bothy can see'), fill('Filter repositories', 'de')) },
+  { name: 'github-fail-rejected', route: '/settings/connections/github', mock: 'github-none', setup: steps(other, fill('Token', 'github_pat_bad0123456789abcdefghij', true), see("didn't accept"), click('Details')) },
+  { name: 'github-fail-empty', route: '/settings/connections/github', mock: 'github-none', setup: steps(other, fill('Token', 'github_pat_empty0123456789abcdefgh', true), see("can't see any")) },
+  { name: 'github-fail-unreachable', route: '/settings/connections/github', mock: 'github-none,github-fail:unreachable', setup: steps(other, fill('Token', 'github_pat_11ABCDEFG0123456789abcdef', true), see("couldn't reach")) },
+  { name: 'github-app', route: '/settings/connections/github', mock: 'github-none', setup: steps(other, click('A GitHub App you already have', 'radio')) },
   { name: 'github-app-installed', route: '/settings/connections/github', mock: 'github-none', setup: steps(...appKey, see('Installed on acme')) },
   { name: 'github-app-not-installed', route: '/settings/connections/github', mock: 'github-none,github-fail:not-installed', setup: steps(...appKey, see("isn't installed")) },
   { name: 'github-app-organisations', route: '/settings/connections/github', mock: 'github-none,github-fail:installations', setup: steps(...appKey, (p) => p.getByRole('combobox', { name: 'Organisation' }).waitFor()) },
@@ -108,7 +118,7 @@ const states: ShotState[] = [
     name: 'github-saved',
     route: '/settings/connections/github',
     mock: 'github-none',
-    setup: steps(fill('Token', 'github_pat_11ABCDEFG0123456789abcdef', true), see('Bothy can see'), (p) => p.getByLabel('acme/web').check(), (p) => p.getByLabel('acme/api').check(), click('Save'), see('Bothy is reading')),
+    setup: steps(other, fill('Token', 'github_pat_11ABCDEFG0123456789abcdef', true), see('Bothy can see'), (p) => p.getByLabel('acme/web').check(), (p) => p.getByLabel('acme/api').check(), click('Save'), see('Bothy is reading')),
   },
   { name: 'github-manage', route: '/settings/connections/github', setup: steps(see('Deploy environments'), see(/Read (today|yesterday)/)) },
   { name: 'github-manage-app', route: '/settings/connections/github', mock: 'github-app', setup: steps(see('GitHub App')) },

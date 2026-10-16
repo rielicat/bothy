@@ -21,7 +21,7 @@
     type AppStatus,
     type RowStatus,
   } from './connections';
-  import type { GitHubConnection, GitHubRepo } from './types';
+  import type { GitHubApp, GitHubConnection, GitHubRepo } from './types';
 
   let channels = $state<AppStatus[]>([]);
   let identities = $state<ChannelIdentity[]>([]);
@@ -29,19 +29,21 @@
   let mcp = $state<MCPStatus[]>([]);
   let github = $state<GitHubConnection[]>([]);
   let repos = $state<GitHubRepo[]>([]);
+  let githubApps = $state<GitHubApp[]>([]);
   let phase = $state<'loading' | 'ready' | 'failed'>('loading');
   let adding = $state(false);
 
   async function load() {
     const get = <T,>(path: string, fallback: T) => api.get<T>(path).catch(() => fallback);
     try {
-      [channels, identities, secrets, mcp, github, repos] = await Promise.all([
+      [channels, identities, secrets, mcp, github, repos, githubApps] = await Promise.all([
         api.get<AppStatus[]>('/api/channels'),
         get<ChannelIdentity[]>('/api/identities', []),
         get<SecretMeta[]>('/api/vault', []),
         get<MCPStatus[]>('/api/mcp', []),
         get<GitHubConnection[]>('/api/github/connections', []),
         get<GitHubRepo[]>('/api/github/repos', []),
+        get<GitHubApp[]>('/api/github/apps', []),
         config.load(true),
       ]);
       phase = 'ready';
@@ -94,7 +96,7 @@
     </SettingsSection>
 
     <SettingsSection title="GitHub">
-      {@render row('GitHub', githubStatus(github[0], repos.length), '/settings/connections/github')}
+      {@render row('GitHub', githubStatus(github[0], repos.length, githubApps.find((a) => a.state === 'pending')), '/settings/connections/github')}
     </SettingsSection>
 
     <SettingsSection title="Tools">

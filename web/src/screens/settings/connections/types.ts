@@ -1,8 +1,11 @@
 // Shapes Connections reads, from the generated server types.
 export type {
+  GitHubAppCheck,
+  GitHubAppStartResp,
   GitHubConnection,
   GitHubConnectionDetail,
   GitHubInstallation,
+  GitHubOwnApp as GitHubApp,
   GitHubProbe,
   GitHubRepo,
   GitHubRepoAccess,

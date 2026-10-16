@@ -58,7 +58,12 @@ test.describe('axe', () => {
         await go(page, r, '');
         expect.soft(await axe(page), `${r} (${scheme})`).toEqual([]);
       }
+      for (const mock of ['github-none', 'github-app-pending', 'github-app-retired', 'github-app-made']) {
+        await go(page, '/settings/connections/github', mock);
+        expect.soft(await axe(page), `github ${mock} (${scheme})`).toEqual([]);
+      }
       await go(page, '/settings/connections/github', 'github-none');
+      await page.getByRole('button', { name: 'Other ways to connect' }).click();
       await page.getByLabel('Token', { exact: true }).fill('github_pat_11ABCDEFG0123456789abcdef');
       await page.getByLabel('Token', { exact: true }).press('Enter');
       await page.getByText('Bothy can see').waitFor();
@@ -120,11 +125,20 @@ test('fits a 360 px phone and keeps 44 px targets under a coarse pointer', async
 
 test('the option lists and the people picker work from the keyboard', async ({ page }) => {
   await go(page, '/settings/connections/github', 'github-none,no-environments');
+  const org = page.getByRole('radio', { name: 'An organization' });
+  await org.focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('radio', { name: 'Your personal account' })).toBeChecked();
+  await expect(page.getByLabel('Organization', { exact: true })).toHaveCount(0);
+  await page.keyboard.press('ArrowUp');
+  await expect(page.getByLabel('Organization', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Other ways to connect' }).click();
   const token = page.getByRole('radio', { name: 'Personal access token' });
   await token.focus();
   await page.keyboard.press('ArrowDown');
-  await expect(page.getByRole('radio', { name: 'GitHub App' })).toBeChecked();
-  await expect(page.getByRole('radio', { name: 'GitHub App' })).toBeFocused();
+  await expect(page.getByRole('radio', { name: 'A GitHub App you already have' })).toBeChecked();
+  await expect(page.getByRole('radio', { name: 'A GitHub App you already have' })).toBeFocused();
   await expect(page.getByLabel('App ID')).toBeVisible();
   await page.keyboard.press('ArrowUp');
   await expect(token).toBeChecked();
@@ -168,8 +182,23 @@ test('connect Slack: tokens, the check, then the link code', async ({ page }) =>
   await expect(page.getByText('Connected to Acme · 2 people linked')).toBeVisible();
 });
 
+test('connect GitHub: Bothy creates its app, then the repositories, then reading starts', async ({ page }) => {
+  await go(page, '/settings/connections/github', 'github-none');
+  await page.getByLabel('Organization', { exact: true }).fill('acme');
+  // The mock's handoff page stands in for GitHub's create and install pages.
+  await page.getByRole('button', { name: 'Continue on GitHub' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Which repositories can Bothy use?' });
+  await dialog.getByLabel('acme/web').check();
+  await dialog.getByRole('button', { name: 'Add repositories' }).click();
+  await expect(page.getByText('Bothy is reading 1 repository.', { exact: false })).toBeVisible();
+  await expect(page.getByText('Connected to acme as Bothy (acme)')).toBeVisible();
+  await expect(page).toHaveURL(/\/settings\/connections\/github$/);
+  await expect(page.getByRole('switch', { name: 'Bothy can use acme/web' })).toBeChecked();
+});
+
 test('connect GitHub: a token, the repositories, then reading starts', async ({ page }) => {
   await go(page, '/settings/connections/github', 'github-none');
+  await page.getByRole('button', { name: 'Other ways to connect' }).click();
   await page.getByLabel('Token', { exact: true }).fill('github_pat_11ABCDEFG0123456789abcdef');
   await expect(page.getByText('Connected as maya-acme. Bothy can see 6 repositories.')).toBeVisible();
   await page.getByLabel('acme/web').check();

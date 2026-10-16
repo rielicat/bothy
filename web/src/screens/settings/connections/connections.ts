@@ -5,7 +5,7 @@ import type { ChannelStatus, MCPStatus, SideEffect } from '../../../lib/api/type
 import { config } from '../../../lib/config.svelte';
 import { plural, relTime, serviceName } from '../../../lib/format';
 import { failure, type FailureCode } from '../../../lib/providerErrors';
-import type { GitHubConnection, GitHubProbe, ReleaseEnvironment } from './types';
+import type { GitHubApp, GitHubConnection, GitHubProbe, ReleaseEnvironment } from './types';
 
 export type AppName = 'slack' | 'telegram' | 'discord';
 export const appNames: AppName[] = ['slack', 'telegram', 'discord'];
@@ -68,10 +68,88 @@ export function toolStatus(s: MCPStatus | undefined): RowStatus {
   }
 }
 
-export function githubStatus(c: GitHubConnection | undefined, repos: number): RowStatus {
+export function githubStatus(c: GitHubConnection | undefined, repos: number, pending?: GitHubApp): RowStatus {
+  if (!c && pending) return { text: `Not connected: ${pending.name} isn't installed yet`, tone: 'warning', action: 'Connect' };
   if (!c) return { text: 'Not connected', tone: 'muted', action: 'Connect' };
   if (c.status === 'error') return { text: `Can't connect: GitHub didn't accept the ${c.auth === 'app' ? 'app' : 'token'}`, tone: 'danger', action: 'Reconnect' };
-  return { text: `Connected as ${c.account} · ${plural(repos, 'repository', 'repositories')}`, tone: 'muted', action: 'Manage' };
+  const n = plural(repos, 'repository', 'repositories');
+  return { text: c.auth === 'app' ? `Connected to ${c.account} · ${n}` : `Connected as ${c.account} · ${n}`, tone: 'muted', action: 'Manage' };
+}
+
+/** GitHub's limit on an app's name. */
+export const MAX_APP_NAME = 34;
+
+/** "Bothy (acme)", cut to fit GitHub's 34 characters: the name the server proposes (github.defaultAppName). */
+export function defaultAppName(x: string): string {
+  if (!x) return 'Bothy';
+  const chars = [...x];
+  const room = MAX_APP_NAME - 'Bothy ()'.length;
+  return `Bothy (${chars.length > room ? chars.slice(0, room).join('') : x})`;
+}
+
+/** A GitHub organization's login, as in github.com/acme. */
+export const orgPattern = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
+
+/** Where repository and app pages live: github.com, or the Enterprise host. */
+export function githubWeb(): string {
+  try {
+    const u = new URL(config.value<string>('github.api_base', 'https://api.github.com'));
+    return u.host === 'api.github.com' ? 'https://github.com' : `${u.protocol}//${u.host}`;
+  } catch {
+    return 'https://github.com';
+  }
+}
+
+/** The page on GitHub where an app installation's repositories are chosen. */
+export function installationSettingsURL(c: Pick<GitHubConnection, 'account' | 'account_type' | 'installation_id'>): string {
+  const id = c.installation_id ?? 0;
+  return c.account_type === 'Organization'
+    ? `${githubWeb()}/organizations/${encodeURIComponent(c.account)}/settings/installations/${id}`
+    : `${githubWeb()}/settings/installations/${id}`;
+}
+
+/** The GitHub Apps list a landing's `apps` names: "me" or an organization. */
+export function githubAppsListURL(apps: string | null): string | undefined {
+  if (apps === 'me') return `${githubWeb()}/settings/apps`;
+  if (apps && orgPattern.test(apps)) return `${githubWeb()}/organizations/${apps}/settings/apps`;
+  return undefined;
+}
+
+export type AppLandingFailure = Failure & { link?: string; unlock?: boolean };
+
+/** The sentence for a GitHub App round trip that came back unfinished (§12.2); null for the other outcomes. */
+export function appLanding(code: string | null, apps: string | null): AppLandingFailure | null {
+  const link = githubAppsListURL(apps);
+  switch (code) {
+    case 'not_finished':
+      return {
+        message:
+          "Bothy couldn't finish setting up the app: too much time passed, you signed out, or you started in another browser. Delete the new app on GitHub, then start again.",
+        link,
+      };
+    case 'exchange_failed':
+      return { message: "GitHub didn't hand over the new app's keys, so Bothy can't use it. Delete the new app on GitHub, then start again.", link };
+    case 'sealed':
+      return { message: "Bothy's saved keys are locked, so it couldn't keep the new app's keys. Unlock them and delete the new app on GitHub, then start again.", link, unlock: true };
+    case 'expired':
+      return { message: 'That link to GitHub expired. Start again.' };
+    case 'unavailable':
+      return { message: "Bothy can't connect GitHub right now. Try again later." };
+  }
+  return null;
+}
+
+export type AppStartFailure = Failure & { fix?: string; unlock?: boolean; pending?: boolean };
+
+/** Why "Continue on GitHub" didn't leave (§12.2). */
+export function appStartFailure(e: unknown): AppStartFailure {
+  const details = errorText(e);
+  if (e instanceof ApiError) {
+    if (e.code === 'wrong_address' && e.fix) return { message: `Open Bothy at ${e.fix} to create the app. GitHub sends you back to that address.`, details, fix: e.fix };
+    if (e.code === 'sealed') return { message: "Bothy's saved keys are locked. Unlock them, then try again.", details, unlock: true };
+    if (e.code === 'conflict') return { message: "Bothy couldn't start creating the app. Try again.", details, pending: true };
+  }
+  return { message: "Bothy couldn't start creating the app. Try again.", details };
 }
 
 /**

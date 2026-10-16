@@ -1,6 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { resetMock } from '../../../../mock/server';
 import { toaster } from '../../../components/ui';
+import { away } from '../../../lib/away';
+import { router } from '../../../lib/router.svelte';
 import { session } from '../../../lib/stores/session.svelte';
 import { installApi, type Call } from '../../../test/api';
 import EnvironmentDialog from './EnvironmentDialog.svelte';
@@ -17,7 +20,13 @@ async function setup(override?: (m: string, url: string) => unknown): Promise<Ca
 
 const none = (more?: (m: string, url: string) => unknown) => (m: string, url: string) => more?.(m, url) ?? (m === 'GET' && url === '/api/github/connections' ? [] : undefined);
 
+// The token and existing-app paths live under "Other ways to connect".
+async function openOther() {
+  await fireEvent.click(await screen.findByRole('button', { name: 'Other ways to connect' }));
+}
+
 async function enterToken(value = TOKEN) {
+  if (!screen.queryByLabelText('Token')) await openOther();
   const field = await screen.findByLabelText('Token');
   await fireEvent.input(field, { target: { value } });
   await fireEvent.keyDown(field, { key: 'Enter' });
@@ -68,7 +77,8 @@ describe('Connect GitHub (§12.2)', () => {
 
   it('checks a GitHub App from its ID and private key', async () => {
     const calls = await setup(none());
-    await fireEvent.click(await screen.findByRole('radio', { name: 'GitHub App' }));
+    await openOther();
+    await fireEvent.click(await screen.findByRole('radio', { name: 'A GitHub App you already have' }));
     await fireEvent.input(screen.getByLabelText('App ID'), { target: { value: '123456' } });
     await fireEvent.click(screen.getByRole('button', { name: 'Paste instead' }));
     await fireEvent.input(screen.getByLabelText('Private key'), { target: { value: '-----BEGIN RSA PRIVATE KEY-----\nx\n-----END RSA PRIVATE KEY-----' } });
@@ -139,6 +149,179 @@ describe('GitHub manage view', () => {
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Disconnect GitHub' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Connect GitHub' })).toBeTruthy();
+  });
+});
+
+describe("Bothy's own GitHub App (§12.2)", () => {
+  const real = away.to;
+  let left: string[] = [];
+  beforeEach(() => {
+    left = [];
+    away.to = (url: string) => void left.push(url);
+  });
+  afterEach(() => {
+    away.to = real;
+    router.navigate('/');
+  });
+
+  async function app(mock: string, path = '/settings/connections/github', override?: (m: string, url: string) => unknown): Promise<Call[]> {
+    const calls = installApi({ override });
+    resetMock({ mock });
+    await session.init();
+    router.navigate(path);
+    render(GitHub);
+    return calls;
+  }
+
+  const posts = (calls: Call[], url: string) => calls.filter((c) => c.method === 'POST' && c.url === url);
+
+  it('offers creating an app first, for an organization, and waits for its name', async () => {
+    await app('github-none');
+    expect(await screen.findByRole('heading', { name: 'Create a GitHub App for Bothy' })).toBeTruthy();
+    expect((screen.getByRole('radio', { name: 'An organization' }) as HTMLInputElement).checked).toBe(true);
+    const go = screen.getByRole('button', { name: 'Continue on GitHub' });
+    expect(go.getAttribute('aria-disabled')).toBe('true');
+    expect(screen.getByText("Enter the organization's name.")).toBeTruthy();
+    await fireEvent.input(screen.getByLabelText('Organization'), { target: { value: 'acme' } });
+    await fireEvent.click(screen.getByRole('button', { name: "Change the app's name" }));
+    expect((screen.getByLabelText('App name') as HTMLInputElement).placeholder).toBe('Bothy (acme)');
+    expect(screen.queryByLabelText('Token')).toBeNull();
+  });
+
+  it('starts on GitHub for an organization', async () => {
+    const calls = await app('github-none');
+    await fireEvent.input(await screen.findByLabelText('Organization'), { target: { value: 'acme' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Continue on GitHub' }));
+    await waitFor(() => expect(left).toEqual(['/api/github/apps/handoff']));
+    expect(JSON.parse(posts(calls, '/api/github/apps')[0].body)).toEqual({ account: 'organization', org: 'acme' });
+    // The button keeps saying so while the browser leaves for GitHub.
+    expect(screen.getByRole('button', { name: 'Opening GitHub…' })).toBeTruthy();
+  });
+
+  it('starts on GitHub for a personal account', async () => {
+    const calls = await app('github-none');
+    await fireEvent.click(await screen.findByRole('radio', { name: 'Your personal account' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Continue on GitHub' }));
+    await waitFor(() => expect(left).toEqual(['/api/github/apps/handoff']));
+    expect(JSON.parse(posts(calls, '/api/github/apps')[0].body)).toEqual({ account: 'personal' });
+  });
+
+  it("refuses a name that can't be an organization's", async () => {
+    const calls = await app('github-none');
+    await fireEvent.input(await screen.findByLabelText('Organization'), { target: { value: 'acme inc' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Continue on GitHub' }));
+    expect(await screen.findByText("That isn't an organization name on GitHub. Use the name from its address, like acme in github.com/acme.")).toBeTruthy();
+    expect(posts(calls, '/api/github/apps')).toHaveLength(0);
+  });
+
+  it.each([
+    ['wrong_address', 'Open Bothy at https://bothy.acme.dev to create the app. GitHub sends you back to that address.'],
+    ['sealed', "Bothy's saved keys are locked. Unlock them, then try again."],
+  ])('says why it could not start (%s)', async (code, text) => {
+    await app(`github-none,github-app-start-fail:${code}`);
+    await fireEvent.input(await screen.findByLabelText('Organization'), { target: { value: 'acme' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Continue on GitHub' }));
+    expect((await screen.findByRole('alert')).textContent).toContain(text);
+    expect(left).toEqual([]);
+  });
+
+  it('shows the app waiting to be installed when another start already made one', async () => {
+    await app('github-none,github-app-start-fail:conflict');
+    await fireEvent.input(await screen.findByLabelText('Organization'), { target: { value: 'acme' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Continue on GitHub' }));
+    expect(await screen.findByRole('heading', { name: 'Finish installing Bothy (acme) on GitHub' })).toBeTruthy();
+  });
+
+  it('asks to finish installing a pending app, checks again and starts over', async () => {
+    const calls = await app('github-app-pending');
+    expect(await screen.findByRole('heading', { name: 'Finish installing Bothy (acme) on GitHub' })).toBeTruthy();
+    expect(screen.getByText('GitHub created the app. Install it on acme and choose the repositories Bothy can use.')).toBeTruthy();
+    expect(screen.getByRole('link', { name: /Install on GitHub/ }).getAttribute('href')).toBe('https://github.com/apps/bothy-acme/installations/new');
+    expect(screen.queryByRole('button', { name: 'Continue on GitHub' })).toBeNull();
+    // One quiet check on load, then Check again says what it found.
+    await waitFor(() => expect(posts(calls, '/api/github/apps/gha_01jacme00000000000000000000/check')).toHaveLength(1));
+    await fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+    expect(await screen.findByText("Bothy (acme) isn't installed yet.")).toBeTruthy();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Start over…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Start over?' });
+    expect(within(dialog).getByText('Bothy stops using Bothy (acme) and deletes its keys. The app stays on GitHub until you delete it there.')).toBeTruthy();
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Start over' }));
+    expect(await screen.findByText('Bothy no longer uses Bothy (acme). Delete it on GitHub too.')).toBeTruthy();
+    expect(screen.getByRole('link', { name: /Open app settings/ }).getAttribute('href')).toBe('https://github.com/organizations/acme/settings/apps/bothy-acme');
+    expect(screen.getByRole('button', { name: 'Continue on GitHub' })).toBeTruthy();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/github/apps/gha_01jacme00000000000000000000')).toBe(true));
+    await waitFor(() => expect(screen.queryByText('Bothy no longer uses Bothy (acme). Delete it on GitHub too.')).toBeNull());
+  });
+
+  it('connects once the pending app is installed and asks which repositories to use', async () => {
+    await app('github-app-installs');
+    expect(await screen.findByRole('dialog', { name: 'Which repositories can Bothy use?' })).toBeTruthy();
+    expect(screen.getByText('Connected to acme as Bothy (acme)')).toBeTruthy();
+  });
+
+  it('opens the repository picker when GitHub sends the browser back installed', async () => {
+    const calls = await app('github-app-made', '/settings/connections/github?github_app=installed');
+    const dialog = await screen.findByRole('dialog', { name: 'Add repositories' });
+    expect(router.query.has('github_app')).toBe(false);
+    await fireEvent.click(await within(dialog).findByLabelText('acme/docs'));
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Add repositories' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
+    expect(await screen.findByText('Bothy is reading 1 repository. You can keep working; this takes a few minutes.')).toBeTruthy();
+  });
+
+  it.each([
+    ['not_finished', 'acme', "Bothy couldn't finish setting up the app: too much time passed, you signed out, or you started in another browser. Delete the new app on GitHub, then start again.", 'https://github.com/organizations/acme/settings/apps'],
+    ['exchange_failed', 'me', "GitHub didn't hand over the new app's keys, so Bothy can't use it. Delete the new app on GitHub, then start again.", 'https://github.com/settings/apps'],
+    ['sealed', 'acme', "Bothy's saved keys are locked, so it couldn't keep the new app's keys. Unlock them and delete the new app on GitHub, then start again.", 'https://github.com/organizations/acme/settings/apps'],
+    ['expired', '', 'That link to GitHub expired. Start again.', ''],
+    ['unavailable', '', "Bothy can't connect GitHub right now. Try again later.", ''],
+  ])('says what happened when the round trip ends as %s', async (code, apps, text, link) => {
+    await app('github-none', `/settings/connections/github?github_app=${code}${apps ? `&apps=${apps}` : ''}`);
+    expect((await screen.findByRole('alert')).textContent).toContain(text);
+    const a = screen.queryByRole('link', { name: /GitHub Apps/ });
+    expect(a?.getAttribute('href') ?? '').toBe(link);
+    expect(router.query.has('github_app') || router.query.has('apps')).toBe(false);
+  });
+
+  it("says when GitHub's installation couldn't be confirmed", async () => {
+    await app('github-app-pending', '/settings/connections/github?github_app=install_failed');
+    expect((await screen.findByRole('alert')).textContent).toContain("Bothy couldn't confirm the app's installation with GitHub. Choose Check again, or install it again.");
+  });
+
+  it('says an owner has to approve a requested installation', async () => {
+    await app('github-app-pending', '/settings/connections/github?github_app=requested');
+    expect(await screen.findByText('An owner of acme needs to approve Bothy (acme) on GitHub. Once they have, choose Check again.')).toBeTruthy();
+  });
+
+  it('names the app Bothy made and where its installation is managed', async () => {
+    const calls = await app('github-app-made');
+    expect(await screen.findByText('Connected to acme as Bothy (acme)')).toBeTruthy();
+    expect(screen.getByText('Pull requests and comments show as bothy-acme[bot].')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Add repositories' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add repositories' });
+    expect((await within(dialog).findByRole('link', { name: /Give the app access on GitHub/ })).getAttribute('href')).toBe(
+      'https://github.com/organizations/acme/settings/installations/5151',
+    );
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Disconnect GitHub…' }));
+    const leave = await screen.findByRole('dialog', { name: 'Disconnect GitHub?' });
+    expect(leave.textContent).toContain('Bothy (acme) stays on GitHub until you delete it there.');
+    await fireEvent.click(within(leave).getByRole('button', { name: 'Disconnect GitHub' }));
+    expect(await screen.findByText('Bothy no longer uses Bothy (acme). Delete it on GitHub too.')).toBeTruthy();
+    expect(calls.some((c) => c.method === 'DELETE' && c.url.startsWith('/api/github/connections/'))).toBe(true);
+  });
+
+  it('creates a replacement app for an existing connection', async () => {
+    const calls = await app('');
+    await fireEvent.click(await screen.findByRole('button', { name: 'Replace token' }));
+    await fireEvent.input(await screen.findByLabelText('Organization'), { target: { value: 'acme' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Continue on GitHub' }));
+    await waitFor(() => expect(posts(calls, '/api/github/apps')).toHaveLength(1));
+    expect(JSON.parse(posts(calls, '/api/github/apps')[0].body)).toEqual({ account: 'organization', org: 'acme', replaces: 'ghc_01jacme00000000000000000000' });
   });
 });
 
