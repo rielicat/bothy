@@ -365,12 +365,33 @@ func pick(p *core.GitHubProbe, want []string, connID string) ([]core.GitHubRepoA
 }
 
 func (s *Service) Connect(ctx context.Context, c core.GitHubCredentials, repos []string, by core.UserID) (*core.GitHubConnection, error) {
+	conn, _, err := s.connect(ctx, c, repos, by, connectOpts{method: methodOf(c)})
+	return conn, err
+}
+
+func methodOf(c core.GitHubCredentials) string {
+	if c.Auth == core.GitHubApp {
+		return "app"
+	}
+	return "token"
+}
+
+type connectOpts struct {
+	method string // audit: "token" | "app" | "app_manifest"
+	// ownsRef: c.SecretRef names a secret Bothy stored (the key of an app it
+	// made), so Disconnect deletes it. A failed connect leaves it alone: it
+	// still belongs to the app.
+	ownsRef bool
+	app     *core.GitHubOwnApp // the probe must find this app
+}
+
+func (s *Service) connect(ctx context.Context, c core.GitHubCredentials, repos []string, by core.UserID, o connectOpts) (*core.GitHubConnection, *core.GitHubProbe, error) {
 	if err := validateCreds(c); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	ep, err := s.endpoint()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	probeCtx, cancel := context.WithTimeout(ctx, adminTimeout)
 	defer cancel()
@@ -378,49 +399,62 @@ func (s *Service) Connect(ctx context.Context, c core.GitHubCredentials, repos [
 	defer forget(src)
 	p := s.probe(probeCtx, ep, src, c.Auth, c.AppID, c.InstallationID, "")
 	if !p.OK {
-		return nil, fmt.Errorf("%w: %s", core.ErrInvalid, p.Error)
+		return nil, nil, fmt.Errorf("%w: %s", core.ErrInvalid, p.Error)
+	}
+	if o.app != nil && p.AppSlug != o.app.Slug {
+		return nil, nil, fmt.Errorf("%w: GitHub names the app %q, not %q", core.ErrInvalid, p.AppSlug, o.app.Slug)
 	}
 	if err := s.lookupUnlisted(probeCtx, s.apiClient(ep, src), p, repos, ""); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	chosen, err := pick(p, repos, "")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	conn := &core.GitHubConnection{
 		ID: core.NewID(core.PrefixGitHubConn), Auth: c.Auth, Account: p.Account, AccountType: p.AccountType,
 		AppSlug: p.AppSlug, InstallationID: p.InstallationID, Status: "ok", TokenExpires: p.TokenExpires,
-		CheckedAt: s.now(), CreatedBy: by, SecretRef: c.SecretRef,
+		CheckedAt: s.now(), CreatedBy: by, SecretRef: c.SecretRef, OwnsSecret: o.ownsRef,
 	}
 	if c.Auth == core.GitHubApp {
 		conn.AppID = c.AppID
 	}
-	if conn.SecretRef == "" {
+	storedHere := conn.SecretRef == ""
+	if storedHere {
 		name := "github_" + conn.ID
 		if _, err := s.vault.Put(ctx, core.GlobalScope, name, rawSecret(c).Bytes(), by); err != nil {
-			return nil, fmt.Errorf("github: storing the secret in the vault: %w", err)
+			return nil, nil, fmt.Errorf("github: storing the secret in the vault: %w", err)
 		}
 		conn.SecretRef, conn.OwnsSecret = "secret:"+name, true
 	}
+	undo := func() {
+		if storedHere {
+			s.dropOwnedSecret(ctx, conn, by)
+		}
+	}
 	if err := s.store.PutConnection(ctx, conn); err != nil {
-		s.dropOwnedSecret(ctx, conn, by)
-		return nil, err
+		undo()
+		return nil, nil, err
 	}
 	for _, r := range chosen {
 		if err := s.store.PutRepo(ctx, accessRepo(conn.ID, r, true)); err != nil {
 			_ = s.store.DeleteConnection(context.WithoutCancel(ctx), conn.ID)
-			s.dropOwnedSecret(ctx, conn, by)
-			return nil, err
+			undo()
+			return nil, nil, err
 		}
 	}
 	if err := s.refresh(ctx); err != nil {
 		s.log.Warn("github: refreshing the tool gate", "err", err)
 	}
-	s.record(ctx, userActor(by), "github.connect", conn.ID, "ok", map[string]any{
+	detail := map[string]any{
 		"auth": string(conn.Auth), "account": conn.Account, "installation_id": conn.InstallationID,
-		"repos": repoNamesOf(chosen), "owns_secret": conn.OwnsSecret,
-	})
-	return conn, nil
+		"repos": repoNamesOf(chosen), "owns_secret": conn.OwnsSecret, "method": o.method,
+	}
+	if o.app != nil {
+		detail["app"], detail["app_name"] = o.app.Slug, o.app.Name
+	}
+	s.record(ctx, userActor(by), "github.connect", conn.ID, "ok", detail)
+	return conn, p, nil
 }
 
 func accessRepo(connID string, r core.GitHubRepoAccess, allowed bool) *core.GitHubRepo {
@@ -581,9 +615,18 @@ func nonNilStrings(s []string) []string {
 	return s
 }
 
+// Disconnect also retires the app Bothy made for the connection: its keys
+// go, and the app stays on GitHub until an admin deletes it there.
 func (s *Service) Disconnect(ctx context.Context, id string, by core.UserID) error {
 	c, err := s.store.Connection(ctx, id)
 	if err != nil {
+		return err
+	}
+	app, err := s.store.AppByConnection(ctx, id)
+	switch {
+	case errors.Is(err, core.ErrNotFound):
+		app = nil
+	case err != nil:
 		return err
 	}
 	if err := s.store.DeleteConnection(ctx, id); err != nil {
@@ -591,10 +634,19 @@ func (s *Service) Disconnect(ctx context.Context, id string, by core.UserID) err
 	}
 	s.dropSource(id)
 	s.dropOwnedSecret(ctx, c, by)
+	detail := map[string]any{"account": c.Account, "owned_secret": c.OwnsSecret}
+	if app != nil {
+		// If this fails the app reads pending with its key gone; checking it
+		// then reports the vault error and the admin can start over.
+		if err := s.retire(ctx, app, by); err != nil {
+			s.log.Warn("github: retiring the app of a disconnected connection", "app", app.ID, "err", err)
+		}
+		detail["app"] = app.Slug
+	}
 	if err := s.refresh(ctx); err != nil {
 		s.log.Warn("github: refreshing the tool gate", "err", err)
 	}
-	s.record(ctx, userActor(by), "github.disconnect", id, "ok", map[string]any{"account": c.Account, "owned_secret": c.OwnsSecret})
+	s.record(ctx, userActor(by), "github.disconnect", id, "ok", detail)
 	return nil
 }
 
