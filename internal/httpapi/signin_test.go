@@ -3,8 +3,10 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"slices"
 	"strings"
@@ -159,6 +161,20 @@ func TestSignInStartHTTP(t *testing.T) {
 	}
 	expect(t, h.do("POST", "/api/auth/oauth/google/start", dto.SignInStartReq{}, nil), http.StatusConflict)
 
+	// An IPv6 client is counted by its /64, which it can rotate through.
+	for i := 0; ; i++ {
+		addr := fmt.Sprintf("[2001:db8:1:2::%x]:1", i+1)
+		rec := h.do("POST", "/api/auth/oauth/google/start", dto.SignInStartReq{}, nil, overTLS(), fromAddr(addr))
+		if rec.Code == http.StatusTooManyRequests {
+			if i != signInsPerMin {
+				t.Fatalf("limited after %d starts", i)
+			}
+			break
+		}
+		expect(t, rec, http.StatusOK)
+	}
+	expect(t, h.do("POST", "/api/auth/oauth/google/start", dto.SignInStartReq{}, nil, overTLS(), fromAddr("[2001:db8:1:3::1]:1")), http.StatusOK)
+
 	h.cfg.update(func(c *config.Config) { c.Server.PublicURL = "http://127.0.0.1:8080" })
 	for i := 0; ; i++ {
 		rec := h.do("POST", "/api/auth/oauth/google/start", dto.SignInStartReq{}, nil, fromAddr("127.0.0.9:1"))
@@ -169,6 +185,27 @@ func TestSignInStartHTTP(t *testing.T) {
 			break
 		}
 		expect(t, rec, http.StatusOK)
+	}
+}
+
+func TestClientKey(t *testing.T) {
+	for in, want := range map[string]string{
+		"203.0.113.9":          "203.0.113.9",
+		"::ffff:203.0.113.9":   "203.0.113.9",
+		"2001:db8:1:2:3:4:5:6": "2001:db8:1:2::/64",
+		"2001:db8:1:2::9":      "2001:db8:1:2::/64",
+		"fe80::1%eth0":         "fe80::/64",
+		"":                     "",
+	} {
+		var ip netip.Addr
+		if in != "" {
+			ip = netip.MustParseAddr(in)
+		}
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r = r.WithContext(withInfo(r.Context(), &reqInfo{ip: ip}))
+		if got := clientKey(r); got != want {
+			t.Errorf("clientKey(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 

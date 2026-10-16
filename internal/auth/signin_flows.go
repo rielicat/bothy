@@ -31,12 +31,16 @@ type flow struct {
 	// hash is what binds the round trip to a live session.
 	user        core.UserID
 	sessionHash []byte
+	client      string // who started it: an IPv4 address or an IPv6 /64
 	expires     time.Time
 }
 
 const (
 	flowTTL  = 10 * time.Minute
 	maxFlows = 1024
+	// maxClientFlows bounds one client's flows in progress, so a single
+	// address can't push everyone else's out of the store.
+	maxClientFlows = 8
 )
 
 // flowStore keeps flows by the sha256 of their state, single use.
@@ -48,27 +52,36 @@ type flowStore struct {
 
 func newFlowStore(c core.Clock) *flowStore { return &flowStore{clock: c, m: map[string]*flow{}} }
 
-// put stores f under state. At maxFlows it drops expired flows first, then
-// the one closest to expiring, so a flood of starts can't grow memory.
+// put stores f under state. Expired flows go first; then a client at
+// maxClientFlows loses its own oldest flow, and only a store filled to
+// maxFlows by many clients drops the oldest of all, so a flood of starts
+// can neither grow memory nor cut short other people's sign-ins.
 func (fs *flowStore) put(state string, f *flow) {
 	now := fs.clock.Now()
 	f.expires = now.Add(flowTTL)
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	if len(fs.m) >= maxFlows {
-		for k, g := range fs.m {
-			if !now.Before(g.expires) {
-				delete(fs.m, k)
+	own := 0
+	var ownOldest, oldest string
+	for k, g := range fs.m {
+		if !now.Before(g.expires) {
+			delete(fs.m, k)
+			continue
+		}
+		if g.client == f.client {
+			own++
+			if ownOldest == "" || g.expires.Before(fs.m[ownOldest].expires) {
+				ownOldest = k
 			}
+		}
+		if oldest == "" || g.expires.Before(fs.m[oldest].expires) {
+			oldest = k
 		}
 	}
-	for len(fs.m) >= maxFlows {
-		var oldest string
-		for k, g := range fs.m {
-			if oldest == "" || g.expires.Before(fs.m[oldest].expires) {
-				oldest = k
-			}
-		}
+	switch {
+	case own >= maxClientFlows:
+		delete(fs.m, ownOldest)
+	case len(fs.m) >= maxFlows:
 		delete(fs.m, oldest)
 	}
 	fs.m[flowKey(state)] = f

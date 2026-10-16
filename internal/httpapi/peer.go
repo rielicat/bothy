@@ -64,6 +64,21 @@ func clientIP(r *http.Request) string {
 	return ""
 }
 
+// clientKey is clientIP for a per-client limit: an IPv4 address as is, an
+// IPv6 address as its /64, since one host usually holds a whole /64 and can
+// rotate through it.
+func clientKey(r *http.Request) string {
+	ip := infoOf(r).ip.Unmap()
+	switch {
+	case !ip.IsValid():
+		return ""
+	case ip.Is4():
+		return ip.String()
+	}
+	p, _ := ip.Prefix(64)
+	return p.String()
+}
+
 // netCache holds the parsed network settings of the config snapshot it was
 // built from. A new config gets a new value and the old one is never
 // modified: requests keep reading the lists after netState returns.

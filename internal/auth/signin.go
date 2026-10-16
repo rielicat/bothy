@@ -225,7 +225,9 @@ func (s *Service) SignInOptions(ctx context.Context) ([]core.SignInOption, error
 }
 
 // StartSignIn begins signing in with p and returns the provider's address.
-func (s *Service) StartSignIn(ctx context.Context, p core.SignInProvider, next string) (SignInStart, error) {
+// client is who asks (an IPv4 address or an IPv6 /64), which bounds how many
+// flows one client keeps in progress.
+func (s *Service) StartSignIn(ctx context.Context, p core.SignInProvider, next, client string) (SignInStart, error) {
 	unavailable := &SignInError{Code: SignInUnavailable, Intent: IntentSignIn, Provider: p}
 	if !validProvider(p) {
 		return SignInStart{}, unavailable
@@ -239,12 +241,13 @@ func (s *Service) StartSignIn(ctx context.Context, p core.SignInProvider, next s
 	if !pc.ready() {
 		return SignInStart{}, unavailable
 	}
-	return s.start(pc, &flow{intent: IntentSignIn, next: safeNext(next)}), nil
+	return s.start(pc, &flow{intent: IntentSignIn, next: safeNext(next), client: client}), nil
 }
 
 // StartLink begins connecting p to the signed-in account of by. The flow
-// is bound to the session cookie it starts from, by hash.
-func (s *Service) StartLink(ctx context.Context, by core.Actor, sessionCookie string, p core.SignInProvider) (SignInStart, error) {
+// is bound to the session cookie it starts from, by hash; client is as for
+// StartSignIn.
+func (s *Service) StartLink(ctx context.Context, by core.Actor, sessionCookie string, p core.SignInProvider, client string) (SignInStart, error) {
 	if by.Via != "cookie" || sessionCookie == "" {
 		return SignInStart{}, fmt.Errorf("%w: connecting a sign-in method needs a browser session", core.ErrForbidden)
 	}
@@ -266,7 +269,7 @@ func (s *Service) StartLink(ctx context.Context, by core.Actor, sessionCookie st
 	if slices.ContainsFunc(links, func(l *core.SignIn) bool { return l.Provider == p }) {
 		return SignInStart{}, fmt.Errorf("%w: you already connected %s; disconnect it first", core.ErrConflict, p.Name())
 	}
-	return s.start(pc, &flow{intent: IntentLink, user: by.User, sessionHash: sha(sessionCookie)}), nil
+	return s.start(pc, &flow{intent: IntentLink, user: by.User, sessionHash: sha(sessionCookie), client: client}), nil
 }
 
 func (s *Service) start(pc providerConf, f *flow) SignInStart {

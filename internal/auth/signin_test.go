@@ -86,7 +86,7 @@ func (e *signInEnv) back(t *testing.T, st SignInStart) SignInCallback {
 func (e *signInEnv) signIn(t *testing.T, p core.SignInProvider, who oauthtest.Identity) (*SignInResult, error) {
 	t.Helper()
 	e.fake(p).SignInAs(who)
-	st, err := e.s.StartSignIn(ctx, p, "/chat/ses_1?q=a")
+	st, err := e.s.StartSignIn(ctx, p, "/chat/ses_1?q=a", signInIP)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func (e *signInEnv) session(t *testing.T, username string) (string, core.Actor) 
 func (e *signInEnv) link(t *testing.T, cookie string, a core.Actor, p core.SignInProvider, who oauthtest.Identity) (*SignInResult, error) {
 	t.Helper()
 	e.fake(p).SignInAs(who)
-	st, err := e.s.StartLink(ctx, a, cookie, p)
+	st, err := e.s.StartLink(ctx, a, cookie, p, signInIP)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestSignInOptions(t *testing.T) {
 	if opts, _ := fresh.s.SignInOptions(ctx); len(opts) != 0 {
 		t.Fatalf("before setup: %v", opts)
 	}
-	if _, err := fresh.s.StartSignIn(ctx, core.SignInGoogle, ""); signInCode(err) != SignInUnavailable {
+	if _, err := fresh.s.StartSignIn(ctx, core.SignInGoogle, "", signInIP); signInCode(err) != SignInUnavailable {
 		t.Fatalf("start before setup: %v", err)
 	}
 	unwired := newEnv(t, func(c *config.Config) { c.Auth.SignIn = e.cfg.Auth.SignIn })
@@ -214,7 +214,7 @@ func TestSignInOptions(t *testing.T) {
 
 func TestStartSignIn(t *testing.T) {
 	e := newSignInEnv(t)
-	st, err := e.s.StartSignIn(ctx, core.SignInGoogle, "/chat")
+	st, err := e.s.StartSignIn(ctx, core.SignInGoogle, "/chat", signInIP)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,15 +234,15 @@ func TestStartSignIn(t *testing.T) {
 	e.s.flows.mu.Unlock()
 
 	e.cfg.Auth.SignIn.Allow = []string{"acme.com"}
-	st, _ = e.s.StartSignIn(ctx, core.SignInGoogle, "")
+	st, _ = e.s.StartSignIn(ctx, core.SignInGoogle, "", signInIP)
 	if u, _ := url.Parse(st.URL); u.Query().Get("hd") != "acme.com" {
 		t.Fatalf("a single domain is not hinted: %s", st.URL)
 	}
 	e.cfg.Auth.SignIn.Google.Enabled = false
-	if _, err := e.s.StartSignIn(ctx, core.SignInGoogle, ""); signInCode(err) != SignInUnavailable {
+	if _, err := e.s.StartSignIn(ctx, core.SignInGoogle, "", signInIP); signInCode(err) != SignInUnavailable {
 		t.Fatalf("start while off: %v", err)
 	}
-	if _, err := e.s.StartSignIn(ctx, "okta", ""); signInCode(err) != SignInUnavailable {
+	if _, err := e.s.StartSignIn(ctx, "okta", "", signInIP); signInCode(err) != SignInUnavailable {
 		t.Fatalf("start of an unknown provider: %v", err)
 	}
 }
@@ -337,7 +337,7 @@ func TestSignInFlowChecks(t *testing.T) {
 	}
 	e.google.SignInAs(maya)
 	start := func() (SignInStart, SignInCallback) {
-		st, err := e.s.StartSignIn(ctx, core.SignInGoogle, "/settings")
+		st, err := e.s.StartSignIn(ctx, core.SignInGoogle, "/settings", signInIP)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -687,7 +687,7 @@ func TestLinkAndUnlink(t *testing.T) {
 	if last.Action != "signin.link" || last.Outcome != "ok" || !strings.Contains(string(last.Detail), `"login":"lee-gh"`) {
 		t.Fatalf("link audit %+v", last)
 	}
-	if _, err := e.s.StartLink(ctx, a, cookie, core.SignInGitHub); !errors.Is(err, core.ErrConflict) {
+	if _, err := e.s.StartLink(ctx, a, cookie, core.SignInGitHub, signInIP); !errors.Is(err, core.ErrConflict) {
 		t.Fatalf("second GitHub link start: %v", err)
 	}
 	if _, err := e.link(t, mcookie, ma, core.SignInGitHub, lee); signInCode(err) != SignInTaken {
@@ -699,7 +699,7 @@ func TestLinkAndUnlink(t *testing.T) {
 
 	// The account already has a Google link when the round trip ends.
 	e.google.SignInAs(maya)
-	st, err := e.s.StartLink(ctx, a, cookie, core.SignInGoogle)
+	st, err := e.s.StartLink(ctx, a, cookie, core.SignInGoogle, signInIP)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -715,7 +715,7 @@ func TestLinkAndUnlink(t *testing.T) {
 	}
 
 	// The session that started it ended.
-	st, _ = e.s.StartLink(ctx, ma, mcookie, core.SignInGoogle)
+	st, _ = e.s.StartLink(ctx, ma, mcookie, core.SignInGoogle, signInIP)
 	cb = e.back(t, st)
 	if err := e.s.Logout(ctx, mcookie); err != nil {
 		t.Fatal(err)
@@ -723,7 +723,7 @@ func TestLinkAndUnlink(t *testing.T) {
 	if _, err := e.s.FinishSignIn(ctx, core.SignInGoogle, cb); signInCode(err) != SignInSignedOut {
 		t.Fatalf("signed out meanwhile: %v", err)
 	}
-	if _, err := e.s.StartLink(ctx, core.Actor{User: a.User, Via: "token"}, "", core.SignInGoogle); !errors.Is(err, core.ErrForbidden) {
+	if _, err := e.s.StartLink(ctx, core.Actor{User: a.User, Via: "token"}, "", core.SignInGoogle, signInIP); !errors.Is(err, core.ErrForbidden) {
 		t.Fatalf("token start: %v", err)
 	}
 
@@ -765,8 +765,8 @@ func TestLinkSameAccountTwice(t *testing.T) {
 	e := newSignInEnv(t)
 	cookie, a := e.session(t, "owner")
 	e.google.SignInAs(maya)
-	st1, _ := e.s.StartLink(ctx, a, cookie, core.SignInGoogle)
-	st2, _ := e.s.StartLink(ctx, a, cookie, core.SignInGoogle)
+	st1, _ := e.s.StartLink(ctx, a, cookie, core.SignInGoogle, signInIP)
+	st2, _ := e.s.StartLink(ctx, a, cookie, core.SignInGoogle, signInIP)
 	cb1, cb2 := e.back(t, st1), e.back(t, st2)
 	if _, err := e.s.FinishSignIn(ctx, core.SignInGoogle, cb1); err != nil {
 		t.Fatal(err)
@@ -779,10 +779,27 @@ func TestLinkSameAccountTwice(t *testing.T) {
 func TestFlowStoreBound(t *testing.T) {
 	c := fakes.NewClock(time.Date(2026, 10, 12, 9, 0, 0, 0, time.UTC))
 	fs := newFlowStore(c)
-	fs.put("first", &flow{})
-	c.Advance(time.Second)
+	tick := func() { c.Advance(time.Millisecond) }
+
+	// One client can't push anyone else out: past its own bound it loses
+	// its own oldest flow.
+	fs.put("pat", &flow{client: "198.51.100.7"})
+	tick()
+	for i := range maxClientFlows + 3 {
+		fs.put(fmt.Sprint("flood", i), &flow{client: "203.0.113.9"})
+		tick()
+	}
+	if fs.len() != maxClientFlows+1 || fs.take("pat") == nil || fs.take("flood2") != nil || fs.take("flood3") == nil {
+		t.Fatalf("len %d; a client's own oldest flow must go first", fs.len())
+	}
+
+	// Many clients filling the store push out the oldest of all.
+	fs = newFlowStore(c)
+	fs.put("first", &flow{client: "c-first"})
+	tick()
 	for i := range maxFlows {
-		fs.put(fmt.Sprint("s", i), &flow{})
+		fs.put(fmt.Sprint("s", i), &flow{client: fmt.Sprint("c", i)})
+		tick()
 	}
 	if fs.len() != maxFlows || fs.take("first") != nil || fs.take("s1") == nil {
 		t.Fatalf("len %d; the oldest flow must go first", fs.len())
@@ -791,10 +808,32 @@ func TestFlowStoreBound(t *testing.T) {
 	c.Advance(flowTTL)
 	fs.put("fresh", &flow{})
 	if fs.len() != 1 || fs.take("fresh") == nil {
-		t.Fatalf("expired flows not pruned at the bound: %d", fs.len())
+		t.Fatalf("expired flows not pruned: %d", fs.len())
 	}
 	if fs.take("") != nil || fs.take(strings.Repeat("x", 300)) != nil {
 		t.Fatal("odd states")
+	}
+}
+
+// Someone starting sign-ins over and over can't cut short another person's.
+func TestSignInFlowsPerClient(t *testing.T) {
+	e := newSignInEnv(t)
+	e.google.SignInAs(maya)
+	st, err := e.s.StartSignIn(ctx, core.SignInGoogle, "", "198.51.100.7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cb := e.back(t, st)
+	for range 3 * maxClientFlows {
+		if _, err := e.s.StartSignIn(ctx, core.SignInGoogle, "", "2001:db8:1:2::/64"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := e.s.flows.len(); n != maxClientFlows+1 {
+		t.Fatalf("%d flows in progress", n)
+	}
+	if _, err := e.s.FinishSignIn(ctx, core.SignInGoogle, cb); signInCode(err) != SignInNoAccount {
+		t.Fatalf("the other person's sign-in: %v", err)
 	}
 }
 

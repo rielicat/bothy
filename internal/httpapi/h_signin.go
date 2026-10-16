@@ -15,8 +15,8 @@ import (
 	"github.com/rielicat/bothy/internal/httpapi/dto"
 )
 
-// signInsPerMin is per client address and separate from the password
-// limiter: a start costs a provider round trip, not a guess.
+// signInsPerMin is per client (an IPv4 address or an IPv6 /64) and separate
+// from the password limiter: a start costs a provider round trip, not a guess.
 const signInsPerMin = 20
 
 // signInRoutes are sign in with Google and GitHub (SPEC §15).
@@ -38,8 +38,8 @@ func (s *Server) signInRoutes() []route {
 // signInAuth is the auth.Service extra behind these routes.
 type signInAuth interface {
 	SignInOptions(ctx context.Context) ([]core.SignInOption, error)
-	StartSignIn(ctx context.Context, p core.SignInProvider, next string) (auth.SignInStart, error)
-	StartLink(ctx context.Context, by core.Actor, sessionCookie string, p core.SignInProvider) (auth.SignInStart, error)
+	StartSignIn(ctx context.Context, p core.SignInProvider, next, client string) (auth.SignInStart, error)
+	StartLink(ctx context.Context, by core.Actor, sessionCookie string, p core.SignInProvider, client string) (auth.SignInStart, error)
 	FinishSignIn(ctx context.Context, p core.SignInProvider, in auth.SignInCallback) (*auth.SignInResult, error)
 	Unlink(ctx context.Context, by core.Actor, p core.SignInProvider) error
 	MySignIns(ctx context.Context, u core.UserID) ([]core.SignInOption, []*core.SignIn, bool, error)
@@ -102,7 +102,7 @@ func (s *Server) sameAddress(r *http.Request, p core.SignInProvider) error {
 }
 
 func (s *Server) signInLimited(r *http.Request) error {
-	if allowed, retry := s.starts.allow(clientIP(r), signInsPerMin, signInsPerMin); !allowed {
+	if allowed, retry := s.starts.allow(clientKey(r), signInsPerMin, signInsPerMin); !allowed {
 		e := newError(http.StatusTooManyRequests, "rate_limited", "too many sign-in attempts")
 		e.retry = retry
 		return e
@@ -133,7 +133,7 @@ func (s *Server) signInStart(w http.ResponseWriter, r *http.Request, _ core.Acto
 	if err := decode(r, &req); err != nil {
 		return err
 	}
-	st, err := svc.StartSignIn(r.Context(), p, req.Next)
+	st, err := svc.StartSignIn(r.Context(), p, req.Next, clientKey(r))
 	var se *auth.SignInError
 	if errors.As(err, &se) {
 		return signInUnavailable(p)
@@ -228,7 +228,7 @@ func (s *Server) signInLink(w http.ResponseWriter, r *http.Request, a core.Actor
 	if err := s.sameAddress(r, p); err != nil {
 		return err
 	}
-	st, err := svc.StartLink(r.Context(), a, cookieValue(r, s.cookieName(r)), p)
+	st, err := svc.StartLink(r.Context(), a, cookieValue(r, s.cookieName(r)), p, clientKey(r))
 	var se *auth.SignInError
 	if errors.As(err, &se) {
 		return signInUnavailable(p)
