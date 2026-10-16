@@ -74,9 +74,13 @@ where Hermes and OpenClaw are far ahead.
 - Outbound traffic from tools goes through a per-box proxy with an allowlist,
   SSRF and DNS-rebinding protection, and a hold-for-approval flow for new
   destinations.
-- Group chats and guests are separate principals with no access to the
-  owner's memory or vault. A session that has seen private data and untrusted
-  content cannot send anything out without approval.
+- Bothy belongs to the team, not to one account: people in Slack, Discord or
+  Telegram use it as teammates (Slack and Discord say who is in the team; on
+  Telegram an admin lets people in) and channels are the team's. Neither can
+  reach anyone's memory or vault, and what they ask to change is approved by
+  admins or by teammates marked "Can approve". A session that has seen
+  private data and untrusted content cannot send anything out without
+  approval.
 - Append-only, hash-chained audit log. Signed releases with SBOMs and SLSA
   provenance; no telemetry and no auto-update.
 
@@ -89,7 +93,7 @@ under [After the v0.1.0 release](#after-the-v010-release) start working with
 the first signed release. Either way you open the printed
 `http://127.0.0.1:8080/setup#t=…` URL; the setup wizard walks you through the
 owner account, a model provider (with a live test call), safety presets, a
-daily spend cap and pairing your chat apps by QR code.
+daily spend cap and connecting your chat apps.
 
 ### From source
 

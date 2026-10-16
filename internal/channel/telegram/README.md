@@ -14,8 +14,10 @@ other character escaped and `link_preview_options.is_disabled` always set;
 buttons become inline keyboards (callback data at most 64 bytes, loopback
 link buttons dropped). It also implements typing (`sendChatAction`), button
 acknowledgement (`answerCallbackQuery`), attachment download (`getFile`,
-size-capped), `setMyCommands`, `getMe` self-test and
-`https://t.me/<bot>?start=<code>` deep links. The bot token comes from the
+size-capped), `setMyCommands` (no `/pair`), `getMe` self-test and
+`InspectChat` (`getChat` for the title, `getChatMemberCount` for the
+members). Telegram can't say who belongs to a team, so it has no member
+checker: an admin lets people in. The bot token comes from the
 vault via `AdapterDeps.Secret`, is only ever placed in the request path, and
 is scrubbed from transport errors. The HTTP client is the egress system
 client for exactly the `api_base` host; a non-default (self-hosted or test)

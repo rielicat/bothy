@@ -2,10 +2,16 @@
 
 `budget.Service` implements `core.Budget` (SPEC §4.11, §5.12, §5.13). It meters
 each run (`StartRun` returns a `core.RunMeter` for steps, tokens, wall time
-excluding approval waits, and cost), enforces the daily caps
-(`budgets.daily_usd` for the whole instance, `per_user_daily_usd[username]`
-overrides, `member_daily_usd` for members in multi mode; owners and admins are
-bounded by the global cap only), writes `spend_daily` through `UsageRepo`,
+excluding approval waits, and cost), and bills by principal (an account's
+principal id is its user's). It enforces up to three daily caps and says which
+one tripped (`BudgetError.Scope`): the principal's own (an account:
+`per_user_daily_usd[username]`, else `member_daily_usd` for members in multi
+mode, owners and admins having none; a teammate:
+`per_user_daily_usd["<app>:<id>"]`, else `member_daily_usd` in either mode; a
+channel has none), the chat share (teammates and channels together may spend
+`budgets.chat_share_pct` of `daily_usd`, default 60%; at 80% admins get the
+`chat_budget_80` banner once a day) and the global `daily_usd`. It writes
+`spend_daily` through `UsageRepo`,
 records out-of-run calls (`RecordSpend`), publishes `budget.warning` plus a
 `budget_80` banner the first time a cap passes `budgets.warn_ratio` on a spend
 day (cleared on the next day), rate-limits chat senders with a token bucket per
