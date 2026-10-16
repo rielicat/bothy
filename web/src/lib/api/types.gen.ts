@@ -3609,7 +3609,8 @@ export interface SignInListPatch {
 }
 /**
  * SignInPatch is PATCH /api/sign-in/{provider}; nil fields stay.
- * ClientSecret is write-only and "" keeps the saved one. Orgs is GitHub only.
+ * ClientSecret is write-only and "" keeps the saved one. Orgs is GitHub
+ * only; the server pins each one by its GitHub id as it saves them.
  */
 export interface SignInPatch {
   enabled?: boolean;

@@ -45,7 +45,8 @@ type SignInListPatch struct {
 }
 
 // SignInPatch is PATCH /api/sign-in/{provider}; nil fields stay.
-// ClientSecret is write-only and "" keeps the saved one. Orgs is GitHub only.
+// ClientSecret is write-only and "" keeps the saved one. Orgs is GitHub
+// only; the server pins each one by its GitHub id as it saves them.
 type SignInPatch struct {
 	Enabled      *bool     `json:"enabled,omitempty"`
 	ClientID     *string   `json:"client_id,omitempty"`
