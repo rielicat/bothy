@@ -71,7 +71,7 @@ type Deploy struct {
 	Session     SessionID    `json:"session_id"`
 	Run         RunID        `json:"run_id,omitempty"` // the agent run that dispatched it
 	Approval    ApprovalID   `json:"approval_id,omitempty"`
-	RequestedBy UserID       `json:"requested_by"`
+	RequestedBy UserID       `json:"requested_by"` // the account; a teammate's deploy: their chat actor "channel:<app>:<id>"
 	ApprovedBy  []UserID     `json:"approved_by"`
 	Chat        *ChatRef     `json:"chat,omitempty"` // originating chat; the outcome is posted there
 	Status      DeployStatus `json:"status"`

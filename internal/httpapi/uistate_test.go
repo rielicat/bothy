@@ -622,4 +622,23 @@ func TestDeployViews(t *testing.T) {
 	if len(l.Items) != 2 || l.Items[1].RequestedByName != "Maya Chen" || l.Items[0].ShortSHA != "" || l.Items[0].ApprovedByNames == nil {
 		t.Fatalf("admin deploys = %+v", l.Items)
 	}
+
+	// A teammate's deploy names the person in the chat app who asked.
+	now := time.Now()
+	sp := &core.Space{Kind: core.SpacePerson, Chat: core.ChatRef{Channel: "slack", ChatID: "U7", Kind: core.ChatDM}, Title: "Sam Patel",
+		Enabled: true, CreatedAt: now, UpdatedAt: now}
+	if err := h.store.Spaces().Create(ctx, sp, &core.Principal{DisplayName: "Sam Patel", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	h.touch("slack", "U7", "Sam Patel", core.MemberYes)
+	team := &core.Deploy{Environment: "staging", Repo: "acme/web", Workflow: "deploy.yml", Ref: "main", Principal: sp.Principal,
+		Session: core.SessionID(core.NewID(core.PrefixSession)), RequestedBy: core.UserID(core.ChatActor("slack", "U7")),
+		Status: core.DeployDispatched, CreatedAt: now.Add(time.Minute)}
+	if err := deploys.Create(ctx, team); err != nil {
+		t.Fatal(err)
+	}
+	l = decodeAs[dto.List[dto.DeployView]](t, h.do(http.MethodGet, "/api/releases/deploys", nil, h.admin))
+	if len(l.Items) != 3 || l.Items[0].RequestedByName != "Sam Patel · Slack" {
+		t.Fatalf("a teammate's deploy = %+v", l.Items[0])
+	}
 }

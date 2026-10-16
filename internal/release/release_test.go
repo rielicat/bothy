@@ -118,7 +118,14 @@ func (f *fixture) plan(env *core.ToolEnv, args string) *core.Action {
 // needing as many approvals as staging does now.
 func (f *fixture) approve(env *core.ToolEnv, a *core.Action, st core.ApprovalStatus, voters ...*core.User) *core.Approval {
 	f.t.Helper()
-	req := core.ApproverReq{Roles: []core.Role{core.RoleAdmin}, Required: f.cfg.Releases.Environments[0].Needed(), Requester: env.User}
+	return f.approveFor(env, "", a, st, voters...)
+}
+
+// approveFor is approve for a run a chat sender ("<app>:<id>") started.
+func (f *fixture) approveFor(env *core.ToolEnv, sender string, a *core.Action, st core.ApprovalStatus, voters ...*core.User) *core.Approval {
+	f.t.Helper()
+	req := core.ApproverReq{Roles: []core.Role{core.RoleAdmin}, Required: f.cfg.Releases.Environments[0].Needed(), Requester: env.User,
+		RequesterIdentity: sender}
 	ap := &core.Approval{Run: env.Run, Session: env.Session, Principal: env.Principal.ID, ToolCallID: env.CallID, Action: a,
 		Decision: core.Decision{Verdict: core.VerdictAsk, Approver: req}, Card: core.Card{Title: "Deploy a release", Risk: core.SEIrreversible},
 		Status: st, Approver: req, OnTimeout: core.TimeoutDeny,
@@ -256,6 +263,22 @@ func TestDeployExecDispatchesAfterApproval(t *testing.T) {
 	case <-f.svc.wake:
 	default:
 		t.Fatal("a dispatch did not wake the follower")
+	}
+}
+
+// A teammate has no account: their deploy records, as who asked, the chat
+// person whose message started the run.
+func TestTeammateDeployRecordsWhoAsked(t *testing.T) {
+	f := newFixture(t)
+	env := f.env()
+	env.User, env.Role = "", ""
+	a := f.plan(env, `{"environment":"staging"}`)
+	f.approveFor(env, "slack:U0MAYA", a, core.ApprovalAllowed, f.alice, f.bob)
+	if res, err := f.tool(deployName).Exec(f.ctx, env, a); err != nil || res.IsError {
+		t.Fatalf("Exec = %+v, %v", res, err)
+	}
+	if deps := f.deploys(); len(deps) != 1 || deps[0].RequestedBy != "channel:slack:U0MAYA" {
+		t.Fatalf("deploys = %+v, want the chat requester recorded", deps)
 	}
 }
 

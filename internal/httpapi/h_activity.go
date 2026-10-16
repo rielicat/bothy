@@ -91,7 +91,7 @@ func failureReason(e string) string {
 func (n *namer) deployViews(ds []*core.Deploy) []dto.DeployView {
 	out := make([]dto.DeployView, 0, len(ds))
 	for _, d := range ds {
-		v := dto.DeployView{Deploy: *d, RequestedByName: n.user(d.RequestedBy), ApprovedByNames: []string{}}
+		v := dto.DeployView{Deploy: *d, RequestedByName: n.who(string(d.RequestedBy)), ApprovedByNames: []string{}}
 		for _, u := range d.ApprovedBy {
 			if name := n.user(u); name != "" {
 				v.ApprovedByNames = append(v.ApprovedByNames, name)

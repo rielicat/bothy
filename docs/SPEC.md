@@ -5038,7 +5038,7 @@ type Deploy struct {
 	Session     SessionID    `json:"session_id"`
 	Run         RunID        `json:"run_id,omitempty"` // the agent run that dispatched it
 	Approval    ApprovalID   `json:"approval_id,omitempty"`
-	RequestedBy UserID       `json:"requested_by"`
+	RequestedBy UserID       `json:"requested_by"` // the account; a teammate's deploy: their chat actor "channel:<app>:<id>"
 	ApprovedBy  []UserID     `json:"approved_by"`
 	Chat        *ChatRef     `json:"chat,omitempty"` // originating chat; the outcome is posted there
 	Status      DeployStatus `json:"status"`
@@ -7464,7 +7464,7 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `GET /api/knowledge/repos/{id}/notes/history` | user | — | `dto.List[dto.NotesChange]` (v0.2 UI: the notes' changes, newest first, at most 50 kept; 404 like the repo) |
 | `GET /api/knowledge/repos/{id}/notes/history/{version}` | user | — | `dto.NotesChange` |
 | `GET /api/knowledge/search` | user | `?q=&repo_id=&principal=&limit=` (1..50, default 20) | `dto.KnowledgeSearchResp` |
-| `GET /api/releases` | user | — | `dto.Releases` (v0.2: environments and the newest 20 deploys: own, everyone's for admins. v0.2 UI: deploys are `dto.DeployView`s with `requested_by_name`, `approved_by_names`, `short_sha` and the commit `subject`) |
+| `GET /api/releases` | user | — | `dto.Releases` (v0.2: environments and the newest 20 deploys: own, everyone's for admins. v0.2 UI: deploys are `dto.DeployView`s with `requested_by_name` (a teammate's deploy: "Maya Chen · Slack"), `approved_by_names`, `short_sha` and the commit `subject`) |
 | `GET /api/releases/deploys` | user | `?environment=&before=&limit=` | `dto.List[dto.DeployView]` (paged by `created_at` ms) |
 | `GET /api/channels` | admin | — | `[]core.ChannelStatus` |
 | `POST /api/channels/{name}/test` | admin | — | `dto.ChannelTestResp` (v0.2 UI: a failed test answers 502 with a `core.FailureCode` as the error code and the raw message, e.g. `key_rejected` for a refused Slack, Discord or Telegram token) |

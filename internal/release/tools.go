@@ -115,7 +115,7 @@ func (t *deployTool) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action
 	now := s.d.Clock.Now()
 	disp, via := s.dispatcher(ctx, p.Repo)
 	d := &core.Deploy{Environment: p.Environment, Repo: p.Repo, Workflow: p.Workflow, Ref: p.Ref, Principal: env.Principal.ID,
-		Session: env.Session, Run: env.Run, Approval: appr.ID, RequestedBy: env.User, ApprovedBy: voters, Chat: chatOf(env),
+		Session: env.Session, Run: env.Run, Approval: appr.ID, RequestedBy: requester(env, appr), ApprovedBy: voters, Chat: chatOf(env),
 		Status: core.DeployDispatched, CreatedAt: now, UpdatedAt: now, Via: via}
 	run, derr := disp.Dispatch(ctx, core.WorkflowDispatch{Repo: p.Repo, Workflow: p.Workflow, Ref: p.Ref, Inputs: p.Inputs})
 	// Whatever happens to the tool call now, the dispatch is done or refused
@@ -167,6 +167,18 @@ func (t *deployTool) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action
 		b.WriteString(". The outcome will be posted here when the run finishes.")
 	}
 	return &core.ToolResult{Content: b.String()}, nil
+}
+
+// requester is who asked for a deploy: the run's account, or for a
+// teammate (no account) the chat actor whose message started the run.
+func requester(env *core.ToolEnv, ap *core.Approval) core.UserID {
+	if env.User != "" {
+		return env.User
+	}
+	if app, ext, ok := strings.Cut(ap.Approver.RequesterIdentity, ":"); ok && ext != "" {
+		return core.UserID(core.ChatActor(app, ext))
+	}
+	return ""
 }
 
 // approvalFor finds the allowed multi-approver approval of this very call
