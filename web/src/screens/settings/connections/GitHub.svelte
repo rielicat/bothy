@@ -26,7 +26,7 @@
   import GitHubManage from './GitHubManage.svelte';
   import Loading from './Loading.svelte';
   import RepoPicker from './RepoPicker.svelte';
-  import type { GitHubApp, GitHubConnection, GitHubProbe } from './types';
+  import type { GitHubApp, GitHubAppCheck, GitHubConnection, GitHubProbe } from './types';
 
   let conns = $state<GitHubConnection[]>([]);
   let apps = $state<GitHubApp[]>([]);
@@ -92,13 +92,17 @@
   let retrying = $state(false);
   let retried = $state(false);
   let switchFailure = $state('');
+  // Try again found no installation on the app's owner: it was uninstalled since.
+  let switchUninstalled = $state(false);
 
   async function switchAgain() {
     if (!switching) return;
     retrying = retried = true;
     switchFailure = '';
+    switchUninstalled = false;
     try {
-      await api.post(`/api/github/apps/${encodeURIComponent(switching.id)}/check`);
+      const r = await api.post<GitHubAppCheck>(`/api/github/apps/${encodeURIComponent(switching.id)}/check`);
+      switchUninstalled = !r.installed;
     } catch (e) {
       switchFailure = errorText(e);
     }
@@ -246,6 +250,17 @@
           details={switchFailure || undefined}
           action={{ label: 'Try again', onclick: switchAgain }}
         />
+        {#if switchUninstalled}
+          <p class="mt-1 pl-6 text-small text-text">
+            {switching.name} isn't installed on {switching.owner} any more.
+            {#if switching.install_url}<a
+                class="link -my-0.5 ml-1 inline-flex min-h-6 items-center pointer-coarse:-my-3 pointer-coarse:min-h-11"
+                href={switching.install_url}
+                target="_blank"
+                rel="noopener noreferrer">Install on GitHub<span aria-hidden="true">&nbsp;↗</span><span class="sr-only"> (opens in a new tab)</span></a
+              >{/if}
+          </p>
+        {/if}
       {/if}
     </div>
   {/if}

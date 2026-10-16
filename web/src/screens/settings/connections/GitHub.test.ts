@@ -340,6 +340,30 @@ describe("Bothy's own GitHub App (§12.2)", () => {
     await waitFor(() => expect(screen.queryByText(/Bothy couldn't switch/)).toBeNull());
   });
 
+  it('says when Try again finds the replacement app no longer installed on its owner', async () => {
+    const id = 'gha_01jops00000000000000000000';
+    const stuck = {
+      id,
+      name: 'Bothy (ops)',
+      owner: 'acme',
+      owner_type: 'Organization',
+      state: 'connected',
+      connection_id: 'ghc_01jops00000000000000000000',
+      replaces: 'ghc_01jacme00000000000000000000',
+      install_url: 'https://github.com/apps/bothy-ops/installations/new',
+    };
+    const calls = await app('', '/settings/connections/github', (m, url) => {
+      if (m === 'GET' && url === '/api/github/apps') return [stuck];
+      if (m === 'POST' && url === `/api/github/apps/${id}/check`) return { installed: false };
+      return undefined;
+    });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText(/Bothy \(ops\) isn't installed on acme any more\./)).toBeTruthy();
+    expect(screen.getByRole('link', { name: /Install on GitHub/ }).getAttribute('href')).toBe(stuck.install_url);
+    expect((await screen.findByRole('alert')).textContent).toContain("Bothy couldn't switch to Bothy (ops) yet, so it still uses this connection.");
+    expect(posts(calls, `/api/github/apps/${id}/check`)).toHaveLength(1);
+  });
+
   const replacement = {
     id: 'gha_01jops00000000000000000000',
     name: 'Bothy (ops)',
