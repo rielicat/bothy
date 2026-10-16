@@ -9,9 +9,10 @@ import (
 )
 
 // slash injects what a slash command typed in a group becomes: a Private,
-// mentioned message.
+// mentioned message, from a channel Slack names "#<chat>".
 func (h *harness) slash(chat, sender, text string) {
-	h.inject(core.Inbound{Chat: h.groupChat(chat), SenderID: sender, SenderName: "User " + sender, Text: text, Mentioned: true, Private: true})
+	h.inject(core.Inbound{Chat: h.groupChat(chat), ChatTitle: "#" + chat, SenderID: sender, SenderName: "User " + sender, Text: text,
+		Mentioned: true, Private: true})
 }
 
 func (h *harness) wantNoSpace(chat string) {
@@ -30,8 +31,8 @@ func TestPrivateSlashInOffChannel(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t, withChecker("slack")).start()
 		h.slash("C200", memberChat, "/status")
-		if v := h.visible(memberChat); len(v) != 1 || v[0] != offHere {
-			t.Fatalf("DM = %q, want the off notice", v)
+		if v := h.visible(memberChat); len(v) != 1 || v[0] != "Bothy is off in #C200. You can message Bothy here, or ask an admin to turn #C200 on." {
+			t.Fatalf("DM = %q, want the off notice naming the channel", v)
 		}
 		h.wantNoSpace("C200")
 		h.slash("C200", memberChat, "/status")
@@ -40,8 +41,8 @@ func TestPrivateSlashInOffChannel(t *testing.T) {
 		}
 		h.space("C201", false, false)
 		h.slash("C201", memberChat, "summarize")
-		if n := len(h.visible(memberChat)); n != 2 {
-			t.Fatalf("an off channel got no notice of its own: %q", h.visible(memberChat))
+		if v := h.visible(memberChat); len(v) != 2 || v[1] != offIn("Team") {
+			t.Fatalf("an off channel got no notice of its own, by the name admins gave it: %q", v)
 		}
 		time.Sleep(offEvery + time.Minute)
 		h.slash("C200", memberChat, "/status")

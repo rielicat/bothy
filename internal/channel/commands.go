@@ -211,7 +211,7 @@ func (h *Hub) cmdStop(ctx context.Context, tg target, chat core.ChatRef) string 
 }
 
 // cmdStopAll is an approver's kill switch from chat. The runner audits it
-// and names the sender in the banner; /resume points to the web.
+// and names the sender in the banner.
 func (h *Hub) cmdStopAll(ctx context.Context) string {
 	if err := h.d.Runner.SetPaused(ctx, true, ""); err != nil {
 		h.log.Error("channel /stopall: pause failed", "err", err)
@@ -221,13 +221,15 @@ func (h *Hub) cmdStopAll(ctx context.Context) string {
 	if err != nil {
 		h.log.Error("channel /stopall: stop failed", "err", err)
 	}
+	// Chat approvers can pause but never resume, so the reply says where.
+	const resume = " An admin can resume Bothy on the web, under Settings → Security."
 	switch n {
 	case 0:
-		return "Paused. No tasks were running. /resume lifts the pause."
+		return "Paused. No tasks were running." + resume
 	case 1:
-		return "Paused. Stopped 1 task. /resume lifts the pause."
+		return "Paused. Stopped 1 task." + resume
 	}
-	return fmt.Sprintf("Paused. Stopped %d tasks. /resume lifts the pause.", n)
+	return fmt.Sprintf("Paused. Stopped %d tasks.", n) + resume
 }
 
 // cmdStatus says, in plain words, what the chat's task is doing, today's

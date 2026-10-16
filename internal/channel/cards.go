@@ -42,8 +42,8 @@ func (h *Hub) onBusEvent(e core.Event) {
 		if h.markResolved(d.Approval, d.Status) {
 			h.enqueueChat(cardQueue(d.Approval), func(ctx context.Context) { h.updateCards(ctx, d) })
 		}
-	case core.BannerData:
-		h.onBanner(e, d)
+	case core.BudgetWarningData:
+		h.onBudgetWarning(e, d)
 	}
 }
 

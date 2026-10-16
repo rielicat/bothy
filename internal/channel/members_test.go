@@ -5,7 +5,6 @@ import (
 	"errors"
 	"slices"
 	"strconv"
-	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -55,7 +54,8 @@ func TestMovedTeammateGetsMovedGreetingOnce(t *testing.T) {
 			h.inject(core.Inbound{Chat: h.dmChat(memberChat), SenderID: memberChat, SenderName: "Mark", Text: text, Mentioned: true})
 		}
 		v := h.visible(memberChat)
-		if len(v) != 1 || !strings.HasPrefix(v[0], "Hi Mark, I work a little differently here now.") {
+		if len(v) != 1 || v[0] != "Hi Mark, this chat is no longer tied to your Bothy account, so your earlier chats and notes stay in Bothy on the web. "+
+			"Ask me anything; when something needs approval, I'll ask an admin and tell you here." {
 			t.Fatalf("DM = %q, want the moved greeting once", v)
 		}
 		if n := len(h.runner.Submitted()); n != 2 {
@@ -422,30 +422,36 @@ func TestGreetAndTellApprover(t *testing.T) {
 	})
 }
 
-// limitBudget reports a daily limit for every principal.
+// limitBudget reports a daily limit for every principal: the cap closest
+// to running out, which needn't be the one that warned.
 type limitBudget struct {
 	*fakes.Budget
 	limit core.Micros
 }
 
 func (b *limitBudget) Daily(context.Context, core.PrincipalID) (core.Micros, core.Micros, error) {
-	return b.limit * 8 / 10, b.limit, nil
+	return b.limit * 98 / 100, b.limit, nil
 }
 
-func TestBudget80DMOncePerDay(t *testing.T) {
+// TestBudgetWarningDMOncePerDay: a teammate whose own limit passed the
+// warning ratio hears it once a day, in that limit's figures.
+func TestBudgetWarningDMOncePerDay(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t)
-		h.hub.d.Budget = &limitBudget{Budget: h.budget, limit: core.MicrosFromUSD(2)}
+		h.hub.d.Budget = &limitBudget{Budget: h.budget, limit: core.MicrosFromUSD(5)}
 		h.start()
 		warn := func(p core.PrincipalID) {
-			h.bus.Publish(core.Event{Type: core.EvBanner, Principal: p, Data: core.BannerData{Level: "warn", Code: "budget_80", Text: "x"}})
+			h.bus.Publish(core.Event{Type: core.EvBudgetWarning, Principal: p,
+				Data: core.BudgetWarningData{Spent: core.MicrosFromUSD(1.7), Limit: core.MicrosFromUSD(2)}})
 			synctest.Wait()
 		}
 		warn(h.pid(memberChat))
 		warn(h.pid(memberChat))
-		if v := h.visible(memberChat); len(v) != 1 || v[0] != "You've used 80% of your $2.00 daily limit in Bothy." {
+		if v := h.visible(memberChat); len(v) != 1 || v[0] != "You've used 85% of your $2.00 daily limit in Bothy." {
 			t.Fatalf("DMs = %q", v)
 		}
+		h.bus.Publish(core.Event{Type: core.EvBudgetWarning, Data: core.BudgetWarningData{Spent: 4, Limit: 5}})
+		synctest.Wait()
 		warn(core.UserPrincipal(h.member.ID))
 		sp := h.space("-500", true, false)
 		warn(sp.Principal)

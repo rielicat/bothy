@@ -26,9 +26,8 @@ func helloText(name string) string {
 
 // movedText greets someone whose chat was linked to a Bothy account before.
 func movedText(name string) string {
-	const rest = "I work a little differently here now. This chat isn't tied to your Bothy account any more, " +
-		"so your earlier chats and notes stay in Bothy on the web. Ask me anything. When something needs approval, " +
-		"I'll ask an approver and tell you here."
+	const rest = "this chat is no longer tied to your Bothy account, so your earlier chats and notes stay in Bothy on the web. " +
+		"Ask me anything; when something needs approval, I'll ask an admin and tell you here."
 	if name = strings.TrimSpace(name); name == "" {
 		return "Hi, " + rest
 	}
@@ -103,9 +102,11 @@ func (h *Hub) TellApprover(ctx context.Context, channel, externalID string) erro
 	return err
 }
 
-// onBanner DMs a teammate whose own daily limit is 80% used, once a day.
-func (h *Hub) onBanner(e core.Event, b core.BannerData) {
-	if b.Code != "budget_80" || b.Clear || e.Principal == "" {
+// onBudgetWarning DMs a teammate whose own daily limit passed
+// budgets.warn_ratio, once a day, with that limit's figures: Daily would
+// name whichever cap is closest to running out.
+func (h *Hub) onBudgetWarning(e core.Event, w core.BudgetWarningData) {
+	if e.Principal == "" || w.Limit <= 0 {
 		return
 	}
 	p := e.Principal
@@ -118,11 +119,7 @@ func (h *Hub) onBanner(e core.Event, b core.BannerData) {
 		if !ok {
 			return
 		}
-		_, limit, err := h.d.Budget.Daily(ctx, p)
-		if err != nil || limit <= 0 {
-			return
-		}
-		text := "You've used 80% of your " + moneyText(limit) + " daily limit in Bothy."
+		text := fmt.Sprintf("You've used %d%% of your %s daily limit in Bothy.", min(w.Spent*100/w.Limit, 100), moneyText(w.Limit))
 		h.enqueueChat(chat.Key(), func(ctx context.Context) { h.reply(ctx, chat, text) })
 	})
 }

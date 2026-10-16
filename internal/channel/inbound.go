@@ -156,9 +156,15 @@ func (h *Hub) rememberDM(ctx context.Context, row core.ChannelIdentity, chatID s
 	return row, nil
 }
 
+// offIn is what a teammate hears in their DM about a channel Bothy is off
+// in (or isn't in), naming it: in their DM, "this channel" would be the DM.
+func offIn(title string) string {
+	name := cmp.Or(strings.TrimSpace(title), "that channel")
+	return plainLine("Bothy is off in " + name + ". You can message Bothy here, or ask an admin to turn " + name + " on.")
+}
+
 const (
-	offHere = "Bothy is off in this channel. Write to me here, or ask an admin to turn the channel on in Approvals."
-	// offEvery bounds offHere per sender and channel: a slash command can be
+	// offEvery bounds offIn per sender and channel: a slash command can be
 	// repeated in a channel Bothy ignores as fast as anyone types it.
 	offEvery = time.Hour
 
@@ -291,7 +297,7 @@ func (h *Hub) group(ctx context.Context, a *adapter, in core.Inbound, ident core
 		// A private message may come from a channel the bot is not in, and
 		// never records one.
 		if in.Private {
-			h.privateOff(ctx, a, in, ident, res)
+			h.privateOff(ctx, a, in, ident, res, spaceTitle(in.ChatTitle))
 			return
 		}
 		// Anyone can add the bot to groups; the limiter bounds how fast one
@@ -307,7 +313,7 @@ func (h *Hub) group(ctx context.Context, a *adapter, in core.Inbound, ident core
 		return
 	}
 	if in.Private && !sp.Enabled {
-		h.privateOff(ctx, a, in, ident, res)
+		h.privateOff(ctx, a, in, ident, res, sp.Title)
 		return
 	}
 	// Chatter Bothy must stay silent in costs nothing, not even the limiter.
@@ -369,8 +375,9 @@ func (h *Hub) refreshChat(a *adapter, sp *core.Space) {
 
 // privateOff answers a message only its sender saw (a Slack slash command)
 // in a channel where Bothy is off or that it isn't in, in their DM: a
-// teammate is told the channel is off, anyone else gets what a DM would.
-func (h *Hub) privateOff(ctx context.Context, a *adapter, in core.Inbound, ident core.ChannelIdentity, res core.IdentityResolution) {
+// teammate is told the channel (title) is off, anyone else gets what a DM
+// would.
+func (h *Hub) privateOff(ctx context.Context, a *adapter, in core.Inbound, ident core.ChannelIdentity, res core.IdentityResolution, title string) {
 	key := a.name + ":" + in.SenderID
 	if ok, _ := h.allowSender(a, in); !ok {
 		return
@@ -382,7 +389,7 @@ func (h *Hub) privateOff(ctx context.Context, a *adapter, in core.Inbound, ident
 				return
 			}
 			h.inSenderDM(a, in, ident, func(ctx context.Context, in core.Inbound, _ core.ChannelIdentity) {
-				h.reply(ctx, in.Chat, offHere)
+				h.reply(ctx, in.Chat, offIn(title))
 			})
 		case res.Status == core.IdentityTeammate && !res.SpaceOn:
 		case res.Member == core.MemberOutsider:

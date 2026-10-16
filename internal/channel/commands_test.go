@@ -449,9 +449,9 @@ func (n namedModels) Model(ref core.ModelRef) (core.ModelInfo, bool) {
 
 func TestStopAllCountsTasks(t *testing.T) {
 	for n, want := range map[int]string{
-		0: "Paused. No tasks were running. /resume lifts the pause.",
-		1: "Paused. Stopped 1 task. /resume lifts the pause.",
-		3: "Paused. Stopped 3 tasks. /resume lifts the pause.",
+		0: "Paused. No tasks were running. An admin can resume Bothy on the web, under Settings → Security.",
+		1: "Paused. Stopped 1 task. An admin can resume Bothy on the web, under Settings → Security.",
+		3: "Paused. Stopped 3 tasks. An admin can resume Bothy on the web, under Settings → Security.",
 	} {
 		bubble(t, func(t *testing.T) {
 			h := newHarness(t, func(h *harness) { h.runner2 = &stopAllRunner{Runner: h.runner, n: n} }).start()

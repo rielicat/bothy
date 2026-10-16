@@ -181,3 +181,20 @@ func TestTeamWarnings(t *testing.T) {
 		t.Fatalf("admin banners survived the day change: %+v", active)
 	}
 }
+
+// The chat apps' banner says how much of their share is used, whatever
+// budgets.warn_ratio is.
+func TestChatShareWarningSaysTheShareUsed(t *testing.T) {
+	e := newEnv(t, func(c *config.Config) { c.Budgets.MemberDailyUSD, c.Budgets.WarnRatio = 10, 0.5 })
+	maya := e.teammate(t, "slack", "U1")
+	e.spend(t, maya, 1.6)
+	var texts []string
+	for _, b := range e.bus.Banners(core.Filter{Admin: true}) {
+		if d := b.Data.(core.BannerData); d.Code == "chat_budget_80" {
+			texts = append(texts, d.Text)
+		}
+	}
+	if len(texts) != 1 || texts[0] != "Chat apps have used 53% of today's $3.00 limit." {
+		t.Fatalf("chat share banners = %q", texts)
+	}
+}

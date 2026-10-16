@@ -326,7 +326,7 @@ func (s *Service) warn(ctx context.Context, c *config.Config, day string, p core
 		s.bus.Publish(core.Event{Type: core.EvBanner, Data: core.BannerData{
 			Level:  "warn",
 			Code:   "chat_budget_80",
-			Text:   "Chat apps have used 80% of today's " + money(cp.chat) + " limit.",
+			Text:   fmt.Sprintf("Chat apps have used %d%% of today's %s limit.", sp.chat*100/cp.chat, money(cp.chat)),
 			Action: "/activity/spending",
 		}})
 	}
