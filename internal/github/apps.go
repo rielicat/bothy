@@ -332,9 +332,12 @@ func (s *Service) InstallApp(ctx context.Context, id string, installationID int6
 		conn, err := s.store.Connection(ctx, a.Connection)
 		switch {
 		case err == nil && conn.InstallationID == installationID:
-			return conn, nil
+			return s.finishSwap(ctx, a, conn, nil, by), nil
 		case err == nil:
-			return s.reinstall(ctx, a, conn, installationID, by)
+			if conn, err = s.reinstall(ctx, a, conn, installationID, by); err != nil {
+				return nil, err
+			}
+			return s.finishSwap(ctx, a, conn, nil, by), nil
 		case !errors.Is(err, core.ErrNotFound):
 			return nil, err
 		}
@@ -354,18 +357,30 @@ func (s *Service) InstallApp(ctx context.Context, id string, installationID int6
 		s.dropSource(conn.ID)
 		return nil, err
 	}
-	if a.Replaces != "" && a.Replaces != conn.ID {
+	return s.finishSwap(ctx, a, conn, p, by), nil
+}
+
+// finishSwap moves the connection the app replaces over to conn, its own.
+// A failure keeps Replaces, so the next check or setup redirect tries
+// again, and is audited; until then the GitHub page says Bothy still uses
+// the old connection. p is the probe that just made conn, or nil.
+func (s *Service) finishSwap(ctx context.Context, a *core.GitHubOwnApp, conn *core.GitHubConnection, p *core.GitHubProbe, by core.UserID) *core.GitHubConnection {
+	if a.Replaces == "" {
+		return conn
+	}
+	if a.Replaces != conn.ID {
 		if err := s.swap(ctx, a.Replaces, conn, p, by); err != nil {
-			s.log.Warn("github: moving repositories to the new app", "app", a.ID, "err", err)
+			s.log.Warn("github: moving to the new app", "app", a.ID, "err", err)
+			s.record(ctx, userActor(by), "github.app_replace", a.ID, "error", map[string]any{"slug": a.Slug, "name": a.Name,
+				"replaces": a.Replaces, "error": s.vault.Redactor().Redact(err.Error())})
+			return conn
 		}
 	}
-	if a.Replaces != "" {
-		a.Replaces = ""
-		if err := s.store.PutApp(ctx, a); err != nil {
-			s.log.Warn("github: recording the finished swap", "app", a.ID, "err", err)
-		}
+	a.Replaces = ""
+	if err := s.store.PutApp(ctx, a); err != nil {
+		s.log.Warn("github: recording the finished swap", "app", a.ID, "err", err)
 	}
-	return conn, nil
+	return conn
 }
 
 // ownInstallation asks GitHub for one of the app's installations with the
@@ -409,6 +424,7 @@ func (s *Service) reinstall(ctx context.Context, a *core.GitHubOwnApp, conn *cor
 
 // swap moves the repositories the replaced connection allows to the new
 // one, where its installation reaches them, then disconnects the old one.
+// Without p (a retry) it asks GitHub again what the installation reaches.
 func (s *Service) swap(ctx context.Context, oldID string, conn *core.GitHubConnection, p *core.GitHubProbe, by core.UserID) error {
 	_, oldRepos, err := s.Connection(ctx, oldID)
 	if errors.Is(err, core.ErrNotFound) {
@@ -426,6 +442,11 @@ func (s *Service) swap(ctx context.Context, oldID string, conn *core.GitHubConne
 	ep, err := s.endpoint()
 	if err != nil {
 		return err
+	}
+	if p == nil {
+		if p = s.probe(ctx, ep, s.source(conn, ep), conn.Auth, conn.AppID, conn.InstallationID, conn.ID); !p.OK {
+			return errors.New(p.Error)
+		}
 	}
 	if err := s.lookupUnlisted(ctx, s.apiClient(ep, s.source(conn, ep)), p, held, conn.ID); err != nil {
 		return err

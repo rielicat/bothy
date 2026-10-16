@@ -315,6 +315,23 @@ describe("Bothy's own GitHub App (§12.2)", () => {
     expect(calls.some((c) => c.method === 'DELETE' && c.url.startsWith('/api/github/connections/'))).toBe(true);
   });
 
+  it('says when switching to a replacement app failed and tries again', async () => {
+    const id = 'gha_01jops00000000000000000000';
+    let switched = false;
+    const stuck = { id, name: 'Bothy (ops)', state: 'connected', connection_id: 'ghc_01jops00000000000000000000', replaces: 'ghc_01jacme00000000000000000000' };
+    const calls = await app('', '/settings/connections/github?github_app=installed', (m, url) => {
+      if (m === 'GET' && url === '/api/github/apps') return switched ? [] : [stuck];
+      if (m === 'POST' && url === `/api/github/apps/${id}/check`) return (switched = true), { installed: true };
+      return undefined;
+    });
+    expect(await screen.findByText(/Bothy couldn't switch to Bothy \(ops\) yet, so it still uses this connection\./)).toBeTruthy();
+    // The landing doesn't open the picker on the connection being replaced.
+    await expect(screen.findByRole('dialog', {}, { timeout: 500 })).rejects.toThrow();
+    await fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(posts(calls, `/api/github/apps/${id}/check`)).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByText(/Bothy couldn't switch/)).toBeNull());
+  });
+
   it('creates a replacement app for an existing connection', async () => {
     const calls = await app('');
     await fireEvent.click(await screen.findByRole('button', { name: 'Replace token' }));

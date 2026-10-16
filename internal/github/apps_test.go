@@ -2,6 +2,7 @@ package github
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -579,6 +580,59 @@ func TestAppReplacesConnection(t *testing.T) {
 	}
 	if repos, _ := f.store.Repos(f.ctx, next.ID); len(repos) != 1 || repos[0].Name != "Hello-World" {
 		t.Errorf("repos after the second swap = %+v", repos)
+	}
+}
+
+// flakyStore fails deleting one connection while failDelete names it.
+type flakyStore struct {
+	core.GitHubStore
+	failDelete string
+}
+
+func (s *flakyStore) DeleteConnection(ctx context.Context, id string) error {
+	if id == s.failDelete {
+		return errors.New("store: database is locked")
+	}
+	return s.GitHubStore.DeleteConnection(ctx, id)
+}
+
+// A swap that fails leaves the replaced connection in use and the app
+// still replacing it, so the next check finishes the swap.
+func TestAppSwapRetries(t *testing.T) {
+	f := newFx(t)
+	pat := f.connect("octocat/Hello-World")
+	f.gh.InstallRepos = []string{"octocat/Hello-World"}
+	flaky := &flakyStore{GitHubStore: f.store, failDelete: pat.ID}
+	f.store = flaky
+	f.logTo()
+	a := f.makeAppReplacing("", pat.ID)
+	conn, err := f.svc.InstallApp(f.ctx, a.ID, f.installOnGitHub(a), "usr_owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.store.Connection(f.ctx, pat.ID); err != nil {
+		t.Fatalf("the replaced connection after a failed swap: %v", err)
+	}
+	if got, _ := f.store.App(f.ctx, a.ID); got.Replaces != pat.ID || got.Connection != conn.ID {
+		t.Fatalf("app after a failed swap = %+v", got)
+	}
+	if rows := f.audits("github.app_replace"); len(rows) != 1 || rows[0].Outcome != "error" || rows[0].Target != a.ID ||
+		!strings.Contains(string(rows[0].Detail), `"replaces":"`+pat.ID+`"`) {
+		t.Errorf("app_replace audit = %+v", rows)
+	}
+
+	flaky.failDelete = ""
+	if c, err := f.svc.CheckApp(f.ctx, a.ID, "usr_owner"); err != nil || c == nil || c.ID != conn.ID {
+		t.Fatalf("check = %+v %v", c, err)
+	}
+	if _, err := f.store.Connection(f.ctx, pat.ID); !errors.Is(err, core.ErrNotFound) {
+		t.Errorf("the replaced connection after the retry: %v", err)
+	}
+	if repos, _ := f.store.Repos(f.ctx, conn.ID); len(repos) != 1 || repos[0].FullName() != "octocat/Hello-World" || !repos[0].Allowed {
+		t.Errorf("repos moved = %+v", repos)
+	}
+	if got, _ := f.store.App(f.ctx, a.ID); got.Replaces != "" {
+		t.Errorf("swap not recorded as done: %+v", got)
 	}
 }
 

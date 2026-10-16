@@ -373,6 +373,8 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 		return "Created the GitHub App " + cmpOr(d.str("name"), d.str("slug"))
 	case "github.app_retire":
 		return "Stopped using the GitHub App " + cmpOr(d.str("name"), d.str("slug"))
+	case "github.app_replace":
+		return "Couldn't switch GitHub to " + cmpOr(d.str("name"), d.str("slug"))
 	case "github.repos":
 		return "Changed the repositories Bothy can use"
 	case "github.disconnect":

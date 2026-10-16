@@ -584,6 +584,7 @@ func TestGitHubAppAuditSummaries(t *testing.T) {
 		{Actor: admin, Action: "github.app_create", Target: ghAppTestID, Outcome: "ok", Detail: detail(map[string]any{"name": "Bothy (acme)", "slug": "bothy-acme"})},
 		{Actor: admin, Action: "github.app_create", Outcome: "error", Detail: detail(map[string]any{"owner": "acme"})},
 		{Actor: admin, Action: "github.app_retire", Target: ghAppTestID, Outcome: "ok", Detail: detail(map[string]any{"name": "Bothy (labs)"})},
+		{Actor: admin, Action: "github.app_replace", Target: ghAppTestID, Outcome: "error", Detail: detail(map[string]any{"name": "Bothy (ops)"})},
 		{Actor: admin, Action: "github.connect", Target: ghConnID, Outcome: "ok", Detail: detail(map[string]any{"method": "app_manifest", "app_name": "Bothy (acme)"})},
 		{Actor: admin, Action: "github.connect", Target: ghConnID, Outcome: "ok", Detail: detail(map[string]any{"method": "token"})},
 	} {
@@ -597,7 +598,7 @@ func TestGitHubAppAuditSummaries(t *testing.T) {
 	for _, r := range rows.Items {
 		got = append(got, r.Summary)
 	}
-	for _, want := range []string{"Created the GitHub App Bothy (acme)", "Couldn't create a GitHub App", "Stopped using the GitHub App Bothy (labs)",
+	for _, want := range []string{"Created the GitHub App Bothy (acme)", "Couldn't create a GitHub App", "Stopped using the GitHub App Bothy (labs)", "Couldn't switch GitHub to Bothy (ops)",
 		"Connected GitHub as Bothy (acme)", "Connected GitHub"} {
 		if !slices.Contains(got, want) {
 			t.Errorf("no row %q in %q", want, got)

@@ -87,6 +87,24 @@
   const pending = $derived(apps.find((a) => a.state === 'pending'));
   const retired = $derived(apps.filter((a) => a.state === 'retired'));
   const madeApp = $derived(conns[0] ? apps.find((a) => a.connection_id === conns[0].id) : undefined);
+  // An app made to replace a connection is installed, but moving to it failed: Bothy still uses the old one.
+  const switching = $derived(apps.find((a) => a.state === 'connected' && a.replaces && conns.some((c) => c.id === a.replaces)));
+  let retrying = $state(false);
+  let retried = $state(false);
+  let switchFailure = $state('');
+
+  async function switchAgain() {
+    if (!switching) return;
+    retrying = retried = true;
+    switchFailure = '';
+    try {
+      await api.post(`/api/github/apps/${encodeURIComponent(switching.id)}/check`);
+    } catch (e) {
+      switchFailure = errorText(e);
+    }
+    await load();
+    retrying = false;
+  }
 
   async function installed() {
     landing = 'installed';
@@ -216,6 +234,21 @@
       {#each retired as a (a.id)}<GitHubAppRetired app={a} ondismissed={load} />{/each}
     </div>
   {/if}
+  {#if manage && switching}
+    <div class="mb-6">
+      {#if retrying}
+        <StatusLine tone="progress" text="Switching to {switching.name}…" />
+      {:else}
+        <StatusLine
+          tone="danger"
+          alert={retried}
+          text="Bothy couldn't switch to {switching.name} yet, so it still uses this connection."
+          details={switchFailure || undefined}
+          action={{ label: 'Try again', onclick: switchAgain }}
+        />
+      {/if}
+    </div>
+  {/if}
   {#if manage && pending}
     <GitHubAppPending app={pending} compact oninstalled={installed} onretired={load} />
   {/if}
@@ -225,7 +258,7 @@
   <GitHubManage
     conn={conns[0]}
     app={madeApp}
-    landing={landing === 'installed' || landing === 'updated' ? landing : undefined}
+    landing={!switching && (landing === 'installed' || landing === 'updated') ? landing : undefined}
     {reading}
     onchanged={load}
     onreplace={replace}
