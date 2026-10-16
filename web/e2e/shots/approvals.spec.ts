@@ -125,19 +125,20 @@ const states: ShotState[] = [
   { name: 'item-mcp-review', route: '/approvals', ready: frame, setup: openRow('i:mcp:docs', (p) => p.getByRole('button', { name: 'Show what changed' }).first().click()) },
   { name: 'item-skill-review', route: '/approvals', ready: frame, setup: openRow('i:skill:incident-review') },
   { name: 'item-skill-review-diff', route: '/approvals', ready: frame, setup: openRow('i:skill:incident-review', (p) => p.getByRole('button', { name: 'Show what changed' }).first().click()) },
-  { name: 'item-unknown-sender', route: '/approvals', ready: frame, setup: openRow('i:sender:slack:U03JORDAN') },
+  { name: 'item-unknown-sender', route: '/approvals', ready: frame, setup: openRow('i:sender:telegram:7215') },
+  { name: 'item-let-in', route: '/approvals', ready: frame, setup: openRow('i:sender:telegram:7215', (p) => p.getByRole('button', { name: 'Let in' }).focus()) },
   { name: 'item-group-chat', route: '/approvals', ready: frame, setup: openRow('i:group:spc_01jsupport0000000000000000') },
-  // A note suggestion is an approval whose card is a review (S12).
-  { name: 'item-note-suggestion', route: '/approvals', mock: 'approvals-all', ready: frame, setup: openRow(`a:${row('notes')}`) },
   {
-    name: 'item-link-person',
+    name: 'item-channel-choice',
     route: '/approvals',
     ready: frame,
-    setup: openRow('i:sender:slack:U03JORDAN', async (p) => {
-      await p.getByRole('button', { name: 'Link to a person…' }).click();
-      await p.getByRole('dialog').waitFor();
-    }),
+    setup: openRow('i:group:spc_01jsupport0000000000000000', (p) => p.getByRole('radio', { name: 'Do work, with approval' }).check()),
   },
+  { name: 'item-channel-discord', route: '/approvals', ready: frame, setup: openRow('i:group:spc_01jcommunity00000000000000') },
+  { name: 'approval-team-card', route: '/approvals/apr_01jteamdm00000000000000000', ready: frame },
+  { name: 'approval-team-channel', route: '/approvals/apr_01jteamchan000000000000000', ready: frame },
+  // A note suggestion is an approval whose card is a review (S12).
+  { name: 'item-note-suggestion', route: '/approvals', mock: 'approvals-all', ready: frame, setup: openRow(`a:${row('notes')}`) },
 ];
 
 shots('approvals', states);

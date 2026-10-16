@@ -159,6 +159,7 @@ const states: ShotState[] = [
 
   // Chat apps (§12.3)
   { name: 'slack-manage', route: '/settings/connections/slack', setup: steps(see('Group chats')) },
+  { name: 'slack-manage-who', route: '/settings/connections/slack', setup: steps(see('Who can use Bothy'), (p) => p.getByRole('heading', { name: 'Who can use Bothy' }).scrollIntoViewIfNeeded()), full: false },
   { name: 'slack-test', route: '/settings/connections/slack', setup: steps(click('Test connection'), see('The connection works.')) },
   { name: 'slack-test-failed', route: '/settings/connections/slack', mock: 'channel-fail:slack', setup: steps(click('Test connection'), see("didn't accept")) },
   {
@@ -167,16 +168,14 @@ const states: ShotState[] = [
     mock: 'channel-fail:slack',
     setup: steps(click('Test connection'), click('Replace the tokens'), see('Paste the two tokens'), click('Replace the bot token')),
   },
-  { name: 'slack-sender-menu', route: '/settings/connections/slack', setup: steps(click('Options for @jordan')), full: false },
-  { name: 'slack-link-dialog', route: '/settings/connections/slack', setup: steps(menu('Options for @jordan', 'Link to a person…'), dialog('Link @jordan to a person')), full: false },
   { name: 'slack-disconnect', route: '/settings/connections/slack', setup: steps(click('Disconnect Slack…'), dialog('Disconnect Slack?')), full: false },
   { name: 'slack-steps', route: '/settings/connections/slack', setup: steps(...disconnect('Slack')) },
   { name: 'slack-checking', route: '/settings/connections/slack', mock: 'slow', setup: steps(...disconnect('Slack'), ...slackTokens, see('Checking the tokens…')) },
-  { name: 'slack-connected', route: '/settings/connections/slack', setup: steps(...disconnect('Slack'), ...slackTokens, see('Connected to Acme as @bothy.'), see('/bothy pair')) },
-  { name: 'slack-linked', route: '/settings/connections/slack', mock: 'paired:slack', setup: steps(...disconnect('Slack'), ...slackTokens, see('Linked as @sam.')) },
+  { name: 'slack-connected', route: '/settings/connections/slack', setup: steps(...disconnect('Slack'), ...slackTokens, see('Connected to Acme as @bothy.'), see('Message Bothy in Slack to try it.')) },
   { name: 'slack-failed', route: '/settings/connections/slack', mock: 'channel-fail:slack', setup: steps(...disconnect('Slack'), ...slackTokens, see("Slack didn't accept"), click('Details')) },
   { name: 'slack-rejected-saved', route: '/settings/connections/slack', mock: 'channel-down:slack', setup: steps(see('saved'), see('Check again')) },
   { name: 'telegram-manage', route: '/settings/connections/telegram', setup: steps(see('Ops team')) },
+  { name: 'telegram-manage-who', route: '/settings/connections/telegram', setup: steps(see('People you let in from Approvals.'), (p) => p.getByText('People you let in from Approvals.').scrollIntoViewIfNeeded()), full: false },
   { name: 'telegram-steps', route: '/settings/connections/telegram', setup: steps(...disconnect('Telegram')) },
   { name: 'telegram-connected', route: '/settings/connections/telegram', setup: steps(...disconnect('Telegram'), fill('Bot token', TELEGRAM, true), see('Connected as @acme_bothy_bot.'), see('Open Telegram')) },
   { name: 'telegram-failed', route: '/settings/connections/telegram', mock: 'channel-fail:telegram', setup: steps(...disconnect('Telegram'), fill('Bot token', TELEGRAM, true), see("Telegram didn't accept")) },
@@ -184,7 +183,15 @@ const states: ShotState[] = [
   {
     name: 'discord-connected',
     route: '/settings/connections/discord',
-    setup: steps(fill('Bot token', DISCORD), fill('Application ID', '112233445566778899', true), see('Invite Bothy to your server'), see('/pair')),
+    setup: steps(fill('Bot token', DISCORD), fill('Application ID', '112233445566778899', true), see('Invite Bothy to your server'), see('Message Bothy in Discord to try it.')),
+  },
+  { name: 'discord-manage', route: '/settings/connections/discord', mock: 'discord-on', setup: steps(see('Acme Community')) },
+  {
+    name: 'discord-turn-off-confirm',
+    route: '/settings/connections/discord',
+    mock: 'discord-on',
+    setup: steps(click('Answers here', 'switch' as 'button'), (p) => p.waitForTimeout(300), click('Answers here', 'switch' as 'button'), dialog('Turn off Bothy in #general?')),
+    full: false,
   },
   { name: 'discord-intent', route: '/settings/connections/discord', mock: 'channel-fail:intent', setup: steps(fill('Bot token', DISCORD), fill('Application ID', '112233445566778899', true), see('Message Content Intent turned on')) },
   { name: 'discord-failed', route: '/settings/connections/discord', mock: 'channel-fail:discord', setup: steps(fill('Bot token', DISCORD), fill('Application ID', '112233445566778899', true), see("Discord didn't accept")) },

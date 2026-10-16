@@ -108,7 +108,7 @@ test('fits a 360 px phone and keeps 44 px targets under a coarse pointer', async
       await frame(page);
       expect.soft(await probe(page, { overflow: true, targets: true, minText: true, blur: false, shadows: false, nesting: false, leftEdge: false }), r).toEqual([]);
     }
-    // The Telegram link step drops under its QR code; squeezed beside it, Open Telegram ran off the screen.
+    // Open Telegram sits under the try-it line and stays on a phone screen.
     await go(page, '/settings/connections/telegram', '');
     await page.getByRole('button', { name: 'Disconnect Telegram…' }).click();
     await page.getByRole('dialog', { name: 'Disconnect Telegram?' }).getByRole('button', { name: 'Disconnect Telegram', exact: true }).click();
@@ -168,18 +168,23 @@ test('the option lists and the people picker work from the keyboard', async ({ p
   await expect(add).toBeFocused();
 });
 
-test('connect Slack: tokens, the check, then the link code', async ({ page }) => {
-  await go(page, '/settings/connections/slack', 'paired:slack');
+test('connect Slack: tokens and the check, then who can use Bothy', async ({ page }) => {
+  await go(page, '/settings/connections/slack', '');
   await page.getByRole('button', { name: 'Disconnect Slack…' }).click();
   await page.getByRole('dialog', { name: 'Disconnect Slack?' }).getByRole('button', { name: 'Disconnect Slack' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Connect Slack' })).toBeVisible();
   await page.getByLabel('App-level token').fill('xapp-' + '1-A0123456789-1234567890123-abcdef');
   await page.getByLabel('Bot token').fill('xoxb-' + '1234567890-1234567890123-AbCdEfGhIjKlMnOp');
   await expect(page.getByText('Connected to Acme as @bothy.')).toBeVisible();
-  await expect(page.getByText('/bothy pair 7KQ2-MX4D')).toBeVisible();
-  await expect(page.getByText('Linked as @sam.')).toBeVisible();
+  await expect(page.getByText('Message Bothy in Slack to try it.', { exact: false })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Step 3/ })).toHaveCount(0);
+  await page.locator('#main').getByRole('link', { name: 'People' }).click();
+  await expect(page).toHaveURL(/\/settings\/people$/);
+  await expect(page.getByRole('heading', { name: 'In chat apps' })).toBeVisible();
+  await go(page, '/settings/connections/slack');
+  await expect(page.getByText('Everyone in Acme can message Bothy', { exact: false })).toBeVisible();
   await go(page, '/settings/connections');
-  await expect(page.getByText('Connected to Acme · 2 people linked')).toBeVisible();
+  await expect(page.getByText('Connected to Acme · 2 people')).toBeVisible();
 });
 
 test('connect GitHub: Bothy creates its app, then the repositories, then reading starts', async ({ page }) => {

@@ -163,8 +163,9 @@ function teamList(): Approval[] {
       title: 'Write file',
       act: action('fs_write', 'fs.write', 'local_write', { path: 'notes/standup.md', content: '- Alex: login redirect fix\n- Priya: pricing page', mode: 'create' }, { paths: ['notes/standup.md'] }),
       choices: ['allow_once', 'deny'],
-      created: 6,
-      expires: 40,
+      // The newest requests, so the inbox keeps its order for the account's.
+      created: 0.6,
+      expires: 55,
     }),
     team({
       id: 'apr_01jteamdm00000000000000000',
@@ -172,8 +173,8 @@ function teamList(): Approval[] {
       chat: '',
       title: 'Run shell command',
       act: action('shell', 'exec', 'local_write', { argv: ['python3', 'sales_report.py', '--week', '41'], cwd: '' }, { argv: ['python3', 'sales_report.py', '--week', '41'] }),
-      created: 4,
-      expires: 40,
+      created: 0.4,
+      expires: 58,
     }),
   ];
 }

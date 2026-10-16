@@ -53,13 +53,13 @@ const editor = (page: Page) => page.getByLabel('Personality').waitFor();
 
 async function personMenu(page: Page, name: string) {
   await frame(page);
-  await page.getByRole('button', { name: `Options for ${name}` }).click();
+  await page.getByRole('button', { name: `Options for ${name}`, exact: true }).click();
   await settle(page);
 }
 
 const states: ShotState[] = [
   // Account
-  { name: 'account', route: '/settings/account', ready: 'Linked chat apps', setup: frame },
+  { name: 'account', route: '/settings/account', ready: 'API access', setup: frame },
   { name: 'account-sign-in-methods', route: '/settings/account', mock: 'signin-linked,signin-github', ready: 'Sign-in methods', setup: frame },
   { name: 'account-sign-in-only', route: '/settings/account', mock: 'signin-only', ready: 'Not set. You sign in with Google.', setup: frame },
   {
@@ -70,39 +70,9 @@ const states: ShotState[] = [
     setup: frame,
   },
   {
-    name: 'account-unlinked',
-    route: '/settings/account',
-    ready: 'Linked chat apps',
-    setup: async (page) => {
-      await button('Unlink Telegram')(page);
-      await page.getByText('Not linked').waitFor();
-    },
-  },
-  {
-    name: 'account-link',
-    route: '/settings/account',
-    ready: 'Linked chat apps',
-    full: false,
-    setup: async (page) => {
-      // The fixture gateway announces a link to every open page 6 s after a code
-      // is made, which would land in a later capture; answering here keeps each one alone.
-      await page.route('**/api/pairing', (r) =>
-        r.fulfill({ json: { code: '7KQ2MX4D', expires_at: new Date(Date.now() + 15 * 60_000).toISOString(), deep_links: { telegram: 'https://t.me/sams_bothy_bot?start=7KQ2MX4D' } } }),
-      );
-      await button('Unlink Telegram')(page);
-      // From the keyboard: on a phone the "Telegram unlinked." toast sits over the
-      // button, and a pointer resting on it holds the toast open.
-      await page.getByRole('button', { name: 'Link Telegram' }).focus();
-      await page.keyboard.press('Enter');
-      await page.getByRole('dialog').getByRole('button', { name: /Link your account/ }).click();
-      await page.getByRole('dialog').getByText(/pair/).first().waitFor();
-      await settle(page);
-    },
-  },
-  {
     name: 'account-password',
     route: '/settings/account',
-    ready: 'Linked chat apps',
+    ready: 'API access',
     full: false,
     setup: async (page) => {
       await button('Change password…')(page);
@@ -115,7 +85,7 @@ const states: ShotState[] = [
   {
     name: 'account-password-errors',
     route: '/settings/account',
-    ready: 'Linked chat apps',
+    ready: 'API access',
     full: false,
     setup: async (page) => {
       await button('Change password…')(page);
@@ -126,7 +96,7 @@ const states: ShotState[] = [
   {
     name: 'account-token-create',
     route: '/settings/account',
-    ready: 'Linked chat apps',
+    ready: 'API access',
     full: false,
     setup: async (page) => {
       await button('Create token')(page);
@@ -137,7 +107,7 @@ const states: ShotState[] = [
   {
     name: 'account-token-created',
     route: '/settings/account',
-    ready: 'Linked chat apps',
+    ready: 'API access',
     full: false,
     setup: async (page) => {
       await button('Create token')(page);
@@ -149,8 +119,8 @@ const states: ShotState[] = [
       await settle(page);
     },
   },
-  { name: 'account-revoke', route: '/settings/account', ready: 'Linked chat apps', full: false, setup: button('Revoke Open WebUI…') },
-  { name: 'account-member', route: '/settings/account', mock: 'member', ready: 'Linked chat apps', setup: frame },
+  { name: 'account-revoke', route: '/settings/account', ready: 'API access', full: false, setup: button('Revoke Open WebUI…') },
+  { name: 'account-member', route: '/settings/account', mock: 'member', ready: 'API access', setup: frame },
 
   // General
   { name: 'general', route: '/settings/general', ready: 'Workspace', setup: frame },
@@ -401,6 +371,53 @@ const states: ShotState[] = [
     },
   },
   { name: 'people-solo', route: '/settings/people', mock: 'people-solo', ready: "It's just you so far.", setup: frame },
+  {
+    name: 'people-chat-apps',
+    route: '/settings/people',
+    ready: 'In chat apps',
+    setup: async (page) => {
+      await frame(page);
+      await page.getByRole('heading', { name: 'In chat apps' }).scrollIntoViewIfNeeded();
+      await page.getByText('Riley Park').waitFor();
+    },
+  },
+  {
+    name: 'people-chat-limit',
+    route: '/settings/people',
+    ready: 'In chat apps',
+    full: false,
+    setup: async (page) => {
+      await personMenu(page, 'Alex Kim');
+      await page.getByRole('menuitem', { name: 'Daily limit…' }).click();
+      await page.getByRole('dialog').getByRole('radio', { name: 'Set a limit' }).check();
+      await page.getByRole('dialog').getByRole('textbox', { name: 'Daily limit' }).fill('5.00');
+    },
+  },
+  {
+    name: 'people-block-dialog',
+    route: '/settings/people',
+    ready: 'In chat apps',
+    full: false,
+    setup: async (page) => {
+      await personMenu(page, 'Morgan Reyes');
+      await page.getByRole('menuitem', { name: 'Block…' }).click();
+      await page.getByRole('dialog', { name: 'Block Morgan Reyes?' }).waitFor();
+      await settle(page);
+    },
+  },
+  {
+    name: 'people-delete-dialog',
+    route: '/settings/people',
+    ready: 'In chat apps',
+    full: false,
+    setup: async (page) => {
+      await personMenu(page, 'Casey');
+      await page.getByRole('menuitem', { name: 'Delete their data…' }).click();
+      await page.getByRole('dialog', { name: "Delete Casey's data?" }).waitFor();
+      await settle(page);
+    },
+  },
+  { name: 'people-chat-none', route: '/settings/people', mock: 'chat-people-none', ready: 'Nobody has messaged Bothy in a chat app yet.', setup: frame },
 ];
 
 shots('settings', states);

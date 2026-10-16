@@ -80,6 +80,8 @@ const states: ShotState[] = [
     full: false,
     setup: then(click('More for Weekly PR digest'), (p) => p.getByRole('menuitem', { name: 'Delete…' }).evaluate((el) => (el as HTMLElement).click())),
   },
+  { name: 'schedules-team', route: '/activity/schedules', ready: 'Weekly sales summary', setup: then((p) => p.getByRole('heading', { name: 'In chat apps' }).scrollIntoViewIfNeeded()) },
+  { name: 'schedules-team-delete', route: '/activity/schedules', ready: 'Weekly sales summary', full: false, setup: then(click('Delete Ops handover…')) },
   { name: 'schedule-new', route: '/activity/schedules/new', ready: 'What should Bothy do?', setup: frame },
   { name: 'schedule-new-errors', route: '/activity/schedules/new', ready: 'What should Bothy do?', setup: then(click('Create schedule')) },
   {

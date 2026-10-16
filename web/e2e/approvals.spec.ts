@@ -64,13 +64,42 @@ test.describe('approvals inbox', () => {
     await expect(page.getByText('“Keep it for the audit”')).toBeVisible();
   });
 
+  test('Let in, and Turn on with what Bothy may do there, without a pointer', async ({ page }) => {
+    await inbox(page);
+    await page.locator('[data-row="i:sender:telegram:7215"] button[aria-expanded="false"]').focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('article[data-item="sender:telegram:7215"]')).toBeFocused();
+    await page.keyboard.press('a');
+    await expect(live(page)).toHaveText(/Let in\. Next: /);
+
+    // The next item may already have opened in its place, with focus.
+    const card = page.locator('article[data-item="group:spc_01jsupport0000000000000000"]');
+    if (!(await card.isVisible())) {
+      await page.locator('[data-row="i:group:spc_01jsupport0000000000000000"] button[aria-expanded="false"]').focus();
+      await page.keyboard.press('Enter');
+    }
+    await expect(card).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(card.getByRole('radio', { name: 'Answer questions' })).toBeFocused();
+    // Inside the choice, keys move between the options and decide nothing.
+    await page.keyboard.press('ArrowDown');
+    await expect(card.getByRole('radio', { name: 'Do work, with approval' })).toBeChecked();
+    await page.keyboard.press('Tab');
+    await expect(card.getByRole('button', { name: 'Turn on' })).toBeFocused();
+    const patched = page.waitForRequest((r) => r.method() === 'PATCH' && r.url().endsWith('/api/spaces/spc_01jsupport0000000000000000'));
+    await page.keyboard.press('a');
+    expect(JSON.parse((await patched).postData() ?? '{}')).toEqual({ enabled: true, tool_profile: 'standard' });
+    await expect(live(page)).toHaveText(/Turned on\. Next: /);
+  });
+
   test('the person who asked for a deploy sees no decision buttons', async ({ page }) => {
     await inbox(page, 'member');
     const deploy = page.locator('[data-row="a:apr_01jdeployweb0000000000000"]');
     await expect(page.getByRole('heading', { name: 'Waiting for others' })).toBeVisible();
     await deploy.locator('button[aria-expanded]').click();
     const card = deploy.locator('article');
-    await expect(card.getByText('You asked for this, so 2 other people need to approve it.')).toBeVisible();
+    // "…so 2 other people need to approve it." until the votes load, then the count so far.
+    await expect(card.getByText(/^You asked for this/)).toBeVisible();
     await expect(card.locator('button[data-choice]')).toHaveCount(0);
     await expect(card.getByRole('button', { name: 'Cancel request' })).toBeVisible();
   });

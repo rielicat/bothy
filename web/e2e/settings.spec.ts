@@ -160,6 +160,36 @@ test('Account connects and disconnects sign-in methods', async ({ page }) => {
   await assertPlainCopy(page, { ignore: shell });
 });
 
+test('people in chat apps: can approve, daily limit, block and delete', async ({ page }) => {
+  await go(page, '/settings/people');
+  const section = page.locator('section', { has: page.getByRole('heading', { name: 'In chat apps' }) });
+  const alex = section.getByRole('switch', { name: 'Can approve: Alex Kim' });
+  await alex.click();
+  await expect(alex).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByText('Saved.')).toBeVisible();
+
+  await section.getByRole('button', { name: 'Options for Alex Kim' }).click();
+  await page.getByRole('menuitem', { name: 'Daily limit…' }).click();
+  const limit = page.getByRole('dialog', { name: 'Daily limit for Alex Kim' });
+  await limit.getByRole('radio', { name: 'Set a limit' }).check();
+  await limit.getByRole('textbox', { name: 'Daily limit' }).fill('5');
+  await limit.getByRole('button', { name: 'Save' }).click();
+  await expect(section.getByText(/of \$5\.00 today/)).toBeVisible();
+
+  await section.getByRole('button', { name: 'Options for Morgan Reyes' }).click();
+  await page.getByRole('menuitem', { name: 'Block…' }).click();
+  await page.getByRole('dialog', { name: 'Block Morgan Reyes?' }).getByRole('button', { name: 'Block' }).click();
+  await expect(section.getByText('Discord · Blocked')).toBeVisible();
+
+  await section.getByRole('button', { name: 'Options for Morgan Reyes' }).click();
+  await page.getByRole('menuitem', { name: 'Delete their data…' }).click();
+  const del = page.getByRole('dialog', { name: "Delete Morgan Reyes's data?" });
+  await expect(del.getByText('They stay blocked.', { exact: false })).toBeVisible();
+  await del.getByRole('button', { name: 'Delete' }).click();
+  await expect(page.getByText('Deleted.')).toBeVisible();
+  await assertPlainCopy(page, { ignore: shell });
+});
+
 test('members see only their account', async ({ page }) => {
   await go(page, '/settings/account', 'member');
   await expect(page.getByRole('heading', { level: 1, name: 'Account' })).toBeVisible();
