@@ -271,10 +271,12 @@
       </ol>
       {#if connected}
         <div class="mt-10 space-y-3 pl-8">
+          <!-- Telegram can't say who is in the team, nor Discord before a channel is on, so the admin waits to be let in like anyone. -->
           <p class="text-body text-text">
-            Message Bothy in {name} to try it. To approve requests there, turn on Can approve for yourself in <a class="link" href="/settings/people" onclick={router.link}
-              >People</a
-            >.
+            {#if app === 'slack'}Message Bothy in {name} to try it.{:else}Message Bothy in {name}, then let yourself in from <a class="link" href="/approvals" onclick={router.link}
+                >Approvals</a
+              >.{/if}
+            To approve requests there, turn on Can approve for yourself in <a class="link" href="/settings/people" onclick={router.link}>People</a>.
           </p>
           {#if app === 'telegram' && telegramHref}<Button href={telegramHref} external>Open Telegram</Button>{/if}
         </div>

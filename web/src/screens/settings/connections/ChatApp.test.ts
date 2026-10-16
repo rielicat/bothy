@@ -180,7 +180,10 @@ describe('Discord and Telegram', () => {
     await tick();
     await fireEvent.keyDown(token, { key: 'Enter' });
     expect(await screen.findByText('Connected as @acme_bothy_bot.')).toBeTruthy();
-    expect(await screen.findByText(/^Message Bothy in Telegram to try it\./)).toBeTruthy();
+    // Telegram can't say who is in the team, so the admin is let in like anyone else.
+    const tryIt = await screen.findByText(/^Message Bothy in Telegram, then/);
+    expect(tryIt.textContent).toBe('Message Bothy in Telegram, then let yourself in from Approvals. To approve requests there, turn on Can approve for yourself in People.');
+    expect(within(tryIt).getByRole('link', { name: 'Approvals' }).getAttribute('href')).toBe('/approvals');
     const open = await screen.findByRole('link', { name: /Open Telegram/ });
     expect(open.getAttribute('href')).toBe('https://t.me/acme_bothy_bot');
     expect(open.getAttribute('target')).toBe('_blank');
