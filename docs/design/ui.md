@@ -459,7 +459,7 @@ Sidebar
 │                                 /activity/releases           Releases (once an environment exists)
 │                                 /activity/spending           Spending
 │                                 /activity/audit              Audit log (admins)
-├── Group chats / Today / Previous 7 days / Older    /chat/:id
+├── Today / Previous 7 days / Older                  /chat/:id
 └── Settings (admins)  •          /settings/general …          General, Models, Connections, People, Security, Advanced
 Account menu (footer)             Your account (/settings/account), Theme, Keyboard shortcuts, Pause Bothy… (admins), Sign out
 Outside the app                   /setup, /login
@@ -479,8 +479,6 @@ Four destinations (Chat, Approvals, Knowledge, Activity) plus Settings, where v0
 │ Knowledge                │
 │ Activity                 │
 │                          │
-│ Group chats              │  text-caption muted, only when the person is in one
-│ #eng                     │
 │ Today                    │
 │ Fix login redirect     ◌ │  12 px spinner while Bothy is working there
 │ v2.3 launch checklist  • │  8 px warning dot: waiting for approval
@@ -498,6 +496,7 @@ Four destinations (Chat, Approvals, Knowledge, Activity) plus Settings, where v0
 - Group labels: `text-caption text-muted`, 16 px above, 4 px below.
 - Chat rows: one line, truncate with a `title` tooltip. The open chat is `selected`. Running: spinner at the right. Waiting for approval: 8 px `bg-warning-text` dot with visually hidden "Waiting for approval". On hover (always on coarse pointers) a `⋯` replaces the trailing slot with Rename and Delete chat….
 - No origin icons. A chat that came from a chat app says so in its header (§7.1), not in the list.
+- No group chats. Chats in chat apps belong to the people and channels there (SPEC §5.2), not to anyone's account, so they are in nobody's list, admins' included.
 - Chats are stored only once a message is sent. Until the title arrives the row shows the first 48 characters of the first message. Never "New chat", "Untitled chat" or "never".
 - Sidebar scroll position is kept across navigation.
 - **Account menu** (`Menu`, opens upward): "Your account", "Theme ▸" (System, Light, Dark as `menuitemradio`), "Keyboard shortcuts", separator, "Pause Bothy…" (admins, `danger-text`), "Sign out".
@@ -617,7 +616,7 @@ Redirects (with `history.replaceState`) so links already sent to chat apps and b
 | Settings → Models: slot chains | Models → Main model, Quick tasks model; "Backup models" disclosure | Main + disclosure |
 | Settings → Models: pricing overrides | Advanced → Model prices | Advanced |
 | Test telemetry (context, latency, test cost) | Models → provider → Manage → Details | Details |
-| Settings → Chat apps | Connections → each app's page; pairing also in Account → Linked chat apps; unknown senders and new group chats arrive as Approvals items | Main |
+| Settings → Chat apps | Connections → each app's page (who can use Bothy there, group chats); people in chat apps in People → In chat apps; people waiting to be let in and new group chats arrive as Approvals items. Linking chat accounts to Bothy accounts is gone. | Main |
 | Settings → People | People | Main |
 | Settings → Policy: preset, timeouts | Security → Approvals | Main |
 | Settings → Policy: grants list | Security → "Allowed without asking" page | Main |
@@ -638,7 +637,7 @@ Redirects (with `history.replaceState`) so links already sent to chat apps and b
 | Setup: Safety, Chat apps, Make it yours | Defaults (§5.8), editable in Settings | Main (Settings) |
 | Setup: Done security check | Security → Needs attention; attention dot | Main (Security) |
 | Banners for MCP pins and changed skills | Approvals items for admins | Main |
-| Notices for unknown senders and new group chats | Approvals items | Main |
+| Notices for people waiting to be let in and new group chats | Approvals items | Main |
 
 ### 4.7 Behind "Details" or in Advanced
 
@@ -686,7 +685,11 @@ A banner sits at the top of the main area (not over the sidebar), full main widt
 | Provider auth failed | admins | danger | "{Provider} stopped accepting Bothy's key. Chats will fail until it's replaced." | "Update key" |
 | Config errors / safe mode | admins | danger | "Bothy started with safe defaults because some settings couldn't be loaded." | "See what's wrong" (Advanced) |
 | Daily spending limit reached | admins | warning | "Bothy reached today's $5.00 spending limit. New work waits until midnight." | "Change limit" |
+| Chat apps at 80 % of their share (`chat_budget_80`) | admins | warning | "Chat apps have used 80% of their share of today's spending limit." | "See spending" |
 | Restart required | admins | neutral | "Restart Bothy to apply your changes." | none |
+| People in chat apps moved off linked accounts (`team_access`, the first 7 days after the upgrade, until an admin changes anyone in People) | admins | neutral | "People in chat apps no longer link to Bothy accounts. Check who can use Bothy and who can approve in People." | "Open People" |
+
+`unknown_sender` (someone is waiting to be let in) and `new_channel` (Bothy was added to a group chat) only refresh the Approvals inbox, which lists them.
 
 Not banners any more: sandbox off or not isolated (Security attention item), MCP tools or skills pending review (Approvals items and the attention dot), spending at 80 % (Spending page line). Members see only "Paused"; a member who hits the daily limit sees it as a chat notice.
 
@@ -698,13 +701,13 @@ An 8 px `rounded-full bg-warning-text` dot with visually hidden text "Needs atte
 
 | Place | Owner, Admin | Member |
 |---|---|---|
-| Chat, Search | yes | yes (own chats and group chats they are in) |
+| Chat, Search | their own chats | their own chats |
 | Approvals | what they can decide and what they asked for | same |
 | Knowledge → Projects, project notes | read, edit notes, approve suggestions, read again, stop reading a repository | read, edit notes (every change is in History), approve suggestions they are eligible for; no "Read again" or removal |
 | Knowledge → Memory | their own | their own |
 | Knowledge → Skills | add, turn on and off, review changes | read |
 | Activity → Tasks, Spending | everyone's, with a person filter | their own ("Your tasks", "Your spending") |
-| Activity → Schedules | all | their own |
+| Activity → Schedules | all, plus "In chat apps": the schedules people and channels set up there, to turn off or delete | their own |
 | Activity → Releases | yes | yes, read-only |
 | Activity → Audit log | yes | hidden |
 | Settings → Account | yes | yes (their own saved keys included) |
@@ -713,6 +716,8 @@ An 8 px `rounded-full bg-warning-text` dot with visually hidden text "Needs atte
 | Banners | all that apply | "Paused" only |
 
 Owner and Admin differ only in that the owner cannot be removed or demoted.
+
+People in chat apps and channels have no account. Their chats, tasks, files and notes are theirs and are not on the web, for admins either (SPEC §5.2); admins see what they spend (Spending), their schedules (Activity → Schedules), their requests (Approvals) and what Bothy read for them outside its own files (Audit log).
 
 ---
 
@@ -968,13 +973,13 @@ Bothy is ready
 Start a chat now, or connect more. Everything here is also in Settings.
 
 Connect a chat app                                              [ Set up ]
-Talk to Bothy from Slack, Discord or Telegram.
+Your team can talk to Bothy in Slack, Discord or Telegram.
 ──────────────────────────────────────────────────────────────────────────
 Connect GitHub                                                  [ Set up ]
 Let Bothy read your code and open pull requests for review.
 ──────────────────────────────────────────────────────────────────────────
-Add your team                                                   [ Set up ]
-Give teammates their own sign-in.
+Add people                                                      [ Set up ]
+Give admins and members their own sign-in to Bothy on the web.
 
 [ Start chatting ]
 ```
@@ -1168,7 +1173,7 @@ What can you do for our team?                                      left-aligned 
 
 | Element | Spec |
 |---|---|
-| Person's message | `ml-auto max-w-[85%] bg-subtle rounded-lg px-4 py-2.5 text-reading`. In group chats the sender's name sits above it (`text-small` 500 muted). Attachments render below as `FileToken`s. Messages added while Bothy was working get a caption under the block: "Added while Bothy was working". On hover or focus a Copy icon button appears beside it (always visible on coarse pointers). |
+| Person's message | `ml-auto max-w-[85%] bg-subtle rounded-lg px-4 py-2.5 text-reading`. Attachments render below as `FileToken`s. Messages added while Bothy was working get a caption under the block: "Added while Bothy was working". On hover or focus a Copy icon button appears beside it (always visible on coarse pointers). |
 | Bothy's reply | No container, no avatar, no name. Full column width, `text-reading`, Markdown per SPEC §9 (security rules unchanged), headings mapped down (§3.2). |
 | Reply actions | Under the last message of each turn, ghost icon buttons (32 px): Copy, Try again (latest turn only), Details (opens Chat details at that turn). A Refine answer adds a muted "Refined from 3 drafts" before them. Visible on hover and focus-within on fine pointers; always visible under the latest reply and on tap on coarse pointers. |
 | Files Bothy made | When a step created or changed a workspace file, the reply ends with `FileToken`s: "launch-checklist.md · Open". |
@@ -1375,7 +1380,7 @@ The card is still rendered from the structured Action by the policy module, neve
 | Warnings | `card.warnings`, plain copy (§8.3), at most two lines; more go under Details. |
 | Fields | Key/value grid `grid-cols-[96px_minmax(0,1fr)] gap-x-4 gap-y-2`. Values through `Verbatim`; mono only for paths, commands, hosts and branches; long values wrap with `overflow-wrap: anywhere`, never ellipsis. Commands, message text, recipients, websites, repositories, branches, environments and versions are always shown in full. "Show" folds only diffs and file contents. |
 | Buttons | From `card.choices` (§8.3). `mt-4 flex flex-wrap gap-2`. Under 480 px they stack full width, primary first. |
-| Meta | `mt-3 text-small muted`: "From “{chat title}”" (links to the chat) or "Requested by {name} in “{chat}”"; then the expiry; then a "Details" disclosure trigger. |
+| Meta | `mt-3 text-small muted`: "From “{chat title}”" (links to the chat) or "Requested by {name} in “{chat}”"; for a request from a chat app the server's context line instead, never a link (§8.4); then the expiry; then a "Details" disclosure trigger. |
 | Expiry | "Expires in 15 min" (whole minutes), "Expires in 2 h", "Expires in less than a minute"; switches to `warning-text` under 2 minutes. Parked: "Bothy stopped waiting. Approve to let it carry on." Never a bare countdown. |
 | Details | "Bothy's explanation (written by the AI, not checked)", collapsed, only when present · "Why Bothy asked: {plain reason}" · "If nobody answers: it will be denied" (or "it will wait") · "Who can approve: Maya Chen, or any admin" · "Exact action" (`CodeBlock` of the Action JSON) · tool, rule and approval id, each with Copy. |
 | Deny | Pressing Deny shows an inline "Reason (optional)" field with [Deny] and [Cancel]; Enter submits. The reason is stored as `Resolution.Comment` and shown to the requester. Bothy is told who denied and their reason (SPEC §5.7 g), so its reply can answer it, also in a chat app. |
@@ -1398,7 +1403,7 @@ The table is the copy contract for S2 and `lib/cardcopy.ts`.
 | `message`, first contact | "Send a message to {chat}?" | "Send message" | — | To · Message (full) |
 | `memory`, from outside content | "Remember this?" | "Remember" | — | Note (full) |
 | `notes`, from outside content | "Update the notes for {repo}?" | "Update notes" | — | Change (prose diff · Show) |
-| `schedule_create` | "Create the schedule “{name}”?" | "Create schedule" | — | When · Sends to (the chat app, "Bothy on the web", or for no set chat whose usual chat app it is, since an admin may approve someone else's: "Sam Patel's usual chat app (Telegram)", "Bothy on the web (Sam Patel has no chat app linked)") · Does (first 3 lines · Show) |
+| `schedule_create` | "Create the schedule “{name}”?" | "Create schedule" | — | When · Sends to (a set chat app, or for no set chat where results go, as the server's `deliverText` says: "Bothy on the web" for an account, "Maya Chen's messages on Slack" for someone in a chat app, "#eng on Slack" for a channel) · Does (first 3 lines · Show) |
 | `schedule_delete` | "Delete the schedule “{name}”?" | "Delete schedule" (danger) | "This can't be undone." | When |
 | `net_allow` | "Let Bothy reach {host}?" | "Allow for this chat" (the gateway offers no one-time choice here) | — | Website |
 | `repo_open_pr` | "Open a pull request in {repo}?" | "Open pull request" | — | Branch ("{head} → {base}") · Title · Changes ("{n} files, +{a} −{r} · Show") |
@@ -1418,8 +1423,8 @@ The GitHub cards (`repo_open_pr`, `github_comment`, `repo_checkout`) have no Web
 | `card.choices` | Control | Notes |
 |---|---|---|
 | `allow_once` | Primary button with the verb from §8.2 | Shortcut A |
-| `allow_session` | Secondary "Allow for this chat" | Shortcut S. Shown only when `card.choices` includes it; the gateway never offers it for deploys, admin-class actions or exposed chats, and the UI never adds it. When `allow_once` is absent (as for `net_allow`), this is the primary button. |
-| `allow_always` | Link button under the row, only when offered (never for irreversible actions): "Always allow {narrow description}…" | Opens a dialog (440): title "Always allow this?"; body "Bothy won't ask again before {narrow description, e.g. “sending messages to #eng in Slack”}, in any chat. You can remove this in Settings → Security."; buttons [Always allow] [Cancel]. No shortcut. |
+| `allow_session` | Secondary "Allow for this chat"; on a request from someone's own chat in a chat app, "Allow in {Name}'s chat" (the name cut to 24 characters), since the approver reads it elsewhere | Shortcut S. Shown only when `card.choices` includes it; the gateway never offers it for deploys, admin-class actions or exposed chats, and the UI never adds it. When `allow_once` is absent (as for `net_allow`), this is the primary button. |
+| `allow_always` | Link button under the row, only when offered (never for irreversible actions, never for a channel's requests): "Always allow {narrow description}…"; on someone's request from their own chat in a chat app, "Always allow for {Name}…" | Opens a dialog (440): title "Always allow this?"; body "Bothy won't ask again before {narrow description, e.g. “sending messages to #eng in Slack”}, in any chat. You can remove this in Settings → Security." (for someone in a chat app: "… before {narrow description} for {Name} on {App}. …"); buttons [Always allow] [Cancel]. No shortcut. |
 | `deny` | Secondary "Deny" | Shortcut D. Never red. |
 
 Warnings (from `Decision.Warnings`, rewritten server-side, S2):
@@ -1442,13 +1447,23 @@ The card stays in the transcript (fixes audit `27`). It collapses to one line, `
 | Allowed for this chat | "You allowed {plain grant, e.g. “changes to files in notes/”} for this chat · 10:42" (check) |
 | Always allowed | "You always allow {plain grant} · 10:42" (check) |
 | Denied | "You denied {ing} · 10:42", plus “{reason}” when given (close, `danger-text`) |
-| Decided by someone else or elsewhere | "Sam Patel approved in Slack · 10:42" / "Sam Patel denied in Slack · 10:42" |
+| Decided by someone else or elsewhere | "Sam Patel approved in Slack · 10:42" / "Sam Patel denied in Slack · 10:42"; a chat approver is named with their app instead: "Maya Chen · Slack approved · 10:42" (in the Done tab "Maya Chen · Slack approved deleting notes/a.md") |
 | Multi-approver approved | "Alex Kim and Maya Chen approved {ing} · 11:02" |
 | Multi-approver denied | "Alex Kim denied {ing} · “Not before the freeze ends” · 10:40" |
 | Expired | "Expired: Bothy didn't {ask}" (close, muted) |
-| Cancelled | "Cancelled when the chat was stopped" / "Cancelled by {requester}" ("Cancelled by you" for the viewer). A multi-approver request its requester withdraws is stored as denied by their vote; every surface (chat, inbox, task detail, Releases, chat-app cards) still says "Cancelled by {requester}", never "denied". |
+| Cancelled | "Cancelled when the chat was stopped" / "Cancelled by {requester}" ("Cancelled by you" for the viewer). A multi-approver request its requester withdraws is stored as denied by their vote, and so is a request someone in a chat app withdraws with "Cancel request"; every surface (chat, inbox, task detail, Releases, chat-app cards) still says "Cancelled by {requester}", never "denied". |
 
 Chat apps (SPEC §5.9) edit a card to its decided line in place of the question, with ✓ or ✗ for the glyph and "You" for the approver who reads it: "✓ You approved deleting notes/staging.md.", "✗ Sam Patel denied deleting notes/staging.md in Slack." A pending chat card starts each warning with ⚠ for the alert glyph.
+
+**Requests from chat apps.** A teammate's or a channel's request (`approver.team`) goes to admins here and to the people an admin marked "Can approve" (§11.5), in their own direct messages. Admins decide it like any card; members never see it. The card:
+
+- **Asked line** (under the question): "Maya Chen (@maya) asked on Slack." for someone's own chat; "Maya Chen asked in #eng on Slack." for a channel; "From #eng on Slack." when a schedule started it.
+- **Meta line:** the server's context instead of "From …", never a link, since admins can't open these chats: "Maya Chen's direct messages on Slack" or "#eng on Slack".
+- **Buttons:** as §8.3, with the person's name on the standing choices. A channel's request offers only the verb and Deny.
+- **Details:** "Who can approve: an admin, or someone who can approve in a chat app". Someone who can't decide reads "Waiting for an approver."
+- **Deny reason:** the field's placeholder says who reads it: "Maya Chen will see this." or "People in #eng won't see this, but Bothy will." (a channel's outcome line leaves the reason out).
+- **Inbox row:** "Maya Chen · Slack" as the source.
+- **Decided line:** names the chat approver with their app (above); "Cancelled by Maya Chen" when the person who asked withdrew it.
 
 ### 8.5 Multiple approvers ("1 of 2")
 
@@ -1523,6 +1538,7 @@ For you                                                              text-headin
 Delete notes/staging.md?                    Clean up staging notes · 2 min ago      collapsed ListRows
 Review changes to Linear tools              2 tools changed · 1 h ago
 Someone new messaged Bothy on Telegram      @jordan_k · Yesterday
+Write notes/standup.md?                     Alex Kim · Slack · 6 min ago
 
 Waiting for others                                                   only when non-empty
 Deploy acme/api to production               1 of 2 approvals · 20 min ago
@@ -1538,12 +1554,12 @@ Deploy acme/api to production               1 of 2 approvals · 20 min ago
 | Action approval | from §8.2 | the card |
 | MCP tool review (admins) | "Review changes to {Server} tools" | One row per tool: plain name, what it does, "What this does" select (Only reads information / Changes things inside Bothy / Sends data out / Can't be undone), "Show what changed" (`DiffView` of the definition). Buttons: [Approve tools] [Turn off {Server}]. |
 | Changed skill (admins) | "Review changes to the “{skill}” skill" | "Show what changed" (diff of SKILL.md and files). Buttons: [Approve] [Turn off skill]. |
-| Unknown sender | "Someone new messaged Bothy on {App}" | "{display name} ({handle}) wrote: “{first 120 chars, Verbatim}”"; without a username, "{display name} wrote: …" ("Someone" without a name). Details: the account's id on {App}, with Copy. Buttons: [Let them chat as a guest] [Link to a person…] [Block]. |
-| New group chat | "Bothy was added to {chat} in {App}" | "Added by {person}. Bothy will answer only when mentioned." Buttons: [Turn on] [Ignore]. |
+| Someone waiting to be let in (admins; where the chat app can't say who is in the team: Telegram, and Discord when it can't check) | "Someone new messaged Bothy on {App}" | "{display name} ({handle}) wrote: “{first 120 chars, Verbatim}”"; without a username, "{display name} wrote: …" ("Someone" without a name). Details: the account's id on {App}, with Copy. Buttons: [Let in] (A) [Block] (D). Live region: "Let in. Next: …". Slack and Discord members get in on their own; guests, people from other companies and bots never reach this list. |
+| New group chat (admins) | "Bothy was added to {chat} in {App}" | Lines, each only when known: "Added by {name}."; "{n} people are in this chat." (Discord: "{server} has {n} members."). Then one line for the case: Discord "Turning this on lets all {n} members of {server} message Bothy, here and in direct messages." (without a count "… lets everyone in {server} …"); Slack, when people from other companies are in it, "People from other companies are in this channel. They'll see Bothy's replies, though Bothy won't answer them."; Telegram "Anyone in this group can use Bothy once it's on, not only people you let in.". Then "What Bothy can do there" (`OptionList`): "Answer questions" — "Bothy reads and answers. It can't change anything." (the default, whoever is in the channel), "Do work, with approval" — "Bothy can change files, run code and send things. An approver checks each step first.". Then "Bothy answers only when mentioned." when it does. Buttons: [Turn on] (A) [Ignore] (D). Turn on saves the choice with it. |
 | Note suggestion | "Update the notes for {repo}?" | the card with a prose diff |
 
-- **Done tab:** decided lines (§8.4) grouped Today, Yesterday, Earlier (last 30 days); each links to its chat.
-- **Keyboard:** J/K or ↑/↓ move between rows, Enter expands and moves focus into the card, A / S / D decide the expanded card. A held key decides one item; repeats are ignored until release (current behaviour). Shortcuts appear in button tooltips on fine pointers ("Delete file (A)") and in the shortcuts dialog. Never as chips.
+- **Done tab:** decided lines (§8.4) grouped Today, Yesterday, Earlier (last 30 days); each links to its chat (a chat app's request shows its context line instead).
+- **Keyboard:** J/K or ↑/↓ move between rows, Enter expands and moves focus into the card, A / S / D decide the expanded card. Inside a choice (the group chat's "What Bothy can do there") keys move between the options and decide nothing; Tab reaches the buttons. A held key decides one item; repeats are ignored until release (current behaviour). Shortcuts appear in button tooltips on fine pointers ("Delete file (A)") and in the shortcuts dialog. Never as chips.
 - **Empty:** Waiting: "Nothing needs your approval. When Bothy needs someone's OK, it shows up here." Done: "No decisions in the last 30 days."
 
 ### 8.9 Releases
@@ -1655,7 +1671,7 @@ History ›
 - Saved: "Saved" next to the button for 2 s, then "Changes apply from your next message." stays in `text-small muted` until the page is left.
 - History (720 dialog): prose diffs with actor names ("You", "Bothy in “Fix login redirect”", "Maya Chen (admin)") and chat links.
 - Empty section: "Bothy hasn't remembered anything yet. It adds things here as you work together, or you can write them yourself." + "Edit".
-- Group chats have no memory (SPEC); nothing changes there.
+- Memory is per account here. People in chat apps have notes of their own that Bothy keeps for them, private to them like their chats; channels have none (SPEC).
 
 ### 9.5 Skills (`/knowledge/skills`)
 
@@ -1737,18 +1753,19 @@ Check-in                                                          (off)    ⋯
 Every 30 min, 8:00–22:00 · Looks through your list and tells you only when something needs attention
 ──────────────────────────────────────────────────────────────────────────────────
 Daily standup summary                                             (on)     ⋯
-Weekdays at 9:00 · Posts to #standup on Slack · Next: tomorrow at 9:00
+Weekdays at 9:00 · Posts here · Next: tomorrow at 9:00
 ──────────────────────────────────────────────────────────────────────────────────
 Weekly PR digest                                                  (on)     ⋯
 Mondays at 8:00 · Posts here · Last run failed: the GitHub token was rejected
 ```
 
 - Row: line 1 the name (`text-body` 500) across the full width minus the switch and `⋯` (72 px); line 2 `text-small muted`, wrapping freely: when · where · next run or last problem (problems in `danger-text`). The name never shares a column with the meta, so it never wraps one word per line at 360 px (fixes `44`).
-- Where: "Posts to your Telegram messages", "Posts to #standup on Slack" (a group chat's own schedule), "Posts here", and for a schedule without a set chat "Posts to your chat app" while the person has one of their own linked, else "Posts here". Only the viewer's own linked chats count, even for an admin, who is sent everyone's.
+- Where: "Posts here". Accounts have no chat app (SPEC §5.16), so their schedules post on the web.
 - `⋯`: Run now · Edit · History · Delete… (`danger-text`, confirm dialog "Delete the schedule “{name}”? This can't be undone."). Run now is audited with who pressed it ("Started the schedule “{name}” by hand").
 - A result posted to a chat opens with an italic line "From the schedule “{name}” · change it under Schedules" (a check-in: "From your check-in · change it under Schedules"), since nobody asked for it there.
 - **Check-in** is always listed first (the heartbeat). Edit opens `/activity/schedules/checkin`: "How often" (Every 15 min / 30 min / hour), "Between" (active hours, two time selects), "What to check" (sans `TextArea` editing the HEARTBEAT.md checklist as prose), help "Bothy looks through this list regularly and messages you only when something needs attention.", cost line "About $0.05 a day with {Quick tasks model}." [Save] [Cancel].
 - Empty (only Check-in exists): under it, "Bothy can do things on a schedule, like a Monday summary of open pull requests." + "New schedule".
+- **In chat apps** (admins, only when there are any): a section under the list for the schedules people and channels set up in chat apps (`GET /api/team/schedules`). Help `text-small muted`: "Schedules people set up in chat apps. Their results go to that chat." Rows: the name (500); `text-small muted` "{owner} · {App} · {repeat text} · Next: {time}" or "… · Off"; a `Switch` (`aria-label` "Turn on {name}") that only turns it on or off; small ghost "Delete…" (`aria-label` "Delete {name}…") → confirm: title "Delete “{name}”?", body "It stops running. Past results stay in that chat.", buttons "Delete" (danger) and "Cancel". Editing them happens in their chat.
 
 **New or edit schedule** (`/activity/schedules/new`, `/activity/schedules/:id`), one column, no cards:
 
@@ -1765,7 +1782,7 @@ When
 Runs weekdays at 9:00 (Europe/London). Next: Wed 15 Oct, Thu 16 Oct, Fri 17 Oct.
 
 Send results to
-[ Your Slack messages ⌄ ]                options: the person's own linked chats, the group chat for a group chat's own schedule, "Only here in Bothy"
+Only here in Bothy                       plain text: an account's results always stay here
 
 Name
 [ Summarise yesterday's merged pull requests ]    filled from the first words; editable
@@ -1776,7 +1793,6 @@ Name
    Only run between      [ 08:00 ] and [ 20:00 ]
    If Bothy was off      [ Run when it's back ⌄ ]       / Skip that run
    Allowed without asking
-     [x] Send you messages on Slack
      [ ] Read websites on api.example.com
    Time zone             [ Europe/London ⌄ ]
 
@@ -1784,9 +1800,9 @@ Name
 ```
 
 - "When" options: Every day, Every weekday, Every week on {day}, Every month on day {n}, Once on {date}, Custom. "Custom" reveals "Repeat rule" (a cron expression in a text field, `text-code`, help "Five fields: minute, hour, day, month, weekday. Example: 0 9 * * 1-5 means weekdays at 9:00."). Cron appears nowhere else. The preview line comes from `/api/schedules/preview`.
-- "Send results to" offers only chats the server lets the schedule post to: the signed-in person's own linked chats (an admin is sent everyone's identities, and the others are left out) and, for a group chat's own schedule, that group chat. A new schedule starts on the first of them, else "Only here in Bothy". A schedule without a set chat shows "Your usual chat app", or "Here until you link a chat app" while none is linked.
+- "Send results to" is plain text, "Only here in Bothy": accounts have no chat app, so it is the only place. A new schedule saves it as the web.
 - Time zone starts as the person's own (Settings → Account); the preview and the saved schedule use the zone chosen here.
-- "Allowed without asking" lists the pre-authorised narrow grants as plain sentences (`lib/grants.ts` descriptions). Deploys never appear.
+- "Allowed without asking" lists the pre-authorised narrow grants as plain sentences (`lib/grants.ts` descriptions), unticked until chosen. Deploys never appear.
 - Errors: empty prompt "Tell Bothy what to do."; invalid repeat rule "That repeat rule isn't valid. Example: 0 9 * * 1-5 means weekdays at 9:00."
 - Edit pages add "Recent runs" below (task rows from §10.1, linking to task detail; failures show the plain reason) and "Delete schedule…" in the page `⋯`.
 - Buttons: "Create schedule" / "Save schedule" (primary), "Cancel".
@@ -1836,7 +1852,8 @@ Today: $1.20 of the $5.00 daily limit                               text-body mu
 By person                                                           text-heading
 Maya Chen                                                  $18.20
 Sam Patel                                                  $12.05
-Schedules                                                   $1.10
+Alex Kim · Slack                                            $3.40   someone in a chat app
+#eng · Slack                                                $2.10   a channel
 Show all
 
 By model
@@ -1854,7 +1871,7 @@ Fix login redirect                                          $0.42
 
 - Headline: one sentence, never KPI cards. The meter fills with `accent`; at 80 % it turns `warning-text` with the line "Bothy will stop starting new work at $5.00."; at 100 % `danger` with "Bothy reached today's limit. New work waits until midnight." + "Change limit" (admins).
 - Chart: `chart` bars, hovered or focused bar `text`, gridlines `border`, axis labels `text-caption muted`. With 7 bars or fewer, the amount is printed above each bar. Every bar is focusable with a tooltip "Tue 14 Oct: $1.20". `role="img"` with a summary label ("Spending by day, 15 September to 14 October, highest $4.10 on 9 October") plus a visually hidden table. Days follow the workspace time zone.
-- Lists: 40 px rows, name left, money right `tabular-nums`, top 5 then "Show all" (expands in place). Names only (S8). Rows link where possible: a person to Tasks filtered by them, a chat to the chat. Local models show "Free". Unknown prices: "Price not set" (muted) with "Set price" for admins (Advanced → Model prices).
+- Lists: 40 px rows, name left, money right `tabular-nums`, top 5 then "Show all" (expands in place). Names only (S8). In "By person", people in chat apps and channels pay from lines of their own: their name, then " · {App}" in `muted`; they link nowhere (their tasks and chats aren't on the web). Rows link where possible: a person to Tasks filtered by them, a chat to the chat. Local models show "Free". Unknown prices: "Price not set" (muted) with "Set price" for admins (Advanced → Model prices).
 - Members: "Your spending" with their own total, their limit if any, no By person.
 - Under 640 px: 7 bars with day initials; the 30-day view labels only the 1st and 15th. Nothing is clipped (fixes `46`).
 - Empty: "Nothing spent in this period."
@@ -1918,11 +1935,11 @@ Page title is the group name, no subtitle.
 | | Password | secondary "Change password…" → dialog: Current password, New password (Step 1 help text), [Save password]. An account made by Google or GitHub sign-in has no password: plain text "Not set. You sign in with Google." ("with Google or GitHub" when both are connected), no button |
 | Sign-in methods | one row per provider an admin turned on, plus connected ones since turned off | "Google · maya@acme.com" + "Disconnect" (`aria-label` "Disconnect Google", no confirm, toast "Google disconnected."); "GitHub · @maya · maya@acme.com"; "GitHub · Not connected" + "Connect GitHub" (opens GitHub, comes back with the toast "GitHub connected."); a connected provider since turned off reads "{maya@acme.com} · Google sign-in is off". The section shows only when there is a row. Failures are a danger StatusLine under the rows: "That {GitHub} account is already connected to someone else here.", "You've already connected a {Google} account. Disconnect it first.", "You didn't finish connecting {Google}.", "Connecting took too long. Try again.", "You were signed out before {Google} answered. Sign in and try again.", "{sam@acme.com} isn't on this Bothy's sign-in list, so it can't be connected. Admins add people in Settings → Security." (the person may be an admin, so it doesn't send them to one), the sign-in page's sentences for an unverified address and organization approval, "{Google} didn't respond. Try again, or ask an admin to check {Google} sign-in."; disconnecting the only way in: "This is how you sign in. Ask an admin for a password before you disconnect it." |
 | Appearance | Theme | Segmented: System, Light, Dark |
-| Approvals | Requests reach you in | select: "Bothy only", then linked apps ("Slack", "Telegram", "Discord"); help "Bothy also shows them in Approvals." |
-| Linked chat apps | one row per app | "Slack · @maya in Acme" + "Unlink"; "Telegram · Not linked" + "Link" → pairing dialog (code, QR, live check "Linked as @maya.") |
 | Saved keys | — | "Your own keys for connected tools, used instead of the shared ones when Bothy works for you." + secondary "Manage your keys" → `/settings/account/keys` (§11.6) |
 | API access | one row per token | name, plain scope ("Can chat and read"), "Last used 2 days ago", "Revoke…"; [Create token] → dialog: Name, "What it can do" (checkboxes in plain words), Expires (select); then the token once in a `CodeBlock` with Copy and example snippets (curl, Open WebUI) under Details |
 | | | [Sign out] (secondary) at the bottom |
+
+Accounts don't link to chat apps, and approval requests and notices for accounts stay on the web (Approvals, banners). A person who also talks to Bothy in a chat app is someone in a chat app there, listed in People (§11.5).
 
 ### 11.3 General (admins)
 
@@ -1981,7 +1998,43 @@ People                                                            [ Add person ]
 - 56 px rows: avatar 32, name `text-body` 500, username muted, role word. `⋯`: Change role · Spending limit… · Reset password… · Turn off account… (`danger-text`).
 - **Add person** (560 dialog): Name, Username, Role (Member / Admin, help "Admins can change settings and approve anything."), [Create]. Then the same dialog shows: "{Name} can sign in now. Send them these details:" + a `CodeBlock` with the web address, username and a generated one-time password, Copy; "They'll choose their own password when they first sign in." [Done] (S9).
 - **Spending limit** dialog: "Daily limit for {name}" money input, "No personal limit" checkbox.
-- Only the owner: "It's just you so far. Add teammates so they get their own sign-in." + "Add person".
+- Only the owner: "It's just you so far. Add people so they get their own sign-in." + "Add person".
+
+**In chat apps** (a section under the accounts, admins, in any mode): the people Bothy answers in Slack, Discord and Telegram (`GET /api/teammates`), approvers first, then by when they were last active, then blocked people. UI copy never says "teammate" (§14.3).
+
+```
+In chat apps
+People who can approve get requests from everyone in chat apps, with the details of what Bothy is about to do,
+and answer them in their direct messages. Changes to how Bothy works still need an admin here.
+
+Share of the daily limit for chat apps                          [ 60% (recommended) ⌄ ]
+Leaves the rest of Bothy's $5.00 daily limit for the web.
+
+(SP) Sam Patel                                                   (on) Can approve   ⋯
+     @sam · Slack
+     Active 30 min ago · $0.42 of $2.00 today
+(AK) Alex Kim                                                    (off) Can approve  ⋯
+     @alexk · Slack
+     Active 4 h ago · $1.15 of $2.00 today
+(RP) Riley Park                                                  (off) Can approve  ⋯   switch disabled
+     @riley · Slack · No longer in Acme
+     Active 6 Oct · $0.00 of $2.00 today
+(C)  Casey                                                                          ⋯
+     Telegram · Blocked
+```
+
+- Help (muted) under the heading, as above. When nobody can approve and the list isn't empty: "Nobody can approve in chat apps yet, so requests from chat apps wait for an admin in Approvals."
+- **Share** (`SettingsRow`, only when a daily limit is set): "Share of the daily limit for chat apps", select "40%", "60% (recommended)", "80%", "All of it" (another saved value shows as "{n}%"); help "Leaves the rest of Bothy's {amount} daily limit for the web."; saves `budgets.chat_share_pct` (100 for "All of it") with the row's "Saved".
+- **Find:** above 20 rows a field "Find someone" filters by name or handle; no match: "No one matches “{q}”."
+- **Rows** (56 px): avatar 32 and name (500); `text-small muted` "{@handle · }{App}{ · No longer in {workspace}}" ("No longer in the server" on Discord, "No longer in the workspace" on Slack without a workspace name); then "Active {relTime} · {spent} of {limit} today" (`tabular-nums`; without a limit "Active {relTime} · {spent} today"). The limit is their own, else the member default.
+- **Can approve:** a `Switch` with the visible label (`aria-label` "Can approve: {name}"), disabled with the title "They aren't in the team any more." for someone no longer in the team. Under 640 px the switch gives way to a checked "Can approve" item in the row's menu. Toast "Saved."
+- **Menu** "Options for {name}": "Daily limit…", "Block…" (`danger-text`); someone no longer in the team adds "Delete their data…". Blocked rows: meta "{App} · Blocked", no switch, menu "Unblock", "Delete their data…".
+- **Daily limit** reuses the accounts' limit dialog: title "Daily limit for {name}"; radios "Use the default ({amount})" ("no limit" when there is none) and "Set a limit", then the "Daily limit" money field; saves `budgets.per_user_daily_usd.<app>:<id>` (null for the default); toast "Limit saved."
+- **Block** confirm: title "Block {name}?", body "Bothy stops answering them in {App} and stops anything it's doing for them. Their chats are kept." Buttons "Block" (danger) and "Cancel". The row updates in place; toast "Blocked." Unblock: toast "Unblocked."
+- **Delete their data** confirm: title "Delete {name}'s data?", body "This deletes their chats, files, notes and schedules in Bothy. It can't be undone." (blocked people add "They stay blocked."). Buttons "Delete" (danger) and "Cancel". Toast "Deleted."
+- **Errors:** a failed switch or menu change goes back and says "Couldn't save. Try again." under the row; a failed confirm says so in its dialog. The list failing to load: "This list didn't load. Check your connection and try again." with "Try again".
+- **Empty:** "Nobody has messaged Bothy in a chat app yet. Message Bothy in a chat app to appear here."
+- It reloads on `inbox.changed` (someone let in, blocked or no longer in the team).
 
 ### 11.6 Security (admins)
 
@@ -2074,7 +2127,7 @@ Here, and only here, a field whose value differs from the default shows `text-sm
 Connections
 
 Chat apps                                                             text-heading
-Slack          Connected to Acme · 4 people linked                       [ Manage ]
+Slack          Connected to Acme · 4 people                              [ Manage ]
 ──────────────────────────────────────────────────────────────────────────────────
 Telegram       Not connected                                            [ Connect ]
 ──────────────────────────────────────────────────────────────────────────────────
@@ -2093,7 +2146,7 @@ Web search     SearXNG                                                   [ Chang
 ```
 
 - Rows 56 px: name `text-body` 500 (120 px column), status `text-small muted`, one small secondary button. No icons, no toggles, no pills.
-- Status words: "Not connected", "Connected…", "Can't connect: {plain reason}" (`danger-text`, button "Reconnect"), "Needs review: {n} actions changed" (`warning-text`), "Installing…", "Off".
+- Status words: "Not connected", "Connected…" (chat apps: "Connected to {workspace}" or "Connected as {bot}", then " · {n people}" for the people in chat apps who use Bothy there, leaving out blocked people and people no longer in the team), "Can't connect: {plain reason}" (`danger-text`, button "Reconnect"), "Needs review: {n} actions changed" (`warning-text`), "Installing…", "Off".
 - GitHub: "Connected to {account}" for an app connection, "Connected as {account}" for a token; with no connection but an app Bothy created that isn't installed yet, "Not connected: {app name} isn't installed yet" (`warning-text`, button "Connect").
 - "MCP" appears only on the "Add an MCP server" button and inside its dialog.
 
@@ -2189,7 +2242,7 @@ Buttons: [Save environment] [Cancel]; edit adds "Delete environment…" (`danger
 
 ### 12.3 Chat apps (`/settings/connections/{slack,telegram,discord}`)
 
-**Not connected:** one page with numbered steps (not a wizard, not accordions). Step numbers are `text-heading muted` digits, not circles; step titles `text-heading`.
+**Not connected:** one page with numbered steps (not a wizard, not accordions). Step numbers are `text-heading muted` digits, not circles; step titles `text-heading`. Nobody links a chat account to a Bothy account: once the app is connected, people use Bothy there as people in chat apps (SPEC §5.1).
 
 ```
 ← Connections
@@ -2207,14 +2260,13 @@ Connect Slack
    Generate Token and Scopes. Add the connections:write scope.
    ✓ Connected to Acme as @bothy.                     check runs once both are filled
 
-3  Link your Slack account
-   Send this to @bothy in Slack:  /bothy link 7K2M-9QXD      [Copy]
-   ✓ Linked as @maya.                                 live, on pairing.linked
+   Message Bothy in Slack to try it. To approve requests there, turn on Can approve
+   for yourself in People.                                       "People" links to /settings/people
 ```
 
-- Telegram: 1 "Create a bot with @BotFather" (send `/newbot`, choose a name, copy the token); 2 "Paste the bot token" ("✓ Connected as @acme_bothy_bot."); 3 "Link your Telegram" (QR code, [Open Telegram ↗], the code).
-- Discord: 1 "Create a bot in the Discord developer portal" (link; "Turn on Message Content Intent"); 2 "Paste the bot token and application ID"; 3 [Invite Bothy to your server ↗]; 4 "Link your Discord" ("DM the bot: /pair CODE").
-- A code posted in a group chat is cancelled (SPEC §5.1 step 3). On `pairing.burned` for the code shown, the link step makes a new one and says above it (warning line): "That code was shared in a group, so it no longer works. Here's a new one. Send it in a direct message." Same in the Account pairing dialog.
+- Telegram: 1 "Create a bot with @BotFather" (send `/newbot`, choose a name, copy the token); 2 "Paste the bot token" ("✓ Connected as @acme_bothy_bot."); then the try-it line and [Open Telegram ↗] (`https://t.me/{bot}`).
+- Discord: 1 "Create a bot in the Discord developer portal" (link; "Create an application, add a bot to it, then turn on Message Content Intent under Bot." and "Under Bot, turn off Public Bot, so only you can add Bothy to servers."); 2 "Paste the bot token and application ID"; 3 [Invite Bothy to your server ↗]; then the try-it line.
+- The try-it line sits under the last step, indented to the step text, once the check passed: "Message Bothy in {App} to try it. To approve requests there, turn on Can approve for yourself in People."
 - A Slack app created before its manifest asked for `channels:read` and `groups:read` shows group chats by channel id until it is reinstalled to the workspace (SPEC §8.6); the names arrive with the next message after that.
 - Saved tokens show "••••• saved · Replace".
 - Failures: "Slack didn't accept those tokens. Check you copied the app-level token and the bot token from the same app." / Discord close 4014: "Discord needs Message Content Intent turned on for this bot. Turn it on in the developer portal under Bot, then try again." / Telegram: "Telegram didn't accept that token. Copy it again from @BotFather."
@@ -2223,10 +2275,9 @@ Connect Slack
 
 | Section | Rows |
 |---|---|
-| Connection | "Connected to Acme as @bothy" + [Test connection]; "Turned on" switch; "Disconnect Slack…" (`danger-text`, confirm) |
-| Group chats | one row per channel: "#eng", switch "Answers here", select "Answers when" (Mentioned / Any message), select "What Bothy can do here" (Read only / Standard) |
-| Linked people | "Maya Chen · @maya" … |
-| People who aren't linked | "When someone without an account messages Bothy": select "Ask an admin first (recommended)" / "Ignore them"; pending people arrive in Approvals |
+| Connection | "Connected to Acme as @bothy" + [Test connection]; "Turned on" switch; "Disconnect Slack…" (`danger-text`, confirm: "Bothy stops answering in Slack and forgets its tokens. People and group chat settings are kept.") |
+| Group chats | one row per channel: "#eng" with `text-small muted` "{workspace or server · }{n people}" plus " · Shared with other companies" when Slack says so; switch "Answers here"; select "Answers when" (Mentioned / Any message); select "What Bothy can do here" ("Answer questions" / "Do work, with approval"). Turning off the last channel Bothy answers in on a Discord server asks first: title "Turn off Bothy in {chat}?", body "People who are only in {server} won't be able to message Bothy any more.", buttons "Turn off" (danger) and "Cancel" (the switch goes back on). |
+| Who can use Bothy | Slack: "Everyone in {workspace} can message Bothy and use what it can read, such as your repositories and connected tools. Guests and people from other companies can't. Anything that changes something waits for an approver." ("your workspace" without a name; installed org-wide: "Everyone in your Slack organization, across all its workspaces, can message Bothy …"). Discord: "Members of a server where Bothy answers in a channel can message Bothy and use what it can read, such as your repositories and connected tools. Bots can't. Anything that changes something waits for an approver."; when Discord won't say who is in the servers, "Bothy can't check who's in your servers, so only people you let in from Approvals can message it."; when Bothy sits in servers with no channel on, a muted line "Bothy is in {n} servers where it isn't on in any channel. Remove it from servers you don't use." Telegram: "People you let in from Approvals." Telegram and Discord add the row "When someone new messages Bothy": select "Ask an admin (recommended)" / "Don't reply or notify anyone", help "Either way, they're listed in Approvals. Applies to Telegram and Discord." All three end with a secondary button "Manage people" → `/settings/people`. |
 
 ### 12.4 MCP servers
 
@@ -2263,7 +2314,9 @@ One sentence in `text-reading text`, an optional second sentence in `muted`, the
 | Audit log, filtered | "Nothing matches these filters." | Clear filters |
 | Connections → Tools | "No tools connected. MCP servers let Bothy use other services, like Linear or your database." | Add an MCP server |
 | Deploy environments | "No deploy environments yet. Add one so Bothy can deploy with approval." | Add environment |
-| People (owner only) | "It's just you so far. Add teammates so they get their own sign-in." | Add person |
+| People (owner only) | "It's just you so far. Add people so they get their own sign-in." | Add person |
+| People → In chat apps | "Nobody has messaged Bothy in a chat app yet. Message Bothy in a chat app to appear here." | — |
+| Activity → Schedules → In chat apps | (the section is left out) | — |
 | Search dialog | "No results for “{q}”." | — |
 | Route not found | "This page doesn't exist." | Go to chat |
 | Chat, task or approval not found | "This chat doesn't exist or was deleted." / "This task…" / "This request was already decided or doesn't exist." | Go to chat / Go to Approvals |
@@ -2340,7 +2393,7 @@ Bothy's interface sounds like a capable colleague at your company: plain, direct
 - **Calm:** no exclamation marks, no "Oops", no reassurance nobody asked for. Security shows through good defaults and clear cards; a security fact is said once, where it matters (for example as field help where a key is entered).
 - **Short:** two sentences at most in any message, then Details.
 - **For a company:** teams, projects, repositories, people, "this server". Never "household", "your machine", "your own assistant", "plan a calm week".
-- **Pronouns:** the interface calls the product "Bothy" (it) and the reader "you". It never says "I" or "we". Bothy's own chat replies are model output and may say "I"; that is the only place.
+- **Pronouns:** the interface calls the product "Bothy" (it) and the reader "you". It never says "I" or "we". Bothy's own chat replies are model output and may say "I"; so does the hello someone in a chat app gets the first time ("Hi Maya, I'm Bothy. Ask me anything. …", SPEC §5.1), which speaks as Bothy like its replies. Those are the only places.
 
 ### 14.2 Mechanics
 
@@ -2385,6 +2438,10 @@ Never use: exclamation marks, emoji, "Oops", "Whoops", "simply", "just" as fille
 | run, run id | "task" |
 | session | "chat" |
 | principal, space | "person", "group chat" |
+| teammate (a person in a chat app whom Bothy accepts) | "people in chat apps", "someone in a chat app", or their name. "Teammate" is a word for code and docs only; the copy check refuses it in the UI. |
+| chat approver, `can_approve` | "Can approve", "someone who can approve in a chat app" |
+| team-owned principal, person space, channel space | "people in chat apps", "a channel" or "a group chat" |
+| membership verdict, outsider, admitted | "in the team", "no longer in {workspace}", "let in" |
 | grant | "permission", "allowed without asking" |
 | egress, allowlist | "websites Bothy can reach" |
 | sandbox, box, runsc, runc, gVisor | "running code", "isolated workspace" |
@@ -2411,7 +2468,7 @@ Never use: exclamation marks, emoji, "Oops", "Whoops", "simply", "just" as fille
 | Fork clean | "Continue in a clean chat" |
 | compaction | "older messages were summarised" |
 | workspace (files) | "Bothy's files" |
-| household, single/multi mode | "team", "add your team" |
+| household, single/multi mode | "team", "add people" |
 | "your machine", "your own assistant" | "this server", "Bothy" |
 | setup token, claim | "setup code", "setup link" |
 | Base URL, OpenAI-compatible URL | "server address" |
@@ -2563,7 +2620,7 @@ Never use: exclamation marks, emoji, "Oops", "Whoops", "simply", "just" as fille
 | 42 | `ApprovalCard`, `ApprovalVotes`, `DecidedLine` | `ApprovalCard.svelte` | `approval`, `mode: 'inline'\|'inbox'\|'decided'\|'readonly'`, `viewer`, `onresolve(choice, comment?)` | renders only from the server `card` (or `lib/cardcopy.ts` fallback); states: waiting for me, waiting for others (requester, already voted, not eligible), parked, submitting, decided, expired, cancelled, submit failed; A/S/D only in inbox mode or when the card has focus |
 | 43 | `ProviderChooser` | `ProviderSetup.svelte`, `StepModels.svelte` | `mode: 'setup'\|'settings'`, `onconnected?` | §5.6; in settings mode lives in a 560 dialog with `framed=false` lists |
 | 44 | `BarChart` | `BarChart.svelte` | `data: {label, value, title}[]`, `format`, `height = 160` | §10.5 |
-| 45 | `Verbatim`, `Markdown`, `QRCode`, `Pairing` | kept | unchanged APIs | restyled to tokens; Markdown gets the heading map (§3.2) |
+| 45 | `Verbatim`, `Markdown` | kept | unchanged APIs | restyled to tokens; Markdown gets the heading map (§3.2). `QRCode` and `Pairing` went with linking. |
 
 ---
 
@@ -2637,7 +2694,7 @@ The UI never parses error strings or invents sentences from model output where s
 | S18 | Knowledge HTTP API (F6): repositories with index status and progress; project notes get / put (`If-Match`) / history; search over code and notes with citations | §9 | Mock only; Knowledge shows the "Connect GitHub" state in production until it lands | SV4 |
 | S19 | GitHub connect API (F4, F5): test a token or app → account + accessible repositories; repository allowlist; list a repository's workflows; environments read and write through config | §12.2 | Workflow as a text field | SV4 |
 | S20 | Default persona text in company voice (the default SOUL.md no longer says "personal assistant running on your owner's own machine"); default tone "Warm and brief" | §11.3 | — (one embedded file) | SV2 |
-| S21 | Self-service profile `GET`/`PATCH /api/me`: display name, preferred chat app, where approval requests reach me | §11.2 | Admins edit through `/api/users`; members see their name read-only | SV5 |
+| S21 | Self-service profile `GET`/`PATCH /api/me`: display name and time zone (the preferred chat app and where approval requests reach someone went with linking; the server refuses them) | §11.2 | Admins edit through `/api/users`; members see their name read-only | SV5 |
 | S22 | `agent.name` and `agent.tone` in config (validated, hot) | §11.3 | General rows hidden | SV5 |
 | S23 | `last_login_at` on users | §11.5 | "Joined {date}" | SV5 |
 | S24 | Plain credential `source` on `/api/providers` rows | §11.4 | No "Credentials from" line | SV5 |
@@ -2652,6 +2709,8 @@ The UI never parses error strings or invents sentences from model output where s
 | S33 | `GET`/`PATCH /api/sign-in`, `PATCH /api/sign-in/{p}`, `POST /api/sign-in/{p}/check` | §11.6 | — (landed with SPEC §15) | — |
 
 S21–S30 landed together (SPEC §14.7, "UI state"); their fallbacks are gone from the UI.
+
+Team access (SPEC §5.1, §5.2, §5.9) replaced linking: `GET /api/teammates`, `PATCH /api/identities/{channel}/{external}` (`status` teammate or blocked, `can_approve`), `DELETE /api/teammates/…`, `GET`/`PATCH /api/spaces` (`SpaceView`, admins), `GET /api/team/schedules`, `GrantView` on `GET /api/grants`, `kind` and `app` on usage rows, `approver.team` and the chat requester on approvals, banners `new_channel`, `team_access` and `chat_budget_80`. The pairing routes and events are gone.
 
 ---
 
@@ -2733,7 +2792,7 @@ Acceptance: G1, G5, G7, G8 on the gallery; gallery shots at 1280 and 360 in both
 
 Owns: `web/src/App.svelte`, `web/src/App.test.ts`, `web/src/session.test.ts`, `web/src/lib/routes.ts` + test, `web/src/lib/router.svelte.ts` + test, `web/src/lib/stores/ui.svelte.ts`, `web/src/lib/stores/session.svelte.ts`, `web/src/components/shell/**`; deletes `web/src/components/Shell.svelte`, `web/src/components/Toasts.svelte`, `web/src/screens/chat/Sidebar.svelte`; `web/mock/domains/shell.ts`; `web/e2e/shell.spec.ts`, `web/e2e/shots/shell.spec.ts`.
 
-- [ ] Sidebar §4.2: wordmark, New chat, Search, nav with Count, chat list grouped (Group chats, Today, Previous 7 days, Older), running spinner, waiting dot, hover `⋯` (Rename, Delete chat…), Show more, footer Settings (admins) with attention dot, account row and menu.
+- [ ] Sidebar §4.2: wordmark, New chat, Search, nav with Count, chat list grouped (Today, Previous 7 days, Older), running spinner, waiting dot, hover `⋯` (Rename, Delete chat…), Show more, footer Settings (admins) with attention dot, account row and menu.
 - [ ] Settings mode §4.3 (admin and member variants); phone `/settings` list.
 - [ ] Phone and tablet top bar and drawer §4.4, "{n} waiting" button.
 - [ ] Banner store and host §4.9 with priorities and roles; attention dot store §4.10 (fed by security findings and connection status; hidden if unavailable).
@@ -2775,7 +2834,7 @@ Owns: `web/src/components/approval/**` (`ApprovalCard`, `ApprovalFields`, `Appro
 - [ ] Card anatomy, copy table, choices, warnings, decided lines, multi-approver viewer states, PR card, deploy follow-up (§8.1–8.7), from S2 data or `cardcopy.ts`.
 - [ ] Inbox: tabs, sections, expand in place, item types, Done tab, keyboard and live region (§8.8).
 
-Acceptance: gates G1–G9. Shots: a card for every row of §8.2, warnings, deny reason field, submitting, submit failed, Always allow dialog, every decided line, multi-approver (four viewer states, approved, denied), PR card with Show open, three deploy follow-up lines, inbox (For you plus Waiting for others), Done tab, each item type, empty states, phones (stacked buttons). E2E: J/K/Enter/A/S/D; a held key decides one item; focus moves to the next item and the live region reads "Approved. Next: …"; the requester sees no decision buttons; deploy fixtures never show "Allow for this chat"; Deny never has a danger class; the danger fill appears only on irreversible and financial actions other than deploys.
+Acceptance: gates G1–G9. Shots: a card for every row of §8.2, warnings, deny reason field, submitting, submit failed, Always allow dialog, every decided line, multi-approver (four viewer states, approved, denied), PR card with Show open, three deploy follow-up lines, inbox (For you plus Waiting for others), Done tab, each item type (someone waiting to be let in, a new Slack channel with the choice, a new Discord channel: `item-unknown-sender`, `item-let-in`, `item-channel-choice`, `item-channel-discord`), requests from chat apps (`approval-team-card`, `approval-team-channel`), empty states, phones (stacked buttons). E2E: J/K/Enter/A/S/D; Let in, and Turn on with the choice, from the keyboard; a held key decides one item; focus moves to the next item and the live region reads "Approved. Next: …"; the requester sees no decision buttons; deploy fixtures never show "Allow for this chat"; Deny never has a danger class; the danger fill appears only on irreversible and financial actions other than deploys.
 
 #### C5 Knowledge
 
@@ -2794,16 +2853,16 @@ Owns: `web/src/screens/activity/**` (`Activity`, `Tasks`, `TaskDetail`, `Schedul
 - [ ] Schedules list with Check-in, form with "When" presets and Custom repeat rule, More options, history; Check-in form (§10.3).
 - [ ] Releases (§10.4); Spending with meter states, chart and lists (§10.5); Audit log with both views, row expansion, log check and Allow-site dialog (§10.6).
 
-Acceptance: gates G1–G9. Shots: tasks (admin, member, filters, empty, every outcome word), task detail (Technical details open, refined), schedules (with Check-in, failed last run, empty), schedule form (new, edit, Custom, errors, More options), Check-in form, releases (deploying, waiting, failed, denied, empty), spending (7 and 30 days, meter at 50, 80 and 100 %, member, price not set, empty, phone), audit (actions, website access, expanded row, log intact and broken, Allow-site dialog, filtered empty, phone). Unit: "When" ↔ cron round trip for every preset; money in lists; rendered rows contain names, never ids. Chart bars are focusable and the hidden table matches the data.
+Acceptance: gates G1–G9. Shots: tasks (admin, member, filters, empty, every outcome word), task detail (Technical details open, refined), schedules (with Check-in, failed last run, empty, In chat apps and its delete confirm: `schedules-team`, `schedules-team-delete`), schedule form (new, edit, Custom, errors, More options), Check-in form, releases (deploying, waiting, failed, denied, empty), spending (7 and 30 days, meter at 50, 80 and 100 %, member, price not set, empty, phone), audit (actions, website access, expanded row, log intact and broken, Allow-site dialog, filtered empty, phone). Unit: "When" ↔ cron round trip for every preset; money in lists; rendered rows contain names, never ids. Chart bars are focusable and the hidden table matches the data.
 
 #### C7 Settings: Account, General, Models, People
 
-Owns: `web/src/screens/settings/{Settings,Account,General,Personality,Models,People}.svelte` + tests, deletes `web/src/screens/settings/{Tokens,Persona,Budgets}.svelte` and `web/src/components/ChainEditor.svelte`; `web/mock/domains/settings.ts`; `web/e2e/settings.spec.ts`, `web/e2e/shots/settings.spec.ts`. Imports `ProviderChooser` (C2) and `Pairing` (C8).
+Owns: `web/src/screens/settings/{Settings,Account,General,Personality,Models,People}.svelte` + tests, deletes `web/src/screens/settings/{Tokens,Persona,Budgets}.svelte` and `web/src/components/ChainEditor.svelte`; `web/mock/domains/settings.ts`; `web/e2e/settings.spec.ts`, `web/e2e/shots/settings.spec.ts`; `ChatPeople.svelte` (People → In chat apps). Imports `ProviderChooser` (C2).
 
 - [ ] Row pattern and saving behaviour (§11.1) through `SettingsRow`; no `ConfigField`, no provenance.
 - [ ] Account (§11.2), General and the personality editor (§11.3), Models with Change, Backup models, Add a provider, Manage, Refine (§11.4), People with Add person result and dialogs (§11.5).
 
-Acceptance: gates G1–G9. Shots: Account (linked and unlinked apps, create token and the one-time token view, change password), General (three connection states, personality editor), Models (providers including an error row, Change dialog, Add a provider dialog, Manage for Bedrock and for a key provider, Backup models open, Refine on with How thorough), People (list, Add person and its result, spending limit dialog, owner-only empty), phone settings list. Unit: save on blur and change, "Saved" announced, restart help shown on restart-only fields.
+Acceptance: gates G1–G9. Shots: Account (sign-in methods, create token and the one-time token view, change password), General (three connection states, personality editor), Models (providers including an error row, Change dialog, Add a provider dialog, Manage for Bedrock and for a key provider, Backup models open, Refine on with How thorough), People (list, Add person and its result, spending limit dialog, owner-only empty; In chat apps with approvers, someone no longer in the team and a blocked person, its daily limit, Block and Delete their data dialogs, empty: `people-chat-apps`, `people-chat-limit`, `people-block-dialog`, `people-delete-dialog`, `people-chat-none`), phone settings list. Unit: save on blur and change, "Saved" announced, restart help shown on restart-only fields.
 
 #### C8 Settings: Connections
 
@@ -2811,7 +2870,7 @@ Owns: `web/src/screens/settings/connections/**` (`Connections`, `ChatApp`, `Chat
 
 - [ ] Overview (§12.1); GitHub connect, repository picker, manage view, deploy environments and dialog (§12.2); chat apps steps, failures and manage view (§12.3); MCP add and server page (§12.4); web search (§12.5).
 
-Acceptance: gates G1–G9. Shots: overview with every status word; GitHub (token, app, Enterprise open, connected line, each failure, repository picker, saved with the reading line, manage view, environments empty and listed, environment dialog with 1 and 2 approvals); Slack, Telegram and Discord (steps, success, failures, manage view); MCP (add dialog for both transports, code-off message, server page, review); web search (each option, check passed). Keyboard: OptionList and multi Combobox.
+Acceptance: gates G1–G9. Shots: overview with every status word; GitHub (token, app, Enterprise open, connected line, each failure, repository picker, saved with the reading line, manage view, environments empty and listed, environment dialog with 1 and 2 approvals); Slack, Telegram and Discord (steps, success with the try-it line, failures, manage view with who can use Bothy and group chat details, the Discord turn-off confirm: `slack-manage-who`, `telegram-manage-who`, `discord-manage`, `discord-turn-off-confirm`); MCP (add dialog for both transports, code-off message, server page, review); web search (each option, check passed). Keyboard: OptionList and multi Combobox.
 
 #### C9 Settings: Security and Advanced
 
