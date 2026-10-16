@@ -407,6 +407,8 @@ on('PATCH', '/api/identities/{channel}/{external}', async (req, res, m) => {
     i.can_approve = b.can_approve;
   }
   emit('inbox.changed', { item: `sender:${i.channel}:${i.external_id}` });
+  // A change in People retires the 0013 report (teamAccessReviewed).
+  emit('banner', { level: 'info', code: 'team_access', text: '', clear: true });
   json(res, 200, teammate(i));
 });
 // Approvers first, then by when they were last active, then blocked people.

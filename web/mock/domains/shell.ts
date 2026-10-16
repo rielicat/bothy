@@ -9,6 +9,7 @@ const providerAuth = scenario('provider-auth', 'Anthropic stopped accepting the 
 const safeMode = scenario('safe-mode', 'Bothy started with safe defaults after a settings error (banner).', 'shell');
 const restart = scenario('restart', 'A changed setting needs a restart (banner).', 'shell');
 const noBanners = scenario('no-banners', 'Drop the default banners.', 'shell');
+const teamAccess = scenario('team-access', 'The 0013 upgrade moved people in chat apps off linked accounts (a notice on People and Approvals).', 'shell');
 const teamChats = scenario('team-chats', "A team's chat list: a group chat, chats from today, this week and earlier, one running, one waiting for approval, one untitled, one empty.", 'shell');
 const longChats = scenario('long-chats', 'Forty-five chats, so the sidebar shows Show more (implies team-chats).', 'shell');
 const idleChats = scenario('chats-idle', 'The team-chats list with nothing running and nothing waiting for approval (implies team-chats).', 'shell');
@@ -23,6 +24,8 @@ export function banners(req?: Req): BannerData[] {
   if (providerAuth(req)) out.push({ level: 'error', code: 'provider_auth', text: 'anthropic: 401 invalid x-api-key', action: '/settings/models' });
   if (safeMode(req)) out.push({ level: 'error', code: 'safe_mode', text: 'Started in safe mode: bothy.ui.yaml could not be loaded.', action: '/settings/advanced' });
   if (restart(req)) out.push({ level: 'info', code: 'restart_required', text: 'Restart to apply: sandbox.backend' });
+  if (teamAccess(req) && viewer(req).role !== 'member')
+    out.push({ level: 'info', code: 'team_access', text: 'People in chat apps no longer link to Bothy accounts. Check who can use Bothy and who can approve in People.', action: '/settings/people' });
   return out;
 }
 

@@ -83,6 +83,7 @@ const SHELL = 'apr_01jshell00000000000000000';
 const states: ShotState[] = [
   { name: 'inbox', route: '/approvals', ready: frame },
   { name: 'inbox-member', route: '/approvals', mock: 'member', ready: frame },
+  { name: 'inbox-team-access', route: '/approvals', mock: 'team-access', ready: frame },
   { name: 'inbox-actions-only', route: '/approvals', mock: 'approvals-no-items', ready: frame },
   { name: 'empty-waiting', route: '/approvals', mock: 'approvals-empty', ready: frame },
   { name: 'empty-done', route: '/approvals?tab=done', mock: 'approvals-empty', ready: frame },

@@ -1,11 +1,12 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Avatar, EmptyState, IconButton, Menu, Select, SettingsRow, SettingsSection, StatusLine, Switch, TextField, toast, type MenuItem } from '../../components/ui';
+  import { Avatar, EmptyState, IconButton, Menu, Notice, Select, SettingsRow, SettingsSection, StatusLine, Switch, TextField, toast, type MenuItem } from '../../components/ui';
   import { api } from '../../lib/api/client';
   import type { ChannelStatus, Teammate } from '../../lib/api/types.gen';
   import { joinNames } from '../../lib/cardcopy';
   import { money, relTime } from '../../lib/format';
   import { events } from '../../lib/sse.svelte';
+  import { session } from '../../lib/stores/session.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
   import { personalLimit, Saver, settingsConfig } from './store.svelte';
 
@@ -64,6 +65,8 @@
     return () => mq.removeEventListener('change', sync);
   });
 
+  // The 0013 upgrade's reminder, until an admin changes someone here or a week passes (§4.9: not a banner).
+  const teamAccess = $derived(session.isAdmin && session.banners.some((b) => b.code === 'team_access'));
   const key = (t: Teammate) => `${t.channel}:${t.external_id}`;
   const app = (t: Teammate) => apps[t.channel] ?? t.channel;
   const daily = $derived(settingsConfig.value<number>('budgets.daily_usd', 0));
@@ -192,6 +195,7 @@
 </script>
 
 <SettingsSection title="In chat apps">
+  {#if teamAccess}<Notice class="mb-3" text="People in chat apps no longer link to Bothy accounts. Check who can use Bothy and who can approve below." />{/if}
   <p class="text-small text-muted">
     People who can approve get requests from everyone in chat apps, with the details of what Bothy is about to do, and answer them in their direct messages. Changes to how
     Bothy works still need an admin here.

@@ -204,6 +204,19 @@ describe('Approvals inbox', () => {
 });
 
 describe('Approvals inbox, other states', () => {
+  // Where requests from chat apps now arrive; a notice, since nothing stops (§4.9).
+  it('says above the list that people in chat apps no longer link to accounts, until it is reviewed', async () => {
+    await open('/approvals', {}, 'team-access');
+    expect(await screen.findByText(/^People in chat apps no longer link to Bothy accounts\. Check who can use Bothy and who can approve in People\./)).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Open People' }));
+    expect(router.path).toBe('/settings/people');
+  });
+
+  it('leaves the notice out without the reminder', async () => {
+    await open();
+    await screen.findByRole('heading', { name: 'For you' });
+    expect(screen.queryByText(/no longer link to Bothy accounts/)).toBeNull();
+  });
   it('opens /approvals/:id with that request expanded, pull request changes shown', async () => {
     await open(`/approvals/${PR}`, { id: PR });
     await waitFor(() => expect(expanded()?.dataset.approval).toBe(PR));

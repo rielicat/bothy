@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resetMock } from '../../../mock/server';
 import { gridlines } from '../../components/BarChart.svelte';
@@ -133,5 +133,21 @@ describe('Spending (docs/design/ui.md §10.5)', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Your spending' })).toBeTruthy();
     await screen.findByText('By model');
     expect(screen.queryByText('By person')).toBeNull();
+    expect(screen.queryByText(/^Chat apps/)).toBeNull();
+  });
+
+  // Here instead of a banner over every page: nothing has stopped yet (§4.9).
+  it("says how much of their share of today's limit chat apps have used", async () => {
+    await start('/activity/spending');
+    expect(await screen.findByText('Chat apps today: $0.65 of their $3.00 share')).toBeTruthy();
+    cleanup();
+    await start('/activity/spending', { mock: 'chat-share:80' });
+    const warn = await screen.findByText("Chat apps have used 85% of their $3.00 share of today's limit.");
+    expect(warn.className).toContain('text-warning-text');
+    cleanup();
+    await start('/activity/spending', { mock: 'chat-share:out' });
+    expect(await screen.findByText(/^Chat apps used their \$3\.00 share of today's limit\. Their new work waits until midnight\./)).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Change share' }));
+    expect(router.path).toBe('/settings/people');
   });
 });

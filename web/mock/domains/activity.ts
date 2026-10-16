@@ -395,6 +395,7 @@ const empty = scenario('activity-empty', 'No tasks, schedules, spending or audit
 const spendLimit = scenario('spend-limit', "Today's spending reached the daily limit.", 'activity');
 const spend50 = scenario('spend-50', "Today's spending is half the daily limit.", 'activity');
 const spend80 = scenario('spend-80', "Today's spending passed 80% of the daily limit.", 'activity');
+const chatShare = scenario('chat-share', "Chat apps' share of today's limit: chat-share:80 (85% used) or chat-share:out (all used).", 'activity');
 const noReleases = scenario('releases-none', 'No deploy environments, so the Releases tab is hidden.', 'activity');
 const noDeploys = scenario('releases-empty', 'Deploy environments exist but nothing was deployed yet.', 'activity');
 const deployWaiting = scenario('deploy-waiting', 'A two-approver deploy waits for one more approval; an earlier one was denied.', 'activity');
@@ -524,8 +525,14 @@ on('GET', '/api/usage', (req, res, _m, q) => {
 on('GET', '/api/usage/today', (req, res) => {
   const limit = 5_000_000;
   const spent = spentToday(req);
-  const timezone = String(settings.effective.entries.find((e) => e.path === 'timezone')?.value ?? 'UTC');
-  json(res, 200, { spent_micros: asMember(req) ? Math.round(spent * 0.3) : spent, limit_micros: asMember(req) ? 2_000_000 : 0, global_spent_micros: spent, global_limit_micros: limit, timezone });
+  const setting = (path: string) => settings.effective.entries.find((e) => e.path === path)?.value;
+  const timezone = String(setting('timezone') ?? 'UTC');
+  // Budgets.ChatShareUSD: no separate share at 100%.
+  const pct = Number(setting('budgets.chat_share_pct') ?? 60);
+  const chatLimit = pct < 100 ? (limit * pct) / 100 : 0;
+  const chatSpent = chatShare.arg(req) === 'out' ? chatLimit : chatShare.arg(req) === '80' ? Math.round(chatLimit * 0.85) : Math.min(650_000, spent);
+  const chat = asMember(req) || !chatLimit ? {} : { chat_spent_micros: chatSpent, chat_limit_micros: chatLimit };
+  json(res, 200, { spent_micros: asMember(req) ? Math.round(spent * 0.3) : spent, limit_micros: asMember(req) ? 2_000_000 : 0, global_spent_micros: spent, global_limit_micros: limit, ...chat, timezone });
 });
 on('GET', '/api/audit', (req, res, _m, q) => {
   if (viewer(req).role === 'member') return fail(res, 403, 'forbidden', 'Admins only.');

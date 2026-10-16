@@ -341,6 +341,12 @@ describe('Settings → People → In chat apps', () => {
     expect(s.getByRole('link', { name: 'Open Approvals' }).getAttribute('href')).toBe('/approvals');
   });
 
+  it('reminds admins after the upgrade that people in chat apps no longer link to accounts', async () => {
+    await open('team-access');
+    const s = await section();
+    expect(await s.findByText('People in chat apps no longer link to Bothy accounts. Check who can use Bothy and who can approve below.')).toBeTruthy();
+  });
+
   it('sends the admin to connect a chat app when none is', async () => {
     await open('chat-people-none,chat-apps-off');
     const s = await section();

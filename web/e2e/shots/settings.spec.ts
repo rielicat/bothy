@@ -418,6 +418,16 @@ const states: ShotState[] = [
       await settle(page);
     },
   },
+  {
+    name: 'people-team-access',
+    route: '/settings/people',
+    mock: 'team-access',
+    ready: 'no longer link to Bothy accounts',
+    setup: async (page) => {
+      await frame(page);
+      await page.getByRole('heading', { name: 'In chat apps' }).scrollIntoViewIfNeeded();
+    },
+  },
   { name: 'people-chat-none', route: '/settings/people', mock: 'chat-people-none', ready: 'Nobody has messaged Bothy in a chat app yet.', setup: frame },
   { name: 'people-chat-no-apps', route: '/settings/people', mock: 'chat-people-none,chat-apps-off', ready: 'No chat app is connected yet.', setup: frame },
 ];

@@ -1,6 +1,8 @@
 // Which banner the shell shows (docs/design/ui.md §4.9): only conditions that
 // stop work or need an admin, one at a time, highest priority first. The
-// server's banner text is never shown; each code has its own sentence.
+// server's banner text is never shown; each code has its own sentence. Chat
+// apps near their share (chat_budget_80) and the move off linked accounts
+// (team_access) stop nothing, so Spending, People and Approvals say them.
 import type { BannerData, UsageToday } from '../../lib/api/types.gen';
 import { clock, date, fullTime, money } from '../../lib/format';
 import type { PauseInfo } from '../../lib/stores/session.svelte';
@@ -120,23 +122,7 @@ export function chooseBanner(input: BannerInput): ShellBanner | null {
         action: { label: 'Change limit', href: '/settings/general' },
         dismissible: false,
       });
-    if (find('chat_budget_80'))
-      out.push({
-        code: 'chat_budget_80',
-        tone: 'warning',
-        text: "Chat apps have used 80% of their share of today's spending limit.",
-        action: { label: 'See spending', href: '/activity/spending' },
-        dismissible: true,
-      });
     if (find('restart_required')) out.push({ code: 'restart_required', tone: 'neutral', text: 'Restart Bothy to apply your changes.', dismissible: true });
-    if (find('team_access'))
-      out.push({
-        code: 'team_access',
-        tone: 'neutral',
-        text: 'People in chat apps no longer link to Bothy accounts. Check who can use Bothy and who can approve in People.',
-        action: { label: 'Open People', href: '/settings/people' },
-        dismissible: true,
-      });
   }
   return out.find((b) => !input.hide?.includes(b.code) && !(b.dismissible && input.dismissed.includes(b.code))) ?? null;
 }

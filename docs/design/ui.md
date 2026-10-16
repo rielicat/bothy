@@ -685,13 +685,11 @@ A banner sits at the top of the main area (not over the sidebar), full main widt
 | Provider auth failed | admins | danger | "{Provider} stopped accepting Bothy's key. Chats will fail until it's replaced." | "Update key" |
 | Config errors / safe mode | admins | danger | "Bothy started with safe defaults because some settings couldn't be loaded." | "See what's wrong" (Advanced) |
 | Daily spending limit reached | admins | warning | "Bothy reached today's $5.00 spending limit. New work waits until midnight." | "Change limit" |
-| Chat apps at 80 % of their share (`chat_budget_80`) | admins | warning | "Chat apps have used 80% of their share of today's spending limit." | "See spending" |
 | Restart required | admins | neutral | "Restart Bothy to apply your changes." | none |
-| People in chat apps moved off linked accounts (`team_access`, the first 7 days after the upgrade, until an admin changes anyone in People) | admins | neutral | "People in chat apps no longer link to Bothy accounts. Check who can use Bothy and who can approve in People." | "Open People" |
 
 `unknown_sender` (someone is waiting to be let in) and `new_channel` (Bothy was added to a group chat) only refresh the Approvals inbox, which lists them.
 
-Not banners any more: sandbox off or not isolated (Security attention item), MCP tools or skills pending review (Approvals items and the attention dot), spending at 80 % (Spending page line). Members see only "Paused"; a member who hits the daily limit sees it as a chat notice.
+Not banners any more: sandbox off or not isolated (Security attention item), MCP tools or skills pending review (Approvals items and the attention dot), spending at 80 % (Spending page line), chat apps at 80 % of their share, `chat_budget_80` (Spending page line, §10.5), and people in chat apps moved off linked accounts, `team_access` (a notice on People → In chat apps and above the Approvals list, §11.5, §8.8): neither stops work. Members see only "Paused"; a member who hits the daily limit sees it as a chat notice.
 
 ### 4.10 The attention dot
 
@@ -1545,6 +1543,7 @@ Deploy acme/api to production               1 of 2 approvals · 20 min ago
 ```
 
 - One column, no duplicate card. `/approvals/:id` opens the same list with that item expanded and scrolled into view (fixes `30`).
+- Admins, while `team_access` lasts (§11.5): a neutral `Notice` above the Waiting list, "People in chat apps no longer link to Bothy accounts. Check who can use Bothy and who can approve in People." with "Open People", since their requests now arrive here.
 - Collapsed row: question `text-body` 500, meta right (`text-small muted`): source and age; "1 of 2 approvals" for multi-approver; "Expires in 3 min" in `warning-text` when under 15 minutes; parked items "Waiting since 10:42". Under 640 px meta moves to line 2. Clicking or Enter expands the row in place and collapses the previous one.
 - After a decision the row collapses (160 ms), the next "For you" item expands and takes focus, and the live region says "Approved. Next: {question}" or "Nothing else is waiting."
 - **Item types** (all in the same card shell, S12):
@@ -1870,6 +1869,7 @@ Fix login redirect                                          $0.42
 ```
 
 - Headline: one sentence, never KPI cards. The meter fills with `accent`; at 80 % it turns `warning-text` with the line "Bothy will stop starting new work at $5.00."; at 100 % `danger` with "Bothy reached today's limit. New work waits until midnight." + "Change limit" (admins).
+- Chat apps' share (admins, when chat apps have one: `chat_limit_micros` from `/api/usage/today`): a line under the meter, `muted` "Chat apps today: $0.65 of their $3.00 share"; at 80 % `warning-text` "Chat apps have used 85% of their $3.00 share of today's limit."; at 100 % `danger-text` "Chat apps used their $3.00 share of today's limit. Their new work waits until midnight." + "Change share" (→ People, where the share is set). This line replaces the `chat_budget_80` banner (§4.9).
 - Chart: `chart` bars, hovered or focused bar `text`, gridlines `border`, axis labels `text-caption muted`. With 7 bars or fewer, the amount is printed above each bar. Every bar is focusable with a tooltip "Tue 14 Oct: $1.20". `role="img"` with a summary label ("Spending by day, 15 September to 14 October, highest $4.10 on 9 October") plus a visually hidden table. Days follow the workspace time zone.
 - Lists: 40 px rows, name left, money right `tabular-nums`, top 5 then "Show all" (expands in place). Names only (S8). In "By person", people in chat apps and channels pay from lines of their own: their name, then " · {App}" in `muted`; they link nowhere (their tasks and chats aren't on the web). Rows link where possible: a person to Tasks filtered by them, a chat to the chat. Local models show "Free". Unknown prices: "Price not set" (muted) with "Set price" for admins (Advanced → Model prices).
 - Members: "Your spending" with their own total, their limit if any, no By person.
@@ -2024,6 +2024,7 @@ Leaves the rest of Bothy's $5.00 daily limit for the web.
 ```
 
 - Help (muted) under the heading, as above. When nobody can approve and the list isn't empty: "Nobody can approve in chat apps yet, so requests from chat apps wait for an admin in Approvals."
+- After the upgrade that moved people off linked accounts (`team_access`, the first 7 days, until an admin changes anyone here), a neutral `Notice` above the help: "People in chat apps no longer link to Bothy accounts. Check who can use Bothy and who can approve below." It replaces that banner (§4.9).
 - **Share** (`SettingsRow`, only when a daily limit is set): "Share of the daily limit for chat apps", select "40%", "60% (recommended)", "80%", "All of it" (another saved value shows as "{n}%"); help "Leaves the rest of Bothy's {amount} daily limit for the web."; saves `budgets.chat_share_pct` (100 for "All of it") with the row's "Saved".
 - **Find:** above 20 rows a field "Find someone" filters by name or handle; no match: "No one matches “{q}”."
 - **Rows** (56 px): avatar 32 and name (500); `text-small muted` "{@handle · }{App}{ · No longer in {workspace}}" ("No longer in the server" on Discord, "No longer in the workspace" on Slack without a workspace name); then "Active {relTime} · {spent} of {limit} today" (`tabular-nums`; without a limit "Active {relTime} · {spent} today"). The limit is their own, else the member default.

@@ -9,6 +9,7 @@
   import { announce } from '../components/ui/live.svelte';
   import Button from '../components/ui/Button.svelte';
   import EmptyState from '../components/ui/EmptyState.svelte';
+  import Notice from '../components/ui/Notice.svelte';
   import Page from '../components/ui/Page.svelte';
   import { prefersReducedMotion } from '../components/ui/layer';
   import Verbatim from '../components/Verbatim.svelte';
@@ -27,6 +28,8 @@
   type Row = { key: string; created: string; approval?: Approval; item?: InboxItem };
 
   const done = $derived(router.query.get('tab') === 'done');
+  // Requests from chat apps arrive here now; the 0013 upgrade's reminder sits above them (§4.9: not a banner).
+  const teamAccess = $derived(session.isAdmin && session.banners.some((b) => b.code === 'team_access'));
   const me = $derived(session.me ? { id: session.me.user.id, role: session.me.user.role } : undefined);
 
   let items: InboxItem[] = $state([]);
@@ -358,6 +361,13 @@
       {/each}
     {/if}
   {:else}
+    {#if teamAccess}
+      <Notice
+        class="mb-6"
+        text="People in chat apps no longer link to Bothy accounts. Check who can use Bothy and who can approve in People."
+        action={{ label: 'Open People', onclick: () => router.navigate('/settings/people') }}
+      />
+    {/if}
     {#if missing || target}
       <div class="mb-10">
         <EmptyState text="This request was already decided or doesn't exist." />

@@ -120,6 +120,8 @@ const states: ShotState[] = [
   { name: 'spending-50', route: '/activity/spending', mock: 'spend-50', ready: 'daily limit', setup: frame },
   { name: 'spending-80', route: '/activity/spending', mock: 'spend-80', ready: 'Bothy will stop starting new work', setup: frame },
   { name: 'spending-100', route: '/activity/spending', mock: 'spend-limit', ready: "Bothy reached today's limit.", setup: frame },
+  { name: 'spending-chat-share-80', route: '/activity/spending', mock: 'chat-share:80', ready: 'Chat apps have used 85%', setup: frame },
+  { name: 'spending-chat-share-out', route: '/activity/spending', mock: 'chat-share:out', ready: 'Chat apps used their', setup: frame },
   { name: 'spending-member', route: '/activity/spending', mock: 'member', ready: 'Your spending', setup: frame },
   { name: 'spending-empty', route: '/activity/spending', mock: 'activity-empty', ready: 'Nothing spent in this period.', setup: frame },
   { name: 'spending-details', route: '/activity/spending', ready: 'By model', full: true, setup: then(click('Technical details'), click('Show all')) },

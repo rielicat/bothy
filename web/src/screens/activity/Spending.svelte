@@ -121,6 +121,10 @@
   const limit = $derived(session.isAdmin ? (today?.global_limit_micros ?? 0) : (today?.limit_micros ?? 0));
   const ratio = $derived(limit ? spent / limit : 0);
   const tone = $derived(ratio >= 1 ? 'danger' : ratio >= 0.8 ? 'warning' : 'default');
+  // Chat apps' share of the daily limit (admins): a line here, not a banner over every page (§4.9).
+  const chatSpent = $derived(today?.chat_spent_micros ?? 0);
+  const chatLimit = $derived(session.isAdmin ? (today?.chat_limit_micros ?? 0) : 0);
+  const chatRatio = $derived(chatLimit ? chatSpent / chatLimit : 0);
 
   const tokens = (n: number) => n.toLocaleString();
 </script>
@@ -163,6 +167,19 @@
           </p>
         {:else if tone === 'warning'}
           <p class="mt-2 text-body text-warning-text">Bothy will stop starting new work at {money(limit)}.</p>
+        {/if}
+      {/if}
+      {#if chatLimit}
+        {#if chatRatio >= 1}
+          <p class="mt-2 text-body text-danger-text tabular-nums">
+            Chat apps used their {money(chatLimit)} share of today's limit. Their new work waits until midnight.{' '}<LinkButton
+              onclick={() => router.navigate('/settings/people')}>Change share</LinkButton
+            >
+          </p>
+        {:else if chatRatio >= 0.8}
+          <p class="mt-2 text-body text-warning-text tabular-nums">Chat apps have used {Math.floor(chatRatio * 100)}% of their {money(chatLimit)} share of today's limit.</p>
+        {:else}
+          <p class="mt-2 text-body text-muted tabular-nums">Chat apps today: {money(chatSpent)} of their {money(chatLimit)} share</p>
         {/if}
       {/if}
     {/if}
