@@ -47,6 +47,7 @@ type Options struct {
 	MockLLM   []mockllm.Rule    // starts mockllm when non-nil; see MockProviderYAML
 	Models    []core.ModelInfo  // models mockllm lists on /v1/models
 	Platforms []Platform        // closed when the test ends
+	PublicURL bool              // server.public_url is the gateway's own http://127.0.0.1:<port>
 }
 
 type Gateway struct {
@@ -176,6 +177,9 @@ func boot(t testing.TB, bin, data, run string, llm *mockllm.Server, opts Options
 		"BOTHY_SERVER__LISTEN":    addr,
 		"BOTHY_SANDBOX__BACKEND":  "none",
 		"BOTHY_LOG__LEVEL":        "debug",
+	}
+	if opts.PublicURL {
+		env["BOTHY_SERVER__PUBLIC_URL"] = "http://" + addr
 	}
 	for _, p := range opts.Platforms {
 		for k, v := range p.Env() {
