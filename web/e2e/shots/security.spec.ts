@@ -110,6 +110,24 @@ const states: ShotState[] = [
   { name: 'security-sealed', route: '/settings/security', mock: 'sealed', ready: 'Locked', setup: framed() },
   { name: 'security-member', route: '/settings/security', mock: 'member', ready: 'Only admins can see this page.', setup: framed() },
 
+  // Sign in with Google and GitHub
+  { name: 'security-sign-in', route: '/settings/security', mock: 'signin-google,team-mode', ready: 'Who can sign in', full: false, setup: scrollTo('Who can sign in') },
+  { name: 'google-sign-in', route: '/settings/security/google-sign-in', mock: 'signin-google', ready: 'Redirect URI', setup: framed() },
+  { name: 'google-sign-in-new', route: '/settings/security/google-sign-in', ready: 'Save the details below to turn this on.', setup: framed() },
+  { name: 'google-sign-in-no-address', route: '/settings/security/google-sign-in', mock: 'signin-no-address', ready: 'Set the web address first.', setup: framed() },
+  { name: 'google-sign-in-http-address', route: '/settings/security/google-sign-in', mock: 'signin-http-address', ready: 'Set the web address first.', setup: framed() },
+  {
+    name: 'google-sign-in-check-failed',
+    route: '/settings/security/google-sign-in',
+    mock: 'signin-google,signin-check-fail',
+    ready: 'Redirect URI',
+    setup: framed(async (page) => {
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      await page.getByText("Saved, but Google didn't accept").waitFor();
+    }),
+  },
+  { name: 'github-sign-in', route: '/settings/security/github-sign-in', mock: 'signin-github', ready: 'Callback URL', setup: framed() },
+
   // Allowed without asking
   { name: 'permissions', route: '/settings/security/permissions', ready: 'Remove', setup: framed() },
   { name: 'permissions-empty', route: '/settings/security/permissions', mock: 'security-empty', ready: 'Nothing is allowed without asking yet.', setup: framed() },

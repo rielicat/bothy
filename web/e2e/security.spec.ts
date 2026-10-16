@@ -7,7 +7,15 @@ import { openPage, probe, viewports } from './lib/shots';
 
 const axePath = fileURLToPath(new URL('../node_modules/axe-core/axe.min.js', import.meta.url));
 
-const routes = ['/settings/security', '/settings/security/permissions', '/settings/security/websites', '/settings/security/keys', '/settings/advanced'];
+const routes = [
+  '/settings/security',
+  '/settings/security/permissions',
+  '/settings/security/websites',
+  '/settings/security/keys',
+  '/settings/security/google-sign-in',
+  '/settings/security/github-sign-in',
+  '/settings/advanced',
+];
 
 // The v0.1 shell (C1 replaces it) is not this chunk's to judge: copy checks
 // skip it, and the probes run with it hidden, as the shot spec does.
@@ -185,6 +193,42 @@ test('advanced: provenance only where it belongs, and reset works', async ({ pag
   // Provenance never shows on the main-flow Security page.
   await go(page, '/settings/security');
   await expect(page.getByText(/Changed ·|Set by the server environment/)).toHaveCount(0);
+});
+
+test('Google sign-in: save and check the client, add who can sign in, switch it on', async ({ page }) => {
+  const problems = watch(page);
+  await go(page, '/settings/security/google-sign-in');
+  const sw = page.getByRole('switch', { name: 'Sign in with Google' });
+  await expect(sw).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByText('Save the details below to turn this on.')).toBeVisible();
+  await page.getByLabel('Client ID').fill('1234.apps.googleusercontent.com');
+  await page.getByLabel('Client secret').fill('GOCSPX-test');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Saved. Google accepted the client ID and secret.')).toBeVisible();
+  await expect(page.getByText('Add who can sign in on the Security page to turn this on.')).toBeVisible();
+
+  await page.getByRole('link', { name: /Who can sign in/ }).click();
+  const list = page.getByLabel('Who can sign in');
+  await list.fill('acme.com\npat@gmail.com');
+  await list.blur();
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible();
+  await page.getByRole('link', { name: /^Google/ }).click();
+  await expect(sw).not.toHaveAttribute('aria-disabled', 'true');
+  await sw.click();
+  await expect(sw).toHaveAttribute('aria-checked', 'true');
+  expect(problems).toEqual([]);
+});
+
+test('sign-in pages say what to fix first', async ({ page }) => {
+  await go(page, '/settings/security/google-sign-in', 'signin-no-address');
+  await expect(page.getByText("Set Bothy's web address before turning this on. Google sends people back to it after they sign in.")).toBeVisible();
+  await expect(page.getByText('Set the web address first.')).toBeVisible();
+  await go(page, '/settings/security', 'signin-no-secret');
+  await expect(page.getByRole('link', { name: /^Google/ })).toContainText('Not working');
+  await go(page, '/settings/security/github-sign-in', 'signin-github,signin-check-fail:provider_error');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText("Saved, but GitHub doesn't accept this callback URL. Paste it into the OAuth app's settings.")).toBeVisible();
+  await assertPlainCopy(page, { ignore: SHELL });
 });
 
 test('members are told the pages are for admins', async ({ page }) => {

@@ -303,6 +303,13 @@ const states: ShotState[] = [
   { name: 'sign-in', route: '/login', mock: 'logged-out', ready: 'Sign in' },
   { name: 'sign-in-expired', route: '/login?next=%2Fchat', mock: 'logged-out', ready: 'You were signed out.' },
   { name: 'sign-in-finish-setup', route: '/setup', mock: 'logged-out,setup-owner', ready: 'Sign in to finish setting up Bothy.' },
+  { name: 'sign-in-providers', route: '/login', mock: 'logged-out,signin-google,signin-github', ready: 'Continue with GitHub' },
+  {
+    name: 'sign-in-provider-refused',
+    route: '/login?signin_error=not_allowed&provider=google&who=kim%40gmail.com',
+    mock: 'logged-out,signin-google',
+    ready: "isn't on this Bothy's sign-in list",
+  },
   ...(
     [
       ['wrong', 'logged-out', 'wrong'],

@@ -121,7 +121,7 @@ onReset(() => {
 
 const sealedScenario = scenario('sealed', "Bothy's saved keys are locked (vault sealed banner).", 'shell');
 // The scenario rides on a cookie, so a successful unseal is remembered here until the next reset.
-const sealed = (req?: Parameters<typeof sealedScenario>[0]) => sealedScenario(req) && !state.unsealed;
+export const sealed = (req?: Parameters<typeof sealedScenario>[0]) => sealedScenario(req) && !state.unsealed;
 
 const sealedFinding = finding({ id: 'vault.sealed', area: 'vault', title: 'The vault is sealed', detail: 'Saved secrets cannot be read until the vault is unsealed.', severity: 'high' });
 const sandboxOff = scenario('sandbox-off', 'No isolated workspace: running code is off on this server.', 'security');

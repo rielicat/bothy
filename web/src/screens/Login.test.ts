@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { resetMock } from '../../mock/server';
+import { away } from '../lib/away';
 import { router } from '../lib/router.svelte';
 import { session } from '../lib/stores/session.svelte';
 import { installApi, type Call } from '../test/api';
@@ -107,5 +108,86 @@ describe('choose a new password', () => {
     await fireEvent.input(screen.getByLabelText('New password'), { target: { value: 'Granite-River-42-Lantern' } });
     await fireEvent.click(screen.getByRole('button', { name: 'Save and continue' }));
     expect(screen.getByText('Enter the one-time password you signed in with.')).toBeTruthy();
+  });
+});
+
+describe('sign in with Google or GitHub (§5.9)', () => {
+  const real = away.to;
+  let left: string[] = [];
+  beforeEach(() => {
+    left = [];
+    away.to = (url: string) => void left.push(url);
+  });
+  afterEach(() => {
+    away.to = real;
+  });
+
+  it('offers no provider until an admin turns one on', async () => {
+    const calls = await start();
+    render(Login);
+    await waitFor(() => expect(calls.some((c) => c.url === '/api/auth/methods')).toBe(true));
+    expect(screen.queryByRole('button', { name: /^Continue with/ })).toBeNull();
+    expect(screen.queryByText('or')).toBeNull();
+  });
+
+  it('puts the providers above the form and leaves for the one chosen, carrying next', async () => {
+    const calls = await start('signin-google,signin-github', '/login?next=%2Fapprovals');
+    render(Login);
+    const google = await screen.findByRole('button', { name: 'Continue with Google' });
+    expect(screen.getByRole('button', { name: 'Continue with GitHub' })).toBeTruthy();
+    expect(screen.getByText('or')).toBeTruthy();
+    expect(google.compareDocumentPosition(screen.getByLabelText('Username')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await fireEvent.click(google);
+    await waitFor(() => expect(left).toEqual(['/api/mock/oauth/google?state=mock']));
+    expect(JSON.parse(calls.find((c) => c.url === '/api/auth/oauth/google/start')!.body)).toEqual({ next: '/approvals' });
+  });
+
+  it.each([
+    ['cancelled', 'google', '', 'Signing in with Google was cancelled.'],
+    ['expired', 'github', '', 'That sign-in took too long or was started in another tab. Try again.'],
+    ['not_allowed', 'google', 'kim@gmail.com', "kim@gmail.com isn't on this Bothy's sign-in list. Ask an admin to add you."],
+    ['not_allowed', 'github', 'kim-gh', "@kim-gh isn't on this Bothy's sign-in list. Ask an admin to add you."],
+    ['not_allowed', 'google', '<b>call 555</b>', "That Google account isn't on this Bothy's sign-in list. Ask an admin to add you."],
+    ['org_access', 'github', '', "Your GitHub organization hasn't approved Bothy yet. Ask an organization owner to approve it, then try again."],
+    ['no_account', 'google', '', 'No Bothy account uses that Google account yet. Sign in with your password and connect it in Account, or ask an admin.'],
+    ['disabled', 'github', '', 'This account is turned off. Ask an admin to turn it back on.'],
+    ['unavailable', 'google', '', "Google sign-in isn't working right now. Sign in with your username and password, or ask an admin."],
+  ])('says why %s (%s) came back, once', async (code, provider, who, text) => {
+    const q = new URLSearchParams({ signin_error: code, provider, next: '/chat/ses_1' });
+    if (who) q.set('who', who);
+    await start('', `/login?${q}`);
+    render(Login);
+    expect((await screen.findByRole('alert')).textContent?.trim()).toBe(text);
+    // A reload doesn't repeat the reason; where to go next stays.
+    expect(router.query.has('signin_error')).toBe(false);
+    expect(router.query.get('next')).toBe('/chat/ses_1');
+    expect(screen.queryByText('You were signed out. Sign in again to continue.')).toBeNull();
+  });
+
+  it("sends people to Bothy's own address when they opened another", async () => {
+    await start('signin-google,wrong-address');
+    render(Login);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Continue with Google' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('Open Bothy at bothy.acme.com to sign in with Google.');
+    await fireEvent.click(screen.getByRole('button', { name: 'Go there' }));
+    expect(left).toEqual(['https://bothy.acme.com/login']);
+  });
+
+  it('says when there were too many tries', async () => {
+    installApi({
+      login: false,
+      override: (m, url) =>
+        m === 'POST' && url === '/api/auth/oauth/google/start'
+          ? new Response(JSON.stringify({ error: { code: 'rate_limited', message: 'too many sign-in attempts' } }), { status: 429 })
+          : undefined,
+    });
+    resetMock({ login: false, mock: 'signin-google' });
+    session.me = null;
+    await session.init();
+    router.navigate('/login');
+    render(Login);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Continue with Google' }));
+    expect((await screen.findByRole('alert')).textContent?.trim()).toBe('Too many tries. Wait a minute, then try again.');
+    expect(left).toEqual([]);
   });
 });

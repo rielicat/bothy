@@ -103,6 +103,11 @@ const copy: Record<string, { text: string; steps?: string; action?: FindingActio
 const sentence = (s: string) => (/[.?!…]$/.test(s.trim()) ? s.trim() : `${s.trim()}.`);
 
 export function describeFinding(f: Finding): FindingCopy {
+  // One finding per provider, which its fix address names.
+  if (f.id === 'auth.sign_in') {
+    const p = f.fix?.includes('github') ? 'GitHub' : 'Google';
+    return { text: `${p} sign-in is on, but its client secret is missing.`, steps: `Open Security → ${p} sign-in and save the client secret again.`, action: 'how' };
+  }
   const c = copy[f.id];
   const action: FindingAction = c?.action ?? (f.auto_fix ? 'fix' : 'how');
   return { text: c?.text ?? sentence(f.title), steps: c?.steps, action };

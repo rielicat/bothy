@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '../../lib/api/client';
-import { codeError, loginError, ownerError, setupCommands, tunnel } from './auth';
+import { codeError, connectErrorText, loginError, ownerError, providerName, setupCommands, signInErrorText, tunnel } from './auth';
 
 describe('setup commands (S1)', () => {
   it('leads with the command for this install and lists the other two', () => {
@@ -47,5 +47,30 @@ describe('remote setup', () => {
     });
     expect(tunnel('ssh -L 9090:127.0.0.1:9090 ops@box')).toEqual({ cmd: 'ssh -L 9090:127.0.0.1:9090 ops@box', url: 'http://localhost:9090/setup' });
     expect(tunnel(undefined).cmd).toBe('ssh -L 8080:127.0.0.1:8080 you@your-server');
+  });
+});
+
+describe('provider sign-in copy (§5.9, §11.2)', () => {
+  it('names the provider and only a plausible account', () => {
+    expect(providerName('google')).toBe('Google');
+    expect(providerName('github')).toBe('GitHub');
+    expect(providerName('okta')).toBe('');
+    expect(signInErrorText('not_allowed', 'google', 'pat@gmail.com')).toBe("pat@gmail.com isn't on this Bothy's sign-in list. Ask an admin to add you.");
+    expect(signInErrorText('not_allowed', 'github', 'octo')).toBe("@octo isn't on this Bothy's sign-in list. Ask an admin to add you.");
+    expect(signInErrorText('not_allowed', 'github', 'Visit evil.example now')).toBe("That GitHub account isn't on this Bothy's sign-in list. Ask an admin to add you.");
+    expect(signInErrorText('not_allowed', null, null)).toBe("That account isn't on this Bothy's sign-in list. Ask an admin to add you.");
+  });
+
+  it('falls back to "isn\'t working" for codes it does not know', () => {
+    expect(signInErrorText('something_new', 'github')).toBe("GitHub sign-in isn't working right now. Sign in with your username and password, or ask an admin.");
+    expect(signInErrorText('cancelled', 'okta')).toBe('Signing in was cancelled.');
+  });
+
+  it('says why connecting did not finish', () => {
+    expect(connectErrorText('taken', 'github')).toBe('That GitHub account is already connected to someone else here.');
+    expect(connectErrorText('already_linked', 'google')).toBe("You've already connected a Google account. Disconnect it first.");
+    expect(connectErrorText('signed_out', 'google')).toBe('You were signed out before Google answered. Sign in and try again.');
+    expect(connectErrorText('not_allowed', 'google', 'sam@acme.com')).toBe("sam@acme.com isn't on this Bothy's sign-in list. Ask an admin to add you.");
+    expect(connectErrorText('unavailable', 'github')).toBe("GitHub didn't respond. Try again, or ask an admin to check GitHub sign-in.");
   });
 });

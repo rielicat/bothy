@@ -1,6 +1,10 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { resetMock } from '../../../mock/server';
+import { toaster } from '../../components/ui';
 import { setCsrf } from '../../lib/api/client';
+import { away } from '../../lib/away';
+import { router } from '../../lib/router.svelte';
 import { session } from '../../lib/stores/session.svelte';
 import { installApi } from '../../test/api';
 import Settings from './Settings.svelte';
@@ -189,5 +193,89 @@ describe('Settings → Account', () => {
     const select = (await screen.findByLabelText('Requests reach you in')) as HTMLSelectElement;
     expect([...select.options].map((o) => o.text)).toEqual(['Bothy only', 'Slack']);
     expect(select.value).toBe('slack');
+  });
+});
+
+describe('Settings → Account → Sign-in methods', () => {
+  const real = away.to;
+  let left: string[] = [];
+  beforeEach(() => {
+    left = [];
+    away.to = (url: string) => void left.push(url);
+    toaster.dismiss();
+  });
+  afterEach(() => {
+    away.to = real;
+    router.navigate('/settings/account', { replace: true });
+  });
+
+  async function openWith(mock: string, path = '/settings/account') {
+    const calls = installApi();
+    resetMock({ mock });
+    router.navigate(path, { replace: true });
+    session.ready = false;
+    await session.init();
+    setCsrf('mock-csrf');
+    render(Settings, { params: { group: 'account', page: 'tokens' } });
+    await screen.findByText('Linked chat apps');
+    return calls;
+  }
+
+  it('stays out of the way while neither provider is on', async () => {
+    const calls = await openWith('');
+    await waitFor(() => expect(calls.some((c) => c.url === '/api/me/sign-ins')).toBe(true));
+    expect(screen.queryByText('Sign-in methods')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Change password…' })).toBeTruthy();
+  });
+
+  it('shows the connected account and connects the other provider', async () => {
+    const calls = await openWith('signin-linked,signin-github');
+    const section = (await screen.findByRole('heading', { name: 'Sign-in methods' })).closest('section')!;
+    expect(within(section).getByText('sam@acme.com')).toBeTruthy();
+    expect(within(section).getByText('Not connected')).toBeTruthy();
+    expect(within(section).getByRole('button', { name: 'Disconnect Google' })).toBeTruthy();
+    await fireEvent.click(within(section).getByRole('button', { name: 'Connect GitHub' }));
+    await waitFor(() => expect(left).toEqual(['/api/mock/oauth/github?state=mock']));
+    expect(calls.some((c) => c.method === 'POST' && c.url === '/api/me/sign-ins/github' && c.headers['x-csrf-token'] === 'mock-csrf')).toBe(true);
+  });
+
+  it('disconnects without asking and says so', async () => {
+    const calls = await openWith('signin-linked');
+    await fireEvent.click(await screen.findByRole('button', { name: 'Disconnect Google' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/me/sign-ins/google')).toBe(true));
+    await waitFor(() => expect(toaster.current?.text).toBe('Google disconnected.'));
+    expect(await screen.findByRole('button', { name: 'Connect Google' })).toBeTruthy();
+  });
+
+  it('keeps the only way into an account without a password', async () => {
+    await openWith('signin-only');
+    expect(await screen.findByText('Not set. You sign in with Google.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Change password…' })).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Disconnect Google' }));
+    expect(await screen.findByText('This is how you sign in. Ask an admin for a password before you disconnect it.')).toBeTruthy();
+  });
+
+  it('says a provider that was turned off is off', async () => {
+    // A link stays after its provider is turned off.
+    await open({
+      override: (m, url) =>
+        m === 'GET' && url === '/api/me/sign-ins'
+          ? { providers: [], linked: [{ provider: 'github', user_id: 'usr_x', login: 'sam-acme', email: 'sam@acme.com', created_at: '', last_used_at: '' }], has_password: true }
+          : undefined,
+    });
+    expect(await screen.findByText('@sam-acme · sam@acme.com · GitHub sign-in is off')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Disconnect GitHub' })).toBeTruthy();
+  });
+
+  it('says when a connection came back connected or refused, once', async () => {
+    await openWith('signin-google', '/settings/account?connected=google');
+    await waitFor(() => expect(toaster.current?.text).toBe('Google connected.'));
+    expect(router.query.has('connected')).toBe(false);
+  });
+
+  it('says why a connection did not finish', async () => {
+    await openWith('signin-google', '/settings/account?signin_error=taken&provider=google');
+    expect(await screen.findByText('That Google account is already connected to someone else here.')).toBeTruthy();
+    expect(router.query.has('signin_error')).toBe(false);
   });
 });

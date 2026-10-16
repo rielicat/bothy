@@ -3,12 +3,15 @@
   import Pairing from '../../components/Pairing.svelte';
   import { Button, Combobox, Dialog, LinkButton, Segmented, Select, SettingsRow, SettingsSection, StatusLine, TextField, toast } from '../../components/ui';
   import { api, ApiError } from '../../lib/api/client';
-  import type { ChannelIdentity, ChannelStatus, Profile, TokenRecord } from '../../lib/api/types.gen';
+  import type { ChannelIdentity, ChannelStatus, MySignIns, Profile, SignInProvider, SignInStartResp, TokenRecord } from '../../lib/api/types.gen';
+  import { away } from '../../lib/away';
   import { isZeroTime, relTime } from '../../lib/format';
+  import { router } from '../../lib/router.svelte';
   import { localZone, zoneLabel, zoneOptions } from '../../lib/schedules';
   import { events } from '../../lib/sse.svelte';
   import { session } from '../../lib/stores/session.svelte';
   import { theme, type ThemePref } from '../../lib/stores/ui.svelte';
+  import { connectErrorText, providerName, unanswered } from '../setup/auth';
   import ConfirmDialog from './ConfirmDialog.svelte';
   import ItemRow from './ItemRow.svelte';
   import PasswordDialog from './PasswordDialog.svelte';
@@ -55,8 +58,84 @@
     }
   }
 
+  // Sign-in methods (§11.2): Google and GitHub next to the password.
+  let signIns = $state<MySignIns | null>(null);
+  let signInError = $state('');
+  let connecting = $state<SignInProvider | null>(null);
+  let disconnecting = $state<SignInProvider | null>(null);
+
+  async function loadSignIns() {
+    signIns = await api.get<MySignIns>('/api/me/sign-ins').catch(() => signIns);
+  }
+
+  // A provider round trip ends here: the toast or the reason, then a clean address.
+  function returned() {
+    const q = router.query;
+    const connected = providerName(q.get('connected'));
+    const code = q.get('signin_error');
+    if (!connected && !code) return;
+    if (connected) toast(`${connected} connected.`);
+    if (code) signInError = connectErrorText(code, q.get('provider'), q.get('who'));
+    router.navigate('/settings/account', { replace: true });
+  }
+
+  const signInRows = $derived.by(() => {
+    if (!signIns) return [];
+    const offered = new Set(signIns.providers.map((p) => p.provider));
+    return (['google', 'github'] as SignInProvider[])
+      .map((p) => ({ p, name: providerName(p), on: offered.has(p), link: signIns!.linked.find((l) => l?.provider === p) }))
+      .filter((r) => r.on || r.link)
+      .map((r) => {
+        const who = r.link ? (r.p === 'github' ? [r.link.login && `@${r.link.login}`, r.link.email].filter(Boolean).join(' · ') : r.link.email || '') : '';
+        const status = !r.link ? 'Not connected' : r.on ? who || 'Connected' : `${who || 'Connected'} · ${r.name} sign-in is off`;
+        return { ...r, status };
+      });
+  });
+
+  // Accounts made by provider sign-in have no password: the row says how they sign in instead.
+  const passwordless = $derived.by(() => {
+    if (!signIns || signIns.has_password) return '';
+    const via = signIns.linked.flatMap((l) => (l ? [providerName(l.provider)] : []));
+    return via.length ? `Not set. You sign in with ${via.join(' or ')}.` : 'Not set. Ask an admin for a password.';
+  });
+
+  async function connect(p: SignInProvider) {
+    if (connecting) return;
+    connecting = p;
+    signInError = '';
+    try {
+      const r = await api.post<SignInStartResp>(`/api/me/sign-ins/${p}`);
+      away.to(r.redirect_url);
+    } catch (e) {
+      connecting = null;
+      const name = providerName(p);
+      if (unanswered(e)) signInError = "Bothy didn't respond. Check your connection, then try again.";
+      else if (e instanceof ApiError && e.code === 'wrong_address' && e.fix) signInError = `Open Bothy at ${e.fix.replace(/^https?:\/\//, '')} to connect ${name}.`;
+      else if (e instanceof ApiError && e.code === 'conflict') signInError = connectErrorText('already_linked', p);
+      else signInError = connectErrorText('unavailable', p);
+    }
+  }
+
+  async function disconnect(p: SignInProvider) {
+    disconnecting = p;
+    signInError = '';
+    const name = providerName(p);
+    try {
+      await api.del(`/api/me/sign-ins/${p}`);
+      toast(`${name} disconnected.`);
+      await loadSignIns();
+    } catch (e) {
+      signInError =
+        e instanceof ApiError && e.status === 409 ? 'This is how you sign in. Ask an admin for a password before you disconnect it.' : `Bothy couldn't disconnect ${name}. Try again.`;
+    } finally {
+      disconnecting = null;
+    }
+  }
+
   $effect(() => {
     untrack(() => {
+      returned();
+      void loadSignIns();
       void loadIdentities();
       void loadTokens();
       void loadProfile();
@@ -226,9 +305,36 @@
       {/snippet}
     </SettingsRow>
     <SettingsRow label="Password">
-      {#snippet children()}<Button onclick={() => (pwOpen = true)}>Change password…</Button>{/snippet}
+      {#snippet children(c)}
+        {#if passwordless}
+          <output id={c.id} class="block text-body text-muted">{passwordless}</output>
+        {:else}
+          <Button onclick={() => (pwOpen = true)}>Change password…</Button>
+        {/if}
+      {/snippet}
     </SettingsRow>
   </SettingsSection>
+
+  {#if signInRows.length}
+    <SettingsSection title="Sign-in methods">
+      <div>
+        {#each signInRows as r (r.p)}
+          <ItemRow name={r.name} status={r.status}>
+            {#snippet trailing()}
+              {#if r.link}
+                <Button size="sm" aria-label="Disconnect {r.name}" loading={disconnecting === r.p} loadingLabel="Disconnecting…" onclick={() => disconnect(r.p)}>Disconnect</Button>
+              {:else}
+                <Button size="sm" loading={connecting === r.p} loadingLabel="Opening {r.name}…" onclick={() => connect(r.p)}>Connect {r.name}</Button>
+              {/if}
+            {/snippet}
+          </ItemRow>
+        {/each}
+      </div>
+      {#if signInError}<StatusLine class="mt-2" tone="danger" text={signInError} alert />{/if}
+    </SettingsSection>
+  {:else if signInError}
+    <StatusLine class="mt-6" tone="danger" text={signInError} alert />
+  {/if}
 
   <SettingsSection title="Appearance">
     <SettingsRow label="Theme">

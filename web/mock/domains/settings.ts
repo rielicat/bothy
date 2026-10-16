@@ -59,6 +59,21 @@ const pending: Entry[] = [
   { path: 'agent.refine.drafts', value: 3, source: { layer: 'default' }, shadowed: [], locked: false, hot: true, secret: false },
   { path: 'agent.refine.depth', value: 2, source: { layer: 'default' }, shadowed: [], locked: false, hot: true, secret: false },
   { path: 'agent.refine.early_stop', value: true, source: { layer: 'default' }, shadowed: [], locked: false, hot: true, secret: false },
+  ...(
+    [
+      ['auth.sign_in.allow', []],
+      ['auth.sign_in.allow_new', false],
+      ['auth.sign_in.google.enabled', false],
+      ['auth.sign_in.google.client_id', ''],
+      ['auth.sign_in.google.client_secret', ''],
+      ['auth.sign_in.google.api_base', ''],
+      ['auth.sign_in.github.enabled', false],
+      ['auth.sign_in.github.client_id', ''],
+      ['auth.sign_in.github.client_secret', ''],
+      ['auth.sign_in.github.orgs', []],
+      ['auth.sign_in.github.api_base', ''],
+    ] as [string, unknown][]
+  ).map(([path, value]): Entry => ({ path, value, source: { layer: 'default' }, shadowed: [], locked: path.endsWith('.api_base'), hot: true, secret: path.endsWith('.client_secret') })),
 ];
 
 const bedrockEntries: Entry[] = [

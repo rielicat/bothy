@@ -22,6 +22,7 @@ import './domains/activity.ts';
 import './domains/settings.ts';
 import './domains/connections.ts';
 import './domains/security.ts';
+import './domains/signin.ts';
 import './domains/inbox.ts';
 import { apiDown, core, fail, MOCK_COOKIE, open, resetAll, routes, sanitize, sleep, slow, type Req, type Res } from './domains/core.ts';
 

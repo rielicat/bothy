@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { EgressRecord, Entry, Finding, Grant, Principal } from '../../../lib/api/types.gen';
+import type { EgressRecord, Entry, Finding, Grant, Principal, SignInAdmin, SignInProviderStatus } from '../../../lib/api/types.gen';
 import { describeFinding, needsAttention } from './findings';
+import { canEnable, checkLine, entryProblem, listProblem, listSummary, listText, orgsProblem, parseList, parseOrgs, rowValue } from './signin';
 import { describeGrant, grantMeta, siteName } from './grantText';
 import { joinNames, keyName, storedName, usedBy } from './keyNames';
 import { covers, recentBlocks, sharedSuffix, siteEntry, siteOf } from './sites';
@@ -204,5 +205,75 @@ describe('if nobody answers', () => {
     expect(chatChanges('deny-1h')).toEqual({ 'policy.approval.interactive_timeout': '1h', 'policy.approval.interactive_on_timeout': 'deny' });
     expect(chatChanges('park')).toEqual({ 'policy.approval.interactive_on_timeout': 'park' });
     expect(scheduledChanges('deny-1h')).toEqual({ 'policy.approval.scheduled_timeout': '1h', 'policy.approval.scheduled_on_timeout': 'deny' });
+  });
+});
+
+describe('sign-in list and provider rows', () => {
+  const status = (s: Partial<SignInProviderStatus>): SignInProviderStatus => ({
+    provider: 'google',
+    name: 'Google',
+    enabled: false,
+    ready: false,
+    redirect_uri: '',
+    client_id: '',
+    secret_saved: false,
+    orgs: [],
+    ...s,
+  });
+  const admin = (a: Partial<SignInAdmin>): SignInAdmin => ({ public_url: 'https://bothy.acme.com', address: 'ok', team_mode: true, allow: [], allow_new: false, providers: [], ...a });
+
+  it('reads one entry per line or comma, lower case, without repeats', () => {
+    expect(parseList(' Acme.com,pat@Gmail.com\n\n@eng.acme.io\nacme.com ')).toEqual(['acme.com', 'pat@gmail.com', 'eng.acme.io']);
+    expect(parseList('')).toEqual([]);
+    expect(listText(['a.com', 'b@c.com'])).toBe('a.com\nb@c.com');
+    expect(parseOrgs('acme-inc, Acme-Inc,\nlabs')).toEqual(['acme-inc', 'labs']);
+  });
+
+  it('refuses what would let strangers in, and what is not an address or a domain', () => {
+    expect(entryProblem('acme.com')).toBe('');
+    expect(entryProblem('pat@gmail.com')).toBe('');
+    expect(entryProblem("o'brien+bothy@acme.co.uk")).toBe('');
+    for (const d of ['gmail.com', 'outlook.com', 'proton.me', 'qq.com']) expect(entryProblem(d)).toBe(`Anyone can get an address at ${d}. List each person's address instead.`);
+    expect(entryProblem('acme')).toMatch(/isn't an email address or a domain/);
+    expect(entryProblem('pat@acme')).toMatch(/isn't an email address\./);
+    expect(entryProblem('a b@acme.com')).toMatch(/isn't an email address\./);
+    expect(listProblem(Array.from({ length: 201 }, (_, i) => `p${i}@acme.com`))).toBe('The list can hold up to 200 addresses and domains.');
+    expect(orgsProblem(['acme-inc'])).toBe('');
+    expect(orgsProblem(['-acme'])).toBe('Enter organization names like acme-inc, separated by commas.');
+  });
+
+  it('turns a provider on only when everything is in place', () => {
+    const ready = status({ client_id: 'x', secret_saved: true });
+    expect(canEnable(admin({ allow: ['acme.com'] }), ready)).toBe(true);
+    expect(canEnable(admin({}), ready)).toBe(false);
+    expect(canEnable(admin({}), { ...ready, provider: 'github', orgs: ['acme-inc'] })).toBe(true);
+    expect(canEnable(admin({ allow: ['acme.com'], address: 'not_https' }), ready)).toBe(false);
+    expect(canEnable(admin({ allow: ['acme.com'] }), { ...ready, secret_saved: false })).toBe(false);
+  });
+
+  it('says Off, On or Not working', () => {
+    expect(rowValue(status({}))).toEqual({ text: 'Off', tone: 'muted' });
+    expect(rowValue(status({ enabled: true, ready: true }))).toEqual({ text: 'On', tone: 'muted' });
+    expect(rowValue(status({ enabled: true, problem: 'no_secret' }))).toEqual({ text: 'Not working', tone: 'danger' });
+    expect(listSummary([])).toBe('Nobody yet');
+    expect(listSummary(['a.com'])).toBe('1 address or domain');
+    expect(listSummary(['a.com', 'b.com'])).toBe('2 addresses and domains');
+  });
+
+  it('turns the check result into a line', () => {
+    expect(checkLine('google', { ok: true })).toEqual({ tone: 'success', text: 'Saved. Google accepted the client ID and secret.' });
+    expect(checkLine('github', { ok: false, code: 'key_rejected' }).text).toBe("Saved, but GitHub didn't accept the client ID or secret. Copy them again from GitHub.");
+    expect(checkLine('github', { ok: false, code: 'provider_error', error: 'oauth: github token: redirect_uri_mismatch' }).text).toBe(
+      "Saved, but GitHub doesn't accept this callback URL. Paste it into the OAuth app's settings.",
+    );
+    expect(checkLine('google', { ok: false, code: 'timeout' })).toEqual({ tone: 'warning', text: "Saved, but Bothy couldn't reach Google to check the details." });
+  });
+
+  it('names the provider of a sign-in finding', () => {
+    expect(describeFinding(finding({ id: 'auth.sign_in', fix: '/settings/security/github-sign-in' }))).toEqual({
+      text: 'GitHub sign-in is on, but its client secret is missing.',
+      steps: 'Open Security → GitHub sign-in and save the client secret again.',
+      action: 'how',
+    });
   });
 });

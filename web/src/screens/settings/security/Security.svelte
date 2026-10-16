@@ -4,7 +4,7 @@
   import PauseDialog from '../../../components/shell/PauseDialog.svelte';
   import { Button, CodeBlock, Disclosure, LinkButton, OptionList, Page, Select, SettingsRow, SettingsSection, Switch, toast, type Option } from '../../../components/ui';
   import { api } from '../../../lib/api/client';
-  import type { DoctorReport, Finding, Grant, SandboxInfo, SecretMeta, VaultStatus } from '../../../lib/api/types.gen';
+  import type { DoctorReport, Finding, Grant, SandboxInfo, SecretMeta, SignInAdmin, VaultStatus } from '../../../lib/api/types.gen';
   import { config, saveErrorText } from '../../../lib/config.svelte';
   import { plural } from '../../../lib/format';
   import { pausedSince } from '../../../components/shell/banners';
@@ -14,6 +14,7 @@
   import LinkRow from './LinkRow.svelte';
   import { settingsBack } from './page.svelte';
   import PageState from './PageState.svelte';
+  import { listProblem, listSaveError, listText, parseList, rowValue } from './signin';
   import { chatChanges, chatChoice, scheduledChanges, scheduledChoice, type ApprovalConfig } from './timeouts';
   import UnlockDialog from './UnlockDialog.svelte';
 
@@ -89,10 +90,62 @@
     api.get<SandboxInfo>('/api/sandbox').then((s) => (sandbox = s), () => {});
   }
 
+  // Sign-in (§11.6): one list of who may sign in with Google or GitHub.
+  let signIn = $state<SignInAdmin | null>(null);
+  let allowText = $state('');
+  let allowBase = '';
+  let allowRow = $state<RowState>({ status: null });
+  let allowNewRow = $state<RowState>({ status: null });
+
+  function setSignIn(a: SignInAdmin, replace = false) {
+    signIn = a;
+    const text = listText(a.allow);
+    // A list someone is still typing stays as it is.
+    if (replace || allowText === allowBase) allowText = text;
+    allowBase = text;
+  }
+
+  function loadSignIn() {
+    api.get<SignInAdmin>('/api/sign-in').then((a) => setSignIn(a), () => {});
+  }
+
+  async function saveAllow() {
+    const list = parseList(allowText);
+    if (listText(list) === allowBase) {
+      allowText = allowBase;
+      allowRow = { status: null };
+      return;
+    }
+    const problem = listProblem(list);
+    if (problem) {
+      allowRow = { status: null, error: problem };
+      return;
+    }
+    allowRow = { status: 'saving' };
+    try {
+      setSignIn(await api.patch<SignInAdmin>('/api/sign-in', { allow: list }), true);
+      allowRow = { status: 'saved' };
+      void config.load(true);
+    } catch (e) {
+      allowRow = { status: null, error: listSaveError(e) };
+    }
+  }
+
+  async function saveAllowNew(v: boolean) {
+    allowNewRow = { status: 'saving' };
+    try {
+      setSignIn(await api.patch<SignInAdmin>('/api/sign-in', { allow_new: v }));
+      allowNewRow = { status: 'saved' };
+    } catch {
+      allowNewRow = { status: null, error: "Couldn't save. Try again." };
+    }
+  }
+
   function load() {
     void config.load(true);
     void runAudit();
     loadSandbox();
+    loadSignIn();
     api.get<Grant[]>('/api/grants').then((g) => (grants = g ?? []), () => {});
     api.get<SecretMeta[]>('/api/vault?scope=global').then((k) => (keys = k ?? []), () => {});
     api.get<VaultStatus>('/api/vault/status').then((v) => (vault = v), () => {});
@@ -264,6 +317,64 @@
       </SettingsRow>
       <LinkRow label="Allowed without asking" value={grants === null ? '' : grants.length ? plural(grants.length, 'permission') : 'None'} href="/settings/security/permissions" />
     </SettingsSection>
+
+    {#if signIn}
+      {@const listFixed = fixed('auth.sign_in.allow')}
+      {@const newFixed = fixed('auth.sign_in.allow_new')}
+      <SettingsSection title="Sign-in">
+        <SettingsRow
+          label="Who can sign in"
+          help={listFixed
+            ? FIXED_HELP
+            : 'Email addresses or domains, like acme.com or pat@gmail.com. A domain lets in Google Workspace accounts on it and GitHub accounts with a confirmed address there.'}
+          status={allowRow.status}
+          error={allowRow.error}
+        >
+          {#snippet children(c)}
+            <textarea
+              id={c.id}
+              class="input resize-y"
+              rows="3"
+              bind:value={allowText}
+              placeholder="acme.com"
+              autocapitalize="none"
+              spellcheck="false"
+              disabled={listFixed}
+              aria-describedby={c.describedBy}
+              aria-invalid={c.invalid || undefined}
+              onblur={saveAllow}
+            ></textarea>
+          {/snippet}
+        </SettingsRow>
+        <SettingsRow
+          label="Create an account the first time someone on the list signs in"
+          inline
+          help={newFixed
+            ? FIXED_HELP
+            : signIn.team_mode
+              ? 'People who already have an account should connect Google or GitHub in Account first.'
+              : 'Adding people needs team mode. Turn it on in Settings → Advanced.'}
+          status={allowNewRow.status}
+          error={allowNewRow.error}
+        >
+          {#snippet children(c)}
+            <Switch
+              id={c.id}
+              label="Create an account the first time someone on the list signs in"
+              hideLabel
+              aria-describedby={c.describedBy}
+              checked={signIn?.allow_new ?? false}
+              disabled={newFixed || !signIn?.team_mode}
+              onchange={saveAllowNew}
+            />
+          {/snippet}
+        </SettingsRow>
+        {#each signIn.providers as st (st.provider)}
+          {@const v = rowValue(st)}
+          <LinkRow label={st.name} value={v.text} tone={v.tone} href="/settings/security/{st.provider}-sign-in" />
+        {/each}
+      </SettingsSection>
+    {/if}
 
     <SettingsSection title="Running code">
       {#if sandbox}

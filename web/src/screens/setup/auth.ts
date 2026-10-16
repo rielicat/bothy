@@ -66,6 +66,65 @@ export function loginError(e: unknown): string {
   return "Bothy didn't respond. Check your connection, then try again.";
 }
 
+/** "Google" or "GitHub" for a provider id from the URL, else ''. */
+export function providerName(p: string | null | undefined): string {
+  return p === 'google' ? 'Google' : p === 'github' ? 'GitHub' : '';
+}
+
+// The account the server names on a refusal arrives in the URL, so anything
+// else than an address or a login is left out of the sentence.
+function account(who: string | null | undefined, provider: string | null | undefined): string {
+  if (!who || !/^[A-Za-z0-9._%+'@-]{1,100}$/.test(who)) return '';
+  return provider === 'github' && !who.includes('@') ? `@${who}` : who;
+}
+
+function notListed(provider: string | null | undefined, who: string | null | undefined): string {
+  const a = account(who, provider);
+  const p = providerName(provider);
+  return `${a || (p ? `That ${p} account` : 'That account')} isn't on this Bothy's sign-in list. Ask an admin to add you.`;
+}
+
+/** The sign-in page's sentence for a provider sign-in that came back without signing in (§5.9). */
+export function signInErrorText(code: string, provider: string | null | undefined, who?: string | null): string {
+  const p = providerName(provider);
+  switch (code) {
+    case 'cancelled':
+      return p ? `Signing in with ${p} was cancelled.` : 'Signing in was cancelled.';
+    case 'expired':
+      return 'That sign-in took too long or was started in another tab. Try again.';
+    case 'not_allowed':
+      return notListed(provider, who);
+    case 'org_access':
+      return "Your GitHub organization hasn't approved Bothy yet. Ask an organization owner to approve it, then try again.";
+    case 'no_account':
+      return `No Bothy account uses that ${p || 'sign-in'} account yet. Sign in with your password and connect it in Account, or ask an admin.`;
+    case 'disabled':
+      return 'This account is turned off. Ask an admin to turn it back on.';
+  }
+  return `${p ? `${p} sign-in` : 'That sign-in'} isn't working right now. Sign in with your username and password, or ask an admin.`;
+}
+
+/** Account → Sign-in methods' sentence for a connection that didn't finish (§11.2). */
+export function connectErrorText(code: string, provider: string | null | undefined, who?: string | null): string {
+  const p = providerName(provider) || 'it';
+  switch (code) {
+    case 'taken':
+      return `That ${p} account is already connected to someone else here.`;
+    case 'already_linked':
+      return `You've already connected a ${p} account. Disconnect it first.`;
+    case 'cancelled':
+      return `You didn't finish connecting ${p}.`;
+    case 'expired':
+      return 'Connecting took too long. Try again.';
+    case 'signed_out':
+      return `You were signed out before ${p} answered. Sign in and try again.`;
+    case 'not_allowed':
+    case 'org_access':
+      return signInErrorText(code, provider, who);
+  }
+  return `${p} didn't respond. Try again, or ask an admin to check ${p} sign-in.`;
+}
+
 const DEFAULT_TUNNEL = 'ssh -L 8080:127.0.0.1:8080 you@your-server';
 
 /** The tunnel command from the server's 403 fix line, verbatim, and the address to open after it (§5.4). */

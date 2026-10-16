@@ -15,7 +15,7 @@ const VOICE: CopyRule[] = [
   { id: 'error-prefix', pattern: /(^|[.:]\s)error:/i, why: '"error:" as a prefix (§14.4)' },
   { id: 'personal-voice', pattern: /\b(your machine|your own assistant|plan a calm week)\b/i, why: 'personal-assistant voice (§14.1)' },
   // Acronyms and file names (SKILL.md) are not shouting.
-  { id: 'all-caps', pattern: /\b(?!(?:API|AWS|CLI|URL|MCP|SSO|IRSA|GPT|OSS|UTC|USD|YAML|JSON|HTTP|HTTPS|TLS|DNS|CPU|RAM|PAT|SHA|CSV|PDF|PNG|SVG|ZIP)\b)[A-Z]{3,}\b(?!\.[a-z])/, why: 'an all-caps word (§14.2)' },
+  { id: 'all-caps', pattern: /\b(?!(?:API|AWS|CLI|URL|URI|MCP|SSO|IRSA|GPT|OSS|UTC|USD|YAML|JSON|HTTP|HTTPS|TLS|DNS|CPU|RAM|PAT|SHA|CSV|PDF|PNG|SVG|ZIP)\b)[A-Z]{3,}\b(?!\.[a-z])/, why: 'an all-caps word (§14.2)' },
   { id: 'emoji', pattern: /\p{Emoji_Presentation}/u, why: 'emoji (§14.2)' },
 ];
 const RULES = [...COPY_RULES, ...VOICE];

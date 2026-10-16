@@ -207,6 +207,33 @@ test('sign in maps server errors to plain sentences', async ({ page }) => {
   await assertPlainCopy(page);
 });
 
+test('continue with Google lands in the chat under the gateway CSP', async ({ page }) => {
+  const problems = watch(page);
+  await page.goto('/login?mock=logged-out,signin-google');
+  await page.getByRole('button', { name: 'Continue with Google' }).click();
+  await page.waitForURL('**/chat');
+  await expect(page.getByRole('button', { name: 'Continue with Google' })).toHaveCount(0);
+  expect(problems).toEqual([]);
+});
+
+test('a provider sign-in that came back refused says why, once', async ({ page }) => {
+  await page.goto('/login?signin_error=no_account&provider=google&mock=logged-out,signin-google');
+  await expect(page.getByRole('alert')).toHaveText('No Bothy account uses that Google account yet. Sign in with your password and connect it in Account, or ask an admin.');
+  await expect(page).toHaveURL(/\/login$/);
+  await assertPlainCopy(page);
+});
+
+test('provider buttons are 44 px targets on a touch screen', async ({ browser }) => {
+  const ctx = await browser.newContext({ baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:5197', viewport: { width: 360, height: 780 }, hasTouch: true, isMobile: true });
+  const page = await ctx.newPage();
+  await page.goto('/login?mock=logged-out,signin-google,signin-github');
+  const buttons = page.getByRole('button', { name: /^Continue with/ });
+  await expect(buttons).toHaveCount(2);
+  for (const b of await buttons.all()) expect((await b.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  expect(await page.evaluate(() => document.scrollingElement!.scrollWidth)).toBeLessThanOrEqual(360);
+  await ctx.close();
+});
+
 const screens: [string, string, (page: Page) => Promise<unknown>][] = [
   ['setup code', '/setup?mock=setup', (page) => page.getByRole('button', { name: 'Continue' }).click()],
   ['remote setup', '/setup?mock=setup,remote', (page) => page.getByText('Finish setup on the server').waitFor()],
@@ -241,6 +268,12 @@ const screens: [string, string, (page: Page) => Promise<unknown>][] = [
     },
   ],
   ['sign in', '/login?mock=logged-out', (page) => page.getByText('Sign in').first().waitFor()],
+  ['sign in with providers', '/login?mock=logged-out,signin-google,signin-github', (page) => page.getByRole('button', { name: 'Continue with GitHub' }).waitFor()],
+  [
+    'sign in refused by a provider',
+    '/login?signin_error=not_allowed&provider=google&who=kim%40gmail.com&mock=logged-out,signin-google',
+    (page) => page.getByRole('alert').waitFor(),
+  ],
   ['new password', '/password?mock=', (page) => page.getByRole('button', { name: 'Save and continue' }).click()],
 ];
 

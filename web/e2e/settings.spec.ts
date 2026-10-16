@@ -145,6 +145,21 @@ test('create a token from the keyboard and see it once', async ({ page }) => {
   await expect(page.getByText(/^bothy_pat_/)).toHaveCount(0);
 });
 
+test('Account connects and disconnects sign-in methods', async ({ page }) => {
+  await go(page, '/settings/account', 'signin-linked,signin-github');
+  const section = page.locator('section', { has: page.getByRole('heading', { name: 'Sign-in methods' }) });
+  await expect(section.getByText('sam@acme.com')).toBeVisible();
+  await section.getByRole('button', { name: 'Disconnect Google' }).click();
+  await expect(page.getByText('Google disconnected.')).toBeVisible();
+  await expect(section.getByRole('button', { name: 'Connect Google' })).toBeVisible();
+  // Connecting goes through the provider and comes back here.
+  await section.getByRole('button', { name: 'Connect GitHub' }).click();
+  await page.waitForURL('**/settings/account');
+  await expect(page.getByText('GitHub connected.')).toBeVisible();
+  await expect(section.getByText('@sam-acme')).toBeVisible();
+  await assertPlainCopy(page, { ignore: shell });
+});
+
 test('members see only their account', async ({ page }) => {
   await go(page, '/settings/account', 'member');
   await expect(page.getByRole('heading', { level: 1, name: 'Account' })).toBeVisible();

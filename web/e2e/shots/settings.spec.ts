@@ -60,6 +60,15 @@ async function personMenu(page: Page, name: string) {
 const states: ShotState[] = [
   // Account
   { name: 'account', route: '/settings/account', ready: 'Linked chat apps', setup: frame },
+  { name: 'account-sign-in-methods', route: '/settings/account', mock: 'signin-linked,signin-github', ready: 'Sign-in methods', setup: frame },
+  { name: 'account-sign-in-only', route: '/settings/account', mock: 'signin-only', ready: 'Not set. You sign in with Google.', setup: frame },
+  {
+    name: 'account-sign-in-refused',
+    route: '/settings/account?signin_error=taken&provider=github',
+    mock: 'signin-github',
+    ready: 'That GitHub account is already connected to someone else here.',
+    setup: frame,
+  },
   {
     name: 'account-unlinked',
     route: '/settings/account',

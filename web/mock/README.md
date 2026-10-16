@@ -22,6 +22,7 @@ The routes and their seed data live in `domains/`, one file per area of the UI
 | `settings.ts` | config, models, providers, people, API tokens, personality |
 | `connections.ts` | chat apps, pairing, identities, group chats, MCP |
 | `security.ts` | grants, policy tester, vault, sandbox, doctor, backups |
+| `signin.ts` | sign in with Google and GitHub: the sign-in page's buttons, a fake provider round trip (`/api/mock/oauth/{p}`), Account → Sign-in methods, Security → Sign-in |
 
 `fixtures.ts` re-exports the seed values for tests. `fixtures/effective.json`
 and `fixtures/schema.json` are the real output of `internal/config`
@@ -47,7 +48,15 @@ empty lists) are switched on per page with `?mock=`:
 /chat?mock=paused,sealed
 /setup?mock=setup,detect-aws
 /setup?mock=setup,provider-fail:out_of_credit
+/login?mock=logged-out,signin-google,signin-github
+/settings/security/google-sign-in?mock=signin-google,signin-check-fail:key_rejected
 ```
+
+Sign-in has `signin-google`, `signin-github`, `signin-fail:<code>`,
+`signin-linked`, `signin-only`, `signin-no-address`, `signin-http-address`,
+`signin-check-fail:<code>`, `signin-no-secret`, `wrong-address` and
+`team-mode`. The mock runs at `https://bothy.acme.com` when the config
+fixture has no web address.
 
 Opening a page with `?mock=` resets the fixtures and stores the list in the
 `bothy_mock` cookie, so the page's `/api` calls and later in-app navigation
