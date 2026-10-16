@@ -63,6 +63,8 @@ func TestSignInValidation(t *testing.T) {
 		{"too many entries", allow(tooMany...), "auth.sign_in.allow", "at most 200"},
 		{"bad org", func(c *Config) { readyGitHub(c); c.Auth.SignIn.GitHub.Orgs = []string{"-acme"} }, "auth.sign_in.github.orgs", "organization"},
 		{"duplicate org in another case", func(c *Config) { readyGitHub(c); c.Auth.SignIn.GitHub.Orgs = []string{"Acme", "acme"} }, "auth.sign_in.github.orgs", "duplicate"},
+		{"org ids of another length", func(c *Config) { readyGitHub(c); c.Auth.SignIn.GitHub.OrgIDs = []int64{1, 2} }, "auth.sign_in.github.org_ids", "has 2 ids for 1 organizations"},
+		{"org id not positive", func(c *Config) { readyGitHub(c); c.Auth.SignIn.GitHub.OrgIDs = []int64{-1} }, "auth.sign_in.github.org_ids", "positive"},
 		{"api_base not loopback", func(c *Config) { c.Auth.SignIn.Google.APIBase = "https://accounts.example.com" }, "auth.sign_in.google.api_base", "loopback"},
 		{"api_base with a query", func(c *Config) { c.Auth.SignIn.GitHub.APIBase = "http://127.0.0.1:9000/?x=1" }, "auth.sign_in.github.api_base", "query"},
 		{"api_base with a user", func(c *Config) { c.Auth.SignIn.GitHub.APIBase = "http://u:p@127.0.0.1:9000" }, "auth.sign_in.github.api_base", "credentials"},
@@ -105,6 +107,7 @@ func TestSignInValidation(t *testing.T) {
 		func(c *Config) { readyGoogle(c); c.Auth.SignIn.Google.APIBase = "http://127.0.0.1:9000" },
 		func(c *Config) { readyGoogle(c); c.Auth.SignIn.Google.APIBase = "https://localhost:9000" },
 		func(c *Config) { readyGitHub(c); c.Auth.SignIn.GitHub.APIBase = "http://[::1]:9000" },
+		func(c *Config) { readyGitHub(c); c.Auth.SignIn.GitHub.OrgIDs = []int64{9919} },
 		// allow_new is not tied to the mode by validation; it takes effect only in team mode.
 		func(c *Config) { readyGitHub(c); c.Mode = "single"; c.Auth.SignIn.AllowNew = true },
 		// Off, nothing is required.

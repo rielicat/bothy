@@ -241,6 +241,12 @@ on('PATCH', '/api/sign-in/{p}', async (req, res, m) => {
   const c = state.providers[p];
   const base = `auth.sign_in.${p}`;
   if (b.orgs !== undefined && p !== 'github') return fail(res, 400, 'bad_request', 'organizations apply to GitHub sign-in only');
+  // The server looks each organization up on GitHub to pin it by id; the mock knows all but no-such-org.
+  const unknown = Array.isArray(b.orgs) ? (b.orgs as string[]).map((o) => o.trim()).find((o) => o.toLowerCase() === 'no-such-org') : undefined;
+  if (unknown) {
+    const message = `GitHub has no organization called ${unknown}.`;
+    return json(res, 400, { error: { code: 'bad_request', message }, fields: [{ path: `${base}.orgs`, source: { layer: 'ui' }, message }] });
+  }
   const next = {
     ...c,
     clientId: typeof b.client_id === 'string' ? b.client_id.trim() : c.clientId,

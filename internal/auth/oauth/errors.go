@@ -18,6 +18,8 @@ var (
 	// ErrRejected: the provider refused the code (used, expired, or for
 	// another client); the person starts again.
 	ErrRejected = errors.New("oauth: provider refused the code")
+	// ErrUnknownOrg: GitHub has no organization of that name.
+	ErrUnknownOrg = errors.New("oauth: no such GitHub organization")
 )
 
 // ProviderError is a transport failure or an answer Bothy can't use. Desc

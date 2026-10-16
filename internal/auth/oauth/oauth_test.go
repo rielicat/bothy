@@ -456,6 +456,48 @@ func TestGitHubFailures(t *testing.T) {
 	}
 }
 
+// A pinned organization must be the one a membership belongs to: whoever
+// takes a renamed organization's old name can't let their members in.
+func TestGitHubPinnedOrgs(t *testing.T) {
+	fake, ep := newGitHub(t)
+	c := newClient(nil)
+	fake.SetOrg("acme-inc", 100)
+	who := oauthtest.Identity{ID: 1, Login: "lee", Orgs: map[string]string{"acme-inc": "active"}}
+	if _, err := c.GitHub(ctx, ep, githubCode(t, fake, ep, who), Rules{Orgs: []string{"acme-inc"}, OrgIDs: []int64{100}}); err != nil {
+		t.Fatalf("member of the pinned organization: %v", err)
+	}
+	fake.SetOrg("acme-inc", 200)
+	if _, err := c.GitHub(ctx, ep, githubCode(t, fake, ep, who), Rules{Orgs: []string{"acme-inc"}, OrgIDs: []int64{100}}); !errors.Is(err, ErrNotAllowed) {
+		t.Fatalf("the name now belongs to another organization: %v", err)
+	}
+	if _, err := c.GitHub(ctx, ep, githubCode(t, fake, ep, who), Rules{Orgs: []string{"acme-inc"}}); err != nil {
+		t.Fatalf("not pinned, matched by name: %v", err)
+	}
+	if _, err := c.GitHub(ctx, ep, githubCode(t, fake, ep, who), Rules{Orgs: []string{"acme-inc"}, OrgIDs: []int64{0}}); err != nil {
+		t.Fatalf("a 0 id is not pinned: %v", err)
+	}
+}
+
+func TestGitHubOrgID(t *testing.T) {
+	fake, ep := newGitHub(t)
+	rec := &recorder{}
+	c := newClient(rec)
+	fake.SetOrg("Acme-Inc", 4242)
+	if id, err := c.GitHubOrgID(ctx, ep, "acme-inc"); err != nil || id != 4242 {
+		t.Fatalf("known organization: %d, %v", id, err)
+	}
+	if _, err := c.GitHubOrgID(ctx, ep, "nope"); !errors.Is(err, ErrUnknownOrg) {
+		t.Fatalf("unknown organization: %v", err)
+	}
+	fake.FailNext("/orgs/acme-inc", http.StatusInternalServerError)
+	if _, err := c.GitHubOrgID(ctx, ep, "acme-inc"); core.CodeOf(err) != core.FailProviderError {
+		t.Fatalf("500: %v", err)
+	}
+	if d := rec.dests[0]; d.Name != "signin:github" || !d.AllowPrivate {
+		t.Fatalf("egress destination %+v", d)
+	}
+}
+
 // No code or token the provider issued ever appears in an error.
 func TestErrorsCarryNoTokens(t *testing.T) {
 	gfake, gep := newGoogle(t)

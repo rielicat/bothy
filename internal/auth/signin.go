@@ -136,6 +136,9 @@ func (s *Service) providerConf(ctx context.Context, p core.SignInProvider) provi
 		pc.enabled, pc.clientID, pc.secretRef = h.Enabled, h.ClientID, h.ClientSecret
 		pc.ep, pc.epErr = oauth.GitHubEndpoints(h.APIBase)
 		pc.rules.Orgs = h.Orgs
+		if len(h.OrgIDs) == len(h.Orgs) {
+			pc.rules.OrgIDs = h.OrgIDs
+		}
 		rules = config.SignInListsAddress(si.Allow) || len(h.Orgs) > 0
 	}
 	deps := s.signIn.Load()
@@ -565,6 +568,49 @@ func (s *Service) SignInStatus(ctx context.Context) []core.SignInProviderStatus 
 		out = append(out, st)
 	}
 	return out
+}
+
+// PinGitHubOrgs returns the GitHub id of each of orgs, for
+// auth.sign_in.github.org_ids. An organization already pinned under the same
+// name keeps its id, so saving the settings again never moves a pin to
+// whoever took a renamed organization's name; the others are looked up. A
+// name GitHub doesn't know is a config.FieldErrors on the orgs key.
+func (s *Service) PinGitHubOrgs(ctx context.Context, orgs []string) ([]int64, error) {
+	deps := s.signIn.Load()
+	if deps == nil {
+		return nil, fmt.Errorf("provider sign-in: %w", core.ErrNotImplemented)
+	}
+	h := s.conf().Auth.SignIn.GitHub
+	ep, err := oauth.GitHubEndpoints(h.APIBase)
+	if err != nil {
+		return nil, err
+	}
+	pinned := map[string]int64{}
+	if len(h.OrgIDs) == len(h.Orgs) {
+		for i, o := range h.Orgs {
+			pinned[strings.ToLower(o)] = h.OrgIDs[i]
+		}
+	}
+	c := oauth.Client{HTTP: deps.HTTP, Now: s.now, Log: s.log}
+	ids := make([]int64, len(orgs))
+	var unknown config.FieldErrors
+	for i, o := range orgs {
+		if ids[i] = pinned[strings.ToLower(o)]; ids[i] > 0 {
+			continue
+		}
+		ids[i], err = c.GitHubOrgID(ctx, ep, o)
+		switch {
+		case errors.Is(err, oauth.ErrUnknownOrg):
+			unknown = append(unknown, config.FieldError{Path: "auth.sign_in.github.orgs", Source: config.Source{Layer: config.LayerUI},
+				Message: "GitHub has no organization called " + o + "."})
+		case err != nil:
+			return nil, err
+		}
+	}
+	if len(unknown) > 0 {
+		return nil, unknown
+	}
+	return ids, nil
 }
 
 // CheckSignIn asks p whether it accepts a client id and secret, by trading

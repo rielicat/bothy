@@ -75,6 +75,7 @@ type Server struct {
 	tokens   map[string]Identity
 	revoked  []string
 	issued   []string
+	orgs     map[string]int64
 	auths    []AuthRecord
 	mutate   func(map[string]any)
 	tokenErr string
@@ -134,7 +135,7 @@ func start(google bool, clientID, secret string, opts []Option) (*Server, error)
 		opt(&o)
 	}
 	s := &Server{ClientID: clientID, ClientSecret: secret, google: google, fail: map[string]int{}, codes: map[string]*grant{},
-		tokens: map[string]Identity{}}
+		tokens: map[string]Identity{}, orgs: map[string]int64{}}
 	mux := http.NewServeMux()
 	if google {
 		mux.HandleFunc("GET /o/oauth2/v2/auth", s.authorize)
@@ -145,6 +146,7 @@ func start(google bool, clientID, secret string, opts []Option) (*Server, error)
 		mux.HandleFunc("GET /user", s.githubUser)
 		mux.HandleFunc("GET /user/emails", s.githubEmails)
 		mux.HandleFunc("GET /user/memberships/orgs/{org}", s.githubMembership)
+		mux.HandleFunc("GET /orgs/{org}", s.githubOrg)
 		mux.HandleFunc("DELETE /applications/{client}/token", s.githubRevoke)
 	}
 	s.srv = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -176,6 +178,21 @@ func (s *Server) SignInAs(id Identity) {
 	s.mu.Lock()
 	s.who, s.deny = id, false
 	s.mu.Unlock()
+}
+
+// SetOrg makes GET /orgs/{login} answer with id, and memberships of login
+// carry it as organization.id. Calling it again with another id is a
+// renamed organization's name taken by another.
+func (s *Server) SetOrg(login string, id int64) {
+	s.mu.Lock()
+	s.orgs[strings.ToLower(login)] = id
+	s.mu.Unlock()
+}
+
+func (s *Server) orgID(login string) int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.orgs[strings.ToLower(login)]
 }
 
 // Deny makes the next authorize redirect back with error=access_denied.
@@ -431,12 +448,24 @@ func (s *Server) githubMembership(w http.ResponseWriter, r *http.Request) {
 	}
 	switch state {
 	case "active", "pending":
-		writeJSON(w, http.StatusOK, map[string]any{"state": state, "role": "member", "organization": map[string]string{"login": org}})
+		writeJSON(w, http.StatusOK, map[string]any{"state": state, "role": "member", "organization": map[string]any{"login": org, "id": s.orgID(org)}})
 	case "restricted":
 		writeJSON(w, http.StatusForbidden, map[string]string{"message": "Although you appear to have the correct authorization credentials, the organization has enabled OAuth App access restrictions."})
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
 	}
+}
+
+// githubOrg answers GET /orgs/{org}, which needs no token, for the
+// organizations SetOrg made.
+func (s *Server) githubOrg(w http.ResponseWriter, r *http.Request) {
+	org := r.PathValue("org")
+	id := s.orgID(org)
+	if id == 0 || r.Header.Get("X-GitHub-Api-Version") == "" {
+		writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"login": org, "id": id, "type": "Organization"})
 }
 
 func (s *Server) githubRevoke(w http.ResponseWriter, r *http.Request) {

@@ -40,29 +40,44 @@ func (s *Service) Checks() []core.Check {
 }
 
 // checkSignIn reports a provider that is on but whose client secret can't
-// be read, so its button has quietly left the sign-in page.
+// be read, so its button has quietly left the sign-in page, and GitHub
+// organizations matched by name only. The web app tells the three apart by
+// title ("missing", "locked", "pinned").
 func (s *Service) checkSignIn(ctx context.Context) []core.Finding {
-	if s.signIn.Load() == nil {
-		return nil
-	}
 	var out []core.Finding
+	if gh := s.conf().Auth.SignIn.GitHub; gh.Enabled && len(gh.Orgs) > 0 && !orgsPinned(gh.Orgs, gh.OrgIDs) {
+		out = append(out, core.Finding{
+			ID: "auth.sign_in", Area: "auth", Severity: core.SevLow, Security: true,
+			Title: "GitHub organizations aren't pinned",
+			Detail: "Save the GitHub organizations once in Settings → Security so Bothy can pin them. Until then they are matched by name, " +
+				"and whoever takes a renamed organization's old name could let its members in.",
+			Fix: "/settings/security/github-sign-in",
+		})
+	}
+	if s.signIn.Load() == nil {
+		return out
+	}
 	for _, p := range core.SignInProviders {
 		pc := s.providerConf(ctx, p)
 		if !pc.enabled || (pc.problem != "no_secret" && pc.problem != "sealed") {
 			continue
 		}
-		detail := "The saved key " + pc.secretRef + " is missing."
+		title, detail := p.Name()+" sign-in is on, but its client secret is missing", "The saved key "+pc.secretRef+" is missing."
 		if pc.problem == "sealed" {
-			detail = "Saved keys are locked, so " + pc.secretRef + " can't be read."
+			title, detail = p.Name()+" sign-in is on, but saved keys are locked", "Saved keys are locked, so "+pc.secretRef+" can't be read."
 		}
 		out = append(out, core.Finding{
 			ID: "auth.sign_in", Area: "auth", Severity: core.SevMedium, Security: true,
-			Title:  p.Name() + " sign-in is on, but its client secret isn't available",
+			Title:  title,
 			Detail: detail + " The sign-in page no longer offers " + p.Name() + ".",
 			Fix:    "/settings/security/" + string(p) + "-sign-in",
 		})
 	}
 	return out
+}
+
+func orgsPinned(orgs []string, ids []int64) bool {
+	return len(ids) == len(orgs) && !slices.Contains(ids, 0)
 }
 
 func loopbackListen(listen string) bool {

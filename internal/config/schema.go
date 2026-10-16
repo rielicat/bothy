@@ -117,8 +117,13 @@ type GitHubSignIn struct {
 	Enabled      bool     `yaml:"enabled"`
 	ClientID     string   `yaml:"client_id"`
 	ClientSecret string   `yaml:"client_secret" secret:"true"`
-	Orgs         []string `yaml:"orgs"`                   // active members may also sign in; checked with the person's own token
-	APIBase      string   `yaml:"api_base" locked:"true"` // tests only: a loopback server for the github.com and api.github.com paths
+	Orgs         []string `yaml:"orgs"` // active members may also sign in; checked with the person's own token
+	// OrgIDs is written by the server when organizations are saved in
+	// Settings → Security: Orgs[i]'s numeric id, which a membership must
+	// carry, so whoever takes a renamed organization's old name can't let
+	// their members in. Empty: matched by name only.
+	OrgIDs  []int64 `yaml:"org_ids"`
+	APIBase string  `yaml:"api_base" locked:"true"` // tests only: a loopback server for the github.com and api.github.com paths
 }
 
 type Lockout struct {

@@ -180,6 +180,46 @@ auth:
 		t.Fatalf("restricted organization: %v", q)
 	}
 
+	// Organizations from bothy.yaml are matched by name until saved once in
+	// the settings, which pins them by GitHub id.
+	unpinned := func() bool {
+		var rep dto.DoctorReport
+		if code := owner.JSON(t, http.MethodPost, "/api/security-audit", dto.SecurityAuditReq{}, &rep); code != http.StatusOK {
+			t.Fatalf("security audit = %d", code)
+		}
+		for _, f := range rep.Findings {
+			if f.ID == "auth.sign_in" && strings.Contains(f.Detail, "so Bothy can pin them") {
+				return true
+			}
+		}
+		return false
+	}
+	if !unpinned() {
+		t.Fatal("no finding for organizations matched by name")
+	}
+	gh.SetOrg("acme-inc", 1001)
+	var adm dto.SignInAdmin
+	if code := owner.JSON(t, http.MethodPatch, "/api/sign-in/github", dto.SignInPatch{Orgs: &[]string{"acme-inc"}}, &adm); code != http.StatusOK {
+		t.Fatalf("save organizations = %d", code)
+	}
+	if unpinned() {
+		t.Fatal("the organizations are still not pinned after a save")
+	}
+	resp := owner.Do(t, http.MethodPatch, "/api/sign-in/github", dto.SignInPatch{Orgs: &[]string{"acme-inc", "no-such-org"}}, nil)
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(resp.Body), "GitHub has no organization called no-such-org.") {
+		t.Fatalf("unknown organization = %s %s", resp.Status, resp.Body)
+	}
+	member := oauthtest.Identity{ID: 11, Login: "member-two", Orgs: map[string]string{"acme-inc": "active"}}
+	if path, q := signInVia(t, pltNewClient(gw), gh, "/api/auth/oauth/github/start", dto.SignInStartReq{}, member); path != "/chat" {
+		t.Fatalf("member of the pinned organization: %s %v", path, q)
+	}
+	gh.SetOrg("acme-inc", 2002)
+	if _, q := signInVia(t, pltNewClient(gw), gh, "/api/auth/oauth/github/start", dto.SignInStartReq{},
+		oauthtest.Identity{ID: 12, Login: "squatter", Orgs: map[string]string{"acme-inc": "active"}}); q.Get("signin_error") != "not_allowed" {
+		t.Fatalf("member of another organization under the pinned name: %v", q)
+	}
+	gh.SetOrg("acme-inc", 1001)
+
 	off := true
 	if code := owner.JSON(t, http.MethodPatch, "/api/users/"+string(browser.me.User.ID), dto.UserPatchReq{Disabled: &off}, nil); code != http.StatusOK {
 		t.Fatalf("turn off = %d", code)

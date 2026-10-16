@@ -82,10 +82,14 @@
     const next: typeof errors = {};
     for (const f of fields) {
       if (f.path === `${base}.client_id`) next.clientId = `Enter the client ID as ${github ? 'GitHub' : 'Google Cloud'} shows it.`;
-      if (f.path === `${base}.orgs`) next.orgs = 'Enter organization names like acme-inc, separated by commas.';
+      if (f.path === `${base}.orgs`) {
+        const unknown = /GitHub has no organization called ([A-Za-z0-9-]+)\./.exec(f.message);
+        next.orgs = unknown ? `GitHub has no organization called ${unknown[1]}.` : 'Enter organization names like acme-inc, separated by commas.';
+      }
     }
     errors = next;
     if (e instanceof ApiError && e.status === 503 && e.code === 'sealed') return "Saved keys are locked, so the client secret can't be saved. Unlock them in Saved keys.";
+    if (e instanceof ApiError && e.status === 502) return "Bothy couldn't reach GitHub to check the organizations. Try again.";
     return fields.map((f) => f.message).join('\n');
   }
 
@@ -108,7 +112,9 @@
     } catch (err) {
       saving = false;
       const details = saveErrors(err);
-      result = { tone: 'danger', text: details.startsWith('Saved keys') ? details : "Couldn't save. Try again.", details: details.startsWith('Saved keys') ? undefined : details || undefined };
+      // These two say what to do on their own; anything else keeps the server's words under Details.
+      const plain = details.startsWith('Saved keys') || details.startsWith('Bothy couldn');
+      result = { tone: 'danger', text: plain ? details : "Couldn't save. Try again.", details: plain ? undefined : details || undefined };
       return;
     }
     saving = false;

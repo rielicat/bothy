@@ -232,6 +232,25 @@ describe('GitHub sign-in page', () => {
     expect(await screen.findByText('Saved. GitHub accepted the client ID and secret.')).toBeTruthy();
   });
 
+  it('says which organization GitHub does not know', async () => {
+    const calls = await signedIn('signin-github');
+    render(GitHubSignIn);
+    const orgs = (await screen.findByLabelText(/Organizations/)) as HTMLInputElement;
+    await fireEvent.input(orgs, { target: { value: 'acme-inc, no-such-org' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('GitHub has no organization called no-such-org.')).toBeTruthy();
+    expect(orgs.getAttribute('aria-invalid')).toBe('true');
+    expect(calls.some((c) => c.method === 'POST' && c.url === '/api/sign-in/github/check')).toBe(false);
+  });
+
+  it('says when GitHub could not be reached to check the organizations', async () => {
+    const down = () => new Response(JSON.stringify({ error: { code: 'provider_error', message: "Bothy couldn't reach GitHub to check the organizations; try again" } }), { status: 502 });
+    await signedIn('signin-github', (m, url) => (m === 'PATCH' && url === '/api/sign-in/github' ? down() : undefined));
+    render(GitHubSignIn);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Save' }));
+    expect(await screen.findByText("Bothy couldn't reach GitHub to check the organizations. Try again.")).toBeTruthy();
+  });
+
   it('can rely on organizations alone', async () => {
     await signedIn('signin-github');
     render(GitHubSignIn);

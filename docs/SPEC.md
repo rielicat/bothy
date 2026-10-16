@@ -5995,6 +5995,7 @@ auth:
       client_id: ""               # a GitHub OAuth app (Settings → Developer settings → OAuth Apps)
       client_secret: ""           # secret:<name>; the UI saves it as secret:github_sign_in_client_secret
       orgs: []                    # active members of these GitHub organizations may also sign in
+      org_ids: []                 # written by Bothy as orgs are saved in Settings → Security: their GitHub ids, which memberships must match
       api_base: ""                # LOCKED: tests only
 
 vault:

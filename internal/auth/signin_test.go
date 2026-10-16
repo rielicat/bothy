@@ -191,9 +191,16 @@ func TestSignInOptions(t *testing.T) {
 		t.Fatalf("status %+v", st)
 	}
 	fs := e.s.checkSignIn(ctx)
-	if len(fs) != 1 || fs[0].ID != "auth.sign_in" || !strings.HasPrefix(fs[0].Title, "GitHub") || fs[0].Fix != "/settings/security/github-sign-in" {
+	if len(fs) != 2 || fs[1].ID != "auth.sign_in" || fs[1].Title != "GitHub sign-in is on, but its client secret is missing" ||
+		fs[1].Fix != "/settings/security/github-sign-in" || fs[0].Title != "GitHub organizations aren't pinned" {
 		t.Fatalf("findings %+v", fs)
 	}
+	e.vault.Seal()
+	if fs := e.s.checkSignIn(ctx); len(fs) != 3 || fs[1].Title != "Google sign-in is on, but saved keys are locked" ||
+		!strings.HasPrefix(fs[1].Detail, "Saved keys are locked") {
+		t.Fatalf("sealed findings %+v", fs)
+	}
+	_ = e.vault.Unseal(ctx, nil)
 
 	fresh := newEnv(t)
 	fresh.s.SetSignIn(SignInDeps{Vault: e.vault})
@@ -207,7 +214,7 @@ func TestSignInOptions(t *testing.T) {
 	if st := unwired.s.SignInStatus(ctx); st[0].Problem != "unavailable" || st[0].Ready {
 		t.Fatalf("without SetSignIn: %+v", st[0])
 	}
-	if fs := unwired.s.checkSignIn(ctx); len(fs) != 0 {
+	if fs := unwired.s.checkSignIn(ctx); len(fs) != 1 || fs[0].Title != "GitHub organizations aren't pinned" {
 		t.Fatalf("findings without SetSignIn: %+v", fs)
 	}
 }
@@ -812,6 +819,59 @@ func TestFlowStoreBound(t *testing.T) {
 	}
 	if fs.take("") != nil || fs.take(strings.Repeat("x", 300)) != nil {
 		t.Fatal("odd states")
+	}
+}
+
+func TestPinGitHubOrgs(t *testing.T) {
+	e := newSignInEnv(t)
+	e.github.SetOrg("acme-inc", 100)
+	e.github.SetOrg("acme-labs", 7)
+	ids, err := e.s.PinGitHubOrgs(ctx, []string{"Acme-Inc", "acme-labs"})
+	if err != nil || !slices.Equal(ids, []int64{100, 7}) {
+		t.Fatalf("pin = %v, %v", ids, err)
+	}
+	_, err = e.s.PinGitHubOrgs(ctx, []string{"acme-inc", "nope"})
+	var fe config.FieldErrors
+	if !errors.As(err, &fe) || len(fe) != 1 || fe[0].Path != "auth.sign_in.github.orgs" || fe[0].Message != "GitHub has no organization called nope." {
+		t.Fatalf("unknown organization: %v", err)
+	}
+	// A pin stays when the settings are saved again, even if the name now
+	// belongs to another organization.
+	e.cfg.Auth.SignIn.GitHub.OrgIDs = []int64{100}
+	e.github.SetOrg("acme-inc", 200)
+	if ids, err := e.s.PinGitHubOrgs(ctx, []string{"ACME-inc", "acme-labs"}); err != nil || !slices.Equal(ids, []int64{100, 7}) {
+		t.Fatalf("pin again = %v, %v", ids, err)
+	}
+	e.github.FailNext("/orgs/acme-labs", http.StatusBadGateway)
+	e.cfg.Auth.SignIn.GitHub.OrgIDs = nil
+	if _, err := e.s.PinGitHubOrgs(ctx, []string{"acme-labs"}); core.CodeOf(err) != core.FailProviderError {
+		t.Fatalf("GitHub failing: %v", err)
+	}
+}
+
+func TestSignInPinnedOrgs(t *testing.T) {
+	e := newSignInEnv(t, func(c *config.Config) { c.Auth.SignIn.GitHub.OrgIDs = []int64{100} })
+	e.github.SetOrg("acme-inc", 100)
+	if _, err := e.signIn(t, core.SignInGitHub, lee); signInCode(err) != SignInNoAccount {
+		t.Fatalf("member of the pinned organization: %v", err)
+	}
+	// acme-inc was renamed and someone else registered the old name.
+	e.github.SetOrg("acme-inc", 200)
+	if _, err := e.signIn(t, core.SignInGitHub, lee); signInCode(err) != SignInNotAllowed {
+		t.Fatalf("member of another organization under the pinned name: %v", err)
+	}
+	if fs := e.s.checkSignIn(ctx); len(fs) != 0 {
+		t.Fatalf("findings with the organizations pinned: %+v", fs)
+	}
+	// Organizations without a pin (bothy.yaml edited by hand) are still
+	// matched by name, and the check asks for a save.
+	e.cfg.Auth.SignIn.GitHub.OrgIDs = nil
+	if _, err := e.signIn(t, core.SignInGitHub, lee); signInCode(err) != SignInNoAccount {
+		t.Fatalf("not pinned: %v", err)
+	}
+	if fs := e.s.checkSignIn(ctx); len(fs) != 1 || !strings.Contains(fs[0].Detail, "Save the GitHub organizations once in Settings → Security so Bothy can pin them.") ||
+		fs[0].Severity != core.SevLow || fs[0].Fix != "/settings/security/github-sign-in" {
+		t.Fatalf("unpinned findings %+v", fs)
 	}
 }
 

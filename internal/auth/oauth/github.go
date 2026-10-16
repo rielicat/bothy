@@ -75,7 +75,9 @@ func (g githubAPI) get(ctx context.Context, path string, out any) (int, error) {
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", githubAPIVersion)
-	req.Header.Set("Authorization", "Bearer "+g.token)
+	if g.token != "" {
+		req.Header.Set("Authorization", "Bearer "+g.token)
+	}
 	status, body, err := do(ctx, g.hc, "github api", req, maxAPI)
 	if err != nil {
 		return status, err
@@ -138,15 +140,18 @@ func (c *Client) GitHub(ctx context.Context, ep Endpoints, x Exchange, r Rules) 
 	}
 
 	restricted := false
-	for _, org := range r.Orgs {
+	for i, org := range r.Orgs {
 		var m struct {
-			State string `json:"state"`
+			State        string `json:"state"`
+			Organization struct {
+				ID int64 `json:"id"`
+			} `json:"organization"`
 		}
 		status, err := api.get(ctx, "/user/memberships/orgs/"+url.PathEscape(org), &m)
 		switch {
 		case err != nil:
 			return id, err
-		case status == 200 && m.State == "active":
+		case status == 200 && m.State == "active" && r.pinned(i, m.Organization.ID):
 			return id, nil
 		case status == 200, status == 404:
 		case status == 403:
@@ -164,6 +169,30 @@ func (c *Client) GitHub(ctx context.Context, ep Endpoints, x Exchange, r Rules) 
 		return id, ErrOrgAccess
 	}
 	return id, fmt.Errorf("%w: no verified address listed exactly and no active membership of a listed organization", ErrNotAllowed)
+}
+
+// GitHubOrgID looks org up without a token, so the sign-in settings can
+// pin it by id. ErrUnknownOrg when GitHub has no organization of that name.
+func (c *Client) GitHubOrgID(ctx context.Context, ep Endpoints, org string) (int64, error) {
+	hc, err := c.client("signin:github", ep)
+	if err != nil {
+		return 0, err
+	}
+	var o struct {
+		ID int64 `json:"id"`
+	}
+	status, err := githubAPI{hc: hc, base: ep.APIBase}.get(ctx, "/orgs/"+url.PathEscape(org), &o)
+	switch {
+	case err != nil:
+		return 0, err
+	case status == http.StatusNotFound:
+		return 0, ErrUnknownOrg
+	case status != 200:
+		return 0, &ProviderError{Op: "github org", Status: status}
+	case o.ID <= 0:
+		return 0, &ProviderError{Op: "github org", Status: status, Desc: "no organization id"}
+	}
+	return o.ID, nil
 }
 
 // verifiedEmails lists the account's verified addresses, the primary one

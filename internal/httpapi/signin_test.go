@@ -397,10 +397,37 @@ func TestSignInAdminHTTP(t *testing.T) {
 	expect(t, h.do("PATCH", "/api/sign-in/okta", map[string]any{"enabled": true}, h.admin), http.StatusNotFound)
 	expect(t, h.do("PATCH", "/api/sign-in/github", map[string]any{"client_secret": "a\x00b"}, h.admin), http.StatusBadRequest)
 
+	// Organizations are pinned by their GitHub id as they are saved.
+	h.github.SetOrg("acme-inc", 100)
+	h.github.SetOrg("labs", 7)
 	expect(t, h.do("PATCH", "/api/sign-in/github", map[string]any{"orgs": []string{" Acme-Inc ", "acme-inc", "", "labs"}, "enabled": true}, h.admin), http.StatusOK)
 	set = h.cfg.sets[len(h.cfg.sets)-1]
-	if string(set["auth.sign_in.github.orgs"]) != `["Acme-Inc","labs"]` || string(set["auth.sign_in.github.enabled"]) != "true" {
+	if string(set["auth.sign_in.github.orgs"]) != `["Acme-Inc","labs"]` || string(set["auth.sign_in.github.org_ids"]) != `[100,7]` ||
+		string(set["auth.sign_in.github.enabled"]) != "true" {
 		t.Fatalf("orgs change %s", set)
+	}
+	n := len(h.cfg.sets)
+	rec = h.do("PATCH", "/api/sign-in/github", map[string]any{"orgs": []string{"acme-inc", "nope"}, "client_secret": "never-saved"}, h.admin)
+	expect(t, rec, http.StatusBadRequest)
+	if !strings.Contains(rec.Body.String(), `"path":"auth.sign_in.github.orgs"`) || !strings.Contains(rec.Body.String(), "GitHub has no organization called nope.") ||
+		len(h.cfg.sets) != n {
+		t.Fatalf("unknown organization: %s", rec.Body.String())
+	}
+	if v, _ := h.vault.Get(context.Background(), core.GlobalScope, "github_sign_in_client_secret", "t"); string(v.Bytes()) != "h-secret" {
+		t.Fatalf("a refused save stored the secret: %q", v.Bytes())
+	}
+	h.github.FailNext("/orgs/labs", http.StatusInternalServerError)
+	if rec := h.do("PATCH", "/api/sign-in/github", map[string]any{"orgs": []string{"labs"}}, h.admin); rec.Code != http.StatusBadGateway || len(h.cfg.sets) != n {
+		t.Fatalf("GitHub failing: %d %s", rec.Code, rec.Body.String())
+	}
+	// A name that can't be an organization is left to config validation.
+	expect(t, h.do("PATCH", "/api/sign-in/github", map[string]any{"orgs": []string{"-bad"}}, h.admin), http.StatusOK)
+	if set := h.cfg.sets[len(h.cfg.sets)-1]; string(set["auth.sign_in.github.org_ids"]) != `[]` {
+		t.Fatalf("unchecked names pinned: %s", set)
+	}
+	rec = h.do("PATCH", "/api/config", map[string]any{"set": map[string]any{"auth.sign_in.github.org_ids": []int{1}}}, h.admin)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "set by Bothy") {
+		t.Fatalf("org ids through the config API: %d %s", rec.Code, rec.Body.String())
 	}
 
 	// A refused config change takes the new secret back.

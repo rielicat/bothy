@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/rielicat/bothy/internal/auth"
@@ -45,6 +46,7 @@ type signInAuth interface {
 	MySignIns(ctx context.Context, u core.UserID) ([]core.SignInOption, []*core.SignIn, bool, error)
 	SignInStatus(ctx context.Context) []core.SignInProviderStatus
 	CheckSignIn(ctx context.Context, p core.SignInProvider, clientID string, secret core.Secret) error
+	PinGitHubOrgs(ctx context.Context, orgs []string) ([]int64, error)
 }
 
 func (s *Server) signInSvc() (signInAuth, error) {
@@ -344,7 +346,13 @@ func (s *Server) patchSignIn(w http.ResponseWriter, r *http.Request, a core.Acto
 		changes[base+".client_id"] = rawJSON(strings.TrimSpace(*req.ClientID))
 	}
 	if req.Orgs != nil {
-		changes[base+".orgs"] = rawJSON(normalizeOrgs(*req.Orgs))
+		orgs := normalizeOrgs(*req.Orgs)
+		ids, err := s.pinOrgs(r.Context(), orgs)
+		if err != nil {
+			return err
+		}
+		changes[base+".orgs"] = rawJSON(orgs)
+		changes[base+".org_ids"] = rawJSON(ids)
 	}
 	var undo func()
 	if secret := strings.TrimSpace(req.ClientSecret); secret != "" {
@@ -368,6 +376,29 @@ func (s *Server) patchSignIn(w http.ResponseWriter, r *http.Request, a core.Acto
 		return err
 	}
 	return s.signInAdmin(w, r, a)
+}
+
+// pinOrgs looks up the GitHub id of each organization being saved. Names
+// that can't be organizations skip the lookup: config validation refuses
+// them with its own message.
+func (s *Server) pinOrgs(ctx context.Context, orgs []string) ([]int64, error) {
+	if len(orgs) > config.MaxSignInOrgs || slices.ContainsFunc(orgs, func(o string) bool { return !config.ValidGitHubOrg(o) }) {
+		return []int64{}, nil
+	}
+	svc, err := s.signInSvc()
+	if err != nil {
+		return nil, err
+	}
+	ids, err := svc.PinGitHubOrgs(ctx, orgs)
+	var fe config.FieldErrors
+	switch {
+	case err == nil:
+		return ids, nil
+	case errors.As(err, &fe), errors.Is(err, core.ErrNotImplemented):
+		return nil, err
+	}
+	s.log.Warn("sign-in: looking up GitHub organizations failed", "err", err)
+	return nil, newError(http.StatusBadGateway, "provider_error", "Bothy couldn't reach GitHub to check the organizations; try again")
 }
 
 func (s *Server) checkSignIn(w http.ResponseWriter, r *http.Request, _ core.Actor) error {

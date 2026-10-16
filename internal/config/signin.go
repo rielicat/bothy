@@ -17,7 +17,7 @@ var (
 
 const (
 	maxSignInAllow = 200
-	maxSignInOrgs  = 20
+	MaxSignInOrgs  = 20
 )
 
 // publicMailDomains hand out addresses to anyone who asks (relays and
@@ -130,8 +130,17 @@ func validateSignIn(c *Config, v *vctx) {
 		}
 		seen[k] = true
 	}
-	if len(h.Orgs) > maxSignInOrgs {
-		v.add(hp+".orgs", "at most %d organizations, got %d", maxSignInOrgs, len(h.Orgs))
+	if len(h.Orgs) > MaxSignInOrgs {
+		v.add(hp+".orgs", "at most %d organizations, got %d", MaxSignInOrgs, len(h.Orgs))
+	}
+	if len(h.OrgIDs) > 0 && len(h.OrgIDs) != len(h.Orgs) {
+		v.add(hp+".org_ids", "has %d ids for %d organizations; save the organizations in Settings → Security to pin them again",
+			len(h.OrgIDs), len(h.Orgs))
+	}
+	for i, id := range h.OrgIDs {
+		if id <= 0 {
+			v.addAt(hp+".org_ids", i, "must be a GitHub organization id, a positive number")
+		}
 	}
 
 	// Every problem of an enabled provider is reported on its enabled key, so

@@ -112,6 +112,17 @@ type Rules struct {
 	// anyone who can read a shared inbox at a domain can confirm an address there.
 	Allow []string
 	Orgs  []string // GitHub: active members of any of these may also sign in
+	// OrgIDs are Orgs' pinned GitHub ids, in the same order; a membership
+	// must belong to that organization. Missing or 0: matched by name only.
+	OrgIDs []int64
+}
+
+// pinned reports whether a membership of Orgs[i] whose organization is id
+// belongs to the organization pinned under that name: a renamed
+// organization's old name can be taken by another, whose members must not
+// get in.
+func (r Rules) pinned(i int, id int64) bool {
+	return i >= len(r.OrgIDs) || r.OrgIDs[i] == 0 || r.OrgIDs[i] == id
 }
 
 // Identity is who the provider says signed in. Google and GitHub return it

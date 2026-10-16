@@ -566,6 +566,9 @@ func (s *Server) patchConfig(w http.ResponseWriter, r *http.Request, a core.Acto
 	if len(req.Set) == 0 {
 		return badRequest("set is empty")
 	}
+	if _, found := req.Set["auth.sign_in.github.org_ids"]; found {
+		return badRequest("auth.sign_in.github.org_ids is set by Bothy when GitHub organizations are saved in Settings → Security")
+	}
 	restart, err := s.d.Config.Set(r.Context(), req.Set, byString(a))
 	if err != nil {
 		return err
