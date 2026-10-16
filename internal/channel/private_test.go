@@ -268,3 +268,28 @@ func TestSpaceRenamedFromFallbackTitle(t *testing.T) {
 		}
 	})
 }
+
+// An enabled space answers anyone who addresses Bothy, as untrusted, also
+// through a slash command; only an unknown sender's pairing code goes to
+// their DM, so it is never shown in the channel.
+func TestPrivateMessageInEnabledSpaceFromUnknownSender(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h, sc := newSlashHarness(t)
+		h.space("C120", true, true)
+		h.slash("C120", "8008", "status?")
+		subs := h.runner.Submitted()
+		if len(subs) != 1 || subs[0].Provenance != core.ProvUntrusted {
+			t.Fatalf("submitted = %+v, want one untrusted run", subs)
+		}
+		if len(h.auth.Notices) != 0 || len(sc.openedDMs()) != 0 {
+			t.Fatalf("notices = %+v, DMs opened = %v; want neither", h.auth.Notices, sc.openedDMs())
+		}
+
+		h.auth.Codes = map[string]core.UserID{"ABCDEFGH": h.member.ID}
+		h.slash("C120", "8008", "/pair ABCD-EFGH")
+		h.wantVisible("D8008", "Linked to Mark.")
+		if v := h.visible("C120"); len(v) != 0 {
+			t.Fatalf("the channel shows %q", v)
+		}
+	})
+}

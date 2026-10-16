@@ -146,21 +146,22 @@ func (s *Service) RedeemPairing(ctx context.Context, ident core.ChannelIdentity,
 const burnReason = "posted in a group"
 
 // BurnPairing uses up a live link_identity code that ident posted in a group
-// chat, linking no one: anyone there could otherwise redeem it first. It
-// counts against the same five attempts per identity per hour as
-// RedeemPairing, so a group is no way around that limit. Text that is not a
-// code at all is ordinary chat and leaves no audit row.
+// chat, linking no one: anyone there could otherwise redeem it first. Only
+// misses count against the five attempts per identity per hour it shares
+// with RedeemPairing: a hit links no one, so refusing one would leave an
+// exposed code live. Text that is not a code at all is ordinary chat and
+// leaves no audit row.
 func (s *Service) BurnPairing(ctx context.Context, ident core.ChannelIdentity, code string) error {
 	now := s.now()
-	if retry, ok := s.pairs.take(ident.Channel+":"+ident.ExternalID, now); !ok {
-		return limited("too many pairing attempts", retry)
-	}
 	norm, ok := normalizeCode(code)
 	if !ok {
 		return errPairCode
 	}
 	p, err := s.store.Pairings().Redeem(ctx, sha(norm), core.PairLinkIdentity, now)
 	if errors.Is(err, core.ErrNotFound) {
+		if retry, ok := s.pairs.take(ident.Channel+":"+ident.ExternalID, now); !ok {
+			return limited("too many pairing attempts", retry)
+		}
 		s.record(ctx, identActor(ident), "pairing.burn", "", "denied", map[string]any{"reason": burnReason})
 		return errPairCode
 	}

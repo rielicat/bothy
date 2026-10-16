@@ -210,13 +210,24 @@ func (h *Hub) burnExposedCode(ctx context.Context, a *adapter, in core.Inbound, 
 
 // privateInGroup handles a message only its sender saw (a Slack slash
 // command) in a group. Such a message never creates a space: slash commands
-// work in channels the bot is not in. An unknown sender is handled exactly
-// as in a DM, and a known one in a group without an enabled space is told
-// so; both hear back in their DM. It reports false for a known sender in an
-// enabled space, which takes the normal path.
+// work in channels the bot is not in. In a group without an enabled space,
+// an unknown sender is handled exactly as in a DM and a known one is told
+// the group is off, both in their DM. In an enabled space only an unknown
+// sender's pairing code goes to their DM; everything else reports false and
+// takes the normal path, where anyone may talk as untrusted (step 7).
 func (h *Hub) privateInGroup(ctx context.Context, a *adapter, in core.Inbound, ident core.ChannelIdentity, known bool) bool {
 	key := a.name + ":" + in.SenderID
+	sp, err := h.groupSpace(ctx, a, in)
+	if err != nil && !errors.Is(err, core.ErrNotFound) {
+		h.log.Error("channel space lookup failed", "channel", a.name, "err", err)
+		return true
+	}
+	enabled := err == nil && sp.Enabled
 	if !known {
+		cmd, code, isCmd := parseCommand(in.Text)
+		if enabled && (!isCmd || (cmd != "pair" && cmd != "start") || code == "") {
+			return false
+		}
 		if ok, _ := h.d.Budget.AllowSender(key); ok {
 			h.inSenderDM(a, in, ident, func(ctx context.Context, in core.Inbound, ident core.ChannelIdentity) {
 				h.unknownDM(ctx, a, in, ident)
@@ -224,13 +235,8 @@ func (h *Hub) privateInGroup(ctx context.Context, a *adapter, in core.Inbound, i
 		}
 		return true
 	}
-	sp, err := h.groupSpace(ctx, a, in)
-	switch {
-	case err == nil && sp.Enabled:
+	if enabled {
 		return false
-	case err != nil && !errors.Is(err, core.ErrNotFound):
-		h.log.Error("channel space lookup failed", "channel", a.name, "err", err)
-		return true
 	}
 	if ok, _ := h.d.Budget.AllowSender(key); !ok || !h.noteOnce(key+":"+in.Chat.ChatID, offEvery) {
 		return true

@@ -256,6 +256,7 @@ func TestSlashCommand(t *testing.T) {
 	f := newFixture(t)
 	f.start(t, stateConnected)
 	dm, user := f.srv.ConformanceIDs()
+	var in core.Inbound
 	for _, tt := range []struct{ text, want string }{
 		{"stop", "/stop"},
 		{"Model openai/gpt-5.1", "/model openai/gpt-5.1"},
@@ -263,11 +264,20 @@ func TestSlashCommand(t *testing.T) {
 		{"what is <https://x.example|this>?", "what is this (https://x.example)?"},
 	} {
 		f.srv.InjectSlash(dm, user, tt.text)
-		in := f.sink.message(t)
+		in = f.sink.message(t)
 		if in.Text != tt.want || !in.Mentioned || in.SenderID != user || in.Chat.Kind != core.ChatDM || !strings.HasPrefix(in.MsgID, dm+":cmd:") ||
 			!in.Private || in.ChatTitle != "" {
 			t.Fatalf("/bothy %q = %+v, want text %q", tt.text, in, tt.want)
 		}
+	}
+	if in.Chat.ChatID != dm {
+		t.Fatalf("a command in the bot's own DM moved to %q, want %q", in.Chat.ChatID, dm)
+	}
+	// Typed in a DM between two people, which the bot cannot post in, the
+	// command is answered in the sender's own DM with the bot.
+	f.srv.InjectSlash("D0000999", user, "status")
+	if in := f.sink.message(t); in.Chat.ChatID != dm || in.Chat.Kind != core.ChatDM || !in.Private {
+		t.Fatalf("command in another DM = %+v, want it moved to %q", in, dm)
 	}
 }
 

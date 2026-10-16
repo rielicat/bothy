@@ -756,17 +756,24 @@ func TestPairingBurnSharesAttemptLimit(t *testing.T) {
 			t.Fatalf("attempt %d: %v", i, err)
 		}
 	}
+	if err := e.s.BurnPairing(ctx, ident, "ZZZZ-ZZZZ"); retryAfter(err) == 0 {
+		t.Fatalf("a 6th miss within the hour must be refused: %v", err)
+	}
+	if err := e.s.BurnPairing(ctx, ident, "the standup"); !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("text that is not a code must not count as an attempt: %v", err)
+	}
+	// A live code is burned even over the limit: refusing it would leave a
+	// code the whole group saw redeemable by anyone there.
 	pc, _ := e.s.NewPairingCode(ctx, owner)
-	if err := e.s.BurnPairing(ctx, ident, pc.Code); retryAfter(err) == 0 {
-		t.Fatalf("6th burn within the hour must be refused: %v", err)
-	}
-	if _, err := e.s.RedeemPairing(ctx, ident, pc.Code); retryAfter(err) == 0 {
-		t.Fatalf("a redeem after 5 burns must be refused: %v", err)
-	}
-	e.clock.Advance(61 * time.Minute)
-	pc, _ = e.s.NewPairingCode(ctx, owner)
 	if err := e.s.BurnPairing(ctx, ident, pc.Code); err != nil {
-		t.Fatalf("after the window: %v", err)
+		t.Fatalf("a live code over the limit: %v", err)
+	}
+	mallory := core.ChannelIdentity{Channel: "slack", ExternalID: "U10"}
+	if _, err := e.s.RedeemPairing(ctx, mallory, pc.Code); !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("a burned code was redeemed: %v", err)
+	}
+	if _, err := e.s.RedeemPairing(ctx, ident, "ZZZZ-ZZZZ"); retryAfter(err) == 0 {
+		t.Fatalf("a redeem after 5 missed burns must be refused: %v", err)
 	}
 }
 

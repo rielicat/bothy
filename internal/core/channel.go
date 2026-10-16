@@ -63,8 +63,9 @@ type Inbound struct {
 	Forwarded bool
 	// Private marks a message only its sender saw (a Slack slash command),
 	// so a code in it was not shown to the chat. In a group it never creates
-	// a space, since slash commands work in channels the bot is not in, and
-	// the hub answers anyone it would not answer in that group in their DM.
+	// a space, since slash commands work in channels the bot is not in; the
+	// hub answers in their DM anyone it would not answer in that group, and
+	// an unknown sender's pairing code wherever it was typed.
 	Private bool
 }
 

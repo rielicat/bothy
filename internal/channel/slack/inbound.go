@@ -128,6 +128,18 @@ func (a *adapter) slashJob(c slack.SlashCommand) job {
 		if lookup {
 			in.ChatTitle = a.channelTitle(ctx, in.Chat.ChatID)
 		}
+		if in.Chat.Kind == core.ChatDM {
+			// A slash command also works in a DM between two people, which
+			// the bot cannot post in: answer in the sender's own DM with the
+			// bot. conversations.open returns that DM, so a command typed
+			// there keeps its chat.
+			dm, err := a.OpenDM(ctx, in.SenderID)
+			if err != nil {
+				a.log.Warn("slack: opening the sender's DM failed", "err", err)
+				return
+			}
+			in.Chat = dm
+		}
 		sink.OnMessage(ctx, in)
 	}
 }

@@ -72,11 +72,13 @@ hears it, within the sender limit); any other code goes on as before.
 
 An `Inbound.Private` message in a group (a Slack slash command, which only
 its sender saw and which works in channels the bot is not in) never creates
-a space. From an unknown sender it is handled exactly like their DM (pairing
-or the daily notice), in the DM the adapter's `OpenDM` gives, which becomes
-the identity's DM chat. A known sender in a group without an enabled space
-is told in that DM that Bothy is off there, at most once an hour per
-channel; in an enabled space nothing changes.
+a space. From an unknown sender in a group without an enabled space, or
+carrying a pairing code anywhere, it is handled exactly like their DM
+(pairing or the daily notice), in the DM the adapter's `OpenDM` gives, which
+becomes the identity's DM chat; their other messages in an enabled space are
+answered there as untrusted, like any message. A known sender in a group
+without an enabled space is told in that DM that Bothy is off there, at most
+once an hour per channel; in an enabled space nothing changes.
 
 Markdown the hub sends uses CommonMark backslash escapes for punctuation and
 backtick fences or spans longer than any backtick run they contain, so system
