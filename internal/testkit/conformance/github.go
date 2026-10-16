@@ -25,14 +25,15 @@ import (
 //     principal), so reads return it empty.
 //   - Repos sort by owner, then name, case-insensitively.
 //   - Times are truncated to milliseconds.
-//   - PutApp (migration 0012) with an id that is not gha_<26>, app_id <= 0,
-//     an owner_type other than Organization or User, an html_url that is not
-//     http(s)://…, a key or client secret
-//     reference that is not "secret:<name>", a live app without a key or a
-//     retired one that still holds a connection, a reference or a pending
-//     swap => ErrInvalid; another app's app_id or connection => ErrConflict;
-//     an unknown connection => ErrInvalid. The derived State, InstallURL and
-//     SettingsURL are never stored. DeleteConnection keeps the app with no connection.
+//   - PutApp (migration 0012) with an id that is not gha_<26>, app_id or
+//     owner_id <= 0, an owner_type other than Organization or User, an
+//     html_url that is not http(s)://…, a key or client secret reference
+//     that is not "secret:<name>", a live app without a key or a retired one
+//     that still holds a connection, a reference or a pending swap =>
+//     ErrInvalid; another app's app_id or connection => ErrConflict; an
+//     unknown connection => ErrInvalid. The derived State, InstallURL and
+//     SettingsURL are never stored. DeleteConnection keeps the app with no
+//     connection.
 //   - Apps sort by created_at, then id.
 func GitHubStore(t *testing.T, open func(t *testing.T) core.GitHubStore) {
 	t.Helper()
@@ -63,7 +64,7 @@ var ghAppSeq atomic.Int64
 func ghApp() *core.GitHubOwnApp {
 	id := core.NewID(core.PrefixGitHubApp)
 	return &core.GitHubOwnApp{ID: id, AppID: 900_000 + ghAppSeq.Add(1), Slug: "bothy-acme", Name: "Bothy (acme)",
-		Owner: "acme", OwnerType: "Organization", URL: "https://github.com/apps/bothy-acme", ClientID: "Iv23liAbc", KeyRef: "secret:github_" + id + "_key",
+		Owner: "acme", OwnerID: 4242, OwnerType: "Organization", URL: "https://github.com/apps/bothy-acme", ClientID: "Iv23liAbc", KeyRef: "secret:github_" + id + "_key",
 		ClientSecretRef: "secret:github_" + id + "_client_secret", CreatedBy: "usr_00000000000000000000000000"}
 }
 
@@ -85,7 +86,7 @@ func ghAppsRoundTrip(t *testing.T, ctx context.Context, s core.GitHubStore) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.AppID != a.AppID || got.Slug != "bothy-acme" || got.Name != "Bothy (acme)" || got.Owner != "acme" || got.OwnerType != "Organization" ||
+	if got.AppID != a.AppID || got.Slug != "bothy-acme" || got.Name != "Bothy (acme)" || got.Owner != "acme" || got.OwnerID != 4242 || got.OwnerType != "Organization" ||
 		got.URL != "https://github.com/apps/bothy-acme" || got.ClientID != "Iv23liAbc" || got.KeyRef != a.KeyRef || got.ClientSecretRef != a.ClientSecretRef || got.Connection != "" ||
 		got.CreatedBy != a.CreatedBy || !got.RetiredAt.IsZero() {
 		t.Errorf("round trip = %+v", got)
@@ -127,6 +128,7 @@ func ghAppConstraints(t *testing.T, ctx context.Context, s core.GitHubStore) {
 		func(a *core.GitHubOwnApp) { a.ID = "app1" },
 		func(a *core.GitHubOwnApp) { a.AppID = 0 },
 		func(a *core.GitHubOwnApp) { a.AppID = -3 },
+		func(a *core.GitHubOwnApp) { a.OwnerID = 0 },
 		func(a *core.GitHubOwnApp) { a.OwnerType = "Enterprise" },
 		func(a *core.GitHubOwnApp) { a.URL = "" },
 		func(a *core.GitHubOwnApp) { a.URL = "github.com/apps/bothy-acme" },

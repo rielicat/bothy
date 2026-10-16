@@ -12,6 +12,7 @@ CREATE TABLE github_apps (
   slug              TEXT NOT NULL CHECK (length(slug) BETWEEN 1 AND 100),
   name              TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 100),
   owner             TEXT NOT NULL CHECK (length(owner) BETWEEN 1 AND 39),
+  owner_id          INTEGER NOT NULL CHECK (owner_id > 0),             -- GitHub's account id: installations must be on it
   owner_type        TEXT NOT NULL CHECK (owner_type IN ('Organization','User')),
   html_url          TEXT NOT NULL CHECK (html_url LIKE 'https://_%' OR html_url LIKE 'http://_%'), -- GitHub's: /apps/<slug>, /github-apps/<slug> on GHES
   client_id         TEXT NOT NULL DEFAULT '',

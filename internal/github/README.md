@@ -24,9 +24,10 @@ private key and client secret as `github_<gha id>_key` and
 `github_<gha id>_client_secret` in the global vault scope and records the app
 with GitHub's `html_url`, which on Enterprise Server is `/github-apps/<slug>`
 (migration `0012_github_apps.sql`). `InstallApp` connects an installation only
-after the app's JWT finds it (`GET /app/installations/{id}`), as an App
+after the app's JWT finds it (`GET /app/installations/{id}`) on the app's
+owner, by GitHub's account id, as an App
 connection that owns the key, moves the repositories of the connection it
-replaces, and follows a reinstall; `CheckApp` finds the installation itself.
+replaces, and follows a reinstall; `CheckApp` finds the owner's installation itself.
 Disconnecting or starting over retires the app (keys deleted, row kept so
 Settings can say where to delete it on GitHub); Bothy never deletes apps
 there.

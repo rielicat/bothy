@@ -217,7 +217,7 @@ func (s *Service) CreateApp(ctx context.Context, code string, t core.GitHubAppTa
 	name := oneLine(conv.Name, 100)
 	htmlURL, urlOK := appHTMLURL(ep, conv.HTMLURL, conv.Slug)
 	switch _, kerr := parsePrivateKey([]byte(conv.PEM)); {
-	case conv.ID <= 0, !appSlugRE.MatchString(conv.Slug), !urlOK, !ownerRE.MatchString(conv.Owner.Login),
+	case conv.ID <= 0, !appSlugRE.MatchString(conv.Slug), !urlOK, !ownerRE.MatchString(conv.Owner.Login), conv.Owner.ID <= 0,
 		conv.Owner.Type != "Organization" && conv.Owner.Type != "User", name == "" || len(name) > 100,
 		kerr != nil, conv.ClientID != "" && !clientIDRE.MatchString(conv.ClientID):
 		return fail(errors.New("github: GitHub's answer about the new app was unexpected"))
@@ -226,8 +226,8 @@ func (s *Service) CreateApp(ctx context.Context, code string, t core.GitHubAppTa
 		s.log.Warn("github: the new app belongs to another account than the one chosen", "chosen", t.Org, "owner", conv.Owner.Login)
 	}
 	id := core.NewID(core.PrefixGitHubApp)
-	a := &core.GitHubOwnApp{ID: id, AppID: conv.ID, Slug: conv.Slug, Name: name, Owner: conv.Owner.Login, OwnerType: conv.Owner.Type,
-		URL: htmlURL, ClientID: conv.ClientID, Replaces: replaces, CreatedBy: by}
+	a := &core.GitHubOwnApp{ID: id, AppID: conv.ID, Slug: conv.Slug, Name: name, Owner: conv.Owner.Login, OwnerID: conv.Owner.ID,
+		OwnerType: conv.Owner.Type, URL: htmlURL, ClientID: conv.ClientID, Replaces: replaces, CreatedBy: by}
 	keyName, secretName := "github_"+id+"_key", "github_"+id+"_client_secret"
 	if _, err := s.vault.Put(ctx, core.GlobalScope, keyName, []byte(conv.PEM), by); err != nil {
 		return fail(fmt.Errorf("github: storing the new app's private key: %w", err))
@@ -319,9 +319,10 @@ func (s *Service) InstallApp(ctx context.Context, id string, installationID int6
 			return nil, err
 		}
 	}
+	if _, err := s.ownInstallation(ctx, a, installationID); err != nil {
+		return nil, err
+	}
 	creds := core.GitHubCredentials{Auth: core.GitHubApp, AppID: strconv.FormatInt(a.AppID, 10), InstallationID: installationID, SecretRef: a.KeyRef}
-	// The probe asks GitHub for the installation with the app's JWT: one of
-	// another app is not found, so an id from a URL can't attach anything else.
 	conn, p, err := s.connect(ctx, creds, nil, by, connectOpts{method: "app_manifest", ownsRef: true, app: a})
 	if err != nil {
 		return nil, err
@@ -347,10 +348,10 @@ func (s *Service) InstallApp(ctx context.Context, id string, installationID int6
 	return conn, nil
 }
 
-// reinstall moves the app's connection to a new installation of it (the
-// app was uninstalled and installed again), once GitHub confirms the
-// installation is the app's.
-func (s *Service) reinstall(ctx context.Context, a *core.GitHubOwnApp, conn *core.GitHubConnection, installationID int64, by core.UserID) (*core.GitHubConnection, error) {
+// ownInstallation asks GitHub for one of the app's installations with the
+// app's JWT, so an id from a URL can't attach another app's (not found),
+// and requires it on the app's owner by account id, which a rename keeps.
+func (s *Service) ownInstallation(ctx context.Context, a *core.GitHubOwnApp, installationID int64) (*ghInstallation, error) {
 	ep, err := s.endpoint()
 	if err != nil {
 		return nil, err
@@ -358,6 +359,20 @@ func (s *Service) reinstall(ctx context.Context, a *core.GitHubOwnApp, conn *cor
 	var in ghInstallation
 	if _, err := s.appSrc(a, ep).appClient().getJSON(ctx, "/app/installations/"+strconv.FormatInt(installationID, 10), nil, &in); err != nil {
 		return nil, appCheckError(err)
+	}
+	if in.Account.ID != a.OwnerID {
+		return nil, invalidf("the app is installed on %s, not on %s, which owns it", in.Account.Login, a.Owner)
+	}
+	return &in, nil
+}
+
+// reinstall moves the app's connection to a new installation of it (the
+// app was uninstalled and installed again), once GitHub confirms the
+// installation is the app's, on its owner.
+func (s *Service) reinstall(ctx context.Context, a *core.GitHubOwnApp, conn *core.GitHubConnection, installationID int64, by core.UserID) (*core.GitHubConnection, error) {
+	in, err := s.ownInstallation(ctx, a, installationID)
+	if err != nil {
+		return nil, err
 	}
 	conn.InstallationID, conn.Status, conn.Error, conn.CheckedAt = installationID, "ok", "", s.now()
 	if in.Account.Login != "" {
@@ -446,10 +461,7 @@ func (s *Service) CheckApp(ctx context.Context, id string, by core.UserID) (*cor
 	if err != nil {
 		return nil, appCheckError(err)
 	}
-	i := slices.IndexFunc(insts, func(in ghInstallation) bool { return strings.EqualFold(in.Account.Login, a.Owner) })
-	if i < 0 && len(insts) == 1 {
-		i = 0
-	}
+	i := slices.IndexFunc(insts, func(in ghInstallation) bool { return in.Account.ID == a.OwnerID })
 	if i < 0 {
 		return nil, nil
 	}

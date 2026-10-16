@@ -595,7 +595,9 @@ export interface GitHubOwnApp {
   slug: string;
   name: string;
   owner: string;
+  owner_id: number /* int64 */; // GitHub's id of the owner account, which a rename keeps; installations must be on it
   owner_type: string; // Organization | User
+  html_url: string; // GitHub's: <web>/apps/<slug>, or <web>/github-apps/<slug> on Enterprise Server
   client_id: string;
   key_ref: string; // "secret:github_<id>_key"; "" once retired
   client_secret_ref: string; // "secret:github_<id>_client_secret"; kept for a possible GitHub sign-in, unused today
@@ -606,11 +608,10 @@ export interface GitHubOwnApp {
   created_at: string /* RFC 3339 */;
   updated_at: string /* RFC 3339 */;
   /**
-   * Filled in by the GitHub service from github.api_base; never stored.
+   * Filled in by the GitHub service from the state and URL; never stored.
    */
   state: string; // pending | connected | retired
-  html_url: string; // <web>/apps/<slug>
-  install_url: string; // <web>/apps/<slug>/installations/new
+  install_url: string; // <URL>/installations/new
   settings_url: string; // <web>/organizations/<owner>/settings/apps/<slug> or <web>/settings/apps/<slug>
 }
 /**

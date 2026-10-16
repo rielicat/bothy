@@ -135,7 +135,7 @@ func (s *githubStore) PutApp(_ context.Context, a *core.GitHubOwnApp) error {
 	retired := !a.RetiredAt.IsZero()
 	switch {
 	case !core.ValidID(core.PrefixGitHubApp, a.ID),
-		a.AppID <= 0,
+		a.AppID <= 0 || a.OwnerID <= 0,
 		a.Slug == "" || len(a.Slug) > 100 || a.Name == "" || utf8.RuneCountInString(a.Name) > 100 || a.Owner == "" || len(a.Owner) > 39,
 		a.OwnerType != "Organization" && a.OwnerType != "User",
 		!appURLOK(a.URL),

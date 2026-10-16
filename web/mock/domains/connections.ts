@@ -222,6 +222,7 @@ function madeApp(st: 'pending' | 'connected' | 'retired'): GitHubApp {
     slug: 'bothy-acme',
     name: 'Bothy (acme)',
     owner: 'acme',
+    owner_id: 1284731,
     owner_type: 'Organization',
     client_id: 'Iv23liAbCdEfGhIj',
     key_ref: st === 'retired' ? '' : `secret:github_${APP}_key`,

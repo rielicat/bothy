@@ -98,6 +98,7 @@ type GitHubOwnApp struct {
 	Slug            string    `json:"slug"`
 	Name            string    `json:"name"`
 	Owner           string    `json:"owner"`
+	OwnerID         int64     `json:"owner_id"`   // GitHub's id of the owner account, which a rename keeps; installations must be on it
 	OwnerType       string    `json:"owner_type"` // Organization | User
 	URL             string    `json:"html_url"`   // GitHub's: <web>/apps/<slug>, or <web>/github-apps/<slug> on Enterprise Server
 	ClientID        string    `json:"client_id"`
@@ -143,8 +144,8 @@ type GitHubAppMaker interface {
 	CreateApp(ctx context.Context, code string, t GitHubAppTarget, replaces string, by UserID) (*GitHubOwnApp, error)
 	// InstallApp verifies installationID belongs to the app and connects it.
 	InstallApp(ctx context.Context, id string, installationID int64, by UserID) (*GitHubConnection, error)
-	// CheckApp looks for the app's installation and connects it; nil, nil
-	// when it is not installed yet.
+	// CheckApp looks for the app's installation on its owner and connects
+	// it; nil, nil when it is not installed there yet.
 	CheckApp(ctx context.Context, id string, by UserID) (*GitHubConnection, error)
 	Apps(ctx context.Context) ([]*GitHubOwnApp, error)                          // oldest first
 	ConnectionApp(ctx context.Context, connID string) (*GitHubOwnApp, error)    // ErrNotFound

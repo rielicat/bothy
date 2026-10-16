@@ -101,10 +101,11 @@ type App struct {
 
 // Installation is one install of an App.
 type Installation struct {
-	ID      int64
-	Account string
-	Type    string   // Organization | User
-	Repos   []string // full names it reaches; empty reaches every repository
+	ID        int64
+	Account   string
+	AccountID int64    // GitHub's id of Account; 0 = AccountID(Account)
+	Type      string   // Organization | User
+	Repos     []string // full names it reaches; empty reaches every repository
 	// Permissions its tokens carry ("contents": "write", …); nil carries
 	// every permission.
 	Permissions map[string]string
@@ -709,7 +710,7 @@ func (c *reqCtx) installationJSON(a *App, in Installation) map[string]any {
 		j["permissions"] = in.Permissions
 	}
 	acc := obj(j["account"])
-	acc["login"], acc["type"] = in.Account, in.Type
+	acc["id"], acc["login"], acc["type"] = cmp.Or(in.AccountID, AccountID(in.Account)), in.Account, in.Type
 	return j
 }
 
@@ -724,7 +725,7 @@ func (c *reqCtx) app() {
 		j["id"], j["slug"] = a.ID, a.Slug
 		if a.Name != "" {
 			j["name"] = a.Name
-			obj(j["owner"])["login"], obj(j["owner"])["type"] = a.Owner, a.OwnerType
+			obj(j["owner"])["id"], obj(j["owner"])["login"], obj(j["owner"])["type"] = AccountID(a.Owner), a.Owner, a.OwnerType
 		}
 		c.json(http.StatusOK, j)
 	case c.r.Method == http.MethodGet && len(seg) == 2 && seg[1] == "installations":

@@ -25,6 +25,7 @@ var maxProbeRepos = 1000
 const adminTimeout = 2 * time.Minute
 
 type ghUser struct {
+	ID    int64  `json:"id"`
 	Login string `json:"login"`
 	Type  string `json:"type"`
 }

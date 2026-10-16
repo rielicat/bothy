@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"hash/fnv"
 	"html"
 	"io"
 	"net/http"
@@ -203,7 +204,7 @@ func (c *reqCtx) convert(code string) {
 	j["external_url"] = ""
 	j["description"] = ""
 	ow := obj(j["owner"])
-	ow["login"], ow["type"] = a.Owner, a.OwnerType
+	ow["id"], ow["login"], ow["type"] = AccountID(a.Owner), a.Owner, a.OwnerType
 	perms := map[string]string{}
 	for k, v := range a.Permissions {
 		perms[k] = v
@@ -215,6 +216,14 @@ func (c *reqCtx) convert(code string) {
 		j["webhook_secret"] = a.WebhookSecret
 	}
 	c.json(http.StatusCreated, j)
+}
+
+// AccountID is the fake's GitHub id for an account login, the same for
+// every spelling of it.
+func AccountID(login string) int64 {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(strings.ToLower(login)))
+	return int64(h.Sum32()) + 1
 }
 
 // Install adds an installation to App or an app made from a manifest, as

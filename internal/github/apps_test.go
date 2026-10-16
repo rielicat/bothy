@@ -257,7 +257,8 @@ func TestCreateApp(t *testing.T) {
 	if made.WebhookSecret == "" {
 		t.Fatal("the fake sent no webhook secret")
 	}
-	if a.AppID != made.ID || a.Slug != "bothy-acme" || a.Name != "Bothy (acme)" || a.Owner != "acme" || a.OwnerType != "Organization" ||
+	if a.AppID != made.ID || a.Slug != "bothy-acme" || a.Name != "Bothy (acme)" || a.Owner != "acme" || a.OwnerID != githubtest.AccountID("acme") ||
+		a.OwnerType != "Organization" ||
 		a.ClientID != made.ClientID || a.KeyRef != "secret:github_"+a.ID+"_key" || a.ClientSecretRef != "secret:github_"+a.ID+"_client_secret" ||
 		a.Connection != "" || a.CreatedBy != "usr_owner" || a.State != "pending" {
 		t.Errorf("app = %+v", a)
@@ -367,7 +368,7 @@ func testPEM(t *testing.T) string {
 func TestCreateAppFailures(t *testing.T) {
 	good := testPEM(t)
 	answer := func(mut func(map[string]any)) string {
-		j := map[string]any{"id": 4242, "slug": "bothy-acme", "name": "Bothy (acme)", "owner": map[string]any{"login": "acme", "type": "Organization"},
+		j := map[string]any{"id": 4242, "slug": "bothy-acme", "name": "Bothy (acme)", "owner": map[string]any{"login": "acme", "id": 77, "type": "Organization"},
 			"html_url":  "{web}/apps/bothy-acme",
 			"client_id": "Iv23liAbc", "client_secret": "s3cr3t-s3cr3t-s3cr3t", "pem": good, "permissions": map[string]string{"metadata": "read"}}
 		mut(j)
@@ -384,7 +385,8 @@ func TestCreateAppFailures(t *testing.T) {
 			j["pem"] = "-----BEGIN RSA PRIVATE KEY-----\nnope\n-----END RSA PRIVATE KEY-----\n"
 		})},
 		"bad slug":                 {http.StatusCreated, answer(func(j map[string]any) { j["slug"] = "../evil" })},
-		"enterprise":               {http.StatusCreated, answer(func(j map[string]any) { j["owner"] = map[string]any{"login": "acme", "type": "Enterprise"} })},
+		"enterprise":               {http.StatusCreated, answer(func(j map[string]any) { j["owner"] = map[string]any{"login": "acme", "id": 77, "type": "Enterprise"} })},
+		"no owner id":              {http.StatusCreated, answer(func(j map[string]any) { j["owner"] = map[string]any{"login": "acme", "type": "Organization"} })},
 		"no id":                    {http.StatusCreated, answer(func(j map[string]any) { delete(j, "id") })},
 		"no html_url":              {http.StatusCreated, answer(func(j map[string]any) { delete(j, "html_url") })},
 		"html_url on another host": {http.StatusCreated, answer(func(j map[string]any) { j["html_url"] = "https://evil.example/apps/bothy-acme" })},
@@ -430,6 +432,11 @@ func TestInstallApp(t *testing.T) {
 	if _, err := f.svc.InstallApp(f.ctx, a.ID, other.ID, "usr_owner"); !errors.Is(err, core.ErrInvalid) {
 		t.Fatalf("another app's installation = %v", err)
 	}
+	// Nor is one of this app on another account than its owner.
+	foreign := f.gh.Install(a.AppID, githubtest.Installation{Account: "someone-else", Type: "User"})
+	if _, err := f.svc.InstallApp(f.ctx, a.ID, foreign.ID, "usr_owner"); !errors.Is(err, core.ErrInvalid) {
+		t.Fatalf("an installation on another account = %v", err)
+	}
 	if conns, _ := f.store.Connections(f.ctx); len(conns) != 0 || len(f.secretNames()) != 2 {
 		t.Fatalf("after a foreign installation: %d connections, vault %v", len(conns), f.secretNames())
 	}
@@ -471,6 +478,12 @@ func TestInstallApp(t *testing.T) {
 	// installation, once GitHub confirms it is the app's.
 	if _, err := f.svc.InstallApp(f.ctx, a.ID, other.ID, "usr_owner"); err == nil {
 		t.Error("moved the connection to another app's installation")
+	}
+	if _, err := f.svc.InstallApp(f.ctx, a.ID, foreign.ID, "usr_owner"); err == nil {
+		t.Error("moved the connection to an installation on another account")
+	}
+	if c, _ := f.store.Connection(f.ctx, conn.ID); c.InstallationID != id {
+		t.Errorf("the connection moved to installation %d", c.InstallationID)
 	}
 	id2 := f.installOnGitHub(a)
 	moved, err := f.svc.InstallApp(f.ctx, a.ID, id2, "usr_owner")
@@ -544,19 +557,23 @@ func TestCheckApp(t *testing.T) {
 	if c, err := f.svc.CheckApp(f.ctx, a.ID, "usr_owner"); c != nil || err != nil {
 		t.Fatalf("not installed = %+v %v", c, err)
 	}
-	// Installed from GitHub's own pages, on another account too: the owner's
-	// installation wins.
+	// Installed from GitHub's own pages: one on another account doesn't
+	// count, even alone; the owner's does.
 	f.gh.Install(a.AppID, githubtest.Installation{Account: "someone-else", Type: "User"})
+	if c, err := f.svc.CheckApp(f.ctx, a.ID, "usr_owner"); c != nil || err != nil {
+		t.Fatalf("installed only on another account = %+v %v", c, err)
+	}
 	mine := f.gh.Install(a.AppID, githubtest.Installation{Account: "ACME", Type: "Organization"})
 	c, err := f.svc.CheckApp(f.ctx, a.ID, "usr_owner")
 	if err != nil || c == nil || c.InstallationID != mine.ID {
 		t.Fatalf("installed = %+v %v", c, err)
 	}
 
+	// A renamed organization keeps its account id.
 	b := f.makeApp("octo-org")
-	only := f.gh.Install(b.AppID, githubtest.Installation{Account: "octo-org-renamed", Type: "Organization"})
-	if c, err := f.svc.CheckApp(f.ctx, b.ID, "usr_owner"); err != nil || c == nil || c.InstallationID != only.ID {
-		t.Fatalf("the only installation = %+v %v", c, err)
+	renamed := f.gh.Install(b.AppID, githubtest.Installation{Account: "octo-org-renamed", AccountID: githubtest.AccountID("octo-org"), Type: "Organization"})
+	if c, err := f.svc.CheckApp(f.ctx, b.ID, "usr_owner"); err != nil || c == nil || c.InstallationID != renamed.ID {
+		t.Fatalf("the renamed owner's installation = %+v %v", c, err)
 	}
 
 	r := f.makeApp("acme")
