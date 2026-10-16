@@ -286,22 +286,6 @@ export const MemberUnchecked: MemberStatus = "";
 export const MemberUnknown: MemberStatus = "unknown";
 export const MemberYes: MemberStatus = "member";
 export const MemberOutsider: MemberStatus = "outsider";
-/**
- * How long membership verdicts count (SPEC §5.1 step 3).
- */
-export const MemberTTL = any /* time.Hour */;
-/**
- * How long membership verdicts count (SPEC §5.1 step 3).
- */
-export const MemberStale = 4 * any /* time.Hour */;
-/**
- * How long membership verdicts count (SPEC §5.1 step 3).
- */
-export const ApproverFresh = 2 * any /* time.Hour */;
-/**
- * How long membership verdicts count (SPEC §5.1 step 3).
- */
-export const ApproverStale = 15 * any /* time.Minute */;
 export interface Membership {
   Status: MemberStatus;
   Team: string; // the workspace or server's name for copy; "" when unknown or several

@@ -2365,7 +2365,8 @@ const (
 	MemberOutsider  MemberStatus = "outsider" // guest, other company, bot, deactivated, not in an enabled server
 )
 
-// How long membership verdicts count (SPEC §5.1 step 3).
+// How long membership verdicts count (SPEC §5.1 step 3). In verdicts.go,
+// which the generated web types skip.
 const (
 	MemberTTL     = time.Hour        // a verdict older than this is checked again before use
 	MemberStale   = 4 * time.Hour    // a member verdict this young still counts for chats and schedules when the platform doesn't answer

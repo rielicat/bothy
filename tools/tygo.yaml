@@ -17,6 +17,8 @@ type_mappings:
 packages:
   - path: github.com/rielicat/bothy/internal/core
     preserve_comments: types
+    # tygo writes time.Hour consts as `any`, which TypeScript rejects as a value.
+    exclude_files: [verdicts.go]
     frontmatter: |
       // Go's builtin error interface (internal fields only; never sent by the API).
       type error = unknown;
