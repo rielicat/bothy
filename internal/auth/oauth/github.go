@@ -92,8 +92,8 @@ func (g githubAPI) get(ctx context.Context, path string, out any) (int, error) {
 
 // GitHub trades x.Code for the person's identity and checks it against r
 // with their own token: a verified address listed exactly, or an active
-// membership of a listed organization. Domain entries never match here. The token is revoked as soon as the
-// checks are done, whatever their outcome.
+// membership of a listed organization; domain entries never match here. The
+// token is revoked as soon as the checks are done, whatever their outcome.
 func (c *Client) GitHub(ctx context.Context, ep Endpoints, x Exchange, r Rules) (Identity, error) {
 	hc, err := c.client("signin:github", ep)
 	if err != nil {
