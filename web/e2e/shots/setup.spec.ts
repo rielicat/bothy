@@ -305,10 +305,15 @@ const states: ShotState[] = [
   { name: 'sign-in-finish-setup', route: '/setup', mock: 'logged-out,setup-owner', ready: 'Sign in to finish setting up Bothy.' },
   { name: 'sign-in-providers', route: '/login', mock: 'logged-out,signin-google,signin-github', ready: 'Continue with GitHub' },
   {
+    // Through the mock provider's callback, which leaves the refused account in the refusal cookie.
     name: 'sign-in-provider-refused',
-    route: '/login?signin_error=not_allowed&provider=google',
-    mock: 'logged-out,signin-google',
-    ready: "isn't on this Bothy's sign-in list",
+    route: '/login',
+    mock: 'logged-out,signin-google,signin-fail',
+    ready: 'Continue with Google',
+    setup: async (page) => {
+      await page.getByRole('button', { name: 'Continue with Google' }).click();
+      await page.getByRole('alert').filter({ hasText: "kim@gmail.com isn't on this Bothy's sign-in list." }).waitFor();
+    },
   },
   ...(
     [

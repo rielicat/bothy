@@ -271,8 +271,12 @@ const screens: [string, string, (page: Page) => Promise<unknown>][] = [
   ['sign in with providers', '/login?mock=logged-out,signin-google,signin-github', (page) => page.getByRole('button', { name: 'Continue with GitHub' }).waitFor()],
   [
     'sign in refused by a provider',
-    '/login?signin_error=not_allowed&provider=google&mock=logged-out,signin-google',
-    (page) => page.getByRole('alert').waitFor(),
+    '/login?mock=logged-out,signin-google,signin-fail',
+    async (page) => {
+      // The mock provider's callback names the refused account in the refusal cookie, as the server does.
+      await page.getByRole('button', { name: 'Continue with Google' }).click();
+      await page.getByRole('alert').filter({ hasText: "kim@gmail.com isn't on this Bothy's sign-in list." }).waitFor();
+    },
   ],
   ['new password', '/password?mock=', (page) => page.getByRole('button', { name: 'Save and continue' }).click()],
 ];
