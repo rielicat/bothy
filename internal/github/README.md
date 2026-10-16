@@ -12,6 +12,24 @@ token only on the API host, pages with `Link`, and turns 401/403/404/422/5xx and
 primary or secondary rate limits (`x-ratelimit-*`, `retry-after`) into plain
 errors; a 401 drops the cached token and retries once.
 
+The service is also `core.GitHubAppMaker` (`apps.go`, SPEC §14.3): Bothy's own
+GitHub App, created through GitHub's App Manifest flow. `AppManifest` builds
+the manifest (private, no webhook, and `appPermissions`: metadata read;
+contents, pull requests, issues and Actions write, the least the tools and the
+release dispatcher call; never administration, secrets or workflows, so a pull
+request that edits CI fails with GitHub's reason). `CreateApp` redeems GitHub's
+one-time code (`POST /app-manifests/{code}/conversions`, unauthenticated,
+never while the vault is sealed, the code scrubbed from every error), keeps the
+private key and client secret as `github_<gha id>_key` and
+`github_<gha id>_client_secret` in the global vault scope and records the app
+(migration `0012_github_apps.sql`). `InstallApp` connects an installation only
+after the app's JWT finds it (`GET /app/installations/{id}`), as an App
+connection that owns the key, moves the repositories of the connection it
+replaces, and follows a reinstall; `CheckApp` finds the installation itself.
+Disconnecting or starting over retires the app (keys deleted, row kept so
+Settings can say where to delete it on GitHub); Bothy never deletes apps
+there.
+
 Tools (gated on an allowlisted repository; never offered to restricted spaces):
 `repo_list` names the account Bothy acts as and counts each checkout's
 unsent and already-sent changes (never paths: it is trusted metadata);
@@ -47,4 +65,5 @@ repository's `.github/workflows/` files (names cleaned to one plain line),
 commit's first line for deploy lists (also after the allowlist drops the
 repository, like `FailedStep`). `githubtest` is a fake GitHub API built
 from the examples in
-GitHub's REST description, including `workflow_dispatch`.
+GitHub's REST description, including `workflow_dispatch`, the App Manifest
+flow's web pages and conversion, and installation token permissions.

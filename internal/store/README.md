@@ -39,3 +39,8 @@ Migration 0011 adds `sign_ins`, the Google and GitHub accounts people sign in
 with (provider, subject, user, email or login, times; never a token), served
 by `SignIns()` (`core.SignInStore`, outside `core.Store`): one link per
 provider account and per person and provider, cascading with the user.
+Migration 0012 adds `github_apps` to the GitHub store: the GitHub Apps Bothy
+created from a manifest, with only the vault references of their key and
+client secret, the connection that uses them (`ON DELETE SET NULL`, written as
+NULL for none) and a retired state kept until an admin dismisses it. A later
+rebuild of `github_connections` must rebuild it too.

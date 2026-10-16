@@ -52,7 +52,21 @@ The `/api/github` routes (v0.2, `h_github.go`) hand GitHub connection
 management to `core.GitHub`: admins test, connect, re-test, set the
 repository allowlist and disconnect; any user lists the allowlisted
 repositories. Tokens and App keys are write-only; without a GitHub service
-the routes answer 503.
+the routes answer 503. `h_github_app.go` lets Bothy create its own GitHub
+App (SPEC §14.3) through `core.GitHubAppMaker`, found by a type assertion on
+`Deps.GitHub`: `POST /api/github/apps` (admin, cookie only) keeps an
+in-memory flow (`ghappflow.go`: one hour, 4 per admin, 64 in all, each step
+once) bound to the admin's session hash and to the `SameSite=Lax`
+`bothy_ghapp` flow cookie (`__Host-` under TLS), and refuses an address
+other than `public_url` (`publicOrigin`, shared with sign-in's
+`sameAddress`). `GET /api/github/apps/handoff` is the only page with its own
+CSP (nonce scripts and styles, `form-action` GitHub's web origin,
+`Referrer-Policy: strict-origin`); it posts the manifest to GitHub. GitHub's
+two redirects (`/created`, `/installed`) redeem the code and connect the
+installation only for that flow, browser and live admin session, and
+otherwise only land on `/settings/connections/github?github_app=<outcome>`,
+never echoing a code, state, id or error text. Admins also list, check,
+retire and dismiss apps; a connection's detail names its app.
 The v0.2 knowledge routes (`/api/knowledge/repos[/{id}[/files|/reindex|/notes[/draft]]]`,
 `/api/knowledge/search`) sit in `h_knowledge.go`, are appended to the table
 in `New`, answer foreign or malformed ids with 404 and need `If-Match` on a

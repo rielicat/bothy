@@ -2081,7 +2081,7 @@ Telegram       Not connected                                            [ Connec
 Discord        Not connected                                            [ Connect ]
 
 GitHub
-GitHub         Connected as acme-bot · 6 repositories                    [ Manage ]
+GitHub         Connected to acme · 6 repositories                        [ Manage ]
 
 Tools
 Linear         Ready · 12 actions                                        [ Manage ]
@@ -2094,49 +2094,75 @@ Web search     SearXNG                                                   [ Chang
 
 - Rows 56 px: name `text-body` 500 (120 px column), status `text-small muted`, one small secondary button. No icons, no toggles, no pills.
 - Status words: "Not connected", "Connected…", "Can't connect: {plain reason}" (`danger-text`, button "Reconnect"), "Needs review: {n} actions changed" (`warning-text`), "Installing…", "Off".
+- GitHub: "Connected to {account}" for an app connection, "Connected as {account}" for a token; with no connection but an app Bothy created that isn't installed yet, "Not connected: {app name} isn't installed yet" (`warning-text`, button "Connect").
 - "MCP" appears only on the "Add an MCP server" button and inside its dialog.
 
 ### 12.2 GitHub (`/settings/connections/github`)
 
-**Not connected:**
+**Not connected:** the primary path has GitHub create an app of Bothy's own (SPEC §14.3), so pull requests and comments come from `@<app>[bot]`, not from someone's account.
 
 ```
 ← Connections
 Connect GitHub
 Bothy uses this to read your code and open pull requests. It only ever works on its own branches.
+[reminders: apps Bothy no longer uses, if any]
 
-How do you want to connect?
+Create a GitHub App for Bothy                                         section-title
+Pull requests and comments come from Bothy itself, not from someone's account. You choose which repositories it can use.
+
+Where will Bothy work?
 ┌──────────────────────────────────────────────────────────────────┐
-│ (•) Personal access token                                         │
-│     Quickest. Acts as the person who created the token.           │
+│ (•) An organization                                               │
 │     ───────────────────────────────────────────────────────────── │
-│     Token  [ github_pat_…                                     ]   │  KeyField, auto-check on paste
-│     Create a fine-grained token on GitHub ↗   › Which permissions?│
-│     ✓ Connected as maya-acme. Bothy can see 14 repositories.      │
+│     Organization [ acme                ]                          │
+│     You need to be an owner of this organization on GitHub.       │  field help
 ├──────────────────────────────────────────────────────────────────┤
-│ ( ) GitHub App                                                    │
-│     Best for teams. Access belongs to your organisation.          │
+│ ( ) Your personal account                                         │
+│     For repositories your own GitHub account owns.                │
 └──────────────────────────────────────────────────────────────────┘
+› Change the app's name                                              Disclosure inline: App name [ Bothy (acme) ] (placeholder = the proposed name)
+                                                                     "Names are unique on GitHub. You can also change it on the next page."
+› What can the app do?                                               "Contents, pull requests, issues and Actions: read and write. Actions is for deploys."
+                                                                     "Metadata: read." / "It can't change repository settings, secrets or workflow files."
+
+[ Continue on GitHub ]                                               primary; "Opening GitHub…"; with no organization: "Enter the organization's name."
+GitHub opens in this tab. Sign in there if asked, then create the app and install it.
+
+› Other ways to connect                                              Disclosure section
+    How do you want to connect?
+    (•) Personal access token — Quickest. Acts as the person who created the token.
+    ( ) A GitHub App you already have — Paste its App ID and private key.
+    … token or App ID + private key, "Which repositories can Bothy use?", [ Save ] …
 › Using GitHub Enterprise?                                           reveals "GitHub address"
-
-Which repositories can Bothy use?                                    after a successful check
-[ ⌕ Filter repositories                ]
-[x] acme/web        Customer web app
-[x] acme/api        Go API
-[ ] acme/infra      Terraform for production and staging
-Select all · Clear
-
-[ Save ]
 ```
 
-- "Which permissions?" lists: Contents, Pull requests, Issues and Actions (read and write; Actions is for deploys), Metadata (read).
-- GitHub App: "App ID" and "Private key" (file picker for the `.pem`, or "Paste instead" textarea); then "Installed on acme · 14 repositories" or "The app isn't installed on any organisation yet." + [Install on GitHub ↗].
+- The proposed name is "Bothy ({organization, or your username})", cut to GitHub's 34 characters (the server proposes the same). An organization name that can't be one: "That isn't an organization name on GitHub. Use the name from its address, like acme in github.com/acme." A longer name: "Use 34 characters or fewer."
+- Continue on GitHub goes through a Bothy page that posts the app's details to GitHub. Failures under the button: "Open Bothy at {address} to create the app. GitHub sends you back to that address." [Open {address}] / "Bothy's saved keys are locked. Unlock them, then try again." [Unlock saved keys] / otherwise "Bothy couldn't start creating the app. Try again." + Details. If another app is already waiting, the page shows it instead.
+- **Waiting to be installed** (replaces the create form; one quiet check on load):
+  ```
+  Finish installing Bothy (acme) on GitHub                           section-title
+  GitHub created the app. Install it on acme and choose the repositories Bothy can use.
+  [ Install on GitHub ↗ ]  [ Check again ]                           "Checking…"
+  Start over…                                                        danger-text
+  ```
+  When a member asked for approval: "An owner of acme needs to approve Bothy (acme) on GitHub. Once they have, choose Check again." Check again: "Bothy (acme) isn't installed yet." or "Bothy couldn't check with GitHub. Try again." + Details; installed opens the manage view with the picker. Start over asks "Start over?" / "Bothy stops using {name} and deletes its keys. The app stays on GitHub until you delete it there." [Cancel] [Start over] (danger, "Starting over…").
+- **Apps Bothy no longer uses** (one row each, connect and manage views): "Bothy no longer uses {name}. Delete it on GitHub too." [Open app settings ↗] "Dismiss" (toast "Dismissed."). Bothy never deletes apps on GitHub itself.
+- **Coming back from GitHub** (`?github_app=`, read once and removed from the address): installed → the manage view opens "Which repositories can Bothy use?"; repository access changed on GitHub → Add repositories; otherwise one danger line at the top, the error formula, with [GitHub Apps ↗] when Bothy knows which list holds the new app:
+  - "Bothy couldn't finish setting up the app: too much time passed, you signed out, or you started in another browser. Delete the new app on GitHub, then start again."
+  - "GitHub didn't hand over the new app's keys, so Bothy can't use it. Delete the new app on GitHub, then start again."
+  - "Bothy's saved keys are locked, so it couldn't keep the new app's keys. Unlock them and delete the new app on GitHub, then start again." [Unlock saved keys]
+  - "Bothy couldn't confirm the app's installation with GitHub. Choose Check again, or install it again." (in the waiting view)
+  - "That link to GitHub expired. Start again." / "Bothy can't connect GitHub right now. Try again later."
+
+Under "Other ways to connect":
+- "Which permissions?" (token) lists: Contents, Pull requests, Issues and Actions (read and write; Actions is for deploys), Metadata (read).
+- A GitHub App you already have: "App ID" and "Private key" (file picker for the `.pem`, or "Paste instead" textarea); then "Installed on acme · 14 repositories" or "The app isn't installed on any organisation yet." + [Install on GitHub ↗].
 - After Save: toast "Saved." and a `StatusLine` "Bothy is reading 2 repositories. You can keep working; this takes a few minutes. See progress in Knowledge ›".
 - Failures (S13): "GitHub didn't accept that token. It may have expired or been revoked." / "The token works but can't see any repositories. Give it access to at least one repository on GitHub." / "Bothy couldn't reach {address}. Check the address and that this server can reach it." / per repository: "Bothy can read acme/web but can't open pull requests there. Give the token Pull requests: read and write."
 
 **Connected (manage view):** sections
-- **Account:** "Connected as acme-bot (GitHub App)" + "Replace token" / "Change connection…"; "Disconnect GitHub…" (`danger-text`, confirm "Bothy will stop reading these repositories and can't open pull requests or deploy. Project notes are kept.").
-- **Repositories:** the picker list with switches, "Read today at 09:12" per row and `⋯` (Read again, View on GitHub); [Add repositories].
+- **Account:** an app Bothy made: "Connected to acme as Bothy (acme)" with a small muted "Pull requests and comments show as bothy-acme[bot]."; another app: "Connected to acme (GitHub App)"; a token: "Connected as acme-bot (personal access token)". "Replace token" / "Change connection…" (a new app made from there replaces the connection once it is installed, keeping the repositories it can reach; until then the waiting block sits at the top: "Finish installing {name} on GitHub to switch Bothy to it."); "Disconnect GitHub…" (`danger-text`, confirm "Bothy will stop reading these repositories and can't open pull requests or deploy. Project notes are kept.", plus "{name} stays on GitHub until you delete it there." for an app Bothy made). When GitHub stops accepting an app Bothy made: "GitHub stopped accepting {name}. If it was uninstalled, install it again." [Install on GitHub ↗] [Check again].
+- **Repositories:** the picker list with switches, "Read today at 09:12" per row and `⋯` (Read again, View on GitHub); [Add repositories]. The dialog is titled "Which repositories can Bothy use?" while none is in use. For an app connection it adds "Missing a repository? Give the app access on GitHub ↗" (the installation's settings), or, with nothing left to add, "Bothy already uses every repository the app can reach. Give it access to more on GitHub, then come back." [Choose repositories on GitHub ↗]. Adding shows "Bothy is reading {n} repositories. You can keep working; this takes a few minutes. See progress in Knowledge ›".
 - **Deploy environments:**
   ```
   Deploy environments                                              [ Add environment ]
@@ -2144,7 +2170,7 @@ Select all · Clear
   staging        acme/web · Deploy workflow · 1 approval from any admin                          ⋯
   ```
   Empty: "No deploy environments yet. Add one so Bothy can deploy with approval." + "Add environment".
-- **Details:** rate limit remaining, last sync, Enterprise address.
+- **Details:** rate limit remaining, last sync, Enterprise address; for an app Bothy made "GitHub App: {name}" and "App settings ↗".
 
 **Environment dialog** (560):
 

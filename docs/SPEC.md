@@ -532,7 +532,8 @@ internal/httpapi/dto/      REST request/response shapes (§8.4); source for type
 internal/store/            core.Store on modernc sqlite: Open, pragmas, version gate, migrator, repos   [M1]
 internal/store/migrations/ 0001_init.sql (§6); v0.2: 0002_repos, 0003_knowledge, 0004_approval_votes,
                            0005_approval_comments, 0006_must_change_password, 0007_v02_fixes (§14.6),
-                           0008_external_secret_refs (§14.8), 0009_ui_state (§14.7)                      [S]
+                           0008_external_secret_refs (§14.8), 0009_ui_state (§14.7),
+                           0010_knowledge_stemming, 0011_sign_ins (§15), 0012_github_apps (§14.3)        [S]
 internal/vault/            core.Vault, core.Redactor, KEK sources, envelope crypto, aws-sm references   [M1]
 internal/vault/awssm/      v0.2: AWS Secrets Manager GetSecretValue, hand-signed (SigV4) (§14.8)        [M1]
 internal/audit/            core.Auditor: single writer, hash chain, Verify, offline Archive             [M1]
@@ -4209,7 +4210,7 @@ func RefineMaxCalls(drafts, depth int) int { return drafts * (1 + 3*depth) }
 
 ### 4.17 `github.go`: GitHub connections and repositories (v0.2 F4)
 
-`GitHubStore` stays outside `Store` (the SQLite store's `DB.GitHub()`, `memstore.NewGitHub()`, checked by `conformance.GitHubStore`). `EvRepoCheckout` is the single checkout event: the knowledge module indexes it (§14.3, §14.4).
+`GitHubStore` stays outside `Store` (the SQLite store's `DB.GitHub()`, `memstore.NewGitHub()`, checked by `conformance.GitHubStore`). `EvRepoCheckout` is the single checkout event: the knowledge module indexes it (§14.3, §14.4). `GitHubAppMaker` is not part of `GitHub`: the HTTP API finds it by a type assertion on `Deps.GitHub`, as it does for the auth extras. The app record is `GitHubOwnApp` because `GitHubApp` already names the App auth kind.
 
 ```go
 package core
@@ -4271,19 +4272,98 @@ type GitHubRepo struct {
 
 func (r GitHubRepo) FullName() string { return r.Owner + "/" + r.Name }
 
-// GitHubStore persists connections and repositories (migration 0002). It is
-// not part of Store: *store.DB and memstore provide it through GitHub().
+// GitHubStore persists connections, repositories (migration 0002) and
+// Bothy-made apps (0012). It is not part of Store: *store.DB and memstore
+// provide it through GitHub().
 type GitHubStore interface {
 	PutConnection(ctx context.Context, c *GitHubConnection) error         // insert or replace by ID
 	Connection(ctx context.Context, id string) (*GitHubConnection, error) // ErrNotFound
 	Connections(ctx context.Context) ([]*GitHubConnection, error)         // oldest first
-	DeleteConnection(ctx context.Context, id string) error                // and its repos; ErrNotFound
+	// DeleteConnection deletes its repos and clears the connection of the app
+	// that held it; ErrNotFound.
+	DeleteConnection(ctx context.Context, id string) error
 	// PutRepo inserts or updates by owner/name (case-insensitive). A repo
 	// another connection allows is ErrConflict (one it no longer allows moves
 	// over, keeping created_at); an unknown connection ErrInvalid.
 	PutRepo(ctx context.Context, r *GitHubRepo) error
 	Repo(ctx context.Context, owner, name string) (*GitHubRepo, error)   // case-insensitive; ErrNotFound
 	Repos(ctx context.Context, connection string) ([]*GitHubRepo, error) // "" = every connection; by owner, name
+	// PutApp inserts or replaces by ID, keeping created_at and created_by.
+	// An app_id or connection another app holds is ErrConflict; an unknown
+	// connection ErrInvalid. The derived fields are never stored.
+	PutApp(ctx context.Context, a *GitHubOwnApp) error
+	App(ctx context.Context, id string) (*GitHubOwnApp, error)                 // ErrNotFound
+	Apps(ctx context.Context) ([]*GitHubOwnApp, error)                         // oldest first
+	AppByConnection(ctx context.Context, connID string) (*GitHubOwnApp, error) // ErrNotFound
+	DeleteApp(ctx context.Context, id string) error                            // ErrNotFound
+}
+
+const PrefixGitHubApp = "gha"
+
+// GitHubOwnApp is a GitHub App Bothy created from a manifest (migration 0012).
+// Its private key and client secret live in the global vault scope; the row
+// holds their references. Pending until installed, connected while a
+// connection uses it, retired once that connection is gone or the admin
+// started over (secrets deleted; kept so Settings can say where to delete it
+// on GitHub, which Bothy never does itself).
+type GitHubOwnApp struct {
+	ID              string    `json:"id"` // gha_<26>
+	AppID           int64     `json:"app_id"`
+	Slug            string    `json:"slug"`
+	Name            string    `json:"name"`
+	Owner           string    `json:"owner"`
+	OwnerType       string    `json:"owner_type"` // Organization | User
+	ClientID        string    `json:"client_id"`
+	KeyRef          string    `json:"key_ref"`           // "secret:github_<id>_key"; "" once retired
+	ClientSecretRef string    `json:"client_secret_ref"` // "secret:github_<id>_client_secret"; kept for a possible GitHub sign-in, unused today
+	Connection      string    `json:"connection_id,omitempty"`
+	Replaces        string    `json:"replaces,omitempty"` // connection swapped out once the app is installed
+	RetiredAt       time.Time `json:"retired_at"`
+	CreatedBy       UserID    `json:"created_by"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	// Filled in by the GitHub service from github.api_base; never stored.
+	State       string `json:"state"`        // pending | connected | retired
+	URL         string `json:"html_url"`     // <web>/apps/<slug>
+	InstallURL  string `json:"install_url"`  // <web>/apps/<slug>/installations/new
+	SettingsURL string `json:"settings_url"` // <web>/organizations/<owner>/settings/apps/<slug> or <web>/settings/apps/<slug>
+}
+
+// GitHubAppTarget is where a manifest flow creates the app.
+type GitHubAppTarget struct {
+	Org      string // organization login; "" = the admin's personal account
+	Name     string // "" = "Bothy (<Org, or Fallback>)", cut to GitHub's 34 characters
+	Fallback string // the admin's username, naming a personal account's app
+}
+
+// GitHubAppHandoff is what the handoff page posts to GitHub.
+type GitHubAppHandoff struct {
+	Action    string // https://<web>/organizations/<org>/settings/apps/new or …/settings/apps/new, without query
+	WebOrigin string // scheme://host[:port] of Action, for the page's form-action
+	Manifest  string // JSON for the form field "manifest"
+	Name      string // the proposed app name
+	Org       string // "" for a personal account
+}
+
+// GitHubAppMaker is the extra *github.Service implements: Bothy's own
+// GitHub App created from a manifest and connected through its installation
+// (§14.3). Every method needs an admin caller.
+type GitHubAppMaker interface {
+	// AppManifest builds the manifest for an app reached back at origin
+	// (Bothy's own address); ErrInvalid for a bad target or origin.
+	AppManifest(t GitHubAppTarget, origin string) (*GitHubAppHandoff, error)
+	// CreateApp redeems the code GitHub's redirect carried and keeps the new
+	// app's keys. ErrSealed before redeeming while the vault is locked.
+	CreateApp(ctx context.Context, code string, t GitHubAppTarget, replaces string, by UserID) (*GitHubOwnApp, error)
+	// InstallApp verifies installationID belongs to the app and connects it.
+	InstallApp(ctx context.Context, id string, installationID int64, by UserID) (*GitHubConnection, error)
+	// CheckApp looks for the app's installation and connects it; nil, nil
+	// when it is not installed yet.
+	CheckApp(ctx context.Context, id string, by UserID) (*GitHubConnection, error)
+	Apps(ctx context.Context) ([]*GitHubOwnApp, error)                          // oldest first
+	ConnectionApp(ctx context.Context, connID string) (*GitHubOwnApp, error)    // ErrNotFound
+	RetireApp(ctx context.Context, id string, by UserID) (*GitHubOwnApp, error) // ErrConflict while connected
+	DeleteApp(ctx context.Context, id string, by UserID) error                  // ErrConflict unless retired
 }
 
 // GitHubCredentials is a connect or test request. Exactly one of Token,
@@ -5711,6 +5791,29 @@ User input to `MATCH` is converted to a quoted-phrase/AND query (never raw FTS s
 - `0009_ui_state.sql` (v0.2 UI, §14.7): `users.last_login_at`, `preferred_chat` and `approvals_web_only`, `runs.refined`, `release_deploys.sha` and `subject`, and the `skill_approved_files` table.
 - `0010_knowledge_stemming.sql`: `knowledge_fts` is created again with `tokenize='porter unicode61 remove_diacritics 2'` (FTS5 cannot change a tokenizer in place) and rebuilt from `knowledge_chunks`; the 0003 triggers keep feeding it. Knowledge search then matches other forms of a word ("redirects" finds `redirect`).
 - `0011_sign_ins.sql` (§15): `sign_ins` (provider `google`|`github`, subject, user FK `ON DELETE CASCADE`, email, login, created_at, last_used_at; primary key `(provider, subject)`, UNIQUE `(user_id, provider)`), STRICT, WITHOUT ROWID. There is no token column: Bothy never keeps a provider token.
+- `0012_github_apps.sql` (§14.3): `github_apps`, the GitHub Apps Bothy created from a manifest. The private key and client secret live in the global vault scope; the row keeps only their references, cleared when the app is retired, and stays as a reminder until an admin dismisses it. `connection_id` is `ON DELETE SET NULL`, so a later rebuild of `github_connections` must rebuild this table too, as 0008 did for `repos`:
+
+  ```sql
+  CREATE TABLE github_apps (
+    id                TEXT PRIMARY KEY,                                  -- gha_<26>
+    app_id            INTEGER NOT NULL UNIQUE CHECK (app_id > 0),        -- GitHub's id
+    slug              TEXT NOT NULL CHECK (length(slug) BETWEEN 1 AND 100),
+    name              TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 100),
+    owner             TEXT NOT NULL CHECK (length(owner) BETWEEN 1 AND 39),
+    owner_type        TEXT NOT NULL CHECK (owner_type IN ('Organization','User')),
+    client_id         TEXT NOT NULL DEFAULT '',
+    key_ref           TEXT NOT NULL DEFAULT '' CHECK (key_ref = '' OR key_ref LIKE 'secret:_%'),
+    client_secret_ref TEXT NOT NULL DEFAULT '' CHECK (client_secret_ref = '' OR client_secret_ref LIKE 'secret:_%'),
+    connection_id     TEXT UNIQUE REFERENCES github_connections(id) ON DELETE SET NULL,
+    replaces          TEXT NOT NULL DEFAULT '',                          -- connection to swap out once installed
+    retired_at        INTEGER NOT NULL DEFAULT 0,
+    created_by        TEXT NOT NULL DEFAULT '',
+    created_at        INTEGER NOT NULL,
+    updated_at        INTEGER NOT NULL,
+    CHECK (retired_at > 0 OR key_ref <> ''),
+    CHECK (retired_at = 0 OR (connection_id IS NULL AND key_ref = '' AND client_secret_ref = '' AND replaces = ''))
+  ) STRICT;
+  ```
 - Meta key `agent.refine.<session>` (`on` | `off`): the session's refine setting (runner, hub, httpapi), alongside the keys listed in the 0001 comment.
 - Refine calls are recorded in `llm_calls` with purpose `agent` (same step; their trace entries carry the `call_id`); a later migration could add a `refine` purpose.
 
@@ -6924,13 +7027,14 @@ Order: request id → panic recovery → security headers → **Host check** →
 - **Host check:** `Host` must be in `allowed_hosts` ∪ {public_url host, `localhost`, `127.0.0.1`, `[::1]`} (with port) → else **421** (DNS-rebinding defence). Exactly `GET`/`HEAD` `/healthz` and `/readyz` skip the Host check and the exposure gate: load balancer health checks send the target IP as Host, over plain HTTP from the balancer's address and without cookies, and those two routes disclose nothing.
 - **Exposure gate (peer IP, never the Host header):** the client IP is `RemoteAddr`, or the right-most untrusted `X-Forwarded-For` hop only when the peer is in `trusted_proxies`. A request from a trusted proxy that carries any forwarding header (`Forwarded`, `X-Forwarded-*`, `X-Real-IP`) is never *local*, whatever address it names: every host in those ranges can write any address there. The forwarded address still names the client for logs, audit and rate limits, and is classed *lan* or *public* by its address; a trusted peer sending no forwarding header (an ssh tunnel ending on the proxy's host) is classed by its socket address. Classes: *local* = loopback, the container's default gateway (read from `/proc/net/route`; that is where Docker's published-port traffic arrives from), `local_cidrs`; *lan* = RFC1918/ULA; *public* = everything else. Plain HTTP is served to local peers, to lan peers only with `insecure_lan` (locked, env/file only), and never to public peers (403 page explaining Tailscale/Caddy/TLS). Over TLS (native or `X-Forwarded-Proto: https` from a trusted proxy) all classes pass. Loopback is still authenticated like any client.
 - **Query-credential rejection:** any `/api` or `/v1` request with a query parameter named `token`, `access_token`, `api_key`, `key`, `auth`, `password`, `cookie` or `gatewayUrl` → **400**. Credentials are never read from query strings (CVE-2026-25253 class).
-- **Cookie:** 32 random bytes, stored as sha256. Name `__Host-bothy` (`Secure`) when TLS or trusted-proxy https; `bothy_session` on local plain HTTP. `HttpOnly; SameSite=Strict; Path=/`. Idle 7 days, absolute 30 days, rotated on login and privilege change; logout deletes the row; disabling a user deletes all their sessions and revokes tokens. The setup grant cookie `bothy_setup` lasts 30 min. The sign-in cookie of a Google or GitHub round trip (§15) is `__Host-bothy_signin` under TLS, `bothy_signin` otherwise: `HttpOnly; SameSite=Lax; Path=/`, 10 minutes, holding only the flow's random state; Lax because it must come back on the provider's top-level redirect, which Strict drops. The callback clears it. A refused provider sign-in sets the refusal cookie `__Host-bothy_signin_who` under TLS, `bothy_signin_who` otherwise: `SameSite=Lax; Path=/`, 60 seconds, not `HttpOnly`, holding the refused email or login (URL-escaped) for the sign-in page's sentence; the page reads it once and deletes it.
+- **Cookie:** 32 random bytes, stored as sha256. Name `__Host-bothy` (`Secure`) when TLS or trusted-proxy https; `bothy_session` on local plain HTTP. `HttpOnly; SameSite=Strict; Path=/`. Idle 7 days, absolute 30 days, rotated on login and privilege change; logout deletes the row; disabling a user deletes all their sessions and revokes tokens. The setup grant cookie `bothy_setup` lasts 30 min. The sign-in cookie of a Google or GitHub round trip (§15) is `__Host-bothy_signin` under TLS, `bothy_signin` otherwise: `HttpOnly; SameSite=Lax; Path=/`, 10 minutes, holding only the flow's random state; Lax because it must come back on the provider's top-level redirect, which Strict drops. The callback clears it. A refused provider sign-in sets the refusal cookie `__Host-bothy_signin_who` under TLS, `bothy_signin_who` otherwise: `SameSite=Lax; Path=/`, 60 seconds, not `HttpOnly`, holding the refused email or login (URL-escaped) for the sign-in page's sentence; the page reads it once and deletes it. The GitHub App flow cookie (§14.3) is `__Host-bothy_ghapp` under TLS, `bothy_ghapp` otherwise: `HttpOnly; SameSite=Lax; Path=/`, one hour, holding only a manifest round trip's random binding (kept in memory as its sha256, never put in a URL); the flow it names also holds the sha256 of the session cookie that started it, so GitHub's cross-site redirects, which arrive without the Strict session cookie, resume that session only while it is still the same active admin's.
 - **CSRF:** Go's `http.CrossOriginProtection` (Sec-Fetch-Site / Origin vs Host; Go 1.25+) wraps **every** unsafe `/api` request, including login, setup and bearer requests (non-browser clients send neither header and pass). Cookie-authenticated unsafe requests additionally need `X-CSRF-Token` equal to the session's token (constant-time; returned by `/api/auth/me`; the setup grant has its own token from `/api/setup/claim`) **and** SameSite=Strict.
 - **API tokens:** `Authorization: Bearer bothy_pat_<26-char id>_<43-char base62 secret>_<6-char base62 CRC32>`, where the id field is the 26 Crockford chars of `tok_<26>` without the `tok_` prefix; parse by fixed field lengths after the `bothy_pat_` prefix, never by splitting on `_`. The CRC (over `bothy_pat_<id>_<secret>`) lets secret scanners recognise the format. Stored as sha256 of the secret; compared in constant time after an id lookup. Scopes: `chat` (sessions API + `/v1` agent models), `llm` (`/v1` passthrough), `read` (GET `/api/*` + SSE), `admin` (admin routes). Default TTL 90 days; tokens without expiry are rejected. `/v1/*` accepts only bearer tokens; `/api/*` accepts cookies or bearer tokens with a matching scope.
 - **Login:** one global Argon2id slot; unknown usernames run a dummy hash (equal timing); lockout per username and per IP (5 failures → 1 m, doubling to 1 h). Per-username failures are counted in memory for known and unknown names alike, with the same forgiveness after a quiet hour, so lockouts never reveal which usernames exist; `users.failed_logins` and `locked_until` only carry a known account's active lock across restarts; `subtle.ConstantTimeCompare` for setup token, CSRF, tokens, pairing codes. Provider sign-in (§15) has no password to guess and no lockout; its starts are limited to 20 per minute per client (an IPv4 address or an IPv6 /64), in a bucket of their own. The password limiter and lockout stay keyed by the exact address, since a lockout on a /64 would lock out a whole office behind it, while a start costs only a provider round trip, so starts are keyed by /64 and one host can't dodge their limit by moving through the addresses of its prefix.
 - **Setup token:** created at first boot while no owner exists: 32 random bytes, base32, 24 h (re-minted at boot if expired), stored as sha256 in `meta`, written to `<data>/setup-token` (0600) and printed (stderr) when it is minted (v0.2 UI, S1) as `Open <url>/setup#t=<code>`, followed by ` on this server` unless `public_url` is set, then `or paste the setup code <code>` and `(also in <data>/setup-token; valid for 24 hours)`, the validity in words; `<url>` is `public_url`, else the listen address dialled from the host (`https` when `server.tls` is set). `bothy setup-token` prints the same banner to stderr and only the code to stdout, for scripts. Later boots while setup is pending print `Open <url>/setup and paste the setup code from <data>/setup-token` and `(or print a new one with: bothy setup-token)` without the code. `serve` logs `gateway starting listen=… url=…` on every boot. `bothy setup-token` rotates it (Auth never caches the hash, so a rotation by the CLI process is seen at once). The SPA reads it from the URL fragment, posts it to `/api/setup/claim`, then removes it with `history.replaceState`. Setup routes answer non-local peers with 403 and a fix line (`ssh -L 8080:127.0.0.1:8080 <host>`, then open the printed URL locally).
 - **One-time passwords (v0.2 UI, S9):** a browser session of an account with `must_change_password` (`Actor.MustChangePassword`) gets 403 `password_change_required` (fix `/password`) on every route except `GET /api/auth/me`, `POST /api/auth/logout` and `POST /api/auth/password`. Bearer tokens are not affected.
 - **File downloads** (`/api/workspace/files`): `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`, `Content-Type: application/octet-stream` and `Content-Security-Policy: sandbox`.
+- **GitHub App handoff page** (`GET /api/github/apps/handoff`, §14.3): the one page whose form leaves Bothy. It replaces the policy for that response only: `Content-Security-Policy: default-src 'none'; script-src 'nonce-<n>'; style-src 'nonce-<n>'; form-action <GitHub web origin>; base-uri 'none'; frame-ancestors 'none'` (a fresh 16-byte nonce per response; the origin re-serialised from the parsed action URL) and `Referrer-Policy: strict-origin`, so the form post's `Origin` header is real rather than `null` (GitHub already has that origin in the manifest). The global policy, with `form-action 'self'`, is unchanged everywhere else. The page auto-submits only on a fresh navigation and keeps a visible Continue on GitHub button, so Back from GitHub is not a trap.
 - **Error envelope:** `{"error":{"code":"…","message":"…","fix":"…"}}` (`dto.Error`). A `forbidden`, `conflict` or `bad_request` message from a core sentinel error leaves out the sentinel's own word (`forbidden: admin only` → `admin only`); approval refusals name no approval id (`already decided`, `you already voted`). `sealed`, `no_sandbox` and `budget_exceeded` carry plain copy, and their `fix` is a web route: `/settings/security/keys`, `/settings/security`, and `/settings/general` for the daily limit or `/settings/advanced` for a task's limits. CSRF refusals use the generic code `forbidden`; the web client matches the message text `X-CSRF-Token` to refetch the token and retry once after another tab rotated the session (a distinct `csrf` code would be cleaner; not done in v0.1). Bodies capped at `max_body_mb` (1 MB) except uploads (`upload_max_mb`, 20 MB, streamed to the workspace).
 
 ### 8.2 Web streaming protocol (SSE)
@@ -7101,10 +7205,18 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `GET /api/github/connections` | admin | — | `[]core.GitHubConnection` |
 | `POST /api/github/connections/test` | admin | `dto.GitHubConnectReq` | `core.GitHubProbe` (stores nothing; an App with several installations returns them to choose from) |
 | `POST /api/github/connections` | admin | `dto.GitHubConnectReq` | `core.GitHubConnection` (400 with GitHub's reason; 409 when a repo belongs to another connection that still allows it; 503 `sealed` when the vault is sealed; the allowed repositories are then read into the admin's own workspace as `POST /api/github/repos/read` does) |
-| `GET /api/github/connections/{id}` | admin | — | `dto.GitHubConnectionDetail` |
+| `GET /api/github/connections/{id}` | admin | — | `dto.GitHubConnectionDetail` (`app` set when Bothy created the connection's app) |
 | `POST /api/github/connections/{id}/test` | admin | — | `core.GitHubProbe` (live re-test; records the status; lists reachable repos with `allowed`/`connection_id`) |
 | `PUT /api/github/connections/{id}/repos` | admin | `dto.GitHubReposReq` | `[]core.GitHubRepo` (replaces the allowlist; empty allows none; newly allowed repositories are read into the admin's own workspace) |
-| `DELETE /api/github/connections/{id}` | admin | — | `204` (removes the connection, its repos and the vault secret it created) |
+| `DELETE /api/github/connections/{id}` | admin | — | `204` (removes the connection, its repos and the vault secret it created; retires the app Bothy made for it, §14.3) |
+| `GET /api/github/apps` | admin | — | `[]core.GitHubOwnApp` (apps Bothy created, oldest first, with `state` pending\|connected\|retired and GitHub links) |
+| `POST /api/github/apps` | admin (cookie only) | `dto.GitHubAppStartReq` | `dto.GitHubAppStartResp` and the `bothy_ghapp` flow cookie (§8.1) (400 bad account or target; 409 `conflict` while an app is pending; 409 `wrong_address` with the `public_url` origin as fix when opened elsewhere; 503 `sealed`) |
+| `POST /api/github/apps/{id}/check` | admin | — | `dto.GitHubAppCheck` (connects the app's installation when it finds one; 400 with GitHub's reason; 409 for a retired app) |
+| `POST /api/github/apps/{id}/retire` | admin | — | `core.GitHubOwnApp` ("Start over": deletes its keys, keeps the row; 409 while connected) |
+| `DELETE /api/github/apps/{id}` | admin | — | `204` (dismisses a retired app's reminder; 409 otherwise) |
+| `GET /api/github/apps/handoff` | none (safe mode too; flow cookie + session) | — | HTML page posting the manifest to GitHub, with its own CSP (§8.1); `303` to the GitHub page `?github_app=expired` without a matching flow, or `unavailable` |
+| `GET /api/github/apps/created` | none (safe mode too; flow cookie) | GitHub's `code`, `state` | `303` to `<web>/apps/<slug>/installations/new?state=<new>` once the code is redeemed; otherwise `303 /settings/connections/github?github_app=not_finished\|exchange_failed\|sealed[&apps=<org>\|me]` or `unavailable` |
+| `GET /api/github/apps/installed` | none (safe mode too; flow cookie) | GitHub's `installation_id`, `setup_action`, `state` | `303 /settings/connections/github?github_app=installed\|requested\|updated\|check\|install_failed\|unavailable`; never JSON, never a code, state, id or error text in the address |
 | `GET /api/knowledge/repos` | user | `?principal=` | `dto.List[core.IndexedRepo]` (v0.2; all of the caller's principals by default. v0.2 UI: `progress` while queued or indexing, `summary`, and `stale` when a GitHub repository's default branch has moved past `indexed_sha`, also on `GET …/{id}`) |
 | `POST /api/knowledge/repos` | user | `dto.KnowledgeIndexReq` | `202 core.IndexedRepo` (status queued; 400 for a directory outside the workspace, a bad repo name or sha; 409 when a default `local/<name>` names another folder) |
 | `GET /api/knowledge/repos/{id}` | user | — | `core.IndexedRepo` |
@@ -7607,6 +7719,29 @@ type GitHubReposReq struct {
 type GitHubConnectionDetail struct {
 	Connection *core.GitHubConnection `json:"connection"`
 	Repos      []*core.GitHubRepo     `json:"repos"`
+	App        *core.GitHubOwnApp     `json:"app,omitempty"` // set when Bothy created the connection's app
+}
+
+// GitHubAppStartReq starts creating Bothy's own GitHub App (POST
+// /api/github/apps).
+type GitHubAppStartReq struct {
+	Account  string `json:"account"`            // organization | personal
+	Org      string `json:"org,omitempty"`      // organization: its login
+	Name     string `json:"name,omitempty"`     // "" = "Bothy (<org or your username>)"
+	Replaces string `json:"replaces,omitempty"` // connection to swap out once the app is installed
+}
+
+// GitHubAppStartResp is where the browser goes next: a same-origin page
+// that posts the manifest to GitHub.
+type GitHubAppStartResp struct {
+	HandoffURL string `json:"handoff_url"`
+}
+
+// GitHubAppCheck is POST /api/github/apps/{id}/check: whether the app is
+// installed, and the connection its installation made.
+type GitHubAppCheck struct {
+	Installed  bool                   `json:"installed"`
+	Connection *core.GitHubConnection `json:"connection,omitempty"`
 }
 
 // knowledge.go
@@ -8116,7 +8251,7 @@ Config keys, provenance (§7.3: UI, file, env, default), env-var names and the e
 | — | Compaction keeps safety | Constitution and standing rules in S1 outside history; pins in S2; validated summaries; auto-pinned standing instructions; taint and grants in the DB. | agent |
 | — | Provider sign-in (§15) | Authorization code flow with PKCE S256; a random 32-byte state kept server-side as sha256, single use, 10 minutes, and required to equal an HttpOnly SameSite=Lax cookie; a Google nonce checked in constant time; one exact redirect address per provider built from `public_url` (never `Host`), and the flow must match the callback's provider. The code is traded server-side through `egress.SystemClient` (`oauth2.googleapis.com`, `github.com`, `api.github.com`; no redirects followed, capped bodies, 15 s per call). The Google id token is read only from that client-authenticated TLS answer and every claim that matters is checked. The shared sign-in list is checked at every sign-in and link: verified addresses only, compared as ASCII (non-ASCII or control characters match nothing); a domain only through Google's `hd`, never for GitHub (GitHub confirms an address once and never re-checks it); GitHub organizations pinned by id; public mail, relay and noreply domains refused as domains. Disabled accounts refused; no email matching to existing accounts; new accounts are members without a password and with a display name nobody else uses. Tokens are never stored (GitHub's is revoked at once); audit rows carry provider, reason, account and address, never a code, state or token. The client secret lives in the vault or behind an env or `aws-sm` reference, write-only in the UI. Starts limited to 20/min per IPv4 address or IPv6 /64; at most 32 flows in progress per client, 1024 in all. The refused account reaches the sign-in page in a 60-second cookie, never the address. `api_base` test overrides are locked and loopback only. | auth, httpapi, config, store, web |
 
-**Audit actions** (`audit_log.action`): `auth.setup_claim`, `auth.owner_created`, `auth.login`, `auth.login_failed`, `auth.lockout`, `auth.logout`, `auth.password_changed`, `token.create`, `token.revoke`, `user.create`, `user.update`, `pairing.create`, `pairing.redeem`, `pairing.burn` (a link code posted in a group: ok with the code's creator as target, or denied when a well-formed code matched nothing; detail `reason`), `identity.link`, `identity.guest`, `identity.block`, `space.update`, `config.set`, `config.reset`, `persona.update`, `vault.put`, `vault.delete` (written by the vault itself for every caller; an API change adds the token or user, client address and source through `core.WithAuditOrigin`), `vault.rotate`, `vault.unseal`, `secret.use` (name + purpose), `tool.exec`, `tool.denied`, `approval.request`, `approval.decide` (a multi-approver requester's deny carries `withdrawn`), `approval.expire`, `grant.create`, `grant.revoke`, `egress.allow` (first contact / held approvals), `egress.deny`, `memory.write`, `memory.edit`, `skill.install`, `skill.enable`, `skill.disable`, `skill.changed`, `mcp.install`, `mcp.approve`, `mcp.changed`, `schedule.create`, `schedule.update`, `schedule.delete`, `schedule.run` (Run now: who pressed it, with the run), `run.stop`, `budget.exceeded`, `admin.pause`, `admin.resume`, `admin.restart`, `backup.create`, `sandbox.selftest_failed`, `api.passthrough`, `audit.archived`; v0.2: `github.connect`, `github.repos`, `github.disconnect`, `github.checkout`, `github.pull_request`, `github.comment`, `knowledge.index`, `knowledge.delete`, `knowledge.notes_draft`, `knowledge.notes_edit` (user save), `knowledge.notes_write` (agent edit), `approval.vote` (ok or denied), `release.dispatch` (ok, error or denied), `release.finish`; §15: `signin.link` (ok or denied, with `provider`, `email` or `login`, and a denial's `reason`) and `signin.unlink` (`provider`); `auth.login` and `auth.login_failed` carry `method` (`password`, `google`, `github`) and a provider failure's `reason`; `user.create` carries `via` (`google`, `github`) for an account sign-in made. Details never include message content or secret values.
+**Audit actions** (`audit_log.action`): `auth.setup_claim`, `auth.owner_created`, `auth.login`, `auth.login_failed`, `auth.lockout`, `auth.logout`, `auth.password_changed`, `token.create`, `token.revoke`, `user.create`, `user.update`, `pairing.create`, `pairing.redeem`, `pairing.burn` (a link code posted in a group: ok with the code's creator as target, or denied when a well-formed code matched nothing; detail `reason`), `identity.link`, `identity.guest`, `identity.block`, `space.update`, `config.set`, `config.reset`, `persona.update`, `vault.put`, `vault.delete` (written by the vault itself for every caller; an API change adds the token or user, client address and source through `core.WithAuditOrigin`), `vault.rotate`, `vault.unseal`, `secret.use` (name + purpose), `tool.exec`, `tool.denied`, `approval.request`, `approval.decide` (a multi-approver requester's deny carries `withdrawn`), `approval.expire`, `grant.create`, `grant.revoke`, `egress.allow` (first contact / held approvals), `egress.deny`, `memory.write`, `memory.edit`, `skill.install`, `skill.enable`, `skill.disable`, `skill.changed`, `mcp.install`, `mcp.approve`, `mcp.changed`, `schedule.create`, `schedule.update`, `schedule.delete`, `schedule.run` (Run now: who pressed it, with the run), `run.stop`, `budget.exceeded`, `admin.pause`, `admin.resume`, `admin.restart`, `backup.create`, `sandbox.selftest_failed`, `api.passthrough`, `audit.archived`; v0.2: `github.connect` (carries `method`: `token`, `app` or `app_manifest`, and for an app Bothy made `app`, `app_name` and `reinstalled` when a new installation moved the connection), `github.repos`, `github.disconnect` (carries `app` when it retired an app Bothy made), `github.checkout`, `github.pull_request`, `github.comment`, `github.app_create` (ok, with `app_id`, `slug`, `name`, `owner`, `owner_type`, `permissions` and any `extra_permissions` or `replaces`; or error, with `owner` and the redacted reason; never a code, key or secret), `github.app_retire` (`slug`, `name`, `owner`), `knowledge.index`, `knowledge.delete`, `knowledge.notes_draft`, `knowledge.notes_edit` (user save), `knowledge.notes_write` (agent edit), `approval.vote` (ok or denied), `release.dispatch` (ok, error or denied), `release.finish`; §15: `signin.link` (ok or denied, with `provider`, `email` or `login`, and a denial's `reason`) and `signin.unlink` (`provider`); `auth.login` and `auth.login_failed` carry `method` (`password`, `google`, `github`) and a provider failure's `reason`; `user.create` carries `via` (`google`, `github`) for an account sign-in made. Details never include message content or secret values.
 
 **Doctor / security-audit checks** (stable ids; `security` ones run in `security-audit`; `fix` = auto-fixable):
 
@@ -10214,6 +10349,17 @@ The accepted v0.2 brief extends this spec; where they disagree the brief wins, a
 - Connections (`internal/github`, migration 0002): a fine-grained PAT or a GitHub App (RS256 JWT from the private key, installation tokens minted on demand, cached until five minutes before expiry, replaced once on a 401, registered with the redactor). The secret goes into the global vault scope (or an existing `secret:<name>`); the row keeps only the reference. Every call goes through `SystemClient` for the `github` destination (§2.8); the token is sent only to the API host; the tarball redirect is fetched without it and only from configured hosts; `Link` pagination, `x-ratelimit-*`/`retry-after` and 401/403/404/409/422/5xx map to plain messages; request URLs are removed from transport errors. Connection health is recorded by the calls themselves. A repository a connection no longer allows moves to the connection that asks for it, keeping `created_at`. Index state is per principal: `GitHubRepo.LastIndexedSHA` is never stored (`core.GitHubStore` has no `SetIndexed`), and `GET /api/github/repos` fills it with the caller's own `IndexedRepo.IndexedSHA` of a GitHub-source index of that repository.
 - Tools (gated on an allowlisted repository, never offered to restricted spaces; §5.6): `repo_list` (core, trusted metadata: the account GitHub shows on what Bothy writes, `@<account>` for a token or `@<app_slug>[bot]` for an App, named once or per repository when connections differ; for each checkout its commit, that it is plain files without git, and counts of changed files not yet sent and of files already sent with their pull request numbers, never paths, from scans bounded to 8 s per call; its description says a checkout is not a git repository and that every pull request is a new branch that is never updated); `repo_checkout` (local_write; resolves the ref to a commit, extracts the tarball through `os.Root` into `repos/<owner>/<name>` with caps `github.checkout.max_mb`/`max_files` and a decompressed-bytes cap, drops links, devices, `.git` and unsafe names, swaps the folder in atomically, refuses to overwrite edits unless `discard_changes`, which makes it an irreversible card (files a pull request already sent and unchanged since are on GitHub and do not count); keeps the manifest and pristine archive under `<data>/github/checkouts/<ws>/…`; a new checkout starts a manifest with nothing sent; taints Private|Untrusted and marks the workspace untrusted; publishes `repo.checkout`); `repo_changes` (diff against the manifest, honouring `.gitignore`, skipping `.git`, bounded scans; files a pull request already sent and unchanged since are listed apart with its number and no diff, and a file changed again is marked with the pull request that last carried it); `repo_open_pr` (`AlwaysAsk`, §5.8 FA and §5.9; Git Data API blobs, a tree on the checked-out commit, a commit, a branch and the PR, deleting the branch if the PR is refused; always a new branch, and an open PR is never updated; after the PR opens, the manifest records each file's op, sha256, mode and PR number (`sent`), and later calls leave those files out unless they changed again or are named in `paths`; the result names the acting account); `github_issues`, `github_pr`, `github_runs` (read; content is Private|Untrusted and spotlighted; no free-text issue search so qualifiers cannot reach other repositories; one pull request also lists each reviewer's latest verdict (a later comment does not undo an approval or a change request) and who is still asked to review, plus review bodies with `comments`) and `github_comment` (external_send). Purging a user removes their checkout data.
 - The service also implements `core.WorkflowDispatcher` for allowlisted repositories (`Serves`), which the release module uses (§14.5). `Dispatch`, `Serves` and every agent tool keep the allowlist gate; `RunStatus` and `FailedStep` also read a repository its connection no longer allows (the follower reads a deploy's run through the dispatcher that started it), and one no connection holds is refused. `FailedStep` (v0.2 UI, S17) names the first step with conclusion `failure` or `timed_out` from `GET runs/{id}/jobs?filter=latest`, for `release.finished`.
+- **Bothy's own GitHub App** (`internal/github/apps.go`, migration `0012_github_apps.sql`, `core.GitHubAppMaker`, routes §8.3): the primary way to connect. Bothy builds a manifest (`name` default "Bothy (<org or username>)" cut to GitHub's 34 characters, `url` and the redirect and setup URLs on `server.public_url` or the request's own origin, `public: false`, `setup_on_update: true`, no `hook_attributes`, `default_events: []`, no `callback_urls`) with exactly these `default_permissions`, the least the tools and releases call:
+
+  | Permission | Level | Why |
+  |---|---|---|
+  | `metadata` | read | required with any repository permission; `GET /installation/repositories`, `GET /repos/{o}/{r}` |
+  | `contents` | write | commits (sha media type) and tarballs for `repo_checkout`, `BranchHead`, `CommitSubject`; Git Data API blobs, trees, commits, refs and the branch delete for `repo_open_pr` |
+  | `pull_requests` | write | `github_pr` reads; `POST /pulls`; a `github_comment` on a pull request |
+  | `issues` | write | `github_issues` and a pull request's conversation; a `github_comment` on an issue |
+  | `actions` | write | workflows and runs (`github_runs`, releases); `workflow_dispatch` for `release_deploy` |
+
+  Never `administration`, `secrets`, `workflows`, `environments`, `deployments`, `checks`, `statuses`, `pages`, `members` or any organization or account permission. Without `workflows`, GitHub refuses a branch whose commit changes `.github/workflows/*`, so a pull request that edits CI fails with GitHub's reason: CI definitions are a privilege-escalation path. The browser posts the manifest from a handoff page (§8.1) to `<web>/settings/apps/new` or `<web>/organizations/<org>/settings/apps/new` (`<web>` from `github.api_base`: github.com for `api.github.com`, the Enterprise host otherwise, the same origin for a loopback test base). GitHub's redirect brings a one-hour code that redeems the app's private key without authentication: Bothy redeems it once (`POST /app-manifests/{code}/conversions` through the `github` SystemClient, no Authorization header), only for the browser and live admin session that started the flow (state, flow cookie, session hash, at most an hour), never while the vault is sealed, and never echoes it. The private key goes to `secret:github_<gha id>_key` and the client secret (kept for a possible GitHub sign-in, unused today) to `secret:github_<gha id>_client_secret` in the global scope; the webhook secret is not decoded. A permission GitHub granted beyond the manifest is audited and logged, not refused. The install page sends the browser to the setup URL with `installation_id`, which Bothy uses only for the flow that made the app, after `GET /app/installations/{id}` with the app's JWT confirms it is the app's (another app's installation is not found; the app is private, so only its owner can install it); it then becomes an App connection with `OwnsSecret` (the app's key). A setup redirect without such a flow only lands on the GitHub page, which checks the app with the admin's session (`POST /api/github/apps/{id}/check`: the owner's installation, else the only one). A second check or a concurrent callback returns the same connection; a new installation of the app (uninstalled and installed again) moves the connection once GitHub confirms it. An app made to replace a connection (`replaces`) takes over the repositories that connection allows and its installation reaches, then disconnects it (retiring an older Bothy-made app). Starting is refused while another app is pending (409), from an address other than `public_url` (409 `wrong_address`: the flow cookie is host-only) and while the vault is sealed. "Start over" and disconnecting retire the app: both secrets are deleted and the row stays as a reminder with the app's settings link until an admin dismisses it. Bothy never deletes apps on GitHub. Flows live in memory (64, at most 4 per admin, one hour): a restart before the code is redeemed lands `not_finished`, whose copy says to delete the app on GitHub; after it the pending app completes through the check. Automatic checks use a cached app source, so the key is read at most every five minutes. Changing `public_url` later only breaks the install and update redirects (the app keeps its setup URL; the admin can edit it on GitHub, and the check recovers either way).
 
 ### 14.4 F6 Knowledge
 

@@ -159,6 +159,14 @@ step 7).
 **Signing in with Google or GitHub** needs `server.public_url` on HTTPS, since
 the providers send people back to it; see [sign-in.md](sign-in.md).
 
+**Connecting GitHub** works best by letting Bothy create its own app in
+Settings → Connections → GitHub: pull requests come from the app, not from a
+person. GitHub returns the browser to `server.public_url` (or the address in
+use when it is unset), so start from that address. GitHub only redirects the
+browser, so a localhost, private or plain-HTTP address is fine. If a reverse
+proxy logs query strings, it records the one-time code GitHub sends back,
+which Bothy has already spent by then.
+
 ## Backups
 
 `bothy backup` writes a consistent tarball to `<data>/backups`: a snapshot of
