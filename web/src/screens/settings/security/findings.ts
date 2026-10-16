@@ -102,12 +102,18 @@ const copy: Record<string, { text: string; steps?: string; action?: FindingActio
 /** Server titles are labels ("Telemetry is off"); the line reads as a sentence. */
 const sentence = (s: string) => (/[.?!…]$/.test(s.trim()) ? s.trim() : `${s.trim()}.`);
 
+// auth.sign_in covers three problems; the fix address names the provider and
+// the server's title the problem (internal/auth/checks.go).
+function signInFinding(f: Finding): FindingCopy {
+  const p = f.fix?.includes('github') ? 'GitHub' : 'Google';
+  if (f.title.includes('pinned'))
+    return { text: 'GitHub organizations are checked by name only.', steps: 'Save the GitHub organizations once in Security → GitHub sign-in so Bothy can pin them.', action: 'how' };
+  if (f.title.includes('locked')) return { text: `Saved keys are locked, so ${p} sign-in can't work.`, action: 'unlock' };
+  return { text: `${p} sign-in is on, but its client secret is missing.`, steps: `Open Security → ${p} sign-in and save the client secret again.`, action: 'how' };
+}
+
 export function describeFinding(f: Finding): FindingCopy {
-  // One finding per provider, which its fix address names.
-  if (f.id === 'auth.sign_in') {
-    const p = f.fix?.includes('github') ? 'GitHub' : 'Google';
-    return { text: `${p} sign-in is on, but its client secret is missing.`, steps: `Open Security → ${p} sign-in and save the client secret again.`, action: 'how' };
-  }
+  if (f.id === 'auth.sign_in') return signInFinding(f);
   const c = copy[f.id];
   const action: FindingAction = c?.action ?? (f.auto_fix ? 'fix' : 'how');
   return { text: c?.text ?? sentence(f.title), steps: c?.steps, action };

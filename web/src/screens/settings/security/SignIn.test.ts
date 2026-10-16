@@ -120,9 +120,17 @@ describe('Security → Sign-in', () => {
     const { calls, section } = await open('team-mode');
     const create = within(section).getByRole('switch', { name: 'Create an account the first time someone on the list signs in' });
     expect(within(section).getByText('People who already have an account should connect Google or GitHub in Account first.')).toBeTruthy();
+    expect(within(section).queryByText(/GitHub organizations/)).toBeNull();
     await fireEvent.click(create);
     await waitFor(() => expect(patches(calls, '/api/sign-in')).toEqual([{ allow_new: true }]));
     await waitFor(() => expect(create.getAttribute('aria-checked')).toBe('true'));
+  });
+
+  it('says members of the GitHub organizations get an account too', async () => {
+    const { section } = await open('team-mode,signin-github');
+    await within(section).findByText(
+      'Members of the GitHub organizations you add also get an account. People who already have an account should connect Google or GitHub in Account first.',
+    );
   });
 
   it('marks a provider that is on but not working', async () => {

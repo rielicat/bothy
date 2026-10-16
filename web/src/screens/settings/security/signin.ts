@@ -153,6 +153,12 @@ export function checkLine(p: SignInProvider, r: { ok: boolean; code?: string; er
   if (r.code === 'key_rejected')
     return { tone: 'danger', text: `Saved, but ${name} didn't accept the client ID or secret. Copy them again from ${p === 'google' ? 'Google Cloud' : 'GitHub'}.` };
   if (r.code === 'provider_error' && r.error?.includes('redirect_uri_mismatch'))
-    return { tone: 'danger', text: "Saved, but GitHub doesn't accept this callback URL. Paste it into the OAuth app's settings." };
+    return {
+      tone: 'danger',
+      text:
+        p === 'google'
+          ? "Saved, but Google doesn't accept this redirect URI. Add it to the OAuth client's authorized redirect URIs."
+          : "Saved, but GitHub doesn't accept this callback URL. Paste it into the OAuth app's settings.",
+    };
   return { tone: 'warning', text: `Saved, but Bothy couldn't reach ${name} to check the details.` };
 }

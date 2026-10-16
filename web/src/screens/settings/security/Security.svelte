@@ -321,6 +321,7 @@
     {#if signIn}
       {@const listFixed = fixed('auth.sign_in.allow')}
       {@const newFixed = fixed('auth.sign_in.allow_new')}
+      {@const orgsSet = signIn.providers.some((p) => p.provider === 'github' && p.orgs.length > 0)}
       <SettingsSection title="Sign-in">
         <SettingsRow
           label="Who can sign in"
@@ -352,7 +353,7 @@
           help={newFixed
             ? FIXED_HELP
             : signIn.team_mode
-              ? 'People who already have an account should connect Google or GitHub in Account first.'
+              ? `${orgsSet ? 'Members of the GitHub organizations you add also get an account. ' : ''}People who already have an account should connect Google or GitHub in Account first.`
               : 'Adding people needs team mode. Turn it on in Settings → Advanced.'}
           status={allowNewRow.status}
           error={allowNewRow.error}

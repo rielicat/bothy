@@ -272,13 +272,27 @@ describe('sign-in list and provider rows', () => {
     expect(checkLine('github', { ok: false, code: 'provider_error', error: 'oauth: github token: redirect_uri_mismatch' }).text).toBe(
       "Saved, but GitHub doesn't accept this callback URL. Paste it into the OAuth app's settings.",
     );
+    expect(checkLine('google', { ok: false, code: 'provider_error', error: 'oauth: google token: status 400: redirect_uri_mismatch' }).text).toBe(
+      "Saved, but Google doesn't accept this redirect URI. Add it to the OAuth client's authorized redirect URIs.",
+    );
     expect(checkLine('google', { ok: false, code: 'timeout' })).toEqual({ tone: 'warning', text: "Saved, but Bothy couldn't reach Google to check the details." });
   });
 
-  it('names the provider of a sign-in finding', () => {
-    expect(describeFinding(finding({ id: 'auth.sign_in', fix: '/settings/security/github-sign-in' }))).toEqual({
+  it('names the provider and the problem of a sign-in finding', () => {
+    const fix = '/settings/security/github-sign-in';
+    expect(describeFinding(finding({ id: 'auth.sign_in', title: 'GitHub sign-in is on, but its client secret is missing', fix }))).toEqual({
       text: 'GitHub sign-in is on, but its client secret is missing.',
       steps: 'Open Security → GitHub sign-in and save the client secret again.',
+      action: 'how',
+    });
+    // Locked saved keys are unlocked, like the other sealed findings; nothing needs saving again.
+    expect(describeFinding(finding({ id: 'auth.sign_in', title: 'Google sign-in is on, but saved keys are locked', fix: '/settings/security/google-sign-in' }))).toEqual({
+      text: "Saved keys are locked, so Google sign-in can't work.",
+      action: 'unlock',
+    });
+    expect(describeFinding(finding({ id: 'auth.sign_in', title: "GitHub organizations aren't pinned", severity: 'low', fix }))).toEqual({
+      text: 'GitHub organizations are checked by name only.',
+      steps: 'Save the GitHub organizations once in Security → GitHub sign-in so Bothy can pin them.',
       action: 'how',
     });
   });
