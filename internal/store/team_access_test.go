@@ -144,6 +144,7 @@ const (
 	taGuest      = "spc_01guest7001000000000000000" // enabled guest 7001, owned by the admin
 	taGuestOff   = "spc_01guest7003000000000000000" // a guest space an admin turned off
 	taGuestBlk   = "spc_01guest7002000000000000000" // the blocked guest's space
+	taGoneGuest  = "spc_01goneguest000000000000000" // a guest space on the disabled account's Slack DM before linking
 	taGroup      = "spc_01group000000000000000000"  // enabled standard group, owned by the owner
 	taGroupNew   = "spc_01groupnew000000000000000"  // disabled, never changed: still in Approvals
 	taGroupOnce  = "spc_01grouponce00000000000000"  // turned on once, off again
@@ -201,11 +202,12 @@ func teamAccessFixtures() []sqlStep {
 		principal(taOwnerGuest, "space", taOwner, "restricted"), principal(taGuest, "space", taAdmin, "restricted"),
 		principal(taGuestOff, "space", taAdmin, "restricted"), principal(taGuestBlk, "space", taAdmin, "restricted"),
 		principal(taGroup, "space", taOwner, "standard"), principal(taGroupNew, "space", taOwner, "restricted"),
-		principal(taGroupOnce, "space", taOwner, "restricted"),
+		principal(taGroupOnce, "space", taOwner, "restricted"), principal(taGoneGuest, "space", taAdmin, "restricted"),
 		space(taOwnerGuest, "guest", "telegram", "5001", "dm", taOwner, 0, 1, 5),
 		space(taGuest, "guest", "telegram", "7001", "dm", taAdmin, 1, 1, 5),
 		space(taGuestOff, "guest", "telegram", "7003", "dm", taAdmin, 0, 1, 9),
 		space(taGuestBlk, "guest", "telegram", "7002", "dm", taAdmin, 1, 1, 5),
+		space(taGoneGuest, "guest", "slack", "D9", "dm", taAdmin, 1, 1, 5),
 		space(taGroup, "group", "telegram", "-100", "group", taOwner, 1, 1, 50),
 		space(taGroupNew, "group", "slack", "C9", "group", taOwner, 0, 7, 7),
 		space(taGroupOnce, "group", "discord", "300", "group", taOwner, 0, 7, 70),
@@ -361,8 +363,11 @@ func TestTeamAccessMigration(t *testing.T) {
 		t.Error("fresh person principals share a workspace")
 	}
 
-	if gone := ident("slack", "U9"); gone.Status != core.IdentityBlocked || gone.Principal != "" || gone.CanApprove {
-		t.Errorf("disabled account's identity = %+v, want blocked with no principal", gone)
+	if gone := ident("slack", "U9"); gone.Status != core.IdentityBlocked || gone.Principal != taGoneGuest || gone.CanApprove {
+		t.Errorf("disabled account's identity = %+v, want blocked, keeping its old guest space for Delete their data", gone)
+	}
+	if sp, pr := space(taGoneGuest), principal(taGoneGuest); sp.Kind != core.SpacePerson || sp.Enabled || pr.Kind != core.PrincipalPerson || pr.User != "" {
+		t.Errorf("disabled account's old guest space = %+v / %+v, want a person space that is off, owned by the team", sp, pr)
 	}
 	guest := ident("telegram", "7001")
 	if guest.Status != core.IdentityTeammate || guest.Principal != taGuest || guest.Greet != "" || guest.CanApprove || guest.Member != core.MemberUnknown {
@@ -510,6 +515,25 @@ func TestTeamAccessMigration(t *testing.T) {
 	}
 	if byP, err := db.Identities().ByPrincipal(ctx, admin.Principal); err != nil || byP.ExternalID != "U1" {
 		t.Errorf("ByPrincipal(admin's space) = %+v, %v", byP, err)
+	}
+}
+
+// A new install, or an upgrade where nobody had linked an account or been
+// let in as a guest, gets no report, so no audit row and no banner.
+func TestTeamAccessReportOnlyWhenSomethingMoved(t *testing.T) {
+	ctx := context.Background()
+	for name, path := range map[string]string{
+		"new install": filepath.Join(t.TempDir(), "bothy.db"),
+		"upgrade":     openAt12(t, nil),
+	} {
+		db, err := Open(ctx, Options{Path: path, BackupDir: filepath.Join(filepath.Dir(path), "backups")})
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if raw, err := db.Meta().Get(ctx, "team_access_report"); !errors.Is(err, core.ErrNotFound) {
+			t.Errorf("%s: team_access_report = %q, %v; want none", name, raw, err)
+		}
+		_ = db.Close()
 	}
 }
 

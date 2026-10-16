@@ -44,7 +44,8 @@ SELECT ci.channel, ci.external_id,
 UPDATE m_rows SET before = before + (SELECT count(*) FROM m_link WHERE reuse IS NULL AND off = 0)
  WHERE name IN ('principals', 'spaces');
 
--- What changed, for the admins' banner and the audit row written at boot.
+-- What changed, for the admins' banner and the audit row written at boot;
+-- nothing is reported when nothing moved (a new install among others).
 CREATE TEMP TABLE m_report AS
 SELECT (SELECT count(*) FROM m_link WHERE off = 0) AS linked,
        (SELECT count(*) FROM m_link WHERE off = 0 AND approver) AS approvers,
@@ -142,7 +143,7 @@ INSERT INTO channel_identities_new(channel, external_id, username, display_name,
     can_approve, membership, membership_at, dm_chat_id, first_seen_at, last_seen_at, last_notice_at, greet, first_text)
 SELECT channel, external_id, username, display_name, new_status,
        CASE WHEN old_status = 'linked' AND off = 0 THEN COALESCE(reuse, fresh)
-            WHEN old_status = 'linked' THEN NULL
+            WHEN old_status = 'linked' THEN reuse    -- blocked, but Delete their data still reaches the guest space
             ELSE principal_id END,
        CASE WHEN new_status = 'teammate' THEN 'admin' ELSE '' END,
        CASE WHEN new_status = 'teammate' AND old_status = 'linked' THEN approver ELSE 0 END,
@@ -238,7 +239,8 @@ INSERT INTO meta(k, v)
 SELECT 'team_access_report', json_object('at', CAST(unixepoch('subsec') * 1000 AS INTEGER),
          'linked', linked, 'approvers', approvers, 'disabled_accounts', disabled_accounts, 'guests', guests,
          'telegram_guests', telegram_guests, 'guests_blocked', guests_blocked, 'schedules_paused', schedules_paused)
-  FROM m_report;
+  FROM m_report
+ WHERE linked + disabled_accounts + guests + guests_blocked + schedules_paused > 0;
 
 UPDATE m_rows SET after = CASE name
     WHEN 'sessions' THEN (SELECT count(*) FROM sessions)

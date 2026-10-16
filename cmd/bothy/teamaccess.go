@@ -34,6 +34,14 @@ func reportTeamAccess(ctx context.Context, st core.Store, au core.Auditor, bus c
 		log.Warn("the team access report is not JSON", "err", err)
 		return
 	}
+	// 0013 once wrote a report even when it moved nobody; it tells nobody
+	// anything.
+	if moved(report) == 0 {
+		if err := st.Meta().Delete(ctx, teamAccessKey); err != nil {
+			log.Warn("clearing the team access report failed", "err", err)
+		}
+		return
+	}
 	if report["audited"] != true {
 		if au != nil {
 			detail, _ := json.Marshal(report)
@@ -56,4 +64,15 @@ func reportTeamAccess(ctx context.Context, st core.Store, au core.Auditor, bus c
 	}
 	bus.Publish(core.Event{Type: core.EvBanner, Data: core.BannerData{Level: "info", Code: "team_access", Action: "/settings/people",
 		Text: "People in chat apps no longer link to Bothy accounts. Check who can use Bothy and who can approve in People."}})
+}
+
+// moved counts what the report says the migration changed (approvers are
+// among the linked, Telegram guests among the guests).
+func moved(report map[string]any) float64 {
+	var n float64
+	for _, k := range []string{"linked", "disabled_accounts", "guests", "guests_blocked", "schedules_paused"} {
+		v, _ := report[k].(float64)
+		n += v
+	}
+	return n
 }
