@@ -281,7 +281,8 @@ describe("Bothy's own GitHub App (§12.2)", () => {
 
   it.each([
     ['not_finished', 'acme', "Bothy couldn't finish setting up the app: too much time passed, you signed out, or you started in another browser. Delete the new app on GitHub, then start again.", 'https://github.com/organizations/acme/settings/apps'],
-    ['exchange_failed', 'me', "Bothy couldn't keep the new app's keys, so it can't use it. Delete the new app on GitHub, then start again.", 'https://github.com/settings/apps'],
+    ['exchange_failed', 'me', "GitHub couldn't finish creating the app. Delete the new app on GitHub if it's listed there, then start again.", 'https://github.com/settings/apps'],
+    ['keep_failed', 'acme', "Bothy couldn't keep the new app's keys, so it can't use it. Delete the new app on GitHub, then start again.", 'https://github.com/organizations/acme/settings/apps'],
     ['sealed', 'acme', "Bothy's saved keys are locked, so it couldn't keep the new app's keys. Unlock them and delete the new app on GitHub, then start again.", 'https://github.com/organizations/acme/settings/apps'],
     ['expired', '', 'That link to GitHub expired. Start again.', ''],
     ['unavailable', '', "Bothy can't connect GitHub right now. Try again later.", ''],
