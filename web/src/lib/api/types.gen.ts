@@ -619,7 +619,7 @@ export interface GitHubOwnApp {
  */
 export interface GitHubAppTarget {
   Org: string; // organization login; "" = the admin's personal account
-  Name: string; // "" = "Bothy (<Org, or Fallback>)", cut to GitHub's 34 characters
+  Name: string; // "" = "Bothy (<Org, or Fallback>)", cut to GitHub's 34 characters; "… 2" and on while an app Bothy recorded has it
   Fallback: string; // the admin's username, naming a personal account's app
 }
 /**
