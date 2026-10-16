@@ -72,6 +72,11 @@ func TestSignInValidation(t *testing.T) {
 			c.Auth.SignIn.GitHub.Orgs = []string{"acme-inc"}
 		}, "auth.sign_in.google.enabled", "auth.sign_in.allow"},
 		{"GitHub without a list or orgs", func(c *Config) { readyGitHub(c); c.Auth.SignIn.GitHub.Orgs = nil }, "auth.sign_in.github.enabled", "or an organization"},
+		{"GitHub with only domains", func(c *Config) {
+			readyGitHub(c)
+			c.Auth.SignIn.GitHub.Orgs = nil
+			c.Auth.SignIn.Allow = []string{"acme.com"}
+		}, "auth.sign_in.github.enabled", "domains apply to Google only"},
 		{"enabled without public_url", func(c *Config) { readyGoogle(c); c.Server.PublicURL = "" }, "auth.sign_in.google.enabled", "server.public_url: Google sends people back"},
 		{"enabled with plain http", func(c *Config) { readyGitHub(c); c.Server.PublicURL = "http://bothy.acme.com" }, "auth.sign_in.github.enabled", "https://"},
 	} {
@@ -175,6 +180,10 @@ func TestSignInLayers(t *testing.T) {
 	_, err = set(t, m, map[string]string{"auth.sign_in.allow": `[]`})
 	if fe := fieldErrors(t, err); !strings.Contains(fe.Error(), "auth.sign_in.github.enabled") {
 		t.Fatalf("emptying the list while GitHub relies on it: %v", fe)
+	}
+	_, err = set(t, m, map[string]string{"auth.sign_in.allow": `["acme.com"]`})
+	if fe := fieldErrors(t, err); !strings.Contains(fe.Error(), "auth.sign_in.github.enabled") {
+		t.Fatalf("leaving only domains while GitHub relies on the list: %v", fe)
 	}
 	_, err = set(t, m, map[string]string{"server.public_url": `"http://bothy.acme.com"`})
 	if fe := fieldErrors(t, err); !strings.Contains(fe.Error(), "https://") {

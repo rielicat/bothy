@@ -325,7 +325,7 @@ func githubCode(t *testing.T, fake *oauthtest.Server, ep Endpoints, who oauthtes
 func TestGitHubAllowList(t *testing.T) {
 	fake, ep := newGitHub(t)
 	c := newClient(nil)
-	rules := Rules{Allow: []string{"acme.com", "pat@gmail.com"}, Orgs: []string{"acme-inc", "acme-labs"}}
+	rules := Rules{Allow: []string{"acme.com", "pat@gmail.com", "kate@acme.com"}, Orgs: []string{"acme-inc", "acme-labs"}}
 	emails := func(es ...oauthtest.Email) []oauthtest.Email { return es }
 	for _, tc := range []struct {
 		name  string
@@ -336,10 +336,12 @@ func TestGitHubAllowList(t *testing.T) {
 		{"verified secondary address on the list", oauthtest.Identity{ID: 1, Login: "pat", Emails: emails(
 			oauthtest.Email{Email: "pat@personal.dev", Primary: true, Verified: true},
 			oauthtest.Email{Email: "Pat@Gmail.com", Verified: true})}, nil, "Pat@Gmail.com"},
+		// GitHub never re-checks an address it confirmed once, so a domain
+		// entry would let in former staff and anyone reading a shared inbox.
 		{"verified address at a listed domain", oauthtest.Identity{ID: 2, Login: "maya", Emails: emails(
-			oauthtest.Email{Email: "maya@acme.com", Primary: true, Verified: true})}, nil, "maya@acme.com"},
-		{"subdomain of a listed domain", oauthtest.Identity{ID: 3, Login: "sub", Emails: emails(
-			oauthtest.Email{Email: "sub@eng.acme.com", Primary: true, Verified: true})}, ErrNotAllowed, "sub@eng.acme.com"},
+			oauthtest.Email{Email: "maya@acme.com", Primary: true, Verified: true})}, ErrNotAllowed, "maya@acme.com"},
+		{"verified address listed exactly", oauthtest.Identity{ID: 3, Login: "kate", Emails: emails(
+			oauthtest.Email{Email: "kate@acme.com", Primary: true, Verified: true})}, nil, "kate@acme.com"},
 		{"unverified address on the list", oauthtest.Identity{ID: 4, Login: "fake", Emails: emails(
 			oauthtest.Email{Email: "fake@personal.dev", Primary: true, Verified: true},
 			oauthtest.Email{Email: "boss@acme.com", Verified: false})}, ErrNotAllowed, "fake@personal.dev"},
@@ -373,8 +375,12 @@ func TestGitHubFailures(t *testing.T) {
 		Orgs: map[string]string{"acme-inc": "active"}}
 
 	fake.FailNext("/user/emails", http.StatusInternalServerError)
-	if _, err := c.GitHub(ctx, ep, githubCode(t, fake, ep, who), Rules{Allow: []string{"acme.com"}}); core.CodeOf(err) != core.FailProviderError {
-		t.Errorf("unreadable addresses with a list: %v", err)
+	if _, err := c.GitHub(ctx, ep, githubCode(t, fake, ep, who), Rules{Allow: []string{"pat@acme.com"}}); core.CodeOf(err) != core.FailProviderError {
+		t.Errorf("unreadable addresses with an address listed: %v", err)
+	}
+	fake.FailNext("/user/emails", http.StatusInternalServerError)
+	if _, err := c.GitHub(ctx, ep, githubCode(t, fake, ep, who), Rules{Allow: []string{"acme.com"}}); !errors.Is(err, ErrNotAllowed) {
+		t.Errorf("unreadable addresses with only domains listed: %v", err)
 	}
 	fake.FailNext("/user/emails", http.StatusInternalServerError)
 	if _, err := c.GitHub(ctx, ep, githubCode(t, fake, ep, who), Rules{Allow: []string{"acme.com"}, Orgs: []string{"acme-inc"}}); err != nil {

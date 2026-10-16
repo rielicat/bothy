@@ -10,9 +10,9 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
+	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
 )
 
@@ -89,8 +89,8 @@ func (g githubAPI) get(ctx context.Context, path string, out any) (int, error) {
 }
 
 // GitHub trades x.Code for the person's identity and checks it against r
-// with their own token: a verified address on the list, or an active
-// membership of a listed organization. The token is revoked as soon as the
+// with their own token: a verified address listed exactly, or an active
+// membership of a listed organization. Domain entries never match here. The token is revoked as soon as the
 // checks are done, whatever their outcome.
 func (c *Client) GitHub(ctx context.Context, ep Endpoints, x Exchange, r Rules) (Identity, error) {
 	hc, err := c.client("signin:github", ep)
@@ -131,8 +131,7 @@ func (c *Client) GitHub(ctx context.Context, ep Endpoints, x Exchange, r Rules) 
 		id.Email = verified[0]
 	}
 	for _, e := range verified {
-		_, domain, _ := strings.Cut(e, "@")
-		if listedAddress(r.Allow, e) || listedDomain(r.Allow, domain) {
+		if listedAddress(r.Allow, e) {
 			id.Email = e
 			return id, nil
 		}
@@ -159,12 +158,12 @@ func (c *Client) GitHub(ctx context.Context, ep Endpoints, x Exchange, r Rules) 
 	switch {
 	// The addresses could not be read, so the list was never really
 	// checked: that is GitHub failing, not the person being refused.
-	case emailErr != nil && len(r.Allow) > 0:
+	case emailErr != nil && config.SignInListsAddress(r.Allow):
 		return id, emailErr
 	case restricted:
 		return id, ErrOrgAccess
 	}
-	return id, fmt.Errorf("%w: no verified address on the list and no active membership of a listed organization", ErrNotAllowed)
+	return id, fmt.Errorf("%w: no verified address listed exactly and no active membership of a listed organization", ErrNotAllowed)
 }
 
 // verifiedEmails lists the account's verified addresses, the primary one

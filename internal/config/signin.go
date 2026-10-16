@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -48,6 +49,12 @@ func SignInEntryProblem(e string) string {
 		return fmt.Sprintf("%q is not an email address like pat@acme.com", e)
 	}
 	return ""
+}
+
+// SignInListsAddress reports whether allow has an exact address, the only
+// kind of entry GitHub sign-in matches.
+func SignInListsAddress(allow []string) bool {
+	return slices.ContainsFunc(allow, func(e string) bool { return strings.Contains(e, "@") })
 }
 
 // ValidGitHubOrg reports whether o has the shape of a GitHub organization.
@@ -125,8 +132,10 @@ func validateSignIn(c *Config, v *vctx) {
 	_, problem := SignInAddress(c.Server.PublicURL)
 	signInEnabled(v, gp, "Google", "google", g.Enabled, g.ClientID, g.ClientSecret, len(si.Allow) > 0,
 		"at least one address or domain in auth.sign_in.allow", problem)
-	signInEnabled(v, hp, "GitHub", "github", h.Enabled, h.ClientID, h.ClientSecret, len(si.Allow) > 0 || len(h.Orgs) > 0,
-		"at least one address or domain in auth.sign_in.allow, or an organization in "+hp+".orgs", problem)
+	// GitHub ignores domain entries (see oauth.Rules), so a list of domains
+	// alone lets nobody in with it.
+	signInEnabled(v, hp, "GitHub", "github", h.Enabled, h.ClientID, h.ClientSecret, SignInListsAddress(si.Allow) || len(h.Orgs) > 0,
+		"at least one email address in auth.sign_in.allow (domains apply to Google only), or an organization in "+hp+".orgs", problem)
 }
 
 func signInClient(v *vctx, p, clientID, apiBase string) {

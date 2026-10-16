@@ -106,8 +106,10 @@ type Exchange struct {
 type Rules struct {
 	// Allow is auth.sign_in.allow: exact addresses ("pat@gmail.com") and
 	// domains ("acme.com"). Google matches an address against the verified
-	// email and a domain against the hd claim; GitHub matches either against
-	// the account's verified addresses, a domain only as the exact domain.
+	// email and a domain against the hd claim. GitHub matches only addresses,
+	// against the account's verified ones: GitHub confirms an address once and
+	// never again, so former staff keep a confirmed company address, and
+	// anyone who can read a shared inbox at a domain can confirm an address there.
 	Allow []string
 	Orgs  []string // GitHub: active members of any of these may also sign in
 }

@@ -136,7 +136,7 @@ func (s *Service) providerConf(ctx context.Context, p core.SignInProvider) provi
 		pc.enabled, pc.clientID, pc.secretRef = h.Enabled, h.ClientID, h.ClientSecret
 		pc.ep, pc.epErr = oauth.GitHubEndpoints(h.APIBase)
 		pc.rules.Orgs = h.Orgs
-		rules = rules || len(h.Orgs) > 0
+		rules = config.SignInListsAddress(si.Allow) || len(h.Orgs) > 0
 	}
 	deps := s.signIn.Load()
 	secretProblem := ""

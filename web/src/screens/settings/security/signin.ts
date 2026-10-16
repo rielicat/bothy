@@ -79,9 +79,10 @@ export function orgsProblem(orgs: string[]): string {
   return orgs.every((o) => ORG.test(o)) ? '' : 'Enter organization names like acme-inc, separated by commas.';
 }
 
-/** Who the provider can let in: the shared list, and for GitHub its organizations too. */
+/** Who the provider can let in: the shared list for Google; for GitHub an exact address on it, or an organization. */
 export function hasRules(adm: SignInAdmin, st: SignInProviderStatus): boolean {
-  return adm.allow.length > 0 || (st.provider === 'github' && st.orgs.length > 0);
+  if (st.provider === 'github') return adm.allow.some((e) => e.includes('@')) || st.orgs.length > 0;
+  return adm.allow.length > 0;
 }
 
 /** Everything a provider needs before it can be switched on. */
@@ -108,7 +109,8 @@ export function listSaveError(e: unknown): string {
     const m = /anyone can get an address at (\S+?);/.exec(f.message);
     if (m) return `Anyone can get an address at ${m[1]}. List each person's address instead.`;
     const on = /^auth\.sign_in\.(google|github)\.enabled$/.exec(f.path);
-    if (on) return `${providerNames[on[1] as SignInProvider]} sign-in is on and needs someone on the list. Turn it off first, or keep at least one entry.`;
+    if (on?.[1] === 'github') return 'GitHub sign-in is on and needs an email address on the list, or an organization. Turn it off first, or keep an address.';
+    if (on) return 'Google sign-in is on and needs someone on the list. Turn it off first, or keep at least one entry.';
   }
   return "Couldn't save. Try again.";
 }

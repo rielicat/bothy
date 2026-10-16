@@ -247,6 +247,9 @@ describe('sign-in list and provider rows', () => {
     expect(canEnable(admin({ allow: ['acme.com'] }), ready)).toBe(true);
     expect(canEnable(admin({}), ready)).toBe(false);
     expect(canEnable(admin({}), { ...ready, provider: 'github', orgs: ['acme-inc'] })).toBe(true);
+    // GitHub ignores domains: it needs an exact address or an organization.
+    expect(canEnable(admin({ allow: ['acme.com'] }), { ...ready, provider: 'github' })).toBe(false);
+    expect(canEnable(admin({ allow: ['acme.com', 'pat@gmail.com'] }), { ...ready, provider: 'github' })).toBe(true);
     expect(canEnable(admin({ allow: ['acme.com'], address: 'not_https' }), ready)).toBe(false);
     expect(canEnable(admin({ allow: ['acme.com'] }), { ...ready, secret_saved: false })).toBe(false);
   });

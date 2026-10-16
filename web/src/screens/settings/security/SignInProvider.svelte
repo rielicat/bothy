@@ -63,7 +63,7 @@
     if (canEnable(adm, st)) return '';
     if (adm.address !== 'ok') return "Set Bothy's web address first.";
     if (!st.client_id || !st.secret_saved) return 'Save the details below to turn this on.';
-    if (!hasRules(adm, st)) return github ? 'Add who can sign in on the Security page, or an organization below, to turn this on.' : 'Add who can sign in on the Security page to turn this on.';
+    if (!hasRules(adm, st)) return github ? 'Add an email address on the Security page, or an organization below, to turn this on.' : 'Add who can sign in on the Security page to turn this on.';
     return '';
   });
 

@@ -73,11 +73,14 @@ function address(url: string): 'ok' | 'missing' | 'not_https' {
   return url.startsWith('https://') || /^http:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(url) ? 'ok' : 'not_https';
 }
 
+// GitHub matches exact addresses only; a domain lets in Google Workspace accounts.
+const hasRules = (p: SignInProvider, allow: string[], orgs: string[]) => (p === 'github' ? allow.some((e) => e.includes('@')) || orgs.length > 0 : allow.length > 0);
+
 function status(req: Req | undefined, p: SignInProvider): SignInProviderStatus {
   seed(req);
   const c = state.providers[p];
   const url = publicURL(req);
-  const rules = state.allow.length > 0 || (p === 'github' && c.orgs.length > 0);
+  const rules = hasRules(p, state.allow, c.orgs);
   let problem = '';
   if (address(url) !== 'ok') problem = 'no_address';
   else if (!c.clientId || !rules || (!c.secret && !noSecret(req))) problem = 'incomplete';
@@ -209,6 +212,9 @@ on('PATCH', '/api/sign-in', async (req, res) => {
     const bad = list.find((e) => PUBLIC_MAIL.includes(e));
     if (bad) return fieldError(res, 'auth.sign_in.allow', `anyone can get an address at ${bad}; list each person's address instead`);
     if (!list.length && state.providers.google.enabled) return fieldError(res, 'auth.sign_in.google.enabled', 'Google sign-in needs at least one address or domain in auth.sign_in.allow');
+    const gh = state.providers.github;
+    if (gh.enabled && !hasRules('github', list, gh.orgs))
+      return fieldError(res, 'auth.sign_in.github.enabled', 'GitHub sign-in needs at least one email address in auth.sign_in.allow (domains apply to Google only), or an organization in auth.sign_in.github.orgs');
     state.allow = list;
     set['auth.sign_in.allow'] = list;
   }
@@ -237,7 +243,10 @@ on('PATCH', '/api/sign-in/{p}', async (req, res, m) => {
   };
   if (next.enabled) {
     const missing = [!next.clientId && `${names[p]} sign-in needs ${base}.client_id`, !next.secret && `${names[p]} sign-in needs ${base}.client_secret (a secret:<name> reference)`,
-      !(state.allow.length || (p === 'github' && next.orgs.length)) && `${names[p]} sign-in needs at least one address or domain in auth.sign_in.allow`,
+      !hasRules(p, state.allow, next.orgs) &&
+        (p === 'github'
+          ? 'GitHub sign-in needs at least one email address in auth.sign_in.allow (domains apply to Google only), or an organization in auth.sign_in.github.orgs'
+          : 'Google sign-in needs at least one address or domain in auth.sign_in.allow'),
       address(publicURL(req)) !== 'ok' && `${names[p]} sign-in needs server.public_url`].filter(Boolean) as string[];
     if (missing.length) return fieldError(res, `${base}.enabled`, missing.join('; '));
   }

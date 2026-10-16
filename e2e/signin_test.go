@@ -124,7 +124,7 @@ func TestSignInGitHubNewMember(t *testing.T) {
 		Config: fmt.Sprintf(`mode: multi
 auth:
   sign_in:
-    allow: [acme.com]
+    allow: [acme.com, sam@acme.com]
     allow_new: true
     github:
       enabled: true
@@ -151,7 +151,12 @@ auth:
 
 	byMail := oauthtest.Identity{ID: 7, Login: "sam-acme", Emails: []oauthtest.Email{{Email: "sam@acme.com", Primary: true, Verified: true}}}
 	if path, q := signInVia(t, pltNewClient(gw), gh, "/api/auth/oauth/github/start", dto.SignInStartReq{}, byMail); path != "/chat" {
-		t.Fatalf("verified address at a listed domain: %s %v", path, q)
+		t.Fatalf("verified address listed exactly: %s %v", path, q)
+	}
+	// A domain lets in Google Workspace accounts only.
+	former := oauthtest.Identity{ID: 10, Login: "former", Emails: []oauthtest.Email{{Email: "former@acme.com", Primary: true, Verified: true}}}
+	if _, q := signInVia(t, pltNewClient(gw), gh, "/api/auth/oauth/github/start", dto.SignInStartReq{}, former); q.Get("signin_error") != "not_allowed" {
+		t.Fatalf("verified address at a listed domain: %v", q)
 	}
 	if _, q := signInVia(t, pltNewClient(gw), gh, "/api/auth/oauth/github/start", dto.SignInStartReq{},
 		oauthtest.Identity{ID: 8, Login: "new-hire", Orgs: map[string]string{"acme-inc": "pending"}}); q.Get("signin_error") != "not_allowed" {

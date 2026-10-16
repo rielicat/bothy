@@ -326,7 +326,7 @@
           label="Who can sign in"
           help={listFixed
             ? FIXED_HELP
-            : 'Email addresses or domains, like acme.com or pat@gmail.com. A domain lets in Google Workspace accounts on it and GitHub accounts with a confirmed address there.'}
+            : 'Email addresses or domains, like acme.com or pat@gmail.com. A domain lets in Google Workspace accounts on it. GitHub accounts need their exact address here, or an organization on the GitHub page.'}
           status={allowRow.status}
           error={allowRow.error}
         >

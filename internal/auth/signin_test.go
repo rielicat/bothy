@@ -168,7 +168,11 @@ func TestSignInOptions(t *testing.T) {
 	if got := names(); !slices.Equal(got, []string{"GitHub"}) {
 		t.Fatalf("no allow list, GitHub orgs only = %v", got)
 	}
-	e.cfg.Auth.SignIn.Allow = []string{"acme.com"}
+	e.cfg.Auth.SignIn.Allow, e.cfg.Auth.SignIn.GitHub.Orgs = []string{"acme.com"}, nil
+	if got := names(); !slices.Equal(got, []string{"Google"}) {
+		t.Fatalf("only domains listed, no organizations = %v", got)
+	}
+	e.cfg.Auth.SignIn.GitHub.Orgs = []string{"acme-inc"}
 	e.vault.Seal()
 	if got := names(); len(got) != 0 {
 		t.Fatalf("sealed = %v", got)
@@ -497,6 +501,10 @@ func TestSignInGitHubList(t *testing.T) {
 		{Email: "faker@personal.dev", Primary: true, Verified: true}, {Email: "boss@acme.com"}}}); signInCode(err) != SignInNotAllowed {
 		t.Fatalf("unverified address: %v", err)
 	}
+	if _, err := e.signIn(t, core.SignInGitHub, oauthtest.Identity{ID: 6, Login: "former", Emails: []oauthtest.Email{
+		{Email: "former@acme.com", Primary: true, Verified: true}}}); signInCode(err) != SignInNotAllowed {
+		t.Fatalf("verified address at a listed domain: %v", err)
+	}
 	if res, err := e.signIn(t, core.SignInGitHub, lee); err != nil || !res.Created {
 		t.Fatalf("organization member: %+v, %v", res, err)
 	}
@@ -512,7 +520,7 @@ func TestSignInGitHubList(t *testing.T) {
 	if _, err := e.signIn(t, core.SignInGitHub, oauthtest.Identity{ID: 5, Login: "sso", Orgs: map[string]string{"acme-inc": "restricted"}}); signInCode(err) != SignInOrgAccess {
 		t.Fatalf("restricted organization: %v", err)
 	}
-	if got := e.github.WaitRevoked(5); len(got) != 5 {
+	if got := e.github.WaitRevoked(6); len(got) != 6 {
 		t.Fatalf("revoked %d tokens", len(got))
 	}
 }

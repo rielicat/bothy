@@ -37,7 +37,7 @@ describe('Security → Sign-in', () => {
     expect(list.value).toBe('');
     expect(
       within(section).getByText(
-        'Email addresses or domains, like acme.com or pat@gmail.com. A domain lets in Google Workspace accounts on it and GitHub accounts with a confirmed address there.',
+        'Email addresses or domains, like acme.com or pat@gmail.com. A domain lets in Google Workspace accounts on it. GitHub accounts need their exact address here, or an organization on the GitHub page.',
       ),
     ).toBeTruthy();
     const create = within(section).getByRole('switch', { name: 'Create an account the first time someone on the list signs in' });
@@ -90,6 +90,30 @@ describe('Security → Sign-in', () => {
     await fireEvent.blur(list);
     expect(await within(section).findByText('Google sign-in is on and needs someone on the list. Turn it off first, or keep at least one entry.')).toBeTruthy();
     expect(document.body.textContent).not.toContain('auth.sign_in');
+  });
+
+  it('says GitHub needs an address when only domains would be left', async () => {
+    const refused = () =>
+      new Response(
+        JSON.stringify({
+          error: { code: 'bad_request', message: 'x' },
+          fields: [
+            {
+              path: 'auth.sign_in.github.enabled',
+              source: { layer: 'ui' },
+              message:
+                'bothy.ui.yaml: auth.sign_in.github.enabled: GitHub sign-in needs at least one email address in auth.sign_in.allow (domains apply to Google only), or an organization in auth.sign_in.github.orgs',
+            },
+          ],
+        }),
+        { status: 400 },
+      );
+    const { section } = await open('signin-github', (m, url) => (m === 'PATCH' && url === '/api/sign-in' ? refused() : undefined));
+    const list = within(section).getByLabelText('Who can sign in') as HTMLTextAreaElement;
+    await waitFor(() => expect(list.value).toBe('acme.com'));
+    await fireEvent.input(list, { target: { value: 'acme.com, eng.acme.io' } });
+    await fireEvent.blur(list);
+    expect(await within(section).findByText('GitHub sign-in is on and needs an email address on the list, or an organization. Turn it off first, or keep an address.')).toBeTruthy();
   });
 
   it('lets people in as members in team mode', async () => {
@@ -213,5 +237,18 @@ describe('GitHub sign-in page', () => {
     render(GitHubSignIn);
     const sw = await screen.findByRole('switch', { name: 'Sign in with GitHub' });
     expect(sw.getAttribute('aria-disabled')).toBeNull();
+  });
+
+  it('needs an exact address or an organization: a domain lets in Google accounts only', async () => {
+    const calls = await signedIn('signin-github');
+    render(GitHubSignIn);
+    const sw = await screen.findByRole('switch', { name: 'Sign in with GitHub' });
+    await fireEvent.click(sw);
+    await waitFor(() => expect(sw.getAttribute('aria-checked')).toBe('false'));
+    await fireEvent.input(screen.getByLabelText(/Organizations/), { target: { value: '' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(patches(calls, '/api/sign-in/github').at(-1)).toEqual({ client_id: 'Ov23liMock', orgs: [] }));
+    expect(await screen.findByText('Add an email address on the Security page, or an organization below, to turn this on.')).toBeTruthy();
+    expect(sw.getAttribute('aria-disabled')).toBe('true');
   });
 });

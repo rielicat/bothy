@@ -93,9 +93,9 @@ type Auth struct {
 // (Settings → Security). Both providers share one list of who may sign in.
 type SignInCfg struct {
 	// Allow holds email addresses ("pat@gmail.com") and domains ("acme.com"),
-	// lower case. A domain admits Google Workspace accounts of that domain
-	// (the id token's hd claim) and GitHub accounts with a verified address
-	// at exactly that domain.
+	// lower case. A domain admits only Google Workspace accounts of that
+	// domain (the id token's hd claim); GitHub accounts need an address
+	// listed exactly, or an organization.
 	Allow []string `yaml:"allow"`
 	// AllowNew creates a member account the first time someone on the list
 	// signs in. It takes effect only in team mode.
