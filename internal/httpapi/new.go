@@ -76,6 +76,7 @@ type Server struct {
 	ssePing    time.Duration
 	sseRecheck time.Duration
 	jobs       *jobs         // background compactions and MCP installs, one per key
+	ghFlows    *ghAppFlows   // GitHub App manifest round trips in progress
 	heads      branchHeads   // default-branch heads for the knowledge stale flag
 	v1Large    chan struct{} // slots for /v1 bodies over v1SmallBody
 	v1Wait     time.Duration // how long a large /v1 body waits for a slot
@@ -111,11 +112,13 @@ func New(d Deps) (*Server, error) {
 		ssePing:    15 * time.Second,
 		sseRecheck: time.Minute,
 		jobs:       newJobs(),
+		ghFlows:    newGHAppFlows(d.Clock),
 		v1Large:    make(chan struct{}, v1LargeSlots),
 		v1Wait:     v1LargeWait,
 		shutdown:   make(chan struct{}),
 	}
 	s.routes = append(s.routeTable(), s.githubRoutes()...)
+	s.routes = append(s.routes, s.githubAppRoutes()...)
 	s.routes = append(s.routes, s.knowledgeRoutes()...)
 	s.routes = append(s.routes, s.inboxRoutes()...)
 	s.routes = append(s.routes, s.onboardingRoutes()...)

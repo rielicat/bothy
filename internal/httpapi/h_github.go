@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"slices"
 	"strings"
@@ -144,7 +145,17 @@ func (s *Server) githubConnection(w http.ResponseWriter, r *http.Request, _ core
 	if err != nil {
 		return err
 	}
-	return ok(w, dto.GitHubConnectionDetail{Connection: c, Repos: nonNil(repos)})
+	detail := dto.GitHubConnectionDetail{Connection: c, Repos: nonNil(repos)}
+	if mk, isMaker := gh.(core.GitHubAppMaker); isMaker {
+		app, err := mk.ConnectionApp(r.Context(), c.ID)
+		switch {
+		case err == nil:
+			detail.App = app
+		case !errors.Is(err, core.ErrNotFound):
+			return err
+		}
+	}
+	return ok(w, detail)
 }
 
 func (s *Server) githubProbe(w http.ResponseWriter, r *http.Request, _ core.Actor) error {

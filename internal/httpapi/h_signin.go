@@ -88,16 +88,7 @@ func (s *Server) sameAddress(r *http.Request, p core.SignInProvider) error {
 	if problem != "" {
 		return nil // the start itself reports the provider unavailable
 	}
-	norm := func(hostport string, secure bool) hostEntry {
-		h := splitHost(hostport)
-		if secure && h.port == "443" || !secure && h.port == "80" {
-			h.port = ""
-		}
-		return h
-	}
-	u, err := url.Parse(origin)
-	secure := err == nil && u.Scheme == "https"
-	if err == nil && norm(u.Host, secure) == norm(r.Host, infoOf(r).secure) && infoOf(r).secure == secure {
+	if sameOrigin(origin, r) {
 		return nil
 	}
 	return newError(http.StatusConflict, "wrong_address", "open Bothy at "+origin+" to sign in with "+p.Name()).withFix(origin)

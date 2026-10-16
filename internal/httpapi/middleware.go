@@ -242,6 +242,31 @@ func (s *Server) clearSignInCookie(w http.ResponseWriter, r *http.Request) {
 	s.setSignInCookie(w, r, "", -1)
 }
 
+// The GitHub App flow cookie carries only the random binding of one App
+// manifest round trip (SPEC §8.1); it is never put in a URL.
+const (
+	cookieGHAppSecure = "__Host-bothy_ghapp"
+	cookieGHAppPlain  = "bothy_ghapp"
+)
+
+func (s *Server) ghAppCookieName(r *http.Request) string {
+	if infoOf(r).secure {
+		return cookieGHAppSecure
+	}
+	return cookieGHAppPlain
+}
+
+// setGHAppCookie is setCookie with SameSite=Lax: GitHub's redirects back to
+// Bothy are cross-site top-level GET navigations, which Strict cookies miss.
+func (s *Server) setGHAppCookie(w http.ResponseWriter, r *http.Request, value string, maxAge int) {
+	http.SetCookie(w, &http.Cookie{Name: s.ghAppCookieName(r), Value: value, Path: "/", MaxAge: maxAge, HttpOnly: true, //nolint:gosec // Secure is set per transport, as setCookie
+		Secure: infoOf(r).secure, SameSite: http.SameSiteLaxMode})
+}
+
+func (s *Server) clearGHAppCookie(w http.ResponseWriter, r *http.Request) {
+	s.setGHAppCookie(w, r, "", -1)
+}
+
 // The refusal cookie names the account a provider sign-in refused, for the
 // sign-in page's sentence. The redirect carries only the reason, so a crafted
 // /login?signin_error=not_allowed link can't make the page name an address;

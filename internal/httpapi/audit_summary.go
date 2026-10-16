@@ -362,7 +362,17 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 	case "provider.connect":
 		return "Connected an AI model"
 	case "github.connect":
+		if name := d.str("app_name"); d.str("method") == "app_manifest" && name != "" {
+			return "Connected GitHub as " + name
+		}
 		return "Connected GitHub"
+	case "github.app_create":
+		if failed {
+			return "Couldn't create a GitHub App"
+		}
+		return "Created the GitHub App " + cmpOr(d.str("name"), d.str("slug"))
+	case "github.app_retire":
+		return "Stopped using the GitHub App " + cmpOr(d.str("name"), d.str("slug"))
 	case "github.repos":
 		return "Changed the repositories Bothy can use"
 	case "github.disconnect":

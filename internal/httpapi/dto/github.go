@@ -31,4 +31,27 @@ type GitHubReposReq struct {
 type GitHubConnectionDetail struct {
 	Connection *core.GitHubConnection `json:"connection"`
 	Repos      []*core.GitHubRepo     `json:"repos"`
+	App        *core.GitHubOwnApp     `json:"app,omitempty"` // set when Bothy created the connection's app
+}
+
+// GitHubAppStartReq starts creating Bothy's own GitHub App (POST
+// /api/github/apps).
+type GitHubAppStartReq struct {
+	Account  string `json:"account"`            // organization | personal
+	Org      string `json:"org,omitempty"`      // organization: its login
+	Name     string `json:"name,omitempty"`     // "" = "Bothy (<org or your username>)"
+	Replaces string `json:"replaces,omitempty"` // connection to swap out once the app is installed
+}
+
+// GitHubAppStartResp is where the browser goes next: a same-origin page
+// that posts the manifest to GitHub.
+type GitHubAppStartResp struct {
+	HandoffURL string `json:"handoff_url"`
+}
+
+// GitHubAppCheck is POST /api/github/apps/{id}/check: whether the app is
+// installed, and the connection its installation made.
+type GitHubAppCheck struct {
+	Installed  bool                   `json:"installed"`
+	Connection *core.GitHubConnection `json:"connection,omitempty"`
 }

@@ -222,6 +222,46 @@ func splitHost(hostport string) hostEntry {
 	return hostEntry{host: strings.TrimSuffix(strings.Trim(host, "[]"), "."), port: port}
 }
 
+// sameOrigin reports whether r arrived at origin (scheme://host[:port]):
+// the same scheme, as the transport says, and the same host, default ports
+// aside.
+func sameOrigin(origin string, r *http.Request) bool {
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	secure := u.Scheme == "https"
+	if secure != infoOf(r).secure {
+		return false
+	}
+	norm := func(hostport string) hostEntry {
+		h := splitHost(hostport)
+		if secure && h.port == "443" || !secure && h.port == "80" {
+			h.port = ""
+		}
+		return h
+	}
+	return norm(u.Host) == norm(r.Host)
+}
+
+// publicOrigin is the address browsers reach Bothy at: server.public_url's
+// scheme and host when set, else this request's own (hostAllowed has
+// already checked its Host). same reports whether the request came in at
+// that address.
+func (s *Server) publicOrigin(r *http.Request) (origin string, same bool) {
+	scheme := "http"
+	if infoOf(r).secure {
+		scheme = "https"
+	}
+	own := scheme + "://" + strings.ToLower(r.Host)
+	u, err := url.Parse(strings.TrimSpace(s.cfg().Server.PublicURL))
+	if err != nil || u.Host == "" || u.Scheme != "http" && u.Scheme != "https" {
+		return own, true
+	}
+	origin = u.Scheme + "://" + strings.ToLower(u.Host)
+	return origin, sameOrigin(origin, r)
+}
+
 // hostAllowed is the DNS-rebinding defence: Host must name this server.
 // Entries without a port match any port.
 func (s *Server) hostAllowed(host string) bool {
