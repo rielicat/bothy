@@ -51,7 +51,7 @@ func (c *reqCtx) web() bool {
 		c.auth = "web"
 		c.s.record(c)
 		c.newApp(seg[1], "Organization")
-	case m == http.MethodGet && len(seg) == 4 && seg[0] == "apps" && seg[2] == "installations" && seg[3] == "new":
+	case m == http.MethodGet && len(seg) == 4 && seg[0] == c.s.appsPath() && seg[2] == "installations" && seg[3] == "new":
 		c.auth = "web"
 		c.s.record(c)
 		c.installPage(seg[1])
@@ -59,6 +59,14 @@ func (c *reqCtx) web() bool {
 		return false
 	}
 	return true
+}
+
+// appsPath is the first path segment of an app's pages.
+func (s *Server) appsPath() string {
+	if s.Enterprise {
+		return "github-apps"
+	}
+	return "apps"
 }
 
 func (c *reqCtx) page(status int, title, text string) {
@@ -191,7 +199,7 @@ func (c *reqCtx) convert(code string) {
 	a := mc.app
 	j := obj(fixture("integration"))
 	j["id"], j["slug"], j["name"], j["client_id"] = a.ID, a.Slug, a.Name, a.ClientID
-	j["html_url"] = c.s.URL + "/apps/" + a.Slug
+	j["html_url"] = c.s.URL + "/" + c.s.appsPath() + "/" + a.Slug
 	j["external_url"] = ""
 	j["description"] = ""
 	ow := obj(j["owner"])

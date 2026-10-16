@@ -13,6 +13,7 @@ CREATE TABLE github_apps (
   name              TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 100),
   owner             TEXT NOT NULL CHECK (length(owner) BETWEEN 1 AND 39),
   owner_type        TEXT NOT NULL CHECK (owner_type IN ('Organization','User')),
+  html_url          TEXT NOT NULL CHECK (html_url LIKE 'https://_%' OR html_url LIKE 'http://_%'), -- GitHub's: /apps/<slug>, /github-apps/<slug> on GHES
   client_id         TEXT NOT NULL DEFAULT '',
   key_ref           TEXT NOT NULL DEFAULT '' CHECK (key_ref = '' OR key_ref LIKE 'secret:_%'),
   client_secret_ref TEXT NOT NULL DEFAULT '' CHECK (client_secret_ref = '' OR client_secret_ref LIKE 'secret:_%'),

@@ -275,7 +275,7 @@ func TestCreateApp(t *testing.T) {
 	if s, err := f.vault.Get(f.ctx, core.GlobalScope, "github_"+a.ID+"_client_secret", "test"); err != nil || s.Reveal() != made.ClientSecret {
 		t.Errorf("stored client secret = %v", err)
 	}
-	if stored, err := f.store.App(f.ctx, a.ID); err != nil || stored.AppID != a.AppID || stored.KeyRef != a.KeyRef {
+	if stored, err := f.store.App(f.ctx, a.ID); err != nil || stored.AppID != a.AppID || stored.KeyRef != a.KeyRef || stored.URL != a.URL {
 		t.Errorf("stored app = %+v %v", stored, err)
 	}
 	ok := f.audits("github.app_create")
@@ -314,6 +314,26 @@ func TestCreateApp(t *testing.T) {
 	}
 }
 
+// GitHub Enterprise Server serves app pages under /github-apps/: the links,
+// and the install page the browser is sent to, follow the html_url GitHub
+// gave.
+func TestCreateAppEnterprise(t *testing.T) {
+	f := newFx(t)
+	f.gh.Enterprise = true
+	a := f.makeApp("acme")
+	if a.URL != f.gh.URL+"/github-apps/bothy-acme" || a.InstallURL != f.gh.URL+"/github-apps/bothy-acme/installations/new" ||
+		a.SettingsURL != f.gh.URL+"/organizations/acme/settings/apps/bothy-acme" {
+		t.Errorf("app links = %q %q %q", a.URL, a.InstallURL, a.SettingsURL)
+	}
+	if _, err := f.svc.InstallApp(f.ctx, a.ID, f.installOnGitHub(a), "usr_owner"); err != nil {
+		t.Fatal(err)
+	}
+	apps, _ := f.svc.Apps(f.ctx)
+	if len(apps) != 1 || apps[0].InstallURL != a.InstallURL || apps[0].State != "connected" {
+		t.Errorf("apps = %+v", apps)
+	}
+}
+
 // A locked vault can't keep the key, so the code is never spent.
 func TestCreateAppSealed(t *testing.T) {
 	f := newFx(t)
@@ -348,6 +368,7 @@ func TestCreateAppFailures(t *testing.T) {
 	good := testPEM(t)
 	answer := func(mut func(map[string]any)) string {
 		j := map[string]any{"id": 4242, "slug": "bothy-acme", "name": "Bothy (acme)", "owner": map[string]any{"login": "acme", "type": "Organization"},
+			"html_url":  "{web}/apps/bothy-acme",
 			"client_id": "Iv23liAbc", "client_secret": "s3cr3t-s3cr3t-s3cr3t", "pem": good, "permissions": map[string]string{"metadata": "read"}}
 		mut(j)
 		b, _ := json.Marshal(j)
@@ -362,15 +383,19 @@ func TestCreateAppFailures(t *testing.T) {
 		"bad key": {http.StatusCreated, answer(func(j map[string]any) {
 			j["pem"] = "-----BEGIN RSA PRIVATE KEY-----\nnope\n-----END RSA PRIVATE KEY-----\n"
 		})},
-		"bad slug":   {http.StatusCreated, answer(func(j map[string]any) { j["slug"] = "../evil" })},
-		"enterprise": {http.StatusCreated, answer(func(j map[string]any) { j["owner"] = map[string]any{"login": "acme", "type": "Enterprise"} })},
-		"no id":      {http.StatusCreated, answer(func(j map[string]any) { delete(j, "id") })},
-		"bad client": {http.StatusCreated, answer(func(j map[string]any) { j["client_id"] = "nope nope" })},
+		"bad slug":                 {http.StatusCreated, answer(func(j map[string]any) { j["slug"] = "../evil" })},
+		"enterprise":               {http.StatusCreated, answer(func(j map[string]any) { j["owner"] = map[string]any{"login": "acme", "type": "Enterprise"} })},
+		"no id":                    {http.StatusCreated, answer(func(j map[string]any) { delete(j, "id") })},
+		"no html_url":              {http.StatusCreated, answer(func(j map[string]any) { delete(j, "html_url") })},
+		"html_url on another host": {http.StatusCreated, answer(func(j map[string]any) { j["html_url"] = "https://evil.example/apps/bothy-acme" })},
+		"html_url of another app":  {http.StatusCreated, answer(func(j map[string]any) { j["html_url"] = "{web}/apps/other" })},
+		"html_url with a query":    {http.StatusCreated, answer(func(j map[string]any) { j["html_url"] = "{web}/apps/bothy-acme?next=evil" })},
+		"bad client":               {http.StatusCreated, answer(func(j map[string]any) { j["client_id"] = "nope nope" })},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFx(t)
 			const code = "0123456789abcdef0123456789abcdef01234567"
-			f.gh.Fail(http.MethodPost, "^/app-manifests/", tc.status, nil, tc.body, 1)
+			f.gh.Fail(http.MethodPost, "^/app-manifests/", tc.status, nil, strings.ReplaceAll(tc.body, "{web}", f.gh.URL), 1)
 			if _, err := f.svc.CreateApp(f.ctx, code, core.GitHubAppTarget{Org: "acme"}, "", "usr_owner"); err == nil || strings.Contains(err.Error(), code) {
 				t.Fatalf("CreateApp = %v", err)
 			}

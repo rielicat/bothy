@@ -69,10 +69,6 @@ func defaultAppName(x string) string {
 	return "Bothy (" + x + ")"
 }
 
-func appURL(web, slug string) string { return web + "/apps/" + slug }
-
-func appInstallURL(web, slug string) string { return appURL(web, slug) + "/installations/new" }
-
 func appSettingsURL(web, owner, ownerType, slug string) string {
 	if ownerType == "Organization" {
 		return web + "/organizations/" + url.PathEscape(owner) + "/settings/apps/" + slug
@@ -80,8 +76,20 @@ func appSettingsURL(web, owner, ownerType, slug string) string {
 	return web + "/settings/apps/" + slug
 }
 
-// fill sets the fields derived from the app's state and github.api_base.
-func (s *Service) fill(a *core.GitHubOwnApp) *core.GitHubOwnApp {
+// appHTMLURL is the conversion's html_url when it is the slug's page on
+// github.api_base's web origin: <web>/apps/<slug>, or <web>/github-apps/<slug>
+// on Enterprise Server. The browser is sent there to install the app.
+func appHTMLURL(ep endpoint, raw, slug string) (string, bool) {
+	u, err := url.Parse(raw)
+	if err != nil || u.User != nil || u.Opaque != "" || u.RawQuery != "" || u.Fragment != "" ||
+		!strings.EqualFold(u.Scheme+"://"+u.Host, ep.web()) || u.Path != "/apps/"+slug && u.Path != "/github-apps/"+slug {
+		return "", false
+	}
+	return ep.web() + u.Path, true
+}
+
+// fill sets the fields derived from the app's state and html_url.
+func fill(a *core.GitHubOwnApp) *core.GitHubOwnApp {
 	switch {
 	case !a.RetiredAt.IsZero():
 		a.State = "retired"
@@ -90,9 +98,8 @@ func (s *Service) fill(a *core.GitHubOwnApp) *core.GitHubOwnApp {
 	default:
 		a.State = "pending"
 	}
-	if ep, err := s.endpoint(); err == nil {
-		web := ep.web()
-		a.URL, a.InstallURL, a.SettingsURL = appURL(web, a.Slug), appInstallURL(web, a.Slug), appSettingsURL(web, a.Owner, a.OwnerType, a.Slug)
+	if u, err := url.Parse(a.URL); err == nil && u.Host != "" {
+		a.InstallURL, a.SettingsURL = a.URL+"/installations/new", appSettingsURL(u.Scheme+"://"+u.Host, a.Owner, a.OwnerType, a.Slug)
 	}
 	return a
 }
@@ -163,6 +170,7 @@ type ghManifestConversion struct {
 	Slug         string            `json:"slug"`
 	Name         string            `json:"name"`
 	Owner        ghUser            `json:"owner"`
+	HTMLURL      string            `json:"html_url"`
 	ClientID     string            `json:"client_id"`
 	ClientSecret string            `json:"client_secret"`
 	PEM          string            `json:"pem"`
@@ -207,8 +215,9 @@ func (s *Service) CreateApp(ctx context.Context, code string, t core.GitHubAppTa
 		return fail(fmt.Errorf("github: redeeming the new app's code: %w", scrubCode(err, code)))
 	}
 	name := oneLine(conv.Name, 100)
+	htmlURL, urlOK := appHTMLURL(ep, conv.HTMLURL, conv.Slug)
 	switch _, kerr := parsePrivateKey([]byte(conv.PEM)); {
-	case conv.ID <= 0, !appSlugRE.MatchString(conv.Slug), !ownerRE.MatchString(conv.Owner.Login),
+	case conv.ID <= 0, !appSlugRE.MatchString(conv.Slug), !urlOK, !ownerRE.MatchString(conv.Owner.Login),
 		conv.Owner.Type != "Organization" && conv.Owner.Type != "User", name == "" || len(name) > 100,
 		kerr != nil, conv.ClientID != "" && !clientIDRE.MatchString(conv.ClientID):
 		return fail(errors.New("github: GitHub's answer about the new app was unexpected"))
@@ -218,7 +227,7 @@ func (s *Service) CreateApp(ctx context.Context, code string, t core.GitHubAppTa
 	}
 	id := core.NewID(core.PrefixGitHubApp)
 	a := &core.GitHubOwnApp{ID: id, AppID: conv.ID, Slug: conv.Slug, Name: name, Owner: conv.Owner.Login, OwnerType: conv.Owner.Type,
-		ClientID: conv.ClientID, Replaces: replaces, CreatedBy: by}
+		URL: htmlURL, ClientID: conv.ClientID, Replaces: replaces, CreatedBy: by}
 	keyName, secretName := "github_"+id+"_key", "github_"+id+"_client_secret"
 	if _, err := s.vault.Put(ctx, core.GlobalScope, keyName, []byte(conv.PEM), by); err != nil {
 		return fail(fmt.Errorf("github: storing the new app's private key: %w", err))
@@ -246,7 +255,7 @@ func (s *Service) CreateApp(ctx context.Context, code string, t core.GitHubAppTa
 		detail["replaces"] = replaces
 	}
 	s.record(ctx, userActor(by), "github.app_create", a.ID, "ok", detail)
-	return s.fill(a), nil
+	return fill(a), nil
 }
 
 // extraPermissions lists the granted permissions beyond appPermissions, as
@@ -453,7 +462,7 @@ func (s *Service) Apps(ctx context.Context) ([]*core.GitHubOwnApp, error) {
 		return nil, err
 	}
 	for _, a := range apps {
-		s.fill(a)
+		fill(a)
 	}
 	return apps, nil
 }
@@ -463,7 +472,7 @@ func (s *Service) ConnectionApp(ctx context.Context, connID string) (*core.GitHu
 	if err != nil {
 		return nil, err
 	}
-	return s.fill(a), nil
+	return fill(a), nil
 }
 
 func (s *Service) RetireApp(ctx context.Context, id string, by core.UserID) (*core.GitHubOwnApp, error) {
@@ -477,13 +486,13 @@ func (s *Service) RetireApp(ctx context.Context, id string, by core.UserID) (*co
 	case a.Connection != "":
 		return nil, fmt.Errorf("%w: disconnect GitHub first", core.ErrConflict)
 	case !a.RetiredAt.IsZero():
-		return s.fill(a), nil
+		return fill(a), nil
 	}
 	if err := s.retire(ctx, a, by); err != nil {
 		return nil, err
 	}
 	s.record(ctx, userActor(by), "github.app_retire", a.ID, "ok", map[string]any{"slug": a.Slug, "name": a.Name, "owner": a.Owner})
-	return s.fill(a), nil
+	return fill(a), nil
 }
 
 // retire deletes the app's keys and keeps its row as retired. The app stays

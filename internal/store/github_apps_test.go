@@ -38,7 +38,7 @@ func TestGitHubAppsMigration(t *testing.T) {
 		t.Fatalf("connection after migration = %+v %v", c, err)
 	}
 	a := &core.GitHubOwnApp{ID: core.NewID(core.PrefixGitHubApp), AppID: 7, Slug: "bothy-acme", Name: "Bothy (acme)", Owner: "acme",
-		OwnerType: "Organization", KeyRef: "secret:app", Connection: conn}
+		OwnerType: "Organization", URL: "https://github.com/apps/bothy-acme", KeyRef: "secret:app", Connection: conn}
 	if err := gs.PutApp(ctx, a); err != nil {
 		t.Fatal(err)
 	}

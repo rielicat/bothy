@@ -57,6 +57,10 @@ type Server struct {
 	// InstallRepos are the repositories an installation made on the web page
 	// reaches; empty reaches every repository.
 	InstallRepos []string
+	// Enterprise serves the pages of apps made from a manifest under
+	// /github-apps/<slug>, as GitHub Enterprise Server does, instead of
+	// /apps/<slug>, and names them so in html_url.
+	Enterprise bool
 
 	srv *httptest.Server
 

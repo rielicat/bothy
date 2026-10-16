@@ -99,6 +99,7 @@ type GitHubOwnApp struct {
 	Name            string    `json:"name"`
 	Owner           string    `json:"owner"`
 	OwnerType       string    `json:"owner_type"` // Organization | User
+	URL             string    `json:"html_url"`   // GitHub's: <web>/apps/<slug>, or <web>/github-apps/<slug> on Enterprise Server
 	ClientID        string    `json:"client_id"`
 	KeyRef          string    `json:"key_ref"`           // "secret:github_<id>_key"; "" once retired
 	ClientSecretRef string    `json:"client_secret_ref"` // "secret:github_<id>_client_secret"; kept for a possible GitHub sign-in, unused today
@@ -108,10 +109,9 @@ type GitHubOwnApp struct {
 	CreatedBy       UserID    `json:"created_by"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
-	// Filled in by the GitHub service from github.api_base; never stored.
+	// Filled in by the GitHub service from the state and URL; never stored.
 	State       string `json:"state"`        // pending | connected | retired
-	URL         string `json:"html_url"`     // <web>/apps/<slug>
-	InstallURL  string `json:"install_url"`  // <web>/apps/<slug>/installations/new
+	InstallURL  string `json:"install_url"`  // <URL>/installations/new
 	SettingsURL string `json:"settings_url"` // <web>/organizations/<owner>/settings/apps/<slug> or <web>/settings/apps/<slug>
 }
 

@@ -136,14 +136,14 @@ func (r githubRepo) Repos(ctx context.Context, connection string) ([]*core.GitHu
 		`SELECT `+repoCols+` FROM repos WHERE connection_id = ? ORDER BY owner, name`, connection)
 }
 
-const githubAppCols = `id, app_id, slug, name, owner, owner_type, client_id, key_ref, client_secret_ref, connection_id, replaces,
+const githubAppCols = `id, app_id, slug, name, owner, owner_type, html_url, client_id, key_ref, client_secret_ref, connection_id, replaces,
 	retired_at, created_by, created_at, updated_at`
 
 func scanGitHubApp(sc scanner) (*core.GitHubOwnApp, error) {
 	var a core.GitHubOwnApp
 	var conn sql.NullString
 	var retired, created, updated int64
-	if err := sc.Scan(&a.ID, &a.AppID, &a.Slug, &a.Name, &a.Owner, &a.OwnerType, &a.ClientID, &a.KeyRef, &a.ClientSecretRef,
+	if err := sc.Scan(&a.ID, &a.AppID, &a.Slug, &a.Name, &a.Owner, &a.OwnerType, &a.URL, &a.ClientID, &a.KeyRef, &a.ClientSecretRef,
 		&conn, &a.Replaces, &retired, &a.CreatedBy, &created, &updated); err != nil {
 		return nil, err
 	}
@@ -164,12 +164,12 @@ func (r githubRepo) PutApp(ctx context.Context, a *core.GitHubOwnApp) error {
 	}
 	a.UpdatedAt = now
 	conn := sql.NullString{String: a.Connection, Valid: a.Connection != ""}
-	_, err := r.h.wq.ExecContext(ctx, `INSERT INTO github_apps(`+githubAppCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	_, err := r.h.wq.ExecContext(ctx, `INSERT INTO github_apps(`+githubAppCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET app_id = excluded.app_id, slug = excluded.slug, name = excluded.name, owner = excluded.owner,
-		owner_type = excluded.owner_type, client_id = excluded.client_id, key_ref = excluded.key_ref,
+		owner_type = excluded.owner_type, html_url = excluded.html_url, client_id = excluded.client_id, key_ref = excluded.key_ref,
 		client_secret_ref = excluded.client_secret_ref, connection_id = excluded.connection_id, replaces = excluded.replaces,
 		retired_at = excluded.retired_at, updated_at = excluded.updated_at`,
-		a.ID, a.AppID, a.Slug, a.Name, a.Owner, a.OwnerType, a.ClientID, a.KeyRef, a.ClientSecretRef, conn, a.Replaces,
+		a.ID, a.AppID, a.Slug, a.Name, a.Owner, a.OwnerType, a.URL, a.ClientID, a.KeyRef, a.ClientSecretRef, conn, a.Replaces,
 		ms(a.RetiredAt), string(a.CreatedBy), ms(a.CreatedAt), ms(a.UpdatedAt))
 	return dbErr("put github app", err)
 }
