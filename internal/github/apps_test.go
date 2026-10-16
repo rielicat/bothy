@@ -392,7 +392,6 @@ func TestCreateAppFailures(t *testing.T) {
 		"html_url on another host": {http.StatusCreated, answer(func(j map[string]any) { j["html_url"] = "https://evil.example/apps/bothy-acme" })},
 		"html_url of another app":  {http.StatusCreated, answer(func(j map[string]any) { j["html_url"] = "{web}/apps/other" })},
 		"html_url with a query":    {http.StatusCreated, answer(func(j map[string]any) { j["html_url"] = "{web}/apps/bothy-acme?next=evil" })},
-		"bad client":               {http.StatusCreated, answer(func(j map[string]any) { j["client_id"] = "nope nope" })},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFx(t)
@@ -414,6 +413,38 @@ func TestCreateAppFailures(t *testing.T) {
 	f := newFx(t)
 	if _, err := f.svc.CreateApp(f.ctx, "../../user", core.GitHubAppTarget{}, "", "usr_owner"); !errors.Is(err, core.ErrInvalid) || f.gh.Count(http.MethodPost, "/") != 0 {
 		t.Errorf("malformed code = %v", err)
+	}
+}
+
+// The name and client id drive nothing, so GitHub surprising Bothy with
+// them never costs the key, which it hands over only once.
+func TestCreateAppTidiesNameAndClientID(t *testing.T) {
+	cjk := strings.Repeat("機", 34)
+	long := strings.Repeat("n", 150)
+	for name, tc := range map[string]struct{ name, clientID, wantName, wantClientID string }{
+		"34 wide characters":     {cjk, "Iv23liAbc", cjk, "Iv23liAbc"},
+		"a name over 100":        {long, "Iv23liAbc", long[:100], "Iv23liAbc"},
+		"a name on two lines":    {"Bothy\n(acme)\t", "Iv23liAbc", "Bothy (acme)", "Iv23liAbc"},
+		"no name":                {"", "Iv23liAbc", "bothy-acme", "Iv23liAbc"},
+		"a new client id format": {"Bothy (acme)", "Ov42.x_y-z", "Bothy (acme)", "Ov42.x_y-z"},
+		"a client id with space": {"Bothy (acme)", "nope nope", "Bothy (acme)", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFx(t)
+			body, _ := json.Marshal(map[string]any{"id": 4242, "slug": "bothy-acme", "name": tc.name, "owner": map[string]any{"login": "acme", "id": 77, "type": "Organization"},
+				"html_url": f.gh.URL + "/apps/bothy-acme", "client_id": tc.clientID, "client_secret": "s3cr3t", "pem": testPEM(t)})
+			f.gh.Fail(http.MethodPost, "^/app-manifests/", http.StatusCreated, nil, string(body), 1)
+			a, err := f.svc.CreateApp(f.ctx, "0123456789abcdef0123456789abcdef01234567", core.GitHubAppTarget{Org: "acme"}, "", "usr_owner")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if a.Name != tc.wantName || a.ClientID != tc.wantClientID || len(f.secretNames()) != 2 {
+				t.Errorf("app = %q %q, vault %v", a.Name, a.ClientID, f.secretNames())
+			}
+			if stored, err := f.store.App(f.ctx, a.ID); err != nil || stored.Name != tc.wantName {
+				t.Errorf("stored = %+v %v", stored, err)
+			}
+		})
 	}
 }
 

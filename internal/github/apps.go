@@ -49,7 +49,7 @@ var appPermissions = map[string]string{
 var (
 	manifestCodeRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 	appSlugRE      = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,99}$`)
-	clientIDRE     = regexp.MustCompile(`^Iv[0-9A-Za-z.]{1,40}$`)
+	clientIDRE     = regexp.MustCompile(`^[!-~]{1,100}$`)
 )
 
 // maxAppName is GitHub's limit on an app's name.
@@ -214,20 +214,25 @@ func (s *Service) CreateApp(ctx context.Context, code string, t core.GitHubAppTa
 	if err := cl.call(ctx, http.MethodPost, "/app-manifests/"+code+"/conversions", nil, &conv); err != nil {
 		return fail(fmt.Errorf("github: redeeming the new app's code: %w", scrubCode(err, code)))
 	}
-	name := oneLine(conv.Name, 100)
+	// Only what links, auth and connecting rely on is refused: GitHub hands
+	// the key over once, so anything else odd is tidied rather than costing it.
 	htmlURL, urlOK := appHTMLURL(ep, conv.HTMLURL, conv.Slug)
 	switch _, kerr := parsePrivateKey([]byte(conv.PEM)); {
 	case conv.ID <= 0, !appSlugRE.MatchString(conv.Slug), !urlOK, !ownerRE.MatchString(conv.Owner.Login), conv.Owner.ID <= 0,
-		conv.Owner.Type != "Organization" && conv.Owner.Type != "User", name == "" || len(name) > 100,
-		kerr != nil, conv.ClientID != "" && !clientIDRE.MatchString(conv.ClientID):
+		conv.Owner.Type != "Organization" && conv.Owner.Type != "User", kerr != nil:
 		return fail(errors.New("github: GitHub's answer about the new app was unexpected"))
+	}
+	name, clientID := appName(conv.Name, conv.Slug), conv.ClientID
+	if clientID != "" && !clientIDRE.MatchString(clientID) {
+		s.log.Warn("github: dropping the new app's unexpected client id", "app", conv.Slug)
+		clientID = ""
 	}
 	if t.Org != "" && !strings.EqualFold(conv.Owner.Login, t.Org) {
 		s.log.Warn("github: the new app belongs to another account than the one chosen", "chosen", t.Org, "owner", conv.Owner.Login)
 	}
 	id := core.NewID(core.PrefixGitHubApp)
 	a := &core.GitHubOwnApp{ID: id, AppID: conv.ID, Slug: conv.Slug, Name: name, Owner: conv.Owner.Login, OwnerID: conv.Owner.ID,
-		OwnerType: conv.Owner.Type, URL: htmlURL, ClientID: conv.ClientID, Replaces: replaces, CreatedBy: by}
+		OwnerType: conv.Owner.Type, URL: htmlURL, ClientID: clientID, Replaces: replaces, CreatedBy: by}
 	keyName, secretName := "github_"+id+"_key", "github_"+id+"_client_secret"
 	if _, err := s.vault.Put(ctx, core.GlobalScope, keyName, []byte(conv.PEM), by); err != nil {
 		return fail(fmt.Errorf("github: storing the new app's private key: %w", err))
@@ -256,6 +261,21 @@ func (s *Service) CreateApp(ctx context.Context, code string, t core.GitHubAppTa
 	}
 	s.record(ctx, userActor(by), "github.app_create", a.ID, "ok", detail)
 	return fill(a), nil
+}
+
+// appName is GitHub's name for the app on one line, cut to the 100
+// characters the row holds; the slug when nothing is left.
+func appName(name, slug string) string {
+	name = strings.Join(strings.Fields(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, name)), " ")
+	if r := []rune(name); len(r) > 100 {
+		name = strings.TrimSpace(string(r[:100]))
+	}
+	return cmp.Or(name, slug)
 }
 
 // extraPermissions lists the granted permissions beyond appPermissions, as

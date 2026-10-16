@@ -2149,7 +2149,7 @@ GitHub opens in this tab. Sign in there if asked, then create the app and instal
 - **Apps Bothy no longer uses** (one row each, connect and manage views): "Bothy no longer uses {name}. Delete it on GitHub too." [Open app settings ↗] "Dismiss" (toast "Dismissed."). Bothy never deletes apps on GitHub itself.
 - **Coming back from GitHub** (`?github_app=`, read once and removed from the address): installed → the manage view opens "Which repositories can Bothy use?"; repository access changed on GitHub → Add repositories; otherwise one danger line at the top, the error formula, with [GitHub Apps ↗] when Bothy knows which list holds the new app:
   - "Bothy couldn't finish setting up the app: too much time passed, you signed out, or you started in another browser. Delete the new app on GitHub, then start again."
-  - "GitHub didn't hand over the new app's keys, so Bothy can't use it. Delete the new app on GitHub, then start again."
+  - "Bothy couldn't keep the new app's keys, so it can't use it. Delete the new app on GitHub, then start again."
   - "Bothy's saved keys are locked, so it couldn't keep the new app's keys. Unlock them and delete the new app on GitHub, then start again." [Unlock saved keys]
   - "Bothy couldn't confirm the app's installation with GitHub. Choose Check again, or install it again." (in the waiting view)
   - "That link to GitHub expired. Start again." / "Bothy can't connect GitHub right now. Try again later."

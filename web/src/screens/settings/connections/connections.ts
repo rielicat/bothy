@@ -128,7 +128,7 @@ export function appLanding(code: string | null, apps: string | null): AppLanding
         link,
       };
     case 'exchange_failed':
-      return { message: "GitHub didn't hand over the new app's keys, so Bothy can't use it. Delete the new app on GitHub, then start again.", link };
+      return { message: "Bothy couldn't keep the new app's keys, so it can't use it. Delete the new app on GitHub, then start again.", link };
     case 'sealed':
       return { message: "Bothy's saved keys are locked, so it couldn't keep the new app's keys. Unlock them and delete the new app on GitHub, then start again.", link, unlock: true };
     case 'expired':
