@@ -10,8 +10,11 @@ guesses cannot outrun it), session cookies (32 random bytes, stored as sha256, i
 absolute 30 d, deleted on password, role or disabled changes), personal access
 tokens `bothy_pat_<id>_<secret>_<crc>` parsed by fixed widths with a base62
 CRC32, pairing codes (8 Crockford characters, link codes 15 min, approve-sender
-codes 24 h, 5 redemptions per identity per hour), sender notices, guest spaces
-and `ResolveIdentity`. Passwords are checked against
+codes 24 h, 5 redemptions per identity per hour), `BurnPairing` (a live link
+code posted in a group chat is used up without linking anyone, counted against
+the same 5 attempts, audited `pairing.burn` against the code's creator and
+published to them as `pairing.burned`), sender notices, guest spaces and
+`ResolveIdentity`. Passwords are checked against
 `auth.password_min_length` and the embedded `common_passwords.txt` (matched on
 the password and on its de-leeted, digit-stripped core, plus keyboard and
 repetition patterns). `SetupGrant`, `SetIdentityStatus` and `UnlinkIdentity`

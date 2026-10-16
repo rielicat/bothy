@@ -2186,6 +2186,8 @@ Connect Slack
 
 - Telegram: 1 "Create a bot with @BotFather" (send `/newbot`, choose a name, copy the token); 2 "Paste the bot token" ("✓ Connected as @acme_bothy_bot."); 3 "Link your Telegram" (QR code, [Open Telegram ↗], the code).
 - Discord: 1 "Create a bot in the Discord developer portal" (link; "Turn on Message Content Intent"); 2 "Paste the bot token and application ID"; 3 [Invite Bothy to your server ↗]; 4 "Link your Discord" ("DM the bot: /pair CODE").
+- A code posted in a group chat is cancelled (SPEC §5.1 step 3). On `pairing.burned` for the code shown, the link step makes a new one and says above it (warning line): "That code was shared in a group, so it no longer works. Here's a new one. Send it in a direct message." Same in the Account pairing dialog.
+- A Slack app created before its manifest asked for `channels:read` and `groups:read` shows group chats by channel id until it is reinstalled to the workspace (SPEC §8.6); the names arrive with the next message after that.
 - Saved tokens show "••••• saved · Replace".
 - Failures: "Slack didn't accept those tokens. Check you copied the app-level token and the bot token from the same app." / Discord close 4014: "Discord needs Message Content Intent turned on for this bot. Turn it on in the developer portal under Bot, then try again." / Telegram: "Telegram didn't accept that token. Copy it again from @BotFather."
 

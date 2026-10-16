@@ -2217,7 +2217,8 @@ type Inbound struct {
 	Attachments    []Attachment
 	At             time.Time
 	// ChatTitle is the group's title as the platform reports it (names a
-	// newly sighted space); "" when unknown.
+	// newly sighted space, and renames one still under its fallback name);
+	// "" when unknown.
 	ChatTitle string
 	// AddedBy is the platform user id that added the bot to this group or
 	// owns it, when the platform reports it (Telegram my_chat_member.from,
@@ -2228,6 +2229,11 @@ type Inbound struct {
 	// (Telegram forward_origin or via_bot). The hub treats it as untrusted
 	// even from a linked user and never as a command.
 	Forwarded bool
+	// Private marks a message only its sender saw (a Slack slash command),
+	// so a code in it was not shown to the chat. In a group it never creates
+	// a space, since slash commands work in channels the bot is not in, and
+	// the hub answers anyone it would not answer in that group in their DM.
+	Private bool
 }
 
 type MsgRef struct {
@@ -3361,6 +3367,7 @@ const (
 	EvScheduleRun       EventType = "schedule.run"
 	EvBudgetWarning     EventType = "budget.warning"
 	EvPairingLinked     EventType = "pairing.linked"
+	EvPairingBurned     EventType = "pairing.burned"  // a link code was cancelled: it was posted in a group
 	EvChannelStatus     EventType = "channel.status"  // admin broadcast
 	EvSandboxStatus     EventType = "sandbox.status"  // admin broadcast
 	EvMCPPinPending     EventType = "mcp.pin_pending" // admin broadcast
@@ -3512,6 +3519,13 @@ type PairingLinkedData struct {
 	ExternalID string `json:"external_id"`
 	Display    string `json:"display"`
 }
+
+// PairingBurnedData names the cancelled code as NewPairingCode showed it, so
+// a page still showing that code can replace it.
+type PairingBurnedData struct {
+	Channel string `json:"channel"`
+	Code    string `json:"code"`
+}
 type ChannelStatusData struct {
 	Status ChannelStatus `json:"status"`
 }
@@ -3566,6 +3580,7 @@ func (EgressBlockedData) eventData()    {}
 func (ScheduleRunData) eventData()      {}
 func (BudgetWarningData) eventData()    {}
 func (PairingLinkedData) eventData()    {}
+func (PairingBurnedData) eventData()    {}
 func (ChannelStatusData) eventData()    {}
 func (SandboxStatusData) eventData()    {}
 func (MCPPinData) eventData()           {}
@@ -3782,6 +3797,10 @@ type Auth interface {
 	NewPairingCode(ctx context.Context, by Actor) (PairingCode, error) // link_identity for by.User
 	// RedeemPairing handles "/pair CODE" and "/start CODE" from a chat.
 	RedeemPairing(ctx context.Context, ident ChannelIdentity, code string) (*ChannelIdentity, error)
+	// BurnPairing cancels a live link_identity code that ident posted where
+	// a whole group could read it, linking no one; ErrNotFound when no live
+	// code matches. It shares RedeemPairing's attempts per identity.
+	BurnPairing(ctx context.Context, ident ChannelIdentity, code string) error
 	// SenderNotice records an unknown DM sender and returns whether to reply.
 	SenderNotice(ctx context.Context, ident ChannelIdentity) (SenderNotice, error)
 	// ApproveSender redeems an approve_sender code typed into the web UI by an
@@ -4806,8 +4825,10 @@ type ReleaseStore interface {
 2. **Dedup:** `Store.Dedup().Seen(channel, msgID)`; repeats are dropped (Telegram redelivery, Slack retries).
 3. **Identity:** `Identities().Touch`, then `Auth.ResolveIdentity(channel, senderID)`:
    - `blocked` → drop silently.
+   - any sender, in a group, a message (not forwarded, not `Inbound.Private`) whose text is `/pair CODE` or `/start CODE` (Telegram may add `@bot`) naming a **live** link code → the code was shown to the group, so `Auth.BurnPairing` cancels it (same attempts per identity as `RedeemPairing`; audited `pairing.burn` against the code's creator, reason "posted in a group"; publishes `pairing.burned` to them, and the web linking step showing that code makes a new one) and the group gets *"That code was shared in a group, so it no longer works. Create a new one in Bothy and send it to me in a direct message."* (within the sender limit, and even in an unknown or disabled group: it is a security notice). Nothing else happens with that message. A code that matches nothing goes on below as before.
    - unknown, in a DM → if text is `/pair CODE` or `/start CODE` (never in forwarded content, `Inbound.Forwarded`): `Auth.RedeemPairing` (link_identity; Auth publishes `pairing.linked`, also for `ApproveSender` links), reply "Linked to <user>", then send the hello DM. Otherwise, with `channels.unknown_senders: pair`, call `Auth.SenderNotice`; when `Reply` is true (at most once per 24 h), reply *"Bothy only works with people on this team. Ask an admin to approve code 7KQ2-MX4D."* and notify admins (web banner + preferred DM card with links to Approvals, where they let the sender chat, link or block them). Admin DMs about unknown senders are limited to 3 per hour globally (fixed one-hour windows), so a hundred throwaway accounts cannot become a hundred DMs: the `unknown_sender` banner summarizes the window's count ("10 people asked for access in the past hour, most recently …"), and the first DM of the next window mentions how many senders were held back. **No LLM call is ever made for an unknown sender.** With `ignore`, drop silently.
    - unknown, in a group → ignored unless the group is an enabled space (below).
+   - **Private, in a group** (`Inbound.Private`: only the sender saw it, a Slack slash command, which works in channels the bot is not in) → never creates a space (no first sighting). From an unknown sender it is handled exactly like a DM from them: the hub opens their DM with `Channel.OpenDM`, replies there and remembers it as the identity's DM chat, then the same limiter and the unknown-DM path above (pairing, or the daily notice). From a known sender (linked or guest) where the group has no space or a disabled one: *"Bothy is off in this channel. Write to me here, or ask an admin to turn the channel on in Approvals."* in their DM, within the sender limit and at most once per sender and channel an hour. In an enabled space it goes on as any message (step 7), and a private `/pair CODE` there gets the already-linked reply, not the "now visible here" one. A private code is never burned.
 4. **Rate limit:** `Budget.AllowSender(channel+":"+senderID)` (10/min, burst 5). Over the limit: drop; one reply per window, *"Bothy will read new messages again in about 60 s."*
 5. **Command fast path** (before any queue, authorised against the session principal's user or an admin; forwarded content is never a command):
 
@@ -4824,14 +4845,14 @@ type ReleaseStore interface {
 | `/usage` | today's spending and this session's cost, money as in `/status` |
 | `/refine [on\|off\|default]` | v0.2: set this session's refine mode (owner or admin; `default` follows `agent.refine.enabled`); `/refine` alone shows the setting, with the same typical cost as the composer's note (`core.RefineTypicalCalls`, the refine estimate's `multiplier`). Also in the Telegram menu and as a Slack `/bothy` subcommand |
 | `/help` | list commands in plain words; `/stopall` and `/resume` only for admins |
-| `/pair CODE`, `/start CODE` | pairing (step 3) |
+| `/pair CODE`, `/start CODE` | pairing (step 3); a live code posted in a group is cancelled (step 3) |
 
    There is no `/approve CODE` command: approvals happen only through card buttons or the web UI. A message that is only `/word` (Telegram may add `@bot`; word characters only) naming no command is almost always a mistyped one: it gets *"There's no /word command. /help lists the commands."* and never reaches the runner. Any other text starting with a slash (a path such as `/etc/hosts`, a word followed by more text) and forwarded content are ordinary messages.
 6. **Button presses → `Hub.OnAction`.** Data `a:<approval>:<o|s|a|d>:<mac>` → `Approvals.ParseButtonData` (MAC check) → `Approvals.Resolve` with `ViaMsg` = the pressed message, `By` = the presser's linked user. Resolve rejects presses from unrecorded messages, from non-approvers, and approve presses on truncated cards. The adapter `Ack`s within 3 s with a toast ("Approved.", "Only Maya Chen can approve this.", "Open in web to approve."). Data `s:<run>` → Stop, authorized exactly like `/stop`.
 7. **Principal and gating:**
    - DM from a linked identity → the user's own principal.
    - DM from a `guest` identity → that guest's space principal.
-   - Group message → the chat must be an **enabled space** (`Spaces().ByChat`); otherwise ignored (first sighting creates a disabled space row, owned by the linked user who added the bot when the platform reports it (`Inbound.AddedBy`: Telegram `my_chat_member.from`, Slack inviter, Discord guild owner; v0.1 adapters other than Telegram leave it empty) and otherwise by the instance owner, named by `Inbound.ChatTitle`, and notifies that owner: "Bothy was added to “<title>” in <App>. It stays silent there until you turn it on in Approvals."). With `mention_only` (default), the message must mention or reply to the bot. Senders that are not linked users are `ProvUntrusted`; the space owner's own messages are `ProvUser`.
+   - Group message → the chat must be an **enabled space** (`Spaces().ByChat`); otherwise ignored (first sighting creates a disabled space row, owned by the linked user who added the bot when the platform reports it (`Inbound.AddedBy`: Telegram `my_chat_member.from`, Slack inviter, Discord guild owner; v0.1 adapters other than Telegram leave it empty) and otherwise by the instance owner, named by `Inbound.ChatTitle` (or "<App> group <chat id>" when the platform gives none), and notifies that owner: "Bothy was added to “<title>” in <App>. It stays silent there until you turn it on in Approvals."; a `Private` message never creates one, step 3). A space still under that fallback name is renamed, its principal's display name too, from the first later message that carries a `ChatTitle` (cleaned like a new title); a title an admin set is never overwritten. With `mention_only` (default), the message must mention or reply to the bot. Senders that are not linked users are `ProvUntrusted`; the space owner's own messages are `ProvUser`.
    - **Forwarded content** (`Inbound.Forwarded`: content the sender relayed from someone else, Telegram `forward_origin`, `forward_date` or `via_bot`) is `ProvUntrusted` whoever forwards it, the linked owner and the space owner included. It is never treated as a command (step 5) or a pairing code (step 3), and mentions inside it do not address the bot.
 8. **Session:** `Runner.ResolveSession(principal, chat)` keyed by `ChatRef.Key()` (one open session per chat or thread per principal). If `agent.session_idle_reset` (default 0 = never) has elapsed since the last message, the old session is archived first.
 9. **Attachments:** the hub fetches each attachment with `Channel.Fetch` (≤ `server.upload_max_mb`, default 20 MB; larger ones are skipped with a note) into `<work>/ws/<workspace>/.bothy/in/<msgid>/<name>` (0660, name sanitized) and passes `Part{Type: image|file, Blob{Ref, MIME, Size}}`.
@@ -6952,6 +6973,7 @@ data: <JSON core.Event>
 | `schedule.run` | `ScheduleRunData{schedule_id, status}` | principal |
 | `budget.warning` | `BudgetWarningData{user_id, spent_micros, limit_micros}` | principal |
 | `pairing.linked` | `PairingLinkedData{channel, external_id, display}` | principal |
+| `pairing.burned` | `PairingBurnedData{channel, code}`: a live link code was posted in a group chat and cancelled (`Auth.BurnPairing`); the page still showing that code makes a new one | the code creator's principal |
 | `repo.checkout` (v0.2) | `RepoCheckoutData{repo, ref, sha, workspace_id, dir, files}`: `repo_checkout` wrote a repository into the workspace; the knowledge module indexes it | principal (Session and Run set when a run asked) |
 | `knowledge.updated` (v0.2) | `KnowledgeUpdatedData{repo: IndexedRepo, deleted}`: an index or notes state change | principal |
 | `release.dispatched` (v0.2 UI) | `ReleaseDispatchedData{deploy_id, environment, repo, ref, url}`: GitHub accepted a recorded deploy | the deploy's principal and admin (Session and Run set; an admin who asked gets both copies, so clients dedupe by `deploy_id`) |
@@ -8030,6 +8052,8 @@ settings:
 
 The wizard opens `https://api.slack.com/apps?new_app=1&manifest_yaml=<urlencoded manifest>`; the user then creates an app-level token with `connections:write` (`xapp-…`) and installs the app (`xoxb-…`). Agent output always sets `unfurl_links: false, unfurl_media: false`.
 
+`channels:read` and `groups:read` let the adapter name channels (`conversations.info`, cached like `users.info`; `Inbound.ChatTitle` = `"#name"`; a slash command's `channel_name` when it is not a placeholder such as `directmessage` or `privategroup`). An app created from an earlier manifest lacks them: add the two scopes under OAuth & Permissions (or update the app from the current manifest) and click **Reinstall to Workspace**; the bot token stays the same. Until then the lookups fail with `missing_scope`, the adapter logs one warning an hour, and channels are named by their id ("Slack group C05S04V0YRG"); once names arrive, spaces still under that fallback name take them (§5.1 step 7).
+
 **Discord invite URL** (`GET /api/channels/discord/invite`): `https://discord.com/oauth2/authorize?client_id=<application_id>&scope=bot%20applications.commands&permissions=274877975552` (View Channels 1024 + Send Messages 2048 + Read Message History 65536 + Send Messages in Threads 274877906944). The Message Content privileged intent must be enabled in the developer portal; the wizard says so and the adapter reports `auth_failed` with that hint when the gateway closes with 4014.
 
 ---
@@ -8091,7 +8115,7 @@ Config keys, provenance (§7.3: UI, file, env, default), env-var names and the e
 | — | Compaction keeps safety | Constitution and standing rules in S1 outside history; pins in S2; validated summaries; auto-pinned standing instructions; taint and grants in the DB. | agent |
 | — | Provider sign-in (§15) | Authorization code flow with PKCE S256; a random 32-byte state kept server-side as sha256, single use, 10 minutes, and required to equal an HttpOnly SameSite=Lax cookie; a Google nonce checked in constant time; one exact redirect address per provider built from `public_url` (never `Host`), and the flow must match the callback's provider. The code is traded server-side through `egress.SystemClient` (`oauth2.googleapis.com`, `github.com`, `api.github.com`; no redirects followed, capped bodies, 15 s per call). The Google id token is read only from that client-authenticated TLS answer and every claim that matters is checked. The shared sign-in list is checked at every sign-in and link: verified addresses only, compared as ASCII (non-ASCII or control characters match nothing); a domain only through Google's `hd`, never for GitHub (GitHub confirms an address once and never re-checks it); GitHub organizations pinned by id; public mail, relay and noreply domains refused as domains. Disabled accounts refused; no email matching to existing accounts; new accounts are members without a password and with a display name nobody else uses. Tokens are never stored (GitHub's is revoked at once); audit rows carry provider, reason, account and address, never a code, state or token. The client secret lives in the vault or behind an env or `aws-sm` reference, write-only in the UI. Starts limited to 20/min per IPv4 address or IPv6 /64; at most 32 flows in progress per client, 1024 in all. The refused account reaches the sign-in page in a 60-second cookie, never the address. `api_base` test overrides are locked and loopback only. | auth, httpapi, config, store, web |
 
-**Audit actions** (`audit_log.action`): `auth.setup_claim`, `auth.owner_created`, `auth.login`, `auth.login_failed`, `auth.lockout`, `auth.logout`, `auth.password_changed`, `token.create`, `token.revoke`, `user.create`, `user.update`, `pairing.create`, `pairing.redeem`, `identity.link`, `identity.guest`, `identity.block`, `space.update`, `config.set`, `config.reset`, `persona.update`, `vault.put`, `vault.delete` (written by the vault itself for every caller; an API change adds the token or user, client address and source through `core.WithAuditOrigin`), `vault.rotate`, `vault.unseal`, `secret.use` (name + purpose), `tool.exec`, `tool.denied`, `approval.request`, `approval.decide` (a multi-approver requester's deny carries `withdrawn`), `approval.expire`, `grant.create`, `grant.revoke`, `egress.allow` (first contact / held approvals), `egress.deny`, `memory.write`, `memory.edit`, `skill.install`, `skill.enable`, `skill.disable`, `skill.changed`, `mcp.install`, `mcp.approve`, `mcp.changed`, `schedule.create`, `schedule.update`, `schedule.delete`, `schedule.run` (Run now: who pressed it, with the run), `run.stop`, `budget.exceeded`, `admin.pause`, `admin.resume`, `admin.restart`, `backup.create`, `sandbox.selftest_failed`, `api.passthrough`, `audit.archived`; v0.2: `github.connect`, `github.repos`, `github.disconnect`, `github.checkout`, `github.pull_request`, `github.comment`, `knowledge.index`, `knowledge.delete`, `knowledge.notes_draft`, `knowledge.notes_edit` (user save), `knowledge.notes_write` (agent edit), `approval.vote` (ok or denied), `release.dispatch` (ok, error or denied), `release.finish`; §15: `signin.link` (ok or denied, with `provider`, `email` or `login`, and a denial's `reason`) and `signin.unlink` (`provider`); `auth.login` and `auth.login_failed` carry `method` (`password`, `google`, `github`) and a provider failure's `reason`; `user.create` carries `via` (`google`, `github`) for an account sign-in made. Details never include message content or secret values.
+**Audit actions** (`audit_log.action`): `auth.setup_claim`, `auth.owner_created`, `auth.login`, `auth.login_failed`, `auth.lockout`, `auth.logout`, `auth.password_changed`, `token.create`, `token.revoke`, `user.create`, `user.update`, `pairing.create`, `pairing.redeem`, `pairing.burn` (a link code posted in a group: ok with the code's creator as target, or denied when a well-formed code matched nothing; detail `reason`), `identity.link`, `identity.guest`, `identity.block`, `space.update`, `config.set`, `config.reset`, `persona.update`, `vault.put`, `vault.delete` (written by the vault itself for every caller; an API change adds the token or user, client address and source through `core.WithAuditOrigin`), `vault.rotate`, `vault.unseal`, `secret.use` (name + purpose), `tool.exec`, `tool.denied`, `approval.request`, `approval.decide` (a multi-approver requester's deny carries `withdrawn`), `approval.expire`, `grant.create`, `grant.revoke`, `egress.allow` (first contact / held approvals), `egress.deny`, `memory.write`, `memory.edit`, `skill.install`, `skill.enable`, `skill.disable`, `skill.changed`, `mcp.install`, `mcp.approve`, `mcp.changed`, `schedule.create`, `schedule.update`, `schedule.delete`, `schedule.run` (Run now: who pressed it, with the run), `run.stop`, `budget.exceeded`, `admin.pause`, `admin.resume`, `admin.restart`, `backup.create`, `sandbox.selftest_failed`, `api.passthrough`, `audit.archived`; v0.2: `github.connect`, `github.repos`, `github.disconnect`, `github.checkout`, `github.pull_request`, `github.comment`, `knowledge.index`, `knowledge.delete`, `knowledge.notes_draft`, `knowledge.notes_edit` (user save), `knowledge.notes_write` (agent edit), `approval.vote` (ok or denied), `release.dispatch` (ok, error or denied), `release.finish`; §15: `signin.link` (ok or denied, with `provider`, `email` or `login`, and a denial's `reason`) and `signin.unlink` (`provider`); `auth.login` and `auth.login_failed` carry `method` (`password`, `google`, `github`) and a provider failure's `reason`; `user.create` carries `via` (`google`, `github`) for an account sign-in made. Details never include message content or secret values.
 
 **Doctor / security-audit checks** (stable ids; `security` ones run in `security-audit`; `fix` = auto-fixable):
 
