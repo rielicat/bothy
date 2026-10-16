@@ -100,9 +100,23 @@ func (s *Service) Admit(ctx context.Context, ident core.ChannelIdentity, m core.
 	)
 	err := s.store.Tx(ctx, func(tx core.Store) error {
 		var err error
-		ident.Member = core.MemberUnchecked
-		if cur, err = touchIdentity(ctx, tx, ident, now); err != nil {
+		cur, err = tx.Identities().Get(ctx, ident.Channel, ident.ExternalID)
+		switch {
+		case errors.Is(err, core.ErrNotFound):
+			ident.Member = core.MemberUnchecked
+			if cur, err = touchIdentity(ctx, tx, ident, now); err != nil {
+				return err
+			}
+		case err != nil:
 			return err
+		default:
+			// A verdict isn't activity: the sweep, a schedule's check and a
+			// press ask too, and last_seen ("last active" in People) moves
+			// only with the person's own messages, which the hub touches.
+			cur.Username, cur.DisplayName = ident.Username, ident.DisplayName
+			if ident.DMChat != "" {
+				cur.DMChat = ident.DMChat
+			}
 		}
 		was, err := resolution(ctx, tx, cur)
 		if err != nil {

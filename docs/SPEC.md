@@ -3984,6 +3984,7 @@ type Auth interface {
 	// and makes a member who is pending a teammate, creating their person
 	// space the first time (audited identity.teammate). An outsider keeps
 	// their status and chats but loses Can approve. Blocked stays blocked.
+	// It never moves last_seen: only the person's own messages do.
 	Admit(ctx context.Context, ident ChannelIdentity, m Membership) (IdentityResolution, error)
 	// NoticeSender reports whether to send ident a refusal or waiting line:
 	// at most once per 24 h per identity (records last_notice_at).

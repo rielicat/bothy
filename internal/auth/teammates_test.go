@@ -116,6 +116,31 @@ func TestAdmitMemberBecomesTeammateOnce(t *testing.T) {
 	}
 }
 
+// A verdict asked for without a message (the sweep, a schedule's check,
+// a press) doesn't make someone look active in People.
+func TestAdmitLeavesLastSeenAlone(t *testing.T) {
+	e := newEnv(t)
+	seen := e.clock.Now()
+	ident := e.touch(t, "slack", "U1", "Maya Chen", core.MemberUnchecked)
+	if _, err := e.s.Admit(ctx, ident, core.Membership{Status: core.MemberYes}); err != nil {
+		t.Fatal(err)
+	}
+	e.clock.Advance(5 * time.Hour)
+	if _, err := e.s.Admit(ctx, *identity(t, e, "slack", "U1"), core.Membership{Status: core.MemberYes}); err != nil {
+		t.Fatal(err)
+	}
+	if id := identity(t, e, "slack", "U1"); !id.LastSeen.Equal(seen) || !id.MemberAt.Equal(e.clock.Now()) {
+		t.Fatalf("identity = %+v, want last seen at the message (%v) and the verdict now", id, seen)
+	}
+	if _, err := e.s.Admit(ctx, core.ChannelIdentity{Channel: "slack", ExternalID: "U2", DisplayName: "Sam", LastSeen: e.clock.Now()},
+		core.Membership{Status: core.MemberYes}); err != nil {
+		t.Fatal(err)
+	}
+	if id := identity(t, e, "slack", "U2"); id.Status != core.IdentityTeammate || !id.FirstSeen.Equal(e.clock.Now()) {
+		t.Fatalf("someone the hub hadn't recorded = %+v, want them recorded and let in", id)
+	}
+}
+
 func TestAdmitReusesPersonSpaceOnTheirChat(t *testing.T) {
 	e := newEnv(t)
 	now := e.clock.Now()
