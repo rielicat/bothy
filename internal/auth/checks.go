@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
 )
 
@@ -41,18 +42,21 @@ func (s *Service) Checks() []core.Check {
 
 // checkSignIn reports a provider that is on but whose client secret can't
 // be read, so its button has quietly left the sign-in page, and GitHub
-// organizations matched by name only. The web app tells the three apart by
-// title ("missing", "locked", "pinned").
+// organizations without a pinned id, which are matched by name only. The
+// web app tells the three apart by title ("missing", "locked",
+// "confirmed").
 func (s *Service) checkSignIn(ctx context.Context) []core.Finding {
 	var out []core.Finding
-	if gh := s.conf().Auth.SignIn.GitHub; gh.Enabled && len(gh.Orgs) > 0 && !orgsPinned(gh.Orgs, gh.OrgIDs) {
-		out = append(out, core.Finding{
-			ID: "auth.sign_in", Area: "auth", Severity: core.SevLow, Security: true,
-			Title: "GitHub organizations aren't pinned",
-			Detail: "Save the GitHub organizations once in Settings → Security so Bothy can pin them. Until then they are matched by name, " +
-				"and whoever takes a renamed organization's old name could let its members in.",
-			Fix: "/settings/security/github-sign-in",
-		})
+	if gh := s.conf().Auth.SignIn.GitHub; gh.Enabled {
+		if names := unpinnedOrgs(gh); len(names) > 0 {
+			out = append(out, core.Finding{
+				ID: "auth.sign_in", Area: "auth", Severity: core.SevLow, Security: true,
+				Title: "GitHub organizations aren't confirmed",
+				Detail: "Bothy checks " + strings.Join(names, ", ") + " by name only, so whoever takes a renamed organization's old name could let its members in. " +
+					"Open Settings → Security → GitHub sign-in and press Save so Bothy can confirm the organizations.",
+				Fix: "/settings/security/github-sign-in",
+			})
+		}
 	}
 	if s.signIn.Load() == nil {
 		return out
@@ -76,8 +80,15 @@ func (s *Service) checkSignIn(ctx context.Context) []core.Finding {
 	return out
 }
 
-func orgsPinned(orgs []string, ids []int64) bool {
-	return len(ids) == len(orgs) && !slices.Contains(ids, 0)
+// unpinnedOrgs lists the organizations of gh without an id in org_ids.
+func unpinnedOrgs(gh config.GitHubSignIn) []string {
+	var out []string
+	for _, o := range gh.Orgs {
+		if gh.OrgIDs[strings.ToLower(o)] <= 0 {
+			out = append(out, o)
+		}
+	}
+	return out
 }
 
 func loopbackListen(listen string) bool {

@@ -463,17 +463,24 @@ func TestGitHubPinnedOrgs(t *testing.T) {
 	c := newClient(nil)
 	fake.SetOrg("acme-inc", 100)
 	who := oauthtest.Identity{ID: 1, Login: "lee", Orgs: map[string]string{"acme-inc": "active"}}
-	if _, err := c.GitHub(ctx, ep, githubCode(t, fake, ep, who), Rules{Orgs: []string{"acme-inc"}, OrgIDs: []int64{100}}); err != nil {
+	pinned := Rules{Orgs: []string{"Acme-Inc"}, OrgIDs: map[string]int64{"acme-inc": 100}}
+	if _, err := c.GitHub(ctx, ep, githubCode(t, fake, ep, who), pinned); err != nil {
 		t.Fatalf("member of the pinned organization: %v", err)
 	}
 	fake.SetOrg("acme-inc", 200)
-	if _, err := c.GitHub(ctx, ep, githubCode(t, fake, ep, who), Rules{Orgs: []string{"acme-inc"}, OrgIDs: []int64{100}}); !errors.Is(err, ErrNotAllowed) {
+	if _, err := c.GitHub(ctx, ep, githubCode(t, fake, ep, who), pinned); !errors.Is(err, ErrNotAllowed) {
 		t.Fatalf("the name now belongs to another organization: %v", err)
 	}
 	if _, err := c.GitHub(ctx, ep, githubCode(t, fake, ep, who), Rules{Orgs: []string{"acme-inc"}}); err != nil {
 		t.Fatalf("not pinned, matched by name: %v", err)
 	}
-	if _, err := c.GitHub(ctx, ep, githubCode(t, fake, ep, who), Rules{Orgs: []string{"acme-inc"}, OrgIDs: []int64{0}}); err != nil {
+	// A pin is found by name, never by position: one for another name
+	// doesn't apply.
+	renamed := Rules{Orgs: []string{"labs", "acme-inc"}, OrgIDs: map[string]int64{"acme-two": 100}}
+	if _, err := c.GitHub(ctx, ep, githubCode(t, fake, ep, who), renamed); err != nil {
+		t.Fatalf("a pin under another name: %v", err)
+	}
+	if _, err := c.GitHub(ctx, ep, githubCode(t, fake, ep, who), Rules{Orgs: []string{"acme-inc"}, OrgIDs: map[string]int64{"acme-inc": 0}}); err != nil {
 		t.Fatalf("a 0 id is not pinned: %v", err)
 	}
 }

@@ -182,19 +182,19 @@ auth:
 
 	// Organizations from bothy.yaml are matched by name until saved once in
 	// the settings, which pins them by GitHub id.
-	unpinned := func() bool {
+	unconfirmed := func() bool {
 		var rep dto.DoctorReport
 		if code := owner.JSON(t, http.MethodPost, "/api/security-audit", dto.SecurityAuditReq{}, &rep); code != http.StatusOK {
 			t.Fatalf("security audit = %d", code)
 		}
 		for _, f := range rep.Findings {
-			if f.ID == "auth.sign_in" && strings.Contains(f.Detail, "so Bothy can pin them") {
+			if f.ID == "auth.sign_in" && strings.Contains(f.Detail, "so Bothy can confirm the organizations") {
 				return true
 			}
 		}
 		return false
 	}
-	if !unpinned() {
+	if !unconfirmed() {
 		t.Fatal("no finding for organizations matched by name")
 	}
 	gh.SetOrg("acme-inc", 1001)
@@ -202,8 +202,20 @@ auth:
 	if code := owner.JSON(t, http.MethodPatch, "/api/sign-in/github", dto.SignInPatch{Orgs: &[]string{"acme-inc"}}, &adm); code != http.StatusOK {
 		t.Fatalf("save organizations = %d", code)
 	}
-	if unpinned() {
+	if unconfirmed() {
 		t.Fatal("the organizations are still not pinned after a save")
+	}
+	// The generic config API writes org_ids by no path.
+	for _, set := range []map[string]json.RawMessage{
+		{"auth.sign_in.github.org_ids": json.RawMessage(`{"acme-inc": 2002}`)},
+		{"auth.sign_in.github": json.RawMessage(`{"org_ids": {"acme-inc": 2002}}`)},
+	} {
+		if resp := owner.Do(t, http.MethodPatch, "/api/config", dto.ConfigPatchReq{Set: set}, nil); resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("org_ids through PATCH /api/config = %s %s", resp.Status, resp.Body)
+		}
+	}
+	if resp := owner.Do(t, http.MethodDelete, "/api/config/auth.sign_in.github.org_ids", nil, nil); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("org_ids through DELETE /api/config = %s %s", resp.Status, resp.Body)
 	}
 	resp := owner.Do(t, http.MethodPatch, "/api/sign-in/github", dto.SignInPatch{Orgs: &[]string{"acme-inc", "no-such-org"}}, nil)
 	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(resp.Body), "GitHub has no organization called no-such-org.") {

@@ -29,6 +29,7 @@ type field struct {
 	kind   kind
 	hot    bool // reload:"hot" here or on an ancestor
 	locked bool // locked:"true" here or on an ancestor
+	server bool // server:"true" here or on an ancestor
 	secret bool
 	embed  bool // secret map value: a ref may sit inside a longer string
 	isKey  bool // the id/name field of a keyed-list item
@@ -49,10 +50,11 @@ var rootField = sync.OnceValue(func() *field {
 func buildField(name string, t reflect.Type, tag reflect.StructTag, parent *field) *field {
 	f := &field{name: name, typ: t}
 	if parent != nil {
-		f.hot, f.locked = parent.hot, parent.locked
+		f.hot, f.locked, f.server = parent.hot, parent.locked, parent.server
 	}
 	f.hot = f.hot || tag.Get("reload") == "hot"
 	f.locked = f.locked || tag.Get("locked") == "true"
+	f.server = f.server || tag.Get("server") == "true"
 	f.secret = tag.Get("secret") == "true"
 	base := t
 	if base.Kind() == reflect.Pointer {

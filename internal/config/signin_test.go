@@ -1,6 +1,9 @@
 package config
 
 import (
+	"context"
+	"encoding/json"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -63,8 +66,9 @@ func TestSignInValidation(t *testing.T) {
 		{"too many entries", allow(tooMany...), "auth.sign_in.allow", "at most 200"},
 		{"bad org", func(c *Config) { readyGitHub(c); c.Auth.SignIn.GitHub.Orgs = []string{"-acme"} }, "auth.sign_in.github.orgs", "organization"},
 		{"duplicate org in another case", func(c *Config) { readyGitHub(c); c.Auth.SignIn.GitHub.Orgs = []string{"Acme", "acme"} }, "auth.sign_in.github.orgs", "duplicate"},
-		{"org ids of another length", func(c *Config) { readyGitHub(c); c.Auth.SignIn.GitHub.OrgIDs = []int64{1, 2} }, "auth.sign_in.github.org_ids", "one id per organization"},
-		{"org id not positive", func(c *Config) { readyGitHub(c); c.Auth.SignIn.GitHub.OrgIDs = []int64{-1} }, "auth.sign_in.github.org_ids", "positive"},
+		{"org id not positive", func(c *Config) { readyGitHub(c); c.Auth.SignIn.GitHub.OrgIDs = map[string]int64{"acme-inc": -1} }, "auth.sign_in.github.org_ids.acme-inc", "positive"},
+		{"org id under an upper-case name", func(c *Config) { readyGitHub(c); c.Auth.SignIn.GitHub.OrgIDs = map[string]int64{"Acme-Inc": 1} }, "auth.sign_in.github.org_ids.Acme-Inc", "lower case"},
+		{"org id under a name no organization has", func(c *Config) { readyGitHub(c); c.Auth.SignIn.GitHub.OrgIDs = map[string]int64{"-acme": 1} }, "auth.sign_in.github.org_ids.-acme", "not a GitHub organization name"},
 		{"api_base not loopback", func(c *Config) { c.Auth.SignIn.Google.APIBase = "https://accounts.example.com" }, "auth.sign_in.google.api_base", "loopback"},
 		{"api_base with a query", func(c *Config) { c.Auth.SignIn.GitHub.APIBase = "http://127.0.0.1:9000/?x=1" }, "auth.sign_in.github.api_base", "query"},
 		{"api_base with a user", func(c *Config) { c.Auth.SignIn.GitHub.APIBase = "http://u:p@127.0.0.1:9000" }, "auth.sign_in.github.api_base", "credentials"},
@@ -107,7 +111,12 @@ func TestSignInValidation(t *testing.T) {
 		func(c *Config) { readyGoogle(c); c.Auth.SignIn.Google.APIBase = "http://127.0.0.1:9000" },
 		func(c *Config) { readyGoogle(c); c.Auth.SignIn.Google.APIBase = "https://localhost:9000" },
 		func(c *Config) { readyGitHub(c); c.Auth.SignIn.GitHub.APIBase = "http://[::1]:9000" },
-		func(c *Config) { readyGitHub(c); c.Auth.SignIn.GitHub.OrgIDs = []int64{9919} },
+		func(c *Config) { readyGitHub(c); c.Auth.SignIn.GitHub.OrgIDs = map[string]int64{"acme-inc": 9919} },
+		// Ids of organizations no longer listed are ignored, not refused.
+		func(c *Config) {
+			readyGitHub(c)
+			c.Auth.SignIn.GitHub.OrgIDs = map[string]int64{"acme-inc": 9919, "old-name": 42}
+		},
 		// allow_new is not tied to the mode by validation; it takes effect only in team mode.
 		func(c *Config) { readyGitHub(c); c.Mode = "single"; c.Auth.SignIn.AllowNew = true },
 		// Off, nothing is required.
@@ -211,5 +220,77 @@ func TestSignInLayers(t *testing.T) {
 	}
 	if !slices.Contains(paths, "auth.sign_in.github.client_secret") {
 		t.Fatalf("SecretFields = %v", paths)
+	}
+}
+
+// org_ids is written by the GitHub sign-in save alone (ServerWrite): the
+// generic Set and Reset refuse it at its own path and through every path
+// above it, and leave it alone when they replace or reset a parent.
+func TestSignInOrgIDsServerOnly(t *testing.T) {
+	dir := t.TempDir()
+	m := load(t, dir)
+	server := ServerWrite(context.Background())
+	if _, err := m.Set(server, map[string]json.RawMessage{
+		"auth.sign_in.github.orgs":    json.RawMessage(`["Acme-Inc"]`),
+		"auth.sign_in.github.org_ids": json.RawMessage(`{"acme-inc": 100}`),
+	}, "user:alice"); err != nil {
+		t.Fatal(err)
+	}
+	pins := func() map[string]int64 { return m.Current().Auth.SignIn.GitHub.OrgIDs }
+	if !maps.Equal(pins(), map[string]int64{"acme-inc": 100}) {
+		t.Fatalf("org_ids = %v", pins())
+	}
+
+	for _, change := range []map[string]string{
+		{"auth.sign_in.github.org_ids": `{"acme-inc": 7}`},
+		{"auth.sign_in.github.org_ids": `null`},
+		{"auth.sign_in.github.org_ids.acme-inc": `7`},
+		{"auth.sign_in.github.org_ids.acme-inc": `null`},
+		{"auth.sign_in.github": `{"orgs": ["acme-inc"], "org_ids": {"acme-inc": 7}}`},
+		{"auth.sign_in": `{"github": {"org_ids": {"acme-inc": 7}}}`},
+		{"auth": `{"sign_in": {"github": {"org_ids": {}}}}`},
+	} {
+		_, err := set(t, m, change)
+		if fe := fieldErrors(t, err); !strings.Contains(fe.Error(), "set by Bothy itself") {
+			t.Errorf("%v: %v", change, fe)
+		}
+	}
+	for _, p := range []string{"auth.sign_in.github.org_ids", "auth.sign_in.github.org_ids.acme-inc"} {
+		if fe := fieldErrors(t, m.Reset(context.Background(), p, "user:alice")); !strings.Contains(fe.Error(), "set by Bothy itself") {
+			t.Errorf("reset %s: %v", p, fe)
+		}
+	}
+	if !maps.Equal(pins(), map[string]int64{"acme-inc": 100}) {
+		t.Fatalf("a refused change moved org_ids: %v", pins())
+	}
+
+	// Replacing or resetting a parent keeps the ids.
+	mustSet(t, m, map[string]string{"auth.sign_in.github": `{"orgs": ["acme-inc", "labs"]}`})
+	if !maps.Equal(pins(), map[string]int64{"acme-inc": 100}) || len(m.Current().Auth.SignIn.GitHub.Orgs) != 2 {
+		t.Fatalf("after setting the parent: %+v", m.Current().Auth.SignIn.GitHub)
+	}
+	mustSet(t, m, map[string]string{"auth.sign_in": `null`})
+	if err := m.Reset(context.Background(), "auth", "user:alice"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Reload(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if gh := m.Current().Auth.SignIn.GitHub; !maps.Equal(gh.OrgIDs, map[string]int64{"acme-inc": 100}) || len(gh.Orgs) != 0 {
+		t.Fatalf("after resetting the parents: %+v", gh)
+	}
+
+	// The sign-in save replaces the ids and may reset them.
+	if _, err := m.Set(server, map[string]json.RawMessage{"auth.sign_in.github.org_ids": json.RawMessage(`{"labs": 2}`)}, "user:alice"); err != nil {
+		t.Fatal(err)
+	}
+	if !maps.Equal(pins(), map[string]int64{"labs": 2}) {
+		t.Fatalf("server write = %v", pins())
+	}
+	if err := m.Reset(server, "auth.sign_in.github", "user:alice"); err != nil {
+		t.Fatal(err)
+	}
+	if len(pins()) != 0 {
+		t.Fatalf("server reset = %v", pins())
 	}
 }

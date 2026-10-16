@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -402,7 +403,7 @@ func TestSignInAdminHTTP(t *testing.T) {
 	h.github.SetOrg("labs", 7)
 	expect(t, h.do("PATCH", "/api/sign-in/github", map[string]any{"orgs": []string{" Acme-Inc ", "acme-inc", "", "labs"}, "enabled": true}, h.admin), http.StatusOK)
 	set = h.cfg.sets[len(h.cfg.sets)-1]
-	if string(set["auth.sign_in.github.orgs"]) != `["Acme-Inc","labs"]` || string(set["auth.sign_in.github.org_ids"]) != `[100,7]` ||
+	if string(set["auth.sign_in.github.orgs"]) != `["Acme-Inc","labs"]` || string(set["auth.sign_in.github.org_ids"]) != `{"acme-inc":100,"labs":7}` ||
 		string(set["auth.sign_in.github.enabled"]) != "true" {
 		t.Fatalf("orgs change %s", set)
 	}
@@ -422,12 +423,8 @@ func TestSignInAdminHTTP(t *testing.T) {
 	}
 	// A name that can't be an organization is left to config validation.
 	expect(t, h.do("PATCH", "/api/sign-in/github", map[string]any{"orgs": []string{"-bad"}}, h.admin), http.StatusOK)
-	if set := h.cfg.sets[len(h.cfg.sets)-1]; string(set["auth.sign_in.github.org_ids"]) != `[]` {
+	if set := h.cfg.sets[len(h.cfg.sets)-1]; string(set["auth.sign_in.github.org_ids"]) != `{}` {
 		t.Fatalf("unchecked names pinned: %s", set)
-	}
-	rec = h.do("PATCH", "/api/config", map[string]any{"set": map[string]any{"auth.sign_in.github.org_ids": []int{1}}}, h.admin)
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "set by Bothy") {
-		t.Fatalf("org ids through the config API: %d %s", rec.Code, rec.Body.String())
 	}
 
 	// A refused config change takes the new secret back.
@@ -456,6 +453,50 @@ func TestSignInAdminHTTP(t *testing.T) {
 	check = decodeAs[dto.SignInCheck](t, h.do("POST", "/api/sign-in/github/check", dto.SignInCheckReq{ClientSecret: "wrong"}, h.admin))
 	if check.OK || check.Code != core.FailKeyRejected || strings.Contains(check.Error, "wrong") {
 		t.Fatalf("wrong secret: %+v", check)
+	}
+}
+
+// The generic config API can't write org_ids through any path, the key or
+// a parent of it; only the GitHub sign-in save does.
+func TestSignInOrgIDsConfigAPI(t *testing.T) {
+	h := newSignInHarness(t)
+	m, err := config.Load(t.Context(), config.Options{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.cfg.mu.Lock()
+	h.cfg.mgr = m
+	h.cfg.mu.Unlock()
+	h.github.SetOrg("acme-inc", 100)
+	expect(t, h.do("PATCH", "/api/sign-in/github", map[string]any{"orgs": []string{"Acme-Inc"}}, h.admin), http.StatusOK)
+	pins := func() map[string]int64 { return m.Current().Auth.SignIn.GitHub.OrgIDs }
+	if !maps.Equal(pins(), map[string]int64{"acme-inc": 100}) {
+		t.Fatalf("saved org_ids = %v", pins())
+	}
+
+	ids := map[string]int64{"acme-inc": 666}
+	for _, set := range []map[string]any{
+		{"auth.sign_in.github.org_ids": ids},
+		{"auth.sign_in.github.org_ids.acme-inc": 666},
+		{"auth.sign_in.github": map[string]any{"orgs": []string{"acme-inc"}, "org_ids": ids}},
+		{"auth.sign_in": map[string]any{"github": map[string]any{"org_ids": ids}}},
+		{"auth": map[string]any{"sign_in": map[string]any{"github": map[string]any{"org_ids": map[string]int64{}}}}},
+	} {
+		rec := h.do("PATCH", "/api/config", map[string]any{"set": set}, h.admin)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "set by Bothy itself") {
+			t.Errorf("PATCH /api/config %v: %d %s", set, rec.Code, rec.Body.String())
+		}
+	}
+	for _, p := range []string{"auth.sign_in.github.org_ids", "auth.sign_in.github.org_ids.acme-inc"} {
+		if rec := h.do("DELETE", "/api/config/"+p, nil, h.admin); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "set by Bothy itself") {
+			t.Errorf("DELETE %s: %d %s", p, rec.Code, rec.Body.String())
+		}
+	}
+	// Replacing or resetting a parent leaves the ids alone.
+	expect(t, h.do("PATCH", "/api/config", map[string]any{"set": map[string]any{"auth.sign_in.github": map[string]any{"orgs": []string{"acme-inc", "labs"}}}}, h.admin), http.StatusOK)
+	expect(t, h.do("DELETE", "/api/config/auth", nil, h.admin), http.StatusNoContent)
+	if !maps.Equal(pins(), map[string]int64{"acme-inc": 100}) {
+		t.Fatalf("org_ids after the generic API = %v", pins())
 	}
 }
 

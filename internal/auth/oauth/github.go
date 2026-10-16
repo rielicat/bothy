@@ -140,7 +140,7 @@ func (c *Client) GitHub(ctx context.Context, ep Endpoints, x Exchange, r Rules) 
 	}
 
 	restricted := false
-	for i, org := range r.Orgs {
+	for _, org := range r.Orgs {
 		var m struct {
 			State        string `json:"state"`
 			Organization struct {
@@ -151,7 +151,7 @@ func (c *Client) GitHub(ctx context.Context, ep Endpoints, x Exchange, r Rules) 
 		switch {
 		case err != nil:
 			return id, err
-		case status == 200 && m.State == "active" && r.pinned(i, m.Organization.ID):
+		case status == 200 && m.State == "active" && r.pinned(org, m.Organization.ID):
 			return id, nil
 		case status == 200, status == 404:
 		case status == 403:

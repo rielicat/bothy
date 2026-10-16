@@ -42,9 +42,10 @@ the session cookie that started it. The shared list `auth.sign_in.allow` is
 checked at every sign-in and link, comparing ASCII only: Google needs a
 verified email that is listed or a Workspace `hd` that is; GitHub needs a
 verified address listed exactly (domains never match it) or an active
-membership of a listed organization, whose id must equal the one pinned in
-`auth.sign_in.github.org_ids` (`PinGitHubOrgs` looks them up when the
-organizations are saved). Accounts are never matched by email: a
+membership of a listed organization, whose id must equal the one pinned
+under its lower-cased name in `auth.sign_in.github.org_ids` (`PinGitHubOrgs`
+looks up new names when the organizations are saved). Accounts are never
+matched by email: a
 link is made by a signed-in person, or `auth.sign_in.allow_new` (team mode)
 makes a member account without a password (`pw_hash` `"!"`, which password
 sign-in treats like an unknown username) and a display name nobody else uses.

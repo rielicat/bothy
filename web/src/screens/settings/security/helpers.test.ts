@@ -290,9 +290,9 @@ describe('sign-in list and provider rows', () => {
       text: "Saved keys are locked, so Google sign-in can't work.",
       action: 'unlock',
     });
-    expect(describeFinding(finding({ id: 'auth.sign_in', title: "GitHub organizations aren't pinned", severity: 'low', fix }))).toEqual({
+    expect(describeFinding(finding({ id: 'auth.sign_in', title: "GitHub organizations aren't confirmed", severity: 'low', fix }))).toEqual({
       text: 'GitHub organizations are checked by name only.',
-      steps: 'Save the GitHub organizations once in Security → GitHub sign-in so Bothy can pin them.',
+      steps: 'Open Security → GitHub sign-in and press Save so Bothy can confirm the organizations.',
       action: 'how',
     });
   });

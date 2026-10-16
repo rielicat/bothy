@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
@@ -192,7 +193,7 @@ func TestSignInOptions(t *testing.T) {
 	}
 	fs := e.s.checkSignIn(ctx)
 	if len(fs) != 2 || fs[1].ID != "auth.sign_in" || fs[1].Title != "GitHub sign-in is on, but its client secret is missing" ||
-		fs[1].Fix != "/settings/security/github-sign-in" || fs[0].Title != "GitHub organizations aren't pinned" {
+		fs[1].Fix != "/settings/security/github-sign-in" || fs[0].Title != "GitHub organizations aren't confirmed" {
 		t.Fatalf("findings %+v", fs)
 	}
 	e.vault.Seal()
@@ -214,7 +215,7 @@ func TestSignInOptions(t *testing.T) {
 	if st := unwired.s.SignInStatus(ctx); st[0].Problem != "unavailable" || st[0].Ready {
 		t.Fatalf("without SetSignIn: %+v", st[0])
 	}
-	if fs := unwired.s.checkSignIn(ctx); len(fs) != 1 || fs[0].Title != "GitHub organizations aren't pinned" {
+	if fs := unwired.s.checkSignIn(ctx); len(fs) != 1 || fs[0].Title != "GitHub organizations aren't confirmed" {
 		t.Fatalf("findings without SetSignIn: %+v", fs)
 	}
 }
@@ -827,7 +828,7 @@ func TestPinGitHubOrgs(t *testing.T) {
 	e.github.SetOrg("acme-inc", 100)
 	e.github.SetOrg("acme-labs", 7)
 	ids, err := e.s.PinGitHubOrgs(ctx, []string{"Acme-Inc", "acme-labs"})
-	if err != nil || !slices.Equal(ids, []int64{100, 7}) {
+	if err != nil || !maps.Equal(ids, map[string]int64{"acme-inc": 100, "acme-labs": 7}) {
 		t.Fatalf("pin = %v, %v", ids, err)
 	}
 	_, err = e.s.PinGitHubOrgs(ctx, []string{"acme-inc", "nope"})
@@ -836,10 +837,12 @@ func TestPinGitHubOrgs(t *testing.T) {
 		t.Fatalf("unknown organization: %v", err)
 	}
 	// A pin stays when the settings are saved again, even if the name now
-	// belongs to another organization.
-	e.cfg.Auth.SignIn.GitHub.OrgIDs = []int64{100}
+	// belongs to another organization; pins of names no longer listed go,
+	// and only new names are looked up.
+	e.cfg.Auth.SignIn.GitHub.OrgIDs = map[string]int64{"acme-inc": 100, "gone": 5}
 	e.github.SetOrg("acme-inc", 200)
-	if ids, err := e.s.PinGitHubOrgs(ctx, []string{"ACME-inc", "acme-labs"}); err != nil || !slices.Equal(ids, []int64{100, 7}) {
+	e.github.FailNext("/orgs/ACME-inc", http.StatusInternalServerError)
+	if ids, err := e.s.PinGitHubOrgs(ctx, []string{"ACME-inc", "acme-labs"}); err != nil || !maps.Equal(ids, map[string]int64{"acme-inc": 100, "acme-labs": 7}) {
 		t.Fatalf("pin again = %v, %v", ids, err)
 	}
 	e.github.FailNext("/orgs/acme-labs", http.StatusBadGateway)
@@ -850,7 +853,7 @@ func TestPinGitHubOrgs(t *testing.T) {
 }
 
 func TestSignInPinnedOrgs(t *testing.T) {
-	e := newSignInEnv(t, func(c *config.Config) { c.Auth.SignIn.GitHub.OrgIDs = []int64{100} })
+	e := newSignInEnv(t, func(c *config.Config) { c.Auth.SignIn.GitHub.OrgIDs = map[string]int64{"acme-inc": 100} })
 	e.github.SetOrg("acme-inc", 100)
 	if _, err := e.signIn(t, core.SignInGitHub, lee); signInCode(err) != SignInNoAccount {
 		t.Fatalf("member of the pinned organization: %v", err)
@@ -863,15 +866,23 @@ func TestSignInPinnedOrgs(t *testing.T) {
 	if fs := e.s.checkSignIn(ctx); len(fs) != 0 {
 		t.Fatalf("findings with the organizations pinned: %+v", fs)
 	}
-	// Organizations without a pin (bothy.yaml edited by hand) are still
-	// matched by name, and the check asks for a save.
+	// Organizations without a pin (bothy.yaml edited by hand, or a renamed
+	// entry whose pin stays under the old name) are still matched by name,
+	// and the check names them.
+	e.cfg.Auth.SignIn.GitHub.Orgs = []string{"labs", "Acme-Inc", "acme-two"}
+	e.cfg.Auth.SignIn.GitHub.OrgIDs = map[string]int64{"acme-inc": 200, "acme-old": 100}
+	if _, err := e.signIn(t, core.SignInGitHub, lee); signInCode(err) != SignInNoAccount {
+		t.Fatalf("pinned by name, whatever the position: %v", err)
+	}
+	fs := e.s.checkSignIn(ctx)
+	if len(fs) != 1 || fs[0].Title != "GitHub organizations aren't confirmed" || fs[0].Severity != core.SevLow || fs[0].Fix != "/settings/security/github-sign-in" ||
+		!strings.Contains(fs[0].Detail, "Bothy checks labs, acme-two by name only") ||
+		!strings.Contains(fs[0].Detail, "press Save so Bothy can confirm the organizations.") || strings.Contains(fs[0].Detail, "pin") {
+		t.Fatalf("unpinned findings %+v", fs)
+	}
 	e.cfg.Auth.SignIn.GitHub.OrgIDs = nil
 	if _, err := e.signIn(t, core.SignInGitHub, lee); signInCode(err) != SignInNoAccount {
 		t.Fatalf("not pinned: %v", err)
-	}
-	if fs := e.s.checkSignIn(ctx); len(fs) != 1 || !strings.Contains(fs[0].Detail, "Save the GitHub organizations once in Settings → Security so Bothy can pin them.") ||
-		fs[0].Severity != core.SevLow || fs[0].Fix != "/settings/security/github-sign-in" {
-		t.Fatalf("unpinned findings %+v", fs)
 	}
 }
 

@@ -302,6 +302,31 @@ func (m *Manager) Effective() Effective {
 	return e
 }
 
+type serverWriteKey struct{}
+
+// ServerWrite marks ctx for a Set or Reset that may write server:"true"
+// fields: only code that worked the value out itself passes it, never the
+// generic config API.
+func ServerWrite(ctx context.Context) context.Context {
+	return context.WithValue(ctx, serverWriteKey{}, true)
+}
+
+func isServerWrite(ctx context.Context) bool {
+	v, _ := ctx.Value(serverWriteKey{}).(bool)
+	return v
+}
+
+const serverOnly = "set by Bothy itself: change it in bothy.yaml or the environment"
+
+// keepServer is removeUnder's keep for a write without ServerWrite: setting
+// or resetting a path above a server:"true" field leaves its UI value alone.
+func keepServer(server bool) func(*field) bool {
+	if server {
+		return nil
+	}
+	return func(f *field) bool { return f.server }
+}
+
 // Set validates every change against the fully merged result, rejects locked and
 // secret-literal values, writes bothy.ui.yaml atomically (temp, fsync, rename,
 // 0600), calls OnSet per path, then notifies watchers.
@@ -309,7 +334,8 @@ func (m *Manager) Effective() Effective {
 // Setting a path replaces the UI layer's value there (an item path such as
 // "providers.<id>" creates or replaces the UI item); JSON null removes the UI
 // override and is audited as a reset. A rejected change returns FieldErrors
-// and writes nothing.
+// and writes nothing. Without ServerWrite on ctx, a server:"true" field can't
+// be set or removed, at its own path or through a value above it.
 func (m *Manager) Set(ctx context.Context, changes map[string]json.RawMessage, by string) (restart []string, err error) {
 	if len(changes) == 0 {
 		return nil, nil
@@ -321,6 +347,7 @@ func (m *Manager) Set(ctx context.Context, changes map[string]json.RawMessage, b
 		return nil, fmt.Errorf("config: fix or remove %s first: %s", m.uiPath, st.uiErr.Message)
 	}
 	src := Source{Layer: LayerUI, File: m.uiPath, By: by, At: m.now().UTC().Truncate(time.Second)}
+	server := isServerWrite(ctx)
 	ui := st.ui.clone()
 	ui.errs = nil
 	var bad FieldErrors
@@ -345,7 +372,11 @@ func (m *Manager) Set(ctx context.Context, changes map[string]json.RawMessage, b
 			bad = append(bad, newIssue(p, "", src, "invalid JSON: "+err.Error()).FieldError)
 			continue
 		}
-		ui.removeUnder(t.segs)
+		if t.f.server && !server {
+			bad = append(bad, newIssue(p, "", src, serverOnly).FieldError)
+			continue
+		}
+		ui.removeUnder(t.segs, keepServer(server))
 		if isNull(n) {
 			applied = append(applied, change{segs: t.segs, remove: true})
 			continue
@@ -362,7 +393,7 @@ func (m *Manager) Set(ctx context.Context, changes map[string]json.RawMessage, b
 		}
 		for _, k := range sub.keys {
 			lf := sub.leaves[k]
-			if msg := m.checkUILeaf(lf); msg != "" {
+			if msg := m.checkUILeaf(lf, server); msg != "" {
 				bad = append(bad, newIssue(k, "", src, msg).FieldError)
 				continue
 			}
@@ -398,9 +429,12 @@ func (m *Manager) Set(ctx context.Context, changes map[string]json.RawMessage, b
 	return restartOnly(Diff(st.cfg, next.cfg)), nil
 }
 
-func (m *Manager) checkUILeaf(lf *leaf) string {
+func (m *Manager) checkUILeaf(lf *leaf, server bool) string {
 	if m.isLocked(lf.segs, lf.f) {
 		return "locked: set it in bothy.yaml or the environment"
+	}
+	if lf.f.server && !server {
+		return serverOnly
 	}
 	if lf.container {
 		return ""
@@ -425,11 +459,17 @@ func newErrors(st, next *state) FieldErrors {
 	return out
 }
 
-// Reset deletes path (and everything below it) from bothy.ui.yaml.
+// Reset deletes path (and everything below it) from bothy.ui.yaml. Without
+// ServerWrite on ctx it refuses a server:"true" field and keeps those below
+// path.
 func (m *Manager) Reset(ctx context.Context, path, by string) error {
 	t, err := resolvePath(path)
 	if err != nil {
 		return FieldErrors{newIssue(path, "", Source{Layer: LayerUI, File: m.uiPath}, err.Error()).FieldError}
+	}
+	server := isServerWrite(ctx)
+	if t.f.server && !server {
+		return FieldErrors{newIssue(path, "", Source{Layer: LayerUI, File: m.uiPath}, serverOnly).FieldError}
 	}
 	m.writeMu.Lock()
 	defer m.writeMu.Unlock()
@@ -439,7 +479,7 @@ func (m *Manager) Reset(ctx context.Context, path, by string) error {
 	}
 	ui := st.ui.clone()
 	ui.errs = nil
-	if !ui.removeUnder(t.segs) {
+	if !ui.removeUnder(t.segs, keepServer(server)) {
 		return nil
 	}
 	next, err := m.commitUI(st, ui)

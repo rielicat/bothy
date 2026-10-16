@@ -106,8 +106,8 @@ const sentence = (s: string) => (/[.?!…]$/.test(s.trim()) ? s.trim() : `${s.tr
 // the server's title the problem (internal/auth/checks.go).
 function signInFinding(f: Finding): FindingCopy {
   const p = f.fix?.includes('github') ? 'GitHub' : 'Google';
-  if (f.title.includes('pinned'))
-    return { text: 'GitHub organizations are checked by name only.', steps: 'Save the GitHub organizations once in Security → GitHub sign-in so Bothy can pin them.', action: 'how' };
+  if (f.title.includes('confirmed'))
+    return { text: 'GitHub organizations are checked by name only.', steps: 'Open Security → GitHub sign-in and press Save so Bothy can confirm the organizations.', action: 'how' };
   if (f.title.includes('locked')) return { text: `Saved keys are locked, so ${p} sign-in can't work.`, action: 'unlock' };
   return { text: `${p} sign-in is on, but its client secret is missing.`, steps: `Open Security → ${p} sign-in and save the client secret again.`, action: 'how' };
 }

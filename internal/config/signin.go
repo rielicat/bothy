@@ -133,13 +133,16 @@ func validateSignIn(c *Config, v *vctx) {
 	if len(h.Orgs) > MaxSignInOrgs {
 		v.add(hp+".orgs", "at most %d organizations, got %d", MaxSignInOrgs, len(h.Orgs))
 	}
-	if len(h.OrgIDs) > 0 && len(h.OrgIDs) != len(h.Orgs) {
-		v.add(hp+".org_ids", "must hold one id per organization in %s.orgs (got %d for %d); save the organizations in Settings → Security to pin them again",
-			hp, len(h.OrgIDs), len(h.Orgs))
-	}
-	for i, id := range h.OrgIDs {
-		if id <= 0 {
-			v.addAt(hp+".org_ids", i, "must be a GitHub organization id, a positive number")
+	// A key matching no organization in orgs is left alone: sign-in ignores
+	// it, and saving the organizations drops it from bothy.ui.yaml.
+	for _, k := range keysOf(h.OrgIDs) {
+		switch {
+		case k != strings.ToLower(k):
+			v.item(hp+".org_ids."+k, "write %q in lower case", k)
+		case !githubOrgRe.MatchString(k):
+			v.item(hp+".org_ids."+k, "%q is not a GitHub organization name", k)
+		case h.OrgIDs[k] <= 0:
+			v.item(hp+".org_ids."+k, "must be a GitHub organization id, a positive number")
 		}
 	}
 

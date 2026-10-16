@@ -71,7 +71,7 @@ const pending: Entry[] = [
       ['auth.sign_in.github.client_id', ''],
       ['auth.sign_in.github.client_secret', ''],
       ['auth.sign_in.github.orgs', []],
-      ['auth.sign_in.github.org_ids', []],
+      ['auth.sign_in.github.org_ids', {}],
       ['auth.sign_in.github.api_base', ''],
     ] as [string, unknown][]
   ).map(([path, value]): Entry => ({ path, value, source: { layer: 'default' }, shadowed: [], locked: path.endsWith('.api_base'), hot: true, secret: path.endsWith('.client_secret') })),

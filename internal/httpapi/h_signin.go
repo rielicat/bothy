@@ -46,7 +46,7 @@ type signInAuth interface {
 	MySignIns(ctx context.Context, u core.UserID) ([]core.SignInOption, []*core.SignIn, bool, error)
 	SignInStatus(ctx context.Context) []core.SignInProviderStatus
 	CheckSignIn(ctx context.Context, p core.SignInProvider, clientID string, secret core.Secret) error
-	PinGitHubOrgs(ctx context.Context, orgs []string) ([]int64, error)
+	PinGitHubOrgs(ctx context.Context, orgs []string) (map[string]int64, error)
 }
 
 func (s *Server) signInSvc() (signInAuth, error) {
@@ -369,7 +369,9 @@ func (s *Server) patchSignIn(w http.ResponseWriter, r *http.Request, a core.Acto
 	if len(changes) == 0 {
 		return badRequest("nothing to change")
 	}
-	if _, err := s.d.Config.Set(withOrigin(r, a, nil), changes, byString(a)); err != nil {
+	// ServerWrite lets this save write org_ids, which the generic config
+	// API refuses.
+	if _, err := s.d.Config.Set(config.ServerWrite(withOrigin(r, a, nil)), changes, byString(a)); err != nil {
 		if undo != nil {
 			undo()
 		}
@@ -378,12 +380,13 @@ func (s *Server) patchSignIn(w http.ResponseWriter, r *http.Request, a core.Acto
 	return s.signInAdmin(w, r, a)
 }
 
-// pinOrgs looks up the GitHub id of each organization being saved. Names
-// that can't be organizations skip the lookup: config validation refuses
-// them with its own message.
-func (s *Server) pinOrgs(ctx context.Context, orgs []string) ([]int64, error) {
+// pinOrgs returns the GitHub ids of the organizations being saved: the
+// ones already pinned, and the others looked up. Names that can't be
+// organizations skip the lookup: config validation refuses them with its
+// own message.
+func (s *Server) pinOrgs(ctx context.Context, orgs []string) (map[string]int64, error) {
 	if len(orgs) > config.MaxSignInOrgs || slices.ContainsFunc(orgs, func(o string) bool { return !config.ValidGitHubOrg(o) }) {
-		return []int64{}, nil
+		return map[string]int64{}, nil
 	}
 	svc, err := s.signInSvc()
 	if err != nil {

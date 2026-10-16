@@ -75,12 +75,13 @@ count.
 
 Bothy asks for `read:org` and `user:email`, checks the person's verified
 addresses and memberships with their own token, then revokes the token right
-away. Organizations written in `bothy.yaml` by hand are matched by name until
-you save them once in **Settings → Security → GitHub sign-in**; the security
-check reminds you. If an organization restricts OAuth apps, an owner approves Bothy the
-first time a member signs in; with SAML single sign-on, members authorize the
-app for the organization. Someone whose invitation is still pending can't sign
-in until they accept it.
+away. Organizations written in `bothy.yaml` by hand, or renamed there, are
+checked by name only until Bothy confirms them: open **Settings → Security →
+GitHub sign-in** and press **Save**. The security check reminds you. If an
+organization restricts OAuth apps, an owner approves Bothy the first time a
+member signs in; with SAML single sign-on, members authorize the app for the
+organization. Someone whose invitation is still pending can't sign in until
+they accept it.
 
 ## In bothy.yaml
 
@@ -101,7 +102,7 @@ auth:
       enabled: true
       client_id: Ov23liExample
       client_secret: secret:github_sign_in_client_secret
-      orgs: [acme-inc]          # org_ids is written by Bothy when you save organizations in Settings
+      orgs: [acme-inc]          # org_ids (each name's GitHub id) is written by Bothy when you press Save in Settings
 ```
 
 Egress for sign-in goes to `oauth2.googleapis.com`, `github.com` and

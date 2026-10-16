@@ -5,7 +5,9 @@ import "time"
 // Tags: yaml = key name; reload:"hot" fields apply without restart (default
 // "restart"); secret:"true" fields accept only "secret:<name>" and
 // "aws-sm:<secret>" references;
-// locked:"true" fields are never settable from the UI layer.
+// locked:"true" fields are never settable from the UI layer;
+// server:"true" fields are written by Bothy itself: Set and Reset refuse
+// them, and every path above them, unless the context carries ServerWrite.
 
 type Config struct {
 	Version   int    `yaml:"version"`
@@ -118,12 +120,14 @@ type GitHubSignIn struct {
 	ClientID     string   `yaml:"client_id"`
 	ClientSecret string   `yaml:"client_secret" secret:"true"`
 	Orgs         []string `yaml:"orgs"` // active members may also sign in; checked with the person's own token
-	// OrgIDs is written by the server when organizations are saved in
-	// Settings → Security: Orgs[i]'s numeric id, which a membership must
-	// carry, so whoever takes a renamed organization's old name can't let
-	// their members in. Empty: matched by name only.
-	OrgIDs  []int64 `yaml:"org_ids"`
-	APIBase string  `yaml:"api_base" locked:"true"` // tests only: a loopback server for the github.com and api.github.com paths
+	// OrgIDs maps an organization's lower-cased name to its numeric GitHub
+	// id, which a membership must carry, so whoever takes a renamed
+	// organization's old name can't let their members in. Saving the
+	// organizations in Settings → Security writes it; a name without an
+	// entry is matched by name only, and entries for names not in Orgs are
+	// ignored (that save drops them from bothy.ui.yaml).
+	OrgIDs  map[string]int64 `yaml:"org_ids" server:"true"`
+	APIBase string           `yaml:"api_base" locked:"true"` // tests only: a loopback server for the github.com and api.github.com paths
 }
 
 type Lockout struct {

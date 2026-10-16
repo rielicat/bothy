@@ -36,6 +36,9 @@ type testConfig struct {
 	eff    config.Effective
 	sets   []map[string]json.RawMessage
 	refuse error // the next Set fails with it
+	// mgr, when set, takes Set and Reset, so a test sees the config
+	// package's own refusals.
+	mgr *config.Manager
 }
 
 func (c *testConfig) Current() *config.Config {
@@ -52,9 +55,12 @@ func (c *testConfig) Effective() config.Effective {
 	return c.eff
 }
 
-func (c *testConfig) Set(_ context.Context, changes map[string]json.RawMessage, _ string) ([]string, error) {
+func (c *testConfig) Set(ctx context.Context, changes map[string]json.RawMessage, by string) ([]string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.mgr != nil {
+		return c.mgr.Set(ctx, changes, by)
+	}
 	if _, bad := changes["bad.path"]; bad {
 		return nil, config.FieldErrors{{Path: "bad.path", Message: "unknown key bad.path"}}
 	}
@@ -66,8 +72,16 @@ func (c *testConfig) Set(_ context.Context, changes map[string]json.RawMessage, 
 	return []string{}, nil
 }
 
-func (c *testConfig) Reset(context.Context, string, string) error { return nil }
-func (c *testConfig) Schema() json.RawMessage                     { return json.RawMessage(`{"type":"object"}`) }
+func (c *testConfig) Reset(ctx context.Context, path, by string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.mgr != nil {
+		return c.mgr.Reset(ctx, path, by)
+	}
+	return nil
+}
+
+func (c *testConfig) Schema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
 
 // update replaces the config with a modified copy (handlers see snapshots).
 func (c *testConfig) update(fn func(*config.Config)) {

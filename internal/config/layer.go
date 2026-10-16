@@ -82,22 +82,34 @@ func (l *layer) clone() *layer {
 	return c
 }
 
-// removeUnder drops every leaf at or below segs and reports whether any existed.
-func (l *layer) removeUnder(segs []string) bool {
+// removeUnder drops every leaf at or below segs and reports whether any
+// existed. Leaves of fields keep accepts stay, with the item keys that lead
+// to them.
+func (l *layer) removeUnder(segs []string, keep func(*field) bool) bool {
 	removed := false
+	kept := map[string]bool{}
 	l.keys = slices.DeleteFunc(l.keys, func(k string) bool {
-		if hasPrefix(l.leaves[k].segs, segs) {
-			delete(l.leaves, k)
-			removed = true
-			return true
+		lf := l.leaves[k]
+		switch {
+		case !hasPrefix(lf.segs, segs):
+			return false
+		case keep != nil && keep(lf.f):
+			for i := len(segs); i <= len(lf.segs); i++ {
+				kept[pathKey(lf.segs[:i])] = true
+			}
+			return false
 		}
-		return false
+		delete(l.leaves, k)
+		removed = true
+		return true
 	})
 	for k, c := range l.items {
 		switch {
+		case hasPrefix(c.segs, segs) && kept[k]:
+			c.keys = slices.DeleteFunc(c.keys, func(x string) bool { return !kept[pathKey(appendSeg(c.segs, x))] })
 		case hasPrefix(c.segs, segs):
 			delete(l.items, k)
-		case len(segs) == len(c.segs)+1 && hasPrefix(segs, c.segs):
+		case len(segs) == len(c.segs)+1 && hasPrefix(segs, c.segs) && !kept[pathKey(segs)]:
 			last := segs[len(segs)-1]
 			c.keys = slices.DeleteFunc(c.keys, func(x string) bool { return x == last })
 		}
