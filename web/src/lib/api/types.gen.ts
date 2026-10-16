@@ -15,13 +15,14 @@ export type RunSink = any;
 export interface RunRequest {
   Session: SessionID;
   Principal: PrincipalID;
-  User: UserID; // the acting/billing user
+  User: UserID; // the principal's account; "" for team-owned principals
   Trigger: Trigger;
   Schedule: ScheduleID;
   Slot: Slot; // "" = the session's ModelSlot (schedules and /v1 bothy-fast set it)
   Input: Part[]; // attachments arrive as image/file parts whose Blob is already in the workspace
   Provenance: Provenance;
-  Sender: string;
+  Sender: string; // "<chat app>:<external id>" of a chat sender; "web:…" / "api:…" otherwise
+  SenderName: string; // the chat sender's display name, for the turn context
   Chat?: ChatRef; // originating chat (message tool target, card routing)
   Sink: RunSink; // may be nil (web runs use the bus)
   Limits?: RunLimits;
@@ -85,20 +86,18 @@ export interface TokenSpec {
   on_approval: string; // deny (default) | wait
   rate_per_min: number /* int */;
 }
-export interface PairingCode {
-  code: string; // 8 Crockford chars shown as XXXX-XXXX
-  expires_at: string /* RFC 3339 */;
-  deep_links: { [key: string]: string}; // channel -> URL (Telegram t.me/<bot>?start=<code>)
-}
+/**
+ * IdentityResolution is what Bothy knows about a chat sender.
+ */
 export interface IdentityResolution {
-  Status: IdentityStatus; // "" = unknown sender
-  User: UserID; // linked: the user
-  Role: Role;
-  Principal: PrincipalID; // linked: user principal; guest: guest space principal
-}
-export interface SenderNotice {
-  Reply: boolean; // true at most once per 24h per identity
-  Code: PairingCode; // approve_sender code to show to the unknown sender
+  Status: IdentityStatus; // "" unknown | pending | teammate | blocked
+  Principal: PrincipalID; // teammate: their person space
+  Via: AdmittedVia;
+  CanApprove: boolean;
+  Member: MemberStatus;
+  MemberAt: string /* RFC 3339 */;
+  SpaceOn: boolean; // teammate: their person space is enabled
+  Lost: boolean; // set by Admit: this verdict made an admitted person an outsider
 }
 export type Auth = any;
 
@@ -122,7 +121,23 @@ export interface BudgetError {
   Kind: BudgetKind;
   Limit: number /* int64 */;
   Used: number /* int64 */;
+  /**
+   * Scope of a daily_cost error: which cap ran out.
+   */
+  Scope: string; // personal | chat | global
 }
+/**
+ * BudgetError scopes of the daily caps.
+ */
+export const BudgetPersonal = "personal";
+/**
+ * BudgetError scopes of the daily caps.
+ */
+export const BudgetChat = "chat";
+/**
+ * BudgetError scopes of the daily caps.
+ */
+export const BudgetGlobal = "global";
 export type LoopVerdict = number /* uint8 */;
 export const LoopOK: LoopVerdict = 0;
 export const LoopWarn: LoopVerdict = 1;
@@ -135,6 +150,10 @@ export interface RunTotals {
   active: number /* nanoseconds */;
 }
 export type RunMeter = any;
+/**
+ * Budget bills by principal: a user principal's id is its user's, and a
+ * team-owned principal (channel or teammate) pays its own line.
+ */
 export type Budget = any;
 
 //////////
@@ -180,24 +199,28 @@ export interface Inbound {
    */
   ChatTitle: string;
   /**
-   * AddedBy is the platform user id that added the bot to this group or
-   * owns it, when the platform reports it (Telegram my_chat_member.from,
-   * Slack inviter, Discord guild owner); "" otherwise. A group Inbound with
-   * AddedBy and no text or attachments only announces the group.
+   * AddedBy is the platform user id that added the bot to this group,
+   * when the platform reports it (Telegram my_chat_member.from); ""
+   * otherwise. A group Inbound with AddedBy and no text or attachments only
+   * announces the group.
    */
   AddedBy: string;
   /**
+   * Team is a group chat's team when the platform says: the Discord guild
+   * id; "" otherwise.
+   */
+  Team: string;
+  /**
    * Forwarded marks content the sender relayed from someone else
    * (Telegram forward_origin or via_bot). The hub treats it as untrusted
-   * even from a linked user and never as a command.
+   * even from the teammate whose DM it is, and never as a command.
    */
   Forwarded: boolean;
   /**
-   * Private marks a message only its sender saw (a Slack slash command),
-   * so a code in it was not shown to the chat. In a group it never creates
-   * a space, since slash commands work in channels the bot is not in; the
-   * hub answers in their DM anyone it would not answer in that group, and
-   * an unknown sender's pairing code wherever it was typed.
+   * Private marks a message only its sender saw (a Slack slash command).
+   * In a group it never creates a space, since slash commands work in
+   * channels the bot is not in; the hub answers in their DM anyone it
+   * would not answer in that group.
    */
   Private: boolean;
 }
@@ -251,8 +274,66 @@ export interface ChannelStatus {
   detail?: string;
   identity?: string; // "@my_bothy_bot"
   since: string /* RFC 3339 */;
-  deep_links: boolean;
+  team?: string; // Slack: the workspace name (auth.test); Discord: "" (several servers)
+  org?: boolean; // Slack: installed org-wide on Enterprise Grid
 }
+/**
+ * MemberStatus is what a chat app says about whether a person belongs to
+ * the team Bothy serves there.
+ */
+export type MemberStatus = string;
+export const MemberUnchecked: MemberStatus = "";
+export const MemberUnknown: MemberStatus = "unknown";
+export const MemberYes: MemberStatus = "member";
+export const MemberOutsider: MemberStatus = "outsider";
+/**
+ * How long membership verdicts count (SPEC §5.1 step 3).
+ */
+export const MemberTTL = any /* time.Hour */;
+/**
+ * How long membership verdicts count (SPEC §5.1 step 3).
+ */
+export const MemberStale = 4 * any /* time.Hour */;
+/**
+ * How long membership verdicts count (SPEC §5.1 step 3).
+ */
+export const ApproverFresh = 2 * any /* time.Hour */;
+/**
+ * How long membership verdicts count (SPEC §5.1 step 3).
+ */
+export const ApproverStale = 15 * any /* time.Minute */;
+export interface Membership {
+  Status: MemberStatus;
+  Team: string; // the workspace or server's name for copy; "" when unknown or several
+}
+/**
+ * MemberChecker is implemented by adapters whose platform can say whether a
+ * person belongs to the team Bothy serves (Slack, Discord).
+ */
+export type MemberChecker = any;
+/**
+ * ChatInfo describes a group chat for the admins' turn-on choice.
+ */
+export interface ChatInfo {
+  TeamID: string;
+  TeamName: string;
+  Title: string;
+  Members: number /* int */; // 0 = unknown
+  External: boolean; // people from other companies are in it (Slack Connect)
+}
+/**
+ * ChatInspector is implemented by adapters that can describe a group chat.
+ */
+export type ChatInspector = any;
+export interface TeamInfo {
+  ID: string;
+  Name: string;
+}
+/**
+ * TeamLister: Discord lists the servers it is in (GUILD_CREATE), so the hub
+ * can warn about servers where no channel is on.
+ */
+export type TeamLister = any;
 /**
  * Channel adapters never do auth, policy, splitting or neutralization: the
  * router does. Adapters escape for their dialect and always disable link
@@ -312,8 +393,6 @@ export const EvMemoryUpdated: EventType = "memory.updated";
 export const EvEgressBlocked: EventType = "egress.blocked";
 export const EvScheduleRun: EventType = "schedule.run";
 export const EvBudgetWarning: EventType = "budget.warning";
-export const EvPairingLinked: EventType = "pairing.linked";
-export const EvPairingBurned: EventType = "pairing.burned";
 export const EvChannelStatus: EventType = "channel.status";
 export const EvSandboxStatus: EventType = "sandbox.status";
 export const EvMCPPinPending: EventType = "mcp.pin_pending";
@@ -400,6 +479,10 @@ export interface ApprovalResolvedData {
   status: ApprovalStatus;
   choice?: Choice;
   by?: UserID;
+  /**
+   * ByIdentity: a chat teammate decided ("<channel>:<external id>"); By is then "".
+   */
+  by_identity?: string;
   via: string;
   comment?: string; // the deciding approver's reason
 }
@@ -433,8 +516,8 @@ export interface ReleaseFinishedData {
   failed_step?: string;
 }
 /**
- * InboxChangedData names the approvals-inbox item that appeared, e.g.
- * "sender:telegram:42" or "group:spc_…" (dto.InboxItem.ID).
+ * InboxChangedData names the approvals-inbox item that appeared or changed,
+ * "sender:<channel>:<external id>" or "group:<principal>" (dto.InboxItem.ID).
  */
 export interface InboxChangedData {
   item: string;
@@ -461,22 +544,9 @@ export interface ScheduleRunData {
   status: RunStatus;
 }
 export interface BudgetWarningData {
-  user_id: UserID;
+  user_id: UserID; // the account whose cap it is; "" for the global cap or a team-owned principal
   spent_micros: Micros;
   limit_micros: Micros;
-}
-export interface PairingLinkedData {
-  channel: string;
-  external_id: string;
-  display: string;
-}
-/**
- * PairingBurnedData names the cancelled code as NewPairingCode showed it, so
- * a page still showing that code can replace it.
- */
-export interface PairingBurnedData {
-  channel: string;
-  code: string;
 }
 export interface ChannelStatusData {
   status: ChannelStatus;
@@ -494,14 +564,22 @@ export interface ConfigChangedData {
 }
 export interface BannerData {
   level: string; // info | warn | error
-  code: string; // no_sandbox | sandbox_not_isolated | config_error | provider_auth | provider_key_unread | paused | mcp_pins | mcp_drifted | budget_80 | vault_sealed | safe_mode | restart_required | unknown_sender | skills_changed
+  /**
+   * Code: no_sandbox | sandbox_not_isolated | config_error | provider_auth |
+   * provider_key_unread | paused | mcp_pins | mcp_drifted | budget_80 |
+   * vault_sealed | safe_mode | restart_required | skills_changed |
+   * unknown_sender (someone is waiting to be let in) | new_channel |
+   * team_access (the 0012 migration) | chat_budget_80
+   */
+  code: string;
   text: string;
   action?: string; // SPA route, e.g. "/settings/sandbox"
   clear?: boolean; // true removes the banner with this Code
   /**
-   * By, ByName and At say who raised it and when (paused: who paused).
+   * By, ByName and At say who raised it and when (paused: who paused: a
+   * user id, or a chat actor "channel:<app>:<id>").
    */
-  by?: UserID;
+  by?: string;
   by_name?: string;
   at?: string /* RFC 3339 */;
 }
@@ -753,18 +831,20 @@ export const RoleMember: Role = "member";
 export type PrincipalKind = string;
 export const PrincipalUser: PrincipalKind = "user";
 export const PrincipalSpace: PrincipalKind = "space";
+export const PrincipalPerson: PrincipalKind = "person";
 /**
- * Principal owns sessions, workspace, memory, grants and schedules. A space has
- * no vault scope and no memory files, and gets read-only tools unless its
- * ToolProfile is "standard".
+ * Principal owns sessions, workspace, memory, grants and schedules. Channels
+ * and teammates are owned by the team (User ""): neither has a vault scope,
+ * a channel has no memory files, and a channel gets read-only tools unless
+ * its ToolProfile is "standard".
  */
 export interface Principal {
   id: PrincipalID;
   kind: PrincipalKind;
-  user_id: UserID; // user principal: that user; space: the owning user
+  user_id: UserID; // user principal: that account; "" for team-owned principals (channels, teammates)
   display_name: string;
   workspace_id: WorkspaceID;
-  tool_profile: string; // "standard" | "restricted" (spaces default restricted)
+  tool_profile: string; // "standard" | "restricted" (channels default restricted)
   created_at: string /* RFC 3339 */;
 }
 /**
@@ -772,9 +852,11 @@ export interface Principal {
  * whose principal is not in Principals, unless System is set. HTTP handlers
  * build Viewers with Auth.ViewerFor and never set System.
  * Admin is set by Auth.ViewerFor for owner/admin users. Repositories ignore it
- * except in exactly two places: approvals whose approver is AdminOnly
+ * except in exactly two places: approvals whose approver is AdminOnly or Team
  * (ApprovalRepo.Get/Pending/Recent also return those), and egress rows of the
  * system dialer (principal_id ""). It never grants access to message content.
+ * Team-owned principals (channels, teammates) are in no Viewer built for a
+ * person, so their chats stay their own.
  * ApprovalRepo.Get/Pending/Recent also return multi-approver approvals that
  * name User in ApproverReq.Users or name a role the viewer may hold (member
  * for anyone, owner/admin when Admin is set): the approvers of another
@@ -1186,7 +1268,7 @@ export const AllowSession: Choice = "allow_session";
 export const AllowAlways: Choice = "allow_always";
 export const Deny: Choice = "deny";
 export interface PolicyInput {
-  User: UserID; // human owning the principal (space owner for spaces)
+  User: UserID; // the principal's account; "" for team-owned principals
   Role: Role;
   Principal: Principal;
   Session: SessionID;
@@ -1207,12 +1289,31 @@ export interface PolicyInput {
  * evaluated when the vote is cast, so a disabled or demoted account loses it.
  */
 export interface ApproverReq {
-  user_id: UserID; // the principal's user; empty when AdminOnly or multi-approver
+  user_id: UserID; // the principal's account; empty when AdminOnly, Team or multi-approver
   admin_only: boolean; // admin-class actions: any owner/admin
+  /**
+   * Team: a channel's or teammate's request. Any enabled owner or admin on
+   * the web, or a teammate an admin marked "Can approve" pressing a recorded
+   * chat card, may resolve it.
+   */
+  team?: boolean;
   users?: UserID[]; // multi-approver: users named by id
   roles?: Role[]; // multi-approver: any user holding at least one of these roles
   required?: number /* int */; // multi-approver: distinct allow votes needed (0 means 1)
-  requester?: UserID; // multi-approver: whose allow never counts
+  requester?: UserID; // multi-approver: whose allow never counts; "" for a teammate's request
+  /**
+   * RequesterIdentity is "<channel>:<external id>" of the chat sender whose
+   * message started a team-owned principal's run; set by Approvals.Request.
+   * Only this sender may withdraw (deny) from chat without Can approve.
+   */
+  requester_identity?: string;
+}
+/**
+ * Decider is who resolved an approval: a web account or a chat teammate.
+ */
+export interface Decider {
+  User: UserID; // web
+  Identity: string; // chat: "<channel>:<external id>"
 }
 /**
  * ApprovalVote is one approver's vote on a multi-approver approval. A user
@@ -1259,6 +1360,11 @@ export interface Grant {
   uses: number /* int */;
   max_uses: number /* int */; // 0 = unlimited
   created_by: UserID;
+  /**
+   * CreatedByIdentity: a chat approver created it from a card
+   * ("<channel>:<external id>"); CreatedBy is then "".
+   */
+  created_by_identity?: string;
   created_at: string /* RFC 3339 */;
   expires_at: string /* RFC 3339 */; // zero = never
 }
@@ -1332,6 +1438,11 @@ export interface Approval {
   chat?: ChatRef; // originating chat
   on_timeout: TimeoutAction;
   decided_by?: UserID;
+  /**
+   * DecidedByIdentity: a chat teammate decided ("<channel>:<external
+   * id>"); DecidedBy is then "".
+   */
+  decided_by_identity?: string;
   decided_via?: string; // web|telegram|discord|slack|timeout|stop (CancelRun)
   created_at: string /* RFC 3339 */;
   expires_at: string /* RFC 3339 */;
@@ -1358,11 +1469,16 @@ export interface Approval {
   requester?: ApprovalPerson;
 }
 /**
- * ApprovalPerson names a user on an approval card.
+ * ApprovalPerson names who asked on an approval card: an account, or a
+ * person or channel in a chat app.
  */
 export interface ApprovalPerson {
   user: UserID;
-  name: string; // display name, else username
+  name: string; // display name, else username (chat: display name, else handle)
+  app?: string; // the chat app of a teammate or channel requester
+  chat?: string; // a channel request: the channel's title ("#eng")
+  identity?: string; // "<channel>:<external id>", so chat cards can mention the real profile
+  handle?: string; // the chat requester's @handle, when they have one
 }
 /**
  * ApprovalTally is where a multi-approver approval stands.
@@ -1397,11 +1513,13 @@ export interface ApprovalRequest {
   Decision: Decision; // from Policy.Decide (Verdict Ask)
   Chat?: ChatRef;
   Context: string; // card context line, built by the caller from session/channel
+  Sender: string; // RunRequest.Sender of the run ("" for schedules)
 }
 export interface Resolution {
   ID: ApprovalID;
   Choice: Choice;
   By: UserID;
+  ByIdentity: string; // a chat press by a teammate ("<channel>:<external id>"); By is then ""
   ByRole: Role;
   Via: string; // web | telegram | discord | slack
   ViaMsg?: MsgRef; // required for chat channels: must be a recorded card message
@@ -1411,7 +1529,20 @@ export type Approvals = any;
 export interface CardMessage {
   ref: MsgRef;
   truncated: boolean;
+  kind: string; // card | link (a link-only card) | notice (the requester's waiting line)
 }
+/**
+ * CardMessage kinds; Messages lists cards, then links, then notices.
+ */
+export const CardMsgCard = "card";
+/**
+ * CardMessage kinds; Messages lists cards, then links, then notices.
+ */
+export const CardMsgLink = "link";
+/**
+ * CardMessage kinds; Messages lists cards, then links, then notices.
+ */
+export const CardMsgNotice = "notice";
 
 //////////
 // source: internal/core/provider.go
@@ -1970,8 +2101,9 @@ export interface SystemDest {
 export interface EgressBinding {
   Run: RunID;
   ToolCallID: string;
-  User: UserID; // approver context (space owner for spaces)
+  User: UserID; // the principal's account; "" for team-owned principals
   Role: Role;
+  Sender: string; // RunRequest.Sender, so a team request names who asked
   Trigger: Trigger;
   Schedule: ScheduleID; // schedule-scoped (pre-authorized) domain grants apply at the proxy
   Interactive: boolean; // hold unknown CONNECTs for approval (egress.hold_for_approval) instead of failing
@@ -2138,30 +2270,67 @@ export interface User {
    */
   last_login_at: string /* RFC 3339 */;
 }
+/**
+ * Space is a channel (kind "group") or a teammate's own space (kind
+ * "person"). Both are owned by the team.
+ */
 export interface Space {
   principal_id: PrincipalID;
-  kind: string; // "group" | "guest" (allowlisted guest DM)
+  kind: string; // "group" | "person"
+  /**
+   * Chat of a person space is the teammate's external id or DM; DMs route
+   * by identity, never by it.
+   */
   chat: ChatRef;
+  team_id?: string; // group: the Discord guild id; "" when unknown
+  team_name?: string; // group: the server or workspace name, for admins
+  added_by?: string; // group: platform id of whoever added Bothy, when reported
   title: string;
-  owner_user_id: UserID;
-  enabled: boolean;
+  members: number /* int */; // group: people in the chat or server as last reported; 0 = unknown
+  external: boolean; // group: Slack says people from other companies are in it
+  enabled: boolean; // person: false while the teammate is blocked
   mention_only: boolean;
+  reviewed_at?: string /* RFC 3339 */; // group: an admin turned it on or ignored it; zero = still in Approvals
   created_at: string /* RFC 3339 */;
   updated_at: string /* RFC 3339 */;
 }
+/**
+ * Space kinds.
+ */
+export const SpaceGroup = "group";
+/**
+ * Space kinds.
+ */
+export const SpacePerson = "person";
 export type IdentityStatus = string;
 export const IdentityPending: IdentityStatus = "pending";
-export const IdentityLinked: IdentityStatus = "linked";
-export const IdentityGuest: IdentityStatus = "guest";
+export const IdentityTeammate: IdentityStatus = "teammate";
 export const IdentityBlocked: IdentityStatus = "blocked";
+/**
+ * AdmittedVia is how a teammate got in.
+ */
+export type AdmittedVia = string;
+export const ViaMembership: AdmittedVia = "membership";
+export const ViaAdmin: AdmittedVia = "admin";
+/**
+ * Greetings a teammate is still owed.
+ */
+export const GreetHello = "hello";
+/**
+ * Greetings a teammate is still owed.
+ */
+export const GreetMoved = "moved";
 export interface ChannelIdentity {
   channel: string;
   external_id: string;
   username: string;
   display_name: string;
   status: IdentityStatus;
-  user_id?: UserID; // linked
-  principal_id?: PrincipalID; // guest space
+  principal_id?: PrincipalID; // teammate: their person space
+  admitted_via: AdmittedVia;
+  can_approve: boolean; // an admin marked them "Can approve"
+  membership: MemberStatus;
+  membership_at: string /* RFC 3339 */;
   dm_chat_id?: string;
   first_seen_at: string /* RFC 3339 */;
   last_seen_at: string /* RFC 3339 */;
@@ -2170,19 +2339,6 @@ export interface ChannelIdentity {
    * admins in the approvals inbox; it is dropped once the status changes.
    */
   first_text?: string;
-}
-export type PairingPurpose = string;
-export const PairLinkIdentity: PairingPurpose = "link_identity";
-export const PairApproveSender: PairingPurpose = "approve_sender";
-export interface Pairing {
-  purpose: PairingPurpose;
-  user_id?: UserID;
-  channel?: string;
-  external_id?: string;
-  created_by?: UserID;
-  expires_at: string /* RFC 3339 */;
-  used_at: string /* RFC 3339 */;
-  attempts: number /* int */;
 }
 export interface AuthSession {
   IDHash: string /* []byte */;
@@ -2241,7 +2397,7 @@ export interface Run {
   id: RunID;
   session_id: SessionID;
   principal_id: PrincipalID;
-  user_id: UserID; // billing user (space owner for spaces)
+  user_id: UserID; // the principal's account; "" for team-owned principals
   trigger: Trigger;
   schedule_id?: ScheduleID;
   status: RunStatus;
@@ -2313,7 +2469,7 @@ export interface Schedule {
   active_hours?: string; // "08:00-22:00" in TZ
   prompt: string;
   session_id?: SessionID; // "" = dedicated schedule session
-  deliver?: ChatRef; // nil = PreferredChat of the principal's user if any, otherwise web only; {channel:"web"} = web only
+  deliver?: ChatRef; // nil = ChannelHub.PrincipalChat (a teammate's DM, a channel's chat; the web for accounts); {channel:"web"} = web only, valid for user principals only
   slot: Slot;
   limits: RunLimits;
   missed_run: string; // skip | once
@@ -2330,7 +2486,7 @@ export interface UsageQuery {
   User: UserID; // "" = all users (admin)
   From: string /* RFC 3339 */;
   To: string /* RFC 3339 */;
-  GroupBy: string; // day | model | user | schedule | session
+  GroupBy: string; // day | model | user (who paid: the account, else the teammate or channel) | schedule | session
 }
 export interface UsageRow {
   key: string;
@@ -2360,9 +2516,10 @@ export interface AuditEntry {
  * the API passes the token, client address and source along with ctx.
  */
 export interface AuditOrigin {
-  Actor: string; // token:<id> or user:<id>; "" keeps the writer's
+  Actor: string; // token:<id>, user:<id> or channel:<app>:<id>; "" keeps the writer's
   IP: string; // client address
   Detail: { [key: string]: any}; // merged into the row's detail, such as {"source": "env:OPENAI_API_KEY"}
+  Name: string; // display name of a chat actor for banners ("Maya Chen · Slack")
 }
 export interface AuditFilter {
   Actor: string;
@@ -2494,7 +2651,6 @@ export type UserRepo = any;
 export type PrincipalRepo = any;
 export type SpaceRepo = any;
 export type IdentityRepo = any;
-export type PairingRepo = any;
 export type AuthSessionRepo = any;
 export type TokenRepo = any;
 export interface SessionFilter {
@@ -2512,6 +2668,9 @@ export type RunRepo = any;
 export type ApprovalRepo = any;
 export type GrantRepo = any;
 export type ScheduleRepo = any;
+/**
+ * UsageRepo bills spending to principals; a user principal's id is the user's.
+ */
 export type UsageRepo = any;
 export type AuditRepo = any;
 export type EgressRepo = any;
@@ -2817,10 +2976,13 @@ export interface RunView extends Run {
 /**
  * UsageRowView is a usage bucket with its name: the person (group_by user),
  * schedule (schedule) or chat (session). Day and model buckets, and keys
- * that no longer resolve, have none.
+ * that no longer resolve, have none. A person bucket of a teammate or a
+ * channel says so in Kind and names its chat app.
  */
 export interface UsageRowView extends UsageRow {
   name: string;
+  kind?: string; // user | teammate | channel
+  app?: string;
 }
 /**
  * AuditRow is an audit entry as the log lists it.
@@ -2961,8 +3123,10 @@ export interface Me {
   /**
    * PausedBy, PausedByName and PausedAt say who paused Bothy and when,
    * while it is paused (empty for a pause recorded before they were kept).
+   * PausedBy is a user id, or "channel:<app>:<id>" for an approver's
+   * /stopall in a chat app.
    */
-  paused_by?: UserID;
+  paused_by?: string;
   paused_by_name?: string;
   paused_at?: string /* RFC 3339 */;
   sandbox_available: boolean;
@@ -2978,37 +3142,16 @@ export interface Profile {
   display_name: string;
   /**
    * Timezone is the person's IANA time zone, which their new schedules
-   * and their chats with Bothy use.
+   * and their chats with Bothy on the web use.
    */
   timezone: string;
-  /**
-   * ApprovalsIn is where approval requests reach the person besides
-   * Bothy's Approvals page: "web" (Bothy only) or the chat app Bothy
-   * messages them in ("slack", "telegram", "discord").
-   */
-  approvals_in: string;
-  /**
-   * PreferredChat is the chat app the person chose for Bothy's messages
-   * to them (scheduled results, check-ins and approval requests); "" =
-   * the linked one they used last.
-   */
-  preferred_chat: string;
-  /**
-   * Chats are the chat apps the person has linked, which ApprovalsIn and
-   * PreferredChat may name.
-   */
-  chats: string[];
 }
 /**
  * ProfilePatch changes the caller's own profile; absent fields stay.
- * ApprovalsIn "web" keeps approval requests in Bothy; a chat app sends them
- * there and makes it the preferred chat.
  */
 export interface ProfilePatch {
   display_name?: string;
   timezone?: string;
-  approvals_in?: string;
-  preferred_chat?: string;
 }
 /**
  * Access is the caller's remote-access status for Settings > General.
@@ -3036,14 +3179,57 @@ export interface UserPatchReq {
   role?: Role;
   disabled?: boolean;
 }
-export interface PairingApproveReq {
-  code: string;
-  as: string; // guest | link
-  user_id?: UserID;
-}
+/**
+ * IdentityPatchReq is an admin's change to a person in a chat app; absent
+ * fields stay.
+ */
 export interface IdentityPatchReq {
-  status: IdentityStatus; // blocked | guest | linked
-  user_id?: UserID;
+  status?: IdentityStatus; // teammate (let in, unblock) | blocked
+  can_approve?: boolean;
+}
+/**
+ * Teammate is a person in a chat app as the People page lists them.
+ */
+export interface Teammate {
+  channel: string;
+  external_id: string; // also the budget key "<channel>:<external_id>"
+  name: string; // display name, else @handle, else "Someone"
+  handle?: string;
+  status: IdentityStatus; // teammate | blocked
+  can_approve: boolean;
+  left: boolean; // the chat app says they're no longer in the team
+  last_seen_at: string /* RFC 3339 */;
+  spent_today_micros: Micros;
+  principal_id?: PrincipalID;
+}
+/**
+ * SpaceView is a group chat with its tool profile.
+ */
+export interface SpaceView extends Space {
+  tool_profile: string;
+}
+/**
+ * TeamSchedule is a teammate's or a channel's schedule in the admins' list.
+ */
+export interface TeamSchedule {
+  id: ScheduleID;
+  name: string;
+  owner: string; // teammate name or channel title
+  owner_kind: string; // teammate | channel
+  app: string;
+  kind: string; // cron | once
+  spec: string;
+  tz: string;
+  next_run_at?: string /* RFC 3339 */;
+  last_status?: RunStatus;
+  enabled: boolean;
+}
+/**
+ * GrantView is a grant with the names of whom it covers and who made it.
+ */
+export interface GrantView extends Grant {
+  principal_name: string;
+  created_by_name: string;
 }
 export interface SpacePatchReq {
   title?: string;
@@ -3348,8 +3534,9 @@ export const InboxGroupChat: InboxType = "group_chat";
  * Each item is decided through the endpoint its type already has:
  * POST /api/approvals/{id}; POST /api/mcp/{server}/approve; PATCH
  * /api/skills/{name}; PATCH /api/identities/{channel}/{external}
- * (guest, linked or blocked); PATCH /api/spaces/{id} (enabled true turns a
- * group chat on, any other change records it as seen).
+ * (status teammate lets someone in, blocked blocks them); PATCH
+ * /api/spaces/{id} (enabled true turns a group chat on; any change records
+ * it as reviewed).
  */
 export interface Inbox {
   items: InboxItem[];
@@ -3410,7 +3597,7 @@ export interface InboxMCP {
 }
 export interface InboxGroup {
   space: Space;
-  added_by: string; // display name of whoever added Bothy (else the owner)
+  added_by: string; // the name of whoever added Bothy, when the chat app said; else ""
 }
 
 //////////
