@@ -5,6 +5,7 @@ import { setCsrf } from '../../lib/api/client';
 import { router } from '../../lib/router.svelte';
 import { session } from '../../lib/stores/session.svelte';
 import { installApi } from '../../test/api';
+import { FakeEventSource } from '../../test/setup';
 import Settings from './Settings.svelte';
 import { settingsConfig } from './store.svelte';
 
@@ -130,11 +131,17 @@ describe('Settings → People', () => {
   });
 
   it('invites the owner to add people when there is nobody else', async () => {
-    await open('people-solo');
+    await open('people-solo,chat-people-none');
     expect(await screen.findByText("It's just you so far. Add people so they get their own sign-in.")).toBeTruthy();
     expect(screen.getAllByRole('button', { name: 'Add person' })).toHaveLength(1);
-    // People in chat apps show whatever the accounts are.
-    expect(await screen.findByRole('heading', { name: 'In chat apps' })).toBeTruthy();
+  });
+
+  it("doesn't call the owner alone while people use Bothy in chat apps", async () => {
+    await open('people-solo');
+    expect(await screen.findByText('Only you sign in to Bothy on the web. Add people so they get their own sign-in.')).toBeTruthy();
+    expect(screen.queryByText(/^It's just you so far/)).toBeNull();
+    const s = within((await screen.findByRole('heading', { name: 'In chat apps' })).closest('section')!);
+    expect(await s.findByText('Sam', { selector: 'p' })).toBeTruthy();
   });
 });
 
@@ -142,7 +149,8 @@ describe('Settings → People → In chat apps', () => {
   const section = async () => within((await screen.findByRole('heading', { name: 'In chat apps' })).closest('section')!);
   const rowOf = (s: Awaited<ReturnType<typeof section>>, name: string) => s.getByText(name, { selector: 'p' }).closest('li')!;
 
-  it('lists approvers first, then by when they were last active, then blocked people, with spending today', async () => {
+  // The order is the server's (approvers, then last active, then blocked); the list keeps it as given.
+  it("lists people in the server's order, with their app, spending today and whether they can approve", async () => {
     await open();
     const s = await section();
     await s.findByText('Sam', { selector: 'p' });
@@ -154,8 +162,57 @@ describe('Settings → People → In chat apps', () => {
     expect(rowOf(s, 'Riley Park').textContent).toContain('@riley · Slack · No longer in Acme');
     expect(rowOf(s, 'Casey').textContent).toContain('Telegram · Blocked');
     expect(within(rowOf(s, 'Casey')).queryByRole('switch')).toBeNull();
-    expect(within(rowOf(s, 'Riley Park')).getByRole('switch', { name: 'Can approve: Riley Park' }).getAttribute('aria-disabled')).toBe('true');
+    const riley = within(rowOf(s, 'Riley Park')).getByRole('switch', { name: 'Can approve: Riley Park' });
+    expect(riley.getAttribute('aria-disabled')).toBe('true');
+    expect(document.getElementById(riley.getAttribute('aria-describedby')!)?.textContent).toBe("They aren't in the team any more.");
     expect(document.body.textContent).not.toMatch(/teammate|U02ALEX|spc_/i);
+  });
+
+  it('keeps the rows where they are when a change here reloads the list', async () => {
+    const calls = await open();
+    const s = await section();
+    await s.findByText('Sam', { selector: 'p' });
+    const names = () => [...s.getAllByRole('listitem')].map((li) => li.querySelector('p')?.textContent);
+    const before = names();
+    await fireEvent.click(s.getByRole('switch', { name: 'Can approve: Morgan Reyes' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url === '/api/identities/discord/1188221100445566')).toBe(true));
+    // The server says inbox.changed after every change, and now lists Morgan among the approvers.
+    const loads = calls.filter((c) => c.url === '/api/teammates').length;
+    FakeEventSource.last.emit('inbox.changed', { seq: 2, type: 'inbox.changed', at: new Date().toISOString(), data: { item: 'sender:discord:1188221100445566' } });
+    await waitFor(() => expect(calls.filter((c) => c.url === '/api/teammates')).toHaveLength(loads + 1));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(names()).toEqual(before);
+    expect(s.getByRole('switch', { name: 'Can approve: Morgan Reyes' }).getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('moves Can approve into the menu on phones, and says in the row who can approve', async () => {
+    window.matchMedia = ((q: string) => ({ matches: q === '(max-width: 639px)', media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+    try {
+      const calls = await open();
+      const s = await section();
+      await s.findByText('Sam', { selector: 'p' });
+      expect(s.queryByRole('switch')).toBeNull();
+      expect(rowOf(s, 'Sam').textContent).toContain('@sam · Slack · Can approve');
+      expect(rowOf(s, 'Alex Kim').textContent).not.toContain('Can approve');
+
+      await fireEvent.click(s.getByRole('button', { name: 'Options for Alex Kim' }));
+      let item = await screen.findByRole('menuitemcheckbox', { name: 'Can approve' });
+      expect(item.getAttribute('aria-checked')).toBe('false');
+      await fireEvent.click(item);
+      await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url === '/api/identities/slack/U02ALEX' && JSON.parse(c.body).can_approve === true)).toBe(true));
+      await waitFor(() => expect(rowOf(s, 'Alex Kim').textContent).toContain('@alexk · Slack · Can approve'));
+      await fireEvent.click(s.getByRole('button', { name: 'Options for Alex Kim' }));
+      item = await screen.findByRole('menuitemcheckbox', { name: 'Can approve' });
+      expect(item.getAttribute('aria-checked')).toBe('true');
+      await fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+
+      await fireEvent.click(s.getByRole('button', { name: 'Options for Riley Park' }));
+      item = await screen.findByRole('menuitemcheckbox', { name: /^Can approve/ });
+      expect(item.getAttribute('aria-disabled')).toBe('true');
+      expect(item.textContent).toContain("They aren't in the team any more.");
+    } finally {
+      delete (window as { matchMedia?: unknown }).matchMedia;
+    }
   });
 
   it('lets someone approve with the switch, and says so', async () => {
@@ -189,7 +246,11 @@ describe('Settings → People → In chat apps', () => {
     await fireEvent.click(await s.findByRole('button', { name: 'Options for Alex Kim' }));
     await fireEvent.click(await screen.findByRole('menuitem', { name: 'Daily limit…' }));
     const dialog = await screen.findByRole('dialog', { name: 'Daily limit for Alex Kim' });
-    expect((within(dialog).getByRole('radio', { name: 'Use the default ($2.00)' }) as HTMLInputElement).checked).toBe(true);
+    const usual = within(dialog).getByRole('radio', { name: 'Use the default ($2.00)' }) as HTMLInputElement;
+    expect(usual.checked).toBe(true);
+    // One native group, so the arrow keys move between the two and Tab stops once.
+    expect(usual.name).toBeTruthy();
+    expect((within(dialog).getByRole('radio', { name: 'Set a limit' }) as HTMLInputElement).name).toBe(usual.name);
     await fireEvent.click(within(dialog).getByRole('radio', { name: 'Set a limit' }));
     await fireEvent.input(within(dialog).getByLabelText('Daily limit'), { target: { value: '5' } });
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
@@ -273,6 +334,18 @@ describe('Settings → People → In chat apps', () => {
 
   it('says how to appear here when nobody has messaged Bothy in a chat app', async () => {
     await open('chat-people-none');
-    expect(await screen.findByText('Nobody has messaged Bothy in a chat app yet. Message Bothy in a chat app to appear here.')).toBeTruthy();
+    const s = await section();
+    expect(await s.findByText('Nobody has messaged Bothy in a chat app yet.')).toBeTruthy();
+    // Telegram can't say who is in the team, so even an admin waits to be let in.
+    expect(s.getByText('Message Bothy in Slack or Telegram to appear here. On Telegram, let yourself in from Approvals first.')).toBeTruthy();
+    expect(s.getByRole('link', { name: 'Open Approvals' }).getAttribute('href')).toBe('/approvals');
+  });
+
+  it('sends the admin to connect a chat app when none is', async () => {
+    await open('chat-people-none,chat-apps-off');
+    const s = await section();
+    expect(await s.findByText('No chat app is connected yet.')).toBeTruthy();
+    expect(s.getByRole('link', { name: 'Connect a chat app' }).getAttribute('href')).toBe('/settings/connections');
+    expect(s.queryByText(/^Nobody has messaged Bothy/)).toBeNull();
   });
 });

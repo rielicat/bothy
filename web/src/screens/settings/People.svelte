@@ -13,11 +13,13 @@
   import SettingsFrame from './SettingsFrame.svelte';
   import { personalLimit, settingsConfig } from './store.svelte';
 
+  const uid = $props.id();
   let users = $state<User[]>([]);
   let loaded = $state(false);
   let failed = $state(false);
   let actionError = $state('');
   let addOpen = $state(false);
+  let chatCount = $state<number | null>(null);
 
   async function load() {
     failed = false;
@@ -179,7 +181,13 @@
   {#if failed}
     <StatusLine tone="danger" text="This page didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: load }} />
   {:else if solo}
-    <EmptyState text="It's just you so far. Add people so they get their own sign-in." action={{ label: 'Add person', onclick: () => (addOpen = true) }} />
+    <!-- Waits for the people in chat apps, who make "just you" untrue. -->
+    {#if chatCount !== null}
+      <EmptyState
+        text={chatCount ? 'Only you sign in to Bothy on the web. Add people so they get their own sign-in.' : "It's just you so far. Add people so they get their own sign-in."}
+        action={{ label: 'Add person', onclick: () => (addOpen = true) }}
+      />
+    {/if}
   {:else if loaded}
     {#if actionError}<Notice class="mb-4" tone="danger" text={actionError} role="alert" />{/if}
     <ul>
@@ -205,7 +213,7 @@
       {/each}
     </ul>
   {/if}
-  {#if loaded}<ChatPeople onlimit={(key, name) => openLimit({ key, name, chat: true })} />{/if}
+  {#if loaded}<ChatPeople bind:count={chatCount} onlimit={(key, name) => openLimit({ key, name, chat: true })} />{/if}
 </SettingsFrame>
 
 <AddPerson bind:open={addOpen} onadded={(u) => (users = [...users, u])} />
@@ -216,8 +224,8 @@
     <form id="limit-form" class="grid gap-3" onsubmit={saveLimit} novalidate>
       {#if t.chat}
         <div role="radiogroup" aria-label="Daily limit for {t.name}">
-          <Radio bind:group={limitMode} value="default" label="Use the default ({memberDefault > 0 ? `$${moneyText(memberDefault)}` : 'no limit'})" />
-          <Radio bind:group={limitMode} value="set" label="Set a limit" />
+          <Radio bind:group={limitMode} name="{uid}-limit-mode" value="default" label="Use the default ({memberDefault > 0 ? `$${moneyText(memberDefault)}` : 'no limit'})" />
+          <Radio bind:group={limitMode} name="{uid}-limit-mode" value="set" label="Set a limit" />
         </div>
       {/if}
       <TextField label={t.chat ? 'Daily limit' : `Daily limit for ${t.name}`} prefix="$" inputmode="decimal" bind:value={limitText} disabled={noLimit} error={limitFieldError} />

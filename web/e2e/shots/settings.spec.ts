@@ -370,7 +370,8 @@ const states: ShotState[] = [
       await settle(page);
     },
   },
-  { name: 'people-solo', route: '/settings/people', mock: 'people-solo', ready: "It's just you so far.", setup: frame },
+  { name: 'people-solo', route: '/settings/people', mock: 'people-solo,chat-people-none', ready: "It's just you so far.", setup: frame },
+  { name: 'people-solo-chat-apps', route: '/settings/people', mock: 'people-solo', ready: 'Only you sign in to Bothy on the web.', setup: frame },
   {
     name: 'people-chat-apps',
     route: '/settings/people',
@@ -418,6 +419,7 @@ const states: ShotState[] = [
     },
   },
   { name: 'people-chat-none', route: '/settings/people', mock: 'chat-people-none', ready: 'Nobody has messaged Bothy in a chat app yet.', setup: frame },
+  { name: 'people-chat-no-apps', route: '/settings/people', mock: 'chat-people-none,chat-apps-off', ready: 'No chat app is connected yet.', setup: frame },
 ];
 
 shots('settings', states);

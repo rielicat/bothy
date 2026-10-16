@@ -1,8 +1,9 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Avatar, IconButton, Menu, Select, SettingsRow, SettingsSection, StatusLine, Switch, TextField, toast, type MenuItem } from '../../components/ui';
+  import { Avatar, EmptyState, IconButton, Menu, Select, SettingsRow, SettingsSection, StatusLine, Switch, TextField, toast, type MenuItem } from '../../components/ui';
   import { api } from '../../lib/api/client';
   import type { ChannelStatus, Teammate } from '../../lib/api/types.gen';
+  import { joinNames } from '../../lib/cardcopy';
   import { money, relTime } from '../../lib/format';
   import { events } from '../../lib/sse.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
@@ -10,28 +11,47 @@
 
   // Settings → People → In chat apps (docs/design/ui.md §11.5): people Bothy
   // answers in Slack, Discord and Telegram, who can approve, and blocking.
-  let { onlimit }: { onlimit: (key: string, name: string) => void } = $props();
+  let {
+    onlimit,
+    count = $bindable(null),
+  }: {
+    onlimit: (key: string, name: string) => void;
+    /** How many people are listed, once the list loaded (0 when it didn't). */
+    count?: number | null;
+  } = $props();
 
   const apps: Record<string, string> = { slack: 'Slack', telegram: 'Telegram', discord: 'Discord' };
   let people = $state<Teammate[]>([]);
-  let channels = $state<ChannelStatus[]>([]);
+  // null: Bothy couldn't say which chat apps are connected.
+  let channels = $state<ChannelStatus[] | null>(null);
   let phase = $state<'loading' | 'ready' | 'failed'>('loading');
   let rowError = $state('');
   let q = $state('');
   let narrow = $state(false);
 
-  async function load() {
+  // A reload on inbox.changed keeps the rows where they are, so a row the
+  // pointer is on doesn't move away; only a first load or Try again sorts.
+  async function load(keepOrder = false) {
     try {
-      [people, channels] = await Promise.all([api.get<Teammate[]>('/api/teammates'), api.get<ChannelStatus[]>('/api/channels').catch(() => [])]);
+      const [next, chans] = await Promise.all([api.get<Teammate[]>('/api/teammates'), api.get<ChannelStatus[]>('/api/channels').catch(() => null)]);
+      if (keepOrder) {
+        const at = new Map(people.map((t, i) => [key(t), i]));
+        next.sort((a, b) => (at.get(key(a)) ?? at.size) - (at.get(key(b)) ?? at.size));
+      }
+      [people, channels] = [next, chans];
       phase = 'ready';
+      count = next.length;
     } catch {
-      phase = 'failed';
+      if (!keepOrder || phase !== 'ready') {
+        phase = 'failed';
+        count ??= 0;
+      }
     }
   }
 
   $effect(() => {
-    untrack(load);
-    return events.on('inbox.changed', () => void load());
+    untrack(() => load());
+    return events.on('inbox.changed', () => void load(true));
   });
 
   // Below 640 px the switch gives way to a menu item.
@@ -56,17 +76,29 @@
     return s ? people.filter((t) => t.name.toLowerCase().includes(s) || (t.handle ?? '').toLowerCase().includes(s)) : people;
   });
 
+  // The empty list says where to go next: connect an app, or message Bothy
+  // there (Telegram and Discord also need an admin to let people in).
+  const connected = $derived(channels && Object.keys(apps).filter((n) => channels!.some((c) => c.name === n && c.enabled)));
+  const orNames = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}` : names[0]);
+  const letIn = $derived((connected ?? []).filter((n) => n !== 'slack').map((n) => apps[n]));
+  const emptyMore = $derived(
+    `Message Bothy in ${connected?.length ? orNames(connected.map((n) => apps[n])) : 'a chat app'} to appear here.${letIn.length ? ` On ${joinNames(letIn)}, let yourself in from Approvals first.` : ''}`,
+  );
+
   function leftText(t: Teammate): string {
     if (t.channel === 'discord') return 'No longer in the server';
-    const team = channels.find((c) => c.name === t.channel)?.team;
+    const team = channels?.find((c) => c.name === t.channel)?.team;
     return team ? `No longer in ${team}` : 'No longer in the workspace';
   }
 
   function meta(t: Teammate): string {
     if (t.status === 'blocked') return `${app(t)} · Blocked`;
     const handle = t.handle && t.name !== `@${t.handle}` ? `@${t.handle}` : '';
-    return [handle, app(t), t.left ? leftText(t) : ''].filter(Boolean).join(' · ');
+    // On phones the switch is in the menu, so the row says who can approve.
+    return [handle, app(t), t.left ? leftText(t) : '', narrow && t.can_approve ? 'Can approve' : ''].filter(Boolean).join(' · ');
   }
+
+  const leftReason = "They aren't in the team any more.";
 
   function active(t: Teammate): string {
     const limit = limitOf(t);
@@ -98,7 +130,9 @@
     const forget = { label: 'Delete their data…', danger: true, onselect: () => (deleting = t) };
     if (t.status === 'blocked') return [{ label: 'Unblock', onselect: () => patch(t, { status: 'teammate' }, 'Unblocked.') }, forget];
     return [
-      ...(narrow ? [{ label: 'Can approve', checked: t.can_approve, disabled: t.left, onselect: () => setApprove(t, !t.can_approve) }] : []),
+      ...(narrow
+        ? [{ label: 'Can approve', checked: t.can_approve, toggle: true, disabled: t.left, reason: t.left ? leftReason : undefined, onselect: () => setApprove(t, !t.can_approve) }]
+        : []),
       { label: 'Daily limit…', onselect: () => onlimit(key(t), t.name) },
       { label: 'Block…', danger: true, onselect: () => (blocking = t) },
       ...(t.left ? [forget] : []),
@@ -136,7 +170,7 @@
       await api.del(`/api/teammates/${encodeURIComponent(t.channel)}/${encodeURIComponent(t.external_id)}`);
       deleting = null;
       toast('Deleted.');
-      void load();
+      void load(true);
     } catch {
       dialogError = "Bothy couldn't delete their data. Try again.";
     } finally {
@@ -163,7 +197,7 @@
     Bothy works still need an admin here.
   </p>
   {#if phase === 'failed'}
-    <StatusLine class="mt-3" tone="danger" text="This list didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: load }} />
+    <StatusLine class="mt-3" tone="danger" text="This list didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: () => load() }} />
   {:else if phase === 'ready'}
     {#if daily > 0}
       <SettingsRow label="Share of the daily limit for chat apps" help="Leaves the rest of Bothy's {dollars(daily)} daily limit for the web." status={share.status} error={share.error}>
@@ -182,7 +216,16 @@
       </SettingsRow>
     {/if}
     {#if !people.length}
-      <p class="mt-3 text-body text-muted">Nobody has messaged Bothy in a chat app yet. Message Bothy in a chat app to appear here.</p>
+      {#if connected && !connected.length}
+        <EmptyState class="mt-3" text="No chat app is connected yet." action={{ label: 'Connect a chat app', href: '/settings/connections', variant: 'secondary' }} />
+      {:else}
+        <EmptyState
+          class="mt-3"
+          text="Nobody has messaged Bothy in a chat app yet."
+          more={emptyMore}
+          action={letIn.length ? { label: 'Open Approvals', href: '/approvals', variant: 'secondary' } : undefined}
+        />
+      {/if}
     {:else}
       {#if nobodyApproves}<p class="mt-3 text-body text-text">Nobody can approve in chat apps yet, so requests from chat apps wait for an admin in Approvals.</p>{/if}
       {#if people.length > 20}<TextField class="mt-3" label="Find someone" type="search" bind:value={q} />{/if}
@@ -198,11 +241,11 @@
               </div>
               {#if t.status !== 'blocked' && !narrow}
                 <Switch
+                  class="max-w-80 flex-wrap justify-end gap-y-0.5"
                   label="Can approve"
                   aria-label="Can approve: {t.name}"
                   checked={t.can_approve}
-                  disabled={t.left}
-                  title={t.left ? "They aren't in the team any more." : undefined}
+                  reason={t.left ? leftReason : undefined}
                   onchange={(v) => setApprove(t, v)}
                 />
               {/if}

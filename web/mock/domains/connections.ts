@@ -4,7 +4,7 @@
 // domain keeps, so turning things on and off in the UI shows up in their status.
 import type { ChannelIdentity, ChannelStatus, Entry, MCPPin, MCPStatus, SideEffect, SpaceView, Teammate } from '../../src/lib/api/types.gen.ts';
 import type { GitHubApp, GitHubConnection, GitHubProbe, GitHubRepo, GitHubRepoAccess, ReleaseEnvironment, Workflow } from '../../src/screens/settings/connections/types.ts';
-import { ago, ahead, body, clone, fail, json, member, nowISO, on, onReset, owner, scenario, sleep, ZERO, type Req } from './core.ts';
+import { ago, ahead, body, clone, emit, fail, json, member, nowISO, on, onReset, owner, scenario, sleep, ZERO, type Req } from './core.ts';
 import { state as security } from './security.ts';
 import { state as settings } from './settings.ts';
 
@@ -401,6 +401,7 @@ on('PATCH', '/api/identities/{channel}/{external}', async (req, res, m) => {
     if (b.can_approve && i.membership === 'outsider') return fail(res, 400, 'bad_request', "They aren't in the team any more.");
     i.can_approve = b.can_approve;
   }
+  emit('inbox.changed', { item: `sender:${i.channel}:${i.external_id}` });
   json(res, 200, teammate(i));
 });
 // Approvers first, then by when they were last active, then blocked people.
