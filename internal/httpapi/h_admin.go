@@ -842,7 +842,14 @@ func (s *Server) usageToday(w http.ResponseWriter, r *http.Request, a core.Actor
 		if out.GlobalSpent, err = s.d.Store.Usage().Spend(ctx, "", day); err != nil {
 			return err
 		}
-		out.GlobalLimit = core.MicrosFromUSD(s.cfg().Budgets.DailyUSD)
+		b := s.cfg().Budgets
+		out.GlobalLimit = core.MicrosFromUSD(b.DailyUSD)
+		if usd, ok := b.ChatShareUSD(); ok {
+			out.ChatLimit = core.MicrosFromUSD(usd)
+			if out.ChatSpent, err = s.d.Store.Usage().TeamSpend(ctx, day); err != nil {
+				return err
+			}
+		}
 	}
 	return ok(w, out)
 }

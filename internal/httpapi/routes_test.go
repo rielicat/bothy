@@ -782,8 +782,38 @@ func TestUsageEndpoints(t *testing.T) {
 	if today.GlobalLimit != core.MicrosFromUSD(5) {
 		t.Fatalf("today = %+v", today)
 	}
-	if m := decodeAs[dto.UsageToday](t, h.do("GET", "/api/usage/today", nil, h.member)); m.GlobalLimit != 0 {
+	if m := decodeAs[dto.UsageToday](t, h.do("GET", "/api/usage/today", nil, h.member)); m.GlobalLimit != 0 || m.ChatLimit != 0 {
 		t.Fatalf("member sees global numbers: %+v", m)
+	}
+}
+
+// TestUsageTodayChatShare: admins see what chat apps spent today against
+// their share of the daily limit, which the Spending page shows instead of
+// a banner.
+func TestUsageTodayChatShare(t *testing.T) {
+	h := newHarness(t).setup()
+	ctx := context.Background()
+	share := func(pct int) dto.UsageToday {
+		t.Helper()
+		h.cfg.mu.Lock()
+		h.cfg.cfg.Budgets.ChatSharePct = pct
+		h.cfg.mu.Unlock()
+		return decodeAs[dto.UsageToday](t, h.do("GET", "/api/usage/today", nil, h.admin))
+	}
+	let := core.IdentityTeammate
+	h.touch("telegram", "1", "Ana", core.MemberUnknown)
+	expect(t, h.do("PATCH", "/api/identities/telegram/1", dto.IdentityPatchReq{Status: &let}, h.owner), http.StatusOK)
+	ana, _ := h.store.Identities().Get(ctx, "telegram", "1")
+	day := time.Now().In(h.srv.location()).Format(time.DateOnly)
+	if err := h.store.Usage().AddSpend(ctx, ana.Principal, day, core.CallInfo{Cost: core.MicrosFromUSD(2.5)}); err != nil {
+		t.Fatal(err)
+	}
+	if got := share(60); got.ChatLimit != core.MicrosFromUSD(3) || got.ChatSpent != core.MicrosFromUSD(2.5) {
+		t.Fatalf("with a 60%% share: %+v", got)
+	}
+	// "All of it" is no separate share.
+	if got := share(100); got.ChatLimit != 0 || got.ChatSpent != 0 {
+		t.Fatalf("without a share: %+v", got)
 	}
 }
 

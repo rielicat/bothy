@@ -433,7 +433,12 @@ type UsageToday struct {
 	Limit       core.Micros `json:"limit_micros"`
 	GlobalSpent core.Micros `json:"global_spent_micros"` // admins only
 	GlobalLimit core.Micros `json:"global_limit_micros"`
-	Timezone    string      `json:"timezone"` // the configured zone, whose midnight resets the daily limits
+	// ChatSpent and ChatLimit (admins, when chat apps have a share of the
+	// daily limit): what people and channels in chat apps spent today
+	// together, and their share.
+	ChatSpent core.Micros `json:"chat_spent_micros,omitempty"`
+	ChatLimit core.Micros `json:"chat_limit_micros,omitempty"`
+	Timezone  string      `json:"timezone"` // the configured zone, whose midnight resets the daily limits
 }
 
 type AuditVerify struct {

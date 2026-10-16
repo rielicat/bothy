@@ -95,8 +95,8 @@ func (s *Service) capsFor(ctx context.Context, c *config.Config, p core.Principa
 	if err != nil || !ok {
 		return out, err
 	}
-	if b.DailyUSD > 0 && b.ChatSharePct > 0 && b.ChatSharePct < 100 {
-		out.chat, out.chatSet = core.MicrosFromUSD(b.DailyUSD*float64(b.ChatSharePct)/100), true
+	if usd, ok := b.ChatShareUSD(); ok {
+		out.chat, out.chatSet = core.MicrosFromUSD(usd), true
 	}
 	if py.kind == core.PrincipalPerson {
 		out.own, out.ownSet = core.MicrosFromUSD(max(b.MemberDailyUSD, 0)), true

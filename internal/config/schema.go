@@ -271,6 +271,15 @@ type Budgets struct {
 	Loop              Loop      `yaml:"loop"`
 }
 
+// ChatShareUSD is how much of DailyUSD people and channels in chat apps may
+// spend together today; false when there is no separate share.
+func (b Budgets) ChatShareUSD() (float64, bool) {
+	if b.DailyUSD <= 0 || b.ChatSharePct <= 0 || b.ChatSharePct >= 100 {
+		return 0, false
+	}
+	return b.DailyUSD * float64(b.ChatSharePct) / 100, true
+}
+
 type RunBudget struct {
 	MaxSteps  int      `yaml:"max_steps"`
 	MaxTokens int      `yaml:"max_tokens"`

@@ -3540,6 +3540,13 @@ export interface UsageToday {
   limit_micros: Micros;
   global_spent_micros: Micros; // admins only
   global_limit_micros: Micros;
+  /**
+   * ChatSpent and ChatLimit (admins, when chat apps have a share of the
+   * daily limit): what people and channels in chat apps spent today
+   * together, and their share.
+   */
+  chat_spent_micros?: Micros;
+  chat_limit_micros?: Micros;
   timezone: string; // the configured zone, whose midnight resets the daily limits
 }
 export interface AuditVerify {

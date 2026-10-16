@@ -6824,6 +6824,11 @@ type Budgets struct {
 	Loop              Loop               `yaml:"loop"`
 }
 
+// ChatShareUSD is daily_usd × chat_share_pct / 100, false without a separate
+// share (no daily_usd, or 100); the budget service and GET /api/usage/today
+// both use it.
+func (b Budgets) ChatShareUSD() (float64, bool)
+
 type RunBudget struct {
 	MaxSteps  int      `yaml:"max_steps"`
 	MaxTokens int      `yaml:"max_tokens"`
@@ -7500,7 +7505,7 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `DELETE /api/vault/{scope}/{name}` | admin / user (own scope) | — | `204` |
 | `POST /api/vault/unseal` | admin | `dto.UnsealReq` | `core.VaultStatus` |
 | `GET /api/usage` | user (own) / admin (all, `?user=`) | `?from=&to=&group_by=day\|model\|user\|schedule\|session` | `dto.UsageResp` (v0.2 UI: rows are `dto.UsageRowView` with a `name`: the person, the schedule or the chat title through the caller's own view, `""` for day and model; `group_by=day` keys are UTC dates, as the store documents; spend caps use days in the configured `timezone`, so the two can differ near midnight) |
-| `GET /api/usage/today` | user | — | `dto.UsageToday` (`timezone` is the configured one, whose midnight resets the daily limits, which the UI names in the daily-limit stop) |
+| `GET /api/usage/today` | user | — | `dto.UsageToday` (`timezone` is the configured one, whose midnight resets the daily limits, which the UI names in the daily-limit stop; admins also get `chat_spent_micros` and `chat_limit_micros` when chat apps have a share of the daily limit, `Budgets.ChatShareUSD`: what people and channels in chat apps spent today together, `UsageRepo.TeamSpend`, and that share, which Spending shows in place of a `chat_budget_80` banner) |
 | `GET /api/audit` | admin | `?actor=&action=&from=&to=&before=&limit=` | `dto.List[dto.AuditRow]` (v0.2 UI: `actor_name` and a one-line plain `summary`) |
 | `GET /api/audit/verify` | admin | — | `dto.AuditVerify` |
 | `GET /api/egress` | user | `?session=&before=&limit=` | `dto.List[dto.EgressRow]` (own principals; admins also see system-dialer rows; v0.2 UI: `outcome` `reached`, `allowed_unreachable` or `blocked`) |
