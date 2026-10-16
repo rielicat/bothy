@@ -164,8 +164,13 @@ Settings → Connections → GitHub: pull requests come from the app, not from a
 person. GitHub returns the browser to `server.public_url` (or the address in
 use when it is unset), so start from that address. GitHub only redirects the
 browser, so a localhost, private or plain-HTTP address is fine. If a reverse
-proxy logs query strings, it records the one-time code GitHub sends back,
-which Bothy has already spent by then.
+proxy logs query strings, it records the one-time code GitHub sends back to
+`/api/github/apps/created`. Bothy spends it at once when the browser and
+admin session that started are the ones returning, but a redirect it turns
+down (another browser, a session that ended, a restart, locked saved keys)
+leaves the code valid for up to an hour, and the code alone hands over the
+app's private key. Keep that path out of query logging, or delete the app on
+GitHub whenever setting it up didn't finish.
 
 ## Backups
 
