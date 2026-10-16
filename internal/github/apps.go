@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -86,16 +87,21 @@ func appSettingsURL(web, owner, ownerType, slug string) string {
 	return web + "/settings/apps/" + slug
 }
 
-// appHTMLURL is the conversion's html_url when it is the slug's page on
-// github.api_base's web origin: <web>/apps/<slug>, or <web>/github-apps/<slug>
-// on Enterprise Server. The browser is sent there to install the app.
-func appHTMLURL(ep endpoint, raw, slug string) (string, bool) {
-	u, err := url.Parse(raw)
-	if err != nil || u.User != nil || u.Opaque != "" || u.RawQuery != "" || u.Fragment != "" ||
-		!strings.EqualFold(u.Scheme+"://"+u.Host, ep.web()) || u.Path != "/apps/"+slug && u.Path != "/github-apps/"+slug {
-		return "", false
+// appURL is the app's page, where the browser is sent to install it:
+// github.api_base's web origin and the path of GitHub's html_url, /apps/<slug>
+// or /github-apps/<slug> on Enterprise Server. GitHub's host is not used, as
+// Bothy may reach GitHub by another name. Without such a path it is derived
+// (/apps/ on github.com and a loopback base, /github-apps/ otherwise), and
+// the second result is false.
+func appURL(ep endpoint, htmlURL, slug string) (string, bool) {
+	if u, err := url.Parse(htmlURL); err == nil && (u.Path == "/apps/"+slug || u.Path == "/github-apps/"+slug) {
+		return ep.web() + u.Path, true
 	}
-	return ep.web() + u.Path, true
+	h := ep.base.Hostname()
+	if ip := net.ParseIP(h); strings.EqualFold(h, "api.github.com") || strings.EqualFold(h, "localhost") || ip != nil && ip.IsLoopback() {
+		return ep.web() + "/apps/" + slug, false
+	}
+	return ep.web() + "/github-apps/" + slug, false
 }
 
 // fill sets the fields derived from the app's state and html_url.
@@ -232,13 +238,16 @@ func (s *Service) CreateApp(ctx context.Context, code string, t core.GitHubAppTa
 	if err := cl.call(ctx, http.MethodPost, "/app-manifests/"+code+"/conversions", nil, &conv); err != nil {
 		return fail(fmt.Errorf("github: redeeming the new app's code: %w", scrubCode(err, code)))
 	}
-	// Only what links, auth and connecting rely on is refused: GitHub hands
-	// the key over once, so anything else odd is tidied rather than costing it.
-	htmlURL, urlOK := appHTMLURL(ep, conv.HTMLURL, conv.Slug)
+	// Only what auth and connecting rely on is refused: GitHub hands the key
+	// over once, so anything else odd is tidied rather than costing it.
 	switch _, kerr := parsePrivateKey([]byte(conv.PEM)); {
-	case conv.ID <= 0, !appSlugRE.MatchString(conv.Slug), !urlOK, !ownerRE.MatchString(conv.Owner.Login), conv.Owner.ID <= 0,
+	case conv.ID <= 0, !appSlugRE.MatchString(conv.Slug), !ownerRE.MatchString(conv.Owner.Login), conv.Owner.ID <= 0,
 		conv.Owner.Type != "Organization" && conv.Owner.Type != "User", kerr != nil:
 		return fail(errors.New("github: GitHub's answer about the new app was unexpected"))
+	}
+	htmlURL, urlOK := appURL(ep, conv.HTMLURL, conv.Slug)
+	if !urlOK {
+		s.log.Warn("github: GitHub's html_url for the new app isn't its page; using a derived one", "app", conv.Slug, "url", htmlURL)
 	}
 	name, clientID := appName(conv.Name, conv.Slug), conv.ClientID
 	if clientID != "" && !clientIDRE.MatchString(clientID) {

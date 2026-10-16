@@ -100,7 +100,7 @@ type GitHubOwnApp struct {
 	Owner           string    `json:"owner"`
 	OwnerID         int64     `json:"owner_id"`   // GitHub's id of the owner account, which a rename keeps; installations must be on it
 	OwnerType       string    `json:"owner_type"` // Organization | User
-	URL             string    `json:"html_url"`   // GitHub's: <web>/apps/<slug>, or <web>/github-apps/<slug> on Enterprise Server
+	URL             string    `json:"html_url"`   // <web> + GitHub's path for it: /apps/<slug>, or /github-apps/<slug> on Enterprise Server
 	ClientID        string    `json:"client_id"`
 	KeyRef          string    `json:"key_ref"`           // "secret:github_<id>_key"; "" once retired
 	ClientSecretRef string    `json:"client_secret_ref"` // "secret:github_<id>_client_secret"; kept for a possible GitHub sign-in, unused today

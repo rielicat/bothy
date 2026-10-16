@@ -22,7 +22,8 @@ one-time code (`POST /app-manifests/{code}/conversions`, unauthenticated,
 never while the vault is sealed, the code scrubbed from every error), keeps the
 private key and client secret as `github_<gha id>_key` and
 `github_<gha id>_client_secret` in the global vault scope and records the app
-with GitHub's `html_url`, which on Enterprise Server is `/github-apps/<slug>`
+with its page: `<web>` and the path of GitHub's `html_url` (`/github-apps/<slug>`
+on Enterprise Server), derived when that path isn't the app's
 (migration `0012_github_apps.sql`). `InstallApp` connects an installation only
 after the app's JWT finds it (`GET /app/installations/{id}`) on the app's
 owner, by GitHub's account id, as an App

@@ -405,14 +405,10 @@ func TestCreateAppFailures(t *testing.T) {
 		"bad key": {http.StatusCreated, answer(func(j map[string]any) {
 			j["pem"] = "-----BEGIN RSA PRIVATE KEY-----\nnope\n-----END RSA PRIVATE KEY-----\n"
 		})},
-		"bad slug":                 {http.StatusCreated, answer(func(j map[string]any) { j["slug"] = "../evil" })},
-		"enterprise":               {http.StatusCreated, answer(func(j map[string]any) { j["owner"] = map[string]any{"login": "acme", "id": 77, "type": "Enterprise"} })},
-		"no owner id":              {http.StatusCreated, answer(func(j map[string]any) { j["owner"] = map[string]any{"login": "acme", "type": "Organization"} })},
-		"no id":                    {http.StatusCreated, answer(func(j map[string]any) { delete(j, "id") })},
-		"no html_url":              {http.StatusCreated, answer(func(j map[string]any) { delete(j, "html_url") })},
-		"html_url on another host": {http.StatusCreated, answer(func(j map[string]any) { j["html_url"] = "https://evil.example/apps/bothy-acme" })},
-		"html_url of another app":  {http.StatusCreated, answer(func(j map[string]any) { j["html_url"] = "{web}/apps/other" })},
-		"html_url with a query":    {http.StatusCreated, answer(func(j map[string]any) { j["html_url"] = "{web}/apps/bothy-acme?next=evil" })},
+		"bad slug":    {http.StatusCreated, answer(func(j map[string]any) { j["slug"] = "../evil" })},
+		"enterprise":  {http.StatusCreated, answer(func(j map[string]any) { j["owner"] = map[string]any{"login": "acme", "id": 77, "type": "Enterprise"} })},
+		"no owner id": {http.StatusCreated, answer(func(j map[string]any) { j["owner"] = map[string]any{"login": "acme", "type": "Organization"} })},
+		"no id":       {http.StatusCreated, answer(func(j map[string]any) { delete(j, "id") })},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFx(t)
@@ -434,6 +430,68 @@ func TestCreateAppFailures(t *testing.T) {
 	f := newFx(t)
 	if _, err := f.svc.CreateApp(f.ctx, "../../user", core.GitHubAppTarget{}, "", "usr_owner"); !errors.Is(err, core.ErrInvalid) || f.gh.Count(http.MethodPost, "/") != 0 {
 		t.Errorf("malformed code = %v", err)
+	}
+}
+
+// via sends every request to the fake, whatever host github.api_base names,
+// as a proxy or an internal DNS name in front of GitHub would.
+type via struct{ to *url.URL }
+
+func (v via) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	r.URL.Scheme, r.URL.Host = v.to.Scheme, v.to.Host
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+// GitHub's html_url only says which path the app's page has: the link is
+// always on Bothy's own web origin, and an html_url that isn't the app's
+// page is derived instead, so its host or its absence never costs the key.
+func TestCreateAppKeepsKeyWhateverHTMLURL(t *testing.T) {
+	for name, tc := range map[string]struct {
+		base, htmlURL, want string
+		derived             bool
+	}{
+		"GitHub's page":                      {"", "{fake}/apps/bothy-acme", "{fake}/apps/bothy-acme", false},
+		"an explicit default port":           {"https://ghe.acme.com:443/api/v3", "https://ghe.acme.com/github-apps/bothy-acme", "https://ghe.acme.com:443/github-apps/bothy-acme", false},
+		"another name for the host":          {"https://10.0.0.7/api/v3", "https://ghe.acme.com/github-apps/bothy-acme", "https://10.0.0.7/github-apps/bothy-acme", false},
+		"a query":                            {"", "{fake}/apps/bothy-acme?next=evil", "{fake}/apps/bothy-acme", false},
+		"no html_url on a loopback base":     {"", "", "{fake}/apps/bothy-acme", true},
+		"no html_url on github.com":          {"https://api.github.com", "", "https://github.com/apps/bothy-acme", true},
+		"no html_url on Enterprise Server":   {"https://ghe.acme.com:443/api/v3", "", "https://ghe.acme.com:443/github-apps/bothy-acme", true},
+		"another app's page":                 {"", "{fake}/apps/other", "{fake}/apps/bothy-acme", true},
+		"not a URL":                          {"", "%zz", "{fake}/apps/bothy-acme", true},
+		"the slug's page under another path": {"", "{fake}/marketplace/bothy-acme", "{fake}/apps/bothy-acme", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFx(t)
+			fake, _ := url.Parse(f.gh.URL)
+			if tc.base != "" {
+				f.cfg.GitHub.APIBase = tc.base
+				f.egress.Client = &http.Client{Transport: via{fake}}
+			}
+			logs := f.logTo()
+			conv := map[string]any{"id": 4242, "slug": "bothy-acme", "name": "Bothy (acme)", "owner": map[string]any{"login": "acme", "id": 77, "type": "Organization"},
+				"client_id": "Iv23liAbc", "client_secret": "s3cr3t", "pem": testPEM(t)}
+			if tc.htmlURL != "" {
+				conv["html_url"] = strings.ReplaceAll(tc.htmlURL, "{fake}", f.gh.URL)
+			}
+			body, _ := json.Marshal(conv)
+			f.gh.Fail(http.MethodPost, "/app-manifests/", http.StatusCreated, nil, string(body), 1)
+			a, err := f.svc.CreateApp(f.ctx, "0123456789abcdef0123456789abcdef01234567", core.GitHubAppTarget{Org: "acme"}, "", "usr_owner")
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := strings.ReplaceAll(tc.want, "{fake}", f.gh.URL)
+			if a.URL != want || a.InstallURL != want+"/installations/new" || len(f.secretNames()) != 2 {
+				t.Errorf("app = %q %q, vault %v", a.URL, a.InstallURL, f.secretNames())
+			}
+			if stored, err := f.store.App(f.ctx, a.ID); err != nil || stored.URL != want {
+				t.Errorf("stored = %+v %v", stored, err)
+			}
+			if warned := strings.Contains(logs.String(), "html_url"); warned != tc.derived {
+				t.Errorf("warned = %v, logs:\n%s", warned, logs)
+			}
+		})
 	}
 }
 
