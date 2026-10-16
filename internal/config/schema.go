@@ -78,14 +78,47 @@ type Log struct {
 }
 
 type Auth struct {
-	SessionIdle       Duration `yaml:"session_idle" reload:"hot"`
-	SessionMax        Duration `yaml:"session_max" reload:"hot"`
-	PasswordMinLength int      `yaml:"password_min_length" reload:"hot"`
-	Lockout           Lockout  `yaml:"lockout" reload:"hot"`
-	Argon2            Argon2   `yaml:"argon2"`
-	PairingTTL        Duration `yaml:"pairing_ttl" reload:"hot"`
-	SetupTokenTTL     Duration `yaml:"setup_token_ttl"`
-	AdminCanReadChats bool     `yaml:"admin_can_read_chats" reload:"hot" locked:"true"`
+	SessionIdle       Duration  `yaml:"session_idle" reload:"hot"`
+	SessionMax        Duration  `yaml:"session_max" reload:"hot"`
+	PasswordMinLength int       `yaml:"password_min_length" reload:"hot"`
+	Lockout           Lockout   `yaml:"lockout" reload:"hot"`
+	Argon2            Argon2    `yaml:"argon2"`
+	PairingTTL        Duration  `yaml:"pairing_ttl" reload:"hot"`
+	SetupTokenTTL     Duration  `yaml:"setup_token_ttl"`
+	AdminCanReadChats bool      `yaml:"admin_can_read_chats" reload:"hot" locked:"true"`
+	SignIn            SignInCfg `yaml:"sign_in" reload:"hot"`
+}
+
+// SignInCfg turns on signing in with Google or GitHub next to passwords
+// (Settings → Security). Both providers share one list of who may sign in.
+type SignInCfg struct {
+	// Allow holds email addresses ("pat@gmail.com") and domains ("acme.com"),
+	// lower case. A domain admits Google Workspace accounts of that domain
+	// (the id token's hd claim) and GitHub accounts with a verified address
+	// at exactly that domain.
+	Allow []string `yaml:"allow"`
+	// AllowNew creates a member account the first time someone on the list
+	// signs in. It takes effect only in team mode.
+	AllowNew bool         `yaml:"allow_new"`
+	Google   GoogleSignIn `yaml:"google"`
+	GitHub   GitHubSignIn `yaml:"github"`
+}
+
+type GoogleSignIn struct {
+	Enabled      bool   `yaml:"enabled"`
+	ClientID     string `yaml:"client_id"`
+	ClientSecret string `yaml:"client_secret" secret:"true"`
+	// APIBase is for tests only: a loopback http(s) server answering every
+	// Google endpoint (authorize, token). Locked, so the UI never sets it.
+	APIBase string `yaml:"api_base" locked:"true"`
+}
+
+type GitHubSignIn struct {
+	Enabled      bool     `yaml:"enabled"`
+	ClientID     string   `yaml:"client_id"`
+	ClientSecret string   `yaml:"client_secret" secret:"true"`
+	Orgs         []string `yaml:"orgs"`                   // active members may also sign in; checked with the person's own token
+	APIBase      string   `yaml:"api_base" locked:"true"` // tests only: a loopback server for the github.com and api.github.com paths
 }
 
 type Lockout struct {

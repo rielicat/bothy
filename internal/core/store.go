@@ -30,7 +30,7 @@ type User struct {
 	// handed out; its owner must choose their own before anything else.
 	MustChangePassword bool `json:"must_change_password,omitempty"`
 
-	// LastLoginAt is the last sign-in with a password; zero = never.
+	// LastLoginAt is the last sign-in by any method; zero = never.
 	// UserRepo.SignedIn writes it, Update leaves it alone.
 	LastLoginAt time.Time `json:"last_login_at"`
 	// PreferredChat is the linked chat app Bothy messages this person in;

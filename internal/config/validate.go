@@ -333,6 +333,8 @@ func suggestedSecret(segs []string) string {
 		return "slack_app_token"
 	case p == "channels.slack.bot_token":
 		return "slack_bot_token"
+	case len(segs) == 4 && segs[1] == "sign_in" && segs[3] == "client_secret":
+		return segs[2] + "_sign_in_client_secret"
 	}
 	return segs[len(segs)-1]
 }
@@ -352,6 +354,7 @@ func validate(c *Config, v *vctx) {
 	v.enum("log.level", "log.level", c.Log.Level)
 	v.enum("log.format", "log.format", c.Log.Format)
 	validateAuth(c, v)
+	validateSignIn(c, v)
 	validateVault(c, v)
 	validateSecrets(c, v)
 	ids := validateProviders(c, v)
