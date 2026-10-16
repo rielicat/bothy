@@ -414,8 +414,8 @@ func TestCreateAppFailures(t *testing.T) {
 			f := newFx(t)
 			const code = "0123456789abcdef0123456789abcdef01234567"
 			f.gh.Fail(http.MethodPost, "^/app-manifests/", tc.status, nil, strings.ReplaceAll(tc.body, "{web}", f.gh.URL), 1)
-			if _, err := f.svc.CreateApp(f.ctx, code, core.GitHubAppTarget{Org: "acme"}, "", "usr_owner"); err == nil || strings.Contains(err.Error(), code) {
-				t.Fatalf("CreateApp = %v", err)
+			if _, err := f.svc.CreateApp(f.ctx, code, core.GitHubAppTarget{Org: "acme"}, "", "usr_owner"); !errors.Is(err, core.ErrAppExchange) || strings.Contains(err.Error(), code) {
+				t.Fatalf("CreateApp = %v, want ErrAppExchange", err)
 			}
 			if apps, _ := f.store.Apps(f.ctx); len(apps) != 0 || len(f.secretNames()) != 0 {
 				t.Errorf("stored %d apps, vault %v", len(apps), f.secretNames())
@@ -430,6 +430,33 @@ func TestCreateAppFailures(t *testing.T) {
 	f := newFx(t)
 	if _, err := f.svc.CreateApp(f.ctx, "../../user", core.GitHubAppTarget{}, "", "usr_owner"); !errors.Is(err, core.ErrInvalid) || f.gh.Count(http.MethodPost, "/") != 0 {
 		t.Errorf("malformed code = %v", err)
+	}
+}
+
+// appless fails recording an app.
+type appless struct{ core.GitHubStore }
+
+func (appless) PutApp(context.Context, *core.GitHubOwnApp) error {
+	return errors.New("store: disk I/O error")
+}
+
+// Once GitHub handed the keys over, a failure keeping them is Bothy's own,
+// not GitHub's, and leaves nothing behind.
+func TestCreateAppKeepFailure(t *testing.T) {
+	f := newFx(t)
+	f.store = appless{f.store}
+	f.logTo()
+	tgt := core.GitHubAppTarget{Org: "acme"}
+	h, err := f.svc.AppManifest(f.ctx, tgt, bothyOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = f.svc.CreateApp(f.ctx, f.postManifest(h, "s1"), tgt, "", "usr_owner")
+	if err == nil || errors.Is(err, core.ErrAppExchange) || f.gh.Conversions() != 1 {
+		t.Fatalf("CreateApp = %v after %d conversions", err, f.gh.Conversions())
+	}
+	if len(f.secretNames()) != 0 {
+		t.Errorf("vault = %v", f.secretNames())
 	}
 }
 

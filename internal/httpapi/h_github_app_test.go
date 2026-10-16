@@ -470,7 +470,7 @@ func TestGitHubAppCreated(t *testing.T) {
 	// the first one did, which says to delete the app on GitHub.
 	gate = make(chan struct{})
 	mk.mu.Lock()
-	mk.createGate, mk.createErr = gate, errors.New("github: redeeming the new app's code: GitHub found nothing at POST /app-manifests/{code}/conversions")
+	mk.createGate, mk.createErr = gate, fmt.Errorf("github: %w: GitHub found nothing at POST /app-manifests/{code}/conversions", core.ErrAppExchange)
 	mk.mu.Unlock()
 	fc, state = h.startFlow(h.admin)
 	path = "/api/github/apps/created?code=" + ghTestCode + "&state=" + url.QueryEscape(state)
@@ -510,7 +510,7 @@ func TestGitHubAppCreated(t *testing.T) {
 	if q := landed(t, h.browser("/api/github/apps/created?code="+ghTestCode+"&state="+url.QueryEscape(state), withCookie(fc))); q.Get("github_app") != "sealed" || q.Get("apps") != "acme" {
 		t.Errorf("sealed = %v", q)
 	}
-	mk.createErr = errors.New("github: redeeming the new app's code: GitHub found nothing at POST /app-manifests/{code}/conversions")
+	mk.createErr = fmt.Errorf("github: %w: GitHub found nothing at POST /app-manifests/{code}/conversions", core.ErrAppExchange)
 	fc, state = h.startFlow(h.admin)
 	rec = h.browser("/api/github/apps/created?code="+ghTestCode+"&state="+url.QueryEscape(state), withCookie(fc))
 	if q := landed(t, rec); q.Get("github_app") != "exchange_failed" || q.Get("apps") != "acme" {
@@ -518,6 +518,12 @@ func TestGitHubAppCreated(t *testing.T) {
 	}
 	if sc := rec.Header().Get("Set-Cookie"); !strings.Contains(sc, "Max-Age=0") {
 		t.Errorf("flow cookie not cleared: %q", sc)
+	}
+	// GitHub handed the keys over, but Bothy couldn't keep them.
+	mk.createErr = errors.New("github: storing the new app's private key: store: disk I/O error")
+	fc, state = h.startFlow(h.admin)
+	if q := landed(t, h.browser("/api/github/apps/created?code="+ghTestCode+"&state="+url.QueryEscape(state), withCookie(fc))); q.Get("github_app") != "keep_failed" || q.Get("apps") != "acme" {
+		t.Errorf("keeping the keys failed = %v", q)
 	}
 }
 

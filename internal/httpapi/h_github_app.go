@@ -154,7 +154,7 @@ func (s *Server) githubAppStart(w http.ResponseWriter, r *http.Request, a core.A
 // error text; apps names whose GitHub Apps list to link, when known.
 func land(w http.ResponseWriter, r *http.Request, outcome string, f *ghAppFlow) error {
 	q := url.Values{"github_app": {outcome}}
-	if f != nil && (outcome == "not_finished" || outcome == "exchange_failed" || outcome == "sealed") {
+	if f != nil && (outcome == "not_finished" || outcome == "exchange_failed" || outcome == "keep_failed" || outcome == "sealed") {
 		q.Set("apps", cmp.Or(f.target.Org, "me"))
 	}
 	http.Redirect(w, r, "/settings/connections/github?"+q.Encode(), http.StatusSeeOther)
@@ -246,7 +246,10 @@ func (s *Server) githubAppCreated(w http.ResponseWriter, r *http.Request, _ core
 		}
 		// CreateApp's errors never carry the code.
 		s.log.Warn("github: creating the app failed", "request_id", infoOf(r).id, "err", s.redact(err.Error()))
-		return s.exchangeFailed(w, r, binding, "exchange_failed", &f)
+		if errors.Is(err, core.ErrAppExchange) {
+			return s.exchangeFailed(w, r, binding, "exchange_failed", &f)
+		}
+		return s.exchangeFailed(w, r, binding, "keep_failed", &f)
 	}
 	next := randomToken()
 	if _, found := s.ghFlows.advance(binding, ghExchanging, ghInstalling, state, func(g *ghAppFlow) {

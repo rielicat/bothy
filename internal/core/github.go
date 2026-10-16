@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -132,6 +133,12 @@ type GitHubAppHandoff struct {
 	Org       string // "" for a personal account
 }
 
+// ErrAppExchange marks a CreateApp failure on GitHub's side: the code was
+// refused or had expired, GitHub failed or was out of reach, or its answer
+// held no app Bothy can use. CreateApp's other failures once the code is
+// spent are Bothy's own (vault, store).
+var ErrAppExchange = errors.New("redeeming the new app's code")
+
 // GitHubAppMaker is the extra *github.Service implements: Bothy's own
 // GitHub App created from a manifest and connected through its installation
 // (SPEC §14.3). Every method needs an admin caller.
@@ -140,7 +147,8 @@ type GitHubAppMaker interface {
 	// (Bothy's own address); ErrInvalid for a bad target or origin.
 	AppManifest(ctx context.Context, t GitHubAppTarget, origin string) (*GitHubAppHandoff, error)
 	// CreateApp redeems the code GitHub's redirect carried and keeps the new
-	// app's keys. ErrSealed before redeeming while the vault is locked.
+	// app's keys. ErrSealed before redeeming while the vault is locked;
+	// ErrAppExchange when GitHub's side failed.
 	CreateApp(ctx context.Context, code string, t GitHubAppTarget, replaces string, by UserID) (*GitHubOwnApp, error)
 	// InstallApp verifies installationID belongs to the app and connects it.
 	InstallApp(ctx context.Context, id string, installationID int64, by UserID) (*GitHubConnection, error)

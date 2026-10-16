@@ -236,14 +236,14 @@ func (s *Service) CreateApp(ctx context.Context, code string, t core.GitHubAppTa
 	cl := &apiClient{ep: ep, http: s.httpClient(ep), now: s.now}
 	var conv ghManifestConversion
 	if err := cl.call(ctx, http.MethodPost, "/app-manifests/"+code+"/conversions", nil, &conv); err != nil {
-		return fail(fmt.Errorf("github: redeeming the new app's code: %w", scrubCode(err, code)))
+		return fail(fmt.Errorf("github: %w: %w", core.ErrAppExchange, scrubCode(err, code)))
 	}
 	// Only what auth and connecting rely on is refused: GitHub hands the key
 	// over once, so anything else odd is tidied rather than costing it.
 	switch _, kerr := parsePrivateKey([]byte(conv.PEM)); {
 	case conv.ID <= 0, !appSlugRE.MatchString(conv.Slug), !ownerRE.MatchString(conv.Owner.Login), conv.Owner.ID <= 0,
 		conv.Owner.Type != "Organization" && conv.Owner.Type != "User", kerr != nil:
-		return fail(errors.New("github: GitHub's answer about the new app was unexpected"))
+		return fail(fmt.Errorf("github: %w: GitHub's answer about the new app was unexpected", core.ErrAppExchange))
 	}
 	htmlURL, urlOK := appURL(ep, conv.HTMLURL, conv.Slug)
 	if !urlOK {

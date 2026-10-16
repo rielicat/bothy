@@ -4217,6 +4217,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -4346,6 +4347,12 @@ type GitHubAppHandoff struct {
 	Org       string // "" for a personal account
 }
 
+// ErrAppExchange marks a CreateApp failure on GitHub's side: the code was
+// refused or had expired, GitHub failed or was out of reach, or its answer
+// held no app Bothy can use. CreateApp's other failures once the code is
+// spent are Bothy's own (vault, store).
+var ErrAppExchange = errors.New("redeeming the new app's code")
+
 // GitHubAppMaker is the extra *github.Service implements: Bothy's own
 // GitHub App created from a manifest and connected through its installation
 // (§14.3). Every method needs an admin caller.
@@ -4354,7 +4361,8 @@ type GitHubAppMaker interface {
 	// (Bothy's own address); ErrInvalid for a bad target or origin.
 	AppManifest(ctx context.Context, t GitHubAppTarget, origin string) (*GitHubAppHandoff, error)
 	// CreateApp redeems the code GitHub's redirect carried and keeps the new
-	// app's keys. ErrSealed before redeeming while the vault is locked.
+	// app's keys. ErrSealed before redeeming while the vault is locked;
+	// ErrAppExchange when GitHub's side failed.
 	CreateApp(ctx context.Context, code string, t GitHubAppTarget, replaces string, by UserID) (*GitHubOwnApp, error)
 	// InstallApp verifies installationID belongs to the app and connects it.
 	InstallApp(ctx context.Context, id string, installationID int64, by UserID) (*GitHubConnection, error)
@@ -7218,7 +7226,7 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `POST /api/github/apps/{id}/retire` | admin | — | `core.GitHubOwnApp` ("Start over": deletes its keys, keeps the row; 409 while connected) |
 | `DELETE /api/github/apps/{id}` | admin | — | `204` (dismisses a retired app's reminder; 409 otherwise) |
 | `GET /api/github/apps/handoff` | none (safe mode too; flow cookie + session) | — | HTML page posting the manifest to GitHub, with its own CSP (§8.1); `303` to the GitHub page `?github_app=expired` without a matching flow, or `unavailable` |
-| `GET /api/github/apps/created` | none (safe mode too; flow cookie) | GitHub's `code`, `state` | `303` to the app's install page (`<page>/installations/new?state=<new>`) once the code is redeemed; the same address again (Back, a reload) sends the browser there too, after waiting up to 30 s while the first request still redeems the code, or lands where a failed first request landed (`check` while it is still redeeming); the flow's state with another code (a second app made from GitHub's form) lands `not_finished`; otherwise `303 /settings/connections/github?github_app=not_finished\|exchange_failed\|sealed[&apps=<org>\|me]` or `unavailable` |
+| `GET /api/github/apps/created` | none (safe mode too; flow cookie) | GitHub's `code`, `state` | `303` to the app's install page (`<page>/installations/new?state=<new>`) once the code is redeemed; the same address again (Back, a reload) sends the browser there too, after waiting up to 30 s while the first request still redeems the code, or lands where a failed first request landed (`check` while it is still redeeming); the flow's state with another code (a second app made from GitHub's form) lands `not_finished`; otherwise `303 /settings/connections/github?github_app=not_finished\|exchange_failed\|keep_failed\|sealed[&apps=<org>\|me]` or `unavailable` (`exchange_failed` when GitHub's side failed: the code refused or expired, GitHub failing or out of reach, an answer without a usable app; `keep_failed` when Bothy couldn't keep the keys) |
 | `GET /api/github/apps/installed` | none (safe mode too; flow cookie) | GitHub's `installation_id`, `setup_action`, `state` | `303 /settings/connections/github?github_app=installed\|requested\|updated\|check\|install_failed\|unavailable`; never JSON, never a code, state, id or error text in the address |
 | `GET /api/knowledge/repos` | user | `?principal=` | `dto.List[core.IndexedRepo]` (v0.2; all of the caller's principals by default. v0.2 UI: `progress` while queued or indexing, `summary`, and `stale` when a GitHub repository's default branch has moved past `indexed_sha`, also on `GET …/{id}`) |
 | `POST /api/knowledge/repos` | user | `dto.KnowledgeIndexReq` | `202 core.IndexedRepo` (status queued; 400 for a directory outside the workspace, a bad repo name or sha; 409 when a default `local/<name>` names another folder) |
