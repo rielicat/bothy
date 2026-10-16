@@ -115,6 +115,14 @@ describe('Menu', () => {
     expect(screen.getByRole('group', { name: 'Theme' })).toBeTruthy();
   });
 
+  it('marks a setting that turns on or off with menuitemcheckbox', async () => {
+    render(MenuHarness, { props: { items: [{ label: 'Can approve', checked: true, toggle: true, onselect: () => {} }, { label: 'Block…', onselect: () => {} }] } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Chat options' }));
+    const item = await screen.findByRole('menuitemcheckbox', { name: 'Can approve' });
+    expect(item.getAttribute('aria-checked')).toBe('true');
+    expect(screen.queryByRole('menuitemradio')).toBeNull();
+  });
+
   it('typeahead cycles through matches and wraps', () => {
     const labels = ['Rename', 'Pin', 'Pause', 'Delete'];
     expect(findTypeahead(labels, 'p', 0)).toBe(1);

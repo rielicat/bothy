@@ -80,9 +80,9 @@ export interface Capture {
 
 const FLOATING = 'dialog[open], [role=dialog], [role=alertdialog], [role=menu], [role=listbox], [role=tooltip], [popover], [data-floating]';
 const CONTROLS =
-  'input, select, textarea, button, a, summary, option, kbd, img, svg, hr, td, th, progress, meter, iframe, video, [role=button], [role=switch], [role=checkbox], [role=radio], [role=tab], [role=option], [role=menuitem], [role=menuitemradio], [role=combobox], [role=slider]';
+  'input, select, textarea, button, a, summary, option, kbd, img, svg, hr, td, th, progress, meter, iframe, video, [role=button], [role=switch], [role=checkbox], [role=radio], [role=tab], [role=option], [role=menuitem], [role=menuitemradio], [role=menuitemcheckbox], [role=combobox], [role=slider]';
 
-const TARGETS = 'button, a[href], input:not([type=hidden]), select, textarea, summary, [role=button], [role=switch], [role=checkbox], [role=radio], [role=tab], [role=menuitem], [role=menuitemradio], [role=option]';
+const TARGETS = 'button, a[href], input:not([type=hidden]), select, textarea, summary, [role=button], [role=switch], [role=checkbox], [role=radio], [role=tab], [role=menuitem], [role=menuitemradio], [role=menuitemcheckbox], [role=option]';
 
 /** Runs the G4 probes (and the G8 target size) on the page as it is; returns one line per problem. */
 export async function probe(page: Page, opts: ProbeOptions = allProbes): Promise<string[]> {

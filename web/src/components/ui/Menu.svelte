@@ -11,6 +11,8 @@
     reason?: string;
     /** Set (true or false) for a choice among options; true draws the check. */
     checked?: boolean;
+    /** With checked: a setting on its own that turns on or off (menuitemcheckbox), not one of several options. */
+    toggle?: boolean;
     /** A caption above consecutive items with the same group. */
     group?: string;
   };
@@ -187,7 +189,7 @@
           {#each b.items as { item, index } (index)}
             <button
               type="button"
-              role={item.checked !== undefined ? 'menuitemradio' : 'menuitem'}
+              role={item.checked === undefined ? 'menuitem' : item.toggle ? 'menuitemcheckbox' : 'menuitemradio'}
               aria-checked={item.checked}
               aria-disabled={item.disabled || undefined}
               tabindex="-1"
