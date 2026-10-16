@@ -72,10 +72,10 @@
 
 <section class={compact ? 'mb-8' : 'mt-10'} aria-labelledby="gh-pending">
   <h2 id="gh-pending" class="section-title">Finish installing {app.name} on GitHub</h2>
-  {#if compact}
-    <p class="mt-1 text-body text-text">Finish installing {app.name} on GitHub to switch Bothy to it.</p>
-  {:else if requested}
+  {#if requested}
     <p class="mt-1 text-body text-text">An owner of {owner} needs to approve {app.name} on GitHub. Once they have, choose Check again.</p>
+  {:else if compact}
+    <p class="mt-1 text-body text-text">Finish installing {app.name} on GitHub to switch Bothy to it.</p>
   {:else}
     <p class="mt-1 text-body text-text">GitHub created the app. Install it on {owner} and choose the repositories Bothy can use.</p>
   {/if}

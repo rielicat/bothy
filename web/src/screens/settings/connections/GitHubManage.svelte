@@ -10,7 +10,7 @@
   import { approverLine, githubWeb, installationSettingsURL, readAt, saveConfig, type Failure } from './connections';
   import EnvironmentDialog from './EnvironmentDialog.svelte';
   import RepoPicker from './RepoPicker.svelte';
-  import type { GitHubApp, GitHubConnection, GitHubConnectionDetail, GitHubProbe, GitHubRepo, IndexedRepo, ReleaseEnvironment, Releases, Workflow } from './types';
+  import type { GitHubApp, GitHubAppCheck, GitHubConnection, GitHubConnectionDetail, GitHubProbe, GitHubRepo, IndexedRepo, ReleaseEnvironment, Releases, Workflow } from './types';
 
   let {
     conn,
@@ -52,6 +52,7 @@
   let flows = $state<Record<string, string>>({});
   let added = $state(0);
   let checking = $state(false);
+  let notInstalled = $state(false);
 
   const id = $derived(encodeURIComponent(conn.id));
   const full = (r: { owner: string; name: string }) => `${r.owner}/${r.name}`;
@@ -91,8 +92,13 @@
     if (!app) return;
     checking = true;
     problem = null;
+    notInstalled = false;
     try {
-      await api.post(`/api/github/apps/${encodeURIComponent(app.id)}/check`);
+      const r = await api.post<GitHubAppCheck>(`/api/github/apps/${encodeURIComponent(app.id)}/check`);
+      if (!r.installed) {
+        notInstalled = true;
+        return;
+      }
       await api.post(`/api/github/connections/${id}/test`);
       onchanged();
     } catch (e) {
@@ -238,6 +244,7 @@
         {/if}
       </div>
     </div>
+    {#if app && notInstalled && conn.status === 'error'}<StatusLine class="mt-3" tone="warning" text="{app.name} isn't installed yet." />{/if}
     <div class="pt-3">
       <Button variant="danger-text" class="-ml-4" onclick={() => (leaving = true)}>Disconnect GitHub…</Button>
     </div>

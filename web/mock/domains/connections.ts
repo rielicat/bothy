@@ -22,6 +22,7 @@ const githubFail = scenario('github-fail', 'GitHub checks fail; github-fail:<rej
 const appPending = scenario('github-app-pending', 'GitHub is not connected; the app Bothy created, Bothy (acme), is not installed yet.', 'connections');
 const appInstalls = scenario('github-app-installs', 'Like github-app-pending, but Check again finds the app installed.', 'connections');
 const appMade = scenario('github-app-made', 'GitHub is connected through the app Bothy created, Bothy (acme).', 'connections');
+const appBroken = scenario('github-app-broken', 'GitHub stopped accepting Bothy (acme), the app Bothy created: it was uninstalled.', 'connections');
 const appRetired = scenario('github-app-retired', 'GitHub is not connected; Bothy no longer uses Bothy (acme), still on GitHub.', 'connections');
 const appStartFail = scenario('github-app-start-fail', 'Creating the app fails to start; github-app-start-fail:<wrong_address|sealed|conflict>.', 'connections');
 const noWorkflows = scenario('no-workflows', "GitHub can't list the repository's workflows, so the dialog takes a file name.", 'connections');
@@ -437,13 +438,14 @@ function connected(req: Req): GitHubConnection | null {
   if (state.madeHere) return state.github;
   if (githubNone(req) || appPending(req) || appInstalls(req) || appRetired(req)) return null;
   if (appMade(req)) return appConnection();
+  if (appBroken(req)) return { ...appConnection(), status: 'error', error: 'GitHub rejected the credentials (wrong, expired or revoked token)' };
   return state.github && { ...state.github, ...(githubApp(req) ? connection(true) : {}) };
 }
 
 function appsFor(req: Req): GitHubApp[] {
   if (state.appsChanged) return state.apps;
   if (appPending(req) || appInstalls(req)) return [madeApp('pending')];
-  if (appMade(req)) return [madeApp('connected')];
+  if (appMade(req) || appBroken(req)) return [madeApp('connected')];
   if (appRetired(req)) return [madeApp('retired')];
   return [];
 }

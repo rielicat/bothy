@@ -250,7 +250,7 @@
     </div>
   {/if}
   {#if manage && pending}
-    <GitHubAppPending app={pending} compact oninstalled={installed} onretired={load} />
+    <GitHubAppPending app={pending} compact requested={landing === 'requested'} failed={landing === 'install_failed'} oninstalled={installed} onretired={load} />
   {/if}
 {/snippet}
 

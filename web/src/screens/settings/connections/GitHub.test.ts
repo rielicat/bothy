@@ -339,6 +339,38 @@ describe("Bothy's own GitHub App (§12.2)", () => {
     await waitFor(() => expect(screen.queryByText(/Bothy couldn't switch/)).toBeNull());
   });
 
+  const replacement = {
+    id: 'gha_01jops00000000000000000000',
+    name: 'Bothy (ops)',
+    owner: 'acme',
+    owner_type: 'Organization',
+    state: 'pending',
+    replaces: 'ghc_01jacme00000000000000000000',
+    install_url: 'https://github.com/apps/bothy-ops/installations/new',
+  };
+  const withReplacement = (m: string, url: string) => (m === 'GET' && url === '/api/github/apps' ? [replacement] : undefined);
+
+  it('says in the manage view that an owner has to approve the replacement app', async () => {
+    await app('', '/settings/connections/github?github_app=requested', withReplacement);
+    expect(await screen.findByText('An owner of acme needs to approve Bothy (ops) on GitHub. Once they have, choose Check again.')).toBeTruthy();
+    expect(screen.getByText('Connected as acme-bot (personal access token)')).toBeTruthy();
+  });
+
+  it("says in the manage view when the replacement app's installation couldn't be confirmed", async () => {
+    await app('', '/settings/connections/github?github_app=install_failed', withReplacement);
+    expect((await screen.findByRole('alert')).textContent).toContain("Bothy couldn't confirm the app's installation with GitHub. Choose Check again, or install it again.");
+    expect(screen.getByText('Finish installing Bothy (ops) on GitHub to switch Bothy to it.')).toBeTruthy();
+  });
+
+  it('says the app Bothy made still is not installed when checking a broken connection', async () => {
+    const calls = await app('github-app-broken');
+    expect(await screen.findByText('GitHub stopped accepting Bothy (acme). If it was uninstalled, install it again.')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+    expect(await screen.findByText("Bothy (acme) isn't installed yet.")).toBeTruthy();
+    expect(posts(calls, '/api/github/apps/gha_01jacme00000000000000000000/check')).toHaveLength(1);
+    expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/test'))).toBe(false);
+  });
+
   it('creates a replacement app for an existing connection', async () => {
     const calls = await app('');
     await fireEvent.click(await screen.findByRole('button', { name: 'Replace token' }));
