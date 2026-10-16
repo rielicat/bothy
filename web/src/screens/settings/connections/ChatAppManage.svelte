@@ -38,6 +38,9 @@
   let unknownError = $state('');
   let groupError = $state('');
   let turningOff = $state<SpaceView | null>(null);
+  let deleting = $state<SpaceView | null>(null);
+  let deleteBusy = $state(false);
+  let deleteError = $state('');
 
   $effect.pre(() => {
     on = status.enabled;
@@ -46,7 +49,6 @@
 
   const groups = $derived(spaces.filter((s) => s.chat.channel === app));
   const line = $derived(status.enabled && status.state !== 'connected' ? appStatus(app, status, 0, true) : null);
-  const detail = $derived(status.detail ?? '');
   const tools = [
     { value: 'restricted', label: 'Answer questions' },
     { value: 'standard', label: 'Do work, with approval' },
@@ -142,6 +144,23 @@
     turningOff = null;
     if (s) void patchSpace(s, { enabled: false }, () => (s.enabled = true));
   }
+
+  async function deleteGroup() {
+    const s = deleting;
+    if (!s) return;
+    deleteBusy = true;
+    deleteError = '';
+    try {
+      await api.del(`/api/spaces/${encodeURIComponent(s.principal_id)}`);
+      deleting = null;
+      toast('Channel deleted.');
+      onchanged();
+    } catch {
+      deleteError = "Bothy couldn't delete it. Try again.";
+    } finally {
+      deleteBusy = false;
+    }
+  }
 </script>
 
 <ConnPage title={name}>
@@ -179,7 +198,11 @@
             <span class="block text-body font-medium text-text" data-copy-ignore>{s.title}</span>
             {#if meta}<span class="block text-small text-muted tabular-nums" data-copy-ignore>{meta}</span>{/if}
           </span>
-          <Switch label="Answers here" bind:checked={s.enabled} onchange={(v) => setAnswers(s, v)} />
+          <span class="flex items-center gap-2">
+            <Switch label="Answers here" bind:checked={s.enabled} onchange={(v) => setAnswers(s, v)} />
+            <!-- Only a channel that is off can go, so nobody deletes one people are using. -->
+            {#if !s.enabled}<Button size="sm" variant="ghost" aria-label="Delete {s.title}…" onclick={() => (deleting = s)}>Delete…</Button>{/if}
+          </span>
         </div>
         <div class="mt-3 grid gap-3 sm:grid-cols-2">
           <Select
@@ -220,14 +243,16 @@
       </p>
     {:else if app === 'discord'}
       <p class="text-body text-text">
-        {#if detail === "can't check who is in the server"}
+        {#if status.member_check === 'no_access'}
           Bothy can't check who's in your servers, so only people you let in from Approvals can message it.
         {:else}
           Members of a server where Bothy answers in a channel can message Bothy and use what it can read, such as your repositories and connected tools. Bots can't. Anything
           that changes something waits for an approver.
         {/if}
       </p>
-      {#if detail.endsWith("where it isn't on in any channel.")}<p class="mt-2 text-body text-muted">{detail} Remove it from servers you don't use.</p>{/if}
+      {#if status.idle_servers}
+        <p class="mt-2 text-body text-muted">Bothy is in {plural(status.idle_servers, 'server')} where it isn't on in any channel. Remove it from servers you don't use.</p>
+      {/if}
     {:else}
       <p class="text-body text-text">People you let in from Approvals.</p>
     {/if}
@@ -265,5 +290,20 @@
 </Dialog>
 
 <ConfirmDialog open={!!turningOff} title="Turn off Bothy in {turningOff?.title}?" confirm="Turn off" onconfirm={turnOff} onclose={keepOn}>
-  People who are only in {turningOff?.team_name || 'this server'} won't be able to message Bothy any more.
+  People who are only in {turningOff?.team_name || 'the Discord server'} won't be able to message Bothy any more.
 </ConfirmDialog>
+
+<ConfirmDialog
+  open={!!deleting}
+  title="Delete {deleting?.title}?"
+  confirm="Delete channel"
+  busyLabel="Deleting…"
+  busy={deleteBusy}
+  error={deleteError}
+  onconfirm={deleteGroup}
+  onclose={() => {
+    deleting = null;
+    deleteError = '';
+  }}
+  >This deletes its chats, files and schedules in Bothy. If Bothy is still in {deleting?.title}, the next message there brings it back to Approvals. This can't be undone.</ConfirmDialog
+>

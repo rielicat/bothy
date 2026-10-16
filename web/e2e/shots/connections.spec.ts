@@ -193,6 +193,7 @@ const states: ShotState[] = [
     setup: steps(click('Answers here', 'switch' as 'button'), (p) => p.waitForTimeout(300), click('Answers here', 'switch' as 'button'), dialog('Turn off Bothy in #general?')),
     full: false,
   },
+  { name: 'slack-delete-channel', route: '/settings/connections/slack', setup: steps(click('Delete #support…'), dialog('Delete #support?')), full: false },
   { name: 'discord-intent', route: '/settings/connections/discord', mock: 'channel-fail:intent', setup: steps(fill('Bot token', DISCORD), fill('Application ID', '112233445566778899', true), see('Message Content Intent turned on')) },
   { name: 'discord-failed', route: '/settings/connections/discord', mock: 'channel-fail:discord', setup: steps(fill('Bot token', DISCORD), fill('Application ID', '112233445566778899', true), see("Discord didn't accept")) },
 

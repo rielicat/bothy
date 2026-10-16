@@ -70,14 +70,19 @@ const identity: Record<string, string> = { slack: '@bothy', telegram: '@acme_bot
 const tokens: Record<string, string[]> = { slack: ['slack_app_token', 'slack_bot_token'], telegram: ['telegram_bot_token'], discord: ['discord_bot_token'] };
 const hasTokens = (n: string) => tokens[n].every((t) => security.secrets.some((s) => s.name === t));
 
+// Discord's member check (channel/discord) and idle servers (channel.Hub.Status); detail is the server's own sentence.
 const discordDetail: Record<string, string> = { 'no-access': "can't check who is in the server", idle: "Bothy is in 2 servers where it isn't on in any channel." };
 
 function appStatus(req: Req, n: string): ChannelStatus {
   const enabled = cfg(`channels.${n}.enabled`) === true || (n === 'discord' && discordOn(req));
   const ok = hasTokens(n) || (n === 'discord' && discordOn(req));
   const state = !enabled ? 'disabled' : !ok || channelDown.arg(req) === n ? 'auth_failed' : 'connected';
-  const detail = n === 'discord' && state === 'connected' ? discordDetail[discordOn.arg(req) ?? ''] : undefined;
-  return { name: n, enabled, state, detail, identity: ok ? identity[n] : undefined, team: n === 'slack' && ok ? 'Acme' : undefined, since: ago(60 * 24) };
+  const out: ChannelStatus = { name: n, enabled, state, identity: ok ? identity[n] : undefined, team: n === 'slack' && ok ? 'Acme' : undefined, since: ago(60 * 24) };
+  if (n === 'discord' && state === 'connected') {
+    const arg = discordOn.arg(req) ?? '';
+    Object.assign(out, { detail: discordDetail[arg], member_check: arg === 'no-access' ? 'no_access' : 'ok', idle_servers: arg === 'idle' ? 2 : 0 });
+  }
+  return out;
 }
 
 export const channels = (req?: Req) => ['slack', 'telegram', 'discord'].map((n) => appStatus(req as Req, n));
@@ -424,6 +429,14 @@ on('PATCH', '/api/spaces/{id}', async (req, res, m) => {
   const b = JSON.parse(await body(req));
   Object.assign(s, b, 'enabled' in b ? { reviewed_at: nowISO() } : {});
   json(res, 200, s);
+});
+on('DELETE', '/api/spaces/{id}', (_q, res, m) => {
+  const s = state.spaces.find((x) => x.principal_id === m[1]);
+  if (!s) return fail(res, 404, 'not_found', 'not found');
+  if (s.enabled) return fail(res, 400, 'bad_request', 'Turn it off first.');
+  state.spaces = state.spaces.filter((x) => x !== s);
+  emit('inbox.changed', { item: `group:${s.principal_id}` });
+  json(res, 204);
 });
 
 // ---- routes: MCP ----

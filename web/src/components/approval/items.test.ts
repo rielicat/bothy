@@ -95,7 +95,12 @@ describe('inbox items', () => {
       'Acme Community has 4,812 members.',
       'Turning this on lets all 4,812 members of Acme Community message Bothy, here and in direct messages.',
     ]);
-    expect(groupLines(g({ app: 'discord' }))).toEqual(['Turning this on lets everyone in this server message Bothy, here and in direct messages.']);
+    // Without the server's name it is "the Discord server", never "this server" (Bothy's own host).
+    expect(groupLines(g({ app: 'discord' }))).toEqual(['Turning this on lets everyone in the Discord server message Bothy, here and in direct messages.']);
+    expect(groupLines(g({ app: 'discord', members: 40 }))).toEqual([
+      'The Discord server has 40 members.',
+      'Turning this on lets all 40 members of the Discord server message Bothy, here and in direct messages.',
+    ]);
   });
 
   it('starts a new group chat on Answer questions, even one shared with other companies', () => {

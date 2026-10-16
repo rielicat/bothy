@@ -93,9 +93,10 @@ export function itemQuestion(i: InboxItem): string {
 export function groupLines(i: GroupChatItem): string[] {
   const lines: string[] = [];
   if (i.added_by) lines.push(`Added by ${i.added_by}.`);
-  const server = i.team || 'this server';
+  // "This server" would read as Bothy's own host (§14.1).
+  const server = i.team || 'the Discord server';
   if (i.app === 'discord') {
-    if (i.members > 0) lines.push(`${server} has ${plural(i.members, 'member')}.`);
+    if (i.members > 0) lines.push(`${i.team || 'The Discord server'} has ${plural(i.members, 'member')}.`);
     lines.push(`Turning this on lets ${i.members > 0 ? `all ${plural(i.members, 'member')} of` : 'everyone in'} ${server} message Bothy, here and in direct messages.`);
   } else {
     if (i.members > 0) lines.push(`${plural(i.members, 'person is', 'people are')} in this chat.`);

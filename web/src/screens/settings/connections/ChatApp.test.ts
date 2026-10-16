@@ -228,4 +228,28 @@ describe('Discord and Telegram', () => {
     await setup('discord', undefined, 'discord-on:idle');
     expect((await who()).getByText("Bothy is in 2 servers where it isn't on in any channel. Remove it from servers you don't use.")).toBeTruthy();
   });
+
+  it("reads the status's fields, not its sentence, so both lines can show at once", async () => {
+    const status = { name: 'discord', enabled: true, state: 'connected', identity: '@Bothy', since: '', detail: 'Worded some other way.', member_check: 'no_access', idle_servers: 1 };
+    await setup('discord', (m, url) => (m === 'GET' && url === '/api/channels' ? [status] : undefined), 'discord-on');
+    const s = await who();
+    expect(s.getByText("Bothy can't check who's in your servers, so only people you let in from Approvals can message it.")).toBeTruthy();
+    expect(s.getByText("Bothy is in 1 server where it isn't on in any channel. Remove it from servers you don't use.")).toBeTruthy();
+    expect(document.body.textContent).not.toContain('Worded some other way.');
+  });
+
+  it('deletes a group chat only once it is off, after a confirmation', async () => {
+    const calls = await setup('slack');
+    const del = await screen.findByRole('button', { name: 'Delete #support…' });
+    expect(screen.queryByRole('button', { name: 'Delete #eng…' })).toBeNull();
+    await fireEvent.click(del);
+    const dialog = await screen.findByRole('dialog', { name: 'Delete #support?' });
+    expect(dialog.textContent).toContain(
+      "This deletes its chats, files and schedules in Bothy. If Bothy is still in #support, the next message there brings it back to Approvals. This can't be undone.",
+    );
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Delete channel' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/spaces/spc_01jsupport0000000000000000')).toBe(true));
+    await waitFor(() => expect(screen.queryByText('#support')).toBeNull());
+  });
 });
