@@ -430,34 +430,73 @@ func TestGitHubAppCreated(t *testing.T) {
 		t.Error("the code was redeemed twice")
 	}
 
-	// A reload while the first request still redeems the code: the app is
-	// being made, so the page checks it rather than saying to delete it.
+	// A reload while the first request still redeems the code waits for it,
+	// then follows it to the install page.
 	gate, started := make(chan struct{}), make(chan struct{})
 	mk.mu.Lock()
 	mk.createGate, mk.createStarted = gate, started
 	mk.mu.Unlock()
 	fc, state = h.startFlow(h.admin)
 	path = "/api/github/apps/created?code=" + ghTestCode + "&state=" + url.QueryEscape(state)
-	first := make(chan *httptest.ResponseRecorder)
+	first, reload := make(chan *httptest.ResponseRecorder), make(chan *httptest.ResponseRecorder)
 	go func() { first <- h.browser(path, withCookie(fc)) }()
 	<-started
-	if q := landed(t, h.browser(path, withCookie(fc))); q.Get("github_app") != "check" {
-		t.Errorf("a reload while redeeming = %v", q)
+	go func() { reload <- h.browser(path, withCookie(fc)) }()
+	waiting := func(name string) {
+		t.Helper()
+		select {
+		case rec := <-reload:
+			t.Fatalf("%s didn't wait: %d %q", name, rec.Code, rec.Header().Get("Location"))
+		case <-time.After(50 * time.Millisecond):
+		}
 	}
+	waiting("a reload while redeeming")
 	close(gate)
-	if rec := <-first; rec.Code != http.StatusSeeOther || !strings.HasPrefix(rec.Header().Get("Location"), ghTestInstall+"?state=") {
+	rec = <-first
+	if rec.Code != http.StatusSeeOther || !strings.HasPrefix(rec.Header().Get("Location"), ghTestInstall+"?state=") {
 		t.Errorf("the first request = %d %q", rec.Code, rec.Header().Get("Location"))
 	}
-	mk.mu.Lock()
-	mk.createGate, mk.createStarted = nil, nil
-	mk.mu.Unlock()
-	// Since then, the same state with another code checks too.
-	if q := landed(t, h.browser("/api/github/apps/created?code=0ther&state="+url.QueryEscape(state), withCookie(fc))); q.Get("github_app") != "check" {
-		t.Errorf("the same state after creating = %v", q)
+	if again := <-reload; again.Code != http.StatusSeeOther || again.Header().Get("Location") != rec.Header().Get("Location") {
+		t.Errorf("the reload = %d %q, want %q", again.Code, again.Header().Get("Location"), rec.Header().Get("Location"))
 	}
+	// GitHub made a second app from its form with the same state (Back, then
+	// Create again): its code is never redeemed, so the page says to delete it.
+	notFinished("another code with the same state", h.browser("/api/github/apps/created?code=0ther&state="+url.QueryEscape(state), withCookie(fc)), "acme")
 	if n := len(mk.createCalls()); n != 2 {
 		t.Errorf("%d CreateApp calls, want 2", n)
 	}
+
+	// A reload while the first request fails to redeem the code lands where
+	// the first one did, which says to delete the app on GitHub.
+	gate = make(chan struct{})
+	mk.mu.Lock()
+	mk.createGate, mk.createErr = gate, errors.New("github: redeeming the new app's code: GitHub found nothing at POST /app-manifests/{code}/conversions")
+	mk.mu.Unlock()
+	fc, state = h.startFlow(h.admin)
+	path = "/api/github/apps/created?code=" + ghTestCode + "&state=" + url.QueryEscape(state)
+	go func() { first <- h.browser(path, withCookie(fc)) }()
+	<-started
+	notFinished("another code while redeeming", h.browser("/api/github/apps/created?code=0ther&state="+url.QueryEscape(state), withCookie(fc)), "acme")
+	gaveUp, leave := context.WithCancel(context.Background())
+	leave()
+	if q := landed(t, h.browser(path, withCookie(fc), withCtx(gaveUp))); q.Get("github_app") != "check" {
+		t.Errorf("a reload whose browser gave up = %v", q)
+	}
+	go func() { reload <- h.browser(path, withCookie(fc)) }()
+	waiting("a reload while failing")
+	close(gate)
+	for name, rec := range map[string]*httptest.ResponseRecorder{"the first request": <-first, "the reload": <-reload} {
+		if q := landed(t, rec); q.Get("github_app") != "exchange_failed" || q.Get("apps") != "acme" {
+			t.Errorf("%s = %v", name, q)
+		}
+		if sc := rec.Header().Get("Set-Cookie"); !strings.Contains(sc, "Max-Age=0") {
+			t.Errorf("%s: flow cookie not cleared: %q", name, sc)
+		}
+	}
+	notFinished("after the failure landed", h.browser(path, withCookie(fc)), "")
+	mk.mu.Lock()
+	mk.createGate, mk.createStarted, mk.createErr = nil, nil, nil
+	mk.mu.Unlock()
 
 	// Two tabs: the later start owns the cookie. The earlier tab's return is
 	// refused without ending the later flow, which still completes.

@@ -18,6 +18,7 @@ const (
 	ghExchanging                // GitHub's code is being redeemed
 	ghInstalling                // app created; waiting for GitHub's setup redirect
 	ghDone                      // the setup redirect arrived
+	ghFailed                    // redeeming the code failed; failure is where it landed
 )
 
 // ghAppFlow is one GitHub App manifest round trip. It lives in memory: a
@@ -33,6 +34,8 @@ type ghAppFlow struct {
 	codeHash   [32]byte // sha256 of the code redeemed, so Back to the old redirect resends the install address
 	prevState  [32]byte
 	phase      ghPhase
+	exchanged  chan struct{} // closed once the code's redemption ended, either way
+	failure    string
 	target     core.GitHubAppTarget
 	replaces   string
 	handoff    *core.GitHubAppHandoff
@@ -45,6 +48,9 @@ const (
 	ghFlowTTL         = time.Hour // GitHub's manifest codes live an hour too
 	maxGHFlows        = 64
 	maxGHFlowsPerUser = 4
+	// ghExchangeWait bounds how long the same redirect again waits for the
+	// first one to redeem the code: as long as CreateApp gives itself.
+	ghExchangeWait = 30 * time.Second
 )
 
 // ghAppFlows keeps flows by the sha256 of their flow cookie, the random
@@ -148,6 +154,19 @@ func (f *ghAppFlow) gaveState(state string) bool {
 	}
 	sh := sha32(state)
 	return subtle.ConstantTimeCompare(sh[:], f.stateHash[:]) == 1 || subtle.ConstantTimeCompare(sh[:], f.prevState[:]) == 1
+}
+
+// fail records where a flow whose code was being redeemed landed, so the
+// same redirect again lands there too.
+func (fs *ghAppFlows) fail(binding, outcome string) {
+	if binding == "" {
+		return
+	}
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if f, ok := fs.m[sha32(binding)]; ok && f.phase == ghExchanging {
+		f.phase, f.failure = ghFailed, outcome
+	}
 }
 
 func (fs *ghAppFlows) drop(binding string) {

@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/httpapi/dto"
@@ -223,50 +224,29 @@ func (s *Server) githubAppCreated(w http.ResponseWriter, r *http.Request, _ core
 	q := r.URL.Query()
 	code, state := q.Get("code"), q.Get("state")
 	binding := cookieValue(r, s.ghAppCookieName(r))
-	if f, found := s.ghFlows.get(binding); found && f.phase == ghInstalling && code != "" {
-		ch, sh := sha32(code), sha32(state)
-		// Back from GitHub's install page to this redirect: send the browser
-		// to the install page again rather than spending anything.
-		if subtle.ConstantTimeCompare(ch[:], f.codeHash[:]) == 1 && subtle.ConstantTimeCompare(sh[:], f.prevState[:]) == 1 && f.installURL != "" {
-			http.Redirect(w, r, f.installURL+"?state="+url.QueryEscape(f.state), http.StatusSeeOther)
-			return nil
-		}
-	}
 	var f ghAppFlow
 	found := false
 	if code != "" {
-		f, found = s.ghFlows.advance(binding, ghStarted, ghExchanging, state, func(g *ghAppFlow) { g.codeHash = sha32(code) })
+		f, found = s.ghFlows.advance(binding, ghStarted, ghExchanging, state, func(g *ghAppFlow) {
+			g.codeHash, g.exchanged = sha32(code), make(chan struct{})
+		})
 	}
 	if !found {
-		g, live := s.ghFlows.get(binding)
-		switch {
-		case !live:
-			s.clearGHAppCookie(w, r)
-		case (g.phase == ghExchanging || g.phase == ghInstalling) && g.gaveState(state):
-			// This redirect again (a reload) while the first one redeems the
-			// code, or since: the app is being made, so the page checks it.
-			return land(w, r, "check", nil)
-		}
-		// A stale or forged address, or a flow another tab started since:
-		// nothing is redeemed, and a flow still waiting keeps its cookie.
-		return land(w, r, "not_finished", nil)
+		return s.createdAgain(w, r, binding, code, state)
 	}
+	defer close(f.exchanged)
 	a, signedIn := s.resumeAdmin(r.Context(), f)
 	if !signedIn {
-		s.ghFlows.drop(binding)
-		s.clearGHAppCookie(w, r)
-		return land(w, r, "not_finished", &f)
+		return s.exchangeFailed(w, r, binding, "not_finished", &f)
 	}
 	app, err := mk.CreateApp(withOrigin(r, a, nil), code, f.target, f.replaces, a.User)
 	if err != nil {
-		s.ghFlows.drop(binding)
-		s.clearGHAppCookie(w, r)
 		if errors.Is(err, core.ErrSealed) {
-			return land(w, r, "sealed", &f)
+			return s.exchangeFailed(w, r, binding, "sealed", &f)
 		}
 		// CreateApp's errors never carry the code.
 		s.log.Warn("github: creating the app failed", "request_id", infoOf(r).id, "err", s.redact(err.Error()))
-		return land(w, r, "exchange_failed", &f)
+		return s.exchangeFailed(w, r, binding, "exchange_failed", &f)
 	}
 	next := randomToken()
 	if _, found := s.ghFlows.advance(binding, ghExchanging, ghInstalling, state, func(g *ghAppFlow) {
@@ -279,6 +259,59 @@ func (s *Server) githubAppCreated(w http.ResponseWriter, r *http.Request, _ core
 	s.setGHAppCookie(w, r, binding, int(ghFlowTTL.Seconds()))
 	http.Redirect(w, r, app.InstallURL+"?state="+url.QueryEscape(next), http.StatusSeeOther)
 	return nil
+}
+
+// exchangeFailed lands outcome and keeps it on the flow until the flow
+// expires, for the same redirect again.
+func (s *Server) exchangeFailed(w http.ResponseWriter, r *http.Request, binding, outcome string, f *ghAppFlow) error {
+	s.ghFlows.fail(binding, outcome)
+	s.clearGHAppCookie(w, r)
+	return land(w, r, outcome, f)
+}
+
+// createdAgain answers a created redirect that redeems nothing. The flow's
+// state with its code is this redirect again: Back from GitHub's install
+// page, or a reload, which waits while the first request redeems the code
+// and then follows it. With another code, GitHub made a second app from its
+// form (Back, then Create again), whose code is never redeemed.
+func (s *Server) createdAgain(w http.ResponseWriter, r *http.Request, binding, code, state string) error {
+	g, live := s.ghFlows.get(binding)
+	switch {
+	case !live:
+		s.clearGHAppCookie(w, r)
+		return land(w, r, "not_finished", nil)
+	case code == "" || g.phase == ghStarted || !g.gaveState(state):
+		// A stale or forged address, or a flow another tab started since:
+		// nothing is redeemed, and a flow still waiting keeps its cookie.
+		return land(w, r, "not_finished", nil)
+	}
+	if ch := sha32(code); subtle.ConstantTimeCompare(ch[:], g.codeHash[:]) != 1 {
+		return land(w, r, "not_finished", &g)
+	}
+	if g.phase == ghExchanging {
+		t := time.NewTimer(ghExchangeWait)
+		select {
+		case <-g.exchanged:
+		case <-t.C:
+		case <-r.Context().Done():
+		}
+		t.Stop()
+		if g, live = s.ghFlows.get(binding); !live {
+			// Replaced meanwhile, like the first request's own landing.
+			return land(w, r, "check", nil)
+		}
+	}
+	switch {
+	case g.phase == ghInstalling && g.installURL != "":
+		http.Redirect(w, r, g.installURL+"?state="+url.QueryEscape(g.state), http.StatusSeeOther)
+		return nil
+	case g.phase == ghFailed:
+		s.ghFlows.drop(binding)
+		s.clearGHAppCookie(w, r)
+		return land(w, r, g.failure, &g)
+	}
+	// Still redeeming: the app may exist soon, so the page checks for it.
+	return land(w, r, "check", nil)
 }
 
 // githubAppInstalled is GitHub's redirect after an installation, or after
