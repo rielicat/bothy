@@ -30,7 +30,7 @@ describe('Allowed without asking', () => {
     expect(screen.getByText('www.edinburghvenues.example')).toBeTruthy();
     expect(screen.getByText('pytest*')).toBeTruthy();
     expect(screen.getAllByText(/^For Sam ·/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/In the group chat “Ops team” ·/)).toBeTruthy();
+    expect(screen.getByText(/^For Alex Kim · Slack · added by Sam · Slack ·/)).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/grt_|usr_|shell/);
   });
 

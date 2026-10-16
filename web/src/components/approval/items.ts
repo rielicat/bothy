@@ -6,7 +6,7 @@ import type { Inbox, InboxItem as ServerItem, MCPPin } from '../../lib/api/types
 import { appName } from '../../lib/cardcopy';
 import { lineDiff } from '../../lib/diff';
 import { plural, serviceName } from '../../lib/format';
-import type { InboxItem } from './types';
+import type { GroupChatItem, InboxItem } from './types';
 
 const enc = encodeURIComponent;
 const pretty = (p: MCPPin) => JSON.stringify(p.definition ?? {}, null, 2);
@@ -40,7 +40,9 @@ function fromServer(i: ServerItem): InboxItem | null {
     }
     case 'group_chat': {
       const g = i.group;
-      return g ? { ...base, type: 'group_chat', app: g.space.chat.channel, chat: g.space.title, space: g.space.principal_id, added_by: g.added_by } : null;
+      if (!g) return null;
+      const s = g.space;
+      return { ...base, type: 'group_chat', app: s.chat.channel, chat: s.title, space: s.principal_id, added_by: g.added_by, team: s.team_name, members: s.members, external: s.external, mention_only: s.mention_only };
     }
   }
   // Approvals and note suggestions arrive with GET /api/approvals.
@@ -57,7 +59,7 @@ export async function loadItems(): Promise<InboxItem[]> {
   }
 }
 
-export function decideItem(item: InboxItem, choice: string, extra: { side_effects?: Record<string, string>; user_id?: string } = {}): Promise<unknown> {
+export function decideItem(item: InboxItem, choice: string, extra: { side_effects?: Record<string, string>; tool_profile?: string } = {}): Promise<unknown> {
   switch (item.type) {
     case 'mcp_review':
       if (choice === 'turn_off') return api.patch('/api/config', { set: { [`mcp.servers.${item.server}.enabled`]: false } });
@@ -67,10 +69,10 @@ export function decideItem(item: InboxItem, choice: string, extra: { side_effect
     case 'skill_review':
       return api.patch(`/api/skills/${enc(item.skill)}`, choice === 'approve' ? { enabled: true, hash: item.hash } : { enabled: false });
     case 'unknown_sender':
-      return api.patch(`/api/identities/${enc(item.app)}/${enc(item.external_id)}`, choice === 'link' ? { status: 'linked', user_id: extra.user_id } : { status: choice === 'block' ? 'blocked' : 'guest' });
+      return api.patch(`/api/identities/${enc(item.app)}/${enc(item.external_id)}`, { status: choice === 'block' ? 'blocked' : 'teammate' });
     case 'group_chat':
       // Any change marks the group as seen; "Ignore" leaves it off.
-      return api.patch(`/api/spaces/${enc(item.space)}`, { enabled: choice === 'turn_on' });
+      return api.patch(`/api/spaces/${enc(item.space)}`, choice === 'turn_on' ? { enabled: true, tool_profile: extra.tool_profile ?? 'restricted' } : { enabled: false });
   }
 }
 
@@ -85,6 +87,22 @@ export function itemQuestion(i: InboxItem): string {
     case 'group_chat':
       return `Bothy was added to ${i.chat} in ${appName(i.app)}`;
   }
+}
+
+/** The lines under a new group chat: who added it, who is there and who turning it on lets in. */
+export function groupLines(i: GroupChatItem): string[] {
+  const lines: string[] = [];
+  if (i.added_by) lines.push(`Added by ${i.added_by}.`);
+  const server = i.team || 'this server';
+  if (i.app === 'discord') {
+    if (i.members > 0) lines.push(`${server} has ${plural(i.members, 'member')}.`);
+    lines.push(`Turning this on lets ${i.members > 0 ? `all ${plural(i.members, 'member')} of` : 'everyone in'} ${server} message Bothy, here and in direct messages.`);
+  } else {
+    if (i.members > 0) lines.push(`${plural(i.members, 'person is', 'people are')} in this chat.`);
+    if (i.app === 'slack' && i.external) lines.push("People from other companies are in this channel. They'll see Bothy's replies, though Bothy won't answer them.");
+    if (i.app === 'telegram') lines.push("Anyone in this group can use Bothy once it's on, not only people you let in.");
+  }
+  return lines;
 }
 
 /** The collapsed row's source: "2 actions to review", "@jordan_k". */

@@ -122,7 +122,7 @@ describe('Settings → People', () => {
     await waitFor(() => expect(screen.getByRole('dialog', { name: 'New password for Jordan Kim' })).toBe(dialog));
   });
 
-  it("opens Add person when setup's \"Add your team\" sends someone here", async () => {
+  it("opens Add person when setup's \"Add people\" sends someone here", async () => {
     router.navigate('/settings/people?add=1');
     await open();
     expect(await screen.findByRole('dialog', { name: 'Add person' })).toBeTruthy();
@@ -131,7 +131,148 @@ describe('Settings → People', () => {
 
   it('invites the owner to add people when there is nobody else', async () => {
     await open('people-solo');
-    expect(await screen.findByText("It's just you so far. Add teammates so they get their own sign-in.")).toBeTruthy();
+    expect(await screen.findByText("It's just you so far. Add people so they get their own sign-in.")).toBeTruthy();
     expect(screen.getAllByRole('button', { name: 'Add person' })).toHaveLength(1);
+    // People in chat apps show whatever the accounts are.
+    expect(await screen.findByRole('heading', { name: 'In chat apps' })).toBeTruthy();
+  });
+});
+
+describe('Settings → People → In chat apps', () => {
+  const section = async () => within((await screen.findByRole('heading', { name: 'In chat apps' })).closest('section')!);
+  const rowOf = (s: Awaited<ReturnType<typeof section>>, name: string) => s.getByText(name, { selector: 'p' }).closest('li')!;
+
+  it('lists approvers first, then by when they were last active, then blocked people, with spending today', async () => {
+    await open();
+    const s = await section();
+    await s.findByText('Sam', { selector: 'p' });
+    expect(s.getByText(/^People who can approve get requests from everyone in chat apps/)).toBeTruthy();
+    const names = [...s.getAllByRole('listitem')].map((li) => li.querySelector('p')?.textContent);
+    expect(names).toEqual(['Sam', 'Alex Kim', 'Morgan Reyes', 'Riley Park', 'Casey']);
+    expect(rowOf(s, 'Alex Kim').textContent).toContain('@alexk · Slack');
+    expect(rowOf(s, 'Alex Kim').textContent).toMatch(/Active .+ · \$1\.15 of \$2\.00 today/);
+    expect(rowOf(s, 'Riley Park').textContent).toContain('@riley · Slack · No longer in Acme');
+    expect(rowOf(s, 'Casey').textContent).toContain('Telegram · Blocked');
+    expect(within(rowOf(s, 'Casey')).queryByRole('switch')).toBeNull();
+    expect(within(rowOf(s, 'Riley Park')).getByRole('switch', { name: 'Can approve: Riley Park' }).getAttribute('aria-disabled')).toBe('true');
+    expect(document.body.textContent).not.toMatch(/teammate|U02ALEX|spc_/i);
+  });
+
+  it('lets someone approve with the switch, and says so', async () => {
+    const calls = await open();
+    const s = await section();
+    const sw = await s.findByRole('switch', { name: 'Can approve: Alex Kim' });
+    expect(sw.getAttribute('aria-checked')).toBe('false');
+    await fireEvent.click(sw);
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url === '/api/identities/slack/U02ALEX')).toBe(true));
+    expect(JSON.parse(calls.find((c) => c.method === 'PATCH' && c.url === '/api/identities/slack/U02ALEX')!.body)).toEqual({ can_approve: true });
+    await waitFor(() => expect(sw.getAttribute('aria-checked')).toBe('true'));
+  });
+
+  it('puts the switch back and says so under the row when the change fails', async () => {
+    installApi({ override: (m, url) => (m === 'PATCH' && url.startsWith('/api/identities/') ? new Response('{"error":{"code":"internal","message":"x"}}', { status: 500 }) : undefined) });
+    session.ready = false;
+    await session.init();
+    setCsrf('mock-csrf');
+    settingsConfig.view = null;
+    render(Settings, { params: { group: 'people', page: 'people' } });
+    const s = await section();
+    const sw = await s.findByRole('switch', { name: 'Can approve: Alex Kim' });
+    await fireEvent.click(sw);
+    expect(await within(rowOf(s, 'Alex Kim')).findByText("Couldn't save. Try again.")).toBeTruthy();
+    await waitFor(() => expect(sw.getAttribute('aria-checked')).toBe('false'));
+  });
+
+  it('sets a daily limit for one person, keyed by their chat app', async () => {
+    const calls = await open();
+    const s = await section();
+    await fireEvent.click(await s.findByRole('button', { name: 'Options for Alex Kim' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Daily limit…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Daily limit for Alex Kim' });
+    expect((within(dialog).getByRole('radio', { name: 'Use the default ($2.00)' }) as HTMLInputElement).checked).toBe(true);
+    await fireEvent.click(within(dialog).getByRole('radio', { name: 'Set a limit' }));
+    await fireEvent.input(within(dialog).getByLabelText('Daily limit'), { target: { value: '5' } });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(calls.filter((c) => c.method === 'PATCH').map((c) => JSON.parse(c.body).set)).toContainEqual({ 'budgets.per_user_daily_usd.slack:U02ALEX': 5 }));
+    await waitFor(() => expect(rowOf(s, 'Alex Kim').textContent).toMatch(/\$1\.15 of \$5\.00 today/));
+  });
+
+  it('saves the share of the daily limit chat apps may use', async () => {
+    const calls = await open();
+    const share = (await screen.findByLabelText('Share of the daily limit for chat apps')) as HTMLSelectElement;
+    expect([...share.options].map((o) => o.text)).toEqual(['40%', '60% (recommended)', '80%', 'All of it']);
+    expect(share.value).toBe('60');
+    expect(screen.getByText("Leaves the rest of Bothy's $3.00 daily limit for the web.")).toBeTruthy();
+    await fireEvent.change(share, { target: { value: '100' } });
+    await waitFor(() => expect(calls.filter((c) => c.method === 'PATCH').map((c) => JSON.parse(c.body).set)).toContainEqual({ 'budgets.chat_share_pct': 100 }));
+  });
+
+  it('blocks only after the confirmation, and unblocks', async () => {
+    const calls = await open();
+    const s = await section();
+    await fireEvent.click(await s.findByRole('button', { name: 'Options for Morgan Reyes' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Block…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Block Morgan Reyes?' });
+    expect(dialog.textContent).toContain("Bothy stops answering them in Discord and stops anything it's doing for them. Their chats are kept.");
+    expect(calls.some((c) => c.method === 'PATCH' && c.url.startsWith('/api/identities/'))).toBe(false);
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Block' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url === '/api/identities/discord/1188221100445566' && JSON.parse(c.body).status === 'blocked')).toBe(true));
+    await waitFor(() => expect(rowOf(s, 'Morgan Reyes').textContent).toContain('Discord · Blocked'));
+    await fireEvent.click(s.getByRole('button', { name: 'Options for Morgan Reyes' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Unblock' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url === '/api/identities/discord/1188221100445566' && JSON.parse(c.body).status === 'teammate')).toBe(true));
+  });
+
+  it("deletes a blocked person's data after a confirmation that says they stay blocked", async () => {
+    const calls = await open();
+    const s = await section();
+    await fireEvent.click(await s.findByRole('button', { name: 'Options for Casey' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete their data…' }));
+    const dialog = await screen.findByRole('dialog', { name: "Delete Casey's data?" });
+    expect(dialog.textContent).toContain("This deletes their chats, files, notes and schedules in Bothy. It can't be undone. They stay blocked.");
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/teammates/telegram/8830')).toBe(true));
+  });
+
+  it('offers to delete the data of someone no longer in the team, but not of others', async () => {
+    await open();
+    const s = await section();
+    await fireEvent.click(await s.findByRole('button', { name: 'Options for Riley Park' }));
+    expect(await screen.findByRole('menuitem', { name: 'Delete their data…' })).toBeTruthy();
+    await fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    await fireEvent.click(s.getByRole('button', { name: 'Options for Sam' }));
+    await screen.findByRole('menuitem', { name: 'Block…' });
+    expect(screen.queryByRole('menuitem', { name: 'Delete their data…' })).toBeNull();
+  });
+
+  it('says when nobody can approve in chat apps yet', async () => {
+    installApi({ override: (m, url) => (m === 'GET' && url === '/api/teammates' ? [{ channel: 'telegram', external_id: '1', name: 'Jo', status: 'teammate', can_approve: false, left: false, last_seen_at: new Date().toISOString(), spent_today_micros: 0 }] : undefined) });
+    session.ready = false;
+    await session.init();
+    setCsrf('mock-csrf');
+    settingsConfig.view = null;
+    render(Settings, { params: { group: 'people', page: 'people' } });
+    expect(await screen.findByText('Nobody can approve in chat apps yet, so requests from chat apps wait for an admin in Approvals.')).toBeTruthy();
+  });
+
+  it('finds someone by name once the list is long', async () => {
+    const many = Array.from({ length: 22 }, (_, i) => ({ channel: 'slack', external_id: `U${i}`, name: `Person ${i}`, status: 'teammate', can_approve: i === 0, left: false, last_seen_at: new Date().toISOString(), spent_today_micros: 0 }));
+    installApi({ override: (m, url) => (m === 'GET' && url === '/api/teammates' ? many : undefined) });
+    session.ready = false;
+    await session.init();
+    setCsrf('mock-csrf');
+    settingsConfig.view = null;
+    render(Settings, { params: { group: 'people', page: 'people' } });
+    const find = await screen.findByLabelText('Find someone');
+    await fireEvent.input(find, { target: { value: 'person 21' } });
+    const s = await section();
+    expect(s.getAllByRole('listitem')).toHaveLength(1);
+    await fireEvent.input(find, { target: { value: 'nobody' } });
+    expect(await s.findByText('No one matches “nobody”.')).toBeTruthy();
+  });
+
+  it('says how to appear here when nobody has messaged Bothy in a chat app', async () => {
+    await open('chat-people-none');
+    expect(await screen.findByText('Nobody has messaged Bothy in a chat app yet. Message Bothy in a chat app to appear here.')).toBeTruthy();
   });
 });

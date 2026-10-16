@@ -1,17 +1,18 @@
-// Connections (C8): chat apps, pairing, linked accounts, group chats, MCP
-// servers, GitHub with its repositories and deploy environments, and the web
-// search check. Chat app and MCP state follows the config the settings domain
-// keeps, so turning things on and off in the UI shows up in their status.
-import type { ChannelIdentity, ChannelStatus, Entry, MCPPin, MCPStatus, SideEffect, Space } from '../../src/lib/api/types.gen.ts';
+// Connections (C8): chat apps, the people Bothy answers in them, group chats,
+// MCP servers, GitHub with its repositories and deploy environments, and the
+// web search check. Chat app and MCP state follows the config the settings
+// domain keeps, so turning things on and off in the UI shows up in their status.
+import type { ChannelIdentity, ChannelStatus, Entry, MCPPin, MCPStatus, SideEffect, SpaceView, Teammate } from '../../src/lib/api/types.gen.ts';
 import type { GitHubApp, GitHubConnection, GitHubProbe, GitHubRepo, GitHubRepoAccess, ReleaseEnvironment, Workflow } from '../../src/screens/settings/connections/types.ts';
-import { ago, ahead, body, clone, emit, fail, json, member, nowISO, on, onReset, owner, scenario, sleep, ZERO, type Req } from './core.ts';
+import { ago, ahead, body, clone, fail, json, member, nowISO, on, onReset, owner, scenario, sleep, ZERO, type Req } from './core.ts';
 import { state as security } from './security.ts';
 import { state as settings } from './settings.ts';
 
 const offApps = scenario('chat-apps-off', 'Every chat app is turned off; ones with saved tokens read "Off".', 'connections');
 const channelDown = scenario('channel-down', "channel-down:<slack|telegram|discord> makes that app's status \"Can't connect\" (rejected token).", 'connections');
 const channelFail = scenario('channel-fail', 'Connection tests fail; channel-fail:<slack|telegram|discord|intent> picks the app or Discord intent error.', 'connections');
-const paired = scenario('paired', 'paired:<app> links the account a moment after a pairing code is made.', 'connections');
+const discordOn = scenario('discord-on', "Discord is connected too; discord-on:<no-access|idle> adds that status: it can't check members, or sits in a server with no channel on.", 'connections');
+const nobody = scenario('chat-people-none', 'Nobody has messaged Bothy in a chat app.', 'connections');
 const noTools = scenario('mcp-none', 'No MCP servers are set up.', 'connections');
 const installing = scenario('mcp-installing', 'A Sentry MCP server is being installed.', 'connections');
 const toolError = scenario('mcp-error', "The Linear MCP server doesn't answer.", 'connections');
@@ -69,57 +70,115 @@ const identity: Record<string, string> = { slack: '@bothy', telegram: '@acme_bot
 const tokens: Record<string, string[]> = { slack: ['slack_app_token', 'slack_bot_token'], telegram: ['telegram_bot_token'], discord: ['discord_bot_token'] };
 const hasTokens = (n: string) => tokens[n].every((t) => security.secrets.some((s) => s.name === t));
 
-// The Slack workspace name isn't in ChannelStatus yet; it shows the copy §12.1 asks the server for.
-function appStatus(req: Req, n: string): ChannelStatus & { workspace?: string } {
-  const enabled = cfg(`channels.${n}.enabled`) === true;
-  const ok = hasTokens(n);
+const discordDetail: Record<string, string> = { 'no-access': "can't check who is in the server", idle: "Bothy is in 2 servers where it isn't on in any channel." };
+
+function appStatus(req: Req, n: string): ChannelStatus {
+  const enabled = cfg(`channels.${n}.enabled`) === true || (n === 'discord' && discordOn(req));
+  const ok = hasTokens(n) || (n === 'discord' && discordOn(req));
   const state = !enabled ? 'disabled' : !ok || channelDown.arg(req) === n ? 'auth_failed' : 'connected';
-  return {
-    name: n,
-    enabled,
-    state,
-    identity: ok ? identity[n] : undefined,
-    workspace: n === 'slack' && ok ? 'Acme' : undefined,
-    since: ago(60 * 24),
-    deep_links: n === 'telegram',
-  };
+  const detail = n === 'discord' && state === 'connected' ? discordDetail[discordOn.arg(req) ?? ''] : undefined;
+  return { name: n, enabled, state, detail, identity: ok ? identity[n] : undefined, team: n === 'slack' && ok ? 'Acme' : undefined, since: ago(60 * 24) };
 }
 
 export const channels = (req?: Req) => ['slack', 'telegram', 'discord'].map((n) => appStatus(req as Req, n));
 
+// People in chat apps (internal/auth teammates): Sam and Alex are members of
+// the Slack workspace, Morgan of the Discord server, Riley has left Acme,
+// Casey is blocked and Jordan waits on Telegram, which can't say who is in the team.
+const person = (channel: string, external_id: string, display_name: string, username: string, extra: Partial<ChannelIdentity>): ChannelIdentity => ({
+  channel,
+  external_id,
+  username,
+  display_name,
+  status: 'teammate',
+  admitted_via: 'membership',
+  can_approve: false,
+  membership: 'member',
+  membership_at: ago(20),
+  dm_chat_id: external_id,
+  first_seen_at: ago(60 * 24 * 14),
+  last_seen_at: ago(240),
+  ...extra,
+});
+
+export const PEOPLE = { sam: 'spc_01jsamslack0000000000000000', alex: 'spc_01jalexslack000000000000000', morgan: 'spc_01jmorgandisc00000000000000', riley: 'spc_01jrileyslack00000000000000', casey: 'spc_01jcaseytg000000000000000000' };
+
 export const identities: ChannelIdentity[] = [
-  { channel: 'telegram', external_id: '5512', username: 'sam', display_name: 'Sam', status: 'linked', user_id: owner.id, dm_chat_id: '5512', first_seen_at: ago(60 * 24 * 20), last_seen_at: ago(95) },
-  { channel: 'slack', external_id: 'U01SAM', username: 'sam', display_name: 'Sam', status: 'linked', user_id: owner.id, dm_chat_id: 'D01SAM', first_seen_at: ago(60 * 24 * 14), last_seen_at: ago(30) },
-  { channel: 'slack', external_id: 'U02ALEX', username: 'alex', display_name: 'Alex', status: 'linked', user_id: member.id, dm_chat_id: 'D02ALEX', first_seen_at: ago(60 * 24 * 9), last_seen_at: ago(240) },
-  {
-    channel: 'slack',
-    external_id: 'U03JORDAN',
-    username: 'jordan',
-    display_name: 'Jordan Lee',
+  person('slack', 'U01SAM', 'Sam', 'sam', { principal_id: PEOPLE.sam, can_approve: true, dm_chat_id: 'D01SAM', last_seen_at: ago(30) }),
+  person('slack', 'U02ALEX', 'Alex Kim', 'alexk', { principal_id: PEOPLE.alex, dm_chat_id: 'D02ALEX' }),
+  person('discord', '1188221100445566', 'Morgan Reyes', 'morgan', { principal_id: PEOPLE.morgan, last_seen_at: ago(60 * 26) }),
+  person('slack', 'U04RILEY', 'Riley Park', 'riley', { principal_id: PEOPLE.riley, membership: 'outsider', dm_chat_id: 'D04RILEY', last_seen_at: ago(60 * 24 * 6) }),
+  person('telegram', '8830', 'Casey', '', { principal_id: PEOPLE.casey, status: 'blocked', admitted_via: 'admin', membership: 'unknown', last_seen_at: ago(60 * 24 * 3) }),
+  person('telegram', '7215', 'Jordan Lee', 'jordan_l', {
     status: 'pending',
+    admitted_via: '',
+    membership: 'unknown',
     first_seen_at: ago(300),
     last_seen_at: ago(300),
     first_text: 'Hi, I run the Edinburgh office. Can Bothy send me the weekly sales summary too?',
-  },
+  }),
 ];
 
-const space = (principal_id: string, channel: string, chat_id: string, title: string, enabled: boolean, mention_only: boolean): Space => ({
+// What each person in a chat app spent today, by principal.
+const spentToday: Record<string, number> = { [PEOPLE.sam]: 420_000, [PEOPLE.alex]: 1_150_000, [PEOPLE.morgan]: 80_000 };
+
+const space = (principal_id: string, channel: string, chat_id: string, title: string, extra: Partial<SpaceView>): SpaceView => ({
   principal_id,
   kind: 'group',
   chat: { channel, chat_id, kind: 'group' },
   title,
-  owner_user_id: owner.id,
-  enabled,
-  mention_only,
+  members: 0,
+  external: false,
+  enabled: true,
+  mention_only: true,
+  tool_profile: 'restricted',
+  reviewed_at: ago(60 * 24 * 9),
   created_at: ago(60 * 24 * 9),
   updated_at: ago(60 * 24 * 9),
+  ...extra,
 });
 
-export const spaces: Space[] = [
-  space('spc_01jeng00000000000000000000', 'slack', 'C01ENG', '#eng', true, true),
-  space('spc_01jsupport0000000000000000', 'slack', 'C02SUP', '#support', false, false),
-  space('spc_01jfamily0000000000000000', 'telegram', '-100223', 'Ops team', true, true),
+export const spaces: SpaceView[] = [
+  space('spc_01jeng00000000000000000000', 'slack', 'C01ENG', '#eng', { team_name: 'Acme', members: 24, tool_profile: 'standard' }),
+  // New since an admin last looked: both wait in Approvals.
+  space('spc_01jsupport0000000000000000', 'slack', 'C02SUP', '#support', {
+    team_name: 'Acme',
+    members: 57,
+    external: true,
+    enabled: false,
+    mention_only: false,
+    added_by: 'U01SAM',
+    reviewed_at: ZERO,
+    created_at: ago(90),
+    updated_at: ago(90),
+  }),
+  space('spc_01jcommunity00000000000000', 'discord', '1300000000000000001', '#general', { team_id: '1290000000000000001', team_name: 'Acme Community', members: 4812, enabled: false, reviewed_at: ZERO, created_at: ago(45), updated_at: ago(45) }),
+  space('spc_01jfamily0000000000000000', 'telegram', '-100223', 'Ops team', { members: 6 }),
 ];
+
+const name = (i: ChannelIdentity) => i.display_name || (i.username ? `@${i.username}` : 'Someone');
+
+/** As httpapi teammate() sends it. */
+export function teammate(i: ChannelIdentity): Teammate {
+  return {
+    channel: i.channel,
+    external_id: i.external_id,
+    name: name(i),
+    handle: i.username || undefined,
+    status: i.status,
+    can_approve: i.can_approve,
+    left: i.membership === 'outsider',
+    last_seen_at: i.last_seen_at,
+    spent_today_micros: spentToday[i.principal_id ?? ''] ?? 0,
+    principal_id: i.principal_id,
+  };
+}
+
+/** The identity's name for an InboxGroup's added_by. */
+export const addedBy = (sp: SpaceView): string => {
+  const i = state.identities.find((x) => x.channel === sp.chat.channel && x.external_id === sp.added_by);
+  return i ? name(i) : '';
+};
 
 // ---- MCP servers ----
 
@@ -247,7 +306,7 @@ function appConnection(): GitHubConnection {
 
 export const state = {
   identities: [] as ChannelIdentity[],
-  spaces: [] as Space[],
+  spaces: [] as SpaceView[],
   mcp: [] as MCPStatus[],
   pins: [] as MCPPin[],
   github: null as GitHubConnection | null,
@@ -296,11 +355,11 @@ onReset(() => {
     for (const [k, v] of Object.entries(e)) seed(`releases.environments.${n}.${k}`, v);
 });
 
-// ---- routes: chat apps, pairing, identities, group chats ----
+// ---- routes: chat apps, people in them, group chats ----
 
 on('GET', '/api/channels', (req, res) => {
   const list = channels(req);
-  json(res, 200, offApps(req) ? list.map((c) => ({ ...c, enabled: false, state: 'disabled', identity: undefined, workspace: undefined })) : list);
+  json(res, 200, offApps(req) ? list.map((c) => ({ ...c, enabled: false, state: 'disabled', identity: undefined, team: undefined })) : list);
 });
 
 const rawFailure: Record<string, string> = {
@@ -322,27 +381,47 @@ on('GET', '/api/channels/slack/manifest', (_q, res) => {
 });
 on('GET', '/api/channels/discord/invite', (_q, res) => json(res, 200, { url: 'https://discord.com/oauth2/authorize?client_id=123&scope=bot%20applications.commands&permissions=274877975552' }));
 
-on('POST', '/api/pairing', (req, res) => {
-  const app = paired.arg(req);
-  const linked = app ? { channel: app, external_id: 'U01SAM', display: '@sam' } : { channel: 'telegram', external_id: '5512', display: '@sam' };
-  setTimeout(() => emit('pairing.linked', linked), app ? 800 : 6000);
-  json(res, 200, { code: '7KQ2-MX4D', expires_at: new Date(Date.now() + 15 * 60_000).toISOString(), deep_links: { telegram: 'https://t.me/acme_bothy_bot?start=7KQ2MX4D' } });
-});
-on('POST', '/api/pairing/approve', (_q, res) => json(res, 200, state.identities[3]));
-on('GET', '/api/identities', (_q, res) => json(res, 200, state.identities));
+on('GET', '/api/identities', (req, res) => json(res, 200, nobody(req) ? [] : state.identities));
+const appWord: Record<string, string> = { slack: 'Slack', telegram: 'Telegram', discord: 'Discord' };
+// auth.SetTeammate's rules and refusals.
 on('PATCH', '/api/identities/{channel}/{external}', async (req, res, m) => {
   const i = state.identities.find((x) => x.channel === m[1] && x.external_id === m[2]);
-  if (i) Object.assign(i, JSON.parse(await body(req)));
-  json(res, 200, i);
+  if (!i) return fail(res, 404, 'not_found', 'not found');
+  const b = JSON.parse(await body(req)) as { status?: string; can_approve?: boolean };
+  if (b.status === 'teammate' && i.status === 'pending') {
+    if (i.membership === 'outsider') return fail(res, 400, 'bad_request', `${appWord[i.channel]} says they aren't in the team.`);
+    if (i.membership !== 'unknown')
+      return fail(res, 400, 'bad_request', `${appWord[i.channel]} decides who can use Bothy there. They get in when they message Bothy, if they're in the team.`);
+    Object.assign(i, { status: 'teammate', admitted_via: 'admin', principal_id: i.principal_id ?? `spc_01j${i.external_id.padEnd(23, '0')}`, first_text: '' });
+  } else if (b.status === 'teammate') i.status = 'teammate';
+  else if (b.status === 'blocked') Object.assign(i, { status: 'blocked', can_approve: false });
+  else if (b.status) return fail(res, 400, 'bad_request', 'status must be teammate or blocked');
+  if (b.can_approve !== undefined) {
+    if (b.can_approve && i.status !== 'teammate') return fail(res, 400, 'bad_request', 'Let them in first.');
+    if (b.can_approve && i.membership === 'outsider') return fail(res, 400, 'bad_request', "They aren't in the team any more.");
+    i.can_approve = b.can_approve;
+  }
+  json(res, 200, teammate(i));
 });
-on('DELETE', '/api/identities/{channel}/{external}', (_q, res, m) => {
-  state.identities = state.identities.filter((x) => !(x.channel === m[1] && x.external_id === m[2]));
+// Approvers first, then by when they were last active, then blocked people.
+on('GET', '/api/teammates', (req, res) => {
+  const rank = (i: ChannelIdentity) => (i.status === 'blocked' ? 2 : i.can_approve ? 0 : 1);
+  const list = nobody(req) ? [] : state.identities.filter((i) => i.status === 'teammate' || i.status === 'blocked');
+  json(res, 200, list.sort((a, b) => rank(a) - rank(b) || b.last_seen_at.localeCompare(a.last_seen_at)).map(teammate));
+});
+on('DELETE', '/api/teammates/{channel}/{external}', (_q, res, m) => {
+  const i = state.identities.find((x) => x.channel === m[1] && x.external_id === m[2]);
+  if (!i) return fail(res, 404, 'not_found', 'not found');
+  if (i.status !== 'blocked' && i.membership !== 'outsider') return fail(res, 400, 'bad_request', 'Block them first.');
+  Object.assign(i, { status: i.status === 'blocked' ? 'blocked' : 'pending', principal_id: undefined, admitted_via: '', can_approve: false });
   json(res, 204);
 });
 on('GET', '/api/spaces', (_q, res) => json(res, 200, state.spaces));
 on('PATCH', '/api/spaces/{id}', async (req, res, m) => {
   const s = state.spaces.find((x) => x.principal_id === m[1]);
-  if (s) Object.assign(s, JSON.parse(await body(req)));
+  if (!s) return fail(res, 404, 'not_found', 'not found');
+  const b = JSON.parse(await body(req));
+  Object.assign(s, b, 'enabled' in b ? { reviewed_at: nowISO() } : {});
   json(res, 200, s);
 });
 

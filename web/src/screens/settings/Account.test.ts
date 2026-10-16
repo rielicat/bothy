@@ -16,7 +16,7 @@ async function open(opts: Parameters<typeof installApi>[0] = {}, role?: string) 
   setCsrf('mock-csrf');
   if (role) session.me = { ...session.me!, user: { ...session.me!.user, role } };
   render(Settings, { params: { group: 'account', page: 'tokens' } });
-  await screen.findByText('Linked chat apps');
+  await screen.findByText('API access');
   return calls;
 }
 
@@ -78,23 +78,14 @@ describe('Settings → Account', () => {
     await waitFor(() => expect(screen.queryByText('Open WebUI')).toBeNull());
   });
 
-  it('unlinks a chat app and offers to link it again', async () => {
+  it('has no chat app linking or approval delivery: the profile is name and time zone', async () => {
     const calls = await open();
-    await fireEvent.click(await screen.findByRole('button', { name: 'Unlink Telegram' }));
-    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/identities/telegram/5512')).toBe(true));
-    expect(await screen.findByText('Not linked')).toBeTruthy();
-    await fireEvent.click(screen.getByRole('button', { name: 'Link Telegram' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Link Telegram' });
-    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/pairing')).toBe(true));
-    expect(await within(dialog).findByText('/pair 7KQ2-MX4D')).toBeTruthy();
-  });
-
-  it('saves where approval requests reach you', async () => {
-    const calls = await open();
-    const select = (await screen.findByLabelText('Requests reach you in')) as HTMLSelectElement;
-    expect([...select.options].map((o) => o.text)).toEqual(['Bothy only', 'Slack', 'Telegram']);
-    await fireEvent.change(select, { target: { value: 'telegram' } });
-    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url === '/api/me' && JSON.parse(c.body).approvals_in === 'telegram')).toBe(true));
+    await screen.findByLabelText('Name');
+    expect(screen.getByText('Sign out')).toBeTruthy();
+    expect(screen.queryByText('Linked chat apps')).toBeNull();
+    expect(screen.queryByText('Approvals')).toBeNull();
+    expect(screen.queryByLabelText('Requests reach you in')).toBeNull();
+    expect(calls.some((c) => c.url.startsWith('/api/identities') || c.url.startsWith('/api/pairing'))).toBe(false);
   });
 
   it('checks the new password before sending it', async () => {
@@ -187,13 +178,6 @@ describe('Settings → Account', () => {
     expect(await screen.findByText("Bothy doesn't know that time zone. Choose one from the list.")).toBeTruthy();
     expect((screen.getByRole('combobox', { name: 'Time zone' }) as HTMLInputElement).value).toBe('London (Europe)');
   });
-
-  it('offers only the apps the server says requests can reach', async () => {
-    await open({ override: (m, url) => (m === 'GET' && url === '/api/me' ? new Response(JSON.stringify({ user_id: 'usr_x', username: 'sam', display_name: 'Sam', approvals_in: 'slack', preferred_chat: '', chats: ['slack'] })) : undefined) });
-    const select = (await screen.findByLabelText('Requests reach you in')) as HTMLSelectElement;
-    expect([...select.options].map((o) => o.text)).toEqual(['Bothy only', 'Slack']);
-    expect(select.value).toBe('slack');
-  });
 });
 
 describe('Settings → Account → Sign-in methods', () => {
@@ -217,7 +201,7 @@ describe('Settings → Account → Sign-in methods', () => {
     await session.init();
     setCsrf('mock-csrf');
     render(Settings, { params: { group: 'account', page: 'tokens' } });
-    await screen.findByText('Linked chat apps');
+    await screen.findByText('API access');
     return calls;
   }
 

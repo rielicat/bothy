@@ -2,7 +2,8 @@
   import { untrack } from 'svelte';
   import { Button, EmptyState, IconButton, Menu, Switch, toast, type MenuItem } from '../../components/ui';
   import { api } from '../../lib/api/client';
-  import type { List, Schedule, SchedulePreviewResp, ScheduleRunData } from '../../lib/api/types.gen';
+  import type { List, Schedule, SchedulePreviewResp, ScheduleRunData, TeamSchedule } from '../../lib/api/types.gen';
+  import { appName } from '../../lib/cardcopy';
   import { router } from '../../lib/router.svelte';
   import { clockLabel, describeWhen, fromSpec, localTimes, saveSchedule, scheduleGrants } from '../../lib/schedules';
   import { events } from '../../lib/sse.svelte';
@@ -12,23 +13,25 @@
   import type { TaskRun } from './api';
   import Loading from './Loading.svelte';
   import { checkinBlank, every, nextRun } from './schedule';
-  import { deliverTo, loadChats, type Chats } from './tasks';
+  import { deliverTo } from './tasks';
 
   let list = $state<Schedule[] | null>(null);
-  let chats = $state<Chats>({ identities: [], spaces: [] });
   let custom = $state<Record<string, string>>({});
   let problems = $state<Record<string, string>>({});
   let failed = $state(false);
   let errors = $state<Record<string, string>>({});
   let checkinOn = $state(false);
   let removing = $state<Schedule | null>(null);
+  // Admins also manage the schedules people set up in chat apps (§10.3).
+  let team = $state<TeamSchedule[]>([]);
+  let removingTeam = $state<TeamSchedule | null>(null);
 
   async function load() {
     failed = false;
     try {
-      const [l, c] = await Promise.all([api.get<Schedule[]>('/api/schedules'), loadChats()]);
-      chats = c;
+      const l = await api.get<Schedule[]>('/api/schedules');
       list = l;
+      if (session.isAdmin) api.get<TeamSchedule[]>('/api/team/schedules').then((t) => (team = t), () => {});
       for (const s of l) {
         if (s.kind === 'cron' && fromSpec(s.kind, s.spec, s.tz).kind === 'custom')
           void api.post<SchedulePreviewResp>('/api/schedules/preview', { kind: s.kind, spec: s.spec, tz: s.tz }).then((p) => (custom[s.id] = localTimes(p.human.replace(/ \([^)]*\)$/, ''))), () => {});
@@ -87,7 +90,18 @@
     return items;
   }
 
-  function when(s: Schedule): string {
+  async function toggleTeam(t: TeamSchedule, on: boolean) {
+    errors[t.id] = '';
+    t.enabled = on;
+    try {
+      await api.patch(`/api/schedules/${encodeURIComponent(t.id)}`, { enabled: on });
+    } catch {
+      t.enabled = !on;
+      errors[t.id] = "Couldn't save. Try again.";
+    }
+  }
+
+  function when(s: Pick<Schedule, 'id' | 'kind' | 'spec' | 'tz'>): string {
     return describeWhen(fromSpec(s.kind, s.spec, s.tz)) ?? custom[s.id] ?? 'On a custom repeat rule';
   }
 
@@ -130,7 +144,7 @@
       {#each others as s (s.id)}
         {@render row(s.name, `/activity/schedules/${encodeURIComponent(s.id)}`, s, s.enabled, [
           { text: when(s) },
-          { text: `Posts ${deliverTo(s.deliver, chats)}` },
+          { text: `Posts ${deliverTo(s.deliver)}` },
           ...(s.failures >= 3
             ? [{ text: 'Turned off after 3 failed runs', danger: true }]
             : s.last_status === 'failed'
@@ -144,7 +158,29 @@
     {#if !others.length}
       <EmptyState class="mt-6" text="Bothy can do things on a schedule, like a Monday summary of open pull requests." action={{ label: 'New schedule', href: '/activity/schedules/new' }} />
     {/if}
+    {#if team.length}
+      <section class="mt-10" aria-labelledby="team-schedules">
+        <h2 id="team-schedules" class="section-title">In chat apps</h2>
+        <p class="mt-1 text-small text-muted">Schedules people set up in chat apps. Their results go to that chat.</p>
+        <ul class="mt-2">
+          {#each team as t (t.id)}
+            <li class="flex min-h-14 items-center gap-3 border-b border-border py-2 last:border-b-0">
+              <div class="min-w-0 flex-1">
+                <p class="text-body font-medium text-text [overflow-wrap:anywhere]" data-copy-ignore>{t.name}</p>
+                <p class="text-small text-muted">
+                  <span data-copy-ignore>{t.owner}</span> · {appName(t.app)} · {when(t)} · {t.enabled && t.next_run_at ? `Next: ${nextRun(t.next_run_at, t.tz)}` : 'Off'}
+                </p>
+                {#if errors[t.id]}<p class="text-small text-danger-text" role="alert">{errors[t.id]}</p>{/if}
+              </div>
+              <Switch label="Turn on {t.name}" hideLabel checked={t.enabled} onchange={(on) => toggleTeam(t, on)} />
+              <Button size="sm" variant="ghost" aria-label="Delete {t.name}…" onclick={() => (removingTeam = t)}>Delete…</Button>
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
   {/if}
 </Activity>
 
 <DeleteSchedule bind:schedule={removing} ondeleted={(gone) => (list = (list ?? []).filter((x) => x.id !== gone.id))} />
+<DeleteSchedule bind:schedule={removingTeam} team ondeleted={(gone) => (team = team.filter((x) => x.id !== gone.id))} />

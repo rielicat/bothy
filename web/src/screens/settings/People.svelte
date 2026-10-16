@@ -1,16 +1,17 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Avatar, Button, Checkbox, CodeBlock, Dialog, EmptyState, IconButton, Menu, Notice, StatusLine, TextField, toast, type MenuItem } from '../../components/ui';
+  import { Avatar, Button, Checkbox, CodeBlock, Dialog, EmptyState, IconButton, Menu, Notice, Radio, StatusLine, TextField, toast, type MenuItem } from '../../components/ui';
   import { api, ApiError } from '../../lib/api/client';
   import { router } from '../../lib/router.svelte';
   import { session } from '../../lib/stores/session.svelte';
   import AddPerson from './AddPerson.svelte';
+  import ChatPeople from './ChatPeople.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
   import { focusDialogResult } from './dialogFocus';
   import type { User } from '../../lib/api/types.gen';
   import { displayName, moneyText, parseMoney, roleLine } from './accountHelpers';
   import SettingsFrame from './SettingsFrame.svelte';
-  import { settingsConfig } from './store.svelte';
+  import { personalLimit, settingsConfig } from './store.svelte';
 
   let users = $state<User[]>([]);
   let loaded = $state(false);
@@ -31,7 +32,7 @@
   $effect(() => {
     untrack(() => {
       void load();
-      // Setup's "Add your team" lands here with the dialog open (§5.7).
+      // Setup's "Add people" lands here with the dialog open (§5.7).
       if (router.query.get('add') === '1') {
         addOpen = true;
         router.setQuery({ add: null });
@@ -60,7 +61,7 @@
       { label: 'Member', group: 'Change role', checked: u.role === 'member', onselect: () => u.role !== 'member' && patch(u, { role: 'member' }, 'Role changed.', `Couldn't change ${name}'s role. Try again.`) },
       { label: 'Admin', group: 'Change role', checked: u.role === 'admin', onselect: () => u.role !== 'admin' && patch(u, { role: 'admin' }, 'Role changed.', `Couldn't change ${name}'s role. Try again.`) },
       'separator',
-      { label: 'Spending limit…', onselect: () => openLimit(u) },
+      { label: 'Spending limit…', onselect: () => openLimit({ key: u.username, name, member: u.role === 'member' }) },
       { label: 'Reset password…', onselect: () => openReset(u) },
       u.disabled
         ? { label: 'Turn on account', onselect: () => patch(u, { disabled: false }, 'Account turned on.', `Couldn't turn on ${name}'s account. Try again.`) }
@@ -68,43 +69,45 @@
     ];
   }
 
-  // Spending limit: budgets.per_user_daily_usd is keyed by username.
-  let limitFor = $state<User | null>(null);
+  // Spending limit: budgets.per_user_daily_usd is keyed by username, or
+  // "<app>:<id>" for someone in a chat app, who has the member default
+  // unless they have their own.
+  type LimitTarget = { key: string; name: string; member?: boolean; chat?: boolean };
+  let limitFor = $state<LimitTarget | null>(null);
   let limitText = $state('');
   let noLimit = $state(true);
+  let limitMode = $state('default');
   let limitBusy = $state(false);
   let limitError = $state('');
   let limitSubmitted = $state(false);
   const memberDefault = $derived(settingsConfig.value<number>('budgets.member_daily_usd', 0));
 
-  function personalLimit(username: string): number | null {
-    const own = settingsConfig.value<number | null>(`budgets.per_user_daily_usd.${username}`, null);
-    if (typeof own === 'number') return own;
-    const map = settingsConfig.value<Record<string, number>>('budgets.per_user_daily_usd', {});
-    return typeof map?.[username] === 'number' ? map[username] : null;
-  }
-
-  function openLimit(u: User) {
-    const v = personalLimit(u.username);
-    limitFor = u;
+  function openLimit(t: LimitTarget) {
+    const v = personalLimit(t.key);
+    limitFor = t;
     noLimit = v === null;
+    limitMode = v === null ? 'default' : 'set';
     limitText = v === null ? '' : moneyText(v);
     limitError = '';
     limitSubmitted = false;
   }
 
+  $effect.pre(() => {
+    if (limitFor?.chat) noLimit = limitMode === 'default';
+  });
+
   const limitFieldError = $derived(limitSubmitted && !noLimit && parseMoney(limitText) === null ? 'Enter an amount in dollars, like 5.00.' : undefined);
 
   async function saveLimit(e: SubmitEvent) {
     e.preventDefault();
-    const u = limitFor;
-    if (!u) return;
+    const t = limitFor;
+    if (!t) return;
     limitSubmitted = true;
     if (limitFieldError) return;
     limitBusy = true;
     limitError = '';
     try {
-      await settingsConfig.save({ [`budgets.per_user_daily_usd.${u.username}`]: noLimit ? null : parseMoney(limitText) });
+      await settingsConfig.save({ [`budgets.per_user_daily_usd.${t.key}`]: noLimit ? null : parseMoney(limitText) });
       limitBusy = false;
       limitFor = null;
       toast('Limit saved.');
@@ -176,7 +179,7 @@
   {#if failed}
     <StatusLine tone="danger" text="This page didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: load }} />
   {:else if solo}
-    <EmptyState text="It's just you so far. Add teammates so they get their own sign-in." action={{ label: 'Add person', onclick: () => (addOpen = true) }} />
+    <EmptyState text="It's just you so far. Add people so they get their own sign-in." action={{ label: 'Add person', onclick: () => (addOpen = true) }} />
   {:else if loaded}
     {#if actionError}<Notice class="mb-4" tone="danger" text={actionError} role="alert" />{/if}
     <ul>
@@ -202,20 +205,29 @@
       {/each}
     </ul>
   {/if}
+  {#if loaded}<ChatPeople onlimit={(key, name) => openLimit({ key, name, chat: true })} />{/if}
 </SettingsFrame>
 
 <AddPerson bind:open={addOpen} onadded={(u) => (users = [...users, u])} />
 
-<Dialog open={!!limitFor} title="Spending limit" size="md" busy={limitBusy} onclose={() => (limitFor = null)}>
+<Dialog open={!!limitFor} title={limitFor?.chat ? `Daily limit for ${limitFor.name}` : 'Spending limit'} size="md" busy={limitBusy} onclose={() => (limitFor = null)}>
   {#if limitFor}
-    {@const u = limitFor}
+    {@const t = limitFor}
     <form id="limit-form" class="grid gap-3" onsubmit={saveLimit} novalidate>
-      <TextField label="Daily limit for {displayName(u)}" prefix="$" inputmode="decimal" bind:value={limitText} disabled={noLimit} error={limitFieldError} />
-      <Checkbox
-        label="No personal limit"
-        description={u.role === 'member' && memberDefault > 0 ? `Members without their own limit can spend up to $${moneyText(memberDefault)} a day.` : undefined}
-        bind:checked={noLimit}
-      />
+      {#if t.chat}
+        <div role="radiogroup" aria-label="Daily limit for {t.name}">
+          <Radio bind:group={limitMode} value="default" label="Use the default ({memberDefault > 0 ? `$${moneyText(memberDefault)}` : 'no limit'})" />
+          <Radio bind:group={limitMode} value="set" label="Set a limit" />
+        </div>
+      {/if}
+      <TextField label={t.chat ? 'Daily limit' : `Daily limit for ${t.name}`} prefix="$" inputmode="decimal" bind:value={limitText} disabled={noLimit} error={limitFieldError} />
+      {#if !t.chat}
+        <Checkbox
+          label="No personal limit"
+          description={t.member && memberDefault > 0 ? `Members without their own limit can spend up to $${moneyText(memberDefault)} a day.` : undefined}
+          bind:checked={noLimit}
+        />
+      {/if}
       {#if limitError}<Notice tone="danger" text={limitError} role="alert" />{/if}
     </form>
   {/if}

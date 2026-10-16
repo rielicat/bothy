@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import { Button, EmptyState, SettingsSection } from '../../../components/ui';
   import { api } from '../../../lib/api/client';
-  import type { ChannelIdentity, MCPStatus, SecretMeta } from '../../../lib/api/types.gen';
+  import type { MCPStatus, SecretMeta, Teammate } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
   import { events } from '../../../lib/sse.svelte';
   import AddMcpDialog from './AddMcpDialog.svelte';
@@ -24,7 +24,7 @@
   import type { GitHubApp, GitHubConnection, GitHubRepo } from './types';
 
   let channels = $state<AppStatus[]>([]);
-  let identities = $state<ChannelIdentity[]>([]);
+  let teammates = $state<Teammate[]>([]);
   let secrets = $state<SecretMeta[]>([]);
   let mcp = $state<MCPStatus[]>([]);
   let github = $state<GitHubConnection[]>([]);
@@ -36,9 +36,9 @@
   async function load() {
     const get = <T,>(path: string, fallback: T) => api.get<T>(path).catch(() => fallback);
     try {
-      [channels, identities, secrets, mcp, github, repos, githubApps] = await Promise.all([
+      [channels, teammates, secrets, mcp, github, repos, githubApps] = await Promise.all([
         api.get<AppStatus[]>('/api/channels'),
-        get<ChannelIdentity[]>('/api/identities', []),
+        get<Teammate[]>('/api/teammates', []),
         get<SecretMeta[]>('/api/vault', []),
         get<MCPStatus[]>('/api/mcp', []),
         get<GitHubConnection[]>('/api/github/connections', []),
@@ -67,7 +67,7 @@
     discord: ['channels.discord.token', 'discord_bot_token'],
   };
   const saved = (app: string) => secrets.some((s) => s.name === secretName(...tokenPaths[app]));
-  const linked = (app: string) => identities.filter((i) => i.channel === app && i.status === 'linked').length;
+  const people = (app: string) => teammates.filter((t) => t.channel === app && t.status === 'teammate' && !t.left).length;
   const servers = $derived(mcp.map((s) => s.name).sort());
   const search = $derived(searchTitle[config.value<string>('search.provider', 'none')] ?? 'Off');
 </script>
@@ -91,7 +91,7 @@
     <SettingsSection title="Chat apps">
       {#each appNames as app (app)}
         {@const st = channels.find((c) => c.name === app)}
-        {@render row(appTitle[app], appStatus(app, st, linked(app), !!st?.enabled || saved(app)), `/settings/connections/${app}`)}
+        {@render row(appTitle[app], appStatus(app, st, people(app), !!st?.enabled || saved(app)), `/settings/connections/${app}`)}
       {/each}
     </SettingsSection>
 

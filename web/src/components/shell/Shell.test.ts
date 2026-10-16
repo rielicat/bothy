@@ -43,8 +43,9 @@ describe('sidebar (§4.2)', () => {
     expect(mine).toBeGreaterThan(0);
     await waitFor(() => expect(n.getByRole('link', { name: new RegExp(`^Approvals\\s*${mine}\\s*waiting$`) })).toBeTruthy());
     await waitFor(() => expect(n.getByRole('link', { name: 'Fix login redirect' })).toBeTruthy());
-    for (const label of ['Group chats', 'Today', 'Previous 7 days', 'Older']) expect(n.getByRole('list', { name: label })).toBeTruthy();
-    expect(within(n.getByRole('list', { name: 'Group chats' })).getByRole('link', { name: '#eng' })).toBeTruthy();
+    for (const label of ['Today', 'Previous 7 days', 'Older']) expect(n.getByRole('list', { name: label })).toBeTruthy();
+    // Chats in chat apps belong to the people and channels there, not to anyone's sidebar.
+    expect(n.queryByRole('list', { name: 'Group chats' })).toBeNull();
   });
 
   it('marks the chat Bothy works in and the one waiting for approval', async () => {
@@ -92,29 +93,14 @@ describe('sidebar (§4.2)', () => {
     expect(nav().querySelector('a[href="/chat/ses_01jteamempty0000000000000000"]')).toBeNull();
   });
 
-  it('lists two group chats that share a name', async () => {
-    installApi();
-    await session.init();
-    const base = session.me!;
-    const space = (id: string) => ({ id, kind: 'space', user_id: base.user.id, display_name: 'Family', workspace_id: 'wsp', tool_profile: 'restricted', created_at: '' });
-    const s0 = fixtureSessions[0];
-    const list = { items: [{ ...s0, id: 'ses_a', title: '', principal_id: 'spc_a' }, { ...s0, id: 'ses_b', title: '', principal_id: 'spc_b' }] };
-    installApi({ override: (_m, url) => (url.startsWith('/api/sessions?') ? list : url === '/api/auth/me' ? { ...base, principals: [...base.principals, space('spc_a'), space('spc_b')] } : undefined) });
-    session.ready = false;
-    await session.init();
-    router.navigate('/activity');
-    render(App);
-    await waitFor(() => expect(within(nav()).getAllByRole('link', { name: 'Family' })).toHaveLength(2));
-  });
-
   it('shows Show more after 30 chats', async () => {
     await start('/activity', { mock: 'long-chats' });
     const n = within(nav());
     await waitFor(() => expect(n.getByRole('button', { name: 'Show more' })).toBeTruthy());
     const count = () => nav().querySelectorAll('a[href^="/chat/"]').length;
-    expect(count()).toBe(31);
+    expect(count()).toBe(30);
     await fireEvent.click(n.getByRole('button', { name: 'Show more' }));
-    expect(count()).toBe(45);
+    expect(count()).toBe(44);
     expect(n.queryByRole('button', { name: 'Show more' })).toBeNull();
   });
 

@@ -20,8 +20,9 @@ describe('Connections overview (§12.1)', () => {
   it('lists chat apps, GitHub and tools with one button each and no MCP jargon in rows', async () => {
     await start();
     render(Connections);
-    expect(await screen.findByText('Connected to Acme · 2 people linked')).toBeTruthy();
-    expect(screen.getByText('Connected as @acme_bothy_bot · 1 person linked')).toBeTruthy();
+    expect(await screen.findByText('Connected to Acme · 2 people')).toBeTruthy();
+    // Blocked people and people waiting to be let in don't count.
+    expect(screen.getByText('Connected as @acme_bothy_bot')).toBeTruthy();
     expect(screen.getByText('Not connected')).toBeTruthy();
     expect(screen.getByText('Connected as acme-bot · 2 repositories')).toBeTruthy();
     expect(screen.getByText('Needs review: 1 action')).toBeTruthy();

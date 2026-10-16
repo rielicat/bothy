@@ -133,6 +133,51 @@ function deploy(id: string, repo: string, opts: { requester: string; created: nu
   });
 }
 
+// Requests from people and channels in chat apps (approver.team): an admin
+// here, or a chat approver in their Slack messages, decides them.
+const ENG = 'spc_01jeng00000000000000000000';
+const ALEX = 'spc_01jalexslack000000000000000';
+const alexAsks = { user: '', name: 'Alex Kim', app: 'slack', identity: 'slack:U02ALEX', handle: 'alexk' };
+const teamApprover = { user_id: '', admin_only: false, team: true, requester_identity: 'slack:U02ALEX' };
+
+function team(s: Spec & { principal: string; chat: string }): Approval {
+  const a = make({ ...s, context: s.chat ? `${s.chat} on Slack` : "Alex Kim's direct messages on Slack", session: s.session ?? `ses_01jteam${s.id.slice(8, 20)}`.padEnd(30, '0') });
+  return {
+    ...a,
+    principal_id: s.principal,
+    chat: s.chat ? { channel: 'slack', chat_id: 'C01ENG', kind: 'group' } : { channel: 'slack', chat_id: 'D02ALEX', kind: 'dm' },
+    approver: teamApprover,
+    decision: { ...a.decision, approver: teamApprover },
+    requester: s.chat ? { ...alexAsks, chat: s.chat } : alexAsks,
+    ...s.extra,
+  };
+}
+
+function teamList(): Approval[] {
+  return [
+    // A channel's request offers no standing permissions.
+    team({
+      id: 'apr_01jteamchan000000000000000',
+      principal: ENG,
+      chat: '#eng',
+      title: 'Write file',
+      act: action('fs_write', 'fs.write', 'local_write', { path: 'notes/standup.md', content: '- Alex: login redirect fix\n- Priya: pricing page', mode: 'create' }, { paths: ['notes/standup.md'] }),
+      choices: ['allow_once', 'deny'],
+      created: 6,
+      expires: 40,
+    }),
+    team({
+      id: 'apr_01jteamdm00000000000000000',
+      principal: ALEX,
+      chat: '',
+      title: 'Run shell command',
+      act: action('shell', 'exec', 'local_write', { argv: ['python3', 'sales_report.py', '--week', '41'], cwd: '' }, { argv: ['python3', 'sales_report.py', '--week', '41'] }),
+      created: 4,
+      expires: 40,
+    }),
+  ];
+}
+
 // The trip chat's request stays first: chat tests take it as fixtures.approvals[0].
 function waitingList(): Approval[] {
   return [
@@ -185,6 +230,7 @@ function waitingList(): Approval[] {
       extra: { on_timeout: 'park', park_until: ahead(60 * 22), chat: { channel: 'telegram', chat_id: '5512', kind: 'dm' } },
     }),
     deploy('apr_01jdeployapi0000000000000', 'acme/api', { requester: owner.id, created: 20, votes: [{ user: priya, choice: 'allow_once', at: 12 }], context: 'Web · session “API release”' }),
+    ...teamList(),
   ];
 }
 
@@ -237,6 +283,8 @@ function recentList(): Approval[] {
     decided(fetchPost, 'expired', undefined, '', 'timeout', 4 * day),
     decided(sh, 'cancelled', undefined, '', 'stop', 5 * day, { id: 'apr_01jdonestop00000000000000' }),
     decided(deploy('apr_01jdonedeploy500000000000', 'acme/api', { requester: owner.id, created: 0, votes: [{ user: owner.id, choice: 'deny', at: 6 * day }] }), 'denied', 'deny', owner.id, 'web', 6 * day),
+    // Sam approved Alex Kim's request from the card in his Slack messages.
+    decided(teamList()[1], 'allowed', 'allow_once', '', 'slack', 35, { id: 'apr_01jteamdone0000000000000', decided_by_identity: 'slack:U01SAM', decided_by_name: 'Sam · Slack' }),
   ];
 }
 
@@ -289,8 +337,11 @@ function asSeen(a: Approval, req?: Req): Approval {
   return out;
 }
 
+// Team requests reach admins only, as approvalVisible says.
+const seesTeam = (a: Approval, req: Req) => !a.approver.team || (rank[viewer(req).role] ?? 0) >= rank.admin;
+
 export function list(req: Req): Approval[] {
-  return state.approvals.filter((a) => all(req) || !everyKindCard(a)).map((a) => asSeen(a, req));
+  return state.approvals.filter((a) => (all(req) || !everyKindCard(a)) && seesTeam(a, req)).map((a) => asSeen(a, req));
 }
 
 function votesOf(a: Approval, req: Req): ApprovalVotes {
@@ -324,7 +375,7 @@ const multi = (a: Approval) => !a.approver.user_id && !a.approver.admin_only && 
 export function forYou(a: Approval, req: Req): boolean {
   const me = viewer(req);
   if (multi(a)) return votesOf(a, req).can_vote;
-  if (a.approver.admin_only) return (rank[me.role] ?? 0) >= rank.admin;
+  if (a.approver.admin_only || a.approver.team) return (rank[me.role] ?? 0) >= rank.admin;
   return a.approver.user_id === me.id;
 }
 
@@ -332,7 +383,7 @@ on('GET', '/api/approvals', (req, res, _m, q) => {
   if (listDown(req)) return fail(res, 503, 'unavailable', 'mock: approvals-down');
   if (none(req)) return json(res, 200, { items: [] });
   const status = q.get('status') ?? 'pending';
-  json(res, 200, { items: status === 'recent' ? state.recent : list(req).filter((a) => a.status === status) });
+  json(res, 200, { items: status === 'recent' ? state.recent.filter((a) => seesTeam(a, req)) : list(req).filter((a) => a.status === status) });
 });
 
 on('GET', '/api/approvals/{id}', (req, res, m) => {

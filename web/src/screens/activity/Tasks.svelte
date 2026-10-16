@@ -11,13 +11,13 @@
   import { people, sessionsById, type TaskRun, type VotedApproval } from './api';
   import Loading from './Loading.svelte';
   import TaskRow from './TaskRow.svelte';
-  import { groupByDay, loadChats, taskView, type TaskLookups } from './tasks';
+  import { groupByDay, taskView, type TaskLookups } from './tasks';
 
   let runs = $state<TaskRun[] | null>(null);
   let next = $state(0);
   let failed = $state(false);
   let more = $state(false);
-  let lookups = $state<TaskLookups>({ names: new Map(), sessions: new Map(), schedules: new Map(), waiting: new Map(), chats: { identities: [], spaces: [] } });
+  let lookups = $state<TaskLookups>({ names: new Map(), sessions: new Map(), schedules: new Map(), waiting: new Map() });
 
   const person = $derived(router.query.get('person') ?? '');
   const place = $derived(router.query.get('where') ?? '');
@@ -26,15 +26,14 @@
   async function load() {
     failed = false;
     try {
-      const [page, names, sessions, schedules, pending, chats] = await Promise.all([
+      const [page, names, sessions, schedules, pending] = await Promise.all([
         api.get<List<TaskRun>>('/api/runs?limit=50'),
         people(),
         sessionsById(),
         api.get<Schedule[]>('/api/schedules').catch(() => [] as Schedule[]),
         api.get<List<VotedApproval>>('/api/approvals?status=pending').catch(() => ({ items: [] as VotedApproval[] })),
-        loadChats(),
       ]);
-      lookups = { names, sessions, schedules: new Map(schedules.map((s) => [s.id, s])), waiting: new Map((pending.items ?? []).map((a) => [a.run_id, a])), chats };
+      lookups = { names, sessions, schedules: new Map(schedules.map((s) => [s.id, s])), waiting: new Map((pending.items ?? []).map((a) => [a.run_id, a])) };
       runs = page.items ?? [];
       next = page.next ?? 0;
     } catch {

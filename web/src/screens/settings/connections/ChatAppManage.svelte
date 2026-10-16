@@ -1,28 +1,24 @@
 <script lang="ts">
-  import { Button, Dialog, IconButton, ListRow, Menu, Select, SettingsRow, SettingsSection, StatusLine, Switch, toast } from '../../../components/ui';
+  import { Button, Dialog, Select, SettingsRow, SettingsSection, StatusLine, Switch, toast } from '../../../components/ui';
   import { api } from '../../../lib/api/client';
-  import type { ChannelIdentity, ChannelTestResp, SecretMeta, Space, User } from '../../../lib/api/types.gen';
+  import type { ChannelTestResp, SecretMeta, SpaceView } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
-  import { relTime } from '../../../lib/format';
-  import { session } from '../../../lib/stores/session.svelte';
+  import { plural } from '../../../lib/format';
+  import ConfirmDialog from '../ConfirmDialog.svelte';
   import ConnPage from './ConnPage.svelte';
   import { appStatus, appTitle, channelFailure, connectedText, failureCode, saveConfig, secretName, type AppName, type AppStatus, type Failure } from './connections';
 
   let {
     app,
     status,
-    identities,
     spaces,
-    users,
     secrets,
     onchanged,
     onreplace,
   }: {
     app: AppName;
     status: AppStatus;
-    identities: ChannelIdentity[];
-    spaces: Space[];
-    users: User[];
+    spaces: SpaceView[];
     secrets: SecretMeta[];
     onchanged: () => void;
     /** Back to the steps to paste new tokens, keeping the failure that sent the person there. */
@@ -40,10 +36,8 @@
   let unknown = $state('pair');
   let unknownStatus = $state<'saving' | 'saved' | null>(null);
   let unknownError = $state('');
-  let linking = $state<ChannelIdentity | null>(null);
-  let linkTo = $state('');
-  let linkError = $state('');
   let groupError = $state('');
+  let turningOff = $state<SpaceView | null>(null);
 
   $effect.pre(() => {
     on = status.enabled;
@@ -51,16 +45,15 @@
   });
 
   const groups = $derived(spaces.filter((s) => s.chat.channel === app));
-  const mine = $derived(identities.filter((i) => i.channel === app));
-  const linked = $derived(mine.filter((i) => i.status === 'linked' || i.status === 'guest'));
-  const waiting = $derived(mine.filter((i) => i.status === 'pending'));
-  const person = (id?: string) => users.find((u) => u.id === id);
-  const handle = (i: ChannelIdentity) => (i.username ? `@${i.username}` : i.display_name);
   const line = $derived(status.enabled && status.state !== 'connected' ? appStatus(app, status, 0, true) : null);
-  const isOwner = $derived(session.me?.user.role === 'owner');
-  // Linking gives the chat account that person's chats and permissions. Only
-  // the owner may link it to someone else, and must pick them explicitly.
-  const people = $derived(isOwner ? users.filter((u) => !u.disabled) : users.filter((u) => u.id === session.me?.user.id));
+  const detail = $derived(status.detail ?? '');
+  const tools = [
+    { value: 'restricted', label: 'Answer questions' },
+    { value: 'standard', label: 'Do work, with approval' },
+  ];
+
+  const groupMeta = (s: SpaceView) =>
+    [s.team_name, s.members > 0 ? plural(s.members, 'person', 'people') : '', s.external ? 'Shared with other companies' : ''].filter(Boolean).join(' · ');
 
   async function setOn(v: boolean) {
     onStatus = 'saving';
@@ -113,10 +106,10 @@
 
   // A refused change leaves the bound value as it was, so the control the
   // person just changed is put back by hand.
-  async function patchSpace(s: Space, body: Record<string, unknown>, undo: () => void) {
+  async function patchSpace(s: SpaceView, body: Record<string, unknown>, undo: () => void) {
     groupError = '';
     try {
-      Object.assign(s, await api.patch<Space>(`/api/spaces/${encodeURIComponent(s.principal_id)}`, body));
+      Object.assign(s, await api.patch<SpaceView>(`/api/spaces/${encodeURIComponent(s.principal_id)}`, body));
     } catch {
       undo();
       groupError = "Couldn't save. Try again.";
@@ -131,32 +124,23 @@
     if (bad) unknownError = bad.message;
   }
 
-  const idPath = (i: ChannelIdentity) => `/api/identities/${encodeURIComponent(i.channel)}/${encodeURIComponent(i.external_id)}`;
+  // People Discord admits only through this server lose access with its last channel.
+  const lastInServer = (s: SpaceView) => app === 'discord' && !!s.team_id && !groups.some((g) => g !== s && g.enabled && g.team_id === s.team_id);
 
-  async function decide(i: ChannelIdentity, body: Record<string, string>, done: string) {
-    try {
-      await api.patch(idPath(i), body);
-      toast(done);
-      linking = null;
-      onchanged();
-    } catch {
-      linkError = "Couldn't save. Try again.";
-    }
+  function setAnswers(s: SpaceView, v: boolean) {
+    if (!v && lastInServer(s)) turningOff = s;
+    else void patchSpace(s, { enabled: v }, () => (s.enabled = !v));
   }
 
-  function openLink(i: ChannelIdentity) {
-    linkError = '';
-    linkTo = isOwner ? '' : (session.me?.user.id ?? '');
-    linking = i;
+  function keepOn() {
+    if (turningOff) turningOff.enabled = true;
+    turningOff = null;
   }
 
-  function link() {
-    if (!linking) return;
-    if (!linkTo) {
-      linkError = 'Choose a person.';
-      return;
-    }
-    void decide(linking, { status: 'linked', user_id: linkTo }, 'Account linked.');
+  function turnOff() {
+    const s = turningOff;
+    turningOff = null;
+    if (s) void patchSpace(s, { enabled: false }, () => (s.enabled = true));
   }
 </script>
 
@@ -188,11 +172,14 @@
 
   <SettingsSection title="Group chats">
     {#each groups as s (s.principal_id)}
-      {@const profile = session.principals.find((p) => p.id === s.principal_id)?.tool_profile ?? 'restricted'}
+      {@const meta = groupMeta(s)}
       <div class="border-b border-border py-3 last:border-b-0">
         <div class="flex min-h-8 flex-wrap items-center justify-between gap-x-4 gap-y-1">
-          <span class="text-body font-medium text-text" data-copy-ignore>{s.title}</span>
-          <Switch label="Answers here" checked={s.enabled} onchange={(v) => patchSpace(s, { enabled: v }, () => (s.enabled = !v))} />
+          <span class="min-w-0">
+            <span class="block text-body font-medium text-text" data-copy-ignore>{s.title}</span>
+            {#if meta}<span class="block text-small text-muted tabular-nums" data-copy-ignore>{meta}</span>{/if}
+          </span>
+          <Switch label="Answers here" bind:checked={s.enabled} onchange={(v) => setAnswers(s, v)} />
         </div>
         <div class="mt-3 grid gap-3 sm:grid-cols-2">
           <Select
@@ -209,14 +196,12 @@
           />
           <Select
             label="What Bothy can do here"
-            value={profile === 'standard' ? 'standard' : 'restricted'}
-            options={[
-              { value: 'restricted', label: 'Read only' },
-              { value: 'standard', label: 'Standard' },
-            ]}
+            value={s.tool_profile === 'standard' ? 'standard' : 'restricted'}
+            options={tools}
             onchange={(e) => {
               const el = e.currentTarget;
-              void patchSpace(s, { tool_profile: el.value }, () => (el.value = profile));
+              const was = s.tool_profile === 'standard' ? 'standard' : 'restricted';
+              void patchSpace(s, { tool_profile: el.value }, () => (el.value = was));
             }}
           />
         </div>
@@ -227,73 +212,58 @@
     {#if groupError}<StatusLine class="mt-2" tone="danger" alert text={groupError} />{/if}
   </SettingsSection>
 
-  <SettingsSection title="Linked people">
-    {#each linked as i (i.external_id)}
-      <ListRow title="{person(i.user_id)?.display_name ?? i.display_name} · {handle(i)}{i.status === 'guest' ? ' · Guest' : ''}" />
+  <SettingsSection title="Who can use Bothy">
+    {#if app === 'slack'}
+      <p class="text-body text-text">
+        {status.org ? 'Everyone in your Slack organization, across all its workspaces,' : `Everyone in ${status.team || 'your workspace'}`} can message Bothy and use what it can
+        read, such as your repositories and connected tools. Guests and people from other companies can't. Anything that changes something waits for an approver.
+      </p>
+    {:else if app === 'discord'}
+      <p class="text-body text-text">
+        {#if detail === "can't check who is in the server"}
+          Bothy can't check who's in your servers, so only people you let in from Approvals can message it.
+        {:else}
+          Members of a server where Bothy answers in a channel can message Bothy and use what it can read, such as your repositories and connected tools. Bots can't. Anything
+          that changes something waits for an approver.
+        {/if}
+      </p>
+      {#if detail.endsWith("where it isn't on in any channel.")}<p class="mt-2 text-body text-muted">{detail} Remove it from servers you don't use.</p>{/if}
     {:else}
-      <p class="text-body text-muted">Nobody has linked a {name} account yet. People link their own from Your account.</p>
-    {/each}
-  </SettingsSection>
-
-  <SettingsSection title="People who aren't linked">
-    <SettingsRow label="When someone without an account messages Bothy" status={unknownStatus} error={unknownError}>
-      {#snippet children(c)}
-        <Select
-          id={c.id}
-          aria-describedby={c.describedBy}
-          bind:value={unknown}
-          onchange={() => setUnknown(unknown)}
-          options={[
-            { value: 'pair', label: 'Ask an admin first (recommended)' },
-            { value: 'ignore', label: 'Ignore them' },
-          ]}
-        />
-      {/snippet}
-    </SettingsRow>
-    {#if waiting.length}
-      <h3 class="mt-6 text-body font-medium text-text">Waiting for an admin</h3>
-      <div class="mt-1">
-        {#each waiting as i (i.external_id)}
-          <ListRow title="{i.display_name || i.username} · {handle(i)}" meta={[relTime(i.first_seen_at)]}>
-            {#snippet trailing()}
-              <Menu
-                placement="bottom-end"
-                items={[
-                  { label: 'Link to a person…', onselect: () => openLink(i) },
-                  { label: 'Allow as a guest', onselect: () => decide(i, { status: 'guest' }, 'Added as a guest.') },
-                  { label: 'Block', danger: true, onselect: () => decide(i, { status: 'blocked' }, 'Blocked.') },
-                ]}
-              >
-                {#snippet trigger(props)}<IconButton icon="more" label="Options for {handle(i)}" size="sm" variant="quiet" {...props} />{/snippet}
-              </Menu>
-            {/snippet}
-          </ListRow>
-        {/each}
-      </div>
+      <p class="text-body text-text">People you let in from Approvals.</p>
     {/if}
+    {#if app !== 'slack'}
+      <SettingsRow
+        label="When someone new messages Bothy"
+        help="Either way, they're listed in Approvals. Applies to Telegram and Discord."
+        status={unknownStatus}
+        error={unknownError}
+      >
+        {#snippet children(c)}
+          <Select
+            id={c.id}
+            aria-describedby={c.describedBy}
+            bind:value={unknown}
+            onchange={() => setUnknown(unknown)}
+            options={[
+              { value: 'pair', label: 'Ask an admin to let them in (recommended)' },
+              { value: 'ignore', label: "Don't reply or notify anyone" },
+            ]}
+          />
+        {/snippet}
+      </SettingsRow>
+    {/if}
+    <Button class="mt-4" href="/settings/people">Manage people</Button>
   </SettingsSection>
 </ConnPage>
 
 <Dialog bind:open={leaving} title="Disconnect {name}?" initialFocus="cancel" {busy}>
-  <p class="text-body text-text">Bothy stops answering in {name} and forgets its tokens. Linked accounts and group chat settings are kept.</p>
+  <p class="text-body text-text">Bothy stops answering in {name} and forgets its tokens. People and group chat settings are kept.</p>
   {#snippet footer({ close })}
     <Button data-cancel onclick={close}>Cancel</Button>
     <Button variant="danger" loading={busy} loadingLabel="Disconnecting…" onclick={disconnect}>Disconnect {name}</Button>
   {/snippet}
 </Dialog>
 
-<Dialog open={!!linking} onclose={() => (linking = null)} title="Link {linking ? handle(linking) : ''} to a person">
-  <div class="space-y-4">
-    <p class="text-body text-text">Messages from {linking ? handle(linking) : ''} in {name} will act as this person, with their chats and permissions.</p>
-    <Select
-      label="Person"
-      bind:value={linkTo}
-      error={linkError}
-      options={[...(isOwner ? [{ value: '', label: 'Choose a person' }] : []), ...people.map((u) => ({ value: u.id, label: u.display_name || u.username }))]}
-    />
-  </div>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
-    <Button variant="primary" onclick={link}>Link account</Button>
-  {/snippet}
-</Dialog>
+<ConfirmDialog open={!!turningOff} title="Turn off Bothy in {turningOff?.title}?" confirm="Turn off" onconfirm={turnOff} onclose={keepOn}>
+  People who are only in {turningOff?.team_name || 'this server'} won't be able to message Bothy any more.
+</ConfirmDialog>

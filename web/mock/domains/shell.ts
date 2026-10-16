@@ -1,6 +1,6 @@
 // Shell (C1): who is signed in, the event stream, banners and pausing, plus
 // scenarios that fill the sidebar for review (a team's chat list, a long one).
-import type { Approval, BannerData, Me, Message, Principal, Run, SearchHit, Session } from '../../src/lib/api/types.gen.ts';
+import type { Approval, BannerData, Me, Message, Run, SearchHit, Session } from '../../src/lib/api/types.gen.ts';
 import { approvals as approvalFixtures } from './approvals.ts';
 import { active, ago, body, boot, clients, core, emit, fail, ids, isPaused, json, nowISO, on, onReset, owner, pausedBanner, pauseInfo, pausedNow, principals, routes, scenario, scenarios, viewer, ZERO, type Handler, type Req } from './core.ts';
 
@@ -26,15 +26,12 @@ export function banners(req?: Req): BannerData[] {
   return out;
 }
 
-// The team scenarios: Maya Chen in #eng on Slack, with company work in her list.
-const ENG = 'spc_01jteameng0000000000000000';
-const eng: Principal = { id: ENG, kind: 'space', user_id: owner.id, display_name: '#eng', workspace_id: 'ws_01jteameng0000000000000000', tool_profile: 'restricted', created_at: ago(60 * 24 * 40) };
+// The team scenarios: company work in a long list of chats.
 const T = {
   fix: 'ses_01jteamfix00000000000000000',
   launch: 'ses_01jteamlaunch000000000000000',
   draft: 'ses_01jteamdraft0000000000000000',
   support: 'ses_01jteamsupport00000000000000',
-  eng: 'ses_01jteameng00000000000000000',
   pricing: 'ses_01jteampricing00000000000000',
   empty: 'ses_01jteamempty0000000000000000',
 };
@@ -58,7 +55,6 @@ const chat = (id: string, title: string, minAgo: number, extra: Partial<Session>
 });
 
 const teamList = (): Session[] => [
-  chat(T.eng, '#eng', 35, { principal_id: ENG, origin: 'slack', channel_key: 'slack:channel:C0ENG' }),
   chat(T.fix, 'Fix login redirect', 3),
   chat(T.launch, 'v2.3 launch checklist', 25),
   chat(T.draft, '', 50),
@@ -176,7 +172,7 @@ export function me(req?: Req): Me {
     user,
     csrf: 'mock-csrf',
     mode: core.mode,
-    principals: team(req) ? [principals[0], eng] : principals,
+    principals,
     paused: isPaused(req),
     ...(p ? { paused_by: p.by.id, paused_by_name: p.by.display_name, paused_at: p.at } : {}),
     sandbox_available: true,

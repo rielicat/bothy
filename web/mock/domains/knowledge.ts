@@ -89,7 +89,7 @@ export const skills: SkillMeta[] = [
   },
   {
     name: 'onboarding-checklist',
-    description: 'Builds a first-week checklist for a new teammate.',
+    description: 'Builds a first-week checklist for a new hire.',
     path: 'skills/onboarding-checklist',
     hash: 'h3',
     approved_hash: 'h3',

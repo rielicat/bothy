@@ -185,6 +185,11 @@
   "budgets": {
    "additionalProperties": false,
    "properties": {
+    "chat_share_pct": {
+     "default": 60,
+     "type": "integer",
+     "x-reload": "hot"
+    },
     "daily_usd": {
      "default": 5,
      "type": "number",

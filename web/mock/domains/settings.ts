@@ -97,8 +97,6 @@ export const state = {
   users: [] as User[],
   persona: '',
   personaReads: 0,
-  approvalsIn: '',
-  preferredChat: '',
   effective: {} as Effective,
 };
 onReset(() =>
@@ -107,8 +105,6 @@ onReset(() =>
     users: clone(people),
     persona,
     personaReads: 0,
-    approvalsIn: '',
-    preferredChat: '',
     effective: { ...(clone(effectiveFixture) as Effective), entries: [...(clone(effectiveFixture) as Effective).entries, ...clone(pending)] },
   }),
 );
@@ -198,20 +194,13 @@ on('PUT', '/api/persona', async (req, res) => {
   json(res, 204);
 });
 
-// The signed-in person's own profile, worked out as h_uistate.go profile() does.
-// Linked identities belong to connections.ts, which reads this domain's state at reset, so it is imported late.
-async function profile(req: Req): Promise<Profile> {
-  const { state: connections } = await import('./connections.ts');
+// The signed-in person's own profile, as h_uistate.go profile() sends it: name and time zone.
+function profile(req: Req): Profile {
   const me = viewer(req);
-  const linked = connections.identities.filter((i) => i.status === 'linked' && i.user_id === me.id && i.dm_chat_id);
-  const chats = [...new Set(linked.map((i) => i.channel))].sort();
-  const last = [...linked].sort((a, b) => b.last_seen_at.localeCompare(a.last_seen_at))[0];
-  let approvalsIn = 'web';
-  if (state.approvalsIn !== 'web') approvalsIn = chats.includes(state.preferredChat) ? state.preferredChat : (last?.channel ?? 'web');
   const tz = state.users.find((x) => x.id === me.id)?.timezone || me.timezone;
-  return { user_id: me.id, username: me.username, display_name: me.display_name, timezone: tz, approvals_in: approvalsIn, preferred_chat: state.preferredChat, chats };
+  return { user_id: me.id, username: me.username, display_name: me.display_name, timezone: tz };
 }
-on('GET', '/api/me', async (req, res) => json(res, 200, await profile(req)));
+on('GET', '/api/me', (req, res) => json(res, 200, profile(req)));
 function knownZone(tz: string): boolean {
   try {
     new Intl.DateTimeFormat('en', { timeZone: tz });
@@ -222,6 +211,9 @@ function knownZone(tz: string): boolean {
 }
 on('PATCH', '/api/me', async (req, res) => {
   const b = JSON.parse(await body(req));
+  // The server decodes strictly: fields it no longer has, such as approvals_in, are refused.
+  const unknown = Object.keys(b).find((k) => k !== 'display_name' && k !== 'timezone');
+  if (unknown) return fail(res, 400, 'bad_request', `json: unknown field "${unknown}"`);
   if (typeof b.display_name === 'string') {
     const name = b.display_name.trim();
     if (!name) return fail(res, 400, 'bad_request', 'enter a name');
@@ -240,12 +232,7 @@ on('PATCH', '/api/me', async (req, res) => {
     const u = state.users.find((x) => x.id === viewer(req).id);
     if (u) u.timezone = tz;
   }
-  if (typeof b.approvals_in === 'string') {
-    if (b.approvals_in !== 'web' && !(await profile(req)).chats.includes(b.approvals_in)) return fail(res, 400, 'bad_request', `link ${b.approvals_in} to your account first`);
-    state.approvalsIn = b.approvals_in === 'web' ? 'web' : '';
-    if (b.approvals_in !== 'web') state.preferredChat = b.approvals_in;
-  }
-  json(res, 200, await profile(req));
+  json(res, 200, profile(req));
 });
 
 on('GET', '/api/tokens', (_q, res) => json(res, 200, state.tokens));

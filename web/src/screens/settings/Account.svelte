@@ -1,14 +1,12 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import Pairing from '../../components/Pairing.svelte';
-  import { Button, Combobox, Dialog, LinkButton, Segmented, Select, SettingsRow, SettingsSection, StatusLine, TextField, toast } from '../../components/ui';
+  import { Button, Combobox, LinkButton, Segmented, SettingsRow, SettingsSection, StatusLine, TextField, toast } from '../../components/ui';
   import { api, ApiError } from '../../lib/api/client';
-  import type { ChannelIdentity, ChannelStatus, MySignIns, Profile, SignInProvider, SignInStartResp, TokenRecord } from '../../lib/api/types.gen';
+  import type { MySignIns, Profile, SignInProvider, SignInStartResp, TokenRecord } from '../../lib/api/types.gen';
   import { away } from '../../lib/away';
   import { isZeroTime, relTime } from '../../lib/format';
   import { router } from '../../lib/router.svelte';
   import { localZone, zoneLabel, zoneOptions } from '../../lib/schedules';
-  import { events } from '../../lib/sse.svelte';
   import { session } from '../../lib/stores/session.svelte';
   import { theme, type ThemePref } from '../../lib/stores/ui.svelte';
   import { connectErrorText, providerName, takeRefused, unanswered } from '../setup/auth';
@@ -20,31 +18,18 @@
   import SettingsFrame from './SettingsFrame.svelte';
   import TokenDialog from './TokenDialog.svelte';
 
-  const apps: Record<string, string> = { slack: 'Slack', telegram: 'Telegram', discord: 'Discord' };
-  const appOrder = Object.keys(apps);
-
   const me = $derived(session.me?.user);
 
   let profile = $state<Profile | null>(null);
-  let identities = $state<ChannelIdentity[]>([]);
-  let channels = $state<ChannelStatus[] | null>(null);
   let tokens = $state<TokenRecord[]>([]);
   let tokensFailed = $state(false);
 
   let pwOpen = $state(false);
   let tokenOpen = $state(false);
-  let pairOpen = $state(false);
-  let pairChannel = $state('');
   let revoking = $state<TokenRecord | null>(null);
   let revokeBusy = $state(false);
   let revokeError = $state('');
 
-  async function loadIdentities() {
-    const all = await api.get<ChannelIdentity[]>('/api/identities').catch(() => identities);
-    identities = all.filter((i) => i.status === 'linked' && i.user_id === me?.id);
-  }
-
-  // Linking or unlinking an app changes where approval requests can go.
   async function loadProfile() {
     profile = await api.get<Profile>('/api/me').catch(() => profile);
   }
@@ -136,14 +121,7 @@
     untrack(() => {
       returned();
       void loadSignIns();
-      void loadIdentities();
       void loadTokens();
-      void loadProfile();
-      // Members can't list chat apps yet, so they see only the apps they've linked.
-      if (session.isAdmin) api.get<ChannelStatus[]>('/api/channels').then((c) => (channels = c), () => (channels = []));
-    });
-    return events.on('pairing.linked', () => {
-      void loadIdentities();
       void loadProfile();
     });
   });
@@ -193,44 +171,6 @@
     }
     // New schedules start in the zone session.me carries.
     await session.refresh().catch(() => {});
-  }
-
-  const linkedApps = $derived(appOrder.filter((c) => identities.some((i) => i.channel === c)));
-  const appRows = $derived(
-    appOrder
-      .filter((c) => linkedApps.includes(c) || channels?.some((s) => s.name === c && s.enabled && s.state !== 'disabled'))
-      .map((c) => ({ channel: c, label: apps[c], identity: identities.find((i) => i.channel === c) })),
-  );
-
-  const approvalsSaver = new Saver();
-  // The apps the server lets requests go to: the ones linked with a chat Bothy can write to.
-  const approvalApps = $derived(appOrder.filter((c) => profile?.chats.includes(c)));
-  const approvalOptions = $derived([{ value: 'web', label: 'Bothy only' }, ...approvalApps.map((c) => ({ value: c, label: apps[c] }))]);
-
-  async function saveApprovals(v: string) {
-    const was = profile;
-    if (!was) return;
-    profile = { ...was, approvals_in: v };
-    if (!(await approvalsSaver.run(async () => (profile = await api.patch<Profile>('/api/me', { approvals_in: v }))))) profile = was;
-  }
-
-  let unlinkError = $state('');
-
-  async function unlink(i: ChannelIdentity) {
-    unlinkError = '';
-    try {
-      await api.del(`/api/identities/${encodeURIComponent(i.channel)}/${encodeURIComponent(i.external_id)}`);
-      identities = identities.filter((x) => x !== i);
-      void loadProfile();
-      toast(`${apps[i.channel] ?? 'App'} unlinked.`);
-    } catch {
-      unlinkError = `Bothy couldn't unlink ${apps[i.channel] ?? 'the app'}. Try again.`;
-    }
-  }
-
-  function link(channel: string) {
-    pairChannel = channel;
-    pairOpen = true;
   }
 
   async function revoke() {
@@ -342,48 +282,6 @@
     </SettingsRow>
   </SettingsSection>
 
-  {#if profile && approvalApps.length}
-    <SettingsSection title="Approvals">
-      <SettingsRow label="Requests reach you in" help="Bothy also shows them in Approvals." status={approvalsSaver.status} error={approvalsSaver.error}>
-        {#snippet children(c)}
-          <Select
-            id={c.id}
-            value={profile?.approvals_in || 'web'}
-            options={approvalOptions}
-            aria-describedby={c.describedBy}
-            onchange={(e: Event) => saveApprovals((e.currentTarget as HTMLSelectElement).value)}
-          />
-        {/snippet}
-      </SettingsRow>
-    </SettingsSection>
-  {/if}
-
-  <SettingsSection title="Linked chat apps">
-    {#if appRows.length}
-      <div>
-        {#each appRows as r (r.channel)}
-          <ItemRow name={r.label} status={r.identity ? (r.identity.username ? `@${r.identity.username}` : r.identity.display_name) : 'Not linked'}>
-            {#snippet trailing()}
-              {#if r.identity}
-                {@const i = r.identity}
-                <Button size="sm" aria-label="Unlink {r.label}" onclick={() => unlink(i)}>Unlink</Button>
-              {:else}
-                <Button size="sm" aria-label="Link {r.label}" onclick={() => link(r.channel)}>Link</Button>
-              {/if}
-            {/snippet}
-          </ItemRow>
-        {/each}
-      </div>
-      {#if unlinkError}<StatusLine class="mt-2" tone="danger" text={unlinkError} alert />{/if}
-    {:else if session.isAdmin && channels !== null}
-      <p class="py-2 text-body text-muted">No chat apps are connected yet.</p>
-      <Button class="mt-2" href="/settings/connections">Connect a chat app</Button>
-    {:else if !session.isAdmin}
-      <p class="py-2 text-body text-muted">Link Slack, Telegram or Discord to talk to Bothy there.</p>
-      <Button class="mt-2" onclick={() => link('')}>Link a chat app</Button>
-    {/if}
-  </SettingsSection>
-
   <SettingsSection title="Saved keys">
     <p class="py-2 text-body text-muted">Your own keys for connected tools, used instead of the shared ones when Bothy works for you.</p>
     <Button class="mt-2" href="/settings/account/keys">Manage your keys</Button>
@@ -416,13 +314,6 @@
 
 <PasswordDialog bind:open={pwOpen} />
 <TokenDialog bind:open={tokenOpen} oncreated={(t) => (tokens = [...tokens, t])} />
-
-<Dialog bind:open={pairOpen} title={pairChannel ? `Link ${apps[pairChannel]}` : 'Link a chat app'} onclose={loadIdentities}>
-  <Pairing channel={pairChannel} auto />
-  {#snippet footer({ close })}
-    <Button onclick={close}>Done</Button>
-  {/snippet}
-</Dialog>
 
 <ConfirmDialog
   open={!!revoking}

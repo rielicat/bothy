@@ -14,7 +14,7 @@
   import Verbatim from '../components/Verbatim.svelte';
   import { api, ApiError } from '../lib/api/client';
   import type { Approval, Choice, List } from '../lib/api/types.gen';
-  import { cardCopy, decidable, expiryOf, isMulti, isOpen, originOf, requesterOf, segText, timeOfDay } from '../lib/cardcopy';
+  import { appName, cardCopy, decidable, expiryOf, fromTeam, isMulti, isOpen, originOf, requesterOf, segText, timeOfDay } from '../lib/cardcopy';
   import { date, relTime } from '../lib/format';
   import { choiceDone } from '../lib/labels';
   import { router } from '../lib/router.svelte';
@@ -191,7 +191,7 @@
     void decided(key, choice === 'deny' && isMulti(result) && requesterOf(result) === me?.id ? 'Cancelled' : choiceDone[choice]);
   }
 
-  const itemOutcome: Record<string, string> = { approve: 'Approved', turn_off: 'Turned off', guest: 'Added as a guest', link: 'Linked', block: 'Blocked', turn_on: 'Turned on', ignore: 'Ignored', deny: 'Denied' };
+  const itemOutcome: Record<string, string> = { approve: 'Approved', turn_off: 'Turned off', let_in: 'Let in', block: 'Blocked', turn_on: 'Turned on', ignore: 'Ignored', deny: 'Denied' };
 
   function onItemResolved(key: string, choice: string) {
     void decided(key, itemOutcome[choice] ?? 'Done');
@@ -225,6 +225,7 @@
     const out: { text: string; warn?: boolean }[] = [];
     const vv = votes.byId[a.id];
     if (isMulti(a) && vv) out.push({ text: `${vv.approvals} of ${vv.required} approvals` });
+    else if (fromTeam(a) && a.requester?.name) out.push({ text: `${a.requester.name} · ${appName(a.requester.app)}` });
     else {
       const o = originOf(a);
       const src = o.title ?? o.app;
@@ -290,7 +291,9 @@
 
 {#snippet chatLink(a: Approval)}
   {@const o = originOf(a)}
-  {#if a.session_id}
+  {#if fromTeam(a)}
+    {#if a.card?.context}<span data-copy-ignore>{a.card.context}</span>{/if}
+  {:else if a.session_id}
     {#if o.title}From{' '}{/if}<a
       class="link -my-0.5 inline-flex min-h-6 items-center pointer-coarse:-my-3 pointer-coarse:min-h-11"
       href="/chat/{encodeURIComponent(a.session_id)}"

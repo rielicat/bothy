@@ -4,8 +4,7 @@ A fixture gateway for UI work without a Go build: `server.ts` answers every
 `/api` route of SPEC §8.3 from in-memory state, streams SSE (`/api/events`)
 with a scripted run when a message is sent (deltas, a tool call, an approval
 card for messages that ask to run, send or delete something, usage and the
-finished event), and emits `pairing.linked` a few seconds after a pairing code
-is created.
+finished event).
 
 The routes and their seed data live in `domains/`, one file per area of the UI
 (docs/design/ui.md §18.3), so each UI chunk edits only its own file:
@@ -20,7 +19,7 @@ The routes and their seed data live in `domains/`, one file per area of the UI
 | `knowledge.ts` | memory and skills |
 | `activity.ts` | runs, schedules, usage, audit |
 | `settings.ts` | config, models, providers, people, API tokens, personality |
-| `connections.ts` | chat apps, pairing, identities, group chats, MCP |
+| `connections.ts` | chat apps, the people Bothy answers in them, group chats, MCP |
 | `security.ts` | grants, policy tester, vault, sandbox, doctor, backups |
 | `signin.ts` | sign in with Google and GitHub: the sign-in page's buttons, a fake provider round trip (`/api/mock/oauth/{p}`), Account → Sign-in methods, Security → Sign-in |
 

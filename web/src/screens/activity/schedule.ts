@@ -1,7 +1,7 @@
 import type { Grant, Schedule, User } from '../../lib/api/types.gen';
 import { toolGrantPhrase } from '../../lib/grants';
 import { localZone } from '../../lib/schedules';
-import { sendSentence, type Chats } from './tasks';
+import { sendSentence } from './tasks';
 
 export function blankSchedule(user: User | undefined): Schedule {
   return {
@@ -72,10 +72,10 @@ export function nameFrom(prompt: string): string {
 }
 
 /** A grant as the sentence people read in "Allowed without asking". */
-export function grantSentence(g: Pick<Grant, 'kind' | 'value' | 'tool' | 'pattern'>, chats: Chats = { identities: [], spaces: [] }): string {
+export function grantSentence(g: Pick<Grant, 'kind' | 'value' | 'tool' | 'pattern'>): string {
   const host = (g.value ?? '').replace(/:443$/, '');
   if (g.kind === 'domain') return `Read websites on ${host}`;
-  if (g.kind === 'recipient') return sendSentence(g.value ?? '', chats);
+  if (g.kind === 'recipient') return sendSentence(g.value ?? '');
   const globs = Object.values(g.pattern ?? {});
   return globs.length ? `${toolGrantPhrase(g.tool ?? '')} matching ${globs.join(', ')}` : toolGrantPhrase(g.tool ?? '');
 }

@@ -120,7 +120,23 @@ export function chooseBanner(input: BannerInput): ShellBanner | null {
         action: { label: 'Change limit', href: '/settings/general' },
         dismissible: false,
       });
+    if (find('chat_budget_80'))
+      out.push({
+        code: 'chat_budget_80',
+        tone: 'warning',
+        text: "Chat apps have used 80% of their share of today's spending limit.",
+        action: { label: 'See spending', href: '/activity/spending' },
+        dismissible: true,
+      });
     if (find('restart_required')) out.push({ code: 'restart_required', tone: 'neutral', text: 'Restart Bothy to apply your changes.', dismissible: true });
+    if (find('team_access'))
+      out.push({
+        code: 'team_access',
+        tone: 'neutral',
+        text: 'People in chat apps no longer link to Bothy accounts. Check who can use Bothy and who can approve in People.',
+        action: { label: 'Open People', href: '/settings/people' },
+        dismissible: true,
+      });
   }
   return out.find((b) => !input.hide?.includes(b.code) && !(b.dismissible && input.dismissed.includes(b.code))) ?? null;
 }

@@ -2,27 +2,25 @@
   import { tick, untrack } from 'svelte';
   import { Button, Checkbox, Combobox, Disclosure, IconButton, Menu, Page, Select, TextArea, TextField, toast } from '../../components/ui';
   import { api, ApiError } from '../../lib/api/client';
-  import type { ChatRef, Grant, List, Schedule, SchedulePreviewResp } from '../../lib/api/types.gen';
+  import type { Grant, List, Schedule, SchedulePreviewResp } from '../../lib/api/types.gen';
   import { fullTime, money, relTime } from '../../lib/format';
   import { hostPort } from '../../lib/grants';
   import { router } from '../../lib/router.svelte';
   import { describeWhen, fromSpec, localTimes, saveSchedule, scheduleGrants, timeOptions, timezones, toSpec, validRule, wallClock, WEEKDAYS, ZERO, type When } from '../../lib/schedules';
   import { session } from '../../lib/stores/session.svelte';
-  import { appName } from '../../lib/taskStatus';
   import { people, type TaskRun } from './api';
   import CheckIn from './CheckIn.svelte';
   import DeleteSchedule from './DeleteSchedule.svelte';
   import Loading from './Loading.svelte';
   import { blankSchedule, grantSentence, hostsIn, listDate, nameFrom } from './schedule';
   import TaskRow from './TaskRow.svelte';
-  import { chatKey, loadChats, taskView, type Chats } from './tasks';
+  import { taskView } from './tasks';
 
   let { params }: { params: Record<string, string> } = $props();
 
   const isNew = $derived(params.id === 'new');
   let s = $state<Schedule | null>(null);
   let w = $state<When>(fromSpec('cron', '0 9 * * 1-5'));
-  let chats = $state<Chats>({ identities: [], spaces: [] });
   let saved = $state<Grant[]>([]);
   let keep = $state<Record<string, boolean>>({});
   let runs = $state<TaskRun[]>([]);
@@ -47,10 +45,8 @@
     const id = params.id;
     failed = missing = false;
     try {
-      chats = await loadChats();
       if (id === 'new') {
-        const first = chats.identities[0];
-        s = { ...blankSchedule(session.me?.user), deliver: first ? { channel: first.channel, chat_id: first.dm_chat_id!, kind: 'dm' } : { channel: 'web', chat_id: '', kind: 'dm' } };
+        s = { ...blankSchedule(session.me?.user), deliver: { channel: 'web', chat_id: '', kind: 'dm' } };
         saved = [];
         runs = [];
       } else {
@@ -128,26 +124,6 @@
     w.kind === 'custom' && ((submitted && !validRule(w.rule)) || ruleRejected) ? "That repeat rule isn't valid. Example: 0 9 * * 1-5 means weekdays at 9:00." : '',
   );
 
-  const refKey = (r: ChatRef) => `${r.channel}:${r.kind}:${r.chat_id}`;
-  const deliverOptions = $derived([
-    ...(s && !s.deliver && !isNew ? [{ value: 'default', label: chats.identities.length ? 'Your usual chat app' : 'Here until you link a chat app' }] : []),
-    ...chats.identities.map((i) => ({ value: refKey({ channel: i.channel, chat_id: i.dm_chat_id!, kind: 'dm' }), label: `Your ${appName(i.channel)} messages` })),
-    // The server lets a group chat's own schedules post there, and no one else's.
-    ...chats.spaces.filter((sp) => sp.principal_id === s?.principal_id).map((sp) => ({ value: refKey(sp.chat), label: `${sp.title} on ${appName(sp.chat.channel)}` })),
-    { value: 'web', label: 'Only here in Bothy' },
-  ]);
-  const deliverValue = $derived(!s?.deliver ? 'default' : s.deliver.channel === 'web' ? 'web' : refKey(s.deliver));
-
-  function setDeliver(v: string) {
-    if (!s) return;
-    if (v === 'default') s.deliver = undefined;
-    else if (v === 'web') s.deliver = { channel: 'web', chat_id: '', kind: 'dm' };
-    else {
-      const i = chats.identities.find((x) => refKey({ channel: x.channel, chat_id: x.dm_chat_id!, kind: 'dm' }) === v);
-      s.deliver = i ? { channel: i.channel, chat_id: i.dm_chat_id!, kind: 'dm' } : chats.spaces.find((x) => refKey(x.chat) === v)?.chat;
-    }
-  }
-
   const suggested = $derived.by(() => {
     if (!s) return [] as Grant[];
     const out: Grant[] = [];
@@ -155,12 +131,11 @@
       if (![...saved, ...out].some((x) => x.kind === g.kind && x.value === g.value))
         out.push({ ...g, id: `new:${g.kind}:${g.value}`, principal_id: s!.principal_id, scope: 'schedule', scope_id: s!.id, allow_when_tainted: false, uses: 0, max_uses: 0, created_by: '', created_at: ZERO, expires_at: ZERO });
     };
-    if (s.deliver && s.deliver.channel !== 'web') add({ kind: 'recipient', value: chatKey(s.deliver), max_se: 'external_send' });
     for (const h of hostsIn(s.prompt)) add({ kind: 'domain', value: hostPort(h), max_se: 'read' });
     return out;
   });
-  // Every run posts to the results chat, so sending there starts allowed; websites start unticked.
-  const kept = (g: Grant) => keep[g.id] ?? (g.kind === 'recipient' && g.id.startsWith('new:'));
+  // Websites Bothy would read start unticked.
+  const kept = (g: Grant) => keep[g.id] ?? false;
 
   async function save(e: SubmitEvent) {
     e.preventDefault();
@@ -269,7 +244,9 @@
         <p class="field-help" aria-live="polite">{previewLine}</p>
       </fieldset>
 
-      <Select class="mt-6" label="Send results to" options={deliverOptions} value={deliverValue} onchange={(e) => setDeliver(e.currentTarget.value)} />
+      <!-- Accounts have no chat app, so results always stay here. -->
+      <p class="mt-6 field-label">Send results to</p>
+      <p class="mt-1 text-body text-text">Only here in Bothy</p>
 
       <TextField class="mt-6" label="Name" bind:value={s.name} maxlength={80} oninput={() => (named = true)} />
 
@@ -293,7 +270,7 @@
           <fieldset class="mt-4">
             <legend class="field-label">Allowed without asking</legend>
             {#each [...saved, ...suggested] as g (g.id)}
-              <Checkbox label={grantSentence(g, chats)} checked={kept(g)} onchange={(e) => (keep[g.id] = e.currentTarget.checked)} />
+              <Checkbox label={grantSentence(g)} checked={kept(g)} onchange={(e) => (keep[g.id] = e.currentTarget.checked)} />
             {/each}
           </fieldset>
         {/if}
@@ -314,7 +291,7 @@
             {#each runs as r (r.id)}
               <TaskRow
                 href="/activity/tasks/{encodeURIComponent(r.id)}"
-                view={taskView({ ...r, schedule_name: r.schedule_name || s.name }, { names, sessions: new Map(), schedules: new Map([[s.id, s]]), waiting: new Map(), chats })}
+                view={taskView({ ...r, schedule_name: r.schedule_name || s.name }, { names, sessions: new Map(), schedules: new Map([[s.id, s]]), waiting: new Map() })}
                 cost={r.cost_micros ? money(r.cost_micros) : '—'}
                 time={relTime(r.created_at)}
                 fullTime={fullTime(r.created_at)}

@@ -1,8 +1,10 @@
 import { fireEvent, render, within } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
 import type { InboxItem as ServerItem } from '../../lib/api/types.gen';
+import { setCsrf } from '../../lib/api/client';
 import { installApi } from '../../test/api';
-import { itemQuestion, itemSource, loadItems } from './items';
+import { decideItem, groupLines, itemQuestion, itemSource, loadItems } from './items';
+import type { GroupChatItem } from './types';
 import ReviewCard from './ReviewCard.svelte';
 
 const at = '2026-10-14T09:00:00Z';
@@ -55,6 +57,53 @@ describe('inbox items', () => {
     const other = render(ReviewCard, { item: nameless });
     expect(other.container.textContent).toContain('Someone wrote: “hello”');
     expect(other.container.textContent).not.toContain('U0123ABC');
+  });
+
+  it('lets someone in or blocks them, and nothing else', async () => {
+    const [jordan] = await items();
+    const { container } = render(ReviewCard, { item: jordan });
+    expect([...container.querySelectorAll('button[data-choice]')].map((b) => b.textContent?.trim())).toEqual(['Let in', 'Block']);
+    expect(container.textContent).not.toMatch(/guest|Link/);
+  });
+
+  it('decides senders and group chats through their own endpoints', async () => {
+    const calls = installApi({ override: (m) => (m === 'PATCH' ? {} : undefined) });
+    setCsrf('mock-csrf');
+    const sender = { id: 's', created_at: at, type: 'unknown_sender', app: 'telegram', external_id: '42', display_name: 'Jo', handle: '' } as const;
+    const group = { id: 'g', created_at: at, type: 'group_chat', app: 'slack', chat: '#ops', space: 'spc_9', members: 0, external: false, mention_only: true } as const;
+    await decideItem(sender, 'let_in');
+    await decideItem(sender, 'block');
+    await decideItem(group, 'turn_on', { tool_profile: 'standard' });
+    await decideItem(group, 'turn_on');
+    await decideItem(group, 'ignore');
+    expect(calls.filter((c) => c.method === 'PATCH').map((c) => [c.url, JSON.parse(c.body)])).toEqual([
+      ['/api/identities/telegram/42', { status: 'teammate' }],
+      ['/api/identities/telegram/42', { status: 'blocked' }],
+      ['/api/spaces/spc_9', { enabled: true, tool_profile: 'standard' }],
+      ['/api/spaces/spc_9', { enabled: true, tool_profile: 'restricted' }],
+      ['/api/spaces/spc_9', { enabled: false }],
+    ]);
+  });
+
+  it('says what turning a group chat on means in each chat app', () => {
+    const g = (x: Partial<GroupChatItem>): GroupChatItem => ({ id: 'g', created_at: at, type: 'group_chat', app: 'slack', chat: '#ops', space: 'spc_9', members: 0, external: false, mention_only: true, ...x });
+    expect(groupLines(g({ added_by: 'Sam', members: 12 }))).toEqual(['Added by Sam.', '12 people are in this chat.']);
+    expect(groupLines(g({ members: 1 }))).toEqual(['1 person is in this chat.']);
+    expect(groupLines(g({ external: true }))).toEqual(["People from other companies are in this channel. They'll see Bothy's replies, though Bothy won't answer them."]);
+    expect(groupLines(g({ app: 'telegram' }))).toEqual(["Anyone in this group can use Bothy once it's on, not only people you let in."]);
+    expect(groupLines(g({ app: 'discord', team: 'Acme Community', members: 4812 }))).toEqual([
+      'Acme Community has 4,812 members.',
+      'Turning this on lets all 4,812 members of Acme Community message Bothy, here and in direct messages.',
+    ]);
+    expect(groupLines(g({ app: 'discord' }))).toEqual(['Turning this on lets everyone in this server message Bothy, here and in direct messages.']);
+  });
+
+  it('starts a new group chat on Answer questions, even one shared with other companies', () => {
+    const { container } = render(ReviewCard, { item: { id: 'g', created_at: at, type: 'group_chat', app: 'slack', chat: '#ops', space: 'spc_9', members: 3, external: true, mention_only: false } });
+    const radios = [...container.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+    expect(radios.map((r) => r.checked)).toEqual([true, false]);
+    expect(container.textContent).toContain('Bothy reads and answers. It can\'t change anything.');
+    expect(container.textContent).toContain('Bothy can change files, run code and send things. An approver checks each step first.');
   });
 
   it('spells a service the way it spells itself', async () => {

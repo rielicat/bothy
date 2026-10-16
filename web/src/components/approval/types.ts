@@ -63,6 +63,13 @@ export interface GroupChatItem extends ItemBase {
   chat: string;
   space: string;
   added_by?: string;
+  /** The Discord server or Slack workspace. */
+  team?: string;
+  /** People in the chat (Discord: in the server); 0 when unknown. */
+  members: number;
+  /** Slack says people from other companies are in it. */
+  external: boolean;
+  mention_only: boolean;
 }
 
 /** The person looking at a card. Defaults to the signed-in user. */

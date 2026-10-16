@@ -2,7 +2,7 @@
 // and the audit log. Rows carry the names and plain lines the server tracks
 // add (S8, S16, docs/design/ui.md §17) where the UI shows them; a few rows
 // leave them out so the client-side fallbacks show too.
-import type { Approval, AuditEntry, EgressRecord, Run, RunView, Schedule, ToolCallRecord } from '../../src/lib/api/types.gen.ts';
+import type { Approval, AuditEntry, EgressRecord, Run, RunView, Schedule, TeamSchedule, ToolCallRecord } from '../../src/lib/api/types.gen.ts';
 import { list as approvalList, state as approvalState } from './approvals.ts';
 import { breakdown } from './chat.ts';
 import { releaseEnvironments } from './connections.ts';
@@ -10,7 +10,7 @@ import { state as settings } from './settings.ts';
 import { ago, asMember, body, clone, fail, ids, json, member, newId, nowISO, on, onReset, owner, routes, scenario, viewer, type Req, type Res } from './core.ts';
 
 const limits = { max_steps: 0, max_tokens: 0, max_time: 0, max_cost_micros: 0 };
-const telegramDM = { channel: 'telegram', chat_id: '5512', kind: 'dm' };
+const web = { channel: 'web', chat_id: '', kind: 'dm' };
 
 // 08:00 UTC is 9:00 in London until the clocks change.
 const dayAt = (days: number, hourUTC: number) => {
@@ -45,12 +45,12 @@ export const schedules: Schedule[] = [
   sched('sch_01jcheckin00000000000000', 'Check-in', 'heartbeat', '30m', { active_hours: '08:00-22:00', enabled: false, created_by: 'system', last_run_at: ago(60 * 24 * 3) }),
   sched('sch_01jstandup00000000000000', 'Daily standup summary', 'cron', '0 9 * * 1-5', {
     prompt: "Summarise yesterday's merged pull requests and open issues in acme/web, then post them for the standup.",
-    deliver: telegramDM,
+    deliver: web,
   }),
   sched('sch_01jprdigest0000000000000', 'Weekly PR digest', 'cron', '0 8 * * 1', {
     next_run_at: dayAt(((8 - new Date().getUTCDay()) % 7) || 7, 7),
     prompt: 'List the pull requests that waited more than two days for review last week, with links.',
-    deliver: { channel: 'web', chat_id: '', kind: 'dm' },
+    deliver: web,
     last_status: 'failed',
     failures: 1,
   }),
@@ -321,7 +321,14 @@ export function usageRows(groupBy: string, days: number, user?: string, today = 
     return chats.map(([k, name, v]) => row(k, v * share, name ? { name } : {})).sort((a, b) => b.cost_micros - a.cost_micros);
   }
   if (groupBy === 'schedule') return user === member.id ? [] : [row('sch_01jstandup00000000000000', 0.9 * scale), row('sch_01jprdigest0000000000000', 0.2 * scale)];
-  if (groupBy === 'user') return [row(owner.id, 18.2 * scale, { name: 'Sam' }), row(member.id, 12.05 * scale, { name: 'Alex' })];
+  if (groupBy === 'user')
+    return [
+      row(owner.id, 18.2 * scale, { name: 'Sam', kind: 'user' }),
+      row(member.id, 12.05 * scale, { name: 'Alex', kind: 'user' }),
+      // People in chat apps and channels pay from their own lines.
+      row('spc_01jalexslack000000000000000', 3.4 * scale, { name: 'Alex Kim', kind: 'teammate', app: 'slack' }),
+      row('spc_01jeng00000000000000000000', 2.1 * scale, { name: '#eng', kind: 'channel', app: 'slack' }),
+    ];
   return [];
 }
 
@@ -375,8 +382,14 @@ const deployApprovals = (): Approval[] => {
   ];
 };
 
-export const state = { schedules: [] as Schedule[] };
-onReset(() => Object.assign(state, { schedules: clone(schedules) }));
+// Schedules people set up in chat apps, as GET /api/team/schedules lists them for admins.
+export const teamSchedules: TeamSchedule[] = [
+  { id: 'sch_01jteamsales0000000000000', name: 'Weekly sales summary', owner: 'Alex Kim', owner_kind: 'teammate', app: 'slack', kind: 'cron', spec: '0 9 * * 1', tz: 'Europe/London', next_run_at: dayAt(((8 - new Date().getUTCDay()) % 7) || 7, 8), last_status: 'done', enabled: true },
+  { id: 'sch_01jteamops00000000000000', name: 'Ops handover', owner: 'Ops team', owner_kind: 'channel', app: 'telegram', kind: 'cron', spec: '0 17 * * 1-5', tz: 'Europe/London', enabled: false },
+];
+
+export const state = { schedules: [] as Schedule[], team: [] as TeamSchedule[] };
+onReset(() => Object.assign(state, { schedules: clone(schedules), team: clone(teamSchedules) }));
 
 const empty = scenario('activity-empty', 'No tasks, schedules, spending or audit entries yet.', 'activity');
 const spendLimit = scenario('spend-limit', "Today's spending reached the daily limit.", 'activity');
@@ -459,9 +472,19 @@ const upsert = async (req: Req, res: Res, id?: string) => {
   json(res, 200, s);
 };
 on('POST', '/api/schedules', (req, res) => upsert(req, res));
-on('PATCH', '/api/schedules/{id}', (req, res, m) => upsert(req, res, m[1]));
+on('GET', '/api/team/schedules', (req, res) => json(res, 200, empty(req) || asMember(req) ? [] : state.team));
+// A team schedule only turns on or off here (h_schedules.go).
+on('PATCH', '/api/schedules/{id}', async (req, res, m) => {
+  const t = state.team.find((x) => x.id === m[1]);
+  if (!t) return upsert(req, res, m[1]);
+  const b = JSON.parse(await body(req));
+  if (Object.keys(b).some((k) => k !== 'enabled')) return fail(res, 400, 'bad_request', 'Only turning it on or off can be changed here.');
+  t.enabled = !!b.enabled;
+  json(res, 200, t);
+});
 on('DELETE', '/api/schedules/{id}', (_q, res, m) => {
   state.schedules = state.schedules.filter((x) => x.id !== m[1]);
+  state.team = state.team.filter((x) => x.id !== m[1]);
   json(res, 204);
 });
 on('POST', '/api/schedules/{id}/run', (_q, res) => json(res, 202, { run_id: 'run_01jstandup10000000000000' }));

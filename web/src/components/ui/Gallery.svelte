@@ -514,7 +514,7 @@
 
       <p class="mt-8 mb-2 text-small text-muted">Empty state</p>
       <EmptyState text="Nothing yet. Tasks Bothy works on, in chats or on a schedule, show up here." action={{ label: 'Start a chat', href: '/chat' }} />
-      <EmptyState class="mt-6" text="It's just you so far." more="Add teammates so they get their own sign-in." action={{ label: 'Add person', variant: 'secondary', onclick: () => (formOpen = true) }} />
+      <EmptyState class="mt-6" text="It's just you so far." more="Add people so they get their own sign-in." action={{ label: 'Add person', variant: 'secondary', onclick: () => (formOpen = true) }} />
     </section>
 
     <!-- Rows and settings -->

@@ -265,6 +265,101 @@ describe('ApprovalCard', () => {
   });
 });
 
+// A teammate's or a channel's request: an admin here, or a chat approver in
+// their direct messages, decides it (docs/design/ui.md §8.4).
+describe('ApprovalCard for people in chat apps', () => {
+  let calls: Call[];
+  const team = { user_id: '', admin_only: false, team: true, requester_identity: 'slack:U02ALEX' } as Approval['approver'];
+  const person = (extra: Partial<Approval> = {}) =>
+    approval({
+      principal_id: 'spc_01jalexslack000000000000000',
+      approver: team,
+      chat: { channel: 'slack', chat_id: 'D02ALEX', kind: 'dm' },
+      card: { ...approval().card, context: "Alex Kim's direct messages on Slack" },
+      requester: { user: '', name: 'Alex Kim', app: 'slack', identity: 'slack:U02ALEX', handle: 'alex' },
+      ...extra,
+    });
+  const channel = (extra: Partial<Approval> = {}) =>
+    person({
+      principal_id: 'spc_01jeng00000000000000000000',
+      chat: { channel: 'slack', chat_id: 'C01ENG', kind: 'group' },
+      card: { ...approval().card, context: '#eng on Slack', choices: ['allow_once', 'deny'] },
+      requester: { user: '', name: 'Alex Kim', app: 'slack', chat: '#eng', identity: 'slack:U02ALEX', handle: 'alex' },
+      ...extra,
+    });
+
+  beforeEach(() => {
+    calls = installApi();
+    setCsrf('mock-csrf');
+    session.me = { user: owner, csrf: 'mock-csrf', mode: 'multi', principals: [], paused: false, sandbox_available: true, banners: [], access: { peer: 'local', tls: false } };
+    approvals.reset();
+    votes.reset();
+  });
+
+  it('names who asked and where, and never links to a chat admins cannot open', () => {
+    router.navigate('/approvals');
+    render(ApprovalCard, { approval: person() });
+    const card = screen.getByRole('article');
+    expect(card.textContent).toContain('Alex Kim (@alex) asked on Slack.');
+    expect(card.textContent).toContain("Alex Kim's direct messages on Slack");
+    expect(card.textContent).not.toContain('You asked');
+    expect(card.querySelector('a[href^="/chat/"]')).toBeNull();
+  });
+
+  it("lets an admin decide, with the person's name on the standing choices", async () => {
+    render(ApprovalCard, { approval: person() });
+    const card = screen.getByRole('article');
+    expect(buttons(card).map((b) => b.textContent?.trim())).toEqual(['Run command', "Allow in Alex Kim's chat", 'Deny']);
+    await fireEvent.click(within(card).getByRole('button', { name: 'Always allow for Alex Kim…' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.textContent).toContain("Bothy won't ask again before running rm -rf build ⟨U+202E⟩/ txt.exe for Alex Kim on Slack.");
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Always allow' }));
+    await waitFor(() => expect(calls.filter((c) => c.method === 'POST')).toHaveLength(1));
+  });
+
+  it("names a channel's request by the channel and says the deny reason stays out of it", async () => {
+    render(ApprovalCard, { approval: channel() });
+    const card = screen.getByRole('article');
+    expect(card.textContent).toContain('Alex Kim asked in #eng on Slack.');
+    expect(card.textContent).toContain('#eng on Slack');
+    expect(buttons(card).map((b) => b.textContent?.trim())).toEqual(['Run command', 'Deny']);
+    expect(within(card).queryByRole('button', { name: /Always allow/ })).toBeNull();
+    await fireEvent.click(within(card).getByRole('button', { name: 'Deny' }));
+    expect((await within(card).findByLabelText(/Reason/)).getAttribute('placeholder')).toBe("People in #eng won't see this, but Bothy will.");
+  });
+
+  it('tells the person their reason reaches them in their own chat', async () => {
+    render(ApprovalCard, { approval: person() });
+    await fireEvent.click(within(screen.getByRole('article')).getByRole('button', { name: 'Deny' }));
+    expect((await screen.findByLabelText(/Reason/)).getAttribute('placeholder')).toBe('Alex Kim will see this.');
+  });
+
+  it('shows members no buttons and says who can decide', async () => {
+    session.me = { ...session.me!, user: member };
+    render(ApprovalCard, { approval: person() });
+    const card = screen.getByRole('article');
+    expect(buttons(card)).toHaveLength(0);
+    expect(within(card).getByRole('status').textContent).toContain('Waiting for an approver.');
+    await fireEvent.click(within(card).getByRole('button', { name: 'Details' }));
+    expect(card.textContent).toContain('Who can approve: an admin, or someone who can approve in a chat app');
+  });
+
+  it('names the chat approver who decided, and the person who cancelled', () => {
+    const at = new Date().toISOString();
+    const a = render(ApprovalCard, {
+      approval: person({ status: 'allowed', choice: 'allow_once', decided_by: '', decided_by_identity: 'slack:U01SAM', decided_by_name: 'Sam Patel · Slack', decided_via: 'slack', decided_at: at }),
+      mode: 'decided',
+    });
+    expect(document.querySelector('[data-decided]')?.textContent).toMatch(/^\s*Sam Patel · Slack approved ·/);
+    a.unmount();
+    render(ApprovalCard, {
+      approval: person({ status: 'denied', choice: 'deny', decided_by: '', decided_by_identity: 'slack:U02ALEX', decided_by_name: 'Alex Kim · Slack', decided_via: 'slack', decided_at: at }),
+      mode: 'decided',
+    });
+    expect(document.querySelector('[data-decided]')?.textContent).toMatch(/^\s*Cancelled by Alex Kim ·/);
+  });
+});
+
 describe('ApprovalCard with several approvers', () => {
   let calls: Call[];
 

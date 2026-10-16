@@ -2,7 +2,7 @@
   import { tick } from 'svelte';
   import { api, ApiError } from '../../lib/api/client';
   import type { Approval, Choice } from '../../lib/api/types.gen';
-  import { busyLabel, cardCopy, decidable, expiryOf, isMulti, isOpen, originOf, requesterOf } from '../../lib/cardcopy';
+  import { appName, busyLabel, cardCopy, decidable, expiryOf, fromTeam, isMulti, isOpen, originOf, requesterOf, teamAsked, teamPerson } from '../../lib/cardcopy';
   import { choiceDone, choiceKey } from '../../lib/labels';
   import { router } from '../../lib/router.svelte';
   import { clock } from '../../lib/stores/clock.svelte';
@@ -92,25 +92,37 @@
   const always = $derived(offered.includes('allow_always') && copy.tone !== 'destructive' && !multi);
   const keys = $derived(mode === 'inbox');
 
-  const label = (c: Choice) => (c === 'deny' ? 'Deny' : c === 'allow_session' ? 'Allow for this chat' : copy.primary);
+  // A teammate's request names their chat: the approver may be reading it in Approvals, not there (§8.4).
+  const person = $derived(teamPerson(view));
+  const label = (c: Choice) => (c === 'deny' ? 'Deny' : c === 'allow_session' ? (person ? `Allow in ${person}'s chat` : 'Allow for this chat') : copy.primary);
   const variant = (c: Choice) => (c !== primaryChoice ? 'secondary' : c === 'allow_once' && copy.tone === 'destructive' ? 'danger' : 'primary');
   const keyHint = (c: Choice) => (keys && choiceKey[c] ? `${label(c)} (${choiceKey[c]!.toUpperCase()})` : undefined);
 
   const origin = $derived(originOf(view));
   const inOwnChat = $derived(!!view.session_id && router.path === `/chat/${encodeURIComponent(view.session_id)}`);
-  const someoneElse = $derived(!!requesterId && !!me && requesterId !== me.id);
-  const requesterName = $derived((multi && vv?.requester_name) || people.name(requesterId) || 'Someone');
+  const team = $derived(fromTeam(view));
+  const someoneElse = $derived(team || (!!requesterId && !!me && requesterId !== me.id));
+  const requesterName = $derived((team && view.requester?.name) || (multi && vv?.requester_name) || people.name(requesterId) || 'Someone');
   const expiry = $derived(expiryOf(view, clock.now));
   const warnings = $derived(copy.warnings.slice(0, 2));
   const moreWarnings = $derived(copy.warnings.slice(2));
   const whoCan = $derived(
-    multi ? vv?.approvers || 'the approvers this environment names' : view.approver?.admin_only ? 'any admin' : people.name(view.approver?.user_id) || 'the person who asked',
+    multi
+      ? vv?.approvers || 'the approvers this environment names'
+      : view.approver?.admin_only
+        ? 'any admin'
+        : view.approver?.team
+          ? 'an admin, or someone who can approve in a chat app'
+          : people.name(view.approver?.user_id) || 'the person who asked',
   );
+  const denyHint = $derived(!team ? undefined : view.requester?.chat ? `People in ${view.requester.chat} won't see this, but Bothy will.` : `${requesterName} will see this.`);
   // A schedule's request was asked for by nobody in the moment, so it says where it came from instead.
   // Someone else's request names the person and the chat once, here, so the meta line below leaves them out (§8.5).
-  const askedIn = $derived(someoneElse && !origin.schedule && !!origin.app && !!origin.title);
+  const askedIn = $derived(!team && someoneElse && !origin.schedule && !!origin.app && !!origin.title);
   const asked = $derived(
-    origin.schedule
+    team
+      ? teamAsked(view)
+      : origin.schedule
       ? `Started by a schedule${origin.app ? ` on ${origin.app}` : ''}.`
       : origin.app
         ? `${someoneElse ? requesterName : 'You'} asked ${origin.group ? 'in a group chat on' : 'on'} ${origin.app}.`
@@ -280,6 +292,7 @@
           <TextField
             label="Reason"
             optional
+            placeholder={denyHint}
             bind:value={comment}
             bind:input={reasonInput}
             autocomplete="off"
@@ -314,7 +327,9 @@
         </div>
         {#if always}
           <p class="mt-2 text-small">
-            <LinkButton class="text-left" disabled={!!busy} onclick={() => (alwaysOpen = true)}><span>Always allow <Words segs={copy.grant} />…</span></LinkButton>
+            <LinkButton class="text-left" disabled={!!busy} onclick={() => (alwaysOpen = true)}
+              >{#if person}Always allow for {person}…{:else}<span>Always allow <Words segs={copy.grant} />…</span>{/if}</LinkButton
+            >
           </p>
         {/if}
       {:else if open}
@@ -331,7 +346,7 @@
           {:else if multi}
             <p>Waiting for {vv?.approvers || 'the other approvers'}.</p>
           {:else}
-            <p>Waiting for {view.approver?.admin_only ? 'an admin' : people.name(view.approver?.user_id) || 'someone else'}.</p>
+            <p>Waiting for {view.approver?.admin_only ? 'an admin' : view.approver?.team ? 'an approver' : people.name(view.approver?.user_id) || 'someone else'}.</p>
           {/if}
         </div>
       {/if}
@@ -342,7 +357,10 @@
     <p class="mt-3 text-small text-muted">
       <!-- Inside its own chat the card needs no "From" (§7.1). -->
       <!-- Someone else's chat title may be private; who asked never is. -->
-      {#if !inOwnChat && view.session_id && (!someoneElse || !askedIn)}
+      <!-- A team request's chat isn't on the web; the server names it instead. -->
+      {#if team}
+        {#if view.card?.context}<span data-copy-ignore>{view.card.context}</span>{' · '}{/if}
+      {:else if !inOwnChat && view.session_id && (!someoneElse || !askedIn)}
         {#if someoneElse}
           Requested by {requesterName}{#if origin.title}{' '}in <span data-copy-ignore>“<Verbatim text={origin.title} />”</span>{/if}
         {:else}
@@ -391,7 +409,13 @@
     </div>
   </article>
   {#if always}
-    <AlwaysAllowDialog bind:open={alwaysOpen} grant={copy.grant} busy={busy === 'allow_always'} onconfirm={() => resolve('allow_always')} />
+    <AlwaysAllowDialog
+      bind:open={alwaysOpen}
+      grant={copy.grant}
+      who={person ? `${person} on ${appName(view.requester?.app)}` : ''}
+      busy={busy === 'allow_always'}
+      onconfirm={() => resolve('allow_always')}
+    />
   {/if}
 {/if}
 

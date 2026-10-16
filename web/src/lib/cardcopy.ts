@@ -164,6 +164,29 @@ export function originOf(ap: Approval): Origin {
   };
 }
 
+/** A request from a person or a channel in a chat app, which an admin or a chat approver decides (§8.4). */
+export function fromTeam(ap: Approval): boolean {
+  return !!ap.approver?.team || !!ap.principal_id?.startsWith('spc_');
+}
+
+/** "Maya Chen (@maya) asked on Slack.", "Alex asked in #eng on Slack."; "" when the server named nobody. */
+export function teamAsked(ap: Approval): string {
+  const r = ap.requester;
+  if (!r?.name) return '';
+  const app = appName(r.app || ap.chat?.channel);
+  if (r.chat) return `${r.name} asked in ${r.chat} on ${app}.`;
+  // A schedule's request names the teammate or channel it runs for, not someone who asked.
+  if (!r.identity) return `From ${r.name} on ${app}.`;
+  return `${r.name}${r.handle ? ` (@${r.handle})` : ''} asked on ${app}.`;
+}
+
+/** The person whose own chat a team request came from, cut for button labels; '' for a channel's. */
+export function teamPerson(ap: Approval): string {
+  const r = ap.requester;
+  if (!fromTeam(ap) || !r?.name || r.chat) return '';
+  return clip(r.name, 24);
+}
+
 /** The server's warnings in the words of §8.3. */
 export function plainWarnings(ap: Approval): string[] {
   const a = ap.action;
@@ -370,15 +393,18 @@ function notes(a: Action, p: Payload, card: Card): Built {
   };
 }
 
-// Where a schedule's results go, as internal/policy/copy.go deliverText says it. Without a set chat they follow the
-// owner's usual chat app, named with the owner since an admin may approve someone else's schedule.
+// Where a schedule's results go, as internal/policy/copy.go deliverText says it. Without a set chat an account's
+// stay on the web, a teammate's go to their direct messages and a channel's to the channel.
 function sendsTo(p: Payload): string {
   const deliver = p.deliver && typeof p.deliver === 'object' ? (p.deliver as { channel?: string }) : undefined;
   if (deliver) return deliver.channel && deliver.channel !== 'web' ? appName(deliver.channel) : 'Bothy on the web';
   const owner = str(p.owner);
   const usual = str(p.usual_chat);
-  if (!owner) return 'Usual chat app, or Bothy on the web if none is linked';
-  return usual ? `${owner}'s usual chat app (${appName(usual)})` : `Bothy on the web (${owner} has no chat app linked)`;
+  const kind = str(p.owner_kind);
+  if (!owner || !usual) return 'Bothy on the web';
+  if (kind === 'person') return `${owner}'s messages on ${appName(usual)}`;
+  if (kind === 'space') return `${owner} on ${appName(usual)}`;
+  return 'Bothy on the web';
 }
 
 function scheduleCreate(_a: Action, p: Payload): Built {
@@ -635,7 +661,7 @@ export function isOpen(ap: Approval): boolean {
 /** Multi-approver approvals are decided by votes (S4); without the S4 fields every approval is single-approver. */
 export function isMulti(ap: Approval): boolean {
   const r = ap.approver;
-  return !!r && !r.user_id && !r.admin_only && (!!r.users?.length || !!r.roles?.length);
+  return !!r && !r.user_id && !r.admin_only && !r.team && (!!r.users?.length || !!r.roles?.length);
 }
 
 const rank: Record<string, number> = { member: 1, admin: 2, owner: 3 };
@@ -673,7 +699,7 @@ export function decidable(ap: Approval, me: Who | undefined, vv?: ApprovalVotes 
     return !!r.users?.includes(me.id) || !!r.roles?.some((ro) => (rank[me.role] ?? 0) >= (rank[ro] ?? 9));
   }
   // Fails closed: an approval that names no approver shows no buttons.
-  return r?.admin_only ? (rank[me.role] ?? 0) >= rank.admin : !!r?.user_id && r.user_id === me.id;
+  return r?.admin_only || r?.team ? (rank[me.role] ?? 0) >= rank.admin : !!r?.user_id && r.user_id === me.id;
 }
 
 export interface DecidedCopy {
@@ -708,7 +734,8 @@ export function decidedLine(ap: Approval, o: DecidedOpts): DecidedCopy {
   // The Done tab groups by Today, Yesterday and Earlier, so only the Earlier lines carry their date.
   const time = at ? (!o.list || recentDay ? timeOfDay(at) : relTime(at, { now: o.now })) : undefined;
   const who = (id?: string, name?: string) => (id && id === o.me ? 'You' : name || (id ? o.name(id) : '') || 'Someone');
-  const via = ap.decided_via && !['web', 'api', 'timeout', 'stop', ''].includes(ap.decided_via) ? appName(ap.decided_via) : '';
+  // A chat approver's name already says which app: "Sam Patel · Slack".
+  const via = ap.decided_via && !ap.decided_by_identity && !['web', 'api', 'timeout', 'stop', ''].includes(ap.decided_via) ? appName(ap.decided_via) : '';
   const requester = o.votes?.requester_name || (a2.approver?.requester ? who(a2.approver.requester) : '');
   const voteName = (v: { user_id: string; name?: string }) => who(v.user_id, v.name);
   const votes = o.votes?.votes ?? a2.votes?.map((v) => ({ ...v, name: '' })) ?? [];
@@ -719,6 +746,9 @@ export function decidedLine(ap: Approval, o: DecidedOpts): DecidedCopy {
     return { glyph: 'close', tone: 'muted', segs: [by], time, at };
   }
   if (ap.status === 'denied') {
+    if (ap.decided_by_identity && ap.decided_by_identity === ap.approver?.requester_identity) {
+      return { glyph: 'close', tone: 'muted', segs: [`Cancelled by ${ap.requester?.name || 'the person who asked'}`], time, at };
+    }
     const denial = votes.find((v) => v.choice === 'deny');
     if (denial && a2.approver?.requester && denial.user_id === a2.approver.requester) {
       return { glyph: 'close', tone: 'muted', segs: [`Cancelled by ${voteName(denial) === 'You' ? 'you' : voteName(denial)}`], time, at };

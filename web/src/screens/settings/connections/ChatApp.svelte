@@ -1,10 +1,10 @@
 <script lang="ts">
   import { tick, untrack, type Snippet } from 'svelte';
-  import Pairing from '../../../components/Pairing.svelte';
   import { Button, EmptyState, LinkButton, StatusLine, TextField, toast } from '../../../components/ui';
   import { api } from '../../../lib/api/client';
-  import type { ChannelIdentity, ChannelTestResp, DiscordInvite, SecretMeta, Space, User } from '../../../lib/api/types.gen';
+  import type { ChannelTestResp, DiscordInvite, SecretMeta, SpaceView } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
+  import { router } from '../../../lib/router.svelte';
   import ChatAppManage from './ChatAppManage.svelte';
   import ConnPage from './ConnPage.svelte';
   import { appTitle, channelFailure, connectedText, isApp, saveConfig, secretName, type AppName, type AppStatus, type Failure } from './connections';
@@ -35,9 +35,7 @@
 
   let status = $state<AppStatus | undefined>();
   let secrets = $state<SecretMeta[]>([]);
-  let identities = $state<ChannelIdentity[]>([]);
-  let spaces = $state<Space[]>([]);
-  let users = $state<User[]>([]);
+  let spaces = $state<SpaceView[]>([]);
   let view = $state<'loading' | 'steps' | 'manage' | 'failed'>('loading');
 
   let values = $state<Record<string, string>>({});
@@ -47,6 +45,8 @@
   let outcome = $state<(Failure & { ok: boolean }) | null>(null);
   let slackHref = $state('https://api.slack.com/apps?new_app=1');
   let invite = $state('');
+  // The bot the check just reached, before the status catches up.
+  let bot = $state('');
   let fromManage = $state(false);
   let timer: ReturnType<typeof setTimeout> | undefined;
   let run = 0;
@@ -57,15 +57,13 @@
   async function load(first = false) {
     const get = <T,>(p: string, d: T) => api.get<T>(p).catch(() => d);
     try {
-      const [channels, s, ids, sp, us] = await Promise.all([
+      const [channels, s, sp] = await Promise.all([
         api.get<AppStatus[]>('/api/channels'),
         get<SecretMeta[]>('/api/vault', []),
-        get<ChannelIdentity[]>('/api/identities', []),
-        get<Space[]>('/api/spaces', []),
-        get<User[]>('/api/users', []),
+        get<SpaceView[]>('/api/spaces', []),
         config.load(true),
       ]);
-      [status, secrets, identities, spaces, users] = [channels.find((c) => c.name === app), s, ids, sp, us];
+      [status, secrets, spaces] = [channels.find((c) => c.name === app), s, sp];
       if (first) {
         const configured = fields[app].some(saved) || status?.state === 'connected';
         view = configured && status?.state !== 'auth_failed' ? 'manage' : 'steps';
@@ -146,6 +144,7 @@
         toast(`${name} reconnected.`);
         return;
       }
+      bot = r.identity;
       outcome = { ok: true, message: `${connectedText({ ...status!, identity: r.identity }, true)}.` };
       if (app === 'discord') invite = (await api.get<DiscordInvite>('/api/channels/discord/invite').catch(() => ({ url: '' }))).url;
     } catch (e) {
@@ -166,6 +165,9 @@
   }
 
   const later = 'You can do this once step 2 is done.';
+  // t.me opens the bot's chat from its username.
+  const handle = $derived(bot || status?.identity || '');
+  const telegramHref = $derived(handle.startsWith('@') ? `https://t.me/${encodeURIComponent(handle.slice(1))}` : '');
 </script>
 
 {#snippet step(n: number, title: string, body: Snippet)}
@@ -189,6 +191,7 @@
     <Button href="https://t.me/BotFather" external>Open @BotFather</Button>
   {:else}
     {@render text('Create an application, add a bot to it, then turn on Message Content Intent under Bot.')}
+    {@render text('Under Bot, turn off Public Bot, so only you can add Bothy to servers.')}
     <Button href="https://discord.com/developers/applications" external>Open the developer portal</Button>
   {/if}
 {/snippet}
@@ -228,10 +231,6 @@
   {/if}
 {/snippet}
 
-{#snippet link()}
-  {#if connected}<Pairing channel={app} bot={status?.identity} auto />{:else}{@render text(later)}{/if}
-{/snippet}
-
 {#snippet invited()}
   {#if connected && invite}
     {@render text('Discord asks which server to add it to.')}
@@ -243,9 +242,7 @@
   <ChatAppManage
     {app}
     {status}
-    {identities}
     {spaces}
-    {users}
     {secrets}
     onchanged={() => load(true)}
     onreplace={(f) => {
@@ -263,18 +260,25 @@
         {#if app === 'slack'}
           {@render step(1, 'Create the Slack app', one)}
           {@render step(2, 'Paste the two tokens', two)}
-          {@render step(3, 'Link your Slack account', link)}
         {:else if app === 'telegram'}
           {@render step(1, 'Create a bot with @BotFather', one)}
           {@render step(2, 'Paste the bot token', two)}
-          {@render step(3, 'Link your Telegram', link)}
         {:else}
           {@render step(1, 'Create a bot in the Discord developer portal', one)}
           {@render step(2, 'Paste the bot token and application ID', two)}
           {@render step(3, 'Invite Bothy to your server', invited)}
-          {@render step(4, 'Link your Discord', link)}
         {/if}
       </ol>
+      {#if connected}
+        <div class="mt-10 space-y-3 pl-8">
+          <p class="text-body text-text">
+            Message Bothy in {name} to try it. To approve requests there, turn on Can approve for yourself in <a class="link" href="/settings/people" onclick={router.link}
+              >People</a
+            >.
+          </p>
+          {#if app === 'telegram' && telegramHref}<Button href={telegramHref} external>Open Telegram</Button>{/if}
+        </div>
+      {/if}
     {/if}
   </ConnPage>
 {/if}

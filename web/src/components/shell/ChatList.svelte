@@ -9,7 +9,7 @@
 
   const uid = $props.id();
   const current = $derived(router.current?.pattern === '/chat/:id' ? router.current.params.id : '');
-  const view = $derived(groupChats(chats.visible, new Set(chats.spaces.keys()), clock.now, chats.shown));
+  const view = $derived(groupChats(chats.visible, clock.now, chats.shown));
 
   let menuFor = $state('');
 </script>

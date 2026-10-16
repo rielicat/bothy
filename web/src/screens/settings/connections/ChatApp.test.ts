@@ -1,9 +1,8 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { describe, expect, it } from 'vitest';
-import { member, owner } from '../../../../mock/fixtures';
+import { resetMock } from '../../../../mock/server';
 import { session } from '../../../lib/stores/session.svelte';
-import { FakeEventSource } from '../../../test/setup';
 import { installApi, type Call } from '../../../test/api';
 import ChatApp from './ChatApp.svelte';
 
@@ -13,11 +12,11 @@ const refuse = (status = 500, message = 'could not save') => new Response(JSON.s
 
 // Slack as on a fresh install: turned off, no tokens saved.
 const fresh = (more?: (m: string, url: string) => unknown) => (m: string, url: string) =>
-  more?.(m, url) ??
-  (url === '/api/vault' ? [] : url === '/api/channels' ? [{ name: 'slack', enabled: false, state: 'disabled', since: '', deep_links: false }] : undefined);
+  more?.(m, url) ?? (url === '/api/vault' ? [] : url === '/api/channels' ? [{ name: 'slack', enabled: false, state: 'disabled', since: '' }] : undefined);
 
-async function setup(item: string, override?: (m: string, url: string) => unknown): Promise<Call[]> {
+async function setup(item: string, override?: (m: string, url: string) => unknown, mock = ''): Promise<Call[]> {
   const calls = installApi({ override });
+  if (mock) resetMock({ mock });
   await session.init();
   render(ChatApp, { params: { group: 'connections', item } });
   return calls;
@@ -31,18 +30,20 @@ async function pasteTokens() {
   await fireEvent.keyDown(bot, { key: 'Enter' });
 }
 
+const who = async () => within((await screen.findByRole('heading', { name: 'Who can use Bothy' })).closest('section')!);
+
 describe('Connect Slack (§12.3)', () => {
-  it('shows the numbered steps with the plan copy', async () => {
+  it('shows the numbered steps with the plan copy and no linking step', async () => {
     await setup('slack', fresh());
     expect(await screen.findByRole('heading', { name: /^Step 1: ?Create the Slack app$/ })).toBeTruthy();
     expect(screen.getByRole('heading', { level: 1, name: 'Connect Slack' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: /^Step 2: ?Paste the two tokens$/ })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: /^Step 3: ?Link your Slack account$/ })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: /^Step 3/ })).toBeNull();
     expect(screen.getByText('Starts with xapp-. In Slack: Basic Information → App-Level Tokens → Generate Token and Scopes. Add the connections:write scope.')).toBeTruthy();
-    expect(screen.getByText('You can do this once step 2 is done.')).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/link|pair/i);
   });
 
-  it('writes nothing until both tokens look right, then saves, turns it on and checks', async () => {
+  it('writes nothing until both tokens look right, then saves, turns it on, checks and says how to try it', async () => {
     const calls = await setup('slack', fresh());
     await fireEvent.input(await screen.findByLabelText('App-level token'), { target: { value: SLACK_APP } });
     await fireEvent.keyDown(screen.getByLabelText('App-level token'), { key: 'Enter' });
@@ -51,14 +52,15 @@ describe('Connect Slack (§12.3)', () => {
     await pasteTokens();
     expect(await screen.findByText(/Connected as @bothy\./)).toBeTruthy();
     const writes = calls.filter((c) => c.method !== 'GET').map((c) => `${c.method} ${c.url}`);
-    expect(writes).toEqual(['PUT /api/vault/global/slack_bot_token', 'PUT /api/vault/global/slack_app_token', 'PATCH /api/config', 'POST /api/channels/slack/test', 'POST /api/pairing']);
+    expect(writes).toEqual(['PUT /api/vault/global/slack_bot_token', 'PUT /api/vault/global/slack_app_token', 'PATCH /api/config', 'POST /api/channels/slack/test']);
     expect(JSON.parse(calls.find((c) => c.method === 'PATCH')!.body).set).toEqual({
       'channels.slack.enabled': true,
       'channels.slack.app_token': 'secret:slack_app_token',
       'channels.slack.bot_token': 'secret:slack_bot_token',
     });
-    // Step 3 then offers the link command for Slack's slash command.
-    expect(await screen.findByText('/bothy pair 7KQ2-MX4D')).toBeTruthy();
+    const tryIt = await screen.findByText(/^Message Bothy in Slack to try it\./);
+    expect(tryIt.textContent).toBe('Message Bothy in Slack to try it. To approve requests there, turn on Can approve for yourself in People.');
+    expect(within(tryIt).getByRole('link', { name: 'People' }).getAttribute('href')).toBe('/settings/people');
   });
 
   it('says what went wrong in Slack terms, with the raw error behind Details', async () => {
@@ -83,54 +85,39 @@ describe('Connect Slack (§12.3)', () => {
     const patches = calls.filter((c) => c.method === 'PATCH' && c.url === '/api/config').map((c) => JSON.parse(c.body).set);
     expect(patches.at(-1)).toEqual({ 'channels.slack.enabled': false });
   });
-
-  it('shows "Linked as" when the person sends the code', async () => {
-    await setup('slack', fresh());
-    await pasteTokens();
-    await screen.findByText('/bothy pair 7KQ2-MX4D');
-    FakeEventSource.last?.emit('pairing.linked', { type: 'pairing.linked', data: { channel: 'slack', external_id: 'U1', display: '@maya' } });
-    await waitFor(() => expect(screen.queryByText('Linked as @maya.')).toBeTruthy());
-  });
 });
 
 describe('Slack manage view', () => {
-  it('lists group chats, linked people and who waits', async () => {
+  it('lists group chats with who is in them, and says who can use Bothy', async () => {
     await setup('slack');
     expect(await screen.findByRole('heading', { level: 1, name: 'Slack' })).toBeTruthy();
     expect(screen.getByText('Connected to Acme as @bothy')).toBeTruthy();
     expect(screen.getByText('#eng')).toBeTruthy();
-    expect(screen.getByText('Sam · @sam')).toBeTruthy();
-    expect(screen.getByText('Alex · @alex')).toBeTruthy();
-    expect(screen.getByText('Jordan Lee · @jordan')).toBeTruthy();
+    expect(screen.getByText('Acme · 24 people')).toBeTruthy();
+    expect(screen.getByText('Acme · 57 people · Shared with other companies')).toBeTruthy();
+    const s = await who();
+    expect(s.getByText(/^Everyone in Acme can message Bothy and use what it can read/).textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      "Everyone in Acme can message Bothy and use what it can read, such as your repositories and connected tools. Guests and people from other companies can't. Anything that changes something waits for an approver.",
+    );
+    // Slack decides who is in the team, so the select for new people is not here.
+    expect(s.queryByLabelText('When someone new messages Bothy')).toBeNull();
+    expect(s.getByRole('link', { name: 'Manage people' }).getAttribute('href')).toBe('/settings/people');
+    expect(document.body.textContent).not.toMatch(/Linked people|aren't linked|as a guest/);
   });
 
-  // Linking hands the chat account that person's chats and permissions, so
-  // the request must name exactly the person the owner picked.
-  it('links a sender only to the person the owner chose', async () => {
+  it('says an org-wide install lets in the whole organization', async () => {
+    await setup('slack', (_m, url) => (url === '/api/channels' ? [{ name: 'slack', enabled: true, state: 'connected', since: '', identity: '@bothy', team: 'Acme', org: true }] : undefined));
+    const s = await who();
+    expect(s.getByText(/^Everyone in your Slack organization, across all its workspaces, can message Bothy/)).toBeTruthy();
+  });
+
+  it('chooses what Bothy can do in a group chat in plain words', async () => {
     const calls = await setup('slack');
-    await fireEvent.click(await screen.findByRole('button', { name: 'Options for @jordan' }));
-    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Link to a person…' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Link @jordan to a person' });
-    await fireEvent.click(within(dialog).getByRole('button', { name: 'Link account' }));
-    expect(await within(dialog).findByText('Choose a person.')).toBeTruthy();
-    expect(calls.some((c) => c.method === 'PATCH' && c.url.startsWith('/api/identities/'))).toBe(false);
-
-    await fireEvent.change(within(dialog).getByLabelText('Person'), { target: { value: member.id } });
-    await fireEvent.click(within(dialog).getByRole('button', { name: 'Link account' }));
-    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url.startsWith('/api/identities/'))).toBe(true));
-    expect(JSON.parse(calls.find((c) => c.method === 'PATCH' && c.url.startsWith('/api/identities/'))!.body)).toEqual({ status: 'linked', user_id: member.id });
-  });
-
-  // The gateway lets only the owner link a chat account to someone else.
-  it('offers an admin no one to link to but themselves', async () => {
-    installApi();
-    await session.init();
-    session.me = { ...session.me!, user: { ...session.me!.user, role: 'admin' } };
-    render(ChatApp, { params: { group: 'connections', item: 'slack' } });
-    await fireEvent.click(await screen.findByRole('button', { name: 'Options for @jordan' }));
-    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Link to a person…' }));
-    const select = within(await screen.findByRole('dialog')).getByLabelText('Person') as HTMLSelectElement;
-    expect([...select.options].map((o) => o.value)).toEqual([owner.id]);
+    const what = (await screen.findAllByLabelText('What Bothy can do here'))[0] as HTMLSelectElement;
+    expect([...what.options].map((o) => o.text)).toEqual(['Answer questions', 'Do work, with approval']);
+    expect(what.value).toBe('standard');
+    await fireEvent.change(what, { target: { value: 'restricted' } });
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url === '/api/spaces/spc_01jeng00000000000000000000' && JSON.parse(c.body).tool_profile === 'restricted')).toBe(true));
   });
 
   it('puts a group chat control back when the change fails', async () => {
@@ -177,6 +164,7 @@ describe('Slack manage view', () => {
 describe('Discord and Telegram', () => {
   it('explains a missing Message Content Intent', async () => {
     await setup('discord', (m, url) => (m === 'POST' && url === '/api/channels/discord/test' ? refuse(502, 'discord: gateway closed with code 4014: Disallowed intent(s)') : undefined));
+    expect(await screen.findByText('Under Bot, turn off Public Bot, so only you can add Bothy to servers.')).toBeTruthy();
     await fireEvent.input(await screen.findByLabelText('Bot token'), { target: { value: 'MTIzNDU2Nzg5MDEyMzQ1Njc4' + '.GhIjKl.MnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWx' } });
     const id = screen.getByLabelText('Application ID');
     await fireEvent.input(id, { target: { value: '112233445566778899' } });
@@ -185,17 +173,56 @@ describe('Discord and Telegram', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('Discord needs Message Content Intent turned on for this bot.');
   });
 
-  it('offers the QR code and Open Telegram once connected', async () => {
-    await setup('telegram', (m, url) =>
-      url === '/api/vault' ? [] : url === '/api/channels' ? [{ name: 'telegram', enabled: false, state: 'disabled', since: '', deep_links: true }] : undefined,
-    );
+  it('offers Open Telegram once connected', async () => {
+    await setup('telegram', (m, url) => (url === '/api/vault' ? [] : url === '/api/channels' ? [{ name: 'telegram', enabled: false, state: 'disabled', since: '' }] : undefined));
     const token = await screen.findByLabelText('Bot token');
     await fireEvent.input(token, { target: { value: '123456789:' + 'AAH4kq9xV1t8mZp2Lq0wE3rTyUiOpAsDfGh' } });
     await tick();
     await fireEvent.keyDown(token, { key: 'Enter' });
     expect(await screen.findByText('Connected as @acme_bothy_bot.')).toBeTruthy();
+    expect(await screen.findByText(/^Message Bothy in Telegram to try it\./)).toBeTruthy();
     const open = await screen.findByRole('link', { name: /Open Telegram/ });
-    expect(open.getAttribute('href')).toBe('https://t.me/acme_bothy_bot?start=7KQ2MX4D');
+    expect(open.getAttribute('href')).toBe('https://t.me/acme_bothy_bot');
     expect(open.getAttribute('target')).toBe('_blank');
+  });
+
+  it('lets Telegram admins choose what happens when someone new messages Bothy', async () => {
+    const calls = await setup('telegram');
+    const s = await who();
+    expect(s.getByText('People you let in from Approvals.')).toBeTruthy();
+    const select = s.getByLabelText('When someone new messages Bothy') as HTMLSelectElement;
+    expect([...select.options].map((o) => o.text)).toEqual(['Ask an admin to let them in (recommended)', "Don't reply or notify anyone"]);
+    expect(s.getByText("Either way, they're listed in Approvals. Applies to Telegram and Discord.")).toBeTruthy();
+    await fireEvent.change(select, { target: { value: 'ignore' } });
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url === '/api/config' && JSON.parse(c.body).set['channels.unknown_senders'] === 'ignore')).toBe(true));
+  });
+
+  it('says who can use Bothy on Discord, and asks before the last channel of a server goes off', async () => {
+    const calls = await setup('discord', undefined, 'discord-on');
+    const s = await who();
+    expect(s.getByText(/^Members of a server where Bothy answers in a channel can message Bothy/)).toBeTruthy();
+    expect(screen.getByText('Acme Community · 4,812 people')).toBeTruthy();
+    const on = screen.getByRole('switch', { name: 'Answers here' });
+    await fireEvent.click(on);
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && JSON.parse(c.body).enabled === true)).toBe(true));
+    await fireEvent.click(on);
+    const dialog = await screen.findByRole('dialog', { name: 'Turn off Bothy in #general?' });
+    expect(dialog.textContent).toContain("People who are only in Acme Community won't be able to message Bothy any more.");
+    expect(calls.some((c) => c.method === 'PATCH' && JSON.parse(c.body).enabled === false)).toBe(false);
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(on.getAttribute('aria-checked')).toBe('true'));
+    await fireEvent.click(on);
+    await fireEvent.click(within(await screen.findByRole('dialog', { name: 'Turn off Bothy in #general?' })).getByRole('button', { name: 'Turn off' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && JSON.parse(c.body).enabled === false)).toBe(true));
+  });
+
+  it("says when Discord can't check who is in the servers, and when Bothy sits idle in some", async () => {
+    await setup('discord', undefined, 'discord-on:no-access');
+    expect((await who()).getByText("Bothy can't check who's in your servers, so only people you let in from Approvals can message it.")).toBeTruthy();
+  });
+
+  it('asks to remove Bothy from servers where no channel is on', async () => {
+    await setup('discord', undefined, 'discord-on:idle');
+    expect((await who()).getByText("Bothy is in 2 servers where it isn't on in any channel. Remove it from servers you don't use.")).toBeTruthy();
   });
 });

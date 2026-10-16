@@ -26,7 +26,7 @@ import {
 } from './connections';
 import type { GitHubApp, GitHubConnection, GitHubProbe } from './types';
 
-const app = (over: Partial<AppStatus>): AppStatus => ({ name: 'slack', enabled: true, state: 'connected', since: '', deep_links: false, ...over });
+const app = (over: Partial<AppStatus>): AppStatus => ({ name: 'slack', enabled: true, state: 'connected', since: '', ...over });
 const tool = (over: Partial<MCPStatus>): MCPStatus => ({ name: 'linear', transport: 'http', state: 'ready', protocol: '', tools: 12, pending: 0, since: '', ...over });
 
 describe('chat app status words (§12.1)', () => {
@@ -36,9 +36,9 @@ describe('chat app status words (§12.1)', () => {
     expect(appStatus('slack', app({ enabled: false, state: 'disabled' }), 2, true)).toEqual({ text: 'Off', tone: 'muted', action: 'Manage' });
   });
 
-  it('names the workspace or the bot, and counts linked people', () => {
-    expect(appStatus('slack', app({ workspace: 'Acme', identity: '@bothy' }), 4, true).text).toBe('Connected to Acme · 4 people linked');
-    expect(appStatus('telegram', app({ identity: '@acme_bot' }), 1, true).text).toBe('Connected as @acme_bot · 1 person linked');
+  it('names the workspace or the bot, and counts the people who use Bothy there', () => {
+    expect(appStatus('slack', app({ team: 'Acme', identity: '@bothy' }), 4, true).text).toBe('Connected to Acme · 4 people');
+    expect(appStatus('telegram', app({ identity: '@acme_bot' }), 1, true).text).toBe('Connected as @acme_bot · 1 person');
     expect(appStatus('telegram', app({ identity: '@acme_bot' }), 0, true).text).toBe('Connected as @acme_bot');
   });
 

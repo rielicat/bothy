@@ -3,14 +3,14 @@
   import Icon from '../../../components/Icon.svelte';
   import { Button, CodeBlock, Disclosure, EmptyState, Page, toast } from '../../../components/ui';
   import { api } from '../../../lib/api/client';
-  import type { Grant, List, Schedule, Session } from '../../../lib/api/types.gen';
+  import type { Grant, GrantView, List, Schedule, Session } from '../../../lib/api/types.gen';
   import { fullTime, relTime } from '../../../lib/format';
   import { session } from '../../../lib/stores/session.svelte';
   import { describeGrant, grantMeta } from './grantText';
   import { capital, relLower, securityBack } from './page.svelte';
   import PageState from './PageState.svelte';
 
-  let grants = $state<Grant[] | null>(null);
+  let grants = $state<GrantView[] | null>(null);
   let failed = $state(false);
   let titles = $state<Record<string, string>>({});
   let removing = $state('');
@@ -20,7 +20,7 @@
   async function load() {
     failed = false;
     try {
-      const g = (await api.get<Grant[]>('/api/grants')) ?? [];
+      const g = (await api.get<GrantView[]>('/api/grants')) ?? [];
       grants = [...g].sort((a, b) => b.created_at.localeCompare(a.created_at));
       void names(grants);
     } catch {
@@ -78,7 +78,7 @@
     <div bind:this={list}>
       {#each grants as g, i (g.id)}
         {@const d = describeGrant(g)}
-        {@const meta = grantMeta(g, { principals: session.principals, titles, when: '' })}
+        {@const meta = grantMeta(g, { titles, when: '' })}
         <div class="border-b border-border py-2 last:border-b-0">
           <div class="flex min-h-10 items-center gap-3 pointer-coarse:min-h-12">
             <div class="min-w-0 flex-1">

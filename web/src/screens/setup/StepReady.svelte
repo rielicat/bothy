@@ -11,10 +11,10 @@
   // Step 3 (docs/design/ui.md §5.7). Setup is complete as soon as this opens,
   // so every "Set up" goes to an ordinary app page.
   const rows = [
-    { title: 'Connect a chat app', text: 'Talk to Bothy from Slack, Discord or Telegram.', href: '/settings/connections' },
+    { title: 'Connect a chat app', text: 'Your team can talk to Bothy in Slack, Discord or Telegram.', href: '/settings/connections' },
     { title: 'Connect GitHub', text: 'Let Bothy read your code and open pull requests for review.', href: '/settings/connections/github' },
     // C7's People page opens its "Add person" dialog for ?add=1.
-    { title: 'Add your team', text: 'Give teammates their own sign-in.', href: '/settings/people?add=1' },
+    { title: 'Add people', text: 'Give admins and members their own sign-in to Bothy on the web.', href: '/settings/people?add=1' },
   ];
 
   const uid = $props.id();

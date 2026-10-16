@@ -37,7 +37,7 @@ describe('accessibility (axe)', () => {
   it('settings: security, the old policy address', () => check('/settings/policy', () => screen.getByText('When should Bothy ask?')));
   // v0.2 folds budgets into General (docs/design/ui.md §4.5), so the old address lands there.
   it('settings: budgets, now part of General', () => check('/settings/budgets', () => screen.getByRole('heading', { name: 'Workspace' })));
-  it('settings: connections', () => check('/settings/channels', () => screen.getByText('Connected to Acme · 2 people linked')));
+  it('settings: connections', () => check('/settings/channels', () => screen.getByText('Connected to Acme · 2 people')));
   it('settings: saved keys, the old vault address', () => check('/settings/vault', () => screen.getByText('Anthropic API key')));
   it('schedules', () => check('/schedules', () => screen.getByText('Morning briefing')));
   it('memory', () => check('/memory', () => screen.getByText('History')));

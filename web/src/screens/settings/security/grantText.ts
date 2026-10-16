@@ -1,7 +1,7 @@
 // Stored grants in plain words for "Allowed without asking" (§11.6).
 // lib/grants.ts describes the grant an action would create; this reads the
 // Grant records themselves.
-import type { Grant, Principal } from '../../../lib/api/types.gen';
+import type { Grant, GrantView } from '../../../lib/api/types.gen';
 import { commandOf, toolGrantPhrase as tool } from '../../../lib/grants';
 import { channelName } from '../../../lib/labels';
 
@@ -64,13 +64,14 @@ export function describeGrant(g: Grant): GrantParts {
   return { what: globs.length ? `${tool(name)} matching` : tool(name), exact: globs.join(', ') };
 }
 
-/** The one-line meta: "for Sam Patel · only in “Weekly report” · 3 days ago". */
-export function grantMeta(g: Grant, ctx: { principals: Principal[]; titles: Record<string, string>; when: string }): string[] {
+/** The one-line meta: "for Maya Chen · Slack · only in “Weekly report” · added by Sam Patel · Slack · 3 days ago". */
+export function grantMeta(g: GrantView, ctx: { titles: Record<string, string>; when: string }): string[] {
   const out: string[] = [];
-  const who = ctx.principals.find((p) => p.id === g.principal_id);
-  if (who) out.push(who.kind === 'space' ? `in the group chat “${who.display_name}”` : `for ${who.display_name}`);
+  if (g.principal_name) out.push(`for ${g.principal_name}`);
   if (g.scope === 'session') out.push(ctx.titles[g.scope_id] ? `only in “${ctx.titles[g.scope_id]}”` : 'only in one chat');
   if (g.scope === 'schedule') out.push(ctx.titles[g.scope_id] ? `only for “${ctx.titles[g.scope_id]}”` : 'only for one schedule');
+  // A chat approver's permission names them, so an admin can see whose choice it was.
+  if (g.created_by_identity && g.created_by_name) out.push(`added by ${g.created_by_name}`);
   if (ctx.when) out.push(ctx.when);
   return out;
 }

@@ -9,7 +9,9 @@ const limit = (spent: number, cap: number): UsageToday => ({ spent_micros: 0, li
 describe('chooseBanner (§4.9)', () => {
   it('shows nothing when nothing stops work', () => {
     expect(chooseBanner(input())).toBeNull();
-    for (const code of ['no_sandbox', 'sandbox_not_isolated', 'mcp_pins', 'mcp_drifted', 'budget_80', 'unknown_sender', 'skills_changed']) expect(chooseBanner(input({ banners: [b(code)] })), code).toBeNull();
+    // The Approvals inbox already lists new people and new group chats.
+    for (const code of ['no_sandbox', 'sandbox_not_isolated', 'mcp_pins', 'mcp_drifted', 'budget_80', 'unknown_sender', 'skills_changed', 'new_channel'])
+      expect(chooseBanner(input({ banners: [b(code)] })), code).toBeNull();
   });
 
   it('says each condition in its own words, never the server text', () => {
@@ -22,6 +24,13 @@ describe('chooseBanner (§4.9)', () => {
       [[b('config_error', 'yaml: line 3')], "Bothy started with safe defaults because some settings couldn't be loaded.", "See what's wrong", true],
       [limit(5_000_000, 5_000_000), "Bothy reached today's $5.00 spending limit. New work waits until midnight.", 'Change limit', false],
       [[b('restart_required', 'Restart to apply: sandbox.backend')], 'Restart Bothy to apply your changes.', undefined, true],
+      [[b('chat_budget_80', "Chat apps have used 80% of today's $3.00 limit.")], "Chat apps have used 80% of their share of today's spending limit.", 'See spending', true],
+      [
+        [b('team_access', 'People in chat apps no longer link to Bothy accounts.')],
+        'People in chat apps no longer link to Bothy accounts. Check who can use Bothy and who can approve in People.',
+        'Open People',
+        true,
+      ],
     ];
     for (const [given, text, action, dismissible] of cases) {
       const got = chooseBanner(Array.isArray(given) ? input({ banners: given }) : input({ today: given }));

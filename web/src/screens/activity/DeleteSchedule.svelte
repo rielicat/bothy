@@ -1,9 +1,18 @@
 <script lang="ts">
   import { Button, Dialog, toast } from '../../components/ui';
   import { api } from '../../lib/api/client';
-  import type { Schedule } from '../../lib/api/types.gen';
+  type Named = { id: string; name: string };
 
-  let { schedule = $bindable(null), ondeleted }: { schedule: Schedule | null; ondeleted: (s: Schedule) => void } = $props();
+  let {
+    schedule = $bindable(null),
+    team = false,
+    ondeleted,
+  }: {
+    schedule: Named | null;
+    /** A schedule someone set up in a chat app, whose results went to that chat. */
+    team?: boolean;
+    ondeleted: (s: Named) => void;
+  } = $props();
 
   let busy = $state(false);
   let error = $state('');
@@ -34,7 +43,7 @@
 
 <Dialog
   bind:open
-  title="Delete the schedule “{name}”?"
+  title={team ? `Delete “${name}”?` : `Delete the schedule “${name}”?`}
   initialFocus="cancel"
   {busy}
   onclose={() => {
@@ -42,10 +51,10 @@
     error = '';
   }}
 >
-  <p class="text-body text-text">This can't be undone.</p>
+  <p class="text-body text-text">{team ? 'It stops running. Past results stay in that chat.' : "This can't be undone."}</p>
   {#if error}<p class="field-error mt-2" role="alert">{error}</p>{/if}
   {#snippet footer({ close })}
     <Button data-cancel onclick={close}>Cancel</Button>
-    <Button variant="danger" loading={busy} loadingLabel="Deleting…" onclick={remove}>Delete schedule</Button>
+    <Button variant="danger" loading={busy} loadingLabel="Deleting…" onclick={remove}>{team ? 'Delete' : 'Delete schedule'}</Button>
   {/snippet}
 </Dialog>

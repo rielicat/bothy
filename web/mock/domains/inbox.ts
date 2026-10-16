@@ -4,8 +4,8 @@
 // group chat change) takes it off the list.
 import type { InboxItem, MCPPin, SkillChanges, SkillMeta } from '../../src/lib/api/types.gen.ts';
 import { list as approvals, forYou } from './approvals.ts';
-import { state as connections } from './connections.ts';
-import { fail, json, member, on, owner, scenario, viewer, type Req } from './core.ts';
+import { addedBy, state as connections } from './connections.ts';
+import { fail, json, on, scenario, viewer, ZERO, type Req } from './core.ts';
 import { state as knowledge } from './knowledge.ts';
 import { state as settings } from './settings.ts';
 
@@ -13,7 +13,6 @@ const noItems = scenario('approvals-no-items', 'GET /api/inbox fails, so the inb
 const none = scenario('approvals-empty', 'Nothing waits for approval and nothing was decided.', 'approvals');
 
 const rank: Record<string, number> = { member: 1, admin: 2, owner: 3 };
-const names: Record<string, string> = { [owner.id]: owner.display_name, [member.id]: member.display_name };
 
 function serverOff(name: string): boolean {
   return settings.effective.entries?.some((e) => e.path === `mcp.servers.${name}.enabled` && e.value === false) ?? false;
@@ -51,10 +50,11 @@ export function inbox(req: Req): InboxItem[] {
     }
     for (const s of knowledge.skills.filter((x) => x.status === 'changed' || x.status === 'pending'))
       out.push({ id: `skill:${s.name}`, type: 'skill_review', question: '', for_you: true, created_at: s.updated_at, skill: s, skill_changes: skillChanges(s) });
-    for (const i of connections.identities.filter((x) => x.status === 'pending')) out.push({ id: `sender:${i.channel}:${i.external_id}`, type: 'unknown_sender', question: '', for_you: true, created_at: i.first_seen_at, sender: i });
-  }
-  for (const sp of connections.spaces.filter((x) => x.kind === 'group' && !x.enabled && x.updated_at === x.created_at && (admin || x.owner_user_id === me.id))) {
-    out.push({ id: `group:${sp.principal_id}`, type: 'group_chat', question: '', for_you: true, created_at: sp.created_at, group: { space: sp, added_by: names[sp.owner_user_id] ?? 'Someone' } });
+    // Only where the chat app can't say who is in the team; Slack and Discord decide for themselves.
+    for (const i of connections.identities.filter((x) => x.status === 'pending' && x.membership === 'unknown'))
+      out.push({ id: `sender:${i.channel}:${i.external_id}`, type: 'unknown_sender', question: '', for_you: true, created_at: i.first_seen_at, sender: i });
+    for (const sp of connections.spaces.filter((x) => x.kind === 'group' && (!x.reviewed_at || x.reviewed_at === ZERO)))
+      out.push({ id: `group:${sp.principal_id}`, type: 'group_chat', question: '', for_you: true, created_at: sp.created_at, group: { space: sp, added_by: addedBy(sp) } });
   }
   return out;
 }

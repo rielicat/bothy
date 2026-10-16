@@ -228,7 +228,7 @@ describe('steps 2 and 3', () => {
     expect(session.finishing).toBe(false);
   });
 
-  it('opens the People page with its add dialog from "Add your team"', async () => {
+  it('opens the People page with its add dialog from "Add people"', async () => {
     render(Setup);
     await fillAccount();
     await submitAccount();

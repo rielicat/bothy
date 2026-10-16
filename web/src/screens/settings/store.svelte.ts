@@ -72,6 +72,14 @@ class SettingsConfig {
 
 export const settingsConfig = new SettingsConfig();
 
+/** budgets.per_user_daily_usd for a username or "<app>:<id>"; null when there is none. */
+export function personalLimit(key: string): number | null {
+  const own = settingsConfig.value<number | null>(`budgets.per_user_daily_usd.${key}`, null);
+  if (typeof own === 'number') return own;
+  const map = settingsConfig.value<Record<string, number>>('budgets.per_user_daily_usd', {});
+  return typeof map?.[key] === 'number' ? map[key] : null;
+}
+
 /** The sentence under a control when a save fails (§13.2). */
 export function saveError(e: unknown): string {
   if (e instanceof ApiError) {

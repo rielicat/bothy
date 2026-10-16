@@ -1,6 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import type { Action, Approval, ApprovalVotes, SideEffect } from './api/types.gen';
-import { busyLabel, cardCopy, decidable, decidedLine, expiryOf, humanize, joinNames, originOf, plainWarnings, segText, splitFiles, type CardCopy } from './cardcopy';
+import {
+  busyLabel,
+  cardCopy,
+  decidable,
+  decidedLine,
+  expiryOf,
+  fromTeam,
+  humanize,
+  isMulti,
+  joinNames,
+  originOf,
+  plainWarnings,
+  segText,
+  splitFiles,
+  teamAsked,
+  teamPerson,
+  type CardCopy,
+} from './cardcopy';
 
 const me = 'usr_01jsam0000000000000000000';
 const alex = 'usr_01jalex000000000000000000';
@@ -128,10 +145,11 @@ describe('cardCopy, one row per action', () => {
     expect(cardCopy(server).fields[0]).toEqual({ label: 'To', value: 'Telegram chat 42 (Ops)' });
   });
 
-  it('says where schedule results really go, naming whose usual chat app it is', () => {
+  it('says where schedule results really go: the web for accounts, the teammate or channel chat otherwise', () => {
     const sendsTo = (payload: Record<string, unknown>) => cardCopy(ap(act('schedule_create', 'schedule', 'admin', { name: 'Digest', prompt: 'x', ...payload }))).fields[1].value;
-    expect(sendsTo({ owner: 'Sam Patel', usual_chat: 'telegram' })).toBe("Sam Patel's usual chat app (Telegram)");
-    expect(sendsTo({ owner: 'Sam Patel' })).toBe('Bothy on the web (Sam Patel has no chat app linked)');
+    expect(sendsTo({ owner: 'Sam Patel', owner_kind: 'user' })).toBe('Bothy on the web');
+    expect(sendsTo({ owner: 'Maya Chen', usual_chat: 'slack', owner_kind: 'person' })).toBe("Maya Chen's messages on Slack");
+    expect(sendsTo({ owner: '#eng', usual_chat: 'slack', owner_kind: 'space' })).toBe('#eng on Slack');
     expect(sendsTo({ deliver: { channel: 'web' } })).toBe('Bothy on the web');
     expect(sendsTo({ deliver: { channel: 'slack', chat_id: 'C1' } })).toBe('Slack');
   });
@@ -241,12 +259,46 @@ describe('decidable', () => {
     expect(decidable(ap(undefined, { status: 'denied' }), sam)).toBe(false);
   });
 
+  it("lets admins decide a chat app's request, and no member", () => {
+    const team = ap(undefined, { principal_id: 'spc_1', approver: { user_id: '', admin_only: false, team: true, requester_identity: 'slack:U1' } });
+    expect(decidable(team, sam)).toBe(true);
+    expect(decidable(team, { id: me, role: 'admin' })).toBe(true);
+    expect(decidable(team, member)).toBe(false);
+    expect(isMulti(team)).toBe(false);
+  });
+
   it('follows the vote state for multi-approver requests, and never the requester', () => {
     expect(decidable(multi(), sam, view({ can_vote: true }))).toBe(true);
     expect(decidable(multi(), sam, view({ can_vote: false, your_vote: 'allow_once' }))).toBe(false);
     expect(decidable(multi(), member)).toBe(false);
     expect(decidable(multi(), sam)).toBe(true);
     expect(decidable(multi({ votes: [{ approval_id: 'a', user_id: me, choice: 'allow_once', via: 'web', at: '' }] }), sam)).toBe(false);
+  });
+});
+
+describe('requests from chat apps', () => {
+  const team = { user_id: '', admin_only: false, team: true, requester_identity: 'slack:U1' };
+  const person = { user: '', name: 'Maya Chen', app: 'slack', identity: 'slack:U1', handle: 'maya' };
+
+  it('tells a team request by its approver or its principal', () => {
+    expect(fromTeam(ap(undefined, { approver: team }))).toBe(true);
+    // A teammate's deploy is voted on, yet still came from a chat app.
+    expect(fromTeam(ap(undefined, { principal_id: 'spc_1', approver: { user_id: '', admin_only: false, roles: ['admin'], required: 2 } }))).toBe(true);
+    expect(fromTeam(ap(undefined))).toBe(false);
+  });
+
+  it('says who asked, and where', () => {
+    expect(teamAsked(ap(undefined, { approver: team, requester: person }))).toBe('Maya Chen (@maya) asked on Slack.');
+    expect(teamAsked(ap(undefined, { approver: team, requester: { ...person, handle: undefined, chat: '#eng' } }))).toBe('Maya Chen asked in #eng on Slack.');
+    expect(teamAsked(ap(undefined, { approver: team, requester: { user: '', name: '#eng', app: 'slack' } }))).toBe('From #eng on Slack.');
+    expect(teamAsked(ap(undefined, { approver: team }))).toBe('');
+  });
+
+  it("names a teammate's chat on the standing choices, cut to fit, and never a channel's", () => {
+    expect(teamPerson(ap(undefined, { approver: team, requester: person }))).toBe('Maya Chen');
+    expect(teamPerson(ap(undefined, { approver: team, requester: { ...person, name: 'Maximilian Alexander Featherstonehaugh' } }))).toBe('Maximilian Alexander Fe…');
+    expect(teamPerson(ap(undefined, { approver: team, requester: { ...person, chat: '#eng' } }))).toBe('');
+    expect(teamPerson(ap(undefined, { requester: person }))).toBe('');
   });
 });
 

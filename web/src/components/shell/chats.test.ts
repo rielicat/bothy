@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { sessions as fixtureSessions } from '../../../mock/fixtures';
-import type { Me, Message, Session } from '../../lib/api/types.gen';
+import type { Message, Session } from '../../lib/api/types.gen';
 import { approvals, session } from '../../lib/stores/session.svelte';
 import { installApi } from '../../test/api';
 import { FakeEventSource } from '../../test/setup';
@@ -23,32 +23,31 @@ describe('firstWords', () => {
 describe('groupChats', () => {
   const now = new Date(2026, 9, 14, 15).getTime();
   const list = [
-    ses('a', 'Group', at(2026, 10, 14, 9), { principal_id: 'spc_1' }),
+    ses('a', 'Just now', at(2026, 10, 14, 9)),
     ses('b', 'This morning', at(2026, 10, 14, 0)),
     ses('c', 'Yesterday', at(2026, 10, 13, 23)),
     ses('d', 'A week ago', at(2026, 10, 7, 1)),
     ses('e', 'Eight days ago', at(2026, 10, 6, 23)),
   ];
 
-  it('puts group chats first, then Today, Previous 7 days and Older by local day', () => {
-    const { groups, more } = groupChats(list, new Set(['spc_1']), now);
+  it('groups chats into Today, Previous 7 days and Older by local day', () => {
+    const { groups, more } = groupChats(list, now);
     expect(groups.map((g) => [g.label, g.items.map((s) => s.title)])).toEqual([
-      ['Group chats', ['Group']],
-      ['Today', ['This morning']],
+      ['Today', ['Just now', 'This morning']],
       ['Previous 7 days', ['Yesterday', 'A week ago']],
       ['Older', ['Eight days ago']],
     ]);
     expect(more).toBe(false);
   });
 
-  it('limits the viewer’s own chats, never the group chats', () => {
-    const { groups, more } = groupChats(list, new Set(['spc_1']), now, 2);
-    expect(groups.flatMap((g) => g.items.map((s) => s.id))).toEqual(['a', 'b', 'c']);
+  it('shows up to the limit and says there are more', () => {
+    const { groups, more } = groupChats(list, now, 2);
+    expect(groups.flatMap((g) => g.items.map((s) => s.id))).toEqual(['a', 'b']);
     expect(more).toBe(true);
   });
 
   it('leaves out empty groups', () => {
-    expect(groupChats([list[1]], new Set(), now).groups.map((g) => g.key)).toEqual(['today']);
+    expect(groupChats([list[1]], now).groups.map((g) => g.key)).toEqual(['today']);
   });
 });
 
@@ -83,14 +82,6 @@ describe('chat list store', () => {
     await flush();
     expect(chats.visible.map((s) => s.id)).toEqual(['ses_used', 'ses_typed']);
     expect(chats.title(chats.visible[1])).toBe('Draft the October release notes from the merged…');
-  });
-
-  it('names an untitled group chat after the group', async () => {
-    const me = session.me!;
-    session.me = { ...me, principals: [...me.principals, { id: 'spc_eng', kind: 'space', user_id: me.user.id, display_name: '#eng', workspace_id: 'w', tool_profile: 'restricted', created_at: '' }] } as Me;
-    serve([ses('ses_g', '', base.last_message_at, { principal_id: 'spc_eng' })]);
-    await chats.load();
-    expect(chats.title(chats.visible[0])).toBe('#eng');
   });
 
   it('follows runs and titles from the event stream', async () => {

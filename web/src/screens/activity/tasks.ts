@@ -1,52 +1,17 @@
-import { api } from '../../lib/api/client';
-import type { ChannelIdentity, ChatRef, Schedule, Session, Space } from '../../lib/api/types.gen';
-import { session } from '../../lib/stores/session.svelte';
+import type { ChatRef, Schedule, Session } from '../../lib/api/types.gen';
 import { appName, outcome, where, type Outcome } from '../../lib/taskStatus';
 import { personName, votesOf, type TaskRun, type VotedApproval } from './api';
 
-export interface Chats {
-  identities: ChannelIdentity[];
-  spaces: Space[];
-}
-
-export async function loadChats(): Promise<Chats> {
-  const me = session.me?.user?.id;
-  const [identities, spaces] = await Promise.all([
-    api.get<ChannelIdentity[]>('/api/identities').catch(() => [] as ChannelIdentity[]),
-    api.get<Space[]>('/api/spaces').catch(() => [] as Space[]),
-  ]);
-  // Admins are sent everyone's identities; a schedule can only post to its owner's own.
-  return {
-    identities: identities.filter((i) => i.status === 'linked' && i.dm_chat_id && i.user_id === me),
-    spaces: spaces.filter((s) => s.kind === 'group'),
-  };
-}
-
-/** Where results go, after "Posts" or "Posted": "here", "to your Telegram messages", "to #eng on Slack". */
-export function deliverTo(ref: ChatRef | undefined, chats: Chats): string {
-  if (!ref) return chats.identities.length ? 'to your chat app' : 'here';
-  if (ref.channel === 'web') return 'here';
-  const space = chats.spaces.find((s) => s.chat.channel === ref.channel && s.chat.chat_id === ref.chat_id);
-  if (space) return `to ${space.title} on ${appName(ref.channel)}`;
-  if (ref.kind === 'dm') return `to your ${appName(ref.channel)} messages`;
-  return `to ${appName(ref.channel)}`;
-}
-
-/** A chat the way the server keys recipient permissions (ChatRef.Key in Go): "telegram:5512:". */
-export function chatKey(ref: ChatRef): string {
-  return `${ref.channel}:${ref.chat_id}:${ref.thread_id ?? ''}`;
+/** Where results go, after "Posts" or "Posted": an account's stay here, since accounts have no chat app. */
+export function deliverTo(ref: ChatRef | undefined): string {
+  return !ref || ref.channel === 'web' ? 'here' : `to ${appName(ref.channel)}`;
 }
 
 /** A recipient permission as people read it in "Allowed without asking". */
-export function sendSentence(value: string, chats: Chats): string {
+export function sendSentence(value: string): string {
   // Connected tools key recipients by their own field (an address, a pattern), not by chat.
   if (!value.includes(':')) return `Send messages to ${value}`;
-  const [channel, chatId] = value.split(':');
-  const app = appName(channel);
-  const space = chats.spaces.find((s) => s.chat.channel === channel && s.chat.chat_id === chatId);
-  if (space) return `Send messages to ${space.title} on ${app}`;
-  if (chats.identities.some((i) => i.channel === channel && i.dm_chat_id === chatId)) return `Send you messages on ${app}`;
-  return `Send messages to a chat on ${app}`;
+  return `Send messages to a chat on ${appName(value.split(':')[0])}`;
 }
 
 export interface TaskLookups {
@@ -55,7 +20,6 @@ export interface TaskLookups {
   schedules: Map<string, Schedule>;
   /** Pending approvals by run id, for "(1 of 2)". */
   waiting: Map<string, VotedApproval>;
-  chats: Chats;
 }
 
 export interface TaskView {
@@ -72,7 +36,7 @@ export function taskView(r: TaskRun, l: TaskLookups): TaskView {
   let out = outcome({ status: r.status, steps: r.steps, reason: r.reason, refined: r.refined, votes: votesOf(l.waiting.get(r.id)) });
   if (scheduled) {
     // A finished schedule says where its result went instead of counting steps.
-    if (r.status === 'done' && schedule) out = { text: `Posted ${deliverTo(schedule.deliver, l.chats)}`, tone: 'muted' };
+    if (r.status === 'done' && schedule) out = { text: `Posted ${deliverTo(schedule.deliver)}`, tone: 'muted' };
     // A run keeps no name of its own: once its schedule is deleted, say so.
     const title = r.schedule_name || schedule?.name || (r.trigger === 'heartbeat' ? 'Check-in' : r.schedule_id ? 'A schedule' : 'Deleted schedule');
     return { title, lead: ['Schedule'], outcome: out };

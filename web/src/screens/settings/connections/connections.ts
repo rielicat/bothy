@@ -12,8 +12,7 @@ export const appNames: AppName[] = ['slack', 'telegram', 'discord'];
 export const appTitle: Record<AppName, string> = { slack: 'Slack', telegram: 'Telegram', discord: 'Discord' };
 export const isApp = (s: string): s is AppName => (appNames as string[]).includes(s);
 
-/** ChannelStatus plus the Slack workspace name the server doesn't send yet. */
-export type AppStatus = ChannelStatus & { workspace?: string };
+export type AppStatus = ChannelStatus;
 
 export interface RowStatus {
   text: string;
@@ -25,16 +24,17 @@ export interface RowStatus {
 export const toneClass = { muted: 'text-muted', warning: 'text-warning-text', danger: 'text-danger-text' };
 
 export function connectedText(s: AppStatus | undefined, withIdentity = false): string {
-  if (s?.workspace) return `Connected to ${s.workspace}${withIdentity && s.identity ? ` as ${s.identity}` : ''}`;
+  if (s?.team) return `Connected to ${s.team}${withIdentity && s.identity ? ` as ${s.identity}` : ''}`;
   return s?.identity ? `Connected as ${s.identity}` : 'Connected';
 }
 
-export function appStatus(app: AppName, s: AppStatus | undefined, linked: number, configured: boolean): RowStatus {
+/** `people`: the people in chat apps who use Bothy on this app. */
+export function appStatus(app: AppName, s: AppStatus | undefined, people: number, configured: boolean): RowStatus {
   if (!s || (!s.enabled && !configured)) return { text: 'Not connected', tone: 'muted', action: 'Connect' };
   if (!s.enabled) return { text: 'Off', tone: 'muted', action: 'Manage' };
   switch (s.state) {
     case 'connected':
-      return { text: connectedText(s) + (linked ? ` · ${plural(linked, 'person', 'people')} linked` : ''), tone: 'muted', action: 'Manage' };
+      return { text: connectedText(s) + (people ? ` · ${plural(people, 'person', 'people')}` : ''), tone: 'muted', action: 'Manage' };
     case 'auth_failed':
       return { text: `Can't connect: ${appTitle[app]} didn't accept the token`, tone: 'danger', action: 'Reconnect' };
     case 'backoff':

@@ -1903,6 +1903,17 @@
    "secret": false
   },
   {
+   "path": "budgets.chat_share_pct",
+   "value": 60,
+   "source": {
+    "layer": "default"
+   },
+   "shadowed": [],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
    "path": "budgets.warn_ratio",
    "value": 0.8,
    "source": {

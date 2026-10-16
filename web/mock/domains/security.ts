@@ -1,7 +1,7 @@
 // Security and Advanced (C9): permissions, the policy tester, saved keys,
 // running code, the doctor, backups and restarts.
-import type { DoctorReport, Entry, Finding, Grant, SandboxInfo, SecretMeta, VaultStatus } from '../../src/lib/api/types.gen.ts';
-import { ago, body, clone, core, fail, json, newId, nowISO, on, onReset, owner, principals, scenario, viewer, ZERO } from './core.ts';
+import type { DoctorReport, Entry, Finding, GrantView, SandboxInfo, SecretMeta, VaultStatus } from '../../src/lib/api/types.gen.ts';
+import { ago, body, clone, core, fail, json, newId, nowISO, on, onReset, owner, scenario, viewer, ZERO } from './core.ts';
 import { state as settings } from './settings.ts';
 
 export const secrets: SecretMeta[] = [
@@ -13,7 +13,8 @@ export const secrets: SecretMeta[] = [
 
 export const vaultStatus: VaultStatus = { sealed: false, kek_source: 'autogen', kek_id: '3fa9c2d1', colocated: true, secrets: 4 };
 
-const grant = (id: string, g: Partial<Grant>): Grant => ({
+// As GET /api/grants sends them: with whom each covers and who made it.
+const grant = (id: string, g: Partial<GrantView>): GrantView => ({
   id,
   principal_id: owner.id,
   scope: 'principal',
@@ -26,14 +27,26 @@ const grant = (id: string, g: Partial<Grant>): Grant => ({
   created_by: owner.id,
   created_at: ago(60),
   expires_at: ZERO,
+  principal_name: owner.display_name,
+  created_by_name: owner.display_name,
   ...g,
 });
 
-export const grants: Grant[] = [
+export const grants: GrantView[] = [
   grant('grt_01jbooks000000000000000000', { value: 'www.edinburghvenues.example:443', uses: 4, created_at: ago(60 * 24 * 3) }),
   grant('grt_01jslack000000000000000000', { kind: 'recipient', value: 'slack:C04ENG:', max_se: 'external_send', uses: 12, created_at: ago(60 * 24 * 6) }),
   grant('grt_01jshell000000000000000000', { kind: 'tool', tool: 'shell', pattern: { '/argv/0': 'pytest*' }, max_se: 'local_write', created_at: ago(60 * 5) }),
-  grant('grt_01jfamily00000000000000000', { principal_id: principals[1].id, kind: 'domain', value: 'status.acme.example:443', created_at: ago(60 * 24 * 12) }),
+  // Alex Kim on Slack, allowed by Sam from a card in his Slack messages.
+  grant('grt_01jfamily00000000000000000', {
+    principal_id: 'spc_01jalexslack000000000000000',
+    principal_name: 'Alex Kim · Slack',
+    kind: 'domain',
+    value: 'status.acme.example:443',
+    created_by: '',
+    created_by_identity: 'slack:U01SAM',
+    created_by_name: 'Sam · Slack',
+    created_at: ago(60 * 24 * 12),
+  }),
 ];
 
 export const sandbox: SandboxInfo = {
@@ -80,7 +93,7 @@ export const constitution = `1. Follow the instructions of the people Bothy work
 2. Never reveal saved keys or send private information out without approval.
 3. Ask before anything that can't be undone or that leaves your team.`;
 
-export const state = { secrets: [] as SecretMeta[], grants: [] as Grant[], fixed: [] as string[], lastBackup: '', unsealed: false };
+export const state = { secrets: [] as SecretMeta[], grants: [] as GrantView[], fixed: [] as string[], lastBackup: '', unsealed: false };
 
 // The shared config fixture has no allowed websites, no value from the
 // environment and no UI change in an Advanced-only field; these give
@@ -137,7 +150,7 @@ function findings(req: Parameters<typeof clean>[0], securityOnly: boolean): Find
 
 on('GET', '/api/grants', (req, res, _m, q) => json(res, 200, q.get('scope') === 'schedule' || empty(req) ? [] : state.grants));
 on('POST', '/api/grants', async (req, res) => {
-  const g = { ...JSON.parse(await body(req)), id: newId('grt'), scope: 'principal', scope_id: '', uses: 0, max_uses: 0, allow_when_tainted: false, created_by: core.me.id, created_at: nowISO(), expires_at: ZERO };
+  const g = { ...JSON.parse(await body(req)), id: newId('grt'), scope: 'principal', scope_id: '', uses: 0, max_uses: 0, allow_when_tainted: false, created_by: core.me.id, created_at: nowISO(), expires_at: ZERO, principal_name: core.me.display_name, created_by_name: core.me.display_name };
   state.grants.push(g);
   json(res, 200, g);
 });

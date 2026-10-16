@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { EgressRecord, Entry, Finding, Grant, Principal, SignInAdmin, SignInProviderStatus } from '../../../lib/api/types.gen';
+import type { EgressRecord, Entry, Finding, Grant, GrantView, SignInAdmin, SignInProviderStatus } from '../../../lib/api/types.gen';
 import { describeFinding, needsAttention } from './findings';
 import { addressSummary, canEnable, checkLine, entryProblem, listProblem, listSummary, listText, orgsProblem, parseList, parseOrgs, rowValue } from './signin';
 import { describeGrant, grantMeta, siteName } from './grantText';
@@ -82,17 +82,18 @@ describe('grants in plain words', () => {
     expect(describeGrant(g({ kind: 'tool', tool: 'shell', pattern: { '/argv/0': 'pytest*' } })).raw).toBeUndefined();
   });
 
-  it('says who it is for and where it applies, by name', () => {
-    const principals = [
-      { id: 'usr_1', kind: 'user', display_name: 'Maya Chen' },
-      { id: 'spc_1', kind: 'space', display_name: 'Ops team' },
-    ] as Principal[];
-    expect(grantMeta(g({}), { principals, titles: {}, when: '3 days ago' })).toEqual(['for Maya Chen', '3 days ago']);
-    expect(grantMeta(g({ principal_id: 'spc_1', scope: 'session', scope_id: 'ses_9' }), { principals, titles: { ses_9: 'Weekly report' }, when: '' })).toEqual([
-      'in the group chat “Ops team”',
+  it('says who it is for, where it applies, and which chat approver allowed it, by name', () => {
+    const v = (x: Partial<GrantView>): GrantView => ({ ...g({}), principal_name: 'Maya Chen', created_by_name: 'Maya Chen', ...x });
+    expect(grantMeta(v({}), { titles: {}, when: '3 days ago' })).toEqual(['for Maya Chen', '3 days ago']);
+    expect(grantMeta(v({ principal_name: 'Alex · Slack', scope: 'session', scope_id: 'ses_9' }), { titles: { ses_9: 'Weekly report' }, when: '' })).toEqual([
+      'for Alex · Slack',
       'only in “Weekly report”',
     ]);
-    expect(grantMeta(g({ scope: 'schedule', scope_id: 'sch_1' }), { principals, titles: {}, when: '' })).toEqual(['for Maya Chen', 'only for one schedule']);
+    expect(grantMeta(v({ scope: 'schedule', scope_id: 'sch_1' }), { titles: {}, when: '' })).toEqual(['for Maya Chen', 'only for one schedule']);
+    expect(grantMeta(v({ principal_name: '#eng · Slack', created_by: '', created_by_identity: 'slack:U01SAM', created_by_name: 'Sam · Slack' }), { titles: {}, when: '' })).toEqual([
+      'for #eng · Slack',
+      'added by Sam · Slack',
+    ]);
   });
 });
 

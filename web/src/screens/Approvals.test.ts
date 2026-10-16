@@ -41,9 +41,12 @@ describe('Approvals inbox', () => {
     const collapsed = [...document.querySelectorAll<HTMLButtonElement>('[data-row] button[aria-expanded="false"]')].map((b) => b.querySelector('span')?.textContent);
     expect(collapsed).toContain('Delete notes/staging.md?');
     expect(collapsed).toContain('Review Docs actions');
-    expect(collapsed).toContain('Someone new messaged Bothy on Slack');
+    expect(collapsed).toContain('Someone new messaged Bothy on Telegram');
     expect(collapsed).toContain('Review changes to the “incident-review” skill');
     expect(collapsed).toContain('Bothy was added to #support in Slack');
+    expect(collapsed).toContain('Bothy was added to #general in Discord');
+    // Slack and Discord decide who is in the team; only Telegram people wait here.
+    expect(collapsed).not.toContain('Someone new messaged Bothy on Slack');
     expect(collapsed.at(-1)).toBe('Deploy acme/api to production?');
     expect(forYou).toBeTruthy();
     expect(screen.getByRole('link', { name: /Waiting/ }).getAttribute('aria-current')).toBe('page');
@@ -146,13 +149,57 @@ describe('Approvals inbox', () => {
     await waitFor(() => expect(document.querySelector('[data-row="i:mcp:docs"]')).toBeNull());
   });
 
-  it('lets a new sender chat as a guest', async () => {
+  const openItem = async (id: string) => {
     await screen.findByRole('heading', { name: 'For you' });
-    await fireEvent.click(document.querySelector<HTMLElement>('[data-row="i:sender:slack:U03JORDAN"] button')!);
-    const card = await waitFor(() => document.querySelector<HTMLElement>('[data-item="sender:slack:U03JORDAN"]')!);
-    expect(card.textContent).toContain('Jordan Lee (@jordan) wrote: “Hi, I run the Edinburgh office.');
-    await fireEvent.click(within(card).getByRole('button', { name: 'Let them chat as a guest' }));
-    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url === '/api/identities/slack/U03JORDAN' && JSON.parse(c.body).status === 'guest')).toBe(true));
+    await fireEvent.click(document.querySelector<HTMLElement>(`[data-row="i:${id}"] button`)!);
+    return waitFor(() => {
+      const a = document.querySelector<HTMLElement>(`[data-item="${id}"]`);
+      if (!a) throw new Error('not open');
+      return a;
+    });
+  };
+
+  it('lets in someone waiting on Telegram, with Let in on A and Block on D', async () => {
+    const card = await openItem('sender:telegram:7215');
+    expect(card.textContent).toContain('Jordan Lee (@jordan_l) wrote: “Hi, I run the Edinburgh office.');
+    expect(within(card).queryByRole('button', { name: /guest|Link/ })).toBeNull();
+    expect(within(card).getByRole('button', { name: 'Block' }).getAttribute('aria-keyshortcuts')).toBe('D');
+    const letIn = within(card).getByRole('button', { name: 'Let in' });
+    expect(letIn.getAttribute('aria-keyshortcuts')).toBe('A');
+    await fireEvent.click(letIn);
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url === '/api/identities/telegram/7215' && JSON.parse(c.body).status === 'teammate')).toBe(true));
+    await waitFor(() => expect(live()).toMatch(/^Let in\. Next: /));
+  });
+
+  it('turns on a new channel with what Bothy may do there, and says who sees its replies', async () => {
+    const card = await openItem('group:spc_01jsupport0000000000000000');
+    expect(card.textContent).toContain('Added by Sam.');
+    expect(card.textContent).toContain('57 people are in this chat.');
+    expect(card.textContent).toContain("People from other companies are in this channel. They'll see Bothy's replies, though Bothy won't answer them.");
+    expect(card.textContent).not.toContain('Bothy answers only when mentioned.');
+    const answer = within(card).getByRole('radio', { name: 'Answer questions' }) as HTMLInputElement;
+    expect(answer.checked).toBe(true);
+    await fireEvent.click(within(card).getByRole('radio', { name: 'Do work, with approval' }));
+    await fireEvent.click(within(card).getByRole('button', { name: 'Turn on' }));
+    const patch = () => calls.find((c) => c.method === 'PATCH' && c.url === '/api/spaces/spc_01jsupport0000000000000000');
+    await waitFor(() => expect(patch()).toBeTruthy());
+    expect(JSON.parse(patch()!.body)).toEqual({ enabled: true, tool_profile: 'standard' });
+  });
+
+  it('says turning on a Discord channel lets the whole server in, and Ignore leaves it off', async () => {
+    const card = await openItem('group:spc_01jcommunity00000000000000');
+    expect(card.textContent).toContain('Acme Community has 4,812 members.');
+    expect(card.textContent).toContain('Turning this on lets all 4,812 members of Acme Community message Bothy, here and in direct messages.');
+    expect(card.textContent).toContain('Bothy answers only when mentioned.');
+    await fireEvent.click(within(card).getByRole('button', { name: 'Ignore' }));
+    const patch = () => calls.find((c) => c.method === 'PATCH' && c.url === '/api/spaces/spc_01jcommunity00000000000000');
+    await waitFor(() => expect(patch()).toBeTruthy());
+    expect(JSON.parse(patch()!.body)).toEqual({ enabled: false });
+  });
+
+  it("names who asked on a chat app's request in its row", async () => {
+    await screen.findByRole('heading', { name: 'For you' });
+    expect(row('apr_01jteamchan000000000000000').textContent).toContain('Alex Kim · Slack');
   });
 });
 

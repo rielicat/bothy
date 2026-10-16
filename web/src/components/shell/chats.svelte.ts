@@ -6,7 +6,7 @@ import type { List, MessageData, MessagePage, Run, RunStatusData, Session, Sessi
 import { date, isZeroTime } from '../../lib/format';
 import { appendNew } from '../../lib/list';
 import { events } from '../../lib/sse.svelte';
-import { approvals, session } from '../../lib/stores/session.svelte';
+import { approvals } from '../../lib/stores/session.svelte';
 
 /** Chats shown before "Show more", and how many more each press shows. */
 export const PAGE = 30;
@@ -18,33 +18,26 @@ export function firstWords(text: string, n = 48): string {
 }
 
 export interface ChatGroup {
-  key: 'spaces' | 'today' | 'week' | 'older';
+  key: 'today' | 'week' | 'older';
   label: string;
   items: Session[];
 }
 
-/** Group chats first, then the viewer's own by the day of their last message. */
-export function groupChats(list: Session[], spaces: ReadonlySet<string>, now: number, limit = Infinity): { groups: ChatGroup[]; more: boolean } {
+/** The viewer's chats by the day of their last message. */
+export function groupChats(list: Session[], now: number, limit = Infinity): { groups: ChatGroup[]; more: boolean } {
   const day = new Date(now);
   const today = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
   const week = new Date(day.getFullYear(), day.getMonth(), day.getDate() - 7).getTime();
   const groups: ChatGroup[] = [
-    { key: 'spaces', label: 'Group chats', items: [] },
     { key: 'today', label: 'Today', items: [] },
     { key: 'week', label: 'Previous 7 days', items: [] },
     { key: 'older', label: 'Older', items: [] },
   ];
-  let own = 0;
-  for (const s of list) {
-    if (spaces.has(s.principal_id)) {
-      groups[0].items.push(s);
-      continue;
-    }
-    if (own++ >= limit) continue;
+  for (const s of list.slice(0, limit)) {
     const t = date(s.last_message_at)?.getTime() ?? 0;
-    groups[t >= today ? 1 : t >= week ? 2 : 3].items.push(s);
+    groups[t >= today ? 0 : t >= week ? 1 : 2].items.push(s);
   }
-  return { groups: groups.filter((g) => g.items.length), more: own > limit };
+  return { groups: groups.filter((g) => g.items.length), more: list.length > limit };
 }
 
 const working = new Set(['run.queued', 'run.started']);
@@ -64,14 +57,12 @@ class Chats {
   #asked = new Set<string>();
   #seq = 0;
 
-  spaces = $derived(new Map(session.spaces.map((p) => [p.id, p.display_name])));
-
   // A chat is listed once it has a message (S14): the server may keep empty
   // ones, and an untitled chat shows only once its first words are known.
   visible: Session[] = $derived(this.list.filter((s) => !s.archived && !s.hidden && !isZeroTime(s.last_message_at) && !!this.title(s)));
 
   title(s: Session): string {
-    return s.title.trim() || this.#words[s.id] || (this.spaces.has(s.principal_id) ? (this.spaces.get(s.principal_id) ?? '') : '');
+    return s.title.trim() || this.#words[s.id] || '';
   }
 
   waiting(id: string): boolean {
@@ -105,12 +96,11 @@ class Chats {
 
   showMore() {
     this.shown += PAGE;
-    const own = this.visible.filter((s) => !this.spaces.has(s.principal_id)).length;
-    if (own < this.shown && this.next) void this.load(true);
+    if (this.visible.length < this.shown && this.next) void this.load(true);
   }
 
   async #fillTitles() {
-    const untitled = this.list.filter((s) => !s.title.trim() && !this.#asked.has(s.id) && !this.spaces.has(s.principal_id) && !isZeroTime(s.last_message_at));
+    const untitled = this.list.filter((s) => !s.title.trim() && !this.#asked.has(s.id) && !isZeroTime(s.last_message_at));
     await Promise.all(
       untitled.slice(0, 10).map(async (s) => {
         this.#asked.add(s.id);

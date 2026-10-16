@@ -34,7 +34,7 @@
   import { tooltip } from '../../components/ui/tooltip';
   import { fill, prefix, type Phrase } from '../../lib/activity';
   import { api, ApiError } from '../../lib/api/client';
-  import type { Approval, ChannelIdentity, RefineData, RefineEstimate, SandboxInfo, Session, SubmitResult } from '../../lib/api/types.gen';
+  import type { Approval, RefineData, RefineEstimate, SandboxInfo, Session, SubmitResult } from '../../lib/api/types.gen';
   import { clock, estimate, fullTime, money, plural } from '../../lib/format';
   import { router } from '../../lib/router.svelte';
   import { events } from '../../lib/sse.svelte';
@@ -70,18 +70,14 @@
   let refine = $state(untrack(() => refineByChat.get(id)) ?? models.refine?.enabled ?? false);
   let est: RefineEstimate | null = $state(null);
   const chosen = (v: string | undefined) => (v === 'on' ? true : v === 'off' ? false : undefined);
-  let senders: Record<string, string> = $state({});
   let creating: Promise<string> | null = null;
   let liveSays = '';
 
   const s = $derived(conv.session);
   const exposed = $derived(((s?.taint ?? 0) & 3) === 3);
-  const space = $derived(s?.principal_id.startsWith('spc_') ? auth.principals.find((p) => p.id === s.principal_id) : undefined);
   const firstText = $derived(conv.items.find((i) => i.kind === 'user')?.text ?? '');
   const chatTitle = $derived(s?.title || firstText.slice(0, 48));
-  const where = $derived(
-    s && ['telegram', 'slack', 'discord'].includes(s.origin) ? (space ? `In ${space.display_name} on ${appName[s.origin]}` : appName[s.origin]) : '',
-  );
+  const where = $derived(s && ['telegram', 'slack', 'discord'].includes(s.origin) ? appName[s.origin] : '');
   const blocks = $derived(buildBlocks(conv.items));
   const liveRun = $derived(conv.running && conv.live ? conv.live.id : '');
   let codeAvailable: boolean | null = $state(null);
@@ -146,7 +142,7 @@
   const codeOff = $derived(noCode ? failedCode : new Map<string, Phrase>());
   const modelValue = $derived(conv.id ? (s?.model_override ?? '') : pendingModel);
   const modelLabel = $derived(modelValue ? models.name(modelValue) : models.main ? models.name(models.main) : 'Main model');
-  const starter = $derived(space?.display_name ?? people.name(s?.principal_id, { you: false }));
+  const starter = $derived(people.name(s?.principal_id, { you: false }));
 
   const refineLine = $derived.by(() => {
     const n = est?.drafts ?? models.refine?.drafts ?? 3;
@@ -224,16 +220,6 @@
       window.removeEventListener('scroll', onscroll, true);
       window.removeEventListener('resize', onscroll);
     };
-  });
-
-  $effect(() => {
-    if (!space || !conv.id) return;
-    void api
-      .get<ChannelIdentity[]>('/api/identities')
-      .then((list) => {
-        for (const i of list ?? []) senders[`${i.channel}:${i.external_id}`] = i.display_name || i.username;
-      })
-      .catch(() => {});
   });
 
   // The chat's own choice, else Settings → Models → "Refine by default".
@@ -490,8 +476,6 @@
     return 'mt-3';
   }
 
-  const senderOf = (sender?: string) => (sender?.startsWith('web:') ? people.name(sender.slice(4)) : (sender && senders[sender]) || `Someone on ${appName[sender?.split(':')[0] ?? ''] ?? 'a chat app'}`);
-
   const menu: MenuItem[] = $derived([
     { label: 'Rename', onselect: startRename },
     { label: `Pinned (${conv.pins.length})`, onselect: () => ((pinAdding = false), (pinsOpen = true)) },
@@ -616,7 +600,6 @@
             <p class="text-center text-caption text-muted">{b.label}</p>
           {:else if b.kind === 'user'}
             <div id="m{b.msg.seq}" class="group flex flex-col items-end rounded-md">
-              {#if space}<p class="mb-1 text-small font-medium text-muted">{senderOf(b.msg.sender)}</p>{/if}
               <div class="flex max-w-[85%] min-w-0 items-start gap-1">
                 {#if b.text}
                   <div class="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100">{@render copyButton(b.text, b.msg.created_at)}</div>

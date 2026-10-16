@@ -1,6 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { ChannelIdentity } from '../../lib/api/types.gen';
 import { router } from '../../lib/router.svelte';
 import { session } from '../../lib/stores/session.svelte';
 import { installApi, type Call } from '../../test/api';
@@ -56,21 +55,25 @@ describe('New schedule (docs/design/ui.md §10.3)', () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('What should Bothy do?')));
   });
 
-  it('starts with sending to the results chat allowed, keyed the way the server keys chats', async () => {
+  it('offers websites the task names, unticked', async () => {
     await fireEvent.input(screen.getByLabelText('What should Bothy do?'), { target: { value: 'Summarise the open pull requests and check status.example.com.' } });
     await fireEvent.click(screen.getByRole('button', { name: 'More options' }));
-    const send = (await screen.findByLabelText('Send you messages on Telegram')) as HTMLInputElement;
-    const read = screen.getByLabelText('Read websites on status.example.com') as HTMLInputElement;
-    expect(send.checked).toBe(true);
+    const read = (await screen.findByLabelText('Read websites on status.example.com')) as HTMLInputElement;
     expect(read.checked).toBe(false);
     await fireEvent.click(screen.getByRole('button', { name: 'Create schedule' }));
     await waitFor(() => expect(posted()).toHaveLength(1));
-    expect(JSON.parse(posted()[0].body).grants).toEqual([expect.objectContaining({ kind: 'recipient', value: 'telegram:5512:', id: '' })]);
+    expect(JSON.parse(posted()[0].body).grants).toEqual([]);
   });
 
-  it("offers only the person's own chats, and no group chat a personal schedule can't post to", async () => {
-    const select = screen.getByLabelText('Send results to') as HTMLSelectElement;
-    expect([...select.options].map((o) => o.textContent)).toEqual(['Your Telegram messages', 'Your Slack messages', 'Only here in Bothy']);
+  it('keeps results here, the only place an account has', async () => {
+    expect(screen.getByText('Send results to')).toBeTruthy();
+    expect(screen.getByText('Only here in Bothy')).toBeTruthy();
+    expect(screen.queryByRole('combobox', { name: 'Send results to' })).toBeNull();
+    expect(calls.some((c) => c.url.startsWith('/api/identities') || c.url.startsWith('/api/spaces'))).toBe(false);
+    await fireEvent.input(screen.getByLabelText('What should Bothy do?'), { target: { value: 'Summarise the open pull requests in acme/web.' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Create schedule' }));
+    await waitFor(() => expect(posted()).toHaveLength(1));
+    expect(JSON.parse(posted()[0].body).schedule.deliver).toMatchObject({ channel: 'web' });
   });
 
   it("never shows the previous choice's next dates", async () => {
@@ -88,50 +91,6 @@ describe('New schedule (docs/design/ui.md §10.3)', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Create schedule' }));
     await waitFor(() => expect(posted()).toHaveLength(1));
     expect(JSON.parse(posted()[0].body).schedule).toMatchObject({ kind: 'once', spec: '2026-11-02T09:00', tz: 'Europe/London' });
-  });
-});
-
-describe('New schedule without a chat app of your own', () => {
-  // An admin is sent everyone's identities; this one belongs to someone else.
-  const someoneElses: ChannelIdentity[] = [
-    {
-      channel: 'telegram',
-      external_id: '555001',
-      username: 'tester',
-      display_name: 'Tester',
-      status: 'linked',
-      user_id: 'usr_01jtester0000000000000000',
-      dm_chat_id: '555001',
-      first_seen_at: '2026-10-01T09:00:00Z',
-      last_seen_at: '2026-10-14T09:00:00Z',
-    },
-  ];
-
-  it("starts with results here and never sends to someone else's chat", async () => {
-    calls = installApi({ override: (method, url) => (method === 'GET' && url === '/api/identities' ? someoneElses : undefined) });
-    session.ready = false;
-    await session.init();
-    router.navigate('/activity/schedules/new');
-    render(ScheduleForm, { params: { id: 'new' } });
-    const select = (await screen.findByLabelText('Send results to')) as HTMLSelectElement;
-    expect([...select.options].map((o) => o.textContent)).toEqual(['Only here in Bothy']);
-    expect(select.value).toBe('web');
-    await fireEvent.input(screen.getByLabelText('What should Bothy do?'), { target: { value: 'Summarise the open pull requests in acme/web.' } });
-    await fireEvent.click(screen.getByRole('button', { name: 'Create schedule' }));
-    await waitFor(() => expect(posted()).toHaveLength(1));
-    const body = JSON.parse(posted()[0].body);
-    expect(body.schedule.deliver).toMatchObject({ channel: 'web' });
-    expect(body.grants).toEqual([]);
-  });
-
-  it("doesn't promise a usual chat app that isn't linked", async () => {
-    installApi({ override: (method, url) => (method === 'GET' && url === '/api/identities' ? someoneElses : undefined) });
-    session.ready = false;
-    await session.init();
-    router.navigate('/activity/schedules/sch_01jinvoices0000000000000');
-    render(ScheduleForm, { params: { id: 'sch_01jinvoices0000000000000' } });
-    const select = (await screen.findByLabelText('Send results to')) as HTMLSelectElement;
-    expect(select.selectedOptions[0].textContent).toBe('Here until you link a chat app');
   });
 });
 

@@ -3,7 +3,7 @@ import type { Approval, AuditEntry, EgressRecord, ToolCallRecord } from '../../l
 import { actorName, resultWord, summarize, webLine } from './audit';
 import { every, grantSentence, listDate, nameFrom, nextRun } from './schedule';
 import { decisionLine, stepLine, type Segment } from './steps';
-import { chatKey, clampLines, deliverTo, detailOutcome, taskView, type TaskLookups } from './tasks';
+import { clampLines, deliverTo, detailOutcome, taskView, type TaskLookups } from './tasks';
 
 const text = (s: Segment[]) => s.map((x) => x.text).join('');
 const call = (tool: string, status: string, action: Partial<NonNullable<ToolCallRecord['action']>> = {}) =>
@@ -106,25 +106,16 @@ describe('schedules and tasks in words', () => {
     expect(nextRun('2026-10-17T08:00:00Z', 'Europe/London', now, 'en-GB')).toBe('Saturday at 9:00');
   });
 
-  it('says where results go', () => {
-    const chats = { identities: [], spaces: [{ chat: { channel: 'slack', chat_id: 'C1', kind: 'group' }, title: '#eng' }] } as unknown as TaskLookups['chats'];
-    expect(deliverTo({ channel: 'web', chat_id: '', kind: 'dm' }, chats)).toBe('here');
-    expect(deliverTo({ channel: 'slack', chat_id: 'C1', kind: 'group' }, chats)).toBe('to #eng on Slack');
-    expect(deliverTo({ channel: 'telegram', chat_id: '5', kind: 'dm' }, chats)).toBe('to your Telegram messages');
+  it('says results stay here: accounts have no chat app', () => {
+    expect(deliverTo(undefined)).toBe('here');
+    expect(deliverTo({ channel: 'web', chat_id: '', kind: 'dm' })).toBe('here');
     expect(grantSentence({ kind: 'domain', value: 'api.example.com:443' })).toBe('Read websites on api.example.com');
   });
 
-  it('keys a chat permission the way the server does and reads it back as a sentence', () => {
-    const chats = {
-      identities: [{ channel: 'telegram', dm_chat_id: '5512', status: 'linked' }],
-      spaces: [{ chat: { channel: 'slack', chat_id: 'C1', kind: 'group' }, title: '#eng' }],
-    } as unknown as TaskLookups['chats'];
-    expect(chatKey({ channel: 'telegram', chat_id: '5512', kind: 'dm' })).toBe('telegram:5512:');
-    expect(chatKey({ channel: 'slack', chat_id: 'C1', thread_id: '17.2', kind: 'group' })).toBe('slack:C1:17.2');
-    expect(grantSentence({ kind: 'recipient', value: 'telegram:5512:' }, chats)).toBe('Send you messages on Telegram');
-    expect(grantSentence({ kind: 'recipient', value: 'slack:C1:' }, chats)).toBe('Send messages to #eng on Slack');
-    expect(grantSentence({ kind: 'recipient', value: 'discord:99:' }, chats)).toBe('Send messages to a chat on Discord');
-    expect(grantSentence({ kind: 'recipient', value: 'ops@example.com' }, chats)).toBe('Send messages to ops@example.com');
+  it('reads a chat permission back as a sentence without naming the chat', () => {
+    expect(grantSentence({ kind: 'recipient', value: 'telegram:5512:' })).toBe('Send messages to a chat on Telegram');
+    expect(grantSentence({ kind: 'recipient', value: 'discord:99:' })).toBe('Send messages to a chat on Discord');
+    expect(grantSentence({ kind: 'recipient', value: 'ops@example.com' })).toBe('Send messages to ops@example.com');
   });
 
   it('says what a tool permission allows without naming the tool', () => {
@@ -156,7 +147,7 @@ describe('schedules and tasks in words', () => {
   });
 
   it('titles a task by its chat or schedule and never shows an id', () => {
-    const l: TaskLookups = { names: new Map(), sessions: new Map(), schedules: new Map(), waiting: new Map(), chats: { identities: [], spaces: [] } };
+    const l: TaskLookups = { names: new Map(), sessions: new Map(), schedules: new Map(), waiting: new Map() };
     const run = { id: 'run_01jx', session_id: 'ses_01jx', user_id: 'usr_01jother', trigger: 'message', status: 'done', steps: 2 } as never;
     const v = taskView(run, l);
     expect(v.title).toBe('A chat');

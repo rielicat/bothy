@@ -26,8 +26,8 @@ export interface PauseInfo {
 }
 
 // The banner list is keyed by code in the shell.
-// Banners whose clearing means an inbox review was decided.
-const reviewBanners = new Set(['mcp_pins', 'mcp_drifted', 'skills_changed', 'unknown_sender']);
+// Banners about something the Approvals inbox lists: their arrival or clearing refreshes it.
+const reviewBanners = new Set(['mcp_pins', 'mcp_drifted', 'skills_changed', 'unknown_sender', 'new_channel']);
 
 function uniqueBanners(list: BannerData[] | null | undefined): BannerData[] {
   return [...new Map((list ?? []).filter(Boolean).map((b) => [b.code, b])).values()];
@@ -66,7 +66,6 @@ class Session {
   isAdmin = $derived(this.me?.user.role === 'owner' || this.me?.user.role === 'admin');
   multi = $derived(this.me?.mode === 'multi');
   principals: Principal[] = $derived((this.me?.principals ?? []).filter((p): p is Principal => !!p));
-  spaces: Principal[] = $derived(this.principals.filter((p) => p.kind === 'space'));
   visibleBanners: BannerData[] = $derived(this.banners.filter((b) => !this.dismissed.includes(b.code)));
   /** Who paused Bothy and when, while it is paused: the live banner's, else what sign-in said. */
   pause: PauseInfo | null = $derived.by(() => {

@@ -55,7 +55,6 @@ export const sessions: Session[] = [
   ses('ses_01jbudget0000000000000000', 'Team budget spreadsheet', 'web', 60 * 26, { taint: 1 }),
   ses('ses_01jslack00000000000000000', 'Release notes draft', 'slack', 60 * 50),
   ses('ses_01jrecipe0000000000000000', 'Dinner ideas without dairy', 'discord', 60 * 24 * 9),
-  ses('ses_01jfamily0000000000000000', 'Ops team', 'telegram', 40, { principal_id: 'spc_01jfamily0000000000000000', taint: 2 }),
 ];
 
 let msgId = 1000;

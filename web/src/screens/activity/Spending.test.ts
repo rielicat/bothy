@@ -39,6 +39,16 @@ describe('Spending (docs/design/ui.md §10.5)', () => {
     expect(document.body.textContent).not.toMatch(/\b(usr|ses|sch)_[0-9a-z]|micro|tokens? (in|out)/i);
   });
 
+  it('lists people in chat apps and channels by name with their app, linking nowhere', async () => {
+    await start('/activity/spending');
+    const alex = await screen.findByText('Alex Kim');
+    expect(alex.closest('li')!.textContent).toMatch(/^Alex Kim · Slack\s*\$\d/);
+    expect(alex.closest('a')).toBeNull();
+    expect(screen.getByText('#eng').closest('li')!.textContent).toMatch(/^#eng · Slack\s*\$\d/);
+    expect(screen.getByText('You').closest('a')?.getAttribute('href')).toMatch(/^\/activity\?person=/);
+    expect(document.body.textContent).not.toMatch(/spc_/);
+  });
+
   it('names a model the server no longer lists, and its provider, without their ids', async () => {
     const row = { key: 'openrouter/anthropic/claude-sonnet-4-5-20250929', cost_micros: 500_000, input: 1000, output: 100, cache_read: 0, cache_write: 0, calls: 1, price_known: true };
     await start('/activity/spending', {
