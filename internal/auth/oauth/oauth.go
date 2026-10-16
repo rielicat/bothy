@@ -222,7 +222,7 @@ func (c *Client) client(name string, ep Endpoints) (*http.Client, error) {
 
 // do sends req with a per-call timeout and reads at most limit bytes of the
 // answer.
-func do(ctx context.Context, hc *http.Client, op string, req *http.Request, limit int64) (int, []byte, error) {
+func do(ctx context.Context, hc *http.Client, op string, req *http.Request, limit int64) (int, http.Header, []byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 	req = req.WithContext(ctx)
@@ -232,14 +232,14 @@ func do(ctx context.Context, hc *http.Client, op string, req *http.Request, limi
 	}
 	resp, err := hc.Do(req)
 	if err != nil {
-		return 0, nil, &ProviderError{Op: op, Err: err}
+		return 0, nil, nil, &ProviderError{Op: op, Err: err}
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, limit))
 	if err != nil {
-		return resp.StatusCode, nil, &ProviderError{Op: op, Status: resp.StatusCode, Err: err}
+		return resp.StatusCode, resp.Header, nil, &ProviderError{Op: op, Status: resp.StatusCode, Err: err}
 	}
-	return resp.StatusCode, body, nil
+	return resp.StatusCode, resp.Header, body, nil
 }
 
 func postForm(ctx context.Context, hc *http.Client, op, target string, form url.Values) (int, []byte, error) {
@@ -248,5 +248,6 @@ func postForm(ctx context.Context, hc *http.Client, op, target string, form url.
 		return 0, nil, &ProviderError{Op: op, Err: err}
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	return do(ctx, hc, op, req, maxToken)
+	status, _, body, err := do(ctx, hc, op, req, maxToken)
+	return status, body, err
 }

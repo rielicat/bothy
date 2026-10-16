@@ -21,6 +21,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -71,6 +72,7 @@ type Server struct {
 	who      Identity
 	deny     bool
 	fail     map[string]int
+	limit    map[string]int
 	codes    map[string]*grant
 	tokens   map[string]Identity
 	revoked  []string
@@ -134,7 +136,7 @@ func start(google bool, clientID, secret string, opts []Option) (*Server, error)
 	for _, opt := range opts {
 		opt(&o)
 	}
-	s := &Server{ClientID: clientID, ClientSecret: secret, google: google, fail: map[string]int{}, codes: map[string]*grant{},
+	s := &Server{ClientID: clientID, ClientSecret: secret, google: google, fail: map[string]int{}, limit: map[string]int{}, codes: map[string]*grant{},
 		tokens: map[string]Identity{}, orgs: map[string]int64{}}
 	mux := http.NewServeMux()
 	if google {
@@ -153,9 +155,15 @@ func start(google bool, clientID, secret string, opts []Option) (*Server, error)
 		s.mu.Lock()
 		status, ok := s.fail[r.URL.Path]
 		delete(s.fail, r.URL.Path)
+		limited, isLimited := s.limit[r.URL.Path]
+		delete(s.limit, r.URL.Path)
 		s.mu.Unlock()
-		if ok {
+		switch {
+		case ok:
 			writeJSON(w, status, map[string]string{"error": "server_error", "message": "fake failure"})
+			return
+		case isLimited:
+			limitedAnswer(w, limited)
 			return
 		}
 		mux.ServeHTTP(w, r)
@@ -207,6 +215,29 @@ func (s *Server) FailNext(path string, status int) {
 	s.mu.Lock()
 	s.fail[path] = status
 	s.mu.Unlock()
+}
+
+// RateLimitNext makes the next request to path answer as GitHub does when
+// it limits requests: status 403 with X-RateLimit-Remaining 0 (the hourly
+// limit), or 429 with Retry-After (a secondary limit).
+func (s *Server) RateLimitNext(path string, status int) {
+	s.mu.Lock()
+	s.limit[path] = status
+	s.mu.Unlock()
+}
+
+func limitedAnswer(w http.ResponseWriter, status int) {
+	h := w.Header()
+	h.Set("X-RateLimit-Limit", "60")
+	h.Set("X-RateLimit-Reset", strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10))
+	if status == http.StatusTooManyRequests {
+		h.Set("X-RateLimit-Remaining", "12")
+		h.Set("Retry-After", "60")
+		writeJSON(w, status, map[string]string{"message": "You have exceeded a secondary rate limit."})
+		return
+	}
+	h.Set("X-RateLimit-Remaining", "0")
+	writeJSON(w, http.StatusForbidden, map[string]string{"message": "API rate limit exceeded for 127.0.0.1."})
 }
 
 // TokenError makes the token endpoint answer with this error code until

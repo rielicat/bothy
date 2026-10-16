@@ -77,7 +77,8 @@
     }
   }
 
-  function saveErrors(e: unknown): string {
+  // A sentence that says what to do on its own, or the server's words for Details.
+  function saveErrors(e: unknown): { plain?: string; details: string } {
     const fields = e instanceof ApiError ? e.fields : [];
     const next: typeof errors = {};
     for (const f of fields) {
@@ -88,9 +89,13 @@
       }
     }
     errors = next;
-    if (e instanceof ApiError && e.status === 503 && e.code === 'sealed') return "Saved keys are locked, so the client secret can't be saved. Unlock them in Saved keys.";
-    if (e instanceof ApiError && e.status === 502) return "Bothy couldn't reach GitHub to check the organizations. Try again.";
-    return fields.map((f) => f.message).join('\n');
+    const details = fields.map((f) => f.message).join('\n');
+    if (!(e instanceof ApiError)) return { details };
+    if (e.status === 503 && e.code === 'sealed') return { plain: "Saved keys are locked, so the client secret can't be saved. Unlock them in Saved keys.", details };
+    // Only the GitHub page looks organizations up on GitHub; any other 502 gets the general sentence.
+    if (github && e.status === 502 && e.code === 'provider_error') return { plain: "Bothy couldn't reach GitHub to check the organizations. Try again.", details };
+    if (github && e.status === 502 && e.code === 'provider_rate_limited') return { plain: 'GitHub is limiting requests from this server right now. Try again in an hour.', details };
+    return { details };
   }
 
   async function save(e: SubmitEvent) {
@@ -111,10 +116,8 @@
       replacing = false;
     } catch (err) {
       saving = false;
-      const details = saveErrors(err);
-      // These two say what to do on their own; anything else keeps the server's words under Details.
-      const plain = details.startsWith('Saved keys') || details.startsWith('Bothy couldn');
-      result = { tone: 'danger', text: plain ? details : "Couldn't save. Try again.", details: plain ? undefined : details || undefined };
+      const { plain, details } = saveErrors(err);
+      result = { tone: 'danger', text: plain ?? "Couldn't save. Try again.", details: plain ? undefined : details || undefined };
       return;
     }
     saving = false;

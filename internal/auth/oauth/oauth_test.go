@@ -485,6 +485,21 @@ func TestGitHubPinnedOrgs(t *testing.T) {
 	}
 }
 
+// GitHub limiting requests is neither a refusal nor an organization's
+// restriction.
+func TestGitHubRateLimited(t *testing.T) {
+	fake, ep := newGitHub(t)
+	c := newClient(nil)
+	who := oauthtest.Identity{ID: 1, Login: "lee", Orgs: map[string]string{"acme-inc": "active"}}
+	for _, status := range []int{http.StatusForbidden, http.StatusTooManyRequests} {
+		fake.RateLimitNext("/user/memberships/orgs/acme-inc", status)
+		_, err := c.GitHub(ctx, ep, githubCode(t, fake, ep, who), Rules{Orgs: []string{"acme-inc"}})
+		if core.CodeOf(err) != core.FailRateLimited || errors.Is(err, ErrOrgAccess) || errors.Is(err, ErrNotAllowed) {
+			t.Errorf("membership limited with %d: %v", status, err)
+		}
+	}
+}
+
 func TestGitHubOrgID(t *testing.T) {
 	fake, ep := newGitHub(t)
 	rec := &recorder{}
@@ -499,6 +514,17 @@ func TestGitHubOrgID(t *testing.T) {
 	fake.FailNext("/orgs/acme-inc", http.StatusInternalServerError)
 	if _, err := c.GitHubOrgID(ctx, ep, "acme-inc"); core.CodeOf(err) != core.FailProviderError {
 		t.Fatalf("500: %v", err)
+	}
+	for _, status := range []int{http.StatusForbidden, http.StatusTooManyRequests} {
+		fake.RateLimitNext("/orgs/acme-inc", status)
+		if _, err := c.GitHubOrgID(ctx, ep, "acme-inc"); core.CodeOf(err) != core.FailRateLimited {
+			t.Fatalf("limited with %d: %v", status, err)
+		}
+	}
+	// A 403 with requests left is not a limit.
+	fake.FailNext("/orgs/acme-inc", http.StatusForbidden)
+	if _, err := c.GitHubOrgID(ctx, ep, "acme-inc"); core.CodeOf(err) != core.FailProviderError {
+		t.Fatalf("403: %v", err)
 	}
 	if d := rec.dests[0]; d.Name != "signin:github" || !d.AllowPrivate {
 		t.Fatalf("egress destination %+v", d)

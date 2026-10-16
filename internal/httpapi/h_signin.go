@@ -401,6 +401,9 @@ func (s *Server) pinOrgs(ctx context.Context, orgs []string) (map[string]int64, 
 		return nil, err
 	}
 	s.log.Warn("sign-in: looking up GitHub organizations failed", "err", err)
+	if core.CodeOf(err) == core.FailRateLimited {
+		return nil, newError(http.StatusBadGateway, "provider_rate_limited", "GitHub is limiting requests from this server right now; try again in an hour")
+	}
 	return nil, newError(http.StatusBadGateway, "provider_error", "Bothy couldn't reach GitHub to check the organizations; try again")
 }
 

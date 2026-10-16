@@ -567,12 +567,17 @@ func (s *Service) SignInStatus(ctx context.Context) []core.SignInProviderStatus 
 	return out
 }
 
+// orgLookupTimeout bounds PinGitHubOrgs' lookups together: each has its
+// own 15 seconds, and twenty slow ones would hold a save for five minutes.
+var orgLookupTimeout = 30 * time.Second
+
 // PinGitHubOrgs returns auth.sign_in.github.org_ids for orgs: each
 // lower-cased name with its GitHub id. A name already pinned keeps its id,
 // so saving the settings again never moves a pin to whoever took a renamed
 // organization's name; only new names are looked up, and pins of names no
 // longer listed are left out. A name GitHub doesn't know is a
-// config.FieldErrors on the orgs key.
+// config.FieldErrors on the orgs key; GitHub limiting this server's
+// requests is an error with core.FailRateLimited.
 func (s *Service) PinGitHubOrgs(ctx context.Context, orgs []string) (map[string]int64, error) {
 	deps := s.signIn.Load()
 	if deps == nil {
@@ -583,6 +588,8 @@ func (s *Service) PinGitHubOrgs(ctx context.Context, orgs []string) (map[string]
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := context.WithTimeout(ctx, orgLookupTimeout)
+	defer cancel()
 	c := oauth.Client{HTTP: deps.HTTP, Now: s.now, Log: s.log}
 	ids := make(map[string]int64, len(orgs))
 	var unknown config.FieldErrors

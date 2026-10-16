@@ -426,6 +426,11 @@ func TestSignInAdminHTTP(t *testing.T) {
 	if set := h.cfg.sets[len(h.cfg.sets)-1]; string(set["auth.sign_in.github.org_ids"]) != `{}` {
 		t.Fatalf("unchecked names pinned: %s", set)
 	}
+	h.github.RateLimitNext("/orgs/labs", http.StatusForbidden)
+	rec = h.do("PATCH", "/api/sign-in/github", map[string]any{"orgs": []string{"labs"}}, h.admin)
+	if rec.Code != http.StatusBadGateway || !strings.Contains(rec.Body.String(), `"code":"provider_rate_limited"`) || len(h.cfg.sets) != n+1 {
+		t.Fatalf("GitHub limiting requests: %d %s", rec.Code, rec.Body.String())
+	}
 
 	// A refused config change takes the new secret back.
 	h.cfg.refuse = config.FieldErrors{{Path: "auth.sign_in.github.enabled", Message: "GitHub sign-in needs server.public_url"}}

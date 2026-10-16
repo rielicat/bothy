@@ -78,9 +78,14 @@ func (g githubAPI) get(ctx context.Context, path string, out any) (int, error) {
 	if g.token != "" {
 		req.Header.Set("Authorization", "Bearer "+g.token)
 	}
-	status, body, err := do(ctx, g.hc, "github api", req, maxAPI)
+	status, hdr, body, err := do(ctx, g.hc, "github api", req, maxAPI)
 	if err != nil {
 		return status, err
+	}
+	// The hourly limit answers 403 with no requests left; the secondary
+	// limits may answer 429.
+	if status == http.StatusTooManyRequests || status == http.StatusForbidden && hdr.Get("X-RateLimit-Remaining") == "0" {
+		return status, &ProviderError{Op: "github api", Status: status, Code: core.FailRateLimited, Desc: "rate limited"}
 	}
 	if status == 200 && out != nil {
 		if err := json.Unmarshal(body, out); err != nil {
@@ -172,7 +177,9 @@ func (c *Client) GitHub(ctx context.Context, ep Endpoints, x Exchange, r Rules) 
 }
 
 // GitHubOrgID looks org up without a token, so the sign-in settings can
-// pin it by id. ErrUnknownOrg when GitHub has no organization of that name.
+// pin it by id. ErrUnknownOrg when GitHub has no organization of that name;
+// a ProviderError with core.FailRateLimited when GitHub is limiting this
+// server's requests (60 an hour without a token).
 func (c *Client) GitHubOrgID(ctx context.Context, ep Endpoints, org string) (int64, error) {
 	hc, err := c.client("signin:github", ep)
 	if err != nil {
@@ -241,7 +248,7 @@ func (c *Client) revoke(ctx context.Context, hc *http.Client, ep Endpoints, clie
 		req.Header.Set("Accept", "application/vnd.github+json")
 		req.Header.Set("X-GitHub-Api-Version", githubAPIVersion)
 		req.Header.Set("Content-Type", "application/json")
-		status, _, err := do(ctx, hc, "github revoke", req, maxToken)
+		status, _, _, err := do(ctx, hc, "github revoke", req, maxToken)
 		if err == nil && status != http.StatusNoContent {
 			err = fmt.Errorf("status %d", status)
 		}

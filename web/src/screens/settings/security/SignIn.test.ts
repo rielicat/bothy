@@ -182,6 +182,15 @@ describe('Google sign-in page', () => {
     await waitFor(() => expect(sw.getAttribute('aria-checked')).toBe('true'));
   });
 
+  it("doesn't blame GitHub for a 502 on the Google page", async () => {
+    const down = () => new Response(JSON.stringify({ error: { code: 'provider_error', message: 'bad gateway' } }), { status: 502 });
+    await signedIn('signin-google', (m, url) => (m === 'PATCH' && url === '/api/sign-in/google' ? down() : undefined));
+    render(GoogleSignIn);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Save' }));
+    expect(await screen.findByText("Couldn't save. Try again.")).toBeTruthy();
+    expect(screen.queryByText(/GitHub/)).toBeNull();
+  });
+
   it('says when Google refuses the client', async () => {
     await signedIn('signin-google,signin-check-fail');
     render(GoogleSignIn);
@@ -251,12 +260,19 @@ describe('GitHub sign-in page', () => {
     expect(calls.some((c) => c.method === 'POST' && c.url === '/api/sign-in/github/check')).toBe(false);
   });
 
-  it('says when GitHub could not be reached to check the organizations', async () => {
-    const down = () => new Response(JSON.stringify({ error: { code: 'provider_error', message: "Bothy couldn't reach GitHub to check the organizations; try again" } }), { status: 502 });
-    await signedIn('signin-github', (m, url) => (m === 'PATCH' && url === '/api/sign-in/github' ? down() : undefined));
+  const answer = (status: number, code: string, message: string) => () => new Response(JSON.stringify({ error: { code, message } }), { status });
+
+  it.each([
+    [502, 'provider_error', "Bothy couldn't reach GitHub to check the organizations. Try again."],
+    [502, 'provider_rate_limited', 'GitHub is limiting requests from this server right now. Try again in an hour.'],
+    // A proxy in front of Bothy answering 502 is not GitHub out of reach.
+    [502, 'internal', "Couldn't save. Try again."],
+  ])('says why a save failed with %i %s', async (status, code, text) => {
+    const refused = answer(status, code, 'from the server');
+    await signedIn('signin-github', (m, url) => (m === 'PATCH' && url === '/api/sign-in/github' ? refused() : undefined));
     render(GitHubSignIn);
     await fireEvent.click(await screen.findByRole('button', { name: 'Save' }));
-    expect(await screen.findByText("Bothy couldn't reach GitHub to check the organizations. Try again.")).toBeTruthy();
+    expect(await screen.findByText(text)).toBeTruthy();
   });
 
   it('can rely on organizations alone', async () => {

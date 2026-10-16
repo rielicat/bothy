@@ -103,7 +103,8 @@ client secret goes to the vault (`saveGlobalKey`, shared with
 `POST /api/providers/connect`) and is taken back when the config change is
 refused. Saving GitHub organizations pins them by id under their lower-cased
 names (`auth.sign_in.github.org_ids`, written through `config.ServerWrite`;
-`PATCH /api/config` and `DELETE /api/config` refuse it by any path).
+`PATCH /api/config` and `DELETE /api/config` refuse it by any path), and
+GitHub limiting the lookups is 502 `provider_rate_limited`.
 
 For the v0.2 UI (docs/design/ui.md §17) responses carry names instead of
 ids (`names.go`, cached per response and resolved through the caller's own

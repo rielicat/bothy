@@ -850,7 +850,33 @@ func TestPinGitHubOrgs(t *testing.T) {
 	if _, err := e.s.PinGitHubOrgs(ctx, []string{"acme-labs"}); core.CodeOf(err) != core.FailProviderError {
 		t.Fatalf("GitHub failing: %v", err)
 	}
+	e.github.RateLimitNext("/orgs/acme-labs", http.StatusForbidden)
+	if _, err := e.s.PinGitHubOrgs(ctx, []string{"acme-labs"}); core.CodeOf(err) != core.FailRateLimited {
+		t.Fatalf("GitHub limiting requests: %v", err)
+	}
 }
+
+// All lookups of one save share a deadline, however many organizations
+// there are.
+func TestPinGitHubOrgsDeadline(t *testing.T) {
+	e := newSignInEnv(t)
+	defer func(d time.Duration) { orgLookupTimeout = d }(orgLookupTimeout)
+	orgLookupTimeout = 200 * time.Millisecond
+	stall := roundTrip(func(r *http.Request) (*http.Response, error) {
+		<-r.Context().Done()
+		return nil, r.Context().Err()
+	})
+	e.s.SetSignIn(SignInDeps{Vault: e.vault, HTTP: func(core.SystemDest) *http.Client { return &http.Client{Transport: stall} }})
+	start := time.Now()
+	_, err := e.s.PinGitHubOrgs(ctx, []string{"a1", "a2", "a3", "a4", "a5"})
+	if core.CodeOf(err) != core.FailTimeout || time.Since(start) > 5*time.Second {
+		t.Fatalf("stalled lookups: %v after %v", err, time.Since(start))
+	}
+}
+
+type roundTrip func(*http.Request) (*http.Response, error)
+
+func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestSignInPinnedOrgs(t *testing.T) {
 	e := newSignInEnv(t, func(c *config.Config) { c.Auth.SignIn.GitHub.OrgIDs = map[string]int64{"acme-inc": 100} })

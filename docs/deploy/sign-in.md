@@ -70,7 +70,9 @@ count.
    their address isn't on the list. Bothy looks each one up on GitHub as you
    save and remembers its numeric id, so if an organization is renamed and
    someone else takes the old name, their members don't get in. A name GitHub
-   doesn't know is refused ("GitHub has no organization called …").
+   doesn't know is refused ("GitHub has no organization called …"). GitHub
+   answers 60 of these lookups an hour for one server; when it is limiting
+   Bothy, the page says so, and saving again an hour later works.
 5. Turn on **Sign in with GitHub**.
 
 Bothy asks for `read:org` and `user:email`, checks the person's verified
