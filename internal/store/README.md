@@ -35,3 +35,7 @@ multi-approver approvals are also visible to their voters) and
 (`knowledge_repos.indexed_sha`, backfilled from ready rows; the shared
 `repos.last_indexed_sha` is dropped) and records which dispatcher started a
 deploy (`release_deploys.via`: `connection`, `token`, or `''` for older rows).
+Migration 0011 adds `sign_ins`, the Google and GitHub accounts people sign in
+with (provider, subject, user, email or login, times; never a token), served
+by `SignIns()` (`core.SignInStore`, outside `core.Store`): one link per
+provider account and per person and provider, cascading with the user.

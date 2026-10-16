@@ -282,6 +282,7 @@ func (r userRepo) Delete(_ context.Context, id core.UserID) error {
 	maps.DeleteFunc(st.pairings, func(_ string, p pairingRow) bool { return p.p.User == id })
 	maps.DeleteFunc(st.authSess, func(_ string, a core.AuthSession) bool { return a.User == id })
 	maps.DeleteFunc(st.tokens, func(_ string, t core.TokenRecord) bool { return t.User == id })
+	maps.DeleteFunc(st.signIns, func(_ signInKey, s core.SignIn) bool { return s.User == id })
 	maps.DeleteFunc(st.spaces, func(pid core.PrincipalID, _ core.Space) bool { return ps[pid] })
 	maps.DeleteFunc(st.principals, func(pid core.PrincipalID, _ core.Principal) bool { return ps[pid] })
 	delete(st.users, id)

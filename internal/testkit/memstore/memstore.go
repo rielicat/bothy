@@ -227,6 +227,7 @@ type state struct {
 	uploads     map[string]core.Upload
 	votes       map[voteKey]core.ApprovalVote
 	deploys     map[string]deployRow
+	signIns     map[signInKey]core.SignIn
 }
 
 func newState() state {
@@ -257,6 +258,7 @@ func newState() state {
 		uploads:     map[string]core.Upload{},
 		votes:       map[voteKey]core.ApprovalVote{},
 		deploys:     map[string]deployRow{},
+		signIns:     map[signInKey]core.SignIn{},
 	}
 }
 
@@ -296,6 +298,7 @@ func (st *state) clone() state {
 	c.uploads = maps.Clone(st.uploads)
 	c.votes = maps.Clone(st.votes)
 	c.deploys = maps.Clone(st.deploys)
+	c.signIns = maps.Clone(st.signIns)
 	return c
 }
 

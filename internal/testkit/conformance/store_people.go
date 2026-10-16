@@ -512,6 +512,10 @@ func testUserDelete(f *fx) {
 	f.must(f.s.Tokens().Create(f.ctx, tok), "Create token")
 	f.must(f.s.AuthSessions().Create(f.ctx, &core.AuthSession{IDHash: sum("alice-session"), User: alice.ID, CSRF: "c",
 		CreatedAt: at(1), LastSeen: at(1), IdleExpires: at(9000), Expires: at(9000)}), "Create auth session")
+	sis, signIns := f.s.(core.SignInStore)
+	if signIns {
+		f.must(sis.SignIns().Create(f.ctx, &core.SignIn{Provider: core.SignInGoogle, Subject: "alice-sub", User: alice.ID, CreatedAt: at(1)}), "Create sign-in")
+	}
 	_, err = f.s.Identities().Touch(f.ctx, &core.ChannelIdentity{Channel: "telegram", ExternalID: "77", LastSeen: at(4)})
 	f.must(err, "Touch identity")
 	f.must(f.s.Identities().Update(f.ctx, &core.ChannelIdentity{Channel: "telegram", ExternalID: "77", Status: core.IdentityLinked,
@@ -552,6 +556,10 @@ func testUserDelete(f *fx) {
 	f.want(err, core.ErrNotFound, "token after Delete")
 	_, err = f.s.AuthSessions().Get(f.ctx, sum("alice-session"))
 	f.want(err, core.ErrNotFound, "auth session after Delete")
+	if signIns {
+		_, err = sis.SignIns().Get(f.ctx, core.SignInGoogle, "alice-sub")
+		f.want(err, core.ErrNotFound, "sign-in after Delete")
+	}
 	hits, err := f.s.Messages().Search(f.ctx, sys, "secret", 10)
 	f.must(err, "Search")
 	f.check(len(hits) == 0, "search still finds the deleted user's messages: %+v", hits)

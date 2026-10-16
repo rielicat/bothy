@@ -45,6 +45,7 @@ import (
 //     serializes concurrent vote transactions (status, vote, count, Decide).
 //   - core.ReleaseStore is optional (the suite skips it); deploy records
 //     follow the Viewer rule with admins seeing every row.
+//   - core.SignInStore is optional too; Users.Delete cascades to the links.
 //   - Runs.MarkInterrupted sets FinishedAt to now.
 //   - Audit: Head of an empty log is (0, nil, nil); Range bounds are inclusive
 //     and toID <= 0 means the end; Append ignores AuditEntry.ID and stores an
@@ -101,6 +102,7 @@ var storeSuite = []struct {
 	{"ApprovalVoteTx", testApprovalVoteTx},
 	{"ApprovalMultiVisibility", testApprovalMultiVisibility},
 	{"Releases", testReleases},
+	{"SignIns", testSignIns},
 	{"Grants", testGrants},
 	{"GrantsActive", testGrantsActive},
 	{"Schedules", testSchedules},
