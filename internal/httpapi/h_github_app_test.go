@@ -363,12 +363,15 @@ func TestGitHubAppCreated(t *testing.T) {
 		}
 	}
 
-	fc, state := h.startFlow(h.admin)
-	notFinished("wrong state", h.browser("/api/github/apps/created?code="+ghTestCode+"&state=nope", withCookie(fc)), "")
-	// The wrong state ended the flow: the right one no longer works either.
-	notFinished("after a wrong state", h.browser("/api/github/apps/created?code="+ghTestCode+"&state="+url.QueryEscape(state), withCookie(fc)), "")
+	fc, _ := h.startFlow(h.admin)
+	wrong := h.browser("/api/github/apps/created?code="+ghTestCode+"&state=nope", withCookie(fc))
+	notFinished("wrong state", wrong, "")
+	if sc := wrong.Header().Get("Set-Cookie"); sc != "" {
+		t.Errorf("a wrong state touched the flow cookie: %q", sc)
+	}
+	notFinished("no code", h.browser("/api/github/apps/created?state=nope", withCookie(fc)), "")
 
-	_, state = h.startFlow(h.admin)
+	_, state := h.startFlow(h.admin)
 	notFinished("no flow cookie", h.browser("/api/github/apps/created?code="+ghTestCode+"&state="+url.QueryEscape(state)), "")
 
 	fc, state = h.startFlow(h.admin)
@@ -416,6 +419,13 @@ func TestGitHubAppCreated(t *testing.T) {
 	if len(mk.createCalls()) != 1 {
 		t.Error("the code was redeemed twice")
 	}
+
+	// Two tabs: the later start owns the cookie. The earlier tab's return is
+	// refused without ending the later flow, which still completes.
+	_, early := h.startFlow(h.admin)
+	late, lateState := h.startFlow(h.admin)
+	notFinished("the earlier tab", h.browser("/api/github/apps/created?code="+ghTestCode+"&state="+url.QueryEscape(early), withCookie(late)), "")
+	h.created(late, lateState)
 
 	mk.createErr = core.ErrSealed
 	fc, state = h.startFlow(h.admin)
