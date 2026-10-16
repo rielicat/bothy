@@ -37,7 +37,7 @@ auth:
   setup_token_ttl: 24h
   admin_can_read_chats: false     # LOCKED: admins never see other users' message content
   sign_in:                        # sign in with Google or GitHub next to passwords (Settings → Security; SPEC §15)
-    allow: []                     # who may sign in with either: addresses (pat@gmail.com) and domains (acme.com), lower case, at most 200
+    allow: []                     # who may sign in: addresses (pat@gmail.com) and domains (acme.com, Google Workspace only), lower case, at most 200
     allow_new: false              # true: someone on the list without an account gets a member account (team mode only)
     google:
       enabled: false              # needs client_id, client_secret, a non-empty allow list and an https server.public_url
@@ -45,7 +45,7 @@ auth:
       client_secret: ""           # secret:<name>; the UI saves it as secret:google_sign_in_client_secret
       api_base: ""                # LOCKED: tests only; a loopback http(s) server answering Google's endpoints
     github:
-      enabled: false              # needs client_id, client_secret, the allow list or orgs, and an https server.public_url
+      enabled: false              # needs client_id, client_secret, an address in the allow list or orgs, and an https server.public_url
       client_id: ""               # a GitHub OAuth app (Settings → Developer settings → OAuth Apps)
       client_secret: ""           # secret:<name>; the UI saves it as secret:github_sign_in_client_secret
       orgs: []                    # active members of these GitHub organizations may also sign in

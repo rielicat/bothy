@@ -13,18 +13,29 @@ anyone a password from People. The design is in [SPEC §15](../SPEC.md#15-sign-i
 - Decide who may sign in. **Settings → Security → Sign-in → Who can sign in**
   holds one list for both providers, one entry per line:
   - a domain, like `acme.com`, lets in Google Workspace accounts of that
-    domain and GitHub accounts with a verified address at exactly that
-    domain;
-  - an address, like `pat@gmail.com`, lets in that one person (a personal
-    Gmail account, or someone whose Google account isn't managed by your
-    Workspace).
+    domain, and only those;
+  - an address, like `pat@gmail.com`, lets in that one person with Google
+    (a personal Gmail account, or someone whose Google account isn't managed
+    by your Workspace) or with a GitHub account that has that address
+    verified.
 
-  Public mail domains such as `gmail.com` or `outlook.com` can't be listed as
-  domains, since anyone can get an address there; list each person's address
-  instead. The list is checked at every sign-in, so removing someone stops
-  their next sign-in.
+  GitHub accounts need their exact address on the list, or membership of an
+  organization listed on the GitHub page. A domain doesn't let GitHub accounts
+  in: GitHub confirms an address once and never checks it again, so people who
+  left keep a confirmed company address, and anyone who can read a shared
+  inbox, help desk or mailing list at the domain can confirm one there.
+
+  Public mail domains and relays such as `gmail.com`, `outlook.com`,
+  `duck.com` or `users.noreply.github.com` can't be listed as domains, since
+  anyone can get an address there; list each person's address instead.
+  Addresses are compared exactly, ignoring upper and lower case of plain
+  letters only.
+- The list is checked at every sign-in, so removing someone stops their next
+  sign-in. It does not sign them out: to sign someone out now, turn their
+  account off in **Settings → People**.
 - **Create an account the first time someone on the list signs in** (team mode
-  only) gives newcomers a member account without a password. Leave it off to
+  only) gives newcomers a member account without a password; members of the
+  GitHub organizations you list get one too. Leave it off to
   let only people who already connected Google or GitHub in **Account → Sign-in
   methods** use it; others are asked to talk to an admin. People who already
   have an account should connect the provider before signing in with it, or
@@ -56,12 +67,17 @@ count.
 3. Generate a client secret, copy the client ID and secret into that page and
    press **Save**.
 4. Optionally list organizations: their active members may sign in even when
-   their address isn't on the list.
+   their address isn't on the list. Bothy looks each one up on GitHub as you
+   save and remembers its numeric id, so if an organization is renamed and
+   someone else takes the old name, their members don't get in. A name GitHub
+   doesn't know is refused ("GitHub has no organization called …").
 5. Turn on **Sign in with GitHub**.
 
 Bothy asks for `read:org` and `user:email`, checks the person's verified
 addresses and memberships with their own token, then revokes the token right
-away. If an organization restricts OAuth apps, an owner approves Bothy the
+away. Organizations written in `bothy.yaml` by hand are matched by name until
+you save them once in **Settings → Security → GitHub sign-in**; the security
+check reminds you. If an organization restricts OAuth apps, an owner approves Bothy the
 first time a member signs in; with SAML single sign-on, members authorize the
 app for the organization. Someone whose invitation is still pending can't sign
 in until they accept it.
@@ -85,7 +101,7 @@ auth:
       enabled: true
       client_id: Ov23liExample
       client_secret: secret:github_sign_in_client_secret
-      orgs: [acme-inc]
+      orgs: [acme-inc]          # org_ids is written by Bothy when you save organizations in Settings
 ```
 
 Egress for sign-in goes to `oauth2.googleapis.com`, `github.com` and

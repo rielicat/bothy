@@ -30,22 +30,26 @@ they have linked) and whether approval requests stay in the web UI (audited
 Sign in with Google and GitHub (SPEC §15) is another set of extras:
 `SetSignIn` (the vault and `egress.SystemClient`, set by `cmd/bothy`),
 `SignInOptions`, `StartSignIn`, `StartLink`, `FinishSignIn`, `Unlink`,
-`MySignIns`, `SignInStatus` and `CheckSignIn`. `oauth/` is the protocol half
-(PKCE S256, authorize addresses, the code exchange, the id token claims, the
-sign-in list and GitHub's organization check; stdlib only, no redirects
-followed, no token in any error) and `oauth/oauthtest` fakes both providers
-for tests and local stubs. Flows live in memory under the sha256 of their
-state (single use, 10 minutes, at most 1024); the state must equal the
-sign-in cookie, the callback's provider must be the flow's, and a link is
-bound to the hash of the session cookie that started it. The shared list
-`auth.sign_in.allow` is checked at every sign-in and link: Google needs a
+`MySignIns`, `SignInStatus`, `CheckSignIn` and `PinGitHubOrgs`. `oauth/` is
+the protocol half (PKCE S256, authorize addresses, the code exchange, the id
+token claims, the sign-in list and GitHub's organization check; stdlib only,
+no redirects followed, no token in any error) and `oauth/oauthtest` fakes both
+providers for tests and local stubs. Flows live in memory under the sha256 of
+their state (single use, 10 minutes, at most 8 per client, an IPv4 address or
+an IPv6 /64, and 1024 in all); the state must equal the sign-in cookie, the
+callback's provider must be the flow's, and a link is bound to the hash of
+the session cookie that started it. The shared list `auth.sign_in.allow` is
+checked at every sign-in and link, comparing ASCII only: Google needs a
 verified email that is listed or a Workspace `hd` that is; GitHub needs a
-listed verified address (a domain only as the exact domain) or an active
-membership of a listed organization. Accounts are never matched by email: a
+verified address listed exactly (domains never match it) or an active
+membership of a listed organization, whose id must equal the one pinned in
+`auth.sign_in.github.org_ids` (`PinGitHubOrgs` looks them up when the
+organizations are saved). Accounts are never matched by email: a
 link is made by a signed-in person, or `auth.sign_in.allow_new` (team mode)
 makes a member account without a password (`pw_hash` `"!"`, which password
 sign-in treats like an unknown username) and a display name nobody else uses.
 Tokens are never kept; GitHub's is revoked at once.
 `Checks` contributes `server.exposure`, `server.insecure_lan`,
 `tokens.admin_scope`, `tokens.expired_unrevoked` (auto-fix: revoke) and
-`auth.sign_in` (a provider is on but its client secret can't be read).
+`auth.sign_in` (a provider is on but its client secret is missing or saved
+keys are locked, or GitHub organizations aren't pinned).

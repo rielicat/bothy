@@ -56,7 +56,9 @@ Sign-in has `signin-google`, `signin-github`, `signin-fail:<code>`,
 `signin-linked`, `signin-only`, `signin-no-address`, `signin-http-address`,
 `signin-check-fail:<code>`, `signin-no-secret`, `wrong-address` and
 `team-mode`. The mock runs at `https://bothy.acme.com` when the config
-fixture has no web address.
+fixture has no web address. Its GitHub knows every organization but
+`no-such-org`, and a refused round trip leaves the account in the
+`bothy_signin_who` cookie, as the gateway does.
 
 Opening a page with `?mock=` resets the fixtures and stores the list in the
 `bothy_mock` cookie, so the page's `/api` calls and later in-app navigation
