@@ -25,6 +25,7 @@ const PairingTTL = 15 * time.Minute
 // once per identity per 24 h (by Clock, or the system clock when nil).
 // RedeemPairing accepts a code from Codes (normalized: upper case without
 // dashes or spaces) once, then resolves that identity as a linked member.
+// BurnPairing removes a code from Codes without linking anyone.
 // NewPairingCode registers a fresh code in Codes.
 type Auth struct {
 	core.Auth
@@ -35,6 +36,7 @@ type Auth struct {
 	mu       sync.Mutex
 	Codes    map[string]core.UserID
 	Redeemed []string // "<channel>:<external id>|<code>" per RedeemPairing call
+	Burned   []string // "<channel>:<external id>|<code>" per BurnPairing call that found the code
 	Clock    core.Clock
 	notified map[string]time.Time
 }
@@ -97,6 +99,18 @@ func (a *Auth) RedeemPairing(_ context.Context, ident core.ChannelIdentity, code
 	linked := ident
 	linked.Status, linked.User = core.IdentityLinked, u
 	return &linked, nil
+}
+
+func (a *Auth) BurnPairing(_ context.Context, ident core.ChannelIdentity, code string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	norm := normalizeCode(code)
+	if _, ok := a.Codes[norm]; !ok {
+		return fmt.Errorf("pairing code: %w", core.ErrNotFound)
+	}
+	delete(a.Codes, norm)
+	a.Burned = append(a.Burned, ident.Channel+":"+ident.ExternalID+"|"+code)
+	return nil
 }
 
 func (a *Auth) NewPairingCode(_ context.Context, by core.Actor) (core.PairingCode, error) {

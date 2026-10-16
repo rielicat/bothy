@@ -91,6 +91,10 @@ type Auth interface {
 	NewPairingCode(ctx context.Context, by Actor) (PairingCode, error) // link_identity for by.User
 	// RedeemPairing handles "/pair CODE" and "/start CODE" from a chat.
 	RedeemPairing(ctx context.Context, ident ChannelIdentity, code string) (*ChannelIdentity, error)
+	// BurnPairing cancels a live link_identity code that ident posted where
+	// a whole group could read it, linking no one; ErrNotFound when no live
+	// code matches. It shares RedeemPairing's attempts per identity.
+	BurnPairing(ctx context.Context, ident ChannelIdentity, code string) error
 	// SenderNotice records an unknown DM sender and returns whether to reply.
 	SenderNotice(ctx context.Context, ident ChannelIdentity) (SenderNotice, error)
 	// ApproveSender redeems an approve_sender code typed into the web UI by an

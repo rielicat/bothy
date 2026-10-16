@@ -232,6 +232,11 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 			return "A chat app account used a link code that didn't work"
 		}
 		return "Linked a chat app account"
+	case "pairing.burn":
+		if denied {
+			return "Posted a link code in a group that didn't work"
+		}
+		return "Cancelled a chat link code that was posted in a group"
 	case "identity.link", "identity.guest", "identity.block", "identity.unlink":
 		ch, ext, _ := strings.Cut(strings.TrimPrefix(e.Target, "channel:"), ":")
 		// An unlinked identity is gone from the store; the detail's user names it.

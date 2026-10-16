@@ -204,6 +204,9 @@ func TestAuditRowsAndEgressOutcomes(t *testing.T) {
 		{Actor: "system", Action: "skill.changed", Target: "skill:slides", Outcome: "ok"},
 		{Actor: agent, Action: "github.checkout", Target: "acme/web", Outcome: "error"},
 		{Actor: agent, Action: "tool.exec", Target: "tool_search", Outcome: "ok", Run: f.run.ID, Detail: detail(map[string]any{"tool": "tool_search"})},
+		{Actor: "channel:telegram:4242", Action: "pairing.burn", Target: "user:" + string(h.member.user), Outcome: "ok",
+			Detail: detail(map[string]any{"reason": "posted in a group"})},
+		{Actor: "channel:telegram:4242", Action: "pairing.burn", Outcome: "denied", Detail: detail(map[string]any{"reason": "posted in a group"})},
 		{Actor: "user:" + string(h.member.user), Action: "identity.unlink", Target: "channel:slack:U123", Outcome: "ok",
 			Detail: detail(map[string]any{"user": string(h.member.user)})},
 		{Actor: "user:" + string(h.member.user), Action: "user.profile", Target: "user:" + string(h.member.user), Outcome: "ok",
@@ -255,6 +258,8 @@ func TestAuditRowsAndEgressOutcomes(t *testing.T) {
 		"github.checkout/acme/web":                            {"Bothy", "Couldn't get a copy of acme/web"},
 		"tool.exec/tool_search":                               {"Bothy", "Searched for other things Bothy can do"},
 		"identity.unlink/channel:slack:U123":                  {"member", "Unlinked member on Slack"},
+		"pairing.burn/user:" + string(h.member.user):          {"", "Cancelled a chat link code that was posted in a group"},
+		"pairing.burn/":                                       {"", "Posted a link code in a group that didn't work"},
 		"user.profile/user:" + string(h.member.user):          {"member", "Changed their profile"},
 	} {
 		if got[k] != want {

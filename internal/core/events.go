@@ -29,6 +29,7 @@ const (
 	EvScheduleRun       EventType = "schedule.run"
 	EvBudgetWarning     EventType = "budget.warning"
 	EvPairingLinked     EventType = "pairing.linked"
+	EvPairingBurned     EventType = "pairing.burned"  // a link code was cancelled: it was posted in a group
 	EvChannelStatus     EventType = "channel.status"  // admin broadcast
 	EvSandboxStatus     EventType = "sandbox.status"  // admin broadcast
 	EvMCPPinPending     EventType = "mcp.pin_pending" // admin broadcast
@@ -180,6 +181,13 @@ type PairingLinkedData struct {
 	ExternalID string `json:"external_id"`
 	Display    string `json:"display"`
 }
+
+// PairingBurnedData names the cancelled code as NewPairingCode showed it, so
+// a page still showing that code can replace it.
+type PairingBurnedData struct {
+	Channel string `json:"channel"`
+	Code    string `json:"code"`
+}
 type ChannelStatusData struct {
 	Status ChannelStatus `json:"status"`
 }
@@ -234,6 +242,7 @@ func (EgressBlockedData) eventData()    {}
 func (ScheduleRunData) eventData()      {}
 func (BudgetWarningData) eventData()    {}
 func (PairingLinkedData) eventData()    {}
+func (PairingBurnedData) eventData()    {}
 func (ChannelStatusData) eventData()    {}
 func (SandboxStatusData) eventData()    {}
 func (MCPPinData) eventData()           {}

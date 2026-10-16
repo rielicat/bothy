@@ -304,6 +304,7 @@ export const EvEgressBlocked: EventType = "egress.blocked";
 export const EvScheduleRun: EventType = "schedule.run";
 export const EvBudgetWarning: EventType = "budget.warning";
 export const EvPairingLinked: EventType = "pairing.linked";
+export const EvPairingBurned: EventType = "pairing.burned";
 export const EvChannelStatus: EventType = "channel.status";
 export const EvSandboxStatus: EventType = "sandbox.status";
 export const EvMCPPinPending: EventType = "mcp.pin_pending";
@@ -459,6 +460,14 @@ export interface PairingLinkedData {
   channel: string;
   external_id: string;
   display: string;
+}
+/**
+ * PairingBurnedData names the cancelled code as NewPairingCode showed it, so
+ * a page still showing that code can replace it.
+ */
+export interface PairingBurnedData {
+  channel: string;
+  code: string;
 }
 export interface ChannelStatusData {
   status: ChannelStatus;

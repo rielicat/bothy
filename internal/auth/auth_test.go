@@ -694,6 +694,82 @@ func TestPairingAttemptLimit(t *testing.T) {
 	}
 }
 
+// A code posted in a group is used up without linking the poster, audited
+// against the person who made it, and their page hears which code it was.
+func TestPairingBurn(t *testing.T) {
+	e := newEnv(t)
+	owner := e.owner(t)
+	sub := e.bus.Subscribe(core.Filter{Principals: []core.PrincipalID{core.UserPrincipal(owner.User)}, Types: []core.EventType{core.EvPairingBurned}}, 8)
+	defer sub.Close()
+	pc, err := e.s.NewPairingCode(ctx, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	poster := core.ChannelIdentity{Channel: "telegram", ExternalID: "42", Username: "alice"}
+	if err := e.s.BurnPairing(ctx, poster, strings.ToLower(strings.ReplaceAll(pc.Code, "-", " "))); err != nil {
+		t.Fatal(err)
+	}
+	all := e.audit.All()
+	last := all[len(all)-1]
+	if last.Action != "pairing.burn" || last.Outcome != "ok" || last.Actor != "channel:telegram:42" || last.Target != "user:"+string(owner.User) ||
+		!strings.Contains(string(last.Detail), `"reason":"posted in a group"`) {
+		t.Fatalf("audit = %+v (%s)", last, last.Detail)
+	}
+	select {
+	case ev := <-sub.C():
+		if d := ev.Data.(core.PairingBurnedData); d.Code != pc.Code || d.Channel != "telegram" {
+			t.Fatalf("event = %+v", ev)
+		}
+	default:
+		t.Fatal("no pairing.burned event")
+	}
+	if res, _ := e.s.ResolveIdentity(ctx, "telegram", "42"); res.Status != "" {
+		t.Fatalf("the poster was linked: %+v", res)
+	}
+	if _, err := e.s.RedeemPairing(ctx, core.ChannelIdentity{Channel: "telegram", ExternalID: "43"}, pc.Code); !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("a burned code still links: %v", err)
+	}
+
+	if err := e.s.BurnPairing(ctx, poster, pc.Code); !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("burning a used code = %v, want ErrNotFound", err)
+	}
+	if all := e.audit.All(); all[len(all)-1].Action != "pairing.burn" || all[len(all)-1].Outcome != "denied" {
+		t.Fatalf("a code that matched nothing left %+v", all[len(all)-1])
+	}
+	before := len(e.audit.All())
+	if err := e.s.BurnPairing(ctx, poster, "my new phone"); !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("burning plain text = %v, want ErrNotFound", err)
+	}
+	if n := len(e.audit.All()); n != before {
+		t.Fatalf("plain text after /start left %d audit rows", n-before)
+	}
+}
+
+// Burns and redemptions share the attempts per identity, so posting guesses
+// in a group is no way around the limit.
+func TestPairingBurnSharesAttemptLimit(t *testing.T) {
+	e := newEnv(t)
+	owner := e.owner(t)
+	ident := core.ChannelIdentity{Channel: "slack", ExternalID: "U9"}
+	for i := range 5 {
+		if err := e.s.BurnPairing(ctx, ident, "ZZZZ-ZZZZ"); !errors.Is(err, core.ErrNotFound) {
+			t.Fatalf("attempt %d: %v", i, err)
+		}
+	}
+	pc, _ := e.s.NewPairingCode(ctx, owner)
+	if err := e.s.BurnPairing(ctx, ident, pc.Code); retryAfter(err) == 0 {
+		t.Fatalf("6th burn within the hour must be refused: %v", err)
+	}
+	if _, err := e.s.RedeemPairing(ctx, ident, pc.Code); retryAfter(err) == 0 {
+		t.Fatalf("a redeem after 5 burns must be refused: %v", err)
+	}
+	e.clock.Advance(61 * time.Minute)
+	pc, _ = e.s.NewPairingCode(ctx, owner)
+	if err := e.s.BurnPairing(ctx, ident, pc.Code); err != nil {
+		t.Fatalf("after the window: %v", err)
+	}
+}
+
 func TestSenderNoticeAndApprove(t *testing.T) {
 	e := newEnv(t, func(c *config.Config) { c.Mode = "multi" })
 	owner := e.owner(t)

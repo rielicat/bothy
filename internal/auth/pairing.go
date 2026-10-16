@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"errors"
@@ -138,6 +139,39 @@ func (s *Service) RedeemPairing(ctx context.Context, ident core.ChannelIdentity,
 	s.record(ctx, identActor(ident), "pairing.redeem", userTarget(user.ID), "ok", nil)
 	s.linked(ctx, identActor(ident), linked)
 	return linked, nil
+}
+
+// burnReason is the audit detail of pairing.burn: the hub burns only codes
+// posted in a group chat.
+const burnReason = "posted in a group"
+
+// BurnPairing uses up a live link_identity code that ident posted in a group
+// chat, linking no one: anyone there could otherwise redeem it first. It
+// counts against the same five attempts per identity per hour as
+// RedeemPairing, so a group is no way around that limit. Text that is not a
+// code at all is ordinary chat and leaves no audit row.
+func (s *Service) BurnPairing(ctx context.Context, ident core.ChannelIdentity, code string) error {
+	now := s.now()
+	if retry, ok := s.pairs.take(ident.Channel+":"+ident.ExternalID, now); !ok {
+		return limited("too many pairing attempts", retry)
+	}
+	norm, ok := normalizeCode(code)
+	if !ok {
+		return errPairCode
+	}
+	p, err := s.store.Pairings().Redeem(ctx, sha(norm), core.PairLinkIdentity, now)
+	if errors.Is(err, core.ErrNotFound) {
+		s.record(ctx, identActor(ident), "pairing.burn", "", "denied", map[string]any{"reason": burnReason})
+		return errPairCode
+	}
+	if err != nil {
+		return err
+	}
+	creator := cmp.Or(p.CreatedBy, p.User)
+	s.record(ctx, identActor(ident), "pairing.burn", userTarget(creator), "ok", map[string]any{"reason": burnReason})
+	s.publish(core.Event{Type: core.EvPairingBurned, Principal: core.UserPrincipal(p.User),
+		Data: core.PairingBurnedData{Channel: ident.Channel, Code: displayCode(norm)}})
+	return nil
 }
 
 func touchIdentity(ctx context.Context, st core.Store, ident core.ChannelIdentity, now time.Time) (*core.ChannelIdentity, error) {
