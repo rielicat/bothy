@@ -44,6 +44,7 @@ const actions: Record<string, string> = {
   'user.update': "Changed a person's account",
   'pairing.create': 'Started linking a chat app',
   'pairing.redeem': 'Linked a chat app',
+  'pairing.burn': 'Cancelled a chat link code that was posted in a group',
   'identity.link': 'Linked a chat app account',
   'identity.guest': 'Let someone chat as a guest',
   'identity.block': 'Blocked someone in a chat app',

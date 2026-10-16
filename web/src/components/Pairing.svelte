@@ -1,6 +1,6 @@
 <script lang="ts">
   import { api, errorText } from '../lib/api/client';
-  import type { PairingCode, PairingLinkedData } from '../lib/api/types.gen';
+  import type { PairingBurnedData, PairingCode, PairingLinkedData } from '../lib/api/types.gen';
   import { expiresIn } from '../lib/format';
   import { events } from '../lib/sse.svelte';
   import { clock } from '../lib/stores/clock.svelte';
@@ -27,6 +27,7 @@
 
   let code = $state<PairingCode | null>(null);
   let linked = $state<PairingLinkedData | null>(null);
+  let burned = $state(false);
   let busy = $state(false);
   let error = $state('');
 
@@ -46,10 +47,26 @@
     }),
   );
 
+  // Bothy cancels a code someone posted in a group chat; this one is
+  // replaced only when it is the code that was cancelled.
+  const bare = (c: string) => c.replace(/[-\s]/g, '').toUpperCase();
+  $effect(() =>
+    events.on('pairing.burned', (e) => {
+      const d = e.data as PairingBurnedData;
+      if (code && !busy && bare(d.code) === bare(code.code)) void replaceBurned();
+    }),
+  );
+
+  async function replaceBurned() {
+    await create();
+    burned = !error;
+  }
+
   async function create() {
     busy = true;
     error = '';
     linked = null;
+    burned = false;
     try {
       code = await api.post<PairingCode>('/api/pairing');
     } catch (e) {
@@ -73,6 +90,7 @@
 {:else if left === 'Expired'}
   <p class="text-body text-muted">This code expired. <LinkButton onclick={create}>Make a new code</LinkButton></p>
 {:else}
+  {#if burned}<StatusLine tone="warning" class="mb-4" text="That code was shared in a group, so it no longer works. Here's a new one. Send it in a direct message." />{/if}
   <div class="flex flex-wrap items-start gap-x-6 gap-y-4">
     {#if link && channel !== 'slack'}<QRCode text={link[1]} label="QR code that opens the bot in {apps[link[0]] ?? link[0]} and links your account" />{/if}
     <!-- The basis makes this column drop under the QR code on phones instead of squeezing beside it. -->

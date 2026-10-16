@@ -34,6 +34,7 @@ export const eventTypes: EventType[] = [
   'schedule.run',
   'budget.warning',
   'pairing.linked',
+  'pairing.burned',
   'channel.status',
   'sandbox.status',
   'mcp.pin_pending',
