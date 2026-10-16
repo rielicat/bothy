@@ -3,6 +3,7 @@
 // check lines. The server validates again; these only spare a round trip.
 import { ApiError } from '../../../lib/api/client';
 import type { SignInAdmin, SignInProvider, SignInProviderStatus } from '../../../lib/api/types.gen';
+import { plural } from '../../../lib/format';
 
 export const providerNames: Record<SignInProvider, string> = { google: 'Google', github: 'GitHub' };
 
@@ -127,10 +128,16 @@ export function rowValue(st: SignInProviderStatus): { text: string; tone: 'muted
   return st.ready ? { text: 'On', tone: 'muted' } : { text: 'Not working', tone: 'danger' };
 }
 
-/** "3 addresses and domains", for the provider page's link back to the list. */
+/** "3 addresses and domains", for the Google page's link back to the list. */
 export function listSummary(allow: string[]): string {
   if (!allow.length) return 'Nobody yet';
   return allow.length === 1 ? '1 address or domain' : `${allow.length} addresses and domains`;
+}
+
+/** "2 email addresses", for the GitHub page's link back to the list: domains don't let GitHub accounts in. */
+export function addressSummary(allow: string[]): string {
+  const n = allow.filter((e) => e.includes('@')).length;
+  return n ? plural(n, 'email address', 'email addresses') : 'No email addresses';
 }
 
 /** The sentence under the list after the server refused it. */

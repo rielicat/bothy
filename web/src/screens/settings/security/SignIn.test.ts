@@ -275,6 +275,12 @@ describe('GitHub sign-in page', () => {
     expect(await screen.findByText(text)).toBeTruthy();
   });
 
+  it('counts only email addresses in who can sign in', async () => {
+    await signedIn('signin-github');
+    render(GitHubSignIn);
+    expect((await screen.findByRole('link', { name: /Who can sign in/ })).textContent).toContain('No email addresses');
+  });
+
   it('can rely on organizations alone', async () => {
     await signedIn('signin-github');
     render(GitHubSignIn);

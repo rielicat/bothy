@@ -9,7 +9,7 @@
   import LinkRow from './LinkRow.svelte';
   import { securityBack } from './page.svelte';
   import PageState from './PageState.svelte';
-  import { canEnable, checkLine, hasRules, listSummary, orgsProblem, parseOrgs, providerNames } from './signin';
+  import { addressSummary, canEnable, checkLine, hasRules, listSummary, orgsProblem, parseOrgs, providerNames } from './signin';
 
   // Google sign-in and GitHub sign-in (docs/design/ui.md §11.6). The client
   // ID, secret and redirect address are what admins paste between Bothy and
@@ -160,7 +160,7 @@
         <Switch id={c.id} label="Sign in with {name}" hideLabel aria-describedby={c.describedBy} checked={st.enabled} disabled={!!reason} onchange={toggle} />
       {/snippet}
     </SettingsRow>
-    <LinkRow label="Who can sign in" value={listSummary(adm.allow)} href="/settings/security" />
+    <LinkRow label="Who can sign in" value={github ? addressSummary(adm.allow) : listSummary(adm.allow)} href="/settings/security" />
 
     <form class="mt-10" novalidate onsubmit={save}>
       <SettingsSection title={github ? 'GitHub OAuth app' : 'Google Cloud'}>

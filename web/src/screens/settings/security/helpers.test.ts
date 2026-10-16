@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { EgressRecord, Entry, Finding, Grant, Principal, SignInAdmin, SignInProviderStatus } from '../../../lib/api/types.gen';
 import { describeFinding, needsAttention } from './findings';
-import { canEnable, checkLine, entryProblem, listProblem, listSummary, listText, orgsProblem, parseList, parseOrgs, rowValue } from './signin';
+import { addressSummary, canEnable, checkLine, entryProblem, listProblem, listSummary, listText, orgsProblem, parseList, parseOrgs, rowValue } from './signin';
 import { describeGrant, grantMeta, siteName } from './grantText';
 import { joinNames, keyName, storedName, usedBy } from './keyNames';
 import { covers, recentBlocks, sharedSuffix, siteEntry, siteOf } from './sites';
@@ -264,6 +264,10 @@ describe('sign-in list and provider rows', () => {
     expect(listSummary([])).toBe('Nobody yet');
     expect(listSummary(['a.com'])).toBe('1 address or domain');
     expect(listSummary(['a.com', 'b.com'])).toBe('2 addresses and domains');
+    // Domains don't let GitHub accounts in, so the GitHub page counts addresses only.
+    expect(addressSummary(['a.com'])).toBe('No email addresses');
+    expect(addressSummary(['a.com', 'pat@gmail.com'])).toBe('1 email address');
+    expect(addressSummary(['pat@gmail.com', 'kim@acme.com', 'a.com'])).toBe('2 email addresses');
   });
 
   it('turns the check result into a line', () => {
