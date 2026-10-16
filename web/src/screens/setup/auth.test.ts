@@ -11,6 +11,13 @@ describe('the refused account', () => {
     expect(takeRefused()).toBe('');
     expect(document.cookie).not.toContain('bothy_signin_who');
   });
+
+  it('over HTTPS comes from the __Host- cookie only', () => {
+    // Anyone who can answer plain HTTP for the host can plant the plain cookie.
+    document.cookie = 'bothy_signin_who=ceo%40acme.com; Path=/';
+    expect(signInErrorText('not_allowed', 'google', takeRefused(true))).toBe("That Google account isn't on this Bothy's sign-in list. Ask an admin to add you.");
+    document.cookie = 'bothy_signin_who=; Max-Age=0; Path=/';
+  });
 });
 
 describe('setup commands (S1)', () => {

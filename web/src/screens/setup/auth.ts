@@ -71,29 +71,26 @@ export function providerName(p: string | null | undefined): string {
   return p === 'google' ? 'Google' : p === 'github' ? 'GitHub' : '';
 }
 
-const REFUSED = ['__Host-bothy_signin_who', 'bothy_signin_who'];
-
 /**
  * The account a provider just refused, which the server leaves in a cookie
  * for a minute instead of the address, so a crafted link can't name anyone.
- * Read once: the cookie is deleted here.
+ * Over HTTPS only the __Host- cookie counts: whoever can answer a plain HTTP
+ * request for this host, or serve a sibling subdomain, can plant the plain
+ * one. Read once: the cookie is deleted here.
  */
-export function takeRefused(): string {
-  let who = '';
-  for (const name of REFUSED) {
-    const raw = document.cookie
-      .split(';')
-      .map((c) => c.trim())
-      .find((c) => c.startsWith(`${name}=`));
-    if (raw === undefined) continue;
-    document.cookie = `${name}=; Max-Age=0; Path=/; SameSite=Lax${name.startsWith('__Host-') ? '; Secure' : ''}`;
-    try {
-      who ||= decodeURIComponent(raw.slice(name.length + 1));
-    } catch {
-      // a mangled value falls back to the general sentence
-    }
+export function takeRefused(secure = location.protocol === 'https:'): string {
+  const name = secure ? '__Host-bothy_signin_who' : 'bothy_signin_who';
+  const raw = document.cookie
+    .split(';')
+    .map((c) => c.trim())
+    .find((c) => c.startsWith(`${name}=`));
+  if (raw === undefined) return '';
+  document.cookie = `${name}=; Max-Age=0; Path=/; SameSite=Lax${secure ? '; Secure' : ''}`;
+  try {
+    return decodeURIComponent(raw.slice(name.length + 1));
+  } catch {
+    return ''; // a mangled value falls back to the general sentence
   }
-  return who;
 }
 
 // The account comes from a cookie the page could not have set itself, but
