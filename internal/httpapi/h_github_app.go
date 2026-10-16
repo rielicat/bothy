@@ -238,11 +238,17 @@ func (s *Server) githubAppCreated(w http.ResponseWriter, r *http.Request, _ core
 		f, found = s.ghFlows.advance(binding, ghStarted, ghExchanging, state, func(g *ghAppFlow) { g.codeHash = sha32(code) })
 	}
 	if !found {
+		g, live := s.ghFlows.get(binding)
+		switch {
+		case !live:
+			s.clearGHAppCookie(w, r)
+		case (g.phase == ghExchanging || g.phase == ghInstalling) && g.gaveState(state):
+			// This redirect again (a reload) while the first one redeems the
+			// code, or since: the app is being made, so the page checks it.
+			return land(w, r, "check", nil)
+		}
 		// A stale or forged address, or a flow another tab started since:
 		// nothing is redeemed, and a flow still waiting keeps its cookie.
-		if _, live := s.ghFlows.get(binding); !live {
-			s.clearGHAppCookie(w, r)
-		}
 		return land(w, r, "not_finished", nil)
 	}
 	a, signedIn := s.resumeAdmin(r.Context(), f)

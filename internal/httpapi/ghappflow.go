@@ -140,6 +140,16 @@ func (fs *ghAppFlows) advance(binding string, from, to ghPhase, state string, mu
 	return *f, true
 }
 
+// gaveState reports whether state is the one GitHub was given last, or the
+// one before it.
+func (f *ghAppFlow) gaveState(state string) bool {
+	if state == "" || len(state) > 256 {
+		return false
+	}
+	sh := sha32(state)
+	return subtle.ConstantTimeCompare(sh[:], f.stateHash[:]) == 1 || subtle.ConstantTimeCompare(sh[:], f.prevState[:]) == 1
+}
+
 func (fs *ghAppFlows) drop(binding string) {
 	if binding == "" {
 		return

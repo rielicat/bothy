@@ -57,6 +57,9 @@ type fakeMaker struct {
 	creates                            []ghCreate
 	installs                           []ghInstall
 	checked, retired, deleted          []string
+	// createGate, when set, holds CreateApp until it is closed, after
+	// telling createStarted.
+	createGate, createStarted chan struct{}
 }
 
 func newFakeMaker() *fakeMaker { return &fakeMaker{fakeGitHub: &fakeGitHub{}} }
@@ -78,8 +81,15 @@ func (m *fakeMaker) AppManifest(t core.GitHubAppTarget, origin string) (*core.Gi
 
 func (m *fakeMaker) CreateApp(_ context.Context, code string, t core.GitHubAppTarget, replaces string, by core.UserID) (*core.GitHubOwnApp, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.creates = append(m.creates, ghCreate{code, t, replaces, by})
+	gate, started := m.createGate, m.createStarted
+	m.mu.Unlock()
+	if gate != nil {
+		started <- struct{}{}
+		<-gate
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.createErr != nil {
 		return nil, m.createErr
 	}
@@ -418,6 +428,35 @@ func TestGitHubAppCreated(t *testing.T) {
 	}
 	if len(mk.createCalls()) != 1 {
 		t.Error("the code was redeemed twice")
+	}
+
+	// A reload while the first request still redeems the code: the app is
+	// being made, so the page checks it rather than saying to delete it.
+	gate, started := make(chan struct{}), make(chan struct{})
+	mk.mu.Lock()
+	mk.createGate, mk.createStarted = gate, started
+	mk.mu.Unlock()
+	fc, state = h.startFlow(h.admin)
+	path = "/api/github/apps/created?code=" + ghTestCode + "&state=" + url.QueryEscape(state)
+	first := make(chan *httptest.ResponseRecorder)
+	go func() { first <- h.browser(path, withCookie(fc)) }()
+	<-started
+	if q := landed(t, h.browser(path, withCookie(fc))); q.Get("github_app") != "check" {
+		t.Errorf("a reload while redeeming = %v", q)
+	}
+	close(gate)
+	if rec := <-first; rec.Code != http.StatusSeeOther || !strings.HasPrefix(rec.Header().Get("Location"), ghTestInstall+"?state=") {
+		t.Errorf("the first request = %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	mk.mu.Lock()
+	mk.createGate, mk.createStarted = nil, nil
+	mk.mu.Unlock()
+	// Since then, the same state with another code checks too.
+	if q := landed(t, h.browser("/api/github/apps/created?code=0ther&state="+url.QueryEscape(state), withCookie(fc))); q.Get("github_app") != "check" {
+		t.Errorf("the same state after creating = %v", q)
+	}
+	if n := len(mk.createCalls()); n != 2 {
+		t.Errorf("%d CreateApp calls, want 2", n)
 	}
 
 	// Two tabs: the later start owns the cookie. The earlier tab's return is
