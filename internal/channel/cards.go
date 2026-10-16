@@ -600,20 +600,24 @@ func (h *Hub) updateCards(ctx context.Context, d core.ApprovalResolvedData) {
 			continue
 		}
 		var text string
-		if r.Kind == core.CardMsgNotice {
+		switch r.Kind {
+		case core.CardMsgNotice:
 			inOrigin = true
 			text = h.lineText(ctx, d, ap)
-		} else {
+		case core.CardMsgLink:
+			// A link-only card held back what was asked; its reader may not
+			// be someone who can decide it, or even still in the team.
+			text = linkOutcome(d)
+		default:
 			// Cards only go to DMs, and a stored card ref keeps no chat kind.
 			dm := r.Ref.Chat
 			dm.Kind = core.ChatDM
-			if ap.Chat != nil && dm.Channel == ap.Chat.Channel && dm.ChatID == ap.Chat.ChatID {
-				inOrigin = true
-			}
+			here := ap.Chat != nil && dm.Channel == ap.Chat.Channel && dm.ChatID == ap.Chat.ChatID
+			inOrigin = inOrigin || here
 			reader := readers[dm.Channel+"\x00"+dm.ChatID]
 			text = h.redact(plainLine(h.outcomeText(ctx, d, ap, func(by core.UserID, ident string) bool {
 				return ident != "" && ident == reader
-			}, true)))
+			}, true, here)))
 		}
 		if err := a.ch.Edit(ctx, r.Ref, core.OutMessage{Chat: r.Ref.Chat, Text: text}); err != nil {
 			h.log.Warn("channel: updating approval card failed", "approval", d.Approval, "err", err)
@@ -652,14 +656,29 @@ func (h *Hub) cardReaders(ctx context.Context) map[string]string {
 	return out
 }
 
-// lineText is the outcome a waiting line becomes. Nobody reads it as "you",
-// and a group never sees the approver's reason.
+// lineText is the outcome a waiting line becomes. In the requester's own
+// DM they read it as "you"; a group never sees the approver's reason.
 func (h *Hub) lineText(ctx context.Context, d core.ApprovalResolvedData, ap *core.Approval) string {
 	if d.Status == core.ApprovalCancelled && d.Via == "stop" {
 		return plainLine("✗ Stopped.")
 	}
 	dm := ap.Chat != nil && ap.Chat.Kind == core.ChatDM
-	return h.redact(plainLine(h.outcomeText(ctx, d, ap, func(core.UserID, string) bool { return false }, dm)))
+	requester := ap.Approver.RequesterIdentity
+	return h.redact(plainLine(h.outcomeText(ctx, d, ap, func(_ core.UserID, ident string) bool {
+		return dm && ident != "" && ident == requester
+	}, dm, true)))
+}
+
+// linkOutcome is what a link-only card becomes: that it was decided, never
+// what was asked or why.
+func linkOutcome(d core.ApprovalResolvedData) string {
+	switch d.Status {
+	case core.ApprovalAllowed, core.ApprovalDenied:
+		return plainLine("Decided in Bothy.")
+	case core.ApprovalExpired:
+		return plainLine("Nobody answered in time.")
+	}
+	return plainLine("No longer waiting.")
 }
 
 // identityName names a chat person in an outcome: display name, else
@@ -682,8 +701,9 @@ func (h *Hub) identityName(ctx context.Context, key string) string {
 // outcomeText is the decided line a card becomes in place of its question
 // (docs/design/ui.md §8.4), e.g. "✓ You approved deleting notes/a.md." or
 // "✗ Sam Patel denied deleting notes/a.md on the web."; reader tells
-// whether the decider reads it. It is plain text; the caller formats it.
-func (h *Hub) outcomeText(ctx context.Context, d core.ApprovalResolvedData, ap *core.Approval, reader func(core.UserID, string) bool, comment bool) string {
+// whether the decider reads it, here whether it is read in the chat the
+// request came from. It is plain text; the caller formats it.
+func (h *Hub) outcomeText(ctx context.Context, d core.ApprovalResolvedData, ap *core.Approval, reader func(core.UserID, string) bool, comment, here bool) string {
 	ing := cardIng(ap)
 	who, where := "Someone", viaText(d.Via)
 	switch {
@@ -703,8 +723,15 @@ func (h *Hub) outcomeText(ctx context.Context, d core.ApprovalResolvedData, ap *
 		}
 		switch d.Choice {
 		case core.AllowSession:
-			return "✓ " + who + " approved " + ing + where + ", and similar requests in this chat."
+			chat := "this chat"
+			if !here {
+				chat = h.teamChat(ctx, ap, true)
+			}
+			return "✓ " + who + " approved " + ing + where + ", and similar requests in " + chat + "."
 		case core.AllowAlways:
+			if !here {
+				return "✓ " + who + " approved " + ing + where + ", and similar requests " + h.teamChat(ctx, ap, false) + " from now on."
+			}
 			return "✓ " + who + " approved " + ing + where + ", and similar requests from now on."
 		}
 		return "✓ " + who + " approved " + ing + where + "."
@@ -729,6 +756,32 @@ func (h *Hub) outcomeText(ctx context.Context, d core.ApprovalResolvedData, ap *
 		return "Cancelled when the chat was stopped."
 	}
 	return string(d.Status)
+}
+
+// teamChat names, for a reader elsewhere, what a team request's grant
+// covers: in a teammate's chat ("Maya Chen's chat", or "for Maya Chen"
+// from now on) or in a channel ("#eng", "in #eng").
+func (h *Hub) teamChat(ctx context.Context, ap *core.Approval, session bool) string {
+	name, person := "", false
+	if pr, err := h.d.Store.Principals().Get(ctx, core.SystemViewer(), ap.Principal); err == nil {
+		name, person = strings.TrimSpace(pr.DisplayName), pr.Kind == core.PrincipalPerson
+		if sp, err := h.d.Store.Spaces().Get(ctx, core.SystemViewer(), ap.Principal); err == nil && !person {
+			name = sp.Title
+		}
+	}
+	switch {
+	case name == "" && session:
+		return "the chat it came from"
+	case name == "":
+		return "there"
+	case person && session:
+		return name + "'s chat"
+	case person:
+		return "for " + name
+	case session:
+		return name
+	}
+	return "in " + name
 }
 
 func viaText(via string) string {

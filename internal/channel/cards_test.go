@@ -342,6 +342,87 @@ func TestCancelRequestByRequesterOnly(t *testing.T) {
 	})
 }
 
+// TestLinkCardOutcomeSaysOnlyThatItWasDecided: a link-only card held back
+// what was asked, so its decided line does too, and never shows the
+// approver's reason.
+func TestLinkCardOutcomeSaysOnlyThatItWasDecided(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		chat := h.dmChat(memberChat)
+		ap := h.requestFrom("telegram:"+memberChat, h.pid(memberChat), core.ApproverReq{AdminOnly: true}, &chat)
+		if r := h.ref(ap.ID, ownerChat); r.Kind != core.CardMsgLink {
+			t.Fatalf("approver's message = %+v, want a link card", r)
+		}
+		h.resolved(ap, core.ApprovalResolvedData{Status: core.ApprovalDenied, Choice: core.Deny, By: h.owner.ID, Via: "web",
+			Comment: "the secret plan stays"})
+		got := map[string]string{}
+		for _, e := range h.ch.EditedMessages() {
+			got[e.Chat.ChatID] = e.Text
+		}
+		if got[ownerChat] != "Decided in Bothy." {
+			t.Fatalf("link card became %q", got[ownerChat])
+		}
+		if got[memberChat] != "✗ Olivia denied running a command on the web. “the secret plan stays”" {
+			t.Fatalf("requester's line = %q", got[memberChat])
+		}
+
+		ap = h.requestFrom("telegram:"+memberChat, h.pid(memberChat), core.ApproverReq{AdminOnly: true}, &chat)
+		h.resolved(ap, core.ApprovalResolvedData{Status: core.ApprovalExpired})
+		if e := h.editsOf(ownerChat); e[len(e)-1] != "Nobody answered in time." {
+			t.Fatalf("expired link card = %q", e[len(e)-1])
+		}
+	})
+}
+
+// TestOutcomeNamesWhoseChatTheGrantCovers: an approver who allows a
+// teammate's request for their chat reads, in their own DM, whose chat
+// that is; the teammate reads "this chat", and "You" when they cancel.
+func TestOutcomeNamesWhoseChatTheGrantCovers(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		ap := h.teammateAsks(memberChat, "Mark")
+		h.resolved(ap, core.ApprovalResolvedData{Status: core.ApprovalAllowed, Choice: core.AllowSession, ByIdentity: "telegram:" + ownerChat,
+			Via: "telegram"})
+		if got := h.editsOf(ownerChat); got[len(got)-1] != "✓ You approved running a command, and similar requests in Mark's chat." {
+			t.Fatalf("approver's card = %q", got[len(got)-1])
+		}
+		if got := h.editsOf(memberChat); got[len(got)-1] != "✓ Olivia approved running a command in Telegram, and similar requests in this chat." {
+			t.Fatalf("requester's line = %q", got[len(got)-1])
+		}
+
+		ap = h.teammateAsks(memberChat, "Mark")
+		h.resolved(ap, core.ApprovalResolvedData{Status: core.ApprovalAllowed, Choice: core.AllowAlways, ByIdentity: "telegram:" + ownerChat,
+			Via: "telegram"})
+		if got := h.editsOf(ownerChat); got[len(got)-1] != "✓ You approved running a command, and similar requests for Mark from now on." {
+			t.Fatalf("approver's card = %q", got[len(got)-1])
+		}
+
+		ap = h.teammateAsks(memberChat, "Mark")
+		h.resolved(ap, core.ApprovalResolvedData{Status: core.ApprovalDenied, Choice: core.Deny, ByIdentity: "telegram:" + memberChat,
+			Via: "telegram"})
+		if got := h.editsOf(memberChat); got[len(got)-1] != "✗ You cancelled the request." {
+			t.Fatalf("requester's own line = %q", got[len(got)-1])
+		}
+		if got := h.editsOf(ownerChat); got[len(got)-1] != "✗ Cancelled by Mark." {
+			t.Fatalf("approver's card = %q", got[len(got)-1])
+		}
+	})
+}
+
+// editsOf lists the texts chat's messages were edited to, in order.
+func (h *harness) editsOf(chat string) []string {
+	var out []string
+	for _, e := range h.ch.EditedMessages() {
+		if e.Chat.ChatID == chat {
+			out = append(out, e.Text)
+		}
+	}
+	if len(out) == 0 {
+		h.t.Fatalf("no message in chat %s was edited", chat)
+	}
+	return out
+}
+
 // The store keeps no chat kind with a card's message ref; the decided line
 // still names its reader "You", and anyone else by name and place.
 func TestDecidedCardNamesIdentityReader(t *testing.T) {
