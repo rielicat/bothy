@@ -40,7 +40,7 @@ const (
 	maxFlows = 1024
 	// maxClientFlows bounds one client's flows in progress, so a single
 	// address can't push everyone else's out of the store.
-	maxClientFlows = 8
+	maxClientFlows = 32
 )
 
 // flowStore keeps flows by the sha256 of their state, single use.

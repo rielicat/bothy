@@ -35,8 +35,8 @@ the protocol half (PKCE S256, authorize addresses, the code exchange, the id
 token claims, the sign-in list and GitHub's organization check; stdlib only,
 no redirects followed, no token in any error) and `oauth/oauthtest` fakes both
 providers for tests and local stubs. Flows live in memory under the sha256 of
-their state (single use, 10 minutes, at most 8 per client, an IPv4 address or
-an IPv6 /64, and 1024 in all); the state must equal the sign-in cookie, the
+their state (single use, 10 minutes, at most 32 per client, an IPv4 address
+or an IPv6 /64, and 1024 in all); the state must equal the sign-in cookie, the
 callback's provider must be the flow's, and a link is bound to the hash of
 the session cookie that started it. The shared list `auth.sign_in.allow` is
 checked at every sign-in and link, comparing ASCII only: Google needs a
