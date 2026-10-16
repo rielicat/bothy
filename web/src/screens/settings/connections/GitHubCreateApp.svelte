@@ -118,7 +118,8 @@
   </Disclosure>
 </div>
 
-<div class="mt-6 flex flex-wrap items-center gap-x-3 gap-y-2">
+<!-- The button's reason is its own line under the buttons, not wedged before Cancel. -->
+<div class="mt-6 flex flex-wrap items-center gap-x-3 gap-y-2 [&>span]:order-last [&>span]:basis-full">
   <Button variant="primary" class="max-sm:w-full" loading={starting} loadingLabel="Opening GitHub…" {reason} onclick={start}>Continue on GitHub</Button>
   {#if replacing && oncancel}<Button onclick={oncancel}>Cancel</Button>{/if}
 </div>

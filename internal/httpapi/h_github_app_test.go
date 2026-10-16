@@ -325,7 +325,7 @@ func TestGitHubAppHandoff(t *testing.T) {
 		}
 		n := ns[0][1]
 		nonces = append(nonces, n)
-		want := "default-src 'none'; script-src 'nonce-" + n + "'; style-src 'nonce-" + n + "'; form-action https://github.com; base-uri 'none'; frame-ancestors 'none'"
+		want := "default-src 'none'; script-src 'nonce-" + n + "'; style-src 'nonce-" + n + "'; form-action 'self' https://github.com; base-uri 'none'; frame-ancestors 'none'"
 		if got := rec.Header().Get("Content-Security-Policy"); got != want {
 			t.Errorf("CSP = %q\nwant  %q", got, want)
 		}
@@ -493,7 +493,10 @@ func TestGitHubAppCreated(t *testing.T) {
 			t.Errorf("%s: flow cookie not cleared: %q", name, sc)
 		}
 	}
-	notFinished("after the failure landed", h.browser(path, withCookie(fc)), "")
+	// The failed flow stays until it expires, so a late repeat hears the same.
+	if q := landed(t, h.browser(path, withCookie(fc))); q.Get("github_app") != "exchange_failed" || q.Get("apps") != "acme" {
+		t.Errorf("after the failure landed = %v", q)
+	}
 	mk.mu.Lock()
 	mk.createGate, mk.createStarted, mk.createErr = nil, nil, nil
 	mk.mu.Unlock()

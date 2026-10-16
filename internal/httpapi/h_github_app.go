@@ -204,7 +204,10 @@ func (s *Server) githubAppHandoff(w http.ResponseWriter, r *http.Request, _ core
 	where := cmp.Or(f.handoff.Org, "your GitHub account")
 	h := w.Header()
 	h.Set("Content-Type", "text/html; charset=utf-8")
-	h.Set("Content-Security-Policy", "default-src 'none'; script-src 'nonce-"+nonce+"'; style-src 'nonce-"+nonce+"'; form-action "+
+	// Browsers apply form-action to the redirects that answer the post too,
+	// and GitHub may send the browser straight back to Bothy, so 'self'
+	// joins the GitHub origin.
+	h.Set("Content-Security-Policy", "default-src 'none'; script-src 'nonce-"+nonce+"'; style-src 'nonce-"+nonce+"'; form-action 'self' "+
 		au.Scheme+"://"+au.Host+"; base-uri 'none'; frame-ancestors 'none'")
 	h.Set("Referrer-Policy", "strict-origin")
 	w.WriteHeader(http.StatusOK)
@@ -309,7 +312,8 @@ func (s *Server) createdAgain(w http.ResponseWriter, r *http.Request, binding, c
 		http.Redirect(w, r, g.installURL+"?state="+url.QueryEscape(g.state), http.StatusSeeOther)
 		return nil
 	case g.phase == ghFailed:
-		s.ghFlows.drop(binding)
+		// The failed flow stays until it expires, so every waiting repeat,
+		// not only the first to wake, lands the same failure.
 		s.clearGHAppCookie(w, r)
 		return land(w, r, g.failure, &g)
 	}
