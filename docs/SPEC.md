@@ -6813,8 +6813,9 @@ type Compaction struct {
 
 type Budgets struct {
 	DailyUSD          float64            `yaml:"daily_usd"`
-	MemberDailyUSD    float64            `yaml:"member_daily_usd"`
-	PerUserDailyUSD   map[string]float64 `yaml:"per_user_daily_usd"` // username -> cap
+	MemberDailyUSD    float64            `yaml:"member_daily_usd"`   // each member in multi mode, and every person in a chat app
+	PerUserDailyUSD   map[string]float64 `yaml:"per_user_daily_usd"` // username, or "<app>:<external id>" for a person in a chat app -> cap
+	ChatSharePct      int                `yaml:"chat_share_pct"`     // share of daily_usd chat apps' people and channels may use together; 100 = no separate share
 	WarnRatio         float64            `yaml:"warn_ratio"`
 	Run               RunBudget          `yaml:"run"`
 	Scheduled         RunBudget          `yaml:"scheduled"`
@@ -6868,7 +6869,7 @@ type Approval struct {
 	ScheduledOnTimeout   string   `yaml:"scheduled_on_timeout"`
 	ParkTTL              Duration `yaml:"park_ttl"`
 	APIWait              Duration `yaml:"api_wait"`
-	Notify               []string `yaml:"notify"` // extra channels for mirrored cards (web-origin and scheduled runs)
+	Notify               []string `yaml:"notify"` // no longer used: web accounts hear on the web only (kept so old files load)
 }
 
 type Trifecta struct {
@@ -6935,7 +6936,7 @@ type WebFetch struct {
 }
 
 type Channels struct {
-	UnknownSenders string   `yaml:"unknown_senders" reload:"hot"` // pair | ignore
+	UnknownSenders string   `yaml:"unknown_senders" reload:"hot"` // pair (admins can let people in) | ignore (no reply or notice; still in Approvals); Telegram and Discord
 	UsageFooter    bool     `yaml:"usage_footer" reload:"hot"`
 	Telegram       Telegram `yaml:"telegram" reload:"hot"`
 	Discord        Discord  `yaml:"discord" reload:"hot"`
@@ -10114,7 +10115,9 @@ type Policy struct {
 }
 
 // Approvals resolves every request immediately with Choice (or blocks until
-// Resolve when Manual is true). Records requests.
+// Resolve when Manual is true). Records requests. A chat Sender on a team,
+// admin-only or multi-approver request becomes Approver.RequesterIdentity
+// and Requester (identity and app only), as the policy module records it.
 type Approvals struct {
 	core.Approvals
 	Choice   core.Choice
@@ -10147,36 +10150,46 @@ type Sink struct {
 
 func (s *Sink) OnEvent(e core.Event) { s.mu.Lock(); s.Events = append(s.Events, e); s.mu.Unlock() }
 
-// Runner records Submit/Stop/StopAll/Resume calls and returns Result (or Err)
-// from Submit; Paused/SetPaused toggle a flag; ResolveSession/NewSession/Fork
+// Runner records Submit/Stop/StopAll/StopPrincipal/Resume calls and returns
+// Result (or Err) from Submit; Paused/SetPaused toggle a flag (PausedByV: the
+// user, or the audit origin's chat actor); ResolveSession/NewSession/Fork
 // create sessions in Store (a memstore) when set.
 type Runner struct {
 	core.Runner
-	Store   core.Store
-	Result  core.SubmitResult
-	Err     error
-	Submits []core.RunRequest
-	Stops   []core.SessionID
-	Resumed []core.ApprovalID
-	PausedV bool
+	Store          core.Store
+	Result         core.SubmitResult
+	Err            error
+	Submits        []core.RunRequest
+	Stops          []core.SessionID
+	Resumed        []core.ApprovalID
+	PausedV        bool
+	PausedByV      string
+	StopPrincipals []core.PrincipalID
 }
 
 // Hub records Messenger sends and StreamTo calls; StreamTo returns a *Sink.
-// PreferredChats maps users to their preferred DM.
+// PrincipalChats maps team-owned principals to their chat (a teammate's DM,
+// a channel's chat); TeamActiveErr says why one may not run a schedule now.
+// Greet and TellApprover record "<channel>:<external id>".
 type Hub struct {
 	core.ChannelHub
 	Sent           []string // "<chat key>|<markdown>"
 	Streams        map[string]*Sink
-	PreferredChats map[core.UserID]core.ChatRef
+	PrincipalChats map[core.PrincipalID]core.ChatRef
+	TeamActiveErr  map[core.PrincipalID]error
 }
 
 // Auth resolves identities from Identities (key "<channel>:<external id>"),
-// builds Viewers from Viewers, and records pairing and sender-notice calls.
+// builds Viewers from Viewers, and records Admit and NoticeSender calls; a
+// member Admit lets in becomes an admitted teammate (Principal from
+// Principals, when set).
 type Auth struct {
 	core.Auth
 	Identities map[string]core.IdentityResolution
 	Viewers    map[core.UserID]core.Viewer
 	Notices    []core.ChannelIdentity
+	Principals map[string]core.PrincipalID
+	Admitted   []string // "<channel>:<external id>|<verdict>" per Admit call
 }
 
 // Budget allows everything unless Deny is set; StartRun returns a meter that
@@ -10253,6 +10266,19 @@ func (c *Channel) Inject(in core.Inbound) {}
 
 // Press delivers a button press for a previously sent message.
 func (c *Channel) Press(msg core.MsgRef, senderID, data string) {}
+
+// Checker (checker.go) is a Channel whose platform can say who belongs to
+// the team (core.MemberChecker), as Slack and Discord can: Members answers
+// by external id (a missing id is an outsider), MemberErr fails every
+// lookup, Scope is what MemberScope reports, Gate holds lookups in flight,
+// and MemberCalls lists the lookups made.
+type Checker struct {
+	*Channel
+	Members   map[string]core.Membership
+	MemberErr error
+	Scope     string
+	Gate      chan struct{}
+}
 
 // ===== internal/testkit/sandboxtest/sandboxtest.go =====
 // Package sandboxtest provides fake core.Sandbox and core.Egress.
