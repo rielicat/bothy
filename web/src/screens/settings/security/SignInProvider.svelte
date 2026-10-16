@@ -107,6 +107,9 @@
     if (secret && [...secret].some((c) => c < ' ')) errors.secret = 'Paste the client secret on its own, without spaces or line breaks.';
     if (Object.keys(errors).length) return;
     saving = true;
+    // Saving working details for the first time also turns sign-in on: an
+    // admin who has just set it up shouldn't need a second step to use it.
+    const firstSetup = !!st && !st.enabled && !(st.client_id && st.secret_saved);
     const body: Record<string, unknown> = { client_id: clientId.trim() };
     if (secret.trim()) body.client_secret = secret.trim();
     if (github) body.orgs = orgs;
@@ -129,6 +132,10 @@
     try {
       const r = await api.post<SignInCheck>(`/api/sign-in/${provider}/check`, {});
       result = { ...checkLine(provider, r), details: r.error };
+      if (r.ok && firstSetup && adm && st && !fixed(`${base}.enabled`) && canEnable(adm, st)) {
+        await toggle(true);
+        if (st.enabled) result = { tone: 'success', text: `Saved. ${name} accepted the client ID and secret, and sign-in with ${name} is on.` };
+      }
     } catch {
       result = { tone: 'warning', text: `Saved, but Bothy couldn't reach ${name} to check the details.` };
     } finally {

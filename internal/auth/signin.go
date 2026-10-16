@@ -67,7 +67,8 @@ type SignInResult struct {
 const (
 	SignInCancelled     = "cancelled"      // the person said no at the provider
 	SignInExpired       = "expired"        // missing, replayed or expired flow, a cookie mismatch, a stale code
-	SignInNotAllowed    = "not_allowed"    // not on the sign-in list (or Google hasn't verified the address)
+	SignInNotAllowed    = "not_allowed"    // not on the sign-in list
+	SignInUnverified    = "unverified"     // Google hasn't verified the address
 	SignInOrgAccess     = "org_access"     // a GitHub organization restricts the app
 	SignInNoAccount     = "no_account"     // on the list, nothing linked, and allow_new off
 	SignInDisabled      = "disabled"       // the account is turned off
@@ -333,6 +334,8 @@ func (s *Service) FinishSignIn(ctx context.Context, p core.SignInProvider, in Si
 	switch {
 	case errors.Is(err, oauth.ErrNotAllowed):
 		return nil, s.refuse(ctx, f, p, in.IP, SignInNotAllowed, &id, err)
+	case errors.Is(err, oauth.ErrUnverified):
+		return nil, s.refuse(ctx, f, p, in.IP, SignInUnverified, &id, err)
 	case errors.Is(err, oauth.ErrOrgAccess):
 		return nil, s.refuse(ctx, f, p, in.IP, SignInOrgAccess, &id, err)
 	case errors.Is(err, oauth.ErrRejected):

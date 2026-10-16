@@ -79,6 +79,8 @@ describe('provider sign-in copy (§5.9, §11.2)', () => {
     expect(signInErrorText('not_allowed', null, null)).toBe("That account isn't on this Bothy's sign-in list. Ask an admin to add you.");
     expect(signInErrorText('not_allowed', 'google', 'kim')).toBe("That Google account isn't on this Bothy's sign-in list. Ask an admin to add you.");
     expect(signInErrorText('not_allowed', 'github', '@@@')).toBe("That GitHub account isn't on this Bothy's sign-in list. Ask an admin to add you.");
+    expect(signInErrorText('unverified', 'google', 'pat@gmail.com')).toBe("Google hasn't verified pat@gmail.com yet. Verify it in your Google account, then try again.");
+    expect(signInErrorText('unverified', 'google', 'Visit evil.example')).toBe("Google hasn't verified that address yet. Verify it in your Google account, then try again.");
   });
 
   it('falls back to "isn\'t working" for codes it does not know', () => {
@@ -90,7 +92,15 @@ describe('provider sign-in copy (§5.9, §11.2)', () => {
     expect(connectErrorText('taken', 'github')).toBe('That GitHub account is already connected to someone else here.');
     expect(connectErrorText('already_linked', 'google')).toBe("You've already connected a Google account. Disconnect it first.");
     expect(connectErrorText('signed_out', 'google')).toBe('You were signed out before Google answered. Sign in and try again.');
-    expect(connectErrorText('not_allowed', 'google', 'sam@acme.com')).toBe("sam@acme.com isn't on this Bothy's sign-in list. Ask an admin to add you.");
+    expect(connectErrorText('not_allowed', 'google', 'sam@acme.com')).toBe(
+      "sam@acme.com isn't on this Bothy's sign-in list, so it can't be connected. Admins add people in Settings → Security.",
+    );
+    expect(connectErrorText('not_allowed', 'github', null)).toBe(
+      "That GitHub account isn't on this Bothy's sign-in list, so it can't be connected. Admins add people in Settings → Security.",
+    );
+    expect(connectErrorText('unverified', 'google', 'sam@acme.com')).toBe(
+      "Google hasn't verified sam@acme.com yet. Verify it in your Google account, then try again.",
+    );
     expect(connectErrorText('unavailable', 'github')).toBe("GitHub didn't respond. Try again, or ask an admin to check GitHub sign-in.");
   });
 });

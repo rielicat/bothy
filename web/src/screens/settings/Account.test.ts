@@ -282,7 +282,9 @@ describe('Settings → Account → Sign-in methods', () => {
   it('names a refused account from the refusal cookie only, once', async () => {
     document.cookie = 'bothy_signin_who=sam-gh; Path=/';
     await openWith('signin-github', '/settings/account?signin_error=not_allowed&provider=github&who=ceo-gh');
-    expect(await screen.findByText("@sam-gh isn't on this Bothy's sign-in list. Ask an admin to add you.")).toBeTruthy();
+    expect(
+      await screen.findByText("@sam-gh isn't on this Bothy's sign-in list, so it can't be connected. Admins add people in Settings → Security."),
+    ).toBeTruthy();
     expect(document.cookie).not.toContain('bothy_signin_who');
   });
 });

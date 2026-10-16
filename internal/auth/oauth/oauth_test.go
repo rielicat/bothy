@@ -172,11 +172,15 @@ func TestGoogleAllowList(t *testing.T) {
 		{"Workspace domain that only folds to a listed one", oauthtest.Identity{Subject: "10", Email: "kim@kite.dev", HD: "\u212Aite.dev", EmailVerified: true}, false},
 	} {
 		id, err := c.Google(ctx, ep, googleCode(t, fake, ep, tc.who), rules)
+		want := ErrNotAllowed
+		if !tc.who.EmailVerified {
+			want = ErrUnverified
+		}
 		switch {
 		case tc.ok && err != nil:
 			t.Errorf("%s: %v", tc.name, err)
-		case !tc.ok && !errors.Is(err, ErrNotAllowed):
-			t.Errorf("%s: err = %v, want ErrNotAllowed", tc.name, err)
+		case !tc.ok && !errors.Is(err, want):
+			t.Errorf("%s: err = %v, want %v", tc.name, err, want)
 		case id.Subject != tc.who.Subject || id.Email != tc.who.Email:
 			t.Errorf("%s: identity %+v", tc.name, id)
 		}
@@ -259,7 +263,9 @@ func TestGoogleClaims(t *testing.T) {
 		case tc.ok:
 		case tc.allowed && !errors.As(err, &pe):
 			t.Errorf("%s: err = %v, want a ProviderError", tc.name, err)
-		case !tc.allowed && !errors.Is(err, ErrNotAllowed):
+		case !tc.allowed && strings.HasPrefix(tc.name, "email_verified") && !errors.Is(err, ErrUnverified):
+			t.Errorf("%s: err = %v, want ErrUnverified", tc.name, err)
+		case !tc.allowed && !strings.HasPrefix(tc.name, "email_verified") && !errors.Is(err, ErrNotAllowed):
 			t.Errorf("%s: err = %v, want ErrNotAllowed", tc.name, err)
 		}
 	}

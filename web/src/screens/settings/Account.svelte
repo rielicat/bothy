@@ -75,7 +75,7 @@
     const code = q.get('signin_error');
     if (!connected && !code) return;
     if (connected) toast(`${connected} connected.`);
-    if (code) signInError = connectErrorText(code, q.get('provider'), code === 'not_allowed' ? takeRefused() : '');
+    if (code) signInError = connectErrorText(code, q.get('provider'), code === 'not_allowed' || code === 'unverified' ? takeRefused() : '');
     router.navigate('/settings/account', { replace: true });
   }
 

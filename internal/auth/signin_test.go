@@ -443,7 +443,8 @@ func TestSignInGoogleList(t *testing.T) {
 		code string
 	}{
 		{"listed address, verified", pat, ""},
-		{"listed address, not verified", oauthtest.Identity{Subject: "g-pat2", Email: "pat@gmail.com", Name: "Pat"}, SignInNotAllowed},
+		{"listed address, not verified", oauthtest.Identity{Subject: "g-pat2", Email: "pat@gmail.com", Name: "Pat"}, SignInUnverified},
+		{"unlisted address, not verified", oauthtest.Identity{Subject: "g-kim2", Email: "kim@gmail.com"}, SignInUnverified},
 		{"Workspace account of a listed domain", maya, ""},
 		{"consumer account with a listed domain's address", oauthtest.Identity{Subject: "g-sam", Email: "sam@acme.com", EmailVerified: true}, SignInNotAllowed},
 		{"unlisted", oauthtest.Identity{Subject: "g-kim", Email: "kim@gmail.com", EmailVerified: true}, SignInNotAllowed},
@@ -456,7 +457,7 @@ func TestSignInGoogleList(t *testing.T) {
 			t.Errorf("%s: no account was made", tc.name)
 		case tc.code != "" && signInCode(err) != tc.code:
 			t.Errorf("%s: %v, want %s", tc.name, err, tc.code)
-		case tc.code == SignInNotAllowed:
+		case tc.code == SignInNotAllowed || tc.code == SignInUnverified:
 			var se *SignInError
 			errors.As(err, &se)
 			if se.Who != tc.who.Email {

@@ -10,8 +10,11 @@ import (
 
 var (
 	// ErrNotAllowed: the account is not one the rules admit (domain or
-	// organization, unverified email, pending membership).
+	// organization, pending membership).
 	ErrNotAllowed = errors.New("oauth: account not allowed")
+	// ErrUnverified: Google has not verified the account's address, whether
+	// or not it is on the list, so the refusal says nothing about the list.
+	ErrUnverified = errors.New("oauth: email address not verified")
 	// ErrOrgAccess: GitHub answered 403 for a membership, which is OAuth App
 	// access restrictions or SAML SSO the person has not authorized.
 	ErrOrgAccess = errors.New("oauth: organization restricts this app")

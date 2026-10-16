@@ -50,7 +50,7 @@
     const q = router.query;
     const code = q.get('signin_error');
     if (code) {
-      providerError = signInErrorText(code, q.get('provider'), code === 'not_allowed' ? takeRefused() : '');
+      providerError = signInErrorText(code, q.get('provider'), code === 'not_allowed' || code === 'unverified' ? takeRefused() : '');
       const n = q.get('next');
       router.navigate('/login' + (n ? `?next=${encodeURIComponent(n)}` : ''), { replace: true });
     }

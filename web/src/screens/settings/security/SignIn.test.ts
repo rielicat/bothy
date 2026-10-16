@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/sve
 import { beforeEach, describe, expect, it } from 'vitest';
 import { resetMock } from '../../../../mock/server';
 import { state as mockSettings } from '../../../../mock/domains/settings';
+import { state as mockSignIn } from '../../../../mock/domains/signin';
 import { toaster } from '../../../components/ui';
 import { config } from '../../../lib/config.svelte';
 import { session } from '../../../lib/stores/session.svelte';
@@ -142,6 +143,19 @@ describe('Security → Sign-in', () => {
 });
 
 describe('Google sign-in page', () => {
+  it('turns sign-in on when details that work are saved for the first time', async () => {
+    const calls = await signedIn();
+    render(GoogleSignIn);
+    await screen.findByRole('switch', { name: 'Sign in with Google' });
+    mockSignIn.allow = ['acme.com'];
+    await fireEvent.input(screen.getByLabelText('Client ID'), { target: { value: '1234.apps.googleusercontent.com' } });
+    await fireEvent.input(screen.getByLabelText('Client secret'), { target: { value: 'GOCSPX-abc' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Saved. Google accepted the client ID and secret, and sign-in with Google is on.')).toBeTruthy();
+    expect(patches(calls, '/api/sign-in/google').at(-1)).toEqual({ enabled: true });
+    expect(screen.getByRole('switch', { name: 'Sign in with Google' }).getAttribute('aria-checked')).toBe('true');
+  });
+
   it('needs the details before it can be turned on, then saves and checks them', async () => {
     const calls = await signedIn();
     render(GoogleSignIn);

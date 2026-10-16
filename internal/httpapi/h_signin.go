@@ -172,7 +172,7 @@ func (s *Server) signInCallback(w http.ResponseWriter, r *http.Request, _ core.A
 		switch {
 		case errors.As(err, &se):
 			v := url.Values{"signin_error": {se.Code}, "provider": {string(p)}}
-			if se.Code == auth.SignInNotAllowed {
+			if se.Code == auth.SignInNotAllowed || se.Code == auth.SignInUnverified {
 				refused = se.Who
 			}
 			if se.Intent == auth.IntentLink {

@@ -114,7 +114,7 @@ func (cl *googleClaims) check(clientID, nonce string, now time.Time) error {
 // secondary domains still match.
 func (cl *googleClaims) allowed(allow []string) error {
 	if v := bytes.TrimSpace(cl.EmailVerified); !bytes.Equal(v, []byte("true")) && !bytes.Equal(v, []byte(`"true"`)) {
-		return fmt.Errorf("%w: Google has not verified this email address", ErrNotAllowed)
+		return ErrUnverified
 	}
 	if listedAddress(allow, cl.Email) || listedDomain(allow, cl.HD) {
 		return nil

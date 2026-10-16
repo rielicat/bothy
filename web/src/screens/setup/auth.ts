@@ -117,6 +117,8 @@ export function signInErrorText(code: string, provider: string | null | undefine
       return 'That sign-in took too long or was started in another tab. Try again.';
     case 'not_allowed':
       return notListed(provider, who);
+    case 'unverified':
+      return `Google hasn't verified ${account(who, provider) || 'that address'} yet. Verify it in your Google account, then try again.`;
     case 'org_access':
       return "Your GitHub organization hasn't approved Bothy yet. Ask an organization owner to approve it, then try again.";
     case 'no_account':
@@ -142,6 +144,8 @@ export function connectErrorText(code: string, provider: string | null | undefin
     case 'signed_out':
       return `You were signed out before ${p} answered. Sign in and try again.`;
     case 'not_allowed':
+      return `${account(who, provider) || `That ${p} account`} isn't on this Bothy's sign-in list, so it can't be connected. Admins add people in Settings → Security.`;
+    case 'unverified':
     case 'org_access':
       return signInErrorText(code, provider, who);
   }
