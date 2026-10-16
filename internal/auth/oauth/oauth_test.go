@@ -154,7 +154,7 @@ func TestGoogleAllowList(t *testing.T) {
 	fake, ep := newGoogle(t)
 	rec := &recorder{}
 	c := newClient(rec)
-	rules := Rules{Allow: []string{"acme.com", "pat@gmail.com"}}
+	rules := Rules{Allow: []string{"acme.com", "pat@gmail.com", "kate@acme.com", "kite.dev"}}
 	for _, tc := range []struct {
 		name string
 		who  oauthtest.Identity
@@ -167,6 +167,9 @@ func TestGoogleAllowList(t *testing.T) {
 		{"consumer account with a work address", oauthtest.Identity{Subject: "5", Email: "sam@acme.com", EmailVerified: true}, false},
 		{"Workspace account of another domain", oauthtest.Identity{Subject: "6", Email: "lee@other.com", HD: "other.com", EmailVerified: true}, false},
 		{"unlisted consumer account", oauthtest.Identity{Subject: "7", Email: "kim@gmail.com", EmailVerified: true}, false},
+		{"listed address in another case", oauthtest.Identity{Subject: "8", Email: "Kate@acme.com", EmailVerified: true}, true},
+		{"address that only folds to a listed one", oauthtest.Identity{Subject: "9", Email: "\u212Aate@acme.com", EmailVerified: true}, false},
+		{"Workspace domain that only folds to a listed one", oauthtest.Identity{Subject: "10", Email: "kim@kite.dev", HD: "\u212Aite.dev", EmailVerified: true}, false},
 	} {
 		id, err := c.Google(ctx, ep, googleCode(t, fake, ep, tc.who), rules)
 		switch {
@@ -180,6 +183,41 @@ func TestGoogleAllowList(t *testing.T) {
 	}
 	if d := rec.dests[0]; d.Name != "signin:google" || !d.AllowPrivate || len(d.Hosts) != 1 {
 		t.Errorf("egress destination %+v", d)
+	}
+}
+
+func TestListComparesASCII(t *testing.T) {
+	allow := []string{"kate@acme.com", "sam@acme.com", "kite.dev"}
+	for _, tc := range []struct {
+		email string
+		ok    bool
+	}{
+		{"kate@acme.com", true},
+		{"Kate@ACME.com", true},
+		{"\u212Aate@acme.com", false}, // KELVIN SIGN folds to k
+		{"\u017Fam@acme.com", false},  // long s folds to s
+		{"kate@acme.com\x00", false},
+		{"kate @acme.com", false},
+		{"kite.dev", false},
+		{"", false},
+	} {
+		if got := listedAddress(allow, tc.email); got != tc.ok {
+			t.Errorf("listedAddress(%q) = %v", tc.email, got)
+		}
+	}
+	for _, tc := range []struct {
+		hd string
+		ok bool
+	}{
+		{"kite.dev", true},
+		{"KITE.dev", true},
+		{"\u212Aite.dev", false},
+		{"kate@acme.com", false},
+		{"", false},
+	} {
+		if got := listedDomain(allow, tc.hd); got != tc.ok {
+			t.Errorf("listedDomain(%q) = %v", tc.hd, got)
+		}
 	}
 }
 
@@ -325,7 +363,7 @@ func githubCode(t *testing.T, fake *oauthtest.Server, ep Endpoints, who oauthtes
 func TestGitHubAllowList(t *testing.T) {
 	fake, ep := newGitHub(t)
 	c := newClient(nil)
-	rules := Rules{Allow: []string{"acme.com", "pat@gmail.com", "kate@acme.com"}, Orgs: []string{"acme-inc", "acme-labs"}}
+	rules := Rules{Allow: []string{"acme.com", "pat@gmail.com", "kate@acme.com", "sam@acme.com"}, Orgs: []string{"acme-inc", "acme-labs"}}
 	emails := func(es ...oauthtest.Email) []oauthtest.Email { return es }
 	for _, tc := range []struct {
 		name  string
@@ -354,6 +392,12 @@ func TestGitHubAllowList(t *testing.T) {
 		{"restricted, then active", oauthtest.Identity{ID: 9, Login: "two", Orgs: map[string]string{"acme-inc": "restricted", "acme-labs": "active"}}, nil, ""},
 		{"neither", oauthtest.Identity{ID: 10, Login: "stranger", Emails: emails(
 			oauthtest.Email{Email: "stranger@other.com", Primary: true, Verified: true})}, ErrNotAllowed, "stranger@other.com"},
+		{"listed address in another case", oauthtest.Identity{ID: 11, Login: "kate2", Emails: emails(
+			oauthtest.Email{Email: "Kate@acme.com", Primary: true, Verified: true})}, nil, "Kate@acme.com"},
+		{"address that only folds to a listed one", oauthtest.Identity{ID: 12, Login: "kelvin", Emails: emails(
+			oauthtest.Email{Email: "\u212Aate@acme.com", Primary: true, Verified: true})}, ErrNotAllowed, "\u212Aate@acme.com"},
+		{"address with a long s that only folds to a listed one", oauthtest.Identity{ID: 13, Login: "longs", Emails: emails(
+			oauthtest.Email{Email: "\u017Fam@acme.com", Primary: true, Verified: true})}, ErrNotAllowed, "\u017Fam@acme.com"},
 	} {
 		id, err := c.GitHub(ctx, ep, githubCode(t, fake, ep, tc.who), rules)
 		switch {
@@ -363,8 +407,8 @@ func TestGitHubAllowList(t *testing.T) {
 			t.Errorf("%s: identity %+v, want email %q", tc.name, id, tc.email)
 		}
 	}
-	if got := fake.WaitRevoked(10); len(got) != 10 {
-		t.Fatalf("revoked %d tokens after 10 sign-ins, refusals included", len(got))
+	if got := fake.WaitRevoked(13); len(got) != 13 {
+		t.Fatalf("revoked %d tokens after 13 sign-ins, refusals included", len(got))
 	}
 }
 

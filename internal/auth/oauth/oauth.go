@@ -126,14 +126,39 @@ type Identity struct {
 	Name  string // the display name the provider reports; may be empty
 }
 
+// asciiKey is s lower-cased for comparing with the sign-in list, or false
+// when s holds anything but printable ASCII. List entries are ASCII, and
+// strings.EqualFold would match U+212A (KELVIN SIGN) to "k" and U+017F (long
+// s) to "s", letting a provider address that only folds to a listed one in.
+func asciiKey(s string) (string, bool) {
+	if s == "" {
+		return "", false
+	}
+	for i := range len(s) {
+		if s[i] <= ' ' || s[i] >= 0x7f {
+			return "", false
+		}
+	}
+	return strings.ToLower(s), true
+}
+
 // listedAddress reports whether email is on allow as an exact address.
 func listedAddress(allow []string, email string) bool {
-	return email != "" && slices.ContainsFunc(allow, func(e string) bool { return strings.Contains(e, "@") && strings.EqualFold(e, email) })
+	k, ok := asciiKey(email)
+	return ok && strings.Contains(k, "@") && listed(allow, k, true)
 }
 
 // listedDomain reports whether domain is on allow as a domain entry.
 func listedDomain(allow []string, domain string) bool {
-	return domain != "" && slices.ContainsFunc(allow, func(e string) bool { return !strings.Contains(e, "@") && strings.EqualFold(e, domain) })
+	k, ok := asciiKey(domain)
+	return ok && !strings.Contains(k, "@") && listed(allow, k, false)
+}
+
+func listed(allow []string, key string, address bool) bool {
+	return slices.ContainsFunc(allow, func(e string) bool {
+		ek, ok := asciiKey(e)
+		return ok && strings.Contains(ek, "@") == address && ek == key
+	})
 }
 
 // DomainHint is the Google hd= hint for allow: its only entry when that is a
