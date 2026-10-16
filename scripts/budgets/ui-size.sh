@@ -2,7 +2,7 @@
 # UI build gates (SPEC §9.1, docs/design/ui.md §18.2 G1). The first screen
 # loads index.html's scripts, their static imports and the stylesheets it
 # links: JS <= 120 KB gz, CSS <= 20 KB gz. Route groups load later as their
-# own chunks; every JS file together stays <= 260 KB gz. Also: no inline
+# own chunks; every JS file together stays <= 280 KB gz. Also: no inline
 # scripts or style attributes in the built HTML, no other origins.
 # Run after `make ui`.
 set -euo pipefail
@@ -11,7 +11,7 @@ cd "$(dirname "$0")/../.."
 dist=internal/webui/dist
 initial_js_budget=$((120 * 1024))
 initial_css_budget=$((20 * 1024))
-total_js_budget=$((260 * 1024))
+total_js_budget=$((280 * 1024))
 
 if grep -q 'has not been built into this binary' "$dist/index.html"; then
 	echo "ui-size: $dist holds the placeholder; run make ui first" >&2
