@@ -142,11 +142,11 @@ func (a *adapter) SelfTest(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	bot, err := a.secret(ctx, &a.bot, a.cfg.BotToken, botKey, "xoxb-")
+	bot, err := a.secret(ctx, &a.bot, a.conf().cfg.BotToken, botKey, "xoxb-")
 	if err != nil {
 		return "", err
 	}
-	app, err := a.secret(ctx, &a.app, a.cfg.AppToken, appKey, "xapp-")
+	app, err := a.secret(ctx, &a.app, a.conf().cfg.AppToken, appKey, "xapp-")
 	if err != nil {
 		return "", err
 	}
@@ -171,7 +171,7 @@ func (a *adapter) Fetch(ctx context.Context, att core.Attachment, limit int64) (
 	if err != nil || !a.hostAllowed(u, filesHost) {
 		return nil, fmt.Errorf("slack: file %q is not on %s: %w", att.Name, filesHost, core.ErrForbidden)
 	}
-	bot, err := a.secret(ctx, &a.bot, a.cfg.BotToken, botKey, "xoxb-")
+	bot, err := a.secret(ctx, &a.bot, a.conf().cfg.BotToken, botKey, "xoxb-")
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +199,7 @@ func (a *adapter) Fetch(ctx context.Context, att core.Attachment, limit int64) (
 
 // hostAllowed admits https URLs on host and URLs on the configured API host.
 func (a *adapter) hostAllowed(u *url.URL, host string) bool {
-	if u.Scheme == a.apiBase.Scheme && strings.EqualFold(u.Host, a.apiBase.Host) {
+	if base := a.conf().apiBase; u.Scheme == base.Scheme && strings.EqualFold(u.Host, base.Host) {
 		return true
 	}
 	return u.Scheme == "https" && strings.EqualFold(u.Hostname(), host) && (u.Port() == "" || u.Port() == "443")

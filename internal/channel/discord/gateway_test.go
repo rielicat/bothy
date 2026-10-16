@@ -97,7 +97,7 @@ func TestResumeAcrossRestart(t *testing.T) {
 	f.srv.InjectText(dm, user, "missed", false)
 
 	// A new adapter on the same Meta stands in for a restarted process.
-	a, err := newAdapter(f.a.cfg, f.a.deps)
+	a, err := newAdapter(f.a.conf().cfg, f.a.deps)
 	if err != nil {
 		t.Fatal(err)
 	}

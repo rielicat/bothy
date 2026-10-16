@@ -29,7 +29,7 @@ func hostPort(u *url.URL) string {
 }
 
 func (a *adapter) dest(hostport string) core.SystemDest {
-	return core.SystemDest{Name: "channel:" + name, Hosts: []string{hostport}, AllowPrivate: a.privateHosts[strings.ToLower(hostport)]}
+	return core.SystemDest{Name: "channel:" + name, Hosts: []string{hostport}, AllowPrivate: a.conf().privateHosts[strings.ToLower(hostport)]}
 }
 
 // egressClient returns the egress client for hostport. A nil one would make

@@ -2147,10 +2147,11 @@ Connect Slack
    [ Create the app in Slack ↗ ]
 
 2  Paste the two tokens
-   App-level token      [                                        ]
-   Starts with xapp-. In Slack: Basic Information → App-Level Tokens.
    Bot token            [                                        ]
-   Starts with xoxb-. In Slack: OAuth & Permissions.
+   Starts with xoxb-. In Slack: OAuth & Permissions → Bot User OAuth Token.
+   App-level token      [                                        ]
+   Starts with xapp-. In Slack: Basic Information → App-Level Tokens →
+   Generate Token and Scopes. Add the connections:write scope.
    ✓ Connected to Acme as @bothy.                     check runs once both are filled
 
 3  Link your Slack account

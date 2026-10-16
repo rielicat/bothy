@@ -26,7 +26,7 @@ const (
 type job func(ctx context.Context, sink core.InboundSink)
 
 func (a *adapter) Run(ctx context.Context, sink core.InboundSink) error {
-	if !a.cfg.Enabled {
+	if !a.conf().cfg.Enabled {
 		<-ctx.Done()
 		return nil
 	}
@@ -80,11 +80,11 @@ func (a *adapter) session(ctx context.Context, jobs chan<- job) (connected bool,
 	if err != nil {
 		return false, err
 	}
-	bot, err := a.secret(ctx, &a.bot, a.cfg.BotToken, botKey, "xoxb-")
+	bot, err := a.secret(ctx, &a.bot, a.conf().cfg.BotToken, botKey, "xoxb-")
 	if err != nil {
 		return false, err
 	}
-	app, err := a.secret(ctx, &a.app, a.cfg.AppToken, appKey, "xapp-")
+	app, err := a.secret(ctx, &a.app, a.conf().cfg.AppToken, appKey, "xapp-")
 	if err != nil {
 		return false, err
 	}

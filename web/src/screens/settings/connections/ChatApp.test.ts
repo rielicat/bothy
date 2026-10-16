@@ -38,7 +38,7 @@ describe('Connect Slack (§12.3)', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Connect Slack' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: /^Step 2: ?Paste the two tokens$/ })).toBeTruthy();
     expect(screen.getByRole('heading', { name: /^Step 3: ?Link your Slack account$/ })).toBeTruthy();
-    expect(screen.getByText('Starts with xapp-. In Slack: Basic Information → App-Level Tokens.')).toBeTruthy();
+    expect(screen.getByText('Starts with xapp-. In Slack: Basic Information → App-Level Tokens → Generate Token and Scopes. Add the connections:write scope.')).toBeTruthy();
     expect(screen.getByText('You can do this once step 2 is done.')).toBeTruthy();
   });
 
@@ -51,7 +51,7 @@ describe('Connect Slack (§12.3)', () => {
     await pasteTokens();
     expect(await screen.findByText(/Connected as @bothy\./)).toBeTruthy();
     const writes = calls.filter((c) => c.method !== 'GET').map((c) => `${c.method} ${c.url}`);
-    expect(writes).toEqual(['PUT /api/vault/global/slack_app_token', 'PUT /api/vault/global/slack_bot_token', 'PATCH /api/config', 'POST /api/channels/slack/test', 'POST /api/pairing']);
+    expect(writes).toEqual(['PUT /api/vault/global/slack_bot_token', 'PUT /api/vault/global/slack_app_token', 'PATCH /api/config', 'POST /api/channels/slack/test', 'POST /api/pairing']);
     expect(JSON.parse(calls.find((c) => c.method === 'PATCH')!.body).set).toEqual({
       'channels.slack.enabled': true,
       'channels.slack.app_token': 'secret:slack_app_token',

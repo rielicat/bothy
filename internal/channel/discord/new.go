@@ -37,18 +37,24 @@ const (
 
 var caps = core.ChannelCaps{Edit: true, Buttons: true, Threads: true, Typing: true, MaxLen: maxLen, EditMinInterval: time.Second}
 
-type adapter struct {
+// settings is what Reconfigure replaces while requests may be running, so
+// every read goes through conf.
+type settings struct {
 	cfg          config.Discord
-	deps         core.AdapterDeps
-	log          *slog.Logger
-	libLog       *slog.Logger
-	clock        core.Clock
 	apiBase      *url.URL
 	privateHosts map[string]bool
-	newGateway   gateway.CreateFunc
+}
 
-	apiOnce sync.Once
-	api     discordAPI
+type adapter struct {
+	set        atomic.Pointer[settings]
+	deps       core.AdapterDeps
+	log        *slog.Logger
+	libLog     *slog.Logger
+	clock      core.Clock
+	newGateway gateway.CreateFunc
+
+	apiMu sync.Mutex
+	api   discordAPI
 
 	tokMu sync.Mutex
 	tok   core.Secret
@@ -75,6 +81,35 @@ func newAdapter(cfg config.Discord, d core.AdapterDeps) (*adapter, error) {
 	if d.Secret == nil || d.HTTP == nil {
 		return nil, fmt.Errorf("discord: AdapterDeps.Secret and AdapterDeps.HTTP are required: %w", core.ErrInvalid)
 	}
+	set, err := newSettings(cfg)
+	if err != nil {
+		return nil, err
+	}
+	log := d.Log
+	if log == nil {
+		log = slog.New(slog.DiscardHandler)
+	}
+	clock := d.Clock
+	if clock == nil {
+		clock = core.SystemClock{}
+	}
+	a := &adapter{
+		deps:       d,
+		log:        log,
+		libLog:     slog.New(quietHandler{log.Handler()}),
+		clock:      clock,
+		newGateway: gateway.New,
+		state:      stateConnecting,
+		since:      clock.Now(),
+	}
+	a.set.Store(set)
+	if !cfg.Enabled {
+		a.state = stateDisabled
+	}
+	return a, nil
+}
+
+func newSettings(cfg config.Discord) (*settings, error) {
 	cfg.APIBase = strings.TrimRight(cfg.APIBase, "/")
 	api, err := url.Parse(cfg.APIBase)
 	if err != nil || (api.Scheme != "https" && api.Scheme != "http") || api.Host == "" {
@@ -96,30 +131,31 @@ func newAdapter(cfg config.Discord, d core.AdapterDeps) (*adapter, error) {
 		}
 		private[strings.ToLower(hostPort(gw))] = true
 	}
-	log := d.Log
-	if log == nil {
-		log = slog.New(slog.DiscardHandler)
+	return &settings{cfg: cfg, apiBase: api, privateHosts: private}, nil
+}
+
+func (a *adapter) conf() *settings { return a.set.Load() }
+
+// Reconfigure takes a new config snapshot; the hub restarts Run afterwards.
+// The cached token goes too: a token saved again under the same reference
+// must be picked up.
+func (a *adapter) Reconfigure(c *config.Config) error {
+	set, err := newSettings(c.Channels.Discord)
+	if err != nil {
+		return err
 	}
-	clock := d.Clock
-	if clock == nil {
-		clock = core.SystemClock{}
+	if old := a.set.Swap(set); old.cfg.APIBase != set.cfg.APIBase {
+		a.apiMu.Lock()
+		a.api = nil
+		a.apiMu.Unlock()
 	}
-	a := &adapter{
-		cfg:          cfg,
-		deps:         d,
-		log:          log,
-		libLog:       slog.New(quietHandler{log.Handler()}),
-		clock:        clock,
-		apiBase:      api,
-		privateHosts: private,
-		newGateway:   gateway.New,
-		state:        stateConnecting,
-		since:        clock.Now(),
+	a.forgetToken()
+	if set.cfg.Enabled {
+		a.setState(stateConnecting, "")
+	} else {
+		a.setState(stateDisabled, "")
 	}
-	if !cfg.Enabled {
-		a.state = stateDisabled
-	}
-	return a, nil
+	return nil
 }
 
 func (a *adapter) Name() string { return name }
@@ -131,7 +167,7 @@ func (a *adapter) DeepLink(string) string { return "" }
 
 func (a *adapter) Status() core.ChannelStatus {
 	a.mu.Lock()
-	st := core.ChannelStatus{Name: name, Enabled: a.cfg.Enabled, State: a.state, Detail: a.detail, Identity: a.identity, Since: a.since}
+	st := core.ChannelStatus{Name: name, Enabled: a.conf().cfg.Enabled, State: a.state, Detail: a.detail, Identity: a.identity, Since: a.since}
 	gw := a.gw
 	a.mu.Unlock()
 	// Between sessions disgo reconnects on its own; the gateway's status is

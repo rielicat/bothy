@@ -38,7 +38,8 @@ func hostPort(u *url.URL) string {
 }
 
 func (a *adapter) dest(hostport string) core.SystemDest {
-	private := a.privateHost != "" && strings.EqualFold(hostport, a.privateHost)
+	ph := a.conf().privateHost
+	private := ph != "" && strings.EqualFold(hostport, ph)
 	return core.SystemDest{Name: "channel:" + name, Hosts: []string{hostport}, AllowPrivate: private}
 }
 

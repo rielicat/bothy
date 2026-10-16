@@ -60,9 +60,10 @@ var authCodes = map[string]bool{
 // newClient builds a Web API client; app is empty unless Socket Mode needs
 // it. 429s are retried after Retry-After, at most twice.
 func (a *adapter) newClient(bot, app string) *slack.Client {
+	set := a.conf()
 	opts := []slack.Option{
-		slack.OptionAPIURL(a.cfg.APIBase),
-		slack.OptionHTTPClient(a.egressClient(hostPort(a.apiBase))),
+		slack.OptionAPIURL(set.cfg.APIBase),
+		slack.OptionHTTPClient(a.egressClient(hostPort(set.apiBase))),
 		slack.OptionRetryConfig(slack.RetryConfig{MaxRetries: 2, RetryAfterDuration: 5 * time.Second}),
 	}
 	if app != "" {
@@ -78,7 +79,7 @@ func (a *adapter) client(ctx context.Context) (slackAPI, error) {
 	if a.api != nil {
 		return a.api, nil
 	}
-	bot, err := a.secret(ctx, &a.bot, a.cfg.BotToken, botKey, "xoxb-")
+	bot, err := a.secret(ctx, &a.bot, a.conf().cfg.BotToken, botKey, "xoxb-")
 	if err != nil {
 		return nil, err
 	}

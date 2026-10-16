@@ -33,14 +33,20 @@ const (
 // Socket Mode has no typing indicator for bots, so Caps.Typing is off.
 var caps = core.ChannelCaps{Edit: true, Buttons: true, Threads: true, MaxLen: maxLen, EditMinInterval: 1200 * time.Millisecond}
 
-type adapter struct {
+// settings is what Reconfigure replaces while requests may be running, so
+// every read goes through conf.
+type settings struct {
 	cfg         config.Slack
-	deps        core.AdapterDeps
-	log         *slog.Logger
-	clock       core.Clock
 	apiBase     *url.URL
 	privateHost string
-	newSocket   func(*slack.Client, ...socketmode.Option) socket
+}
+
+type adapter struct {
+	set       atomic.Pointer[settings]
+	deps      core.AdapterDeps
+	log       *slog.Logger
+	clock     core.Clock
+	newSocket func(*slack.Client, ...socketmode.Option) socket
 
 	tokMu sync.Mutex
 	bot   core.Secret
@@ -70,12 +76,9 @@ func newAdapter(cfg config.Slack, d core.AdapterDeps) (*adapter, error) {
 	if d.Secret == nil || d.HTTP == nil {
 		return nil, fmt.Errorf("slack: AdapterDeps.Secret and AdapterDeps.HTTP are required: %w", core.ErrInvalid)
 	}
-	if !strings.HasSuffix(cfg.APIBase, "/") {
-		cfg.APIBase += "/"
-	}
-	api, err := url.Parse(cfg.APIBase)
-	if err != nil || (api.Scheme != "https" && api.Scheme != "http") || api.Host == "" {
-		return nil, fmt.Errorf("slack: channels.slack.api_base %q is not an http(s) URL: %w", cfg.APIBase, core.ErrInvalid)
+	set, err := newSettings(cfg)
+	if err != nil {
+		return nil, err
 	}
 	log := d.Log
 	if log == nil {
@@ -86,26 +89,57 @@ func newAdapter(cfg config.Slack, d core.AdapterDeps) (*adapter, error) {
 		clock = core.SystemClock{}
 	}
 	a := &adapter{
-		cfg:       cfg,
 		deps:      d,
 		log:       log,
 		clock:     clock,
-		apiBase:   api,
 		newSocket: newSocketMode,
 		state:     stateConnecting,
 		since:     clock.Now(),
 	}
+	a.set.Store(set)
+	if !cfg.Enabled {
+		a.state = stateDisabled
+	}
+	return a, nil
+}
+
+func newSettings(cfg config.Slack) (*settings, error) {
+	if !strings.HasSuffix(cfg.APIBase, "/") {
+		cfg.APIBase += "/"
+	}
+	api, err := url.Parse(cfg.APIBase)
+	if err != nil || (api.Scheme != "https" && api.Scheme != "http") || api.Host == "" {
+		return nil, fmt.Errorf("slack: channels.slack.api_base %q is not an http(s) URL: %w", cfg.APIBase, core.ErrInvalid)
+	}
+	s := &settings{cfg: cfg, apiBase: api}
 	// api_base is locked (file or env only), so an override is admin-set,
 	// which is what AllowPrivate requires; it is how a self-hosted proxy or
 	// the test fake on loopback is reached. Hosts learned at run time (the
 	// Socket Mode URL, file and response URLs) never get it.
 	if cfg.APIBase != config.Default().Channels.Slack.APIBase {
-		a.privateHost = strings.ToLower(hostPort(api))
+		s.privateHost = strings.ToLower(hostPort(api))
 	}
-	if !cfg.Enabled {
-		a.state = stateDisabled
+	return s, nil
+}
+
+func (a *adapter) conf() *settings { return a.set.Load() }
+
+// Reconfigure takes a new config snapshot; the hub restarts Run afterwards.
+// Cached tokens go too: a token saved again under the same reference must
+// be picked up.
+func (a *adapter) Reconfigure(c *config.Config) error {
+	set, err := newSettings(c.Channels.Slack)
+	if err != nil {
+		return err
 	}
-	return a, nil
+	a.set.Store(set)
+	a.forgetTokens()
+	if set.cfg.Enabled {
+		a.setState(stateConnecting, "")
+	} else {
+		a.setState(stateDisabled, "")
+	}
+	return nil
 }
 
 func (a *adapter) Name() string { return name }
@@ -118,7 +152,7 @@ func (a *adapter) DeepLink(string) string { return "" }
 func (a *adapter) Status() core.ChannelStatus {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return core.ChannelStatus{Name: name, Enabled: a.cfg.Enabled, State: a.state, Detail: a.detail, Identity: a.identity, Since: a.since}
+	return core.ChannelStatus{Name: name, Enabled: a.conf().cfg.Enabled, State: a.state, Detail: a.detail, Identity: a.identity, Since: a.since}
 }
 
 func (a *adapter) setState(state, detail string) {

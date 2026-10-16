@@ -323,6 +323,31 @@ func TestDisabledAdapterStaysIdle(t *testing.T) {
 	}
 }
 
+// The hub builds each adapter once at boot, so turning Discord on in
+// Settings reaches a running adapter through Reconfigure; it must then
+// connect, and go quiet again when turned off.
+func TestEnabledWhileRunning(t *testing.T) {
+	f := newFixture(t, func(c *config.Discord, _ *core.AdapterDeps) { c.Enabled = false })
+	f.start(t, stateDisabled)()
+	cfg := config.Default()
+	cfg.Channels.Discord = f.a.conf().cfg
+	cfg.Channels.Discord.Enabled = true
+	if err := f.a.Reconfigure(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if st := f.a.Status(); !st.Enabled || st.State != stateConnecting {
+		t.Fatalf("status after enabling = %+v, want enabled and connecting", st)
+	}
+	f.start(t, stateConnected)()
+	cfg.Channels.Discord.Enabled = false
+	if err := f.a.Reconfigure(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if st := f.a.Status(); st.Enabled || st.State != stateDisabled {
+		t.Fatalf("status after disabling = %+v, want disabled", st)
+	}
+}
+
 func TestSelfTestOpenDMDeleteTyping(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()

@@ -16,8 +16,14 @@
   type Field = { key: string; label: string; help: string; secret?: string; re: RegExp };
   const fields: Record<AppName, Field[]> = {
     slack: [
-      { key: 'app_token', label: 'App-level token', help: 'Starts with xapp-. In Slack: Basic Information → App-Level Tokens.', secret: 'slack_app_token', re: /^xapp-\S{16,}$/ },
-      { key: 'bot_token', label: 'Bot token', help: 'Starts with xoxb-. In Slack: OAuth & Permissions.', secret: 'slack_bot_token', re: /^xoxb-\S{16,}$/ },
+      { key: 'bot_token', label: 'Bot token', help: 'Starts with xoxb-. In Slack: OAuth & Permissions → Bot User OAuth Token.', secret: 'slack_bot_token', re: /^xoxb-\S{16,}$/ },
+      {
+        key: 'app_token',
+        label: 'App-level token',
+        help: 'Starts with xapp-. In Slack: Basic Information → App-Level Tokens → Generate Token and Scopes. Add the connections:write scope.',
+        secret: 'slack_app_token',
+        re: /^xapp-\S{16,}$/,
+      },
     ],
     telegram: [{ key: 'token', label: 'Bot token', help: '@BotFather sends it after you choose a name.', secret: 'telegram_bot_token', re: /^\d{5,}:[\w-]{20,}$/ }],
     discord: [

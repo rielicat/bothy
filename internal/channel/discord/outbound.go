@@ -187,7 +187,7 @@ func (a *adapter) Fetch(ctx context.Context, att core.Attachment, limit int64) (
 }
 
 func (a *adapter) fetchAllowed(u *url.URL) bool {
-	if u.Scheme == a.apiBase.Scheme && strings.EqualFold(u.Host, a.apiBase.Host) {
+	if base := a.conf().apiBase; u.Scheme == base.Scheme && strings.EqualFold(u.Host, base.Host) {
 		return true
 	}
 	return u.Scheme == "https" && cdnHosts[strings.ToLower(u.Hostname())] && (u.Port() == "" || u.Port() == "443")

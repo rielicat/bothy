@@ -40,26 +40,26 @@ const (
 )
 
 func (a *adapter) client() discordAPI {
-	a.apiOnce.Do(func() {
-		if a.api != nil {
-			return
-		}
+	a.apiMu.Lock()
+	defer a.apiMu.Unlock()
+	if a.api == nil {
+		set := a.conf()
 		rc := rest.NewClient("",
-			rest.WithURL(a.cfg.APIBase),
-			rest.WithHTTPClient(a.egressClient(hostPort(a.apiBase))),
+			rest.WithURL(set.cfg.APIBase),
+			rest.WithHTTPClient(a.egressClient(hostPort(set.apiBase))),
 			rest.WithUserAgent(userAgent),
 			rest.WithLogger(a.libLog),
-			rest.WithRateLimiter(sharedLimiter(a.cfg.APIBase, a.libLog)),
+			rest.WithRateLimiter(sharedLimiter(set.cfg.APIBase, a.libLog)),
 		)
 		a.api = &disgoAPI{r: rest.New(rc, rest.WithDefaultAllowedMentions(*allowedMentions(false))), token: a.token}
-	})
+	}
 	return a.api
 }
 
 // limiters holds one REST rate limiter per API base for the whole process.
 // disgo starts a cleanup goroutine with every limiter that nothing ever stops
-// (its Close does not), and the hub builds a new adapter on every config
-// change, so a limiter per adapter would leak one goroutine per reload.
+// (its Close does not), and a client is rebuilt whenever api_base changes,
+// so a limiter per client would leak one goroutine per change.
 var limiters struct {
 	mu sync.Mutex
 	m  map[string]rest.RateLimiter
@@ -86,10 +86,11 @@ func (a *adapter) token(ctx context.Context) (string, error) {
 	if !a.tok.IsZero() {
 		return a.tok.Reveal(), nil
 	}
-	if a.cfg.Token == "" {
+	ref := a.conf().cfg.Token
+	if ref == "" {
 		return "", &authError{hint: "no bot token configured (channels.discord.token)"}
 	}
-	s, err := a.deps.Secret(ctx, a.cfg.Token)
+	s, err := a.deps.Secret(ctx, ref)
 	switch {
 	case errors.Is(err, core.ErrSealed):
 		return "", fmt.Errorf("discord: bot token unavailable: %w", err)

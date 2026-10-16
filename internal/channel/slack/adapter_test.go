@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -426,6 +427,77 @@ func TestDisabledAdapterStaysIdle(t *testing.T) {
 	f.start(t, stateDisabled)()
 	if len(f.srv.Calls()) != 0 || len(f.egress.recorded()) != 0 {
 		t.Fatalf("a disabled adapter made calls: %+v", f.srv.Calls())
+	}
+}
+
+// The hub builds each adapter once at boot, so turning Slack on in Settings
+// reaches a running adapter through Reconfigure; it must then connect and
+// take commands, and go quiet again when turned off.
+func TestEnabledWhileRunning(t *testing.T) {
+	f := newFixture(t, func(c *config.Slack, _ *core.AdapterDeps) { c.Enabled = false })
+	f.start(t, stateDisabled)()
+	cfg := config.Default()
+	cfg.Channels.Slack = f.a.conf().cfg
+	cfg.Channels.Slack.Enabled = true
+	if err := f.a.Reconfigure(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if st := f.a.Status(); !st.Enabled || st.State != stateConnecting {
+		t.Fatalf("status after enabling = %+v, want enabled and connecting", st)
+	}
+	stop := f.start(t, stateConnected)
+	dm, user := f.srv.ConformanceIDs()
+	f.srv.InjectSlash(dm, user, "pair ZQJR-9Q0M")
+	if in := f.sink.message(t); in.Text != "/pair ZQJR-9Q0M" {
+		t.Fatalf("slash command = %q, want /pair ZQJR-9Q0M", in.Text)
+	}
+	stop()
+	cfg.Channels.Slack.Enabled = false
+	if err := f.a.Reconfigure(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if st := f.a.Status(); st.Enabled || st.State != stateDisabled {
+		t.Fatalf("status after disabling = %+v, want disabled", st)
+	}
+}
+
+func TestReconfigureRefetchesTokens(t *testing.T) {
+	var resolved atomic.Int32
+	f := newFixture(t, func(_ *config.Slack, d *core.AdapterDeps) {
+		inner := d.Secret
+		d.Secret = func(ctx context.Context, ref string) (core.Secret, error) {
+			resolved.Add(1)
+			return inner(ctx, ref)
+		}
+	})
+	ctx := context.Background()
+	if _, err := f.a.SelfTest(ctx); err != nil {
+		t.Fatal(err)
+	}
+	before := resolved.Load()
+	cfg := config.Default()
+	cfg.Channels.Slack = f.a.conf().cfg
+	if err := f.a.Reconfigure(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.a.SelfTest(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Load() == before {
+		t.Fatal("tokens were not resolved again after Reconfigure")
+	}
+}
+
+func TestReconfigureRejectsBadAPIBase(t *testing.T) {
+	f := newFixture(t)
+	cfg := config.Default()
+	cfg.Channels.Slack = f.a.conf().cfg
+	cfg.Channels.Slack.APIBase = "ftp://x"
+	if err := f.a.Reconfigure(cfg); !errors.Is(err, core.ErrInvalid) {
+		t.Fatalf("Reconfigure = %v, want ErrInvalid", err)
+	}
+	if f.a.conf().apiBase.Scheme != "http" {
+		t.Fatal("a refused config replaced the running one")
 	}
 }
 

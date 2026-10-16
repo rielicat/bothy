@@ -44,7 +44,7 @@ var errSessionOver = fmt.Errorf("discord session closed: %w", discord.ErrGateway
 type job func(ctx context.Context, sink core.InboundSink)
 
 func (a *adapter) Run(ctx context.Context, sink core.InboundSink) error {
-	if !a.cfg.Enabled {
+	if !a.conf().cfg.Enabled {
 		<-ctx.Done()
 		return nil
 	}
@@ -105,7 +105,7 @@ func (a *adapter) session(ctx context.Context, jobs chan<- job) (connected bool,
 		return false, a.apiErr("get current user", err)
 	}
 	a.setSelf(me.ID, me.Username)
-	wsURL := a.cfg.GatewayURL
+	wsURL := a.conf().cfg.GatewayURL
 	if wsURL == "" {
 		if wsURL, err = api.GatewayURL(rctx); err != nil {
 			return false, a.apiErr("get gateway", err)
