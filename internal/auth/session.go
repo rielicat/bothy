@@ -146,8 +146,18 @@ func (s *Service) FromCookie(ctx context.Context, cookie string) (core.Actor, er
 	if len(cookie) != cookieLen {
 		return core.Actor{}, errSession
 	}
+	return s.FromSessionHash(ctx, sha(cookie))
+}
+
+// FromSessionHash is FromCookie for the sha256 of a session cookie, the
+// auth store's key: a flow that started with a session holds only the hash
+// and resumes it when a cross-site redirect arrives without the Strict
+// cookie.
+func (s *Service) FromSessionHash(ctx context.Context, h []byte) (core.Actor, error) {
+	if len(h) != 32 {
+		return core.Actor{}, errSession
+	}
 	repo := s.store.AuthSessions()
-	h := sha(cookie)
 	sess, err := repo.Get(ctx, h)
 	if errors.Is(err, core.ErrNotFound) {
 		return core.Actor{}, errSession
