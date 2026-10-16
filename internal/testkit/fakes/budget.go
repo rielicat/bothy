@@ -24,7 +24,7 @@ type Budget struct {
 
 	mu      sync.Mutex
 	Senders []string // AllowSender keys, in order
-	spent   map[core.UserID]core.Micros
+	spent   map[core.PrincipalID]core.Micros
 }
 
 func (b *Budget) denial(rate bool) error {
@@ -36,24 +36,24 @@ func (b *Budget) denial(rate bool) error {
 	return b.Deny
 }
 
-func (b *Budget) record(u core.UserID, c core.CallInfo) {
+func (b *Budget) record(p core.PrincipalID, c core.CallInfo) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.Calls = append(b.Calls, c)
 	if b.spent == nil {
-		b.spent = map[core.UserID]core.Micros{}
+		b.spent = map[core.PrincipalID]core.Micros{}
 	}
-	b.spent[u] += c.Cost
+	b.spent[p] += c.Cost
 }
 
-func (b *Budget) StartRun(_ core.RunID, u core.UserID, l core.RunLimits) core.RunMeter {
-	return &meter{b: b, user: u, limits: l, start: time.Now()}
+func (b *Budget) StartRun(_ core.RunID, p core.PrincipalID, l core.RunLimits) core.RunMeter {
+	return &meter{b: b, payer: p, limits: l, start: time.Now()}
 }
 
-func (b *Budget) CheckDaily(context.Context, core.UserID) error { return b.denial(false) }
+func (b *Budget) CheckDaily(context.Context, core.PrincipalID) error { return b.denial(false) }
 
-func (b *Budget) RecordSpend(_ context.Context, u core.UserID, c core.CallInfo) error {
-	b.record(u, c)
+func (b *Budget) RecordSpend(_ context.Context, p core.PrincipalID, c core.CallInfo) error {
+	b.record(p, c)
 	return nil
 }
 
@@ -67,11 +67,11 @@ func (b *Budget) AllowSender(key string) (bool, time.Duration) {
 	return true, 0
 }
 
-// Daily reports the user's recorded spend and no limit.
-func (b *Budget) Daily(_ context.Context, u core.UserID) (core.Micros, core.Micros, error) {
+// Daily reports the principal's recorded spend and no limit.
+func (b *Budget) Daily(_ context.Context, p core.PrincipalID) (core.Micros, core.Micros, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.spent[u], 0, nil
+	return b.spent[p], 0, nil
 }
 
 func (b *Budget) DefaultLimits(t core.Trigger) core.RunLimits {
@@ -83,7 +83,7 @@ func (b *Budget) DefaultLimits(t core.Trigger) core.RunLimits {
 
 type meter struct {
 	b      *Budget
-	user   core.UserID
+	payer  core.PrincipalID
 	limits core.RunLimits
 	start  time.Time
 
@@ -109,7 +109,7 @@ func (m *meter) Step() error {
 func (m *meter) BeforeCall(context.Context, int, core.ModelInfo) error { return m.b.denial(false) }
 
 func (m *meter) AfterCall(_ context.Context, c core.CallInfo) error {
-	m.b.record(m.user, c)
+	m.b.record(m.payer, c)
 	m.mu.Lock()
 	m.usage, m.cost = m.usage.Add(c.Usage), m.cost+c.Cost
 	m.mu.Unlock()

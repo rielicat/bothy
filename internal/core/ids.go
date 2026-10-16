@@ -123,24 +123,32 @@ func (r Role) IsAdmin() bool { return r == RoleOwner || r == RoleAdmin }
 type PrincipalKind string
 
 const (
-	PrincipalUser  PrincipalKind = "user"  // a human account's own data
-	PrincipalSpace PrincipalKind = "space" // a group chat or an allowlisted guest DM; restricted
+	PrincipalUser   PrincipalKind = "user"   // a web account's own data
+	PrincipalSpace  PrincipalKind = "space"  // a channel (group chat), owned by the team; restricted unless standard
+	PrincipalPerson PrincipalKind = "person" // a teammate in a chat app, owned by the team; always standard
 )
 
-// Principal owns sessions, workspace, memory, grants and schedules. A space has
-// no vault scope and no memory files, and gets read-only tools unless its
-// ToolProfile is "standard".
+// Principal owns sessions, workspace, memory, grants and schedules. Channels
+// and teammates are owned by the team (User ""): neither has a vault scope,
+// a channel has no memory files, and a channel gets read-only tools unless
+// its ToolProfile is "standard".
 type Principal struct {
 	ID          PrincipalID   `json:"id"`
 	Kind        PrincipalKind `json:"kind"`
-	User        UserID        `json:"user_id"` // user principal: that user; space: the owning user
+	User        UserID        `json:"user_id"` // user principal: that account; "" for team-owned principals (channels, teammates)
 	DisplayName string        `json:"display_name"`
 	Workspace   WorkspaceID   `json:"workspace_id"`
-	ToolProfile string        `json:"tool_profile"` // "standard" | "restricted" (spaces default restricted)
+	ToolProfile string        `json:"tool_profile"` // "standard" | "restricted" (channels default restricted)
 	CreatedAt   time.Time     `json:"created_at"`
 }
 
 func (p Principal) Restricted() bool { return p.Kind == PrincipalSpace && p.ToolProfile != "standard" }
+
+// TeamOwned reports a channel's or a teammate's principal: no account owns it.
+func (p Principal) TeamOwned() bool { return p.Kind == PrincipalSpace || p.Kind == PrincipalPerson }
+
+// ChatActor is the audit actor of a person in a chat app.
+func ChatActor(channel, externalID string) string { return "channel:" + channel + ":" + externalID }
 
 // UserPrincipal returns the principal id of a user's own data.
 func UserPrincipal(u UserID) PrincipalID { return PrincipalID(u) }
@@ -150,9 +158,11 @@ func UserPrincipal(u UserID) PrincipalID { return PrincipalID(u) }
 // build Viewers with Auth.ViewerFor and never set System.
 //
 // Admin is set by Auth.ViewerFor for owner/admin users. Repositories ignore it
-// except in exactly two places: approvals whose approver is AdminOnly
+// except in exactly two places: approvals whose approver is AdminOnly or Team
 // (ApprovalRepo.Get/Pending/Recent also return those), and egress rows of the
 // system dialer (principal_id ""). It never grants access to message content.
+// Team-owned principals (channels, teammates) are in no Viewer built for a
+// person, so their chats stay their own.
 //
 // ApprovalRepo.Get/Pending/Recent also return multi-approver approvals that
 // name User in ApproverReq.Users or name a role the viewer may hold (member

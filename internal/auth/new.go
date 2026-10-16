@@ -40,7 +40,6 @@ type Service struct {
 
 	hash  *hasher
 	locks *lockouts
-	pairs *attempts
 
 	signIn atomic.Pointer[SignInDeps]
 	flows  *flowStore
@@ -51,11 +50,7 @@ var (
 	_ core.CheckProvider = (*Service)(nil)
 )
 
-const (
-	pairAttempts       = 5
-	pairAttemptsWindow = time.Hour
-	touchEvery         = time.Minute
-)
+const touchEvery = time.Minute
 
 func New(d Deps) (*Service, error) {
 	if d.Config == nil {
@@ -79,7 +74,6 @@ func New(d Deps) (*Service, error) {
 		getenv:   os.Getenv,
 		hash:     newHasher(paramsFrom(d.Config.Current().Auth.Argon2)),
 		locks:    newLockouts(),
-		pairs:    newAttempts(pairAttempts, pairAttemptsWindow),
 		flows:    newFlowStore(d.Clock),
 	}, nil
 }
@@ -108,12 +102,6 @@ func (s *Service) record(ctx context.Context, actor, action, target, outcome str
 	}
 	if err := s.audit.Record(context.WithoutCancel(ctx), e); err != nil {
 		s.log.Error("audit record failed", "action", action, "err", err)
-	}
-}
-
-func (s *Service) publish(e core.Event) {
-	if s.bus != nil {
-		s.bus.Publish(e)
 	}
 }
 

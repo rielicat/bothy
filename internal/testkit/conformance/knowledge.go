@@ -238,7 +238,7 @@ func testKnowledgeFiles(f *kfx) {
 
 func testKnowledgeSearch(f *kfx) {
 	u := f.user(core.RoleOwner)
-	sp := f.space(u)
+	sp := f.space()
 	p := core.UserPrincipal(u.ID)
 	v := viewer(u, sp.Principal)
 	r1 := f.repo(p, "acme/api")

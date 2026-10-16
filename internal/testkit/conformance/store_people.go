@@ -2,7 +2,6 @@ package conformance
 
 import (
 	"crypto/sha256"
-	"strings"
 	"time"
 
 	"github.com/rielicat/bothy/internal/core"
@@ -112,24 +111,6 @@ func testUsers(f *fx) {
 	f.check(got.LastLoginAt.Equal(at(80)) && got.FailedLogins == 0 && got.LockedUntil.IsZero(),
 		"after SignedIn: last=%v failed=%d locked=%v", got.LastLoginAt, got.FailedLogins, got.LockedUntil)
 	f.want(r.SignedIn(f.ctx, core.UserID(core.NewID(core.PrefixUser)), at(80)), core.ErrNotFound, "SignedIn missing")
-	prefs := *got
-	prefs.PreferredChat, prefs.ApprovalsWebOnly, prefs.LastLoginAt, prefs.UpdatedAt = "telegram", true, at(1), at(90)
-	f.must(r.Update(f.ctx, &prefs), "Update preferences")
-	got, err = r.Get(f.ctx, member.ID)
-	f.must(err, "Get after Update")
-	f.check(got.PreferredChat == "telegram" && got.ApprovalsWebOnly && got.LastLoginAt.Equal(at(80)),
-		"Update stores the preferences and leaves the sign-in time: %+v", got)
-	long := prefs
-	long.PreferredChat = strings.Repeat("x", 33)
-	f.want(r.Update(f.ctx, &long), core.ErrInvalid, "preferred_chat length CHECK")
-	if list, err := r.List(f.ctx); err == nil {
-		for _, u := range list {
-			if u.ID == member.ID {
-				f.check(u.LastLoginAt.Equal(at(80)) && u.PreferredChat == "telegram", "List row = %+v", u)
-			}
-		}
-	}
-
 	// SetProfile writes the profile columns only: a stale copy cannot undo
 	// a role, flag or password change made after it was read.
 	stale := *got
@@ -137,17 +118,14 @@ func testUsers(f *fx) {
 	fresh.Role, fresh.Disabled, fresh.PWHash, fresh.MustChangePassword, fresh.UpdatedAt = core.RoleMember, !stale.Disabled, "hash-after-reset",
 		!stale.MustChangePassword, at(95)
 	f.must(r.Update(f.ctx, &fresh), "Update before the stale profile write")
-	stale.DisplayName, stale.Timezone, stale.PreferredChat, stale.ApprovalsWebOnly, stale.UpdatedAt = "Renamed", "Asia/Tokyo", "slack", false, at(96)
+	stale.DisplayName, stale.Timezone, stale.UpdatedAt = "Renamed", "Asia/Tokyo", at(96)
 	f.must(r.SetProfile(f.ctx, &stale), "SetProfile")
 	got, err = r.Get(f.ctx, member.ID)
 	f.must(err, "Get after SetProfile")
-	f.check(got.DisplayName == "Renamed" && got.Timezone == "Asia/Tokyo" && got.PreferredChat == "slack" && !got.ApprovalsWebOnly &&
-		got.UpdatedAt.Equal(at(96)) &&
+	f.check(got.DisplayName == "Renamed" && got.Timezone == "Asia/Tokyo" && got.UpdatedAt.Equal(at(96)) &&
 		got.Role == core.RoleMember && got.Disabled == fresh.Disabled && got.PWHash == "hash-after-reset" &&
 		got.MustChangePassword == fresh.MustChangePassword && got.LastLoginAt.Equal(at(80)),
 		"SetProfile wrote more than the profile: %+v", got)
-	long.ID = member.ID
-	f.want(r.SetProfile(f.ctx, &long), core.ErrInvalid, "SetProfile preferred_chat length CHECK")
 	f.want(r.SetProfile(f.ctx, &core.User{ID: core.UserID(core.NewID(core.PrefixUser))}), core.ErrNotFound, "SetProfile missing")
 
 	po, err := f.s.Principals().Get(f.ctx, core.SystemViewer(), core.UserPrincipal(owner.ID))
@@ -163,27 +141,26 @@ func testUsers(f *fx) {
 func testPrincipals(f *fx) {
 	r := f.s.Principals()
 	u := f.user(core.RoleMember)
-	loner := f.user(core.RoleMember)
-	s1 := f.space(u)
-	s2 := f.space(u)
+	s1 := f.space()
+	s2 := f.space()
+	person, _ := f.teammate("slack", "U77")
 	v := viewer(u, s1.Principal, s2.Principal)
 
 	ps, err := r.ForUser(f.ctx, u.ID)
 	f.must(err, "ForUser")
-	f.check(len(ps) == 3, "ForUser returned %d principals, want 3", len(ps))
-	if len(ps) == 3 {
-		f.check(ps[0].ID == core.UserPrincipal(u.ID), "ForUser lists the user's own principal first, got %s", ps[0].ID)
-		rest := map[core.PrincipalID]bool{ps[1].ID: true, ps[2].ID: true}
-		f.check(rest[s1.Principal] && rest[s2.Principal], "ForUser spaces = %v, want %s and %s", rest, s1.Principal, s2.Principal)
-	}
-	ps, err = r.ForUser(f.ctx, loner.ID)
-	f.must(err, "ForUser")
-	f.check(len(ps) == 1 && ps[0].ID == core.UserPrincipal(loner.ID), "ForUser of a user without spaces = %v", ps)
+	f.check(len(ps) == 1 && ps[0].ID == core.UserPrincipal(u.ID), "ForUser returns the user's own principal only, got %v", ps)
+	ps, err = r.ForUser(f.ctx, "")
+	f.must(err, "ForUser without a user")
+	f.check(len(ps) == 0, "ForUser(\"\") returned team principals: %v", ps)
+
+	team, err := r.Team(f.ctx)
+	f.must(err, "Team")
+	f.eq("Team lists channels and teammates oldest first", principalIDs(team), []core.PrincipalID{s1.Principal, s2.Principal, person.Principal})
 
 	p, err := r.Get(f.ctx, v, s1.Principal)
 	f.must(err, "Get space principal")
-	f.check(p.Kind == core.PrincipalSpace && p.User == u.ID && p.ToolProfile == "restricted" && p.DisplayName == s1.Title,
-		"space principal = %+v", p)
+	f.check(p.Kind == core.PrincipalSpace && p.User == "" && p.ToolProfile == "restricted" && p.DisplayName == s1.Title,
+		"space principal = %+v, want kind space, no user, restricted", p)
 	p.DisplayName = "Renamed"
 	p.ToolProfile = "standard"
 	f.must(r.Update(f.ctx, p), "Update")
@@ -195,32 +172,60 @@ func testPrincipals(f *fx) {
 	bad.ToolProfile = "unrestricted"
 	f.want(r.Update(f.ctx, &bad), core.ErrInvalid, "tool_profile CHECK")
 	f.want(r.Update(f.ctx, &core.Principal{ID: core.PrincipalID(core.NewID(core.PrefixSpace)), ToolProfile: "standard"}), core.ErrNotFound, "Update missing")
+
+	pp, err := r.Get(f.ctx, core.SystemViewer(), person.Principal)
+	f.must(err, "Get person principal")
+	f.check(pp.Kind == core.PrincipalPerson && pp.User == "" && pp.ToolProfile == "standard", "person principal = %+v", pp)
+	restricted := *pp
+	restricted.ToolProfile = "restricted"
+	f.want(r.Update(f.ctx, &restricted), core.ErrInvalid, "a person is always standard")
+
+	f.want(r.Delete(f.ctx, core.UserPrincipal(u.ID)), core.ErrInvalid, "Delete refuses a user principal")
+	_, err = r.Get(f.ctx, core.SystemViewer(), core.UserPrincipal(u.ID))
+	f.must(err, "a refused Delete keeps the user principal")
+	f.want(r.Delete(f.ctx, core.PrincipalID(core.NewID(core.PrefixSpace))), core.ErrNotFound, "Delete missing")
+	sess := f.session(s2.Principal)
+	f.must(r.Delete(f.ctx, s2.Principal), "Delete a channel's principal")
+	_, err = r.Get(f.ctx, core.SystemViewer(), s2.Principal)
+	f.want(err, core.ErrNotFound, "principal after Delete")
+	_, err = f.s.Spaces().Get(f.ctx, core.SystemViewer(), s2.Principal)
+	f.want(err, core.ErrNotFound, "Delete cascades to the space")
+	_, err = f.s.Sessions().Get(f.ctx, core.SystemViewer(), sess.ID)
+	f.want(err, core.ErrNotFound, "Delete cascades to the sessions")
+}
+
+func principalIDs(ps []*core.Principal) []core.PrincipalID {
+	out := make([]core.PrincipalID, len(ps))
+	for i, p := range ps {
+		out[i] = p.ID
+	}
+	return out
 }
 
 func testSpaces(f *fx) {
 	r := f.s.Spaces()
-	owner := f.user(core.RoleAdmin)
 	other := f.user(core.RoleMember)
 
 	s := &core.Space{
-		Kind: "guest", Chat: core.ChatRef{Channel: "slack", ChatID: "D123", Kind: core.ChatDM}, Title: "Guest",
-		Owner: owner.ID, CreatedAt: at(10), UpdatedAt: at(11),
+		Kind: core.SpaceGroup, Chat: core.ChatRef{Channel: "discord", ChatID: "C123", Kind: core.ChatGroup}, Title: "#eng",
+		Team: "G1", TeamName: "Acme Community", AddedBy: "42", Members: 4812, External: true, ReviewedAt: at(12),
+		CreatedAt: at(10), UpdatedAt: at(11),
 	}
-	p := &core.Principal{DisplayName: "Guest Bob", CreatedAt: at(10)}
+	p := &core.Principal{DisplayName: "#eng", CreatedAt: at(10)}
 	f.must(r.Create(f.ctx, s, p), "Create")
 	f.check(core.ValidID(core.PrefixSpace, string(p.ID)) && s.Principal == p.ID,
 		"Create assigned principal %q / space principal %q, want the same spc_ id", p.ID, s.Principal)
-	f.check(p.Kind == core.PrincipalSpace && p.User == owner.ID && p.ToolProfile == "restricted" &&
+	f.check(p.Kind == core.PrincipalSpace && p.User == "" && p.ToolProfile == "restricted" &&
 		core.ValidID(core.PrefixWorkspace, string(p.Workspace)), "Create filled principal %+v", p)
-	v := viewer(owner, s.Principal)
+	v := core.Viewer{Principals: []core.PrincipalID{s.Principal}}
 
 	got, err := r.Get(f.ctx, v, s.Principal)
 	f.must(err, "Get")
 	f.eq("Get round trip", got, s)
-	got, err = r.ByChat(f.ctx, "slack", "D123")
+	got, err = r.ByChat(f.ctx, "discord", "C123")
 	f.must(err, "ByChat")
 	f.eq("ByChat round trip", got, s)
-	_, err = r.ByChat(f.ctx, "slack", "D999")
+	_, err = r.ByChat(f.ctx, "discord", "C999")
 	f.want(err, core.ErrNotFound, "ByChat missing")
 	_, err = r.Get(f.ctx, viewer(other), s.Principal)
 	f.want(err, core.ErrNotFound, "Get with a foreign viewer")
@@ -238,57 +243,65 @@ func testSpaces(f *fx) {
 	f.must(err, "List system")
 	f.check(len(list) == 1, "List with SystemViewer returned %d spaces, want 1", len(list))
 
-	s.Title = "Renamed"
+	s.Title = "#engineering"
 	s.Enabled = true
 	s.MentionOnly = true
+	s.TeamName, s.Members, s.External, s.ReviewedAt = "Acme", 12, false, at(19)
 	s.UpdatedAt = at(20)
 	f.must(r.Update(f.ctx, s), "Update")
 	got, err = r.Get(f.ctx, v, s.Principal)
 	f.must(err, "Get after Update")
 	f.eq("Update round trip", got, s)
+	moved := *s
+	moved.Kind, moved.Chat = core.SpacePerson, core.ChatRef{Channel: "slack", ChatID: "D1", Kind: core.ChatDM}
+	f.must(r.Update(f.ctx, &moved), "Update with another kind and chat")
+	got, err = r.Get(f.ctx, v, s.Principal)
+	f.must(err, "Get after Update")
+	f.eq("Update never changes kind, channel or chat", got, s)
 	missing := *s
 	missing.Principal = core.PrincipalID(core.NewID(core.PrefixSpace))
 	f.want(r.Update(f.ctx, &missing), core.ErrNotFound, "Update missing")
 
-	g := f.space(owner)
+	person := &core.Space{Kind: core.SpacePerson, Chat: core.ChatRef{Channel: "telegram", ChatID: "5001", Kind: core.ChatDM}, Title: "Maya",
+		Enabled: true, CreatedAt: at(21), UpdatedAt: at(21)}
+	pp := &core.Principal{DisplayName: "Maya", ToolProfile: "restricted", CreatedAt: at(21)}
+	f.must(r.Create(f.ctx, person, pp), "Create a person space")
+	f.check(pp.Kind == core.PrincipalPerson && pp.User == "" && pp.ToolProfile == "standard",
+		"person principal = %+v, want kind person, no user, always standard", pp)
+
+	g := f.space()
 	newSpace := func(mod func(*core.Space)) *core.Space {
-		x := &core.Space{Kind: "group", Chat: core.ChatRef{Channel: "discord", ChatID: core.NewID("c"), Kind: core.ChatGroup}, Owner: owner.ID, CreatedAt: at(30), UpdatedAt: at(30)}
+		x := &core.Space{Kind: core.SpaceGroup, Chat: core.ChatRef{Channel: "discord", ChatID: core.NewID("c"), Kind: core.ChatGroup}, CreatedAt: at(30), UpdatedAt: at(30)}
 		mod(x)
 		return x
 	}
 	f.want(r.Create(f.ctx, newSpace(func(x *core.Space) { x.Chat = g.Chat }), &core.Principal{}), core.ErrConflict, "UNIQUE (channel, chat_id)")
 	f.must(r.Create(f.ctx, newSpace(func(x *core.Space) { x.Chat.ChatID = g.Chat.ChatID }), &core.Principal{}), "same chat id on another channel")
-	f.want(r.Create(f.ctx, newSpace(func(x *core.Space) { x.Kind = "channel" }), &core.Principal{}), core.ErrInvalid, "spaces.kind CHECK")
+	f.want(r.Create(f.ctx, newSpace(func(x *core.Space) { x.Kind = "guest" }), &core.Principal{}), core.ErrInvalid, "spaces.kind CHECK")
 	f.want(r.Create(f.ctx, newSpace(func(x *core.Space) { x.Chat.Kind = core.ChatWeb }), &core.Principal{}), core.ErrInvalid, "spaces.chat_kind CHECK")
-	f.want(r.Create(f.ctx, newSpace(func(x *core.Space) { x.Owner = core.UserID(core.NewID(core.PrefixUser)) }), &core.Principal{}), core.ErrInvalid, "owner foreign key")
 	f.want(r.Create(f.ctx, newSpace(func(*core.Space) {}), &core.Principal{Workspace: p.Workspace}), core.ErrConflict, "principals.workspace_id UNIQUE")
 	f.want(r.Create(f.ctx, newSpace(func(*core.Space) {}), &core.Principal{ToolProfile: "open"}), core.ErrInvalid, "principals.tool_profile CHECK")
 	std := &core.Principal{ToolProfile: "standard"}
 	f.must(r.Create(f.ctx, newSpace(func(*core.Space) {}), std), "Create with an explicit tool profile")
 	f.check(std.ToolProfile == "standard", "Create overrode tool_profile standard with %q", std.ToolProfile)
-
-	moved := *g
-	moved.Chat = s.Chat
-	moved.Chat.Kind = core.ChatGroup
-	f.want(r.Update(f.ctx, &moved), core.ErrConflict, "Update onto a taken chat")
 }
 
 func testIdentities(f *fx) {
 	r := f.s.Identities()
-	u := f.user(core.RoleMember)
-	guest := f.space(u)
+	person, personID := f.teammate("slack", "U9")
 
-	got, err := r.Touch(f.ctx, &core.ChannelIdentity{Channel: "telegram", ExternalID: "1001", Username: "bob", DisplayName: "Bob", LastSeen: at(5)})
+	got, err := r.Touch(f.ctx, &core.ChannelIdentity{Channel: "telegram", ExternalID: "1001", Username: "bob", DisplayName: "Bob",
+		Member: core.MemberUnknown, LastSeen: at(5)})
 	f.must(err, "Touch new")
 	want := &core.ChannelIdentity{Channel: "telegram", ExternalID: "1001", Username: "bob", DisplayName: "Bob",
-		Status: core.IdentityPending, FirstSeen: at(5), LastSeen: at(5)}
-	f.eq("Touch inserts a pending identity first seen at last_seen", got, want)
+		Status: core.IdentityPending, Member: core.MemberUnknown, MemberAt: at(5), Greet: core.GreetHello, FirstSeen: at(5), LastSeen: at(5)}
+	f.eq("Touch inserts a pending identity with its first verdict, first seen at last_seen", got, want)
 	stored, err := r.Get(f.ctx, "telegram", "1001")
 	f.must(err, "Get")
 	f.eq("Get round trip", stored, want)
 
 	got, err = r.Touch(f.ctx, &core.ChannelIdentity{Channel: "telegram", ExternalID: "1001", Username: "bobby", DisplayName: "Bobby",
-		Status: core.IdentityLinked, User: u.ID, LastSeen: at(9)})
+		Status: core.IdentityTeammate, Principal: person.Principal, Member: core.MemberYes, LastSeen: at(9)})
 	f.must(err, "Touch existing")
 	want.Username, want.DisplayName, want.LastSeen = "bobby", "Bobby", at(9)
 	f.eq("Touch refreshes names and last_seen only", got, want)
@@ -299,43 +312,45 @@ func testIdentities(f *fx) {
 	f.must(err, "Get after setting the first text")
 	f.eq("a pending identity keeps its first text", stored, want)
 
-	want.Status, want.User, want.DMChat, want.LastNotice = core.IdentityLinked, u.ID, "1001", at(7)
-	f.must(r.Update(f.ctx, want), "Update to linked")
+	bobSpace := &core.Space{Kind: core.SpacePerson, Chat: core.ChatRef{Channel: "telegram", ChatID: "1001", Kind: core.ChatDM}, Title: "Bob",
+		Enabled: true, CreatedAt: at(8), UpdatedAt: at(8)}
+	f.must(f.s.Spaces().Create(f.ctx, bobSpace, &core.Principal{DisplayName: "Bob", CreatedAt: at(8)}), "Create Bob's person space")
+	want.Status, want.Principal, want.Via, want.CanApprove = core.IdentityTeammate, bobSpace.Principal, core.ViaAdmin, true
+	want.Member, want.MemberAt, want.DMChat, want.LastNotice, want.Greet = core.MemberYes, at(10), "1001", at(7), ""
+	f.must(r.Update(f.ctx, want), "Update to teammate")
 	want.FirstText = ""
 	stored, err = r.Get(f.ctx, "telegram", "1001")
-	f.must(err, "Get after linking")
-	f.eq("linking drops the first text", stored, want)
-	f.must(r.Update(f.ctx, want), "Update")
-	stored, err = r.Get(f.ctx, "telegram", "1001")
-	f.must(err, "Get after Update")
-	f.eq("Update round trip", stored, want)
-	byUser, err := r.ForUser(f.ctx, u.ID)
-	f.must(err, "ForUser")
-	f.eq("ForUser", byUser, []*core.ChannelIdentity{want})
+	f.must(err, "Get after letting in")
+	f.eq("letting in drops the first text and keeps every column", stored, want)
+	byP, err := r.ByPrincipal(f.ctx, bobSpace.Principal)
+	f.must(err, "ByPrincipal")
+	f.eq("ByPrincipal", byP, want)
+	_, err = r.ByPrincipal(f.ctx, core.PrincipalID(core.NewID(core.PrefixSpace)))
+	f.want(err, core.ErrNotFound, "ByPrincipal of a principal without an identity")
 
 	edit := func(mod func(*core.ChannelIdentity)) *core.ChannelIdentity {
 		x := *want
 		mod(&x)
 		return &x
 	}
-	f.want(r.Update(f.ctx, edit(func(x *core.ChannelIdentity) { x.User = "" })), core.ErrInvalid, "linked requires user_id")
-	f.want(r.Update(f.ctx, edit(func(x *core.ChannelIdentity) { x.Status, x.Principal = core.IdentityGuest, "" })), core.ErrInvalid, "guest requires principal_id")
-	f.want(r.Update(f.ctx, edit(func(x *core.ChannelIdentity) { x.Status = "trusted" })), core.ErrInvalid, "status CHECK")
-	f.want(r.Update(f.ctx, edit(func(x *core.ChannelIdentity) { x.User = core.UserID(core.NewID(core.PrefixUser)) })), core.ErrInvalid, "user_id foreign key")
+	f.want(r.Update(f.ctx, edit(func(x *core.ChannelIdentity) { x.Principal = "" })), core.ErrInvalid, "a teammate needs principal_id")
+	f.want(r.Update(f.ctx, edit(func(x *core.ChannelIdentity) { x.Via = "" })), core.ErrInvalid, "a teammate needs admitted_via")
+	f.want(r.Update(f.ctx, edit(func(x *core.ChannelIdentity) { x.Status = core.IdentityPending })), core.ErrInvalid, "can_approve needs a teammate")
+	f.want(r.Update(f.ctx, edit(func(x *core.ChannelIdentity) { x.Status = "linked" })), core.ErrInvalid, "status CHECK")
+	f.want(r.Update(f.ctx, edit(func(x *core.ChannelIdentity) { x.Via = "invite" })), core.ErrInvalid, "admitted_via CHECK")
+	f.want(r.Update(f.ctx, edit(func(x *core.ChannelIdentity) { x.Member = "guest" })), core.ErrInvalid, "membership CHECK")
+	f.want(r.Update(f.ctx, edit(func(x *core.ChannelIdentity) { x.Greet = "welcome" })), core.ErrInvalid, "greet CHECK")
+	f.want(r.Update(f.ctx, edit(func(x *core.ChannelIdentity) { x.Principal = core.PrincipalID(core.NewID(core.PrefixSpace)) })), core.ErrInvalid, "principal_id foreign key")
 	f.want(r.Update(f.ctx, edit(func(x *core.ChannelIdentity) { x.ExternalID = "nope" })), core.ErrNotFound, "Update missing")
 	stored, err = r.Get(f.ctx, "telegram", "1001")
 	f.must(err, "Get")
 	f.eq("rejected Updates change nothing", stored, want)
 
-	g := &core.ChannelIdentity{Channel: "slack", ExternalID: "U9", Status: core.IdentityGuest, Principal: guest.Principal,
-		FirstSeen: at(1), LastSeen: at(2)}
-	got, err = r.Touch(f.ctx, g)
-	f.must(err, "Touch new with an explicit status")
-	f.eq("Touch insert keeps the given status and first_seen", got, g)
-	_, err = r.Touch(f.ctx, &core.ChannelIdentity{Channel: "slack", ExternalID: "U10", Status: core.IdentityLinked, LastSeen: at(3)})
-	f.want(err, core.ErrInvalid, "Touch insert of linked without user_id")
 	_, err = r.Touch(f.ctx, &core.ChannelIdentity{Channel: "discord", ExternalID: "77", LastSeen: at(4)})
 	f.must(err, "Touch another")
+	d, err := r.Get(f.ctx, "discord", "77")
+	f.must(err, "Get")
+	f.check(d.Member == core.MemberUnchecked && d.MemberAt.IsZero(), "Touch without a verdict = %+v, want never checked", d)
 
 	all, err := r.List(f.ctx, "")
 	f.must(err, "List all")
@@ -343,56 +358,40 @@ func testIdentities(f *fx) {
 	pending, err := r.List(f.ctx, core.IdentityPending)
 	f.must(err, "List pending")
 	f.check(len(pending) == 1 && pending[0].ExternalID == "77", "List(pending) = %v", pending)
-	blocked, err := r.List(f.ctx, core.IdentityBlocked)
-	f.must(err, "List blocked")
-	f.check(len(blocked) == 0, "List(blocked) returned %d identities", len(blocked))
+	mates, err := r.List(f.ctx, core.IdentityTeammate)
+	f.must(err, "List teammates")
+	f.check(len(mates) == 2, "List(teammate) returned %d identities, want 2", len(mates))
+
+	f.must(r.ResetMembership(f.ctx, "telegram"), "ResetMembership")
+	stored, err = r.Get(f.ctx, "telegram", "1001")
+	f.must(err, "Get after ResetMembership")
+	f.check(stored.Member == core.MemberYes && stored.MemberAt.IsZero(), "ResetMembership keeps the verdict and drops its time: %+v", stored)
+	slackMate, err := r.Get(f.ctx, "slack", "U9")
+	f.must(err, "Get")
+	f.check(!personID.MemberAt.IsZero() && slackMate.MemberAt.Equal(personID.MemberAt), "ResetMembership of telegram touched slack: %+v", slackMate)
+
+	// Forgetting a teammate updates the identity before deleting the
+	// principal: deleting first would SET NULL a teammate's principal.
+	f.want(f.s.Principals().Delete(f.ctx, bobSpace.Principal), core.ErrInvalid, "Delete a teammate's principal before moving the identity off")
+	_, err = f.s.Principals().Get(f.ctx, core.SystemViewer(), bobSpace.Principal)
+	f.must(err, "a refused Delete keeps the principal")
+	gone := edit(func(x *core.ChannelIdentity) {
+		x.Status, x.Principal, x.Via, x.CanApprove = core.IdentityBlocked, "", "", false
+	})
+	f.must(f.s.Tx(f.ctx, func(tx core.Store) error {
+		if err := tx.Identities().Update(f.ctx, gone); err != nil {
+			return err
+		}
+		return tx.Principals().Delete(f.ctx, bobSpace.Principal)
+	}), "forget: identity first, then the principal")
+	stored, err = r.Get(f.ctx, "telegram", "1001")
+	f.must(err, "the identity outlives its principal")
+	f.check(stored.Status == core.IdentityBlocked && stored.Principal == "", "forgotten identity = %+v", stored)
 
 	f.must(r.Delete(f.ctx, "discord", "77"), "Delete")
 	_, err = r.Get(f.ctx, "discord", "77")
 	f.want(err, core.ErrNotFound, "Get after Delete")
 	f.want(r.Delete(f.ctx, "discord", "77"), core.ErrNotFound, "Delete missing")
-}
-
-func testPairings(f *fx) {
-	r := f.s.Pairings()
-	u := f.user(core.RoleMember)
-	now := at(100)
-
-	link := &core.Pairing{CodeHash: sum("7KQ2MX4D"), Purpose: core.PairLinkIdentity, User: u.ID, CreatedBy: u.ID, ExpiresAt: now.Add(10 * time.Minute)}
-	f.must(r.Create(f.ctx, link), "Create")
-	f.want(r.Create(f.ctx, &core.Pairing{CodeHash: sum("7KQ2MX4D"), Purpose: core.PairLinkIdentity, ExpiresAt: now}), core.ErrConflict, "duplicate code_hash")
-	f.want(r.Create(f.ctx, &core.Pairing{CodeHash: sum("x1"), Purpose: "invite", ExpiresAt: now}), core.ErrInvalid, "purpose CHECK")
-	f.want(r.Create(f.ctx, &core.Pairing{CodeHash: sum("x2"), Purpose: core.PairLinkIdentity, User: core.UserID(core.NewID(core.PrefixUser)), ExpiresAt: now}), core.ErrInvalid, "user_id foreign key")
-
-	_, err := r.Redeem(f.ctx, sum("7KQ2MX4D"), core.PairApproveSender, now)
-	f.want(err, core.ErrNotFound, "Redeem with the wrong purpose")
-	_, err = r.Redeem(f.ctx, sum("WRONG"), core.PairLinkIdentity, now)
-	f.want(err, core.ErrNotFound, "Redeem a wrong code")
-	_, err = r.Redeem(f.ctx, sum("7KQ2MX4D"), core.PairLinkIdentity, now.Add(11*time.Minute))
-	f.want(err, core.ErrNotFound, "Redeem an expired code")
-	got, err := r.Redeem(f.ctx, sum("7KQ2MX4D"), core.PairLinkIdentity, now)
-	f.must(err, "Redeem")
-	want := *link
-	want.UsedAt = now
-	f.eq("Redeem returns the row marked used", got, &want)
-	_, err = r.Redeem(f.ctx, sum("7KQ2MX4D"), core.PairLinkIdentity, now)
-	f.want(err, core.ErrNotFound, "Redeem twice")
-
-	approve := &core.Pairing{CodeHash: sum("AAAABBBB"), Purpose: core.PairApproveSender, Channel: "telegram", ExternalID: "1001", ExpiresAt: now.Add(time.Hour)}
-	f.must(r.Create(f.ctx, approve), "Create approve_sender")
-	got, err = r.ForIdentity(f.ctx, "telegram", "1001", core.PairApproveSender, now)
-	f.must(err, "ForIdentity")
-	f.eq("ForIdentity round trip", got, approve)
-	_, err = r.ForIdentity(f.ctx, "telegram", "1001", core.PairApproveSender, now.Add(2*time.Hour))
-	f.want(err, core.ErrNotFound, "ForIdentity after expiry")
-	_, err = r.ForIdentity(f.ctx, "telegram", "1002", core.PairApproveSender, now)
-	f.want(err, core.ErrNotFound, "ForIdentity of another identity")
-	_, err = r.ForIdentity(f.ctx, "telegram", "1001", core.PairLinkIdentity, now)
-	f.want(err, core.ErrNotFound, "ForIdentity with another purpose")
-	_, err = r.Redeem(f.ctx, sum("AAAABBBB"), core.PairApproveSender, now)
-	f.must(err, "Redeem approve_sender")
-	_, err = r.ForIdentity(f.ctx, "telegram", "1001", core.PairApproveSender, now)
-	f.want(err, core.ErrNotFound, "ForIdentity after Redeem")
 }
 
 func testAuthSessions(f *fx) {
@@ -490,15 +489,17 @@ func testTokens(f *fx) {
 }
 
 // testUserDelete checks the purge cascade: deleting a user removes its
-// principals and everything they own, keeps other users' rows, and refuses
-// while a linked identity still points at the user.
+// principal and everything it owns, keeps other users' rows, and never
+// touches team-owned principals (channels, teammates).
 func testUserDelete(f *fx) {
 	alice := f.user(core.RoleMember)
 	bob := f.user(core.RoleMember)
 	pa, pb := core.UserPrincipal(alice.ID), core.UserPrincipal(bob.ID)
-	sp := f.space(alice)
+	sp := f.space()
+	person, _ := f.teammate("telegram", "77")
 	s := f.session(pa)
 	ss := f.session(sp.Principal)
+	ps := f.session(person.Principal)
 	sb := f.session(pb)
 	f.must(f.s.Messages().Append(f.ctx, textMsg(s.ID, core.MsgUser, core.ProvUser, "alice secret", 1)), "Append")
 	f.must(f.s.Messages().Append(f.ctx, textMsg(sb.ID, core.MsgUser, core.ProvUser, "bob keeps this", 1)), "Append")
@@ -516,30 +517,27 @@ func testUserDelete(f *fx) {
 	if signIns {
 		f.must(sis.SignIns().Create(f.ctx, &core.SignIn{Provider: core.SignInGoogle, Subject: "alice-sub", User: alice.ID, CreatedAt: at(1)}), "Create sign-in")
 	}
-	_, err = f.s.Identities().Touch(f.ctx, &core.ChannelIdentity{Channel: "telegram", ExternalID: "77", LastSeen: at(4)})
-	f.must(err, "Touch identity")
-	f.must(f.s.Identities().Update(f.ctx, &core.ChannelIdentity{Channel: "telegram", ExternalID: "77", Status: core.IdentityLinked,
-		User: alice.ID, FirstSeen: at(4), LastSeen: at(4)}), "link identity")
 
-	f.want(f.s.Users().Delete(f.ctx, alice.ID), core.ErrInvalid, "Delete with a linked identity")
-	_, err = f.s.Users().Get(f.ctx, alice.ID)
-	f.must(err, "a refused Delete keeps the user")
-	f.must(f.s.Identities().Delete(f.ctx, "telegram", "77"), "Delete identity")
 	f.must(f.s.Users().Delete(f.ctx, alice.ID), "Delete")
 	f.want(f.s.Users().Delete(f.ctx, alice.ID), core.ErrNotFound, "Delete of a missing user")
 
 	sys := core.SystemViewer()
 	_, err = f.s.Users().Get(f.ctx, alice.ID)
 	f.want(err, core.ErrNotFound, "user after Delete")
-	ps, err := f.s.Principals().ForUser(f.ctx, alice.ID)
+	got, err := f.s.Principals().ForUser(f.ctx, alice.ID)
 	f.must(err, "ForUser")
-	f.check(len(ps) == 0, "principals after Delete = %d", len(ps))
-	_, err = f.s.Spaces().Get(f.ctx, sys, sp.Principal)
-	f.want(err, core.ErrNotFound, "space after Delete")
-	for _, id := range []core.SessionID{s.ID, ss.ID} {
+	f.check(len(got) == 0, "principals after Delete = %d", len(got))
+	_, err = f.s.Sessions().Get(f.ctx, sys, s.ID)
+	f.want(err, core.ErrNotFound, "session after Delete")
+	for _, id := range []core.SessionID{ss.ID, ps.ID} {
 		_, err = f.s.Sessions().Get(f.ctx, sys, id)
-		f.want(err, core.ErrNotFound, "session after Delete")
+		f.must(err, "a team-owned principal's session survives a user's Delete")
 	}
+	_, err = f.s.Spaces().Get(f.ctx, sys, sp.Principal)
+	f.must(err, "a channel survives a user's Delete")
+	ident, err := f.s.Identities().Get(f.ctx, "telegram", "77")
+	f.must(err, "a teammate survives a user's Delete")
+	f.check(ident.Principal == person.Principal, "teammate after a user's Delete = %+v", ident)
 	_, err = f.s.Runs().Get(f.ctx, sys, run.ID)
 	f.want(err, core.ErrNotFound, "run after Delete")
 	_, err = f.s.Approvals().Get(f.ctx, sys, apr.ID)

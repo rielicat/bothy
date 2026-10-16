@@ -54,7 +54,6 @@ func (s *store) Users() core.UserRepo               { return userRepo{s} }
 func (s *store) Principals() core.PrincipalRepo     { return principalRepo{s} }
 func (s *store) Spaces() core.SpaceRepo             { return spaceRepo{s} }
 func (s *store) Identities() core.IdentityRepo      { return identityRepo{s} }
-func (s *store) Pairings() core.PairingRepo         { return pairingRepo{s} }
 func (s *store) AuthSessions() core.AuthSessionRepo { return authSessionRepo{s} }
 func (s *store) Tokens() core.TokenRepo             { return tokenRepo{s} }
 func (s *store) Sessions() core.SessionRepo         { return sessionRepo{s} }
@@ -109,8 +108,8 @@ type urlKey struct {
 }
 
 type spendKey struct {
-	user core.UserID
-	day  string
+	principal core.PrincipalID
+	day       string
 }
 
 type pinKey struct{ server, tool, hash string }
@@ -127,21 +126,17 @@ type identRow struct {
 	n  int64
 }
 
-type pairingRow struct {
-	p core.Pairing
-	n int64
-}
-
 type grantRow struct {
 	g         core.Grant
 	revokedAt time.Time
 }
 
 type llmRow struct {
-	run  core.RunID
-	user core.UserID
-	c    core.CallInfo
-	at   time.Time
+	run       core.RunID
+	principal core.PrincipalID
+	user      core.UserID
+	c         core.CallInfo
+	at        time.Time
 }
 
 type toolCallRow struct {
@@ -198,7 +193,6 @@ type state struct {
 	principals  map[core.PrincipalID]core.Principal
 	spaces      map[core.PrincipalID]core.Space
 	identities  map[identKey]identRow
-	pairings    map[string]pairingRow
 	authSess    map[string]core.AuthSession
 	tokens      map[string]core.TokenRecord
 	sessions    map[core.SessionID]core.Session
@@ -237,7 +231,6 @@ func newState() state {
 		principals:  map[core.PrincipalID]core.Principal{},
 		spaces:      map[core.PrincipalID]core.Space{},
 		identities:  map[identKey]identRow{},
-		pairings:    map[string]pairingRow{},
 		authSess:    map[string]core.AuthSession{},
 		tokens:      map[string]core.TokenRecord{},
 		sessions:    map[core.SessionID]core.Session{},
@@ -269,7 +262,6 @@ func (st *state) clone() state {
 	c.principals = maps.Clone(st.principals)
 	c.spaces = maps.Clone(st.spaces)
 	c.identities = maps.Clone(st.identities)
-	c.pairings = maps.Clone(st.pairings)
 	c.authSess = maps.Clone(st.authSess)
 	c.tokens = maps.Clone(st.tokens)
 	c.sessions = maps.Clone(st.sessions)

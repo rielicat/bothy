@@ -91,12 +91,12 @@ type Runner struct {
 	closing atomic.Bool
 
 	pauseMu  sync.Mutex
-	pausedBy core.UserID
+	pausedBy string // a user id or a chat actor
 	pausedAt time.Time
 
 	mu      sync.Mutex
 	workers map[core.SessionID]*worker
-	users   map[core.UserID]*semaphore
+	users   map[string]*semaphore // by semKey
 	prefix  map[core.SessionID]prefixMark
 	wsMarks map[core.WorkspaceID]bool // workspaces known to hold untrusted content
 	global  *semaphore
@@ -146,7 +146,7 @@ func New(d Deps) (*Runner, error) {
 		log:     d.Log,
 		clock:   d.Clock,
 		workers: map[core.SessionID]*worker{},
-		users:   map[core.UserID]*semaphore{},
+		users:   map[string]*semaphore{},
 		prefix:  map[core.SessionID]prefixMark{},
 		wsMarks: map[core.WorkspaceID]bool{},
 		drafts:  map[core.SessionID]string{},
@@ -373,6 +373,13 @@ func (r *Runner) auditf(ctx context.Context, actor, action, target, outcome stri
 			return
 		}
 		raw = b
+	}
+	// A chat caller acts with no account (by ""): who it was travels with ctx.
+	if actor == "user:" {
+		actor = "system"
+		if o, ok := core.AuditOriginFrom(ctx); ok && o.Actor != "" {
+			actor = o.Actor
+		}
 	}
 	e := core.AuditEntry{At: r.now(), Actor: actor, Action: action, Target: target, Outcome: outcome, Session: sess, Run: run, Detail: raw}
 	if err := r.d.Audit.Record(ctx, e); err != nil {

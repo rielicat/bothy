@@ -35,6 +35,8 @@ func TestRender(t *testing.T) {
 		{`not \*italic\*`, `not *italic*`},
 		{"**unclosed and *also", "**unclosed and *also"},
 		{"[a|b](https://x.example)", "<https://x.example|a¦b>"},
+		{"[Maya](slack://user?id=U0123ABC) asked", "<@U0123ABC> asked"},
+		{"[x](slack://user?id=U1>|<!channel)", "x (slack://user?id=U1&gt;|&lt;!channel)"},
 	}
 	for _, tt := range tests {
 		if got := render(tt.in); got != tt.want {
@@ -118,7 +120,7 @@ func (s *fakeSocket) Ack(_ context.Context, id string) error {
 
 func TestFullQueueLeavesRequestUnacked(t *testing.T) {
 	a := &adapter{log: slog.New(slog.DiscardHandler), clock: core.SystemClock{}}
-	a.setSelf("UBOT", "BBOT", "bothy")
+	a.setSelf(&slack.AuthTestResponse{UserID: "UBOT", BotID: "BBOT", User: "bothy"})
 	sock := &fakeSocket{}
 	jobs := make(chan job, 1)
 	event := func(id string) socketmode.Event {

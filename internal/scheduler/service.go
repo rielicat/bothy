@@ -180,7 +180,7 @@ func (s *Service) normalize(ctx context.Context, in *core.Schedule) (*core.Sched
 		return nil, plan{}, fmt.Errorf("principal %q: %w", sc.Principal, err)
 	}
 	if sc.Kind == core.SchedHeartbeat && prin.Kind != core.PrincipalUser {
-		return nil, plan{}, invalidf("a heartbeat needs HEARTBEAT.md, and spaces have no memory")
+		return nil, plan{}, invalidf("a check-in needs an account on the web")
 	}
 	if sc.Deliver, err = s.checkDeliver(ctx, prin, sc.Deliver); err != nil {
 		return nil, plan{}, err
@@ -198,8 +198,9 @@ func (s *Service) normalize(ctx context.Context, in *core.Schedule) (*core.Sched
 }
 
 // checkDeliver confines delivery to chats the principal's output may reach
-// (ownChat). A channel without a chat id means "the owner's DM on that
-// channel", resolved when the schedule fires.
+// (ownChat). A channel without a chat id means the principal's own chat on
+// that channel, resolved when the schedule fires. The web is only for
+// accounts: a teammate or channel hears in their chat.
 func (s *Service) checkDeliver(ctx context.Context, prin *core.Principal, d *core.ChatRef) (*core.ChatRef, error) {
 	if d == nil {
 		return nil, nil
@@ -207,6 +208,8 @@ func (s *Service) checkDeliver(ctx context.Context, prin *core.Principal, d *cor
 	c := *d
 	c.Channel = strings.TrimSpace(c.Channel)
 	switch {
+	case c.Channel == "web" && prin.TeamOwned():
+		return nil, invalidf("deliver: web is only for accounts on the web; use preferred")
 	case c.Channel == "web":
 		return &core.ChatRef{Channel: "web"}, nil
 	case !channelNameRe.MatchString(c.Channel):
@@ -218,10 +221,8 @@ func (s *Service) checkDeliver(ctx context.Context, prin *core.Principal, d *cor
 	switch {
 	case err != nil:
 		return nil, err
-	case !ok && prin.Kind == core.PrincipalSpace:
-		return nil, invalidf("deliver: %s chat %s is neither this space's chat nor a direct chat of its owner", c.Channel, c.ChatID)
 	case !ok:
-		return nil, invalidf("deliver: %s chat %s is not one of your direct chats", c.Channel, c.ChatID)
+		return nil, invalidf("deliver: %s chat %s is not this principal's own chat", c.Channel, c.ChatID)
 	}
 	return &chat, nil
 }

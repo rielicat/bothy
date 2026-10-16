@@ -141,13 +141,14 @@ func TestMisc(t *testing.T) {
 	if dm, _ := c.OpenDM(ctx, "U1"); dm != (core.ChatRef{Channel: "slack", ChatID: "U1", Kind: core.ChatDM}) {
 		t.Fatalf("OpenDM = %+v", dm)
 	}
-	if c.DeepLink("CODE") != "" || c.Status().DeepLinks {
-		t.Fatal("deep links supported by default")
+	if _, err := c.InspectChat(ctx, core.ChatRef{ChatID: "C1"}); !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("InspectChat of an unknown chat = %v", err)
 	}
-	c.DeepLinkBase, c.IdentityV = "https://t.me/bothy_bot?start=", "@bothy_bot"
-	if c.DeepLink("CODE") != "https://t.me/bothy_bot?start=CODE" {
-		t.Fatal("DeepLink")
+	c.SetChat("C1", core.ChatInfo{Title: "#eng", Members: 12, External: true})
+	if info, err := c.InspectChat(ctx, core.ChatRef{ChatID: "C1"}); err != nil || info.Title != "#eng" || info.Members != 12 || !info.External {
+		t.Fatalf("InspectChat = %+v, %v", info, err)
 	}
+	c.IdentityV = "@bothy_bot"
 	if id, err := c.SelfTest(ctx); id != "@bothy_bot" || err != nil {
 		t.Fatalf("SelfTest = %q, %v", id, err)
 	}

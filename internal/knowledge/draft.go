@@ -259,7 +259,7 @@ func (s *Service) draft(ctx context.Context, r *core.IndexedRepo, p *core.Princi
 		return "", errNoModel
 	}
 	if s.d.Budget != nil {
-		if err := s.d.Budget.CheckDaily(ctx, p.User); err != nil {
+		if err := s.d.Budget.CheckDaily(ctx, p.ID); err != nil {
 			return "", err
 		}
 	}
@@ -304,7 +304,7 @@ func (s *Service) draft(ctx context.Context, r *core.IndexedRepo, p *core.Princi
 	resp, ci, err := s.d.LLM.Complete(ctx, slot, nil, build, nil)
 	if (ci.Ref.Model != "" || ci.Cost > 0) && s.d.Budget != nil {
 		ci.Purpose = "notes"
-		if serr := s.d.Budget.RecordSpend(context.WithoutCancel(ctx), p.User, ci); serr != nil {
+		if serr := s.d.Budget.RecordSpend(context.WithoutCancel(ctx), p.ID, ci); serr != nil {
 			s.log.Warn("knowledge: record notes spend", "err", serr)
 		}
 	}

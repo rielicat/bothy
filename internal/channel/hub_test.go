@@ -102,13 +102,12 @@ func TestHotReloadStartsStopsAndRestartsAdapters(t *testing.T) {
 	})
 }
 
-func TestStatusTestDeepLinkAndChecks(t *testing.T) {
+func TestStatusTestAndChecks(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		var rc *reconfChannel
 		h := newHarness(t, withReconf(&rc))
 		sub := h.bus.Subscribe(core.Filter{Admin: true, Types: []core.EventType{core.EvChannelStatus}}, 16)
 		defer sub.Close()
-		h.ch.DeepLinkBase = "https://t.me/bothy_bot?start="
 		h.start()
 		time.Sleep(3 * time.Second)
 		synctest.Wait()
@@ -120,9 +119,6 @@ func TestStatusTestDeepLinkAndChecks(t *testing.T) {
 		}
 		if _, err := h.hub.Test(h.ctx, "matrix"); !errors.Is(err, core.ErrNotFound) {
 			t.Fatalf("Test(unknown) = %v", err)
-		}
-		if got := h.hub.DeepLink("telegram", "AB12-CD34"); got != "https://t.me/bothy_bot?start=AB12-CD34" {
-			t.Fatalf("DeepLink = %q", got)
 		}
 		checks := h.hub.Checks()
 		if len(checks) != 1 || checks[0].ID() != "channels.auth_failed" || len(checks[0].Run(h.ctx)) != 0 {
@@ -145,9 +141,6 @@ func TestStatusTestDeepLinkAndChecks(t *testing.T) {
 		}
 		h.cfg.Set(func(c *config.Config) { c.Channels.Telegram.Enabled = false })
 		synctest.Wait()
-		if got := h.hub.DeepLink("telegram", "AB12-CD34"); got != "" {
-			t.Fatalf("DeepLink of a disabled channel = %q", got)
-		}
 		if f := checks[0].Run(h.ctx); len(f) != 0 {
 			t.Fatalf("disabled channel reported %+v", f)
 		}
@@ -201,7 +194,7 @@ func TestMessengerSend(t *testing.T) {
 		if got := h.lastText(ownerChat); got != "see https://evil.example/x" {
 			t.Fatalf("clean chat got %q", got)
 		}
-		sess, err := h.runner.NewSession(h.ctx, core.UserPrincipal(h.owner.ID), "telegram", &chat)
+		sess, err := h.runner.NewSession(h.ctx, h.pid(ownerChat), "telegram", &chat)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -226,24 +219,62 @@ func TestMessengerSend(t *testing.T) {
 	})
 }
 
-func TestPreferredChatIsMostRecentLiveDM(t *testing.T) {
+// TestPrincipalChatAndTeamActive: Bothy's own messages reach a teammate's
+// DM (opened when Bothy hasn't seen it) while their verdict is fresh enough,
+// a channel's chat while it is on, and never a web account.
+func TestPrincipalChatAndTeamActive(t *testing.T) {
 	bubble(t, func(t *testing.T) {
-		h := newHarness(t).start()
-		if c, ok := h.hub.PreferredChat(h.ctx, h.owner.ID); !ok || c != h.dmChat(ownerChat) {
-			t.Fatalf("PreferredChat = %+v, %v", c, ok)
+		h := newHarness(t, withChecker("slack")).start()
+		maya := h.pid(ownerChat)
+		if c, ok := h.hub.PrincipalChat(h.ctx, maya); !ok || c != h.dmChat(ownerChat) {
+			t.Fatalf("PrincipalChat(teammate) = %+v, %v", c, ok)
 		}
-		time.Sleep(time.Minute)
-		h.link("1009", h.owner)
-		if _, err := h.store.Identities().Touch(h.ctx, &core.ChannelIdentity{Channel: "slack", ExternalID: "U1",
-			Status: core.IdentityLinked, User: h.owner.ID, DMChat: "D1", LastSeen: time.Now().Add(time.Hour)}); err != nil {
+		if err := h.hub.TeamActive(h.ctx, maya); err != nil {
+			t.Fatalf("TeamActive(teammate) = %v", err)
+		}
+		// A teammate whose DM Bothy never saw: the DM is opened.
+		sam := h.letIn("3003", "Sam", false)
+		id := h.ident("3003")
+		id.DMChat = ""
+		if err := h.store.Identities().Update(h.ctx, id); err != nil {
 			t.Fatal(err)
 		}
-		if c, ok := h.hub.PreferredChat(h.ctx, h.owner.ID); !ok || c.ChatID != "1009" {
-			t.Fatalf("PreferredChat = %+v, %v; want the newest DM on a live channel", c, ok)
+		if c, ok := h.hub.PrincipalChat(h.ctx, sam); !ok || c.ChatID != "3003" || h.ident("3003").DMChat != "3003" {
+			t.Fatalf("PrincipalChat(no DM yet) = %+v, %v", c, ok)
 		}
-		stranger := h.user("sam", "Sam", core.RoleMember)
-		if _, ok := h.hub.PreferredChat(h.ctx, stranger.ID); ok {
-			t.Fatal("a user without a linked DM has a preferred chat")
+
+		// After five hours with Slack not answering, the verdict is too old.
+		h.mc.SetMemberErr(errors.New("slack is down"))
+		time.Sleep(5 * time.Hour)
+		if _, ok := h.hub.PrincipalChat(h.ctx, maya); ok {
+			t.Fatal("a stale verdict still reaches the teammate")
+		}
+		if err := h.hub.TeamActive(h.ctx, maya); err == nil {
+			t.Fatal("a stale verdict that couldn't be renewed is active")
+		}
+		h.mc.SetMemberErr(nil)
+		if err := h.hub.TeamActive(h.ctx, maya); err != nil {
+			t.Fatalf("TeamActive renews an old verdict: %v", err)
+		}
+		h.mc.SetMember(ownerChat, core.Membership{Status: core.MemberOutsider})
+		time.Sleep(2 * time.Hour)
+		if err := h.hub.TeamActive(h.ctx, maya); err == nil || !strings.Contains(err.Error(), "no longer in the team") {
+			t.Fatalf("TeamActive(outsider) = %v", err)
+		}
+
+		sp := h.space("C1", true, false)
+		if c, ok := h.hub.PrincipalChat(h.ctx, sp.Principal); !ok || c != h.groupChat("C1") {
+			t.Fatalf("PrincipalChat(channel) = %+v, %v", c, ok)
+		}
+		off := h.space("C2", false, false)
+		if _, ok := h.hub.PrincipalChat(h.ctx, off.Principal); ok {
+			t.Fatal("an off channel gets messages")
+		}
+		if err := h.hub.TeamActive(h.ctx, off.Principal); err == nil {
+			t.Fatal("an off channel is active")
+		}
+		if _, ok := h.hub.PrincipalChat(h.ctx, core.UserPrincipal(h.owner.ID)); ok {
+			t.Fatal("a web account has a chat")
 		}
 	})
 }

@@ -177,7 +177,7 @@ func TestShellDeleteIsIrreversible(t *testing.T) {
 	if g.MaxSE != core.SEIrreversible {
 		t.Errorf("session grant ceiling %s, want irreversible", g.MaxSE)
 	}
-	if _, ok := h.engine.NarrowGrant(rm, h.ownerP.ID, core.GrantPrincipal, "", h.owner.ID); ok {
+	if _, ok := h.engine.NarrowGrant(rm, h.ownerP.ID, core.GrantPrincipal, "", core.Decider{User: h.owner.ID}); ok {
 		t.Error("an always grant was built for a deleting command")
 	}
 	choices, err := h.ap.offered(h.ctx, core.ApprovalRequest{Action: rm, Spec: s,

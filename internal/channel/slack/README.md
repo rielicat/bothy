@@ -35,8 +35,22 @@ workspace (Slack: OAuth & Permissions → Reinstall to Workspace), which leaves
 `ChatTitle` empty, so spaces keep names like "Slack group C0123", and logs one
 warning an hour.
 
+Slack decides who can use Bothy (`core.MemberChecker`): a full member of the
+workspace the bot token belongs to, or of any workspace of the same
+Enterprise Grid org, is a member; guests, Slack Connect strangers,
+deactivated accounts, bots, workflow bots and Slackbot are outsiders
+(`user_not_found` too). Before `auth.test` answered, a check is an error, not
+a verdict, and so is any other API error. Verdicts are cached five minutes,
+apart from the hour-long name cache; one `users.info` call fills both when
+they race. `MemberScope` is `team/enterprise`, and `Status()` reports the
+workspace name (`Team`) and whether it is an org install (`Org`). Messages
+from other apps and workflows (`bot_id`, `bot_profile`) are dropped.
+`InspectChat` reads `conversations.info` with the member count and whether
+the channel is shared with another company.
+
 `slacktest` is a fake Slack (Web API, Socket Mode with pings, files and
 response URLs) implementing `conformance.PlatformFake`, shared with the E2E
-suite. `TestManifestScopesCoverEveryCall` checks every Web API method the
+suite; `SetUserFlags` and `SetChannelInfo` set what `users.info` and
+`conversations.info` report. `TestManifestScopesCoverEveryCall` checks every Web API method the
 adapter calls against the bot scopes of the manifest the server serves
 (httpapi's golden copy of SPEC §8.6).

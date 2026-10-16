@@ -267,6 +267,11 @@ func (s *Server) revokeScheduleGrants(ctx context.Context, a core.Actor, id core
 }
 
 func (s *Server) patchSchedule(w http.ResponseWriter, r *http.Request, a core.Actor) error {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return err
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
 	var req dto.ScheduleUpsertReq
 	if err := decode(r, &req); err != nil {
 		return err
@@ -275,7 +280,13 @@ func (s *Server) patchSchedule(w http.ResponseWriter, r *http.Request, a core.Ac
 		return errGrantsCookieOnly
 	}
 	ctx := r.Context()
-	cur, err := s.d.Store.Schedules().Get(ctx, a.Viewer, core.ScheduleID(r.PathValue("id")))
+	id := core.ScheduleID(r.PathValue("id"))
+	cur, err := s.d.Store.Schedules().Get(ctx, a.Viewer, id)
+	if errors.Is(err, core.ErrNotFound) {
+		if team, ok := s.teamSchedule(ctx, a, id); ok {
+			return s.patchTeamSchedule(w, r, a, team, body)
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -303,17 +314,61 @@ func (s *Server) patchSchedule(w http.ResponseWriter, r *http.Request, a core.Ac
 func (s *Server) deleteSchedule(w http.ResponseWriter, r *http.Request, a core.Actor) error {
 	ctx := r.Context()
 	id := core.ScheduleID(r.PathValue("id"))
-	if _, err := s.d.Store.Schedules().Get(ctx, a.Viewer, id); err != nil {
+	v := a.Viewer
+	if _, err := s.d.Store.Schedules().Get(ctx, v, id); err != nil {
+		team, ok := s.teamSchedule(ctx, a, id)
+		if !errors.Is(err, core.ErrNotFound) || !ok {
+			return err
+		}
+		v = teamScheduleViewer(a, team)
+	}
+	if err := s.d.Scheduler.Delete(ctx, v, id, a.User); err != nil {
 		return err
 	}
-	if err := s.d.Scheduler.Delete(ctx, a.Viewer, id, a.User); err != nil {
-		return err
-	}
-	if err := s.revokeScheduleGrants(ctx, a, id); err != nil {
+	if err := s.revokeScheduleGrants(ctx, core.Actor{User: a.User, Viewer: v}, id); err != nil {
 		return err
 	}
 	s.audit(r, a, "schedule.delete", "schedule:"+string(id), "ok", nil)
 	return noContent(w)
+}
+
+// teamScheduleViewer lets an admin act on one team schedule, nothing more.
+func teamScheduleViewer(a core.Actor, sc *core.Schedule) core.Viewer {
+	return core.Viewer{User: a.User, Admin: true, Principals: []core.PrincipalID{sc.Principal}}
+}
+
+// patchTeamSchedule turns a teammate's or a channel's schedule on or off;
+// anything else about it is changed by asking Bothy in their chat.
+func (s *Server) patchTeamSchedule(w http.ResponseWriter, r *http.Request, a core.Actor, cur *core.Schedule, body []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return badRequest("invalid JSON: %v", err)
+	}
+	var enabled *bool
+	for k, raw := range fields {
+		if k != "enabled" {
+			return badRequest("Only turning it on or off can be changed here.")
+		}
+		if err := json.Unmarshal(raw, &enabled); err != nil || enabled == nil {
+			return badRequest("enabled must be true or false")
+		}
+	}
+	if enabled == nil {
+		return badRequest("Only turning it on or off can be changed here.")
+	}
+	ctx := r.Context()
+	v := teamScheduleViewer(a, cur)
+	sc := *cur
+	sc.Enabled = *enabled
+	if err := s.d.Scheduler.Upsert(ctx, v, &sc, byString(a)); err != nil {
+		return err
+	}
+	s.audit(r, a, "schedule.update", "schedule:"+string(sc.ID), "ok", map[string]any{"name": sc.Name, "kind": sc.Kind, "enabled": sc.Enabled})
+	got, err := s.d.Store.Schedules().Get(ctx, v, sc.ID)
+	if err != nil {
+		return err
+	}
+	return ok(w, got)
 }
 
 func (s *Server) runSchedule(w http.ResponseWriter, r *http.Request, a core.Actor) error {
@@ -777,7 +832,7 @@ func (s *Server) usage(w http.ResponseWriter, r *http.Request, a core.Actor) err
 
 func (s *Server) usageToday(w http.ResponseWriter, r *http.Request, a core.Actor) error {
 	ctx := r.Context()
-	spent, limit, err := s.d.Budget.Daily(ctx, a.User)
+	spent, limit, err := s.d.Budget.Daily(ctx, core.UserPrincipal(a.User))
 	if err != nil {
 		return err
 	}
@@ -878,7 +933,7 @@ func (s *Server) pause(w http.ResponseWriter, r *http.Request, a core.Actor) err
 		banner := core.BannerData{Code: "paused", Clear: true}
 		if req.Paused {
 			by, at := s.d.Runner.PausedBy()
-			banner = core.PausedBanner(by, s.namer(ctx, a.Viewer).user(by), at)
+			banner = core.PausedBanner(by, s.namer(ctx, a.Viewer).who(by), at)
 		}
 		s.d.Bus.Publish(core.Event{Type: core.EvBanner, Data: banner})
 	}

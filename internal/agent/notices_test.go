@@ -79,8 +79,8 @@ func TestModelErrorNotice(t *testing.T) {
 			}
 			return ci
 		}
-		admin := &runState{user: &core.User{Role: core.RoleAdmin}}
-		member := &runState{user: &core.User{Role: core.RoleMember}}
+		admin := &runState{user: &core.User{Role: core.RoleAdmin}, role: core.RoleAdmin}
+		member := &runState{user: &core.User{Role: core.RoleMember}, role: core.RoleMember}
 		for _, c := range []struct {
 			rs   *runState
 			ci   core.CallInfo

@@ -28,6 +28,9 @@ const (
 
 	warnExposed   = "This chat has seen private information and content from outside. Check carefully before letting anything leave."
 	warnUntrusted = "This request came from content Bothy read (a web page, repository or message), not from a person."
+
+	floorTeammate  = "floor:teammate"
+	teammateReason = "Bothy checks with an approver before it changes or sends anything for people in chat apps"
 )
 
 // contactWarning is the card line for a first contact (§8.3 of the UI plan).
@@ -43,8 +46,11 @@ func contactWarning(a *core.Action, p core.Principal, kind, target string) strin
 		// First contact is per principal: another person's pull requests in
 		// the repository don't count.
 		who := "you"
-		if p.Kind == core.PrincipalSpace {
+		switch p.Kind {
+		case core.PrincipalSpace:
 			who = "this group chat"
+		case core.PrincipalPerson:
+			who = inline(p.DisplayName)
 		}
 		return "This is the first pull request Bothy opens in " + inline(strings.TrimPrefix(target, "github:")) + " for " + who + "."
 	}
@@ -367,7 +373,34 @@ func (e *Engine) floors(ctx context.Context, x *input, rule *config.Rule) (core.
 	if m.AlwaysAsk {
 		return askFloor("floor:always_ask", cmp.Or(m.Title, x.a.Tool)+" always needs approval", false)
 	}
+	if x.Principal.Kind == core.PrincipalPerson && x.se > core.SERead && !fpExempt(x) {
+		return e.teammateFloor(ctx, x, rule), true
+	}
 	return core.Decision{}, false
+}
+
+// fpExempt: the teammate's own memory, and checking out a repository Bothy
+// may read without discarding anything (local_write; a discarding checkout
+// is irreversible), copy nothing out and lose nothing.
+func fpExempt(x *input) bool {
+	return x.a.Tool == toolMemory || x.a.Tool == toolRepoCheckout && x.se == core.SELocalWrite
+}
+
+// teammateFloor is FP: everything above read that Bothy does for a person
+// in a chat app waits for an approver, unless an earlier approval's grant
+// covers it. A deny rule still denies; a rule auto never lifts it.
+func (e *Engine) teammateFloor(ctx context.Context, x *input, rule *config.Rule) core.Decision {
+	if rule != nil && core.Verdict(rule.Verdict) == core.VerdictDeny {
+		return ruleDenied(rule)
+	}
+	if g := e.useGrant(ctx, x); g != nil {
+		return allowed("grant:"+string(g.ID), "allowed by an earlier approval")
+	}
+	d := e.ask(x, askSpec{rule: floorTeammate, reason: teammateReason, floor: true, grants: true})
+	if kind, target, first := e.firstContact(ctx, x); first {
+		d.Warnings = append(d.Warnings, contactWarning(x.a, x.Principal, kind, target))
+	}
+	return d
 }
 
 // adminReason is F3's reason as the approval card's "Why Bothy asked" shows it.
@@ -560,9 +593,12 @@ type askSpec struct {
 
 func (e *Engine) ask(x *input, s askSpec) core.Decision {
 	d := core.Decision{Verdict: core.VerdictAsk, Rule: s.rule, Reason: s.reason, Floor: s.floor}
-	if s.admin {
+	switch {
+	case s.admin:
 		d.Approver = core.ApproverReq{AdminOnly: true}
-	} else {
+	case x.Principal.TeamOwned():
+		d.Approver = core.ApproverReq{Team: true}
+	default:
 		d.Approver = core.ApproverReq{User: x.User}
 	}
 	d.Timeout, d.OnTimeout = timeouts(x.cfg, x.Trigger)
@@ -595,7 +631,7 @@ func (e *Engine) sessionGrantOK(x *input) bool {
 	if x.exposed() || x.Session == "" || x.se >= core.SEFinancial {
 		return false
 	}
-	_, ok := narrowGrant(x.cfg, x.a, x.Principal.ID, core.GrantSession, string(x.Session), x.User, time.Time{})
+	_, ok := narrowGrant(x.cfg, x.a, x.Principal.ID, core.GrantSession, string(x.Session), core.Decider{User: x.User}, time.Time{})
 	return ok
 }
 
@@ -607,7 +643,7 @@ func (e *Engine) alwaysGrantOK(x *input) bool {
 	if x.se == core.SEIrreversible || x.Trigger.Scheduled() || x.Trigger == core.TrigAPI {
 		return false
 	}
-	_, ok := narrowGrant(x.cfg, x.a, x.Principal.ID, core.GrantPrincipal, "", x.User, time.Time{})
+	_, ok := narrowGrant(x.cfg, x.a, x.Principal.ID, core.GrantPrincipal, "", core.Decider{User: x.User}, time.Time{})
 	return ok
 }
 

@@ -21,15 +21,13 @@ const (
 	EvApprovalVoted     EventType = "approval.voted" // ApprovalData: a vote that did not resolve a multi-approver approval
 	EvReleaseDispatched EventType = "release.dispatched"
 	EvReleaseFinished   EventType = "release.finished"
-	EvInboxChanged      EventType = "inbox.changed" // a new unknown sender or group chat item; refetch GET /api/inbox
+	EvInboxChanged      EventType = "inbox.changed" // someone waiting to be let in, a new group chat, or a person's access changed; refetch GET /api/inbox
 	EvMessageCreated    EventType = "message.created"
 	EvSessionUpdated    EventType = "session.updated"
 	EvMemoryUpdated     EventType = "memory.updated"
 	EvEgressBlocked     EventType = "egress.blocked"
 	EvScheduleRun       EventType = "schedule.run"
 	EvBudgetWarning     EventType = "budget.warning"
-	EvPairingLinked     EventType = "pairing.linked"
-	EvPairingBurned     EventType = "pairing.burned"  // a link code was cancelled: it was posted in a group
 	EvChannelStatus     EventType = "channel.status"  // admin broadcast
 	EvSandboxStatus     EventType = "sandbox.status"  // admin broadcast
 	EvMCPPinPending     EventType = "mcp.pin_pending" // admin broadcast
@@ -116,8 +114,10 @@ type ApprovalResolvedData struct {
 	Status   ApprovalStatus `json:"status"`
 	Choice   Choice         `json:"choice,omitempty"`
 	By       UserID         `json:"by,omitempty"`
-	Via      string         `json:"via"`
-	Comment  string         `json:"comment,omitempty"` // the deciding approver's reason
+	// ByIdentity: a chat teammate decided ("<channel>:<external id>"); By is then "".
+	ByIdentity string `json:"by_identity,omitempty"`
+	Via        string `json:"via"`
+	Comment    string `json:"comment,omitempty"` // the deciding approver's reason
 }
 
 // ReleaseDispatchedData: GitHub accepted a deploy's workflow_dispatch.
@@ -145,8 +145,8 @@ type ReleaseFinishedData struct {
 	FailedStep string `json:"failed_step,omitempty"`
 }
 
-// InboxChangedData names the approvals-inbox item that appeared, e.g.
-// "sender:telegram:42" or "group:spc_…" (dto.InboxItem.ID).
+// InboxChangedData names the approvals-inbox item that appeared or changed,
+// "sender:<channel>:<external id>" or "group:<principal>" (dto.InboxItem.ID).
 type InboxChangedData struct {
 	Item string `json:"item"`
 }
@@ -172,21 +172,9 @@ type ScheduleRunData struct {
 	Status   RunStatus  `json:"status"`
 }
 type BudgetWarningData struct {
-	User  UserID `json:"user_id"`
+	User  UserID `json:"user_id"` // the account whose cap it is; "" for the global cap or a team-owned principal
 	Spent Micros `json:"spent_micros"`
 	Limit Micros `json:"limit_micros"`
-}
-type PairingLinkedData struct {
-	Channel    string `json:"channel"`
-	ExternalID string `json:"external_id"`
-	Display    string `json:"display"`
-}
-
-// PairingBurnedData names the cancelled code as NewPairingCode showed it, so
-// a page still showing that code can replace it.
-type PairingBurnedData struct {
-	Channel string `json:"channel"`
-	Code    string `json:"code"`
 }
 type ChannelStatusData struct {
 	Status ChannelStatus `json:"status"`
@@ -203,19 +191,25 @@ type ConfigChangedData struct {
 	RestartRequired []string `json:"restart_required"`
 }
 type BannerData struct {
-	Level  string `json:"level"` // info | warn | error
-	Code   string `json:"code"`  // no_sandbox | sandbox_not_isolated | config_error | provider_auth | provider_key_unread | paused | mcp_pins | mcp_drifted | budget_80 | vault_sealed | safe_mode | restart_required | unknown_sender | skills_changed
+	Level string `json:"level"` // info | warn | error
+	// Code: no_sandbox | sandbox_not_isolated | config_error | provider_auth |
+	// provider_key_unread | paused | mcp_pins | mcp_drifted | budget_80 |
+	// vault_sealed | safe_mode | restart_required | skills_changed |
+	// unknown_sender (someone is waiting to be let in) | new_channel |
+	// team_access (the 0013 migration) | chat_budget_80
+	Code   string `json:"code"`
 	Text   string `json:"text"`
 	Action string `json:"action,omitempty"` // SPA route, e.g. "/settings/sandbox"
 	Clear  bool   `json:"clear,omitempty"`  // true removes the banner with this Code
-	// By, ByName and At say who raised it and when (paused: who paused).
-	By     UserID    `json:"by,omitempty"`
+	// By, ByName and At say who raised it and when (paused: who paused: a
+	// user id, or a chat actor "channel:<app>:<id>").
+	By     string    `json:"by,omitempty"`
 	ByName string    `json:"by_name,omitempty"`
 	At     time.Time `json:"at,omitzero"`
 }
 
 // PausedBanner is the paused banner, naming who paused and when.
-func PausedBanner(by UserID, name string, at time.Time) BannerData {
+func PausedBanner(by string, name string, at time.Time) BannerData {
 	text := "Bothy is paused by an admin."
 	if name != "" {
 		text = "Bothy is paused by " + name + "."
@@ -241,8 +235,6 @@ func (MemoryData) eventData()           {}
 func (EgressBlockedData) eventData()    {}
 func (ScheduleRunData) eventData()      {}
 func (BudgetWarningData) eventData()    {}
-func (PairingLinkedData) eventData()    {}
-func (PairingBurnedData) eventData()    {}
 func (ChannelStatusData) eventData()    {}
 func (SandboxStatusData) eventData()    {}
 func (MCPPinData) eventData()           {}

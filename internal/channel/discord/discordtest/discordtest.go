@@ -78,6 +78,22 @@ type Incoming struct {
 	Attachments []File
 }
 
+// Guild is a server the bot is in: GUILD_CREATE after IDENTIFY announces
+// it, and GET /guilds/{id} describes it.
+type Guild struct {
+	ID      string
+	Name    string
+	Members int // approximate_member_count with with_counts=true
+}
+
+// Member is how GET /guilds/{guild}/members/{user} answers. Status 0 is 200
+// with the member; 404 is Unknown Member and 403 Missing Access.
+type Member struct {
+	Status  int
+	Bot     bool
+	Pending bool
+}
+
 // File is an attachment the fake serves from its own CDN path.
 type File struct {
 	Name string
@@ -126,6 +142,9 @@ type Server struct {
 	limits     map[string]int
 	files      map[string]File
 	requests   []string
+	guilds     map[string]Guild
+	members    map[string]Member // guild + "/" + user
+	chanGuild  map[string]string
 }
 
 type logged struct {
@@ -151,7 +170,10 @@ func New() *Server {
 		pending:   map[string]time.Time{},
 		limits:    map[string]int{},
 		files:     map[string]File{},
+		members:   map[string]Member{},
+		chanGuild: map[string]string{},
 	}
+	s.guilds = map[string]Guild{s.GuildID: {ID: s.GuildID, Name: "Bothy Test"}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /gateway", s.gateway)
 	mux.HandleFunc("GET /resume", s.gateway)
@@ -165,6 +187,8 @@ func New() *Server {
 	bot("DELETE "+apiPrefix+"/channels/{id}/messages/{mid}", s.deleteMessage)
 	bot("POST "+apiPrefix+"/channels/{id}/typing", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	bot("POST "+apiPrefix+"/users/@me/channels", s.openDM)
+	bot("GET "+apiPrefix+"/guilds/{id}", s.guild)
+	bot("GET "+apiPrefix+"/guilds/{id}/members/{user}", s.member)
 	mux.HandleFunc("POST "+apiPrefix+"/interactions/{id}/{token}/callback", s.callback)
 	mux.HandleFunc("POST "+apiPrefix+"/webhooks/{app}/{token}", s.followup)
 	s.srv = httptest.NewServer(s.record(mux))
@@ -217,6 +241,53 @@ func (s *Server) AddThread(threadID, parentID string) {
 	s.mu.Unlock()
 }
 
+// AddGuild adds or renames a server; a connected bot gets GUILD_CREATE.
+func (s *Server) AddGuild(g Guild) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.guilds[g.ID] = g
+	s.dispatchLocked("GUILD_CREATE", s.guildJSON(g, false))
+}
+
+// RemoveGuild takes the bot out of a server with GUILD_DELETE.
+func (s *Server) RemoveGuild(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.guilds, id)
+	s.dispatchLocked("GUILD_DELETE", map[string]any{"id": id})
+}
+
+// SetMember sets how the member lookup of user in guild answers.
+func (s *Server) SetMember(guild, user string, m Member) {
+	s.mu.Lock()
+	s.members[guild+"/"+user] = m
+	s.mu.Unlock()
+}
+
+// SetChannelGuild puts a text channel in another server than GuildID, for
+// GET /channels/{id} and its messages' guild_id.
+func (s *Server) SetChannelGuild(channel, guild string) {
+	s.mu.Lock()
+	s.chanGuild[channel] = guild
+	s.mu.Unlock()
+}
+
+func (s *Server) guildOfLocked(channel string) string {
+	if g, ok := s.chanGuild[channel]; ok {
+		return g
+	}
+	return s.GuildID
+}
+
+func (s *Server) guildJSON(g Guild, counts bool) map[string]any {
+	out := map[string]any{"id": g.ID, "name": g.Name, "owner_id": DefaultUserID, "features": []any{}, "roles": []any{},
+		"emojis": []any{}, "stickers": []any{}, "joined_at": time.Now().UTC().Format(time.RFC3339)}
+	if counts {
+		out["approximate_member_count"] = g.Members
+	}
+	return out
+}
+
 // ConformanceIDs implements conformance.PlatformIDs: a DM with DefaultUserID.
 func (s *Server) ConformanceIDs() (string, string) {
 	return s.DMChannel(DefaultUserID), DefaultUserID
@@ -249,7 +320,7 @@ func (s *Server) Inject(in Incoming) string {
 		"mentions": mentions, "mention_roles": []any{}, "embeds": []any{}, "components": []any{},
 	}
 	if !dm {
-		m["guild_id"] = s.GuildID
+		m["guild_id"] = s.guildOfLocked(in.ChatID)
 	}
 	if in.ReplyToBot {
 		for _, bm := range slices.Backward(s.msgs) {
@@ -438,6 +509,7 @@ func (s *Server) Subscribe(fn func(frame []byte)) (stop func()) {
 	s.live = true
 	s.identifies++
 	s.dispatchLocked("READY", s.readyJSON())
+	s.guildsLocked()
 	return func() {
 		s.mu.Lock()
 		delete(s.subs, id)
@@ -508,7 +580,7 @@ func (s *Server) channelJSON(id string) map[string]any {
 			"message_count": 0, "member_count": 1, "rate_limit_per_user": 0,
 			"thread_metadata": map[string]any{"archived": false, "auto_archive_duration": 1440, "archive_timestamp": time.Now().UTC().Format(time.RFC3339), "locked": false}}
 	}
-	return map[string]any{"id": id, "type": 0, "guild_id": s.GuildID, "name": "general", "position": 0, "permission_overwrites": []any{}, "nsfw": false}
+	return map[string]any{"id": id, "type": 0, "guild_id": s.guildOfLocked(id), "name": "general", "position": 0, "permission_overwrites": []any{}, "nsfw": false}
 }
 
 func (s *Server) record(next http.Handler) http.Handler {
@@ -560,6 +632,34 @@ func (s *Server) channel(w http.ResponseWriter, r *http.Request) {
 	ch := s.channelJSON(r.PathValue("id"))
 	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, ch)
+}
+
+func (s *Server) guild(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	g, ok := s.guilds[r.PathValue("id")]
+	s.mu.Unlock()
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"message": "Unknown Guild", "code": 10004})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.guildJSON(g, r.URL.Query().Get("with_counts") == "true"))
+}
+
+func (s *Server) member(w http.ResponseWriter, r *http.Request) {
+	guild, user := r.PathValue("id"), r.PathValue("user")
+	s.mu.Lock()
+	m, ok := s.members[guild+"/"+user]
+	s.mu.Unlock()
+	switch {
+	case !ok || m.Status == http.StatusNotFound:
+		writeJSON(w, http.StatusNotFound, map[string]any{"message": "Unknown Member", "code": 10007})
+	case m.Status == http.StatusForbidden:
+		writeJSON(w, http.StatusForbidden, map[string]any{"message": "Missing Access", "code": 50001})
+	default:
+		writeJSON(w, http.StatusOK, map[string]any{"user": map[string]any{"id": user, "username": "user" + user, "discriminator": "0",
+			"global_name": nil, "avatar": nil, "bot": m.Bot}, "roles": []any{}, "joined_at": time.Now().UTC().Format(time.RFC3339),
+			"deaf": false, "mute": false, "flags": 0, "pending": m.Pending})
+	}
 }
 
 type messageBody struct {
@@ -777,7 +877,15 @@ func (s *Server) identify(c *wsConn, raw json.RawMessage) bool {
 	s.newSessionLocked()
 	s.conn, s.live = c, true
 	s.dispatchLocked("READY", s.readyJSON())
+	s.guildsLocked()
 	return true
+}
+
+// guildsLocked announces every server after READY, as Discord does.
+func (s *Server) guildsLocked() {
+	for _, id := range slices.Sorted(maps.Keys(s.guilds)) {
+		s.dispatchLocked("GUILD_CREATE", s.guildJSON(s.guilds[id], false))
+	}
 }
 
 func (s *Server) resume(c *wsConn, raw json.RawMessage) bool {

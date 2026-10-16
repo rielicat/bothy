@@ -40,6 +40,8 @@ type Service struct {
 	// snapshot read, so a snapshot's LastID always matches the files it read.
 	mu sync.Mutex
 
+	kinds sync.Map // spc_ principal id -> core.PrincipalKind
+
 	tools []core.Tool
 }
 

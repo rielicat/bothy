@@ -117,7 +117,9 @@ func writeInline(b *strings.Builder, s string, inBold bool) {
 				i++
 				continue
 			}
-			if isWebURL(target) {
+			if id, ok := userMention(target); ok {
+				b.WriteString("<@" + id + ">")
+			} else if isWebURL(target) {
 				b.WriteByte('<')
 				b.WriteString(linkTarget(target))
 				b.WriteByte('|')
@@ -199,6 +201,19 @@ func parseLink(s string, i int) (text, target string, end int, ok bool) {
 		return "", "", 0, false
 	}
 	return s[i+1 : i+closeText], target, start + closeURL + 1, true
+}
+
+var userLinkRe = regexp.MustCompile(`^slack://user\?id=([UW][A-Z0-9]{2,20})$`)
+
+// userMention reads a link to slack://user?id=U…, which renders as Slack's
+// own mention of that person: the card's "asked" line shows the real
+// profile, whatever display name the person chose.
+func userMention(target string) (string, bool) {
+	m := userLinkRe.FindStringSubmatch(target)
+	if m == nil {
+		return "", false
+	}
+	return m[1], true
 }
 
 // isWebURL reports whether a link target can be a Slack link; anything else

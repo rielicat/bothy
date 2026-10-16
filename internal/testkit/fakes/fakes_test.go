@@ -196,11 +196,11 @@ func TestPolicy(t *testing.T) {
 	}
 
 	a := &core.Action{Tool: "shell", SideEffect: core.SELocalWrite, Payload: json.RawMessage(`{"argv":["ls"]}`)}
-	g, ok := p.NarrowGrant(a, "usr_a", core.GrantSession, "ses_1", "usr_a")
+	g, ok := p.NarrowGrant(a, "usr_a", core.GrantSession, "ses_1", core.Decider{User: "usr_a"})
 	if !ok || g.Kind != core.GrantTool || g.Tool != "shell" || g.Pattern[""] != `{"argv":["ls"]}` || g.MaxSE != core.SELocalWrite {
 		t.Fatalf("NarrowGrant = %+v", g)
 	}
-	if _, ok := p.NarrowGrant(nil, "usr_a", core.GrantSession, "", ""); ok {
+	if _, ok := p.NarrowGrant(nil, "usr_a", core.GrantSession, "", core.Decider{}); ok {
 		t.Fatal("NarrowGrant(nil) ok")
 	}
 	id, err := p.Grant(ctx, g)
@@ -735,7 +735,10 @@ func TestRunnerSessions(t *testing.T) {
 }
 
 func TestHub(t *testing.T) {
-	h := &fakes.Hub{PreferredChats: map[core.UserID]core.ChatRef{"usr_a": {Channel: "telegram", ChatID: "42"}}}
+	h := &fakes.Hub{
+		PrincipalChats: map[core.PrincipalID]core.ChatRef{"spc_a": {Channel: "telegram", ChatID: "42"}},
+		TeamActiveErr:  map[core.PrincipalID]error{"spc_b": core.ErrForbidden},
+	}
 	chat := core.ChatRef{Channel: "telegram", ChatID: "42"}
 	ref, err := h.Send(ctx, chat, "hello")
 	if err != nil || ref.ID != "1" || !slices.Equal(h.Messages(), []string{"telegram:42:|hello"}) {
@@ -750,18 +753,26 @@ func TestHub(t *testing.T) {
 	if got, ok := h.Stream(chat); !ok || got.Text() != "x" {
 		t.Fatal("Stream")
 	}
-	if c, ok := h.PreferredChat(ctx, "usr_a"); !ok || c.ChatID != "42" {
-		t.Fatal("PreferredChat")
+	if c, ok := h.PrincipalChat(ctx, "spc_a"); !ok || c.ChatID != "42" {
+		t.Fatal("PrincipalChat")
 	}
-	if _, ok := h.PreferredChat(ctx, "usr_b"); ok {
-		t.Fatal("PreferredChat for unknown user")
+	if _, ok := h.PrincipalChat(ctx, "usr_b"); ok {
+		t.Fatal("PrincipalChat for an unknown principal")
+	}
+	if h.TeamActive(ctx, "spc_a") != nil || !errors.Is(h.TeamActive(ctx, "spc_b"), core.ErrForbidden) {
+		t.Fatal("TeamActive")
+	}
+	_ = h.Greet(ctx, "slack", "U1")
+	_ = h.TellApprover(ctx, "slack", "U2")
+	if !slices.Equal(h.Greetings(), []string{"slack:U1"}) || !slices.Equal(h.ToldApprovers(), []string{"slack:U2"}) {
+		t.Fatal("Greet and TellApprover not recorded")
 	}
 	h.OnMessage(ctx, core.Inbound{Text: "hi"})
 	h.OnAction(ctx, core.ActionEvent{Data: "s:run_1"})
 	if len(h.Inbound) != 1 || len(h.Actions) != 1 {
 		t.Fatal("inbound not recorded")
 	}
-	if _, err := h.Test(ctx, "slack"); !errors.Is(err, core.ErrNotFound) || h.DeepLink("slack", "c") != "" {
+	if _, err := h.Test(ctx, "slack"); !errors.Is(err, core.ErrNotFound) {
 		t.Fatal("unknown channel")
 	}
 }
@@ -769,12 +780,13 @@ func TestHub(t *testing.T) {
 func TestAuth(t *testing.T) {
 	clock := fakes.NewClock(time.Date(2026, 10, 12, 9, 0, 0, 0, time.UTC))
 	a := &fakes.Auth{
-		Identities: map[string]core.IdentityResolution{"telegram:7": {Status: core.IdentityLinked, User: "usr_a"}},
+		Identities: map[string]core.IdentityResolution{"telegram:7": {Status: core.IdentityTeammate, Principal: "spc_a", SpaceOn: true,
+			Member: core.MemberUnknown, Via: core.ViaAdmin}},
 		Viewers:    map[core.UserID]core.Viewer{"usr_admin": {User: "usr_admin", Admin: true}},
-		Codes:      map[string]core.UserID{"7KQ2MX4D": "usr_b"},
+		Principals: map[string]core.PrincipalID{"slack:U1": "spc_u1"},
 		Clock:      clock,
 	}
-	if r, _ := a.ResolveIdentity(ctx, "telegram", "7"); r.User != "usr_a" {
+	if r, _ := a.ResolveIdentity(ctx, "telegram", "7"); r.Principal != "spc_a" || !r.Admitted() {
 		t.Fatalf("ResolveIdentity = %+v", r)
 	}
 	if r, _ := a.ResolveIdentity(ctx, "telegram", "8"); r.Status != "" {
@@ -788,34 +800,29 @@ func TestAuth(t *testing.T) {
 	}
 
 	stranger := core.ChannelIdentity{Channel: "telegram", ExternalID: "99"}
-	n1, _ := a.SenderNotice(ctx, stranger)
+	n1, _ := a.NoticeSender(ctx, stranger)
 	clock.Advance(time.Hour)
-	n2, _ := a.SenderNotice(ctx, stranger)
+	n2, _ := a.NoticeSender(ctx, stranger)
 	clock.Advance(24 * time.Hour)
-	n3, _ := a.SenderNotice(ctx, stranger)
-	if !n1.Reply || n2.Reply || !n3.Reply || len(n1.Code.Code) != 9 || n1.Code.Code[4] != '-' || len(a.Notices) != 3 {
-		t.Fatalf("notices = %+v %+v %+v", n1, n2, n3)
+	n3, _ := a.NoticeSender(ctx, stranger)
+	if !n1 || n2 || !n3 || len(a.Notices) != 3 {
+		t.Fatalf("notices = %t %t %t", n1, n2, n3)
 	}
 
-	linked, err := a.RedeemPairing(ctx, stranger, "7kq2-mx4d")
-	if err != nil || linked.Status != core.IdentityLinked || linked.User != "usr_b" {
-		t.Fatalf("RedeemPairing = %+v, %v", linked, err)
+	member := core.ChannelIdentity{Channel: "slack", ExternalID: "U1"}
+	res, err := a.Admit(ctx, member, core.Membership{Status: core.MemberYes})
+	if err != nil || !res.Admitted() || res.Principal != "spc_u1" || res.Via != core.ViaMembership {
+		t.Fatalf("Admit member = %+v, %v", res, err)
 	}
-	if r, _ := a.ResolveIdentity(ctx, "telegram", "99"); r.Status != core.IdentityLinked || r.User != "usr_b" {
-		t.Fatalf("after pairing = %+v", r)
+	res, _ = a.Admit(ctx, member, core.Membership{Status: core.MemberOutsider})
+	if res.Admitted() || !res.Lost || res.Status != core.IdentityTeammate {
+		t.Fatalf("Admit outsider after member = %+v", res)
 	}
-	if _, err := a.RedeemPairing(ctx, stranger, "7KQ2-MX4D"); !errors.Is(err, core.ErrNotFound) {
-		t.Fatalf("code reuse = %v", err)
+	if r, _ := a.ResolveIdentity(ctx, "slack", "U1"); r.Lost || r.Member != core.MemberOutsider {
+		t.Fatalf("stored after losing access = %+v", r)
 	}
-	code, err := a.NewPairingCode(ctx, core.Actor{User: "usr_c"})
-	if err != nil || code.ExpiresAt.Sub(clock.Now()) != fakes.PairingTTL {
-		t.Fatalf("NewPairingCode = %+v, %v", code, err)
-	}
-	if got, err := a.RedeemPairing(ctx, core.ChannelIdentity{Channel: "slack", ExternalID: "U1"}, code.Code); err != nil || got.User != "usr_c" {
-		t.Fatalf("redeem new code = %+v, %v", got, err)
-	}
-	if len(a.Redeemed) != 3 || !strings.HasPrefix(a.Redeemed[0], "telegram:99|") {
-		t.Fatalf("Redeemed = %v", a.Redeemed)
+	if !slices.Equal(a.Admitted, []string{"slack:U1|member", "slack:U1|outsider"}) {
+		t.Fatalf("Admitted = %v", a.Admitted)
 	}
 }
 

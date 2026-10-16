@@ -12,23 +12,28 @@ import (
 var _ core.ChannelHub = (*Hub)(nil)
 
 // Hub records Messenger sends and StreamTo calls; StreamTo returns a *Sink.
-// PreferredChats maps users to their preferred DM.
+// PrincipalChats maps team-owned principals to their chat (a teammate's DM,
+// a channel's chat); TeamActiveErr says why one may not run a schedule now.
 //
 // Streams and StreamModes are keyed by ChatRef.Key(); repeated StreamTo calls
 // for one chat return the same Sink so its events accumulate. Send returns
 // message ids "1", "2", … in order. OnMessage and OnAction record their
-// arguments; Test, DeepLink and Status delegate to channels passed to Add.
+// arguments; Test and Status delegate to channels passed to Add. Greet and
+// TellApprover record "<channel>:<external id>".
 type Hub struct {
 	core.ChannelHub
 	Sent           []string // "<chat key>|<markdown>"
 	Streams        map[string]*Sink
-	PreferredChats map[core.UserID]core.ChatRef
+	PrincipalChats map[core.PrincipalID]core.ChatRef
+	TeamActiveErr  map[core.PrincipalID]error
 
 	mu          sync.Mutex
 	StreamModes map[string]string
 	Inbound     []core.Inbound
 	Actions     []core.ActionEvent
 	Channels    []core.Channel
+	Greeted     []string
+	Told        []string
 }
 
 func (h *Hub) Send(_ context.Context, chat core.ChatRef, markdown string) (core.MsgRef, error) {
@@ -65,11 +70,52 @@ func (h *Hub) Stream(chat core.ChatRef) (*Sink, bool) {
 	return s, ok
 }
 
-func (h *Hub) PreferredChat(_ context.Context, u core.UserID) (core.ChatRef, bool) {
+func (h *Hub) PrincipalChat(_ context.Context, p core.PrincipalID) (core.ChatRef, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	c, ok := h.PreferredChats[u]
+	c, ok := h.PrincipalChats[p]
 	return c, ok
+}
+
+func (h *Hub) TeamActive(_ context.Context, p core.PrincipalID) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.TeamActiveErr[p]
+}
+
+// SetTeamActiveErr replaces TeamActiveErr while a scheduler may be reading it.
+func (h *Hub) SetTeamActiveErr(m map[core.PrincipalID]error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.TeamActiveErr = m
+}
+
+func (h *Hub) Greet(_ context.Context, channel, externalID string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.Greeted = append(h.Greeted, channel+":"+externalID)
+	return nil
+}
+
+func (h *Hub) TellApprover(_ context.Context, channel, externalID string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.Told = append(h.Told, channel+":"+externalID)
+	return nil
+}
+
+// Greetings returns a copy of Greeted.
+func (h *Hub) Greetings() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]string(nil), h.Greeted...)
+}
+
+// ToldApprovers returns a copy of Told.
+func (h *Hub) ToldApprovers() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]string(nil), h.Told...)
 }
 
 func (h *Hub) OnMessage(_ context.Context, in core.Inbound) {
@@ -123,13 +169,6 @@ func (h *Hub) Test(ctx context.Context, name string) (string, error) {
 		return "", fmt.Errorf("channel %q: %w", name, core.ErrNotFound)
 	}
 	return ch.SelfTest(ctx)
-}
-
-func (h *Hub) DeepLink(channel, code string) string {
-	if ch := h.channel(channel); ch != nil {
-		return ch.DeepLink(code)
-	}
-	return ""
 }
 
 // Messages returns a copy of Sent.

@@ -19,10 +19,10 @@ const (
 // Snapshot reads MEMORY.md and USER.md together with the id of the newest
 // memory event, so DeltasSince(LastID) reports exactly what changed after it.
 func (s *Service) Snapshot(ctx context.Context, p core.PrincipalID) (core.MemorySnapshot, error) {
-	if core.ValidID(core.PrefixSpace, string(p)) {
+	if s.isChannel(ctx, p) {
 		return core.MemorySnapshot{}, nil
 	}
-	if err := checkPrincipal(p); err != nil {
+	if _, err := s.checkPrincipal(ctx, p); err != nil {
 		return core.MemorySnapshot{}, err
 	}
 	s.mu.Lock()
@@ -60,12 +60,16 @@ func (s *Service) lastEventID(ctx context.Context, p core.PrincipalID) (int64, e
 
 // Apply runs one agent op (add, replace or remove of a single-line entry).
 func (s *Service) Apply(ctx context.Context, p core.PrincipalID, run core.RunID, op core.MemoryOp, prov core.Provenance) (*core.MemoryEvent, error) {
-	if err := checkPrincipal(p); err != nil {
-		return nil, err
-	}
-	op, err := normalizeOp(op)
+	kind, err := s.checkPrincipal(ctx, p)
 	if err != nil {
 		return nil, err
+	}
+	op, err = normalizeOp(op)
+	if err != nil {
+		return nil, err
+	}
+	if kind == core.PrincipalPerson && op.File == core.FileHeartbeat {
+		return nil, errTeammateHeartbeat
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -137,11 +141,11 @@ func (s *Service) record(ctx context.Context, action, actor string, e *core.Memo
 	}
 }
 
-func access(v core.Viewer, p core.PrincipalID, f core.MemoryFile) error {
+func (s *Service) access(ctx context.Context, v core.Viewer, p core.PrincipalID, f core.MemoryFile) error {
 	if !v.Can(p) {
 		return fmt.Errorf("memory of %s: %w", p, core.ErrNotFound)
 	}
-	if err := checkPrincipal(p); err != nil {
+	if _, err := s.checkPrincipal(ctx, p); err != nil {
 		return err
 	}
 	if !validFile(f) {
@@ -150,8 +154,8 @@ func access(v core.Viewer, p core.PrincipalID, f core.MemoryFile) error {
 	return nil
 }
 
-func (s *Service) Read(_ context.Context, v core.Viewer, p core.PrincipalID, f core.MemoryFile) (string, string, error) {
-	if err := access(v, p, f); err != nil {
+func (s *Service) Read(ctx context.Context, v core.Viewer, p core.PrincipalID, f core.MemoryFile) (string, string, error) {
+	if err := s.access(ctx, v, p, f); err != nil {
 		return "", "", err
 	}
 	c, err := s.readFile(p, f)
@@ -164,7 +168,7 @@ func (s *Service) Read(_ context.Context, v core.Viewer, p core.PrincipalID, f c
 // Write replaces a whole file from the web editor. An empty tag skips the
 // precondition; any other tag must equal the current ETag.
 func (s *Service) Write(ctx context.Context, v core.Viewer, p core.PrincipalID, f core.MemoryFile, content, tag string, by core.UserID) (string, error) {
-	if err := access(v, p, f); err != nil {
+	if err := s.access(ctx, v, p, f); err != nil {
 		return "", err
 	}
 	if err := checkText("content", content); err != nil {
@@ -198,7 +202,7 @@ func (s *Service) Write(ctx context.Context, v core.Viewer, p core.PrincipalID, 
 }
 
 func (s *Service) History(ctx context.Context, v core.Viewer, p core.PrincipalID, f core.MemoryFile, page core.Page) ([]*core.MemoryEvent, error) {
-	if err := access(v, p, f); err != nil {
+	if err := s.access(ctx, v, p, f); err != nil {
 		return nil, err
 	}
 	evs, err := s.store.MemoryEvents().List(ctx, v, p, f, page)

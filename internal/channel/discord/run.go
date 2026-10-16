@@ -294,6 +294,9 @@ func (a *adapter) handler(ctx context.Context, jobs chan<- job) gateway.EventHan
 			a.track(seq, nil)
 			m := e.Message
 			push(func(ctx context.Context, sink core.InboundSink) { a.onMessage(ctx, sink, m) })
+		case gateway.EventGuildCreate, gateway.EventGuildUpdate, gateway.EventGuildDelete:
+			a.track(seq, nil)
+			a.noteGuild(e)
 		case gateway.EventInteractionCreate:
 			a.track(seq, nil)
 			if ci, ok := e.Interaction.(discord.ComponentInteraction); ok {

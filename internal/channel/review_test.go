@@ -163,29 +163,11 @@ func TestUnknownSenderIsRateLimitedSilently(t *testing.T) {
 		if v := h.visible("5005"); len(v) != 0 {
 			t.Fatalf("a rate-limited unknown sender got replies: %q", v)
 		}
-		if len(h.auth.Redeemed) != 0 || len(h.auth.Notices) != 0 {
-			t.Fatalf("redeem calls = %d, notices = %d; want none over the limit", len(h.auth.Redeemed), len(h.auth.Notices))
+		if id := h.ident("5005"); !id.LastNotice.IsZero() || id.FirstText != "" {
+			t.Fatalf("identity = %+v; want nothing recorded over the limit", id)
 		}
 		if got := h.budget.Senders; len(got) != 4 || got[0] != "telegram:5005" {
 			t.Fatalf("AllowSender keys = %v", got)
-		}
-	})
-}
-
-func TestFirstGroupMessageIsOwnedByInstanceOwner(t *testing.T) {
-	bubble(t, func(t *testing.T) {
-		h := newHarness(t).start()
-		h.group("-800", memberChat, "hello everyone", true)
-		sp, err := h.store.Spaces().ByChat(h.ctx, "telegram", "-800")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if sp.Owner != h.owner.ID || sp.Enabled {
-			t.Fatalf("space = %+v; a member who merely spoke first must not own it", sp)
-		}
-		h.wantVisible(ownerChat, "Bothy was added to")
-		if v := h.visible(memberChat); len(v) != 0 {
-			t.Fatalf("the member was told about the space: %q", v)
 		}
 	})
 }
@@ -199,7 +181,7 @@ func TestFirstSightingIsRateLimited(t *testing.T) {
 			t.Fatal("a rate-limited sender created a space")
 		}
 		if v := h.visible(ownerChat); len(v) != 0 {
-			t.Fatalf("owner notified despite the limit: %q", v)
+			t.Fatalf("approver notified despite the limit: %q", v)
 		}
 		h.budget.Deny = nil
 		h.inject(core.Inbound{Chat: h.groupChat("-801"), SenderID: "8008", Text: "anyone here?"})
@@ -238,7 +220,7 @@ func (p *panickyRunner) Submit(ctx context.Context, r core.RunRequest) (core.Sub
 
 // panickyAuth panics in the first ResolveIdentity.
 type panickyAuth struct {
-	*fakes.Auth
+	core.Auth
 	calls atomic.Int32
 }
 
@@ -273,8 +255,7 @@ func TestPanicsInOtherServicesAreContained(t *testing.T) {
 func TestPressCannotMatchAnotherChannelsCard(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t).start()
-		owner := core.UserPrincipal(h.owner.ID)
-		ap := h.request(owner, core.ApproverReq{User: h.owner.ID}, nil)
+		ap := h.request(h.pid(memberChat), core.ApproverReq{Team: true}, nil)
 		discord := core.MsgRef{Chat: core.ChatRef{Channel: "discord", ChatID: ownerChat, Kind: core.ChatDM}, ID: "42"}
 		if err := h.approvals.AddMessageRef(h.ctx, ap.ID, discord, false); err != nil {
 			t.Fatal(err)
@@ -321,23 +302,6 @@ func TestCardKeepsLinksInert(t *testing.T) {
 			if !strings.Contains(msg.Text, want) {
 				t.Fatalf("card text %q lacks %q", msg.Text, want)
 			}
-		}
-	})
-}
-
-func TestPairInGroupWarnsInsteadOfClaimingLinked(t *testing.T) {
-	bubble(t, func(t *testing.T) {
-		h := newHarness(t).start()
-		h.space("-900", true, false)
-		h.group("-900", "9009", "/pair ABCD-EFGH", true)
-		h.wantVisible("-900", "only work in a direct message")
-		for _, v := range h.visible("-900") {
-			if strings.Contains(v, "already linked") {
-				t.Fatalf("an unknown group member was told %q", v)
-			}
-		}
-		if len(h.auth.Redeemed) != 0 || len(h.runner.Submitted()) != 0 {
-			t.Fatal("a code typed in a group was redeemed or reached the runner")
 		}
 	})
 }

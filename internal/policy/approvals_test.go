@@ -275,7 +275,7 @@ func TestAllowAlwaysCardFlow(t *testing.T) {
 	if err != nil || got.Choice != core.AllowAlways {
 		t.Fatalf("resolve: %+v %v", got, err)
 	}
-	g, ok := h.engine.NarrowGrant(got.Action, got.Principal, core.GrantPrincipal, "", got.DecidedBy)
+	g, ok := h.engine.NarrowGrant(got.Action, got.Principal, core.GrantPrincipal, "", core.Decider{User: got.DecidedBy})
 	if !ok {
 		t.Fatal("no principal grant for the card's action")
 	}

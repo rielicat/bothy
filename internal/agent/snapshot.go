@@ -260,11 +260,17 @@ func (r *Runner) renderS2(ctx context.Context, rs *runState, p profile, window i
 		fmt.Fprintf(&f, "- Tone: %s\n", t)
 	}
 	kind := "personal account"
-	if rs.principal.Kind == core.PrincipalSpace {
-		kind = "shared space (other people may be present; no private memory)"
-		if rs.principal.Restricted() {
-			kind = "restricted shared space (read-only tools; no private memory)"
+	switch {
+	case rs.principal.Kind == core.PrincipalPerson:
+		app := rs.sess.Origin
+		if sp, err := r.d.Store.Spaces().Get(ctx, core.SystemViewer(), rs.principal.ID); err == nil {
+			app = sp.Chat.Channel
 		}
+		kind = "a teammate in " + titleCase(app) + ": their own chats and memory; every change needs an approver's OK"
+	case rs.principal.Restricted():
+		kind = "restricted shared space (read-only tools; no private memory)"
+	case rs.principal.Kind == core.PrincipalSpace:
+		kind = "shared channel (other people may be present; no private memory; every change needs an approver's OK)"
 	}
 	fmt.Fprintf(&f, "- Principal: %s (%s)\n", attrValue(cmpOr(rs.principal.DisplayName, string(rs.principal.ID))), kind)
 	fmt.Fprintf(&f, "- Timezone: %s\n", r.timezone(rs).String())
@@ -452,8 +458,11 @@ func (r *Runner) turnContext(ctx context.Context, rs *runState, sess *core.Sessi
 		}
 	}
 	sender := req.Sender
-	if req.Provenance == core.ProvUser && rs.user != nil {
+	switch {
+	case req.Provenance == core.ProvUser && rs.user != nil:
 		sender = cmpOr(rs.user.DisplayName, rs.user.Username)
+	case rs.user == nil && req.SenderName != "":
+		sender = req.SenderName
 	}
 	trust := "trusted (your user)"
 	switch req.Provenance {
@@ -468,7 +477,7 @@ func (r *Runner) turnContext(ctx context.Context, rs *runState, sess *core.Sessi
 	}
 
 	tc.memSeen, tc.pinsSeen = sess.MemorySeen, sess.PinsSeen
-	if r.d.Memory != nil && rs.principal.Kind == core.PrincipalUser {
+	if r.d.Memory != nil && (rs.principal.Kind == core.PrincipalUser || rs.principal.Kind == core.PrincipalPerson) {
 		text, last, err := r.d.Memory.DeltasSince(ctx, rs.principal.ID, sess.MemorySeen)
 		if err != nil {
 			return turnCtx{}, fmt.Errorf("agent: memory deltas: %w", err)
@@ -507,7 +516,7 @@ func (r *Runner) turnContext(ctx context.Context, rs *runState, sess *core.Sessi
 			tc.commits = append(tc.commits, blk.Commit)
 		}
 	}
-	if w := r.budgetWarning(ctx, rs, req.User); w != "" {
+	if w := r.budgetWarning(ctx, rs, req.Principal); w != "" {
 		b.WriteString(w + "\n")
 	}
 	if sess.Taint.Exposed() {
@@ -531,7 +540,7 @@ func (r *Runner) turnContext(ctx context.Context, rs *runState, sess *core.Sessi
 }
 
 // budgetWarning mentions the run or daily budget once less than 20% is left.
-func (r *Runner) budgetWarning(ctx context.Context, rs *runState, u core.UserID) string {
+func (r *Runner) budgetWarning(ctx context.Context, rs *runState, p core.PrincipalID) string {
 	var parts []string
 	rs.mu.Lock()
 	m, limits := rs.meter, rs.run.Limits
@@ -548,7 +557,7 @@ func (r *Runner) budgetWarning(ctx context.Context, rs *runState, u core.UserID)
 			parts = append(parts, rem.MaxCost.String()+" left in this run")
 		}
 	}
-	if spent, limit, err := r.d.Budget.Daily(ctx, u); err == nil && limit > 0 && (limit-spent)*5 < limit {
+	if spent, limit, err := r.d.Budget.Daily(ctx, p); err == nil && limit > 0 && (limit-spent)*5 < limit {
 		parts = append(parts, fmt.Sprintf("%s of today's %s budget left", max(limit-spent, 0), limit))
 	}
 	if len(parts) == 0 {

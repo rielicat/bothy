@@ -118,7 +118,10 @@ type harness struct {
 	audit  *fakes.Auditor
 	owner  core.UserID
 	p      core.PrincipalID
-	dm     core.ChatRef
+	// tp is a teammate in Telegram whose own DM (dm) their schedules reach;
+	// accounts hear on the web only.
+	tp core.PrincipalID
+	dm core.ChatRef
 }
 
 func newHarness(t *testing.T, tweak ...func(*config.Config)) *harness {
@@ -139,11 +142,22 @@ func newHarness(t *testing.T, tweak ...func(*config.Config)) *harness {
 		bus:   events.New(events.Options{Ring: 256}),
 		audit: &fakes.Auditor{}, memory: &fakes.Memory{}}
 	h.runner = &runner{Runner: &fakes.Runner{Store: st}, store: st}
-	h.hub = &fakes.Hub{PreferredChats: map[core.UserID]core.ChatRef{u.ID: h.dm}}
-	if _, err := st.Identities().Touch(ctx, &core.ChannelIdentity{Channel: "telegram", ExternalID: "42", Status: core.IdentityLinked,
-		User: u.ID, DMChat: "42", FirstSeen: time.Now(), LastSeen: time.Now()}); err != nil {
+	sp := &core.Space{Kind: core.SpacePerson, Chat: core.ChatRef{Channel: "telegram", ChatID: "42", Kind: core.ChatDM}, Title: "Tom",
+		Enabled: true, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	if err := st.Spaces().Create(ctx, sp, &core.Principal{DisplayName: "Tom", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
+	id, err := st.Identities().Touch(ctx, &core.ChannelIdentity{Channel: "telegram", ExternalID: "42", DisplayName: "Tom",
+		FirstSeen: time.Now(), LastSeen: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id.Status, id.Principal, id.Via, id.DMChat = core.IdentityTeammate, sp.Principal, core.ViaAdmin, "42"
+	if err := st.Identities().Update(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	h.tp = sp.Principal
+	h.hub = &fakes.Hub{PrincipalChats: map[core.PrincipalID]core.ChatRef{h.tp: h.dm}}
 	svc, err := New(Deps{Store: st, Config: h.cfg, Runner: h.runner, Hub: h.hub, Memory: h.memory, Bus: h.bus, Audit: h.audit})
 	if err != nil {
 		t.Fatal(err)
@@ -169,6 +183,16 @@ func (h *harness) setZone(tz string) {
 
 func (h *harness) viewer() core.Viewer {
 	return core.Viewer{User: h.owner, Principals: []core.PrincipalID{h.p}}
+}
+
+// teamUpsert saves a schedule of the teammate tp.
+func (h *harness) teamUpsert(sc *core.Schedule) *core.Schedule {
+	h.t.Helper()
+	sc.Principal = h.tp
+	if err := h.svc.Upsert(context.Background(), core.Viewer{Principals: []core.PrincipalID{h.tp}}, sc, "user:"+string(h.owner)); err != nil {
+		h.t.Fatalf("Upsert(%+v): %v", sc, err)
+	}
+	return sc
 }
 
 func (h *harness) upsert(sc *core.Schedule) *core.Schedule {

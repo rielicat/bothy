@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -26,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rielicat/bothy/internal/channel/slack/slacktest"
 	"github.com/rielicat/bothy/internal/channel/telegram/telegramtest"
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/httpapi/dto"
@@ -53,11 +53,25 @@ func (p *chTelegram) Env() map[string]string {
 	}
 }
 
+// chSlack is the fake Slack, reached through the locked
+// channels.slack.api_base key and env-supplied tokens.
+type chSlack struct{ *slacktest.Server }
+
+func (p *chSlack) Env() map[string]string {
+	return map[string]string{
+		"BOTHY_CHANNELS__SLACK__ENABLED":  "true",
+		"BOTHY_CHANNELS__SLACK__API_BASE": p.URL(),
+		"BOTHY_SECRET_SLACK_APP_TOKEN":    p.AppToken,
+		"BOTHY_SECRET_SLACK_BOT_TOKEN":    p.BotToken,
+	}
+}
+
 type chOpts struct {
 	rules    []mockllm.Rule
 	window   int    // model context; default 32768
 	yaml     string // appended to the mock provider fragment of bothy.yaml
 	telegram bool
+	slack    bool
 	sandboxd bool // a fake sandboxd, so exec tools are offered without Docker
 }
 
@@ -67,6 +81,7 @@ type chEnv struct {
 	*Gateway
 	llm *mockllm.Server
 	tg  *chTelegram
+	sl  *chSlack
 	sbx *chSandboxd
 }
 
@@ -85,6 +100,10 @@ func chStart(t *testing.T, o chOpts) *chEnv {
 		e.tg = &chTelegram{telegramtest.New(telegramtest.Config{})}
 		platforms = append(platforms, e.tg)
 	}
+	if o.slack {
+		e.sl = &chSlack{slacktest.New()}
+		platforms = append(platforms, e.sl)
+	}
 	if o.sandboxd {
 		e.sbx = chStartSandboxd(t)
 		env["BOTHY_SANDBOX__BACKEND"] = "sandboxd"
@@ -95,6 +114,9 @@ func chStart(t *testing.T, o chOpts) *chEnv {
 	chSetupOwner(t, e.Gateway)
 	if e.tg != nil {
 		e.waitChannel(t, "telegram")
+	}
+	if e.sl != nil {
+		e.waitChannel(t, "slack")
 	}
 	return e
 }
@@ -140,22 +162,25 @@ func (e *chEnv) waitChannel(t *testing.T, name string) {
 	})
 }
 
-// pairTelegram links Telegram user id to the owner the way a person does:
-// create a code in the web UI, open its t.me deep link, which makes the
-// Telegram client send "/start <code>" to the bot.
-func (e *chEnv) pairTelegram(t *testing.T, id int64, firstName string) {
+// letInTelegram has Telegram user id write to Bothy, wait to be let in, and
+// the owner let them in from the web (as an approver when canApprove); it
+// waits for Bothy's hello in their DM.
+func (e *chEnv) letInTelegram(t *testing.T, id int64, firstName string, canApprove bool) {
 	t.Helper()
-	var pc core.PairingCode
-	if code := e.JSON(t, http.MethodPost, "/api/pairing", nil, &pc); code != http.StatusOK || pc.Code == "" {
-		t.Fatalf("POST /api/pairing = %d %+v", code, pc)
+	e.tg.Inject(telegramtest.Inbound{ChatID: id, SenderID: id, FirstName: firstName, Text: "hello"})
+	chEventually(t, 10*time.Second, "the waiting line", func() bool {
+		return slices.Contains(e.tg.SentTexts(fmt.Sprint(id)), "You'll be able to use Bothy once an admin lets you in.")
+	})
+	teammate := core.IdentityTeammate
+	req := dto.IdentityPatchReq{Status: &teammate}
+	if canApprove {
+		req.CanApprove = &canApprove
 	}
-	link, err := url.Parse(pc.DeepLinks["telegram"])
-	if err != nil || link.Scheme != "https" || link.Host != "t.me" || link.Path != "/"+e.tg.Bot || link.Query().Get("start") == "" {
-		t.Fatalf("telegram deep link = %q (err %v)", pc.DeepLinks["telegram"], err)
+	if code := e.JSON(t, http.MethodPatch, fmt.Sprintf("/api/identities/telegram/%d", id), req, nil); code != http.StatusOK {
+		t.Fatalf("let in telegram:%d = %d", id, code)
 	}
-	e.tg.Inject(telegramtest.Inbound{ChatID: id, SenderID: id, FirstName: firstName, Text: "/start " + link.Query().Get("start")})
-	chEventually(t, 10*time.Second, "the pairing reply", func() bool {
-		return slices.ContainsFunc(e.tg.SentTexts(fmt.Sprint(id)), func(s string) bool { return strings.HasPrefix(s, "Linked to ") })
+	chEventually(t, 10*time.Second, "the hello", func() bool {
+		return slices.ContainsFunc(e.tg.SentTexts(fmt.Sprint(id)), func(s string) bool { return strings.HasPrefix(s, "Hi "+firstName+", I'm Bothy.") })
 	})
 }
 

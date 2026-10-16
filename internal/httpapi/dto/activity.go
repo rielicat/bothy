@@ -32,10 +32,13 @@ type RunView struct {
 
 // UsageRowView is a usage bucket with its name: the person (group_by user),
 // schedule (schedule) or chat (session). Day and model buckets, and keys
-// that no longer resolve, have none.
+// that no longer resolve, have none. A person bucket of a teammate or a
+// channel says so in Kind and names its chat app.
 type UsageRowView struct {
 	core.UsageRow
 	Name string `json:"name"`
+	Kind string `json:"kind,omitempty"` // user | teammate | channel
+	App  string `json:"app,omitempty"`
 }
 
 // AuditRow is an audit entry as the log lists it.

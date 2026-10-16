@@ -38,7 +38,7 @@ func TestParseCommand(t *testing.T) {
 func TestCommandsManageSession(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t).start()
-		p := core.UserPrincipal(h.owner.ID)
+		p := h.pid(ownerChat)
 		chat := h.dmChat(ownerChat)
 
 		h.dm(ownerChat, "/pin never deploy on Fridays")
@@ -99,9 +99,9 @@ func TestStatusUsageHelp(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t).start()
 		h.dm(ownerChat, "hi")
-		sess := h.session(core.UserPrincipal(h.owner.ID), h.dmChat(ownerChat))
+		sess := h.session(h.pid(ownerChat), h.dmChat(ownerChat))
 		run := &core.Run{ID: core.RunID(core.NewID(core.PrefixRun)), Session: sess.ID, Principal: sess.Principal,
-			User: h.owner.ID, Trigger: core.TrigMessage, Status: core.RunDone, Cost: core.MicrosFromUSD(0.0123), CreatedAt: time.Now()}
+			Trigger: core.TrigMessage, Status: core.RunDone, Cost: core.MicrosFromUSD(0.0123), CreatedAt: time.Now()}
 		if err := h.store.Runs().Create(h.ctx, run); err != nil {
 			t.Fatal(err)
 		}
@@ -124,12 +124,12 @@ func TestStatusUsageHelp(t *testing.T) {
 		}
 		h.dm(ownerChat, "/help")
 		h.wantVisible(ownerChat, "/stop · stop the current task")
-		if got := h.lastText(ownerChat); !strings.Contains(got, "/stopall") {
-			t.Fatalf("an admin's /help lacks /stopall: %q", got)
-		}
-		h.dm(memberChat, "/help")
-		if got := h.lastText(memberChat); strings.Contains(got, "/stopall") || strings.Contains(got, "/resume") || !strings.Contains(got, "/new") {
-			t.Fatalf("a member's /help = %q; want no admin-only commands", got)
+		for _, chat := range []string{ownerChat, memberChat} {
+			h.dm(chat, "/help")
+			if got := h.lastText(chat); strings.Contains(got, "/stopall") || strings.Contains(got, "/resume") || strings.Contains(got, "/pair") ||
+				!strings.Contains(got, "/new") {
+				t.Fatalf("/help = %q; want no hidden commands", got)
+			}
 		}
 	})
 }
@@ -142,7 +142,7 @@ func TestStatusNamesTheTask(t *testing.T) {
 			h.runner2 = ar
 		}).start()
 		h.dm(ownerChat, "hi")
-		sess := h.session(core.UserPrincipal(h.owner.ID), h.dmChat(ownerChat)).ID
+		sess := h.session(h.pid(ownerChat), h.dmChat(ownerChat)).ID
 		ar.info = core.RunInfo{Session: sess, Status: core.RunWaitingApproval, Started: time.Now().Add(-130 * time.Second), Queued: 2}
 		h.dm(ownerChat, "/status")
 		h.wantVisible(ownerChat, "Waiting for approval for 2 min 10 s. 2 more messages are waiting.")
@@ -191,43 +191,80 @@ func TestUnknownCommandIsNotAModelRun(t *testing.T) {
 	})
 }
 
-func TestCommandAuthorization(t *testing.T) {
+// TestChannelCommandsNeedApprover: in a channel, commands that change the
+// conversation need someone who can approve; anyone Bothy answers may look.
+func TestChannelCommandsNeedApprover(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t).start()
 		h.space("-500", true, false)
-		h.group("-500", memberChat, "/stop", true)
-		h.wantVisible("-500", "Only the person this chat belongs to or an admin can use /stop.")
-		h.group("-500", "9009", "/new", true)
-		if n := len(h.runner.Stopped()); n != 0 {
-			t.Fatalf("a non-owner stopped a run")
+		for _, cmd := range []string{"/new", "/pin x", "/model default", "/refine on", "/compact"} {
+			h.group("-500", memberChat, cmd, true)
+			name := strings.Fields(cmd)[0]
+			if got := h.lastText("-500"); got != "Only someone who can approve can use "+escapeMD(name)+" here." {
+				t.Fatalf("%s from a teammate in a channel = %q", cmd, got)
+			}
 		}
-		h.dm(memberChat, "/stopall")
-		h.wantVisible(memberChat, "Only an admin can use /stopall.")
-		if h.runner.Paused() {
-			t.Fatal("a member engaged the kill switch")
-		}
+		h.group("-500", memberChat, "/pins", true)
+		h.wantVisible("-500", "No pins.")
+		h.group("-500", ownerChat, "/new", true)
+		h.wantVisible("-500", "Started a fresh conversation.")
+		// In their own DM a teammate may do all of it.
+		h.dm(memberChat, "/pin keep answers short")
+		h.wantVisible(memberChat, "Pinned. /pins lists them.")
+	})
+}
 
+func TestStopInChannelByAnyTeammate(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		h.space("-500", true, false)
+		h.group("-500", ownerChat, "start something", true)
+		h.group("-500", "7007", "/stop", true)
+		if got := h.lastText("-500"); got != "Stopped." || len(h.runner.Stopped()) != 1 {
+			t.Fatalf("/stop from someone in the group = %q, stops %v", got, h.runner.Stopped())
+		}
+	})
+}
+
+// TestStopAllByChatApproverResumeOnWeb: an approver's /stopall pauses
+// Bothy, named as the chat actor; /resume points to the web; others can't.
+func TestStopAllByChatApproverResumeOnWeb(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		h.dm(memberChat, "/stopall")
+		if got := h.lastText(memberChat); got != "Only someone who can approve can pause Bothy." || h.runner.Paused() {
+			t.Fatalf("a teammate who can't approve: %q, paused %v", got, h.runner.Paused())
+		}
 		h.dm(ownerChat, "/stopall")
 		h.wantVisible(ownerChat, "Paused.")
-		if !h.runner.Paused() || h.runner.StopAlls != 1 {
-			t.Fatal("/stopall did not pause and stop everything")
+		if by, _ := h.runner.PausedBy(); !h.runner.Paused() || h.runner.StopAlls != 1 || by != "channel:telegram:"+ownerChat {
+			t.Fatalf("/stopall: paused %v by %q, %d stop-alls", h.runner.Paused(), by, h.runner.StopAlls)
 		}
 		h.dm(ownerChat, "/resume")
-		h.wantVisible(ownerChat, "Resumed.")
-		if h.runner.Paused() {
-			t.Fatal("/resume left the kill switch on")
+		if got := h.lastText(ownerChat); got != "Resume Bothy on the web, under Settings → Security." || !h.runner.Paused() {
+			t.Fatalf("/resume = %q, paused %v", got, h.runner.Paused())
 		}
-		if got := h.audit.Actions(); !slices.Equal(got, []string{"admin.pause", "admin.resume"}) {
-			t.Fatalf("audit = %v", got)
-		}
-		if e := h.audit.All()[0]; e.Actor != "channel:telegram:"+ownerChat {
-			t.Fatalf("audit actor = %q", e.Actor)
-		}
+	})
+}
 
-		h.group("-500", ownerChat, "/stop", true)
-		h.wantVisible("-500", "Nothing to stop.")
-		if v := h.visible("-500"); strings.Count(strings.Join(v, "\n"), "Only the person this chat belongs to") != 2 {
-			t.Fatalf("group replies = %q", v)
+func TestPairTombstoneAndStartHello(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		h.dm(memberChat, "/pair ABCD-EFGH")
+		if got := h.lastText(memberChat); got != "Bothy doesn't use link codes any more. Write here to ask it anything." {
+			t.Fatalf("/pair = %q", got)
+		}
+		h.dm(memberChat, "/start")
+		if got := h.lastText(memberChat); got != helloText("User 2002") {
+			t.Fatalf("/start in a DM = %q", got)
+		}
+		h.space("-500", true, false)
+		h.group("-500", memberChat, "/start", true)
+		if got := h.lastText("-500"); got != helpText() {
+			t.Fatalf("/start in a channel = %q", got)
+		}
+		if n := len(h.runner.Submitted()); n != 0 {
+			t.Fatalf("commands reached the runner (%d)", n)
 		}
 	})
 }
@@ -236,19 +273,25 @@ func TestStopButton(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		run := core.RunID(core.NewID(core.PrefixRun))
 		sess := core.SessionID(core.NewID(core.PrefixSession))
+		var ar *activeRunner
 		h := newHarness(t, func(h *harness) {
-			h.runner2 = &activeRunner{Runner: h.runner, info: core.RunInfo{Run: run, Session: sess,
-				Principal: core.UserPrincipal(h.owner.ID), Status: core.RunRunning}}
+			ar = &activeRunner{Runner: h.runner}
+			h.runner2 = ar
 		}).start()
-		ref, _ := h.ch.Send(h.ctx, core.OutMessage{Chat: h.dmChat(ownerChat), Text: "Working…"})
+		ar.info = core.RunInfo{Run: run, Session: sess, Principal: h.pid(memberChat), Status: core.RunRunning}
+		h.letIn("3003", "Sam", false)
+		ref, _ := h.ch.Send(h.ctx, core.OutMessage{Chat: h.dmChat(memberChat), Text: "Working…"})
+		h.ch.Press(ref, "3003", "s:"+string(run))
+		synctest.Wait()
 		h.ch.Press(ref, memberChat, "s:"+string(run))
 		synctest.Wait()
 		h.ch.Press(ref, ownerChat, "s:"+string(run))
 		synctest.Wait()
-		if got := h.ch.AckToasts(); !slices.Equal(got, []string{"Only the person this chat belongs to or an admin can stop it.", "Stopped."}) {
+		if got := h.ch.AckToasts(); !slices.Equal(got, []string{"Only the person this chat belongs to or someone who can approve can stop it.",
+			"Stopped.", "Stopped."}) {
 			t.Fatalf("toasts = %q", got)
 		}
-		if got := h.runner.Stopped(); len(got) != 1 || got[0] != sess {
+		if got := h.runner.Stopped(); len(got) != 2 || got[0] != sess {
 			t.Fatalf("stops = %v", got)
 		}
 		h.ch.Press(ref, ownerChat, "s:not-a-run")
@@ -322,7 +365,7 @@ func TestModelCommandUsesPlainNames(t *testing.T) {
 		haiku := core.ModelInfo{Ref: core.ModelRef{Provider: "anthropic", Model: "claude-haiku-4-5"}, DisplayName: "Claude Haiku 4.5", ShortName: "Haiku 4.5"}
 		h := newHarness(t, func(h *harness) { h.llm = namedModels{models: []core.ModelInfo{sonnet, haiku}} }).start()
 		h.cfg.Set(func(c *config.Config) { c.Models.Main = []string{"anthropic/claude-sonnet-4-6"} })
-		p, chat := core.UserPrincipal(h.owner.ID), h.dmChat(ownerChat)
+		p, chat := h.pid(ownerChat), h.dmChat(ownerChat)
 		override := func() string { return h.session(p, chat).ModelOverride }
 
 		h.dm(ownerChat, "/model")
@@ -358,7 +401,7 @@ func TestModelCommandSharedNames(t *testing.T) {
 		direct := core.ModelInfo{Ref: core.ModelRef{Provider: "anthropic", Model: "claude-sonnet-4-6"}, DisplayName: "Claude Sonnet 4.6", ShortName: "Sonnet 4.6"}
 		h := newHarness(t, func(h *harness) { h.llm = namedModels{models: []core.ModelInfo{direct, global, us}} }).start()
 		h.cfg.Set(func(c *config.Config) { c.Models.Main = []string{"bedrock/us.anthropic.claude-sonnet-4-6"} })
-		p, chat := core.UserPrincipal(h.owner.ID), h.dmChat(ownerChat)
+		p, chat := h.pid(ownerChat), h.dmChat(ownerChat)
 		override := func() string { return h.session(p, chat).ModelOverride }
 
 		// The main model is named with the region that sets it apart, and

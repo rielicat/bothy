@@ -33,7 +33,7 @@ const (
 )
 
 type PolicyInput struct {
-	User       UserID // human owning the principal (space owner for spaces)
+	User       UserID // the principal's account; "" for team-owned principals
 	Role       Role
 	Principal  Principal
 	Session    SessionID
@@ -54,16 +54,32 @@ type PolicyInput struct {
 // allow never counts; the requester may still deny (withdraw). Eligibility is
 // evaluated when the vote is cast, so a disabled or demoted account loses it.
 type ApproverReq struct {
-	User      UserID   `json:"user_id"`             // the principal's user; empty when AdminOnly or multi-approver
-	AdminOnly bool     `json:"admin_only"`          // admin-class actions: any owner/admin
+	User      UserID `json:"user_id"`    // the principal's account; empty when AdminOnly, Team or multi-approver
+	AdminOnly bool   `json:"admin_only"` // admin-class actions: any owner/admin
+	// Team: a channel's or teammate's request. Any enabled owner or admin on
+	// the web, or a teammate an admin marked "Can approve" pressing a recorded
+	// chat card, may resolve it.
+	Team      bool     `json:"team,omitempty"`
 	Users     []UserID `json:"users,omitempty"`     // multi-approver: users named by id
 	Roles     []Role   `json:"roles,omitempty"`     // multi-approver: any user holding at least one of these roles
 	Required  int      `json:"required,omitempty"`  // multi-approver: distinct allow votes needed (0 means 1)
-	Requester UserID   `json:"requester,omitempty"` // multi-approver: whose allow never counts
+	Requester UserID   `json:"requester,omitempty"` // multi-approver: whose allow never counts; "" for a teammate's request
+	// RequesterIdentity is "<channel>:<external id>" of the chat sender whose
+	// message started a team-owned principal's run; set by Approvals.Request.
+	// Only this sender may withdraw (deny) from chat without Can approve.
+	RequesterIdentity string `json:"requester_identity,omitempty"`
 }
 
 // Multi reports whether the approval is resolved by votes.
-func (r ApproverReq) Multi() bool { return !r.AdminOnly && (len(r.Users) > 0 || len(r.Roles) > 0) }
+func (r ApproverReq) Multi() bool {
+	return !r.AdminOnly && !r.Team && (len(r.Users) > 0 || len(r.Roles) > 0)
+}
+
+// Decider is who resolved an approval: a web account or a chat teammate.
+type Decider struct {
+	User     UserID // web
+	Identity string // chat: "<channel>:<external id>"
+}
 
 // Needed is the number of distinct allow votes a multi-approver approval needs.
 func (r ApproverReq) Needed() int { return max(r.Required, 1) }
@@ -165,8 +181,11 @@ type Grant struct {
 	Uses             int               `json:"uses"`
 	MaxUses          int               `json:"max_uses"` // 0 = unlimited
 	CreatedBy        UserID            `json:"created_by"`
-	CreatedAt        time.Time         `json:"created_at"`
-	ExpiresAt        time.Time         `json:"expires_at"` // zero = never
+	// CreatedByIdentity: a chat approver created it from a card
+	// ("<channel>:<external id>"); CreatedBy is then "".
+	CreatedByIdentity string    `json:"created_by_identity,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	ExpiresAt         time.Time `json:"expires_at"` // zero = never
 }
 
 type Policy interface {
@@ -176,7 +195,7 @@ type Policy interface {
 	Decide(ctx context.Context, in PolicyInput) Decision
 	// NarrowGrant builds the grant that "allow for session" creates for an Action,
 	// or ok=false when no narrow grant exists (then AllowSession is not offered).
-	NarrowGrant(a *Action, p PrincipalID, scope GrantScope, scopeID string, by UserID) (g Grant, ok bool)
+	NarrowGrant(a *Action, p PrincipalID, scope GrantScope, scopeID string, by Decider) (g Grant, ok bool)
 	Grant(ctx context.Context, g Grant) (GrantID, error)
 	Revoke(ctx context.Context, v Viewer, id GrantID, by UserID) error
 	// NextTaint is pure. boxEgressed reports that the session box moved bytes
@@ -260,11 +279,14 @@ type Approval struct {
 	Chat       *ChatRef       `json:"chat,omitempty"` // originating chat
 	OnTimeout  TimeoutAction  `json:"on_timeout"`
 	DecidedBy  UserID         `json:"decided_by,omitempty"`
-	DecidedVia string         `json:"decided_via,omitempty"` // web|telegram|discord|slack|timeout|stop (CancelRun)
-	CreatedAt  time.Time      `json:"created_at"`
-	ExpiresAt  time.Time      `json:"expires_at"`
-	ParkUntil  time.Time      `json:"park_until,omitempty"`
-	DecidedAt  time.Time      `json:"decided_at,omitempty"`
+	// DecidedByIdentity: a chat teammate decided ("<channel>:<external
+	// id>"); DecidedBy is then "".
+	DecidedByIdentity string    `json:"decided_by_identity,omitempty"`
+	DecidedVia        string    `json:"decided_via,omitempty"` // web|telegram|discord|slack|timeout|stop (CancelRun)
+	CreatedAt         time.Time `json:"created_at"`
+	ExpiresAt         time.Time `json:"expires_at"`
+	ParkUntil         time.Time `json:"park_until,omitempty"`
+	DecidedAt         time.Time `json:"decided_at,omitempty"`
 	// DecidedByName is DecidedBy's display name; the HTTP API fills it on reads.
 	DecidedByName string `json:"decided_by_name,omitempty"`
 	// Votes of a multi-approver approval, oldest first. Approvals.Get, Pending,
@@ -278,10 +300,15 @@ type Approval struct {
 	Requester *ApprovalPerson `json:"requester,omitempty"`
 }
 
-// ApprovalPerson names a user on an approval card.
+// ApprovalPerson names who asked on an approval card: an account, or a
+// person or channel in a chat app.
 type ApprovalPerson struct {
-	User UserID `json:"user"`
-	Name string `json:"name"` // display name, else username
+	User     UserID `json:"user"`
+	Name     string `json:"name"`               // display name, else username (chat: display name, else handle)
+	App      string `json:"app,omitempty"`      // the chat app of a teammate or channel requester
+	Chat     string `json:"chat,omitempty"`     // a channel request: the channel's title ("#eng")
+	Identity string `json:"identity,omitempty"` // "<channel>:<external id>", so chat cards can mention the real profile
+	Handle   string `json:"handle,omitempty"`   // the chat requester's @handle, when they have one
 }
 
 // ApprovalTally is where a multi-approver approval stands.
@@ -313,16 +340,18 @@ type ApprovalRequest struct {
 	Decision   Decision // from Policy.Decide (Verdict Ask)
 	Chat       *ChatRef
 	Context    string // card context line, built by the caller from session/channel
+	Sender     string // RunRequest.Sender of the run ("" for schedules)
 }
 
 type Resolution struct {
-	ID      ApprovalID
-	Choice  Choice
-	By      UserID
-	ByRole  Role
-	Via     string  // web | telegram | discord | slack
-	ViaMsg  *MsgRef // required for chat channels: must be a recorded card message
-	Comment string
+	ID         ApprovalID
+	Choice     Choice
+	By         UserID
+	ByIdentity string // a chat press by a teammate ("<channel>:<external id>"); By is then ""
+	ByRole     Role
+	Via        string  // web | telegram | discord | slack
+	ViaMsg     *MsgRef // required for chat channels: must be a recorded card message
+	Comment    string
 }
 
 type Approvals interface {
@@ -351,8 +380,11 @@ type Approvals interface {
 	// ButtonData returns "a:<id>:<o|s|a|d>:<mac8>" (<= 64 bytes, Telegram limit);
 	// the mac is HMAC-SHA256(server key, id|choice) truncated to 8 base32 chars.
 	ButtonData(id ApprovalID, c Choice) string
-	ParseButtonData(data string) (ApprovalID, Choice, error) // verifies the mac
-	AddMessageRef(ctx context.Context, id ApprovalID, ref MsgRef, truncated bool) error
+	ParseButtonData(data string) (ApprovalID, Choice, error)                            // verifies the mac
+	AddMessageRef(ctx context.Context, id ApprovalID, ref MsgRef, truncated bool) error // a card (kind card)
+	// AddMessage records a chat message of any kind: a link-only card, or
+	// the requester's waiting line (kind notice, which only withdraws).
+	AddMessage(ctx context.Context, id ApprovalID, m CardMessage) error
 	MessageRefs(ctx context.Context, id ApprovalID) ([]CardMessage, error)
 	// OnResolved registers a callback; the runner uses it to resume parked runs.
 	OnResolved(fn func(a *Approval))
@@ -361,4 +393,12 @@ type Approvals interface {
 type CardMessage struct {
 	Ref       MsgRef `json:"ref"`
 	Truncated bool   `json:"truncated"`
+	Kind      string `json:"kind"` // card | link (a link-only card) | notice (the requester's waiting line)
 }
+
+// CardMessage kinds; Messages lists cards, then links, then notices.
+const (
+	CardMsgCard   = "card"
+	CardMsgLink   = "link"
+	CardMsgNotice = "notice"
+)

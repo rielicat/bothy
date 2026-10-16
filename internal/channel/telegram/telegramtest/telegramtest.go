@@ -137,6 +137,8 @@ type Server struct {
 	files     map[string]File
 	limits    map[string][]int
 	commands  []BotCommand
+	titles    map[int64]string
+	members   map[int64]int
 	calls     map[string]int
 	sends     int
 	leaked    bool
@@ -164,6 +166,7 @@ func New(cfg Config) *Server {
 		history: map[int64]update{}, wake: make(chan struct{}), nextMsg: map[int64]int{},
 		msgs: map[int64][]*Message{}, callbacks: map[string]bool{}, files: map[string]File{},
 		limits: map[string][]int{}, calls: map[string]int{}, nextUpd: 1,
+		titles: map[int64]string{}, members: map[int64]int{},
 	}
 	s.srv = httptest.NewServer(s)
 	s.URL = s.srv.URL
@@ -227,6 +230,9 @@ func (s *Server) Inject(in Inbound) (updateID int64, msgID int) {
 		if in.ChatID == in.SenderID {
 			typ = "private"
 		}
+	}
+	if in.ChatTitle != "" {
+		s.titles[in.ChatID] = in.ChatTitle
 	}
 	msgID = in.MessageID
 	if msgID == 0 {
@@ -423,6 +429,13 @@ func (s *Server) AddFile(f File) {
 	s.files[f.ID] = f
 }
 
+// SetChat sets what getChat and getChatMemberCount report for a group.
+func (s *Server) SetChat(chatID int64, title string, members int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.titles[chatID], s.members[chatID] = title, members
+}
+
 // RateLimit makes the next call of method fail with 429 and retry_after.
 func (s *Server) RateLimit(method string, retryAfter int) {
 	s.mu.Lock()
@@ -479,6 +492,26 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.answerCallback(w, body)
 	case "getFile":
 		s.getFile(w, body)
+	case "getChat", "getChatMemberCount":
+		var p struct {
+			ChatID chatID `json:"chat_id"`
+		}
+		if json.Unmarshal(body, &p) != nil || p.ChatID == 0 {
+			apiErr(w, http.StatusBadRequest, "Bad Request: chat not found", 0)
+			return
+		}
+		s.mu.Lock()
+		id, title, n := int64(p.ChatID), s.titles[int64(p.ChatID)], s.members[int64(p.ChatID)]
+		s.mu.Unlock()
+		if method == "getChatMemberCount" {
+			ok200(w, n)
+			return
+		}
+		typ := "supergroup"
+		if id > 0 {
+			typ = "private"
+		}
+		ok200(w, s.chatJSON(id, typ, title))
 	case "setMyCommands":
 		var p struct {
 			Commands []BotCommand `json:"commands"`

@@ -30,6 +30,9 @@ type discordAPI interface {
 	OpenDM(ctx context.Context, user snowflake.ID) (snowflake.ID, error)
 	DeferUpdate(ctx context.Context, interaction snowflake.ID, token string) error
 	Followup(ctx context.Context, app snowflake.ID, token string, m discord.MessageCreate) error
+	Member(ctx context.Context, guild, user snowflake.ID) (discord.Member, error)
+	Channel(ctx context.Context, id snowflake.ID) (discord.Channel, error)
+	Guild(ctx context.Context, id snowflake.ID, withCounts bool) (discord.RestGuild, error)
 }
 
 const (
@@ -195,6 +198,38 @@ func (d *disgoAPI) ThreadParent(ctx context.Context, id snowflake.ID) (snowflake
 		return *t.ParentID(), nil
 	}
 	return 0, nil
+}
+
+func (d *disgoAPI) Member(ctx context.Context, guild, user snowflake.ID) (discord.Member, error) {
+	opts, err := d.bot(ctx)
+	if err != nil {
+		return discord.Member{}, err
+	}
+	m, err := d.r.GetMember(guild, user, opts...)
+	if err != nil {
+		return discord.Member{}, err
+	}
+	return *m, nil
+}
+
+func (d *disgoAPI) Channel(ctx context.Context, id snowflake.ID) (discord.Channel, error) {
+	opts, err := d.bot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return d.r.GetChannel(id, opts...)
+}
+
+func (d *disgoAPI) Guild(ctx context.Context, id snowflake.ID, withCounts bool) (discord.RestGuild, error) {
+	opts, err := d.bot(ctx)
+	if err != nil {
+		return discord.RestGuild{}, err
+	}
+	g, err := d.r.GetGuild(id, withCounts, opts...)
+	if err != nil {
+		return discord.RestGuild{}, err
+	}
+	return *g, nil
 }
 
 func (d *disgoAPI) CreateMessage(ctx context.Context, channel snowflake.ID, m discord.MessageCreate) (snowflake.ID, error) {

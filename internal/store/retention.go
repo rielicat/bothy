@@ -10,7 +10,6 @@ import (
 
 const (
 	retentionEvery    = time.Hour
-	pairingKeep       = 7 * 24 * time.Hour
 	hiddenSessionKeep = 7 * 24 * time.Hour
 	defaultDedupKeep  = 24 * time.Hour
 )
@@ -87,8 +86,7 @@ func (db *DB) retain(ctx context.Context, c *config.Config) error {
 	if _, err := db.AuthSessions().DeleteExpired(ctx, now); err != nil {
 		errs = append(errs, err)
 	}
-	cutoff := ms(now.Add(-pairingKeep))
-	run("prune pairings", `DELETE FROM pairing_codes WHERE (used_at > 0 AND used_at < ?1) OR expires_at < ?1`, cutoff)
+
 	if d := r.Runs.D(); d > 0 {
 		run("prune runs", `DELETE FROM runs WHERE created_at < ? AND status NOT IN ('queued', 'running', 'waiting_approval', 'parked')`,
 			ms(now.Add(-d)))

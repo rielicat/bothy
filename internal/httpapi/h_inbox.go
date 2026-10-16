@@ -28,8 +28,8 @@ func (s *Server) inboxRoutes() []route {
 }
 
 // inbox is GET /api/inbox: pending approvals the caller can see plus, for
-// admins, MCP tools and skills waiting for review and unknown senders, and
-// new group chats for their owners and admins.
+// admins, MCP tools and skills waiting for review, people waiting to be let
+// in and new group chats.
 func (s *Server) inbox(w http.ResponseWriter, r *http.Request, a core.Actor) error {
 	ctx := r.Context()
 	aps, err := s.d.Approvals.Pending(ctx, a.Viewer)
@@ -48,9 +48,9 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request, a core.Actor) err
 		if items, err = s.senderItems(ctx, items); err != nil {
 			return err
 		}
-	}
-	if items, err = s.groupItems(ctx, a, items); err != nil {
-		return err
+		if items, err = s.groupItems(ctx, a, items); err != nil {
+			return err
+		}
 	}
 	slices.SortStableFunc(items, func(x, y dto.InboxItem) int {
 		if x.ForYou != y.ForYou {
@@ -85,6 +85,8 @@ func approvalItem(ap *core.Approval, a core.Actor) dto.InboxItem {
 func canDecide(ap *core.Approval, a core.Actor) bool {
 	r := ap.Approver
 	switch {
+	case r.Team:
+		return a.Role.IsAdmin()
 	case r.Multi():
 		return r.Eligible(a.User, a.Role) && !slices.ContainsFunc(ap.Votes, func(v core.ApprovalVote) bool { return v.User == a.User })
 	case r.AdminOnly:
@@ -159,16 +161,19 @@ func (s *Server) skillItems(ctx context.Context, items []dto.InboxItem) ([]dto.I
 	return items, nil
 }
 
-// senderItems lists people who wrote to Bothy in a DM without being known,
-// were told how to get access, and wrote within the last 30 days.
+// senderItems lists people waiting for an admin, who wrote to Bothy in a
+// DM within the last 30 days: on a chat app that can't say who is in the
+// team, or where it can't vouch for someone it once did (Discord).
 func (s *Server) senderItems(ctx context.Context, items []dto.InboxItem) ([]dto.InboxItem, error) {
-	ids, err := s.d.Store.Identities().List(ctx, core.IdentityPending)
+	ids, err := s.d.Store.Identities().List(ctx, "")
 	if err != nil {
 		return nil, err
 	}
 	since := s.now().Add(-inboxSenderAge)
 	ids = slices.DeleteFunc(ids, func(id *core.ChannelIdentity) bool {
-		return id.DMChat == "" || id.LastNotice.IsZero() || id.LastSeen.Before(since)
+		waiting := id.Status == core.IdentityPending ||
+			id.Status == core.IdentityTeammate && id.Via == core.ViaMembership
+		return !waiting || id.Member != core.MemberUnknown || id.DMChat == "" || id.LastSeen.Before(since)
 	})
 	slices.SortFunc(ids, func(x, y *core.ChannelIdentity) int { return y.LastSeen.Compare(x.LastSeen) })
 	for _, id := range ids[:min(len(ids), inboxSendersShown)] {
@@ -179,29 +184,28 @@ func (s *Server) senderItems(ctx context.Context, items []dto.InboxItem) ([]dto.
 	return items, nil
 }
 
-// groupItems lists group chats Bothy was added to that nobody has turned
-// on or looked at since (a space's first change records that).
+// groupItems lists group chats Bothy was added to that no admin has turned
+// on or off yet (admins only).
 func (s *Server) groupItems(ctx context.Context, a core.Actor, items []dto.InboxItem) ([]dto.InboxItem, error) {
-	v := a.Viewer
-	if isAdmin(a) {
-		av, err := s.adminViewer(ctx, a)
-		if err != nil {
-			return nil, err
-		}
-		v = av
+	v, err := s.adminViewer(ctx, a)
+	if err != nil {
+		return nil, err
 	}
 	sps, err := s.d.Store.Spaces().List(ctx, v)
 	if err != nil {
 		return nil, err
 	}
 	for _, sp := range sps {
-		if sp.Kind != "group" || sp.Enabled || !sp.UpdatedAt.Equal(sp.CreatedAt) {
+		if sp.Kind != core.SpaceGroup || !sp.ReviewedAt.IsZero() {
 			continue
 		}
-		by := s.userName(ctx, sp.Owner)
+		by := ""
+		if sp.AddedBy != "" {
+			by = s.namer(ctx, v).identity(sp.Chat.Channel, sp.AddedBy)
+		}
 		it := dto.InboxItem{ID: "group:" + string(sp.Principal), Type: dto.InboxGroupChat,
 			Question: "Bothy was added to " + sp.Title + " in " + appTitle(sp.Chat.Channel),
-			ForYou:   isAdmin(a) || sp.Owner == a.User, CreatedAt: sp.CreatedAt, Group: &dto.InboxGroup{Space: *sp, AddedBy: by}}
+			ForYou:   true, CreatedAt: sp.CreatedAt, Group: &dto.InboxGroup{Space: *sp, AddedBy: by}}
 		if by != "" {
 			it.Summary = "Added by " + by
 		}

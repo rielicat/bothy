@@ -209,8 +209,8 @@ func TestLoopThreeFailuresDisableAndNotify(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t)
 		sleepUntil(utc(2026, 10, 12, 10, 0))
-		sc := h.upsert(&core.Schedule{Name: "report [*link*](x)", Kind: core.SchedCron, Spec: "*/10 * * * *", TZ: "UTC", Prompt: "x", Enabled: true})
-		sub := h.bus.Subscribe(core.Filter{Principals: []core.PrincipalID{h.p}, Types: []core.EventType{core.EvScheduleRun}}, 64)
+		sc := h.teamUpsert(&core.Schedule{Name: "report [*link*](x)", Kind: core.SchedCron, Spec: "*/10 * * * *", TZ: "UTC", Prompt: "x", Enabled: true})
+		sub := h.bus.Subscribe(core.Filter{Principals: []core.PrincipalID{h.tp}, Types: []core.EventType{core.EvScheduleRun}}, 64)
 		defer sub.Close()
 		stop := h.start()
 		defer stop()
@@ -247,8 +247,8 @@ func TestLoopThreeFailuresDisableAndNotify(t *testing.T) {
 			t.Fatalf("third failure must disable: %+v", got)
 		}
 		msgs := h.hub.Messages()
-		if len(msgs) != 1 || msgs[0] != h.dm.Key()+"|The schedule “report linkx” was turned off because its last 3 tasks failed. Turn it back on under Schedules once it's fixed." {
-			t.Fatalf("owner notice = %q", msgs)
+		if len(msgs) != 1 || msgs[0] != h.dm.Key()+"|The schedule “report linkx” was turned off because its last 3 tasks failed. An admin can turn it back on in Bothy once it's fixed." {
+			t.Fatalf("teammate notice = %q", msgs)
 		}
 		if !slices.ContainsFunc(h.audit.All(), func(e core.AuditEntry) bool {
 			return e.Action == "schedule.update" && e.Actor == "system" && strings.Contains(string(e.Detail), "consecutive_failures")
@@ -272,7 +272,7 @@ func TestLoopThreeFailuresDisableAndNotify(t *testing.T) {
 
 		// Re-enabling resets the count.
 		got.Enabled = true
-		h.upsert(got)
+		h.teamUpsert(got)
 		if got := h.get(sc.ID); got.Failures != 0 || got.NextRunAt.IsZero() {
 			t.Fatalf("re-enabled: %+v", got)
 		}

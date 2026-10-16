@@ -113,7 +113,7 @@ func TestResumeExecutesStoredActionOnce(t *testing.T) {
 		defer h.close()
 		h.appr.OnResolved(func(a *core.Approval) { _ = h.r.Resume(context.Background(), a) })
 		id, a := parkRun(t, h)
-		h.hub.PreferredChats = map[core.UserID]core.ChatRef{h.user.ID: {Channel: "telegram", ChatID: "9", Kind: core.ChatDM}}
+		h.hub.PrincipalChats = map[core.PrincipalID]core.ChatRef{core.UserPrincipal(h.user.ID): {Channel: "telegram", ChatID: "9", Kind: core.ChatDM}}
 		if _, err := h.appr.Resolve(h.ctx, core.Resolution{ID: a.ID, Choice: core.AllowOnce, By: h.user.ID, Via: "web"}); err != nil {
 			t.Fatal(err)
 		}
@@ -174,7 +174,7 @@ func TestResumedHeartbeatSuppressesHeartbeatOK(t *testing.T) {
 				h.appr.OnResolved(func(a *core.Approval) { _ = h.r.Resume(context.Background(), a) })
 				id, a := parkRunAs(t, h, core.TrigHeartbeat)
 				chat := core.ChatRef{Channel: "telegram", ChatID: "9", Kind: core.ChatDM}
-				h.hub.PreferredChats = map[core.UserID]core.ChatRef{h.user.ID: chat}
+				h.hub.PrincipalChats = map[core.PrincipalID]core.ChatRef{core.UserPrincipal(h.user.ID): chat}
 				if _, err := h.appr.Resolve(h.ctx, core.Resolution{ID: a.ID, Choice: core.AllowOnce, By: h.user.ID, Via: "web"}); err != nil {
 					t.Fatal(err)
 				}

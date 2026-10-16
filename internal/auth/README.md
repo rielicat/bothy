@@ -9,26 +9,29 @@ client address (checked and counted inside the hashing slot, so concurrent
 guesses cannot outrun it), session cookies (32 random bytes, stored as sha256, idle 7 d,
 absolute 30 d, deleted on password, role or disabled changes), personal access
 tokens `bothy_pat_<id>_<secret>_<crc>` parsed by fixed widths with a base62
-CRC32, pairing codes (8 Crockford characters, link codes 15 min, approve-sender
-codes 24 h, 5 redemptions per identity per hour), `BurnPairing` (a live link
-code posted in a group chat is used up without linking anyone, counted against
-the same 5 attempts, audited `pairing.burn` against the code's creator and
-published to them as `pairing.burned`), sender notices, guest spaces and
-`ResolveIdentity`. Passwords are checked against
+CRC32, and people in chat apps (`teammates.go`): `Admit` records a chat
+app's membership verdict (a pending member becomes a teammate with a person
+space of their own, audited `identity.teammate`; an outsider keeps their
+status and chats but loses Can approve; `Lost` reports someone admitted who
+just left), `NoticeSender` allows one refusal or waiting line per identity a
+day, and `ResolveIdentity`. Passwords are checked against
 `auth.password_min_length` and the embedded `common_passwords.txt` (matched on
 the password and on its de-leeted, digit-stripped core, plus keyboard and
-repetition patterns). `SetupGrant`, `SetIdentityStatus` and `UnlinkIdentity`
-are extras outside `core.Auth` that `httpapi` reaches by interface assertion,
+repetition patterns). `SetupGrant`, `SetTeammate` (an admin lets someone in
+where the chat app can't tell, blocks or unblocks them and marks whether they
+can approve; refusals are plain sentences) and `ForgetTeammate` (moves a
+blocked or departed person's identity off their principal and deletes the
+principal, in one transaction) are extras outside `core.Auth` that `httpapi`
+reaches by interface assertion,
 as are the v0.2 UI ones: `CreateOwnerNamed` (the owner's display name),
 `CreateUserOneTime` (a generated one-time password, four or more groups of
 four Crockford characters, returned once) and `ResetUserPassword` (the owner
 resets anyone else, admins only members; sessions end). Both mark the account
 `must_change_password`: cookie actors carry the flag, and `SetPassword`
 accepts an empty old password while it is set and clears it.
-`UpdateProfile` lets anyone change their own display name, time zone (IANA
-names only; new accounts start in the configured one), preferred chat app (one
-they have linked) and whether approval requests stay in the web UI (audited
-`user.profile`). Every sign-in, password or provider, records `last_login_at`.
+`UpdateProfile` lets anyone change their own display name and time zone (IANA
+names only; new accounts start in the configured one; audited
+`user.profile`). Chat apps are never linked to accounts. Every sign-in, password or provider, records `last_login_at`.
 
 Sign in with Google and GitHub (SPEC §15) is another set of extras:
 `SetSignIn` (the vault and `egress.SystemClient`, set by `cmd/bothy`),

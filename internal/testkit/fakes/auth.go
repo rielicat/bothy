@@ -2,10 +2,6 @@ package fakes
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -14,29 +10,24 @@ import (
 
 var _ core.Auth = (*Auth)(nil)
 
-// PairingTTL is how long codes from NewPairingCode and SenderNotice last.
-const PairingTTL = 15 * time.Minute
-
 // Auth resolves identities from Identities (key "<channel>:<external id>"),
-// builds Viewers from Viewers, and records pairing and sender-notice calls.
+// builds Viewers from Viewers, and records Admit and NoticeSender calls.
 //
 // An unknown identity resolves to the zero IdentityResolution; a user without
-// a Viewers entry gets a Viewer of their own principal. SenderNotice replies
-// once per identity per 24 h (by Clock, or the system clock when nil).
-// RedeemPairing accepts a code from Codes (normalized: upper case without
-// dashes or spaces) once, then resolves that identity as a linked member.
-// BurnPairing removes a code from Codes without linking anyone.
-// NewPairingCode registers a fresh code in Codes.
+// a Viewers entry gets a Viewer of their own principal. NoticeSender replies
+// once per identity per 24 h (by Clock, or the system clock when nil). Admit
+// records the verdict and, for a member, resolves the identity as an admitted
+// teammate (Principal from Principals, when set).
 type Auth struct {
 	core.Auth
 	Identities map[string]core.IdentityResolution
 	Viewers    map[core.UserID]core.Viewer
 	Notices    []core.ChannelIdentity
+	// Principals gives a teammate Admit lets in their person space.
+	Principals map[string]core.PrincipalID
 
 	mu       sync.Mutex
-	Codes    map[string]core.UserID
-	Redeemed []string // "<channel>:<external id>|<code>" per RedeemPairing call
-	Burned   []string // "<channel>:<external id>|<code>" per BurnPairing call that found the code
+	Admitted []string // "<channel>:<external id>|<verdict>" per Admit call
 	Clock    core.Clock
 	notified map[string]time.Time
 }
@@ -63,7 +54,7 @@ func (a *Auth) ViewerFor(_ context.Context, u core.UserID) (core.Viewer, error) 
 	return core.Viewer{User: u, Principals: []core.PrincipalID{core.UserPrincipal(u)}}, nil
 }
 
-func (a *Auth) SenderNotice(_ context.Context, ident core.ChannelIdentity) (core.SenderNotice, error) {
+func (a *Auth) NoticeSender(_ context.Context, ident core.ChannelIdentity) (bool, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.Notices = append(a.Notices, ident)
@@ -77,75 +68,35 @@ func (a *Auth) SenderNotice(_ context.Context, ident core.ChannelIdentity) (core
 		}
 		a.notified[key] = now
 	}
-	sum := sha256.Sum256([]byte(key))
-	return core.SenderNotice{Reply: reply, Code: core.PairingCode{Code: formatCode(crockfordUpper(sum[:5])), ExpiresAt: now.Add(PairingTTL)}}, nil
+	return reply, nil
 }
 
-func (a *Auth) RedeemPairing(_ context.Context, ident core.ChannelIdentity, code string) (*core.ChannelIdentity, error) {
+func (a *Auth) Admit(_ context.Context, ident core.ChannelIdentity, m core.Membership) (core.IdentityResolution, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	key := ident.Channel + ":" + ident.ExternalID
-	a.Redeemed = append(a.Redeemed, key+"|"+code)
-	norm := normalizeCode(code)
-	u, ok := a.Codes[norm]
-	if !ok {
-		return nil, fmt.Errorf("pairing code: %w", core.ErrNotFound)
-	}
-	delete(a.Codes, norm)
+	a.Admitted = append(a.Admitted, key+"|"+string(m.Status))
 	if a.Identities == nil {
 		a.Identities = map[string]core.IdentityResolution{}
 	}
-	a.Identities[key] = core.IdentityResolution{Status: core.IdentityLinked, User: u, Role: core.RoleMember, Principal: core.UserPrincipal(u)}
-	linked := ident
-	linked.Status, linked.User = core.IdentityLinked, u
-	return &linked, nil
-}
-
-func (a *Auth) BurnPairing(_ context.Context, ident core.ChannelIdentity, code string) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	norm := normalizeCode(code)
-	if _, ok := a.Codes[norm]; !ok {
-		return fmt.Errorf("pairing code: %w", core.ErrNotFound)
+	res := a.Identities[key]
+	was := res.Admitted()
+	if m.Status != core.MemberUnchecked {
+		res.Member, res.MemberAt = m.Status, a.now()
 	}
-	delete(a.Codes, norm)
-	a.Burned = append(a.Burned, ident.Channel+":"+ident.ExternalID+"|"+code)
-	return nil
-}
-
-func (a *Auth) NewPairingCode(_ context.Context, by core.Actor) (core.PairingCode, error) {
-	var b [5]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return core.PairingCode{}, err
+	if m.Status == core.MemberYes && (res.Status == "" || res.Status == core.IdentityPending) {
+		res.Status, res.Via, res.SpaceOn = core.IdentityTeammate, core.ViaMembership, true
+		res.Principal = a.Principals[key]
 	}
-	code := crockfordUpper(b[:])
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.Codes == nil {
-		a.Codes = map[string]core.UserID{}
+	if res.Status == "" {
+		res.Status = core.IdentityPending
 	}
-	a.Codes[code] = by.User
-	return core.PairingCode{Code: formatCode(code), ExpiresAt: a.now().Add(PairingTTL)}, nil
-}
-
-const crockfordAlphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-
-// crockfordUpper encodes 5 bytes as 8 Crockford base32 characters.
-func crockfordUpper(b []byte) string {
-	var v uint64
-	for _, x := range b[:5] {
-		v = v<<8 | uint64(x)
+	if res.Member == core.MemberOutsider {
+		res.CanApprove = false
 	}
-	out := make([]byte, 8)
-	for i := 7; i >= 0; i-- {
-		out[i] = crockfordAlphabet[v&31]
-		v >>= 5
-	}
-	return string(out)
-}
-
-func formatCode(c string) string { return c[:4] + "-" + c[4:] }
-
-func normalizeCode(c string) string {
-	return strings.ToUpper(strings.NewReplacer("-", "", " ", "").Replace(c))
+	res.Lost = was && !res.Admitted() && res.Member == core.MemberOutsider
+	stored := res
+	stored.Lost = false
+	a.Identities[key] = stored
+	return res, nil
 }

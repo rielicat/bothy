@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -36,18 +37,51 @@ func validFile(f core.MemoryFile) bool {
 
 func fileName(f core.MemoryFile) string { return string(f) + ".md" }
 
-// checkPrincipal accepts only user principals. Space ids get ErrForbidden
-// (spaces have no memory); anything else is rejected before it can reach a
-// file path.
-func checkPrincipal(p core.PrincipalID) error {
+// kindOf returns p's kind for spc_ ids, looked up once: a principal's kind
+// never changes.
+func (s *Service) kindOf(ctx context.Context, p core.PrincipalID) (core.PrincipalKind, error) {
+	if k, ok := s.kinds.Load(p); ok {
+		return k.(core.PrincipalKind), nil
+	}
+	pr, err := s.store.Principals().Get(ctx, core.SystemViewer(), p)
+	if err != nil {
+		return "", fmt.Errorf("memory of %s: %w", p, err)
+	}
+	s.kinds.Store(p, pr.Kind)
+	return pr.Kind, nil
+}
+
+// checkPrincipal accepts accounts and teammates. A channel gets
+// ErrForbidden (channels have no memory); anything else is rejected before
+// it can reach a file path. It returns the principal's kind.
+func (s *Service) checkPrincipal(ctx context.Context, p core.PrincipalID) (core.PrincipalKind, error) {
 	switch {
 	case core.ValidID(core.PrefixUser, string(p)):
-		return nil
+		return core.PrincipalUser, nil
 	case core.ValidID(core.PrefixSpace, string(p)):
-		return fmt.Errorf("memory of %s: spaces have no memory: %w", p, core.ErrForbidden)
+		k, err := s.kindOf(ctx, p)
+		if err != nil {
+			return "", err
+		}
+		if k != core.PrincipalPerson {
+			return "", fmt.Errorf("memory of %s: channels have no memory: %w", p, core.ErrForbidden)
+		}
+		return k, nil
 	}
-	return fmt.Errorf("memory: principal %q: %w", p, core.ErrInvalid)
+	return "", fmt.Errorf("memory: principal %q: %w", p, core.ErrInvalid)
 }
+
+// isChannel reports a channel's principal, whose snapshot is empty.
+func (s *Service) isChannel(ctx context.Context, p core.PrincipalID) bool {
+	if !core.ValidID(core.PrefixSpace, string(p)) {
+		return false
+	}
+	k, err := s.kindOf(ctx, p)
+	return err == nil && k == core.PrincipalSpace
+}
+
+// errTeammateHeartbeat: teammates have no check-ins, so no checklist.
+var errTeammateHeartbeat = invalidf("HEARTBEAT is for check-ins, which teammates don't have.")
 
 // etag is the hex sha256 prefix of a file's content; a missing file has the
 // ETag of "".

@@ -12,8 +12,9 @@ import (
 )
 
 // TestInboxItems: GET /api/inbox puts every kind of decision in one list in
-// plain copy, the caller's own first; admins also get MCP tools and skills
-// to review and unknown senders, and a group chat's owner gets the group.
+// plain copy, the caller's own first; admins also get team requests, MCP
+// tools and skills to review, people waiting to be let in and new group
+// chats.
 func TestInboxItems(t *testing.T) {
 	h := newHarness(t).setup()
 	ctx := context.Background()
@@ -43,6 +44,12 @@ func TestInboxItems(t *testing.T) {
 	del := request(memberP, "fs_delete", core.ApproverReq{User: h.member.user})
 	notes := request(memberP, "notes", core.ApproverReq{User: h.member.user})
 	deploy := request(memberP, "release_deploy", core.ApproverReq{Roles: []core.Role{core.RoleAdmin}, Required: 2, Requester: h.member.user})
+	person := &core.Space{Kind: core.SpacePerson, Chat: core.ChatRef{Channel: "slack", ChatID: "U9", Kind: core.ChatDM}, Title: "Ana",
+		Enabled: true, CreatedAt: now, UpdatedAt: now}
+	if err := h.store.Spaces().Create(ctx, person, &core.Principal{DisplayName: "Ana", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	team := request(person.Principal, "fs_delete", core.ApproverReq{Team: true})
 
 	h.mcp.StatusV = []core.MCPStatus{{Name: "linear", State: "pins_pending", Pending: 2}, {Name: "calm", State: "ready"}}
 	h.mcp.PinsV = map[string][]*core.MCPPin{"linear": {
@@ -56,32 +63,32 @@ func TestInboxItems(t *testing.T) {
 		{Name: "slides", Status: core.SkillPending, InstalledBy: h.admin.user, UpdatedAt: now}}
 
 	ids := h.store.Identities()
-	sender := func(ext, name string, seen time.Time, dm, noticed bool, text string) {
-		got, err := ids.Touch(ctx, &core.ChannelIdentity{Channel: "telegram", ExternalID: ext, DisplayName: name, Username: "u" + ext, LastSeen: seen})
+	sender := func(channel, ext, name string, seen time.Time, dm bool, m core.MemberStatus, text string) {
+		got, err := ids.Touch(ctx, &core.ChannelIdentity{Channel: channel, ExternalID: ext, DisplayName: name, Username: "u" + ext, Member: m,
+			FirstSeen: seen, LastSeen: seen})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if dm {
 			got.DMChat = ext
 		}
-		if noticed {
-			got.LastNotice = seen
-		}
 		got.FirstText = text
 		if err := ids.Update(ctx, got); err != nil {
 			t.Fatal(err)
 		}
 	}
-	sender("41", "Jordan K", now, true, true, "hi, is this the support bot?")
-	sender("42", "Group talker", now, false, false, "")
-	sender("43", "Long gone", now.Add(-40*24*time.Hour), true, true, "hello")
+	sender("telegram", "41", "Jordan K", now, true, core.MemberUnknown, "hi, is this the support bot?")
+	sender("telegram", "42", "Group talker", now, false, core.MemberUnknown, "")
+	sender("telegram", "43", "Long gone", now.Add(-40*24*time.Hour), true, core.MemberUnknown, "hello")
+	sender("slack", "U7", "Sam Patel", now, true, core.MemberUnchecked, "")
+	sender("slack", "U8", "Guest", now, true, core.MemberOutsider, "")
 
-	group := func(chat string, enabled, touched bool) core.PrincipalID {
+	group := func(chat string, enabled, reviewed bool) core.PrincipalID {
 		at := now.Add(-time.Minute).Truncate(time.Millisecond)
-		sp := &core.Space{Kind: "group", Chat: core.ChatRef{Channel: "slack", ChatID: chat, Kind: core.ChatGroup}, Title: "#" + chat,
-			Owner: h.member.user, Enabled: enabled, MentionOnly: true, CreatedAt: at, UpdatedAt: at}
-		if touched {
-			sp.UpdatedAt = at.Add(time.Second)
+		sp := &core.Space{Kind: core.SpaceGroup, Chat: core.ChatRef{Channel: "slack", ChatID: chat, Kind: core.ChatGroup}, Title: "#" + chat,
+			AddedBy: "U7", Enabled: enabled, MentionOnly: true, CreatedAt: at, UpdatedAt: at}
+		if reviewed {
+			sp.ReviewedAt = at
 		}
 		if err := h.store.Spaces().Create(ctx, sp, &core.Principal{DisplayName: sp.Title, CreatedAt: at}); err != nil {
 			t.Fatal(err)
@@ -89,7 +96,7 @@ func TestInboxItems(t *testing.T) {
 		return sp.Principal
 	}
 	fresh := group("eng", false, false)
-	group("ops", true, false)
+	group("ops", true, true)
 	group("old", false, true)
 
 	byID := func(c *client) map[string]dto.InboxItem {
@@ -122,8 +129,9 @@ func TestInboxItems(t *testing.T) {
 		"mcp:linear":             {dto.InboxMCPReview, "Review changes to Linear tools", "2 tools changed", true},
 		"skill:pdf":              {dto.InboxSkillReview, "Review changes to the “pdf” skill", "Changed since it was approved", true},
 		"skill:slides":           {dto.InboxSkillReview, "Review the new “slides” skill", "Added by admin", true},
+		string(team.ID):          {dto.InboxApproval, "Delete notes/old.md?", "", true},
 		"sender:telegram:41":     {dto.InboxUnknownSender, "Someone new messaged Bothy on Telegram", "Jordan K (@u41)", true},
-		"group:" + string(fresh): {dto.InboxGroupChat, "Bothy was added to #eng in Slack", "Added by member", true},
+		"group:" + string(fresh): {dto.InboxGroupChat, "Bothy was added to #eng in Slack", "Added by Sam Patel", true},
 	}
 	if len(admin) != len(want) {
 		t.Errorf("admin inbox has %d items, want %d: %+v", len(admin), len(want), admin)
@@ -143,8 +151,8 @@ func TestInboxItems(t *testing.T) {
 	}
 
 	member := byID(h.member)
-	if len(member) != 4 {
-		t.Errorf("member inbox = %+v; want their two approvals, the deploy they wait on and their new group", member)
+	if len(member) != 3 {
+		t.Errorf("member inbox = %+v; want their two approvals and the deploy they wait on", member)
 	}
 	if it := member[string(del.ID)]; it.Type != dto.InboxApproval || !it.ForYou || it.Question != "Delete notes/old.md?" || it.Approval == nil {
 		t.Errorf("member's own approval = %+v", it)
@@ -155,19 +163,43 @@ func TestInboxItems(t *testing.T) {
 	if it := member[string(deploy.ID)]; it.ForYou || it.Summary != "0 of 2 approvals" {
 		t.Errorf("the requester's deploy = %+v; they wait for others", it)
 	}
-	if it := member["group:"+string(fresh)]; !it.ForYou || it.Group == nil || it.Group.AddedBy != "member" || !it.Group.Space.MentionOnly {
-		t.Errorf("the owner's new group = %+v", it)
+	if it := admin["group:"+string(fresh)]; it.Group == nil || it.Group.AddedBy != "Sam Patel" || !it.Group.Space.MentionOnly {
+		t.Errorf("the new group = %+v", it)
 	}
 	for id := range member {
-		if slices.Contains([]string{"mcp:linear", "skill:pdf", "sender:telegram:41"}, id) {
+		if slices.Contains([]string{"mcp:linear", "skill:pdf", "sender:telegram:41", "group:" + string(fresh), string(team.ID)}, id) {
 			t.Errorf("a member sees the admin item %s", id)
 		}
 	}
 
-	if rec := h.do(http.MethodPatch, "/api/spaces/"+string(fresh), dto.SpacePatchReq{Enabled: new(false)}, h.member); rec.Code != http.StatusOK {
+	if rec := h.do(http.MethodPatch, "/api/spaces/"+string(fresh), dto.SpacePatchReq{Enabled: new(false)}, h.member); rec.Code != http.StatusForbidden {
+		t.Fatalf("a member changed a group = %d %s", rec.Code, rec.Body)
+	}
+	// A title the platform fills in later doesn't make the group reviewed.
+	sp, _ := h.store.Spaces().Get(ctx, core.SystemViewer(), fresh)
+	sp.Title, sp.UpdatedAt = "#engineering", now
+	if err := h.store.Spaces().Update(ctx, sp); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := byID(h.admin)["group:"+string(fresh)]; !ok {
+		t.Error("a title backfill dropped the new group")
+	}
+	if rec := h.do(http.MethodPatch, "/api/spaces/"+string(fresh), dto.SpacePatchReq{Enabled: new(false)}, h.admin); rec.Code != http.StatusOK {
 		t.Fatalf("ignore group = %d %s", rec.Code, rec.Body)
 	}
-	if _, ok := byID(h.member)["group:"+string(fresh)]; ok {
-		t.Error("a group chat looked at (any change) is still new")
+	if _, ok := byID(h.admin)["group:"+string(fresh)]; ok {
+		t.Error("a group chat an admin turned off is still new")
+	}
+
+	// A teammate a member check let in whom Discord can't vouch for waits
+	// for an admin too.
+	sender("discord", "1100000000000000099", "Dee", now, true, core.MemberUnknown, "")
+	dee, _ := ids.Get(ctx, "discord", "1100000000000000099")
+	dee.Status, dee.Via, dee.Principal = core.IdentityTeammate, core.ViaMembership, person.Principal
+	if err := ids.Update(ctx, dee); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := byID(h.admin)["sender:discord:1100000000000000099"]; !ok {
+		t.Error("a membership teammate Discord can't vouch for isn't listed")
 	}
 }

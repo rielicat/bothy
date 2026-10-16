@@ -32,14 +32,15 @@ type Channel struct {
 	Edited []core.OutMessage
 	Acks   []string
 
-	mu           sync.Mutex
-	EditRefs     []core.MsgRef
-	Deleted      []core.MsgRef
-	TypingIn     []core.ChatRef
-	Files        map[string][]byte
-	Err          error
-	IdentityV    string // SelfTest identity; default "@<name>_bot"
-	DeepLinkBase string // DeepLink returns DeepLinkBase+code; "" = unsupported
+	mu        sync.Mutex
+	EditRefs  []core.MsgRef
+	Deleted   []core.MsgRef
+	TypingIn  []core.ChatRef
+	Files     map[string][]byte
+	Err       error
+	IdentityV string // SelfTest identity; default "@<name>_bot"
+	// Chats answers InspectChat by chat id; a missing chat is ErrNotFound.
+	Chats map[string]core.ChatInfo
 
 	sink    core.InboundSink
 	runCtx  context.Context
@@ -193,13 +194,25 @@ func (c *Channel) identity() string {
 	return "@" + c.NameV + "_bot"
 }
 
-func (c *Channel) DeepLink(code string) string {
+// InspectChat implements core.ChatInspector from Chats.
+func (c *Channel) InspectChat(_ context.Context, chat core.ChatRef) (core.ChatInfo, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.DeepLinkBase == "" {
-		return ""
+	info, ok := c.Chats[chat.ChatID]
+	if !ok {
+		return core.ChatInfo{}, fmt.Errorf("chat %q: %w", chat.ChatID, core.ErrNotFound)
 	}
-	return c.DeepLinkBase + code
+	return info, nil
+}
+
+// SetChat sets what InspectChat reports for chatID.
+func (c *Channel) SetChat(chatID string, info core.ChatInfo) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.Chats == nil {
+		c.Chats = map[string]core.ChatInfo{}
+	}
+	c.Chats[chatID] = info
 }
 
 // Status reports "connected" while Run is active, else "connecting".
@@ -207,7 +220,7 @@ func (c *Channel) Status() core.ChannelStatus {
 	id := c.identity()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	st := core.ChannelStatus{Name: c.NameV, Enabled: true, State: "connecting", Identity: id, DeepLinks: c.DeepLinkBase != ""}
+	st := core.ChannelStatus{Name: c.NameV, Enabled: true, State: "connecting", Identity: id}
 	if c.running {
 		st.State = "connected"
 	}

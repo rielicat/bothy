@@ -42,6 +42,8 @@ func TestRender(t *testing.T) {
 		{"``a ` b`` and `unclosed", "``a ` b`` and `unclosed"},
 		{"[not a link] (x)", "[not a link] (x)"},
 		{"héllo_wörld", `héllo_wörld`},
+		{"[Maya](discord://user?id=110000000000000020) asked", "<@110000000000000020> asked"},
+		{"[x](discord://user?id=everyone)", "x (discord://user?id=everyone)"},
 	}
 	for _, tt := range tests {
 		if got := render(tt.in); got != tt.want {

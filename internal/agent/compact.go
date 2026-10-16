@@ -60,7 +60,7 @@ func (r *Runner) compactSession(ctx context.Context, id core.SessionID, user cor
 		return err
 	}
 	rs.req.Principal, rs.req.User, rs.req.Trigger, rs.req.Chat = rs.sess.Principal, rs.principal.User, core.TrigMessage, rs.sess.Chat
-	if user != "" {
+	if user != "" && rs.principal.User == user {
 		rs.req.User = user
 	}
 	if end := r.resolveModel(ctx, rs); end != nil {
@@ -335,7 +335,7 @@ func (r *Runner) meterAux(ctx context.Context, rs *runState, ci *core.CallInfo, 
 		return
 	}
 	ci.Purpose = purpose
-	if err := r.d.Budget.RecordSpend(context.WithoutCancel(ctx), rs.req.User, *ci); err != nil {
+	if err := r.d.Budget.RecordSpend(context.WithoutCancel(ctx), rs.req.Principal, *ci); err != nil {
 		r.log.Warn("record spend", "purpose", purpose, "err", err)
 	}
 }

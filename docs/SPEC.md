@@ -6,7 +6,7 @@
 
 **How to read this.** Prose is short. Go code, SQL, YAML and route tables are normative and are copied into the skeleton as-is. All Go listings (§2.5, §4, §7.4, §8.4, §12.1) were compiled together as one module (`go vet`, `go build`, cross-compiled for linux/arm64 and windows), and the skeleton wiring was booted (it serves `/healthz` and shuts down cleanly on SIGTERM). The DDL in §6 was applied to SQLite 3.53 with smoke tests (FTS after VACUUM, append-only triggers, one-active-run index, grant checks). The YAML in §7.1 decodes strictly into the §7.4 struct. Items marked *(verify)* must be checked when the skeleton is built; none of them changes an interface.
 
-**Words.** *Gateway* = `bothy serve`. *Box* = a throwaway tool container (or bwrap jail). *Principal* = the owner of sessions, workspace, memory and grants: a user's own data, or a *space* (a group chat or an allowlisted guest DM). *Card* = an approval card rendered from a structured Action. *Lead* = the integrator who writes the skeleton and owns frozen files.
+**Words.** *Gateway* = `bothy serve`. *Box* = a throwaway tool container (or bwrap jail). *Principal* = the owner of sessions, workspace, memory and grants: an *account*'s own data, a *channel* (a group chat) or a *teammate* (a person in a chat app); channels and teammates are *spaces* that belong to the team and have no owner. *Card* = an approval card rendered from a structured Action. *Lead* = the integrator who writes the skeleton and owns frozen files.
 
 ---
 
@@ -30,7 +30,7 @@ Bothy is one static Go binary with three roles chosen by subcommand: `serve` (th
 | D12 | Kill semantics: every exec runs under `sbx-init run --timeout`; `/stop` execs `sbx-init killall` (kill(-1, SIGKILL) as the box uid, PID 1 survives), falling back to container kill + recreate. | Docker has no exec-kill API. |
 | D13 | Plan/Exec split: `Tool.Plan` returns a structured `Action`; policy, cards, audit and loop detection read only the Action; `Exec` runs exactly that Action (persisted for parked runs). | Cards cannot be forged by model prose. |
 | D14 | Policy order: **floors → rules → grants → first contact → class defaults**. Floors (trifecta, financial, admin/self-modification, restricted spaces, tainted memory writes, URL provenance) cannot be overridden. Grants are always narrow. | Fixes grant-before-trifecta. |
-| D15 | Group chats and allowlisted guest DMs are **space principals**: no owner memory, no vault, read-only tools by default, approvals routed to the owner's DM. | Group participants must not reach the owner's private data. |
+| D15 | Principals are an **account** (web user), a **channel** (group chat) or a **teammate** (a person in a chat app). Channels and teammates belong to the team and have no owner: no account's memory or vault, their own workspace and daily line, approvals to chat approvers and admins. People in chat apps are never linked to accounts. | Chat participants must not reach anyone's private data, and a bot shared by a team isn't one person's. |
 | D16 | Every by-ID repository read takes a `core.Viewer` and returns `ErrNotFound` across principals; IDOR suites at store and HTTP layers. | Multi-user isolation enforced at the data layer. |
 | D17 | No secret ever enters a box (MCP stdio included). Credentialed integrations use Streamable HTTP MCP with vault-injected headers. Credential-injecting proxy is P1. | P0 baseline #3. |
 | D18 | Money is integer micro-USD (`core.Micros`). Prices are micros per 1M tokens. | No float drift in caps. |
@@ -533,7 +533,8 @@ internal/store/            core.Store on modernc sqlite: Open, pragmas, version 
 internal/store/migrations/ 0001_init.sql (§6); v0.2: 0002_repos, 0003_knowledge, 0004_approval_votes,
                            0005_approval_comments, 0006_must_change_password, 0007_v02_fixes (§14.6),
                            0008_external_secret_refs (§14.8), 0009_ui_state (§14.7),
-                           0010_knowledge_stemming, 0011_sign_ins (§15), 0012_github_apps (§14.3)        [S]
+                           0010_knowledge_stemming, 0011_sign_ins (§15), 0012_github_apps (§14.3),
+                           0013_team_access (§6)                                                        [S]
 internal/vault/            core.Vault, core.Redactor, KEK sources, envelope crypto, aws-sm references   [M1]
 internal/vault/awssm/      v0.2: AWS Secrets Manager GetSecretValue, hand-signed (SigV4) (§14.8)        [M1]
 internal/audit/            core.Auditor: single writer, hash chain, Verify, offline Archive             [M1]
@@ -563,7 +564,7 @@ internal/knowledge/        v0.2 F6: core.Knowledge: FTS5 index queue, knowledge_
                            turn-context hook (§14.4)                                                    [knowledge]
 internal/release/          v0.2 F5: release_deploy/release_status, run follower, token GitHub client;
                            actionstest fake Actions API (§14.5)                                         [release]
-internal/channel/          core.ChannelHub: gatekeeping, pairing, commands, streamer, card delivery     [M9]
+internal/channel/          core.ChannelHub: gatekeeping, membership, commands, streamer, card delivery  [M9]
 internal/channel/telegram/ Telegram adapter (hand-written) + telegramtest fake Bot API server           [M9]
 internal/channel/discord/  Discord adapter (disgo) + discordtest fake                                   [M10]
 internal/channel/slack/    Slack adapter (slack-go socketmode) + slacktest fake                         [M10]
@@ -732,24 +733,32 @@ func (r Role) IsAdmin() bool { return r == RoleOwner || r == RoleAdmin }
 type PrincipalKind string
 
 const (
-	PrincipalUser  PrincipalKind = "user"  // a human account's own data
-	PrincipalSpace PrincipalKind = "space" // a group chat or an allowlisted guest DM; restricted
+	PrincipalUser   PrincipalKind = "user"   // a web account's own data
+	PrincipalSpace  PrincipalKind = "space"  // a channel (group chat), owned by the team; restricted unless standard
+	PrincipalPerson PrincipalKind = "person" // a teammate in a chat app, owned by the team; always standard
 )
 
-// Principal owns sessions, workspace, memory, grants and schedules. A space has
-// no vault scope and no memory files, and gets read-only tools unless its
-// ToolProfile is "standard".
+// Principal owns sessions, workspace, memory, grants and schedules. Channels
+// and teammates are owned by the team (User ""): neither has a vault scope,
+// a channel has no memory files, and a channel gets read-only tools unless
+// its ToolProfile is "standard".
 type Principal struct {
 	ID          PrincipalID   `json:"id"`
 	Kind        PrincipalKind `json:"kind"`
-	User        UserID        `json:"user_id"` // user principal: that user; space: the owning user
+	User        UserID        `json:"user_id"` // user principal: that account; "" for team-owned principals (channels, teammates)
 	DisplayName string        `json:"display_name"`
 	Workspace   WorkspaceID   `json:"workspace_id"`
-	ToolProfile string        `json:"tool_profile"` // "standard" | "restricted" (spaces default restricted)
+	ToolProfile string        `json:"tool_profile"` // "standard" | "restricted" (channels default restricted)
 	CreatedAt   time.Time     `json:"created_at"`
 }
 
 func (p Principal) Restricted() bool { return p.Kind == PrincipalSpace && p.ToolProfile != "standard" }
+
+// TeamOwned reports a channel's or a teammate's principal: no account owns it.
+func (p Principal) TeamOwned() bool { return p.Kind == PrincipalSpace || p.Kind == PrincipalPerson }
+
+// ChatActor is the audit actor of a person in a chat app.
+func ChatActor(channel, externalID string) string { return "channel:" + channel + ":" + externalID }
 
 // UserPrincipal returns the principal id of a user's own data.
 func UserPrincipal(u UserID) PrincipalID { return PrincipalID(u) }
@@ -759,9 +768,11 @@ func UserPrincipal(u UserID) PrincipalID { return PrincipalID(u) }
 // build Viewers with Auth.ViewerFor and never set System.
 //
 // Admin is set by Auth.ViewerFor for owner/admin users. Repositories ignore it
-// except in exactly two places: approvals whose approver is AdminOnly
+// except in exactly two places: approvals whose approver is AdminOnly or Team
 // (ApprovalRepo.Get/Pending/Recent also return those), and egress rows of the
 // system dialer (principal_id ""). It never grants access to message content.
+// Team-owned principals (channels, teammates) are in no Viewer built for a
+// person, so their chats stay their own.
 //
 // ApprovalRepo.Get/Pending/Recent also return multi-approver approvals that
 // name User in ApproverReq.Users or name a role the viewer may hold (member
@@ -1833,7 +1844,7 @@ const (
 )
 
 type PolicyInput struct {
-	User       UserID // human owning the principal (space owner for spaces)
+	User       UserID // the principal's account; "" for team-owned principals
 	Role       Role
 	Principal  Principal
 	Session    SessionID
@@ -1854,16 +1865,32 @@ type PolicyInput struct {
 // allow never counts; the requester may still deny (withdraw). Eligibility is
 // evaluated when the vote is cast, so a disabled or demoted account loses it.
 type ApproverReq struct {
-	User      UserID   `json:"user_id"`             // the principal's user; empty when AdminOnly or multi-approver
-	AdminOnly bool     `json:"admin_only"`          // admin-class actions: any owner/admin
+	User      UserID `json:"user_id"`    // the principal's account; empty when AdminOnly, Team or multi-approver
+	AdminOnly bool   `json:"admin_only"` // admin-class actions: any owner/admin
+	// Team: a channel's or teammate's request. Any enabled owner or admin on
+	// the web, or a teammate an admin marked "Can approve" pressing a recorded
+	// chat card, may resolve it.
+	Team      bool     `json:"team,omitempty"`
 	Users     []UserID `json:"users,omitempty"`     // multi-approver: users named by id
 	Roles     []Role   `json:"roles,omitempty"`     // multi-approver: any user holding at least one of these roles
 	Required  int      `json:"required,omitempty"`  // multi-approver: distinct allow votes needed (0 means 1)
-	Requester UserID   `json:"requester,omitempty"` // multi-approver: whose allow never counts
+	Requester UserID   `json:"requester,omitempty"` // multi-approver: whose allow never counts; "" for a teammate's request
+	// RequesterIdentity is "<channel>:<external id>" of the chat sender whose
+	// message started a team-owned principal's run; set by Approvals.Request.
+	// Only this sender may withdraw (deny) from chat without Can approve.
+	RequesterIdentity string `json:"requester_identity,omitempty"`
 }
 
 // Multi reports whether the approval is resolved by votes.
-func (r ApproverReq) Multi() bool { return !r.AdminOnly && (len(r.Users) > 0 || len(r.Roles) > 0) }
+func (r ApproverReq) Multi() bool {
+	return !r.AdminOnly && !r.Team && (len(r.Users) > 0 || len(r.Roles) > 0)
+}
+
+// Decider is who resolved an approval: a web account or a chat teammate.
+type Decider struct {
+	User     UserID // web
+	Identity string // chat: "<channel>:<external id>"
+}
 
 // Needed is the number of distinct allow votes a multi-approver approval needs.
 func (r ApproverReq) Needed() int { return max(r.Required, 1) }
@@ -1965,8 +1992,11 @@ type Grant struct {
 	Uses             int               `json:"uses"`
 	MaxUses          int               `json:"max_uses"` // 0 = unlimited
 	CreatedBy        UserID            `json:"created_by"`
-	CreatedAt        time.Time         `json:"created_at"`
-	ExpiresAt        time.Time         `json:"expires_at"` // zero = never
+	// CreatedByIdentity: a chat approver created it from a card
+	// ("<channel>:<external id>"); CreatedBy is then "".
+	CreatedByIdentity string    `json:"created_by_identity,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	ExpiresAt         time.Time `json:"expires_at"` // zero = never
 }
 
 type Policy interface {
@@ -1976,7 +2006,7 @@ type Policy interface {
 	Decide(ctx context.Context, in PolicyInput) Decision
 	// NarrowGrant builds the grant that "allow for session" creates for an Action,
 	// or ok=false when no narrow grant exists (then AllowSession is not offered).
-	NarrowGrant(a *Action, p PrincipalID, scope GrantScope, scopeID string, by UserID) (g Grant, ok bool)
+	NarrowGrant(a *Action, p PrincipalID, scope GrantScope, scopeID string, by Decider) (g Grant, ok bool)
 	Grant(ctx context.Context, g Grant) (GrantID, error)
 	Revoke(ctx context.Context, v Viewer, id GrantID, by UserID) error
 	// NextTaint is pure. boxEgressed reports that the session box moved bytes
@@ -2060,11 +2090,14 @@ type Approval struct {
 	Chat       *ChatRef       `json:"chat,omitempty"` // originating chat
 	OnTimeout  TimeoutAction  `json:"on_timeout"`
 	DecidedBy  UserID         `json:"decided_by,omitempty"`
-	DecidedVia string         `json:"decided_via,omitempty"` // web|telegram|discord|slack|timeout|stop (CancelRun)
-	CreatedAt  time.Time      `json:"created_at"`
-	ExpiresAt  time.Time      `json:"expires_at"`
-	ParkUntil  time.Time      `json:"park_until,omitempty"`
-	DecidedAt  time.Time      `json:"decided_at,omitempty"`
+	// DecidedByIdentity: a chat teammate decided ("<channel>:<external
+	// id>"); DecidedBy is then "".
+	DecidedByIdentity string    `json:"decided_by_identity,omitempty"`
+	DecidedVia        string    `json:"decided_via,omitempty"` // web|telegram|discord|slack|timeout|stop (CancelRun)
+	CreatedAt         time.Time `json:"created_at"`
+	ExpiresAt         time.Time `json:"expires_at"`
+	ParkUntil         time.Time `json:"park_until,omitempty"`
+	DecidedAt         time.Time `json:"decided_at,omitempty"`
 	// DecidedByName is DecidedBy's display name; the HTTP API fills it on reads.
 	DecidedByName string `json:"decided_by_name,omitempty"`
 	// Votes of a multi-approver approval, oldest first. Approvals.Get, Pending,
@@ -2078,10 +2111,15 @@ type Approval struct {
 	Requester *ApprovalPerson `json:"requester,omitempty"`
 }
 
-// ApprovalPerson names a user on an approval card.
+// ApprovalPerson names who asked on an approval card: an account, or a
+// person or channel in a chat app.
 type ApprovalPerson struct {
-	User UserID `json:"user"`
-	Name string `json:"name"` // display name, else username
+	User     UserID `json:"user"`
+	Name     string `json:"name"`               // display name, else username (chat: display name, else handle)
+	App      string `json:"app,omitempty"`      // the chat app of a teammate or channel requester
+	Chat     string `json:"chat,omitempty"`     // a channel request: the channel's title ("#eng")
+	Identity string `json:"identity,omitempty"` // "<channel>:<external id>", so chat cards can mention the real profile
+	Handle   string `json:"handle,omitempty"`   // the chat requester's @handle, when they have one
 }
 
 // ApprovalTally is where a multi-approver approval stands.
@@ -2113,16 +2151,18 @@ type ApprovalRequest struct {
 	Decision   Decision // from Policy.Decide (Verdict Ask)
 	Chat       *ChatRef
 	Context    string // card context line, built by the caller from session/channel
+	Sender     string // RunRequest.Sender of the run ("" for schedules)
 }
 
 type Resolution struct {
-	ID      ApprovalID
-	Choice  Choice
-	By      UserID
-	ByRole  Role
-	Via     string  // web | telegram | discord | slack
-	ViaMsg  *MsgRef // required for chat channels: must be a recorded card message
-	Comment string
+	ID         ApprovalID
+	Choice     Choice
+	By         UserID
+	ByIdentity string // a chat press by a teammate ("<channel>:<external id>"); By is then ""
+	ByRole     Role
+	Via        string  // web | telegram | discord | slack
+	ViaMsg     *MsgRef // required for chat channels: must be a recorded card message
+	Comment    string
 }
 
 type Approvals interface {
@@ -2151,8 +2191,11 @@ type Approvals interface {
 	// ButtonData returns "a:<id>:<o|s|a|d>:<mac8>" (<= 64 bytes, Telegram limit);
 	// the mac is HMAC-SHA256(server key, id|choice) truncated to 8 base32 chars.
 	ButtonData(id ApprovalID, c Choice) string
-	ParseButtonData(data string) (ApprovalID, Choice, error) // verifies the mac
-	AddMessageRef(ctx context.Context, id ApprovalID, ref MsgRef, truncated bool) error
+	ParseButtonData(data string) (ApprovalID, Choice, error)                            // verifies the mac
+	AddMessageRef(ctx context.Context, id ApprovalID, ref MsgRef, truncated bool) error // a card (kind card)
+	// AddMessage records a chat message of any kind: a link-only card, or
+	// the requester's waiting line (kind notice, which only withdraws).
+	AddMessage(ctx context.Context, id ApprovalID, m CardMessage) error
 	MessageRefs(ctx context.Context, id ApprovalID) ([]CardMessage, error)
 	// OnResolved registers a callback; the runner uses it to resume parked runs.
 	OnResolved(fn func(a *Approval))
@@ -2161,7 +2204,15 @@ type Approvals interface {
 type CardMessage struct {
 	Ref       MsgRef `json:"ref"`
 	Truncated bool   `json:"truncated"`
+	Kind      string `json:"kind"` // card | link (a link-only card) | notice (the requester's waiting line)
 }
+
+// CardMessage kinds; Messages lists cards, then links, then notices.
+const (
+	CardMsgCard   = "card"
+	CardMsgLink   = "link"
+	CardMsgNotice = "notice"
+)
 ```
 
 ### 4.6 `channel.go`: chats, inbound/outbound, adapters, the hub
@@ -2221,20 +2272,22 @@ type Inbound struct {
 	// newly sighted space, and renames one still under its fallback name);
 	// "" when unknown.
 	ChatTitle string
-	// AddedBy is the platform user id that added the bot to this group or
-	// owns it, when the platform reports it (Telegram my_chat_member.from,
-	// Slack inviter, Discord guild owner); "" otherwise. A group Inbound with
-	// AddedBy and no text or attachments only announces the group.
+	// AddedBy is the platform user id that added the bot to this group,
+	// when the platform reports it (Telegram my_chat_member.from); ""
+	// otherwise. A group Inbound with AddedBy and no text or attachments only
+	// announces the group.
 	AddedBy string
+	// Team is a group chat's team when the platform says: the Discord guild
+	// id; "" otherwise.
+	Team string
 	// Forwarded marks content the sender relayed from someone else
 	// (Telegram forward_origin or via_bot). The hub treats it as untrusted
-	// even from a linked user and never as a command.
+	// even from the teammate whose DM it is, and never as a command.
 	Forwarded bool
-	// Private marks a message only its sender saw (a Slack slash command),
-	// so a code in it was not shown to the chat. In a group it never creates
-	// a space, since slash commands work in channels the bot is not in; the
-	// hub answers in their DM anyone it would not answer in that group, and
-	// an unknown sender's pairing code wherever it was typed.
+	// Private marks a message only its sender saw (a Slack slash command).
+	// In a group it never creates a space, since slash commands work in
+	// channels the bot is not in; the hub answers in their DM anyone it
+	// would not answer in that group.
 	Private bool
 }
 
@@ -2293,14 +2346,70 @@ type InboundSink interface {
 }
 
 type ChannelStatus struct {
-	Name      string    `json:"name"`
-	Enabled   bool      `json:"enabled"`
-	State     string    `json:"state"` // connecting | connected | backoff | auth_failed | disabled
-	Detail    string    `json:"detail,omitempty"`
-	Identity  string    `json:"identity,omitempty"` // "@my_bothy_bot"
-	Since     time.Time `json:"since"`
-	DeepLinks bool      `json:"deep_links"`
+	Name     string    `json:"name"`
+	Enabled  bool      `json:"enabled"`
+	State    string    `json:"state"` // connecting | connected | backoff | auth_failed | disabled
+	Detail   string    `json:"detail,omitempty"`
+	Identity string    `json:"identity,omitempty"` // "@my_bothy_bot"
+	Since    time.Time `json:"since"`
+	Team     string    `json:"team,omitempty"` // Slack: the workspace name (auth.test); Discord: "" (several servers)
+	Org      bool      `json:"org,omitempty"`  // Slack: installed org-wide on Enterprise Grid
 }
+
+// MemberStatus is what a chat app says about whether a person belongs to
+// the team Bothy serves there.
+type MemberStatus string
+
+const (
+	MemberUnchecked MemberStatus = ""         // never asked
+	MemberUnknown   MemberStatus = "unknown"  // the platform can't tell (Telegram; Discord with no known server or no access)
+	MemberYes       MemberStatus = "member"   // in the workspace or an enabled server
+	MemberOutsider  MemberStatus = "outsider" // guest, other company, bot, deactivated, not in an enabled server
+)
+
+// How long membership verdicts count (SPEC §5.1 step 3). In verdicts.go,
+// which the generated web types skip.
+const (
+	MemberTTL     = time.Hour        // a verdict older than this is checked again before use
+	MemberStale   = 4 * time.Hour    // a member verdict this young still counts for chats and schedules when the platform doesn't answer
+	ApproverFresh = 2 * time.Hour    // full approver cards need a verdict this young; older gets a link-only card
+	ApproverStale = 15 * time.Minute // a press falls back to a verdict this young when its recheck fails
+)
+
+type Membership struct {
+	Status MemberStatus
+	Team   string // the workspace or server's name for copy; "" when unknown or several
+}
+
+// MemberChecker is implemented by adapters whose platform can say whether a
+// person belongs to the team Bothy serves (Slack, Discord).
+type MemberChecker interface {
+	// CheckMember asks about externalID. teams are the Discord guild ids of
+	// the group chats Bothy is turned on in (Slack checks its own workspace).
+	// An error means the platform did not answer; it is never a verdict.
+	CheckMember(ctx context.Context, externalID string, teams []string) (Membership, error)
+	// MemberScope names what membership means right now (Slack: team and
+	// enterprise ids); when it changes, every verdict on this chat app is stale.
+	MemberScope() string
+}
+
+// ChatInfo describes a group chat for the admins' turn-on choice.
+type ChatInfo struct {
+	TeamID, TeamName, Title string
+	Members                 int  // 0 = unknown
+	External                bool // people from other companies are in it (Slack Connect)
+}
+
+// ChatInspector is implemented by adapters that can describe a group chat.
+type ChatInspector interface {
+	InspectChat(ctx context.Context, chat ChatRef) (ChatInfo, error)
+}
+
+type TeamInfo struct{ ID, Name string }
+
+// TeamLister: Discord lists the servers it is in (GUILD_CREATE), so the hub
+// can warn about servers where no channel is on.
+type TeamLister interface{ Teams() []TeamInfo }
 
 // Channel adapters never do auth, policy, splitting or neutralization: the
 // router does. Adapters escape for their dialect and always disable link
@@ -2318,7 +2427,6 @@ type Channel interface {
 	OpenDM(ctx context.Context, externalUserID string) (ChatRef, error)
 	Fetch(ctx context.Context, a Attachment, max int64) (io.ReadCloser, error)
 	SelfTest(ctx context.Context) (identity string, err error) // getMe / users/@me / auth.test
-	DeepLink(code string) string                               // "" when unsupported; Telegram t.me/<bot>?start=<code>
 	Status() ChannelStatus
 }
 
@@ -2340,9 +2448,18 @@ type ChannelHub interface {
 	Run(ctx context.Context) error
 	Status() []ChannelStatus
 	Test(ctx context.Context, name string) (string, error)
-	DeepLink(channel, code string) string
-	// PreferredChat returns the user's DM on their preferred linked channel.
-	PreferredChat(ctx context.Context, u UserID) (ChatRef, bool)
+	// PrincipalChat is where Bothy's own messages to a principal go: an
+	// admitted teammate's DM (opened when unknown), an enabled channel's chat;
+	// false for web accounts, which hear on the web only.
+	PrincipalChat(ctx context.Context, p PrincipalID) (ChatRef, bool)
+	// TeamActive is nil when a team-owned principal may run a schedule now;
+	// otherwise why not (blocked, no longer in the team, channel off, or a
+	// membership verdict older than MemberStale that couldn't be renewed).
+	TeamActive(ctx context.Context, p PrincipalID) error
+	// Greet sends a teammate their pending greeting (hello or moved) once.
+	Greet(ctx context.Context, channel, externalID string) error
+	// TellApprover tells a teammate an admin made them an approver.
+	TellApprover(ctx context.Context, channel, externalID string) error
 	// StreamTo returns a sink that delivers a run to a chat: mode "stream"
 	// (throttled edits) or "final" (one message at run end; schedules).
 	StreamTo(chat ChatRef, mode string) RunSink
@@ -2351,7 +2468,7 @@ type ChannelHub interface {
 // AdapterDeps is what channel adapters may use. Adapters import only core,
 // config and their protocol library.
 type AdapterDeps struct {
-	Secret   func(ctx context.Context, ref string) (Secret, error) // resolves "secret:<name>" (global scope)
+	Secret   func(ctx context.Context, ref string) (Secret, error) // resolves "secret:<name>" (global scope) and "aws-sm:<secret>"
 	HTTP     func(d SystemDest) *http.Client                       // Egress.SystemClient
 	Meta     MetaRepo                                              // long-poll offsets, resume cursors (keys "channel.<name>.*")
 	StateDir string                                                // <data>/channels/<name>/ (0700): P1 adapters with their own state (Matrix crypto store, WhatsApp device store)
@@ -2479,8 +2596,9 @@ type SystemDest struct {
 type EgressBinding struct {
 	Run         RunID
 	ToolCallID  string
-	User        UserID // approver context (space owner for spaces)
+	User        UserID // the principal's account; "" for team-owned principals
 	Role        Role
+	Sender      string // RunRequest.Sender, so a team request names who asked
 	Trigger     Trigger
 	Schedule    ScheduleID // schedule-scoped (pre-authorized) domain grants apply at the proxy
 	Interactive bool       // hold unknown CONNECTs for approval (egress.hold_for_approval) instead of failing
@@ -2546,36 +2664,58 @@ type User struct {
 	// handed out; its owner must choose their own before anything else.
 	MustChangePassword bool `json:"must_change_password,omitempty"`
 
-	// LastLoginAt is the last sign-in with a password; zero = never.
+	// LastLoginAt is the last sign-in by any method; zero = never.
 	// UserRepo.SignedIn writes it, Update leaves it alone.
 	LastLoginAt time.Time `json:"last_login_at"`
-	// PreferredChat is the linked chat app Bothy messages this person in;
-	// "" = the linked one they used last. ApprovalsWebOnly keeps approval
-	// requests on Bothy's Approvals page instead. The person sets both
-	// (GET/PATCH /api/me), so they stay out of the user listing.
-	PreferredChat    string `json:"-"`
-	ApprovalsWebOnly bool   `json:"-"`
 }
 
+// Space is a channel (kind "group") or a teammate's own space (kind
+// "person"). Both are owned by the team.
 type Space struct {
-	Principal   PrincipalID `json:"principal_id"`
-	Kind        string      `json:"kind"` // "group" | "guest" (allowlisted guest DM)
-	Chat        ChatRef     `json:"chat"`
-	Title       string      `json:"title"`
-	Owner       UserID      `json:"owner_user_id"`
-	Enabled     bool        `json:"enabled"`
-	MentionOnly bool        `json:"mention_only"`
-	CreatedAt   time.Time   `json:"created_at"`
-	UpdatedAt   time.Time   `json:"updated_at"`
+	Principal PrincipalID `json:"principal_id"`
+	Kind      string      `json:"kind"` // "group" | "person"
+	// Chat of a person space is the teammate's external id or DM; DMs route
+	// by identity, never by it.
+	Chat        ChatRef   `json:"chat"`
+	Team        string    `json:"team_id,omitempty"`   // group: the Discord guild id; "" when unknown
+	TeamName    string    `json:"team_name,omitempty"` // group: the server or workspace name, for admins
+	AddedBy     string    `json:"added_by,omitempty"`  // group: platform id of whoever added Bothy, when reported
+	Title       string    `json:"title"`
+	Members     int       `json:"members"`  // group: people in the chat or server as last reported; 0 = unknown
+	External    bool      `json:"external"` // group: Slack says people from other companies are in it
+	Enabled     bool      `json:"enabled"`  // person: false while the teammate is blocked
+	MentionOnly bool      `json:"mention_only"`
+	ReviewedAt  time.Time `json:"reviewed_at,omitzero"` // group: an admin turned it on or ignored it; zero = still in Approvals
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
+
+// Space kinds.
+const (
+	SpaceGroup  = "group"
+	SpacePerson = "person"
+)
 
 type IdentityStatus string
 
 const (
-	IdentityPending IdentityStatus = "pending" // unknown sender, approve_sender code issued
-	IdentityLinked  IdentityStatus = "linked"  // linked to a user account
-	IdentityGuest   IdentityStatus = "guest"   // allowlisted, talks to its own guest space
-	IdentityBlocked IdentityStatus = "blocked"
+	IdentityPending  IdentityStatus = "pending"  // not let in: waiting for an admin, or not a member
+	IdentityTeammate IdentityStatus = "teammate" // Bothy accepts them; they have a person space
+	IdentityBlocked  IdentityStatus = "blocked"
+)
+
+// AdmittedVia is how a teammate got in.
+type AdmittedVia string
+
+const (
+	ViaMembership AdmittedVia = "membership" // the platform said they are in the team
+	ViaAdmin      AdmittedVia = "admin"      // an admin let them in (or the 0013 migration did)
+)
+
+// Greetings a teammate is still owed.
+const (
+	GreetHello = "hello"
+	GreetMoved = "moved" // migrated from a linked account
 )
 
 type ChannelIdentity struct {
@@ -2584,35 +2724,24 @@ type ChannelIdentity struct {
 	Username    string         `json:"username"`
 	DisplayName string         `json:"display_name"`
 	Status      IdentityStatus `json:"status"`
-	User        UserID         `json:"user_id,omitempty"`      // linked
-	Principal   PrincipalID    `json:"principal_id,omitempty"` // guest space
+	Principal   PrincipalID    `json:"principal_id,omitempty"` // teammate: their person space
+	Via         AdmittedVia    `json:"admitted_via"`
+	CanApprove  bool           `json:"can_approve"` // an admin marked them "Can approve"
+	Member      MemberStatus   `json:"membership"`
+	MemberAt    time.Time      `json:"membership_at"`
 	DMChat      string         `json:"dm_chat_id,omitempty"`
 	FirstSeen   time.Time      `json:"first_seen_at"`
 	LastSeen    time.Time      `json:"last_seen_at"`
 	LastNotice  time.Time      `json:"-"`
+	Greet       string         `json:"-"` // "" | hello | moved: the greeting still owed
 	// FirstText is the start of a pending sender's first message, shown to
 	// admins in the approvals inbox; it is dropped once the status changes.
 	FirstText string `json:"first_text,omitempty"`
 }
 
-type PairingPurpose string
-
-const (
-	PairLinkIdentity  PairingPurpose = "link_identity"  // user creates in web UI, sends /pair CODE (or /start CODE) from chat
-	PairApproveSender PairingPurpose = "approve_sender" // unknown sender receives it; an admin enters it in the web UI
-)
-
-type Pairing struct {
-	CodeHash   []byte         `json:"-"`
-	Purpose    PairingPurpose `json:"purpose"`
-	User       UserID         `json:"user_id,omitempty"`
-	Channel    string         `json:"channel,omitempty"`
-	ExternalID string         `json:"external_id,omitempty"`
-	CreatedBy  UserID         `json:"created_by,omitempty"`
-	ExpiresAt  time.Time      `json:"expires_at"`
-	UsedAt     time.Time      `json:"used_at"`
-	Attempts   int            `json:"attempts"`
-}
+// Key is "<channel>:<external id>", as RunRequest.Sender and approval
+// requester identities carry it.
+func (c ChannelIdentity) Key() string { return c.Channel + ":" + c.ExternalID }
 
 type AuthSession struct {
 	IDHash      []byte
@@ -2692,7 +2821,7 @@ type Run struct {
 	ID         RunID       `json:"id"`
 	Session    SessionID   `json:"session_id"`
 	Principal  PrincipalID `json:"principal_id"`
-	User       UserID      `json:"user_id"` // billing user (space owner for spaces)
+	User       UserID      `json:"user_id"` // the principal's account; "" for team-owned principals
 	Trigger    Trigger     `json:"trigger"`
 	Schedule   ScheduleID  `json:"schedule_id,omitempty"`
 	Status     RunStatus   `json:"status"`
@@ -2775,7 +2904,7 @@ type Schedule struct {
 	ActiveHours string       `json:"active_hours,omitempty"` // "08:00-22:00" in TZ
 	Prompt      string       `json:"prompt"`
 	Session     SessionID    `json:"session_id,omitempty"` // "" = dedicated schedule session
-	Deliver     *ChatRef     `json:"deliver,omitempty"`    // nil = PreferredChat of the principal's user if any, otherwise web only; {channel:"web"} = web only
+	Deliver     *ChatRef     `json:"deliver,omitempty"`    // nil = ChannelHub.PrincipalChat (a teammate's DM, a channel's chat; the web for accounts); {channel:"web"} = web only, valid for user principals only
 	Slot        Slot         `json:"slot"`
 	Limits      RunLimits    `json:"limits"`
 	MissedRun   string       `json:"missed_run"` // skip | once
@@ -2793,7 +2922,7 @@ type UsageQuery struct {
 	User    UserID // "" = all users (admin)
 	From    time.Time
 	To      time.Time
-	GroupBy string // day | model | user | schedule | session
+	GroupBy string // day | model | user (who paid: the account, else the teammate or channel) | schedule | session
 }
 
 type UsageRow struct {
@@ -2818,6 +2947,29 @@ type AuditEntry struct {
 	Run     RunID           `json:"run_id,omitempty"`
 	IP      string          `json:"ip,omitempty"`
 	Detail  json.RawMessage `json:"detail"` // redacted JSON; never message content
+}
+
+// AuditOrigin is who and where a change came from, for an audit row written
+// further down than the request: the vault records its own key changes, and
+// the API passes the token, client address and source along with ctx.
+type AuditOrigin struct {
+	Actor  string         // token:<id>, user:<id> or channel:<app>:<id>; "" keeps the writer's
+	IP     string         // client address
+	Detail map[string]any // merged into the row's detail, such as {"source": "env:OPENAI_API_KEY"}
+	Name   string         // display name of a chat actor for banners ("Maya Chen · Slack")
+}
+
+type auditOriginKey struct{}
+
+// WithAuditOrigin returns ctx carrying o.
+func WithAuditOrigin(ctx context.Context, o AuditOrigin) context.Context {
+	return context.WithValue(ctx, auditOriginKey{}, o)
+}
+
+// AuditOriginFrom returns the origin ctx carries, if any.
+func AuditOriginFrom(ctx context.Context) (AuditOrigin, bool) {
+	o, ok := ctx.Value(auditOriginKey{}).(AuditOrigin)
+	return o, ok
 }
 
 type AuditFilter struct {
@@ -2959,8 +3111,8 @@ type Upload struct {
 type SecretMeta struct {
 	Scope     Scope     `json:"scope"`
 	Name      string    `json:"name"`
-	Source    string    `json:"source"` // vault | env
-	Hint      string    `json:"hint"`   // last 4 chars
+	Source    string    `json:"source"` // vault | env | aws-sm (a reference in the configuration; never a value)
+	Hint      string    `json:"hint"`   // last 4 chars; always "" for aws-sm
 	UpdatedAt time.Time `json:"updated_at"`
 	LastUsed  time.Time `json:"last_used_at"`
 }
@@ -2979,10 +3131,10 @@ type UserRepo interface {
 	ByUsername(ctx context.Context, name string) (*User, error)
 	List(ctx context.Context) ([]*User, error)
 	Update(ctx context.Context, u *User) error
-	// SetProfile writes only u's DisplayName, Timezone, PreferredChat,
-	// ApprovalsWebOnly and UpdatedAt: what people change about themselves
-	// (PATCH /api/me) must never write back a role, disabled flag or
-	// password hash that an admin or a reset changed meanwhile.
+	// SetProfile writes only u's DisplayName, Timezone and UpdatedAt: what
+	// people change about themselves (PATCH /api/me) must never write back a
+	// role, disabled flag or password hash that an admin or a reset changed
+	// meanwhile.
 	SetProfile(ctx context.Context, u *User) error
 	RecordLogin(ctx context.Context, id UserID, ok bool, lockUntil time.Time) error
 	// SignedIn records a successful sign-in at at: LastLoginAt, and the
@@ -2990,17 +3142,23 @@ type UserRepo interface {
 	SignedIn(ctx context.Context, id UserID, at time.Time) error
 	Count(ctx context.Context) (int, error)
 	// Delete removes the users row (user purge). Foreign keys cascade to its
-	// principals, spaces, sessions (messages, pins, runs, approvals), grants,
-	// schedules, memory events, uploads, pairing codes, auth sessions and
-	// tokens. Channel identities linked to the user, or guests of its spaces,
-	// must be deleted first (ErrInvalid otherwise). audit_log is untouched.
+	// principal, sessions (messages, pins, runs, approvals), grants,
+	// schedules, memory events, uploads, auth sessions and tokens. Team-owned
+	// principals are never touched. audit_log is untouched.
 	Delete(ctx context.Context, id UserID) error
 }
 
 type PrincipalRepo interface {
 	Get(ctx context.Context, v Viewer, id PrincipalID) (*Principal, error)
-	ForUser(ctx context.Context, u UserID) ([]*Principal, error) // own principal first, then owned spaces
+	ForUser(ctx context.Context, u UserID) ([]*Principal, error) // the user's own principal
+	// Team lists the team-owned principals (channels and teammates), oldest first.
+	Team(ctx context.Context) ([]*Principal, error)
 	Update(ctx context.Context, p *Principal) error
+	// Delete removes a team-owned principal and, through foreign keys, its
+	// space, sessions, schedules, grants, memory events and uploads; a user
+	// principal is refused (ErrInvalid). An identity pointing at it must be
+	// moved off first: SET NULL would break "teammate ⇒ principal".
+	Delete(ctx context.Context, id PrincipalID) error
 }
 
 type SpaceRepo interface {
@@ -3008,24 +3166,21 @@ type SpaceRepo interface {
 	ByChat(ctx context.Context, channel, chatID string) (*Space, error)
 	Get(ctx context.Context, v Viewer, id PrincipalID) (*Space, error)
 	List(ctx context.Context, v Viewer) ([]*Space, error)
-	Update(ctx context.Context, s *Space) error
+	Update(ctx context.Context, s *Space) error // never kind, channel or chat
 }
 
 type IdentityRepo interface {
-	Touch(ctx context.Context, id *ChannelIdentity) (*ChannelIdentity, error) // upsert names/last_seen; returns stored row
+	// Touch inserts an unknown sender as pending with membership id.Member,
+	// or refreshes a known one's names and last_seen only; returns the row.
+	Touch(ctx context.Context, id *ChannelIdentity) (*ChannelIdentity, error)
 	Get(ctx context.Context, channel, externalID string) (*ChannelIdentity, error)
-	Update(ctx context.Context, id *ChannelIdentity) error // status, user, principal, dm chat, last notice, first text (kept only while pending)
-	ForUser(ctx context.Context, u UserID) ([]*ChannelIdentity, error)
+	Update(ctx context.Context, id *ChannelIdentity) error // every mutable column; first text kept only while pending
+	// ByPrincipal returns the identity of a teammate's person space (ErrNotFound when none).
+	ByPrincipal(ctx context.Context, p PrincipalID) (*ChannelIdentity, error)
 	List(ctx context.Context, status IdentityStatus) ([]*ChannelIdentity, error) // "" = all
 	Delete(ctx context.Context, channel, externalID string) error
-}
-
-type PairingRepo interface {
-	Create(ctx context.Context, p *Pairing) error
-	// Redeem atomically marks an unexpired, unused code as used. Wrong codes
-	// increment no row; callers rate-limit per identity.
-	Redeem(ctx context.Context, codeHash []byte, purpose PairingPurpose, now time.Time) (*Pairing, error)
-	ForIdentity(ctx context.Context, channel, externalID string, purpose PairingPurpose, now time.Time) (*Pairing, error)
+	// ResetMembership makes every verdict on channel stale (membership_at 0).
+	ResetMembership(ctx context.Context, channel string) error
 }
 
 type AuthSessionRepo interface {
@@ -3097,8 +3252,10 @@ type ApprovalRepo interface {
 	Create(ctx context.Context, a *Approval) error
 	Get(ctx context.Context, v Viewer, id ApprovalID) (*Approval, error)
 	// Decide is a CAS: it updates only when status is one of from. Returns false
-	// when another resolver won.
-	Decide(ctx context.Context, id ApprovalID, from []ApprovalStatus, to ApprovalStatus, c Choice, by UserID, via string, at time.Time) (bool, error)
+	// when another resolver won. A chat decider is stored as "chat:<identity>".
+	Decide(ctx context.Context, id ApprovalID, from []ApprovalStatus, to ApprovalStatus, c Choice, by Decider, via string, at time.Time) (bool, error)
+	// CountOpen counts the principal's pending and parked approvals.
+	CountOpen(ctx context.Context, p PrincipalID) (int, error)
 	Park(ctx context.Context, id ApprovalID, until time.Time) error
 	Pending(ctx context.Context, v Viewer) ([]*Approval, error)
 	Recent(ctx context.Context, v Viewer, p Page) ([]*Approval, error) // not pending/parked, newest first; Before = created_at ms
@@ -3136,12 +3293,17 @@ type ScheduleRepo interface {
 	Delete(ctx context.Context, v Viewer, id ScheduleID) error
 	NextDue(ctx context.Context) (*Schedule, error) // enabled, min next_run_at; ErrNotFound when none
 	SetRun(ctx context.Context, id ScheduleID, last, next time.Time, status RunStatus, failures int, enabled bool) error
+	// PrincipalsWithEnabled lists the principals that have an enabled schedule.
+	PrincipalsWithEnabled(ctx context.Context) ([]PrincipalID, error)
 }
 
+// UsageRepo bills spending to principals; a user principal's id is the user's.
 type UsageRepo interface {
-	AddSpend(ctx context.Context, u UserID, day string, c CallInfo) error // spend_daily UPSERT
-	Spend(ctx context.Context, u UserID, day string) (Micros, error)      // u == "" => global total
-	Report(ctx context.Context, q UsageQuery) ([]UsageRow, error)         // aggregates llm_calls
+	AddSpend(ctx context.Context, p PrincipalID, day string, c CallInfo) error // spend_daily UPSERT
+	Spend(ctx context.Context, p PrincipalID, day string) (Micros, error)      // p == "" => global total
+	// TeamSpend is the day's total of every team-owned principal (spc_ ids).
+	TeamSpend(ctx context.Context, day string) (Micros, error)
+	Report(ctx context.Context, q UsageQuery) ([]UsageRow, error) // aggregates llm_calls
 }
 
 type AuditRepo interface {
@@ -3215,7 +3377,6 @@ type Store interface {
 	Principals() PrincipalRepo
 	Spaces() SpaceRepo
 	Identities() IdentityRepo
-	Pairings() PairingRepo
 	AuthSessions() AuthSessionRepo
 	Tokens() TokenRepo
 	Sessions() SessionRepo
@@ -3361,15 +3522,13 @@ const (
 	EvApprovalVoted     EventType = "approval.voted" // ApprovalData: a vote that did not resolve a multi-approver approval
 	EvReleaseDispatched EventType = "release.dispatched"
 	EvReleaseFinished   EventType = "release.finished"
-	EvInboxChanged      EventType = "inbox.changed" // a new unknown sender or group chat item; refetch GET /api/inbox
+	EvInboxChanged      EventType = "inbox.changed" // someone waiting to be let in, a new group chat, or a person's access changed; refetch GET /api/inbox
 	EvMessageCreated    EventType = "message.created"
 	EvSessionUpdated    EventType = "session.updated"
 	EvMemoryUpdated     EventType = "memory.updated"
 	EvEgressBlocked     EventType = "egress.blocked"
 	EvScheduleRun       EventType = "schedule.run"
 	EvBudgetWarning     EventType = "budget.warning"
-	EvPairingLinked     EventType = "pairing.linked"
-	EvPairingBurned     EventType = "pairing.burned"  // a link code was cancelled: it was posted in a group
 	EvChannelStatus     EventType = "channel.status"  // admin broadcast
 	EvSandboxStatus     EventType = "sandbox.status"  // admin broadcast
 	EvMCPPinPending     EventType = "mcp.pin_pending" // admin broadcast
@@ -3414,7 +3573,7 @@ type ToolCallData struct {
 	Rule    string  `json:"rule"`
 	// ProviderID is the model's own id of the call (the persisted
 	// tool_call part's id), so a client matches live rows to the
-	// transcript exactly. Calls that fail validation are announced too.
+	// transcript exactly.
 	ProviderID string `json:"provider_call_id,omitempty"`
 }
 type ToolOutputData struct {
@@ -3456,8 +3615,10 @@ type ApprovalResolvedData struct {
 	Status   ApprovalStatus `json:"status"`
 	Choice   Choice         `json:"choice,omitempty"`
 	By       UserID         `json:"by,omitempty"`
-	Via      string         `json:"via"`
-	Comment  string         `json:"comment,omitempty"` // the deciding approver's reason
+	// ByIdentity: a chat teammate decided ("<channel>:<external id>"); By is then "".
+	ByIdentity string `json:"by_identity,omitempty"`
+	Via        string `json:"via"`
+	Comment    string `json:"comment,omitempty"` // the deciding approver's reason
 }
 
 // ReleaseDispatchedData: GitHub accepted a deploy's workflow_dispatch.
@@ -3485,8 +3646,8 @@ type ReleaseFinishedData struct {
 	FailedStep string `json:"failed_step,omitempty"`
 }
 
-// InboxChangedData names the approvals-inbox item that appeared, e.g.
-// "sender:telegram:42" or "group:spc_…" (dto.InboxItem.ID).
+// InboxChangedData names the approvals-inbox item that appeared or changed,
+// "sender:<channel>:<external id>" or "group:<principal>" (dto.InboxItem.ID).
 type InboxChangedData struct {
 	Item string `json:"item"`
 }
@@ -3512,21 +3673,9 @@ type ScheduleRunData struct {
 	Status   RunStatus  `json:"status"`
 }
 type BudgetWarningData struct {
-	User  UserID `json:"user_id"`
+	User  UserID `json:"user_id"` // the account whose cap it is; "" for the global cap or a team-owned principal
 	Spent Micros `json:"spent_micros"`
 	Limit Micros `json:"limit_micros"`
-}
-type PairingLinkedData struct {
-	Channel    string `json:"channel"`
-	ExternalID string `json:"external_id"`
-	Display    string `json:"display"`
-}
-
-// PairingBurnedData names the cancelled code as NewPairingCode showed it, so
-// a page still showing that code can replace it.
-type PairingBurnedData struct {
-	Channel string `json:"channel"`
-	Code    string `json:"code"`
 }
 type ChannelStatusData struct {
 	Status ChannelStatus `json:"status"`
@@ -3543,19 +3692,25 @@ type ConfigChangedData struct {
 	RestartRequired []string `json:"restart_required"`
 }
 type BannerData struct {
-	Level  string `json:"level"` // info | warn | error
-	Code   string `json:"code"`  // no_sandbox | sandbox_not_isolated | config_error | provider_auth | paused | mcp_pins | mcp_drifted | budget_80 | vault_sealed | safe_mode | restart_required | unknown_sender | skills_changed
+	Level string `json:"level"` // info | warn | error
+	// Code: no_sandbox | sandbox_not_isolated | config_error | provider_auth |
+	// provider_key_unread | paused | mcp_pins | mcp_drifted | budget_80 |
+	// vault_sealed | safe_mode | restart_required | skills_changed |
+	// unknown_sender (someone is waiting to be let in) | new_channel |
+	// team_access (the 0013 migration) | chat_budget_80
+	Code   string `json:"code"`
 	Text   string `json:"text"`
 	Action string `json:"action,omitempty"` // SPA route, e.g. "/settings/sandbox"
 	Clear  bool   `json:"clear,omitempty"`  // true removes the banner with this Code
-	// By, ByName and At say who raised it and when (paused: who paused).
-	By     UserID    `json:"by,omitempty"`
+	// By, ByName and At say who raised it and when (paused: who paused: a
+	// user id, or a chat actor "channel:<app>:<id>").
+	By     string    `json:"by,omitempty"`
 	ByName string    `json:"by_name,omitempty"`
 	At     time.Time `json:"at,omitzero"`
 }
 
 // PausedBanner is the paused banner, naming who paused and when.
-func PausedBanner(by UserID, name string, at time.Time) BannerData {
+func PausedBanner(by string, name string, at time.Time) BannerData {
 	text := "Bothy is paused by an admin."
 	if name != "" {
 		text = "Bothy is paused by " + name + "."
@@ -3581,8 +3736,6 @@ func (MemoryData) eventData()           {}
 func (EgressBlockedData) eventData()    {}
 func (ScheduleRunData) eventData()      {}
 func (BudgetWarningData) eventData()    {}
-func (PairingLinkedData) eventData()    {}
-func (PairingBurnedData) eventData()    {}
 func (ChannelStatusData) eventData()    {}
 func (SandboxStatusData) eventData()    {}
 func (MCPPinData) eventData()           {}
@@ -3653,7 +3806,16 @@ type BudgetError struct {
 	Kind  BudgetKind
 	Limit int64
 	Used  int64
+	// Scope of a daily_cost error: which cap ran out.
+	Scope string // personal | chat | global
 }
+
+// BudgetError scopes of the daily caps.
+const (
+	BudgetPersonal = "personal" // the account's or teammate's own cap
+	BudgetChat     = "chat"     // the share of the daily limit chat apps may use together
+	BudgetGlobal   = "global"
+)
 
 func (e *BudgetError) Error() string { return "budget exceeded: " + string(e.Kind) }
 
@@ -3676,7 +3838,8 @@ type RunTotals struct {
 type RunMeter interface {
 	Step() error // *BudgetError
 	// BeforeCall projects estInput + m.MaxOutput against run tokens, run cost and
-	// the user's and global daily caps. Unknown prices skip $ checks only.
+	// the principal's, the chat share's and the global daily caps. Unknown
+	// prices skip $ checks only.
 	BeforeCall(ctx context.Context, estInput int, m ModelInfo) error
 	// AfterCall records spend_daily and run totals; emits budget.warning at 80%.
 	AfterCall(ctx context.Context, c CallInfo) error
@@ -3689,21 +3852,24 @@ type RunMeter interface {
 	Remaining() RunLimits
 }
 
+// Budget bills by principal: a user principal's id is its user's, and a
+// team-owned principal (channel or teammate) pays its own line.
 type Budget interface {
-	StartRun(run RunID, u UserID, l RunLimits) RunMeter
-	// CheckDaily fails with *BudgetError(daily_cost) when the user's or global cap
-	// is exhausted; used before accepting a run.
-	CheckDaily(ctx context.Context, u UserID) error
-	// RecordSpend is for calls outside a run (passthrough, probes): it writes the
-	// llm_calls row (run_id NULL, principal = the user's own) and spend_daily.
-	RecordSpend(ctx context.Context, u UserID, c CallInfo) error
+	StartRun(run RunID, p PrincipalID, l RunLimits) RunMeter
+	// CheckDaily fails with *BudgetError(daily_cost) when the principal's
+	// own cap, the chat share (team-owned principals) or the global cap is
+	// exhausted; used before accepting a run.
+	CheckDaily(ctx context.Context, p PrincipalID) error
+	// RecordSpend is for calls outside a run (passthrough, probes, notes): it
+	// writes the llm_calls row (run_id NULL) and spend_daily.
+	RecordSpend(ctx context.Context, p PrincipalID, c CallInfo) error
 	AllowSender(key string) (ok bool, retryAfter time.Duration) // token bucket, LRU 10k keys
-	Daily(ctx context.Context, u UserID) (spent, limit Micros, err error)
+	Daily(ctx context.Context, p PrincipalID) (spent, limit Micros, err error)
 	DefaultLimits(t Trigger) RunLimits
 }
 ```
 
-### 4.12 `auth.go`: actors, tokens, pairing, identities
+### 4.12 `auth.go`: actors, tokens, identities
 
 ```go
 package core
@@ -3750,22 +3916,31 @@ type TokenSpec struct {
 	RatePerMin int           `json:"rate_per_min"`
 }
 
-type PairingCode struct {
-	Code      string            `json:"code"` // 8 Crockford chars shown as XXXX-XXXX
-	ExpiresAt time.Time         `json:"expires_at"`
-	DeepLinks map[string]string `json:"deep_links"` // channel -> URL (Telegram t.me/<bot>?start=<code>)
-}
-
+// IdentityResolution is what Bothy knows about a chat sender.
 type IdentityResolution struct {
-	Status    IdentityStatus // "" = unknown sender
-	User      UserID         // linked: the user
-	Role      Role
-	Principal PrincipalID // linked: user principal; guest: guest space principal
+	Status     IdentityStatus // "" unknown | pending | teammate | blocked
+	Principal  PrincipalID    // teammate: their person space
+	Via        AdmittedVia
+	CanApprove bool
+	Member     MemberStatus
+	MemberAt   time.Time
+	SpaceOn    bool // teammate: their person space is enabled
+	Lost       bool // set by Admit: this verdict made an admitted person an outsider
 }
 
-type SenderNotice struct {
-	Reply bool        // true at most once per 24h per identity
-	Code  PairingCode // approve_sender code to show to the unknown sender
+// Admitted: a teammate whose space is on and whose platform said member, or
+// whom an admin let in where the platform can't tell.
+func (r IdentityResolution) Admitted() bool {
+	if r.Status != IdentityTeammate || !r.SpaceOn {
+		return false
+	}
+	switch r.Member {
+	case MemberYes:
+		return true
+	case MemberUnknown:
+		return r.Via == ViaAdmin
+	}
+	return false
 }
 
 type Auth interface {
@@ -3782,7 +3957,7 @@ type Auth interface {
 	FromCookie(ctx context.Context, cookie string) (Actor, error)
 	FromBearer(ctx context.Context, token string) (Actor, error)
 	Logout(ctx context.Context, cookie string) error
-	ViewerFor(ctx context.Context, u UserID) (Viewer, error) // own principal + owned spaces; Admin = role is owner/admin
+	ViewerFor(ctx context.Context, u UserID) (Viewer, error) // own principal; Admin = role is owner/admin
 
 	// Passwords (CreateOwner, CreateUser, SetPassword, ResetPassword) must be at
 	// least auth.password_min_length and not in the embedded list of 10k common
@@ -3796,22 +3971,14 @@ type Auth interface {
 	CreateToken(ctx context.Context, by Actor, spec TokenSpec) (plain string, rec *TokenRecord, err error)
 	RevokeToken(ctx context.Context, by Actor, id string) error
 
-	NewPairingCode(ctx context.Context, by Actor) (PairingCode, error) // link_identity for by.User
-	// RedeemPairing handles "/pair CODE" and "/start CODE" from a chat.
-	RedeemPairing(ctx context.Context, ident ChannelIdentity, code string) (*ChannelIdentity, error)
-	// BurnPairing cancels a live link_identity code that ident posted where
-	// a whole group could read it, linking no one; ErrNotFound when no live
-	// code matches. It shares RedeemPairing's attempts per identity.
-	BurnPairing(ctx context.Context, ident ChannelIdentity, code string) error
-	// SenderNotice records an unknown DM sender and returns whether to reply.
-	SenderNotice(ctx context.Context, ident ChannelIdentity) (SenderNotice, error)
-	// ApproveSender redeems an approve_sender code typed into the web UI by an
-	// admin: as "guest" (creates a guest space) or "link" (to linkUser). Admins
-	// link a chat identity only to themselves; only the owner links one to
-	// another user. An identity linked to some user is never made a guest or
-	// linked to anyone else (ErrForbidden); it can be blocked, unlinked or
-	// linked back to that same user.
-	ApproveSender(ctx context.Context, by Actor, code, as string, linkUser UserID) (*ChannelIdentity, error)
+	// Admit records the platform's verdict on a sender (SPEC §5.1 step 3)
+	// and makes a member who is pending a teammate, creating their person
+	// space the first time (audited identity.teammate). An outsider keeps
+	// their status and chats but loses Can approve. Blocked stays blocked.
+	Admit(ctx context.Context, ident ChannelIdentity, m Membership) (IdentityResolution, error)
+	// NoticeSender reports whether to send ident a refusal or waiting line:
+	// at most once per 24 h per identity (records last_notice_at).
+	NoticeSender(ctx context.Context, ident ChannelIdentity) (bool, error)
 	ResolveIdentity(ctx context.Context, channel, externalID string) (IdentityResolution, error)
 }
 ```
@@ -3838,13 +4005,14 @@ type RunSink interface{ OnEvent(e Event) }
 type RunRequest struct {
 	Session    SessionID
 	Principal  PrincipalID
-	User       UserID // the acting/billing user
+	User       UserID // the principal's account; "" for team-owned principals
 	Trigger    Trigger
 	Schedule   ScheduleID
 	Slot       Slot   // "" = the session's ModelSlot (schedules and /v1 bothy-fast set it)
 	Input      []Part // attachments arrive as image/file parts whose Blob is already in the workspace
 	Provenance Provenance
-	Sender     string
+	Sender     string   // "<chat app>:<external id>" of a chat sender; "web:…" / "api:…" otherwise
+	SenderName string   // the chat sender's display name, for the turn context
 	Chat       *ChatRef // originating chat (message tool target, card routing)
 	Sink       RunSink  // may be nil (web runs use the bus)
 	Limits     *RunLimits
@@ -3888,16 +4056,24 @@ type Runner interface {
 	// its caller streams only the run it starts.
 	Submit(ctx context.Context, r RunRequest) (SubmitResult, error)
 	// Stop cancels the active run, SIGKILLs the session box, cancels its pending
-	// approvals and clears its queue. It never waits on the run goroutine.
+	// approvals and clears its queue. It never waits on the run goroutine. A
+	// chat caller passes by "" and its actor through WithAuditOrigin.
 	Stop(ctx context.Context, v Viewer, s SessionID, by UserID) (bool, error)
-	StopAll(ctx context.Context, by UserID) (int, error)
+	StopAll(ctx context.Context, by UserID) (int, error) // by "" from chat, as Stop
+	// StopPrincipal stops every active run of p and cancels its pending and
+	// parked approvals, which ends parked runs through the cancelled path
+	// (blocking someone, losing membership, turning a channel off). The
+	// actor comes from WithAuditOrigin. It returns how many runs it ended.
+	StopPrincipal(ctx context.Context, p PrincipalID) (int, error)
 	// SetPaused persists meta.paused, publishes the banner and audits; it stops
-	// nothing. Callers run StopAll and report its count (§5.11).
+	// nothing. Callers run StopAll and report its count (§5.11). A chat
+	// approver pauses with by "" and its actor through WithAuditOrigin.
 	SetPaused(ctx context.Context, paused bool, by UserID) error
 	Paused() bool
-	// PausedBy is who engaged the kill switch and when (zero while it is
-	// off, and for a pause recorded before who and when were kept).
-	PausedBy() (UserID, time.Time)
+	// PausedBy is who engaged the kill switch and when: a user id or a chat
+	// actor ("channel:<app>:<id>"); zero while it is off, and for a pause
+	// recorded before who and when were kept.
+	PausedBy() (by string, at time.Time)
 	// Resume continues a parked run after its approval resolved: allowed =>
 	// execute the stored Action exactly once and continue the loop; denied =>
 	// record the denial and continue the loop; expired/cancelled => run stopped
@@ -4911,54 +5087,72 @@ type ReleaseStore interface {
 
 ### 5.1 Inbound from a chat channel (router, M9)
 
-1. **Adapter → `Hub.OnMessage`.** Adapters normalise platform updates into `core.Inbound` and never block (256-slot buffer per adapter; overflow drops and counts a metric).
+People in chat apps are not linked to web accounts. A chat app either says who belongs to the team Bothy serves (Slack: its workspace or Enterprise Grid org; Discord: the servers where a channel is on) or it can't (Telegram), and an admin lets people in there. Someone in the team is a **teammate**: they get a person space of their own (§5.2). Channels are spaces that belong to the team and have no owner.
+
+| Chat | Chat app | Who Bothy answers | Principal | Provenance |
+|---|---|---|---|---|
+| DM | Slack | admitted teammates: Slack says member | the teammate's person space | `ProvUser` (forwarded: `ProvUntrusted`) |
+| DM | Discord | admitted teammates: member of a server with a channel on, or let in by an admin while Discord can't tell | person space | same |
+| DM | Telegram | people an admin let in | person space | same |
+| Channel | Slack | admitted teammates, channel on, mentioned if mention-only | the channel's space | `ProvUntrusted` |
+| Channel | Discord | admitted teammates (this server or another with a channel on) | channel space | `ProvUntrusted` |
+| Channel | Telegram | anyone not blocked, group on | channel space | `ProvUntrusted` |
+
+Outsiders get one line a day in DMs and silence in channels. Blocked people get silence everywhere. People waiting to be let in get one line a day plus approver DMs, unless `unknown_senders: ignore`.
+
+1. **Adapter → `Hub.OnMessage`.** Adapters normalise platform updates into `core.Inbound` and never block (256-slot buffer per adapter; overflow drops and counts a metric). Slack drops messages from bots and apps (`bot_id`, `bot_profile`). Discord sets `Inbound.Team` to the guild id.
 2. **Dedup:** `Store.Dedup().Seen(channel, msgID)`; repeats are dropped (Telegram redelivery, Slack retries).
-3. **Identity:** `Identities().Touch`, then `Auth.ResolveIdentity(channel, senderID)`:
+3. **Identity and membership:** `Identities().Touch` (a new sender is `pending`; on a chat app with no `MemberChecker` its verdict starts as `unknown`; a DM's chat is remembered), then `Auth.ResolveIdentity`.
    - `blocked` → drop silently.
-   - any sender, in a group, a message (not forwarded, not `Inbound.Private`) whose text is `/pair CODE` or `/start CODE` (Telegram may add `@bot`) naming a **live** link code → the code was shown to the group, so `Auth.BurnPairing` cancels it (same attempts per identity as `RedeemPairing`; audited `pairing.burn` against the code's creator, reason "posted in a group"; publishes `pairing.burned` to them, and the web linking step showing that code makes a new one) and the group gets *"That code was shared in a group, so it no longer works. Create a new one in Bothy and send it to me in a direct message."* (within the sender limit, and even in an unknown or disabled group: it is a security notice). Nothing else happens with that message. A code that matches nothing goes on below as before.
-   - unknown, in a DM → if text is `/pair CODE` or `/start CODE` (never in forwarded content, `Inbound.Forwarded`): `Auth.RedeemPairing` (link_identity; Auth publishes `pairing.linked`, also for `ApproveSender` links), reply "Linked to <user>", then send the hello DM. Otherwise, with `channels.unknown_senders: pair`, call `Auth.SenderNotice`; when `Reply` is true (at most once per 24 h), reply *"Bothy only works with people on this team. Ask an admin to approve code 7KQ2-MX4D."* and notify admins (web banner + preferred DM card with links to Approvals, where they let the sender chat, link or block them). Admin DMs about unknown senders are limited to 3 per hour globally (fixed one-hour windows), so a hundred throwaway accounts cannot become a hundred DMs: the `unknown_sender` banner summarizes the window's count ("10 people asked for access in the past hour, most recently …"), and the first DM of the next window mentions how many senders were held back. **No LLM call is ever made for an unknown sender.** With `ignore`, drop silently.
-   - unknown, in a group → ignored unless the group is an enabled space (below).
-   - **Private, in a group** (`Inbound.Private`: only the sender saw it, a Slack slash command, which works in channels the bot is not in) → never creates a space (no first sighting). From an unknown sender, where the group has no enabled space, or anywhere for a pairing code (`/pair CODE`, `/start CODE`), it is handled exactly like a DM from them: the hub opens their DM with `Channel.OpenDM`, replies there and remembers it as the identity's DM chat, then the same limiter and the unknown-DM path above (pairing, or the daily notice); any other message of theirs in an enabled space goes on as any untrusted message (step 7). From a known sender (linked or guest) where the group has no space or a disabled one: *"Bothy is off in this channel. Write to me here, or ask an admin to turn the channel on in Approvals."* in their DM, within the sender limit and at most once per sender and channel an hour. In an enabled space it goes on as any message (step 7), and a private `/pair CODE` there gets the already-linked reply, not the "now visible here" one. A private code is never burned. A slash command typed in a DM between two people (Slack sends that conversation's id, which the bot cannot post in) is moved by the adapter to the sender's own DM with the bot (`conversations.open`) before it reaches the hub.
-4. **Rate limit:** `Budget.AllowSender(channel+":"+senderID)` (10/min, burst 5). Over the limit: drop; one reply per window, *"Bothy will read new messages again in about 60 s."*
-5. **Command fast path** (before any queue, authorised against the session principal's user or an admin; forwarded content is never a command):
+   - **Sender limit first:** `Budget.AllowSender(channel+":"+sender)` (10/min, burst 5) runs before any membership lookup. Over it, an admitted teammate's DM gets one *"Bothy will read new messages again in about 60 s."* per window; anyone else, and every group, silence. In a group the limiter runs only for a message Bothy would answer (the channel is on, and mentioned when mention-only), so chatter costs nothing.
+   - **Membership** (adapters implementing `core.MemberChecker`, Slack and Discord): verdicts are `member`, `outsider`, `unknown` or unchecked, kept on the identity with their time. A verdict younger than `MemberTTL` (1 h) is used as is; an older one is asked again off the dispatcher, in order per sender, through a per-adapter limiter (30 lookups a minute, 4 in flight). When the platform doesn't answer (or lookups are throttled, or one failed for this sender in the last minute), a member verdict younger than `MemberStale` (4 h) still counts; otherwise a DM gets *"Bothy can't check your access right now. Try again in a few minutes."* at most once an hour and a channel stays silent. `Auth.Admit` records each verdict: a `pending` member becomes a teammate with a person space (audited `identity.teammate`), an outsider keeps their status and chats but loses Can approve, and someone who was admitted and is now an outsider is **lost**: their runs stop (`Runner.StopPrincipal`) and admins' inboxes are told. `unknown` keeps a membership teammate's member verdict for 4 h.
+   - **Scope:** what membership means on an adapter is `MemberScope()` (Slack: team and enterprise ids) plus the Discord servers with a channel on. When it changes (another workspace's token; the last channel in a server turned on or off) every verdict on that adapter becomes stale at once (`ResetMembership`, `meta["member_scope:<channel>"]`). The first scope seen resets nothing.
+   - **Sweep:** every 15 min the hub renews, through the same limiter, verdicts older than 45 min of teammates who can approve or own an enabled schedule (at most 100 a pass). When Discord connects, channels recorded before Bothy knew their server get it from `InspectChat`.
+   - **Admitted** (`IdentityResolution.Admitted`): a teammate whose person space is on and whose verdict is `member`, or whom an admin let in while the verdict is `unknown`.
+   - **DM:** admitted → the teammate's chat (a pending greeting is sent first, once: the hello, or for accounts linked before 0013 the "moved" greeting). Outsider → *"Bothy works with members of {workspace}."* (Slack) or *"Bothy works only with members of its team."* at most once a day per identity (`Auth.NoticeSender`), in either `unknown_senders` mode; no admin notice, no inbox item, no model call. Anyone else (Telegram, Discord without a verdict, or a membership teammate Discord can no longer vouch for) **waits**: their first words are kept for the inbox item (once, one line, redacted), admins' inboxes are told, and with `pair` (the default) they get *"You'll be able to use Bothy once an admin lets you in."* at most once a day while approvers hear about it (web banner `unknown_sender`; approver DMs at most 3 an hour in fixed windows, the next window's first DM counting those held back, and none spent while there is no approver to tell). With `ignore` nobody is told, but they are still listed in Approvals. **No LLM call is ever made for someone who isn't admitted.**
+   - **Group:** the chat must be an **enabled space** (step 7). On Slack and Discord only admitted teammates are answered; guests, other companies, bots and Slackbot get silence. On Telegram anyone not blocked may talk, as untrusted.
+   - **Private, in a group** (`Inbound.Private`: only the sender saw it, a Slack slash command, which works in channels the bot is not in) → never creates a space. Where the group has no enabled space it is answered in the sender's DM (the hub opens it with `Channel.OpenDM` and remembers it), within the sender limit: an admitted teammate gets *"Bothy is off in this channel. Write to me here, or ask an admin to turn the channel on in Approvals."* at most once per sender and channel an hour; anyone else gets what a DM from them would. In an enabled space it goes on as any message (step 7). A slash command typed in a DM between two people (Slack sends that conversation's id, which the bot cannot post in) is moved by the adapter to the sender's own DM with the bot (`conversations.open`) before it reaches the hub.
+4. **(Folded into step 3.)**
+5. **Command fast path** (before any queue; forwarded content is never a command). Access: *chat* is the DM's teammate, or in a channel someone who can approve (admitted, verdict under 4 h); *anyone* is anyone Bothy answers in that chat; *approver* is an admitted teammate who can approve, in any chat; *web* only replies where to do it.
 
-| Command | Effect |
-|---|---|
-| `/stop` | `Runner.Stop` for this chat's session (§5.11). Reply "Stopped." |
-| `/stopall` | admins only: kill switch on (`Runner.SetPaused(true)`, then `StopAll`; the reply reports how many runs it stopped) |
-| `/resume` | admins only: kill switch off |
-| `/new` | archive the chat's session; next message starts a fresh one. The reply says the previous conversation is archived and that Activity in the web UI still opens it (archived chats leave the chat list) |
-| `/status` | in plain words: the chat's task (*"Working on a task for 2 min 10 s. 1 more message is waiting."*, *"Waiting for approval for 3 min."*), today's spending against the daily limit (*"Today: $0.87 of the $2.00 daily limit."*; money as ui.md §14.2: two decimals, "<$0.01", whole dollars from $1,000), *"Refine is on for this conversation, so answers are slower and cost more. /refine off turns it off."* while refine is on for the chat, and *"Running code is off on this server."* only when it is; no sandbox backend or runtime names |
-| `/pin <text>`, `/pins`, `/unpin <n>` | manage session pins |
-| `/compact` | `Runner.Compact`, in the background so the chat's later messages are not held behind it: replies "Older messages were summarised." when done; while a task runs it says it will summarise them when that task is done and waits up to 15 min, then says it is still waiting; a second `/compact` for the same session is refused while one is in flight |
-| `/model <model name>`, `/model`, `/model default` | set, show or clear the session model override. Models are named in plain words (`ModelInfo.DisplayName`, "Claude Sonnet 4.6"); setting takes a model's display or short name (case-insensitive, the first configured provider winning a shared name) or, as a fallback, a `provider/model` ref (stored as-is; the runner rejects an unknown ref at the next run with a notice and clears it). Bare `/model` only shows the override, or the main model (the first of `models.main`), and never changes it; clearing takes `default` (or `clear`, `reset`). The usage hint's example is the main model when one is configured |
-| `/usage` | today's spending and this session's cost, money as in `/status` |
-| `/refine [on\|off\|default]` | v0.2: set this session's refine mode (owner or admin; `default` follows `agent.refine.enabled`); `/refine` alone shows the setting, with the same typical cost as the composer's note (`core.RefineTypicalCalls`, the refine estimate's `multiplier`). Also in the Telegram menu and as a Slack `/bothy` subcommand |
-| `/help` | list commands in plain words; `/stopall` and `/resume` only for admins |
-| `/pair CODE`, `/start CODE` | pairing (step 3); a live code posted in a group is cancelled (step 3) |
+| Command | Access | Effect |
+|---|---|---|
+| `/stop` | anyone | `Runner.Stop` for this chat's session (§5.11), audited as the chat actor. Reply "Stopped." |
+| `/stopall` | approver (hidden) | kill switch on (`Runner.SetPaused(true, "")`, then `StopAll`) with the chat actor as the audit origin; the banner names "{Name} · {App}" and `meta.paused_by` stores `channel:<app>:<id>`; the reply reports how many runs it stopped. Refusal: *"Only someone who can approve can pause Bothy."* |
+| `/resume` | web (hidden) | *"Resume Bothy on the web, under Settings → Security."* |
+| `/new` | chat | archive the chat's session; next message starts a fresh one. The reply says the previous conversation is archived and that Activity in the web UI still opens it |
+| `/status` | anyone | in plain words: the chat's task (*"Working on a task for 2 min 10 s. 1 more message is waiting."*, *"Waiting for approval for 3 min."*), today's spending of the chat's principal against its daily limit (*"Today: $0.87 of the $2.00 daily limit."*; money as ui.md §14.2), *"Refine is on for this conversation, so answers are slower and cost more. /refine off turns it off."* while refine is on, and *"Running code is off on this server."* only when it is |
+| `/pin <text>`, `/unpin <n>` | chat | manage session pins |
+| `/pins` | anyone | list session pins |
+| `/compact` | chat | `Runner.Compact`, in the background so the chat's later messages are not held behind it: replies "Older messages were summarised." when done; while a task runs it says it will summarise them when that task is done and waits up to 15 min, then says it is still waiting; a second `/compact` for the same session is refused while one is in flight |
+| `/model <model name>`, `/model`, `/model default` | chat | set, show or clear the session model override. Models are named in plain words (`ModelInfo.DisplayName`); setting takes a display or short name (case-insensitive, the first configured provider winning a shared name) or, as a fallback, a `provider/model` ref. Bare `/model` only shows; clearing takes `default` (or `clear`, `reset`) |
+| `/usage` | anyone | today's spending and this session's cost, money as in `/status` |
+| `/refine [on\|off\|default]` | chat | v0.2: set this session's refine mode; `/refine` alone shows the setting with the typical cost (`core.RefineTypicalCalls`). Also in the Telegram menu and as a Slack `/bothy` subcommand |
+| `/help` | anyone | list the commands above in plain words; hidden ones are not listed |
+| `/pair` | anyone (hidden) | *"Bothy doesn't use link codes any more. Write here to ask it anything."* |
+| `/start` | anyone (hidden) | in a DM, the hello; in a channel, the help text. A `/start <payload>` is plain `/start` |
 
-   There is no `/approve CODE` command: approvals happen only through card buttons or the web UI. A message that is only `/word` (Telegram may add `@bot`; word characters only) naming no command is almost always a mistyped one: it gets *"There's no /word command. /help lists the commands."* and never reaches the runner. Any other text starting with a slash (a path such as `/etc/hosts`, a word followed by more text) and forwarded content are ordinary messages.
-6. **Button presses → `Hub.OnAction`.** Data `a:<approval>:<o|s|a|d>:<mac>` → `Approvals.ParseButtonData` (MAC check) → `Approvals.Resolve` with `ViaMsg` = the pressed message, `By` = the presser's linked user. Resolve rejects presses from unrecorded messages, from non-approvers, and approve presses on truncated cards. The adapter `Ack`s within 3 s with a toast ("Approved.", "Only Maya Chen can approve this.", "Open in web to approve."). Data `s:<run>` → Stop, authorized exactly like `/stop`.
+   The *chat* refusal is *"Only someone who can approve can use /{cmd} here."* There is no `/approve CODE` command: approvals happen only through card buttons or the web UI. A message that is only `/word` (Telegram may add `@bot`; word characters only) naming no command gets *"There's no /word command. /help lists the commands."* and never reaches the runner. Any other text starting with a slash and forwarded content are ordinary messages.
+6. **Button presses → `Hub.OnAction`.** Data `a:<approval>:<o|s|a|d>:<mac>` → `Approvals.ParseButtonData` (MAC check), the pressed message must be one the approval recorded (§5.9). The person whose message started the run may always deny, which **withdraws** the request (any approver kind, from any recorded message of it, including the waiting line's *Cancel request*). Otherwise: on the waiting line *"Only the person who asked can cancel this."*; admin-only, multi-approver (release) and account requests *"Open in Bothy to approve."*; a presser who isn't a teammate marked Can approve *"Only an approver can approve this."*. On Slack and Discord a verdict over an hour old is asked again within the press's 2.5 s budget; when that fails, only a verdict under 15 min (`ApproverStale`) counts (*"Bothy couldn't check that you can approve. Try again, or open it in Bothy."*). Truncated cards approve nothing (*"Open in web to approve."*). `Approvals.Resolve` gets `ByIdentity` = `<app>:<id>` and checks it all again from the store; a chat approver can't always-allow for a channel (*"Only an admin on the web can always allow this for a channel."*). The adapter `Ack`s within 3 s with a toast ("Approved.", "Request cancelled.", "Already decided."). Data `s:<run>` → Stop: the teammate whose chat it is, someone Bothy answers in the channel, or an approver (*"Only the person this chat belongs to or someone who can approve can stop it."*).
 7. **Principal and gating:**
-   - DM from a linked identity → the user's own principal.
-   - DM from a `guest` identity → that guest's space principal.
-   - Group message → the chat must be an **enabled space** (`Spaces().ByChat`); otherwise ignored (first sighting creates a disabled space row, owned by the linked user who added the bot when the platform reports it (`Inbound.AddedBy`: Telegram `my_chat_member.from`, Slack inviter, Discord guild owner; v0.1 adapters other than Telegram leave it empty) and otherwise by the instance owner, named by `Inbound.ChatTitle` (or "<App> group <chat id>" when the platform gives none), and notifies that owner: "Bothy was added to “<title>” in <App>. It stays silent there until you turn it on in Approvals."; a `Private` message never creates one, step 3). A space still under that fallback name is renamed, its principal's display name too, from the first later message that carries a `ChatTitle` (cleaned like a new title); a title an admin set is never overwritten. With `mention_only` (default), the message must mention or reply to the bot. Senders that are not linked users are `ProvUntrusted`; the space owner's own messages are `ProvUser`.
-   - **Forwarded content** (`Inbound.Forwarded`: content the sender relayed from someone else, Telegram `forward_origin`, `forward_date` or `via_bot`) is `ProvUntrusted` whoever forwards it, the linked owner and the space owner included. It is never treated as a command (step 5) or a pairing code (step 3), and mentions inside it do not address the bot.
+   - DM from an admitted teammate → their person space principal.
+   - Group message → the chat must be an **enabled space** (`Spaces().ByChat`); otherwise ignored. The first sighting creates a disabled space owned by nobody (`Space.AddedBy` keeps the platform's adder, `Space.Team` the Discord guild), named by `Inbound.ChatTitle` (or "<App> group <chat id>"), and `InspectChat` fills in its server, member count and Slack Connect sharing. Admins get the `new_channel` banner and an inbox item; chat approvers a DM (at most 3 an hour): *"Bothy was added to “<title>” in <App>. It stays silent there until an admin turns it on in Bothy."* A sighting skipped by the sender limit is retried with the group's next message; a `Private` message never creates one. A space still under its fallback name is renamed, its principal's display name too, from the first later message that carries a `ChatTitle`; a title an admin set is never overwritten, and neither touches `reviewed_at`. With `mention_only` (default), the message must mention or reply to the bot. Every channel message is `ProvUntrusted`. In a channel, a message from another sender never steers a run already going: it queues as its own turn.
+   - **Forwarded content** (`Inbound.Forwarded`: Telegram `forward_origin`, `forward_date` or `via_bot`) is `ProvUntrusted` whoever forwards it, the teammate whose DM it is included. It is never treated as a command (step 5), and mentions inside it do not address the bot.
 8. **Session:** `Runner.ResolveSession(principal, chat)` keyed by `ChatRef.Key()` (one open session per chat or thread per principal). If `agent.session_idle_reset` (default 0 = never) has elapsed since the last message, the old session is archived first.
 9. **Attachments:** the hub fetches each attachment with `Channel.Fetch` (≤ `server.upload_max_mb`, default 20 MB; larger ones are skipped with a note) into `<work>/ws/<workspace>/.bothy/in/<msgid>/<name>` (0660, name sanitized) and passes `Part{Type: image|file, Blob{Ref, MIME, Size}}`.
-10. **Submit:** `Runner.Submit(RunRequest{… Sink: Hub.StreamTo(chat,"stream")})`.
+10. **Submit:** `Runner.Submit(RunRequest{User: "" for team principals, Sender: "<app>:<id>", SenderName, … Sink: Hub.StreamTo(chat,"stream")})`.
 
-Web (`POST /api/sessions/{id}/messages`) and API (`/v1/chat/completions`) skip steps 1–8 with an authenticated actor; web uploads are already in the workspace (`POST /api/uploads`).
+Web (`POST /api/sessions/{id}/messages`) and API (`/v1/chat/completions`) skip steps 1–8 with an authenticated actor; web uploads are already in the workspace (`POST /api/uploads`). Web accounts have no chats in chat apps.
 
 ### 5.2 Principals and spaces
 
-| Principal | Created | Memory | Vault | Tools | Approvals go to | Billing |
-|---|---|---|---|---|---|---|
-| user (`usr_…`) | with the user | MEMORY/USER/HEARTBEAT files | `user:<id>` then `global` | all available | the user (admin for admin-class) | the user |
-| space, kind `group` | first sighting of a group chat (disabled until an admin enables it) | none | none | `restricted` (default): `SpaceOK && SideEffect == read` only; `standard` (admin opt-in): normal policy | the owner's preferred DM, never the group | the owner |
-| space, kind `guest` | `Auth.ApproveSender(as="guest")` | none | none | as above | the owner's DM | the owner |
+| Principal | Created | Memory | Vault | Tools | Approvals go to | Billing | Run slots | Deleting data |
+|---|---|---|---|---|---|---|---|---|
+| account (`usr_…`) | with the user | MEMORY/USER/HEARTBEAT files | `user:<id>` then `global` | all available | the user on the web (an admin for admin-class) | the user's daily cap | per user | purging the user |
+| channel (space, kind `group`) | first sighting of a group chat (off until an admin turns it on) | none | `global` only | `restricted` (default): `SpaceOK && SideEffect == read` only; `standard` (admin opt-in): normal policy, with untrusted messages asking for everything above `read` | chat approvers' DMs and admins on the web; never the channel | its own line, within the chat share | per principal | an admin deletes the channel |
+| teammate (space, kind `person`) | `Auth.Admit` (member) or an admin's Let in | MEMORY/USER files (no HEARTBEAT) | `global` only | `standard`, with floor FP (§5.8) | chat approvers' DMs and admins on the web | `member_daily_usd` or `per_user_daily_usd["<app>:<id>"]`, within the chat share | per principal | *Delete their data* once blocked or no longer in the team |
 
-`SpaceOK` read tools are `fs_read`, `fs_list`, `web_search`, `web_fetch`, `skill_load`, `skill_read`, `tool_search`, `use_tool`; `tool_search`/`use_tool` are offered only when lazy tools are reachable (§5.6), and `web_search` only with a search provider, so a restricted space with no search provider and no skills is offered just `fs_list`, `fs_read` and `web_fetch`. Restricted spaces have no `memory`, `session_search`, `fs_write`, `shell`, `python`, MCP or `schedule_*` tools; their workspace is their own (`ws_…` per principal). A run started by a `ProvUntrusted` message in a `standard` space asks the owner for every action above `read` (floor F6). v0.2: `knowledge_search` and `notes` (reads; edits escalate to `local_write`) are `SpaceOK`, so restricted spaces with an indexed repository get them; no GitHub tool is offered to a restricted space; `release_deploy` is denied from any space principal (§5.8).
+Team-owned principals (`Principal.User == ""`: channels and teammates) belong to no `core.Viewer`: their chats, runs, memory, uploads and transcripts are not on the web, admins included. Admins see their group chats, grants, schedules (on or off, delete) and spending, and audit rows of what they read outside Bothy (`tool.read`). `SpaceOK` read tools are `fs_read`, `fs_list`, `web_search`, `web_fetch`, `skill_load`, `skill_read`, `tool_search`, `use_tool`; `tool_search`/`use_tool` are offered only when lazy tools are reachable (§5.6), and `web_search` only with a search provider, so a restricted channel with no search provider and no skills is offered just `fs_list`, `fs_read` and `web_fetch`. Restricted channels have no `memory`, `session_search`, `fs_write`, `shell`, `python`, MCP or `schedule_*` tools; every principal's workspace is its own (`ws_…`). v0.2: `knowledge_search` and `notes` (reads; edits escalate to `local_write`) are `SpaceOK`; no GitHub tool is offered to a restricted channel; `release_deploy` is denied for channels and needs one more vote for a teammate (§5.8).
 
 ### 5.3 Taint and the trifecta state machine
 
@@ -4986,9 +5180,10 @@ Web (`POST /api/sessions/{id}/messages`) and API (`/v1/chat/completions`) skip s
 - **Busy, `queue`:** messages wait and are coalesced into one user turn when the run ends. A queued request whose sink got `run.queued` always gets a final event: when its turn is merged into an earlier queued turn, the notice "Merged into the reply above." plus `run.finished` (`done`); when `/stop` drops it, `run.finished` (`stopped`).
 - **ChatAPI requests** (`/v1`) are never queued: while the session has a run, Submit returns `ErrBusy` (§8.5), because the caller streams only the run it starts.
 - **Abandon:** when a stuck worker is abandoned (§5.11), its queue and pending turn move to the session's fresh worker (during shutdown they are failed as in §5.15).
-- **Semaphores:** global `agent.max_concurrent_runs` (4) and per-user `agent.max_runs_per_user` (2). They gate **LLM streaming and tool execution only**. A run **releases both while `waiting_approval` or `parked`** and re-acquires them (per-user first, then global, so a user at their limit never holds a global slot) before continuing. Queued runs publish `run.queued{position}` and channels show "Queued (1 ahead)".
+- **Semaphores:** global `agent.max_concurrent_runs` (4) and per-user `agent.max_runs_per_user` (2). The per-user slots are keyed by the user for accounts and by the principal for teammates and channels, so two teammates never share one. They gate **LLM streaming and tool execution only**. A run **releases both while `waiting_approval` or `parked`** and re-acquires them (per-user first, then global, so a user at their limit never holds a global slot) before continuing. Queued runs publish `run.queued{position}` and channels show "Queued (1 ahead)".
+- **Steering in channels:** a run of a channel takes steers only from the sender whose message started it (`RunRequest.Sender`); anyone else's message queues as its own turn, with its own requester.
 - **Kill switch:** when `Runner.Paused()`, Submit returns `ErrPaused` ("Bothy is paused by an admin.").
-- **Daily cap:** `Budget.CheckDaily(user)` before creating a run; exhausted → system notice with reset time, no run row.
+- **Daily cap:** `Budget.CheckDaily(principal)` before creating a run (the principal's own cap, the chat share for teammates and channels, the global cap, §5.12); exhausted → system notice with reset time, no run row.
 
 ### 5.5 The run loop
 
@@ -5009,7 +5204,8 @@ Web (`POST /api/sessions/{id}/messages`) and API (`/v1/chat/completions`) skip s
 ```
 [tools]   core tool specs from ToolRegistry.ForRun, sorted, frozen per epoch       ← breakpoint 1 (ToolsCache)
 [S1]      CONSTITUTION.md (embedded, versioned) + admin standing rules
-[S2]      persona (SOUL.md) · facts (principal display name, kind, timezone, channel,
+[S2]      persona (SOUL.md) · facts (principal display name, kind ("a teammate in {App}: {Name}",
+          "shared channel ({title} on {App})"), timezone, channel,
           sandbox available, saved keys (used only by Bothy's own connections,
           never by commands or files; "[redacted]" marks a hidden one),
           connected MCP servers when tool_search is offered,
@@ -5055,9 +5251,9 @@ g. **Ask** → `Approvals.Request` (card rendered from the Action, §5.9). Run s
    - `allow_once` → continue.
    - `allow_session` → `Policy.NarrowGrant(action, principal, session)` + `Policy.Grant`, continue.
    - `allow_always` → `Policy.NarrowGrant(action, principal, GrantPrincipal, "")` + `Policy.Grant`, continue. The grant is listed and revocable under Settings → Grants and audited as `grant.create` with `via: card`.
-   - `deny` → a result that says who decided, read back from the approval (`Approvals.Get`): *"The user denied this action."* when the run's user denied it; *"An approver, “{name}”, denied this action."* when someone else did (an admin, another approver; display name, else username, quoted like the reason because anyone can set their own name); *"The user cancelled the request before it was approved."* when the requester of a multi-approver approval withdrew it. The approver's reason (`Approval.Comment`) follows as *"Their reason: “…”"*, on one line, at most 300 characters, with hidden characters removed and quotes and angle brackets replaced so it cannot close the quotation or open a tag. Without a recorded decider the result is *"This action was denied."* A resumed parked call records its denial the same way.
+   - `deny` → a result that says who decided, read back from the approval (`Approvals.Get`): *"The user denied this action."* when the run's user denied it; *"An approver, “{name}”, denied this action."* when someone else did (an admin, another approver; display name, else username, quoted like the reason because anyone can set their own name); *"The user cancelled the request before it was approved."* when the requester of a multi-approver approval, or the chat sender whose message started the run, withdrew it. A chat approver who denied is named by their chat app's display name, else handle (*"An approver, “Maya Chen”, denied this action."*). The approver's reason (`Approval.Comment`) follows as *"Their reason: “…”"*, on one line, at most 300 characters, with hidden characters removed and quotes and angle brackets replaced so it cannot close the quotation or open a tag. Without a recorded decider the result is *"This action was denied."* A resumed parked call records its denial the same way.
    - timeout with `deny` → result *"Nobody answered the approval in time, so this action did not run."*; the card is updated to "Expired".
-   - timeout with `park` → approval `parked` (park_until = now + `park_ttl`, 24 h), run `parked`, `run.parked` published, worker released, user told "Bothy stopped waiting. Approve within 24 h to let it carry on." (the time is `park_ttl`) The approval parks before the run row does, so after persisting `runs.status=parked` the runner re-reads the approval and resumes the run at once if it was resolved meanwhile (`Resume`'s compare-and-swap keeps the action to one execution). At park time the runner persists a placeholder tool result for the call (*"Parked: waiting for approval of <card title>. It has not run."*) so the session history stays valid for providers while other runs use the session. When resolved, `Approvals.OnResolved` → `Runner.Resume(approval)`: the **same run** goes back to `running` in the session worker (published as `run.started` with trigger `resume`; `runs.trigger` keeps its original value), re-reads the persisted Action and executes it exactly once (allowed) or records the denial. The outcome is appended as a user-role message with provenance `system`: `<approved-action tool="…" call="…">` + result (spotlight-wrapped when untrusted), or the denial text; then the loop continues. Events go to the bus and to a new sink: `Hub.StreamTo(schedule.Deliver or PreferredChat, "final")` for scheduled/heartbeat runs, `Hub.StreamTo(session.Chat, "stream")` for channel sessions, the bus only for web. If the session has another active run, the resume is queued behind it. Unanswered parked approvals expire → run `stopped` with notice.
+   - timeout with `park` → approval `parked` (park_until = now + `park_ttl`, 24 h), run `parked`, `run.parked` published, worker released, user told "Bothy stopped waiting. Approve within 24 h to let it carry on." (the time is `park_ttl`) The approval parks before the run row does, so after persisting `runs.status=parked` the runner re-reads the approval and resumes the run at once if it was resolved meanwhile (`Resume`'s compare-and-swap keeps the action to one execution). At park time the runner persists a placeholder tool result for the call (*"Parked: waiting for approval of <card title>. It has not run."*) so the session history stays valid for providers while other runs use the session. When resolved, `Approvals.OnResolved` → `Runner.Resume(approval)`: the **same run** goes back to `running` in the session worker (published as `run.started` with trigger `resume`; `runs.trigger` keeps its original value), re-reads the persisted Action and executes it exactly once (allowed) or records the denial. The outcome is appended as a user-role message with provenance `system`: `<approved-action tool="…" call="…">` + result (spotlight-wrapped when untrusted), or the denial text; then the loop continues. Events go to the bus and to a new sink: `Hub.StreamTo(schedule.Deliver or PrincipalChat, "final")` for scheduled runs of teammates and channels, `Hub.StreamTo(session.Chat, "stream")` for channel sessions, the bus only for web. If the session has another active run, the resume is queued behind it. Unanswered parked approvals expire → run `stopped` with notice.
    - API runs (`OnApproval: deny`, default) never wait: result *"Requires approval, unavailable via API."* With `wait`, they wait up to `api_wait` (120 s) and then deny; they never park.
    - Re-acquire semaphores, `RunMeter.Resume()`.
 h. **Execute** with a per-tool timeout context (`Manifest.Timeout`, default 120 s; exec tools use `sandbox.exec_timeout`). Before every exec (not once per run) the runner calls `Sandbox.Ensure`, so a box the idle reaper removed during an approval wait is reopened, then `Egress.Bind(boxKey, {run, callID, user, role, trigger, schedule, interactive, chat, context, provenance})` on it; when the exec returns it calls `Egress.Unbind(boxKey, callID)`, which ends that call's allow_once admissions and holds (§2.8). After every tool call it takes `Egress.TakeActivity(boxKey)` (§5.3). `tool.output` chunks (≤ 8 KB, ≤ 10/s, tail kept) are published for shell.
@@ -5072,14 +5268,15 @@ i. **Post-process:** `Redactor.Redact`; truncate to the profile cap as head 60% 
 | F1 | Tool not available for this trigger, role, principal kind, sandbox state or kill switch | deny |
 | F2 | `SideEffect == financial` | deny, unless a config rule sets financial → ask (admin); never auto |
 | F3 | `SideEffect == admin` (self-modification: schedules, config, skills, MCP, policy, auth) | ask, `AdminOnly` approver, no allow_session; **deny** for `schedule`, `heartbeat`, `api` triggers |
-| F4 | Restricted space principal and `SideEffect > read` | deny |
-| FR | v0.2 release floor (`floor:release`), for tool `release_deploy` and any Action of kind `release`: deny for `schedule`, `heartbeat` and `api` triggers, for space principals (group spaces too: who asked is ambiguous there), for a payload that does not match its `releases.environments` entry (repo, workflow, inputs, `ref_pattern`), and when fewer enabled users than `required` can approve besides the requester | otherwise ask with a multi-approver `ApproverReq` (`Users`, `Roles`, `Required`, `Requester`); rules can only deny, grants are never consulted, only `[allow_once, deny]` are offered |
+| F4 | Restricted channel and `SideEffect > read` | deny |
+| FR | v0.2 release floor (`floor:release`), for tool `release_deploy` and any Action of kind `release`: deny for `schedule`, `heartbeat` and `api` triggers, for channels (*"deploys can't be requested from a channel, where who asked isn't clear"*), for a payload that does not match its `releases.environments` entry (repo, workflow, inputs, `ref_pattern`), and when fewer enabled users than needed can approve besides the requester. A teammate's deploy needs one more vote than the environment's `required` (`Requester` ""), since nobody on the web asked | otherwise ask with a multi-approver `ApproverReq` (`Users`, `Roles`, `Required`, `Requester`); rules can only deny, grants are never consulted, only `[allow_once, deny]` are offered |
 | F5 | Session Exposed and `SideEffect ∈ {external_send, irreversible}` | ask, no allow_session; exception: an `AllowWhenTainted` recipient grant matching `Action.Recipient` exactly → auto |
-| F6 | Run started by a `ProvUntrusted` message and `SideEffect ≥ local_write` | ask (owner) |
+| F6 | Run started by a `ProvUntrusted` message and `SideEffect ≥ local_write` | ask (the team's approvers; no grant choices) |
 | F7 | `Kind == memory` and session has `TaintUntrusted` (v0.2: also project-notes edits by the `notes` tool, which carry Kind `memory`, SideEffect `local_write` and a diff on the card) | ask (`memory.tainted_writes: ask`) or deny (`deny`) |
 | F8 | `web_fetch` in an Exposed session for a URL not in `session_urls` (from search results or user messages) | ask |
 | F9 | `net_allow` | ask (never auto, never via rules); allow_session grants exactly `host:port` |
 | FA | v0.2 `floor:always_ask`: the tool's `Manifest.AlwaysAsk` (`repo_open_pr`) | ask with `[allow_once, deny]` whatever the preset; a deny rule still denies; no grant answers it, `AllowWhenTainted` included; the first-contact warning is carried onto the card, also when an earlier floor (e.g. F5) asks first |
+| FP | `floor:teammate`, last of the floors: a teammate's (person principal's) action above `read`, except the `memory` tool and `repo_checkout`'s `local_write` (checking out keeps edits; discarding them is `irreversible` and asks) | ask the team's approvers with grant choices; an earlier approval's grant answers it, a deny rule still denies, a rule `auto` never lifts it; a first contact adds its warning |
 | R | Config `policy.rules`, first match (tool glob, argv0, domains, paths, JSON-pointer `match`, side effect, triggers) | rule verdict (rules can make things stricter or auto, but not past floors) |
 | G | Active grants for (principal, session, schedule) whose kind/tool/pattern/value match the Action and `MaxSE ≥ SideEffect` | auto (`grant:<id>`, `Grants().Use`) |
 | C | First contact: `send`, `mcp` with a mapped recipient, or `http` with a non-GET method, to a recipient/domain that is not the run's originating chat and not seen in an active grant, `egress.allow`, or an earlier allowed approval of this principal (`Approvals().Seen`) | ask (presets careful and balanced) |
@@ -5106,9 +5303,9 @@ Shell and python are `local_write` (they run in the box; their network is separa
 
 **Narrow grants** (`Policy.NarrowGrant`): exec → `{"/argv/0": exact}` plus, when argv0 ∈ {bash, sh, zsh, python, python3, node, env, xargs, sudo, uv, npx}, an exact match of the whole argv; fs.write/fs.delete → path prefix of the parent directory; http/net → `host:port`; send → recipient; mcp → tool + recipient field when `field_map` has one, else the exact canonical payload. No whole-tool grants (also enforced by a DB CHECK). Admin-class and Exposed decisions never offer allow_session or allow_always. `allow_always` is offered exactly when `allow_session` is, except for `irreversible` actions, held CONNECTs to a shared-tenant suffix, and runs whose trigger is `schedule`, `heartbeat` or `api` (persistent grants are created only by a human looking at a card in an interactive context or the web inbox).
 
-**Approver:** the principal's user (space owner for spaces); `AdminOnly` for admin-class. Guests and untrusted group members can never approve. Approvals are resolved only from the web UI with a cookie session or from a recorded chat card; bearer tokens can never resolve approvals (an API client must not approve its own run's actions).
+**Approver:** an account's own requests go to that user; admin-class requests to `AdminOnly` (any enabled owner or admin, on the web); a channel's or teammate's requests to `Team`: any enabled owner or admin on the web, or a teammate an admin marked **Can approve** pressing a recorded chat card while they are admitted (§5.1 step 6). Chat approvers never decide admin-class requests or release votes. The person whose message started a team run may always withdraw it. A chat approver's grant (allow_session, allow_always) is created by them (`grants.created_by = "chat:<app>:<id>"`, audited as the chat actor), never `allow_always` for a channel (only an admin on the web can). A team principal may have at most 5 open team approvals; the next request fails with `ErrBusy` (*"Bothy is still waiting on earlier requests from this chat"*). Approvals are resolved only from the web UI with a cookie session or from a recorded chat card; bearer tokens can never resolve approvals (an API client must not approve its own run's actions).
 
-**Plain warnings (v0.2 UI, S2).** `Decision.Warnings` are sentences in the UI's voice (docs/design/ui.md §14), with every identifier passed through `inline()` (hidden characters and line breaks made visible): first contact *"Bothy hasn't sent anything to {recipient} before."*, *"Bothy hasn't sent data to {host} before."*, *"This is the first pull request Bothy opens in {repo} for you."* (*"… for this group chat."* for a space principal; first contact is per principal, so another person's pull requests in the repository don't count), and *"Bothy can't tell who this goes to."* / *"Bothy can't tell which website this sends data to."* when the recipient or host is unknown; Exposed *"This chat has seen private information and content from outside. Check carefully before letting anything leave."*, on every ask in an Exposed session except file and memory actions (kinds `fs.read`, `fs.write`, `fs.delete`, `memory` below `external_send`), where nothing can leave: discarding edits or deleting a file asks at F5 because it can't be undone, and its reason says so; untrusted origin *"This request came from content Bothy read (a web page, repository or message), not from a person."*
+**Plain warnings (v0.2 UI, S2).** `Decision.Warnings` are sentences in the UI's voice (docs/design/ui.md §14), with every identifier passed through `inline()` (hidden characters and line breaks made visible): first contact *"Bothy hasn't sent anything to {recipient} before."*, *"Bothy hasn't sent data to {host} before."*, *"This is the first pull request Bothy opens in {repo} for you."* (*"… for this group chat."* for a channel, *"… for {Name}."* for a teammate; first contact is per principal, so another person's pull requests in the repository don't count), and *"Bothy can't tell who this goes to."* / *"Bothy can't tell which website this sends data to."* when the recipient or host is unknown; Exposed *"This chat has seen private information and content from outside. Check carefully before letting anything leave."*, on every ask in an Exposed session except file and memory actions (kinds `fs.read`, `fs.write`, `fs.delete`, `memory` below `external_send`), where nothing can leave: discarding edits or deleting a file asks at F5 because it can't be undone, and its reason says so; untrusted origin *"This request came from content Bothy read (a web page, repository or message), not from a person."*
 
 **Egress holds.** The proxy builds its approval with `Policy.Decide` on the `net_allow` spec and an Action `{tool: net_allow, kind: net, side_effect: external_send, host, port}` using the `EgressBinding` (user, role, trigger, chat, provenance); it then sets `Decision.Timeout = egress.hold_for_approval` and `OnTimeout = deny` and offers `[allow_once, allow_session, allow_always, deny]` (allow_always subject to the §5.8 narrow-grant rules). For a run started by a `ProvUntrusted` message, F6 gives `[allow_once, deny]` plus the untrusted-origin warning. The run stays `running` (the exec is blocked inside the box) and keeps its semaphores for that bounded wait.
 
@@ -5116,18 +5313,21 @@ Shell and python are `local_write` (they run in the box; their network is separa
 
 - **Card rendering (M4)** from the Action only: title from `Manifest.Title`; fields such as Command (argv joined with shell quoting, mono), Folder, URL (full, host shown as punycode and bolded), Recipient (system-resolved label), MCP server/tool with pretty-printed args, Network; Websites (every `Action.Domains` entry of a non-HTTP, non-net action, mono), except on the GitHub tools' cards (`repo_checkout`, `repo_open_pr`, `github_comment`), which name the repository and whose host is Bothy's own GitHub API setting rather than anything the model chose, so a pull request card is Branch · Title · Changes as in ui.md §8.2; `Diff` (unified, ≤ 64 KB, web shows all, chat shows ≤ 3 KB; an `fs_write` card also shows the written content, hidden characters made visible, whenever its diff is empty, omitted (over 4 MB), binary, truncated, or a path contains a line break, so no card approves content nobody saw; a long one is deny-only in chat); Warnings (trifecta, first contact, untrusted origin); Context line; Choices; Expires; WebURL. Bidi controls and zero-width characters are rendered visibly (`⟨U+202E⟩`). Model prose never appears; any model rationale is shown in the web UI only, collapsed under "Model's reason (unverified)".
 - **Plain copy (v0.2 UI, S2; `internal/policy/copy.go`).** `renderCard` also writes, from the Action, the tool's spec and the decision only (model prose has no way in), the words every surface shows: `question` (*"Delete notes/staging.md?"*), `consequence` (*"This can't be undone."* for irreversible actions; *"This updates {environment} for everyone using it."* for deploys; *"Money will leave your account. This can't be undone."* for financial ones), `primary_label` (allow_once's verb, e.g. *"Delete file"*, else *"Allow for this chat"* when only allow_session is offered), `ing` (*"deleting notes/staging.md"*, as in "You approved …"), `kind` (`action`; `pull_request` for `repo_open_pr`; `deploy` for `release_deploy`; `review` for project-notes edits) and `tone` (`destructive` for irreversible and financial actions and `schedule_delete`, never for deploys, whose safeguard is their approvers; otherwise `default`). Each shipped tool has its own copy, with fallbacks by action kind for MCP tools (the server's name and the scalar arguments its pinned schema declares, with humanised labels), admin-class and unknown tools. Field labels are plain (File, Content, Changes, Command, In, Script, Website, To, Message, Environment, Version, Workflow, Inputs, Repository, …); the v0.1 Tool, Requested by and Approvers fields are gone (who asked and who approves come from `Approval.Requester` and `Approval.Approvals`). `Code` is left out only where a field already shows the exact action (the shell command, a message's text, a `github_comment` body). A value inside a sentence goes through `inline()`, so it can never break the line or hide characters. These fields are `omitempty`: cards stored before v0.2 lack them, and renderers fall back to the title.
-- **Routing (M9):** the hub subscribes to `approval.requested` and delivers the card:
-  - origin is a DM of the approver → that DM;
-  - origin is a group or space → the approver's preferred DM (`PreferredChat`), plus a short "Waiting for owner approval" line in the group;
-  - origin is web, API or a schedule → the approver's preferred DM plus `policy.approval.notify` channels;
-  - `AdminOnly` approvals: the owner's preferred DM (the owner is always an admin) instead of the principal's user;
-  - always the web inbox (SSE; `AdminOnly` approvals reach every admin through the admin-broadcast copy).
-  Each delivered message is recorded with `Approvals.AddMessageRef(id, ref, truncated)`. A card that does not fit the channel (MaxLen or button limits) is sent **truncated**: Deny button + "Open in web to approve" link button only. `Card.WebURL` is `server.public_url + /approvals/<id>`; with no `public_url` it is empty, the link button is omitted and the text says "Open Bothy's web UI → Approvals" (platforms reject loopback URLs in buttons).
-- **Chat card format (v0.2 UI, S2; `internal/channel/cards.go`):** the question first, in bold (link-like words such as file names go in code spans, never tappable; Telegram cannot nest code in bold or italics, so its renderer closes the formatting before a code span and reopens it after); the consequence; *"{Name} asked."* on multi-approver cards; each warning as a line starting with the warning sign `⚠`; the plain fields; an approvals row on multi-approver cards (*"**Approvals:** 1 of 2 approvals"*, each vote with the voter's name and reason, *"Waiting for X, Y or any admin."*); the Code block only where it is the action itself (a command, a script, a file's content) or where the fields show only some arguments (MCP, admin-class and unknown tools, and cards without plain copy), so a built-in tool's action JSON (hashes, base commits, as for `repo_checkout` and `repo_open_pr`) stays behind the web UI's Details; the diff block; the context line in italics, its link-like words in code spans; the expiry in the web's words (*"Expires in 14 min."*, *"Expires in 2 h."*, *"Expires in less than a minute."*). Buttons: allow_once shows the card's verb, then *Allow for this chat*, *Always allow*, *Deny*; the danger style only when `tone` is destructive, and Deny is never styled. A decided card is edited to its decided line, which replaces the question: ✓ when approved, ✗ when denied or expired, and the card's reader (cards go to approvers' own DMs) named "You", without where they decided, e.g. *"✓ You approved deleting `notes/a.md`."*, *"✗ Sam Patel denied deleting `notes/a.md` in Slack. “reason”"*, *"✓ Ada and you approved deploying acme/web to staging."*, *"✗ Nobody answered in time, so Bothy didn't go ahead."*, and *"✗ Cancelled by Mark in Telegram."* when the requester's deny withdraws their own multi-approver request; the waiting line in a group names the action and, for a single approver, who may approve it (*"Waiting for Maya Chen to approve deleting `notes/a.md`."*, *"Waiting for an admin to approve …"*).
+- **Routing (M9):** the hub subscribes to `approval.requested` and delivers by principal and approver; every approval is always in the web inbox (SSE; `AdminOnly` and `Team` approvals reach every admin through the admin-broadcast copy). Chat approvers are the teammates marked Can approve whose chat app is on and person space enabled, who aren't outsiders; a verdict older than `ApproverFresh` (2 h, Slack and Discord) gets a link-only card instead of a full one.
+
+  | Principal | Approver | Chat approvers' DMs | The chat that asked (its own app only) |
+  |---|---|---|---|
+  | account | any | none: accounts hear on the web only (`policy.approval.notify` is not used) | none |
+  | teammate or channel | Team | the full card (kind `card`) to each fresh chat approver, a link-only card (kind `link`) to stale ones; an approver's own request from their own DM gets the card there once and no waiting line | *"Waiting for approval: {question without its ?}."*, or *"This needs an admin's approval in Bothy."* when no approver got a full card; both with **Cancel request** |
+  | teammate or channel | AdminOnly | a link-only card to each chat approver | *"This needs an admin's approval in Bothy."* with **Cancel request** |
+  | teammate | multi-approver (release) | none | *"Waiting for {N other people\|someone else} to approve {ing}."* with **Cancel request** |
+
+  A **link-only card** says *"A request from chat apps needs an admin. Admins can approve it in Bothy."* with an *Open in Bothy* button to `Card.WebURL` (without a public URL: *"…can approve it in Bothy under Approvals."* and no button): no question, no context. Each message is recorded with its kind (`Approvals.AddMessage`: `card`, `link` or `notice`; link cards and waiting lines count as truncated); a waiting line only withdraws. `resyncCards` delivers pending approvals with no recorded message at all. A card that does not fit the channel (MaxLen or button limits) is sent **truncated**: Deny button + "Open in web to approve" link button only. `Card.WebURL` is `server.public_url + /approvals/<id>`; with no `public_url` it is empty, the link button is omitted and the text says "Open Bothy's web UI → Approvals" (platforms reject loopback URLs in buttons).
+- **Chat card format (v0.2 UI, S2; `internal/channel/cards.go`):** the question first, in bold (link-like words such as file names go in code spans, never tappable; Telegram cannot nest code in bold or italics, so its renderer closes the formatting before a code span and reopens it after); the consequence; on a team card, who asked as the platform's own mention, so the approver sees the real profile whatever name was chosen (Slack *"<@U123> asked on Slack."* or *"… asked in #eng."*, Discord *"<@id> asked on Discord."*, Telegram a `tg://user` link with the name, plus *(@handle)* when there is one); *"{Name} asked."* on multi-approver cards; each warning as a line starting with the warning sign `⚠`; the plain fields; an approvals row on multi-approver cards (*"**Approvals:** 1 of 2 approvals"*, each vote with the voter's name and reason, *"Waiting for X, Y or any admin."*); the Code block only where it is the action itself (a command, a script, a file's content) or where the fields show only some arguments (MCP, admin-class and unknown tools, and cards without plain copy), so a built-in tool's action JSON (hashes, base commits, as for `repo_checkout` and `repo_open_pr`) stays behind the web UI's Details; the diff block; the context line in italics, its link-like words in code spans; the expiry in the web's words (*"Expires in 14 min."*, *"Expires in 2 h."*, *"Expires in less than a minute."*). The context line of a team card is whose chat it is (*"Maya Chen's direct messages on Slack"*, *"#eng on Slack"*), never the session's title. Buttons: allow_once shows the card's verb, then *Allow for this chat*, *Always allow*, *Deny* (a teammate's card: *Allow in {Name}'s chat*, *Always allow for {Name}*, the name cut at 24 characters; a channel's card has no grant buttons); the danger style only when `tone` is destructive, and Deny is never styled. A decided card is edited to its decided line, which replaces the question: ✓ when approved, ✗ when denied or expired, and the card's reader (the identity whose DM it is) named "You", without where they decided, e.g. *"✓ You approved deleting `notes/a.md`."*, *"✗ Sam Patel denied deleting `notes/a.md` in Slack. “reason”"*, *"✓ Ada and you approved deploying acme/web to staging."*, *"✗ Nobody answered in time, so Bothy didn't go ahead."*, and *"✗ Cancelled by Mark."* when the person who asked withdrew. The recorded waiting line is edited to the outcome too, naming the decider and where: a DM keeps the approver's reason, a group never shows it; a request stopped with its run reads *"✗ Stopped."*; when the line could not be sent, the outcome is posted for allowed, denied and expired requests.
 - **Reasons:** a decision or vote may carry a reason (`ApprovalResolveReq.comment`, `Resolution.Comment`). The deciding approver's reason is stored on the approval (`approvals.comment`, `ApprovalRepo.SetComment`, `Approval.Comment`), sent with `approval.resolved` (`comment`) and, on a deny, quoted in the denied tool result the agent reads (§5.7 g), so its reply can pass it on in any channel; each voter's reason is stored with the vote (`approval_votes.comment`, `ApprovalVote.Comment`) and shown in `Approval.Approvals.votes` and `GET /api/approvals/{id}/votes`.
 - **Button data:** `a:<approval id>:<o|s|a|d>:<mac>` (a = allow_always), ≤ 64 bytes; MAC = HMAC-SHA256(meta `approval_mac_key`, id|choice) truncated to 8 base32 chars. Agent output and the `message` tool can never carry buttons. Approval ids and MACs never enter model context.
 - **Resolve** is a CAS (`ApprovalRepo.Decide` from pending|parked). Double resolves → exactly one wins; the loser gets "Already decided". All delivered cards are edited to the outcome.
-- **Multi-approver approvals (v0.2, release floor):** an approval whose `ApproverReq` sets `Users` or `Roles` (and not `AdminOnly`) needs `Required` distinct approvers (0 means 1), never the requester (roles rank owner > admin > member; a role admits higher ones). `Resolve` records a vote: the status check, the vote, the recount of still-eligible approvers (disabled or demoted voters stop counting) and the decision run in one transaction. The requester's allow is refused, but the requester may deny to withdraw; one vote per user; one deny denies; the k-th allow approves; every vote is audited (`approval.vote`, ok or denied) and a vote that does not decide publishes `approval.voted`. Chat routing sends the card to every eligible approver's DM plus `policy.approval.notify` channels, never to the requester or a group; the card shows "N of K approvals" and is edited after each `approval.voted`; the originating chat gets a "Waiting for…" line. Deploy cards, on the web as in chat apps, carry Environment, Version (the ref), Workflow and Inputs (hidden characters made visible), name the repository in the question, and have no context line, since the requester's session title is private to them; who asked and who may approve come from `Approval.Requester` and `Approval.Approvals` (v0.2 UI, S4: `required`, `votes` with names and reasons, `eligible` = enabled users other than the requester who may vote now, leaving out admins and owners when `any_admin` covers them, `any_admin` = a roles entry of admin or member), filled by `Approvals.Get`, `Pending`, `Recent` and `Resolve` and on `approval.requested` and `approval.voted`. `Approval.Requester` is set on every approval (`Approver.Requester`, else `Approver.User`, else the run's user). Timeouts and parking are unchanged.
+- **Multi-approver approvals (v0.2, release floor):** an approval whose `ApproverReq` sets `Users` or `Roles` (and not `AdminOnly`) needs `Required` distinct approvers (0 means 1), never the requester (roles rank owner > admin > member; a role admits higher ones). `Resolve` records a vote: the status check, the vote, the recount of still-eligible approvers (disabled or demoted voters stop counting) and the decision run in one transaction. The requester's allow is refused, but the requester may deny to withdraw; one vote per user; one deny denies; the k-th allow approves; every vote is audited (`approval.vote`, ok or denied) and a vote that does not decide publishes `approval.voted`. Votes are cast on the web; a teammate's deploy shows only a waiting line in their chat (cards sent to chat apps before 0013 still show "N of K approvals" and are edited after each `approval.voted`). Deploy cards, on the web as in chat apps, carry Environment, Version (the ref), Workflow and Inputs (hidden characters made visible), name the repository in the question, and have no context line, since the requester's session title is private to them; who asked and who may approve come from `Approval.Requester` and `Approval.Approvals` (v0.2 UI, S4: `required`, `votes` with names and reasons, `eligible` = enabled users other than the requester who may vote now, leaving out admins and owners when `any_admin` covers them, `any_admin` = a roles entry of admin or member), filled by `Approvals.Get`, `Pending`, `Recent` and `Resolve` and on `approval.requested` and `approval.voted`. `Approval.Requester` is set on every approval (`Approver.Requester`, else `Approver.User`, else the run's user). Timeouts and parking are unchanged.
 - **Pull request cards (v0.2):** `repo_open_pr` is an `ActSend` action with Recipient `github:<owner>/<repo>` (first contact per repository; recipient grants); its Diff starts with a format-patch style header (Repository, `Branch: head → base`, Title, the description indented 4 spaces and clipped to 1 KB) followed by the full git-style diff. The payload carries `base_sha` and each file's path, op and sha256 (not the content); Exec re-hashes and sends only bytes whose sha256 matches; a card over 64 KB is refused at Plan. `github_comment` is `ActSend` with the same recipient.
 - **Timeouts** (`policy.approval`): interactive `15m` → `deny`; scheduled/heartbeat `2m` → `park` (`park_ttl` 24 h); API per token. The expiry sweeper (`policy.Approvals.Run`, every 30 s) handles due approvals after restarts. At boot the runner calls `Approvals.CancelRun` for every run it marked `interrupted` (their pending approvals become `cancelled`, cards edited); parked approvals survive.
 
@@ -5156,7 +5356,7 @@ S1 is outside compaction by construction; session taint and policy state live in
 5. clear the session mailbox (each dropped request whose sink got `run.queued` gets `run.finished` with `stopped`); mark the run `stopped` (`stopped_by`), audit `run.stop`, reply "Stopped." in the chat; the session gets the notice *"You stopped Bothy."*
 `/stop` also cancels a finished run's post-run compaction (§5.10; also cancelled by `StopAll` and shutdown, and skipped while paused), and returns true when it cancelled that or dropped accepted messages, even with no active run. If the run goroutine has not exited after 5 s it is abandoned (sink detached, later emits ignored; its queue and pending turn move to the fresh worker, §5.4). Targets: cancel path p99 < 100 ms; processes gone < 1 s.
 
-Kill switch: `/stopall` or `POST /api/admin/pause {paused:true}` → `Runner.SetPaused(true)`, then `StopAll` (every active run stopped, every session box killed), whose count the caller reports. `Runner.SetPaused` only persists `meta.paused` and, since v0.2 UI, `meta.paused_by` (who and when; both survive restart, and pausing again keeps the first), publishes the banner `paused` (`core.PausedBanner`, naming who paused) and audits. The scheduler fires nothing while `Runner.Paused()`, which is its only kill-switch input: `POST /api/admin/pause` does not call `Scheduler.SetPaused`, an independent scheduler-only pause that nothing in the gateway uses. New runs get `ErrPaused`; read-only HTTP keeps working. Only admins disengage it (`/resume` or the API).
+Kill switch: `/stopall` or `POST /api/admin/pause {paused:true}` → `Runner.SetPaused(true)`, then `StopAll` (every active run stopped, every session box killed), whose count the caller reports. `Runner.SetPaused` only persists `meta.paused` and, since v0.2 UI, `meta.paused_by` (who and when; both survive restart, and pausing again keeps the first), publishes the banner `paused` (`core.PausedBanner`, naming who paused) and audits. The scheduler fires nothing while `Runner.Paused()`, which is its only kill-switch input: `POST /api/admin/pause` does not call `Scheduler.SetPaused`, an independent scheduler-only pause that nothing in the gateway uses. New runs get `ErrPaused`; read-only HTTP keeps working. From a chat app, a teammate who can approve engages it with `/stopall` (no user: the audit origin is the chat actor, the banner names "{Name} · {App}" and `meta.paused_by` stores `channel:<app>:<id>`); only admins disengage it, on the web (`POST /api/admin/pause {paused:false}`); `/resume` in chat says where.
 
 ### 5.12 Budgets
 
@@ -5166,14 +5366,18 @@ Kill switch: `/stopall` or `POST /api/admin/pause {paused:true}` → `Runner.Set
 | tokens / run (input+output) | 400K | 150K | `BeforeCall` projection |
 | wall time / run (approval waits excluded) | 10 min | 15 min | run deadline |
 | $ / run | none | $0.25 | `BeforeCall` projection |
-| $ / day | global $5.00; members $2.00; per-user overrides | same | `CheckDaily` + projection; 80% warning |
+| $ / day | global $5.00; members and people in chat apps $2.00; overrides by username or `<app>:<id>`; chat apps together 60% of the global cap | same | `CheckDaily` + projection; 80% warning |
 | heartbeat $ / day | — | $0.25 | scheduler precheck; skip when exhausted |
 | sender rate | 10/min, burst 5 | — | hub |
 | API token rate | `rate_per_min` (30) | — | middleware |
 
 Unknown prices skip $ checks but not token checks, and the UI marks costs "price unknown". Local models cost $0. On a trip: run status `budget_exceeded`, a system notice naming the limit in plain words (§5.17), audit `budget.exceeded`.
 
-- **Per-user cap:** `per_user_daily_usd[username]` if set; else `member_daily_usd` for role `member` (multi mode); owners and admins have no per-user cap and are bounded by the global `daily_usd` only. The global cap is the sum over all users (`UsageRepo.Spend(u="")`).
+- **Caps by principal:** spending is billed to the principal (`spend_daily.principal_id`; an account's principal id is its user's). A run is checked against up to three caps and the error names which one tripped (`BudgetError.Scope`: `personal`, `chat`, `global`):
+  - *own*: for an account, `per_user_daily_usd[username]`, else `member_daily_usd` for a member in multi mode (owners and admins have none); for a teammate, `per_user_daily_usd["<app>:<id>"]`, else `member_daily_usd` in either mode; a channel has none;
+  - *chat share*: teammates and channels together may spend `budgets.chat_share_pct` (default 60, 1–100; 100 = no separate share) of `daily_usd` (`UsageRepo.TeamSpend`), so chat apps can't use up what accounts on the web need; at 80% admins get the `chat_budget_80` banner (*"Chat apps have used 80% of today's $X.XX limit."*, action `/activity/spending`) once a day;
+  - *global*: the sum over everyone (`UsageRepo.Spend(p="")`).
+  `Budget.Daily` reports the smallest remaining of these. A teammate whose own cap passes 80% gets one DM a day: *"You've used 80% of your {amount} daily limit in Bothy."*
 - **Heartbeat cap:** before firing a heartbeat schedule the scheduler sums today's cost of runs of that schedule (`UsageRepo.Report{GroupBy: schedule}`, which joins `llm_calls` to `runs`) and skips the tick when ≥ `heartbeat_daily_usd`.
 - **Calls outside runs** (passthrough, probes): `Budget.RecordSpend` writes the `llm_calls` row (`run_id` NULL) and `spend_daily`. Inside runs the runner writes `llm_calls` (`RunRepo.AddLLMCall`) and `RunMeter.AfterCall` writes `spend_daily`.
 - **API token rate** (`rate_per_min`) is a token bucket local to `httpapi` keyed by token id (burst = max(1, rate/6)); `Budget.AllowSender` is only for chat senders.
@@ -5209,10 +5413,10 @@ Ring of the last 16 `(tool, fnv64(args), fnv64(result))`:
 
 - A schedule run uses the schedule's target session (`Schedule.Session`, a running conversation) or, when that is empty, a **fresh session per run** (`Runner.NewSession(principal, "schedule", nil)`, title "<schedule name> · <local date>"), so independent runs never accumulate history and each run has its own transcript. Busy target → queued; full queue → run recorded `skipped`. The run's input is the schedule prompt with provenance `user` (heartbeat: §below).
 - Limits = schedule limits (defaults `budgets.scheduled`). Pre-authorized grants (`scope=schedule`) apply. `schedule_*` tools are absent (`Manifest.Triggers = [message]`), and F3 denies all admin-class actions: cron cannot create cron.
-- Approvals park (§5.9). Delivery: `Hub.StreamTo(deliver or PreferredChat, "final")`. A delivered result opens with a line naming where it came from, since nobody asked for it in that chat: *"From the schedule “Weekly PR digest” · change it under Schedules"* (a check-in: *"From your check-in · change it under Schedules"*), in italics; the final-mode sink reads the run's trigger and schedule from the store. A `HEARTBEAT_OK` reply sends nothing, header included.
-- `schedule_create` plans an Action with every default resolved. With no set chat (`deliver: preferred`) it also carries `owner` (the principal's user's name) and `usual_chat` (the chat app `PreferredChat` reaches when planned, "" when none is linked) for the card only, so "Sends to" says *"Sam Patel's usual chat app (Telegram)"* or *"Bothy on the web (Sam Patel has no chat app linked)"*, never "your" to an admin approving someone else's schedule. Its result tells the model where runs will post. F3's reason reads *"creating a schedule needs an admin's approval"* (`schedule_delete`: *"deleting a schedule …"*; other admin-class tools: *"changes to how Bothy works need an admin's approval"*).
-- Heartbeat (`scheduler.heartbeat`, off by default): one schedule of kind `heartbeat` for the owner's principal, kept in sync by the scheduler (`every` ± 10% jitter, `active_hours` in the owner's own time zone, `deliver`: `preferred` = PreferredChat, `web`, or a channel name = the owner's DM there), fast slot; a config change or the owner changing their time zone (`PATCH /api/me` calls `ResyncHeartbeat`) re-syncs it. Memory files are not in the workspace, so the scheduler inlines the file: the prompt is *"Here is HEARTBEAT.md. If nothing needs the user's attention, reply exactly HEARTBEAT_OK."* followed by the content of `HEARTBEAT.md` (`Memory.Read`, `SystemViewer`). An empty or whitespace-only HEARTBEAT.md skips the tick with no LLM call. Delivery is suppressed when the final text starts with `HEARTBEAT_OK` (emphasis, blockquote or code ticks around the token are tolerated by the scheduler, the runner and the channel alike), including for a resumed (previously parked) heartbeat run: the runner wraps the resume sink so a `HEARTBEAT_OK` answer is not delivered then either; capped by `heartbeat_daily_usd` (§5.12). Members may create their own `heartbeat`-kind schedules in the Schedules UI.
-- Missed runs at boot: `missed_run: skip` (default) records nothing; `once` fires one catch-up run if missed by < 1 h. Three consecutive failures auto-disable the schedule and notify the owner.
+- Approvals park (§5.9). Delivery: a teammate's or channel's schedule (`deliver: preferred`, nil) posts to `Hub.PrincipalChat` (the teammate's DM, the channel's chat), or to a chat set on the schedule only when it is that principal's own; an account's schedule stays on the web (accounts have no chat). `deliver: web` is for accounts only (*"deliver: web is only for accounts on the web; use preferred"*). Before firing a team schedule the scheduler asks `Hub.TeamActive`: a blocked teammate, one no longer in the team, a membership verdict too old to renew, or a channel turned off skip the tick without counting a failure. A delivered result opens with a line naming where it came from, since nobody asked for it in that chat: *"From the schedule “Weekly PR digest” · ask Bothy here to change or stop it"* for a teammate's or channel's schedule (the web's *"… · change it under Schedules"* and *"From your check-in · …"* remain for accounts), in italics; the final-mode sink reads the run's trigger, principal and schedule from the store. A `HEARTBEAT_OK` reply sends nothing, header included. Admins list team schedules (`GET /api/team/schedules`) and may turn them on or off or delete them; everything else is changed by asking Bothy in that chat.
+- `schedule_create` plans an Action with every default resolved. With no set chat (`deliver: preferred`) it also carries `owner`, `owner_kind` and `usual_chat` for the card only: *"Bothy on the web"* for an account, *"{Name}'s messages on {App}"* for a teammate, *"{title} on {App}"* for a channel. Its result tells the model where runs will post (*"Results go to {Name}'s messages on {App}."*, *"Results stay in Bothy on the web."*). F3's reason reads *"creating a schedule needs an admin's approval"* (`schedule_delete`: *"deleting a schedule …"*; other admin-class tools: *"changes to how Bothy works need an admin's approval"*).
+- Heartbeat (`scheduler.heartbeat`, off by default): one schedule of kind `heartbeat` for the owner's principal, kept in sync by the scheduler (`every` ± 10% jitter, `active_hours` in the owner's own time zone; `deliver` may be `preferred`, `web` or a channel name, and in every case the check-in stays on the web, since accounts have no chat), fast slot; a config change or the owner changing their time zone (`PATCH /api/me` calls `ResyncHeartbeat`) re-syncs it. Memory files are not in the workspace, so the scheduler inlines the file: the prompt is *"Here is HEARTBEAT.md. If nothing needs the user's attention, reply exactly HEARTBEAT_OK."* followed by the content of `HEARTBEAT.md` (`Memory.Read`, `SystemViewer`). An empty or whitespace-only HEARTBEAT.md skips the tick with no LLM call. Delivery is suppressed when the final text starts with `HEARTBEAT_OK` (emphasis, blockquote or code ticks around the token are tolerated by the scheduler, the runner and the channel alike), including for a resumed (previously parked) heartbeat run: the runner wraps the resume sink so a `HEARTBEAT_OK` answer is not delivered then either; capped by `heartbeat_daily_usd` (§5.12). Members may create their own `heartbeat`-kind schedules in the Schedules UI; a check-in needs an account on the web (*"a check-in needs an account on the web"*), and teammates have no HEARTBEAT.md.
+- Missed runs at boot: `missed_run: skip` (default) records nothing; `once` fires one catch-up run if missed by < 1 h. Three consecutive failures auto-disable the schedule and notify the owner (a team schedule's chat hears *"The schedule “{name}” was turned off because its last {n} tasks failed. An admin can turn it back on in Bothy once it's fixed."*).
 
 ### 5.17 Run-end notices (v0.2 UI, `internal/agent/notices.go`)
 
@@ -5232,6 +5436,7 @@ Notices follow the UI's error formula (docs/design/ui.md §14.4): what happened,
 - One writer connection (`BEGIN IMMEDIATE` for `Tx`) and two read-only reader connections (`query_only=1`).
 - `SELECT sqlite_version()` must be ≥ 3.53.4, else refuse to start with a clear error.
 - Migrator: `PRAGMA user_version` holds the applied version; embedded `migrations/NNNN_*.sql` applied in order, each in one transaction. When any migration is pending and the DB is non-empty, first `VACUUM INTO <data>/backups/pre-<ver>-<ts>.db` (0600), keeping the newest `storage.backups_keep` (3).
+- Every migration runs on a dedicated writer connection with `PRAGMA foreign_keys=OFF` (it cannot change inside a transaction), so rebuilding a parent table never cascades into its children. `PRAGMA foreign_key_check` is counted per (table, parent, key) before and after: a migration that adds a violation rolls back, leaving `user_version` unchanged, while violations already there before it don't block it. If turning foreign keys back on fails, the connection is discarded, never pooled. Migration DML therefore never relies on cascades: it deletes and repoints children itself.
 - Only the lead adds migrations (`0002_*.sql` onward); the schema is frozen for module agents.
 
 ```sql
@@ -5777,18 +5982,18 @@ ORDER BY rank LIMIT ?2;
 
 User input to `MATCH` is converted to a quoted-phrase/AND query (never raw FTS syntax).
 
-**Repository ↔ table map:** Meta→`meta`; Users→`users` (+ `principals` row on create); Principals→`principals`; Spaces→`spaces` (+ `principals`); Identities→`channel_identities`; Pairings→`pairing_codes`; AuthSessions→`auth_sessions`; Tokens→`api_tokens`; Sessions→`sessions`, `session_urls`; Messages→`messages`, `messages_fts`; Pins→`pins`; Runs→`runs`, `llm_calls`, `tool_calls`; Approvals→`approvals`, `approval_messages`; Grants→`grants`; Schedules→`schedules`; Usage→`spend_daily` (caps) and `llm_calls` (reports); Audit→`audit_log`; Egress→`egress_log`; MCP→`mcp_tool_pins`, `mcp_installs`; Skills→`skills`; MemoryEvents→`memory_events`; Vault→`vault_keys`, `vault_secrets`; Dedup→`inbound_dedup`; Uploads→`uploads`.
+**Repository ↔ table map:** Meta→`meta`; Users→`users` (+ `principals` row on create); Principals→`principals`; Spaces→`spaces` (+ `principals`); Identities→`channel_identities`; AuthSessions→`auth_sessions`; Tokens→`api_tokens`; Sessions→`sessions`, `session_urls`; Messages→`messages`, `messages_fts`; Pins→`pins`; Runs→`runs`, `llm_calls`, `tool_calls`; Approvals→`approvals`, `approval_messages`; Grants→`grants`; Schedules→`schedules`; Usage→`spend_daily` (caps) and `llm_calls` (reports); Audit→`audit_log`; Egress→`egress_log`; MCP→`mcp_tool_pins`, `mcp_installs`; Skills→`skills`; MemoryEvents→`memory_events`; Vault→`vault_keys`, `vault_secrets`; Dedup→`inbound_dedup`; Uploads→`uploads`.
 
 **Retention** (`DB.RunRetention`, hourly):
 - `egress_log` older than `storage.retention.egress_log` (720h).
 - `inbound_dedup` older than 24 h.
-- expired `auth_sessions`; used or expired `pairing_codes` older than 7 days.
+- expired `auth_sessions`.
 - `runs` (with cascading `llm_calls`, `tool_calls`, `approvals`) only when `storage.retention.runs` > 0 (default 0 = keep).
 - v0.2 UI (S14): `web` sessions older than 24 h that hold no messages, runs, pins or schedule (archived or not, never hidden ones) are deleted with their meta key `agent.refine.<id>`; the candidate query joins `principals CROSS JOIN sessions` so it stays on the `sessions_recent` index (`last_message_at = 0`) instead of reading every session row.
 - Hidden `api` sessions idle for 7 days (by `max(created_at, updated_at, last_message_at)`) are archived and their messages deleted; archiving also clears the session's `system_snapshot`, `tools_snapshot`, `snapshot_hash` and `summary`. Only unarchived hidden `api` sessions are visited, through the `sessions_hidden_api` index on that same expression, so the hourly pass never scans every session.
 - `audit_log` is never pruned online. `bothy audit archive --before <date>` runs with the gateway stopped: it exports the range to JSONL (0600), rebuilds `audit_log` without the triggers in a transaction, deletes the range, re-creates the triggers, and inserts an anchor row (`action=audit.archived`, detail = range, count and the last archived hash) chained to the remaining log.
 
-**v0.2 migrations** (§14; the lead adds them, each its own file, `0001_init.sql` never changes). Migrations run 1..N without gaps, so a v0.1 database (user_version 1) gets 0002–0011 in order after the pre-migration backup, and the result matches a fresh database's schema. An older binary refuses the upgraded database (e.g. "schema version 7 is newer than this binary supports (1)").
+**v0.2 migrations** (§14; the lead adds them, each its own file, `0001_init.sql` never changes). Migrations run 1..N without gaps, so a v0.1 database (user_version 1) gets 0002–0013 in order after the pre-migration backup, and the result matches a fresh database's schema. An older binary refuses the upgraded database (e.g. "schema version 7 is newer than this binary supports (1)").
 
 - `0002_repos.sql` (F4): `github_connections` (id `ghc_…`, auth pat|app, App rows need `app_id` and `installation_id` > 0, `secret_ref LIKE 'secret:_%'`, status ok|error) and `repos` (primary key `(owner, name)` `COLLATE NOCASE`, connection FK `ON DELETE CASCADE`, `allowed`, `last_indexed_sha`, dropped again by 0007), STRICT.
 - `0003_knowledge.sql` (F6): `knowledge_repos` (UNIQUE principal + repo, index and notes state), `knowledge_files` (repo + path; hash = chunker version + sha256), `knowledge_chunks` (INTEGER PRIMARY KEY as the external content of `knowledge_fts(path, title, body, terms)` with ai/ad triggers and an au trigger on path/title/body/terms only, so relabelling a chunk's sha does not rewrite FTS rows), `knowledge_sessions` (session, repo, touched_at, injected epoch and hash). It also rebuilds `llm_calls` with identical columns, indexes and rowids so the purpose CHECK accepts `notes`.
@@ -5825,7 +6030,16 @@ User input to `MATCH` is converted to a quoted-phrase/AND query (never raw FTS s
     CHECK (retired_at = 0 OR (connection_id IS NULL AND key_ref = '' AND client_secret_ref = '' AND replaces = ''))
   ) STRICT;
   ```
-- Meta key `agent.refine.<session>` (`on` | `off`): the session's refine setting (runner, hub, httpapi), alongside the keys listed in the 0001 comment.
+- `0013_team_access.sql` (team access): people in chat apps stop being linked to accounts and channels stop having owners.
+  - `users` loses `preferred_chat` and `approvals_web_only`; `pairing_codes` is dropped.
+  - `principals.user_id` may be NULL for team-owned principals (`kind` `user` | `space` | `person`; a user principal must have a user, a team one must not).
+  - `spaces`: `kind` `group` | `person` (guest spaces become person spaces), no `owner_user_id`; new `team_id`, `team_name`, `added_by`, `members`, `external` and `reviewed_at` (0 until an admin turns the channel on or off; a group once turned on gets its `updated_at`). Person spaces are `standard`.
+  - `channel_identities`: `status` `pending` | `teammate` | `blocked` (no `user_id`); `principal_id` (a teammate must have one), `admitted_via` (`membership` | `admin`), `can_approve` (teammates only), `membership` (`''` | `unknown` | `member` | `outsider`) with `membership_at`, and `greet` (`''` | `hello` | `moved`). Linked identities of enabled accounts become teammates let in by an admin, owners and admins with Can approve, greeted "moved" on their next message; a linked account's earlier guest space on that chat is reused as its person space; identities of disabled accounts are blocked; enabled guests become teammates; guests whose space was off and blocked guests are blocked. Telegram rows get `membership = 'unknown'`, Slack and Discord `''`.
+  - `approvals` parked or pending on a space owner become `Team` (`approver.team`, `user_id` ""); `decided_by` and `grants.created_by` may be `chat:<app>:<id>`; `approval_messages.kind` (`card` | `link` | `notice`).
+  - `runs.user_id` and `llm_calls.user_id` of team principals become `''` (passthrough keeps its user); `spend_daily` is keyed by `principal_id`; sessions of user principals lose their chat (`channel_key`, `chat` NULL); user schedules delivering to a chat deliver to the web; a channel schedule with no set chat is turned off with deliver NULL; a teammate's former guest schedule delivering to the web gets deliver NULL.
+  - A temporary `m_rows` table CHECKs that sessions, messages, runs, grants, schedules, memory events, approvals, uploads and llm_calls keep their row counts across the rebuild.
+  - `meta.team_access_report` (`at`, `linked`, `approvers`, `disabled_accounts`, `guests`, `telegram_guests`, `guests_blocked`, `schedules_paused`): at boot `serve` audits it once as `migration.team_access` (actor `system`) and, while it is under 7 days old and no admin has changed anyone in People (any `PATCH /api/identities` deletes it), publishes the admin banner `team_access` (*"People in chat apps no longer link to Bothy accounts. Check who can use Bothy and who can approve in People."*, action `/settings/people`).
+- Meta key `agent.refine.<session>` (`on` | `off`): the session's refine setting (runner, hub, httpapi), alongside the keys listed in the 0001 comment. Meta key `member_scope:<channel>`: what membership meant on that chat app when its verdicts were given (§5.1 step 3).
 - Refine calls are recorded in `llm_calls` with purpose `agent` (same step; their trace entries carry the `call_id`); a later migration could add a `refine` purpose.
 
 ```sql
@@ -6115,7 +6329,7 @@ auth:
   password_min_length: 12
   lockout: {max_failures: 5, base: 1m, max: 1h}     # per username and per IP, exponential
   argon2: {memory_kib: 19456, iterations: 2, parallelism: 1}
-  pairing_ttl: 15m
+  pairing_ttl: 15m                # no longer used: link codes are gone
   setup_token_ttl: 24h
   admin_can_read_chats: false     # LOCKED: admins never see other users' message content
   sign_in:                        # sign in with Google or GitHub next to passwords (Settings → Security; SPEC §15)
@@ -6213,8 +6427,9 @@ context:
 
 budgets:
   daily_usd: 5.00                 # global; 0 = unlimited (security-audit finding)
-  member_daily_usd: 2.00          # multi mode default per member
-  per_user_daily_usd: {}          # example: {alice: 3.00}
+  member_daily_usd: 2.00          # each member in multi mode, and each person in a chat app in either mode
+  per_user_daily_usd: {}          # example: {alice: 3.00, "telegram:5001": 4.00} (a username, or <app>:<id> for a person in a chat app)
+  chat_share_pct: 60              # share of daily_usd that people and channels in chat apps may use together; 100 = no separate share
   warn_ratio: 0.8
   run:       {max_steps: 25, max_tokens: 400000, max_time: 10m, max_usd: 0}
   scheduled: {max_steps: 15, max_tokens: 150000, max_time: 15m, max_usd: 0.25}
@@ -6236,7 +6451,7 @@ policy:
     scheduled_on_timeout: park
     park_ttl: 24h
     api_wait: 120s                # tokens with on_approval: wait
-    notify: []                    # extra channel names for mirrored cards (web-origin and scheduled runs)
+    notify: []                    # no longer used: web accounts hear about approvals on the web
   trifecta: {enforce: true}       # LOCKED
 
 sandbox:
@@ -6272,7 +6487,7 @@ search:
 web_fetch: {max_bytes: 2097152, timeout: 20s, max_redirects: 5}
 
 channels:
-  unknown_senders: pair           # pair | ignore
+  unknown_senders: pair           # pair (admins can let people in) | ignore (no reply or notice; still listed in Approvals); Telegram and Discord
   usage_footer: false
   telegram: {enabled: false, token: "secret:telegram_bot_token", groups: {mention_only: true},
              api_base: "https://api.telegram.org"}                           # api_base fields are LOCKED; http only for a loopback host
@@ -7041,7 +7256,7 @@ Order: request id → panic recovery → security headers → **Host check** →
 - **Cookie:** 32 random bytes, stored as sha256. Name `__Host-bothy` (`Secure`) when TLS or trusted-proxy https; `bothy_session` on local plain HTTP. `HttpOnly; SameSite=Strict; Path=/`. Idle 7 days, absolute 30 days, rotated on login and privilege change; logout deletes the row; disabling a user deletes all their sessions and revokes tokens. The setup grant cookie `bothy_setup` lasts 30 min. The sign-in cookie of a Google or GitHub round trip (§15) is `__Host-bothy_signin` under TLS, `bothy_signin` otherwise: `HttpOnly; SameSite=Lax; Path=/`, 10 minutes, holding only the flow's random state; Lax because it must come back on the provider's top-level redirect, which Strict drops. The callback clears it. A refused provider sign-in sets the refusal cookie `__Host-bothy_signin_who` under TLS, `bothy_signin_who` otherwise: `SameSite=Lax; Path=/`, 60 seconds, not `HttpOnly`, holding the refused email or login (URL-escaped) for the sign-in page's sentence; the page reads it once and deletes it. The GitHub App flow cookie (§14.3) is `__Host-bothy_ghapp` under TLS, `bothy_ghapp` otherwise: `HttpOnly; SameSite=Lax; Path=/`, one hour, holding only a manifest round trip's random binding (kept in memory as its sha256, never put in a URL); the flow it names also holds the sha256 of the session cookie that started it, so GitHub's cross-site redirects, which arrive without the Strict session cookie, resume that session only while it is still the same active admin's.
 - **CSRF:** Go's `http.CrossOriginProtection` (Sec-Fetch-Site / Origin vs Host; Go 1.25+) wraps **every** unsafe `/api` request, including login, setup and bearer requests (non-browser clients send neither header and pass). Cookie-authenticated unsafe requests additionally need `X-CSRF-Token` equal to the session's token (constant-time; returned by `/api/auth/me`; the setup grant has its own token from `/api/setup/claim`) **and** SameSite=Strict.
 - **API tokens:** `Authorization: Bearer bothy_pat_<26-char id>_<43-char base62 secret>_<6-char base62 CRC32>`, where the id field is the 26 Crockford chars of `tok_<26>` without the `tok_` prefix; parse by fixed field lengths after the `bothy_pat_` prefix, never by splitting on `_`. The CRC (over `bothy_pat_<id>_<secret>`) lets secret scanners recognise the format. Stored as sha256 of the secret; compared in constant time after an id lookup. Scopes: `chat` (sessions API + `/v1` agent models), `llm` (`/v1` passthrough), `read` (GET `/api/*` + SSE), `admin` (admin routes). Default TTL 90 days; tokens without expiry are rejected. `/v1/*` accepts only bearer tokens; `/api/*` accepts cookies or bearer tokens with a matching scope.
-- **Login:** one global Argon2id slot; unknown usernames run a dummy hash (equal timing); lockout per username and per IP (5 failures → 1 m, doubling to 1 h). Per-username failures are counted in memory for known and unknown names alike, with the same forgiveness after a quiet hour, so lockouts never reveal which usernames exist; `users.failed_logins` and `locked_until` only carry a known account's active lock across restarts; `subtle.ConstantTimeCompare` for setup token, CSRF, tokens, pairing codes. Provider sign-in (§15) has no password to guess and no lockout; its starts are limited to 20 per minute per client (an IPv4 address or an IPv6 /64), in a bucket of their own. The password limiter and lockout stay keyed by the exact address, since a lockout on a /64 would lock out a whole office behind it, while a start costs only a provider round trip, so starts are keyed by /64 and one host can't dodge their limit by moving through the addresses of its prefix.
+- **Login:** one global Argon2id slot; unknown usernames run a dummy hash (equal timing); lockout per username and per IP (5 failures → 1 m, doubling to 1 h). Per-username failures are counted in memory for known and unknown names alike, with the same forgiveness after a quiet hour, so lockouts never reveal which usernames exist; `users.failed_logins` and `locked_until` only carry a known account's active lock across restarts; `subtle.ConstantTimeCompare` for setup token, CSRF and tokens. Provider sign-in (§15) has no password to guess and no lockout; its starts are limited to 20 per minute per client (an IPv4 address or an IPv6 /64), in a bucket of their own. The password limiter and lockout stay keyed by the exact address, since a lockout on a /64 would lock out a whole office behind it, while a start costs only a provider round trip, so starts are keyed by /64 and one host can't dodge their limit by moving through the addresses of its prefix.
 - **Setup token:** created at first boot while no owner exists: 32 random bytes, base32, 24 h (re-minted at boot if expired), stored as sha256 in `meta`, written to `<data>/setup-token` (0600) and printed (stderr) when it is minted (v0.2 UI, S1) as `Open <url>/setup#t=<code>`, followed by ` on this server` unless `public_url` is set, then `or paste the setup code <code>` and `(also in <data>/setup-token; valid for 24 hours)`, the validity in words; `<url>` is `public_url`, else the listen address dialled from the host (`https` when `server.tls` is set). `bothy setup-token` prints the same banner to stderr and only the code to stdout, for scripts. Later boots while setup is pending print `Open <url>/setup and paste the setup code from <data>/setup-token` and `(or print a new one with: bothy setup-token)` without the code. `serve` logs `gateway starting listen=… url=…` on every boot. `bothy setup-token` rotates it (Auth never caches the hash, so a rotation by the CLI process is seen at once). The SPA reads it from the URL fragment, posts it to `/api/setup/claim`, then removes it with `history.replaceState`. Setup routes answer non-local peers with 403 and a fix line (`ssh -L 8080:127.0.0.1:8080 <host>`, then open the printed URL locally).
 - **One-time passwords (v0.2 UI, S9):** a browser session of an account with `must_change_password` (`Actor.MustChangePassword`) gets 403 `password_change_required` (fix `/password`) on every route except `GET /api/auth/me`, `POST /api/auth/logout` and `POST /api/auth/password`. Bearer tokens are not affected.
 - **File downloads** (`/api/workspace/files`): `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`, `Content-Type: application/octet-stream` and `Content-Security-Policy: sandbox`.
@@ -7088,18 +7303,16 @@ data: <JSON core.Event>
 | `egress.blocked` | `EgressBlockedData{host, port, reason}` | principal |
 | `schedule.run` | `ScheduleRunData{schedule_id, status}` | principal |
 | `budget.warning` | `BudgetWarningData{user_id, spent_micros, limit_micros}` | principal |
-| `pairing.linked` | `PairingLinkedData{channel, external_id, display}` | principal |
-| `pairing.burned` | `PairingBurnedData{channel, code}`: a live link code was posted in a group chat and cancelled (`Auth.BurnPairing`); the page still showing that code makes a new one | the code creator's principal |
 | `repo.checkout` (v0.2) | `RepoCheckoutData{repo, ref, sha, workspace_id, dir, files}`: `repo_checkout` wrote a repository into the workspace; the knowledge module indexes it | principal (Session and Run set when a run asked) |
 | `knowledge.updated` (v0.2) | `KnowledgeUpdatedData{repo: IndexedRepo, deleted}`: an index or notes state change | principal |
 | `release.dispatched` (v0.2 UI) | `ReleaseDispatchedData{deploy_id, environment, repo, ref, url}`: GitHub accepted a recorded deploy | the deploy's principal and admin (Session and Run set; an admin who asked gets both copies, so clients dedupe by `deploy_id`) |
 | `release.finished` (v0.2 UI) | `ReleaseFinishedData{deploy_id, environment, repo, ref, status: succeeded\|failed\|unknown, ok, url, duration, failed_step}`: following ended, or GitHub refused the dispatch (`ok` false, no `url`) | as `release.dispatched` |
-| `inbox.changed` (v0.2 UI) | `InboxChangedData{item}`: a new unknown sender or group chat item (`dto.InboxItem.id`); refetch `GET /api/inbox` | admin; a group chat item also its owner's principal |
+| `inbox.changed` (v0.2 UI) | `InboxChangedData{item}`: someone waiting to be let in, a person an admin changed, or a group chat item (`dto.InboxItem.id`); refetch `GET /api/inbox` | admin |
 | `channel.status` | `ChannelStatusData{status}` | admin |
 | `sandbox.status` | `SandboxStatusData{status}` | admin (members get `banner`) |
 | `mcp.pin_pending` | `MCPPinData{server, tools}` | admin |
 | `config.changed` | `ConfigChangedData{paths, restart_required}` | admin |
-| `banner` | `BannerData{level, code, text, action, clear}` | admin or principal |
+| `banner` | `BannerData{level, code, text, action, clear}`; codes include `unknown_sender` (someone is waiting to be let in), `new_channel` (Bothy was added to a group chat), `team_access` (the 0013 report, §6) and `chat_budget_80` (§5.12) | admin or principal |
 
 SSE-only control frames: `hello`, `resync`.
 
@@ -7118,8 +7331,8 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `POST /api/auth/login` | none (rate-limited) | `dto.LoginReq` | `dto.Me` + cookie |
 | `POST /api/auth/logout` | user | — | `204` |
 | `GET /api/auth/me` | user | — | `dto.Me` (v0.2 UI: `paused_by`, `paused_by_name`, `paused_at` while paused) |
-| `GET /api/me` | user | — | `dto.Profile` (v0.2 UI; `h_uistate.go`: the caller's display name, time zone, linked chat apps, preferred chat and where approval requests reach them: `web` when they chose Bothy only, else the preferred chat while it is linked, else the linked app they used last, else `web`) |
-| `PATCH /api/me` | user (cookie only) | `dto.ProfilePatch` | `dto.Profile` (v0.2 UI: anyone renames themselves (at most 64 printable characters without format characters, as for admin renames, and not another person's display name or username: 400), sets their own time zone (an IANA name; empty, `Local` or unknown: 400; the owner's change re-syncs their heartbeat) and chooses where approval requests and Bothy's messages reach them; 400 for a chat app they have not linked, or `approvals_in` and `preferred_chat` naming different apps; audited `user.profile`. Bearer tokens → 403, like voting) |
+| `GET /api/me` | user | — | `dto.Profile` (v0.2 UI; `h_uistate.go`: the caller's id, username, display name and time zone) |
+| `PATCH /api/me` | user (cookie only) | `dto.ProfilePatch` | `dto.Profile` (v0.2 UI: anyone renames themselves (at most 64 printable characters without format characters, as for admin renames, and not another person's display name or username: 400) and sets their own time zone (an IANA name; empty, `Local` or unknown: 400; the owner's change re-syncs their heartbeat); decoded strictly, so an unknown field such as the old `approvals_in` → 400; audited `user.profile`. Bearer tokens → 403, like voting) |
 | `POST /api/auth/password` | user (cookie) | `dto.PasswordReq` | `204` (rotates the session). v0.2 UI: `old` may be empty while `must_change_password` is set, which this clears; the one-time password itself is refused as the new one (400) |
 | `GET /api/auth/methods` | none (safe mode too) | — | `dto.SignInMethods` (§15: the providers turned on and usable now; `[]` during setup, in safe mode, or when none is) |
 | `POST /api/auth/oauth/{provider}/start` | none (cross-origin protection still applies; 20/min per IPv4 address or IPv6 /64) | `dto.SignInStartReq` | `dto.SignInStartResp` + the sign-in cookie. `{provider}` is `google` or `github` (else 404); 409 `wrong_address` (`fix` = the `public_url` origin) when the request's host or scheme differs from `public_url`; 409 `sign_in_unavailable` when the provider is off or not usable |
@@ -7138,14 +7351,14 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `POST /api/users` | admin (multi mode) | `dto.UserCreateReq` | `dto.UserCreateResp` (v0.2 UI: `core.User` plus `one_time_password` when no password was sent; that account has `must_change_password`) |
 | `PATCH /api/users/{id}` | admin | `dto.UserPatchReq` | `core.User` |
 | `POST /api/users/{id}/password` | admin (cookie) | — | `dto.PasswordResetResp` (v0.2 UI: a new one-time password, shown once; ends that user's sessions; the owner resets anyone else, admins only members, 403 otherwise; `h_onboarding.go`) |
-| `DELETE /api/users/{id}` | admin | `?purge=true` (optional) | `204` (disable + revoke sessions and tokens; owner cannot be deleted). With `purge=true`: also destroys the user's boxes, deletes their vault user-scope secrets, grants, pairings, identities, sign-in links (§15), memory files, workspaces and sessions, plus (v0.2) their project notes, knowledge index rows and GitHub checkout data under `<data>/github/checkouts/<ws>` (audit rows are kept, with the user id); this is the "deleting a principal wipes its credentials" guarantee and is covered by E19 |
-| `POST /api/pairing` | user (cookie) | — | `core.PairingCode` (link_identity for self; the handler fills `DeepLinks` from `Hub.DeepLink(channel, code)` for every connected channel). Cookie-only: a leaked token must not link an attacker's chat account, which could then answer cards |
-| `POST /api/pairing/approve` | admin (cookie) | `dto.PairingApproveReq` | `core.ChannelIdentity` (link rules as for PATCH below) |
-| `GET /api/identities` | user (own) / admin (all, `?status=`) | — | `[]core.ChannelIdentity` |
-| `PATCH /api/identities/{channel}/{external}` | admin (cookie) | `dto.IdentityPatchReq` | `core.ChannelIdentity` (`guest` creates the guest space like `ApproveSender`; audited `identity.*`). Admins link a chat identity only to themselves; only the owner links one to another user. An identity linked to another user can only be blocked, unlinked or linked back to that same user, never made a guest or re-linked to someone else (403) |
-| `DELETE /api/identities/{channel}/{external}` | user (cookie; own) / admin (cookie) | — | `204` (unlink); a non-admin gets 403 for a blocked identity, so an admin's block holds |
-| `GET /api/spaces` | user (owned) / admin | — | `[]core.Space` |
-| `PATCH /api/spaces/{id}` | owner of space / admin | `dto.SpacePatchReq` | `core.Space` |
+| `DELETE /api/users/{id}` | admin | `?purge=true` (optional) | `204` (disable + revoke sessions and tokens; owner cannot be deleted). With `purge=true`: also destroys the user's boxes, deletes their vault user-scope secrets, grants, sign-in links (§15), memory files, workspaces and sessions, plus (v0.2) their project notes, knowledge index rows and GitHub checkout data under `<data>/github/checkouts/<ws>` (audit rows are kept, with the user id); this is the "deleting a principal wipes its credentials" guarantee and is covered by E19 |
+| `GET /api/identities` | admin | `?status=` | `[]core.ChannelIdentity` |
+| `PATCH /api/identities/{channel}/{external}` | admin (cookie) | `dto.IdentityPatchReq{status?: teammate\|blocked, can_approve?}` | `dto.Teammate` (`auth.Service.SetTeammate`: let in someone pending whose chat app can't tell (`membership = unknown`), or a membership teammate Discord can no longer vouch for; unblock; block; Can approve (a teammate, not an outsider). Refusals are 400 in plain words: *"{App} decides who can use Bothy there. They get in when they message Bothy, if they're in the team."*, *"{App} says they aren't in the team."*, *"Let them in first."*, *"They aren't in the team any more."*. Afterwards: pending → teammate greets them (`Hub.Greet`); blocking stops their runs (`Runner.StopPrincipal`); Can approve on tells them (`Hub.TellApprover`); `inbox.changed`; and the 0013 report and its `team_access` banner go. Audited `identity.let_in`, `identity.unblock`, `identity.block`, `identity.approver`) |
+| `GET /api/teammates` | admin | — | `[]dto.Teammate`: teammates and blocked people, approvers first, then by last active, then blocked; each with today's spending and `left` when the chat app says they're no longer in the team |
+| `DELETE /api/teammates/{channel}/{external}` | admin (cookie) | — | `204`: deletes the data of someone blocked or no longer in the team (400 *"Block them first."* otherwise): their runs stop, then their chats, runs, boxes, schedules, grants, memory and files are purged through a viewer of that principal alone, and `Auth.ForgetTeammate` moves the identity off the principal and deletes the principal in one transaction (a blocked person stays blocked); audited `identity.forget` with the counts |
+| `GET /api/spaces` | admin | — | `[]dto.SpaceView`: group chats with their tool profile |
+| `PATCH /api/spaces/{id}` | admin | `dto.SpacePatchReq` | `dto.SpaceView`; group chats only (a person space → 404); `enabled` and `tool_profile` change in one transaction, any `enabled` change sets `reviewed_at`, turning a channel off stops its runs, and the hub's list of servers with a channel on is refreshed; audited `space.update` |
+| `GET /api/team/schedules` | admin | — | `[]dto.TeamSchedule`: teammates' and channels' schedules with their owner's name, kind (`teammate` \| `channel`) and chat app |
 | `GET /api/sessions` | user | `?principal=&archived=&q=&before=&limit=` | `dto.List[core.Session]` (v0.2 UI: only sessions holding a message, `SessionFilter.NonEmpty`; an untitled one carries its draft title) |
 | `POST /api/sessions` | user | `dto.SessionCreateReq` | `core.Session` (`Runner.NewSession`, origin `web`). v0.2 UI: with `message` the first message is checked before anything is stored and submitted in the same request → `202 dto.SessionCreated` (the session plus `run`); a refused submit archives the new session and returns the error |
 | `GET /api/sessions/{id}` | user | — | `dto.SessionDetail` (v0.2: `refine` is the session's own setting, `on`, `off` or `""`) |
@@ -7171,7 +7384,7 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `POST /api/approvals/{id}` | user (cookie only; approver) | `dto.ApprovalResolveReq` | `core.Approval` (bearer tokens → 403). v0.2 multi-approver approvals: records a vote and may return it still pending; only `allow_once`/`deny` (else 400); 403 when the requester allows or the caller is not an approver; 409 when the caller already voted or it is decided |
 | `GET /api/approvals/{id}/votes` | user | — | `dto.ApprovalVotes` (v0.2; 400 for a single-approver approval, 404 when the caller cannot see it; v0.2 UI: each vote's `comment`) |
 | `GET /api/inbox` | user | — | `dto.Inbox` (v0.2 UI, S12; `h_inbox.go`, appended in `New` like the GitHub and knowledge routes: what waits for a decision, §9.3) |
-| `GET /api/grants` | user (own) | `?scope=&scope_id=` | `[]core.Grant` |
+| `GET /api/grants` | user (own) / admin (everyone's, teammates' and channels' included) | `?scope=&scope_id=` | `[]dto.GrantView` (with `principal_name` and `created_by_name`, a chat approver as "{Name} · {App}") |
 | `POST /api/grants` | admin | `dto.GrantCreateReq` (principal scope only) | `core.Grant` |
 | `DELETE /api/grants/{id}` | user (own) / admin | — | `204` |
 | `POST /api/policy/preview` | admin | `dto.PolicyPreviewReq` | `dto.PolicyPreviewResp` (Plan + Decide, no side effects) |
@@ -7194,8 +7407,8 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `GET /api/schedules` | user | — | `[]core.Schedule` (own) |
 | `POST /api/schedules` | user (own principals; humans need no approval: the self-modification lock targets the agent, whose `schedule_*` tools are admin-class under F3; members stay bounded by their daily cap) | `dto.ScheduleUpsertReq` | `core.Schedule` (`Scheduler.Upsert` assigns the id and gives an empty `tz` the caller's own time zone, as `schedule_create` does, then each `grants[]` entry goes through `Policy.Grant` with scope `schedule`, `scope_id` = the id, `principal_id` = the schedule's principal; whole-tool or admin/financial `max_se` grants → 400; non-empty `grants` from an API token → 403, since pre-authorized grants answer approvals in advance and need a browser session; audited `schedule.create`) |
 | `GET /api/schedules/{id}` | user | — | `core.Schedule` |
-| `PATCH /api/schedules/{id}` | user | `dto.ScheduleUpsertReq` | `core.Schedule` (the schedule's grants are replaced: old ones revoked, new ones granted as above; non-empty `grants` from an API token → 403) |
-| `DELETE /api/schedules/{id}` | user | — | `204` |
+| `PATCH /api/schedules/{id}` | user (admins also for team schedules) | `dto.ScheduleUpsertReq` | `core.Schedule` (the schedule's grants are replaced: old ones revoked, new ones granted as above; non-empty `grants` from an API token → 403). A team schedule takes only `{"enabled": bool}`; anything else → 400 *"Only turning it on or off can be changed here."* |
+| `DELETE /api/schedules/{id}` | user (admins also for team schedules) | — | `204` |
 | `POST /api/schedules/{id}/run` | user | — | `202 {"run_id":"…"}` (the run is the schedule owner's; `Scheduler.RunNow` audits `schedule.run` with the user who pressed it and the run) |
 | `GET /api/schedules/{id}/runs` | user | `?before=&limit=` | `dto.List[dto.RunView]` |
 | `POST /api/schedules/preview` | user | `dto.SchedulePreviewReq` | `dto.SchedulePreviewResp` (an empty `tz` is the caller's own time zone, as on save) |
@@ -7348,7 +7561,9 @@ type Me struct {
 	Paused     bool              `json:"paused"`
 	// PausedBy, PausedByName and PausedAt say who paused Bothy and when,
 	// while it is paused (empty for a pause recorded before they were kept).
-	PausedBy     core.UserID       `json:"paused_by,omitempty"`
+	// PausedBy is a user id, or "channel:<app>:<id>" for an approver's
+	// /stopall in a chat app.
+	PausedBy     string            `json:"paused_by,omitempty"`
 	PausedByName string            `json:"paused_by_name,omitempty"`
 	PausedAt     time.Time         `json:"paused_at,omitzero"`
 	Sandbox      bool              `json:"sandbox_available"`
@@ -7362,29 +7577,14 @@ type Profile struct {
 	Username    string      `json:"username"`
 	DisplayName string      `json:"display_name"`
 	// Timezone is the person's IANA time zone, which their new schedules
-	// and their chats with Bothy use.
+	// and their chats with Bothy on the web use.
 	Timezone string `json:"timezone"`
-	// ApprovalsIn is where approval requests reach the person besides
-	// Bothy's Approvals page: "web" (Bothy only) or the chat app Bothy
-	// messages them in ("slack", "telegram", "discord").
-	ApprovalsIn string `json:"approvals_in"`
-	// PreferredChat is the chat app the person chose for Bothy's messages
-	// to them (scheduled results, check-ins and approval requests); "" =
-	// the linked one they used last.
-	PreferredChat string `json:"preferred_chat"`
-	// Chats are the chat apps the person has linked, which ApprovalsIn and
-	// PreferredChat may name.
-	Chats []string `json:"chats"`
 }
 
 // ProfilePatch changes the caller's own profile; absent fields stay.
-// ApprovalsIn "web" keeps approval requests in Bothy; a chat app sends them
-// there and makes it the preferred chat.
 type ProfilePatch struct {
-	DisplayName   *string `json:"display_name,omitempty"`
-	Timezone      *string `json:"timezone,omitempty"`
-	ApprovalsIn   *string `json:"approvals_in,omitempty"`
-	PreferredChat *string `json:"preferred_chat,omitempty"`
+	DisplayName *string `json:"display_name,omitempty"`
+	Timezone    *string `json:"timezone,omitempty"`
 }
 
 // Access is the caller's remote-access status for Settings > General.
@@ -7416,15 +7616,53 @@ type UserPatchReq struct {
 	Disabled    *bool      `json:"disabled,omitempty"`
 }
 
-type PairingApproveReq struct {
-	Code   string      `json:"code"`
-	As     string      `json:"as"` // guest | link
-	UserID core.UserID `json:"user_id,omitempty"`
+// IdentityPatchReq is an admin's change to a person in a chat app; absent
+// fields stay.
+type IdentityPatchReq struct {
+	Status     *core.IdentityStatus `json:"status,omitempty"` // teammate (let in, unblock) | blocked
+	CanApprove *bool                `json:"can_approve,omitempty"`
 }
 
-type IdentityPatchReq struct {
-	Status core.IdentityStatus `json:"status"` // blocked | guest | linked
-	UserID core.UserID         `json:"user_id,omitempty"`
+// Teammate is a person in a chat app as the People page lists them.
+type Teammate struct {
+	Channel    string              `json:"channel"`
+	ExternalID string              `json:"external_id"` // also the budget key "<channel>:<external_id>"
+	Name       string              `json:"name"`        // display name, else @handle, else "Someone"
+	Handle     string              `json:"handle,omitempty"`
+	Status     core.IdentityStatus `json:"status"` // teammate | blocked
+	CanApprove bool                `json:"can_approve"`
+	Left       bool                `json:"left"` // the chat app says they're no longer in the team
+	LastSeen   time.Time           `json:"last_seen_at"`
+	SpentToday core.Micros         `json:"spent_today_micros"`
+	Principal  core.PrincipalID    `json:"principal_id,omitempty"`
+}
+
+// SpaceView is a group chat with its tool profile.
+type SpaceView struct {
+	core.Space
+	ToolProfile string `json:"tool_profile"`
+}
+
+// TeamSchedule is a teammate's or a channel's schedule in the admins' list.
+type TeamSchedule struct {
+	ID         core.ScheduleID `json:"id"`
+	Name       string          `json:"name"`
+	Owner      string          `json:"owner"`      // teammate name or channel title
+	OwnerKind  string          `json:"owner_kind"` // teammate | channel
+	App        string          `json:"app"`
+	Kind       string          `json:"kind"` // cron | once
+	Spec       string          `json:"spec"`
+	TZ         string          `json:"tz"`
+	NextRun    time.Time       `json:"next_run_at,omitzero"`
+	LastStatus core.RunStatus  `json:"last_status,omitempty"`
+	Enabled    bool            `json:"enabled"`
+}
+
+// GrantView is a grant with the names of whom it covers and who made it.
+type GrantView struct {
+	core.Grant
+	PrincipalName string `json:"principal_name"`
+	CreatedByName string `json:"created_by_name"`
 }
 
 type SpacePatchReq struct {
@@ -7628,6 +7866,20 @@ type DiscordInvite struct {
 
 type MCPApproveReq struct {
 	Tools map[string]core.MCPToolApproval `json:"tools"`
+}
+
+// MCPResolveReq names an npm package to pin; Version "" means the latest.
+type MCPResolveReq struct {
+	Name    string `json:"name"`
+	Version string `json:"version,omitempty"`
+}
+
+// MCPResolveResp is the exact version and the registry's integrity hash to
+// pin, so the admin never types a hash.
+type MCPResolveResp struct {
+	Name      string `json:"name"`
+	Version   string `json:"version"`
+	Integrity string `json:"integrity"`
 }
 
 type SandboxInfo struct {
@@ -7876,8 +8128,9 @@ const (
 // Each item is decided through the endpoint its type already has:
 // POST /api/approvals/{id}; POST /api/mcp/{server}/approve; PATCH
 // /api/skills/{name}; PATCH /api/identities/{channel}/{external}
-// (guest, linked or blocked); PATCH /api/spaces/{id} (enabled true turns a
-// group chat on, any other change records it as seen).
+// (status teammate lets someone in, blocked blocks them); PATCH
+// /api/spaces/{id} (enabled true turns a group chat on; any change records
+// it as reviewed).
 type Inbox struct {
 	Items []InboxItem `json:"items"`
 }
@@ -7931,7 +8184,7 @@ type InboxMCP struct {
 
 type InboxGroup struct {
 	Space   core.Space `json:"space"`
-	AddedBy string     `json:"added_by"` // display name of whoever added Bothy (else the owner)
+	AddedBy string     `json:"added_by"` // the name of whoever added Bothy, when the chat app said; else ""
 }
 
 // setup.go
@@ -8065,10 +8318,13 @@ type RunView struct {
 
 // UsageRowView is a usage bucket with its name: the person (group_by user),
 // schedule (schedule) or chat (session). Day and model buckets, and keys
-// that no longer resolve, have none.
+// that no longer resolve, have none. A person bucket of a teammate or a
+// channel says so in Kind and names its chat app.
 type UsageRowView struct {
 	core.UsageRow
 	Name string `json:"name"`
+	Kind string `json:"kind,omitempty"` // user | teammate | channel
+	App  string `json:"app,omitempty"`
 }
 
 // AuditRow is an audit entry as the log lists it.
@@ -8223,11 +8479,11 @@ Gates: `npm run check` (svelte-check, then `scripts/ui-lint.sh` for the class an
 
 Cards render only from the server's `core.Card` (plain copy, S2) and the structured `Action`; fields that leave Bothy or can't be undone stay on the card in full, verbatim, with bidi and zero-width characters made visible and domains in punycode (ui.md §8). Buttons are real `<button>` elements built from `card.choices`; a multi-approver card shows the tally and names from `Approval.approvals` and `GET /api/approvals/{id}/votes`, and the requester gets no decision buttons. Keyboard flow (ui.md §8.8, §16): J/K move, Enter opens, A/S/D decide in the inbox or a focused card; a held key decides one item (repeats are ignored and the next decision waits for the key to be released); focus moves to the next waiting item and a polite live region announces the result. Resolving anywhere updates every surface live (`approval.resolved`, `approval.voted`).
 
-**The inbox (S12).** `GET /api/inbox` returns `dto.Inbox{items}`, the caller's items first (`for_you`: they can still decide), then oldest first. Item types and how each is decided, all through existing endpoints: `approval` and `note_suggestion` (an approval whose card kind is `review`; `summary` "n of k approvals" on multi-approver ones) → `POST /api/approvals/{id}`; for admins only, `mcp_review` (`mcp:<server>`: servers with pending pins, each changed tool's approved pin kept beside the pending one) → `POST /api/mcp/{server}/approve`; `skill_review` (`skill:<name>`: skills `changed` or `pending`, `SkillMeta` plus `skill_changes`, the files that differ from the approved snapshot (§14.7), each file through `GET /api/skills/{name}/files/{path...}`) → `PATCH /api/skills/{name}`; `unknown_sender` (`sender:<channel>:<external_id>`: pending DM senders told how to get access who wrote within 30 days, at most 50, newest first, with `first_text`) → `PATCH /api/identities/{channel}/{external}`; and, for the owner of the group and admins, `group_chat` (`group:<space principal>`: groups Bothy was added to that are disabled and never changed) → `PATCH /api/spaces/{id}`, where any change marks the group as seen. Clients refetch the inbox on `approval.requested`, `approval.voted`, `approval.resolved`, `mcp.pin_pending`, `inbox.changed` and the banner codes `skills_changed`, `mcp_pins` and `unknown_sender` (still published; the inbox replaces them in the v0.2 UI).
+**The inbox (S12).** `GET /api/inbox` returns `dto.Inbox{items}`, the caller's items first (`for_you`: they can still decide), then oldest first. Item types and how each is decided, all through existing endpoints: `approval` and `note_suggestion` (an approval whose card kind is `review`; `summary` "n of k approvals" on multi-approver ones) → `POST /api/approvals/{id}`; for admins only, `mcp_review` (`mcp:<server>`: servers with pending pins, each changed tool's approved pin kept beside the pending one) → `POST /api/mcp/{server}/approve`; `skill_review` (`skill:<name>`: skills `changed` or `pending`, `SkillMeta` plus `skill_changes`, the files that differ from the approved snapshot (§14.7), each file through `GET /api/skills/{name}/files/{path...}`) → `PATCH /api/skills/{name}`; `unknown_sender` (`sender:<channel>:<external_id>`: people waiting for an admin who wrote in a DM within 30 days: pending, or a membership teammate Discord can no longer vouch for, with verdict `unknown`; at most 50, newest first, with `first_text`; no notice needs to have been sent) → `PATCH /api/identities/{channel}/{external}` (Let in, Block); and `group_chat` (`group:<space principal>`: groups Bothy was added to that no admin has turned on or off, `reviewed_at` zero; *"Added by {name}"* when `added_by` names a known identity) → `PATCH /api/spaces/{id}`. Team approvals (`approver.team`) reach admins through `Viewer.Admin` and are for them (`for_you`); their row summary is "{Name} · {App}". Clients refetch the inbox on `approval.requested`, `approval.voted`, `approval.resolved`, `mcp.pin_pending`, `inbox.changed` and the banner codes `skills_changed`, `mcp_pins` and `unknown_sender` (still published; the inbox replaces them in the v0.2 UI).
 
 ### 9.4 Setup, sign in and people
 
-The setup code is read from `#t=…`, posted to `/api/setup/claim` and removed with `history.replaceState`; without one, the gate shows the command for the install `GET /api/setup/state` reports (ui.md §5.3). The 10k common-password list lives server-side in `internal/auth`, so the bundle stays small; its rejection is shown next to the field. An account an admin adds gets a one-time password from the server (`POST /api/users` without a password); `Me.user.must_change_password` keeps that person on `/password` until they choose their own (ui.md §5.9, §11.5). When an admin turned on Google or GitHub sign-in (§15), the sign-in page shows "Continue with Google" / "Continue with GitHub" above the form; Account → Sign-in methods connects and disconnects them, and Security → Sign-in holds the shared list of who can sign in and a page per provider (ui.md §5.9, §11.2, §11.6).
+The setup code is read from `#t=…`, posted to `/api/setup/claim` and removed with `history.replaceState`; without one, the gate shows the command for the install `GET /api/setup/state` reports (ui.md §5.3). The 10k common-password list lives server-side in `internal/auth`, so the bundle stays small; its rejection is shown next to the field. An account an admin adds gets a one-time password from the server (`POST /api/users` without a password); `Me.user.must_change_password` keeps that person on `/password` until they choose their own (ui.md §5.9, §11.5). When an admin turned on Google or GitHub sign-in (§15), the sign-in page shows "Continue with Google" / "Continue with GitHub" above the form; Account → Sign-in methods connects and disconnects them, and Security → Sign-in holds the shared list of who can sign in and a page per provider (ui.md §5.9, §11.2, §11.6). Account is name and time zone only: chat apps are not linked to accounts. People → In chat apps (admins, `GET /api/teammates`) lists teammates and blocked people with Can approve, today's spending against their limit (`budgets.per_user_daily_usd["<app>:<id>"]`), the chat share, Block, Unblock and Delete their data (ui.md §11.5).
 
 ### 9.5 Markdown renderer (security control)
 
@@ -8256,13 +8512,13 @@ Config keys, provenance (§7.3: UI, file, env, default), env-var names and the e
 | 11 | Append-only audit log | `audit_log` with UPDATE/DELETE abort triggers and a sha256 hash chain (`prev_hash`, `hash` over canonical JSON); single writer; `GET /api/audit/verify` and `bothy audit verify`; no online prune; offline archive inserts an anchor row. | audit, store |
 | 12 | Our supply chain | Distroless static nonroot, digest-pinned bases; goreleaser + cosign keyless + syft SBOM + SLSA provenance; `go.sum` committed; **14-day cooldown** for new dependency versions (CI checks publish times via proxy.golang.org and the npm registry); govulncheck; `npm ci --ignore-scripts`; Renovate `minimumReleaseAge: 14 days`; MCP packages exact version + integrity + recorded lock, installed with `--ignore-scripts` into a read-only tree; skill hash pinning; safe `/etc/gitconfig` in sandbox images; `os/exec` import ban. | deploy, CI, mcp, skills, sandbox images |
 | 13 | SECURITY.md with SLA and private channel | GitHub private advisories + `security@bothy.dev` (*verify domain*); acknowledge within 72 h, fix critical/high within 14 days; supported versions; coordinated disclosure. | repo root |
-| — | Multi-principal isolation | Viewer-scoped repositories (IDOR suites in M1 and M11), space principals without memory/vault, per-principal workspaces and boxes, guests never approve, `admin_can_read_chats` locked off. | store, auth, agent, channel |
+| — | Multi-principal isolation | Viewer-scoped repositories (IDOR suites in M1 and M11); team-owned principals (channels, teammates) belong to no viewer, so their chats, runs, memory, uploads and transcripts are not on the web, admins included (`adminViewer` serves only group chats, grants, inbox group items, team schedules and naming); no account's memory or vault for them; per-principal workspaces and boxes; a teammate approves only when an admin marked them Can approve and their chat app still vouches for them, never admin-class requests or release votes, never always-allow for a channel; people in chat apps are never linked to accounts; reads by team principals outside Bothy are audited (`tool.read`); `admin_can_read_chats` locked off. | store, auth, agent, channel, policy, httpapi |
 | — | Prompt-injection containment (v0.1 level) | Provenance on every message, spotlight delimiters with random ids, deterministic floors; quarantined LLM is P1. | agent, policy |
 | — | v0.2 repositories, knowledge and releases (§14) | GitHub: the PAT or App key stays in the vault and travels only through `SystemClient` to the API host; App installation tokens are cached in memory and registered with the redactor; the archive redirect is fetched without the token and only from configured hosts; extraction goes through `os.Root` with caps on size, files and decompressed bytes, drops links, devices, `.git` and control or bidi names, and swaps folders in atomically; manifests and pristine archives live under `<data>/github/checkouts`, outside every box, and are purged with the user. Knowledge: read-only `os.Root` walk opening only regular files with `O_NONBLOCK`, bounded ignore-rule work, notes kept per principal, untrusted notes spotlighted and tainting. Releases: the release floor (§5.8), votes decided in one transaction, the release token sent only to `releases.github_api` (https, or http for loopback only). Bedrock: AWS credentials never stored or shown; `credential_process` profiles refused. | github, knowledge, release, policy, provider |
 | — | Compaction keeps safety | Constitution and standing rules in S1 outside history; pins in S2; validated summaries; auto-pinned standing instructions; taint and grants in the DB. | agent |
 | — | Provider sign-in (§15) | Authorization code flow with PKCE S256; a random 32-byte state kept server-side as sha256, single use, 10 minutes, and required to equal an HttpOnly SameSite=Lax cookie; a Google nonce checked in constant time; one exact redirect address per provider built from `public_url` (never `Host`), and the flow must match the callback's provider. The code is traded server-side through `egress.SystemClient` (`oauth2.googleapis.com`, `github.com`, `api.github.com`; no redirects followed, capped bodies, 15 s per call). The Google id token is read only from that client-authenticated TLS answer and every claim that matters is checked. The shared sign-in list is checked at every sign-in and link: verified addresses only, compared as ASCII (non-ASCII or control characters match nothing); a domain only through Google's `hd`, never for GitHub (GitHub confirms an address once and never re-checks it); GitHub organizations pinned by id; public mail, relay and noreply domains refused as domains. Disabled accounts refused; no email matching to existing accounts; new accounts are members without a password and with a display name nobody else uses. Tokens are never stored (GitHub's is revoked at once); audit rows carry provider, reason, account and address, never a code, state or token. The client secret lives in the vault or behind an env or `aws-sm` reference, write-only in the UI. Starts limited to 20/min per IPv4 address or IPv6 /64; at most 32 flows in progress per client, 1024 in all. The refused account reaches the sign-in page in a 60-second cookie, never the address. `api_base` test overrides are locked and loopback only. | auth, httpapi, config, store, web |
 
-**Audit actions** (`audit_log.action`): `auth.setup_claim`, `auth.owner_created`, `auth.login`, `auth.login_failed`, `auth.lockout`, `auth.logout`, `auth.password_changed`, `token.create`, `token.revoke`, `user.create`, `user.update`, `pairing.create`, `pairing.redeem`, `pairing.burn` (a link code posted in a group: ok with the code's creator as target, or denied when a well-formed code matched nothing; detail `reason`), `identity.link`, `identity.guest`, `identity.block`, `space.update`, `config.set`, `config.reset`, `persona.update`, `vault.put`, `vault.delete` (written by the vault itself for every caller; an API change adds the token or user, client address and source through `core.WithAuditOrigin`), `vault.rotate`, `vault.unseal`, `secret.use` (name + purpose), `tool.exec`, `tool.denied`, `approval.request`, `approval.decide` (a multi-approver requester's deny carries `withdrawn`), `approval.expire`, `grant.create`, `grant.revoke`, `egress.allow` (first contact / held approvals), `egress.deny`, `memory.write`, `memory.edit`, `skill.install`, `skill.enable`, `skill.disable`, `skill.changed`, `mcp.install`, `mcp.approve`, `mcp.changed`, `schedule.create`, `schedule.update`, `schedule.delete`, `schedule.run` (Run now: who pressed it, with the run), `run.stop`, `budget.exceeded`, `admin.pause`, `admin.resume`, `admin.restart`, `backup.create`, `sandbox.selftest_failed`, `api.passthrough`, `audit.archived`; v0.2: `github.connect` (carries `method`: `token`, `app` or `app_manifest`, and for an app Bothy made `app`, `app_name` and `reinstalled` when a new installation moved the connection), `github.repos`, `github.disconnect` (carries `app` when it retired an app Bothy made), `github.checkout`, `github.pull_request`, `github.comment`, `github.app_create` (ok, with `app_id`, `slug`, `name`, `owner`, `owner_type`, `permissions` and any `extra_permissions` or `replaces`; or error, with `owner` and the redacted reason; never a code, key or secret), `github.app_retire` (`slug`, `name`, `owner`), `github.app_replace` (error only: moving to an app made to replace a connection failed and waits for the next check; `slug`, `name`, `replaces` and the redacted reason), `knowledge.index`, `knowledge.delete`, `knowledge.notes_draft`, `knowledge.notes_edit` (user save), `knowledge.notes_write` (agent edit), `approval.vote` (ok or denied), `release.dispatch` (ok, error or denied), `release.finish`; §15: `signin.link` (ok or denied, with `provider`, `email` or `login`, and a denial's `reason`) and `signin.unlink` (`provider`); `auth.login` and `auth.login_failed` carry `method` (`password`, `google`, `github`) and a provider failure's `reason`; `user.create` carries `via` (`google`, `github`) for an account sign-in made. Details never include message content or secret values.
+**Audit actions** (`audit_log.action`): `auth.setup_claim`, `auth.owner_created`, `auth.login`, `auth.login_failed`, `auth.lockout`, `auth.logout`, `auth.password_changed`, `token.create`, `token.revoke`, `user.create`, `user.update`, `identity.teammate` (a member check let someone in; actor and target are the identity), `identity.let_in`, `identity.unblock`, `identity.block`, `identity.approver` (detail `can_approve`, and `via: membership` when the membership check took it away), `identity.forget` (with the purge counts), `space.update` (detail `enabled` when an admin turned a channel on or off), `tool.read` (a teammate's or channel's read outside Bothy: tool and target, against the principal), `migration.team_access` (the 0013 report, once), rows from before 0013 may carry `pairing.create`, `pairing.redeem`, `pairing.burn`, `identity.link`, `identity.guest`, `identity.unlink`; `config.set`, `config.reset`, `persona.update`, `vault.put`, `vault.delete` (written by the vault itself for every caller; an API change adds the token or user, client address and source through `core.WithAuditOrigin`), `vault.rotate`, `vault.unseal`, `secret.use` (name + purpose), `tool.exec`, `tool.denied`, `approval.request`, `approval.decide` (a multi-approver requester's deny carries `withdrawn`; a chat approver's actor is `channel:<app>:<id>`), `approval.expire`, `grant.create`, `grant.revoke`, `egress.allow` (first contact / held approvals), `egress.deny`, `memory.write`, `memory.edit`, `skill.install`, `skill.enable`, `skill.disable`, `skill.changed`, `mcp.install`, `mcp.approve`, `mcp.changed`, `schedule.create`, `schedule.update`, `schedule.delete`, `schedule.run` (Run now: who pressed it, with the run), `run.stop`, `budget.exceeded`, `admin.pause`, `admin.resume`, `admin.restart`, `backup.create`, `sandbox.selftest_failed`, `api.passthrough`, `audit.archived`; v0.2: `github.connect` (carries `method`: `token`, `app` or `app_manifest`, and for an app Bothy made `app`, `app_name` and `reinstalled` when a new installation moved the connection), `github.repos`, `github.disconnect` (carries `app` when it retired an app Bothy made), `github.checkout`, `github.pull_request`, `github.comment`, `github.app_create` (ok, with `app_id`, `slug`, `name`, `owner`, `owner_type`, `permissions` and any `extra_permissions` or `replaces`; or error, with `owner` and the redacted reason; never a code, key or secret), `github.app_retire` (`slug`, `name`, `owner`), `github.app_replace` (error only: moving to an app made to replace a connection failed and waits for the next check; `slug`, `name`, `replaces` and the redacted reason), `knowledge.index`, `knowledge.delete`, `knowledge.notes_draft`, `knowledge.notes_edit` (user save), `knowledge.notes_write` (agent edit), `approval.vote` (ok or denied), `release.dispatch` (ok, error or denied), `release.finish`; §15: `signin.link` (ok or denied, with `provider`, `email` or `login`, and a denial's `reason`) and `signin.unlink` (`provider`); `auth.login` and `auth.login_failed` carry `method` (`password`, `google`, `github`) and a provider failure's `reason`; `user.create` carries `via` (`google`, `github`) for an account sign-in made. Details never include message content or secret values.
 
 **Doctor / security-audit checks** (stable ids; `security` ones run in `security-audit`; `fix` = auto-fixable):
 
@@ -10195,9 +10451,9 @@ Every module: implements its `new.go` signatures; ships `README.md`; `go test -r
 
 #### M9 · Channel router, Telegram
 
-- **Implements:** `channel.Hub` (`core.ChannelHub`): adapter lifecycle, §5.1 pipeline (dedup, identity, unknown-sender flow, rate limits, command fast path, button handling, space gating, provenance, session resolution, attachment download into the workspace, Submit), streamer (`StreamTo`: typing renewal and placeholder, buffer deltas, edit no faster than `EditMinInterval`, split at `MaxLen` on paragraph/line boundaries without breaking code fences, status lines in the words of the web's activity lines (ui.md §7.4: "Running `pip install pandas`…", "Deleting `notes/a.md`…", "Searching the web for “pandas”…", else the tool's title; identifiers in code spans; links in a query neutralized like the reply's) and "Refining the answer…" while a refine-mode answer is being refined (`RefineStatusDetail`, cleared by the answer's first delta), Stop button `s:<run>`, final edit, link neutralization when Exposed through the core neutralizer (`core.NeutralizeMarkdown`/`NeutralizeLinks`, §4.15)), approval card delivery and updates (§5.9 routing, truncation, `AddMessageRef`), `Messenger.Send`, `PreferredChat` (most recently used linked DM), `DeepLink`, `Test`, `Checks` (`channels.auth_failed`). Telegram adapter: `getUpdates` long poll (offset in meta), `Inbound.Forwarded` from `forward_origin`, `forward_date` or `via_bot`, `sendMessage`/`editMessageText` with HTML parse mode and escaping (a code span inside bold or italics closes them and reopens them after it, since Telegram nests no code in them), `link_preview_options.is_disabled`, inline keyboards, `answerCallbackQuery`, `sendChatAction`, `getFile`, `setMyCommands`, `getMe`, 429 `retry_after`, `t.me/<bot>?start=<code>` deep links. `telegramtest` fake Bot API server.
+- **Implements:** `channel.Hub` (`core.ChannelHub`): adapter lifecycle, §5.1 pipeline (dedup, identity, unknown-sender flow, rate limits, command fast path, button handling, space gating, provenance, session resolution, attachment download into the workspace, Submit), streamer (`StreamTo`: typing renewal and placeholder, buffer deltas, edit no faster than `EditMinInterval`, split at `MaxLen` on paragraph/line boundaries without breaking code fences, status lines in the words of the web's activity lines (ui.md §7.4: "Running `pip install pandas`…", "Deleting `notes/a.md`…", "Searching the web for “pandas”…", else the tool's title; identifiers in code spans; links in a query neutralized like the reply's) and "Refining the answer…" while a refine-mode answer is being refined (`RefineStatusDetail`, cleared by the answer's first delta), Stop button `s:<run>`, final edit, link neutralization when Exposed through the core neutralizer (`core.NeutralizeMarkdown`/`NeutralizeLinks`, §4.15)), approval card delivery and updates (§5.9 routing, link-only cards, recorded waiting lines, truncation, `AddMessage`), `Messenger.Send`, `PrincipalChat`, `TeamActive`, `Greet`, `TellApprover`, membership checks (§5.1 step 3: `MemberChecker`, freshness windows, scope resets, the 15-minute sweep, Discord server backfill), `Test`, `Checks` (`channels.auth_failed`). Telegram adapter: `getUpdates` long poll (offset in meta), `Inbound.Forwarded` from `forward_origin`, `forward_date` or `via_bot`, `sendMessage`/`editMessageText` with HTML parse mode and escaping (a code span inside bold or italics closes them and reopens them after it, since Telegram nests no code in them), `link_preview_options.is_disabled`, inline keyboards, `answerCallbackQuery`, `sendChatAction`, `getFile`, `setMyCommands`, `getMe`, `getChat`/`getChatMemberCount` (`InspectChat`), 429 `retry_after`. `telegramtest` fake Bot API server.
 - **Consumes:** config, `core.Auth`, `core.Runner`, `core.Approvals`, `core.Budget`, `core.Sandbox` (status), `core.Store`, `core.Bus`, `core.Auditor`, `core.Redactor`; adapters get `core.AdapterDeps` (memstore, fakes.Auth, fakes.Runner, fakes.Budget in tests).
-- **Acceptance tests** (channeltest + telegramtest, synctest for timing): pairing via `/start CODE`; unknown sender gets one reply per 24 h and **zero** Runner submissions; blocked sender silent; group message without mention ignored; disabled space ignored with admin notice; `/stop` handled while the session worker is busy; a non-approver's button rejected with a toast; a card from a group run is delivered to the owner's DM, not the group; truncated card offers only Deny + Open in web; ≤ 1 edit per interval; a 10K-char reply splits correctly; HTML injection escaped; previews disabled on every send; redelivered update deduplicated; Telegram adapter passes `conformance.Channel`.
+- **Acceptance tests** (channeltest + telegramtest, synctest for timing; the hub harness uses the real `auth.Service` over memstore): a member's DM makes them a teammate, greeted once; someone waiting gets one line per 24 h and **zero** Runner submissions, approvers a DM (≤ 3 an hour); an outsider gets one line a day; blocked sender silent; group message without mention ignored; an off channel ignored; a lookup failure falls back to a 4-hour verdict; `/stop` handled while the session worker or a membership lookup is busy; a non-approver's or departed approver's button rejected with a toast; a channel's card goes to chat approvers' DMs and the channel gets a waiting line its requester can cancel; truncated card offers only Deny + Open in web; ≤ 1 edit per interval; a 10K-char reply splits correctly; HTML injection escaped; previews disabled on every send; redelivered update deduplicated; Telegram adapter passes `conformance.Channel`.
 
 #### M10 · Discord, Slack
 
@@ -10207,7 +10463,7 @@ Every module: implements its `new.go` signatures; ships `README.md`; `go test -r
 
 #### M11 · Auth, HTTP API, doctor, web embed
 
-- **Implements:** `auth.Service` (`core.Auth`: setup token lifecycle, claim grant, owner creation, Argon2id with one slot and dummy hash, lockout, cookies and rotation, CSRF tokens, PAT format with CRC, scopes, pairing codes (8 Crockford chars, TTL 15 m, single use, 5 attempts per identity per hour), sender notices, `ApproveSender` creating guest spaces, `ResolveIdentity`, `ViewerFor` (sets `Viewer.Admin`), `ResetPassword`, the embedded common-password list, `pairing.linked` events, `Checks`: `server.exposure`, `server.insecure_lan`, `tokens.*`). `httpapi.Server`: middleware (§8.1), every route in §8.3, SSE (§8.2, hello with `Bus.Banners`), OpenAI endpoints (§8.5) with request/response translation for passthrough, Slack manifest and Discord invite (§8.6, golden tests), uploads and workspace file download under `Deps.WorkDir`, persona file under `Deps.DataDir`, vault status/import, policy preview, per-token rate limiter, safe-mode route gating, restart via `Deps.Restart`. `doctor.Runner`, `doctor.ConfigChecks` + `Print`. `webui.Handler` (only the `.gz` variant of compressible assets is embedded, `index.html` stays raw; served with `Content-Encoding: gzip`, unzipped on the fly, bounded by the recorded size, for clients without gzip; ETag, immutable caching, SPA fallback).
+- **Implements:** `auth.Service` (`core.Auth`: setup token lifecycle, claim grant, owner creation, Argon2id with one slot and dummy hash, lockout, cookies and rotation, CSRF tokens, PAT format with CRC, scopes, `Admit` (membership verdicts; teammates and their person spaces), `NoticeSender` (24 h), `ResolveIdentity`, `ViewerFor` (sets `Viewer.Admin`), `ResetPassword`, the embedded common-password list; outside `core.Auth`: `SetTeammate` and `ForgetTeammate`, `Checks`: `server.exposure`, `server.insecure_lan`, `tokens.*`). `httpapi.Server`: middleware (§8.1), every route in §8.3, SSE (§8.2, hello with `Bus.Banners`), OpenAI endpoints (§8.5) with request/response translation for passthrough, Slack manifest and Discord invite (§8.6, golden tests), uploads and workspace file download under `Deps.WorkDir`, persona file under `Deps.DataDir`, vault status/import, policy preview, per-token rate limiter, safe-mode route gating, restart via `Deps.Restart`. `doctor.Runner`, `doctor.ConfigChecks` + `Print`. `webui.Handler` (only the `.gz` variant of compressible assets is embedded, `index.html` stays raw; served with `Content-Encoding: gzip`, unzipped on the fly, bounded by the recorded size, for clients without gzip; ETag, immutable caching, SPA fallback).
 - **Consumes:** every core interface, `config.Admin`, `dto` (memstore and the testkit fakes for every service in tests).
 - **Acceptance tests:** route authz matrix (anonymous, member, admin, each token scope) for every route, including `POST /api/approvals/{id}` → 403 for every bearer token and safe mode → 503 outside the allowed routes; IDOR suite through HTTP (foreign session/run/approval/schedule/memory ids → 404); setup routes 404 after completion and 403 from non-local peers; setup token single use; login timing equal for unknown users (±10%); lockout; cookie flags under TLS and plain local HTTP; missing CSRF header → 403; cross-site `Sec-Fetch-Site` → 403; query-string token → 400; wrong Host → 421 (health probes → 200); public peer over plain HTTP → 403, LAN peer → 403 unless `insecure_lan`; `X-Forwarded-For` honoured only from trusted proxies, and a loopback, IPv4-mapped or `local_cidrs` address in `X-Forwarded-For` or `Forwarded` from a trusted proxy never opens setup or plain HTTP; CSP and nosniff on every response; no CORS header ever; SSE: resume without gaps, `resync` across boots, member never receives another principal's events, admin never receives others' `run.delta`; `/v1/chat/completions` stream parsed by a recorded official-client fixture; `tools` → 400 in agent mode; passthrough tool round-trip; budget → 429 OpenAI shape.
 
@@ -10241,7 +10497,7 @@ Every module: implements its `new.go` signatures; ships `README.md`; `go test -r
 | E1 | Zero-config first run | setup fragment token → owner → provider test against mockllm → first chat streams over SSE with usage and breakdown |
 | E2 | Shell approval (docker) | rule makes `shell` ask → card over SSE → approve → box exec → result → final answer |
 | E3 | Deny and park | interactive deny path; scheduled run parks → approve via web → resumes and executes once (non-Docker form: a rule makes `fs_write` ask; docker form: `shell`) |
-| E4 | Telegram | pair via deep link → DM → streamed edits → approval button → result; previews disabled |
+| E4 | Telegram | an admin lets the person in (Can approve) → hello → DM → streamed edits → approval button in the same DM → result; previews disabled |
 | E5 | Group space | owner enables a group; untrusted member message → read-only tools only; with a policy rule that makes a read tool ask (a restricted space otherwise never raises a card: read tools are auto-allowed and F4 denies anything above read), the card goes to the owner DM only, never to the group |
 | E6 | Unknown sender | DM from an unknown id → one reply, zero mockllm requests |
 | E7 | Stop | `/stop` during `sleep 600` (docker) and a hung stream (no Docker needed): stopped < 1 s, zero box processes left |
@@ -10397,7 +10653,7 @@ The redesigned UI relies on S1–S20 of its plan; the shapes are in §4, §8.3 a
 - **S1, S7:** `SetupState.install` and the setup banner (§8.1, §8.3); `SetupOwnerReq.display_name`. `POST /api/setup/complete` still answers 404 once setup is done (setup routes 404 after completion), so the UI treats a 404 on re-entering the last step as done.
 - **S2, S4:** plain card copy, chat cards and reasons (§5.8, §5.9); `Approval.Approvals`, `Requester` and `Comment`. The deploy card's Version field shows the ref only (no short sha or commit subject: a commit subject is written by whoever can push).
 - **S3, S5, S6, S13:** Bedrock wording (§14.1); plain model names (the catalog's, then the vendor's own, then built from the id: `qwen3:14b` → "Qwen3 14B") and one `recommended` and one `quick_tasks_default` model per provider, chosen heuristically from catalog names (the newest Sonnet and Haiku, the newest plain GPT and its mini, the newest Gemini Pro and Flash-Lite, the largest local model up to 40B for both slots, else the first and the cheapest priced model); one-call connect (§8.3); `core.FailureCode` on probes, GitHub probes and channel tests (§4.3). A probe's raw `error` is redacted with account ids removed.
-- **S8:** runs, usage rows, approvals and audit rows carry names (`dto.RunView`, `dto.UsageRowView`, `decided_by_name`, `dto.AuditRow`). Chats and schedules are named through the caller's own view, so their titles never reach anyone else, admins reading everyone's usage or the audit log included; people are named by display name, else username; an audit row about an approval or tool call is phrased from that record, read through the admin view; an id the view cannot resolve names nothing. `requested_by_name` is empty for schedules and check-ins, the account owner in their own chats, and in a group or guest chat the person who wrote, found among the newest 100 messages of the group session (older group tasks name nobody). The built-in heartbeat's `schedule_name` is "Check-in".
+- **S8:** runs, usage rows, approvals and audit rows carry names (`dto.RunView`, `dto.UsageRowView`, `decided_by_name`, `dto.AuditRow`). Chats and schedules are named through the caller's own view, so their titles never reach anyone else, admins reading everyone's usage or the audit log included; people are named by display name, else username; an audit row about an approval or tool call is phrased from that record, read through the admin view; an id the view cannot resolve names nothing. `requested_by_name` is empty for schedules and check-ins, the account owner in their own chats, the teammate in theirs, and in a channel the person who wrote, found among the newest 100 messages of the session (older tasks name nobody); team chats are not on the web, so only an admin's audit and usage views name them. The built-in heartbeat's `schedule_name` is "Check-in".
 - **S9:** one-time passwords (§4.12, §8.1, §8.3).
 - **S10:** the refine estimate counts early stop as half the rounds ((depth+1)/2) and does not discount a fast critic slot, so it errs high; a chat with no priced answer, or one not stored yet (`GET /api/refine`), gets the multiplier alone.
 - **S11:** tool states are derived on every read, never stored: an open approval means `waiting_approval` (also an open egress hold, `<call>#net`, while the call runs); a call is `done` only once its result exists; a denial without a card is `blocked`; a cancelled approval reads `expired`. `approval_id` is the call's own approval, else its open hold, else its latest hold.
@@ -10408,7 +10664,7 @@ The redesigned UI relies on S1–S20 of its plan; the shapes are in §4, §8.3 a
 - **S17:** release events (§14.5, §8.2).
 - **S20:** company wording in the constitution (version 2) and the default persona (§5.6).
 - **UI state (fallbacks removed):** the server now carries what the redesigned screens used to guess or hide; migration 0009 adds `users.last_login_at`, `preferred_chat` (≤ 32) and `approvals_web_only`, `runs.refined`, `release_deploys.sha` and `subject` (≤ 400), and `skill_approved_files` (STRICT, cascading with the skill), and `TestUIStateMigration` upgrades a version-8 database.
-  - *Profile:* `GET`/`PATCH /api/me` (`dto.Profile`, `auth.Service.UpdateProfile`): anyone renames themselves (the principal's display name follows, as for admin renames; no control or format characters, and not a name or username someone else has, so nobody can pass as a colleague in approval cards), sets their own time zone and chooses where approval requests reach them. A new account starts in the configured `timezone`; the person's zone then serves their chats (turn context) and is the default for the schedules they make (form, API, `schedule_create`) and the zone of the owner's heartbeat, while daily limits keep counting days in the configured one. A preferred chat app is used for Bothy's messages while it is linked (`channel.Messenger.PreferredChat`); `web` keeps approval requests to the Approvals page (no chat card, no group vote prompt), except a card in the chat that asked, which still goes there. The two chat fields stay out of `GET /api/users`. The change is written with `UserRepo.SetProfile`, which touches only the profile columns, so a rename racing an admin's role change, turn-off or password reset cannot undo it.
+  - *Profile:* `GET`/`PATCH /api/me` (`dto.Profile`, `auth.Service.UpdateProfile`): anyone renames themselves (the principal's display name follows, as for admin renames; no control or format characters, and not a name or username someone else has, so nobody can pass as a colleague in approval cards) and sets their own time zone. Since 0013 the profile is name and time zone only: the preferred chat and approvals-on-the-web-only settings were removed with linking. A new account starts in the configured `timezone`; the person's zone then serves their chats (turn context) and is the default for the schedules they make (form, API, `schedule_create`) and the zone of the owner's heartbeat, while daily limits keep counting days in the configured one. The change is written with `UserRepo.SetProfile`, which touches only the profile columns, so a rename racing an admin's role change, turn-off or password reset cannot undo it.
   - *Persona:* `agent.name` (default "Bothy"; 1–40 runes, no control or format characters, no `<` or `>`) and `agent.tone` (`warm` | `direct` | `formal`) are hot and go into the turn context's facts ("Your name", "Tone"), never into the constitution.
   - *Sign-ins:* `UserRepo.SignedIn` records `last_login_at` on each password sign-in (and clears the failure count and lock); `Update` leaves it alone.
   - *Credentials:* `ProviderHealth.source` (§8.3); the bedrock source comes from `Chain.Source()`, which reads what the chain already resolved and never calls AWS.

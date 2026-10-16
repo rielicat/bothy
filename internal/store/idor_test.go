@@ -14,7 +14,7 @@ import (
 func TestIDOR(t *testing.T) {
 	w := newWorld(t)
 	owner, admin := w.user(core.RoleMember), w.user(core.RoleAdmin)
-	sp := w.space(owner)
+	sp := w.space()
 	p := sp.Principal
 	s := w.session(p)
 	w.message(s.ID, core.ProvUntrusted, "space secret")

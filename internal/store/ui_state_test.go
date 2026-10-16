@@ -49,7 +49,7 @@ func TestUIStateMigration(t *testing.T) {
 	}
 	defer db.Close()
 	usr, err := db.Users().Get(ctx, u)
-	if err != nil || !usr.LastLoginAt.IsZero() || usr.PreferredChat != "" || usr.ApprovalsWebOnly {
+	if err != nil || !usr.LastLoginAt.IsZero() {
 		t.Fatalf("user after migration = %+v %v", usr, err)
 	}
 	run, err := db.Runs().Get(ctx, core.SystemViewer(), core.RunID(rid))

@@ -113,11 +113,16 @@ func (n *namer) runViews(runs []*core.Run) []dto.RunView {
 	return out
 }
 
-// nameApprovals fills DecidedByName.
+// nameApprovals fills DecidedByName: an account's name, or a chat
+// approver's as "Maya Chen · Slack".
 func (n *namer) nameApprovals(aps ...*core.Approval) {
 	for _, ap := range aps {
-		if ap != nil && ap.DecidedBy != "" {
+		switch {
+		case ap == nil:
+		case ap.DecidedBy != "":
 			ap.DecidedByName = n.user(ap.DecidedBy)
+		case ap.DecidedByIdentity != "":
+			ap.DecidedByName = n.chatPerson(ap.DecidedByIdentity)
 		}
 	}
 }
@@ -129,7 +134,12 @@ func (n *namer) usageRows(group string, rows []core.UsageRow) []dto.UsageRowView
 		v := dto.UsageRowView{UsageRow: row}
 		switch group {
 		case "user":
-			v.Name = n.user(core.UserID(row.Key))
+			// Teammates and channels pay their own line, keyed by principal.
+			if core.ValidID(core.PrefixSpace, row.Key) {
+				v.Name, v.Kind, v.App = n.teamOwner(core.PrincipalID(row.Key))
+			} else {
+				v.Name, v.Kind = n.user(core.UserID(row.Key)), "user"
+			}
 		case "schedule":
 			v.Name = n.schedule(core.ScheduleID(row.Key))
 		case "session":

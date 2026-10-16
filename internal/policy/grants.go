@@ -21,7 +21,7 @@ import (
 var interpreters = []string{"bash", "sh", "zsh", "python", "python3", "node", "env", "xargs", "sudo", "uv", "npx"}
 
 // NarrowGrant implements core.Policy.
-func (e *Engine) NarrowGrant(a *core.Action, p core.PrincipalID, scope core.GrantScope, scopeID string, by core.UserID) (core.Grant, bool) {
+func (e *Engine) NarrowGrant(a *core.Action, p core.PrincipalID, scope core.GrantScope, scopeID string, by core.Decider) (core.Grant, bool) {
 	g, ok := narrowGrant(e.cfg.Current(), a, p, scope, scopeID, by, e.clock.Now())
 	if ok {
 		e.narrowed.add(grantKey(g))
@@ -31,7 +31,7 @@ func (e *Engine) NarrowGrant(a *core.Action, p core.PrincipalID, scope core.Gran
 
 // narrowGrant builds the narrowest grant that still lets the same kind of
 // call through again. It never yields a whole-tool grant.
-func narrowGrant(c *config.Config, a *core.Action, p core.PrincipalID, scope core.GrantScope, scopeID string, by core.UserID, now time.Time) (core.Grant, bool) {
+func narrowGrant(c *config.Config, a *core.Action, p core.PrincipalID, scope core.GrantScope, scopeID string, by core.Decider, now time.Time) (core.Grant, bool) {
 	if a == nil {
 		return core.Grant{}, false
 	}
@@ -51,7 +51,10 @@ func narrowGrant(c *config.Config, a *core.Action, p core.PrincipalID, scope cor
 	default:
 		return core.Grant{}, false
 	}
-	g := core.Grant{Principal: p, Scope: scope, ScopeID: scopeID, MaxSE: se, CreatedBy: by, CreatedAt: now}
+	g := core.Grant{Principal: p, Scope: scope, ScopeID: scopeID, MaxSE: se, CreatedBy: by.User, CreatedByIdentity: by.Identity, CreatedAt: now}
+	if by.Identity != "" {
+		g.CreatedBy = ""
+	}
 	doc, _ := decodePayload(a.Payload)
 	tool := func(pattern map[string]string) (core.Grant, bool) {
 		g.Kind, g.Tool, g.Pattern = core.GrantTool, a.Tool, pattern
@@ -190,8 +193,12 @@ func (e *Engine) Grant(ctx context.Context, g core.Grant) (core.GrantID, error) 
 	if e.narrowed.take(key) {
 		via = "card"
 	}
+	actor := "user:" + string(g.CreatedBy)
+	if g.CreatedByIdentity != "" {
+		actor = "channel:" + g.CreatedByIdentity
+	}
 	e.record(ctx, core.AuditEntry{
-		Actor: "user:" + string(g.CreatedBy), Action: "grant.create", Target: string(g.ID), Outcome: "ok",
+		Actor: actor, Action: "grant.create", Target: string(g.ID), Outcome: "ok",
 		Session: sessionOf(g),
 		Detail: auditDetail(map[string]any{
 			"principal_id": g.Principal, "scope": g.Scope, "scope_id": g.ScopeID, "kind": g.Kind,
@@ -216,8 +223,10 @@ func (e *Engine) validateGrant(ctx context.Context, g *core.Grant) error {
 	switch {
 	case g.Principal == "":
 		return bad("principal is required")
-	case g.CreatedBy == "":
+	case g.CreatedBy == "" && g.CreatedByIdentity == "":
 		return bad("created_by is required")
+	case g.CreatedBy != "" && g.CreatedByIdentity != "":
+		return bad("a grant has one creator")
 	case g.Uses < 0 || g.MaxUses < 0:
 		return bad("negative use counts")
 	case !g.MaxSE.Valid():

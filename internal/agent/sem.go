@@ -4,8 +4,6 @@ import (
 	"container/list"
 	"context"
 	"sync"
-
-	"github.com/rielicat/bothy/internal/core"
 )
 
 // semaphore is a FIFO counting semaphore whose capacity is read on every
@@ -67,13 +65,13 @@ func (s *semaphore) release() {
 	}
 }
 
-func (r *Runner) userSem(u core.UserID) *semaphore {
+func (r *Runner) userSem(key string) *semaphore {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	s, ok := r.users[u]
+	s, ok := r.users[key]
 	if !ok {
 		s = newSemaphore(func() int { return r.cfg().Agent.MaxRunsPerUser })
-		r.users[u] = s
+		r.users[key] = s
 	}
 	return s
 }

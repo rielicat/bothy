@@ -50,7 +50,7 @@ func newHarness(t *testing.T, mod func(*config.Config)) *harness {
 	h.member = h.user("member", core.RoleMember)
 	h.ownerP = h.principal(core.UserPrincipal(h.owner.ID))
 	h.memberP = h.principal(core.UserPrincipal(h.member.ID))
-	sp := &core.Space{Kind: "group", Chat: core.ChatRef{Channel: "telegram", ChatID: "-100", Kind: core.ChatGroup}, Title: "g", Owner: h.owner.ID, Enabled: true}
+	sp := &core.Space{Kind: "group", Chat: core.ChatRef{Channel: "telegram", ChatID: "-100", Kind: core.ChatGroup}, Title: "g", Enabled: true}
 	pr := &core.Principal{DisplayName: "g"}
 	if err := h.store.Spaces().Create(h.ctx, sp, pr); err != nil {
 		t.Fatal(err)

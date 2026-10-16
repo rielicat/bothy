@@ -80,7 +80,32 @@ type Incoming struct {
 	ThreadTS string
 	Mention  bool // add "<@bot>"; in channels the fake also sends app_mention, as Slack does
 	Bot      bool
-	Files    []File
+	// AppBot posts as another app does: bot_profile with an app_id but no
+	// bot_id at the top level.
+	AppBot bool
+	Files  []File
+}
+
+// User is what users.info says about a person beyond their names. The zero
+// value is a full member of the fake's workspace.
+type User struct {
+	TeamID          string // "" = Server.TeamID
+	EnterpriseID    string
+	Restricted      bool // multi-channel guest
+	UltraRestricted bool // single-channel guest
+	Stranger        bool // Slack Connect: from another company
+	Deleted         bool
+	Bot             bool
+	WorkflowBot     bool
+	Error           string // users.info fails with this code, e.g. "user_not_found"
+}
+
+// ChannelInfo is what conversations.info reports beyond the name.
+type ChannelInfo struct {
+	Members        int
+	ExtShared      bool
+	Shared         bool
+	ConnectedTeams []string
 }
 
 // Server is safe for concurrent use. Set the exported fields before the
@@ -92,6 +117,9 @@ type Server struct {
 	BotID     string
 	BotName   string
 	TeamID    string
+	TeamName  string
+	// EnterpriseID makes auth.test report an Enterprise Grid org.
+	EnterpriseID string
 	// PingInterval is how often the server pings each connection; slack-go
 	// drops a connection that goes 30 s without one.
 	PingInterval time.Duration
@@ -111,10 +139,13 @@ type Server struct {
 	calls     []Call
 	responses []Response
 	users     map[string][2]string
+	flags     map[string]User
+	chanInfo  map[string]ChannelInfo
 	files     map[string]File
 	dms       map[string]string
 	channels  map[string]string
 	infoErr   string
+	userCalls []string
 }
 
 // New starts a fake with the Default* identities.
@@ -126,9 +157,12 @@ func New() *Server {
 		BotID:        DefaultBotID,
 		BotName:      "bothy",
 		TeamID:       DefaultTeam,
+		TeamName:     "Fake",
 		PingInterval: 5 * time.Second,
 		envelopes:    map[string]time.Time{},
 		users:        map[string][2]string{},
+		flags:        map[string]User{},
+		chanInfo:     map[string]ChannelInfo{},
 		files:        map[string]File{},
 		dms:          map[string]string{},
 		channels:     map[string]string{},
@@ -183,6 +217,35 @@ func (s *Server) SetUser(id, name, displayName string) {
 	s.mu.Unlock()
 }
 
+// SetUserFlags sets what kind of account users.info reports for id, or
+// makes users.info fail for it (User.Error).
+func (s *Server) SetUserFlags(id string, u User) {
+	s.mu.Lock()
+	s.flags[id] = u
+	s.mu.Unlock()
+}
+
+// SetChannelInfo sets the member count and sharing conversations.info
+// reports for a channel named with SetChannel.
+func (s *Server) SetChannelInfo(id string, c ChannelInfo) {
+	s.mu.Lock()
+	s.chanInfo[id] = c
+	s.mu.Unlock()
+}
+
+// UserInfoCalls counts users.info calls for id.
+func (s *Server) UserInfoCalls(id string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, c := range s.userCalls {
+		if c == id {
+			n++
+		}
+	}
+	return n
+}
+
 // DMChannel returns the DM channel id between the bot and user.
 func (s *Server) DMChannel(user string) string {
 	s.mu.Lock()
@@ -233,6 +296,9 @@ func (s *Server) Inject(in Incoming) string {
 	if in.Bot {
 		ev["bot_id"] = "B" + in.SenderID
 	}
+	if in.AppBot {
+		ev["bot_profile"] = map[string]any{"id": "B" + in.SenderID, "app_id": "A" + in.SenderID, "name": "Other app"}
+	}
 	if len(in.Files) > 0 {
 		ev["subtype"] = "file_share"
 		var files []any
@@ -251,6 +317,9 @@ func (s *Server) Inject(in Incoming) string {
 		}
 		if parent != "" {
 			mention["parent_user_id"] = parent
+		}
+		if in.Bot {
+			mention["bot_id"] = "B" + in.SenderID
 		}
 		if files, ok := ev["files"]; ok {
 			mention["files"] = files
@@ -511,8 +580,12 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		s.opens++
 		writeJSON(w, map[string]any{"ok": true, "url": "ws" + strings.TrimPrefix(s.srv.URL, "http") + "/link/?ticket=" + strconv.Itoa(s.opens)})
 	case "auth.test":
-		writeJSON(w, map[string]any{"ok": true, "url": "https://fake.slack.com/", "team": "Fake", "user": s.BotName,
-			"team_id": s.TeamID, "user_id": s.BotUserID, "bot_id": s.BotID})
+		res := map[string]any{"ok": true, "url": "https://fake.slack.com/", "team": s.TeamName, "user": s.BotName,
+			"team_id": s.TeamID, "user_id": s.BotUserID, "bot_id": s.BotID}
+		if s.EnterpriseID != "" {
+			res["enterprise_id"] = s.EnterpriseID
+		}
+		writeJSON(w, res)
 	case "chat.postMessage":
 		m := &Message{Channel: r.PostFormValue("channel"), TS: s.tsLocked(), ThreadTS: r.PostFormValue("thread_ts"),
 			Text: r.PostFormValue("text"), Blocks: json.RawMessage(r.PostFormValue("blocks")),
@@ -555,12 +628,27 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"ok": true, "channel": map[string]any{"id": s.dmLocked(users), "is_im": true}})
 	case "users.info":
 		id := r.PostFormValue("user")
+		s.userCalls = append(s.userCalls, id)
 		name, display := "user-"+id, "User "+id
 		if u, ok := s.users[id]; ok {
 			name, display = u[0], u[1]
 		}
-		writeJSON(w, map[string]any{"ok": true, "user": map[string]any{"id": id, "team_id": s.TeamID, "name": name, "real_name": display,
-			"is_bot": false, "profile": map[string]any{"display_name": display, "real_name": display}}})
+		f := s.flags[id]
+		if f.Error != "" {
+			writeJSON(w, map[string]any{"ok": false, "error": f.Error})
+			return
+		}
+		team := f.TeamID
+		if team == "" {
+			team = s.TeamID
+		}
+		u := map[string]any{"id": id, "team_id": team, "name": name, "real_name": display, "deleted": f.Deleted,
+			"is_bot": f.Bot, "is_workflow_bot": f.WorkflowBot, "is_restricted": f.Restricted, "is_ultra_restricted": f.UltraRestricted,
+			"is_stranger": f.Stranger, "profile": map[string]any{"display_name": display, "real_name": display}}
+		if f.EnterpriseID != "" {
+			u["enterprise_user"] = map[string]any{"id": id, "enterprise_id": f.EnterpriseID}
+		}
+		writeJSON(w, map[string]any{"ok": true, "user": u})
 	case "conversations.info":
 		id := r.PostFormValue("channel")
 		name, named := s.channels[id]
@@ -572,8 +660,17 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		case !named:
 			writeJSON(w, map[string]any{"ok": false, "error": "channel_not_found"})
 		default:
-			writeJSON(w, map[string]any{"ok": true, "channel": map[string]any{"id": id, "name": name, "is_channel": channelType(id) == "channel",
-				"is_group": channelType(id) == "group", "is_private": channelType(id) == "group", "is_mpim": strings.HasPrefix(name, "mpdm-")}})
+			ci := s.chanInfo[id]
+			ch := map[string]any{"id": id, "name": name, "is_channel": channelType(id) == "channel",
+				"is_group": channelType(id) == "group", "is_private": channelType(id) == "group", "is_mpim": strings.HasPrefix(name, "mpdm-"),
+				"is_ext_shared": ci.ExtShared, "is_shared": ci.Shared}
+			if r.PostFormValue("include_num_members") == "true" {
+				ch["num_members"] = ci.Members
+			}
+			if len(ci.ConnectedTeams) > 0 {
+				ch["connected_team_ids"] = ci.ConnectedTeams
+			}
+			writeJSON(w, map[string]any{"ok": true, "channel": ch})
 		}
 	default:
 		writeJSON(w, map[string]any{"ok": false, "error": "unknown_method"})

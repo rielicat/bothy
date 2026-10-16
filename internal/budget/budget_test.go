@@ -19,8 +19,8 @@ type env struct {
 	bus   *events.Bus
 	clock *fakes.Clock
 	cfg   *config.Config
-	owner core.UserID
-	alice core.UserID // member
+	owner core.PrincipalID
+	alice core.PrincipalID // member
 }
 
 func newEnv(t *testing.T, mut func(c *config.Config)) *env {
@@ -45,10 +45,10 @@ func newEnv(t *testing.T, mut func(c *config.Config)) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &env{svc: svc, store: st, bus: bus, clock: clock, cfg: cfg, owner: owner.ID, alice: alice.ID}
+	return &env{svc: svc, store: st, bus: bus, clock: clock, cfg: cfg, owner: core.UserPrincipal(owner.ID), alice: core.UserPrincipal(alice.ID)}
 }
 
-func (e *env) spend(t *testing.T, u core.UserID, usd float64) {
+func (e *env) spend(t *testing.T, u core.PrincipalID, usd float64) {
 	t.Helper()
 	if err := e.svc.RecordSpend(context.Background(), u, core.CallInfo{Purpose: "probe", Cost: core.MicrosFromUSD(usd), PriceKnown: true}); err != nil {
 		t.Fatal(err)
@@ -215,7 +215,7 @@ func TestWarningAtRatioOncePerDay(t *testing.T) {
 				switch d := ev.Data.(type) {
 				case core.BudgetWarningData:
 					warnings++
-					if d.User != e.alice || d.Limit != 2_000_000 || ev.Principal != core.UserPrincipal(e.alice) {
+					if d.User != core.UserID(e.alice) || d.Limit != 2_000_000 || ev.Principal != e.alice {
 						t.Errorf("warning = %+v to %q", d, ev.Principal)
 					}
 				case core.BannerData:
@@ -235,14 +235,14 @@ func TestWarningAtRatioOncePerDay(t *testing.T) {
 	if warnings != 1 || banners != 1 {
 		t.Fatalf("warnings=%d banners=%d, want 1 each", warnings, banners)
 	}
-	if active := e.bus.Banners(core.Filter{Principals: []core.PrincipalID{core.UserPrincipal(e.alice)}}); len(active) != 1 {
+	if active := e.bus.Banners(core.Filter{Principals: []core.PrincipalID{e.alice}}); len(active) != 1 {
 		t.Fatalf("active banners = %d", len(active))
 	}
 	e.clock.Advance(24 * time.Hour)
 	if err := e.svc.CheckDaily(ctx, e.alice); err != nil {
 		t.Fatal(err)
 	}
-	if active := e.bus.Banners(core.Filter{Principals: []core.PrincipalID{core.UserPrincipal(e.alice)}}); len(active) != 0 {
+	if active := e.bus.Banners(core.Filter{Principals: []core.PrincipalID{e.alice}}); len(active) != 0 {
 		t.Fatalf("banner survived the day change: %d", len(active))
 	}
 	e.spend(t, e.alice, 1.7)

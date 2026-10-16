@@ -13,13 +13,14 @@ type RunSink interface{ OnEvent(e Event) }
 type RunRequest struct {
 	Session    SessionID
 	Principal  PrincipalID
-	User       UserID // the acting/billing user
+	User       UserID // the principal's account; "" for team-owned principals
 	Trigger    Trigger
 	Schedule   ScheduleID
 	Slot       Slot   // "" = the session's ModelSlot (schedules and /v1 bothy-fast set it)
 	Input      []Part // attachments arrive as image/file parts whose Blob is already in the workspace
 	Provenance Provenance
-	Sender     string
+	Sender     string   // "<chat app>:<external id>" of a chat sender; "web:…" / "api:…" otherwise
+	SenderName string   // the chat sender's display name, for the turn context
 	Chat       *ChatRef // originating chat (message tool target, card routing)
 	Sink       RunSink  // may be nil (web runs use the bus)
 	Limits     *RunLimits
@@ -63,16 +64,24 @@ type Runner interface {
 	// its caller streams only the run it starts.
 	Submit(ctx context.Context, r RunRequest) (SubmitResult, error)
 	// Stop cancels the active run, SIGKILLs the session box, cancels its pending
-	// approvals and clears its queue. It never waits on the run goroutine.
+	// approvals and clears its queue. It never waits on the run goroutine. A
+	// chat caller passes by "" and its actor through WithAuditOrigin.
 	Stop(ctx context.Context, v Viewer, s SessionID, by UserID) (bool, error)
-	StopAll(ctx context.Context, by UserID) (int, error)
+	StopAll(ctx context.Context, by UserID) (int, error) // by "" from chat, as Stop
+	// StopPrincipal stops every active run of p and cancels its pending and
+	// parked approvals, which ends parked runs through the cancelled path
+	// (blocking someone, losing membership, turning a channel off). The
+	// actor comes from WithAuditOrigin. It returns how many runs it ended.
+	StopPrincipal(ctx context.Context, p PrincipalID) (int, error)
 	// SetPaused persists meta.paused, publishes the banner and audits; it stops
-	// nothing. Callers run StopAll and report its count (§5.11).
+	// nothing. Callers run StopAll and report its count (§5.11). A chat
+	// approver pauses with by "" and its actor through WithAuditOrigin.
 	SetPaused(ctx context.Context, paused bool, by UserID) error
 	Paused() bool
-	// PausedBy is who engaged the kill switch and when (zero while it is
-	// off, and for a pause recorded before who and when were kept).
-	PausedBy() (UserID, time.Time)
+	// PausedBy is who engaged the kill switch and when: a user id or a chat
+	// actor ("channel:<app>:<id>"); zero while it is off, and for a pause
+	// recorded before who and when were kept.
+	PausedBy() (by string, at time.Time)
 	// Resume continues a parked run after its approval resolved: allowed =>
 	// execute the stored Action exactly once and continue the loop; denied =>
 	// record the denial and continue the loop; expired/cancelled => run stopped

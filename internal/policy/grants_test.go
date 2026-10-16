@@ -16,7 +16,7 @@ import (
 
 func narrowOf(t *testing.T, h *harness, a *core.Action, scope core.GrantScope, scopeID string) core.Grant {
 	t.Helper()
-	g, ok := h.engine.NarrowGrant(a, h.ownerP.ID, scope, scopeID, h.owner.ID)
+	g, ok := h.engine.NarrowGrant(a, h.ownerP.ID, scope, scopeID, core.Decider{User: h.owner.ID})
 	if !ok {
 		t.Fatalf("no narrow grant for %s %s", a.Tool, a.Payload)
 	}
@@ -54,7 +54,7 @@ func TestNarrowGrantNeverWholeTool(t *testing.T) {
 			if scope == core.GrantSession {
 				id = string(h.session)
 			}
-			g, ok := h.engine.NarrowGrant(a, h.ownerP.ID, scope, id, h.owner.ID)
+			g, ok := h.engine.NarrowGrant(a, h.ownerP.ID, scope, id, core.Decider{User: h.owner.ID})
 			if !ok {
 				if scope == core.GrantPrincipal && a.SideEffect == core.SEIrreversible {
 					continue
@@ -91,7 +91,7 @@ func TestNarrowGrantNeverWholeTool(t *testing.T) {
 		action("noargs", core.ActGeneric, core.SERead, map[string]any{}),
 		action("fs_write", core.ActFSWrite, core.SELocalWrite, map[string]any{"content": "no path"}),
 	} {
-		if g, ok := h.engine.NarrowGrant(a, h.ownerP.ID, core.GrantSession, string(h.session), h.owner.ID); ok {
+		if g, ok := h.engine.NarrowGrant(a, h.ownerP.ID, core.GrantSession, string(h.session), core.Decider{User: h.owner.ID}); ok {
 			t.Errorf("unexpected narrow grant %+v", g)
 		}
 	}
@@ -100,7 +100,7 @@ func TestNarrowGrantNeverWholeTool(t *testing.T) {
 		scope core.GrantScope
 		id    string
 	}{{core.GrantSession, ""}, {core.GrantPrincipal, "x"}, {"forever", "x"}} {
-		if _, ok := h.engine.NarrowGrant(a, h.ownerP.ID, c.scope, c.id, h.owner.ID); ok {
+		if _, ok := h.engine.NarrowGrant(a, h.ownerP.ID, c.scope, c.id, core.Decider{User: h.owner.ID}); ok {
 			t.Errorf("scope %q id %q accepted", c.scope, c.id)
 		}
 	}
@@ -197,10 +197,10 @@ func TestNarrowGrantDestinations(t *testing.T) {
 	if matches(g, httpAction("web_fetch", "POST", "https://example.com/x", core.SEExternalSend), spec("web_fetch", core.SEExternalSend)) {
 		t.Error("a read grant covered an external send")
 	}
-	if _, ok := h.engine.NarrowGrant(httpAction("web_fetch", "GET", "https://user.github.io/x", core.SERead), h.ownerP.ID, core.GrantPrincipal, "", h.owner.ID); ok {
+	if _, ok := h.engine.NarrowGrant(httpAction("web_fetch", "GET", "https://user.github.io/x", core.SERead), h.ownerP.ID, core.GrantPrincipal, "", core.Decider{User: h.owner.ID}); ok {
 		t.Error("allow_always for a shared-tenant host")
 	}
-	if _, ok := h.engine.NarrowGrant(netAction("files.pages.dev", 443), h.ownerP.ID, core.GrantSession, string(h.session), h.owner.ID); !ok {
+	if _, ok := h.engine.NarrowGrant(netAction("files.pages.dev", 443), h.ownerP.ID, core.GrantSession, string(h.session), core.Decider{User: h.owner.ID}); !ok {
 		t.Error("session grant for a shared-tenant host should exist")
 	}
 	idn := narrowOf(t, h, httpAction("web_fetch", "GET", "https://ex\u0430mple.com/", core.SERead), core.GrantSession, string(h.session))

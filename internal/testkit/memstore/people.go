@@ -7,7 +7,6 @@ import (
 	"maps"
 	"slices"
 	"time"
-	"unicode/utf8"
 
 	"github.com/rielicat/bothy/internal/core"
 )
@@ -55,9 +54,6 @@ func validRole(r core.Role) bool {
 func (st *state) checkUser(u core.User) error {
 	if !validRole(u.Role) {
 		return invalid("users.role")
-	}
-	if utf8.RuneCountInString(u.PreferredChat) > 32 {
-		return invalid("users.preferred_chat")
 	}
 	name := asciiLower(u.Username)
 	for id, o := range st.users {
@@ -158,11 +154,7 @@ func (r userRepo) SetProfile(_ context.Context, u *core.User) error {
 	if !ok {
 		return notFound("user")
 	}
-	if utf8.RuneCountInString(u.PreferredChat) > 32 {
-		return invalid("users.preferred_chat")
-	}
-	cur.DisplayName, cur.Timezone, cur.PreferredChat, cur.ApprovalsWebOnly, cur.UpdatedAt = u.DisplayName, u.Timezone, u.PreferredChat,
-		u.ApprovalsWebOnly, ms(u.UpdatedAt)
+	cur.DisplayName, cur.Timezone, cur.UpdatedAt = u.DisplayName, u.Timezone, ms(u.UpdatedAt)
 	st.users[u.ID] = cur
 	return nil
 }
@@ -197,9 +189,8 @@ func (r userRepo) RecordLogin(_ context.Context, id core.UserID, ok bool, lockUn
 }
 
 // Delete mirrors the schema's ON DELETE chains from users: CASCADE through
-// principals and everything they own, SET NULL on schedules.session_id and
-// runs.schedule_id, and the identity CHECKs that make SET NULL fail for
-// linked users and guest principals.
+// the user's principal and everything it owns, and SET NULL on
+// schedules.session_id and runs.schedule_id.
 func (r userRepo) Delete(_ context.Context, id core.UserID) error {
 	st, unlock := r.s.begin()
 	defer unlock()
@@ -212,24 +203,31 @@ func (r userRepo) Delete(_ context.Context, id core.UserID) error {
 			ps[pid] = true
 		}
 	}
-	for pid, sp := range st.spaces {
-		if sp.Owner == id {
-			ps[pid] = true
-		}
+	if err := st.deletePrincipals(ps); err != nil {
+		return err
 	}
+	maps.DeleteFunc(st.authSess, func(_ string, a core.AuthSession) bool { return a.User == id })
+	maps.DeleteFunc(st.tokens, func(_ string, t core.TokenRecord) bool { return t.User == id })
+	maps.DeleteFunc(st.signIns, func(_ signInKey, s core.SignIn) bool { return s.User == id })
+	delete(st.users, id)
+	return nil
+}
+
+// deletePrincipals mirrors the ON DELETE chains from principals: CASCADE
+// through everything they own, SET NULL on schedules.session_id,
+// runs.schedule_id and channel_identities.principal_id, where the teammate
+// CHECK makes SET NULL fail.
+func (st *state) deletePrincipals(ps map[core.PrincipalID]bool) error {
 	for _, row := range st.identities {
-		if (row.id.Status == core.IdentityLinked && row.id.User == id) || (row.id.Status == core.IdentityGuest && ps[row.id.Principal]) {
-			return invalid("channel_identities CHECK")
+		if row.id.Status == core.IdentityTeammate && ps[row.id.Principal] {
+			return invalid("channel_identities CHECK: a teammate needs principal_id")
 		}
 	}
 	for k, row := range st.identities {
-		if row.id.User == id {
-			row.id.User = ""
-		}
 		if ps[row.id.Principal] {
 			row.id.Principal = ""
+			st.identities[k] = row
 		}
-		st.identities[k] = row
 	}
 	sessions := map[core.SessionID]bool{}
 	for sid, sess := range st.sessions {
@@ -279,13 +277,8 @@ func (r userRepo) Delete(_ context.Context, id core.UserID) error {
 	maps.DeleteFunc(st.grants, func(_ core.GrantID, g grantRow) bool { return ps[g.g.Principal] })
 	st.memEvents = slices.DeleteFunc(st.memEvents, func(e core.MemoryEvent) bool { return ps[e.Principal] })
 	maps.DeleteFunc(st.uploads, func(_ string, u core.Upload) bool { return ps[u.Principal] })
-	maps.DeleteFunc(st.pairings, func(_ string, p pairingRow) bool { return p.p.User == id })
-	maps.DeleteFunc(st.authSess, func(_ string, a core.AuthSession) bool { return a.User == id })
-	maps.DeleteFunc(st.tokens, func(_ string, t core.TokenRecord) bool { return t.User == id })
-	maps.DeleteFunc(st.signIns, func(_ signInKey, s core.SignIn) bool { return s.User == id })
 	maps.DeleteFunc(st.spaces, func(pid core.PrincipalID, _ core.Space) bool { return ps[pid] })
 	maps.DeleteFunc(st.principals, func(pid core.PrincipalID, _ core.Principal) bool { return ps[pid] })
-	delete(st.users, id)
 	return nil
 }
 
@@ -317,18 +310,39 @@ func (r principalRepo) Get(_ context.Context, v core.Viewer, id core.PrincipalID
 func (r principalRepo) ForUser(_ context.Context, u core.UserID) ([]*core.Principal, error) {
 	st, unlock := r.s.begin()
 	defer unlock()
-	var own, spaces []core.Principal
+	var own []core.Principal
 	for _, p := range st.principals {
-		switch {
-		case p.User != u:
-		case p.Kind == core.PrincipalUser:
+		if u != "" && p.User == u {
 			own = append(own, p)
-		default:
-			spaces = append(spaces, p)
 		}
 	}
-	byCreated(spaces, func(p core.Principal) (time.Time, string) { return p.CreatedAt, string(p.ID) })
-	return ptrs(append(own, spaces...)), nil
+	return ptrs(own), nil
+}
+
+func (r principalRepo) Team(context.Context) ([]*core.Principal, error) {
+	st, unlock := r.s.begin()
+	defer unlock()
+	var out []core.Principal
+	for _, p := range st.principals {
+		if p.User == "" {
+			out = append(out, p)
+		}
+	}
+	byCreated(out, func(p core.Principal) (time.Time, string) { return p.CreatedAt, string(p.ID) })
+	return ptrs(out), nil
+}
+
+func (r principalRepo) Delete(_ context.Context, id core.PrincipalID) error {
+	st, unlock := r.s.begin()
+	defer unlock()
+	p, ok := st.principals[id]
+	switch {
+	case !ok:
+		return notFound("principal")
+	case p.User != "":
+		return invalid("delete principal: an account's principal goes only with the account")
+	}
+	return st.deletePrincipals(map[core.PrincipalID]bool{id: true})
 }
 
 func (r principalRepo) Update(_ context.Context, p *core.Principal) error {
@@ -341,6 +355,9 @@ func (r principalRepo) Update(_ context.Context, p *core.Principal) error {
 	if !validToolProfile(p.ToolProfile) {
 		return invalid("principals.tool_profile")
 	}
+	if cur.Kind == core.PrincipalPerson && p.ToolProfile != "standard" {
+		return invalid("principals CHECK: a person is standard")
+	}
 	cur.DisplayName = p.DisplayName
 	cur.ToolProfile = p.ToolProfile
 	st.principals[p.ID] = cur
@@ -350,20 +367,18 @@ func (r principalRepo) Update(_ context.Context, p *core.Principal) error {
 // normSpace drops Chat.ThreadID: spaces store channel, chat_id and chat_kind.
 func normSpace(s core.Space) core.Space {
 	s.Chat = core.ChatRef{Channel: s.Chat.Channel, ChatID: s.Chat.ChatID, Kind: s.Chat.Kind}
+	s.ReviewedAt = ms(s.ReviewedAt)
 	s.CreatedAt = ms(s.CreatedAt)
 	s.UpdatedAt = ms(s.UpdatedAt)
 	return s
 }
 
 func (st *state) checkSpace(s core.Space) error {
-	if !oneOf(s.Kind, "group", "guest") {
+	if !oneOf(s.Kind, core.SpaceGroup, core.SpacePerson) {
 		return invalid("spaces.kind")
 	}
 	if !oneOf(s.Chat.Kind, core.ChatDM, core.ChatGroup) {
 		return invalid("spaces.chat_kind")
-	}
-	if _, ok := st.users[s.Owner]; !ok {
-		return invalid("spaces.owner_user_id: no such user")
 	}
 	for id, o := range st.spaces {
 		if id != s.Principal && o.Chat.Channel == s.Chat.Channel && o.Chat.ChatID == s.Chat.ChatID {
@@ -380,22 +395,25 @@ func (r spaceRepo) Create(_ context.Context, s *core.Space, p *core.Principal) e
 	defer unlock()
 	pr := *p
 	pr.ID = idOr(cmp.Or(pr.ID, s.Principal), core.PrefixSpace)
-	pr.Kind = cmp.Or(pr.Kind, core.PrincipalSpace)
-	pr.User = cmp.Or(pr.User, s.Owner)
+	if pr.Kind == "" {
+		pr.Kind = core.PrincipalSpace
+		if s.Kind == core.SpacePerson {
+			pr.Kind = core.PrincipalPerson
+		}
+	}
+	pr.User = ""
 	pr.Workspace = idOr(pr.Workspace, core.PrefixWorkspace)
 	pr.ToolProfile = cmp.Or(pr.ToolProfile, "restricted")
+	if pr.Kind == core.PrincipalPerson {
+		pr.ToolProfile = "standard"
+	}
 	sp := *s
 	sp.Principal = pr.ID
 	switch {
-	case !oneOf(pr.Kind, core.PrincipalUser, core.PrincipalSpace):
-		return invalid("principals.kind")
-	case pr.Kind != core.PrincipalSpace && core.UserID(pr.ID) != pr.User:
-		return invalid("principals: user principal id must equal user_id")
+	case !oneOf(pr.Kind, core.PrincipalSpace, core.PrincipalPerson):
+		return invalid("principals CHECK: a space's principal is owned by the team")
 	case !validToolProfile(pr.ToolProfile):
 		return invalid("principals.tool_profile")
-	}
-	if _, ok := st.users[pr.User]; !ok {
-		return invalid("principals.user_id: no such user")
 	}
 	if _, ok := st.principals[pr.ID]; ok {
 		return conflict("principals.id")
@@ -456,16 +474,20 @@ func (r spaceRepo) Update(_ context.Context, s *core.Space) error {
 	if !ok {
 		return notFound("space")
 	}
-	if err := st.checkSpace(*s); err != nil {
+	// Update never moves a space: kind, channel and chat stay as created.
+	upd := *s
+	upd.Kind, upd.Chat = cur.Kind, cur.Chat
+	if err := st.checkSpace(upd); err != nil {
 		return err
 	}
-	row := normSpace(*s)
+	row := normSpace(upd)
 	row.CreatedAt = cur.CreatedAt
 	st.spaces[s.Principal] = row
 	return nil
 }
 
 func normIdentity(id core.ChannelIdentity) core.ChannelIdentity {
+	id.MemberAt = ms(id.MemberAt)
 	id.FirstSeen = ms(id.FirstSeen)
 	id.LastSeen = ms(id.LastSeen)
 	id.LastNotice = ms(id.LastNotice)
@@ -477,15 +499,18 @@ func normIdentity(id core.ChannelIdentity) core.ChannelIdentity {
 
 func (st *state) checkIdentity(id core.ChannelIdentity) error {
 	switch {
-	case !oneOf(id.Status, core.IdentityPending, core.IdentityLinked, core.IdentityGuest, core.IdentityBlocked):
+	case !oneOf(id.Status, core.IdentityPending, core.IdentityTeammate, core.IdentityBlocked):
 		return invalid("channel_identities.status")
-	case id.Status == core.IdentityLinked && id.User == "":
-		return invalid("channel_identities: linked requires user_id")
-	case id.Status == core.IdentityGuest && id.Principal == "":
-		return invalid("channel_identities: guest requires principal_id")
-	}
-	if _, ok := st.users[id.User]; id.User != "" && !ok {
-		return invalid("channel_identities.user_id: no such user")
+	case !oneOf(id.Via, "", core.ViaMembership, core.ViaAdmin):
+		return invalid("channel_identities.admitted_via")
+	case !oneOf(id.Member, core.MemberUnchecked, core.MemberUnknown, core.MemberYes, core.MemberOutsider):
+		return invalid("channel_identities.membership")
+	case !oneOf(id.Greet, "", core.GreetHello, core.GreetMoved):
+		return invalid("channel_identities.greet")
+	case id.Status == core.IdentityTeammate && (id.Principal == "" || id.Via == ""):
+		return invalid("channel_identities CHECK: a teammate needs principal_id and admitted_via")
+	case id.CanApprove && id.Status != core.IdentityTeammate:
+		return invalid("channel_identities CHECK: can_approve needs a teammate")
 	}
 	if _, ok := st.principals[id.Principal]; id.Principal != "" && !ok {
 		return invalid("channel_identities.principal_id: no such principal")
@@ -495,8 +520,9 @@ func (st *state) checkIdentity(id core.ChannelIdentity) error {
 
 type identityRepo struct{ s *store }
 
-// Touch inserts unknown senders as pending; for known ones it refreshes only
-// names and last_seen, never status or links.
+// Touch inserts unknown senders as pending with id.Member as their first
+// verdict; for known ones it refreshes only names and last_seen, never
+// status or verdicts.
 func (r identityRepo) Touch(_ context.Context, id *core.ChannelIdentity) (*core.ChannelIdentity, error) {
 	st, unlock := r.s.begin()
 	defer unlock()
@@ -510,9 +536,12 @@ func (r identityRepo) Touch(_ context.Context, id *core.ChannelIdentity) (*core.
 		return &out, nil
 	}
 	row := *id
-	row.Status = cmp.Or(row.Status, core.IdentityPending)
+	row.Status, row.Principal, row.Via, row.CanApprove, row.Greet = core.IdentityPending, "", "", false, core.GreetHello
 	if row.FirstSeen.IsZero() {
 		row.FirstSeen = row.LastSeen
+	}
+	if row.Member != core.MemberUnchecked && row.MemberAt.IsZero() {
+		row.MemberAt = row.LastSeen
 	}
 	if err := st.checkIdentity(row); err != nil {
 		return nil, err
@@ -541,11 +570,15 @@ func (r identityRepo) Update(_ context.Context, id *core.ChannelIdentity) error 
 		return notFound("channel identity")
 	}
 	row := cur.id
+	row.Username, row.DisplayName = id.Username, id.DisplayName
 	row.Status = id.Status
-	row.User = id.User
 	row.Principal = id.Principal
+	row.Via, row.CanApprove = id.Via, id.CanApprove
+	row.Member, row.MemberAt = id.Member, ms(id.MemberAt)
 	row.DMChat = id.DMChat
+	row.LastSeen = ms(id.LastSeen)
 	row.LastNotice = ms(id.LastNotice)
+	row.Greet = id.Greet
 	row.FirstText = ""
 	if row.Status == core.IdentityPending {
 		row.FirstText = id.FirstText
@@ -558,8 +591,33 @@ func (r identityRepo) Update(_ context.Context, id *core.ChannelIdentity) error 
 	return nil
 }
 
-func (r identityRepo) ForUser(_ context.Context, u core.UserID) ([]*core.ChannelIdentity, error) {
-	return r.filter(func(id core.ChannelIdentity) bool { return id.User == u })
+func (r identityRepo) ByPrincipal(_ context.Context, p core.PrincipalID) (*core.ChannelIdentity, error) {
+	list, err := r.filter(func(id core.ChannelIdentity) bool { return p != "" && id.Principal == p })
+	if err != nil {
+		return nil, err
+	}
+	if len(list) == 0 {
+		return nil, notFound("channel identity")
+	}
+	best := list[0]
+	for _, id := range list[1:] {
+		if id.LastSeen.After(best.LastSeen) {
+			best = id
+		}
+	}
+	return best, nil
+}
+
+func (r identityRepo) ResetMembership(_ context.Context, channel string) error {
+	st, unlock := r.s.begin()
+	defer unlock()
+	for k, row := range st.identities {
+		if k.channel == channel {
+			row.id.MemberAt = time.Time{}
+			st.identities[k] = row
+		}
+	}
+	return nil
 }
 
 func (r identityRepo) List(_ context.Context, status core.IdentityStatus) ([]*core.ChannelIdentity, error) {
@@ -592,70 +650,6 @@ func (r identityRepo) Delete(_ context.Context, channel, externalID string) erro
 	}
 	delete(st.identities, k)
 	return nil
-}
-
-func normPairing(p core.Pairing) core.Pairing {
-	p.CodeHash = bytes.Clone(p.CodeHash)
-	p.ExpiresAt = ms(p.ExpiresAt)
-	p.UsedAt = ms(p.UsedAt)
-	return p
-}
-
-type pairingRepo struct{ s *store }
-
-func (r pairingRepo) Create(_ context.Context, p *core.Pairing) error {
-	st, unlock := r.s.begin()
-	defer unlock()
-	switch {
-	case len(p.CodeHash) == 0:
-		return invalid("pairing_codes.code_hash")
-	case !oneOf(p.Purpose, core.PairLinkIdentity, core.PairApproveSender):
-		return invalid("pairing_codes.purpose")
-	}
-	if _, ok := st.users[p.User]; p.User != "" && !ok {
-		return invalid("pairing_codes.user_id: no such user")
-	}
-	k := string(p.CodeHash)
-	if _, ok := st.pairings[k]; ok {
-		return conflict("pairing_codes.code_hash")
-	}
-	st.pairings[k] = pairingRow{p: normPairing(*p), n: st.next()}
-	return nil
-}
-
-func (r pairingRepo) Redeem(_ context.Context, codeHash []byte, purpose core.PairingPurpose, now time.Time) (*core.Pairing, error) {
-	st, unlock := r.s.begin()
-	defer unlock()
-	k := string(codeHash)
-	row, ok := st.pairings[k]
-	if !ok || row.p.Purpose != purpose || !row.p.UsedAt.IsZero() || !row.p.ExpiresAt.After(now) {
-		return nil, notFound("pairing code")
-	}
-	row.p.UsedAt = ms(now)
-	st.pairings[k] = row
-	out := normPairing(row.p)
-	return &out, nil
-}
-
-func (r pairingRepo) ForIdentity(_ context.Context, channel, externalID string, purpose core.PairingPurpose, now time.Time) (*core.Pairing, error) {
-	st, unlock := r.s.begin()
-	defer unlock()
-	var best *pairingRow
-	for _, row := range st.pairings {
-		p := row.p
-		if p.Channel != channel || p.ExternalID != externalID || p.Purpose != purpose ||
-			!p.UsedAt.IsZero() || !p.ExpiresAt.After(now) {
-			continue
-		}
-		if best == nil || row.n > best.n {
-			best = &row
-		}
-	}
-	if best == nil {
-		return nil, notFound("pairing code")
-	}
-	out := normPairing(best.p)
-	return &out, nil
 }
 
 func normAuthSession(s core.AuthSession) core.AuthSession {

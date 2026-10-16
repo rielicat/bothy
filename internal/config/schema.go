@@ -85,7 +85,7 @@ type Auth struct {
 	PasswordMinLength int       `yaml:"password_min_length" reload:"hot"`
 	Lockout           Lockout   `yaml:"lockout" reload:"hot"`
 	Argon2            Argon2    `yaml:"argon2"`
-	PairingTTL        Duration  `yaml:"pairing_ttl" reload:"hot"`
+	PairingTTL        Duration  `yaml:"pairing_ttl" reload:"hot"` // no longer used: link codes are gone (kept so old files load)
 	SetupTokenTTL     Duration  `yaml:"setup_token_ttl"`
 	AdminCanReadChats bool      `yaml:"admin_can_read_chats" reload:"hot" locked:"true"`
 	SignIn            SignInCfg `yaml:"sign_in" reload:"hot"`
@@ -253,15 +253,22 @@ type Compaction struct {
 }
 
 type Budgets struct {
-	DailyUSD          float64            `yaml:"daily_usd"`
-	MemberDailyUSD    float64            `yaml:"member_daily_usd"`
-	PerUserDailyUSD   map[string]float64 `yaml:"per_user_daily_usd"` // username -> cap
-	WarnRatio         float64            `yaml:"warn_ratio"`
-	Run               RunBudget          `yaml:"run"`
-	Scheduled         RunBudget          `yaml:"scheduled"`
-	HeartbeatDailyUSD float64            `yaml:"heartbeat_daily_usd"`
-	SenderRate        Rate               `yaml:"sender_rate"`
-	Loop              Loop               `yaml:"loop"`
+	DailyUSD float64 `yaml:"daily_usd"`
+	// MemberDailyUSD is the daily cap of each member in multi mode and of
+	// every person in a chat app, in either mode.
+	MemberDailyUSD float64 `yaml:"member_daily_usd"`
+	// PerUserDailyUSD keys are a username, or "<app>:<external id>" for a
+	// person in a chat app (app telegram, discord or slack).
+	PerUserDailyUSD map[string]float64 `yaml:"per_user_daily_usd"`
+	// ChatSharePct is the share of DailyUSD that people and channels in chat
+	// apps may use together; 100 means no separate share.
+	ChatSharePct      int       `yaml:"chat_share_pct"`
+	WarnRatio         float64   `yaml:"warn_ratio"`
+	Run               RunBudget `yaml:"run"`
+	Scheduled         RunBudget `yaml:"scheduled"`
+	HeartbeatDailyUSD float64   `yaml:"heartbeat_daily_usd"`
+	SenderRate        Rate      `yaml:"sender_rate"`
+	Loop              Loop      `yaml:"loop"`
 }
 
 type RunBudget struct {
@@ -309,7 +316,7 @@ type Approval struct {
 	ScheduledOnTimeout   string   `yaml:"scheduled_on_timeout"`
 	ParkTTL              Duration `yaml:"park_ttl"`
 	APIWait              Duration `yaml:"api_wait"`
-	Notify               []string `yaml:"notify"` // extra channels for mirrored cards (web-origin and scheduled runs)
+	Notify               []string `yaml:"notify"` // no longer used: web accounts hear on the web only (kept so old files load)
 }
 
 type Trifecta struct {
@@ -376,7 +383,10 @@ type WebFetch struct {
 }
 
 type Channels struct {
-	UnknownSenders string   `yaml:"unknown_senders" reload:"hot"` // pair | ignore
+	// UnknownSenders: pair (admins can let people in; the person gets a
+	// waiting line and approvers a notice) | ignore (no reply or notice;
+	// they're still listed in Approvals). Telegram and Discord only.
+	UnknownSenders string   `yaml:"unknown_senders" reload:"hot"`
 	UsageFooter    bool     `yaml:"usage_footer" reload:"hot"`
 	Telegram       Telegram `yaml:"telegram" reload:"hot"`
 	Discord        Discord  `yaml:"discord" reload:"hot"`

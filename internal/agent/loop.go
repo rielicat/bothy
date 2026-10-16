@@ -49,7 +49,9 @@ func (r *Runner) ctxEnd(rs *runState) *runEnd {
 	return &runEnd{status: core.RunStopped}
 }
 
-// loadRunContext loads the session, principal and user of a run.
+// loadRunContext loads the session, principal and user of a run. A
+// team-owned principal (a channel, a teammate) has no user and acts with a
+// member's role.
 func (r *Runner) loadRunContext(ctx context.Context, rs *runState) error {
 	sess, err := r.d.Store.Sessions().Get(ctx, core.SystemViewer(), rs.req.Session)
 	if err != nil {
@@ -59,11 +61,18 @@ func (r *Runner) loadRunContext(ctx context.Context, rs *runState) error {
 	if err != nil {
 		return err
 	}
+	rs.sess, rs.principal, rs.taint = sess, p, sess.Taint
+	if p.TeamOwned() {
+		// Whatever an older run row says, no account pays for or acts in a
+		// team-owned principal's run.
+		rs.user, rs.role, rs.req.User = nil, core.RoleMember, ""
+		return nil
+	}
 	u, err := r.d.Store.Users().Get(ctx, p.User)
 	if err != nil {
 		return err
 	}
-	rs.sess, rs.principal, rs.user, rs.taint = sess, p, u, sess.Taint
+	rs.user, rs.role = u, u.Role
 	return nil
 }
 
@@ -126,6 +135,7 @@ func (r *Runner) startTurn(rs *runState) *runEnd {
 		r.log.Error("start run", "session", req.Session, "err", err)
 		return &runEnd{noRow: true}
 	}
+	req = rs.req
 	if rs.sess.Archived {
 		return &runEnd{noRow: true}
 	}
@@ -133,7 +143,7 @@ func (r *Runner) startTurn(rs *runState) *runEnd {
 		r.notice(ctx, req.Session, req.Principal, "", "Bothy is paused by an admin.", req.Sink)
 		return &runEnd{noRow: true}
 	}
-	if err := r.d.Budget.CheckDaily(ctx, req.User); err != nil {
+	if err := r.d.Budget.CheckDaily(ctx, req.Principal); err != nil {
 		r.refuseDaily(ctx, rs.sess, req, err)
 		return &runEnd{noRow: true}
 	}
@@ -174,7 +184,7 @@ func (r *Runner) startTurn(rs *runState) *runEnd {
 	if err := rs.acquire(ctx); err != nil {
 		return r.ctxEnd(rs)
 	}
-	meter := r.d.Budget.StartRun(rs.id, req.User, limits)
+	meter := r.d.Budget.StartRun(rs.id, req.Principal, limits)
 	rs.mu.Lock()
 	rs.meter = meter
 	rs.run.StartedAt = r.now()
@@ -675,7 +685,7 @@ func (r *Runner) recordCall(ctx context.Context, rs *runState, asm *assembler, c
 	rs.run.Steps, rs.run.ToolCalls, rs.run.Usage, rs.run.Cost = tot.Steps, tot.ToolCalls, tot.Usage, tot.Cost
 	rs.saveLocked(ctx)
 	rs.mu.Unlock()
-	spent, limit, err := r.d.Budget.Daily(ctx, rs.req.User)
+	spent, limit, err := r.d.Budget.Daily(ctx, rs.req.Principal)
 	if err != nil {
 		r.log.Warn("daily spend", "err", err)
 	}

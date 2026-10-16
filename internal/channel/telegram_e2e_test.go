@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rielicat/bothy/internal/auth"
 	"github.com/rielicat/bothy/internal/channel/telegram"
 	"github.com/rielicat/bothy/internal/channel/telegram/telegramtest"
 	"github.com/rielicat/bothy/internal/config"
@@ -31,7 +32,8 @@ func eventually(t *testing.T, what string, cond func() bool) {
 
 // TestTelegramEndToEnd drives the hub through the real Telegram adapter and
 // the fake Bot API: dedup of a redelivered update, a streamed reply with
-// hostile HTML and links, an approval card pressed in Telegram, and pairing.
+// hostile HTML and links, an approval card pressed in Telegram, and someone
+// new waiting to be let in.
 func TestTelegramEndToEnd(t *testing.T) {
 	srv := telegramtest.New(telegramtest.Config{})
 	defer srv.Close()
@@ -44,20 +46,32 @@ func TestTelegramEndToEnd(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := store.Identities().Touch(ctx, &core.ChannelIdentity{Channel: "telegram", ExternalID: "1001",
-		Status: core.IdentityLinked, User: owner.ID, DMChat: "1001", LastSeen: time.Now()}); err != nil {
+	bus := events.New(events.Options{})
+	c := config.Default()
+	authn, err := auth.New(auth.Deps{Store: store, Config: newCfgView(c), Bus: bus})
+	if err != nil {
 		t.Fatal(err)
 	}
-	auth := &fakes.Auth{
-		Identities: map[string]core.IdentityResolution{"telegram:1001": {Status: core.IdentityLinked, User: owner.ID,
-			Role: core.RoleOwner, Principal: core.UserPrincipal(owner.ID)}},
-		Codes: map[string]core.UserID{"ABCDEFGH": member.ID},
+	if _, err := store.Identities().Touch(ctx, &core.ChannelIdentity{Channel: "telegram", ExternalID: "1001", DisplayName: "Olivia",
+		Member: core.MemberUnknown, LastSeen: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	teammate, yes := core.IdentityTeammate, true
+	admin := core.Actor{User: owner.ID, Role: core.RoleOwner, Via: "cookie"}
+	if _, err := authn.SetTeammate(ctx, admin, "telegram", "1001", auth.TeammatePatch{Status: &teammate, CanApprove: &yes}); err != nil {
+		t.Fatal(err)
+	}
+	olivia, err := store.Identities().Get(ctx, "telegram", "1001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	olivia.Greet = ""
+	if err := store.Identities().Update(ctx, olivia); err != nil {
+		t.Fatal(err)
 	}
 	runner := &fakes.Runner{Store: store}
 	approvals := &fakes.Approvals{Manual: true}
-	bus := events.New(events.Options{})
 
-	c := config.Default()
 	c.Channels.Telegram.Enabled = true
 	c.Channels.Telegram.APIBase = srv.URL
 	adapter, err := telegram.New(c.Channels.Telegram, core.AdapterDeps{
@@ -68,7 +82,7 @@ func TestTelegramEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hub, err := New(Deps{Config: newCfgView(c), Auth: auth, Runner: runner, Approvals: approvals, Budget: &fakes.Budget{},
+	hub, err := New(Deps{Config: newCfgView(c), Auth: authn, Runner: runner, Approvals: approvals, Budget: &fakes.Budget{},
 		Store: store, Bus: bus, Audit: &fakes.Auditor{}, Redactor: fakes.NewRedactor(), WorkDir: t.TempDir(),
 		Log: slog.New(slog.DiscardHandler)})
 	if err != nil {
@@ -96,7 +110,7 @@ func TestTelegramEndToEnd(t *testing.T) {
 		t.Fatalf("redelivered update submitted again (%d submits)", n)
 	}
 	req := runner.Submitted()[0]
-	if req.Input[0].Text != "hello <b>bot</b>" || req.Provenance != core.ProvUser {
+	if req.Input[0].Text != "hello <b>bot</b>" || req.Provenance != core.ProvUser || req.Principal != olivia.Principal {
 		t.Fatalf("run request = %+v", req)
 	}
 
@@ -122,10 +136,10 @@ func TestTelegramEndToEnd(t *testing.T) {
 	}
 
 	dm := core.ChatRef{Channel: "telegram", ChatID: "1001", Kind: core.ChatDM}
-	ap, err := approvals.Request(ctx, core.ApprovalRequest{Principal: core.UserPrincipal(owner.ID), Chat: &dm,
+	ap, err := approvals.Request(ctx, core.ApprovalRequest{Principal: olivia.Principal, Chat: &dm, Sender: "telegram:1001",
 		Action:   &core.Action{Tool: "shell", Kind: core.ActExec, Argv: []string{"bash", "-lc", "echo <b>&amp;"}},
 		Spec:     core.ToolSpec{Manifest: core.Manifest{Title: "Run shell command"}},
-		Decision: core.Decision{Approver: core.ApproverReq{User: owner.ID}, Choices: []core.Choice{core.AllowOnce, core.Deny}}})
+		Decision: core.Decision{Approver: core.ApproverReq{Team: true}, Choices: []core.Choice{core.AllowOnce, core.Deny}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,10 +161,11 @@ func TestTelegramEndToEnd(t *testing.T) {
 	})
 
 	srv.Inject(telegramtest.Inbound{ChatID: 3003, SenderID: 3003, Text: "/start ABCD-EFGH"})
-	eventually(t, "the pairing reply", func() bool {
-		return slices.ContainsFunc(srv.SentTexts("3003"), func(s string) bool { return s == "Linked to Mark." })
+	eventually(t, "the waiting line", func() bool {
+		return slices.ContainsFunc(srv.SentTexts("3003"), func(s string) bool { return s == waitingLine })
 	})
 	if n := len(runner.Submitted()); n != 1 {
-		t.Fatalf("pairing reached the runner (%d submits)", n)
+		t.Fatalf("someone new reached the runner (%d submits)", n)
 	}
+	_ = member
 }

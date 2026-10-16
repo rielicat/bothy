@@ -452,7 +452,7 @@ policy:
 			t.Fatalf("owner's MCP call header = %v, want the owner's user-scope value", calls)
 		}
 
-		tg.Pair(t, owner, ownerTG)
+		tg.LetIn(t, owner, ownerTG, true)
 		tg.InjectBotAdded(group, "E19 Group", ownerTG)
 		var space core.Space
 		deadline := time.Now().Add(10 * time.Second)
@@ -475,8 +475,8 @@ policy:
 		if code := owner.JSON(t, http.MethodPatch, "/api/spaces/"+string(space.Principal), dto.SpacePatchReq{Enabled: &on}, nil); code != http.StatusOK {
 			t.Fatalf("enable space = %d", code)
 		}
-		if resp := b.Do(t, http.MethodPatch, "/api/spaces/"+string(space.Principal), dto.SpacePatchReq{Enabled: &on}, nil); resp.StatusCode != http.StatusNotFound {
-			t.Errorf("B patching the owner's space = %s, want 404", resp.Status)
+		if resp := b.Do(t, http.MethodPatch, "/api/spaces/"+string(space.Principal), dto.SpacePatchReq{Enabled: &on}, nil); resp.StatusCode != http.StatusForbidden {
+			t.Errorf("B (a member) patching a channel = %s, want 403", resp.Status)
 		}
 
 		say := func(text, reply string) map[string]json.RawMessage {

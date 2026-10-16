@@ -315,25 +315,33 @@ func (s *Service) submit(ctx context.Context, sc *core.Schedule, now time.Time) 
 	return "", core.RunFailed, true, fmt.Errorf("scheduler: submit: %w", err)
 }
 
-// checkActive refuses ticks of a disabled user's schedules and of a space
-// that is not enabled: neither may start runs, whatever their schedules say.
+// checkActive refuses ticks of a disabled user's schedules, and of a
+// channel or teammate that may not run now (turned off, blocked, no longer
+// in the team): neither may start runs, whatever their schedules say. A
+// refusal is a skip, never a failure towards auto-disable.
 func (s *Service) checkActive(ctx context.Context, prin *core.Principal) error {
+	if prin.TeamOwned() {
+		if s.hub != nil {
+			if err := s.hub.TeamActive(ctx, prin.ID); err != nil {
+				return skipError{fmt.Errorf("%s may not run now: %w: %w", prin.ID, core.ErrForbidden, err)}
+			}
+			return nil
+		}
+		sp, err := s.store.Spaces().Get(ctx, core.SystemViewer(), prin.ID)
+		if err != nil {
+			return fmt.Errorf("scheduler: space: %w", err)
+		}
+		if !sp.Enabled {
+			return skipError{fmt.Errorf("space %s is disabled: %w", prin.ID, core.ErrForbidden)}
+		}
+		return nil
+	}
 	u, err := s.store.Users().Get(ctx, prin.User)
 	if err != nil {
 		return fmt.Errorf("scheduler: user: %w", err)
 	}
 	if u.Disabled {
 		return skipError{fmt.Errorf("user %s is disabled: %w", u.ID, core.ErrForbidden)}
-	}
-	if prin.Kind != core.PrincipalSpace {
-		return nil
-	}
-	sp, err := s.store.Spaces().Get(ctx, core.SystemViewer(), prin.ID)
-	if err != nil {
-		return fmt.Errorf("scheduler: space: %w", err)
-	}
-	if !sp.Enabled {
-		return skipError{fmt.Errorf("space %s is disabled: %w", prin.ID, core.ErrForbidden)}
 	}
 	return nil
 }
@@ -412,16 +420,16 @@ func (s *Service) deliverySink(ctx context.Context, sc *core.Schedule, prin *cor
 }
 
 // deliveryChat resolves the delivery target when the schedule fires. A stored
-// chat is checked again here: an identity may have been unlinked, or linked to
-// another account, since the schedule was saved.
+// chat is checked again here: the teammate or channel may have changed since
+// the schedule was saved. An account's results stay on the web.
 func (s *Service) deliveryChat(ctx context.Context, sc *core.Schedule, prin *core.Principal) (core.ChatRef, bool) {
-	if s.hub == nil {
+	if s.hub == nil || !prin.TeamOwned() {
 		return core.ChatRef{}, false
 	}
 	d := sc.Deliver
 	switch {
 	case d == nil:
-		return s.hub.PreferredChat(ctx, prin.User)
+		return s.hub.PrincipalChat(ctx, prin.ID)
 	case d.Channel == "web":
 		return core.ChatRef{}, false
 	case d.ChatID != "":
@@ -432,47 +440,45 @@ func (s *Service) deliveryChat(ctx context.Context, sc *core.Schedule, prin *cor
 		}
 		return chat, true
 	}
-	ids, err := s.store.Identities().ForUser(ctx, prin.User)
-	if err != nil {
-		s.log.Warn("scheduler: identities", "user", prin.User, "err", err)
-		return core.ChatRef{}, false
+	if chat, ok := s.hub.PrincipalChat(ctx, prin.ID); ok && chat.Channel == d.Channel {
+		return chat, true
 	}
-	for _, id := range ids {
-		if id.Channel == d.Channel && id.Status == core.IdentityLinked && id.DMChat != "" {
-			return core.ChatRef{Channel: d.Channel, ChatID: id.DMChat, Kind: core.ChatDM}, true
-		}
-	}
-	s.log.Warn("scheduler: no linked DM to deliver to; web only", "schedule", sc.ID, "channel", d.Channel)
+	s.log.Warn("scheduler: no chat on that app to deliver to; web only", "schedule", sc.ID, "channel", d.Channel)
 	return core.ChatRef{}, false
 }
 
-// ownChat resolves c to a chat the principal's output may go to: a linked DM
-// of its user or, for a space, the space's own chat. Scheduled output carries
-// the principal's private context, so no other chat qualifies.
+// ownChat resolves c to a chat the principal's output may go to: a
+// teammate's own DM, or a channel's own chat. Scheduled output carries the
+// principal's private context, so no other chat qualifies; an account has
+// no chat at all.
 func (s *Service) ownChat(ctx context.Context, prin *core.Principal, c core.ChatRef) (core.ChatRef, bool, error) {
-	ids, err := s.store.Identities().ForUser(ctx, prin.User)
-	if err != nil {
-		return core.ChatRef{}, false, fmt.Errorf("scheduler: identities: %w", err)
-	}
-	for _, id := range ids {
-		if id.Channel == c.Channel && id.Status == core.IdentityLinked && id.DMChat != "" && id.DMChat == c.ChatID {
-			return core.ChatRef{Channel: c.Channel, ChatID: c.ChatID, Kind: core.ChatDM}, true, nil
+	switch prin.Kind {
+	case core.PrincipalPerson:
+		id, err := s.store.Identities().ByPrincipal(ctx, prin.ID)
+		if errors.Is(err, core.ErrNotFound) {
+			return core.ChatRef{}, false, nil
 		}
+		if err != nil {
+			return core.ChatRef{}, false, fmt.Errorf("scheduler: identity: %w", err)
+		}
+		if id.Channel != c.Channel || (c.ChatID != id.DMChat && c.ChatID != id.ExternalID) {
+			return core.ChatRef{}, false, nil
+		}
+		return core.ChatRef{Channel: c.Channel, ChatID: c.ChatID, Kind: core.ChatDM}, true, nil
+	case core.PrincipalSpace:
+		sp, err := s.store.Spaces().Get(ctx, core.SystemViewer(), prin.ID)
+		if errors.Is(err, core.ErrNotFound) {
+			return core.ChatRef{}, false, nil
+		}
+		if err != nil {
+			return core.ChatRef{}, false, fmt.Errorf("scheduler: space: %w", err)
+		}
+		if sp.Chat.Channel != c.Channel || sp.Chat.ChatID != c.ChatID {
+			return core.ChatRef{}, false, nil
+		}
+		return core.ChatRef{Channel: c.Channel, ChatID: c.ChatID, ThreadID: c.ThreadID, Kind: sp.Chat.Kind}, true, nil
 	}
-	if prin.Kind != core.PrincipalSpace {
-		return core.ChatRef{}, false, nil
-	}
-	sp, err := s.store.Spaces().Get(ctx, core.SystemViewer(), prin.ID)
-	if errors.Is(err, core.ErrNotFound) {
-		return core.ChatRef{}, false, nil
-	}
-	if err != nil {
-		return core.ChatRef{}, false, fmt.Errorf("scheduler: space: %w", err)
-	}
-	if sp.Owner != prin.User || sp.Chat.Channel != c.Channel || sp.Chat.ChatID != c.ChatID {
-		return core.ChatRef{}, false, nil
-	}
-	return core.ChatRef{Channel: c.Channel, ChatID: c.ChatID, ThreadID: c.ThreadID, Kind: sp.Chat.Kind}, true, nil
+	return core.ChatRef{}, false, nil
 }
 
 // onFinished folds a run outcome into its schedule: success resets the
@@ -551,12 +557,16 @@ func (s *Service) disabled(ctx context.Context, sc *core.Schedule, last core.Run
 	if err != nil {
 		return
 	}
-	chat, ok := s.hub.PreferredChat(ctx, prin.User)
+	chat, ok := s.hub.PrincipalChat(ctx, prin.ID)
 	if !ok {
 		return
 	}
 	msg := fmt.Sprintf("The schedule “%s” was turned off because its last %d tasks failed%s. Turn it back on under Schedules once it's fixed.",
 		plain(sc.Name), maxFailures, lastFailure(last, kind))
+	if prin.TeamOwned() {
+		msg = fmt.Sprintf("The schedule “%s” was turned off because its last %d tasks failed%s. An admin can turn it back on in Bothy once it's fixed.",
+			plain(sc.Name), maxFailures, lastFailure(last, kind))
+	}
 	if _, err := s.hub.Send(ctx, chat, msg); err != nil {
 		s.log.Warn("scheduler: notify owner", "schedule", sc.ID, "err", err)
 	}

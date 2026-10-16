@@ -34,8 +34,7 @@ const (
 var (
 	caps = core.ChannelCaps{Edit: true, Buttons: true, Threads: true, Typing: true, MaxLen: 4096, EditMinInterval: time.Second}
 
-	tokenRe     = regexp.MustCompile(`^[0-9]{1,20}:[A-Za-z0-9_-]{1,128}$`)
-	startCodeRe = regexp.MustCompile(`[^A-Za-z0-9_-]`)
+	tokenRe = regexp.MustCompile(`^[0-9]{1,20}:[A-Za-z0-9_-]{1,128}$`)
 
 	commands = []botCommand{
 		{"stop", "Stop the current task"},
@@ -48,13 +47,13 @@ var (
 		{"compact", "Summarise older messages now"},
 		{"model", "Show or change the AI model of this conversation"},
 		{"refine", "Check answers more carefully: on, off or default"},
-		{"pair", "Link this account with a code"},
 		{"help", "List commands"},
 	}
 )
 
 var (
-	_ core.Channel = (*Adapter)(nil)
+	_ core.Channel       = (*Adapter)(nil)
+	_ core.ChatInspector = (*Adapter)(nil)
 
 	errNoToken = errors.New("telegram: no bot token")
 )
@@ -214,7 +213,6 @@ func (a *Adapter) connect(ctx context.Context) (*client, error) {
 	a.mu.Lock()
 	a.me = me
 	a.status.Identity = "@" + me.Username
-	a.status.DeepLinks = me.Username != ""
 	a.mu.Unlock()
 	if err := cl.setMyCommands(ctx, commands); err != nil && ctx.Err() == nil {
 		a.log.Debug("telegram setMyCommands failed", "err", err)
@@ -560,20 +558,31 @@ func (a *Adapter) SelfTest(ctx context.Context) (string, error) {
 	}
 	a.mu.Lock()
 	a.me = me
-	a.status.Identity, a.status.DeepLinks = "@"+me.Username, me.Username != ""
+	a.status.Identity = "@" + me.Username
 	a.mu.Unlock()
 	return "@" + me.Username, nil
 }
 
-// DeepLink returns t.me/<bot>?start=<code>, or "" until the bot's username
-// is known (after Run connects or SelfTest succeeds).
-func (a *Adapter) DeepLink(code string) string {
-	a.mu.Lock()
-	user := a.me.Username
-	a.mu.Unlock()
-	code = startCodeRe.ReplaceAllString(code, "")
-	if user == "" || code == "" || len(code) > 64 {
-		return ""
+// InspectChat describes a group: getChat gives its title and
+// getChatMemberCount how many people are in it.
+func (a *Adapter) InspectChat(ctx context.Context, chat core.ChatRef) (core.ChatInfo, error) {
+	cl, err := a.client(ctx)
+	if err != nil {
+		return core.ChatInfo{}, err
 	}
-	return "https://t.me/" + user + "?start=" + code
+	id, err := strconv.ParseInt(chat.ChatID, 10, 64)
+	if err != nil {
+		return core.ChatInfo{}, fmt.Errorf("telegram: chat id %q: %w", chat.ChatID, core.ErrInvalid)
+	}
+	c, err := cl.getChat(ctx, id)
+	if err != nil {
+		return core.ChatInfo{}, err
+	}
+	info := core.ChatInfo{Title: c.Title}
+	if n, err := cl.getChatMemberCount(ctx, id); err == nil {
+		info.Members = n
+	} else if ctx.Err() != nil {
+		return core.ChatInfo{}, ctx.Err()
+	}
+	return info, nil
 }

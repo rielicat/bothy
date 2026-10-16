@@ -88,7 +88,7 @@ func (s *Service) requestHold(ctx context.Context, b *box, be core.BoxEgress, bi
 	d.Choices = holdChoices(d.Choices, shared)
 	ap, err := s.approvals.Request(ctx, core.ApprovalRequest{
 		Run: bind.Run, Session: be.Session, Principal: be.Principal, ToolCallID: bind.ToolCallID + "#net",
-		Action: a, Spec: spec, Decision: d, Chat: bind.Chat, Context: bind.Context,
+		Action: a, Spec: spec, Decision: d, Chat: bind.Chat, Context: bind.Context, Sender: bind.Sender,
 	})
 	if err != nil {
 		s.log.Warn("egress: approval request failed", "host", hp, "err", err)
@@ -116,7 +116,7 @@ func (s *Service) requestHold(ctx context.Context, b *box, be core.BoxEgress, bi
 		if choice == core.AllowAlways {
 			scope, scopeID = core.GrantPrincipal, ""
 		}
-		if g, ok := s.policy.NarrowGrant(a, be.Principal, scope, scopeID, s.decidedBy(ctx, ap.ID, bind.User)); ok {
+		if g, ok := s.policy.NarrowGrant(a, be.Principal, scope, scopeID, s.decidedBy(ctx, ap.ID, core.Decider{User: bind.User})); ok {
 			if _, err := s.policy.Grant(ctx, g); err != nil {
 				s.log.Warn("egress: storing the approved grant failed", "host", hp, "err", err)
 			}
@@ -148,9 +148,9 @@ func holdChoices(offered []core.Choice, shared bool) []core.Choice {
 	return append(out, core.Deny)
 }
 
-func (s *Service) decidedBy(ctx context.Context, id core.ApprovalID, fallback core.UserID) core.UserID {
-	if a, err := s.approvals.Get(ctx, core.SystemViewer(), id); err == nil && a.DecidedBy != "" {
-		return a.DecidedBy
+func (s *Service) decidedBy(ctx context.Context, id core.ApprovalID, fallback core.Decider) core.Decider {
+	if a, err := s.approvals.Get(ctx, core.SystemViewer(), id); err == nil && (a.DecidedBy != "" || a.DecidedByIdentity != "") {
+		return core.Decider{User: a.DecidedBy, Identity: a.DecidedByIdentity}
 	}
 	return fallback
 }

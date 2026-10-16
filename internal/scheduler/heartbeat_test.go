@@ -37,8 +37,6 @@ func (h *harness) heartbeat() *core.Schedule {
 	return out
 }
 
-func evs(es ...core.Event) []core.Event { return es }
-
 func delta(text string) core.Event {
 	return core.Event{Type: core.EvRunDelta, Data: core.DeltaData{Text: text}}
 }
@@ -73,32 +71,15 @@ func TestHeartbeatRunAndSuppression(t *testing.T) {
 			len(req.Input) != 1 || req.Input[0].Text != wantPrompt || req.Schedule != hb.ID || req.User != h.owner {
 			t.Fatalf("heartbeat request = %+v", req)
 		}
-		if mode := h.hub.StreamModes[h.dm.Key()]; mode != "final" {
-			t.Fatalf("delivery mode = %q, want final", mode)
-		}
-		out, _ := h.hub.Stream(h.dm)
-
-		// HEARTBEAT_OK: nothing reaches the chat.
-		for _, e := range evs(core.Event{Type: core.EvRunStarted}, delta("HEARTBEAT"), delta("_OK"), finished) {
-			req.Sink.OnEvent(e)
-		}
-		if n := len(out.All()); n != 0 {
-			t.Fatalf("HEARTBEAT_OK was delivered (%d events)", n)
+		// An account hears on the web only: no chat app gets the check-in.
+		if req.Sink != nil || len(h.hub.StreamModes) != 0 {
+			t.Fatalf("a check-in reached a chat app: %v", h.hub.StreamModes)
 		}
 		h.finish(fs[0].run, core.RunDone)
-
-		// Something to say: the whole run is delivered.
 		sleepUntil(utc(2026, 10, 12, 10, 0))
 		synctest.Wait()
-		fs = h.runner.all()
-		if len(fs) != 2 {
+		if fs = h.runner.all(); len(fs) != 2 {
 			t.Fatalf("heartbeat runs = %d", len(fs))
-		}
-		for _, e := range evs(core.Event{Type: core.EvRunStarted}, delta("Your 3pm moved to 4pm."), finished) {
-			fs[1].req.Sink.OnEvent(e)
-		}
-		if got := out.Types(); !slices.Equal(got, []core.EventType{core.EvRunStarted, core.EvRunDelta, core.EvRunFinished}) || out.Text() != "Your 3pm moved to 4pm." {
-			t.Fatalf("delivered %v %q", got, out.Text())
 		}
 
 		// Outside the active hours nothing fires; the next run is at opening.
@@ -272,21 +253,22 @@ func TestHeartbeatFollowsTheOwnersZone(t *testing.T) {
 	})
 }
 
-func TestHeartbeatDeliveryToChannelDM(t *testing.T) {
+// scheduler.heartbeat.deliver naming a chat app still keeps the owner's
+// check-in on the web: accounts have no chat.
+func TestHeartbeatStaysOnTheWeb(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t, heartbeatOn, func(c *config.Config) { c.Scheduler.Heartbeat.Deliver = "telegram" })
 		h.memory.Files = map[core.PrincipalID]map[core.MemoryFile]string{h.p: {core.FileHeartbeat: "- x\n"}}
-		h.hub.PreferredChats = nil // the DM comes from the linked telegram identity
 		sleepUntil(utc(2026, 10, 12, 9, 0))
 		stop := h.start()
 		defer stop()
 		sleepUntil(utc(2026, 10, 12, 9, 31))
 		synctest.Wait()
-		if fs := h.runner.all(); len(fs) != 1 || fs[0].req.Sink == nil {
-			t.Fatalf("runs = %+v", fs)
+		if fs := h.runner.all(); len(fs) != 1 || fs[0].req.Sink != nil {
+			t.Fatalf("runs = %+v, want one delivered on the web only", fs)
 		}
-		if mode := h.hub.StreamModes[h.dm.Key()]; mode != "final" {
-			t.Fatalf("not delivered to the owner's telegram DM: %v", h.hub.StreamModes)
+		if len(h.hub.StreamModes) != 0 {
+			t.Fatalf("a check-in reached a chat app: %v", h.hub.StreamModes)
 		}
 	})
 }

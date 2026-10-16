@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"slices"
 
 	"github.com/rielicat/bothy/internal/core"
 )
@@ -15,11 +14,12 @@ import (
 type purgeStats map[string]int
 
 // purgeUser wipes a disabled user's data: runs are stopped, boxes destroyed,
-// vault user-scope secrets, grants, schedules, identities, memory files and
-// workspaces removed, then the users row is deleted, which cascades to
-// principals, spaces, sessions with their messages and runs, memory events,
-// uploads, pairing codes, auth sessions and tokens (audit_log has no foreign
-// key and keeps the user id). Every step runs even if an earlier one failed,
+// vault user-scope secrets, grants, schedules, memory files and workspaces
+// removed, then the users row is deleted, which cascades to the user's
+// principal, sessions with their messages and runs, memory events, uploads,
+// auth sessions and tokens (audit_log has no foreign key and keeps the user
+// id). Teammates and channels belong to the team and are never purged with
+// a user. Every step runs even if an earlier one failed,
 // and the outcome is audited. A client hanging up does not stop a purge
 // halfway.
 func (s *Server) purgeUser(r *http.Request, by core.Actor, u *core.User) error {
@@ -46,7 +46,6 @@ func (s *Server) purgeUser(r *http.Request, by core.Actor, u *core.User) error {
 	step("schedules", func() error { return s.purgeSchedules(ctx, v, by, st) })
 	step("grants", func() error { return s.purgeGrants(ctx, v, by, st) })
 	step("vault", func() error { return s.purgeVault(ctx, u.ID, by, st) })
-	step("identities", func() error { return s.purgeIdentities(ctx, u.ID, v, st) })
 	step("memory", func() error { return s.purgeMemory(ctx, ps) })
 	step("knowledge", func() error { return s.purgeKnowledge(ctx, ps) })
 	step("files", func() error { return s.purgeFiles(ps, st) })
@@ -211,32 +210,6 @@ func (s *Server) purgeVault(ctx context.Context, u core.UserID, by core.Actor, s
 	return nil
 }
 
-func (s *Server) purgeIdentities(ctx context.Context, u core.UserID, v core.Viewer, st purgeStats) error {
-	repo := s.d.Store.Identities()
-	ids, err := repo.ForUser(ctx, u)
-	if err != nil {
-		return err
-	}
-	all, err := repo.List(ctx, "")
-	if err != nil {
-		return err
-	}
-	for _, id := range all {
-		if id.Principal != "" && v.Can(id.Principal) && !slices.ContainsFunc(ids, func(x *core.ChannelIdentity) bool {
-			return x.Channel == id.Channel && x.ExternalID == id.ExternalID
-		}) {
-			ids = append(ids, id)
-		}
-	}
-	for _, id := range ids {
-		if err := repo.Delete(ctx, id.Channel, id.ExternalID); err != nil && !errors.Is(err, core.ErrNotFound) {
-			return err
-		}
-		st["identities"]++
-	}
-	return nil
-}
-
 // purgeMemory lets the memory service drop each principal's files under its
 // own lock, so a concurrent write cannot recreate them mid-purge.
 func (s *Server) purgeMemory(ctx context.Context, ps []*core.Principal) error {
@@ -260,10 +233,10 @@ func (s *Server) purgeFiles(ps []*core.Principal, st purgeStats) error {
 		valid := core.ValidID(core.PrefixUser, string(p.ID)) || core.ValidID(core.PrefixSpace, string(p.ID))
 		if s.d.DataDir != "" && valid {
 			dir := filepath.Join(s.d.DataDir, "memory", string(p.ID))
-			if _, err := os.Stat(dir); err == nil {
+			if _, err := os.Stat(dir); err == nil { //nolint:gosec // G703: dir is built from an id core.ValidID accepted
 				st["memory_dirs"]++
 			}
-			if err := os.RemoveAll(dir); err != nil {
+			if err := os.RemoveAll(dir); err != nil { //nolint:gosec // G703: as above
 				errs = append(errs, err)
 			}
 		}
@@ -278,7 +251,7 @@ func (s *Server) purgeFiles(ps []*core.Principal, st purgeStats) error {
 		// The github module keeps each workspace's checkout manifests and
 		// pristine repository archives here, outside the workspace.
 		if s.d.DataDir != "" && core.ValidID(core.PrefixWorkspace, string(p.Workspace)) {
-			if err := os.RemoveAll(filepath.Join(s.d.DataDir, "github", "checkouts", string(p.Workspace))); err != nil {
+			if err := os.RemoveAll(filepath.Join(s.d.DataDir, "github", "checkouts", string(p.Workspace))); err != nil { //nolint:gosec // G703: a valid workspace id
 				errs = append(errs, err)
 			}
 		}

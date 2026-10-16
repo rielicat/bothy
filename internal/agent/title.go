@@ -72,18 +72,18 @@ func (r *Runner) titleAsync(rs *runState) {
 	if r.paused.Load() || r.closing.Load() {
 		return
 	}
-	sid, p, u := rs.req.Session, rs.req.Principal, rs.req.User
+	sid, p := rs.req.Session, rs.req.Principal
 	r.bg.Add(1)
 	go func() {
 		defer r.bg.Done()
 		ctx, cancel := context.WithTimeout(r.bgCtx, titleTimeout)
 		defer cancel()
-		r.makeTitle(ctx, sid, p, u)
+		r.makeTitle(ctx, sid, p)
 	}()
 }
 
-func (r *Runner) makeTitle(ctx context.Context, sid core.SessionID, p core.PrincipalID, u core.UserID) {
-	if r.d.Budget.CheckDaily(ctx, u) != nil {
+func (r *Runner) makeTitle(ctx context.Context, sid core.SessionID, p core.PrincipalID) {
+	if r.d.Budget.CheckDaily(ctx, p) != nil {
 		return
 	}
 	msgs, err := r.d.Store.Messages().Range(ctx, core.SystemViewer(), sid, 0, titleScan)
@@ -126,7 +126,7 @@ func (r *Runner) makeTitle(ctx context.Context, sid core.SessionID, p core.Princ
 	resp, ci, err := r.d.LLM.Complete(ctx, slot, nil, build, nil)
 	if ci.Ref.Model != "" || ci.Cost > 0 {
 		ci.Purpose = "title"
-		if serr := r.d.Budget.RecordSpend(context.WithoutCancel(ctx), u, ci); serr != nil {
+		if serr := r.d.Budget.RecordSpend(context.WithoutCancel(ctx), p, ci); serr != nil {
 			r.log.Warn("record title spend", "err", serr)
 		}
 	}

@@ -29,6 +29,7 @@ type Service struct {
 
 	senders *senderLimiter
 	zones   sync.Map // timezone name -> *time.Location
+	payers  sync.Map // team-owned principal id -> payer: kind and chat key never change
 
 	mu     sync.Mutex
 	warned map[warnKey]string // spend day of the last 80% warning per cap

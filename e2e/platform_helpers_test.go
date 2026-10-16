@@ -532,13 +532,20 @@ func (p pltTelegram) WaitText(t testing.TB, chat int64, sub string, timeout time
 	}
 }
 
-// Pair links the Telegram account id to u through a pairing code.
-func (p pltTelegram) Pair(t testing.TB, u *pltUser, id int64) {
+// LetIn has the Telegram account id write to Bothy, wait to be let in, and
+// an admin (u) let them in, as an approver when canApprove; it waits for
+// Bothy's hello.
+func (p pltTelegram) LetIn(t testing.TB, u *pltUser, id int64, canApprove bool) {
 	t.Helper()
-	var code core.PairingCode
-	if c := u.JSON(t, http.MethodPost, "/api/pairing", nil, &code); c != http.StatusOK || code.Code == "" {
-		t.Fatalf("pairing code = %d %+v", c, code)
+	p.Inject(telegramtest.Inbound{ChatID: id, SenderID: id, FirstName: "Tess", Text: "hello"})
+	p.WaitText(t, id, "once an admin lets you in", 10*time.Second)
+	teammate := core.IdentityTeammate
+	req := dto.IdentityPatchReq{Status: &teammate}
+	if canApprove {
+		req.CanApprove = &canApprove
 	}
-	p.Inject(telegramtest.Inbound{ChatID: id, SenderID: id, Text: "/start " + strings.ReplaceAll(code.Code, "-", "")})
-	p.WaitText(t, id, "Linked to", 10*time.Second)
+	if c := u.JSON(t, http.MethodPatch, fmt.Sprintf("/api/identities/telegram/%d", id), req, nil); c != http.StatusOK {
+		t.Fatalf("let in telegram:%d = %d", id, c)
+	}
+	p.WaitText(t, id, "I'm Bothy.", 10*time.Second)
 }

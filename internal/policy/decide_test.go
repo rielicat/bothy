@@ -151,9 +151,9 @@ func TestNoRuleOrGrantBeatsAFloor(t *testing.T) {
 							in.Principal, in.Session = h.space, h.spaceSession
 						}
 						if se < core.SEFinancial {
-							g, ok := narrowGrant(h.cfg, a, in.Principal.ID, core.GrantPrincipal, "", h.owner.ID, time.Now())
+							g, ok := narrowGrant(h.cfg, a, in.Principal.ID, core.GrantPrincipal, "", core.Decider{User: h.owner.ID}, time.Now())
 							if !ok {
-								g, _ = narrowGrant(h.cfg, a, in.Principal.ID, core.GrantSession, string(in.Session), h.owner.ID, time.Now())
+								g, _ = narrowGrant(h.cfg, a, in.Principal.ID, core.GrantSession, string(in.Session), core.Decider{User: h.owner.ID}, time.Now())
 							}
 							if err := h.store.Grants().Add(h.ctx, &g); err != nil {
 								t.Fatal(err)
@@ -538,7 +538,7 @@ func TestRuleAskYieldsToGrant(t *testing.T) {
 	if d.Rule != "rule:no-pipe-to-shell" || !hasChoice(d, core.AllowSession) || !hasChoice(d, core.AllowAlways) {
 		t.Fatalf("rule ask: %+v", d)
 	}
-	g, ok := h.engine.NarrowGrant(a, h.ownerP.ID, core.GrantSession, string(h.session), h.owner.ID)
+	g, ok := h.engine.NarrowGrant(a, h.ownerP.ID, core.GrantSession, string(h.session), core.Decider{User: h.owner.ID})
 	if !ok {
 		t.Fatal("no narrow grant")
 	}

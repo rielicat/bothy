@@ -62,7 +62,7 @@ func TestTxSavepoints(t *testing.T) {
 		if err := tx.Meta().Set(w.ctx, "kept", "1"); err != nil {
 			return err
 		}
-		bad := &core.Space{Kind: "channel", Chat: core.ChatRef{Channel: "slack", ChatID: "C1", Kind: core.ChatGroup}, Owner: u.ID}
+		bad := &core.Space{Kind: "channel", Chat: core.ChatRef{Channel: "slack", ChatID: "C1", Kind: core.ChatGroup}}
 		if err := tx.Spaces().Create(w.ctx, bad, &core.Principal{}); !errors.Is(err, core.ErrInvalid) {
 			return fmt.Errorf("bad space: %w", err)
 		}
@@ -71,9 +71,12 @@ func TestTxSavepoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ps, err := w.db.Principals().ForUser(w.ctx, u.ID)
-	if err != nil || len(ps) != 1 {
+	ps, err := w.db.Principals().Team(w.ctx)
+	if err != nil || len(ps) != 0 {
 		t.Errorf("the failed space left %d principals behind (%v)", len(ps), err)
+	}
+	if ps, err := w.db.Principals().ForUser(w.ctx, u.ID); err != nil || len(ps) != 1 {
+		t.Errorf("the user has %d principals (%v)", len(ps), err)
 	}
 	for _, k := range []string{"kept", "nested"} {
 		if _, err := w.db.Meta().Get(w.ctx, k); err != nil {
@@ -135,7 +138,7 @@ func TestRunsOneActiveAndDecideCAS(t *testing.T) {
 	for i := range 50 {
 		wg.Go(func() {
 			ok, err := w.db.Approvals().Decide(w.ctx, a.ID, []core.ApprovalStatus{core.ApprovalPending, core.ApprovalParked},
-				core.ApprovalAllowed, core.AllowOnce, u.ID, fmt.Sprintf("web-%d", i), t0)
+				core.ApprovalAllowed, core.AllowOnce, core.Decider{User: u.ID}, fmt.Sprintf("web-%d", i), t0)
 			if err != nil {
 				t.Error(err)
 			}
@@ -150,7 +153,7 @@ func TestRunsOneActiveAndDecideCAS(t *testing.T) {
 	if wins != 1 {
 		t.Fatalf("%d deciders won, want exactly 1", wins)
 	}
-	if ok, err := w.db.Approvals().Decide(w.ctx, a.ID, nil, core.ApprovalDenied, core.Deny, u.ID, "web", t0); ok || err != nil {
+	if ok, err := w.db.Approvals().Decide(w.ctx, a.ID, nil, core.ApprovalDenied, core.Deny, core.Decider{User: u.ID}, "web", t0); ok || err != nil {
 		t.Errorf("Decide with no from states = %t, %v", ok, err)
 	}
 }

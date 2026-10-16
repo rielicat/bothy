@@ -67,7 +67,9 @@ type Me struct {
 	Paused     bool              `json:"paused"`
 	// PausedBy, PausedByName and PausedAt say who paused Bothy and when,
 	// while it is paused (empty for a pause recorded before they were kept).
-	PausedBy     core.UserID       `json:"paused_by,omitempty"`
+	// PausedBy is a user id, or "channel:<app>:<id>" for an approver's
+	// /stopall in a chat app.
+	PausedBy     string            `json:"paused_by,omitempty"`
 	PausedByName string            `json:"paused_by_name,omitempty"`
 	PausedAt     time.Time         `json:"paused_at,omitzero"`
 	Sandbox      bool              `json:"sandbox_available"`
@@ -81,29 +83,14 @@ type Profile struct {
 	Username    string      `json:"username"`
 	DisplayName string      `json:"display_name"`
 	// Timezone is the person's IANA time zone, which their new schedules
-	// and their chats with Bothy use.
+	// and their chats with Bothy on the web use.
 	Timezone string `json:"timezone"`
-	// ApprovalsIn is where approval requests reach the person besides
-	// Bothy's Approvals page: "web" (Bothy only) or the chat app Bothy
-	// messages them in ("slack", "telegram", "discord").
-	ApprovalsIn string `json:"approvals_in"`
-	// PreferredChat is the chat app the person chose for Bothy's messages
-	// to them (scheduled results, check-ins and approval requests); "" =
-	// the linked one they used last.
-	PreferredChat string `json:"preferred_chat"`
-	// Chats are the chat apps the person has linked, which ApprovalsIn and
-	// PreferredChat may name.
-	Chats []string `json:"chats"`
 }
 
 // ProfilePatch changes the caller's own profile; absent fields stay.
-// ApprovalsIn "web" keeps approval requests in Bothy; a chat app sends them
-// there and makes it the preferred chat.
 type ProfilePatch struct {
-	DisplayName   *string `json:"display_name,omitempty"`
-	Timezone      *string `json:"timezone,omitempty"`
-	ApprovalsIn   *string `json:"approvals_in,omitempty"`
-	PreferredChat *string `json:"preferred_chat,omitempty"`
+	DisplayName *string `json:"display_name,omitempty"`
+	Timezone    *string `json:"timezone,omitempty"`
 }
 
 // Access is the caller's remote-access status for Settings > General.
@@ -135,15 +122,53 @@ type UserPatchReq struct {
 	Disabled    *bool      `json:"disabled,omitempty"`
 }
 
-type PairingApproveReq struct {
-	Code   string      `json:"code"`
-	As     string      `json:"as"` // guest | link
-	UserID core.UserID `json:"user_id,omitempty"`
+// IdentityPatchReq is an admin's change to a person in a chat app; absent
+// fields stay.
+type IdentityPatchReq struct {
+	Status     *core.IdentityStatus `json:"status,omitempty"` // teammate (let in, unblock) | blocked
+	CanApprove *bool                `json:"can_approve,omitempty"`
 }
 
-type IdentityPatchReq struct {
-	Status core.IdentityStatus `json:"status"` // blocked | guest | linked
-	UserID core.UserID         `json:"user_id,omitempty"`
+// Teammate is a person in a chat app as the People page lists them.
+type Teammate struct {
+	Channel    string              `json:"channel"`
+	ExternalID string              `json:"external_id"` // also the budget key "<channel>:<external_id>"
+	Name       string              `json:"name"`        // display name, else @handle, else "Someone"
+	Handle     string              `json:"handle,omitempty"`
+	Status     core.IdentityStatus `json:"status"` // teammate | blocked
+	CanApprove bool                `json:"can_approve"`
+	Left       bool                `json:"left"` // the chat app says they're no longer in the team
+	LastSeen   time.Time           `json:"last_seen_at"`
+	SpentToday core.Micros         `json:"spent_today_micros"`
+	Principal  core.PrincipalID    `json:"principal_id,omitempty"`
+}
+
+// SpaceView is a group chat with its tool profile.
+type SpaceView struct {
+	core.Space
+	ToolProfile string `json:"tool_profile"`
+}
+
+// TeamSchedule is a teammate's or a channel's schedule in the admins' list.
+type TeamSchedule struct {
+	ID         core.ScheduleID `json:"id"`
+	Name       string          `json:"name"`
+	Owner      string          `json:"owner"`      // teammate name or channel title
+	OwnerKind  string          `json:"owner_kind"` // teammate | channel
+	App        string          `json:"app"`
+	Kind       string          `json:"kind"` // cron | once
+	Spec       string          `json:"spec"`
+	TZ         string          `json:"tz"`
+	NextRun    time.Time       `json:"next_run_at,omitzero"`
+	LastStatus core.RunStatus  `json:"last_status,omitempty"`
+	Enabled    bool            `json:"enabled"`
+}
+
+// GrantView is a grant with the names of whom it covers and who made it.
+type GrantView struct {
+	core.Grant
+	PrincipalName string `json:"principal_name"`
+	CreatedByName string `json:"created_by_name"`
 }
 
 type SpacePatchReq struct {

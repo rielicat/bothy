@@ -130,7 +130,7 @@ func TestUpsertValidation(t *testing.T) {
 		{"past once", func(s *core.Schedule) { s.Kind, s.Spec = core.SchedOnce, "2020-01-01T00:00:00Z" }, "in the past"},
 		{"once with active hours", func(s *core.Schedule) { s.Kind, s.Spec, s.ActiveHours = core.SchedOnce, future, "08:00-09:00" }, "active hours"},
 		{"tiny interval", func(s *core.Schedule) { s.Kind, s.Spec = core.SchedHeartbeat, "10s" }, "between 1m"},
-		{"foreign chat", func(s *core.Schedule) { s.Deliver = &core.ChatRef{Channel: "telegram", ChatID: "999"} }, "not one of your direct chats"},
+		{"foreign chat", func(s *core.Schedule) { s.Deliver = &core.ChatRef{Channel: "telegram", ChatID: "999"} }, "is not this principal's own chat"},
 		{"bad channel", func(s *core.Schedule) { s.Deliver = &core.ChatRef{Channel: "Tele gram"} }, "unknown channel"},
 		{"foreign session", func(s *core.Schedule) { s.Session = "ses_00000000000000000000000000" }, "not a session"},
 	} {
@@ -187,54 +187,76 @@ func TestUpsertValidation(t *testing.T) {
 func TestUpsertDeliverTargets(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	sp := &core.Space{Kind: "group", Chat: core.ChatRef{Channel: "telegram", ChatID: "-100", Kind: core.ChatGroup}, Owner: h.owner, Enabled: true, CreatedAt: time.Now()}
-	if err := h.store.Spaces().Create(ctx, sp, &core.Principal{Kind: core.PrincipalSpace, User: h.owner, ToolProfile: "restricted", CreatedAt: time.Now()}); err != nil {
+	sp := &core.Space{Kind: core.SpaceGroup, Chat: core.ChatRef{Channel: "telegram", ChatID: "-100", Kind: core.ChatGroup}, Enabled: true, CreatedAt: time.Now()}
+	if err := h.store.Spaces().Create(ctx, sp, &core.Principal{ToolProfile: "restricted", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	other := &core.Space{Kind: "group", Chat: core.ChatRef{Channel: "telegram", ChatID: "-200", Kind: core.ChatGroup}, Owner: h.owner, Enabled: true, CreatedAt: time.Now()}
-	if err := h.store.Spaces().Create(ctx, other, &core.Principal{Kind: core.PrincipalSpace, User: h.owner, ToolProfile: "restricted", CreatedAt: time.Now()}); err != nil {
+	other := &core.Space{Kind: core.SpaceGroup, Chat: core.ChatRef{Channel: "telegram", ChatID: "-200", Kind: core.ChatGroup}, Enabled: true, CreatedAt: time.Now()}
+	if err := h.store.Spaces().Create(ctx, other, &core.Principal{ToolProfile: "restricted", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	spaceHB := &core.Schedule{Principal: sp.Principal, Name: "hb", Kind: core.SchedHeartbeat, Spec: "30m", Enabled: true}
-	if err := h.svc.Upsert(ctx, core.SystemViewer(), spaceHB, "user:x"); !errors.Is(err, core.ErrInvalid) {
-		t.Fatalf("heartbeat for a space: %v", err)
+	for _, p := range []core.PrincipalID{sp.Principal, h.tp} {
+		hb := &core.Schedule{Principal: p, Name: "hb", Kind: core.SchedHeartbeat, Spec: "30m", Enabled: true}
+		if err := h.svc.Upsert(ctx, core.SystemViewer(), hb, "user:x"); !errors.Is(err, core.ErrInvalid) || !strings.Contains(err.Error(), "a check-in needs an account on the web") {
+			t.Fatalf("heartbeat for %s: %v", p, err)
+		}
 	}
 	for _, c := range []struct {
 		in, want *core.ChatRef
 	}{
 		{nil, nil},
 		{&core.ChatRef{Channel: "web", ChatID: "ignored"}, &core.ChatRef{Channel: "web"}},
-		{&core.ChatRef{Channel: "slack"}, &core.ChatRef{Channel: "slack"}},
-		{&core.ChatRef{Channel: "telegram", ChatID: "42"}, &h.dm},
 	} {
 		sc := h.upsert(&core.Schedule{Name: "d", Kind: core.SchedCron, Spec: "0 8 * * *", Prompt: "p", Deliver: c.in})
 		if (sc.Deliver == nil) != (c.want == nil) || (c.want != nil && *sc.Deliver != *c.want) {
 			t.Errorf("deliver %+v stored as %+v, want %+v", c.in, sc.Deliver, c.want)
 		}
 	}
-	// A user's schedule carries the user's private context: never into a group.
-	userToGroup := &core.Schedule{Principal: h.p, Name: "d", Kind: core.SchedCron, Spec: "0 8 * * *", Prompt: "p",
-		Deliver: &core.ChatRef{Channel: "telegram", ChatID: "-100"}}
-	if err := h.svc.Upsert(ctx, h.viewer(), userToGroup, "user:x"); !errors.Is(err, core.ErrInvalid) {
-		t.Fatalf("user schedule delivered to a group: %v", err)
+	// An account has no chat: its schedule carries its private context, so
+	// never into a chat app.
+	for _, d := range []*core.ChatRef{{Channel: "telegram", ChatID: "-100"}, {Channel: "telegram", ChatID: "42"}} {
+		userToChat := &core.Schedule{Principal: h.p, Name: "d", Kind: core.SchedCron, Spec: "0 8 * * *", Prompt: "p", Deliver: d}
+		if err := h.svc.Upsert(ctx, h.viewer(), userToChat, "user:x"); !errors.Is(err, core.ErrInvalid) {
+			t.Fatalf("account schedule delivered to %+v: %v", d, err)
+		}
 	}
-	// A space's schedule goes to its own chat or the owner's DM, not another space.
-	ownerV := core.Viewer{User: h.owner, Principals: []core.PrincipalID{h.p, sp.Principal, other.Principal}}
+	// A teammate's schedule goes to their own DM; never the web.
+	for _, c := range []struct {
+		in   *core.ChatRef
+		want *core.ChatRef
+		bad  string
+	}{
+		{in: &core.ChatRef{Channel: "telegram", ChatID: "42"}, want: &h.dm},
+		{in: &core.ChatRef{Channel: "telegram"}, want: &core.ChatRef{Channel: "telegram"}},
+		{in: &core.ChatRef{Channel: "web"}, bad: "web is only for accounts on the web"},
+		{in: &core.ChatRef{Channel: "telegram", ChatID: "-100"}, bad: "is not this principal's own chat"},
+	} {
+		sc := &core.Schedule{Principal: h.tp, Name: "t", Kind: core.SchedCron, Spec: "0 8 * * *", Prompt: "p", Deliver: c.in}
+		err := h.svc.Upsert(ctx, core.Viewer{Principals: []core.PrincipalID{h.tp}}, sc, "user:x")
+		switch {
+		case c.bad != "" && (!errors.Is(err, core.ErrInvalid) || !strings.Contains(err.Error(), c.bad)):
+			t.Errorf("teammate schedule to %+v: err = %v, want %q", c.in, err, c.bad)
+		case c.bad == "" && (err != nil || *sc.Deliver != *c.want):
+			t.Errorf("teammate schedule to %+v stored as %+v (%v), want %+v", c.in, sc.Deliver, err, c.want)
+		}
+	}
+	// A channel's schedule goes to its own chat, not another channel or a DM.
+	teamV := core.Viewer{Principals: []core.PrincipalID{sp.Principal, other.Principal}}
 	for _, c := range []struct {
 		in   *core.ChatRef
 		want *core.ChatRef
 	}{
 		{&core.ChatRef{Channel: "telegram", ChatID: "-100", ThreadID: "7"}, &core.ChatRef{Channel: "telegram", ChatID: "-100", ThreadID: "7", Kind: core.ChatGroup}},
-		{&core.ChatRef{Channel: "telegram", ChatID: "42"}, &h.dm},
+		{&core.ChatRef{Channel: "telegram", ChatID: "42"}, nil},
 		{&core.ChatRef{Channel: "telegram", ChatID: "-200"}, nil},
 	} {
 		sc := &core.Schedule{Principal: sp.Principal, Name: "s", Kind: core.SchedCron, Spec: "0 8 * * *", Prompt: "p", Deliver: c.in}
-		err := h.svc.Upsert(ctx, ownerV, sc, "user:x")
+		err := h.svc.Upsert(ctx, teamV, sc, "user:x")
 		switch {
 		case c.want == nil && !errors.Is(err, core.ErrInvalid):
-			t.Errorf("space schedule to %+v: err = %v, want ErrInvalid", c.in, err)
+			t.Errorf("channel schedule to %+v: err = %v, want ErrInvalid", c.in, err)
 		case c.want != nil && (err != nil || *sc.Deliver != *c.want):
-			t.Errorf("space schedule to %+v stored as %+v (%v), want %+v", c.in, sc.Deliver, err, c.want)
+			t.Errorf("channel schedule to %+v stored as %+v (%v), want %+v", c.in, sc.Deliver, err, c.want)
 		}
 	}
 }
@@ -314,29 +336,64 @@ func TestRunNowAndSessions(t *testing.T) {
 func TestDeliveryDefaults(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	prin, err := h.store.Principals().Get(ctx, core.SystemViewer(), h.p)
-	if err != nil {
-		t.Fatal(err)
+	prin := func(id core.PrincipalID) *core.Principal {
+		p, err := h.store.Principals().Get(ctx, core.SystemViewer(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
 	}
+	user, mate := prin(h.p), prin(h.tp)
 	for _, c := range []struct {
+		p       *core.Principal
 		deliver *core.ChatRef
 		want    string // chat key or "" for web only
 	}{
-		{nil, h.dm.Key()},
-		{&core.ChatRef{Channel: "web"}, ""},
-		{&core.ChatRef{Channel: "telegram"}, h.dm.Key()},
-		{&core.ChatRef{Channel: "discord"}, ""}, // no linked discord DM
+		{mate, nil, h.dm.Key()},
+		{mate, &core.ChatRef{Channel: "telegram"}, h.dm.Key()},
+		{mate, &core.ChatRef{Channel: "discord"}, ""}, // they aren't on discord
+		{user, nil, ""},
+		{user, &core.ChatRef{Channel: "web"}, ""},
+		{user, &core.ChatRef{Channel: "telegram"}, ""},
 	} {
-		sc := &core.Schedule{Principal: h.p, Kind: core.SchedCron, Deliver: c.deliver}
-		chat, ok := h.svc.deliveryChat(ctx, sc, prin)
+		sc := &core.Schedule{Principal: c.p.ID, Kind: core.SchedCron, Deliver: c.deliver}
+		chat, ok := h.svc.deliveryChat(ctx, sc, c.p)
 		if got := map[bool]string{true: chat.Key(), false: ""}[ok]; got != c.want {
-			t.Errorf("deliver %+v -> %q, want %q", c.deliver, got, c.want)
+			t.Errorf("%s deliver %+v -> %q, want %q", c.p.Kind, c.deliver, got, c.want)
 		}
 	}
-	h.hub.PreferredChats = nil
-	if _, ok := h.svc.deliveryChat(ctx, &core.Schedule{}, prin); ok {
-		t.Error("no preferred chat means web only")
+	h.hub.PrincipalChats = nil
+	if _, ok := h.svc.deliveryChat(ctx, &core.Schedule{}, mate); ok {
+		t.Error("a teammate the hub can't reach hears on no chat")
 	}
+}
+
+// A team schedule fires only while its teammate or channel may run: a skip,
+// never a failure, otherwise.
+func TestTeamScheduleSkippedWhenInactive(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t)
+		sleepUntil(utc(2026, 10, 12, 10, 0))
+		sc := h.teamUpsert(&core.Schedule{Name: "digest", Kind: core.SchedCron, Spec: "*/10 * * * *", TZ: "UTC", Prompt: "x", Enabled: true})
+		h.hub.TeamActiveErr = map[core.PrincipalID]error{h.tp: errors.New("no longer in the team")}
+		stop := h.start()
+		defer stop()
+		sleepUntil(utc(2026, 10, 12, 10, 25))
+		synctest.Wait()
+		if n := len(h.runner.all()); n != 0 {
+			t.Fatalf("an inactive teammate's schedule fired %d runs", n)
+		}
+		if got := h.get(sc.ID); got.Failures != 0 || !got.Enabled {
+			t.Fatalf("skips counted as failures: %+v", got)
+		}
+		h.hub.SetTeamActiveErr(nil)
+		sleepUntil(utc(2026, 10, 12, 10, 31))
+		synctest.Wait()
+		fs := h.runner.all()
+		if len(fs) != 1 || fs[0].req.User != "" || fs[0].req.Principal != h.tp || fs[0].req.Sink == nil {
+			t.Fatalf("runs once active again = %+v, want one for the teammate, billed to no account, delivered", fs)
+		}
+	})
 }
 
 func TestPreviewAndDescribe(t *testing.T) {

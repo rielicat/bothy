@@ -381,9 +381,6 @@ func TestSelfTestOpenDMDeleteTyping(t *testing.T) {
 	if _, err := f.a.OpenDM(ctx, "not-a-snowflake"); !errors.Is(err, core.ErrInvalid) {
 		t.Fatalf("OpenDM(bad id) = %v, want ErrInvalid", err)
 	}
-	if f.a.DeepLink("CODE") != "" {
-		t.Fatal("DeepLink should be unsupported")
-	}
 }
 
 func TestEgressDestinations(t *testing.T) {

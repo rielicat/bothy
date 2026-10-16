@@ -7,10 +7,11 @@ cannot create cron (owner: M8). `Run` is one goroutine sleeping on a single
 timer until the earliest `next_run_at` (`ScheduleRepo.NextDue`); it fires each
 due schedule through `Runner.Submit` with a fresh session per run (titled
 "<name> · <local date>") unless the schedule targets a session, delivers via
-`Hub.StreamTo(deliver or PreferredChat, "final")`, records a `skipped` run when
+`Hub.StreamTo(deliver or PrincipalChat, "final")` (a teammate's DM, a
+channel's chat; an account's schedule stays on the web), records a `skipped` run when
 the target session's queue is full, and folds `run.finished` events back into
 the row: a success resets the failure count and the third consecutive failure
-disables the schedule, audits it and tells the owner in their preferred DM.
+disables the schedule, audits it and tells a teammate's or channel's chat.
 Cron specs (5 fields, parsed by gronx) are matched in wall-clock space and
 mapped back to instants with ISC cron's DST rules: a fixed-time job whose time
 is skipped by spring-forward runs once when the clocks change and never runs
@@ -32,13 +33,15 @@ active hours, limits, a target session of the same principal), ignores caller
 values for run state, computes `next_run_at` and audits
 `schedule.create`/`update`/`delete`; `RunNow` audits `schedule.run` with the
 user who pressed it, since the run itself is the owner's. A
-`schedule_create` card without a set chat names the owner and the chat app
-their results reach today (`owner`, `usual_chat`), and the tool's result
-tells the model where runs post. Delivery is confined to the principal's
-own chats: a linked DM of its user or, for a space, that space's chat; a user
-schedule never posts into a group. The target is checked again at every fire,
-so a chat that was unlinked or re-linked to another account falls back to web
-only. Ticks of a disabled user or a space that is not enabled start nothing;
+`schedule_create` card without a set chat names the owner and where results
+go (`owner`, `owner_kind`, `usual_chat`), and the tool's result tells the
+model where runs post. Delivery is confined to the principal's own chats: a
+teammate's DM or a channel's own chat; `deliver: web` is for accounts only.
+The target is checked again at every fire, so a chat no longer that
+teammate's falls back to web only. Ticks of a disabled user start nothing; a
+team schedule asks `Hub.TeamActive` first, and a blocked teammate, one no
+longer in the team, a membership verdict too old to renew or a channel
+turned off skip the tick without counting a failure;
 run limits a schedule leaves at zero come from `budgets.scheduled`. If a fired
 tick's row update fails, the loop retries the write rather than firing the
 tick again, and owner notices are sent after the scheduler lock is released.

@@ -14,6 +14,7 @@ import (
 const (
 	apiDenied      = "Requires approval, unavailable via API."
 	approvalExpiry = "Nobody answered the approval in time, so this action did not run."
+	tooManyWaiting = "Bothy is still waiting on earlier requests from this chat."
 	maxDenyReason  = 300 // runes of an approver's reason the model reads
 )
 
@@ -29,11 +30,14 @@ func (r *Runner) ask(rs *runState, pc *pcall, rest []core.ToolCall) *runEnd {
 	}
 	appr, err := r.d.Approvals.Request(ctx, core.ApprovalRequest{
 		Run: rs.id, Session: rs.req.Session, Principal: rs.req.Principal, ToolCallID: pc.rec.ID,
-		Action: pc.action, Spec: pc.spec, Decision: pc.dec, Chat: rs.req.Chat, Context: r.cardContext(rs),
+		Action: pc.action, Spec: pc.spec, Decision: pc.dec, Chat: rs.req.Chat, Context: r.cardContext(rs), Sender: rs.req.Sender,
 	})
 	if err != nil {
 		if ctx.Err() != nil {
 			return r.ctxEnd(rs)
+		}
+		if errors.Is(err, core.ErrBusy) {
+			return r.finishCall(rs, pc, textResult(core.TCDenied, tooManyWaiting), false)
 		}
 		return r.finishCall(rs, pc, textResult(core.TCError, "Could not request approval: "+r.redact(err.Error())), false)
 	}
@@ -88,7 +92,11 @@ func (r *Runner) ask(rs *runState, pc *pcall, rest []core.ToolCall) *runEnd {
 		}
 		return r.finishCall(rs, pc, textResult(core.TCDenied, r.denialText(ctx, rs, decided)), false)
 	case err == nil:
-		r.grantFor(ctx, rs, pc, choice)
+		decided, gerr := r.d.Approvals.Get(ctx, core.SystemViewer(), appr.ID)
+		if gerr != nil {
+			decided = appr
+		}
+		r.grantFor(ctx, rs, pc, choice, decided)
 		pc.rec.Status = core.TCApproved
 		r.updateRec(ctx, pc.rec)
 		return r.finishCall(rs, pc, r.execute(rs, pc), false)
@@ -107,11 +115,21 @@ func allows(c core.Choice) bool {
 // the wrong person nor asks again for what they already said. The reason is
 // typed by a person who may not be the run's user, so it stays a quotation.
 func (r *Runner) denialText(ctx context.Context, rs *runState, a *core.Approval) string {
-	if a == nil || a.Status != core.ApprovalDenied || a.DecidedBy == "" {
+	if a == nil || a.Status != core.ApprovalDenied || (a.DecidedBy == "" && a.DecidedByIdentity == "") {
 		return "This action was denied."
 	}
 	who := "The user"
-	if a.DecidedBy != rs.req.User {
+	switch {
+	case a.DecidedByIdentity != "" && a.DecidedByIdentity == a.Approver.RequesterIdentity:
+	case a.DecidedByIdentity != "":
+		who = "An approver"
+		app, ext, _ := strings.Cut(a.DecidedByIdentity, ":")
+		if id, err := r.d.Store.Identities().Get(ctx, app, ext); err == nil {
+			if name := quoteReason(cmpOr(id.DisplayName, id.Username), 64); name != "" {
+				who = "An approver, " + name + ","
+			}
+		}
+	case a.DecidedBy != rs.req.User:
 		who = "An approver"
 		// Anyone can set their own display name, so it is quoted like the
 		// reason rather than read as Bothy's own words.
@@ -122,9 +140,11 @@ func (r *Runner) denialText(ctx context.Context, rs *runState, a *core.Approval)
 		}
 	}
 	text := who + " denied this action."
-	// The requester of a multi-approver approval can never approve it, so
-	// their deny is a withdrawal.
-	if a.Approver.Multi() && a.DecidedBy == a.Approver.Requester {
+	// The requester of a multi-approver approval can never approve it, and
+	// the person whose chat asked may always cancel, so their deny is a
+	// withdrawal.
+	if a.Approver.Multi() && a.DecidedBy != "" && a.DecidedBy == a.Approver.Requester ||
+		a.DecidedByIdentity != "" && a.DecidedByIdentity == a.Approver.RequesterIdentity {
 		text = who + " cancelled the request before it was approved."
 	}
 	if c := quoteReason(a.Comment, maxDenyReason); c != "" {
@@ -135,8 +155,9 @@ func (r *Runner) denialText(ctx context.Context, rs *runState, a *core.Approval)
 
 // grantFor creates the narrow grant an allow_session or allow_always choice
 // stands for. A choice the decision did not offer counts as allow_once, so a
-// decision that lists no choices never yields a grant.
-func (r *Runner) grantFor(ctx context.Context, rs *runState, pc *pcall, choice core.Choice) {
+// decision that lists no choices never yields a grant. An account's grant
+// is its own; a channel's or teammate's is created by whoever approved it.
+func (r *Runner) grantFor(ctx context.Context, rs *runState, pc *pcall, choice core.Choice, decided *core.Approval) {
 	if choice != core.AllowSession && choice != core.AllowAlways {
 		return
 	}
@@ -148,7 +169,11 @@ func (r *Runner) grantFor(ctx context.Context, rs *runState, pc *pcall, choice c
 	if choice == core.AllowAlways {
 		scope, scopeID = core.GrantPrincipal, ""
 	}
-	g, ok := r.d.Policy.NarrowGrant(pc.action, rs.req.Principal, scope, scopeID, rs.req.User)
+	by := core.Decider{User: rs.req.User}
+	if rs.principal != nil && rs.principal.TeamOwned() && decided != nil {
+		by = core.Decider{User: decided.DecidedBy, Identity: decided.DecidedByIdentity}
+	}
+	g, ok := r.d.Policy.NarrowGrant(pc.action, rs.req.Principal, scope, scopeID, by)
 	if !ok {
 		return
 	}
@@ -157,7 +182,11 @@ func (r *Runner) grantFor(ctx context.Context, rs *runState, pc *pcall, choice c
 		r.log.Error("create grant", "run", rs.id, "err", err)
 		return
 	}
-	r.auditf(ctx, "user:"+string(rs.req.User), "grant.create", string(id), "ok", rs.req.Session, rs.id,
+	actor := "user:" + string(by.User)
+	if by.Identity != "" {
+		actor = "channel:" + by.Identity
+	}
+	r.auditf(ctx, actor, "grant.create", string(id), "ok", rs.req.Session, rs.id,
 		map[string]any{"via": "card", "grant": id, "scope": scope, "kind": g.Kind, "tool": g.Tool})
 }
 
@@ -433,7 +462,7 @@ func (r *Runner) resumeTarget(ctx context.Context, run *core.Run) core.RunSink {
 				return h.StreamTo(*sc.Deliver, "final")
 			}
 		}
-		if chat, ok := h.PreferredChat(ctx, run.User); ok {
+		if chat, ok := h.PrincipalChat(ctx, run.Principal); ok {
 			return h.StreamTo(chat, "final")
 		}
 		return nil
@@ -498,7 +527,7 @@ func (r *Runner) startResume(rs *runState, j *resumeJob) *runEnd {
 	if l.MaxCost > 0 {
 		l.MaxCost = max(l.MaxCost-run.Cost, 1)
 	}
-	meter := r.d.Budget.StartRun(rs.id, run.User, l)
+	meter := r.d.Budget.StartRun(rs.id, rs.req.Principal, l)
 	rs.mu.Lock()
 	rs.meter = meter
 	rs.run.Status = core.RunRunning
@@ -574,7 +603,7 @@ func (r *Runner) executeApproved(rs *runState, a *core.Approval) *runEnd {
 	}
 	pc.tool, pc.spec = t, t.Spec()
 	r.workspaceOnce(rs)
-	r.grantFor(ctx, rs, pc, a.Choice)
+	r.grantFor(ctx, rs, pc, a.Choice, a)
 	pc.rec.Status = core.TCApproved
 	r.updateRec(ctx, pc.rec)
 	r.publishToolCall(rs, pc)

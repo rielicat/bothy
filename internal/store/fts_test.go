@@ -26,7 +26,7 @@ func searchKeys(t *testing.T, s core.Store, v core.Viewer, q string) map[string]
 func TestSearchFindsAndScopes(t *testing.T) {
 	w := newWorld(t)
 	alice, bob := w.user(core.RoleMember), w.user(core.RoleAdmin)
-	sp := w.space(alice)
+	sp := w.space()
 	mine := w.session(core.UserPrincipal(alice.ID))
 	group := w.session(sp.Principal)
 	hidden := w.session(core.UserPrincipal(alice.ID), func(s *core.Session) { s.Origin, s.Hidden = "api", true })

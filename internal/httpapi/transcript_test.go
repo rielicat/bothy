@@ -99,7 +99,7 @@ func (f *transcriptFixture) approval(path string, toolCallID ...string) *core.Ap
 
 func (f *transcriptFixture) decide(a *core.Approval, to core.ApprovalStatus, c core.Choice, by core.UserID) {
 	f.h.t.Helper()
-	if ok, err := f.h.store.Approvals().Decide(f.ctx, a.ID, []core.ApprovalStatus{core.ApprovalPending}, to, c, by, "slack", time.Now()); err != nil || !ok {
+	if ok, err := f.h.store.Approvals().Decide(f.ctx, a.ID, []core.ApprovalStatus{core.ApprovalPending}, to, c, core.Decider{User: by}, "slack", time.Now()); err != nil || !ok {
 		f.h.t.Fatalf("decide %s: %v %v", a.ID, ok, err)
 	}
 }

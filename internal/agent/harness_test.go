@@ -335,6 +335,7 @@ type testTool struct {
 	fs     bool // a workspace file tool (Manifest.FSPaths)
 	// planErr stands in for the registry's schema check (ErrInvalid).
 	planErr error
+	planURL string // the Action's URL, as a web read sets it
 	run     func(ctx context.Context, env *core.ToolEnv, a *core.Action) (*core.ToolResult, error)
 	calls   atomic.Int32
 }
@@ -363,7 +364,7 @@ func (t *testTool) Plan(_ context.Context, _ *core.ToolEnv, args json.RawMessage
 	if t.planErr != nil {
 		return nil, t.planErr
 	}
-	return &core.Action{Tool: t.name, Kind: core.ActGeneric, SideEffect: t.Spec().Manifest.SideEffect, Payload: args}, nil
+	return &core.Action{Tool: t.name, Kind: core.ActGeneric, SideEffect: t.Spec().Manifest.SideEffect, Payload: args, URL: t.planURL}, nil
 }
 
 func (t *testTool) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action) (*core.ToolResult, error) {

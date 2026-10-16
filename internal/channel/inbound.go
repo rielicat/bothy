@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -73,8 +74,9 @@ type target struct {
 }
 
 // handleMessage runs the SPEC §5.1 pipeline up to the command fast path.
-// Anything that can be slow (attachments, Submit, platform sends) leaves the
-// dispatcher, so /stop is never stuck behind a busy chat.
+// Anything that can be slow (membership lookups, attachments, Submit,
+// platform sends) leaves the dispatcher, so /stop is never stuck behind a
+// busy chat.
 func (h *Hub) handleMessage(ctx context.Context, a *adapter, in core.Inbound) {
 	if in.MsgID == "" || in.SenderID == "" || in.SenderIsBot {
 		return
@@ -89,7 +91,7 @@ func (h *Hub) handleMessage(ctx context.Context, a *adapter, in core.Inbound) {
 	if seen {
 		return
 	}
-	ident, err := h.touchIdentity(ctx, a.name, in, now)
+	ident, err := h.touchIdentity(ctx, a, in, now)
 	if err != nil {
 		h.log.Error("channel identity update failed; message dropped", "channel", a.name, "err", err)
 		return
@@ -102,32 +104,117 @@ func (h *Hub) handleMessage(ctx context.Context, a *adapter, in core.Inbound) {
 	if res.Status == core.IdentityBlocked {
 		return
 	}
-	if in.Chat.Kind == core.ChatGroup && !in.Private && h.burnExposedCode(ctx, a, in, ident) {
-		return
-	}
-	known := res.Status == core.IdentityLinked || res.Status == core.IdentityGuest
-	if !known && in.Chat.Kind == core.ChatDM {
-		// Unknown senders are limited too, silently: otherwise every wrong
-		// pairing code would make the bot answer, without bound.
-		if ok, _ := h.d.Budget.AllowSender(a.name + ":" + in.SenderID); !ok {
+	if in.Chat.Kind == core.ChatDM {
+		// The limiter runs before any lookup: one account must not turn
+		// into a stream of platform calls.
+		if ok, retry := h.allowSender(a, in); !ok {
+			if res.Admitted() {
+				h.slowDown(in.Chat, a.name+":"+in.SenderID, retry)
+			}
 			return
 		}
-		h.unknownDM(ctx, a, in, ident)
+		h.dm(ctx, a, in, ident, res)
 		return
 	}
-	if in.Chat.Kind == core.ChatGroup && in.Private && h.privateInGroup(ctx, a, in, ident, known) {
+	h.group(ctx, a, in, ident, res)
+}
+
+func (h *Hub) allowSender(a *adapter, in core.Inbound) (bool, time.Duration) {
+	return h.d.Budget.AllowSender(a.name + ":" + in.SenderID)
+}
+
+// touchIdentity records the sender and, for a DM, remembers its chat. A
+// sender first seen on a chat app that can't say who is in the team starts
+// with the verdict "unknown": only an admin can let them in.
+func (h *Hub) touchIdentity(ctx context.Context, a *adapter, in core.Inbound, now time.Time) (core.ChannelIdentity, error) {
+	t := &core.ChannelIdentity{Channel: a.name, ExternalID: in.SenderID, Username: in.SenderUsername, DisplayName: in.SenderName,
+		LastSeen: now, FirstSeen: now}
+	if _, ok := checkerOf(a); !ok {
+		t.Member = core.MemberUnknown
+	}
+	row, err := h.d.Store.Identities().Touch(ctx, t)
+	if err != nil {
+		return core.ChannelIdentity{}, err
+	}
+	if in.Chat.Kind != core.ChatDM {
+		return *row, nil
+	}
+	return h.rememberDM(ctx, *row, in.Chat.ChatID)
+}
+
+// rememberDM records chatID as the identity's DM chat, which PrincipalChat
+// and card routing use to reach the person later.
+func (h *Hub) rememberDM(ctx context.Context, row core.ChannelIdentity, chatID string) (core.ChannelIdentity, error) {
+	if row.DMChat == chatID {
+		return row, nil
+	}
+	ids := h.d.Store.Identities()
+	cur, err := ids.Get(ctx, row.Channel, row.ExternalID)
+	if err != nil {
+		return core.ChannelIdentity{}, err
+	}
+	cur.DMChat = chatID
+	if err := ids.Update(ctx, cur); err != nil {
+		return core.ChannelIdentity{}, err
+	}
+	return *cur, nil
+}
+
+const (
+	offHere = "Bothy is off in this channel. Write to me here, or ask an admin to turn the channel on in Approvals."
+	// offEvery bounds offHere per sender and channel: a slash command can be
+	// repeated in a channel Bothy ignores as fast as anyone types it.
+	offEvery = time.Hour
+
+	waitingLine  = "You'll be able to use Bothy once an admin lets you in."
+	cantCheck    = "Bothy can't check your access right now. Try again in a few minutes."
+	inspectEvery = 24 * time.Hour
+)
+
+// dm answers a direct message: teammates the chat app vouches for (or an
+// admin let in) get Bothy; people outside the team get one line a day;
+// everyone else waits for an admin.
+func (h *Hub) dm(ctx context.Context, a *adapter, in core.Inbound, ident core.ChannelIdentity, res core.IdentityResolution) {
+	h.check(ctx, a, ident, res, h.teamsOf(ctx, a), func(ctx context.Context, res core.IdentityResolution) {
+		switch {
+		case res.Admitted():
+			h.teammateDM(ctx, a, in, ident, res)
+		case res.Status == core.IdentityTeammate && !res.SpaceOn:
+			// Blocking turns the space off with the status; a teammate whose
+			// space is off anyway gets nothing.
+		case res.Member == core.MemberOutsider:
+			h.outsiderLine(ctx, a, in, ident)
+		default:
+			h.waiting(ctx, a, in, ident, res)
+		}
+	}, func(context.Context) { h.lookupFailed(a, in) })
+}
+
+func (h *Hub) teammateDM(ctx context.Context, a *adapter, in core.Inbound, ident core.ChannelIdentity, res core.IdentityResolution) {
+	sp, err := h.d.Store.Spaces().Get(ctx, core.SystemViewer(), res.Principal)
+	if err != nil {
+		h.log.Error("channel space lookup failed", "channel", a.name, "err", err)
 		return
 	}
-	tg, ok := h.gate(ctx, a, in, res)
-	if !ok {
+	p, err := h.d.Store.Principals().Get(ctx, core.SystemViewer(), res.Principal)
+	if err != nil {
+		h.log.Error("channel principal lookup failed", "channel", a.name, "principal", res.Principal, "err", err)
 		return
 	}
-	// The limiter runs after gating so the bot never answers in a group it
-	// must stay silent in, and unaddressed group chatter costs nothing.
-	if ok, retry := h.d.Budget.AllowSender(a.name + ":" + in.SenderID); !ok {
-		h.slowDown(in.Chat, a.name+":"+in.SenderID, retry)
-		return
+	if ident.Greet != "" {
+		chat := in.Chat
+		h.enqueueChat(chat.Key(), func(ctx context.Context) { _ = h.greetIn(ctx, chat, a.name, in.SenderID) })
 	}
+	tg := target{principal: p, space: sp, prov: core.ProvUser}
+	// Forwarded text was written by someone else, whoever relayed it.
+	if in.Forwarded {
+		tg.prov = core.ProvUntrusted
+	}
+	h.route(ctx, a, in, res, tg)
+}
+
+// route runs a command or hands the message to the runner.
+func (h *Hub) route(ctx context.Context, a *adapter, in core.Inbound, res core.IdentityResolution, tg target) {
 	cmd, args, isCmd := parseCommand(in.Text)
 	isCmd = isCmd && !in.Forwarded
 	if isCmd && commands[cmd].urgent {
@@ -147,104 +234,173 @@ func (h *Hub) handleMessage(ctx context.Context, a *adapter, in core.Inbound) {
 	})
 }
 
-// touchIdentity records the sender and, for a DM, remembers its chat.
-func (h *Hub) touchIdentity(ctx context.Context, channel string, in core.Inbound, now time.Time) (core.ChannelIdentity, error) {
-	row, err := h.d.Store.Identities().Touch(ctx, &core.ChannelIdentity{Channel: channel, ExternalID: in.SenderID,
-		Username: in.SenderUsername, DisplayName: in.SenderName, LastSeen: now})
+// outsiderLine tells someone outside the team, at most once a day, who
+// Bothy works with. Nobody is notified and no model runs; it is sent
+// whatever channels.unknown_senders says, since they can't be let in.
+func (h *Hub) outsiderLine(ctx context.Context, a *adapter, in core.Inbound, ident core.ChannelIdentity) {
+	ok, err := h.d.Auth.NoticeSender(ctx, ident)
 	if err != nil {
-		return core.ChannelIdentity{}, err
+		h.log.Error("channel sender notice failed", "channel", a.name, "err", err)
+		return
 	}
-	if in.Chat.Kind != core.ChatDM {
-		return *row, nil
+	if !ok {
+		return
 	}
-	return h.rememberDM(ctx, *row, in.Chat.ChatID)
+	text := "Bothy works only with members of its team."
+	if a.name == "slack" {
+		text = "Bothy works with members of " + escapeMD(cmp.Or(a.ch.Status().Team, "this workspace")) + "."
+	}
+	h.replyAsync(in.Chat, text)
 }
 
-// rememberDM records chatID as the identity's DM chat, which PreferredChat
-// and card routing use to reach the user later.
-func (h *Hub) rememberDM(ctx context.Context, row core.ChannelIdentity, chatID string) (core.ChannelIdentity, error) {
-	if row.DMChat == chatID {
-		return row, nil
-	}
-	ids := h.d.Store.Identities()
-	cur, err := ids.Get(ctx, row.Channel, row.ExternalID)
-	if err != nil {
-		return core.ChannelIdentity{}, err
-	}
-	cur.DMChat = chatID
-	if err := ids.Update(ctx, cur); err != nil {
-		return core.ChannelIdentity{}, err
-	}
-	return *cur, nil
-}
-
-const (
-	codeShared = "That code was shared in a group, so it no longer works. Create a new one in Bothy and send it to me in a direct message."
-	offHere    = "Bothy is off in this channel. Write to me here, or ask an admin to turn the channel on in Approvals."
-	// offEvery bounds offHere per sender and channel: a slash command can be
-	// repeated in a channel Bothy ignores as fast as anyone types it.
-	offEvery = time.Hour
-)
-
-// burnExposedCode cancels a live link code posted where the whole group can
-// read it, whoever posted it and whatever Bothy does in that group: anyone
-// there could redeem it first. It reports whether it did; anything else (no
-// code, a dead one, the attempt limit) goes on as before.
-func (h *Hub) burnExposedCode(ctx context.Context, a *adapter, in core.Inbound, ident core.ChannelIdentity) bool {
-	cmd, code, ok := parseCommand(in.Text)
-	if !ok || in.Forwarded || (cmd != "pair" && cmd != "start") || code == "" {
-		return false
-	}
-	if err := h.d.Auth.BurnPairing(ctx, ident, code); err != nil {
-		if !errors.Is(err, core.ErrNotFound) {
-			h.log.Info("channel: checking a code posted in a group failed", "channel", a.name, "err", err)
+// waiting handles someone only an admin can let in: listed in the admins'
+// inbox, told once a day, and announced to approvers.
+func (h *Hub) waiting(ctx context.Context, a *adapter, in core.Inbound, ident core.ChannelIdentity, res core.IdentityResolution) {
+	if res.Member == core.MemberUnchecked {
+		if _, err := h.d.Auth.Admit(ctx, ident, core.Membership{Status: core.MemberUnknown}); err != nil {
+			h.log.Warn("channel: recording an unknown verdict failed", "channel", a.name, "err", err)
 		}
-		return false
 	}
-	// A security notice, so it is sent even in a group Bothy ignores.
-	if ok, _ := h.d.Budget.AllowSender(a.name + ":" + in.SenderID); ok {
-		h.replyAsync(in.Chat, codeShared)
+	h.keepFirstText(ctx, a.name, ident, in)
+	h.inboxChanged("sender:" + a.name + ":" + in.SenderID)
+	if h.cfg().Channels.UnknownSenders == "ignore" {
+		return
 	}
-	return true
+	ok, err := h.d.Auth.NoticeSender(ctx, ident)
+	if err != nil {
+		h.log.Error("channel sender notice failed", "channel", a.name, "err", err)
+		return
+	}
+	if !ok {
+		return
+	}
+	h.replyAsync(in.Chat, waitingLine)
+	h.notifyWaiting(ctx, a.name, ident)
 }
 
-// privateInGroup handles a message only its sender saw (a Slack slash
-// command) in a group. Such a message never creates a space: slash commands
-// work in channels the bot is not in. In a group without an enabled space,
-// an unknown sender is handled exactly as in a DM and a known one is told
-// the group is off, both in their DM. In an enabled space only an unknown
-// sender's pairing code goes to their DM; everything else reports false and
-// takes the normal path, where anyone may talk as untrusted (step 7).
-func (h *Hub) privateInGroup(ctx context.Context, a *adapter, in core.Inbound, ident core.ChannelIdentity, known bool) bool {
-	key := a.name + ":" + in.SenderID
+// lookupFailed answers a DM whose sender Bothy couldn't check, at most once
+// an hour per sender.
+func (h *Hub) lookupFailed(a *adapter, in core.Inbound) {
+	if h.noteOnce("lookup:"+a.name+":"+in.SenderID, lookupFailedEvery) {
+		h.replyAsync(in.Chat, cantCheck)
+	}
+}
+
+// group handles a message in a group chat. A chat app that knows who is in
+// the team (Slack, Discord) answers teammates only; in a Telegram group
+// anyone who isn't blocked may talk, as untrusted.
+func (h *Hub) group(ctx context.Context, a *adapter, in core.Inbound, ident core.ChannelIdentity, res core.IdentityResolution) {
 	sp, err := h.groupSpace(ctx, a, in)
-	if err != nil && !errors.Is(err, core.ErrNotFound) {
-		h.log.Error("channel space lookup failed", "channel", a.name, "err", err)
-		return true
-	}
-	enabled := err == nil && sp.Enabled
-	if !known {
-		cmd, code, isCmd := parseCommand(in.Text)
-		if enabled && (!isCmd || (cmd != "pair" && cmd != "start") || code == "") {
-			return false
+	if errors.Is(err, core.ErrNotFound) {
+		// A private message may come from a channel the bot is not in, and
+		// never records one.
+		if in.Private {
+			h.privateOff(ctx, a, in, ident, res)
+			return
 		}
-		if ok, _ := h.d.Budget.AllowSender(key); ok {
+		// Anyone can add the bot to groups; the limiter bounds how fast one
+		// account can create spaces and notices. A skipped sighting is
+		// retried with the group's next message.
+		if ok, _ := h.allowSender(a, in); ok {
+			h.firstSighting(ctx, a, in)
+		}
+		return
+	}
+	if err != nil {
+		h.log.Error("channel space lookup failed", "channel", a.name, "err", err)
+		return
+	}
+	if in.Private && !sp.Enabled {
+		h.privateOff(ctx, a, in, ident, res)
+		return
+	}
+	// Chatter Bothy must stay silent in costs nothing, not even the limiter.
+	if !sp.Enabled || (sp.MentionOnly && !in.Mentioned) {
+		return
+	}
+	if ok, _ := h.allowSender(a, in); !ok {
+		return
+	}
+	h.refreshChat(a, sp)
+	if _, ok := checkerOf(a); !ok {
+		h.channelMessage(ctx, a, in, res, sp)
+		return
+	}
+	teams := h.teamsOf(ctx, a)
+	if sp.Team != "" && !slices.Contains(teams, sp.Team) {
+		teams = append([]string{sp.Team}, teams...)
+	}
+	h.check(ctx, a, ident, res, teams, func(ctx context.Context, res core.IdentityResolution) {
+		// Guests, other companies, bots and Slackbot: silence in channels.
+		if res.Admitted() {
+			h.channelMessage(ctx, a, in, res, sp)
+		}
+	}, func(context.Context) {})
+}
+
+func (h *Hub) channelMessage(ctx context.Context, a *adapter, in core.Inbound, res core.IdentityResolution, sp *core.Space) {
+	p, err := h.d.Store.Principals().Get(ctx, core.SystemViewer(), sp.Principal)
+	if err != nil {
+		h.log.Error("channel principal lookup failed", "channel", a.name, "principal", sp.Principal, "err", err)
+		return
+	}
+	h.route(ctx, a, in, res, target{principal: p, space: sp, prov: core.ProvUntrusted})
+}
+
+// refreshChat asks the platform again, at most once a day, how many people
+// are in a group and whether it is shared with other companies.
+func (h *Hub) refreshChat(a *adapter, sp *core.Space) {
+	insp, ok := a.ch.(core.ChatInspector)
+	if !ok || !h.noteOnce("inspect:"+sp.Chat.Key(), inspectEvery) {
+		return
+	}
+	h.enqueueChat(a.name+":inspect:"+sp.Chat.ChatID, func(ctx context.Context) {
+		release, ok := h.acquireLookup(a.name)
+		if !ok {
+			return
+		}
+		lctx, cancel := context.WithTimeout(ctx, recheckWait)
+		info, err := insp.InspectChat(lctx, sp.Chat)
+		cancel()
+		release()
+		if err != nil {
+			h.log.Info("channel: describing a group failed", "channel", a.name, "err", err)
+			return
+		}
+		h.applyChatInfo(ctx, a, sp.Principal, info, true)
+	})
+}
+
+// privateOff answers a message only its sender saw (a Slack slash command)
+// in a channel where Bothy is off or that it isn't in, in their DM: a
+// teammate is told the channel is off, anyone else gets what a DM would.
+func (h *Hub) privateOff(ctx context.Context, a *adapter, in core.Inbound, ident core.ChannelIdentity, res core.IdentityResolution) {
+	key := a.name + ":" + in.SenderID
+	if ok, _ := h.allowSender(a, in); !ok {
+		return
+	}
+	h.check(ctx, a, ident, res, h.teamsOf(ctx, a), func(ctx context.Context, res core.IdentityResolution) {
+		switch {
+		case res.Admitted():
+			if !h.noteOnce(key+":"+in.Chat.ChatID, offEvery) {
+				return
+			}
+			h.inSenderDM(a, in, ident, func(ctx context.Context, in core.Inbound, _ core.ChannelIdentity) {
+				h.reply(ctx, in.Chat, offHere)
+			})
+		case res.Status == core.IdentityTeammate && !res.SpaceOn:
+		case res.Member == core.MemberOutsider:
 			h.inSenderDM(a, in, ident, func(ctx context.Context, in core.Inbound, ident core.ChannelIdentity) {
-				h.unknownDM(ctx, a, in, ident)
+				h.outsiderLine(ctx, a, in, ident)
+			})
+		default:
+			h.inSenderDM(a, in, ident, func(ctx context.Context, in core.Inbound, ident core.ChannelIdentity) {
+				h.waiting(ctx, a, in, ident, res)
 			})
 		}
-		return true
-	}
-	if enabled {
-		return false
-	}
-	if ok, _ := h.d.Budget.AllowSender(key); !ok || !h.noteOnce(key+":"+in.Chat.ChatID, offEvery) {
-		return true
-	}
-	h.inSenderDM(a, in, ident, func(ctx context.Context, in core.Inbound, _ core.ChannelIdentity) {
-		h.reply(ctx, in.Chat, offHere)
+	}, func(context.Context) {
+		h.inSenderDM(a, in, ident, func(_ context.Context, in core.Inbound, _ core.ChannelIdentity) { h.lookupFailed(a, in) })
 	})
-	return true
 }
 
 // inSenderDM opens the sender's DM, remembers it as the identity's DM chat
@@ -277,41 +433,6 @@ func (h *Hub) noteOnce(key string, every time.Duration) bool {
 	}
 	h.noted[key] = now.Add(every)
 	return true
-}
-
-// unknownDM handles a DM from a sender with no link: pairing codes are
-// redeemed, everyone else gets at most one notice a day. Nothing here ever
-// reaches the runner, so no model call is made for an unknown sender.
-func (h *Hub) unknownDM(ctx context.Context, a *adapter, in core.Inbound, ident core.ChannelIdentity) {
-	if cmd, code, ok := parseCommand(in.Text); ok && !in.Forwarded && (cmd == "pair" || cmd == "start") && code != "" {
-		linked, err := h.d.Auth.RedeemPairing(ctx, ident, code)
-		if err != nil {
-			h.log.Info("channel pairing failed", "channel", a.name, "err", err)
-			h.replyAsync(in.Chat, "That code didn't work. It may have expired, so create a new one in Bothy under Settings → Account.")
-			return
-		}
-		name := h.userName(ctx, linked.User)
-		h.enqueueChat(in.Chat.Key(), func(ctx context.Context) {
-			h.reply(ctx, in.Chat, "Linked to "+escapeMD(name)+".")
-			h.reply(ctx, in.Chat, helloText)
-		})
-		return
-	}
-	if h.cfg().Channels.UnknownSenders == "ignore" {
-		return
-	}
-	notice, err := h.d.Auth.SenderNotice(ctx, ident)
-	if err != nil {
-		h.log.Error("channel sender notice failed", "channel", a.name, "err", err)
-		return
-	}
-	h.keepFirstText(ctx, a.name, ident, in)
-	if !notice.Reply {
-		return
-	}
-	h.replyAsync(in.Chat, "Bothy only works with people on this team. Ask an admin to approve code "+escapeMD(notice.Code.Code)+".")
-	h.notifyUnknownSender(ctx, a.name, ident)
-	h.inboxChanged("sender:"+a.name+":"+in.SenderID, "")
 }
 
 const maxFirstText = 120
@@ -347,25 +468,16 @@ func (h *Hub) keepFirstText(ctx context.Context, channel string, ident core.Chan
 	}
 }
 
-// inboxChanged tells admins' inboxes, and owner's when set, that an item
-// appeared.
-func (h *Hub) inboxChanged(item string, owner core.UserID) {
-	ps := []core.PrincipalID{""}
-	if owner != "" {
-		ps = append(ps, core.UserPrincipal(owner))
-	}
-	for _, p := range ps {
-		h.d.Bus.Publish(core.Event{Type: core.EvInboxChanged, Principal: p, Data: core.InboxChangedData{Item: item}})
-	}
+// inboxChanged tells admins' inboxes that an item appeared or changed.
+func (h *Hub) inboxChanged(item string) {
+	h.d.Bus.Publish(core.Event{Type: core.EvInboxChanged, Data: core.InboxChangedData{Item: item}})
 }
 
-const helloText = "Write to Bothy here any time; /help lists the commands."
-
 const (
-	// askDMs bounds the admin DMs about unknown senders per askWindow: each
-	// throwaway account gets one notice a day, but nothing else stops a
-	// hundred accounts from becoming a hundred DMs. The banner still counts
-	// every one.
+	// askDMs bounds the approver DMs about people waiting (and new
+	// channels) per askWindow: each throwaway account gets one notice a
+	// day, but nothing else stops a hundred accounts from becoming a
+	// hundred DMs. The banner still counts every one.
 	askDMs    = 3
 	askWindow = time.Hour
 )
@@ -374,18 +486,23 @@ const (
 type askLimiter struct {
 	start time.Time
 	asked int // senders noticed in this window
-	dms   int // admin DMs sent in this window
+	dms   int // approver DMs sent in this window
 	held  int // senders noticed without a DM since the last one
 }
 
 // note records one more unknown sender. It reports how many asked in this
-// window, whether admins get a DM about this one and how many held-back
-// senders that DM should mention.
-func (l *askLimiter) note(now time.Time) (asked int, dm bool, held int) {
+// window, whether approvers get a DM about this one and how many
+// held-back senders that DM should mention. Without anyone to DM (canDM
+// false) no DM is spent.
+func (l *askLimiter) note(now time.Time, canDM bool) (asked int, dm bool, held int) {
 	if now.Sub(l.start) >= askWindow {
 		l.start, l.asked, l.dms = now, 0, 0
 	}
 	l.asked++
+	if !canDM {
+		l.held++
+		return l.asked, false, 0
+	}
 	if l.dms >= askDMs {
 		l.held++
 		return l.asked, false, 0
@@ -395,18 +512,18 @@ func (l *askLimiter) note(now time.Time) (asked int, dm bool, held int) {
 	return l.asked, true, held
 }
 
-// notifyUnknownSender tells admins (web banner and their preferred DM) that
-// someone asked for access. The approval code is deliberately not included:
-// the admin has to get it from the person, out of band.
-func (h *Hub) notifyUnknownSender(ctx context.Context, channel string, ident core.ChannelIdentity) {
-	who := senderLabel(ident)
+// notifyWaiting tells admins (web banner) and chat approvers (their DMs)
+// that someone is waiting to be let in.
+func (h *Hub) notifyWaiting(ctx context.Context, channel string, ident core.ChannelIdentity) {
+	who, app := senderLabel(ident), channelTitle(channel)
+	approvers := h.chatApprovers(ctx)
 	h.mu.Lock()
-	asked, dm, held := h.asks.note(h.clock.Now())
+	asked, dm, held := h.asks.note(h.clock.Now(), len(approvers) > 0)
 	h.mu.Unlock()
-	banner := who + " on " + channelTitle(channel) + " asked for access. Let them chat, link them or block them in Approvals."
+	banner := who + " on " + app + " is waiting to use Bothy. Let them in or block them in Approvals."
 	if asked > 1 {
-		banner = fmt.Sprintf("%d people asked for access in the past hour, most recently %s on %s. Let them chat, link them or block them in Approvals.",
-			asked, who, channelTitle(channel))
+		banner = fmt.Sprintf("%d people asked to use Bothy in the past hour, most recently %s on %s. Let them in or block them in Approvals.",
+			asked, who, app)
 	}
 	h.d.Bus.Publish(core.Event{Type: core.EvBanner, Data: core.BannerData{
 		Level: "warn", Code: "unknown_sender", Action: "/approvals", Text: banner,
@@ -414,27 +531,21 @@ func (h *Hub) notifyUnknownSender(ctx context.Context, channel string, ident cor
 	if !dm {
 		return
 	}
-	users, err := h.d.Store.Users().List(ctx)
-	if err != nil {
-		h.log.Error("channel: listing admins failed", "err", err)
-		return
-	}
-	text := "Someone new messaged Bothy on " + channelTitle(channel) + ": " + inert(revealInvisible(who)) +
-		". Let them chat, link them or block them in Approvals."
+	text := inert(revealInvisible(who)) + " messaged Bothy on " + app + " and is waiting to be let in. An admin can let them in or block them in Bothy."
 	switch {
 	case held == 1:
 		text += " 1 other person has also messaged Bothy since the last notice."
 	case held > 1:
 		text += fmt.Sprintf(" %d other people have also messaged Bothy since the last notice.", held)
 	}
-	buttons := h.webButton("Open Approvals", "/approvals")
-	for _, u := range users {
-		if !u.Role.IsAdmin() || u.Disabled {
-			continue
-		}
-		if chat, ok := h.PreferredChat(ctx, u.ID); ok {
-			h.enqueueChat(chat.Key(), func(ctx context.Context) { h.sendWithButtons(ctx, chat, text, buttons) })
-		}
+	h.tellApprovers(approvers, text, h.webButton("Open in Bothy", "/approvals"))
+}
+
+// tellApprovers DMs each chat approver.
+func (h *Hub) tellApprovers(approvers []approverDM, text string, buttons [][]core.Button) {
+	for _, ap := range approvers {
+		chat := ap.chat
+		h.enqueueChat(chat.Key(), func(ctx context.Context) { h.sendWithButtons(ctx, chat, text, buttons) })
 	}
 }
 
@@ -479,101 +590,19 @@ func (h *Hub) slowDown(chat core.ChatRef, key string, retry time.Duration) {
 	h.replyAsync(chat, fmt.Sprintf("Bothy will read new messages again in about %d s.", secs))
 }
 
-// gate maps the message to a principal (SPEC §5.1 step 7) or rejects it.
-func (h *Hub) gate(ctx context.Context, a *adapter, in core.Inbound, res core.IdentityResolution) (target, bool) {
-	var tg target
-	var pid core.PrincipalID
-	switch in.Chat.Kind {
-	case core.ChatDM:
-		switch res.Status {
-		case core.IdentityLinked:
-			pid, tg.prov = res.Principal, core.ProvUser
-			if pid == "" {
-				pid = core.UserPrincipal(res.User)
-			}
-		case core.IdentityGuest:
-			sp, err := h.d.Store.Spaces().Get(ctx, core.SystemViewer(), res.Principal)
-			if err != nil || !sp.Enabled {
-				return tg, false
-			}
-			pid, tg.space, tg.prov = res.Principal, sp, core.ProvUntrusted
-		default:
-			return tg, false
-		}
-	case core.ChatGroup:
-		sp, err := h.groupSpace(ctx, a, in)
-		if errors.Is(err, core.ErrNotFound) {
-			// A private message may come from a channel the bot is not in.
-			if in.Private {
-				return tg, false
-			}
-			// Anyone can add the bot to groups; the limiter bounds how fast
-			// one account can create spaces and owner notices. A skipped
-			// sighting is retried with the group's next message.
-			if ok, _ := h.d.Budget.AllowSender(a.name + ":" + in.SenderID); ok {
-				h.firstSighting(ctx, a, in, res)
-			}
-			return tg, false
-		}
-		if err != nil {
-			h.log.Error("channel space lookup failed", "channel", a.name, "err", err)
-			return tg, false
-		}
-		if !sp.Enabled || (sp.MentionOnly && !in.Mentioned) {
-			return tg, false
-		}
-		pid, tg.space, tg.prov = sp.Principal, sp, core.ProvUntrusted
-		if res.Status == core.IdentityLinked && res.User == sp.Owner {
-			tg.prov = core.ProvUser
-		}
-	default:
-		return tg, false
-	}
-	// Forwarded text was written by someone else, whoever relayed it.
-	if in.Forwarded {
-		tg.prov = core.ProvUntrusted
-	}
-	p, err := h.d.Store.Principals().Get(ctx, core.SystemViewer(), pid)
-	if err != nil {
-		h.log.Error("channel principal lookup failed", "channel", a.name, "principal", pid, "err", err)
-		return tg, false
-	}
-	tg.principal = p
-	return tg, true
-}
-
-// firstSighting records an unknown group as a disabled space and asks its
-// owner whether to enable it. The owner is the linked user the platform
-// reports as having added the bot (Inbound.AddedBy), otherwise the instance
-// owner: whoever merely speaks first must not become the space's approver.
-func (h *Hub) firstSighting(ctx context.Context, a *adapter, in core.Inbound, res core.IdentityResolution) {
-	var owner core.UserID
-	switch in.AddedBy {
-	case "":
-	case in.SenderID:
-		if res.Status == core.IdentityLinked {
-			owner = res.User
-		}
-	default:
-		if r, err := h.d.Auth.ResolveIdentity(ctx, a.name, in.AddedBy); err == nil && r.Status == core.IdentityLinked {
-			owner = r.User
-		}
-	}
-	if owner == "" {
-		u, ok := h.instanceOwner(ctx)
-		if !ok {
-			return
-		}
-		owner = u.ID
-	}
+// firstSighting records an unknown group as a disabled channel that
+// belongs to the team, and tells admins and chat approvers. Nobody owns it:
+// whoever added the bot or spoke first must not become its approver.
+func (h *Hub) firstSighting(ctx context.Context, a *adapter, in core.Inbound) {
 	title := cmp.Or(spaceTitle(in.ChatTitle), fallbackTitle(a.name, in.Chat.ChatID))
 	now := h.clock.Now()
 	sp := &core.Space{
-		Kind: "group", Chat: core.ChatRef{Channel: a.name, ChatID: in.Chat.ChatID, Kind: core.ChatGroup},
-		Title: title, Owner: owner, MentionOnly: mentionOnlyDefault(h.cfg(), a.name), CreatedAt: now, UpdatedAt: now,
+		Kind: core.SpaceGroup, Chat: core.ChatRef{Channel: a.name, ChatID: in.Chat.ChatID, Kind: core.ChatGroup},
+		Team: in.Team, AddedBy: in.AddedBy, Title: title, MentionOnly: mentionOnlyDefault(h.cfg(), a.name),
+		CreatedAt: now, UpdatedAt: now,
 	}
 	p := &core.Principal{
-		ID: core.PrincipalID(core.NewID(core.PrefixSpace)), Kind: core.PrincipalSpace, User: owner, DisplayName: title,
+		ID: core.PrincipalID(core.NewID(core.PrefixSpace)), Kind: core.PrincipalSpace, DisplayName: title,
 		Workspace: core.WorkspaceID(core.NewID(core.PrefixWorkspace)), ToolProfile: "restricted", CreatedAt: now,
 	}
 	if err := h.d.Store.Spaces().Create(ctx, sp, p); err != nil {
@@ -582,15 +611,36 @@ func (h *Hub) firstSighting(ctx context.Context, a *adapter, in core.Inbound, re
 		}
 		return
 	}
-	h.inboxChanged("group:"+string(sp.Principal), owner)
-	chat, ok := h.PreferredChat(ctx, owner)
-	if !ok {
+	item := "group:" + string(sp.Principal)
+	h.inboxChanged(item)
+	if insp, ok := a.ch.(core.ChatInspector); ok {
+		h.noteOnce("inspect:"+sp.Chat.Key(), inspectEvery)
+		h.enqueueChat(a.name+":inspect:"+sp.Chat.ChatID, func(ctx context.Context) {
+			lctx, cancel := context.WithTimeout(ctx, recheckWait)
+			info, err := insp.InspectChat(lctx, sp.Chat)
+			cancel()
+			if err != nil {
+				h.log.Info("channel: describing a new group failed", "channel", a.name, "err", err)
+				return
+			}
+			h.applyChatInfo(ctx, a, sp.Principal, info, true)
+			h.inboxChanged(item)
+		})
+	}
+	app := channelTitle(a.name)
+	h.d.Bus.Publish(core.Event{Type: core.EvBanner, Data: core.BannerData{
+		Level: "info", Code: "new_channel", Action: "/approvals",
+		Text: "Bothy was added to “" + title + "” in " + app + ". Turn it on in Approvals.",
+	}})
+	approvers := h.chatApprovers(ctx)
+	h.mu.Lock()
+	_, dm, _ := h.channelAsks.note(now, len(approvers) > 0)
+	h.mu.Unlock()
+	if !dm {
 		return
 	}
-	text := "Bothy was added to “" + inert(title) + "” in " + channelTitle(a.name) +
-		". It stays silent there until you turn it on in Approvals."
-	buttons := h.webButton("Open Approvals", "/approvals")
-	h.enqueueChat(chat.Key(), func(ctx context.Context) { h.sendWithButtons(ctx, chat, text, buttons) })
+	text := "Bothy was added to “" + inert(title) + "” in " + app + ". It stays silent there until an admin turns it on in Bothy."
+	h.tellApprovers(approvers, text, h.webButton("Open in Bothy", "/approvals"))
 }
 
 // fallbackTitle names a group whose platform gave no title.
@@ -600,34 +650,47 @@ func fallbackTitle(channel, chatID string) string {
 
 // groupSpace returns the group's space. One still under its fallback title
 // takes the platform's title once a message carries one (a Slack app gains
-// channels:read only when reinstalled); a title anyone gave it stays.
+// channels:read only when reinstalled); a title anyone gave it stays. A
+// Discord channel recorded before Bothy knew its server learns it here.
+// Neither touches reviewed_at.
 func (h *Hub) groupSpace(ctx context.Context, a *adapter, in core.Inbound) (*core.Space, error) {
 	sp, err := h.d.Store.Spaces().ByChat(ctx, a.name, in.Chat.ChatID)
 	if err != nil {
 		return nil, err
 	}
 	fallback, title := fallbackTitle(a.name, in.Chat.ChatID), spaceTitle(in.ChatTitle)
-	if sp.Title != fallback || title == "" || title == fallback {
+	rename := sp.Title == fallback && title != "" && title != fallback
+	team := sp.Team == "" && in.Team != ""
+	if !rename && !team {
 		return sp, nil
 	}
 	// Re-read inside the transaction: an admin's rename made in between wins.
 	err = h.d.Store.Tx(ctx, func(tx core.Store) error {
 		cur, err := tx.Spaces().ByChat(ctx, a.name, in.Chat.ChatID)
-		if err != nil || cur.Title != fallback {
-			return err
-		}
-		cur.Title, cur.UpdatedAt = title, h.clock.Now()
-		if err := tx.Spaces().Update(ctx, cur); err != nil {
-			return err
-		}
-		p, err := tx.Principals().Get(ctx, core.SystemViewer(), cur.Principal)
 		if err != nil {
 			return err
 		}
-		if p.DisplayName == fallback {
-			p.DisplayName = title
-			if err := tx.Principals().Update(ctx, p); err != nil {
+		if team && cur.Team == "" {
+			cur.Team = in.Team
+		}
+		renamed := rename && cur.Title == fallback
+		if renamed {
+			cur.Title = title
+		}
+		cur.UpdatedAt = h.clock.Now()
+		if err := tx.Spaces().Update(ctx, cur); err != nil {
+			return err
+		}
+		if renamed {
+			p, err := tx.Principals().Get(ctx, core.SystemViewer(), cur.Principal)
+			if err != nil {
 				return err
+			}
+			if p.DisplayName == fallback {
+				p.DisplayName = title
+				if err := tx.Principals().Update(ctx, p); err != nil {
+					return err
+				}
 			}
 		}
 		sp = cur
@@ -635,6 +698,9 @@ func (h *Hub) groupSpace(ctx context.Context, a *adapter, in core.Inbound) (*cor
 	})
 	if err != nil {
 		h.log.Warn("channel: naming a group from its platform title failed", "channel", a.name, "err", err)
+	}
+	if team {
+		h.InvalidateTeams()
 	}
 	return sp, nil
 }
@@ -662,20 +728,6 @@ func spaceTitle(s string) string {
 		b.WriteRune(r)
 	}
 	return truncateRunes(b.String(), maxTitleRunes)
-}
-
-func (h *Hub) instanceOwner(ctx context.Context) (*core.User, bool) {
-	users, err := h.d.Store.Users().List(ctx)
-	if err != nil {
-		h.log.Error("channel: listing users failed", "err", err)
-		return nil, false
-	}
-	for _, u := range users {
-		if u.Role == core.RoleOwner && !u.Disabled {
-			return u, true
-		}
-	}
-	return nil, false
 }
 
 func (h *Hub) userName(ctx context.Context, id core.UserID) string {
@@ -712,7 +764,7 @@ func (h *Hub) submit(ctx context.Context, a *adapter, in core.Inbound, tg target
 	chat := in.Chat
 	req := core.RunRequest{
 		Session: sess.ID, Principal: tg.principal.ID, User: tg.principal.User, Trigger: core.TrigMessage,
-		Input: parts, Provenance: tg.prov, Sender: a.name + ":" + in.SenderID, Chat: &chat,
+		Input: parts, Provenance: tg.prov, Sender: a.name + ":" + in.SenderID, SenderName: in.SenderName, Chat: &chat,
 		Sink: h.StreamTo(chat, "stream"),
 	}
 	res, err := h.d.Runner.Submit(ctx, req)

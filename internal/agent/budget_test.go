@@ -66,7 +66,7 @@ func TestBudgetPathsEndWithTheRightStatus(t *testing.T) {
 					cfg: func(c *config.Config) { c.Budgets.DailyUSD = 1 }})
 				defer h.close()
 				if tc.spent > 0 {
-					if err := h.budget.RecordSpend(h.ctx, h.user.ID, core.CallInfo{Purpose: "probe", Cost: core.MicrosFromUSD(tc.spent)}); err != nil {
+					if err := h.budget.RecordSpend(h.ctx, core.UserPrincipal(h.user.ID), core.CallInfo{Purpose: "probe", Cost: core.MicrosFromUSD(tc.spent)}); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -215,7 +215,7 @@ func TestDailyCapRefusesRunWithoutRow(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t, opts{realBudget: true, cfg: func(c *config.Config) { c.Budgets.DailyUSD = 1 }})
 		defer h.close()
-		if err := h.budget.RecordSpend(h.ctx, h.user.ID, core.CallInfo{Purpose: "probe", Cost: core.MicrosFromUSD(1)}); err != nil {
+		if err := h.budget.RecordSpend(h.ctx, core.UserPrincipal(h.user.ID), core.CallInfo{Purpose: "probe", Cost: core.MicrosFromUSD(1)}); err != nil {
 			t.Fatal(err)
 		}
 		_, err := h.r.Submit(h.ctx, h.req("hello"))
@@ -326,7 +326,7 @@ func TestBudgetWarningInTurnContext(t *testing.T) {
 		h := newHarness(t, opts{realBudget: true, cfg: func(c *config.Config) { c.Budgets.DailyUSD = 1 },
 			steps: []fakes.LLMStep{{Text: []string{"ok"}}}})
 		defer h.close()
-		if err := h.budget.RecordSpend(h.ctx, h.user.ID, core.CallInfo{Purpose: "probe", Cost: core.MicrosFromUSD(0.9)}); err != nil {
+		if err := h.budget.RecordSpend(h.ctx, core.UserPrincipal(h.user.ID), core.CallInfo{Purpose: "probe", Cost: core.MicrosFromUSD(0.9)}); err != nil {
 			t.Fatal(err)
 		}
 		h.submit("hi")

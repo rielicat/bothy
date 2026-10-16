@@ -4,8 +4,6 @@ import (
 	"cmp"
 	"context"
 	"errors"
-	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -44,20 +42,19 @@ func (h *Hub) action(ctx context.Context, a *adapter, ev core.ActionEvent) strin
 	return "This button no longer works."
 }
 
-// approvalPress resolves an approval from a card button. Besides the MAC,
-// Approvals.Resolve checks authority and the card message; the hub checks
-// both too so a non-approver gets a clear toast whatever the backend.
+// approvalPress resolves an approval from a chat card's button. Only team
+// requests (a teammate's or a channel's) are decided in chat, by a teammate
+// an admin marked "Can approve" whose membership is fresh; the person who
+// asked may always cancel their own request. Approvals.Resolve checks all
+// of it again from the store.
 func (h *Hub) approvalPress(ctx context.Context, a *adapter, ev core.ActionEvent) string {
 	id, choice, err := h.d.Approvals.ParseButtonData(ev.Data)
 	if err != nil {
 		return "This button is not valid."
 	}
 	res, err := h.d.Auth.ResolveIdentity(ctx, a.name, ev.SenderID)
-	switch {
-	case err != nil:
+	if err != nil {
 		return couldntRecord
-	case res.Status != core.IdentityLinked || res.User == "":
-		return "Link this account first: send /pair with a code from Settings → Account."
 	}
 	ap, err := h.d.Approvals.Get(ctx, core.SystemViewer(), id)
 	switch {
@@ -65,15 +62,6 @@ func (h *Hub) approvalPress(ctx context.Context, a *adapter, ev core.ActionEvent
 		return "This button no longer works."
 	case err != nil:
 		return couldntRecord
-	}
-	if ap.Approver.Multi() && res.User == ap.Approver.Requester && choice != core.Deny {
-		return "You asked for this, so someone else has to approve it."
-	}
-	if !canApprove(ap.Approver, res, choice) {
-		return "Only " + h.approvers(ctx, ap) + " can approve this."
-	}
-	if slices.ContainsFunc(ap.Votes, func(v core.ApprovalVote) bool { return v.User == res.User }) {
-		return "You already voted."
 	}
 	refs, err := h.d.Approvals.MessageRefs(ctx, id)
 	if err != nil {
@@ -83,81 +71,70 @@ func (h *Hub) approvalPress(ctx context.Context, a *adapter, ev core.ActionEvent
 	if !ok {
 		return couldntRecord
 	}
+	key := a.name + ":" + ev.SenderID
+	msg := ev.Msg
+	resolve := func(choice core.Choice) string {
+		_, err := h.d.Approvals.Resolve(ctx, core.Resolution{ID: id, Choice: choice, ByIdentity: key, Via: a.name, ViaMsg: &msg})
+		switch {
+		case err == nil:
+			return choiceToast(choice)
+		case errors.Is(err, core.ErrConflict):
+			return "Already decided."
+		case errors.Is(err, core.ErrForbidden):
+			if strings.Contains(err.Error(), channelAlways) {
+				return channelAlways
+			}
+			return notApprover
+		case errors.Is(err, core.ErrNotFound):
+			return couldntRecord
+		case errors.Is(err, core.ErrApprovalExpired):
+			return "This request expired."
+		}
+		h.log.Error("channel: resolving approval failed", "approval", id, "err", err)
+		return couldntRecord
+	}
+	if choice == core.Deny && key == ap.Approver.RequesterIdentity && res.Status != core.IdentityBlocked {
+		if t := resolve(core.Deny); t != choiceToast(core.Deny) {
+			return t
+		}
+		return "Request cancelled."
+	}
+	switch {
+	case rec.Kind == core.CardMsgNotice:
+		return "Only the person who asked can cancel this."
+	case ap.Approver.AdminOnly || ap.Approver.Multi() || ap.Approver.User != "":
+		return "Open in Bothy to approve."
+	case !res.CanApprove || res.Status != core.IdentityTeammate:
+		return notApprover
+	}
+	if _, checks := checkerOf(a); checks && !h.fresh(res, core.MemberTTL) {
+		ident, err := h.d.Store.Identities().Get(ctx, a.name, ev.SenderID)
+		if err != nil {
+			return couldntRecord
+		}
+		r, err := h.recheck(ctx, a, *ident, actionBudget)
+		switch {
+		case err == nil:
+			res = r
+		case !res.Admitted() || !h.fresh(res, core.ApproverStale):
+			return "Bothy couldn't check that you can approve. Try again, or open it in Bothy."
+		}
+	}
+	if !res.Admitted() || !res.CanApprove {
+		return notApprover
+	}
 	if rec.Truncated && choice != core.Deny {
 		return "Open in web to approve."
 	}
-	msg := ev.Msg
-	got, err := h.d.Approvals.Resolve(ctx, core.Resolution{ID: id, Choice: choice, By: res.User, ByRole: res.Role, Via: a.name, ViaMsg: &msg})
-	switch {
-	case err == nil && got != nil && got.Approver.Multi() && got.Status == core.ApprovalPending:
-		return votedToast(got)
-	case err == nil:
-		return choiceToast(choice)
-	case errors.Is(err, core.ErrConflict):
-		return "Already decided."
-	case errors.Is(err, core.ErrForbidden):
-		return "Only " + h.approvers(ctx, ap) + " can approve this."
-	case errors.Is(err, core.ErrNotFound):
-		return couldntRecord
-	case errors.Is(err, core.ErrApprovalExpired):
-		return "This request expired."
-	}
-	h.log.Error("channel: resolving approval failed", "approval", id, "err", err)
-	return couldntRecord
+	return resolve(choice)
 }
+
+const (
+	notApprover   = "Only an approver can approve this."
+	channelAlways = "Only an admin on the web can always allow this for a channel."
+)
 
 const couldntRecord = "Couldn't record your decision. Try again in Bothy on the web."
-
-// votedToast answers an approve vote that did not settle a multi-approver
-// request (docs/design/ui.md §8.5).
-func votedToast(ap *core.Approval) string {
-	switch left := ap.Approver.Needed() - core.AllowVotes(ap.Votes, ap.Approver); {
-	case left == 1:
-		return "You approved. Waiting for one more."
-	case left > 1:
-		return fmt.Sprintf("You approved. Waiting for %d more.", left)
-	}
-	return "You approved."
-}
-
-// approvers names who may approve ap in a sentence: "Maya Chen", "an
-// admin", "Maya Chen, Priya Rao or any admin".
-func (h *Hub) approvers(ctx context.Context, ap *core.Approval) string {
-	req := ap.Approver
-	switch {
-	case req.Multi():
-		var names []string
-		if t := ap.Approvals; t != nil {
-			for _, p := range t.Eligible {
-				names = append(names, p.Name)
-			}
-			if t.AnyAdmin && len(names) > 0 {
-				names = append(names, "any admin")
-			}
-		}
-		if len(names) == 0 {
-			return "an admin"
-		}
-		return orList(names)
-	case req.AdminOnly || req.User == "":
-		return "an admin"
-	}
-	// userName falls back to the id, which never belongs in a chat.
-	if u, err := h.d.Store.Users().Get(ctx, req.User); err == nil {
-		return cmp.Or(u.DisplayName, u.Username)
-	}
-	return "the approver"
-}
-
-func canApprove(req core.ApproverReq, res core.IdentityResolution, choice core.Choice) bool {
-	switch {
-	case req.Multi():
-		return req.Eligible(res.User, res.Role) || choice == core.Deny && res.User != "" && res.User == req.Requester
-	case req.AdminOnly:
-		return res.Role.IsAdmin()
-	}
-	return req.User != "" && req.User == res.User
-}
 
 func findCardMessage(refs []core.CardMessage, msg core.MsgRef) (core.CardMessage, bool) {
 	for _, r := range refs {
@@ -180,8 +157,8 @@ func choiceToast(c core.Choice) string {
 	return "Denied."
 }
 
-// stopPress handles the streamer's Stop button ("s:<run>"), authorized
-// exactly like /stop.
+// stopPress handles the streamer's Stop button ("s:<run>"): the teammate
+// whose chat it is, someone Bothy answers in the channel, or an approver.
 func (h *Hub) stopPress(ctx context.Context, a *adapter, ev core.ActionEvent) string {
 	run := core.RunID(strings.TrimPrefix(ev.Data, "s:"))
 	if !core.ValidID(core.PrefixRun, string(run)) {
@@ -198,17 +175,31 @@ func (h *Hub) stopPress(ctx context.Context, a *adapter, ev core.ActionEvent) st
 		return "Already finished."
 	}
 	res, err := h.d.Auth.ResolveIdentity(ctx, a.name, ev.SenderID)
-	if err != nil {
+	if err != nil || res.Status == core.IdentityBlocked {
 		return couldntStop
 	}
 	p, err := h.d.Store.Principals().Get(ctx, core.SystemViewer(), info.Principal)
 	if err != nil {
 		return couldntStop
 	}
-	if !allowed(accessOwner, res, p) {
-		return "Only the person this chat belongs to or an admin can stop it."
+	_, checks := checkerOf(a)
+	ok := res.CanApprove && h.usable(a, res, core.MemberStale)
+	switch p.Kind {
+	case core.PrincipalPerson:
+		ok = ok || res.Principal == p.ID && res.Admitted()
+	case core.PrincipalSpace:
+		// In a Telegram group anyone Bothy answers may stop its task.
+		ok = ok || !checks || h.usable(a, res, core.MemberStale)
 	}
-	stopped, err := h.d.Runner.Stop(ctx, core.SystemViewer(), info.Session, res.User)
+	if !ok {
+		return "Only the person this chat belongs to or someone who can approve can stop it."
+	}
+	name := ev.SenderID
+	if id, err := h.d.Store.Identities().Get(ctx, a.name, ev.SenderID); err == nil {
+		name = cmp.Or(strings.TrimSpace(id.DisplayName), id.Username, name)
+	}
+	sctx := chatOrigin(ctx, a, core.Inbound{SenderID: ev.SenderID, SenderName: name})
+	stopped, err := h.d.Runner.Stop(sctx, core.SystemViewer(), info.Session, "")
 	if err != nil {
 		h.log.Error("channel: stop button failed", "run", run, "err", err)
 		return couldntStop
