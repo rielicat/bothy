@@ -48,38 +48,110 @@ type Server struct {
 	// DispatchNoDetails answers workflow_dispatch with 204 and no run id, as
 	// servers without return_run_details do.
 	DispatchNoDetails bool
+	// InstallAction is what the web install page of an app made from a
+	// manifest does: "install" (default) installs it on the app's owner and
+	// sends the browser to its setup URL; "request" sends it there with
+	// setup_action=request and no installation, as when a member asks an
+	// owner to approve.
+	InstallAction string
+	// InstallRepos are the repositories an installation made on the web page
+	// reaches; empty reaches every repository.
+	InstallRepos []string
 
 	srv *httptest.Server
 
-	mu        sync.Mutex
-	repos     map[string]*Repo
-	nextID    int64
-	requests  []Request
-	faults    []*fault
-	tokens    map[string]minted
-	downloads map[string]string // download token -> "owner/repo@sha"
-	dispatch  []Dispatch
-	rateLimit int
-	remaining int
-	reset     time.Time
-	before    func(*http.Request)
+	mu          sync.Mutex
+	repos       map[string]*Repo
+	nextID      int64
+	requests    []Request
+	faults      []*fault
+	tokens      map[string]minted
+	downloads   map[string]string // download token -> "owner/repo@sha"
+	dispatch    []Dispatch
+	rateLimit   int
+	remaining   int
+	reset       time.Time
+	before      func(*http.Request)
+	made        []*App // apps created from a manifest, besides App
+	manifests   []Manifest
+	codes       map[string]*manifestCode
+	conversions int
 }
 
-// App is the fake's GitHub App.
+// App is a GitHub App of the fake: App, or one made from a manifest.
 type App struct {
 	ID            int64
 	Slug          string
 	Key           *rsa.PublicKey
 	Installations []Installation
 	TokenTTL      time.Duration // default one hour
+
+	// Set for apps made from a manifest.
+	Name, Owner, OwnerType string
+	ClientID, ClientSecret string
+	PEM                    []byte // PKCS#1 private key, as GitHub hands it over once
+	Permissions            map[string]string
+	RedirectURL, SetupURL  string
+	WebhookSecret          string // "" unless the manifest asked for a webhook
 }
 
-// Installation is one install of the App.
+// Installation is one install of an App.
 type Installation struct {
 	ID      int64
 	Account string
 	Type    string   // Organization | User
 	Repos   []string // full names it reaches; empty reaches every repository
+	// Permissions its tokens carry ("contents": "write", …); nil carries
+	// every permission.
+	Permissions map[string]string
+}
+
+// Manifest is a GitHub App manifest the fake's web page received.
+type Manifest struct {
+	Owner, OwnerType string // the organization, or the PAT's user for a personal account
+	State            string // the state query parameter
+	Raw              string // the manifest form field as posted
+	JSON             map[string]any
+}
+
+type manifestCode struct {
+	app     *App
+	used    bool
+	expires time.Time
+}
+
+// Manifests returns the manifests posted to the web pages, oldest first.
+func (s *Server) Manifests() []Manifest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.manifests)
+}
+
+// Apps returns the apps made from a manifest, oldest first.
+func (s *Server) Apps() []*App {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.made)
+}
+
+// Conversions counts the manifest codes redeemed.
+func (s *Server) Conversions() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.conversions
+}
+
+// appByID finds App or an app made from a manifest.
+func (s *Server) appByID(id int64) *App {
+	if s.App != nil && s.App.ID == id {
+		return s.App
+	}
+	for _, a := range s.made {
+		if a.ID == id {
+			return a
+		}
+	}
+	return nil
 }
 
 type minted struct {
@@ -108,7 +180,7 @@ type Request struct {
 	Method string
 	Path   string
 	Query  string
-	Auth   string // pat | jwt | installation | none | bad
+	Auth   string // pat | jwt | installation | none | bad | web (a browser page)
 	Body   string
 }
 
@@ -129,6 +201,7 @@ func New() *Server {
 		repos:     map[string]*Repo{},
 		tokens:    map[string]minted{},
 		downloads: map[string]string{},
+		codes:     map[string]*manifestCode{},
 		nextID:    1000,
 		rateLimit: 5000,
 		remaining: 5000,
@@ -250,13 +323,14 @@ func (s *Server) InstallationTokens() []string {
 // ---- plumbing ----
 
 type reqCtx struct {
-	s    *Server
-	w    http.ResponseWriter
-	r    *http.Request
-	auth string
-	inst *Installation
-	seg  []string
-	body []byte
+	s      *Server
+	w      http.ResponseWriter
+	r      *http.Request
+	auth   string
+	inst   *Installation
+	jwtApp *App // the app a JWT authenticated
+	seg    []string
+	body   []byte
 }
 
 func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
@@ -276,6 +350,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if c.web() {
+		return
+	}
 	if len(c.seg) > 0 && c.seg[0] == "_codeload" {
 		c.auth = "none"
 		if r.Header.Get("Authorization") != "" {
@@ -351,7 +428,7 @@ func (c *reqCtx) authenticate() {
 	switch {
 	case tok == c.s.PAT:
 		c.auth = "pat"
-	case strings.Count(tok, ".") == 2 && c.s.App != nil && c.s.verifyJWT(tok):
+	case strings.Count(tok, ".") == 2 && c.s.verifyJWT(c, tok):
 		c.auth = "jwt"
 	default:
 		if m, ok := c.s.tokens[tok]; ok && time.Now().Before(m.expires) {
@@ -362,10 +439,10 @@ func (c *reqCtx) authenticate() {
 	}
 }
 
-// verifyJWT checks an App JWT as GitHub does: RS256 by the App's key, iss
-// the app id, iat not in the future (60 s grace) and exp at most 10 minutes
-// after iat and not passed.
-func (s *Server) verifyJWT(tok string) bool {
+// verifyJWT checks an App JWT as GitHub does: RS256 by the key of the app
+// iss names (its id), iat not in the future (60 s grace) and exp at most 10
+// minutes after iat and not passed. It records the app on c.
+func (s *Server) verifyJWT(c *reqCtx, tok string) bool {
 	parts := strings.Split(tok, ".")
 	hdr, err1 := base64.RawURLEncoding.DecodeString(parts[0])
 	claims, err2 := base64.RawURLEncoding.DecodeString(parts[1])
@@ -377,19 +454,28 @@ func (s *Server) verifyJWT(tok string) bool {
 	if json.Unmarshal(hdr, &h) != nil || h.Alg != "RS256" {
 		return false
 	}
-	sum := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
-	if rsa.VerifyPKCS1v15(s.App.Key, crypto.SHA256, sum[:], sig) != nil {
-		return false
-	}
 	var cl struct {
 		Iat, Exp int64
 		Iss      json.Number
 	}
-	if json.Unmarshal(claims, &cl) != nil || cl.Iss.String() != strconv.FormatInt(s.App.ID, 10) {
+	if json.Unmarshal(claims, &cl) != nil {
+		return false
+	}
+	id, err := cl.Iss.Int64()
+	a := s.appByID(id)
+	if err != nil || a == nil || a.Key == nil {
+		return false
+	}
+	sum := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
+	if rsa.VerifyPKCS1v15(a.Key, crypto.SHA256, sum[:], sig) != nil {
 		return false
 	}
 	now := time.Now().Unix()
-	return cl.Iat <= now+60 && cl.Exp > now && cl.Exp-cl.Iat <= 600+60
+	if cl.Iat > now+60 || cl.Exp <= now || cl.Exp-cl.Iat > 600+60 {
+		return false
+	}
+	c.jwtApp = a
+	return true
 }
 
 func (c *reqCtx) json(status int, v any) {
@@ -470,6 +556,45 @@ func (c *reqCtx) need(kinds ...string) bool {
 	return false
 }
 
+// allow enforces an installation token's permissions as GitHub does, write
+// covering read. Other credentials are not limited here.
+func (c *reqCtx) allow(perm, level string) bool {
+	if c.auth != "installation" || c.inst.Permissions == nil {
+		return true
+	}
+	if have := c.inst.Permissions[perm]; have == "write" || have == level {
+		return true
+	}
+	c.error(http.StatusForbidden, "Resource not accessible by integration")
+	return false
+}
+
+// repoPermission is the installation permission a repository call needs:
+// a comment on a pull request's conversation counts as pull requests.
+func (c *reqCtx) repoPermission(r *Repo, seg []string) (string, string) {
+	level := "read"
+	if c.r.Method != http.MethodGet {
+		level = "write"
+	}
+	if len(seg) == 0 {
+		return "metadata", "read"
+	}
+	switch seg[0] {
+	case "commits", "tarball", "git":
+		return "contents", level
+	case "pulls":
+		return "pull_requests", level
+	case "issues":
+		if len(seg) >= 2 && c.findPull(r, seg[1]) != nil {
+			return "pull_requests", level
+		}
+		return "issues", level
+	case "actions":
+		return "actions", level
+	}
+	return "metadata", "read"
+}
+
 func (c *reqCtx) visible(r *Repo) bool {
 	switch c.auth {
 	case "pat":
@@ -488,7 +613,12 @@ func (c *reqCtx) route() {
 	case m == http.MethodGet && len(seg) == 2 && seg[0] == "user" && seg[1] == "repos":
 		c.listRepos(false)
 	case m == http.MethodGet && len(seg) == 2 && seg[0] == "installation" && seg[1] == "repositories":
+		if c.auth == "installation" && !c.allow("metadata", "read") {
+			return
+		}
 		c.listRepos(true)
+	case m == http.MethodPost && len(seg) == 3 && seg[0] == "app-manifests" && seg[2] == "conversions":
+		c.convert(seg[1])
 	case len(seg) >= 1 && seg[0] == "app":
 		c.app()
 	case len(seg) >= 3 && seg[0] == "repos":
@@ -501,6 +631,9 @@ func (c *reqCtx) route() {
 		}
 		if !c.visible(r) {
 			c.error(http.StatusNotFound, "Not Found")
+			return
+		}
+		if perm, level := c.repoPermission(r, seg[3:]); !c.allow("metadata", "read") || !c.allow(perm, level) {
 			return
 		}
 		c.repo(r, seg[3:])
@@ -562,11 +695,14 @@ func (c *reqCtx) listRepos(installation bool) {
 	c.json(http.StatusOK, page)
 }
 
-func (c *reqCtx) installationJSON(in Installation) map[string]any {
+func (c *reqCtx) installationJSON(a *App, in Installation) map[string]any {
 	j := first("base-installation-items")
-	j["id"], j["app_id"], j["repository_selection"] = in.ID, c.s.App.ID, "all"
+	j["id"], j["app_id"], j["app_slug"], j["repository_selection"] = in.ID, a.ID, a.Slug, "all"
 	if len(in.Repos) > 0 {
 		j["repository_selection"] = "selected"
+	}
+	if in.Permissions != nil {
+		j["permissions"] = in.Permissions
 	}
 	acc := obj(j["account"])
 	acc["login"], acc["type"] = in.Account, in.Type
@@ -574,23 +710,24 @@ func (c *reqCtx) installationJSON(in Installation) map[string]any {
 }
 
 func (c *reqCtx) app() {
-	if c.s.App == nil || !c.need("jwt") {
-		if c.s.App == nil {
-			c.error(http.StatusUnauthorized, "A JSON web token could not be decoded")
-		}
+	if !c.need("jwt") {
 		return
 	}
-	seg, a := c.seg, c.s.App
+	seg, a := c.seg, c.jwtApp
 	switch {
 	case c.r.Method == http.MethodGet && len(seg) == 1:
 		j := obj(fixture("integration"))
 		j["id"], j["slug"] = a.ID, a.Slug
+		if a.Name != "" {
+			j["name"] = a.Name
+			obj(j["owner"])["login"], obj(j["owner"])["type"] = a.Owner, a.OwnerType
+		}
 		c.json(http.StatusOK, j)
 	case c.r.Method == http.MethodGet && len(seg) == 2 && seg[1] == "installations":
 		lo, hi := c.paginate(len(a.Installations))
 		items := []any{}
 		for _, in := range a.Installations[lo:hi] {
-			items = append(items, c.installationJSON(in))
+			items = append(items, c.installationJSON(a, in))
 		}
 		c.json(http.StatusOK, items)
 	case len(seg) >= 3 && seg[1] == "installations":
@@ -603,7 +740,7 @@ func (c *reqCtx) app() {
 		in := a.Installations[i]
 		switch {
 		case c.r.Method == http.MethodGet && len(seg) == 3:
-			c.json(http.StatusOK, c.installationJSON(in))
+			c.json(http.StatusOK, c.installationJSON(a, in))
 		case c.r.Method == http.MethodPost && len(seg) == 4 && seg[3] == "access_tokens":
 			ttl := a.TokenTTL
 			if ttl == 0 {
@@ -817,8 +954,13 @@ func (c *reqCtx) gitData(r *Repo, seg []string) {
 			c.error(http.StatusUnprocessableEntity, "Reference name must start with 'refs/' and have at least two slashes.")
 			return
 		}
-		if r.commits[in.SHA] == nil {
+		cm := r.commits[in.SHA]
+		if cm == nil {
 			c.error(http.StatusUnprocessableEntity, "Object does not exist")
+			return
+		}
+		if p := c.workflowChange(r, cm); p != "" {
+			c.error(http.StatusForbidden, "refusing to allow a GitHub App to create or update workflow `"+p+"` without `workflows` permission")
 			return
 		}
 		if _, exists := r.refs[name]; exists {
@@ -845,6 +987,25 @@ func (c *reqCtx) gitData(r *Repo, seg []string) {
 	default:
 		c.error(http.StatusNotFound, "Not Found")
 	}
+}
+
+// workflowChange names a .github/workflows/ file the commit changes against
+// its first parent when an installation token lacks workflows: write, which
+// GitHub requires to push such a commit.
+func (c *reqCtx) workflowChange(r *Repo, cm *commit) string {
+	if c.auth != "installation" || c.inst.Permissions == nil || c.inst.Permissions["workflows"] == "write" {
+		return ""
+	}
+	parent := ""
+	if len(cm.parents) > 0 {
+		parent = cm.parents[0]
+	}
+	for _, p := range r.changed(parent, cm.sha) {
+		if strings.HasPrefix(p, ".github/workflows/") {
+			return p
+		}
+	}
+	return ""
 }
 
 func (c *reqCtx) refJSON(r *Repo, name string) map[string]any {
