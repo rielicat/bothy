@@ -68,7 +68,7 @@ func TestGitHubAppManifest(t *testing.T) {
 		t.Fatalf("start = %d %+v", code, start)
 	}
 	page := owner.Do(t, http.MethodGet, start.HandoffURL, nil, nil)
-	if page.StatusCode != http.StatusOK || !strings.Contains(page.Header.Get("Content-Security-Policy"), "form-action "+gh.URL+";") {
+	if page.StatusCode != http.StatusOK || !strings.Contains(page.Header.Get("Content-Security-Policy"), "form-action 'self' "+gh.URL+";") {
 		t.Fatalf("handoff = %s %v", page.Status, page.Header)
 	}
 	action := e2eFormAction.FindSubmatch(page.Body)
