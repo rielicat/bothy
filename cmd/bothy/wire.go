@@ -193,6 +193,7 @@ func (a *app) buildRest(ctx context.Context) error {
 		HTTP: a.egress.SystemClient,
 		Refs: func(ctx context.Context) []string { return githubSecretRefs(ctx, a.db.GitHub()) },
 	})
+	a.auth.SetSignIn(auth.SignInDeps{Vault: a.vault, HTTP: a.egress.SystemClient})
 	if a.budget, err = budget.New(budget.Deps{Store: a.db, Config: a.cfg, Bus: a.bus, Audit: a.audit, Clock: a.clock, Log: a.log}); err != nil {
 		return err
 	}

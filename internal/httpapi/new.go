@@ -68,6 +68,7 @@ type Server struct {
 	gateways func() []netip.Addr
 	tokens   *limiter // per-token requests per minute
 	logins   *limiter // per client address
+	starts   *limiter // per client address: Google and GitHub sign-in starts
 	claims   *limiter // global: setup claims
 	sse      *sseTracker
 	// ssePing and sseRecheck pace keep-alives and credential re-checks of
@@ -104,6 +105,7 @@ func New(d Deps) (*Server, error) {
 		gateways:   defaultGateways,
 		tokens:     newLimiter(d.Clock),
 		logins:     newLimiter(d.Clock),
+		starts:     newLimiter(d.Clock),
 		claims:     newLimiter(d.Clock),
 		sse:        newSSETracker(),
 		ssePing:    15 * time.Second,
@@ -118,6 +120,7 @@ func New(d Deps) (*Server, error) {
 	s.routes = append(s.routes, s.inboxRoutes()...)
 	s.routes = append(s.routes, s.onboardingRoutes()...)
 	s.routes = append(s.routes, s.uiStateRoutes()...)
+	s.routes = append(s.routes, s.signInRoutes()...)
 	s.handler = s.build()
 	return s, nil
 }

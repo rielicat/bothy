@@ -275,7 +275,7 @@ func (s *Server) connectProvider(w http.ResponseWriter, r *http.Request, a core.
 			}
 			source = "env:" + req.EnvVar
 		}
-		m, u, err := s.saveProviderKey(r, a, id, []byte(val), source)
+		m, u, err := s.saveGlobalKey(r, a, id[:min(len(id), 50)]+"_api_key", []byte(val), source, "provider:connect")
 		if err != nil {
 			return err
 		}
@@ -331,11 +331,12 @@ func (s *Server) savedSecret(ctx context.Context, name string) (*core.SecretMeta
 	return nil, badRequest("there is no saved key named %s", name)
 }
 
-// saveProviderKey stores a provider key as "<id>_api_key" in the global
-// vault and returns how to take the write back. A name already set by a
-// BOTHY_SECRET_ variable would shadow the new value, so the next free
-// "<id>_api_key_<n>" is used instead.
-func (s *Server) saveProviderKey(r *http.Request, a core.Actor, id string, val []byte, source string) (*core.SecretMeta, func(), error) {
+// saveGlobalKey stores val as base ("<id>_api_key",
+// "google_sign_in_client_secret") in the global vault and returns how to
+// take the write back. A name already set by a BOTHY_SECRET_ variable would
+// shadow the new value, so the next free "<base>_<n>" is used instead.
+// purpose labels the read of the old value that undo restores.
+func (s *Server) saveGlobalKey(r *http.Request, a core.Actor, base string, val []byte, source, purpose string) (*core.SecretMeta, func(), error) {
 	var detail map[string]any
 	if source != "" {
 		detail = map[string]any{"source": source}
@@ -353,19 +354,18 @@ func (s *Server) saveProviderKey(r *http.Request, a core.Actor, id string, val [
 		}
 		return nil
 	}
-	base := id[:min(len(id), 50)] + "_api_key"
 	name := base
 	prev := find(name)
 	for n := 2; prev != nil && prev.Source == "env"; n++ {
 		if n > 99 {
-			return nil, nil, newError(http.StatusConflict, "conflict", "no free vault name for this provider's key")
+			return nil, nil, newError(http.StatusConflict, "conflict", "no free name to save this key under")
 		}
 		name = fmt.Sprintf("%s_%d", base, n)
 		prev = find(name)
 	}
 	var old core.Secret
 	if prev != nil {
-		if old, err = s.d.Vault.Get(ctx, core.GlobalScope, name, "provider:connect"); err != nil && !errors.Is(err, core.ErrNotFound) {
+		if old, err = s.d.Vault.Get(ctx, core.GlobalScope, name, purpose); err != nil && !errors.Is(err, core.ErrNotFound) {
 			return nil, nil, err
 		}
 	}
@@ -382,7 +382,7 @@ func (s *Server) saveProviderKey(r *http.Request, a core.Actor, id string, val [
 			err = s.d.Vault.Delete(ctx, core.GlobalScope, name, a.User)
 		}
 		if err != nil {
-			s.log.Error("take back a provider key after a refused config change", "name", name, "err", err)
+			s.log.Error("take back a saved key after a refused config change", "name", name, "err", err)
 		}
 	}
 	return &meta, undo, nil

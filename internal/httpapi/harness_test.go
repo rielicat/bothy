@@ -31,10 +31,11 @@ type configT = config.Config
 
 // testConfig is a mutable config.Admin.
 type testConfig struct {
-	mu   sync.Mutex
-	cfg  *config.Config
-	eff  config.Effective
-	sets []map[string]json.RawMessage
+	mu     sync.Mutex
+	cfg    *config.Config
+	eff    config.Effective
+	sets   []map[string]json.RawMessage
+	refuse error // the next Set fails with it
 }
 
 func (c *testConfig) Current() *config.Config {
@@ -56,6 +57,10 @@ func (c *testConfig) Set(_ context.Context, changes map[string]json.RawMessage, 
 	defer c.mu.Unlock()
 	if _, bad := changes["bad.path"]; bad {
 		return nil, config.FieldErrors{{Path: "bad.path", Message: "unknown key bad.path"}}
+	}
+	if err := c.refuse; err != nil {
+		c.refuse = nil
+		return nil, err
 	}
 	c.sets = append(c.sets, changes)
 	return []string{}, nil

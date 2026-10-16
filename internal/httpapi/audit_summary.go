@@ -85,6 +85,8 @@ func (d auditDetail) str(k string) string {
 
 var viaNames = map[string]string{"telegram": "Telegram", "slack": "Slack", "discord": "Discord"}
 
+var signInNames = map[string]string{"google": "Google", "github": "GitHub"}
+
 // summary is the row's one plain line (docs/design/ui.md §10.6, §14).
 func (an *auditNamer) summary(e *core.AuditEntry) string {
 	var d auditDetail
@@ -150,9 +152,36 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 	case "egress.allow":
 		return "Allowed access to " + siteOf(e.Target)
 	case "auth.login":
+		if p := signInNames[d.str("method")]; p != "" {
+			return "Signed in with " + p
+		}
 		return "Signed in"
 	case "auth.login_failed":
-		return "Someone couldn't sign in as " + targetUser()
+		p := signInNames[d.str("method")]
+		if p == "" {
+			return "Someone couldn't sign in as " + targetUser()
+		}
+		who := ""
+		if strings.HasPrefix(e.Target, "user:") {
+			who = targetUser()
+		} else if _, acct, ok := strings.Cut(e.Target, ":"); ok {
+			who = acct
+		}
+		if who == "" {
+			return "Someone couldn't sign in with " + p
+		}
+		return "Someone couldn't sign in with " + p + " as " + who
+	case "signin.link":
+		p := cmpOr(signInNames[d.str("provider")], "a sign-in method")
+		if denied {
+			if d.str("reason") == "taken" {
+				return "Couldn't connect a " + p + " account someone else uses"
+			}
+			return "Couldn't connect " + p
+		}
+		return "Connected " + p
+	case "signin.unlink":
+		return "Disconnected " + cmpOr(signInNames[d.str("provider")], "a sign-in method")
 	case "auth.lockout":
 		return "Sign-in for " + targetUser() + " paused after too many tries"
 	case "auth.logout":
@@ -183,7 +212,11 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 		}
 		return "Revoked an access token"
 	case "user.create":
-		return "Added " + cmpOr(an.user(core.UserID(strings.TrimPrefix(e.Target, "user:"))), d.str("username"), "a person")
+		name := cmpOr(an.user(core.UserID(strings.TrimPrefix(e.Target, "user:"))), d.str("username"), "a person")
+		if p := signInNames[d.str("via")]; p != "" {
+			return name + " joined with " + p
+		}
+		return "Added " + name
 	case "user.update":
 		if _, purge := d["purge"]; purge {
 			return "Removed " + targetUser() + " and their data"

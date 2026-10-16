@@ -89,6 +89,17 @@ re-syncs their heartbeat), `POST /api/search/test` (admin),
 `GET /api/github/repos/{owner}/{repo}/workflows` (admin). It also fills the
 provider credential `source`, a changed skill's file diff on its inbox item
 and the knowledge `stale` flag (default branch heads cached per repository).
+`h_signin.go` serves sign in with Google and GitHub (SPEC §15) through the
+auth extras: `GET /api/auth/methods`, `POST /api/auth/oauth/{p}/start`
+(20/min per address in a bucket of its own; 409 `wrong_address` when the
+request's host or scheme isn't `public_url`'s), the callback (always a 303 to
+a fixed web-app path, never echoing the code or state, clearing the
+`SameSite=Lax` sign-in cookie and setting the usual Strict session cookie on
+success), `GET`/`POST`/`DELETE /api/me/sign-ins[/{p}]` (cookie only) and the
+admin `GET`/`PATCH /api/sign-in[/{p}]` and `POST /api/sign-in/{p}/check`. A
+typed client secret goes to the vault (`saveGlobalKey`, shared with
+`POST /api/providers/connect`) and is taken back when the config change is
+refused.
 
 For the v0.2 UI (docs/design/ui.md §17) responses carry names instead of
 ids (`names.go`, cached per response and resolved through the caller's own

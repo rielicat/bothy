@@ -2036,6 +2036,60 @@ export type Check = any;
 export type CheckProvider = any;
 
 //////////
+// source: internal/core/signin.go
+
+export type SignInProvider = "google" | "github";
+/**
+ * SignIn links a Google or GitHub account to a Bothy account. Only who the
+ * provider says the person is is kept, never a token.
+ */
+export interface SignIn {
+  provider: SignInProvider;
+  user_id: UserID;
+  /**
+   * Email is Google's verified address; for GitHub, the verified address
+   * that matched the sign-in list, else the primary verified one, or "".
+   */
+  email?: string;
+  login?: string; // GitHub only
+  created_at: string /* RFC 3339 */;
+  last_used_at: string /* RFC 3339 */;
+}
+/**
+ * SignInRepo is not Viewer-scoped: like UserRepo and IdentityRepo it serves
+ * authentication, before any Viewer exists, and ForUser and Delete take the
+ * caller's own user id.
+ */
+export type SignInRepo = any;
+/**
+ * SignInStore is implemented by the SQLite store and memstore. It stays
+ * outside Store so other Store implementations need not change.
+ */
+export type SignInStore = any;
+/**
+ * SignInOption is a provider people can sign in with right now.
+ */
+export interface SignInOption {
+  provider: SignInProvider;
+  name: string; // "Google", "GitHub"
+}
+/**
+ * SignInProviderStatus is the admin view of one provider (GET /api/sign-in).
+ */
+export interface SignInProviderStatus {
+  provider: SignInProvider;
+  name: string;
+  enabled: boolean; // effective config
+  ready: boolean; // enabled and usable now (the sign-in page offers it)
+  problem?: string; // no_address | incomplete | no_secret | sealed | unavailable
+  redirect_uri: string; // "" when public_url can't build one
+  client_id: string;
+  secret_saved: boolean;
+  secret_source?: string; // vault | env | aws-sm
+  orgs: string[]; // github; [] for google
+}
+
+//////////
 // source: internal/core/store.go
 
 /**
@@ -2061,7 +2115,7 @@ export interface User {
    */
   must_change_password?: boolean;
   /**
-   * LastLoginAt is the last sign-in with a password; zero = never.
+   * LastLoginAt is the last sign-in by any method; zero = never.
    * UserRepo.SignedIn writes it, Update leaves it alone.
    */
   last_login_at: string /* RFC 3339 */;
@@ -3502,4 +3556,80 @@ export interface ProviderConnectResp {
   fast?: string; // now first in models.fast
   secret?: SecretMeta;
   restart_required: string[];
+}
+
+//////////
+// source: internal/httpapi/dto/signin.go
+
+/**
+ * SignInMethods is GET /api/auth/methods: what the sign-in page offers.
+ */
+export interface SignInMethods {
+  providers: SignInOption[];
+}
+/**
+ * SignInStartReq is POST /api/auth/oauth/{provider}/start.
+ */
+export interface SignInStartReq {
+  next?: string; // where to land after signing in; validated server-side
+}
+/**
+ * SignInStartResp answers both starts (sign in and connect): the provider's
+ * authorize address, for window.location.assign.
+ */
+export interface SignInStartResp {
+  redirect_url: string;
+}
+/**
+ * MySignIns is GET /api/me/sign-ins.
+ */
+export interface MySignIns {
+  providers: SignInOption[]; // turned on now; the person may connect these
+  linked: (SignIn | undefined)[]; // their links, including providers since turned off
+  has_password: boolean; // false for accounts made by provider sign-in
+}
+/**
+ * SignInAdmin is GET /api/sign-in and the answer to both PATCHes.
+ */
+export interface SignInAdmin {
+  public_url: string;
+  address: string; // ok | missing | not_https
+  team_mode: boolean; // allow_new takes effect only in team mode
+  allow: string[]; // auth.sign_in.allow, shared by both providers
+  allow_new: boolean;
+  providers: SignInProviderStatus[];
+}
+/**
+ * SignInListPatch is PATCH /api/sign-in: who may sign in. Nil fields stay.
+ * Allow entries are trimmed and lower-cased; empties and repeats dropped.
+ */
+export interface SignInListPatch {
+  allow?: string[];
+  allow_new?: boolean;
+}
+/**
+ * SignInPatch is PATCH /api/sign-in/{provider}; nil fields stay.
+ * ClientSecret is write-only and "" keeps the saved one. Orgs is GitHub only.
+ */
+export interface SignInPatch {
+  enabled?: boolean;
+  client_id?: string;
+  client_secret?: string;
+  orgs?: string[];
+}
+/**
+ * SignInCheckReq is POST /api/sign-in/{provider}/check; "" means the saved
+ * value.
+ */
+export interface SignInCheckReq {
+  client_id?: string;
+  client_secret?: string;
+}
+/**
+ * SignInCheck says whether the provider accepted the client id and secret.
+ */
+export interface SignInCheck {
+  ok: boolean;
+  code?: FailureCode; // key_rejected | provider_error | timeout | unreachable | tls | private_address | unknown
+  error?: string; // raw message, for Details
 }

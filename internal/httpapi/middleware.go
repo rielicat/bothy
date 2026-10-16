@@ -217,6 +217,30 @@ func (s *Server) setSetupCookie(w http.ResponseWriter, r *http.Request, value st
 	setCookie(w, r, cookieSetup, value, "/api/setup", maxAge)
 }
 
+// The sign-in cookie carries only a provider round trip's random state.
+const (
+	cookieSignInSecure = "__Host-bothy_signin"
+	cookieSignInPlain  = "bothy_signin"
+)
+
+func (s *Server) signInCookieName(r *http.Request) string {
+	if infoOf(r).secure {
+		return cookieSignInSecure
+	}
+	return cookieSignInPlain
+}
+
+// setSignInCookie is setCookie with SameSite=Lax: the cookie must come back
+// on the provider's top-level redirect to the callback, which Strict drops.
+func (s *Server) setSignInCookie(w http.ResponseWriter, r *http.Request, state string, maxAge int) {
+	http.SetCookie(w, &http.Cookie{Name: s.signInCookieName(r), Value: state, Path: "/", MaxAge: maxAge, HttpOnly: true, //nolint:gosec // Secure is set per transport, as setCookie
+		Secure: infoOf(r).secure, SameSite: http.SameSiteLaxMode})
+}
+
+func (s *Server) clearSignInCookie(w http.ResponseWriter, r *http.Request) {
+	s.setSignInCookie(w, r, "", -1)
+}
+
 func cookieValue(r *http.Request, name string) string {
 	c, err := r.Cookie(name)
 	if err != nil {
