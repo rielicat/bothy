@@ -57,9 +57,26 @@ package):
   implements it (`TestBuiltInAdaptersFollowConfig`).
 
 A newly sighted group becomes a disabled space named by `Inbound.ChatTitle`
-and owned by the linked user `Inbound.AddedBy` names (the platform's "added
-by" or owner), otherwise by the instance owner. A group `Inbound` with
-`AddedBy` and no text or attachments only announces the group.
+(or "<App> group <chat id>" when the platform gave none) and owned by the
+linked user `Inbound.AddedBy` names (the platform's "added by" or owner),
+otherwise by the instance owner. A space still under that fallback name
+takes the first title a later message carries, its principal too; a title
+anyone gave it is never overwritten. A group `Inbound` with `AddedBy` and no
+text or attachments only announces the group.
+
+A `/pair` or `/start` code posted in a group (not forwarded, not
+`Inbound.Private`) that names a live link code is cancelled with
+`Auth.BurnPairing`, whoever posted it and whatever Bothy does in that group,
+and the group is told so (a security notice, so even a group Bothy ignores
+hears it, within the sender limit); any other code goes on as before.
+
+An `Inbound.Private` message in a group (a Slack slash command, which only
+its sender saw and which works in channels the bot is not in) never creates
+a space. From an unknown sender it is handled exactly like their DM (pairing
+or the daily notice), in the DM the adapter's `OpenDM` gives, which becomes
+the identity's DM chat. A known sender in a group without an enabled space
+is told in that DM that Bothy is off there, at most once an hour per
+channel; in an enabled space nothing changes.
 
 Markdown the hub sends uses CommonMark backslash escapes for punctuation and
 backtick fences or spans longer than any backtick run they contain, so system

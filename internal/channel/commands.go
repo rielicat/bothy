@@ -156,7 +156,7 @@ func (h *Hub) runCommand(ctx context.Context, a *adapter, in core.Inbound, res c
 		say(h.cmdUsage(ctx, tg, chat))
 	case "pair", "start":
 		switch {
-		case args != "" && chat.Kind != core.ChatDM:
+		case args != "" && chat.Kind != core.ChatDM && !in.Private:
 			// Codes are single use: anyone here could now redeem it first.
 			say("Pairing codes only work in a direct message with Bothy. This one is now visible here, so create a new code in Settings → Account and send it to Bothy privately.")
 		case args != "" && res.Status == core.IdentityGuest:

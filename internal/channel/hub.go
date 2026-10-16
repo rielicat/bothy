@@ -425,6 +425,11 @@ func (h *Hub) prune() {
 			delete(h.slowed, k)
 		}
 	}
+	for k, until := range h.noted {
+		if now.After(until) {
+			delete(h.noted, k)
+		}
+	}
 	for k, at := range h.replied {
 		if now.Sub(at) > 6*time.Hour {
 			delete(h.replied, k)

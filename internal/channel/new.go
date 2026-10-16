@@ -66,6 +66,7 @@ type Hub struct {
 	resolved  map[string]time.Time
 	slowed    map[string]time.Time
 	replied   map[string]time.Time
+	noted     map[string]time.Time // noteOnce keys, until they may be noted again
 	// compacting holds the sessions with a /compact in flight.
 	compacting map[core.SessionID]struct{}
 	// linkNoted holds the sessions told why their links show as plain text.
@@ -108,6 +109,7 @@ func New(d Deps) (*Hub, error) {
 		resolved:      map[string]time.Time{},
 		slowed:        map[string]time.Time{},
 		replied:       map[string]time.Time{},
+		noted:         map[string]time.Time{},
 		compacting:    map[core.SessionID]struct{}{},
 		linkNoted:     map[core.SessionID]time.Time{},
 	}, nil

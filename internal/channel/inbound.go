@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -101,6 +102,9 @@ func (h *Hub) handleMessage(ctx context.Context, a *adapter, in core.Inbound) {
 	if res.Status == core.IdentityBlocked {
 		return
 	}
+	if in.Chat.Kind == core.ChatGroup && !in.Private && h.burnExposedCode(ctx, a, in, ident) {
+		return
+	}
 	known := res.Status == core.IdentityLinked || res.Status == core.IdentityGuest
 	if !known && in.Chat.Kind == core.ChatDM {
 		// Unknown senders are limited too, silently: otherwise every wrong
@@ -109,6 +113,9 @@ func (h *Hub) handleMessage(ctx context.Context, a *adapter, in core.Inbound) {
 			return
 		}
 		h.unknownDM(ctx, a, in, ident)
+		return
+	}
+	if in.Chat.Kind == core.ChatGroup && in.Private && h.privateInGroup(ctx, a, in, ident, known) {
 		return
 	}
 	tg, ok := h.gate(ctx, a, in, res)
@@ -140,27 +147,130 @@ func (h *Hub) handleMessage(ctx context.Context, a *adapter, in core.Inbound) {
 	})
 }
 
-// touchIdentity records the sender and remembers its DM chat, which
-// PreferredChat and card routing use to reach the user later.
+// touchIdentity records the sender and, for a DM, remembers its chat.
 func (h *Hub) touchIdentity(ctx context.Context, channel string, in core.Inbound, now time.Time) (core.ChannelIdentity, error) {
-	ids := h.d.Store.Identities()
-	row, err := ids.Touch(ctx, &core.ChannelIdentity{Channel: channel, ExternalID: in.SenderID,
+	row, err := h.d.Store.Identities().Touch(ctx, &core.ChannelIdentity{Channel: channel, ExternalID: in.SenderID,
 		Username: in.SenderUsername, DisplayName: in.SenderName, LastSeen: now})
 	if err != nil {
 		return core.ChannelIdentity{}, err
 	}
-	if in.Chat.Kind != core.ChatDM || row.DMChat == in.Chat.ChatID {
+	if in.Chat.Kind != core.ChatDM {
 		return *row, nil
 	}
-	cur, err := ids.Get(ctx, channel, in.SenderID)
+	return h.rememberDM(ctx, *row, in.Chat.ChatID)
+}
+
+// rememberDM records chatID as the identity's DM chat, which PreferredChat
+// and card routing use to reach the user later.
+func (h *Hub) rememberDM(ctx context.Context, row core.ChannelIdentity, chatID string) (core.ChannelIdentity, error) {
+	if row.DMChat == chatID {
+		return row, nil
+	}
+	ids := h.d.Store.Identities()
+	cur, err := ids.Get(ctx, row.Channel, row.ExternalID)
 	if err != nil {
 		return core.ChannelIdentity{}, err
 	}
-	cur.DMChat = in.Chat.ChatID
+	cur.DMChat = chatID
 	if err := ids.Update(ctx, cur); err != nil {
 		return core.ChannelIdentity{}, err
 	}
 	return *cur, nil
+}
+
+const (
+	codeShared = "That code was shared in a group, so it no longer works. Create a new one in Bothy and send it to me in a direct message."
+	offHere    = "Bothy is off in this channel. Write to me here, or ask an admin to turn the channel on in Approvals."
+	// offEvery bounds offHere per sender and channel: a slash command can be
+	// repeated in a channel Bothy ignores as fast as anyone types it.
+	offEvery = time.Hour
+)
+
+// burnExposedCode cancels a live link code posted where the whole group can
+// read it, whoever posted it and whatever Bothy does in that group: anyone
+// there could redeem it first. It reports whether it did; anything else (no
+// code, a dead one, the attempt limit) goes on as before.
+func (h *Hub) burnExposedCode(ctx context.Context, a *adapter, in core.Inbound, ident core.ChannelIdentity) bool {
+	cmd, code, ok := parseCommand(in.Text)
+	if !ok || in.Forwarded || (cmd != "pair" && cmd != "start") || code == "" {
+		return false
+	}
+	if err := h.d.Auth.BurnPairing(ctx, ident, code); err != nil {
+		if !errors.Is(err, core.ErrNotFound) {
+			h.log.Info("channel: checking a code posted in a group failed", "channel", a.name, "err", err)
+		}
+		return false
+	}
+	// A security notice, so it is sent even in a group Bothy ignores.
+	if ok, _ := h.d.Budget.AllowSender(a.name + ":" + in.SenderID); ok {
+		h.replyAsync(in.Chat, codeShared)
+	}
+	return true
+}
+
+// privateInGroup handles a message only its sender saw (a Slack slash
+// command) in a group. Such a message never creates a space: slash commands
+// work in channels the bot is not in. An unknown sender is handled exactly
+// as in a DM, and a known one in a group without an enabled space is told
+// so; both hear back in their DM. It reports false for a known sender in an
+// enabled space, which takes the normal path.
+func (h *Hub) privateInGroup(ctx context.Context, a *adapter, in core.Inbound, ident core.ChannelIdentity, known bool) bool {
+	key := a.name + ":" + in.SenderID
+	if !known {
+		if ok, _ := h.d.Budget.AllowSender(key); ok {
+			h.inSenderDM(a, in, ident, func(ctx context.Context, in core.Inbound, ident core.ChannelIdentity) {
+				h.unknownDM(ctx, a, in, ident)
+			})
+		}
+		return true
+	}
+	sp, err := h.groupSpace(ctx, a, in)
+	switch {
+	case err == nil && sp.Enabled:
+		return false
+	case err != nil && !errors.Is(err, core.ErrNotFound):
+		h.log.Error("channel space lookup failed", "channel", a.name, "err", err)
+		return true
+	}
+	if ok, _ := h.d.Budget.AllowSender(key); !ok || !h.noteOnce(key+":"+in.Chat.ChatID, offEvery) {
+		return true
+	}
+	h.inSenderDM(a, in, ident, func(ctx context.Context, in core.Inbound, _ core.ChannelIdentity) {
+		h.reply(ctx, in.Chat, offHere)
+	})
+	return true
+}
+
+// inSenderDM opens the sender's DM, remembers it as the identity's DM chat
+// and runs fn with the message moved there. Opening is a platform call, so
+// it runs off the dispatcher, in order per sender.
+func (h *Hub) inSenderDM(a *adapter, in core.Inbound, ident core.ChannelIdentity, fn func(context.Context, core.Inbound, core.ChannelIdentity)) {
+	h.enqueueChat(a.name+":dm-of:"+in.SenderID, func(ctx context.Context) {
+		dm, err := a.ch.OpenDM(ctx, in.SenderID)
+		if err != nil {
+			h.log.Warn("channel: opening a DM failed", "channel", a.name, "err", err)
+			return
+		}
+		dm.Channel, dm.Kind = a.name, core.ChatDM
+		if ident, err = h.rememberDM(ctx, ident, dm.ChatID); err != nil {
+			h.log.Error("channel identity update failed; message dropped", "channel", a.name, "err", err)
+			return
+		}
+		in.Chat = dm
+		fn(ctx, in, ident)
+	})
+}
+
+// noteOnce reports whether key was not noted in the last every, noting it.
+func (h *Hub) noteOnce(key string, every time.Duration) bool {
+	now := time.Now()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if until, ok := h.noted[key]; ok && now.Before(until) {
+		return false
+	}
+	h.noted[key] = now.Add(every)
+	return true
 }
 
 // unknownDM handles a DM from a sender with no link: pairing codes are
@@ -385,8 +495,12 @@ func (h *Hub) gate(ctx context.Context, a *adapter, in core.Inbound, res core.Id
 			return tg, false
 		}
 	case core.ChatGroup:
-		sp, err := h.d.Store.Spaces().ByChat(ctx, a.name, in.Chat.ChatID)
+		sp, err := h.groupSpace(ctx, a, in)
 		if errors.Is(err, core.ErrNotFound) {
+			// A private message may come from a channel the bot is not in.
+			if in.Private {
+				return tg, false
+			}
 			// Anyone can add the bot to groups; the limiter bounds how fast
 			// one account can create spaces and owner notices. A skipped
 			// sighting is retried with the group's next message.
@@ -446,10 +560,7 @@ func (h *Hub) firstSighting(ctx context.Context, a *adapter, in core.Inbound, re
 		}
 		owner = u.ID
 	}
-	title := spaceTitle(in.ChatTitle)
-	if title == "" {
-		title = channelTitle(a.name) + " group " + in.Chat.ChatID
-	}
+	title := cmp.Or(spaceTitle(in.ChatTitle), fallbackTitle(a.name, in.Chat.ChatID))
 	now := h.clock.Now()
 	sp := &core.Space{
 		Kind: "group", Chat: core.ChatRef{Channel: a.name, ChatID: in.Chat.ChatID, Kind: core.ChatGroup},
@@ -474,6 +585,52 @@ func (h *Hub) firstSighting(ctx context.Context, a *adapter, in core.Inbound, re
 		". It stays silent there until you turn it on in Approvals."
 	buttons := h.webButton("Open Approvals", "/approvals")
 	h.enqueueChat(chat.Key(), func(ctx context.Context) { h.sendWithButtons(ctx, chat, text, buttons) })
+}
+
+// fallbackTitle names a group whose platform gave no title.
+func fallbackTitle(channel, chatID string) string {
+	return channelTitle(channel) + " group " + chatID
+}
+
+// groupSpace returns the group's space. One still under its fallback title
+// takes the platform's title once a message carries one (a Slack app gains
+// channels:read only when reinstalled); a title anyone gave it stays.
+func (h *Hub) groupSpace(ctx context.Context, a *adapter, in core.Inbound) (*core.Space, error) {
+	sp, err := h.d.Store.Spaces().ByChat(ctx, a.name, in.Chat.ChatID)
+	if err != nil {
+		return nil, err
+	}
+	fallback, title := fallbackTitle(a.name, in.Chat.ChatID), spaceTitle(in.ChatTitle)
+	if sp.Title != fallback || title == "" || title == fallback {
+		return sp, nil
+	}
+	// Re-read inside the transaction: an admin's rename made in between wins.
+	err = h.d.Store.Tx(ctx, func(tx core.Store) error {
+		cur, err := tx.Spaces().ByChat(ctx, a.name, in.Chat.ChatID)
+		if err != nil || cur.Title != fallback {
+			return err
+		}
+		cur.Title, cur.UpdatedAt = title, h.clock.Now()
+		if err := tx.Spaces().Update(ctx, cur); err != nil {
+			return err
+		}
+		p, err := tx.Principals().Get(ctx, core.SystemViewer(), cur.Principal)
+		if err != nil {
+			return err
+		}
+		if p.DisplayName == fallback {
+			p.DisplayName = title
+			if err := tx.Principals().Update(ctx, p); err != nil {
+				return err
+			}
+		}
+		sp = cur
+		return nil
+	})
+	if err != nil {
+		h.log.Warn("channel: naming a group from its platform title failed", "channel", a.name, "err", err)
+	}
+	return sp, nil
 }
 
 const maxTitleRunes = 128
