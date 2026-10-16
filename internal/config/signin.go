@@ -134,8 +134,8 @@ func validateSignIn(c *Config, v *vctx) {
 		v.add(hp+".orgs", "at most %d organizations, got %d", MaxSignInOrgs, len(h.Orgs))
 	}
 	if len(h.OrgIDs) > 0 && len(h.OrgIDs) != len(h.Orgs) {
-		v.add(hp+".org_ids", "has %d ids for %d organizations; save the organizations in Settings → Security to pin them again",
-			len(h.OrgIDs), len(h.Orgs))
+		v.add(hp+".org_ids", "must hold one id per organization in %s.orgs (got %d for %d); save the organizations in Settings → Security to pin them again",
+			hp, len(h.OrgIDs), len(h.Orgs))
 	}
 	for i, id := range h.OrgIDs {
 		if id <= 0 {
