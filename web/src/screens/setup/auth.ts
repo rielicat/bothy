@@ -71,11 +71,37 @@ export function providerName(p: string | null | undefined): string {
   return p === 'google' ? 'Google' : p === 'github' ? 'GitHub' : '';
 }
 
-// The account the server names on a refusal arrives in the URL, so anything
-// else than an address or a login is left out of the sentence.
+const REFUSED = ['__Host-bothy_signin_who', 'bothy_signin_who'];
+
+/**
+ * The account a provider just refused, which the server leaves in a cookie
+ * for a minute instead of the address, so a crafted link can't name anyone.
+ * Read once: the cookie is deleted here.
+ */
+export function takeRefused(): string {
+  let who = '';
+  for (const name of REFUSED) {
+    const raw = document.cookie
+      .split(';')
+      .map((c) => c.trim())
+      .find((c) => c.startsWith(`${name}=`));
+    if (raw === undefined) continue;
+    document.cookie = `${name}=; Max-Age=0; Path=/; SameSite=Lax${name.startsWith('__Host-') ? '; Secure' : ''}`;
+    try {
+      who ||= decodeURIComponent(raw.slice(name.length + 1));
+    } catch {
+      // a mangled value falls back to the general sentence
+    }
+  }
+  return who;
+}
+
+// The account comes from a cookie the page could not have set itself, but
+// anything else than an address or a login is still left out of the sentence.
 function account(who: string | null | undefined, provider: string | null | undefined): string {
-  if (!who || !/^[A-Za-z0-9._%+'@-]{1,100}$/.test(who)) return '';
-  return provider === 'github' && !who.includes('@') ? `@${who}` : who;
+  if (!who || who.length > 100) return '';
+  if (/^[A-Za-z0-9._%+'-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/.test(who)) return who;
+  return provider === 'github' && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(who) ? `@${who}` : '';
 }
 
 function notListed(provider: string | null | undefined, who: string | null | undefined): string {

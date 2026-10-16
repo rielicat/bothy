@@ -147,7 +147,8 @@ func (s *Server) signInStart(w http.ResponseWriter, r *http.Request, _ core.Acto
 
 // signInCallback always answers 303 to a fixed path of the web app, so a
 // provider's redirect never shows a JSON error and the code and state never
-// reach a page or the history. The sign-in cookie is cleared either way.
+// reach a page or the history. The sign-in cookie is cleared either way. A
+// refused account is named in the refusal cookie, never in the address.
 func (s *Server) signInCallback(w http.ResponseWriter, r *http.Request, _ core.Actor) error {
 	raw := r.PathValue("provider")
 	q := r.URL.Query()
@@ -159,6 +160,7 @@ func (s *Server) signInCallback(w http.ResponseWriter, r *http.Request, _ core.A
 		Error: errCode, IP: clientIP(r)}
 	s.clearSignInCookie(w, r)
 	target := "/login?" + url.Values{"signin_error": {auth.SignInUnavailable}}.Encode()
+	refused := ""
 	p, found := parseProvider(raw)
 	svc, err := s.signInSvc()
 	if found && err == nil && !s.safeMode() {
@@ -168,8 +170,8 @@ func (s *Server) signInCallback(w http.ResponseWriter, r *http.Request, _ core.A
 		switch {
 		case errors.As(err, &se):
 			v := url.Values{"signin_error": {se.Code}, "provider": {string(p)}}
-			if se.Code == auth.SignInNotAllowed && se.Who != "" {
-				v.Set("who", se.Who)
+			if se.Code == auth.SignInNotAllowed {
+				refused = se.Who
 			}
 			if se.Intent == auth.IntentLink {
 				target = "/settings/account?" + v.Encode()
@@ -188,6 +190,12 @@ func (s *Server) signInCallback(w http.ResponseWriter, r *http.Request, _ core.A
 			s.setSessionCookie(w, r, res.Cookie)
 			target = res.Next
 		}
+	}
+	switch {
+	case refused != "":
+		s.setRefusedCookie(w, r, refused, refusedMaxAge)
+	case cookieValue(r, s.refusedCookieName(r)) != "":
+		s.setRefusedCookie(w, r, "", -1)
 	}
 	http.Redirect(w, r, target, http.StatusSeeOther)
 	return nil

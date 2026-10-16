@@ -108,9 +108,22 @@ auth:
 		len(adm.Allow) != 1 || !adm.Providers[0].Ready {
 		t.Fatalf("PATCH /api/sign-in = %d %+v", code, adm)
 	}
-	if _, q = signInVia(t, pltNewClient(gw), g, "/api/auth/oauth/google/start", dto.SignInStartReq{}, pat); q.Get("signin_error") != "not_allowed" ||
-		q.Get("who") != "pat@gmail.com" {
+	refused := pltNewClient(gw)
+	if _, q = signInVia(t, refused, g, "/api/auth/oauth/google/start", dto.SignInStartReq{}, pat); q.Get("signin_error") != "not_allowed" ||
+		q.Has("who") {
 		t.Fatalf("taken off the list: %v", q)
+	}
+	// The refused account rides in a short-lived cookie the sign-in page
+	// reads, never in the address.
+	base, _ := url.Parse(gw.BaseURL)
+	var who string
+	for _, c := range refused.client.Jar.Cookies(base) {
+		if c.Name == "bothy_signin_who" {
+			who = c.Value
+		}
+	}
+	if who != "pat%40gmail.com" {
+		t.Fatalf("refusal cookie = %q", who)
 	}
 	resp := owner.Do(t, http.MethodPatch, "/api/sign-in", dto.SignInListPatch{Allow: &[]string{"gmail.com"}}, nil)
 	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(resp.Body), "anyone can get an address at gmail.com") {

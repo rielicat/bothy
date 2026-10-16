@@ -11,7 +11,7 @@
   import { events } from '../../lib/sse.svelte';
   import { session } from '../../lib/stores/session.svelte';
   import { theme, type ThemePref } from '../../lib/stores/ui.svelte';
-  import { connectErrorText, providerName, unanswered } from '../setup/auth';
+  import { connectErrorText, providerName, takeRefused, unanswered } from '../setup/auth';
   import ConfirmDialog from './ConfirmDialog.svelte';
   import ItemRow from './ItemRow.svelte';
   import PasswordDialog from './PasswordDialog.svelte';
@@ -75,7 +75,7 @@
     const code = q.get('signin_error');
     if (!connected && !code) return;
     if (connected) toast(`${connected} connected.`);
-    if (code) signInError = connectErrorText(code, q.get('provider'), q.get('who'));
+    if (code) signInError = connectErrorText(code, q.get('provider'), code === 'not_allowed' ? takeRefused() : '');
     router.navigate('/settings/account', { replace: true });
   }
 

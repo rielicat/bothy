@@ -161,7 +161,8 @@ function callback(req: Req, res: Res, p: SignInProvider) {
   const back = flow.intent === 'link' ? '/settings/account' : '/login';
   if (code) {
     const q = new URLSearchParams({ signin_error: code, provider: p });
-    if (code === 'not_allowed') q.set('who', p === 'github' ? 'kim-gh' : 'kim@gmail.com');
+    // The refused account rides in a cookie for a minute, never in the address.
+    if (code === 'not_allowed') res.setHeader('Set-Cookie', `bothy_signin_who=${encodeURIComponent(p === 'github' ? 'kim-gh' : 'kim@gmail.com')}; Max-Age=60; Path=/; SameSite=Lax`);
     if (flow.intent === 'signin' && flow.next !== '/chat') q.set('next', flow.next);
     return redirect(res, 303, `${back}?${q}`);
   }

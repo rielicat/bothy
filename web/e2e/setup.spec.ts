@@ -271,7 +271,7 @@ const screens: [string, string, (page: Page) => Promise<unknown>][] = [
   ['sign in with providers', '/login?mock=logged-out,signin-google,signin-github', (page) => page.getByRole('button', { name: 'Continue with GitHub' }).waitFor()],
   [
     'sign in refused by a provider',
-    '/login?signin_error=not_allowed&provider=google&who=kim%40gmail.com&mock=logged-out,signin-google',
+    '/login?signin_error=not_allowed&provider=google&mock=logged-out,signin-google',
     (page) => page.getByRole('alert').waitFor(),
   ],
   ['new password', '/password?mock=', (page) => page.getByRole('button', { name: 'Save and continue' }).click()],

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"html"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/rielicat/bothy/internal/core"
@@ -239,6 +240,28 @@ func (s *Server) setSignInCookie(w http.ResponseWriter, r *http.Request, state s
 
 func (s *Server) clearSignInCookie(w http.ResponseWriter, r *http.Request) {
 	s.setSignInCookie(w, r, "", -1)
+}
+
+// The refusal cookie names the account a provider sign-in refused, for the
+// sign-in page's sentence. The redirect carries only the reason, so a crafted
+// /login?signin_error=not_allowed link can't make the page name an address;
+// the page reads this cookie once and deletes it, so it is not HttpOnly.
+const (
+	cookieRefusedSecure = "__Host-bothy_signin_who"
+	cookieRefusedPlain  = "bothy_signin_who"
+	refusedMaxAge       = 60
+)
+
+func (s *Server) refusedCookieName(r *http.Request) string {
+	if infoOf(r).secure {
+		return cookieRefusedSecure
+	}
+	return cookieRefusedPlain
+}
+
+func (s *Server) setRefusedCookie(w http.ResponseWriter, r *http.Request, who string, maxAge int) {
+	http.SetCookie(w, &http.Cookie{Name: s.refusedCookieName(r), Value: url.QueryEscape(who), Path: "/", MaxAge: maxAge, //nolint:gosec // read by the web app; Secure is set per transport
+		Secure: infoOf(r).secure, SameSite: http.SameSiteLaxMode})
 }
 
 func cookieValue(r *http.Request, name string) string {

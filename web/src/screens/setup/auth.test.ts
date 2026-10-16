@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '../../lib/api/client';
-import { codeError, connectErrorText, loginError, ownerError, providerName, setupCommands, signInErrorText, tunnel } from './auth';
+import { codeError, connectErrorText, loginError, ownerError, providerName, setupCommands, signInErrorText, takeRefused, tunnel } from './auth';
+
+describe('the refused account', () => {
+  it('is read once from the cookie the server set', () => {
+    document.cookie = 'bothy_signin_who=kim%40gmail.com; Path=/';
+    expect(takeRefused()).toBe('kim@gmail.com');
+    expect(takeRefused()).toBe('');
+    document.cookie = 'bothy_signin_who=%E0%A4%A; Path=/';
+    expect(takeRefused()).toBe('');
+    expect(document.cookie).not.toContain('bothy_signin_who');
+  });
+});
 
 describe('setup commands (S1)', () => {
   it('leads with the command for this install and lists the other two', () => {
@@ -59,6 +70,8 @@ describe('provider sign-in copy (§5.9, §11.2)', () => {
     expect(signInErrorText('not_allowed', 'github', 'octo')).toBe("@octo isn't on this Bothy's sign-in list. Ask an admin to add you.");
     expect(signInErrorText('not_allowed', 'github', 'Visit evil.example now')).toBe("That GitHub account isn't on this Bothy's sign-in list. Ask an admin to add you.");
     expect(signInErrorText('not_allowed', null, null)).toBe("That account isn't on this Bothy's sign-in list. Ask an admin to add you.");
+    expect(signInErrorText('not_allowed', 'google', 'kim')).toBe("That Google account isn't on this Bothy's sign-in list. Ask an admin to add you.");
+    expect(signInErrorText('not_allowed', 'github', '@@@')).toBe("That GitHub account isn't on this Bothy's sign-in list. Ask an admin to add you.");
   });
 
   it('falls back to "isn\'t working" for codes it does not know', () => {

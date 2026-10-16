@@ -10,7 +10,7 @@
   import { away } from '../lib/away';
   import { router } from '../lib/router.svelte';
   import { session } from '../lib/stores/session.svelte';
-  import { loginError, rememberOneTime, signInErrorText, unanswered } from './setup/auth';
+  import { loginError, rememberOneTime, signInErrorText, takeRefused, unanswered } from './setup/auth';
   import Frame from './setup/Frame.svelte';
   import PasswordField from './setup/PasswordField.svelte';
   import RemoteSetup from './setup/RemoteSetup.svelte';
@@ -50,7 +50,7 @@
     const q = router.query;
     const code = q.get('signin_error');
     if (code) {
-      providerError = signInErrorText(code, q.get('provider'), q.get('who'));
+      providerError = signInErrorText(code, q.get('provider'), code === 'not_allowed' ? takeRefused() : '');
       const n = q.get('next');
       router.navigate('/login' + (n ? `?next=${encodeURIComponent(n)}` : ''), { replace: true });
     }

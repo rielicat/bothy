@@ -71,14 +71,17 @@ func (h *signInHarness) roundTrip(path string, body any, c *client, who oauthtes
 	start := decodeAs[dto.SignInStartResp](h.t, rec)
 	sc := cookieNamed(rec, cookieSignInPlain)
 	if sc == nil {
+		sc = cookieNamed(rec, cookieSignInSecure)
+	}
+	if sc == nil {
 		h.t.Fatalf("no sign-in cookie: %v", rec.Result().Cookies())
 	}
 	loc, err := oauthtest.Follow(context.Background(), nil, start.RedirectURL)
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	cb := h.request("GET", oauthtest.Path(loc), nil, c)
-	cb.AddCookie(&http.Cookie{Name: cookieSignInPlain, Value: sc.Value})
+	cb := h.request("GET", oauthtest.Path(loc), nil, c, opts...)
+	cb.AddCookie(&http.Cookie{Name: sc.Name, Value: sc.Value})
 	out := httptest.NewRecorder()
 	h.h.ServeHTTP(out, cb)
 	return out
@@ -214,17 +217,37 @@ func TestSignInCallbackHTTP(t *testing.T) {
 	}
 
 	// Failures land on the sign-in page with a code, the provider and next.
+	// The refused account is named in a short-lived cookie the page reads,
+	// never in the address.
 	rec = h.roundTrip("/api/auth/oauth/google/start", dto.SignInStartReq{Next: "/settings"}, nil, gKim)
 	path, q = location(t, rec)
 	if path != "/login" || q.Get("signin_error") != "not_allowed" || q.Get("provider") != "google" || q.Get("next") != "/settings" ||
-		q.Get("who") != "kim@gmail.com" || cookieNamed(rec, cookiePlain) != nil {
+		q.Has("who") || strings.Contains(rec.Header().Get("Location"), "kim") || cookieNamed(rec, cookiePlain) != nil {
 		t.Fatalf("refused: %s?%s", path, q.Encode())
+	}
+	who := cookieNamed(rec, cookieRefusedPlain)
+	if who == nil || who.Value != "kim%40gmail.com" || who.HttpOnly || who.MaxAge != 60 || who.Path != "/" || who.SameSite != http.SameSiteLaxMode || who.Secure {
+		t.Fatalf("refusal cookie %+v", who)
 	}
 	rec = h.roundTrip("/api/auth/oauth/google/start", dto.SignInStartReq{}, nil,
 		oauthtest.Identity{Subject: "g-sam", Email: "sam@acme.com", HD: "acme.com", EmailVerified: true})
-	if _, q = location(t, rec); q.Get("signin_error") != "no_account" || q.Has("next") || q.Has("who") {
+	if _, q = location(t, rec); q.Get("signin_error") != "no_account" || q.Has("next") || q.Has("who") || cookieNamed(rec, cookieRefusedPlain) != nil {
 		t.Fatalf("no account: %v", q)
 	}
+	// Anyone can hit the callback, and it never names an account it didn't
+	// refuse; a leftover refusal cookie is cleared.
+	rec = h.do("GET", "/api/auth/oauth/google/callback?signin_error=not_allowed&who=ceo@acme.com&state=nope&code=x", nil, nil,
+		func(r *http.Request) { r.AddCookie(&http.Cookie{Name: cookieRefusedPlain, Value: "kim%40gmail.com"}) })
+	if c := cookieNamed(rec, cookieRefusedPlain); c == nil || c.MaxAge >= 0 || strings.Contains(rec.Header().Get("Location"), "ceo") {
+		t.Fatalf("crafted callback: %v %s", rec.Result().Cookies(), rec.Header().Get("Location"))
+	}
+	// Behind HTTPS the refusal cookie is __Host- and Secure, like the others.
+	h.cfg.update(func(c *config.Config) { c.Server.PublicURL = "https://127.0.0.1:8080" })
+	rec = h.roundTrip("/api/auth/oauth/github/start", dto.SignInStartReq{}, nil, oauthtest.Identity{ID: 99, Login: "kim-gh"}, overTLS())
+	if who := cookieNamed(rec, cookieRefusedSecure); who == nil || who.Value != "kim-gh" || !who.Secure || who.HttpOnly || who.Path != "/" {
+		t.Fatalf("TLS refusal cookie %v", rec.Result().Cookies())
+	}
+	h.cfg.update(func(c *config.Config) { c.Server.PublicURL = "http://127.0.0.1:8080" })
 	_, q = location(t, h.do("GET", "/api/auth/oauth/google/callback?state=nope&code=x", nil, nil))
 	if q.Get("signin_error") != "expired" || q.Get("provider") != "google" {
 		t.Fatalf("unknown state: %v", q)

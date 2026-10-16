@@ -278,4 +278,11 @@ describe('Settings → Account → Sign-in methods', () => {
     expect(await screen.findByText('That Google account is already connected to someone else here.')).toBeTruthy();
     expect(router.query.has('signin_error')).toBe(false);
   });
+
+  it('names a refused account from the refusal cookie only, once', async () => {
+    document.cookie = 'bothy_signin_who=sam-gh; Path=/';
+    await openWith('signin-github', '/settings/account?signin_error=not_allowed&provider=github&who=ceo-gh');
+    expect(await screen.findByText("@sam-gh isn't on this Bothy's sign-in list. Ask an admin to add you.")).toBeTruthy();
+    expect(document.cookie).not.toContain('bothy_signin_who');
+  });
 });

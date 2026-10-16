@@ -154,14 +154,30 @@ describe('sign in with Google or GitHub (§5.9)', () => {
     ['unavailable', 'google', '', "Google sign-in isn't working right now. Sign in with your username and password, or ask an admin."],
   ])('says why %s (%s) came back, once', async (code, provider, who, text) => {
     const q = new URLSearchParams({ signin_error: code, provider, next: '/chat/ses_1' });
-    if (who) q.set('who', who);
+    // The server names a refused account in a short-lived cookie, never in the address.
+    if (who) document.cookie = `bothy_signin_who=${encodeURIComponent(who)}; Path=/`;
     await start('', `/login?${q}`);
     render(Login);
     expect((await screen.findByRole('alert')).textContent?.trim()).toBe(text);
     // A reload doesn't repeat the reason; where to go next stays.
     expect(router.query.has('signin_error')).toBe(false);
     expect(router.query.get('next')).toBe('/chat/ses_1');
+    expect(document.cookie).not.toContain('bothy_signin_who');
     expect(screen.queryByText('You were signed out. Sign in again to continue.')).toBeNull();
+  });
+
+  it('never names an account from the address', async () => {
+    await start('', `/login?${new URLSearchParams({ signin_error: 'not_allowed', provider: 'google', who: 'ceo@acme.com' })}`);
+    render(Login);
+    expect((await screen.findByRole('alert')).textContent?.trim()).toBe("That Google account isn't on this Bothy's sign-in list. Ask an admin to add you.");
+  });
+
+  it('leaves the refused account for a refusal only', async () => {
+    document.cookie = 'bothy_signin_who=kim%40gmail.com; Path=/';
+    await start('', '/login?signin_error=expired&provider=google');
+    render(Login);
+    expect((await screen.findByRole('alert')).textContent?.trim()).toBe('That sign-in took too long or was started in another tab. Try again.');
+    document.cookie = 'bothy_signin_who=; Max-Age=0; Path=/';
   });
 
   it("sends people to Bothy's own address when they opened another", async () => {
