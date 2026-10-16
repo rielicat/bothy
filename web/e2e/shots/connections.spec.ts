@@ -112,7 +112,7 @@ const states: ShotState[] = [
   { name: 'github-app', route: '/settings/connections/github', mock: 'github-none', setup: steps(other, click('A GitHub App you already have', 'radio')) },
   { name: 'github-app-installed', route: '/settings/connections/github', mock: 'github-none', setup: steps(...appKey, see('Installed on acme')) },
   { name: 'github-app-not-installed', route: '/settings/connections/github', mock: 'github-none,github-fail:not-installed', setup: steps(...appKey, see("isn't installed")) },
-  { name: 'github-app-organisations', route: '/settings/connections/github', mock: 'github-none,github-fail:installations', setup: steps(...appKey, (p) => p.getByRole('combobox', { name: 'Organisation' }).waitFor()) },
+  { name: 'github-app-organizations', route: '/settings/connections/github', mock: 'github-none,github-fail:installations', setup: steps(...appKey, (p) => p.getByRole('combobox', { name: 'Organization' }).waitFor()) },
   { name: 'github-enterprise', route: '/settings/connections/github', mock: 'github-none', setup: steps(click('Using GitHub Enterprise?')) },
   {
     name: 'github-saved',

@@ -182,7 +182,7 @@ describe('failures (§5.6.4, §12)', () => {
       message: "GitHub didn't accept that token. It may have expired or been revoked.",
     });
     expect(githubOutcome(p({ ok: false, error: 'dial tcp: no such host' }), null, false)).toMatchObject({ message: "Bothy couldn't reach GitHub. Check the address and that this server can reach it." });
-    expect(githubOutcome(p({ ok: false, error: 'the App is not installed on any account yet' }), null, true)).toMatchObject({ notInstalled: true, message: "The app isn't installed on any organisation yet." });
+    expect(githubOutcome(p({ ok: false, error: 'the App is not installed on any account yet' }), null, true)).toMatchObject({ notInstalled: true, message: "The app isn't installed on any organization yet." });
   });
 
   it('words web search failures', () => {

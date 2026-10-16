@@ -333,7 +333,7 @@
                 {/if}
                 {#if installs.length > 1}
                   <Select
-                    label="Organisation"
+                    label="Organization"
                     bind:value={installation}
                     onchange={checkApp}
                     options={[{ value: '', label: 'Choose where the app is installed' }, ...installs.map((i) => ({ value: String(i.id), label: i.account }))]}

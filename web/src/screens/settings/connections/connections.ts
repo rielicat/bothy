@@ -288,7 +288,7 @@ export function githubOutcome(p: GitHubProbe | null, e: unknown, app: boolean): 
     return { ok: true, message: app ? `Installed on ${p.account} · ${n}` : `Connected as ${p.account}. Bothy can see ${n}.` };
   }
   const details = p?.error ?? errorText(e);
-  if (app && /not installed/i.test(details)) return { ok: false, notInstalled: true, message: "The app isn't installed on any organisation yet.", details };
+  if (app && /not installed/i.test(details)) return { ok: false, notInstalled: true, message: "The app isn't installed on any organization yet.", details };
   const code = failureCode(p ? new Error(details) : e);
   if (code === 'unreachable' || code === 'timeout' || code === 'tls')
     return { ok: false, message: `Bothy couldn't reach ${githubAddress()}. Check the address and that this server can reach it.`, details };

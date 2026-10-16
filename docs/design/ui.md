@@ -2156,7 +2156,7 @@ GitHub opens in this tab. Sign in there if asked, then create the app and instal
 
 Under "Other ways to connect":
 - "Which permissions?" (token) lists: Contents, Pull requests, Issues and Actions (read and write; Actions is for deploys), Metadata (read).
-- A GitHub App you already have: "App ID" and "Private key" (file picker for the `.pem`, or "Paste instead" textarea); then "Installed on acme · 14 repositories" or "The app isn't installed on any organisation yet." + [Install on GitHub ↗].
+- A GitHub App you already have: "App ID" and "Private key" (file picker for the `.pem`, or "Paste instead" textarea); then "Installed on acme · 14 repositories" or "The app isn't installed on any organization yet." + [Install on GitHub ↗].
 - After Save: toast "Saved." and a `StatusLine` "Bothy is reading 2 repositories. You can keep working; this takes a few minutes. See progress in Knowledge ›".
 - Failures (S13): "GitHub didn't accept that token. It may have expired or been revoked." / "The token works but can't see any repositories. Give it access to at least one repository on GitHub." / "Bothy couldn't reach {address}. Check the address and that this server can reach it." / per repository: "Bothy can read acme/web but can't open pull requests there. Give the token Pull requests: read and write."
 
