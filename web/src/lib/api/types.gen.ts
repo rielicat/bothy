@@ -250,6 +250,13 @@ export interface OutMessage {
   Buttons: Button[][];
   ReplyTo: string;
   Silent: boolean;
+  /**
+   * Mentions are the platform user ids whose "<app>://user?id=…" link in
+   * Text shows as that person's mention (Slack <@U…>, Discord's pill).
+   * Only the hub's approval lines set it: the same link in model text
+   * stays a plain link, so nothing Bothy reads can make it ping someone.
+   */
+  Mentions: string[];
 }
 export interface ActionEvent {
   Chat: ChatRef;
@@ -276,6 +283,16 @@ export interface ChannelStatus {
   since: string /* RFC 3339 */;
   team?: string; // Slack: the workspace name (auth.test); Discord: "" (several servers)
   org?: boolean; // Slack: installed org-wide on Enterprise Grid
+  /**
+   * MemberCheck (Discord): "ok", or "no_access" when every server refused
+   * the last member lookup, so only people an admin lets in get in.
+   */
+  member_check?: string;
+  /**
+   * IdleServers (Discord, connected): servers Bothy is in where no channel
+   * is on, whose members therefore can't use it.
+   */
+  idle_servers?: number /* int */;
 }
 /**
  * MemberStatus is what a chat app says about whether a person belongs to
@@ -1519,10 +1536,28 @@ export interface ApprovalPerson {
   user: UserID;
   name: string; // display name, else username (chat: display name, else handle)
   app?: string; // the chat app of a teammate or channel requester
-  chat?: string; // a channel request: the channel's title ("#eng")
+  chat?: string; // a channel's request, whoever asked: the channel's title ("#eng")
   identity?: string; // "<channel>:<external id>", so chat cards can mention the real profile
   handle?: string; // the chat requester's @handle, when they have one
+  /**
+   * Kind is whose request it is: RequesterTeammate (a teammate's own
+   * chat) or RequesterChannel; "" for an account's.
+   */
+  kind?: string;
+  /**
+   * Scheduled: nobody asked; the teammate's or channel's schedule
+   * started the run, and Name is that teammate or channel.
+   */
+  scheduled?: boolean;
 }
+/**
+ * ApprovalPerson kinds.
+ */
+export const RequesterTeammate = "teammate";
+/**
+ * ApprovalPerson kinds.
+ */
+export const RequesterChannel = "channel";
 /**
  * ApprovalTally is where a multi-approver approval stands.
  */
@@ -2007,7 +2042,7 @@ export interface Deploy {
   session_id: SessionID;
   run_id?: RunID; // the agent run that dispatched it
   approval_id?: ApprovalID;
-  requested_by: UserID;
+  requested_by: UserID; // the account; a teammate's deploy: their chat actor "channel:<app>:<id>"
   approved_by: UserID[];
   chat?: ChatRef; // originating chat; the outcome is posted there
   status: DeployStatus;
