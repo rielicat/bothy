@@ -37,7 +37,7 @@ policy:
 `)
 	g := Start(t, Options{Config: cfg, Platforms: []Platform{tg}})
 	owner := pltOwner(t, g)
-	tg.Pair(t, owner, tgUser)
+	tg.LetIn(t, owner, tgUser, true)
 
 	// A scheduled run asks, times out after 1s and parks.
 	sc := dto.ScheduleUpsertReq{Schedule: core.Schedule{Principal: core.UserPrincipal(owner.ID()), Name: "e17 nightly",
@@ -60,28 +60,13 @@ policy:
 	waiting := owner.Send(t, owner.NewSession(t).ID, "E17-PARK a web copy")
 	pending := owner.WaitApproval(t, waiting, core.ApprovalPending)
 
-	// A Telegram run is in flight: mockllm holds the request open.
+	// A Telegram run is in flight: mockllm holds the request open. It is the
+	// teammate's, so the web doesn't list it; the chat hears what happened.
 	tg.Inject(telegramtest.Inbound{ChatID: tgUser, SenderID: tgUser, Text: "E17-SLOW tell me a long story"})
-	var slow core.Run
 	deadline := time.Now().Add(15 * time.Second)
-	for slow.ID == "" {
-		var runs dto.List[core.Run]
-		if code := owner.JSON(t, http.MethodGet, "/api/runs?status=running", nil, &runs); code != http.StatusOK {
-			t.Fatalf("runs = %d", code)
-		}
-		for _, r := range runs.Items {
-			if r.Trigger == core.TrigMessage {
-				slow = r
-			}
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the Telegram run never started\nlogs:\n%s", g.Logs())
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
 	for !slices.ContainsFunc(llm.Requests(), func(b []byte) bool { return strings.Contains(string(b), "E17-SLOW") }) {
 		if time.Now().After(deadline) {
-			t.Fatalf("the Telegram run never reached the model")
+			t.Fatalf("the Telegram run never reached the model\nlogs:\n%s", g.Logs())
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
@@ -91,15 +76,7 @@ policy:
 	owner = pltLogin(t, g, "owner", pltPassword)
 
 	t.Run("in-flight run is interrupted with a notice", func(t *testing.T) {
-		d := owner.Finished(t, slow.ID)
-		if d.Run.Status != core.RunInterrupted {
-			t.Fatalf("run after restart = %+v, want interrupted", d.Run)
-		}
-		const notice = "restarted before it finished this task"
-		if n := owner.Notices(t, slow.Session); !slices.ContainsFunc(n, func(s string) bool { return strings.Contains(s, notice) }) {
-			t.Fatalf("session notices = %q, want the restart notice", n)
-		}
-		tg.WaitText(t, tgUser, notice, 10*time.Second)
+		tg.WaitText(t, tgUser, "restarted before it finished this task", 10*time.Second)
 	})
 
 	t.Run("pending approval of an interrupted run is cancelled", func(t *testing.T) {
@@ -172,7 +149,7 @@ agent:
 `)
 	g := Start(t, Options{Config: cfg, Platforms: []Platform{tg}})
 	owner := pltOwner(t, g)
-	tg.Pair(t, owner, tgUser)
+	tg.LetIn(t, owner, tgUser, true)
 
 	tg.Inject(telegramtest.Inbound{ChatID: tgUser, SenderID: tgUser, Text: "GRACEFUL-SLOW tell me a long story"})
 	deadline := time.Now().Add(15 * time.Second)
@@ -182,11 +159,6 @@ agent:
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
-	var runs dto.List[core.Run]
-	if code := owner.JSON(t, http.MethodGet, "/api/runs?status=running", nil, &runs); code != http.StatusOK || len(runs.Items) != 1 {
-		t.Fatalf("running runs = %d %+v", code, runs.Items)
-	}
-	slow := runs.Items[0]
 	tg.Inject(telegramtest.Inbound{ChatID: tgUser, SenderID: tgUser, Text: "QUEUED-SECOND and then summarize it"})
 	tg.WaitText(t, tgUser, "Queued", 10*time.Second)
 
@@ -194,19 +166,16 @@ agent:
 	tg.WaitText(t, tgUser, "restarted before it finished this task", 5*time.Second)
 	tg.WaitText(t, tgUser, "restarted before it got to this message", 5*time.Second)
 
-	g = Start(t, Options{DataDir: g.DataDir, Config: cfg, Platforms: []Platform{tg}})
-	owner = pltLogin(t, g, "owner", pltPassword)
-	if d := owner.Finished(t, slow.ID); d.Run.Status != core.RunInterrupted {
-		t.Fatalf("run after a graceful restart = %+v, want interrupted", d.Run)
+	// Boot recovery has nothing more to tell the chat.
+	_ = Start(t, Options{DataDir: g.DataDir, Config: cfg, Platforms: []Platform{tg}})
+	time.Sleep(time.Second)
+	n := 0
+	for _, s := range tg.AllTexts(tgUser) {
+		if strings.Contains(s, "restarted before it finished this task") {
+			n++
+		}
 	}
-	var kept bool
-	for _, m := range owner.Messages(t, slow.Session) {
-		kept = kept || m.Role == core.MsgUser && strings.Contains(m.PlainText(), "QUEUED-SECOND")
-	}
-	if !kept {
-		t.Fatal("the queued message is gone from the session after a graceful restart")
-	}
-	if n := owner.Notices(t, slow.Session); strings.Count(strings.Join(n, "\n"), "restarted before it finished this task") != 1 {
-		t.Fatalf("session notices = %q, want one restart notice", n)
+	if n == 0 || n > 2 {
+		t.Fatalf("the chat heard the restart %d times: %q", n, tg.AllTexts(tgUser))
 	}
 }

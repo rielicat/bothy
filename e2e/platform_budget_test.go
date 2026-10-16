@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rielicat/bothy/internal/channel/telegram/telegramtest"
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/httpapi/dto"
 	"github.com/rielicat/bothy/internal/testkit/mockllm"
@@ -113,6 +114,33 @@ budgets:
 	}
 	if d := owner.Finished(t, owner.Send(t, owner.NewSession(t).ID, "E8-OWNER still working")); d.Run.Status != core.RunDone {
 		t.Fatalf("owner's run after the member hit their cap = %+v", d.Run)
+	}
+}
+
+// TestChatShareCap: chat apps together may spend only their share of the
+// daily budget; a teammate past it is refused in chat while a web account
+// still runs.
+func TestChatShareCap(t *testing.T) {
+	llm := pltLLM(t,
+		mockllm.Rule{MatchUser: `E8-SPEND`, Text: []string{"Spent."}, Usage: &core.Usage{Input: 20000, Output: 10}},
+		mockllm.Rule{MatchUser: `E8-`, Text: []string{"Fine."}},
+	)
+	tg := pltNewTelegram()
+	const tgUser = 6101
+	g := Start(t, Options{Config: pltYAML(llm.URL(), nil, `pricing:
+  "mock/mock-model": {in: 1, out: 1}
+budgets:
+  daily_usd: 0.03
+  chat_share_pct: 50
+`), Platforms: []Platform{tg}})
+	owner := pltOwner(t, g)
+	tg.LetIn(t, owner, tgUser, false)
+	tg.Inject(telegramtest.Inbound{ChatID: tgUser, SenderID: tgUser, Text: "E8-SPEND please"})
+	tg.WaitText(t, tgUser, "Spent.", 15*time.Second)
+	tg.Inject(telegramtest.Inbound{ChatID: tgUser, SenderID: tgUser, Text: "E8-AGAIN"})
+	tg.WaitText(t, tgUser, "budget is used up", 15*time.Second)
+	if d := owner.Finished(t, owner.Send(t, owner.NewSession(t).ID, "E8-OWNER still working")); d.Run.Status != core.RunDone {
+		t.Fatalf("owner's run after chat apps used their share = %+v", d.Run)
 	}
 }
 

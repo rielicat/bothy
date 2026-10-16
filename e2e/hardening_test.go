@@ -271,8 +271,9 @@ func TestHardeningV1LargeBodiesTakeTurns(t *testing.T) {
 	}
 }
 
-// Each unknown sender gets one notice a day, but every new account also
-// meant an admin DM, without bound; admins now get at most three an hour.
+// Each person waiting to be let in gets one line a day, but every new
+// account also meant an approver DM, without bound; approvers get at most
+// three an hour. Link codes are gone.
 func TestHardeningUnknownSenderAdminDMsBounded(t *testing.T) {
 	tg := telegramtest.New(telegramtest.Config{})
 	t.Cleanup(tg.Close)
@@ -283,24 +284,28 @@ func TestHardeningUnknownSenderAdminDMsBounded(t *testing.T) {
 	})
 	completeSetup(t, g)
 	const ownerChat = "1001"
-	var code core.PairingCode
-	if c := g.JSON(t, http.MethodPost, "/api/pairing", map[string]any{}, &code); c/100 != 2 || code.Code == "" {
-		t.Fatalf("pairing code = %d", c)
+	if resp := g.Do(t, http.MethodPost, "/api/pairing", map[string]any{}, nil); resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("POST /api/pairing = %s, want gone", resp.Status)
 	}
-	tg.InjectText(ownerChat, ownerChat, "/start "+code.Code, true)
-	waitTexts(t, tg, ownerChat, func(ts []string) bool { return containsText(ts, "Linked to") }, "the owner's link reply")
+	tg.InjectText(ownerChat, ownerChat, "hello", true)
+	waitTexts(t, tg, ownerChat, func(ts []string) bool { return containsText(ts, "once an admin lets you in") }, "the owner's waiting line")
+	teammate, yes := core.IdentityTeammate, true
+	if c := g.JSON(t, http.MethodPatch, "/api/identities/telegram/"+ownerChat, dto.IdentityPatchReq{Status: &teammate, CanApprove: &yes}, nil); c != http.StatusOK {
+		t.Fatalf("let in the owner's Telegram = %d", c)
+	}
+	waitTexts(t, tg, ownerChat, func(ts []string) bool { return containsText(ts, "I'm Bothy.") }, "the hello")
 
 	strangers := []string{"2001", "2002", "2003", "2004", "2005", "2006", "2007", "2008"}
 	for _, s := range strangers {
 		tg.InjectText(s, s, "hi, let me in", true)
 	}
 	for _, s := range strangers {
-		waitTexts(t, tg, s, func(ts []string) bool { return containsText(ts, "Ask an admin to approve code") }, "stranger "+s+"'s notice")
+		waitTexts(t, tg, s, func(ts []string) bool { return containsText(ts, "once an admin lets you in") }, "stranger "+s+"'s line")
 	}
-	time.Sleep(time.Second) // admin DMs go out on the owner's chat queue
+	time.Sleep(time.Second) // approver DMs go out on the approver's chat queue
 	n := 0
 	for _, txt := range tg.SentTexts(ownerChat) {
-		if strings.Contains(txt, "Someone new messaged Bothy") {
+		if strings.Contains(txt, "is waiting to be let in") {
 			n++
 		}
 	}

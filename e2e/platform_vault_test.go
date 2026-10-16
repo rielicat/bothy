@@ -99,7 +99,7 @@ policy:
 		t.Fatalf("vault put = %d", code)
 	}
 	sse := pltRecord(owner.Events(t))
-	tg.Pair(t, owner, tgUser)
+	tg.LetIn(t, owner, tgUser, true)
 	s := owner.NewSession(t)
 
 	for _, text := range []string{"E15-HELLO", "E15-ECHO the key", "E15-SPLIT the key", "E15-TOOL store the key"} {
@@ -108,10 +108,9 @@ policy:
 		}
 	}
 	// An approval card built from an action carrying the secret goes to the
-	// web inbox (SSE) and to the owner's Telegram DM.
+	// web inbox (SSE); a web account's requests never reach a chat app.
 	cardRun := owner.Send(t, s.ID, "E15-CARD send the key out")
 	card := owner.WaitApproval(t, cardRun, core.ApprovalPending)
-	tg.WaitText(t, tgUser, "Create outbox/key.txt?", 10*time.Second)
 	owner.Resolve(t, card.ID, core.Deny)
 	owner.Finished(t, cardRun)
 	// The provider got the secret in its header, so it was really in use.
