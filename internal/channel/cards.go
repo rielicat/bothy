@@ -2,6 +2,7 @@ package channel
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"fmt"
 	"regexp"
@@ -311,21 +312,34 @@ type asker struct {
 
 func teamAsker(ap *core.Approval) asker {
 	r := ap.Requester
-	if !ap.Approver.Team || r == nil || r.Identity == "" {
+	if !ap.Approver.Team || r == nil {
 		return asker{}
 	}
-	app, _, _ := strings.Cut(r.Identity, ":")
-	where := " asked on " + escapeMD(channelTitle(app)) + "."
-	if r.Chat != "" {
-		where = " asked in " + inert(r.Chat) + "."
+	out := asker{channel: r.Kind == core.RequesterChannel || r.Chat != ""}
+	if !out.channel && r.Name != "" {
+		out.person = truncateRunes(oneLine(r.Name), 24)
 	}
-	link, mention := mentionLink(r.Identity, r.Name, r.Handle)
-	out := asker{asked: link + where, mention: mention}
-	if r.Chat != "" {
-		out.channel = true
-		return out
+	app := r.App
+	if app == "" {
+		app, _, _ = strings.Cut(r.Identity, ":")
 	}
-	out.person = truncateRunes(oneLine(r.Name), 24)
+	on := " on " + escapeMD(channelTitle(app)) + "."
+	switch {
+	case r.Scheduled && out.channel:
+		// Nobody asked: the channel's schedule did.
+		out.asked = "From " + inert(cmp.Or(r.Chat, r.Name)) + on
+	case r.Identity == "":
+	case r.Scheduled:
+		link, mention := mentionLink(r.Identity, r.Name, r.Handle)
+		out.asked, out.mention = "From "+link+"'s schedule"+on, mention
+	default:
+		link, mention := mentionLink(r.Identity, r.Name, r.Handle)
+		where := " asked" + on
+		if r.Chat != "" {
+			where = " asked in " + inert(r.Chat) + "."
+		}
+		out.asked, out.mention = link+where, mention
+	}
 	return out
 }
 

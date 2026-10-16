@@ -366,11 +366,14 @@ func (h *Hub) Status() []core.ChannelStatus {
 		if enabled, _, known := wantState(cur, a); known {
 			st.Enabled = enabled
 			if !enabled {
-				st.State, st.Detail = "disabled", ""
+				st.State, st.Detail, st.MemberCheck = "disabled", "", ""
 			}
 		}
-		if st.State == "connected" && st.Detail == "" {
-			st.Detail = h.idleServers(h.ctx, a)
+		if st.State == "connected" {
+			st.IdleServers = h.idleServers(h.ctx, a)
+			if st.Detail == "" {
+				st.Detail = idleText(st.IdleServers)
+			}
 		}
 		out = append(out, st)
 	}
@@ -392,7 +395,8 @@ func (h *Hub) publishStatuses() {
 		h.mu.Lock()
 		a := h.adapters[st.Name]
 		changed := a != nil && (a.published.State != st.State || a.published.Detail != st.Detail ||
-			a.published.Identity != st.Identity || a.published.Enabled != st.Enabled || a.published.Team != st.Team)
+			a.published.Identity != st.Identity || a.published.Enabled != st.Enabled || a.published.Team != st.Team ||
+			a.published.MemberCheck != st.MemberCheck || a.published.IdleServers != st.IdleServers)
 		connected := changed && st.State == "connected" && a.published.State != "connected"
 		if changed {
 			a.published = st

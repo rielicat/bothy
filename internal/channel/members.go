@@ -446,12 +446,12 @@ func (h *Hub) applyChatInfo(ctx context.Context, a *adapter, p core.PrincipalID,
 	}
 }
 
-// idleServers is the Discord status detail when Bothy is in servers where
-// no channel is on, so their members can't use it.
-func (h *Hub) idleServers(ctx context.Context, a *adapter) string {
+// idleServers counts the servers (Discord) Bothy is in where no channel is
+// on, so their members can't use it.
+func (h *Hub) idleServers(ctx context.Context, a *adapter) int {
 	tl, ok := a.ch.(core.TeamLister)
 	if !ok {
-		return ""
+		return 0
 	}
 	on := h.teamsOf(ctx, a)
 	n := 0
@@ -460,6 +460,11 @@ func (h *Hub) idleServers(ctx context.Context, a *adapter) string {
 			n++
 		}
 	}
+	return n
+}
+
+// idleText is the status detail for n idle servers.
+func idleText(n int) string {
 	switch n {
 	case 0:
 		return ""

@@ -57,11 +57,11 @@ func TestCheckMember(t *testing.T) {
 
 	f.srv.SetMember(g, maya, discordtest.Member{Status: http.StatusForbidden})
 	f.srv.SetMember(guildB, maya, discordtest.Member{Status: http.StatusForbidden})
-	if m := check(g, guildB); m.Status != core.MemberUnknown || f.a.Status().Detail != noAccessDetail {
+	if m := check(g, guildB); m.Status != core.MemberUnknown || f.a.Status().Detail != noAccessDetail || f.a.Status().MemberCheck != "no_access" {
 		t.Fatalf("no access anywhere = %+v with status %+v", m, f.a.Status())
 	}
 	f.srv.SetMember(guildC, maya, discordtest.Member{Status: http.StatusNotFound})
-	if m := check(g, guildB, guildC); m.Status != core.MemberOutsider || f.a.Status().Detail != "" {
+	if m := check(g, guildB, guildC); m.Status != core.MemberOutsider || f.a.Status().Detail != "" || f.a.Status().MemberCheck != "ok" {
 		t.Fatalf("403 and 404 mixed = %+v with status %+v, want outsider", m, f.a.Status())
 	}
 	if m, err := f.a.CheckMember(ctx, "not-a-snowflake", []string{g}); err != nil || m.Status != core.MemberOutsider {

@@ -306,10 +306,22 @@ type ApprovalPerson struct {
 	User     UserID `json:"user"`
 	Name     string `json:"name"`               // display name, else username (chat: display name, else handle)
 	App      string `json:"app,omitempty"`      // the chat app of a teammate or channel requester
-	Chat     string `json:"chat,omitempty"`     // a channel request: the channel's title ("#eng")
+	Chat     string `json:"chat,omitempty"`     // a channel's request, whoever asked: the channel's title ("#eng")
 	Identity string `json:"identity,omitempty"` // "<channel>:<external id>", so chat cards can mention the real profile
 	Handle   string `json:"handle,omitempty"`   // the chat requester's @handle, when they have one
+	// Kind is whose request it is: RequesterTeammate (a teammate's own
+	// chat) or RequesterChannel; "" for an account's.
+	Kind string `json:"kind,omitempty"`
+	// Scheduled: nobody asked; the teammate's or channel's schedule
+	// started the run, and Name is that teammate or channel.
+	Scheduled bool `json:"scheduled,omitempty"`
 }
+
+// ApprovalPerson kinds.
+const (
+	RequesterTeammate = "teammate"
+	RequesterChannel  = "channel"
+)
 
 // ApprovalTally is where a multi-approver approval stands.
 type ApprovalTally struct {

@@ -334,8 +334,8 @@ func TestDiscordDMChecksEnabledGuilds(t *testing.T) {
 		if len(calls) != 1 || !slices.Equal(calls[0].Teams, []string{"G1", "G3"}) {
 			t.Fatalf("lookups = %+v, want the servers with a channel on", calls)
 		}
-		if got := h.hub.Status()[0].Detail; got != "Bothy is in 1 server where it isn't on in any channel." {
-			t.Fatalf("status detail = %q", got)
+		if st := h.hub.Status()[0]; st.Detail != "Bothy is in 1 server where it isn't on in any channel." || st.IdleServers != 1 {
+			t.Fatalf("status = %+v, want 1 idle server", st)
 		}
 	})
 }

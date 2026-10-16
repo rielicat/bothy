@@ -139,6 +139,12 @@ type ChannelStatus struct {
 	Since    time.Time `json:"since"`
 	Team     string    `json:"team,omitempty"` // Slack: the workspace name (auth.test); Discord: "" (several servers)
 	Org      bool      `json:"org,omitempty"`  // Slack: installed org-wide on Enterprise Grid
+	// MemberCheck (Discord): "ok", or "no_access" when every server refused
+	// the last member lookup, so only people an admin lets in get in.
+	MemberCheck string `json:"member_check,omitempty"`
+	// IdleServers (Discord, connected): servers Bothy is in where no channel
+	// is on, whose members therefore can't use it.
+	IdleServers int `json:"idle_servers,omitempty"`
 }
 
 // MemberStatus is what a chat app says about whether a person belongs to

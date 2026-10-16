@@ -216,7 +216,8 @@ func TestTeamRequest(t *testing.T) {
 	if ap.Card.Context != "Maya Chen's direct messages on Slack" {
 		t.Errorf("team card context = %q, want whose chat it is, never its title", ap.Card.Context)
 	}
-	if r := ap.Requester; r == nil || r.Name != "Maya Chen" || r.App != "slack" || r.Identity != "slack:U1" || r.Handle != "maya chen" || r.Chat != "" {
+	if r := ap.Requester; r == nil || r.Name != "Maya Chen" || r.App != "slack" || r.Identity != "slack:U1" || r.Handle != "maya chen" || r.Chat != "" ||
+		r.Kind != core.RequesterTeammate || r.Scheduled {
 		t.Errorf("requester = %+v", ap.Requester)
 	}
 	if !slices.Contains(ap.Decision.Choices, core.AllowAlways) {
@@ -239,19 +240,40 @@ func TestTeamRequest(t *testing.T) {
 	if ch.Card.Context != "g on Telegram" {
 		t.Errorf("channel card context = %q", ch.Card.Context)
 	}
-	if r := ch.Requester; r == nil || r.Identity != "slack:U2" || r.Chat != "g" || r.Name != "U2" {
+	if r := ch.Requester; r == nil || r.Identity != "slack:U2" || r.Chat != "g" || r.Name != "U2" || r.Kind != core.RequesterChannel {
 		t.Errorf("channel requester = %+v", ch.Requester)
 	}
 	sched := h.teamRequest(h.space, h.spaceSession, "schedule:sch_1")
-	if sched.Approver.RequesterIdentity != "" || sched.Requester == nil || sched.Requester.Name != "g" || sched.Requester.App != "telegram" {
+	if sched.Approver.RequesterIdentity != "" || sched.Requester == nil || sched.Requester.Name != "g" || sched.Requester.App != "telegram" ||
+		sched.Requester.Chat != "g" || sched.Requester.Kind != core.RequesterChannel {
 		t.Errorf("a schedule's team request = %+v / %+v, want the channel named", sched.Approver, sched.Requester)
 	}
+	// A schedule's run: nobody asked, so the card names whose schedule.
+	scheduled := func(p core.Principal, sess core.SessionID) *core.ApprovalPerson {
+		t.Helper()
+		run := &core.Run{Session: sess, Principal: p.ID, Trigger: core.TrigSchedule, Status: core.RunQueued, CreatedAt: time.Now()}
+		if err := h.store.Runs().Create(h.ctx, run); err != nil {
+			t.Fatal(err)
+		}
+		ap, err := h.ap.Request(h.ctx, core.ApprovalRequest{Run: run.ID, Session: sess, Principal: p.ID, ToolCallID: core.NewID(core.PrefixToolCall),
+			Action: sendAction("send_mail", "bob@example.com", core.SEExternalSend), Spec: spec("send_mail", core.SEExternalSend),
+			Decision: core.Decision{Verdict: core.VerdictAsk, Approver: core.ApproverReq{Team: true}}, Sender: "schedule:sch_2"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ap.Requester
+	}
+	if r := scheduled(h.space, h.spaceSession); r == nil || *r != (core.ApprovalPerson{Name: "g", App: "telegram", Chat: "g",
+		Kind: core.RequesterChannel, Scheduled: true}) {
+		t.Errorf("a channel's scheduled request names %+v", r)
+	}
+	if r := scheduled(maya, sess); r == nil || r.Name != "Maya Chen" || r.Identity != "slack:U1" || r.Kind != core.RequesterTeammate || !r.Scheduled {
+		t.Errorf("a teammate's scheduled request names %+v", r)
+	}
 
-	for range 2 {
+	for range 3 { // with the two above, five open requests
 		h.teamRequest(maya, sess, "slack:U1")
 	}
-	h.teamRequest(maya, sess, "slack:U1")
-	h.teamRequest(maya, sess, "slack:U1")
 	run := h.newRun(sess, maya.ID, "")
 	_, err := h.ap.Request(h.ctx, core.ApprovalRequest{Run: run, Session: sess, Principal: maya.ID, ToolCallID: "x",
 		Action: sendAction("send_mail", "bob@example.com", core.SEExternalSend), Spec: spec("send_mail", core.SEExternalSend),

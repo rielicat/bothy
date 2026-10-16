@@ -170,9 +170,13 @@ func (a *adapter) Caps() core.ChannelCaps { return caps }
 
 func (a *adapter) Status() core.ChannelStatus {
 	a.mu.Lock()
-	st := core.ChannelStatus{Name: name, Enabled: a.conf().cfg.Enabled, State: a.state, Detail: a.detail, Identity: a.identity, Since: a.since}
-	if st.Detail == "" && a.noAccess {
-		st.Detail = noAccessDetail
+	st := core.ChannelStatus{Name: name, Enabled: a.conf().cfg.Enabled, State: a.state, Detail: a.detail, Identity: a.identity, Since: a.since,
+		MemberCheck: "ok"}
+	if a.noAccess {
+		st.MemberCheck = "no_access"
+		if st.Detail == "" {
+			st.Detail = noAccessDetail
+		}
 	}
 	gw := a.gw
 	a.mu.Unlock()

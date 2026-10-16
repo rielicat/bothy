@@ -1457,7 +1457,7 @@ Chat apps (SPEC §5.9) edit a card to its decided line in place of the question,
 
 **Requests from chat apps.** A teammate's or a channel's request (`approver.team`) goes to admins here and to the people an admin marked "Can approve" (§11.5), in their own direct messages. Admins decide it like any card; members never see it. The card:
 
-- **Asked line** (under the question): "Maya Chen (@maya) asked on Slack." for someone's own chat; "Maya Chen asked in #eng on Slack." for a channel; "From #eng on Slack." when a schedule started it.
+- **Asked line** (under the question): "Maya Chen (@maya) asked on Slack." for someone's own chat; "Maya Chen asked in #eng on Slack." for a channel; when a schedule started it (`requester.scheduled`) nobody asked: "From #eng on Slack." for a channel's, "From Maya Chen's schedule on Slack." for a teammate's. Whose request it is comes from `requester.kind` (`teammate` | `channel`; a channel's requester always has `chat`), never from which fields happen to be set.
 - **Meta line:** the server's context instead of "From …", never a link, since admins can't open these chats: "Maya Chen's direct messages on Slack" or "#eng on Slack".
 - **Buttons:** as §8.3, with the person's name on the standing choices. A channel's request offers only the verb and Deny.
 - **Details:** "Who can approve: an admin, or someone who can approve in a chat app". Someone who can't decide reads "Waiting for an approver."

@@ -584,6 +584,32 @@ func TestChannelCardHasNoGrantButtons(t *testing.T) {
 	})
 }
 
+// TestScheduledTeamCardSaysWhoseSchedule: when a schedule started the run,
+// nobody asked, so the card says whose schedule it was; a channel's card
+// still offers no grants.
+func TestScheduledTeamCardSaysWhoseSchedule(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		sp := h.space("-500", true, false)
+		h.request(sp.Principal, core.ApproverReq{Team: true}, nil, func(a *core.Approval) {
+			a.Requester = &core.ApprovalPerson{Name: "Team", App: "telegram", Chat: "Team", Kind: core.RequesterChannel, Scheduled: true}
+		})
+		card := h.sent(ownerChat)[0]
+		if !strings.Contains(card.Text, "\nFrom Team on Telegram.\n") || strings.Join(buttonLabels(card), ",") != "Run command,Deny" {
+			t.Fatalf("channel schedule card = %q %v", card.Text, buttonLabels(card))
+		}
+		h.request(h.pid(memberChat), core.ApproverReq{Team: true}, nil, func(a *core.Approval) {
+			a.Requester = &core.ApprovalPerson{Name: "Mark", App: "telegram", Identity: "telegram:" + memberChat, Kind: core.RequesterTeammate,
+				Scheduled: true}
+		})
+		card = h.sent(ownerChat)[1]
+		if !strings.Contains(card.Text, "\nFrom [Mark](tg://user?id=2002)'s schedule on Telegram.\n") ||
+			strings.Join(buttonLabels(card), ",") != "Run command,Allow in Mark's chat,Always allow for Mark,Deny" {
+			t.Fatalf("teammate schedule card = %q %v", card.Text, buttonLabels(card))
+		}
+	})
+}
+
 func TestTruncatedCardOffersOnlyDenyAndWeb(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t).start()

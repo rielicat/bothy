@@ -285,7 +285,7 @@ func (f *filler) name(ctx context.Context, id core.UserID) string {
 // requester is who asked: the chat sender whose message started a channel's
 // or teammate's run; else the account a multi-approver approval names, the
 // approver of a personal approval or the run's user; else the teammate or
-// channel itself.
+// channel itself, whose schedule (Scheduled) or other trigger started it.
 func (f *filler) requester(ctx context.Context, a *core.Approval) *core.ApprovalPerson {
 	if ri := a.Approver.RequesterIdentity; ri != "" {
 		if p := f.chatPerson(ctx, a.Principal, ri); p != nil {
@@ -296,10 +296,10 @@ func (f *filler) requester(ctx context.Context, a *core.Approval) *core.Approval
 	if id == "" {
 		id = a.Approver.User
 	}
+	var run *core.Run
 	if id == "" {
-		run, err := f.ap.store.Runs().Get(ctx, core.SystemViewer(), a.Run)
-		if err == nil {
-			id = run.User
+		if r, err := f.ap.store.Runs().Get(ctx, core.SystemViewer(), a.Run); err == nil {
+			run, id = r, r.User
 		}
 	}
 	if id != "" {
@@ -309,14 +309,16 @@ func (f *filler) requester(ctx context.Context, a *core.Approval) *core.Approval
 	if err != nil {
 		return nil
 	}
+	scheduled := run != nil && run.Trigger.Scheduled()
 	if sp.Kind == core.SpaceGroup {
-		return &core.ApprovalPerson{Name: sp.Title, App: sp.Chat.Channel}
+		return &core.ApprovalPerson{Name: sp.Title, App: sp.Chat.Channel, Chat: sp.Title, Kind: core.RequesterChannel, Scheduled: scheduled}
 	}
-	ident, err := f.ap.store.Identities().ByPrincipal(ctx, a.Principal)
-	if err != nil {
-		return &core.ApprovalPerson{Name: sp.Title, App: sp.Chat.Channel}
+	p := &core.ApprovalPerson{Name: sp.Title, App: sp.Chat.Channel, Kind: core.RequesterTeammate}
+	if ident, err := f.ap.store.Identities().ByPrincipal(ctx, a.Principal); err == nil {
+		p = f.chatPerson(ctx, a.Principal, ident.Key())
 	}
-	return f.chatPerson(ctx, a.Principal, ident.Key())
+	p.Scheduled = scheduled
+	return p
 }
 
 // chatPerson names a person in a chat app ("<channel>:<external id>"), and
@@ -330,8 +332,11 @@ func (f *filler) chatPerson(ctx context.Context, principal core.PrincipalID, key
 	if id, err := f.ap.store.Identities().Get(ctx, app, ext); err == nil {
 		p.Name, p.Handle = cmp.Or(id.DisplayName, id.Username, ext), id.Username
 	}
-	if sp, err := f.ap.store.Spaces().Get(ctx, core.SystemViewer(), principal); err == nil && sp.Kind == core.SpaceGroup {
-		p.Chat = sp.Title
+	if sp, err := f.ap.store.Spaces().Get(ctx, core.SystemViewer(), principal); err == nil {
+		p.Kind = core.RequesterTeammate
+		if sp.Kind == core.SpaceGroup {
+			p.Chat, p.Kind = sp.Title, core.RequesterChannel
+		}
 	}
 	return p
 }
