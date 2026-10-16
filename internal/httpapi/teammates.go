@@ -171,48 +171,52 @@ func (s *Server) forgetTeammate(w http.ResponseWriter, r *http.Request, a core.A
 		return badRequest("Block them first.")
 	}
 	st := purgeStats{}
-	var errs []error
 	if p := id.Principal; p != "" {
 		pr, err := s.d.Store.Principals().Get(ctx, onlyOf(p), p)
 		if err != nil {
 			return err
 		}
-		if s.d.Runner != nil {
-			n, err := s.d.Runner.StopPrincipal(withOrigin(r, a, nil), p)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("stop: %w", err))
-			}
-			st["runs_stopped"] += n
+		if errs := s.purgeTeam(ctx, r, a, pr, st); len(errs) > 0 {
+			return fmt.Errorf("deleting their data is incomplete: %w", errors.Join(errs...))
 		}
-		v := core.Viewer{Principals: []core.PrincipalID{p}}
-		ps := []*core.Principal{pr}
-		step := func(name string, fn func() error) {
-			if err := fn(); err != nil {
-				errs = append(errs, fmt.Errorf("%s: %w", name, err))
-			}
-		}
-		step("runs", func() error { return s.purgeRuns(ctx, v, a, st) })
-		var sessions []*core.Session
-		step("sessions", func() (err error) { sessions, err = s.allSessions(ctx, v); return err })
-		step("boxes", func() error { return s.purgeBoxes(ctx, ps, sessions, st) })
-		step("schedules", func() error { return s.purgeSchedules(ctx, v, a, st) })
-		step("grants", func() error { return s.purgeGrants(ctx, v, a, st) })
-		step("memory", func() error { return s.purgeMemory(ctx, ps) })
-		step("knowledge", func() error { return s.purgeKnowledge(ctx, ps) })
-		step("files", func() error { return s.purgeFiles(ps, st) })
 	}
-	if len(errs) > 0 {
-		return fmt.Errorf("deleting their data is incomplete: %w", errors.Join(errs...))
-	}
-	stats := map[string]any{}
-	for k, n := range st {
-		stats[k] = n
-	}
-	if _, err := ed.ForgetTeammate(ctx, a, channel, ext, stats); err != nil {
+	if _, err := ed.ForgetTeammate(ctx, a, channel, ext, st.detail()); err != nil {
 		return err
 	}
 	s.inboxChanged("sender:" + channel + ":" + ext)
 	return noContent(w)
+}
+
+// purgeTeam stops a teammate's or channel's runs and deletes what does not
+// go with its principal row: runs, boxes, schedules, grants, memory,
+// project notes and files, through a viewer of that principal alone. Every
+// step runs even if an earlier one failed.
+func (s *Server) purgeTeam(ctx context.Context, r *http.Request, a core.Actor, pr *core.Principal, st purgeStats) []error {
+	var errs []error
+	if s.d.Runner != nil {
+		n, err := s.d.Runner.StopPrincipal(withOrigin(r, a, nil), pr.ID)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("stop: %w", err))
+		}
+		st["runs_stopped"] += n
+	}
+	v := onlyOf(pr.ID)
+	ps := []*core.Principal{pr}
+	step := func(name string, fn func() error) {
+		if err := fn(); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", name, err))
+		}
+	}
+	step("runs", func() error { return s.purgeRuns(ctx, v, a, st) })
+	var sessions []*core.Session
+	step("sessions", func() (err error) { sessions, err = s.allSessions(ctx, v); return err })
+	step("boxes", func() error { return s.purgeBoxes(ctx, ps, sessions, st) })
+	step("schedules", func() error { return s.purgeSchedules(ctx, v, a, st) })
+	step("grants", func() error { return s.purgeGrants(ctx, v, a, st) })
+	step("memory", func() error { return s.purgeMemory(ctx, ps) })
+	step("knowledge", func() error { return s.purgeKnowledge(ctx, ps) })
+	step("files", func() error { return s.purgeFiles(ps, st) })
+	return errs
 }
 
 // adminViewer covers every user's principal and the team's (teammates and
@@ -290,6 +294,12 @@ func (s *Server) patchSpace(w http.ResponseWriter, r *http.Request, a core.Actor
 	if req.ToolProfile != nil && *req.ToolProfile != "restricted" && *req.ToolProfile != "standard" {
 		return badRequest("tool_profile must be restricted or standard")
 	}
+	// Turning a channel on lets in everyone Bothy answers there (on Discord,
+	// a whole server), and standard tools let them do work: like letting in
+	// one person, that needs an admin signed in on the web.
+	if a.Via == "token" && (req.Enabled != nil && *req.Enabled || req.ToolProfile != nil && *req.ToolProfile == "standard") {
+		return errCookieOnly
+	}
 	var title string
 	if req.Title != nil {
 		title = strings.TrimSpace(*req.Title)
@@ -351,6 +361,51 @@ func (s *Server) patchSpace(w http.ResponseWriter, r *http.Request, a core.Actor
 		return err
 	}
 	return ok(w, s.spaceView(ctx, sp))
+}
+
+// deleteSpace deletes a channel that is off with its data: chats, runs,
+// boxes, schedules, grants, memory, project notes and files, then its
+// principal and everything that cascades from it. If Bothy is still in the
+// chat, its next message there records the chat as new.
+func (s *Server) deleteSpace(w http.ResponseWriter, r *http.Request, a core.Actor) error {
+	ctx := context.WithoutCancel(r.Context())
+	id := core.PrincipalID(r.PathValue("id"))
+	sp, err := s.d.Store.Spaces().Get(ctx, onlyOf(id), id)
+	if err != nil {
+		return err
+	}
+	if sp.Kind != core.SpaceGroup {
+		return fmt.Errorf("space %s: %w", id, core.ErrNotFound)
+	}
+	if sp.Enabled {
+		return badRequest("Turn it off first.")
+	}
+	pr, err := s.d.Store.Principals().Get(ctx, onlyOf(id), id)
+	if err != nil {
+		return err
+	}
+	st := purgeStats{}
+	errs := s.purgeTeam(ctx, r, a, pr, st)
+	if len(errs) == 0 {
+		if err := s.d.Store.Principals().Delete(ctx, id); err != nil {
+			errs = append(errs, fmt.Errorf("principal: %w", err))
+		}
+	}
+	detail := st.detail()
+	detail["title"], detail["channel"] = sp.Title, sp.Chat.Channel
+	outcome := "ok"
+	if len(errs) > 0 {
+		outcome = "error"
+	}
+	s.audit(r, a, "space.delete", "space:"+string(id), outcome, detail)
+	if len(errs) > 0 {
+		return fmt.Errorf("deleting the channel is incomplete: %w", errors.Join(errs...))
+	}
+	if ti, has := s.d.Hub.(teamsInvalidator); has {
+		ti.InvalidateTeams()
+	}
+	s.inboxChanged("group:" + string(id))
+	return noContent(w)
 }
 
 // listTeamSchedules lists teammates' and channels' schedules for admins.

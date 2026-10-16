@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -196,6 +197,97 @@ func TestSpaces(t *testing.T) {
 	if !slices.Contains(h.audit.Actions(), "space.update") {
 		t.Fatalf("audit = %v", h.audit.Actions())
 	}
+}
+
+// Turning a channel on, or giving it standard tools, lets in whoever Bothy
+// answers there, so an admin token can't; it can still rename a channel,
+// change when Bothy answers or turn it off. Deleting one is cookie-only.
+func TestSpaceRoutesRefuseTokensWhereTheyLetPeopleIn(t *testing.T) {
+	h := newHarness(t).setup()
+	ctx := context.Background()
+	now := time.Now()
+	sp := &core.Space{Kind: core.SpaceGroup, Chat: core.ChatRef{Channel: "discord", ChatID: "300", Kind: core.ChatGroup}, Title: "general",
+		CreatedAt: now, UpdatedAt: now}
+	if err := h.store.Spaces().Create(ctx, sp, &core.Principal{ToolProfile: "restricted", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/spaces/" + string(sp.Principal)
+	tok := h.tokenFor(h.owner, "chat", "read", "llm", "admin")
+	on, off, standard, restricted, mention, title := true, false, "standard", "restricted", false, "#general"
+	for _, req := range []dto.SpacePatchReq{{Enabled: &on}, {ToolProfile: &standard}, {Enabled: &on, ToolProfile: &restricted}} {
+		rec := h.do("PATCH", path, req, tok)
+		expect(t, rec, http.StatusForbidden)
+		if msg := errMessage(t, rec); !strings.Contains(msg, "signed-in browser session") {
+			t.Fatalf("refusal = %q", msg)
+		}
+	}
+	for _, req := range []dto.SpacePatchReq{{Title: &title}, {MentionOnly: &mention}, {Enabled: &off}, {ToolProfile: &restricted}} {
+		expect(t, h.do("PATCH", path, req, tok), http.StatusOK)
+	}
+	if got, _ := h.store.Spaces().Get(ctx, core.SystemViewer(), sp.Principal); got.Enabled {
+		t.Fatal("a token turned the channel on")
+	}
+	expect(t, h.do("PATCH", path, dto.SpacePatchReq{Enabled: &on, ToolProfile: &standard}, h.admin), http.StatusOK)
+	expect(t, h.do("DELETE", path, nil, tok), http.StatusForbidden)
+	expect(t, h.do("DELETE", path, nil, h.member), http.StatusForbidden)
+}
+
+// TestDeleteSpace: an admin deletes a channel that is off with its data;
+// a channel that is on, or a teammate's own space, can't be deleted here.
+func TestDeleteSpace(t *testing.T) {
+	h := newHarness(t).setup()
+	ctx := context.Background()
+	k := newFakeKnowledge()
+	h.srv.d.Knowledge = k
+	now := time.Now()
+	sp := &core.Space{Kind: core.SpaceGroup, Chat: core.ChatRef{Channel: "slack", ChatID: "C1", Kind: core.ChatGroup}, Title: "#eng",
+		Enabled: true, CreatedAt: now, UpdatedAt: now}
+	if err := h.store.Spaces().Create(ctx, sp, &core.Principal{ToolProfile: "restricted", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	person := &core.Space{Kind: core.SpacePerson, Chat: core.ChatRef{Channel: "slack", ChatID: "U1", Kind: core.ChatDM}, Title: "Ana",
+		CreatedAt: now, UpdatedAt: now}
+	if err := h.store.Spaces().Create(ctx, person, &core.Principal{CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	sess := &core.Session{Principal: sp.Principal, Origin: "slack", ChannelKey: "slack:C1:", CreatedAt: now, UpdatedAt: now}
+	if err := h.store.Sessions().Create(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+	k.add(sp.Principal, "acme/web")
+	path := "/api/spaces/" + string(sp.Principal)
+
+	rec := h.do("DELETE", path, nil, h.owner)
+	expect(t, rec, http.StatusBadRequest)
+	if msg := errMessage(t, rec); msg != "Turn it off first." {
+		t.Fatalf("refusal = %q", msg)
+	}
+	expect(t, h.do("DELETE", "/api/spaces/"+string(person.Principal), nil, h.owner), http.StatusNotFound)
+	off := false
+	expect(t, h.do("PATCH", path, dto.SpacePatchReq{Enabled: &off}, h.owner), http.StatusOK)
+	expect(t, h.do("DELETE", path, nil, h.admin), http.StatusNoContent)
+
+	if _, err := h.store.Principals().Get(ctx, core.SystemViewer(), sp.Principal); !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("the channel's principal is still there: %v", err)
+	}
+	if _, err := h.store.Spaces().ByChat(ctx, "slack", "C1"); !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("the channel is still there: %v", err)
+	}
+	if _, err := h.store.Sessions().Get(ctx, core.SystemViewer(), sess.ID); !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("the channel's chat is still there: %v", err)
+	}
+	if !slices.Equal(k.purged, []core.PrincipalID{sp.Principal}) {
+		t.Fatalf("knowledge purged = %v", k.purged)
+	}
+	rows := h.actions("space.delete")
+	if len(rows) != 1 || rows[0].Target != "space:"+string(sp.Principal) || rows[0].Outcome != "ok" {
+		t.Fatalf("space.delete audit = %+v", rows)
+	}
+	var detail map[string]any
+	if err := json.Unmarshal(rows[0].Detail, &detail); err != nil || detail["title"] != "#eng" || detail["channel"] != "slack" {
+		t.Fatalf("space.delete detail = %s", rows[0].Detail)
+	}
+	expect(t, h.do("DELETE", path, nil, h.owner), http.StatusNotFound)
 }
 
 func TestSessionFlow(t *testing.T) {

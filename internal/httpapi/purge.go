@@ -13,6 +13,15 @@ import (
 
 type purgeStats map[string]int
 
+// detail is the counts as an audit row's detail.
+func (st purgeStats) detail() map[string]any {
+	out := make(map[string]any, len(st))
+	for k, n := range st {
+		out[k] = n
+	}
+	return out
+}
+
 // purgeUser wipes a disabled user's data: runs are stopped, boxes destroyed,
 // vault user-scope secrets, grants, schedules, memory files and workspaces
 // removed, then the users row is deleted, which cascades to the user's
@@ -61,10 +70,8 @@ func (s *Server) purgeUser(r *http.Request, by core.Actor, u *core.User) error {
 	if len(errs) > 0 {
 		outcome = "error"
 	}
-	detail := map[string]any{"purge": true, "username": u.Username}
-	for k, n := range st {
-		detail[k] = n
-	}
+	detail := st.detail()
+	detail["purge"], detail["username"] = true, u.Username
 	s.audit(r, by, "user.update", "user:"+string(u.ID), outcome, detail)
 	if len(errs) > 0 {
 		return fmt.Errorf("purge incomplete: %w", errors.Join(errs...))

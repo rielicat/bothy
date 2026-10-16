@@ -48,7 +48,10 @@ func (s *Server) routeTable() []route {
 		{pattern: "GET /api/identities", access: accessAdmin, h: s.listIdentities},
 		{pattern: "PATCH /api/identities/{channel}/{external}", access: accessAdminCookie, h: s.patchIdentity},
 		{pattern: "GET /api/spaces", access: accessAdmin, h: s.listSpaces},
+		// Turning a channel on or giving it standard tools is cookie-only
+		// too (patchSpace); renames and the mention setting aren't.
 		{pattern: "PATCH /api/spaces/{id}", access: accessAdmin, h: s.patchSpace},
+		{pattern: "DELETE /api/spaces/{id}", access: accessAdminCookie, h: s.deleteSpace},
 
 		{pattern: "GET /api/sessions", access: accessUser, h: s.listSessions},
 		{pattern: "POST /api/sessions", access: accessUser, h: s.createSession},
