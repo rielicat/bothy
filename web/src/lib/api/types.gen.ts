@@ -603,7 +603,7 @@ export interface GitHubOwnApp {
   client_secret_ref: string; // "secret:github_<id>_client_secret"; kept for a possible GitHub sign-in, unused today
   connection_id?: string;
   replaces?: string; // connection swapped out once the app is installed
-  retired_at: string /* RFC 3339 */;
+  retired_at?: string /* RFC 3339 */;
   created_by: UserID;
   created_at: string /* RFC 3339 */;
   updated_at: string /* RFC 3339 */;

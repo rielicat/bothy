@@ -229,7 +229,7 @@ function madeApp(st: 'pending' | 'connected' | 'retired'): GitHubApp {
     key_ref: st === 'retired' ? '' : `secret:github_${APP}_key`,
     client_secret_ref: st === 'retired' ? '' : `secret:github_${APP}_client_secret`,
     connection_id: st === 'connected' ? CONN : undefined,
-    retired_at: st === 'retired' ? ago(30) : ZERO,
+    retired_at: st === 'retired' ? ago(30) : undefined,
     created_by: owner.id,
     created_at: ago(60 * 24),
     updated_at: ago(30),

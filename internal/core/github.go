@@ -107,7 +107,7 @@ type GitHubOwnApp struct {
 	ClientSecretRef string    `json:"client_secret_ref"` // "secret:github_<id>_client_secret"; kept for a possible GitHub sign-in, unused today
 	Connection      string    `json:"connection_id,omitempty"`
 	Replaces        string    `json:"replaces,omitempty"` // connection swapped out once the app is installed
-	RetiredAt       time.Time `json:"retired_at"`
+	RetiredAt       time.Time `json:"retired_at,omitzero"`
 	CreatedBy       UserID    `json:"created_by"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`

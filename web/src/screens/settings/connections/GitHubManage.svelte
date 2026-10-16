@@ -82,7 +82,7 @@
     void conn.id;
     untrack(async () => {
       await load();
-      if (landing) void openAdd();
+      if (landing) void landed();
     });
   });
 
@@ -152,8 +152,7 @@
     }
   }
 
-  async function openAdd() {
-    adding = true;
+  async function ask() {
     probe = null;
     probeError = '';
     more = [];
@@ -163,6 +162,19 @@
     } catch (e) {
       probeError = errorText(e);
     }
+  }
+
+  async function openAdd() {
+    adding = true;
+    await ask();
+  }
+
+  // Back from GitHub, the picker opens only when it has something to offer:
+  // a switch that kept every repository just says so.
+  async function landed() {
+    await ask();
+    if (probe?.ok && !addable.length && allowed.length) toast(`Connected. Bothy keeps using ${plural(allowed.length, 'repository', 'repositories')}.`);
+    else adding = true;
   }
 
   async function addMore() {

@@ -279,6 +279,14 @@ describe("Bothy's own GitHub App (§12.2)", () => {
     expect(await screen.findByText('Bothy is reading 1 repository. You can keep working; this takes a few minutes.')).toBeTruthy();
   });
 
+  it("says so instead of opening the picker when there's nothing new to add", async () => {
+    await app('github-app-made', '/settings/connections/github?github_app=installed', (m, url) =>
+      m === 'POST' && /^\/api\/github\/connections\/[^/]+\/test$/.test(url) ? { ok: true, auth: 'app', account: 'acme', repos: [] } : undefined,
+    );
+    await waitFor(() => expect(toaster.current?.text).toMatch(/^Connected\. Bothy keeps using \d+ repositor(y|ies)\.$/));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
   it.each([
     ['not_finished', 'acme', "Bothy couldn't finish setting up the app: too much time passed, you signed out, or you started in another browser. Delete the new app on GitHub, then start again.", 'https://github.com/organizations/acme/settings/apps'],
     ['exchange_failed', 'me', "GitHub created the app, but Bothy couldn't get its keys from GitHub. Delete the new app on GitHub, then start again.", 'https://github.com/settings/apps'],
