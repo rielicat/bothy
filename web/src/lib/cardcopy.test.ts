@@ -5,6 +5,7 @@ import {
   cardCopy,
   decidable,
   decidedLine,
+  denyAudience,
   expiryOf,
   fromTeam,
   humanize,
@@ -278,7 +279,8 @@ describe('decidable', () => {
 
 describe('requests from chat apps', () => {
   const team = { user_id: '', admin_only: false, team: true, requester_identity: 'slack:U1' };
-  const person = { user: '', name: 'Maya Chen', app: 'slack', identity: 'slack:U1', handle: 'maya' };
+  const person = { user: '', name: 'Maya Chen', app: 'slack', identity: 'slack:U1', handle: 'maya', kind: 'teammate' };
+  const eng = { user: '', name: 'Maya Chen', app: 'slack', identity: 'slack:U1', chat: '#eng', kind: 'channel' };
 
   it('tells a team request by its approver or its principal', () => {
     expect(fromTeam(ap(undefined, { approver: team }))).toBe(true);
@@ -289,16 +291,40 @@ describe('requests from chat apps', () => {
 
   it('says who asked, and where', () => {
     expect(teamAsked(ap(undefined, { approver: team, requester: person }))).toBe('Maya Chen (@maya) asked on Slack.');
-    expect(teamAsked(ap(undefined, { approver: team, requester: { ...person, handle: undefined, chat: '#eng' } }))).toBe('Maya Chen asked in #eng on Slack.');
-    expect(teamAsked(ap(undefined, { approver: team, requester: { user: '', name: '#eng', app: 'slack' } }))).toBe('From #eng on Slack.');
+    expect(teamAsked(ap(undefined, { approver: team, requester: eng }))).toBe('Maya Chen asked in #eng on Slack.');
     expect(teamAsked(ap(undefined, { approver: team }))).toBe('');
+  });
+
+  it('says a schedule started it, never that someone asked', () => {
+    expect(teamAsked(ap(undefined, { approver: team, requester: { ...person, scheduled: true } }))).toBe("From Maya Chen's schedule on Slack.");
+    expect(teamAsked(ap(undefined, { approver: team, requester: { user: '', name: '#eng', app: 'slack', chat: '#eng', kind: 'channel', scheduled: true } }))).toBe('From #eng on Slack.');
   });
 
   it("names a teammate's chat on the standing choices, cut to fit, and never a channel's", () => {
     expect(teamPerson(ap(undefined, { approver: team, requester: person }))).toBe('Maya Chen');
     expect(teamPerson(ap(undefined, { approver: team, requester: { ...person, name: 'Maximilian Alexander Featherstonehaugh' } }))).toBe('Maximilian Alexander Fe…');
-    expect(teamPerson(ap(undefined, { approver: team, requester: { ...person, chat: '#eng' } }))).toBe('');
+    expect(teamPerson(ap(undefined, { approver: team, requester: eng }))).toBe('');
+    expect(teamPerson(ap(undefined, { approver: team, requester: { ...eng, name: '#eng', scheduled: true } }))).toBe('');
     expect(teamPerson(ap(undefined, { requester: person }))).toBe('');
+  });
+
+  it('says who reads a deny reason: the person, or nobody in a channel', () => {
+    expect(denyAudience(ap(undefined, { approver: team, requester: person }))).toBe('Maya Chen will see this.');
+    expect(denyAudience(ap(undefined, { approver: team, requester: eng }))).toBe("People in #eng won't see this, but Bothy will.");
+    // A channel's schedule names the channel, not a person who would read it.
+    expect(denyAudience(ap(undefined, { approver: team, requester: { user: '', name: '#eng', app: 'slack', chat: '#eng', kind: 'channel', scheduled: true } }))).toBe(
+      "People in #eng won't see this, but Bothy will.",
+    );
+    expect(denyAudience(ap(undefined, { requester: person }))).toBe('');
+  });
+
+  it('says whose chat a standing choice covers, as its button did', () => {
+    const write = act('fs_write', 'fs.write', 'local_write', { path: 'notes/a.md', mode: 'overwrite' });
+    const decided = (choice: string, requester: Approval['requester'] = person) =>
+      segText(decidedLine(ap(write, { approver: team, requester, status: 'allowed', choice, decided_by: me, decided_via: 'web', decided_at: '2026-10-14T10:42:00Z' }), { me, name: () => '' }).segs);
+    expect(decided('allow_session')).toBe("You allowed changes to files in notes/ in Maya Chen's chat");
+    expect(decided('allow_always')).toBe('You always allow changes to files in notes/ for Maya Chen');
+    expect(decided('allow_session', eng)).toBe('You allowed changes to files in notes/ for this chat');
   });
 });
 

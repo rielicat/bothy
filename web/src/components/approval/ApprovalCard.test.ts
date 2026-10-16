@@ -57,6 +57,7 @@ const deploy = (extra: Partial<Approval> = {}) =>
   });
 
 const buttons = (root: HTMLElement) => [...root.querySelectorAll<HTMLButtonElement>('button[data-choice]')];
+const describedBy = (el: HTMLElement) => document.getElementById(el.getAttribute('aria-describedby') ?? '')?.textContent?.trim();
 
 const refused = (status: number, code: string, message: string) =>
   new Response(JSON.stringify({ error: { code, message } }), { status, headers: { 'Content-Type': 'application/json' } });
@@ -276,7 +277,7 @@ describe('ApprovalCard for people in chat apps', () => {
       approver: team,
       chat: { channel: 'slack', chat_id: 'D02ALEX', kind: 'dm' },
       card: { ...approval().card, context: "Alex Kim's direct messages on Slack" },
-      requester: { user: '', name: 'Alex Kim', app: 'slack', identity: 'slack:U02ALEX', handle: 'alex' },
+      requester: { user: '', name: 'Alex Kim', app: 'slack', identity: 'slack:U02ALEX', handle: 'alex', kind: 'teammate' },
       ...extra,
     });
   const channel = (extra: Partial<Approval> = {}) =>
@@ -284,7 +285,7 @@ describe('ApprovalCard for people in chat apps', () => {
       principal_id: 'spc_01jeng00000000000000000000',
       chat: { channel: 'slack', chat_id: 'C01ENG', kind: 'group' },
       card: { ...approval().card, context: '#eng on Slack', choices: ['allow_once', 'deny'] },
-      requester: { user: '', name: 'Alex Kim', app: 'slack', chat: '#eng', identity: 'slack:U02ALEX', handle: 'alex' },
+      requester: { user: '', name: 'Alex Kim', app: 'slack', chat: '#eng', identity: 'slack:U02ALEX', handle: 'alex', kind: 'channel' },
       ...extra,
     });
 
@@ -325,13 +326,26 @@ describe('ApprovalCard for people in chat apps', () => {
     expect(buttons(card).map((b) => b.textContent?.trim())).toEqual(['Run command', 'Deny']);
     expect(within(card).queryByRole('button', { name: /Always allow/ })).toBeNull();
     await fireEvent.click(within(card).getByRole('button', { name: 'Deny' }));
-    expect((await within(card).findByLabelText(/Reason/)).getAttribute('placeholder')).toBe("People in #eng won't see this, but Bothy will.");
+    expect(describedBy(await within(card).findByLabelText(/Reason/))).toBe("People in #eng won't see this, but Bothy will.");
   });
 
+  // Help text, not a placeholder: it stays while the reason is typed.
   it('tells the person their reason reaches them in their own chat', async () => {
     render(ApprovalCard, { approval: person() });
     await fireEvent.click(within(screen.getByRole('article')).getByRole('button', { name: 'Deny' }));
-    expect((await screen.findByLabelText(/Reason/)).getAttribute('placeholder')).toBe('Alex Kim will see this.');
+    const reason = await screen.findByLabelText(/Reason/);
+    expect(reason.getAttribute('placeholder')).toBeNull();
+    await fireEvent.input(reason, { target: { value: 'Not this week' } });
+    expect(describedBy(reason)).toBe('Alex Kim will see this.');
+  });
+
+  it("says a schedule started a channel's request, and offers it no standing choices", () => {
+    const sched = channel({ requester: { user: '', name: '#eng', app: 'slack', chat: '#eng', kind: 'channel', scheduled: true } });
+    render(ApprovalCard, { approval: sched });
+    const card = screen.getByRole('article');
+    expect(card.textContent).toContain('From #eng on Slack.');
+    expect(card.textContent).not.toContain('asked');
+    expect(buttons(card).map((b) => b.textContent?.trim())).toEqual(['Run command', 'Deny']);
   });
 
   it('shows members no buttons and says who can decide', async () => {

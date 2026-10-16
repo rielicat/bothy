@@ -137,7 +137,7 @@ function deploy(id: string, repo: string, opts: { requester: string; created: nu
 // here, or a chat approver in their Slack messages, decides them.
 const ENG = 'spc_01jeng00000000000000000000';
 const ALEX = 'spc_01jalexslack000000000000000';
-const alexAsks = { user: '', name: 'Alex Kim', app: 'slack', identity: 'slack:U02ALEX', handle: 'alexk' };
+const alexAsks = { user: '', name: 'Alex Kim', app: 'slack', identity: 'slack:U02ALEX', handle: 'alexk', kind: 'teammate' };
 const teamApprover = { user_id: '', admin_only: false, team: true, requester_identity: 'slack:U02ALEX' };
 
 function team(s: Spec & { principal: string; chat: string }): Approval {
@@ -148,7 +148,7 @@ function team(s: Spec & { principal: string; chat: string }): Approval {
     chat: s.chat ? { channel: 'slack', chat_id: 'C01ENG', kind: 'group' } : { channel: 'slack', chat_id: 'D02ALEX', kind: 'dm' },
     approver: teamApprover,
     decision: { ...a.decision, approver: teamApprover },
-    requester: s.chat ? { ...alexAsks, chat: s.chat } : alexAsks,
+    requester: s.chat ? { ...alexAsks, chat: s.chat, kind: 'channel' } : alexAsks,
     ...s.extra,
   };
 }

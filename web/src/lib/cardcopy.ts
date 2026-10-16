@@ -3,7 +3,7 @@
 // words; until then they are built here from the structured Action. Only the
 // known fields of each tool's payload are read. The full Action stays behind
 // Details as "Exact action", so nothing the card leaves out is hidden.
-import type { Action, Approval, ApprovalVotes, Card } from './api/types.gen';
+import { RequesterChannel, RequesterTeammate, type Action, type Approval, type ApprovalVotes, type Card } from './api/types.gen';
 import { fileLines, parseDiff } from '../components/ui/diff';
 import { date, expiresIn, plural, relTime, serviceName } from './format';
 import { commandOf, describeGrantParts, EXACT_GRANT, hostOf } from './grants';
@@ -169,22 +169,33 @@ export function fromTeam(ap: Approval): boolean {
   return !!ap.approver?.team || !!ap.principal_id?.startsWith('spc_');
 }
 
-/** "Maya Chen (@maya) asked on Slack.", "Alex asked in #eng on Slack."; "" when the server named nobody. */
+/**
+ * "Maya Chen (@maya) asked on Slack.", "Alex asked in #eng on Slack."; a
+ * schedule's, which nobody asked for: "From Maya Chen's schedule on Slack.",
+ * "From #eng on Slack."; "" when the server named nobody.
+ */
 export function teamAsked(ap: Approval): string {
   const r = ap.requester;
   if (!r?.name) return '';
   const app = appName(r.app || ap.chat?.channel);
-  if (r.chat) return `${r.name} asked in ${r.chat} on ${app}.`;
-  // A schedule's request names the teammate or channel it runs for, not someone who asked.
-  if (!r.identity) return `From ${r.name} on ${app}.`;
+  const channel = r.kind === RequesterChannel;
+  if (r.scheduled) return channel ? `From ${r.chat || r.name} on ${app}.` : `From ${r.name}'s schedule on ${app}.`;
+  if (channel) return `${r.name} asked in ${r.chat} on ${app}.`;
   return `${r.name}${r.handle ? ` (@${r.handle})` : ''} asked on ${app}.`;
 }
 
-/** The person whose own chat a team request came from, cut for button labels; '' for a channel's. */
-export function teamPerson(ap: Approval): string {
+/** The person whose own chat a team request came from, cut to max for button labels; '' for a channel's. */
+export function teamPerson(ap: Approval, max = 24): string {
   const r = ap.requester;
-  if (!fromTeam(ap) || !r?.name || r.chat) return '';
-  return clip(r.name, 24);
+  if (!fromTeam(ap) || !r?.name || r.kind !== RequesterTeammate) return '';
+  return clip(r.name, max);
+}
+
+/** Who reads a deny reason on a team request: the person in their chat; a channel's outcome line leaves it out. */
+export function denyAudience(ap: Approval): string {
+  const r = ap.requester;
+  if (!fromTeam(ap) || !r?.name) return '';
+  return r.kind === RequesterChannel ? `People in ${r.chat || r.name} won't see this, but Bothy will.` : `${r.name} will see this.`;
 }
 
 /** The server's warnings in the words of §8.3. */
@@ -762,9 +773,11 @@ export function decidedLine(ap: Approval, o: DecidedOpts): DecidedCopy {
   const yes = votes.filter((v) => v.choice === 'allow_once');
   if (isMulti(ap) && yes.length) return { glyph: 'check', tone: 'accent', segs: [`${joinNames(yes.map(voteName))} approved `, ...copy.ing], time, at };
   const name = who(ap.decided_by, a2.decided_by_name);
+  // A teammate's standing choice is theirs, not the approver's, as its button said.
+  const person = teamPerson(ap, 40);
   let segs: Seg[];
-  if (ap.choice === 'allow_session') segs = [`${name} allowed `, ...copy.grant, ' for this chat'];
-  else if (ap.choice === 'allow_always') segs = [`${name} ${name === 'You' ? 'always allow' : 'always allows'} `, ...copy.grant];
+  if (ap.choice === 'allow_session') segs = [`${name} allowed `, ...copy.grant, person ? ` in ${person}'s chat` : ' for this chat'];
+  else if (ap.choice === 'allow_always') segs = [`${name} ${name === 'You' ? 'always allow' : 'always allows'} `, ...copy.grant, ...(person ? [` for ${person}`] : [])];
   else if (name !== 'You' && !o.list) segs = [`${name} approved${via ? ` in ${via}` : ''}`];
   else segs = [`${name} approved `, ...copy.ing];
   return { glyph: 'check', tone: 'accent', segs, time, at };

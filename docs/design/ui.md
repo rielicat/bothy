@@ -1461,9 +1461,9 @@ Chat apps (SPEC §5.9) edit a card to its decided line in place of the question,
 - **Meta line:** the server's context instead of "From …", never a link, since admins can't open these chats: "Maya Chen's direct messages on Slack" or "#eng on Slack".
 - **Buttons:** as §8.3, with the person's name on the standing choices. A channel's request offers only the verb and Deny.
 - **Details:** "Who can approve: an admin, or someone who can approve in a chat app". Someone who can't decide reads "Waiting for an approver."
-- **Deny reason:** the field's placeholder says who reads it: "Maya Chen will see this." or "People in #eng won't see this, but Bothy will." (a channel's outcome line leaves the reason out).
+- **Deny reason:** the field's help text (muted, under the field, `aria-describedby`; not a placeholder, which typing removes) says who reads it: "Maya Chen will see this." or "People in #eng won't see this, but Bothy will." (a channel's outcome line leaves the reason out; a channel's schedule reads the same).
 - **Inbox row:** "Maya Chen · Slack" as the source.
-- **Decided line:** names the chat approver with their app (above); "Cancelled by Maya Chen" when the person who asked withdrew it.
+- **Decided line:** names the chat approver with their app (above); "Cancelled by Maya Chen" when the person who asked withdrew it. A standing choice on a teammate's request says whose it is, as its button did: "You allowed changes to files in notes/ in Maya Chen's chat", "You always allow changes to files in notes/ for Maya Chen" (a channel's request has no standing choices).
 
 ### 8.5 Multiple approvers ("1 of 2")
 

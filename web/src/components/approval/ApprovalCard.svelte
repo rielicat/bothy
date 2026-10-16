@@ -2,7 +2,7 @@
   import { tick } from 'svelte';
   import { api, ApiError } from '../../lib/api/client';
   import type { Approval, Choice } from '../../lib/api/types.gen';
-  import { appName, busyLabel, cardCopy, decidable, expiryOf, fromTeam, isMulti, isOpen, originOf, requesterOf, teamAsked, teamPerson } from '../../lib/cardcopy';
+  import { appName, busyLabel, cardCopy, decidable, denyAudience, expiryOf, fromTeam, isMulti, isOpen, originOf, requesterOf, teamAsked, teamPerson } from '../../lib/cardcopy';
   import { choiceDone, choiceKey } from '../../lib/labels';
   import { router } from '../../lib/router.svelte';
   import { clock } from '../../lib/stores/clock.svelte';
@@ -115,7 +115,7 @@
           ? 'an admin, or someone who can approve in a chat app'
           : people.name(view.approver?.user_id) || 'the person who asked',
   );
-  const denyHint = $derived(!team ? undefined : view.requester?.chat ? `People in ${view.requester.chat} won't see this, but Bothy will.` : `${requesterName} will see this.`);
+  const denyHint = $derived(denyAudience(view) || undefined);
   // A schedule's request was asked for by nobody in the moment, so it says where it came from instead.
   // Someone else's request names the person and the chat once, here, so the meta line below leaves them out (§8.5).
   const askedIn = $derived(!team && someoneElse && !origin.schedule && !!origin.app && !!origin.title);
@@ -292,7 +292,7 @@
           <TextField
             label="Reason"
             optional
-            placeholder={denyHint}
+            help={denyHint}
             bind:value={comment}
             bind:input={reasonInput}
             autocomplete="off"
