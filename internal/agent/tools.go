@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -67,9 +68,7 @@ func (r *Runner) toolEnv(rs *runState, callID string, out *outputLimiter) *core.
 		Interactive: rs.req.Trigger.Interactive(),
 		Selection:   rs.sel,
 		Emit:        func(core.EventData) {},
-	}
-	if rs.user != nil {
-		env.Role = rs.user.Role
+		Role:        rs.role,
 	}
 	if r.d.Egress != nil {
 		env.HTTP = r.d.Egress.PublicClient(rs.req.Session, rs.req.Principal)
@@ -266,10 +265,7 @@ func (r *Runner) decide(ctx context.Context, rs *runState, pc *pcall, taint core
 	in := core.PolicyInput{
 		User: rs.req.User, Principal: *rs.principal, Session: rs.req.Session, Schedule: rs.req.Schedule,
 		Trigger: rs.req.Trigger, Action: pc.action, Spec: pc.spec, Taint: taint, Provenance: rs.req.Provenance,
-		Chat: rs.req.Chat,
-	}
-	if rs.user != nil {
-		in.Role = rs.user.Role
+		Chat: rs.req.Chat, Role: rs.role,
 	}
 	d := r.d.Policy.Decide(ctx, in)
 	switch d.Verdict {
@@ -330,7 +326,7 @@ func (r *Runner) execute(rs *runState, pc *pcall) execResult {
 		if r.d.Egress != nil {
 			key := boxKey(rs.req.Session)
 			r.d.Egress.Bind(key, core.EgressBinding{
-				Run: rs.id, ToolCallID: pc.rec.ID, User: rs.req.User, Role: pc.env.Role, Trigger: rs.req.Trigger,
+				Run: rs.id, ToolCallID: pc.rec.ID, User: rs.req.User, Role: pc.env.Role, Sender: rs.req.Sender, Trigger: rs.req.Trigger,
 				Schedule: rs.req.Schedule, Interactive: rs.req.Trigger.Interactive(), Chat: rs.req.Chat,
 				Context: r.cardContext(rs), Provenance: rs.req.Provenance,
 			})
@@ -372,7 +368,46 @@ func (r *Runner) execute(rs *runState, pc *pcall) execResult {
 	default:
 		er.status = core.TCOK
 	}
+	r.auditRead(rs, pc, er)
 	return er
+}
+
+// auditRead records what a channel or teammate read from outside Bothy's
+// own files (a web page, a repository, a connected service): admins can't
+// open those chats, so this is their record of what the team's data was
+// read for.
+func (r *Runner) auditRead(rs *runState, pc *pcall, er execResult) {
+	a := pc.action
+	if rs.principal == nil || !rs.principal.TeamOwned() || a == nil || max(validSE(a.SideEffect), pc.spec.Manifest.SideEffect) > core.SERead {
+		return
+	}
+	var target string
+	switch {
+	case a.Kind == core.ActMCP || strings.HasPrefix(pc.spec.Source, "mcp:"):
+		target = strings.TrimPrefix(pc.spec.Source, "mcp:") + "/" + a.Tool
+	case a.URL != "":
+		if u, err := url.Parse(a.URL); err == nil {
+			target = u.Host + u.Path
+		}
+	case len(a.Domains) > 0:
+		target = strings.Join(a.Domains, ", ")
+	}
+	if target == "" {
+		return
+	}
+	outcome := "ok"
+	if er.status != core.TCOK {
+		outcome = "error"
+	}
+	r.auditf(context.WithoutCancel(rs.ctx), "agent:"+string(rs.id), "tool.read", string(rs.principal.ID), outcome, rs.req.Session, rs.id,
+		map[string]any{"tool": a.Tool, "target": r.redact(target)})
+}
+
+func validSE(s core.SideEffect) core.SideEffect {
+	if s.Valid() {
+		return s
+	}
+	return 0
 }
 
 func (r *Runner) ensureBox(ctx context.Context, rs *runState) error {

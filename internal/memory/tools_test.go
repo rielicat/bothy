@@ -165,9 +165,9 @@ func TestSessionSearchToolExec(t *testing.T) {
 		t.Fatalf("no hits = %+v", res)
 	}
 
-	// A space the user owns is not searched from the user's own runs.
-	sp := &core.Space{Kind: "group", Chat: core.ChatRef{Channel: "telegram", ChatID: "-1", Kind: core.ChatGroup}, Owner: h.user, CreatedAt: time.Now()}
-	spp := &core.Principal{Kind: core.PrincipalSpace, User: h.user, ToolProfile: "restricted", CreatedAt: time.Now()}
+	// A channel is not searched from the user's own runs.
+	sp := &core.Space{Kind: core.SpaceGroup, Chat: core.ChatRef{Channel: "telegram", ChatID: "-1", Kind: core.ChatGroup}, CreatedAt: time.Now()}
+	spp := &core.Principal{Kind: core.PrincipalSpace, ToolProfile: "restricted", CreatedAt: time.Now()}
 	if err := h.store.Spaces().Create(ctx, sp, spp); err != nil {
 		t.Fatal(err)
 	}

@@ -12,7 +12,7 @@ func testSessions(f *fx) {
 	r := f.s.Sessions()
 	u := f.user(core.RoleMember)
 	other := f.user(core.RoleMember)
-	sp := f.space(u)
+	sp := f.space()
 	v := viewer(u, sp.Principal)
 
 	chat := &core.ChatRef{Channel: "telegram", ChatID: "-1001", ThreadID: "7", Kind: core.ChatGroup}
@@ -102,7 +102,7 @@ func testSessionList(f *fx) {
 	r := f.s.Sessions()
 	u := f.user(core.RoleMember)
 	other := f.user(core.RoleMember)
-	sp := f.space(u)
+	sp := f.space()
 	pu := core.UserPrincipal(u.ID)
 	v := viewer(u, sp.Principal)
 
@@ -275,7 +275,7 @@ func testMessageSearch(f *fx) {
 	r := f.s.Messages()
 	u := f.user(core.RoleMember)
 	other := f.user(core.RoleMember)
-	sp := f.space(u)
+	sp := f.space()
 	pu := core.UserPrincipal(u.ID)
 
 	s1 := f.session(pu)

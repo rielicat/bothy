@@ -273,6 +273,9 @@ func scanApproval(sc scanner) (*core.Approval, error) {
 		&a.Status, &a.Choice, &a.OnTimeout, &a.DecidedBy, &a.DecidedVia, &created, &expires, &park, &decided, &a.Comment); err != nil {
 		return nil, err
 	}
+	if ident, ok := strings.CutPrefix(string(a.DecidedBy), chatPrefix); ok {
+		a.DecidedBy, a.DecidedByIdentity = "", ident
+	}
 	if action != "null" {
 		a.Action = new(core.Action)
 		if err := decodeJSON("approvals.action", action, a.Action); err != nil {
@@ -299,10 +302,22 @@ func scanApproval(sc scanner) (*core.Approval, error) {
 var approvalStatuses = []core.ApprovalStatus{core.ApprovalPending, core.ApprovalAllowed, core.ApprovalDenied,
 	core.ApprovalExpired, core.ApprovalParked, core.ApprovalCancelled}
 
+// chatPrefix marks a chat teammate in decided_by and grants.created_by.
+const chatPrefix = "chat:"
+
+// deciderText is decided_by: the account, or "chat:<identity>".
+func deciderText(by core.Decider) string {
+	if by.Identity != "" {
+		return chatPrefix + by.Identity
+	}
+	return string(by.User)
+}
+
 // approvalVisible is the approval form of the Viewer rule: the principal's
-// rows, plus admin-only approvals for admins (Viewer.Admin's first exception)
-// and multi-approver approvals the viewer may vote on, by user id or by a
-// role it may hold (Viewer carries no role: Admin stands for owner or admin).
+// rows, plus admin-only and team approvals for admins (Viewer.Admin's first
+// exception) and multi-approver approvals the viewer may vote on, by user id
+// or by a role it may hold (Viewer carries no role: Admin stands for owner or
+// admin).
 func approvalVisible(v core.Viewer) (cond string, args []any, ok bool) {
 	cond, args, ok = viewerCond("principal_id", v)
 	if v.System {
@@ -310,7 +325,7 @@ func approvalVisible(v core.Viewer) (cond string, args []any, ok bool) {
 	}
 	var extra []string
 	if v.Admin {
-		extra = append(extra, `json_extract(approver, '$.admin_only') = 1`)
+		extra = append(extra, `(json_extract(approver, '$.admin_only') = 1 OR json_extract(approver, '$.team') = 1)`)
 	}
 	if v.User != "" {
 		roles := `'member'`
@@ -360,8 +375,8 @@ func (r approvalRepo) Create(ctx context.Context, a *core.Approval) error {
 	}
 	if _, err := r.h.wq.ExecContext(ctx, `INSERT INTO approvals(`+approvalCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		string(id), string(a.Run), string(a.Session), string(a.Principal), a.ToolCallID, action, decision, card, approver, chat,
-		string(a.Status), string(a.Choice), string(a.OnTimeout), string(a.DecidedBy), a.DecidedVia, ms(a.CreatedAt),
-		ms(a.ExpiresAt), ms(a.ParkUntil), ms(a.DecidedAt), a.Comment); err != nil {
+		string(a.Status), string(a.Choice), string(a.OnTimeout), deciderText(core.Decider{User: a.DecidedBy, Identity: a.DecidedByIdentity}),
+		a.DecidedVia, ms(a.CreatedAt), ms(a.ExpiresAt), ms(a.ParkUntil), ms(a.DecidedAt), a.Comment); err != nil {
 		return dbErr("create approval", err)
 	}
 	a.ID = id
@@ -380,12 +395,12 @@ func (r approvalRepo) Get(ctx context.Context, v core.Viewer, id core.ApprovalID
 // Decide is one conditional UPDATE, so of any number of concurrent deciders
 // exactly one sees a changed row.
 func (r approvalRepo) Decide(ctx context.Context, id core.ApprovalID, from []core.ApprovalStatus, to core.ApprovalStatus,
-	c core.Choice, by core.UserID, via string, at time.Time) (bool, error) {
+	c core.Choice, by core.Decider, via string, at time.Time) (bool, error) {
 	if !oneOf(to, approvalStatuses...) {
 		return false, invalid("approvals.status")
 	}
 	if len(from) > 0 {
-		args := []any{string(to), string(c), string(by), via, ms(at), string(id)}
+		args := []any{string(to), string(c), deciderText(by), via, ms(at), string(id)}
 		for _, s := range from {
 			args = append(args, string(s))
 		}
@@ -426,6 +441,16 @@ func (r approvalRepo) Park(ctx context.Context, id core.ApprovalID, until time.T
 		return notFound("approval")
 	}
 	return conflict("approval already decided")
+}
+
+// CountOpen stays on approvals_open.
+func (r approvalRepo) CountOpen(ctx context.Context, p core.PrincipalID) (int, error) {
+	var n int
+	if err := r.h.rq.QueryRowContext(ctx, `SELECT count(*) FROM approvals WHERE principal_id = ? AND status IN ('pending', 'parked')`,
+		string(p)).Scan(&n); err != nil {
+		return 0, dbErr("count open approvals", err)
+	}
+	return n, nil
 }
 
 func (r approvalRepo) Pending(ctx context.Context, v core.Viewer) ([]*core.Approval, error) {
@@ -489,21 +514,27 @@ func (r approvalRepo) Seen(ctx context.Context, p core.PrincipalID, recipient, h
 }
 
 // AddMessage stores no chat kind: approval_messages has no column for it.
+// An empty Kind is a card.
 func (r approvalRepo) AddMessage(ctx context.Context, id core.ApprovalID, m core.CardMessage) error {
-	_, err := r.h.wq.ExecContext(ctx, `INSERT INTO approval_messages(approval_id, channel, chat_id, thread_id, message_id, truncated)
-		VALUES (?,?,?,?,?,?)`, string(id), m.Ref.Chat.Channel, m.Ref.Chat.ChatID, m.Ref.Chat.ThreadID, m.Ref.ID, b2i(m.Truncated))
+	kind := cmp.Or(m.Kind, core.CardMsgCard)
+	if !oneOf(kind, core.CardMsgCard, core.CardMsgLink, core.CardMsgNotice) {
+		return invalid("approval_messages.kind")
+	}
+	_, err := r.h.wq.ExecContext(ctx, `INSERT INTO approval_messages(approval_id, channel, chat_id, thread_id, message_id, truncated, kind)
+		VALUES (?,?,?,?,?,?,?)`, string(id), m.Ref.Chat.Channel, m.Ref.Chat.ChatID, m.Ref.Chat.ThreadID, m.Ref.ID, b2i(m.Truncated), kind)
 	return dbErr("add card message", err)
 }
 
-// Messages lists full cards before truncated ones. approval_messages is a
-// WITHOUT ROWID table, so insertion order is not recoverable.
+// Messages lists cards, then link-only cards, then waiting lines, full
+// cards before truncated ones. approval_messages is a WITHOUT ROWID table,
+// so insertion order is not recoverable.
 func (r approvalRepo) Messages(ctx context.Context, id core.ApprovalID) ([]core.CardMessage, error) {
 	return queryAll(ctx, r.h.rq, "card messages", func(sc scanner) (core.CardMessage, error) {
 		var m core.CardMessage
-		err := sc.Scan(&m.Ref.Chat.Channel, &m.Ref.Chat.ChatID, &m.Ref.Chat.ThreadID, &m.Ref.ID, &m.Truncated)
+		err := sc.Scan(&m.Ref.Chat.Channel, &m.Ref.Chat.ChatID, &m.Ref.Chat.ThreadID, &m.Ref.ID, &m.Truncated, &m.Kind)
 		return m, err
-	}, `SELECT channel, chat_id, thread_id, message_id, truncated FROM approval_messages WHERE approval_id = ?
-		ORDER BY truncated, channel, chat_id, thread_id, message_id`, string(id))
+	}, `SELECT channel, chat_id, thread_id, message_id, truncated, kind FROM approval_messages WHERE approval_id = ?
+		ORDER BY CASE kind WHEN 'card' THEN 0 WHEN 'link' THEN 1 ELSE 2 END, truncated, channel, chat_id, thread_id, message_id`, string(id))
 }
 
 func (r approvalRepo) AddVote(ctx context.Context, v core.ApprovalVote) error {
@@ -541,6 +572,9 @@ func scanGrant(sc scanner) (*core.Grant, error) {
 		&g.Uses, &g.MaxUses, &g.CreatedBy, &created, &expires); err != nil {
 		return nil, err
 	}
+	if ident, ok := strings.CutPrefix(string(g.CreatedBy), chatPrefix); ok {
+		g.CreatedBy, g.CreatedByIdentity = "", ident
+	}
 	if pattern != "{}" {
 		if err := decodeJSON("grants.pattern", pattern, &g.Pattern); err != nil {
 			return nil, err
@@ -566,7 +600,8 @@ func (r grantRepo) Add(ctx context.Context, g *core.Grant) error {
 	}
 	if _, err := r.h.wq.ExecContext(ctx, `INSERT INTO grants(`+grantCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		string(id), string(g.Principal), string(g.Scope), g.ScopeID, string(g.Kind), g.Tool, pattern, g.Value, seText(g.MaxSE),
-		b2i(g.AllowWhenTainted), g.Uses, g.MaxUses, string(g.CreatedBy), ms(g.CreatedAt), ms(g.ExpiresAt)); err != nil {
+		b2i(g.AllowWhenTainted), g.Uses, g.MaxUses, deciderText(core.Decider{User: g.CreatedBy, Identity: g.CreatedByIdentity}),
+		ms(g.CreatedAt), ms(g.ExpiresAt)); err != nil {
 		return dbErr("add grant", err)
 	}
 	g.ID = id
@@ -723,21 +758,38 @@ func (r scheduleRepo) SetRun(ctx context.Context, id core.ScheduleID, last, next
 	return mustAffect("set schedule run", res, err)
 }
 
+func (r scheduleRepo) PrincipalsWithEnabled(ctx context.Context) ([]core.PrincipalID, error) {
+	return queryAll(ctx, r.h.rq, "principals with schedules", func(sc scanner) (core.PrincipalID, error) {
+		var p core.PrincipalID
+		return p, sc.Scan(&p)
+	}, `SELECT DISTINCT principal_id FROM schedules WHERE enabled = 1 ORDER BY principal_id`)
+}
+
 type usageRepo struct{ h *handle }
 
-func (r usageRepo) AddSpend(ctx context.Context, u core.UserID, day string, c core.CallInfo) error {
-	_, err := r.h.wq.ExecContext(ctx, `INSERT INTO spend_daily(user_id, day, cost_micros, input_tokens, output_tokens, calls)
-		VALUES (?, ?, ?, ?, ?, 1) ON CONFLICT(user_id, day) DO UPDATE SET cost_micros = cost_micros + excluded.cost_micros,
+func (r usageRepo) AddSpend(ctx context.Context, p core.PrincipalID, day string, c core.CallInfo) error {
+	_, err := r.h.wq.ExecContext(ctx, `INSERT INTO spend_daily(principal_id, day, cost_micros, input_tokens, output_tokens, calls)
+		VALUES (?, ?, ?, ?, ?, 1) ON CONFLICT(principal_id, day) DO UPDATE SET cost_micros = cost_micros + excluded.cost_micros,
 		input_tokens = input_tokens + excluded.input_tokens, output_tokens = output_tokens + excluded.output_tokens,
-		calls = calls + 1`, string(u), day, int64(c.Cost), c.Usage.Input, c.Usage.Output)
+		calls = calls + 1`, string(p), day, int64(c.Cost), c.Usage.Input, c.Usage.Output)
 	return dbErr("add spend", err)
 }
 
-func (r usageRepo) Spend(ctx context.Context, u core.UserID, day string) (core.Micros, error) {
+func (r usageRepo) Spend(ctx context.Context, p core.PrincipalID, day string) (core.Micros, error) {
 	var total int64
 	if err := r.h.rq.QueryRowContext(ctx, `SELECT COALESCE(SUM(cost_micros), 0) FROM spend_daily
-		WHERE day = ?1 AND (?2 = '' OR user_id = ?2)`, day, string(u)).Scan(&total); err != nil {
+		WHERE day = ?1 AND (?2 = '' OR principal_id = ?2)`, day, string(p)).Scan(&total); err != nil {
 		return 0, dbErr("spend", err)
+	}
+	return core.Micros(total), nil
+}
+
+// TeamSpend sums the team-owned principals, whose ids all start spc_.
+func (r usageRepo) TeamSpend(ctx context.Context, day string) (core.Micros, error) {
+	var total int64
+	if err := r.h.rq.QueryRowContext(ctx, `SELECT COALESCE(SUM(cost_micros), 0) FROM spend_daily
+		WHERE day = ? AND principal_id LIKE 'spc\_%' ESCAPE '\'`, day).Scan(&total); err != nil {
+		return 0, dbErr("team spend", err)
 	}
 	return core.Micros(total), nil
 }
@@ -747,7 +799,7 @@ func (r usageRepo) Spend(ctx context.Context, u core.UserID, day string) (core.M
 var usageKeys = map[string]string{
 	"day":      `strftime('%Y-%m-%d', c.created_at / 1000, 'unixepoch')`,
 	"model":    `c.provider || '/' || c.model`,
-	"user":     `c.user_id`,
+	"user":     `CASE WHEN c.user_id <> '' THEN c.user_id ELSE c.principal_id END`,
 	"schedule": `COALESCE(r.schedule_id, '')`,
 	"session":  `COALESCE(r.session_id, '')`,
 }

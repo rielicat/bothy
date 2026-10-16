@@ -24,7 +24,9 @@ const (
 	contentLimit = 2000
 	maxLen       = 1900
 
-	intents = gateway.IntentGuildMessages | gateway.IntentDirectMessages | gateway.IntentMessageContent
+	// GUILDS (not privileged) brings GUILD_CREATE: the servers the bot is
+	// in, for the member checks and the status page.
+	intents = gateway.IntentGuilds | gateway.IntentGuildMessages | gateway.IntentDirectMessages | gateway.IntentMessageContent
 )
 
 const (
@@ -67,6 +69,10 @@ type adapter struct {
 	selfID   snowflake.ID
 	identity string
 	resume   resumeState
+	guilds   map[snowflake.ID]core.TeamInfo
+	// noAccess: every server refused the last member lookup.
+	noAccess       bool
+	noAccessLogged time.Time
 
 	parents parentCache
 	dropped atomic.Int64
@@ -162,12 +168,12 @@ func (a *adapter) Name() string { return name }
 
 func (a *adapter) Caps() core.ChannelCaps { return caps }
 
-// DeepLink is unsupported: Discord has no start-parameter links for bots.
-func (a *adapter) DeepLink(string) string { return "" }
-
 func (a *adapter) Status() core.ChannelStatus {
 	a.mu.Lock()
 	st := core.ChannelStatus{Name: name, Enabled: a.conf().cfg.Enabled, State: a.state, Detail: a.detail, Identity: a.identity, Since: a.since}
+	if st.Detail == "" && a.noAccess {
+		st.Detail = noAccessDetail
+	}
 	gw := a.gw
 	a.mu.Unlock()
 	// Between sessions disgo reconnects on its own; the gateway's status is

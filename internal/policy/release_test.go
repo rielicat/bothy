@@ -98,7 +98,7 @@ func TestReleaseDecisionTable(t *testing.T) {
 		{name: "untrusted origin", in: func(in *core.PolicyInput) { in.Provenance = core.ProvUntrusted },
 			verdict: core.VerdictAsk, rule: floorRelease, warn: "not from a person"},
 		{name: "standard space", in: func(in *core.PolicyInput) { in.Principal, in.Session = standard, h.spaceSession },
-			verdict: core.VerdictDeny, rule: floorRelease, reason: "group"},
+			verdict: core.VerdictDeny, rule: floorRelease, reason: "channel"},
 		{name: "restricted space", in: func(in *core.PolicyInput) { in.Principal, in.Session = h.space, h.spaceSession },
 			verdict: core.VerdictDeny, rule: "floor:unavailable", reason: "Bothy can't deploy acme/web to staging in this group chat"},
 		{name: "unknown environment", in: func(in *core.PolicyInput) { in.Action = releaseAction("dev", "main", stagingInputs) },

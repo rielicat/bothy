@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -41,6 +42,8 @@ func (h *Hub) onBusEvent(e core.Event) {
 		if h.markResolved(d.Approval, d.Status) {
 			h.enqueueChat(cardQueue(d.Approval), func(ctx context.Context) { h.updateCards(ctx, d) })
 		}
+	case core.BannerData:
+		h.onBanner(e, d)
 	}
 }
 
@@ -89,67 +92,107 @@ func (h *Hub) resyncCards() {
 	}
 }
 
-// deliverCard routes a card per SPEC §5.9: the approver's own DM when the
-// run started there, else the approver's preferred DM (plus a waiting line in
-// the originating group), plus policy.approval.notify channels for runs that
-// did not start in a chat. Cards never go to a group.
+// approverDM is a chat approver's DM; full is false when their membership
+// verdict is too old for a card that approves (they get a link instead).
+type approverDM struct {
+	key  string // "<channel>:<external id>"
+	chat core.ChatRef
+	full bool
+}
+
+// chatApprovers lists the teammates an admin marked "Can approve" whom
+// Bothy can reach now: their chat app is on, they are still in the team,
+// and their DM is known or can be opened.
+func (h *Hub) chatApprovers(ctx context.Context) []approverDM {
+	ids, err := h.d.Store.Identities().List(ctx, core.IdentityTeammate)
+	if err != nil {
+		h.log.Error("channel: listing approvers failed", "err", err)
+		return nil
+	}
+	synced := map[string]bool{}
+	var out []approverDM
+	for _, id := range ids {
+		if !id.CanApprove {
+			continue
+		}
+		a := h.live(id.Channel)
+		if a == nil {
+			continue
+		}
+		mc, checks := checkerOf(a)
+		if checks && !synced[a.name] {
+			synced[a.name] = true
+			h.syncScope(ctx, a, mc)
+		}
+		res, err := h.d.Auth.ResolveIdentity(ctx, id.Channel, id.ExternalID)
+		if err != nil || !res.SpaceOn || !res.CanApprove || res.Member == core.MemberOutsider {
+			continue
+		}
+		chat, err := h.dmOf(ctx, a, *id)
+		if err != nil {
+			h.log.Warn("channel: opening an approver's DM failed", "channel", a.name, "err", err)
+			continue
+		}
+		full := res.Admitted() && (!checks || h.fresh(res, core.ApproverFresh))
+		out = append(out, approverDM{key: id.Channel + ":" + id.ExternalID, chat: chat, full: full})
+	}
+	return out
+}
+
+// deliverCard routes an approval to chat (SPEC §5.9). Web accounts' own
+// requests stay on the web. A team request (a teammate's or a channel's)
+// goes to chat approvers as a card, or as a link to Bothy when only an
+// admin can decide it or the approver's membership needs renewing; the
+// chat that asked gets a waiting line its requester can cancel from.
 func (h *Hub) deliverCard(ctx context.Context, ap *core.Approval) {
-	if ap.Approver.Multi() {
-		h.deliverVoteCards(ctx, ap)
+	pr, err := h.d.Store.Principals().Get(ctx, core.SystemViewer(), ap.Principal)
+	if err != nil || !pr.TeamOwned() {
 		return
 	}
-	approver := ap.Approver.User
-	if ap.Approver.AdminOnly || approver == "" {
-		owner, ok := h.instanceOwner(ctx)
-		if !ok {
-			return
-		}
-		approver = owner.ID
+	var origin *core.ChatRef
+	if ap.Chat != nil && h.live(ap.Chat.Channel) != nil {
+		origin = ap.Chat
 	}
-	var targets []core.ChatRef
-	add := func(c core.ChatRef) {
-		for _, t := range targets {
-			if t.Key() == c.Key() {
-				return
-			}
-		}
-		targets = append(targets, c)
-	}
-	origin := ap.Chat
-	fromChat := origin != nil && h.live(origin.Channel) != nil
 	switch {
-	case fromChat && h.isDMOf(ctx, approver, *origin):
-		add(*origin)
-	case h.webOnly(ctx, approver):
-		// They answer in Bothy's Approvals page; a chat run still hears it waits.
-	case fromChat:
-		if c, ok := h.PreferredChat(ctx, approver); ok {
-			add(c)
+	case ap.Approver.Multi():
+		if origin != nil {
+			who := "someone else"
+			if n := ap.Approver.Needed(); n > 1 {
+				who = fmt.Sprintf("%d other people", n)
+			}
+			h.sendNotice(ctx, ap, *origin, "Waiting for "+who+" to approve "+cardIng(ap)+".")
 		}
-	default:
-		if c, ok := h.PreferredChat(ctx, approver); ok {
-			add(c)
+	case ap.Approver.AdminOnly:
+		for _, dm := range h.chatApprovers(ctx) {
+			h.sendLinkCard(ctx, ap, dm.chat)
 		}
-		for _, name := range h.cfg().Policy.Approval.Notify {
-			if c, ok := h.dmOn(ctx, approver, name); ok {
-				add(c)
+		if origin != nil {
+			h.sendNotice(ctx, ap, *origin, needsAdmin)
+		}
+	case ap.Approver.Team:
+		full, ownDM := 0, false
+		for _, dm := range h.chatApprovers(ctx) {
+			if !dm.full {
+				h.sendLinkCard(ctx, ap, dm.chat)
+				continue
+			}
+			full++
+			h.sendCard(ctx, ap, dm.chat)
+			if origin != nil && origin.Kind == core.ChatDM && dm.chat.Key() == origin.Key() {
+				ownDM = true
 			}
 		}
-	}
-	for _, t := range targets {
-		h.sendCard(ctx, ap, t)
-	}
-	if fromChat && (len(targets) == 0 || targets[0].Key() != origin.Key()) {
-		h.reply(ctx, *origin, plainLine("Waiting for "+h.approvers(ctx, ap)+" to approve "+cardIng(ap)+"."))
+		switch {
+		case origin == nil, ownDM:
+		case full > 0:
+			h.sendNotice(ctx, ap, *origin, "Waiting for approval: "+strings.TrimSuffix(cardQuestion(ap), "?")+".")
+		default:
+			h.sendNotice(ctx, ap, *origin, needsAdmin)
+		}
 	}
 }
 
-// webOnly reports whether u keeps approval requests on Bothy's Approvals
-// page (Settings → Account) instead of a chat app.
-func (h *Hub) webOnly(ctx context.Context, u core.UserID) bool {
-	usr, err := h.d.Store.Users().Get(ctx, u)
-	return err == nil && usr.ApprovalsWebOnly
-}
+const needsAdmin = "This needs an admin's approval in Bothy."
 
 func (h *Hub) sendCard(ctx context.Context, ap *core.Approval, chat core.ChatRef) {
 	a := h.live(chat.Channel)
@@ -157,14 +200,52 @@ func (h *Hub) sendCard(ctx context.Context, ap *core.Approval, chat core.ChatRef
 		return
 	}
 	msg, truncated := h.renderCard(ap, a.ch.Caps())
+	h.sendRecorded(ctx, a, ap, chat, msg, core.CardMessage{Kind: core.CardMsgCard, Truncated: truncated})
+}
+
+// sendLinkCard sends a card that only points to Bothy on the web: no
+// question, no context, nothing to press but the link.
+func (h *Hub) sendLinkCard(ctx context.Context, ap *core.Approval, chat core.ChatRef) {
+	a := h.live(chat.Channel)
+	if a == nil {
+		return
+	}
+	msg := renderLinkCard(ap)
+	h.sendRecorded(ctx, a, ap, chat, msg, core.CardMessage{Kind: core.CardMsgLink, Truncated: true})
+}
+
+func renderLinkCard(ap *core.Approval) core.OutMessage {
+	if !isHTTPURL(ap.Card.WebURL) {
+		return core.OutMessage{Text: plainLine("A request from chat apps needs an admin. Admins can approve it in Bothy under Approvals.")}
+	}
+	return core.OutMessage{Text: plainLine("A request from chat apps needs an admin. Admins can approve it in Bothy."),
+		Buttons: [][]core.Button{{{Label: "Open in Bothy", URL: ap.Card.WebURL}}}}
+}
+
+// sendNotice posts the waiting line in the chat that asked. Its one button
+// lets the person who asked cancel the request.
+func (h *Hub) sendNotice(ctx context.Context, ap *core.Approval, chat core.ChatRef, line string) {
+	a := h.live(chat.Channel)
+	if a == nil {
+		return
+	}
+	msg := core.OutMessage{Text: h.redact(plainLine(line))}
+	if a.ch.Caps().Buttons {
+		msg.Buttons = [][]core.Button{{{Label: "Cancel request", Data: h.d.Approvals.ButtonData(ap.ID, core.Deny)}}}
+	}
+	h.sendRecorded(ctx, a, ap, chat, msg, core.CardMessage{Kind: core.CardMsgNotice, Truncated: true})
+}
+
+func (h *Hub) sendRecorded(ctx context.Context, a *adapter, ap *core.Approval, chat core.ChatRef, msg core.OutMessage, rec core.CardMessage) {
 	msg.Chat = chat
 	ref, err := a.ch.Send(ctx, msg)
 	if err != nil {
-		h.log.Warn("channel: sending approval card failed", "approval", ap.ID, "chat", chat.Key(), "err", err)
+		h.log.Warn("channel: sending approval message failed", "approval", ap.ID, "chat", chat.Key(), "kind", rec.Kind, "err", err)
 		return
 	}
-	if err := h.d.Approvals.AddMessageRef(ctx, ap.ID, ref, truncated); err != nil {
-		h.log.Error("channel: recording approval card failed", "approval", ap.ID, "err", err)
+	rec.Ref = ref
+	if err := h.d.Approvals.AddMessage(ctx, ap.ID, rec); err != nil {
+		h.log.Error("channel: recording approval message failed", "approval", ap.ID, "err", err)
 	}
 }
 
@@ -195,8 +276,9 @@ func cardIng(ap *core.Approval) string {
 	return "“" + cardTitle(ap) + "”"
 }
 
-// choiceLabel is a button's words: allow_once carries the card's verb.
-func choiceLabel(c core.Card, ch core.Choice) string {
+// choiceLabel is a button's words: allow_once carries the card's verb. On
+// a teammate's request the grant buttons name whose chat they cover.
+func choiceLabel(c core.Card, ch core.Choice, person string) string {
 	switch ch {
 	case core.AllowOnce:
 		if c.PrimaryLabel != "" && c.PrimaryLabel != allowForChat {
@@ -204,13 +286,73 @@ func choiceLabel(c core.Card, ch core.Choice) string {
 		}
 		return "Allow"
 	case core.AllowSession:
+		if person != "" {
+			return "Allow in " + person + "'s chat"
+		}
 		return allowForChat
 	case core.AllowAlways:
+		if person != "" {
+			return "Always allow for " + person
+		}
 		return "Always allow"
 	case core.Deny:
 		return "Deny"
 	}
 	return ""
+}
+
+// teamAsker describes who asked on a team request: the person's name (for
+// button labels, "" for a channel's request) and the card's "asked" line.
+func teamAsker(ap *core.Approval) (person, asked string, channel bool) {
+	r := ap.Requester
+	if !ap.Approver.Team || r == nil || r.Identity == "" {
+		return "", "", false
+	}
+	app, _, _ := strings.Cut(r.Identity, ":")
+	where := " asked on " + escapeMD(channelTitle(app)) + "."
+	if r.Chat != "" {
+		where = " asked in " + inert(r.Chat) + "."
+	}
+	asked = mentionLink(r.Identity, r.Name, r.Handle) + where
+	if r.Chat != "" {
+		return "", asked, true
+	}
+	return truncateRunes(oneLine(r.Name), 24), asked, false
+}
+
+var (
+	telegramIDRe = regexp.MustCompile(`^[0-9]{1,20}$`)
+	slackIDRe    = regexp.MustCompile(`^[UW][A-Z0-9]{2,20}$`)
+	discordIDRe  = regexp.MustCompile(`^[0-9]{15,21}$`)
+)
+
+// mentionLink names a chat person by the platform's own mention, so the
+// card shows their real profile whatever display name they chose; the
+// adapters render these links as mentions.
+func mentionLink(identity, name, handle string) string {
+	app, ext, _ := strings.Cut(identity, ":")
+	label := strings.Map(func(r rune) rune {
+		if strings.ContainsRune("[]()\\`*_<>|~", r) || r == '\n' {
+			return -1
+		}
+		return r
+	}, revealInvisible(strings.TrimSpace(name)))
+	if label == "" {
+		label = "Someone"
+	}
+	switch {
+	case app == "telegram" && telegramIDRe.MatchString(ext):
+		s := "[" + label + "](tg://user?id=" + ext + ")"
+		if handle != "" {
+			s += " (@" + escapeMD(handle) + ")"
+		}
+		return s
+	case app == "slack" && slackIDRe.MatchString(ext):
+		return "[" + label + "](slack://user?id=" + ext + ")"
+	case app == "discord" && discordIDRe.MatchString(ext):
+		return "[" + label + "](discord://user?id=" + ext + ")"
+	}
+	return inert(name)
 }
 
 const allowForChat = "Allow for this chat"
@@ -276,6 +418,10 @@ func (h *Hub) renderCard(ap *core.Approval, caps core.ChannelCaps) (core.OutMess
 	c := ap.Card
 	header := heading(cardQuestion(ap))
 	lines := []string{header}
+	person, asked, channelReq := teamAsker(ap)
+	if asked != "" {
+		lines = append(lines, asked)
+	}
 	if c.Consequence != "" {
 		lines = append(lines, plainLine(c.Consequence))
 	}
@@ -332,7 +478,10 @@ func (h *Hub) renderCard(ap *core.Approval, caps core.ChannelCaps) (core.OutMess
 		primary = core.AllowSession
 	}
 	for _, ch := range c.Choices {
-		label := choiceLabel(c, ch)
+		if channelReq && (ch == core.AllowSession || ch == core.AllowAlways) {
+			continue
+		}
+		label := choiceLabel(c, ch, person)
 		if label == "" {
 			continue
 		}
@@ -370,7 +519,7 @@ func (h *Hub) renderCard(ap *core.Approval, caps core.ChannelCaps) (core.OutMess
 	}
 	msg := core.OutMessage{Text: h.redact(strings.Join(short, "\n"))}
 	if caps.Buttons {
-		msg.Buttons = [][]core.Button{{{Label: choiceLabel(c, core.Deny), Data: h.d.Approvals.ButtonData(ap.ID, core.Deny)}}}
+		msg.Buttons = [][]core.Button{{{Label: choiceLabel(c, core.Deny, ""), Data: h.d.Approvals.ButtonData(ap.ID, core.Deny)}}}
 		if web != "" {
 			msg.Buttons = append(msg.Buttons, []core.Button{{Label: "Open in web to approve", URL: web}})
 		}
@@ -413,46 +562,123 @@ func (h *Hub) expiresText(t time.Time) string {
 	return "at " + t.In(loc).Format("15:04 MST on Jan 2")
 }
 
-// updateCards edits every delivered card of a resolved approval to its
-// outcome and removes the buttons. Each card is its approver's DM, so the
-// outcome names its reader "You".
+// updateCards edits every chat message of a resolved approval to its
+// outcome and removes the buttons. A card's reader is the approver whose
+// DM it is; the waiting line in the chat that asked shows the approver's
+// reason only in a DM, never to a group.
 func (h *Hub) updateCards(ctx context.Context, d core.ApprovalResolvedData) {
 	refs, err := h.d.Approvals.MessageRefs(ctx, d.Approval)
-	if err != nil || len(refs) == 0 {
+	if err != nil {
 		return
 	}
 	ap, err := h.d.Approvals.Get(ctx, core.SystemViewer(), d.Approval)
 	if err != nil {
+		if len(refs) == 0 {
+			return
+		}
 		ap = &core.Approval{ID: d.Approval, Card: core.Card{Title: "Approval"}}
 	}
+	readers := h.cardReaders(ctx)
+	inOrigin := false
 	for _, r := range refs {
 		a := h.live(r.Ref.Chat.Channel)
 		if a == nil {
 			continue
 		}
-		// Cards only go to DMs, and a stored card ref keeps no chat kind.
-		dm := r.Ref.Chat
-		dm.Kind = core.ChatDM
-		reader := func(u core.UserID) bool { return u != "" && h.isDMOf(ctx, u, dm) }
-		text := h.redact(plainLine(h.outcomeText(ctx, d, ap, reader)))
+		var text string
+		if r.Kind == core.CardMsgNotice {
+			inOrigin = true
+			text = h.lineText(ctx, d, ap)
+		} else {
+			// Cards only go to DMs, and a stored card ref keeps no chat kind.
+			dm := r.Ref.Chat
+			dm.Kind = core.ChatDM
+			if ap.Chat != nil && dm.Channel == ap.Chat.Channel && dm.ChatID == ap.Chat.ChatID {
+				inOrigin = true
+			}
+			reader := readers[dm.Channel+"\x00"+dm.ChatID]
+			text = h.redact(plainLine(h.outcomeText(ctx, d, ap, func(by core.UserID, ident string) bool {
+				return ident != "" && ident == reader
+			}, true)))
+		}
 		if err := a.ch.Edit(ctx, r.Ref, core.OutMessage{Chat: r.Ref.Chat, Text: text}); err != nil {
 			h.log.Warn("channel: updating approval card failed", "approval", d.Approval, "err", err)
 		}
 	}
+	// A waiting line that failed to send is posted now for the outcomes
+	// the chat that asked must hear.
+	switch d.Status {
+	case core.ApprovalAllowed, core.ApprovalDenied, core.ApprovalExpired:
+	default:
+		return
+	}
+	if inOrigin || ap.Chat == nil || h.live(ap.Chat.Channel) == nil {
+		return
+	}
+	pr, err := h.d.Store.Principals().Get(ctx, core.SystemViewer(), ap.Principal)
+	if err != nil || !pr.TeamOwned() {
+		return
+	}
+	h.reply(ctx, *ap.Chat, h.lineText(ctx, d, ap))
+}
+
+// cardReaders maps each teammate's DM ("<channel>\x00<chat>") to their
+// identity key, so a card can say "You" to its reader.
+func (h *Hub) cardReaders(ctx context.Context) map[string]string {
+	out := map[string]string{}
+	ids, err := h.d.Store.Identities().List(ctx, core.IdentityTeammate)
+	if err != nil {
+		return out
+	}
+	for _, id := range ids {
+		if id.DMChat != "" {
+			out[id.Channel+"\x00"+id.DMChat] = id.Channel + ":" + id.ExternalID
+		}
+	}
+	return out
+}
+
+// lineText is the outcome a waiting line becomes. Nobody reads it as "you",
+// and a group never sees the approver's reason.
+func (h *Hub) lineText(ctx context.Context, d core.ApprovalResolvedData, ap *core.Approval) string {
+	if d.Status == core.ApprovalCancelled && d.Via == "stop" {
+		return plainLine("✗ Stopped.")
+	}
+	dm := ap.Chat != nil && ap.Chat.Kind == core.ChatDM
+	return h.redact(plainLine(h.outcomeText(ctx, d, ap, func(core.UserID, string) bool { return false }, dm)))
+}
+
+// identityName names a chat person in an outcome: display name, else
+// handle.
+func (h *Hub) identityName(ctx context.Context, key string) string {
+	app, ext, _ := strings.Cut(key, ":")
+	id, err := h.d.Store.Identities().Get(ctx, app, ext)
+	if err != nil {
+		return "Someone"
+	}
+	if n := strings.TrimSpace(id.DisplayName); n != "" {
+		return n
+	}
+	if id.Username != "" {
+		return "@" + id.Username
+	}
+	return "Someone"
 }
 
 // outcomeText is the decided line a card becomes in place of its question
 // (docs/design/ui.md §8.4), e.g. "✓ You approved deleting notes/a.md." or
-// "✗ Sam Patel denied deleting notes/a.md on the web."; reader tells which
-// user reads the card. It is plain text; the caller formats it.
-func (h *Hub) outcomeText(ctx context.Context, d core.ApprovalResolvedData, ap *core.Approval, reader func(core.UserID) bool) string {
+// "✗ Sam Patel denied deleting notes/a.md on the web."; reader tells
+// whether the decider reads it. It is plain text; the caller formats it.
+func (h *Hub) outcomeText(ctx context.Context, d core.ApprovalResolvedData, ap *core.Approval, reader func(core.UserID, string) bool, comment bool) string {
 	ing := cardIng(ap)
 	who, where := "Someone", viaText(d.Via)
 	switch {
-	case reader(d.By):
+	case reader(d.By, d.ByIdentity):
 		who, where = "You", ""
 	case d.By != "":
 		who = h.userName(ctx, d.By)
+	case d.ByIdentity != "":
+		who = h.identityName(ctx, d.ByIdentity)
 	}
 	switch d.Status {
 	case core.ApprovalAllowed:
@@ -470,14 +696,16 @@ func (h *Hub) outcomeText(ctx context.Context, d core.ApprovalResolvedData, ap *
 		return "✓ " + who + " approved " + ing + where + "."
 	case core.ApprovalDenied:
 		s := "✗ " + who + " denied " + ing + where + "."
-		// The requester's deny is how they withdraw a multi-approver request.
-		if ap.Approver.Multi() && d.By != "" && d.By == ap.Approver.Requester {
-			s = "✗ Cancelled by " + who + where + "."
+		// The requester's deny is how they withdraw their own request.
+		withdrew := d.ByIdentity != "" && d.ByIdentity == ap.Approver.RequesterIdentity ||
+			ap.Approver.Multi() && d.By != "" && d.By == ap.Approver.Requester
+		if withdrew {
+			s = "✗ Cancelled by " + who + "."
 			if who == "You" {
-				s = "✗ You cancelled the request" + where + "."
+				s = "✗ You cancelled the request."
 			}
 		}
-		if c := oneLine(d.Comment); c != "" {
+		if c := oneLine(d.Comment); c != "" && comment && !withdrew {
 			s += " “" + c + "”"
 		}
 		return s

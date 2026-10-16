@@ -28,13 +28,32 @@ type Runner struct {
 	Stops   []core.SessionID
 	Resumed []core.ApprovalID
 	PausedV bool
-	// PausedByV and PausedAtV are who paused and when; SetPaused fills them.
-	PausedByV core.UserID
+	// PausedByV and PausedAtV are who paused and when; SetPaused fills them
+	// with the user id, or the audit origin's chat actor when by is "".
+	PausedByV string
 	PausedAtV time.Time
+	// StopPrincipals records StopPrincipal calls; StopPrincipalN is the
+	// count each returns.
+	StopPrincipals []core.PrincipalID
+	StopPrincipalN int
 
 	mu       sync.Mutex
 	StopAlls int
 	sessions map[core.SessionID]*core.Session
+}
+
+func (r *Runner) StopPrincipal(_ context.Context, p core.PrincipalID) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.StopPrincipals = append(r.StopPrincipals, p)
+	return r.StopPrincipalN, nil
+}
+
+// StoppedPrincipals returns a copy of StopPrincipals.
+func (r *Runner) StoppedPrincipals() []core.PrincipalID {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]core.PrincipalID(nil), r.StopPrincipals...)
 }
 
 func (r *Runner) Submit(_ context.Context, req core.RunRequest) (core.SubmitResult, error) {
@@ -72,14 +91,18 @@ func (r *Runner) StopAll(context.Context, core.UserID) (int, error) {
 	return 0, nil
 }
 
-func (r *Runner) SetPaused(_ context.Context, paused bool, by core.UserID) error {
+func (r *Runner) SetPaused(ctx context.Context, paused bool, by core.UserID) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	who := string(by)
+	if o, ok := core.AuditOriginFrom(ctx); ok && who == "" {
+		who = o.Actor
+	}
 	switch {
 	case !paused:
 		r.PausedByV, r.PausedAtV = "", time.Time{}
 	case !r.PausedV:
-		r.PausedByV, r.PausedAtV = by, time.Now()
+		r.PausedByV, r.PausedAtV = who, time.Now()
 	}
 	r.PausedV = paused
 	return nil
@@ -87,7 +110,7 @@ func (r *Runner) SetPaused(_ context.Context, paused bool, by core.UserID) error
 
 func (r *Runner) Paused() bool { r.mu.Lock(); defer r.mu.Unlock(); return r.PausedV }
 
-func (r *Runner) PausedBy() (core.UserID, time.Time) {
+func (r *Runner) PausedBy() (string, time.Time) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.PausedByV, r.PausedAtV

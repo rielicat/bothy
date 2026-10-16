@@ -301,6 +301,35 @@ func (t *repoCheckout) Exec(ctx context.Context, env *core.ToolEnv, a *core.Acti
 	return t.s.checkout(ctx, env, p, "agent:"+string(env.Run), false)
 }
 
+// prefetchActor is who a Knowledge prefetch reads for: the account, or the
+// run of a channel or teammate, which has none.
+func prefetchActor(env *core.ToolEnv) string {
+	if env.User == "" && env.Run != "" {
+		return "agent:" + string(env.Run)
+	}
+	return userActor(env.User)
+}
+
+// askedBy is the line a pull request opened for a channel or teammate ends
+// with: the connected account opens it, so its body says who asked.
+func askedBy(env *core.ToolEnv) string {
+	if !env.Principal.TeamOwned() || env.Principal.DisplayName == "" {
+		return ""
+	}
+	s := "Asked by " + env.Principal.DisplayName
+	if c := env.Chat; c != nil {
+		switch c.Channel {
+		case "telegram":
+			s += " on Telegram"
+		case "discord":
+			s += " on Discord"
+		case "slack":
+			s += " on Slack"
+		}
+	}
+	return s + "."
+}
+
 // Prefetch implements core.GitHub.
 func (s *Service) Prefetch(ctx context.Context, env *core.ToolEnv, repos []string) {
 	for _, name := range repos {
@@ -309,11 +338,11 @@ func (s *Service) Prefetch(ctx context.Context, env *core.ToolEnv, repos []strin
 			err = fmt.Errorf("%w: %s has no known default branch", core.ErrInvalid, r.FullName())
 		}
 		if err == nil {
-			_, err = s.checkout(ctx, env, checkoutPayload{Repo: r.FullName(), Ref: r.DefaultBranch}, userActor(env.User), true)
+			_, err = s.checkout(ctx, env, checkoutPayload{Repo: r.FullName(), Ref: r.DefaultBranch}, prefetchActor(env), true)
 		}
 		if err != nil {
 			s.log.Warn("github: reading a repository for Knowledge failed", "repo", name, "err", err)
-			s.record(ctx, userActor(env.User), "github.checkout", name, "error", map[string]any{"prefetch": true, "error": err.Error()})
+			s.record(ctx, prefetchActor(env), "github.checkout", name, "error", map[string]any{"prefetch": true, "error": err.Error()})
 		}
 	}
 }
@@ -807,7 +836,11 @@ func (t *repoOpenPR) Plan(ctx context.Context, env *core.ToolEnv, args json.RawM
 	if head == base || strings.HasPrefix(head, "refs/") {
 		return nil, fmt.Errorf("%w: head must be a new branch name other than %s", core.ErrInvalid, base)
 	}
-	p := openPRPayload{Repo: r.FullName(), Base: base, Head: head, Title: title, Body: in.Body, Draft: in.Draft, BaseSHA: st.m.SHA}
+	body := in.Body
+	if line := askedBy(env); line != "" {
+		body = strings.TrimSpace(body + "\n\n" + line)
+	}
+	p := openPRPayload{Repo: r.FullName(), Base: base, Head: head, Title: title, Body: body, Draft: in.Draft, BaseSHA: st.m.SHA}
 	paths := make([]string, len(ch))
 	for i, c := range ch {
 		p.Files = append(p.Files, prFile{Path: c.Path, Op: c.Op, SHA256: c.SHA256, Exec: c.Exec})

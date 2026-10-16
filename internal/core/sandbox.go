@@ -114,8 +114,9 @@ type SystemDest struct {
 type EgressBinding struct {
 	Run         RunID
 	ToolCallID  string
-	User        UserID // approver context (space owner for spaces)
+	User        UserID // the principal's account; "" for team-owned principals
 	Role        Role
+	Sender      string // RunRequest.Sender, so a team request names who asked
 	Trigger     Trigger
 	Schedule    ScheduleID // schedule-scoped (pre-authorized) domain grants apply at the proxy
 	Interactive bool       // hold unknown CONNECTs for approval (egress.hold_for_approval) instead of failing

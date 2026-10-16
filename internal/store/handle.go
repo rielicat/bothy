@@ -53,7 +53,6 @@ func (h *handle) Users() core.UserRepo               { return userRepo{h} }
 func (h *handle) Principals() core.PrincipalRepo     { return principalRepo{h} }
 func (h *handle) Spaces() core.SpaceRepo             { return spaceRepo{h} }
 func (h *handle) Identities() core.IdentityRepo      { return identityRepo{h} }
-func (h *handle) Pairings() core.PairingRepo         { return pairingRepo{h} }
 func (h *handle) AuthSessions() core.AuthSessionRepo { return authSessionRepo{h} }
 func (h *handle) Tokens() core.TokenRepo             { return tokenRepo{h} }
 func (h *handle) Sessions() core.SessionRepo         { return sessionRepo{h} }

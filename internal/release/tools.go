@@ -199,7 +199,13 @@ func (s *Service) approvalFor(ctx context.Context, env *core.ToolEnv, a *core.Ac
 			return nil, nil, fmt.Errorf("only %d of %d approvals were recorded", len(voters), ap.Approver.Needed())
 		}
 		users, roles := cur.ApproverSet()
-		now := core.ApproverReq{Users: users, Roles: roles, Required: cur.Needed(), Requester: env.User}
+		need := cur.Needed()
+		if env.Principal.Kind == core.PrincipalPerson {
+			// As the release floor asked: one more than usual, since a
+			// teammate may also hold a web account among the voters.
+			need++
+		}
+		now := core.ApproverReq{Users: users, Roles: roles, Required: need, Requester: env.User}
 		n := 0
 		for _, id := range voters {
 			if u, err := s.d.Store.Users().Get(ctx, id); err == nil && !u.Disabled && now.Eligible(u.ID, u.Role) {

@@ -33,8 +33,8 @@ func TestReconnectAndResumeAfterForcedClose(t *testing.T) {
 		t.Fatalf("got %+v, want the event missed while disconnected", in)
 	}
 	waitFor(t, 5*time.Second, func() bool { return f.a.Status().State == stateConnected }, "connected again")
-	if got := f.srv.Resumes(); !slices.Equal(got, []int{2}) {
-		t.Fatalf("RESUME seqs = %v, want [2] (READY, then one message)", got)
+	if got := f.srv.Resumes(); !slices.Equal(got, []int{3}) {
+		t.Fatalf("RESUME seqs = %v, want [3] (READY, GUILD_CREATE, then one message)", got)
 	}
 	if n := f.srv.Identifies(); n != 1 {
 		t.Fatalf("%d IDENTIFYs, want 1: the session must be resumed, not replaced", n)
@@ -60,7 +60,7 @@ func TestDisallowedIntentReportsAuthFailed(t *testing.T) {
 func TestIdentifyIntentsAndEncoding(t *testing.T) {
 	f := newFixture(t)
 	f.start(t, stateConnected)
-	const want = 1<<9 | 1<<12 | 1<<15 // GUILD_MESSAGES | DIRECT_MESSAGES | MESSAGE_CONTENT
+	const want = 1<<0 | 1<<9 | 1<<12 | 1<<15 // GUILDS | GUILD_MESSAGES | DIRECT_MESSAGES | MESSAGE_CONTENT
 	if got := f.srv.Intents(); !slices.Equal(got, []int64{want}) {
 		t.Fatalf("IDENTIFY intents = %v, want [%d]", got, want)
 	}
@@ -91,8 +91,8 @@ func TestResumeAcrossRestart(t *testing.T) {
 		t.Fatalf("no resume cursor stored on shutdown: %v", err)
 	}
 	var rs resumeState
-	if err := json.Unmarshal([]byte(raw), &rs); err != nil || rs.SessionID == "" || rs.Seq != 2 || !strings.HasSuffix(rs.URL, "/resume") {
-		t.Fatalf("stored cursor %s, want session, seq 2 and the resume URL", raw)
+	if err := json.Unmarshal([]byte(raw), &rs); err != nil || rs.SessionID == "" || rs.Seq != 3 || !strings.HasSuffix(rs.URL, "/resume") {
+		t.Fatalf("stored cursor %s, want session, seq 3 and the resume URL", raw)
 	}
 	f.srv.InjectText(dm, user, "missed", false)
 
@@ -106,7 +106,7 @@ func TestResumeAcrossRestart(t *testing.T) {
 	if in := f.sink.message(t); in.Text != "missed" {
 		t.Fatalf("got %+v, want the event sent while stopped", in)
 	}
-	if got := f.srv.Resumes(); !slices.Equal(got, []int{2}) || f.srv.Identifies() != 1 {
+	if got := f.srv.Resumes(); !slices.Equal(got, []int{3}) || f.srv.Identifies() != 1 {
 		t.Fatalf("resumes %v, identifies %d; want the restart to resume the stored session", got, f.srv.Identifies())
 	}
 	if _, err := f.meta.Get(context.Background(), metaResume); err == nil {

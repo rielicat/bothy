@@ -153,82 +153,49 @@ func TestUserEndpoints(t *testing.T) {
 	}
 }
 
-type linkChannel struct {
-	core.Channel
-	name, state string
-}
-
-func (c linkChannel) Name() string { return c.name }
-func (c linkChannel) Status() core.ChannelStatus {
-	return core.ChannelStatus{Name: c.name, State: c.state, DeepLinks: true}
-}
-func (c linkChannel) DeepLink(code string) string { return "https://t.me/bothy_bot?start=" + code }
-
-func TestPairingDeepLinks(t *testing.T) {
-	h := newHarness(t).setup()
-	h.hub.Add(linkChannel{name: "telegram", state: "connected"})
-	h.hub.Add(linkChannel{name: "discord", state: "auth_failed"})
-	rec := h.do("POST", "/api/pairing", nil, h.member)
-	expect(t, rec, http.StatusOK)
-	pc := decodeAs[core.PairingCode](t, rec)
-	if len(pc.DeepLinks) != 1 || pc.DeepLinks["telegram"] != "https://t.me/bothy_bot?start="+strings.ReplaceAll(pc.Code, "-", "") {
-		t.Fatalf("pairing = %+v", pc)
-	}
-}
-
-func TestIdentitiesAndSpaces(t *testing.T) {
+// TestSpaces: only admins list and change group chats, which carry their
+// tool profile; turning one on or off records the review and turning it off
+// stops its tasks. A teammate's own space isn't a group chat.
+func TestSpaces(t *testing.T) {
 	h := newHarness(t).setup()
 	ctx := context.Background()
-	for _, ext := range []string{"1", "2"} {
-		if _, err := h.store.Identities().Touch(ctx, &core.ChannelIdentity{Channel: "telegram", ExternalID: ext, DisplayName: "Guest " + ext,
-			LastSeen: time.Now()}); err != nil {
-			t.Fatal(err)
-		}
+	now := time.Now()
+	sp := &core.Space{Kind: core.SpaceGroup, Chat: core.ChatRef{Channel: "slack", ChatID: "C1", Kind: core.ChatGroup}, Title: "#eng",
+		Team: "T1", TeamName: "Acme", Members: 12, External: true, CreatedAt: now, UpdatedAt: now}
+	if err := h.store.Spaces().Create(ctx, sp, &core.Principal{ToolProfile: "restricted", CreatedAt: now}); err != nil {
+		t.Fatal(err)
 	}
-	expect(t, h.do("PATCH", "/api/identities/telegram/1", dto.IdentityPatchReq{Status: core.IdentityLinked, UserID: h.member.user}, h.admin),
-		http.StatusForbidden)
-	rec := h.do("PATCH", "/api/identities/telegram/1", dto.IdentityPatchReq{Status: core.IdentityLinked, UserID: h.member.user}, h.owner)
+	person := &core.Space{Kind: core.SpacePerson, Chat: core.ChatRef{Channel: "slack", ChatID: "U1", Kind: core.ChatDM}, Title: "Ana",
+		Enabled: true, CreatedAt: now, UpdatedAt: now}
+	if err := h.store.Spaces().Create(ctx, person, &core.Principal{CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	expect(t, h.do("GET", "/api/spaces", nil, h.member), http.StatusForbidden)
+	list := decodeAs[[]dto.SpaceView](t, h.do("GET", "/api/spaces", nil, h.admin))
+	if len(list) != 1 || list[0].Principal != sp.Principal || list[0].ToolProfile != "restricted" || list[0].TeamName != "Acme" ||
+		list[0].Members != 12 || !list[0].External || !list[0].ReviewedAt.IsZero() {
+		t.Fatalf("spaces = %+v", list)
+	}
+	on, off, profile := true, false, "standard"
+	expect(t, h.do("PATCH", "/api/spaces/"+string(sp.Principal), dto.SpacePatchReq{Enabled: &on}, h.member), http.StatusForbidden)
+	expect(t, h.do("PATCH", "/api/spaces/"+string(person.Principal), dto.SpacePatchReq{Enabled: &off}, h.admin), http.StatusNotFound)
+	rec := h.do("PATCH", "/api/spaces/"+string(sp.Principal), dto.SpacePatchReq{Enabled: &on, ToolProfile: &profile}, h.admin)
 	expect(t, rec, http.StatusOK)
-	rec = h.do("PATCH", "/api/identities/telegram/2", dto.IdentityPatchReq{Status: core.IdentityGuest}, h.owner)
-	expect(t, rec, http.StatusOK)
-	guest := decodeAs[core.ChannelIdentity](t, rec)
-	if guest.Status != core.IdentityGuest || guest.Principal == "" {
-		t.Fatalf("guest = %+v", guest)
+	if v := decodeAs[dto.SpaceView](t, rec); !v.Enabled || v.ToolProfile != "standard" || v.ReviewedAt.IsZero() {
+		t.Fatalf("turned on = %+v", v)
 	}
-	mine := decodeAs[[]core.ChannelIdentity](t, h.do("GET", "/api/identities", nil, h.member))
-	if len(mine) != 1 || mine[0].ExternalID != "1" {
-		t.Fatalf("member identities = %+v", mine)
+	if len(h.runner.StoppedPrincipals()) != 0 {
+		t.Fatal("turning a channel on stopped its tasks")
 	}
-	if all := decodeAs[[]core.ChannelIdentity](t, h.do("GET", "/api/identities?status=guest", nil, h.admin)); len(all) != 1 {
-		t.Fatalf("admin guest identities = %+v", all)
+	expect(t, h.do("PATCH", "/api/spaces/"+string(sp.Principal), dto.SpacePatchReq{Enabled: &off}, h.admin), http.StatusOK)
+	if got := h.runner.StoppedPrincipals(); !slices.Equal(got, []core.PrincipalID{sp.Principal}) {
+		t.Fatalf("stopped principals = %v", got)
 	}
-	// The guest space belongs to the owner; the member cannot see or edit it.
-	spaces := decodeAs[[]core.Space](t, h.do("GET", "/api/spaces", nil, h.owner))
-	if len(spaces) != 1 || spaces[0].Principal != guest.Principal {
-		t.Fatalf("owner spaces = %+v", spaces)
-	}
-	if s := decodeAs[[]core.Space](t, h.do("GET", "/api/spaces", nil, h.member)); len(s) != 0 {
-		t.Fatalf("member spaces = %+v", s)
-	}
-	if s := decodeAs[[]core.Space](t, h.do("GET", "/api/spaces", nil, h.admin)); len(s) != 1 {
-		t.Fatalf("admin spaces = %+v", s)
-	}
-	off, profile := false, "standard"
-	expect(t, h.do("PATCH", "/api/spaces/"+string(guest.Principal), dto.SpacePatchReq{Enabled: &off}, h.member), http.StatusNotFound)
-	rec = h.do("PATCH", "/api/spaces/"+string(guest.Principal), dto.SpacePatchReq{Enabled: &off, ToolProfile: &profile}, h.admin)
-	expect(t, rec, http.StatusOK)
-	if sp := decodeAs[core.Space](t, rec); sp.Enabled {
-		t.Fatalf("space = %+v", sp)
-	}
-	p, _ := h.store.Principals().Get(ctx, core.SystemViewer(), guest.Principal)
-	if p.ToolProfile != "standard" {
-		t.Fatalf("tool profile = %q", p.ToolProfile)
-	}
-	if !slices.Contains(h.audit.Actions(), "space.update") || !slices.Contains(h.audit.Actions(), "identity.guest") {
+	bad := "admin"
+	expect(t, h.do("PATCH", "/api/spaces/"+string(sp.Principal), dto.SpacePatchReq{ToolProfile: &bad}, h.admin), http.StatusBadRequest)
+	if !slices.Contains(h.audit.Actions(), "space.update") {
 		t.Fatalf("audit = %v", h.audit.Actions())
 	}
-	expect(t, h.do("DELETE", "/api/identities/telegram/2", nil, h.member), http.StatusNotFound)
-	expect(t, h.do("DELETE", "/api/identities/telegram/1", nil, h.member), http.StatusNoContent)
 }
 
 func TestSessionFlow(t *testing.T) {
@@ -430,19 +397,19 @@ func TestMemoryEndpoints(t *testing.T) {
 		t.Fatalf("events.jsonl = %q (%v)", files["events.jsonl"], err)
 	}
 
-	// Spaces have no memory.
+	// Nobody reads a channel's memory through the web.
 	ctx := context.Background()
 	now := time.Now()
-	sp := &core.Space{Kind: "group", Chat: core.ChatRef{Channel: "telegram", ChatID: "-5", Kind: core.ChatGroup}, Owner: h.member.user,
+	sp := &core.Space{Kind: core.SpaceGroup, Chat: core.ChatRef{Channel: "telegram", ChatID: "-5", Kind: core.ChatGroup},
 		CreatedAt: now, UpdatedAt: now}
-	pr := &core.Principal{Kind: core.PrincipalSpace, User: h.member.user, ToolProfile: "restricted", CreatedAt: now}
+	pr := &core.Principal{Kind: core.PrincipalSpace, ToolProfile: "restricted", CreatedAt: now}
 	if err := h.store.Spaces().Create(ctx, sp, pr); err != nil {
 		t.Fatal(err)
 	}
 	m2, _, _ := h.auth.Login(ctx, "member", testPassword, "127.0.0.1")
 	ma, _ := h.auth.FromCookie(ctx, m2)
 	member2 := &client{name: "member", user: h.member.user, cookie: m2, csrf: ma.CSRF}
-	expect(t, h.do("GET", "/api/memory/MEMORY?principal="+string(pr.ID), nil, member2), http.StatusForbidden)
+	expect(t, h.do("GET", "/api/memory/MEMORY?principal="+string(pr.ID), nil, member2), http.StatusNotFound)
 }
 
 // Memory history names who changed what: an admin's edit by name, Bothy's
@@ -819,11 +786,16 @@ func TestGrantEndpoints(t *testing.T) {
 	}
 	expect(t, h.do("POST", "/api/grants", dto.GrantCreateReq{Principal: mp, Kind: core.GrantTool, Tool: "shell", MaxSE: core.SELocalWrite}, h.admin), http.StatusBadRequest)
 	expect(t, h.do("POST", "/api/grants", dto.GrantCreateReq{Principal: "usr_nope", Kind: core.GrantDomain, Value: "a.b:443", MaxSE: core.SERead}, h.admin), http.StatusNotFound)
-	if l := decodeAs[[]core.Grant](t, h.do("GET", "/api/grants", nil, h.member)); len(l) != 1 {
+	if l := decodeAs[[]dto.GrantView](t, h.do("GET", "/api/grants", nil, h.member)); len(l) != 1 || l[0].CreatedByName != "admin" ||
+		l[0].PrincipalName != "member" {
 		t.Fatalf("member grants = %+v", l)
 	}
-	if l := decodeAs[[]core.Grant](t, h.do("GET", "/api/grants", nil, h.owner)); len(l) != 0 {
-		t.Fatalf("owner sees member grants: %+v", l)
+	// Admins manage everyone's grants, teammates' and channels' included.
+	if l := decodeAs[[]dto.GrantView](t, h.do("GET", "/api/grants", nil, h.owner)); len(l) != 1 {
+		t.Fatalf("owner grants = %+v", l)
+	}
+	if l := decodeAs[[]dto.GrantView](t, h.do("GET", "/api/grants", nil, h.tokenFor(h.owner, "read"))); len(l) != 0 {
+		t.Fatalf("an owner's read token sees everyone's grants: %+v", l)
 	}
 	expect(t, h.do("DELETE", "/api/grants/"+string(g.ID), nil, h.owner), http.StatusNoContent) // admin
 	if len(sp.revoked) != 1 {

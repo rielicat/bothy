@@ -315,16 +315,17 @@ func TestAdminReasonIsPlain(t *testing.T) {
 }
 
 // TestScheduleSendsTo: a schedule card says where results really go. A
-// preferred delivery names whose usual chat app it is, since an admin may be
-// approving someone else's schedule.
+// preferred delivery names whose chat it is, since an approver approves
+// someone else's schedule.
 func TestScheduleSendsTo(t *testing.T) {
 	for _, tc := range []struct {
 		payload map[string]any
 		want    string
 	}{
-		{map[string]any{"owner": "Sam Patel", "usual_chat": "telegram"}, "Sam Patel's usual chat app (Telegram)"},
-		{map[string]any{"owner": "Sam Patel"}, "Bothy on the web (Sam Patel has no chat app linked)"},
-		{map[string]any{}, "Usual chat app, or Bothy on the web if none is linked"},
+		{map[string]any{"owner": "Maya Chen", "usual_chat": "slack", "owner_kind": "person"}, "Maya Chen's messages on Slack"},
+		{map[string]any{"owner": "#eng", "usual_chat": "slack", "owner_kind": "space"}, "#eng on Slack"},
+		{map[string]any{"owner": "Sam Patel", "owner_kind": "user"}, "Bothy on the web"},
+		{map[string]any{}, "Bothy on the web"},
 		{map[string]any{"deliver": map[string]any{"channel": "web"}}, "Bothy on the web"},
 		{map[string]any{"deliver": map[string]any{"channel": "slack", "chat_id": "C1"}}, "Slack chat C1"},
 	} {

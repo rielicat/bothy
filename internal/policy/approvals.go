@@ -21,7 +21,28 @@ var (
 	// no approval id.
 	errDecided = fmt.Errorf("%w: already decided", core.ErrConflict)
 	errVoted   = fmt.Errorf("%w: you already voted", core.ErrConflict)
+	// errWaiting refuses another team request while maxTeamOpen are open:
+	// a flood of cards ends in rubber-stamping.
+	errWaiting = fmt.Errorf("%w: Bothy is still waiting on earlier requests from this chat", core.ErrBusy)
 )
+
+// maxTeamOpen bounds a team-owned principal's open (pending or parked)
+// requests.
+const maxTeamOpen = 5
+
+// chatSender reports whether a run's Sender is a person in a chat app
+// ("<app>:<external id>") rather than the web, the API or a schedule.
+func chatSender(s string) bool {
+	app, id, ok := strings.Cut(s, ":")
+	if !ok || id == "" || !channelRe.MatchString(app) {
+		return false
+	}
+	switch app {
+	case "web", "api", "schedule", "heartbeat":
+		return false
+	}
+	return true
+}
 
 // Request implements core.Approvals.
 func (ap *Approvals) Request(ctx context.Context, r core.ApprovalRequest) (*core.Approval, error) {
@@ -32,10 +53,29 @@ func (ap *Approvals) Request(ctx context.Context, r core.ApprovalRequest) (*core
 		return nil, fmt.Errorf("%w: approval request for a %q decision", core.ErrInvalid, r.Decision.Verdict)
 	case r.Run == "" || r.Session == "" || r.Principal == "":
 		return nil, fmt.Errorf("%w: approval request needs run, session and principal", core.ErrInvalid)
-	case !r.Decision.Approver.AdminOnly && r.Decision.Approver.User == "" && !r.Decision.Approver.Multi():
+	case r.Decision.Approver.Team && (r.Decision.Approver.User != "" || r.Decision.Approver.AdminOnly ||
+		len(r.Decision.Approver.Users) > 0 || len(r.Decision.Approver.Roles) > 0):
+		return nil, fmt.Errorf("%w: a team request names no other approver", core.ErrInvalid)
+	case !r.Decision.Approver.AdminOnly && !r.Decision.Approver.Team && r.Decision.Approver.User == "" && !r.Decision.Approver.Multi():
 		return nil, fmt.Errorf("%w: approval request without an approver", core.ErrInvalid)
-	case r.Decision.Approver.Multi() && (r.Decision.Approver.User != "" || r.Decision.Approver.Requester == "" || r.Decision.Approver.Required < 0):
+	case r.Decision.Approver.Multi() && (r.Decision.Approver.User != "" || r.Decision.Approver.Required < 0):
 		return nil, fmt.Errorf("%w: a multi-approver request names its approvers and requester only", core.ErrInvalid)
+	}
+	pr, err := ap.store.Principals().Get(ctx, core.SystemViewer(), r.Principal)
+	if err != nil {
+		return nil, fmt.Errorf("approval principal %s: %w", r.Principal, err)
+	}
+	if r.Decision.Approver.Multi() && r.Decision.Approver.Requester == "" && pr.Kind != core.PrincipalPerson {
+		return nil, fmt.Errorf("%w: a multi-approver request names its requester", core.ErrInvalid)
+	}
+	if r.Decision.Approver.Team {
+		n, err := ap.store.Approvals().CountOpen(ctx, r.Principal)
+		if err != nil {
+			return nil, fmt.Errorf("open approvals of %s: %w", r.Principal, err)
+		}
+		if n >= maxTeamOpen {
+			return nil, errWaiting
+		}
 	}
 	choices, err := ap.offered(ctx, r)
 	if err != nil {
@@ -58,12 +98,21 @@ func (ap *Approvals) Request(ctx context.Context, r core.ApprovalRequest) (*core
 		Action: r.Action, Decision: r.Decision, Status: core.ApprovalPending, Approver: r.Decision.Approver,
 		Chat: r.Chat, OnTimeout: onTimeout, CreatedAt: now, ExpiresAt: msTime(now.Add(timeout)),
 	}
+	if pr.TeamOwned() && chatSender(r.Sender) {
+		a.Approver.RequesterIdentity = r.Sender
+		a.Decision.Approver.RequesterIdentity = r.Sender
+	}
 	a.Card = renderCard(r)
-	if a.Approver.Multi() {
+	switch {
+	case a.Approver.Multi():
 		// The context line names the requester's session, whose title comes
 		// from their conversation; the other approvers are outside that
 		// principal and see only who asked (Approval.Requester).
 		a.Card.Context = ""
+	case pr.TeamOwned():
+		// Chat approvers aren't in the chat: they read whose chat it is,
+		// never its title.
+		a.Card.Context = ap.teamContext(ctx, pr)
 	}
 	a.Card.Expires = a.ExpiresAt
 	if base := strings.TrimRight(c.Server.PublicURL, "/"); base != "" {
@@ -77,7 +126,8 @@ func (ap *Approvals) Request(ctx context.Context, r core.ApprovalRequest) (*core
 		Session: r.Session, Run: r.Run,
 		Detail: auditDetail(map[string]any{
 			"tool": r.Action.Tool, "fingerprint": r.Action.Fingerprint, "rule": r.Decision.Rule,
-			"admin_only": r.Decision.Approver.AdminOnly, "choices": r.Decision.Choices, "approvers": approverDetail(r.Decision.Approver),
+			"admin_only": r.Decision.Approver.AdminOnly, "team": r.Decision.Approver.Team, "choices": r.Decision.Choices,
+			"approvers": approverDetail(r.Decision.Approver),
 		}),
 	})
 	ap.fillQuiet(ctx, a)
@@ -205,7 +255,7 @@ func (ap *Approvals) Resolve(ctx context.Context, r core.Resolution) (*core.Appr
 		return nil, err
 	}
 	now := ap.clock.Now()
-	ok, err := ap.store.Approvals().Decide(ctx, a.ID, openStatuses, to, r.Choice, r.By, r.Via, now)
+	ok, err := ap.store.Approvals().Decide(ctx, a.ID, openStatuses, to, r.Choice, core.Decider{User: r.By, Identity: r.ByIdentity}, r.Via, now)
 	if err != nil {
 		return nil, fmt.Errorf("decide approval %s: %w", a.ID, err)
 	}
@@ -213,6 +263,7 @@ func (ap *Approvals) Resolve(ctx context.Context, r core.Resolution) (*core.Appr
 		return nil, errDecided
 	}
 	a.Status, a.Choice, a.DecidedBy, a.DecidedVia, a.DecidedAt = to, r.Choice, r.By, r.Via, msTime(now)
+	a.DecidedByIdentity = r.ByIdentity
 	if r.Comment != "" {
 		// The decision stands without its reason: a failed write only loses
 		// the words shown next to it.
@@ -223,7 +274,7 @@ func (ap *Approvals) Resolve(ctx context.Context, r core.Resolution) (*core.Appr
 		}
 	}
 	ap.audit1(ctx, core.AuditEntry{
-		Actor: "user:" + string(r.By), Action: "approval.decide", Target: string(a.ID), Outcome: "ok",
+		Actor: resolverActor(r), Action: "approval.decide", Target: string(a.ID), Outcome: "ok",
 		Session: a.Session, Run: a.Run,
 		Detail: auditDetail(map[string]any{"choice": r.Choice, "via": r.Via, "tool": toolOf(a), "fingerprint": fingerprintOf(a)}),
 	})
@@ -233,11 +284,27 @@ func (ap *Approvals) Resolve(ctx context.Context, r core.Resolution) (*core.Appr
 	return &out, nil
 }
 
+// resolverActor is the audit actor of whoever resolved: an account, or a
+// teammate pressing a chat card.
+func resolverActor(r core.Resolution) string {
+	if r.ByIdentity != "" {
+		return "channel:" + r.ByIdentity
+	}
+	return "user:" + string(r.By)
+}
+
+// notChannelAlways refuses a chat approver a standing rule for everyone in
+// a channel.
+const notChannelAlways = "Only an admin on the web can always allow this for a channel."
+
 // authorize enforces who may resolve an approval and from where (§5.8,
-// §5.9). The approver's role comes from the store, not from the caller.
+// §5.9). Roles and Can approve come from the store, not from the caller.
 func (ap *Approvals) authorize(ctx context.Context, a *core.Approval, r core.Resolution) error {
 	forbid := func(why string) error {
 		return fmt.Errorf("%w: %s", core.ErrForbidden, why)
+	}
+	if r.ByIdentity != "" {
+		return ap.authorizeChat(ctx, a, r)
 	}
 	if r.By == "" {
 		return forbid(notApprover)
@@ -245,6 +312,12 @@ func (ap *Approvals) authorize(ctx context.Context, a *core.Approval, r core.Res
 	u, err := ap.store.Users().Get(ctx, r.By)
 	if err != nil || u.Disabled {
 		return forbid(notApprover)
+	}
+	if a.Approver.Team {
+		if !u.Role.IsAdmin() {
+			return forbid(notApprover)
+		}
+		return ap.checkVia(ctx, a, r)
 	}
 	if a.Approver.AdminOnly {
 		if !u.Role.IsAdmin() {
@@ -257,6 +330,74 @@ func (ap *Approvals) authorize(ctx context.Context, a *core.Approval, r core.Res
 		return forbid(notApprover)
 	}
 	return ap.checkVia(ctx, a, r)
+}
+
+// authorizeChat decides a press by a teammate. The person who asked may
+// always withdraw (deny) from their own chat app; otherwise only a team
+// request can be decided in chat, by an admitted teammate an admin marked
+// "Can approve", who may not always-allow for a whole channel.
+func (ap *Approvals) authorizeChat(ctx context.Context, a *core.Approval, r core.Resolution) error {
+	forbid := func(why string) error {
+		return fmt.Errorf("%w: %s", core.ErrForbidden, why)
+	}
+	app, ext, ok := strings.Cut(r.ByIdentity, ":")
+	if r.By != "" || !ok || ext == "" || app != r.Via {
+		return forbid(notApprover)
+	}
+	if r.Choice == core.Deny && r.ByIdentity == a.Approver.RequesterIdentity {
+		return ap.checkVia(ctx, a, r)
+	}
+	if !a.Approver.Team {
+		return forbid("open it in Bothy to approve")
+	}
+	id, err := ap.store.Identities().Get(ctx, app, ext)
+	if err != nil || id.Status != core.IdentityTeammate || !id.CanApprove {
+		return forbid(notApprover)
+	}
+	res := core.IdentityResolution{Status: id.Status, Via: id.Via, Member: id.Member}
+	if sp, err := ap.store.Spaces().Get(ctx, core.SystemViewer(), id.Principal); err == nil {
+		res.SpaceOn = sp.Enabled
+	}
+	if !res.Admitted() {
+		return forbid(notApprover)
+	}
+	if r.Choice == core.AllowAlways {
+		pr, err := ap.store.Principals().Get(ctx, core.SystemViewer(), a.Principal)
+		if err != nil || pr.Kind == core.PrincipalSpace {
+			return forbid(notChannelAlways)
+		}
+	}
+	return ap.checkVia(ctx, a, r)
+}
+
+// teamContext is a team request's card context: whose chat it is, never
+// what it is called inside, since chat approvers aren't in it.
+func (ap *Approvals) teamContext(ctx context.Context, pr *core.Principal) string {
+	sp, err := ap.store.Spaces().Get(ctx, core.SystemViewer(), pr.ID)
+	if err != nil {
+		return ""
+	}
+	app := appTitle(sp.Chat.Channel)
+	if pr.Kind == core.PrincipalPerson {
+		return pr.DisplayName + "'s direct messages on " + app
+	}
+	return sp.Title + " on " + app
+}
+
+// appTitle names a chat app in card copy.
+func appTitle(channel string) string {
+	switch channel {
+	case "telegram":
+		return "Telegram"
+	case "discord":
+		return "Discord"
+	case "slack":
+		return "Slack"
+	}
+	if channel == "" {
+		return channel
+	}
+	return strings.ToUpper(channel[:1]) + channel[1:]
 }
 
 // checkVia enforces where a resolution may come from: the web UI, or a press
@@ -286,6 +427,11 @@ func (ap *Approvals) checkVia(ctx context.Context, a *core.Approval, r core.Reso
 		if m.Truncated && r.Choice != core.Deny {
 			return forbid("this card can only deny from chat; open it in the web UI to approve")
 		}
+		// A waiting line sits in the requester's chat, where anyone may press
+		// its Cancel request; only the person who asked may.
+		if m.Kind == core.CardMsgNotice && (r.ByIdentity == "" || r.ByIdentity != a.Approver.RequesterIdentity) {
+			return forbid("only the person who asked can cancel this")
+		}
 		return nil
 	}
 	return forbid("button press from an unrecorded message")
@@ -304,7 +450,7 @@ func (ap *Approvals) CancelRun(ctx context.Context, run core.RunID) error {
 			continue
 		}
 		now := ap.clock.Now()
-		ok, err := ap.store.Approvals().Decide(ctx, a.ID, openStatuses, core.ApprovalCancelled, "", "", "stop", now)
+		ok, err := ap.store.Approvals().Decide(ctx, a.ID, openStatuses, core.ApprovalCancelled, "", core.Decider{}, "stop", now)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("cancel approval %s: %w", a.ID, err))
 			continue
@@ -360,6 +506,11 @@ func (ap *Approvals) Recent(ctx context.Context, v core.Viewer, p core.Page) ([]
 		return nil, err
 	}
 	return as, nil
+}
+
+// AddMessage implements core.Approvals.
+func (ap *Approvals) AddMessage(ctx context.Context, id core.ApprovalID, m core.CardMessage) error {
+	return ap.store.Approvals().AddMessage(ctx, id, m)
 }
 
 // AddMessageRef implements core.Approvals.
@@ -449,7 +600,7 @@ func (ap *Approvals) transition(ctx context.Context, id core.ApprovalID) (*core.
 		ap.notify(id)
 		return nil, nil
 	}
-	ok, err := ap.store.Approvals().Decide(ctx, id, []core.ApprovalStatus{a.Status}, core.ApprovalExpired, "", "", "timeout", now)
+	ok, err := ap.store.Approvals().Decide(ctx, id, []core.ApprovalStatus{a.Status}, core.ApprovalExpired, "", core.Decider{}, "timeout", now)
 	if err != nil {
 		return nil, fmt.Errorf("expire approval %s: %w", id, err)
 	}
@@ -479,19 +630,20 @@ func (ap *Approvals) resolved(ctx context.Context, a *core.Approval) {
 
 func (ap *Approvals) publishResolved(ctx context.Context, a *core.Approval) {
 	ap.publish(ctx, core.EvApprovalResolved, a, func(*core.Approval) core.EventData {
-		return core.ApprovalResolvedData{Approval: a.ID, Status: a.Status, Choice: a.Choice, By: a.DecidedBy, Via: a.DecidedVia, Comment: a.Comment}
+		return core.ApprovalResolvedData{Approval: a.ID, Status: a.Status, Choice: a.Choice, By: a.DecidedBy, ByIdentity: a.DecidedByIdentity,
+			Via: a.DecidedVia, Comment: a.Comment}
 	})
 }
 
 // publish sends the event to the approval's principal and, for admin-only
-// approvals, a copy as an admin broadcast (principal ""), and for
+// and team approvals, a copy as an admin broadcast (principal ""), and for
 // multi-approver approvals a copy to each eligible approver's own principal.
 func (ap *Approvals) publish(ctx context.Context, typ core.EventType, a *core.Approval, data func(*core.Approval) core.EventData) {
 	if ap.bus == nil {
 		return
 	}
 	principals := []core.PrincipalID{a.Principal}
-	if a.Approver.AdminOnly {
+	if a.Approver.AdminOnly || a.Approver.Team {
 		principals = append(principals, "")
 	}
 	for _, u := range ap.voters(ctx, a.Approver) {

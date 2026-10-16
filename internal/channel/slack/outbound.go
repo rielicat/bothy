@@ -157,7 +157,7 @@ func (a *adapter) SelfTest(ctx context.Context) (string, error) {
 	if _, _, err := a.newClient(bot, app).StartSocketModeContext(ctx); err != nil {
 		return "", a.apiErr("apps.connections.open", appKey, err)
 	}
-	a.setSelf(auth.UserID, auth.BotID, auth.User)
+	a.setSelf(auth)
 	return "@" + auth.User, nil
 }
 

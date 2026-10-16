@@ -72,6 +72,12 @@ type Hub struct {
 	// linkNoted holds the sessions told why their links show as plain text.
 	linkNoted map[core.SessionID]time.Time
 	asks      askLimiter
+	// channelAsks bounds the approver DMs about new channels.
+	channelAsks askLimiter
+	lookups     map[string]*lookupLimiter
+	failures    map[string]time.Time // membership lookup failures by "<app>:<sender>"
+	scopes      map[string]string    // last membership scope per adapter
+	teams       map[string]teamsEntry
 }
 
 func New(d Deps) (*Hub, error) {
@@ -112,6 +118,10 @@ func New(d Deps) (*Hub, error) {
 		noted:         map[string]time.Time{},
 		compacting:    map[core.SessionID]struct{}{},
 		linkNoted:     map[core.SessionID]time.Time{},
+		lookups:       map[string]*lookupLimiter{},
+		failures:      map[string]time.Time{},
+		scopes:        map[string]string{},
+		teams:         map[string]teamsEntry{},
 	}, nil
 }
 

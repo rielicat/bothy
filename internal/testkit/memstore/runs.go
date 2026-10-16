@@ -4,10 +4,18 @@ import (
 	"cmp"
 	"context"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/rielicat/bothy/internal/core"
 )
+
+func b2i(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
 
 // normRun drops Usage.Reasoning: runs has no reasoning_tokens column.
 func normRun(r core.Run) (core.Run, error) {
@@ -185,7 +193,7 @@ func normCall(c core.CallInfo) (core.CallInfo, error) {
 
 // AddLLMCall stamps created_at itself: CallInfo carries no time, and usage
 // reports filter on it. run "" is a passthrough or probe call (run_id NULL).
-func (r runRepo) AddLLMCall(_ context.Context, run core.RunID, _ core.PrincipalID, u core.UserID, c core.CallInfo) error {
+func (r runRepo) AddLLMCall(_ context.Context, run core.RunID, p core.PrincipalID, u core.UserID, c core.CallInfo) error {
 	st, unlock := r.s.begin()
 	defer unlock()
 	c.ID = idOr(c.ID, core.PrefixLLMCall)
@@ -202,7 +210,7 @@ func (r runRepo) AddLLMCall(_ context.Context, run core.RunID, _ core.PrincipalI
 	if err != nil {
 		return err
 	}
-	st.llmCalls = append(st.llmCalls, llmRow{run: run, user: u, c: c, at: ms(time.Now())})
+	st.llmCalls = append(st.llmCalls, llmRow{run: run, principal: p, user: u, c: c, at: ms(time.Now())})
 	return nil
 }
 
@@ -350,10 +358,11 @@ func openStatus(s core.ApprovalStatus) bool {
 }
 
 // visibleApproval applies Viewer.Admin's approval exception (every admin sees
-// admin-only approvals) and the multi-approver one (a voter by id, or by a
-// role the viewer may hold: member for anyone, owner/admin for admins).
+// admin-only and team approvals) and the multi-approver one (a voter by id,
+// or by a role the viewer may hold: member for anyone, owner/admin for
+// admins).
 func visibleApproval(v core.Viewer, a core.Approval) bool {
-	if v.Can(a.Principal) || v.Admin && a.Approver.AdminOnly {
+	if v.Can(a.Principal) || v.Admin && (a.Approver.AdminOnly || a.Approver.Team) {
 		return true
 	}
 	if v.System || v.User == "" || a.Approver.AdminOnly {
@@ -407,7 +416,7 @@ func (r approvalRepo) Get(_ context.Context, v core.Viewer, id core.ApprovalID) 
 }
 
 func (r approvalRepo) Decide(_ context.Context, id core.ApprovalID, from []core.ApprovalStatus, to core.ApprovalStatus,
-	c core.Choice, by core.UserID, via string, at time.Time) (bool, error) {
+	c core.Choice, by core.Decider, via string, at time.Time) (bool, error) {
 	st, unlock := r.s.begin()
 	defer unlock()
 	if !validApprovalStatus(to) {
@@ -420,9 +429,25 @@ func (r approvalRepo) Decide(_ context.Context, id core.ApprovalID, from []core.
 	if !slices.Contains(from, a.Status) {
 		return false, nil
 	}
-	a.Status, a.Choice, a.DecidedBy, a.DecidedVia, a.DecidedAt = to, c, by, via, ms(at)
+	a.Status, a.Choice, a.DecidedVia, a.DecidedAt = to, c, via, ms(at)
+	a.DecidedBy, a.DecidedByIdentity = by.User, by.Identity
+	if by.Identity != "" {
+		a.DecidedBy = ""
+	}
 	st.approvals[id] = a
 	return true, nil
+}
+
+func (r approvalRepo) CountOpen(_ context.Context, p core.PrincipalID) (int, error) {
+	st, unlock := r.s.begin()
+	defer unlock()
+	n := 0
+	for _, a := range st.approvals {
+		if a.Principal == p && openStatus(a.Status) {
+			n++
+		}
+	}
+	return n, nil
 }
 
 // Park only moves an open approval: a decided one is never reopened by a
@@ -515,6 +540,10 @@ func (r approvalRepo) AddMessage(_ context.Context, id core.ApprovalID, m core.C
 	if _, ok := st.approvals[id]; !ok {
 		return invalid("approval_messages.approval_id: no such approval")
 	}
+	m.Kind = cmp.Or(m.Kind, core.CardMsgCard)
+	if !oneOf(m.Kind, core.CardMsgCard, core.CardMsgLink, core.CardMsgNotice) {
+		return invalid("approval_messages.kind")
+	}
 	m.Ref.Chat.Kind = ""
 	for _, o := range st.cardMsgs {
 		if o.approval == id && o.m.Ref.Chat.Channel == m.Ref.Chat.Channel &&
@@ -535,6 +564,13 @@ func (r approvalRepo) Messages(_ context.Context, id core.ApprovalID) ([]core.Ca
 			out = append(out, o.m)
 		}
 	}
+	rank := map[string]int{core.CardMsgCard: 0, core.CardMsgLink: 1, core.CardMsgNotice: 2}
+	slices.SortStableFunc(out, func(a, b core.CardMessage) int {
+		if c := cmp.Compare(rank[a.Kind], rank[b.Kind]); c != 0 {
+			return c
+		}
+		return cmp.Compare(b2i(a.Truncated), b2i(b.Truncated))
+	})
 	return out, nil
 }
 
@@ -620,6 +656,15 @@ func (st *state) checkGrant(g core.Grant) error {
 	return nil
 }
 
+// grantCreator keeps one of CreatedBy and CreatedByIdentity, as created_by
+// ("chat:<identity>" for a chat approver) reads back.
+func grantCreator(g core.Grant) core.Grant {
+	if g.CreatedByIdentity != "" {
+		g.CreatedBy = ""
+	}
+	return g
+}
+
 func usable(row grantRow) bool {
 	return row.revokedAt.IsZero() && (row.g.MaxUses == 0 || row.g.Uses < row.g.MaxUses)
 }
@@ -637,7 +682,7 @@ func (r grantRepo) Add(_ context.Context, g *core.Grant) error {
 	if err := st.checkGrant(row); err != nil {
 		return err
 	}
-	row, err := normGrant(row)
+	row, err := normGrant(grantCreator(row))
 	if err != nil {
 		return err
 	}
@@ -837,21 +882,48 @@ func (r scheduleRepo) SetRun(_ context.Context, id core.ScheduleID, last, next t
 	return nil
 }
 
-type usageRepo struct{ s *store }
-
-func (r usageRepo) AddSpend(_ context.Context, u core.UserID, day string, c core.CallInfo) error {
+func (r scheduleRepo) PrincipalsWithEnabled(context.Context) ([]core.PrincipalID, error) {
 	st, unlock := r.s.begin()
 	defer unlock()
-	st.spend[spendKey{u, day}] += c.Cost
+	seen := map[core.PrincipalID]bool{}
+	var out []core.PrincipalID
+	for _, s := range st.schedules {
+		if s.Enabled && !seen[s.Principal] {
+			seen[s.Principal] = true
+			out = append(out, s.Principal)
+		}
+	}
+	slices.Sort(out)
+	return out, nil
+}
+
+type usageRepo struct{ s *store }
+
+func (r usageRepo) AddSpend(_ context.Context, p core.PrincipalID, day string, c core.CallInfo) error {
+	st, unlock := r.s.begin()
+	defer unlock()
+	st.spend[spendKey{p, day}] += c.Cost
 	return nil
 }
 
-func (r usageRepo) Spend(_ context.Context, u core.UserID, day string) (core.Micros, error) {
+func (r usageRepo) Spend(_ context.Context, p core.PrincipalID, day string) (core.Micros, error) {
 	st, unlock := r.s.begin()
 	defer unlock()
 	var total core.Micros
 	for k, cost := range st.spend {
-		if k.day == day && (u == "" || k.user == u) {
+		if k.day == day && (p == "" || k.principal == p) {
+			total += cost
+		}
+	}
+	return total, nil
+}
+
+func (r usageRepo) TeamSpend(_ context.Context, day string) (core.Micros, error) {
+	st, unlock := r.s.begin()
+	defer unlock()
+	var total core.Micros
+	for k, cost := range st.spend {
+		if k.day == day && strings.HasPrefix(string(k.principal), core.PrefixSpace+"_") {
 			total += cost
 		}
 	}
@@ -866,7 +938,12 @@ func (r usageRepo) Report(_ context.Context, q core.UsageQuery) ([]core.UsageRow
 	key := map[string]func(llmRow) string{
 		"day":   func(l llmRow) string { return l.at.UTC().Format(time.DateOnly) },
 		"model": func(l llmRow) string { return l.c.Ref.String() },
-		"user":  func(l llmRow) string { return string(l.user) },
+		"user": func(l llmRow) string {
+			if l.user != "" {
+				return string(l.user)
+			}
+			return string(l.principal)
+		},
 		"schedule": func(l llmRow) string {
 			return string(st.runs[l.run].Schedule)
 		},

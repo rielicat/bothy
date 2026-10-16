@@ -10,6 +10,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/rielicat/bothy/internal/auth"
 	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/events"
@@ -74,8 +75,11 @@ type harness struct {
 	ctx       context.Context
 	hub       *Hub
 	ch        *channeltest.Channel
+	mc        *channeltest.Checker // set by withChecker: the adapter can say who is in the team
+	servers   []core.TeamInfo      // with a checker: the servers it lists, as Discord does
+	app       string               // the adapter's name
 	store     core.Store
-	auth      *fakes.Auth
+	auth      *auth.Service
 	runner    *fakes.Runner
 	budget    *fakes.Budget
 	approvals *fakes.Approvals
@@ -95,28 +99,28 @@ type harness struct {
 	done    chan error
 }
 
+// ownerChat and memberChat are teammates on the harness's chat app, let in
+// by an admin: Olivia can approve, Mark can't. Their DMs share their ids.
 const (
 	ownerChat  = "1001"
 	memberChat = "2002"
 )
 
-// newHarness builds a hub over memstore and the testkit fakes, with a
-// channeltest adapter named "telegram". It must run inside a synctest bubble.
+// newHarness builds a hub over memstore, the real auth service and the
+// testkit fakes, with a channeltest adapter named "telegram" (or a member
+// checker, withChecker). It must run inside a synctest bubble.
 func newHarness(t *testing.T, opts ...func(*harness)) *harness {
 	t.Helper()
 	ctx := context.Background()
 	h := &harness{
 		t: t, ctx: ctx, store: memstore.New(), runner: &fakes.Runner{}, budget: &fakes.Budget{},
 		approvals: &fakes.Approvals{Manual: true}, audit: &fakes.Auditor{}, redactor: fakes.NewRedactor(),
-		sandbox: &sandboxtest.Sandbox{}, bus: events.New(events.Options{}), work: t.TempDir(),
+		sandbox: &sandboxtest.Sandbox{}, bus: events.New(events.Options{}), work: t.TempDir(), app: "telegram",
 	}
 	h.runner.Store = h.store
 	h.approvals.Render = plainRender(h.approvals)
-	h.auth = &fakes.Auth{Identities: map[string]core.IdentityResolution{}}
 	h.owner = h.user("olivia", "Olivia", core.RoleOwner)
 	h.member = h.user("mark", "Mark", core.RoleMember)
-	h.link(ownerChat, h.owner)
-	h.link(memberChat, h.member)
 	c := config.Default()
 	c.Channels.Telegram.Enabled = true
 	h.cfg = newCfgView(c)
@@ -124,6 +128,13 @@ func newHarness(t *testing.T, opts ...func(*harness)) *harness {
 	for _, o := range opts {
 		o(h)
 	}
+	a, err := auth.New(auth.Deps{Store: h.store, Config: h.cfg, Audit: h.audit, Bus: h.bus})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.auth = a
+	h.letIn(ownerChat, "Olivia", true)
+	h.letIn(memberChat, "Mark", false)
 	var runner core.Runner = h.runner
 	if h.runner2 != nil {
 		runner = h.runner2
@@ -138,11 +149,113 @@ func newHarness(t *testing.T, opts ...func(*harness)) *harness {
 	}
 	h.hub = hub
 	var ch core.Channel = h.ch
+	if h.mc != nil {
+		ch = h.mc
+		if h.servers != nil {
+			ch = &serverChecker{Checker: h.mc, servers: h.servers}
+		}
+	}
 	if h.wrap != nil {
 		ch = h.wrap(h.ch)
 	}
 	hub.Add(ch)
 	return h
+}
+
+// withChecker makes the harness's adapter a chat app that says who is in
+// the team, named name ("slack" or "discord"). Olivia and Mark are members.
+func withChecker(name string) func(*harness) {
+	return func(h *harness) {
+		h.mc = channeltest.NewChecker(name)
+		h.ch, h.app = h.mc.Channel, name
+		h.mc.Scope = "T1/"
+		for _, id := range []string{ownerChat, memberChat} {
+			h.mc.Members[id] = core.Membership{Status: core.MemberYes, Team: "Acme"}
+		}
+		h.cfg.Set(func(c *config.Config) {
+			c.Channels.Telegram.Enabled = false
+			switch name {
+			case "slack":
+				c.Channels.Slack.Enabled = true
+			case "discord":
+				c.Channels.Discord.Enabled = true
+			}
+		})
+	}
+}
+
+// admin is an admin acting on the web.
+func (h *harness) admin() core.Actor {
+	return core.Actor{User: h.owner.ID, Role: core.RoleOwner, Via: "cookie"}
+}
+
+// letIn records ext as someone an admin let in on the harness's chat app,
+// already greeted, with a DM chat of the same id.
+func (h *harness) letIn(ext, name string, canApprove bool) core.PrincipalID {
+	h.t.Helper()
+	member := core.MemberUnknown
+	if h.mc != nil {
+		member = core.MemberYes
+	}
+	now := time.Now()
+	if _, err := h.store.Identities().Touch(h.ctx, &core.ChannelIdentity{Channel: h.app, ExternalID: ext, DisplayName: name,
+		Member: member, FirstSeen: now, LastSeen: now}); err != nil {
+		h.t.Fatal(err)
+	}
+	id, err := h.store.Identities().Get(h.ctx, h.app, ext)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	id.DMChat, id.Member, id.MemberAt = ext, member, now
+	if member == core.MemberYes {
+		id.Status = core.IdentityPending
+	}
+	if err := h.store.Identities().Update(h.ctx, id); err != nil {
+		h.t.Fatal(err)
+	}
+	if member == core.MemberYes {
+		// A member check lets them in.
+		if _, err := h.auth.Admit(h.ctx, *id, core.Membership{Status: core.MemberYes}); err != nil {
+			h.t.Fatal(err)
+		}
+	}
+	teammate := core.IdentityTeammate
+	p := auth.TeammatePatch{CanApprove: &canApprove}
+	if member != core.MemberYes {
+		p.Status = &teammate
+	}
+	if _, err := h.auth.SetTeammate(h.ctx, h.admin(), h.app, ext, p); err != nil {
+		h.t.Fatal(err)
+	}
+	id, err = h.store.Identities().Get(h.ctx, h.app, ext)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	id.Greet = ""
+	if err := h.store.Identities().Update(h.ctx, id); err != nil {
+		h.t.Fatal(err)
+	}
+	return id.Principal
+}
+
+// pid is a teammate's person principal.
+func (h *harness) pid(ext string) core.PrincipalID {
+	h.t.Helper()
+	id, err := h.store.Identities().Get(h.ctx, h.app, ext)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return id.Principal
+}
+
+// ident returns the identity of ext on the harness's chat app.
+func (h *harness) ident(ext string) *core.ChannelIdentity {
+	h.t.Helper()
+	id, err := h.store.Identities().Get(h.ctx, h.app, ext)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return id
 }
 
 // opsChannel records when the hub sends or edits, to check throttling.
@@ -213,25 +326,12 @@ func (h *harness) user(name, display string, role core.Role) *core.User {
 	return u
 }
 
-// link makes the Telegram user ext a linked identity of u with a DM chat of
-// the same id (Telegram private chats share the user's id).
-func (h *harness) link(ext string, u *core.User) {
-	h.t.Helper()
-	_, err := h.store.Identities().Touch(h.ctx, &core.ChannelIdentity{Channel: "telegram", ExternalID: ext,
-		Status: core.IdentityLinked, User: u.ID, DMChat: ext, LastSeen: time.Now()})
-	if err != nil {
-		h.t.Fatal(err)
-	}
-	h.auth.Identities["telegram:"+ext] = core.IdentityResolution{Status: core.IdentityLinked, User: u.ID, Role: u.Role,
-		Principal: core.UserPrincipal(u.ID)}
-}
-
 func (h *harness) dmChat(id string) core.ChatRef {
-	return core.ChatRef{Channel: "telegram", ChatID: id, Kind: core.ChatDM}
+	return core.ChatRef{Channel: h.app, ChatID: id, Kind: core.ChatDM}
 }
 
 func (h *harness) groupChat(id string) core.ChatRef {
-	return core.ChatRef{Channel: "telegram", ChatID: id, Kind: core.ChatGroup}
+	return core.ChatRef{Channel: h.app, ChatID: id, Kind: core.ChatGroup}
 }
 
 // dm injects a DM from sender and waits for the hub to settle.
@@ -268,12 +368,12 @@ func (h *harness) wantVisible(chat, sub string) {
 	h.t.Fatalf("chat %s shows %q; want a message containing %q", chat, h.visible(chat), sub)
 }
 
-// space records a group space owned by owner.
+// space records a group chat of the team.
 func (h *harness) space(chat string, enabled, mentionOnly bool) *core.Space {
 	h.t.Helper()
-	sp := &core.Space{Kind: "group", Chat: h.groupChat(chat), Title: "Team", Owner: h.owner.ID, Enabled: enabled,
+	sp := &core.Space{Kind: core.SpaceGroup, Chat: h.groupChat(chat), Title: "Team", Enabled: enabled,
 		MentionOnly: mentionOnly, CreatedAt: time.Now(), UpdatedAt: time.Now()}
-	p := &core.Principal{Kind: core.PrincipalSpace, User: h.owner.ID, DisplayName: "Team", ToolProfile: "restricted"}
+	p := &core.Principal{Kind: core.PrincipalSpace, DisplayName: "Team", ToolProfile: "restricted"}
 	if err := h.store.Spaces().Create(h.ctx, sp, p); err != nil {
 		h.t.Fatal(err)
 	}
@@ -319,3 +419,15 @@ func plainRender(fake *fakes.Approvals) func(core.ApprovalRequest) core.Card {
 		return c
 	}
 }
+
+func authPatch(status *core.IdentityStatus, canApprove *bool) auth.TeammatePatch {
+	return auth.TeammatePatch{Status: status, CanApprove: canApprove}
+}
+
+// serverChecker is a member checker that lists its servers (Discord).
+type serverChecker struct {
+	*channeltest.Checker
+	servers []core.TeamInfo
+}
+
+func (c *serverChecker) Teams() []core.TeamInfo { return slices.Clone(c.servers) }

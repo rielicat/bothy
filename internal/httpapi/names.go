@@ -22,6 +22,7 @@ type namer struct {
 	tokens    map[string]string
 	spaces    map[core.PrincipalID]*core.Space
 	senders   map[core.SessionID]map[core.RunID]string
+	prins     map[core.PrincipalID]string
 }
 
 // Bothy's own actions and schedule runs have no person behind them.
@@ -34,7 +35,7 @@ const (
 func (s *Server) namer(ctx context.Context, v core.Viewer) *namer {
 	return &namer{s: s, ctx: ctx, v: v, users: map[core.UserID]string{}, sessions: map[core.SessionID]string{},
 		origins: map[core.SessionID]string{}, schedules: map[core.ScheduleID]string{}, idents: map[string]string{}, tokens: map[string]string{},
-		spaces: map[core.PrincipalID]*core.Space{}, senders: map[core.SessionID]map[core.RunID]string{}}
+		spaces: map[core.PrincipalID]*core.Space{}, senders: map[core.SessionID]map[core.RunID]string{}, prins: map[core.PrincipalID]string{}}
 }
 
 // user is a person's display name, else their username.
@@ -130,8 +131,8 @@ func (n *namer) schedule(id core.ScheduleID) string {
 	return name
 }
 
-// identity names a chat-app account: its linked user, else the name the
-// chat app gave it.
+// identity names a chat-app account by the name the chat app gave it,
+// else its handle.
 func (n *namer) identity(channel, ext string) string {
 	key := channel + ":" + ext
 	if name, ok := n.idents[key]; ok {
@@ -139,10 +140,70 @@ func (n *namer) identity(channel, ext string) string {
 	}
 	name := ""
 	if id, err := n.s.d.Store.Identities().Get(n.ctx, channel, ext); err == nil {
-		name = cmpOr(n.user(id.User), id.DisplayName, id.Username)
+		name = cmpOr(strings.TrimSpace(id.DisplayName), id.Username)
 	}
 	n.idents[key] = name
 	return name
+}
+
+// chatPerson names a chat person with their app: "Maya Chen · Slack".
+func (n *namer) chatPerson(key string) string {
+	ch, ext, ok := strings.Cut(key, ":")
+	if !ok {
+		return ""
+	}
+	if name := n.identity(ch, ext); name != "" {
+		return name + " · " + appTitle(ch)
+	}
+	return ""
+}
+
+// who names whoever did something: a user id, or a chat actor
+// "channel:<app>:<id>" as "Maya Chen · Slack".
+func (n *namer) who(by string) string {
+	if rest, ok := strings.CutPrefix(by, "channel:"); ok {
+		return n.chatPerson(rest)
+	}
+	return n.user(core.UserID(by))
+}
+
+// principal names a principal: its user, "{Name} · {App}" for a teammate,
+// "{title} · {App}" for a channel.
+func (n *namer) principal(p core.PrincipalID) string {
+	if name, ok := n.prins[p]; ok {
+		return name
+	}
+	name, _, app := n.teamOwner(p)
+	switch {
+	case app != "":
+		name += " · " + appTitle(app)
+	case name == "":
+		if pr, err := n.s.d.Store.Principals().Get(n.ctx, onlyOf(p), p); err == nil && pr.Kind == core.PrincipalUser {
+			name = n.user(pr.User)
+		}
+	}
+	n.prins[p] = name
+	return name
+}
+
+// teamOwner names a team principal for the admins' lists: a teammate's
+// name or a channel's title, its kind (teammate | channel) and chat app.
+func (n *namer) teamOwner(p core.PrincipalID) (name, kind, app string) {
+	pr, err := n.s.d.Store.Principals().Get(n.ctx, onlyOf(p), p)
+	if err != nil || !pr.TeamOwned() {
+		return "", "", ""
+	}
+	sp, err := n.s.d.Store.Spaces().Get(n.ctx, onlyOf(p), p)
+	if err != nil {
+		return pr.DisplayName, "", ""
+	}
+	if pr.Kind == core.PrincipalPerson {
+		if id, err := n.s.d.Store.Identities().ByPrincipal(n.ctx, p); err == nil {
+			return cmpOr(n.identity(id.Channel, id.ExternalID), pr.DisplayName), "teammate", sp.Chat.Channel
+		}
+		return pr.DisplayName, "teammate", sp.Chat.Channel
+	}
+	return sp.Title, "channel", sp.Chat.Channel
 }
 
 // token names the owner of an access token.
@@ -210,14 +271,20 @@ const titleScan = 50
 const runSenderScan = 100
 
 // requester names who asked for a run: nobody for schedules and check-ins,
-// the account owner in their own chats, the person who wrote in a group chat
-// or guest chat.
+// the account owner in their own chats, the teammate in theirs, the person
+// who wrote in a group chat.
 func (n *namer) requester(r *core.Run) string {
 	if r.Trigger.Scheduled() {
 		return ""
 	}
 	if !core.ValidID(core.PrefixSpace, string(r.Principal)) {
 		return n.user(r.User)
+	}
+	if sp := n.space(r.Principal); sp != nil && sp.Kind == core.SpacePerson {
+		if id, err := n.s.d.Store.Identities().ByPrincipal(n.ctx, r.Principal); err == nil {
+			return n.identity(id.Channel, id.ExternalID)
+		}
+		return sp.Title
 	}
 	byRun, ok := n.senders[r.Session]
 	if !ok {
@@ -234,9 +301,6 @@ func (n *namer) requester(r *core.Run) string {
 	}
 	if s := byRun[r.ID]; s != "" {
 		return n.sender(s)
-	}
-	if sp := n.space(r.Principal); sp != nil && sp.Kind == "guest" {
-		return sp.Title
 	}
 	return ""
 }

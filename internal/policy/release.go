@@ -20,15 +20,18 @@ const (
 func isRelease(a *core.Action) bool { return a.Kind == core.ActRelease || a.Tool == toolReleaseDeploy }
 
 // releaseFloor decides a deploy: never auto and never answered by a rule or
-// grant (a deny rule may still refuse it), only in interactive runs of a
-// user's own principal, and approved by the environment's approvers, of whom
-// enough besides the requester must exist.
+// grant (a deny rule may still refuse it), only in interactive runs of an
+// account's own principal or a teammate's, never a channel's, and approved
+// by the environment's approvers, of whom enough besides the requester must
+// exist.
 func (e *Engine) releaseFloor(ctx context.Context, x *input, rule *config.Rule) core.Decision {
 	switch {
 	case x.Trigger != core.TrigMessage:
 		return denied(floorRelease, "deploys can only start from a chat, not from a schedule, check-in or API request", true)
-	case x.Principal.Kind != core.PrincipalUser:
-		return denied(floorRelease, "deploys can only be requested from your own chats, not from a group", true)
+	case x.Principal.Kind == core.PrincipalSpace:
+		return denied(floorRelease, "deploys can't be requested from a channel, where who asked isn't clear", true)
+	case x.Principal.Kind != core.PrincipalUser && x.Principal.Kind != core.PrincipalPerson:
+		return denied(floorRelease, "deploys can only be requested from your own chats", true)
 	case rule != nil && core.Verdict(rule.Verdict) == core.VerdictDeny:
 		return ruleDenied(rule)
 	}
@@ -41,7 +44,14 @@ func (e *Engine) releaseFloor(ctx context.Context, x *input, rule *config.Rule) 
 		return denied(floorRelease, why, true)
 	}
 	users, roles := env.ApproverSet()
-	approver := core.ApproverReq{Users: users, Roles: roles, Required: env.Needed(), Requester: x.User}
+	need := env.Needed()
+	fromChat := x.Principal.Kind == core.PrincipalPerson
+	if fromChat {
+		// The person who asked may also hold a web account Bothy can't tell
+		// apart, so one more allow keeps env.Needed() people besides them.
+		need++
+	}
+	approver := core.ApproverReq{Users: users, Roles: roles, Required: need, Requester: x.User}
 	if !approver.Multi() {
 		return denied(floorRelease, "the "+env.Name+" environment has no approvers", true)
 	}
@@ -51,12 +61,20 @@ func (e *Engine) releaseFloor(ctx context.Context, x *input, rule *config.Rule) 
 		return denied(floorRelease, "Bothy couldn't check who can approve this deploy", true)
 	}
 	if n < approver.Needed() {
+		if fromChat {
+			return denied(floorRelease, fmt.Sprintf("a deploy to %s asked from a chat app needs %s, one more than usual because Bothy can't tell whether one of them asked, and %s",
+				env.Name, plural(need, "approver"), canApproveText(n)), true)
+		}
 		return denied(floorRelease, fmt.Sprintf("a deploy to %s needs %s other than you, and %s", env.Name,
 			plural(approver.Needed(), "approver"), canApproveText(n)), true)
 	}
 	// Every approver reads this reason, not only the requester.
-	d := e.ask(x, askSpec{rule: floorRelease, floor: true,
-		reason: fmt.Sprintf("deploy to %s: %s other than the person who asked must approve", env.Name, plural(approver.Needed(), "approver"))})
+	reason := fmt.Sprintf("deploy to %s: %s other than the person who asked must approve", env.Name, plural(env.Needed(), "approver"))
+	if fromChat {
+		reason = fmt.Sprintf("deploy to %s asked from a chat app: %s must approve, one more than usual because Bothy can't tell whether one of them asked",
+			env.Name, plural(need, "approver"))
+	}
+	d := e.ask(x, askSpec{rule: floorRelease, floor: true, reason: reason})
 	d.Approver = approver
 	return d
 }

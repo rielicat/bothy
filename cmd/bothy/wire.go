@@ -169,6 +169,7 @@ func (a *app) close() {
 func (a *app) buildRest(ctx context.Context) error {
 	c, dirs := a.cfg.Current(), a.dirs
 	var err error
+	reportTeamAccess(ctx, a.db, a.audit, a.bus, a.clock.Now(), a.log)
 	if a.policy, a.approvals, err = policy.New(policy.Deps{Store: a.db, Config: a.cfg, Bus: a.bus, Audit: a.audit, Clock: a.clock, Log: a.log}); err != nil {
 		return err
 	}

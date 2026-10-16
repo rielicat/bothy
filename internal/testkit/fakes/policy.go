@@ -74,14 +74,14 @@ func (p *Policy) Decide(_ context.Context, in core.PolicyInput) core.Decision {
 }
 
 // NarrowGrant returns a tool grant pinned to the exact canonical payload.
-func (p *Policy) NarrowGrant(a *core.Action, pr core.PrincipalID, scope core.GrantScope, scopeID string, by core.UserID) (core.Grant, bool) {
+func (p *Policy) NarrowGrant(a *core.Action, pr core.PrincipalID, scope core.GrantScope, scopeID string, by core.Decider) (core.Grant, bool) {
 	if a == nil {
 		return core.Grant{}, false
 	}
 	return core.Grant{
 		Principal: pr, Scope: scope, ScopeID: scopeID, Kind: core.GrantTool, Tool: a.Tool,
 		Pattern: map[string]string{"": string(a.Payload)}, MaxSE: a.SideEffect,
-		CreatedBy: by, CreatedAt: time.Now(),
+		CreatedBy: by.User, CreatedByIdentity: by.Identity, CreatedAt: time.Now(),
 	}, true
 }
 
@@ -119,6 +119,10 @@ func (p *Policy) NextTaint(prev core.Taint, spec core.ToolSpec, _ *core.Action, 
 
 // Approvals resolves every request immediately with Choice (or blocks until
 // Resolve when Manual is true). Records requests.
+//
+// A chat Sender on a team, admin-only or multi-approver request becomes
+// Approver.RequesterIdentity and Requester (identity and app only), as the
+// policy module records it.
 //
 // An empty Choice means allow_once. Immediate resolutions do not invoke
 // OnResolved callbacks; Resolve and Expire do, synchronously, after the fake
@@ -168,6 +172,14 @@ func (ap *Approvals) Request(_ context.Context, r core.ApprovalRequest) (*core.A
 	}
 	a.Card.Expires = a.ExpiresAt
 	a.Card.WebURL = "/approvals/" + string(a.ID)
+	if app, ext, ok := strings.Cut(r.Sender, ":"); ok && ext != "" && (a.Approver.Team || a.Approver.AdminOnly || a.Approver.Multi()) {
+		switch app {
+		case "web", "api", "schedule", "heartbeat":
+		default:
+			a.Approver.RequesterIdentity = r.Sender
+			a.Requester = &core.ApprovalPerson{Identity: r.Sender, App: app}
+		}
+	}
 
 	ap.mu.Lock()
 	defer ap.mu.Unlock()
@@ -266,6 +278,7 @@ func (ap *Approvals) Resolve(_ context.Context, r core.Resolution) (*core.Approv
 		}
 	}
 	decide(&st.a, r.Choice, r.By, r.Via, time.Now())
+	st.a.DecidedByIdentity = r.ByIdentity
 	st.a.Comment = r.Comment
 	ap.notifyLocked()
 	a, cbs := st.a, slices.Clone(ap.callbacks)
@@ -354,7 +367,7 @@ func (ap *Approvals) RenderCard(r core.ApprovalRequest) core.Card {
 // visible mirrors the store's approval Viewer rule, multi-approver voters
 // included.
 func visible(v core.Viewer, a *core.Approval) bool {
-	if v.Can(a.Principal) || v.Admin && a.Approver.AdminOnly {
+	if v.Can(a.Principal) || v.Admin && (a.Approver.AdminOnly || a.Approver.Team) {
 		return true
 	}
 	if v.User == "" || !a.Approver.Multi() {
@@ -442,14 +455,21 @@ func (ap *Approvals) ParseButtonData(data string) (core.ApprovalID, core.Choice,
 	return "", "", fmt.Errorf("%w: unknown choice %q", core.ErrInvalid, parts[2])
 }
 
-func (ap *Approvals) AddMessageRef(_ context.Context, id core.ApprovalID, ref core.MsgRef, truncated bool) error {
+func (ap *Approvals) AddMessageRef(ctx context.Context, id core.ApprovalID, ref core.MsgRef, truncated bool) error {
+	return ap.AddMessage(ctx, id, core.CardMessage{Ref: ref, Truncated: truncated, Kind: core.CardMsgCard})
+}
+
+func (ap *Approvals) AddMessage(_ context.Context, id core.ApprovalID, m core.CardMessage) error {
 	ap.mu.Lock()
 	defer ap.mu.Unlock()
 	st, ok := ap.items[id]
 	if !ok {
 		return fmt.Errorf("approval %s: %w", id, core.ErrNotFound)
 	}
-	st.refs = append(st.refs, core.CardMessage{Ref: ref, Truncated: truncated})
+	if m.Kind == "" {
+		m.Kind = core.CardMsgCard
+	}
+	st.refs = append(st.refs, m)
 	return nil
 }
 

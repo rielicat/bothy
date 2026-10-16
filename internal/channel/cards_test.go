@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -14,13 +15,20 @@ import (
 // approval.requested like policy.Approvals does.
 func (h *harness) request(p core.PrincipalID, approver core.ApproverReq, chat *core.ChatRef, mod ...func(*core.Approval)) *core.Approval {
 	h.t.Helper()
+	return h.requestFrom("", p, approver, chat, mod...)
+}
+
+// requestFrom is request for a run started by the chat sender
+// "<app>:<external id>".
+func (h *harness) requestFrom(sender string, p core.PrincipalID, approver core.ApproverReq, chat *core.ChatRef, mod ...func(*core.Approval)) *core.Approval {
+	h.t.Helper()
 	ap, err := h.approvals.Request(h.ctx, core.ApprovalRequest{
 		Run: core.RunID(core.NewID(core.PrefixRun)), Session: core.SessionID(core.NewID(core.PrefixSession)), Principal: p,
 		Action: &core.Action{Tool: "shell", Kind: core.ActExec, SideEffect: core.SELocalWrite, Argv: []string{"bash", "-lc", "rm -rf build"}},
 		Spec:   core.ToolSpec{Def: core.ToolDef{Name: "shell"}, Manifest: core.Manifest{Title: "Run shell command"}},
 		Decision: core.Decision{Verdict: core.VerdictAsk, Approver: approver, Timeout: 15 * time.Minute, OnTimeout: core.TimeoutDeny,
-			Choices: []core.Choice{core.AllowOnce, core.AllowSession, core.Deny}},
-		Chat: chat, Context: "Telegram · DM",
+			Choices: []core.Choice{core.AllowOnce, core.AllowSession, core.AllowAlways, core.Deny}},
+		Chat: chat, Context: "Telegram · DM", Sender: sender,
 	})
 	if err != nil {
 		h.t.Fatal(err)
@@ -32,11 +40,27 @@ func (h *harness) request(p core.PrincipalID, approver core.ApproverReq, chat *c
 	return ap
 }
 
+// teammateAsks is a team request from a teammate's own DM.
+func (h *harness) teammateAsks(ext, name string, mod ...func(*core.Approval)) *core.Approval {
+	h.t.Helper()
+	chat := h.dmChat(ext)
+	named := func(a *core.Approval) {
+		a.Requester = &core.ApprovalPerson{Name: name, App: h.app, Identity: h.app + ":" + ext}
+	}
+	return h.requestFrom(h.app+":"+ext, h.pid(ext), core.ApproverReq{Team: true}, &chat, append([]func(*core.Approval){named}, mod...)...)
+}
+
 func (h *harness) publishRequested(ap *core.Approval) {
 	h.bus.Publish(core.Event{Type: core.EvApprovalRequested, Principal: ap.Principal, Data: core.ApprovalData{Approval: ap}})
-	if ap.Approver.AdminOnly {
+	if ap.Approver.AdminOnly || ap.Approver.Team {
 		h.bus.Publish(core.Event{Type: core.EvApprovalRequested, Data: core.ApprovalData{Approval: ap}})
 	}
+	synctest.Wait()
+}
+
+func (h *harness) resolved(ap *core.Approval, d core.ApprovalResolvedData) {
+	d.Approval = ap.ID
+	h.bus.Publish(core.Event{Type: core.EvApprovalResolved, Principal: ap.Principal, Data: d})
 	synctest.Wait()
 }
 
@@ -49,6 +73,18 @@ func (h *harness) refs(id core.ApprovalID) []core.CardMessage {
 	return refs
 }
 
+// ref returns the recorded message of id in chat.
+func (h *harness) ref(id core.ApprovalID, chat string) core.CardMessage {
+	h.t.Helper()
+	for _, r := range h.refs(id) {
+		if r.Ref.Chat.ChatID == chat {
+			return r
+		}
+	}
+	h.t.Fatalf("approval %s has no message in chat %s: %+v", id, chat, h.refs(id))
+	return core.CardMessage{}
+}
+
 func (h *harness) sent(chat string) []core.OutMessage {
 	var out []core.OutMessage
 	for _, m := range h.ch.SentMessages() {
@@ -57,6 +93,17 @@ func (h *harness) sent(chat string) []core.OutMessage {
 		}
 	}
 	return out
+}
+
+func (h *harness) press(ref core.MsgRef, sender string, ap *core.Approval, c core.Choice) string {
+	h.t.Helper()
+	h.ch.Press(ref, sender, h.approvals.ButtonData(ap.ID, c))
+	synctest.Wait()
+	toasts := h.ch.AckToasts()
+	if len(toasts) == 0 {
+		h.t.Fatal("no toast")
+	}
+	return toasts[len(toasts)-1]
 }
 
 func buttonLabels(m core.OutMessage) []string {
@@ -69,87 +116,340 @@ func buttonLabels(m core.OutMessage) []string {
 	return out
 }
 
-func TestCardInApproverDMAndNonApproverRejected(t *testing.T) {
+// TestTeamCardGoesToChatApproversOnly: a teammate's request goes as a card
+// to every chat approver's DM, never to someone who can't approve; the
+// teammate's own DM gets a waiting line with Cancel request.
+func TestTeamCardGoesToChatApproversOnly(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t).start()
-		owner := core.UserPrincipal(h.owner.ID)
-		chat := h.dmChat(ownerChat)
-		ap := h.request(owner, core.ApproverReq{User: h.owner.ID}, &chat)
+		sam := h.letIn("3003", "Sam", true)
+		_ = sam
+		ap := h.teammateAsks(memberChat, "Mark")
 
-		cards := h.sent(ownerChat)
-		if len(cards) != 1 {
-			t.Fatalf("cards = %d", len(cards))
+		for _, chat := range []string{ownerChat, "3003"} {
+			cards := h.sent(chat)
+			if len(cards) != 1 || len(cards[0].Buttons) == 0 {
+				t.Fatalf("approver %s got %+v", chat, cards)
+			}
+			if !strings.HasPrefix(cards[0].Text, "**Run this command?**\n[Mark](tg://user?id=2002) asked on Telegram.\n") {
+				t.Fatalf("card text = %q", cards[0].Text)
+			}
+			if r := h.ref(ap.ID, chat); r.Kind != core.CardMsgCard || r.Truncated {
+				t.Fatalf("card ref = %+v", r)
+			}
 		}
-		card := cards[0]
-		if got := buttonLabels(card); strings.Join(got, ",") != "Run command,Allow for this chat,Deny" {
-			t.Fatalf("buttons = %v", got)
+		line := h.sent(memberChat)
+		if len(line) != 1 || line[0].Text != "Waiting for approval: Run this command." || strings.Join(buttonLabels(line[0]), ",") != "Cancel request" {
+			t.Fatalf("requester's chat got %+v", line)
 		}
-		if !strings.HasPrefix(card.Text, "**Run this command?**\n") || !strings.Contains(card.Text, "**Command:** `rm -rf build`") {
-			t.Fatalf("card text = %q", card.Text)
-		}
-		refs := h.refs(ap.ID)
-		if len(refs) != 1 || refs[0].Truncated || refs[0].Ref.Chat.ChatID != ownerChat {
-			t.Fatalf("refs = %+v", refs)
-		}
-
-		allow := h.approvals.ButtonData(ap.ID, core.AllowOnce)
-		h.ch.Press(refs[0].Ref, memberChat, allow)
-		synctest.Wait()
-		h.ch.Press(refs[0].Ref, "9009", allow)
-		synctest.Wait()
-		if got := h.ch.AckToasts(); len(got) != 2 || got[0] != "Only Olivia can approve this." ||
-			got[1] != "Link this account first: send /pair with a code from Settings → Account." {
-			t.Fatalf("toasts = %q", got)
-		}
-		if a, _ := h.approvals.Get(h.ctx, core.SystemViewer(), ap.ID); a.Status != core.ApprovalPending {
-			t.Fatalf("a non-approver changed the approval to %s", a.Status)
+		if r := h.ref(ap.ID, memberChat); r.Kind != core.CardMsgNotice || !r.Truncated {
+			t.Fatalf("waiting line ref = %+v", r)
 		}
 
-		h.ch.Press(refs[0].Ref, ownerChat, "a:"+string(ap.ID)+":o:forged00")
-		synctest.Wait()
-		h.ch.Press(refs[0].Ref, ownerChat, allow)
-		synctest.Wait()
-		toasts := h.ch.AckToasts()
-		if toasts[2] != "This button is not valid." || toasts[3] != "Approved." {
-			t.Fatalf("toasts = %q", toasts)
+		if got := h.press(h.ref(ap.ID, ownerChat).Ref, ownerChat, ap, core.AllowOnce); got != "Approved." {
+			t.Fatalf("approver's toast = %q", got)
 		}
 		res := h.approvals.Resolutions
-		if len(res) != 1 || res[0].By != h.owner.ID || res[0].Via != "telegram" || res[0].ViaMsg == nil || *res[0].ViaMsg != refs[0].Ref {
+		if len(res) != 1 || res[0].By != "" || res[0].ByIdentity != "telegram:"+ownerChat || res[0].Via != "telegram" || res[0].ViaMsg == nil {
 			t.Fatalf("resolutions = %+v", res)
-		}
-
-		h.bus.Publish(core.Event{Type: core.EvApprovalResolved, Principal: owner, Data: core.ApprovalResolvedData{
-			Approval: ap.ID, Status: core.ApprovalAllowed, Choice: core.AllowOnce, By: h.owner.ID, Via: "telegram"}})
-		synctest.Wait()
-		edited := h.ch.EditedMessages()
-		if len(edited) != 1 || len(edited[0].Buttons) != 0 || edited[0].Text != "✓ You approved running a command." {
-			t.Fatalf("card edits = %+v", edited)
-		}
-		h.ch.Press(refs[0].Ref, ownerChat, h.approvals.ButtonData(ap.ID, core.Deny))
-		synctest.Wait()
-		if got := h.ch.AckToasts(); got[len(got)-1] != "Already decided." {
-			t.Fatalf("second press toast = %q", got[len(got)-1])
 		}
 	})
 }
 
-func TestGroupRunCardGoesToOwnerDM(t *testing.T) {
+// TestStaleApproverGetsLinkCard: an approver whose membership verdict is
+// older than two hours gets a card that only links to Bothy.
+func TestStaleApproverGetsLinkCard(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t, withChecker("slack")).start()
+		h.cfg.Set(func(c *config.Config) { c.Server.PublicURL = "https://bothy.example.com" })
+		// Slack doesn't answer, so the sweep can't renew the approver.
+		h.mc.SetMemberErr(errors.New("slack is down"))
+		time.Sleep(3 * time.Hour)
+		ap := h.teammateAsks(memberChat, "Mark", func(a *core.Approval) { a.Card.WebURL = "https://bothy.example.com/approvals/" + string(a.ID) })
+		card := h.sent(ownerChat)
+		if len(card) != 1 || card[0].Text != "A request from chat apps needs an admin. Admins can approve it in Bothy." ||
+			len(card[0].Buttons) != 1 || card[0].Buttons[0][0].URL != "https://bothy.example.com/approvals/"+string(ap.ID) {
+			t.Fatalf("stale approver got %+v", card)
+		}
+		if r := h.ref(ap.ID, ownerChat); r.Kind != core.CardMsgLink || !r.Truncated {
+			t.Fatalf("link card ref = %+v", r)
+		}
+		if line := h.sent(memberChat); len(line) != 1 || line[0].Text != needsAdmin {
+			t.Fatalf("requester's chat got %+v", line)
+		}
+	})
+}
+
+// TestRequesterApproverGetsCardInOwnDM: an approver's own request shows the
+// card once in their DM, with no waiting line.
+func TestRequesterApproverGetsCardInOwnDM(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t).start()
-		sp := h.space("-500", true, true)
+		ap := h.teammateAsks(ownerChat, "Olivia")
+		if msgs := h.sent(ownerChat); len(msgs) != 1 || len(msgs[0].Buttons) == 0 || h.ref(ap.ID, ownerChat).Kind != core.CardMsgCard {
+			t.Fatalf("own DM got %+v", msgs)
+		}
+		if got := h.press(h.ref(ap.ID, ownerChat).Ref, ownerChat, ap, core.AllowOnce); got != "Approved." {
+			t.Fatalf("toast = %q", got)
+		}
+	})
+}
+
+func TestNoChatApproverSaysAdminNeeded(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		no := false
+		if _, err := h.auth.SetTeammate(h.ctx, h.admin(), "telegram", ownerChat, authPatch(nil, &no)); err != nil {
+			t.Fatal(err)
+		}
+		ap := h.teammateAsks(memberChat, "Mark")
+		if line := h.sent(memberChat); len(line) != 1 || line[0].Text != needsAdmin || strings.Join(buttonLabels(line[0]), ",") != "Cancel request" {
+			t.Fatalf("requester's chat got %+v", line)
+		}
+		if len(h.sent(ownerChat)) != 0 || len(h.refs(ap.ID)) != 1 {
+			t.Fatalf("a card went out with no approver: %+v", h.refs(ap.ID))
+		}
+	})
+}
+
+// TestAdminOnlyTeamCardIsLinkOnlyFixedText: chat approvers can't decide an
+// admin-class request; their card says so without saying what it is.
+func TestAdminOnlyTeamCardIsLinkOnlyFixedText(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		chat := h.dmChat(memberChat)
+		ap := h.requestFrom("telegram:"+memberChat, h.pid(memberChat), core.ApproverReq{AdminOnly: true}, &chat)
+		cards := h.sent(ownerChat)
+		if len(cards) != 1 || cards[0].Text != "A request from chat apps needs an admin. Admins can approve it in Bothy under Approvals." ||
+			len(cards[0].Buttons) != 0 {
+			t.Fatalf("approver got %+v (published twice?)", cards)
+		}
+		if line := h.sent(memberChat); len(line) != 1 || line[0].Text != needsAdmin {
+			t.Fatalf("requester's chat got %+v", line)
+		}
+		// Even a forged press of the link card's message can't approve it.
+		if got := h.press(h.ref(ap.ID, ownerChat).Ref, ownerChat, ap, core.AllowOnce); got != "Open in Bothy to approve." {
+			t.Fatalf("toast = %q", got)
+		}
+	})
+}
+
+// TestUserPrincipalApprovalsAreWebOnly: a web account's own requests never
+// reach a chat app.
+func TestUserPrincipalApprovalsAreWebOnly(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		h.request(core.UserPrincipal(h.owner.ID), core.ApproverReq{User: h.owner.ID}, nil)
+		h.request(core.UserPrincipal(h.member.ID), core.ApproverReq{AdminOnly: true}, nil)
+		if n := len(h.ch.SentMessages()); n != 0 {
+			t.Fatalf("a web account's request reached chat: %+v", h.ch.SentMessages())
+		}
+	})
+}
+
+// TestReleaseFromTeammateHasNoChatCards: a deploy a teammate asked for is
+// voted on the web; their chat hears whom it waits for.
+func TestReleaseFromTeammateHasNoChatCards(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		chat := h.dmChat(memberChat)
+		ap := h.requestFrom("telegram:"+memberChat, h.pid(memberChat), core.ApproverReq{Roles: []core.Role{core.RoleAdmin}, Required: 2}, &chat)
+		if len(h.sent(ownerChat)) != 0 {
+			t.Fatalf("an approver got a vote card: %+v", h.sent(ownerChat))
+		}
+		if line := h.sent(memberChat); len(line) != 1 || line[0].Text != "Waiting for 2 other people to approve running a command." {
+			t.Fatalf("requester's chat got %+v", line)
+		}
+		if got := h.press(h.ref(ap.ID, memberChat).Ref, memberChat, ap, core.Deny); got != "Request cancelled." {
+			t.Fatalf("withdraw toast = %q", got)
+		}
+	})
+}
+
+// TestWaitingLineRecordedAndEditedToOutcome: the waiting line becomes the
+// outcome; a DM keeps the approver's reason, a group never shows it; a
+// resync doesn't post it again.
+func TestWaitingLineRecordedAndEditedToOutcome(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		ap := h.teammateAsks(memberChat, "Mark")
+		h.hub.resyncCards()
+		synctest.Wait()
+		if n := len(h.sent(memberChat)); n != 1 {
+			t.Fatalf("resync posted the waiting line again (%d lines)", n)
+		}
+		h.resolved(ap, core.ApprovalResolvedData{Status: core.ApprovalDenied, Choice: core.Deny, ByIdentity: "telegram:" + ownerChat,
+			Via: "telegram", Comment: "not on main"})
+		got := map[string]string{}
+		for _, e := range h.ch.EditedMessages() {
+			got[e.Chat.ChatID] = e.Text
+		}
+		if got[memberChat] != "✗ Olivia denied running a command in Telegram. “not on main”" || got[ownerChat] != "✗ You denied running a command. “not on main”" {
+			t.Fatalf("edits = %q", got)
+		}
+
+		sp := h.space("-500", true, false)
 		group := h.groupChat("-500")
-		ap := h.request(sp.Principal, core.ApproverReq{User: h.owner.ID}, &group)
-		if cards := h.sent(ownerChat); len(cards) != 1 || len(cards[0].Buttons) == 0 {
-			t.Fatalf("owner DM got %+v", cards)
+		ap = h.requestFrom("telegram:"+memberChat, sp.Principal, core.ApproverReq{Team: true}, &group)
+		if line := h.sent("-500"); len(line) != 1 || line[0].Text != "Waiting for approval: Run this command." {
+			t.Fatalf("group got %+v", line)
 		}
-		inGroup := h.sent("-500")
-		if len(inGroup) != 1 || len(inGroup[0].Buttons) != 0 || inGroup[0].Text != "Waiting for Olivia to approve running a command." {
-			t.Fatalf("group got %+v; want only a waiting line without buttons", inGroup)
-		}
-		for _, r := range h.refs(ap.ID) {
-			if r.Ref.Chat.ChatID != ownerChat {
-				t.Fatalf("a card was recorded outside the owner's DM: %+v", r)
+		h.resolved(ap, core.ApprovalResolvedData{Status: core.ApprovalDenied, Choice: core.Deny, By: h.owner.ID, Via: "web", Comment: "secret reason"})
+		var groupEdit string
+		for _, e := range h.ch.EditedMessages() {
+			if e.Chat.ChatID == "-500" {
+				groupEdit = e.Text
 			}
+		}
+		if groupEdit != "✗ Olivia denied running a command on the web." {
+			t.Fatalf("group outcome = %q, want no reason", groupEdit)
+		}
+
+		ap = h.teammateAsks(memberChat, "Mark")
+		h.resolved(ap, core.ApprovalResolvedData{Status: core.ApprovalCancelled, Via: "stop"})
+		if e := h.ch.EditedMessages(); e[len(e)-1].Text != "✗ Stopped." && e[len(e)-2].Text != "✗ Stopped." {
+			t.Fatalf("a stopped request's line = %+v", e[len(e)-2:])
+		}
+	})
+}
+
+// TestCancelRequestByRequesterOnly: in a channel, only the person who asked
+// can cancel from the waiting line.
+func TestCancelRequestByRequesterOnly(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		sp := h.space("-500", true, false)
+		group := h.groupChat("-500")
+		ap := h.requestFrom("telegram:"+memberChat, sp.Principal, core.ApproverReq{Team: true}, &group)
+		line := h.ref(ap.ID, "-500").Ref
+		if got := h.press(line, "7007", ap, core.Deny); got != "Only the person who asked can cancel this." {
+			t.Fatalf("another member's toast = %q", got)
+		}
+		if got := h.press(line, ownerChat, ap, core.Deny); got != "Only the person who asked can cancel this." {
+			t.Fatalf("an approver's press on the line = %q", got)
+		}
+		if got := h.press(line, memberChat, ap, core.Deny); got != "Request cancelled." {
+			t.Fatalf("requester's toast = %q", got)
+		}
+		if r := h.approvals.Resolutions; len(r) != 1 || r[0].ByIdentity != "telegram:"+memberChat || r[0].Choice != core.Deny {
+			t.Fatalf("resolutions = %+v", r)
+		}
+		h.resolved(ap, core.ApprovalResolvedData{Status: core.ApprovalDenied, Choice: core.Deny, ByIdentity: "telegram:" + memberChat, Via: "telegram"})
+		if e := h.ch.EditedMessages(); e[len(e)-1].Text != "✗ Cancelled by Mark." {
+			t.Fatalf("withdrawn line = %q", e[len(e)-1].Text)
+		}
+	})
+}
+
+// The store keeps no chat kind with a card's message ref; the decided line
+// still names its reader "You", and anyone else by name and place.
+func TestDecidedCardNamesIdentityReader(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		h.letIn("3003", "Sam Patel", true)
+		ap := h.teammateAsks(memberChat, "Mark")
+		h.resolved(ap, core.ApprovalResolvedData{Status: core.ApprovalAllowed, Choice: core.AllowOnce, ByIdentity: "telegram:3003", Via: "telegram"})
+		got := map[string]string{}
+		for _, e := range h.ch.EditedMessages() {
+			got[e.Chat.ChatID] = e.Text
+		}
+		if got["3003"] != "✓ You approved running a command." || got[ownerChat] != "✓ Sam Patel approved running a command in Telegram." ||
+			got[memberChat] != "✓ Sam Patel approved running a command in Telegram." {
+			t.Fatalf("decided cards = %q", got)
+		}
+	})
+}
+
+func TestPressByNonApproverRefused(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		ap := h.teammateAsks(memberChat, "Mark")
+		card := h.ref(ap.ID, ownerChat).Ref
+		for _, who := range []string{memberChat, "9009"} {
+			if got := h.press(card, who, ap, core.AllowOnce); got != notApprover {
+				t.Fatalf("%s's toast = %q", who, got)
+			}
+		}
+		if got := h.press(card, ownerChat, ap, core.AllowOnce); got != "Approved." {
+			t.Fatalf("approver's toast = %q", got)
+		}
+		if len(h.approvals.Resolutions) != 1 {
+			t.Fatalf("resolutions = %+v", h.approvals.Resolutions)
+		}
+	})
+}
+
+func TestPressByLeftApproverRefused(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t, withChecker("slack")).start()
+		ap := h.teammateAsks(memberChat, "Mark")
+		card := h.ref(ap.ID, ownerChat).Ref
+		h.mc.SetMember(ownerChat, core.Membership{Status: core.MemberOutsider})
+		time.Sleep(core.MemberTTL + time.Minute)
+		if got := h.press(card, ownerChat, ap, core.AllowOnce); got != notApprover {
+			t.Fatalf("a departed approver's toast = %q", got)
+		}
+		if id := h.ident(ownerChat); id.CanApprove || id.Member != core.MemberOutsider {
+			t.Fatalf("identity after the recheck = %+v", id)
+		}
+		if len(h.approvals.Resolutions) != 0 {
+			t.Fatal("a departed approver resolved")
+		}
+	})
+}
+
+// TestPressRechecksStaleMembershipAndFallsBackOnlyFifteenMinutes: a press
+// with a verdict over an hour old asks the platform; when it can't answer,
+// only a verdict under fifteen minutes would do.
+func TestPressRechecksStaleMembershipAndFallsBackOnlyFifteenMinutes(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t, withChecker("slack")).start()
+		ap := h.teammateAsks(memberChat, "Mark")
+		card := h.ref(ap.ID, ownerChat).Ref
+		// The sweep can't renew the verdict while Slack is down.
+		h.mc.SetMemberErr(errors.New("slack is down"))
+		time.Sleep(core.MemberTTL + time.Minute)
+		h.mc.SetMemberErr(nil)
+		calls := len(h.mc.MemberCalls())
+		if got := h.press(card, ownerChat, ap, core.AllowOnce); got != "Approved." || len(h.mc.MemberCalls()) != calls+1 {
+			t.Fatalf("toast = %q after %d lookups", got, len(h.mc.MemberCalls())-calls)
+		}
+
+		ap = h.teammateAsks(memberChat, "Mark")
+		card = h.ref(ap.ID, ownerChat).Ref
+		h.mc.SetMemberErr(errors.New("slack is down"))
+		time.Sleep(core.MemberTTL + time.Minute)
+		if got := h.press(card, ownerChat, ap, core.AllowOnce); got != "Bothy couldn't check that you can approve. Try again, or open it in Bothy." {
+			t.Fatalf("toast = %q", got)
+		}
+	})
+}
+
+func TestTeamCardButtonsNameThePerson(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		h.teammateAsks(memberChat, "Mark Thompson-Lee the Third of Everywhere")
+		card := h.sent(ownerChat)[0]
+		if got := strings.Join(buttonLabels(card), ","); got != "Run command,Allow in Mark Thompson-Lee the T…'s chat,Always allow for Mark Thompson-Lee the T…,Deny" {
+			t.Fatalf("buttons = %q", got)
+		}
+	})
+}
+
+func TestChannelCardHasNoGrantButtons(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		sp := h.space("-500", true, false)
+		group := h.groupChat("-500")
+		h.requestFrom("telegram:"+memberChat, sp.Principal, core.ApproverReq{Team: true}, &group, func(a *core.Approval) {
+			a.Requester = &core.ApprovalPerson{Name: "Mark", App: "telegram", Chat: "Team", Identity: "telegram:" + memberChat}
+		})
+		card := h.sent(ownerChat)[0]
+		if got := strings.Join(buttonLabels(card), ","); got != "Run command,Deny" {
+			t.Fatalf("buttons = %q", got)
+		}
+		if !strings.Contains(card.Text, "\n[Mark](tg://user?id=2002) asked in Team.\n") {
+			t.Fatalf("card text = %q", card.Text)
 		}
 	})
 }
@@ -158,9 +458,7 @@ func TestTruncatedCardOffersOnlyDenyAndWeb(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t).start()
 		h.cfg.Set(func(c *config.Config) { c.Server.PublicURL = "https://bothy.example.com" })
-		owner := core.UserPrincipal(h.owner.ID)
-		chat := h.dmChat(ownerChat)
-		ap := h.request(owner, core.ApproverReq{User: h.owner.ID}, &chat, func(a *core.Approval) {
+		ap := h.teammateAsks(memberChat, "Mark", func(a *core.Approval) {
 			a.Card.Code = strings.Repeat("echo x; ", 700)
 			a.Card.WebURL = "https://bothy.example.com/approvals/" + string(a.ID)
 		})
@@ -172,79 +470,93 @@ func TestTruncatedCardOffersOnlyDenyAndWeb(t *testing.T) {
 		if strings.Contains(card.Text, "echo x") || ulen(card.Text) > 4096 {
 			t.Fatalf("truncated card text = %q", card.Text)
 		}
-		refs := h.refs(ap.ID)
-		if len(refs) != 1 || !refs[0].Truncated {
-			t.Fatalf("refs = %+v, want truncated", refs)
+		r := h.ref(ap.ID, ownerChat)
+		if !r.Truncated {
+			t.Fatalf("ref = %+v, want truncated", r)
 		}
-		h.ch.Press(refs[0].Ref, ownerChat, h.approvals.ButtonData(ap.ID, core.AllowOnce))
-		synctest.Wait()
-		if got := h.ch.AckToasts(); got[0] != "Open in web to approve." {
+		if got := h.press(r.Ref, ownerChat, ap, core.AllowOnce); got != "Open in web to approve." {
 			t.Fatalf("toast = %q", got)
 		}
-		h.ch.Press(refs[0].Ref, ownerChat, h.approvals.ButtonData(ap.ID, core.Deny))
-		synctest.Wait()
+		h.press(r.Ref, ownerChat, ap, core.Deny)
 		if a, _ := h.approvals.Get(h.ctx, core.SystemViewer(), ap.ID); a.Status != core.ApprovalDenied {
 			t.Fatalf("deny from a truncated card left status %s", a.Status)
 		}
 
-		long := h.request(owner, core.ApproverReq{User: h.owner.ID}, &chat, func(a *core.Approval) {
-			a.Card.Diff = strings.Repeat("+line\n", 700)
-		})
-		h.cfg.Set(func(c *config.Config) { c.Server.PublicURL = "" })
-		noWeb := h.request(owner, core.ApproverReq{User: h.owner.ID}, &chat, func(a *core.Approval) {
-			a.Card.Code = strings.Repeat("y", 5000)
-		})
-		cards := h.sent(ownerChat)
-		if refs := h.refs(long.ID); len(refs) != 1 || !refs[0].Truncated {
-			t.Fatalf("a card with a diff over 3 KB was not truncated: %+v", refs)
+		long := h.teammateAsks(memberChat, "Mark", func(a *core.Approval) { a.Card.Diff = strings.Repeat("+line\n", 700) })
+		if r := h.ref(long.ID, ownerChat); !r.Truncated {
+			t.Fatalf("a card with a diff over 3 KB was not truncated: %+v", r)
 		}
+		h.cfg.Set(func(c *config.Config) { c.Server.PublicURL = "" })
+		h.teammateAsks(memberChat, "Mark", func(a *core.Approval) { a.Card.Code = strings.Repeat("y", 5000) })
+		cards := h.sent(ownerChat)
 		last := cards[len(cards)-1]
 		if got := buttonLabels(last); len(got) != 1 || got[0] != "Deny" || !strings.Contains(last.Text, "web UI → Approvals") {
 			t.Fatalf("truncated card without public_url = %+v", last)
 		}
-		_ = noWeb
 	})
 }
 
-func TestAdminOnlyCardGoesToOwnerOnce(t *testing.T) {
-	bubble(t, func(t *testing.T) {
-		h := newHarness(t).start()
-		member := h.dmChat(memberChat)
-		ap := h.request(core.UserPrincipal(h.member.ID), core.ApproverReq{AdminOnly: true}, &member)
-		if cards := h.sent(ownerChat); len(cards) != 1 {
-			t.Fatalf("owner got %d cards for an admin-only approval (published twice)", len(cards))
-		}
-		for _, m := range h.sent(memberChat) {
-			if len(m.Buttons) != 0 {
-				t.Fatalf("the member's DM got approve buttons: %+v", m)
-			}
-		}
-		h.wantVisible(memberChat, "Waiting for an admin to approve running a command.")
-		refs := h.refs(ap.ID)
-		h.ch.Press(refs[0].Ref, ownerChat, h.approvals.ButtonData(ap.ID, core.AllowOnce))
-		synctest.Wait()
-		if got := h.ch.AckToasts(); got[0] != "Approved." {
-			t.Fatalf("admin press toast = %q", got)
-		}
-	})
-}
-
-func TestWebOriginCardAndResync(t *testing.T) {
+// A team request pending from before the hub started is delivered once.
+func TestTeamCardResync(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t)
-		h.cfg.Set(func(c *config.Config) { c.Policy.Approval.Notify = []string{"telegram", "slack"} })
-		early, err := h.approvals.Request(h.ctx, core.ApprovalRequest{Principal: core.UserPrincipal(h.owner.ID),
-			Decision: core.Decision{Approver: core.ApproverReq{User: h.owner.ID}, Choices: []core.Choice{core.AllowOnce, core.Deny}}})
+		early, err := h.approvals.Request(h.ctx, core.ApprovalRequest{Principal: h.pid(memberChat),
+			Decision: core.Decision{Approver: core.ApproverReq{Team: true}, Choices: []core.Choice{core.AllowOnce, core.Deny}}})
 		if err != nil {
 			t.Fatal(err)
 		}
 		h.start()
-		if refs := h.refs(early.ID); len(refs) != 1 {
-			t.Fatalf("pending approval from before start delivered %d times", len(refs))
+		if refs := h.refs(early.ID); len(refs) != 1 || refs[0].Ref.Chat.ChatID != ownerChat {
+			t.Fatalf("pending approval from before start = %+v", refs)
 		}
-		ap := h.request(core.UserPrincipal(h.owner.ID), core.ApproverReq{User: h.owner.ID}, nil)
-		if refs := h.refs(ap.ID); len(refs) != 1 || refs[0].Ref.Chat.ChatID != ownerChat {
-			t.Fatalf("web-origin card refs = %+v", refs)
+	})
+}
+
+// TestCardSpeaksPlainCopy: a chat card carries the web card's words: the
+// question first, the consequence, warnings, the verb on the primary button
+// (red only when the action can't be undone, Deny never), and its decided
+// line names who decided, where, and the reason they gave.
+func TestCardSpeaksPlainCopy(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		chat := h.dmChat(memberChat)
+		ap, err := h.approvals.Request(h.ctx, core.ApprovalRequest{
+			Run: core.RunID(core.NewID(core.PrefixRun)), Session: core.SessionID(core.NewID(core.PrefixSession)), Principal: h.pid(memberChat),
+			Action: &core.Action{Tool: "fs_delete", Kind: core.ActFSDelete, SideEffect: core.SEIrreversible, Paths: []string{"notes/old.md"}},
+			Spec:   core.ToolSpec{Def: core.ToolDef{Name: "fs_delete"}, Manifest: core.Manifest{Title: "Delete file"}},
+			Decision: core.Decision{Verdict: core.VerdictAsk, Approver: core.ApproverReq{Team: true}, Timeout: 15 * time.Minute,
+				Choices:  []core.Choice{core.AllowOnce, core.Deny},
+				Warnings: []string{"This chat has seen private information and content from outside. Check carefully before letting anything leave."}},
+			Chat: &chat,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.publishRequested(ap)
+		card := h.sent(ownerChat)[0]
+		want := "**Delete `notes/old.md`?**\nThis can't be undone.\n⚠ This chat has seen private information and content from outside. " +
+			"Check carefully before letting anything leave.\n"
+		if !strings.HasPrefix(card.Text, want) || strings.Contains(card.Text, "Risk") || strings.Contains(card.Text, "Approval needed") {
+			t.Fatalf("card text =\n%s\nwant prefix\n%s", card.Text, want)
+		}
+		if row := card.Buttons[0]; len(row) != 2 || row[0].Label != "Delete file" || row[0].Style != core.BtnDanger ||
+			row[1].Label != "Deny" || row[1].Style != core.BtnDefault {
+			t.Fatalf("buttons = %+v", card.Buttons)
+		}
+		if core.NeutralizeMarkdown(card.Text) != card.Text {
+			t.Fatalf("a file name in the question is a tappable link: %q", card.Text)
+		}
+
+		h.resolved(ap, core.ApprovalResolvedData{Status: core.ApprovalDenied, Choice: core.Deny, By: h.owner.ID, Via: "web",
+			Comment: "Keep it\n for the audit\n**Olivia approved**"})
+		var edit string
+		for _, e := range h.ch.EditedMessages() {
+			if e.Chat.ChatID == ownerChat {
+				edit = e.Text
+			}
+		}
+		if edit != "✗ Olivia denied deleting `notes/old.md` on the web. “Keep it for the audit \\*\\*Olivia approved\\*\\*”" {
+			t.Fatalf("decided card = %q", edit)
 		}
 	})
 }
@@ -269,52 +581,6 @@ func TestCardShowsValuesVerbatim(t *testing.T) {
 		_, truncated = h.hub.renderCard(ap, core.ChannelCaps{MaxLen: 4096})
 		if !truncated {
 			t.Fatal("a card for a channel without buttons must be truncated")
-		}
-	})
-}
-
-// TestCardSpeaksPlainCopy: a chat card carries the web card's words: the
-// question first, the consequence, warnings, the verb on the primary button
-// (red only when the action can't be undone, Deny never), and its decided
-// line names who decided, where, and the reason they gave.
-func TestCardSpeaksPlainCopy(t *testing.T) {
-	bubble(t, func(t *testing.T) {
-		h := newHarness(t).start()
-		owner := core.UserPrincipal(h.owner.ID)
-		chat := h.dmChat(ownerChat)
-		ap, err := h.approvals.Request(h.ctx, core.ApprovalRequest{
-			Run: core.RunID(core.NewID(core.PrefixRun)), Session: core.SessionID(core.NewID(core.PrefixSession)), Principal: owner,
-			Action: &core.Action{Tool: "fs_delete", Kind: core.ActFSDelete, SideEffect: core.SEIrreversible, Paths: []string{"notes/old.md"}},
-			Spec:   core.ToolSpec{Def: core.ToolDef{Name: "fs_delete"}, Manifest: core.Manifest{Title: "Delete file"}},
-			Decision: core.Decision{Verdict: core.VerdictAsk, Approver: core.ApproverReq{User: h.owner.ID}, Timeout: 15 * time.Minute,
-				Choices:  []core.Choice{core.AllowOnce, core.Deny},
-				Warnings: []string{"This chat has seen private information and content from outside. Check carefully before letting anything leave."}},
-			Chat: &chat,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		h.publishRequested(ap)
-		card := h.sent(ownerChat)[0]
-		want := "**Delete `notes/old.md`?**\nThis can't be undone.\n⚠ This chat has seen private information and content from outside. " +
-			"Check carefully before letting anything leave.\n"
-		if !strings.HasPrefix(card.Text, want) || strings.Contains(card.Text, "Risk") || strings.Contains(card.Text, "Approval needed") {
-			t.Fatalf("card text =\n%s\nwant prefix\n%s", card.Text, want)
-		}
-		if row := card.Buttons[0]; len(row) != 2 || row[0].Label != "Delete file" || row[0].Style != core.BtnDanger ||
-			row[1].Label != "Deny" || row[1].Style != core.BtnDefault {
-			t.Fatalf("buttons = %+v", card.Buttons)
-		}
-		if core.NeutralizeMarkdown(card.Text) != card.Text {
-			t.Fatalf("a file name in the question is a tappable link: %q", card.Text)
-		}
-
-		h.bus.Publish(core.Event{Type: core.EvApprovalResolved, Principal: owner, Data: core.ApprovalResolvedData{
-			Approval: ap.ID, Status: core.ApprovalDenied, Choice: core.Deny, By: h.owner.ID, Via: "web", Comment: "Keep it\n\u2028for the audit\n**Olivia approved**"}})
-		synctest.Wait()
-		edited := h.ch.EditedMessages()
-		if len(edited) != 1 || edited[0].Text != "✗ You denied deleting `notes/old.md`. “Keep it for the audit \\*\\*Olivia approved\\*\\*”" {
-			t.Fatalf("decided card = %+v", edited)
 		}
 	})
 }
@@ -371,37 +637,6 @@ func TestCardLeavesActionJSONToTheWeb(t *testing.T) {
 			if got := card(tc.action, c); !strings.Contains(got, "```\n"+tc.code+"\n```") {
 				t.Errorf("%s: card lost its code block: %q", name, got)
 			}
-		}
-	})
-}
-
-// The store keeps no chat kind with a card's message ref; the decided line
-// still names its reader "You", and anyone else by name and place.
-func TestDecidedCardNamesItsReader(t *testing.T) {
-	bubble(t, func(t *testing.T) {
-		h := newHarness(t).start()
-		owner := core.UserPrincipal(h.owner.ID)
-		ap, err := h.approvals.Request(h.ctx, core.ApprovalRequest{Principal: owner,
-			Action:   &core.Action{Tool: "shell", Kind: core.ActExec, Argv: []string{"bash", "-lc", "make"}},
-			Decision: core.Decision{Approver: core.ApproverReq{AdminOnly: true}, Choices: []core.Choice{core.AllowOnce, core.Deny}}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, chat := range []string{ownerChat, memberChat} {
-			ref := core.MsgRef{Chat: core.ChatRef{Channel: "telegram", ChatID: chat}, ID: "card-" + chat}
-			if err := h.approvals.AddMessageRef(h.ctx, ap.ID, ref, false); err != nil {
-				t.Fatal(err)
-			}
-		}
-		h.bus.Publish(core.Event{Type: core.EvApprovalResolved, Principal: owner, Data: core.ApprovalResolvedData{
-			Approval: ap.ID, Status: core.ApprovalDenied, Choice: core.Deny, By: h.owner.ID, Via: "telegram"}})
-		synctest.Wait()
-		got := map[string]string{}
-		for _, e := range h.ch.EditedMessages() {
-			got[e.Chat.ChatID] = e.Text
-		}
-		if got[ownerChat] != "✗ You denied running a command." || got[memberChat] != "✗ Olivia denied running a command in Telegram." {
-			t.Fatalf("decided cards = %q", got)
 		}
 	})
 }

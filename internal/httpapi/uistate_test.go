@@ -16,29 +16,16 @@ import (
 	"github.com/rielicat/bothy/internal/testkit/fakes"
 )
 
-func (h *harness) link(c *client, channel, ext string, seen time.Time) {
-	h.t.Helper()
-	if _, err := h.store.Identities().Touch(context.Background(), &core.ChannelIdentity{Channel: channel, ExternalID: ext, Username: c.name,
-		Status: core.IdentityLinked, User: c.user, DMChat: ext, FirstSeen: seen, LastSeen: seen}); err != nil {
-		h.t.Fatal(err)
-	}
-	id, err := h.store.Identities().Get(context.Background(), channel, ext)
-	if err != nil {
-		h.t.Fatal(err)
-	}
-	id.Status, id.User, id.DMChat = core.IdentityLinked, c.user, ext
-	if err := h.store.Identities().Update(context.Background(), id); err != nil {
-		h.t.Fatal(err)
-	}
-}
-
 func TestProfileRoutes(t *testing.T) {
 	h := newHarness(t).setup()
 	ctx := context.Background()
 
 	p := decodeAs[dto.Profile](t, h.do(http.MethodGet, "/api/me", nil, h.member))
-	if p.User != h.member.user || p.Username != "member" || p.DisplayName != "member" || p.ApprovalsIn != "web" || len(p.Chats) != 0 {
+	if p.User != h.member.user || p.Username != "member" || p.DisplayName != "member" {
 		t.Fatalf("profile = %+v", p)
+	}
+	if body := h.do(http.MethodGet, "/api/me", nil, h.member).Body.String(); strings.Contains(body, "approvals_in") || strings.Contains(body, "chats") {
+		t.Fatalf("profile still has chat fields: %s", body)
 	}
 	// A read token sees its owner's profile; no token may change it.
 	if got := decodeAs[dto.Profile](t, h.do(http.MethodGet, "/api/me", nil, h.tokenFor(h.member, "read"))); got.User != h.member.user {
@@ -48,8 +35,11 @@ func TestProfileRoutes(t *testing.T) {
 		expect(t, h.do(http.MethodPatch, "/api/me", dto.ProfilePatch{DisplayName: new("Mallory")}, h.tokenFor(h.member, scopes...)), http.StatusForbidden)
 	}
 
-	// Members rename themselves; an id in the body names nobody else.
-	rec := h.do(http.MethodPatch, "/api/me", map[string]any{"display_name": "  Maya Chen ", "user_id": h.admin.user}, h.member)
+	// Members rename themselves; a field the profile doesn't have, such as
+	// someone's id or the old approvals_in, is refused.
+	expect(t, h.do(http.MethodPatch, "/api/me", map[string]any{"display_name": "Mallory", "user_id": h.admin.user}, h.member), http.StatusBadRequest)
+	expect(t, h.do(http.MethodPatch, "/api/me", map[string]any{"approvals_in": "web"}, h.member), http.StatusBadRequest)
+	rec := h.do(http.MethodPatch, "/api/me", map[string]any{"display_name": "  Maya Chen "}, h.member)
 	expect(t, rec, http.StatusOK)
 	if got := decodeAs[dto.Profile](t, rec); got.DisplayName != "Maya Chen" || got.User != h.member.user {
 		t.Fatalf("renamed = %+v", got)
@@ -67,34 +57,6 @@ func TestProfileRoutes(t *testing.T) {
 		expect(t, h.do(http.MethodPatch, "/api/me", dto.ProfilePatch{DisplayName: &bad}, h.member), http.StatusBadRequest)
 	}
 
-	// Approval requests reach only apps the person linked.
-	expect(t, h.do(http.MethodPatch, "/api/me", dto.ProfilePatch{ApprovalsIn: new("telegram")}, h.member), http.StatusBadRequest)
-	now := time.Now()
-	h.link(h.member, "telegram", "5512", now.Add(-time.Hour))
-	h.link(h.member, "slack", "U1", now)
-	h.link(h.admin, "discord", "D9", now)
-	p = decodeAs[dto.Profile](t, h.do(http.MethodGet, "/api/me", nil, h.member))
-	if strings.Join(p.Chats, ",") != "slack,telegram" || p.ApprovalsIn != "slack" || p.PreferredChat != "" {
-		t.Fatalf("linked profile = %+v; want the app used last", p)
-	}
-	expect(t, h.do(http.MethodPatch, "/api/me", dto.ProfilePatch{ApprovalsIn: new("discord")}, h.member), http.StatusBadRequest)
-	p = decodeAs[dto.Profile](t, h.do(http.MethodPatch, "/api/me", dto.ProfilePatch{ApprovalsIn: new("telegram")}, h.member))
-	if p.ApprovalsIn != "telegram" || p.PreferredChat != "telegram" {
-		t.Fatalf("telegram = %+v", p)
-	}
-	p = decodeAs[dto.Profile](t, h.do(http.MethodPatch, "/api/me", dto.ProfilePatch{ApprovalsIn: new("web")}, h.member))
-	if p.ApprovalsIn != "web" || p.PreferredChat != "telegram" {
-		t.Fatalf("web only = %+v; the preferred chat stays for other messages", p)
-	}
-	if u, _ := h.store.Users().Get(ctx, h.member.user); !u.ApprovalsWebOnly || u.PreferredChat != "telegram" {
-		t.Fatalf("stored = %+v", u)
-	}
-	expect(t, h.do(http.MethodPatch, "/api/me", dto.ProfilePatch{ApprovalsIn: new("slack"), PreferredChat: new("telegram")}, h.member),
-		http.StatusBadRequest)
-	p = decodeAs[dto.Profile](t, h.do(http.MethodPatch, "/api/me", dto.ProfilePatch{PreferredChat: new("")}, h.member))
-	if p.PreferredChat != "" || p.ApprovalsIn != "web" {
-		t.Fatalf("cleared preferred chat = %+v", p)
-	}
 	if !strings.Contains(strings.Join(h.audit.Actions(), " "), "user.profile") {
 		t.Fatalf("audit = %v", h.audit.Actions())
 	}
@@ -177,19 +139,19 @@ func TestPausedByOnMe(t *testing.T) {
 	}
 	expect(t, h.do(http.MethodPost, "/api/admin/pause", dto.PauseReq{Paused: true}, h.admin), http.StatusNoContent)
 	me := decodeAs[dto.Me](t, h.do(http.MethodGet, "/api/auth/me", nil, h.member))
-	if !me.Paused || me.PausedBy != h.admin.user || me.PausedByName != "Sam Patel" || me.PausedAt.IsZero() {
+	if !me.Paused || me.PausedBy != string(h.admin.user) || me.PausedByName != "Sam Patel" || me.PausedAt.IsZero() {
 		t.Fatalf("member me = %+v", me)
 	}
 	bs := h.bus.Banners(core.Filter{Admin: true})
 	if len(bs) != 1 {
 		t.Fatalf("banners = %+v", bs)
 	}
-	if b := bs[0].Data.(core.BannerData); b.Code != "paused" || b.By != h.admin.user || b.ByName != "Sam Patel" || b.At.IsZero() {
+	if b := bs[0].Data.(core.BannerData); b.Code != "paused" || b.By != string(h.admin.user) || b.ByName != "Sam Patel" || b.At.IsZero() {
 		t.Fatalf("banner = %+v", b)
 	}
 	// Pausing again keeps who paused first.
 	expect(t, h.do(http.MethodPost, "/api/admin/pause", dto.PauseReq{Paused: true}, h.owner), http.StatusNoContent)
-	if me := decodeAs[dto.Me](t, h.do(http.MethodGet, "/api/auth/me", nil, h.member)); me.PausedBy != h.admin.user {
+	if me := decodeAs[dto.Me](t, h.do(http.MethodGet, "/api/auth/me", nil, h.member)); me.PausedBy != string(h.admin.user) {
 		t.Fatalf("paused again by %s", me.PausedBy)
 	}
 	expect(t, h.do(http.MethodPost, "/api/admin/pause", dto.PauseReq{Paused: false}, h.owner), http.StatusNoContent)

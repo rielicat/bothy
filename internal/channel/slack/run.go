@@ -94,7 +94,7 @@ func (a *adapter) session(ctx context.Context, jobs chan<- job) (connected bool,
 	if err != nil {
 		return false, a.apiErr("auth.test", botKey, err)
 	}
-	a.setSelf(auth.UserID, auth.BotID, auth.User)
+	a.setSelf(auth)
 
 	sctx, stop := context.WithCancel(ctx)
 	defer stop()

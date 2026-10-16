@@ -429,6 +429,18 @@ func (c *client) getFile(ctx context.Context, fileID string) (tgFile, error) {
 	return f, err
 }
 
+func (c *client) getChat(ctx context.Context, chatID int64) (tgChat, error) {
+	var ch tgChat
+	err := c.call(ctx, "getChat", map[string]any{"chat_id": chatID}, &ch)
+	return ch, err
+}
+
+func (c *client) getChatMemberCount(ctx context.Context, chatID int64) (int, error) {
+	var n int
+	err := c.call(ctx, "getChatMemberCount", map[string]any{"chat_id": chatID}, &n)
+	return n, err
+}
+
 func (c *client) setMyCommands(ctx context.Context, cmds []botCommand) error {
 	return c.call(ctx, "setMyCommands", map[string]any{"commands": cmds}, nil)
 }

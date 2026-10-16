@@ -131,8 +131,14 @@ func waitFor(t *testing.T, cond func() bool) {
 func TestConformance(t *testing.T) {
 	e := newEnv(t)
 	conformance.Channel(t, e.a, e.srv)
-	if got := e.srv.Commands(); len(got) == 0 {
+	got := e.srv.Commands()
+	if len(got) == 0 {
 		t.Error("setMyCommands was not called on connect")
+	}
+	for _, c := range got {
+		if c.Command == "pair" {
+			t.Error("the commands menu still offers /pair")
+		}
 	}
 }
 
@@ -432,20 +438,11 @@ func TestDisabledAdapterIdles(t *testing.T) {
 	}
 }
 
-func TestDeepLinkAndOpenDM(t *testing.T) {
+func TestSelfTestAndOpenDM(t *testing.T) {
 	e := newEnv(t)
-	if got := e.a.DeepLink("7KQ2-MX4D"); got != "" {
-		t.Fatalf("DeepLink before the username is known = %q", got)
-	}
 	id, err := e.a.SelfTest(context.Background())
 	if err != nil || id != "@"+e.srv.Bot {
 		t.Fatalf("SelfTest = %q, %v", id, err)
-	}
-	if got := e.a.DeepLink("7KQ2-MX4D"); got != "https://t.me/"+e.srv.Bot+"?start=7KQ2-MX4D" {
-		t.Fatalf("DeepLink = %q", got)
-	}
-	if got := e.a.DeepLink("a b&c=d"); got != "https://t.me/"+e.srv.Bot+"?start=abcd" {
-		t.Fatalf("DeepLink does not sanitize: %q", got)
 	}
 	chat, err := e.a.OpenDM(context.Background(), "12345")
 	if err != nil || chat != (core.ChatRef{Channel: Name, ChatID: "12345", Kind: core.ChatDM}) {
@@ -453,6 +450,18 @@ func TestDeepLinkAndOpenDM(t *testing.T) {
 	}
 	if _, err := e.a.OpenDM(context.Background(), "abc"); !errors.Is(err, core.ErrInvalid) {
 		t.Fatalf("OpenDM(abc) = %v", err)
+	}
+}
+
+func TestInspectChat(t *testing.T) {
+	e := newEnv(t)
+	e.srv.SetChat(-1001, "Ops", 14)
+	info, err := e.a.InspectChat(context.Background(), core.ChatRef{Channel: Name, ChatID: "-1001", Kind: core.ChatGroup})
+	if err != nil || info != (core.ChatInfo{Title: "Ops", Members: 14}) {
+		t.Fatalf("InspectChat = %+v, %v", info, err)
+	}
+	if _, err := e.a.InspectChat(context.Background(), core.ChatRef{Channel: Name, ChatID: "x"}); !errors.Is(err, core.ErrInvalid) {
+		t.Fatalf("InspectChat(x) = %v", err)
 	}
 }
 

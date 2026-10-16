@@ -11,7 +11,7 @@ import (
 func TestRefineCommand(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t).start()
-		p := core.UserPrincipal(h.owner.ID)
+		p := h.pid(ownerChat)
 		chat := h.dmChat(ownerChat)
 		setting := func() string {
 			t.Helper()

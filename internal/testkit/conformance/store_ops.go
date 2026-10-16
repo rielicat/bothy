@@ -582,7 +582,7 @@ func testIDOR(f *fx) {
 	alice := f.user(core.RoleMember)
 	bob := f.user(core.RoleAdmin)
 	pa := core.UserPrincipal(alice.ID)
-	sp := f.space(alice)
+	sp := f.space()
 	owner := viewer(alice, sp.Principal)
 
 	s := f.session(pa)

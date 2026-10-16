@@ -33,33 +33,55 @@ type User struct {
 	// LastLoginAt is the last sign-in by any method; zero = never.
 	// UserRepo.SignedIn writes it, Update leaves it alone.
 	LastLoginAt time.Time `json:"last_login_at"`
-	// PreferredChat is the linked chat app Bothy messages this person in;
-	// "" = the linked one they used last. ApprovalsWebOnly keeps approval
-	// requests on Bothy's Approvals page instead. The person sets both
-	// (GET/PATCH /api/me), so they stay out of the user listing.
-	PreferredChat    string `json:"-"`
-	ApprovalsWebOnly bool   `json:"-"`
 }
 
+// Space is a channel (kind "group") or a teammate's own space (kind
+// "person"). Both are owned by the team.
 type Space struct {
-	Principal   PrincipalID `json:"principal_id"`
-	Kind        string      `json:"kind"` // "group" | "guest" (allowlisted guest DM)
-	Chat        ChatRef     `json:"chat"`
-	Title       string      `json:"title"`
-	Owner       UserID      `json:"owner_user_id"`
-	Enabled     bool        `json:"enabled"`
-	MentionOnly bool        `json:"mention_only"`
-	CreatedAt   time.Time   `json:"created_at"`
-	UpdatedAt   time.Time   `json:"updated_at"`
+	Principal PrincipalID `json:"principal_id"`
+	Kind      string      `json:"kind"` // "group" | "person"
+	// Chat of a person space is the teammate's external id or DM; DMs route
+	// by identity, never by it.
+	Chat        ChatRef   `json:"chat"`
+	Team        string    `json:"team_id,omitempty"`   // group: the Discord guild id; "" when unknown
+	TeamName    string    `json:"team_name,omitempty"` // group: the server or workspace name, for admins
+	AddedBy     string    `json:"added_by,omitempty"`  // group: platform id of whoever added Bothy, when reported
+	Title       string    `json:"title"`
+	Members     int       `json:"members"`  // group: people in the chat or server as last reported; 0 = unknown
+	External    bool      `json:"external"` // group: Slack says people from other companies are in it
+	Enabled     bool      `json:"enabled"`  // person: false while the teammate is blocked
+	MentionOnly bool      `json:"mention_only"`
+	ReviewedAt  time.Time `json:"reviewed_at,omitzero"` // group: an admin turned it on or ignored it; zero = still in Approvals
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
+
+// Space kinds.
+const (
+	SpaceGroup  = "group"
+	SpacePerson = "person"
+)
 
 type IdentityStatus string
 
 const (
-	IdentityPending IdentityStatus = "pending" // unknown sender, approve_sender code issued
-	IdentityLinked  IdentityStatus = "linked"  // linked to a user account
-	IdentityGuest   IdentityStatus = "guest"   // allowlisted, talks to its own guest space
-	IdentityBlocked IdentityStatus = "blocked"
+	IdentityPending  IdentityStatus = "pending"  // not let in: waiting for an admin, or not a member
+	IdentityTeammate IdentityStatus = "teammate" // Bothy accepts them; they have a person space
+	IdentityBlocked  IdentityStatus = "blocked"
+)
+
+// AdmittedVia is how a teammate got in.
+type AdmittedVia string
+
+const (
+	ViaMembership AdmittedVia = "membership" // the platform said they are in the team
+	ViaAdmin      AdmittedVia = "admin"      // an admin let them in (or the 0012 migration did)
+)
+
+// Greetings a teammate is still owed.
+const (
+	GreetHello = "hello"
+	GreetMoved = "moved" // migrated from a linked account
 )
 
 type ChannelIdentity struct {
@@ -68,35 +90,24 @@ type ChannelIdentity struct {
 	Username    string         `json:"username"`
 	DisplayName string         `json:"display_name"`
 	Status      IdentityStatus `json:"status"`
-	User        UserID         `json:"user_id,omitempty"`      // linked
-	Principal   PrincipalID    `json:"principal_id,omitempty"` // guest space
+	Principal   PrincipalID    `json:"principal_id,omitempty"` // teammate: their person space
+	Via         AdmittedVia    `json:"admitted_via"`
+	CanApprove  bool           `json:"can_approve"` // an admin marked them "Can approve"
+	Member      MemberStatus   `json:"membership"`
+	MemberAt    time.Time      `json:"membership_at"`
 	DMChat      string         `json:"dm_chat_id,omitempty"`
 	FirstSeen   time.Time      `json:"first_seen_at"`
 	LastSeen    time.Time      `json:"last_seen_at"`
 	LastNotice  time.Time      `json:"-"`
+	Greet       string         `json:"-"` // "" | hello | moved: the greeting still owed
 	// FirstText is the start of a pending sender's first message, shown to
 	// admins in the approvals inbox; it is dropped once the status changes.
 	FirstText string `json:"first_text,omitempty"`
 }
 
-type PairingPurpose string
-
-const (
-	PairLinkIdentity  PairingPurpose = "link_identity"  // user creates in web UI, sends /pair CODE (or /start CODE) from chat
-	PairApproveSender PairingPurpose = "approve_sender" // unknown sender receives it; an admin enters it in the web UI
-)
-
-type Pairing struct {
-	CodeHash   []byte         `json:"-"`
-	Purpose    PairingPurpose `json:"purpose"`
-	User       UserID         `json:"user_id,omitempty"`
-	Channel    string         `json:"channel,omitempty"`
-	ExternalID string         `json:"external_id,omitempty"`
-	CreatedBy  UserID         `json:"created_by,omitempty"`
-	ExpiresAt  time.Time      `json:"expires_at"`
-	UsedAt     time.Time      `json:"used_at"`
-	Attempts   int            `json:"attempts"`
-}
+// Key is "<channel>:<external id>", as RunRequest.Sender and approval
+// requester identities carry it.
+func (c ChannelIdentity) Key() string { return c.Channel + ":" + c.ExternalID }
 
 type AuthSession struct {
 	IDHash      []byte
@@ -176,7 +187,7 @@ type Run struct {
 	ID         RunID       `json:"id"`
 	Session    SessionID   `json:"session_id"`
 	Principal  PrincipalID `json:"principal_id"`
-	User       UserID      `json:"user_id"` // billing user (space owner for spaces)
+	User       UserID      `json:"user_id"` // the principal's account; "" for team-owned principals
 	Trigger    Trigger     `json:"trigger"`
 	Schedule   ScheduleID  `json:"schedule_id,omitempty"`
 	Status     RunStatus   `json:"status"`
@@ -259,7 +270,7 @@ type Schedule struct {
 	ActiveHours string       `json:"active_hours,omitempty"` // "08:00-22:00" in TZ
 	Prompt      string       `json:"prompt"`
 	Session     SessionID    `json:"session_id,omitempty"` // "" = dedicated schedule session
-	Deliver     *ChatRef     `json:"deliver,omitempty"`    // nil = PreferredChat of the principal's user if any, otherwise web only; {channel:"web"} = web only
+	Deliver     *ChatRef     `json:"deliver,omitempty"`    // nil = ChannelHub.PrincipalChat (a teammate's DM, a channel's chat; the web for accounts); {channel:"web"} = web only, valid for user principals only
 	Slot        Slot         `json:"slot"`
 	Limits      RunLimits    `json:"limits"`
 	MissedRun   string       `json:"missed_run"` // skip | once
@@ -277,7 +288,7 @@ type UsageQuery struct {
 	User    UserID // "" = all users (admin)
 	From    time.Time
 	To      time.Time
-	GroupBy string // day | model | user | schedule | session
+	GroupBy string // day | model | user (who paid: the account, else the teammate or channel) | schedule | session
 }
 
 type UsageRow struct {
@@ -308,9 +319,10 @@ type AuditEntry struct {
 // further down than the request: the vault records its own key changes, and
 // the API passes the token, client address and source along with ctx.
 type AuditOrigin struct {
-	Actor  string         // token:<id> or user:<id>; "" keeps the writer's
+	Actor  string         // token:<id>, user:<id> or channel:<app>:<id>; "" keeps the writer's
 	IP     string         // client address
 	Detail map[string]any // merged into the row's detail, such as {"source": "env:OPENAI_API_KEY"}
+	Name   string         // display name of a chat actor for banners ("Maya Chen · Slack")
 }
 
 type auditOriginKey struct{}
@@ -485,10 +497,10 @@ type UserRepo interface {
 	ByUsername(ctx context.Context, name string) (*User, error)
 	List(ctx context.Context) ([]*User, error)
 	Update(ctx context.Context, u *User) error
-	// SetProfile writes only u's DisplayName, Timezone, PreferredChat,
-	// ApprovalsWebOnly and UpdatedAt: what people change about themselves
-	// (PATCH /api/me) must never write back a role, disabled flag or
-	// password hash that an admin or a reset changed meanwhile.
+	// SetProfile writes only u's DisplayName, Timezone and UpdatedAt: what
+	// people change about themselves (PATCH /api/me) must never write back a
+	// role, disabled flag or password hash that an admin or a reset changed
+	// meanwhile.
 	SetProfile(ctx context.Context, u *User) error
 	RecordLogin(ctx context.Context, id UserID, ok bool, lockUntil time.Time) error
 	// SignedIn records a successful sign-in at at: LastLoginAt, and the
@@ -496,17 +508,23 @@ type UserRepo interface {
 	SignedIn(ctx context.Context, id UserID, at time.Time) error
 	Count(ctx context.Context) (int, error)
 	// Delete removes the users row (user purge). Foreign keys cascade to its
-	// principals, spaces, sessions (messages, pins, runs, approvals), grants,
-	// schedules, memory events, uploads, pairing codes, auth sessions and
-	// tokens. Channel identities linked to the user, or guests of its spaces,
-	// must be deleted first (ErrInvalid otherwise). audit_log is untouched.
+	// principal, sessions (messages, pins, runs, approvals), grants,
+	// schedules, memory events, uploads, auth sessions and tokens. Team-owned
+	// principals are never touched. audit_log is untouched.
 	Delete(ctx context.Context, id UserID) error
 }
 
 type PrincipalRepo interface {
 	Get(ctx context.Context, v Viewer, id PrincipalID) (*Principal, error)
-	ForUser(ctx context.Context, u UserID) ([]*Principal, error) // own principal first, then owned spaces
+	ForUser(ctx context.Context, u UserID) ([]*Principal, error) // the user's own principal
+	// Team lists the team-owned principals (channels and teammates), oldest first.
+	Team(ctx context.Context) ([]*Principal, error)
 	Update(ctx context.Context, p *Principal) error
+	// Delete removes a team-owned principal and, through foreign keys, its
+	// space, sessions, schedules, grants, memory events and uploads; a user
+	// principal is refused (ErrInvalid). An identity pointing at it must be
+	// moved off first: SET NULL would break "teammate ⇒ principal".
+	Delete(ctx context.Context, id PrincipalID) error
 }
 
 type SpaceRepo interface {
@@ -514,24 +532,21 @@ type SpaceRepo interface {
 	ByChat(ctx context.Context, channel, chatID string) (*Space, error)
 	Get(ctx context.Context, v Viewer, id PrincipalID) (*Space, error)
 	List(ctx context.Context, v Viewer) ([]*Space, error)
-	Update(ctx context.Context, s *Space) error
+	Update(ctx context.Context, s *Space) error // never kind, channel or chat
 }
 
 type IdentityRepo interface {
-	Touch(ctx context.Context, id *ChannelIdentity) (*ChannelIdentity, error) // upsert names/last_seen; returns stored row
+	// Touch inserts an unknown sender as pending with membership id.Member,
+	// or refreshes a known one's names and last_seen only; returns the row.
+	Touch(ctx context.Context, id *ChannelIdentity) (*ChannelIdentity, error)
 	Get(ctx context.Context, channel, externalID string) (*ChannelIdentity, error)
-	Update(ctx context.Context, id *ChannelIdentity) error // status, user, principal, dm chat, last notice, first text (kept only while pending)
-	ForUser(ctx context.Context, u UserID) ([]*ChannelIdentity, error)
+	Update(ctx context.Context, id *ChannelIdentity) error // every mutable column; first text kept only while pending
+	// ByPrincipal returns the identity of a teammate's person space (ErrNotFound when none).
+	ByPrincipal(ctx context.Context, p PrincipalID) (*ChannelIdentity, error)
 	List(ctx context.Context, status IdentityStatus) ([]*ChannelIdentity, error) // "" = all
 	Delete(ctx context.Context, channel, externalID string) error
-}
-
-type PairingRepo interface {
-	Create(ctx context.Context, p *Pairing) error
-	// Redeem atomically marks an unexpired, unused code as used. Wrong codes
-	// increment no row; callers rate-limit per identity.
-	Redeem(ctx context.Context, codeHash []byte, purpose PairingPurpose, now time.Time) (*Pairing, error)
-	ForIdentity(ctx context.Context, channel, externalID string, purpose PairingPurpose, now time.Time) (*Pairing, error)
+	// ResetMembership makes every verdict on channel stale (membership_at 0).
+	ResetMembership(ctx context.Context, channel string) error
 }
 
 type AuthSessionRepo interface {
@@ -603,8 +618,10 @@ type ApprovalRepo interface {
 	Create(ctx context.Context, a *Approval) error
 	Get(ctx context.Context, v Viewer, id ApprovalID) (*Approval, error)
 	// Decide is a CAS: it updates only when status is one of from. Returns false
-	// when another resolver won.
-	Decide(ctx context.Context, id ApprovalID, from []ApprovalStatus, to ApprovalStatus, c Choice, by UserID, via string, at time.Time) (bool, error)
+	// when another resolver won. A chat decider is stored as "chat:<identity>".
+	Decide(ctx context.Context, id ApprovalID, from []ApprovalStatus, to ApprovalStatus, c Choice, by Decider, via string, at time.Time) (bool, error)
+	// CountOpen counts the principal's pending and parked approvals.
+	CountOpen(ctx context.Context, p PrincipalID) (int, error)
 	Park(ctx context.Context, id ApprovalID, until time.Time) error
 	Pending(ctx context.Context, v Viewer) ([]*Approval, error)
 	Recent(ctx context.Context, v Viewer, p Page) ([]*Approval, error) // not pending/parked, newest first; Before = created_at ms
@@ -642,12 +659,17 @@ type ScheduleRepo interface {
 	Delete(ctx context.Context, v Viewer, id ScheduleID) error
 	NextDue(ctx context.Context) (*Schedule, error) // enabled, min next_run_at; ErrNotFound when none
 	SetRun(ctx context.Context, id ScheduleID, last, next time.Time, status RunStatus, failures int, enabled bool) error
+	// PrincipalsWithEnabled lists the principals that have an enabled schedule.
+	PrincipalsWithEnabled(ctx context.Context) ([]PrincipalID, error)
 }
 
+// UsageRepo bills spending to principals; a user principal's id is the user's.
 type UsageRepo interface {
-	AddSpend(ctx context.Context, u UserID, day string, c CallInfo) error // spend_daily UPSERT
-	Spend(ctx context.Context, u UserID, day string) (Micros, error)      // u == "" => global total
-	Report(ctx context.Context, q UsageQuery) ([]UsageRow, error)         // aggregates llm_calls
+	AddSpend(ctx context.Context, p PrincipalID, day string, c CallInfo) error // spend_daily UPSERT
+	Spend(ctx context.Context, p PrincipalID, day string) (Micros, error)      // p == "" => global total
+	// TeamSpend is the day's total of every team-owned principal (spc_ ids).
+	TeamSpend(ctx context.Context, day string) (Micros, error)
+	Report(ctx context.Context, q UsageQuery) ([]UsageRow, error) // aggregates llm_calls
 }
 
 type AuditRepo interface {
@@ -721,7 +743,6 @@ type Store interface {
 	Principals() PrincipalRepo
 	Spaces() SpaceRepo
 	Identities() IdentityRepo
-	Pairings() PairingRepo
 	AuthSessions() AuthSessionRepo
 	Tokens() TokenRepo
 	Sessions() SessionRepo

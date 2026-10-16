@@ -80,7 +80,9 @@ func writeInline(b *strings.Builder, s string) {
 				i++
 				continue
 			}
-			if isWebURL(target) {
+			if id, ok := userMention(target); ok {
+				b.WriteString("<@" + id + ">")
+			} else if isWebURL(target) {
 				b.WriteByte('[')
 				writeInline(b, text)
 				b.WriteString("](")
@@ -161,6 +163,19 @@ func parseLink(s string, i int) (text, target string, end int, ok bool) {
 		return "", "", 0, false
 	}
 	return s[i+1 : i+closeText], target, start + closeURL + 1, true
+}
+
+var userLinkRe = regexp.MustCompile(`^discord://user\?id=([0-9]{15,21})$`)
+
+// userMention reads a link to discord://user?id=…, which renders as
+// Discord's own mention pill: the card's "asked" line shows the real
+// profile. Messages are sent with no allowed mentions, so it never pings.
+func userMention(target string) (string, bool) {
+	m := userLinkRe.FindStringSubmatch(target)
+	if m == nil {
+		return "", false
+	}
+	return m[1], true
 }
 
 // isWebURL reports whether a link target can be a masked link; anything else

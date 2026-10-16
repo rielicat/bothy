@@ -52,20 +52,22 @@ type Inbound struct {
 	// newly sighted space, and renames one still under its fallback name);
 	// "" when unknown.
 	ChatTitle string
-	// AddedBy is the platform user id that added the bot to this group or
-	// owns it, when the platform reports it (Telegram my_chat_member.from,
-	// Slack inviter, Discord guild owner); "" otherwise. A group Inbound with
-	// AddedBy and no text or attachments only announces the group.
+	// AddedBy is the platform user id that added the bot to this group,
+	// when the platform reports it (Telegram my_chat_member.from); ""
+	// otherwise. A group Inbound with AddedBy and no text or attachments only
+	// announces the group.
 	AddedBy string
+	// Team is a group chat's team when the platform says: the Discord guild
+	// id; "" otherwise.
+	Team string
 	// Forwarded marks content the sender relayed from someone else
 	// (Telegram forward_origin or via_bot). The hub treats it as untrusted
-	// even from a linked user and never as a command.
+	// even from the teammate whose DM it is, and never as a command.
 	Forwarded bool
-	// Private marks a message only its sender saw (a Slack slash command),
-	// so a code in it was not shown to the chat. In a group it never creates
-	// a space, since slash commands work in channels the bot is not in; the
-	// hub answers in their DM anyone it would not answer in that group, and
-	// an unknown sender's pairing code wherever it was typed.
+	// Private marks a message only its sender saw (a Slack slash command).
+	// In a group it never creates a space, since slash commands work in
+	// channels the bot is not in; the hub answers in their DM anyone it
+	// would not answer in that group.
 	Private bool
 }
 
@@ -124,14 +126,69 @@ type InboundSink interface {
 }
 
 type ChannelStatus struct {
-	Name      string    `json:"name"`
-	Enabled   bool      `json:"enabled"`
-	State     string    `json:"state"` // connecting | connected | backoff | auth_failed | disabled
-	Detail    string    `json:"detail,omitempty"`
-	Identity  string    `json:"identity,omitempty"` // "@my_bothy_bot"
-	Since     time.Time `json:"since"`
-	DeepLinks bool      `json:"deep_links"`
+	Name     string    `json:"name"`
+	Enabled  bool      `json:"enabled"`
+	State    string    `json:"state"` // connecting | connected | backoff | auth_failed | disabled
+	Detail   string    `json:"detail,omitempty"`
+	Identity string    `json:"identity,omitempty"` // "@my_bothy_bot"
+	Since    time.Time `json:"since"`
+	Team     string    `json:"team,omitempty"` // Slack: the workspace name (auth.test); Discord: "" (several servers)
+	Org      bool      `json:"org,omitempty"`  // Slack: installed org-wide on Enterprise Grid
 }
+
+// MemberStatus is what a chat app says about whether a person belongs to
+// the team Bothy serves there.
+type MemberStatus string
+
+const (
+	MemberUnchecked MemberStatus = ""         // never asked
+	MemberUnknown   MemberStatus = "unknown"  // the platform can't tell (Telegram; Discord with no known server or no access)
+	MemberYes       MemberStatus = "member"   // in the workspace or an enabled server
+	MemberOutsider  MemberStatus = "outsider" // guest, other company, bot, deactivated, not in an enabled server
+)
+
+// How long membership verdicts count (SPEC §5.1 step 3).
+const (
+	MemberTTL     = time.Hour        // a verdict older than this is checked again before use
+	MemberStale   = 4 * time.Hour    // a member verdict this young still counts for chats and schedules when the platform doesn't answer
+	ApproverFresh = 2 * time.Hour    // full approver cards need a verdict this young; older gets a link-only card
+	ApproverStale = 15 * time.Minute // a press falls back to a verdict this young when its recheck fails
+)
+
+type Membership struct {
+	Status MemberStatus
+	Team   string // the workspace or server's name for copy; "" when unknown or several
+}
+
+// MemberChecker is implemented by adapters whose platform can say whether a
+// person belongs to the team Bothy serves (Slack, Discord).
+type MemberChecker interface {
+	// CheckMember asks about externalID. teams are the Discord guild ids of
+	// the group chats Bothy is turned on in (Slack checks its own workspace).
+	// An error means the platform did not answer; it is never a verdict.
+	CheckMember(ctx context.Context, externalID string, teams []string) (Membership, error)
+	// MemberScope names what membership means right now (Slack: team and
+	// enterprise ids); when it changes, every verdict on this chat app is stale.
+	MemberScope() string
+}
+
+// ChatInfo describes a group chat for the admins' turn-on choice.
+type ChatInfo struct {
+	TeamID, TeamName, Title string
+	Members                 int  // 0 = unknown
+	External                bool // people from other companies are in it (Slack Connect)
+}
+
+// ChatInspector is implemented by adapters that can describe a group chat.
+type ChatInspector interface {
+	InspectChat(ctx context.Context, chat ChatRef) (ChatInfo, error)
+}
+
+type TeamInfo struct{ ID, Name string }
+
+// TeamLister: Discord lists the servers it is in (GUILD_CREATE), so the hub
+// can warn about servers where no channel is on.
+type TeamLister interface{ Teams() []TeamInfo }
 
 // Channel adapters never do auth, policy, splitting or neutralization: the
 // router does. Adapters escape for their dialect and always disable link
@@ -149,7 +206,6 @@ type Channel interface {
 	OpenDM(ctx context.Context, externalUserID string) (ChatRef, error)
 	Fetch(ctx context.Context, a Attachment, max int64) (io.ReadCloser, error)
 	SelfTest(ctx context.Context) (identity string, err error) // getMe / users/@me / auth.test
-	DeepLink(code string) string                               // "" when unsupported; Telegram t.me/<bot>?start=<code>
 	Status() ChannelStatus
 }
 
@@ -171,9 +227,18 @@ type ChannelHub interface {
 	Run(ctx context.Context) error
 	Status() []ChannelStatus
 	Test(ctx context.Context, name string) (string, error)
-	DeepLink(channel, code string) string
-	// PreferredChat returns the user's DM on their preferred linked channel.
-	PreferredChat(ctx context.Context, u UserID) (ChatRef, bool)
+	// PrincipalChat is where Bothy's own messages to a principal go: an
+	// admitted teammate's DM (opened when unknown), an enabled channel's chat;
+	// false for web accounts, which hear on the web only.
+	PrincipalChat(ctx context.Context, p PrincipalID) (ChatRef, bool)
+	// TeamActive is nil when a team-owned principal may run a schedule now;
+	// otherwise why not (blocked, no longer in the team, channel off, or a
+	// membership verdict older than MemberStale that couldn't be renewed).
+	TeamActive(ctx context.Context, p PrincipalID) error
+	// Greet sends a teammate their pending greeting (hello or moved) once.
+	Greet(ctx context.Context, channel, externalID string) error
+	// TellApprover tells a teammate an admin made them an approver.
+	TellApprover(ctx context.Context, channel, externalID string) error
 	// StreamTo returns a sink that delivers a run to a chat: mode "stream"
 	// (throttled edits) or "final" (one message at run end; schedules).
 	StreamTo(chat ChatRef, mode string) RunSink

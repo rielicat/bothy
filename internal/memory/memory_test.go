@@ -310,11 +310,28 @@ func TestDeltasSince(t *testing.T) {
 	}
 }
 
+// space creates a team-owned principal of kind (a channel or a teammate).
+func (h *harness) space(t *testing.T, kind string) core.PrincipalID {
+	t.Helper()
+	chatKind := core.ChatGroup
+	if kind == core.SpacePerson {
+		chatKind = core.ChatDM
+	}
+	sp := &core.Space{Kind: kind, Chat: core.ChatRef{Channel: "slack", ChatID: core.NewID("c"), Kind: chatKind}, CreatedAt: time.Now()}
+	if err := h.store.Spaces().Create(context.Background(), sp, &core.Principal{CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	return sp.Principal
+}
+
 func TestSpacesHaveNoMemory(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	space := core.PrincipalID(core.NewID(core.PrefixSpace))
+	space := h.space(t, core.SpaceGroup)
 	v := core.Viewer{User: h.user, Principals: []core.PrincipalID{h.p, space}}
+	if _, err := h.svc.Snapshot(ctx, core.PrincipalID(core.NewID(core.PrefixSpace))); err == nil {
+		t.Error("a snapshot of a principal that doesn't exist")
+	}
 	snap, err := h.svc.Snapshot(ctx, space)
 	if err != nil || snap != (core.MemorySnapshot{}) {
 		t.Fatalf("space snapshot = %+v, %v", snap, err)
@@ -336,6 +353,42 @@ func TestSpacesHaveNoMemory(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(h.dir, "memory", string(space))); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("a space memory dir exists: %v", err)
+	}
+}
+
+func TestTeammatesHaveTheirOwnMemory(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	maya := h.space(t, core.SpacePerson)
+	ev, err := h.svc.Apply(ctx, maya, "", core.MemoryOp{File: core.FileUser, Op: "add", New: "Prefers mornings"}, core.ProvUser)
+	if err != nil {
+		t.Fatalf("a teammate's memory write: %v", err)
+	}
+	snap, err := h.svc.Snapshot(ctx, maya)
+	if err != nil || snap.User != "Prefers mornings\n" || snap.LastID != ev.ID || !snap.Private {
+		t.Fatalf("teammate snapshot = %+v, %v", snap, err)
+	}
+	if text, _, err := h.svc.DeltasSince(ctx, maya, 0); err != nil || !strings.Contains(text, "+ Prefers mornings") {
+		t.Fatalf("teammate deltas = %q, %v", text, err)
+	}
+	if _, err := h.svc.Apply(ctx, maya, "", core.MemoryOp{File: core.FileHeartbeat, Op: "add", New: "x"}, core.ProvUser); !errors.Is(err, core.ErrInvalid) ||
+		err.Error() != "HEARTBEAT is for check-ins, which teammates don't have." {
+		t.Fatalf("a teammate's HEARTBEAT: %v", err)
+	}
+	if _, _, err := h.svc.Read(ctx, h.viewer(), maya, core.FileUser); !errors.Is(err, core.ErrNotFound) {
+		t.Fatalf("an account reading a teammate's memory: %v", err)
+	}
+	if snap, _ := h.svc.Snapshot(ctx, h.p); snap.User != "" {
+		t.Fatalf("the teammate's memory reached the account's: %+v", snap)
+	}
+	env := &core.ToolEnv{Principal: core.Principal{ID: maya, Kind: core.PrincipalPerson, ToolProfile: "standard"}}
+	for _, name := range []string{"memory", "session_search"} {
+		if g, ok := tool(t, h, name).(core.Gated); !ok || !g.Enabled(env) {
+			t.Errorf("%s is off for a teammate", name)
+		}
+	}
+	if _, err := tool(t, h, "memory").Plan(ctx, env, []byte(`{"file":"HEARTBEAT","op":"add","new":"x"}`)); !errors.Is(err, core.ErrInvalid) {
+		t.Fatalf("the memory tool planning a teammate's HEARTBEAT: %v", err)
 	}
 }
 

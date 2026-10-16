@@ -25,8 +25,9 @@ const (
 // Each item is decided through the endpoint its type already has:
 // POST /api/approvals/{id}; POST /api/mcp/{server}/approve; PATCH
 // /api/skills/{name}; PATCH /api/identities/{channel}/{external}
-// (guest, linked or blocked); PATCH /api/spaces/{id} (enabled true turns a
-// group chat on, any other change records it as seen).
+// (status teammate lets someone in, blocked blocks them); PATCH
+// /api/spaces/{id} (enabled true turns a group chat on; any change records
+// it as reviewed).
 type Inbox struct {
 	Items []InboxItem `json:"items"`
 }
@@ -80,5 +81,5 @@ type InboxMCP struct {
 
 type InboxGroup struct {
 	Space   core.Space `json:"space"`
-	AddedBy string     `json:"added_by"` // display name of whoever added Bothy (else the owner)
+	AddedBy string     `json:"added_by"` // the name of whoever added Bothy, when the chat app said; else ""
 }

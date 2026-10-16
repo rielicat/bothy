@@ -653,7 +653,12 @@ func (st *streamState) scheduleHeader(ctx context.Context) string {
 	if err != nil {
 		return ""
 	}
-	return "_From the schedule “" + escapeMD(truncateRunes(sc.Name, 60)) + "” · change it under Schedules_"
+	name := escapeMD(truncateRunes(sc.Name, 60))
+	// A teammate or a channel has no Schedules page: Bothy changes it in chat.
+	if p, err := st.s.h.d.Store.Principals().Get(ctx, core.SystemViewer(), run.Principal); err == nil && p.TeamOwned() {
+		return "_From the schedule “" + name + "” · ask Bothy here to change or stop it_"
+	}
+	return "_From the schedule “" + name + "” · change it under Schedules_"
 }
 
 // heartbeatOK reports a heartbeat reply that must not be delivered (SPEC

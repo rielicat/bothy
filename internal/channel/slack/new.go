@@ -62,11 +62,18 @@ type adapter struct {
 	selfID   string
 	selfBot  string
 	identity string
+	// selfTeam, selfEnterprise and teamName come from auth.test: who counts
+	// as a member (CheckMember) and what the manage page calls the team.
+	selfTeam       string
+	selfEnterprise string
+	teamName       string
 	// scopeWarned is when missing channel scopes were last logged.
 	scopeWarned time.Time
 
 	names    nameCache // users: display name and handle
 	channels nameCache // channels: "#name" as display
+	members  memberCache
+	inflight flights
 	dropped  atomic.Int64
 }
 
@@ -149,13 +156,11 @@ func (a *adapter) Name() string { return name }
 
 func (a *adapter) Caps() core.ChannelCaps { return caps }
 
-// DeepLink is unsupported: Slack has no start-parameter links for apps.
-func (a *adapter) DeepLink(string) string { return "" }
-
 func (a *adapter) Status() core.ChannelStatus {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return core.ChannelStatus{Name: name, Enabled: a.conf().cfg.Enabled, State: a.state, Detail: a.detail, Identity: a.identity, Since: a.since}
+	return core.ChannelStatus{Name: name, Enabled: a.conf().cfg.Enabled, State: a.state, Detail: a.detail, Identity: a.identity, Since: a.since,
+		Team: a.teamName, Org: a.selfEnterprise != ""}
 }
 
 func (a *adapter) setState(state, detail string) {
@@ -167,12 +172,17 @@ func (a *adapter) setState(state, detail string) {
 	a.state, a.detail, a.since = state, detail, a.clock.Now()
 }
 
-func (a *adapter) setSelf(userID, botID, user string) {
+func (a *adapter) setSelf(auth *slack.AuthTestResponse) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.selfID, a.selfBot = userID, botID
-	if user != "" {
-		a.identity = "@" + user
+	moved := a.selfTeam != auth.TeamID || a.selfEnterprise != auth.EnterpriseID
+	a.selfID, a.selfBot = auth.UserID, auth.BotID
+	a.selfTeam, a.selfEnterprise, a.teamName = auth.TeamID, auth.EnterpriseID, auth.Team
+	if auth.User != "" {
+		a.identity = "@" + auth.User
+	}
+	a.mu.Unlock()
+	if moved {
+		a.members.clear()
 	}
 }
 

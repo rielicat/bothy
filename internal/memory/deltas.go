@@ -17,10 +17,10 @@ import (
 // part of the model's snapshot and is left out, but its events still advance
 // lastID.
 func (s *Service) DeltasSince(ctx context.Context, p core.PrincipalID, afterID int64) (string, int64, error) {
-	if core.ValidID(core.PrefixSpace, string(p)) {
+	if s.isChannel(ctx, p) {
 		return "", afterID, nil
 	}
-	if err := checkPrincipal(p); err != nil {
+	if _, err := s.checkPrincipal(ctx, p); err != nil {
 		return "", afterID, err
 	}
 	evs, err := s.store.MemoryEvents().Since(ctx, p, afterID)

@@ -680,12 +680,12 @@ func TestPausedByPersists(t *testing.T) {
 			t.Fatal(err)
 		}
 		by, at := h.r.PausedBy()
-		if by != h.user.ID || at.IsZero() {
+		if by != string(h.user.ID) || at.IsZero() {
 			t.Fatalf("PausedBy = %q %v", by, at)
 		}
 		select {
 		case e := <-sub.C():
-			if b := e.Data.(core.BannerData); b.Code != "paused" || b.By != h.user.ID || b.ByName != "Olive" || !b.At.Equal(at) {
+			if b := e.Data.(core.BannerData); b.Code != "paused" || b.By != string(h.user.ID) || b.ByName != "Olive" || !b.At.Equal(at) {
 				t.Fatalf("banner = %+v", b)
 			}
 		default:
@@ -699,11 +699,11 @@ func TestPausedByPersists(t *testing.T) {
 		if err := h.r.SetPaused(h.ctx, true, other.ID); err != nil {
 			t.Fatal(err)
 		}
-		if by2, at2 := h.r.PausedBy(); by2 != h.user.ID || !at2.Equal(at) {
+		if by2, at2 := h.r.PausedBy(); by2 != string(h.user.ID) || !at2.Equal(at) {
 			t.Fatalf("pausing again moved PausedBy to %q %v", by2, at2)
 		}
 		restarted := h.newRunner()
-		if by2, at2 := restarted.PausedBy(); by2 != h.user.ID || at2.UnixMilli() != at.UnixMilli() {
+		if by2, at2 := restarted.PausedBy(); by2 != string(h.user.ID) || at2.UnixMilli() != at.UnixMilli() {
 			t.Fatalf("after a restart PausedBy = %q %v, want %q %v", by2, at2, h.user.ID, at)
 		}
 		if err := h.r.SetPaused(h.ctx, false, other.ID); err != nil {

@@ -28,7 +28,7 @@ func (r *Runner) Submit(ctx context.Context, req core.RunRequest) (core.SubmitRe
 	if err != nil {
 		return core.SubmitResult{}, err
 	}
-	if err := r.d.Budget.CheckDaily(ctx, req.User); err != nil {
+	if err := r.d.Budget.CheckDaily(ctx, req.Principal); err != nil {
 		r.refuseDaily(ctx, sess, req, err)
 		return core.SubmitResult{}, err
 	}
@@ -92,8 +92,20 @@ func (r *Runner) refuseDaily(ctx context.Context, sess *core.Session, req core.R
 		return
 	}
 	r.notice(ctx, sess.ID, sess.Principal, "", r.budgetNotice(be), req.Sink)
-	r.auditf(ctx, "user:"+string(req.User), "budget.exceeded", string(sess.ID), "denied", sess.ID, "",
-		map[string]any{"kind": be.Kind, "limit": be.Limit, "used": be.Used})
+	r.auditf(ctx, requestActor(req), "budget.exceeded", string(sess.ID), "denied", sess.ID, "",
+		map[string]any{"kind": be.Kind, "limit": be.Limit, "used": be.Used, "scope": be.Scope})
+}
+
+// requestActor is the audit actor of whoever asked for a run: the account,
+// else the person in a chat app whose message it was.
+func requestActor(req core.RunRequest) string {
+	if req.User != "" {
+		return "user:" + string(req.User)
+	}
+	if app, id, ok := strings.Cut(req.Sender, ":"); ok && id != "" && channelOrigins[app] {
+		return core.ChatActor(app, id)
+	}
+	return "system"
 }
 
 // resetTime is the next local midnight in the configured timezone, when the
@@ -172,11 +184,14 @@ func (r *Runner) place(ctx context.Context, w *worker, req core.RunRequest) (cor
 
 // steerable: only interactive turns take steer messages, and only from the
 // same user with the same provenance, so an untrusted participant can never
-// ride on a run that started from the owner's message (floor F6).
+// ride on a run that started from the owner's message (floor F6). In a
+// channel or a teammate's chat the sender must match too: Bob's words would
+// otherwise ride on a card that says Maya asked.
 func (r *Runner) steerable(a *runState, req core.RunRequest) bool {
 	return r.cfg().Agent.BusyMode != "queue" && a.turn != nil &&
 		req.Trigger == core.TrigMessage && a.req.Trigger == core.TrigMessage &&
 		req.User == a.req.User && req.Provenance == a.req.Provenance && len(req.Ephemeral) == 0 &&
+		(a.req.User != "" || req.Sender == a.req.Sender) &&
 		refineAgrees(a, req)
 }
 
@@ -354,6 +369,52 @@ func (r *Runner) abandon(rs *runState) {
 	}
 }
 
+// StopPrincipal stops every run and queued turn of p, then cancels its
+// pending and parked approvals; a parked run then ends through Resume's
+// cancelled path, with its notice. The actor comes from WithAuditOrigin.
+func (r *Runner) StopPrincipal(ctx context.Context, p core.PrincipalID) (int, error) {
+	if err := r.ensureInit(ctx); err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, id := range r.busySessions() {
+		sess, err := r.d.Store.Sessions().Get(ctx, core.SystemViewer(), id)
+		if err != nil || sess.Principal != p {
+			continue
+		}
+		if r.stopSession(ctx, sess, "") {
+			n++
+		}
+	}
+	open, err := r.d.Approvals.Pending(ctx, core.Viewer{Principals: []core.PrincipalID{p}})
+	if err != nil {
+		return n, fmt.Errorf("agent: stop principal %s: open approvals: %w", p, err)
+	}
+	ended := map[core.RunID]bool{}
+	for _, a := range open {
+		if ended[a.Run] {
+			continue
+		}
+		ended[a.Run] = true
+		if err := r.d.Approvals.CancelRun(ctx, a.Run); err != nil {
+			r.log.Warn("stop principal: cancel approvals", "run", a.Run, "err", err)
+			continue
+		}
+		cancelled, err := r.d.Approvals.Get(ctx, core.SystemViewer(), a.ID)
+		if err != nil {
+			continue
+		}
+		run, err := r.d.Store.Runs().Get(ctx, core.SystemViewer(), a.Run)
+		if err == nil && run.Status == core.RunParked && run.ParkedOn == a.ID {
+			n++
+		}
+		if err := r.Resume(ctx, cancelled); err != nil {
+			r.log.Warn("stop principal: end parked run", "run", a.Run, "err", err)
+		}
+	}
+	return n, nil
+}
+
 // StopAll stops every session that has a run or queued work, so a resume
 // waiting in a queue cannot start after the kill switch is engaged.
 func (r *Runner) StopAll(ctx context.Context, by core.UserID) (int, error) {
@@ -421,13 +482,17 @@ func (r *Runner) SetPaused(ctx context.Context, paused bool, by core.UserID) err
 	r.pauseMu.Lock()
 	defer r.pauseMu.Unlock()
 	// Pausing again keeps the first pause's who and when.
-	who, at := by, r.now()
+	who, at := string(by), r.now()
+	origin, fromChat := core.AuditOriginFrom(ctx)
+	if who == "" && fromChat {
+		who = origin.Actor
+	}
 	if paused && r.paused.Load() && r.pausedBy != "" {
 		who, at = r.pausedBy, r.pausedAt
 	}
 	meta := r.d.Store.Meta()
 	if paused {
-		if err := meta.Set(ctx, metaPausedBy, string(who)+" "+strconv.FormatInt(at.UnixMilli(), 10)); err != nil {
+		if err := meta.Set(ctx, metaPausedBy, who+" "+strconv.FormatInt(at.UnixMilli(), 10)); err != nil {
 			return fmt.Errorf("agent: persist kill switch: %w", err)
 		}
 	}
@@ -447,8 +512,10 @@ func (r *Runner) SetPaused(ctx context.Context, paused bool, by core.UserID) err
 	if paused {
 		action = "admin.pause"
 		name := ""
-		if u, err := r.d.Store.Users().Get(ctx, who); err == nil {
+		if u, err := r.d.Store.Users().Get(ctx, core.UserID(who)); err == nil {
 			name = cmpOr(u.DisplayName, u.Username)
+		} else if fromChat && who == origin.Actor {
+			name = origin.Name
 		}
 		banner = core.PausedBanner(who, name, at)
 	}
@@ -464,7 +531,7 @@ func (r *Runner) Paused() bool {
 	return r.paused.Load()
 }
 
-func (r *Runner) PausedBy() (core.UserID, time.Time) {
+func (r *Runner) PausedBy() (string, time.Time) {
 	if !r.Paused() {
 		return "", time.Time{}
 	}
@@ -473,14 +540,14 @@ func (r *Runner) PausedBy() (core.UserID, time.Time) {
 	return r.pausedBy, r.pausedAt
 }
 
-// parsePausedBy reads meta.paused_by ("<user id> <unix ms>").
-func parsePausedBy(v string) (core.UserID, time.Time) {
+// parsePausedBy reads meta.paused_by ("<user id or chat actor> <unix ms>").
+func parsePausedBy(v string) (string, time.Time) {
 	id, msText, ok := strings.Cut(v, " ")
 	n, err := strconv.ParseInt(msText, 10, 64)
-	if !ok || err != nil || n <= 0 || !core.ValidID(core.PrefixUser, id) {
+	if !ok || err != nil || n <= 0 || !core.ValidID(core.PrefixUser, id) && !strings.HasPrefix(id, "channel:") {
 		return "", time.Time{}
 	}
-	return core.UserID(id), time.UnixMilli(n).UTC()
+	return id, time.UnixMilli(n).UTC()
 }
 
 func (r *Runner) Active() []core.RunInfo {

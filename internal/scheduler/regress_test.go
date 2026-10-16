@@ -66,32 +66,29 @@ func TestLoopUnsavedTickIsNotFiredAgain(t *testing.T) {
 func TestDeliveryRecheckedWhenFiring(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	sc := h.upsert(&core.Schedule{Name: "d", Kind: core.SchedCron, Spec: "0 8 * * *", Prompt: "p", Deliver: &core.ChatRef{Channel: "telegram", ChatID: "42"}, Enabled: true})
-	if _, err := h.svc.RunNow(ctx, h.viewer(), sc.ID, h.owner); err != nil {
+	sc := h.teamUpsert(&core.Schedule{Name: "d", Kind: core.SchedCron, Spec: "0 8 * * *", Prompt: "p", Deliver: &core.ChatRef{Channel: "telegram", ChatID: "42"}, Enabled: true})
+	if _, err := h.svc.RunNow(ctx, core.SystemViewer(), sc.ID, h.owner); err != nil {
 		t.Fatal(err)
 	}
 	if fs := h.runner.all(); fs[0].req.Sink == nil {
-		t.Fatal("a linked DM must be delivered to")
+		t.Fatal("the teammate's own DM must be delivered to")
 	}
 
-	// The Telegram account is re-linked to someone else after the schedule was saved.
-	bob := &core.User{Username: "bob", Role: core.RoleMember, CreatedAt: time.Now()}
-	if err := h.store.Users().Create(ctx, bob); err != nil {
-		t.Fatal(err)
-	}
+	// The person in that chat is no longer this teammate after the schedule
+	// was saved (their data was deleted and the identity moved off it).
 	id, err := h.store.Identities().Get(ctx, "telegram", "42")
 	if err != nil {
 		t.Fatal(err)
 	}
-	id.User = bob.ID
+	id.Status, id.Principal, id.Via = core.IdentityBlocked, "", ""
 	if err := h.store.Identities().Update(ctx, id); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.svc.RunNow(ctx, h.viewer(), sc.ID, h.owner); err != nil {
+	if _, err := h.svc.RunNow(ctx, core.SystemViewer(), sc.ID, h.owner); err != nil {
 		t.Fatal(err)
 	}
 	if fs := h.runner.all(); len(fs) != 2 || fs[1].req.Sink != nil {
-		t.Fatal("output went to a chat that no longer belongs to the schedule's owner")
+		t.Fatal("output went to a chat that no longer belongs to the schedule's teammate")
 	}
 }
 
@@ -101,10 +98,11 @@ func TestDisabledUserAndSpaceDoNotFire(t *testing.T) {
 		ctx := context.Background()
 		sleepUntil(utc(2026, 10, 12, 10, 0))
 		mine := h.upsert(&core.Schedule{Name: "mine", Kind: core.SchedCron, Spec: "*/10 * * * *", TZ: "UTC", Prompt: "x", Enabled: true})
-		sp := &core.Space{Kind: "group", Chat: core.ChatRef{Channel: "telegram", ChatID: "-100", Kind: core.ChatGroup}, Owner: h.owner, CreatedAt: time.Now()}
-		if err := h.store.Spaces().Create(ctx, sp, &core.Principal{Kind: core.PrincipalSpace, User: h.owner, ToolProfile: "restricted", CreatedAt: time.Now()}); err != nil {
+		sp := &core.Space{Kind: core.SpaceGroup, Chat: core.ChatRef{Channel: "telegram", ChatID: "-100", Kind: core.ChatGroup}, CreatedAt: time.Now()}
+		if err := h.store.Spaces().Create(ctx, sp, &core.Principal{ToolProfile: "restricted", CreatedAt: time.Now()}); err != nil {
 			t.Fatal(err)
 		}
+		h.hub.TeamActiveErr = map[core.PrincipalID]error{sp.Principal: errors.New("the channel is off")}
 		group := &core.Schedule{Principal: sp.Principal, Name: "group", Kind: core.SchedCron, Spec: "*/10 * * * *", TZ: "UTC", Prompt: "x", Enabled: true}
 		if err := h.svc.Upsert(ctx, core.SystemViewer(), group, "user:"+string(h.owner)); err != nil {
 			t.Fatal(err)
@@ -193,10 +191,10 @@ func TestDisableNoticeSentOutsideLock(t *testing.T) {
 	ctx := context.Background()
 	probe := &lockProbeHub{Hub: h.hub, svc: h.svc}
 	h.svc.hub = probe
-	sc := h.upsert(&core.Schedule{Name: "x", Kind: core.SchedCron, Spec: "0 8 * * *", Prompt: "p", Enabled: true})
+	sc := h.teamUpsert(&core.Schedule{Name: "x", Kind: core.SchedCron, Spec: "0 8 * * *", Prompt: "p", Enabled: true})
 	h.runner.fail(errors.New("boom"))
 	for range maxFailures {
-		_, _ = h.svc.RunNow(ctx, h.viewer(), sc.ID, h.owner)
+		_, _ = h.svc.RunNow(ctx, core.SystemViewer(), sc.ID, h.owner)
 	}
 	if got := h.get(sc.ID); got.Enabled {
 		t.Fatalf("three failed submits must disable: %+v", got)

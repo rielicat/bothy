@@ -24,9 +24,9 @@ func TestRunsAndUsageCarryNames(t *testing.T) {
 	if err := h.store.Users().Update(ctx, u); err != nil {
 		t.Fatal(err)
 	}
-	sp := &core.Space{Kind: "group", Chat: core.ChatRef{Channel: "telegram", ChatID: "-5", Kind: core.ChatGroup}, Title: "#eng",
-		Owner: h.member.user, CreatedAt: now, UpdatedAt: now}
-	pr := &core.Principal{Kind: core.PrincipalSpace, User: h.member.user, ToolProfile: "restricted", CreatedAt: now}
+	sp := &core.Space{Kind: core.SpaceGroup, Chat: core.ChatRef{Channel: "telegram", ChatID: "-5", Kind: core.ChatGroup}, Title: "#eng",
+		CreatedAt: now, UpdatedAt: now}
+	pr := &core.Principal{Kind: core.PrincipalSpace, ToolProfile: "restricted", CreatedAt: now}
 	if err := h.store.Spaces().Create(ctx, sp, pr); err != nil {
 		t.Fatal(err)
 	}
@@ -48,12 +48,16 @@ func TestRunsAndUsageCarryNames(t *testing.T) {
 		return s
 	}
 	run := func(s *core.Session, trig core.Trigger, sch core.ScheduleID, at time.Time) *core.Run {
-		r := &core.Run{ID: core.RunID(core.NewID(core.PrefixRun)), Session: s.ID, Principal: s.Principal, User: h.member.user,
+		user := h.member.user
+		if s.Principal != mp {
+			user = ""
+		}
+		r := &core.Run{ID: core.RunID(core.NewID(core.PrefixRun)), Session: s.ID, Principal: s.Principal, User: user,
 			Trigger: trig, Schedule: sch, Status: core.RunDone, CreatedAt: at}
 		if err := h.store.Runs().Create(ctx, r); err != nil {
 			t.Fatal(err)
 		}
-		if err := h.store.Runs().AddLLMCall(ctx, r.ID, s.Principal, h.member.user, core.CallInfo{ID: core.NewID(core.PrefixLLMCall),
+		if err := h.store.Runs().AddLLMCall(ctx, r.ID, s.Principal, user, core.CallInfo{ID: core.NewID(core.PrefixLLMCall),
 			Ref: core.ModelRef{Provider: "p", Model: "m"}, Purpose: "agent", Step: 1, Cost: 1000, PriceKnown: true}); err != nil {
 			t.Fatal(err)
 		}
@@ -87,9 +91,11 @@ func TestRunsAndUsageCarryNames(t *testing.T) {
 	for _, r := range runs.Items {
 		byID[r.ID] = r
 	}
+	if _, seen := byID[rGroup.ID]; seen {
+		t.Error("a member sees a channel's run")
+	}
 	for id, want := range map[core.RunID][3]string{
 		rWeb.ID:    {"Maya Chen", "Fix login redirect", ""},
-		rGroup.ID:  {"Sam Patel", "@bothy what broke the build?", ""},
 		rDigest.ID: {"", "Fix login redirect", "Weekly PR digest"},
 		rCheck.ID:  {"", "Fix login redirect", "Check-in"},
 	} {
@@ -107,22 +113,33 @@ func TestRunsAndUsageCarryNames(t *testing.T) {
 		t.Fatalf("schedule runs = %+v", sr.Items)
 	}
 
-	names := func(c *client, group string) map[string]string {
+	rows := func(c *client, group string) map[string]dto.UsageRowView {
 		u := decodeAs[dto.UsageResp](t, h.do("GET", "/api/usage?group_by="+group, nil, c))
-		out := map[string]string{}
+		out := map[string]dto.UsageRowView{}
 		for _, row := range u.Rows {
-			out[row.Key] = row.Name
+			out[row.Key] = row
 		}
 		return out
 	}
-	if n := names(member, "session"); n[string(web.ID)] != "Fix login redirect" || n[string(group.ID)] != "@bothy what broke the build?" {
+	names := func(c *client, group string) map[string]string {
+		out := map[string]string{}
+		for k, row := range rows(c, group) {
+			out[k] = row.Name
+		}
+		return out
+	}
+	if n := names(member, "session"); n[string(web.ID)] != "Fix login redirect" || n[string(group.ID)] != "" {
 		t.Fatalf("usage by chat = %v", n)
 	}
 	if n := names(member, "schedule"); n[string(digest.ID)] != "Weekly PR digest" || n[string(checkIn.ID)] != "Check-in" || n[""] != "" {
 		t.Fatalf("usage by schedule = %v", n)
 	}
-	if n := names(h.admin, "user"); n[string(h.member.user)] != "Maya Chen" {
-		t.Fatalf("usage by person = %v", n)
+	people := rows(h.admin, "user")
+	if r := people[string(h.member.user)]; r.Name != "Maya Chen" || r.Kind != "user" {
+		t.Fatalf("usage by person = %+v", people)
+	}
+	if r := people[string(pr.ID)]; r.Name != "#eng" || r.Kind != "channel" || r.App != "telegram" {
+		t.Fatalf("a channel's spending = %+v", r)
 	}
 	// A chat's title and a schedule's name are private to their owner: an
 	// admin reading everyone's spending sees the amounts without them.

@@ -39,18 +39,12 @@ func (h *Hub) chatExposed(ctx context.Context, chat core.ChatRef) bool {
 		}
 		principals = append(principals, sp.Principal)
 	} else {
-		ids, err := h.d.Store.Identities().List(ctx, "")
+		ids, err := h.d.Store.Identities().List(ctx, core.IdentityTeammate)
 		if err != nil {
 			return true
 		}
 		for _, id := range ids {
-			if id.Channel != chat.Channel || (id.DMChat != chat.ChatID && id.ExternalID != chat.ChatID) {
-				continue
-			}
-			switch id.Status {
-			case core.IdentityLinked:
-				principals = append(principals, core.UserPrincipal(id.User))
-			case core.IdentityGuest:
+			if id.Channel == chat.Channel && id.Principal != "" && (id.DMChat == chat.ChatID || id.ExternalID == chat.ChatID) {
 				principals = append(principals, id.Principal)
 			}
 		}
@@ -67,74 +61,115 @@ func (h *Hub) chatExposed(ctx context.Context, chat core.ChatRef) bool {
 	return false
 }
 
-// PreferredChat returns the user's DM on the linked, enabled channel they
-// used most recently.
-func (h *Hub) PreferredChat(ctx context.Context, u core.UserID) (core.ChatRef, bool) {
-	ids, err := h.d.Store.Identities().ForUser(ctx, u)
-	if err != nil {
-		h.log.Error("channel: listing identities failed", "user", u, "err", err)
-		return core.ChatRef{}, false
-	}
-	// The chat app the person chose (Settings → Account) wins while it is
-	// connected; otherwise the linked one they used last.
-	pref := ""
-	if usr, err := h.d.Store.Users().Get(ctx, u); err == nil {
-		pref = usr.PreferredChat
-	}
-	var best *core.ChannelIdentity
-	for _, id := range ids {
-		if id.Status != core.IdentityLinked || id.User != u || id.DMChat == "" || h.live(id.Channel) == nil {
-			continue
-		}
-		if id.Channel == pref {
-			best = id
-			break
-		}
-		if best == nil || id.LastSeen.After(best.LastSeen) {
-			best = id
-		}
-	}
-	if best == nil {
-		return core.ChatRef{}, false
-	}
-	return core.ChatRef{Channel: best.Channel, ChatID: best.DMChat, Kind: core.ChatDM}, true
-}
-
-// dmOn returns the user's DM on one particular channel.
-func (h *Hub) dmOn(ctx context.Context, u core.UserID, channel string) (core.ChatRef, bool) {
-	if h.live(channel) == nil {
-		return core.ChatRef{}, false
-	}
-	ids, err := h.d.Store.Identities().ForUser(ctx, u)
+// PrincipalChat is where Bothy's own messages to p go (core.ChannelHub):
+// a teammate's DM while they may use Bothy, a channel's chat while it is
+// on. Web accounts hear on the web only.
+func (h *Hub) PrincipalChat(ctx context.Context, p core.PrincipalID) (core.ChatRef, bool) {
+	pr, err := h.d.Store.Principals().Get(ctx, core.SystemViewer(), p)
 	if err != nil {
 		return core.ChatRef{}, false
 	}
-	for _, id := range ids {
-		if id.Status == core.IdentityLinked && id.User == u && id.Channel == channel && id.DMChat != "" {
-			return core.ChatRef{Channel: channel, ChatID: id.DMChat, Kind: core.ChatDM}, true
+	switch pr.Kind {
+	case core.PrincipalPerson:
+		id, a, res, err := h.teammate(ctx, p)
+		if err != nil || !h.usable(a, res, core.MemberStale) {
+			return core.ChatRef{}, false
 		}
+		chat, err := h.dmOf(ctx, a, *id)
+		return chat, err == nil
+	case core.PrincipalSpace:
+		sp, err := h.d.Store.Spaces().Get(ctx, core.SystemViewer(), p)
+		if err != nil || !sp.Enabled || h.live(sp.Chat.Channel) == nil {
+			return core.ChatRef{}, false
+		}
+		chat := sp.Chat
+		chat.Kind = core.ChatGroup
+		return chat, true
 	}
 	return core.ChatRef{}, false
 }
 
-// isDMOf reports whether chat is u's own DM with the bot.
-func (h *Hub) isDMOf(ctx context.Context, u core.UserID, chat core.ChatRef) bool {
-	if chat.Kind != core.ChatDM {
-		return false
-	}
-	ids, err := h.d.Store.Identities().ForUser(ctx, u)
+// TeamActive reports why a team-owned principal can't run a schedule now
+// (core.ChannelHub). A teammate's verdict older than an hour is renewed
+// first; when the platform doesn't answer, one under four hours old counts.
+func (h *Hub) TeamActive(ctx context.Context, p core.PrincipalID) error {
+	pr, err := h.d.Store.Principals().Get(ctx, core.SystemViewer(), p)
 	if err != nil {
-		return false
+		return err
 	}
-	for _, id := range ids {
-		if id.Status != core.IdentityLinked || id.User != u || id.Channel != chat.Channel {
-			continue
+	switch pr.Kind {
+	case core.PrincipalPerson:
+		id, a, res, err := h.teammate(ctx, p)
+		if err != nil {
+			return err
 		}
-		if id.DMChat == chat.ChatID || (id.DMChat == "" && id.ExternalID == chat.ChatID) {
-			return true
+		if _, ok := checkerOf(a); ok && res.Admitted() && !h.fresh(res, core.MemberTTL) {
+			if r, err := h.recheck(ctx, a, *id, recheckWait); err == nil {
+				res = r
+			}
+		}
+		switch {
+		case res.Member == core.MemberOutsider:
+			return errors.New("they're no longer in the team")
+		case !res.Admitted():
+			return errors.New("they can't use Bothy now")
+		case !h.usable(a, res, core.MemberStale):
+			return errors.New("their membership couldn't be checked")
+		}
+		return nil
+	case core.PrincipalSpace:
+		sp, err := h.d.Store.Spaces().Get(ctx, core.SystemViewer(), p)
+		if err != nil {
+			return err
+		}
+		if !sp.Enabled {
+			return errors.New("the channel is off")
+		}
+		if h.live(sp.Chat.Channel) == nil {
+			return errors.New(channelTitle(sp.Chat.Channel) + " is off")
 		}
 	}
-	return false
+	return nil
+}
+
+// teammate returns a person principal's identity, its live adapter and a
+// resolution read after the membership scope is synced.
+func (h *Hub) teammate(ctx context.Context, p core.PrincipalID) (*core.ChannelIdentity, *adapter, core.IdentityResolution, error) {
+	id, err := h.d.Store.Identities().ByPrincipal(ctx, p)
+	if err != nil {
+		return nil, nil, core.IdentityResolution{}, err
+	}
+	if id.Status == core.IdentityBlocked {
+		return nil, nil, core.IdentityResolution{}, errors.New("they're blocked")
+	}
+	a := h.live(id.Channel)
+	if a == nil {
+		return nil, nil, core.IdentityResolution{}, errors.New(channelTitle(id.Channel) + " is off")
+	}
+	if mc, ok := checkerOf(a); ok {
+		h.syncScope(ctx, a, mc)
+	}
+	res, err := h.d.Auth.ResolveIdentity(ctx, id.Channel, id.ExternalID)
+	if err != nil {
+		return nil, nil, core.IdentityResolution{}, err
+	}
+	return id, a, res, nil
+}
+
+// dmOf returns a person's DM with the bot, opening (and remembering) it
+// when Bothy hasn't seen it yet.
+func (h *Hub) dmOf(ctx context.Context, a *adapter, id core.ChannelIdentity) (core.ChatRef, error) {
+	if id.DMChat != "" {
+		return core.ChatRef{Channel: a.name, ChatID: id.DMChat, Kind: core.ChatDM}, nil
+	}
+	dm, err := a.ch.OpenDM(ctx, id.ExternalID)
+	if err != nil {
+		return core.ChatRef{}, err
+	}
+	if _, err := h.rememberDM(ctx, id, dm.ChatID); err != nil {
+		return core.ChatRef{}, err
+	}
+	return core.ChatRef{Channel: a.name, ChatID: dm.ChatID, Kind: core.ChatDM}, nil
 }
 
 func (h *Hub) redact(s string) string {

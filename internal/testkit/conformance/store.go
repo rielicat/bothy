@@ -78,7 +78,6 @@ var storeSuite = []struct {
 	{"Principals", testPrincipals},
 	{"Spaces", testSpaces},
 	{"Identities", testIdentities},
-	{"Pairings", testPairings},
 	{"AuthSessions", testAuthSessions},
 	{"Tokens", testTokens},
 	{"Sessions", testSessions},
@@ -194,14 +193,14 @@ func viewer(u *core.User, extra ...core.PrincipalID) core.Viewer {
 	return core.Viewer{User: u.ID, Principals: append([]core.PrincipalID{core.UserPrincipal(u.ID)}, extra...)}
 }
 
-func (f *fx) space(owner *core.User) *core.Space {
+// space creates a channel: a group space, owned by the team.
+func (f *fx) space() *core.Space {
 	f.t.Helper()
 	n := f.next()
 	s := &core.Space{
-		Kind:        "group",
+		Kind:        core.SpaceGroup,
 		Chat:        core.ChatRef{Channel: "telegram", ChatID: fmt.Sprintf("-100%d", n), Kind: core.ChatGroup},
 		Title:       fmt.Sprintf("Group %d", n),
-		Owner:       owner.ID,
 		Enabled:     true,
 		MentionOnly: true,
 		CreatedAt:   at(n),
@@ -209,6 +208,28 @@ func (f *fx) space(owner *core.User) *core.Space {
 	}
 	f.must(f.s.Spaces().Create(f.ctx, s, &core.Principal{DisplayName: s.Title, CreatedAt: at(n)}), "create space")
 	return s
+}
+
+// teammate creates a teammate in a chat app: a person space and its
+// identity, admitted by an admin.
+func (f *fx) teammate(channel, ext string) (*core.Space, *core.ChannelIdentity) {
+	f.t.Helper()
+	n := f.next()
+	s := &core.Space{
+		Kind:      core.SpacePerson,
+		Chat:      core.ChatRef{Channel: channel, ChatID: ext, Kind: core.ChatDM},
+		Title:     fmt.Sprintf("Person %d", n),
+		Enabled:   true,
+		CreatedAt: at(n),
+		UpdatedAt: at(n),
+	}
+	f.must(f.s.Spaces().Create(f.ctx, s, &core.Principal{DisplayName: s.Title, CreatedAt: at(n)}), "create person space")
+	id, err := f.s.Identities().Touch(f.ctx, &core.ChannelIdentity{Channel: channel, ExternalID: ext, DisplayName: s.Title, LastSeen: at(n)})
+	f.must(err, "touch teammate")
+	id.Status, id.Principal, id.Via, id.Greet = core.IdentityTeammate, s.Principal, core.ViaAdmin, ""
+	id.Member, id.MemberAt = core.MemberYes, at(n)
+	f.must(f.s.Identities().Update(f.ctx, id), "make teammate")
+	return s, id
 }
 
 func (f *fx) session(p core.PrincipalID) *core.Session {

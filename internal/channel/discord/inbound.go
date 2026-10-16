@@ -36,6 +36,9 @@ func (a *adapter) onMessage(ctx context.Context, sink core.InboundSink, m discor
 		Text:           text,
 		At:             m.CreatedAt,
 	}
+	if m.GuildID != nil {
+		in.Team = m.GuildID.String()
+	}
 	in.Mentioned = chat.Kind == core.ChatDM || mentioned || mentions(m.Mentions, self) ||
 		(m.ReferencedMessage != nil && m.ReferencedMessage.Author.ID == self)
 	for _, at := range m.Attachments {

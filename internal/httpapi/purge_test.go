@@ -49,27 +49,20 @@ func seedPurge(t *testing.T, h *harness) purgeFixture {
 	ap := core.UserPrincipal(alice.user)
 	f := purgeFixture{alice: alice, ap: ap}
 	f.session = decodeAs[*core.Session](t, h.do("POST", "/api/sessions", dto.SessionCreateReq{}, alice))
-	// A guest space owned by alice, with its own identity.
+	// A channel of the team: purging a user never touches it, nor anyone
+	// in a chat app.
 	now := time.Now()
-	sp := &core.Space{Kind: "guest", Chat: core.ChatRef{Channel: "telegram", ChatID: "900", Kind: core.ChatDM}, Owner: alice.user,
+	sp := &core.Space{Kind: core.SpaceGroup, Chat: core.ChatRef{Channel: "telegram", ChatID: "-900", Kind: core.ChatGroup},
 		Enabled: true, CreatedAt: now, UpdatedAt: now}
-	pr := &core.Principal{Kind: core.PrincipalSpace, User: alice.user, ToolProfile: "restricted", CreatedAt: now}
+	pr := &core.Principal{Kind: core.PrincipalSpace, ToolProfile: "restricted", CreatedAt: now}
 	if err := h.store.Spaces().Create(ctx, sp, pr); err != nil {
 		t.Fatal(err)
 	}
 	f.space, f.spcWS = pr.ID, pr.Workspace
-	for _, id := range []*core.ChannelIdentity{
-		{Channel: "telegram", ExternalID: "42", Status: core.IdentityLinked, User: alice.user, LastSeen: now},
-		{Channel: "telegram", ExternalID: "900", Status: core.IdentityGuest, Principal: pr.ID, LastSeen: now},
-		{Channel: "telegram", ExternalID: "7", Status: core.IdentityPending, LastSeen: now},
-	} {
-		if _, err := h.store.Identities().Touch(ctx, id); err != nil {
+	for _, ext := range []string{"42", "7"} {
+		if _, err := h.store.Identities().Touch(ctx, &core.ChannelIdentity{Channel: "telegram", ExternalID: ext, Member: core.MemberUnknown,
+			LastSeen: now}); err != nil {
 			t.Fatal(err)
-		}
-		if id.Status != core.IdentityPending {
-			if err := h.store.Identities().Update(ctx, id); err != nil {
-				t.Fatal(err)
-			}
 		}
 	}
 	expect(t, h.do("PUT", "/api/vault/user:"+string(alice.user)+"/github", dto.VaultPutReq{Value: "ghp_aliceSecretValue"}, alice), http.StatusOK)
@@ -84,9 +77,6 @@ func seedPurge(t *testing.T, h *harness) purgeFixture {
 	}
 	h.useStoreScheduler()
 	expect(t, h.do("POST", "/api/schedules", dto.ScheduleUpsertReq{Schedule: core.Schedule{Name: "daily"}}, alice), http.StatusOK)
-	if _, err := h.auth.NewPairingCode(ctx, core.Actor{User: alice.user, Role: core.RoleMember}); err != nil {
-		t.Fatal(err)
-	}
 	p, _ := h.store.Principals().Get(ctx, core.SystemViewer(), ap)
 	f.ws = p.Workspace
 	for _, dir := range []string{filepath.Join(h.dataDir, "memory", string(ap)), filepath.Join(h.workDir, "ws", string(f.ws), ".bothy"),
@@ -136,7 +126,7 @@ func TestPurgeWipesPrincipalData(t *testing.T) {
 	if ms, _ := h.vault.List(ctx, core.GlobalScope); len(ms) != 1 {
 		t.Errorf("global secrets touched: %+v", ms)
 	}
-	v := core.Viewer{Principals: []core.PrincipalID{f.ap, f.space}}
+	v := core.Viewer{Principals: []core.PrincipalID{f.ap}}
 	if gs, _ := h.store.Grants().List(ctx, v, "", ""); len(gs) != 0 {
 		t.Errorf("active store grants left: %+v", gs)
 	}
@@ -146,22 +136,29 @@ func TestPurgeWipesPrincipalData(t *testing.T) {
 	if scs, _ := h.store.Schedules().List(ctx, v); len(scs) != 0 {
 		t.Errorf("schedules left: %+v", scs)
 	}
-	ids, _ := h.store.Identities().List(ctx, "")
-	if len(ids) != 1 || ids[0].ExternalID != "7" {
-		t.Errorf("identities left: %+v", ids)
+	if ids, _ := h.store.Identities().List(ctx, ""); len(ids) != 2 {
+		t.Errorf("identities touched by a user purge: %+v", ids)
 	}
 	for _, dir := range []string{filepath.Join(h.dataDir, "memory", string(f.ap)), filepath.Join(h.workDir, "ws", string(f.ws)),
-		filepath.Join(h.workDir, "ws", string(f.spcWS)), filepath.Join(h.dataDir, "github", "checkouts", string(f.ws))} {
+		filepath.Join(h.dataDir, "github", "checkouts", string(f.ws))} {
 		if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("%s still exists", dir)
 		}
 	}
+	if _, err := os.Stat(filepath.Join(h.workDir, "ws", string(f.spcWS))); err != nil {
+		t.Errorf("the channel's workspace went with the user: %v", err)
+	}
+	if _, err := h.store.Spaces().Get(ctx, core.SystemViewer(), f.space); err != nil {
+		t.Errorf("the channel went with the user: %v", err)
+	}
 	destroyed := h.sandbox.Destroyed
-	for _, key := range []string{core.DerivedID("box", "session:"+string(f.session.ID)), core.DerivedID("box", "mcp:notes:"+string(f.ap)),
-		core.DerivedID("box", "mcp:notes:"+string(f.space))} {
+	for _, key := range []string{core.DerivedID("box", "session:"+string(f.session.ID)), core.DerivedID("box", "mcp:notes:"+string(f.ap))} {
 		if !slices.Contains(destroyed, key) {
 			t.Errorf("box %s not destroyed (destroyed %v)", key, destroyed)
 		}
+	}
+	if slices.Contains(destroyed, core.DerivedID("box", "mcp:notes:"+string(f.space))) {
+		t.Error("the channel's box went with the user")
 	}
 	if ss, _ := h.store.Sessions().List(ctx, v, core.SessionFilter{IncludeHidden: true}); len(ss) != 0 {
 		t.Errorf("open sessions left: %d", len(ss))

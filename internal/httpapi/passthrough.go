@@ -28,7 +28,7 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, a core.Acto
 	}
 	req.Messages = nil // creq holds what the upstream call needs
 	ctx := r.Context()
-	if err := s.d.Budget.CheckDaily(ctx, a.User); err != nil {
+	if err := s.d.Budget.CheckDaily(ctx, core.UserPrincipal(a.User)); err != nil {
 		return s.v1RunError(err)
 	}
 	if ign := keys.ignored(passthroughHonoured); len(ign) > 0 {
@@ -82,7 +82,7 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, a core.Acto
 	}
 	if resp != nil || ci.Usage != (core.Usage{}) {
 		// Tokens were spent even if the client hung up mid-stream.
-		if rerr := s.d.Budget.RecordSpend(context.WithoutCancel(ctx), a.User, ci); rerr != nil {
+		if rerr := s.d.Budget.RecordSpend(context.WithoutCancel(ctx), core.UserPrincipal(a.User), ci); rerr != nil {
 			s.log.Error("record passthrough spend", "err", rerr)
 		}
 	}

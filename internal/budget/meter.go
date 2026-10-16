@@ -8,8 +8,8 @@ import (
 	"github.com/rielicat/bothy/internal/core"
 )
 
-func (s *Service) StartRun(run core.RunID, u core.UserID, l core.RunLimits) core.RunMeter {
-	return &meter{s: s, run: run, user: u, limits: l, start: s.clock.Now()}
+func (s *Service) StartRun(run core.RunID, p core.PrincipalID, l core.RunLimits) core.RunMeter {
+	return &meter{s: s, run: run, payer: p, limits: l, start: s.clock.Now()}
 }
 
 // meter enforces one run's limits. Wall time is measured with the service
@@ -17,7 +17,7 @@ func (s *Service) StartRun(run core.RunID, u core.UserID, l core.RunLimits) core
 type meter struct {
 	s      *Service
 	run    core.RunID
-	user   core.UserID
+	payer  core.PrincipalID
 	limits core.RunLimits
 	start  time.Time
 
@@ -70,7 +70,7 @@ func (m *meter) BeforeCall(ctx context.Context, estInput int, info core.ModelInf
 	if m.limits.MaxCost > 0 && cost+projected > m.limits.MaxCost {
 		return &core.BudgetError{Kind: core.BudgetRunCost, Limit: int64(m.limits.MaxCost), Used: int64(cost)}
 	}
-	return m.s.checkProjected(ctx, m.user, projected)
+	return m.s.checkProjected(ctx, m.payer, projected)
 }
 
 func (m *meter) AfterCall(ctx context.Context, c core.CallInfo) error {
@@ -78,7 +78,7 @@ func (m *meter) AfterCall(ctx context.Context, c core.CallInfo) error {
 	m.usage = m.usage.Add(c.Usage)
 	m.cost += c.Cost
 	m.mu.Unlock()
-	return m.s.addSpend(ctx, m.user, c)
+	return m.s.addSpend(ctx, m.payer, c)
 }
 
 func (m *meter) ObserveTool(tool string, argsHash, resultHash uint64) core.LoopVerdict {

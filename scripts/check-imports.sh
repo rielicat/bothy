@@ -119,6 +119,9 @@ internal_ok() {
 	[ "$qo" = config ] && return 0
 	if [ "$kind" = test ]; then
 		case "$qo" in testkit | events) return 0 ;; esac
+		# The hub's tests drive membership and teammates through the real
+		# auth service over memstore.
+		case "$p:$q" in internal/channel:internal/auth) return 0 ;; esac
 	fi
 	case "$po" in
 	config) return 1 ;;

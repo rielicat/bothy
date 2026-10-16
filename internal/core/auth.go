@@ -42,22 +42,31 @@ type TokenSpec struct {
 	RatePerMin int           `json:"rate_per_min"`
 }
 
-type PairingCode struct {
-	Code      string            `json:"code"` // 8 Crockford chars shown as XXXX-XXXX
-	ExpiresAt time.Time         `json:"expires_at"`
-	DeepLinks map[string]string `json:"deep_links"` // channel -> URL (Telegram t.me/<bot>?start=<code>)
-}
-
+// IdentityResolution is what Bothy knows about a chat sender.
 type IdentityResolution struct {
-	Status    IdentityStatus // "" = unknown sender
-	User      UserID         // linked: the user
-	Role      Role
-	Principal PrincipalID // linked: user principal; guest: guest space principal
+	Status     IdentityStatus // "" unknown | pending | teammate | blocked
+	Principal  PrincipalID    // teammate: their person space
+	Via        AdmittedVia
+	CanApprove bool
+	Member     MemberStatus
+	MemberAt   time.Time
+	SpaceOn    bool // teammate: their person space is enabled
+	Lost       bool // set by Admit: this verdict made an admitted person an outsider
 }
 
-type SenderNotice struct {
-	Reply bool        // true at most once per 24h per identity
-	Code  PairingCode // approve_sender code to show to the unknown sender
+// Admitted: a teammate whose space is on and whose platform said member, or
+// whom an admin let in where the platform can't tell.
+func (r IdentityResolution) Admitted() bool {
+	if r.Status != IdentityTeammate || !r.SpaceOn {
+		return false
+	}
+	switch r.Member {
+	case MemberYes:
+		return true
+	case MemberUnknown:
+		return r.Via == ViaAdmin
+	}
+	return false
 }
 
 type Auth interface {
@@ -74,7 +83,7 @@ type Auth interface {
 	FromCookie(ctx context.Context, cookie string) (Actor, error)
 	FromBearer(ctx context.Context, token string) (Actor, error)
 	Logout(ctx context.Context, cookie string) error
-	ViewerFor(ctx context.Context, u UserID) (Viewer, error) // own principal + owned spaces; Admin = role is owner/admin
+	ViewerFor(ctx context.Context, u UserID) (Viewer, error) // own principal; Admin = role is owner/admin
 
 	// Passwords (CreateOwner, CreateUser, SetPassword, ResetPassword) must be at
 	// least auth.password_min_length and not in the embedded list of 10k common
@@ -88,21 +97,13 @@ type Auth interface {
 	CreateToken(ctx context.Context, by Actor, spec TokenSpec) (plain string, rec *TokenRecord, err error)
 	RevokeToken(ctx context.Context, by Actor, id string) error
 
-	NewPairingCode(ctx context.Context, by Actor) (PairingCode, error) // link_identity for by.User
-	// RedeemPairing handles "/pair CODE" and "/start CODE" from a chat.
-	RedeemPairing(ctx context.Context, ident ChannelIdentity, code string) (*ChannelIdentity, error)
-	// BurnPairing cancels a live link_identity code that ident posted where
-	// a whole group could read it, linking no one; ErrNotFound when no live
-	// code matches. It shares RedeemPairing's attempts per identity.
-	BurnPairing(ctx context.Context, ident ChannelIdentity, code string) error
-	// SenderNotice records an unknown DM sender and returns whether to reply.
-	SenderNotice(ctx context.Context, ident ChannelIdentity) (SenderNotice, error)
-	// ApproveSender redeems an approve_sender code typed into the web UI by an
-	// admin: as "guest" (creates a guest space) or "link" (to linkUser). Admins
-	// link a chat identity only to themselves; only the owner links one to
-	// another user. An identity linked to some user is never made a guest or
-	// linked to anyone else (ErrForbidden); it can be blocked, unlinked or
-	// linked back to that same user.
-	ApproveSender(ctx context.Context, by Actor, code, as string, linkUser UserID) (*ChannelIdentity, error)
+	// Admit records the platform's verdict on a sender (SPEC §5.1 step 3)
+	// and makes a member who is pending a teammate, creating their person
+	// space the first time (audited identity.teammate). An outsider keeps
+	// their status and chats but loses Can approve. Blocked stays blocked.
+	Admit(ctx context.Context, ident ChannelIdentity, m Membership) (IdentityResolution, error)
+	// NoticeSender reports whether to send ident a refusal or waiting line:
+	// at most once per 24 h per identity (records last_notice_at).
+	NoticeSender(ctx context.Context, ident ChannelIdentity) (bool, error)
 	ResolveIdentity(ctx context.Context, channel, externalID string) (IdentityResolution, error)
 }

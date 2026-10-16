@@ -29,14 +29,13 @@ func (r metaRepo) Delete(ctx context.Context, k string) error {
 	return dbErr("meta delete", err)
 }
 
-const userCols = `id, username, display_name, role, pw_hash, timezone, disabled, failed_logins, locked_until, created_at, updated_at, must_change_password, last_login_at, preferred_chat, approvals_web_only`
+const userCols = `id, username, display_name, role, pw_hash, timezone, disabled, failed_logins, locked_until, created_at, updated_at, must_change_password, last_login_at`
 
 func scanUser(sc scanner) (*core.User, error) {
 	var u core.User
 	var locked, created, updated, lastLogin int64
 	if err := sc.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &u.PWHash, &u.Timezone, &u.Disabled,
-		&u.FailedLogins, &locked, &created, &updated, &u.MustChangePassword, &lastLogin, &u.PreferredChat,
-		&u.ApprovalsWebOnly); err != nil {
+		&u.FailedLogins, &locked, &created, &updated, &u.MustChangePassword, &lastLogin); err != nil {
 		return nil, err
 	}
 	u.LockedUntil, u.CreatedAt, u.UpdatedAt = fromMS(locked), fromMS(created), fromMS(updated)
@@ -49,10 +48,10 @@ type userRepo struct{ h *handle }
 func (r userRepo) Create(ctx context.Context, u *core.User) error {
 	id := idOr(u.ID, core.PrefixUser)
 	err := r.h.write(ctx, func(q querier) error {
-		if _, err := q.ExecContext(ctx, `INSERT INTO users(`+userCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		if _, err := q.ExecContext(ctx, `INSERT INTO users(`+userCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			string(id), u.Username, u.DisplayName, string(u.Role), u.PWHash, u.Timezone, b2i(u.Disabled),
 			u.FailedLogins, ms(u.LockedUntil), ms(u.CreatedAt), ms(u.UpdatedAt), b2i(u.MustChangePassword),
-			ms(u.LastLoginAt), u.PreferredChat, b2i(u.ApprovalsWebOnly)); err != nil {
+			ms(u.LastLoginAt)); err != nil {
 			return dbErr("create user", err)
 		}
 		_, err := q.ExecContext(ctx, `INSERT INTO principals(id, kind, user_id, display_name, workspace_id, tool_profile, created_at)
@@ -81,10 +80,9 @@ func (r userRepo) List(ctx context.Context) ([]*core.User, error) {
 
 func (r userRepo) Update(ctx context.Context, u *core.User) error {
 	res, err := r.h.wq.ExecContext(ctx, `UPDATE users SET username = ?, display_name = ?, role = ?, pw_hash = ?, timezone = ?,
-		disabled = ?, failed_logins = ?, locked_until = ?, updated_at = ?, must_change_password = ?, preferred_chat = ?,
-		approvals_web_only = ? WHERE id = ?`,
+		disabled = ?, failed_logins = ?, locked_until = ?, updated_at = ?, must_change_password = ? WHERE id = ?`,
 		u.Username, u.DisplayName, string(u.Role), u.PWHash, u.Timezone, b2i(u.Disabled), u.FailedLogins,
-		ms(u.LockedUntil), ms(u.UpdatedAt), b2i(u.MustChangePassword), u.PreferredChat, b2i(u.ApprovalsWebOnly), string(u.ID))
+		ms(u.LockedUntil), ms(u.UpdatedAt), b2i(u.MustChangePassword), string(u.ID))
 	return mustAffect("update user", res, err)
 }
 
@@ -95,8 +93,8 @@ func (r userRepo) RecordLogin(ctx context.Context, id core.UserID, ok bool, lock
 }
 
 func (r userRepo) SetProfile(ctx context.Context, u *core.User) error {
-	res, err := r.h.wq.ExecContext(ctx, `UPDATE users SET display_name = ?, timezone = ?, preferred_chat = ?, approvals_web_only = ?,
-		updated_at = ? WHERE id = ?`, u.DisplayName, u.Timezone, u.PreferredChat, b2i(u.ApprovalsWebOnly), ms(u.UpdatedAt), string(u.ID))
+	res, err := r.h.wq.ExecContext(ctx, `UPDATE users SET display_name = ?, timezone = ?, updated_at = ? WHERE id = ?`,
+		u.DisplayName, u.Timezone, ms(u.UpdatedAt), string(u.ID))
 	return mustAffect("update profile", res, err)
 }
 
@@ -106,8 +104,8 @@ func (r userRepo) SignedIn(ctx context.Context, id core.UserID, at time.Time) er
 	return mustAffect("record sign-in", res, err)
 }
 
-// Delete relies on the schema's ON DELETE CASCADE chains; a linked or
-// guest channel identity turns the SET NULL into a CHECK failure.
+// Delete relies on the schema's ON DELETE CASCADE chains from users through
+// the user's own principal.
 func (r userRepo) Delete(ctx context.Context, id core.UserID) error {
 	res, err := r.h.wq.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, string(id))
 	return mustAffect("delete user", res, err)
@@ -121,7 +119,9 @@ func (r userRepo) Count(ctx context.Context) (int, error) {
 	return n, nil
 }
 
-const principalCols = `id, kind, user_id, display_name, workspace_id, tool_profile, created_at`
+const principalCols = `id, kind, COALESCE(user_id, ''), display_name, workspace_id, tool_profile, created_at`
+
+const principalInsertCols = `id, kind, user_id, display_name, workspace_id, tool_profile, created_at`
 
 func scanPrincipal(sc scanner) (*core.Principal, error) {
 	var p core.Principal
@@ -144,7 +144,12 @@ func (r principalRepo) Get(ctx context.Context, v core.Viewer, id core.Principal
 
 func (r principalRepo) ForUser(ctx context.Context, u core.UserID) ([]*core.Principal, error) {
 	return queryAll(ctx, r.h.rq, "principals for user", scanPrincipal,
-		`SELECT `+principalCols+` FROM principals WHERE user_id = ? ORDER BY kind <> 'user', created_at, id`, string(u))
+		`SELECT `+principalCols+` FROM principals WHERE user_id = ? ORDER BY created_at, id`, string(u))
+}
+
+func (r principalRepo) Team(ctx context.Context) ([]*core.Principal, error) {
+	return queryAll(ctx, r.h.rq, "team principals", scanPrincipal,
+		`SELECT `+principalCols+` FROM principals WHERE user_id IS NULL ORDER BY created_at, id`)
 }
 
 func (r principalRepo) Update(ctx context.Context, p *core.Principal) error {
@@ -153,24 +158,43 @@ func (r principalRepo) Update(ctx context.Context, p *core.Principal) error {
 	return mustAffect("update principal", res, err)
 }
 
-const spaceCols = `principal_id, kind, channel, chat_id, chat_kind, title, owner_user_id, enabled, mention_only, created_at, updated_at`
+// Delete cascades through the foreign keys of everything a team-owned
+// principal holds; an account's principal goes only with its user.
+func (r principalRepo) Delete(ctx context.Context, id core.PrincipalID) error {
+	res, err := r.h.wq.ExecContext(ctx, `DELETE FROM principals WHERE id = ? AND user_id IS NULL`, string(id))
+	if err != nil {
+		return dbErr("delete principal", err)
+	}
+	if n, _ := res.RowsAffected(); n == 1 {
+		return nil
+	}
+	var kind string
+	if err := r.h.wq.QueryRowContext(ctx, `SELECT kind FROM principals WHERE id = ?`, string(id)).Scan(&kind); err != nil {
+		return dbErr("delete principal", err)
+	}
+	return invalid("delete principal: an account's principal goes only with the account")
+}
+
+const spaceCols = `principal_id, kind, channel, chat_id, chat_kind, team_id, team_name, added_by, title, members, external,
+	enabled, mention_only, reviewed_at, created_at, updated_at`
 
 func scanSpace(sc scanner) (*core.Space, error) {
 	var s core.Space
-	var created, updated int64
-	if err := sc.Scan(&s.Principal, &s.Kind, &s.Chat.Channel, &s.Chat.ChatID, &s.Chat.Kind, &s.Title, &s.Owner,
-		&s.Enabled, &s.MentionOnly, &created, &updated); err != nil {
+	var reviewed, created, updated int64
+	if err := sc.Scan(&s.Principal, &s.Kind, &s.Chat.Channel, &s.Chat.ChatID, &s.Chat.Kind, &s.Team, &s.TeamName, &s.AddedBy,
+		&s.Title, &s.Members, &s.External, &s.Enabled, &s.MentionOnly, &reviewed, &created, &updated); err != nil {
 		return nil, err
 	}
-	s.CreatedAt, s.UpdatedAt = fromMS(created), fromMS(updated)
+	s.ReviewedAt, s.CreatedAt, s.UpdatedAt = fromMS(reviewed), fromMS(created), fromMS(updated)
 	return &s, nil
 }
 
 type spaceRepo struct{ h *handle }
 
-// Create inserts the space principal (defaults: kind space, owner as user,
-// a fresh workspace, tool_profile restricted) and the space, and writes the
-// assigned ids back to both arguments.
+// Create inserts the space's principal and the space, and writes the
+// assigned ids back to both arguments. Defaults: a fresh workspace, kind
+// space and tool_profile restricted for a group, kind person for a person
+// space, which is always standard. Neither has an owner.
 func (r spaceRepo) Create(ctx context.Context, s *core.Space, p *core.Principal) error {
 	pr := *p
 	if pr.ID == "" {
@@ -178,22 +202,26 @@ func (r spaceRepo) Create(ctx context.Context, s *core.Space, p *core.Principal)
 	}
 	if pr.Kind == "" {
 		pr.Kind = core.PrincipalSpace
+		if s.Kind == core.SpacePerson {
+			pr.Kind = core.PrincipalPerson
+		}
 	}
-	if pr.User == "" {
-		pr.User = s.Owner
-	}
+	pr.User = ""
 	pr.Workspace = idOr(pr.Workspace, core.PrefixWorkspace)
-	if pr.ToolProfile == "" {
+	switch {
+	case pr.Kind == core.PrincipalPerson:
+		pr.ToolProfile = "standard"
+	case pr.ToolProfile == "":
 		pr.ToolProfile = "restricted"
 	}
 	err := r.h.write(ctx, func(q querier) error {
-		if _, err := q.ExecContext(ctx, `INSERT INTO principals(`+principalCols+`) VALUES (?,?,?,?,?,?,?)`,
-			string(pr.ID), string(pr.Kind), string(pr.User), pr.DisplayName, string(pr.Workspace), pr.ToolProfile, ms(pr.CreatedAt)); err != nil {
+		if _, err := q.ExecContext(ctx, `INSERT INTO principals(`+principalInsertCols+`) VALUES (?,?,NULL,?,?,?,?)`,
+			string(pr.ID), string(pr.Kind), pr.DisplayName, string(pr.Workspace), pr.ToolProfile, ms(pr.CreatedAt)); err != nil {
 			return dbErr("create space principal", err)
 		}
-		_, err := q.ExecContext(ctx, `INSERT INTO spaces(`+spaceCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-			string(pr.ID), s.Kind, s.Chat.Channel, s.Chat.ChatID, string(s.Chat.Kind), s.Title, string(s.Owner),
-			b2i(s.Enabled), b2i(s.MentionOnly), ms(s.CreatedAt), ms(s.UpdatedAt))
+		_, err := q.ExecContext(ctx, `INSERT INTO spaces(`+spaceCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			string(pr.ID), s.Kind, s.Chat.Channel, s.Chat.ChatID, string(s.Chat.Kind), s.Team, s.TeamName, s.AddedBy,
+			s.Title, s.Members, b2i(s.External), b2i(s.Enabled), b2i(s.MentionOnly), ms(s.ReviewedAt), ms(s.CreatedAt), ms(s.UpdatedAt))
 		return dbErr("create space", err)
 	})
 	if err != nil {
@@ -225,32 +253,32 @@ func (r spaceRepo) List(ctx context.Context, v core.Viewer) ([]*core.Space, erro
 }
 
 func (r spaceRepo) Update(ctx context.Context, s *core.Space) error {
-	res, err := r.h.wq.ExecContext(ctx, `UPDATE spaces SET kind = ?, channel = ?, chat_id = ?, chat_kind = ?, title = ?,
-		owner_user_id = ?, enabled = ?, mention_only = ?, updated_at = ? WHERE principal_id = ?`,
-		s.Kind, s.Chat.Channel, s.Chat.ChatID, string(s.Chat.Kind), s.Title, string(s.Owner), b2i(s.Enabled),
-		b2i(s.MentionOnly), ms(s.UpdatedAt), string(s.Principal))
+	res, err := r.h.wq.ExecContext(ctx, `UPDATE spaces SET team_id = ?, team_name = ?, added_by = ?, title = ?, members = ?,
+		external = ?, enabled = ?, mention_only = ?, reviewed_at = ?, updated_at = ? WHERE principal_id = ?`,
+		s.Team, s.TeamName, s.AddedBy, s.Title, s.Members, b2i(s.External), b2i(s.Enabled), b2i(s.MentionOnly),
+		ms(s.ReviewedAt), ms(s.UpdatedAt), string(s.Principal))
 	return mustAffect("update space", res, err)
 }
 
-const identityCols = `channel, external_id, username, display_name, status, COALESCE(user_id, ''), COALESCE(principal_id, ''),
-	dm_chat_id, first_seen_at, last_seen_at, last_notice_at, first_text`
+const identityCols = `channel, external_id, username, display_name, status, COALESCE(principal_id, ''), admitted_via,
+	can_approve, membership, membership_at, dm_chat_id, first_seen_at, last_seen_at, last_notice_at, greet, first_text`
 
 func scanIdentity(sc scanner) (*core.ChannelIdentity, error) {
 	var id core.ChannelIdentity
-	var first, last, notice int64
-	if err := sc.Scan(&id.Channel, &id.ExternalID, &id.Username, &id.DisplayName, &id.Status, &id.User, &id.Principal,
-		&id.DMChat, &first, &last, &notice, &id.FirstText); err != nil {
+	var memberAt, first, last, notice int64
+	if err := sc.Scan(&id.Channel, &id.ExternalID, &id.Username, &id.DisplayName, &id.Status, &id.Principal, &id.Via,
+		&id.CanApprove, &id.Member, &memberAt, &id.DMChat, &first, &last, &notice, &id.Greet, &id.FirstText); err != nil {
 		return nil, err
 	}
-	id.FirstSeen, id.LastSeen, id.LastNotice = fromMS(first), fromMS(last), fromMS(notice)
+	id.MemberAt, id.FirstSeen, id.LastSeen, id.LastNotice = fromMS(memberAt), fromMS(first), fromMS(last), fromMS(notice)
 	return &id, nil
 }
 
 type identityRepo struct{ h *handle }
 
-// Touch inserts an unknown sender (status pending unless given, first_seen
-// defaulting to last_seen); for a known one it refreshes only the names and
-// last_seen, never status or links.
+// Touch inserts an unknown sender (pending, with id.Member as its first
+// verdict and first_seen defaulting to last_seen); for a known one it
+// refreshes only the names and last_seen, never status or verdicts.
 func (r identityRepo) Touch(ctx context.Context, id *core.ChannelIdentity) (*core.ChannelIdentity, error) {
 	var out *core.ChannelIdentity
 	err := r.h.write(ctx, func(q querier) error {
@@ -261,16 +289,18 @@ func (r identityRepo) Touch(ctx context.Context, id *core.ChannelIdentity) (*cor
 		}
 		if n, _ := res.RowsAffected(); n == 0 {
 			row := *id
-			if row.Status == "" {
-				row.Status = core.IdentityPending
-			}
+			row.Status, row.Principal, row.Via, row.CanApprove = core.IdentityPending, "", "", false
 			if row.FirstSeen.IsZero() {
 				row.FirstSeen = row.LastSeen
 			}
+			if row.Member != core.MemberUnchecked && row.MemberAt.IsZero() {
+				row.MemberAt = row.LastSeen
+			}
 			if _, err := q.ExecContext(ctx, `INSERT INTO channel_identities(channel, external_id, username, display_name, status,
-				user_id, principal_id, dm_chat_id, first_seen_at, last_seen_at, last_notice_at, first_text) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-				row.Channel, row.ExternalID, row.Username, row.DisplayName, string(row.Status), nullStr(row.User),
-				nullStr(row.Principal), row.DMChat, ms(row.FirstSeen), ms(row.LastSeen), ms(row.LastNotice), pendingText(row)); err != nil {
+				membership, membership_at, dm_chat_id, first_seen_at, last_seen_at, last_notice_at, greet, first_text)
+				VALUES (?,?,?,?,?,?,?,?,?,?,?,'hello',?)`,
+				row.Channel, row.ExternalID, row.Username, row.DisplayName, string(row.Status), string(row.Member),
+				ms(row.MemberAt), row.DMChat, ms(row.FirstSeen), ms(row.LastSeen), ms(row.LastNotice), pendingText(row)); err != nil {
 				return dbErr("insert identity", err)
 			}
 		}
@@ -287,15 +317,17 @@ func (r identityRepo) Get(ctx context.Context, channel, externalID string) (*cor
 }
 
 func (r identityRepo) Update(ctx context.Context, id *core.ChannelIdentity) error {
-	res, err := r.h.wq.ExecContext(ctx, `UPDATE channel_identities SET status = ?, user_id = ?, principal_id = ?, dm_chat_id = ?,
-		last_notice_at = ?, first_text = ? WHERE channel = ? AND external_id = ?`,
-		string(id.Status), nullStr(id.User), nullStr(id.Principal), id.DMChat, ms(id.LastNotice), pendingText(*id),
+	res, err := r.h.wq.ExecContext(ctx, `UPDATE channel_identities SET username = ?, display_name = ?, status = ?,
+		principal_id = ?, admitted_via = ?, can_approve = ?, membership = ?, membership_at = ?, dm_chat_id = ?,
+		last_seen_at = ?, last_notice_at = ?, greet = ?, first_text = ? WHERE channel = ? AND external_id = ?`,
+		id.Username, id.DisplayName, string(id.Status), nullStr(id.Principal), string(id.Via), b2i(id.CanApprove),
+		string(id.Member), ms(id.MemberAt), id.DMChat, ms(id.LastSeen), ms(id.LastNotice), id.Greet, pendingText(*id),
 		id.Channel, id.ExternalID)
 	return mustAffect("update identity", res, err)
 }
 
 // pendingText keeps a sender's first words only while an admin may still
-// need them to decide; a linked or guest sender's message stays theirs.
+// need them to decide; a teammate's or blocked sender's message stays theirs.
 func pendingText(id core.ChannelIdentity) string {
 	if id.Status != core.IdentityPending {
 		return ""
@@ -303,9 +335,14 @@ func pendingText(id core.ChannelIdentity) string {
 	return id.FirstText
 }
 
-func (r identityRepo) ForUser(ctx context.Context, u core.UserID) ([]*core.ChannelIdentity, error) {
-	return queryAll(ctx, r.h.rq, "identities for user", scanIdentity,
-		`SELECT `+identityCols+` FROM channel_identities WHERE user_id = ? ORDER BY first_seen_at, channel, external_id`, string(u))
+func (r identityRepo) ByPrincipal(ctx context.Context, p core.PrincipalID) (*core.ChannelIdentity, error) {
+	return queryOne(ctx, r.h.rq, "channel identity", scanIdentity,
+		`SELECT `+identityCols+` FROM channel_identities WHERE principal_id = ? ORDER BY last_seen_at DESC LIMIT 1`, string(p))
+}
+
+func (r identityRepo) ResetMembership(ctx context.Context, channel string) error {
+	_, err := r.h.wq.ExecContext(ctx, `UPDATE channel_identities SET membership_at = 0 WHERE channel = ? AND membership_at <> 0`, channel)
+	return dbErr("reset membership", err)
 }
 
 func (r identityRepo) List(ctx context.Context, status core.IdentityStatus) ([]*core.ChannelIdentity, error) {
@@ -317,45 +354,6 @@ func (r identityRepo) List(ctx context.Context, status core.IdentityStatus) ([]*
 func (r identityRepo) Delete(ctx context.Context, channel, externalID string) error {
 	res, err := r.h.wq.ExecContext(ctx, `DELETE FROM channel_identities WHERE channel = ? AND external_id = ?`, channel, externalID)
 	return mustAffect("delete identity", res, err)
-}
-
-const pairingCols = `code_hash, purpose, COALESCE(user_id, ''), channel, external_id, created_by, expires_at, used_at, attempts`
-
-func scanPairing(sc scanner) (*core.Pairing, error) {
-	var p core.Pairing
-	var expires, used int64
-	if err := sc.Scan(&p.CodeHash, &p.Purpose, &p.User, &p.Channel, &p.ExternalID, &p.CreatedBy, &expires, &used, &p.Attempts); err != nil {
-		return nil, err
-	}
-	p.ExpiresAt, p.UsedAt = fromMS(expires), fromMS(used)
-	return &p, nil
-}
-
-type pairingRepo struct{ h *handle }
-
-func (r pairingRepo) Create(ctx context.Context, p *core.Pairing) error {
-	if len(p.CodeHash) == 0 {
-		return invalid("pairing code_hash")
-	}
-	_, err := r.h.wq.ExecContext(ctx, `INSERT INTO pairing_codes(code_hash, purpose, user_id, channel, external_id, created_by,
-		created_at, expires_at, used_at, attempts) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		p.CodeHash, string(p.Purpose), nullStr(p.User), p.Channel, p.ExternalID, string(p.CreatedBy),
-		ms(r.h.now()), ms(p.ExpiresAt), ms(p.UsedAt), p.Attempts)
-	return dbErr("create pairing", err)
-}
-
-// Redeem is a single conditional UPDATE, so two concurrent redemptions of one
-// code cannot both succeed.
-func (r pairingRepo) Redeem(ctx context.Context, codeHash []byte, purpose core.PairingPurpose, now time.Time) (*core.Pairing, error) {
-	return queryOne(ctx, r.h.wq, "pairing code", scanPairing, `UPDATE pairing_codes SET used_at = ?
-		WHERE code_hash = ? AND purpose = ? AND used_at = 0 AND expires_at > ? RETURNING `+pairingCols,
-		max(ms(now), 1), codeHash, string(purpose), ms(now))
-}
-
-func (r pairingRepo) ForIdentity(ctx context.Context, channel, externalID string, purpose core.PairingPurpose, now time.Time) (*core.Pairing, error) {
-	return queryOne(ctx, r.h.rq, "pairing code", scanPairing, `SELECT `+pairingCols+` FROM pairing_codes
-		WHERE channel = ? AND external_id = ? AND purpose = ? AND used_at = 0 AND expires_at > ?
-		ORDER BY created_at DESC, expires_at DESC LIMIT 1`, channel, externalID, string(purpose), ms(now))
 }
 
 const authSessionCols = `id_hash, user_id, csrf, ip, ua, created_at, last_seen_at, idle_expires_at, expires_at`

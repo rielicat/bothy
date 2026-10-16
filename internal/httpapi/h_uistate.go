@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -25,9 +26,11 @@ import (
 func (s *Server) uiStateRoutes() []route {
 	return []route{
 		{pattern: "GET /api/me", access: accessUser, h: s.getProfile},
-		// Cookie-only: where approval requests go is part of answering them,
-		// which tokens cannot do either.
 		{pattern: "PATCH /api/me", access: accessUserCookie, h: s.patchProfile},
+		{pattern: "GET /api/teammates", access: accessAdmin, h: s.listTeammates},
+		// Cookie-only: deleting someone's data can't be undone.
+		{pattern: "DELETE /api/teammates/{channel}/{external}", access: accessAdminCookie, h: s.forgetTeammate},
+		{pattern: "GET /api/team/schedules", access: accessAdmin, h: s.listTeamSchedules},
 		{pattern: "POST /api/search/test", access: accessAdmin, h: s.testSearch},
 		{pattern: "GET /api/skills/{name}/files/{path...}", access: accessUser, h: s.skillFile},
 		{pattern: "GET /api/knowledge/repos/{id}/notes/history", access: accessUser, h: s.notesHistory},
@@ -44,38 +47,9 @@ type profileEditor interface {
 
 type heartbeatSyncer interface{ ResyncHeartbeat() }
 
-const approvalsWeb = "web"
-
-// profile describes u's own settings: the chat apps they linked, and where
-// approval requests reach them as things stand now.
-func (s *Server) profile(ctx context.Context, u *core.User) (*dto.Profile, error) {
-	ids, err := s.d.Store.Identities().ForUser(ctx, u.ID)
-	if err != nil {
-		return nil, err
-	}
-	p := &dto.Profile{User: u.ID, Username: u.Username, DisplayName: cmpOr(u.DisplayName, u.Username), Timezone: u.Timezone,
-		PreferredChat: u.PreferredChat, ApprovalsIn: approvalsWeb, Chats: []string{}}
-	var last *core.ChannelIdentity
-	for _, id := range ids {
-		if id.Status != core.IdentityLinked || id.User != u.ID || id.DMChat == "" {
-			continue
-		}
-		if !slices.Contains(p.Chats, id.Channel) {
-			p.Chats = append(p.Chats, id.Channel)
-		}
-		if last == nil || id.LastSeen.After(last.LastSeen) {
-			last = id
-		}
-	}
-	slices.Sort(p.Chats)
-	switch {
-	case u.ApprovalsWebOnly:
-	case slices.Contains(p.Chats, u.PreferredChat):
-		p.ApprovalsIn = u.PreferredChat
-	case last != nil:
-		p.ApprovalsIn = last.Channel
-	}
-	return p, nil
+// profile describes u's own settings.
+func (s *Server) profile(u *core.User) *dto.Profile {
+	return &dto.Profile{User: u.ID, Username: u.Username, DisplayName: cmpOr(u.DisplayName, u.Username), Timezone: u.Timezone}
 }
 
 func (s *Server) getProfile(w http.ResponseWriter, r *http.Request, a core.Actor) error {
@@ -83,11 +57,7 @@ func (s *Server) getProfile(w http.ResponseWriter, r *http.Request, a core.Actor
 	if err != nil {
 		return err
 	}
-	p, err := s.profile(r.Context(), u)
-	if err != nil {
-		return err
-	}
-	return ok(w, p)
+	return ok(w, s.profile(u))
 }
 
 func (s *Server) patchProfile(w http.ResponseWriter, r *http.Request, a core.Actor) error {
@@ -96,21 +66,17 @@ func (s *Server) patchProfile(w http.ResponseWriter, r *http.Request, a core.Act
 		return core.ErrNotImplemented
 	}
 	var req dto.ProfilePatch
-	if err := decode(r, &req); err != nil {
-		return err
-	}
-	up := auth.ProfileUpdate{DisplayName: req.DisplayName, Timezone: req.Timezone, PreferredChat: req.PreferredChat}
-	if req.ApprovalsIn != nil {
-		webOnly := *req.ApprovalsIn == approvalsWeb
-		up.ApprovalsWebOnly = &webOnly
-		if !webOnly {
-			if req.PreferredChat != nil && *req.PreferredChat != *req.ApprovalsIn {
-				return badRequest("approvals_in and preferred_chat name different chat apps")
-			}
-			up.PreferredChat = req.ApprovalsIn
+	// Strict: a client still sending approvals_in learns it is gone.
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			return err
 		}
+		return badRequest("invalid JSON: %v", err)
 	}
-	u, err := ed.UpdateProfile(r.Context(), a, up)
+	u, err := ed.UpdateProfile(r.Context(), a, auth.ProfileUpdate{DisplayName: req.DisplayName, Timezone: req.Timezone})
 	if err != nil {
 		return err
 	}
@@ -119,11 +85,7 @@ func (s *Server) patchProfile(w http.ResponseWriter, r *http.Request, a core.Act
 	if hb, has := s.d.Scheduler.(heartbeatSyncer); has && req.Timezone != nil && u.Role == core.RoleOwner {
 		hb.ResyncHeartbeat()
 	}
-	p, err := s.profile(r.Context(), u)
-	if err != nil {
-		return err
-	}
-	return ok(w, p)
+	return ok(w, s.profile(u))
 }
 
 // ---- providers ----

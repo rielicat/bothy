@@ -3,7 +3,6 @@ package channel
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -21,9 +20,10 @@ import (
 type access uint8
 
 const (
-	accessOwner  access = iota // the session principal's user, or an admin
-	accessAdmin                // owners and admins only
-	accessAnyone               // anyone who passed gating
+	accessChat     access = iota // the DM's teammate; in a channel, someone who can approve
+	accessAnyone                 // anyone Bothy answers in this chat
+	accessApprover               // an admitted chat approver, in any chat
+	accessWeb                    // only on the web: the reply says where
 )
 
 type commandSpec struct {
@@ -36,24 +36,24 @@ type commandSpec struct {
 }
 
 var commands = map[string]commandSpec{
-	"stop":    {urgent: true, usage: "/stop", help: "stop the current task"},
-	"status":  {urgent: true, usage: "/status", help: "what Bothy is doing and today's spending"},
-	"stopall": {urgent: true, access: accessAdmin, usage: "/stopall", help: "pause Bothy and stop every task"},
-	"resume":  {urgent: true, access: accessAdmin, usage: "/resume", help: "lift the pause"},
+	"stop":    {urgent: true, access: accessAnyone, usage: "/stop", help: "stop the current task"},
+	"status":  {urgent: true, access: accessAnyone, usage: "/status", help: "what Bothy is doing and today's spending"},
+	"stopall": {urgent: true, access: accessApprover},
+	"resume":  {urgent: true, access: accessWeb},
 	"help":    {urgent: true, access: accessAnyone, usage: "/help", help: "this list"},
 	"new":     {usage: "/new", help: "start a fresh conversation"},
 	"pin":     {usage: "/pin <text>", help: "keep an instruction in view"},
-	"pins":    {usage: "/pins", help: "list pinned instructions"},
+	"pins":    {access: accessAnyone, usage: "/pins", help: "list pinned instructions"},
 	"unpin":   {usage: "/unpin <n>", help: "remove pin number n"},
 	"compact": {usage: "/compact", help: "summarise older messages now"},
 	"model":   {usage: "/model [model name|default]", help: "show or change the AI model of this conversation"},
 	"refine":  {usage: "/refine [on|off|default]", help: "check answers more carefully here (slower, costs more)"},
-	"usage":   {usage: "/usage", help: "today's spending and this conversation's cost"},
-	"pair":    {access: accessAnyone, usage: "/pair CODE", help: "link this account with a code from the web UI"},
+	"usage":   {access: accessAnyone, usage: "/usage", help: "today's spending and this conversation's cost"},
+	"pair":    {access: accessAnyone},
 	"start":   {access: accessAnyone},
 }
 
-var helpOrder = []string{"stop", "new", "status", "usage", "pin", "pins", "unpin", "compact", "model", "refine", "pair", "stopall", "resume", "help"}
+var helpOrder = []string{"stop", "new", "status", "usage", "pin", "pins", "unpin", "compact", "model", "refine", "help"}
 
 const maxPinRunes = 1000
 
@@ -96,18 +96,24 @@ func unknownCommand(text string) (string, bool) {
 	return "/" + m[1], true
 }
 
-func allowed(acc access, res core.IdentityResolution, p *core.Principal) bool {
+// allowed applies a command's access rule to whoever sent it.
+func (h *Hub) allowed(acc access, a *adapter, res core.IdentityResolution, tg target) bool {
 	switch acc {
-	case accessAnyone:
+	case accessAnyone, accessWeb:
 		return true
-	case accessAdmin:
-		return isAdmin(res)
+	case accessApprover:
+		return res.CanApprove && h.usable(a, res, core.MemberStale)
 	}
-	return res.Status == core.IdentityLinked && (res.User == p.User || res.Role.IsAdmin())
+	return tg.space != nil && tg.space.Kind == core.SpacePerson || res.CanApprove && h.usable(a, res, core.MemberStale)
 }
 
-func isAdmin(res core.IdentityResolution) bool {
-	return res.Status == core.IdentityLinked && res.Role.IsAdmin()
+// chatOrigin is the audit origin of something a chat sender did.
+func chatOrigin(ctx context.Context, a *adapter, in core.Inbound) context.Context {
+	name := strings.TrimSpace(in.SenderName)
+	if name == "" {
+		name = in.SenderID
+	}
+	return core.WithAuditOrigin(ctx, core.AuditOrigin{Actor: core.ChatActor(a.name, in.SenderID), Name: name + " · " + channelTitle(a.name)})
 }
 
 func (h *Hub) runCommand(ctx context.Context, a *adapter, in core.Inbound, res core.IdentityResolution, tg target, cmd, args string) {
@@ -117,25 +123,25 @@ func (h *Hub) runCommand(ctx context.Context, a *adapter, in core.Inbound, res c
 	if spec.urgent {
 		say = func(text string) { h.replyAsync(chat, text) }
 	}
-	if !allowed(spec.access, res, tg.principal) {
-		if spec.access == accessAdmin {
-			say("Only an admin can use /" + cmd + ".")
+	if !h.allowed(spec.access, a, res, tg) {
+		if spec.access == accessApprover {
+			say("Only someone who can approve can pause Bothy.")
 		} else {
-			say("Only the person this chat belongs to or an admin can use /" + cmd + ".")
+			say("Only someone who can approve can use /" + cmd + " here.")
 		}
 		return
 	}
 	switch cmd {
 	case "stop":
-		say(h.cmdStop(ctx, tg, chat, res.User))
+		say(h.cmdStop(chatOrigin(ctx, a, in), tg, chat))
 	case "stopall":
-		say(h.cmdStopAll(ctx, a.name, in.SenderID, res.User))
+		say(h.cmdStopAll(chatOrigin(ctx, a, in)))
 	case "resume":
-		say(h.cmdResume(ctx, a.name, in.SenderID, res.User))
+		say("Resume Bothy on the web, under Settings → Security.")
 	case "status":
 		say(h.cmdStatus(ctx, tg, chat))
 	case "help":
-		say(helpText(isAdmin(res)))
+		say(helpText())
 	case "new":
 		say(h.cmdNew(ctx, tg, chat))
 	case "pin":
@@ -154,34 +160,25 @@ func (h *Hub) runCommand(ctx context.Context, a *adapter, in core.Inbound, res c
 		say(h.cmdRefine(ctx, tg, chat, args))
 	case "usage":
 		say(h.cmdUsage(ctx, tg, chat))
-	case "pair", "start":
-		switch {
-		case args != "" && chat.Kind != core.ChatDM && !in.Private:
-			// Codes are single use: anyone here could now redeem it first.
-			say("Pairing codes only work in a direct message with Bothy. This one is now visible here, so create a new code in Settings → Account and send it to Bothy privately.")
-		case args != "" && res.Status == core.IdentityGuest:
-			say("This account is a guest; an admin can link it to a user in Settings → People.")
-		case args != "":
-			say("This account is already linked.")
-		case res.Status == core.IdentityLinked && chat.Kind == core.ChatDM:
-			say(helloText)
-		default:
-			say(helpText(isAdmin(res)))
+	case "pair":
+		say("Bothy doesn't use link codes any more. Write here to ask it anything.")
+	case "start":
+		if chat.Kind == core.ChatDM {
+			say(helloText(in.SenderName))
+		} else {
+			say(helpText())
 		}
 	}
 }
 
 const somethingWrong = "Sorry, something went wrong. Try again in a moment."
 
-// helpText lists the commands; the admin-only ones only for admins.
-func helpText(admin bool) string {
+// helpText lists the commands everyone sees.
+func helpText() string {
 	var b strings.Builder
 	b.WriteString("Commands:")
 	for _, name := range helpOrder {
 		spec := commands[name]
-		if spec.access == accessAdmin && !admin {
-			continue
-		}
 		b.WriteString("\n" + escapeMD(spec.usage) + " · " + escapeMD(spec.help))
 	}
 	return b.String()
@@ -192,7 +189,8 @@ func (h *Hub) chatSession(ctx context.Context, tg target, chat core.ChatRef) (*c
 	return h.d.Store.Sessions().ByChannelKey(ctx, tg.principal.ID, chat.Key())
 }
 
-func (h *Hub) cmdStop(ctx context.Context, tg target, chat core.ChatRef, by core.UserID) string {
+// cmdStop stops the chat's task; ctx carries the sender as audit origin.
+func (h *Hub) cmdStop(ctx context.Context, tg target, chat core.ChatRef) string {
 	sess, err := h.chatSession(ctx, tg, chat)
 	if errors.Is(err, core.ErrNotFound) {
 		return "Nothing to stop."
@@ -201,7 +199,7 @@ func (h *Hub) cmdStop(ctx context.Context, tg target, chat core.ChatRef, by core
 		h.log.Error("channel /stop: session lookup failed", "err", err)
 		return somethingWrong
 	}
-	stopped, err := h.d.Runner.Stop(ctx, core.SystemViewer(), sess.ID, by)
+	stopped, err := h.d.Runner.Stop(ctx, core.SystemViewer(), sess.ID, "")
 	if err != nil {
 		h.log.Error("channel /stop failed", "session", sess.ID, "err", err)
 		return somethingWrong
@@ -212,16 +210,17 @@ func (h *Hub) cmdStop(ctx context.Context, tg target, chat core.ChatRef, by core
 	return "Stopped."
 }
 
-func (h *Hub) cmdStopAll(ctx context.Context, channel, ext string, by core.UserID) string {
-	if err := h.d.Runner.SetPaused(ctx, true, by); err != nil {
+// cmdStopAll is an approver's kill switch from chat. The runner audits it
+// and names the sender in the banner; /resume points to the web.
+func (h *Hub) cmdStopAll(ctx context.Context) string {
+	if err := h.d.Runner.SetPaused(ctx, true, ""); err != nil {
 		h.log.Error("channel /stopall: pause failed", "err", err)
 		return somethingWrong
 	}
-	n, err := h.d.Runner.StopAll(ctx, by)
+	n, err := h.d.Runner.StopAll(ctx, "")
 	if err != nil {
 		h.log.Error("channel /stopall: stop failed", "err", err)
 	}
-	h.audit(ctx, "admin.pause", channel, ext, by)
 	switch n {
 	case 0:
 		return "Paused. No tasks were running. /resume lifts the pause."
@@ -229,27 +228,6 @@ func (h *Hub) cmdStopAll(ctx context.Context, channel, ext string, by core.UserI
 		return "Paused. Stopped 1 task. /resume lifts the pause."
 	}
 	return fmt.Sprintf("Paused. Stopped %d tasks. /resume lifts the pause.", n)
-}
-
-func (h *Hub) cmdResume(ctx context.Context, channel, ext string, by core.UserID) string {
-	if err := h.d.Runner.SetPaused(ctx, false, by); err != nil {
-		h.log.Error("channel /resume failed", "err", err)
-		return somethingWrong
-	}
-	h.audit(ctx, "admin.resume", channel, ext, by)
-	return "Resumed."
-}
-
-func (h *Hub) audit(ctx context.Context, action, channel, ext string, by core.UserID) {
-	if h.d.Audit == nil {
-		return
-	}
-	detail, _ := json.Marshal(map[string]string{"user_id": string(by), "via": channel})
-	err := h.d.Audit.Record(ctx, core.AuditEntry{At: h.clock.Now(), Actor: "channel:" + channel + ":" + ext,
-		Action: action, Target: "kill_switch", Outcome: "ok", Detail: detail})
-	if err != nil {
-		h.log.Error("channel audit failed", "action", action, "err", err)
-	}
 }
 
 // cmdStatus says, in plain words, what the chat's task is doing, today's
@@ -271,7 +249,7 @@ func (h *Hub) cmdStatus(ctx context.Context, tg target, chat core.ChatRef) strin
 		}
 	}
 	lines = append(lines, task)
-	if spent, limit, err := h.d.Budget.Daily(ctx, tg.principal.User); err == nil {
+	if spent, limit, err := h.d.Budget.Daily(ctx, tg.principal.ID); err == nil {
 		lines = append(lines, "Today: "+spendText(spent, limit)+".")
 	}
 	if _, on, err := h.refineSetting(ctx, sessID); err == nil && on {
@@ -697,7 +675,7 @@ func (h *Hub) refineSetting(ctx context.Context, s core.SessionID) (string, bool
 }
 
 func (h *Hub) cmdUsage(ctx context.Context, tg target, chat core.ChatRef) string {
-	spent, limit, err := h.d.Budget.Daily(ctx, tg.principal.User)
+	spent, limit, err := h.d.Budget.Daily(ctx, tg.principal.ID)
 	if err != nil {
 		h.log.Error("channel /usage failed", "err", err)
 		return somethingWrong

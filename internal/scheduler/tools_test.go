@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -17,6 +18,16 @@ func (h *harness) env(chat *core.ChatRef) *core.ToolEnv {
 		User: h.owner, Role: core.RoleOwner,
 		Principal: core.Principal{ID: h.p, Kind: core.PrincipalUser, User: h.owner, ToolProfile: "standard"},
 		Session:   "ses_1", Run: "run_00000000000000000000000001", CallID: core.NewID(core.PrefixToolCall),
+		Trigger: core.TrigMessage, Workspace: h.t.TempDir(), Chat: chat, Interactive: true,
+	}
+}
+
+// teamEnv is the tool env of the teammate tp's own chat.
+func (h *harness) teamEnv(chat *core.ChatRef) *core.ToolEnv {
+	return &core.ToolEnv{
+		Role:      core.RoleMember,
+		Principal: core.Principal{ID: h.tp, Kind: core.PrincipalPerson, DisplayName: "Tom", ToolProfile: "standard"},
+		Session:   "ses_2", Run: "run_00000000000000000000000002", CallID: core.NewID(core.PrefixToolCall),
 		Trigger: core.TrigMessage, Workspace: h.t.TempDir(), Chat: chat, Interactive: true,
 	}
 }
@@ -44,7 +55,7 @@ func TestToolManifests(t *testing.T) {
 func TestScheduleToolsConformance(t *testing.T) {
 	h := newHarness(t)
 	sc := h.upsert(&core.Schedule{Name: "Digest", Kind: core.SchedCron, Spec: "0 8 * * *", Prompt: "p", Enabled: true})
-	env, here := h.env(nil), h.env(&h.dm)
+	env, here := h.env(nil), h.teamEnv(&h.dm)
 	conformance.Tool(t, h.tool("schedule_list"), []conformance.ToolCase{
 		{Name: "empty object", Env: env, Args: json.RawMessage(`{}`)},
 		{Name: "extra field", Env: env, Args: json.RawMessage(`{"all":true}`), WantErr: true},
@@ -83,7 +94,7 @@ func run(t *testing.T, tl core.Tool, env *core.ToolEnv, args string) (*core.Acti
 func TestScheduleToolsExec(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	env := h.env(&h.dm)
+	env := h.teamEnv(&h.dm)
 	_, res := run(t, h.tool("schedule_list"), env, `{}`)
 	if res.Content != "No schedules." {
 		t.Fatalf("empty list = %q", res.Content)
@@ -101,7 +112,7 @@ func TestScheduleToolsExec(t *testing.T) {
 	if res.IsError || !strings.HasPrefix(res.Content, "Created schedule sch_") || !strings.Contains(res.Content, "Weekdays at 08:00") {
 		t.Fatalf("create result = %+v", res)
 	}
-	all, _ := h.store.Schedules().List(ctx, h.viewer())
+	all, _ := h.store.Schedules().List(ctx, core.Viewer{Principals: []core.PrincipalID{h.tp}})
 	if len(all) != 1 || all[0].CreatedBy != "run:"+string(env.Run) || !all[0].Enabled || all[0].Deliver == nil {
 		t.Fatalf("created = %+v", all)
 	}
@@ -131,7 +142,7 @@ func TestScheduleToolsExec(t *testing.T) {
 	if err := h.store.Users().Update(ctx, usr); err != nil {
 		t.Fatal(err)
 	}
-	a, _ = run(t, h.tool("schedule_create"), env, `{"name":"NY","kind":"cron","spec":"0 9 * * *","prompt":"x"}`)
+	a, _ = run(t, h.tool("schedule_create"), h.env(nil), `{"name":"NY","kind":"cron","spec":"0 9 * * *","prompt":"x"}`)
 	if !strings.Contains(string(a.Payload), `"tz":"America/New_York"`) || strings.Contains(string(a.Payload), `"deliver"`) {
 		t.Fatalf("default tz/deliver payload = %s", a.Payload)
 	}
@@ -143,11 +154,10 @@ func TestScheduleToolsExec(t *testing.T) {
 }
 
 // TestScheduleCreateSaysWhereResultsGo: the card and the tool result say
-// where runs will post, so neither promises a chat app nobody linked.
+// where runs will post, so neither promises a chat the results won't reach.
 func TestScheduleCreateSaysWhereResultsGo(t *testing.T) {
 	h := newHarness(t)
-	env := h.env(&h.dm)
-	create := func(deliver string) (createPayload, string) {
+	create := func(env *core.ToolEnv, deliver string) (createPayload, string) {
 		t.Helper()
 		args := `{"name":"Digest","kind":"cron","spec":"0 9 * * 1","prompt":"Summarise the open pull requests"` + deliver + `}`
 		a, res := run(t, h.tool("schedule_create"), env, args)
@@ -157,23 +167,28 @@ func TestScheduleCreateSaysWhereResultsGo(t *testing.T) {
 		}
 		return p, res.Content
 	}
+	team := h.teamEnv(&h.dm)
+	p, res := create(team, "")
+	if p.Deliver != nil || p.Owner != "Tom" || p.Usual != "telegram" || p.OwnerKind != "person" ||
+		!strings.HasSuffix(res, " Results go to Tom's messages on Telegram.") {
+		t.Fatalf("a teammate's preferred delivery = %+v, %q", p, res)
+	}
+	p, res = create(team, `,"deliver":"here"`)
+	if p.Owner != "" || p.Usual != "" || !strings.HasSuffix(res, " Results go to Tom's messages on Telegram.") {
+		t.Fatalf("a teammate's delivery here = %+v, %q", p, res)
+	}
+	if _, err := h.tool("schedule_create").Plan(context.Background(), team,
+		json.RawMessage(`{"name":"W","kind":"cron","spec":"0 9 * * 1","prompt":"x","deliver":"web"}`)); !errors.Is(err, core.ErrInvalid) {
+		t.Fatalf("a teammate's web delivery: %v", err)
+	}
 
-	p, res := create("")
-	if p.Deliver != nil || p.Owner != "owner" || p.Usual != "telegram" || !strings.HasSuffix(res, " Results go to the user's direct messages on telegram.") {
-		t.Fatalf("preferred delivery with a linked chat app = %+v, %q", p, res)
+	user := h.env(nil)
+	p, res = create(user, "")
+	if p.Owner != "owner" || p.Usual != "" || p.OwnerKind != "user" || !strings.HasSuffix(res, " Results stay in Bothy on the web.") {
+		t.Fatalf("an account's preferred delivery = %+v, %q", p, res)
 	}
-	p, res = create(`,"deliver":"here"`)
-	if p.Owner != "" || p.Usual != "" || !strings.HasSuffix(res, " Results go to the user's direct messages on telegram.") {
-		t.Fatalf("delivery here = %+v, %q", p, res)
-	}
-	p, res = create(`,"deliver":"web"`)
+	p, res = create(user, `,"deliver":"web"`)
 	if p.Owner != "" || !strings.HasSuffix(res, " Results stay in Bothy on the web.") {
-		t.Fatalf("web delivery = %+v, %q", p, res)
-	}
-
-	delete(h.hub.PreferredChats, h.owner)
-	p, res = create("")
-	if p.Owner != "owner" || p.Usual != "" || !strings.HasSuffix(res, " Results stay in Bothy on the web: the user has no chat app linked.") {
-		t.Fatalf("preferred delivery with no chat app linked = %+v, %q", p, res)
+		t.Fatalf("an account's web delivery = %+v, %q", p, res)
 	}
 }

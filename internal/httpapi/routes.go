@@ -43,15 +43,12 @@ func (s *Server) routeTable() []route {
 		{pattern: "PATCH /api/users/{id}", access: accessAdmin, h: s.patchUser},
 		{pattern: "DELETE /api/users/{id}", access: accessAdmin, h: s.deleteUser},
 
-		// A linked chat identity answers approval cards as its user, so making
-		// or moving one is cookie-only like approvals and tokens.
-		{pattern: "POST /api/pairing", access: accessUserCookie, h: s.newPairing},
-		{pattern: "POST /api/pairing/approve", access: accessAdminCookie, h: s.approvePairing},
-		{pattern: "GET /api/identities", access: accessUser, h: s.listIdentities},
+		// Letting someone in or making them an approver lets them decide
+		// requests in chat, so it is cookie-only like approvals and tokens.
+		{pattern: "GET /api/identities", access: accessAdmin, h: s.listIdentities},
 		{pattern: "PATCH /api/identities/{channel}/{external}", access: accessAdminCookie, h: s.patchIdentity},
-		{pattern: "DELETE /api/identities/{channel}/{external}", access: accessUserCookie, h: s.deleteIdentity},
-		{pattern: "GET /api/spaces", access: accessUser, h: s.listSpaces},
-		{pattern: "PATCH /api/spaces/{id}", access: accessUser, h: s.patchSpace},
+		{pattern: "GET /api/spaces", access: accessAdmin, h: s.listSpaces},
+		{pattern: "PATCH /api/spaces/{id}", access: accessAdmin, h: s.patchSpace},
 
 		{pattern: "GET /api/sessions", access: accessUser, h: s.listSessions},
 		{pattern: "POST /api/sessions", access: accessUser, h: s.createSession},

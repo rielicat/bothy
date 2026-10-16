@@ -139,7 +139,7 @@ func (r *Runner) modelErrorNotice(rs *runState, ci core.CallInfo, pe *core.Provi
 	switch {
 	case len(providers) == 0:
 		return noModelNotice
-	case auth && (rs.user == nil || !rs.user.Role.IsAdmin()):
+	case auth && !rs.role.IsAdmin():
 		return memberAuthNotice
 	case auth && unread:
 		if n := r.providerName(providers[0]); n != "The AI model" {

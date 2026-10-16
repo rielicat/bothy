@@ -8,56 +8,6 @@ import (
 	"github.com/rielicat/bothy/internal/core"
 )
 
-// deliverVoteCards sends a multi-approver card to every eligible approver's
-// own DM (their preferred chat plus policy.approval.notify channels), never
-// to the requester or a group; the originating chat gets a waiting line.
-func (h *Hub) deliverVoteCards(ctx context.Context, ap *core.Approval) {
-	users, err := h.d.Store.Users().List(ctx)
-	if err != nil {
-		h.log.Error("channel: listing approvers failed", "approval", ap.ID, "err", err)
-		return
-	}
-	var targets []core.ChatRef
-	add := func(c core.ChatRef) {
-		for _, t := range targets {
-			if t.Key() == c.Key() {
-				return
-			}
-		}
-		targets = append(targets, c)
-	}
-	for _, u := range users {
-		if u.Disabled || u.ApprovalsWebOnly || !ap.Approver.Eligible(u.ID, u.Role) {
-			continue
-		}
-		if c, ok := h.PreferredChat(ctx, u.ID); ok {
-			add(c)
-		}
-		for _, name := range h.cfg().Policy.Approval.Notify {
-			if c, ok := h.dmOn(ctx, u.ID, name); ok {
-				add(c)
-			}
-		}
-	}
-	for _, t := range targets {
-		h.sendCard(ctx, ap, t)
-	}
-	origin := ap.Chat
-	if origin == nil || h.live(origin.Channel) == nil {
-		return
-	}
-	for _, t := range targets {
-		if t.Key() == origin.Key() {
-			return
-		}
-	}
-	who := "someone else"
-	if n := ap.Approver.Needed(); n > 1 {
-		who = fmt.Sprintf("%d other people", n)
-	}
-	h.reply(ctx, *origin, plainLine("Waiting for "+who+" to approve "+cardIng(ap)+"."))
-}
-
 // refreshCards edits the full cards of a multi-approver approval after a vote
 // that did not resolve it, so every approver sees the new count. Truncated
 // cards show no count and stay as they are.
@@ -126,7 +76,7 @@ func (h *Hub) approvalLines(ap *core.Approval) []string {
 
 // allowedBy names the users whose allow votes approved ap ("Alice and Bob"),
 // the card's reader as "you" ("You and Bob").
-func (h *Hub) allowedBy(ctx context.Context, ap *core.Approval, reader func(core.UserID) bool) string {
+func (h *Hub) allowedBy(ctx context.Context, ap *core.Approval, reader func(core.UserID, string) bool) string {
 	var names []string
 	seen := map[core.UserID]bool{}
 	for _, v := range ap.Votes {
@@ -135,7 +85,7 @@ func (h *Hub) allowedBy(ctx context.Context, ap *core.Approval, reader func(core
 		}
 		seen[v.User] = true
 		name := h.userName(ctx, v.User)
-		if reader(v.User) {
+		if reader(v.User, "") {
 			name = "you"
 			if len(names) == 0 {
 				name = "You"

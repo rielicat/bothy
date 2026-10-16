@@ -20,7 +20,7 @@ type overCapCheck struct{ s *Service }
 
 func (overCapCheck) ID() string { return "memory.over_cap" }
 
-func (c overCapCheck) Run(context.Context) []core.Finding {
+func (c overCapCheck) Run(ctx context.Context) []core.Finding {
 	dirs, err := os.ReadDir(c.s.dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -31,7 +31,10 @@ func (c overCapCheck) Run(context.Context) []core.Finding {
 	var over []string
 	for _, d := range dirs {
 		p := core.PrincipalID(d.Name())
-		if !d.IsDir() || checkPrincipal(p) != nil {
+		if !d.IsDir() {
+			continue
+		}
+		if _, err := c.s.checkPrincipal(ctx, p); err != nil {
 			continue
 		}
 		for _, f := range files {

@@ -82,11 +82,13 @@ func (h *Hub) Run(ctx context.Context) error {
 	}
 	h.mu.Unlock()
 
-	sub := h.d.Bus.Subscribe(core.Filter{System: true, Types: []core.EventType{core.EvApprovalRequested, core.EvApprovalResolved, core.EvApprovalVoted}}, 256)
+	sub := h.d.Bus.Subscribe(core.Filter{System: true, Types: []core.EventType{
+		core.EvApprovalRequested, core.EvApprovalResolved, core.EvApprovalVoted, core.EvBanner}}, 256)
 	stopWatch := h.d.Config.Watch(func(_, _ *config.Config) { h.requestReconcile() })
 	h.reconcile()
 	h.contain("approval card resync", h.resyncCards)
 	h.contain("channel status", h.publishStatuses)
+	h.goAsync(h.memberSweep)
 
 	tick := time.NewTicker(h.statusEvery)
 loop:
@@ -367,6 +369,9 @@ func (h *Hub) Status() []core.ChannelStatus {
 				st.State, st.Detail = "disabled", ""
 			}
 		}
+		if st.State == "connected" && st.Detail == "" {
+			st.Detail = h.idleServers(h.ctx, a)
+		}
 		out = append(out, st)
 	}
 	return out
@@ -380,13 +385,6 @@ func (h *Hub) Test(ctx context.Context, name string) (string, error) {
 	return a.ch.SelfTest(ctx)
 }
 
-func (h *Hub) DeepLink(channel, code string) string {
-	if a := h.live(channel); a != nil {
-		return a.ch.DeepLink(code)
-	}
-	return ""
-}
-
 // publishStatuses announces adapter state changes on the bus (admin
 // broadcast). Adapters have no change callback, so the hub polls them.
 func (h *Hub) publishStatuses() {
@@ -394,13 +392,17 @@ func (h *Hub) publishStatuses() {
 		h.mu.Lock()
 		a := h.adapters[st.Name]
 		changed := a != nil && (a.published.State != st.State || a.published.Detail != st.Detail ||
-			a.published.Identity != st.Identity || a.published.Enabled != st.Enabled)
+			a.published.Identity != st.Identity || a.published.Enabled != st.Enabled || a.published.Team != st.Team)
+		connected := changed && st.State == "connected" && a.published.State != "connected"
 		if changed {
 			a.published = st
 		}
 		h.mu.Unlock()
 		if changed {
 			h.d.Bus.Publish(core.Event{Type: core.EvChannelStatus, Data: core.ChannelStatusData{Status: st}})
+		}
+		if connected {
+			h.goAsync(func(ctx context.Context) { h.backfillTeams(ctx, a) })
 		}
 	}
 }

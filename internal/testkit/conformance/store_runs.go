@@ -1,7 +1,6 @@
 package conformance
 
 import (
-	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -328,7 +327,10 @@ func testApprovals(f *fx) {
 	f.must(err, "Pending")
 	f.eq("Pending includes parked", approvalIDs(pending), []core.ApprovalID{a.ID})
 
-	ok, err := r.Decide(f.ctx, a.ID, []core.ApprovalStatus{core.ApprovalPending, core.ApprovalParked}, core.ApprovalAllowed, core.AllowOnce, u.ID, "web", at(150))
+	n, err := r.CountOpen(f.ctx, run.Principal)
+	f.must(err, "CountOpen")
+	f.check(n == 1, "CountOpen with one parked approval = %d", n)
+	ok, err := r.Decide(f.ctx, a.ID, []core.ApprovalStatus{core.ApprovalPending, core.ApprovalParked}, core.ApprovalAllowed, core.AllowOnce, core.Decider{User: u.ID}, "web", at(150))
 	f.must(err, "Decide")
 	f.check(ok, "Decide from parked returned false")
 	got, err = r.Get(f.ctx, v, a.ID)
@@ -340,6 +342,9 @@ func testApprovals(f *fx) {
 	f.must(err, "Get")
 	f.check(got.Status == core.ApprovalAllowed, "a rejected Park changed status to %s", got.Status)
 	f.want(r.Park(f.ctx, core.ApprovalID(core.NewID(core.PrefixApproval)), at(300)), core.ErrNotFound, "Park missing")
+	n, err = r.CountOpen(f.ctx, run.Principal)
+	f.must(err, "CountOpen")
+	f.check(n == 0, "CountOpen after the decision = %d", n)
 
 	b := f.approval(run, core.ApprovalDenied, at(20))
 	c := f.approval(run2, core.ApprovalExpired, at(30))
@@ -371,21 +376,32 @@ func testApprovals(f *fx) {
 	f.must(err, "ByRun")
 	f.eq("ByRun", approvalIDs(sortBy(byRun, byID)), approvalIDs(sortBy([]*core.Approval{a, b, e}, byID)))
 
+	notice := core.CardMessage{Ref: core.MsgRef{Chat: core.ChatRef{Channel: "telegram", ChatID: "-100", Kind: core.ChatGroup}, ID: "m0"}, Truncated: true,
+		Kind: core.CardMsgNotice}
+	link := core.CardMessage{Ref: core.MsgRef{Chat: core.ChatRef{Channel: "telegram", ChatID: "43", Kind: core.ChatDM}, ID: "m3"}, Truncated: true,
+		Kind: core.CardMsgLink}
 	m1 := core.CardMessage{Ref: core.MsgRef{Chat: core.ChatRef{Channel: "telegram", ChatID: "42", Kind: core.ChatDM}, ID: "m1"}}
-	m2 := core.CardMessage{Ref: core.MsgRef{Chat: core.ChatRef{Channel: "slack", ChatID: "D1", ThreadID: "171.2", Kind: core.ChatDM}, ID: "m2"}, Truncated: true}
+	m2 := core.CardMessage{Ref: core.MsgRef{Chat: core.ChatRef{Channel: "slack", ChatID: "D1", ThreadID: "171.2", Kind: core.ChatDM}, ID: "m2"}, Truncated: true,
+		Kind: core.CardMsgCard}
+	f.must(r.AddMessage(f.ctx, a.ID, notice), "AddMessage notice")
+	f.must(r.AddMessage(f.ctx, a.ID, link), "AddMessage link")
 	f.must(r.AddMessage(f.ctx, a.ID, m1), "AddMessage")
 	f.must(r.AddMessage(f.ctx, a.ID, m2), "AddMessage")
 	f.want(r.AddMessage(f.ctx, a.ID, m1), core.ErrConflict, "duplicate card message")
 	f.want(r.AddMessage(f.ctx, core.ApprovalID(core.NewID(core.PrefixApproval)), m1), core.ErrInvalid, "approval_id foreign key")
+	f.want(r.AddMessage(f.ctx, a.ID, core.CardMessage{Ref: core.MsgRef{Chat: core.ChatRef{Channel: "telegram", ChatID: "44"}, ID: "m4"}, Kind: "banner"}),
+		core.ErrInvalid, "approval_messages.kind CHECK")
 	msgs, err := r.Messages(f.ctx, a.ID)
 	f.must(err, "Messages")
-	m1.Ref.Chat.Kind, m2.Ref.Chat.Kind = "", ""
+	m1.Kind = core.CardMsgCard
+	for _, m := range []*core.CardMessage{&notice, &link, &m1, &m2} {
+		m.Ref.Chat.Kind = ""
+	}
 	for i := range msgs {
 		msgs[i].Ref.Chat.Kind = ""
 	}
-	// approval_messages has no ordering column, so stores may return any order.
-	slices.SortFunc(msgs, func(a, b core.CardMessage) int { return cmp.Compare(a.Ref.ID, b.Ref.ID) })
-	f.eq("Messages round trip (chat kind has no column)", msgs, []core.CardMessage{m1, m2})
+	f.eq("Messages lists full cards, truncated cards, link-only cards, then waiting lines (chat kind has no column)",
+		msgs, []core.CardMessage{m1, m2, link, notice})
 	msgs, err = r.Messages(f.ctx, b.ID)
 	f.must(err, "Messages of an approval without cards")
 	f.check(len(msgs) == 0, "Messages returned %d cards for another approval", len(msgs))
@@ -445,6 +461,33 @@ func testApprovalVisibility(f *fx) {
 	rec, err = r.Recent(f.ctx, vb, core.Page{})
 	f.must(err, "Recent")
 	f.check(len(rec) == 0, "Recent for a non-admin returned %d approvals", len(rec))
+
+	// A channel's or teammate's request goes to the team's approvers: every
+	// admin sees it, members don't, whoever started the run.
+	ch := f.space()
+	teamRun := f.run(f.session(ch.Principal), core.RunWaitingApproval)
+	team := newApproval(teamRun, core.ApprovalPending, at(4))
+	team.Approver = core.ApproverReq{Team: true, RequesterIdentity: "telegram:42"}
+	team.Decision.Approver = team.Approver
+	f.must(r.Create(f.ctx, team), "Create team approval")
+	got, err := r.Get(f.ctx, vbAdmin, team.ID)
+	f.must(err, "an admin sees a team approval")
+	f.check(got.Approver.Team && got.Approver.RequesterIdentity == "telegram:42", "team approver round trip = %+v", got.Approver)
+	_, err = r.Get(f.ctx, vb, team.ID)
+	f.want(err, core.ErrNotFound, "a member doesn't see a team approval")
+	f.eq("Pending for an admin includes team approvals", pending(vbAdmin), approvalIDs(sortBy([]*core.Approval{adminOnly, team},
+		func(x *core.Approval) core.ApprovalID { return x.ID })))
+	f.eq("Pending for a member leaves team approvals out", pending(va), approvalIDs(sortBy([]*core.Approval{plain, adminOnly},
+		func(x *core.Approval) core.ApprovalID { return x.ID })))
+
+	ok, err := r.Decide(f.ctx, team.ID, []core.ApprovalStatus{core.ApprovalPending}, core.ApprovalAllowed, core.AllowOnce,
+		core.Decider{Identity: "slack:U01SAM"}, "slack", at(5))
+	f.must(err, "Decide by a chat teammate")
+	f.check(ok, "Decide by a chat teammate returned false")
+	got, err = r.Get(f.ctx, core.SystemViewer(), team.ID)
+	f.must(err, "Get after a chat decision")
+	f.check(got.DecidedBy == "" && got.DecidedByIdentity == "slack:U01SAM" && got.DecidedVia == "slack",
+		"a chat decider reads back as DecidedByIdentity only: by %q identity %q via %q", got.DecidedBy, got.DecidedByIdentity, got.DecidedVia)
 }
 
 func testApprovalDecideCAS(f *fx) {
@@ -464,7 +507,7 @@ func testApprovalDecideCAS(f *fx) {
 			to, c = core.ApprovalDenied, core.Deny
 		}
 		wg.Go(func() {
-			wins[i], errs[i] = r.Decide(f.ctx, a.ID, from, to, c, u.ID, fmt.Sprintf("web-%d", i), at(10+i))
+			wins[i], errs[i] = r.Decide(f.ctx, a.ID, from, to, c, core.Decider{User: u.ID}, fmt.Sprintf("web-%d", i), at(10+i))
 		})
 	}
 	wg.Wait()
@@ -488,14 +531,14 @@ func testApprovalDecideCAS(f *fx) {
 	f.check(got.Status == wantStatus && got.DecidedVia == fmt.Sprintf("web-%d", winner) && got.DecidedAt.Equal(at(10+winner)),
 		"stored decision %s via %s at %v, want the winner's (%s via web-%d)", got.Status, got.DecidedVia, got.DecidedAt, wantStatus, winner)
 
-	ok, err := r.Decide(f.ctx, a.ID, from, core.ApprovalExpired, "", "", "timeout", at(99))
+	ok, err := r.Decide(f.ctx, a.ID, from, core.ApprovalExpired, "", core.Decider{}, "timeout", at(99))
 	f.must(err, "Decide after resolution")
 	f.check(!ok, "Decide on a resolved approval won")
-	ok, err = r.Decide(f.ctx, core.ApprovalID(core.NewID(core.PrefixApproval)), from, core.ApprovalAllowed, core.AllowOnce, u.ID, "web", at(99))
+	ok, err = r.Decide(f.ctx, core.ApprovalID(core.NewID(core.PrefixApproval)), from, core.ApprovalAllowed, core.AllowOnce, core.Decider{User: u.ID}, "web", at(99))
 	f.want(err, core.ErrNotFound, "Decide missing")
 	f.check(!ok, "Decide on a missing approval won")
 	other := f.approval(run, core.ApprovalPending, at(2))
-	_, err = r.Decide(f.ctx, other.ID, from, "approved", core.AllowOnce, u.ID, "web", at(99))
+	_, err = r.Decide(f.ctx, other.ID, from, "approved", core.AllowOnce, core.Decider{User: u.ID}, "web", at(99))
 	f.want(err, core.ErrInvalid, "Decide to an invalid status")
 }
 
@@ -621,6 +664,14 @@ func testGrants(f *fx) {
 	f.want(r.Revoke(f.ctx, v, g.ID, at(6)), core.ErrNotFound, "Revoke twice")
 	f.want(r.Use(f.ctx, g.ID), core.ErrConflict, "Use a revoked grant")
 	f.want(r.Revoke(f.ctx, v, core.GrantID(core.NewID(core.PrefixGrant)), at(6)), core.ErrNotFound, "Revoke missing")
+
+	person, _ := f.teammate("slack", "U77")
+	chat := &core.Grant{Principal: person.Principal, Scope: core.GrantPrincipal, Kind: core.GrantRecipient, Value: "slack:C1:",
+		MaxSE: core.SEExternalSend, CreatedByIdentity: "slack:U01SAM", CreatedAt: at(7)}
+	f.must(r.Add(f.ctx, chat), "Add a grant a chat approver created")
+	got, err = r.List(f.ctx, core.Viewer{Principals: []core.PrincipalID{person.Principal}}, "", "")
+	f.must(err, "List")
+	f.eq("a chat approver's grant reads back with CreatedByIdentity only", got, []*core.Grant{chat})
 }
 
 func testGrantsActive(f *fx) {
@@ -748,6 +799,15 @@ func testSchedules(f *fx) {
 	gotRun, err := f.s.Runs().Get(f.ctx, v, run.ID)
 	f.must(err, "Get run")
 	f.check(gotRun.Schedule == "", "runs.schedule_id is ON DELETE SET NULL, got %s", gotRun.Schedule)
+
+	ch := f.space()
+	f.schedule(ch.Principal, at(400), true)
+	f.schedule(ch.Principal, at(500), true)
+	off := f.schedule(core.UserPrincipal(other.ID), at(600), false)
+	ps, err := r.PrincipalsWithEnabled(f.ctx)
+	f.must(err, "PrincipalsWithEnabled")
+	f.check(slices.Contains(ps, ch.Principal) && !slices.Contains(ps, off.Principal) && len(ps) == len(slices.Compact(slices.Clone(ps))),
+		"PrincipalsWithEnabled = %v, want %s once and not %s", ps, ch.Principal, off.Principal)
 }
 
 func testUsage(f *fx) {
@@ -757,15 +817,21 @@ func testUsage(f *fx) {
 	f.must(r.AddSpend(f.ctx, "usr_a", day, core.CallInfo{Cost: 50}), "AddSpend")
 	f.must(r.AddSpend(f.ctx, "usr_b", day, core.CallInfo{Cost: 25}), "AddSpend")
 	f.must(r.AddSpend(f.ctx, "usr_a", "2026-05-29", core.CallInfo{Cost: 7}), "AddSpend")
+	f.must(r.AddSpend(f.ctx, "spc_eng", day, core.CallInfo{Cost: 40}), "AddSpend for a channel")
+	f.must(r.AddSpend(f.ctx, "spc_maya", day, core.CallInfo{Cost: 2}), "AddSpend for a teammate")
+	f.must(r.AddSpend(f.ctx, "spc_maya", "2026-05-29", core.CallInfo{Cost: 9}), "AddSpend for a teammate")
 	for _, c := range []struct {
-		u    core.UserID
+		p    core.PrincipalID
 		day  string
 		want core.Micros
-	}{{"usr_a", day, 150}, {"usr_b", day, 25}, {"", day, 175}, {"usr_a", "2026-05-29", 7}, {"usr_c", day, 0}} {
-		got, err := r.Spend(f.ctx, c.u, c.day)
+	}{{"usr_a", day, 150}, {"usr_b", day, 25}, {"", day, 217}, {"usr_a", "2026-05-29", 7}, {"usr_c", day, 0}, {"spc_maya", day, 2}} {
+		got, err := r.Spend(f.ctx, c.p, c.day)
 		f.must(err, "Spend")
-		f.check(got == c.want, "Spend(%q, %s) = %d, want %d", c.u, c.day, got, c.want)
+		f.check(got == c.want, "Spend(%q, %s) = %d, want %d", c.p, c.day, got, c.want)
 	}
+	team, err := r.TeamSpend(f.ctx, day)
+	f.must(err, "TeamSpend")
+	f.check(team == 42, "TeamSpend = %d, want 42 (team-owned principals only)", team)
 
 	alice := f.user(core.RoleMember)
 	bob := f.user(core.RoleMember)
@@ -785,6 +851,8 @@ func testUsage(f *fx) {
 	call(r1.ID, pa, alice.ID, core.ModelRef{Provider: "openai", Model: "b"}, "agent", 200, false, core.Usage{Input: 20, Output: 10})
 	call(r2.ID, pa, alice.ID, anthropic, "title", 300, true, core.Usage{Input: 30, Output: 15, CacheRead: 3, CacheWrite: 4})
 	call("", "", bob.ID, core.ModelRef{Provider: "ollama", Model: "c"}, "passthrough", 0, true, core.Usage{Input: 1, Output: 1})
+	ch := f.space()
+	call("", ch.Principal, "", anthropic, "notes", 5, true, core.Usage{Input: 2, Output: 2})
 
 	report := func(q core.UsageQuery) []*core.UsageRow {
 		f.t.Helper()
@@ -793,19 +861,20 @@ func testUsage(f *fx) {
 		return sortBy(ptrSlice(rows), func(x *core.UsageRow) string { return x.Key })
 	}
 	f.eq("Report by model", report(core.UsageQuery{GroupBy: "model"}), []*core.UsageRow{
-		{Key: "anthropic/a", Cost: 400, Input: 40, Output: 20, CacheRead: 4, CacheWrite: 6, Calls: 2, PriceKnown: true},
+		{Key: "anthropic/a", Cost: 405, Input: 42, Output: 22, CacheRead: 4, CacheWrite: 6, Calls: 3, PriceKnown: true},
 		{Key: "ollama/c", Cost: 0, Input: 1, Output: 1, Calls: 1, PriceKnown: true},
 		{Key: "openai/b", Cost: 200, Input: 20, Output: 10, Calls: 1, PriceKnown: false},
 	})
-	f.eq("Report by user", report(core.UsageQuery{GroupBy: "user"}), sortBy([]*core.UsageRow{
+	f.eq("Report by user falls back to the principal of calls no account paid for", report(core.UsageQuery{GroupBy: "user"}), sortBy([]*core.UsageRow{
 		{Key: string(alice.ID), Cost: 600, Input: 60, Output: 30, CacheRead: 4, CacheWrite: 6, Calls: 3, PriceKnown: false},
 		{Key: string(bob.ID), Input: 1, Output: 1, Calls: 1, PriceKnown: true},
+		{Key: string(ch.Principal), Cost: 5, Input: 2, Output: 2, Calls: 1, PriceKnown: true},
 	}, func(x *core.UsageRow) string { return x.Key }))
 	f.eq("Report of one user", report(core.UsageQuery{GroupBy: "user", User: bob.ID}), []*core.UsageRow{
 		{Key: string(bob.ID), Input: 1, Output: 1, Calls: 1, PriceKnown: true},
 	})
 	f.eq("Report by session", report(core.UsageQuery{GroupBy: "session"}), sortBy([]*core.UsageRow{
-		{Key: "", Input: 1, Output: 1, Calls: 1, PriceKnown: true},
+		{Key: "", Cost: 5, Input: 3, Output: 3, Calls: 2, PriceKnown: true},
 		{Key: string(s1.ID), Cost: 300, Input: 30, Output: 15, CacheRead: 1, CacheWrite: 2, Calls: 2, PriceKnown: false},
 		{Key: string(s2.ID), Cost: 300, Input: 30, Output: 15, CacheRead: 3, CacheWrite: 4, Calls: 1, PriceKnown: true},
 	}, func(x *core.UsageRow) string { return x.Key }))
@@ -819,12 +888,12 @@ func testUsage(f *fx) {
 		f.check(err == nil, "day key %q is not YYYY-MM-DD", row.Key)
 		calls += row.Calls
 	}
-	f.check(calls == 4, "Report by day counted %d calls, want 4", calls)
+	f.check(calls == 5, "Report by day counted %d calls, want 5", calls)
 	y2k, y3k := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(3000, 1, 1, 0, 0, 0, 0, time.UTC)
 	f.check(len(report(core.UsageQuery{GroupBy: "user", From: y3k})) == 0, "Report From the future returned rows")
 	f.check(len(report(core.UsageQuery{GroupBy: "user", To: y2k})) == 0, "Report To the past returned rows")
-	f.check(len(report(core.UsageQuery{GroupBy: "user", From: y2k, To: y3k})) == 2, "Report over all time lost rows")
-	_, err := r.Report(f.ctx, core.UsageQuery{GroupBy: "week"})
+	f.check(len(report(core.UsageQuery{GroupBy: "user", From: y2k, To: y3k})) == 3, "Report over all time lost rows")
+	_, err = r.Report(f.ctx, core.UsageQuery{GroupBy: "week"})
 	f.want(err, core.ErrInvalid, "Report with an unknown GroupBy")
 }
 

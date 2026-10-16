@@ -47,11 +47,11 @@ func (w *world) user(role core.Role) *core.User {
 	return u
 }
 
-func (w *world) space(owner *core.User) *core.Space {
+func (w *world) space() *core.Space {
 	w.t.Helper()
 	w.n++
-	s := &core.Space{Kind: "group", Chat: core.ChatRef{Channel: "telegram", ChatID: fmt.Sprintf("-%d", w.n), Kind: core.ChatGroup},
-		Owner: owner.ID, CreatedAt: t0, UpdatedAt: t0}
+	s := &core.Space{Kind: core.SpaceGroup, Chat: core.ChatRef{Channel: "telegram", ChatID: fmt.Sprintf("-%d", w.n), Kind: core.ChatGroup},
+		CreatedAt: t0, UpdatedAt: t0}
 	w.must(w.db.Spaces().Create(w.ctx, s, &core.Principal{}))
 	return s
 }

@@ -56,6 +56,7 @@ func defaults() *Config {
 		Budgets: Budgets{
 			DailyUSD:          5.00,
 			MemberDailyUSD:    2.00,
+			ChatSharePct:      60,
 			WarnRatio:         0.8,
 			Run:               RunBudget{MaxSteps: 25, MaxTokens: 400000, MaxTime: d(10 * time.Minute)},
 			Scheduled:         RunBudget{MaxSteps: 15, MaxTokens: 150000, MaxTime: d(15 * time.Minute), MaxUSD: 0.25},

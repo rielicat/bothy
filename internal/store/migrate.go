@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"embed"
 	"fmt"
 	"io/fs"
@@ -58,8 +59,9 @@ func loadMigrations(fsys fs.FS) ([]migration, error) {
 }
 
 // migrate applies every migration above PRAGMA user_version, each in its own
-// transaction together with the user_version bump. backup runs first when
-// anything is pending and the database already holds objects.
+// transaction together with the user_version bump and with foreign keys off
+// (applyMigration). backup runs first when anything is pending and the
+// database already holds objects.
 func migrate(ctx context.Context, db *sql.DB, ms []migration, backup func(ctx context.Context, target int) error) (int, error) {
 	var cur int
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&cur); err != nil {
@@ -91,14 +93,52 @@ func migrate(ctx context.Context, db *sql.DB, ms []migration, backup func(ctx co
 	return applied, nil
 }
 
+// restoreFK turns foreign keys back on after a migration; tests make it fail.
+var restoreFK = func(ctx context.Context, conn *sql.Conn) error { return setFK(ctx, conn, true) }
+
+// applyMigration runs m on its own writer connection with foreign keys off:
+// rebuilding a table other tables reference would otherwise cascade into
+// them, and PRAGMA foreign_keys is a no-op inside a transaction. It commits
+// only when the migration added no foreign key violation, and never returns
+// the connection to the pool with foreign keys off.
 func applyMigration(ctx context.Context, db *sql.DB, m migration) error {
-	tx, err := db.BeginTx(ctx, nil)
+	wrap := func(err error) error { return fmt.Errorf("store: migration %s: %w", m.name, err) }
+	conn, err := db.Conn(ctx)
 	if err != nil {
-		return fmt.Errorf("store: migration %s: %w", m.name, err)
+		return wrap(err)
+	}
+	healthy := false
+	defer func() {
+		if !healthy {
+			// database/sql would hand this connection out again; dropping it
+			// makes its replacement apply the DSN's foreign_keys(ON).
+			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+		}
+		_ = conn.Close()
+	}()
+	if err := setFK(ctx, conn, false); err != nil {
+		return wrap(err)
+	}
+	before, err := fkViolations(ctx, conn)
+	if err != nil {
+		return wrap(err)
+	}
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return wrap(err)
 	}
 	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.ExecContext(ctx, m.sql); err != nil {
-		return fmt.Errorf("store: migration %s: %w", m.name, err)
+		return wrap(err)
+	}
+	after, err := fkViolations(ctx, tx)
+	if err != nil {
+		return wrap(err)
+	}
+	for k, n := range after {
+		if n > before[k] {
+			return wrap(fmt.Errorf("foreign key violation in %s", k))
+		}
 	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", m.version)); err != nil {
 		return fmt.Errorf("store: migration %s: set user_version: %w", m.name, err)
@@ -106,7 +146,60 @@ func applyMigration(ctx context.Context, db *sql.DB, m migration) error {
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("store: migration %s: commit: %w", m.name, err)
 	}
+	if err := restoreFK(context.WithoutCancel(ctx), conn); err != nil {
+		return wrap(err)
+	}
+	healthy = true
 	return nil
+}
+
+// setFK sets PRAGMA foreign_keys on conn and reads it back: the pragma is
+// silently ignored where it cannot apply.
+func setFK(ctx context.Context, conn *sql.Conn, on bool) error {
+	want := 0
+	if on {
+		want = 1
+	}
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf("PRAGMA foreign_keys = %d", want)); err != nil {
+		return fmt.Errorf("set foreign_keys: %w", err)
+	}
+	var got int
+	if err := conn.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&got); err != nil {
+		return fmt.Errorf("read foreign_keys: %w", err)
+	}
+	if got != want {
+		return fmt.Errorf("foreign_keys is %d, want %d", got, want)
+	}
+	return nil
+}
+
+type rowQuerier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+// fkViolations counts PRAGMA foreign_key_check rows per (table, parent, fk
+// id). A WITHOUT ROWID child reports a NULL rowid, so rows can't be told
+// apart one by one; counts can.
+func fkViolations(ctx context.Context, q rowQuerier) (map[string]int, error) {
+	rows, err := q.QueryContext(ctx, "PRAGMA foreign_key_check")
+	if err != nil {
+		return nil, fmt.Errorf("foreign_key_check: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]int{}
+	for rows.Next() {
+		var table, parent string
+		var rowid sql.NullInt64
+		var fkid int
+		if err := rows.Scan(&table, &rowid, &parent, &fkid); err != nil {
+			return nil, fmt.Errorf("foreign_key_check: %w", err)
+		}
+		out[fmt.Sprintf("%s|%s|%d", table, parent, fkid)]++
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("foreign_key_check: %w", err)
+	}
+	return out, nil
 }
 
 const backupTimeFormat = "20060102T150405.000Z"

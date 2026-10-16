@@ -73,6 +73,12 @@ func (an *auditNamer) approvalPhrase(e *core.AuditEntry, d auditDetail) phrase {
 // auditDetail reads the redacted detail object of a row.
 type auditDetail map[string]any
 
+// num reads a JSON number of a row's detail; anything else is 0.
+func num(v any) float64 {
+	f, _ := v.(float64)
+	return f
+}
+
 func (d auditDetail) str(k string) string {
 	switch v := d[k].(type) {
 	case string:
@@ -237,14 +243,35 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 			return "Posted a link code in a group that didn't work"
 		}
 		return "Cancelled a chat link code that was posted in a group"
-	case "identity.link", "identity.guest", "identity.block", "identity.unlink":
+	case "identity.link", "identity.guest", "identity.block", "identity.unlink", "identity.teammate", "identity.let_in",
+		"identity.unblock", "identity.approver", "identity.forget":
 		ch, ext, _ := strings.Cut(strings.TrimPrefix(e.Target, "channel:"), ":")
-		// An unlinked identity is gone from the store; the detail's user names it.
-		who := cmpOr(an.identity(ch, ext), an.user(core.UserID(d.str("user"))), "an account")
-		if app := viaNames[ch]; app != "" {
+		// Rows from before 0012 name an unlinked identity by its user.
+		who := cmpOr(an.identity(ch, ext), an.user(core.UserID(d.str("user"))), "someone")
+		app := viaNames[ch]
+		if app != "" {
 			who += " on " + app
 		}
 		switch e.Action {
+		case "identity.teammate":
+			if app == "" {
+				return "Started using Bothy"
+			}
+			return "Started using Bothy on " + app
+		case "identity.let_in":
+			return "Let " + who + " in"
+		case "identity.unblock":
+			return "Unblocked " + who
+		case "identity.approver":
+			switch {
+			case d.str("via") == string(core.ViaMembership):
+				return capitalise(who) + " can't approve any more: they're no longer in the team"
+			case d["can_approve"] == true:
+				return "Let " + who + " approve requests"
+			}
+			return "Stopped " + who + " approving requests"
+		case "identity.forget":
+			return "Deleted the data of " + who
 		case "identity.guest":
 			return "Let " + who + " chat as a guest"
 		case "identity.block":
@@ -254,10 +281,31 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 		}
 		return "Linked " + who
 	case "space.update":
-		if sp, err := an.s.d.Store.Spaces().Get(an.ctx, an.av, core.PrincipalID(strings.TrimPrefix(e.Target, "space:"))); err == nil && sp.Title != "" {
-			return "Changed the group chat " + sp.Title
+		title := ""
+		if sp, err := an.s.d.Store.Spaces().Get(an.ctx, an.av, core.PrincipalID(strings.TrimPrefix(e.Target, "space:"))); err == nil {
+			title = sp.Title
 		}
-		return "Changed a group chat"
+		switch {
+		case title == "":
+			return "Changed a channel"
+		case d["enabled"] == true:
+			return "Turned on Bothy in " + title
+		case d["enabled"] == false:
+			return "Turned off Bothy in " + title
+		}
+		return "Changed the channel " + title
+	case "tool.read":
+		line := "Read " + cmpOr(d.str("target"), "something")
+		if t := d.str("tool"); t != "" {
+			line += " with " + t
+		}
+		if who := an.principal(core.PrincipalID(e.Target)); who != "" {
+			line += " for " + who
+		}
+		return line
+	case "migration.team_access":
+		return "Moved people in chat apps off linked accounts: " + plural(int(num(d["linked"])), "account", "accounts") + ", " +
+			plural(int(num(d["guests"])), "guest", "guests") + ", " + plural(int(num(d["approvers"])), "approver", "approvers")
 	case "persona.update":
 		return "Changed Bothy's personality"
 	case "vault.put":

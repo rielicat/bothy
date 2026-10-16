@@ -680,9 +680,6 @@ func TestOutboundEdgeCases(t *testing.T) {
 	if err := f.a.Typing(ctx, chat); err != nil || f.a.Caps().Typing {
 		t.Fatalf("Typing = %v with Caps.Typing %v, want a no-op", err, f.a.Caps().Typing)
 	}
-	if f.a.DeepLink("CODE") != "" {
-		t.Fatal("DeepLink should be unsupported")
-	}
 	if err := f.a.Ack(ctx, core.ActionEvent{AckRef: f.srv.URL()}, ""); err != nil {
 		t.Fatalf("Ack without toast = %v", err)
 	}

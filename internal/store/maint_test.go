@@ -176,9 +176,6 @@ func TestRetention(t *testing.T) {
 	}
 	w.must(db.AuthSessions().Create(ctx, &core.AuthSession{IDHash: []byte("expired"), User: u.ID, Expires: now.Add(-time.Minute), IdleExpires: now.Add(time.Hour)}))
 	w.must(db.AuthSessions().Create(ctx, &core.AuthSession{IDHash: []byte("live"), User: u.ID, Expires: now.Add(time.Hour), IdleExpires: now.Add(time.Hour)}))
-	w.must(db.Pairings().Create(ctx, &core.Pairing{CodeHash: []byte("used-old"), Purpose: core.PairLinkIdentity, ExpiresAt: now.Add(day), UsedAt: now.Add(-8 * day)}))
-	w.must(db.Pairings().Create(ctx, &core.Pairing{CodeHash: []byte("expired-old"), Purpose: core.PairLinkIdentity, ExpiresAt: now.Add(-8 * day)}))
-	w.must(db.Pairings().Create(ctx, &core.Pairing{CodeHash: []byte("fresh"), Purpose: core.PairLinkIdentity, ExpiresAt: now.Add(-day)}))
 
 	s := w.session(pu)
 	oldDone := &core.Run{Session: s.ID, Principal: pu, User: u.ID, Trigger: core.TrigMessage, Status: core.RunDone, CreatedAt: now.Add(-40 * day)}
@@ -224,10 +221,6 @@ func TestRetention(t *testing.T) {
 	}
 	if _, err := db.AuthSessions().Get(ctx, []byte("live")); err != nil {
 		t.Error("live auth session pruned")
-	}
-	var codes int
-	if err := db.r.QueryRow(`SELECT count(*) FROM pairing_codes`).Scan(&codes); err != nil || codes != 1 {
-		t.Errorf("pairing codes left = %d, %v; want only the recent one", codes, err)
 	}
 	for r, want := range map[*core.Run]bool{oldDone: false, oldParked: true, newDone: true} {
 		_, err := db.Runs().Get(ctx, core.SystemViewer(), r.ID)

@@ -70,10 +70,10 @@ func discoverBox(server string) string { return core.DerivedID(core.PrefixBox, "
 func installBox(server string) string { return core.DerivedID(core.PrefixBox, "mcp-install:"+server) }
 
 // vaultUser is whose vault scope resolves an HTTP server's headers for a run:
-// the billing user, or the global scope only for space principals, which have
-// no vault scope.
+// the account's own, or the global scope only for team-owned principals
+// (channels, teammates), which have no vault scope.
 func vaultUser(env *core.ToolEnv) core.UserID {
-	if env.Principal.Kind == core.PrincipalSpace {
+	if env.Principal.Kind != core.PrincipalUser {
 		return ""
 	}
 	return env.User

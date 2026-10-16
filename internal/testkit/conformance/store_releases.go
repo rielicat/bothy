@@ -121,7 +121,7 @@ func testApprovalVoteTx(f *fx) {
 				if err != nil || core.AllowVotes(votes, cur.Approver) < 2 {
 					return err
 				}
-				ok, err := s.Approvals().Decide(f.ctx, a.ID, []core.ApprovalStatus{core.ApprovalPending}, core.ApprovalAllowed, core.AllowOnce, u.ID, "web", at(11))
+				ok, err := s.Approvals().Decide(f.ctx, a.ID, []core.ApprovalStatus{core.ApprovalPending}, core.ApprovalAllowed, core.AllowOnce, core.Decider{User: u.ID}, "web", at(11))
 				if err == nil && !ok {
 					err = errDecided
 				}

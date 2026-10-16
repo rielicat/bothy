@@ -58,8 +58,9 @@ func (a *adapter) eventJob(e slackevents.EventsAPIEvent) job {
 }
 
 func (a *adapter) fromMention(e *slackevents.AppMentionEvent) (core.Inbound, bool) {
-	self, selfBot := a.self()
-	if e.User == "" || e.User == self || (selfBot != "" && e.BotID == selfBot) {
+	self, _ := a.self()
+	// Other apps and workflows post with a bot_id; Bothy answers people only.
+	if e.User == "" || e.User == self || e.BotID != "" {
 		return core.Inbound{}, false
 	}
 	text, _ := stripMention(e.Text, self)
@@ -67,7 +68,6 @@ func (a *adapter) fromMention(e *slackevents.AppMentionEvent) (core.Inbound, boo
 		Chat:        chatRef(e.Channel, "", e.ThreadTimeStamp),
 		MsgID:       e.Channel + ":" + e.TimeStamp,
 		SenderID:    e.User,
-		SenderIsBot: e.BotID != "",
 		Text:        plainText(text),
 		Mentioned:   true,
 		Attachments: attachments(e.Files),
@@ -82,18 +82,17 @@ func (a *adapter) fromMessage(e *slackevents.MessageEvent) (core.Inbound, bool) 
 	default: // edits, deletions, joins and other bots' bot_message posts
 		return core.Inbound{}, false
 	}
-	self, selfBot := a.self()
-	if e.User == "" || e.User == self || (selfBot != "" && e.BotID == selfBot) {
+	self, _ := a.self()
+	if e.User == "" || e.User == self || e.BotID != "" || e.Message != nil && (e.Message.BotID != "" || e.Message.BotProfile != nil) {
 		return core.Inbound{}, false
 	}
 	text, mentioned := stripMention(e.Text, self)
 	in := core.Inbound{
-		Chat:        chatRef(e.Channel, e.ChannelType, e.ThreadTimeStamp),
-		MsgID:       e.Channel + ":" + e.TimeStamp,
-		SenderID:    e.User,
-		SenderIsBot: e.BotID != "",
-		Text:        plainText(text),
-		At:          tsTime(e.TimeStamp),
+		Chat:     chatRef(e.Channel, e.ChannelType, e.ThreadTimeStamp),
+		MsgID:    e.Channel + ":" + e.TimeStamp,
+		SenderID: e.User,
+		Text:     plainText(text),
+		At:       tsTime(e.TimeStamp),
 	}
 	if e.Message != nil {
 		in.Attachments = attachments(e.Message.Files)
@@ -297,24 +296,12 @@ func (a *adapter) userNames(ctx context.Context, id string) (display, handle str
 	if e, ok := a.names.get(id, a.clock.Now()); ok {
 		return e.display, e.handle
 	}
-	var e nameEntry
-	api, err := a.client(ctx)
-	if err == nil {
-		lctx, cancel := context.WithTimeout(ctx, lookupTimeout)
-		var u *slack.User
-		u, err = api.GetUserInfoContext(lctx, id)
-		cancel()
-		if err == nil {
-			e.handle = u.Name
-			e.display = either(either(u.Profile.DisplayName, u.RealName), u.Name)
-		}
-	}
-	ttl := nameTTL
-	if err != nil {
+	if _, err := a.userInfo(ctx, id); err != nil {
 		a.log.Warn("slack: users.info failed", "user", id, "err", err)
-		ttl = nameMissTTL
+		a.names.put(id, nameEntry{}, a.clock.Now().Add(nameMissTTL))
+		return "", ""
 	}
-	a.names.put(id, e, a.clock.Now().Add(ttl))
+	e, _ := a.names.get(id, a.clock.Now())
 	return e.display, e.handle
 }
 

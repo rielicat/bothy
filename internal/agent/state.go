@@ -44,7 +44,8 @@ type runState struct {
 	// Owned by the run goroutine.
 	sess       *core.Session
 	principal  *core.Principal
-	user       *core.User
+	user       *core.User // nil for a team-owned principal
+	role       core.Role  // the account's role; member for a team-owned principal
 	slot       core.Slot
 	override   *core.ModelRef
 	chain      []core.ModelInfo
@@ -172,6 +173,16 @@ func (rs *runState) detach() {
 	rs.emitMu.Unlock()
 }
 
+// semKey keys agent.max_runs_per_user: an account's runs share its slots,
+// and each team-owned principal (a teammate, a channel) has slots of its
+// own, so a whole team never shares one person's two.
+func semKey(req core.RunRequest) string {
+	if req.User != "" {
+		return string(req.User)
+	}
+	return "p:" + string(req.Principal)
+}
+
 // acquire takes the per-user slot, then the global one, so a user at their
 // limit never holds a global slot (SPEC §5.4).
 func (rs *runState) acquire(ctx context.Context) error {
@@ -180,7 +191,7 @@ func (rs *runState) acquire(ctx context.Context) error {
 		rs.publish(core.EvRunQueued, core.RunQueuedData{Position: pos})
 		rs.publish(core.EvRunStatus, core.RunStatusData{Status: "queued", Detail: plural(pos, "run") + " ahead"})
 	}
-	us := r.userSem(rs.req.User)
+	us := r.userSem(semKey(rs.req))
 	rs.mu.Lock()
 	needUser, needGlobal := !rs.userHeld, !rs.globalHeld
 	rs.mu.Unlock()
@@ -212,7 +223,7 @@ func (rs *runState) releaseSems() {
 		rs.r.global.release()
 	}
 	if u {
-		rs.r.userSem(rs.req.User).release()
+		rs.r.userSem(semKey(rs.req)).release()
 	}
 }
 

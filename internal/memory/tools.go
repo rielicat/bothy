@@ -62,10 +62,12 @@ func newAction(tool string, kind core.ActionKind, se core.SideEffect, payload an
 	}, nil
 }
 
-// userOnly hides both tools from space principals, including "standard"
-// spaces that registry filtering alone would let through: spaces have no
-// memory and no account-wide history.
-func userOnly(env *core.ToolEnv) bool { return env.Principal.Kind == core.PrincipalUser }
+// userOnly hides both tools from channels, including "standard" ones that
+// registry filtering alone would let through: channels have no memory and
+// no history of their own. Accounts and teammates have both.
+func userOnly(env *core.ToolEnv) bool {
+	return env.Principal.Kind == core.PrincipalUser || env.Principal.Kind == core.PrincipalPerson
+}
 
 // ---- memory ----
 
@@ -103,7 +105,7 @@ func (t *memoryTool) Enabled(env *core.ToolEnv) bool { return userOnly(env) }
 
 // Plan dry-runs the op against the current file so a missing entry or a full
 // file fails before any approval card is shown; Exec re-checks under the lock.
-func (t *memoryTool) Plan(_ context.Context, env *core.ToolEnv, args json.RawMessage) (*core.Action, error) {
+func (t *memoryTool) Plan(ctx context.Context, env *core.ToolEnv, args json.RawMessage) (*core.Action, error) {
 	var a core.MemoryOp
 	if err := decodeArgs(args, &a); err != nil {
 		return nil, err
@@ -113,8 +115,11 @@ func (t *memoryTool) Plan(_ context.Context, env *core.ToolEnv, args json.RawMes
 		return nil, err
 	}
 	p := env.Principal.ID
-	if err := checkPrincipal(p); err != nil {
+	if _, err := t.s.checkPrincipal(ctx, p); err != nil {
 		return nil, err
+	}
+	if env.Principal.Kind == core.PrincipalPerson && op.File == core.FileHeartbeat {
+		return nil, errTeammateHeartbeat
 	}
 	before, err := t.s.readFile(p, op.File)
 	if err != nil {

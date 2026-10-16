@@ -3,6 +3,8 @@ package auth
 import (
 	"fmt"
 	"time"
+
+	"github.com/rielicat/bothy/internal/core"
 )
 
 // AuthError is returned when credentials (password, cookie, token, setup
@@ -23,6 +25,15 @@ var (
 	errSetupToken  = unauthenticated("invalid or expired setup token")
 	errSetupGrant  = unauthenticated("setup session expired: claim the setup token again")
 )
+
+// refusal is an ErrInvalid whose message is a whole sentence an admin reads
+// as written (docs/design/ui.md §14), so it carries no sentinel prefix.
+type refusal struct{ msg string }
+
+func (e *refusal) Error() string { return e.msg }
+func (e *refusal) Unwrap() error { return core.ErrInvalid }
+
+func refuse(format string, args ...any) error { return &refusal{msg: fmt.Sprintf(format, args...)} }
 
 // LimitError reports a lockout or attempt limit; RetryAfter says when the
 // caller may try again.

@@ -682,8 +682,13 @@ func validateBudgets(c *Config, v *vctx) {
 	v.nonNegF("budgets.daily_usd", b.DailyUSD)
 	v.nonNegF("budgets.member_daily_usd", b.MemberDailyUSD)
 	for _, user := range keysOf(b.PerUserDailyUSD) {
-		v.nonNegF("budgets.per_user_daily_usd."+user, b.PerUserDailyUSD[user])
+		p := "budgets.per_user_daily_usd." + user
+		v.nonNegF(p, b.PerUserDailyUSD[user])
+		if app, id, chat := strings.Cut(user, ":"); chat && (!slices.Contains([]string{"telegram", "discord", "slack"}, app) || id == "") {
+			v.add(p, "a key is a username or <app>:<id> for a person in a chat app (telegram, discord or slack), got %q", user)
+		}
 	}
+	v.intRange("budgets.chat_share_pct", b.ChatSharePct, 1, 100)
 	v.ratio("budgets.warn_ratio", b.WarnRatio)
 	for _, r := range []struct {
 		path string

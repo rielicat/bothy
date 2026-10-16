@@ -14,15 +14,10 @@ type ProfileUpdate struct {
 	DisplayName *string
 	// Timezone is an IANA name; the person's new schedules and chats use it.
 	Timezone *string
-	// PreferredChat is a chat app the person has linked, or "" for the
-	// linked one they used last.
-	PreferredChat    *string
-	ApprovalsWebOnly *bool
 }
 
-// UpdateProfile changes the caller's own name, time zone and where Bothy
-// reaches them. It needs no admin: the account changed is always the
-// caller's.
+// UpdateProfile changes the caller's own name and time zone. It needs no
+// admin: the account changed is always the caller's.
 func (s *Service) UpdateProfile(ctx context.Context, by core.Actor, p ProfileUpdate) (*core.User, error) {
 	cur, err := s.store.Users().Get(ctx, by.User)
 	if err != nil {
@@ -54,24 +49,6 @@ func (s *Service) UpdateProfile(ctx context.Context, by core.Actor, p ProfileUpd
 			next.Timezone, changed["timezone"] = tz, tz
 		}
 	}
-	if p.PreferredChat != nil {
-		ch := *p.PreferredChat
-		if ch != "" {
-			ok, err := s.linkedOn(ctx, by.User, ch)
-			if err != nil {
-				return nil, err
-			}
-			if !ok {
-				return nil, fmt.Errorf("%w: link %s to your account first", core.ErrInvalid, ch)
-			}
-		}
-		if ch != cur.PreferredChat {
-			next.PreferredChat, changed["preferred_chat"] = ch, ch
-		}
-	}
-	if p.ApprovalsWebOnly != nil && *p.ApprovalsWebOnly != cur.ApprovalsWebOnly {
-		next.ApprovalsWebOnly, changed["approvals_web_only"] = *p.ApprovalsWebOnly, *p.ApprovalsWebOnly
-	}
 	if len(changed) == 0 {
 		return cur, nil
 	}
@@ -101,21 +78,6 @@ func (s *Service) nameFree(ctx context.Context, self core.UserID, name string) e
 		}
 	}
 	return nil
-}
-
-// linkedOn reports whether u has a linked identity on channel that Bothy
-// can message (a known DM).
-func (s *Service) linkedOn(ctx context.Context, u core.UserID, channel string) (bool, error) {
-	ids, err := s.store.Identities().ForUser(ctx, u)
-	if err != nil {
-		return false, err
-	}
-	for _, id := range ids {
-		if id.Status == core.IdentityLinked && id.User == u && id.Channel == channel && id.DMChat != "" {
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 // renamePrincipal keeps the user principal's name, which the agent's

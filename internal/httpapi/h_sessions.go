@@ -521,13 +521,33 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, a core.
 	return ok(w, ap)
 }
 
+// listGrants lists the grants the caller may see (admins: everyone's,
+// teammates' and channels' too), with whom they cover and who made them.
 func (s *Server) listGrants(w http.ResponseWriter, r *http.Request, a core.Actor) error {
+	ctx := r.Context()
 	q := r.URL.Query()
-	gs, err := s.d.Store.Grants().List(r.Context(), a.Viewer, core.GrantScope(q.Get("scope")), q.Get("scope_id"))
+	v := a.Viewer
+	if isAdmin(a) {
+		av, err := s.adminViewer(ctx, a)
+		if err != nil {
+			return err
+		}
+		v = av
+	}
+	gs, err := s.d.Store.Grants().List(ctx, v, core.GrantScope(q.Get("scope")), q.Get("scope_id"))
 	if err != nil {
 		return err
 	}
-	return ok(w, nonNil(gs))
+	n := s.namer(ctx, v)
+	out := make([]dto.GrantView, 0, len(gs))
+	for _, g := range gs {
+		gv := dto.GrantView{Grant: *g, PrincipalName: n.principal(g.Principal), CreatedByName: n.user(g.CreatedBy)}
+		if g.CreatedByIdentity != "" {
+			gv.CreatedByName = n.chatPerson(g.CreatedByIdentity)
+		}
+		out = append(out, gv)
+	}
+	return ok(w, out)
 }
 
 // validGrant rejects grants that are not narrow: whole-tool grants, admin
