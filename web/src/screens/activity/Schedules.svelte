@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Button, EmptyState, IconButton, Menu, Switch, toast, type MenuItem } from '../../components/ui';
+  import { Button, EmptyState, IconButton, Menu, StatusLine, Switch, toast, type MenuItem } from '../../components/ui';
   import { api } from '../../lib/api/client';
   import type { List, Schedule, SchedulePreviewResp, ScheduleRunData, TeamSchedule } from '../../lib/api/types.gen';
   import { appName } from '../../lib/cardcopy';
@@ -24,14 +24,24 @@
   let removing = $state<Schedule | null>(null);
   // Admins also manage the schedules people set up in chat apps (§10.3).
   let team = $state<TeamSchedule[]>([]);
+  let teamFailed = $state(false);
   let removingTeam = $state<TeamSchedule | null>(null);
+
+  async function loadTeam() {
+    try {
+      team = await api.get<TeamSchedule[]>('/api/team/schedules');
+      teamFailed = false;
+    } catch {
+      teamFailed = true;
+    }
+  }
 
   async function load() {
     failed = false;
     try {
       const l = await api.get<Schedule[]>('/api/schedules');
       list = l;
-      if (session.isAdmin) api.get<TeamSchedule[]>('/api/team/schedules').then((t) => (team = t), () => {});
+      if (session.isAdmin) void loadTeam();
       for (const s of l) {
         if (s.kind === 'cron' && fromSpec(s.kind, s.spec, s.tz).kind === 'custom')
           void api.post<SchedulePreviewResp>('/api/schedules/preview', { kind: s.kind, spec: s.spec, tz: s.tz }).then((p) => (custom[s.id] = localTimes(p.human.replace(/ \([^)]*\)$/, ''))), () => {});
@@ -158,25 +168,29 @@
     {#if !others.length}
       <EmptyState class="mt-6" text="Bothy can do things on a schedule, like a Monday summary of open pull requests." action={{ label: 'New schedule', href: '/activity/schedules/new' }} />
     {/if}
-    {#if team.length}
+    {#if team.length || teamFailed}
       <section class="mt-10" aria-labelledby="team-schedules">
         <h2 id="team-schedules" class="section-title">In chat apps</h2>
         <p class="mt-1 text-small text-muted">Schedules people set up in chat apps. Their results go to that chat.</p>
-        <ul class="mt-2">
-          {#each team as t (t.id)}
-            <li class="flex min-h-14 items-center gap-3 border-b border-border py-2 last:border-b-0">
-              <div class="min-w-0 flex-1">
-                <p class="text-body font-medium text-text [overflow-wrap:anywhere]" data-copy-ignore>{t.name}</p>
-                <p class="text-small text-muted">
-                  <span data-copy-ignore>{t.owner}</span> · {appName(t.app)} · {when(t)} · {t.enabled && t.next_run_at ? `Next: ${nextRun(t.next_run_at, t.tz)}` : 'Off'}
-                </p>
-                {#if errors[t.id]}<p class="text-small text-danger-text" role="alert">{errors[t.id]}</p>{/if}
-              </div>
-              <Switch label="Turn on {t.name}" hideLabel checked={t.enabled} onchange={(on) => toggleTeam(t, on)} />
-              <Button size="sm" variant="ghost" aria-label="Delete {t.name}…" onclick={() => (removingTeam = t)}>Delete…</Button>
-            </li>
-          {/each}
-        </ul>
+        {#if teamFailed}
+          <StatusLine class="mt-3" tone="danger" text="These schedules didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: loadTeam }} />
+        {:else}
+          <ul class="mt-2">
+            {#each team as t (t.id)}
+              <li class="flex min-h-14 items-center gap-3 border-b border-border py-2 last:border-b-0">
+                <div class="min-w-0 flex-1">
+                  <p class="text-body font-medium text-text [overflow-wrap:anywhere]" data-copy-ignore>{t.name}</p>
+                  <p class="text-small text-muted">
+                    <span data-copy-ignore>{t.owner}</span> · {appName(t.app)} · {when(t)} · {!t.enabled ? 'Off' : t.next_run_at ? `Next: ${nextRun(t.next_run_at, t.tz)}` : 'Not scheduled'}
+                  </p>
+                  {#if errors[t.id]}<p class="text-small text-danger-text" role="alert">{errors[t.id]}</p>{/if}
+                </div>
+                <Switch label={t.name} hideLabel checked={t.enabled} onchange={(on) => toggleTeam(t, on)} />
+                <Button size="sm" variant="ghost" aria-label="Delete {t.name}…" onclick={() => (removingTeam = t)}>Delete…</Button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
       </section>
     {/if}
   {/if}
