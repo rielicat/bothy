@@ -595,9 +595,9 @@ export interface GitHubOwnApp {
   slug: string;
   name: string;
   owner: string;
-  owner_id: number /* int64 */; // GitHub's id of the owner account, which a rename keeps; installations must be on it
+  owner_id: number /* int64 */; // GitHub's id of the owner account, which a rename keeps and a transfer changes (GET /app); installations must be on it
   owner_type: string; // Organization | User
-  html_url: string; // GitHub's: <web>/apps/<slug>, or <web>/github-apps/<slug> on Enterprise Server
+  html_url: string; // <web> + GitHub's path for it: /apps/<slug>, or /github-apps/<slug> on Enterprise Server
   client_id: string;
   key_ref: string; // "secret:github_<id>_key"; "" once retired
   client_secret_ref: string; // "secret:github_<id>_client_secret"; kept for a possible GitHub sign-in, unused today
