@@ -63,7 +63,9 @@ where Hermes and OpenClaw are far ahead.
 
 - No unauthenticated mode. A one-time setup token is printed at first boot;
   the compose file publishes the port on loopback only, and plain HTTP is
-  refused to non-local peers.
+  refused to non-local peers. Your team can sign in with Google or GitHub,
+  limited to the addresses, domains and GitHub organizations you list
+  ([guide](docs/deploy/sign-in.md)); passwords stay as the fallback.
 - Tools run in throwaway containers with `--network none`, a read-only root,
   no capabilities, uid 10001, and gVisor when it is installed. The gateway
   never holds the Docker socket; a separate sidecar exposes only a fixed,

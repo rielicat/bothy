@@ -567,7 +567,7 @@ On phones and tablets `/settings` is a list page of the same groups; each group 
 | `/activity/audit` | Audit log (admins) |
 | `/settings` | Group list (phones) or redirect to `/settings/general` (admins) / `/settings/account` (members) |
 | `/settings/:group` | `account`, `general`, `models`, `connections`, `people`, `security`, `advanced` |
-| `/settings/:group/:item` | `general/personality`; `account/keys` (everyone); `connections/{slack,discord,telegram,github,search,mcp-<name>}`; `security/{permissions,websites,keys}` |
+| `/settings/:group/:item` | `general/personality`; `account/keys` (everyone); `connections/{slack,discord,telegram,github,search,mcp-<name>}`; `security/{permissions,websites,keys,google-sign-in,github-sign-in}` |
 
 Patterns never overlap: owners of repositories can be called anything, so project notes live under `/knowledge/projects/`.
 
@@ -1009,12 +1009,17 @@ Give teammates their own sign-in.
 Bothy
 
 Sign in
+[ Continue with Google ]                  secondary, h-10 (44 px on touch), max-sm:w-full; only providers an admin turned on
+[ Continue with GitHub ]
+──────────────── or ────────────────      hairline + text-small muted "or"; only when a provider shows
 Username
 [                                        ]
 Password                                                 Show
 [                                        ]
 [ Sign in ]
 ```
+
+The provider buttons (SPEC §15) are text only, no logos (§2.1). A click asks the server to start (`POST /api/auth/oauth/{p}/start` with `next`) and opens the provider's page; while it leaves the button reads "Opening Google…". The provider sends the person back through the server, which signs them in and lands on `next`, or returns to `/login?signin_error=…&provider=…`. The reason shows once, in the alert slot above the buttons, and the address is cleaned (`next` kept) so a reload doesn't repeat it. Password sign-in is always there.
 
 | Case | Copy |
 |---|---|
@@ -1023,6 +1028,14 @@ Password                                                 Show
 | Account turned off | "This account is turned off. Ask an admin to turn it back on." |
 | Signed out by expiry | Notice above the form: "You were signed out. Sign in again to continue." |
 | Network | "Bothy didn't respond. Check your connection, then try again." |
+| Provider: cancelled | "Signing in with {Google} was cancelled." |
+| Provider: expired | "That sign-in took too long or was started in another tab. Try again." |
+| Provider: not on the list | "{pat@gmail.com / @octo} isn't on this Bothy's sign-in list. Ask an admin to add you." The account comes from the server's redirect and shows only when it looks like an address or a login, else "That {Google} account isn't…". The list itself is never shown. |
+| Provider: GitHub organization restricts Bothy | "Your GitHub organization hasn't approved Bothy yet. Ask an organization owner to approve it, then try again." |
+| Provider: on the list, no account yet | "No Bothy account uses that {Google} account yet. Sign in with your password and connect it in Account, or ask an admin." |
+| Provider: account turned off | "This account is turned off. Ask an admin to turn it back on." |
+| Provider: anything else | "{Google} sign-in isn't working right now. Sign in with your username and password, or ask an admin." |
+| Opened at another address | "Open Bothy at {bothy.acme.com} to sign in with {Google}." + link button "Go there" |
 
 **Choose a new password** (`/password`, after signing in with a one-time password, S9): title "Choose a new password", sentence "You signed in with a one-time password. Choose your own to continue.", one password field with the Step 1 help text, button "Save and continue".
 
@@ -1901,7 +1914,8 @@ Page title is the group name, no subtitle.
 | Profile | Name | text |
 | | Username | read-only plain text (no border) |
 | | Time zone | searchable `Combobox` (cities, as in General); help "Bothy uses it in your chats and for new schedules."; when this browser's zone differs, a second line "This browser uses {Santiago (America)}." + link button "Use it" (saves it). Saves on choosing, through `PATCH /api/me`; a refused zone says "Bothy doesn't know that time zone. Choose one from the list." |
-| | Password | secondary "Change password…" → dialog: Current password, New password (Step 1 help text), [Save password] |
+| | Password | secondary "Change password…" → dialog: Current password, New password (Step 1 help text), [Save password]. An account made by Google or GitHub sign-in has no password: plain text "Not set. You sign in with Google." ("with Google or GitHub" when both are connected), no button |
+| Sign-in methods | one row per provider an admin turned on, plus connected ones since turned off | "Google · maya@acme.com" + "Disconnect" (`aria-label` "Disconnect Google", no confirm, toast "Google disconnected."); "GitHub · @maya · maya@acme.com"; "GitHub · Not connected" + "Connect GitHub" (opens GitHub, comes back with the toast "GitHub connected."); a connected provider since turned off reads "{maya@acme.com} · Google sign-in is off". The section shows only when there is a row. Failures are a danger StatusLine under the rows: "That {GitHub} account is already connected to someone else here.", "You've already connected a {Google} account. Disconnect it first.", "You didn't finish connecting {Google}.", "Connecting took too long. Try again.", "You were signed out before {Google} answered. Sign in and try again.", the sign-in page's sentences for not on the list and organization approval, "{Google} didn't respond. Try again, or ask an admin to check {Google} sign-in."; disconnecting the only way in: "This is how you sign in. Ask an admin for a password before you disconnect it." |
 | Appearance | Theme | Segmented: System, Light, Dark |
 | Approvals | Requests reach you in | select: "Bothy only", then linked apps ("Slack", "Telegram", "Discord"); help "Bothy also shows them in Approvals." |
 | Linked chat apps | one row per app | "Slack · @maya in Acme" + "Unlink"; "Telegram · Not linked" + "Link" → pairing dialog (code, QR, live check "Linked as @maya.") |
@@ -1996,6 +2010,15 @@ If nobody answers a chat request            [ Deny after 15 minutes ⌄ ]
 If nobody answers a scheduled request       [ Wait up to 24 hours ⌄ ]
 Allowed without asking                      4 permissions ›
 
+Sign-in
+Who can sign in                             [ acme.com                  ]
+Email addresses or domains, like acme.com   [ pat@gmail.com             ]
+or pat@gmail.com. A domain lets in Google Workspace accounts on it and GitHub accounts with a confirmed address there.
+Create an account the first time someone on the list signs in       (off)
+People who already have an account should connect Google or GitHub in Account first.
+Google                                      On ›
+GitHub                                      Off ›
+
 Running code
 On. Code runs in an isolated workspace.                               or, when off:
 Off on this server. Bothy can't run commands or scripts.   › How to turn it on
@@ -2013,6 +2036,8 @@ Stops everything that's running and keeps anything new from starting until someo
 - **Needs attention** comes from the security audit (`fix: false`). "Fix" runs that finding's fix and appears only when one exists; "How to fix" opens Details with plain steps. The section and the attention dot disappear when there are no findings.
 - **If nobody answers** options: chats "Deny after 15 minutes", "Deny after 1 hour", "Keep waiting (up to 24 hours)"; schedules "Wait up to 24 hours", "Deny after 1 hour".
 - **"How to turn it on"** (code): "Start Bothy with the compose file from the deployment guide, which includes the isolated workspace service, then restart Bothy." The exact compose lines are in a `CodeBlock` under Details, plus "Technical details" (backend, runtime, self-test results). Limits are in Advanced.
+- **Sign-in** (SPEC §15): one list of who may sign in with Google or GitHub, shared by both. The list is a textarea, one entry per line (commas also work), saved when it loses focus; entries are lower-cased and "@acme.com" reads as the domain. Before sending it the page refuses a public mail domain ("Anyone can get an address at gmail.com. List each person's address instead.") and anything that isn't an address or a domain ("“acme” isn't an email address or a domain. Write it like acme.com or pat@gmail.com."); emptying the list while a provider relies on it says "Google sign-in is on and needs someone on the list. Turn it off first, or keep at least one entry." The switch creates member accounts for people on the list without one; outside team mode it is off and disabled with the help "Adding people needs team mode. Turn it on in Settings → Advanced." The provider rows read "Off", "On", or "Not working" (`danger-text`, on but its client secret can't be read).
+- **Google sign-in, GitHub sign-in** (`/settings/security/{google,github}-sign-in`): title "Google sign-in", back to Security. Top: a Notice when the web address can't carry sign-in ("Set Bothy's web address before turning this on. Google sends people back to it after they sign in." or "Bothy's web address must start with https:// for Google sign-in. Put Bothy behind HTTPS, then change the address in General.", both with "Open General"), when the saved secret is gone ("The saved client secret is missing. Enter it again and save.") or when saved keys are locked ("Saved keys are locked, so Google sign-in can't work. Unlock them in Saved keys." + "Open saved keys"). Then the switch "Sign in with Google" (saves on change; disabled, with the reason as help, until the web address, client ID, client secret and someone on the list are in place: "Save the details below to turn this on.", "Add who can sign in on the Security page to turn this on."; GitHub: "…, or an organization below, …") and a row "Who can sign in · 3 addresses and domains ›" back to Security. Section "Google Cloud" / "GitHub OAuth app": "Redirect URI" / "Callback URL" in a `CodeBlock` with Copy (or "Set the web address first."), help "Add this to the OAuth client's authorized redirect URIs in Google Cloud." / "Paste this as the authorization callback URL of a GitHub OAuth app.", button "Open Google Cloud ↗" / "Open GitHub ↗"; Client ID (placeholder "1234…apps.googleusercontent.com" / "Ov23li…"); Client secret: "Saved · Replace" or a password field, help "Stored encrypted. Only sent to Google." GitHub adds "Organizations (optional)", help "Members of these GitHub organizations can also sign in.", with Details: "If an organization restricts OAuth apps, an owner approves Bothy the first time a member signs in. Someone whose invitation is still pending can't sign in until they accept it." [Save] saves, then checks with the provider ("Checking with Google…"): "Saved. Google accepted the client ID and secret." / "Saved, but Google didn't accept the client ID or secret. Copy them again from Google Cloud." / "Saved, but GitHub doesn't accept this callback URL. Paste it into the OAuth app's settings." / "Saved, but Bothy couldn't reach Google to check the details."; a refused save says "Couldn't save. Try again." with the field messages under Details. Values set on the server are disabled with "This is set on the server and can't be changed here."
 - **Allowed without asking** (`/settings/security/permissions`): rows in plain words "Send messages to #eng in Slack · for Sam Patel · given in “Weekly report” · 3 days ago" + "Remove".
 - **Websites Bothy can reach** (`/settings/security/websites`): list of hosts (`text-code`) with Remove; [Add website]; "Blocked recently" rows "example.com · from “Login bug” · 2 h ago" + "Allow this site…".
 - **Saved keys** (`/settings/security/keys`): rows "Anthropic API key · used by Anthropic · last used 2 h ago" + "Replace" + `⋯` Delete… Values are write-only, never shown. [Add key] dialog: Name, Value (password field, help "Stored encrypted. Only sent to the service that uses it."). When sealed: a top row "Saved keys are locked." + [Unlock] (passphrase dialog).
@@ -2363,6 +2388,8 @@ Never use: exclamation marks, emoji, "Oops", "Whoops", "simply", "just" as fille
 | interactive (usage bucket) | "chats" |
 | raw error strings | the error formula (§14.4) |
 
+"Client ID", "client secret", "Redirect URI", "Callback URL" and "OAuth" appear only on the Google sign-in and GitHub sign-in pages (§11.6), where admins paste values between Bothy and the provider's console and must recognise the console's words.
+
 ### 14.4 The error formula
 
 **What happened. What to do.** Then at most one action and a "Details" disclosure with the raw message, verbatim, with Copy.
@@ -2590,6 +2617,9 @@ The UI never parses error strings or invents sentences from model output where s
 | S28 | `POST /api/search/test` for web search settings | §12.5 | Save, then wait for the first search | SV5 |
 | S29 | Task rows with `origin`, a plain `reason` when stopped or failed, and `refined` | §10.1, §10.2 | Origin from the chat list; "Stopped" alone | SV5 |
 | S30 | Deploy rows with requester and approver names, short sha and commit subject (untrusted: quoted, inert, never in card questions) | §10.4 | Usernames; ref only | SV5 |
+| S31 | `GET /api/auth/methods` and the provider round trip: `POST /api/auth/oauth/{p}/start` → provider → `GET /api/auth/oauth/{p}/callback`, which lands on `next` or `/login?signin_error=…&provider=…[&who=…]` | §5.9 | — (landed with SPEC §15) | — |
+| S32 | `GET /api/me/sign-ins`, `POST` and `DELETE /api/me/sign-ins/{p}` | §11.2 | — (landed with SPEC §15) | — |
+| S33 | `GET`/`PATCH /api/sign-in`, `PATCH /api/sign-in/{p}`, `POST /api/sign-in/{p}/check` | §11.6 | — (landed with SPEC §15) | — |
 
 S21–S30 landed together (SPEC §14.7, "UI state"); their fallbacks are gone from the UI.
 

@@ -156,6 +156,9 @@ SSH, SSM port forwarding or `kubectl port-forward`; on Fargate, SSM port
 forwarding through an instance in the VPC ([fargate.md](fargate.md#steps),
 step 7).
 
+**Signing in with Google or GitHub** needs `server.public_url` on HTTPS, since
+the providers send people back to it; see [sign-in.md](sign-in.md).
+
 ## Backups
 
 `bothy backup` writes a consistent tarball to `<data>/backups`: a snapshot of
