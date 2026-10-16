@@ -52,6 +52,13 @@ func (h *Hub) approvalPress(ctx context.Context, a *adapter, ev core.ActionEvent
 	if err != nil {
 		return "This button is not valid."
 	}
+	mc, checks := checkerOf(a)
+	if checks {
+		// As before a message: when what membership means here changed (the
+		// last channel of a server turned off, another workspace's token),
+		// every verdict is stale now, not within the hour.
+		h.syncScope(ctx, a, mc)
+	}
 	res, err := h.d.Auth.ResolveIdentity(ctx, a.name, ev.SenderID)
 	if err != nil {
 		return couldntRecord
@@ -107,7 +114,7 @@ func (h *Hub) approvalPress(ctx context.Context, a *adapter, ev core.ActionEvent
 	case !res.CanApprove || res.Status != core.IdentityTeammate:
 		return notApprover
 	}
-	if _, checks := checkerOf(a); checks && !h.fresh(res, core.MemberTTL) {
+	if checks && !h.fresh(res, core.MemberTTL) {
 		ident, err := h.d.Store.Identities().Get(ctx, a.name, ev.SenderID)
 		if err != nil {
 			return couldntRecord

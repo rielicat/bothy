@@ -335,7 +335,8 @@ func (ap *Approvals) authorize(ctx context.Context, a *core.Approval, r core.Res
 // authorizeChat decides a press by a teammate. The person who asked may
 // always withdraw (deny) from their own chat app; otherwise only a team
 // request can be decided in chat, by an admitted teammate an admin marked
-// "Can approve", who may not always-allow for a whole channel.
+// "Can approve" (with a verdict under ApproverFresh where the chat app
+// checks membership), who may not always-allow for a whole channel.
 func (ap *Approvals) authorizeChat(ctx context.Context, a *core.Approval, r core.Resolution) error {
 	forbid := func(why string) error {
 		return fmt.Errorf("%w: %s", core.ErrForbidden, why)
@@ -359,6 +360,12 @@ func (ap *Approvals) authorizeChat(ctx context.Context, a *core.Approval, r core
 		res.SpaceOn = sp.Enabled
 	}
 	if !res.Admitted() {
+		return forbid(notApprover)
+	}
+	// Where the chat app vouches for members, the hub renews an approver's
+	// verdict before a press; one older than a full card allows means it
+	// couldn't, and they may have left without Bothy hearing of it.
+	if id.Member == core.MemberYes && ap.clock.Now().Sub(id.MemberAt) >= core.ApproverFresh {
 		return forbid(notApprover)
 	}
 	if r.Choice == core.AllowAlways {

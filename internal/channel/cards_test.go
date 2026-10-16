@@ -532,6 +532,29 @@ func TestCardMentionsOnlyTheRequester(t *testing.T) {
 	})
 }
 
+// TestPressFollowsScopeChangeAtOnce: when what membership means changes
+// (here the Slack token moved to another workspace), a press asks again
+// at once instead of trusting a verdict from the old workspace.
+func TestPressFollowsScopeChangeAtOnce(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t, withChecker("slack")).start()
+		ap := h.teammateAsks(memberChat, "Mark")
+		card := h.ref(ap.ID, ownerChat).Ref
+		h.mc.SetScope("T2/")
+		h.mc.SetMember(ownerChat, core.Membership{Status: core.MemberOutsider})
+		calls := len(h.mc.MemberCalls())
+		if got := h.press(card, ownerChat, ap, core.AllowOnce); got != notApprover {
+			t.Fatalf("toast = %q", got)
+		}
+		if n := len(h.mc.MemberCalls()) - calls; n != 1 {
+			t.Fatalf("%d lookups for the press, want 1", n)
+		}
+		if len(h.approvals.Resolutions) != 0 {
+			t.Fatalf("resolved on a verdict from the old workspace: %+v", h.approvals.Resolutions)
+		}
+	})
+}
+
 func TestTeamCardButtonsNameThePerson(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t).start()

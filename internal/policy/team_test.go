@@ -367,8 +367,30 @@ func TestTeamAuthorize(t *testing.T) {
 		t.Errorf("the requester withdrawing an admin-only request: %v", err)
 	}
 
-	// An outsider who can still approve on paper can't press.
+	// A member verdict older than a full card allows can't approve: the
+	// hub couldn't renew it. Where the chat app can't tell (Telegram), an
+	// admin's let-in has no verdict to age.
 	id, _ := h.store.Identities().Get(h.ctx, "slack", "U9")
+	id.MemberAt = time.Now().Add(-core.ApproverFresh - time.Minute)
+	if err := h.store.Identities().Update(h.ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	old := h.teamRequest(maya, sess, "slack:U1")
+	if err := resolve(old, core.Resolution{Choice: core.AllowOnce, ByIdentity: "slack:U9", Via: "slack", ViaMsg: h.cardRef(old, "slack", "D9")}); !errors.Is(err, core.ErrForbidden) {
+		t.Errorf("a chat approver with a stale verdict: %v", err)
+	}
+	_, _ = h.teammate("telegram", "55", "Tess", true)
+	tess, _ := h.store.Identities().Get(h.ctx, "telegram", "55")
+	tess.Member, tess.MemberAt, tess.Via = core.MemberUnknown, time.Now().Add(-48*time.Hour), core.ViaAdmin
+	if err := h.store.Identities().Update(h.ctx, tess); err != nil {
+		t.Fatal(err)
+	}
+	if err := resolve(old, core.Resolution{Choice: core.AllowOnce, ByIdentity: "telegram:55", Via: "telegram", ViaMsg: h.cardRef(old, "telegram", "55")}); err != nil {
+		t.Errorf("a Telegram approver an admin let in: %v", err)
+	}
+	id.MemberAt = time.Now()
+
+	// An outsider who can still approve on paper can't press.
 	id.Member = core.MemberOutsider
 	if err := h.store.Identities().Update(h.ctx, id); err != nil {
 		t.Fatal(err)
