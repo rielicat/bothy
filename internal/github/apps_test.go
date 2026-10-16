@@ -751,6 +751,41 @@ func TestCheckApp(t *testing.T) {
 	}
 }
 
+// An app transferred to another account on GitHub follows it: only the new
+// owner's installation counts, and the links name the new owner.
+func TestAppTransferred(t *testing.T) {
+	f := newFx(t)
+	a := f.makeApp("acme")
+	f.gh.TransferApp(a.AppID, "octo-org", "Organization")
+	left := f.gh.Install(a.AppID, githubtest.Installation{Account: "acme", Type: "Organization"})
+	if c, err := f.svc.CheckApp(f.ctx, a.ID, "usr_owner"); c != nil || err != nil {
+		t.Fatalf("installed only on the former owner = %+v %v", c, err)
+	}
+	if _, err := f.svc.InstallApp(f.ctx, a.ID, left.ID, "usr_owner"); !errors.Is(err, core.ErrInvalid) {
+		t.Fatalf("the former owner's installation = %v", err)
+	}
+	apps, _ := f.svc.Apps(f.ctx)
+	if len(apps) != 1 || apps[0].Owner != "octo-org" || apps[0].OwnerID != githubtest.AccountID("octo-org") ||
+		apps[0].SettingsURL != f.gh.URL+"/organizations/octo-org/settings/apps/bothy-acme" {
+		t.Fatalf("apps after the transfer = %+v", apps)
+	}
+
+	conn, err := f.svc.InstallApp(f.ctx, a.ID, f.installOnGitHub(a), "usr_owner")
+	if err != nil || conn.Account != "octo-org" {
+		t.Fatalf("the new owner's installation = %+v %v", conn, err)
+	}
+	// Transferred again, to a person, and installed there: the connection
+	// moves to that installation.
+	f.gh.TransferApp(a.AppID, "octocat", "User")
+	moved, err := f.svc.InstallApp(f.ctx, a.ID, f.installOnGitHub(a), "usr_owner")
+	if err != nil || moved.ID != conn.ID || moved.Account != "octocat" || moved.AccountType != "User" {
+		t.Fatalf("reinstalled after a second transfer = %+v %v", moved, err)
+	}
+	if got, _ := f.store.App(f.ctx, a.ID); got.Owner != "octocat" || got.OwnerType != "User" || got.Connection != conn.ID {
+		t.Errorf("stored app = %+v", got)
+	}
+}
+
 func TestRetireDeleteAndDisconnectApp(t *testing.T) {
 	f := newFx(t)
 	a := f.makeApp("acme")

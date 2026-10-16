@@ -243,6 +243,18 @@ func (s *Server) Install(appID int64, in Installation) Installation {
 	return in
 }
 
+// TransferApp moves an app made from a manifest to another account, as
+// transferring its ownership on GitHub does; its installations stay.
+func (s *Server) TransferApp(appID int64, owner, ownerType string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a := s.appByID(appID)
+	if a == nil || a.Name == "" {
+		panic("githubtest: no app made from a manifest " + strconv.FormatInt(appID, 10))
+	}
+	a.Owner, a.OwnerType = owner, ownerType
+}
+
 // installPage installs an app made from a manifest on its owner, or asks
 // for approval, and sends the browser to the app's setup URL with the state
 // it was given.

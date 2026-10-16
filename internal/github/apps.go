@@ -355,13 +355,30 @@ func (s *Service) InstallApp(ctx context.Context, id string, installationID int6
 	if !a.RetiredAt.IsZero() {
 		return nil, invalidf("this app is no longer used")
 	}
+	return s.install(ctx, a, installationID, nil, by)
+}
+
+// install connects the app's installation, under the app's lock. in is that
+// installation when the caller already found it on the app's owner with the
+// app's JWT; nil asks GitHub (ownInstallation).
+func (s *Service) install(ctx context.Context, a *core.GitHubOwnApp, installationID int64, in *ghInstallation, by core.UserID) (*core.GitHubConnection, error) {
+	own := func() (*ghInstallation, error) {
+		if in != nil {
+			return in, nil
+		}
+		return s.ownInstallation(ctx, a, installationID)
+	}
 	if a.Connection != "" {
 		conn, err := s.store.Connection(ctx, a.Connection)
 		switch {
 		case err == nil && conn.InstallationID == installationID:
 			return s.finishSwap(ctx, a, conn, nil, by), nil
 		case err == nil:
-			if conn, err = s.reinstall(ctx, a, conn, installationID, by); err != nil {
+			inst, err := own()
+			if err != nil {
+				return nil, err
+			}
+			if conn, err = s.reinstall(ctx, a, conn, inst, by); err != nil {
 				return nil, err
 			}
 			return s.finishSwap(ctx, a, conn, nil, by), nil
@@ -369,7 +386,7 @@ func (s *Service) InstallApp(ctx context.Context, id string, installationID int6
 			return nil, err
 		}
 	}
-	if _, err := s.ownInstallation(ctx, a, installationID); err != nil {
+	if _, err := own(); err != nil {
 		return nil, err
 	}
 	creds := core.GitHubCredentials{Auth: core.GitHubApp, AppID: strconv.FormatInt(a.AppID, 10), InstallationID: installationID, SecretRef: a.KeyRef}
@@ -412,7 +429,8 @@ func (s *Service) finishSwap(ctx context.Context, a *core.GitHubOwnApp, conn *co
 
 // ownInstallation asks GitHub for one of the app's installations with the
 // app's JWT, so an id from a URL can't attach another app's (not found),
-// and requires it on the app's owner by account id, which a rename keeps.
+// and requires it on the app's current owner by account id, which a rename
+// keeps.
 func (s *Service) ownInstallation(ctx context.Context, a *core.GitHubOwnApp, installationID int64) (*ghInstallation, error) {
 	ep, err := s.endpoint()
 	if err != nil {
@@ -422,21 +440,44 @@ func (s *Service) ownInstallation(ctx context.Context, a *core.GitHubOwnApp, ins
 	if _, err := s.appSrc(a, ep).appClient().getJSON(ctx, "/app/installations/"+strconv.FormatInt(installationID, 10), nil, &in); err != nil {
 		return nil, appCheckError(err)
 	}
+	if err := s.syncOwner(ctx, a, ep); err != nil {
+		return nil, err
+	}
 	if in.Account.ID != a.OwnerID {
 		return nil, invalidf("the app is installed on %s, not on %s, which owns it", in.Account.Login, a.Owner)
 	}
 	return &in, nil
 }
 
-// reinstall moves the app's connection to a new installation of it (the
-// app was uninstalled and installed again), once GitHub confirms the
-// installation is the app's, on its owner.
-func (s *Service) reinstall(ctx context.Context, a *core.GitHubOwnApp, conn *core.GitHubConnection, installationID int64, by core.UserID) (*core.GitHubConnection, error) {
-	in, err := s.ownInstallation(ctx, a, installationID)
-	if err != nil {
-		return nil, err
+// syncOwner records the app's owner as GitHub has it now (GET /app with the
+// app's JWT), under the app's lock: an app can be transferred to another
+// account, and only its current owner's installation counts.
+func (s *Service) syncOwner(ctx context.Context, a *core.GitHubOwnApp, ep endpoint) error {
+	var got struct {
+		Owner ghUser `json:"owner"`
 	}
-	conn.InstallationID, conn.Status, conn.Error, conn.CheckedAt = installationID, "ok", "", s.now()
+	if _, err := s.appSrc(a, ep).appClient().getJSON(ctx, "/app", nil, &got); err != nil {
+		return appCheckError(err)
+	}
+	o := got.Owner
+	if o.ID == a.OwnerID && o.Login == a.Owner && o.Type == a.OwnerType {
+		return nil
+	}
+	if o.ID <= 0 || !ownerRE.MatchString(o.Login) || o.Type != "Organization" && o.Type != "User" {
+		return appCheckError(errors.New("GitHub's answer about the app's owner was unexpected"))
+	}
+	if o.ID != a.OwnerID {
+		s.log.Warn("github: the app has a new owner on GitHub", "app", a.Slug, "from", a.Owner, "to", o.Login)
+	}
+	a.Owner, a.OwnerID, a.OwnerType = o.Login, o.ID, o.Type
+	return s.store.PutApp(ctx, a)
+}
+
+// reinstall moves the app's connection to a new installation of it (the
+// app was uninstalled and installed again) that GitHub confirmed is the
+// app's, on its owner.
+func (s *Service) reinstall(ctx context.Context, a *core.GitHubOwnApp, conn *core.GitHubConnection, in *ghInstallation, by core.UserID) (*core.GitHubConnection, error) {
+	conn.InstallationID, conn.Status, conn.Error, conn.CheckedAt = in.ID, "ok", "", s.now()
 	if in.Account.Login != "" {
 		conn.Account, conn.AccountType = in.Account.Login, in.Account.Type
 	}
@@ -445,7 +486,7 @@ func (s *Service) reinstall(ctx context.Context, a *core.GitHubOwnApp, conn *cor
 	}
 	s.dropSource(conn.ID)
 	s.record(ctx, userActor(by), "github.connect", conn.ID, "ok", map[string]any{"auth": string(conn.Auth), "account": conn.Account,
-		"installation_id": installationID, "method": "app_manifest", "app": a.Slug, "app_name": a.Name, "reinstalled": true})
+		"installation_id": in.ID, "method": "app_manifest", "app": a.Slug, "app_name": a.Name, "reinstalled": true})
 	return conn, nil
 }
 
@@ -512,6 +553,8 @@ func appCheckError(err error) error {
 }
 
 func (s *Service) CheckApp(ctx context.Context, id string, by core.UserID) (*core.GitHubConnection, error) {
+	unlock := s.locks.lock("app:" + id)
+	defer unlock()
 	a, err := s.store.App(ctx, id)
 	if err != nil {
 		return nil, err
@@ -529,11 +572,14 @@ func (s *Service) CheckApp(ctx context.Context, id string, by core.UserID) (*cor
 	if err != nil {
 		return nil, appCheckError(err)
 	}
+	if err := s.syncOwner(ctx, a, ep); err != nil {
+		return nil, err
+	}
 	i := slices.IndexFunc(insts, func(in ghInstallation) bool { return in.Account.ID == a.OwnerID })
 	if i < 0 {
 		return nil, nil
 	}
-	return s.InstallApp(ctx, id, insts[i].ID, by)
+	return s.install(ctx, a, insts[i].ID, &insts[i], by)
 }
 
 func (s *Service) Apps(ctx context.Context) ([]*core.GitHubOwnApp, error) {

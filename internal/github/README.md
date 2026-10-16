@@ -26,7 +26,7 @@ with its page: `<web>` and the path of GitHub's `html_url` (`/github-apps/<slug>
 on Enterprise Server), derived when that path isn't the app's
 (migration `0012_github_apps.sql`). `InstallApp` connects an installation only
 after the app's JWT finds it (`GET /app/installations/{id}`) on the app's
-owner, by GitHub's account id, as an App
+current owner (`GET /app`, which also records a transfer), by GitHub's account id, as an App
 connection that owns the key, moves the repositories of the connection it
 replaces, and follows a reinstall; `CheckApp` finds the owner's installation itself.
 Disconnecting or starting over retires the app (keys deleted, row kept so
