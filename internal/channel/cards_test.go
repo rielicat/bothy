@@ -2,6 +2,7 @@ package channel
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -421,6 +422,31 @@ func TestPressRechecksStaleMembershipAndFallsBackOnlyFifteenMinutes(t *testing.T
 		time.Sleep(core.MemberTTL + time.Minute)
 		if got := h.press(card, ownerChat, ap, core.AllowOnce); got != "Bothy couldn't check that you can approve. Try again, or open it in Bothy." {
 			t.Fatalf("toast = %q", got)
+		}
+	})
+}
+
+// TestCardMentionsOnlyTheRequester: the card's "asked" line is the one
+// place a Slack mention may form, and the card says whose; the same link
+// in what the model writes (the message tool here) carries no mention.
+func TestCardMentionsOnlyTheRequester(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t, withChecker("slack")).start()
+		h.letIn("U0MARK", "Mark", false)
+		h.teammateAsks("U0MARK", "Mark")
+		card := h.sent(ownerChat)
+		if len(card) != 1 || !strings.Contains(card[0].Text, "\n[Mark](slack://user?id=U0MARK) asked on Slack.\n") ||
+			!slices.Equal(card[0].Mentions, []string{"U0MARK"}) {
+			t.Fatalf("card = %+v", card)
+		}
+		if line := h.sent("U0MARK"); len(line) != 1 || len(line[0].Mentions) != 0 {
+			t.Fatalf("waiting line = %+v", line)
+		}
+		if _, err := h.hub.Send(h.ctx, h.dmChat(memberChat), "Done. [ok](slack://user?id=U0CEO)"); err != nil {
+			t.Fatal(err)
+		}
+		if got := h.sent(memberChat); len(got) != 1 || len(got[0].Mentions) != 0 {
+			t.Fatalf("model text went out as %+v", got)
 		}
 	})
 }

@@ -2,6 +2,7 @@ package slack
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -11,8 +12,9 @@ import (
 // *italic* becomes _italic_, [text](url) becomes <url|text>, headings become
 // bold lines and list bullets "•". Every &, < and > is escaped, which is
 // what keeps model text from forming mentions (<!channel>, <@U…>) or links
-// whose label hides their target. mrkdwn has no other escape, so stray
-// formatting characters are left as they are.
+// whose label hides their target; a slack://user link becomes a mention
+// only for the ids in mentions (core.OutMessage.Mentions). mrkdwn has no
+// other escape, so stray formatting characters are left as they are.
 
 var (
 	headingRe = regexp.MustCompile(`^ {0,3}#{1,6}[ \t]+(.+?)[ \t#]*$`)
@@ -22,7 +24,7 @@ var (
 
 func escape(s string) string { return escaper.Replace(s) }
 
-func render(md string) string {
+func render(md string, mentions ...string) string {
 	var b strings.Builder
 	b.Grow(len(md) + len(md)/16)
 	fence := false
@@ -45,7 +47,7 @@ func render(md string) string {
 		}
 		if m := headingRe.FindStringSubmatch(line); m != nil {
 			b.WriteByte('*')
-			writeInline(&b, m[1], true)
+			writeInline(&b, m[1], true, mentions)
 			b.WriteByte('*')
 			continue
 		}
@@ -53,7 +55,7 @@ func render(md string) string {
 			b.WriteString(m[1] + "• ")
 			line = line[len(m[0]):]
 		}
-		writeInline(&b, line, false)
+		writeInline(&b, line, false, mentions)
 	}
 	return b.String()
 }
@@ -66,7 +68,7 @@ func isFence(line string, inFence bool) bool {
 
 // writeInline converts one line. inBold drops nested bold markers, which
 // mrkdwn cannot nest.
-func writeInline(b *strings.Builder, s string, inBold bool) {
+func writeInline(b *strings.Builder, s string, inBold bool, mentions []string) {
 	for i := 0; i < len(s); {
 		c := s[i]
 		switch {
@@ -95,7 +97,7 @@ func writeInline(b *strings.Builder, s string, inBold bool) {
 			if !inBold {
 				b.WriteByte('*')
 			}
-			writeInline(b, s[i+2:i+2+end], true)
+			writeInline(b, s[i+2:i+2+end], true, mentions)
 			if !inBold {
 				b.WriteByte('*')
 			}
@@ -103,7 +105,7 @@ func writeInline(b *strings.Builder, s string, inBold bool) {
 		case c == '*':
 			if end := italicEnd(s, i); end > 0 {
 				b.WriteByte('_')
-				writeInline(b, s[i+1:end], inBold)
+				writeInline(b, s[i+1:end], inBold, mentions)
 				b.WriteByte('_')
 				i = end + 1
 			} else {
@@ -117,7 +119,7 @@ func writeInline(b *strings.Builder, s string, inBold bool) {
 				i++
 				continue
 			}
-			if id, ok := userMention(target); ok {
+			if id, ok := userMention(target); ok && slices.Contains(mentions, id) {
 				b.WriteString("<@" + id + ">")
 			} else if isWebURL(target) {
 				b.WriteByte('<')
@@ -126,7 +128,7 @@ func writeInline(b *strings.Builder, s string, inBold bool) {
 				b.WriteString(escape(strings.ReplaceAll(text, "|", "¦")))
 				b.WriteByte('>')
 			} else {
-				writeInline(b, text, inBold)
+				writeInline(b, text, inBold, mentions)
 				b.WriteString(" (")
 				b.WriteString(escape(target))
 				b.WriteByte(')')
@@ -206,8 +208,8 @@ func parseLink(s string, i int) (text, target string, end int, ok bool) {
 var userLinkRe = regexp.MustCompile(`^slack://user\?id=([UW][A-Z0-9]{2,20})$`)
 
 // userMention reads a link to slack://user?id=U…, which renders as Slack's
-// own mention of that person: the card's "asked" line shows the real
-// profile, whatever display name the person chose.
+// own mention of that person when the hub vouches for it: the card's
+// "asked" line shows the real profile, whatever display name they chose.
 func userMention(target string) (string, bool) {
 	m := userLinkRe.FindStringSubmatch(target)
 	if m == nil {

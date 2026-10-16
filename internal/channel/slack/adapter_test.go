@@ -166,6 +166,26 @@ func TestAckErrorHidesResponseURL(t *testing.T) {
 	}
 }
 
+// A slack://user link in model text, or in anything Bothy read, stays a
+// link; only a mention the hub vouches for (an approval card's "asked"
+// line) reaches Slack as <@U…>.
+func TestUserLinkMentionsOnlyWhenTheHubSaysSo(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	const channel = "C0000300"
+	chat := core.ChatRef{Channel: name, ChatID: channel, Kind: core.ChatGroup}
+	if _, err := f.a.Send(ctx, core.OutMessage{Chat: chat, Text: "Done. [ok](slack://user?id=U0CEO)"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.a.Send(ctx, core.OutMessage{Chat: chat, Text: "[Maya](slack://user?id=U0MAYA) asked on Slack.", Mentions: []string{"U0MAYA"}}); err != nil {
+		t.Fatal(err)
+	}
+	msgs := f.srv.Messages(channel)
+	if len(msgs) != 2 || msgs[0].Text != "Done. ok (slack://user?id=U0CEO)" || msgs[1].Text != "<@U0MAYA> asked on Slack." {
+		t.Fatalf("posted = %+v", msgs)
+	}
+}
+
 func TestUnfurlsDisabledAndBlocks(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()

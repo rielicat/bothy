@@ -42,13 +42,16 @@ func TestRender(t *testing.T) {
 		{"``a ` b`` and `unclosed", "``a ` b`` and `unclosed"},
 		{"[not a link] (x)", "[not a link] (x)"},
 		{"héllo_wörld", `héllo_wörld`},
-		{"[Maya](discord://user?id=110000000000000020) asked", "<@110000000000000020> asked"},
 		{"[x](discord://user?id=everyone)", "x (discord://user?id=everyone)"},
+		{"[ok](discord://user?id=110000000000000020)", "ok (discord://user?id=110000000000000020)"},
 	}
 	for _, tt := range tests {
 		if got := render(tt.in); got != tt.want {
 			t.Errorf("render(%q) =\n%q\nwant\n%q", tt.in, got, tt.want)
 		}
+	}
+	if got := render("[Maya](discord://user?id=110000000000000020) asked", "110000000000000020"); got != "<@110000000000000020> asked" {
+		t.Errorf("render with the hub's mention = %q", got)
 	}
 }
 

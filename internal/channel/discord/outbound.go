@@ -31,7 +31,7 @@ func (a *adapter) Send(ctx context.Context, m core.OutMessage) (core.MsgRef, err
 	if err != nil {
 		return core.MsgRef{}, err
 	}
-	content := a.content(m.Text)
+	content := a.content(m.Text, m.Mentions...)
 	rows, err := components(m.Buttons)
 	if err != nil {
 		return core.MsgRef{}, err
@@ -67,7 +67,7 @@ func (a *adapter) Edit(ctx context.Context, ref core.MsgRef, m core.OutMessage) 
 	if err != nil {
 		return err
 	}
-	content := a.content(m.Text)
+	content := a.content(m.Text, m.Mentions...)
 	rows, err := components(m.Buttons)
 	if err != nil {
 		return err
@@ -196,8 +196,8 @@ func (a *adapter) fetchAllowed(u *url.URL) bool {
 // content renders text for Discord, cutting it to the hard limit as a last
 // resort: the router splits at Caps.MaxLen, and only an escape-heavy chunk
 // can still overflow.
-func (a *adapter) content(text string) string {
-	out := render(text)
+func (a *adapter) content(text string, mentions ...string) string {
+	out := render(text, mentions...)
 	if utf8.RuneCountInString(out) <= contentLimit {
 		return out
 	}

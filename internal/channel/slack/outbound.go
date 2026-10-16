@@ -233,7 +233,7 @@ func checkChat(chat core.ChatRef) error {
 // blocks and text stays as the notification fallback. An edit always sends
 // blocks, an empty list when there are no buttons, so old buttons go away.
 func messageOptions(m core.OutMessage, edit bool) ([]slack.MsgOption, error) {
-	text := render(m.Text)
+	text := render(m.Text, m.Mentions...)
 	actions, err := actionBlocks(m.Buttons)
 	if err != nil {
 		return nil, err

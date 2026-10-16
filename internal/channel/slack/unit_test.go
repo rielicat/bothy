@@ -35,13 +35,19 @@ func TestRender(t *testing.T) {
 		{`not \*italic\*`, `not *italic*`},
 		{"**unclosed and *also", "**unclosed and *also"},
 		{"[a|b](https://x.example)", "<https://x.example|a¦b>"},
-		{"[Maya](slack://user?id=U0123ABC) asked", "<@U0123ABC> asked"},
 		{"[x](slack://user?id=U1>|<!channel)", "x (slack://user?id=U1&gt;|&lt;!channel)"},
+		// A user link the hub didn't vouch for (model text, a page Bothy
+		// read) never becomes a mention.
+		{"[ok](slack://user?id=U0CEO) **[ok](slack://user?id=U0CEO)**", "ok (slack://user?id=U0CEO) *ok (slack://user?id=U0CEO)*"},
 	}
 	for _, tt := range tests {
 		if got := render(tt.in); got != tt.want {
 			t.Errorf("render(%q) =\n%q\nwant\n%q", tt.in, got, tt.want)
 		}
+	}
+	if got := render("[Maya](slack://user?id=U0123ABC) asked; [Sam](slack://user?id=U0CEO)", "U0123ABC"); got !=
+		"<@U0123ABC> asked; Sam (slack://user?id=U0CEO)" {
+		t.Errorf("render with the hub's mention = %q", got)
 	}
 }
 

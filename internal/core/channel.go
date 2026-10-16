@@ -101,6 +101,11 @@ type OutMessage struct {
 	Buttons [][]Button
 	ReplyTo string
 	Silent  bool
+	// Mentions are the platform user ids whose "<app>://user?id=…" link in
+	// Text shows as that person's mention (Slack <@U…>, Discord's pill).
+	// Only the hub's approval lines set it: the same link in model text
+	// stays a plain link, so nothing Bothy reads can make it ping someone.
+	Mentions []string
 }
 
 type ActionEvent struct {

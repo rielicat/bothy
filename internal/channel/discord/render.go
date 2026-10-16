@@ -2,6 +2,7 @@ package discord
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -10,13 +11,15 @@ import (
 // fences, lists, masked links). render escapes the Discord syntax the subset
 // does not have, so text shows as written: underline and italics with "_",
 // strikethrough "~~", spoilers "||", mention and timestamp pills "<", quotes
-// and subtext at line start. Headings become bold lines. Escapes count
+// and subtext at line start; a discord://user link becomes a pill only for
+// the ids in mentions (core.OutMessage.Mentions). Headings become bold
+// lines. Escapes count
 // against Discord's content limit, so characters that cannot form markup
 // where they stand (a lone "|" or "~", the "_" in snake_case) are left alone.
 
 var headingRe = regexp.MustCompile(`^ {0,3}#{1,6}[ \t]+(.+?)[ \t#]*$`)
 
-func render(md string) string {
+func render(md string, mentions ...string) string {
 	var b strings.Builder
 	b.Grow(len(md) + len(md)/16)
 	fence := false
@@ -35,7 +38,7 @@ func render(md string) string {
 		}
 		if m := headingRe.FindStringSubmatch(line); m != nil {
 			b.WriteString("**")
-			writeInline(&b, m[1])
+			writeInline(&b, m[1], mentions)
 			b.WriteString("**")
 			continue
 		}
@@ -44,7 +47,7 @@ func render(md string) string {
 		if strings.HasPrefix(rest, ">") || strings.HasPrefix(rest, "-# ") {
 			b.WriteByte('\\')
 		}
-		writeInline(&b, rest)
+		writeInline(&b, rest, mentions)
 	}
 	return b.String()
 }
@@ -55,7 +58,7 @@ func isFence(line string, inFence bool) bool {
 	return strings.HasPrefix(line, "```") && (inFence || !strings.Contains(line[3:], "```"))
 }
 
-func writeInline(b *strings.Builder, s string) {
+func writeInline(b *strings.Builder, s string, mentions []string) {
 	for i := 0; i < len(s); {
 		c := s[i]
 		switch {
@@ -80,18 +83,18 @@ func writeInline(b *strings.Builder, s string) {
 				i++
 				continue
 			}
-			if id, ok := userMention(target); ok {
+			if id, ok := userMention(target); ok && slices.Contains(mentions, id) {
 				b.WriteString("<@" + id + ">")
 			} else if isWebURL(target) {
 				b.WriteByte('[')
-				writeInline(b, text)
+				writeInline(b, text, mentions)
 				b.WriteString("](")
 				b.WriteString(target)
 				b.WriteByte(')')
 			} else {
-				writeInline(b, text)
+				writeInline(b, text, mentions)
 				b.WriteString(" (")
-				writeInline(b, target)
+				writeInline(b, target, mentions)
 				b.WriteByte(')')
 			}
 			i = end
@@ -168,8 +171,9 @@ func parseLink(s string, i int) (text, target string, end int, ok bool) {
 var userLinkRe = regexp.MustCompile(`^discord://user\?id=([0-9]{15,21})$`)
 
 // userMention reads a link to discord://user?id=…, which renders as
-// Discord's own mention pill: the card's "asked" line shows the real
-// profile. Messages are sent with no allowed mentions, so it never pings.
+// Discord's own mention pill when the hub vouches for it: the card's
+// "asked" line shows the real profile. Messages are sent with no allowed
+// mentions, so it never pings.
 func userMention(target string) (string, bool) {
 	m := userLinkRe.FindStringSubmatch(target)
 	if m == nil {

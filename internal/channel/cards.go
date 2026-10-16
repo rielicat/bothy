@@ -301,23 +301,32 @@ func choiceLabel(c core.Card, ch core.Choice, person string) string {
 	return ""
 }
 
-// teamAsker describes who asked on a team request: the person's name (for
-// button labels, "" for a channel's request) and the card's "asked" line.
-func teamAsker(ap *core.Approval) (person, asked string, channel bool) {
+// asker is who asked on a team request: the person's name for button
+// labels ("" for a channel's request), the card's "asked" line and the
+// platform id it mentions.
+type asker struct {
+	person, asked, mention string
+	channel                bool
+}
+
+func teamAsker(ap *core.Approval) asker {
 	r := ap.Requester
 	if !ap.Approver.Team || r == nil || r.Identity == "" {
-		return "", "", false
+		return asker{}
 	}
 	app, _, _ := strings.Cut(r.Identity, ":")
 	where := " asked on " + escapeMD(channelTitle(app)) + "."
 	if r.Chat != "" {
 		where = " asked in " + inert(r.Chat) + "."
 	}
-	asked = mentionLink(r.Identity, r.Name, r.Handle) + where
+	link, mention := mentionLink(r.Identity, r.Name, r.Handle)
+	out := asker{asked: link + where, mention: mention}
 	if r.Chat != "" {
-		return "", asked, true
+		out.channel = true
+		return out
 	}
-	return truncateRunes(oneLine(r.Name), 24), asked, false
+	out.person = truncateRunes(oneLine(r.Name), 24)
+	return out
 }
 
 var (
@@ -327,9 +336,10 @@ var (
 )
 
 // mentionLink names a chat person by the platform's own mention, so the
-// card shows their real profile whatever display name they chose; the
-// adapters render these links as mentions.
-func mentionLink(identity, name, handle string) string {
+// card shows their real profile whatever display name they chose. The
+// adapters render the link as a mention only for the id returned, which
+// the message must carry in OutMessage.Mentions.
+func mentionLink(identity, name, handle string) (link, id string) {
 	app, ext, _ := strings.Cut(identity, ":")
 	label := strings.Map(func(r rune) rune {
 		if strings.ContainsRune("[]()\\`*_<>|~", r) || r == '\n' {
@@ -346,13 +356,13 @@ func mentionLink(identity, name, handle string) string {
 		if handle != "" {
 			s += " (@" + escapeMD(handle) + ")"
 		}
-		return s
+		return s, ext
 	case app == "slack" && slackIDRe.MatchString(ext):
-		return "[" + label + "](slack://user?id=" + ext + ")"
+		return "[" + label + "](slack://user?id=" + ext + ")", ext
 	case app == "discord" && discordIDRe.MatchString(ext):
-		return "[" + label + "](discord://user?id=" + ext + ")"
+		return "[" + label + "](discord://user?id=" + ext + ")", ext
 	}
-	return inert(name)
+	return inert(name), ""
 }
 
 const allowForChat = "Allow for this chat"
@@ -418,9 +428,9 @@ func (h *Hub) renderCard(ap *core.Approval, caps core.ChannelCaps) (core.OutMess
 	c := ap.Card
 	header := heading(cardQuestion(ap))
 	lines := []string{header}
-	person, asked, channelReq := teamAsker(ap)
-	if asked != "" {
-		lines = append(lines, asked)
+	who := teamAsker(ap)
+	if who.asked != "" {
+		lines = append(lines, who.asked)
 	}
 	if c.Consequence != "" {
 		lines = append(lines, plainLine(c.Consequence))
@@ -478,10 +488,10 @@ func (h *Hub) renderCard(ap *core.Approval, caps core.ChannelCaps) (core.OutMess
 		primary = core.AllowSession
 	}
 	for _, ch := range c.Choices {
-		if channelReq && (ch == core.AllowSession || ch == core.AllowAlways) {
+		if who.channel && (ch == core.AllowSession || ch == core.AllowAlways) {
 			continue
 		}
-		label := choiceLabel(c, ch, person)
+		label := choiceLabel(c, ch, who.person)
 		if label == "" {
 			continue
 		}
@@ -500,7 +510,11 @@ func (h *Hub) renderCard(ap *core.Approval, caps core.ChannelCaps) (core.OutMess
 		if web != "" {
 			buttons = append(buttons, []core.Button{{Label: "Open in web", URL: web}})
 		}
-		return core.OutMessage{Text: text, Buttons: buttons}, false
+		msg := core.OutMessage{Text: text, Buttons: buttons}
+		if who.mention != "" {
+			msg.Mentions = []string{who.mention}
+		}
+		return msg, false
 	}
 
 	short := []string{header}
