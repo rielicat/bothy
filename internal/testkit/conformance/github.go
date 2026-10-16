@@ -3,6 +3,7 @@ package conformance
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -24,6 +25,14 @@ import (
 //     principal), so reads return it empty.
 //   - Repos sort by owner, then name, case-insensitively.
 //   - Times are truncated to milliseconds.
+//   - PutApp (migration 0012) with an id that is not gha_<26>, app_id <= 0,
+//     an owner_type other than Organization or User, a key or client secret
+//     reference that is not "secret:<name>", a live app without a key or a
+//     retired one that still holds a connection, a reference or a pending
+//     swap => ErrInvalid; another app's app_id or connection => ErrConflict;
+//     an unknown connection => ErrInvalid. The derived State and URLs are
+//     never stored. DeleteConnection keeps the app with no connection.
+//   - Apps sort by created_at, then id.
 func GitHubStore(t *testing.T, open func(t *testing.T) core.GitHubStore) {
 	t.Helper()
 	for _, c := range githubSuite {
@@ -43,6 +52,146 @@ var githubSuite = []struct {
 	{"repos upsert and conflicts", ghRepos},
 	{"delete cascades", ghDeleteCascade},
 	{"index state not stored", ghIndexStateNotStored},
+	{"apps round trip", ghAppsRoundTrip},
+	{"app constraints", ghAppConstraints},
+	{"app follows its connection", ghAppFollowsConnection},
+}
+
+var ghAppSeq atomic.Int64
+
+func ghApp() *core.GitHubOwnApp {
+	id := core.NewID(core.PrefixGitHubApp)
+	return &core.GitHubOwnApp{ID: id, AppID: 900_000 + ghAppSeq.Add(1), Slug: "bothy-acme", Name: "Bothy (acme)",
+		Owner: "acme", OwnerType: "Organization", ClientID: "Iv23liAbc", KeyRef: "secret:github_" + id + "_key",
+		ClientSecretRef: "secret:github_" + id + "_client_secret", CreatedBy: "usr_00000000000000000000000000"}
+}
+
+func ghPutApp(t *testing.T, ctx context.Context, s core.GitHubStore, a *core.GitHubOwnApp) {
+	t.Helper()
+	if err := s.PutApp(ctx, a); err != nil {
+		t.Fatalf("PutApp(%s): %v", a.ID, err)
+	}
+}
+
+func ghAppsRoundTrip(t *testing.T, ctx context.Context, s core.GitHubStore) {
+	a := ghApp()
+	a.State, a.URL, a.InstallURL, a.SettingsURL = "pending", "https://github.com/apps/x", "https://github.com/apps/x/installations/new", "https://x"
+	ghPutApp(t, ctx, s, a)
+	if a.CreatedAt.IsZero() || a.UpdatedAt.IsZero() {
+		t.Errorf("PutApp did not stamp times: %+v", a)
+	}
+	got, err := s.App(ctx, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AppID != a.AppID || got.Slug != "bothy-acme" || got.Name != "Bothy (acme)" || got.Owner != "acme" || got.OwnerType != "Organization" ||
+		got.ClientID != "Iv23liAbc" || got.KeyRef != a.KeyRef || got.ClientSecretRef != a.ClientSecretRef || got.Connection != "" ||
+		got.CreatedBy != a.CreatedBy || !got.RetiredAt.IsZero() {
+		t.Errorf("round trip = %+v", got)
+	}
+	if got.State != "" || got.URL != "" || got.InstallURL != "" || got.SettingsURL != "" {
+		t.Errorf("derived fields stored: %+v", got)
+	}
+
+	b := ghApp()
+	b.Owner, b.OwnerType, b.Slug = "octocat", "User", "bothy-octocat"
+	b.CreatedAt = a.CreatedAt.Add(time.Second) // ids minted in one millisecond do not sort by creation
+	ghPutApp(t, ctx, s, b)
+	list, err := s.Apps(ctx)
+	if err != nil || len(list) != 2 || list[0].ID != a.ID || list[1].ID != b.ID {
+		t.Fatalf("Apps = %v %v, want a then b", list, err)
+	}
+
+	// Retiring keeps the row and its creator; updates keep created_at.
+	created := got.CreatedAt
+	got.KeyRef, got.ClientSecretRef, got.RetiredAt, got.CreatedBy = "", "", time.Now(), "usr_11111111111111111111111111"
+	ghPutApp(t, ctx, s, got)
+	again, err := s.App(ctx, a.ID)
+	if err != nil || again.RetiredAt.IsZero() || again.KeyRef != "" || !again.CreatedAt.Equal(created) || again.CreatedBy != a.CreatedBy {
+		t.Errorf("retired = %+v %v", again, err)
+	}
+	if err := s.DeleteApp(ctx, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.App(ctx, a.ID); !errors.Is(err, core.ErrNotFound) {
+		t.Errorf("deleted app: %v", err)
+	}
+	if err := s.DeleteApp(ctx, a.ID); !errors.Is(err, core.ErrNotFound) {
+		t.Errorf("delete missing app: %v", err)
+	}
+}
+
+func ghAppConstraints(t *testing.T, ctx context.Context, s core.GitHubStore) {
+	bad := []func(a *core.GitHubOwnApp){
+		func(a *core.GitHubOwnApp) { a.ID = "app1" },
+		func(a *core.GitHubOwnApp) { a.AppID = 0 },
+		func(a *core.GitHubOwnApp) { a.AppID = -3 },
+		func(a *core.GitHubOwnApp) { a.OwnerType = "Enterprise" },
+		func(a *core.GitHubOwnApp) { a.KeyRef = "-----BEGIN RSA PRIVATE KEY-----" },
+		func(a *core.GitHubOwnApp) { a.ClientSecretRef = "secret:" },
+		func(a *core.GitHubOwnApp) { a.KeyRef = "" },
+		func(a *core.GitHubOwnApp) { a.RetiredAt = time.Now() },
+		func(a *core.GitHubOwnApp) {
+			a.RetiredAt, a.KeyRef, a.ClientSecretRef, a.Replaces = time.Now(), "", "", "ghc_01m4wa97e4s0p3qgcng95bcyhf"
+		},
+		func(a *core.GitHubOwnApp) { a.Connection = core.NewID(core.PrefixGitHubConn) },
+	}
+	for i, mut := range bad {
+		a := ghApp()
+		mut(a)
+		if err := s.PutApp(ctx, a); !errors.Is(err, core.ErrInvalid) {
+			t.Errorf("case %d: PutApp(%+v) = %v, want ErrInvalid", i, a, err)
+		}
+	}
+	c := ghConn(core.GitHubApp)
+	ghPutConn(t, ctx, s, c)
+	retired := ghApp()
+	retired.RetiredAt, retired.KeyRef, retired.ClientSecretRef, retired.Connection = time.Now(), "", "", c.ID
+	if err := s.PutApp(ctx, retired); !errors.Is(err, core.ErrInvalid) {
+		t.Errorf("retired app holding a connection: %v, want ErrInvalid", err)
+	}
+
+	a := ghApp()
+	a.Connection = c.ID
+	ghPutApp(t, ctx, s, a)
+	dup := ghApp()
+	dup.AppID = a.AppID
+	if err := s.PutApp(ctx, dup); !errors.Is(err, core.ErrConflict) {
+		t.Errorf("duplicate app_id: %v, want ErrConflict", err)
+	}
+	other := ghApp()
+	other.Connection = c.ID
+	if err := s.PutApp(ctx, other); !errors.Is(err, core.ErrConflict) {
+		t.Errorf("another app's connection: %v, want ErrConflict", err)
+	}
+	// Apps without a connection never collide on it.
+	ghPutApp(t, ctx, s, ghApp())
+	ghPutApp(t, ctx, s, ghApp())
+}
+
+func ghAppFollowsConnection(t *testing.T, ctx context.Context, s core.GitHubStore) {
+	c := ghConn(core.GitHubApp)
+	ghPutConn(t, ctx, s, c)
+	a := ghApp()
+	a.Connection = c.ID
+	ghPutApp(t, ctx, s, a)
+	got, err := s.AppByConnection(ctx, c.ID)
+	if err != nil || got.ID != a.ID {
+		t.Fatalf("AppByConnection = %+v %v", got, err)
+	}
+	if _, err := s.AppByConnection(ctx, core.NewID(core.PrefixGitHubConn)); !errors.Is(err, core.ErrNotFound) {
+		t.Errorf("AppByConnection of another connection: %v", err)
+	}
+	if err := s.DeleteConnection(ctx, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.App(ctx, a.ID)
+	if err != nil || got.Connection != "" || got.KeyRef != a.KeyRef {
+		t.Errorf("app after its connection went = %+v %v", got, err)
+	}
+	if _, err := s.AppByConnection(ctx, c.ID); !errors.Is(err, core.ErrNotFound) {
+		t.Errorf("AppByConnection after delete: %v", err)
+	}
 }
 
 func ghConn(auth core.GitHubAuth) *core.GitHubConnection {

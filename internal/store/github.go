@@ -2,14 +2,15 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 
 	"github.com/rielicat/bothy/internal/core"
 )
 
-// GitHub returns the store of migration 0002 (GitHub connections and
-// repositories). It is not part of core.Store; cmd/bothy hands it to the
-// github module.
+// GitHub returns the store of migrations 0002 (GitHub connections and
+// repositories) and 0012 (Bothy-made apps). It is not part of core.Store;
+// cmd/bothy hands it to the github module.
 func (h *handle) GitHub() core.GitHubStore { return githubRepo{h} }
 
 var _ core.GitHubStore = githubRepo{}
@@ -133,4 +134,60 @@ func (r githubRepo) Repos(ctx context.Context, connection string) ([]*core.GitHu
 	}
 	return queryAll(ctx, r.h.rq, "list repos", scanRepo,
 		`SELECT `+repoCols+` FROM repos WHERE connection_id = ? ORDER BY owner, name`, connection)
+}
+
+const githubAppCols = `id, app_id, slug, name, owner, owner_type, client_id, key_ref, client_secret_ref, connection_id, replaces,
+	retired_at, created_by, created_at, updated_at`
+
+func scanGitHubApp(sc scanner) (*core.GitHubOwnApp, error) {
+	var a core.GitHubOwnApp
+	var conn sql.NullString
+	var retired, created, updated int64
+	if err := sc.Scan(&a.ID, &a.AppID, &a.Slug, &a.Name, &a.Owner, &a.OwnerType, &a.ClientID, &a.KeyRef, &a.ClientSecretRef,
+		&conn, &a.Replaces, &retired, &a.CreatedBy, &created, &updated); err != nil {
+		return nil, err
+	}
+	a.Connection = conn.String
+	a.RetiredAt, a.CreatedAt, a.UpdatedAt = fromMS(retired), fromMS(created), fromMS(updated)
+	return &a, nil
+}
+
+// PutApp writes "" as a NULL connection_id: the column is UNIQUE, and
+// several apps hold no connection.
+func (r githubRepo) PutApp(ctx context.Context, a *core.GitHubOwnApp) error {
+	if !core.ValidID(core.PrefixGitHubApp, a.ID) {
+		return invalid("github_apps.id")
+	}
+	now := r.h.now()
+	if a.CreatedAt.IsZero() {
+		a.CreatedAt = now
+	}
+	a.UpdatedAt = now
+	conn := sql.NullString{String: a.Connection, Valid: a.Connection != ""}
+	_, err := r.h.wq.ExecContext(ctx, `INSERT INTO github_apps(`+githubAppCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(id) DO UPDATE SET app_id = excluded.app_id, slug = excluded.slug, name = excluded.name, owner = excluded.owner,
+		owner_type = excluded.owner_type, client_id = excluded.client_id, key_ref = excluded.key_ref,
+		client_secret_ref = excluded.client_secret_ref, connection_id = excluded.connection_id, replaces = excluded.replaces,
+		retired_at = excluded.retired_at, updated_at = excluded.updated_at`,
+		a.ID, a.AppID, a.Slug, a.Name, a.Owner, a.OwnerType, a.ClientID, a.KeyRef, a.ClientSecretRef, conn, a.Replaces,
+		ms(a.RetiredAt), string(a.CreatedBy), ms(a.CreatedAt), ms(a.UpdatedAt))
+	return dbErr("put github app", err)
+}
+
+func (r githubRepo) App(ctx context.Context, id string) (*core.GitHubOwnApp, error) {
+	return queryOne(ctx, r.h.rq, "github app "+id, scanGitHubApp, `SELECT `+githubAppCols+` FROM github_apps WHERE id = ?`, id)
+}
+
+func (r githubRepo) Apps(ctx context.Context) ([]*core.GitHubOwnApp, error) {
+	return queryAll(ctx, r.h.rq, "list github apps", scanGitHubApp, `SELECT `+githubAppCols+` FROM github_apps ORDER BY created_at, id`)
+}
+
+func (r githubRepo) AppByConnection(ctx context.Context, connID string) (*core.GitHubOwnApp, error) {
+	return queryOne(ctx, r.h.rq, "github app of "+connID, scanGitHubApp,
+		`SELECT `+githubAppCols+` FROM github_apps WHERE connection_id = ?`, connID)
+}
+
+func (r githubRepo) DeleteApp(ctx context.Context, id string) error {
+	res, err := r.h.wq.ExecContext(ctx, `DELETE FROM github_apps WHERE id = ?`, id)
+	return mustAffect("delete github app "+id, res, err)
 }

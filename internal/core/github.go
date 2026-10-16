@@ -58,19 +58,98 @@ type GitHubRepo struct {
 
 func (r GitHubRepo) FullName() string { return r.Owner + "/" + r.Name }
 
-// GitHubStore persists connections and repositories (migration 0002). It is
-// not part of Store: *store.DB and memstore provide it through GitHub().
+// GitHubStore persists connections, repositories (migration 0002) and
+// Bothy-made apps (0012). It is not part of Store: *store.DB and memstore
+// provide it through GitHub().
 type GitHubStore interface {
 	PutConnection(ctx context.Context, c *GitHubConnection) error         // insert or replace by ID
 	Connection(ctx context.Context, id string) (*GitHubConnection, error) // ErrNotFound
 	Connections(ctx context.Context) ([]*GitHubConnection, error)         // oldest first
-	DeleteConnection(ctx context.Context, id string) error                // and its repos; ErrNotFound
+	// DeleteConnection deletes its repos and clears the connection of the app
+	// that held it; ErrNotFound.
+	DeleteConnection(ctx context.Context, id string) error
 	// PutRepo inserts or updates by owner/name (case-insensitive). A repo
 	// another connection allows is ErrConflict (one it no longer allows moves
 	// over, keeping created_at); an unknown connection ErrInvalid.
 	PutRepo(ctx context.Context, r *GitHubRepo) error
 	Repo(ctx context.Context, owner, name string) (*GitHubRepo, error)   // case-insensitive; ErrNotFound
 	Repos(ctx context.Context, connection string) ([]*GitHubRepo, error) // "" = every connection; by owner, name
+	// PutApp inserts or replaces by ID, keeping created_at and created_by.
+	// An app_id or connection another app holds is ErrConflict; an unknown
+	// connection ErrInvalid. The derived fields are never stored.
+	PutApp(ctx context.Context, a *GitHubOwnApp) error
+	App(ctx context.Context, id string) (*GitHubOwnApp, error)                 // ErrNotFound
+	Apps(ctx context.Context) ([]*GitHubOwnApp, error)                         // oldest first
+	AppByConnection(ctx context.Context, connID string) (*GitHubOwnApp, error) // ErrNotFound
+	DeleteApp(ctx context.Context, id string) error                            // ErrNotFound
+}
+
+const PrefixGitHubApp = "gha"
+
+// GitHubOwnApp is a GitHub App Bothy created from a manifest (migration 0012).
+// Its private key and client secret live in the global vault scope; the row
+// holds their references. Pending until installed, connected while a
+// connection uses it, retired once that connection is gone or the admin
+// started over (secrets deleted; kept so Settings can say where to delete it
+// on GitHub, which Bothy never does itself).
+type GitHubOwnApp struct {
+	ID              string    `json:"id"` // gha_<26>
+	AppID           int64     `json:"app_id"`
+	Slug            string    `json:"slug"`
+	Name            string    `json:"name"`
+	Owner           string    `json:"owner"`
+	OwnerType       string    `json:"owner_type"` // Organization | User
+	ClientID        string    `json:"client_id"`
+	KeyRef          string    `json:"key_ref"`           // "secret:github_<id>_key"; "" once retired
+	ClientSecretRef string    `json:"client_secret_ref"` // "secret:github_<id>_client_secret"; kept for a possible GitHub sign-in, unused today
+	Connection      string    `json:"connection_id,omitempty"`
+	Replaces        string    `json:"replaces,omitempty"` // connection swapped out once the app is installed
+	RetiredAt       time.Time `json:"retired_at"`
+	CreatedBy       UserID    `json:"created_by"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	// Filled in by the GitHub service from github.api_base; never stored.
+	State       string `json:"state"`        // pending | connected | retired
+	URL         string `json:"html_url"`     // <web>/apps/<slug>
+	InstallURL  string `json:"install_url"`  // <web>/apps/<slug>/installations/new
+	SettingsURL string `json:"settings_url"` // <web>/organizations/<owner>/settings/apps/<slug> or <web>/settings/apps/<slug>
+}
+
+// GitHubAppTarget is where a manifest flow creates the app.
+type GitHubAppTarget struct {
+	Org      string // organization login; "" = the admin's personal account
+	Name     string // "" = "Bothy (<Org, or Fallback>)", cut to GitHub's 34 characters
+	Fallback string // the admin's username, naming a personal account's app
+}
+
+// GitHubAppHandoff is what the handoff page posts to GitHub.
+type GitHubAppHandoff struct {
+	Action    string // https://<web>/organizations/<org>/settings/apps/new or …/settings/apps/new, without query
+	WebOrigin string // scheme://host[:port] of Action, for the page's form-action
+	Manifest  string // JSON for the form field "manifest"
+	Name      string // the proposed app name
+	Org       string // "" for a personal account
+}
+
+// GitHubAppMaker is the extra *github.Service implements: Bothy's own
+// GitHub App created from a manifest and connected through its installation
+// (SPEC §14.3). Every method needs an admin caller.
+type GitHubAppMaker interface {
+	// AppManifest builds the manifest for an app reached back at origin
+	// (Bothy's own address); ErrInvalid for a bad target or origin.
+	AppManifest(t GitHubAppTarget, origin string) (*GitHubAppHandoff, error)
+	// CreateApp redeems the code GitHub's redirect carried and keeps the new
+	// app's keys. ErrSealed before redeeming while the vault is locked.
+	CreateApp(ctx context.Context, code string, t GitHubAppTarget, replaces string, by UserID) (*GitHubOwnApp, error)
+	// InstallApp verifies installationID belongs to the app and connects it.
+	InstallApp(ctx context.Context, id string, installationID int64, by UserID) (*GitHubConnection, error)
+	// CheckApp looks for the app's installation and connects it; nil, nil
+	// when it is not installed yet.
+	CheckApp(ctx context.Context, id string, by UserID) (*GitHubConnection, error)
+	Apps(ctx context.Context) ([]*GitHubOwnApp, error)                          // oldest first
+	ConnectionApp(ctx context.Context, connID string) (*GitHubOwnApp, error)    // ErrNotFound
+	RetireApp(ctx context.Context, id string, by UserID) (*GitHubOwnApp, error) // ErrConflict while connected
+	DeleteApp(ctx context.Context, id string, by UserID) error                  // ErrConflict unless retired
 }
 
 // GitHubCredentials is a connect or test request. Exactly one of Token,
