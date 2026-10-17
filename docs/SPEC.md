@@ -2492,9 +2492,11 @@ type ChannelHub interface {
 	// StreamTo returns a sink that delivers a run to a chat: mode "stream"
 	// (throttled edits) or "final" (one message at run end; schedules).
 	StreamTo(chat ChatRef, mode string) RunSink
-	// ApplyPicture gives every turned-on chat app Bothy's picture p, replacing
-	// whatever picture its bot has, and says per app what happened (sorted by
-	// app). Apps without a PictureSetter are PictureManual.
+	// ApplyPicture gives every turned-on chat app Bothy's picture p, the one
+	// just set, replacing whatever picture its bot has, and says per app what
+	// happened (sorted by app). Each app gets the picture Bothy holds when its
+	// turn comes, so of two changes at once the later stays. Apps without a
+	// PictureSetter are PictureManual.
 	ApplyPicture(ctx context.Context, p Picture) []PictureResult
 }
 
@@ -5252,7 +5254,7 @@ Outsiders get one line a day in DMs and silence in channels. Blocked people get 
 9. **Attachments:** the hub fetches each attachment with `Channel.Fetch` (≤ `server.upload_max_mb`, default 20 MB; larger ones are skipped with a note) into `<work>/ws/<workspace>/.bothy/in/<msgid>/<name>` (0660, name sanitized) and passes `Part{Type: image|file, Blob{Ref, MIME, Size}}`.
 10. **Submit:** `Runner.Submit(RunRequest{User: "" for team principals, Sender: "<app>:<id>", SenderName, … Sink: Hub.StreamTo(chat,"stream")})`.
 
-**The bot's picture.** When a chat app whose adapter implements `core.PictureSetter` (Telegram, Discord) connects and its bot's id (`PictureSetter.BotID`: Telegram's numeric user id, Discord's snowflake; names can't tell bots apart, since Discord bot names repeat) differs from `meta["picture:<channel>"]`, the hub asks `HasPicture`; a bot with no picture gets Bothy's current one (`AgentPicture.Current`: the admin's, else the default). A picture someone set in BotFather or the developer portal is never replaced on connect. Either way the id is remembered, so later connections and boots don't ask again; a failed check or upload is logged and tried on the next connection. `ApplyPicture` (an admin changing or resetting the picture, §8.3) replaces the picture of every turned-on Telegram and Discord bot, in parallel and 30 s each: `updated`, or `failed` with `ErrNotConnected` when the app isn't connected or the platform's error (Discord allows a few avatar changes an hour: `rate_limited`); Slack, where only a person can change the app icon, is `manual`. A per-adapter lock keeps a first-connection check and an admin's change from crossing.
+**The bot's picture.** When a chat app whose adapter implements `core.PictureSetter` (Telegram, Discord) connects and its bot's id (`PictureSetter.BotID`: Telegram's numeric user id, Discord's snowflake; names can't tell bots apart, since Discord bot names repeat) differs from `meta["picture:<channel>"]`, the hub asks `HasPicture`; a bot with no picture gets Bothy's current one (`AgentPicture.Current`: the admin's, else the default). A picture someone set in BotFather or the developer portal is never replaced on connect. Either way the id is remembered, so later connections and boots don't ask again; a failed check or upload is logged and tried on the next connection. `ApplyPicture` (an admin changing or resetting the picture, §8.3) replaces the picture of every turned-on Telegram and Discord bot, in parallel and 30 s each: `updated`, or `failed` with `ErrNotConnected` when the app isn't connected or the platform's error (Discord allows a few avatar changes an hour: `rate_limited`); Slack, where only a person can change the app icon, is `manual`. A per-adapter lock keeps a first-connection check and admins' changes from crossing, and each sends the picture Bothy holds once it has the lock (`AgentPicture.Current`, not the caller's), so of two changes at once the later is the one the chat apps keep.
 
 Web (`POST /api/sessions/{id}/messages`) and API (`/v1/chat/completions`) skip steps 1–8 with an authenticated actor; web uploads are already in the workspace (`POST /api/uploads`). Web accounts have no chats in chat apps.
 

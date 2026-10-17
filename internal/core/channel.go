@@ -249,9 +249,11 @@ type ChannelHub interface {
 	// StreamTo returns a sink that delivers a run to a chat: mode "stream"
 	// (throttled edits) or "final" (one message at run end; schedules).
 	StreamTo(chat ChatRef, mode string) RunSink
-	// ApplyPicture gives every turned-on chat app Bothy's picture p, replacing
-	// whatever picture its bot has, and says per app what happened (sorted by
-	// app). Apps without a PictureSetter are PictureManual.
+	// ApplyPicture gives every turned-on chat app Bothy's picture p, the one
+	// just set, replacing whatever picture its bot has, and says per app what
+	// happened (sorted by app). Each app gets the picture Bothy holds when its
+	// turn comes, so of two changes at once the later stays. Apps without a
+	// PictureSetter are PictureManual.
 	ApplyPicture(ctx context.Context, p Picture) []PictureResult
 }
 

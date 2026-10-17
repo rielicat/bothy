@@ -36,8 +36,9 @@ type adapter struct {
 	ch      core.Channel
 	queue   chan core.Inbound
 	dropped atomic.Uint64
-	// pictureMu keeps a first-connection picture check and an admin's change
-	// from crossing, so the admin's picture is the one that stays.
+	// pictureMu keeps a first-connection picture check and admins' changes
+	// from crossing; each sends the picture Bothy holds once it has the
+	// lock, so the latest is the one that stays.
 	pictureMu sync.Mutex
 
 	// Guarded by Hub.mu.

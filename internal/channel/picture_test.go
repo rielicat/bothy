@@ -65,12 +65,25 @@ func (c *pictureChannel) counts() (checks int, set []core.Picture) {
 	return c.checks, append([]core.Picture(nil), c.set...)
 }
 
-type fixedPicture struct {
+// heldPicture is the picture Bothy holds; set stands for AgentPicture.Set.
+type heldPicture struct {
 	core.AgentPicture
-	p core.Picture
+	mu sync.Mutex
+	p  core.Picture
 }
 
-func (f fixedPicture) Current(context.Context) (core.Picture, error) { return f.p, nil }
+func (f *heldPicture) Current(context.Context) (core.Picture, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.p, nil
+}
+
+func (f *heldPicture) set(p core.Picture) core.Picture {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.p = p
+	return p
+}
 
 var (
 	defaultPic = core.Picture{PNG: []byte("default"), JPEG: []byte("default.jpg"), Version: "d1"}
@@ -79,7 +92,7 @@ var (
 
 func withPicture(pc **pictureChannel, has bool) func(*harness) {
 	return func(h *harness) {
-		h.picture = fixedPicture{p: defaultPic}
+		h.picture = &heldPicture{p: defaultPic}
 		h.wrap = func(c *channeltest.Channel) core.Channel {
 			*pc = &pictureChannel{Channel: c, botID: "1001", has: has}
 			return *pc
@@ -196,7 +209,8 @@ func TestApplyPictureReplacesWhateverTheBotHas(t *testing.T) {
 		h.start()
 		settle()
 
-		got := h.hub.ApplyPicture(h.ctx, customPic)
+		held := h.picture.(*heldPicture)
+		got := h.hub.ApplyPicture(h.ctx, held.set(customPic))
 		if len(got) != 2 || got[0].App != "slack" || got[0].Outcome != core.PictureManual ||
 			got[1].App != "telegram" || got[1].Outcome != core.PictureUpdated || got[1].Err != nil {
 			t.Fatalf("results = %+v", got)
@@ -208,7 +222,7 @@ func TestApplyPictureReplacesWhateverTheBotHas(t *testing.T) {
 		pc.mu.Lock()
 		pc.setErr = rateLimited{}
 		pc.mu.Unlock()
-		got = h.hub.ApplyPicture(h.ctx, defaultPic)
+		got = h.hub.ApplyPicture(h.ctx, held.set(defaultPic))
 		if got[1].Outcome != core.PictureFailed || core.CodeOf(got[1].Err) != core.FailRateLimited {
 			t.Fatalf("rate limited: %+v", got[1])
 		}
@@ -222,6 +236,24 @@ func TestApplyPictureReplacesWhateverTheBotHas(t *testing.T) {
 		}
 		if _, set := pc.counts(); len(set) != 1 {
 			t.Fatalf("a disconnected bot was changed: %d sets", len(set))
+		}
+	})
+}
+
+// Of two changes at once, the one whose turn comes last may carry the older
+// picture; the bot still ends up with the one Bothy holds.
+func TestApplyPictureSendsTheLatestPicture(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		var pc *pictureChannel
+		h := newHarness(t, withPicture(&pc, true)).start()
+		settle()
+		h.picture.(*heldPicture).set(defaultPic) // a reset came after this upload
+		got := h.hub.ApplyPicture(h.ctx, customPic)
+		if got[0].Outcome != core.PictureUpdated {
+			t.Fatalf("results = %+v", got)
+		}
+		if _, set := pc.counts(); len(set) != 1 || set[0].Version != defaultPic.Version {
+			t.Fatalf("set = %+v", set)
 		}
 	})
 }

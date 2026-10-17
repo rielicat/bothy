@@ -70,7 +70,8 @@ connection. `ApplyPicture` is an admin's change: it replaces the picture of
 every turned-on bot in parallel (30 s each) and answers `updated`, `failed`
 (`core.ErrNotConnected`, or the platform's error, coded `rate_limited` when
 Discord's hourly allowance is spent) or `manual` (Slack). A per-adapter lock
-keeps the two from crossing, so the admin's picture is the one that stays.
+keeps them from crossing, and each sends the picture Bothy holds once it has
+the lock, so the latest change is the one that stays.
 
 It also implements `Messenger`, `PrincipalChat` (a teammate's DM while their
 verdict is fresh enough, a channel's chat while it is on; never a web

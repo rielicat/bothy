@@ -60,8 +60,8 @@ func (h *Hub) rememberPicture(ctx context.Context, a *adapter, id string) {
 	}
 }
 
-// ApplyPicture gives every turned-on chat app p, replacing the bot's picture
-// (core.ChannelHub). It is an admin's explicit choice, so unlike
+// ApplyPicture gives every turned-on chat app Bothy's picture, replacing the
+// bot's (core.ChannelHub). It is an admin's explicit choice, so unlike
 // firstPicture it overwrites; apps run in parallel, each bounded by
 // pictureTimeout.
 func (h *Hub) ApplyPicture(ctx context.Context, p core.Picture) []core.PictureResult {
@@ -98,6 +98,13 @@ func (h *Hub) applyPicture(ctx context.Context, a *adapter, ps core.PictureSette
 	r := core.PictureResult{App: a.name, Outcome: core.PictureFailed}
 	a.pictureMu.Lock()
 	defer a.pictureMu.Unlock()
+	// Two changes at once can take the lock in either order; sending what
+	// Bothy holds now rather than the caller's p leaves the later one.
+	if h.d.Picture != nil {
+		if cur, err := h.d.Picture.Current(ctx); err == nil {
+			p = cur
+		}
+	}
 	st := a.ch.Status()
 	if st.State != "connected" {
 		r.Err = fmt.Errorf("channel %s is %s: %w", a.name, cmp.Or(st.State, "starting"), core.ErrNotConnected)
