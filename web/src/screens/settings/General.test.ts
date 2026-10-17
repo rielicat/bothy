@@ -26,6 +26,16 @@ describe('Settings → General', () => {
     await screen.findByText('Workspace');
   });
 
+  it('says plain HTTP from another computer is a risk, with the advice in view', async () => {
+    session.me!.access = { peer: 'lan', tls: false };
+    const out = await screen.findByText('Reached over plain HTTP from another computer');
+    const row = out.closest('.grid')!;
+    expect(row.textContent).toContain('Put Bothy behind HTTPS, for example with Tailscale or Caddy, before your team uses it from other computers.');
+    // No table repeating the headline, and no raw "(lan)".
+    expect(row.textContent).not.toMatch(/Reached from|\(lan\)/);
+    expect(within(row as HTMLElement).queryByRole('button', { name: 'Details' })).toBeNull();
+  });
+
   it('saves a text field on blur and says "Saved" in its live region', async () => {
     const limit = screen.getByLabelText('Daily limit') as HTMLInputElement;
     expect(limit.value).toBe('3.00');

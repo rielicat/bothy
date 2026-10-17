@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Button, Combobox, Disclosure, SettingsRow, SettingsSection, StatusLine, TextArea } from '../../components/ui';
+  import { Button, Combobox, SettingsRow, SettingsSection, StatusLine, TextArea } from '../../components/ui';
   import { zoneOptions } from '../../lib/schedules';
   import { session } from '../../lib/stores/session.svelte';
   import { moneyText, parseMoney } from './accountHelpers';
@@ -48,8 +48,6 @@
     if (access.peer === 'local') return { text: 'Only reachable from this computer', warn: false };
     return { text: 'Reached over plain HTTP from another computer', warn: true };
   });
-  const peerWords: Record<string, string> = { local: 'this computer', lan: 'your local network', public: 'the internet' };
-  let connectionDetails = $state(false);
 
   // The server's rule for agent.name (config.ValidAgentName), said before the save is refused.
   function agentName(s: string): { value?: string; error?: string } {
@@ -112,21 +110,13 @@
         parse={webAddress}
       />
       {#if connection}
-        <!-- Open Details make the value several lines tall; the label stays on the first one. -->
-        <div class={connectionDetails ? '[&>div]:sm:items-start' : ''}>
+        <!-- The advice is the one useful part, so it shows under the warning instead of behind Details; the label stays on the first line. -->
+        <div class={connection.warn ? '[&>div]:sm:items-start' : ''}>
           <SettingsRow label="Connection">
             {#snippet children(c)}
               <output id={c.id} class="block text-body {connection.warn ? 'text-warning-text' : 'text-muted'}">{connection.text}</output>
-              {#if connection.warn && access}
-                <Disclosure class="mt-1" bind:open={connectionDetails}>
-                  <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 text-small text-muted">
-                    <dt>Reached from</dt>
-                    <dd class="text-text">{peerWords[access.peer] ?? access.peer} ({access.peer})</dd>
-                    <dt>HTTPS</dt>
-                    <dd class="text-text">No</dd>
-                  </dl>
-                  <p class="mt-2 text-small text-muted">Put Bothy behind HTTPS, for example with Tailscale or Caddy, before your team uses it from other computers.</p>
-                </Disclosure>
+              {#if connection.warn}
+                <p class="mt-1 text-small text-pretty text-muted">Put Bothy behind HTTPS, for example with Tailscale or Caddy, before your team uses it from other computers.</p>
               {/if}
             {/snippet}
           </SettingsRow>

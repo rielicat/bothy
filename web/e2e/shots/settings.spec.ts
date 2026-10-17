@@ -141,10 +141,7 @@ const states: ShotState[] = [
     name: 'general-plain-http',
     route: '/settings/general',
     ready: 'Workspace',
-    setup: reachedAs({ peer: 'lan', tls: false }, async (page) => {
-      await page.getByRole('button', { name: 'Details' }).click();
-      await settle(page);
-    }),
+    setup: reachedAs({ peer: 'lan', tls: false }),
   },
   {
     name: 'general-saved-and-error',
