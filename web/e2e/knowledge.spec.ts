@@ -148,6 +148,19 @@ test('memory saves and says when it applies', async ({ page }) => {
   await expect(about.getByText(/Based in Lisbon/)).toBeVisible();
 });
 
+test("an admin changes what's remembered for everyone; a member only reads it", async ({ page }) => {
+  await open(page, '/knowledge/memory');
+  const team = page.getByRole('region', { name: 'Remembered for everyone' });
+  await team.getByRole('button', { name: 'Edit' }).click();
+  await page.keyboard.press('ControlOrMeta+End');
+  await page.keyboard.type('\nThe office is closed on Fridays.');
+  await team.getByRole('button', { name: 'Save' }).click();
+  await expect(team.getByRole('status')).toHaveText("Changes apply from everyone's next message.", { timeout: 5000 });
+  await open(page, '/knowledge/memory', 'member');
+  await expect(team.getByText('Only admins can change it.')).toBeVisible();
+  await expect(team.getByRole('button')).toHaveCount(0);
+});
+
 test('approving the last suggestion closes the review and the notice', async ({ page }) => {
   await open(page, PROJECT, 'notes-suggestions');
   await page.getByRole('button', { name: 'Review' }).click();

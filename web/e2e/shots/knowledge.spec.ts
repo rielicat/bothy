@@ -40,6 +40,13 @@ const edit = async (page: Page) => {
   await page.locator('textarea').first().waitFor();
 };
 
+// The Memory page has an Edit per section; "Remembered for everyone" comes first.
+const editIn = (region: string) => async (page: Page) => {
+  const r = page.getByRole('region', { name: region });
+  await r.getByRole('button', { name: 'Edit' }).click();
+  await r.locator('textarea').waitFor();
+};
+
 const typeAtEnd = (text: string) => async (page: Page) => {
   const t = page.locator('textarea').first();
   await t.focus();
@@ -201,13 +208,14 @@ const states: ShotState[] = [
 
   // §9.4 Memory
   { name: 'memory', route: '/knowledge/memory', ready: framed('Things Bothy remembers') },
-  { name: 'memory-edit', route: '/knowledge/memory', ready: framed('Things Bothy remembers', edit) },
+  { name: 'memory-edit', route: '/knowledge/memory', ready: framed('Things Bothy remembers', editIn('About you')) },
+  { name: 'memory-everyone-edit', route: '/knowledge/memory', ready: framed('Things Bothy remembers', editIn('Remembered for everyone')) },
   { name: 'memory-near-full', route: '/knowledge/memory', mock: 'memory-near-full', ready: framed('This is almost full.') },
   {
     name: 'memory-saved',
     route: '/knowledge/memory',
     ready: framed('Things Bothy remembers', async (page) => {
-      await edit(page);
+      await editIn('About you')(page);
       await typeAtEnd(' Based in Lisbon.')(page);
       await button('Save')(page);
       await page.getByText('Saved', { exact: true }).waitFor();
@@ -217,13 +225,16 @@ const states: ShotState[] = [
     name: 'memory-applies',
     route: '/knowledge/memory',
     ready: framed('Things Bothy remembers', async (page) => {
-      await edit(page);
+      await editIn('About you')(page);
       await typeAtEnd(' Based in Lisbon.')(page);
       await button('Save')(page);
       await page.getByText('Changes apply from your next message.').waitFor({ timeout: 5000 });
     }),
   },
   { name: 'memory-empty', route: '/knowledge/memory', mock: 'memory-empty', ready: framed('Bothy adds things here as you work together.') },
+  { name: 'memory-member', route: '/knowledge/memory', mock: 'member', ready: framed('Only admins can change it.') },
+  { name: 'memory-everyone-empty', route: '/knowledge/memory', mock: 'team-memory-empty', ready: framed('like your deploy day.') },
+  { name: 'memory-everyone-empty-member', route: '/knowledge/memory', mock: 'team-memory-empty,member', ready: framed('an admin can approve it.') },
   {
     name: 'memory-history',
     route: '/knowledge/memory',

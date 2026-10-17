@@ -62,6 +62,7 @@ const rows: [string, string][] = [
   ['card-web-send', row('post')],
   ['card-message-parked', 'apr_01jfetch00000000000000000'],
   ['card-memory', row('memory')],
+  ['card-memory-everyone', row('teammemory')],
   ['card-notes', row('notes')],
   ['card-schedule-create', row('schedcreate')],
   ['card-schedule-delete', row('scheddelete')],

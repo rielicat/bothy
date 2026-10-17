@@ -10,7 +10,7 @@ export interface CopyRule {
 
 /** G6 pattern 1: words kept out of the main flow (§14.3). */
 export const BANNED_WORDS =
-  /\b(context window|TTFT|cron|sandbox|egress|principal|use_tool|tool_search|trifecta|micro-?dollars?|heartbeat|session|vault|SOUL\.md|USER\.md|MEMORY\.md|HEARTBEAT\.md|household|teammates?)\b/i;
+  /\b(context window|TTFT|cron|sandbox|egress|principal|use_tool|tool_search|trifecta|micro-?dollars?|heartbeat|session|vault|SOUL\.md|USER\.md|MEMORY\.md|HEARTBEAT\.md|TEAM\.md|household|teammates?)\b/i;
 
 /** G6 pattern 2: model usage in tokens instead of money. */
 export const TOKEN_TALK = /\btokens?\s+(in|out|used|of)\b|\b\d[\d.,]*K?\s+tokens\b/i;
