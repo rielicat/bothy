@@ -14,8 +14,8 @@
   // The two documents Bothy reads at the start of every chat (§9.4, D29).
   // Group chats have no memory, so this is always the viewer's own.
   const sections = [
-    { file: 'USER', title: 'About you' },
-    { file: 'MEMORY', title: 'Things Bothy remembers' },
+    { file: 'USER', title: 'About you', empty: 'Tell Bothy about your role and how you like answers.' },
+    { file: 'MEMORY', title: 'Things Bothy remembers', empty: 'Bothy adds things here as you work together.' },
   ] as const;
 
   let docs = $state<Record<string, MemoryDoc> | null>(null);
@@ -23,12 +23,18 @@
   let showHistory = $state(false);
   let entries = $state<HistoryEntry[] | null>(null);
   let historyFailed = $state(false);
+  // "History ›" waits until there is something in it.
+  let hasHistory = $state(false);
 
   async function load() {
     failed = false;
     try {
       const got = await Promise.all(sections.map((s) => api.get<MemoryDoc>(`/api/memory/${s.file}`)));
       docs = Object.fromEntries(got.map((d, i) => [sections[i].file, d]));
+      void Promise.all(sections.map((s) => api.get<List<MemoryChange>>(`/api/memory/${s.file}/history?limit=1`))).then(
+        (lists) => (hasHistory ||= lists.some((l) => (l.items ?? []).length > 0)),
+        () => (hasHistory = true),
+      );
     } catch {
       failed = true;
     }
@@ -40,6 +46,7 @@
     return events.on('memory.updated', (e) => {
       const f = (e.data as MemoryData).file;
       if (docs && f in docs) void api.get<MemoryDoc>(`/api/memory/${f}`).then((d) => docs && (docs[f] = d), () => {});
+      hasHistory = true;
     });
   });
 
@@ -70,12 +77,14 @@
   {#if docs}
     {#each sections as s, i (s.file)}
       <div class={i ? 'mt-10' : 'mt-8'}>
-        <MemorySection title={s.title} bind:doc={docs[s.file]} />
+        <MemorySection title={s.title} empty={s.empty} bind:doc={docs[s.file]} onsaved={() => (hasHistory = true)} />
       </div>
     {/each}
-    <p class="mt-10 text-body">
-      <LinkButton onclick={openHistory}>History<Icon name="chevron-right" size={12} class="ml-0.5" /></LinkButton>
-    </p>
+    {#if hasHistory}
+      <p class="mt-10 text-body">
+        <LinkButton onclick={openHistory}>History<Icon name="chevron-right" size={12} class="ml-0.5" /></LinkButton>
+      </p>
+    {/if}
   {:else}
     <div class="mt-8"><Loading {failed} onretry={load} /></div>
   {/if}

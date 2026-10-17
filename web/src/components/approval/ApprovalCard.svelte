@@ -38,6 +38,7 @@
     reason = '',
     level = 2,
     decision = true,
+    showOpen = false,
     onresolve,
     onresolved,
     class: cls = '',
@@ -56,6 +57,8 @@
     level?: 2 | 3;
     /** A read-only card ends with its decided line, unless one is already showing right above it. */
     decision?: boolean;
+    /** Start every "Show" open (Knowledge's suggested changes). */
+    showOpen?: boolean;
     /** After this card sent a decision: the choice, the deny reason and the updated approval. */
     onresolve?: (choice: Choice, comment: string | undefined, result: Approval) => void;
     onresolved?: (a: Approval) => void;
@@ -280,7 +283,7 @@
 
     {#if copy.fields.length}
       <div class="mt-4">
-        <ApprovalFields fields={copy.fields} votes={multi && vv ? votesRow : undefined} />
+        <ApprovalFields fields={copy.fields} {showOpen} votes={multi && vv ? votesRow : undefined} />
       </div>
     {/if}
 

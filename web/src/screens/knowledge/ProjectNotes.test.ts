@@ -51,10 +51,17 @@ describe('Project notes', () => {
     const first = puts(calls)[0].headers['if-match'];
     expect((screen.getByLabelText('Notes for acme/web') as HTMLTextAreaElement).value).toContain('Keep pull requests small.');
 
-    await fireEvent.click(screen.getByRole('button', { name: 'See their version' }));
+    // Saving again would only meet the conflict again, so the primary compares instead.
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Compare versions' }));
     const dialog = screen.getByRole('dialog', { name: 'Compare versions' });
     expect(within(dialog).getByText(/shared date helpers/)).toBeTruthy();
-    await fireEvent.click(within(dialog).getByRole('button', { name: 'Keep mine' }));
+    // Cancel only closes; nothing is replaced or saved.
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(puts(calls)).toHaveLength(1);
+    expect((screen.getByLabelText('Notes for acme/web') as HTMLTextAreaElement).value).toContain('Keep pull requests small.');
+    await fireEvent.click(screen.getByRole('button', { name: 'Compare versions' }));
+    await fireEvent.click(within(screen.getByRole('dialog', { name: 'Compare versions' })).getByRole('button', { name: 'Keep mine' }));
 
     await waitFor(() => expect(puts(calls)).toHaveLength(2));
     const second = puts(calls)[1].headers['if-match'];
@@ -66,9 +73,9 @@ describe('Project notes', () => {
     const calls = await start('notes-conflict');
     await editAndSave('- Mine.');
     await screen.findByText('Someone else changed these notes while you were editing.');
-    await fireEvent.click(screen.getByRole('button', { name: 'See their version' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Compare versions' }));
     const dialog = screen.getByRole('dialog', { name: 'Compare versions' });
-    await fireEvent.keyDown(within(dialog).getByRole('button', { name: 'Use theirs' }), { key: 's', ctrlKey: true });
+    await fireEvent.keyDown(within(dialog).getByRole('button', { name: 'Use their version' }), { key: 's', ctrlKey: true });
     expect(puts(calls)).toHaveLength(1);
   });
 
@@ -76,8 +83,8 @@ describe('Project notes', () => {
     const calls = await start('notes-conflict');
     await editAndSave('- Mine.');
     await screen.findByText('Someone else changed these notes while you were editing.');
-    await fireEvent.click(screen.getByRole('button', { name: 'See their version' }));
-    await fireEvent.click(within(screen.getByRole('dialog', { name: 'Compare versions' })).getByRole('button', { name: 'Use theirs' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Compare versions' }));
+    await fireEvent.click(within(screen.getByRole('dialog', { name: 'Compare versions' })).getByRole('button', { name: 'Use their version' }));
     await waitFor(() => expect(screen.queryByLabelText('Notes for acme/web')).toBeNull());
     expect(screen.getByText(/shared date helpers/)).toBeTruthy();
     expect(screen.queryByText('Mine.')).toBeNull();
@@ -115,7 +122,8 @@ describe('Project notes', () => {
     await fireEvent.input(box, { target: { value: 'changed' } });
     await fireEvent.keyDown(box, { key: 'Escape' });
     const dialog = screen.getByRole('dialog', { name: 'Discard your changes?' });
-    await fireEvent.click(within(dialog).getByRole('button', { name: 'Discard' }));
+    expect(within(dialog).getByText("This can't be undone.")).toBeTruthy();
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Discard changes' }));
     await waitFor(() => expect(screen.queryByLabelText('Notes for acme/web')).toBeNull());
     expect(screen.getByText('How to build and test')).toBeTruthy();
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Edit' })));

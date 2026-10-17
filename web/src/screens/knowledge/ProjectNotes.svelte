@@ -31,6 +31,7 @@
   import { router } from '../../lib/router.svelte';
   import { events } from '../../lib/sse.svelte';
   import { approvals, session } from '../../lib/stores/session.svelte';
+  import { narrow } from '../../lib/stores/viewport.svelte';
   import DiscardDialog from './DiscardDialog.svelte';
   import HeaderSpacer from './HeaderSpacer.svelte';
   import Loading from './Loading.svelte';
@@ -57,6 +58,7 @@
   let triedOver = $state(false);
   let saveError = $state('');
   let theirs = $state<KnowledgeNotes | null>(null);
+  let comparing = $state(false);
 
   let discard = $state(false);
   let stop = $state(false);
@@ -258,12 +260,22 @@
 <svelte:head><title>{name} · Bothy</title></svelte:head>
 <svelte:window onkeydown={windowKey} />
 
+<!-- Saving again during a conflict would only meet it again, so the primary opens the comparison instead. -->
+{#snippet editButtons()}
+  {#if theirs}
+    <Button variant="primary" onclick={() => (comparing = true)}>Compare versions</Button>
+  {:else}
+    <Button variant="primary" loading={saving} loadingLabel="Saving…" onclick={() => save()}>Save</Button>
+  {/if}
+  <Button onclick={cancel}>Cancel</Button>
+{/snippet}
+
 {#snippet actions()}
   <span class="contents" bind:this={bar}>
   <HeaderSpacer />
   {#if editing}
-    <Button variant="primary" loading={saving} loadingLabel="Saving…" onclick={() => save()}>Save</Button>
-    <Button onclick={cancel}>Cancel</Button>
+    <!-- On phones these sit under the text box instead, where focusing it doesn't scroll them away. -->
+    {#if !narrow.current}{@render editButtons()}{/if}
   {:else if repo?.id}
     <!-- Empty notes offer "Write notes" in the page instead. -->
     {#if content.trim()}<Button onclick={startEdit}>Edit</Button>{/if}
@@ -312,6 +324,8 @@
           errorId="{uid}-error"
           theirs={theirs?.content ?? null}
           conflictText="Someone else changed these notes while you were editing."
+          bind:comparing
+          actions={narrow.current ? editButtons : undefined}
           onsave={() => save()}
           oncancel={cancel}
           onkeepmine={() => theirs && save(theirs.etag)}

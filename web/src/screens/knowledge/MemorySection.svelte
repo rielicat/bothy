@@ -2,15 +2,17 @@
   import { tick } from 'svelte';
   import Markdown from '../../components/Markdown.svelte';
   import Button from '../../components/ui/Button.svelte';
-  import EmptyState from '../../components/ui/EmptyState.svelte';
   import { api, ApiError } from '../../lib/api/client';
   import { fullness, isConflict } from '../../lib/api/knowledge';
   import type { MemoryDoc } from '../../lib/api/types.gen';
+  import { narrow } from '../../lib/stores/viewport.svelte';
   import DiscardDialog from './DiscardDialog.svelte';
   import NotesEditor from './NotesEditor.svelte';
 
-  // One memory document (§9.4): rendered Markdown, edited in place.
-  let { title, doc = $bindable() }: { title: string; doc: MemoryDoc } = $props();
+  // One memory document (§9.4): rendered Markdown, edited in place. `empty`
+  // says what the section is for until something is in it; `onsaved` tells the
+  // page its history isn't empty any more.
+  let { title, doc = $bindable(), empty: emptyText, onsaved }: { title: string; doc: MemoryDoc; empty: string; onsaved?: () => void } = $props();
 
   const uid = $props.id();
   let editing = $state(false);
@@ -19,6 +21,7 @@
   let triedOver = $state(false);
   let error = $state('');
   let theirs = $state<MemoryDoc | null>(null);
+  let comparing = $state(false);
   let discard = $state(false);
   let status = $state<'' | 'saved' | 'applies'>('');
   // The version the edit started from: Bothy may save a newer one meanwhile, which must not be overwritten unseen.
@@ -68,6 +71,7 @@
       base = doc.etag;
       void leaveEdit();
       theirs = null;
+      onsaved?.();
       // "Saved" for 2 s, then what it means stays until the page is left (§9.4).
       status = 'saved';
       clearTimeout(timer);
@@ -91,6 +95,16 @@
   }
 </script>
 
+<!-- Saving again during a conflict would only meet it again, so the primary opens the comparison instead. -->
+{#snippet editButtons()}
+  {#if theirs}
+    <Button size="sm" variant="primary" onclick={() => (comparing = true)}>Compare versions</Button>
+  {:else}
+    <Button size="sm" variant="primary" loading={saving} loadingLabel="Saving…" onclick={() => save()}>Save</Button>
+  {/if}
+  <Button size="sm" onclick={cancel}>Cancel</Button>
+{/snippet}
+
 <section aria-labelledby="{uid}-h" bind:this={head}>
   <!-- The status sits next to Edit; on phones it takes its own line under the heading so Edit never moves.
        It stays mounted while editing so the live region exists before "Saved" is written into it. -->
@@ -98,12 +112,11 @@
     <h2 id="{uid}-h" class="section-title min-w-0 flex-1">{title}</h2>
     <span class="text-small text-muted max-sm:order-last max-sm:w-full" role="status">{status === 'saved' ? 'Saved' : status === 'applies' ? 'Changes apply from your next message.' : ''}</span>
     {#if editing}
-      <div class="ml-auto flex items-center gap-3">
-        <Button size="sm" variant="primary" loading={saving} loadingLabel="Saving…" onclick={() => save()}>Save</Button>
-        <Button size="sm" onclick={cancel}>Cancel</Button>
-      </div>
-    {:else if !empty}
-      <Button size="sm" class="ml-auto" onclick={edit}>Edit</Button>
+      <!-- On phones these sit under the text box instead, where focusing it doesn't scroll them away. -->
+      {#if !narrow.current}<div class="ml-auto flex items-center gap-3">{@render editButtons()}</div>{/if}
+    {:else}
+      <!-- An empty section offers "Write" in the same spot as Edit, so the button never moves. -->
+      <Button size="sm" class="ml-auto" onclick={edit}>{empty ? 'Write' : 'Edit'}</Button>
     {/if}
   </div>
   <div class="mt-2">
@@ -115,17 +128,15 @@
         busy={saving}
         error={triedOver && size === 'over' ? 'This is too long to save. Remove something first.' : error}
         theirs={theirs?.content ?? null}
+        bind:comparing
+        actions={narrow.current ? editButtons : undefined}
         onsave={() => save()}
         oncancel={cancel}
         onkeepmine={() => theirs && save(theirs.etag)}
         onusetheirs={useTheirs}
       />
     {:else if empty}
-      <EmptyState
-        text="Bothy hasn't remembered anything yet."
-        more="It adds things here as you work together, or you can write them yourself."
-        action={{ label: 'Edit', onclick: edit, variant: 'secondary' }}
-      />
+      <p class="text-body text-muted">{emptyText}</p>
     {:else}
       <Markdown text={doc.content} />
     {/if}

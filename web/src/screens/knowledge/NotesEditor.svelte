@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, type Snippet } from 'svelte';
   import Icon from '../../components/Icon.svelte';
   import Button from '../../components/ui/Button.svelte';
   import Dialog from '../../components/ui/Dialog.svelte';
@@ -9,7 +9,10 @@
 
   // Editing notes or memory in place (§9.2, §9.4): a sans textarea that grows
   // with its Markdown source, ⌘S / Ctrl S to save, Esc to cancel, and the
-  // edit-conflict notice with a side-by-side look at the other version.
+  // edit-conflict notice. While a conflict is open the page's primary button
+  // is "Compare versions", which opens `comparing`: saving again would only
+  // meet the same conflict. On phones `actions` (Save and Cancel) sit under
+  // the box, where they stay in reach while typing.
   let {
     label,
     value = $bindable(''),
@@ -19,6 +22,8 @@
     theirs = null,
     conflictText = 'Someone else changed this while you were editing.',
     busy = false,
+    comparing = $bindable(false),
+    actions,
     onsave,
     oncancel,
     onkeepmine,
@@ -35,6 +40,10 @@
     theirs?: string | null;
     conflictText?: string;
     busy?: boolean;
+    /** The compare dialog is open. */
+    comparing?: boolean;
+    /** The editing buttons, under the box: the page passes them on phones, where its header holds them otherwise. */
+    actions?: Snippet;
     onsave: () => void;
     oncancel: () => void;
     onkeepmine: () => void;
@@ -43,7 +52,6 @@
 
   const uid = $props.id();
   let area: HTMLTextAreaElement | undefined = $state();
-  let compare = $state(false);
 
   onMount(() => area?.focus());
 
@@ -67,7 +75,7 @@
 </script>
 
 {#if theirs !== null}
-  <Notice tone="warning" class="mb-3" text={conflictText} action={{ label: 'See their version', onclick: () => (compare = true) }} />
+  <Notice tone="warning" class="mb-3" text={conflictText} />
 {/if}
 <label for="{uid}-text" class="sr-only">{label}</label>
 <textarea
@@ -84,23 +92,28 @@
 {#if error && !errorId}
   <p id="{uid}-error" class="field-error"><Icon name="alert" class="mt-px" /><span class="min-w-0">{error}</span></p>
 {/if}
+{#if actions}<div class="mt-3 flex gap-2">{@render actions()}</div>{/if}
 
-<Dialog bind:open={compare} title="Compare versions" size="lg" {busy}>
+<!-- Cancel only closes; replacing the draft is a deliberate button in the body, never the slot where Cancel usually sits. -->
+<Dialog bind:open={comparing} title="Compare versions" size="lg" {busy}>
   <p class="mb-4 text-body text-muted">Struck-through text is only in their version. Underlined text is only in yours.</p>
   <DiffView mode="prose" diff={proseDiff(theirs ?? '', value)} />
-  {#snippet footer()}
-    <Button
-      onclick={() => {
-        compare = false;
-        onusetheirs();
-      }}>Use theirs</Button
-    >
+  <Button
+    class="mt-4"
+    disabled={busy}
+    onclick={() => {
+      comparing = false;
+      onusetheirs();
+    }}>Use their version</Button
+  >
+  {#snippet footer({ close })}
+    <Button data-cancel disabled={busy} onclick={close}>Cancel</Button>
     <Button
       variant="primary"
       loading={busy}
       loadingLabel="Saving…"
       onclick={() => {
-        compare = false;
+        comparing = false;
         onkeepmine();
       }}>Keep mine</Button
     >

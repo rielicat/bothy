@@ -15,8 +15,9 @@
 
 <Dialog bind:open title="Suggested changes" size="lg">
   <div class="space-y-4">
+    <!-- The cards look alike until opened, so each shows its change straight away. -->
     {#each items as a (a.id)}
-      <ApprovalCard approval={a} />
+      <ApprovalCard approval={a} showOpen />
     {/each}
   </div>
   <!-- On phones the sheet has no close button of its own; this one sits in its header bar. -->

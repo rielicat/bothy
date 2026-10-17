@@ -6,7 +6,7 @@
 </script>
 
 <Dialog bind:open title="Discard your changes?" initialFocus="cancel">
-  <p class="text-body text-text">Your edits won't be saved.</p>
+  <p class="text-body text-text">This can't be undone.</p>
   {#snippet footer({ close })}
     <Button onclick={close}>Keep editing</Button>
     <Button
@@ -14,7 +14,7 @@
       onclick={() => {
         open = false;
         ondiscard();
-      }}>Discard</Button
+      }}>Discard changes</Button
     >
   {/snippet}
 </Dialog>

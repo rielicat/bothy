@@ -1633,12 +1633,14 @@ Written by Bothy on Oct 13 · Edited by Priya Rao on Oct 15 · History          
 ```
 
 - `⋯` menu: "Ask Bothy about this project" (new chat with the repository in context), "Read the repository again" (admins), "View on GitHub ↗", "Technical details" (dialog: commit read `4f2c1a9`, files indexed 1,204, last read today 09:12, notes size 3.1 KB of 8 KB), "Stop reading this repository…" (admins; confirm "Stop reading {name}?", body "Bothy won't use {name} to answer questions, and its project notes and their history will be deleted. This can't be undone.", [Stop reading] (danger) [Cancel]; removes it from the allowlist; the project notes and their history are deleted with the index, SPEC §8.3).
-- **Edit in place:** the rendered document becomes a sans `TextArea` (`text-reading`, auto-grow, Markdown source) in the same position; header actions become [Save] (primary) [Cancel]. ⌘S / Ctrl S saves. Esc cancels, after "Discard your changes?" (Discard / Keep editing) if anything changed. Saved: toast "Saved."
-- **Conflict** (`If-Match` failed): warning `Notice` above the editor: "Someone else changed these notes while you were editing." Buttons [See their version] (opens a 720 dialog with a prose diff and [Keep mine] / [Use theirs]).
+- **Edit in place:** the rendered document becomes a sans `TextArea` (`text-reading`, auto-grow, Markdown source) in the same position; header actions become [Save] (primary) [Cancel]. Under 640 px [Save] [Cancel] sit under the text box instead of in the header (moved, not duplicated), since focusing the box scrolls the header away. ⌘S / Ctrl S saves. Esc cancels, after "Discard your changes?" if anything changed: body "This can't be undone.", buttons [Keep editing] and [Discard changes] (danger). Saved: toast "Saved."
+- **Conflict** (`If-Match` failed): warning `Notice` above the editor, only "Someone else changed these notes while you were editing." While it is unresolved the primary becomes [Compare versions] (saving again would meet the same conflict), opening a 720 dialog with the prose diff, a secondary [Use their version] under it, and the footer [Cancel] [Keep mine]: on phones Cancel takes the left slot and only closes. The memory sections work the same way.
 - **Size:** above 80 % of the cap a `text-small warning-text` line under the header: "These notes are almost full. Shorten them so Bothy has room to add more." At the cap Save shows "These notes are too long to save. Remove something first."
 - **History** (720 dialog): changes listed as "Bothy · added 3 lines · 2 days ago · from “Login bug”" and "Maya Chen · edited · last week"; each opens a prose `DiffView` and links its source chat.
-- **Suggested changes:** "Review" opens a 720 dialog listing the pending `notes` approvals as standard approval cards (question "Update the notes for acme/web?", prose diff, warning for outside content, [Update notes] [Deny]). The same items appear in the Approvals inbox. When the last one is decided the dialog closes and the notice disappears.
+- **Prose diffs** (History, Compare versions, Suggested changes) diff the raw text but show each line cleaned: a leading `#`, `-`, `*` or `1.` goes (headings in medium weight, list items with "•"), code ticks go as in search snippets, link addresses stay. Only the changed lines and one line around them show, with "…" between groups, however long the document.
+- **Suggested changes:** "Review" opens a 720 dialog listing the pending `notes` approvals as standard approval cards (question "Update the notes for acme/web?", the Change field already open so the prose diff shows straight away, "{n} lines changed · Hide", warning for outside content, [Update notes] [Deny]). The same items appear in the Approvals inbox. When the last one is decided the dialog closes and the notice disappears.
 - **First read in progress:** in place of the notes: "Bothy is reading acme/web and writing notes. This usually takes a few minutes." with a muted line "Read 340 of about 1,200 files".
+- **Too big to read:** the notice "This repository is too big for Bothy to read (more than 50,000 files)." with no action, and in place of the notes "You can write notes for this project yourself." + [Write notes].
 
 ### 9.3 Search (`/knowledge/search?q=`)
 
@@ -1671,18 +1673,17 @@ Bothy reads this at the start of every chat. Change anything that's wrong or out
 About you                                                              [ Edit ]
 Maya is the CTO at Acme. Prefers short answers with links to the code.
 
-Things Bothy remembers                                                 [ Edit ]
-The v2.3 release freeze starts Thursdays at 14:00.
-Staging is reset every Monday.
+Things Bothy remembers                                                 [ Write ]
+Bothy adds things here as you work together.                           empty: text-body muted
 
-History ›
+History ›                                                              only once there is history
 ```
 
-- Two sections (USER.md, MEMORY.md), rendered Markdown in `text-reading`. "Edit" turns a section into a sans `TextArea` with [Save] [Cancel]. No monospace, no byte meter.
+- Two sections (USER.md, MEMORY.md), rendered Markdown in `text-reading`. "Edit" turns a section into a sans `TextArea` with [Save] [Cancel] (under the box on phones, §9.2). No monospace, no byte meter.
 - Near the cap (> 80 %): `text-small warning-text` under the section: "This is almost full. Remove anything Bothy no longer needs." At the cap Save shows "This is too long to save. Remove something first."
 - Saved: "Saved" next to the button for 2 s, then "Changes apply from your next message." stays in `text-small muted` until the page is left.
 - History (720 dialog): prose diffs with actor names ("You", "Bothy in “Fix login redirect”", "Maya Chen (admin)") and chat links.
-- Empty section: "Bothy hasn't remembered anything yet. It adds things here as you work together, or you can write them yourself." + "Edit".
+- Empty section: one muted line saying what it is for, About you "Tell Bothy about your role and how you like answers.", Things Bothy remembers "Bothy adds things here as you work together.", with "Write" in the heading spot where Edit sits. "History ›" is hidden while the history is empty.
 - Memory is per account here. People in chat apps have notes of their own that Bothy keeps for them, private to them like their chats; channels have none (SPEC).
 
 ### 9.5 Skills (`/knowledge/skills`)

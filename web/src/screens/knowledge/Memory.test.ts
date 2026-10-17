@@ -54,16 +54,27 @@ describe('Memory', () => {
     expect(calls.some((c) => c.method === 'PUT')).toBe(false);
   });
 
-  it('invites writing when Bothy has remembered nothing', async () => {
+  it('says what each empty section is for, with Write where Edit sits', async () => {
     await start('memory-empty');
-    expect(screen.getAllByText("Bothy hasn't remembered anything yet.")).toHaveLength(2);
-    await fireEvent.click(within(section('About you')).getByRole('button', { name: 'Edit' }));
+    expect(within(section('About you')).getByText('Tell Bothy about your role and how you like answers.')).toBeTruthy();
+    expect(within(section('Things Bothy remembers')).getByText('Bothy adds things here as you work together.')).toBeTruthy();
+    await fireEvent.click(within(section('About you')).getByRole('button', { name: 'Write' }));
     expect(within(section('About you')).getByLabelText('About you')).toBeTruthy();
+  });
+
+  it('shows History only once there is something in it', async () => {
+    installApi({ override: (m, url) => (m === 'GET' && /\/history\?limit=1$/.test(url) ? { items: [] } : undefined) });
+    session.ready = false;
+    await session.init();
+    render(Memory);
+    await screen.findByText('Things Bothy remembers');
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByRole('button', { name: 'History' })).toBeNull();
   });
 
   it('lists who changed what, with names instead of ids', async () => {
     await start();
-    await fireEvent.click(screen.getByRole('button', { name: 'History' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'History' }));
     const dialog = screen.getByRole('dialog', { name: 'History' });
     await within(dialog).findByText('Priya Rao (admin)');
     expect(within(dialog).getByText('You')).toBeTruthy();
