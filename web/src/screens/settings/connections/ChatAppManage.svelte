@@ -168,18 +168,29 @@
 <ConnPage title={name}>
   <SettingsSection title="Connection">
     <div class="flex min-h-14 flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-border py-3">
-      <p class="min-w-0 text-body {line ? (line.tone === 'danger' ? 'text-danger-text' : 'text-text') : 'text-text'}">
-        {!status.enabled ? `Turned off. Bothy doesn't answer in ${name}.` : line ? line.text : connectedText(status, true)}
-      </p>
+      <!-- A rejected test replaces the line it proves wrong, rather than sitting under "Connected to …". -->
+      {#if test?.rejected}
+        <StatusLine
+          class="min-w-0 flex-1"
+          tone="danger"
+          text="Can't connect: {name} didn't accept {app === 'slack' ? 'the tokens' : 'the token'}."
+          details={test.details}
+          action={{ label: app === 'slack' ? 'Replace the tokens' : 'Replace the token', onclick: () => onreplace(test!) }}
+          alert
+        />
+      {:else}
+        <p class="min-w-0 text-body {line ? (line.tone === 'danger' ? 'text-danger-text' : 'text-text') : 'text-text'}">
+          {!status.enabled ? `Turned off. Bothy doesn't answer in ${name}.` : line ? line.text : connectedText(status, true)}
+        </p>
+      {/if}
       <Button size="sm" loading={testing} loadingLabel="Testing…" onclick={runTest}>Test connection</Button>
     </div>
-    {#if test}
+    {#if test && !test.rejected}
       <StatusLine
         class="border-b border-border py-3"
         tone={test.ok ? 'success' : 'danger'}
         text={test.message}
         details={test.details}
-        action={test.rejected ? { label: app === 'slack' ? 'Replace the tokens' : 'Replace the token', onclick: () => onreplace(test!) } : undefined}
         alert
       />
     {/if}
@@ -206,16 +217,15 @@
     {#each groups as s (s.principal_id)}
       {@const meta = groupMeta(s)}
       <div class="border-b border-border py-3 last:border-b-0">
-        <div class="flex min-h-8 flex-wrap items-center justify-between gap-x-4 gap-y-1">
+        <!-- Delete sits under the name, so every row keeps its switch in the same right-hand column. -->
+        <div class="flex min-h-8 items-start justify-between gap-x-4">
           <span class="min-w-0">
             <span class="block text-body font-medium text-text" data-copy-ignore>{s.title}</span>
             {#if meta}<span class="block text-small text-muted tabular-nums" data-copy-ignore>{meta}</span>{/if}
-          </span>
-          <span class="flex items-center gap-2">
-            <Switch label="Answers here" bind:checked={s.enabled} onchange={(v) => setAnswers(s, v)} />
             <!-- Only a channel that is off can go, so nobody deletes one people are using. -->
-            {#if !s.enabled}<Button size="sm" variant="ghost" aria-label="Delete {s.title}…" onclick={() => (deleting = s)}>Delete…</Button>{/if}
+            {#if !s.enabled}<Button size="sm" variant="ghost" class="-ml-3 mt-1" aria-label="Delete {s.title}…" onclick={() => (deleting = s)}>Delete…</Button>{/if}
           </span>
+          <span class="flex shrink-0 items-center"><Switch label="Answers here" bind:checked={s.enabled} onchange={(v) => setAnswers(s, v)} /></span>
         </div>
         <div class="mt-3 grid gap-3 sm:grid-cols-2">
           <Select

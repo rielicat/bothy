@@ -162,6 +162,10 @@ describe('Slack manage view', () => {
       m === 'POST' && url === '/api/channels/slack/test' && tests++ === 0 ? refuse(502, 'slack: auth.test: invalid_auth') : undefined,
     );
     await fireEvent.click(await screen.findByRole('button', { name: 'Test connection' }));
+    // The failure takes the connection line's place instead of sitting under "Connected to …".
+    expect((await screen.findByRole('alert')).textContent).toContain("Can't connect: Slack didn't accept the tokens.");
+    expect(screen.queryByText(/^Connected to /)).toBeNull();
+    expect(screen.getAllByText(/didn't accept/)).toHaveLength(1);
     await fireEvent.click(await screen.findByRole('button', { name: 'Replace the tokens' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Connect Slack' })).toBeTruthy();
     expect(screen.getByText(/^Slack didn't accept those tokens\./)).toBeTruthy();
