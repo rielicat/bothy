@@ -126,7 +126,7 @@ func (s *Server) mcpItems(ctx context.Context) []dto.InboxItem {
 		}
 		pins = slices.DeleteFunc(pins, func(p *core.MCPPin) bool { return !changed[p.Tool] })
 		items = append(items, dto.InboxItem{ID: "mcp:" + st.Name, Type: dto.InboxMCPReview,
-			Question: "Review changes to " + capitalise(st.Name) + " tools", Summary: plural(len(changed), "tool changed", "tools changed"),
+			Question: "Review changes to " + capitalise(st.Name) + " actions", Summary: plural(len(changed), "action changed", "actions changed"),
 			ForYou: true, CreatedAt: first, MCP: &dto.InboxMCP{Server: st.Name, Tools: pins}})
 	}
 	return items

@@ -11,6 +11,15 @@ import type { GroupChatItem, InboxItem } from './types';
 const enc = encodeURIComponent;
 const pretty = (p: MCPPin) => JSON.stringify(p.definition ?? {}, null, 2);
 
+/** What changed between an approved and a pending definition: the description alone reads as prose, anything else as the definition's diff. */
+function definitionChange(before: MCPPin | undefined, after: MCPPin): { diff: string; prose: boolean } {
+  const prev = (before?.definition ?? {}) as Record<string, unknown>;
+  const next = (after.definition ?? {}) as Record<string, unknown>;
+  const changed = [...new Set([...Object.keys(prev), ...Object.keys(next)])].filter((k) => JSON.stringify(prev[k]) !== JSON.stringify(next[k]));
+  if (before && changed.length === 1 && changed[0] === 'description') return { diff: lineDiff(String(prev.description ?? ''), String(next.description ?? '')), prose: true };
+  return { diff: lineDiff(before ? pretty(before) : '', pretty(after)), prose: false };
+}
+
 function fromServer(i: ServerItem): InboxItem | null {
   const base = { id: i.id, created_at: i.created_at };
   switch (i.type) {
@@ -22,7 +31,7 @@ function fromServer(i: ServerItem): InboxItem | null {
         .map((p) => {
           const before = pins.find((x) => x.tool === p.tool && x !== p);
           const d = (p.definition ?? {}) as { title?: string; description?: string };
-          return { name: p.tool, title: d.title, description: d.description ?? '', side_effect: p.side_effect, diff: lineDiff(before ? pretty(before) : '', pretty(p)), hash: p.hash, private: p.private, field_map: p.field_map };
+          return { name: p.tool, title: d.title, description: d.description ?? '', side_effect: p.side_effect, ...definitionChange(before, p), hash: p.hash, private: p.private, field_map: p.field_map };
         });
       return tools.length ? { ...base, type: 'mcp_review', server: i.mcp.server, tools } : null;
     }
@@ -79,7 +88,7 @@ export function decideItem(item: InboxItem, choice: string, extra: { side_effect
 export function itemQuestion(i: InboxItem): string {
   switch (i.type) {
     case 'mcp_review':
-      return `Review ${serviceName(i.server)} actions`;
+      return `Review changes to ${serviceName(i.server)} actions`;
     case 'skill_review':
       return `Review changes to the “${i.skill}” skill`;
     case 'unknown_sender':
@@ -106,11 +115,11 @@ export function groupLines(i: GroupChatItem): string[] {
   return lines;
 }
 
-/** The collapsed row's source: "2 actions to review", "@jordan_k". */
+/** The collapsed row's source: "2 actions changed", "@jordan_k". */
 export function itemSource(i: InboxItem): string {
   switch (i.type) {
     case 'mcp_review':
-      return `${plural(i.tools.length, 'action')} to review`;
+      return `${plural(i.tools.length, 'action')} changed`;
     case 'skill_review':
       return i.files.length ? `${plural(i.files.length, 'file')} changed` : 'Changed files';
     case 'unknown_sender':

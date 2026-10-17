@@ -126,7 +126,7 @@ func TestInboxItems(t *testing.T) {
 		forYou   bool
 	}{
 		string(deploy.ID):        {dto.InboxApproval, "Deploy acme/web to staging?", "0 of 2 approvals", true},
-		"mcp:linear":             {dto.InboxMCPReview, "Review changes to Linear tools", "2 tools changed", true},
+		"mcp:linear":             {dto.InboxMCPReview, "Review changes to Linear actions", "2 actions changed", true},
 		"skill:pdf":              {dto.InboxSkillReview, "Review changes to the “pdf” skill", "Changed since it was approved", true},
 		"skill:slides":           {dto.InboxSkillReview, "Review the new “slides” skill", "Added by admin", true},
 		string(team.ID):          {dto.InboxApproval, "Delete notes/old.md?", "", true},

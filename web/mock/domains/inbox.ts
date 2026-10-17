@@ -46,7 +46,7 @@ export function inbox(req: Req): InboxItem[] {
       const mine = pending.filter((p) => p.server === server);
       // Each changed tool's previous definition rides along, for "Show what changed".
       const before = mine.map((p) => connections.pins.find((x) => x.server === server && x.tool === p.tool && x !== p && x.status !== 'pending')).filter((p): p is MCPPin => !!p);
-      out.push({ id: `mcp:${server}`, type: 'mcp_review', question: '', summary: `${mine.length} ${mine.length === 1 ? 'tool' : 'tools'} changed`, for_you: true, created_at: mine[0].first_seen_at, mcp: { server, tools: [...mine, ...before] } });
+      out.push({ id: `mcp:${server}`, type: 'mcp_review', question: '', summary: `${mine.length} ${mine.length === 1 ? 'action' : 'actions'} changed`, for_you: true, created_at: mine[0].first_seen_at, mcp: { server, tools: [...mine, ...before] } });
     }
     for (const s of knowledge.skills.filter((x) => x.status === 'changed' || x.status === 'pending'))
       out.push({ id: `skill:${s.name}`, type: 'skill_review', question: '', for_you: true, created_at: s.updated_at, skill: s, skill_changes: skillChanges(s) });

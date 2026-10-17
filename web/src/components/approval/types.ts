@@ -33,7 +33,8 @@ interface ItemBase {
 export interface McpReviewItem extends ItemBase {
   type: 'mcp_review';
   server: string;
-  tools: { name: string; title?: string; description: string; side_effect: string; diff?: string; hash: string; private: boolean; field_map?: Record<string, string> }[];
+  /** `prose`: only the description changed, so `diff` compares the two sentences rather than the definitions. */
+  tools: { name: string; title?: string; description: string; side_effect: string; diff?: string; prose?: boolean; hash: string; private: boolean; field_map?: Record<string, string> }[];
 }
 
 export interface SkillReviewItem extends ItemBase {

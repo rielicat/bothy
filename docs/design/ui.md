@@ -1546,7 +1546,7 @@ For you                                                              text-headin
 │ …full card as in 8.5…                                           │
 └────────────────────────────────────────────────────────────────┘
 Delete notes/staging.md?                    Clean up staging notes · 2 min ago      collapsed ListRows
-Review changes to Linear tools              2 tools changed · 1 h ago
+Review changes to Linear actions            2 actions changed · 1 h ago
 Someone new messaged Bothy on Telegram      @jordan_k · Yesterday
 Write notes/standup.md?                     Alex Kim · Slack · 6 min ago
 
@@ -1563,8 +1563,8 @@ Deploy acme/api to production               1 of 2 approvals · 20 min ago
 | Type | Question | Expanded content |
 |---|---|---|
 | Action approval | from §8.2 | the card |
-| MCP tool review (admins) | "Review changes to {Server} tools" | One row per tool: plain name, what it does, "What this does" select (Only reads information / Changes things inside Bothy / Sends data out / Can't be undone), "Show what changed" (`DiffView` of the definition). Buttons: [Approve tools] [Turn off {Server}]. |
-| Changed skill (admins) | "Review changes to the “{skill}” skill" | "Show what changed" (diff of SKILL.md and files). Buttons: [Approve] [Turn off skill]. |
+| MCP tool review (admins) | "Review changes to {Server} actions"; row meta "1 action changed" / "2 actions changed" | One row per action: plain name, what it does, "What this does" select (Only reads information / Changes things inside Bothy / Sends data out / Can't be undone), "Show what changed": a prose `DiffView` of the old and new description when that is the only change, else the `DiffView` of the definition. Buttons: [Approve changes] [Turn off {Server}]. |
+| Changed skill (admins) | "Review changes to the “{skill}” skill" | "Show what changed" (diff of SKILL.md and files; `.md` files as prose). Buttons: [Approve] [Turn off skill]. |
 | Someone waiting to be let in (admins; where the chat app can't say who is in the team: Telegram, and Discord when it can't check) | "Someone new messaged Bothy on {App}" | "{display name} ({handle}) wrote: “{first 120 chars, Verbatim}”"; without a username, "{display name} wrote: …" ("Someone" without a name). Details: the account's id on {App}, with Copy. Buttons: [Let in] (A) [Block] (D). Live region: "Let in. Next: …". Slack and Discord members get in on their own; guests, people from other companies and bots never reach this list. |
 | New group chat (admins) | "Bothy was added to {chat} in {App}" | Lines, each only when known: "Added by {name}."; "{n} people are in this chat." (Discord: "{server} has {n} members."). Then one line for the case: Discord "Turning this on lets all {n} members of {server} message Bothy, here and in direct messages." (without a count "… lets everyone in {server} …"; without the server's name, "The Discord server" / "the Discord server", never "this server", which is Bothy's host); Slack, when people from other companies are in it, "People from other companies are in this channel. They'll see Bothy's replies, though Bothy won't answer them."; Telegram "Anyone in this group can use Bothy once it's on, not only people you let in.". Then "What Bothy can do there" (`OptionList`): "Answer questions" — "Bothy reads and answers. It can't change anything." (the default, whoever is in the channel), "Do work, with approval" — "Bothy can change files, run code and send things. An approver checks each step first.". Then "Bothy answers only when mentioned." when it does. Buttons: [Turn on] (A) [Ignore] (D). Turn on saves the choice with it. |
 | Note suggestion | "Update the notes for {repo}?" | the card with a prose diff |

@@ -111,9 +111,31 @@ describe('inbox items', () => {
     expect(container.textContent).toContain('Bothy can change files, run code and send things. An approver checks each step first.');
   });
 
+  it('shows a changed description as two sentences, and any other change as the definition', async () => {
+    const pin = (description: string, status: string, extra: object = {}) => ({ server: 'docs', tool: 'search_docs', hash: status, definition: { name: 'search_docs', description, ...extra }, status, side_effect: 'read', private: false });
+    const review = (tools: object[]) =>
+      ({ id: 'mcp:docs', type: 'mcp_review', question: '', for_you: true, created_at: at, mcp: { server: 'docs', tools } }) as unknown as ServerItem;
+    installApi({
+      override: (m, url) =>
+        m === 'GET' && url === '/api/inbox'
+          ? { items: [review([pin('Search the handbook and return matching sections.', 'pending'), pin('Search the handbook.', 'superseded')])] }
+          : undefined,
+    });
+    const [only] = await loadItems();
+    expect(itemSource(only)).toBe('1 action changed');
+    const prose = only.type === 'mcp_review' ? only.tools[0] : undefined;
+    expect(prose).toMatchObject({ prose: true, diff: '-Search the handbook.\n+Search the handbook and return matching sections.' });
+    installApi({
+      override: (m, url) =>
+        m === 'GET' && url === '/api/inbox' ? { items: [review([pin('Search.', 'pending', { inputSchema: { q: 1 } }), pin('Search.', 'superseded')])] } : undefined,
+    });
+    const [schema] = await loadItems();
+    expect(schema.type === 'mcp_review' && schema.tools[0].prose).toBe(false);
+  });
+
   it('spells a service the way it spells itself', async () => {
     const review = (await items())[2];
-    expect(itemQuestion(review)).toBe('Review GitHub actions');
+    expect(itemQuestion(review)).toBe('Review changes to GitHub actions');
     const { container } = render(ReviewCard, { item: review });
     expect(within(container).getByRole('button', { name: 'Turn off GitHub' })).toBeTruthy();
   });

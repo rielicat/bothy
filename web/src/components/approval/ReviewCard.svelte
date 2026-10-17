@@ -44,7 +44,7 @@
     switch (item.type) {
       case 'mcp_review':
         return [
-          { choice: 'approve', label: 'Approve tools', variant: 'primary', key: 'allow_once' },
+          { choice: 'approve', label: 'Approve changes', variant: 'primary', key: 'allow_once' },
           { choice: 'turn_off', label: `Turn off ${serviceName(item.server)}`, variant: 'secondary', key: 'deny' },
         ];
       case 'skill_review':
@@ -83,9 +83,10 @@
   const changeWord: Record<string, string> = { added: 'new', removed: 'removed', changed: 'changed' };
 </script>
 
-{#snippet changed(key: string, diff: string, label = 'Show what changed')}
+<!-- A sentence that changed reads as prose, so the change isn't cut off by sideways scrolling. -->
+{#snippet changed(key: string, diff: string, label = 'Show what changed', prose = false)}
   <p class="mt-1 text-small"><LinkButton aria-expanded={!!shown[key]} onclick={() => (shown[key] = !shown[key])}>{shown[key] ? 'Hide what changed' : label}</LinkButton></p>
-  {#if shown[key]}<DiffView class="mt-2" {diff} />{/if}
+  {#if shown[key]}<DiffView class="mt-2" {diff} mode={prose ? 'prose' : 'code'} />{/if}
 {/snippet}
 
 <article class="card focus-visible:outline-offset-[-1px] sm:p-5" aria-labelledby="{uid}-q" data-item={item.id} tabindex="-1">
@@ -98,7 +99,7 @@
           <p class="text-body font-medium text-text">{t.title || humanize(t.name)}</p>
           <p class="text-small text-muted" data-copy-ignore><Verbatim text={t.description} /></p>
           <Select class="mt-2 max-w-72" label="What this does" options={classes} bind:value={effects[t.name]} />
-          {#if t.diff}{@render changed(t.name, t.diff)}{/if}
+          {#if t.diff}{@render changed(t.name, t.diff, undefined, t.prose)}{/if}
         </li>
       {/each}
     </ul>
@@ -108,7 +109,7 @@
         {#each item.files as f (f.path)}
           <li class="border-b border-border py-3 last:border-b-0">
             <p class="text-body text-text"><span class="font-mono text-code [overflow-wrap:anywhere]" data-copy-ignore>{f.path}</span><span class="text-muted">{' · '}{changeWord[f.change] ?? 'changed'}</span></p>
-            {#if f.diff}{@render changed(f.path, f.diff, f.change === 'changed' ? 'Show what changed' : 'Show the file')}{:else}<p class="mt-1 text-small text-muted">Not text, or too long to show here.</p>{/if}
+            {#if f.diff}{@render changed(f.path, f.diff, f.change === 'changed' ? 'Show what changed' : 'Show the file', f.path.toLowerCase().endsWith('.md'))}{:else}<p class="mt-1 text-small text-muted">Not text, or too long to show here.</p>{/if}
           </li>
         {/each}
       </ul>

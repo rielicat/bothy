@@ -38,7 +38,7 @@ type InboxItem struct {
 	ID   string    `json:"id"`
 	Type InboxType `json:"type"`
 	// Question is the item's title in plain copy, e.g. "Review changes to
-	// Linear tools"; Summary the facts beside it ("2 tools changed",
+	// Linear actions"; Summary the facts beside it ("2 actions changed",
 	// "Jordan K (@jordan_k)", "Added by Sam Patel").
 	Question  string    `json:"question"`
 	Summary   string    `json:"summary,omitempty"`

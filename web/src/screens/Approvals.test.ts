@@ -145,7 +145,7 @@ describe('Approvals inbox', () => {
     const card = await waitFor(() => document.querySelector<HTMLElement>('[data-item="mcp:docs"]')!);
     const select = within(card).getByLabelText('What this does') as HTMLSelectElement;
     await fireEvent.change(select, { target: { value: 'external_send' } });
-    await fireEvent.click(within(card).getByRole('button', { name: 'Approve tools' }));
+    await fireEvent.click(within(card).getByRole('button', { name: 'Approve changes' }));
     const approve = () => calls.filter((c) => c.method === 'POST' && c.url === '/api/mcp/docs/approve');
     await waitFor(() => expect(approve()).toHaveLength(1));
     expect(JSON.parse(approve()[0].body)).toEqual({ tools: { search_docs: { side_effect: 'external_send', private: false, hash: 'b3c1' } } });
