@@ -111,6 +111,7 @@ var storeSuite = []struct {
 	{"MCP", testMCP},
 	{"Skills", testSkills},
 	{"MemoryEvents", testMemoryEvents},
+	{"TeamMemoryEvents", testTeamMemoryEvents},
 	{"Vault", testVault},
 	{"Dedup", testDedup},
 	{"TimePrecision", testTimePrecision},

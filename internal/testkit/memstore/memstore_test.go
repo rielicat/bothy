@@ -23,6 +23,7 @@ func TestCloneCopiesEveryContainer(t *testing.T) {
 	st.audit = make([]auditRow, 1)
 	st.egress = make([]core.EgressRecord, 1)
 	st.memEvents = make([]core.MemoryEvent, 1)
+	st.teamEvents = make([]core.MemoryEvent, 1)
 	st.vaultKeys = make([]vaultKeyRow, 1)
 	c := st.clone()
 	orig, cl := reflect.ValueOf(st), reflect.ValueOf(c)

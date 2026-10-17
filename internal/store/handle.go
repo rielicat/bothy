@@ -48,29 +48,30 @@ func (t txStore) Close() error {
 	return fmt.Errorf("store: close inside a transaction: %w", core.ErrInvalid)
 }
 
-func (h *handle) Meta() core.MetaRepo                { return metaRepo{h} }
-func (h *handle) Users() core.UserRepo               { return userRepo{h} }
-func (h *handle) Principals() core.PrincipalRepo     { return principalRepo{h} }
-func (h *handle) Spaces() core.SpaceRepo             { return spaceRepo{h} }
-func (h *handle) Identities() core.IdentityRepo      { return identityRepo{h} }
-func (h *handle) AuthSessions() core.AuthSessionRepo { return authSessionRepo{h} }
-func (h *handle) Tokens() core.TokenRepo             { return tokenRepo{h} }
-func (h *handle) Sessions() core.SessionRepo         { return sessionRepo{h} }
-func (h *handle) Messages() core.MessageRepo         { return messageRepo{h} }
-func (h *handle) Pins() core.PinRepo                 { return pinRepo{h} }
-func (h *handle) Runs() core.RunRepo                 { return runRepo{h} }
-func (h *handle) Approvals() core.ApprovalRepo       { return approvalRepo{h} }
-func (h *handle) Grants() core.GrantRepo             { return grantRepo{h} }
-func (h *handle) Schedules() core.ScheduleRepo       { return scheduleRepo{h} }
-func (h *handle) Usage() core.UsageRepo              { return usageRepo{h} }
-func (h *handle) Audit() core.AuditRepo              { return auditRepo{h} }
-func (h *handle) Egress() core.EgressRepo            { return egressRepo{h} }
-func (h *handle) MCP() core.MCPRepo                  { return mcpRepo{h} }
-func (h *handle) Skills() core.SkillRepo             { return skillRepo{h} }
-func (h *handle) MemoryEvents() core.MemoryEventRepo { return memoryEventRepo{h} }
-func (h *handle) Vault() core.VaultRepo              { return vaultRepo{h} }
-func (h *handle) Dedup() core.DedupRepo              { return dedupRepo{h} }
-func (h *handle) Uploads() core.UploadRepo           { return uploadRepo{h} }
+func (h *handle) Meta() core.MetaRepo                        { return metaRepo{h} }
+func (h *handle) Users() core.UserRepo                       { return userRepo{h} }
+func (h *handle) Principals() core.PrincipalRepo             { return principalRepo{h} }
+func (h *handle) Spaces() core.SpaceRepo                     { return spaceRepo{h} }
+func (h *handle) Identities() core.IdentityRepo              { return identityRepo{h} }
+func (h *handle) AuthSessions() core.AuthSessionRepo         { return authSessionRepo{h} }
+func (h *handle) Tokens() core.TokenRepo                     { return tokenRepo{h} }
+func (h *handle) Sessions() core.SessionRepo                 { return sessionRepo{h} }
+func (h *handle) Messages() core.MessageRepo                 { return messageRepo{h} }
+func (h *handle) Pins() core.PinRepo                         { return pinRepo{h} }
+func (h *handle) Runs() core.RunRepo                         { return runRepo{h} }
+func (h *handle) Approvals() core.ApprovalRepo               { return approvalRepo{h} }
+func (h *handle) Grants() core.GrantRepo                     { return grantRepo{h} }
+func (h *handle) Schedules() core.ScheduleRepo               { return scheduleRepo{h} }
+func (h *handle) Usage() core.UsageRepo                      { return usageRepo{h} }
+func (h *handle) Audit() core.AuditRepo                      { return auditRepo{h} }
+func (h *handle) Egress() core.EgressRepo                    { return egressRepo{h} }
+func (h *handle) MCP() core.MCPRepo                          { return mcpRepo{h} }
+func (h *handle) Skills() core.SkillRepo                     { return skillRepo{h} }
+func (h *handle) MemoryEvents() core.MemoryEventRepo         { return memoryEventRepo{h} }
+func (h *handle) TeamMemoryEvents() core.TeamMemoryEventRepo { return teamMemoryEventRepo{h} }
+func (h *handle) Vault() core.VaultRepo                      { return vaultRepo{h} }
+func (h *handle) Dedup() core.DedupRepo                      { return dedupRepo{h} }
+func (h *handle) Uploads() core.UploadRepo                   { return uploadRepo{h} }
 
 // Tx runs fn inside BEGIN IMMEDIATE on the writer (the DSN sets _txlock). A
 // nested Tx joins the outer transaction.

@@ -438,6 +438,9 @@ const (
 	FileMemory    MemoryFile = "MEMORY"
 	FileUser      MemoryFile = "USER"
 	FileHeartbeat MemoryFile = "HEARTBEAT"
+	// FileTeam is TEAM.md, remembered for everyone: one file for the whole
+	// team at <data>/memory/team/TEAM.md, never a principal's.
+	FileTeam MemoryFile = "TEAM"
 )
 
 type MemoryEvent struct {
@@ -451,6 +454,9 @@ type MemoryEvent struct {
 	Actor      string      `json:"actor"` // agent:<run> | user:<id>
 	Provenance Provenance  `json:"provenance"`
 	At         time.Time   `json:"at"`
+	// Approval is the admin's approval an agent change to TEAM.md ran under;
+	// team rows have no Principal.
+	Approval ApprovalID `json:"approval_id,omitempty"`
 }
 
 type SearchHit struct {
@@ -719,6 +725,14 @@ type MemoryEventRepo interface {
 	List(ctx context.Context, v Viewer, p PrincipalID, f MemoryFile, page Page) ([]*MemoryEvent, error)
 }
 
+// TeamMemoryEventRepo is the history of TEAM.md (table team_memory_events).
+// It belongs to no principal, so it is not Viewer-scoped: every signed-in
+// user may read what Bothy remembers for everyone.
+type TeamMemoryEventRepo interface {
+	Add(ctx context.Context, e *MemoryEvent) (int64, error)
+	List(ctx context.Context, page Page) ([]*MemoryEvent, error) // newest first; Before = id
+}
+
 type VaultRepo interface {
 	ActiveKey(ctx context.Context) (id int64, wrapped, check []byte, source string, err error) // ErrNotFound on first boot
 	PutKey(ctx context.Context, wrapped, check []byte, source string) (int64, error)           // deactivates the previous key
@@ -762,6 +776,7 @@ type Store interface {
 	MCP() MCPRepo
 	Skills() SkillRepo
 	MemoryEvents() MemoryEventRepo
+	TeamMemoryEvents() TeamMemoryEventRepo
 	Vault() VaultRepo
 	Dedup() DedupRepo
 	Uploads() UploadRepo

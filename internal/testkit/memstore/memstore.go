@@ -49,31 +49,32 @@ func (s *store) begin() (*state, func()) {
 	return &s.db.st, s.db.mu.Unlock
 }
 
-func (s *store) Meta() core.MetaRepo                { return metaRepo{s} }
-func (s *store) Users() core.UserRepo               { return userRepo{s} }
-func (s *store) Principals() core.PrincipalRepo     { return principalRepo{s} }
-func (s *store) Spaces() core.SpaceRepo             { return spaceRepo{s} }
-func (s *store) Identities() core.IdentityRepo      { return identityRepo{s} }
-func (s *store) AuthSessions() core.AuthSessionRepo { return authSessionRepo{s} }
-func (s *store) Tokens() core.TokenRepo             { return tokenRepo{s} }
-func (s *store) Sessions() core.SessionRepo         { return sessionRepo{s} }
-func (s *store) Messages() core.MessageRepo         { return messageRepo{s} }
-func (s *store) Pins() core.PinRepo                 { return pinRepo{s} }
-func (s *store) Runs() core.RunRepo                 { return runRepo{s} }
-func (s *store) Approvals() core.ApprovalRepo       { return approvalRepo{s} }
-func (s *store) Grants() core.GrantRepo             { return grantRepo{s} }
-func (s *store) Schedules() core.ScheduleRepo       { return scheduleRepo{s} }
-func (s *store) Usage() core.UsageRepo              { return usageRepo{s} }
-func (s *store) Audit() core.AuditRepo              { return auditRepo{s} }
-func (s *store) Egress() core.EgressRepo            { return egressRepo{s} }
-func (s *store) MCP() core.MCPRepo                  { return mcpRepo{s} }
-func (s *store) Skills() core.SkillRepo             { return skillRepo{s} }
-func (s *store) MemoryEvents() core.MemoryEventRepo { return memoryEventRepo{s} }
-func (s *store) Vault() core.VaultRepo              { return vaultRepo{s} }
-func (s *store) Dedup() core.DedupRepo              { return dedupRepo{s} }
-func (s *store) Uploads() core.UploadRepo           { return uploadRepo{s} }
-func (s *store) SQLiteVersion() string              { return "" }
-func (s *store) Close() error                       { return nil }
+func (s *store) Meta() core.MetaRepo                        { return metaRepo{s} }
+func (s *store) Users() core.UserRepo                       { return userRepo{s} }
+func (s *store) Principals() core.PrincipalRepo             { return principalRepo{s} }
+func (s *store) Spaces() core.SpaceRepo                     { return spaceRepo{s} }
+func (s *store) Identities() core.IdentityRepo              { return identityRepo{s} }
+func (s *store) AuthSessions() core.AuthSessionRepo         { return authSessionRepo{s} }
+func (s *store) Tokens() core.TokenRepo                     { return tokenRepo{s} }
+func (s *store) Sessions() core.SessionRepo                 { return sessionRepo{s} }
+func (s *store) Messages() core.MessageRepo                 { return messageRepo{s} }
+func (s *store) Pins() core.PinRepo                         { return pinRepo{s} }
+func (s *store) Runs() core.RunRepo                         { return runRepo{s} }
+func (s *store) Approvals() core.ApprovalRepo               { return approvalRepo{s} }
+func (s *store) Grants() core.GrantRepo                     { return grantRepo{s} }
+func (s *store) Schedules() core.ScheduleRepo               { return scheduleRepo{s} }
+func (s *store) Usage() core.UsageRepo                      { return usageRepo{s} }
+func (s *store) Audit() core.AuditRepo                      { return auditRepo{s} }
+func (s *store) Egress() core.EgressRepo                    { return egressRepo{s} }
+func (s *store) MCP() core.MCPRepo                          { return mcpRepo{s} }
+func (s *store) Skills() core.SkillRepo                     { return skillRepo{s} }
+func (s *store) MemoryEvents() core.MemoryEventRepo         { return memoryEventRepo{s} }
+func (s *store) TeamMemoryEvents() core.TeamMemoryEventRepo { return teamMemoryEventRepo{s} }
+func (s *store) Vault() core.VaultRepo                      { return vaultRepo{s} }
+func (s *store) Dedup() core.DedupRepo                      { return dedupRepo{s} }
+func (s *store) Uploads() core.UploadRepo                   { return uploadRepo{s} }
+func (s *store) SQLiteVersion() string                      { return "" }
+func (s *store) Close() error                               { return nil }
 func (s *store) Backup(context.Context, string) (string, error) {
 	return "", fmt.Errorf("memstore: backup: %w", core.ErrNotImplemented)
 }
@@ -186,7 +187,7 @@ type secretRow struct {
 type state struct {
 	serial int64 // insertion order: the tie-breaker SQLite rowids give
 
-	msgID, pinID, auditID, egressID, memID, keyID int64
+	msgID, pinID, auditID, egressID, memID, teamMemID, keyID int64
 
 	meta        map[string]string
 	users       map[core.UserID]core.User
@@ -215,6 +216,7 @@ type state struct {
 	skills      map[string]core.SkillMeta
 	skillFiles  map[string][]core.SkillFile
 	memEvents   []core.MemoryEvent
+	teamEvents  []core.MemoryEvent
 	vaultKeys   []vaultKeyRow
 	secrets     map[secretKey]secretRow
 	dedup       map[dedupKey]time.Time
@@ -284,6 +286,7 @@ func (st *state) clone() state {
 	c.skills = maps.Clone(st.skills)
 	c.skillFiles = maps.Clone(st.skillFiles)
 	c.memEvents = slices.Clone(st.memEvents)
+	c.teamEvents = slices.Clone(st.teamEvents)
 	c.vaultKeys = slices.Clone(st.vaultKeys)
 	c.secrets = maps.Clone(st.secrets)
 	c.dedup = maps.Clone(st.dedup)

@@ -534,7 +534,7 @@ internal/store/migrations/ 0001_init.sql (§6); v0.2: 0002_repos, 0003_knowledge
                            0005_approval_comments, 0006_must_change_password, 0007_v02_fixes (§14.6),
                            0008_external_secret_refs (§14.8), 0009_ui_state (§14.7),
                            0010_knowledge_stemming, 0011_sign_ins (§15), 0012_github_apps (§14.3),
-                           0013_team_access (§6)                                                        [S]
+                           0013_team_access (§6), 0014_team_memory (§6)                                 [S]
 internal/vault/            core.Vault, core.Redactor, KEK sources, envelope crypto, aws-sm references   [M1]
 internal/vault/awssm/      v0.2: AWS Secrets Manager GetSecretValue, hand-signed (SigV4) (§14.8)        [M1]
 internal/audit/            core.Auditor: single writer, hash chain, Verify, offline Archive             [M1]
@@ -3130,6 +3130,9 @@ const (
 	FileMemory    MemoryFile = "MEMORY"
 	FileUser      MemoryFile = "USER"
 	FileHeartbeat MemoryFile = "HEARTBEAT"
+	// FileTeam is TEAM.md, remembered for everyone: one file for the whole
+	// team at <data>/memory/team/TEAM.md, never a principal's.
+	FileTeam MemoryFile = "TEAM"
 )
 
 type MemoryEvent struct {
@@ -3143,6 +3146,9 @@ type MemoryEvent struct {
 	Actor      string      `json:"actor"` // agent:<run> | user:<id>
 	Provenance Provenance  `json:"provenance"`
 	At         time.Time   `json:"at"`
+	// Approval is the admin's approval an agent change to TEAM.md ran under;
+	// team rows have no Principal.
+	Approval ApprovalID `json:"approval_id,omitempty"`
 }
 
 type SearchHit struct {
@@ -3411,6 +3417,14 @@ type MemoryEventRepo interface {
 	List(ctx context.Context, v Viewer, p PrincipalID, f MemoryFile, page Page) ([]*MemoryEvent, error)
 }
 
+// TeamMemoryEventRepo is the history of TEAM.md (table team_memory_events).
+// It belongs to no principal, so it is not Viewer-scoped: every signed-in
+// user may read what Bothy remembers for everyone.
+type TeamMemoryEventRepo interface {
+	Add(ctx context.Context, e *MemoryEvent) (int64, error)
+	List(ctx context.Context, page Page) ([]*MemoryEvent, error) // newest first; Before = id
+}
+
 type VaultRepo interface {
 	ActiveKey(ctx context.Context) (id int64, wrapped, check []byte, source string, err error) // ErrNotFound on first boot
 	PutKey(ctx context.Context, wrapped, check []byte, source string) (int64, error)           // deactivates the previous key
@@ -3454,6 +3468,7 @@ type Store interface {
 	MCP() MCPRepo
 	Skills() SkillRepo
 	MemoryEvents() MemoryEventRepo
+	TeamMemoryEvents() TeamMemoryEventRepo
 	Vault() VaultRepo
 	Dedup() DedupRepo
 	Uploads() UploadRepo
@@ -6119,7 +6134,7 @@ ORDER BY rank LIMIT ?2;
 
 User input to `MATCH` is converted to a quoted-phrase/AND query (never raw FTS syntax).
 
-**Repository ↔ table map:** Meta→`meta`; Users→`users` (+ `principals` row on create); Principals→`principals`; Spaces→`spaces` (+ `principals`); Identities→`channel_identities`; AuthSessions→`auth_sessions`; Tokens→`api_tokens`; Sessions→`sessions`, `session_urls`; Messages→`messages`, `messages_fts`; Pins→`pins`; Runs→`runs`, `llm_calls`, `tool_calls`; Approvals→`approvals`, `approval_messages`; Grants→`grants`; Schedules→`schedules`; Usage→`spend_daily` (caps) and `llm_calls` (reports); Audit→`audit_log`; Egress→`egress_log`; MCP→`mcp_tool_pins`, `mcp_installs`; Skills→`skills`; MemoryEvents→`memory_events`; Vault→`vault_keys`, `vault_secrets`; Dedup→`inbound_dedup`; Uploads→`uploads`.
+**Repository ↔ table map:** Meta→`meta`; Users→`users` (+ `principals` row on create); Principals→`principals`; Spaces→`spaces` (+ `principals`); Identities→`channel_identities`; AuthSessions→`auth_sessions`; Tokens→`api_tokens`; Sessions→`sessions`, `session_urls`; Messages→`messages`, `messages_fts`; Pins→`pins`; Runs→`runs`, `llm_calls`, `tool_calls`; Approvals→`approvals`, `approval_messages`; Grants→`grants`; Schedules→`schedules`; Usage→`spend_daily` (caps) and `llm_calls` (reports); Audit→`audit_log`; Egress→`egress_log`; MCP→`mcp_tool_pins`, `mcp_installs`; Skills→`skills`; MemoryEvents→`memory_events`; TeamMemoryEvents→`team_memory_events`; Vault→`vault_keys`, `vault_secrets`; Dedup→`inbound_dedup`; Uploads→`uploads`.
 
 **Retention** (`DB.RunRetention`, hourly):
 - `egress_log` older than `storage.retention.egress_log` (720h).
@@ -6130,7 +6145,7 @@ User input to `MATCH` is converted to a quoted-phrase/AND query (never raw FTS s
 - Hidden `api` sessions idle for 7 days (by `max(created_at, updated_at, last_message_at)`) are archived and their messages deleted; archiving also clears the session's `system_snapshot`, `tools_snapshot`, `snapshot_hash` and `summary`. Only unarchived hidden `api` sessions are visited, through the `sessions_hidden_api` index on that same expression, so the hourly pass never scans every session.
 - `audit_log` is never pruned online. `bothy audit archive --before <date>` runs with the gateway stopped: it exports the range to JSONL (0600), rebuilds `audit_log` without the triggers in a transaction, deletes the range, re-creates the triggers, and inserts an anchor row (`action=audit.archived`, detail = range, count and the last archived hash) chained to the remaining log.
 
-**v0.2 migrations** (§14; the lead adds them, each its own file, `0001_init.sql` never changes). Migrations run 1..N without gaps, so a v0.1 database (user_version 1) gets 0002–0013 in order after the pre-migration backup, and the result matches a fresh database's schema. An older binary refuses the upgraded database (e.g. "schema version 7 is newer than this binary supports (1)").
+**v0.2 migrations** (§14; the lead adds them, each its own file, `0001_init.sql` never changes). Migrations run 1..N without gaps, so a v0.1 database (user_version 1) gets 0002–0014 in order after the pre-migration backup, and the result matches a fresh database's schema. An older binary refuses the upgraded database (e.g. "schema version 7 is newer than this binary supports (1)").
 
 - `0002_repos.sql` (F4): `github_connections` (id `ghc_…`, auth pat|app, App rows need `app_id` and `installation_id` > 0, `secret_ref LIKE 'secret:_%'`, status ok|error) and `repos` (primary key `(owner, name)` `COLLATE NOCASE`, connection FK `ON DELETE CASCADE`, `allowed`, `last_indexed_sha`, dropped again by 0007), STRICT.
 - `0003_knowledge.sql` (F6): `knowledge_repos` (UNIQUE principal + repo, index and notes state), `knowledge_files` (repo + path; hash = chunker version + sha256), `knowledge_chunks` (INTEGER PRIMARY KEY as the external content of `knowledge_fts(path, title, body, terms)` with ai/ad triggers and an au trigger on path/title/body/terms only, so relabelling a chunk's sha does not rewrite FTS rows), `knowledge_sessions` (session, repo, touched_at, injected epoch and hash). It also rebuilds `llm_calls` with identical columns, indexes and rowids so the purpose CHECK accepts `notes`.
@@ -6176,6 +6191,7 @@ User input to `MATCH` is converted to a quoted-phrase/AND query (never raw FTS s
   - `runs.user_id` and `llm_calls.user_id` of team principals become `''` (passthrough keeps its user); `spend_daily` is keyed by `principal_id`; sessions of user principals lose their chat (`channel_key`, `chat` NULL); user schedules delivering to a chat deliver to the web; a channel schedule with no set chat is turned off with deliver NULL; a teammate's former guest schedule delivering to the web gets deliver NULL.
   - A temporary `m_rows` table CHECKs that sessions, messages, runs, grants, schedules, memory events, approvals, uploads and llm_calls keep their row counts across the rebuild.
   - `meta.team_access_report` (`at`, `linked`, `approvers`, `disabled_accounts`, `guests`, `telegram_guests`, `guests_blocked`, `schedules_paused`), written only when the migration moved someone (a new install, or one where nobody was linked or a guest, gets none; a report whose counts are all 0 is deleted at boot unseen): at boot `serve` audits it once as `migration.team_access` (actor `system`) and, while it is under 7 days old and no admin has changed anyone in People (any `PATCH /api/identities` deletes it), publishes the admin banner `team_access` (*"People in chat apps no longer link to Bothy accounts. Check who can use Bothy and who can approve in People."*, action `/settings/people`), which the v0.2 UI shows as a notice on People and in Approvals rather than a banner, since nothing stops.
+- `0014_team_memory.sql` (team memory, §14.9): `team_memory_events` (id, `op` add|replace|remove|edit, before, after, run_id, `approval_id` (the admin's approval an agent change ran under; `''` for an admin's own edit), actor, provenance, created_at), STRICT. It is the history of `<data>/memory/team/TEAM.md`, which belongs to no principal: no foreign key, so a user purge never touches it (`memory_events` rows go with their principal).
 - Meta key `agent.refine.<session>` (`on` | `off`): the session's refine setting (runner, hub, httpapi), alongside the keys listed in the 0001 comment. Meta key `member_scope:<channel>`: what membership meant on that chat app when its verdicts were given (§5.1 step 3). Meta key `picture:<channel>`: the bot id (`PictureSetter.BotID`) whose picture the hub already looked after on that chat app (§5.1, the bot's picture).
 - Refine calls are recorded in `llm_calls` with purpose `agent` (same step; their trace entries carry the `call_id`); a later migration could add a `refine` purpose.
 

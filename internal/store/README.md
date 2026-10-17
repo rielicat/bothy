@@ -44,3 +44,7 @@ created from a manifest, with only the vault references of their key and
 client secret, the connection that uses them (`ON DELETE SET NULL`, written as
 NULL for none) and a retired state kept until an admin dismisses it. A later
 rebuild of `github_connections` must rebuild it too.
+Migration 0014 adds `team_memory_events`, the history of TEAM.md (what Bothy
+remembers for everyone), served by `TeamMemoryEvents()`: no principal and no
+foreign key, so a user purge never touches it; agent rows carry the id of
+the admin's approval they ran under.

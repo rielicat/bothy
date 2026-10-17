@@ -66,6 +66,7 @@ func TestBackup(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(dir, "memory", "usr_a", "MEMORY.md"), "likes tea")
 	writeFile(t, filepath.Join(dir, "memory", "spc_b", "USER.md"), "group")
+	writeFile(t, filepath.Join(dir, "memory", "team", "TEAM.md"), "deploy day is Thursday")
 	writeFile(t, filepath.Join(dir, "knowledge", "usr_a", "acme", "api", "NOTES.md"), "# acme/api")
 	writeFile(t, filepath.Join(dir, "SOUL.md"), "persona")
 	writeFile(t, filepath.Join(dir, "picture.png"), "picture")
@@ -120,7 +121,8 @@ func TestBackup(t *testing.T) {
 		}
 	}
 	for name, want := range map[string]string{
-		"memory/usr_a/MEMORY.md": "likes tea", "memory/spc_b/USER.md": "group", "SOUL.md": "persona", "picture.png": "picture",
+		"memory/usr_a/MEMORY.md": "likes tea", "memory/spc_b/USER.md": "group", "memory/team/TEAM.md": "deploy day is Thursday",
+		"SOUL.md": "persona", "picture.png": "picture",
 		"bothy.yaml": "log: {level: info}", "bothy.ui.yaml": "{}", "knowledge/usr_a/acme/api/NOTES.md": "# acme/api",
 	} {
 		if got[name] != want {

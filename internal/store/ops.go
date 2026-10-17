@@ -489,6 +489,46 @@ func (r memoryEventRepo) List(ctx context.Context, v core.Viewer, p core.Princip
 	return queryAll(ctx, r.h.rq, "list memory events", scanMemoryEvent, q, args...)
 }
 
+const teamMemoryEventCols = `id, op, before, after, run_id, approval_id, actor, provenance, created_at`
+
+func scanTeamMemoryEvent(sc scanner) (*core.MemoryEvent, error) {
+	e := core.MemoryEvent{File: core.FileTeam}
+	var at int64
+	if err := sc.Scan(&e.ID, &e.Op, &e.Before, &e.After, &e.Run, &e.Approval, &e.Actor, &e.Provenance, &at); err != nil {
+		return nil, err
+	}
+	e.At = fromMS(at)
+	return &e, nil
+}
+
+type teamMemoryEventRepo struct{ h *handle }
+
+func (r teamMemoryEventRepo) Add(ctx context.Context, e *core.MemoryEvent) (int64, error) {
+	if e.File != core.FileTeam || e.Principal != "" {
+		return 0, invalid("team_memory_events: not a TEAM.md change")
+	}
+	var id int64
+	if err := r.h.wq.QueryRowContext(ctx, `INSERT INTO team_memory_events(op, before, after, run_id, approval_id, actor, provenance,
+		created_at) VALUES (?,?,?,?,?,?,?,?) RETURNING id`,
+		e.Op, e.Before, e.After, string(e.Run), string(e.Approval), e.Actor, string(e.Provenance), ms(e.At)).Scan(&id); err != nil {
+		return 0, dbErr("add team memory event", err)
+	}
+	e.ID = id
+	return id, nil
+}
+
+func (r teamMemoryEventRepo) List(ctx context.Context, page core.Page) ([]*core.MemoryEvent, error) {
+	q := `SELECT ` + teamMemoryEventCols + ` FROM team_memory_events`
+	var args []any
+	if page.Before > 0 {
+		q += ` WHERE id < ?`
+		args = append(args, page.Before)
+	}
+	q += ` ORDER BY id DESC LIMIT ?`
+	args = append(args, pageLimit(page.Limit))
+	return queryAll(ctx, r.h.rq, "list team memory events", scanTeamMemoryEvent, q, args...)
+}
+
 type vaultRepo struct{ h *handle }
 
 func (r vaultRepo) ActiveKey(ctx context.Context) (int64, []byte, []byte, string, error) {

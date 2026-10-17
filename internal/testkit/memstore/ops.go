@@ -469,6 +469,38 @@ func (r memoryEventRepo) List(_ context.Context, v core.Viewer, p core.Principal
 	return ptrs(out), nil
 }
 
+type teamMemoryEventRepo struct{ s *store }
+
+func (r teamMemoryEventRepo) Add(_ context.Context, e *core.MemoryEvent) (int64, error) {
+	st, unlock := r.s.begin()
+	defer unlock()
+	switch {
+	case e.File != core.FileTeam || e.Principal != "":
+		return 0, invalid("team_memory_events: not a TEAM.md change")
+	case !oneOf(e.Op, "add", "replace", "remove", "edit"):
+		return 0, invalid("team_memory_events.op")
+	}
+	row := normMemoryEvent(*e)
+	st.teamMemID++
+	row.ID = st.teamMemID
+	st.teamEvents = append(st.teamEvents, row)
+	e.ID = row.ID
+	return row.ID, nil
+}
+
+func (r teamMemoryEventRepo) List(_ context.Context, page core.Page) ([]*core.MemoryEvent, error) {
+	st, unlock := r.s.begin()
+	defer unlock()
+	limit := pageLimit(page.Limit)
+	var out []core.MemoryEvent
+	for i := len(st.teamEvents) - 1; i >= 0 && len(out) < limit; i-- {
+		if e := st.teamEvents[i]; page.Before <= 0 || e.ID < page.Before {
+			out = append(out, e)
+		}
+	}
+	return ptrs(out), nil
+}
+
 // validSecretName mirrors length(name) BETWEEN 1 AND 64 AND
 // name NOT GLOB '*[^a-z0-9_.-]*'.
 func validSecretName(name string) bool {

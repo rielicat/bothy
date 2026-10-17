@@ -393,6 +393,41 @@ func testMemoryEvents(f *fx) {
 	f.want(err, core.ErrInvalid, "principal_id foreign key")
 }
 
+func testTeamMemoryEvents(f *fx) {
+	r := f.s.TeamMemoryEvents()
+	evs := []*core.MemoryEvent{
+		{File: core.FileTeam, Op: "add", After: "deploy day is Thursday\n", Run: "run_x", Approval: "apr_x", Actor: "agent:run_x",
+			Provenance: core.ProvUser, At: at(1)},
+		{File: core.FileTeam, Op: "edit", Before: "deploy day is Thursday\n", After: "deploy day is Friday\n", Actor: "user:usr_x",
+			Provenance: core.ProvUser, At: at(2)},
+		{File: core.FileTeam, Op: "remove", Before: "deploy day is Friday\n", Run: "run_y", Approval: "apr_y", Actor: "agent:run_y",
+			Provenance: core.ProvUntrusted, At: at(3)},
+	}
+	var prev int64
+	for _, e := range evs {
+		id, err := r.Add(f.ctx, e)
+		f.must(err, "Add")
+		f.check(id > prev, "Add returned id %d", id)
+		e.ID, prev = id, id
+	}
+	list := func(p core.Page) []*core.MemoryEvent {
+		f.t.Helper()
+		out, err := r.List(f.ctx, p)
+		f.must(err, "List")
+		return out
+	}
+	f.eq("List newest first", list(core.Page{}), []*core.MemoryEvent{evs[2], evs[1], evs[0]})
+	f.eq("List paging", list(core.Page{Before: evs[2].ID, Limit: 1}), []*core.MemoryEvent{evs[1]})
+	f.eq("List limit", list(core.Page{Limit: 2}), []*core.MemoryEvent{evs[2], evs[1]})
+
+	_, err := r.Add(f.ctx, &core.MemoryEvent{File: core.FileMemory, Op: "add", Actor: "x"})
+	f.want(err, core.ErrInvalid, "a personal file")
+	_, err = r.Add(f.ctx, &core.MemoryEvent{Principal: core.UserPrincipal("usr_x"), File: core.FileTeam, Op: "add", Actor: "x"})
+	f.want(err, core.ErrInvalid, "a principal's row")
+	_, err = r.Add(f.ctx, &core.MemoryEvent{File: core.FileTeam, Op: "append", Actor: "x"})
+	f.want(err, core.ErrInvalid, "op CHECK")
+}
+
 func testVault(f *fx) {
 	r := f.s.Vault()
 	u := f.user(core.RoleOwner)
