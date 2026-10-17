@@ -337,11 +337,8 @@
           {#if multi && myVote === 'allow_once'}
             <p>You approved. {left === 1 ? 'Waiting for one more.' : `Waiting for ${left} more.`}</p>
           {:else if isRequester}
-            {#if vv?.approvals}
-              <p>You asked for this. {vv.approvals} of {vv.required} approvals so far; {left === 1 ? 'one more person needs' : `${left} more people need`} to approve it.</p>
-            {:else}
-              <p>You asked for this, so {vv?.required ?? view.approver.required ?? 1} other {(vv?.required ?? view.approver.required ?? 1) === 1 ? 'person needs' : 'people need'} to approve it.</p>
-            {/if}
+            <!-- The Approvals row above already counts what's missing. -->
+            <p>{vv ? "You asked for this, so you can't approve it yourself." : 'You asked for this, so someone else has to approve it.'}</p>
             <Button class="mt-3" loading={busy === 'deny'} loadingLabel="Cancelling…" onclick={() => resolve('deny')}>Cancel request</Button>
           {:else if multi}
             <p>Waiting for {vv?.approvers || 'the other approvers'}.</p>

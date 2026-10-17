@@ -1487,7 +1487,7 @@ Chat apps (SPEC §5.9) edit a card to its decided line in place of the question,
 |---|---|
 | Eligible, not voted | [Approve deploy] [Deny] |
 | Eligible, already approved | Text "You approved. Waiting for one more." (no buttons) |
-| The requester | Text "You asked for this, so {required} other people need to approve it."; once someone approved, "You asked for this. {approvals} of {required} approvals so far; one more person needs to approve it." ("{n} more people need" when more are missing). Plus secondary "Cancel request" (the requester's vote never counts) |
+| The requester | Text "You asked for this, so you can't approve it yourself." (the Approvals row above already says how many are missing). Plus secondary "Cancel request" (the requester's vote never counts) |
 | Not eligible | Text "Waiting for Maya Chen, Priya Rao or any admin." |
 
 - One deny resolves it as denied; the k-th distinct approval resolves it as approved. Every vote is shown with name and time. Chat-app cards route to every eligible approver (SPEC); deciding anywhere updates every surface live through `approval.resolved` and vote events (S4).

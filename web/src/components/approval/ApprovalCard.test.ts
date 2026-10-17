@@ -410,18 +410,18 @@ describe('ApprovalCard with several approvers', () => {
     expect(card.textContent).not.toContain('Requested by Someone in');
   });
 
-  it('gives the requester no decision buttons, only Cancel request, and counts the approvals so far', async () => {
+  it('gives the requester no decision buttons, only Cancel request', async () => {
     as(owner);
     resetMock({ mock: 'deploy-requester' });
     render(ApprovalCard, { approval: deploy({ principal_id: owner.id, approver: { ...deploy().approver, requester: owner.id } }) });
-    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('You asked for this. 1 of 2 approvals so far; one more person needs to approve it.'));
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain("You asked for this, so you can't approve it yourself."));
     expect(buttons(screen.getByRole('article'))).toHaveLength(0);
     await fireEvent.click(screen.getByRole('button', { name: 'Cancel request' }));
     await waitFor(() => expect(calls.filter((c) => c.method === 'POST')).toHaveLength(1));
     expect(JSON.parse(calls.find((c) => c.method === 'POST')!.body)).toEqual({ choice: 'deny' });
   });
 
-  it('tells the requester how many people must approve before anyone has', async () => {
+  it('leaves the count of missing approvals to the Approvals row', async () => {
     as(member);
     const id = deploy().id;
     installApi({
@@ -432,7 +432,8 @@ describe('ApprovalCard with several approvers', () => {
     });
     render(ApprovalCard, { approval: deploy() });
     await waitFor(() => expect(votes.byId[id]?.approvals).toBe(0));
-    expect(screen.getByRole('status').textContent).toContain('You asked for this, so 2 other people need to approve it.');
+    expect(screen.getByRole('status').textContent).toContain("You asked for this, so you can't approve it yourself.");
+    expect(screen.getByRole('article').textContent).toContain('2 more from Sam or any admin');
   });
 
   it('says you already voted when the server has your vote, and reloads the votes', async () => {
