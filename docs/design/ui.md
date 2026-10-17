@@ -1672,6 +1672,10 @@ Knowledge
 
 Bothy reads this at the start of every chat. Change anything that's wrong or out of date.   text-reading muted
 
+Remembered for everyone                                                [ Edit ]   admins only
+Bothy uses this in every chat, for everyone, including chat apps.     text-small muted
+Our deploy day is Thursday.
+
 About you                                                              [ Edit ]
 Maya is the CTO at Acme. Prefers short answers with links to the code.
 
@@ -1681,12 +1685,17 @@ Bothy adds things here as you work together.                           empty: te
 History ›                                                              only once there is history
 ```
 
-- Two sections (USER.md, MEMORY.md), rendered Markdown in `text-reading`. "Edit" turns a section into a sans `TextArea` with [Save] [Cancel] (under the box on phones, §9.2). No monospace, no byte meter.
+- "Remembered for everyone" (TEAM.md, one for the whole team, `GET`/`PUT /api/memory/team`) comes first, then the two personal sections (USER.md, MEMORY.md), all rendered Markdown in `text-reading`.
+  - Admins: the note "Bothy uses this in every chat, for everyone, including chat apps." under the heading; Edit/Write like the other sections; empty: "Add what Bothy should know in every chat, like your deploy day."
+  - Members: read-only, no Edit or Write; the note "Bothy uses this in every chat, for everyone. Only admins can change it."; empty: "Nothing yet. Ask Bothy to remember something for everyone, and an admin can approve it."
+  - Bothy never writes it on its own: someone asks Bothy to remember something for the team, and an admin approves the card "Remember this for everyone?" (§8.2). Signed-out visitors see nothing (sign-in first, as for every page).
+  - Live updates: admins follow `memory.updated` with file `TEAM` (an admin broadcast); members see changes when they open the page.
+- "Edit" turns a section the reader may change into a sans `TextArea` with [Save] [Cancel] (under the box on phones, §9.2). No monospace, no byte meter.
 - Near the cap (> 80 %): `text-small warning-text` under the section: "This is almost full. Remove anything Bothy no longer needs." At the cap Save shows "This is too long to save. Remove something first."
-- Saved: "Saved" next to the button for 2 s, then "Changes apply from your next message." stays in `text-small muted` until the page is left.
-- History (720 dialog): prose diffs with actor names ("You", "Bothy in “Fix login redirect”", "Maya Chen (admin)") and chat links.
+- Saved: "Saved" next to the button for 2 s, then "Changes apply from your next message." (for everyone's section: "Changes apply from everyone's next message.") stays in `text-small muted` until the page is left.
+- History (720 dialog): prose diffs with actor names ("You", "Bothy in “Fix login redirect”", "Maya Chen (admin)") and chat links; changes to what's remembered for everyone are listed under that section's name (`/api/memory/team/history`), with a chat link only for a chat the reader can open.
 - Empty section: one muted line saying what it is for, About you "Tell Bothy about your role and how you like answers.", Things Bothy remembers "Bothy adds things here as you work together.", with "Write" in the heading spot where Edit sits. "History ›" is hidden while the history is empty.
-- Memory is per account here. People in chat apps have notes of their own that Bothy keeps for them, private to them like their chats; channels have none (SPEC).
+- Personal memory is per account here. People in chat apps have notes of their own that Bothy keeps for them, private to them like their chats; channels have none of their own (SPEC). What's remembered for everyone reaches all of them, and someone in a channel with standard tools can ask for it too (an admin approves).
 
 ### 9.5 Skills (`/knowledge/skills`)
 
@@ -2487,6 +2496,7 @@ Never use: exclamation marks, emoji, "Oops", "Whoops", "simply", "just" as fille
 | heartbeat, HEARTBEAT.md | "check-in", "check-in list" |
 | SOUL.md, persona | "personality" |
 | USER.md, MEMORY.md | "About you", "Things Bothy remembers" |
+| TEAM.md, team memory | "Remembered for everyone" |
 | constitution | "built-in safety rules" (Advanced only) |
 | vault, KEK, sealed | "saved keys", "the key that protects saved keys", "locked" |
 | MCP (outside Connections) | "connected tool", or the server's name |
