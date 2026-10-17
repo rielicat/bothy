@@ -108,9 +108,9 @@ test('a conflicting save keeps the edit until the person chooses', async ({ page
   await page.keyboard.type('\n- Mine.');
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Someone else changed these notes while you were editing.')).toBeVisible();
-  await page.getByRole('button', { name: 'See their version' }).click();
+  await page.getByRole('button', { name: 'Compare versions' }).click();
   const dialog = page.getByRole('dialog', { name: 'Compare versions' });
-  await expect(dialog.getByRole('button', { name: 'Use theirs' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Use their version' })).toBeVisible();
   await dialog.getByRole('button', { name: 'Keep mine' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Saved.' })).toBeVisible();
   // Keeping mine replaces their version with this edit.

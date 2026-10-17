@@ -35,7 +35,7 @@ test.describe('approvals inbox', () => {
 
     // S allows for this chat; focus and the announcement move to the next request.
     await page.keyboard.press('s');
-    await expect(live(page)).toHaveText(/Allowed for this chat\. Next: Send a message to the Telegram chat\?/);
+    await expect(live(page)).toHaveText(/Allowed for this chat\. Next: Send a message to “Ops team” on Telegram\?/);
     await expect(page.locator(`article[data-approval="${MESSAGE}"]`)).toBeFocused();
 
     // A held key decides one request: the auto-repeat that follows is ignored until the key is released.
@@ -137,6 +137,9 @@ test.describe('approvals inbox', () => {
     await page.goto(`/approvals/apr_01jpr00000000000000000000?mock=`);
     const card = page.locator('article[data-approval="apr_01jpr00000000000000000000"]');
     await expect(card).toBeInViewport();
+    // Diffs start folded, with every file listed, so the buttons stay on screen (§8.6).
+    await expect(card.getByText('src/auth/redirect.ts · +3 −2')).toBeVisible();
+    await card.getByRole('button', { name: 'Show' }).click();
     await expect(card.getByRole('group', { name: 'Changes to src/auth/redirect.ts' })).toBeVisible();
   });
 

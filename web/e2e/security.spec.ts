@@ -53,7 +53,8 @@ async function axe(page: Page) {
 }
 
 // The sealed banner (C1) has an Unlock of its own; this is the Saved keys page's.
-const pageUnlock = (page: Page) => page.getByRole('button', { name: 'Unlock', exact: true }).and(page.locator(':not([role="alert"] *)'));
+// While the locked-keys banner shows, its Unlock is the only one: it opens the unlock screen.
+const bannerUnlock = (page: Page) => page.getByRole('alert').getByRole('button', { name: 'Unlock', exact: true });
 
 async function go(page: Page, route: string, mock = '') {
   await page.goto(`${route}?mock=${mock}`);
@@ -76,7 +77,6 @@ test.describe('axe', () => {
         ['/settings/security', '', (p) => p.getByRole('button', { name: 'Pause Bothy…' }).click()],
         ['/settings/security/websites', '', (p) => p.getByRole('button', { name: 'Add website' }).click()],
         ['/settings/security/keys', '', (p) => p.getByRole('button', { name: 'Add key' }).click()],
-        ['/settings/security/keys', 'sealed', (p) => pageUnlock(p).click()],
         ['/settings/advanced', '', (p) => p.getByRole('button', { name: 'Edit rule wiki' }).click()],
         ['/settings/advanced', '', (p) => p.getByRole('button', { name: 'Test a rule…' }).click()],
       ];
@@ -87,8 +87,12 @@ test.describe('axe', () => {
         await page.waitForTimeout(300);
         expect.soft(await axe(page), `${r} dialog (${scheme})`).toEqual([]);
       }
+      await go(page, '/settings/security/keys', 'sealed');
+      await bannerUnlock(page).click();
+      await page.getByRole('heading', { level: 1, name: 'Unlock saved keys' }).waitFor();
+      expect.soft(await axe(page), `unlock screen (${scheme})`).toEqual([]);
       await go(page, '/settings/security', 'sandbox-off');
-      await page.getByRole('button', { name: 'How to turn it on' }).last().click();
+      await page.getByRole('button', { name: 'How to turn it on' }).click();
       expect.soft(await axe(page), `running code off (${scheme})`).toEqual([]);
     });
   }
@@ -101,8 +105,7 @@ test('the main-flow pages speak plainly', async ({ page }) => {
     await assertPlainCopy(page, { ignore: SHELL });
   }
   await go(page, '/settings/security', 'sandbox-off');
-  await page.getByRole('button', { name: 'How to turn it on' }).last().click();
-  await page.getByRole('button', { name: 'Technical details' }).click();
+  await page.getByRole('button', { name: 'How to turn it on' }).click();
   await assertPlainCopy(page, { ignore: SHELL });
   for (const mock of ['paused', 'sealed']) {
     await go(page, mock === 'sealed' ? '/settings/security/keys' : '/settings/security', mock);
@@ -172,9 +175,10 @@ test('saved keys: add, unlock and delete without a pointer', async ({ page }) =>
   await expect(page.getByText('Tavily API key')).toHaveCount(0);
 
   await go(page, '/settings/security/keys', 'sealed');
-  await pageUnlock(page).press('Enter');
-  const unlock = page.getByRole('dialog', { name: 'Unlock saved keys' });
-  await expect(unlock.getByLabel('Passphrase')).toBeFocused();
+  await bannerUnlock(page).press('Enter');
+  const unlock = page.locator('#main');
+  await expect(unlock.getByRole('heading', { level: 1, name: 'Unlock saved keys' })).toBeVisible();
+  await unlock.getByLabel('Passphrase').focus();
   await page.keyboard.type('wrong');
   await page.keyboard.press('Enter');
   await expect(unlock.getByText("That passphrase didn't work. Check it and try again.")).toBeVisible();
@@ -222,7 +226,7 @@ test('Google sign-in: save and check the client, add who can sign in, switch it 
 test('sign-in pages say what to fix first', async ({ page }) => {
   await go(page, '/settings/security/google-sign-in', 'signin-no-address');
   await expect(page.getByText("Set Bothy's web address before turning this on. Google sends people back to it after they sign in.")).toBeVisible();
-  await expect(page.getByText('Set the web address first.')).toBeVisible();
+  await expect(page.getByText('Appears once the web address starts with https://.')).toBeVisible();
   await go(page, '/settings/security', 'signin-no-secret');
   await expect(page.getByRole('link', { name: /^Google/ })).toContainText('Not working');
   await go(page, '/settings/security/github-sign-in', 'signin-github,signin-check-fail:provider_error');

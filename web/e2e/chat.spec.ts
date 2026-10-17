@@ -73,14 +73,16 @@ test('a decided card stays in the transcript after a reload', async ({ page }) =
   const id = sid('paused');
   await page.goto(`/chat/${id}?mock=`);
   await send(page, 'Please run a script to tidy my reports');
-  await expect(page.getByRole('button', { name: /^Waiting for approval to run python3 tidy\.py/ })).toBeVisible({ timeout: 10_000 });
+  // The card right below says what it asks, so its waiting line only says whose approval it waits for.
+  await expect(page.getByRole('button', { name: /^Waiting for your approval/ })).toBeVisible({ timeout: 10_000 });
   const card = page.getByRole('article').filter({ hasText: 'tidy.py' });
   await card.getByRole('button', { name: /^(Allow once|Run command)/ }).click();
   await expect(page.getByText('The dry run found')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText(/^You approved running/)).toBeVisible();
+  // The step's own line sits right above the decided line, which so doesn't name the action again.
+  await expect(page.getByText(/^You approved it/)).toBeVisible();
   // Without ?mock= the fixtures stay as they are.
   await page.goto(`/chat/${id}`);
-  await expect(page.getByText(/^You approved running/)).toBeVisible();
+  await expect(page.getByText(/^You approved it/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Ran python3 tidy.py --dry-run reports/' })).toBeVisible();
   expect(problems).toEqual([]);
 });
