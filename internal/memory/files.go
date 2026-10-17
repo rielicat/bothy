@@ -37,6 +37,11 @@ func validFile(f core.MemoryFile) bool {
 
 func fileName(f core.MemoryFile) string { return string(f) + ".md" }
 
+// teamDir is the folder of TEAM.md under <data>/memory. Principal ids start
+// with usr_ or spc_, so no principal's folder can be it, and Purge, which
+// only takes those ids, never removes it.
+const teamDir core.PrincipalID = "team"
+
 // kindOf returns p's kind for spc_ ids, looked up once: a principal's kind
 // never changes.
 func (s *Service) kindOf(ctx context.Context, p core.PrincipalID) (core.PrincipalKind, error) {
@@ -97,6 +102,8 @@ func (s *Service) capOf(f core.MemoryFile) int {
 		return m.MemoryMaxBytes
 	case core.FileUser:
 		return m.UserMaxBytes
+	case core.FileTeam:
+		return m.TeamMaxBytes
 	}
 	return m.HeartbeatMaxBytes
 }
@@ -229,8 +236,8 @@ func findEntry(lines []string, entry string) int {
 func normalizeOp(op core.MemoryOp) (core.MemoryOp, error) {
 	op.Old = strings.TrimSpace(op.Old)
 	op.New = strings.TrimSpace(op.New)
-	if !validFile(op.File) {
-		return op, invalidf("file must be MEMORY, USER or HEARTBEAT, got %q", op.File)
+	if !validFile(op.File) && op.File != core.FileTeam {
+		return op, invalidf("file must be MEMORY, USER, HEARTBEAT or TEAM, got %q", op.File)
 	}
 	if err := checkText("old", op.Old); err != nil {
 		return op, err

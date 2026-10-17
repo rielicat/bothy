@@ -68,6 +68,9 @@ func (s *Service) Apply(ctx context.Context, p core.PrincipalID, run core.RunID,
 	if err != nil {
 		return nil, err
 	}
+	if op.File == core.FileTeam {
+		return nil, errTeamNeedsApproval
+	}
 	if kind == core.PrincipalPerson && op.File == core.FileHeartbeat {
 		return nil, errTeammateHeartbeat
 	}
@@ -98,20 +101,24 @@ func (s *Service) Apply(ctx context.Context, p core.PrincipalID, run core.RunID,
 	if err := s.commit(ctx, e); err != nil {
 		return nil, err
 	}
-	s.record(ctx, "memory.write", actor, e)
+	s.record(ctx, "memory.write", actor, e, "")
 	return e, nil
 }
 
 // commit writes the file, then its event row; if the row cannot be stored the
 // file is put back so the files and memory_events never disagree.
 func (s *Service) commit(ctx context.Context, e *core.MemoryEvent) error {
-	if err := s.writeFile(e.Principal, e.File, e.After); err != nil {
+	owner, add := e.Principal, s.store.MemoryEvents().Add
+	if e.File == core.FileTeam {
+		owner, add = teamDir, s.store.TeamMemoryEvents().Add
+	}
+	if err := s.writeFile(owner, e.File, e.After); err != nil {
 		return err
 	}
-	id, err := s.store.MemoryEvents().Add(ctx, e)
+	id, err := add(ctx, e)
 	if err != nil {
-		if rerr := s.restoreFile(e.Principal, e.File, e.Before); rerr != nil {
-			s.log.Error("memory: rollback failed", "principal", e.Principal, "file", e.File, "err", rerr)
+		if rerr := s.restoreFile(owner, e.File, e.Before); rerr != nil {
+			s.log.Error("memory: rollback failed", "principal", owner, "file", e.File, "err", rerr)
 		}
 		return fmt.Errorf("memory: record event: %w", err)
 	}
@@ -120,20 +127,36 @@ func (s *Service) commit(ctx context.Context, e *core.MemoryEvent) error {
 	return nil
 }
 
-func (s *Service) record(ctx context.Context, action, actor string, e *core.MemoryEvent) {
+// record publishes memory.updated and audits the change, never its content.
+// A TEAM.md change goes out as an admin broadcast (Principal ""), without
+// the run: admins can't open the chat it may come from.
+func (s *Service) record(ctx context.Context, action, actor string, e *core.MemoryEvent, approvedBy core.UserID) {
+	team := e.File == core.FileTeam
 	if s.bus != nil {
-		s.bus.Publish(core.Event{Type: core.EvMemoryUpdated, Principal: e.Principal, Run: e.Run,
-			Data: core.MemoryData{File: e.File, EventID: e.ID}})
+		ev := core.Event{Type: core.EvMemoryUpdated, Principal: e.Principal, Run: e.Run,
+			Data: core.MemoryData{File: e.File, EventID: e.ID}}
+		if team {
+			ev.Principal, ev.Run = "", ""
+		}
+		s.bus.Publish(ev)
 	}
 	if s.audit == nil {
 		return
 	}
-	detail, _ := json.Marshal(map[string]any{
-		"principal_id": e.Principal, "file": e.File, "op": e.Op, "event_id": e.ID,
-		"bytes_before": len(e.Before), "bytes_after": len(e.After),
-	})
+	d := map[string]any{"file": e.File, "op": e.Op, "event_id": e.ID, "bytes_before": len(e.Before), "bytes_after": len(e.After)}
+	target := "memory:" + string(e.Principal) + "/" + string(e.File)
+	if team {
+		target = "memory:team/TEAM"
+		d["scope"], d["provenance"] = "team", e.Provenance
+		if e.Approval != "" {
+			d["approval_id"], d["approved_by"] = e.Approval, approvedBy
+		}
+	} else {
+		d["principal_id"] = e.Principal
+	}
+	detail, _ := json.Marshal(d)
 	err := s.audit.Record(ctx, core.AuditEntry{
-		At: e.At, Actor: actor, Action: action, Target: "memory:" + string(e.Principal) + "/" + string(e.File),
+		At: e.At, Actor: actor, Action: action, Target: target,
 		Outcome: "ok", Run: e.Run, Detail: detail,
 	})
 	if err != nil {
@@ -197,7 +220,7 @@ func (s *Service) Write(ctx context.Context, v core.Viewer, p core.PrincipalID, 
 	if err := s.commit(ctx, e); err != nil {
 		return "", err
 	}
-	s.record(ctx, "memory.edit", actor, e)
+	s.record(ctx, "memory.edit", actor, e, "")
 	return etag(content), nil
 }
 

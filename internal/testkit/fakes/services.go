@@ -29,12 +29,19 @@ var (
 // Old. Space principals ("spc_…") get an empty Snapshot and core.ErrForbidden
 // from the other file methods, as with the real service. ETags are sha256 hex
 // prefixes. DeltasSince renders one "<FILE> <op>: <text>" line per event.
+//
+// Team is TEAM.md: ReadTeam returns it, WriteTeam replaces it for any user
+// in TeamAdmins (others get core.ErrForbidden) and records an "edit" event
+// that TeamHistory lists.
 type Memory struct {
 	core.Memory
-	Files map[core.PrincipalID]map[core.MemoryFile]string
+	Files      map[core.PrincipalID]map[core.MemoryFile]string
+	Team       string
+	TeamAdmins []core.UserID
 
-	mu     sync.Mutex
-	events []core.MemoryEvent
+	mu         sync.Mutex
+	events     []core.MemoryEvent
+	teamEvents []core.MemoryEvent
 }
 
 func isSpace(p core.PrincipalID) bool { return strings.HasPrefix(string(p), core.PrefixSpace+"_") }
@@ -175,6 +182,44 @@ func (m *Memory) DeltasSince(_ context.Context, p core.PrincipalID, afterID int6
 		fmt.Fprintf(&b, "%s %s: %s\n", e.File, e.Op, text)
 	}
 	return b.String(), last, nil
+}
+
+func (m *Memory) ReadTeam(context.Context) (string, string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.Team, etag(m.Team), nil
+}
+
+func (m *Memory) WriteTeam(_ context.Context, content, tag string, by core.UserID) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if by == "" || !slices.Contains(m.TeamAdmins, by) {
+		return "", fmt.Errorf("memory TEAM.md: %w", core.ErrForbidden)
+	}
+	if tag != "" && tag != etag(m.Team) {
+		return "", fmt.Errorf("memory TEAM.md: %w", core.ErrConflict)
+	}
+	e := core.MemoryEvent{ID: int64(len(m.teamEvents)) + 1, File: core.FileTeam, Op: "edit", Before: m.Team, After: content,
+		Actor: "user:" + string(by), Provenance: core.ProvUser, At: time.Now()}
+	m.teamEvents = append(m.teamEvents, e)
+	m.Team = content
+	return etag(content), nil
+}
+
+func (m *Memory) TeamHistory(_ context.Context, page core.Page) ([]*core.MemoryEvent, error) {
+	limit := page.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []*core.MemoryEvent
+	for i := len(m.teamEvents) - 1; i >= 0 && len(out) < limit; i-- {
+		if e := m.teamEvents[i]; page.Before <= 0 || e.ID < page.Before {
+			out = append(out, &e)
+		}
+	}
+	return out, nil
 }
 
 // History returns the file's events newest first; p.Before bounds the id.

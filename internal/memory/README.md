@@ -27,3 +27,18 @@ Space principals have no memory: both tools are hidden from them (not
 `SpaceOK`, and `core.Gated` off for "standard" spaces too), `Snapshot` and
 `DeltasSince` are empty, and the other methods return `core.ErrForbidden`.
 `Purge` removes a principal's memory directory for user purges.
+
+TEAM.md, what Bothy remembers for everyone, is one file at
+`<data>/memory/team/TEAM.md` (cap `memory.team_max_bytes`; `team` can't be a
+principal's folder, since principal ids start with `usr_` or `spc_`, so
+`Purge` never reaches it). It shares the mutex, atomic write and rollback,
+with its history in `team_memory_events`. `ReadTeam` serves every run's S1
+and any signed-in user; `WriteTeam` (the web editor) refuses anyone but an
+enabled admin, looked up in the store; `Apply` refuses TEAM. The only agent
+path is the `memory` tool with `file: "TEAM"`: `Plan` returns an admin-class
+action (an admin approves it, floor F3), and `Exec` writes only after
+checking the stored approval itself (allowed, allow_once, admin-only, this run,
+this fingerprint, decided by someone) through the unexported `applyTeam`.
+Team changes publish `memory.updated` as an admin broadcast (no principal, no
+run) and are audited `memory.write` / `memory.edit` with `scope: team`, the
+approval and approver, never the content.

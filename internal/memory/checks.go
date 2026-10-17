@@ -47,6 +47,11 @@ func (c overCapCheck) Run(ctx context.Context) []core.Finding {
 			}
 		}
 	}
+	if info, err := os.Stat(c.s.path(teamDir, core.FileTeam)); err == nil {
+		if limit := c.s.capOf(core.FileTeam); info.Size() > int64(limit) {
+			over = append(over, fmt.Sprintf("team/TEAM.md: %d of %d bytes", info.Size(), limit))
+		}
+	}
 	if len(over) == 0 {
 		return nil
 	}

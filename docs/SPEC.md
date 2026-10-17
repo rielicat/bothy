@@ -4206,6 +4206,11 @@ type MemorySnapshot struct {
 // Caps: memory.memory_max_bytes, user_max_bytes, heartbeat_max_bytes. Space
 // principals have no memory: Snapshot returns an empty snapshot and
 // Apply/Read/Write/History return ErrForbidden for them.
+//
+// TEAM.md, remembered for everyone, is one file at <data>/memory/team/TEAM.md
+// (cap memory.team_max_bytes) that every run's S1 carries, whatever the
+// principal. Only an admin's edit (WriteTeam) or a memory tool call with file
+// TEAM that an admin approved changes it; Apply refuses it.
 type Memory interface {
 	ToolProvider // memory, session_search
 	Snapshot(ctx context.Context, p PrincipalID) (MemorySnapshot, error)
@@ -4216,6 +4221,11 @@ type Memory interface {
 	Write(ctx context.Context, v Viewer, p PrincipalID, f MemoryFile, content, etag string, by UserID) (string, error) // ErrConflict on etag mismatch
 	DeltasSince(ctx context.Context, p PrincipalID, afterID int64) (text string, lastID int64, err error)
 	History(ctx context.Context, v Viewer, p PrincipalID, f MemoryFile, page Page) ([]*MemoryEvent, error)
+	ReadTeam(ctx context.Context) (content, etag string, err error)
+	// WriteTeam: ErrForbidden unless by is an enabled admin; ErrConflict on
+	// etag mismatch. Audited memory.edit with scope team.
+	WriteTeam(ctx context.Context, content, etag string, by UserID) (string, error)
+	TeamHistory(ctx context.Context, page Page) ([]*MemoryEvent, error) // newest first
 	Search(ctx context.Context, v Viewer, query string, limit int) ([]SearchHit, error)
 	// Purge deletes every memory file of a principal (DELETE /api/users/{id}?purge=true);
 	// its memory_events rows go with the principal (ON DELETE CASCADE).

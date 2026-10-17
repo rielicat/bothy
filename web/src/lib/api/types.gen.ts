@@ -2289,6 +2289,10 @@ export interface MemorySnapshot {
  * Caps: memory.memory_max_bytes, user_max_bytes, heartbeat_max_bytes. Space
  * principals have no memory: Snapshot returns an empty snapshot and
  * Apply/Read/Write/History return ErrForbidden for them.
+ * TEAM.md, remembered for everyone, is one file at <data>/memory/team/TEAM.md
+ * (cap memory.team_max_bytes) that every run's S1 carries, whatever the
+ * principal. Only an admin's edit (WriteTeam) or a memory tool call with file
+ * TEAM that an admin approved changes it; Apply refuses it.
  */
 export type Memory = 
     ToolProvider // memory, session_search
