@@ -16,7 +16,7 @@ import (
 // backupFiles are the top-level files of the data directory a backup carries
 // next to the database snapshot and backupTrees. The KEK and workspaces are
 // deliberately absent.
-var backupFiles = []string{"SOUL.md", "bothy.yaml", "bothy.ui.yaml"}
+var backupFiles = []string{"SOUL.md", "picture.png", "bothy.yaml", "bothy.ui.yaml"}
 
 // backupTrees are data-directory trees copied whole: memory files and the
 // knowledge module's project notes.
@@ -24,9 +24,9 @@ var backupTrees = []string{"memory", "knowledge"}
 
 // Backup writes <dir>/bothy-<UTC yyyymmddThhmmss>.tar (0600) holding a VACUUM
 // INTO snapshot of the database plus memory/**, knowledge/**, SOUL.md,
-// bothy.yaml and bothy.ui.yaml from the database's directory. Data-directory
-// files are read through os.Root and symlinks are skipped, so nothing outside
-// it is copied.
+// picture.png, bothy.yaml and bothy.ui.yaml from the database's directory.
+// Data-directory files are read through os.Root and symlinks are skipped, so
+// nothing outside it is copied.
 func (db *DB) Backup(ctx context.Context, dir string) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("store: backup: %w", err)

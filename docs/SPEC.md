@@ -172,7 +172,7 @@ volumes:
 
 | Path | Owner | Mode | Purpose |
 |---|---|---|---|
-| `/data` | 65532:65532 | 0700 | DB, memory files, SOUL.md, config files, setup token, backups |
+| `/data` | 65532:65532 | 0700 | DB, memory files, SOUL.md, picture.png, config files, setup token, backups |
 | `/keys` | 65532:65532 | 0700 | auto-generated KEK (separate volume from the DB) |
 | `/work` | 65532:10001 | 2770 | `ws/<id>/` workspaces, `skills/`, `mcp/<server>/<install>/` |
 | `/run/bothy` | 65532:65532 | 0770 | `sandboxd.sock` (0660), `egress/<h>/proxy.sock` |
@@ -3429,7 +3429,8 @@ type Store interface {
 	Tx(ctx context.Context, fn func(Store) error) error
 	// Backup writes <dir>/bothy-<UTC yyyymmddThhmmss>.tar (0600) holding a
 	// VACUUM INTO snapshot of the DB plus memory/**, knowledge/** (project
-	// notes), SOUL.md, bothy.yaml and bothy.ui.yaml from the DB's directory.
+	// notes), SOUL.md, picture.png, bothy.yaml and bothy.ui.yaml from the DB's
+	// directory.
 	// It never includes the KEK (/keys) or workspaces. Returns the path.
 	// Restore = stop, untar into /data.
 	Backup(ctx context.Context, dir string) (string, error)

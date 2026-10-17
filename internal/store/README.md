@@ -16,7 +16,7 @@ the core sentinels: UNIQUE and PRIMARY KEY become `ErrConflict`; CHECK, FOREIGN
 KEY, NOT NULL and STRICT type errors become `ErrInvalid`. `Messages.Search` turns
 user input into an AND of quoted FTS5 terms, so no input can inject FTS syntax.
 `Backup` writes a 0600 tarball with a `VACUUM INTO` snapshot plus `memory/**`,
-`knowledge/**`, `SOUL.md`, `bothy.yaml` and `bothy.ui.yaml` (never the KEK or workspaces),
+`knowledge/**`, `SOUL.md`, `picture.png`, `bothy.yaml` and `bothy.ui.yaml` (never the KEK or workspaces),
 `RunRetention` prunes hourly (never `audit_log`; web sessions left empty for a day go too), `PruneAudit` serves only the
 offline `bothy audit archive`, and `Checks` reports `sqlite.version`,
 `data.permissions` (auto-fixable) and `backups.none_recent`. Code inside a `Tx`
