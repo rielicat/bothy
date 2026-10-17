@@ -1299,7 +1299,7 @@ Refine is on: Bothy writes 3 drafts, checks them and sends the best. About $0.20
 | Model picker | Ghost small button with the model's friendly name (`text-small`; `muted` for the default, `text` when overridden) and a chevron. Menu opens upward: "Main model · Claude Sonnet 4.5" (checked by default), "Quick tasks model · Claude Haiku 4.5", separator, the other connected models grouped by provider (group labels `text-caption muted`). The choice applies to this chat. Hidden when only one model is connected. Under 400 px the label shortens to the short name ("Sonnet 4.5"). |
 | Send | Icon button 32 px, `rounded-md bg-accent text-on-accent`, `arrow-up`, label "Send". Empty composer: `bg-subtle text-faint`, `aria-disabled`. |
 | Stop | While a task runs, Send becomes a small secondary button "■ Stop". If text is typed during a run, both show: Stop, and Send (adds to the task). |
-| Paused | Textarea disabled, placeholder "Bothy is paused", Send disabled with "Bothy is paused." under the box. |
+| Paused | Textarea disabled, placeholder "Bothy is paused", Send and Attach disabled. No visible line under the box: the paused banner (§4.9, with Resume for admins) and the placeholder already say it, so "Bothy is paused." is screen-reader only, for `aria-describedby` on the disabled controls. The disabled Attach button is `quiet` (`text-faint`, no fill), so it doesn't look pressed. |
 
 ### 7.6 Notices and errors in the chat
 
@@ -2560,6 +2560,7 @@ Never use: exclamation marks, emoji, "Oops", "Whoops", "simply", "just" as fille
   .btn-danger-text { @apply text-danger-text hover:bg-danger-subtle; }
   .btn-icon { @apply w-9 px-0 pointer-coarse:w-11; }
   .btn[aria-disabled='true'] { @apply cursor-not-allowed border-transparent bg-subtle text-faint hover:bg-subtle; }
+  .btn-quiet[aria-disabled='true'] { @apply bg-transparent hover:bg-transparent; }
 
   .input { @apply block h-9 w-full min-w-0 rounded-md border border-control bg-surface px-3 text-body text-text placeholder:text-faint focus:outline-2 focus:outline-offset-0 focus:outline-focus aria-invalid:border-danger-text disabled:border-border disabled:bg-subtle disabled:text-faint pointer-coarse:h-11; }
   textarea.input { @apply h-auto min-h-20 py-2 text-reading; }

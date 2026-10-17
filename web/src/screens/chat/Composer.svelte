@@ -266,7 +266,7 @@
           e.currentTarget.value = '';
         }}
       />
-      <IconButton icon="plus" label="Attach files" size="sm" disabled={paused} onclick={() => input?.click()} />
+      <IconButton icon="plus" label="Attach files" size="sm" variant={paused ? 'quiet' : 'ghost'} disabled={paused} onclick={() => input?.click()} />
       <ToggleButton label="Refine" bind:pressed={refine} onchange={onrefine} tooltip="Bothy writes several drafts, checks them and sends the best one. Slower, and costs more." />
       <span class="flex-1"></span>
       {@render picker?.()}
@@ -288,7 +288,8 @@
   </div>
   {#each errors as e (e)}<p class="mt-2 text-small text-danger-text">{e}</p>{/each}
   {#if paused}
-    <p id="{id}-why" class="mt-2 text-small text-muted">Bothy is paused.</p>
+    <!-- The paused banner and the placeholder already say it; this names the reason for the disabled controls. -->
+    <p id="{id}-why" class="sr-only">Bothy is paused.</p>
   {:else if refine && refineLine}
     <p class="mt-2 text-small text-muted">{refineLine}</p>
   {/if}

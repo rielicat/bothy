@@ -192,6 +192,10 @@
   .btn[aria-disabled='true'] {
     @apply cursor-not-allowed border-transparent bg-subtle text-faint hover:bg-subtle;
   }
+  /* A quiet button stays unfilled when disabled, so it never looks pressed (the paused composer's attach). */
+  .btn-quiet[aria-disabled='true'] {
+    @apply bg-transparent hover:bg-transparent;
+  }
 
   .input {
     @apply block h-9 w-full min-w-0 rounded-md border border-control bg-surface px-3 text-body text-text placeholder:text-faint focus:outline-2 focus:outline-offset-0 focus:outline-focus aria-[invalid=true]:border-danger-text disabled:border-border disabled:bg-subtle disabled:text-faint pointer-coarse:h-11;
