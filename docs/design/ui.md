@@ -2135,7 +2135,7 @@ Telegram       Not connected                                            [ Connec
 ──────────────────────────────────────────────────────────────────────────────────
 Discord        Not connected                                            [ Connect ]
 
-GitHub
+Code
 GitHub         Connected to acme · 6 repositories                        [ Manage ]
 
 Tools

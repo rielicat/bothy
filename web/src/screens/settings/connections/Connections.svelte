@@ -95,7 +95,7 @@
       {/each}
     </SettingsSection>
 
-    <SettingsSection title="GitHub">
+    <SettingsSection title="Code">
       {@render row('GitHub', githubStatus(github[0], repos.length, githubApps.find((a) => a.state === 'pending')), '/settings/connections/github')}
     </SettingsSection>
 
