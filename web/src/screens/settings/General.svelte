@@ -4,6 +4,7 @@
   import { zoneOptions } from '../../lib/schedules';
   import { session } from '../../lib/stores/session.svelte';
   import { moneyText, parseMoney } from './accountHelpers';
+  import PictureSetting from './PictureSetting.svelte';
   import SelectSetting from './SelectSetting.svelte';
   import SettingsFrame from './SettingsFrame.svelte';
   import { helpFor, Saver, settingsConfig } from './store.svelte';
@@ -147,6 +148,7 @@
 
     <SettingsSection title="Bothy">
       <TextSetting label="Name" path="agent.name" parse={agentName} />
+      <PictureSetting />
       <SelectSetting label="Tone" path="agent.tone" options={tones} fallback="warm" />
       <div class="border-b border-border py-3">
         <!-- "Saved" goes right after the label, as on the other rows (§11.1). -->

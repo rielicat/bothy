@@ -1,5 +1,7 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { resetMock } from '../../../mock/server';
+import { toaster } from '../../components/ui';
 import { setCsrf } from '../../lib/api/client';
 import { session } from '../../lib/stores/session.svelte';
 import { installApi, type Call } from '../../test/api';
@@ -129,5 +131,110 @@ describe('Settings → General, who sees it', () => {
     await session.init();
     render(Settings, { params: { group: 'nope', page: 'nope' } });
     expect(await screen.findByText("This page doesn't exist.")).toBeTruthy();
+  });
+});
+
+describe("Settings → General, Bothy's picture", () => {
+  async function open(opts: { mock?: string; override?: (m: string, url: string) => unknown } = {}): Promise<Call[]> {
+    const calls = installApi({ override: opts.override });
+    if (opts.mock) resetMock({ mock: opts.mock });
+    session.ready = false;
+    await session.init();
+    setCsrf('mock-csrf');
+    settingsConfig.view = null;
+    toaster.dismiss();
+    render(Settings, { params: { group: 'general', page: 'general' } });
+    await screen.findByRole('button', { name: 'Change…' });
+    return calls;
+  }
+
+  const picker = () => document.querySelector<HTMLInputElement>('input[type="file"]')!;
+  const choose = (file: File) => fireEvent.change(picker(), { target: { files: [file] } });
+  const png = () => new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'logo.png', { type: 'image/png' });
+  const picture = () => row('Picture');
+
+  it('shows the picture and, with Slack on, how to put it in Slack', async () => {
+    await open();
+    const r = picture();
+    expect(within(r).getByRole('img', { name: 'Bothy' }).getAttribute('src')).toMatch(/^\/api\/agent\/picture\?v=/);
+    expect(within(r).getByText('Bothy uses it in the chat apps.')).toBeTruthy();
+    expect(within(r).queryByRole('button', { name: 'Use default' })).toBeNull();
+    expect(within(r).getByText("In Slack, upload it under App icon in Slack's app settings.")).toBeTruthy();
+    const download = within(r).getByRole('link', { name: 'Download picture' });
+    expect(download.getAttribute('href')).toBe('/api/agent/picture?download=1');
+    expect(download.hasAttribute('download')).toBe(true);
+    const slack = within(r).getByRole('link', { name: /^Open Slack's app settings/ });
+    expect(slack.getAttribute('href')).toBe('https://api.slack.com/apps/A0123456789/general');
+    expect(slack.getAttribute('target')).toBe('_blank');
+    expect(r.textContent).not.toMatch(/avatar|\bPNG\b|\bAPI\b|bot token/i);
+  });
+
+  it('leaves Slack out when it is off, and links to the list of apps until Slack names the app', async () => {
+    await open({ override: (_m, url) => (url === '/api/channels' ? [{ name: 'slack', enabled: false, state: 'disabled', since: '' }] : undefined) });
+    expect(within(picture()).queryByText(/In Slack/)).toBeNull();
+    cleanup();
+    await open({ override: (_m, url) => (url === '/api/channels' ? [{ name: 'slack', enabled: true, state: 'connecting', since: '' }] : undefined) });
+    expect(within(picture()).getByRole('link', { name: /^Open Slack's app settings/ }).getAttribute('href')).toBe('https://api.slack.com/apps');
+  });
+
+  it('uploads a new picture, says so and offers the default again', async () => {
+    const calls = await open();
+    const before = within(picture()).getByRole('img').getAttribute('src');
+    await choose(png());
+    await waitFor(() => expect(toaster.current?.text).toBe('Picture changed.'));
+    const put = calls.find((c) => c.method === 'PUT' && c.url === '/api/agent/picture')!;
+    expect(put.headers['x-csrf-token']).toBe('mock-csrf');
+    expect(put.body).toContain('filename=');
+    const r = picture();
+    expect(within(r).getByRole('img').getAttribute('src')).not.toBe(before);
+    expect(within(r).getByRole('button', { name: 'Use default' })).toBeTruthy();
+    // Telegram took it; Slack still needs a person, which its line already says.
+    expect(r.textContent).not.toMatch(/Updated in Telegram|Try again/);
+    const slack = within(r).getAllByText("In Slack, upload it under App icon in Slack's app settings.");
+    expect(slack).toHaveLength(1);
+    expect(slack[0].closest('p')!.className).toContain('text-warning-text');
+  });
+
+  it('says in one line per chat app what could not be changed', async () => {
+    await open({ mock: 'discord-on,picture-fail' });
+    await choose(png());
+    await waitFor(() => expect(toaster.current?.text).toBe('Picture changed.'));
+    const r = picture();
+    expect(await within(r).findByText('Discord only allows a few picture changes an hour. Try again later.')).toBeTruthy();
+    expect(within(r).getByText("Couldn't change the picture in Telegram. Try again later.")).toBeTruthy();
+    expect(within(r).queryByText(/Updated in/)).toBeNull();
+  });
+
+  it('keeps the old picture and says why when the file is refused', async () => {
+    const calls = await open({ mock: 'picture-refused' });
+    await choose(png());
+    expect(await within(picture()).findByText("That file isn't a picture Bothy can use. Choose another one.")).toBeTruthy();
+    expect(toaster.current).toBeNull();
+    expect(within(picture()).queryByRole('button', { name: 'Use default' })).toBeNull();
+
+    // Over the server's cap, nothing is sent.
+    const sent = calls.filter((c) => c.method === 'PUT').length;
+    await choose(new File([new Uint8Array(5 * 1024 * 1024 + 1)], 'huge.jpg', { type: 'image/jpeg' }));
+    expect(await within(picture()).findByText('That picture is over 5 MB. Choose a smaller one.')).toBeTruthy();
+    expect(calls.filter((c) => c.method === 'PUT').length).toBe(sent);
+  });
+
+  it('goes back to the default picture', async () => {
+    const calls = await open({ mock: 'picture-custom' });
+    await fireEvent.click(within(picture()).getByRole('button', { name: 'Use default' }));
+    await waitFor(() => expect(toaster.current?.text).toBe('Default picture restored.'));
+    expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/agent/picture')).toBe(true);
+    await waitFor(() => expect(within(picture()).queryByRole('button', { name: 'Use default' })).toBeNull());
+    expect(document.activeElement).toBe(within(picture()).getByRole('button', { name: 'Change…' }));
+  });
+
+  it('leaves the row out when the server has no picture to show', async () => {
+    installApi({ override: (_m, url) => (url === '/api/agent/picture/info' ? new Response(JSON.stringify({ error: { code: 'unavailable', message: 'x' } }), { status: 503 }) : undefined) });
+    session.ready = false;
+    await session.init();
+    settingsConfig.view = null;
+    render(Settings, { params: { group: 'general', page: 'general' } });
+    await screen.findByText('Personality');
+    expect(screen.queryByText('Picture', { selector: 'label' })).toBeNull();
   });
 });

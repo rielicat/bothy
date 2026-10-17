@@ -48,6 +48,18 @@ const reachedAs = (access: { peer: string; tls: boolean }, then?: (page: Page) =
   await then?.(page);
 };
 
+/** Brings the Picture row into view, optionally after choosing a file; the mock shows a stand-in picture for any bytes. */
+const pictureRow = (upload?: { wait: string }) => async (page: Page) => {
+  await frame(page);
+  const row = page.locator('label', { hasText: /^Picture$/ });
+  await row.scrollIntoViewIfNeeded();
+  if (upload) {
+    await page.locator('input[type="file"]').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: Buffer.from('stand-in') });
+    await page.getByText(upload.wait).first().waitFor();
+  }
+  await settle(page);
+};
+
 // The personality is a textarea, so its words are a value, not text on the page.
 const editor = (page: Page) => page.getByLabel('Personality').waitFor();
 
@@ -150,6 +162,23 @@ const states: ShotState[] = [
       await web.press('Enter');
       await page.getByText('Use a full address').waitFor();
     },
+  },
+  { name: 'general-picture-custom', route: '/settings/general', mock: 'picture-custom', ready: 'Use default', full: false, setup: pictureRow() },
+  {
+    name: 'general-picture-changed-partly',
+    route: '/settings/general',
+    mock: 'discord-on,picture-fail:discord',
+    ready: 'Picture',
+    full: false,
+    setup: pictureRow({ wait: 'Discord only allows a few picture changes an hour. Try again later.' }),
+  },
+  {
+    name: 'general-picture-refused',
+    route: '/settings/general',
+    mock: 'picture-refused:too-large',
+    ready: 'Picture',
+    full: false,
+    setup: pictureRow({ wait: 'That picture is too large. Choose one under 8000 pixels on each side.' }),
   },
   { name: 'general-member-blocked', route: '/settings/general', mock: 'member', ready: 'Only admins can see this page.', setup: frame },
 

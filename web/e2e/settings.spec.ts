@@ -129,6 +129,22 @@ test('a setting saves when the field loses focus and says so', async ({ page }) 
   await expect(page.getByLabel('Daily limit')).toHaveValue('12.00');
 });
 
+test("change Bothy's picture, see it under the CSP, then go back to the default", async ({ page }) => {
+  await go(page, '/settings/general');
+  const img = page.getByRole('img', { name: 'Bothy' });
+  const shown = () => img.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth > 0);
+  await expect.poll(shown).toBe(true);
+  const before = await img.getAttribute('src');
+  // The mock shows a stand-in for bytes that aren't a picture.
+  await page.locator('input[type="file"]').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: Buffer.from('stand-in') });
+  await expect(page.getByText('Picture changed.')).toBeVisible();
+  await expect(img).not.toHaveAttribute('src', before ?? '');
+  await expect.poll(shown).toBe(true);
+  await page.getByRole('button', { name: 'Use default' }).click();
+  await expect(page.getByText('Default picture restored.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Change…' })).toBeFocused();
+});
+
 test('create a token from the keyboard and see it once', async ({ page }) => {
   await go(page, '/settings/account');
   await page.getByRole('button', { name: 'Create token' }).focus();
