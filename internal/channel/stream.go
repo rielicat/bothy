@@ -175,7 +175,9 @@ func (st *streamState) apply(ctx context.Context, e core.Event) {
 		st.statusKind = d.Status
 		switch d.Status {
 		case "waiting_approval":
-			st.status = "_Waiting for approval…_"
+			// The approval's card or waiting line in this chat already says
+			// so, with its own buttons (deliverCard).
+			st.status = ""
 		case "compacting":
 			st.status = "_Summarising older messages…_"
 		case "tool":

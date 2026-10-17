@@ -89,7 +89,10 @@ func TestStreamSeparatesStepsAndRestoresToolStatus(t *testing.T) {
 		f.emit(core.EvRunStatus, core.RunStatusData{Status: "waiting_approval"})
 		time.Sleep(2 * time.Second)
 		synctest.Wait()
-		h.wantVisible(ownerChat, "Waiting for approval")
+		// The approval's own waiting line says it is waiting, not the stream.
+		if got := h.lastText(ownerChat); got != "Let me check." {
+			t.Fatalf("during the approval wait the live message shows %q", got)
+		}
 		f.emit(core.EvRunStatus, core.RunStatusData{Status: "tool"})
 		time.Sleep(2 * time.Second)
 		synctest.Wait()
@@ -124,7 +127,7 @@ func TestStreamShowsWholeStepTextDuringToolCall(t *testing.T) {
 		f.emit(core.EvRunStatus, core.RunStatusData{Status: "waiting_approval"})
 		time.Sleep(2 * time.Second)
 		synctest.Wait()
-		if got := h.lastText(ownerChat); got != "I'll save that note for you right away.\n\n_Waiting for approval…_" {
+		if got := h.lastText(ownerChat); got != "I'll save that note for you right away." {
 			t.Fatalf("during the approval wait the live message shows %q", got)
 		}
 		f.emit(core.EvRunStatus, core.RunStatusData{Status: "tool"})
