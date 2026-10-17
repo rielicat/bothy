@@ -209,6 +209,7 @@ type ToolEnv struct {
 	Taint       Taint
 	Interactive bool
 	Selection   Selection       // the run's tool selection (tool_search passes it to Registry.Search)
+	Approval    ApprovalID      // the approval this call runs under, if any (set for Exec)
 	Emit        func(EventData) // tool.output progress; non-blocking, rate-limited by the runner
 }
 

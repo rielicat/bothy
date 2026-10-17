@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/testkit/conformance"
 )
 
 func (h *harness) applyTeam(t *testing.T, op, old, new string) *core.MemoryEvent {
@@ -313,5 +315,143 @@ func TestTeamOverCapAndPurge(t *testing.T) {
 	fs := h.svc.Checks()[0].Run(ctx)
 	if len(fs) != 1 || !strings.Contains(fs[0].Detail, "team/TEAM.md: 300 of 256 bytes") {
 		t.Fatalf("findings = %+v", fs)
+	}
+}
+
+// approvedRun stores a session and a run of the harness's user and an
+// approval of act in it; mod adjusts the approval before it is stored.
+func (h *harness) approvedRun(t *testing.T, act *core.Action, mod func(*core.Approval)) (core.RunID, core.ApprovalID) {
+	t.Helper()
+	ctx := context.Background()
+	s := &core.Session{Principal: h.p, Origin: "web", CreatedAt: time.Now()}
+	if err := h.store.Sessions().Create(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	r := &core.Run{Session: s.ID, Principal: h.p, User: h.user, Trigger: core.TrigMessage, Status: core.RunRunning, CreatedAt: time.Now()}
+	if err := h.store.Runs().Create(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	a := &core.Approval{Run: r.ID, Session: s.ID, Principal: h.p, ToolCallID: core.NewID(core.PrefixToolCall), Action: act,
+		Decision: core.Decision{Verdict: core.VerdictAsk, Rule: "floor:admin", Approver: core.ApproverReq{AdminOnly: true}},
+		Approver: core.ApproverReq{AdminOnly: true}, Status: core.ApprovalAllowed, Choice: core.AllowOnce, OnTimeout: core.TimeoutDeny,
+		Card:      core.Card{Title: "Update memory", Risk: core.SEAdmin},
+		DecidedBy: h.user, DecidedVia: "web", CreatedAt: now, ExpiresAt: now.Add(time.Minute), DecidedAt: now}
+	if mod != nil {
+		mod(a)
+	}
+	if err := h.store.Approvals().Create(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	return r.ID, a.ID
+}
+
+func TestMemoryToolProposesTeam(t *testing.T) {
+	h := teamHarness(t)
+	h.applyTeam(t, "add", "", "Standup is at 9:30")
+	tl := tool(t, h, "memory")
+	env := h.env(t)
+	conformance.Tool(t, tl, []conformance.ToolCase{
+		{Name: "team add", Env: env, Args: json.RawMessage(`{"file":"TEAM","op":"add","new":"Deploy day is Thursday"}`)},
+		{Name: "team remove", Env: env, Args: json.RawMessage(`{"file":"TEAM","op":"remove","old":"Standup is at 9:30"}`)},
+		{Name: "team missing entry", Env: env, Args: json.RawMessage(`{"file":"TEAM","op":"remove","old":"Lunch is at noon"}`), WantErr: true},
+		{Name: "team over cap", Env: env, Args: json.RawMessage(`{"file":"TEAM","op":"add","new":"` + strings.Repeat("z", 250) + `"}`), WantErr: true},
+	})
+	a, err := tl.Plan(context.Background(), env, json.RawMessage(`{"file":"TEAM","op":"add","new":"Deploy day is Thursday"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.SideEffect != core.SEAdmin || a.Kind != core.ActMemory || a.Diff != "--- TEAM.md\n+++ TEAM.md\n+Deploy day is Thursday\n" ||
+		string(a.Payload) != `{"file":"TEAM","new":"Deploy day is Thursday","op":"add"}` {
+		t.Fatalf("action = %+v (payload %s)", a, a.Payload)
+	}
+	if got := h.team(t); got != "Standup is at 9:30\n" {
+		t.Fatalf("Plan wrote TEAM.md: %q", got)
+	}
+	restricted := *env
+	restricted.Principal = core.Principal{ID: core.PrincipalID(core.NewID(core.PrefixSpace)), Kind: core.PrincipalSpace, ToolProfile: "restricted"}
+	if _, err := tl.Plan(context.Background(), &restricted, a.Payload); !errors.Is(err, core.ErrForbidden) {
+		t.Fatalf("a restricted channel's plan = %v", err)
+	}
+}
+
+// TestMemoryToolTeamNeedsItsApproval: Exec writes TEAM.md only under an
+// allowed, admin-only approval of exactly this call in this run.
+func TestMemoryToolTeamNeedsItsApproval(t *testing.T) {
+	h := teamHarness(t)
+	tl := tool(t, h, "memory")
+	ctx := context.Background()
+	plan := func(args string) *core.Action {
+		t.Helper()
+		a, err := tl.Plan(ctx, h.env(t), json.RawMessage(args))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return a
+	}
+	act := plan(`{"file":"TEAM","op":"add","new":"Deploy day is Thursday"}`)
+	other := plan(`{"file":"TEAM","op":"add","new":"Deploy day is Friday"}`)
+	member := h.addUser(t, core.RoleMember, false)
+	refused := map[string]func(env *core.ToolEnv){
+		"no approval": func(env *core.ToolEnv) { env.Approval = "" },
+		"unknown approval": func(env *core.ToolEnv) {
+			env.Approval = core.ApprovalID(core.NewID(core.PrefixApproval))
+		},
+	}
+	for name, mod := range map[string]func(*core.Approval){
+		"pending":      func(a *core.Approval) { a.Status, a.Choice, a.DecidedBy = core.ApprovalPending, "", "" },
+		"denied":       func(a *core.Approval) { a.Status, a.Choice = core.ApprovalDenied, core.Deny },
+		"another call": func(a *core.Approval) { a.Action = other },
+		"not admin-only": func(a *core.Approval) {
+			a.Approver, a.Decision.Approver = core.ApproverReq{User: h.user}, core.ApproverReq{User: h.user}
+		},
+		"for the session": func(a *core.Approval) { a.Choice = core.AllowSession },
+		"by a member":     func(a *core.Approval) { a.DecidedBy = member },
+		"by a teammate":   func(a *core.Approval) { a.DecidedBy, a.DecidedByIdentity = "", "slack:U1" },
+	} {
+		run, id := h.approvedRun(t, act, mod)
+		refused[name] = func(env *core.ToolEnv) { env.Run, env.Approval = run, id }
+	}
+	otherRun, _ := h.approvedRun(t, act, nil)
+	_, id := h.approvedRun(t, act, nil)
+	refused["another run"] = func(env *core.ToolEnv) { env.Run, env.Approval = otherRun, id }
+	for name, mod := range refused {
+		env := h.env(t)
+		mod(env)
+		res, err := tl.Exec(ctx, env, act)
+		if err != nil || !res.IsError || res.Content != noTeamApproval {
+			t.Errorf("%s: %+v, %v", name, res, err)
+		}
+	}
+	if got := h.team(t); got != "" {
+		t.Fatalf("a refused change wrote TEAM.md: %q", got)
+	}
+	if evs, _ := h.svc.TeamHistory(ctx, core.Page{}); len(evs) != 0 {
+		t.Fatalf("a refused change was recorded: %+v", evs)
+	}
+
+	run, id := h.approvedRun(t, act, nil)
+	env := h.env(t)
+	env.Run, env.Approval, env.Taint = run, id, core.TaintUntrusted
+	res, err := tl.Exec(ctx, env, act)
+	if err != nil || res.IsError || res.Content != "Remembered for everyone (an admin approved it; TEAM.md 23/256 bytes used)." {
+		t.Fatalf("approved Exec = %+v, %v", res, err)
+	}
+	if got := h.team(t); got != "Deploy day is Thursday\n" {
+		t.Fatalf("TEAM.md = %q", got)
+	}
+	evs, _ := h.svc.TeamHistory(ctx, core.Page{})
+	if len(evs) != 1 || evs[0].Approval != id || evs[0].Run != run || evs[0].Actor != "agent:"+string(run) || evs[0].Provenance != core.ProvUntrusted {
+		t.Fatalf("history = %+v", evs)
+	}
+	// The same approval replayed changes nothing more.
+	if res, _ := tl.Exec(ctx, env, act); !res.IsError {
+		t.Fatalf("replayed Exec = %+v", res)
+	}
+	rm := plan(`{"file":"TEAM","op":"remove","old":"Deploy day is Thursday"}`)
+	run, id = h.approvedRun(t, rm, nil)
+	env.Run, env.Approval, env.Taint = run, id, 0
+	if res, err := tl.Exec(ctx, env, rm); err != nil || res.Content != "Forgot for everyone (an admin approved it; TEAM.md 0/256 bytes used)." {
+		t.Fatalf("remove = %+v, %v", res, err)
 	}
 }

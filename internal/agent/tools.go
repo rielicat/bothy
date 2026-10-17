@@ -339,6 +339,7 @@ func (r *Runner) execute(rs *runState, pc *pcall) execResult {
 	// this step, or during an approval wait) may have tainted the session,
 	// and tools such as memory and notes label what they write by it.
 	pc.env.Taint = rs.taint
+	pc.env.Approval = pc.rec.Approval
 	start := r.now()
 	res, err := pc.tool.Exec(tctx, pc.env, pc.action)
 	pc.out.close()

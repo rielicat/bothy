@@ -2961,6 +2961,7 @@ export interface ToolEnv {
   Taint: Taint;
   Interactive: boolean;
   Selection: Selection; // the run's tool selection (tool_search passes it to Registry.Search)
+  Approval: ApprovalID; // the approval this call runs under, if any (set for Exec)
   Emit: any; // tool.output progress; non-blocking, rate-limited by the runner
 }
 export type Tool = any;

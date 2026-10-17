@@ -1754,6 +1754,7 @@ type ToolEnv struct {
 	Taint       Taint
 	Interactive bool
 	Selection   Selection       // the run's tool selection (tool_search passes it to Registry.Search)
+	Approval    ApprovalID      // the approval this call runs under, if any (set for Exec)
 	Emit        func(EventData) // tool.output progress; non-blocking, rate-limited by the runner
 }
 
@@ -5438,7 +5439,7 @@ i. **Post-process:** `Redactor.Redact`; truncate to the profile cap as head 60% 
 | F8 | `web_fetch` in an Exposed session for a URL not in `session_urls` (from search results or user messages) | ask |
 | F9 | `net_allow` | ask (never auto, never via rules); allow_session grants exactly `host:port` |
 | FA | v0.2 `floor:always_ask`: the tool's `Manifest.AlwaysAsk` (`repo_open_pr`) | ask with `[allow_once, deny]` whatever the preset; a deny rule still denies; no grant answers it, `AllowWhenTainted` included; the first-contact warning is carried onto the card, also when an earlier floor (e.g. F5) asks first |
-| FP | `floor:teammate`, last of the floors: a teammate's (person principal's) action above `read`, except the `memory` tool and `repo_checkout`'s `local_write` (checking out keeps edits; discarding them is `irreversible` and asks) | ask the team's approvers with grant choices; an earlier approval's grant answers it, a deny rule still denies, a rule `auto` never lifts it; a first contact adds its warning |
+| FP | `floor:teammate`, last of the floors: a teammate's (person principal's) action above `read`, except the `memory` tool on their own files (TEAM is decided at F3) and `repo_checkout`'s `local_write` (checking out keeps edits; discarding them is `irreversible` and asks) | ask the team's approvers with grant choices; an earlier approval's grant answers it, a deny rule still denies, a rule `auto` never lifts it; a first contact adds its warning |
 | R | Config `policy.rules`, first match (tool glob, argv0, domains, paths, JSON-pointer `match`, side effect, triggers) | rule verdict (rules can make things stricter or auto, but not past floors) |
 | G | Active grants for (principal, session, schedule) whose kind/tool/pattern/value match the Action and `MaxSE ≥ SideEffect` | auto (`grant:<id>`, `Grants().Use`) |
 | C | First contact: `send`, `mcp` with a mapped recipient, or `http` with a non-GET method, to a recipient/domain that is not the run's originating chat and not seen in an active grant, `egress.allow`, or an earlier allowed approval of this principal (`Approvals().Seen`) | ask (presets careful and balanced) |

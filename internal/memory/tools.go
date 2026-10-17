@@ -80,12 +80,17 @@ func newMemoryTool(s *Service) *memoryTool {
 	def := core.ToolDef{
 		Name: memoryToolName,
 		Description: "Save, change or delete a durable note that persists across conversations. " +
-			"MEMORY: facts about projects, environment and the world. USER: facts about the user (preferences, background). " +
-			"HEARTBEAT: the checklist the periodic heartbeat reviews. Each entry is one line. " +
+			"MEMORY: facts about projects, environment and the world, kept for this person only. " +
+			"USER: facts about this person (preferences, background). " +
+			"HEARTBEAT: the checklist the periodic heartbeat reviews. " +
+			"TEAM: a note for everyone on the team that Bothy uses in every chat; use it only when someone asks you to remember something " +
+			"for the team or for everyone. A TEAM change is never saved directly: it waits for an admin's approval, so tell the person that, " +
+			"and say it is remembered for everyone only after the result confirms it. " +
+			"Each entry is one line. " +
 			"op=add appends new; op=replace swaps the entry exactly equal to old for new; op=remove deletes the entry exactly equal to old. " +
 			"Files have byte caps, so keep entries short.",
 		Schema: json.RawMessage(`{"type":"object","properties":{` +
-			`"file":{"type":"string","enum":["MEMORY","USER","HEARTBEAT"]},` +
+			`"file":{"type":"string","enum":["MEMORY","USER","HEARTBEAT","TEAM"]},` +
 			`"op":{"type":"string","enum":["add","replace","remove"]},` +
 			`"old":{"type":"string","description":"replace/remove: the exact existing entry"},` +
 			`"new":{"type":"string","description":"add/replace: the new single-line entry"}},` +
@@ -114,6 +119,9 @@ func (t *memoryTool) Plan(ctx context.Context, env *core.ToolEnv, args json.RawM
 	if err != nil {
 		return nil, err
 	}
+	if op.File == core.FileTeam {
+		return t.planTeam(env, op)
+	}
 	p := env.Principal.ID
 	if _, err := t.s.checkPrincipal(ctx, p); err != nil {
 		return nil, err
@@ -133,6 +141,32 @@ func (t *memoryTool) Plan(ctx context.Context, env *core.ToolEnv, args json.RawM
 		return nil, err
 	}
 	act, err := newAction(memoryToolName, core.ActMemory, core.SELocalWrite, op)
+	if err != nil {
+		return nil, err
+	}
+	act.Diff = opDiff(op)
+	return act, nil
+}
+
+// planTeam dry-runs a TEAM.md change. Its Action is admin-class, so policy
+// asks an admin (F3) before Exec runs.
+func (t *memoryTool) planTeam(env *core.ToolEnv, op core.MemoryOp) (*core.Action, error) {
+	if env.Principal.Restricted() {
+		return nil, fmt.Errorf("memory: TEAM from a restricted channel: %w", core.ErrForbidden)
+	}
+	before, err := t.s.readFile(teamDir, core.FileTeam)
+	if err != nil {
+		return nil, err
+	}
+	// Revealing near misses is safe: TEAM.md is in every prompt already.
+	after, err := applyOp(before, op, true)
+	if err != nil {
+		return nil, err
+	}
+	if err := t.s.checkCap(core.FileTeam, before, after); err != nil {
+		return nil, err
+	}
+	act, err := newAction(memoryToolName, core.ActMemory, core.SEAdmin, op)
 	if err != nil {
 		return nil, err
 	}
@@ -164,6 +198,9 @@ func (t *memoryTool) Exec(ctx context.Context, env *core.ToolEnv, act *core.Acti
 	if env.Taint.Has(core.TaintUntrusted) {
 		prov = core.ProvUntrusted
 	}
+	if a.File == core.FileTeam {
+		return t.execTeam(ctx, env, act, a, prov)
+	}
 	e, err := t.s.Apply(ctx, env.Principal.ID, env.Run, a, prov)
 	if err != nil {
 		var ue *userError
@@ -175,6 +212,55 @@ func (t *memoryTool) Exec(ctx context.Context, env *core.ToolEnv, act *core.Acti
 	verb := map[string]string{"add": "Saved to", "replace": "Updated", "remove": "Removed from"}[e.Op]
 	return &core.ToolResult{Name: memoryToolName, Content: fmt.Sprintf("%s %s (%d/%d bytes used).",
 		verb, fileName(e.File), len(e.After), t.s.capOf(e.File))}, nil
+}
+
+const noTeamApproval = "Bothy can't change what it remembers for everyone without an admin's approval."
+
+// execTeam applies an approved TEAM.md change. It checks the stored
+// approval itself, so a policy or runner bug is not enough to put text in
+// every chat.
+func (t *memoryTool) execTeam(ctx context.Context, env *core.ToolEnv, act *core.Action, op core.MemoryOp, prov core.Provenance) (*core.ToolResult, error) {
+	appr, err := t.s.teamApproval(ctx, env, act)
+	if err != nil {
+		t.s.log.Warn("memory: TEAM change without a valid approval", "run", env.Run, "approval", env.Approval, "err", err)
+		return &core.ToolResult{Name: memoryToolName, Content: noTeamApproval, IsError: true}, nil
+	}
+	e, err := t.s.applyTeam(ctx, teamChange{run: env.Run, approval: appr.ID, approvedBy: appr.DecidedBy, op: op, prov: prov})
+	if err != nil {
+		var ue *userError
+		if errors.As(err, &ue) {
+			return &core.ToolResult{Name: memoryToolName, Content: err.Error(), IsError: true}, nil
+		}
+		return nil, err
+	}
+	verb := map[string]string{"add": "Remembered for everyone", "replace": "Updated for everyone", "remove": "Forgot for everyone"}[e.Op]
+	return &core.ToolResult{Name: memoryToolName, Content: fmt.Sprintf("%s (an admin approved it; TEAM.md %d/%d bytes used).",
+		verb, len(e.After), t.s.capOf(core.FileTeam))}, nil
+}
+
+// teamApproval returns the approval a TEAM.md change runs under after
+// checking that it is exactly this call, allowed once by an enabled admin.
+func (s *Service) teamApproval(ctx context.Context, env *core.ToolEnv, act *core.Action) (*core.Approval, error) {
+	if env.Approval == "" {
+		return nil, errors.New("no approval")
+	}
+	a, err := s.store.Approvals().Get(ctx, core.SystemViewer(), env.Approval)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case a.Status != core.ApprovalAllowed || a.Choice != core.AllowOnce:
+		return nil, fmt.Errorf("approval is %s (%s)", a.Status, a.Choice)
+	case !a.Approver.AdminOnly:
+		return nil, errors.New("approval is not an admin's")
+	case a.Run != env.Run || a.Action == nil || a.Action.Tool != memoryToolName ||
+		a.Action.Fingerprint != core.ActionFingerprint(memoryToolName, act.Payload):
+		return nil, errors.New("approval is for another call")
+	}
+	if err := s.checkAdmin(ctx, a.DecidedBy); err != nil {
+		return nil, err
+	}
+	return a, nil
 }
 
 // ---- session_search ----
