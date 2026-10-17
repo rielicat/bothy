@@ -12,6 +12,8 @@
     health?: ProviderHealth;
     /** The model the check asks, from the slots or the provider's own list. */
     model: string;
+    /** How many of its models Bothy lists, the count its row shows too. */
+    models: number;
     /** Why it can't be removed, when it can't. */
     keep?: string;
   }
@@ -98,7 +100,8 @@
     if (check.state === 'error') return { tone: 'danger', text: failureText('unknown', p.name, p.kind), details: check.message };
     const r = check.probe;
     if (r.ok) {
-      const n = r.models?.length ?? 0;
+      // The provider row's own count, so the two never disagree.
+      const n = p.models;
       return { tone: 'success', text: n ? `Connected. Bothy can use ${n === 1 ? '1 model' : `${n} models`} here.` : 'Connected.' };
     }
     return { tone: 'danger', text: failureText(probeCode(r), p.name, p.kind, undefined, isSecretRef(p.keyRef)), details: r.detail || undefined };
@@ -172,7 +175,6 @@
       {#if hasKey}
         <div>
           <KeyField label="API key" bind:value={key} saved={!!p.keyRef} check={checkKey} checkingLabel="Checking the key…" help="Stored encrypted. Only sent to {p.name}." />
-          {#if p.health?.source}<p class="mt-2 text-small text-muted">Credentials from: {p.health.source}</p>{/if}
         </div>
       {/if}
 
@@ -185,7 +187,6 @@
             error={regionSaver.error || undefined}
             onchange={(e: Event) => changeRegion((e.currentTarget as HTMLSelectElement).value)}
           />
-          {#if p.health?.source}<p class="mt-2 text-small text-muted">Credentials from: {p.health.source}</p>{/if}
         </div>
       {/if}
 
@@ -193,6 +194,8 @@
         <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-small">
           {#if p.baseUrl}<dt class="text-muted">Address</dt><dd class="font-mono break-all text-text">{p.baseUrl}</dd>{/if}
           {#if p.kind === 'bedrock'}<dt class="text-muted">Region</dt><dd class="text-text">{regionName(p.region)} ({p.region})</dd>{/if}
+          <!-- Where AWS access comes from is provenance, so it stays in Details (§11.1). -->
+          {#if p.kind === 'bedrock' && p.health?.source}<dt class="text-muted">Credentials from</dt><dd class="text-text">{p.health.source}</dd>{/if}
           {#if p.model}<dt class="text-muted">Checked with</dt><dd class="font-mono break-all text-text">{p.model}</dd>{/if}
           {#if probe?.context}<dt class="text-muted">Context window</dt><dd class="text-text tabular-nums">{probe.context.toLocaleString()} tokens</dd>{/if}
           {#if probe?.latency}<dt class="text-muted">Answered in</dt><dd class="text-text">{duration(probe.latency)}</dd>{/if}

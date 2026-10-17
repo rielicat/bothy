@@ -92,6 +92,7 @@
       region: settingsConfig.value<string>(`providers.${id}.region`, 'us-east-1'),
       health: health.find((h) => h.id === id),
       model,
+      models: models.filter((m) => m.ref.provider === id).length,
       keep,
     };
   }
@@ -102,6 +103,9 @@
 
   let adding = $state(false);
   let before = $state(new Set<string>());
+  let chooser: ProviderChooser | undefined = $state();
+  let addReady = $state(false);
+  let addSaving = $state(false);
 
   function add() {
     before = new Set(ids);
@@ -218,9 +222,19 @@
 
 <ManageProvider bind:open={manageOpen} provider={managedNow} onchanged={refresh} />
 
-<Dialog bind:open={adding} title="Add a provider" size="md">
-  <ProviderChooser mode="settings" exclude={[...before]} onconnected={connected} />
+<!-- Nothing is added until "Add provider", like setup's Continue; the dialog closes only then, with a toast. -->
+<Dialog bind:open={adding} title="Add a provider" size="md" busy={addSaving}>
+  <ProviderChooser bind:this={chooser} mode="settings" exclude={[...before]} onconnected={connected} bind:ready={addReady} bind:saving={addSaving} />
+  {#if !addReady}<p id="{uid}-add-why" class="mt-4 text-small text-muted">Connect a provider to add it.</p>{/if}
   {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+    <Button data-cancel disabled={addSaving} onclick={close}>Cancel</Button>
+    <Button
+      variant="primary"
+      disabled={!addReady}
+      aria-describedby={addReady ? undefined : `${uid}-add-why`}
+      loading={addSaving}
+      loadingLabel="Adding…"
+      onclick={() => chooser?.save()}>Add provider</Button
+    >
   {/snippet}
 </Dialog>

@@ -3,6 +3,7 @@
 import type { ModelInfo, ProviderHealth } from '../../lib/api/types.gen';
 import { plural } from '../../lib/format';
 import { failure, type FailureCode } from '../../lib/providerErrors';
+import { friendlyModel } from '../../lib/providers';
 
 const providerNames: Record<string, string> = {
   anthropic: 'Anthropic',
@@ -36,11 +37,11 @@ export function findModel(ref: string, models: ModelInfo[]): ModelInfo | undefin
   return models.find((m) => m.ref.provider === provider && m.ref.model === model);
 }
 
-/** The friendly name ("Claude Sonnet 4.5"); without one (S5), the model id without its provider prefix. */
+/** The friendly name ("Claude Sonnet 4.5"); without one (S5), one worked out from the id ("qwen3:4b" → "Qwen3 4B"). */
 export function modelName(ref: string, models: ModelInfo[]): string {
   const m = findModel(ref, models);
   const name = m?.display_name || m?.display?.replace(/\s*\((local|free)\)$/i, '');
-  return name || splitRef(ref).model;
+  return name || friendlyModel(splitRef(ref).model);
 }
 
 export function modelProvider(ref: string, models: ModelInfo[], kinds: Record<string, string> = {}): string {
@@ -116,7 +117,7 @@ export function providerStatus(p: ProviderState): { text: string; tone: Tone } {
     case 'degraded':
       return { text: 'Having trouble answering right now', tone: 'warning' };
   }
-  if (p.kind === 'bedrock') return { text: `Connected · ${regionName(p.region || 'us-east-1')} · this server's AWS role`, tone: 'muted' };
+  // Like every provider: a Bedrock row's region and credentials are in its Manage dialog.
   return { text: p.models ? `Connected · ${plural(p.models, 'model')}` : 'Connected', tone: 'muted' };
 }
 

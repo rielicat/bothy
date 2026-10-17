@@ -27,10 +27,11 @@ describe('names', () => {
     expect(splitRef('openrouter/anthropic/claude-sonnet-4.5')).toEqual({ provider: 'openrouter', model: 'anthropic/claude-sonnet-4.5' });
   });
 
-  it('uses the friendly name, drops "(local)", and falls back to the id without the provider (S5)', () => {
+  it('uses the friendly name, drops "(local)", and works one out from the id without one (S5)', () => {
     expect(modelName('anthropic/claude-sonnet-4-6', fixtureModels)).toBe('Claude Sonnet 4.6');
     expect(modelName('ollama/qwen3:14b', fixtureModels)).toBe('Qwen3 14B');
-    expect(modelName('ollama/qwen3:4b', fixtureModels)).toBe('qwen3:4b');
+    // Never a raw tag next to named models.
+    expect(modelName('ollama/qwen3:4b', fixtureModels)).toBe('Qwen3 4B');
     expect(modelName('x/y', [{ ...fixtureModels[0], ref: { provider: 'x', model: 'y' }, display_name: 'Why' }])).toBe('Why');
     expect(modelProvider('ollama/qwen3:4b', fixtureModels)).toBe('Ollama');
   });
@@ -65,10 +66,11 @@ describe('model chains', () => {
 describe('provider status', () => {
   const base = { kind: 'anthropic', enabled: true, models: 6 };
 
-  it('says connected with the model count, or where Bedrock runs', () => {
+  it('says connected with the model count, Bedrock too', () => {
     expect(providerStatus(base)).toEqual({ text: 'Connected · 6 models', tone: 'muted' });
     expect(providerStatus({ ...base, models: 1 }).text).toBe('Connected · 1 model');
-    expect(providerStatus({ ...base, kind: 'bedrock', region: 'eu-west-2' }).text).toBe("Connected · Europe (London) · this server's AWS role");
+    // The region and where its access comes from are in Manage.
+    expect(providerStatus({ ...base, kind: 'bedrock', region: 'eu-west-2', models: 3 }).text).toBe('Connected · 3 models');
   });
 
   it('colours only what needs attention', () => {

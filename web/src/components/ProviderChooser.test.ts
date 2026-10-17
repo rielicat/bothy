@@ -342,12 +342,17 @@ describe('ProviderChooser with the server\'s model names (S5)', () => {
 });
 
 describe('ProviderChooser in settings', () => {
-  it('saves the provider on the first successful check, without touching the model slots', async () => {
+  it('saves the provider only when asked, without touching the model slots', async () => {
     const onconnected = vi.fn();
     const calls = withMock('detect-none');
-    render(ProviderChooser, { mode: 'settings', onconnected });
+    const { component } = render(ProviderChooser, { mode: 'settings', onconnected });
     await fireEvent.click(await screen.findByRole('radio', { name: /^Google Gemini/ }));
     await paste(screen.getByLabelText('API key'), 'AIzaSy0123456789abcdefghijk');
+    await screen.findByText('Connected.', {}, { timeout: 3000 });
+    // The dialog's "Add provider" saves; a check alone doesn't.
+    expect(writes(calls)).toEqual([]);
+    expect(onconnected).not.toHaveBeenCalled();
+    await (component as unknown as { save: () => Promise<void> }).save();
     await waitFor(() => expect(onconnected).toHaveBeenCalledWith(expect.objectContaining({ id: 'gemini', name: 'Google Gemini' })), { timeout: 3000 });
     expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull();
     const req = JSON.parse(writes(calls).at(-1)!.body);

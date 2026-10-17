@@ -103,10 +103,14 @@ describe('Settings → Models', () => {
     expect(key.value).toBe('sk-ant-0123456789abcdefghijkl');
   });
 
-  it('says where a provider gets its credentials, never what they are', async () => {
+  it("counts a provider's models the same in its row and in Manage, and keeps provenance out", async () => {
+    const row = screen.getByRole('button', { name: 'Manage Anthropic' }).closest('div')!.parentElement!;
+    const count = /Connected · (\d+) models/.exec(row.textContent ?? '')?.[1];
     await fireEvent.click(screen.getByRole('button', { name: 'Manage Anthropic' }));
     const dialog = await screen.findByRole('dialog', { name: 'Anthropic' });
-    expect(within(dialog).getByText('Credentials from: Saved key')).toBeTruthy();
+    expect(await within(dialog).findByText(`Connected. Bothy can use ${count} models here.`, {}, { timeout: 3000 })).toBeTruthy();
+    // "Credentials from: Saved key" helps nobody choose a model.
+    expect(within(dialog).queryByText(/Credentials from/)).toBeNull();
     expect(dialog.textContent).not.toMatch(/sk-ant|secret:/);
   });
 
@@ -156,10 +160,20 @@ describe('Settings → Models', () => {
     expect(within(dialog).queryByRole('radio', { name: /Anthropic/ })).toBeNull();
     await fireEvent.click(within(dialog).getByText('More providers'));
     await fireEvent.click(within(dialog).getByRole('radio', { name: /Groq/ }));
+    const add = within(dialog).getByRole('button', { name: 'Add provider' });
+    // Cancel first; Add provider waits for a check that connects, and says why.
+    expect(within(dialog).getAllByRole('button').filter((b) => ['Cancel', 'Add provider'].includes(b.textContent?.trim() ?? '')).map((b) => b.textContent?.trim())).toEqual(['Cancel', 'Add provider']);
+    expect(add.getAttribute('aria-disabled')).toBe('true');
+    expect(document.getElementById(add.getAttribute('aria-describedby') ?? '')?.textContent).toBe('Connect a provider to add it.');
     const key = within(dialog).getByLabelText('API key');
     await fireEvent.input(key, { target: { value: 'gsk_0123456789abcdefghij' } });
     await fireEvent.keyDown(key, { key: 'Enter' });
     const connect = () => calls.find((c) => c.method === 'POST' && c.url === '/api/providers/connect');
+    await waitFor(() => expect(add.getAttribute('aria-disabled')).toBeNull(), { timeout: 3000 });
+    // Nothing is saved, and the dialog stays, until the person adds it.
+    expect(connect()).toBeUndefined();
+    expect(screen.getByRole('dialog', { name: 'Add a provider' })).toBeTruthy();
+    await fireEvent.click(add);
     await waitFor(() => expect(connect()).toBeTruthy(), { timeout: 3000 });
     // Settings adds the provider only; the model slots stay as they are.
     expect(JSON.parse(connect()!.body)).toEqual({ id: 'groq', kind: 'openai_compat', base_url: 'https://api.groq.com/openai/v1', allow_private: false, api_key: 'gsk_0123456789abcdefghij' });

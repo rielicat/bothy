@@ -44,9 +44,16 @@
 
   // Step 2 of setup (docs/design/ui.md §5.6), and Settings → Models → "Add a
   // provider" (§11.4). Setup saves on Continue; settings saves the provider
-  // (not the model slots) on the first successful check and calls onconnected.
+  // (not the model slots) when its dialog's "Add provider" calls save(), which
+  // `ready` allows once a check connected. Both call onconnected after saving.
   // `exclude` names providers already set up, which Settings manages in its own list.
-  let { mode = 'setup', exclude = [], onconnected }: { mode?: 'setup' | 'settings'; exclude?: string[]; onconnected?: (c: Connected) => void } = $props();
+  let {
+    mode = 'setup',
+    exclude = [],
+    onconnected,
+    ready = $bindable(false),
+    saving = $bindable(false),
+  }: { mode?: 'setup' | 'settings'; exclude?: string[]; onconnected?: (c: Connected) => void; ready?: boolean; saving?: boolean } = $props();
 
   type Source = 'aws' | 'local' | 'env' | 'list';
   interface Row extends Option {
@@ -107,7 +114,6 @@
   let settled = false;
   let more = $state(false);
   let reveal = $state(false);
-  let saving = $state(false);
   let saveError = $state('');
   let saveDetails = $state('');
   // Newer checks and edits bump it; an answer to an older one is dropped.
@@ -173,7 +179,9 @@
   const row = (v: string) => rows.find((r) => r.value === v)!;
   const showMore = $derived(more || extra.some((r) => r.value === selected));
   const current = $derived(selected ? states[selected] : undefined);
-  const ready = $derived(current?.status === 'connected' && !!current.main);
+  $effect(() => {
+    ready = current?.status === 'connected' && !!current.main;
+  });
 
   function blank(r: Row): RowState {
     return {
@@ -318,7 +326,6 @@
       s.needsModel = false;
       // Access proven: from now on it is the ordinary AWS row.
       if (r.source === 'aws' && r.detection) r.detection.problem = undefined;
-      if (!setup) void save();
       return;
     }
     // The raw message goes behind Details; `detail` is the server's plain sentence.
@@ -370,7 +377,7 @@
 
   // One commit per intent (D13): POST /api/providers/connect stores the key,
   // writes the provider and, in setup, puts the models first in both slots (S6).
-  async function save() {
+  export async function save() {
     if (!selected || !ready || saving) return;
     const r = row(selected);
     const s = states[selected];

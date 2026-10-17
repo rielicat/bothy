@@ -1992,7 +1992,7 @@ Used for titles, summaries and check-ins. A cheaper model works well.
 
 Providers                                                    [ Add a provider ]
 Anthropic             Connected · 6 models                              [ Manage ]
-Amazon Bedrock        Connected · US East (N. Virginia) · this server's AWS role  [ Manage ]
+Amazon Bedrock        Connected · 3 models                              [ Manage ]
 Ollama                Can't reach it right now                          [ Manage ]   danger-text
 
 Refine
@@ -2003,8 +2003,10 @@ How thorough                                                [ Standard ⌄ ]    
 
 - **Change** opens a dialog with a `Listbox` of connected models by friendly name, grouped by provider.
 - **Backup models** disclosure: help "If a model doesn't respond, Bothy tries these in order." Two ordered lists, "For the main model" and "For quick tasks"; each row: model name, `⋯` with "Move up", "Move down", "Remove"; "Add backup" select.
-- **Add a provider** opens `ProviderChooser` in a 560 dialog (the Step 2 content without the outer frame); it closes on the first successful connection with the toast "{Provider} connected."
-- **Manage** (560 dialog): status line; "Replace key" (`KeyField`, auto-check); Region (Bedrock) and "Credentials from: {source}" (never the value); "Details" (last check: context window, latency, raw last error, address); "Remove provider…" (`danger-text`, confirm).
+- **Add a provider** opens `ProviderChooser` in a 560 dialog (the Step 2 content without the outer frame), footer [Cancel] [Add provider] with Cancel on the left at every width. Like setup's Continue, "Add provider" is `aria-disabled` with "Connect a provider to add it." until the selected option's check connects; pressing it saves, closes the dialog and shows the toast "{Provider} connected." Nothing is saved and the dialog never closes on its own.
+- Provider rows read "Connected · {n} models" for every provider, Bedrock too; a Bedrock row's region lives in its Manage dialog. Where credentials come from never shows on the row (§11.1).
+- **Manage** (560 dialog): status line "Connected. Bothy can use {n} models here.", counting from the same list as the row so the two agree; "Replace key" (`KeyField`, auto-check); Region (Bedrock); "Details" (last check: context window, latency, raw last error, address, and for Bedrock "Credentials from: {source}", never the value); "Remove provider…" (`danger-text`, confirm). Key providers show no "Credentials from".
+- A model without a name from the server reads as one worked out from its id, in pickers, backups and slot rows: "qwen3:4b" → "Qwen3 4B" (§14.2 Models).
 - **How thorough:** "Standard (3 drafts)", "Thorough (8 drafts, slower)". Exact drafts, rounds and early stop are in Advanced → Limits.
 
 ### 11.5 People (admins)
