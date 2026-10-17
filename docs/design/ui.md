@@ -1249,6 +1249,9 @@ Each line is a `<button aria-expanded>` that opens **Details** (indented 24 px, 
 | `memory` | remember something | remembering “{first 60 chars}” | — | Remembered “{first 60 chars}” | Couldn't save that |
 | `memory` replace | update a saved note | updating a saved note to “{first 60 chars}” | — | Updated a saved note to “{first 60 chars}” | Couldn't update that note |
 | `memory` remove | forget something | forgetting “{first 60 chars}” | — | Forgot “{first 60 chars}” | Couldn't remove that note |
+| `memory` for everyone (file `TEAM`) | remember something for everyone | remembering “{first 60 chars}” for everyone | — | Remembered “{first 60 chars}” for everyone · grouped: "Remembered {n} things for everyone" | Couldn't save that for everyone |
+| `memory` for everyone, replace | update a note for everyone | updating a note for everyone | — | Updated a note for everyone | Couldn't update that note |
+| `memory` for everyone, remove | forget something for everyone | forgetting “{first 60 chars}” for everyone | — | Forgot “{first 60 chars}” for everyone | Couldn't remove that note |
 | `session_search` | search past chats | searching past chats | Searching past chats for “{q}”… | Searched past chats for “{q}” | — |
 | `message` | send a message to {chat} | sending a message to {chat} | Sending… | Sent a message to {chat} | Couldn't send the message |
 | `skill_load`, `skill_read` | follow the “{skill}” skill | following “{skill}” | — | Followed the “{skill}” skill | — |
@@ -1558,7 +1561,7 @@ Deploy acme/api to production               1 of 2 approvals · 20 min ago
 
 - One column, no duplicate card. `/approvals/:id` opens the same list with that item expanded and scrolled into view (fixes `30`).
 - Admins, while `team_access` lasts (§11.5): a neutral `Notice` above the Waiting list, "People in chat apps no longer link to Bothy accounts. Check who can use Bothy and who can approve in People." with "Open People", since their requests now arrive here.
-- Collapsed row: the card's row title, `text-body` 500, which names what the card is about where the question alone can't tell two rows apart: a command "Run {command}?" (verbatim; the row's ellipsis cuts it and the card shows it in full), a note "Remember “{first 60 characters}”?", a message "Send a message to {recipient}?" (worded as on the card's To line). Other rows show the question. Meta right (`text-small muted`): source and age; "1 of 2 approvals" for multi-approver; "Expires in 3 min" in `warning-text` when under 15 minutes; parked items "Waiting since 10:42". Under 640 px meta moves to line 2. Clicking or Enter expands the row in place and collapses the previous one.
+- Collapsed row: the card's row title, `text-body` 500, which names what the card is about where the question alone can't tell two rows apart: a command "Run {command}?" (verbatim; the row's ellipsis cuts it and the card shows it in full), a note "Remember “{first 60 characters}”?" ("Remember “…” for everyone?", "Forget “…” for everyone?", "Change “…” for everyone?" for what's remembered for everyone), a message "Send a message to {recipient}?" (worded as on the card's To line). Other rows show the question. Meta right (`text-small muted`): source and age; "1 of 2 approvals" for multi-approver; "Expires in 3 min" in `warning-text` when under 15 minutes; parked items "Waiting since 10:42". Under 640 px meta moves to line 2. Clicking or Enter expands the row in place and collapses the previous one.
 - After a decision the row collapses (160 ms), the next "For you" item expands and takes focus, and the live region says "Approved. Next: {question}" or "Nothing else is waiting."
 - **Item types** (all in the same card shell, S12):
 
@@ -1687,7 +1690,7 @@ History ›                                                              only on
 
 - "Remembered for everyone" (TEAM.md, one for the whole team, `GET`/`PUT /api/memory/team`) comes first, then the two personal sections (USER.md, MEMORY.md), all rendered Markdown in `text-reading`.
   - Admins: the note "Bothy uses this in every chat, for everyone, including chat apps." under the heading; Edit/Write like the other sections; empty: "Add what Bothy should know in every chat, like your deploy day."
-  - Members: read-only, no Edit or Write; the note "Bothy uses this in every chat, for everyone. Only admins can change it."; empty: "Nothing yet. Ask Bothy to remember something for everyone, and an admin can approve it."
+  - Members: read-only, no Edit or Write and no "almost full" line (they can't remove anything); the note "Bothy uses this in every chat, for everyone. Only admins can change it."; empty: "Nothing yet. Ask Bothy to remember something for everyone, and an admin can approve it."
   - Bothy never writes it on its own: someone asks Bothy to remember something for the team, and an admin approves the card "Remember this for everyone?" (§8.2). Signed-out visitors see nothing (sign-in first, as for every page).
   - Live updates: admins follow `memory.updated` with file `TEAM` (an admin broadcast); members see changes when they open the page.
 - "Edit" turns a section the reader may change into a sans `TextArea` with [Save] [Cancel] (under the box on phones, §9.2). No monospace, no byte meter.
@@ -1925,7 +1928,7 @@ Today
 ```
 
 - Rows 40 px: time (`tabular-nums muted`, 56 px), actor name (120 px), one-line summary (S16). A result word appears only when not a success and the summary doesn't already say it: "Blocked" (left out after "Blocked from sending …"), "Failed" in `danger-text`. Reaching the spending limit gets no word: it needs attention but isn't a failure, as in Tasks. No "ok" pills (fixes `47`).
-- Memory rows say what changed, never the note itself: "Remembered something", "Updated a saved note", "Forgot something" (the same for Bothy's memory steps).
+- Memory rows say what changed, never the note itself: "Remembered something", "Updated a saved note", "Forgot something" (the same for Bothy's memory steps); for what's remembered for everyone "Remembered something for everyone", "Updated a note for everyone", "Forgot something for everyone", and an admin's edit "Edited what Bothy remembers for everyone".
 - Clicking a row expands it in place: Who, When, Where (chat link), Task (link), and a "Raw record" disclosure with the redacted JSON in a `CodeBlock`.
 - "Check the log" runs the hash-chain check and shows a `StatusLine` under the header: "The log is intact. 1,284 entries checked." or (danger) "The entry from 12 Oct at 10:42 doesn't match the ones before it. Entries from there on may have been changed." with Details and "Export".
 - **Website access** rows: time · what happened (the sentence names the site in full, so there is no host column) · "Open task". Outcomes (S16): "Reached api.github.com"; "Allowed, but api.example.com didn't answer"; "Blocked: example.com isn't on the allowed list" with "Allow this site…" → dialog "Allow Bothy to send data to {host}? This applies to everyone's tasks until you remove it in Settings → Security." [Allow site] [Cancel] (creates the same narrow grant as v0.1).
