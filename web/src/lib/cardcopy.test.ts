@@ -164,7 +164,7 @@ describe('cardCopy, one row per action', () => {
   it('gives inbox rows a title that tells two requests apart', () => {
     const row = (a: Action) => segText(cardCopy(ap(a)).row ?? cardCopy(ap(a)).question);
     expect(row(act('shell', 'exec', 'local_write', { argv: ['bash', '-lc', 'npm test'] }, { argv: ['bash', '-lc', 'npm test'] }))).toBe('Run npm test?');
-    expect(row(act('memory', 'memory', 'local_write', { op: 'add', new: 'Releases go out on Tuesdays.' }))).toBe('Remember “Releases go out on Tuesdays.”?');
+    expect(row(act('memory', 'memory', 'local_write', { op: 'add', new: 'Releases go out on Tuesdays.' }))).toBe('Remember “Releases go out on Tuesdays”?');
     expect(row(act('message', 'send', 'external_send', { text: 'Hi' }, { recipient: 'telegram:42:' }))).toBe('Send a message to Telegram chat 42?');
     // Builders without a row title fall back to the question.
     expect(row(act('fs_delete', 'fs.delete', 'irreversible', { path: 'notes/a.md' }))).toBe('Delete notes/a.md?');

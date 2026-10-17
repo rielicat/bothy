@@ -77,6 +77,8 @@ const changedLines = (diff: string) => {
 const capital = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 // Decided lines are one line in a list; the card above them keeps the full value.
 const clip = (s: string, n = 80) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+// A note quoted inside a question drops its own full stop: “…Tuesdays”? reads, “…Tuesdays.”? doesn't.
+const quote = (s: string) => clip(s.replace(/\.$/, ''), 60);
 
 const apps: Record<string, string> = { telegram: 'Telegram', slack: 'Slack', discord: 'Discord', web: 'the web', api: 'the API' };
 
@@ -405,9 +407,9 @@ function memory(_a: Action, p: Payload): Built {
     const old = str(p.old);
     return {
       question: ['Forget this?'],
-      row: [`Forget “${clip(old, 60)}”?`],
+      row: [`Forget “${quote(old)}”?`],
       primary: 'Forget',
-      ing: [`forgetting “${clip(old, 60)}”`],
+      ing: [`forgetting “${quote(old)}”`],
       ask: ['forget something'],
       exact: ['forgetting this exact note'],
       fields: [{ label: 'Note', value: old }],
@@ -416,9 +418,9 @@ function memory(_a: Action, p: Payload): Built {
   const note = str(p.new);
   return {
     question: ['Remember this?'],
-    row: [`Remember “${clip(note, 60)}”?`],
+    row: [`Remember “${quote(note)}”?`],
     primary: 'Remember',
-    ing: [`remembering “${clip(note, 60)}”`],
+    ing: [`remembering “${quote(note)}”`],
     ask: ['remember something'],
     exact: ['remembering this exact note'],
     fields: [{ label: 'Note', value: note }, str(p.op) === 'replace' && { label: 'Replaces', value: str(p.old) }],
