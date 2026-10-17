@@ -2,13 +2,17 @@
 // the adapter uses, served over plain HTTP and WebSocket from one
 // httptest.Server. The adapter's tests, the E2E suite and the RSS budget job
 // point channels.discord.api_base and gateway_url at it. It implements
-// conformance.PlatformFake and conformance.PlatformIDs.
+// conformance.PlatformFake and conformance.PlatformIDs. PATCH /users/@me
+// changes the bot's avatar from a data URI; GET /users/@me reports it.
 package discordtest
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -145,6 +149,9 @@ type Server struct {
 	guilds     map[string]Guild
 	members    map[string]Member // guild + "/" + user
 	chanGuild  map[string]string
+	avatar     []byte // the bot user's avatar image, nil for none
+	avatarHash string
+	avatarSlow bool // avatar changes are refused as too fast
 }
 
 type logged struct {
@@ -180,6 +187,7 @@ func New() *Server {
 	mux.HandleFunc("GET /attachments/{name}", s.attachment)
 	bot := func(pattern string, h http.HandlerFunc) { mux.Handle(pattern, s.botAuth(h)) }
 	bot("GET "+apiPrefix+"/users/@me", s.me)
+	bot("PATCH "+apiPrefix+"/users/@me", s.updateMe)
 	bot("GET "+apiPrefix+"/gateway/bot", s.gatewayBot)
 	bot("GET "+apiPrefix+"/channels/{id}", s.channel)
 	bot("POST "+apiPrefix+"/channels/{id}/messages", s.createMessage)
@@ -478,6 +486,33 @@ func (s *Server) ForceClose(code int) {
 	}
 }
 
+// Avatar returns the bot user's avatar image, or nil when it has none.
+func (s *Server) Avatar() []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.avatar)
+}
+
+// SetAvatar gives the bot user an avatar (nil removes it), as the developer
+// portal would.
+func (s *Server) SetAvatar(img []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.avatar, s.avatarHash = slices.Clone(img), ""
+	if len(img) > 0 {
+		sum := sha256.Sum256(img)
+		s.avatarHash = hex.EncodeToString(sum[:16])
+	}
+}
+
+// SlowAvatarChanges makes avatar changes fail as Discord does once a bot
+// changed its avatar too often: 400 with AVATAR_RATE_LIMIT.
+func (s *Server) SlowAvatarChanges(on bool) {
+	s.mu.Lock()
+	s.avatarSlow = on
+	s.mu.Unlock()
+}
+
 // RateLimitNext answers the next request for method and path (for example
 // "POST", "/api/v10/channels/1/messages") with a route-scoped 429 asking to
 // retry after retryAfter seconds.
@@ -617,9 +652,53 @@ func (s *Server) botAuth(next http.HandlerFunc) http.Handler {
 }
 
 func (s *Server) me(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.self())
+}
+
+func (s *Server) self() map[string]any {
 	u := s.botUser()
 	u["verified"], u["mfa_enabled"], u["flags"] = true, false, 0
-	writeJSON(w, http.StatusOK, u)
+	s.mu.Lock()
+	if s.avatarHash != "" {
+		u["avatar"] = s.avatarHash
+	}
+	s.mu.Unlock()
+	return u
+}
+
+// updateMe changes the bot user's avatar from an image data URI, as Discord
+// does; null removes it.
+func (s *Server) updateMe(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Avatar *string `json:"avatar"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<20)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"message": "Invalid Form Body", "code": 50035})
+		return
+	}
+	s.mu.Lock()
+	slow := s.avatarSlow
+	s.mu.Unlock()
+	if slow {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"message": "Invalid Form Body", "code": 50035, "errors": map[string]any{
+			"avatar": map[string]any{"_errors": []any{map[string]any{"code": "AVATAR_RATE_LIMIT", "message": "You are changing your avatar too fast. Try again later."}}}}})
+		return
+	}
+	var img []byte
+	if body.Avatar != nil {
+		header, data, ok := strings.Cut(*body.Avatar, ",")
+		var err error
+		if ok && slices.Contains([]string{"data:image/png;base64", "data:image/jpeg;base64", "data:image/webp;base64", "data:image/gif;base64"}, header) {
+			img, err = base64.StdEncoding.DecodeString(data)
+		}
+		if !ok || err != nil || len(img) == 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"message": "Invalid Form Body", "code": 50035, "errors": map[string]any{
+				"avatar": map[string]any{"_errors": []any{map[string]any{"code": "IMAGE_INVALID", "message": "Invalid image data"}}}}})
+			return
+		}
+	}
+	s.SetAvatar(img)
+	writeJSON(w, http.StatusOK, s.self())
 }
 
 func (s *Server) gatewayBot(w http.ResponseWriter, _ *http.Request) {

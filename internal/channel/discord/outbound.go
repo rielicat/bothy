@@ -2,6 +2,7 @@ package discord
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -294,4 +295,30 @@ func messageOf(ref core.MsgRef) (snowflake.ID, snowflake.ID, error) {
 		return 0, 0, fmt.Errorf("discord: message id %q: %w", ref.ID, core.ErrInvalid)
 	}
 	return target, msg, nil
+}
+
+var _ core.PictureSetter = (*adapter)(nil)
+
+// HasPicture reports whether the bot user has an avatar, however it got one
+// (the developer portal, or Bothy before).
+func (a *adapter) HasPicture(ctx context.Context) (bool, error) {
+	me, err := a.client().CurrentUser(ctx)
+	if err != nil {
+		return false, a.apiErr("get current user", err)
+	}
+	return me.Avatar != nil, nil
+}
+
+// SetPicture makes p the bot user's avatar. Discord allows a few changes an
+// hour; a refusal for that has the FailureCode FailRateLimited.
+func (a *adapter) SetPicture(ctx context.Context, p core.Picture) error {
+	if len(p.PNG) == 0 {
+		return fmt.Errorf("discord: a picture without its PNG: %w", core.ErrInvalid)
+	}
+	err := a.client().SetAvatar(ctx, p.PNG)
+	if ae, ok := errors.AsType[*avatarError](err); ok && ae.status == http.StatusUnauthorized {
+		a.forgetToken()
+		return &authError{hint: tokenHint, err: err}
+	}
+	return err
 }

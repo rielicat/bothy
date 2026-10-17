@@ -1,11 +1,15 @@
 package discord
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/disgoorg/disgo/discord"
@@ -33,6 +37,7 @@ type discordAPI interface {
 	Member(ctx context.Context, guild, user snowflake.ID) (discord.Member, error)
 	Channel(ctx context.Context, id snowflake.ID) (discord.Channel, error)
 	Guild(ctx context.Context, id snowflake.ID, withCounts bool) (discord.RestGuild, error)
+	SetAvatar(ctx context.Context, png []byte) error
 }
 
 const (
@@ -54,7 +59,7 @@ func (a *adapter) client() discordAPI {
 			rest.WithLogger(a.libLog),
 			rest.WithRateLimiter(sharedLimiter(set.cfg.APIBase, a.libLog)),
 		)
-		a.api = &disgoAPI{r: rest.New(rc, rest.WithDefaultAllowedMentions(*allowedMentions(false))), token: a.token}
+		a.api = &disgoAPI{r: rest.New(rc, rest.WithDefaultAllowedMentions(*allowedMentions(false))), token: a.token, base: set.cfg.APIBase}
 	}
 	return a.api
 }
@@ -153,6 +158,7 @@ func (e *authError) FailureCode() core.FailureCode { return core.FailKeyRejected
 type disgoAPI struct {
 	r     rest.Rest
 	token func(context.Context) (string, error)
+	base  string // api_base, for the request disgo's limiter must not hold
 }
 
 func (d *disgoAPI) bot(ctx context.Context) ([]rest.RequestOpt, error) {
@@ -292,4 +298,76 @@ func (d *disgoAPI) DeferUpdate(ctx context.Context, interaction snowflake.ID, to
 func (d *disgoAPI) Followup(ctx context.Context, app snowflake.ID, token string, m discord.MessageCreate) error {
 	_, err := d.r.CreateFollowupMessage(app, token, m, rest.WithCtx(ctx))
 	return hideURL(err)
+}
+
+// SetAvatar changes the bot user's avatar (PATCH /users/@me) with a request
+// of its own: Discord allows a few avatar changes an hour, and disgo would
+// sit out the 429 waiting for the bucket to reset, for as long as an hour.
+func (d *disgoAPI) SetAvatar(ctx context.Context, png []byte) error {
+	tok, err := d.token(ctx)
+	if err != nil {
+		return err
+	}
+	body, err := json.Marshal(map[string]string{"avatar": discord.NewIconRaw(discord.IconTypePNG, png).String()})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, d.base+"/users/@me", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bot "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", userAgent)
+	resp, err := d.r.HTTPClient().Do(req)
+	if err != nil {
+		return fmt.Errorf("discord: changing the avatar: %w", err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	if resp.StatusCode/100 == 2 {
+		return nil
+	}
+	return newAvatarError(resp.StatusCode, raw)
+}
+
+// avatarError is Discord refusing a new avatar.
+type avatarError struct {
+	status  int
+	limited bool
+	msg     string
+}
+
+// newAvatarError reads Discord's answer: a 429, or the 400 Invalid Form Body
+// whose avatar error is AVATAR_RATE_LIMIT ("You are changing your avatar
+// too fast"), both mean the hourly allowance is spent.
+func newAvatarError(status int, raw []byte) *avatarError {
+	var body struct {
+		Message string `json:"message"`
+	}
+	_ = json.Unmarshal(raw, &body)
+	text := strings.ToLower(string(raw))
+	limited := status == http.StatusTooManyRequests ||
+		(status == http.StatusBadRequest && (strings.Contains(text, "avatar_rate_limit") || strings.Contains(text, "too fast")))
+	msg := body.Message
+	if r := []rune(msg); len(r) > 200 {
+		msg = string(r[:200])
+	}
+	return &avatarError{status: status, limited: limited, msg: msg}
+}
+
+func (e *avatarError) Error() string {
+	return fmt.Sprintf("discord: changing the avatar: HTTP %d %s", e.status, e.msg)
+}
+
+func (e *avatarError) FailureCode() core.FailureCode {
+	switch {
+	case e.limited:
+		return core.FailRateLimited
+	case e.status == http.StatusUnauthorized:
+		return core.FailKeyRejected
+	case e.status >= 500:
+		return core.FailProviderError
+	}
+	return core.FailUnknown
 }
