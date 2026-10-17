@@ -35,6 +35,30 @@ describe('route guard during setup', () => {
   }
 });
 
+describe('the home address', () => {
+  beforeEach(async () => {
+    installApi();
+    session.ready = false;
+    await session.init();
+  });
+
+  // "/" is no page of its own; it must never flash "Page not found" on its way.
+  it('goes straight on to chat without showing a missing page', async () => {
+    const seen: string[] = [];
+    const watch = new MutationObserver((records) => {
+      for (const r of records) for (const n of r.addedNodes) seen.push(n.textContent ?? '');
+      seen.push(document.title);
+    });
+    watch.observe(document, { childList: true, subtree: true, characterData: true });
+    router.navigate('/');
+    render(App);
+    await waitFor(() => expect(router.path).toBe('/chat'));
+    await new Promise((r) => setTimeout(r, 0));
+    watch.disconnect();
+    expect(seen.filter((t) => t.includes('Page not found'))).toEqual([]);
+  });
+});
+
 describe('route guard after the wizard finished', () => {
   beforeEach(async () => {
     installApi();
