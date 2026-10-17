@@ -108,7 +108,7 @@ test('every v0.2 address shows a page and every v0.1 address moves to its new on
     await page.goto(r);
     await expect(page.locator('h1').first(), r).toBeVisible();
     expect(new URL(page.url()).pathname, r).toBe(new URL(r, 'http://x').pathname);
-    await expect(page.getByText("This page doesn't exist."), r).toHaveCount(0);
+    await expect(page.getByText('Check the address, or go back to your chats.'), r).toHaveCount(0);
   }
   for (const [from, to] of redirects) {
     await page.goto(from);

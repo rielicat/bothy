@@ -46,7 +46,7 @@
 
 {#if !t?.c}
   <Page title="Page not found">
-    <EmptyState text="This page doesn't exist." action={{ label: 'Go to chat', href: '/chat' }} />
+    <EmptyState text="Check the address, or go back to your chats." action={{ label: 'Go to chat', href: '/chat' }} />
   </Page>
 {:else if !allowed}
   <Page title={t.title}>

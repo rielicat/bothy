@@ -225,7 +225,7 @@ test.describe('gallery checks (dev server)', () => {
 test('production builds leave the gallery out', async ({ page }) => {
   test.skip(!!process.env.SHOTS_BASE_URL, 'checks the production preview');
   await page.goto('/dev/ui');
-  await expect(page.getByText("This page doesn't exist.")).toBeVisible();
+  await expect(page.getByText('Check the address, or go back to your chats.')).toBeVisible();
   const scripts = readdirSync(dist).filter((f) => f.endsWith('.js.gz'));
   expect(scripts.length).toBeGreaterThan(0);
   for (const f of scripts) expect(gunzipSync(readFileSync(join(dist, f))).toString('utf8'), f).not.toContain('UI gallery');

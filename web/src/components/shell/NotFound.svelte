@@ -7,5 +7,5 @@
 </script>
 
 <Page title={admin ?? 'Page not found'}>
-  <EmptyState text={admin ? 'Only admins can see this page.' : "This page doesn't exist."} action={{ label: 'Go to chat', href: '/chat' }} />
+  <EmptyState text={admin ? 'Only admins can see this page.' : "Check the address, or go back to your chats."} action={{ label: 'Go to chat', href: '/chat' }} />
 </Page>

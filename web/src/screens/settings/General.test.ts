@@ -140,7 +140,7 @@ describe('Settings → General, who sees it', () => {
     session.ready = false;
     await session.init();
     render(Settings, { params: { group: 'nope', page: 'nope' } });
-    expect(await screen.findByText("This page doesn't exist.")).toBeTruthy();
+    expect(await screen.findByText('Check the address, or go back to your chats.')).toBeTruthy();
   });
 });
 

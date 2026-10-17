@@ -346,7 +346,7 @@ describe('banners and blocking states', () => {
   it('says a page does not exist', async () => {
     await start('/nope');
     await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Page not found' })).toBeTruthy());
-    expect(screen.getByText("This page doesn't exist.")).toBeTruthy();
+    expect(screen.getByText('Check the address, or go back to your chats.')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Go to chat' }).getAttribute('href')).toBe('/chat');
   });
 

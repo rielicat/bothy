@@ -2348,7 +2348,7 @@ One sentence in `text-reading text`, an optional second sentence in `muted`, the
 | People → In chat apps | "Nobody uses Bothy in a chat app yet." + "Message Bothy in Slack or Telegram to appear here. On Telegram, let yourself in from Approvals first." (no chat app connected: "No chat app is connected yet.") | Open Approvals (Telegram or Discord connected) / Connect a chat app |
 | Activity → Schedules → In chat apps | (the section is left out) | — |
 | Search dialog | "No results for “{q}”." | — |
-| Route not found | "This page doesn't exist." | Go to chat |
+| Route not found | Title "Page not found"; "Check the address, or go back to your chats." | Go to chat |
 | Chat, task or approval not found | "This chat doesn't exist or was deleted." / "This task…" / "This request was already decided or doesn't exist." | Go to chat / Go to Approvals |
 | Member on an admin page | "Only admins can see this page." | Go to chat |
 
