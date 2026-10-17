@@ -37,12 +37,17 @@
   });
 
   let open: Record<string, boolean> = $state({});
+
+  // A refused request's decided line already says what didn't happen and
+  // who decided, so the step's own "Didn't …" line would repeat it.
+  const saidByDecision = (s: StepView) =>
+    !!s.approval && (s.state === 'denied' || s.state === 'expired') && s.approval.status !== 'pending' && s.approval.status !== 'parked';
 </script>
 
 <div>
   {#each parts as p (p.key)}
     {#if 'one' in p}
-      <ActivityLine step={p.one} />
+      {#if !saidByDecision(p.one)}<ActivityLine step={p.one} />{/if}
       {#if p.one.approval}{@render approval(p.one)}{/if}
     {:else}
       <button

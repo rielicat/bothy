@@ -162,7 +162,8 @@ describe('conversation', () => {
     render(ConversationView, { id: chatIds.login });
     expect(await screen.findByText(text(/^You approved changing repos\/acme\/web\/src\/auth\/callback\.ts · /))).toBeTruthy();
     expect(screen.getByText(text(/^You denied opening a pull request in acme\/web · “Not before the freeze ends” · /))).toBeTruthy();
-    expect(screen.getByText(text("Didn't open a pull request in acme/web"))).toBeTruthy();
+    // The denial's decided line says it; no second "Didn't …" line repeats it.
+    expect(screen.queryByText(text("Didn't open a pull request in acme/web"))).toBeNull();
     expect(screen.getByText(text('Changed repos/acme/web/src/auth/callback.ts (+3\u00a0−1)'))).toBeTruthy();
     await fireEvent.click(screen.getAllByRole('button', { name: 'Show' })[0]);
     expect(await screen.findByRole('article')).toBeTruthy();
