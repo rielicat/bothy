@@ -115,7 +115,7 @@ func (s *Store) Current(_ context.Context) (core.Picture, error) {
 	p, err := load(b)
 	if err != nil {
 		// Not ErrInvalid: nothing the caller sent is wrong.
-		return core.Picture{}, fmt.Errorf("picture: %s is not a usable picture: %v", FileName, err)
+		return core.Picture{}, errors.New("picture: " + FileName + " is not a usable picture: " + err.Error())
 	}
 	s.cached, s.cachedFile = p, sum
 	return p, nil
