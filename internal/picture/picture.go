@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"image/color"
 	"image/draw"
 	"image/jpeg"
 	"image/png"
@@ -38,9 +37,11 @@ const (
 
 	maxSide = 8000
 	minSide = 128
-	// maxDecoded bounds what decoding an upload may allocate; a small file
-	// can declare a huge image (a decompression bomb).
+	// maxDecoded bounds what decoding an upload may allocate (decodeCost);
+	// a small file can declare a huge image (a decompression bomb).
 	maxDecoded = 160 << 20
+	// safeSide is a side under which every picture decodes within maxDecoded.
+	safeSide = 2500
 	// maxStored bounds reading picture.png back; Set writes far less.
 	maxStored   = 16 << 20
 	jpegQuality = 90
@@ -60,6 +61,7 @@ var (
 	errTooLarge   = uploadError(fmt.Sprintf("That picture is over %d MB. Choose a smaller one.", MaxUpload>>20))
 	errTooBig     = uploadError(fmt.Sprintf("That picture is too large. Choose one under %d pixels on each side.", maxSide))
 	errTooSmall   = uploadError(fmt.Sprintf("That picture is too small. Choose one at least %d pixels on each side.", minSide))
+	errTooHeavy   = uploadError(fmt.Sprintf("That picture is too large. Choose one under %d pixels on each side.", safeSide))
 )
 
 var errNoDataDir = fmt.Errorf("picture: no data directory: %w", core.ErrNotImplemented)
@@ -204,8 +206,11 @@ func normalize(b []byte) (*image.RGBA, error) {
 	if err != nil {
 		return nil, errNotPicture
 	}
-	if cfg.Width > maxSide || cfg.Height > maxSide || int64(cfg.Width)*int64(cfg.Height)*bytesPerPixel(cfg.ColorModel) > maxDecoded {
+	if cfg.Width > maxSide || cfg.Height > maxSide {
 		return nil, errTooBig
+	}
+	if decodeCost(format, b, cfg) > maxDecoded {
+		return nil, errTooHeavy
 	}
 	if min(cfg.Width, cfg.Height) < minSide {
 		return nil, errTooSmall
@@ -272,25 +277,6 @@ func decode(format string, b []byte) (image.Image, error) {
 		return jpeg.Decode(r)
 	}
 	return webp.Decode(r)
-}
-
-// bytesPerPixel is what the decoder allocates per pixel for a colour model,
-// rounded up (YCbCr as if it were not subsampled).
-func bytesPerPixel(m color.Model) int64 {
-	if _, ok := m.(color.Palette); ok {
-		return 1
-	}
-	switch m {
-	case color.GrayModel, color.AlphaModel:
-		return 1
-	case color.Gray16Model, color.Alpha16Model:
-		return 2
-	case color.YCbCrModel:
-		return 3
-	case color.RGBA64Model, color.NRGBA64Model:
-		return 8
-	}
-	return 4
 }
 
 func encode(img *image.RGBA) (core.Picture, error) {

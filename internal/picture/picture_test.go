@@ -176,13 +176,73 @@ func TestNormalizeRefuses(t *testing.T) {
 		{"truncated png", pngOf(t, bands(200, 200, true, red))[:60], errNotPicture},
 		{"too small", pngOf(t, bands(300, 100, true, red)), errTooSmall},
 		{"too many pixels a side", pngHeader(9000, 200, 8, 2), errTooBig},
-		{"bomb", pngHeader(8000, 8000, 16, 6), errTooBig},
+		{"bomb", pngHeader(8000, 8000, 16, 6), errTooHeavy},
+		// What the decoders keep beyond the image counts too: a progressive
+		// JPEG's coefficients, a PNG's transparency and interlacing.
+		{"progressive colour bomb", jpegHeader(8000, 6900, 0xc2, 0x11, 0x11, 0x11), errTooHeavy},
+		{"progressive grey bomb", jpegHeader(8000, 8000, 0xc2, 0x11), errTooHeavy},
+		{"cmyk bomb", jpegHeader(6000, 4000, 0xc0, 0x11, 0x11, 0x11, 0x11), errTooHeavy},
+		{"rgb by a late marker", withAdobe(jpegHeader(5000, 5000, 0xc0, 0x11, 0x11, 0x11)), errTooHeavy},
+		{"interlaced png bomb", interlaced(pngHeader(4000, 4000, 16, 0)), errTooHeavy},
+		{"grey png bomb", pngHeader(8000, 8000, 8, 0), errTooHeavy},
+		{"lossless webp bomb", solidWebP(6000, 6000, color.NRGBA{0x2a, 0x6a, 0x54, 0xff}), errTooHeavy},
+		// Headers alone that fit pass the check and fail to decode.
+		{"baseline photo", jpegHeader(8000, 6900, 0xc0, 0x22, 0x11, 0x11), errNotPicture},
+		{"progressive photo", jpegHeader(4032, 3024, 0xc2, 0x22, 0x11, 0x11), errNotPicture},
+		{"png photo", pngHeader(4000, 4000, 16, 0), errNotPicture},
 		{"over 5 MB", append(pngOf(t, bands(200, 200, true, red)), make([]byte, MaxUpload)...), errTooLarge},
 	}
 	for _, c := range cases {
 		_, err := normalize(c.raw)
 		if !errors.Is(err, c.want) || !errors.Is(err, core.ErrInvalid) {
 			t.Errorf("%s: %v, want %v", c.name, err, c.want)
+		}
+	}
+}
+
+// Under safeSide, which the refusal suggests, any picture fits.
+func TestSafeSideAlwaysFits(t *testing.T) {
+	side := safeSide - 1
+	cases := []struct {
+		format string
+		raw    []byte
+		model  color.Model
+	}{
+		{"jpeg", nil, color.YCbCrModel}, // a frame the walk can't read counts as the worst
+		{"jpeg", nil, color.CMYKModel},
+		{"jpeg", jpegHeader(side, side, 0xc2, 0x22, 0x11, 0x11, 0x22), color.CMYKModel},
+		{"jpeg", jpegHeader(side, side, 0xc2, 0x41, 0x11, 0x11), color.RGBAModel},
+		{"png", interlaced(pngHeader(side, side, 16, 6)), color.NRGBA64Model},
+		{"webp", nil, color.NYCbCrAModel},
+	}
+	for _, c := range cases {
+		if n := decodeCost(c.format, c.raw, image.Config{ColorModel: c.model, Width: side, Height: side}); n > maxDecoded {
+			t.Errorf("%s %T: %d bytes", c.format, c.model, n)
+		}
+	}
+}
+
+// The estimate is what image/jpeg allocates (for files cjpeg made: 15 bytes
+// a pixel progressive 4:4:4, 5 for grey), MCU padding included.
+func TestJPEGCost(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  []byte
+		want int64
+	}{
+		{"baseline 4:2:0", jpegHeader(300, 300, 0xc0, 0x22, 0x11, 0x11), 3 * 304 * 304},
+		{"progressive 4:4:4", jpegHeader(300, 300, 0xc2, 0x11, 0x11, 0x11), 15 * 304 * 304},
+		{"progressive 4:2:0", jpegHeader(300, 300, 0xc2, 0x22, 0x11, 0x11), 3*304*304 + 6*304*304},
+		{"progressive grey, factors ignored", jpegHeader(300, 300, 0xc2, 0x22), 5 * 304 * 304},
+		{"stray bytes before the frame", append([]byte{0xff, 0xd8, 1, 2, 0xff, 0xff}, jpegHeader(300, 300, 0xc2, 0x11)[2:]...), 5 * 304 * 304},
+	}
+	for _, c := range cases {
+		cfg, err := jpeg.DecodeConfig(bytes.NewReader(c.raw))
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if got := jpegCost(c.raw, cfg); got != c.want {
+			t.Errorf("%s: %d, want %d", c.name, got, c.want)
 		}
 	}
 }
@@ -282,6 +342,16 @@ func FuzzJPEGOrientation(f *testing.F) {
 	})
 }
 
+func FuzzReadJPEGFrame(f *testing.F) {
+	f.Add(jpegHeader(300, 200, 0xc2, 0x22, 0x11, 0x11))
+	f.Add(withAdobe(jpegHeader(300, 200, 0xc0, 0x11, 0x11, 0x11)))
+	f.Fuzz(func(t *testing.T, b []byte) {
+		if fr, ok := readJPEGFrame(b); ok && (len(fr.sampling) == 0 || fr.end > len(b)) {
+			t.Fatalf("frame %+v", fr)
+		}
+	})
+}
+
 // withOrientation puts an EXIF segment with orientation o right after SOI.
 func withOrientation(tb testing.TB, j []byte, o int) []byte {
 	tb.Helper()
@@ -311,6 +381,33 @@ func pngHeader(w, h int, depth, colorType byte) []byte {
 	out = binary.BigEndian.AppendUint32(out, 13)
 	out = append(out, chunk...)
 	return binary.BigEndian.AppendUint32(out, crc32.ChecksumIEEE(chunk))
+}
+
+// jpegHeader is a JPEG with a JFIF marker and a frame header (marker sof)
+// declaring w×h and one component per sampling byte, but no scan:
+// decoding the config succeeds, decoding fails.
+func jpegHeader(w, h int, sof byte, sampling ...byte) []byte {
+	out := []byte{0xff, 0xd8, 0xff, 0xe0, 0, 16, 'J', 'F', 'I', 'F', 0, 1, 1, 0, 0, 1, 0, 1, 0, 0}
+	out = append(out, 0xff, sof, 0, byte(8+3*len(sampling)), 8, byte(h>>8), byte(h), byte(w>>8), byte(w), byte(len(sampling)))
+	for i, hv := range sampling {
+		out = append(out, byte(i+1), hv, 0)
+	}
+	return append(out, 0xff, 0xd9)
+}
+
+// withAdobe puts an Adobe marker saying the colours are RGB after the frame
+// header of a JPEG from jpegHeader.
+func withAdobe(b []byte) []byte {
+	app14 := []byte{0xff, 0xee, 0, 14, 'A', 'd', 'o', 'b', 'e', 0, 100, 0, 0, 0, 0, 0}
+	return append(append(b[:len(b)-2:len(b)-2], app14...), 0xff, 0xd9)
+}
+
+// interlaced marks a PNG from pngHeader as Adam7.
+func interlaced(b []byte) []byte {
+	b = append([]byte(nil), b...)
+	b[28] = 1
+	binary.BigEndian.PutUint32(b[29:], crc32.ChecksumIEEE(b[12:29]))
+	return b
 }
 
 // solidWebP is a lossless WebP of one colour: every prefix code has a
