@@ -7,8 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -131,11 +134,38 @@ func (c *client) call(ctx context.Context, method string, params, out any) error
 }
 
 func (c *client) do(ctx context.Context, method string, body []byte, out any) error {
+	return c.post(ctx, method, "application/json", body, out)
+}
+
+// upload sends fields and one file as multipart/form-data, once: a 429 is
+// returned rather than waited out, since the caller is a person waiting.
+func (c *client) upload(ctx context.Context, method string, fields map[string]string, field, filename string, data []byte, out any) error {
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	for _, k := range slices.Sorted(maps.Keys(fields)) {
+		if err := mw.WriteField(k, fields[k]); err != nil {
+			return fmt.Errorf("telegram %s: %w", method, err)
+		}
+	}
+	fw, err := mw.CreateFormFile(field, filename)
+	if err == nil {
+		_, err = fw.Write(data)
+	}
+	if err == nil {
+		err = mw.Close()
+	}
+	if err != nil {
+		return fmt.Errorf("telegram %s: %w", method, err)
+	}
+	return c.post(ctx, method, mw.FormDataContentType(), buf.Bytes(), out)
+}
+
+func (c *client) post(ctx context.Context, method, contentType string, body []byte, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/bot"+c.token+"/"+method, bytes.NewReader(body))
 	if err != nil {
 		return c.scrub(method, err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return c.scrub(method, err)
@@ -443,4 +473,20 @@ func (c *client) getChatMemberCount(ctx context.Context, chatID int64) (int, err
 
 func (c *client) setMyCommands(ctx context.Context, cmds []botCommand) error {
 	return c.call(ctx, "setMyCommands", map[string]any{"commands": cmds}, nil)
+}
+
+// getUserProfilePhotos says how many profile photos user has.
+func (c *client) getUserProfilePhotos(ctx context.Context, user int64) (int, error) {
+	var r struct {
+		TotalCount int `json:"total_count"`
+	}
+	err := c.call(ctx, "getUserProfilePhotos", map[string]any{"user_id": user, "limit": 1}, &r)
+	return r.TotalCount, err
+}
+
+// setMyProfilePhoto makes jpeg the bot's profile photo: an
+// InputProfilePhotoStatic, which must be a JPEG uploaded with the request.
+func (c *client) setMyProfilePhoto(ctx context.Context, jpeg []byte) error {
+	return c.upload(ctx, "setMyProfilePhoto", map[string]string{"photo": `{"type":"static","photo":"attach://picture"}`},
+		"picture", "picture.jpg", jpeg, nil)
 }

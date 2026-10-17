@@ -54,6 +54,7 @@ var (
 var (
 	_ core.Channel       = (*Adapter)(nil)
 	_ core.ChatInspector = (*Adapter)(nil)
+	_ core.PictureSetter = (*Adapter)(nil)
 
 	errNoToken = errors.New("telegram: no bot token")
 )
@@ -585,4 +586,38 @@ func (a *Adapter) InspectChat(ctx context.Context, chat core.ChatRef) (core.Chat
 		return core.ChatInfo{}, ctx.Err()
 	}
 	return info, nil
+}
+
+// HasPicture reports whether the bot has a profile photo, however it got one
+// (BotFather, or Bothy before).
+func (a *Adapter) HasPicture(ctx context.Context) (bool, error) {
+	cl, err := a.client(ctx)
+	if err != nil {
+		return false, err
+	}
+	a.mu.Lock()
+	id := a.me.ID
+	a.mu.Unlock()
+	if id == 0 {
+		me, err := cl.getMe(ctx)
+		if err != nil {
+			return false, err
+		}
+		id = me.ID
+	}
+	n, err := cl.getUserProfilePhotos(ctx, id)
+	return n > 0, err
+}
+
+// SetPicture makes p the bot's profile photo. Telegram takes a static photo
+// only as a JPEG uploaded with the request; profile photos can't be reused.
+func (a *Adapter) SetPicture(ctx context.Context, p core.Picture) error {
+	if len(p.JPEG) == 0 {
+		return fmt.Errorf("telegram: a picture without its JPEG: %w", core.ErrInvalid)
+	}
+	cl, err := a.client(ctx)
+	if err != nil {
+		return err
+	}
+	return cl.setMyProfilePhoto(ctx, p.JPEG)
 }

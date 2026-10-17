@@ -5,15 +5,19 @@
 // It validates what Telegram validates and Bothy relies on: the bot token in
 // the path, HTML parse mode (unknown tags, bad nesting and unescaped "<", ">"
 // or "&" are rejected with "can't parse entities"), the 4096-character limit,
-// callback data of at most 64 bytes, and button URLs (no loopback hosts).
+// callback data of at most 64 bytes, button URLs (no loopback hosts), and a
+// profile photo uploaded as a new JPEG file (setMyProfilePhoto).
 // SentTexts reports what a chat shows now: an edit replaces its message's
 // text and a delete removes it.
 package telegramtest
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -36,7 +40,10 @@ type Config struct {
 // DefaultToken is the token the fake accepts unless Config.Token is set.
 const DefaultToken = "7000001:TEST-fake-token_for-bothy"
 
-const maxMessageLen = 4096
+const (
+	maxMessageLen = 4096
+	maxBody       = 10 << 20 // a photo upload; Telegram's own limit is 10 MB
+)
 
 // Message is one message the bot sent, as the fake stores it.
 type Message struct {
@@ -140,6 +147,7 @@ type Server struct {
 	titles    map[int64]string
 	members   map[int64]int
 	calls     map[string]int
+	photos    [][]byte // the bot's profile photos, newest first
 	sends     int
 	leaked    bool
 	nextCB    int
@@ -436,6 +444,23 @@ func (s *Server) SetChat(chatID int64, title string, members int) {
 	s.titles[chatID], s.members[chatID] = title, members
 }
 
+// ProfilePhoto returns the bot's current profile photo (a JPEG), or nil.
+func (s *Server) ProfilePhoto() []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.photos) == 0 {
+		return nil
+	}
+	return slices.Clone(s.photos[0])
+}
+
+// SetProfilePhoto gives the bot a profile photo, as BotFather would.
+func (s *Server) SetProfilePhoto(jpeg []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.photos = append([][]byte{slices.Clone(jpeg)}, s.photos...)
+}
+
 // RateLimit makes the next call of method fail with 429 and retry_after.
 func (s *Server) RateLimit(method string, retryAfter int) {
 	s.mu.Lock()
@@ -461,7 +486,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusUnauthorized, "Unauthorized", 0)
 		return
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxBody))
 	if err != nil {
 		apiErr(w, http.StatusBadRequest, "Bad Request: unreadable body", 0)
 		return
@@ -512,6 +537,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			typ = "private"
 		}
 		ok200(w, s.chatJSON(id, typ, title))
+	case "getUserProfilePhotos":
+		s.getUserProfilePhotos(w, body)
+	case "setMyProfilePhoto":
+		s.setMyProfilePhoto(w, r.Header.Get("Content-Type"), body)
+	case "removeMyProfilePhoto":
+		s.mu.Lock()
+		if len(s.photos) > 0 {
+			s.photos = s.photos[1:]
+		}
+		s.mu.Unlock()
+		ok200(w, true)
 	case "setMyCommands":
 		var p struct {
 			Commands []BotCommand `json:"commands"`
@@ -832,6 +868,74 @@ func (s *Server) getFile(w http.ResponseWriter, body []byte) {
 		return
 	}
 	ok200(w, map[string]any{"file_id": f.ID, "file_unique_id": "u" + f.ID, "file_size": len(f.Data), "file_path": "files/" + url.PathEscape(f.ID)})
+}
+
+func (s *Server) getUserProfilePhotos(w http.ResponseWriter, body []byte) {
+	var p struct {
+		UserID int64 `json:"user_id"`
+		Limit  int   `json:"limit"`
+	}
+	if json.Unmarshal(body, &p) != nil || p.UserID == 0 {
+		apiErr(w, http.StatusBadRequest, "Bad Request: user not found", 0)
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	if p.UserID == s.BotID {
+		n = len(s.photos)
+	}
+	photos := []any{}
+	for i := range min(n, max(p.Limit, 1)) {
+		id := "photo" + strconv.Itoa(n-i)
+		photos = append(photos, []map[string]any{{"file_id": id, "file_unique_id": "u" + id, "width": 640, "height": 640}})
+	}
+	ok200(w, map[string]any{"total_count": n, "photos": photos})
+}
+
+// setMyProfilePhoto checks what Telegram does: an InputProfilePhotoStatic
+// whose photo is "attach://<name>", with the JPEG uploaded under that name.
+func (s *Server) setMyProfilePhoto(w http.ResponseWriter, contentType string, body []byte) {
+	mt, params, err := mime.ParseMediaType(contentType)
+	if err != nil || mt != "multipart/form-data" {
+		apiErr(w, http.StatusBadRequest, "Bad Request: photo must be uploaded as multipart/form-data", 0)
+		return
+	}
+	form, err := multipart.NewReader(bytes.NewReader(body), params["boundary"]).ReadForm(maxBody)
+	if err != nil {
+		apiErr(w, http.StatusBadRequest, "Bad Request: can't parse multipart data", 0)
+		return
+	}
+	defer form.RemoveAll()
+	var photo struct {
+		Type  string `json:"type"`
+		Photo string `json:"photo"`
+	}
+	if len(form.Value["photo"]) != 1 || json.Unmarshal([]byte(form.Value["photo"][0]), &photo) != nil || photo.Type != "static" {
+		apiErr(w, http.StatusBadRequest, "Bad Request: can't parse InputProfilePhoto", 0)
+		return
+	}
+	name, ok := strings.CutPrefix(photo.Photo, "attach://")
+	files := form.File[name]
+	if !ok || len(files) != 1 {
+		apiErr(w, http.StatusBadRequest, "Bad Request: photo must be uploaded as a new file", 0)
+		return
+	}
+	f, err := files[0].Open()
+	if err != nil {
+		apiErr(w, http.StatusBadRequest, "Bad Request: can't read the photo", 0)
+		return
+	}
+	data, err := io.ReadAll(f)
+	f.Close()
+	if err != nil || !bytes.HasPrefix(data, []byte{0xff, 0xd8, 0xff}) {
+		apiErr(w, http.StatusBadRequest, "Bad Request: IMAGE_PROCESS_FAILED", 0)
+		return
+	}
+	s.mu.Lock()
+	s.photos = append([][]byte{data}, s.photos...)
+	s.mu.Unlock()
+	ok200(w, true)
 }
 
 func (s *Server) serveFile(w http.ResponseWriter, rest string) {

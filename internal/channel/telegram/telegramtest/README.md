@@ -6,7 +6,10 @@ A fake Telegram Bot API server (`httptest`) implementing
 bot token) and the RSS budget job. It validates what Telegram does and Bothy
 depends on: the token in the path, strict HTML parse mode (`Visible` rejects
 unknown tags, bad nesting and unescaped `<`, `>`, `&`), the 4096-character
-limit, 64-byte callback data and loopback button URLs. Tests inject user
-messages, button presses, "bot added to group" updates and redeliveries,
-queue 429s with `RateLimit`, and inspect what each chat shows (`SentTexts`,
-`Messages`), callback answers, chat actions and registered commands.
+limit, 64-byte callback data, loopback button URLs and the bot's profile
+photo (`setMyProfilePhoto` takes only a static JPEG uploaded with the
+request; `getUserProfilePhotos` counts them). Tests inject user messages,
+button presses, "bot added to group" updates and redeliveries, give the bot a
+photo as BotFather would (`SetProfilePhoto`), queue 429s with `RateLimit`, and
+inspect what each chat shows (`SentTexts`, `Messages`), callback answers,
+chat actions, registered commands and the current photo (`ProfilePhoto`).
