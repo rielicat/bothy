@@ -2711,7 +2711,7 @@ The UI never parses error strings or invents sentences from model output where s
 
 S21–S30 landed together (SPEC §14.7, "UI state"); their fallbacks are gone from the UI.
 
-Team access (SPEC §5.1, §5.2, §5.9) replaced linking: `GET /api/teammates`, `PATCH /api/identities/{channel}/{external}` (`status` teammate or blocked, `can_approve`), `DELETE /api/teammates/…`, `GET`/`PATCH /api/spaces` (`SpaceView`, admins), `GET /api/team/schedules`, `GrantView` on `GET /api/grants`, `kind` and `app` on usage rows, `approver.team` and the chat requester on approvals, banners `new_channel`, `team_access` and `chat_budget_80`. The pairing routes and events are gone.
+Team access (SPEC §5.1, §5.2, §5.9) replaced linking: `GET /api/teammates`, `PATCH /api/identities/{channel}/{external}` (`status` teammate or blocked, `can_approve`), `DELETE /api/teammates/…`, `GET`/`PATCH`/`DELETE /api/spaces` (`SpaceView`, admins), `GET /api/team/schedules`, `GrantView` on `GET /api/grants`, `kind` and `app` on usage rows, `approver.team` and the chat requester on approvals (with `kind` and `scheduled`), `member_check` and `idle_servers` on Discord's `ChannelStatus`, `chat_spent_micros` and `chat_limit_micros` on `/api/usage/today`, banner events `new_channel`, `team_access` and `chat_budget_80` (the last two shown on their pages, not as banners). The pairing routes and events are gone.
 
 ---
 
