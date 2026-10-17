@@ -23,9 +23,12 @@ Every change publishes `memory.updated` and is audited (`memory.write`,
 bad op fails before any approval card and records provenance `untrusted` when
 the session holds untrusted content (F7 gates it); `session_search` searches
 only the run's own principal and marks the result untrusted when any hit is.
-Space principals have no memory: both tools are hidden from them (not
-`SpaceOK`, and `core.Gated` off for "standard" spaces too), `Snapshot` and
-`DeltasSince` are empty, and the other methods return `core.ErrForbidden`.
+Space principals have no memory: `session_search` is hidden from them (not
+`SpaceOK`, and `core.Gated` off for "standard" spaces too), and `memory` is
+offered to a standard channel only to propose a TEAM change (its own files
+get "Channels have no memory of their own…"; restricted channels get
+neither); `Snapshot` and `DeltasSince` are empty, and the other methods
+return `core.ErrForbidden`.
 `Purge` removes a principal's memory directory for user purges.
 
 TEAM.md, what Bothy remembers for everyone, is one file at

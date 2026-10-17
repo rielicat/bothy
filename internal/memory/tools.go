@@ -62,12 +62,21 @@ func newAction(tool string, kind core.ActionKind, se core.SideEffect, payload an
 	}, nil
 }
 
-// userOnly hides both tools from channels, including "standard" ones that
-// registry filtering alone would let through: channels have no memory and
-// no history of their own. Accounts and teammates have both.
+// userOnly hides session_search from channels, including "standard" ones
+// that registry filtering alone would let through: channels have no history
+// of their own. Accounts and teammates have it.
 func userOnly(env *core.ToolEnv) bool {
 	return env.Principal.Kind == core.PrincipalUser || env.Principal.Kind == core.PrincipalPerson
 }
+
+// memoryOffered: channels have no memory of their own, but a standard one
+// may propose a change to TEAM.md, which an admin approves. Restricted
+// channels get read tools only.
+func memoryOffered(env *core.ToolEnv) bool {
+	return userOnly(env) || env.Principal.Kind == core.PrincipalSpace && !env.Principal.Restricted()
+}
+
+var errChannelMemory = invalidf("Channels have no memory of their own. To remember something for everyone, use file TEAM; an admin approves it.")
 
 // ---- memory ----
 
@@ -106,7 +115,7 @@ func newMemoryTool(s *Service) *memoryTool {
 }
 
 func (t *memoryTool) Spec() core.ToolSpec            { return t.spec }
-func (t *memoryTool) Enabled(env *core.ToolEnv) bool { return userOnly(env) }
+func (t *memoryTool) Enabled(env *core.ToolEnv) bool { return memoryOffered(env) }
 
 // Plan dry-runs the op against the current file so a missing entry or a full
 // file fails before any approval card is shown; Exec re-checks under the lock.
@@ -121,6 +130,9 @@ func (t *memoryTool) Plan(ctx context.Context, env *core.ToolEnv, args json.RawM
 	}
 	if op.File == core.FileTeam {
 		return t.planTeam(env, op)
+	}
+	if env.Principal.Kind == core.PrincipalSpace {
+		return nil, errChannelMemory
 	}
 	p := env.Principal.ID
 	if _, err := t.s.checkPrincipal(ctx, p); err != nil {

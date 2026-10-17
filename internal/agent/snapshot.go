@@ -325,6 +325,8 @@ func memoryFact(p *core.Principal) string {
 	switch {
 	case p.Kind == core.PrincipalUser || p.Kind == core.PrincipalPerson:
 		return "- Memory: USER.md and MEMORY.md are for this person only; " + team + "\n"
+	case !p.Restricted():
+		return "- Memory: this channel has none of its own; " + team + "\n"
 	}
 	return "- Memory: none here; an admin can add notes for everyone on the web (Knowledge → Memory)\n"
 }

@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -76,13 +77,26 @@ func TestToolSpecs(t *testing.T) {
 		}
 	}
 	env := h.env(t)
-	space := *env
-	space.Principal = core.Principal{ID: core.PrincipalID(core.NewID(core.PrefixSpace)), Kind: core.PrincipalSpace, ToolProfile: "standard"}
-	for _, tl := range h.svc.Tools() {
-		g, ok := tl.(core.Gated)
-		if !ok || !g.Enabled(env) || g.Enabled(&space) {
-			t.Errorf("%s: must be enabled for users and disabled for every space", tl.Spec().Def.Name)
+	teammate, standard, restricted := *env, *env, *env
+	teammate.Principal = core.Principal{ID: core.PrincipalID(core.NewID(core.PrefixSpace)), Kind: core.PrincipalPerson, ToolProfile: "standard"}
+	standard.Principal = core.Principal{ID: core.PrincipalID(core.NewID(core.PrefixSpace)), Kind: core.PrincipalSpace, ToolProfile: "standard"}
+	restricted.Principal = core.Principal{ID: core.PrincipalID(core.NewID(core.PrefixSpace)), Kind: core.PrincipalSpace, ToolProfile: "restricted"}
+	// A standard channel may propose a change to team memory; nothing else
+	// here is a channel's.
+	for name, want := range map[string][4]bool{"memory": {true, true, true, false}, "session_search": {true, true, false, false}} {
+		g := tool(t, h, name).(core.Gated)
+		got := [4]bool{g.Enabled(env), g.Enabled(&teammate), g.Enabled(&standard), g.Enabled(&restricted)}
+		if got != want {
+			t.Errorf("%s enabled for account, teammate, standard and restricted channel = %v, want %v", name, got, want)
 		}
+	}
+	a, err := tool(t, h, "memory").Plan(context.Background(), &standard, json.RawMessage(`{"file":"TEAM","op":"add","new":"Deploy day is Thursday"}`))
+	if err != nil || a.SideEffect != core.SEAdmin {
+		t.Errorf("a standard channel's team proposal = %+v, %v", a, err)
+	}
+	if _, err := tool(t, h, "memory").Plan(context.Background(), &standard, json.RawMessage(`{"file":"MEMORY","op":"add","new":"x"}`)); !errors.Is(err, core.ErrInvalid) ||
+		!strings.Contains(err.Error(), "Channels have no memory of their own. To remember something for everyone, use file TEAM") {
+		t.Errorf("a channel's own memory = %v", err)
 	}
 }
 
