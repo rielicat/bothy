@@ -85,7 +85,7 @@ const states: ShotState[] = [
     setup: steps(click('Add an MCP server'), click('A command on this server', 'radio'), fill('Package', '@sentry/mcp-server'), fill('Version', '1.4.0'), click('Details')),
     full: false,
   },
-  { name: 'add-mcp-code-off', route: '/settings/connections', mock: 'sandbox-off', setup: steps(click('Add an MCP server'), click('A command on this server', 'radio'), see("code can't run")), full: false },
+  { name: 'add-mcp-code-off', route: '/settings/connections', mock: 'sandbox-off', setup: steps(click('Add an MCP server'), click('A command on this server', 'radio'), see('running code is off on this server')), full: false },
   {
     name: 'add-mcp-errors',
     route: '/settings/connections',
@@ -204,11 +204,11 @@ const states: ShotState[] = [
   { name: 'mcp-server-menu', route: '/settings/connections/mcp-linear', setup: steps(click('Options for Linear')), full: false },
   { name: 'mcp-needs-review', route: '/settings/connections/mcp-docs', setup: steps(see('needs a review')) },
   { name: 'mcp-review', route: '/settings/connections/mcp-docs?review=1', setup: steps(dialog('Review changes to Docs')), full: false },
-  { name: 'mcp-off', route: '/settings/connections/mcp-notes', setup: steps(see("Off. Bothy doesn't use this server.")) },
+  { name: 'mcp-off', route: '/settings/connections/mcp-notes', setup: steps(see('Turn it on to see what it can do.')) },
   { name: 'mcp-error', route: '/settings/connections/mcp-linear', mock: 'mcp-error', setup: steps(see("Can't start"), click('Details')) },
   { name: 'mcp-installing', route: '/settings/connections/mcp-sentry', mock: 'mcp-installing', setup: steps(see('Installing…')) },
   { name: 'mcp-remove', route: '/settings/connections/mcp-linear', setup: steps(menu('Options for Linear', 'Remove server…'), dialog('Remove Linear?')), full: false },
-  { name: 'mcp-missing', route: '/settings/connections/mcp-nope', setup: steps(see("doesn't exist")) },
+  { name: 'mcp-missing', route: '/settings/connections/mcp-nope', setup: steps(see('This tool was removed or never added.')) },
 
   // Web search (§12.5)
   { name: 'search-off', route: '/settings/connections/search', setup: steps(see('Private search you host yourself')) },

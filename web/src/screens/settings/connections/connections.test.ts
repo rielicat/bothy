@@ -55,8 +55,10 @@ describe('tool and GitHub status words', () => {
     expect(toolStatus(tool({ state: 'pins_pending', pending: 2 }))).toEqual({ text: 'Needs review: 2 actions', tone: 'warning', action: 'Review' });
     expect(toolStatus(tool({ state: 'installing' })).text).toBe('Installing…');
     expect(toolStatus(tool({ state: 'disabled' })).text).toBe('Off');
-    expect(toolStatus(tool({ state: 'error' }))).toEqual({ text: "Can't connect: the server didn't answer", tone: 'danger', action: 'Reconnect' });
-    expect(toolStatus(tool({ state: 'no_sandbox', transport: 'stdio' }))).toEqual({ text: "Can't connect: code can't run on this server", tone: 'danger', action: 'Manage' });
+    // "Can't start" like the tool's own page; "server" means only Bothy's host, so a remote tool is named.
+    expect(toolStatus(tool({ state: 'error' }))).toEqual({ text: "Can't start: Linear didn't answer", tone: 'danger', action: 'Reconnect' });
+    expect(toolStatus(tool({ state: 'error', transport: 'stdio' })).text).toBe("Can't start: the command stopped with an error");
+    expect(toolStatus(tool({ state: 'no_sandbox', transport: 'stdio' }))).toEqual({ text: "Can't start: code can't run on this server", tone: 'danger', action: 'Manage' });
     expect(toolStatus(undefined).text).toBe('Connecting…');
   });
 

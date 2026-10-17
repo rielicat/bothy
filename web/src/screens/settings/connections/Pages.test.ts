@@ -105,9 +105,10 @@ describe('Connections overview (§12.1)', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'Add an MCP server' }));
     await fireEvent.click(await screen.findByRole('radio', { name: 'A command on this server' }));
     expect(
-      await screen.findByText("This server runs as a command, and code can't run on this server. Use its web address instead, or turn on running code in Security."),
+      await screen.findByText('This tool runs as a command, and running code is off on this server. Use its web address instead, or turn on running code in Security.'),
     ).toBeTruthy();
     expect(screen.queryByLabelText('Package')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Add server' }).getAttribute('aria-disabled')).toBe('true');
   });
 
   it('routes every Connections address to its page', () => {
@@ -138,6 +139,7 @@ describe('MCP server page (§12.4)', () => {
     const calls = await start();
     render(McpServer, { params: { item: 'mcp-docs' } });
     expect(await screen.findByText('1 action changed and needs a review before Bothy can use it.')).toBeTruthy();
+    expect(screen.queryByText(/^Ready ·/)).toBeNull();
     await fireEvent.click(screen.getByRole('button', { name: 'Review changes' }));
     const dialog = await screen.findByRole('dialog', { name: 'Review changes to Docs' });
     expect(within(dialog).getByText('Changed since you last allowed it')).toBeTruthy();
@@ -158,15 +160,30 @@ describe('MCP server page (§12.4)', () => {
         : undefined,
     );
     render(McpServer, { params: { item: 'mcp-linear' } });
-    expect(await screen.findByText(/^Can't start: the server didn't answer\./)).toBeTruthy();
+    expect(await screen.findByText(/^Can't start: Linear didn't answer\./)).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['POST /api/mcp/linear/reload']));
   });
 
-  it('says plainly when the server is gone', async () => {
+  it('says plainly when the tool is gone, without the address as its title', async () => {
     await start();
     render(McpServer, { params: { item: 'mcp-nope' } });
-    expect(await screen.findByText("This server doesn't exist or was removed.")).toBeTruthy();
+    expect(await screen.findByText('This tool was removed or never added.')).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'Tool not found' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Go to Connections' })).toBeTruthy();
+  });
+
+  it('turns a tool on and off from its status line, and says off once', async () => {
+    const calls = await start();
+    render(McpServer, { params: { item: 'mcp-notes' } });
+    expect(await screen.findByText('Off')).toBeTruthy();
+    expect(screen.getByText('Turn it on to see what it can do.')).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Server' })).toBeNull();
+    const sw = screen.getByRole('switch', { name: 'Turn on Notes' });
+    expect(sw.getAttribute('aria-checked')).toBe('false');
+    await fireEvent.click(sw);
+    await waitFor(() => expect(writes(calls).map((c) => c.url)).toEqual(['/api/config']));
+    expect(JSON.parse(writes(calls)[0].body).set).toEqual({ 'mcp.servers.notes.enabled': true });
   });
 });
 

@@ -44,10 +44,10 @@ export function appStatus(app: AppName, s: AppStatus | undefined, people: number
   }
 }
 
-/** Why an MCP server can't run, as the end of "Can't connect: …" or "Can't start: …". */
+/** Why an MCP server can't run, as the end of "Can't start: …". "Server" means Bothy's own host only, so a remote tool is named. */
 export function toolProblem(s: MCPStatus): string {
   if (s.state === 'no_sandbox') return "code can't run on this server";
-  return s.transport === 'stdio' ? 'the command stopped with an error' : "the server didn't answer";
+  return s.transport === 'stdio' ? 'the command stopped with an error' : `${serverTitle(s.name)} didn't answer`;
 }
 
 export function toolStatus(s: MCPStatus | undefined): RowStatus {
@@ -64,7 +64,7 @@ export function toolStatus(s: MCPStatus | undefined): RowStatus {
     case 'pins_pending':
       return { text: `Needs review: ${plural(s.pending, 'action')}`, tone: 'warning', action: 'Review' };
     default:
-      return { text: `Can't connect: ${toolProblem(s)}`, tone: 'danger', action: s.state === 'no_sandbox' ? 'Manage' : 'Reconnect' };
+      return { text: `Can't start: ${toolProblem(s)}`, tone: 'danger', action: s.state === 'no_sandbox' ? 'Manage' : 'Reconnect' };
   }
 }
 

@@ -150,11 +150,11 @@
                 type="password"
                 bind:value={header}
                 autocomplete="off"
-                help="Sent as the Authorization header, such as Bearer abc123. Stored encrypted and only sent to this server."
+                help="Sent as the Authorization header, such as Bearer abc123. Stored encrypted. Only sent to this address."
               />
             </div>
           {:else if blocked}
-            <Notice tone="warning" text="This server runs as a command, and code can't run on this server. Use its web address instead, or turn on running code in Security." />
+            <Notice tone="warning" text="This tool runs as a command, and running code is off on this server. Use its web address instead, or turn on running code in Security." />
           {:else}
             <div class="space-y-4">
               <TextField
@@ -201,6 +201,6 @@
   </form>
   {#snippet footer({ close })}
     <Button data-cancel onclick={close}>Cancel</Button>
-    <Button variant="primary" type="submit" form="add-mcp" loading={busy} loadingLabel="Adding…">Add server</Button>
+    <Button variant="primary" type="submit" form="add-mcp" disabled={blocked} loading={busy} loadingLabel="Adding…">Add server</Button>
   {/snippet}
 </Dialog>

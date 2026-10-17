@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Button, Dialog, DiffView, Disclosure, CodeBlock, EmptyState, IconButton, LinkButton, Menu, Select, SettingsRow, SettingsSection, StatusLine, Switch, toast } from '../../../components/ui';
+  import { Button, Dialog, DiffView, Disclosure, CodeBlock, EmptyState, IconButton, LinkButton, Menu, Select, SettingsSection, StatusLine, Switch, toast } from '../../../components/ui';
   import { api, errorText } from '../../../lib/api/client';
   import type { MCPPin, MCPStatus, SideEffect } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
@@ -26,7 +26,7 @@
   let removing = $state(false);
   let busy = $state(false);
   let enabled = $state(true);
-  let enabledStatus = $state<'saving' | 'saved' | null>(null);
+  let saving = $state(false);
 
   async function load() {
     try {
@@ -48,6 +48,7 @@
     });
   });
 
+  const off = $derived(status ? status.state === 'disabled' : !enabled);
   const actions = $derived(pins.filter((p) => p.status === 'approved' || p.status === 'disabled'));
   const pending = $derived(pins.filter((p) => p.status === 'pending'));
   const def = (p: MCPPin) => (p.definition ?? {}) as { title?: string; description?: string; inputSchema?: unknown };
@@ -90,9 +91,9 @@
   }
 
   async function setEnabled(v: boolean) {
-    enabledStatus = 'saving';
+    saving = true;
     problem = await saveConfig({ [`mcp.servers.${name}.enabled`]: v });
-    enabledStatus = problem ? null : 'saved';
+    saving = false;
     if (problem) enabled = !v;
     await load();
   }
@@ -132,50 +133,50 @@
   {/if}
 {/snippet}
 
-<ConnPage {title} actions={menu}>
+<ConnPage title={view === 'missing' ? 'Tool not found' : title} actions={menu}>
   {#if view === 'loading'}
     <Loading />
   {:else if view === 'failed'}
     <EmptyState text="This page didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: load, variant: 'secondary' }} />
   {:else if view === 'missing'}
-    <EmptyState text="This server doesn't exist or was removed." action={{ label: 'Go to Connections', href: '/settings/connections' }} />
+    <EmptyState text="This tool was removed or never added." action={{ label: 'Go to Connections', href: '/settings/connections' }} />
   {:else}
-    <div class="space-y-3">
-      {#if !status || status.state === 'connecting' || status.state === 'installing'}
-        <StatusLine tone="progress" text={status?.state === 'installing' ? 'Installing…' : 'Connecting…'} />
-      {:else if status.state === 'error' || status.state === 'no_sandbox'}
-        <StatusLine
-          tone="danger"
-          text="Can't start: {toolProblem(status)}."
-          details={status.error}
-          action={status.state === 'error' ? { label: 'Try again', onclick: reload } : undefined}
-        />
-      {:else if status.state === 'disabled'}
-        <p class="text-body text-muted">Off. Bothy doesn't use this server.</p>
-      {:else}
-        <p class="text-body text-muted">Ready · {plural(status.tools, 'action')}</p>
-      {/if}
-      {#if pending.length}
-        <StatusLine
-          tone="warning"
-          text={allNew
-            ? pending.length === 1
-              ? '1 new action needs a review before Bothy can use it.'
-              : `${plural(pending.length, 'new action')} need a review before Bothy can use them.`
-            : pending.length === 1
-              ? '1 action changed and needs a review before Bothy can use it.'
-              : `${plural(pending.length, 'action')} changed and need a review before Bothy can use them.`}
-        />
-        <Button onclick={openReview}>{allNew ? 'Review actions' : 'Review changes'}</Button>
-      {/if}
-      {#if problem}<StatusLine tone="danger" alert text={problem.message} details={problem.details} />{/if}
+    <!-- The switch sits on the status line: one place says whether Bothy uses this server. -->
+    <div class="flex items-start gap-4">
+      <div class="min-w-0 flex-1 space-y-3">
+        {#if off}
+          <p class="text-body text-muted">Off</p>
+        {:else if !status || status.state === 'connecting' || status.state === 'installing'}
+          <StatusLine tone="progress" text={status?.state === 'installing' ? 'Installing…' : 'Connecting…'} />
+        {:else if status.state === 'error' || status.state === 'no_sandbox'}
+          <StatusLine
+            tone="danger"
+            text="Can't start: {toolProblem(status)}."
+            details={status.error}
+            action={status.state === 'error' ? { label: 'Try again', onclick: reload } : undefined}
+          />
+        {:else if pending.length}
+          <StatusLine
+            tone="warning"
+            text={allNew
+              ? pending.length === 1
+                ? '1 new action needs a review before Bothy can use it.'
+                : `${plural(pending.length, 'new action')} need a review before Bothy can use them.`
+              : pending.length === 1
+                ? '1 action changed and needs a review before Bothy can use it.'
+                : `${plural(pending.length, 'action')} changed and need a review before Bothy can use them.`}
+          />
+          <Button onclick={openReview}>{allNew ? 'Review actions' : 'Review changes'}</Button>
+        {:else}
+          <p class="text-body text-muted">Ready · {plural(status.tools, 'action')}</p>
+        {/if}
+        {#if problem}<StatusLine tone="danger" alert text={problem.message} details={problem.details} />{/if}
+      </div>
+      <div class="flex min-h-6 shrink-0 items-center gap-2">
+        <span class="text-small text-muted" aria-live="polite">{saving ? 'Saving…' : ''}</span>
+        <Switch label="Turn on {title}" hideLabel bind:checked={enabled} onchange={setEnabled} />
+      </div>
     </div>
-
-    <SettingsSection title="Server">
-      <SettingsRow label="Turned on" inline status={enabledStatus}>
-        {#snippet children(c)}<Switch id={c.id} label="Turned on" hideLabel bind:checked={enabled} onchange={setEnabled} />{/snippet}
-      </SettingsRow>
-    </SettingsSection>
 
     <SettingsSection title="Actions">
       {#each actions as p (p.tool)}
@@ -205,7 +206,9 @@
           </div>
         </div>
       {:else}
-        <p class="text-body text-muted">{pending.length ? 'Review the changes above to use its actions.' : 'This server has no actions yet.'}</p>
+        <p class="text-body text-muted">
+          {off ? 'Turn it on to see what it can do.' : pending.length ? 'Review the changes above to use its actions.' : 'This server has no actions yet.'}
+        </p>
       {/each}
     </SettingsSection>
   {/if}
