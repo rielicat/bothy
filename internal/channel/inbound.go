@@ -229,7 +229,7 @@ func (h *Hub) route(ctx context.Context, a *adapter, in core.Inbound, res core.I
 			return
 		}
 		if word, ok := unknownCommand(in.Text); ok && !in.Forwarded && len(in.Attachments) == 0 {
-			h.reply(ctx, in.Chat, "There's no "+escapeMD(word)+" command. /help lists the commands.")
+			h.reply(ctx, in.Chat, "There's no "+escapeMD(word)+" command. "+commandIn(a.ch.Caps(), "help")+" lists the commands.")
 			return
 		}
 		h.submit(ctx, a, in, tg)
@@ -772,7 +772,7 @@ func (h *Hub) submit(ctx context.Context, a *adapter, in core.Inbound, tg target
 	}
 	res, err := h.d.Runner.Submit(ctx, req)
 	if err != nil {
-		h.reply(ctx, chat, h.submitError(err))
+		h.reply(ctx, chat, h.submitError(a.ch.Caps(), err))
 		return
 	}
 	switch {
@@ -822,11 +822,11 @@ func (h *Hub) activeRunKey(s core.SessionID, run core.RunID) (string, bool) {
 	return string(run), waiting
 }
 
-func (h *Hub) submitError(err error) string {
+func (h *Hub) submitError(caps core.ChannelCaps, err error) string {
 	var be *core.BudgetError
 	switch {
 	case errors.Is(err, core.ErrBusy):
-		return "Busy. Send /stop to interrupt."
+		return "Busy. Send " + commandIn(caps, "stop") + " to interrupt."
 	case errors.Is(err, core.ErrPaused):
 		return "Bothy is paused by an admin."
 	case errors.As(err, &be) && be.Kind == core.BudgetDailyCost:

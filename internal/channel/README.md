@@ -98,7 +98,10 @@ Commands: `/stop`, `/status`, `/help`, `/pins` and `/usage` work for anyone
 Bothy answers in the chat; `/new`, `/pin`, `/unpin`, `/compact`, `/model` and
 `/refine` need the DM's teammate or, in a channel, someone who can approve;
 `/stopall` is for approvers in any chat (resuming happens on the web, which
-`/resume` says); `/pair` says link codes are gone.
+`/resume` says); `/pair` says link codes are gone. Every reply, notice and
+help line names a command as the chat app types it (`Caps.CommandPrefix`:
+"/bothy stop" on Slack, "/stop" on Telegram and Discord); the help list puts
+each command in a code span, followed by what it does.
 
 Markdown the hub sends uses CommonMark backslash escapes for punctuation and
 backtick fences or spans longer than any backtick run they contain, so system

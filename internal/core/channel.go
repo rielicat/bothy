@@ -123,6 +123,10 @@ type ChannelCaps struct {
 	Typing          bool          `json:"typing"`
 	MaxLen          int           `json:"max_len"`           // visible characters per message after rendering
 	EditMinInterval time.Duration `json:"edit_min_interval"` // Telegram 1s, Discord 1s, Slack 1.2s
+	// CommandPrefix is what a person types before a chat command's name:
+	// "/bothy " on Slack, whose one slash command takes the rest as its
+	// text; "" means "/" (Telegram, and Discord's plain-text commands).
+	CommandPrefix string `json:"command_prefix,omitempty"`
 }
 
 type InboundSink interface {

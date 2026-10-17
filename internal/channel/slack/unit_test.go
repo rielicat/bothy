@@ -35,6 +35,7 @@ func TestRender(t *testing.T) {
 		{`not \*italic\*`, `not *italic*`},
 		{"**unclosed and *also", "**unclosed and *also"},
 		{"[a|b](https://x.example)", "<https://x.example|a¦b>"},
+		{"Commands:\n`/bothy pin <text>` – keep an instruction in view", "Commands:\n`/bothy pin &lt;text&gt;` – keep an instruction in view"},
 		{"[x](slack://user?id=U1>|<!channel)", "x (slack://user?id=U1&gt;|&lt;!channel)"},
 		// A user link the hub didn't vouch for (model text, a page Bothy
 		// read) never becomes a mention.

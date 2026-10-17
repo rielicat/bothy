@@ -272,6 +272,12 @@ export interface ChannelCaps {
   typing: boolean;
   max_len: number /* int */; // visible characters per message after rendering
   edit_min_interval: number /* nanoseconds */; // Telegram 1s, Discord 1s, Slack 1.2s
+  /**
+   * CommandPrefix is what a person types before a chat command's name:
+   * "/bothy " on Slack, whose one slash command takes the rest as its
+   * text; "" means "/" (Telegram, and Discord's plain-text commands).
+   */
+  command_prefix?: string;
 }
 export type InboundSink = any;
 export interface ChannelStatus {

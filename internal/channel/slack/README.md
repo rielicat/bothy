@@ -11,7 +11,9 @@ queued is left unacknowledged for Slack to redeliver. `app_mention` and
 `ts` as `ThreadID`, `MsgID` `"<channel>:<ts>"`, so the duplicate copies of a
 mention dedup in the hub; a reply in a thread the bot started counts as a
 mention), `/bothy stop` becomes `/stop` (a slash command is `Private`: only
-its sender saw it, and it works in channels the app is not in), and
+its sender saw it, and it works in channels the app is not in; `/bothy` is
+the only command Slack lets anyone type, so `Caps.CommandPrefix` is
+`"/bothy "` and the hub names commands that way), and
 `block_actions` presses become
 `ActionEvent`s whose `AckRef` is the `response_url` and whose `Msg` matches
 the `MsgRef` `Send` returned (a message with thread replies stays in its
