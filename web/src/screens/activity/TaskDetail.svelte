@@ -3,13 +3,15 @@
   import { Button, CodeBlock, Disclosure, EmptyState, LinkButton, Page } from '../../components/ui';
   import { api, ApiError } from '../../lib/api/client';
   import type { MessagePage, Schedule, ToolCallRecord } from '../../lib/api/types.gen';
+  import { decidable } from '../../lib/cardcopy';
   import { date, duration, fullTime, money, plural } from '../../lib/format';
+  import { session } from '../../lib/stores/session.svelte';
   import { toneClass, where } from '../../lib/taskStatus';
   import { people, personName, type TaskDetail } from './api';
   import Loading from './Loading.svelte';
   import StepItem from './StepItem.svelte';
   import { allowedHow, decisionLine, stepLine, type StepLine } from './steps';
-  import { clampLines, dayLabel, detailOutcome } from './tasks';
+  import { clampLines, dayLabel, detailOutcome, githubAuthFailed } from './tasks';
 
   let { params }: { params: Record<string, string> } = $props();
 
@@ -58,14 +60,24 @@
   const run = $derived(d?.run);
   const calls = $derived((d?.tool_calls ?? []).filter((t): t is ToolCallRecord => !!t && t.tool !== 'tool_search' && t.tool !== 'use_tool'));
   const approvalFor = (t: ToolCallRecord) => d?.approvals?.find((a) => a?.id === t.approval_id) ?? undefined;
+  const me = $derived(session.me ? { id: session.me.user.id, role: session.me.user.role } : undefined);
+  // GitHub stopped accepting Bothy's access: only an admin can fix that, and "Open chat" can't.
+  const github = $derived(!!run && session.isAdmin && githubAuthFailed(run, calls));
   const lines = $derived.by(() => {
-    const out: { line: StepLine; how: string }[] = [];
+    const out: { line: StepLine; how: string; next?: { label: string; href: string } }[] = [];
     for (const t of calls) {
       const a = approvalFor(t);
       const who = personName(a?.decided_by, names);
       const decided = a && a.status !== 'pending' && a.status !== 'parked' ? decisionLine(a, who) : null;
       if (decided) out.push({ line: decided, how: '' });
-      out.push({ line: stepLine(t), how: allowedHow(t, a, who) });
+      const line = stepLine(t);
+      const next =
+        line.state === 'waiting' && a && decidable(a, me)
+          ? { label: 'Review it', href: `/approvals/${encodeURIComponent(a.id)}` }
+          : github && line.state === 'failed' && /^(github_|repo_)/.test(t.tool)
+            ? { label: 'Check the GitHub connection ›', href: '/settings/connections/github' }
+            : undefined;
+      out.push({ line, how: allowedHow(t, a, who), next });
     }
     return out;
   });
@@ -129,7 +141,7 @@
       <section class="mt-10">
         <h2 class="section-title">What Bothy did</h2>
         <ul class="mt-2">
-          {#each lines as l (l.line.key)}<StepItem line={l.line} how={l.how} />{/each}
+          {#each lines as l (l.line.key)}<StepItem line={l.line} how={l.how} next={l.next} />{/each}
         </ul>
       </section>
     {/if}

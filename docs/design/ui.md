@@ -1754,6 +1754,8 @@ Answer
 - Steps are `ActivityLine`s (§7.4) with approvals included; each expands its Details.
 - "Technical details" (closed, `text-small`) holds the old trace as plain tables: Model calls (Model id · Started · Time to first word · Duration · Tokens in / cached / out · Cost · Fallback attempts); Tool calls (Tool · Exact action · Decision · Rule · Approval id · Sites contacted · Duration); Refine ("3 drafts, 2 rounds, 2 of 3 agreed", each draft, critique and correction in its own nested disclosure; a disclosure inside a disclosure is allowed, a card inside a card is not); Task id [Copy].
 - Refined answers add "Refined from 3 drafts · 2 of 3 agreed" to the meta line.
+- Next step: when the viewer can decide a waiting step, its line ends with a "Review it" link to `/approvals/{id}`. A task that failed because GitHub stopped accepting Bothy's access gets "Check the GitHub connection ›" on the failed step (admins only, to Connections → GitHub), since "Open chat" can't fix it.
+- Details follow the chat's order (§7.4): Result, How it was allowed, What Bothy asked for, Technical.
 - Not found: "This task doesn't exist or was deleted." + "Go to Activity".
 
 ### 10.3 Schedules (`/activity/schedules`)

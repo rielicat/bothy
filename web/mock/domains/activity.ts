@@ -89,6 +89,7 @@ const task = (id: string, minAgo: number, extra: Partial<TaskRun>): TaskRun => (
 });
 
 const D = 60 * 24;
+const WAITING_DEPLOY = 'apr_01jdeployweb0000000000000';
 export const runs: TaskRun[] = [
   task('run_01jreview00000000000000', 2, { chat_title: 'Review the onboarding doc', status: 'running', steps: 1, cost_micros: 0, finished_at: '' }),
   task('run_01jfixlogin0000000000000', 25, { chat_title: 'Fix login redirect', steps: 6, tool_calls: 6, cost_micros: 120_000 }),
@@ -235,9 +236,10 @@ export function runDetail(id: string) {
       llm_calls: [llm(1)],
       tool_calls: [
         call(id, 1, 'release_status', { payload: { environment: 'production' } }),
-        call(id, 2, 'release_deploy', { payload: { repo: 'acme/web', environment: 'production', ref: 'main' } }, { status: 'waiting', verdict: 'ask', side_effect: 'external_send', rule: 'release:production' }),
+        call(id, 2, 'release_deploy', { payload: { repo: 'acme/web', environment: 'production', ref: 'main' } }, { status: 'waiting', verdict: 'ask', side_effect: 'external_send', rule: 'release:production', approval_id: WAITING_DEPLOY }),
       ],
-      approvals: [],
+      // The approvals domain's waiting production deploy, as the server lists a run's approvals.
+      approvals: approvalState.approvals.filter((a) => a.id === WAITING_DEPLOY),
     };
   }
   if (id === 'run_01jprdigest1000000000000') {

@@ -3,10 +3,12 @@
   import Verbatim from '../../components/Verbatim.svelte';
   import { CodeBlock, DiffView, Spinner } from '../../components/ui';
   import { duration } from '../../lib/format';
+  import { router } from '../../lib/router.svelte';
   import type { StepLine } from './steps';
   import { clampLines } from './tasks';
 
-  let { line, how }: { line: StepLine; how: string } = $props();
+  // `next`: the way forward from this step, when the viewer has one ("Review it").
+  let { line, how, next }: { line: StepLine; how: string; next?: { label: string; href: string } } = $props();
 
   const uid = $props.id();
   let open = $state(false);
@@ -15,7 +17,8 @@
 </script>
 
 <li>
-  <button type="button" class="flex min-h-8 w-full cursor-pointer items-start gap-2 py-1.5 text-left text-body {tone} hover:text-text pointer-coarse:min-h-11" aria-expanded={open} aria-controls="{uid}-d" onclick={() => (open = !open)}>
+  <div class="flex items-start gap-3">
+  <button type="button" class="flex min-h-8 min-w-0 flex-1 cursor-pointer items-start gap-2 py-1.5 text-left text-body {tone} hover:text-text pointer-coarse:min-h-11" aria-expanded={open} aria-controls="{uid}-d" onclick={() => (open = !open)}>
     <span class="flex h-5 w-4 shrink-0 items-center justify-center">
       {#if line.state === 'running'}<Spinner size={12} />
       {:else if line.state === 'waiting'}<Icon name="clock" />
@@ -26,6 +29,10 @@
       >{#each line.segments as s, i (i)}{#if s.code}<code class="text-code"><Verbatim text={s.text} /></code>{:else}{s.text}{/if}{/each}</span
     >
   </button>
+  {#if next}
+    <a class="link inline-flex min-h-8 shrink-0 items-center py-1.5 text-body whitespace-nowrap pointer-coarse:min-h-11" href={next.href} onclick={router.link}>{next.label}</a>
+  {/if}
+  </div>
   <div id="{uid}-d" data-details class="pb-2 pl-6 text-small text-muted" hidden={!open}>
     {#if open}
       {#if call}

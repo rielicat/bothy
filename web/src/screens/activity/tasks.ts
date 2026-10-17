@@ -1,4 +1,4 @@
-import type { ChatRef, Schedule, Session } from '../../lib/api/types.gen';
+import type { ChatRef, Schedule, Session, ToolCallRecord } from '../../lib/api/types.gen';
 import { appName, outcome, where, type Outcome } from '../../lib/taskStatus';
 import { personName, votesOf, type TaskRun, type VotedApproval } from './api';
 
@@ -55,6 +55,15 @@ export function taskView(r: TaskRun, l: TaskLookups): TaskView {
 export function detailOutcome(r: TaskRun): Outcome | null {
   if (['done', 'running', 'queued', 'waiting_approval', 'parked'].includes(r.status)) return null;
   return outcome({ status: r.status, steps: r.steps, reason: r.reason });
+}
+
+const GITHUB_AUTH = /bad credentials|\b401\b|token (was )?(rejected|expired|revoked)|unauthori[sz]ed/i;
+
+/** Whether a failed task failed because GitHub stopped accepting Bothy's access, which only an admin can fix in Settings. */
+export function githubAuthFailed(r: Pick<TaskRun, 'status' | 'reason'>, calls: Pick<ToolCallRecord, 'tool' | 'status' | 'result_preview'>[]): boolean {
+  if (r.status !== 'failed') return false;
+  if (/github/i.test(r.reason ?? '') && GITHUB_AUTH.test(r.reason ?? '')) return true;
+  return calls.some((c) => /^(github_|repo_)/.test(c.tool) && c.status === 'error' && GITHUB_AUTH.test(c.result_preview ?? ''));
 }
 
 /** A CodeBlock's maxLines that never hides just a line or two behind "Show all". */
