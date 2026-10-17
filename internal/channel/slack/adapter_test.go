@@ -516,6 +516,18 @@ func TestManifestScopesCoverEveryCall(t *testing.T) {
 	}
 }
 
+// People message Bothy in the app's Messages tab, which Slack makes
+// read-only unless the manifest opens it.
+func TestManifestOpensTheMessagesTab(t *testing.T) {
+	b, err := os.ReadFile(servedManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "app_home: {home_tab_enabled: false, messages_tab_enabled: true, messages_tab_read_only_enabled: false}") {
+		t.Fatalf("the served manifest leaves the Messages tab read-only:\n%s", b)
+	}
+}
+
 func TestAuthFailures(t *testing.T) {
 	for _, tt := range []struct {
 		name   string

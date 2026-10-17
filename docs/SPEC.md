@@ -8472,6 +8472,7 @@ display_information:
   name: "{{name}}"
   description: Self-hosted assistant (Bothy)
 features:
+  app_home: {home_tab_enabled: false, messages_tab_enabled: true, messages_tab_read_only_enabled: false}
   bot_user: {display_name: "{{name}}", always_online: true}
   slash_commands:
     - {command: /bothy, description: "Talk to {{name}} (stop, new, status, help)", should_escape: false}
@@ -8489,6 +8490,8 @@ settings:
 ```
 
 The wizard opens `https://api.slack.com/apps?new_app=1&manifest_yaml=<urlencoded manifest>`; the user then creates an app-level token with `connections:write` (`xapp-…`) and installs the app (`xoxb-…`). Agent output always sets `unfurl_links: false, unfurl_media: false`.
+
+`app_home` opens the app's Messages tab for writing, which is where people message Bothy directly; Slack makes that tab read-only for an app created without it (*"Sending messages to this app has been turned off."*). For an app created from an earlier manifest, turn on **Allow users to send Slash commands and messages from the messages tab** under App Home → Show Tabs.
 
 `channels:read` and `groups:read` let the adapter name channels (`conversations.info`, cached like `users.info`; `Inbound.ChatTitle` = `"#name"`; a slash command's `channel_name` when it is not a placeholder such as `directmessage` or `privategroup`). An app created from an earlier manifest lacks them: add the two scopes under OAuth & Permissions (or update the app from the current manifest) and click **Reinstall to Workspace**; the bot token stays the same. Until then the lookups fail with `missing_scope`, the adapter logs one warning an hour, and channels are named by their id ("Slack group C05S04V0YRG"); once names arrive, spaces still under that fallback name take them (§5.1 step 7).
 

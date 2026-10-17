@@ -35,6 +35,12 @@ workspace (Slack: OAuth & Permissions → Reinstall to Workspace), which leaves
 `ChatTitle` empty, so spaces keep names like "Slack group C0123", and logs one
 warning an hour.
 
+People message Bothy directly in the app's Messages tab, which the manifest
+opens for writing (`features.app_home`); without it Slack shows "Sending
+messages to this app has been turned off." For an app created from an earlier
+manifest, turn on "Allow users to send Slash commands and messages from the
+messages tab" under App Home → Show Tabs.
+
 Slack decides who can use Bothy (`core.MemberChecker`): a full member of the
 workspace the bot token belongs to, or of any workspace of the same
 Enterprise Grid org, is a member; guests, Slack Connect strangers,
