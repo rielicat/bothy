@@ -314,6 +314,9 @@ func fsWriteCopy(a *core.Action, path, mode, content string) plainCard {
 }
 
 func memoryCopy(file, op, old, neu string) plainCard {
+	if file == string(core.FileTeam) {
+		return teamMemoryCopy(op, old, neu)
+	}
 	where := map[string]string{"USER": "About you", "HEARTBEAT": "Check-in list"}[file]
 	if where == "" {
 		where = "Things Bothy remembers"
@@ -332,6 +335,28 @@ func memoryCopy(file, op, old, neu string) plainCard {
 		p.add("Note", neu, false)
 	}
 	p.add("In", where, false)
+	return p
+}
+
+// teamMemoryCopy has no In row: the question already says it is for everyone.
+func teamMemoryCopy(op, old, neu string) plainCard {
+	const everyChat = "Bothy will use this in every chat, for everyone."
+	var p plainCard
+	switch op {
+	case "remove":
+		p = plainCard{question: "Forget this for everyone?", verb: "Forget for everyone", ing: "forgetting a note for everyone",
+			consequence: "Bothy will stop using this in every chat."}
+		p.add("Note", old, false)
+	case "replace":
+		p = plainCard{question: "Change something Bothy remembers for everyone?", verb: "Save change",
+			ing: "changing a note for everyone", consequence: everyChat}
+		p.add("Note", neu, false)
+		p.add("Was", old, false)
+	default:
+		p = plainCard{question: "Remember this for everyone?", verb: "Remember for everyone", ing: "remembering a note for everyone",
+			consequence: everyChat}
+		p.add("Note", neu, false)
+	}
 	return p
 }
 

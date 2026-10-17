@@ -1404,6 +1404,7 @@ The table is the copy contract for S2 and `lib/cardcopy.ts`.
 | `web_fetch` non-GET, first contact | "Send data to {host}?" | "Send data" | — | Website · Data ("Show") |
 | `message`, first contact | "Send a message to {chat}?"; when Bothy knows the chat's name (a group chat it was added to, or a person in a chat app): "Send a message to “Ops” on Telegram?" | "Send message" | — | To ("Telegram chat 5512", or with the name "“Ops” on Telegram (chat 5512)": the id stays beside the name, since anyone in a chat can change its title) · Message (full). The first-contact warning names the chat the same way. |
 | `memory`, from outside content | "Remember this?" | "Remember" | — | Note (full) |
+| `memory` for everyone (an admin approves) | add: "Remember this for everyone?" · change: "Change something Bothy remembers for everyone?" · remove: "Forget this for everyone?" | "Remember for everyone" · "Save change" · "Forget for everyone" | "Bothy will use this in every chat, for everyone." (remove: "Bothy will stop using this in every chat.") | Note (full) · Was (change only). No In row: the question says it is for everyone |
 | `notes`, from outside content | "Update the notes for {repo}?" | "Update notes" | — | Change ("{n} lines changed · Show", a prose diff) |
 | `schedule_create` | "Create the schedule “{name}”?" | "Create schedule" | — | When · Sends to (a set chat app, or for no set chat where results go, as the server's `deliverText` says: "Bothy on the web" for an account, "Maya Chen's messages on Slack" for someone in a chat app, "#eng on Slack" for a channel) · Does (first 3 lines · Show) |
 | `schedule_delete` | "Delete the schedule “{name}”?" | "Delete schedule" (danger) | "This can't be undone." | When |
@@ -1439,6 +1440,7 @@ Warnings (from `Decision.Warnings`, rewritten server-side, S2):
 | First pull request in a repository | "This is the first pull request Bothy opens in {repo} for you." ("… for this group chat." in a group chat). Earlier pull requests opened for other people don't count. |
 | Exposed chat | "This chat has seen private information and content from outside. Check carefully before letting anything leave." Not on actions where nothing leaves, such as deleting a file or throwing away edits. |
 | Untrusted origin | "This request came from content Bothy read (a web page, repository or message), not from a person." |
+| Memory for everyone, from a chat that read outside content (not Exposed) | "This chat has seen content from outside your team. Check that a person asked for this." An Exposed chat gets the Exposed chat line instead, since the note reaches every chat. |
 
 ### 8.4 Decided state
 

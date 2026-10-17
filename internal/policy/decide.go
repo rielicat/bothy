@@ -28,6 +28,10 @@ const (
 
 	warnExposed   = "This chat has seen private information and content from outside. Check carefully before letting anything leave."
 	warnUntrusted = "This request came from content Bothy read (a web page, repository or message), not from a person."
+	// warnTeamOutside: what the team remembers reaches every chat, so outside
+	// content that could have asked for it is worth a line even when the
+	// chat holds nothing private.
+	warnTeamOutside = "This chat has seen content from outside your team. Check that a person asked for this."
 
 	floorTeammate  = "floor:teammate"
 	teammateReason = "Bothy checks with an approver before it changes or sends anything for people in chat apps"
@@ -125,6 +129,9 @@ func newInput(in core.PolicyInput, c *config.Config) (*input, error) {
 // the higher of the Action's and the Manifest's, and irreversible for a
 // command that deletes files, as fs_delete is, whatever its tool declares.
 func actionClass(a *core.Action, m core.Manifest) core.SideEffect {
+	if isTeamMemory(a) {
+		return core.SEAdmin
+	}
 	se := max(validOrZero(a.SideEffect), validOrZero(m.SideEffect))
 	if a.Kind == core.ActExec && se.Valid() && se < core.SEIrreversible {
 		doc, _ := decodePayload(a.Payload)
@@ -133,6 +140,17 @@ func actionClass(a *core.Action, m core.Manifest) core.SideEffect {
 		}
 	}
 	return se
+}
+
+// isTeamMemory reports a change to TEAM.md, which every chat reads: it is
+// admin-class (F3) whatever the Action declares.
+func isTeamMemory(a *core.Action) bool {
+	if a.Tool != toolMemory {
+		return false
+	}
+	doc, _ := decodePayload(a.Payload)
+	f, _ := mustPointer(doc, "/file").(string)
+	return f == string(core.FileTeam)
 }
 
 // execArgv is what an exec action runs: the payload's argv when present.
@@ -333,11 +351,19 @@ func (e *Engine) floors(ctx context.Context, x *input, rule *config.Rule) (core.
 		}
 		return e.ask(x, askSpec{rule: "floor:financial", reason: "financial action: an admin must approve it", floor: true, admin: true}), true
 	case core.SEAdmin:
+		team := isTeamMemory(x.a)
 		if x.Trigger.Scheduled() || x.Trigger == core.TrigAPI {
-			return denied("floor:admin", "Bothy can't change its settings "+triggerPlace(x.Trigger), true), true
+			what := "change its settings "
+			if team {
+				what = "change what it remembers for everyone "
+			}
+			return denied("floor:admin", "Bothy can't "+what+triggerPlace(x.Trigger), true), true
+		}
+		if team && x.Taint.Has(core.TaintUntrusted) && x.cfg.Memory.TaintedWrites == "deny" {
+			return denied("floor:tainted_memory", taintedMemoryDenied, true), true
 		}
 		if !restricted {
-			return askFloor("floor:admin", adminReason(x.a.Tool), true)
+			return askFloor("floor:admin", adminReason(x.a), true)
 		}
 	}
 	if restricted {
@@ -357,7 +383,7 @@ func (e *Engine) floors(ctx context.Context, x *input, rule *config.Rule) (core.
 	}
 	if x.a.Kind == core.ActMemory && x.Taint.Has(core.TaintUntrusted) {
 		if x.cfg.Memory.TaintedWrites == "deny" {
-			return denied("floor:tainted_memory", "Bothy can't remember new things in this chat because it has seen content from outside your team", true), true
+			return denied("floor:tainted_memory", taintedMemoryDenied, true), true
 		}
 		return askFloor("floor:tainted_memory", "untrusted content entered this session, so memory writes need approval", false)
 	}
@@ -403,9 +429,14 @@ func (e *Engine) teammateFloor(ctx context.Context, x *input, rule *config.Rule)
 	return d
 }
 
+const taintedMemoryDenied = "Bothy can't remember new things in this chat because it has seen content from outside your team"
+
 // adminReason is F3's reason as the approval card's "Why Bothy asked" shows it.
-func adminReason(tool string) string {
-	switch tool {
+func adminReason(a *core.Action) string {
+	if isTeamMemory(a) {
+		return "changes to what Bothy remembers for everyone need an admin's approval"
+	}
+	switch a.Tool {
 	case toolScheduleNew:
 		return "creating a schedule needs an admin's approval"
 	case toolScheduleDel:
@@ -620,6 +651,9 @@ func (e *Engine) ask(x *input, s askSpec) core.Decision {
 	}
 	if x.Provenance == core.ProvUntrusted {
 		d.Warnings = append(d.Warnings, warnUntrusted)
+	}
+	if isTeamMemory(x.a) && x.Taint.Has(core.TaintUntrusted) && !x.exposed() {
+		d.Warnings = append(d.Warnings, warnTeamOutside)
 	}
 	d.Warnings = append(d.Warnings, s.warnings...)
 	return d

@@ -38,6 +38,12 @@ command that deletes files (`rm`, `find -delete`, `git clean`, also behind
 `sudo`, `xargs`, `sh -c` and the like; `deletes.go`) at `irreversible`,
 like `fs_delete`. In an Exposed session the "before letting anything
 leave" warning is left off file and memory actions, where nothing leaves.
+A `memory` call on `TEAM` (what Bothy remembers for everyone) is
+`admin` whatever its Action declares: F3 asks an admin once
+("Remember this for everyone?"), denies it for scheduled, heartbeat and API
+runs and, with `memory.tainted_writes: deny`, in a session holding outside
+content; its card keeps the exposure warning (the text reaches every chat)
+and, when the session holds outside content without being Exposed, says so.
 
 **Rules** match tool globs, `argv0` (the first word of a `bash -lc` command
 line, never when it contains a shell metacharacter, and never a relative or
