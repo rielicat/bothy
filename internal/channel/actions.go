@@ -183,11 +183,11 @@ func (h *Hub) stopPress(ctx context.Context, a *adapter, ev core.ActionEvent) st
 	}
 	res, err := h.d.Auth.ResolveIdentity(ctx, a.name, ev.SenderID)
 	if err != nil || res.Status == core.IdentityBlocked {
-		return couldntStop
+		return couldntStop(a.ch.Caps())
 	}
 	p, err := h.d.Store.Principals().Get(ctx, core.SystemViewer(), info.Principal)
 	if err != nil {
-		return couldntStop
+		return couldntStop(a.ch.Caps())
 	}
 	_, checks := checkerOf(a)
 	ok := res.CanApprove && h.usable(a, res, core.MemberStale)
@@ -209,7 +209,7 @@ func (h *Hub) stopPress(ctx context.Context, a *adapter, ev core.ActionEvent) st
 	stopped, err := h.d.Runner.Stop(sctx, core.SystemViewer(), info.Session, "")
 	if err != nil {
 		h.log.Error("channel: stop button failed", "run", run, "err", err)
-		return couldntStop
+		return couldntStop(a.ch.Caps())
 	}
 	if !stopped {
 		return "Already finished."
@@ -217,4 +217,6 @@ func (h *Hub) stopPress(ctx context.Context, a *adapter, ev core.ActionEvent) st
 	return "Stopped."
 }
 
-const couldntStop = "Couldn't stop it. Try /stop."
+func couldntStop(caps core.ChannelCaps) string {
+	return "Couldn't stop it. Try " + commandIn(caps, "stop") + "."
+}

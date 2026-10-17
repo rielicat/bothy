@@ -2301,9 +2301,16 @@ type Inbound struct {
 	Forwarded bool
 	// Private marks a message only its sender saw (a Slack slash command).
 	// In a group it never creates a space, since slash commands work in
-	// channels the bot is not in; the hub answers in their DM anyone it
-	// would not answer in that group.
+	// channels the bot is not in. The hub answers its commands, and the
+	// notice that Bothy is off there, to the sender alone where they typed
+	// it (PrivateReplier), else in their DM; anyone it would not answer in
+	// that group hears in their DM.
 	Private bool
+	// ReplyRef is adapter-private: how a Private message in a group is
+	// answered to its sender alone (a Slack slash command's response_url).
+	// It is a credential for posting there: never logged, stored or put in
+	// a run.
+	ReplyRef string `json:"-"`
 }
 
 type MsgRef struct {
@@ -2358,6 +2365,22 @@ type ChannelCaps struct {
 	Typing          bool          `json:"typing"`
 	MaxLen          int           `json:"max_len"`           // visible characters per message after rendering
 	EditMinInterval time.Duration `json:"edit_min_interval"` // Telegram 1s, Discord 1s, Slack 1.2s
+	// CommandPrefix is what a person types before a chat command's name:
+	// "/bothy " on Slack, whose one slash command takes the rest as its
+	// text; "" means "/" (Telegram, and Discord's plain-text commands).
+	CommandPrefix string `json:"command_prefix,omitempty"`
+	// PrivatePosts is how many posts one Private message's ReplyRef takes
+	// (PrivateReplier; Slack's response_url takes 5); 0 means no limit. An
+	// answer that needs more goes to the sender's DM whole.
+	PrivatePosts int `json:"private_posts,omitempty"`
+}
+
+// PrivateReplier is implemented by adapters that can answer a Private
+// message where it was typed, seen by its sender alone (Slack: an ephemeral
+// reply through Inbound.ReplyRef). markdown is one piece within
+// Caps.MaxLen, already redacted. Errors never contain the ReplyRef.
+type PrivateReplier interface {
+	ReplyPrivate(ctx context.Context, in Inbound, markdown string) error
 }
 
 type InboundSink interface {
@@ -5223,7 +5246,7 @@ Outsiders get one line a day in DMs and silence in channels. Blocked people get 
    - **Admitted** (`IdentityResolution.Admitted`): a teammate whose person space is on and whose verdict is `member`, or whom an admin let in while the verdict is `unknown`.
    - **DM:** admitted → the teammate's chat (a pending greeting is sent first, once: the hello, or for accounts linked before 0013 the "moved" greeting, *"Hi Maya, this chat is no longer tied to your Bothy account, so your earlier chats and notes stay in Bothy on the web. Ask me anything; when something needs approval, I'll ask an admin and tell you here."*). Outsider → *"Bothy works with members of {workspace}."* (Slack) or *"Bothy works only with members of its team."* at most once a day per identity (`Auth.NoticeSender`), in either `unknown_senders` mode; no admin notice, no inbox item, no model call. Anyone else (Telegram, Discord without a verdict, or a membership teammate Discord can no longer vouch for) **waits**: their first words are kept for the inbox item (once, one line, redacted), admins' inboxes are told, and with `pair` (the default) they get *"You'll be able to use Bothy once an admin lets you in."* at most once a day while approvers hear about it (web banner `unknown_sender`; approver DMs at most 3 an hour in fixed windows, the next window's first DM counting those held back, and none spent while there is no approver to tell). With `ignore` nobody is told, but they are still listed in Approvals. **No LLM call is ever made for someone who isn't admitted.**
    - **Group:** the chat must be an **enabled space** (step 7). On Slack and Discord only admitted teammates are answered; guests, other companies, bots and Slackbot get silence. On Telegram anyone not blocked may talk, as untrusted.
-   - **Private, in a group** (`Inbound.Private`: only the sender saw it, a Slack slash command, which works in channels the bot is not in) → never creates a space. Where the group has no enabled space it is answered in the sender's DM (the hub opens it with `Channel.OpenDM` and remembers it), within the sender limit: an admitted teammate gets *"Bothy is off in #eng. You can message Bothy here, or ask an admin to turn #eng on."* (the channel as Slack or the admins named it, or *"that channel"*) at most once per sender and channel an hour; anyone else gets what a DM from them would. In an enabled space it goes on as any message (step 7). A slash command typed in a DM between two people (Slack sends that conversation's id, which the bot cannot post in) is moved by the adapter to the sender's own DM with the bot (`conversations.open`) before it reaches the hub.
+   - **Private, in a group** (`Inbound.Private`: only the sender saw it, a Slack slash command, which works in channels the bot is not in) → never creates a space. Bothy answers it **privately**: where it was typed, seen by the sender alone, through the adapter's `core.PrivateReplier` and `Inbound.ReplyRef` (Slack: an ephemeral reply through the command's `response_url`, good for 30 minutes and five posts (`ChannelCaps.PrivatePosts`), sent only to `hooks.slack.com` and kept out of logs, errors, the database and runs); when the adapter can't, there is no reference or the post fails (logged without it), in the sender's DM (the hub opens it with `Channel.OpenDM` and remembers it), where an answer about a channel Bothy is on in starts by naming it, since "this chat" or "here" would be the DM (*"In #eng: Stopped."*; a longer answer on the lines after *"In #eng:"*), and the *chat* refusal drops "here" (*"In #eng: Only someone who can approve can use /bothy new."*). An answer goes to one place: one that needs more posts than the reference takes goes to the DM whole. Only a post that fails partway leaves the first pieces shown where it was typed, and the DM gets the whole answer too. Where the group has no enabled space, within the sender limit, an admitted teammate asking for help (`/help`, `/start`) gets the help list and nothing else, and `/stopall` (the kill switch, for approvers in any chat) and `/resume` are answered as anywhere, every time; anything else gets *"Bothy is off in #eng. Message Bothy directly, or ask an admin to turn #eng on."* (*"this channel"* when unnamed), or in the DM *"Bothy is off in #eng. You can message Bothy here, or ask an admin to turn #eng on."* (*"that channel"*), at most once per sender and channel an hour. Anyone else gets what a DM from them would, in their DM. In an enabled space it goes on as any message (step 7): free text starts a task in the channel, and a command's answer (help, status, usage, pins, model, refine, refusals, *"There's no /word command."*) is given privately. What needs buttons, later edits or a lasting record (waiting and outsider lines, approval cards, *Cancel request*, runs) never goes privately. A slash command typed in the bot's own DM is answered there; one typed in a DM between two people (Slack sends that conversation's id, which the bot cannot post in) is moved by the adapter to the sender's own DM with the bot (`conversations.open`) before it reaches the hub.
 4. **(Folded into step 3.)**
 5. **Command fast path** (before any queue; forwarded content is never a command). Access: *chat* is the DM's teammate, or in a channel someone who can approve (admitted, verdict under 4 h); *anyone* is anyone Bothy answers in that chat; *approver* is an admitted teammate who can approve, in any chat; *web* only replies where to do it.
 
@@ -5240,11 +5263,11 @@ Outsiders get one line a day in DMs and silence in channels. Blocked people get 
 | `/model <model name>`, `/model`, `/model default` | chat | set, show or clear the session model override. Models are named in plain words (`ModelInfo.DisplayName`); setting takes a display or short name (case-insensitive, the first configured provider winning a shared name) or, as a fallback, a `provider/model` ref. Bare `/model` only shows; clearing takes `default` (or `clear`, `reset`) |
 | `/usage` | anyone | today's spending and this session's cost, money as in `/status` |
 | `/refine [on\|off\|default]` | chat | v0.2: set this session's refine mode; `/refine` alone shows the setting with the typical cost (`core.RefineTypicalCalls`). Also in the Telegram menu and as a Slack `/bothy` subcommand |
-| `/help` | anyone | list the commands above in plain words; hidden ones are not listed |
+| `/help` | anyone | *"Commands:"*, then one line per command, the command and what it does in plain words (*"/stop – stop the current task"*); on Slack the command is in code (*"`/bothy stop` – stop the current task"*), while elsewhere it stays plain text, which Telegram makes tappable (it makes nothing in code tappable); hidden ones are not listed |
 | `/pair` | anyone (hidden) | *"Bothy doesn't use link codes any more. Write here to ask it anything."* |
 | `/start` | anyone (hidden) | in a DM, the hello; in a channel, the help text. A `/start <payload>` is plain `/start` |
 
-   The *chat* refusal is *"Only someone who can approve can use /{cmd} here."* There is no `/approve CODE` command: approvals happen only through card buttons or the web UI. A message that is only `/word` (Telegram may add `@bot`; word characters only) naming no command gets *"There's no /word command. /help lists the commands."* and never reaches the runner. Any other text starting with a slash and forwarded content are ordinary messages.
+   Every reply, notice and help line names a command as the chat app types it (`ChannelCaps.CommandPrefix`): on Slack, where `/bothy` is the only slash command, *"/bothy stop"*; on Telegram, and on Discord, which reads commands from plain text, *"/stop"*. The examples here use the plain form. The *chat* refusal is *"Only someone who can approve can use /{cmd} here."* There is no `/approve CODE` command: approvals happen only through card buttons or the web UI. A message that is only `/word` (Telegram may add `@bot`; word characters only) naming no command gets *"There's no /word command. /help lists the commands."* and never reaches the runner. Any other text starting with a slash and forwarded content are ordinary messages.
 6. **Button presses → `Hub.OnAction`.** Data `a:<approval>:<o|s|a|d>:<mac>` → `Approvals.ParseButtonData` (MAC check), the pressed message must be one the approval recorded (§5.9). The person whose message started the run may always deny, which **withdraws** the request (any approver kind, from any recorded message of it, including the waiting line's *Cancel request*). Otherwise: on the waiting line *"Only the person who asked can cancel this."*; admin-only, multi-approver (release) and account requests *"Open in Bothy to approve."*; a presser who isn't a teammate marked Can approve *"Only an approver can approve this."*. On Slack and Discord the press first syncs the membership scope as a message does (step 3), so a scope change (another workspace's token, the last channel of a server turned off) makes the presser's verdict stale at once; a verdict over an hour old is asked again within the press's 2.5 s budget; when that fails, only a verdict under 15 min (`ApproverStale`) counts (*"Bothy couldn't check that you can approve. Try again, or open it in Bothy."*). Truncated cards approve nothing (*"Open in web to approve."*). `Approvals.Resolve` gets `ByIdentity` = `<app>:<id>` and checks it all again from the store, including, for a member verdict (`membership = member`: the chat app vouches for them), that it is under 2 h old (`ApproverFresh`, as for a full card); a chat approver can't always-allow for a channel (*"Only an admin on the web can always allow this for a channel."*). The adapter `Ack`s within 3 s with a toast ("Approved.", "Request cancelled.", "Already decided."). Data `s:<run>` → Stop: the teammate whose chat it is, someone Bothy answers in the channel, or an approver (*"Only the person this chat belongs to or someone who can approve can stop it."*).
 7. **Principal and gating:**
    - DM from an admitted teammate → their person space principal.
@@ -8590,6 +8613,7 @@ display_information:
   name: "{{name}}"
   description: Self-hosted assistant (Bothy)
 features:
+  app_home: {home_tab_enabled: false, messages_tab_enabled: true, messages_tab_read_only_enabled: false}
   bot_user: {display_name: "{{name}}", always_online: true}
   slash_commands:
     - {command: /bothy, description: "Talk to {{name}} (stop, new, status, help)", should_escape: false}
@@ -8607,6 +8631,8 @@ settings:
 ```
 
 The wizard opens `https://api.slack.com/apps?new_app=1&manifest_yaml=<urlencoded manifest>`; the user then creates an app-level token with `connections:write` (`xapp-…`) and installs the app (`xoxb-…`). Agent output always sets `unfurl_links: false, unfurl_media: false`.
+
+`app_home` opens the app's Messages tab for writing, which is where people message Bothy directly; Slack makes that tab read-only for an app created without it (*"Sending messages to this app has been turned off."*). For an app created from an earlier manifest, turn on **Allow users to send Slash commands and messages from the messages tab** under App Home → Show Tabs.
 
 `channels:read` and `groups:read` let the adapter name channels (`conversations.info`, cached like `users.info`; `Inbound.ChatTitle` = `"#name"`; a slash command's `channel_name` when it is not a placeholder such as `directmessage` or `privategroup`). An app created from an earlier manifest lacks them: add the two scopes under OAuth & Permissions (or update the app from the current manifest) and click **Reinstall to Workspace**; the bot token stays the same. Until then the lookups fail with `missing_scope`, the adapter logs one warning an hour, and channels are named by their id ("Slack group C05S04V0YRG"); once names arrive, spaces still under that fallback name take them (§5.1 step 7).
 

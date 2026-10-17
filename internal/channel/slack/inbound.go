@@ -104,7 +104,8 @@ func (a *adapter) fromMessage(e *slackevents.MessageEvent) (core.Inbound, bool) 
 }
 
 // slashJob maps a /bothy command. Slack shows it to no one but its sender,
-// so it is Private, and it works in channels the app is not in.
+// so it is Private, and it works in channels the app is not in; typed in a
+// channel, its response_url is how the hub answers the sender alone there.
 func (a *adapter) slashJob(c slack.SlashCommand) job {
 	in := core.Inbound{
 		Chat: chatRef(c.ChannelID, "", ""),
@@ -119,6 +120,7 @@ func (a *adapter) slashJob(c slack.SlashCommand) job {
 	}
 	lookup := false
 	if in.Chat.Kind == core.ChatGroup {
+		in.ReplyRef = c.ResponseURL
 		in.ChatTitle = hashName(c.ChannelName)
 		lookup = in.ChatTitle == "" && !strings.HasPrefix(c.ChannelName, "mpdm-")
 	}

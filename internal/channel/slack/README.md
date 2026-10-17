@@ -11,12 +11,20 @@ queued is left unacknowledged for Slack to redeliver. `app_mention` and
 `ts` as `ThreadID`, `MsgID` `"<channel>:<ts>"`, so the duplicate copies of a
 mention dedup in the hub; a reply in a thread the bot started counts as a
 mention), `/bothy stop` becomes `/stop` (a slash command is `Private`: only
-its sender saw it, and it works in channels the app is not in), and
+its sender saw it, and it works in channels the app is not in; `/bothy` is
+the only command Slack lets anyone type, so `Caps.CommandPrefix` is
+`"/bothy "` and the hub names commands that way), and
 `block_actions` presses become
 `ActionEvent`s whose `AckRef` is the `response_url` and whose `Msg` matches
 the `MsgRef` `Send` returned (a message with thread replies stays in its
 channel); `Ack` posts the toast there as an ephemeral reply, and a failed
-`Ack` never puts the `response_url` in its error. Messages go out with
+`Ack` never puts the `response_url` in its error. A slash command typed in
+a channel carries its own `response_url` as `ReplyRef`, and `ReplyPrivate`
+(`core.PrivateReplier`) posts the hub's answer there as an ephemeral mrkdwn
+reply without previews, which only the sender sees (the URL is good for 30
+minutes and five posts, `Caps.PrivatePosts`); both go only to
+`hooks.slack.com` (or the configured API host), without following
+redirects. Messages go out with
 `unfurl_links` and `unfurl_media` false, Bothy markdown converted to mrkdwn
 with `&`, `<` and `>` escaped, and buttons as Block Kit actions. All HTTP and
 the WebSocket go through the egress system dialer for the exact host:port
@@ -34,6 +42,12 @@ manifest had them gets `missing_scope` until it is reinstalled to the
 workspace (Slack: OAuth & Permissions → Reinstall to Workspace), which leaves
 `ChatTitle` empty, so spaces keep names like "Slack group C0123", and logs one
 warning an hour.
+
+People message Bothy directly in the app's Messages tab, which the manifest
+opens for writing (`features.app_home`); without it Slack shows "Sending
+messages to this app has been turned off." For an app created from an earlier
+manifest, turn on "Allow users to send Slash commands and messages from the
+messages tab" under App Home → Show Tabs.
 
 Slack decides who can use Bothy (`core.MemberChecker`): a full member of the
 workspace the bot token belongs to, or of any workspace of the same

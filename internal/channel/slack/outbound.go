@@ -94,27 +94,46 @@ func (a *adapter) Ack(ctx context.Context, ev core.ActionEvent, toast string) er
 	if toast == "" {
 		return nil
 	}
-	u, err := url.Parse(ev.AckRef)
+	return a.respond(ctx, ev.AckRef, "acknowledge press",
+		map[string]any{"response_type": "ephemeral", "replace_original": false, "text": escape(toast)})
+}
+
+// ReplyPrivate posts markdown as mrkdwn through a slash command's
+// response_url (good for 30 minutes and five posts), as an ephemeral reply
+// only the command's sender sees, in the conversation they typed it in.
+func (a *adapter) ReplyPrivate(ctx context.Context, in core.Inbound, markdown string) error {
+	text := render(markdown)
+	if strings.TrimSpace(text) == "" {
+		return fmt.Errorf("slack: empty message: %w", core.ErrInvalid)
+	}
+	return a.respond(ctx, in.ReplyRef, "reply privately", map[string]any{"response_type": "ephemeral", "replace_original": false,
+		"text": text, "mrkdwn": true, "unfurl_links": false, "unfurl_media": false})
+}
+
+// respond posts body to a response_url, which only ever goes to Slack's
+// hooks host (or the configured API host) and never into an error.
+func (a *adapter) respond(ctx context.Context, ref, what string, body map[string]any) error {
+	u, err := url.Parse(ref)
 	if err != nil || !a.hostAllowed(u, hooksHost) {
-		return fmt.Errorf("slack: ack reference is not a Slack response URL: %w", core.ErrInvalid)
+		return fmt.Errorf("slack: %s: the reference is not a Slack response URL: %w", what, core.ErrInvalid)
 	}
-	body, err := json.Marshal(map[string]any{"response_type": "ephemeral", "replace_original": false, "text": escape(toast)})
+	b, err := json.Marshal(body)
 	if err != nil {
-		return fmt.Errorf("slack: encode ack: %w", err)
+		return fmt.Errorf("slack: %s: encode: %w", what, err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(b))
 	if err != nil {
-		return fmt.Errorf("slack: ack request: %w", err)
+		return fmt.Errorf("slack: %s: request: %w", what, hideURL(err))
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := a.noRedirects(u).Do(req)
 	if err != nil {
-		return fmt.Errorf("slack: acknowledge press: %w", hideURL(err))
+		return fmt.Errorf("slack: %s: %w", what, hideURL(err))
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("slack: acknowledge press: HTTP %d", resp.StatusCode)
+		return fmt.Errorf("slack: %s: HTTP %d", what, resp.StatusCode)
 	}
 	return nil
 }

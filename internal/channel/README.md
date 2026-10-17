@@ -102,16 +102,34 @@ steers a running task.
 
 An `Inbound.Private` message in a group (a Slack slash command, which only
 its sender saw and which works in channels the bot is not in) never creates
-a space. In a group without an enabled space it is answered in the sender's
-DM (the adapter's `OpenDM`, remembered as the identity's DM chat): a teammate
-is told Bothy is off there, at most once an hour per channel; anyone else
-gets what a DM would. In an enabled space it goes on as any message.
+a space, and Bothy answers it privately: where it was typed, to the sender
+alone, when the adapter implements `core.PrivateReplier` and the message
+carries a `ReplyRef` (Slack's `response_url`, a credential the hub never
+logs, stores or passes to a run); otherwise, or when that post fails, in the
+sender's DM (the adapter's `OpenDM`, remembered as the identity's DM chat),
+worded for the DM: an answer about a channel Bothy is on in starts by naming
+it ("In #eng: Stopped."). An answer that needs more posts than the reference
+takes (`Caps.PrivatePosts`) goes to the DM whole, so it is never split
+between the two; only a post that fails partway leaves the first pieces
+shown, and the DM gets the whole answer too. In a group without an enabled
+space a teammate asking for help gets the help list, `/stopall` and
+`/resume` work as in any chat, and anything else is told Bothy is off there,
+at most once an hour per channel; anyone else gets what a DM would, in their
+DM. In an enabled space it goes on as any message: free text starts a task
+in the channel, and a command's answer goes privately. Waiting and outsider
+lines, cards, Cancel request and runs, which need buttons, edits or a
+record, never go privately.
 
 Commands: `/stop`, `/status`, `/help`, `/pins` and `/usage` work for anyone
 Bothy answers in the chat; `/new`, `/pin`, `/unpin`, `/compact`, `/model` and
 `/refine` need the DM's teammate or, in a channel, someone who can approve;
 `/stopall` is for approvers in any chat (resuming happens on the web, which
-`/resume` says); `/pair` says link codes are gone.
+`/resume` says); `/pair` says link codes are gone. Every reply, notice and
+help line names a command as the chat app types it (`Caps.CommandPrefix`:
+"/bothy stop" on Slack, "/stop" on Telegram and Discord); the help list puts
+each command, followed by what it does, in a code span on Slack and as plain
+text elsewhere, since Telegram makes a plain "/stop" tappable but not one in
+code.
 
 Markdown the hub sends uses CommonMark backslash escapes for punctuation and
 backtick fences or spans longer than any backtick run they contain, so system

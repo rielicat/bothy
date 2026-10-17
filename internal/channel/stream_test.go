@@ -234,6 +234,7 @@ func TestStreamExplainsNeutralizedLinksOnce(t *testing.T) {
 		if err := h.store.Sessions().SetTaint(h.ctx, sess.ID, core.TaintPrivate|core.TaintUntrusted); err != nil {
 			t.Fatal(err)
 		}
+		note := linkNote(h.ch.Caps())
 		reply := func(text string) string {
 			f := h.feed(chat, "stream")
 			f.sess = sess.ID
@@ -241,14 +242,14 @@ func TestStreamExplainsNeutralizedLinksOnce(t *testing.T) {
 			f.finish(core.RunDone)
 			return h.lastText(ownerChat)
 		}
-		if got := reply("No links in this one. "); strings.Contains(got, linkNote) {
+		if got := reply("No links in this one. "); strings.Contains(got, note) {
 			t.Fatalf("a reply without links got the note: %q", got)
 		}
 		got := reply("I opened PR #2: https://github.com/acme/web/pull/2 ")
-		if !strings.Contains(got, "hxxps://github[.]com/acme/web/pull/2") || !strings.HasSuffix(got, "\n\n_"+linkNote+"_") {
+		if !strings.Contains(got, "hxxps://github[.]com/acme/web/pull/2") || !strings.HasSuffix(got, "\n\n_"+note+"_") {
 			t.Fatalf("first neutralized reply = %q", got)
 		}
-		if got := reply("Again: https://github.com/acme/web/pull/3 "); strings.Contains(got, linkNote) {
+		if got := reply("Again: https://github.com/acme/web/pull/3 "); strings.Contains(got, note) {
 			t.Fatalf("the note came twice: %q", got)
 		}
 	})

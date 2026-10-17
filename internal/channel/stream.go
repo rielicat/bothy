@@ -701,7 +701,7 @@ func (st *streamState) finishNote(ctx context.Context) string {
 		}
 	}
 	if st.defanged && st.session != "" && st.s.h.firstLinkNote(st.session) {
-		lines = append(lines, "_"+linkNote+"_")
+		lines = append(lines, "_"+linkNote(st.caps)+"_")
 	}
 	if f != nil && f.Steps > 0 && st.s.h.cfg().Channels.UsageFooter {
 		lines = append(lines, "_· "+usageFooter(f)+"_")
@@ -711,7 +711,10 @@ func (st *streamState) finishNote(ctx context.Context) string {
 
 // linkNote explains, once per conversation, why its links show as plain text
 // and how to get clickable ones back without loosening the rule.
-const linkNote = "Links here are shown as plain text because this chat has seen private information and content from outside. /new starts a fresh conversation with clickable links."
+func linkNote(caps core.ChannelCaps) string {
+	return "Links here are shown as plain text because this chat has seen private information and content from outside. " +
+		commandIn(caps, "new") + " starts a fresh conversation with clickable links."
+}
 
 // firstLinkNote reports whether session s has not had linkNote yet, and
 // records that it has now.

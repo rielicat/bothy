@@ -122,14 +122,58 @@ func TestStatusUsageHelp(t *testing.T) {
 		if got := h.lastText(ownerChat); got != want {
 			t.Fatalf("/status = %q, want %q", got, want)
 		}
+		// Telegram makes a plain /stop tappable, but not one in code.
 		h.dm(ownerChat, "/help")
-		h.wantVisible(ownerChat, "/stop · stop the current task")
+		if got := h.lastText(ownerChat); !strings.Contains(got, "\n/stop – stop the current task\n") || strings.Contains(got, "`") {
+			t.Fatalf("/help on Telegram = %q; want plain commands", got)
+		}
 		for _, chat := range []string{ownerChat, memberChat} {
 			h.dm(chat, "/help")
 			if got := h.lastText(chat); strings.Contains(got, "/stopall") || strings.Contains(got, "/resume") || strings.Contains(got, "/pair") ||
 				!strings.Contains(got, "/new") {
 				t.Fatalf("/help = %q; want no hidden commands", got)
 			}
+		}
+	})
+}
+
+// On Slack every command is typed after /bothy, so every reply that names
+// one says it that way; the help list puts each command in code.
+func TestCommandsAsSlackTypesThem(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t, withChecker("slack")).start()
+		h.dm(ownerChat, "/help")
+		if got := h.lastText(ownerChat); !strings.HasPrefix(got, "Commands:\n`/bothy stop` – stop the current task\n") ||
+			!strings.Contains(got, "\n`/bothy pin <text>` – keep an instruction in view\n") || strings.Contains(got, "`/stop`") {
+			t.Fatalf("/help on Slack = %q", got)
+		}
+		for _, tc := range []struct{ text, want string }{
+			{"/pin", "Usage: /bothy pin <text>"},
+			{"/unpin x", "Usage: /bothy unpin <n> (see /bothy pins)"},
+			{"/refine what", "Usage: /bothy refine on, /bothy refine off or /bothy refine default. /bothy refine alone shows the setting."},
+			{"/refine", "Refine is off for this conversation, as by default. /bothy refine on turns it on."},
+			{"/foo", "There's no /foo command. /bothy help lists the commands."},
+		} {
+			h.dm(ownerChat, tc.text)
+			if got := h.lastText(ownerChat); got != tc.want {
+				t.Errorf("%s on Slack = %q, want %q", tc.text, got, tc.want)
+			}
+		}
+		h.dm(ownerChat, "/model")
+		h.wantVisible(ownerChat, "/bothy model <model name> changes it.")
+		h.runner.Err = core.ErrBusy
+		h.dm(ownerChat, "more")
+		h.wantVisible(ownerChat, "Busy. Send /bothy stop to interrupt.")
+		h.space("C300", true, false)
+		h.group("C300", memberChat, "/new", true)
+		if got := h.lastText("C300"); got != "Only someone who can approve can use /bothy new here." {
+			t.Fatalf("/new from a teammate in a Slack channel = %q", got)
+		}
+		if got := couldntStop(h.ch.Caps()); got != "Couldn't stop it. Try /bothy stop." {
+			t.Fatalf("stop toast = %q", got)
+		}
+		if got := linkNote(h.ch.Caps()); !strings.HasSuffix(got, " /bothy new starts a fresh conversation with clickable links.") {
+			t.Fatalf("link note = %q", got)
 		}
 	})
 }
@@ -260,7 +304,7 @@ func TestPairTombstoneAndStartHello(t *testing.T) {
 		}
 		h.space("-500", true, false)
 		h.group("-500", memberChat, "/start", true)
-		if got := h.lastText("-500"); got != helpText() {
+		if got := h.lastText("-500"); got != helpText(h.ch.Caps()) {
 			t.Fatalf("/start in a channel = %q", got)
 		}
 		if n := len(h.runner.Submitted()); n != 0 {

@@ -2,17 +2,36 @@ package channel
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/testkit/channeltest"
 )
 
 // slash injects what a slash command typed in a group becomes: a Private,
-// mentioned message, from a channel Slack names "#<chat>".
+// mentioned message from a channel Slack names "#<chat>", whose ReplyRef
+// answers its sender alone there.
 func (h *harness) slash(chat, sender, text string) {
 	h.inject(core.Inbound{Chat: h.groupChat(chat), ChatTitle: "#" + chat, SenderID: sender, SenderName: "User " + sender, Text: text,
-		Mentioned: true, Private: true})
+		Mentioned: true, Private: true, ReplyRef: hookRef(chat, sender)})
+}
+
+func hookRef(chat, sender string) string {
+	return "https://hooks.slack.com/commands/" + chat + "/" + sender
+}
+
+// private returns what sender alone saw where they typed slash commands.
+func (h *harness) private(sender string) []string {
+	var out []string
+	for _, r := range h.ch.PrivateReplies() {
+		if r.Sender == sender {
+			out = append(out, r.Text)
+		}
+	}
+	return out
 }
 
 func (h *harness) wantNoSpace(chat string) {
@@ -23,31 +42,37 @@ func (h *harness) wantNoSpace(chat string) {
 }
 
 // TestPrivateSlashInOffChannel: a slash command in a channel where Bothy is
-// off (or isn't) is answered in the sender's DM, as a DM would be: a
-// teammate hears the channel is off (once an hour per channel), someone
-// outside the team gets the outsider line, and a failed lookup says so.
-// It never records a channel and never reaches the runner.
+// off (or isn't) tells a teammate so, there and to them alone, once an hour
+// per channel; someone outside the team gets the outsider line and a failed
+// lookup says so, in their DM, as a DM would. It never records a channel
+// and never reaches the runner.
 func TestPrivateSlashInOffChannel(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t, withChecker("slack")).start()
 		h.slash("C200", memberChat, "/status")
-		if v := h.visible(memberChat); len(v) != 1 || v[0] != "Bothy is off in #C200. You can message Bothy here, or ask an admin to turn #C200 on." {
-			t.Fatalf("DM = %q, want the off notice naming the channel", v)
+		if v := h.private(memberChat); len(v) != 1 || v[0] != "Bothy is off in #C200. Message Bothy directly, or ask an admin to turn #C200 on." {
+			t.Fatalf("private replies = %q, want the off notice naming the channel", v)
+		}
+		if r := h.ch.PrivateReplies()[0]; r.Chat.ChatID != "C200" || r.Ref != hookRef("C200", memberChat) {
+			t.Fatalf("the notice went to %+v, want C200 through the command's reference", r)
 		}
 		h.wantNoSpace("C200")
 		h.slash("C200", memberChat, "/status")
-		if n := len(h.visible(memberChat)); n != 1 {
+		if n := len(h.private(memberChat)); n != 1 {
 			t.Fatalf("%d notices within the hour, want 1", n)
 		}
 		h.space("C201", false, false)
 		h.slash("C201", memberChat, "summarize")
-		if v := h.visible(memberChat); len(v) != 2 || v[1] != offIn("Team") {
+		if v := h.private(memberChat); len(v) != 2 || v[1] != offHere("Team") {
 			t.Fatalf("an off channel got no notice of its own, by the name admins gave it: %q", v)
 		}
 		time.Sleep(offEvery + time.Minute)
 		h.slash("C200", memberChat, "/status")
-		if n := len(h.visible(memberChat)); n != 3 {
-			t.Fatalf("no notice after the hour: %q", h.visible(memberChat))
+		if n := len(h.private(memberChat)); n != 3 {
+			t.Fatalf("no notice after the hour: %q", h.private(memberChat))
+		}
+		if v := h.visible(memberChat); len(v) != 0 {
+			t.Fatalf("the teammate's DM got %q too", v)
 		}
 
 		const guest = "U0000901"
@@ -62,6 +87,9 @@ func TestPrivateSlashInOffChannel(t *testing.T) {
 		if v := h.visible("U0000902"); len(v) != 1 || v[0] != cantCheck {
 			t.Fatalf("lookup failure DM = %q", v)
 		}
+		if n := len(h.private(guest)) + len(h.private("U0000902")); n != 0 {
+			t.Fatalf("%d private replies to people Bothy doesn't answer in channels", n)
+		}
 		if len(h.visible("C200"))+len(h.visible("C201")) != 0 || len(h.runner.Submitted()) != 0 {
 			t.Fatal("a channel Bothy is off in was answered or reached the runner")
 		}
@@ -70,26 +98,192 @@ func TestPrivateSlashInOffChannel(t *testing.T) {
 		h.mc.SetMemberErr(nil)
 		h.budget.Deny = &core.BudgetError{Kind: core.BudgetRate}
 		h.slash("C203", ownerChat, "/status")
-		if v := h.visible(ownerChat); len(v) != 0 {
-			t.Fatalf("a rate-limited sender got %q", v)
+		if v, p := h.visible(ownerChat), h.private(ownerChat); len(v)+len(p) != 0 {
+			t.Fatalf("a rate-limited sender got %q and %q", v, p)
 		}
 	})
 }
 
+// Wherever Bothy is off, the help list is the answer to /bothy help, and
+// /bothy stopall pulls the kill switch for someone who can approve, every
+// time, with no notice beside them; anything else still gets the notice.
+func TestPrivateSlashAnswersAnywhere(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t, withChecker("slack")).start()
+		h.slash("C210", memberChat, "/help")
+		if v := h.private(memberChat); len(v) != 1 || v[0] != helpText(h.ch.Caps()) || !strings.Contains(v[0], "\n`/bothy stop` – stop the current task\n") {
+			t.Fatalf("/help in an off channel = %q", v)
+		}
+		h.slash("C210", memberChat, "/status")
+		if v := h.private(memberChat); len(v) != 2 || v[1] != offHere("#C210") {
+			t.Fatalf("/status after the help = %q, want the off notice", v)
+		}
+		h.slash("C210", memberChat, "/stopall")
+		if v := h.private(memberChat); len(v) != 3 || v[2] != pauseRefused || h.runner.Paused() {
+			t.Fatalf("/stopall from someone who can't approve = %q, paused %v", v, h.runner.Paused())
+		}
+		h.slash("C210", ownerChat, "/status")
+		h.slash("C210", ownerChat, "/stopall")
+		h.slash("C210", ownerChat, "/stopall")
+		const paused = "Paused. No tasks were running. An admin can resume Bothy on the web, under Settings → Security."
+		if v := h.private(ownerChat); len(v) != 3 || v[0] != offHere("#C210") || v[1] != paused || v[2] != paused {
+			t.Fatalf("an approver's /stopall after the notice = %q, want it answered each time", v)
+		}
+		if by, _ := h.runner.PausedBy(); !h.runner.Paused() || h.runner.StopAlls != 2 || by != "channel:slack:"+ownerChat {
+			t.Fatalf("/stopall in an off channel: paused %v by %q, %d stop-alls", h.runner.Paused(), by, h.runner.StopAlls)
+		}
+		h.slash("C211", ownerChat, "/resume")
+		if v := h.private(ownerChat); len(v) != 4 || v[3] != resumeOnWeb {
+			t.Fatalf("/resume in an off channel = %q", v)
+		}
+		if len(h.visible(memberChat))+len(h.visible(ownerChat))+len(h.visible("C210")) != 0 || len(h.runner.Submitted()) != 0 {
+			t.Fatal("an off channel's slash commands reached a DM, the channel or the runner")
+		}
+	})
+}
+
+// Without a way to answer where the command was typed (no reference, a post
+// that fails, a chat app that can't), the answer goes to the sender's DM,
+// worded for it, and only there.
+func TestPrivateSlashFallsBackToDM(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t, withChecker("slack")).start()
+		h.inject(core.Inbound{Chat: h.groupChat("C220"), ChatTitle: "#eng", SenderID: memberChat, Text: "/status", Mentioned: true, Private: true})
+		if v := h.visible(memberChat); len(v) != 1 || v[0] != "Bothy is off in #eng. You can message Bothy here, or ask an admin to turn #eng on." {
+			t.Fatalf("without a reference, DM = %q", v)
+		}
+		h.ch.SetPrivateErr(errors.New("expired_url"))
+		h.slash("C221", memberChat, "/help")
+		if v := h.visible(memberChat); len(v) != 2 || v[1] != helpText(h.ch.Caps()) {
+			t.Fatalf("after a failed private reply, DM = %q", v)
+		}
+		// An answer about a channel Bothy is on in names it in the DM, where
+		// "this chat" or "here" would be the DM.
+		h.space("C222", true, true)
+		for _, tc := range []struct{ sender, text, want string }{
+			{ownerChat, "/usage", "In Team: Today: $0.00, no daily limit. This conversation: $0.00."},
+			{memberChat, "/status", "In Team:\nNo task running.\nToday: $0.00, no daily limit."},
+			{memberChat, "/new", "In Team: Only someone who can approve can use /bothy new."},
+			{ownerChat, "/pin keep it short", "In Team: Pinned. /bothy pins lists them."},
+			{ownerChat, "/compact", "In Team: Older messages were summarised."},
+		} {
+			n := len(h.visible(tc.sender))
+			h.slash("C222", tc.sender, tc.text)
+			if v := h.visible(tc.sender); len(v) != n+1 || v[n] != tc.want {
+				t.Fatalf("%s in an on channel after a failed private reply: DM = %q, want one more: %q", tc.text, v, tc.want)
+			}
+		}
+		if n := len(h.ch.PrivateReplies()); n != 0 || len(h.visible("C222")) != 0 {
+			t.Fatalf("%d private replies, channel shows %q", n, h.visible("C222"))
+		}
+	})
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t, func(h *harness) { h.wrap = func(c *channeltest.Channel) core.Channel { return plainChannel{c} } }).start()
+		h.slash("-700", ownerChat, "/status")
+		if v := h.visible(ownerChat); len(v) != 1 || v[0] != offIn("#-700") || len(h.ch.PrivateReplies()) != 0 {
+			t.Fatalf("on a chat app without private replies, DM = %q", v)
+		}
+	})
+}
+
+// An answer is never split between the channel and the DM: one needing
+// more posts than a reply reference takes goes to the DM whole, and so does
+// one whose post fails partway, which only leaves its first pieces shown in
+// the channel too.
+func TestPrivateSlashLongAnswer(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t, withChecker("slack"), func(h *harness) { h.ch.CapsV.MaxLen = 300 }).start()
+		h.space("C240", true, true)
+		var pins []string
+		pin := func(n int) {
+			for range n {
+				p := strings.TrimSpace(strings.Repeat(fmt.Sprintf("note%c ", 'a'+len(pins)), 30))
+				pins = append(pins, p)
+				h.slash("C240", ownerChat, "/pin "+p)
+			}
+		}
+		// dmGets asks for the pins and checks the DM got all of them, after
+		// shown pieces in the channel.
+		dmGets := func(shown int) {
+			t.Helper()
+			np, nd := len(h.private(ownerChat)), len(h.visible(ownerChat))
+			h.slash("C240", ownerChat, "/pins")
+			if n := len(h.private(ownerChat)) - np; n != shown {
+				t.Fatalf("/pins with %d pins showed %d pieces in the channel, want %d", len(pins), n, shown)
+			}
+			dm := strings.Join(h.visible(ownerChat)[nd:], "\n")
+			if !strings.HasPrefix(dm, "In Team:\nPinned instructions:\n1. ") {
+				t.Fatalf("the DM got %q, want the whole list, naming the channel", dm)
+			}
+			for _, p := range pins {
+				if !strings.Contains(dm, p) {
+					t.Fatalf("the DM got %q, missing the pin %q", dm, p)
+				}
+			}
+		}
+
+		pin(3)
+		h.ch.SetPrivateErrAfter(1, errors.New("used_url"))
+		dmGets(1)
+
+		h.ch.SetPrivateErr(nil)
+		pin(9)
+		dmGets(0)
+		if v := h.visible("C240"); len(v) != 0 {
+			t.Fatalf("the channel shows %q", v)
+		}
+	})
+}
+
+// plainChannel is a chat app with nothing beyond core.Channel.
+type plainChannel struct{ core.Channel }
+
 // In a channel Bothy is on in, a teammate's slash command takes the normal
-// path, as the channel's.
+// path, as the channel's: free text starts a task there, and a command's
+// answer is shown to the sender alone, never in the channel or a DM. A
+// slash command in the bot's own DM is answered there as any message.
 func TestPrivateSlashInOnChannel(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t, withChecker("slack")).start()
 		sp := h.space("C202", true, true)
 		h.slash("C202", memberChat, "summarize the thread")
-		if subs := h.runner.Submitted(); len(subs) != 1 || subs[0].Principal != sp.Principal || subs[0].Chat.ChatID != "C202" ||
-			subs[0].Provenance != core.ProvUntrusted {
+		subs := h.runner.Submitted()
+		if len(subs) != 1 || subs[0].Principal != sp.Principal || subs[0].Chat.ChatID != "C202" || subs[0].Provenance != core.ProvUntrusted {
 			t.Fatalf("on channel: submits = %+v", subs)
 		}
-		h.slash("C202", "U0000903", "summarize again")
-		if n := len(h.runner.Submitted()); n != 1 {
-			t.Fatalf("someone outside the team reached the runner in a channel (%d runs)", n)
+		if run := fmt.Sprintf("%+v %+v", subs[0].Input, *subs[0].Chat); strings.Contains(run, "hooks.slack.com") {
+			t.Fatalf("the reply reference reached the run: %s", run)
+		}
+		const outsider = "U0000903"
+		h.slash("C202", outsider, "summarize again")
+		h.slash("C202", outsider, "/status")
+		if n := len(h.runner.Submitted()); n != 1 || len(h.private(outsider))+len(h.visible(outsider)) != 0 {
+			t.Fatalf("someone outside the team was answered in a channel (%d runs)", n)
+		}
+
+		for _, tc := range []struct{ sender, text, want string }{
+			{memberChat, "/status", "No task running.\nToday: $0.00, no daily limit."},
+			{memberChat, "/new", "Only someone who can approve can use /bothy new here."},
+			{memberChat, "/foo", "There's no /foo command. /bothy help lists the commands."},
+			{ownerChat, "/pin keep it short", "Pinned. /bothy pins lists them."},
+			{ownerChat, "/compact", "Older messages were summarised."},
+		} {
+			n := len(h.private(tc.sender))
+			h.slash("C202", tc.sender, tc.text)
+			if v := h.private(tc.sender); len(v) != n+1 || v[n] != tc.want {
+				t.Fatalf("%s in an on channel: private replies %q, want one more: %q", tc.text, v, tc.want)
+			}
+		}
+		if v := h.visible("C202"); len(v) != 0 {
+			t.Fatalf("the channel shows %q", v)
+		}
+		if n := len(h.visible(memberChat)) + len(h.visible(ownerChat)); n != 0 {
+			t.Fatalf("%d command answers went to a DM as well", n)
+		}
+
+		h.inject(core.Inbound{Chat: h.dmChat(memberChat), SenderID: memberChat, Text: "/usage", Mentioned: true, Private: true})
+		if v := h.visible(memberChat); len(v) != 1 || !strings.HasPrefix(v[0], "Today: ") {
+			t.Fatalf("a slash command in the bot's DM: DM = %q", v)
 		}
 	})
 }
