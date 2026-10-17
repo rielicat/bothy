@@ -98,7 +98,8 @@ func TestTeamMemoryInEveryPrompt(t *testing.T) {
 			req  core.RunRequest
 			fact string
 		}{
-			{"account", h.req("hello"), "- Memory: USER.md and MEMORY.md are for this person only; to remember something for the whole team, call memory with file TEAM"},
+			{"account", h.req("hello"), "- Memory: USER.md and MEMORY.md are for this person only; to remember something for the whole team, " +
+				"call memory with file TEAM: an admin must approve it, so never say it is saved for everyone until the result says so\n"},
 			{"teammate", teamReq(maya, mayaSess, "slack:U1", "Maya Chen", "hello"), "- Memory: USER.md and MEMORY.md are for this person only;"},
 			{"standard channel", teamReq(eng, engSess, "slack:U2", "Sam", "hello"), "- Memory: this channel has none of its own; to remember something for the whole team, call memory with file TEAM"},
 			{"restricted channel", teamReq(random, randomSess, "slack:U3", "Lee", "hello"), "- Memory: none here; an admin can add notes for everyone on the web"},

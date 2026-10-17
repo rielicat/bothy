@@ -320,8 +320,8 @@ func (r *Runner) renderS2(ctx context.Context, rs *runState, p profile, window i
 // memoryFact keeps the model honest about whose memory a note lands in:
 // only TEAM reaches everyone, and only once an admin approves it.
 func memoryFact(p *core.Principal) string {
-	const team = "to remember something for the whole team, call memory with file TEAM: an admin approves it first, " +
-		"so say it is waiting for approval, never that it is saved"
+	const team = "to remember something for the whole team, call memory with file TEAM: an admin must approve it, " +
+		"so never say it is saved for everyone until the result says so"
 	switch {
 	case p.Kind == core.PrincipalUser || p.Kind == core.PrincipalPerson:
 		return "- Memory: USER.md and MEMORY.md are for this person only; " + team + "\n"
