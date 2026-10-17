@@ -20,6 +20,8 @@ import (
 	_ "github.com/slack-go/slack/socketmode"
 	_ "go.yaml.in/yaml/v3"
 	_ "golang.org/x/crypto/argon2"
+	_ "golang.org/x/image/draw"
+	_ "golang.org/x/image/webp"
 	_ "golang.org/x/net/bpf"
 	_ "golang.org/x/net/html"
 	_ "golang.org/x/net/idna"

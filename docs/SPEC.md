@@ -564,6 +564,8 @@ internal/knowledge/        v0.2 F6: core.Knowledge: FTS5 index queue, knowledge_
                            turn-context hook (§14.4)                                                    [knowledge]
 internal/release/          v0.2 F5: release_deploy/release_status, run follower, token GitHub client;
                            actionstest fake Actions API (§14.5)                                         [release]
+internal/picture/          core.AgentPicture: embedded default picture (rendered from the brand mark by
+                           its test), upload checks, crop and scale, <data>/picture.png (§4.20)          [picture]
 internal/channel/          core.ChannelHub: gatekeeping, membership, commands, streamer, card delivery  [M9]
 internal/channel/telegram/ Telegram adapter (hand-written) + telegramtest fake Bot API server           [M9]
 internal/channel/discord/  Discord adapter (disgo) + discordtest fake                                   [M10]
@@ -590,6 +592,7 @@ scripts/                   check-imports.sh, check-ownership.sh, budgets/*, e2e-
 - `os/exec` only in `internal/sandbox/bwrap`. `unsafe` nowhere outside deps.
 - No provider SDK, no `net/http.DefaultClient` in gateway packages (all clients come from `core.Egress`). v0.2 exception: `internal/provider/bedrock` may import exactly the AWS SDK packages for credentials, SigV4 and event-stream framing (§11.1); `internal/provider` tests may import the event-stream package; `internal/vault/awssm` may import `aws` (the credential type) and `aws/signer/v4` (SigV4), and `internal/vault` tests `aws`. The vault never imports the provider module: `cmd/bothy` hands it the bedrock provider's credential chain (`vault.SetAWS`, §14.8).
 - v0.2 modules `internal/github` (owner tag F4), `internal/knowledge` (owner tag knowledge) and `internal/release` (owner tag release) import only the stdlib, `core` and `config`; `cmd/bothy` connects them (the GitHub service is the release module's `Connections` dispatcher; knowledge consumes `repo.checkout`).
+- `internal/picture` (owner tag picture) imports only the stdlib, `core`, `config` and `golang.org/x/image` (`draw`, `webp`); `cmd/bothy` hands it to the hub and the HTTP API as `core.AgentPicture`.
 
 ---
 
@@ -5109,6 +5112,74 @@ type ReleaseStore interface {
 }
 ```
 
+### 4.20 `picture.go`: Bothy's picture in the chat apps
+
+`internal/picture` implements `AgentPicture` (the embedded default rendered from the brand mark, or `<data>/picture.png`); the Telegram and Discord adapters implement `PictureSetter`; `ChannelHub.ApplyPicture` (§4.6) and the hub's first connection use them (§5.1, §8.3 `/api/agent/picture`).
+
+```go
+package core
+
+import (
+	"context"
+	"errors"
+)
+
+// Picture is Bothy's picture in the chat apps: the built-in default or one an
+// admin uploaded, always a square, opaque 1024 px image.
+type Picture struct {
+	PNG  []byte `json:"-"`
+	JPEG []byte `json:"-"` // the same picture, for chat apps that take only JPEG (Telegram)
+	// Custom is true when an admin replaced the default.
+	Custom bool `json:"custom"`
+	// Version changes whenever the picture does (a hash of PNG).
+	Version string `json:"version"`
+}
+
+// AgentPicture keeps Bothy's picture (internal/picture): the admin's upload in
+// the data dir, else the embedded default.
+type AgentPicture interface {
+	Current(ctx context.Context) (Picture, error)
+	// Set checks an uploaded PNG, JPEG or WebP, crops it to a centred square,
+	// scales it and re-encodes it (dropping its metadata), then keeps it.
+	// A file that is not a usable picture is ErrInvalid with a plain message.
+	Set(ctx context.Context, upload []byte) (Picture, error)
+	// Reset goes back to the default picture.
+	Reset(ctx context.Context) (Picture, error)
+}
+
+// PictureSetter is implemented by adapters that can change the bot's own
+// picture (Telegram, Discord). Slack lets only a person change an app's icon.
+type PictureSetter interface {
+	// HasPicture reports whether the bot has a picture now, whoever set it.
+	HasPicture(ctx context.Context) (bool, error)
+	// SetPicture replaces the bot's picture. A platform that limits how
+	// often it may change answers with an error whose FailureCode is
+	// FailRateLimited.
+	SetPicture(ctx context.Context, p Picture) error
+}
+
+// PictureOutcome is what applying the picture did in one chat app.
+type PictureOutcome string
+
+const (
+	PictureUpdated PictureOutcome = "updated" // the chat app shows the picture now
+	PictureFailed  PictureOutcome = "failed"  // it couldn't be changed; Err says why
+	PictureManual  PictureOutcome = "manual"  // only a person can change it there (Slack)
+)
+
+// PictureResult is ChannelHub.ApplyPicture's answer for one chat app.
+type PictureResult struct {
+	App     string
+	Outcome PictureOutcome
+	// Err is why it failed: ErrNotConnected, or the platform's error (see
+	// CodeOf for rate limits).
+	Err error
+}
+
+// ErrNotConnected: the chat app is turned on but not connected right now.
+var ErrNotConnected = errors.New("chat app not connected")
+```
+
 ---
 
 ## 5. Agent run lifecycle
@@ -8615,6 +8686,7 @@ Owners: `sqlite.*`, `data.*`, `backups.*`, `vault.*` M1; `providers.*` M2; `poli
 | `golang.org/x/crypto` (*verify*) | auth, vault | `argon2` only |
 | `golang.org/x/net` (*verify*) | egress, policy, sandbox/bwrap | `html` (web_fetch text extraction), `idna` (punycode), `bpf` (serializing the seccomp program) |
 | `github.com/adhocore/gronx` v1.20.5 | scheduler | Cron parsing and next tick with timezone; zero deps |
+| `golang.org/x/image` v0.42.0 (published 2026-06-08) | picture | `webp` to read uploaded WebP pictures, `draw` for Catmull-Rom scaling; the default picture's renderer is a test and needs neither |
 | `github.com/elastic/go-seccomp-bpf` v1.6.0 or newer (*verify* newest tag ≥ 14 days old) | sandbox/bwrap | `Policy.Assemble()` builds an arch-checked program without loading it (§2.12) |
 | `github.com/aws/aws-sdk-go-v2` v1.47.1, `…/aws/protocol/eventstream` v1.7.20, `…/config` v1.33.6, `…/credentials` v1.20.6, `…/feature/ec2/imds` v1.20.1 (v0.2; indirect: `service/sso`, `ssooidc`, `sts`, `signin`, `internal/*`, `github.com/aws/smithy-go` v1.28.1; all published 2026-08-26..09-24) | provider/bedrock (eventstream also in `internal/provider` tests); vault/awssm: `aws` and `aws/signer/v4` only (§14.8) | The AWS default credential chain (env, shared files with SSO and `aws login`, assumed roles, web identity, ECS/EKS container and EC2 IMDSv2 credentials), SigV4 signing and event-stream decoding; `scripts/check-imports.sh` allows exactly these packages |
 

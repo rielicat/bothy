@@ -30,6 +30,7 @@ owner() {
 	internal/auth | internal/auth/* | internal/httpapi | internal/httpapi/* | internal/doctor | internal/doctor/* | internal/webui | internal/webui/*) echo M11 ;;
 	internal/github | internal/github/*) echo F4 ;; # v0.2 brief §4: stdlib, core and config only
 	internal/release | internal/release/*) echo release ;; # v0.2 F5
+	internal/picture | internal/picture/*) echo picture ;; # stdlib, core, config and x/image only
 	internal/core) echo core ;;
 	internal/config) echo config ;;
 	internal/events) echo events ;;
@@ -88,6 +89,7 @@ thirdparty_ok() {
 	M10) case "$1:$3" in internal/channel/discord*:github.com/disgoorg/* | internal/channel/slack*:github.com/slack-go/slack* | \
 		internal/channel/discord*:github.com/gorilla/websocket | internal/channel/slack*:github.com/gorilla/websocket) return 0 ;; esac ;;
 	M11) case "$3" in golang.org/x/crypto/*) return 0 ;; esac ;;
+	picture) case "$3" in golang.org/x/image/*) return 0 ;; esac ;;
 	esac
 	return 1
 }
