@@ -114,7 +114,8 @@ func (s *Store) Current(_ context.Context) (core.Picture, error) {
 	}
 	p, err := load(b)
 	if err != nil {
-		return core.Picture{}, fmt.Errorf("picture: %s: %w", FileName, err)
+		// Not ErrInvalid: nothing the caller sent is wrong.
+		return core.Picture{}, fmt.Errorf("picture: %s is not a usable picture: %v", FileName, err)
 	}
 	s.cached, s.cachedFile = p, sum
 	return p, nil
@@ -219,9 +220,20 @@ func normalize(b []byte) (*image.RGBA, error) {
 		return nil, errTooSmall
 	}
 	x0, y0 := sb.Min.X+(sb.Dx()-side)/2, sb.Min.Y+(sb.Dy()-side)/2
+	sr := image.Rect(x0, y0, x0+side, y0+side)
+	// Catmull-Rom keeps a float buffer of 32 bytes per destination column
+	// per source row (262 MB for an 8000 px side), so large pictures are
+	// first halved: bilinear at exactly half is a 2×2 box average and needs
+	// no buffer.
+	for sr.Dx() >= 2*Size {
+		half := image.NewRGBA(image.Rect(0, 0, sr.Dx()/2, sr.Dy()/2))
+		draw.Draw(half, half.Bounds(), image.White, image.Point{}, draw.Src)
+		xdraw.ApproxBiLinear.Scale(half, half.Bounds(), src, sr, xdraw.Over, nil)
+		src, sr = half, half.Bounds()
+	}
 	dst := image.NewRGBA(image.Rect(0, 0, Size, Size))
 	draw.Draw(dst, dst.Bounds(), image.White, image.Point{}, draw.Src)
-	xdraw.CatmullRom.Scale(dst, dst.Bounds(), src, image.Rect(x0, y0, x0+side, y0+side), xdraw.Over, nil)
+	xdraw.CatmullRom.Scale(dst, dst.Bounds(), src, sr, xdraw.Over, nil)
 	if format == "jpeg" {
 		dst = orient(dst, jpegOrientation(b))
 	}

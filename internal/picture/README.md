@@ -11,7 +11,8 @@ or WebP, at most 5 MB, whatever type the client claimed), reads the declared
 dimensions before decoding and refuses more than 8000 px a side, fewer than
 128, or a decode that would allocate over 160 MB; then it crops the centre
 square, turns a JPEG upright by its EXIF orientation, flattens it onto white,
-scales it to 1024 px (Catmull-Rom) and re-encodes it, which drops every bit
-of metadata. `Current` reads the file back (one by hand goes through the same
+scales it to 1024 px (halving it first while it is twice that, since
+Catmull-Rom's buffer grows with the source: a 47 MP photo then takes about
+160 MB in all) and re-encodes it, which drops every bit of metadata. `Current` reads the file back (one by hand goes through the same
 checks), caches it by content and adds the JPEG Telegram needs. Imports: the
 stdlib, `core` and `golang.org/x/image` (`draw`, `webp`).

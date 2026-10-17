@@ -96,6 +96,25 @@ func TestNormalizeCropsTheCentreSquare(t *testing.T) {
 	}
 }
 
+// A large picture is halved before the final scaling; the crop still holds.
+func TestNormalizeShrinksLargePictures(t *testing.T) {
+	img := bands(6000, 2400, true, red)
+	for y := range 2400 {
+		for x := 1800; x < 4200; x++ {
+			img.SetRGBA(x, y, blue)
+		}
+	}
+	out, err := normalize(jpegOf(t, img))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []image.Point{{8, 8}, {512, 512}, {1015, 1015}, {8, 1015}} {
+		if c := out.At(p.X, p.Y); !near(c, blue) {
+			t.Fatalf("at %v: %v", p, c)
+		}
+	}
+}
+
 func TestNormalizeFlattensTransparencyOntoWhite(t *testing.T) {
 	img := image.NewNRGBA(image.Rect(0, 0, 200, 200))
 	for x := range 100 {
@@ -230,8 +249,8 @@ func TestStoreChecksAFilePutThereByHand(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, FileName), []byte("junk"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := New(dir).Current(ctx); err == nil {
-		t.Fatal("junk picture.png accepted")
+	if _, err := New(dir).Current(ctx); err == nil || errors.Is(err, core.ErrInvalid) {
+		t.Fatalf("junk picture.png: %v", err)
 	}
 }
 
