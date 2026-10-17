@@ -6,8 +6,10 @@
   import HeaderSpacer from './HeaderSpacer.svelte';
   import SearchField from './SearchField.svelte';
 
-  // The frame of the three Knowledge tabs (§9): title, a search field above the tabs, then the tab.
-  let { title = 'Knowledge', actions, children }: { title?: string; actions?: Snippet; children: Snippet } = $props();
+  // The frame of the three Knowledge tabs (§9): title, the tabs, then the tab. `search` puts the
+  // code-and-notes search under the tabs: only Projects searches, and only once a repository was read
+  // (⌘K Search covers the rest).
+  let { title = 'Knowledge', actions, search = false, children }: { title?: string; actions?: Snippet; search?: boolean; children: Snippet } = $props();
 
   let q = $state('');
   const tabs = [
@@ -24,7 +26,7 @@
 
 <div class="page">
   <PageHeader title="Knowledge" actions={headerActions} />
-  <SearchField class="mt-4" bind:value={q} onsearch={(t) => t && router.navigate(`/knowledge/search?q=${encodeURIComponent(t)}`)} />
   <Tabs class="mt-4" {tabs} />
+  {#if search}<SearchField class="mt-6" bind:value={q} onsearch={(t) => t && router.navigate(`/knowledge/search?q=${encodeURIComponent(t)}`)} />{/if}
   <div class="mt-6">{@render children()}</div>
 </div>

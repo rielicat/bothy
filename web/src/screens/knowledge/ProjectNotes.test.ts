@@ -104,6 +104,19 @@ describe('Project notes', () => {
     expect(puts(calls)).toHaveLength(0);
   });
 
+  it("says a repository is too big to read, offering only notes written by hand", async () => {
+    installApi();
+    approvals.reset();
+    session.ready = false;
+    await session.init();
+    render(ProjectNotes, { params: { owner: 'acme', repo: 'infra' } });
+    expect(await screen.findByText('This repository is too big for Bothy to read (more than 50,000 files).')).toBeTruthy();
+    // Reading again would fail the same way.
+    expect(screen.queryByRole('button', { name: 'Read again' })).toBeNull();
+    expect(screen.getByText('You can write notes for this project yourself.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Write notes' })).toBeTruthy();
+  });
+
   it('offers no actions for a repository Bothy does not read', async () => {
     installApi();
     approvals.reset();

@@ -26,7 +26,13 @@ describe('Projects', () => {
     expect(row('acme/api').textContent).toContain('Reading… 40%');
     expect(within(row('acme/infra')).getByText("Couldn't read")).toBeTruthy();
     expect(within(row('acme/infra')).getByText('Too large to read (more than 50,000 files).')).toBeTruthy();
+    // Too big fails the same way every time: no Details, no Read again.
+    expect(within(row('acme/infra')).queryByRole('button', { name: 'Details' })).toBeNull();
+    expect(within(row('acme/infra')).queryByRole('button', { name: 'Read again' })).toBeNull();
     expect(within(row('acme/docs')).getByText('Out of date')).toBeTruthy();
+    // Searching code and notes lives on this tab, under the tabs, once something was read.
+    const search = screen.getByRole('searchbox');
+    expect(screen.getByRole('link', { name: 'Skills' }).compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(row('acme/docs')).getByRole('button', { name: 'Read again' })).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Add repositories' })).toBeTruthy();
   });
@@ -61,6 +67,8 @@ describe('Projects', () => {
     await start(mock);
     render(Projects);
     expect(await screen.findByText(text)).toBeTruthy();
+    // Nothing read yet, so nothing to search.
+    expect(screen.queryByRole('searchbox')).toBeNull();
     if (action) expect(screen.getByRole('link', { name: action }).getAttribute('href')).toMatch(/^\/settings\/connections\/github/);
     else expect(screen.queryByRole('link', { name: /GitHub|repositories/ })).toBeNull();
     // The empty state carries the one action; the header doesn't repeat it.

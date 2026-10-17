@@ -5,6 +5,7 @@
   import LinkButton from '../../components/ui/LinkButton.svelte';
   import Spinner from '../../components/ui/Spinner.svelte';
   import {
+    failKind,
     failReason,
     githubState,
     knowledge,
@@ -15,7 +16,7 @@
     repoState,
     type KnowledgeRepo,
   } from '../../lib/api/knowledge';
-  import { fullTime, relTime } from '../../lib/format';
+  import { fullTime, isZeroTime, relTime } from '../../lib/format';
   import { router } from '../../lib/router.svelte';
   import { events } from '../../lib/sse.svelte';
   import { session } from '../../lib/stores/session.svelte';
@@ -96,7 +97,7 @@
   {#if session.isAdmin && connected && rows?.length}<Button href="{GITHUB}#repositories">Add repositories</Button>{/if}
 {/snippet}
 
-<Knowledge {actions}>
+<Knowledge {actions} search={!!rows?.some((r) => r.id && !isZeroTime(r.indexed_at))}>
   {#if !rows}
     <Loading {failed} onretry={load} />
   {:else if !rows.length}
@@ -132,10 +133,12 @@
               {#if unread(r)}Not read yet{:else if st === 'ready'}Up to date{:else if st === 'stale'}Out of date{:else if st === 'failed'}Couldn't read{:else}<Spinner size={12} />Reading…{#if pct !== null}{' '}{pct}%{/if}{/if}
             </span>
             <div class="col-span-2 flex items-baseline gap-4">
-              <p class="min-w-0 flex-1 text-small text-muted {st === 'failed' ? '' : 'truncate'}" title={r.notes.status === 'ready' ? fullTime(r.notes.updated_at) : undefined}>
+              <!-- On a phone two lines, so the date at the end isn't always cut off. -->
+              <p class="min-w-0 flex-1 text-small text-muted {st === 'failed' ? '' : 'max-sm:line-clamp-2 sm:truncate'}" title={r.notes.status === 'ready' ? fullTime(r.notes.updated_at) : undefined}>
                 {#if rowError[r.repo]}<span class="text-danger-text">{rowError[r.repo]}</span>{:else}{line2(r)}{/if}
               </p>
-              {#if unread(r) || (st === 'stale' && session.isAdmin) || (st === 'failed' && r.error)}
+              <!-- A repository too big to read fails the same way again, so it gets neither Details nor Read again. -->
+              {#if unread(r) || (st === 'stale' && session.isAdmin) || (st === 'failed' && r.error && failKind(r) !== 'size')}
                 <span class="relative z-10 shrink-0 text-small">
                   {#if unread(r)}
                     <LinkButton onclick={() => readNow(r)}>Read now</LinkButton>
@@ -157,7 +160,7 @@
           {#if st === 'failed' && details[r.repo]}
             <div id="why-{r.id}" class="pb-3" data-details>
               <CodeBlock code={r.error ?? ''} wrap />
-              {#if session.isAdmin}<LinkButton class="mt-2 text-small" onclick={() => readAgain(r)}>Read again</LinkButton>{/if}
+              {#if session.isAdmin && failKind(r) === 'temporary'}<LinkButton class="mt-2 text-small" onclick={() => readAgain(r)}>Read again</LinkButton>{/if}
             </div>
           {/if}
         </li>

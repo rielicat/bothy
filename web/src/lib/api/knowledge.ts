@@ -90,6 +90,24 @@ export function progressPct(r: Pick<KnowledgeRepo, 'progress'>): number | null {
   return Math.min(99, Math.floor((p.done / p.total) * 100));
 }
 
+/**
+ * Why a read failed, for what to offer: a repository too big to read fails
+ * the same way every time, so only temporary reasons (GitHub limiting
+ * requests, or out of reach) get "Read again".
+ */
+export function failKind(r: Pick<KnowledgeRepo, 'error' | 'truncated'>): 'size' | 'temporary' | 'other' {
+  const e = (r.error ?? '').toLowerCase();
+  if (/more than [\d,.]+ files/.test(e) || r.truncated || /max_files|too (many|large)|file (count|cap)/.test(e)) return 'size';
+  if (/rate.?limit|timeout|unreachable|connection|dial/.test(e)) return 'temporary';
+  return 'other';
+}
+
+/** "more than 50,000 files" from a size failure, or ''. */
+export function fileCap(r: Pick<KnowledgeRepo, 'error'>): string {
+  const cap = Number(/more than ([\d,.]+) files/.exec((r.error ?? '').toLowerCase())?.[1]?.replace(/[,.]/g, ''));
+  return cap > 0 ? `more than ${cap.toLocaleString()} files` : '';
+}
+
 /** The plain reason a read failed; the raw message stays behind Details. */
 export function failReason(r: Pick<KnowledgeRepo, 'error' | 'truncated'>): string {
   const e = (r.error ?? '').toLowerCase();

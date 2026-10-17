@@ -14,7 +14,9 @@
   import { ApiError } from '../../lib/api/client';
   import {
     byteLength,
+    failKind,
     failReason,
+    fileCap,
     fullness,
     githubState,
     githubUrl,
@@ -303,12 +305,15 @@
       {#if readError}
         <Notice tone="danger" class="mb-6" text={readError} />
       {/if}
-      {#if st === 'failed'}
+      {#if st === 'failed' && failKind(repo) === 'size'}
+        <!-- Reading again would fail the same way, so there's nothing to offer but notes written by hand. -->
+        <Notice tone="danger" class="mb-6" text="This repository is too big for Bothy to read{fileCap(repo) ? ` (${fileCap(repo)})` : ''}." />
+      {:else if st === 'failed'}
         <Notice
           tone="danger"
           class="mb-6"
           text="Bothy couldn't read this repository. {failReason(repo)}"
-          action={admin ? { label: 'Read again', onclick: readAgain } : undefined}
+          action={admin && failKind(repo) === 'temporary' ? { label: 'Read again', onclick: readAgain } : undefined}
         />
       {/if}
       {#if suggestions.length && !editing}
@@ -344,6 +349,8 @@
         {#if repo.progress?.total}
           <p class="text-reading text-muted tabular-nums">Read {repo.progress.done.toLocaleString()} of about {repo.progress.total.toLocaleString()} files</p>
         {/if}
+      {:else if st === 'failed' && failKind(repo) === 'size'}
+        <EmptyState text="You can write notes for this project yourself." action={{ label: 'Write notes', onclick: startEdit, variant: 'secondary' }} />
       {:else}
         <EmptyState
           text="There are no notes for this project yet."

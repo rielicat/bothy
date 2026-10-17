@@ -1582,14 +1582,14 @@ Deploy environments are configured in Settings → Connections → GitHub (§12.
 
 ## 9. Knowledge
 
-`/knowledge` has a search field above three tabs: **Projects · Memory · Skills**.
+`/knowledge` has three tabs: **Projects · Memory · Skills**. The "Search code and notes" field sits on the Projects tab only, under the tabs and above the list, and only once at least one repository has been read: it searches neither Memory nor Skills, and ⌘K Search covers everything else.
 
 ### 9.1 Projects (`/knowledge`)
 
 ```
 Knowledge                                                    [ Add repositories ]   admins, secondary
-[ ⌕ Search code and notes                                                      ]
 [Projects]  [Memory]  [Skills]
+[ ⌕ Search code and notes                                                      ]   once a repository was read
 
 acme/web                                                              Up to date
 Customer web app built with Next.js. Notes updated 2 days ago.
@@ -1598,11 +1598,11 @@ acme/api                                                           ◌ Reading�
 Go API behind the web app.
 ──────────────────────────────────────────────────────────────────────────────────
 acme/infra                                                        Couldn't read
-Too large to read (more than 50,000 files).                              Details
+Too large to read (more than 50,000 files).
 ```
 
-- Rows are 56 px `ListRow`s linking to the project page. Line 1: `owner/repo`, `text-body` 500, sans (a name here). Line 2 (`text-small muted`): the first sentence of the notes, then "Notes updated {relative time}." Before notes exist: "Bothy is writing notes for this project."
-- Status at the right (`text-small`): "Up to date" (muted); "◌ Reading… {n}%" (muted); "Out of date" (muted) + "Read again" link (admins); "Couldn't read" (`danger-text`) + "Details" with a plain reason ("Too large to read (more than 50,000 files).", "GitHub says Bothy no longer has access to this repository.").
+- Rows are 56 px `ListRow`s linking to the project page. Line 1: `owner/repo`, `text-body` 500, sans (a name here). Line 2 (`text-small muted`): the first sentence of the notes, then "Notes updated {relative time}." Before notes exist: "Bothy is writing notes for this project." Under 640 px line 2 takes up to two lines (`line-clamp-2`), so the date at its end isn't cut off.
+- Status at the right (`text-small`): "Up to date" (muted); "◌ Reading… {n}%" (muted); "Out of date" (muted) + "Read again" link (admins); "Couldn't read" (`danger-text`) + "Details" with a plain reason ("GitHub says Bothy no longer has access to this repository."). A repository too big to read ("Too large to read (more than 50,000 files).") fails the same way every time, so it gets neither Details nor "Read again"; "Read again" is offered only for temporary reasons (GitHub limiting requests, or out of reach).
 - "Add repositories" opens Settings → Connections → GitHub at the repository picker.
 - Empty, no GitHub (admin): "Connect GitHub to give Bothy your code. It reads your repositories, keeps notes on each project and can answer questions about them." + primary "Connect GitHub". Member: "Ask an admin to connect GitHub so Bothy can read your code." (no button).
 - Empty, GitHub connected, nothing chosen: "Choose which repositories Bothy can read." + "Choose repositories".
