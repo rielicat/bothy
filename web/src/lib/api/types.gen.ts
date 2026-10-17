@@ -2763,6 +2763,11 @@ export type MemoryFile = string;
 export const FileMemory: MemoryFile = "MEMORY";
 export const FileUser: MemoryFile = "USER";
 export const FileHeartbeat: MemoryFile = "HEARTBEAT";
+/**
+ * FileTeam is TEAM.md, remembered for everyone: one file for the whole
+ * team at <data>/memory/team/TEAM.md, never a principal's.
+ */
+export const FileTeam: MemoryFile = "TEAM";
 export interface MemoryEvent {
   id: number /* int64 */;
   principal_id: PrincipalID;
@@ -2774,6 +2779,11 @@ export interface MemoryEvent {
   actor: string; // agent:<run> | user:<id>
   provenance: Provenance;
   at: string /* RFC 3339 */;
+  /**
+   * Approval is the admin's approval an agent change to TEAM.md ran under;
+   * team rows have no Principal.
+   */
+  approval_id?: ApprovalID;
 }
 export interface SearchHit {
   session_id: SessionID;
@@ -2833,6 +2843,12 @@ export type EgressRepo = any;
 export type MCPRepo = any;
 export type SkillRepo = any;
 export type MemoryEventRepo = any;
+/**
+ * TeamMemoryEventRepo is the history of TEAM.md (table team_memory_events).
+ * It belongs to no principal, so it is not Viewer-scoped: every signed-in
+ * user may read what Bothy remembers for everyone.
+ */
+export type TeamMemoryEventRepo = any;
 export type VaultRepo = any;
 export type UploadRepo = any;
 export type DedupRepo = any;
