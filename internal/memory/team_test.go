@@ -438,7 +438,7 @@ func TestMemoryToolTeamNeedsItsApproval(t *testing.T) {
 	env := h.env(t)
 	env.Run, env.Approval, env.Taint = run, id, core.TaintUntrusted
 	res, err := tl.Exec(ctx, env, act)
-	if err != nil || res.IsError || res.Content != "Remembered for everyone (an admin approved it; TEAM.md 23/256 bytes used)." {
+	if err != nil || res.IsError || res.Content != "Remembered for everyone (an admin approved it; TEAM.md 23/256 bytes used). Your team memory block shows this change from now on; it is not an earlier copy." {
 		t.Fatalf("approved Exec = %+v, %v", res, err)
 	}
 	if got := h.team(t); got != "Deploy day is Thursday\n" {
@@ -457,7 +457,7 @@ func TestMemoryToolTeamNeedsItsApproval(t *testing.T) {
 	rm := plan(`{"file":"TEAM","op":"remove","old":"Deploy day is Thursday"}`)
 	run, id = h.approvedRun(t, rm, nil)
 	env.Run, env.Approval, env.Taint = run, id, 0
-	if res, err := tl.Exec(ctx, env, rm); err != nil || res.Content != "Forgot for everyone (an admin approved it; TEAM.md 0/256 bytes used)." {
+	if res, err := tl.Exec(ctx, env, rm); err != nil || res.Content != "Forgot for everyone (an admin approved it; TEAM.md 0/256 bytes used). Your team memory block shows this change from now on; it is not an earlier copy." {
 		t.Fatalf("remove = %+v, %v", res, err)
 	}
 	// Nor once the note is gone: an approval is good for one change.
