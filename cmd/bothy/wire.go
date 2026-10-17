@@ -291,7 +291,7 @@ func (a *app) buildRest(ctx context.Context) error {
 		Approvals: a.approvals, Policy: a.policy, Tools: a.registry, LLM: a.llm, Budget: a.budget, Memory: a.memory, Skills: a.skills, MCP: a.mcp, GitHub: a.github,
 		Scheduler: a.scheduler, Hub: a.hub, Sandbox: a.sandbox, Egress: a.egress, Doctor: a.doctor, Audit: a.audit, Deploys: a.db.Releases(),
 		WebUI: webui.Handler(), Version: version, DataDir: dirs.Data, WorkDir: dirs.Work, Restart: a.requestRestart,
-		Clock: a.clock, Log: a.log, Knowledge: a.knowledge})
+		Clock: a.clock, Log: a.log, Knowledge: a.knowledge, Picture: a.picture})
 	return err
 }
 

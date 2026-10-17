@@ -120,6 +120,18 @@ names (`auth.sign_in.github.org_ids`, written through `config.ServerWrite`;
 `PATCH /api/config` and `DELETE /api/config` refuse it by any path), and
 GitHub limiting the lookups is 502 `provider_rate_limited`.
 
+`h_picture.go` serves Bothy's picture in the chat apps through
+`Deps.Picture` (`core.AgentPicture`; 503 without it): `GET
+/api/agent/picture` is the PNG with its version as `ETag` and `private,
+no-cache` (`?download=1` adds an attachment named after `agent.name`), `GET
+/api/agent/picture/info` says whether an admin replaced the default. `PUT`
+(the raw body or a multipart `file` part, at most 5 MB, sniffed by the
+picture store whatever the declared type) and `DELETE` (back to the default)
+are admin writes, audited `picture.update` and `picture.reset`; both then
+call `Hub.ApplyPicture` on a context the client leaving doesn't cancel and
+answer `dto.PictureChange`, each chat app's result with one plain sentence
+(`pictureDetail`).
+
 For the v0.2 UI (docs/design/ui.md §17) responses carry names instead of
 ids (`names.go`, cached per response and resolved through the caller's own
 Viewer, so a chat's title or a schedule's name never reaches anyone else, not

@@ -33,6 +33,7 @@ overrides:
   FailureCode: '"key_rejected" | "no_model_access" | "out_of_credit" | "rate_limited" | "provider_error" | "timeout" | "unreachable" | "private_address" | "no_models" | "tls" | "not_a_model_server" | "aws_no_credentials" | "aws_denied" | "aws_no_models" | "not_found" | "json_key_missing" | "not_json" | "unknown"'
   InstallKind: '"compose" | "docker" | "binary" | "unknown"'
   SignInProvider: '"google" | "github"'
+  PictureOutcome: '"updated" | "failed" | "manual"'
   Secret: '"[redacted]"'
 
 renames:

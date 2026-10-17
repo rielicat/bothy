@@ -294,6 +294,11 @@ export interface ChannelStatus {
    * is on, whose members therefore can't use it.
    */
   idle_servers?: number /* int */;
+  /**
+   * AppID (Slack, once connected): the app's id, for links to its settings
+   * page (where only a person can change its icon).
+   */
+  app_id?: string;
 }
 /**
  * MemberStatus is what a chat app says about whether a person belongs to
@@ -1306,6 +1311,50 @@ export interface Pin {
   source: string; // "user" | "auto" (standing instruction found by compaction)
   msg_seq?: number /* int64 */;
   created_at: string /* RFC 3339 */;
+}
+
+//////////
+// source: internal/core/picture.go
+
+/**
+ * Picture is Bothy's picture in the chat apps: the built-in default or one an
+ * admin uploaded, always a square, opaque 1024 px image.
+ */
+export interface Picture {
+  /**
+   * Custom is true when an admin replaced the default.
+   */
+  custom: boolean;
+  /**
+   * Version changes whenever the picture does (a hash of PNG).
+   */
+  version: string;
+}
+/**
+ * AgentPicture keeps Bothy's picture (internal/picture): the admin's upload in
+ * the data dir, else the embedded default.
+ */
+export type AgentPicture = any;
+/**
+ * PictureSetter is implemented by adapters that can change the bot's own
+ * picture (Telegram, Discord). Slack lets only a person change an app's icon.
+ */
+export type PictureSetter = any;
+/**
+ * PictureOutcome is what applying the picture did in one chat app.
+ */
+export type PictureOutcome = "updated" | "failed" | "manual";
+/**
+ * PictureResult is ChannelHub.ApplyPicture's answer for one chat app.
+ */
+export interface PictureResult {
+  App: string;
+  Outcome: PictureOutcome;
+  /**
+   * Err is why it failed: ErrNotConnected, or the platform's error (see
+   * CodeOf for rate limits).
+   */
+  Err: error;
 }
 
 //////////
@@ -3750,6 +3799,37 @@ export interface ChatLink {
  */
 export interface KnowledgeNotesPutReq {
   content: string;
+}
+
+//////////
+// source: internal/httpapi/dto/picture.go
+
+/**
+ * PictureInfo is GET /api/agent/picture/info: whether an admin replaced the
+ * default picture, and a version that changes with the picture (add it to
+ * the image address so the browser fetches the new one).
+ */
+export interface PictureInfo {
+  custom: boolean;
+  version: string;
+}
+/**
+ * PictureChange answers PUT and DELETE /api/agent/picture: the picture now
+ * in use and what happened in each chat app that is turned on.
+ */
+export interface PictureChange {
+  picture: PictureInfo;
+  apps: PictureAppResult[];
+}
+/**
+ * PictureAppResult is one chat app's outcome. Detail is one plain sentence
+ * the UI can show as it is: why it failed and what to do, or where a person
+ * changes the picture (Slack).
+ */
+export interface PictureAppResult {
+  app: string; // telegram | discord | slack
+  result: PictureOutcome; // updated | failed | manual
+  detail: string;
 }
 
 //////////

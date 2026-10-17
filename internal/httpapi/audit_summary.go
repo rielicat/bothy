@@ -308,6 +308,10 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 			plural(int(num(d["guests"])), "guest", "guests") + ", " + plural(int(num(d["approvers"])), "approver", "approvers")
 	case "persona.update":
 		return "Changed Bothy's personality"
+	case "picture.update":
+		return "Changed Bothy's picture"
+	case "picture.reset":
+		return "Put back Bothy's default picture"
 	case "vault.put":
 		return "Saved a key"
 	case "vault.delete":

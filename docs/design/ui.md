@@ -2708,6 +2708,7 @@ The UI never parses error strings or invents sentences from model output where s
 | S31 | `GET /api/auth/methods` and the provider round trip: `POST /api/auth/oauth/{p}/start` → provider → `GET /api/auth/oauth/{p}/callback`, which lands on `next` or `/login?signin_error=…&provider=…` (a refused account in the refusal cookie) | §5.9 | — (landed with SPEC §15) | — |
 | S32 | `GET /api/me/sign-ins`, `POST` and `DELETE /api/me/sign-ins/{p}` | §11.2 | — (landed with SPEC §15) | — |
 | S33 | `GET`/`PATCH /api/sign-in`, `PATCH /api/sign-in/{p}`, `POST /api/sign-in/{p}/check` | §11.6 | — (landed with SPEC §15) | — |
+| S34 | Bothy's picture: `GET /api/agent/picture` (`?download=1` names the file after Bothy), `GET /api/agent/picture/info` (`custom`, `version`), `PUT` (an image, ≤ 5 MB) and `DELETE` (back to the default) answering `PictureChange` with one plain `detail` per chat app (`updated`, `failed`, `manual` for Slack); Slack's `app_id` on `ChannelStatus` for the link to its app settings | §11.3, §12.3 | — (landed with SPEC §8.3) | — |
 
 S21–S30 landed together (SPEC §14.7, "UI state"); their fallbacks are gone from the UI.
 
