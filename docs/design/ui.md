@@ -1414,7 +1414,7 @@ The table is the copy contract for S2 and `lib/cardcopy.ts`.
 | MCP tool | "Use {Server}: {Tool title}?" | "Allow" (danger when the class is irreversible) | "This can't be undone." when irreversible | `field_map` fields, labels humanised |
 | Admin class | "Change Bothy's settings?" | "Change settings" | — | What (setting labels) · Value |
 | Financial | "Pay {amount} to {recipient}?" | "Pay {amount}" (danger) | "Money will leave your account. This can't be undone." | To · Amount |
-| `skill_install` | "Install the “{skill}” skill?" | "Install skill" | — | From (the source) |
+| `skill_install` | "Install the “{skill}” skill?" | "Install skill" | — | Source (the address; "From" is the meta line's chat) |
 | Unknown tool | "Let Bothy use “{tool}”?", the name humanised, quoted and in lower case ("Let Bothy use “report export”?") | "Allow" | — | the Action's fields, labels humanised |
 
 Danger fill rule (server-provided `card.tone`, S2): `destructive` when the side-effect class is irreversible or financial (a shell command that deletes files is irreversible, like `fs_delete`), except `release_deploy`, whose safeguard is its approvers.

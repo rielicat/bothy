@@ -113,7 +113,7 @@ describe('cardCopy, one row per action', () => {
     ['MCP tool', act('mcp__linear__create_issue', 'mcp', 'external_send', { title: 'Bug' }, { mcp_server: 'linear', mcp_tool: 'create_issue' }), 'Use Linear: Create issue?', 'Allow', undefined, ['Title']],
     ['admin class', act('config_set', 'generic', 'admin', { setting: 'Daily limit', value: '$20' }), "Change Bothy's settings?", 'Change settings', undefined, ['Setting', 'Value']],
     ['financial', act('pay', 'generic', 'financial', { amount: '$240.00', to: 'Northwind' }), 'Pay $240.00 to Northwind?', 'Pay $240.00', "Money will leave your account. This can't be undone.", ['To', 'Amount']],
-    ['skill_install', act('skill_install', 'generic', 'local_write', { name: 'notes', source: 'https://skills.example.com/notes.zip' }), 'Install the “notes” skill?', 'Install skill', undefined, ['From']],
+    ['skill_install', act('skill_install', 'generic', 'local_write', { name: 'notes', source: 'https://skills.example.com/notes.zip' }), 'Install the “notes” skill?', 'Install skill', undefined, ['Source']],
     ['unknown tool', act('report_export', 'generic', 'local_write', { name: 'notes' }), 'Let Bothy use “report export”?', 'Allow', undefined, ['Name']],
   ];
 

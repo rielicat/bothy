@@ -525,7 +525,7 @@ function skillInstall(_a: Action, p: Payload): Built {
     primary: 'Install skill',
     ing: [`installing the “${name}” skill`],
     ask: [`install the “${name}” skill`],
-    fields: [str(p.source) && { label: 'From', value: str(p.source), mono: true }],
+    fields: [str(p.source) && { label: 'Source', value: str(p.source), mono: true }],
   };
 }
 

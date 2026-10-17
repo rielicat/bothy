@@ -246,7 +246,8 @@ func plainFor(r core.ApprovalRequest, a *core.Action, doc any, se core.SideEffec
 	case toolSkillInstall:
 		name := quoted(text("/name"))
 		p := plainCard{question: "Install the " + name + " skill?", verb: "Install skill", ing: "installing the " + name + " skill", keepCode: true}
-		p.add("From", text("/source"), true)
+		// "Source", not "From": the meta line's "From" names the chat that asked.
+		p.add("Source", text("/source"), true)
 		return p
 	}
 	switch a.Kind {

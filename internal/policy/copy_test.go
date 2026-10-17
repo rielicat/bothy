@@ -119,7 +119,7 @@ func TestPlainCopy(t *testing.T) {
 			labels: []string{"On", "Comment"}},
 		{name: "skill_install", a: action("skill_install", core.ActGeneric, core.SELocalWrite, map[string]any{"name": "release-notes", "source": "https://skills.example.com/r.zip"}),
 			s: spec("skill_install", core.SELocalWrite), question: "Install the “release-notes” skill?", primary: "Install skill", ing: "installing the “release-notes” skill",
-			labels: []string{"From"}},
+			labels: []string{"Source"}},
 		{name: "github_issues", a: action("github_issues", core.ActHTTP, core.SERead, map[string]any{"repo": "acme/web"}), s: spec("github_issues", core.SERead),
 			question: "Read the issues in acme/web?", primary: "Read issues", ing: "reading the issues in acme/web", labels: []string{"Repository"}},
 		{name: "github_pr", a: action("github_pr", core.ActHTTP, core.SERead, map[string]any{"repo": "acme/web", "number": 7}), s: spec("github_pr", core.SERead),
