@@ -173,11 +173,15 @@ test('connect Slack: tokens and the check, then who can use Bothy', async ({ pag
   await page.getByRole('button', { name: 'Disconnect Slack…' }).click();
   await page.getByRole('dialog', { name: 'Disconnect Slack?' }).getByRole('button', { name: 'Disconnect Slack' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Connect Slack' })).toBeVisible();
+  // The picture for the app icon saves as a file; the step is optional.
+  const [picture] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: 'Download picture' }).click()]);
+  expect(picture.suggestedFilename()).toMatch(/^Bothy-picture\./);
+  await expect(page).toHaveURL(/\/settings\/connections\/slack(\?mock=)?$/);
   await page.getByLabel('App-level token').fill('xapp-' + '1-A0123456789-1234567890123-abcdef');
   await page.getByLabel('Bot token').fill('xoxb-' + '1234567890-1234567890123-AbCdEfGhIjKlMnOp');
   await expect(page.getByText('Connected to Acme as @bothy.')).toBeVisible();
   await expect(page.getByText('Message Bothy in Slack to try it.', { exact: false })).toBeVisible();
-  await expect(page.getByRole('heading', { name: /Step 3/ })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: /Step 4/ })).toHaveCount(0);
   await page.locator('#main').getByRole('link', { name: 'People' }).click();
   await expect(page).toHaveURL(/\/settings\/people$/);
   await expect(page.getByRole('heading', { name: 'In chat apps' })).toBeVisible();

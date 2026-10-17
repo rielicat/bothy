@@ -2254,7 +2254,11 @@ Connect Slack
    Slack opens with everything filled in. Choose your workspace, click Create, then Install to Workspace.
    [ Create the app in Slack ↗ ]
 
-2  Paste the two tokens
+2  Add Bothy's picture (optional)
+   In Slack, open Basic Information and upload it under App icon.
+   [▣] [ Download picture ]                     the picture as Slack crops it (48 px, rounded)
+
+3  Paste the two tokens
    Bot token            [                                        ]
    Starts with xoxb-. In Slack: OAuth & Permissions → Bot User OAuth Token.
    App-level token      [                                        ]
@@ -2266,6 +2270,7 @@ Connect Slack
    for yourself in People.                                       "People" links to /settings/people
 ```
 
+- Slack's step 2 is there because Slack lets only a person set an app's icon, and it lands on Basic Information after Create. Nothing waits on it; the steps reached from "Replace the tokens" leave it out, since the app exists by then. Telegram and Discord bots get the picture from Bothy when they first connect, unless someone already gave them one (SPEC §5.1).
 - Telegram: 1 "Create a bot with @BotFather" (send `/newbot`, choose a name, copy the token); 2 "Paste the bot token" ("✓ Connected as @acme_bothy_bot."); then the try-it line and [Open Telegram ↗] (`https://t.me/{bot}`).
 - Discord: 1 "Create a bot in the Discord developer portal" (link; "Create an application, add a bot to it, then turn on Message Content Intent under Bot." and "Under Bot, turn off Public Bot, so only you can add Bothy to servers."); 2 "Paste the bot token and application ID"; 3 [Invite Bothy to your server ↗]; then the try-it line.
 - The try-it line sits under the last step, indented to the step text, once the check passed. Slack: "Message Bothy in Slack to try it. To approve requests there, turn on Can approve for yourself in People." Telegram and Discord: "Message Bothy in {App}, then let yourself in from Approvals. To approve requests there, turn on Can approve for yourself in People." ("Approvals" links to `/approvals`): Telegram can't say who is in the team, and Discord can't before a channel is on, so the admin's own first message waits there like anyone's.
@@ -2277,7 +2282,7 @@ Connect Slack
 
 | Section | Rows |
 |---|---|
-| Connection | "Connected to Acme as @bothy" + [Test connection]; "Turned on" switch; "Disconnect Slack…" (`danger-text`, confirm: "Bothy stops answering in Slack and forgets its tokens. People and group chat settings are kept.") |
+| Connection | "Connected to Acme as @bothy" + [Test connection]; "Turned on" switch; Slack only, the row "Picture": the picture (32 px, rounded) + small secondary "Download picture", with "In Slack, upload it under App icon in Slack's app settings." and the link "Open Slack's app settings ↗" under the label (as in General); "Disconnect Slack…" (`danger-text`, confirm: "Bothy stops answering in Slack and forgets its tokens. People and group chat settings are kept.") |
 | Group chats | one row per channel: "#eng" with `text-small muted` "{workspace or server · }{n people}" plus " · Shared with other companies" when Slack says so; switch "Answers here"; select "Answers when" (Mentioned / Any message); select "What Bothy can do here" ("Answer questions" / "Do work, with approval"). Turning off the last channel Bothy answers in on a Discord server asks first: title "Turn off Bothy in {chat}?", body "People who are only in {server} won't be able to message Bothy any more." ("the Discord server" without its name), buttons "Turn off" (danger) and "Cancel" (the switch goes back on). A channel that is off has a small ghost "Delete…" (`aria-label` "Delete {chat}…") → confirm: title "Delete {chat}?", body "This deletes its chats, files, notes and schedules in Bothy, and what Bothy may do there without asking. If Bothy is still in {chat}, the next message there brings it back to Approvals. This can't be undone.", buttons "Delete group chat" (danger) and "Cancel" (`DELETE /api/spaces/{id}`). |
 | Who can use Bothy | Slack: "Everyone in {workspace} can message Bothy and use what it can read, such as your repositories and connected tools. Guests and people from other companies can't. Anything that changes something waits for an approver." ("your workspace" without a name; installed org-wide: "Everyone in your Slack organization, across all its workspaces, can message Bothy …"). Discord: "Members of a server where Bothy answers in a channel can message Bothy and use what it can read, such as your repositories and connected tools. Bots can't. Anything that changes something waits for an approver."; when Discord won't say who is in the servers (`member_check: no_access`), "Bothy can't check who's in your servers, so only people you let in from Approvals can message it."; when Bothy sits in servers with no channel on (`idle_servers`), a muted line "Bothy is in {n} servers where it isn't on in any channel. Remove it from servers you don't use." Both can show at once; the UI writes them from those fields, never from the status's `detail`. Telegram: "People you let in from Approvals." Telegram and Discord add the row "When someone new messages Bothy": select "Ask an admin (recommended)" / "Don't reply or notify anyone", help "Either way, they're listed in Approvals. Applies to Telegram and Discord." All three end with a secondary button "Manage people" → `/settings/people`. |
 
@@ -2873,7 +2878,7 @@ Owns: `web/src/screens/settings/connections/**` (`Connections`, `ChatApp`, `Chat
 
 - [ ] Overview (§12.1); GitHub connect, repository picker, manage view, deploy environments and dialog (§12.2); chat apps steps, failures and manage view (§12.3); MCP add and server page (§12.4); web search (§12.5).
 
-Acceptance: gates G1–G9. Shots: overview with every status word; GitHub (token, app, Enterprise open, connected line, each failure, repository picker, saved with the reading line, manage view, environments empty and listed, environment dialog with 1 and 2 approvals); Slack, Telegram and Discord (steps, success with the try-it line, failures, manage view with who can use Bothy and group chat details, the Discord turn-off confirm: `slack-manage-who`, `telegram-manage-who`, `discord-manage`, `discord-turn-off-confirm`); MCP (add dialog for both transports, code-off message, server page, review); web search (each option, check passed). Keyboard: OptionList and multi Combobox.
+Acceptance: gates G1–G9. Shots: overview with every status word; GitHub (token, app, Enterprise open, connected line, each failure, repository picker, saved with the reading line, manage view, environments empty and listed, environment dialog with 1 and 2 approvals); Slack, Telegram and Discord (steps, success with the try-it line, failures, manage view with who can use Bothy and group chat details, Slack's picture row, the Discord turn-off confirm: `slack-manage-who`, `slack-manage-picture`, `telegram-manage-who`, `discord-manage`, `discord-turn-off-confirm`); MCP (add dialog for both transports, code-off message, server page, review); web search (each option, check passed). Keyboard: OptionList and multi Combobox.
 
 #### C9 Settings: Security and Advanced
 

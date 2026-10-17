@@ -37,8 +37,9 @@ describe('Connect Slack (§12.3)', () => {
     await setup('slack', fresh());
     expect(await screen.findByRole('heading', { name: /^Step 1: ?Create the Slack app$/ })).toBeTruthy();
     expect(screen.getByRole('heading', { level: 1, name: 'Connect Slack' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: /^Step 2: ?Paste the two tokens$/ })).toBeTruthy();
-    expect(screen.queryByRole('heading', { name: /^Step 3/ })).toBeNull();
+    expect(screen.getByRole('heading', { name: /^Step 2: ?Add Bothy's picture ?\(optional\)$/ })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /^Step 3: ?Paste the two tokens$/ })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: /^Step 4/ })).toBeNull();
     expect(screen.getByText('Starts with xapp-. In Slack: Basic Information → App-Level Tokens → Generate Token and Scopes. Add the connections:write scope.')).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/link|pair/i);
   });
@@ -61,6 +62,20 @@ describe('Connect Slack (§12.3)', () => {
     const tryIt = await screen.findByText(/^Message Bothy in Slack to try it\./);
     expect(tryIt.textContent).toBe('Message Bothy in Slack to try it. To approve requests there, turn on Can approve for yourself in People.');
     expect(within(tryIt).getByRole('link', { name: 'People' }).getAttribute('href')).toBe('/settings/people');
+  });
+
+  it("offers Bothy's picture for the app icon without making it a step to finish", async () => {
+    const calls = await setup('slack', fresh());
+    const step = (await screen.findByRole('heading', { name: /Add Bothy's picture/ })).closest('li')!;
+    expect(within(step).getByText('In Slack, open Basic Information and upload it under App icon.')).toBeTruthy();
+    expect(within(step).getByRole('img', { name: 'Bothy' }).getAttribute('src')).toBe('/api/agent/picture');
+    const download = within(step).getByRole('link', { name: 'Download picture' });
+    expect(download.getAttribute('href')).toBe('/api/agent/picture?download=1');
+    expect(download.hasAttribute('download')).toBe(true);
+    expect(step.textContent).not.toMatch(/avatar|\bPNG\b|\bAPI\b/i);
+    await pasteTokens();
+    expect(await screen.findByText(/Connected as @bothy\./)).toBeTruthy();
+    expect(calls.some((c) => c.url.startsWith('/api/agent/picture'))).toBe(false);
   });
 
   it('says what went wrong in Slack terms, with the raw error behind Details', async () => {
@@ -105,6 +120,15 @@ describe('Slack manage view', () => {
     expect(document.body.textContent).not.toMatch(/Linked people|aren't linked|as a guest/);
   });
 
+  it("hands over Bothy's picture for Slack's app icon, with a link to the app's settings", async () => {
+    await setup('slack');
+    const r = (await screen.findByText('Picture', { selector: 'label' })).closest('.grid') as HTMLElement;
+    expect(within(r).getByText("In Slack, upload it under App icon in Slack's app settings.")).toBeTruthy();
+    expect(within(r).getByRole('link', { name: 'Download picture' }).getAttribute('href')).toBe('/api/agent/picture?download=1');
+    expect(within(r).getByRole('link', { name: /^Open Slack's app settings/ }).getAttribute('href')).toBe('https://api.slack.com/apps/A0123456789/general');
+    expect(within(r).getAllByRole('link')).toHaveLength(2);
+  });
+
   it('says an org-wide install lets in the whole organization', async () => {
     await setup('slack', (_m, url) => (url === '/api/channels' ? [{ name: 'slack', enabled: true, state: 'connected', since: '', identity: '@bothy', team: 'Acme', org: true }] : undefined));
     const s = await who();
@@ -139,6 +163,9 @@ describe('Slack manage view', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'Replace the tokens' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Connect Slack' })).toBeTruthy();
     expect(screen.getByText(/^Slack didn't accept those tokens\./)).toBeTruthy();
+    // The app exists already, so its picture is not asked for again.
+    expect(screen.queryByRole('heading', { name: /Add Bothy's picture/ })).toBeNull();
+    expect(screen.getByRole('heading', { name: /^Step 2: ?Paste the two tokens$/ })).toBeTruthy();
 
     await fireEvent.click(screen.getByRole('button', { name: 'Replace the bot token' }));
     const bot = await screen.findByLabelText('Bot token');

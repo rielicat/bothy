@@ -5,6 +5,7 @@
   import type { ChannelTestResp, DiscordInvite, SecretMeta, SpaceView } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
   import { router } from '../../../lib/router.svelte';
+  import { pictureDownloadURL, pictureURL } from '../picture';
   import ChatAppManage from './ChatAppManage.svelte';
   import ConnPage from './ConnPage.svelte';
   import { appTitle, channelFailure, connectedText, isApp, saveConfig, secretName, type AppName, type AppStatus, type Failure } from './connections';
@@ -170,11 +171,11 @@
   const telegramHref = $derived(handle.startsWith('@') ? `https://t.me/${encodeURIComponent(handle.slice(1))}` : '');
 </script>
 
-{#snippet step(n: number, title: string, body: Snippet)}
+{#snippet step(n: number, title: string, body: Snippet, optional?: boolean)}
   <li class="grid grid-cols-[1.25rem_minmax(0,1fr)] gap-x-3 [&+li]:mt-10">
     <span class="text-heading text-muted tabular-nums" aria-hidden="true">{n}</span>
     <div>
-      <h2 class="section-title"><span class="sr-only">Step {n}:{' '}</span>{title}</h2>
+      <h2 class="section-title"><span class="sr-only">Step {n}:{' '}</span>{title}{#if optional}<span class="font-normal text-muted">{' (optional)'}</span>{/if}</h2>
       <div class="mt-2 space-y-3">{@render body()}</div>
     </div>
   </li>
@@ -194,6 +195,15 @@
     {@render text('Under Bot, turn off Public Bot, so only you can add Bothy to servers.')}
     <Button href="https://discord.com/developers/applications" external>Open the developer portal</Button>
   {/if}
+{/snippet}
+
+<!-- Slack lets only a person set the app's icon; it opens on Basic Information after Create. -->
+{#snippet picture()}
+  {@render text('In Slack, open Basic Information and upload it under App icon.')}
+  <div class="flex flex-wrap items-center gap-3">
+    <img src={pictureURL()} alt={config.value<string>('agent.name', 'Bothy')} width="48" height="48" class="size-12 shrink-0 rounded-lg border border-border bg-subtle" />
+    <Button href={pictureDownloadURL} download>Download picture</Button>
+  </div>
 {/snippet}
 
 {#snippet two()}
@@ -259,7 +269,9 @@
       <ol>
         {#if app === 'slack'}
           {@render step(1, 'Create the Slack app', one)}
-          {@render step(2, 'Paste the two tokens', two)}
+          <!-- Replacing tokens: the app, and whatever icon it has, exist already. -->
+          {#if !fromManage}{@render step(2, "Add Bothy's picture", picture, true)}{/if}
+          {@render step(fromManage ? 2 : 3, 'Paste the two tokens', two)}
         {:else if app === 'telegram'}
           {@render step(1, 'Create a bot with @BotFather', one)}
           {@render step(2, 'Paste the bot token', two)}
