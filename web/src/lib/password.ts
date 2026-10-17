@@ -22,7 +22,14 @@ export function nameError(v: string): string {
 }
 
 export function usernameError(v: string): string {
-  return USERNAME.test(v.trim()) ? '' : 'Use up to 32 letters, numbers, dots, dashes or underscores, starting with a letter or number.';
+  const t = v.trim();
+  if (!t) return 'Enter a username.';
+  if (USERNAME.test(t)) return '';
+  if (/\s/.test(t)) {
+    const suggestion = t.toLowerCase().replace(/\s+/g, '.');
+    return USERNAME.test(suggestion) ? `Usernames can't have spaces. Try ${suggestion}.` : "Usernames can't have spaces.";
+  }
+  return 'Use up to 32 letters, numbers, dots, dashes or underscores, starting with a letter or number.';
 }
 
 export function passwordError(v: string): string {

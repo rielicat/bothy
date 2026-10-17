@@ -18,7 +18,12 @@ describe('new password help (§5.5)', () => {
     expect(usernameError('maya.chen_2')).toBe('');
     expect(usernameError('-maya')).toMatch(/^Use up to 32 letters/);
     expect(usernameError('a'.repeat(33))).toMatch(/^Use up to 32 letters/);
-    expect(usernameError('maya chen')).toMatch(/^Use up to 32 letters/);
+    expect(usernameError('')).toBe('Enter a username.');
+    expect(usernameError('   ')).toBe('Enter a username.');
+    // A space gets its own sentence and a suggestion that passes the pattern.
+    expect(usernameError('maya chen')).toBe("Usernames can't have spaces. Try maya.chen.");
+    expect(usernameError('Maya   Chen')).toBe("Usernames can't have spaces. Try maya.chen.");
+    expect(usernameError('maya chen!')).toBe("Usernames can't have spaces.");
     expect(passwordError('short')).toBe('Use at least 12 characters.');
     expect(passwordError('long enough pass')).toBe('');
   });

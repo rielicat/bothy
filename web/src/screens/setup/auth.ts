@@ -42,7 +42,7 @@ export type AccountField = 'name' | 'username' | 'password';
 export function ownerError(e: unknown): { field?: AccountField; text: string; expired?: boolean } {
   if (unanswered(e)) return { text: NO_RESPONSE };
   const err = e as ApiError;
-  if (err.status === 401) return { text: 'Setup timed out. Paste the setup code again.', expired: true };
+  if (err.status === 401) return { text: 'Setup timed out. What you typed is kept.', expired: true };
   const m = err.message.toLowerCase();
   if (err.status === 400 || err.status === 422) {
     if (m.includes('common') || m.includes('predictable')) return { field: 'password', text: 'This password is too common. Try a phrase of a few words.' };

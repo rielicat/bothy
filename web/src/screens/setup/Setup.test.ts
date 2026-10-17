@@ -117,13 +117,15 @@ describe('step 1: create your account', () => {
     await screen.findByText('Create your account');
     await submitAccount();
     expect(screen.getByText('Enter your name.')).toBeTruthy();
-    expect(screen.getByText(/Use up to 32 letters/)).toBeTruthy();
+    expect(screen.getByText('Enter a username.')).toBeTruthy();
     expect(screen.getByText('Use at least 12 characters.')).toBeTruthy();
     expect(document.activeElement).toBe(screen.getByLabelText('Your name'));
     await fireEvent.input(screen.getByLabelText('Your name'), { target: { value: 'Maya' } });
     expect(screen.queryByText('Enter your name.')).toBeNull();
     await fireEvent.input(screen.getByLabelText('Username'), { target: { value: '-maya' } });
     expect(screen.getByText(/Use up to 32 letters/)).toBeTruthy();
+    await fireEvent.input(screen.getByLabelText('Username'), { target: { value: 'maya chen' } });
+    expect(screen.getByText("Usernames can't have spaces. Try maya.chen.")).toBeTruthy();
     expect(calls.some((c) => c.url === '/api/setup/owner')).toBe(false);
   });
 
@@ -172,7 +174,7 @@ describe('step 1: create your account', () => {
     render(Setup);
     await fillAccount();
     await submitAccount();
-    expect(await screen.findByText('Setup timed out. Paste the setup code again.')).toBeTruthy();
+    expect(await screen.findByText('Setup timed out. What you typed is kept.')).toBeTruthy();
     expect(screen.getByLabelText('Setup code')).toBeTruthy();
   });
 

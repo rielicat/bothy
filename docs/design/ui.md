@@ -846,7 +846,7 @@ At least 12 characters.
 | Field | Type | Validation (on submit, then live once shown) | Error copy |
 |---|---|---|---|
 | Your name | text, `autocomplete="name"` | required, 1–64 characters | "Enter your name." |
-| Username | text, `autocomplete="username"`, `autocapitalize="none"`, `spellcheck="false"` | `^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$` | "Use up to 32 letters, numbers, dots, dashes or underscores, starting with a letter or number." |
+| Username | text, `autocomplete="username"`, `autocapitalize="none"`, `spellcheck="false"` | `^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$` | Empty: "Enter a username." With a space: "Usernames can't have spaces. Try {suggestion}." (the typed value lowercased, runs of spaces turned into dots: "Try maya.chen."; only when the suggestion passes the pattern, else the line ends at "spaces."). Anything else: "Use up to 32 letters, numbers, dots, dashes or underscores, starting with a letter or number." |
 | Password | password, `autocomplete="new-password"`; "Show"/"Hide" ghost text button at the right of the label row (`aria-pressed`, `aria-controls`) | 12 or more characters; the server rejects common passwords | "Use at least 12 characters." / server: "This password is too common. Try a phrase of a few words." |
 
 Live help under Password (replaces the meter; `aria-live="polite"`, throttled to 500 ms):
@@ -859,7 +859,7 @@ Live help under Password (replaces the meter; `aria-live="polite"`, throttled to
 
 - Button: "Create account"; while working "Creating account…" with a spinner, `aria-busy`.
 - Silently applied: time zone from `Intl.DateTimeFormat().resolvedOptions().timeZone` (UTC fallback), `mode: multi`, display name from "Your name" (S7).
-- Form-level errors (above the button): network "Bothy didn't respond. Check that it's still running, then try again."; setup grant expired "Setup timed out. Paste the setup code again." (returns to §5.3, keeps the typed values).
+- Form-level errors (above the button): network "Bothy didn't respond. Check that it's still running, then try again."; setup grant expired "Setup timed out. What you typed is kept." (returns to §5.3, whose intro already asks for the code, and keeps the typed values).
 
 ### 5.6 Step 2: Connect an AI model
 

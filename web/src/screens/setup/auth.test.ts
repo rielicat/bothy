@@ -41,7 +41,7 @@ describe('error copy', () => {
   });
 
   it('sends owner failures to the field they belong to', () => {
-    expect(ownerError(api(401, 'setup session expired: claim the setup token again'))).toEqual({ text: 'Setup timed out. Paste the setup code again.', expired: true });
+    expect(ownerError(api(401, 'setup session expired: claim the setup token again'))).toEqual({ text: 'Setup timed out. What you typed is kept.', expired: true });
     expect(ownerError(api(400, 'this password is too common or predictable; a few unrelated words work well'))).toEqual({ field: 'password', text: 'This password is too common. Try a phrase of a few words.' });
     expect(ownerError(api(400, 'password must be at least 12 characters'))).toEqual({ field: 'password', text: 'Use at least 12 characters.' });
     expect(ownerError(api(400, "username must be 1-32 letters, digits, '.', '_' or '-'")).field).toBe('username');
