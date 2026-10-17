@@ -104,6 +104,14 @@ describe('saved key names', () => {
     expect(keyName('slack_app_token')).toBe('Slack app token');
     expect(keyName('brave_api_key')).toBe('Brave Search API key');
     expect(keyName('my_custom_thing')).toBe('My custom thing');
+    expect(keyName('github_webhook_secret')).toBe('GitHub webhook secret');
+    // Keys Bothy keeps for itself never show their ids.
+    expect(keyName('github_ghc_01m53wrdcr979y0ba9ek63p0vs')).toBe('GitHub connection key');
+    expect(keyName('github_gha_01m53wrdcr979y0ba9ek63p0vs_key')).toBe("GitHub app's private key");
+    expect(keyName('github_gha_01m53wrdcr979y0ba9ek63p0vs_client_secret')).toBe("GitHub app's client secret");
+    expect(keyName('google_sign_in_client_secret')).toBe('Google sign-in client secret');
+    expect(usedBy('github_ghc_01m53wrdcr979y0ba9ek63p0vs', [])).toEqual(['GitHub']);
+    expect(usedBy('google_sign_in_client_secret', [{ path: 'auth.sign_in.google.client_secret', value: 'secret:google_sign_in_client_secret' } as never])).toEqual(['Sign-in']);
   });
 
   it('names aws-sm references by their secret, never the account', () => {

@@ -40,15 +40,29 @@ export function serviceName(id: string): string {
 
 const AWS_SM = 'aws-sm:';
 
+// Keys Bothy stores for itself carry an id nobody should have to read: a
+// GitHub connection's token or app key ("github_ghc_01…"), an app Bothy
+// created ("github_gha_01…_key", "…_client_secret") and sign-in secrets.
+const own: [RegExp, string, string][] = [
+  [/^github_ghc_[0-9a-z]+$/, 'GitHub connection key', 'GitHub'],
+  [/^github_gha_[0-9a-z]+_key$/, "GitHub app's private key", 'GitHub'],
+  [/^github_gha_[0-9a-z]+_client_secret$/, "GitHub app's client secret", 'GitHub'],
+  [/^google_sign_in_client_secret$/, 'Google sign-in client secret', 'Sign-in'],
+  [/^github_sign_in_client_secret$/, 'GitHub sign-in client secret', 'Sign-in'],
+];
+
 /** "anthropic_api_key" → "Anthropic API key"; unknown names read as words. */
 export function keyName(name: string): string {
   if (name.startsWith(AWS_SM)) return awsSecretName(name);
   const lower = name.toLowerCase();
+  const mine = own.find(([re]) => re.test(lower));
+  if (mine) return mine[1];
   const [prefix] = lower.split(/[_.-]/);
   for (const [re, kind] of kinds) {
     if (re.test(lower) && services[prefix] && lower.replace(re, '') === prefix) return `${services[prefix]} ${kind}`;
   }
   const words = lower.replace(/[_.-]+/g, ' ').replace(/\bapi\b/g, 'API').trim();
+  if (services[prefix]) return services[prefix] + words.slice(prefix.length);
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
@@ -70,12 +84,16 @@ const pointsAt = (value: unknown, name: string) =>
 /** What uses a saved key, from the settings that point at `secret:<name>` (or at the aws-sm reference). */
 export function usedBy(name: string, entries: Entry[]): string[] {
   const out = new Set<string>();
+  const mine = own.find(([re]) => re.test(name.toLowerCase()));
+  // GitHub's own keys are referenced from its connection, not from a setting.
+  if (mine && mine[2] === 'GitHub') return [mine[2]];
   for (const e of entries) {
     if (!pointsAt(e.value, name)) continue;
     const [area, id] = e.path.split('.');
     if (area === 'providers' || area === 'channels') out.add(serviceName(id));
     else if (area === 'search') out.add(serviceName(id.split('_')[0]));
     else if (area === 'mcp') out.add(e.path.split('.')[2] ?? 'a connected tool');
+    else if (area === 'auth') out.add('Sign-in');
     else out.add(serviceName(area));
   }
   return [...out];
