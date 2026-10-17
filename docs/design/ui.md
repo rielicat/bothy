@@ -1401,20 +1401,21 @@ The table is the copy contract for S2 and `lib/cardcopy.ts`.
 | `fs_delete` | "Delete {path}?" | "Delete file" (danger) | "This can't be undone." | Content ("{n} lines · Show") |
 | `shell` | "Run this command?" | "Run command" (danger when it deletes files) | "This can't be undone." when it deletes files (`rm`, `find -delete`, …) | Command (full) · In (working folder) |
 | `python` | "Run this Python script?" | "Run script" | — | Script ("{n} lines · Show") |
-| `web_fetch` non-GET, first contact | "Send data to {host}?" | "Send data" | — | Website · What ("Sends data") · Data ("Show") |
-| `message`, first contact | "Send a message to {chat}?" | "Send message" | — | To · Message (full) |
+| `web_fetch` non-GET, first contact | "Send data to {host}?" | "Send data" | — | Website · Data ("Show") |
+| `message`, first contact | "Send a message to {chat}?"; when Bothy knows the chat's name (a group chat it was added to, or a person in a chat app): "Send a message to “Ops” on Telegram?" | "Send message" | — | To ("Telegram chat 5512", or with the name "“Ops” on Telegram (chat 5512)": the id stays beside the name, since anyone in a chat can change its title) · Message (full). The first-contact warning names the chat the same way. |
 | `memory`, from outside content | "Remember this?" | "Remember" | — | Note (full) |
-| `notes`, from outside content | "Update the notes for {repo}?" | "Update notes" | — | Change (prose diff · Show) |
+| `notes`, from outside content | "Update the notes for {repo}?" | "Update notes" | — | Change ("{n} lines changed · Show", a prose diff) |
 | `schedule_create` | "Create the schedule “{name}”?" | "Create schedule" | — | When · Sends to (a set chat app, or for no set chat where results go, as the server's `deliverText` says: "Bothy on the web" for an account, "Maya Chen's messages on Slack" for someone in a chat app, "#eng on Slack" for a channel) · Does (first 3 lines · Show) |
 | `schedule_delete` | "Delete the schedule “{name}”?" | "Delete schedule" (danger) | "This can't be undone." | When |
 | `net_allow` | "Let Bothy reach {host}?" | "Allow for this chat" (the gateway offers no one-time choice here) | — | Website |
 | `repo_open_pr` | "Open a pull request in {repo}?" | "Open pull request" | — | Branch ("{head} → {base}") · Title · Changes ("{n} files, +{a} −{r} · Show") |
-| `github_comment` | "Comment on #{n} in {repo}?" | "Post comment" | — | On ("{PR or issue title}") · Comment (full) |
+| `github_comment` | "Comment on #{n} in {repo}?" | "Post comment" | — | On ("{PR or issue title}", left out when the title is unknown rather than repeating "#{n} in {repo}") · Comment (full) |
 | `release_deploy` | "Deploy {repo} to {env}?" | "Approve deploy" | "This updates {env} for everyone using it." | Environment · Version ("{ref} ({short sha}) · {commit subject}") · Workflow (the file that runs, e.g. `deploy.yml`) · Inputs (when set, one `key=value` per line) · Changes ("{n} commits since the last deploy · View on GitHub ↗") · Approvals (§8.5). The repository is named in the question. |
 | MCP tool | "Use {Server}: {Tool title}?" | "Allow" (danger when the class is irreversible) | "This can't be undone." when irreversible | `field_map` fields, labels humanised |
-| Admin class | "Change Bothy's settings?" | "Allow" | — | What (setting labels) · Value |
+| Admin class | "Change Bothy's settings?" | "Change settings" | — | What (setting labels) · Value |
 | Financial | "Pay {amount} to {recipient}?" | "Pay {amount}" (danger) | "Money will leave your account. This can't be undone." | To · Amount |
-| Unknown tool | "Let Bothy use {tool}?" | "Allow" | — | the Action's fields, labels humanised |
+| `skill_install` | "Install the “{skill}” skill?" | "Install skill" | — | From (the source) |
+| Unknown tool | "Let Bothy use “{tool}”?", the name humanised, quoted and in lower case ("Let Bothy use “report export”?") | "Allow" | — | the Action's fields, labels humanised |
 
 Danger fill rule (server-provided `card.tone`, S2): `destructive` when the side-effect class is irreversible or financial (a shell command that deletes files is irreversible, like `fs_delete`), except `release_deploy`, whose safeguard is its approvers.
 
@@ -1550,7 +1551,7 @@ Deploy acme/api to production               1 of 2 approvals · 20 min ago
 
 - One column, no duplicate card. `/approvals/:id` opens the same list with that item expanded and scrolled into view (fixes `30`).
 - Admins, while `team_access` lasts (§11.5): a neutral `Notice` above the Waiting list, "People in chat apps no longer link to Bothy accounts. Check who can use Bothy and who can approve in People." with "Open People", since their requests now arrive here.
-- Collapsed row: question `text-body` 500, meta right (`text-small muted`): source and age; "1 of 2 approvals" for multi-approver; "Expires in 3 min" in `warning-text` when under 15 minutes; parked items "Waiting since 10:42". Under 640 px meta moves to line 2. Clicking or Enter expands the row in place and collapses the previous one.
+- Collapsed row: the card's row title, `text-body` 500, which names what the card is about where the question alone can't tell two rows apart: a command "Run {command}?" (verbatim; the row's ellipsis cuts it and the card shows it in full), a note "Remember “{first 60 characters}”?", a message "Send a message to {recipient}?" (worded as on the card's To line). Other rows show the question. Meta right (`text-small muted`): source and age; "1 of 2 approvals" for multi-approver; "Expires in 3 min" in `warning-text` when under 15 minutes; parked items "Waiting since 10:42". Under 640 px meta moves to line 2. Clicking or Enter expands the row in place and collapses the previous one.
 - After a decision the row collapses (160 ms), the next "For you" item expands and takes focus, and the live region says "Approved. Next: {question}" or "Nothing else is waiting."
 - **Item types** (all in the same card shell, S12):
 

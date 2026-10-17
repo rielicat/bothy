@@ -40,7 +40,10 @@ describe('Approvals inbox', () => {
     expect(within(expanded()!).getByRole('heading', { level: 3 }).textContent).toBe('Deploy acme/web to production?');
     const collapsed = [...document.querySelectorAll<HTMLButtonElement>('[data-row] button[aria-expanded="false"]')].map((b) => b.querySelector('span')?.textContent);
     expect(collapsed).toContain('Delete notes/staging.md?');
-    expect(collapsed).toContain('Review Docs actions');
+    expect(collapsed).toContain('Review changes to Docs actions');
+    // A command's row names the command, so two rows never both read "Run this command?".
+    expect(collapsed).toContain('Run python3 sales_report.py --week 41?');
+    expect(collapsed).not.toContain('Run this command?');
     expect(collapsed).toContain('Someone new messaged Bothy on Telegram');
     expect(collapsed).toContain('Review changes to the “incident-review” skill');
     expect(collapsed).toContain('Bothy was added to #support in Slack');
@@ -84,9 +87,9 @@ describe('Approvals inbox', () => {
     await waitFor(() => expect(posts()).toHaveLength(1));
     expect(posts()[0].url).toBe(`/api/approvals/${SHELL}`);
     expect(JSON.parse(posts()[0].body)).toEqual({ choice: 'allow_once' });
-    await waitFor(() => expect(live()).toContain('Approved. Next: Send a message to the Telegram chat?'));
+    await waitFor(() => expect(live()).toContain('Approved. Next: Send a message to “Ops team” on Telegram?'));
     await waitFor(() => expect(document.activeElement?.tagName).toBe('ARTICLE'));
-    expect(expanded()?.textContent).toContain('Send a message to the Telegram chat?');
+    expect(expanded()?.textContent).toContain('Send a message to “Ops team” on Telegram?');
   });
 
   it('decides one request per key press, however long the key is held', async () => {

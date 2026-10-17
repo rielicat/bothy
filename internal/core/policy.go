@@ -353,6 +353,11 @@ type ApprovalRequest struct {
 	Chat       *ChatRef
 	Context    string // card context line, built by the caller from session/channel
 	Sender     string // RunRequest.Sender of the run ("" for schedules)
+	// RecipientName is the title of the chat a message goes to, or the
+	// person's name for a direct chat, when Bothy knows it; Approvals.Request
+	// fills it. Anyone in a chat can change its title, so the card shows the
+	// chat's id next to it.
+	RecipientName string
 }
 
 type Resolution struct {

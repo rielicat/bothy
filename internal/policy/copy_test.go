@@ -81,7 +81,7 @@ func TestPlainCopy(t *testing.T) {
 		{name: "web_fetch", a: httpAction("web_fetch", "GET", "https://example.com/a", core.SERead), s: spec("web_fetch", core.SERead),
 			question: "Open a page on example.com?", primary: "Open page", ing: "opening a page on example.com", labels: []string{"Website"}},
 		{name: "web_fetch non-GET", a: httpAction("web_fetch", "POST", "https://api.example.com/a", core.SEExternalSend), s: spec("web_fetch", core.SEExternalSend),
-			question: "Send data to api.example.com?", primary: "Send data", ing: "sending data to api.example.com", labels: []string{"Website", "What"}},
+			question: "Send data to api.example.com?", primary: "Send data", ing: "sending data to api.example.com", labels: []string{"Website"}},
 		{name: "message", a: msg, s: spec("message", core.SELocalWrite),
 			question: "Send a message to the Telegram chat?", primary: "Send message", ing: "sending a message to the Telegram chat", labels: []string{"To", "Message"}},
 		{name: "memory add", a: action("memory", core.ActMemory, core.SELocalWrite, map[string]any{"file": "USER", "op": "add", "new": "Prefers mornings"}),
@@ -113,7 +113,13 @@ func TestPlainCopy(t *testing.T) {
 			kind: core.CardPullRequest, labels: []string{"Branch", "Title", "Changes"}},
 		{name: "github_comment", a: action("github_comment", core.ActSend, core.SEExternalSend, map[string]any{"repo": "acme/web", "number": 482, "body": "LGTM"}, onGitHub),
 			s: spec("github_comment", core.SEExternalSend), question: "Comment on #482 in acme/web?", primary: "Post comment", ing: "commenting on #482 in acme/web",
+			labels: []string{"Comment"}},
+		{name: "github_comment with the title", a: action("github_comment", core.ActSend, core.SEExternalSend, map[string]any{"repo": "acme/web", "number": 482, "body": "LGTM", "title": "Fix login redirect"}, onGitHub),
+			s: spec("github_comment", core.SEExternalSend), question: "Comment on #482 in acme/web?", primary: "Post comment", ing: "commenting on #482 in acme/web",
 			labels: []string{"On", "Comment"}},
+		{name: "skill_install", a: action("skill_install", core.ActGeneric, core.SELocalWrite, map[string]any{"name": "release-notes", "source": "https://skills.example.com/r.zip"}),
+			s: spec("skill_install", core.SELocalWrite), question: "Install the “release-notes” skill?", primary: "Install skill", ing: "installing the “release-notes” skill",
+			labels: []string{"From"}},
 		{name: "github_issues", a: action("github_issues", core.ActHTTP, core.SERead, map[string]any{"repo": "acme/web"}), s: spec("github_issues", core.SERead),
 			question: "Read the issues in acme/web?", primary: "Read issues", ing: "reading the issues in acme/web", labels: []string{"Repository"}},
 		{name: "github_pr", a: action("github_pr", core.ActHTTP, core.SERead, map[string]any{"repo": "acme/web", "number": 7}), s: spec("github_pr", core.SERead),
@@ -163,9 +169,11 @@ func TestPlainCopy(t *testing.T) {
 			question: "Pay acme@bank with Bank: Pay?", primary: "Pay", ing: "paying acme@bank",
 			consequence: "Money will leave your account. This can't be undone.", tone: core.ToneDestructive, labels: []string{"To"}},
 		{name: "admin class", a: action("tune", core.ActGeneric, core.SEAdmin, map[string]any{"x": 1}), s: spec("tune", core.SEAdmin),
-			question: "Change Bothy's settings?", primary: "Allow", ing: "changing Bothy's settings"},
+			question: "Change Bothy's settings?", primary: "Change settings", ing: "changing Bothy's settings"},
 		{name: "unknown tool", a: action("thing", core.ActGeneric, core.SELocalWrite, map[string]any{"v": 1}), s: spec("thing", core.SELocalWrite, func(m *core.Manifest) { m.Title = "Do a thing" }),
-			question: "Let Bothy use Do a thing?", primary: "Allow", ing: "using Do a thing"},
+			question: "Let Bothy use “do a thing”?", primary: "Allow", ing: "using “do a thing”"},
+		{name: "unknown tool without a title", a: action("odd_tool", core.ActGeneric, core.SELocalWrite, map[string]any{"v": 1}), s: spec("odd_tool", core.SELocalWrite, func(m *core.Manifest) { m.Title = "" }),
+			question: "Let Bothy use “odd tool”?", primary: "Allow", ing: "using “odd tool”"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -398,3 +406,25 @@ func TestPlainCopyUnderHostileInput(t *testing.T) {
 }
 
 func strconvQuote(s string) string { b, _ := json.Marshal(s); return string(b) }
+
+// A message to a chat Bothy knows by name says the name, and keeps the id
+// next to it in To, because anyone in the chat can change its title.
+func TestMessageToANamedChat(t *testing.T) {
+	msg := action("message", core.ActSend, core.SEExternalSend, map[string]any{"text": "Morning"}, func(a *core.Action) { a.Recipient = "telegram:5512:" })
+	d := cardDecision()
+	d.Warnings = []string{contactWarning(msg, core.Principal{}, "recipient", msg.Recipient)}
+	c := renderCard(core.ApprovalRequest{Action: msg, Spec: spec("message", core.SEExternalSend), Decision: d, RecipientName: "Ops"})
+	if c.Question != "Send a message to “Ops” on Telegram?" || c.Ing != "sending a message to “Ops” on Telegram" {
+		t.Errorf("question %q ing %q", c.Question, c.Ing)
+	}
+	if got := field(c, "To").Value; got != "“Ops” on Telegram (chat 5512)" {
+		t.Errorf("To = %q", got)
+	}
+	if !slices.Equal(c.Warnings, []string{"Bothy hasn't sent anything to “Ops” on Telegram before."}) {
+		t.Errorf("warnings = %q", c.Warnings)
+	}
+	c = renderCard(core.ApprovalRequest{Action: msg, Spec: spec("message", core.SEExternalSend), Decision: d})
+	if c.Question != "Send a message to the Telegram chat?" || field(c, "To").Value != "Telegram chat 5512" {
+		t.Errorf("without a name: question %q To %q", c.Question, field(c, "To").Value)
+	}
+}

@@ -179,7 +179,7 @@
     const rest = forYou.filter((r) => r.key !== key);
     const next = rest[Math.min(at, rest.length - 1)];
     if (next) {
-      const q = next.approval ? segText(cardCopy(next.approval).question) : itemQuestion(next.item!);
+      const q = next.approval ? rowTitle(next.approval) : itemQuestion(next.item!);
       announce(`${outcome}. Next: ${q}`);
       await expand(next.key);
     } else {
@@ -220,6 +220,12 @@
     e.preventDefault();
     held = e.key.toLowerCase();
     b.click();
+  }
+
+  // "Run this command?" twice can't be told apart, so a row names what the card is about.
+  function rowTitle(a: Approval): string {
+    const c = cardCopy(a);
+    return segText(c.row ?? c.question);
   }
 
   function rowMeta(r: Row): { text: string; warn?: boolean }[] {
@@ -318,7 +324,7 @@
             {/if}
           </div>
         {:else}
-          {@const q = r.approval ? segText(cardCopy(r.approval).question) : itemQuestion(r.item!)}
+          {@const q = r.approval ? rowTitle(r.approval) : itemQuestion(r.item!)}
           <button
             type="button"
             class="-mx-2 flex min-h-10 w-[calc(100%+1rem)] cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-subtle focus-visible:outline-offset-[-2px] max-sm:flex-col max-sm:items-start max-sm:gap-0.5 pointer-coarse:min-h-12"

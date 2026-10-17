@@ -179,7 +179,7 @@ func TestCardFields(t *testing.T) {
 		t.Errorf("no IDN warning: %v", idn.Warnings)
 	}
 	post := cardFor(httpAction("web_fetch", "post", "https://user:pw@example.com/x", core.SEExternalSend), spec("web_fetch", core.SEExternalSend))
-	if post.Question != "Send data to example.com?" || field(post, "What").Value != "Sends data" ||
+	if post.Question != "Send data to example.com?" || field(post, "What").Label != "" ||
 		field(post, "Website").Value != "https://user:pw@example.com/x" || post.PrimaryLabel != "Send data" {
 		t.Errorf("post card %+v", post)
 	}

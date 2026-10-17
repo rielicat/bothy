@@ -13,6 +13,7 @@ import {
   joinNames,
   originOf,
   plainWarnings,
+  recipientName,
   segText,
   splitFiles,
   teamAsked,
@@ -75,7 +76,7 @@ describe('cardCopy, one row per action', () => {
       'Send data to api.example.com?',
       'Send data',
       undefined,
-      ['Website', 'What', 'Data'],
+      ['Website', 'Data'],
     ],
     ['message', act('message', 'send', 'external_send', { text: 'Hello team' }, { recipient: 'slack:C1' }), 'Send a message to the Slack chat?', 'Send message', undefined, ['To', 'Message']],
     ['memory', act('memory', 'memory', 'local_write', { file: 'MEMORY', op: 'add', new: 'Releases go out on Tuesdays.' }), 'Remember this?', 'Remember', undefined, ['Note']],
@@ -98,7 +99,9 @@ describe('cardCopy, one row per action', () => {
       undefined,
       ['Branch', 'Title', 'Changes'],
     ],
-    ['github_comment', act('github_comment', 'send', 'external_send', { repo: 'acme/web', number: 482, body: 'Ready.' }), 'Comment on #482 in acme/web?', 'Post comment', undefined, ['On', 'Comment']],
+    // Without the pull request's title, "On" would only repeat the question.
+    ['github_comment', act('github_comment', 'send', 'external_send', { repo: 'acme/web', number: 482, body: 'Ready.' }), 'Comment on #482 in acme/web?', 'Post comment', undefined, ['Comment']],
+    ['github_comment with the title', act('github_comment', 'send', 'external_send', { repo: 'acme/web', number: 482, title: 'Fix login redirect', body: 'Ready.' }), 'Comment on #482 in acme/web?', 'Post comment', undefined, ['On', 'Comment']],
     [
       'release_deploy',
       act('release_deploy', 'release', 'irreversible', { environment: 'production', repo: 'acme/web', ref: 'main', workflow: 'deploy.yml', inputs: {} }),
@@ -108,9 +111,10 @@ describe('cardCopy, one row per action', () => {
       ['Environment', 'Version', 'Workflow', 'Approvals'],
     ],
     ['MCP tool', act('mcp__linear__create_issue', 'mcp', 'external_send', { title: 'Bug' }, { mcp_server: 'linear', mcp_tool: 'create_issue' }), 'Use Linear: Create issue?', 'Allow', undefined, ['Title']],
-    ['admin class', act('config_set', 'generic', 'admin', { setting: 'Daily limit', value: '$20' }), "Change Bothy's settings?", 'Allow', undefined, ['Setting', 'Value']],
+    ['admin class', act('config_set', 'generic', 'admin', { setting: 'Daily limit', value: '$20' }), "Change Bothy's settings?", 'Change settings', undefined, ['Setting', 'Value']],
     ['financial', act('pay', 'generic', 'financial', { amount: '$240.00', to: 'Northwind' }), 'Pay $240.00 to Northwind?', 'Pay $240.00', "Money will leave your account. This can't be undone.", ['To', 'Amount']],
-    ['unknown tool', act('skill_install', 'generic', 'local_write', { name: 'notes' }), 'Let Bothy use Skill install?', 'Allow', undefined, ['Name']],
+    ['skill_install', act('skill_install', 'generic', 'local_write', { name: 'notes', source: 'https://skills.example.com/notes.zip' }), 'Install the “notes” skill?', 'Install skill', undefined, ['From']],
+    ['unknown tool', act('report_export', 'generic', 'local_write', { name: 'notes' }), 'Let Bothy use “report export”?', 'Allow', undefined, ['Name']],
   ];
 
   it.each(rows)('%s', (_name, a, question, primary, consequence, fields) => {
@@ -144,6 +148,31 @@ describe('cardCopy, one row per action', () => {
     expect(cardCopy(ap(msg)).fields[0]).toEqual({ label: 'To', value: 'Telegram chat 42' });
     const server = ap(msg, { card: { ...ap(msg).card, fields: [{ label: 'To', value: 'Telegram chat 42 (Ops)', mono: false }] } });
     expect(cardCopy(server).fields[0]).toEqual({ label: 'To', value: 'Telegram chat 42 (Ops)' });
+  });
+
+  it("says a chat's name when the server knows it, keeping the id beside it", () => {
+    const msg = act('message', 'send', 'external_send', { text: 'Done' }, { recipient: 'telegram:5512:' });
+    const named = ap(msg, { card: { ...ap(msg).card, fields: [{ label: 'To', value: '“Ops” on Telegram (chat 5512)', mono: false }], warnings: ['First contact with telegram:5512:.'] } });
+    const c = cardCopy(named);
+    expect(segText(c.question)).toBe('Send a message to “Ops” on Telegram?');
+    expect(c.fields[0]).toEqual({ label: 'To', value: '“Ops” on Telegram (chat 5512)' });
+    expect(c.warnings).toEqual(['Bothy hasn\'t sent anything to “Ops” on Telegram before.']);
+    expect(recipientName('telegram:5512:', 'Ops')).toBe('“Ops” on Telegram (chat 5512)');
+    expect(recipientName('slack:C1:17.2', 'eng')).toBe('“eng” on Slack (chat C1, thread 17.2)');
+  });
+
+  it('gives inbox rows a title that tells two requests apart', () => {
+    const row = (a: Action) => segText(cardCopy(ap(a)).row ?? cardCopy(ap(a)).question);
+    expect(row(act('shell', 'exec', 'local_write', { argv: ['bash', '-lc', 'npm test'] }, { argv: ['bash', '-lc', 'npm test'] }))).toBe('Run npm test?');
+    expect(row(act('memory', 'memory', 'local_write', { op: 'add', new: 'Releases go out on Tuesdays.' }))).toBe('Remember “Releases go out on Tuesdays.”?');
+    expect(row(act('message', 'send', 'external_send', { text: 'Hi' }, { recipient: 'telegram:42:' }))).toBe('Send a message to Telegram chat 42?');
+    // Builders without a row title fall back to the question.
+    expect(row(act('fs_delete', 'fs.delete', 'irreversible', { path: 'notes/a.md' }))).toBe('Delete notes/a.md?');
+  });
+
+  it('says how many lines a notes change touches before Show', () => {
+    const notes = act('notes', 'memory', 'local_write', { repo: 'acme/web', op: 'replace' }, { diff: '--- a/n\n+++ b/n\n@@ -1,2 +1,2 @@\n same\n-old line\n+new line\n' });
+    expect(cardCopy(ap(notes)).fields[0]).toMatchObject({ label: 'Change', summary: '1 line changed' });
   });
 
   it('says where schedule results really go: the web for accounts, the teammate or channel chat otherwise', () => {

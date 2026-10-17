@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -101,6 +102,9 @@ func (ap *Approvals) Request(ctx context.Context, r core.ApprovalRequest) (*core
 	if pr.TeamOwned() && chatSender(r.Sender) {
 		a.Approver.RequesterIdentity = r.Sender
 		a.Decision.Approver.RequesterIdentity = r.Sender
+	}
+	if r.Action != nil && r.Action.Tool == toolMessage {
+		r.RecipientName = ap.chatTitle(ctx, r.Action.Recipient)
 	}
 	a.Card = renderCard(r)
 	switch {
@@ -478,6 +482,34 @@ func (ap *Approvals) CancelRun(ctx context.Context, run core.RunID) error {
 
 // RenderCard implements core.Approvals.
 func (ap *Approvals) RenderCard(r core.ApprovalRequest) core.Card { return renderCard(r) }
+
+// chatTitle is the name of the chat a message key ("telegram:5512:") points
+// at: a group chat's title, or the person's name for their direct chat; ""
+// when Bothy doesn't know it.
+func (ap *Approvals) chatTitle(ctx context.Context, key string) string {
+	ch, rest, ok := strings.Cut(key, ":")
+	if !ok || (ch != "telegram" && ch != "slack" && ch != "discord") {
+		return ""
+	}
+	id, _, _ := strings.Cut(rest, ":")
+	if id == "" {
+		return ""
+	}
+	if sp, err := ap.store.Spaces().ByChat(ctx, ch, id); err == nil && sp.Title != "" {
+		return sp.Title
+	}
+	// A direct chat's id differs from the person's own id on Slack and Discord.
+	ids, err := ap.store.Identities().List(ctx, "")
+	if err != nil {
+		return ""
+	}
+	for _, i := range ids {
+		if i.Channel == ch && (i.DMChat == id || i.ExternalID == id) {
+			return cmp.Or(strings.TrimSpace(i.DisplayName), i.Username)
+		}
+	}
+	return ""
+}
 
 // Get implements core.Approvals.
 func (ap *Approvals) Get(ctx context.Context, v core.Viewer, id core.ApprovalID) (*core.Approval, error) {

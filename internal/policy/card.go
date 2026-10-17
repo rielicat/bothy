@@ -32,10 +32,20 @@ func renderCard(r core.ApprovalRequest) core.Card {
 		Kind:    core.CardAction,
 		Tone:    core.ToneDefault,
 	}
+	a := r.Action
+	// A first contact names the chat as the card does, once Bothy knows its name.
+	var unnamed, named string
+	if a != nil && a.Tool == toolMessage {
+		if n := namedChat(a.Recipient, r.RecipientName); n != "" {
+			unnamed, named = contactWarning(a, core.Principal{}, "recipient", a.Recipient), "Bothy hasn't sent anything to "+n+" before."
+		}
+	}
 	for _, w := range r.Decision.Warnings {
+		if unnamed != "" && w == unnamed {
+			w = named
+		}
 		c.Warnings = append(c.Warnings, visible(w))
 	}
-	a := r.Action
 	if a == nil {
 		c.Question, c.PrimaryLabel, c.Ing = toolQuestion(r)
 		return c

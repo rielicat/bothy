@@ -44,6 +44,7 @@ const (
 	toolGitHubComment = "github_comment"
 	toolKnowledge     = "knowledge_search"
 	toolNotes         = "notes"
+	toolSkillInstall  = "skill_install"
 )
 
 const (
@@ -162,8 +163,11 @@ func plainFor(r core.ApprovalRequest, a *core.Action, doc any, se core.SideEffec
 		return p
 	case toolMessage:
 		to := chatName(a.Recipient)
+		if named := namedChat(a.Recipient, r.RecipientName); named != "" {
+			to = named
+		}
 		p := plainCard{question: "Send a message to " + to + "?", verb: "Send message", ing: "sending a message to " + to}
-		p.add("To", recipientText(a.Recipient), false)
+		p.add("To", recipientNamed(a.Recipient, r.RecipientName), false)
 		p.add("Message", text("/text"), false)
 		return p
 	case toolMemory:
@@ -214,7 +218,9 @@ func plainFor(r core.ApprovalRequest, a *core.Action, doc any, se core.SideEffec
 		repo, n := text("/repo"), number("/number")
 		on := "#" + n + " in " + inline(repo)
 		p := plainCard{question: "Comment on " + on + "?", verb: "Post comment", ing: "commenting on " + on, repoNamed: true}
-		p.add("On", "#"+n+" in "+repo, false)
+		// "On" names the pull request or issue by its title; "#482 in acme/web"
+		// would only repeat the question.
+		p.add("On", text("/title"), false)
 		p.add("Comment", text("/body"), false)
 		return p
 	case toolGitHubIssues, toolGitHubPR, toolGitHubRuns:
@@ -237,6 +243,11 @@ func plainFor(r core.ApprovalRequest, a *core.Action, doc any, se core.SideEffec
 		return execCopy(a, doc)
 	case toolReleaseDeploy:
 		return deployCopy(doc, text)
+	case toolSkillInstall:
+		name := quoted(text("/name"))
+		p := plainCard{question: "Install the " + name + " skill?", verb: "Install skill", ing: "installing the " + name + " skill", keepCode: true}
+		p.add("From", text("/source"), true)
+		return p
 	}
 	switch a.Kind {
 	case core.ActExec:
@@ -265,7 +276,7 @@ func plainFor(r core.ApprovalRequest, a *core.Action, doc any, se core.SideEffec
 		return p
 	}
 	if se == core.SEAdmin {
-		p := plainCard{question: "Change Bothy's settings?", verb: "Allow", ing: "changing Bothy's settings", keepCode: true}
+		p := plainCard{question: "Change Bothy's settings?", verb: "Change settings", ing: "changing Bothy's settings", keepCode: true}
 		p.fields = schemaFields(r.Spec, doc)
 		return p
 	}
@@ -427,7 +438,6 @@ func httpCopy(a *core.Action) plainCard {
 	if a.Method != "" && !strings.EqualFold(a.Method, "GET") {
 		p.question, p.verb, p.ing = "Send data to "+inline(host)+"?", "Send data", "sending data to "+inline(host)
 		p.add("Website", u, true)
-		p.add("What", "Sends data", false)
 		return p
 	}
 	p.add("Website", u, true)
@@ -486,13 +496,31 @@ func mcpCopy(r core.ApprovalRequest, a *core.Action, doc any, se core.SideEffect
 	return p
 }
 
-// toolQuestion is the copy for a tool the card has no words for.
+// toolQuestion is the copy for a tool the card has no words for. Its name
+// is quoted, a tool id in words ("skill_install" → “skill install”), and
+// starts in lower case unless it starts with a name ("GitHub …").
 func toolQuestion(r core.ApprovalRequest) (question, verb, ing string) {
 	name := cmp.Or(r.Spec.Manifest.Title, r.Spec.Def.Name)
 	if name == "" && r.Action != nil {
 		name = r.Action.Tool
 	}
-	return "Let Bothy use " + inline(name) + "?", "Allow", "using " + inline(name)
+	if !strings.ContainsAny(name, " \t") {
+		name = strings.NewReplacer("_", " ", "-", " ").Replace(name)
+	}
+	q := quoted(lowerFirst(name))
+	return "Let Bothy use " + q + "?", "Allow", "using " + q
+}
+
+// lowerFirst lowers the first letter of words that begin a sentence's
+// object, leaving names alone: "Install skill" → "install skill",
+// "GitHub thing" stays.
+func lowerFirst(s string) string {
+	r, n := utf8.DecodeRuneInString(s)
+	next, _ := utf8.DecodeRuneInString(s[n:])
+	if n == 0 || r == utf8.RuneError || unicode.IsUpper(next) {
+		return s
+	}
+	return string(unicode.ToLower(r)) + s[n:]
 }
 
 // askPhrase is the card's question as words that finish "Bothy can't …", so
@@ -606,6 +634,36 @@ func chatName(key string) string {
 		return "a chat"
 	}
 	return "the " + inline(appName(ch)) + " chat"
+}
+
+// namedChat is a chat the person knows by name: “Ops” on Telegram. Empty
+// when Bothy doesn't know the chat's name, or the key isn't a chat app's.
+func namedChat(key, name string) string {
+	ch, _, _ := strings.Cut(key, ":")
+	switch {
+	case name == "":
+		return ""
+	case ch == "telegram", ch == "discord", ch == "slack":
+		return quoted(name) + " on " + appName(ch)
+	}
+	return ""
+}
+
+// recipientNamed is recipientText with the chat's name in front when Bothy
+// knows it: “Ops” on Telegram (chat 5512). The id stays because anyone in a
+// chat can change its title, and the recipient must stay exact.
+func recipientNamed(key, name string) string {
+	named := namedChat(key, name)
+	if named == "" {
+		return recipientText(key)
+	}
+	_, rest, _ := strings.Cut(key, ":")
+	id, thread, _ := strings.Cut(rest, ":")
+	chat := "chat " + id
+	if thread != "" {
+		chat += ", thread " + thread
+	}
+	return named + " (" + chat + ")"
 }
 
 // recipientText shows a recipient verbatim, a chat key as "Telegram chat

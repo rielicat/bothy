@@ -463,3 +463,25 @@ func TestNoticeOnlyWithdraws(t *testing.T) {
 		t.Fatalf("the requester pressing Cancel request: %v", err)
 	}
 }
+
+// A message card names the chat it goes to: a group chat's title, or the
+// person's name for their direct chat, found by its DM id too.
+func TestChatTitle(t *testing.T) {
+	h := newHarness(t, nil)
+	h.teammate("slack", "U1", "Maya Chen", false)
+	if err := h.store.Identities().SetDMChat(h.ctx, "slack", "U1", "D9"); err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{
+		"telegram:-100:": "g",
+		"slack:U1:":      "Maya Chen",
+		"slack:D9:":      "Maya Chen",
+		"slack:C404:":    "",
+		"github:acme/w":  "",
+		"telegram::":     "",
+	} {
+		if got := h.ap.chatTitle(h.ctx, key); got != want {
+			t.Errorf("chatTitle(%q) = %q, want %q", key, got, want)
+		}
+	}
+}

@@ -48,6 +48,8 @@ export interface CardCopy {
   kind: CardKind;
   tone: 'default' | 'destructive';
   question: Seg[];
+  /** The collapsed inbox row's title, when the question alone can't tell two requests apart ("Run this command?"). */
+  row?: Seg[];
   consequence?: string;
   /** The allow_once button: the verb naming the result. */
   primary: string;
@@ -67,6 +69,11 @@ const code = (c: string): Seg => ({ code: c });
 const str = (v: unknown): string => (typeof v === 'string' ? v : typeof v === 'number' ? String(v) : '');
 const payloadOf = (a?: Action): Payload => (a?.payload && typeof a.payload === 'object' && !Array.isArray(a.payload) ? (a.payload as Payload) : {});
 const lineCount = (t: string) => (t ? fileLines(t).length : 0);
+// A changed line is a removed line and its replacement, so they count once.
+const changedLines = (diff: string) => {
+  const d = parseDiff(diff);
+  return Math.max(d.added, d.removed);
+};
 const capital = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 // Decided lines are one line in a list; the card above them keeps the full value.
 const clip = (s: string, n = 80) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
@@ -85,8 +92,13 @@ export function chatName(key: string | undefined): string {
   return key && i > 0 ? `the ${appName(key.slice(0, i))} chat` : 'this chat';
 }
 
-/** A recipient as the server's recipientText shows it: "Telegram chat 42", "acme/web on GitHub", anything else verbatim. */
-export function recipientName(key: string): string {
+/**
+ * A recipient as the server's recipientText shows it: "Telegram chat 42",
+ * "acme/web on GitHub", anything else verbatim. With the chat's name, when
+ * Bothy knows it: "“Ops” on Telegram (chat 42)". The id stays next to the
+ * name, since anyone in a chat can change its title.
+ */
+export function recipientName(key: string, name = ''): string {
   const i = key.indexOf(':');
   if (i < 0) return key;
   const ch = key.slice(0, i);
@@ -95,7 +107,14 @@ export function recipientName(key: string): string {
   if (!['telegram', 'slack', 'discord'].includes(ch)) return key;
   const j = rest.indexOf(':');
   const thread = j < 0 ? '' : rest.slice(j + 1);
-  return `${appName(ch)} chat ${j < 0 ? rest : rest.slice(0, j)}${thread ? `, thread ${thread}` : ''}`;
+  const chat = `chat ${j < 0 ? rest : rest.slice(0, j)}${thread ? `, thread ${thread}` : ''}`;
+  return name ? `“${name}” on ${appName(ch)} (${chat})` : `${appName(ch)} ${chat}`;
+}
+
+/** The chat's name inside the server's To line ("“Ops” on Telegram (chat 5512)"), or ''. */
+function namedChat(card: Card | undefined): string {
+  const to = card?.fields?.find((f) => f.label === 'To')?.value ?? '';
+  return /^“(.+)” on (?:Telegram|Slack|Discord) \(chat [^)]*\)$/.exec(to)?.[1] ?? '';
 }
 
 /** "create_issue" → "Create issue", "dueDate" → "Due date". */
@@ -209,9 +228,9 @@ export function plainWarnings(ap: Approval): string[] {
       const target = first[1].replace(/^github:/, '');
       if (a?.tool === 'repo_open_pr') t = `This is the first pull request Bothy opens in ${target} for ${ap.principal_id.startsWith('spc_') ? 'this group chat' : 'you'}.`;
       else if (a?.kind === 'http' || a?.kind === 'net' || /^[a-z0-9.-]+\.[a-z]{2,}(:\d+)?$/i.test(target)) t = `Bothy hasn't sent data to ${target} before.`;
-      else t = `Bothy hasn't sent anything to ${recipientName(target)} before.`;
+      else t = `Bothy hasn't sent anything to ${chatLabel(target, namedChat(ap.card))} before.`;
     } else if (/first time sending to this recipient/i.test(w)) {
-      t = `Bothy hasn't sent anything to ${a?.recipient ? recipientName(a.recipient) : 'this recipient'} before.`;
+      t = `Bothy hasn't sent anything to ${a?.recipient ? chatLabel(a.recipient, namedChat(ap.card)) : 'this recipient'} before.`;
     } else if (/private (data|information).*untrusted|untrusted.*private|read untrusted|holds private/i.test(w)) {
       t = 'This chat has seen private information and content from outside. Check carefully before letting anything leave.';
     } else if (/untrusted sender|untrusted (content|origin)/i.test(w)) {
@@ -226,6 +245,7 @@ export function plainWarnings(ap: Approval): string[] {
 
 interface Built {
   question: Seg[];
+  row?: Seg[];
   primary: string;
   ing: Seg[];
   ask: Seg[];
@@ -312,6 +332,8 @@ function shell(a: Action, p: Payload, card: Card): Built {
   const cwd = str(p.cwd) || a.cwd || '';
   return {
     question: ['Run this command?'],
+    // The row's ellipsis cuts a long command; the card shows it in full.
+    row: ['Run ', code(cmd), '?'],
     primary: 'Run command',
     ing: ['running ', code(clip(cmd))],
     ask: ['run ', code(clip(cmd))],
@@ -342,11 +364,7 @@ function webFetch(a: Action, p: Payload): Built {
     primary: 'Send data',
     ing: ['sending data to ', code(host)],
     ask: ['send data to ', code(host)],
-    fields: [
-      { label: 'Website', value: url, mono: true },
-      { label: 'What', value: 'Sends data' },
-      data.length > 0 && { label: 'Data', show: { kind: 'code', content: JSON.stringify(p, null, 2) } },
-    ],
+    fields: [{ label: 'Website', value: url, mono: true }, data.length > 0 && { label: 'Data', show: { kind: 'code', content: JSON.stringify(p, null, 2) } }],
   };
 }
 
@@ -361,12 +379,20 @@ function netAllow(a: Action, p: Payload): Built {
   };
 }
 
+/** "“Ops” on Telegram" when Bothy knows the chat's name, else the recipient's plain words. */
+function chatLabel(key: string, name: string): string {
+  const i = key.indexOf(':');
+  return name && i > 0 ? `“${name}” on ${appName(key.slice(0, i))}` : recipientName(key);
+}
+
 function message(a: Action, p: Payload, card: Card): Built {
   const to = a.recipient ?? '';
-  const chat = chatName(to);
+  const name = namedChat(card);
+  const chat = name ? chatLabel(to, name) : chatName(to);
   const toText = card?.fields?.find((f) => f.label === 'To')?.value || (to && recipientName(to));
   return {
     question: [`Send a message to ${chat}?`],
+    row: [`Send a message to ${to ? chatLabel(to, name) : chat}?`],
     primary: 'Send message',
     ing: [`sending a message to ${chat}`],
     ask: [`send a message to ${chat}`],
@@ -377,11 +403,20 @@ function message(a: Action, p: Payload, card: Card): Built {
 function memory(_a: Action, p: Payload): Built {
   if (str(p.op) === 'remove') {
     const old = str(p.old);
-    return { question: ['Forget this?'], primary: 'Forget', ing: [`forgetting “${clip(old, 60)}”`], ask: ['forget something'], exact: ['forgetting this exact note'], fields: [{ label: 'Note', value: old }] };
+    return {
+      question: ['Forget this?'],
+      row: [`Forget “${clip(old, 60)}”?`],
+      primary: 'Forget',
+      ing: [`forgetting “${clip(old, 60)}”`],
+      ask: ['forget something'],
+      exact: ['forgetting this exact note'],
+      fields: [{ label: 'Note', value: old }],
+    };
   }
   const note = str(p.new);
   return {
     question: ['Remember this?'],
+    row: [`Remember “${clip(note, 60)}”?`],
     primary: 'Remember',
     ing: [`remembering “${clip(note, 60)}”`],
     ask: ['remember something'],
@@ -399,7 +434,7 @@ function notes(a: Action, p: Payload, card: Card): Built {
     ing: ['updating the notes for ', code(repo)],
     ask: ['update the notes for ', code(repo)],
     exact: ['making this exact change to the notes for ', code(repo)],
-    fields: [diff && { label: 'Change', show: { kind: 'prose', content: diff } }],
+    fields: [diff && { label: 'Change', summary: `${plural(changedLines(diff), 'line')} changed`, show: { kind: 'prose', content: diff } }],
   };
 }
 
@@ -476,7 +511,19 @@ function githubComment(_a: Action, p: Payload): Built {
     primary: 'Post comment',
     ing: [`commenting on #${n} in `, code(repo)],
     ask: [`comment on #${n} in `, code(repo)],
-    fields: [{ label: 'On', value: `#${n} in ${repo}` }, { label: 'Comment', value: str(p.body) }],
+    // "On" names the pull request or issue; without its title it would only repeat the question.
+    fields: [str(p.title) && { label: 'On', value: str(p.title) }, { label: 'Comment', value: str(p.body) }],
+  };
+}
+
+function skillInstall(_a: Action, p: Payload): Built {
+  const name = str(p.name);
+  return {
+    question: [`Install the “${name}” skill?`],
+    primary: 'Install skill',
+    ing: [`installing the “${name}” skill`],
+    ask: [`install the “${name}” skill`],
+    fields: [str(p.source) && { label: 'From', value: str(p.source), mono: true }],
   };
 }
 
@@ -534,9 +581,10 @@ function financial(a: Action, p: Payload): Built {
 }
 
 function unknown(a: Action, p: Payload): Built {
-  const name = humanize(a.tool);
+  // A tool id is a name, not words of the sentence: quoted, in lower case ("“skill install”").
+  const name = `“${humanize(a.tool).toLowerCase()}”`;
   if (a.side_effect === 'admin') {
-    return { question: ["Change Bothy's settings?"], primary: 'Allow', ing: ["changing Bothy's settings"], ask: ["change Bothy's settings"], fields: payloadFields(p) };
+    return { question: ["Change Bothy's settings?"], primary: 'Change settings', ing: ["changing Bothy's settings"], ask: ["change Bothy's settings"], fields: payloadFields(p) };
   }
   return { question: [`Let Bothy use ${name}?`], primary: 'Allow', ing: [`using ${name}`], ask: [`use ${name}`], fields: payloadFields(p) };
 }
@@ -556,6 +604,7 @@ const builders: Record<string, (a: Action, p: Payload, card: Card) => Built> = {
   repo_open_pr: openPR,
   github_comment: githubComment,
   release_deploy: deploy,
+  skill_install: skillInstall,
 };
 
 // v0.1 card labels, for approvals that arrive without an Action.
@@ -605,6 +654,7 @@ export function cardCopy(ap: Approval): CardCopy {
     kind: b.kind ?? 'action',
     tone: destructive ? 'destructive' : 'default',
     question: b.question,
+    row: b.row,
     consequence,
     primary: b.primary,
     ing: b.ing,

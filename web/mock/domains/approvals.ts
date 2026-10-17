@@ -34,6 +34,8 @@ interface Spec {
   context?: string;
   session?: string;
   warnings?: string[];
+  /** Card fields the server adds beside Tool, such as a named chat's To. */
+  fields?: Card['fields'];
   choices?: Choice[];
   created: number;
   expires?: number;
@@ -47,7 +49,7 @@ function make(s: Spec): Approval {
   const card: Card = {
     title: s.title,
     risk: s.act.side_effect,
-    fields: [{ label: 'Tool', value: s.act.tool, mono: true }],
+    fields: [{ label: 'Tool', value: s.act.tool, mono: true }, ...(s.fields ?? [])],
     diff: s.act.diff,
     warnings: s.warnings,
     context: s.context ?? 'Web · session “Clean up staging notes”',
@@ -221,10 +223,12 @@ function waitingList(): Approval[] {
     make({
       id: 'apr_01jfetch00000000000000000',
       title: 'Send a message',
-      act: action('message', 'send', 'external_send', { text: 'Morning. Three pull requests wait for review in acme/web, and the staging deploy failed at 06:10.' }, { recipient: 'telegram:5512' }),
+      act: action('message', 'send', 'external_send', { text: 'Morning. Three pull requests wait for review in acme/web, and the staging deploy failed at 06:10.' }, { recipient: 'telegram:-100223' }),
       context: 'Telegram · DM · schedule · session “Morning briefing”',
       session: ids.brief,
-      warnings: ['First contact with telegram:5512.'],
+      // The server names a group chat Bothy was added to, keeping its id beside the title.
+      fields: [{ label: 'To', value: '“Ops team” on Telegram (chat -100223)', mono: false }],
+      warnings: ['First contact with telegram:-100223.'],
       choices: ['allow_once', 'deny'],
       created: 25,
       status: 'parked',
