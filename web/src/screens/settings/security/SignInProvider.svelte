@@ -181,8 +181,12 @@
         {#if noticed && reason}<span id="{uid}-why" class="sr-only">{reason}</span>{/if}
       {/snippet}
     </SettingsRow>
-    <LinkRow label="Who can sign in" value={github ? addressSummary(adm.allow) : listSummary(adm.allow)} href="/settings/security" />
-    {#if !github}<p class="field-help">A domain on the list lets in the Google Workspace accounts on it.</p>{/if}
+    <LinkRow
+      label="Who can sign in"
+      value={github ? addressSummary(adm.allow) : listSummary(adm.allow)}
+      href="/settings/security"
+      help={github ? undefined : 'A domain on the list lets in the Google Workspace accounts on it.'}
+    />
 
     <form class="mt-10" novalidate onsubmit={save}>
       <SettingsSection title={github ? 'GitHub OAuth app' : 'Google Cloud'}>
