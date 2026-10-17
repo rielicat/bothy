@@ -9,12 +9,14 @@
   import Frame from './Frame.svelte';
 
   // Step 3 (docs/design/ui.md §5.7). Setup is complete as soon as this opens,
-  // so every "Set up" goes to an ordinary app page.
+  // so every row goes to an ordinary app page. Rows are links, which leaves
+  // "Start chatting" the one button on the screen.
   const rows = [
     { title: 'Connect a chat app', text: 'Your team can talk to Bothy in Slack, Discord or Telegram.', href: '/settings/connections' },
     { title: 'Connect GitHub', text: 'Let Bothy read your code and open pull requests for review.', href: '/settings/connections/github' },
     // C7's People page opens its "Add person" dialog for ?add=1.
-    { title: 'Add people', text: 'Give admins and members their own sign-in to Bothy on the web.', href: '/settings/people?add=1' },
+    // Bothy creates the accounts itself; it never sends invitations.
+    { title: 'Add people', text: 'Give each person their own sign-in to Bothy.', href: '/settings/people?add=1' },
   ];
 
   const uid = $props.id();
@@ -55,12 +57,23 @@
 <Frame step={3} title="Bothy is ready" intro="Start a chat now, or connect more. Everything here is also in Settings.">
   <ul>
     {#each rows as r, i (r.href)}
-      <li class="flex items-center gap-4 border-b border-border py-3 last:border-b-0 max-sm:flex-col max-sm:items-stretch max-sm:gap-3">
-        <div class="min-w-0 flex-1">
-          <p id="{uid}-{i}" class="text-body font-medium text-text">{r.title}</p>
-          <p class="text-body text-muted">{r.text}</p>
+      <!-- The title is the link; its hit area stretches over the whole row. -->
+      <li class="border-b border-border last:border-b-0">
+        <div class="relative -mx-2 flex items-center gap-4 rounded-md px-2 py-3 hover:bg-subtle">
+          <div class="min-w-0 flex-1">
+          <a
+            href={r.href}
+            class="text-body font-medium text-text after:absolute after:inset-0 after:rounded-md focus-visible:outline-none focus-visible:after:outline-2 focus-visible:after:outline-offset-[-2px] focus-visible:after:outline-focus"
+            aria-describedby="{uid}-{i}"
+            onclick={(e) => {
+              e.preventDefault();
+              void leave(r.href);
+            }}>{r.title}</a
+          >
+          <p id="{uid}-{i}" class="text-body text-pretty text-muted">{r.text}</p>
+          </div>
+          <Icon name="chevron-right" class="shrink-0 text-muted" />
         </div>
-        <Button size="sm" class="max-sm:w-full" aria-describedby="{uid}-{i}" onclick={() => leave(r.href)}>Set up</Button>
       </li>
     {/each}
   </ul>

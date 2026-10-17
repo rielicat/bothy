@@ -235,9 +235,11 @@ describe('steps 2 and 3', () => {
     await screen.findByText('Connected. Bothy will use Claude Sonnet 4.5.', {}, { timeout: 3000 });
     await fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     await screen.findByText('Bothy is ready');
-    const buttons = screen.getAllByRole('button', { name: 'Set up' });
-    expect(buttons).toHaveLength(3);
-    await fireEvent.click(buttons[2]);
+    // Link rows, so "Start chatting" is the one button on the screen.
+    expect(screen.getAllByRole('button').map((b) => b.textContent?.trim())).toEqual(['Start chatting']);
+    const add = screen.getByRole('link', { name: 'Add people' });
+    expect(add.getAttribute('aria-describedby') && document.getElementById(add.getAttribute('aria-describedby')!)?.textContent).toBe('Give each person their own sign-in to Bothy.');
+    await fireEvent.click(add);
     await waitFor(() => expect(location.pathname + location.search).toBe('/settings/people?add=1'));
   });
 });

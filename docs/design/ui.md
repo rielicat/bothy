@@ -970,20 +970,20 @@ Bothy                                                       Step 3 of 3
 Bothy is ready
 Start a chat now, or connect more. Everything here is also in Settings.
 
-Connect a chat app                                              [ Set up ]
+Connect a chat app                                                      ›
 Your team can talk to Bothy in Slack, Discord or Telegram.
 ──────────────────────────────────────────────────────────────────────────
-Connect GitHub                                                  [ Set up ]
+Connect GitHub                                                          ›
 Let Bothy read your code and open pull requests for review.
 ──────────────────────────────────────────────────────────────────────────
-Add people                                                      [ Set up ]
-Give admins and members their own sign-in to Bothy on the web.
+Add people                                                              ›
+Give each person their own sign-in to Bothy.
 
 [ Start chatting ]
 ```
 
-- Setup is marked complete when this screen opens, so each "Set up" goes to a normal app page: `/settings/connections`, `/settings/connections/github`, `/settings/people` with the "Add person" dialog open.
-- Rows are `ListRow`s: title `text-body` 500, description `text-body` muted, trailing small secondary "Set up". Under 640 px the button moves under the text, full width.
+- Setup is marked complete when this screen opens, so each row goes to a normal app page: `/settings/connections`, `/settings/connections/github`, `/settings/people` with the "Add person" dialog open.
+- Rows are link rows: the title (`text-body` 500) is the link and its hit area covers the row, a muted › sits at the right edge, and the description (`text-body` muted, `text-pretty`) stays under the title. No row has a button at any width, so "Start chatting" is the only button on the screen. "Add people", not "Invite", because Bothy creates the accounts and sends no invitations.
 - "Start chatting" is the one primary and opens `/chat`.
 - No warnings and no icons. The background security audit writes to Security → Needs attention and lights the attention dot.
 
