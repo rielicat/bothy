@@ -59,6 +59,7 @@ const states: ShotState[] = [
   {
     name: 'projects-failed-details',
     route: '/knowledge',
+    mock: 'repo-read-failed',
     ready: framed('acme/infra', async (page) => {
       await button('Details')(page);
       await settle(page);
@@ -72,7 +73,8 @@ const states: ShotState[] = [
   { name: 'project', route: PROJECT, ready: framed('How to build and test') },
   { name: 'project-member', route: PROJECT, mock: 'member', ready: framed('How to build and test') },
   { name: 'project-first-read', route: '/knowledge/projects/acme/api', ready: framed('Bothy is reading acme/api') },
-  { name: 'project-couldnt-read', route: '/knowledge/projects/acme/infra', ready: framed("Bothy couldn't read this repository.") },
+  { name: 'project-couldnt-read', route: '/knowledge/projects/acme/infra', mock: 'repo-read-failed', ready: framed("Bothy couldn't read this repository.") },
+  { name: 'project-too-big', route: '/knowledge/projects/acme/infra', ready: framed('This repository is too big for Bothy to read') },
   {
     name: 'project-menu',
     route: PROJECT,
@@ -116,7 +118,7 @@ const states: ShotState[] = [
       await edit(page);
       await typeAtEnd('\n- Keep pull requests small.')(page);
       await button('Save')(page);
-      await button('See their version')(page);
+      await button('Compare versions')(page);
       await page.getByRole('dialog', { name: 'Compare versions' }).waitFor();
       await settle(page);
     }),
@@ -221,7 +223,7 @@ const states: ShotState[] = [
       await page.getByText('Changes apply from your next message.').waitFor({ timeout: 5000 });
     }),
   },
-  { name: 'memory-empty', route: '/knowledge/memory', mock: 'memory-empty', ready: framed("Bothy hasn't remembered anything yet.") },
+  { name: 'memory-empty', route: '/knowledge/memory', mock: 'memory-empty', ready: framed('Bothy adds things here as you work together.') },
   {
     name: 'memory-history',
     route: '/knowledge/memory',
@@ -236,8 +238,8 @@ const states: ShotState[] = [
   },
 
   // §9.5 Skills
-  { name: 'skills', route: '/knowledge/skills', ready: framed('incident-review') },
-  { name: 'skills-member', route: '/knowledge/skills', mock: 'member', ready: framed('incident-review') },
+  { name: 'skills', route: '/knowledge/skills', ready: framed('Incident review') },
+  { name: 'skills-member', route: '/knowledge/skills', mock: 'member', ready: framed('Incident review') },
   { name: 'skills-empty', route: '/knowledge/skills', mock: 'skills-empty', ready: framed('No skills yet.') },
   { name: 'skills-empty-member', route: '/knowledge/skills', mock: 'skills-empty,member', ready: framed('No skills yet.') },
   { name: 'skill', route: '/knowledge/skills/release-notes', ready: framed('Find the last release tag') },
@@ -250,7 +252,7 @@ const states: ShotState[] = [
       await page.getByText('git log --merges').waitFor();
     }),
   },
-  { name: 'skill-changed', route: '/knowledge/skills/incident-review', ready: framed('This skill changed since an admin approved it') },
+  { name: 'skill-changed', route: '/knowledge/skills/incident-review', ready: framed("This skill changed, so it's off until an admin approves") },
 ];
 
 shots('knowledge', states);

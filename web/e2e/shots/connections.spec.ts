@@ -76,13 +76,13 @@ const states: ShotState[] = [
   {
     name: 'add-mcp-command',
     route: '/settings/connections',
-    setup: steps(click('Add an MCP server'), click('A command on this server', 'radio'), fill('Name', 'sentry'), fill('Package', '@sentry/mcp-server'), fill('Version', '1.4.0'), fill(/^Websites it can reach/, 'sentry.io')),
+    setup: steps(click('Add an MCP server'), click('A command on this server', 'radio'), fill('Name', 'sentry'), fill('Package', '@sentry/mcp-server'), fill(/^Version/, '1.4.0'), fill(/^Websites it can reach/, 'sentry.io')),
     full: false,
   },
   {
     name: 'add-mcp-command-details',
     route: '/settings/connections',
-    setup: steps(click('Add an MCP server'), click('A command on this server', 'radio'), fill('Package', '@sentry/mcp-server'), fill('Version', '1.4.0'), click('Details')),
+    setup: steps(click('Add an MCP server'), click('A command on this server', 'radio'), fill('Package', '@sentry/mcp-server'), fill(/^Version/, '1.4.0'), click('Details')),
     full: false,
   },
   { name: 'add-mcp-code-off', route: '/settings/connections', mock: 'sandbox-off', setup: steps(click('Add an MCP server'), click('A command on this server', 'radio'), see('running code is off on this server')), full: false },

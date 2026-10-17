@@ -101,9 +101,10 @@ const states: ShotState[] = [
     name: 'paused',
     route: '/settings/security',
     mock: 'paused',
-    ready: 'Bothy has been paused since',
+    ready: 'Sam paused Bothy',
     full: false,
-    setup: scrollTo(/^Bothy has been paused since .+ by Sam\.$/),
+    // The section's sentence, not the banner's, which goes on past the first full stop.
+    setup: scrollTo(/^Sam paused Bothy (at|on) [^.]+\.$/),
   },
   { name: 'security-sealed', route: '/settings/security', mock: 'sealed', ready: 'Locked', setup: framed() },
   { name: 'security-member', route: '/settings/security', mock: 'member', ready: 'Only admins can see this page.', setup: framed() },

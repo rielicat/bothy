@@ -253,6 +253,7 @@ const knowledgeEmpty = scenario('knowledge-empty', 'Bothy has read no repositori
 const notesConflict = scenario('notes-conflict', 'Someone else saves the acme/web notes while you edit them: your first save is refused.', 'knowledge');
 const notesFull = scenario('notes-near-full', 'The acme/web notes are above 80 % of their size limit.', 'knowledge');
 const notesSuggest = scenario('notes-suggestions', 'Bothy suggested 2 changes to the acme/web notes, from content it read.', 'knowledge');
+const repoReadFailed = scenario('repo-read-failed', 'GitHub refuses Bothy access to acme/infra, instead of it being too big to read.', 'knowledge');
 
 export const state = {
   memory: {} as Record<string, string>,
@@ -384,6 +385,8 @@ const notesCap = (req?: Req) => (notesFull(req) ? nearFull(webNotes) : 8192);
 function visibleRepos(req: Req): KnowledgeRepo[] {
   if (knowledgeEmpty(req)) return [];
   if (notesSuggest(req)) suggest();
+  if (repoReadFailed(req))
+    return state.repos.map((r) => (r.repo === 'acme/infra' ? { ...r, error: 'GET https://api.github.com/repos/acme/infra/tarball: 403 Forbidden', truncated: false } : r));
   return state.repos;
 }
 
