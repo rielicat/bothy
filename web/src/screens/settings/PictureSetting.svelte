@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import Icon from '../../components/Icon.svelte';
-  import { announce, Button, SettingsRow, StatusLine, toast } from '../../components/ui';
+  import { announce, Button, SettingsRow, StatusLine, toast, type RowControl } from '../../components/ui';
   import { api, ApiError } from '../../lib/api/client';
   import type { ChannelStatus, PictureAppResult, PictureChange, PictureInfo } from '../../lib/api/types.gen';
   import { pictureMaxBytes, pictureTooBig, pictureURL } from './picture';
@@ -51,6 +51,7 @@
   // "Use default" goes with the admin's picture, so a reset some chat apps
   // missed is tried again from here.
   const resetAgain = $derived(last === 'reset' && apps.some((a) => a.result === 'failed'));
+  const describedBy = (c: RowControl) => [c.labelId, c.describedBy].filter(Boolean).join(' ');
 
   async function change(files: FileList | null) {
     const f = files?.[0];
@@ -105,7 +106,7 @@
 {#if info}
   {@const current = info}
   <SettingsRow label="Picture" help="Bothy uses it in the chat apps." {error} note={lines.length || slack || slackTodo ? note : undefined}>
-    {#snippet children()}
+    {#snippet children(c)}
       <div class="flex flex-wrap items-center gap-3">
         <img src={pictureURL(current.version)} alt={settingsConfig.value<string>('agent.name', 'Bothy')} width="48" height="48" class="size-12 shrink-0 rounded-full border border-border bg-subtle" />
         <input
@@ -117,13 +118,14 @@
           tabindex="-1"
           onchange={(e) => change(e.currentTarget.files)}
         />
-        <Button id="{uid}-change" loading={busy === 'change'} loadingLabel="Saving…" disabled={busy === 'reset'} onclick={() => picker?.click()}>Change…</Button>
+        <Button id="{uid}-change" loading={busy === 'change'} loadingLabel="Saving…" disabled={busy === 'reset'} aria-describedby={describedBy(c)} onclick={() => picker?.click()}>Change…</Button>
         {#if current.custom || resetAgain}
           <Button
             variant="ghost"
             loading={busy === 'reset'}
             loadingLabel="Saving…"
             disabled={busy === 'change'}
+            aria-describedby={describedBy(c)}
             onclick={() => save('reset', () => api.del<PictureChange>('/api/agent/picture'))}>{current.custom ? 'Use default' : 'Try again'}</Button
           >
         {/if}

@@ -152,6 +152,12 @@ describe("Settings → General, Bothy's picture", () => {
   const choose = (file: File) => fireEvent.change(picker(), { target: { files: [file] } });
   const png = () => new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'logo.png', { type: 'image/png' });
   const picture = () => row('Picture');
+  /** The text of what aria-describedby points at. */
+  const description = (el: Element) =>
+    (el.getAttribute('aria-describedby') ?? '')
+      .split(' ')
+      .map((id) => document.getElementById(id)?.textContent)
+      .join(' ');
 
   it('shows the picture and, with Slack on, how to put it in Slack', async () => {
     await open();
@@ -249,6 +255,13 @@ describe("Settings → General, Bothy's picture", () => {
     expect(within(picture()).queryByText(/Try again later/)).toBeNull();
     await waitFor(() => expect(document.activeElement).toBe(within(picture()).getByRole('button', { name: 'Change…' })));
     expect(calls.filter((c) => c.method === 'DELETE').length).toBe(3);
+  });
+
+  it('names the row on its buttons for screen readers', async () => {
+    await open({ mock: 'picture-custom' });
+    for (const name of ['Change…', 'Use default']) {
+      expect(description(within(picture()).getByRole('button', { name }))).toBe('Picture Bothy uses it in the chat apps.');
+    }
   });
 
   it('says when the picture did not load, and tries again', async () => {

@@ -124,7 +124,9 @@ describe('Slack manage view', () => {
     await setup('slack');
     const r = (await screen.findByText('Picture', { selector: 'label' })).closest('.grid') as HTMLElement;
     expect(within(r).getByText("In Slack, upload it under App icon in Slack's app settings.")).toBeTruthy();
-    expect(within(r).getByRole('link', { name: 'Download picture' }).getAttribute('href')).toBe('/api/agent/picture?download=1');
+    const download = within(r).getByRole('link', { name: 'Download picture' });
+    expect(download.getAttribute('href')).toBe('/api/agent/picture?download=1');
+    expect(document.getElementById(download.getAttribute('aria-describedby')!)?.textContent).toBe('Picture');
     expect(within(r).getByRole('link', { name: /^Open Slack's app settings/ }).getAttribute('href')).toBe('https://api.slack.com/apps/A0123456789/general');
     expect(within(r).getAllByRole('link')).toHaveLength(2);
   });

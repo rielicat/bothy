@@ -189,10 +189,10 @@
     {#if app === 'slack'}
       <SettingsRow label="Picture">
         {#snippet note()}<SlackPictureNote appId={status.app_id} download={false} />{/snippet}
-        {#snippet children()}
+        {#snippet children(c)}
           <div class="flex items-center gap-3">
             <img src={pictureURL()} alt={config.value<string>('agent.name', 'Bothy')} width="32" height="32" class="size-8 shrink-0 rounded-md border border-border bg-subtle" />
-            <Button size="sm" href={pictureDownloadURL} download>Download picture</Button>
+            <Button size="sm" href={pictureDownloadURL} download aria-describedby={c.labelId}>Download picture</Button>
           </div>
         {/snippet}
       </SettingsRow>
