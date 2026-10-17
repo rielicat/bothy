@@ -52,7 +52,7 @@ export const providers: ProviderDef[] = [
   { id: 'openai', name: 'OpenAI', kind: 'openai', line: 'GPT models', base: 'https://api.openai.com/v1', key: 'openai_api_key', env: 'OPENAI_API_KEY', console: 'https://platform.openai.com/api-keys', model: 'gpt-5.1', quick: 'gpt-5-mini' },
   { id: 'gemini', name: 'Google Gemini', kind: 'gemini', line: 'Gemini models', key: 'gemini_api_key', env: 'GEMINI_API_KEY', console: 'https://aistudio.google.com', model: 'gemini-2.5-pro', quick: 'gemini-2.5-flash' },
   { id: 'openrouter', name: 'OpenRouter', kind: 'openai_compat', line: 'Many models with one key', base: 'https://openrouter.ai/api/v1', key: 'openrouter_api_key', env: 'OPENROUTER_API_KEY', console: 'https://openrouter.ai/keys', model: 'anthropic/claude-sonnet-4.5', quick: 'anthropic/claude-haiku-4.5' },
-  { id: 'bedrock', name: 'Amazon Bedrock', kind: 'bedrock', line: "Uses this server's AWS access", model: '' },
+  { id: 'bedrock', name: 'Amazon Bedrock', kind: 'bedrock', line: "Uses this server's AWS access, no key needed", model: '' },
   { id: 'groq', name: 'Groq', kind: 'openai_compat', line: 'Fast open models', base: 'https://api.groq.com/openai/v1', key: 'groq_api_key', env: 'GROQ_API_KEY', console: 'https://console.groq.com/keys', model: 'llama-3.3-70b-versatile', more: true },
   { id: 'xai', name: 'xAI', kind: 'openai_compat', line: 'Grok models', base: 'https://api.x.ai/v1', key: 'xai_api_key', env: 'XAI_API_KEY', console: 'https://console.x.ai', model: 'grok-4', more: true },
   { id: 'deepseek', name: 'DeepSeek', kind: 'openai_compat', line: 'DeepSeek models', base: 'https://api.deepseek.com/v1', key: 'deepseek_api_key', env: 'DEEPSEEK_API_KEY', console: 'https://platform.deepseek.com', model: 'deepseek-chat', more: true },
@@ -182,7 +182,8 @@ const families: RegExp[] = [
 ];
 const notSuggested = /preview|exp|beta|:free|image|audio|tts|search|online|realtime|research|guard|vision|customtools/;
 
-export function modelOptions(models: string[], recommended: string, name: (id: string) => string = friendlyModel): ModelOption[] {
+/** `refused` is a model the check just refused, which is never the one recommended. */
+export function modelOptions(models: string[], recommended: string, name: (id: string) => string = friendlyModel, refused?: string): ModelOption[] {
   const list = usable(models);
   const seen = new Set<string>();
   const out: ModelOption[] = [];
@@ -190,7 +191,7 @@ export function modelOptions(models: string[], recommended: string, name: (id: s
     const label = name(m);
     if (!m || seen.has(label)) return;
     seen.add(label);
-    out.push({ value: m, label: m === recommended ? `${label} (recommended)` : label, ...(group ? { group } : {}) });
+    out.push({ value: m, label: m === recommended && m !== refused ? `${label} (recommended)` : label, ...(group ? { group } : {}) });
   };
   if (list.length <= LONG_LIST) {
     for (const m of [recommended, ...list]) add(m);
@@ -206,14 +207,20 @@ export function modelOptions(models: string[], recommended: string, name: (id: s
   return out;
 }
 
-/** What a small window or missing tool use means for the person (§5.6.3); empty when nothing does. */
-export function modelNote(context: number, tools: boolean): string {
+export interface ModelNote {
+  text: string;
+  /** A model that can only chat needs attention (amber); a short memory is fine print. */
+  tone: 'warning' | 'muted';
+}
+
+/** What a small window or missing tool use means for the person (§5.6.3); null when nothing does. */
+export function modelNote(context: number, tools: boolean, model: string): ModelNote | null {
   if ((context > 0 && context < 8192) || !tools) {
-    return "This model can't take actions like reading files or searching the web, so Bothy can only chat with it. Choose a larger model to let Bothy do work.";
+    return { text: `${model || 'This model'} can only chat. Choose a larger model to let Bothy read files or search the web.`, tone: 'warning' };
   }
-  if (context > 0 && context < 16384) return 'This model can only keep short conversations in mind, so Bothy may forget earlier messages. A larger model works better.';
-  if (context > 0 && context < 32768) return 'This model keeps less of long conversations in mind. Bothy summarises older messages to keep going.';
-  return '';
+  if (context > 0 && context < 16384) return { text: 'This model can only keep short conversations in mind, so Bothy may forget earlier messages. A larger model works better.', tone: 'muted' };
+  if (context > 0 && context < 32768) return { text: 'This model keeps less of long conversations in mind. Bothy summarises older messages to keep going.', tone: 'muted' };
+  return null;
 }
 
 /** host:port of an address, for "Allow {host:port}". */

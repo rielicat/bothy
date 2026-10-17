@@ -870,8 +870,7 @@ Bothy needs a model to think with. Choose one you already have access to.
 Found on this server                                       text-small 500 muted; only when something was detected
 ┌──────────────────────────────────────────────────────┐
 │ (•) Use this server's AWS access                     │   OptionList row
-│     Amazon Bedrock in US East (N. Virginia).         │
-│     No keys needed.                                  │
+│     Amazon Bedrock. No key needed.                   │
 │     ──────────────────────────────────────────────── │   expanded content of the selected row
 │     Region  [ US East (N. Virginia)            ⌄ ]   │
 │     ✓ Connected. Bothy will use Claude Sonnet 4.5.   │
@@ -887,7 +886,8 @@ Or choose a provider                                       "Choose a provider" w
 │ ( ) OpenAI             GPT models                    │
 │ ( ) Google Gemini      Gemini models                 │
 │ ( ) OpenRouter         Many models with one key      │
-│ ( ) Amazon Bedrock     Uses this server's AWS access │   only when not detected
+│ ( ) Amazon Bedrock     Uses this server's AWS        │   only when not detected
+│                        access, no key needed         │
 │ › More providers                                     │   Groq, xAI, DeepSeek, Ollama*, LM Studio*, Other server
 └──────────────────────────────────────────────────────┘
 
@@ -905,17 +905,17 @@ Or choose a provider                                       "Choose a provider" w
 
 | Option | Title | Line 2 | Expanded content |
 |---|---|---|---|
-| AWS detected (S3) | "Use this server's AWS access" | "Amazon Bedrock in {Region name}. No keys needed." | Region select (readable names, code as secondary text), default from detection; the check starts on selection and re-runs on region change |
+| AWS detected (S3) | "Use this server's AWS access" | "Amazon Bedrock. No key needed." (the region shows once, in the Region select right below) | Region select (readable names, code as secondary text), default from detection; the check starts on selection and re-runs on region change |
 | AWS settings without access (`problem`) | "Use this server's AWS access" | "This server's AWS sign-in has expired." (`signin_expired`) / "AWS settings found, but they don't give access right now." (`no_credentials`) | Listed last among found options and never chosen for the person. Text "Sign in again on the server with `aws sso login`, then check again." (or "Give this server an AWS role or sign in with the AWS CLI, then check again."), secondary button "Check again" (it stays, with the check's progress or failure under it, until a check succeeds), link "How to give Bothy AWS access ↗"; a successful check turns it into the AWS detected row |
 | Ollama detected | "Ollama on this computer" | "{n} models ready, including {best model}." / "Running, but no models downloaded yet." | the check, then the success line |
 | LM Studio detected | "LM Studio on this computer" | "{n} models ready." | same |
 | Other local server detected | "Model server on this computer" | "{n} models available." | same |
 | Environment key detected | "Use the {Provider} key on this server" | "Found in the server's settings. Choosing it saves a copy in Bothy's saved keys." | the check; Continue imports it (`POST /api/vault/import`) |
-| Anthropic, OpenAI, Google Gemini, OpenRouter | provider name | "Claude models", "GPT models", "Gemini models", "Many models with one key" | `KeyField` "API key" (password style), help link "Get a key at {console} ↗" |
+| Anthropic, OpenAI, Google Gemini, OpenRouter | provider name | "Claude models", "GPT models", "Gemini models", "Many models with one key" | `KeyField` "API key" (password style), help "Stored encrypted. Only sent to {Provider}." with the link "Get a key at {console} ↗" on its own line under it, so the link never splits |
 | Groq, xAI, DeepSeek (More providers) | provider name | "Fast open models", "Grok models", "DeepSeek models" | same |
-| Amazon Bedrock (not detected) | "Amazon Bedrock" | "Uses this server's AWS access" | Text "Bothy uses the AWS access of the server it runs on, so there's no key to paste. No keys are stored in Bothy." Region select. Secondary button "Check access". Link "How to give Bothy AWS access ↗" (`docs/deploy/`) |
+| Amazon Bedrock (not detected) | "Amazon Bedrock" | "Uses this server's AWS access, no key needed" (the same line in Settings → Models → Add a provider) | Region select, then secondary button "Check access" and link "How to give Bothy AWS access ↗" (`docs/deploy/`). No paragraph: line 2 already says it |
 | Ollama, LM Studio (not detected) | "Ollama" / "LM Studio" | "On this computer or your network" | "Server address", default `http://host.docker.internal:11434` / `http://host.docker.internal:1234/v1`; checked 800 ms after editing stops |
-| Other server | "Other server" | "Any OpenAI-compatible server" | "Server address" (placeholder `https://models.example.com/v1`), "API key (if needed)"; after the check, the model comes from the server's list; only if the list is empty does a "Model name" text field appear |
+| Other server | "Other server" | "Any OpenAI-compatible server" | "Server address" (placeholder `https://models.example.com/v1`), "API key (if needed)"; after the check, the model comes from the server's list; only if the list is empty does a "Model name" text field appear. An address failure (`private_address`, `unreachable`, `tls`, `not_a_model_server`, `no_models`) shows right under "Server address", before the key field; only `key_rejected` shows under the key |
 
 Key console links: Anthropic `console.anthropic.com`, OpenAI `platform.openai.com/api-keys`, Google Gemini `aistudio.google.com`, OpenRouter `openrouter.ai/keys`, Groq `console.groq.com/keys`, xAI `console.x.ai`, DeepSeek `platform.deepseek.com`.
 
@@ -923,38 +923,38 @@ Key console links: Anthropic `console.anthropic.com`, OpenAI `platform.openai.co
 
 - Starts on paste, on Enter, or 800 ms after typing stops once the value is plausibly long (20 characters for keys). There is no Test button.
 - Checking line (spinner + `text-small muted`): "Checking the key…", "Checking AWS access…", "Checking which models you can use…" (Bedrock listing), "Checking…" (address).
-- Success: check glyph in `accent-text` + "Connected. Bothy will use {Model name}." in ink, then a "Change" link button. "Change" swaps the sentence for a "Model" select of the provider's models by friendly name (S5), recommended first with " (recommended)". The quick-tasks model is chosen silently (the provider's recommended cheap model, or the same model). "Main", "Fast" and "fallback" are never mentioned here.
-- Model notes under the success line (`text-small muted`), replacing "compact mode", "degraded", "text-only" and every context number:
+- Success: check glyph in `accent-text` + "Connected. Bothy will use {Model name}." in ink, then a "Change" link button. "Change" swaps the sentence for a "Model" select of the provider's models by friendly name (S5), recommended first with " (recommended)", which is never added to a model the check refused. The quick-tasks model is chosen silently (the provider's recommended cheap model, or the same model). "Main", "Fast" and "fallback" are never mentioned here.
+- Model notes under the success line (`text-small muted`, except the last row), replacing "compact mode", "degraded", "text-only" and every context number:
 
 | Probe result | Note |
 |---|---|
 | 32K window or more | none |
 | 16K to under 32K | "This model keeps less of long conversations in mind. Bothy summarises older messages to keep going." |
 | 8K to under 16K | "This model can only keep short conversations in mind, so Bothy may forget earlier messages. A larger model works better." |
-| Under 8K, or no tool use | "This model can't take actions like reading files or searching the web, so Bothy can only chat with it. Choose a larger model to let Bothy do work." Continue still allowed. |
+| Under 8K, or no tool use | A warning `StatusLine` (amber alert glyph, `warning-text`), not fine print: "{Model} can only chat. Choose a larger model to let Bothy read files or search the web." Continue still allowed. |
 
 #### 5.6.4 Failures
 
-Every failure is a `StatusLine` in danger tone: alert glyph, one or two sentences in `danger-text`, an optional action, then a "Details" disclosure holding the raw server message in a `CodeBlock` with Copy. For AWS, Details also names the credential source, never its value ("Credentials from: instance role bothy-prod"). Category comes from the server (S13); until it does, the client maps HTTP status and known substrings.
+Every failure is a `StatusLine` in danger tone: alert glyph, one or two sentences in `danger-text`, an optional action, then a "Details" disclosure (unindented under 640 px, so a code block keeps the width it needs) holding the raw server message in a `CodeBlock` with Copy. For AWS, Details also names the credential source, never its value ("Credentials from: instance role bothy-prod"). Category comes from the server (S13); until it does, the client maps HTTP status and known substrings. The sentence never repeats its action: "Try again" and "Check again" are the link right after it, so the sentence stops before saying them.
 
 | Category | Main line | Action |
 |---|---|---|
 | `key_rejected` | "That key wasn't accepted. Check you copied all of it, or create a new one." | Link "Get a new key ↗" |
 | `no_model_access` | "This key works, but it can't use {Model}. Choose another model." | Model select opens |
-| `out_of_credit` | "Your {Provider} account is out of credit. Add credit with {Provider}, then try again." | "Try again" |
-| `rate_limited` | "{Provider} is limiting requests right now. Wait a minute and try again." | "Try again" |
-| `provider_error` | "{Provider} isn't responding properly right now. Try again in a few minutes." | "Try again" |
-| `timeout` | "{Provider} took too long to answer. Try again." | "Try again" |
+| `out_of_credit` | "Your {Provider} account is out of credit. Add credit with {Provider}." | "Try again" |
+| `rate_limited` | "{Provider} is limiting requests right now. Wait a minute." | "Try again" |
+| `provider_error` | "{Provider} isn't responding properly right now." | "Try again" |
+| `timeout` | "{Provider} took too long to answer." | "Try again" |
 | `unreachable` (cloud) | "Bothy couldn't reach {Provider} from this server. Check the server's internet connection or firewall." | "Try again" |
 | `unreachable` (local) | "{Name} isn't answering at that address. Make sure it's running." | "Try again"; Details adds "If Bothy runs in Docker, {Name} must accept connections from other computers (for Ollama: OLLAMA_HOST=0.0.0.0) and the address is usually http://host.docker.internal:{port}." |
 | `private_address` | "Bothy blocks addresses on your private network unless you allow them." | Secondary "Allow {host:port}" (sets `allow_private` for that exact host and port, then re-checks) |
-| `no_models` | "{Name} is running but has no models yet. Install one on the server, for example `ollama pull qwen3:8b`, then check again." | "Check again" |
+| `no_models` | "{Name} is running but has no models yet. Install one on the server, for example `ollama pull qwen3:8b`." (the example only for Ollama). On the detected Ollama row, whose line 2 already says "Running, but no models downloaded yet.", only "Install a model on the server, for example `ollama pull qwen3:8b`." | "Check again" |
 | `tls` | "The connection to that address isn't secure because of a certificate problem. Check the address. For a server on your own network you can use http://." | none |
-| `not_a_model_server` | "That address answered, but it doesn't look like a model server. Check the address; it usually ends in /v1." | none |
-| `aws_no_credentials` | "This server doesn't have AWS access right now. On AWS, give it a role with Bedrock access. On a laptop, sign in with the AWS CLI again." | Link "How to give Bothy AWS access ↗" |
+| `not_a_model_server` | "That address answered, but it doesn't look like a model server. Check the address; it usually ends in /v1." Ollama, whose API has no /v1: "That address answered, but it isn't Ollama. Check the address and port; Ollama usually uses 11434." | none |
+| `aws_no_credentials` | "This server has no AWS access right now. Give it an AWS role, or sign in with the AWS CLI." For a key read from AWS Secrets Manager: "Bothy couldn't read this key from AWS Secrets Manager because this server has no AWS access right now. Give it a role that can read the secret, or sign in with the AWS CLI." | Link "How to give Bothy AWS access ↗" |
 | `aws_denied` | "This server's AWS access isn't allowed to use Bedrock. Ask your AWS admin to allow it." | Details names where the access comes from ("Credentials from: {source}") and lists `bedrock:InvokeModelWithResponseStream`, `bedrock:ListFoundationModels`, `bedrock:ListInferenceProfiles` |
 | `aws_no_models` | "No Claude or Nova models are turned on for this AWS account in {Region name}. Turn on model access in the Bedrock console, or choose another region." | Link "Open the Bedrock console ↗" |
-| `unknown` | "Something went wrong while checking. Try again, or choose another option." | "Try again" |
+| `unknown` | "Something went wrong while checking. You can also choose another option." | "Try again" |
 
 #### 5.6.5 Continue
 

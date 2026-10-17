@@ -42,6 +42,14 @@ describe('failure categories (S13 and its fallback)', () => {
 describe('failure copy (§5.6.4)', () => {
   const ctx = { name: 'Anthropic', model: 'Claude Sonnet 4.5', region: 'US East (N. Virginia)', source: 'instance role bothy-prod', hostPort: '127.0.0.1:9', console: 'https://console.anthropic.com' };
 
+  // The action link follows the sentence ("… took too long to answer. Try again"), so the sentence never says it too.
+  it('never repeats the action the link already gives', () => {
+    for (const code of failureCodes) {
+      const f = failure(code, { ...ctx, ollama: true });
+      if (f.action?.kind === 'retry') expect(f.text).not.toMatch(new RegExp(f.action.label, 'i'));
+    }
+  });
+
   it('has a plain sentence for every code, with no raw error words', () => {
     for (const code of failureCodes) {
       const f = failure(code, ctx);
@@ -56,7 +64,8 @@ describe('failure copy (§5.6.4)', () => {
       action: { kind: 'link', label: 'Get a new key', href: 'https://console.anthropic.com' },
     });
     expect(failure('no_model_access', ctx).text).toBe("This key works, but it can't use Claude Sonnet 4.5. Choose another model.");
-    expect(failure('out_of_credit', ctx).text).toBe('Your Anthropic account is out of credit. Add credit with Anthropic, then try again.');
+    expect(failure('out_of_credit', ctx).text).toBe('Your Anthropic account is out of credit. Add credit with Anthropic.');
+    expect(failure('timeout', ctx).text).toBe('Anthropic took too long to answer.');
     expect(failure('unreachable', ctx).text).toBe("Bothy couldn't reach Anthropic from this server. Check the server's internet connection or firewall.");
     expect(failure('aws_no_models', ctx).text).toMatch(/in US East \(N\. Virginia\)\./);
     // The console link takes the region's code, never its readable name.
@@ -81,9 +90,17 @@ describe('failure copy (§5.6.4)', () => {
     expect(local.more?.[0]).toMatch(/OLLAMA_HOST=0\.0\.0\.0.*http:\/\/host\.docker\.internal:11434\.$/);
     expect(failure('aws_denied', ctx).more).toEqual(['Credentials from: instance role bothy-prod', expect.stringContaining('bedrock:InvokeModelWithResponseStream')]);
     const empty = failure('no_models', { name: 'Ollama', ollama: true });
-    expect(empty.text).toContain(`for example ${empty.command},`);
+    expect(empty.text).toBe(`Ollama is running but has no models yet. Install one on the server, for example ${empty.command}.`);
     expect(empty.command).toBe('ollama pull qwen3:8b');
+    // The detected Ollama row already says "Running, but no models downloaded yet."
+    expect(failure('no_models', { name: 'Ollama', ollama: true, emptySaid: true }).text).toBe('Install a model on the server, for example ollama pull qwen3:8b.');
+    expect(failure('no_models', { name: 'LM Studio' }).text).toBe('LM Studio is running but has no models yet. Install one on the server.');
     expect(failure('no_models', { name: 'LM Studio' }).command).toBeUndefined();
+  });
+
+  it("doesn't tell Ollama to add /v1, which its own API has no use for", () => {
+    expect(failure('not_a_model_server', { name: 'Ollama', ollama: true }).text).toBe("That address answered, but it isn't Ollama. Check the address and port; Ollama usually uses 11434.");
+    expect(failure('not_a_model_server', { name: 'LM Studio' }).text).toMatch(/usually ends in \/v1\.$/);
   });
 
   it('talks about the secret, not Bedrock, when the key is an AWS Secrets Manager reference', () => {

@@ -31,7 +31,8 @@ describe('ProviderChooser in setup', () => {
     expect(await screen.findByText('Found on this server')).toBeTruthy();
     expect(screen.getByText('Or choose a provider')).toBeTruthy();
     await waitFor(() => expect(radio("Use this server's AWS access")).toHaveProperty('checked', true));
-    expect(screen.getByText('Amazon Bedrock in US East (N. Virginia). No keys needed.')).toBeTruthy();
+    // The region shows once, in the Region select.
+    expect(screen.getByText('Amazon Bedrock. No key needed.')).toBeTruthy();
     // Bedrock is offered as a provider only when it wasn't found.
     expect(screen.queryByRole('radio', { name: /^Amazon Bedrock/ })).toBeNull();
     expect(screen.getByText('Checking AWS access…')).toBeTruthy();
@@ -61,7 +62,7 @@ describe('ProviderChooser in setup', () => {
     render(ProviderChooser);
     await fireEvent.click(await screen.findByRole('radio', { name: /^Use this server's AWS access/ }));
     await fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
-    expect(await screen.findByText(/doesn't have AWS access right now/, {}, { timeout: 3000 })).toBeTruthy();
+    expect(await screen.findByText('This server has no AWS access right now. Give it an AWS role, or sign in with the AWS CLI.', { exact: false }, { timeout: 3000 })).toBeTruthy();
     expect(screen.queryByText(/restart Bothy/)).toBeNull();
     expect(screen.getByText("This server's AWS sign-in has expired.")).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
@@ -107,6 +108,11 @@ describe('ProviderChooser in setup', () => {
     expect(radio('Amazon Bedrock')).toHaveProperty('checked', true);
     expect(radio("Use this server's AWS access")).toHaveProperty('checked', false);
     expect(tests(calls)).toEqual([]);
+    // Region, then the check: line 2 already says no key is needed.
+    expect(screen.getByText("Uses this server's AWS access, no key needed")).toBeTruthy();
+    expect(screen.queryByText(/Bothy uses the AWS access of the server it runs on/)).toBeNull();
+    expect(screen.getByLabelText('Region')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Check access' })).toBeTruthy();
   });
 
   it('links a failure to the field that caused it', async () => {
@@ -120,11 +126,23 @@ describe('ProviderChooser in setup', () => {
     expect(key.getAttribute('aria-describedby')).toBe(line.closest('p')!.id);
   });
 
-  it('shows the install command for an empty Ollama in code type', async () => {
+  it('shows the install command for an empty Ollama in code type, without repeating its row', async () => {
     withMock('ollama-empty');
     render(ProviderChooser);
     const code = await screen.findByText('ollama pull qwen3:8b', { selector: 'code' }, { timeout: 3000 });
-    expect(code.closest('p')!.textContent).toMatch(/Install one on the server, for example ollama pull qwen3:8b, then check again\./);
+    expect(screen.getByText('Running, but no models downloaded yet.')).toBeTruthy();
+    expect(code.closest('p')!.textContent).toMatch(/^\s*Install a model on the server, for example ollama pull qwen3:8b\.\s*Check again\s*$/);
+  });
+
+  it("never recommends the model the key can't use", async () => {
+    withMock('detect-none,provider-fail:no_model_access');
+    render(ProviderChooser);
+    await fireEvent.click(await screen.findByRole('radio', { name: /^Anthropic/ }));
+    await paste(screen.getByLabelText('API key'), LONG_KEY);
+    await screen.findByText(/^This key works, but it can't use/, {}, { timeout: 3000 });
+    const select = screen.getByLabelText('Model') as HTMLSelectElement;
+    expect(select.selectedOptions[0].textContent).not.toMatch(/recommended/);
+    expect([...select.options].some((o) => /recommended/.test(o.textContent ?? ''))).toBe(false);
   });
 
   it('shows "Choose a provider" when nothing was found and keeps Continue disabled with its reason', async () => {
@@ -230,7 +248,11 @@ describe('ProviderChooser in setup', () => {
     expect(address.getAttribute('placeholder')).toBe('https://models.example.com/v1');
     await fireEvent.input(address, { target: { value: 'http://127.0.0.1:9/v1' } });
     await fireEvent.keyDown(address, { key: 'Enter' });
-    expect(await screen.findByText('Bothy blocks addresses on your private network unless you allow them.', {}, { timeout: 3000 })).toBeTruthy();
+    const line = await screen.findByText('Bothy blocks addresses on your private network unless you allow them.', {}, { timeout: 3000 });
+    // An address problem sits under the address, before the key field, so it doesn't read as a wrong key.
+    expect(line.compareDocumentPosition(screen.getByLabelText('API key (if needed)')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(address.getAttribute('aria-describedby')).toBe(line.id);
+    expect(screen.getByLabelText('API key (if needed)').getAttribute('aria-describedby')).toBeNull();
     await fireEvent.click(screen.getByRole('button', { name: 'Allow 127.0.0.1:9' }));
     expect(await screen.findByText(/^Connected\. Bothy will use/, {}, { timeout: 3000 })).toBeTruthy();
     expect(tests(calls).at(-1)).toMatchObject({ base_url: 'http://127.0.0.1:9/v1', allow_private: true });
@@ -273,6 +295,15 @@ describe('ProviderChooser in setup', () => {
     await screen.findByText(/^Connected\. Bothy will use Qwen3 14B\./, {}, { timeout: 3000 });
     expect(screen.getByText(/This model can only keep short conversations in mind/)).toBeTruthy();
     expect(screen.queryByText(/12,?000|12K|context/i)).toBeNull();
+  });
+
+  it('warns, without blocking Continue, when the model can only chat', async () => {
+    withMock('detect-ollama,model-context:4096');
+    render(ProviderChooser);
+    await screen.findByText(/^Connected\. Bothy will use Qwen3 14B\./, {}, { timeout: 3000 });
+    const note = screen.getByText('Qwen3 14B can only chat. Choose a larger model to let Bothy read files or search the web.');
+    expect(note.className).toMatch(/text-warning-text/);
+    expect(screen.getByRole('button', { name: 'Continue' }).getAttribute('aria-disabled')).toBeNull();
   });
 
   it('shows the save failure under Continue', async () => {

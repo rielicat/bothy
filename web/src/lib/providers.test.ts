@@ -45,6 +45,14 @@ describe('model choice', () => {
     ]);
   });
 
+  it("never recommends the model the check just refused", () => {
+    expect(modelOptions(['claude-haiku-4-5', 'claude-sonnet-4-6'], 'claude-sonnet-4-6', undefined, 'claude-sonnet-4-6')).toEqual([
+      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+      { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
+    ]);
+    expect(modelOptions(['claude-haiku-4-5', 'claude-sonnet-4-6'], 'claude-sonnet-4-6', undefined, 'claude-haiku-4-5')[0].label).toBe('Claude Sonnet 4.6 (recommended)');
+  });
+
   it('leads a long router list with the newest listed model of each family, then all models by name', () => {
     const ids = [
       '~unbiased/pareto-latest',
@@ -83,13 +91,18 @@ describe('model choice', () => {
 
 describe('model notes (§5.6.3)', () => {
   it('says what a small window means, never the number', () => {
-    expect(modelNote(200_000, true)).toBe('');
-    expect(modelNote(0, true)).toBe('');
-    expect(modelNote(24_000, true)).toMatch(/^This model keeps less of long conversations in mind/);
-    expect(modelNote(12_000, true)).toMatch(/^This model can only keep short conversations in mind/);
-    expect(modelNote(4096, true)).toMatch(/^This model can't take actions/);
-    expect(modelNote(200_000, false)).toMatch(/^This model can't take actions/);
-    for (const n of [24_000, 12_000, 4096]) expect(modelNote(n, true)).not.toMatch(/\d|token|context/i);
+    expect(modelNote(200_000, true, 'Llama')).toBeNull();
+    expect(modelNote(0, true, 'Llama')).toBeNull();
+    expect(modelNote(24_000, true, 'Llama')).toMatchObject({ text: expect.stringMatching(/^This model keeps less of long conversations in mind/), tone: 'muted' });
+    expect(modelNote(12_000, true, 'Llama')).toMatchObject({ text: expect.stringMatching(/^This model can only keep short conversations in mind/), tone: 'muted' });
+    for (const n of [24_000, 12_000, 4096]) expect(modelNote(n, true, 'Llama')?.text).not.toMatch(/\d|token|context/i);
+  });
+
+  // The one outcome that changes what Bothy can do is a warning, not fine print.
+  it('warns when the model can only chat', () => {
+    const chat = { text: 'Qwen3 4B can only chat. Choose a larger model to let Bothy read files or search the web.', tone: 'warning' };
+    expect(modelNote(4096, true, 'Qwen3 4B')).toEqual(chat);
+    expect(modelNote(200_000, false, 'Qwen3 4B')).toEqual(chat);
   });
 });
 

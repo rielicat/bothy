@@ -188,8 +188,8 @@ describe('failures (§5.6.4, §12)', () => {
   it('words web search failures', () => {
     expect(searchFailure('searxng', 'private_address', 'raw')).toEqual({ message: 'Bothy blocks addresses on your private network unless you allow them.', details: 'raw', allow: true });
     expect(searchFailure('searxng', 'unreachable', '').message).toBe("SearXNG isn't answering at that address. Make sure it's running.");
-    expect(searchFailure('brave', 'out_of_credit', '').message).toBe('Your Brave Search account is out of credit. Add credit with Brave Search, then try again.');
-    expect(searchFailure('tavily', 'nonsense', '').message).toBe('Something went wrong while checking. Try again, or choose another option.');
+    expect(searchFailure('brave', 'out_of_credit', '').message).toBe('Your Brave Search account is out of credit. Add credit with Brave Search.');
+    expect(searchFailure('tavily', 'nonsense', '').message).toBe('Something went wrong while checking. You can also choose another option.');
   });
 });
 

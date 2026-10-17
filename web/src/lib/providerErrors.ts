@@ -92,6 +92,8 @@ export interface FailureContext {
   ollama?: boolean;
   /** The key is an aws-sm reference, so AWS failures are about reading the secret, not Bedrock. */
   secretRef?: boolean;
+  /** The row's own line 2 already says the server has no models, so the failure only says what to do. */
+  emptySaid?: boolean;
 }
 
 const OLLAMA_PULL = 'ollama pull qwen3:8b';
@@ -107,13 +109,13 @@ export function failure(code: FailureCode, c: FailureContext): Failure {
     case 'no_model_access':
       return { text: `This key works, but it can't use ${c.model || 'that model'}. Choose another model.`, action: { kind: 'models' } };
     case 'out_of_credit':
-      return { text: `Your ${c.name} account is out of credit. Add credit with ${c.name}, then try again.`, action: retry };
+      return { text: `Your ${c.name} account is out of credit. Add credit with ${c.name}.`, action: retry };
     case 'rate_limited':
-      return { text: `${c.name} is limiting requests right now. Wait a minute and try again.`, action: retry };
+      return { text: `${c.name} is limiting requests right now. Wait a minute.`, action: retry };
     case 'provider_error':
-      return { text: `${c.name} isn't responding properly right now. Try again in a few minutes.`, action: retry };
+      return { text: `${c.name} isn't responding properly right now.`, action: retry };
     case 'timeout':
-      return { text: `${c.name} took too long to answer. Try again.`, action: retry };
+      return { text: `${c.name} took too long to answer.`, action: retry };
     case 'unreachable':
       if (!c.local) return { text: `Bothy couldn't reach ${c.name} from this server. Check the server's internet connection or firewall.`, action: retry };
       return {
@@ -125,25 +127,29 @@ export function failure(code: FailureCode, c: FailureContext): Failure {
       };
     case 'private_address':
       return { text: 'Bothy blocks addresses on your private network unless you allow them.', action: c.hostPort ? { kind: 'allow', label: `Allow ${c.hostPort}` } : undefined };
-    case 'no_models':
+    case 'no_models': {
+      const example = c.ollama ? `, for example ${OLLAMA_PULL}` : '';
       return {
-        text: `${c.name} is running but has no models yet. Install one on the server${c.ollama ? `, for example ${OLLAMA_PULL},` : ','} then check again.`,
+        text: c.emptySaid ? `Install a model on the server${example}.` : `${c.name} is running but has no models yet. Install one on the server${example}.`,
         command: c.ollama ? OLLAMA_PULL : undefined,
         action: { kind: 'retry', label: 'Check again' },
       };
+    }
     case 'tls':
       return { text: "The connection to that address isn't secure because of a certificate problem. Check the address. For a server on your own network you can use http://." };
     case 'not_a_model_server':
+      // Ollama's own API has no /v1 to add, and its address is prefilled with the port.
+      if (c.ollama) return { text: "That address answered, but it isn't Ollama. Check the address and port; Ollama usually uses 11434." };
       return { text: "That address answered, but it doesn't look like a model server. Check the address; it usually ends in /v1." };
     case 'aws_no_credentials':
       if (c.secretRef)
         return {
-          text: "Bothy couldn't read this key from AWS Secrets Manager because this server doesn't have AWS access right now. On AWS, give it a role that can read the secret. On a laptop, sign in with the AWS CLI again.",
+          text: "Bothy couldn't read this key from AWS Secrets Manager because this server has no AWS access right now. Give it a role that can read the secret, or sign in with the AWS CLI.",
           action: { kind: 'link', label: 'How to give Bothy AWS access', href: AWS_HELP },
           more: aws,
         };
       return {
-        text: "This server doesn't have AWS access right now. On AWS, give it a role with Bedrock access. On a laptop, sign in with the AWS CLI again.",
+        text: 'This server has no AWS access right now. Give it an AWS role, or sign in with the AWS CLI.',
         action: { kind: 'link', label: 'How to give Bothy AWS access', href: AWS_HELP },
         more: aws,
       };
@@ -174,6 +180,6 @@ export function failure(code: FailureCode, c: FailureContext): Failure {
     case 'not_json':
       return { text: "The secret in AWS Secrets Manager holds a single value, so Bothy can't pick a named part of it. Remove the part after # from the reference.", action: retry };
     default:
-      return { text: 'Something went wrong while checking. Try again, or choose another option.', action: retry, more: aws };
+      return { text: 'Something went wrong while checking. You can also choose another option.', action: retry, more: aws };
   }
 }

@@ -82,7 +82,7 @@ describe('provider status', () => {
 
 describe('failed checks', () => {
   it('says what happened and what to do, naming the provider', () => {
-    expect(failureText('rate_limited', 'Anthropic')).toBe('Anthropic is limiting requests right now. Wait a minute and try again.');
+    expect(failureText('rate_limited', 'Anthropic')).toBe('Anthropic is limiting requests right now. Wait a minute.');
     expect(failureText('unreachable', 'Ollama', 'ollama')).toBe("Ollama isn't answering at that address. Make sure it's running.");
     expect(failureText('unreachable', 'OpenAI', 'openai')).toMatch(/^Bothy couldn't reach OpenAI from this server\./);
     expect(failureText('no_model_access', 'OpenAI', 'openai', 'GPT-5')).toBe("This key works, but it can't use GPT-5. Choose another model.");

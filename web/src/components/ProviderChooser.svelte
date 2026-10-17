@@ -12,7 +12,7 @@
   import { api, ApiError, errorText } from '../lib/api/client';
   import type { Detection, ModelChoice, ProbeResult, ProviderConnectReq, ProviderConnectResp } from '../lib/api/types.gen';
   import { plural } from '../lib/format';
-  import { failure, failureCode, AWS_HELP, type Failure } from '../lib/providerErrors';
+  import { failure, failureCode, AWS_HELP, type Failure, type FailureCode } from '../lib/providerErrors';
   import {
     bestModel,
     consoleLabel,
@@ -27,6 +27,7 @@
     providers,
     regionName,
     regions,
+    type ModelNote,
     type ProbeRequest,
     type ProviderDef,
   } from '../lib/providers';
@@ -62,6 +63,7 @@
     status: 'idle' | 'checking' | 'connected' | 'failed';
     checking: string;
     failure: Failure | null;
+    code: FailureCode | '';
     rejected: boolean;
     details: string;
     byPerson: boolean;
@@ -70,7 +72,9 @@
     choices: ModelChoice[];
     main: string;
     quick: string;
-    note: string;
+    /** The model the check refused, which the Model select must not recommend. */
+    refused: string;
+    note: ModelNote | null;
     changing: boolean;
     needsModel: boolean;
   }
@@ -127,7 +131,8 @@
     const rows: Row[] = [];
     for (const d of [...list].sort((a, b) => rank(a) - rank(b))) {
       if (d.kind === 'bedrock') {
-        const description = awsProblem(d) || `Amazon Bedrock in ${regionName(states.aws?.region ?? d.region ?? 'us-east-1')}. No keys needed.`;
+        // The region shows in the Region select right under it.
+        const description = awsProblem(d) || 'Amazon Bedrock. No key needed.';
         rows.push({ value: 'aws', title: "Use this server's AWS access", description, def: provider('bedrock'), source: 'aws', detection: d });
       } else if (d.env_var) {
         const def = providers.find((p) => p.env === d.env_var);
@@ -161,7 +166,7 @@
   // A provider found on the server leaves the list, unless it was chosen there before detection finished.
   const hide = $derived(new Set([...exclude, ...found.map((r) => (r.source === 'aws' ? 'bedrock' : r.source === 'local' ? r.def.id : '')).filter((id) => id && `p:${id}` !== selected)]));
   const looking = $derived(detections === null && slow);
-  const pad = $derived(setup ? '[&>div>label]:px-4 [&>div>div]:mr-4 [&>div>div]:ml-11' : '');
+  const pad = $derived(setup ? '[&>div>label]:px-4 [&>div>div]:mr-4 [&>div>div]:ml-11 max-sm:[&>div>div]:ml-4' : '');
   const base = $derived(providers.filter((p) => !p.more && !hide.has(p.id)).map(listRow));
   const extra = $derived(providers.filter((p) => p.more && !hide.has(p.id)).map(listRow));
   const rows = $derived([...found, ...base, ...extra]);
@@ -181,6 +186,7 @@
       status: 'idle',
       checking: '',
       failure: null,
+      code: '',
       rejected: false,
       details: '',
       byPerson: false,
@@ -188,7 +194,8 @@
       choices: r.detection?.choices ?? [],
       main: '',
       quick: '',
-      note: '',
+      refused: '',
+      note: null,
       changing: false,
       needsModel: false,
     };
@@ -241,6 +248,7 @@
     s.status = 'idle';
     s.failure = null;
     s.main = '';
+    s.refused = '';
     s.changing = false;
     const r = row(v);
     const value = r.def.local || r.def.custom ? s.address.trim() : s.key.trim();
@@ -255,6 +263,9 @@
     if (states[v].status === 'connected' && setup) void save();
     else edited(v, true);
   }
+
+  const addressCodes = new Set<string>(['private_address', 'unreachable', 'tls', 'not_a_model_server', 'no_models']);
+  const addressFailed = (s: RowState) => s.status === 'failed' && addressCodes.has(s.code);
 
   const checkingLabel = (r: Row) => (r.def.kind === 'bedrock' ? 'Checking AWS access…' : r.def.key && !r.def.custom ? 'Checking the key…' : 'Checking…');
 
@@ -302,7 +313,7 @@
       const pick = suggested(r.def, s);
       s.main = req.model || probe.model || pick.main;
       s.quick = pick.quick === pick.main ? s.main : pick.quick;
-      s.note = modelNote(probe.context, probe.tool_calling);
+      s.note = modelNote(probe.context, probe.tool_calling, nameIn(s.choices, s.main));
       s.status = 'connected';
       s.needsModel = false;
       // Access proven: from now on it is the ordinary AWS row.
@@ -330,12 +341,15 @@
       console: r.def.console,
       ollama: r.def.kind === 'ollama',
       secretRef: !!req.secret_ref,
+      emptySaid: r.source === 'local' && r.def.id === 'ollama' && !r.detection?.models?.length,
     });
+    s.code = code;
     s.details = [detail, ...(s.failure.more ?? [])].filter(Boolean).join('\n');
     s.rejected = code === 'key_rejected';
+    if (code === 'no_model_access') s.refused = req.model ?? probe?.model ?? '';
     // The select opens on the model that was refused, so choosing another one re-checks.
     s.changing = code === 'no_model_access' && s.models.length > 0;
-    if (s.changing) s.main = req.model ?? probe?.model ?? '';
+    if (s.changing) s.main = s.refused;
     s.status = 'failed';
   }
 
@@ -391,6 +405,7 @@
       const s = states[v];
       s.region = e.currentTarget.value;
       s.main = '';
+      s.refused = '';
       s.changing = false;
       if (row(v).source === 'aws' || s.status !== 'idle') void check(v, { label: 'Checking which models you can use…' });
     }}
@@ -407,7 +422,7 @@
   {@const gap = first && !s.changing ? '' : 'mt-3'}
   {#if s.changing && s.models.length}
     <!-- Native selects clip a long value at 360 px; the ellipsis shows it was cut. -->
-    <Select class="{first ? '' : 'mt-3'} [&_select]:text-ellipsis" label="Model" options={modelOptions(s.models, suggested(r.def, s).main, (m) => nameIn(s.choices, m))} value={s.main} onchange={(e) => chooseModel(v, e.currentTarget.value)} />
+    <Select class="{first ? '' : 'mt-3'} [&_select]:text-ellipsis" label="Model" options={modelOptions(s.models, suggested(r.def, s).main, (m) => nameIn(s.choices, m), s.refused)} value={s.main} onchange={(e) => chooseModel(v, e.currentTarget.value)} />
   {/if}
   {#if s.status === 'checking'}
     <StatusLine class={gap} tone="progress" text={s.checking} />
@@ -420,7 +435,11 @@
         action={setup && s.models.length > 1 ? { label: 'Change', onclick: () => (s.changing = true) } : undefined}
       />
     {/if}
-    {#if s.note}<p class="mt-2 text-small text-muted {s.changing ? '' : 'pl-6'}">{s.note}</p>{/if}
+    {#if s.note?.tone === 'warning'}
+      <StatusLine class="mt-2" tone="warning" text={s.note.text} />
+    {:else if s.note}
+      <p class="mt-2 text-small text-muted {s.changing ? '' : 'pl-6'}">{s.note.text}</p>
+    {/if}
   {:else if s.status === 'failed' && s.failure}
     {@const f = s.failure}
     <div class="text-body {gap}">
@@ -444,7 +463,7 @@
         <Button class="mt-3 ml-6" size="sm" onclick={() => allow(v)}>{f.action.label}</Button>
       {/if}
       {#if s.details}
-        <Disclosure class="mt-1 pl-6"><CodeBlock code={s.details} wrap /></Disclosure>
+        <Disclosure class="mt-1 pl-6 max-sm:pl-0"><CodeBlock code={s.details} wrap /></Disclosure>
       {/if}
     </div>
   {/if}
@@ -467,7 +486,7 @@
       spellcheck="false"
       bind:value={states[v].key}
       aria-invalid={s.status === 'failed' && s.rejected ? 'true' : undefined}
-      aria-describedby={s.status === 'failed' ? `${uid}-${v}-status` : help && s.status === 'idle' ? `${uid}-${v}-help` : undefined}
+      aria-describedby={s.status === 'failed' && !addressFailed(s) ? `${uid}-${v}-status` : help && s.status === 'idle' ? `${uid}-${v}-help` : undefined}
       oninput={(e) => edited(v, (e as unknown as InputEvent).inputType === 'insertFromPaste')}
       onkeydown={(e) => enter(e, v)}
     />
@@ -477,7 +496,7 @@
           Bothy reads this key from AWS Secrets Manager each time it needs it and never saves it.
         {:else}
           Stored encrypted. Only sent to {r.def.name}.
-          {@render link(r.def.console, `Get a key at ${consoleLabel(r.def.console)}`, '')}
+          {@render link(r.def.console, `Get a key at ${consoleLabel(r.def.console)}`, 'mt-1 block w-fit')}
         {/if}
       </p>
     {/if}
@@ -506,8 +525,7 @@
       {@render regionSelect(v)}
       {@render status(v, false)}
     {:else if r.def.kind === 'bedrock'}
-      <p class="text-body text-text">Bothy uses the AWS access of the server it runs on, so there's no key to paste. No keys are stored in Bothy.</p>
-      <div class="mt-4">{@render regionSelect(v)}</div>
+      {@render regionSelect(v)}
       <div class="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
         <Button size="sm" onclick={() => check(v, { byPerson: true })}>Check access</Button>
         {@render link(AWS_HELP, 'How to give Bothy AWS access', 'inline-flex min-h-6 items-center text-body pointer-coarse:min-h-11')}
@@ -522,11 +540,13 @@
         autocomplete="off"
         autocapitalize="off"
         spellcheck="false"
-        aria-describedby={s.status === 'failed' ? `${uid}-${v}-status` : undefined}
+        aria-describedby={s.status === 'failed' && (!r.def.custom || addressFailed(s)) ? `${uid}-${v}-status` : undefined}
         oninput={() => edited(v)}
         onkeydown={(e) => enter(e, v)}
       />
       {#if r.def.custom}
+        <!-- An address problem sits under the address, so it doesn't read as a wrong key (§14.4). -->
+        {#if addressFailed(s)}{@render status(v, false)}{/if}
         <div class="mt-5">{@render keyField(v, 'API key (if needed)', false)}</div>
         {#if s.needsModel}
           <TextField
@@ -545,7 +565,7 @@
           />
         {/if}
       {/if}
-      {@render status(v, false)}
+      {#if !r.def.custom || !addressFailed(s)}{@render status(v, false)}{/if}
     {:else if r.source === 'list'}
       {@render keyField(v, 'API key', true)}
       {@render status(v, false)}

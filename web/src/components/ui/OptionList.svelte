@@ -95,7 +95,7 @@
       </label>
       {#if selected && expanded && o.expandable !== false}
         <!-- Indented to the title: 16 px row padding + 16 px radio + 12 px gap. -->
-        <div class="border-t border-border pt-3 pb-4 {framed ? 'mr-4 ml-11' : 'ml-7'}">{@render expanded(o.value)}</div>
+        <div class="border-t border-border pt-3 pb-4 {framed ? 'mr-4 ml-11 max-sm:ml-4' : 'ml-7'}">{@render expanded(o.value)}</div>
       {/if}
     </div>
   {/each}
