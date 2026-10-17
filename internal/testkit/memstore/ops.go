@@ -480,6 +480,9 @@ func (r teamMemoryEventRepo) Add(_ context.Context, e *core.MemoryEvent) (int64,
 	case !oneOf(e.Op, "add", "replace", "remove", "edit"):
 		return 0, invalid("team_memory_events.op")
 	}
+	if e.Approval != "" && slices.ContainsFunc(st.teamEvents, func(x core.MemoryEvent) bool { return x.Approval == e.Approval }) {
+		return 0, conflict("team_memory_events.approval_id")
+	}
 	row := normMemoryEvent(*e)
 	st.teamMemID++
 	row.ID = st.teamMemID

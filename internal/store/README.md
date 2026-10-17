@@ -47,4 +47,4 @@ rebuild of `github_connections` must rebuild it too.
 Migration 0014 adds `team_memory_events`, the history of TEAM.md (what Bothy
 remembers for everyone), served by `TeamMemoryEvents()`: no principal and no
 foreign key, so a user purge never touches it; agent rows carry the id of
-the admin's approval they ran under.
+the admin's approval they ran under, at most one row per approval.

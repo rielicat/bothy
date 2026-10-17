@@ -240,8 +240,12 @@ func (t *memoryTool) execTeam(ctx context.Context, env *core.ToolEnv, act *core.
 	e, err := t.s.applyTeam(ctx, teamChange{run: env.Run, approval: appr.ID, approvedBy: appr.DecidedBy, op: op, prov: prov})
 	if err != nil {
 		var ue *userError
-		if errors.As(err, &ue) {
+		switch {
+		case errors.As(err, &ue):
 			return &core.ToolResult{Name: memoryToolName, Content: err.Error(), IsError: true}, nil
+		case errors.Is(err, core.ErrConflict):
+			t.s.log.Warn("memory: TEAM change under an approval already used", "run", env.Run, "approval", env.Approval)
+			return &core.ToolResult{Name: memoryToolName, Content: noTeamApproval, IsError: true}, nil
 		}
 		return nil, err
 	}

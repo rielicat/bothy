@@ -42,7 +42,8 @@ path is the `memory` tool with `file: "TEAM"`: `Plan` returns an admin-class
 action (an admin approves it, floor F3), and `Exec` writes only after
 checking the stored approval itself (allowed, allow_once, admin-only, this run,
 this fingerprint, decided by an enabled admin) through the unexported
-`applyTeam`.
+`applyTeam`; the store takes one change per approval, so a replayed call
+writes nothing.
 Team changes publish `memory.updated` as an admin broadcast (no principal, no
 run) and are audited `memory.write` / `memory.edit` with `scope: team`, the
 approval and approver, never the content.

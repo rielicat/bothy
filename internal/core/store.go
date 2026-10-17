@@ -729,7 +729,7 @@ type MemoryEventRepo interface {
 // It belongs to no principal, so it is not Viewer-scoped: every signed-in
 // user may read what Bothy remembers for everyone.
 type TeamMemoryEventRepo interface {
-	Add(ctx context.Context, e *MemoryEvent) (int64, error)
+	Add(ctx context.Context, e *MemoryEvent) (int64, error)      // ErrConflict for an approval already used
 	List(ctx context.Context, page Page) ([]*MemoryEvent, error) // newest first; Before = id
 }
 

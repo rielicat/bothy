@@ -18,9 +18,13 @@ import (
 	"github.com/rielicat/bothy/internal/testkit/conformance"
 )
 
+// newApproval gives each change its own approval, as the store allows one
+// change per approval.
+func newApproval() core.ApprovalID { return core.ApprovalID(core.NewID(core.PrefixApproval)) }
+
 func (h *harness) applyTeam(t *testing.T, op, old, new string) *core.MemoryEvent {
 	t.Helper()
-	e, err := h.svc.applyTeam(context.Background(), teamChange{run: "run_1", approval: "apr_1", approvedBy: h.user,
+	e, err := h.svc.applyTeam(context.Background(), teamChange{run: "run_1", approval: newApproval(), approvedBy: h.user,
 		op: core.MemoryOp{File: core.FileTeam, Op: op, Old: old, New: new}, prov: core.ProvUser})
 	if err != nil {
 		t.Fatalf("applyTeam(%s): %v", op, err)
@@ -61,7 +65,7 @@ func TestApplyTeamOps(t *testing.T) {
 		t.Fatalf("after adds = %q, want %q", got, want)
 	}
 	e := h.applyTeam(t, "replace", "Deploy day is Thursday", "Deploy day is Friday")
-	if e.File != core.FileTeam || e.Principal != "" || e.Approval != "apr_1" || e.Run != "run_1" || e.Actor != "agent:run_1" {
+	if e.File != core.FileTeam || e.Principal != "" || !strings.HasPrefix(string(e.Approval), core.PrefixApproval+"_") || e.Run != "run_1" || e.Actor != "agent:run_1" {
 		t.Fatalf("event = %+v", e)
 	}
 	h.applyTeam(t, "remove", "Standup is at 9:30", "")
@@ -190,7 +194,7 @@ func TestTeamConcurrentWrites(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := h.svc.applyTeam(ctx, teamChange{run: "run_1", approval: "apr_1",
+			_, err := h.svc.applyTeam(ctx, teamChange{run: "run_1", approval: newApproval(),
 				op: core.MemoryOp{File: core.FileTeam, Op: "add", New: fmt.Sprintf("note %d", i)}})
 			errs <- err
 		}()
@@ -444,14 +448,26 @@ func TestMemoryToolTeamNeedsItsApproval(t *testing.T) {
 	if len(evs) != 1 || evs[0].Approval != id || evs[0].Run != run || evs[0].Actor != "agent:"+string(run) || evs[0].Provenance != core.ProvUntrusted {
 		t.Fatalf("history = %+v", evs)
 	}
-	// The same approval replayed changes nothing more.
-	if res, _ := tl.Exec(ctx, env, act); !res.IsError {
-		t.Fatalf("replayed Exec = %+v", res)
+	// The same approval replayed adds nothing: the entry is already there.
+	added := *env
+	if res, err := tl.Exec(ctx, &added, act); err != nil || !res.IsError ||
+		res.Content != `TEAM.md already has the entry "Deploy day is Thursday"; nothing changed` {
+		t.Fatalf("replayed Exec = %+v, %v", res, err)
 	}
 	rm := plan(`{"file":"TEAM","op":"remove","old":"Deploy day is Thursday"}`)
 	run, id = h.approvedRun(t, rm, nil)
 	env.Run, env.Approval, env.Taint = run, id, 0
 	if res, err := tl.Exec(ctx, env, rm); err != nil || res.Content != "Forgot for everyone (an admin approved it; TEAM.md 0/256 bytes used)." {
 		t.Fatalf("remove = %+v, %v", res, err)
+	}
+	// Nor once the note is gone: an approval is good for one change.
+	if res, err := tl.Exec(ctx, &added, act); err != nil || !res.IsError || res.Content != noTeamApproval {
+		t.Fatalf("Exec replayed after the note was removed = %+v, %v", res, err)
+	}
+	if got := h.team(t); got != "" {
+		t.Fatalf("a replayed approval put the note back: %q", got)
+	}
+	if evs, _ := h.svc.TeamHistory(ctx, core.Page{}); len(evs) != 2 {
+		t.Fatalf("history = %+v", evs)
 	}
 }

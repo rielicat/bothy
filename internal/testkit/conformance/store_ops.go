@@ -426,6 +426,11 @@ func testTeamMemoryEvents(f *fx) {
 	f.want(err, core.ErrInvalid, "a principal's row")
 	_, err = r.Add(f.ctx, &core.MemoryEvent{File: core.FileTeam, Op: "append", Actor: "x"})
 	f.want(err, core.ErrInvalid, "op CHECK")
+	_, err = r.Add(f.ctx, &core.MemoryEvent{File: core.FileTeam, Op: "add", After: "x\n", Run: "run_z", Approval: "apr_x", Actor: "agent:run_z",
+		Provenance: core.ProvUser, At: at(4)})
+	f.want(err, core.ErrConflict, "an approval used twice")
+	_, err = r.Add(f.ctx, &core.MemoryEvent{File: core.FileTeam, Op: "edit", After: "x\n", Actor: "user:usr_x", Provenance: core.ProvUser, At: at(5)})
+	f.must(err, "a second edit without an approval")
 }
 
 func testVault(f *fx) {

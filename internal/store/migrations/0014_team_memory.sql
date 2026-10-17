@@ -2,7 +2,9 @@
 -- everyone (<data>/memory/team/TEAM.md). It belongs to no principal, so it
 -- lives outside memory_events (whose rows go with their principal) and a
 -- user purge never touches it. approval_id is the admin's approval an agent
--- change ran under; '' for an admin's own edit on the web. Times: unix ms.
+-- change ran under; '' for an admin's own edit on the web. An approval is
+-- good for one change, so a replayed call can't re-add a note an admin has
+-- since removed. Times: unix ms.
 
 CREATE TABLE team_memory_events (
   id          INTEGER PRIMARY KEY,
@@ -15,3 +17,5 @@ CREATE TABLE team_memory_events (
   provenance  TEXT NOT NULL DEFAULT 'user',
   created_at  INTEGER NOT NULL
 ) STRICT;
+
+CREATE UNIQUE INDEX team_memory_events_approval ON team_memory_events(approval_id) WHERE approval_id != '';
