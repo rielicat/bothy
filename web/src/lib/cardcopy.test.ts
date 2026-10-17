@@ -349,7 +349,8 @@ describe('decidedLine', () => {
     expect(line(decided(del, { status: 'denied', choice: 'deny', decided_by: alex, decided_via: 'slack' }))).toBe('Alex Kim denied in Slack');
     expect(line(decided(del, { status: 'allowed', choice: 'allow_once', decided_by: alex, decided_via: 'slack' }), { list: true })).toBe('Alex Kim approved deleting notes/staging.md');
     expect(line(decided(del, { status: 'expired' }))).toBe("Expired: Bothy didn't delete notes/staging.md");
-    expect(line(decided(del, { status: 'cancelled', decided_via: 'stop' }))).toBe('Cancelled when the chat was stopped');
+    // The "You stopped Bothy." notice says why; the line says what was cancelled.
+    expect(line(decided(del, { status: 'cancelled', decided_via: 'stop' }))).toBe("Cancelled: Bothy didn't delete notes/staging.md");
   });
 
   it('names every approver of a multi-approver request, and the one who denied', () => {

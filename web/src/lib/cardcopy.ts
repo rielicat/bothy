@@ -752,8 +752,9 @@ export function decidedLine(ap: Approval, o: DecidedOpts): DecidedCopy {
 
   if (ap.status === 'expired') return { glyph: 'close', tone: 'muted', segs: ["Expired: Bothy didn't ", ...copy.ask] };
   if (ap.status === 'cancelled') {
-    const by = ap.decided_via === 'stop' ? 'Cancelled when the chat was stopped' : `Cancelled by ${requester === 'You' ? 'you' : requester || 'the person who asked'}`;
-    return { glyph: 'close', tone: 'muted', segs: [by], time, at };
+    // "You stopped Bothy." already says why, so a stop's line says what didn't happen.
+    if (ap.decided_via === 'stop') return { glyph: 'close', tone: 'muted', segs: ["Cancelled: Bothy didn't ", ...copy.ask], time, at };
+    return { glyph: 'close', tone: 'muted', segs: [`Cancelled by ${requester === 'You' ? 'you' : requester || 'the person who asked'}`], time, at };
   }
   if (ap.status === 'denied') {
     if (ap.decided_by_identity && ap.decided_by_identity === ap.approver?.requester_identity) {

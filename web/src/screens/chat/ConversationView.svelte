@@ -125,10 +125,10 @@
   });
   // A command that failed because this server can't run code gets one plain line (§7.6).
   const failedCode = $derived.by(() => {
-    const out = new Map<string, Phrase>();
+    const out = new Map<string, { step: string; phrase: Phrase }>();
     for (const [k, ss] of steps) {
       const st = ss.find(isCode);
-      if (st) out.set(k, [...fill("Bothy can't run code on this server, so it couldn't ", {}), ...st.phrases.ask, { k: 'text', v: '.' }]);
+      if (st) out.set(k, { step: st.key, phrase: [...fill("Bothy can't run code on this server, so it couldn't ", {}), ...st.phrases.ask, { k: 'text', v: '.' }] });
     }
     return out;
   });
@@ -139,7 +139,7 @@
       .then((i) => (codeAvailable = i.status.available))
       .catch(() => (codeAvailable = true));
   });
-  const codeOff = $derived(noCode ? failedCode : new Map<string, Phrase>());
+  const codeOff = $derived(noCode ? failedCode : new Map<string, { step: string; phrase: Phrase }>());
   const modelValue = $derived(conv.id ? (s?.model_override ?? '') : pendingModel);
   const modelLabel = $derived(modelValue ? models.name(modelValue) : models.main ? models.name(models.main) : 'Main model');
   const starter = $derived(people.name(s?.principal_id, { you: false }));
@@ -533,12 +533,12 @@
   >
 {/snippet}
 
-{#snippet approvalFor(st: StepView)}
+{#snippet approvalFor(st: StepView, afterStep: boolean)}
   {@const a = st.approval!}
   {#if a.status === 'pending' || a.status === 'parked'}
     <div class="mt-2 mb-3"><InlineApproval approval={a} onresolved={decided} /></div>
   {:else}
-    <DecidedLine approval={a} phrases={st.phrases} />
+    <DecidedLine approval={a} phrases={st.phrases} {afterStep} />
   {/if}
 {/snippet}
 
@@ -670,10 +670,11 @@
               {#snippet more()}<div class="text-small"><Markdown text={b.text} {exposed} /></div>{/snippet}
             </ChatNotice>
           {:else if b.kind === 'steps'}
-            <ActivityGroup steps={steps.get(b.key) ?? []} live={!!liveRun && b.runId === liveRun && i === blocks.length - 1} approval={approvalFor} />
+            <!-- The code-off notice names the command and the fix, so its failed line isn't shown as well (§7.6). -->
+            <ActivityGroup steps={steps.get(b.key) ?? []} live={!!liveRun && b.runId === liveRun && i === blocks.length - 1} approval={approvalFor} hide={codeOff.get(b.key)?.step} />
             {#if codeOff.has(b.key)}
               <ChatNotice
-                phrase={codeOff.get(b.key)}
+                phrase={codeOff.get(b.key)?.phrase}
                 action={auth.isAdmin ? { label: 'How to turn it on', onclick: () => router.navigate('/settings/security') } : undefined}
               />
             {/if}

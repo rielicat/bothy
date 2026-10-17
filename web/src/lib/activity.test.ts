@@ -197,23 +197,49 @@ describe('stepState', () => {
 });
 
 describe('summarize', () => {
-  const step = (input: StepInput, state: StepState = 'done') => ({ input, phrases: phrases(input), state });
+  const step = (input: StepInput) => ({ input, phrases: phrases(input) });
   const read = (path: string) => step({ tool: 'fs_read', args: { path } });
 
   it('names one or two kinds of step', () => {
-    expect(plain(summarize([read('src/a.ts'), read('src/b.ts'), read('src/c.ts')]).phrase)).toBe('Read 3 files in src');
-    expect(plain(summarize([read('a.ts'), read('docs/b.md'), step({ tool: 'web_search', args: { query: 'x' } })]).phrase)).toBe('Read 2 files and searched the web');
-    expect(plain(summarize([step({ tool: 'repo_checkout', args: { repo: 'acme/web', ref: 'main' } }), step({ tool: 'shell', args: { command: 'npm test' } })]).phrase)).toBe(
+    expect(plain(summarize([read('src/a.ts'), read('src/b.ts'), read('src/c.ts')]))).toBe('Read 3 files in src');
+    expect(plain(summarize([read('a.ts'), read('docs/b.md'), step({ tool: 'web_search', args: { query: 'x' } })]))).toBe('Read 2 files and searched the web');
+    expect(plain(summarize([step({ tool: 'repo_checkout', args: { repo: 'acme/web', ref: 'main' } }), step({ tool: 'shell', args: { command: 'npm test' } })]))).toBe(
       'Got a copy of acme/web and ran npm test',
     );
   });
 
-  it('counts the steps when there are more kinds, or something failed', () => {
+  it('counts the steps when there are more kinds', () => {
     const many = [read('a'), step({ tool: 'web_search', args: {} }), step({ tool: 'shell', args: { command: 'ls' } })];
-    expect(plain(summarize(many).phrase)).toBe('Took 3 steps');
-    const failed = summarize([read('a'), step({ tool: 'web_fetch', args: { url: 'https://x.example' } }, 'failed')]);
-    expect(plain(failed.phrase)).toBe("Took 2 steps, 1 didn't work");
-    expect(failed.failed).toBe(1);
+    expect(plain(summarize(many))).toBe('Took 3 steps');
+  });
+
+  it("names folders inside a repository the summary already names by the repository's own path", () => {
+    const files = ['session.ts', 'callback.ts', 'redirect.ts'].map((f) => read(`repos/acme/web/src/auth/${f}`));
+    expect(plain(summarize(files))).toBe('Read 3 files in acme/web · src/auth');
+    expect(plain(summarize([step({ tool: 'repo_checkout', args: { repo: 'acme/web' } }), ...files]))).toBe('Got a copy of acme/web and read 3 files in src/auth');
+  });
+});
+
+describe('paths inside a repository', () => {
+  it('read like citations: the repository, then the path inside it in code', () => {
+    const p = phrases({ tool: 'fs_write', args: { path: 'repos/acme/web/src/auth/callback.ts', mode: 'overwrite' } });
+    expect(p.done.slice(1, 3)).toEqual([
+      { k: 'repo', v: 'acme/web' },
+      { k: 'code', v: 'src/auth/callback.ts' },
+    ]);
+    expect(plain(p.done)).toBe('Changed acme/web · src/auth/callback.ts');
+    expect(plain(phrases({ tool: 'fs_list', args: { path: 'repos/acme/web' } }).done)).toBe('Looked in acme/web');
+    // Elsewhere in Bothy's files a path stays as it is.
+    expect(plain(phrases({ tool: 'fs_read', args: { path: 'notes/repos/acme/web/a.md' } }).done)).toBe('Read notes/repos/acme/web/a.md');
+  });
+});
+
+describe('waiting line', () => {
+  it("says only whose approval it waits for when the card follows right below", () => {
+    const p = phrases({ tool: 'fs_delete', args: { path: 'notes/staging.md' } });
+    expect(plain(lineFor(p, 'waiting', 'yours'))).toBe('Waiting for your approval');
+    expect(plain(lineFor(p, 'waiting', 'theirs'))).toBe('Waiting for approval');
+    expect(plain(lineFor(p, 'waiting'))).toBe('Waiting for approval to delete notes/staging.md');
   });
 });
 

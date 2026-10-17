@@ -55,11 +55,14 @@
 <div class="min-w-0">
   <p bind:this={el} class="flex items-start gap-1.5 text-small text-muted outline-offset-2" tabindex="-1" data-decided={approval.status}>
     <span class="flex h-[1.125rem] w-4 shrink-0 items-center justify-center"><Icon name={line.glyph} class={color[line.tone]} /></span>
+    <!-- "· {time} · Show" stays together, so Show is never alone on a line and no line ends in "·". -->
     <span class="min-w-0 [overflow-wrap:anywhere]">
-      <Words segs={line.segs} />{#if line.reason}{' · '}<span data-copy-ignore>“{line.reason}”</span>{/if}{#if line.time}{' · '}<time
-          datetime={line.at}
-          title={fullTime(line.at)}>{line.time}</time
-        >{/if}{#if onshow}{' · '}<LinkButton aria-expanded={expanded} onclick={onshow}>{expanded ? 'Hide' : 'Show'}</LinkButton>{/if}
+      <Words segs={line.segs} />{#if line.reason}{' · '}<span data-copy-ignore>“{line.reason}”</span>{/if}{#if line.time || onshow}{' '}<span class="whitespace-nowrap"
+          >{#if line.time}· <time datetime={line.at} title={fullTime(line.at)}>{line.time}</time>{#if onshow}{' '}{/if}{/if}{#if onshow}· <LinkButton
+              aria-expanded={expanded}
+              onclick={onshow}>{expanded ? 'Hide' : 'Show'}</LinkButton
+            >{/if}</span
+        >{/if}
     </span>
   </p>
   {#if followUp && approval.status === 'allowed' && approval.action?.tool === 'release_deploy'}

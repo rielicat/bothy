@@ -1128,7 +1128,7 @@ From the account menu, or "?" when focus is not in a text field. A 440 px dialog
 │         │        │                   │ The staging notes are out of  │ │  user message
 │         │        │                   │ date. Delete them.            │ │
 │         │        │                   └───────────────────────────────┘ │            │
-│         │        │ ◷ Waiting for approval to delete notes/staging.md   │  activity line
+│         │        │ ◷ Waiting for your approval                         │  activity line
 │         │        │ ┌─────────────────────────────────────────────────┐ │            │
 │         │        │ │ Delete notes/staging.md?                        │ │  approval card (§8)
 │         │        │ │ This can't be undone.                           │ │
@@ -1201,10 +1201,12 @@ Markdown styles:
 
 What Bothy does shows as **activity lines**: `text-body muted`, no box, 32 px rows, a 16 px glyph column.
 
+A path inside a repository Bothy got a copy of (`repos/{owner}/{repo}/…`) reads the way citations do (§7.3): "acme/web · src/auth/callback.ts", the repository in plain text and the rest in code. This applies to activity lines, summary lines and decided lines; when a summary already names the repository, its folders are repository-relative ("Got a copy of acme/web and read 3 files in src/auth"). Approval cards and their Details keep the path verbatim (§14.2).
+
 | State | Glyph | Line |
 |---|---|---|
 | Running | spinner | the "doing" phrase, e.g. "Reading package.json…" |
-| Waiting for approval | `clock` in `warning-text` | "Waiting for approval to {ask}" in `warning-text`; the approval card follows directly |
+| Waiting for approval | `clock` in `warning-text` | In `warning-text`. When the pending card renders directly below: "Waiting for your approval" if the viewer can decide it, else "Waiting for approval", since the card names the action. Without a card below (task detail, a step whose request hasn't arrived yet): "Waiting for approval to {ask}" |
 | Done | none | the "done" phrase |
 | Failed | `alert` in `danger-text` | the "failed" phrase, text stays muted; Details has the reason |
 | Denied, expired, blocked | `close` in muted | "Didn't {ask}", shown only when no decided line follows: a denied or expired request shows just its decided line (§8.4), which already says what didn't happen, who decided and why. A blocked step has no decided line, so one `text-small` line under it says why, in the server's plain words ("A deploy to production needs 2 approvers other than you, …", "Bothy can't create the schedule “Daily” during a check-in.") or an admin rule's own reason; a reason stored in the old technical wording reads "Bothy's rules don't allow this."; the full result stays in Details |
@@ -1216,14 +1218,13 @@ Live behaviour:
 After the group finishes, consecutive finished steps fold into one **summary line** with a chevron (`aria-expanded`):
 - If the steps fall into one or two phrase families: join their summaries, e.g. "Read 3 files and searched the web", "Got a copy of acme/web and ran `npm test`".
 - Otherwise: "Took {n} steps".
-- If any step failed: "Took {n} steps, 1 didn't work" with the alert glyph.
-- A single step shows as its own line. Waiting and failed steps and approval cards are never folded.
+- A single step shows as its own line. Waiting and failed steps and approval cards are never folded, so a summary counts only the steps that folded and never carries the alert glyph; a failed step is said once, on its own line. When only one step would fold, it shows as its own line with no summary.
 
-Each line is a `<button aria-expanded>` that opens **Details** (indented 24 px, `text-small`):
-- "What Bothy asked for": the action's fields, verbatim (`CodeBlock` of the exact Action JSON).
+Each line is a `<button aria-expanded>` that opens **Details** (indented 24 px, `text-small`), in this order here and in Activity's task detail (§10.2), with no nested disclosure:
 - "Result": first 20 lines in a `CodeBlock` with "Show all"; file writes show `DiffView`.
 - "How it was allowed": "Allowed automatically", "You approved it", "Allowed by a saved permission", "Sam Patel approved it".
-- "Technical": tool name, decision, rule, duration ("Took 1.2 s"), "Contacted api.github.com", and, for outside content, "This came from outside your team (a web page). Bothy treats it with caution."
+- "What Bothy asked for": the action's fields, verbatim (`CodeBlock` of the exact Action JSON). When the Result above shows the action's diff, the JSON reads `"diff": "(shown above)"` instead of printing it twice.
+- "Technical": tool name, decision, rule, duration ("Took 1.2 s"), "Contacted api.github.com", and, for outside content, "This came from outside your team (a web page). Bothy treats it with caution." When "How it was allowed" is shown, the decision word is left out: "Tool fs_write · Rule default:local_write · Took 1 s"
 
 `tool_search` and `use_tool` are never rendered or counted; the tool reached through them is shown as if called directly.
 
@@ -1319,7 +1320,7 @@ A notice is a system line at the column edge: `text-small muted`, no box, at mos
 | Compaction | "Older messages were summarised so this chat can keep going." | — |
 | Auto-pin | "Pinned {file} so Bothy keeps it in mind." | — |
 | Becomes exposed (once per chat) | "From now on, Bothy will ask before sending anything out of this chat." | "Why?" → Details: "This chat has used private information and content from outside your team, like a web page. To keep that information from leaking, Bothy now asks first. Continue in a clean chat to reset this." |
-| Needs code, code is off | "Bothy can't run code on this server, so it couldn't run `{command}`." | Admins: "How to turn it on" → Security |
+| Needs code, code is off | "Bothy can't run code on this server, so it couldn't run `{command}`." The failed step's own activity line is hidden, since this notice names the command and links the fix. | Admins: "How to turn it on" → Security |
 | Paused | "Bothy is paused. Your message will be answered when it's resumed." | — |
 | Message queued | "Bothy will read this when it finishes the current step." | — |
 | Upload failed | "Couldn't attach {file}: {it's larger than 20 MB / this file type isn't supported}." | — |
@@ -1440,7 +1441,9 @@ Warnings (from `Decision.Warnings`, rewritten server-side, S2):
 
 ### 8.4 Decided state
 
-The card stays in the transcript (fixes audit `27`). It collapses to one line, `text-small muted`, with a "Show" link button that re-opens the read-only card (no buttons, the decision at the bottom). The activity line above changes to the matching tense.
+The card stays in the transcript (fixes audit `27`). It collapses to one line, `text-small muted`, with a "Show" link button that re-opens the read-only card (no buttons; the decision at the bottom only where no decided line is visible above the card, so a card opened with "Show" leaves it out). The activity line above changes to the matching tense. "{time} · Show" stays together on one line (`whitespace-nowrap`, with the "·" before it), so "Show" is never alone on a line and no line ends in "·"; the same holds in the Done tab.
+
+Directly after the step line it decided, an approval drops the object, in the style of "Alex approved in Slack": "You approved it · 11:35 PM · Show" ("Alex Kim and Maya Chen approved it"). The full "You approved {ing}" stays wherever the line stands alone: denied, expired and cancelled lines (whose step line is hidden), task detail and the Approvals Done tab. Grant lines keep their words ("You allowed changes to files in archive/ for this chat").
 
 | Outcome | Line (glyph) |
 |---|---|
@@ -1452,7 +1455,7 @@ The card stays in the transcript (fixes audit `27`). It collapses to one line, `
 | Multi-approver approved | "Alex Kim and Maya Chen approved {ing} · 11:02" |
 | Multi-approver denied | "Alex Kim denied {ing} · “Not before the freeze ends” · 10:40" |
 | Expired | "Expired: Bothy didn't {ask}" (close, muted) |
-| Cancelled | "Cancelled when the chat was stopped" / "Cancelled by {requester}" ("Cancelled by you" for the viewer). A multi-approver request its requester withdraws is stored as denied by their vote, and so is a request someone in a chat app withdraws with "Cancel request"; every surface (chat, inbox, task detail, Releases, chat-app cards) still says "Cancelled by {requester}", never "denied". |
+| Cancelled | "Cancelled: Bothy didn't {ask}" when the chat was stopped (the "You stopped Bothy." notice gives the reason), e.g. "Cancelled: Bothy didn't send a message to #ops · 9:47 PM · Show" / "Cancelled by {requester}" for a withdrawn request ("Cancelled by you" for the viewer). A multi-approver request its requester withdraws is stored as denied by their vote, and so is a request someone in a chat app withdraws with "Cancel request"; every surface (chat, inbox, task detail, Releases, chat-app cards) still says "Cancelled by {requester}", never "denied". |
 
 Chat apps (SPEC §5.9) edit a card to its decided line in place of the question, with ✓ or ✗ for the glyph and "You" for the approver who reads it: "✓ You approved deleting notes/staging.md.", "✗ Sam Patel denied deleting notes/staging.md in Slack." A pending chat card starts each warning with ⚠ for the alert glyph.
 

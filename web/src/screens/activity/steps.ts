@@ -7,7 +7,8 @@ import { withdrawn } from '../../lib/cardcopy';
 export type Segment = { text: string; code: boolean };
 
 // Names people chose stay in the body font; paths, hosts and commands go to text-code.
-const segments = (p: Phrase): Segment[] => p.map((x) => ({ text: x.v, code: x.k === 'code' }));
+// A repository before a path inside it reads "acme/web · ", as in the chat.
+const segments = (p: Phrase): Segment[] => p.map((x) => ({ text: x.k === 'repo' ? `${x.v} · ` : x.v, code: x.k === 'code' }));
 
 export type StepState = 'running' | 'waiting' | 'done' | 'failed' | 'denied';
 

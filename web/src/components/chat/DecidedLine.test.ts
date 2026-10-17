@@ -54,4 +54,22 @@ describe('DecidedLine', () => {
     expect(always.container.textContent).toContain('Tess always allows running rm commands');
     expect(always.container.textContent).not.toContain('rm -rf build');
   });
+
+  it("says only \"approved it\" right under the step's own line, and keeps a grant's words", () => {
+    const write = phrases({ tool: 'fs_write', args: { path: 'repos/acme/web/src/auth/callback.ts', mode: 'overwrite' } });
+    const allowed = { ...base, status: 'allowed', choice: 'allow_once', decided_by_name: 'Tess' } as unknown as Approval;
+    const after = render(DecidedLine, { approval: allowed, phrases: write, afterStep: true });
+    expect(after.container.textContent?.trim()).toMatch(/^Tess approved it ·/);
+    after.unmount();
+    const alone = render(DecidedLine, { approval: allowed, phrases: write });
+    expect(alone.container.textContent).toContain('Tess approved changing acme/web · src/auth/callback.ts');
+  });
+
+  it("says what a stop cancelled, and keeps the time and Show together", () => {
+    const msg = phrases({ tool: 'message', args: { text: 'Deploy done' }, action: { tool: 'message', kind: 'send', side_effect: 'external_send', recipient: 'slack:C1', fingerprint: '' } as never });
+    const { container } = render(DecidedLine, { approval: { ...base, status: 'cancelled', decided_via: 'stop' } as Approval, phrases: msg });
+    expect(container.textContent?.trim()).toMatch(/^Cancelled: Bothy didn't send a message to the Slack chat · \S+/);
+    const tail = container.querySelector('.whitespace-nowrap')!;
+    expect(tail.textContent).toMatch(/^· .+ · Show$/);
+  });
 });

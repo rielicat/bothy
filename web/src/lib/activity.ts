@@ -2,12 +2,14 @@
 // for every tool, the state a step is in, and the summary line a finished group
 // of steps folds into. Paths, hosts, branches and commands stay verbatim and
 // render in mono ('code' segments); names people chose ('name' segments) stay
-// verbatim in the body font.
+// verbatim in the body font. A path inside a repository Bothy got a copy of
+// ("repos/acme/web/src/a.ts") reads like a citation: the repository as a
+// 'repo' segment, then the path inside it ("acme/web · src/a.ts").
 import type { Action, ApprovalStatus, ToolCallStatus } from './api/types.gen';
 import { chatName } from './cardcopy';
 import { serviceName } from './format';
 
-export type SegKind = 'text' | 'code' | 'name';
+export type SegKind = 'text' | 'code' | 'name' | 'repo';
 export interface Seg {
   k: SegKind;
   v: string;
@@ -218,6 +220,9 @@ function values(s: StepInput, a: Record<string, unknown>): Record<string, string
   };
 }
 
+// Where repo_checkout puts a repository in Bothy's files.
+const REPO_PATH = /^repos\/([^/]+\/[^/]+)(?:\/(.*))?$/;
+
 /** Fills a template into segments; `{dir}` with no folder reads "Bothy's files". */
 export function fill(tpl: string, vals: Record<string, string>): Phrase {
   const t = tpl.replace(/\[([^\]]*)\]/g, (_, inner: string) => ([...inner.matchAll(/\{(\w+)\}/g)].every((m) => vals[m[1]]) ? inner : ''));
@@ -233,6 +238,12 @@ export function fill(tpl: string, vals: Record<string, string>): Phrase {
     if (!m) return push('text', part);
     const v = vals[m[1]] ?? '';
     if (m[1] === 'dir' && (!v || v === '.')) return push('text', "Bothy's files");
+    const repo = (m[1] === 'path' || m[1] === 'dir') && REPO_PATH.exec(v);
+    if (repo) {
+      if (!repo[2]) return push('name', repo[1]);
+      push('repo', repo[1]);
+      return push('code', repo[2]);
+    }
     push(CODE.has(m[1]) ? 'code' : 'name', v);
   });
   return out;
@@ -259,15 +270,20 @@ export const prefix = (text: string, p: Phrase): Phrase => fill(text, {}).concat
 
 /** The words of a phrase, for labels, announcements and tests. */
 export function plain(p: Phrase): string {
-  return p.map((s) => s.v).join('');
+  return p.map((s) => (s.k === 'repo' ? `${s.v} · ` : s.v)).join('');
 }
 
-/** The line a step shows in its state (§7.4 table). */
-export function lineFor(p: Phrases, state: StepState): Phrase {
+/**
+ * The line a step shows in its state (§7.4 table). `card` says the pending
+ * card follows right below and whether the viewer decides it, so the waiting
+ * line doesn't repeat what the card asks.
+ */
+export function lineFor(p: Phrases, state: StepState, card?: 'yours' | 'theirs'): Phrase {
   switch (state) {
     case 'running':
       return p.doing;
     case 'waiting':
+      if (card) return fill(card === 'yours' ? 'Waiting for your approval' : 'Waiting for approval', {});
       return prefix('Waiting for approval to ', p.ask);
     case 'done':
       return p.done;
@@ -306,8 +322,8 @@ export function stepState(i: StateInput): StepState {
   return 'running';
 }
 
-/** Steps that can fold under a summary; waiting, refused and approval steps always show. */
-export const foldable = (state: StepState) => state === 'done' || state === 'failed';
+/** Steps that can fold under a summary; waiting, failed, refused and approval steps always show. */
+export const foldable = (state: StepState) => state === 'done';
 
 // Short forms for a family in a summary, by how many steps it has.
 function familyPhrase(family: string, steps: { input: StepInput; phrases: Phrases }[]): Phrase | null {
@@ -357,23 +373,23 @@ const lowerFirst = (p: Phrase): Phrase =>
 
 /**
  * The line a finished group folds into (§7.4): one or two kinds of step are
- * named ("Read 3 files and searched the web"); more is "Took {n} steps"; any
- * failure is counted ("Took 4 steps, 1 didn't work").
+ * named ("Read 3 files and searched the web"); more is "Took {n} steps".
+ * Failed steps never fold, so they are never counted here.
  */
-export function summarize(steps: { input: StepInput; phrases: Phrases; state: StepState }[]): { phrase: Phrase; failed: number } {
-  const failed = steps.filter((s) => s.state === 'failed').length;
-  const n = steps.length;
-  if (failed) return { phrase: fill(`Took ${n} steps, ${failed} didn't work`, {}), failed };
+export function summarize(steps: { input: StepInput; phrases: Phrases }[]): Phrase {
   const families = new Map<string, typeof steps>();
   for (const s of steps) families.set(s.phrases.family, [...(families.get(s.phrases.family) ?? []), s]);
   if (families.size <= 2) {
     const parts = [...families].map(([f, ss]) => familyPhrase(f, ss));
     if (parts.every((p): p is Phrase => !!p)) {
       const [a, b] = parts;
-      return { phrase: b ? [...a, { k: 'text', v: ' and ' }, ...lowerFirst(b)] : a, failed };
+      const joined: Phrase = b ? [...a, { k: 'text', v: ' and ' }, ...lowerFirst(b)] : a;
+      // "Got a copy of acme/web and read 3 files in src/auth": once the summary names the repository, folders inside it are enough.
+      const named = new Set(joined.filter((x) => x.k === 'name' || x.k === 'code').map((x) => x.v));
+      return joined.filter((x) => x.k !== 'repo' || !named.has(x.v));
     }
   }
-  return { phrase: fill(`Took ${n} steps`, {}), failed };
+  return fill(`Took ${steps.length} steps`, {});
 }
 
 /**

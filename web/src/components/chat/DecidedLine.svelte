@@ -11,7 +11,9 @@
 
   // The one-line record a decided card leaves in the transcript (§8.4). Local
   // until C4's DecidedLine is exported from components/approval.
-  let { approval, phrases }: { approval: Approval; phrases: Phrases } = $props();
+  // `afterStep`: the step's own line sits right above, so an approval says
+  // "You approved it" instead of naming the action a second time.
+  let { approval, phrases, afterStep = false }: { approval: Approval; phrases: Phrases; afterStep?: boolean } = $props();
 
   let show = $state(false);
 
@@ -29,7 +31,9 @@
     const via = a.decided_via && !['web', 'timeout', 'stop'].includes(a.decided_via) ? appName[a.decided_via] : '';
     const comment = denial?.comment || a.comment;
     if (a.status === 'expired') return { phrase: prefix("Expired: Bothy didn't ", phrases.ask), tone: 'text-muted', icon: 'close' };
-    if (a.status === 'cancelled') return { phrase: fill(a.decided_via === 'stop' ? 'Cancelled when the chat was stopped' : 'Cancelled by the person who asked', {}), tone: 'text-muted', icon: 'close' };
+    // A stop's notice below says why; the line says what didn't happen.
+    if (a.status === 'cancelled')
+      return { phrase: a.decided_via === 'stop' ? prefix("Cancelled: Bothy didn't ", phrases.ask) : fill('Cancelled by the person who asked', {}), tone: 'text-muted', icon: 'close' };
     if (withdrawn(a)) return { phrase: fill('Cancelled by {who}', { who: by === 'You' ? 'you' : by }), tone: 'text-muted', icon: 'close' };
     const denied = a.status === 'denied';
     let phrase: Phrase;
@@ -40,7 +44,8 @@
     else {
       // A two-person rule: everyone who approved, not only the last.
       const yes = ballots.filter((v) => v.choice === 'allow_once');
-      phrase = prefix(`${yes.length > 1 ? joinNames(yes.map((v) => nameOf(v.user, v.name))) : by} approved `, phrases.ing);
+      const who = yes.length > 1 ? joinNames(yes.map((v) => nameOf(v.user, v.name))) : by;
+      phrase = afterStep ? fill(`${who} approved it`, {}) : prefix(`${who} approved `, phrases.ing);
     }
     return { phrase, tone: denied ? 'text-danger-text' : 'text-accent-text', icon: denied ? 'close' : 'check' };
   });
@@ -49,10 +54,16 @@
 <div class="text-small text-muted">
   <p class="flex items-start gap-2 py-1">
     <span class="flex h-[1.125rem] w-4 shrink-0 items-center justify-center {line.tone}"><Icon name={line.icon} /></span>
+    <!-- "· {time} · Show" stays together, so Show is never alone on a line and no line ends in "·". -->
     <span class="min-w-0 [overflow-wrap:anywhere]">
-      <PhraseText phrase={line.phrase} />{#if approval.decided_at}{' · '}<time datetime={approval.decided_at} title={fullTime(approval.decided_at)}>{clock(approval.decided_at)}</time
-        >{/if}{' · '}<LinkButton aria-expanded={show} onclick={() => (show = !show)}>{show ? 'Hide' : 'Show'}</LinkButton>
+      <PhraseText phrase={line.phrase} />{' '}<span class="whitespace-nowrap"
+        >{#if approval.decided_at}· <time datetime={approval.decided_at} title={fullTime(approval.decided_at)}>{clock(approval.decided_at)}</time>{' '}{/if}· <LinkButton
+          aria-expanded={show}
+          onclick={() => (show = !show)}>{show ? 'Hide' : 'Show'}</LinkButton
+        ></span
+      >
     </span>
   </p>
-  {#if show}<div class="mt-2 mb-1"><InlineApproval {approval} readonly /></div>{/if}
+  <!-- The line above already says the decision, so the card leaves its own out. -->
+  {#if show}<div class="mt-2 mb-1"><InlineApproval {approval} readonly decision={false} /></div>{/if}
 </div>

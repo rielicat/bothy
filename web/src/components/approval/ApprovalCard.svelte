@@ -36,6 +36,7 @@
     viewer,
     reason = '',
     level = 2,
+    decision = true,
     onresolve,
     onresolved,
     class: cls = '',
@@ -52,6 +53,8 @@
     reason?: string;
     /** Heading level of the question. */
     level?: 2 | 3;
+    /** A read-only card ends with its decided line, unless one is already showing right above it. */
+    decision?: boolean;
     /** After this card sent a decision: the choice, the deny reason and the updated approval. */
     onresolve?: (choice: Choice, comment: string | undefined, result: Approval) => void;
     onresolved?: (a: Approval) => void;
@@ -239,7 +242,7 @@
   <div class={cls}>
     <DecidedLine bind:this={decidedLine} approval={view} {viewer} expanded={showCard} onshow={() => (showCard = !showCard)} />
     {#if showCard}
-      <div class="mt-2"><Self approval={view} mode="readonly" {viewer} {reason} {level} /></div>
+      <div class="mt-2"><Self approval={view} mode="readonly" {viewer} {reason} {level} decision={false} /></div>
     {/if}
   </div>
 {:else}
@@ -347,7 +350,7 @@
           {/if}
         </div>
       {/if}
-    {:else if !open}
+    {:else if !open && decision}
       <div class="mt-4"><DecidedLine approval={view} {viewer} followUp={false} /></div>
     {/if}
 

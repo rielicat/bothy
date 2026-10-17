@@ -12,10 +12,11 @@
   import StepDetails from './StepDetails.svelte';
   import type { StepView } from './steps';
 
-  let { step }: { step: StepView } = $props();
+  // `card`: the pending card follows right below, and whether the viewer decides it.
+  let { step, card }: { step: StepView; card?: 'yours' | 'theirs' } = $props();
 
   let open = $state(false);
-  const line = $derived(lineFor(step.phrases, step.state));
+  const line = $derived(lineFor(step.phrases, step.state, card));
   const tone = $derived(step.state === 'waiting' ? 'text-warning-text' : 'text-muted');
 
   // Only a step turning to waiting or failed is read out, at most once a second (§16).

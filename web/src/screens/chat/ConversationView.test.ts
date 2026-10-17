@@ -45,6 +45,9 @@ describe('conversation', () => {
     expect(await screen.findByText(text('Waiting for approval to run ls -la'))).toBeTruthy();
     emit('approval.requested', { approval: { ...fixtureApprovals[0], session_id: SID, run_id: 'run_live', tool_call_id: 'tcl_1' } });
     expect(await screen.findByRole('article')).toBeTruthy();
+    // With the card right below, the line says only whose approval it waits for.
+    expect(await screen.findByText(text('Waiting for your approval'))).toBeTruthy();
+    expect(screen.queryByText(text('Waiting for approval to run ls -la'))).toBeNull();
     expect(screen.queryByText(text('Ran ls -la'))).toBeNull();
 
     emit('run.tool_output', { call_id: 'tcl_1', stream: 1, chunk: 'total 0\n' });
@@ -160,29 +163,33 @@ describe('conversation', () => {
 
   it('keeps decided cards as one line each, after a reload too', async () => {
     render(ConversationView, { id: chatIds.login });
-    expect(await screen.findByText(text(/^You approved changing repos\/acme\/web\/src\/auth\/callback\.ts · /))).toBeTruthy();
+    // Right under its own step line, the decided line doesn't name the action again.
+    expect(await screen.findByText(text(/^You approved it · /))).toBeTruthy();
+    expect(screen.getByText(text('Changed acme/web · src/auth/callback.ts (+3\u00a0−1)'))).toBeTruthy();
     expect(screen.getByText(text(/^You denied opening a pull request in acme\/web · “Not before the freeze ends” · /))).toBeTruthy();
     // The denial's decided line says it; no second "Didn't …" line repeats it.
     expect(screen.queryByText(text("Didn't open a pull request in acme/web"))).toBeNull();
-    expect(screen.getByText(text('Changed repos/acme/web/src/auth/callback.ts (+3\u00a0−1)'))).toBeTruthy();
     await fireEvent.click(screen.getAllByRole('button', { name: 'Show' })[0]);
-    expect(await screen.findByRole('article')).toBeTruthy();
+    const card = await screen.findByRole('article');
+    // The line above says the decision, so the read-only card doesn't say it again.
+    expect(card.querySelector('[data-decided]')).toBeNull();
   });
 
   it('folds finished steps into a summary line that opens on request', async () => {
     render(ConversationView, { id: chatIds.login });
-    const summary = await screen.findByRole('button', { name: 'Got a copy of acme/web and read 3 files in repos/acme/web/src/auth' });
+    const summary = await screen.findByRole('button', { name: 'Got a copy of acme/web and read 3 files in src/auth' });
     expect(summary.getAttribute('aria-expanded')).toBe('false');
-    expect(screen.queryByText(text('Read repos/acme/web/src/auth/session.ts'))).toBeNull();
+    expect(screen.queryByText(text('Read acme/web · src/auth/session.ts'))).toBeNull();
     await fireEvent.click(summary);
-    expect(await screen.findByText(text('Read repos/acme/web/src/auth/session.ts'))).toBeTruthy();
+    expect(await screen.findByText(text('Read acme/web · src/auth/session.ts'))).toBeTruthy();
     expect(screen.getByText(text('Ran npm test'))).toBeTruthy();
   });
 
-  it('counts a step that did not work and keeps it visible under the summary', async () => {
+  it("says a step that didn't work once, on its own line, and folds only the steps that worked", async () => {
     render(ConversationView, { id: chatIds.pricing });
-    expect(await screen.findByRole('button', { name: "Took 3 steps, 1 didn't work" })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Searched the web and read rival-one.example' })).toBeTruthy();
     expect(screen.getByText(text("Couldn't open status.rival-two.example"))).toBeTruthy();
+    expect(screen.queryByText(/didn't work/)).toBeNull();
     expect(screen.getByText('Yesterday')).toBeTruthy();
   });
 
@@ -211,7 +218,8 @@ describe('conversation', () => {
     session.sandbox = false;
     render(ConversationView, { id: chatIds.notices });
     expect(await screen.findByText(text(/^Bothy can't run code on this server, so it couldn't run python3 build_summary\.py\. How to turn it on$/))).toBeTruthy();
-    expect(screen.getByText(text("Couldn't run python3 build_summary.py"))).toBeTruthy();
+    // The notice names the command and the fix, so the step's own failed line isn't shown too.
+    expect(screen.queryByText(text("Couldn't run python3 build_summary.py"))).toBeNull();
     expect(screen.queryByText(/finished with errors/)).toBeNull();
     expect(screen.getByRole('button', { name: 'How to turn it on' })).toBeTruthy();
   });
