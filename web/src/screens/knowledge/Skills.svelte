@@ -9,6 +9,7 @@
   import Icon from '../../components/Icon.svelte';
   import { api, ApiError } from '../../lib/api/client';
   import type { SkillMeta } from '../../lib/api/types.gen';
+  import { skillName } from '../../lib/format';
   import { session } from '../../lib/stores/session.svelte';
   import Knowledge from './Knowledge.svelte';
   import Loading from './Loading.svelte';
@@ -48,8 +49,8 @@
       s.status = was;
       error =
         e instanceof ApiError && e.status === 409
-          ? `The files of ${s.name} changed. Review it before turning it on.`
-          : `Couldn't turn ${on ? 'on' : 'off'} ${s.name}. Try again.`;
+          ? `The files of ${skillName(s.name)} changed. Review it before turning it on.`
+          : `Couldn't turn ${on ? 'on' : 'off'} ${skillName(s.name)}. Try again.`;
       void load();
     }
   }
@@ -87,7 +88,8 @@
 {#snippet actions()}
   {#if admin}
     <input bind:this={picker} type="file" accept=".zip,application/zip" class="hidden" aria-hidden="true" tabindex="-1" onchange={(e) => upload(e.currentTarget.files)} />
-    <Button loading={uploading} loadingLabel="Adding…" onclick={() => picker?.click()}>Add skill</Button>
+    <!-- An empty list offers "Add skill" itself; a second button here would only repeat it. -->
+    {#if skills?.length}<Button loading={uploading} loadingLabel="Adding…" onclick={() => picker?.click()}>Add skill</Button>{/if}
     <Menu items={[{ label: 'Check for changes', onselect: rescan }]} placement="bottom-end">
       {#snippet trigger(p)}<IconButton {...p} icon="more" label="Skill options" />{/snippet}
     </Menu>
@@ -107,15 +109,15 @@
   {:else}
     <div>
       {#each skills as s (s.name)}
-        <ListRow href={href(s)} title={s.name} description={s.description}>
+        <ListRow href={href(s)} title={skillName(s.name)} description={s.description}>
           {#snippet trailing()}
-            {#if needsReview(s)}
-              <span class="flex items-center gap-3">
-                <span class="text-small text-warning-text">Needs review</span>
-                {#if admin}<Button size="sm" href={href(s)}>Review</Button>{/if}
-              </span>
+            <!-- A skill waiting for review is off: admins get the one way to act on it, members see it as off. -->
+            {#if needsReview(s) && admin}
+              <Button size="sm" href={href(s)}>Review</Button>
+            {:else if needsReview(s)}
+              <span class="text-small text-muted">Off</span>
             {:else if admin}
-              <Switch label={s.name} hideLabel bind:checked={() => s.status === 'enabled', (on) => setOn(s, on)} />
+              <Switch label={skillName(s.name)} hideLabel bind:checked={() => s.status === 'enabled', (on) => setOn(s, on)} />
             {:else}
               <span class="text-small text-muted">{s.status === 'enabled' ? 'On' : 'Off'}</span>
             {/if}

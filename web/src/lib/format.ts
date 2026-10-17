@@ -273,3 +273,20 @@ export function serviceName(id: string): string {
   const s = id.replace(/[-_]+/g, ' ').trim();
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
+
+/**
+ * A skill's name for people: the SKILL.md front matter's title or its first
+ * heading when the file is at hand, else the folder id in words, sentence
+ * case ("incident-review" → "Incident review"). The id stays in file paths
+ * and Details.
+ */
+export function skillName(slug: string, body = ''): string {
+  const front = /^---\n([\s\S]*?)\n---\n/.exec(body);
+  const title = front && /^title:\s*["']?(.+?)["']?\s*$/m.exec(front[1])?.[1];
+  if (title) return title;
+  const heading = /^\s*#\s+(.+)$/m.exec(front ? body.slice(front[0].length) : body)?.[1]?.trim();
+  // A heading that only repeats the folder id is no name either.
+  if (heading && heading.toLowerCase() !== slug.toLowerCase()) return heading;
+  const words = slug.replace(/[-_]+/g, ' ').trim();
+  return words ? words[0].toUpperCase() + words.slice(1).toLowerCase() : slug;
+}

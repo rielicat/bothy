@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { lineDiff } from './diff';
-import { bytes, clock, countdown, duration, estimate, expiresIn, fullTime, ms, money, parseGoDuration, plural, prettyGoDuration, relTime, tokens, usd } from './format';
+import { bytes, clock, countdown, duration, estimate, expiresIn, fullTime, ms, money, parseGoDuration, plural, prettyGoDuration, relTime, skillName, tokens, usd } from './format';
 
 describe('format', () => {
   it('formats micro-dollars', () => {
@@ -162,5 +162,16 @@ describe('helpers', () => {
   it('diffs lines', () => {
     expect(lineDiff('a\nb\nc', 'a\nc\nd')).toBe(' a\n-b\n c\n+d');
     expect(lineDiff('', 'x')).toBe('+x');
+  });
+});
+
+describe('skillName', () => {
+  it('names a skill for people: its title or first heading, else the folder id in words', () => {
+    expect(skillName('incident-review')).toBe('Incident review');
+    expect(skillName('onboarding_checklist')).toBe('Onboarding checklist');
+    expect(skillName('release-notes', '---\nname: release-notes\ntitle: "Release notes, the team way"\n---\n# Release notes')).toBe('Release notes, the team way');
+    expect(skillName('pdf', '---\nname: pdf\n---\n\n# Reading PDFs\n\nUse this…')).toBe('Reading PDFs');
+    // A heading that only repeats the id is no name.
+    expect(skillName('incident-review', '---\nname: incident-review\n---\n\n# incident-review\n')).toBe('Incident review');
   });
 });

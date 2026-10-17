@@ -7,7 +7,7 @@
 // 'repo' segment, then the path inside it ("acme/web · src/a.ts").
 import type { Action, ApprovalStatus, ToolCallStatus } from './api/types.gen';
 import { chatName } from './cardcopy';
-import { serviceName } from './format';
+import { serviceName, skillName } from './format';
 
 export type SegKind = 'text' | 'code' | 'name' | 'repo';
 export interface Seg {
@@ -205,7 +205,7 @@ function values(s: StepInput, a: Record<string, unknown>): Record<string, string
     q: str('query', 'q'),
     note: note ? `“${note.length > 60 ? note.slice(0, 59) + '…' : note}”` : 'something',
     chat: chatName(act?.recipient || str('to', 'chat')),
-    skill: str('name', 'skill'),
+    skill: str('name', 'skill') && skillName(str('name', 'skill')),
     name: str('name', 'title'),
     repo: str('repo', 'repository') || [str('owner'), str('name')].filter(Boolean).join('/'),
     ref: str('ref', 'branch'),

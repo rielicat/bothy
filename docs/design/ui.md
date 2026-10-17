@@ -1688,9 +1688,10 @@ History ›                                                              only on
 
 ### 9.5 Skills (`/knowledge/skills`)
 
-- Rows: name (`text-body` 500), one-line description (`text-small muted`), right: a `Switch` (admins) or the word "On"/"Off" (members). A changed skill shows "Needs review" in `warning-text` and a small "Review" button (to the Approvals item) instead of the switch.
-- Admin page actions: [Add skill] (upload a zip) and `⋯` → "Check for changes".
-- Skill page (`/knowledge/skills/:name`): back link, title, rendered SKILL.md (read-only `Markdown`), then a "Files" disclosure listing files that open in a `CodeBlock`.
+- A skill is named for people everywhere (list, page heading and `<title>`, switch label, inbox, activity lines): the SKILL.md front matter's title or first heading, else the folder id in words, sentence case ("Release notes", "Incident review"). The id stays in Files paths and Details.
+- Rows: name (`text-body` 500), one-line description (`text-small muted`), right: a `Switch` (admins) or the word "On"/"Off" (members). A changed skill shows admins only a small "Review" button instead of the switch, with no "Needs review" word; members see "Off" in muted text, like any skill that's off.
+- Admin page actions: [Add skill] (upload a zip; only once there is a skill, since the empty state offers it) and `⋯` → "Check for changes".
+- Skill page (`/knowledge/skills/:name`): back link, title, rendered SKILL.md (read-only `Markdown`), then a "Files" disclosure listing files that open in a `CodeBlock`. A changed skill shows "This skill changed, so it's off until an admin approves the changes below." with "Approve" (toast "Approved."), and its Files disclosure starts open.
 - Empty: "No skills yet. Skills teach Bothy how your team does specific things, like writing release notes." + "Add skill" (admins).
 
 ---

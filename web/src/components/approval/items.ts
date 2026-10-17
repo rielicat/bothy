@@ -5,7 +5,7 @@ import { api } from '../../lib/api/client';
 import type { Inbox, InboxItem as ServerItem, MCPPin } from '../../lib/api/types.gen';
 import { appName } from '../../lib/cardcopy';
 import { lineDiff } from '../../lib/diff';
-import { plural, serviceName } from '../../lib/format';
+import { plural, serviceName, skillName } from '../../lib/format';
 import type { GroupChatItem, InboxItem } from './types';
 
 const enc = encodeURIComponent;
@@ -90,7 +90,7 @@ export function itemQuestion(i: InboxItem): string {
     case 'mcp_review':
       return `Review changes to ${serviceName(i.server)} actions`;
     case 'skill_review':
-      return `Review changes to the “${i.skill}” skill`;
+      return `Review changes to the “${skillName(i.skill)}” skill`;
     case 'unknown_sender':
       return `Someone new messaged Bothy on ${appName(i.app)}`;
     case 'group_chat':

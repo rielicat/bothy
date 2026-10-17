@@ -9,6 +9,7 @@
   import { toast } from '../../components/ui/toast.svelte';
   import { api, ApiError } from '../../lib/api/client';
   import type { SkillDetail } from '../../lib/api/types.gen';
+  import { skillName } from '../../lib/format';
   import { session } from '../../lib/stores/session.svelte';
   import Loading from './Loading.svelte';
 
@@ -24,11 +25,12 @@
 
   const meta = $derived(skill?.meta);
   const review = $derived(meta?.status === 'changed' || meta?.status === 'pending');
+  const title = $derived(skillName(name, skill?.body ?? ''));
   // The page shows the instructions: the front matter (in the SKILL.md file below) and a first heading that repeats the title go.
   const body = $derived(
     (skill?.body ?? '')
       .replace(/^---\n[\s\S]*?\n---\n/, '')
-      .replace(/^\s*#\s+(.+)\n/, (line, h: string) => (h.trim().toLowerCase() === name.toLowerCase() ? '' : line)),
+      .replace(/^\s*#\s+(.+)\n/, (line, h: string) => ([name.toLowerCase(), title.toLowerCase()].includes(h.trim().toLowerCase()) ? '' : line)),
   );
   const path = (f: string) => `/api/skills/${encodeURIComponent(name)}/files/${f.split('/').map(encodeURIComponent).join('/')}`;
 
@@ -55,7 +57,7 @@
     approveError = '';
     try {
       await api.patch(`/api/skills/${encodeURIComponent(name)}`, { enabled: true, hash: meta.hash });
-      toast('Skill turned on.');
+      toast(meta.status === 'changed' ? 'Approved.' : 'Skill turned on.');
       void load();
     } catch {
       approveError = "Couldn't turn it on. The files may have changed again, so reload and review them.";
@@ -74,10 +76,10 @@
   }
 </script>
 
-<svelte:head><title>{name} · Bothy</title></svelte:head>
+<svelte:head><title>{skill ? title : skillName(name)} · Bothy</title></svelte:head>
 
 <div class="page">
-  <PageHeader title={name} back={{ href: '/knowledge/skills', label: 'Skills' }} />
+  <PageHeader title={skill ? title : skillName(name)} back={{ href: '/knowledge/skills', label: 'Skills' }} />
   <div class="mt-6">
     {#if missing}
       <EmptyState text="This skill doesn't exist or was removed." action={{ label: 'Go to Skills', href: '/knowledge/skills', variant: 'secondary' }} />
@@ -88,15 +90,14 @@
         <Notice
           tone="warning"
           class="mb-6"
-          text={meta?.status === 'changed'
-            ? "This skill changed since an admin approved it, so it's off until someone reviews it."
-            : "This skill is new, so it's off until an admin reviews it."}
+          text={meta?.status === 'changed' ? "This skill changed, so it's off until an admin approves the changes below." : "This skill is new, so it's off until an admin reviews it."}
           action={session.isAdmin ? { label: meta?.status === 'changed' ? 'Approve' : 'Turn on', onclick: approve } : undefined}
         />
         {#if approveError}<p class="field-error -mt-4 mb-6"><Icon name="alert" class="mt-px" /><span>{approveError}</span></p>{/if}
       {/if}
       <Markdown text={body} />
-      <Disclosure class="mt-10" label="Files" variant="section">
+      <!-- While the changes wait for approval the files start open, so they are seen before approving. -->
+      <Disclosure class="mt-10" label="Files" variant="section" open={review}>
         <!-- The disclosure's panel is a grid item that would grow to the longest line of an open file;
              without an intrinsic width of its own the list stays in the column and the file scrolls instead. -->
         <ul class="[contain:inline-size]">

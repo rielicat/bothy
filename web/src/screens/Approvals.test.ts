@@ -45,7 +45,7 @@ describe('Approvals inbox', () => {
     expect(collapsed).toContain('Run python3 sales_report.py --week 41?');
     expect(collapsed).not.toContain('Run this command?');
     expect(collapsed).toContain('Someone new messaged Bothy on Telegram');
-    expect(collapsed).toContain('Review changes to the “incident-review” skill');
+    expect(collapsed).toContain('Review changes to the “Incident review” skill');
     expect(collapsed).toContain('Bothy was added to #support in Slack');
     expect(collapsed).toContain('Bothy was added to #general in Discord');
     // Slack and Discord decide who is in the team; only Telegram people wait here.
@@ -57,7 +57,7 @@ describe('Approvals inbox', () => {
 
   it("shows what changed in a skill since it was approved, file by file", async () => {
     await screen.findByRole('heading', { name: 'For you' });
-    const toggle = [...document.querySelectorAll<HTMLButtonElement>('[data-row] button[aria-expanded="false"]')].find((b) => b.textContent?.includes('incident-review'))!;
+    const toggle = [...document.querySelectorAll<HTMLButtonElement>('[data-row] button[aria-expanded="false"]')].find((b) => b.textContent?.includes('Incident review'))!;
     expect(toggle.textContent).toContain('2 files changed');
     await fireEvent.click(toggle);
     const card = await waitFor(() => {
