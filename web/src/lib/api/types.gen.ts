@@ -254,7 +254,8 @@ export interface OutMessage {
   Silent: boolean;
   /**
    * Mentions are the platform user ids whose "<app>://user?id=…" link in
-   * Text shows as that person's mention (Slack <@U…>, Discord's pill).
+   * Text shows as that person's mention (Slack <@U…>, Discord's pill,
+   * Telegram's tg://user link).
    * Only the hub's approval lines set it: the same link in model text
    * stays a plain link, so nothing Bothy reads can make it ping someone.
    */
