@@ -588,6 +588,16 @@ func (a *Adapter) InspectChat(ctx context.Context, chat core.ChatRef) (core.Chat
 	return info, nil
 }
 
+// BotID is the bot's numeric user id from getMe.
+func (a *Adapter) BotID() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.me.ID == 0 {
+		return ""
+	}
+	return strconv.FormatInt(a.me.ID, 10)
+}
+
 // HasPicture reports whether the bot has a profile photo, however it got one
 // (BotFather, or Bothy before).
 func (a *Adapter) HasPicture(ctx context.Context) (bool, error) {

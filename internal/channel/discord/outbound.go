@@ -299,6 +299,14 @@ func messageOf(ref core.MsgRef) (snowflake.ID, snowflake.ID, error) {
 
 var _ core.PictureSetter = (*adapter)(nil)
 
+// BotID is the bot user's snowflake.
+func (a *adapter) BotID() string {
+	if id := a.self(); id != 0 {
+		return id.String()
+	}
+	return ""
+}
+
 // HasPicture reports whether the bot user has an avatar, however it got one
 // (the developer portal, or Bothy before).
 func (a *adapter) HasPicture(ctx context.Context) (bool, error) {

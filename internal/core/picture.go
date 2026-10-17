@@ -31,6 +31,9 @@ type AgentPicture interface {
 // PictureSetter is implemented by adapters that can change the bot's own
 // picture (Telegram, Discord). Slack lets only a person change an app's icon.
 type PictureSetter interface {
+	// BotID is the bot's own user id on the platform, "" until it is known.
+	// Unlike its name it tells bots apart: Discord bot names repeat.
+	BotID() string
 	// HasPicture reports whether the bot has a picture now, whoever set it.
 	HasPicture(ctx context.Context) (bool, error)
 	// SetPicture replaces the bot's picture. A platform that limits how

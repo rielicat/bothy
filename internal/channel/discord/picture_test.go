@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rielicat/bothy/internal/channel/discord/discordtest"
 	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
 )
@@ -25,6 +26,21 @@ func TestPicture(t *testing.T) {
 	}
 	if has, err := f.a.HasPicture(ctx); err != nil || !has {
 		t.Fatalf("after set: has=%v err=%v", has, err)
+	}
+}
+
+// The bot's id, not its name, says which bot was looked after: Discord bot
+// names repeat.
+func TestPictureBotID(t *testing.T) {
+	f := newFixture(t)
+	if id := f.a.BotID(); id != "" {
+		t.Fatalf("before connecting: %q", id)
+	}
+	if _, err := f.a.SelfTest(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if id := f.a.BotID(); id != discordtest.DefaultBotID {
+		t.Fatalf("bot id = %q", id)
 	}
 }
 

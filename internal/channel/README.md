@@ -61,10 +61,11 @@ sender's first words (their first message that is not a command such as
 Telegram's "/start") are kept for the admins' inbox, and people waiting and
 group chats publish `inbox.changed`.
 The bot's picture: when Telegram or Discord (adapters implementing
-`core.PictureSetter`) connects with a bot identity other than the one in meta
-`picture:<channel>`, a bot without a picture gets Bothy's current one
-(`Deps.Picture`); one someone set in BotFather or the developer portal stays.
-The identity is remembered either way; a failure is retried on the next
+`core.PictureSetter`) connects with a bot other than the one in meta
+`picture:<channel>` (by `BotID`, the platform's user id: Discord bot names
+repeat), a bot without a picture gets Bothy's current one (`Deps.Picture`);
+one someone set in BotFather or the developer portal stays. The id is
+remembered either way; a failure is retried on the next
 connection. `ApplyPicture` is an admin's change: it replaces the picture of
 every turned-on bot in parallel (30 s each) and answers `updated`, `failed`
 (`core.ErrNotConnected`, or the platform's error, coded `rate_limited` when

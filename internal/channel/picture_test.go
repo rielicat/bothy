@@ -17,12 +17,19 @@ import (
 type pictureChannel struct {
 	*channeltest.Channel
 	mu     sync.Mutex
+	botID  string
 	has    bool
 	hasErr error
 	setErr error
 	checks int
 	set    []core.Picture
 	state  string // replaces the status state when set
+}
+
+func (c *pictureChannel) BotID() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.botID
 }
 
 func (c *pictureChannel) HasPicture(context.Context) (bool, error) {
@@ -74,7 +81,7 @@ func withPicture(pc **pictureChannel, has bool) func(*harness) {
 	return func(h *harness) {
 		h.picture = fixedPicture{p: defaultPic}
 		h.wrap = func(c *channeltest.Channel) core.Channel {
-			*pc = &pictureChannel{Channel: c, has: has}
+			*pc = &pictureChannel{Channel: c, botID: "1001", has: has}
 			return *pc
 		}
 	}
@@ -95,7 +102,7 @@ func TestFirstConnectionGivesTheBotBothysPicture(t *testing.T) {
 		if checks != 1 || len(set) != 1 || set[0].Version != defaultPic.Version {
 			t.Fatalf("checks=%d set=%+v", checks, set)
 		}
-		if v, err := h.store.Meta().Get(h.ctx, pictureKey("telegram")); err != nil || v != "@telegram_bot" {
+		if v, err := h.store.Meta().Get(h.ctx, pictureKey("telegram")); err != nil || v != "1001" {
 			t.Fatalf("meta = %q, %v", v, err)
 		}
 
@@ -118,7 +125,7 @@ func TestFirstConnectionKeepsAPictureSomeoneSet(t *testing.T) {
 		if checks, set := pc.counts(); checks != 1 || len(set) != 0 {
 			t.Fatalf("checks=%d set=%+v", checks, set)
 		}
-		if v, _ := h.store.Meta().Get(h.ctx, pictureKey("telegram")); v != "@telegram_bot" {
+		if v, _ := h.store.Meta().Get(h.ctx, pictureKey("telegram")); v != "1001" {
 			t.Fatalf("meta = %q", v)
 		}
 	})
@@ -130,7 +137,7 @@ func TestFirstConnectionChecksANewBotAndRetries(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		var pc *pictureChannel
 		h := newHarness(t, withPicture(&pc, false))
-		if err := h.store.Meta().Set(h.ctx, pictureKey("telegram"), "@old_bot"); err != nil {
+		if err := h.store.Meta().Set(h.ctx, pictureKey("telegram"), "1000"); err != nil {
 			t.Fatal(err)
 		}
 		pc.hasErr = errors.New("telegram getUserProfilePhotos: 502 Bad Gateway")
@@ -139,7 +146,7 @@ func TestFirstConnectionChecksANewBotAndRetries(t *testing.T) {
 		if checks, set := pc.counts(); checks != 1 || len(set) != 0 {
 			t.Fatalf("checks=%d sets=%d", checks, len(set))
 		}
-		if v, _ := h.store.Meta().Get(h.ctx, pictureKey("telegram")); v != "@old_bot" {
+		if v, _ := h.store.Meta().Get(h.ctx, pictureKey("telegram")); v != "1000" {
 			t.Fatalf("a failed check was remembered: %q", v)
 		}
 		pc.mu.Lock()
@@ -151,6 +158,29 @@ func TestFirstConnectionChecksANewBotAndRetries(t *testing.T) {
 		settle()
 		if checks, set := pc.counts(); checks != 2 || len(set) != 1 {
 			t.Fatalf("retry: checks=%d sets=%d", checks, len(set))
+		}
+	})
+}
+
+// Discord bot names repeat, so a new bot under the same name is checked too.
+func TestFirstConnectionTellsBotsApartByID(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		var pc *pictureChannel
+		h := newHarness(t, withPicture(&pc, true)).start()
+		settle()
+		name := pc.Status().Identity
+		h.cfg.Set(func(c *config.Config) { c.Channels.Telegram.Enabled = false })
+		settle()
+		pc.mu.Lock()
+		pc.botID, pc.has = "1002", false
+		pc.mu.Unlock()
+		h.cfg.Set(func(c *config.Config) { c.Channels.Telegram.Enabled = true })
+		settle()
+		if checks, set := pc.counts(); checks != 2 || len(set) != 1 || pc.Status().Identity != name {
+			t.Fatalf("checks=%d sets=%d identity %q, was %q", checks, len(set), pc.Status().Identity, name)
+		}
+		if v, _ := h.store.Meta().Get(h.ctx, pictureKey("telegram")); v != "1002" {
+			t.Fatalf("meta = %q", v)
 		}
 	})
 }

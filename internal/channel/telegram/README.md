@@ -16,8 +16,8 @@ link buttons dropped). It also implements typing (`sendChatAction`), button
 acknowledgement (`answerCallbackQuery`), attachment download (`getFile`,
 size-capped), `setMyCommands` (no `/pair`), `getMe` self-test and
 `InspectChat` (`getChat` for the title, `getChatMemberCount` for the
-members) and `core.PictureSetter` (`getUserProfilePhotos` for the bot's own
-id; `setMyProfilePhoto` with an `InputProfilePhotoStatic` whose JPEG is
+members) and `core.PictureSetter` (`BotID` from `getMe`;
+`getUserProfilePhotos` for the bot's own id; `setMyProfilePhoto` with an `InputProfilePhotoStatic` whose JPEG is
 uploaded as multipart under `attach://picture`, sent once: a 429 is returned
 rather than waited out). Telegram can't say who belongs to a team, so it has no member
 checker: an admin lets people in. The bot token comes from the

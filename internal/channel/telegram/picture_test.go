@@ -33,6 +33,20 @@ func TestPicture(t *testing.T) {
 	}
 }
 
+// The bot's id, not its name, says which bot was looked after.
+func TestPictureBotID(t *testing.T) {
+	e := newEnv(t)
+	if id := e.a.BotID(); id != "" {
+		t.Fatalf("before getMe: %q", id)
+	}
+	if _, err := e.a.SelfTest(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if id := e.a.BotID(); id != "7000001" {
+		t.Fatalf("bot id = %q", id)
+	}
+}
+
 func TestPictureSetInBotFatherCounts(t *testing.T) {
 	e := newEnv(t)
 	e.srv.SetProfilePhoto([]byte{0xff, 0xd8, 0xff})

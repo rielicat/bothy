@@ -14,8 +14,9 @@ import (
 // pictureTimeout bounds one chat app's picture check or upload.
 const pictureTimeout = 30 * time.Second
 
-// pictureKey is the meta key naming the bot identity whose picture was
-// already looked after on that chat app, so a restart doesn't ask again.
+// pictureKey is the meta key naming the bot (PictureSetter.BotID) whose
+// picture was already looked after on that chat app, so a restart doesn't
+// ask again.
 func pictureKey(app string) string { return "picture:" + app }
 
 // firstPicture gives a newly connected bot Bothy's picture when it has none.
@@ -28,7 +29,7 @@ func (h *Hub) firstPicture(ctx context.Context, a *adapter) {
 	}
 	a.pictureMu.Lock()
 	defer a.pictureMu.Unlock()
-	id := cmp.Or(a.ch.Status().Identity, "?")
+	id := cmp.Or(ps.BotID(), "?")
 	if v, err := h.d.Store.Meta().Get(ctx, pictureKey(a.name)); err == nil && v == id {
 		return
 	}
@@ -48,7 +49,7 @@ func (h *Hub) firstPicture(ctx context.Context, a *adapter) {
 			h.log.Warn("channel: giving the bot Bothy's picture failed", "channel", a.name, "err", err)
 			return
 		}
-		h.log.Info("channel: gave the bot Bothy's picture", "channel", a.name, "identity", id, "custom", p.Custom)
+		h.log.Info("channel: gave the bot Bothy's picture", "channel", a.name, "identity", a.ch.Status().Identity, "custom", p.Custom)
 	}
 	h.rememberPicture(ctx, a, id)
 }
@@ -112,7 +113,7 @@ func (h *Hub) applyPicture(ctx context.Context, a *adapter, ps core.PictureSette
 		r.Err = err
 		return r
 	}
-	h.rememberPicture(ctx, a, cmp.Or(st.Identity, "?"))
+	h.rememberPicture(ctx, a, cmp.Or(ps.BotID(), "?"))
 	r.Outcome = core.PictureUpdated
 	return r
 }
