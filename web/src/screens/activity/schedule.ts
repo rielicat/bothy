@@ -103,3 +103,23 @@ export function hostsIn(prompt: string): string[] {
   for (const m of prompt.matchAll(/\b(?:https?:\/\/)?((?:[a-z0-9-]+\.)+(?:com|net|org|io|dev|app|co|ai|so|uk|eu|de))\b/gi)) out.add(m[1].toLowerCase());
   return [...out].slice(0, 3);
 }
+
+const ITEM = /^\s*-\s+(?:\[[ xX]\]\s+)?/;
+
+/**
+ * The check-in list as the form shows it: a file of "- [ ] …" items reads as
+ * plain lines. A file with any line that isn't an item is shown as it is,
+ * so saving never rewrites what someone wrote by hand.
+ */
+export function checkinText(content: string): { text: string; items: boolean } {
+  const lines = content.split('\n').filter((l) => l.trim());
+  if (!lines.every((l) => ITEM.test(l))) return { text: content, items: false };
+  return { text: lines.map((l) => l.replace(ITEM, '').trimEnd()).join('\n'), items: true };
+}
+
+/** The file to save for what the form holds: each line back as an item when the file was a list. */
+export function checkinFile(text: string, items: boolean): string {
+  if (!items) return text;
+  const lines = text.split('\n').filter((l) => l.trim());
+  return lines.length ? lines.map((l) => `- [ ] ${l.trim()}`).join('\n') + '\n' : '';
+}

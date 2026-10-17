@@ -65,9 +65,10 @@ describe('New schedule (docs/design/ui.md §10.3)', () => {
     expect(JSON.parse(posted()[0].body).grants).toEqual([]);
   });
 
-  it('keeps results here, the only place an account has', async () => {
-    expect(screen.getByText('Send results to')).toBeTruthy();
-    expect(screen.getByText('Only here in Bothy')).toBeTruthy();
+  it('keeps results here, the only place an account has, and says so in the preview', async () => {
+    // A fact, not a field with nothing to choose.
+    expect(screen.queryByText('Send results to')).toBeNull();
+    await waitFor(() => expect(screen.getByText(/^Runs /).textContent).toMatch(/^Runs weekdays at .+ London time and posts the result here\./));
     expect(screen.queryByRole('combobox', { name: 'Send results to' })).toBeNull();
     expect(calls.some((c) => c.url.startsWith('/api/identities') || c.url.startsWith('/api/spaces'))).toBe(false);
     await fireEvent.input(screen.getByLabelText('What should Bothy do?'), { target: { value: 'Summarise the open pull requests in acme/web.' } });
@@ -80,7 +81,7 @@ describe('New schedule (docs/design/ui.md §10.3)', () => {
     const line = () => screen.getByText(/^Runs /).textContent ?? '';
     await waitFor(() => expect(line()).toMatch(/Next: /));
     await fireEvent.change(screen.getByLabelText('Repeat'), { target: { value: 'weekly' } });
-    expect(line()).toMatch(/^Runs Mondays at .+\)\.$/);
+    expect(line()).toMatch(/^Runs Mondays at .+ London time and posts the result here\.$/);
     await waitFor(() => expect(line()).toMatch(/Next: /));
   });
 
@@ -101,6 +102,23 @@ describe('Edit schedule', () => {
     expect(((await screen.findByLabelText('Repeat rule')) as HTMLInputElement).value).toBe('0 9 1,15 * *');
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Invoice reminder');
     expect(screen.getByRole('button', { name: 'Save schedule' })).toBeTruthy();
+  });
+
+  it("names each recent run by when it ran and how it went, not by the page's own title", async () => {
+    router.navigate('/activity/schedules/sch_01jstandup00000000000000');
+    render(ScheduleForm, { params: { id: 'sch_01jstandup00000000000000' } });
+    const recent = (await screen.findByRole('heading', { name: 'Recent runs' })).closest('section')!;
+    const rows = await waitFor(() => {
+      const r = [...recent.querySelectorAll('li')];
+      expect(r.length).toBeGreaterThan(0);
+      return r;
+    });
+    for (const r of rows) {
+      expect(r.textContent).toMatch(/^\s*(Today|Yesterday|\w+day \d+ \w+) at /);
+      expect(r.textContent).not.toContain('Daily standup summary');
+      expect(r.textContent).not.toMatch(/\bSchedule\b/);
+    }
+    expect(rows[0].textContent).toMatch(/Posted here|Failed/);
   });
 
   it('keeps the check-in on its own form', async () => {

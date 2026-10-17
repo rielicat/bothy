@@ -39,14 +39,16 @@ describe('Schedules (docs/design/ui.md §10.3)', () => {
     expect(s.getByText('Schedules people set up in chat apps. Their results go to that chat.')).toBeTruthy();
     const row = s.getByText('Weekly sales summary').closest('li')!;
     expect(row.textContent).toMatch(/Alex Kim · Slack · Mondays at .+ · Next: /);
-    expect(s.getByText('Ops handover').closest('li')!.textContent).toMatch(/Ops team · Telegram · .+ · Off\s*Delete…\s*$/);
+    expect(s.getByText('Ops handover').closest('li')!.textContent).toMatch(/Ops team · Telegram · .+ · Off\s*$/);
 
     // Named like the switches above: "Weekly sales summary, switch, on".
     await fireEvent.click(s.getByRole('switch', { name: 'Weekly sales summary' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url === '/api/schedules/sch_01jteamsales0000000000000')).toBe(true));
     expect(JSON.parse(calls.find((c) => c.method === 'PATCH')!.body)).toEqual({ enabled: false });
 
-    await fireEvent.click(s.getByRole('button', { name: 'Delete Ops handover…' }));
+    // The same ⋯ menu as the schedules above, holding one danger item.
+    await fireEvent.click(s.getByRole('button', { name: 'More actions for Ops handover' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete…' }));
     const dialog = await screen.findByRole('dialog', { name: 'Delete “Ops handover”?' });
     expect(within(dialog).getByText("It stops running. Past results stay in that chat. This can't be undone.")).toBeTruthy();
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Delete schedule' }));

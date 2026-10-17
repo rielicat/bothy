@@ -3,10 +3,10 @@
   import { Button, Checkbox, Combobox, Disclosure, IconButton, Menu, Page, Select, TextArea, TextField, toast } from '../../components/ui';
   import { api, ApiError } from '../../lib/api/client';
   import type { Grant, List, Schedule, SchedulePreviewResp } from '../../lib/api/types.gen';
-  import { fullTime, money, relTime } from '../../lib/format';
+  import { fullTime, money } from '../../lib/format';
   import { hostPort } from '../../lib/grants';
   import { router } from '../../lib/router.svelte';
-  import { describeWhen, fromSpec, localTimes, saveSchedule, scheduleGrants, timeOptions, timezones, toSpec, validRule, wallClock, WEEKDAYS, ZERO, type When } from '../../lib/schedules';
+  import { describeWhen, fromSpec, localTimes, saveSchedule, scheduleGrants, timeOptions, toSpec, validRule, wallClock, WEEKDAYS, ZERO, zoneOptions, zoneTime, type When } from '../../lib/schedules';
   import { session } from '../../lib/stores/session.svelte';
   import { people, type TaskRun } from './api';
   import CheckIn from './CheckIn.svelte';
@@ -14,7 +14,7 @@
   import Loading from './Loading.svelte';
   import { blankSchedule, grantSentence, hostsIn, listDate, nameFrom } from './schedule';
   import TaskRow from './TaskRow.svelte';
-  import { taskView } from './tasks';
+  import { dayLabel, taskView } from './tasks';
 
   let { params }: { params: Record<string, string> } = $props();
 
@@ -39,7 +39,8 @@
   let failed = $state(false);
   let removing = $state<Schedule | null>(null);
 
-  const zones = timezones().map((z) => ({ value: z, label: z.replace(/_/g, ' ') }));
+  // By city ("London (Europe)"); the IANA id stays the stored value.
+  const zones = $derived(zoneOptions(s?.tz ?? ''));
 
   async function load() {
     const id = params.id;
@@ -111,10 +112,12 @@
   // Weekday names keep their capital: "Runs Mondays at 9:00", "Runs weekdays at 9:00".
   const lower = (t: string) => (w.kind === 'weekly' ? t : t[0].toLowerCase() + t.slice(1));
   const nextDays = $derived((shown?.next ?? []).slice(0, 3).map((t) => listDate(t, s?.tz)));
+  // Accounts have no chat app, so results always stay here: the preview says so instead of a field with nothing to choose.
   const previewLine = $derived.by(() => {
     if (!s) return '';
     const plain = describeWhen(w);
-    const runsText = plain ? `Runs ${lower(plain)} (${s.tz.replace(/_/g, ' ')}).` : shown ? `Runs ${lower(localTimes(shown.human))}.` : '';
+    const when = plain ? lower(plain) : shown ? lower(localTimes(shown.human)) : '';
+    const runsText = when ? `Runs ${when} ${zoneTime(s.tz)} and posts the result here.` : '';
     return runsText && w.kind !== 'once' && nextDays.length ? `${runsText} Next: ${nextDays.join(', ')}.` : runsText;
   });
   const today = $derived(s ? wallClock(new Date(), s.tz).slice(0, 10) : undefined);
@@ -175,6 +178,7 @@
     { value: 'once', label: 'Once on' },
     { value: 'custom', label: 'Custom' },
   ];
+  const runTime = (t: string) => `${dayLabel(t)} at ${new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
   const dayOptions = WEEKDAYS.map((d, i) => ({ value: String(i), label: d }));
   const dateOptions = Array.from({ length: 31 }, (_, i) => ({ value: String(i + 1), label: String(i + 1) }));
 </script>
@@ -183,10 +187,6 @@
   <Menu items={[{ label: 'Delete schedule…', danger: true, onselect: () => (removing = s) }]} placement="bottom-end">
     {#snippet trigger(props)}<IconButton icon="more" label="More for this schedule" {...props} />{/snippet}
   </Menu>
-{/snippet}
-
-{#snippet field(label: string, id: string)}
-  <label for={id} class="field-label">{label}</label>
 {/snippet}
 
 {#if params.id === 'checkin'}
@@ -244,28 +244,21 @@
         <p class="field-help" aria-live="polite">{previewLine}</p>
       </fieldset>
 
-      <!-- Accounts have no chat app, so results always stay here. -->
-      <p class="mt-6 field-label">Send results to</p>
-      <p class="mt-1 text-body text-text">Only here in Bothy</p>
-
       <TextField class="mt-6" label="Name" bind:value={s.name} maxlength={80} oninput={() => (named = true)} />
 
+      <!-- Each label sits above its control, as in the rest of the form. -->
       <Disclosure variant="section" label="More options" class="mt-6">
-        <div class="grid grid-cols-[10rem_minmax(0,1fr)] items-center gap-x-4 gap-y-3 max-sm:grid-cols-1 max-sm:gap-y-1">
-          {@render field('Model', 'sf-model')}
-          <Select id="sf-model" class="max-sm:mb-2 sm:max-w-64" options={[{ value: 'main', label: 'Main model' }, { value: 'fast', label: 'Quick tasks model' }]} bind:value={s.slot} />
-          {@render field('Stop a run above', 'sf-cost')}
-          <TextField id="sf-cost" class="max-sm:mb-2 sm:max-w-32" prefix="$" inputmode="decimal" placeholder="0.50" bind:value={cost} />
-          <span class="field-label" id="sf-hours">Only run between</span>
-          <div class="flex items-center gap-2 max-sm:mb-2" role="group" aria-labelledby="sf-hours">
+        <Select class="sm:max-w-64" label="Model" options={[{ value: 'main', label: 'Main model' }, { value: 'fast', label: 'Quick tasks model' }]} bind:value={s.slot} />
+        <TextField class="mt-6 sm:max-w-32" label="Stop a run above" prefix="$" inputmode="decimal" placeholder="0.50" bind:value={cost} />
+        <fieldset class="mt-6">
+          <legend class="field-label">Only run between</legend>
+          <div class="mt-2 flex items-center gap-2">
             <Select label="From" hideLabel options={[{ value: '', label: 'Any time' }, ...timeOptions(from)]} bind:value={from} />
             {#if from}<span class="text-body text-text">and</span><Select label="Until" hideLabel options={timeOptions(to)} bind:value={to} />{/if}
           </div>
-          {@render field('If Bothy was off', 'sf-missed')}
-          <Select id="sf-missed" class="max-sm:mb-2 sm:max-w-64" options={[{ value: 'once', label: "Run when it's back" }, { value: 'skip', label: 'Skip that run' }]} bind:value={s.missed_run} />
-          <span class="field-label" aria-hidden="true">Time zone</span>
-          <Combobox label="Time zone" options={zones} bind:value={s.tz} class="max-sm:mb-2 sm:max-w-64 [&>div]:mt-0 [&>label]:sr-only" />
-        </div>
+        </fieldset>
+        <Select class="mt-6 sm:max-w-64" label="If Bothy was off" options={[{ value: 'once', label: "Run when it's back" }, { value: 'skip', label: 'Skip that run' }]} bind:value={s.missed_run} />
+        <Combobox class="mt-6 sm:max-w-64" label="Time zone" options={zones} bind:value={s.tz} />
         {#if saved.length || suggested.length}
           <fieldset class="mt-4">
             <legend class="field-label">Allowed without asking</legend>
@@ -288,12 +281,12 @@
         <h2 class="section-title">Recent runs</h2>
         {#if runs.length}
           <ul class="mt-2">
+            <!-- The page names the schedule, so each run is named by when it ran and says how it went. -->
             {#each runs as r (r.id)}
               <TaskRow
                 href="/activity/tasks/{encodeURIComponent(r.id)}"
-                view={taskView({ ...r, schedule_name: r.schedule_name || s.name }, { names, sessions: new Map(), schedules: new Map([[s.id, s]]), waiting: new Map() })}
+                view={{ title: runTime(r.created_at), lead: [], outcome: taskView(r, { names, sessions: new Map(), schedules: new Map([[s.id, s]]), waiting: new Map() }).outcome }}
                 cost={r.cost_micros ? money(r.cost_micros) : '—'}
-                time={relTime(r.created_at)}
                 fullTime={fullTime(r.created_at)}
               />
             {/each}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Approval, AuditEntry, EgressRecord, ToolCallRecord } from '../../lib/api/types.gen';
 import { actorName, resultWord, summarize, webLine } from './audit';
-import { every, grantSentence, listDate, nameFrom, nextRun } from './schedule';
+import { checkinFile, checkinText, every, grantSentence, listDate, nameFrom, nextRun } from './schedule';
 import { decisionLine, stepLine, type Segment } from './steps';
 import { clampLines, deliverTo, detailOutcome, taskView, type TaskLookups } from './tasks';
 
@@ -163,5 +163,20 @@ describe('schedules and tasks in words', () => {
     expect(taskView({ ...(run as object), trigger: 'schedule', schedule_name: 'Daily standup summary' } as never, l)).toMatchObject({ title: 'Daily standup summary', lead: ['Schedule'] });
     // A run whose schedule was deleted keeps no name of its own.
     expect(taskView({ ...(run as object), trigger: 'schedule', schedule_id: undefined, schedule_name: undefined } as never, l)).toMatchObject({ title: 'Deleted schedule' });
+  });
+});
+
+describe('check-in list', () => {
+  it('shows a list of items as plain lines and writes them back as items', () => {
+    const file = '- [ ] Tell me if a deploy failed\n- [x] Watch the support inbox\n\n- Check the error rate\n';
+    expect(checkinText(file)).toEqual({ text: 'Tell me if a deploy failed\nWatch the support inbox\nCheck the error rate', items: true });
+    expect(checkinFile('Tell me if a deploy failed\n\n  Watch the support inbox  ', true)).toBe('- [ ] Tell me if a deploy failed\n- [ ] Watch the support inbox\n');
+    expect(checkinFile('', true)).toBe('');
+  });
+
+  it('leaves a file that is not only items as it is, so nothing gets mangled', () => {
+    const file = '# Morning\n- [ ] Check deploys\nAlso look at the queue';
+    expect(checkinText(file)).toEqual({ text: file, items: false });
+    expect(checkinFile(file, false)).toBe(file);
   });
 });

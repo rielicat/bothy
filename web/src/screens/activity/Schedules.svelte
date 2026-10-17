@@ -188,7 +188,10 @@
                   {#if errors[t.id]}<p class="text-small text-danger-text" role="alert">{errors[t.id]}</p>{/if}
                 </div>
                 <Switch label={t.name} hideLabel checked={t.enabled} onchange={(on) => toggleTeam(t, on)} />
-                <Button size="sm" variant="ghost" aria-label="Delete {t.name}…" onclick={() => (removingTeam = t)}>Delete…</Button>
+                <!-- The same ⋯ as the list above, so the switches line up and the meta line keeps its width. -->
+                <Menu items={[{ label: 'Delete…', danger: true, onselect: () => (removingTeam = t) }]} placement="bottom-end">
+                  {#snippet trigger(props)}<IconButton icon="more" label="More actions for {t.name}" size="sm" {...props} />{/snippet}
+                </Menu>
               </li>
             {/each}
           </ul>

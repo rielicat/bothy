@@ -1777,9 +1777,9 @@ Mondays at 8:00 · Posts here · Last run failed: the GitHub token was rejected
 - Where: "Posts here". Accounts have no chat app (SPEC §5.16), so their schedules post on the web.
 - `⋯`: Run now · Edit · History · Delete… (`danger-text`, confirm dialog "Delete the schedule “{name}”? This can't be undone."). Run now is audited with who pressed it ("Started the schedule “{name}” by hand").
 - A result posted to a chat opens with an italic line "From the schedule “{name}” · change it under Schedules" (a check-in: "From your check-in · change it under Schedules"), since nobody asked for it there.
-- **Check-in** is always listed first (the heartbeat). Edit opens `/activity/schedules/checkin`: "How often" (Every 15 min / 30 min / hour), "Between" (active hours, two time selects), "What to check" (sans `TextArea` editing the HEARTBEAT.md checklist as prose), help "Bothy looks through this list regularly and messages you only when something needs attention.", cost line "About $0.05 a day with {Quick tasks model}." [Save] [Cancel].
+- **Check-in** is always listed first (the heartbeat). Edit opens `/activity/schedules/checkin`: "How often" (Every 15 min / 30 min / hour), "Between" (active hours, two time selects), "What to check" (sans `TextArea` editing the HEARTBEAT.md checklist as prose), help "Bothy looks through this list regularly and messages you only when something needs attention.", placeholder "One thing per line, for example: Tell me if a deploy to production failed overnight". When every non-empty line of the file is a list item, the box shows plain lines (the leading `- [ ] `, `- [x] ` or `- ` stripped) and saves each line back as `- [ ] {line}`, since the scheduler reads the text as it is; a file with any other line is shown verbatim so nothing is rewritten. Cost line "About $0.05 a day with {Quick tasks model}." [Save] [Cancel].
 - Empty (only Check-in exists): under it, "Bothy can do things on a schedule, like a Monday summary of open pull requests." + "New schedule".
-- **In chat apps** (admins, only when there are any, or when they failed to load): a section under the list for the schedules people and channels set up in chat apps (`GET /api/team/schedules`). Help `text-small muted`: "Schedules people set up in chat apps. Their results go to that chat." Rows: the name (500); `text-small muted` "{owner} · {App} · {repeat text} · Next: {time}", "… · Off" when it is off, or "… · Not scheduled" when it is on with no next run; a `Switch` named after the schedule (`aria-label` "{name}", like the rows above) that only turns it on or off; small ghost "Delete…" (`aria-label` "Delete {name}…") → confirm: title "Delete “{name}”?", body "It stops running. Past results stay in that chat. This can't be undone.", buttons "Delete schedule" (danger) and "Cancel". Editing them happens in their chat. If the list doesn't load, the section shows "These schedules didn't load. Check your connection and try again." with "Try again" instead of going missing.
+- **In chat apps** (admins, only when there are any, or when they failed to load): a section under the list for the schedules people and channels set up in chat apps (`GET /api/team/schedules`). Help `text-small muted`: "Schedules people set up in chat apps. Their results go to that chat." Rows: the name (500); `text-small muted` "{owner} · {App} · {repeat text} · Next: {time}", "… · Off" when it is off, or "… · Not scheduled" when it is on with no next run; a `Switch` named after the schedule (`aria-label` "{name}", like the rows above) that only turns it on or off; the same `⋯` as the rows above (`aria-label` "More actions for {name}"), so the switches line up with the list above, holding one danger item "Delete…" → confirm: title "Delete “{name}”?", body "It stops running. Past results stay in that chat. This can't be undone.", buttons "Delete schedule" (danger) and "Cancel". Editing them happens in their chat. If the list doesn't load, the section shows "These schedules didn't load. Check your connection and try again." with "Try again" instead of going missing.
 
 **New or edit schedule** (`/activity/schedules/new`, `/activity/schedules/:id`), one column, no cards:
 
@@ -1793,32 +1793,36 @@ What should Bothy do?
 
 When
 [ Every weekday ⌄ ]  at  [ 09:00 ⌄ ]
-Runs weekdays at 9:00 (Europe/London). Next: Wed 15 Oct, Thu 16 Oct, Fri 17 Oct.
-
-Send results to
-Only here in Bothy                       plain text: an account's results always stay here
+Runs weekdays at 9:00 AM London time and posts the result here.
+Next: Mon Oct 19, Tue Oct 20, Wed Oct 21.
 
 Name
 [ Summarise yesterday's merged pull requests ]    filled from the first words; editable
 
-› More options
-   Model                 [ Quick tasks model ⌄ ]
-   Stop a run above      [ $ 0.50 ]
-   Only run between      [ 08:00 ] and [ 20:00 ]
-   If Bothy was off      [ Run when it's back ⌄ ]       / Skip that run
+› More options                                    each label above its control, as above
+   Model
+   [ Quick tasks model ⌄ ]                        sm:max-w-64
+   Stop a run above
+   [ $ 0.50 ]                                     sm:max-w-32
+   Only run between
+   [ 08:00 ] and [ 20:00 ]
+   If Bothy was off
+   [ Run when it's back ⌄ ]                       / Skip that run
+   Time zone
+   [ London (Europe) ⌄ ]                          by city; the IANA id is the stored value
    Allowed without asking
      [ ] Read websites on api.example.com
-   Time zone             [ Europe/London ⌄ ]
 
 [ Create schedule ]  [ Cancel ]
 ```
 
 - "When" options: Every day, Every weekday, Every week on {day}, Every month on day {n}, Once on {date}, Custom. "Custom" reveals "Repeat rule" (a cron expression in a text field, `text-code`, help "Five fields: minute, hour, day, month, weekday. Example: 0 9 * * 1-5 means weekdays at 9:00."). Cron appears nowhere else. The preview line comes from `/api/schedules/preview`.
-- "Send results to" is plain text, "Only here in Bothy": accounts have no chat app, so it is the only place. A new schedule saves it as the web.
+- Accounts have no chat app, so results always stay here: the preview says "… and posts the result here." instead of a "Send results to" field with nothing to choose. A new schedule saves it as the web.
+- Time zones read by city: in the preview "London time", "New York time" ("UTC" as it is), and in the Time zone combobox "London (Europe)".
 - Time zone starts as the person's own (Settings → Account); the preview and the saved schedule use the zone chosen here.
 - "Allowed without asking" lists the pre-authorised narrow grants as plain sentences (`lib/grants.ts` descriptions), unticked until chosen. Deploys never appear.
 - Errors: empty prompt "Tell Bothy what to do."; invalid repeat rule "That repeat rule isn't valid. Example: 0 9 * * 1-5 means weekdays at 9:00."
-- Edit pages add "Recent runs" below (task rows from §10.1, linking to task detail; failures show the plain reason) and "Delete schedule…" in the page `⋯`.
+- Edit pages add "Recent runs" below (rows linking to task detail; the title is when it ran, "Yesterday at 10:58 PM", the meta line how it went, "Posted here" or "Failed: {plain reason}", the cost at the right; the page already names the schedule, so the rows don't) and "Delete schedule…" in the page `⋯`.
 - Buttons: "Create schedule" / "Save schedule" (primary), "Cancel".
 
 ### 10.4 Releases (`/activity/releases`)

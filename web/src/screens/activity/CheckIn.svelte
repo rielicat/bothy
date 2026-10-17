@@ -9,11 +9,13 @@
   import { session } from '../../lib/stores/session.svelte';
   import type { TaskRun } from './api';
   import Loading from './Loading.svelte';
-  import { checkinBlank } from './schedule';
+  import { checkinBlank, checkinFile, checkinText } from './schedule';
 
   let s = $state<Schedule | null>(null);
   let doc = $state<MemoryDoc | null>(null);
   let list = $state('');
+  // The scheduler reads the file as it is, so checkbox markers mean nothing to it; the form shows plain lines.
+  let items = $state(true);
   let from = $state('08:00');
   let to = $state('22:00');
   let model = $state<ModelInfo | null>(null);
@@ -35,7 +37,7 @@
       const found = all.find((x) => x.kind === 'heartbeat');
       s = found ?? { ...checkinBlank(session.me?.user), enabled: true };
       doc = d;
-      list = d.content;
+      ({ text: list, items } = checkinText(d.content));
       [from, to] = (s.active_hours || '08:00-22:00').split('-');
       // S5 will name the Quick tasks model in /api/models; until then admins read it from the config.
       const fast = (config?.entries.find((e) => e.path === 'models.fast')?.value as string[] | undefined)?.[0];
@@ -70,7 +72,8 @@
     error = '';
     conflict = false;
     try {
-      if (list !== doc.content) doc = await api.put<MemoryDoc>('/api/memory/HEARTBEAT', { content: list }, { 'If-Match': doc.etag });
+      const content = checkinFile(list, items);
+      if (content !== doc.content) doc = await api.put<MemoryDoc>('/api/memory/HEARTBEAT', { content }, { 'If-Match': doc.etag });
       await saveSchedule({ ...$state.snapshot(s), active_hours: `${from}-${to}` }, s.id ? await scheduleGrants(s.id) : []);
       toast('Saved.');
       router.navigate('/activity/schedules');
@@ -107,7 +110,15 @@
           <Select label="Until" hideLabel options={timeOptions(to)} bind:value={to} />
         </div>
       </fieldset>
-      <TextArea class="mt-6" label="What to check" bind:value={list} rows={5} maxRows={16} help="Bothy looks through this list regularly and messages you only when something needs attention." />
+      <TextArea
+        class="mt-6"
+        label="What to check"
+        bind:value={list}
+        rows={5}
+        maxRows={16}
+        placeholder="One thing per line, for example: Tell me if a deploy to production failed overnight"
+        help="Bothy looks through this list regularly and messages you only when something needs attention."
+      />
       {#if costLine}<p class="mt-4 text-small text-muted">{costLine}</p>{/if}
       <div class="mt-8 flex flex-wrap gap-2 max-sm:flex-col">
         <Button type="submit" variant="primary" loading={saving} loadingLabel="Saving…">Save</Button>

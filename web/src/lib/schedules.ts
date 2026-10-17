@@ -35,6 +35,12 @@ export function zoneLabel(z: string): string {
   return parts.length ? `${city} (${parts.join(', ')})` : city;
 }
 
+/** A zone in a sentence, by its city: "London time", "New York time"; "UTC" as it is. */
+export function zoneTime(z: string): string {
+  const city = z.split('/').pop()?.replace(/_/g, ' ');
+  return z.includes('/') && city ? `${city} time` : z;
+}
+
 /** Every zone the browser knows, by city, plus `current` when the browser leaves it out (browsers list no "UTC"). */
 export function zoneOptions(current: string): { value: string; label: string }[] {
   const list = timezones();
