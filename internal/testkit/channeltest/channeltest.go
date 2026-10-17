@@ -15,7 +15,10 @@ import (
 	"github.com/rielicat/bothy/internal/core"
 )
 
-var _ core.Channel = (*Channel)(nil)
+var (
+	_ core.Channel        = (*Channel)(nil)
+	_ core.PrivateReplier = (*Channel)(nil)
+)
 
 // TelegramCaps are the caps New starts with.
 var TelegramCaps = core.ChannelCaps{Edit: true, Buttons: true, Typing: true, MaxLen: 4096, EditMinInterval: time.Second}
@@ -23,7 +26,8 @@ var TelegramCaps = core.ChannelCaps{Edit: true, Buttons: true, Typing: true, Max
 // Channel is safe for concurrent use. Send assigns message ids "1", "2", … in
 // order, so Sent[i] has id strconv.Itoa(i+1); Edit appends to Edited and the
 // edited ref to EditRefs. Ack records the toast. Err, when set, fails Send,
-// Edit and Delete. Fetch serves Files by Attachment.FetchRef.
+// Edit and Delete. Fetch serves Files by Attachment.FetchRef. ReplyPrivate
+// records what only a Private message's sender sees.
 type Channel struct {
 	core.Channel
 	NameV  string
@@ -42,12 +46,23 @@ type Channel struct {
 	// Chats answers InspectChat by chat id; a missing chat is ErrNotFound.
 	Chats map[string]core.ChatInfo
 
-	sink    core.InboundSink
-	runCtx  context.Context
-	running bool
-	pending []func(context.Context, core.InboundSink)
-	inSeq   int
-	ackSeq  int
+	sink     core.InboundSink
+	runCtx   context.Context
+	running  bool
+	pending  []func(context.Context, core.InboundSink)
+	inSeq    int
+	ackSeq   int
+	privates []PrivateReply
+	privErr  error
+}
+
+// PrivateReply is one ReplyPrivate call: Text was shown to Sender alone in
+// Chat, through Ref.
+type PrivateReply struct {
+	Chat   core.ChatRef
+	Sender string
+	Ref    string
+	Text   string
 }
 
 // New returns a fake with Telegram-like caps unless overridden.
@@ -164,6 +179,32 @@ func (c *Channel) Ack(_ context.Context, _ core.ActionEvent, toast string) error
 	c.Acks = append(c.Acks, toast)
 	c.mu.Unlock()
 	return nil
+}
+
+// ReplyPrivate implements core.PrivateReplier: it records the reply, or
+// fails as SetPrivateErr says.
+func (c *Channel) ReplyPrivate(_ context.Context, in core.Inbound, markdown string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.privErr != nil {
+		return c.privErr
+	}
+	c.privates = append(c.privates, PrivateReply{Chat: in.Chat, Sender: in.SenderID, Ref: in.ReplyRef, Text: markdown})
+	return nil
+}
+
+// SetPrivateErr makes ReplyPrivate fail (nil restores it).
+func (c *Channel) SetPrivateErr(err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.privErr = err
+}
+
+// PrivateReplies returns the ReplyPrivate calls so far.
+func (c *Channel) PrivateReplies() []PrivateReply {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.privates)
 }
 
 func (c *Channel) OpenDM(_ context.Context, externalUserID string) (core.ChatRef, error) {

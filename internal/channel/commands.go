@@ -134,10 +134,7 @@ func chatOrigin(ctx context.Context, a *adapter, in core.Inbound) context.Contex
 func (h *Hub) runCommand(ctx context.Context, a *adapter, in core.Inbound, res core.IdentityResolution, tg target, cmd, args string) {
 	spec := commands[cmd]
 	chat, caps := in.Chat, a.ch.Caps()
-	say := func(text string) { h.reply(ctx, chat, text) }
-	if spec.urgent {
-		say = func(text string) { h.replyAsync(chat, text) }
-	}
+	say := h.sayer(ctx, a, in, spec.urgent)
 	if !h.allowed(spec.access, a, res, tg) {
 		if spec.access == accessApprover {
 			say("Only someone who can approve can pause Bothy.")
@@ -166,7 +163,7 @@ func (h *Hub) runCommand(ctx context.Context, a *adapter, in core.Inbound, res c
 	case "unpin":
 		say(h.cmdUnpin(ctx, tg, chat, args))
 	case "compact":
-		if text := h.cmdCompact(ctx, tg, chat); text != "" {
+		if text := h.cmdCompact(ctx, tg, chat, say); text != "" {
 			say(text)
 		}
 	case "model":
@@ -437,11 +434,11 @@ const compactWait = 15 * time.Minute
 
 const compactFailed = "Bothy couldn't summarise older messages. It will try again when the chat gets long."
 
-// cmdCompact starts the compaction in the background and replies when it is
+// cmdCompact starts the compaction in the background and says when it is
 // done. Runner.Compact queues behind the session's active run, and waiting
 // for it in the chat's queue would hold back every later message in this
 // chat, steers included, until that run ends.
-func (h *Hub) cmdCompact(ctx context.Context, tg target, chat core.ChatRef) string {
+func (h *Hub) cmdCompact(ctx context.Context, tg target, chat core.ChatRef, say func(string)) string {
 	sess, err := h.chatSession(ctx, tg, chat)
 	if errors.Is(err, core.ErrNotFound) {
 		return "Nothing to summarise yet."
@@ -478,7 +475,7 @@ func (h *Hub) cmdCompact(ctx context.Context, tg target, chat core.ChatRef) stri
 			h.log.Warn("channel /compact failed", "session", sess.ID, "err", err)
 			text = compactFailed
 		}
-		h.reply(ctx, chat, text)
+		say(text)
 	})
 	if !started {
 		done()

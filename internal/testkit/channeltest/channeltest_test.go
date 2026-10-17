@@ -152,4 +152,17 @@ func TestMisc(t *testing.T) {
 	if id, err := c.SelfTest(ctx); id != "@bothy_bot" || err != nil {
 		t.Fatalf("SelfTest = %q, %v", id, err)
 	}
+
+	in := core.Inbound{Chat: core.ChatRef{Channel: "slack", ChatID: "C1", Kind: core.ChatGroup}, SenderID: "U1", Private: true, ReplyRef: "hook-1"}
+	if err := c.ReplyPrivate(ctx, in, "Only you"); err != nil {
+		t.Fatal(err)
+	}
+	boom := errors.New("expired")
+	c.SetPrivateErr(boom)
+	if err := c.ReplyPrivate(ctx, in, "lost"); !errors.Is(err, boom) {
+		t.Fatalf("ReplyPrivate with an error set = %v", err)
+	}
+	if got := c.PrivateReplies(); len(got) != 1 || got[0] != (channeltest.PrivateReply{Chat: in.Chat, Sender: "U1", Ref: "hook-1", Text: "Only you"}) {
+		t.Fatalf("private replies = %+v", got)
+	}
 }

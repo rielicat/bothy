@@ -163,9 +163,16 @@ func offIn(title string) string {
 	return plainLine("Bothy is off in " + name + ". You can message Bothy here, or ask an admin to turn " + name + " on.")
 }
 
+// offHere is the same notice shown to the teammate alone in that channel,
+// where "here" would be the channel.
+func offHere(title string) string {
+	name := cmp.Or(strings.TrimSpace(title), "this channel")
+	return plainLine("Bothy is off in " + name + ". Message Bothy directly, or ask an admin to turn " + name + " on.")
+}
+
 const (
-	// offEvery bounds offIn per sender and channel: a slash command can be
-	// repeated in a channel Bothy ignores as fast as anyone types it.
+	// offEvery bounds the off notice per sender and channel: a slash command
+	// can be repeated in a channel Bothy ignores as fast as anyone types it.
 	offEvery = time.Hour
 
 	waitingLine  = "You'll be able to use Bothy once an admin lets you in."
@@ -229,11 +236,24 @@ func (h *Hub) route(ctx context.Context, a *adapter, in core.Inbound, res core.I
 			return
 		}
 		if word, ok := unknownCommand(in.Text); ok && !in.Forwarded && len(in.Attachments) == 0 {
-			h.reply(ctx, in.Chat, "There's no "+escapeMD(word)+" command. "+commandIn(a.ch.Caps(), "help")+" lists the commands.")
+			h.sayer(ctx, a, in, false)("There's no " + escapeMD(word) + " command. " + commandIn(a.ch.Caps(), "help") + " lists the commands.")
 			return
 		}
 		h.submit(ctx, a, in, tg)
 	})
+}
+
+// sayer returns how a command answers in: in its chat or, for a Private
+// message in a group, to the sender alone (privately). An urgent command
+// runs on the dispatcher, where nothing may wait on the platform.
+func (h *Hub) sayer(ctx context.Context, a *adapter, in core.Inbound, urgent bool) func(string) {
+	switch {
+	case in.Private && in.Chat.Kind == core.ChatGroup:
+		return func(text string) { h.privately(a, in, text, text) }
+	case urgent:
+		return func(text string) { h.replyAsync(in.Chat, text) }
+	}
+	return func(text string) { h.reply(ctx, in.Chat, text) }
 }
 
 // outsiderLine tells someone outside the team, at most once a day, who
@@ -374,9 +394,10 @@ func (h *Hub) refreshChat(a *adapter, sp *core.Space) {
 }
 
 // privateOff answers a message only its sender saw (a Slack slash command)
-// in a channel where Bothy is off or that it isn't in, in their DM: a
-// teammate is told the channel (title) is off, anyone else gets what a DM
-// would.
+// in a channel where Bothy is off or that it isn't in. A teammate asking
+// for help gets it; anything else tells them the channel (title) is off.
+// Both reach them alone (privately). Anyone else gets what a DM would, in
+// their DM.
 func (h *Hub) privateOff(ctx context.Context, a *adapter, in core.Inbound, ident core.ChannelIdentity, res core.IdentityResolution, title string) {
 	key := a.name + ":" + in.SenderID
 	if ok, _ := h.allowSender(a, in); !ok {
@@ -385,12 +406,15 @@ func (h *Hub) privateOff(ctx context.Context, a *adapter, in core.Inbound, ident
 	h.check(ctx, a, ident, res, h.teamsOf(ctx, a), func(ctx context.Context, res core.IdentityResolution) {
 		switch {
 		case res.Admitted():
+			if cmd, _, ok := parseCommand(in.Text); ok && (cmd == "help" || cmd == "start") {
+				help := helpText(a.ch.Caps())
+				h.privately(a, in, help, help)
+				return
+			}
 			if !h.noteOnce(key+":"+in.Chat.ChatID, offEvery) {
 				return
 			}
-			h.inSenderDM(a, in, ident, func(ctx context.Context, in core.Inbound, _ core.ChannelIdentity) {
-				h.reply(ctx, in.Chat, offIn(title))
-			})
+			h.privately(a, in, offHere(title), offIn(title))
 		case res.Status == core.IdentityTeammate && !res.SpaceOn:
 		case res.Member == core.MemberOutsider:
 			h.inSenderDM(a, in, ident, func(ctx context.Context, in core.Inbound, ident core.ChannelIdentity) {
@@ -406,24 +430,75 @@ func (h *Hub) privateOff(ctx context.Context, a *adapter, in core.Inbound, ident
 	})
 }
 
-// inSenderDM opens the sender's DM, remembers it as the identity's DM chat
-// and runs fn with the message moved there. Opening is a platform call, so
-// it runs off the dispatcher, in order per sender.
+// inSenderDM runs fn with the message moved to the sender's DM. Opening it
+// is a platform call, so it runs off the dispatcher, in order per sender.
 func (h *Hub) inSenderDM(a *adapter, in core.Inbound, ident core.ChannelIdentity, fn func(context.Context, core.Inbound, core.ChannelIdentity)) {
 	h.enqueueChat(a.name+":dm-of:"+in.SenderID, func(ctx context.Context) {
-		dm, err := a.ch.OpenDM(ctx, in.SenderID)
-		if err != nil {
-			h.log.Warn("channel: opening a DM failed", "channel", a.name, "err", err)
-			return
+		if in, ident, ok := h.toSenderDM(ctx, a, in, ident); ok {
+			fn(ctx, in, ident)
 		}
-		dm.Channel, dm.Kind = a.name, core.ChatDM
-		if ident, err = h.rememberDM(ctx, ident, dm.ChatID); err != nil {
-			h.log.Error("channel identity update failed; message dropped", "channel", a.name, "err", err)
-			return
-		}
-		in.Chat = dm
-		fn(ctx, in, ident)
 	})
+}
+
+// toSenderDM opens the sender's DM, remembers it as the identity's DM chat
+// and returns the message moved there.
+func (h *Hub) toSenderDM(ctx context.Context, a *adapter, in core.Inbound, ident core.ChannelIdentity) (core.Inbound, core.ChannelIdentity, bool) {
+	dm, err := a.ch.OpenDM(ctx, in.SenderID)
+	if err != nil {
+		h.log.Warn("channel: opening a DM failed", "channel", a.name, "err", err)
+		return in, ident, false
+	}
+	dm.Channel, dm.Kind = a.name, core.ChatDM
+	if ident, err = h.rememberDM(ctx, ident, dm.ChatID); err != nil {
+		h.log.Error("channel identity update failed; message dropped", "channel", a.name, "err", err)
+		return in, ident, false
+	}
+	in.Chat, in.ReplyRef = dm, ""
+	return in, ident, true
+}
+
+// privately answers a Private message in a group to its sender alone:
+// where they typed it when the adapter can (core.PrivateReplier), else in
+// their DM, as dm there. What needs buttons, later edits or a record
+// (cards, waiting lines, runs) never comes this way. It runs off the
+// dispatcher, in order per sender.
+func (h *Hub) privately(a *adapter, in core.Inbound, here, dm string) {
+	h.enqueueChat(a.name+":dm-of:"+in.SenderID, func(ctx context.Context) {
+		rest, shown := h.replyInPlace(ctx, a, in, here)
+		if !shown {
+			rest = dm
+		}
+		if rest == "" {
+			return
+		}
+		ident, err := h.d.Store.Identities().Get(ctx, a.name, in.SenderID)
+		if err != nil {
+			h.log.Error("channel identity lookup failed; reply dropped", "channel", a.name, "err", err)
+			return
+		}
+		if in, _, ok := h.toSenderDM(ctx, a, in, *ident); ok {
+			h.reply(ctx, in.Chat, rest)
+		}
+	})
+}
+
+// replyInPlace shows markdown to in's sender alone where they typed it.
+// shown is false when nothing could be shown: the adapter can't, there is
+// no ReplyRef, or the first piece failed. A later piece that fails leaves
+// itself and those after it in rest.
+func (h *Hub) replyInPlace(ctx context.Context, a *adapter, in core.Inbound, markdown string) (rest string, shown bool) {
+	pr, ok := a.ch.(core.PrivateReplier)
+	if !ok || in.ReplyRef == "" {
+		return "", false
+	}
+	pieces := splitAll(h.redact(markdown), a.ch.Caps().MaxLen)
+	for i, piece := range pieces {
+		if err := pr.ReplyPrivate(ctx, in, piece); err != nil {
+			h.log.Warn("channel: private reply failed; answering in the DM", "channel", a.name, "err", err)
+			return strings.Join(pieces[i:], "\n\n"), i > 0
+		}
+	}
+	return "", true
 }
 
 // noteOnce reports whether key was not noted in the last every, noting it.

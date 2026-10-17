@@ -89,10 +89,18 @@ steers a running task.
 
 An `Inbound.Private` message in a group (a Slack slash command, which only
 its sender saw and which works in channels the bot is not in) never creates
-a space. In a group without an enabled space it is answered in the sender's
-DM (the adapter's `OpenDM`, remembered as the identity's DM chat): a teammate
-is told Bothy is off there, at most once an hour per channel; anyone else
-gets what a DM would. In an enabled space it goes on as any message.
+a space, and Bothy answers it privately: where it was typed, to the sender
+alone, when the adapter implements `core.PrivateReplier` and the message
+carries a `ReplyRef` (Slack's `response_url`, a credential the hub never
+logs, stores or passes to a run); otherwise, or when that post fails, in the
+sender's DM (the adapter's `OpenDM`, remembered as the identity's DM chat),
+worded for the DM. Never both. In a group without an enabled space a
+teammate asking for help gets the help list, and anything else is told
+Bothy is off there, at most once an hour per channel; anyone else gets what
+a DM would, in their DM. In an enabled space it goes on as any message: free
+text starts a task in the channel, and a command's answer goes privately.
+Waiting and outsider lines, cards, Cancel request and runs, which need
+buttons, edits or a record, never go privately.
 
 Commands: `/stop`, `/status`, `/help`, `/pins` and `/usage` work for anyone
 Bothy answers in the chat; `/new`, `/pin`, `/unpin`, `/compact`, `/model` and
