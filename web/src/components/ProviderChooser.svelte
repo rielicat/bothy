@@ -503,7 +503,7 @@
           Bothy reads this key from AWS Secrets Manager each time it needs it and never saves it.
         {:else}
           Stored encrypted. Only sent to {r.def.name}.
-          {@render link(r.def.console, `Get a key at ${consoleLabel(r.def.console)}`, 'mt-1 block w-fit')}
+          {@render link(r.def.console, `Get a key at ${consoleLabel(r.def.console)}`, 'mt-0.5 flex min-h-6 w-fit items-center pointer-coarse:min-h-11')}
         {/if}
       </p>
     {/if}
