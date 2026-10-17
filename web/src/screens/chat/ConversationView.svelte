@@ -777,7 +777,7 @@
   {/snippet}
 </Dialog>
 
-<Dialog bind:open={deleteOpen} title="Delete this chat?" initialFocus="cancel" {busy}>
+<Dialog bind:open={deleteOpen} title="Delete “{chatTitle || 'Chat'}”?" initialFocus="cancel" {busy}>
   <p class="text-body text-text">The messages will be deleted. Anything Bothy already did stays done, and its record stays in Activity. This can't be undone.</p>
   {#if dialogError}<p class="mt-2 text-small text-danger-text" role="alert">{dialogError}</p>{/if}
   {#snippet footer({ close })}

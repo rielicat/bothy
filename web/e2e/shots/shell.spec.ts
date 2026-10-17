@@ -86,7 +86,7 @@ const states: ShotState[] = [
       await where.getByRole('link', { name: 'Q3 pricing notes' }).hover();
       await where.getByRole('button', { name: 'Options for Q3 pricing notes' }).click();
       await page.getByRole('menuitem', { name: 'Delete chat…' }).click();
-      await page.getByRole('dialog', { name: 'Delete this chat?' }).waitFor();
+      await page.getByRole('dialog', { name: 'Delete “Q3 pricing notes”?' }).waitFor();
     },
   },
   { name: 'sidebar-member', route: '/activity', mock: m(TEAM, 'member'), ready: chatsReady() },

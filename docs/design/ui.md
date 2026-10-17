@@ -1347,7 +1347,7 @@ A notice is a system line at the column edge: `text-small muted`, no box, at mos
   The Model row and the model picker never show a model id: a model without a name from the server reads as its friendly name ("Claude Sonnet 4.5"), and a chat's model that is no longer connected reads "A model that's no longer connected".
 - **Pinned** (`Drawer`): title "Pinned to this chat", sentence "Bothy keeps these in mind for every reply in this chat.", list of pins (name, "Unpin" ghost), secondary "Pin a file".
 - **Continue in a clean chat** (`Dialog` 440): title "Continue in a clean chat?"; body "Bothy will start a new chat with a summary of this one, without the private information and outside content it has seen. This chat stays as it is."; buttons [Continue in a clean chat] (primary) [Cancel]. On confirm the new chat opens with the toast "Started a clean chat."
-- **Delete chat** (`Dialog` 440): title "Delete this chat?"; body "The messages will be deleted. Anything Bothy already did stays done, and its record stays in Activity. This can't be undone."; buttons [Delete chat] (danger) [Cancel] (focused). Then toast "Chat deleted."
+- **Delete chat** (`Dialog` 440): title "Delete “{chat title}”?" in curly quotes, so it names the chat when opened from a sidebar row while another page shows; body "The messages will be deleted. Anything Bothy already did stays done, and its record stays in Activity. This can't be undone."; buttons [Delete chat] (danger) [Cancel] (focused). Then toast "Chat deleted."
 - **Rename**: inline in the header.
 
 ---

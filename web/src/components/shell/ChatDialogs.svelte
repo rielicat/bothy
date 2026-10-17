@@ -10,6 +10,8 @@
   // Rename and Delete from a chat row's ⋯ (§4.2); the delete copy is the chat menu's (§7.7).
   const uid = $props.id();
   let name = $state('');
+  // Kept after `deleting` clears so the title doesn't change while the dialog closes.
+  let deletingTitle = $state('');
   let busy = $state(false);
   let error = $state('');
 
@@ -17,6 +19,7 @@
     const s = chats.renaming ?? chats.deleting;
     error = '';
     if (s) name = chats.title(s);
+    if (chats.deleting) deletingTitle = chats.title(chats.deleting);
   });
 
   async function rename(e: SubmitEvent) {
@@ -71,7 +74,7 @@
   {/snippet}
 </Dialog>
 
-<Dialog bind:open={() => !!chats.deleting, (v) => !v && (chats.deleting = null)} title="Delete this chat?" initialFocus="cancel" {busy}>
+<Dialog bind:open={() => !!chats.deleting, (v) => !v && (chats.deleting = null)} title="Delete “{deletingTitle}”?" initialFocus="cancel" {busy}>
   <p class="text-body text-text">The messages will be deleted. Anything Bothy already did stays done, and its record stays in Activity. This can't be undone.</p>
   {#if error}<p class="mt-3 text-small text-danger-text" role="alert">{error}</p>{/if}
   {#snippet footer({ close })}

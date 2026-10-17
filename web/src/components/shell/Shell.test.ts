@@ -310,7 +310,7 @@ describe('chat row menu', () => {
     const trigger = await waitFor(() => within(nav()).getByRole('button', { name: `Options for ${fixtureSessions[3].title}` }));
     await fireEvent.click(trigger);
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Delete chat…' }));
-    const dialog = await waitFor(() => screen.getByRole('dialog', { name: 'Delete this chat?' }));
+    const dialog = await waitFor(() => screen.getByRole('dialog', { name: `Delete “${fixtureSessions[3].title}”?` }));
     expect(document.activeElement?.textContent?.trim()).toBe('Cancel');
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Delete chat' }));
     await waitFor(() => expect(router.path).toBe('/chat'));
