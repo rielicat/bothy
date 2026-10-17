@@ -906,7 +906,7 @@ func (s *Server) setMyProfilePhoto(w http.ResponseWriter, contentType string, bo
 		apiErr(w, http.StatusBadRequest, "Bad Request: can't parse multipart data", 0)
 		return
 	}
-	defer form.RemoveAll()
+	defer func() { _ = form.RemoveAll() }()
 	var photo struct {
 		Type  string `json:"type"`
 		Photo string `json:"photo"`
