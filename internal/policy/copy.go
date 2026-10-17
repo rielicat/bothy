@@ -143,7 +143,7 @@ func plainFor(r core.ApprovalRequest, a *core.Action, doc any, se core.SideEffec
 			p.add("Folder", path, true)
 			return p
 		}
-		p.add("File", path, true)
+		// The question shows the path, every character visible, so a File row would repeat it.
 		if _, removed := diffCounts(a.Diff); removed > 0 {
 			p.add("Content", lines(removed), false)
 		}
@@ -275,6 +275,8 @@ func plainFor(r core.ApprovalRequest, a *core.Action, doc any, se core.SideEffec
 	return p
 }
 
+// fsWriteCopy has no File row: the question shows the path, every character
+// visible, so the row would only repeat it.
 func fsWriteCopy(a *core.Action, path, mode, content string) plainCard {
 	p := plainCard{keepCode: true}
 	added, removed := diffCounts(a.Diff)
@@ -284,15 +286,12 @@ func fsWriteCopy(a *core.Action, path, mode, content string) plainCard {
 	switch {
 	case mode == "append":
 		p.question, p.verb, p.ing = "Add to "+inline(path)+"?", "Add to file", "adding to "+inline(path)
-		p.add("File", path, true)
 		p.add("Adds", lines(n), false)
 	case mode == "create" || created:
 		p.question, p.verb, p.ing = "Create "+inline(path)+"?", "Create file", "creating "+inline(path)
-		p.add("File", path, true)
 		p.add("Content", lines(n), false)
 	default:
 		p.question, p.verb, p.ing = "Change "+inline(path)+"?", "Save changes", "changing "+inline(path)
-		p.add("File", path, true)
 		if full {
 			p.add("Changes", fmt.Sprintf("+%d −%d", added, removed), false)
 		} else {

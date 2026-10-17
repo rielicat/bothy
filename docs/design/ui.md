@@ -1132,7 +1132,6 @@ From the account menu, or "?" when focus is not in a text field. A 440 px dialog
 │         │        │ ┌─────────────────────────────────────────────────┐ │            │
 │         │        │ │ Delete notes/staging.md?                        │ │  approval card (§8)
 │         │        │ │ This can't be undone.                           │ │
-│         │        │ │ File      notes/staging.md                      │ │
 │         │        │ │ Content   1 line · Show                         │ │
 │         │        │ │ [Delete file] [Allow for this chat] [Deny]      │ │
 │         │        │ │ Expires in 15 min · Details                     │ │
@@ -1395,10 +1394,10 @@ The table is the copy contract for S2 and `lib/cardcopy.ts`.
 
 | Action | Question | Primary button | Consequence | Fields |
 |---|---|---|---|---|
-| `fs_write` create | "Create {path}?" | "Create file" | — | File · Content ("{n} lines · Show") |
-| `fs_write` overwrite | "Change {path}?" | "Save changes" | — | File · Changes ("+{a} −{r} · Show") |
-| `fs_write` append | "Add to {path}?" | "Add to file" | — | File · Adds ("{n} lines · Show") |
-| `fs_delete` | "Delete {path}?" | "Delete file" (danger) | "This can't be undone." | File · Content ("{n} lines · Show") |
+| `fs_write` create | "Create {path}?" | "Create file" | — | Content ("{n} lines · Show"). No File row: the question shows the path verbatim |
+| `fs_write` overwrite | "Change {path}?" | "Save changes" | — | Changes ("+{a} −{r} · Show") |
+| `fs_write` append | "Add to {path}?" | "Add to file" | — | Adds ("{n} lines · Show") |
+| `fs_delete` | "Delete {path}?" | "Delete file" (danger) | "This can't be undone." | Content ("{n} lines · Show") |
 | `shell` | "Run this command?" | "Run command" (danger when it deletes files) | "This can't be undone." when it deletes files (`rm`, `find -delete`, …) | Command (full) · In (working folder) |
 | `python` | "Run this Python script?" | "Run script" | — | Script ("{n} lines · Show") |
 | `web_fetch` non-GET, first contact | "Send data to {host}?" | "Send data" | — | Website · What ("Sends data") · Data ("Show") |

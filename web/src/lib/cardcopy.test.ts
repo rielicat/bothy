@@ -56,17 +56,17 @@ const prDiff =
 // docs/design/ui.md §8.2: question, primary button, consequence and fields per action.
 describe('cardCopy, one row per action', () => {
   const rows: [string, Action, string, string, string | undefined, string[]][] = [
-    ['fs_write create', act('fs_write', 'fs.write', 'local_write', { path: 'notes/a.md', content: 'a\nb', mode: 'create' }), 'Create notes/a.md?', 'Create file', undefined, ['File', 'Content']],
+    ['fs_write create', act('fs_write', 'fs.write', 'local_write', { path: 'notes/a.md', content: 'a\nb', mode: 'create' }), 'Create notes/a.md?', 'Create file', undefined, ['Content']],
     [
       'fs_write overwrite',
       act('fs_write', 'fs.write', 'local_write', { path: 'notes/a.md', content: 'x', mode: 'overwrite' }, { diff: '--- a/notes/a.md\n+++ b/notes/a.md\n@@ -1 +1 @@\n-a\n+b\n' }),
       'Change notes/a.md?',
       'Save changes',
       undefined,
-      ['File', 'Changes'],
+      ['Changes'],
     ],
-    ['fs_write append', act('fs_write', 'fs.write', 'local_write', { path: 'log.md', content: 'x\ny\nz', mode: 'append' }), 'Add to log.md?', 'Add to file', undefined, ['File', 'Adds']],
-    ['fs_delete', act('fs_delete', 'fs.delete', 'irreversible', { path: 'notes/staging.md' }, { diff: deleteDiff }), 'Delete notes/staging.md?', 'Delete file', "This can't be undone.", ['File', 'Content']],
+    ['fs_write append', act('fs_write', 'fs.write', 'local_write', { path: 'log.md', content: 'x\ny\nz', mode: 'append' }), 'Add to log.md?', 'Add to file', undefined, ['Adds']],
+    ['fs_delete', act('fs_delete', 'fs.delete', 'irreversible', { path: 'notes/staging.md' }, { diff: deleteDiff }), 'Delete notes/staging.md?', 'Delete file', "This can't be undone.", ['Content']],
     ['shell', act('shell', 'exec', 'local_write', { argv: ['bash', '-lc', 'npm test'], cwd: 'app' }, { argv: ['bash', '-lc', 'npm test'] }), 'Run this command?', 'Run command', undefined, ['Command', 'In']],
     ['python', act('python', 'exec', 'local_write', { argv: ['python3', 'x.py'], code: 'print(1)\nprint(2)' }), 'Run this Python script?', 'Run script', undefined, ['Script']],
     [
@@ -133,7 +133,7 @@ describe('cardCopy, one row per action', () => {
     expect(shell.fields[0]).toMatchObject({ value: 'npm test', mono: true });
     expect(shell.fields[0].show).toBeUndefined();
     const del = cardCopy(ap(rows[3][1]));
-    expect(del.fields[1]).toMatchObject({ summary: '2 lines', show: { kind: 'code', content: '# Staging\nOld' } });
+    expect(del.fields[0]).toMatchObject({ summary: '2 lines', show: { kind: 'code', content: '# Staging\nOld' } });
     const pr = cardCopy(ap(rows[13][1]));
     expect(pr.fields[2].summary).toBe('2 files, +3 −1');
     expect(pr.kind).toBe('pull_request');

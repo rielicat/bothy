@@ -372,8 +372,8 @@ function fixtureApprovals(): Approval[] {
   const write = { tool: 'fs_write', kind: 'fs.write', side_effect: 'local_write', paths: ['repos/acme/web/src/auth/callback.ts'], diff: callbackDiff, payload: { path: 'repos/acme/web/src/auth/callback.ts', mode: 'overwrite' }, fingerprint: 'w' } as Approval['action'];
   const pr = { tool: 'repo_open_pr', kind: 'generic', side_effect: 'external_send', payload: { repo: 'acme/web', head: 'bothy/fix-login-redirect', base: 'main', title: 'Fix login redirect losing the return address' }, fingerprint: 'p' } as Approval['action'];
   return [
-    approval(pad('apr', 'staging'), R.staging, S.staging, tcl('staging3'), del, card('Delete file', 'irreversible', [{ label: 'File', value: 'notes/staging.md', mono: true }], ['allow_once', 'deny'], 'Clean up staging notes'), {}),
-    approval(pad('apr', 'login5'), R.login1, S.login, tcl('login5'), write, card('Write file', 'local_write', [{ label: 'File', value: 'repos/acme/web/src/auth/callback.ts', mono: true }], ['allow_once', 'allow_session', 'deny'], 'Fix login redirect'), {
+    approval(pad('apr', 'staging'), R.staging, S.staging, tcl('staging3'), del, card('Delete file', 'irreversible', [], ['allow_once', 'deny'], 'Clean up staging notes'), {}),
+    approval(pad('apr', 'login5'), R.login1, S.login, tcl('login5'), write, card('Write file', 'local_write', [], ['allow_once', 'allow_session', 'deny'], 'Fix login redirect'), {
       status: 'allowed',
       choice: 'allow_once',
       decided_by: owner.id,

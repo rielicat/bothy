@@ -252,11 +252,11 @@ function payloadFields(p: Payload, skip: string[] = []): CopyField[] {
   return out;
 }
 
+// A write or delete has no File row: the question shows the path verbatim, so the row would repeat it.
 function fsWrite(a: Action, p: Payload, card: Card): Built {
   const path = str(p.path) || a.paths?.[0] || '';
   const diff = a.diff || card.diff || '';
   const content = str(p.content);
-  const file: CopyField = { label: 'File', value: path, mono: true };
   if (str(p.mode) === 'append') {
     const body = content || diff;
     return {
@@ -264,7 +264,7 @@ function fsWrite(a: Action, p: Payload, card: Card): Built {
       primary: 'Add to file',
       ing: ['adding to ', code(path)],
       ask: ['add to ', code(path)],
-      fields: [file, { label: 'Adds', summary: plural(lineCount(body), 'line'), show: { kind: 'new-file', content: body, path } }],
+      fields: [{ label: 'Adds', summary: plural(lineCount(body), 'line'), show: { kind: 'new-file', content: body, path } }],
     };
   }
   if (str(p.mode) === 'create' || /^--- \/dev\/null/m.test(diff)) {
@@ -274,7 +274,7 @@ function fsWrite(a: Action, p: Payload, card: Card): Built {
       primary: 'Create file',
       ing: ['creating ', code(path)],
       ask: ['create ', code(path)],
-      fields: [file, { label: 'Content', summary: plural(lineCount(body), 'line'), show: { kind: 'new-file', content: body, path } }],
+      fields: [{ label: 'Content', summary: plural(lineCount(body), 'line'), show: { kind: 'new-file', content: body, path } }],
     };
   }
   const d = parseDiff(diff);
@@ -284,7 +284,6 @@ function fsWrite(a: Action, p: Payload, card: Card): Built {
     ing: ['changing ', code(path)],
     ask: ['change ', code(path)],
     fields: [
-      file,
       d.rows.length
         ? { label: 'Changes', summary: `+${d.added} −${d.removed}`, show: { kind: 'diff', content: diff, path } }
         : content && { label: 'Content', summary: plural(lineCount(content), 'line'), show: { kind: 'code', content } },
@@ -304,7 +303,7 @@ function fsDelete(a: Action, p: Payload, card: Card): Built {
   return {
     ...base,
     primary: 'Delete file',
-    fields: [{ label: 'File', value: path, mono: true }, gone.length > 0 && { label: 'Content', summary: plural(gone.length, 'line'), show: { kind: 'code', content: gone.join('\n') } }],
+    fields: [gone.length > 0 && { label: 'Content', summary: plural(gone.length, 'line'), show: { kind: 'code', content: gone.join('\n') } }],
   };
 }
 
