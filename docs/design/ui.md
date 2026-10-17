@@ -684,7 +684,7 @@ A banner sits at the top of the main area (not over the sidebar), full main widt
 | Vault sealed | admins | danger | "Bothy's saved keys are locked, so it can't reach its models or connections." | "Unlock" |
 | Provider auth failed | admins | danger | "{Provider} stopped accepting Bothy's key. Chats will fail until it's replaced." | "Update key" |
 | Config errors / safe mode | admins | danger | "Bothy started with safe defaults because some settings couldn't be loaded." | "See what's wrong" (Advanced) |
-| Daily spending limit reached | admins | warning | "Bothy reached today's $5.00 spending limit. New work waits until midnight." | "Change limit" |
+| Daily spending limit reached | admins | warning | "Bothy reached today's $5.00 spending limit. New work waits until midnight." Not shown on Activity → Spending, which says it under the meter. | "Change limit" |
 | Restart required | admins | neutral | "Restart Bothy to apply your changes." | none |
 
 `unknown_sender` (someone is waiting to be let in) and `new_channel` (Bothy was added to a group chat) only refresh the Approvals inbox, which lists them.

@@ -29,6 +29,16 @@ afterEach(() => {
   chats.reset();
 });
 
+describe('banners (§4.9)', () => {
+  it('leaves the spending limit to Activity → Spending, which says it under its meter', async () => {
+    await start('/activity', { mock: 'spend-limit' });
+    const banner = /^Bothy reached today's .+ spending limit\./;
+    await waitFor(() => expect(screen.getByText(banner)).toBeTruthy());
+    router.navigate('/activity/spending');
+    await waitFor(() => expect(screen.queryByText(banner)).toBeNull());
+  });
+});
+
 describe('sidebar (§4.2)', () => {
   it('has New chat, Search, the three destinations and the chats', async () => {
     await start('/activity', { mock: 'team-chats' });

@@ -107,7 +107,8 @@
   <main id="main" tabindex="-1" class="min-h-dvh min-w-0 flex-1 outline-none">
     <TopBar />
     <ConnectionStatus />
-    <BannerHost hide={blocking ? ['vault_sealed'] : []} />
+    <!-- Activity → Spending says the limit was reached under its meter, with its own Change limit. -->
+    <BannerHost hide={[...(blocking ? ['vault_sealed'] : []), ...(router.path === '/activity/spending' ? ['spend_limit'] : [])]} />
     {#if blocking}
       <UnlockScreen onunlocked={unlocked} />
     {:else}
