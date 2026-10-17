@@ -704,7 +704,7 @@ An 8 px `rounded-full bg-warning-text` dot with visually hidden text "Needs atte
 | Knowledge → Projects, project notes | read, edit notes, approve suggestions, read again, stop reading a repository | read, edit notes (every change is in History), approve suggestions they are eligible for; no "Read again" or removal |
 | Knowledge → Memory | their own | their own |
 | Knowledge → Skills | add, turn on and off, review changes | read |
-| Activity → Tasks, Spending | everyone's, with a person filter | their own ("Your tasks", "Your spending") |
+| Activity → Tasks, Spending | everyone's, with a person filter | their own (the heading still reads "Activity") |
 | Activity → Schedules | all, plus "In chat apps": the schedules people and channels set up there, to turn off or delete | their own |
 | Activity → Releases | yes | yes, read-only |
 | Activity → Audit log | yes | hidden |
@@ -1701,7 +1701,7 @@ Activity
 [Tasks]  [Schedules]  [Releases]  [Spending]  [Audit log]
 ```
 
-Tabs are route links. "Releases" appears once an environment exists; "Audit log" for admins only. Under 640 px the tabs scroll sideways with no wrap and no visible scrollbar.
+Tabs are route links. "Releases" appears once an environment exists; "Audit log" for admins only. Under 640 px the tabs scroll sideways with no wrap and no visible scrollbar; the current tab is scrolled into view on every route change, and while more tabs sit past the right edge a 24 px fade there says so. The page heading is always "Activity", for members too; each tab keeps its own actions (New schedule, Set up environments ›, the range picker, Check the log) and names itself in the browser tab's title ("Spending · Activity").
 
 ### 10.1 Tasks (`/activity`)
 
@@ -1726,7 +1726,7 @@ Schedule · Failed: the GitHub token was rejected
 - Outcome words: nothing extra when done ("{n} steps"); "Stopped" (muted); "Waiting for approval" / "Waiting for approval (1 of 2)" (`warning-text`); "Failed: {plain reason}" (`danger-text`); "Hit the spending limit" (`warning-text`); "Interrupted", "Skipped" (muted). A refined answer adds "Refined".
 - Filters (`Select`s): "Everyone / {person}" (admins), "Anywhere / Chats / Schedules / Chat apps / API", "Any result / Needs attention / Failed".
 - Grouped by day, "Show earlier" at the bottom.
-- Members: page header reads "Your tasks", no person filter.
+- Members: the heading reads "Activity" as for admins, no person filter.
 - Under 640 px: time moves into line 2 ("Maya Chen · Web · 10:42"); cost stays at the right of line 1.
 - Empty: "Nothing yet. Tasks Bothy works on, in chats or on a schedule, show up here." + "Start a chat".
 
@@ -1885,7 +1885,7 @@ Fix login redirect                                          $0.42
 - Chat apps' share (admins, when chat apps have one: `chat_limit_micros` from `/api/usage/today`): a line under the meter, `muted` "Chat apps today: $0.65 of their $3.00 share"; at 80 % `warning-text` "Chat apps have used 85% of their $3.00 share of today's limit."; at 100 % `danger-text` "Chat apps used their $3.00 share of today's limit. Their new work waits until midnight." + "Change share" (→ People, where the share is set). This line replaces the `chat_budget_80` banner (§4.9).
 - Chart: `chart` bars, hovered or focused bar `text`, gridlines `border`, axis labels `text-caption muted`. With 7 bars or fewer, the amount is printed above each bar. Every bar is focusable with a tooltip "Tue 14 Oct: $1.20". `role="img"` with a summary label ("Spending by day, 15 September to 14 October, highest $4.10 on 9 October") plus a visually hidden table. Days follow the workspace time zone.
 - Lists: 40 px rows, name left, money right `tabular-nums`, top 5 then "Show all" (expands in place). Names only (S8). In "By person", people in chat apps and channels pay from lines of their own: their name, then " · {App}" in `muted`; they link nowhere (their tasks and chats aren't on the web). Rows link where possible: a person to Tasks filtered by them, a chat to the chat. Local models show "Free". Unknown prices: "Price not set" (muted) with "Set price" for admins (Advanced → Model prices).
-- Members: "Your spending" with their own total, their limit if any, no By person.
+- Members: their own total, their limit if any, no By person; the heading still reads "Activity".
 - Under 640 px: 7 bars with day initials; the 30-day view labels only the 1st and 15th. Nothing is clipped (fixes `46`).
 - Empty: "Nothing spent in this period."
 

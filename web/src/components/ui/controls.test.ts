@@ -10,7 +10,7 @@ import { announce, live } from './live.svelte';
 import Segmented from './Segmented.svelte';
 import SettingsRow from './SettingsRow.svelte';
 import Switch from './Switch.svelte';
-import { currentTab } from './Tabs.svelte';
+import Tabs, { currentTab } from './Tabs.svelte';
 
 const text = (s: string) => createRawSnippet(() => ({ render: () => `<span>${s}</span>` }));
 
@@ -247,5 +247,18 @@ describe('CommandBlock', () => {
     expect(container.querySelector('pre')!.textContent).toBe(cmd);
     await fireEvent.click(copy);
     expect(writeText).toHaveBeenCalledWith(cmd);
+  });
+});
+
+describe('Tabs', () => {
+  it('brings the current tab into view, so a phone shows which one is selected', () => {
+    const into = vi.fn();
+    const before = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = into;
+    const tabs = ['Tasks', 'Schedules', 'Releases', 'Spending', 'Audit log'].map((label) => ({ label, href: `/activity/${label.toLowerCase()}` }));
+    render(Tabs, { props: { tabs, current: '/activity/audit log' } });
+    expect(into).toHaveBeenCalledWith({ inline: 'nearest', block: 'nearest' });
+    expect(into.mock.instances[0]).toBe(screen.getByRole('link', { name: 'Audit log' }));
+    Element.prototype.scrollIntoView = before;
   });
 });

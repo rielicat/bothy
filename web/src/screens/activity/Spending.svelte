@@ -146,7 +146,7 @@
   {#if session.isAdmin}<a href="/settings/advanced" onclick={router.link} class="link inline-flex min-h-6 items-center text-small pointer-coarse:min-h-11">Set price</a>{/if}
 {/snippet}
 
-<Activity title={session.isAdmin ? 'Spending' : 'Your spending'} actions={rangePicker}>
+<Activity tab="Spending" actions={rangePicker}>
   {#if !byDay}
     <Loading {failed} retry={load} />
   {:else if !total && !sections.length}

@@ -128,7 +128,7 @@
   </Menu>
 {/snippet}
 
-<Activity title="Audit log" actions={session.isAdmin ? headerActions : undefined}>
+<Activity tab="Audit log" actions={session.isAdmin ? headerActions : undefined}>
   {#if !session.isAdmin}
     <EmptyState text="Only admins can see this page." action={{ label: 'Go to chat', href: '/chat' }} />
   {:else}

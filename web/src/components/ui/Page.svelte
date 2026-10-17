@@ -6,6 +6,7 @@
   // The one 768 px column every page shares, so content starts at x = 408 at 1280 px (§3.3).
   let {
     title,
+    docTitle,
     back,
     actions,
     tabs,
@@ -14,6 +15,8 @@
     class: cls = '',
   }: {
     title: string;
+    /** The browser tab's title when it says more than the heading ("Spending · Activity"). */
+    docTitle?: string;
     back?: { href: string; label: string };
     actions?: Snippet;
     tabs?: Tab[];
@@ -23,7 +26,7 @@
   } = $props();
 </script>
 
-<svelte:head><title>{title} · Bothy</title></svelte:head>
+<svelte:head><title>{docTitle ?? title} · Bothy</title></svelte:head>
 
 <div class="page {cls}">
   <PageHeader {title} {back} {actions} {tabs} {currentTab} />

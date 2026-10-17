@@ -4,7 +4,9 @@
   import { session } from '../../lib/stores/session.svelte';
   import { loadReleases } from './api';
 
-  let { title, actions, children }: { title: string; actions?: Snippet; children: Snippet } = $props();
+  // The heading is always "Activity", for members too: the selected tab names the part. `tab` names
+  // it in the browser tab's title. Each tab keeps its own actions.
+  let { tab, actions, children }: { tab?: string; actions?: Snippet; children: Snippet } = $props();
 
   let hasReleases = $state(false);
   $effect(() => {
@@ -31,4 +33,4 @@
   {@render actions?.()}
 {/snippet}
 
-<Page {title} actions={header} {tabs} class="[&_.tab]:shrink-0">{@render children()}</Page>
+<Page title="Activity" docTitle={tab ? `${tab} · Activity` : undefined} actions={header} {tabs} class="[&_.tab]:shrink-0">{@render children()}</Page>

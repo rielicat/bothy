@@ -85,7 +85,7 @@
   const time = (t: string) => new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 </script>
 
-<Activity title={session.isAdmin ? 'Activity' : 'Your tasks'}>
+<Activity>
   {#if runs === null}
     <Loading {failed} retry={load} />
   {:else if !runs.length}

@@ -51,10 +51,10 @@ describe('Tasks (docs/design/ui.md §10.1)', () => {
 });
 
 describe('Tasks for a member', () => {
-  it('reads "Your tasks" and has no person filter', async () => {
+  it('reads "Activity", as for admins, and has no person filter', async () => {
     await start('member');
     expect(await screen.findByText('Draft the release notes')).toBeTruthy();
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Your tasks');
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Activity');
     expect(screen.queryByLabelText('Person')).toBeNull();
     expect(screen.queryByText('Fix login redirect')).toBeNull();
   });

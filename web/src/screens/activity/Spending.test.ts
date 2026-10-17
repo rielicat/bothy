@@ -130,7 +130,9 @@ describe('Spending (docs/design/ui.md §10.5)', () => {
 
   it('shows a member only their own spending', async () => {
     await start('/activity/spending', { mock: 'member' });
-    expect(await screen.findByRole('heading', { level: 1, name: 'Your spending' })).toBeTruthy();
+    // The section keeps its name from tab to tab; the selected tab says which part this is.
+    expect(await screen.findByRole('heading', { level: 1, name: 'Activity' })).toBeTruthy();
+    expect(document.title).toBe('Spending · Activity · Bothy');
     await screen.findByText('By model');
     expect(screen.queryByText('By person')).toBeNull();
     expect(screen.queryByText(/^Chat apps/)).toBeNull();

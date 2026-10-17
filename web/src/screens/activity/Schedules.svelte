@@ -144,7 +144,7 @@
   {#if others.length}<Button variant="primary" href="/activity/schedules/new">New schedule</Button>{/if}
 {/snippet}
 
-<Activity title="Schedules" actions={list ? newButton : undefined}>
+<Activity tab="Schedules" actions={list ? newButton : undefined}>
   {#if list === null}
     <Loading {failed} retry={load} />
   {:else}
