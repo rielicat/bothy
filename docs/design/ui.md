@@ -680,12 +680,12 @@ A banner sits at the top of the main area (not over the sidebar), full main widt
 
 | Condition (SPEC `banner` event) | Who | Tone | Copy | Action |
 |---|---|---|---|---|
-| Paused | everyone | warning | "Bothy is paused. Nothing new will start until an admin resumes it." | Admins: "Resume" |
+| Paused | everyone | warning | "Sam paused Bothy at 12:15 AM. Nothing new starts until an admin resumes it." (another day "… on Oct 12 at 10:42."; who unknown "Bothy was paused at 12:15 AM."; nothing known "Bothy is paused.") | Admins: "Resume" |
 | Vault sealed | admins | danger | "Bothy's saved keys are locked, so it can't reach its models or connections." | "Unlock" |
 | Provider auth failed | admins | danger | "{Provider} stopped accepting Bothy's key. Chats will fail until it's replaced." | "Update key" |
 | Config errors / safe mode | admins | danger | "Bothy started with safe defaults because some settings couldn't be loaded." | "See what's wrong" (Advanced) |
 | Daily spending limit reached | admins | warning | "Bothy reached today's $5.00 spending limit. New work waits until midnight." Not shown on Activity → Spending, which says it under the meter. | "Change limit" |
-| Restart required | admins | neutral | "Restart Bothy to apply your changes." | none |
+| Restart required | admins | neutral | "Restart Bothy to apply your changes." | "Open Advanced", where the Restart Bothy notice lists what needs it |
 
 `unknown_sender` (someone is waiting to be let in) and `new_channel` (Bothy was added to a group chat) only refresh the Approvals inbox, which lists them.
 
@@ -2121,7 +2121,7 @@ Stops everything that's running and keeps anything new from starting until someo
 - **Websites Bothy can reach** (`/settings/security/websites`): list of hosts (`text-code`) with Remove; [Add website]; "Blocked recently" rows "example.com · from “Login bug” · 2 h ago" + "Allow this site…".
 - **Saved keys** (`/settings/security/keys`): rows "Anthropic API key · used by Anthropic · last used 2 h ago" + "Replace" + `⋯` Delete… Values are write-only, never shown. [Add key] dialog: Name, Value (password field, help "Stored encrypted. Only sent to the service that uses it."). When sealed and the locked-keys banner isn't showing: a top row "Saved keys are locked." + [Unlock] (passphrase dialog).
 - **Your saved keys** (`/settings/account/keys`, everyone, from Account): the same list, dialogs and actions for the person's own keys (`user:<id>` scope; SPEC §2.11), back to Account. Intro (`text-body muted`): "Keys only you use. When a connected tool works for you, it uses your key in place of the shared key with the same name." (only connected tools read personal keys). Rows have no "used by"; the Add dialog's Name help is "Use the name of the shared key the connected tool uses. An admin can tell you what it is."; empty: "No saved keys yet." + "Add one when a connected tool should use your own account." Members never see the locked row or Unlock: a change refused because the keys are locked says "Saved keys are locked right now. An admin needs to unlock them first." and hides Add, Replace and Delete.
-- **Pause dialog** (440): title "Pause Bothy?"; body "Everything running stops now, and nothing new starts, including schedules, until someone resumes it. Approvals that are waiting will be cancelled."; [Pause Bothy] (danger) [Cancel] (focused). While paused this section reads "Bothy has been paused since 10:42 by Maya Chen." with [Resume] (primary).
+- **Pause dialog** (440): title "Pause Bothy?"; body "Everything running stops now, and nothing new starts, including schedules, until someone resumes it. Approvals that are waiting will be cancelled."; [Pause Bothy] (danger) [Cancel] (focused). While paused this section reads the banner's first sentence, "Maya Chen paused Bothy at 10:42." (with nothing known: "Bothy is paused. Nothing new starts until someone resumes it."), with [Resume] (primary).
 
 ### 11.7 Advanced (admins)
 

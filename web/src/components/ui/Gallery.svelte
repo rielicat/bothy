@@ -469,7 +469,7 @@
 
       <p class="mt-4 mb-2 text-small text-muted">Banners, only when work stops</p>
       <div class="grid gap-2">
-        <Banner tone="warning" text="Bothy is paused. Nothing new will start until an admin resumes it." action={{ label: 'Resume', onclick: () => {} }} />
+        <Banner tone="warning" text="Bothy is paused. Nothing new starts until an admin resumes it." action={{ label: 'Resume', onclick: () => {} }} />
         <Banner tone="danger" text="Bothy's saved keys are locked, so it can't reach its models or connections." action={{ label: 'Unlock', onclick: () => {} }} />
         {#if banners.restart}
           <Banner tone="neutral" text="Restart Bothy to apply your changes." dismissible ondismiss={() => (banners.restart = false)} />

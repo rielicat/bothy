@@ -218,7 +218,7 @@ describe('account menu', () => {
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Pause Bothy' }));
     await waitFor(() => expect(session.paused).toBe(true));
     expect(calls.some((c) => c.url === '/api/admin/pause' && c.body === '{"paused":true}')).toBe(true);
-    await waitFor(() => expect(screen.getByText('Bothy is paused. Nothing new will start until an admin resumes it.')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Bothy is paused. Nothing new starts until an admin resumes it.')).toBeTruthy());
   });
 });
 

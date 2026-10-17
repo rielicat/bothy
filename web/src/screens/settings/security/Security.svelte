@@ -7,7 +7,7 @@
   import type { DoctorReport, Finding, Grant, SandboxInfo, SecretMeta, SignInAdmin, VaultStatus } from '../../../lib/api/types.gen';
   import { config, saveErrorText } from '../../../lib/config.svelte';
   import { plural } from '../../../lib/format';
-  import { pausedSince } from '../../../components/shell/banners';
+  import { pausedSentence } from '../../../components/shell/banners';
   import { router } from '../../../lib/router.svelte';
   import { session } from '../../../lib/stores/session.svelte';
   import { describeFinding, needsAttention } from './findings';
@@ -77,9 +77,10 @@
   const scheduledFixed = $derived(fixed('policy.approval.scheduled_on_timeout') || fixed('policy.approval.scheduled_timeout'));
   const FIXED_HELP = "This is set on the server and can't be changed here.";
 
+  // The banner's first sentence; with nothing known it also says what pausing does.
   const pausedText = $derived.by(() => {
-    const since = pausedSince(session.pause);
-    return since ? `Bothy has been paused ${since}.` : 'Bothy is paused. Nothing new starts until someone resumes it.';
+    const s = pausedSentence(session.pause);
+    return s === 'Bothy is paused.' ? `${s} Nothing new starts until someone resumes it.` : s;
   });
 
   async function runAudit(fix = false): Promise<boolean> {

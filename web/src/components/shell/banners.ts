@@ -4,7 +4,7 @@
 // apps near their share (chat_budget_80) and the move off linked accounts
 // (team_access) stop nothing, so Spending, People and Approvals say them.
 import type { BannerData, UsageToday } from '../../lib/api/types.gen';
-import { clock, date, fullTime, money } from '../../lib/format';
+import { clock, date, money } from '../../lib/format';
 import type { PauseInfo } from '../../lib/stores/session.svelte';
 
 export type BannerAction = { label: string; href: string } | { label: string; run: 'resume' | 'unlock' };
@@ -30,13 +30,16 @@ export interface BannerInput {
   pause?: PauseInfo | null;
 }
 
-/** "since 10:42 by Maya Chen", "since 12 October 2026, 10:42", "by Maya Chen", or "" when nothing is known. */
-export function pausedSince(p: PauseInfo | null | undefined, now = new Date()): string {
+/** "Sam paused Bothy at 12:15 AM.", "… on Oct 12 at 10:42.", "Bothy was paused at …" without a who, or "Bothy is paused." when nothing is known. */
+export function pausedSentence(p: PauseInfo | null | undefined, now = new Date()): string {
   const d = date(p?.at);
-  const parts: string[] = [];
-  if (d) parts.push(`since ${d.toDateString() === now.toDateString() ? clock(p?.at) : fullTime(p?.at)}`);
-  if (p?.by) parts.push(`by ${p.by}`);
-  return parts.join(' ');
+  let at = '';
+  if (d) {
+    const day = d.toDateString() === now.toDateString() ? '' : `on ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(d.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }) })} `;
+    at = ` ${day}at ${clock(p?.at)}`;
+  }
+  if (p?.by) return `${p.by} paused Bothy${at}.`;
+  return at ? `Bothy was paused${at}.` : 'Bothy is paused.';
 }
 
 const providers: Record<string, string> = {
@@ -65,11 +68,10 @@ export function chooseBanner(input: BannerInput): ShellBanner | null {
   const find = (code: string) => input.banners.find((b) => b.code === code);
   const out: ShellBanner[] = [];
   if (input.paused || find('paused')) {
-    const since = pausedSince(input.pause);
     out.push({
       code: 'paused',
       tone: 'warning',
-      text: `${since ? `Bothy has been paused ${since}.` : 'Bothy is paused.'} Nothing new will start until an admin resumes it.`,
+      text: `${pausedSentence(input.pause)} Nothing new starts until an admin resumes it.`,
       action: input.admin ? { label: 'Resume', run: 'resume' } : undefined,
       dismissible: false,
     });
@@ -122,7 +124,8 @@ export function chooseBanner(input: BannerInput): ShellBanner | null {
         action: { label: 'Change limit', href: '/settings/general' },
         dismissible: false,
       });
-    if (find('restart_required')) out.push({ code: 'restart_required', tone: 'neutral', text: 'Restart Bothy to apply your changes.', dismissible: true });
+    if (find('restart_required'))
+      out.push({ code: 'restart_required', tone: 'neutral', text: 'Restart Bothy to apply your changes.', action: { label: 'Open Advanced', href: '/settings/advanced' }, dismissible: true });
   }
   return out.find((b) => !input.hide?.includes(b.code) && !(b.dismissible && input.dismissed.includes(b.code))) ?? null;
 }

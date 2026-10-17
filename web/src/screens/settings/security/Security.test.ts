@@ -148,7 +148,7 @@ describe('Security', () => {
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Pause Bothy' }));
     await screen.findByRole('button', { name: 'Resume' });
     expect(calls.find((c) => c.url === '/api/admin/pause')?.body).toBe('{"paused":true}');
-    expect(await screen.findByText(/^Bothy has been paused since .+ by Sam\.$/)).toBeTruthy();
+    expect(await screen.findByText(/^Sam paused Bothy at .+\.$/)).toBeTruthy();
     expect(toaster.current?.text).toBe('Bothy paused.');
     await fireEvent.click(screen.getByRole('button', { name: 'Resume' }));
     await screen.findByRole('button', { name: 'Pause Bothy…' });
@@ -157,7 +157,7 @@ describe('Security', () => {
 
   it('shows the paused state it finds on load', async () => {
     await open('paused');
-    expect(screen.getByText(/^Bothy has been paused since .+ by Sam\.$/)).toBeTruthy();
+    expect(screen.getByText(/^Sam paused Bothy at .+\.$/)).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Resume' })).toBeTruthy();
   });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BannerData, UsageToday } from '../../lib/api/types.gen';
-import { chooseBanner, pausedSince, providerName, type BannerInput } from './banners';
+import { chooseBanner, pausedSentence, providerName, type BannerInput } from './banners';
 
 const b = (code: string, text = ''): BannerData => ({ level: 'error', code, text });
 const input = (over: Partial<BannerInput> = {}): BannerInput => ({ banners: [], paused: false, admin: true, today: null, dismissed: [], ...over });
@@ -17,14 +17,14 @@ describe('chooseBanner (§4.9)', () => {
 
   it('says each condition in its own words, never the server text', () => {
     const cases: [BannerData[] | UsageToday, string, string | undefined, boolean][] = [
-      [[b('paused', 'Bothy is paused by an admin.')], 'Bothy is paused. Nothing new will start until an admin resumes it.', 'Resume', false],
+      [[b('paused', 'Bothy is paused by an admin.')], 'Bothy is paused. Nothing new starts until an admin resumes it.', 'Resume', false],
       [[b('vault_sealed', 'The vault is sealed.')], "Bothy's saved keys are locked, so it can't reach its models or connections.", 'Unlock', false],
       [[b('provider_auth', 'anthropic: 401 invalid x-api-key')], "Anthropic stopped accepting Bothy's key. Chats will fail until it's replaced.", 'Update key', false],
       [[b('provider_key_unread', "openrouter: Bothy could not read the provider's key from where it is kept.")], "Bothy couldn't read its key for OpenRouter. Chats will fail until it can.", "See what's wrong", false],
       [[b('safe_mode', 'Started in safe mode: bothy.ui.yaml could not be loaded.')], "Bothy started with safe defaults because some settings couldn't be loaded.", "See what's wrong", true],
       [[b('config_error', 'yaml: line 3')], "Bothy started with safe defaults because some settings couldn't be loaded.", "See what's wrong", true],
       [limit(5_000_000, 5_000_000), "Bothy reached today's $5.00 spending limit. New work waits until midnight.", 'Change limit', false],
-      [[b('restart_required', 'Restart to apply: sandbox.backend')], 'Restart Bothy to apply your changes.', undefined, true],
+      [[b('restart_required', 'Restart to apply: sandbox.backend')], 'Restart Bothy to apply your changes.', 'Open Advanced', true],
     ];
     for (const [given, text, action, dismissible] of cases) {
       const got = chooseBanner(Array.isArray(given) ? input({ banners: given }) : input({ today: given }));
@@ -34,15 +34,16 @@ describe('chooseBanner (§4.9)', () => {
     }
   });
 
-  it('names who paused Bothy and since when, when the server says', () => {
+  it('names who paused Bothy and when, when the server says', () => {
     const now = new Date();
     const at = new Date(now.getTime() - 60_000).toISOString();
     const text = chooseBanner(input({ paused: true, pause: { at, by: 'Maya Chen' } }))?.text;
-    expect(text).toMatch(/^Bothy has been paused since .+ by Maya Chen\. Nothing new will start until an admin resumes it\.$/);
-    expect(pausedSince({ at: '', by: 'Maya Chen' })).toBe('by Maya Chen');
-    expect(pausedSince({ at: '2026-10-12T09:00:00Z', by: '' }, new Date('2026-10-14T09:00:00Z'))).toMatch(/^since .*2026/);
-    expect(pausedSince(null)).toBe('');
-    expect(chooseBanner(input({ paused: true, pause: { at: '', by: '' } }))?.text).toBe('Bothy is paused. Nothing new will start until an admin resumes it.');
+    expect(text).toMatch(/^Maya Chen paused Bothy at \d{1,2}:\d{2}.*\. Nothing new starts until an admin resumes it\.$/);
+    expect(pausedSentence({ at: '', by: 'Maya Chen' })).toBe('Maya Chen paused Bothy.');
+    expect(pausedSentence({ at: '2026-10-12T09:00:00Z', by: 'Sam' }, new Date('2026-10-14T09:00:00Z'))).toMatch(/^Sam paused Bothy on \S.* at .+\.$/);
+    expect(pausedSentence({ at: '2025-10-12T09:00:00Z', by: '' }, new Date('2026-10-14T09:00:00Z'))).toMatch(/^Bothy was paused on .*2025.* at .+\.$/);
+    expect(pausedSentence(null)).toBe('Bothy is paused.');
+    expect(chooseBanner(input({ paused: true, pause: { at: '', by: '' } }))?.text).toBe('Bothy is paused. Nothing new starts until an admin resumes it.');
   });
 
   it('takes tone from the table: warning for paused and the limit, danger for keys and settings, neutral for restart', () => {
