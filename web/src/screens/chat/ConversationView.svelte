@@ -39,7 +39,7 @@
   import { router } from '../../lib/router.svelte';
   import { events } from '../../lib/sse.svelte';
   import { session as auth } from '../../lib/stores/session.svelte';
-  import { topBarActions } from '../../lib/stores/ui.svelte';
+  import { topBarActions, topBarTitle } from '../../lib/stores/ui.svelte';
   import { buildBlocks, type Block } from '../../lib/transcript';
   import Composer from './Composer.svelte';
   import { Conversation } from './conversation.svelte';
@@ -53,6 +53,19 @@
   let atBottom = $state(true);
   let scrolled = $state(false);
   let editing = $state(false);
+  // Below 1024 px the header is hidden and the top bar holds the title, so renaming happens there (§4.4).
+  let wide = $state(true);
+  $effect(() => {
+    const mq = window.matchMedia?.('(min-width: 1024px)');
+    if (!mq) return;
+    wide = mq.matches;
+    const change = (e: MediaQueryListEvent) => (wide = e.matches);
+    mq.addEventListener?.('change', change);
+    return () => mq.removeEventListener?.('change', change);
+  });
+  $effect(() => {
+    if (editing && !wide) return topBarTitle(renameBar);
+  });
   let titleButton: HTMLButtonElement | undefined = $state();
   let title = $state('');
   let renameError = $state('');
@@ -515,6 +528,26 @@
   }
 </script>
 
+{#snippet renameField(cls: string)}
+  <input
+    class="input {cls} text-heading max-sm:text-[1rem] pointer-coarse:text-[1rem]"
+    aria-label="Chat title"
+    bind:value={title}
+    aria-invalid={!!renameError}
+    aria-describedby={renameError ? 'rename-error' : undefined}
+    {@attach (el) => el.focus()}
+    onblur={() => void saveTitle()}
+    onkeydown={async (e) => {
+      if (e.key !== 'Enter' && e.key !== 'Escape') return;
+      if (e.key === 'Enter') await saveTitle();
+      else editing = false;
+      if (!editing) void tick().then(() => titleButton?.focus());
+    }}
+  />
+{/snippet}
+
+{#snippet renameBar()}{@render renameField('h-11 min-w-0 flex-1')}{/snippet}
+
 {#snippet chatMenu()}
   <Menu items={menu} placement="bottom-end">
     {#snippet trigger(props)}<IconButton icon="more" label="Chat options" {...props} />{/snippet}
@@ -558,26 +591,12 @@
   }}
 >
   {#if conv.id}
-    <header class="sticky top-0 z-10 flex min-h-13 items-center gap-2 border-b bg-bg py-1 {scrolled ? 'border-border' : 'border-transparent'} {editing ? 'max-lg:top-13' : 'max-lg:sr-only'}">
+    <header class="sticky top-0 z-10 flex min-h-13 items-center gap-2 border-b bg-bg py-1 max-lg:sr-only {scrolled ? 'border-border' : 'border-transparent'}">
       <div class="min-w-0 flex-1">
         <!-- The chat title stays the page's h1 while it is being renamed. -->
         <h1 class="flex min-w-0" tabindex="-1">
-          {#if editing}
-            <input
-              class="input -ml-3 h-8 w-[calc(100%+0.75rem)] text-heading max-sm:text-[1rem] pointer-coarse:h-11 pointer-coarse:text-[1rem]"
-              aria-label="Chat title"
-              bind:value={title}
-              aria-invalid={!!renameError}
-              aria-describedby={renameError ? 'rename-error' : undefined}
-              {@attach (el) => el.focus()}
-              onblur={() => void saveTitle()}
-              onkeydown={async (e) => {
-                if (e.key !== 'Enter' && e.key !== 'Escape') return;
-                if (e.key === 'Enter') await saveTitle();
-                else editing = false;
-                if (!editing) void tick().then(() => titleButton?.focus());
-              }}
-            />
+          {#if editing && wide}
+            {@render renameField('-ml-3 h-8 w-[calc(100%+0.75rem)] pointer-coarse:h-11')}
           {:else}
             <button
               bind:this={titleButton}
@@ -588,7 +607,7 @@
             >
           {/if}
         </h1>
-        {#if editing && renameError}<p id="rename-error" class="field-error">{renameError}</p>{/if}
+        {#if editing && wide && renameError}<p id="rename-error" class="field-error">{renameError}</p>{/if}
         {#if !editing && where}<p class="truncate text-small text-muted">{where}</p>{/if}
       </div>
       <div class="max-lg:hidden">{@render chatMenu()}</div>
@@ -596,6 +615,7 @@
   {/if}
 
   <section class="flex-1 pt-4 pb-6" aria-label="Messages">
+    {#if editing && !wide && renameError}<p id="rename-error" class="field-error mb-3">{renameError}</p>{/if}
     {#if !conv.id}
       <NewChat onpick={(t) => composer?.fill(t)} />
     {:else if conv.loading}

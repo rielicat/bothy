@@ -49,9 +49,14 @@
     <Icon name="menu" size={20} />
     {#if n}<Dot class="absolute top-2 right-2 pointer-coarse:top-3 pointer-coarse:right-3" label="" />{/if}
   </button>
-  <p class="min-w-0 flex-1 truncate px-1 text-heading text-text {covered ? '' : 'invisible'}" aria-hidden={!covered}>{title}</p>
+  {#if shell.title}
+    <div class="flex min-w-0 flex-1 items-center">{@render shell.title()}</div>
+  {:else}
+    <p class="min-w-0 flex-1 truncate px-1 text-heading text-text {covered ? '' : 'invisible'}" aria-hidden={!covered}>{title}</p>
+  {/if}
   {#if n && !router.path.startsWith('/approvals')}
-    <Button variant="ghost" size="sm" href="/approvals" class="text-accent-text">{n} waiting</Button>
+    <!-- On a phone a chat's title needs the room; the dot on the menu button and the drawer's count still say it. -->
+    <Button variant="ghost" size="sm" href="/approvals" class="text-accent-text {router.path.startsWith('/chat') ? 'max-sm:hidden' : ''}">{n} waiting</Button>
   {/if}
   {#if shell.actions}{@render shell.actions()}{/if}
 </div>

@@ -531,13 +531,13 @@ On phones and tablets `/settings` is a list page of the same groups; each group 
 ```
 360 px
 ┌────────────────────────────────────┐
-│ [≡•] Fix login redirect  2 waiting ⋯│  52 px, bg-bg; border-b only after scroll
+│ [≡•] Fix login redirect          ⋯ │  52 px, bg-bg; border-b only after scroll
 └────────────────────────────────────┘
 ```
 
 - `[≡]` opens the sidebar as a drawer from the left: `min(320px, 85vw)`, full height, `shadow-overlay`, scrim behind. It closes on scrim tap, Escape or navigation. A dot on the button means approvals are waiting (hidden text "{n} approvals waiting").
-- Title: `text-heading`, truncate. On pages it is the page title; in a chat the chat title.
-- "{n} waiting": a small ghost text button in `accent-text`, shown only when something waits for this person; opens `/approvals`.
+- Title: `text-heading`, truncate. On pages it is the page title; in a chat the chat title. Renaming a chat happens in this slot, on the same row: the field takes the title's place (`flex-1 min-w-0`, `h-11`), and no second bar opens over the transcript.
+- "{n} waiting": a small ghost text button in `accent-text`, shown only when something waits for this person; opens `/approvals`. Under 640 px it is hidden on chat routes, where the chat title needs the room: the dot on `[≡]` and the Approvals count in the drawer still say it. A bare count without the word would be ambiguous, so the link is hidden rather than shortened.
 - Right slot by page: chat `⋯` (chat menu); Knowledge project "Edit"; elsewhere nothing.
 - The red power icon and the bell from v0.1 (`20b`) are removed.
 
@@ -1144,7 +1144,7 @@ From the account menu, or "?" when focus is not in a text field. A 440 px dialog
 └─────────┴──────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Header:** `sticky top-0 h-13 bg-bg` inside the column. Title `text-heading`, one line, truncate; click (or Enter on focus) renames inline, Enter saves, Esc cancels. Chats from chat apps add a second line in `text-small muted`: "In #eng on Slack", "Telegram". `border-b border-border` appears only once the transcript has scrolled. Right: `⋯` (label "Chat options").
+- **Header:** `sticky top-0 h-13 bg-bg` inside the column. Title `text-heading`, one line, truncate; click (or Enter on focus) renames inline, Enter saves, Esc cancels. Below 1024 px the header is hidden and the phone top bar holds the title, so renaming happens there (§4.4). Chats from chat apps add a second line in `text-small muted`: "In #eng on Slack", "Telegram". `border-b border-border` appears only once the transcript has scrolled. Right: `⋯` (label "Chat options").
 - **Chat menu:** Rename · Pinned ({n}) · Chat details · Continue in a clean chat · separator · Delete chat… (`danger-text`).
 - **Transcript:** turns 24 px apart; a person's message 16 px above Bothy's reply; activity lines 12 px above the text that follows them.
 - **Composer:** `sticky bottom-0` on a solid `bg-bg` strip (`pt-2`), 16 px below it plus `env(safe-area-inset-bottom)`. No gradient fade.

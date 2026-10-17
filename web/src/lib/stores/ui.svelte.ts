@@ -46,6 +46,8 @@ class Shell {
   unlock = $state(false);
   /** The page's control for the right end of the phone top bar (§4.4). */
   actions: Snippet | null = $state(null);
+  /** Replaces the phone top bar's title while a page edits it in place (renaming a chat). */
+  title: Snippet | null = $state(null);
   /** Where "Back to Bothy" returns: the last address outside Settings. */
   back = $state('/chat');
 }
@@ -60,6 +62,14 @@ export function topBarActions(s: Snippet): () => void {
   shell.actions = s;
   return () => {
     if (shell.actions === s) shell.actions = null;
+  };
+}
+
+/** Puts a page's field in the phone top bar's title slot while mounted: `$effect(() => topBarTitle(field))`. */
+export function topBarTitle(s: Snippet): () => void {
+  shell.title = s;
+  return () => {
+    if (shell.title === s) shell.title = null;
   };
 }
 
