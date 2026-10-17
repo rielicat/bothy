@@ -302,6 +302,17 @@ describe("Bothy's own GitHub App (§12.2)", () => {
     expect(router.query.has('github_app') || router.query.has('apps')).toBe(false);
   });
 
+  it('drops a failed app round trip once a token connects instead', async () => {
+    await app('github-none', '/settings/connections/github?github_app=keep_failed&apps=acme');
+    const failed = "Bothy couldn't keep the new app's keys, so it can't use it. Delete the new app on GitHub, then start again.";
+    expect((await screen.findByRole('alert')).textContent).toContain(failed);
+    await enterToken();
+    await screen.findByText(/Bothy can see/);
+    await fireEvent.click(screen.getByLabelText('acme/web'));
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.queryByText(failed)).toBeNull());
+  });
+
   it("says when GitHub's installation couldn't be confirmed", async () => {
     await app('github-app-pending', '/settings/connections/github?github_app=install_failed');
     expect((await screen.findByRole('alert')).textContent).toContain("Bothy couldn't confirm the app's installation with GitHub. Choose Check again, or install it again.");

@@ -185,6 +185,8 @@
       if (replacing) await api.del(`/api/github/connections/${encodeURIComponent(replacing.id)}`);
       await api.post('/api/github/connections', body);
       toast('Saved.');
+      // An app round trip that failed earlier no longer matters once another connection works.
+      landed = null;
       reading = chosen.length;
       token = key = '';
       probe = null;
