@@ -2366,7 +2366,7 @@ One sentence in `text-reading text`, an optional second sentence in `muted`, the
 | Forbidden action (403) | Inline: "You can't do this. Ask an admin." | — |
 | Settings save failed | Under the control: "Couldn't save. {plain reason or "Try again."}" | — |
 | Edit conflict | "Someone else changed this while you were editing." | See their version / Reload |
-| Vault sealed (admins, blocking screen) | Title "Unlock Bothy"; text "Bothy's saved keys are locked. Enter the passphrase to unlock them."; field "Passphrase" | Unlock |
+| Vault sealed (admins, blocking screen) | Title "Unlock saved keys" (every other surface calls them saved keys); text "Bothy can't reach its models or connections until you enter the passphrase."; field "Passphrase" | Unlock |
 | Server unreachable | "Bothy isn't responding. It may be restarting." | Try again |
 
 ### 13.3 Phones (360 px) and narrow layouts

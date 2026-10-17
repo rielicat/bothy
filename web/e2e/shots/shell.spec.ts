@@ -163,7 +163,7 @@ const states: ShotState[] = [
   { name: 'banner-paused', route: '/activity', mock: m(TEAM, 'paused') },
   { name: 'banner-paused-member', route: '/activity', mock: m(TEAM, 'paused', 'member') },
   { name: 'banner-sealed', route: '/settings/connections/github', mock: m(TEAM, 'sealed') },
-  { name: 'unlock-screen', route: '/activity', mock: m(TEAM, 'sealed'), ready: (page) => page.getByRole('heading', { level: 1, name: 'Unlock Bothy' }).waitFor() },
+  { name: 'unlock-screen', route: '/activity', mock: m(TEAM, 'sealed'), ready: (page) => page.getByRole('heading', { level: 1, name: 'Unlock saved keys' }).waitFor() },
   { name: 'banner-provider', route: '/activity', mock: m(TEAM, 'provider-auth') },
   { name: 'banner-safe-mode', route: '/activity', mock: m(TEAM, 'safe-mode') },
   { name: 'banner-spend-limit', route: '/activity', mock: m(TEAM, 'spend-limit'), ready: 'spending limit' },

@@ -321,12 +321,12 @@ describe('chat row menu', () => {
 describe('banners and blocking states', () => {
   it('shows the unlock screen to admins when the keys are locked, and the banner in Settings', async () => {
     await start('/activity', { mock: 'sealed' });
-    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Unlock Bothy' })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Unlock saved keys' })).toBeTruthy());
     expect(screen.queryByText("Bothy's saved keys are locked, so it can't reach its models or connections.")).toBeNull();
     router.navigate('/settings/connections/github');
     await waitFor(() => expect(screen.getByText("Bothy's saved keys are locked, so it can't reach its models or connections.")).toBeTruthy());
     await fireEvent.click(screen.getByRole('button', { name: 'Unlock' }));
-    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Unlock Bothy' })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Unlock saved keys' })).toBeTruthy());
     await fireEvent.input(screen.getByLabelText('Passphrase'), { target: { value: 'correct horse' } });
     await fireEvent.click(screen.getByRole('button', { name: 'Unlock' }));
     // Settings is its own chunk, loaded only after the unlock: slow on a busy CI runner.

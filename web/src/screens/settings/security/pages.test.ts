@@ -246,8 +246,8 @@ describe('Unlock screen', () => {
     await signIn('sealed');
     const onunlocked = vi.fn();
     render(UnlockScreen, { onunlocked });
-    expect(screen.getByRole('heading', { level: 1, name: 'Unlock Bothy' })).toBeTruthy();
-    expect(screen.getByText("Bothy's saved keys are locked. Enter the passphrase to unlock them.")).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'Unlock saved keys' })).toBeTruthy();
+    expect(screen.getByText("Bothy can't reach its models or connections until you enter the passphrase.")).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: 'Unlock' }));
     expect(await screen.findByText('Enter the passphrase.')).toBeTruthy();
     expect(document.activeElement).toBe(screen.getByLabelText('Passphrase'));

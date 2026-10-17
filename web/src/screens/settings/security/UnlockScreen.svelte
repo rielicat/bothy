@@ -27,8 +27,8 @@
   }
 </script>
 
-<Page title="Unlock Bothy">
-  <p class="text-reading text-muted">Bothy's saved keys are locked. Enter the passphrase to unlock them.</p>
+<Page title="Unlock saved keys">
+  <p class="text-reading text-muted">Bothy can't reach its models or connections until you enter the passphrase.</p>
   <form class="mt-6 max-w-[30rem]" onsubmit={submit} novalidate>
     <TextField label="Passphrase" type="password" autocomplete="off" bind:value={passphrase} bind:input {error} />
     {#if details}
