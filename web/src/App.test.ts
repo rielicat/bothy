@@ -59,6 +59,20 @@ describe('the home address', () => {
   });
 });
 
+describe('a signed-out browser', () => {
+  it('goes to sign-in without loading the screen it asked for', async () => {
+    const calls = installApi({ override: (_m, url) => (url === '/api/auth/me' ? new Response('{"error":{"code":"unauthorized","message":"x"}}', { status: 401 }) : undefined) });
+    session.ready = false;
+    session.me = null;
+    await session.init();
+    router.navigate('/chat');
+    render(App);
+    await waitFor(() => expect(router.path).toBe('/login'));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls.filter((c) => /^\/api\/(models|refine|knowledge|github)/.test(c.url))).toEqual([]);
+  });
+});
+
 describe('route guard after the wizard finished', () => {
   beforeEach(async () => {
     installApi();

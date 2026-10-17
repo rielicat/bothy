@@ -106,8 +106,9 @@
 </script>
 
 {#snippet screen()}
-  {#if moved || settingsMoves || router.path === '/' || (pattern === '/dev/ui' && !Gallery)}
-    <!-- on its way to another address: / always moves on to setup, sign-in or chat -->
+  {#if moved || settingsMoves || router.path === '/' || (!session.me && !isPublic) || (pattern === '/dev/ui' && !Gallery)}
+    <!-- on its way to another address: / always moves on to setup, sign-in or chat, and a signed-out
+         browser to sign-in, so no screen starts loading what it can't read -->
   {:else if forAdmins}
     <NotFound admin={forAdmins} />
   {:else if loading}
