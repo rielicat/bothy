@@ -110,6 +110,15 @@ describe('GitHub manage view', () => {
     expect(JSON.parse(calls.find((c) => c.method === 'PUT')!.body).repos.sort()).toEqual(['acme/api', 'acme/infra', 'acme/web']);
   });
 
+  it('leaves repositories already listed out of Add repositories, even when they are off', async () => {
+    await setup();
+    expect(await screen.findByRole('switch', { name: 'Bothy can use acme/infra' })).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Add repositories' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add repositories' });
+    expect(await within(dialog).findByLabelText('acme/mobile')).toBeTruthy();
+    for (const listed of ['acme/web', 'acme/api', 'acme/infra']) expect(within(dialog).queryByLabelText(listed)).toBeNull();
+  });
+
   // A repository belongs to one connection, so replacing the token removes
   // the old connection before the new one claims the repositories.
   it('replaces the token by disconnecting first, then connecting again', async () => {

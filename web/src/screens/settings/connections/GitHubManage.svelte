@@ -216,7 +216,10 @@
     if (details && !probe) api.post<GitHubProbe>(`/api/github/connections/${id}/test`).then((p) => (probe = p), () => {});
   });
 
-  const addable = $derived((probe?.repos ?? []).filter((r) => !r.archived && !allowed.includes(full(r)) && (!r.connection_id || r.connection_id === conn.id)));
+  // A repository already on the page, on or off, has its switch; listing it here too would give it two controls.
+  const listed = $derived(new Set(repos.map(full)));
+  const addable = $derived((probe?.repos ?? []).filter((r) => !r.archived && !listed.has(full(r)) && (!r.connection_id || r.connection_id === conn.id)));
+  const anyOff = $derived(repos.some((r) => !r.allowed));
 </script>
 
 <ConnPage title="GitHub">
@@ -351,10 +354,18 @@
   {:else if !probe}
     <p class="text-body text-muted">Asking GitHub…</p>
   {:else if !addable.length && installation}
-    <p class="text-body text-text">Bothy already uses every repository the app can reach. Give it access to more on GitHub, then come back.</p>
+    <p class="text-body text-text">
+      {anyOff
+        ? 'Every repository the app can reach is already listed. Turn one on with its switch, or give the app access to more on GitHub.'
+        : 'Bothy already uses every repository the app can reach. Give it access to more on GitHub, then come back.'}
+    </p>
     <Button class="mt-4" href={installation} external>Choose repositories on GitHub</Button>
   {:else if !addable.length}
-    <p class="text-body text-text">Bothy already uses every repository this connection can see. Give it access to more on GitHub first.</p>
+    <p class="text-body text-text">
+      {anyOff
+        ? 'Every repository this connection can see is already listed. Turn one on with its switch, or give it access to more on GitHub.'
+        : 'Bothy already uses every repository this connection can see. Give it access to more on GitHub first.'}
+    </p>
   {:else}
     <RepoPicker repos={addable} bind:selected={more} />
     {#if installation}
