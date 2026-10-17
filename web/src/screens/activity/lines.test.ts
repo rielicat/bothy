@@ -73,6 +73,8 @@ describe('audit lines (docs/design/ui.md §10.6)', () => {
     expect(summarize(row('tool.exec', { target: 'web_search' }))).toBe('Searched the web');
     expect(summarize(row('approval.decide', { detail: { choice: 'deny' } }))).toBe('Denied a request');
     expect(summarize(row('egress.deny', { target: 'paste.example.net' }))).toBe('Blocked from sending to paste.example.net');
+    expect(summarize(row('picture.update'))).toBe("Changed Bothy's picture");
+    expect(summarize(row('picture.reset'))).toBe("Put back Bothy's default picture");
     expect(summarize(row('something.new'))).toBe('Recorded an event');
   });
 
