@@ -3,7 +3,7 @@
   import Markdown from '../../components/Markdown.svelte';
   import Button from '../../components/ui/Button.svelte';
   import { api, ApiError } from '../../lib/api/client';
-  import { fullness, isConflict } from '../../lib/api/knowledge';
+  import { fullness, isConflict, memoryUrl } from '../../lib/api/knowledge';
   import type { MemoryDoc } from '../../lib/api/types.gen';
   import { narrow } from '../../lib/stores/viewport.svelte';
   import DiscardDialog from './DiscardDialog.svelte';
@@ -11,8 +11,17 @@
 
   // One memory document (§9.4): rendered Markdown, edited in place. `empty`
   // says what the section is for until something is in it; `onsaved` tells the
-  // page its history isn't empty any more.
-  let { title, doc = $bindable(), empty: emptyText, onsaved }: { title: string; doc: MemoryDoc; empty: string; onsaved?: () => void } = $props();
+  // page its history isn't empty any more. `readonly` is a section the reader
+  // may only read (what's remembered for everyone, for members).
+  let {
+    title,
+    doc = $bindable(),
+    empty: emptyText,
+    note = '',
+    readonly = false,
+    applies = 'Changes apply from your next message.',
+    onsaved,
+  }: { title: string; doc: MemoryDoc; empty: string; note?: string; readonly?: boolean; applies?: string; onsaved?: () => void } = $props();
 
   const uid = $props.id();
   let editing = $state(false);
@@ -67,7 +76,7 @@
     saving = true;
     error = '';
     try {
-      doc = await api.put<MemoryDoc>(`/api/memory/${doc.file}`, { content: draft }, { 'If-Match': etag });
+      doc = await api.put<MemoryDoc>(memoryUrl(doc.file), { content: draft }, { 'If-Match': etag });
       base = doc.etag;
       void leaveEdit();
       theirs = null;
@@ -77,7 +86,7 @@
       clearTimeout(timer);
       timer = setTimeout(() => (status = 'applies'), 2000);
     } catch (e) {
-      const fresh = isConflict(e) ? await api.get<MemoryDoc>(`/api/memory/${doc.file}`).catch(() => null) : null;
+      const fresh = isConflict(e) ? await api.get<MemoryDoc>(memoryUrl(doc.file)).catch(() => null) : null;
       if (fresh) theirs = fresh;
       else if (e instanceof ApiError && e.status === 400 && /bytes|too long|limit/i.test(e.message)) triedOver = true;
       else error = "Couldn't save. Try again.";
@@ -105,20 +114,21 @@
   <Button size="sm" onclick={cancel}>Cancel</Button>
 {/snippet}
 
-<section aria-labelledby="{uid}-h" bind:this={head}>
+<section aria-labelledby="{uid}-h" aria-describedby={note ? `${uid}-note` : undefined} bind:this={head}>
   <!-- The status sits next to Edit; on phones it takes its own line under the heading so Edit never moves.
        It stays mounted while editing so the live region exists before "Saved" is written into it. -->
   <div class="flex min-h-9 flex-wrap items-center gap-x-3 pointer-coarse:min-h-11">
     <h2 id="{uid}-h" class="section-title min-w-0 flex-1">{title}</h2>
-    <span class="text-small text-muted max-sm:order-last max-sm:w-full" role="status">{status === 'saved' ? 'Saved' : status === 'applies' ? 'Changes apply from your next message.' : ''}</span>
+    <span class="text-small text-muted max-sm:order-last max-sm:w-full" role="status">{status === 'saved' ? 'Saved' : status === 'applies' ? applies : ''}</span>
     {#if editing}
       <!-- On phones these sit under the text box instead, where focusing it doesn't scroll them away. -->
       {#if !narrow.current}<div class="ml-auto flex items-center gap-3">{@render editButtons()}</div>{/if}
-    {:else}
+    {:else if !readonly}
       <!-- An empty section offers "Write" in the same spot as Edit, so the button never moves. -->
       <Button size="sm" class="ml-auto" onclick={edit}>{empty ? 'Write' : 'Edit'}</Button>
     {/if}
   </div>
+  {#if note}<p id="{uid}-note" class="text-small text-muted">{note}</p>{/if}
   <div class="mt-2">
     {#if editing}
       <NotesEditor
@@ -141,7 +151,7 @@
       <Markdown text={doc.content} />
     {/if}
   </div>
-  {#if size === 'near' || (size === 'over' && !editing)}
+  {#if !readonly && (size === 'near' || (size === 'over' && !editing))}
     <p class="mt-2 text-small text-warning-text">This is almost full. Remove anything Bothy no longer needs.</p>
   {/if}
 </section>

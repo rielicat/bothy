@@ -72,6 +72,9 @@ export function queuedRepo(repo: string): KnowledgeRepo {
   };
 }
 
+/** A memory document's address: what Bothy remembers for everyone has its own, since {file} never takes TEAM. */
+export const memoryUrl = (file: string) => (file === 'TEAM' ? '/api/memory/team' : `/api/memory/${file}`);
+
 export const isConflict = (e: unknown) => e instanceof ApiError && (e.status === 409 || e.status === 412);
 
 /** What the project list says about a repository (§9.1). */

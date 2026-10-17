@@ -1,8 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resetMock } from '../../../mock/server';
+import { api, setCsrf } from '../../lib/api/client';
 import { session } from '../../lib/stores/session.svelte';
 import { installApi } from '../../test/api';
+import { FakeEventSource } from '../../test/setup';
 import Memory from './Memory.svelte';
 
 async function start(mock = '') {
@@ -16,6 +18,7 @@ async function start(mock = '') {
 }
 
 const section = (name: string) => screen.getByRole('region', { name });
+const EVERYONE = 'Remembered for everyone';
 
 describe('Memory', () => {
   afterEach(() => vi.useRealTimers());
@@ -72,13 +75,70 @@ describe('Memory', () => {
     expect(screen.queryByRole('button', { name: 'History' })).toBeNull();
   });
 
+  it("puts what's remembered for everyone first, and an admin edits it like the rest", async () => {
+    const calls = await start();
+    const titles = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+    expect(titles).toEqual([EVERYONE, 'About you', 'Things Bothy remembers']);
+    const team = section(EVERYONE);
+    expect(team.getAttribute('aria-describedby') && document.getElementById(team.getAttribute('aria-describedby')!)?.textContent).toBe(
+      'Bothy uses this in every chat, for everyone, including chat apps.',
+    );
+    expect(within(team).getByText(/Our deploy day is Thursday\./)).toBeTruthy();
+    expect(calls.some((c) => c.url === '/api/memory/team')).toBe(true);
+    await fireEvent.click(within(team).getByRole('button', { name: 'Edit' }));
+    const box = within(team).getByLabelText(EVERYONE) as HTMLTextAreaElement;
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    await fireEvent.input(box, { target: { value: `${box.value}\nThe office is closed on Fridays.` } });
+    await fireEvent.click(within(team).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(within(team).getByRole('status').textContent).toBe('Saved'));
+    const put = calls.find((c) => c.method === 'PUT');
+    expect(put?.url).toBe('/api/memory/team');
+    expect(put?.headers['if-match']).toBe('e1');
+    vi.advanceTimersByTime(2000);
+    await waitFor(() => expect(within(team).getByRole('status').textContent).toBe("Changes apply from everyone's next message."));
+    expect(within(team).getByText(/The office is closed on Fridays\./)).toBeTruthy();
+  });
+
+  it('shows members what everyone shares without a way to change it', async () => {
+    await start('member');
+    const team = section(EVERYONE);
+    expect(within(team).queryByRole('button')).toBeNull();
+    expect(within(team).getByText('Bothy uses this in every chat, for everyone. Only admins can change it.')).toBeTruthy();
+    expect(within(team).getByText(/Our deploy day is Thursday\./)).toBeTruthy();
+    // Their own memory is still theirs to change.
+    expect(within(section('About you')).getByRole('button', { name: 'Edit' })).toBeTruthy();
+  });
+
+  it('says what an empty section for everyone is for, to admins and to members', async () => {
+    await start('team-memory-empty');
+    expect(within(section(EVERYONE)).getByText('Add what Bothy should know in every chat, like your deploy day.')).toBeTruthy();
+    await fireEvent.click(within(section(EVERYONE)).getByRole('button', { name: 'Write' }));
+    expect(within(section(EVERYONE)).getByLabelText(EVERYONE)).toBeTruthy();
+    cleanup();
+    await start('team-memory-empty,member');
+    const team = section(EVERYONE);
+    expect(within(team).getByText('Nothing yet. Ask Bothy to remember something for everyone, and an admin can approve it.')).toBeTruthy();
+    expect(within(team).queryByRole('button')).toBeNull();
+  });
+
+  it('follows an approved note for everyone without a reload', async () => {
+    await start('team-memory-ask');
+    expect(within(section(EVERYONE)).queryByText(/Customer names/)).toBeNull();
+    setCsrf('mock-csrf');
+    await api.post('/api/approvals/apr_01jteamask0000000000000000', { choice: 'allow_once' });
+    FakeEventSource.last.emit('memory.updated', { seq: 9, type: 'memory.updated', at: new Date().toISOString(), data: { file: 'TEAM', event_id: 1 } });
+    expect(await within(section(EVERYONE)).findByText(/Customer names never go in public channels\./)).toBeTruthy();
+  });
+
   it('lists who changed what, with names instead of ids', async () => {
     await start();
     await fireEvent.click(await screen.findByRole('button', { name: 'History' }));
     const dialog = screen.getByRole('dialog', { name: 'History' });
-    await within(dialog).findByText('Priya Rao (admin)');
+    expect(await within(dialog).findAllByText('Priya Rao (admin)')).toHaveLength(2);
     expect(within(dialog).getByText('You')).toBeTruthy();
     expect(within(dialog).getByRole('link', { name: '“Fix login redirect”' })).toBeTruthy();
-    expect(dialog.textContent).not.toMatch(/usr_|run_|ses_/);
+    // Changes to what's remembered for everyone are listed under that name; a chat the reader can't open isn't named.
+    expect(within(dialog).getAllByText(/· Remembered for everyone ·/).length).toBe(2);
+    expect(dialog.textContent).not.toMatch(/usr_|run_|ses_|apr_|TEAM/);
   });
 });
