@@ -10744,6 +10744,7 @@ Every module: implements its `new.go` signatures; ships `README.md`; `go test -r
 | E8 | Budget and loop | daily cap refuses runs; looping script aborts with `loop_detected` |
 | E9 | Compaction | 16K mock model, 12 forced compactions (`/compact`, i.e. `POST /api/sessions/{id}/compact`, each call folding one more turn): constitution and pinned instruction present in mockllm requests; auto-pin announced |
 | E10 | Memory | memory write appears in the next request's turn-context; tools+system prefix bytes unchanged |
+| E10b | Team memory (`e2e/team_memory_test.go`) | the owner's "remember for the whole team" makes an admin-only card ("Remember this for everyone?", Note, consequence) and TEAM.md stays empty until it is approved; then TEAM.md holds the note, `memory.write` is audited with `scope: team` and the approval, and a Telegram teammate's prompt carries `<team-memory>`; the teammate's own proposal sends the chat approver a link card only and their DM the needs-an-admin line, and an admin's deny leaves TEAM.md unchanged |
 | E11 | MCP | in-process HTTP MCP server: pending → approve → call; description change → disabled |
 | E12 | Egress (docker) | blocked domain → hold card → allow for session → retry succeeds; exposed session → immediate 403 |
 | E13 | OpenAI endpoint | agent mode stream + non-stream; `tools` rejected; passthrough tool round-trip |
