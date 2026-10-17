@@ -8,10 +8,14 @@
   const t = $derived(tunnel(fix));
 </script>
 
-<Frame
-  title="Finish setup on the server"
-  intro="For safety, setup only works from the computer Bothy runs on. Connect to it with a secure tunnel, then open the setup link there."
->
+<Frame title="Finish setup on the server" intro="For safety, setup only works on the computer Bothy runs on. Run this on your own computer to connect to it:">
   <CommandBlock code={t.cmd} />
-  <p class="mt-3 text-body text-muted">Then open <code class="text-code text-text" data-copy-ignore>{t.url}</code> in your browser.</p>
+  <p class="mt-3 text-body text-muted">
+    {#if t.placeholder}
+      Replace <code class="text-code text-text" data-copy-ignore>{'<host>'}</code> with your server's address, then open
+    {:else}
+      Then open
+    {/if}
+    <code class="text-code text-text" data-copy-ignore>{t.url}</code> in your browser.
+  </p>
 </Frame>

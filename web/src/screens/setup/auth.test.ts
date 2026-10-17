@@ -62,8 +62,9 @@ describe('remote setup', () => {
     expect(tunnel('ssh -L 8080:127.0.0.1:8080 <host>, then open the printed setup URL on http://127.0.0.1:8080')).toEqual({
       cmd: 'ssh -L 8080:127.0.0.1:8080 <host>',
       url: 'http://localhost:8080/setup',
+      placeholder: true,
     });
-    expect(tunnel('ssh -L 9090:127.0.0.1:9090 ops@box')).toEqual({ cmd: 'ssh -L 9090:127.0.0.1:9090 ops@box', url: 'http://localhost:9090/setup' });
+    expect(tunnel('ssh -L 9090:127.0.0.1:9090 ops@box')).toEqual({ cmd: 'ssh -L 9090:127.0.0.1:9090 ops@box', url: 'http://localhost:9090/setup', placeholder: false });
     expect(tunnel(undefined).cmd).toBe('ssh -L 8080:127.0.0.1:8080 you@your-server');
   });
 });

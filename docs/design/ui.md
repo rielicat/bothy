@@ -808,14 +808,18 @@ Setup routes answer non-local peers with 403. That gets its own screen with no f
 Bothy
 
 Finish setup on the server
-For safety, setup only works from the computer Bothy runs on. Connect to it
-with a secure tunnel, then open the setup link there.
+For safety, setup only works on the computer Bothy runs on. Run this on your
+own computer to connect to it:
 
 ┌──────────────────────────────────────────────────────┐
 │ ssh -L 8080:127.0.0.1:8080 you@your-server   [Copy]  │   the server's fix line, verbatim
 └──────────────────────────────────────────────────────┘
 Then open http://localhost:8080/setup in your browser.
 ```
+
+When the command holds the `<host>` placeholder, the line under it explains it: "Replace `<host>` with your server's address, then open http://localhost:8080/setup in your browser."
+
+A `CommandBlock` always shows its Copy button, and its lines break only between words ("setup-token" never splits); a single word longer than the line still wraps. Copy copies the command byte for byte.
 
 ### 5.5 Step 1: Create your account
 

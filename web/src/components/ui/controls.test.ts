@@ -3,6 +3,7 @@ import { createRawSnippet, flushSync } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
 import { initials } from './Avatar.svelte';
 import Button from './Button.svelte';
+import CommandBlock from './CommandBlock.svelte';
 import Disclosure from './Disclosure.svelte';
 import { place } from './layer';
 import { announce, live } from './live.svelte';
@@ -218,5 +219,21 @@ describe('small helpers', () => {
     vi.spyOn(anchor, 'getBoundingClientRect').mockReturnValue({ top: 700, bottom: 736, left: 50, right: 86, width: 36, height: 36 } as DOMRect);
     place(anchor, el, 'bottom-start');
     expect(el.style.top).toBe('496px');
+  });
+});
+
+describe('CommandBlock', () => {
+  it('always shows Copy, keeps each word whole and copies the command byte for byte', async () => {
+    const cmd = 'docker compose  exec bothy /bothy setup-token';
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    const { container } = render(CommandBlock, { props: { code: cmd } });
+    const copy = screen.getByRole('button', { name: 'Copy' });
+    expect(copy.className).not.toMatch(/(^|\s)opacity-0/);
+    const words = [...container.querySelectorAll('pre span.inline-block')].map((w) => w.textContent);
+    expect(words).toEqual(['docker', 'compose', 'exec', 'bothy', '/bothy', 'setup-token']);
+    expect(container.querySelector('pre')!.textContent).toBe(cmd);
+    await fireEvent.click(copy);
+    expect(writeText).toHaveBeenCalledWith(cmd);
   });
 });

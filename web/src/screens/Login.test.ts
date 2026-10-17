@@ -62,8 +62,10 @@ describe('sign in (§5.9)', () => {
     await start('remote,setup');
     render(Login);
     expect(await screen.findByText('Finish setup on the server')).toBeTruthy();
-    expect(screen.getByText('ssh -L 8080:127.0.0.1:8080 <host>')).toBeTruthy();
-    expect(screen.getByText('http://localhost:8080/setup')).toBeTruthy();
+    expect(screen.getByText((_, el) => el?.tagName === 'CODE' && el.textContent === 'ssh -L 8080:127.0.0.1:8080 <host>')).toBeTruthy();
+    // The placeholder is explained, and the address is opened on this computer.
+    expect(screen.getByText(/For safety, setup only works on the computer Bothy runs on\. Run this on your own computer/)).toBeTruthy();
+    expect(screen.getByText(/^\s*Replace/).textContent!.replace(/\s+/g, ' ').trim()).toBe("Replace <host> with your server's address, then open http://localhost:8080/setup in your browser.");
     expect(screen.queryByLabelText('Password')).toBeNull();
   });
 

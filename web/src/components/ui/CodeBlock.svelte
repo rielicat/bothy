@@ -11,6 +11,7 @@
     maxLines,
     lineNumbers = false,
     label,
+    command = false,
     class: cls = '',
   }: {
     code: string;
@@ -22,6 +23,8 @@
     lineNumbers?: boolean;
     /** A caption above the block: "Command". */
     label?: string;
+    /** A command to run: Copy always shows, and lines break only between words. */
+    command?: boolean;
     class?: string;
   } = $props();
 
@@ -65,7 +68,9 @@
       data-copy-ignore><code
         >{#each visible as l, i (i)}<span class="flex"
             >{#if lineNumbers}<span class="w-8 shrink-0 pr-3 text-right text-muted select-none" aria-hidden="true">{i + 1}</span>{/if}<span class="min-w-0"
-              ><Verbatim text={l || ' '} /></span
+              >{#if command && l}{#each l.split(/( +)/) as w, j (j)}{#if j % 2}{w}{:else if w}<span class="inline-block max-w-full"
+                      ><Verbatim text={w} /></span
+                    >{/if}{/each}{:else}<Verbatim text={l || ' '} />{/if}</span
             ></span
           >{/each}</code
       ></pre>
@@ -77,7 +82,7 @@
           label="Copy"
           size="sm"
           variant="quiet"
-          class="{copied ? '' : 'opacity-0'} group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"
+          class="{copied || command ? '' : 'opacity-0'} group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"
           onclick={doCopy}
         />
       </div>

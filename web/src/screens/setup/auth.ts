@@ -154,11 +154,14 @@ export function connectErrorText(code: string, provider: string | null | undefin
 
 const DEFAULT_TUNNEL = 'ssh -L 8080:127.0.0.1:8080 you@your-server';
 
-/** The tunnel command from the server's 403 fix line, verbatim, and the address to open after it (§5.4). */
-export function tunnel(fix: string | undefined): { cmd: string; url: string } {
+/**
+ * The tunnel command from the server's 403 fix line, verbatim, the address to
+ * open after it, and whether it holds a <host> placeholder to replace (§5.4).
+ */
+export function tunnel(fix: string | undefined): { cmd: string; url: string; placeholder: boolean } {
   const cmd = /^ssh\s[^,]+/.exec(fix?.trim() ?? '')?.[0].trim() ?? DEFAULT_TUNNEL;
   const port = /-L\s*(\d+):/.exec(cmd)?.[1] ?? '8080';
-  return { cmd, url: `http://localhost:${port}/setup` };
+  return { cmd, url: `http://localhost:${port}/setup`, placeholder: cmd.includes('<host>') };
 }
 
 // The one-time password a person just signed in with: /password sends it as

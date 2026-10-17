@@ -21,6 +21,9 @@ async function fillAccount(name = 'Maya Chen', username = 'maya', password = 'Gr
   await fireEvent.input(screen.getByLabelText('Password'), { target: { value: password } });
 }
 
+// A command keeps each word in its own element, so it is found by the whole block's text.
+const command = (text: string) => screen.getByText((_, el) => el?.tagName === 'CODE' && el.textContent === text);
+
 const submitAccount = () => fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
 
 describe('setup code', () => {
@@ -49,11 +52,11 @@ describe('setup code', () => {
     render(Setup);
     expect(screen.getByText('Set up Bothy')).toBeTruthy();
     expect(screen.queryByText(/Step \d of 3/)).toBeNull();
-    expect(screen.getByText('docker compose exec bothy /bothy setup-token')).toBeTruthy();
-    expect(screen.queryByText('docker exec bothy /bothy setup-token')).toBeNull();
+    expect(command('docker compose exec bothy /bothy setup-token')).toBeTruthy();
+    expect(screen.queryByText((_, el) => el?.tagName === 'CODE' && el.textContent === 'docker exec bothy /bothy setup-token')).toBeNull();
     await fireEvent.click(screen.getByRole('button', { name: 'Not using Docker Compose?' }));
-    expect(screen.getByText('docker exec bothy /bothy setup-token')).toBeTruthy();
-    expect(screen.getByText('bothy setup-token')).toBeTruthy();
+    expect(command('docker exec bothy /bothy setup-token')).toBeTruthy();
+    expect(command('bothy setup-token')).toBeTruthy();
     expect(screen.getByText('Installed directly')).toBeTruthy();
   });
 
