@@ -283,6 +283,18 @@
     if (untrack(() => atBottom)) void tick().then(scrollDown);
   });
 
+  // An approval card or a reply keeps growing after it first renders (its
+  // details load, code wraps), which no item count above notices; growing
+  // content fires no scroll event, so atBottom still says whether to follow.
+  $effect(() => {
+    if (!root || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      if (untrack(() => atBottom)) scrollDown();
+    });
+    ro.observe(root);
+    return () => ro.disconnect();
+  });
+
   function scroller(): HTMLElement {
     for (let el = root?.parentElement; el && el !== document.body; el = el.parentElement) {
       const o = getComputedStyle(el).overflowY;

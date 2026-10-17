@@ -61,6 +61,44 @@ describe('conversation', () => {
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/runs/run_live/continue')).toBe(true));
   });
 
+  it('keeps following a card that grows after it renders while the reader is at the bottom', async () => {
+    let grow = () => {};
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(cb: () => void) {
+          grow = cb;
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const sc = (document.scrollingElement ?? document.documentElement) as HTMLElement;
+    let height = 1000;
+    let top = 0;
+    Object.defineProperty(sc, 'scrollHeight', { configurable: true, get: () => height });
+    Object.defineProperty(sc, 'clientHeight', { configurable: true, get: () => 500 });
+    Object.defineProperty(sc, 'scrollTop', { configurable: true, get: () => top, set: (v: number) => (top = Math.min(v, height - 500)) });
+    try {
+      render(ConversationView, { id: SID });
+      await loaded();
+      sc.scrollTop = height;
+      height = 1400;
+      grow();
+      expect(sc.scrollTop).toBe(900);
+
+      // Someone who scrolled up to read stays where they are.
+      sc.scrollTop = 100;
+      window.dispatchEvent(new Event('scroll'));
+      height = 1800;
+      grow();
+      expect(sc.scrollTop).toBe(100);
+    } finally {
+      vi.unstubAllGlobals();
+      for (const p of ['scrollHeight', 'clientHeight', 'scrollTop']) delete (sc as unknown as Record<string, unknown>)[p];
+    }
+  });
+
   it('neutralises links, says once that the chat is exposed and continues in a clean chat', async () => {
     render(ConversationView, { id: 'ses_01jinbox00000000000000000' });
     expect(await screen.findByText(/I would not click it/)).toBeTruthy();
