@@ -85,6 +85,22 @@ describe('prose diffs', () => {
     const blocks = proseBlocks(lineDiff('Ships on Thursdays.\nOld line.', 'Ships on Fridays.\nNew line.\nAnother.'));
     expect(blocks.map((b) => b.kind)).toEqual(['change', 'change', 'add']);
   });
+
+  it('keeps only the changed lines and one line around them, whatever the length', () => {
+    const doc = Array.from({ length: 6 }, (_, i) => `line ${i}`).join('\n');
+    const kinds = proseBlocks(lineDiff(doc, doc.replace('line 3', 'line three'))).map((b) => (b.kind === 'same' ? b.text : b.kind));
+    expect(kinds).toEqual(['gap', 'line 2', 'change', 'line 4', 'gap']);
+    // Nothing changed: the document reads as it is, with nothing left out.
+    expect(proseBlocks(lineDiff('a\nb', 'a\nb')).map((b) => b.kind)).toEqual(['same', 'same']);
+  });
+
+  it('reads Markdown markers as marks, so an unchanged bullet never looks removed', () => {
+    const blocks = proseBlocks(lineDiff('# Releases\n- Freeze `main`\n1. Tag it', '# Releases\n- Freeze `main` on Monday\n1. Tag it'));
+    expect(blocks[0]).toEqual({ kind: 'same', text: 'Releases', mark: 'heading' });
+    expect(blocks[1]).toMatchObject({ kind: 'change', mark: 'bullet' });
+    expect(blocks[1].kind === 'change' && blocks[1].segments.map((x) => x.text).join('')).toBe('Freeze main on Monday');
+    expect(blocks[2]).toEqual({ kind: 'same', text: 'Tag it', mark: 'bullet' });
+  });
 });
 
 describe('DiffView', () => {

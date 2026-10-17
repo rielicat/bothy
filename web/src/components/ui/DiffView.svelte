@@ -67,10 +67,14 @@
   <!-- Deletions are struck through and insertions underlined, so the change never rests on colour alone. -->
   <div class="min-w-0 space-y-1 text-reading text-text {cls}" data-copy-ignore>
     {#each prose as b, i (i)}
-      <p class="min-h-6 break-words whitespace-pre-wrap">{#if b.kind === 'change'}{#each b.segments as s, j (j)}{@render seg(s.kind, s.text)}{/each}{:else}{@render seg(
-            b.kind,
-            b.text,
-          )}{/if}</p>
+      {#if b.kind === 'gap'}
+        <p class="min-h-6 text-muted" aria-label="Unchanged lines left out">…</p>
+      {:else}
+        <p class="min-h-6 break-words whitespace-pre-wrap {b.mark === 'heading' ? 'font-medium' : ''}">{#if b.mark === 'bullet'}<span class="text-muted" aria-hidden="true">•{' '}</span>{/if}{#if b.kind === 'change'}{#each b.segments as s, j (j)}{@render seg(
+                s.kind,
+                s.text,
+              )}{/each}{:else}{@render seg(b.kind, b.text)}{/if}</p>
+      {/if}
     {/each}
   </div>
 {:else}

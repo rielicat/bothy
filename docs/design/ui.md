@@ -1629,7 +1629,7 @@ Conventions
 Important decisions
 …
 
-Written by Bothy on 12 October · Edited by Maya Chen yesterday · History      text-small muted
+Written by Bothy on Oct 13 · Edited by Priya Rao on Oct 15 · History          text-small muted, one date form
 ```
 
 - `⋯` menu: "Ask Bothy about this project" (new chat with the repository in context), "Read the repository again" (admins), "View on GitHub ↗", "Technical details" (dialog: commit read `4f2c1a9`, files indexed 1,204, last read today 09:12, notes size 3.1 KB of 8 KB), "Stop reading this repository…" (admins; confirm "Stop reading {name}?", body "Bothy won't use {name} to answer questions, and its project notes and their history will be deleted. This can't be undone.", [Stop reading] (danger) [Cancel]; removes it from the allowlist; the project notes and their history are deleted with the index, SPEC §8.3).

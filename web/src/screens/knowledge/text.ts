@@ -19,28 +19,14 @@ export function changeWords(before: string, after: string): string {
   return 'edited';
 }
 
-/** "12 October": a date in the browser's locale without the year. */
+/** "Oct 12": a date in the browser's locale without the year, the short form relTime uses too. */
 export function dayMonth(t: string): string {
   const d = new Date(t);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 }
 
-/**
- * A line diff for the prose view: blank lines dropped, and in longer
- * documents only the changed lines with one line around them, "…" between.
- */
-export function proseDiff(before: string, after: string, around = 1): string {
+/** A line diff for the prose view, blank lines dropped; DiffView keeps only the changed lines and their neighbours. */
+export function proseDiff(before: string, after: string): string {
   const squeeze = (t: string) => t.replace(/\n\s*\n/g, '\n').trim();
-  const lines = lineDiff(squeeze(before), squeeze(after)).split('\n');
-  if (lines.length <= 12) return lines.join('\n');
-  const keep = lines.map(() => false);
-  lines.forEach((l, i) => {
-    if (l[0] === '+' || l[0] === '-') for (let j = Math.max(0, i - around); j <= Math.min(lines.length - 1, i + around); j++) keep[j] = true;
-  });
-  const out: string[] = [];
-  lines.forEach((l, i) => {
-    if (keep[i]) out.push(l);
-    else if (keep[i - 1] || (i === 0 && keep.some(Boolean))) out.push(' …');
-  });
-  return out.join('\n');
+  return lineDiff(squeeze(before), squeeze(after));
 }

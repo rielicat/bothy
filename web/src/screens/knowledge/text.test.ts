@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { changeWords, inSentence, proseDiff } from './text';
+import { changeWords, dayMonth, inSentence, proseDiff } from './text';
 
 describe('knowledge copy helpers', () => {
   it('fits relative times into a sentence', () => {
@@ -17,10 +17,11 @@ describe('knowledge copy helpers', () => {
     expect(changeWords('a', '')).toBe('cleared everything');
   });
 
-  it('keeps only the changed lines and their neighbours in long documents', () => {
-    const before = Array.from({ length: 20 }, (_, i) => `line ${i}`).join('\n\n');
-    const after = before.replace('line 10', 'line ten');
-    expect(proseDiff(before, after).split('\n')).toEqual([' …', ' line 9', '-line 10', '+line ten', ' line 11', ' …']);
+  it('diffs the text without its blank lines', () => {
     expect(proseDiff('a\n\nb', 'a\n\nc').split('\n')).toEqual([' a', '-b', '+c']);
+  });
+
+  it('writes dates in one short form', () => {
+    expect(dayMonth('2026-10-13T12:00:00Z')).toBe(new Date('2026-10-13T12:00:00Z').toLocaleDateString(undefined, { day: 'numeric', month: 'short' }));
   });
 });

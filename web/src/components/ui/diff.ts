@@ -98,7 +98,13 @@ export function fileLines(input: string): string[] {
 }
 
 export type Segment = { kind: 'same' | 'add' | 'del'; text: string };
-export type ProseBlock = { kind: 'same' | 'add' | 'del'; text: string } | { kind: 'change'; segments: Segment[] };
+/** heading: medium weight; bullet: "•" in front. The Markdown markers themselves never show. */
+export type ProseMark = 'heading' | 'bullet';
+export type ProseBlock =
+  | { kind: 'same' | 'add' | 'del'; text: string; mark?: ProseMark }
+  | { kind: 'change'; segments: Segment[]; mark?: ProseMark }
+  /** Unchanged lines left out between the groups that changed. */
+  | { kind: 'gap' };
 
 const MAX_TOKENS = 600;
 
@@ -136,23 +142,65 @@ export function wordDiff(before: string, after: string): Segment[] {
   return out;
 }
 
-/** Prose view: unchanged lines as they are, a removed line followed by an added one as an inline word change. */
-export function proseBlocks(diff: string): ProseBlock[] {
-  const lines = parseDiff(diff).rows.filter((r): r is DiffLine => r.kind !== 'hunk');
-  const out: ProseBlock[] = [];
-  for (let k = 0; k < lines.length; ) {
-    if (lines[k].kind === 'ctx') {
-      out.push({ kind: 'same', text: lines[k++].text });
+/**
+ * A Markdown line as prose reads it: a leading "#", "-", "*" or "1." would
+ * read as part of the change (a "-" as "removed"), so it becomes a mark;
+ * code ticks go, as in search snippets. Link addresses stay.
+ */
+export function proseLine(t: string): { text: string; mark?: ProseMark } {
+  const ticks = (x: string) => x.replace(/`+/g, '');
+  const h = /^\s*#{1,6}\s+/.exec(t);
+  if (h) return { text: ticks(t.slice(h[0].length)), mark: 'heading' };
+  const b = /^\s*(?:[-*+]|\d+\.)\s+(?:\[[ xX]\]\s+)?/.exec(t);
+  if (b) return { text: ticks(t.slice(b[0].length)), mark: 'bullet' };
+  return { text: ticks(t) };
+}
+
+/**
+ * Prose view: unchanged lines as they are, a removed line followed by an
+ * added one as an inline word change. Only the changed lines and `around`
+ * lines next to them are kept, with a gap between groups, however long the
+ * document: an unchanged document would otherwise be printed whole.
+ */
+export function proseBlocks(diff: string, around = 1): ProseBlock[] {
+  const blocks: ProseBlock[] = [];
+  const rows = parseDiff(diff).rows;
+  for (let k = 0; k < rows.length; ) {
+    const r = rows[k];
+    if (r.kind === 'hunk') {
+      // Separate hunks are separate places in the document.
+      if (blocks.length) blocks.push({ kind: 'gap' });
+      k++;
+      continue;
+    }
+    if (r.kind === 'ctx') {
+      blocks.push({ kind: 'same', ...proseLine(r.text) });
+      k++;
       continue;
     }
     const dels: string[] = [];
     const adds: string[] = [];
-    while (k < lines.length && lines[k].kind === 'del') dels.push(lines[k++].text);
-    while (k < lines.length && lines[k].kind === 'add') adds.push(lines[k++].text);
+    while (k < rows.length && rows[k].kind === 'del') dels.push((rows[k++] as DiffLine).text);
+    while (k < rows.length && rows[k].kind === 'add') adds.push((rows[k++] as DiffLine).text);
     const pairs = Math.min(dels.length, adds.length);
-    for (let p = 0; p < pairs; p++) out.push({ kind: 'change', segments: wordDiff(dels[p], adds[p]) });
-    for (const t of dels.slice(pairs)) out.push({ kind: 'del', text: t });
-    for (const t of adds.slice(pairs)) out.push({ kind: 'add', text: t });
+    for (let p = 0; p < pairs; p++) {
+      const before = proseLine(dels[p]);
+      const after = proseLine(adds[p]);
+      blocks.push({ kind: 'change', segments: wordDiff(before.text, after.text), mark: after.mark ?? before.mark });
+    }
+    for (const t of dels.slice(pairs)) blocks.push({ kind: 'del', ...proseLine(t) });
+    for (const t of adds.slice(pairs)) blocks.push({ kind: 'add', ...proseLine(t) });
   }
+  const changed = (b: ProseBlock) => b.kind !== 'same' && b.kind !== 'gap';
+  if (!blocks.some(changed)) return blocks.filter((b) => b.kind !== 'gap');
+  const keep = blocks.map(() => false);
+  blocks.forEach((b, i) => {
+    if (changed(b)) for (let j = Math.max(0, i - around); j <= Math.min(blocks.length - 1, i + around); j++) keep[j] = blocks[j].kind !== 'gap';
+  });
+  const out: ProseBlock[] = [];
+  blocks.forEach((b, i) => {
+    if (keep[i]) out.push(b);
+    else if (out.at(-1)?.kind !== 'gap' && (keep.slice(0, i).some(Boolean) || keep.slice(i).some(Boolean))) out.push({ kind: 'gap' });
+  });
   return out;
 }
