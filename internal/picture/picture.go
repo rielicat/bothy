@@ -48,13 +48,21 @@ const (
 
 var _ core.AgentPicture = (*Store)(nil)
 
+// uploadError is a refused upload, said in a plain sentence for the person
+// who chose the file; it is core.ErrInvalid.
+type uploadError string
+
+func (e uploadError) Error() string { return string(e) }
+func (e uploadError) Unwrap() error { return core.ErrInvalid }
+
 var (
-	errNotPicture = fmt.Errorf("that file isn't a picture Bothy can use; choose a PNG, JPEG or WebP image: %w", core.ErrInvalid)
-	errTooLarge   = fmt.Errorf("that picture is over 5 MB; choose a smaller file: %w", core.ErrInvalid)
-	errTooBig     = fmt.Errorf("that picture is too large; choose one under %d pixels a side: %w", maxSide, core.ErrInvalid)
-	errTooSmall   = fmt.Errorf("that picture is too small; choose one at least %d pixels a side: %w", minSide, core.ErrInvalid)
-	errNoDataDir  = fmt.Errorf("picture: no data directory: %w", core.ErrNotImplemented)
+	errNotPicture = uploadError("That file isn't a picture Bothy can use. Choose another one.")
+	errTooLarge   = uploadError(fmt.Sprintf("That picture is over %d MB. Choose a smaller one.", MaxUpload>>20))
+	errTooBig     = uploadError(fmt.Sprintf("That picture is too large. Choose one under %d pixels on each side.", maxSide))
+	errTooSmall   = uploadError(fmt.Sprintf("That picture is too small. Choose one at least %d pixels on each side.", minSide))
 )
+
+var errNoDataDir = fmt.Errorf("picture: no data directory: %w", core.ErrNotImplemented)
 
 var def = func() core.Picture {
 	return core.Picture{PNG: defaultPNG, JPEG: defaultJPEG, Version: version(defaultPNG)}
