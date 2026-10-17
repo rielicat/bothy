@@ -32,7 +32,14 @@
     void active;
     const el = row;
     if (!el) return;
-    el.querySelector<HTMLElement>('[aria-current=page]')?.scrollIntoView?.({ inline: 'nearest', block: 'nearest' });
+    // Scrolled by hand: scrollIntoView moves Chrome's sequential focus starting point, so the first Tab would skip "Skip to content".
+    const cur = el.querySelector<HTMLElement>('[aria-current=page]');
+    if (cur && el.scrollWidth > el.clientWidth) {
+      const r = cur.getBoundingClientRect();
+      const box = el.getBoundingClientRect();
+      if (r.left < box.left) el.scrollLeft += r.left - box.left;
+      else if (r.right > box.right) el.scrollLeft += r.right - box.right;
+    }
     measure();
     el.addEventListener('scroll', measure, { passive: true });
     window.addEventListener('resize', measure);

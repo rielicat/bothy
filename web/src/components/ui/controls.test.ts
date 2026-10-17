@@ -252,13 +252,36 @@ describe('CommandBlock', () => {
 
 describe('Tabs', () => {
   it('brings the current tab into view, so a phone shows which one is selected', () => {
+    // scrollIntoView would move Chrome's focus starting point, so the row scrolls itself.
     const into = vi.fn();
-    const before = Element.prototype.scrollIntoView;
+    const saved = {
+      into: Element.prototype.scrollIntoView,
+      rect: Element.prototype.getBoundingClientRect,
+      ...Object.fromEntries((['scrollWidth', 'clientWidth', 'scrollLeft'] as const).map((k) => [k, Object.getOwnPropertyDescriptor(Element.prototype, k)])),
+    };
+    const left = new WeakMap<Element, number>();
+    const isRow = (el: Element) => el.classList.contains('tabs');
     Element.prototype.scrollIntoView = into;
-    const tabs = ['Tasks', 'Schedules', 'Releases', 'Spending', 'Audit log'].map((label) => ({ label, href: `/activity/${label.toLowerCase()}` }));
-    render(Tabs, { props: { tabs, current: '/activity/audit log' } });
-    expect(into).toHaveBeenCalledWith({ inline: 'nearest', block: 'nearest' });
-    expect(into.mock.instances[0]).toBe(screen.getByRole('link', { name: 'Audit log' }));
-    Element.prototype.scrollIntoView = before;
+    Object.defineProperty(Element.prototype, 'scrollWidth', { configurable: true, get() { return isRow(this) ? 600 : 0; } });
+    Object.defineProperty(Element.prototype, 'clientWidth', { configurable: true, get() { return isRow(this) ? 300 : 0; } });
+    Object.defineProperty(Element.prototype, 'scrollLeft', { configurable: true, get() { return left.get(this) ?? 0; }, set(v: number) { left.set(this, v); } });
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      const [l, r] = isRow(this) ? [0, 300] : this.getAttribute('aria-current') ? [500, 580] : [0, 0];
+      return { left: l, right: r, top: 0, bottom: 0, width: r - l, height: 0, x: l, y: 0, toJSON: () => ({}) } as DOMRect;
+    };
+    try {
+      const tabs = ['Tasks', 'Schedules', 'Releases', 'Spending', 'Audit log'].map((label) => ({ label, href: `/activity/${label.toLowerCase()}` }));
+      const { container } = render(Tabs, { props: { tabs, current: '/activity/audit log' } });
+      expect(container.querySelector('.tabs')!.scrollLeft).toBe(280);
+      expect(into).not.toHaveBeenCalled();
+    } finally {
+      Element.prototype.scrollIntoView = saved.into;
+      Element.prototype.getBoundingClientRect = saved.rect;
+      for (const k of ['scrollWidth', 'clientWidth', 'scrollLeft'] as const) {
+        const d = (saved as Record<string, PropertyDescriptor | undefined>)[k];
+        if (d) Object.defineProperty(Element.prototype, k, d);
+        else delete (Element.prototype as unknown as Record<string, unknown>)[k];
+      }
+    }
   });
 });
