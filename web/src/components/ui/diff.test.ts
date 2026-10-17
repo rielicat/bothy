@@ -94,6 +94,14 @@ describe('prose diffs', () => {
     expect(proseBlocks(lineDiff('a\nb', 'a\nb')).map((b) => b.kind)).toEqual(['same', 'same']);
   });
 
+  it('leaves out a blank line at the edge of a group, but keeps one between kept lines', () => {
+    const doc = 'one\ntwo\n\nthree\n\nfour';
+    const show = (d: string) => proseBlocks(lineDiff(doc, d)).map((b) => (b.kind === 'same' ? b.text || '(blank)' : b.kind));
+    expect(show(doc.replace('three', 'THREE'))).toEqual(['gap', 'change', 'gap']);
+    expect(show('one\ntwo\n\nthree\n\nfour\nfive')).toEqual(['gap', 'four', 'add']);
+    expect(show('one\nTWO\n\nTHREE\n\nfour')).toEqual(['one', 'change', '(blank)', 'change', 'gap']);
+  });
+
   it('reads Markdown markers as marks, so an unchanged bullet never looks removed', () => {
     const blocks = proseBlocks(lineDiff('# Releases\n- Freeze `main`\n1. Tag it', '# Releases\n- Freeze `main` on Monday\n1. Tag it'));
     expect(blocks[0]).toEqual({ kind: 'same', text: 'Releases', mark: 'heading' });

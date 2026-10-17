@@ -205,5 +205,9 @@ export function proseBlocks(diff: string, around = 1): ProseBlock[] {
     if (keep[i]) out.push(b);
     else if (out.at(-1)?.kind !== 'gap' && (keep.slice(0, i).some(Boolean) || keep.slice(i).some(Boolean))) out.push({ kind: 'gap' });
   });
-  return out;
+  // A blank line at the edge of a group is no context, only an empty row before the "…".
+  const blank = (b?: ProseBlock) => b?.kind === 'same' && !b.text.trim();
+  const edge = (i: number) => i === 0 || i === out.length - 1 || out[i - 1].kind === 'gap' || out[i + 1].kind === 'gap';
+  for (let i = out.findIndex((b, j) => blank(b) && edge(j)); i >= 0; i = out.findIndex((b, j) => blank(b) && edge(j))) out.splice(i, 1);
+  return out.filter((b, i) => b.kind !== 'gap' || out[i - 1]?.kind !== 'gap');
 }
