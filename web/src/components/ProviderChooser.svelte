@@ -455,7 +455,7 @@
         <p id="{uid}-{v}-status" class="min-w-0 flex-1 text-danger-text" role={s.byPerson ? 'alert' : undefined}>
           {#if f.command}
             {@const [before, after] = f.text.split(f.command)}
-            {before}<code class="rounded-sm bg-subtle px-1 text-code">{f.command}</code>{after}
+            {before}<code class="rounded-sm bg-subtle px-1 text-code whitespace-nowrap">{f.command}</code>{after}
           {:else}
             {f.text}
           {/if}
