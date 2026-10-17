@@ -19,12 +19,13 @@ async function start(path: string, mock = ''): Promise<Call[]> {
 }
 
 describe('Audit log (docs/design/ui.md §10.6)', () => {
-  it('reads as who did what, with a result word only when it failed', async () => {
+  it('reads as who did what, with a result word only when the sentence leaves it out', async () => {
     await start('/activity/audit');
     expect(await screen.findByText('Approved deleting notes/staging.md')).toBeTruthy();
-    expect(screen.getByText('Blocked from sending to paste.example.net')).toBeTruthy();
-    // The word is in the wide layout and in the phone meta line; CSS shows one of them.
-    expect(new Set(screen.getAllByText('Blocked').map((el) => el.closest('li'))).size).toBe(1);
+    const blocked = screen.getByText('Blocked from sending to paste.example.net');
+    // The sentence already says "Blocked", so no word repeats it.
+    expect(blocked.closest('li')!.textContent).not.toMatch(/Blocked\b(?! from)/);
+    expect(screen.queryByText('Blocked')).toBeNull();
     expect(document.body.textContent).not.toMatch(/\b(usr|run|ses)_[0-9a-z]|\bok\b/);
   });
 

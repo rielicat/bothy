@@ -226,17 +226,16 @@
           <h2 class="mb-1 text-caption text-muted">{g.label}</h2>
           <ul>
             {#each g.items as e (e.id)}
-              <!-- On phones the sentence, which names the site, leads and the time and task link fold under it. -->
+              <!-- The sentence names the site in full, so there's no host column. On phones it leads and the time and task link fold under it. -->
               <li class="flex min-h-10 items-center gap-x-3 border-b border-border py-2 text-body last:border-b-0 max-sm:flex-col max-sm:items-start">
                 <time class="w-16 shrink-0 whitespace-nowrap text-muted tabular-nums max-sm:hidden" title={fullTime(e.at)}>{time(e.at)}</time>
-                <code class="w-48 shrink-0 truncate text-code text-text max-sm:hidden" title={e.host} data-copy-ignore>{e.host}</code>
                 <span class="min-w-0 flex-1 [overflow-wrap:anywhere] {webOutcome(e) === 'blocked' ? 'text-danger-text' : 'text-text'}">
                   {webLine(e)}{#if webOutcome(e) === 'blocked'}{' '}<LinkButton onclick={() => ((allowing = e), (allowOpen = true))}>Allow this site…</LinkButton>{/if}
                 </span>
                 <span class="flex items-center gap-1.5 text-small text-muted">
                   <time class="whitespace-nowrap tabular-nums sm:hidden" title={fullTime(e.at)}>{time(e.at)}</time>
                   {#if e.run_id}<span class="sm:hidden" aria-hidden="true">·</span
-                    ><a class="link inline-flex min-h-6 items-center pointer-coarse:min-h-11 pointer-coarse:min-w-11" href="/activity/tasks/{encodeURIComponent(e.run_id)}" onclick={router.link}>Task</a>{/if}
+                    ><a class="link inline-flex min-h-6 items-center pointer-coarse:min-h-11 pointer-coarse:min-w-11" href="/activity/tasks/{encodeURIComponent(e.run_id)}" onclick={router.link}>Open task</a>{/if}
                 </span>
               </li>
             {/each}

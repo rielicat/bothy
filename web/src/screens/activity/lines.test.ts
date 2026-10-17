@@ -80,8 +80,13 @@ describe('audit lines (docs/design/ui.md §10.6)', () => {
 
   it('shows a result word only when something did not succeed', () => {
     expect(resultWord(row('auth.login'))).toBe('');
-    expect(resultWord(row('egress.deny'))).toBe('Blocked');
-    expect(resultWord(row('budget.exceeded', { outcome: 'error' }))).toBe('Failed');
+    // "Blocked from sending to …" already says it.
+    expect(summarize(row('egress.deny', { target: 'paste.example.net' }))).toMatch(/^Blocked /);
+    expect(resultWord(row('egress.deny', { target: 'paste.example.net' }))).toBe('');
+    expect(resultWord(row('tool.exec', { outcome: 'denied', target: 'shell' }))).toBe('Blocked');
+    // Reaching the spending limit needs attention but isn't a failure, as in Tasks.
+    expect(resultWord(row('budget.exceeded', { outcome: 'error' }))).toBe('');
+    expect(resultWord(row('tool.exec', { outcome: 'error', target: 'shell' }))).toBe('Failed');
   });
 
   it('merges the decision and the result of a connection', () => {

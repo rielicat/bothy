@@ -1902,14 +1902,14 @@ Today
 10:41   Bothy        Asked to delete notes/staging.md
 10:12   Sam Patel    Signed in
 09:00   Schedule     Ran “Daily standup summary”
-08:57   Bothy        Blocked from sending to paste.example.net                 Blocked
+08:57   Bothy        Blocked from sending to paste.example.net
 ```
 
-- Rows 40 px: time (`tabular-nums muted`, 56 px), actor name (120 px), one-line summary (S16). A result word appears only when not a success: "Blocked", "Failed" in `danger-text`. No "ok" pills (fixes `47`).
+- Rows 40 px: time (`tabular-nums muted`, 56 px), actor name (120 px), one-line summary (S16). A result word appears only when not a success and the summary doesn't already say it: "Blocked" (left out after "Blocked from sending …"), "Failed" in `danger-text`. Reaching the spending limit gets no word: it needs attention but isn't a failure, as in Tasks. No "ok" pills (fixes `47`).
 - Memory rows say what changed, never the note itself: "Remembered something", "Updated a saved note", "Forgot something" (the same for Bothy's memory steps).
 - Clicking a row expands it in place: Who, When, Where (chat link), Task (link), and a "Raw record" disclosure with the redacted JSON in a `CodeBlock`.
 - "Check the log" runs the hash-chain check and shows a `StatusLine` under the header: "The log is intact. 1,284 entries checked." or (danger) "The entry from 12 Oct at 10:42 doesn't match the ones before it. Entries from there on may have been changed." with Details and "Export".
-- **Website access** rows: time · site (`text-code`) · what happened · task link. Outcomes (S16): "Reached api.github.com"; "Allowed, but api.example.com didn't answer"; "Blocked: example.com isn't on the allowed list" with "Allow this site…" → dialog "Allow Bothy to send data to {host}? This applies to everyone's tasks until you remove it in Settings → Security." [Allow site] [Cancel] (creates the same narrow grant as v0.1).
+- **Website access** rows: time · what happened (the sentence names the site in full, so there is no host column) · "Open task". Outcomes (S16): "Reached api.github.com"; "Allowed, but api.example.com didn't answer"; "Blocked: example.com isn't on the allowed list" with "Allow this site…" → dialog "Allow Bothy to send data to {host}? This applies to everyone's tasks until you remove it in Settings → Security." [Allow site] [Cancel] (creates the same narrow grant as v0.1).
 - Under 640 px: time and actor move into a meta line under the summary.
 - Filtered empty: "Nothing matches these filters." + "Clear filters".
 

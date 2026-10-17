@@ -114,7 +114,9 @@ export function summarize(e: AuditRow): string {
 
 /** The word shown only when something didn't succeed. */
 export function resultWord(e: AuditRow): string {
-  if (e.action === 'egress.deny' || e.action === 'tool.denied' || e.outcome === 'denied') return 'Blocked';
+  // Reaching the spending limit needs attention but isn't a failure, as Tasks says it.
+  if (e.action === 'budget.exceeded') return '';
+  if (e.action === 'egress.deny' || e.action === 'tool.denied' || e.outcome === 'denied') return /^Blocked\b/.test(summarize(e)) ? '' : 'Blocked';
   return e.outcome === 'error' ? 'Failed' : '';
 }
 
