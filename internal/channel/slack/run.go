@@ -147,6 +147,11 @@ func (a *adapter) onEvent(ctx context.Context, sock socket, jobs chan<- job, ev 
 		a.setState(stateAuthFailed, "Slack rejected "+appKey)
 		return false
 	case socketmode.EventTypeHello:
+		if ev.Request != nil && ev.Request.ConnectionInfo.AppID != "" {
+			a.mu.Lock()
+			a.appID = ev.Request.ConnectionInfo.AppID
+			a.mu.Unlock()
+		}
 		a.setState(stateConnected, "")
 		return true
 	case socketmode.EventTypeEventsAPI:

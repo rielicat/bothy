@@ -146,6 +146,9 @@ type ChannelStatus struct {
 	// IdleServers (Discord, connected): servers Bothy is in where no channel
 	// is on, whose members therefore can't use it.
 	IdleServers int `json:"idle_servers,omitempty"`
+	// AppID (Slack, once connected): the app's id, for links to its settings
+	// page (where only a person can change its icon).
+	AppID string `json:"app_id,omitempty"`
 }
 
 // MemberStatus is what a chat app says about whether a person belongs to

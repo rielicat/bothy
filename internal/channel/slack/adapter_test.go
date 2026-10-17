@@ -732,3 +732,16 @@ func settledMem() uint64 {
 	runtime.ReadMemStats(&ms)
 	return ms.HeapAlloc + ms.StackInuse
 }
+
+// The app's id arrives with the Socket Mode hello, so the manage page can
+// link to the app's settings, where only a person can change its icon.
+func TestStatusNamesTheApp(t *testing.T) {
+	f := newFixture(t)
+	if id := f.a.Status().AppID; id != "" {
+		t.Fatalf("app id before connecting = %q", id)
+	}
+	f.start(t, stateConnected)
+	if id := f.a.Status().AppID; id != slacktest.DefaultAppID {
+		t.Fatalf("app id = %q", id)
+	}
+}

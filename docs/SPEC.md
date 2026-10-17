@@ -2380,6 +2380,9 @@ type ChannelStatus struct {
 	// IdleServers (Discord, connected): servers Bothy is in where no channel
 	// is on, whose members therefore can't use it.
 	IdleServers int `json:"idle_servers,omitempty"`
+	// AppID (Slack, once connected): the app's id, for links to its settings
+	// page (where only a person can change its icon).
+	AppID string `json:"app_id,omitempty"`
 }
 
 // MemberStatus is what a chat app says about whether a person belongs to
@@ -7562,7 +7565,7 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `GET /api/knowledge/search` | user | `?q=&repo_id=&principal=&limit=` (1..50, default 20) | `dto.KnowledgeSearchResp` |
 | `GET /api/releases` | user | — | `dto.Releases` (v0.2: environments and the newest 20 deploys: own, everyone's for admins. v0.2 UI: deploys are `dto.DeployView`s with `requested_by_name` (a teammate's deploy: "Maya Chen · Slack"), `approved_by_names`, `short_sha` and the commit `subject`) |
 | `GET /api/releases/deploys` | user | `?environment=&before=&limit=` | `dto.List[dto.DeployView]` (paged by `created_at` ms) |
-| `GET /api/channels` | admin | — | `[]core.ChannelStatus` (Discord also says whether member lookups work, `member_check` `ok` \| `no_access`, and in how many servers no channel is on, `idle_servers`, so the UI writes its own sentences rather than reading `detail`) |
+| `GET /api/channels` | admin | — | `[]core.ChannelStatus` (Discord also says whether member lookups work, `member_check` `ok` \| `no_access`, and in how many servers no channel is on, `idle_servers`, so the UI writes its own sentences rather than reading `detail`; Slack names its app, `app_id` from the Socket Mode hello, so the UI can link to `https://api.slack.com/apps/<app_id>/general`) |
 | `POST /api/channels/{name}/test` | admin | — | `dto.ChannelTestResp` (v0.2 UI: a failed test answers 502 with a `core.FailureCode` as the error code and the raw message, e.g. `key_rejected` for a refused Slack, Discord or Telegram token) |
 | `POST /api/search/test` | admin | `dto.SearchTestReq` | `dto.SearchTestResp` (v0.2 UI: one search with unsaved settings, through the same egress path and checks as the `web_search` tool; a pasted key is used for this check only, redacted from the answer and never stored; without one the saved key is used. 400 for a bad provider or address; a failed search is 200 with `ok: false`, a `core.FailureCode` (`key_rejected`, `rate_limited`, `provider_error`, transport codes) and the raw redacted message) |
 | `GET /api/channels/slack/manifest` | admin | — | `text/yaml` app manifest |

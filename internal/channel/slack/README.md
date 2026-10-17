@@ -43,7 +43,9 @@ deactivated accounts, bots, workflow bots and Slackbot are outsiders
 a verdict, and so is any other API error. Verdicts are cached five minutes,
 apart from the hour-long name cache; one `users.info` call fills both when
 they race. `MemberScope` is `team/enterprise`, and `Status()` reports the
-workspace name (`Team`) and whether it is an org install (`Org`). Messages
+workspace name (`Team`), whether it is an org install (`Org`) and the app's
+id from the Socket Mode hello (`AppID`), for links to the app's settings,
+where only a person can change its icon: Slack has no `core.PictureSetter`. Messages
 from other apps and workflows (`bot_id`, `bot_profile`) are dropped.
 `InspectChat` reads `conversations.info` with the member count and whether
 the channel is shared with another company.

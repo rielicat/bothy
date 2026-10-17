@@ -67,6 +67,9 @@ type adapter struct {
 	selfTeam       string
 	selfEnterprise string
 	teamName       string
+	// appID comes from the Socket Mode hello, for links to the app's
+	// settings page.
+	appID string
 	// scopeWarned is when missing channel scopes were last logged.
 	scopeWarned time.Time
 
@@ -160,7 +163,7 @@ func (a *adapter) Status() core.ChannelStatus {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return core.ChannelStatus{Name: name, Enabled: a.conf().cfg.Enabled, State: a.state, Detail: a.detail, Identity: a.identity, Since: a.since,
-		Team: a.teamName, Org: a.selfEnterprise != ""}
+		Team: a.teamName, Org: a.selfEnterprise != "", AppID: a.appID}
 }
 
 func (a *adapter) setState(state, detail string) {
