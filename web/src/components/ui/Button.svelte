@@ -21,6 +21,8 @@
     href?: string;
     /** Opens in a new tab and ends the label with ↗ (§14.2). */
     external?: boolean;
+    /** With href: the browser saves the file instead of opening it; a string names the file. */
+    download?: boolean | string;
     type?: 'button' | 'submit' | 'reset';
     disabled?: boolean;
     /** Why the button can't be used yet, shown next to it and linked with aria-describedby. Implies disabled. */
@@ -40,6 +42,7 @@
     loadingLabel,
     href,
     external = false,
+    download,
     type = 'button',
     disabled = false,
     reason,
@@ -71,7 +74,7 @@
       if (blocked) onblocked?.();
       return;
     }
-    if (href && !external && href.startsWith('/')) router.link(e);
+    if (href && !external && !download && href.startsWith('/')) router.link(e);
     onclick?.(e);
   }
 </script>
@@ -97,6 +100,7 @@
     aria-busy={loading || undefined}
     target={external ? '_blank' : undefined}
     rel={external ? 'noopener noreferrer' : undefined}
+    download={download === true ? '' : download || undefined}
     tabindex={blocked ? 0 : undefined}
     style:min-width={lockedWidth ? `${lockedWidth}px` : undefined}
     onclick={click}

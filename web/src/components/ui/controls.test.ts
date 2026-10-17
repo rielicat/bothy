@@ -65,6 +65,15 @@ describe('Button', () => {
     expect(link.getAttribute('rel')).toContain('noopener');
     expect(link.textContent).toContain('↗');
   });
+
+  it('leaves a download link to the browser instead of routing it', async () => {
+    render(Button, { props: { href: '/api/agent/picture?download=1', download: true, children: text('Download picture') } });
+    const link = screen.getByRole('link', { name: 'Download picture' });
+    expect(link.getAttribute('download')).toBe('');
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+    link.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(false);
+  });
 });
 
 describe('Switch', () => {
