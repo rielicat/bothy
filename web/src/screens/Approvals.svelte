@@ -7,7 +7,6 @@
   import type { InboxItem } from '../components/approval/types';
   import { votes } from '../components/approval/votes.svelte';
   import { announce } from '../components/ui/live.svelte';
-  import Button from '../components/ui/Button.svelte';
   import EmptyState from '../components/ui/EmptyState.svelte';
   import Notice from '../components/ui/Notice.svelte';
   import Page from '../components/ui/Page.svelte';
@@ -355,8 +354,8 @@
           <ul class="mt-2">
             {#each g.list as a (a.id)}
               <li class="border-b border-border py-3 last:border-b-0">
-                <DecidedLine approval={a} list expanded={showing === a.id} onshow={() => (showing = showing === a.id ? null : a.id)} />
-                <p class="mt-1 pl-5.5 text-small text-muted">{@render chatLink(a)}</p>
+                {#snippet source()}{@render chatLink(a)}{/snippet}
+                <DecidedLine approval={a} list {source} expanded={showing === a.id} onshow={() => (showing = showing === a.id ? null : a.id)} />
                 {#if showing === a.id}
                   <div class="mt-3"><ApprovalCard approval={a} mode="readonly" level={3} /></div>
                 {/if}
@@ -374,12 +373,14 @@
         action={{ label: 'Open People', onclick: () => router.navigate('/settings/people') }}
       />
     {/if}
-    {#if missing || target}
+    <!-- This is the Approvals page, so the notice needs no way back to it. -->
+    {#if target}
       <div class="mb-10">
-        <EmptyState text="This request was already decided or doesn't exist." />
-        {#if target}<div class="mt-2"><DecidedLine approval={target} list /></div>{/if}
-        <Button class="mt-4" href="/approvals">Go to Approvals</Button>
+        <EmptyState text="This request was already decided." />
+        <div class="mt-2"><DecidedLine approval={target} list /></div>
       </div>
+    {:else if missing}
+      <div class="mb-10"><EmptyState text="This request doesn't exist, or you can't see it." /></div>
     {/if}
     {#if failed}
       <EmptyState text="This page didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: loadWaiting, variant: 'secondary' }} />
@@ -393,8 +394,9 @@
             {@render list(forYou)}
           </section>
         {:else}
+          <!-- Above requests waiting for others, the second sentence would describe a page that isn't empty. -->
           <div bind:this={emptyEl} tabindex="-1" class="outline-offset-2">
-            <EmptyState text="Nothing needs your approval." more="When Bothy needs someone's OK, it shows up here." />
+            <EmptyState text="Nothing needs your approval." more={others.length ? undefined : "When Bothy needs someone's OK, it shows up here."} />
           </div>
         {/if}
         {#if others.length}

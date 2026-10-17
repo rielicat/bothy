@@ -235,13 +235,21 @@ describe('Approvals inbox, other states', () => {
   it('says a request was already decided, with its decided line', async () => {
     const done = recentApprovals[0];
     await open(`/approvals/${done.id}`, { id: done.id });
-    expect(await screen.findByText("This request was already decided or doesn't exist.")).toBeTruthy();
+    expect(await screen.findByText('This request was already decided.')).toBeTruthy();
     await waitFor(() => expect(document.querySelector('[data-decided]')?.textContent).toContain('You approved deleting'));
+    // This is the Approvals page: no button back to it.
+    expect(screen.queryByRole('link', { name: 'Go to Approvals' })).toBeNull();
+  });
+
+  it("says a request it can't find may not exist or not be visible", async () => {
+    await open('/approvals/apr_nope', { id: 'apr_nope' });
+    expect(await screen.findByText("This request doesn't exist, or you can't see it.")).toBeTruthy();
   });
 
   it('says when nothing waits', async () => {
     await open('/approvals', {}, 'approvals-empty');
     expect(await screen.findByText('Nothing needs your approval.')).toBeTruthy();
+    expect(screen.getByText("When Bothy needs someone's OK, it shows up here.")).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'For you' })).toBeNull();
   });
 
@@ -249,6 +257,8 @@ describe('Approvals inbox, other states', () => {
     await open('/approvals', {}, 'member');
     await screen.findByText('Nothing needs your approval.');
     expect(screen.getByRole('heading', { name: 'Waiting for others' })).toBeTruthy();
+    // Above requests waiting for others, the page isn't empty.
+    expect(screen.queryByText(/When Bothy needs someone's OK/)).toBeNull();
     expect(screen.getByRole('link', { name: /Waiting/ }).textContent).toBe('Waiting');
   });
 
@@ -267,6 +277,11 @@ describe('Approvals inbox, other states', () => {
     expect(lines.some((l) => l?.startsWith('You approved deleting notes/old-draft.md'))).toBe(true);
     expect(lines.some((l) => l?.startsWith('You denied running rm -rf build/ · “Not while the build server is in use”'))).toBe(true);
     expect(lines.some((l) => l?.startsWith("Expired: Bothy didn't send data to api.example.com"))).toBe(true);
+    // The decided sentence is the page's main text; its time, source and Show sit on one muted line under it.
+    const first = document.querySelector('[data-decided]')!;
+    expect(first.className).toMatch(/text-body/);
+    expect(first.className).toMatch(/text-text/);
+    expect(first.nextElementSibling?.textContent?.replace(/\s+/g, ' ').trim()).toMatch(/^\d{1,2}:\d{2}( [AP]M)? · .+ · Show$/);
     expect(screen.getByRole('link', { name: 'Done' }).getAttribute('aria-current')).toBe('page');
   });
 });
