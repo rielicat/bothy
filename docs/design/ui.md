@@ -2404,7 +2404,7 @@ Rules under 640 px:
 - Card key/value pairs stack (label above value). Card buttons stack full width at 480 px and below.
 - Form and setup primary buttons are full width.
 - The composer stays above the on-screen keyboard: `interactive-widget=resizes-content` in the viewport meta, with a `visualViewport` fallback; `padding-bottom: max(16px, env(safe-area-inset-bottom))`.
-- Dialogs: 440 px dialogs stay centred with 16 px margins and stacked buttons (primary on top); 560 and 720 dialogs become full-screen sheets with a header bar (Cancel left, title, primary right). Drawers become full screen.
+- Dialogs: 440 px dialogs stay centred with 16 px margins and stacked buttons (primary on top); 560 and 720 dialogs become full-screen sheets with a 56 px header bar (Cancel left, title, primary right), its buttons centred in the bar 12 px from its edges. Drawers become full screen.
 - No keyboard hints, no hover-only actions (`⋯` and message actions always visible).
 - Long values that matter (commands, paths and hosts on cards, setup commands, schedule names) wrap with `overflow-wrap: anywhere`; truncation only for list titles, which always have a `title` tooltip and the full value on their detail page.
 - Every list is a `ListRow`; below 640 px meta folds into one muted line under the title joined with " · ".

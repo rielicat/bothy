@@ -103,7 +103,7 @@
 >
   <div
     class="flex min-h-0 flex-1 flex-col {sheet
-      ? 'max-sm:grid max-sm:grid-cols-[auto_minmax(0,1fr)_auto] max-sm:grid-rows-[auto_minmax(0,1fr)] max-sm:items-center'
+      ? 'max-sm:grid max-sm:grid-cols-[auto_minmax(0,1fr)_auto] max-sm:grid-rows-[minmax(3.5rem,auto)_minmax(0,1fr)] max-sm:items-center'
       : ''}"
   >
     <div class="flex items-start gap-3 px-5 pt-5 {sheet ? 'max-sm:contents' : ''}">
@@ -125,11 +125,11 @@
         {@render children()}
       </div>
       {#if footer}
-        <!-- Phones: 440 dialogs stack full-width buttons, primary on top; sheets move Cancel and the primary into the header bar. -->
+        <!-- Phones: 440 dialogs stack full-width buttons, primary on top; sheets move Cancel and the primary into the 56 px header bar, centred, 12 px from its edges. -->
         <div
           data-dialog-footer
           class="flex justify-end gap-2 px-5 pb-5 {sheet
-            ? 'max-sm:contents max-sm:[&>*]:row-start-1 max-sm:[&>*]:my-1 max-sm:[&>*]:px-3 max-sm:[&>:first-child:not(:last-child)]:col-start-1 max-sm:[&>:first-child:not(:last-child)]:ml-2 max-sm:[&>:last-child]:col-start-3 max-sm:[&>:last-child]:mr-2'
+            ? 'max-sm:contents max-sm:[&>*]:row-start-1 max-sm:[&>*]:self-center max-sm:[&>*]:px-3 max-sm:[&>:first-child:not(:last-child)]:col-start-1 max-sm:[&>:first-child:not(:last-child)]:ml-3 max-sm:[&>:last-child]:col-start-3 max-sm:[&>:last-child]:mr-3'
             : 'max-sm:flex-col-reverse max-sm:[&>*]:w-full'}"
         >
           {@render footer({ close: requestClose })}
