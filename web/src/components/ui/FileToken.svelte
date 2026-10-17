@@ -40,11 +40,10 @@
       title={name}><span class="truncate" data-copy-ignore>{name}</span></a
     >
   {:else}
-    <span class="min-w-0 truncate" title={name} data-copy-ignore>{name}</span>
+    <!-- A failed file says why in one line under the composer; the token only marks which. -->
+    <span class="min-w-0 truncate {state === 'error' ? 'text-danger-text' : ''}" title={name} data-copy-ignore>{name}</span>
   {/if}
-  {#if state === 'error'}
-    <span class="shrink-0 text-danger-text">Didn't upload</span>
-  {:else if size !== undefined}
+  {#if state !== 'error' && size !== undefined}
     <span class="shrink-0 text-muted tabular-nums">{bytes(size)}</span>
   {/if}
   {#if onremove}<IconButton icon="close" label="Remove {name}" size="sm" variant="quiet" class="shrink-0" onclick={onremove} />{/if}
