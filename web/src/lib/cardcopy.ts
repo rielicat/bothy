@@ -402,7 +402,51 @@ function message(a: Action, p: Payload, card: Card): Built {
   };
 }
 
+const EVERY_CHAT = 'Bothy will use this in every chat, for everyone.';
+
+// TEAM.md is what Bothy remembers for everyone; an admin approves each change (§8.2).
+function teamMemory(p: Payload): Built {
+  const op = str(p.op);
+  const old = str(p.old);
+  const note = str(p.new);
+  if (op === 'remove') {
+    return {
+      question: ['Forget this for everyone?'],
+      row: [`Forget “${quote(old)}” for everyone?`],
+      primary: 'Forget for everyone',
+      ing: [`forgetting “${quote(old)}” for everyone`],
+      ask: ['forget something for everyone'],
+      consequence: 'Bothy will stop using this in every chat.',
+      fields: [{ label: 'Note', value: old }],
+    };
+  }
+  if (op === 'replace') {
+    return {
+      question: ['Change something Bothy remembers for everyone?'],
+      row: [`Change “${quote(old)}” for everyone?`],
+      primary: 'Save change',
+      ing: ['changing a note for everyone'],
+      ask: ['update a note for everyone'],
+      consequence: EVERY_CHAT,
+      fields: [
+        { label: 'Note', value: note },
+        { label: 'Was', value: old },
+      ],
+    };
+  }
+  return {
+    question: ['Remember this for everyone?'],
+    row: [`Remember “${quote(note)}” for everyone?`],
+    primary: 'Remember for everyone',
+    ing: [`remembering “${quote(note)}” for everyone`],
+    ask: ['remember something for everyone'],
+    consequence: EVERY_CHAT,
+    fields: [{ label: 'Note', value: note }],
+  };
+}
+
 function memory(_a: Action, p: Payload): Built {
+  if (str(p.file) === 'TEAM') return teamMemory(p);
   if (str(p.op) === 'remove') {
     const old = str(p.old);
     return {

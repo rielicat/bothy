@@ -21,6 +21,9 @@ const tools: [string, StepInput][] = [
   ['memory', { tool: 'memory', args: { file: 'MEMORY', op: 'add', new: 'Deploys happen on Tuesdays' } }],
   ['memory replace', { tool: 'memory', args: { file: 'MEMORY', op: 'replace', old: 'Mondays', new: 'Deploys happen on Tuesdays' } }],
   ['memory remove', { tool: 'memory', args: { file: 'MEMORY', op: 'remove', old: 'Deploys happen on Tuesdays' } }],
+  ['memory for everyone', { tool: 'memory', args: { file: 'TEAM', op: 'add', new: 'Deploy day is Thursday' } }],
+  ['memory for everyone, replace', { tool: 'memory', args: { file: 'TEAM', op: 'replace', old: 'Tuesday', new: 'Thursday' } }],
+  ['memory for everyone, remove', { tool: 'memory', args: { file: 'TEAM', op: 'remove', old: 'Deploy day is Thursday' } }],
   ['session_search', { tool: 'session_search', args: { query: 'launch' } }],
   ['message', { tool: 'message', action: act({ tool: 'message', kind: 'send', recipient: '#eng' }) }],
   ['skill_load', { tool: 'skill_load', args: { name: 'Release notes' } }],
@@ -105,6 +108,14 @@ describe('phrases', () => {
     expect(plain(phrases({ tool: 'memory', args: { file: 'MEMORY', op: 'remove', old: 'Old fact' } }).done)).toBe('Forgot “Old fact”');
     expect(plain(phrases({ tool: 'memory', args: { file: 'MEMORY', op: 'replace', old: 'a', new: 'b' } }).done)).toBe('Updated a saved note to “b”');
     expect(plain(phrases({ tool: 'memory', args: { file: 'MEMORY', op: 'add' } }).done)).toBe('Remembered something');
+  });
+
+  it('says a note for everyone is for everyone, and waits for approval', () => {
+    const team = (args: Record<string, unknown>) => phrases({ tool: 'memory', args: { file: 'TEAM', ...args } });
+    expect(plain(team({ op: 'add', new: 'Deploy day is Thursday' }).done)).toBe('Remembered “Deploy day is Thursday” for everyone');
+    expect(plain(lineFor(team({ op: 'add', new: 'Deploy day is Thursday' }), 'waiting'))).toBe('Waiting for approval to remember something for everyone');
+    expect(plain(team({ op: 'replace', old: 'a', new: 'b' }).done)).toBe('Updated a note for everyone');
+    expect(plain(team({ op: 'remove', old: 'Old fact' }).done)).toBe('Forgot “Old fact” for everyone');
   });
 
   it("doesn't repeat the server's internal title on an MCP step", () => {

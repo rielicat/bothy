@@ -116,6 +116,28 @@ describe('ApprovalCard', () => {
     expect(screen.getByRole('button', { name: 'Always allow remembering this exact note…' })).toBeTruthy();
   });
 
+  it('asks an admin to remember a note for everyone, and tells the member who asked that it waits for one', async () => {
+    const team = approval({
+      principal_id: member.id,
+      action: { tool: 'memory', kind: 'memory', side_effect: 'admin', payload: { file: 'TEAM', op: 'add', new: 'Our deploy day is Thursday.' }, fingerprint: 'f' },
+      card: { ...approval().card, risk: 'admin', choices: ['allow_once', 'deny'], warnings: ['This chat has seen content from outside your team. Check that a person asked for this.'], context: 'Web · session “Deploy day”' },
+      approver: { user_id: '', admin_only: true },
+    });
+    const a = render(ApprovalCard, { approval: team });
+    const card = screen.getByRole('article');
+    expect(within(card).getByRole('heading', { level: 2 }).textContent).toBe('Remember this for everyone?');
+    expect(card.textContent).toContain('Bothy will use this in every chat, for everyone.');
+    expect(card.textContent).toContain('Our deploy day is Thursday.');
+    expect(card.textContent).toContain('Check that a person asked for this.');
+    expect(buttons(card).map((b) => b.textContent?.trim())).toEqual(['Remember for everyone', 'Deny']);
+    expect(screen.queryByRole('button', { name: /Always allow/ })).toBeNull();
+    a.unmount();
+    session.me = { ...session.me!, user: member };
+    render(ApprovalCard, { approval: team });
+    expect(buttons(screen.getByRole('article'))).toHaveLength(0);
+    expect(screen.getByRole('status').textContent).toContain('Waiting for an admin.');
+  });
+
   it("says a parked request waits in the card's body, not squeezed into the meta line", () => {
     render(ApprovalCard, { approval: approval({ status: 'parked', card: { ...approval().card, context: 'Telegram · DM · schedule · session “Morning briefing”' } }) });
     const card = screen.getByRole('article');

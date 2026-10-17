@@ -115,6 +115,30 @@ describe('cardCopy, one row per action', () => {
     ['financial', act('pay', 'generic', 'financial', { amount: '$240.00', to: 'Northwind' }), 'Pay $240.00 to Northwind?', 'Pay $240.00', "Money will leave your account. This can't be undone.", ['To', 'Amount']],
     ['skill_install', act('skill_install', 'generic', 'local_write', { name: 'notes', source: 'https://skills.example.com/notes.zip' }), 'Install the “notes” skill?', 'Install skill', undefined, ['Source']],
     ['unknown tool', act('report_export', 'generic', 'local_write', { name: 'notes' }), 'Let Bothy use “report export”?', 'Allow', undefined, ['Name']],
+    [
+      'memory for everyone',
+      act('memory', 'memory', 'admin', { file: 'TEAM', op: 'add', new: 'Our deploy day is Thursday.' }),
+      'Remember this for everyone?',
+      'Remember for everyone',
+      'Bothy will use this in every chat, for everyone.',
+      ['Note'],
+    ],
+    [
+      'memory for everyone, change',
+      act('memory', 'memory', 'admin', { file: 'TEAM', op: 'replace', old: 'Deploy day is Tuesday.', new: 'Deploy day is Thursday.' }),
+      'Change something Bothy remembers for everyone?',
+      'Save change',
+      'Bothy will use this in every chat, for everyone.',
+      ['Note', 'Was'],
+    ],
+    [
+      'memory for everyone, remove',
+      act('memory', 'memory', 'admin', { file: 'TEAM', op: 'remove', old: 'Deploy day is Tuesday.' }),
+      'Forget this for everyone?',
+      'Forget for everyone',
+      'Bothy will stop using this in every chat.',
+      ['Note'],
+    ],
   ];
 
   it.each(rows)('%s', (_name, a, question, primary, consequence, fields) => {
@@ -168,6 +192,34 @@ describe('cardCopy, one row per action', () => {
     expect(row(act('message', 'send', 'external_send', { text: 'Hi' }, { recipient: 'telegram:42:' }))).toBe('Send a message to Telegram chat 42?');
     // Builders without a row title fall back to the question.
     expect(row(act('fs_delete', 'fs.delete', 'irreversible', { path: 'notes/a.md' }))).toBe('Delete notes/a.md?');
+  });
+
+  it('says what an admin approves for everyone, in full, and in the decided line', () => {
+    const add = ap(act('memory', 'memory', 'admin', { file: 'TEAM', op: 'add', new: 'Our deploy day is Thursday.' }), { approver: { user_id: '', admin_only: true } });
+    const c = cardCopy(add);
+    expect(c.fields[0]).toEqual({ label: 'Note', value: 'Our deploy day is Thursday.' });
+    expect(c.tone).toBe('default');
+    expect(segText(c.row!)).toBe('Remember “Our deploy day is Thursday” for everyone?');
+    expect(busyLabel(c.primary)).toBe('Remembering…');
+    const decided = { ...add, status: 'allowed', choice: 'allow_once' as const, decided_by: me, decided_via: 'web', decided_at: '2026-10-14T10:42:00Z' };
+    expect(segText(decidedLine(decided, { me, name: () => '', list: true }).segs)).toBe('You approved remembering “Our deploy day is Thursday” for everyone');
+    expect(segText(decidedLine({ ...add, status: 'expired' }, { me, name: () => '' }).segs)).toBe("Expired: Bothy didn't remember something for everyone");
+    const replace = cardCopy(ap(act('memory', 'memory', 'admin', { file: 'TEAM', op: 'replace', old: 'Tuesday', new: 'Thursday' })));
+    expect(replace.fields).toEqual([
+      { label: 'Note', value: 'Thursday' },
+      { label: 'Was', value: 'Tuesday' },
+    ]);
+    expect(segText(cardCopy(ap(act('memory', 'memory', 'admin', { file: 'TEAM', op: 'remove', old: 'Old fact.' }))).ing)).toBe('forgetting “Old fact” for everyone');
+  });
+
+  it("keeps the exposure warnings on a note for everyone, and the server's outside-content line as it is", () => {
+    const a = act('memory', 'memory', 'admin', { file: 'TEAM', op: 'add', new: 'x' });
+    const outside = 'This chat has seen content from outside your team. Check that a person asked for this.';
+    const card = (warnings: string[]) => ap(a, { card: { ...ap(a).card, warnings } });
+    expect(cardCopy(card([outside])).warnings).toEqual([outside]);
+    expect(cardCopy(card(['This session has seen private data and untrusted content; anything sent out could leak it.'])).warnings).toEqual([
+      'This chat has seen private information and content from outside. Check carefully before letting anything leave.',
+    ]);
   });
 
   it('says how many lines a notes change touches before Show', () => {

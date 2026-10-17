@@ -48,6 +48,9 @@ const T: Record<string, string[]> = {
   memory: ['remember something', 'remembering {note}', '', 'Remembered {note}', "Couldn't save that"],
   'memory:replace': ['update a saved note', 'updating a saved note to {note}', '', 'Updated a saved note to {note}', "Couldn't update that note"],
   'memory:remove': ['forget something', 'forgetting {note}', '', 'Forgot {note}', "Couldn't remove that note"],
+  'memory:team': ['remember something for everyone', 'remembering {note} for everyone', '', 'Remembered {note} for everyone', "Couldn't save that for everyone"],
+  'memory:team:replace': ['update a note for everyone', 'updating a note for everyone', '', 'Updated a note for everyone', "Couldn't update that note"],
+  'memory:team:remove': ['forget something for everyone', 'forgetting {note} for everyone', '', 'Forgot {note} for everyone', "Couldn't remove that note"],
   session_search: ['search past chats', 'searching past chats', 'Searching past chats[ for “{q}”]…', 'Searched past chats[ for “{q}”]', ''],
   message: ['send a message to {chat}', 'sending a message to {chat}', 'Sending…', 'Sent a message to {chat}', "Couldn't send the message"],
   skill_load: ['follow the “{skill}” skill', 'following “{skill}”', '', 'Followed the “{skill}” skill', ''],
@@ -163,7 +166,7 @@ function keyOf(s: StepInput, a: Record<string, unknown>): string {
     const method = String(s.action?.method ?? a.method ?? 'GET').toUpperCase();
     return method === 'GET' || method === 'HEAD' ? 'web_fetch:get' : 'web_fetch:send';
   }
-  if (t === 'memory' && (a.op === 'replace' || a.op === 'remove')) return `memory:${a.op}`;
+  if (t === 'memory') return `memory${a.file === 'TEAM' ? ':team' : ''}${a.op === 'replace' || a.op === 'remove' ? `:${a.op}` : ''}`;
   // Without a number github_pr lists the repository's pull requests.
   if (t === 'github_pr' && a.number == null && a.pr == null) return 'github_pr:list';
   if (t.startsWith('mcp__') || s.action?.kind === 'mcp') return 'mcp';
@@ -361,6 +364,7 @@ function familyPhrase(family: string, steps: { input: StepInput; phrases: Phrase
     'web_fetch:send': `Sent data to ${n} websites`,
     session_search: `Searched past chats ${n} times`,
     memory: `Remembered ${n} things`,
+    'memory:team': `Remembered ${n} things for everyone`,
     knowledge_search: `Searched project knowledge ${n} times`,
   };
   if (many[family]) return fill(many[family], {});
