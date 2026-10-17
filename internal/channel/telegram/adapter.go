@@ -397,7 +397,7 @@ func (a *Adapter) Send(ctx context.Context, m core.OutMessage) (core.MsgRef, err
 	if err != nil {
 		return core.MsgRef{}, err
 	}
-	html, plain := render(m.Text)
+	html, plain := render(m.Text, m.Mentions...)
 	if strings.TrimSpace(plain) == "" {
 		return core.MsgRef{}, fmt.Errorf("telegram: empty message: %w", core.ErrInvalid)
 	}
@@ -438,7 +438,7 @@ func (a *Adapter) Edit(ctx context.Context, ref core.MsgRef, m core.OutMessage) 
 	if err != nil {
 		return fmt.Errorf("telegram: message id %q: %w", ref.ID, core.ErrInvalid)
 	}
-	html, plain := render(m.Text)
+	html, plain := render(m.Text, m.Mentions...)
 	if strings.TrimSpace(plain) == "" {
 		return fmt.Errorf("telegram: empty message: %w", core.ErrInvalid)
 	}

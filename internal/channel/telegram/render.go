@@ -17,7 +17,7 @@ import (
 // italic text closes them and opens them again after it, so it keeps its
 // code style, which is what keeps a file name from becoming a link; in a
 // link's text it is plain text.
-func render(md string) (html, plain string) {
+func render(md string, mentions ...string) (html, plain string) {
 	var hb, pb strings.Builder
 	lines := strings.Split(md, "\n")
 	for i := 0; i < len(lines); i++ {
@@ -50,18 +50,18 @@ func render(md string) (html, plain string) {
 			continue
 		}
 		if m := headingRe.FindStringSubmatch(line); m != nil {
-			h, p := inline(strings.TrimRight(strings.TrimRight(m[1], "#"), " "), []string{"b"}, false)
+			h, p := inline(strings.TrimRight(strings.TrimRight(m[1], "#"), " "), []string{"b"}, false, mentions)
 			hb.WriteString(dropEmpty("<b>" + h + "</b>"))
 			pb.WriteString(p)
 			continue
 		}
 		if m := bulletRe.FindStringSubmatch(line); m != nil {
-			h, p := inline(m[2], nil, false)
+			h, p := inline(m[2], nil, false, mentions)
 			hb.WriteString(m[1] + "• " + dropEmpty(h))
 			pb.WriteString(m[1] + "• " + p)
 			continue
 		}
-		h, p := inline(line, nil, false)
+		h, p := inline(line, nil, false, mentions)
 		hb.WriteString(dropEmpty(h))
 		pb.WriteString(p)
 	}
@@ -85,7 +85,7 @@ func codeLang(info string) string {
 // inline renders one line's inline markup. open holds the bold and italic
 // tags s sits in, which a code span closes and reopens; inLink disables code
 // tags and nested links.
-func inline(s string, open []string, inLink bool) (string, string) {
+func inline(s string, open []string, inLink bool, mentions []string) (string, string) {
 	var hb, pb strings.Builder
 	lit := func(x string) {
 		hb.WriteString(escapeHTML(x))
@@ -124,12 +124,12 @@ func inline(s string, open []string, inLink bool) (string, string) {
 			i += 2*run + closeAt
 		case c == '[' && !inLink:
 			text, href, n, ok := parseLink(s[i:])
-			if !ok || !safeLinkURL(href) {
+			if !ok || !safeLinkURL(href, mentions) {
 				lit("[")
 				i++
 				continue
 			}
-			h, p := inline(text, open, true)
+			h, p := inline(text, open, true, mentions)
 			hb.WriteString(`<a href="` + escapeHTML(href) + `">` + h + "</a>")
 			pb.WriteString(p)
 			i += n
@@ -140,7 +140,7 @@ func inline(s string, open []string, inLink bool) (string, string) {
 				i += 2
 				continue
 			}
-			h, p := inline(s[i+2:end], append(slices.Clip(open), "b"), inLink)
+			h, p := inline(s[i+2:end], append(slices.Clip(open), "b"), inLink, mentions)
 			hb.WriteString("<b>" + h + "</b>")
 			pb.WriteString(p)
 			i = end + 2
@@ -151,7 +151,7 @@ func inline(s string, open []string, inLink bool) (string, string) {
 				i++
 				continue
 			}
-			h, p := inline(s[i+1:end], append(slices.Clip(open), "i"), inLink)
+			h, p := inline(s[i+1:end], append(slices.Clip(open), "i"), inLink, mentions)
 			hb.WriteString("<i>" + h + "</i>")
 			pb.WriteString(p)
 			i = end + 1
@@ -276,7 +276,7 @@ func parseLink(s string) (text, href string, n int, ok bool) {
 	return "", "", 0, false
 }
 
-func safeLinkURL(s string) bool {
+func safeLinkURL(s string, mentions []string) bool {
 	u, err := url.Parse(s)
 	if err != nil || strings.ContainsFunc(s, unicode.IsControl) {
 		return false
@@ -284,11 +284,16 @@ func safeLinkURL(s string) bool {
 	switch strings.ToLower(u.Scheme) {
 	case "http", "https":
 		return u.Host != ""
-	case "mailto", "tg":
+	case "mailto":
 		return true
 	}
-	return false
+	// A tg://user link is a mention that can notify that person, so only
+	// the ids the hub vouches for (core.OutMessage.Mentions) become one.
+	m := userLinkRe.FindStringSubmatch(s)
+	return m != nil && slices.Contains(mentions, m[1])
 }
+
+var userLinkRe = regexp.MustCompile(`^tg://user\?id=([0-9]{1,20})$`)
 
 func escapeHTML(s string) string {
 	if !strings.ContainsAny(s, `&<>"`) {

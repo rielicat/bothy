@@ -46,6 +46,20 @@ var renderCorpus = []string{
 	"\\", "\\\\*", "a\nb\n\n```\n", "emoji 🙂 **ok**", "tab\there", "\u202emirror",
 }
 
+// A tg://user link notifies that person, so model text can't form one:
+// only the ids the hub vouches for become a link.
+func TestRenderUserLinkOnlyWhenTheHubSaysSo(t *testing.T) {
+	in := "[Maya](tg://user?id=4242) and [Eve](tg://user?id=666) and [x](tg://resolve?domain=evil)"
+	html, _ := render(in, "4242")
+	want := `<a href="tg://user?id=4242">Maya</a> and [Eve](tg://user?id=666) and [x](tg://resolve?domain=evil)`
+	if html != want {
+		t.Fatalf("render = %q, want %q", html, want)
+	}
+	if html, _ := render(in); strings.Contains(html, "<a ") {
+		t.Fatalf("model text formed a link: %q", html)
+	}
+}
+
 func TestRenderAlwaysValidHTML(t *testing.T) {
 	for _, in := range renderCorpus {
 		checkRender(t, in)
