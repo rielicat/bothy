@@ -6,6 +6,8 @@
     disabled?: boolean;
     /** Why the option can't be chosen, shown in its row. */
     reason?: string;
+    /** False when `expanded` has nothing for this option, so no empty area opens under it. */
+    expandable?: boolean;
   }
 </script>
 
@@ -91,7 +93,7 @@
           {/if}
         </span>
       </label>
-      {#if selected && expanded}
+      {#if selected && expanded && o.expandable !== false}
         <!-- Indented to the title: 16 px row padding + 16 px radio + 12 px gap. -->
         <div class="border-t border-border pt-3 pb-4 {framed ? 'mr-4 ml-11' : 'ml-7'}">{@render expanded(o.value)}</div>
       {/if}

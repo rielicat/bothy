@@ -295,4 +295,10 @@ describe('OptionList', () => {
     expect(screen.queryByText('Extra controls for careful')).toBeNull();
     expect(screen.getByText('Extra controls for balanced')).toBeTruthy();
   });
+
+  it('opens no empty area under an option with nothing to show', () => {
+    const { container } = render(OptionList, { props: { name: 'search', options: [{ value: 'none', title: 'Off', expandable: false }, ...options], value: 'none', expanded } });
+    expect(screen.queryByText(/Extra controls/)).toBeNull();
+    expect(container.querySelector('.border-t')).toBeNull();
+  });
 });

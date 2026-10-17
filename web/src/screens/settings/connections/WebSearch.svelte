@@ -124,7 +124,7 @@
       bind:value={provider}
       onchange={choose}
       options={[
-        { value: 'none', title: 'Off', description: "Bothy doesn't search the web." },
+        { value: 'none', title: 'Off', description: "Bothy doesn't search the web.", expandable: false },
         { value: 'searxng', title: 'SearXNG', description: 'Private search you host yourself' },
         { value: 'brave', title: 'Brave Search', description: 'Needs an API key from Brave' },
         { value: 'tavily', title: 'Tavily', description: 'Needs an API key from Tavily' },
