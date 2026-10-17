@@ -251,6 +251,21 @@ describe("Settings → General, Bothy's picture", () => {
     expect(calls.filter((c) => c.method === 'DELETE').length).toBe(3);
   });
 
+  it('says when the picture did not load, and tries again', async () => {
+    let fail = true;
+    installApi({ override: (_m, url) => (url === '/api/agent/picture/info' && fail ? new Response(JSON.stringify({ error: { code: 'internal', message: 'x' } }), { status: 500 }) : undefined) });
+    session.ready = false;
+    await session.init();
+    settingsConfig.view = null;
+    render(Settings, { params: { group: 'general', page: 'general' } });
+    const line = await screen.findByText("The picture didn't load. Check your connection and try again.");
+    expect(within(picture()).queryByRole('button', { name: 'Change…' })).toBeNull();
+    fail = false;
+    await fireEvent.click(within(line.closest('.grid') as HTMLElement).getByRole('button', { name: 'Try again' }));
+    // The row is drawn anew once the picture is there.
+    await waitFor(() => expect(document.activeElement).toBe(within(picture()).getByRole('button', { name: 'Change…' })));
+  });
+
   it('leaves the row out when the server has no picture to show', async () => {
     installApi({ override: (_m, url) => (url === '/api/agent/picture/info' ? new Response(JSON.stringify({ error: { code: 'unavailable', message: 'x' } }), { status: 503 }) : undefined) });
     session.ready = false;

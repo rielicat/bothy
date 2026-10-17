@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import Icon from '../../components/Icon.svelte';
-  import { announce, Button, SettingsRow, toast } from '../../components/ui';
+  import { announce, Button, SettingsRow, StatusLine, toast } from '../../components/ui';
   import { api, ApiError } from '../../lib/api/client';
   import type { ChannelStatus, PictureAppResult, PictureChange, PictureInfo } from '../../lib/api/types.gen';
   import { pictureMaxBytes, pictureTooBig, pictureURL } from './picture';
@@ -10,6 +10,7 @@
 
   const uid = $props.id();
   let info = $state<PictureInfo | null>(null);
+  let loadFailed = $state(false);
   let slack = $state<ChannelStatus | undefined>();
   let picker: HTMLInputElement | undefined = $state();
   let busy = $state<'change' | 'reset' | null>(null);
@@ -19,12 +20,25 @@
   let last = $state<'change' | 'reset' | null>(null);
 
   async function load() {
+    let failed = false;
     const [i, list] = await Promise.all([
-      api.get<PictureInfo>('/api/agent/picture/info').catch(() => null),
+      api.get<PictureInfo>('/api/agent/picture/info').catch((e: unknown) => {
+        // A server without a picture says so with 503; the row is left out then.
+        failed = !(e instanceof ApiError && e.status === 503 && e.code === 'unavailable');
+        return null;
+      }),
       api.get<ChannelStatus[]>('/api/channels').catch((): ChannelStatus[] => []),
     ]);
     info = i;
+    loadFailed = failed;
     slack = list.find((c) => c.name === 'slack' && c.enabled);
+  }
+
+  async function retryLoad() {
+    await load();
+    if (!info) return;
+    await tick();
+    document.getElementById(`${uid}-change`)?.focus();
   }
 
   $effect(() => {
@@ -114,6 +128,12 @@
           >
         {/if}
       </div>
+    {/snippet}
+  </SettingsRow>
+{:else if loadFailed}
+  <SettingsRow label="Picture">
+    {#snippet children()}
+      <StatusLine tone="danger" text="The picture didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: retryLoad }} />
     {/snippet}
   </SettingsRow>
 {/if}
