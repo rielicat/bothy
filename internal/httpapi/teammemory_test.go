@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/httpapi/dto"
@@ -56,6 +57,37 @@ func TestTeamMemoryEndpoints(t *testing.T) {
 	if len(hist.Items) != 2 || hist.Items[1].Op != "edit" || hist.Items[1].ActorName != "admin" || hist.Items[1].File != core.FileTeam ||
 		hist.Items[0].ActorName != "owner" {
 		t.Fatalf("history = %+v", hist.Items)
+	}
+
+	// Bothy's approved note names its chat and run, in run_id or actor, only
+	// to someone who can open that chat.
+	ctx := context.Background()
+	now := time.Now()
+	sess := &core.Session{ID: core.SessionID(core.NewID(core.PrefixSession)), Principal: core.UserPrincipal(h.owner.user), Origin: "web",
+		Title: "Owner's private plans", CreatedAt: now, UpdatedAt: now}
+	if err := h.store.Sessions().Create(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+	run := &core.Run{ID: core.RunID(core.NewID(core.PrefixRun)), Session: sess.ID, Principal: sess.Principal, User: h.owner.user,
+		Trigger: core.TrigMessage, Status: core.RunDone, CreatedAt: now}
+	if err := h.store.Runs().Create(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	h.memory.AddTeamEvent(core.MemoryEvent{Op: "add", Before: "x\n", After: "x\nStaging resets on Mondays\n", Run: run.ID,
+		Actor: "agent:" + string(run.ID), Provenance: core.ProvUser, Approval: "apr_x"})
+	for _, c := range []*client{h.member, h.tokenFor(h.member, "read"), h.admin} {
+		rec := h.do("GET", "/api/memory/team/history", nil, c)
+		expect(t, rec, http.StatusOK)
+		if body := rec.Body.String(); strings.Contains(body, string(run.ID)) || strings.Contains(body, "Owner's private plans") {
+			t.Fatalf("%s: history names a chat they cannot open: %s", c.name, body)
+		}
+		if got := decodeAs[dto.List[dto.MemoryChange]](t, rec).Items[0]; got.Op != "add" || got.Actor != "agent:" || got.Run != "" || got.Chat != nil {
+			t.Fatalf("%s: Bothy's note = %+v", c.name, got)
+		}
+	}
+	hist = decodeAs[dto.List[dto.MemoryChange]](t, h.do("GET", "/api/memory/team/history", nil, h.owner))
+	if got := hist.Items[0]; got.Actor != "agent:"+string(run.ID) || got.Run != run.ID || got.Chat == nil || got.Chat.Title != "Owner's private plans" {
+		t.Fatalf("owner: Bothy's note = %+v", got)
 	}
 
 	// The personal routes never reach TEAM.md.

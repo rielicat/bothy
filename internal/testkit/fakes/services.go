@@ -32,7 +32,7 @@ var (
 //
 // Team is TEAM.md: ReadTeam returns it, WriteTeam replaces it for any user
 // in TeamAdmins (others get core.ErrForbidden) and records an "edit" event
-// that TeamHistory lists.
+// that TeamHistory lists, as does AddTeamEvent.
 type Memory struct {
 	core.Memory
 	Files      map[core.PrincipalID]map[core.MemoryFile]string
@@ -204,6 +204,18 @@ func (m *Memory) WriteTeam(_ context.Context, content, tag string, by core.UserI
 	m.teamEvents = append(m.teamEvents, e)
 	m.Team = content
 	return etag(content), nil
+}
+
+// AddTeamEvent records a TEAM.md change made elsewhere (Bothy's approved
+// notes go through the memory tool, which the fake does not run).
+func (m *Memory) AddTeamEvent(e core.MemoryEvent) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e.ID, e.File = int64(len(m.teamEvents))+1, core.FileTeam
+	if e.At.IsZero() {
+		e.At = time.Now()
+	}
+	m.teamEvents = append(m.teamEvents, e)
 }
 
 func (m *Memory) TeamHistory(_ context.Context, page core.Page) ([]*core.MemoryEvent, error) {

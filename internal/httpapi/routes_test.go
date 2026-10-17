@@ -539,7 +539,7 @@ func TestMemoryHistoryNamesPeopleAndChats(t *testing.T) {
 
 	rec := h.do("GET", "/api/memory/MEMORY/history", nil, h.member)
 	expect(t, rec, http.StatusOK)
-	if strings.Contains(rec.Body.String(), "Owner's private plans") {
+	if strings.Contains(rec.Body.String(), "Owner's private plans") || strings.Contains(rec.Body.String(), string(other.ID)) {
 		t.Fatalf("history names a chat the member cannot open: %s", rec.Body.String())
 	}
 	hist := decodeAs[dto.List[dto.MemoryChange]](t, rec)
@@ -549,10 +549,11 @@ func TestMemoryHistoryNamesPeopleAndChats(t *testing.T) {
 	if c := hist.Items[0]; c.Op != "edit" || c.ActorName != "admin" || c.Chat != nil {
 		t.Errorf("admin edit = %+v", c)
 	}
-	if c := hist.Items[1]; c.Op != "remove" || c.ActorName != "" || c.Chat != nil || c.Run != "" {
+	if c := hist.Items[1]; c.Op != "remove" || c.ActorName != "" || c.Chat != nil || c.Run != "" || c.Actor != "agent:" {
 		t.Errorf("change from a chat the member cannot open = %+v", c)
 	}
-	if c := hist.Items[2]; c.Op != "add" || c.Chat == nil || c.Chat.ID != f.sess.ID || c.Chat.Title != "Fix login redirect" || c.Run != f.run.ID {
+	if c := hist.Items[2]; c.Op != "add" || c.Chat == nil || c.Chat.ID != f.sess.ID || c.Chat.Title != "Fix login redirect" || c.Run != f.run.ID ||
+		c.Actor != "agent:"+string(f.run.ID) {
 		t.Errorf("Bothy's change = %+v", c)
 	}
 }

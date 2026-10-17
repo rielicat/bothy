@@ -137,7 +137,8 @@ func (s *Server) memoryHistory(w http.ResponseWriter, r *http.Request, a core.Ac
 
 // memoryChanges names the person behind each edit and the chat each of
 // Bothy's changes was made in; a chat the caller cannot open names nothing,
-// not even its run (team memory's history is everyone's to read).
+// not even its run, which the actor carries too (team memory's history is
+// everyone's to read).
 func (s *Server) memoryChanges(ctx context.Context, v core.Viewer, evs []*core.MemoryEvent) []dto.MemoryChange {
 	type runChat struct {
 		open bool
@@ -165,6 +166,9 @@ func (s *Server) memoryChanges(ctx context.Context, v core.Viewer, evs []*core.M
 			c.Chat = rc.link
 			if !rc.open {
 				c.Run = ""
+				if strings.HasPrefix(c.Actor, "agent:") {
+					c.Actor = "agent:"
+				}
 			}
 		}
 		out = append(out, c)
