@@ -22,8 +22,9 @@ channel); `Ack` posts the toast there as an ephemeral reply, and a failed
 a channel carries its own `response_url` as `ReplyRef`, and `ReplyPrivate`
 (`core.PrivateReplier`) posts the hub's answer there as an ephemeral mrkdwn
 reply without previews, which only the sender sees (the URL is good for 30
-minutes and five posts); both go only to `hooks.slack.com` (or the
-configured API host), without following redirects. Messages go out with
+minutes and five posts, `Caps.PrivatePosts`); both go only to
+`hooks.slack.com` (or the configured API host), without following
+redirects. Messages go out with
 `unfurl_links` and `unfurl_media` false, Bothy markdown converted to mrkdwn
 with `&`, `<` and `>` escaped, and buttons as Block Kit actions. All HTTP and
 the WebSocket go through the egress system dialer for the exact host:port

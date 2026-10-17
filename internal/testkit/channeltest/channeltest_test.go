@@ -165,4 +165,13 @@ func TestMisc(t *testing.T) {
 	if got := c.PrivateReplies(); len(got) != 1 || got[0] != (channeltest.PrivateReply{Chat: in.Chat, Sender: "U1", Ref: "hook-1", Text: "Only you"}) {
 		t.Fatalf("private replies = %+v", got)
 	}
+	c.SetPrivateErrAfter(2, boom)
+	for i, want := range []error{nil, nil, boom, boom} {
+		if err := c.ReplyPrivate(ctx, in, "again"); !errors.Is(err, want) {
+			t.Fatalf("ReplyPrivate %d after SetPrivateErrAfter(2) = %v, want %v", i+1, err, want)
+		}
+	}
+	if n := len(c.PrivateReplies()); n != 3 {
+		t.Fatalf("%d private replies recorded, want 3", n)
+	}
 }

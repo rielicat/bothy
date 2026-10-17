@@ -170,7 +170,7 @@ func withChecker(name string) func(*harness) {
 		h.mc = channeltest.NewChecker(name)
 		h.ch, h.app = h.mc.Channel, name
 		if name == "slack" {
-			h.ch.CapsV.CommandPrefix = "/bothy "
+			h.ch.CapsV.CommandPrefix, h.ch.CapsV.PrivatePosts = "/bothy ", 5
 		}
 		h.mc.Scope = "T1/"
 		for _, id := range []string{ownerChat, memberChat} {

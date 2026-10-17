@@ -134,6 +134,10 @@ type ChannelCaps struct {
 	// "/bothy " on Slack, whose one slash command takes the rest as its
 	// text; "" means "/" (Telegram, and Discord's plain-text commands).
 	CommandPrefix string `json:"command_prefix,omitempty"`
+	// PrivatePosts is how many posts one Private message's ReplyRef takes
+	// (PrivateReplier; Slack's response_url takes 5); 0 means no limit. An
+	// answer that needs more goes to the sender's DM whole.
+	PrivatePosts int `json:"private_posts,omitempty"`
 }
 
 // PrivateReplier is implemented by adapters that can answer a Private

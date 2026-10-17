@@ -54,6 +54,7 @@ type Channel struct {
 	ackSeq   int
 	privates []PrivateReply
 	privErr  error
+	privOK   int // ReplyPrivate calls that still succeed before privErr
 }
 
 // PrivateReply is one ReplyPrivate call: Text was shown to Sender alone in
@@ -182,22 +183,29 @@ func (c *Channel) Ack(_ context.Context, _ core.ActionEvent, toast string) error
 }
 
 // ReplyPrivate implements core.PrivateReplier: it records the reply, or
-// fails as SetPrivateErr says.
+// fails as SetPrivateErr or SetPrivateErrAfter says.
 func (c *Channel) ReplyPrivate(_ context.Context, in core.Inbound, markdown string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.privErr != nil {
-		return c.privErr
+		if c.privOK == 0 {
+			return c.privErr
+		}
+		c.privOK--
 	}
 	c.privates = append(c.privates, PrivateReply{Chat: in.Chat, Sender: in.SenderID, Ref: in.ReplyRef, Text: markdown})
 	return nil
 }
 
 // SetPrivateErr makes ReplyPrivate fail (nil restores it).
-func (c *Channel) SetPrivateErr(err error) {
+func (c *Channel) SetPrivateErr(err error) { c.SetPrivateErrAfter(0, err) }
+
+// SetPrivateErrAfter lets the next n ReplyPrivate calls succeed, then fails
+// every later one with err, as a reply URL good for n posts does.
+func (c *Channel) SetPrivateErrAfter(n int, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.privErr = err
+	c.privErr, c.privOK = err, n
 }
 
 // PrivateReplies returns the ReplyPrivate calls so far.

@@ -186,6 +186,55 @@ func TestPrivateSlashFallsBackToDM(t *testing.T) {
 	})
 }
 
+// An answer is never split between the channel and the DM: one needing
+// more posts than a reply reference takes goes to the DM whole, and so does
+// one whose post fails partway, which only leaves its first pieces shown in
+// the channel too.
+func TestPrivateSlashLongAnswer(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t, withChecker("slack"), func(h *harness) { h.ch.CapsV.MaxLen = 300 }).start()
+		h.space("C240", true, true)
+		var pins []string
+		pin := func(n int) {
+			for range n {
+				p := strings.TrimSpace(strings.Repeat(fmt.Sprintf("note%c ", 'a'+len(pins)), 30))
+				pins = append(pins, p)
+				h.slash("C240", ownerChat, "/pin "+p)
+			}
+		}
+		// dmGets asks for the pins and checks the DM got all of them, after
+		// shown pieces in the channel.
+		dmGets := func(shown int) {
+			t.Helper()
+			np, nd := len(h.private(ownerChat)), len(h.visible(ownerChat))
+			h.slash("C240", ownerChat, "/pins")
+			if n := len(h.private(ownerChat)) - np; n != shown {
+				t.Fatalf("/pins with %d pins showed %d pieces in the channel, want %d", len(pins), n, shown)
+			}
+			dm := strings.Join(h.visible(ownerChat)[nd:], "\n")
+			if !strings.HasPrefix(dm, "In Team:\nPinned instructions:\n1. ") {
+				t.Fatalf("the DM got %q, want the whole list, naming the channel", dm)
+			}
+			for _, p := range pins {
+				if !strings.Contains(dm, p) {
+					t.Fatalf("the DM got %q, missing the pin %q", dm, p)
+				}
+			}
+		}
+
+		pin(3)
+		h.ch.SetPrivateErrAfter(1, errors.New("used_url"))
+		dmGets(1)
+
+		h.ch.SetPrivateErr(nil)
+		pin(9)
+		dmGets(0)
+		if v := h.visible("C240"); len(v) != 0 {
+			t.Fatalf("the channel shows %q", v)
+		}
+	})
+}
+
 // plainChannel is a chat app with nothing beyond core.Channel.
 type plainChannel struct{ core.Channel }
 

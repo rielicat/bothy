@@ -95,14 +95,17 @@ carries a `ReplyRef` (Slack's `response_url`, a credential the hub never
 logs, stores or passes to a run); otherwise, or when that post fails, in the
 sender's DM (the adapter's `OpenDM`, remembered as the identity's DM chat),
 worded for the DM: an answer about a channel Bothy is on in starts by naming
-it ("In #eng: Stopped."). Never both. In a group without an enabled space a
-teammate asking for help gets the help list, `/stopall` and `/resume` work
-as in any chat, and anything else is told Bothy is off there, at most once
-an hour per channel; anyone else gets what
-a DM would, in their DM. In an enabled space it goes on as any message: free
-text starts a task in the channel, and a command's answer goes privately.
-Waiting and outsider lines, cards, Cancel request and runs, which need
-buttons, edits or a record, never go privately.
+it ("In #eng: Stopped."). An answer that needs more posts than the reference
+takes (`Caps.PrivatePosts`) goes to the DM whole, so it is never split
+between the two; only a post that fails partway leaves the first pieces
+shown, and the DM gets the whole answer too. In a group without an enabled
+space a teammate asking for help gets the help list, `/stopall` and
+`/resume` work as in any chat, and anything else is told Bothy is off there,
+at most once an hour per channel; anyone else gets what a DM would, in their
+DM. In an enabled space it goes on as any message: free text starts a task
+in the channel, and a command's answer goes privately. Waiting and outsider
+lines, cards, Cancel request and runs, which need buttons, edits or a
+record, never go privately.
 
 Commands: `/stop`, `/status`, `/help`, `/pins` and `/usage` work for anyone
 Bothy answers in the chat; `/new`, `/pin`, `/unpin`, `/compact`, `/model` and

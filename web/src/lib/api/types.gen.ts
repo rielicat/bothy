@@ -280,6 +280,12 @@ export interface ChannelCaps {
    * text; "" means "/" (Telegram, and Discord's plain-text commands).
    */
   command_prefix?: string;
+  /**
+   * PrivatePosts is how many posts one Private message's ReplyRef takes
+   * (PrivateReplier; Slack's response_url takes 5); 0 means no limit. An
+   * answer that needs more goes to the sender's DM whole.
+   */
+  private_posts?: number /* int */;
 }
 /**
  * PrivateReplier is implemented by adapters that can answer a Private

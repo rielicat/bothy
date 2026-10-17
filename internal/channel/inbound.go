@@ -480,11 +480,7 @@ func (h *Hub) toSenderDM(ctx context.Context, a *adapter, in core.Inbound, ident
 // dispatcher, in order per sender.
 func (h *Hub) privately(a *adapter, in core.Inbound, here, dm string) {
 	h.enqueueChat(a.name+":dm-of:"+in.SenderID, func(ctx context.Context) {
-		rest, shown := h.replyInPlace(ctx, a, in, here)
-		if !shown {
-			rest = dm
-		}
-		if rest == "" {
+		if h.replyInPlace(ctx, a, in, here) {
 			return
 		}
 		ident, err := h.d.Store.Identities().Get(ctx, a.name, in.SenderID)
@@ -493,28 +489,34 @@ func (h *Hub) privately(a *adapter, in core.Inbound, here, dm string) {
 			return
 		}
 		if in, _, ok := h.toSenderDM(ctx, a, in, *ident); ok {
-			h.reply(ctx, in.Chat, rest)
+			h.reply(ctx, in.Chat, dm)
 		}
 	})
 }
 
-// replyInPlace shows markdown to in's sender alone where they typed it.
-// shown is false when nothing could be shown: the adapter can't, there is
-// no ReplyRef, or the first piece failed. A later piece that fails leaves
-// itself and those after it in rest.
-func (h *Hub) replyInPlace(ctx context.Context, a *adapter, in core.Inbound, markdown string) (rest string, shown bool) {
+// replyInPlace shows markdown to in's sender alone where they typed it and
+// reports whether all of it was; if not, privately sends the DM the whole
+// answer. Nothing is shown when the adapter can't, there is no ReplyRef or
+// the answer needs more posts than a ReplyRef takes (Caps.PrivatePosts), so
+// only a post failing partway leaves pieces in both places.
+func (h *Hub) replyInPlace(ctx context.Context, a *adapter, in core.Inbound, markdown string) bool {
 	pr, ok := a.ch.(core.PrivateReplier)
 	if !ok || in.ReplyRef == "" {
-		return "", false
+		return false
 	}
-	pieces := splitAll(h.redact(markdown), a.ch.Caps().MaxLen)
-	for i, piece := range pieces {
+	caps := a.ch.Caps()
+	pieces := splitAll(h.redact(markdown), caps.MaxLen)
+	if caps.PrivatePosts > 0 && len(pieces) > caps.PrivatePosts {
+		h.log.Info("channel: answer too long to show privately; answering in the DM", "channel", a.name, "pieces", len(pieces))
+		return false
+	}
+	for _, piece := range pieces {
 		if err := pr.ReplyPrivate(ctx, in, piece); err != nil {
 			h.log.Warn("channel: private reply failed; answering in the DM", "channel", a.name, "err", err)
-			return strings.Join(pieces[i:], "\n\n"), i > 0
+			return false
 		}
 	}
-	return "", true
+	return true
 }
 
 // noteOnce reports whether key was not noted in the last every, noting it.
