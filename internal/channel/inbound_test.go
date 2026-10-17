@@ -108,6 +108,36 @@ func TestWaitingPersonOneLineADayAndNoRuns(t *testing.T) {
 	})
 }
 
+// Once an admin lets someone in or blocks them, the approvers' DMs saying
+// they are waiting say so instead, without the button to go and decide.
+func TestWaitingNoticeSaysWhatAnAdminDecided(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		const waiter, blocked = "5005", "5007"
+		h.dm(waiter, "hi")
+		h.dm(blocked, "hello")
+		synctest.Wait()
+		h.wantVisible(ownerChat, "User 5005 messaged Bothy on Telegram and is waiting to be let in.")
+		teammate, block := core.IdentityTeammate, core.IdentityBlocked
+		decide := func(ext string, status core.IdentityStatus) {
+			if _, err := h.auth.SetTeammate(h.ctx, h.admin(), "telegram", ext, authPatch(&status, nil)); err != nil {
+				t.Fatal(err)
+			}
+			h.bus.Publish(core.Event{Type: core.EvInboxChanged, Data: core.InboxChangedData{Item: "sender:telegram:" + ext}})
+			synctest.Wait()
+		}
+		decide(waiter, teammate)
+		h.wantVisible(ownerChat, "✓ User 5005 on Telegram was let in.")
+		decide(blocked, block)
+		h.wantVisible(ownerChat, "✗ User 5007 on Telegram was blocked.")
+		for _, v := range h.visible(ownerChat) {
+			if strings.Contains(v, "is waiting to be let in") {
+				t.Fatalf("an approver still reads %q", v)
+			}
+		}
+	})
+}
+
 // TestUnknownSenderBecomesInboxItem: the first words of someone new are kept
 // once, cleaned to one line, for the admins' inbox item (never for a run),
 // and admins' inboxes are told, as for a new group chat. The "/start"

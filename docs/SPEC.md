@@ -5126,7 +5126,7 @@ People in chat apps are not linked to web accounts. A chat app either says who b
 | Channel | Discord | admitted teammates (this server or another with a channel on) | channel space | `ProvUntrusted` |
 | Channel | Telegram | anyone not blocked, group on | channel space | `ProvUntrusted` |
 
-Outsiders get one line a day in DMs and silence in channels. Blocked people get silence everywhere. People waiting to be let in get one line a day plus approver DMs, unless `unknown_senders: ignore`.
+Outsiders get one line a day in DMs and silence in channels. Blocked people get silence everywhere. People waiting to be let in get one line a day plus approver DMs, unless `unknown_senders: ignore`. When an admin lets them in or blocks them (`inbox.changed`), the hub edits those DMs to *"✓ Maya (@maya) on Telegram was let in."* or *"✗ … was blocked."*, without the button (best effort: it remembers the DMs in memory for 7 days).
 
 1. **Adapter → `Hub.OnMessage`.** Adapters normalise platform updates into `core.Inbound` and never block (256-slot buffer per adapter; overflow drops and counts a metric). Slack drops messages from bots and apps (`bot_id`, `bot_profile`). Discord sets `Inbound.Team` to the guild id.
 2. **Dedup:** `Store.Dedup().Seen(channel, msgID)`; repeats are dropped (Telegram redelivery, Slack retries).

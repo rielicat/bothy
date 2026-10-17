@@ -74,10 +74,13 @@ type Hub struct {
 	asks      askLimiter
 	// channelAsks bounds the approver DMs about new channels.
 	channelAsks askLimiter
-	lookups     map[string]*lookupLimiter
-	failures    map[string]time.Time // membership lookup failures by "<app>:<sender>"
-	scopes      map[string]string    // last membership scope per adapter
-	teams       map[string]teamsEntry
+	// waitNotes holds the approver DMs saying someone is waiting to be let
+	// in, by inbox item, until an admin lets them in or blocks them.
+	waitNotes map[string][]waitNote
+	lookups   map[string]*lookupLimiter
+	failures  map[string]time.Time // membership lookup failures by "<app>:<sender>"
+	scopes    map[string]string    // last membership scope per adapter
+	teams     map[string]teamsEntry
 }
 
 func New(d Deps) (*Hub, error) {
@@ -118,6 +121,7 @@ func New(d Deps) (*Hub, error) {
 		noted:         map[string]time.Time{},
 		compacting:    map[core.SessionID]struct{}{},
 		linkNoted:     map[core.SessionID]time.Time{},
+		waitNotes:     map[string][]waitNote{},
 		lookups:       map[string]*lookupLimiter{},
 		failures:      map[string]time.Time{},
 		scopes:        map[string]string{},

@@ -45,6 +45,8 @@ func (h *Hub) onBusEvent(e core.Event) {
 		}
 	case core.BudgetWarningData:
 		h.onBudgetWarning(e, d)
+	case core.InboxChangedData:
+		h.settleWaitNotes(d.Item)
 	}
 }
 

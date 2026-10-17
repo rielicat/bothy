@@ -534,6 +534,7 @@ func (h *Hub) notifyWaiting(ctx context.Context, channel string, ident core.Chan
 	if !dm {
 		return
 	}
+	label := inert(revealInvisible(who)) + " on " + app
 	text := inert(revealInvisible(who)) + " messaged Bothy on " + app + " and is waiting to be let in. An admin can let them in or block them in Bothy."
 	switch {
 	case held == 1:
@@ -541,7 +542,77 @@ func (h *Hub) notifyWaiting(ctx context.Context, channel string, ident core.Chan
 	case held > 1:
 		text += fmt.Sprintf(" %d other people have also messaged Bothy since the last notice.", held)
 	}
-	h.tellApprovers(approvers, text, h.webButton("Open in Bothy", "/approvals"))
+	item := "sender:" + channel + ":" + ident.ExternalID
+	buttons := h.webButton("Open in Bothy", "/approvals")
+	for _, ap := range approvers {
+		chat := ap.chat
+		h.enqueueChat(chat.Key(), func(ctx context.Context) {
+			ref, err := h.sendText(ctx, chat, text, buttons)
+			if err != nil {
+				h.log.Warn("channel reply failed", "chat", chat.Key(), "err", err)
+				return
+			}
+			h.mu.Lock()
+			h.waitNotes[item] = append(h.waitNotes[item], waitNote{ref: ref, label: label, at: time.Now()})
+			h.mu.Unlock()
+		})
+	}
+}
+
+// waitNote is an approver's DM about someone waiting to be let in; label
+// is who and where, "Maya (@maya) on Telegram".
+type waitNote struct {
+	ref   core.MsgRef
+	label string
+	at    time.Time
+}
+
+// settleWaitNotes edits the approvers' DMs about someone waiting once an
+// admin let them in or blocked them, so none of them goes to let in someone
+// already decided.
+func (h *Hub) settleWaitNotes(item string) {
+	rest, ok := strings.CutPrefix(item, "sender:")
+	channel, ext, ok2 := strings.Cut(rest, ":")
+	if !ok || !ok2 {
+		return
+	}
+	h.mu.Lock()
+	notes := h.waitNotes[item]
+	delete(h.waitNotes, item)
+	h.mu.Unlock()
+	if len(notes) == 0 {
+		return
+	}
+	h.goAsync(func(ctx context.Context) {
+		id, err := h.d.Store.Identities().Get(ctx, channel, ext)
+		var line string
+		switch {
+		case errors.Is(err, core.ErrNotFound):
+			line = "%s is no longer waiting."
+		case err != nil:
+			h.log.Warn("channel: reading someone let in failed", "channel", channel, "err", err)
+			fallthrough
+		case id.Status == core.IdentityPending:
+			h.mu.Lock()
+			h.waitNotes[item] = append(notes, h.waitNotes[item]...)
+			h.mu.Unlock()
+			return
+		case id.Status == core.IdentityTeammate:
+			line = "✓ %s was let in."
+		default:
+			line = "✗ %s was blocked."
+		}
+		for _, n := range notes {
+			a := h.live(n.ref.Chat.Channel)
+			if a == nil {
+				continue
+			}
+			msg := core.OutMessage{Chat: n.ref.Chat, Text: h.redact(fmt.Sprintf(line, n.label))}
+			if err := a.ch.Edit(ctx, n.ref, msg); err != nil {
+				h.log.Debug("channel: updating a waiting notice failed", "chat", n.ref.Chat.Key(), "err", err)
+			}
+		}
+	})
 }
 
 // tellApprovers DMs each chat approver.

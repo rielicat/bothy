@@ -83,7 +83,7 @@ func (h *Hub) Run(ctx context.Context) error {
 	h.mu.Unlock()
 
 	sub := h.d.Bus.Subscribe(core.Filter{System: true, Types: []core.EventType{
-		core.EvApprovalRequested, core.EvApprovalResolved, core.EvApprovalVoted, core.EvBudgetWarning}}, 256)
+		core.EvApprovalRequested, core.EvApprovalResolved, core.EvApprovalVoted, core.EvBudgetWarning, core.EvInboxChanged}}, 256)
 	stopWatch := h.d.Config.Watch(func(_, _ *config.Config) { h.requestReconcile() })
 	h.reconcile()
 	h.contain("approval card resync", h.resyncCards)
@@ -444,6 +444,11 @@ func (h *Hub) prune() {
 	for s, at := range h.linkNoted {
 		if now.Sub(at) > 7*24*time.Hour {
 			delete(h.linkNoted, s)
+		}
+	}
+	for item, notes := range h.waitNotes {
+		if now.Sub(notes[len(notes)-1].at) > 7*24*time.Hour {
+			delete(h.waitNotes, item)
 		}
 	}
 }
