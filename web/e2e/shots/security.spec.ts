@@ -81,12 +81,10 @@ const states: ShotState[] = [
     name: 'security-code-off',
     route: '/settings/security',
     mock: 'sandbox-off',
-    ready: 'Running code is off on this server.',
+    ready: "Off on this server. Bothy can't run commands or scripts.",
     setup: framed(async (page) => {
-      await page.getByRole('button', { name: 'How to turn it on' }).last().click();
-      await page.locator('#main').getByRole('button', { name: 'Details', exact: true }).last().click();
-      await page.getByRole('button', { name: 'Technical details' }).click();
-      await page.getByRole('button', { name: 'How to turn it on' }).last().scrollIntoViewIfNeeded();
+      await page.getByRole('button', { name: 'How to turn it on' }).click();
+      await page.getByRole('button', { name: 'How to turn it on' }).scrollIntoViewIfNeeded();
     }),
   },
   {
@@ -114,8 +112,8 @@ const states: ShotState[] = [
   { name: 'security-sign-in', route: '/settings/security', mock: 'signin-google,team-mode', ready: 'Who can sign in', full: false, setup: scrollTo('Who can sign in') },
   { name: 'google-sign-in', route: '/settings/security/google-sign-in', mock: 'signin-google', ready: 'Redirect URI', setup: framed() },
   { name: 'google-sign-in-new', route: '/settings/security/google-sign-in', ready: 'Save the details below to turn this on.', setup: framed() },
-  { name: 'google-sign-in-no-address', route: '/settings/security/google-sign-in', mock: 'signin-no-address', ready: 'Set the web address first.', setup: framed() },
-  { name: 'google-sign-in-http-address', route: '/settings/security/google-sign-in', mock: 'signin-http-address', ready: 'Set the web address first.', setup: framed() },
+  { name: 'google-sign-in-no-address', route: '/settings/security/google-sign-in', mock: 'signin-no-address', ready: "Set Bothy's web address before turning this on.", setup: framed() },
+  { name: 'google-sign-in-http-address', route: '/settings/security/google-sign-in', mock: 'signin-http-address', ready: 'Appears once the web address starts with https://.', setup: framed() },
   {
     name: 'google-sign-in-check-failed',
     route: '/settings/security/google-sign-in',
@@ -179,18 +177,18 @@ const states: ShotState[] = [
       await page.getByRole('menuitem', { name: 'Delete…' }).click();
     }),
   },
-  { name: 'keys-sealed', route: '/settings/security/keys', mock: 'sealed', ready: 'Saved keys are locked.', setup: framed() },
+  { name: 'keys-sealed', route: '/settings/security/keys', mock: 'sealed', ready: "Bothy's saved keys are locked", setup: framed() },
   {
     name: 'keys-unlock',
     route: '/settings/security/keys',
     mock: 'sealed',
-    ready: 'Saved keys are locked.',
+    ready: "Bothy's saved keys are locked",
     full: false,
     setup: framed(async (page) => {
-      // The sealed banner has an Unlock of its own; this is the page's.
-      await page.getByRole('button', { name: 'Unlock', exact: true }).and(page.locator(':not([role="alert"] *)')).click();
+      // The banner's Unlock is the page's only one while it shows.
+      await page.getByRole('button', { name: 'Unlock', exact: true }).click();
       await page.getByLabel('Passphrase').fill('wrong');
-      await page.getByRole('dialog').getByRole('button', { name: 'Unlock', exact: true }).click();
+      await page.locator('#main').getByRole('button', { name: 'Unlock', exact: true }).click();
       await page.getByText("That passphrase didn't work.").waitFor();
     }),
   },

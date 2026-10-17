@@ -24,6 +24,9 @@ const patches = (calls: Call[], url: string) => calls.filter((c) => c.method ===
 
 beforeEach(() => toaster.dismiss());
 
+// The provider rows link to their pages; the section's other links (a guide) aren't rows.
+const providerRows = (section: HTMLElement) => within(section).getAllByRole('link').filter((l) => l.getAttribute('href')?.startsWith('/settings/security/'));
+
 describe('Security → Sign-in', () => {
   async function open(mock = '', override?: (m: string, url: string) => unknown) {
     const calls = await signedIn(mock, override);
@@ -36,15 +39,13 @@ describe('Security → Sign-in', () => {
     const { section } = await open();
     const list = within(section).getByLabelText('Who can sign in') as HTMLTextAreaElement;
     expect(list.value).toBe('');
-    expect(
-      within(section).getByText(
-        'Email addresses or domains, like acme.com or pat@gmail.com. A domain lets in Google Workspace accounts on it. GitHub accounts need their exact address here, or an organization on the GitHub page.',
-      ),
-    ).toBeTruthy();
-    const create = within(section).getByRole('switch', { name: 'Create an account the first time someone on the list signs in' });
+    expect(within(section).getByText('One email address or domain per line, like acme.com or pat@gmail.com.')).toBeTruthy();
+    const create = within(section).getByRole('switch', { name: 'Create accounts on first sign-in' });
     expect(create.getAttribute('aria-disabled')).toBe('true');
-    expect(within(section).getByText('Adding people needs team mode. Turn it on in Settings → Advanced.')).toBeTruthy();
-    const rows = within(section).getAllByRole('link');
+    // Outside team use the reason names who can change it, with the guide, not a control that doesn't exist.
+    expect(within(section).getByText("This Bothy is set up for one person, so it can't create accounts. Whoever runs the server can switch it to team use.")).toBeTruthy();
+    expect(within(section).getByRole('link', { name: /How to switch/ }).getAttribute('target')).toBe('_blank');
+    const rows = providerRows(section);
     expect(rows.map((r) => r.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['Google Off', 'GitHub Off']);
     expect(rows[0].getAttribute('href')).toBe('/settings/security/google-sign-in');
     expect(list.compareDocumentPosition(create) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -54,7 +55,7 @@ describe('Security → Sign-in', () => {
     const { calls, section } = await open('signin-google');
     const list = within(section).getByLabelText('Who can sign in') as HTMLTextAreaElement;
     await waitFor(() => expect(list.value).toBe('acme.com'));
-    expect(within(section).getAllByRole('link')[0].textContent).toContain('On');
+    expect(providerRows(section)[0].textContent).toContain('On');
     await fireEvent.input(list, { target: { value: 'Acme.com, pat@gmail.com\n@eng.acme.io\n\nacme.com' } });
     await fireEvent.blur(list);
     await waitFor(() => expect(patches(calls, '/api/sign-in')).toEqual([{ allow: ['acme.com', 'pat@gmail.com', 'eng.acme.io'] }]));
@@ -119,7 +120,7 @@ describe('Security → Sign-in', () => {
 
   it('lets people in as members in team mode', async () => {
     const { calls, section } = await open('team-mode');
-    const create = within(section).getByRole('switch', { name: 'Create an account the first time someone on the list signs in' });
+    const create = within(section).getByRole('switch', { name: 'Create accounts on first sign-in' });
     expect(within(section).getByText('People who already have an account should connect Google or GitHub in Account first.')).toBeTruthy();
     expect(within(section).queryByText(/GitHub organizations/)).toBeNull();
     await fireEvent.click(create);
@@ -136,7 +137,7 @@ describe('Security → Sign-in', () => {
 
   it('marks a provider that is on but not working', async () => {
     const { section } = await open('signin-no-secret');
-    const google = within(section).getAllByRole('link')[0];
+    const google = providerRows(section)[0];
     expect(google.textContent).toContain('Not working');
     expect(google.querySelector('.text-danger-text')).toBeTruthy();
   });
@@ -213,14 +214,20 @@ describe('Google sign-in page', () => {
   });
 
   it.each([
-    ['signin-no-address', "Set Bothy's web address before turning this on. Google sends people back to it after they sign in."],
-    ['signin-http-address', "Bothy's web address must start with https:// for Google sign-in. Put Bothy behind HTTPS, then change the address in General."],
-  ])('explains %s and keeps the switch off', async (mock, text) => {
+    ['signin-no-address', "Set Bothy's web address before turning this on. Google sends people back to it after they sign in.", "Set Bothy's web address first."],
+    ['signin-http-address', "Bothy's web address must start with https:// for Google sign-in. Put Bothy behind HTTPS, then change the address in General.", "Bothy's web address needs to start with https://."],
+  ])('explains %s once and keeps the switch off', async (mock, text, why) => {
     await signedIn(mock);
     render(GoogleSignIn);
     expect(await screen.findByText(text)).toBeTruthy();
-    expect(screen.getByText('Set the web address first.')).toBeTruthy();
-    expect(screen.getByRole('switch', { name: 'Sign in with Google' }).getAttribute('aria-disabled')).toBe('true');
+    // The notice says what to do; the redirect block only what to expect, and the switch's reason reaches screen readers only.
+    expect(screen.getByText('Appears once the web address starts with https://.')).toBeTruthy();
+    expect(screen.queryByRole('link', { name: /Open Google Cloud/ })).toBeNull();
+    const sw = screen.getByRole('switch', { name: 'Sign in with Google' });
+    expect(sw.getAttribute('aria-disabled')).toBe('true');
+    const reason = document.getElementById(sw.getAttribute('aria-describedby') ?? '')!;
+    expect(reason.textContent).toBe(why);
+    expect(reason.className).toContain('sr-only');
     expect(screen.getByRole('button', { name: 'Open General' })).toBeTruthy();
   });
 
@@ -248,7 +255,7 @@ describe('GitHub sign-in page', () => {
     expect(await screen.findByRole('heading', { name: 'GitHub OAuth app' })).toBeTruthy();
     expect(screen.getByText('Callback URL')).toBeTruthy();
     expect(screen.getByText('https://bothy.acme.com/api/auth/oauth/github/callback')).toBeTruthy();
-    expect(screen.getByText('Members of these GitHub organizations can also sign in.')).toBeTruthy();
+    expect(screen.getByText('Members of these GitHub organizations can also sign in. Other GitHub accounts need their exact email address on the list.')).toBeTruthy();
     const orgs = screen.getByLabelText(/Organizations/) as HTMLInputElement;
     expect(orgs.value).toBe('acme-inc');
 

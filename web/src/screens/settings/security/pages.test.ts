@@ -174,8 +174,20 @@ describe('Saved keys', () => {
     expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/vault/global/anthropic_api_key')).toBe(true);
   });
 
+  it('leaves Unlock to the locked-keys banner while it shows', async () => {
+    await signIn('sealed');
+    render(SavedKeys);
+    await screen.findByRole('heading', { level: 1 });
+    await waitFor(() => expect(session.banners.some((b) => b.code === 'vault_sealed')).toBe(true));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByText('Saved keys are locked.')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Unlock' })).toBeNull();
+  });
+
   it('unlocks locked keys with the passphrase', async () => {
     const calls = await signIn('sealed');
+    // Without the banner (dismissed or not yet here) the page offers Unlock itself.
+    session.banners = session.banners.filter((b) => b.code !== 'vault_sealed');
     render(SavedKeys);
     await screen.findByText('Saved keys are locked.');
     expect(screen.queryByRole('button', { name: 'Add key' })).toBeNull();

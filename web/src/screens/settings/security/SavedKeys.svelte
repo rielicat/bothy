@@ -149,7 +149,8 @@
     {#if personal}
       <p class="mb-4 text-body text-muted">Keys only you use. When a connected tool works for you, it uses your key in place of the shared key with the same name.</p>
     {/if}
-    {#if vault?.sealed}
+    <!-- While the locked-keys banner shows, its Unlock is the one action; a second row here would repeat it. -->
+    {#if vault?.sealed && !session.banners.some((b) => b.code === 'vault_sealed' && !session.dismissed.includes(b.code))}
       <div class="flex min-h-14 flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-border py-3">
         <p class="text-body text-text">Saved keys are locked.</p>
         <Button variant="primary" size="sm" onclick={() => (unlocking = true)}>Unlock</Button>

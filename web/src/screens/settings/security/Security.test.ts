@@ -83,9 +83,17 @@ describe('Security', () => {
     ]);
   });
 
+  it('leaves locked keys to their banner, keeping "Locked" on the Saved keys row', async () => {
+    await open('sealed');
+    await waitFor(() => expect(screen.getByRole('link', { name: /Saved keys\s*Locked/ })).toBeTruthy());
+    expect(session.banners.some((b) => b.code === 'vault_sealed')).toBe(true);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByText('Saved keys are locked.')).toBeNull();
+  });
+
   it('turns package downloads on from a switch', async () => {
     const calls = await open();
-    const sw = screen.getByRole('switch', { name: 'Python packages (PyPI)' });
+    const sw = screen.getByRole('switch', { name: 'Let code download Python packages' });
     await fireEvent.click(sw);
     await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toBe('{"set":{"egress.presets.python_packages":true}}'));
   });
@@ -100,11 +108,11 @@ describe('Security', () => {
     const scheduled = screen.getByLabelText('If nobody answers a scheduled request') as HTMLSelectElement;
     await waitFor(() => expect(scheduled.disabled).toBe(true));
     expect(why(scheduled)).toBe("This is set on the server and can't be changed here.");
-    const npm = screen.getByRole('switch', { name: 'JavaScript packages (npm)' });
+    const npm = screen.getByRole('switch', { name: 'Let code download JavaScript packages' });
     expect(npm.getAttribute('aria-disabled')).toBe('true');
     expect(why(npm)).toBe("This is set on the server and can't be changed here.");
     expect(screen.getByLabelText('If nobody answers a chat request').getAttribute('aria-describedby')).toBeNull();
-    expect(screen.getByRole('switch', { name: 'Python packages (PyPI)' }).getAttribute('aria-describedby')).toBeNull();
+    expect(screen.getByRole('switch', { name: 'Let code download Python packages' }).getAttribute('aria-describedby')).toBeNull();
   });
 
   it('counts permissions, sites and saved keys, linking each page', async () => {
@@ -114,18 +122,19 @@ describe('Security', () => {
     await waitFor(() => expect(screen.getByRole('link', { name: /Saved keys\s*6 saved keys/ }).getAttribute('href')).toBe('/settings/security/keys'));
   });
 
-  it('explains how to turn running code on, with the commands under Details', async () => {
+  it('says running code is off once, under Running code, with the commands one level down', async () => {
     await open('sandbox-off');
-    await waitFor(() => expect(screen.getAllByRole('button', { name: 'How to turn it on' })).toHaveLength(2));
-    const how = screen.getAllByRole('button', { name: 'How to turn it on' });
-    // One in Needs attention moves to the one under Running code and opens it.
-    await fireEvent.click(how[0]);
-    const toggle = how[how.length - 1];
-    await waitFor(() => expect(toggle.getAttribute('aria-expanded')).toBe('true'));
-    expect(document.activeElement).toBe(toggle);
+    await screen.findByText("Off on this server. Bothy can't run commands or scripts.");
+    // Not again in Needs attention, and the package switches wait until code can run.
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'How to turn it on' })).toHaveLength(1));
+    expect(screen.queryByText('Running code is off on this server.')).toBeNull();
+    expect(screen.queryByRole('switch', { name: 'Let code download Python packages' })).toBeNull();
+    const toggle = screen.getByRole('button', { name: 'How to turn it on' });
+    await fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
     expect(screen.getByText(/Start Bothy with the compose file from the deployment guide/)).toBeTruthy();
-    await fireEvent.click(screen.getAllByRole('button', { name: 'Details' }).at(-1)!);
     expect(screen.getByText(/docker compose up -d/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Technical details' })).toBeNull();
   });
 
   it('pauses from a dialog that starts on Cancel, then resumes', async () => {

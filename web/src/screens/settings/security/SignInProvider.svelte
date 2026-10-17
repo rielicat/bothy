@@ -56,11 +56,15 @@
     if (session.isAdmin) untrack(load);
   });
 
+  const uid = $props.id();
+  // The web address can't carry sign-in: the notice at the top says so and what to do.
+  const noticed = $derived(!!adm && adm.address !== 'ok');
   // Why the switch can't be turned on yet; nothing once it is on, so it can always be turned off.
   const reason = $derived.by(() => {
     if (!adm || !st || st.enabled) return '';
     if (fixed(`${base}.enabled`)) return FIXED_HELP;
     if (canEnable(adm, st)) return '';
+    if (adm.address === 'not_https') return "Bothy's web address needs to start with https://.";
     if (adm.address !== 'ok') return "Set Bothy's web address first.";
     if (!st.client_id || !st.secret_saved) return 'Save the details below to turn this on.';
     if (!hasRules(adm, st)) return github ? 'Add an email address on the Security page, or an organization below, to turn this on.' : 'Add who can sign in on the Security page to turn this on.';
@@ -162,29 +166,41 @@
       <Notice class="mb-6" tone="danger" text="Saved keys are locked, so {name} sign-in can't work. Unlock them in Saved keys." action={{ label: 'Open saved keys', onclick: () => router.navigate('/settings/security/keys') }} />
     {/if}
 
-    <SettingsRow label="Sign in with {name}" inline help={reason || undefined} status={switchRow.status} error={switchRow.error}>
+    <!-- The address notice above says why the switch is off, so the reason isn't printed a second time; screen readers still get it. -->
+    <SettingsRow label="Sign in with {name}" inline help={(!noticed && reason) || undefined} status={switchRow.status} error={switchRow.error}>
       {#snippet children(c)}
-        <Switch id={c.id} label="Sign in with {name}" hideLabel aria-describedby={c.describedBy} checked={st.enabled} disabled={!!reason} onchange={toggle} />
+        <Switch
+          id={c.id}
+          label="Sign in with {name}"
+          hideLabel
+          aria-describedby={noticed && reason ? `${uid}-why` : c.describedBy}
+          checked={st.enabled}
+          disabled={!!reason}
+          onchange={toggle}
+        />
+        {#if noticed && reason}<span id="{uid}-why" class="sr-only">{reason}</span>{/if}
       {/snippet}
     </SettingsRow>
     <LinkRow label="Who can sign in" value={github ? addressSummary(adm.allow) : listSummary(adm.allow)} href="/settings/security" />
+    {#if !github}<p class="field-help">A domain on the list lets in the Google Workspace accounts on it.</p>{/if}
 
     <form class="mt-10" novalidate onsubmit={save}>
       <SettingsSection title={github ? 'GitHub OAuth app' : 'Google Cloud'}>
         <div class="space-y-5 pt-2">
           <div>
             <p class="field-label">{github ? 'Callback URL' : 'Redirect URI'}</p>
-            {#if st.redirect_uri}
+            {#if st.redirect_uri && !noticed}
               <CodeBlock class="mt-2" code={st.redirect_uri} wrap />
+              <p class="field-help">
+                {github ? 'Paste this as the authorization callback URL of a GitHub OAuth app.' : "Add this to the OAuth client's authorized redirect URIs in Google Cloud."}
+              </p>
+              <Button class="mt-3" size="sm" href={github ? 'https://github.com/settings/applications/new' : 'https://console.cloud.google.com/apis/credentials'} external
+                >{github ? 'Open GitHub' : 'Open Google Cloud'}</Button
+              >
             {:else}
-              <p class="mt-2 text-body text-muted">Set the web address first.</p>
+              <!-- The notice at the top says what to do; this only says what to expect here. -->
+              <p class="mt-2 text-body text-muted">Appears once the web address starts with https://.</p>
             {/if}
-            <p class="field-help">
-              {github ? 'Paste this as the authorization callback URL of a GitHub OAuth app.' : "Add this to the OAuth client's authorized redirect URIs in Google Cloud."}
-            </p>
-            <Button class="mt-3" size="sm" href={github ? 'https://github.com/settings/applications/new' : 'https://console.cloud.google.com/apis/credentials'} external
-              >{github ? 'Open GitHub' : 'Open Google Cloud'}</Button
-            >
           </div>
           <TextField
             label="Client ID"
@@ -222,7 +238,7 @@
             spellcheck="false"
             autocapitalize="none"
             disabled={fixed(`${base}.orgs`)}
-            help={fixed(`${base}.orgs`) ? FIXED_HELP : 'Members of these GitHub organizations can also sign in.'}
+            help={fixed(`${base}.orgs`) ? FIXED_HELP : 'Members of these GitHub organizations can also sign in. Other GitHub accounts need their exact email address on the list.'}
             error={errors.orgs}
           />
           <Disclosure class="mt-2">

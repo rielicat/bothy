@@ -26,6 +26,7 @@
   ];
   // The compose deployment from the README, for servers that don't send their own lines.
   const COMPOSE = 'sh install.sh --compose ~/bothy\ncd ~/bothy && docker compose up -d';
+  const DEPLOY_GUIDE = 'https://github.com/rielicat/bothy/blob/main/docs/deploy/README.md';
 
   let audit = $state<Finding[] | null>(null);
   let auditFailed = $state(false);
@@ -48,7 +49,14 @@
   let resuming = $state(false);
   let resumeError = $state('');
 
-  const attention = $derived(needsAttention(audit));
+  // The Running code section says it, with how to turn it on; the locked-keys banner says the other, with Unlock.
+  const sealedBanner = $derived(session.banners.some((b) => b.code === 'vault_sealed') && !session.dismissed.includes('vault_sealed'));
+  const attention = $derived(
+    needsAttention(audit).filter((f) => {
+      const a = describeFinding(f).action;
+      return !(a === 'running-code' && codeOn === false) && !(f.id === 'vault.sealed' && sealedBanner);
+    }),
+  );
   const approval = $derived<ApprovalConfig>({
     interactiveTimeout: config.value('policy.approval.interactive_timeout'),
     interactiveOnTimeout: config.value('policy.approval.interactive_on_timeout'),
@@ -223,6 +231,10 @@
   }
 </script>
 
+{#snippet howToSwitch()}
+  <a class="link" href={DEPLOY_GUIDE} target="_blank" rel="noopener noreferrer">How to switch ↗<span class="sr-only"> (opens in a new tab)</span></a>
+{/snippet}
+
 <Page title="Security" back={settingsBack()}>
   {#if !session.isAdmin}
     <PageState kind="forbidden" />
@@ -323,11 +335,7 @@
       {@const newFixed = fixed('auth.sign_in.allow_new')}
       {@const orgsSet = signIn.providers.some((p) => p.provider === 'github' && p.orgs.length > 0)}
       <SettingsSection title="Sign-in">
-        <SettingsRow
-          label="Who can sign in"
-          help={listFixed
-            ? FIXED_HELP
-            : 'Email addresses or domains, like acme.com or pat@gmail.com. A domain lets in Google Workspace accounts on it. GitHub accounts need their exact address here, or an organization on the GitHub page.'}
+        <SettingsRow label="Who can sign in" help={listFixed ? FIXED_HELP : 'One email address or domain per line, like acme.com or pat@gmail.com.'}
           status={allowRow.status}
           error={allowRow.error}
         >
@@ -348,20 +356,21 @@
           {/snippet}
         </SettingsRow>
         <SettingsRow
-          label="Create an account the first time someone on the list signs in"
+          label="Create accounts on first sign-in"
           inline
           help={newFixed
             ? FIXED_HELP
             : signIn.team_mode
               ? `${orgsSet ? 'Members of the GitHub organizations you add also get an account. ' : ''}People who already have an account should connect Google or GitHub in Account first.`
-              : 'Adding people needs team mode. Turn it on in Settings → Advanced.'}
+              : "This Bothy is set up for one person, so it can't create accounts. Whoever runs the server can switch it to team use."}
+          note={!newFixed && !signIn.team_mode ? howToSwitch : undefined}
           status={allowNewRow.status}
           error={allowNewRow.error}
         >
           {#snippet children(c)}
             <Switch
               id={c.id}
-              label="Create an account the first time someone on the list signs in"
+              label="Create accounts on first sign-in"
               hideLabel
               aria-describedby={c.describedBy}
               checked={signIn?.allow_new ?? false}
@@ -394,39 +403,25 @@
               >
             {/if}
           </div>
+          <!-- One level: the sentence and the commands. Backend, runtime and the reason are in Advanced → Running code. -->
           {#if !codeOn && howOpen}
             <div id="{uid}-how" class="mt-3 max-w-prose space-y-3">
               <p class="text-body text-text">Start Bothy with the compose file from the deployment guide, which includes the isolated workspace service, then restart Bothy.</p>
-              <Disclosure>
-                <CodeBlock code={sandbox.compose_hint || sandbox.status.fix || COMPOSE} label="Commands" />
-              </Disclosure>
-              <Disclosure label="Technical details">
-                <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-small">
-                  <dt class="text-muted">Backend</dt>
-                  <dd class="text-text">{sandbox.status.backend || 'none'}</dd>
-                  <dt class="text-muted">Runtime</dt>
-                  <dd class="text-text">{sandbox.status.runtime || 'none'}</dd>
-                  {#if sandbox.status.reason}
-                    <dt class="text-muted">Reason</dt>
-                    <dd class="text-text">{sandbox.status.reason}</dd>
-                  {/if}
-                  {#each sandbox.status.self_test ?? [] as t, i (i)}
-                    <dt class="text-muted">{t.name}</dt>
-                    <dd class={t.ok ? 'text-text' : 'text-danger-text'}>{t.ok ? 'Passed' : `Failed${t.detail ? `: ${t.detail}` : ''}`}</dd>
-                  {/each}
-                </dl>
-              </Disclosure>
+              <CodeBlock code={sandbox.compose_hint || sandbox.status.fix || COMPOSE} label="Commands" />
             </div>
           {/if}
         </div>
       {/if}
-      {#each [['egress.presets.python_packages', 'Python packages (PyPI)'], ['egress.presets.npm_packages', 'JavaScript packages (npm)']] as [path, label] (path)}
-        <SettingsRow {label} inline help={fixed(path) ? FIXED_HELP : undefined} status={rows[path]?.status} error={rows[path]?.error}>
-          {#snippet children(c)}
-            <Switch id={c.id} {label} hideLabel aria-describedby={c.describedBy} checked={config.flag(path)} disabled={fixed(path)} onchange={(v) => save(path, { [path]: v })} />
-          {/snippet}
-        </SettingsRow>
-      {/each}
+      <!-- Package downloads only matter to code that runs, so they wait until it can. -->
+      {#if codeOn !== false}
+        {#each [['egress.presets.python_packages', 'Let code download Python packages'], ['egress.presets.npm_packages', 'Let code download JavaScript packages']] as [path, label] (path)}
+          <SettingsRow {label} inline help={fixed(path) ? FIXED_HELP : undefined} status={rows[path]?.status} error={rows[path]?.error}>
+            {#snippet children(c)}
+              <Switch id={c.id} {label} hideLabel aria-describedby={c.describedBy} checked={config.flag(path)} disabled={fixed(path)} onchange={(v) => save(path, { [path]: v })} />
+            {/snippet}
+          </SettingsRow>
+        {/each}
+      {/if}
       <LinkRow label="Websites Bothy can reach" value={plural(sites, 'site')} href="/settings/security/websites" />
     </SettingsSection>
 
