@@ -26,7 +26,7 @@
         re: /^xapp-\S{16,}$/,
       },
     ],
-    telegram: [{ key: 'token', label: 'Bot token', help: 'Looks like 123456789:AAF…', secret: 'telegram_bot_token', re: /^\d{5,}:[\w-]{20,}$/ }],
+    telegram: [{ key: 'token', label: 'Bot token', help: 'Looks like 123456789:AA…', secret: 'telegram_bot_token', re: /^\d{5,}:[\w-]{20,}$/ }],
     discord: [
       { key: 'token', label: 'Bot token', help: 'In the developer portal: Bot → Reset Token.', secret: 'discord_bot_token', re: /^\S{50,}$/ },
       { key: 'application_id', label: 'Application ID', help: 'In the developer portal: General Information.', re: /^\d{15,22}$/ },
