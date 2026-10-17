@@ -5175,7 +5175,7 @@ Outsiders get one line a day in DMs and silence in channels. Blocked people get 
 | `/model <model name>`, `/model`, `/model default` | chat | set, show or clear the session model override. Models are named in plain words (`ModelInfo.DisplayName`); setting takes a display or short name (case-insensitive, the first configured provider winning a shared name) or, as a fallback, a `provider/model` ref. Bare `/model` only shows; clearing takes `default` (or `clear`, `reset`) |
 | `/usage` | anyone | today's spending and this session's cost, money as in `/status` |
 | `/refine [on\|off\|default]` | chat | v0.2: set this session's refine mode; `/refine` alone shows the setting with the typical cost (`core.RefineTypicalCalls`). Also in the Telegram menu and as a Slack `/bothy` subcommand |
-| `/help` | anyone | *"Commands:"*, then one line per command, the command in code and what it does in plain words (*"`/stop` – stop the current task"*); hidden ones are not listed |
+| `/help` | anyone | *"Commands:"*, then one line per command, the command and what it does in plain words (*"/stop – stop the current task"*); on Slack the command is in code (*"`/bothy stop` – stop the current task"*), while elsewhere it stays plain text, which Telegram makes tappable (it makes nothing in code tappable); hidden ones are not listed |
 | `/pair` | anyone (hidden) | *"Bothy doesn't use link codes any more. Write here to ask it anything."* |
 | `/start` | anyone (hidden) | in a DM, the hello; in a channel, the help text. A `/start <payload>` is plain `/start` |
 

@@ -109,7 +109,9 @@ Bothy answers in the chat; `/new`, `/pin`, `/unpin`, `/compact`, `/model` and
 `/resume` says); `/pair` says link codes are gone. Every reply, notice and
 help line names a command as the chat app types it (`Caps.CommandPrefix`:
 "/bothy stop" on Slack, "/stop" on Telegram and Discord); the help list puts
-each command in a code span, followed by what it does.
+each command, followed by what it does, in a code span on Slack and as plain
+text elsewhere, since Telegram makes a plain "/stop" tappable but not one in
+code.
 
 Markdown the hub sends uses CommonMark backslash escapes for punctuation and
 backtick fences or spans longer than any backtick run they contain, so system

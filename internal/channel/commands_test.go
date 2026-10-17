@@ -122,8 +122,11 @@ func TestStatusUsageHelp(t *testing.T) {
 		if got := h.lastText(ownerChat); got != want {
 			t.Fatalf("/status = %q, want %q", got, want)
 		}
+		// Telegram makes a plain /stop tappable, but not one in code.
 		h.dm(ownerChat, "/help")
-		h.wantVisible(ownerChat, "`/stop` – stop the current task")
+		if got := h.lastText(ownerChat); !strings.Contains(got, "\n/stop – stop the current task\n") || strings.Contains(got, "`") {
+			t.Fatalf("/help on Telegram = %q; want plain commands", got)
+		}
 		for _, chat := range []string{ownerChat, memberChat} {
 			h.dm(chat, "/help")
 			if got := h.lastText(chat); strings.Contains(got, "/stopall") || strings.Contains(got, "/resume") || strings.Contains(got, "/pair") ||

@@ -186,13 +186,18 @@ func (h *Hub) runCommand(ctx context.Context, a *adapter, in core.Inbound, res c
 const somethingWrong = "Sorry, something went wrong. Try again in a moment."
 
 // helpText lists the commands everyone sees, as they are typed on a chat
-// app with caps.
+// app with caps. Only a prefixed command (Slack's) goes in code: Telegram
+// makes a plain /stop tappable, but not one inside code.
 func helpText(caps core.ChannelCaps) string {
 	var b strings.Builder
 	b.WriteString("Commands:")
 	for _, name := range helpOrder {
 		spec := commands[name]
-		b.WriteString("\n" + codeSpan(commandIn(caps, spec.usage)) + " – " + escapeMD(spec.help))
+		cmd := escapeMD(commandIn(caps, spec.usage))
+		if caps.CommandPrefix != "" {
+			cmd = codeSpan(commandIn(caps, spec.usage))
+		}
+		b.WriteString("\n" + cmd + " – " + escapeMD(spec.help))
 	}
 	return b.String()
 }
