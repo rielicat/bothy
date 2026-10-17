@@ -284,4 +284,37 @@ describe('Tabs', () => {
       }
     }
   });
+
+  it('brings the current tab into view again when tabs arrive later and the row starts to overflow', async () => {
+    // Each tab is 150 px wide in a 300 px row; Activity adds Releases once it has loaded.
+    const saved = {
+      rect: Element.prototype.getBoundingClientRect,
+      ...Object.fromEntries((['scrollWidth', 'clientWidth', 'scrollLeft'] as const).map((k) => [k, Object.getOwnPropertyDescriptor(Element.prototype, k)])),
+    };
+    const left = new WeakMap<Element, number>();
+    const isRow = (el: Element) => el.classList.contains('tabs');
+    Object.defineProperty(Element.prototype, 'scrollWidth', { configurable: true, get() { return isRow(this) ? this.children.length * 150 : 0; } });
+    Object.defineProperty(Element.prototype, 'clientWidth', { configurable: true, get() { return isRow(this) ? 300 : 0; } });
+    Object.defineProperty(Element.prototype, 'scrollLeft', { configurable: true, get() { return left.get(this) ?? 0; }, set(v: number) { left.set(this, v); } });
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      const row = this.parentElement;
+      const [l, r] = isRow(this) ? [0, 300] : row && isRow(row) ? [[...row.children].indexOf(this) * 150 - (left.get(row) ?? 0), 0] : [0, 0];
+      const right = isRow(this) ? r : l + 100;
+      return { left: l, right, top: 0, bottom: 0, width: right - l, height: 0, x: l, y: 0, toJSON: () => ({}) } as DOMRect;
+    };
+    try {
+      const tab = (label: string) => ({ label, href: `/activity/${label.toLowerCase()}` });
+      const { container, rerender } = render(Tabs, { props: { tabs: ['Tasks', 'Audit log'].map(tab), current: '/activity/audit log' } });
+      expect(container.querySelector('.tabs')!.scrollLeft).toBe(0);
+      await rerender({ tabs: ['Tasks', 'Schedules', 'Releases', 'Audit log'].map(tab), current: '/activity/audit log' });
+      expect(container.querySelector('.tabs')!.scrollLeft).toBe(250);
+    } finally {
+      Element.prototype.getBoundingClientRect = saved.rect;
+      for (const k of ['scrollWidth', 'clientWidth', 'scrollLeft'] as const) {
+        const d = (saved as Record<string, PropertyDescriptor | undefined>)[k];
+        if (d) Object.defineProperty(Element.prototype, k, d);
+        else delete (Element.prototype as unknown as Record<string, unknown>)[k];
+      }
+    }
+  });
 });

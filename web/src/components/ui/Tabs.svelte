@@ -29,7 +29,10 @@
     if (row) more = row.scrollWidth > row.clientWidth + 1 && row.scrollLeft + row.clientWidth < row.scrollWidth - 1;
   };
   $effect(() => {
+    // Tabs can arrive after the row first renders (Activity adds the admin
+    // ones once the session loads), and only then does the row overflow.
     void active;
+    void tabs.length;
     const el = row;
     if (!el) return;
     // Scrolled by hand: scrollIntoView moves Chrome's sequential focus starting point, so the first Tab would skip "Skip to content".
