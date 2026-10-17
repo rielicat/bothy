@@ -26,7 +26,7 @@
         re: /^xapp-\S{16,}$/,
       },
     ],
-    telegram: [{ key: 'token', label: 'Bot token', help: '@BotFather sends it after you choose a name.', secret: 'telegram_bot_token', re: /^\d{5,}:[\w-]{20,}$/ }],
+    telegram: [{ key: 'token', label: 'Bot token', help: 'Looks like 123456789:AAF…', secret: 'telegram_bot_token', re: /^\d{5,}:[\w-]{20,}$/ }],
     discord: [
       { key: 'token', label: 'Bot token', help: 'In the developer portal: Bot → Reset Token.', secret: 'discord_bot_token', re: /^\S{50,}$/ },
       { key: 'application_id', label: 'Application ID', help: 'In the developer portal: General Information.', re: /^\d{15,22}$/ },
@@ -278,7 +278,7 @@
         {:else}
           {@render step(1, 'Create a bot in the Discord developer portal', one)}
           {@render step(2, 'Paste the bot token and application ID', two)}
-          {@render step(3, 'Invite Bothy to your server', invited)}
+          {@render step(3, 'Add Bothy to Discord', invited)}
         {/if}
       </ol>
       {#if connected}

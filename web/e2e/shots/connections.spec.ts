@@ -184,7 +184,7 @@ const states: ShotState[] = [
   {
     name: 'discord-connected',
     route: '/settings/connections/discord',
-    setup: steps(fill('Bot token', DISCORD), fill('Application ID', '112233445566778899', true), see('Invite Bothy to your server'), see('Message Bothy in Discord, then let yourself in from Approvals.')),
+    setup: steps(fill('Bot token', DISCORD), fill('Application ID', '112233445566778899', true), see('Add Bothy to Discord'), see('Message Bothy in Discord, then let yourself in from Approvals.')),
   },
   { name: 'discord-manage', route: '/settings/connections/discord', mock: 'discord-on', setup: steps(see('Acme Community')) },
   {
