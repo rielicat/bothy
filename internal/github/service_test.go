@@ -421,6 +421,34 @@ func TestGitHubApp(t *testing.T) {
 	}
 }
 
+// An uninstalled App fails before any repository call: minting its
+// installation token gets 404. Settings must still learn of it.
+func TestUninstalledAppMarksConnection(t *testing.T) {
+	inst := githubtest.Installation{ID: 7, Account: "octo-org", Type: "Organization", Repos: []string{"octo-org/widgets"}}
+	f, k := appFx(t, inst)
+	c, err := f.svc.Connect(f.ctx, appCreds(k, 0), []string{"octo-org/widgets"}, "usr_owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := f.toolEnv()
+	f.mustCall(githubIssuesName, env, map[string]any{"repo": "octo-org/widgets"})
+
+	f.gh.App.Installations = nil
+	f.gh.RevokeInstallationTokens()
+	if _, _, err := f.call(githubIssuesName, env, map[string]any{"repo": "octo-org/widgets"}); err == nil {
+		t.Fatal("a call through an uninstalled App worked")
+	}
+	if stored, _ := f.store.Connection(f.ctx, c.ID); stored.Status != "error" {
+		t.Errorf("connection after the uninstall = %+v, want status error", stored)
+	}
+
+	f.gh.App.Installations = []githubtest.Installation{inst}
+	f.mustCall(githubIssuesName, env, map[string]any{"repo": "octo-org/widgets"})
+	if stored, _ := f.store.Connection(f.ctx, c.ID); stored.Status != "ok" || stored.Error != "" {
+		t.Errorf("connection after installing again = %+v", stored)
+	}
+}
+
 func TestGitHubAppInstallations(t *testing.T) {
 	f, k := appFx(t,
 		githubtest.Installation{ID: 7, Account: "octo-org", Type: "Organization"},

@@ -231,6 +231,12 @@ func (c *apiClient) send(ctx context.Context, method string, u *url.URL, body an
 		if c.auth != nil {
 			tok, err := c.auth(ctx)
 			if err != nil {
+				// An App's installation token is minted before the call: GitHub
+				// answers 401 for a key it no longer accepts and 404 for an
+				// installation that is gone, and no response below sees either.
+				if s := statusOf(err); c.health != nil && (s == http.StatusUnauthorized || s == http.StatusNotFound) {
+					c.health(false)
+				}
 				return nil, err
 			}
 			req.Header.Set("Authorization", "Bearer "+tok)
