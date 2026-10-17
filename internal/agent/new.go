@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -191,6 +192,14 @@ func (r *Runner) teamMemory(ctx context.Context) string {
 	if err != nil {
 		r.log.Warn("team memory left out of the prompt", "err", err)
 		return ""
+	}
+	if strings.TrimSpace(c) == "" {
+		return ""
+	}
+	// Without the time, a note added after an earlier "I don't know" in the
+	// same chat reads as something the model missed, and it apologises.
+	if h, err := r.d.Memory.TeamHistory(ctx, core.Page{Limit: 1}); err == nil && len(h) > 0 {
+		c = "Last changed " + h[0].At.UTC().Format("2006-01-02 15:04") + " UTC.\n" + c
 	}
 	return r.redact(c)
 }

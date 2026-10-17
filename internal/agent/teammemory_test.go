@@ -106,7 +106,13 @@ func TestTeamMemoryInEveryPrompt(t *testing.T) {
 			{"schedule", sched, ""},
 			{"check-in", beat, ""},
 		}
-		want := s1(profileStandard, []string{standing}, team)
+		last, err := h.mem.TeamHistory(h.ctx, core.Page{Limit: 1})
+		if err != nil || len(last) != 1 {
+			t.Fatalf("team history = %v %v", last, err)
+		}
+		// The block says when it last changed, so a note newer than an
+		// earlier answer isn't read as something the model missed.
+		want := s1(profileStandard, []string{standing}, "Last changed "+last[0].At.UTC().Format("2006-01-02 15:04")+" UTC.\n"+team)
 		for i, r := range runs {
 			res, err := h.r.Submit(h.ctx, r.req)
 			if err != nil {
