@@ -61,8 +61,8 @@ const v01Card = { probes: { nesting: false, shadows: false } };
 
 const states: ShotState[] = [
   { name: 'new-github', route: '/chat', ready: 'Summarise the open pull requests in acme/web', setup: frame },
-  { name: 'new-admin-no-github', route: '/chat', mock: 'knowledge-empty', ready: 'Connect GitHub so Bothy can read your code', setup: frame },
-  { name: 'new-member', route: '/chat', mock: 'member,knowledge-empty', ready: 'Turn these meeting notes into a list of tasks', setup: frame },
+  { name: 'new-admin-no-github', route: '/chat', mock: 'knowledge-empty,github-none', ready: 'Connect GitHub so Bothy can read your code', setup: frame },
+  { name: 'new-member', route: '/chat', mock: 'member,knowledge-empty,github-none', ready: 'Turn these meeting notes into a list of tasks', setup: frame },
   { name: 'populated', route: chat(ids.login), ready: 'Fixed. The sign-in callback', setup: frame },
   { name: 'summary-open', route: chat(ids.login), ready: 'Fixed. The sign-in callback', setup: then(click(/^Got a copy of acme\/web and read 3 files/)) },
   {
