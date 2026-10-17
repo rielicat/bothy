@@ -138,7 +138,7 @@ func (h *Hub) runCommand(ctx context.Context, a *adapter, in core.Inbound, res c
 	say := func(text string) { answer(text, text) }
 	if !h.allowed(spec.access, a, res, tg) {
 		if spec.access == accessApprover {
-			say("Only someone who can approve can pause Bothy.")
+			say(pauseRefused)
 		} else {
 			only := "Only someone who can approve can use " + commandIn(caps, cmd)
 			answer(only+" here.", only+".")
@@ -151,7 +151,7 @@ func (h *Hub) runCommand(ctx context.Context, a *adapter, in core.Inbound, res c
 	case "stopall":
 		say(h.cmdStopAll(chatOrigin(ctx, a, in)))
 	case "resume":
-		say("Resume Bothy on the web, under Settings → Security.")
+		say(resumeOnWeb)
 	case "status":
 		say(h.cmdStatus(ctx, tg, chat))
 	case "help":
@@ -185,7 +185,33 @@ func (h *Hub) runCommand(ctx context.Context, a *adapter, in core.Inbound, res c
 	}
 }
 
-const somethingWrong = "Sorry, something went wrong. Try again in a moment."
+const (
+	somethingWrong = "Sorry, something went wrong. Try again in a moment."
+	pauseRefused   = "Only someone who can approve can pause Bothy."
+	resumeOnWeb    = "Resume Bothy on the web, under Settings → Security."
+)
+
+// answerAnywhere answers the commands that don't need Bothy on in the chat
+// they are typed in: the help list, and the kill switch, which approvers
+// can pull from any chat.
+func (h *Hub) answerAnywhere(ctx context.Context, a *adapter, in core.Inbound, res core.IdentityResolution) (string, bool) {
+	cmd, _, ok := parseCommand(in.Text)
+	if !ok || in.Forwarded {
+		return "", false
+	}
+	switch cmd {
+	case "help", "start":
+		return helpText(a.ch.Caps()), true
+	case "stopall":
+		if !h.allowed(accessApprover, a, res, target{}) {
+			return pauseRefused, true
+		}
+		return h.cmdStopAll(chatOrigin(ctx, a, in)), true
+	case "resume":
+		return resumeOnWeb, true
+	}
+	return "", false
+}
 
 // helpText lists the commands everyone sees, as they are typed on a chat
 // app with caps. Only a prefixed command (Slack's) goes in code: Telegram

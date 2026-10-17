@@ -104,9 +104,10 @@ func TestPrivateSlashInOffChannel(t *testing.T) {
 	})
 }
 
-// Wherever Bothy is off, the help list is the answer to /bothy help, with
-// no notice beside it; anything else still gets the notice.
-func TestPrivateSlashHelpInOffChannel(t *testing.T) {
+// Wherever Bothy is off, the help list is the answer to /bothy help, and
+// /bothy stopall pulls the kill switch for someone who can approve, every
+// time, with no notice beside them; anything else still gets the notice.
+func TestPrivateSlashAnswersAnywhere(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t, withChecker("slack")).start()
 		h.slash("C210", memberChat, "/help")
@@ -117,7 +118,25 @@ func TestPrivateSlashHelpInOffChannel(t *testing.T) {
 		if v := h.private(memberChat); len(v) != 2 || v[1] != offHere("#C210") {
 			t.Fatalf("/status after the help = %q, want the off notice", v)
 		}
-		if len(h.visible(memberChat))+len(h.visible("C210")) != 0 || len(h.runner.Submitted()) != 0 {
+		h.slash("C210", memberChat, "/stopall")
+		if v := h.private(memberChat); len(v) != 3 || v[2] != pauseRefused || h.runner.Paused() {
+			t.Fatalf("/stopall from someone who can't approve = %q, paused %v", v, h.runner.Paused())
+		}
+		h.slash("C210", ownerChat, "/status")
+		h.slash("C210", ownerChat, "/stopall")
+		h.slash("C210", ownerChat, "/stopall")
+		const paused = "Paused. No tasks were running. An admin can resume Bothy on the web, under Settings → Security."
+		if v := h.private(ownerChat); len(v) != 3 || v[0] != offHere("#C210") || v[1] != paused || v[2] != paused {
+			t.Fatalf("an approver's /stopall after the notice = %q, want it answered each time", v)
+		}
+		if by, _ := h.runner.PausedBy(); !h.runner.Paused() || h.runner.StopAlls != 2 || by != "channel:slack:"+ownerChat {
+			t.Fatalf("/stopall in an off channel: paused %v by %q, %d stop-alls", h.runner.Paused(), by, h.runner.StopAlls)
+		}
+		h.slash("C211", ownerChat, "/resume")
+		if v := h.private(ownerChat); len(v) != 4 || v[3] != resumeOnWeb {
+			t.Fatalf("/resume in an off channel = %q", v)
+		}
+		if len(h.visible(memberChat))+len(h.visible(ownerChat))+len(h.visible("C210")) != 0 || len(h.runner.Submitted()) != 0 {
 			t.Fatal("an off channel's slash commands reached a DM, the channel or the runner")
 		}
 	})

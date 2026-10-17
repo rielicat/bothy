@@ -96,8 +96,9 @@ logs, stores or passes to a run); otherwise, or when that post fails, in the
 sender's DM (the adapter's `OpenDM`, remembered as the identity's DM chat),
 worded for the DM: an answer about a channel Bothy is on in starts by naming
 it ("In #eng: Stopped."). Never both. In a group without an enabled space a
-teammate asking for help gets the help list, and anything else is told
-Bothy is off there, at most once an hour per channel; anyone else gets what
+teammate asking for help gets the help list, `/stopall` and `/resume` work
+as in any chat, and anything else is told Bothy is off there, at most once
+an hour per channel; anyone else gets what
 a DM would, in their DM. In an enabled space it goes on as any message: free
 text starts a task in the channel, and a command's answer goes privately.
 Waiting and outsider lines, cards, Cancel request and runs, which need

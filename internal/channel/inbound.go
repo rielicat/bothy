@@ -411,10 +411,10 @@ func (h *Hub) refreshChat(a *adapter, sp *core.Space) {
 }
 
 // privateOff answers a message only its sender saw (a Slack slash command)
-// in a channel where Bothy is off or that it isn't in. A teammate asking
-// for help gets it; anything else tells them the channel (title) is off.
-// Both reach them alone (privately). Anyone else gets what a DM would, in
-// their DM.
+// in a channel where Bothy is off or that it isn't in. A teammate's help
+// and kill switch commands are answered (answerAnywhere); anything else
+// tells them the channel (title) is off. Both reach them alone
+// (privately). Anyone else gets what a DM would, in their DM.
 func (h *Hub) privateOff(ctx context.Context, a *adapter, in core.Inbound, ident core.ChannelIdentity, res core.IdentityResolution, title string) {
 	key := a.name + ":" + in.SenderID
 	if ok, _ := h.allowSender(a, in); !ok {
@@ -423,9 +423,8 @@ func (h *Hub) privateOff(ctx context.Context, a *adapter, in core.Inbound, ident
 	h.check(ctx, a, ident, res, h.teamsOf(ctx, a), func(ctx context.Context, res core.IdentityResolution) {
 		switch {
 		case res.Admitted():
-			if cmd, _, ok := parseCommand(in.Text); ok && (cmd == "help" || cmd == "start") {
-				help := helpText(a.ch.Caps())
-				h.privately(a, in, help, help)
+			if text, ok := h.answerAnywhere(ctx, a, in, res); ok {
+				h.privately(a, in, text, text)
 				return
 			}
 			if !h.noteOnce(key+":"+in.Chat.ChatID, offEvery) {
