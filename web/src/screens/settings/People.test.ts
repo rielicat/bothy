@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
 import { resetMock } from '../../../mock/server';
 import { setCsrf } from '../../lib/api/client';
@@ -335,10 +335,20 @@ describe('Settings → People → In chat apps', () => {
   it('says how to appear here when nobody has messaged Bothy in a chat app', async () => {
     await open('chat-people-none');
     const s = await section();
-    expect(await s.findByText('Nobody has messaged Bothy in a chat app yet.')).toBeTruthy();
+    expect(await s.findByText('Nobody uses Bothy in a chat app yet.')).toBeTruthy();
     // Telegram can't say who is in the team, so even an admin waits to be let in.
     expect(s.getByText('Message Bothy in Slack or Telegram to appear here. On Telegram, let yourself in from Approvals first.')).toBeTruthy();
     expect(s.getByRole('link', { name: 'Open Approvals' }).getAttribute('href')).toBe('/approvals');
+  });
+
+  it('sends Discord people to Approvals only while Bothy cannot check its members', async () => {
+    await open('chat-people-none,discord-on');
+    let s = await section();
+    expect(await s.findByText('Message Bothy in Slack, Telegram or Discord to appear here. On Telegram, let yourself in from Approvals first.')).toBeTruthy();
+    cleanup();
+    await open('chat-people-none,discord-on:no-access');
+    s = await section();
+    expect(await s.findByText('Message Bothy in Slack, Telegram or Discord to appear here. On Telegram and Discord, let yourself in from Approvals first.')).toBeTruthy();
   });
 
   it('reminds admins after the upgrade that people in chat apps no longer link to accounts', async () => {

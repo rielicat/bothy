@@ -153,7 +153,7 @@
     try {
       await api.del(`/api/spaces/${encodeURIComponent(s.principal_id)}`);
       deleting = null;
-      toast('Channel deleted.');
+      toast('Group chat deleted.');
       onchanged();
     } catch {
       deleteError = "Bothy couldn't delete it. Try again.";
@@ -296,7 +296,7 @@
 <ConfirmDialog
   open={!!deleting}
   title="Delete {deleting?.title}?"
-  confirm="Delete channel"
+  confirm="Delete group chat"
   busyLabel="Deleting…"
   busy={deleteBusy}
   error={deleteError}
@@ -305,5 +305,5 @@
     deleting = null;
     deleteError = '';
   }}
-  >This deletes its chats, files and schedules in Bothy. If Bothy is still in {deleting?.title}, the next message there brings it back to Approvals. This can't be undone.</ConfirmDialog
+  >This deletes its chats, files, notes and schedules in Bothy, and what Bothy may do there without asking. If Bothy is still in {deleting?.title}, the next message there brings it back to Approvals. This can't be undone.</ConfirmDialog
 >

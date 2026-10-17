@@ -428,7 +428,7 @@ const states: ShotState[] = [
       await page.getByRole('heading', { name: 'In chat apps' }).scrollIntoViewIfNeeded();
     },
   },
-  { name: 'people-chat-none', route: '/settings/people', mock: 'chat-people-none', ready: 'Nobody has messaged Bothy in a chat app yet.', setup: frame },
+  { name: 'people-chat-none', route: '/settings/people', mock: 'chat-people-none', ready: 'Nobody uses Bothy in a chat app yet.', setup: frame },
   { name: 'people-chat-no-apps', route: '/settings/people', mock: 'chat-people-none,chat-apps-off', ready: 'No chat app is connected yet.', setup: frame },
 ];
 

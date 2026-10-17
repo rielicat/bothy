@@ -245,10 +245,10 @@ describe('Discord and Telegram', () => {
     await fireEvent.click(del);
     const dialog = await screen.findByRole('dialog', { name: 'Delete #support?' });
     expect(dialog.textContent).toContain(
-      "This deletes its chats, files and schedules in Bothy. If Bothy is still in #support, the next message there brings it back to Approvals. This can't be undone.",
+      "This deletes its chats, files, notes and schedules in Bothy, and what Bothy may do there without asking. If Bothy is still in #support, the next message there brings it back to Approvals. This can't be undone.",
     );
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
-    await fireEvent.click(within(dialog).getByRole('button', { name: 'Delete channel' }));
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Delete group chat' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/spaces/spc_01jsupport0000000000000000')).toBe(true));
     await waitFor(() => expect(screen.queryByText('#support')).toBeNull());
   });

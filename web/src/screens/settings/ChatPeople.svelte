@@ -80,10 +80,12 @@
   });
 
   // The empty list says where to go next: connect an app, or message Bothy
-  // there (Telegram and Discord also need an admin to let people in).
+  // there (Telegram, and Discord while Bothy can't check its members, also
+  // need an admin to let people in).
   const connected = $derived(channels && Object.keys(apps).filter((n) => channels!.some((c) => c.name === n && c.enabled)));
   const orNames = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}` : names[0]);
-  const letIn = $derived((connected ?? []).filter((n) => n !== 'slack').map((n) => apps[n]));
+  const membersChecked = (n: string) => n === 'slack' || (n === 'discord' && channels?.find((c) => c.name === n)?.member_check === 'ok');
+  const letIn = $derived((connected ?? []).filter((n) => !membersChecked(n)).map((n) => apps[n]));
   const emptyMore = $derived(
     `Message Bothy in ${connected?.length ? orNames(connected.map((n) => apps[n])) : 'a chat app'} to appear here.${letIn.length ? ` On ${joinNames(letIn)}, let yourself in from Approvals first.` : ''}`,
   );
@@ -225,7 +227,7 @@
       {:else}
         <EmptyState
           class="mt-3"
-          text="Nobody has messaged Bothy in a chat app yet."
+          text="Nobody uses Bothy in a chat app yet."
           more={emptyMore}
           action={letIn.length ? { label: 'Open Approvals', href: '/approvals', variant: 'secondary' } : undefined}
         />
