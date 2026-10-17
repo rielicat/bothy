@@ -14,7 +14,7 @@
     votes,
   }: {
     fields: CopyField[];
-    /** Start every "Show" open (the inbox opens pull request changes). */
+    /** Start every "Show" open (Knowledge's suggested changes open the prose diff). */
     showOpen?: boolean;
     /** Renders the multi-approver Approvals row; the row is left out without it. */
     votes?: Snippet;
@@ -40,6 +40,16 @@
             <span class="whitespace-pre-wrap [overflow-wrap:anywhere]" data-copy-ignore
               >{#if f.summary}<span class="tabular-nums">{f.summary}</span>{' · '}{/if}</span
             ><LinkButton aria-expanded={isOpen(i)} aria-controls="{uid}-{i}" onclick={() => (shown[i] = !isOpen(i))}>{isOpen(i) ? 'Hide' : 'Show'}</LinkButton>
+            {#if f.show.kind === 'files' && !isOpen(i)}
+              <!-- Which files change stays in view while the diffs are folded (§8.6). -->
+              <ul class="mt-1 space-y-0.5 text-small text-muted" data-copy-ignore>
+                {#each f.show.files ?? [] as file (file.path)}
+                  <li class="[overflow-wrap:anywhere]">
+                    <span class="font-mono text-code text-text"><Verbatim text={file.path} /></span> · <span class="whitespace-nowrap tabular-nums">+{file.added} −{file.removed}</span>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
           {/if}
           {#if f.link}
             {' · '}<a class="link" href={f.link.href} target="_blank" rel="noopener noreferrer">{f.link.label}<span aria-hidden="true">{' ↗'}</span><span class="sr-only">{' (opens in a new tab)'}</span></a>

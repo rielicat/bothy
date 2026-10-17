@@ -1513,13 +1513,16 @@ Chat apps (SPEC §5.9) edit a card to its decided line in place of the question,
 │ Branch     bothy/fix-login-redirect → main                        │ text-code
 │ Title      Fix login redirect losing the return address           │
 │ Changes    3 files, +24 −6 · Show                                 │
+│            src/auth/redirect.ts · +3 −2                           │ one line per file, always listed
+│            src/auth/redirect.test.ts · +4 −0                      │
+│            CHANGELOG.md · +2 −1                                   │
 │                                                                   │
 │ [ Open pull request ]  [ Deny ]                                   │
 │ From “Login bug” · Expires in 15 min · Details                    │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-"Show" lists files (path, +a −r) and each file's diff in `DiffView`; in the inbox it starts open. After approval the activity line reads "Opened pull request #482 in acme/web ↗".
+The diffs start closed everywhere, the inbox too, so the buttons stay in reach; the file list keeps what changes in view. "Show" opens each file's diff in `DiffView`. After approval the activity line reads "Opened pull request #482 in acme/web ↗".
 
 ### 8.7 Deploy follow-up
 

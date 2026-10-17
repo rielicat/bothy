@@ -220,10 +220,14 @@ describe('Approvals inbox, other states', () => {
     await screen.findByRole('heading', { name: 'For you' });
     expect(screen.queryByText(/no longer link to Bothy accounts/)).toBeNull();
   });
-  it('opens /approvals/:id with that request expanded, pull request changes shown', async () => {
+  it('opens /approvals/:id with that request expanded, pull request files listed and their diffs folded', async () => {
     await open(`/approvals/${PR}`, { id: PR });
     await waitFor(() => expect(expanded()?.dataset.approval).toBe(PR));
     expect(expanded()!.textContent).toContain('Open a pull request in acme/web?');
+    // Each file stays listed while the diffs are folded, so the buttons stay in reach.
+    expect(within(expanded()!).queryByRole('group', { name: 'Changes to src/auth/redirect.ts' })).toBeNull();
+    expect(expanded()!.textContent).toMatch(/src\/auth\/redirect\.ts · \+3 −2/);
+    await fireEvent.click(within(expanded()!).getByRole('button', { name: 'Show' }));
     expect(within(expanded()!).getByRole('group', { name: 'Changes to src/auth/redirect.ts' })).toBeTruthy();
     expect(expanded()!.textContent).toContain('This is the first pull request Bothy opens in acme/web for you.');
   });

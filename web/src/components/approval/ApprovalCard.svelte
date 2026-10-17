@@ -280,7 +280,7 @@
 
     {#if copy.fields.length}
       <div class="mt-4">
-        <ApprovalFields fields={copy.fields} showOpen={mode === 'inbox' && copy.kind === 'pull_request'} votes={multi && vv ? votesRow : undefined} />
+        <ApprovalFields fields={copy.fields} votes={multi && vv ? votesRow : undefined} />
       </div>
     {/if}
 
