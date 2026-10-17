@@ -233,7 +233,9 @@
 </script>
 
 {#snippet howToSwitch()}
-  <a class="link" href={DEPLOY_GUIDE} target="_blank" rel="noopener noreferrer">How to switch ↗<span class="sr-only"> (opens in a new tab)</span></a>
+  <a class="link -my-0.5 inline-flex min-h-6 items-center pointer-coarse:-my-3 pointer-coarse:min-h-11" href={DEPLOY_GUIDE} target="_blank" rel="noopener noreferrer"
+    >How to switch<span aria-hidden="true">&nbsp;↗</span><span class="sr-only"> (opens in a new tab)</span></a
+  >
 {/snippet}
 
 <Page title="Security" back={settingsBack()}>
