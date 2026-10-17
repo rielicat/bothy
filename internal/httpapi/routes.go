@@ -94,6 +94,11 @@ func (s *Server) routeTable() []route {
 		{pattern: "GET /api/search", access: accessUser, h: s.search},
 
 		{pattern: "GET /api/memory/export", access: accessUser, h: s.memoryExport},
+		// Remembered for everyone: every signed-in user reads it, only admins
+		// edit it. The literal path wins over {file}, which never takes TEAM.
+		{pattern: "GET /api/memory/team", access: accessUser, h: s.getTeamMemory},
+		{pattern: "PUT /api/memory/team", access: accessAdmin, h: s.putTeamMemory},
+		{pattern: "GET /api/memory/team/history", access: accessUser, h: s.teamMemoryHistory},
 		{pattern: "GET /api/memory/{file}", access: accessUser, h: s.getMemory},
 		{pattern: "PUT /api/memory/{file}", access: accessUser, h: s.putMemory},
 		{pattern: "GET /api/memory/{file}/history", access: accessUser, h: s.memoryHistory},

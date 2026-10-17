@@ -330,14 +330,24 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 	case "grant.revoke":
 		return "Removed a permission"
 	case "memory.write":
+		everyone := ""
+		if d.str("scope") == "team" {
+			everyone = " for everyone"
+		}
 		switch d.str("op") {
 		case "replace":
+			if everyone != "" {
+				return "Updated a note for everyone"
+			}
 			return "Updated a saved note"
 		case "remove":
-			return "Forgot something"
+			return "Forgot something" + everyone
 		}
-		return "Remembered something"
+		return "Remembered something" + everyone
 	case "memory.edit":
+		if d.str("scope") == "team" {
+			return "Edited what Bothy remembers for everyone"
+		}
 		return "Edited what Bothy remembers"
 	case "skill.install", "skill.enable", "skill.disable", "skill.changed":
 		name := quoted(strings.TrimPrefix(e.Target, "skill:"), "")

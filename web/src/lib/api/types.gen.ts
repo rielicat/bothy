@@ -3512,7 +3512,7 @@ export interface PolicyPreviewResp {
   card?: Card; // when the verdict is ask
 }
 export interface MemoryDoc {
-  file: MemoryFile;
+  file: MemoryFile; // MEMORY | USER | HEARTBEAT; TEAM from /api/memory/team
   content: string;
   etag: string;
   cap_bytes: number /* int */;

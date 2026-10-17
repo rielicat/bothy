@@ -41,6 +41,8 @@ func (s *Server) memoryCap(f core.MemoryFile) int {
 		return m.UserMaxBytes
 	case core.FileHeartbeat:
 		return m.HeartbeatMaxBytes
+	case core.FileTeam:
+		return m.TeamMaxBytes
 	}
 	return m.MemoryMaxBytes
 }
@@ -134,10 +136,15 @@ func (s *Server) memoryHistory(w http.ResponseWriter, r *http.Request, a core.Ac
 }
 
 // memoryChanges names the person behind each edit and the chat each of
-// Bothy's changes was made in; a chat the caller cannot open names nothing.
+// Bothy's changes was made in; a chat the caller cannot open names nothing,
+// not even its run (team memory's history is everyone's to read).
 func (s *Server) memoryChanges(ctx context.Context, v core.Viewer, evs []*core.MemoryEvent) []dto.MemoryChange {
+	type runChat struct {
+		open bool
+		link *dto.ChatLink
+	}
 	n := s.namer(ctx, v)
-	chats := map[core.RunID]*dto.ChatLink{}
+	chats := map[core.RunID]runChat{}
 	out := make([]dto.MemoryChange, 0, len(evs))
 	for _, e := range evs {
 		c := dto.MemoryChange{MemoryEvent: *e}
@@ -145,20 +152,70 @@ func (s *Server) memoryChanges(ctx context.Context, v core.Viewer, evs []*core.M
 			c.ActorName = n.user(core.UserID(id))
 		}
 		if e.Run != "" {
-			link, seen := chats[e.Run]
+			rc, seen := chats[e.Run]
 			if !seen {
 				if run, err := s.d.Store.Runs().Get(ctx, v, e.Run); err == nil {
+					rc.open = true
 					if title := n.chat(run.Session); title != "" {
-						link = &dto.ChatLink{ID: run.Session, Title: title}
+						rc.link = &dto.ChatLink{ID: run.Session, Title: title}
 					}
 				}
-				chats[e.Run] = link
+				chats[e.Run] = rc
 			}
-			c.Chat = link
+			c.Chat = rc.link
+			if !rc.open {
+				c.Run = ""
+			}
 		}
 		out = append(out, c)
 	}
 	return out
+}
+
+func (s *Server) getTeamMemory(w http.ResponseWriter, r *http.Request, _ core.Actor) error {
+	content, etag, err := s.d.Memory.ReadTeam(r.Context())
+	if err != nil {
+		return err
+	}
+	w.Header().Set("ETag", quoteETag(etag))
+	return ok(w, dto.MemoryDoc{File: core.FileTeam, Content: content, ETag: etag, CapBytes: s.memoryCap(core.FileTeam)})
+}
+
+// putTeamMemory is an admin's edit of what Bothy remembers for everyone; the
+// memory service checks the role again and audits memory.edit.
+func (s *Server) putTeamMemory(w http.ResponseWriter, r *http.Request, a core.Actor) error {
+	match := r.Header.Get("If-Match")
+	if match == "" {
+		return newError(http.StatusPreconditionRequired, "bad_request", "If-Match with the document's etag is required")
+	}
+	var req dto.MemoryPutReq
+	if err := decode(r, &req); err != nil {
+		return err
+	}
+	if !utf8.ValidString(req.Content) {
+		return badRequest("content must be UTF-8")
+	}
+	if c := s.memoryCap(core.FileTeam); len(req.Content) > c {
+		return badRequest("TEAM.md is limited to %d bytes (%d given)", c, len(req.Content))
+	}
+	etag, err := s.d.Memory.WriteTeam(r.Context(), req.Content, unquoteETag(match), a.User)
+	if err != nil {
+		return err
+	}
+	w.Header().Set("ETag", quoteETag(etag))
+	return ok(w, dto.MemoryDoc{File: core.FileTeam, Content: req.Content, ETag: etag, CapBytes: s.memoryCap(core.FileTeam)})
+}
+
+func (s *Server) teamMemoryHistory(w http.ResponseWriter, r *http.Request, a core.Actor) error {
+	pg, err := page(r)
+	if err != nil {
+		return err
+	}
+	evs, err := s.d.Memory.TeamHistory(r.Context(), pg)
+	if err != nil {
+		return err
+	}
+	return ok(w, listOf(s.memoryChanges(r.Context(), a.Viewer, evs), pg, func(c dto.MemoryChange) int64 { return c.ID }))
 }
 
 // memoryExport streams a tar of the three memory files and every memory

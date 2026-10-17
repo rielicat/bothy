@@ -286,7 +286,7 @@ type PolicyPreviewResp struct {
 // ---- memory / skills / schedules ----
 
 type MemoryDoc struct {
-	File     core.MemoryFile `json:"file"`
+	File     core.MemoryFile `json:"file"` // MEMORY | USER | HEARTBEAT; TEAM from /api/memory/team
 	Content  string          `json:"content"`
 	ETag     string          `json:"etag"`
 	CapBytes int             `json:"cap_bytes"`
