@@ -207,7 +207,7 @@
     @apply block text-body font-medium text-text;
   }
   .field-help {
-    @apply mt-1 text-small text-muted;
+    @apply mt-1 text-small text-pretty text-muted;
   }
   .field-error {
     @apply mt-1 flex items-start gap-1.5 text-small text-danger-text;

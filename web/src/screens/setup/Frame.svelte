@@ -14,7 +14,7 @@
       {#if step}<p class="text-small text-muted">Step {step} of 3</p>{/if}
     </div>
     <h1 class="mt-10 text-display text-text" tabindex="-1">{title}</h1>
-    {#if intro}<p class="mt-2 text-reading text-muted">{intro}</p>{/if}
+    {#if intro}<p class="mt-2 text-reading text-pretty text-muted">{intro}</p>{/if}
     <div class="mt-8">{@render children()}</div>
   </div>
 </main>

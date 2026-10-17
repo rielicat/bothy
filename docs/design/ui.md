@@ -762,7 +762,7 @@ Target: with the setup link and a detected AWS or Ollama option, the first chat 
                      [ Create account ]                                    primary, h-10, left-aligned
 ```
 
-- No card, no border, no progress bar, no icon; page background is `bg`.
+- No card, no border, no progress bar, no icon; page background is `bg`. The intro is `text-pretty`, so its last line never holds one word alone.
 - Buttons are left-aligned on desktop and full width under 640 px.
 - No Back on steps 2 and 3 (the account already exists).
 - Errors appear inline under the field or the button, never as a toast. On an error, focus moves to the first field that has one.
@@ -2564,7 +2564,7 @@ Never use: exclamation marks, emoji, "Oops", "Whoops", "simply", "just" as fille
   select.input { @apply appearance-none pr-8; }
 
   .field-label { @apply block text-body font-medium text-text; }
-  .field-help { @apply mt-1 text-small text-muted; }
+  .field-help { @apply mt-1 text-small text-pretty text-muted; }
   .field-error { @apply mt-1 flex items-start gap-1.5 text-small text-danger-text; }
 
   .card { @apply rounded-lg border border-border-strong bg-surface p-4; }
