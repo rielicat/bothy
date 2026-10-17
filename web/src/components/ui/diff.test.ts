@@ -99,7 +99,8 @@ describe('prose diffs', () => {
     expect(blocks[0]).toEqual({ kind: 'same', text: 'Releases', mark: 'heading' });
     expect(blocks[1]).toMatchObject({ kind: 'change', mark: 'bullet' });
     expect(blocks[1].kind === 'change' && blocks[1].segments.map((x) => x.text).join('')).toBe('Freeze main on Monday');
-    expect(blocks[2]).toEqual({ kind: 'same', text: 'Tag it', mark: 'bullet' });
+    // A numbered item keeps its number: the order is part of what it says.
+    expect(blocks[2]).toEqual({ kind: 'same', text: '1. Tag it' });
   });
 });
 

@@ -143,16 +143,19 @@ export function wordDiff(before: string, after: string): Segment[] {
 }
 
 /**
- * A Markdown line as prose reads it: a leading "#", "-", "*" or "1." would
- * read as part of the change (a "-" as "removed"), so it becomes a mark;
- * code ticks go, as in search snippets. Link addresses stay.
+ * A Markdown line as prose reads it: a leading "#", "-" or "*" would read as
+ * part of the change (a "-" as "removed"), so it becomes a mark; code ticks
+ * go, as in search snippets. Link addresses stay. A numbered item keeps its
+ * "1." as text: the number is the step's order, which a "•" would lose.
  */
 export function proseLine(t: string): { text: string; mark?: ProseMark } {
   const ticks = (x: string) => x.replace(/`+/g, '');
   const h = /^\s*#{1,6}\s+/.exec(t);
   if (h) return { text: ticks(t.slice(h[0].length)), mark: 'heading' };
-  const b = /^\s*(?:[-*+]|\d+\.)\s+(?:\[[ xX]\]\s+)?/.exec(t);
+  const b = /^\s*[-*+]\s+(?:\[[ xX]\]\s+)?/.exec(t);
   if (b) return { text: ticks(t.slice(b[0].length)), mark: 'bullet' };
+  const n = /^\s*(\d+\.)\s+(?:\[[ xX]\]\s+)?/.exec(t);
+  if (n) return { text: `${n[1]} ${ticks(t.slice(n[0].length))}` };
   return { text: ticks(t) };
 }
 
