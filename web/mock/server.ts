@@ -21,6 +21,7 @@ import './domains/knowledge.ts';
 import './domains/activity.ts';
 import './domains/settings.ts';
 import './domains/connections.ts';
+import './domains/picture.ts';
 import './domains/security.ts';
 import './domains/signin.ts';
 import './domains/inbox.ts';

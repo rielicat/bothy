@@ -78,6 +78,8 @@ function appStatus(req: Req, n: string): ChannelStatus {
   const ok = hasTokens(n) || (n === 'discord' && discordOn(req));
   const state = !enabled ? 'disabled' : !ok || channelDown.arg(req) === n ? 'auth_failed' : 'connected';
   const out: ChannelStatus = { name: n, enabled, state, identity: ok ? identity[n] : undefined, team: n === 'slack' && ok ? 'Acme' : undefined, since: ago(60 * 24) };
+  // Slack names the app when it connects; the id is in the app-level token too.
+  if (n === 'slack' && state === 'connected') out.app_id = 'A0123456789';
   if (n === 'discord' && state === 'connected') {
     const arg = discordOn.arg(req) ?? '';
     Object.assign(out, { detail: discordDetail[arg], member_check: arg === 'no-access' ? 'no_access' : 'ok', idle_servers: arg === 'idle' ? 2 : 0 });
@@ -86,6 +88,12 @@ function appStatus(req: Req, n: string): ChannelStatus {
 }
 
 export const channels = (req?: Req) => ['slack', 'telegram', 'discord'].map((n) => appStatus(req as Req, n));
+
+/** GET /api/channels: every chat app with the scenarios that turn them off applied. */
+export function channelList(req: Req): ChannelStatus[] {
+  const list = channels(req);
+  return offApps(req) ? list.map((c) => ({ ...c, enabled: false, state: 'disabled', identity: undefined, team: undefined, app_id: undefined })) : list;
+}
 
 // People in chat apps (internal/auth teammates): Sam and Alex are members of
 // the Slack workspace, Morgan of the Discord server, Riley has left Acme,
@@ -362,10 +370,7 @@ onReset(() => {
 
 // ---- routes: chat apps, people in them, group chats ----
 
-on('GET', '/api/channels', (req, res) => {
-  const list = channels(req);
-  json(res, 200, offApps(req) ? list.map((c) => ({ ...c, enabled: false, state: 'disabled', identity: undefined, team: undefined })) : list);
-});
+on('GET', '/api/channels', (req, res) => json(res, 200, channelList(req)));
 
 const rawFailure: Record<string, string> = {
   slack: 'slack: auth.test: invalid_auth',

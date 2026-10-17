@@ -20,6 +20,7 @@ The routes and their seed data live in `domains/`, one file per area of the UI
 | `activity.ts` | runs, schedules, usage, audit |
 | `settings.ts` | config, models, providers, people, API tokens, personality |
 | `connections.ts` | chat apps, the people Bothy answers in them, group chats, MCP |
+| `picture.ts` | Bothy's picture: the default or an upload, and what a change did in each chat app |
 | `security.ts` | grants, policy tester, vault, sandbox, doctor, backups |
 | `signin.ts` | sign in with Google and GitHub: the sign-in page's buttons, a fake provider round trip (`/api/mock/oauth/{p}`), Account → Sign-in methods, Security → Sign-in |
 
@@ -58,6 +59,12 @@ Sign-in has `signin-google`, `signin-github`, `signin-fail:<code>`,
 fixture has no web address. Its GitHub knows every organization but
 `no-such-org`, and a refused round trip leaves the account in the
 `bothy_signin_who` cookie, as the gateway does.
+
+Bothy's picture has `picture-custom` (an admin replaced the default),
+`picture-fail[:telegram|discord]` (a change fails in that chat app; Discord
+says it allows only a few changes an hour) and
+`picture-refused[:not-picture|too-large|too-small]`. The mock keeps any upload:
+a PNG, JPEG or WebP comes back as sent, anything else as a stand-in picture.
 
 Opening a page with `?mock=` resets the fixtures and stores the list in the
 `bothy_mock` cookie, so the page's `/api` calls and later in-app navigation

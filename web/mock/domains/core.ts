@@ -14,7 +14,8 @@ export interface Res {
   statusCode: number;
   setHeader(k: string, v: string): void;
   write(s: string): void;
-  end(s?: string): void;
+  /** 'latin1' sends a binary body read with body(), byte for byte. */
+  end(s?: string, enc?: 'latin1'): void;
   on(ev: 'close', fn: () => void): void;
 }
 declare const process: { env: Record<string, string | undefined> };
