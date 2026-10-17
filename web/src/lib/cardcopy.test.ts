@@ -258,7 +258,8 @@ describe('expiry and buttons', () => {
     expect(expiryOf(ap(undefined, { card: { ...ap(undefined).card, expires: at(15) } }), now)).toEqual({ text: 'Expires in 15 min', urgent: false });
     expect(expiryOf(ap(undefined, { card: { ...ap(undefined).card, expires: at(1.5) } }), now)).toEqual({ text: 'Expires in 2 min', urgent: true });
     expect(expiryOf(ap(undefined, { card: { ...ap(undefined).card, expires: '0001-01-01T00:00:00Z' }, expires_at: at(0.5) }), now)?.text).toBe('Expires in less than a minute');
-    expect(expiryOf(ap(undefined, { status: 'parked' }), now)?.text).toBe('Bothy stopped waiting. Approve to let it carry on.');
+    // A parked card says it waits in its body, not in the expiry slot of the meta line.
+    expect(expiryOf(ap(undefined, { status: 'parked' }), now)).toBeNull();
   });
 
   it('labels a pressed button with its -ing form', () => {

@@ -116,6 +116,15 @@ describe('ApprovalCard', () => {
     expect(screen.getByRole('button', { name: 'Always allow remembering this exact note…' })).toBeTruthy();
   });
 
+  it("says a parked request waits in the card's body, not squeezed into the meta line", () => {
+    render(ApprovalCard, { approval: approval({ status: 'parked', card: { ...approval().card, context: 'Telegram · DM · schedule · session “Morning briefing”' } }) });
+    const card = screen.getByRole('article');
+    const line = screen.getByText('Bothy stopped waiting. Approve to let it carry on.');
+    expect(line.className).toMatch(/text-body/);
+    const meta = card.querySelector('[data-details]')!.previousElementSibling!;
+    expect(meta.textContent?.replace(/\s+/g, ' ').trim()).toBe('From “Morning briefing” · Details');
+  });
+
   it('shows bidi and zero-width characters instead of applying them', () => {
     const { container } = render(ApprovalCard, { approval: approval() });
     expect(container.textContent).toContain('⟨U+202E⟩');
@@ -127,7 +136,8 @@ describe('ApprovalCard', () => {
     const card = screen.getByRole('article');
     expect(buttons(card).map((b) => b.textContent?.trim())).toEqual(['Run command', 'Allow for this chat', 'Deny']);
     for (const b of buttons(card)) expect(b.getAttribute('type')).toBe('button');
-    expect(screen.getByRole('button', { name: 'Always allow running rm -rf build ⟨U+202E⟩/ txt.exe…' })).toBeTruthy();
+    // The link says "this command"; the dialog it opens names the grant in full.
+    expect(screen.getByRole('button', { name: 'Always allow this command…' })).toBeTruthy();
 
     await fireEvent.click(buttons(card)[0]);
     await waitFor(() => expect(posts()).toHaveLength(1));
@@ -302,7 +312,8 @@ describe('ApprovalCard for people in chat apps', () => {
     render(ApprovalCard, { approval: person() });
     const card = screen.getByRole('article');
     expect(card.textContent).toContain('Alex Kim (@alex) asked on Slack.');
-    expect(card.textContent).toContain("Alex Kim's direct messages on Slack");
+    // The asked line says who and where, so the meta line leaves the context out.
+    expect(card.textContent).not.toContain("Alex Kim's direct messages on Slack");
     expect(card.textContent).not.toContain('You asked');
     expect(card.querySelector('a[href^="/chat/"]')).toBeNull();
   });

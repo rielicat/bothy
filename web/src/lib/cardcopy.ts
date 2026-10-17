@@ -697,9 +697,11 @@ export function busyLabel(label: string): string {
   return `${ing}…`;
 }
 
-/** The expiry line: "Expires in 15 min"; urgent under two minutes; parked approvals wait without a deadline. */
+/** What a parked card says under its question: the most important fact on it, so never fine print (§8.1). */
+export const PARKED = 'Bothy stopped waiting. Approve to let it carry on.';
+
+/** The expiry line: "Expires in 15 min"; urgent under two minutes. Parked approvals wait without a deadline. */
 export function expiryOf(ap: Approval, now = Date.now()): { text: string; urgent: boolean } | null {
-  if (ap.status === 'parked') return { text: 'Bothy stopped waiting. Approve to let it carry on.', urgent: false };
   if (ap.status !== 'pending') return null;
   const at = date(ap.card?.expires) ?? date(ap.expires_at);
   if (!at) return null;

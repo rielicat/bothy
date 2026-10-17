@@ -100,6 +100,16 @@ export function describeGrantParts(a: Action | undefined): GrantPart[] {
   return [EXACT_GRANT];
 }
 
+/**
+ * The words after "Always allow" on the card's link. A command is "this
+ * command": printing it again in the link outweighed the buttons, and the
+ * dialog the link opens names the grant in full.
+ */
+export function alwaysLabelParts(a: Action | undefined, grant: GrantPart[] = describeGrantParts(a)): GrantPart[] {
+  if (a?.kind === 'exec' && typeof payloadOf(a).code !== 'string') return ['this command'];
+  return grant;
+}
+
 export function describeGrant(a: Action | undefined): string {
   return describeGrantParts(a)
     .map((x) => (typeof x === 'string' ? x : x.code))

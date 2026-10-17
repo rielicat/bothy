@@ -2,7 +2,8 @@
   import { tick } from 'svelte';
   import { api, ApiError } from '../../lib/api/client';
   import type { Approval, Choice } from '../../lib/api/types.gen';
-  import { appName, busyLabel, cardCopy, decidable, denyAudience, expiryOf, fromTeam, isMulti, isOpen, originOf, requesterOf, teamAsked, teamPerson } from '../../lib/cardcopy';
+  import { appName, busyLabel, cardCopy, decidable, denyAudience, expiryOf, fromTeam, isMulti, isOpen, originOf, PARKED, requesterOf, teamAsked, teamPerson } from '../../lib/cardcopy';
+  import { alwaysLabelParts } from '../../lib/grants';
   import { choiceDone, choiceKey } from '../../lib/labels';
   import { router } from '../../lib/router.svelte';
   import { clock } from '../../lib/stores/clock.svelte';
@@ -120,6 +121,7 @@
             ? 'you'
             : people.name(view.approver?.user_id) || 'the person who asked',
   );
+  const alwaysWords = $derived(alwaysLabelParts(view.action, copy.grant));
   const denyHint = $derived(denyAudience(view) || undefined);
   // A schedule's request was asked for by nobody in the moment, so it says where it came from instead.
   // Someone else's request names the person and the chat once, here, so the meta line below leaves them out (§8.5).
@@ -264,6 +266,7 @@
         {#if askedIn}{requesterName} asked in <span data-copy-ignore>“<Verbatim text={origin.title ?? ''} />”</span> on {origin.app}.{:else}{asked}{/if}
       </p>
     {/if}
+    {#if view.status === 'parked'}<p class="text-body text-text {copy.consequence || asked ? '' : 'mt-1'}">{PARKED}</p>{/if}
 
     {#if warnings.length}
       <ul class="mt-3 space-y-1">
@@ -333,7 +336,7 @@
         {#if always}
           <p class="mt-2 text-small">
             <LinkButton class="text-left" disabled={!!busy} onclick={() => (alwaysOpen = true)}
-              >{#if person}Always allow for {person}…{:else}<span>Always allow <Words segs={copy.grant} />…</span>{/if}</LinkButton
+              >{#if person}Always allow for {person}…{:else}<span>Always allow <Words segs={alwaysWords} />…</span>{/if}</LinkButton
             >
           </p>
         {/if}
@@ -362,7 +365,8 @@
       <!-- Someone else's chat title may be private; who asked never is. -->
       <!-- A team request's chat isn't on the web; the server names it instead. -->
       {#if team}
-        {#if view.card?.context}<span data-copy-ignore>{view.card.context}</span>{' · '}{/if}
+        <!-- The asked line already says who asked and where. -->
+        {#if view.card?.context && !asked}<span data-copy-ignore>{view.card.context}</span>{' · '}{/if}
       {:else if !inOwnChat && view.session_id && (!someoneElse || !askedIn)}
         {#if someoneElse}
           Requested by {requesterName}{#if origin.title}{' '}in <span data-copy-ignore>“<Verbatim text={origin.title} />”</span>{/if}
