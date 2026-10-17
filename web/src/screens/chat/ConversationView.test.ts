@@ -247,8 +247,11 @@ describe('conversation', () => {
     render(ConversationView, { id: chatIds.login });
     const line = await screen.findByRole('button', { name: 'Ran npm test' });
     await fireEvent.click(line);
-    expect(await screen.findByText('Allowed by a saved permission')).toBeTruthy();
-    expect(screen.getByText('What Bothy asked for')).toBeTruthy();
+    const how = await screen.findByText('Allowed by a saved permission');
+    const asked = screen.getByText('What Bothy asked for');
+    // Plain parts first, then the exact request; the decision word isn't repeated in Technical.
+    expect(how.compareDocumentPosition(asked) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(asked.closest('[data-details]')!.textContent).not.toMatch(/Decision /);
   });
 });
 

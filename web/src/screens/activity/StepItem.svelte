@@ -29,16 +29,23 @@
   <div id="{uid}-d" data-details class="pb-2 pl-6 text-small text-muted" hidden={!open}>
     {#if open}
       {#if call}
-        {#if call.action}{@const asked = JSON.stringify(call.action, null, 2)}<CodeBlock class="mt-1" label="What Bothy asked for" code={asked} wrap maxLines={clampLines(asked, 12)} />{/if}
+        <!-- The chat's order (§7.4): result, how it was allowed, the exact request, then the technical line. -->
         {#if call.action?.diff}
-          <p class="mt-3 mb-1">Result</p>
+          <p class="mt-1 mb-1">Result</p>
           <DiffView diff={call.action.diff} />
         {:else if call.result_preview}
-          <CodeBlock class="mt-3" label="Result" code={call.result_preview} wrap maxLines={clampLines(call.result_preview, 20)} />
+          <CodeBlock class="mt-1" label="Result" code={call.result_preview} wrap maxLines={clampLines(call.result_preview, 20)} />
         {/if}
         {#if how}<p class="mt-3">How it was allowed: {how}</p>{/if}
-        <p class="mt-1">
-          Technical: {call.tool} · {call.verdict}{call.rule ? ` · ${call.rule}` : ''}{call.duration ? ` · Took ${duration(call.duration)}` : ''}{call.status === 'ok' && call.action?.host ? ` · Contacted ${call.action.host}` : ''}
+        {#if call.action}
+          {@const asked = JSON.stringify(call.action.diff ? { ...call.action, diff: '(shown above)' } : call.action, null, 2)}
+          <CodeBlock class="mt-3" label="What Bothy asked for" code={asked} wrap maxLines={clampLines(asked, 12)} />
+        {/if}
+        <p class="mt-3">
+          Technical: Tool {call.tool}{how ? '' : ` · Decision ${call.verdict}`}{call.rule ? ` · Rule ${call.rule}` : ''}{call.duration ? ` · Took ${duration(call.duration)}` : ''}{call.status === 'ok' &&
+          call.action?.host
+            ? ` · Contacted ${call.action.host}`
+            : ''}
         </p>
         {#if call.untrusted}<p class="mt-1">This came from outside your team (a web page). Bothy treats it with caution.</p>{/if}
       {:else if line.approval}
