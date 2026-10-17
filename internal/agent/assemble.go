@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"slices"
 	"sort"
@@ -23,6 +24,7 @@ type assembled struct {
 	est  int
 	bd   core.Breakdown
 	hash string
+	s1   string // hash of S1 alone: standing rules and team memory change it legitimately
 }
 
 // assembler builds the cache-stable request of SPEC §5.6 for any candidate
@@ -32,6 +34,7 @@ type assembler struct {
 	r        *Runner
 	ws       string // workspace dir images are read from
 	standing []string
+	team     string // TEAM.md, read once per step, redacted
 	s2       string
 	specs    []core.ToolSpec
 	snap     profile
@@ -46,11 +49,12 @@ type assembler struct {
 	built map[core.ModelRef]assembled
 }
 
-func (r *Runner) newAssembler(rs *runState, hist []histMsg) *assembler {
+func (r *Runner) newAssembler(ctx context.Context, rs *runState, hist []histMsg) *assembler {
 	return &assembler{
 		r:        r,
 		ws:       r.workspaceDir(rs.principal),
 		standing: r.cfg().Agent.StandingRules,
+		team:     r.teamMemory(ctx),
 		s2:       rs.sess.SystemSnapshot,
 		specs:    r.snapshotSpecs(rs),
 		snap:     snapshotProfile(rs.sess.SystemSnapshot),
@@ -66,7 +70,7 @@ func (r *Runner) newAssembler(rs *runState, hist []histMsg) *assembler {
 // withExtra is a copy whose fits leave room for extra tokens of messages
 // appended to the built request.
 func (a *assembler) withExtra(extra int) *assembler {
-	return &assembler{r: a.r, ws: a.ws, standing: a.standing, s2: a.s2, specs: a.specs, snap: a.snap, hist: a.hist,
+	return &assembler{r: a.r, ws: a.ws, standing: a.standing, team: a.team, s2: a.s2, specs: a.specs, snap: a.snap, hist: a.hist,
 		maxOut: a.maxOut, temp: a.temp, stop: a.stop, extra: extra, cacheKey: a.cacheKey, built: map[core.ModelRef]assembled{}}
 }
 
@@ -96,7 +100,7 @@ func (a *assembler) assemble(m core.ModelInfo, load bool) assembled {
 		}
 		return a.r.d.LLM.Estimate(s, m.Ref)
 	}
-	sys1 := s1(p, a.standing)
+	sys1 := s1(p, a.standing, a.team)
 	s2 := a.s2
 	specs := a.specs
 	if p != a.snap {
@@ -161,8 +165,11 @@ func (a *assembler) assemble(m core.ModelInfo, load bool) assembled {
 			}
 		}
 	}
-	bd.Constitution = est(sys1)
 	bd.Persona, bd.Memory, bd.Pins, bd.Skills = splitS2(est, s2)
+	// Team memory lives in S1 but is shown as memory.
+	team := min(est(teamBlock(a.team)), est(sys1))
+	bd.Constitution = est(sys1) - team
+	bd.Memory += team
 	bd.Tools = toolsTok
 	bd.Total = bd.Constitution + bd.Persona + bd.Memory + bd.Skills + bd.Pins + bd.Tools +
 		bd.Summary + bd.History + bd.ToolResults + bd.TurnContext
@@ -192,7 +199,7 @@ func (a *assembler) assemble(m core.ModelInfo, load bool) assembled {
 	if len(defs) > 0 {
 		req.ToolsCache, req.ToolChoice = true, "auto"
 	}
-	return assembled{req: req, est: bd.Total, bd: bd, hash: core.PrefixHash(defs, system)}
+	return assembled{req: req, est: bd.Total, bd: bd, hash: core.PrefixHash(defs, system), s1: core.PrefixHash(nil, system[:1])}
 }
 
 func sum(xs []int) int {

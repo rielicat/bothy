@@ -202,7 +202,7 @@ func (r *Runner) rebuildSnapshot(ctx context.Context, rs *runState, promote []st
 			legs |= core.TaintSend
 		}
 	}
-	hash := core.PrefixHash(toolDefs(specs), []core.SystemBlock{{Text: s1(p, c.Agent.StandingRules)}, {Text: s2}})
+	hash := core.PrefixHash(toolDefs(specs), []core.SystemBlock{{Text: s1(p, c.Agent.StandingRules, r.teamMemory(ctx))}, {Text: s2}})
 	s, err := r.mutateSession(ctx, rs.sess.ID, func(s *core.Session) error {
 		if edit != nil {
 			edit(s)
@@ -299,6 +299,7 @@ func (r *Runner) renderS2(ctx context.Context, rs *runState, p profile, window i
 		}
 		fmt.Fprintf(&f, "- Connected services: %s (find their actions with tool_search and prefer them to fetching the service's website)\n", strings.Join(names, ", "))
 	}
+	f.WriteString(memoryFact(rs.principal))
 	fmt.Fprintf(&f, "- Model window: %d tokens\n", window)
 	fmt.Fprintf(&f, "- Profile: %s", p)
 	if p == profileTextOnly {
@@ -314,6 +315,18 @@ func (r *Runner) renderS2(ctx context.Context, rs *runState, p profile, window i
 	section("pins", "Pinned instructions. Follow them until the user removes them:", pb.String())
 	section("skills", "Skills you can load with skill_load when relevant:", r.skillsIndex(rs, p, skills))
 	return b.String()
+}
+
+// memoryFact keeps the model honest about whose memory a note lands in:
+// only TEAM reaches everyone, and only once an admin approves it.
+func memoryFact(p *core.Principal) string {
+	const team = "to remember something for the whole team, call memory with file TEAM: an admin approves it first, " +
+		"so say it is waiting for approval, never that it is saved"
+	switch {
+	case p.Kind == core.PrincipalUser || p.Kind == core.PrincipalPerson:
+		return "- Memory: USER.md and MEMORY.md are for this person only; " + team + "\n"
+	}
+	return "- Memory: none here; an admin can add notes for everyone on the web (Knowledge → Memory)\n"
 }
 
 // maxServicesListed bounds the connected services named in the facts.

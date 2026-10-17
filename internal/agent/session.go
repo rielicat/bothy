@@ -183,7 +183,7 @@ func (r *Runner) ContextPreview(ctx context.Context, v core.Viewer, id core.Sess
 	if err != nil {
 		return nil, err
 	}
-	bd := r.newAssembler(rs, hist).assemble(rs.chain[0], false).bd
+	bd := r.newAssembler(ctx, rs, hist).assemble(rs.chain[0], false).bd
 	return &bd, nil
 }
 

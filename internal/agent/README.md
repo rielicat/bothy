@@ -16,7 +16,9 @@ The loop (`loop.go`) assembles a cache-stable request (`assemble.go`,
 every call of the session: tools and S2 (persona, facts, USER.md, MEMORY.md, pins, skills
 index) are frozen per epoch in the session row, S1 is the embedded
 `CONSTITUTION.md` (full or short by model profile) plus the administrator's
-standing rules, and each user turn carries a persisted `<turn-context>` with
+standing rules and `<team-memory>` (TEAM.md, read on every call, redacted,
+trusted and untainting; counted as memory in the breakdown; a change of S1
+is not reported as a cache-stability bug), and each user turn carries a persisted `<turn-context>` with
 time, sender trust, memory deltas, new pins, blocks from `Deps.TurnContext`
 hooks (the knowledge module's project notes; a hook's `Commit` runs only once
 the turn is stored, its taint legs join the session's), budget and trifecta

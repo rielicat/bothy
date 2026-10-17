@@ -123,6 +123,7 @@ type prefixMark struct {
 	epoch int
 	ref   core.ModelRef
 	hash  string
+	s1    string
 }
 
 var _ core.Runner = (*Runner)(nil)
@@ -179,6 +180,20 @@ func (r *Runner) hubOrNil() core.ChannelHub {
 func (r *Runner) cfg() *config.Config { return r.d.Config.Current() }
 
 func (r *Runner) now() time.Time { return r.clock.Now() }
+
+// teamMemory is TEAM.md for S1, redacted like pins since people type it. A
+// failed read leaves it out rather than failing the run.
+func (r *Runner) teamMemory(ctx context.Context) string {
+	if r.d.Memory == nil {
+		return ""
+	}
+	c, _, err := r.d.Memory.ReadTeam(ctx)
+	if err != nil {
+		r.log.Warn("team memory left out of the prompt", "err", err)
+		return ""
+	}
+	return r.redact(c)
+}
 
 func (r *Runner) redact(s string) string {
 	if r.d.Redactor == nil || s == "" {

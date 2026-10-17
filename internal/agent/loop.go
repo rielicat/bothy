@@ -558,7 +558,7 @@ func (r *Runner) prepareStep(ctx context.Context, rs *runState) (*assembler, ass
 		rs.w.mu.Lock()
 		r.syncSteersLocked(ctx, rs)
 		rs.w.mu.Unlock()
-		asm := r.newAssembler(rs, hist)
+		asm := r.newAssembler(ctx, rs, hist)
 		return asm, asm.assemble(rs.chain[0], false), nil
 	}
 	asm, head, err := build()
@@ -675,7 +675,7 @@ func (r *Runner) recordCall(ctx context.Context, rs *runState, asm *assembler, c
 	// Only a step's own prompt is checked: a refine critique or revision
 	// appends to it, and its hash comes from the facade instead.
 	if purpose == "agent" && ok {
-		r.checkPrefix(rs, ci.Ref, ci.PrefixHash)
+		r.checkPrefix(rs, ci.Ref, ci.PrefixHash, built.s1)
 	}
 	tot := rs.totals()
 	rs.mu.Lock()
@@ -693,17 +693,19 @@ func (r *Runner) recordCall(ctx context.Context, rs *runState, asm *assembler, c
 }
 
 // checkPrefix logs a cache-stability bug when the prefix changes within one
-// session epoch on the same model. Another model (a fallback, or a critic on
-// its own slot) has its own cache and may fit the prompt to its own window.
-func (r *Runner) checkPrefix(rs *runState, ref core.ModelRef, hash string) {
+// session epoch on the same model while S1 stays the same: S1 changes for
+// good reasons (an admin's standing rules, team memory). Another model (a
+// fallback, or a critic on its own slot) has its own cache and may fit the
+// prompt to its own window.
+func (r *Runner) checkPrefix(rs *runState, ref core.ModelRef, hash, s1 string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	prev, ok := r.prefix[rs.req.Session]
-	if ok && prev.epoch == rs.sess.Epoch && prev.ref == ref && prev.hash != hash {
+	if ok && prev.epoch == rs.sess.Epoch && prev.ref == ref && prev.s1 == s1 && prev.hash != hash {
 		r.log.Warn("prompt prefix changed within an epoch (cache-stability bug)", "session", rs.req.Session,
 			"epoch", rs.sess.Epoch, "model", ref.String(), "from", prev.hash, "to", hash)
 	}
-	r.prefix[rs.req.Session] = prefixMark{epoch: rs.sess.Epoch, ref: ref, hash: hash}
+	r.prefix[rs.req.Session] = prefixMark{epoch: rs.sess.Epoch, ref: ref, hash: hash, s1: s1}
 }
 
 const steerUnreadNotice = "Bothy stopped before reading your latest message. It stays in this chat, so your next message picks it up."

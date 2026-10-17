@@ -207,7 +207,7 @@ func TestConstitutionAndInstructionsSurviveCompactions(t *testing.T) {
 		}
 		reqs := h.requests()
 		last := reqs[len(reqs)-1]
-		if last.System[0].Text != s1(profileStandard, nil) || !strings.Contains(last.System[0].Text, "Bothy constitution") {
+		if last.System[0].Text != s1(profileStandard, nil, "") || !strings.Contains(last.System[0].Text, "Bothy constitution") {
 			t.Fatal("constitution missing after compactions")
 		}
 		s2 := last.System[1].Text
@@ -384,7 +384,7 @@ func Test16KWindowRequestsFitAndBreakdownsSum(t *testing.T) {
 				t.Fatalf("request %d: %d tokens > %d", i, n, limit)
 			}
 			checkPairs(t, req)
-			if req.System[0].Text != s1(profileCompact, nil) {
+			if req.System[0].Text != s1(profileCompact, nil, "") {
 				t.Fatal("compact profile must use the short constitution")
 			}
 			if req.NumCtx != info.Context || req.MaxTokens != 2048 {

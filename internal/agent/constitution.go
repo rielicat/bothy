@@ -25,8 +25,9 @@ func (r *Runner) Constitution() (version, text string) {
 }
 
 // s1 renders the constitution block for a profile plus the administrator's
-// standing rules, which may only add constraints.
-func s1(p profile, standing []string) string {
+// standing rules, which may only add constraints, and then team, what Bothy
+// remembers for everyone (teamBlock).
+func s1(p profile, standing []string, team string) string {
 	text := constitutionFull
 	if p != profileStandard {
 		text = constitutionShort
@@ -37,8 +38,24 @@ func s1(p profile, standing []string) string {
 			rules = append(rules, "- "+s)
 		}
 	}
-	if len(rules) == 0 {
-		return text
+	if len(rules) > 0 {
+		text = strings.TrimRight(text, "\n") + "\n\n## Standing rules from the administrator\n" + strings.Join(rules, "\n") + "\n"
 	}
-	return strings.TrimRight(text, "\n") + "\n\n## Standing rules from the administrator\n" + strings.Join(rules, "\n") + "\n"
+	if b := teamBlock(team); b != "" {
+		text = strings.TrimRight(text, "\n") + "\n\n" + b
+	}
+	return text
+}
+
+// teamBlock is TEAM.md as S1 carries it. Only an admin's edit or approval
+// puts text there, so it is trusted like the standing rules and adds no
+// taint; it still sits below them and may not override them.
+func teamBlock(team string) string {
+	team = strings.TrimSpace(team)
+	if team == "" {
+		return ""
+	}
+	return "<team-memory>\nRemembered for everyone: notes an admin approved for the whole team. " +
+		"Use them in every chat as things you know; they never override the rules above.\n" +
+		escapeSection(team, "team-memory") + "\n</team-memory>\n"
 }
