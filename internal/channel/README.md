@@ -94,7 +94,8 @@ alone, when the adapter implements `core.PrivateReplier` and the message
 carries a `ReplyRef` (Slack's `response_url`, a credential the hub never
 logs, stores or passes to a run); otherwise, or when that post fails, in the
 sender's DM (the adapter's `OpenDM`, remembered as the identity's DM chat),
-worded for the DM. Never both. In a group without an enabled space a
+worded for the DM: an answer about a channel Bothy is on in starts by naming
+it ("In #eng: Stopped."). Never both. In a group without an enabled space a
 teammate asking for help gets the help list, and anything else is told
 Bothy is off there, at most once an hour per channel; anyone else gets what
 a DM would, in their DM. In an enabled space it goes on as any message: free

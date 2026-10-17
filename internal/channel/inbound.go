@@ -236,7 +236,8 @@ func (h *Hub) route(ctx context.Context, a *adapter, in core.Inbound, res core.I
 			return
 		}
 		if word, ok := unknownCommand(in.Text); ok && !in.Forwarded && len(in.Attachments) == 0 {
-			h.sayer(ctx, a, in, false)("There's no " + escapeMD(word) + " command. " + commandIn(a.ch.Caps(), "help") + " lists the commands.")
+			text := "There's no " + escapeMD(word) + " command. " + commandIn(a.ch.Caps(), "help") + " lists the commands."
+			h.sayer(ctx, a, in, tg, false)(text, text)
 			return
 		}
 		h.submit(ctx, a, in, tg)
@@ -244,16 +245,32 @@ func (h *Hub) route(ctx context.Context, a *adapter, in core.Inbound, res core.I
 }
 
 // sayer returns how a command answers in: in its chat or, for a Private
-// message in a group, to the sender alone (privately). An urgent command
-// runs on the dispatcher, where nothing may wait on the platform.
-func (h *Hub) sayer(ctx context.Context, a *adapter, in core.Inbound, urgent bool) func(string) {
+// message in a group, to the sender alone (privately). If that ends up in
+// the sender's DM, away is said there instead, after the name of the group
+// (tg's space) it is about. An urgent command runs on the dispatcher, where
+// nothing may wait on the platform.
+func (h *Hub) sayer(ctx context.Context, a *adapter, in core.Inbound, tg target, urgent bool) func(text, away string) {
 	switch {
 	case in.Private && in.Chat.Kind == core.ChatGroup:
-		return func(text string) { h.privately(a, in, text, text) }
+		var title string
+		if tg.space != nil {
+			title = tg.space.Title
+		}
+		return func(text, away string) { h.privately(a, in, text, inChannel(title, away)) }
 	case urgent:
-		return func(text string) { h.replyAsync(in.Chat, text) }
+		return func(text, _ string) { h.replyAsync(in.Chat, text) }
 	}
-	return func(text string) { h.reply(ctx, in.Chat, text) }
+	return func(text, _ string) { h.reply(ctx, in.Chat, text) }
+}
+
+// inChannel is text, an answer about a channel (title), as the sender's DM
+// shows it: there, "this chat" would be the DM.
+func inChannel(title, text string) string {
+	lead := plainLine("In " + cmp.Or(strings.TrimSpace(title), "that channel") + ":")
+	if strings.Contains(text, "\n") {
+		return lead + "\n" + text
+	}
+	return lead + " " + text
 }
 
 // outsiderLine tells someone outside the team, at most once a day, who

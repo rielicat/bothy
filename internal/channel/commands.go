@@ -134,12 +134,14 @@ func chatOrigin(ctx context.Context, a *adapter, in core.Inbound) context.Contex
 func (h *Hub) runCommand(ctx context.Context, a *adapter, in core.Inbound, res core.IdentityResolution, tg target, cmd, args string) {
 	spec := commands[cmd]
 	chat, caps := in.Chat, a.ch.Caps()
-	say := h.sayer(ctx, a, in, spec.urgent)
+	answer := h.sayer(ctx, a, in, tg, spec.urgent)
+	say := func(text string) { answer(text, text) }
 	if !h.allowed(spec.access, a, res, tg) {
 		if spec.access == accessApprover {
 			say("Only someone who can approve can pause Bothy.")
 		} else {
-			say("Only someone who can approve can use " + commandIn(caps, cmd) + " here.")
+			only := "Only someone who can approve can use " + commandIn(caps, cmd)
+			answer(only+" here.", only+".")
 		}
 		return
 	}

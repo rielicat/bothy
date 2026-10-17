@@ -138,10 +138,21 @@ func TestPrivateSlashFallsBackToDM(t *testing.T) {
 		if v := h.visible(memberChat); len(v) != 2 || v[1] != helpText(h.ch.Caps()) {
 			t.Fatalf("after a failed private reply, DM = %q", v)
 		}
+		// An answer about a channel Bothy is on in names it in the DM, where
+		// "this chat" or "here" would be the DM.
 		h.space("C222", true, true)
-		h.slash("C222", ownerChat, "/usage")
-		if v := h.visible(ownerChat); len(v) != 1 || !strings.HasPrefix(v[0], "Today: ") {
-			t.Fatalf("a command in an on channel after a failed private reply: DM = %q", v)
+		for _, tc := range []struct{ sender, text, want string }{
+			{ownerChat, "/usage", "In Team: Today: $0.00, no daily limit. This conversation: $0.00."},
+			{memberChat, "/status", "In Team:\nNo task running.\nToday: $0.00, no daily limit."},
+			{memberChat, "/new", "In Team: Only someone who can approve can use /bothy new."},
+			{ownerChat, "/pin keep it short", "In Team: Pinned. /bothy pins lists them."},
+			{ownerChat, "/compact", "In Team: Older messages were summarised."},
+		} {
+			n := len(h.visible(tc.sender))
+			h.slash("C222", tc.sender, tc.text)
+			if v := h.visible(tc.sender); len(v) != n+1 || v[n] != tc.want {
+				t.Fatalf("%s in an on channel after a failed private reply: DM = %q, want one more: %q", tc.text, v, tc.want)
+			}
 		}
 		if n := len(h.ch.PrivateReplies()); n != 0 || len(h.visible("C222")) != 0 {
 			t.Fatalf("%d private replies, channel shows %q", n, h.visible("C222"))
