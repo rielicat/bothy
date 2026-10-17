@@ -60,11 +60,22 @@ sent before 0013 are still refreshed after each `approval.voted`. A pending
 sender's first words (their first message that is not a command such as
 Telegram's "/start") are kept for the admins' inbox, and people waiting and
 group chats publish `inbox.changed`.
+The bot's picture: when Telegram or Discord (adapters implementing
+`core.PictureSetter`) connects with a bot identity other than the one in meta
+`picture:<channel>`, a bot without a picture gets Bothy's current one
+(`Deps.Picture`); one someone set in BotFather or the developer portal stays.
+The identity is remembered either way; a failure is retried on the next
+connection. `ApplyPicture` is an admin's change: it replaces the picture of
+every turned-on bot in parallel (30 s each) and answers `updated`, `failed`
+(`core.ErrNotConnected`, or the platform's error, coded `rate_limited` when
+Discord's hourly allowance is spent) or `manual` (Slack). A per-adapter lock
+keeps the two from crossing, so the admin's picture is the one that stays.
+
 It also implements `Messenger`, `PrincipalChat` (a teammate's DM while their
 verdict is fresh enough, a channel's chat while it is on; never a web
 account), `TeamActive` (whether a team schedule may run now), `Greet`,
-`TellApprover`, `InvalidateTeams`, `Test` and the doctor check
-`channels.auth_failed`.
+`TellApprover`, `InvalidateTeams`, `ApplyPicture`, `Test` and the doctor
+check `channels.auth_failed`.
 
 Contracts adapters can opt into (by method set; adapters never import this
 package):

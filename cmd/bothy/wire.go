@@ -29,6 +29,7 @@ import (
 	"github.com/rielicat/bothy/internal/knowledge"
 	"github.com/rielicat/bothy/internal/mcp"
 	"github.com/rielicat/bothy/internal/memory"
+	"github.com/rielicat/bothy/internal/picture"
 	"github.com/rielicat/bothy/internal/policy"
 	"github.com/rielicat/bothy/internal/provider"
 	"github.com/rielicat/bothy/internal/release"
@@ -76,6 +77,7 @@ type app struct {
 	github    *github.Service
 	runner    *agent.Runner
 	hub       *channel.Hub
+	picture   *picture.Store
 	scheduler *scheduler.Service
 	release   *release.Service
 	doctor    *doctor.Runner
@@ -224,8 +226,10 @@ func (a *app) buildRest(ctx context.Context) error {
 		TurnContext: []core.TurnContextHook{a.knowledge}}); err != nil {
 		return err
 	}
+	a.picture = picture.New(dirs.Data)
 	if a.hub, err = channel.New(channel.Deps{Config: a.cfg, Auth: a.auth, Runner: a.runner, Approvals: a.approvals, Budget: a.budget,
-		Sandbox: a.sandbox, LLM: a.llm, Store: a.db, Bus: a.bus, Audit: a.audit, Redactor: a.redactor, WorkDir: dirs.Work, Clock: a.clock, Log: a.log}); err != nil {
+		Sandbox: a.sandbox, LLM: a.llm, Store: a.db, Bus: a.bus, Audit: a.audit, Redactor: a.redactor, Picture: a.picture, WorkDir: dirs.Work,
+		Clock: a.clock, Log: a.log}); err != nil {
 		return err
 	}
 	a.runner.SetHub(a.hub) // breaks the runner <-> hub cycle: resumed-run sinks and restart notices

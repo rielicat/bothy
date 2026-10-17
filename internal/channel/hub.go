@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"runtime/debug"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -35,6 +36,9 @@ type adapter struct {
 	ch      core.Channel
 	queue   chan core.Inbound
 	dropped atomic.Uint64
+	// pictureMu keeps a first-connection picture check and an admin's change
+	// from crossing, so the admin's picture is the one that stays.
+	pictureMu sync.Mutex
 
 	// Guarded by Hub.mu.
 	dispatching bool
@@ -396,7 +400,7 @@ func (h *Hub) publishStatuses() {
 		a := h.adapters[st.Name]
 		changed := a != nil && (a.published.State != st.State || a.published.Detail != st.Detail ||
 			a.published.Identity != st.Identity || a.published.Enabled != st.Enabled || a.published.Team != st.Team ||
-			a.published.MemberCheck != st.MemberCheck || a.published.IdleServers != st.IdleServers)
+			a.published.MemberCheck != st.MemberCheck || a.published.IdleServers != st.IdleServers || a.published.AppID != st.AppID)
 		connected := changed && st.State == "connected" && a.published.State != "connected"
 		if changed {
 			a.published = st
@@ -407,6 +411,7 @@ func (h *Hub) publishStatuses() {
 		}
 		if connected {
 			h.goAsync(func(ctx context.Context) { h.backfillTeams(ctx, a) })
+			h.goAsync(func(ctx context.Context) { h.firstPicture(ctx, a) })
 		}
 	}
 }

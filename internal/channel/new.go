@@ -25,7 +25,8 @@ type Deps struct {
 	Bus       core.Bus
 	Audit     core.Auditor
 	Redactor  core.Redactor
-	WorkDir   string // attachments are written to <WorkDir>/ws/<workspace>/.bothy/in/
+	Picture   core.AgentPicture // nil: bots keep whatever picture they have when they connect
+	WorkDir   string            // attachments are written to <WorkDir>/ws/<workspace>/.bothy/in/
 	Clock     core.Clock
 	Log       *slog.Logger
 }

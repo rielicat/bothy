@@ -19,7 +19,8 @@ var _ core.ChannelHub = (*Hub)(nil)
 // for one chat return the same Sink so its events accumulate. Send returns
 // message ids "1", "2", … in order. OnMessage and OnAction record their
 // arguments; Test and Status delegate to channels passed to Add. Greet and
-// TellApprover record "<channel>:<external id>".
+// TellApprover record "<channel>:<external id>". ApplyPicture records the
+// picture in Pictures and answers PictureResults.
 type Hub struct {
 	core.ChannelHub
 	Sent           []string // "<chat key>|<markdown>"
@@ -34,6 +35,9 @@ type Hub struct {
 	Channels    []core.Channel
 	Greeted     []string
 	Told        []string
+	// PictureResults is what ApplyPicture answers; Pictures what it was given.
+	PictureResults []core.PictureResult
+	Pictures       []core.Picture
 }
 
 func (h *Hub) Send(_ context.Context, chat core.ChatRef, markdown string) (core.MsgRef, error) {
@@ -169,6 +173,13 @@ func (h *Hub) Test(ctx context.Context, name string) (string, error) {
 		return "", fmt.Errorf("channel %q: %w", name, core.ErrNotFound)
 	}
 	return ch.SelfTest(ctx)
+}
+
+func (h *Hub) ApplyPicture(_ context.Context, p core.Picture) []core.PictureResult {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.Pictures = append(h.Pictures, p)
+	return append([]core.PictureResult(nil), h.PictureResults...)
 }
 
 // Messages returns a copy of Sent.
