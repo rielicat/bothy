@@ -61,7 +61,7 @@
     return s && f && f > s ? `took ${duration((f - s) * 1e6)}` : '';
   };
 
-  type Status = { text: string; tone: Tone; spin?: boolean };
+  type Status = { text: string; tone: Tone; spin?: boolean; href?: string };
   // unknown: Bothy stopped following the run, so how it ended is on GitHub, not here.
   const deployStatus = (d: Deploy): Status =>
     open(d)
@@ -71,6 +71,7 @@
         : d.status === 'unknown'
           ? { text: 'Not tracked', tone: 'muted' }
           : { text: 'Failed', tone: 'danger' };
+  const shortDay = (t: string) => new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   const github = (d: Deploy) =>
     d.run_url ? { href: d.run_url, label: d.status === 'failed' ? 'View logs on GitHub' : d.status === 'unknown' ? 'Check on GitHub' : 'View on GitHub' } : undefined;
 
@@ -82,17 +83,20 @@
       const no = denied.find((a) => envOf(a) === env.name && !withdrawn(a) && (!last || a.created_at > last.created_at));
       let status: Status = { text: 'Not deployed yet', tone: 'muted' };
       if (last && open(last)) status = deployStatus(last);
-      else if (wait) status = { text: `Waiting for approval${votesOf(wait) ? ` (${votesOf(wait)!.approved} of ${votesOf(wait)!.required})` : ''}`, tone: 'warning' };
+      else if (wait)
+        status = { text: `Waiting for approval${votesOf(wait) ? ` (${votesOf(wait)!.approved} of ${votesOf(wait)!.required})` : ''}`, tone: 'warning', href: `/approvals/${encodeURIComponent(wait.id)}` };
       else if (no) status = { text: 'Denied', tone: 'muted' };
       else if (last) status = deployStatus(last);
-      return { env, last, status };
+      // A waiting or denied request is the status, so line 2 says it's about the last deploy, not that request.
+      return { env, last, status, before: !!last && !open(last) && (!!wait || !!no) };
     }),
   );
 
   type Item = { key: string; at: string; title: string; href: string; status: Status; facts: string[]; link?: { href: string; label: string } };
   const history = $derived<Item[]>(
     [
-      ...deploys.map((d) => ({
+      // A running deploy is the environment's status above; it joins the history once it ends.
+      ...deploys.filter((d) => !open(d)).map((d) => ({
         key: d.id,
         at: d.created_at,
         title: `Deploy ${d.repo} to ${d.environment} · ${d.ref}${d.short_sha ? ` at ${d.short_sha}` : ''}`,
@@ -135,15 +139,25 @@
 <!-- The commit subject is written by whoever can push to the repository: quoted, shown as typed, never as markup. -->
 {#snippet version(d: Deploy)}{d.ref}{#if d.short_sha}{' · '}<span class="tabular-nums">{d.short_sha}</span>{/if}{#if d.subject}{' · '}<q data-copy-ignore data-subject><Verbatim text={d.subject} /></q>{/if}{/snippet}
 
-{#snippet word(s: Status)}
-  <span class="inline-flex shrink-0 items-center gap-1.5 text-small {toneClass[s.tone] || 'text-muted'}">{#if s.spin}<Spinner size={12} />{/if}{s.text}</span>
+{#snippet word(s: Status, cls = '')}
+  {#if s.href}
+    <a
+      href={s.href}
+      onclick={router.link}
+      class="-my-0.5 inline-flex min-h-6 shrink-0 items-center gap-0.5 text-small hover:underline pointer-coarse:-my-3 pointer-coarse:min-h-11 {toneClass[s.tone] || 'text-muted'} {cls}"
+      >{s.text}<Icon name="chevron-right" size={12} /></a
+    >
+  {:else}
+    <span class="inline-flex shrink-0 items-center gap-1.5 text-small {toneClass[s.tone] || 'text-muted'} {cls}">{#if s.spin}<Spinner size={12} />{/if}{s.text}</span>
+  {/if}
 {/snippet}
 
+<!-- The label and ↗ stay together, so the arrow is never alone on a line. -->
 {#snippet external(l: { href: string; label: string })}
-  <a class="link" href={l.href} target="_blank" rel="noopener noreferrer">{l.label} ↗<span class="sr-only"> (opens in a new tab)</span></a>
+  <a class="link whitespace-nowrap" href={l.href} target="_blank" rel="noopener noreferrer">{l.label} ↗<span class="sr-only"> (opens in a new tab)</span></a>
 {/snippet}
 
-<Activity title="Releases" actions={setUp}>
+<Activity tab="Releases" actions={setUp}>
   {#if !data}
     <Loading {failed} retry={load} />
   {:else if !data.environments.length}
@@ -151,11 +165,11 @@
       text="No deploy environments yet. Add one so Bothy can deploy with approval."
       action={session.isAdmin ? { label: 'Set up environments', href: '/settings/connections/github' } : undefined}
     />
-  {:else if !history.length && !pending.length}
+  {:else if !history.length && !pending.length && !deploys.length}
     <EmptyState text="No deploys yet. Ask Bothy in a chat, for example “Deploy main to staging”." />
   {:else}
     <ul>
-      {#each environments as { env, last, status } (env.name)}
+      {#each environments as { env, last, status, before } (env.name)}
         <li class="border-b border-border py-2 last:border-b-0">
           <!-- Not a link to anything, so the name wraps instead of truncating; a long status moves under it. -->
           <div class="flex min-h-6 flex-wrap items-baseline justify-between gap-x-4">
@@ -164,7 +178,7 @@
           </div>
           {#if last}
             <p class="text-small text-muted [overflow-wrap:anywhere]">
-              {@render version(last)} · {#if open(last)}started {relTime(last.created_at)}{:else}<time title={fullTime(last.created_at)}>{relTime(last.created_at)}</time>{/if}{#if !open(last) && last.approved_by_names.length}{` · approved by ${approvers(last)}`}{/if}{#if (open(last) || last.status === 'unknown') && github(last)}{' · '}{@render external(github(last)!)}{/if}
+              {#if before}Last deployed <time title={fullTime(last.created_at)}>{shortDay(last.created_at)}</time> ·{' '}{/if}{@render version(last)}{#if before}{#if last.approved_by_names.length}{` · approved by ${approvers(last)}`}{/if}{:else}{' · '}{#if open(last)}started {relTime(last.created_at)}{:else}<time title={fullTime(last.created_at)}>{relTime(last.created_at)}</time>{/if}{#if !open(last) && last.approved_by_names.length}{` · approved by ${approvers(last)}`}{/if}{#if (open(last) || last.status === 'unknown') && github(last)}{' · '}{@render external(github(last)!)}{/if}{/if}
             </p>
           {/if}
         </li>
@@ -178,15 +192,21 @@
         <ul class="mt-2">
           {#each history as h (h.key)}
             <li class="flex min-h-14 flex-col justify-center border-b border-border py-2 last:border-b-0">
+              <!-- On a phone the title wraps, since rows differ at its end (environment, commit), and the status leads the meta line. -->
               <div class="flex items-baseline gap-4">
-                <a href={h.href} onclick={router.link} class="-my-0.5 flex min-h-6 min-w-0 flex-1 items-center text-body font-medium text-text hover:underline pointer-coarse:-my-3 pointer-coarse:min-h-11" title={h.title}
-                  ><span class="truncate">{h.title}</span></a
+                <a
+                  href={h.href}
+                  onclick={router.link}
+                  class="-my-0.5 flex min-h-6 min-w-0 flex-1 items-center text-body font-medium text-text hover:underline pointer-coarse:-my-3 pointer-coarse:min-h-11"
+                  title={h.title}><span class="[overflow-wrap:anywhere] sm:truncate">{h.title}</span></a
                 >
-                {@render word(h.status)}
+                {@render word(h.status, 'max-sm:hidden')}
                 <time class="meta min-w-20 text-right whitespace-nowrap max-sm:hidden" title={fullTime(h.at)}>{relTime(h.at)}</time>
               </div>
               <p class="text-small text-muted [overflow-wrap:anywhere]">
-                {h.facts.join(' · ')}{#if h.link}{' · '}{@render external(h.link)}{/if}<span class="sm:hidden">{' · '}<span class="whitespace-nowrap">{relTime(h.at)}</span></span>
+                <span class="sm:hidden">{@render word(h.status)}{' · '}</span>{h.facts.join(' · ')}{#if h.link}{' · '}{@render external(h.link)}{/if}<span class="sm:hidden"
+                  >{' · '}<span class="whitespace-nowrap">{relTime(h.at)}</span></span
+                >
               </p>
             </li>
           {/each}

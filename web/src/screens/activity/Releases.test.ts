@@ -1,14 +1,16 @@
 import { render, screen } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
 import { member } from '../../../mock/fixtures';
+import { resetMock } from '../../../mock/server';
 import { router } from '../../lib/router.svelte';
 import { session } from '../../lib/stores/session.svelte';
 import { installApi } from '../../test/api';
 import { loadReleases } from './api';
 import Releases from './Releases.svelte';
 
-async function open(override?: (m: string, url: string) => unknown) {
+async function open(override?: (m: string, url: string) => unknown, mock = '') {
   installApi({ override });
+  if (mock) resetMock({ mock });
   session.ready = false;
   await session.init();
   await loadReleases(true);
@@ -25,6 +27,16 @@ describe('Releases (docs/design/ui.md §10.4)', () => {
     expect(text).toContain('Deploy acme/web to production · main at 4f2c1a9');
     expect(text).toContain('You asked · Alex and Maya Chen approved');
     expect(document.body.textContent).not.toMatch(/4f2c1a9d2e8b/);
+    // A running deploy is its environment's status, not a History row as well.
+    const history = screen.getByText('History').closest('section')!;
+    expect(history.textContent).not.toContain('9e1b3c0');
+  });
+
+  it('links a waiting request from its environment, whose line 2 is about the last deploy', async () => {
+    await open(undefined, 'deploy-waiting');
+    const waiting = await screen.findByRole('link', { name: /^Waiting for approval \(1 of 2\)/ }, { timeout: 3000 });
+    expect(waiting.getAttribute('href')).toMatch(/^\/approvals\/apr_/);
+    expect(waiting.closest('li')!.querySelector('p')!.textContent?.trim()).toMatch(/^Last deployed /);
   });
 
   it('shows a deploy Bothy lost track of as not tracked, and a request its asker withdrew as cancelled', async () => {
@@ -86,7 +98,8 @@ describe('Releases (docs/design/ui.md §10.4)', () => {
     const text = document.body.textContent ?? '';
     expect(text).not.toMatch(/Failed|Denied|denied|took/);
     expect(text).toContain('Alex asked · Cancelled by Alex: “Wrong branch”');
-    expect(screen.getAllByText('Cancelled')).toHaveLength(1);
+    // Once in the History row: beside the title on wide screens, leading the meta line on phones.
+    expect(screen.getAllByText('Cancelled').every((el) => el.closest('section'))).toBe(true);
   });
 
   it('shows a commit subject as quoted text, never as markup', async () => {

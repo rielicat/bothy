@@ -1843,9 +1843,10 @@ Deploy acme/web to staging · main at 1b2c3d4                          Failed   
 Maya Chen asked · Sam Patel approved · View logs on GitHub ↗
 ```
 
-- Environment rows: name · repository, status word at the right ("Deployed" muted, "◌ Deploying…" muted, "Waiting for approval (1 of 2)" `warning-text`, "Failed" `danger-text`, "Denied" muted, "Not tracked" muted), line 2 the last-deploy facts. A request its requester cancelled leaves the row on the last deploy.
+- Environment rows: name · repository, status word at the right ("Deployed" muted, "◌ Deploying…" muted, "Waiting for approval (1 of 2) ›" `warning-text`, a link to `/approvals/{id}`, "Failed" `danger-text`, "Denied" muted, "Not tracked" muted), line 2 the last-deploy facts. When the status is a waiting or denied request, line 2 starts with "Last deployed": "Last deployed Oct 15 · main · 4f2c1a9 · “Fix login redirect loop” · approved by Alex and Maya Chen", so it never reads as if that request was approved. A request its requester cancelled leaves the row on the last deploy.
+- A running deploy shows in its environment row only; it joins History when it ends.
 - "Not tracked" is a deploy whose status is `unknown` (Bothy lost the run or stopped following it): never "Failed", no "took", and "Check on GitHub ↗" when the run is known. The page stops refreshing once no deploy is running.
-- History rows link to task detail. A request its requester withdrew reads "Cancelled" (muted) with "{requester} asked · Cancelled by {requester}".
+- History rows link to task detail. A request its requester withdrew reads "Cancelled" (muted) with "{requester} asked · Cancelled by {requester}". Under 640 px the status word leads the meta line ("Deploying… · You asked · Alex approved · 4 min ago") and the title wraps, since rows differ at its end. External links keep their label and ↗ together.
 - Everyone can read this page. Admins see "Set up environments ›" in the page actions (to §12.2).
 - The tab is hidden until an environment exists. With environments but no deploys yet: "No deploys yet. Ask Bothy in a chat, for example “Deploy main to staging”."
 
