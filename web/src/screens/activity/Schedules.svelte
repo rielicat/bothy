@@ -104,7 +104,9 @@
     errors[t.id] = '';
     t.enabled = on;
     try {
-      await api.patch(`/api/schedules/${encodeURIComponent(t.id)}`, { enabled: on });
+      const saved = await api.patch<Schedule>(`/api/schedules/${encodeURIComponent(t.id)}`, { enabled: on });
+      // The server clears the next run while a schedule is off; Go's zero time means none.
+      t.next_run_at = saved.next_run_at && !saved.next_run_at.startsWith('0001-') ? saved.next_run_at : undefined;
     } catch {
       t.enabled = !on;
       errors[t.id] = "Couldn't save. Try again.";

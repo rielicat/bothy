@@ -54,6 +54,19 @@ describe('Schedules (docs/design/ui.md §10.3)', () => {
     await waitFor(() => expect(s.queryByText('Ops handover')).toBeNull());
   });
 
+  it("shows the next run the server gives a chat app's schedule that was just turned on", async () => {
+    await start(undefined, (m, url) =>
+      m === 'PATCH' && url === '/api/schedules/sch_01jteamops00000000000000'
+        ? { id: 'sch_01jteamops00000000000000', enabled: true, next_run_at: '2030-01-07T09:00:00Z' }
+        : undefined,
+    );
+    const section = (await screen.findByRole('heading', { name: 'In chat apps' })).closest('section')!;
+    const row = within(section).getByText('Ops handover').closest('li')!;
+    await fireEvent.click(within(row).getByRole('switch', { name: 'Ops handover' }));
+    await waitFor(() => expect(row.textContent).toMatch(/Ops team · Telegram · .+ · Next: /));
+    expect(row.textContent).not.toContain('Not scheduled');
+  });
+
   it("says a chat app's schedule that is on but has no next run isn't scheduled, rather than off", async () => {
     await start(undefined, (m, url) =>
       m === 'GET' && url === '/api/team/schedules'
