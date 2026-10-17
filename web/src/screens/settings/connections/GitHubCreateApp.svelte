@@ -64,6 +64,11 @@
     }
   }
 
+  let heading: HTMLElement | undefined = $state();
+  export function focus() {
+    heading?.focus();
+  }
+
   function failureAction(f: AppStartFailure) {
     if (f.fix) return { label: `Open ${f.fix}`, onclick: () => away.to(`${f.fix}/settings/connections/github`) };
     if (f.unlock) return { label: 'Unlock saved keys', onclick: () => router.navigate('/settings/security/keys') };
@@ -71,7 +76,7 @@
   }
 </script>
 
-<h2 class="mt-10 section-title">Create a GitHub App for Bothy</h2>
+<h2 class="mt-10 section-title focus:outline-none" tabindex="-1" bind:this={heading}>Create a GitHub App for Bothy</h2>
 <p class="mt-1 text-body text-muted">Pull requests and comments come from Bothy itself, not from someone's account. You choose which repositories it can use.</p>
 
 <p class="mt-6 field-label">Where will Bothy work?</p>
@@ -92,10 +97,9 @@
         <TextField
           label="Organization"
           bind:value={org}
-          placeholder="acme"
           autocomplete="off"
           spellcheck="false"
-          help="You need to be an owner of this organization on GitHub."
+          help="The name in its address, like acme in github.com/acme. You need to be an owner of it on GitHub."
           error={orgError}
           onblur={() => (touched = true)}
           onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && start()}

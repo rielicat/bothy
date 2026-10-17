@@ -197,6 +197,21 @@ describe("Bothy's own GitHub App (§12.2)", () => {
     expect(screen.queryByLabelText('Token')).toBeNull();
   });
 
+  it('shows one setup path at a time', async () => {
+    await app('github-none');
+    const heading = await screen.findByRole('heading', { name: 'Create a GitHub App for Bothy' });
+    expect(screen.getByText('The name in its address, like acme in github.com/acme. You need to be an owner of it on GitHub.')).toBeTruthy();
+    expect((screen.getByLabelText('Organization') as HTMLInputElement).placeholder).toBe('');
+    await openOther();
+    expect(heading.closest('[hidden]')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Continue on GitHub' })).toBeNull();
+    expect(screen.getByRole('radiogroup', { name: 'How do you want to connect?' })).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Create a GitHub App for Bothy instead' }));
+    expect(screen.getByRole('button', { name: 'Other ways to connect' }).getAttribute('aria-expanded')).toBe('false');
+    expect(heading.closest('[hidden]')).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(heading));
+  });
+
   it('proposes a name no app Bothy recorded has', async () => {
     await app('github-app-retired');
     await fireEvent.input(await screen.findByLabelText('Organization'), { target: { value: 'acme' } });

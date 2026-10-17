@@ -2192,8 +2192,9 @@ Where will Bothy work?
 ┌──────────────────────────────────────────────────────────────────┐
 │ (•) An organization                                               │
 │     ───────────────────────────────────────────────────────────── │
-│     Organization [ acme                ]                          │
-│     You need to be an owner of this organization on GitHub.       │  field help
+│     Organization [                     ]                          │  no placeholder
+│     The name in its address, like acme in github.com/acme.        │  field help
+│     You need to be an owner of it on GitHub.                      │
 ├──────────────────────────────────────────────────────────────────┤
 │ ( ) Your personal account                                         │
 │     For repositories your own GitHub account owns.                │
@@ -2207,8 +2208,7 @@ Where will Bothy work?
 GitHub opens in this tab. Sign in there if asked, then create the app and install it.
 
 › Other ways to connect                                              Disclosure section
-    How do you want to connect?
-    (•) Personal access token — Quickest. Acts as the person who created the token.
+    (•) Personal access token                                        OptionList labelled "How do you want to connect?" (a visually hidden h2) — Quickest. Acts as the person who created the token.
     ( ) A GitHub App you already have — Paste its App ID and private key.
     … token or App ID + private key, "Which repositories can Bothy use?", [ Save ] …
 › Using GitHub Enterprise?                                           reveals "GitHub address"
@@ -2234,6 +2234,7 @@ GitHub opens in this tab. Sign in there if asked, then create the app and instal
   - "That link to GitHub expired. Start again." / "Bothy can't connect GitHub right now. Try again later."
 
 Under "Other ways to connect":
+- One setup path shows at a time. Opening "Other ways to connect" folds the create-app block to one link, "Create a GitHub App for Bothy instead"; that link folds the other path again and moves focus to the "Create a GitHub App for Bothy" heading. What was typed in either is kept.
 - "Which permissions?" (token) lists: Contents, Pull requests, Issues and Actions (read and write; Actions is for deploys), Metadata (read).
 - A GitHub App you already have: "App ID" and "Private key" (file picker for the `.pem`, or "Paste instead" textarea); then "Installed on acme · 14 repositories" or "The app isn't installed on any organization yet." + [Install on GitHub ↗].
 - After Save: toast "Saved." and a `StatusLine` "Bothy is reading 2 repositories. You can keep working; this takes a few minutes. See progress in Knowledge ›".

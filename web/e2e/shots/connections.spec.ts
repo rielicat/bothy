@@ -102,7 +102,7 @@ const states: ShotState[] = [
   { name: 'github-app-landing-installed', route: '/settings/connections/github?github_app=installed', mock: 'github-app-made', setup: steps(dialog('Add repositories'), see('acme/mobile')), full: false },
   { name: 'github-app-not-finished', route: '/settings/connections/github?github_app=not_finished&apps=acme', mock: 'github-none', setup: steps(see("couldn't finish setting up the app")) },
   { name: 'github-app-manage', route: '/settings/connections/github', mock: 'github-app-made', setup: steps(see('Connected to acme as Bothy (acme)')) },
-  { name: 'github-connect', route: '/settings/connections/github', mock: 'github-none', setup: steps(other, see('How do you want to connect?')) },
+  { name: 'github-connect', route: '/settings/connections/github', mock: 'github-none', setup: steps(other, see('Personal access token')) },
   { name: 'github-permissions', route: '/settings/connections/github', mock: 'github-none', setup: steps(other, click('Which permissions?')) },
   { name: 'github-token-connected', route: '/settings/connections/github', mock: 'github-none', setup: steps(other, fill('Token', 'github_pat_11ABCDEFG0123456789abcdef', true), see('Bothy can see')) },
   { name: 'github-token-filtered', route: '/settings/connections/github', mock: 'github-none', setup: steps(other, fill('Token', 'github_pat_11ABCDEFG0123456789abcdef', true), see('Bothy can see'), fill('Filter repositories', 'de')) },

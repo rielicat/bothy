@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import {
     Button,
     Disclosure,
@@ -37,6 +37,10 @@
   let landing = $state<string | null>(null);
   let landed = $state<AppLandingFailure | null>(null);
 
+  // One setup path shows at a time: opening "Other ways to connect" folds the
+  // create-app block to a link, and that link folds the other path again.
+  let others = $state(false);
+  let createApp: GitHubCreateApp | undefined = $state();
   let auth = $state('pat');
   let token = $state('');
   let appId = $state('');
@@ -293,11 +297,32 @@
       {#if pending}
         <GitHubAppPending app={pending} requested={landing === 'requested'} failed={landing === 'install_failed'} oninstalled={installed} onretired={load} />
       {:else}
-        <GitHubCreateApp username={session.me?.user.username ?? ''} taken={apps.map((a) => a.name)} {replacing} oncancel={cancelReplace} onpending={load} />
+        {#if others}
+          <p class="mt-10 text-body">
+            <LinkButton
+              onclick={async () => {
+                others = false;
+                await tick();
+                createApp?.focus();
+              }}>Create a GitHub App for Bothy instead</LinkButton
+            >
+          </p>
+        {/if}
+        <!-- Hidden rather than removed, so what was typed survives a look at the other path. -->
+        <div hidden={others}>
+          <GitHubCreateApp
+            bind:this={createApp}
+            username={session.me?.user.username ?? ''}
+            taken={apps.map((a) => a.name)}
+            {replacing}
+            oncancel={cancelReplace}
+            onpending={load}
+          />
+        </div>
       {/if}
 
-      <Disclosure class="mt-10" variant="section" label="Other ways to connect">
-        <h2 class="section-title">How do you want to connect?</h2>
+      <Disclosure class="mt-10" variant="section" label="Other ways to connect" bind:open={others}>
+        <h2 class="sr-only">How do you want to connect?</h2>
         <OptionList
           class="mt-2"
           name="github-auth"
