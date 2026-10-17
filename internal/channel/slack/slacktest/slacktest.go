@@ -57,11 +57,15 @@ type Call struct {
 	Token  string
 }
 
-// Response is a POST to a response_url.
+// Response is a POST to a response_url; Path is the URL path it went to.
 type Response struct {
+	Path            string `json:"-"`
 	Text            string `json:"text"`
 	ResponseType    string `json:"response_type"`
 	ReplaceOriginal bool   `json:"replace_original"`
+	Mrkdwn          *bool  `json:"mrkdwn"`
+	UnfurlLinks     *bool  `json:"unfurl_links"`
+	UnfurlMedia     *bool  `json:"unfurl_media"`
 }
 
 // File is a file the fake serves to the bot token.
@@ -695,7 +699,7 @@ func (s *Server) file(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) response(w http.ResponseWriter, r *http.Request) {
-	var resp Response
+	resp := Response{Path: r.URL.Path}
 	if err := json.NewDecoder(r.Body).Decode(&resp); err != nil {
 		http.Error(w, "bad json", http.StatusBadRequest)
 		return

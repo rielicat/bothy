@@ -31,7 +31,8 @@ const (
 )
 
 // Socket Mode has no typing indicator for bots, so Caps.Typing is off.
-var caps = core.ChannelCaps{Edit: true, Buttons: true, Threads: true, MaxLen: maxLen, EditMinInterval: 1200 * time.Millisecond}
+var caps = core.ChannelCaps{Edit: true, Buttons: true, Threads: true, MaxLen: maxLen, EditMinInterval: 1200 * time.Millisecond,
+	CommandPrefix: "/bothy ", PrivatePosts: 5}
 
 // settings is what Reconfigure replaces while requests may be running, so
 // every read goes through conf.

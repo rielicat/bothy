@@ -331,6 +331,61 @@ func TestSlashCommandInChannel(t *testing.T) {
 	}
 }
 
+// A slash command typed in a channel carries its response_url as ReplyRef,
+// and ReplyPrivate posts there as an ephemeral mrkdwn reply without
+// previews; a reference to any other host is refused unsent. A command
+// typed in a DM carries none.
+func TestSlashReplyIsEphemeral(t *testing.T) {
+	f := newFixture(t)
+	f.start(t, stateConnected)
+	ctx := context.Background()
+	const channel, user = "C0000530", "U0000530"
+	f.srv.SetChannel(channel, "eng")
+	f.srv.InjectSlash(channel, user, "help")
+	in := f.sink.message(t)
+	if !in.Private || !strings.Contains(in.ReplyRef, "/response/") {
+		t.Fatalf("slash command in a channel = %+v, want Private with the response_url as ReplyRef", in)
+	}
+	if err := f.a.ReplyPrivate(ctx, in, "**Bothy** is off in #eng. Ask <@U1> & co."); err != nil {
+		t.Fatal(err)
+	}
+	r := f.srv.Responses()
+	if len(r) != 1 || r[0].Path != strings.TrimPrefix(in.ReplyRef, strings.TrimSuffix(f.srv.URL(), "/api/")) ||
+		r[0].ResponseType != "ephemeral" || r[0].ReplaceOriginal || r[0].Text != "*Bothy* is off in #eng. Ask &lt;@U1&gt; &amp; co." ||
+		r[0].Mrkdwn == nil || !*r[0].Mrkdwn || r[0].UnfurlLinks == nil || *r[0].UnfurlLinks || r[0].UnfurlMedia == nil || *r[0].UnfurlMedia {
+		t.Fatalf("response_url posts = %+v, want one ephemeral mrkdwn reply without previews", r)
+	}
+	for _, ref := range []string{"https://evil.example/commands/x", "http://hooks.slack.com/commands/x", "https://hooks.slack.com.evil.example/x", ""} {
+		bad := in
+		bad.ReplyRef = ref
+		if err := f.a.ReplyPrivate(ctx, bad, "x"); !errors.Is(err, core.ErrInvalid) {
+			t.Fatalf("ReplyPrivate through %q = %v, want ErrInvalid", ref, err)
+		}
+	}
+	if err := f.a.ReplyPrivate(ctx, in, ""); !errors.Is(err, core.ErrInvalid) {
+		t.Fatalf("an empty private reply = %v, want ErrInvalid", err)
+	}
+	if n := len(f.srv.Responses()); n != 1 {
+		t.Fatalf("%d response_url posts, want only the first", n)
+	}
+
+	dm, _ := f.srv.ConformanceIDs()
+	f.srv.InjectSlash(dm, user, "help")
+	if in := f.sink.message(t); in.ReplyRef != "" {
+		t.Fatalf("slash command in a DM carries ReplyRef %q", in.ReplyRef)
+	}
+}
+
+func TestReplyPrivateErrorHidesResponseURL(t *testing.T) {
+	f := newFixture(t)
+	ref := strings.TrimSuffix(f.srv.URL(), "/api/") + "/response/secret-hook-path"
+	f.srv.Close()
+	err := f.a.ReplyPrivate(context.Background(), core.Inbound{ReplyRef: ref}, "Bothy is off in #eng.")
+	if err == nil || strings.Contains(err.Error(), "secret-hook-path") {
+		t.Fatalf("ReplyPrivate against a dead response_url = %v, want an error without the URL", err)
+	}
+}
+
 // Group messages carry the channel's "#name", looked up once per channel;
 // DMs carry none, and nothing but a slash command is Private.
 func TestChannelTitles(t *testing.T) {
@@ -513,6 +568,18 @@ func TestManifestScopesCoverEveryCall(t *testing.T) {
 		if !granted[s] {
 			t.Errorf("%s needs %s, missing from the §8.6 manifest", ev, s)
 		}
+	}
+}
+
+// People message Bothy in the app's Messages tab, which Slack makes
+// read-only unless the manifest opens it.
+func TestManifestOpensTheMessagesTab(t *testing.T) {
+	b, err := os.ReadFile(servedManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "app_home: {home_tab_enabled: false, messages_tab_enabled: true, messages_tab_read_only_enabled: false}") {
+		t.Fatalf("the served manifest leaves the Messages tab read-only:\n%s", b)
 	}
 }
 

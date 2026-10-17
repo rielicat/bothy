@@ -219,8 +219,10 @@ export interface Inbound {
   /**
    * Private marks a message only its sender saw (a Slack slash command).
    * In a group it never creates a space, since slash commands work in
-   * channels the bot is not in; the hub answers in their DM anyone it
-   * would not answer in that group.
+   * channels the bot is not in. The hub answers its commands, and the
+   * notice that Bothy is off there, to the sender alone where they typed
+   * it (PrivateReplier), else in their DM; anyone it would not answer in
+   * that group hears in their DM.
    */
   Private: boolean;
 }
@@ -272,7 +274,26 @@ export interface ChannelCaps {
   typing: boolean;
   max_len: number /* int */; // visible characters per message after rendering
   edit_min_interval: number /* nanoseconds */; // Telegram 1s, Discord 1s, Slack 1.2s
+  /**
+   * CommandPrefix is what a person types before a chat command's name:
+   * "/bothy " on Slack, whose one slash command takes the rest as its
+   * text; "" means "/" (Telegram, and Discord's plain-text commands).
+   */
+  command_prefix?: string;
+  /**
+   * PrivatePosts is how many posts one Private message's ReplyRef takes
+   * (PrivateReplier; Slack's response_url takes 5); 0 means no limit. An
+   * answer that needs more goes to the sender's DM whole.
+   */
+  private_posts?: number /* int */;
 }
+/**
+ * PrivateReplier is implemented by adapters that can answer a Private
+ * message where it was typed, seen by its sender alone (Slack: an ephemeral
+ * reply through Inbound.ReplyRef). markdown is one piece within
+ * Caps.MaxLen, already redacted. Errors never contain the ReplyRef.
+ */
+export type PrivateReplier = any;
 export type InboundSink = any;
 export interface ChannelStatus {
   name: string;

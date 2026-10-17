@@ -31,24 +31,24 @@ type commandSpec struct {
 	// they are never stuck behind a busy chat.
 	urgent bool
 	access access
-	usage  string
+	usage  string // after the command prefix (commandIn)
 	help   string
 }
 
 var commands = map[string]commandSpec{
-	"stop":    {urgent: true, access: accessAnyone, usage: "/stop", help: "stop the current task"},
-	"status":  {urgent: true, access: accessAnyone, usage: "/status", help: "what Bothy is doing and today's spending"},
+	"stop":    {urgent: true, access: accessAnyone, usage: "stop", help: "stop the current task"},
+	"status":  {urgent: true, access: accessAnyone, usage: "status", help: "what Bothy is doing and today's spending"},
 	"stopall": {urgent: true, access: accessApprover},
 	"resume":  {urgent: true, access: accessWeb},
-	"help":    {urgent: true, access: accessAnyone, usage: "/help", help: "this list"},
-	"new":     {usage: "/new", help: "start a fresh conversation"},
-	"pin":     {usage: "/pin <text>", help: "keep an instruction in view"},
-	"pins":    {access: accessAnyone, usage: "/pins", help: "list pinned instructions"},
-	"unpin":   {usage: "/unpin <n>", help: "remove pin number n"},
-	"compact": {usage: "/compact", help: "summarise older messages now"},
-	"model":   {usage: "/model [model name|default]", help: "show or change the AI model of this conversation"},
-	"refine":  {usage: "/refine [on|off|default]", help: "check answers more carefully here (slower, costs more)"},
-	"usage":   {access: accessAnyone, usage: "/usage", help: "today's spending and this conversation's cost"},
+	"help":    {urgent: true, access: accessAnyone, usage: "help", help: "this list"},
+	"new":     {usage: "new", help: "start a fresh conversation"},
+	"pin":     {usage: "pin <text>", help: "keep an instruction in view"},
+	"pins":    {access: accessAnyone, usage: "pins", help: "list pinned instructions"},
+	"unpin":   {usage: "unpin <n>", help: "remove pin number n"},
+	"compact": {usage: "compact", help: "summarise older messages now"},
+	"model":   {usage: "model [model name|default]", help: "show or change the AI model of this conversation"},
+	"refine":  {usage: "refine [on|off|default]", help: "check answers more carefully here (slower, costs more)"},
+	"usage":   {access: accessAnyone, usage: "usage", help: "today's spending and this conversation's cost"},
 	"pair":    {access: accessAnyone},
 	"start":   {access: accessAnyone},
 }
@@ -77,6 +77,21 @@ func parseCommand(text string) (name, args string, ok bool) {
 		return "", "", false
 	}
 	return name, strings.TrimSpace(rest), true
+}
+
+// commandIn is line ("stop", "refine off") as a person types it on a chat
+// app with caps: "/bothy stop" on Slack, "/stop" elsewhere.
+func commandIn(caps core.ChannelCaps, line string) string {
+	return cmp.Or(caps.CommandPrefix, "/") + line
+}
+
+// command is line as a person types it on the chat app named channel.
+func (h *Hub) command(channel, line string) string {
+	var caps core.ChannelCaps
+	if a := h.adapter(channel); a != nil {
+		caps = a.ch.Caps()
+	}
+	return commandIn(caps, line)
 }
 
 var commandWord = regexp.MustCompile(`^/([A-Za-z0-9_]{1,32})(@[A-Za-z0-9_]+)?$`)
@@ -118,16 +133,15 @@ func chatOrigin(ctx context.Context, a *adapter, in core.Inbound) context.Contex
 
 func (h *Hub) runCommand(ctx context.Context, a *adapter, in core.Inbound, res core.IdentityResolution, tg target, cmd, args string) {
 	spec := commands[cmd]
-	chat := in.Chat
-	say := func(text string) { h.reply(ctx, chat, text) }
-	if spec.urgent {
-		say = func(text string) { h.replyAsync(chat, text) }
-	}
+	chat, caps := in.Chat, a.ch.Caps()
+	answer := h.sayer(ctx, a, in, tg, spec.urgent)
+	say := func(text string) { answer(text, text) }
 	if !h.allowed(spec.access, a, res, tg) {
 		if spec.access == accessApprover {
-			say("Only someone who can approve can pause Bothy.")
+			say(pauseRefused)
 		} else {
-			say("Only someone who can approve can use /" + cmd + " here.")
+			only := "Only someone who can approve can use " + commandIn(caps, cmd)
+			answer(only+" here.", only+".")
 		}
 		return
 	}
@@ -137,11 +151,11 @@ func (h *Hub) runCommand(ctx context.Context, a *adapter, in core.Inbound, res c
 	case "stopall":
 		say(h.cmdStopAll(chatOrigin(ctx, a, in)))
 	case "resume":
-		say("Resume Bothy on the web, under Settings → Security.")
+		say(resumeOnWeb)
 	case "status":
 		say(h.cmdStatus(ctx, tg, chat))
 	case "help":
-		say(helpText())
+		say(helpText(caps))
 	case "new":
 		say(h.cmdNew(ctx, tg, chat))
 	case "pin":
@@ -151,7 +165,7 @@ func (h *Hub) runCommand(ctx context.Context, a *adapter, in core.Inbound, res c
 	case "unpin":
 		say(h.cmdUnpin(ctx, tg, chat, args))
 	case "compact":
-		if text := h.cmdCompact(ctx, tg, chat); text != "" {
+		if text := h.cmdCompact(ctx, tg, chat, say); text != "" {
 			say(text)
 		}
 	case "model":
@@ -166,20 +180,52 @@ func (h *Hub) runCommand(ctx context.Context, a *adapter, in core.Inbound, res c
 		if chat.Kind == core.ChatDM {
 			say(helloText(in.SenderName))
 		} else {
-			say(helpText())
+			say(helpText(caps))
 		}
 	}
 }
 
-const somethingWrong = "Sorry, something went wrong. Try again in a moment."
+const (
+	somethingWrong = "Sorry, something went wrong. Try again in a moment."
+	pauseRefused   = "Only someone who can approve can pause Bothy."
+	resumeOnWeb    = "Resume Bothy on the web, under Settings → Security."
+)
 
-// helpText lists the commands everyone sees.
-func helpText() string {
+// answerAnywhere answers the commands that don't need Bothy on in the chat
+// they are typed in: the help list, and the kill switch, which approvers
+// can pull from any chat.
+func (h *Hub) answerAnywhere(ctx context.Context, a *adapter, in core.Inbound, res core.IdentityResolution) (string, bool) {
+	cmd, _, ok := parseCommand(in.Text)
+	if !ok || in.Forwarded {
+		return "", false
+	}
+	switch cmd {
+	case "help", "start":
+		return helpText(a.ch.Caps()), true
+	case "stopall":
+		if !h.allowed(accessApprover, a, res, target{}) {
+			return pauseRefused, true
+		}
+		return h.cmdStopAll(chatOrigin(ctx, a, in)), true
+	case "resume":
+		return resumeOnWeb, true
+	}
+	return "", false
+}
+
+// helpText lists the commands everyone sees, as they are typed on a chat
+// app with caps. Only a prefixed command (Slack's) goes in code: Telegram
+// makes a plain /stop tappable, but not one inside code.
+func helpText(caps core.ChannelCaps) string {
 	var b strings.Builder
 	b.WriteString("Commands:")
 	for _, name := range helpOrder {
 		spec := commands[name]
-		b.WriteString("\n" + escapeMD(spec.usage) + " · " + escapeMD(spec.help))
+		cmd := escapeMD(commandIn(caps, spec.usage))
+		if caps.CommandPrefix != "" {
+			cmd = codeSpan(commandIn(caps, spec.usage))
+		}
+		b.WriteString("\n" + cmd + " – " + escapeMD(spec.help))
 	}
 	return b.String()
 }
@@ -255,7 +301,7 @@ func (h *Hub) cmdStatus(ctx context.Context, tg target, chat core.ChatRef) strin
 		lines = append(lines, "Today: "+spendText(spent, limit)+".")
 	}
 	if _, on, err := h.refineSetting(ctx, sessID); err == nil && on {
-		lines = append(lines, "Refine is on for this conversation, so answers are slower and cost more. /refine off turns it off.")
+		lines = append(lines, "Refine is on for this conversation, so answers are slower and cost more. "+h.command(chat.Channel, "refine off")+" turns it off.")
 	}
 	if h.d.Sandbox != nil && !h.d.Sandbox.Status(ctx).Available {
 		lines = append(lines, "Running code is off on this server.")
@@ -352,7 +398,7 @@ func (h *Hub) cmdNew(ctx context.Context, tg target, chat core.ChatRef) string {
 
 func (h *Hub) cmdPin(ctx context.Context, tg target, chat core.ChatRef, text string) string {
 	if text == "" {
-		return "Usage: /pin <text>"
+		return "Usage: " + h.command(chat.Channel, "pin <text>")
 	}
 	if utf8.RuneCountInString(text) > maxPinRunes {
 		return fmt.Sprintf("Pins are limited to %d characters.", maxPinRunes)
@@ -365,7 +411,7 @@ func (h *Hub) cmdPin(ctx context.Context, tg target, chat core.ChatRef, text str
 		h.log.Error("channel /pin failed", "err", err)
 		return somethingWrong
 	}
-	return "Pinned. /pins lists them."
+	return "Pinned. " + h.command(chat.Channel, "pins") + " lists them."
 }
 
 func (h *Hub) pins(ctx context.Context, tg target, chat core.ChatRef) (*core.Session, []*core.Pin, error) {
@@ -398,7 +444,7 @@ func (h *Hub) cmdPins(ctx context.Context, tg target, chat core.ChatRef) string 
 func (h *Hub) cmdUnpin(ctx context.Context, tg target, chat core.ChatRef, arg string) string {
 	n, err := strconv.Atoi(arg)
 	if err != nil || n < 1 {
-		return "Usage: /unpin <n> (see /pins)"
+		return "Usage: " + h.command(chat.Channel, "unpin <n>") + " (see " + h.command(chat.Channel, "pins") + ")"
 	}
 	sess, list, err := h.pins(ctx, tg, chat)
 	if err != nil && !errors.Is(err, core.ErrNotFound) {
@@ -421,11 +467,11 @@ const compactWait = 15 * time.Minute
 
 const compactFailed = "Bothy couldn't summarise older messages. It will try again when the chat gets long."
 
-// cmdCompact starts the compaction in the background and replies when it is
+// cmdCompact starts the compaction in the background and says when it is
 // done. Runner.Compact queues behind the session's active run, and waiting
 // for it in the chat's queue would hold back every later message in this
 // chat, steers included, until that run ends.
-func (h *Hub) cmdCompact(ctx context.Context, tg target, chat core.ChatRef) string {
+func (h *Hub) cmdCompact(ctx context.Context, tg target, chat core.ChatRef, say func(string)) string {
 	sess, err := h.chatSession(ctx, tg, chat)
 	if errors.Is(err, core.ErrNotFound) {
 		return "Nothing to summarise yet."
@@ -462,7 +508,7 @@ func (h *Hub) cmdCompact(ctx context.Context, tg target, chat core.ChatRef) stri
 			h.log.Warn("channel /compact failed", "session", sess.ID, "err", err)
 			text = compactFailed
 		}
-		h.reply(ctx, chat, text)
+		say(text)
 	})
 	if !started {
 		done()
@@ -478,6 +524,7 @@ func (h *Hub) cmdCompact(ctx context.Context, tg target, chat core.ChatRef) stri
 // the override, so checking the model never changes it.
 func (h *Hub) cmdModel(ctx context.Context, tg target, chat core.ChatRef, arg string) string {
 	main := h.cfg().Models.Main
+	c := func(line string) string { return h.command(chat.Channel, line) }
 	switch strings.ToLower(arg) {
 	case "":
 		sess, err := h.chatSession(ctx, tg, chat)
@@ -486,12 +533,12 @@ func (h *Hub) cmdModel(ctx context.Context, tg target, chat core.ChatRef, arg st
 			return somethingWrong
 		}
 		if err == nil && sess.ModelOverride != "" {
-			return "This chat uses " + h.modelText(ctx, sess.ModelOverride) + ". /model default goes back to the main model."
+			return "This chat uses " + h.modelText(ctx, sess.ModelOverride) + ". " + c("model default") + " goes back to the main model."
 		}
 		if len(main) > 0 {
-			return "This chat uses the main model, " + h.modelText(ctx, main[0]) + ". /model <model name> changes it."
+			return "This chat uses the main model, " + h.modelText(ctx, main[0]) + ". " + c("model <model name>") + " changes it."
 		}
-		return "This chat uses the main model. /model <model name> changes it."
+		return "This chat uses the main model. " + c("model <model name>") + " changes it."
 	case "default", "clear", "reset":
 		sess, err := h.chatSession(ctx, tg, chat)
 		if err == nil && sess.ModelOverride != "" {
@@ -516,9 +563,9 @@ func (h *Hub) cmdModel(ctx context.Context, tg target, chat core.ChatRef, arg st
 			if r, _ := h.findModel(ctx, name); name == "" || r != main[0] {
 				name = main[0]
 			}
-			example = ", for example " + codeSpan("/model "+name)
+			example = ", for example " + codeSpan(c("model "+name))
 		}
-		return "Usage: /model <model name>" + example + ". /model alone shows the model; /model default goes back to the main model."
+		return "Usage: " + c("model <model name>") + example + ". " + c("model") + " alone shows the model; " + c("model default") + " goes back to the main model."
 	}
 	sess, err := h.resolveSession(ctx, tg.principal.ID, chat)
 	if err == nil {
@@ -613,11 +660,12 @@ func (h *Hub) modelText(ctx context.Context, ref string) string {
 // cmdRefine shows or sets the conversation's refine mode, which the runner
 // reads from the session's meta key at the start of each run.
 func (h *Hub) cmdRefine(ctx context.Context, tg target, chat core.ChatRef, arg string) string {
+	c := func(line string) string { return h.command(chat.Channel, line) }
 	arg = strings.ToLower(strings.TrimSpace(arg))
 	switch arg {
 	case "", core.RefineOn, core.RefineOff, "default":
 	default:
-		return "Usage: /refine on, /refine off or /refine default. /refine alone shows the setting."
+		return "Usage: " + c("refine on") + ", " + c("refine off") + " or " + c("refine default") + ". " + c("refine") + " alone shows the setting."
 	}
 	sess, err := h.resolveSession(ctx, tg.principal.ID, chat)
 	if err != nil {
@@ -643,20 +691,20 @@ func (h *Hub) cmdRefine(ctx context.Context, tg target, chat core.ChatRef, arg s
 	}
 	if !on {
 		if arg == core.RefineOff {
-			return "Refine is off for this conversation. /refine on turns it on."
+			return "Refine is off for this conversation. " + c("refine on") + " turns it on."
 		}
-		return "Refine is off for this conversation, as by default. /refine on turns it on."
+		return "Refine is off for this conversation, as by default. " + c("refine on") + " turns it on."
 	}
-	c := h.cfg().Agent.Refine
-	calls := core.RefineTypicalCalls(c.Drafts, c.Depth, c.EarlyStop)
-	how := fmt.Sprintf("Bothy writes %d drafts, checks them and sends the best, so answers are slower and cost about %d times as much.", c.Drafts, calls)
-	if c.Drafts <= 1 {
+	rc := h.cfg().Agent.Refine
+	calls := core.RefineTypicalCalls(rc.Drafts, rc.Depth, rc.EarlyStop)
+	how := fmt.Sprintf("Bothy writes %d drafts, checks them and sends the best, so answers are slower and cost about %d times as much.", rc.Drafts, calls)
+	if rc.Drafts <= 1 {
 		how = fmt.Sprintf("Bothy checks each answer before sending it, so answers are slower and cost about %d times as much.", calls)
 	}
 	if arg == core.RefineOn {
-		return "Refine is on for this conversation: " + how + " /refine off turns it off."
+		return "Refine is on for this conversation: " + how + " " + c("refine off") + " turns it off."
 	}
-	return "Refine is on for this conversation, as by default: " + how + " /refine off turns it off."
+	return "Refine is on for this conversation, as by default: " + how + " " + c("refine off") + " turns it off."
 }
 
 // refineSetting returns the session's own refine setting ("" when it follows

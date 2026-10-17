@@ -22,6 +22,7 @@ const slackManifestTmpl = `display_information:
   name: "{{name}}"
   description: Self-hosted assistant (Bothy)
 features:
+  app_home: {home_tab_enabled: false, messages_tab_enabled: true, messages_tab_read_only_enabled: false}
   bot_user: {display_name: "{{name}}", always_online: true}
   slash_commands:
     - {command: /bothy, description: "Talk to {{name}} (stop, new, status, help)", should_escape: false}

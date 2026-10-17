@@ -401,9 +401,11 @@ func TestCancelRequest(t *testing.T) {
 // TestSlackTeammates: Slack decides who can use Bothy. A full member's DM
 // makes them a teammate, greeted and answered; a guest gets one line; in a
 // channel Bothy is on in, a Slack Connect stranger and Slackbot get nothing.
+// A /bothy command typed in a channel is answered there, to its sender
+// alone: the help list even where Bothy is off, otherwise that it is off.
 func TestSlackTeammates(t *testing.T) {
 	e := chStart(t, chOpts{slack: true, rules: []mockllm.Rule{chTitleRule, {Text: []string{"Hi from Bothy."}}}})
-	const maya, guest, stranger = "U0000501", "U0000502", "U0000503"
+	const maya, guest, stranger, sam = "U0000501", "U0000502", "U0000503", "U0000504"
 	e.sl.SetUser(maya, "maya", "Maya Chen")
 	e.sl.SetUserFlags(guest, slacktest.User{Restricted: true})
 	e.sl.SetUserFlags(stranger, slacktest.User{Stranger: true, TeamID: "T0000999"})
@@ -447,10 +449,27 @@ func TestSlackTeammates(t *testing.T) {
 		sp = spaces[0].Space
 		return true
 	})
+	privately := func(what string) {
+		t.Helper()
+		chEventually(t, 15*time.Second, "the private reply "+what, func() bool {
+			return slices.ContainsFunc(e.sl.Responses(), func(r slacktest.Response) bool {
+				return r.ResponseType == "ephemeral" && strings.Contains(r.Text, what)
+			})
+		})
+	}
+	e.sl.InjectSlash(channel, sam, "help")
+	privately("`/bothy stop` – stop the current task")
+	e.sl.InjectSlash(channel, sam, "summarize this channel")
+	privately("Bothy is off in #eng. Message Bothy directly, or ask an admin to turn #eng on.")
+	if n := len(e.sl.Responses()); n != 2 || len(slackTexts(e.sl.DMChannel(sam))) != 0 {
+		t.Fatalf("%d private replies, DM shows %q; want the help and the notice, nothing in the DM", n, slackTexts(e.sl.DMChannel(sam)))
+	}
 	on := true
 	if code := e.JSON(t, http.MethodPatch, "/api/spaces/"+string(sp.Principal), dto.SpacePatchReq{Enabled: &on}, nil); code != http.StatusOK {
 		t.Fatalf("turn on = %d", code)
 	}
+	e.sl.InjectSlash(channel, sam, "status")
+	privately("No task running.")
 	before := len(e.llm.Requests())
 	e.sl.Inject(slacktest.Incoming{ChatID: channel, SenderID: stranger, Text: "summarize this channel", Mention: true})
 	e.sl.Inject(slacktest.Incoming{ChatID: channel, SenderID: "USLACKBOT", Text: "reminder: standup", Mention: true})

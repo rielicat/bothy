@@ -164,10 +164,14 @@ func newHarness(t *testing.T, opts ...func(*harness)) *harness {
 
 // withChecker makes the harness's adapter a chat app that says who is in
 // the team, named name ("slack" or "discord"). Olivia and Mark are members.
+// Slack's commands are typed after /bothy.
 func withChecker(name string) func(*harness) {
 	return func(h *harness) {
 		h.mc = channeltest.NewChecker(name)
 		h.ch, h.app = h.mc.Channel, name
+		if name == "slack" {
+			h.ch.CapsV.CommandPrefix, h.ch.CapsV.PrivatePosts = "/bothy ", 5
+		}
 		h.mc.Scope = "T1/"
 		for _, id := range []string{ownerChat, memberChat} {
 			h.mc.Members[id] = core.Membership{Status: core.MemberYes, Team: "Acme"}

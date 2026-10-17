@@ -66,9 +66,16 @@ type Inbound struct {
 	Forwarded bool
 	// Private marks a message only its sender saw (a Slack slash command).
 	// In a group it never creates a space, since slash commands work in
-	// channels the bot is not in; the hub answers in their DM anyone it
-	// would not answer in that group.
+	// channels the bot is not in. The hub answers its commands, and the
+	// notice that Bothy is off there, to the sender alone where they typed
+	// it (PrivateReplier), else in their DM; anyone it would not answer in
+	// that group hears in their DM.
 	Private bool
+	// ReplyRef is adapter-private: how a Private message in a group is
+	// answered to its sender alone (a Slack slash command's response_url).
+	// It is a credential for posting there: never logged, stored or put in
+	// a run.
+	ReplyRef string `json:"-"`
 }
 
 type MsgRef struct {
@@ -124,6 +131,22 @@ type ChannelCaps struct {
 	Typing          bool          `json:"typing"`
 	MaxLen          int           `json:"max_len"`           // visible characters per message after rendering
 	EditMinInterval time.Duration `json:"edit_min_interval"` // Telegram 1s, Discord 1s, Slack 1.2s
+	// CommandPrefix is what a person types before a chat command's name:
+	// "/bothy " on Slack, whose one slash command takes the rest as its
+	// text; "" means "/" (Telegram, and Discord's plain-text commands).
+	CommandPrefix string `json:"command_prefix,omitempty"`
+	// PrivatePosts is how many posts one Private message's ReplyRef takes
+	// (PrivateReplier; Slack's response_url takes 5); 0 means no limit. An
+	// answer that needs more goes to the sender's DM whole.
+	PrivatePosts int `json:"private_posts,omitempty"`
+}
+
+// PrivateReplier is implemented by adapters that can answer a Private
+// message where it was typed, seen by its sender alone (Slack: an ephemeral
+// reply through Inbound.ReplyRef). markdown is one piece within
+// Caps.MaxLen, already redacted. Errors never contain the ReplyRef.
+type PrivateReplier interface {
+	ReplyPrivate(ctx context.Context, in Inbound, markdown string) error
 }
 
 type InboundSink interface {
