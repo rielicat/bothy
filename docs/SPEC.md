@@ -6657,7 +6657,7 @@ mcp:
       trusted_output: true
       core: []                    # tool globs pinned into the core tools block; every other MCP tool is lazy
 
-memory: {memory_max_bytes: 4096, user_max_bytes: 2048, heartbeat_max_bytes: 2048, tainted_writes: ask}   # tainted_writes LOCKED: ask | deny
+memory: {memory_max_bytes: 4096, user_max_bytes: 2048, heartbeat_max_bytes: 2048, team_max_bytes: 4096, tainted_writes: ask}   # tainted_writes LOCKED: ask | deny
 skills: {dir: "", index_budget_tokens: 600}                                   # "" = <work_dir>/skills
 
 scheduler:
@@ -7118,6 +7118,7 @@ type MemoryCfg struct {
 	MemoryMaxBytes    int    `yaml:"memory_max_bytes"`
 	UserMaxBytes      int    `yaml:"user_max_bytes"`
 	HeartbeatMaxBytes int    `yaml:"heartbeat_max_bytes"`
+	TeamMaxBytes      int    `yaml:"team_max_bytes"`               // TEAM.md: remembered for everyone
 	TaintedWrites     string `yaml:"tainted_writes" locked:"true"` // ask | deny
 }
 

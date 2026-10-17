@@ -941,6 +941,7 @@ func validateMisc(c *Config, v *vctx) {
 	v.intMin("memory.memory_max_bytes", m.MemoryMaxBytes, 256)
 	v.intMin("memory.user_max_bytes", m.UserMaxBytes, 256)
 	v.intMin("memory.heartbeat_max_bytes", m.HeartbeatMaxBytes, 256)
+	v.intMin("memory.team_max_bytes", m.TeamMaxBytes, 256)
 	v.enum("memory.tainted_writes", "memory.tainted_writes", m.TaintedWrites)
 	v.intMin("skills.index_budget_tokens", c.Skills.IndexBudgetTokens, 0)
 	s := c.Scheduler

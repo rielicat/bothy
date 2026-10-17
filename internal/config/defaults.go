@@ -116,7 +116,7 @@ func defaults() *Config {
 				APIBase: "https://slack.com/api/"},
 		},
 		GitHub:    GitHubCfg{APIBase: "https://api.github.com", Checkout: GitHubCheckout{MaxMB: 256, MaxFiles: 20000}},
-		Memory:    MemoryCfg{MemoryMaxBytes: 4096, UserMaxBytes: 2048, HeartbeatMaxBytes: 2048, TaintedWrites: "ask"},
+		Memory:    MemoryCfg{MemoryMaxBytes: 4096, UserMaxBytes: 2048, HeartbeatMaxBytes: 2048, TeamMaxBytes: 4096, TaintedWrites: "ask"},
 		Skills:    SkillsCfg{IndexBudgetTokens: 600},
 		Scheduler: SchedulerCfg{Enabled: true, MissedRun: "skip", Heartbeat: Heartbeat{Every: d(30 * time.Minute), ActiveHours: "08:00-22:00", Slot: "fast", Deliver: "preferred"}},
 		API:       APICfg{OpenAICompat: true, Passthrough: true},

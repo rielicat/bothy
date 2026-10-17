@@ -463,6 +463,7 @@ type MemoryCfg struct {
 	MemoryMaxBytes    int    `yaml:"memory_max_bytes"`
 	UserMaxBytes      int    `yaml:"user_max_bytes"`
 	HeartbeatMaxBytes int    `yaml:"heartbeat_max_bytes"`
+	TeamMaxBytes      int    `yaml:"team_max_bytes"`               // TEAM.md: remembered for everyone
 	TaintedWrites     string `yaml:"tainted_writes" locked:"true"` // ask | deny
 }
 
