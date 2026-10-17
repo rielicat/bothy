@@ -220,6 +220,18 @@ describe('small helpers', () => {
     place(anchor, el, 'bottom-start');
     expect(el.style.top).toBe('496px');
   });
+
+  it('narrows an end-aligned layer to the room left of its anchor, so their right edges line up', () => {
+    const anchor = document.createElement('button');
+    const el = document.createElement('div');
+    vi.spyOn(anchor, 'getBoundingClientRect').mockReturnValue({ top: 700, bottom: 732, left: 250, right: 330, width: 80, height: 32 } as DOMRect);
+    const rect = vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({ width: 344, height: 200 } as DOMRect);
+    place(anchor, el, 'top-end');
+    expect(el.style.maxWidth).toBe('322px');
+    rect.mockReturnValue({ width: 200, height: 200 } as DOMRect);
+    place(anchor, el, 'top-end');
+    expect([el.style.maxWidth, el.style.left]).toEqual(['', '130px']);
+  });
 });
 
 describe('CommandBlock', () => {

@@ -28,10 +28,17 @@ export function place(anchor: Element, el: HTMLElement, placement: Placement, op
   const offset = opts.offset ?? 4;
   const a = anchor.getBoundingClientRect();
   if (opts.matchWidth) el.style.minWidth = `${Math.round(a.width)}px`;
-  const r = el.getBoundingClientRect();
+  const [side, align] = placement.split('-') as ['top' | 'bottom', 'start' | 'end' | undefined];
+  if (align === 'end') el.style.maxWidth = '';
+  let r = el.getBoundingClientRect();
+  // An end-aligned layer wider than the room left of its anchor narrows to
+  // that room, so its right edge stays on the anchor (the model picker on a phone).
+  if (align === 'end' && a.right - r.width < MARGIN) {
+    el.style.maxWidth = `${Math.round(a.right - MARGIN)}px`;
+    r = el.getBoundingClientRect();
+  }
   const vw = document.documentElement.clientWidth || window.innerWidth;
   const vh = window.innerHeight;
-  const [side, align] = placement.split('-') as ['top' | 'bottom', 'start' | 'end' | undefined];
   const below = a.bottom + offset;
   const above = a.top - offset - r.height;
   let top = side === 'top' ? above : below;
