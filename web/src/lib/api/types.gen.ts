@@ -3866,7 +3866,7 @@ export interface ApprovalVotes {
   required: number /* int */; // distinct approvals needed
   approvals: number /* int */; // allow votes so far
   votes: ApprovalVoteView[]; // oldest first
-  approvers: string; // who may approve, e.g. "Alice, Bob or any admin"
+  approvers: string; // who can still approve, the caller as "you", e.g. "you, Bob or any admin"
   requester: UserID;
   requester_name: string;
   /**

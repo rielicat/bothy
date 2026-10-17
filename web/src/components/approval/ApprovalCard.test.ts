@@ -392,7 +392,8 @@ describe('ApprovalCard with several approvers', () => {
     const card = screen.getByRole('article');
     await waitFor(() => expect(card.textContent).toContain('1 of 2'));
     expect(card.textContent).toContain('Maya Chen approved');
-    expect(card.textContent).toContain('One more from Sam, Priya Rao or any admin');
+    // The viewer is "you", never named in the third person.
+    expect(card.textContent).toContain('One more from you, Priya Rao or any admin');
     expect(card.textContent).toContain('This updates production for everyone using it.');
     expect(card.textContent).toContain('Alex asked in “Release train” on Slack.');
     expect(card.textContent).not.toContain('Requested by');
@@ -448,17 +449,22 @@ describe('ApprovalCard with several approvers', () => {
     expect(loads()).toBeGreaterThan(before);
   });
 
-  it('tells someone who already approved that it waits for one more', async () => {
+  it('tells someone who already approved, in one sentence, whom it waits for', async () => {
     as(owner);
     resetMock({ mock: 'deploy-voted' });
     render(ApprovalCard, { approval: deploy() });
-    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('You approved. Waiting for one more.'));
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('You approved. Waiting for Priya Rao, Maya Chen or any admin.'));
+    const card = screen.getByRole('article');
+    // Their own vote reads "You approved", and the row drops its "more from" line.
+    await waitFor(() => expect(card.textContent).toMatch(/You approved · /));
+    expect(card.textContent).not.toMatch(/more from/);
   });
 
-  it('names who can approve to someone who is not one of them', async () => {
+  it('names who can approve to someone who is not one of them, once', async () => {
     as(owner);
     resetMock({ mock: 'deploy-ineligible' });
     render(ApprovalCard, { approval: deploy({ approver: { user_id: '', admin_only: false, users: ['usr_01jmaya000000000000000000'], roles: [], required: 2, requester: member.id } as Approval['approver'] }) });
     await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Waiting for Priya Rao.'));
+    expect(screen.getByRole('article').textContent).not.toMatch(/more from/);
   });
 });

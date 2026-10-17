@@ -126,8 +126,13 @@ func TestReleasesWithRemovedApprover(t *testing.T) {
 	}
 
 	ap := h.multiApproval(h.member, core.ApproverReq{Users: []core.UserID{gone, h.owner.user}, Required: 2, Requester: h.member.user})
-	v := decodeAs[dto.ApprovalVotes](t, h.do(http.MethodGet, "/api/approvals/"+string(ap.ID)+"/votes", nil, h.owner))
+	v := decodeAs[dto.ApprovalVotes](t, h.do(http.MethodGet, "/api/approvals/"+string(ap.ID)+"/votes", nil, h.member))
 	if v.Approvers != "owner" {
 		t.Fatalf("approvers = %q; want only the owner", v.Approvers)
+	}
+	// The viewer is named as "you", never in the third person.
+	v = decodeAs[dto.ApprovalVotes](t, h.do(http.MethodGet, "/api/approvals/"+string(ap.ID)+"/votes", nil, h.owner))
+	if v.Approvers != "you" {
+		t.Fatalf("approvers seen by the owner = %q; want you", v.Approvers)
 	}
 }

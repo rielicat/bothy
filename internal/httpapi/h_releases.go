@@ -25,7 +25,7 @@ func (s *Server) approvalVotes(w http.ResponseWriter, r *http.Request, a core.Ac
 		return badRequest("this approval is decided by one approver, not by votes")
 	}
 	out := dto.ApprovalVotes{Approval: ap.ID, Status: ap.Status, Required: req.Needed(), Approvals: core.AllowVotes(ap.Votes, req),
-		Votes: []dto.ApprovalVoteView{}, Approvers: s.approverText(ctx, req), Requester: req.Requester,
+		Votes: []dto.ApprovalVoteView{}, Approvers: s.approverText(ctx, req, a.User, ap.Votes), Requester: req.Requester,
 		RequesterName: s.userName(ctx, req.Requester)}
 	for _, v := range ap.Votes {
 		out.Votes = append(out.Votes, dto.ApprovalVoteView{User: v.User, Name: s.userName(ctx, v.User), Choice: v.Choice, Via: v.Via, At: v.At,
@@ -112,10 +112,17 @@ func (s *Server) userName(ctx context.Context, id core.UserID) string {
 
 // approverText describes who may vote: named users, then roles. A user
 // that no longer exists can't vote, so it isn't named.
-func (s *Server) approverText(ctx context.Context, r core.ApproverReq) string {
+func (s *Server) approverText(ctx context.Context, r core.ApproverReq, me core.UserID, votes []core.ApprovalVote) string {
 	var parts []string
 	for _, u := range r.Users {
-		if name := s.userName(ctx, u); name != "" {
+		// The requester's vote never counts and a voter can't vote again, so
+		// neither is someone the request still waits for.
+		if u == r.Requester || slices.ContainsFunc(votes, func(v core.ApprovalVote) bool { return v.User == u }) {
+			continue
+		}
+		if u == me {
+			parts = append([]string{"you"}, parts...)
+		} else if name := s.userName(ctx, u); name != "" {
 			parts = append(parts, name)
 		}
 	}

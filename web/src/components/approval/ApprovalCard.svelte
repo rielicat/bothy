@@ -116,7 +116,9 @@
         ? 'any admin'
         : view.approver?.team
           ? 'an admin, or someone who can approve in a chat app'
-          : people.name(view.approver?.user_id) || 'the person who asked',
+          : view.approver?.user_id && view.approver.user_id === me?.id
+            ? 'you'
+            : people.name(view.approver?.user_id) || 'the person who asked',
   );
   const denyHint = $derived(denyAudience(view) || undefined);
   // A schedule's request was asked for by nobody in the moment, so it says where it came from instead.
@@ -338,7 +340,8 @@
       {:else if open}
         <div class="mt-4 text-body text-muted" role="status">
           {#if multi && myVote === 'allow_once'}
-            <p>You approved. {left === 1 ? 'Waiting for one more.' : `Waiting for ${left} more.`}</p>
+            <!-- One sentence: the Approvals row above leaves out its "more from" line for someone without buttons. -->
+            <p>You approved. {vv?.approvers ? `Waiting for ${vv.approvers}.` : left === 1 ? 'Waiting for one more.' : `Waiting for ${left} more.`}</p>
           {:else if isRequester}
             <!-- The Approvals row above already counts what's missing. -->
             <p>{vv ? "You asked for this, so you can't approve it yourself." : 'You asked for this, so someone else has to approve it.'}</p>
@@ -420,5 +423,5 @@
 {/if}
 
 {#snippet votesRow()}
-  {#if vv}<ApprovalVotes view={vv} {open} />{/if}
+  {#if vv}<ApprovalVotes view={vv} {open} me={me?.id} remaining={canDecide || isRequester} />{/if}
 {/snippet}

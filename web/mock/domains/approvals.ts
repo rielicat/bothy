@@ -356,7 +356,9 @@ function votesOf(a: Approval, req: Req): ApprovalVotes {
   const mine = vs.find((v) => v.user_id === me.id)?.choice;
   const open = a.status === 'pending' || a.status === 'parked';
   const eligible = !!r.users?.includes(me.id) || !!r.roles?.some((ro) => (rank[me.role] ?? 0) >= (rank[ro] ?? 9));
-  const people = (r.users ?? []).filter((u) => u !== r.requester && !vs.some((v) => v.user_id === u)).map((u) => names[u] ?? 'Someone');
+  // As the server words it: who can still approve, the viewer first as "you".
+  const still = (r.users ?? []).filter((u) => u !== r.requester && !vs.some((v) => v.user_id === u));
+  const people = [...still.filter((u) => u === me.id).map(() => 'you'), ...still.filter((u) => u !== me.id).map((u) => names[u] ?? 'Someone')];
   if (r.roles?.includes('admin')) people.push('any admin');
   const approvers = people.length > 1 ? `${people.slice(0, -1).join(', ')} or ${people[people.length - 1]}` : (people[0] ?? '');
   return {

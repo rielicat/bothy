@@ -16,7 +16,7 @@ type ApprovalVotes struct {
 	Required      int                 `json:"required"`  // distinct approvals needed
 	Approvals     int                 `json:"approvals"` // allow votes so far
 	Votes         []ApprovalVoteView  `json:"votes"`     // oldest first
-	Approvers     string              `json:"approvers"` // who may approve, e.g. "Alice, Bob or any admin"
+	Approvers     string              `json:"approvers"` // who can still approve, the caller as "you", e.g. "you, Bob or any admin"
 	Requester     core.UserID         `json:"requester"`
 	RequesterName string              `json:"requester_name"`
 	// CanVote: the caller may still allow or deny (eligible approver, not the

@@ -1483,7 +1483,7 @@ Chat apps (SPEC §5.9) edit a card to its decided line in place of the question,
 │ Changes       12 commits since the last deploy · View on GitHub ↗ │
 │ Approvals     1 of 2                                              │
 │               (AK) Alex Kim approved · 10:32                      │ 24 px avatar rows
-│               One more from Maya Chen, Priya Rao or any admin     │ text-small muted
+│               One more from you, Priya Rao or any admin           │ text-small muted; only for the viewer who decides or asked
 │                                                                   │
 │ [ Approve deploy ]  [ Deny ]                                      │
 │ Expires in 2 h · Details                                          │
@@ -1493,9 +1493,11 @@ Chat apps (SPEC §5.9) edit a card to its decided line in place of the question,
 | Viewer | Decision area |
 |---|---|
 | Eligible, not voted | [Approve deploy] [Deny] |
-| Eligible, already approved | Text "You approved. Waiting for one more." (no buttons) |
-| The requester | Text "You asked for this, so you can't approve it yourself." (the Approvals row above already says how many are missing). Plus secondary "Cancel request" (the requester's vote never counts) |
-| Not eligible | Text "Waiting for Maya Chen, Priya Rao or any admin." |
+| Eligible, already approved | Text "You approved. Waiting for Priya Rao, Maya Chen or any admin." (no buttons); the Approvals row leaves out its "more from" line, so this is said once |
+| The requester | Text "You asked for this, so you can't approve it yourself." (the Approvals row above keeps its "{n} more from …" line, which this sentence relies on). Plus secondary "Cancel request" (the requester's vote never counts) |
+| Not eligible | Text "Waiting for Priya Rao." (who can still approve); the Approvals row leaves out its "more from" line |
+
+- The viewer is "you" wherever they would be named (§14.2): "One more from you, Priya Rao or any admin", "You approved · 12:21 AM", "Who can approve: you". The server words who can still approve for the viewer, leaving out the requester and anyone who already voted.
 
 - One deny resolves it as denied; the k-th distinct approval resolves it as approved. Every vote is shown with name and time. Chat-app cards route to every eligible approver (SPEC); deciding anywhere updates every surface live through `approval.resolved` and vote events (S4).
 - Until S4 lands, deploy cards render as single-approver cards without the Approvals row.
