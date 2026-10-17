@@ -838,6 +838,11 @@
      "x-locked": true,
      "x-reload": "hot"
     },
+    "team_max_bytes": {
+     "default": 4096,
+     "type": "integer",
+     "x-reload": "hot"
+    },
     "user_max_bytes": {
      "default": 2048,
      "type": "integer",

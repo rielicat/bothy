@@ -4301,6 +4301,26 @@
    "secret": false
   },
   {
+   "path": "memory.team_max_bytes",
+   "value": 4096,
+   "source": {
+    "layer": "file",
+    "file": "/data/bothy.yaml",
+    "line": 177
+   },
+   "shadowed": [
+    {
+     "source": {
+      "layer": "default"
+     },
+     "value": 4096
+    }
+   ],
+   "locked": false,
+   "hot": true,
+   "secret": false
+  },
+  {
    "path": "memory.tainted_writes",
    "value": "ask",
    "source": {

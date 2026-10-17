@@ -12,6 +12,7 @@ const voted = scenario('deploy-voted', 'You already approved the production depl
 const requester = scenario('deploy-requester', 'You asked for the production deploy, so others must approve it.', 'approvals');
 const ineligible = scenario('deploy-ineligible', 'You are not one of the production deploy approvers.', 'approvals');
 const listDown = scenario('approvals-down', "Listing approvals fails, to show the page that didn't load.", 'approvals');
+const teamAsk = scenario('team-memory-ask', 'Alex asked Bothy to remember something for everyone; it waits for an admin.', 'approvals');
 
 const maya = 'usr_01jmaya000000000000000000';
 const priya = 'usr_01jpriya00000000000000000';
@@ -239,6 +240,27 @@ function waitingList(): Approval[] {
   ];
 }
 
+// A note for everyone (TEAM.md) waits for one admin, whoever asked (SPEC §14.9).
+const adminOnly = { user_id: '', admin_only: true };
+function forEveryone(s: Spec): Approval {
+  const a = make(s);
+  return { ...a, approver: adminOnly, decision: { ...a.decision, rule: 'floor:admin', floor: true, reason: "changes to what Bothy remembers for everyone need an admin's approval", approver: adminOnly } };
+}
+
+/** Alex's request to remember something for everyone; knowledge.ts adds the note when an admin approves. */
+export const TEAM_ASK = 'apr_01jteamask'.padEnd(30, '0');
+const teamAskCard = () =>
+  forEveryone({
+    id: TEAM_ASK,
+    title: 'Update memory',
+    act: action('memory', 'memory', 'admin', { file: 'TEAM', op: 'add', new: 'Customer names never go in public channels.' }),
+    context: 'Web · session “Support handover”',
+    session: 'ses_01jalexsupport'.padEnd(30, '0'),
+    created: 2,
+    expires: 55,
+    extra: { principal_id: member.id },
+  });
+
 // One waiting card per row of docs/design/ui.md §8.2, for review shots.
 function everyKind(): Approval[] {
   const k = (id: string, title: string, act: Action, extra: Partial<Spec> = {}) => make({ id: `apr_01jrow${id}`.padEnd(30, '0'), title, act, created: 5, expires: 50, session: 'ses_01jrows000000000000000000', ...extra });
@@ -249,6 +271,17 @@ function everyKind(): Approval[] {
     k('python', 'Run Python code', action('python', 'exec', 'local_write', { argv: ['python3', '.bothy/scripts/5f2c.py'], code: 'import csv\nrows = list(csv.DictReader(open("sales.csv")))\nprint(sum(float(r["total"]) for r in rows))', cwd: '' })),
     k('post', 'Fetch a web page', action('web_fetch', 'http', 'external_send', { url: 'https://api.example.com/v1/reports', method: 'POST', body: { week: 41 } }, { url: 'https://api.example.com/v1/reports', host: 'api.example.com', port: 443, method: 'POST' }), { warnings: ['First contact with api.example.com.'] }),
     k('memory', 'Update memory', action('memory', 'memory', 'local_write', { file: 'MEMORY', op: 'add', new: 'Releases go out on Tuesdays after the 10:00 stand-up.' }), { warnings: ['Started by a message from an untrusted sender.'] }),
+    forEveryone({
+      id: 'apr_01jrowteammemory'.padEnd(30, '0'),
+      title: 'Update memory',
+      act: action('memory', 'memory', 'admin', { file: 'TEAM', op: 'add', new: 'Our deploy day is Thursday.' }),
+      context: 'Web · session “Deploy day”',
+      session: 'ses_01jrows000000000000000000',
+      warnings: ['This chat has seen content from outside your team. Check that a person asked for this.'],
+      created: 5,
+      expires: 50,
+      extra: { principal_id: member.id },
+    }),
     k('notes', 'Project notes', action('notes', 'memory', 'local_write', { repo: 'acme/web', op: 'replace' }, { diff: '--- a/notes\n+++ b/notes\n@@ -1,2 +1,2 @@\n Deploys run from the release branch.\n-Ask Maya before migrations.\n+Ask Maya or Priya before migrations.\n' }), { warnings: ['Started by a message from an untrusted sender.'] }),
     k('schedcreate', 'Create schedule', action('schedule_create', 'schedule', 'admin', { name: 'Monday pull requests', kind: 'cron', spec: '0 9 * * 1', tz: 'Europe/London', when: 'Every Monday at 9:00', prompt: 'List the open pull requests in acme/web.\nGroup them by author.\nFlag any older than a week.\nEnd with one line on what to review first.', deliver: { channel: 'slack', chat_id: 'C01ENG', kind: 'group' } })),
     k('scheddelete', 'Delete schedule', action('schedule_delete', 'schedule', 'admin', { id: 'sch_01jbrief00000000000000000', name: 'Morning briefing' })),
@@ -319,11 +352,11 @@ export const recentApprovals: Approval[] = recentList();
 export const state = { approvals: [] as Approval[], recent: [] as Approval[], deploys: [] as Deploy[] };
 onReset(() => {
   t0 = Date.now();
-  Object.assign(state, { approvals: [...waitingList(), ...everyKind()], recent: recentList(), deploys: deployList() });
+  Object.assign(state, { approvals: [...waitingList(), teamAskCard(), ...everyKind()], recent: recentList(), deploys: deployList() });
 });
 
-// Scenarios ride along on every request (?mock= sets a cookie), so the every-kind cards are stored
-// always and listed only when asked for.
+// Scenarios ride along on every request (?mock= sets a cookie), so the every-kind cards and Alex's
+// note for everyone are stored always and listed only when asked for.
 const everyKindCard = (a: Approval) => a.id.startsWith('apr_01jrow');
 
 /** Runs waiting on a decision, by approval id; chat.ts parks its scripted run here. */
@@ -346,7 +379,7 @@ function asSeen(a: Approval, req?: Req): Approval {
 const seesTeam = (a: Approval, req: Req) => !a.approver.team || (rank[viewer(req).role] ?? 0) >= rank.admin;
 
 export function list(req: Req): Approval[] {
-  return state.approvals.filter((a) => (all(req) || !everyKindCard(a)) && seesTeam(a, req)).map((a) => asSeen(a, req));
+  return state.approvals.filter((a) => (all(req) || !everyKindCard(a)) && (teamAsk(req) || a.id !== TEAM_ASK) && seesTeam(a, req)).map((a) => asSeen(a, req));
 }
 
 function votesOf(a: Approval, req: Req): ApprovalVotes {
@@ -414,6 +447,7 @@ on('POST', '/api/approvals/{id}', async (req, res, m) => {
   if (decideFails(req)) return fail(res, 500, 'internal', 'mock: approvals-fail');
   const a = asSeen(stored, req);
   const me = viewer(req).id;
+  if ((a.approver.admin_only || a.approver.team) && (rank[viewer(req).role] ?? 0) < rank.admin) return fail(res, 403, 'forbidden', 'Only an admin can decide this.');
   if (multi(a)) {
     a.votes = [...(a.votes ?? []), { approval_id: a.id, user_id: me, choice, via: 'web', at: nowISO(), comment }];
     const yes = a.votes.filter((v) => v.choice === 'allow_once' && v.user_id !== a.approver.requester).length;

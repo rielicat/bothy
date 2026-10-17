@@ -4,7 +4,7 @@
 // progress, out of date, summary, notes history).
 import type { KnowledgeHit, KnowledgeRepo, NotesChange } from '../../src/lib/api/knowledge.ts';
 import type { Approval, MemoryChange, SkillMeta } from '../../src/lib/api/types.gen.ts';
-import { state as approvalState, waiting } from './approvals.ts';
+import { state as approvalState, TEAM_ASK, waiting } from './approvals.ts';
 import { ago, ahead, body, clone, core, emit, fail, json, newId, nowISO, on, onReset, owner, scenario, viewer, type Req } from './core.ts';
 
 // ---- memory ----
@@ -14,6 +14,8 @@ export const memory: Record<string, string> = {
   MEMORY:
     '- The v2.3 release freeze starts on Thursdays at 14:00.\n- Staging is reset every Monday morning.\n- Customer-facing changes need a line in the release notes.\n- The design team reviews anything that changes the sign-in pages.',
   HEARTBEAT: '- [ ] Tell me if a deploy to production failed overnight\n- [ ] Remind me to send the release notes on Fridays',
+  // Remembered for everyone: one file for the whole team, one line per note as the memory tool adds them.
+  TEAM: 'Our deploy day is Thursday.\nRelease notes go in #releases on Slack.',
 };
 
 export const memoryHistory: MemoryChange[] = [
@@ -53,14 +55,40 @@ export const memoryHistory: MemoryChange[] = [
     provenance: 'user',
     at: ago(60 * 24 * 6),
   },
+  // Team rows have no principal; Bothy's change came from Alex's chat, which Sam can't open, so it names no chat.
+  {
+    id: 38,
+    principal_id: '',
+    file: 'TEAM',
+    op: 'add',
+    before: 'Our deploy day is Thursday.',
+    after: memory.TEAM,
+    actor: 'agent:run_01jalexrelease000000000000',
+    provenance: 'user',
+    approval_id: 'apr_01jteamrelease00000000000',
+    at: ago(60 * 24),
+  },
+  {
+    id: 37,
+    principal_id: '',
+    file: 'TEAM',
+    op: 'edit',
+    before: '',
+    after: 'Our deploy day is Thursday.',
+    actor: 'user:usr_01jpriya000000000000000000',
+    actor_name: 'Priya Rao',
+    provenance: 'user',
+    at: ago(60 * 24 * 9),
+  },
 ];
 
 const memEmpty = scenario('memory-empty', 'Bothy has nothing in About you or Things Bothy remembers yet.', 'knowledge');
 const memFull = scenario('memory-near-full', 'Things Bothy remembers is above 80 % of its size limit.', 'knowledge');
+const teamEmpty = scenario('team-memory-empty', 'Nothing is remembered for everyone yet.', 'knowledge');
 
 // Near full: the seeded text fills 85 % of the cap, so a few more lines go over it.
 const nearFull = (s: string) => Math.ceil(new TextEncoder().encode(s).length / 0.85);
-const memCap = (f: string, req?: Req) => (f === 'MEMORY' ? (memFull(req) ? nearFull(memory.MEMORY) : 4096) : 2048);
+const memCap = (f: string, req?: Req) => (f === 'MEMORY' || f === 'TEAM' ? (memFull(req) && f === 'MEMORY' ? nearFull(memory.MEMORY) : 4096) : 2048);
 
 // ---- skills ----
 
@@ -277,7 +305,7 @@ const etagOf = (s: string) => {
 onReset(() => {
   Object.assign(state, {
     memory: clone(memory),
-    etags: { MEMORY: 'e1', USER: 'e1', HEARTBEAT: 'e1' },
+    etags: { MEMORY: 'e1', USER: 'e1', HEARTBEAT: 'e1', TEAM: 'e1' },
     memoryHistory: clone(memoryHistory),
     skills: clone(skills),
     repos: clone(repos),
@@ -289,6 +317,13 @@ onReset(() => {
   });
   // Unit tests switch scenarios on with resetMock({ mock }); pages do it per request below.
   if (notesSuggest()) suggest();
+  waiting.set(TEAM_ASK, (choice) => {
+    const a = approvalState.approvals.find((x) => x.id === TEAM_ASK);
+    const note = (a?.action?.payload as { new?: string } | undefined)?.new;
+    if (choice === 'deny' || !note) return;
+    const before = state.memory.TEAM ?? '';
+    writeTeam(before ? `${before}\n${note}` : note, { actor: 'agent:run_01jalexsupport000000000000', approval_id: TEAM_ASK, op: 'add', before });
+  });
 });
 
 // ---- note suggestions: notes approvals in the approvals domain ----
@@ -505,17 +540,51 @@ on('GET', '/api/knowledge/search', (req, res, _m, q) => {
 // ---- memory and skills routes ----
 
 const memFile = (f: string) => f.toUpperCase();
-const memContent = (req: Req, f: string) => (memEmpty(req) && f !== 'HEARTBEAT' && state.etags[f] === 'e1' ? '' : (state.memory[f] ?? ''));
+const memContent = (req: Req, f: string) =>
+  (f === 'TEAM' ? teamEmpty(req) : memEmpty(req) && f !== 'HEARTBEAT') && state.etags[f] === 'e1' ? '' : (state.memory[f] ?? '');
+const memDoc = (req: Req, f: string) => ({ file: f, content: memContent(req, f), etag: state.etags[f], cap_bytes: memCap(f, req) });
+const unquote = (v: unknown) => String(v ?? '').replace(/^(W\/)?"|"$/g, '');
+
+/** Saves what Bothy remembers for everyone, as the gateway does for an admin's edit or an approved change. */
+function writeTeam(content: string, change: Pick<MemoryChange, 'actor' | 'op' | 'before'> & Partial<MemoryChange>) {
+  const ev: MemoryChange = { id: Math.floor(Math.random() * 1e6), principal_id: '', file: 'TEAM', after: content, provenance: 'user', at: nowISO(), ...change };
+  state.memoryHistory.unshift(ev);
+  state.memory.TEAM = content;
+  state.etags.TEAM = newId('e').slice(0, 8);
+  emit('memory.updated', { file: 'TEAM', event_id: ev.id });
+}
+
 on('GET', '/api/memory/export', (_q, res) => {
   res.setHeader('Content-Disposition', 'attachment; filename="memory.tar"');
   res.end('mock tar');
 });
+// The literal team routes come first: {file} never takes TEAM, as on the gateway.
+on('GET', '/api/memory/team', (req, res) => {
+  res.setHeader('ETag', `"${state.etags.TEAM}"`);
+  json(res, 200, memDoc(req, 'TEAM'));
+});
+on('PUT', '/api/memory/team', async (req, res) => {
+  const me = viewer(req);
+  if (me.role === 'member') return fail(res, 403, 'forbidden', 'admins only');
+  const match = unquote(req.headers['if-match']);
+  if (!match) return fail(res, 428, 'bad_request', "If-Match with the document's etag is required");
+  if (match !== state.etags.TEAM) return fail(res, 409, 'conflict', 'The file changed since you loaded it.');
+  const { content } = JSON.parse(await body(req)) as { content: string };
+  const n = new TextEncoder().encode(content).length;
+  if (n > memCap('TEAM')) return fail(res, 400, 'bad_request', `TEAM.md is limited to ${memCap('TEAM')} bytes (${n} given)`);
+  writeTeam(content, { actor: `user:${me.id}`, op: 'edit', before: memContent(req, 'TEAM') });
+  res.setHeader('ETag', `"${state.etags.TEAM}"`);
+  json(res, 200, memDoc(req, 'TEAM'));
+});
+on('GET', '/api/memory/team/history', (req, res) => json(res, 200, { items: teamEmpty(req) ? [] : state.memoryHistory.filter((e) => e.file === 'TEAM') }));
 on('GET', '/api/memory/{file}', (req, res, m) => {
   const f = memFile(m[1]);
-  json(res, 200, { file: f, content: memContent(req, f), etag: state.etags[f], cap_bytes: memCap(f, req) });
+  if (f === 'TEAM' || !(f in state.etags)) return fail(res, 404, 'not_found', 'no such memory file');
+  json(res, 200, memDoc(req, f));
 });
 on('PUT', '/api/memory/{file}', async (req, res, m) => {
   const f = memFile(m[1]);
+  if (f === 'TEAM' || !(f in state.etags)) return fail(res, 404, 'not_found', 'no such memory file');
   if (String(req.headers['if-match'] ?? '').replace(/^"|"$/g, '') !== state.etags[f]) return fail(res, 409, 'conflict', 'The file changed since you loaded it.');
   const { content } = JSON.parse(await body(req)) as { content: string };
   if (new TextEncoder().encode(content).length > memCap(f, req)) return fail(res, 400, 'bad_request', `limited to ${memCap(f, req)} bytes`);
@@ -524,7 +593,11 @@ on('PUT', '/api/memory/{file}', async (req, res, m) => {
   state.etags[f] = newId('e').slice(0, 8);
   json(res, 200, { file: f, content, etag: state.etags[f], cap_bytes: memCap(f, req) });
 });
-on('GET', '/api/memory/{file}/history', (req, res, m) => json(res, 200, { items: memEmpty(req) ? [] : state.memoryHistory.filter((e) => e.file === memFile(m[1])) }));
+on('GET', '/api/memory/{file}/history', (req, res, m) => {
+  const f = memFile(m[1]);
+  if (f === 'TEAM' || !(f in state.etags)) return fail(res, 404, 'not_found', 'no such memory file');
+  json(res, 200, { items: memEmpty(req) ? [] : state.memoryHistory.filter((e) => e.file === f) });
+});
 
 on('GET', '/api/skills', (req, res) => json(res, 200, skillsEmpty(req) ? [] : state.skills));
 on('GET', '/api/skills/{name}', (_q, res, m) => {
