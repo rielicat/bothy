@@ -16,6 +16,7 @@
   let error = $state('');
   // What the last change did in each chat app that is turned on.
   let apps = $state<PictureAppResult[]>([]);
+  let last = $state<'change' | 'reset' | null>(null);
 
   async function load() {
     const [i, list] = await Promise.all([
@@ -33,6 +34,9 @@
   // Slack's step is the note below, whether or not a change just asked for it.
   const slackTodo = $derived(apps.some((a) => a.app === 'slack' && a.result === 'manual'));
   const lines = $derived(apps.filter((a) => a.result === 'failed' || (a.result === 'manual' && a.app !== 'slack')));
+  // "Use default" goes with the admin's picture, so a reset some chat apps
+  // missed is tried again from here.
+  const resetAgain = $derived(last === 'reset' && apps.some((a) => a.result === 'failed'));
 
   async function change(files: FileList | null) {
     const f = files?.[0];
@@ -50,6 +54,7 @@
 
   async function save(kind: 'change' | 'reset', call: () => Promise<PictureChange>) {
     busy = kind;
+    last = kind;
     error = '';
     apps = [];
     try {
@@ -59,7 +64,7 @@
       toast(kind === 'change' ? 'Picture changed.' : 'Default picture restored.');
       if (lines.length) announce(lines.map((a) => a.detail).join(' '));
       // "Use default" goes away with the custom picture; keep focus in the row.
-      if (kind === 'reset') {
+      if (kind === 'reset' && !resetAgain) {
         await tick();
         document.getElementById(`${uid}-change`)?.focus();
       }
@@ -99,13 +104,13 @@
           onchange={(e) => change(e.currentTarget.files)}
         />
         <Button id="{uid}-change" loading={busy === 'change'} loadingLabel="Saving…" disabled={busy === 'reset'} onclick={() => picker?.click()}>Change…</Button>
-        {#if current.custom}
+        {#if current.custom || resetAgain}
           <Button
             variant="ghost"
             loading={busy === 'reset'}
             loadingLabel="Saving…"
             disabled={busy === 'change'}
-            onclick={() => save('reset', () => api.del<PictureChange>('/api/agent/picture'))}>Use default</Button
+            onclick={() => save('reset', () => api.del<PictureChange>('/api/agent/picture'))}>{current.custom ? 'Use default' : 'Try again'}</Button
           >
         {/if}
       </div>

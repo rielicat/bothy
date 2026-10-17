@@ -228,6 +228,29 @@ describe("Settings → General, Bothy's picture", () => {
     expect(document.activeElement).toBe(within(picture()).getByRole('button', { name: 'Change…' }));
   });
 
+  it('offers to go back to the default again when a chat app missed it', async () => {
+    let deletes = 0;
+    const calls = await open({
+      mock: 'picture-custom,picture-fail',
+      override: (m, url) =>
+        m === 'DELETE' && url === '/api/agent/picture' && ++deletes === 3 ? { picture: { custom: false, version: 'v9' }, apps: [{ app: 'telegram', result: 'updated', detail: 'Updated in Telegram.' }] } : undefined,
+    });
+    await fireEvent.click(within(picture()).getByRole('button', { name: 'Use default' }));
+    await waitFor(() => expect(toaster.current?.text).toBe('Default picture restored.'));
+    const r = picture();
+    expect(within(r).getByText("Couldn't change the picture in Telegram. Try again later.")).toBeTruthy();
+    expect(within(r).queryByRole('button', { name: 'Use default' })).toBeNull();
+    await fireEvent.click(within(r).getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(deletes).toBe(2));
+    expect(await within(picture()).findByRole('button', { name: 'Try again' })).toBeTruthy();
+    expect(within(picture()).getByText("Couldn't change the picture in Telegram. Try again later.")).toBeTruthy();
+    await fireEvent.click(within(picture()).getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(within(picture()).queryByRole('button', { name: 'Try again' })).toBeNull());
+    expect(within(picture()).queryByText(/Try again later/)).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(within(picture()).getByRole('button', { name: 'Change…' })));
+    expect(calls.filter((c) => c.method === 'DELETE').length).toBe(3);
+  });
+
   it('leaves the row out when the server has no picture to show', async () => {
     installApi({ override: (_m, url) => (url === '/api/agent/picture/info' ? new Response(JSON.stringify({ error: { code: 'unavailable', message: 'x' } }), { status: 503 }) : undefined) });
     session.ready = false;
