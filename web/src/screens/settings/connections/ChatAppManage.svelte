@@ -170,8 +170,9 @@
     <div class="flex min-h-14 flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-border py-3">
       <!-- A rejected test replaces the line it proves wrong, rather than sitting under "Connected to …". -->
       {#if test?.rejected}
+        <!-- A 20rem basis lets a phone put the button under the failure instead of squeezing it to three lines. -->
         <StatusLine
-          class="min-w-0 flex-1"
+          class="min-w-0 flex-[1_1_20rem]"
           tone="danger"
           text="Can't connect: {name} didn't accept {app === 'slack' ? 'the tokens' : 'the token'}."
           details={test.details}
@@ -183,7 +184,8 @@
           {!status.enabled ? `Turned off. Bothy doesn't answer in ${name}.` : line ? line.text : connectedText(status, true)}
         </p>
       {/if}
-      <Button size="sm" loading={testing} loadingLabel="Testing…" onclick={runTest}>Test connection</Button>
+      <!-- Beside a two-line failure the button lines up with its first line, not the middle of both. -->
+      <Button size="sm" class={test?.rejected ? 'sm:-my-1 sm:self-start' : ''} loading={testing} loadingLabel="Testing…" onclick={runTest}>Test connection</Button>
     </div>
     {#if test && !test.rejected}
       <StatusLine
