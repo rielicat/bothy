@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Avatar, Button, Checkbox, CodeBlock, Dialog, EmptyState, IconButton, Menu, Notice, Radio, StatusLine, TextField, toast, type MenuItem } from '../../components/ui';
+  import { Avatar, Button, CodeBlock, Dialog, EmptyState, IconButton, Menu, Notice, Radio, StatusLine, TextField, toast, type MenuItem } from '../../components/ui';
   import { api, ApiError } from '../../lib/api/client';
   import { router } from '../../lib/router.svelte';
   import { session } from '../../lib/stores/session.svelte';
@@ -63,7 +63,7 @@
       { label: 'Member', group: 'Change role', checked: u.role === 'member', onselect: () => u.role !== 'member' && patch(u, { role: 'member' }, 'Role changed.', `Couldn't change ${name}'s role. Try again.`) },
       { label: 'Admin', group: 'Change role', checked: u.role === 'admin', onselect: () => u.role !== 'admin' && patch(u, { role: 'admin' }, 'Role changed.', `Couldn't change ${name}'s role. Try again.`) },
       'separator',
-      { label: 'Spending limit…', onselect: () => openLimit({ key: u.username, name, member: u.role === 'member' }) },
+      { label: 'Daily limit…', onselect: () => openLimit({ key: u.username, name, member: u.role === 'member' }) },
       { label: 'Reset password…', onselect: () => openReset(u) },
       u.disabled
         ? { label: 'Turn on account', onselect: () => patch(u, { disabled: false }, 'Account turned on.', `Couldn't turn on ${name}'s account. Try again.`) }
@@ -71,9 +71,10 @@
     ];
   }
 
-  // Spending limit: budgets.per_user_daily_usd is keyed by username, or
-  // "<app>:<id>" for someone in a chat app, who has the member default
-  // unless they have their own.
+  // Daily limit, one dialog for accounts and people in chat apps:
+  // budgets.per_user_daily_usd is keyed by username, or "<app>:<id>" for
+  // someone in a chat app. Members and people in chat apps fall back to the
+  // member default, admins to no limit.
   type LimitTarget = { key: string; name: string; member?: boolean; chat?: boolean };
   let limitFor = $state<LimitTarget | null>(null);
   let limitText = $state('');
@@ -95,8 +96,9 @@
   }
 
   $effect.pre(() => {
-    if (limitFor?.chat) noLimit = limitMode === 'default';
+    noLimit = limitMode === 'default';
   });
+  const defaultLimit = $derived(limitFor && (limitFor.member || limitFor.chat) && memberDefault > 0 ? `$${moneyText(memberDefault)} a day` : 'no limit');
 
   const limitFieldError = $derived(limitSubmitted && !noLimit && parseMoney(limitText) === null ? 'Enter an amount in dollars, like 5.00.' : undefined);
 
@@ -218,24 +220,15 @@
 
 <AddPerson bind:open={addOpen} onadded={(u) => (users = [...users, u])} />
 
-<Dialog open={!!limitFor} title={limitFor?.chat ? `Daily limit for ${limitFor.name}` : 'Spending limit'} size="md" busy={limitBusy} onclose={() => (limitFor = null)}>
+<Dialog open={!!limitFor} title={limitFor ? `Daily limit for ${limitFor.name}` : ''} size="md" busy={limitBusy} onclose={() => (limitFor = null)}>
   {#if limitFor}
     {@const t = limitFor}
     <form id="limit-form" class="grid gap-3" onsubmit={saveLimit} novalidate>
-      {#if t.chat}
-        <div role="radiogroup" aria-label="Daily limit for {t.name}">
-          <Radio bind:group={limitMode} name="{uid}-limit-mode" value="default" label="Use the default ({memberDefault > 0 ? `$${moneyText(memberDefault)}` : 'no limit'})" />
-          <Radio bind:group={limitMode} name="{uid}-limit-mode" value="set" label="Set a limit" />
-        </div>
-      {/if}
-      <TextField label={t.chat ? 'Daily limit' : `Daily limit for ${t.name}`} prefix="$" inputmode="decimal" bind:value={limitText} disabled={noLimit} error={limitFieldError} />
-      {#if !t.chat}
-        <Checkbox
-          label="No personal limit"
-          description={t.member && memberDefault > 0 ? `Members without their own limit can spend up to $${moneyText(memberDefault)} a day.` : undefined}
-          bind:checked={noLimit}
-        />
-      {/if}
+      <div role="radiogroup" aria-label="Daily limit for {t.name}">
+        <Radio bind:group={limitMode} name="{uid}-limit-mode" value="default" label="Use the default ({defaultLimit})" />
+        <Radio bind:group={limitMode} name="{uid}-limit-mode" value="set" label="Set a limit" />
+      </div>
+      <TextField label="Daily limit" prefix="$" inputmode="decimal" bind:value={limitText} disabled={noLimit} error={limitFieldError} />
       {#if limitError}<Notice tone="danger" text={limitError} role="alert" />{/if}
     </form>
   {/if}

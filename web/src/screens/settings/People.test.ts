@@ -78,23 +78,24 @@ describe('Settings → People', () => {
     await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url === '/api/users/usr_01jalex000000000000000000' && JSON.parse(c.body).role === 'admin')).toBe(true));
   });
 
-  it('sets and clears a personal spending limit by username', async () => {
+  it('sets and clears a daily limit by username, in the same dialog as people in chat apps', async () => {
     const calls = await open();
     let m = await menu('Alex');
-    await fireEvent.click(within(m).getByRole('menuitem', { name: 'Spending limit…' }));
-    let dialog = await screen.findByRole('dialog', { name: 'Spending limit' });
-    expect(within(dialog).getByText('Members without their own limit can spend up to $2.00 a day.')).toBeTruthy();
-    await fireEvent.click(within(dialog).getByLabelText('No personal limit'));
-    await fireEvent.input(within(dialog).getByLabelText('Daily limit for Alex'), { target: { value: '3' } });
+    await fireEvent.click(within(m).getByRole('menuitem', { name: 'Daily limit…' }));
+    let dialog = await screen.findByRole('dialog', { name: 'Daily limit for Alex' });
+    // "Use the default" says what the default is, instead of a "No personal limit" box that meant the same.
+    expect((within(dialog).getByRole('radio', { name: 'Use the default ($2.00 a day)' }) as HTMLInputElement).checked).toBe(true);
+    await fireEvent.click(within(dialog).getByRole('radio', { name: 'Set a limit' }));
+    await fireEvent.input(within(dialog).getByLabelText('Daily limit'), { target: { value: '3' } });
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(calls.filter((c) => c.method === 'PATCH').map((c) => JSON.parse(c.body).set)).toContainEqual({ 'budgets.per_user_daily_usd.alex': 3 }));
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Spending limit' })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Daily limit for Alex' })).toBeNull());
 
     m = await menu('Alex');
-    await fireEvent.click(within(m).getByRole('menuitem', { name: 'Spending limit…' }));
-    dialog = await screen.findByRole('dialog', { name: 'Spending limit' });
-    expect((within(dialog).getByLabelText('Daily limit for Alex') as HTMLInputElement).value).toBe('3.00');
-    await fireEvent.click(within(dialog).getByLabelText('No personal limit'));
+    await fireEvent.click(within(m).getByRole('menuitem', { name: 'Daily limit…' }));
+    dialog = await screen.findByRole('dialog', { name: 'Daily limit for Alex' });
+    expect((within(dialog).getByLabelText('Daily limit') as HTMLInputElement).value).toBe('3.00');
+    await fireEvent.click(within(dialog).getByRole('radio', { name: /^Use the default/ }));
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(calls.filter((c) => c.method === 'PATCH').map((c) => JSON.parse(c.body).set)).toContainEqual({ 'budgets.per_user_daily_usd.alex': null }));
   });
@@ -154,7 +155,7 @@ describe('Settings → People → In chat apps', () => {
     await open();
     const s = await section();
     await s.findByText('Sam', { selector: 'p' });
-    expect(s.getByText(/^People who can approve get requests from everyone in chat apps/)).toBeTruthy();
+    expect(s.getByText("People who can approve get approval requests in their direct messages. Changes to Bothy's settings still need an admin here.")).toBeTruthy();
     const names = [...s.getAllByRole('listitem')].map((li) => li.querySelector('p')?.textContent);
     expect(names).toEqual(['Sam', 'Alex Kim', 'Morgan Reyes', 'Riley Park', 'Casey']);
     expect(rowOf(s, 'Alex Kim').textContent).toContain('@alexk · Slack');
@@ -164,7 +165,9 @@ describe('Settings → People → In chat apps', () => {
     expect(within(rowOf(s, 'Casey')).queryByRole('switch')).toBeNull();
     const riley = within(rowOf(s, 'Riley Park')).getByRole('switch', { name: 'Can approve: Riley Park' });
     expect(riley.getAttribute('aria-disabled')).toBe('true');
-    expect(document.getElementById(riley.getAttribute('aria-describedby')!)?.textContent).toBe("They aren't in the team any more.");
+    // The row's own meta line says why, so no second line repeats it.
+    expect(document.getElementById(riley.getAttribute('aria-describedby')!)?.textContent).toContain('No longer in Acme');
+    expect(rowOf(s, 'Riley Park').textContent).not.toContain("They aren't in the team any more.");
     expect(document.body.textContent).not.toMatch(/teammate|U02ALEX|spc_/i);
   });
 
@@ -209,7 +212,7 @@ describe('Settings → People → In chat apps', () => {
       await fireEvent.click(s.getByRole('button', { name: 'Options for Riley Park' }));
       item = await screen.findByRole('menuitemcheckbox', { name: /^Can approve/ });
       expect(item.getAttribute('aria-disabled')).toBe('true');
-      expect(item.textContent).toContain("They aren't in the team any more.");
+      expect(item.textContent).toContain('No longer in Acme');
     } finally {
       delete (window as { matchMedia?: unknown }).matchMedia;
     }
@@ -246,7 +249,7 @@ describe('Settings → People → In chat apps', () => {
     await fireEvent.click(await s.findByRole('button', { name: 'Options for Alex Kim' }));
     await fireEvent.click(await screen.findByRole('menuitem', { name: 'Daily limit…' }));
     const dialog = await screen.findByRole('dialog', { name: 'Daily limit for Alex Kim' });
-    const usual = within(dialog).getByRole('radio', { name: 'Use the default ($2.00)' }) as HTMLInputElement;
+    const usual = within(dialog).getByRole('radio', { name: 'Use the default ($2.00 a day)' }) as HTMLInputElement;
     expect(usual.checked).toBe(true);
     // One native group, so the arrow keys move between the two and Tab stops once.
     expect(usual.name).toBeTruthy();
@@ -363,5 +366,8 @@ describe('Settings → People → In chat apps', () => {
     expect(await s.findByText('No chat app is connected yet.')).toBeTruthy();
     expect(s.getByRole('link', { name: 'Connect a chat app' }).getAttribute('href')).toBe('/settings/connections');
     expect(s.queryByText(/^Nobody has messaged Bothy/)).toBeNull();
+    // No intro about approving and no share of a limit for apps that aren't there.
+    expect(s.queryByText(/^People who can approve/)).toBeNull();
+    expect(s.queryByLabelText('Share of the daily limit for chat apps')).toBeNull();
   });
 });

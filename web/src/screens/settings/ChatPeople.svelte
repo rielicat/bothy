@@ -68,6 +68,7 @@
   // The 0013 upgrade's reminder, until an admin changes someone here or a week passes (§4.9: not a banner).
   const teamAccess = $derived(session.isAdmin && session.banners.some((b) => b.code === 'team_access'));
   const key = (t: Teammate) => `${t.channel}:${t.external_id}`;
+  const uid = $props.id();
   const app = (t: Teammate) => apps[t.channel] ?? t.channel;
   const daily = $derived(settingsConfig.value<number>('budgets.daily_usd', 0));
   const memberDefault = $derived(settingsConfig.value<number>('budgets.member_daily_usd', 0));
@@ -83,6 +84,7 @@
   // there (Telegram, and Discord while Bothy can't check its members, also
   // need an admin to let people in).
   const connected = $derived(channels && Object.keys(apps).filter((n) => channels!.some((c) => c.name === n && c.enabled)));
+  const noApps = $derived(!!connected && !connected.length);
   const orNames = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}` : names[0]);
   const membersChecked = (n: string) => n === 'slack' || (n === 'discord' && channels?.find((c) => c.name === n)?.member_check === 'ok');
   const letIn = $derived((connected ?? []).filter((n) => !membersChecked(n)).map((n) => apps[n]));
@@ -102,8 +104,6 @@
     // On phones the switch is in the menu, so the row says who can approve.
     return [handle, app(t), t.left ? leftText(t) : '', narrow && t.can_approve ? 'Can approve' : ''].filter(Boolean).join(' · ');
   }
-
-  const leftReason = "They aren't in the team any more.";
 
   function active(t: Teammate): string {
     const limit = limitOf(t);
@@ -136,7 +136,7 @@
     if (t.status === 'blocked') return [{ label: 'Unblock', onselect: () => patch(t, { status: 'teammate' }, 'Unblocked.') }, forget];
     return [
       ...(narrow
-        ? [{ label: 'Can approve', checked: t.can_approve, toggle: true, disabled: t.left, reason: t.left ? leftReason : undefined, onselect: () => setApprove(t, !t.can_approve) }]
+        ? [{ label: 'Can approve', checked: t.can_approve, toggle: true, disabled: t.left, reason: t.left ? leftText(t) : undefined, onselect: () => setApprove(t, !t.can_approve) }]
         : []),
       { label: 'Daily limit…', onselect: () => onlimit(key(t), t.name) },
       { label: 'Block…', danger: true, onselect: () => (blocking = t) },
@@ -198,14 +198,14 @@
 
 <SettingsSection title="In chat apps">
   {#if teamAccess}<Notice class="mb-3" text="People in chat apps no longer link to Bothy accounts. Check who can use Bothy and who can approve below." />{/if}
-  <p class="text-small text-muted">
-    People who can approve get requests from everyone in chat apps, with the details of what Bothy is about to do, and answer them in their direct messages. Changes to how
-    Bothy works still need an admin here.
-  </p>
+  <!-- Without a chat app there's nobody to approve and nothing to share, so only the way to connect one shows. -->
+  {#if !noApps}
+    <p class="text-small text-muted">People who can approve get approval requests in their direct messages. Changes to Bothy's settings still need an admin here.</p>
+  {/if}
   {#if phase === 'failed'}
     <StatusLine class="mt-3" tone="danger" text="This list didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: () => load() }} />
   {:else if phase === 'ready'}
-    {#if daily > 0}
+    {#if daily > 0 && !noApps}
       <SettingsRow label="Share of the daily limit for chat apps" help="Leaves the rest of Bothy's {dollars(daily)} daily limit for the web." status={share.status} error={share.error}>
         {#snippet children(c)}
           <Select
@@ -222,7 +222,7 @@
       </SettingsRow>
     {/if}
     {#if !people.length}
-      {#if connected && !connected.length}
+      {#if noApps}
         <EmptyState class="mt-3" text="No chat app is connected yet." action={{ label: 'Connect a chat app', href: '/settings/connections', variant: 'secondary' }} />
       {:else}
         <EmptyState
@@ -242,7 +242,7 @@
               <Avatar name={t.name} size={32} />
               <div class="min-w-0 flex-1">
                 <p class="truncate text-body font-medium text-text" title={t.name} data-copy-ignore>{t.name}</p>
-                <p class="truncate text-small text-muted" data-copy-ignore>{meta(t)}</p>
+                <p id="{uid}-meta-{key(t)}" class="truncate text-small text-muted" data-copy-ignore>{meta(t)}</p>
                 {#if t.status !== 'blocked'}<p class="text-small text-muted tabular-nums">{active(t)}</p>{/if}
               </div>
               {#if t.status !== 'blocked' && !narrow}
@@ -251,7 +251,8 @@
                   label="Can approve"
                   aria-label="Can approve: {t.name}"
                   checked={t.can_approve}
-                  reason={t.left ? leftReason : undefined}
+                  disabled={t.left}
+                  aria-describedby={t.left ? `${uid}-meta-${key(t)}` : undefined}
                   onchange={(v) => setApprove(t, v)}
                 />
               {/if}

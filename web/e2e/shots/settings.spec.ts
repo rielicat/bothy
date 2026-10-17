@@ -371,9 +371,9 @@ const states: ShotState[] = [
     full: false,
     setup: async (page) => {
       await personMenu(page, 'Alex');
-      await page.getByRole('menuitem', { name: 'Spending limit…' }).click();
-      await page.getByRole('dialog').getByLabel('No personal limit').uncheck();
-      await page.getByRole('dialog').getByLabel(/Daily limit for/).fill('3.00');
+      await page.getByRole('menuitem', { name: 'Daily limit…' }).click();
+      await page.getByRole('dialog').getByRole('radio', { name: 'Set a limit' }).check();
+      await page.getByRole('dialog').getByRole('textbox', { name: 'Daily limit' }).fill('3.00');
     },
   },
   {

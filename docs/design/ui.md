@@ -2020,17 +2020,17 @@ People                                                            [ Add person ]
 (JK) Jordan Kim         jordan        Member · hasn't signed in yet           ⋯
 ```
 
-- 56 px rows: avatar 32, name `text-body` 500, username muted, role word. `⋯`: Change role · Spending limit… · Reset password… · Turn off account… (`danger-text`).
+- 56 px rows: avatar 32, name `text-body` 500, username muted, role word. `⋯`: Change role · Daily limit… · Reset password… · Turn off account… (`danger-text`).
 - **Add person** (560 dialog): Name, Username, Role (Member / Admin, help "Admins can change settings and approve anything."), [Create]. Then the same dialog shows: "{Name} can sign in now. Send them these details:" + a `CodeBlock` with the web address, username and a generated one-time password, Copy; "They'll choose their own password when they first sign in." [Done] (S9).
-- **Spending limit** dialog: "Daily limit for {name}" money input, "No personal limit" checkbox.
+- **Daily limit** dialog, the same for accounts and for people in chat apps: title "Daily limit for {name}"; radios "Use the default ({amount} a day)" (members' default; "no limit" when there is none, as for admins) and "Set a limit", then the "Daily limit" money field; toast "Limit saved."
 - Only the owner: "It's just you so far. Add people so they get their own sign-in." + "Add person". When people use Bothy in chat apps (the section below has rows), the sentence is "Only you sign in to Bothy on the web. Add people so they get their own sign-in." instead; it waits for that list, so the wrong one never shows.
 
 **In chat apps** (a section under the accounts, admins, in any mode): the people Bothy answers in Slack, Discord and Telegram (`GET /api/teammates`), approvers first, then by when they were last active, then blocked people. UI copy never says "teammate" (§14.3).
 
 ```
 In chat apps
-People who can approve get requests from everyone in chat apps, with the details of what Bothy is about to do,
-and answer them in their direct messages. Changes to how Bothy works still need an admin here.
+People who can approve get approval requests in their direct messages. Changes to
+Bothy's settings still need an admin here.
 
 Share of the daily limit for chat apps                          [ 60% (recommended) ⌄ ]
 Leaves the rest of Bothy's $5.00 daily limit for the web.
@@ -2048,18 +2048,18 @@ Leaves the rest of Bothy's $5.00 daily limit for the web.
      Telegram · Blocked
 ```
 
-- Help (muted) under the heading, as above. When nobody can approve and the list isn't empty: "Nobody can approve in chat apps yet, so requests from chat apps wait for an admin in Approvals."
+- Help (muted) under the heading, as above; it and the Share row are left out while no chat app is connected. When nobody can approve and the list isn't empty: "Nobody can approve in chat apps yet, so requests from chat apps wait for an admin in Approvals."
 - After the upgrade that moved people off linked accounts (`team_access`, the first 7 days, until an admin changes anyone here), a neutral `Notice` above the help: "People in chat apps no longer link to Bothy accounts. Check who can use Bothy and who can approve below." It replaces that banner (§4.9).
 - **Share** (`SettingsRow`, only when a daily limit is set): "Share of the daily limit for chat apps", select "40%", "60% (recommended)", "80%", "All of it" (another saved value shows as "{n}%"); help "Leaves the rest of Bothy's {amount} daily limit for the web."; saves `budgets.chat_share_pct` (100 for "All of it") with the row's "Saved".
 - **Find:** above 20 rows a field "Find someone" filters by name or handle; no match: "No one matches “{q}”."
 - **Rows** (56 px): avatar 32 and name (500); `text-small muted` "{@handle · }{App}{ · No longer in {workspace}}" ("No longer in the server" on Discord, "No longer in the workspace" on Slack without a workspace name); then "Active {relTime} · {spent} of {limit} today" (`tabular-nums`; without a limit "Active {relTime} · {spent} today"). The limit is their own, else the member default.
-- **Can approve:** a `Switch` with the visible label (`aria-label` "Can approve: {name}"); for someone no longer in the team it is disabled with the reason "They aren't in the team any more." shown next to it (`aria-describedby`). Under 640 px the switch gives way to a "Can approve" item in the row's menu (`menuitemcheckbox`, checked when on, disabled with the same reason under it), and the meta line ends " · Can approve" for those who can. Toast "Saved."
+- **Can approve:** a `Switch` with the visible label (`aria-label` "Can approve: {name}"); for someone no longer in the team it is disabled, and its `aria-describedby` points at the row's own meta line, whose "No longer in Acme" is the reason, visible in the same row (no second line repeating it). Under 640 px the switch gives way to a "Can approve" item in the row's menu (`menuitemcheckbox`, checked when on, disabled with "No longer in Acme" under it), and the meta line ends " · Can approve" for those who can. Toast "Saved."
 - **Menu** "Options for {name}": "Daily limit…", "Block…" (`danger-text`); someone no longer in the team adds "Delete their data…". Blocked rows: meta "{App} · Blocked", no switch, menu "Unblock", "Delete their data…".
-- **Daily limit** reuses the accounts' limit dialog: title "Daily limit for {name}"; radios "Use the default ({amount})" ("no limit" when there is none) and "Set a limit", then the "Daily limit" money field; saves `budgets.per_user_daily_usd.<app>:<id>` (null for the default); toast "Limit saved."
+- **Daily limit** is the accounts' limit dialog (above); it saves `budgets.per_user_daily_usd.<app>:<id>` (null for the default)."
 - **Block** confirm: title "Block {name}?", body "Bothy stops answering them in {App} and stops anything it's doing for them. Their chats are kept." Buttons "Block" (danger) and "Cancel". The row updates in place; toast "Blocked." Unblock: toast "Unblocked."
 - **Delete their data** confirm: title "Delete {name}'s data?", body "This deletes their chats, files, notes and schedules in Bothy. It can't be undone." (blocked people add "They stay blocked."). Buttons "Delete" (danger) and "Cancel". Toast "Deleted."
 - **Errors:** a failed switch or menu change goes back and says "Couldn't save. Try again." under the row; a failed confirm says so in its dialog. The list failing to load: "This list didn't load. Check your connection and try again." with "Try again".
-- **Empty:** with no chat app connected, "No chat app is connected yet." + "Connect a chat app" (secondary, `/settings/connections`). Otherwise "Nobody uses Bothy in a chat app yet." and, muted, "Message Bothy in {the connected apps, “Slack or Telegram”} to appear here."; when Telegram is connected, or Discord while Bothy can't check its members (`member_check` isn't "ok"), it adds "On {Telegram and Discord}, let yourself in from Approvals first." and the secondary button "Open Approvals" (people there wait in Approvals until an admin lets them in, admins included).
+- **Empty:** with no chat app connected, only "No chat app is connected yet." + "Connect a chat app" (secondary, `/settings/connections`), with neither the help nor the Share row. Otherwise "Nobody uses Bothy in a chat app yet." and, muted, "Message Bothy in {the connected apps, “Slack or Telegram”} to appear here."; when Telegram is connected, or Discord while Bothy can't check its members (`member_check` isn't "ok"), it adds "On {Telegram and Discord}, let yourself in from Approvals first." and the secondary button "Open Approvals" (people there wait in Approvals until an admin lets them in, admins included).
 - It reloads on `inbox.changed` (someone let in, blocked or no longer in the team, or a change made here), keeping the rows where they are: a reload only adds, updates and drops rows, so nothing moves under the pointer. The server's order applies on the next visit or "Try again".
 
 ### 11.6 Security (admins)
