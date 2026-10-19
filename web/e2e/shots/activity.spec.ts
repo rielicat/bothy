@@ -67,7 +67,7 @@ const states: ShotState[] = [
   { name: 'task-refined', route: '/activity/tasks/run_01jpricing00000000000000', ready: 'Refined from', full: true, setup: then(click('Technical details')) },
   { name: 'task-waiting', route: '/activity/tasks/run_01jdeployweb000000000000', ready: 'Waiting for approval to deploy', setup: frame },
   { name: 'task-failed', route: '/activity/tasks/run_01jprdigest1000000000000', ready: "Couldn't check builds", setup: frame },
-  { name: 'task-not-found', route: '/activity/tasks/run_missing', ready: "This task doesn't exist or was deleted.", setup: frame },
+  { name: 'task-not-found', route: '/activity/tasks/run_missing', ready: 'This task was deleted, or it belongs to someone else.', setup: frame },
 
   // Schedules (§10.3)
   { name: 'schedules', route: '/activity/schedules', ready: 'Weekly PR digest', setup: frame },

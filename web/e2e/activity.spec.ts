@@ -13,7 +13,7 @@ const routes: [string, string][] = [
   ['/activity?mock=member', 'Draft the release notes'],
   ['/activity/tasks/run_01jfixlogin0000000000000', 'What Bothy did'],
   ['/activity/tasks/run_01jpricing00000000000000', 'Refined from'],
-  ['/activity/tasks/run_missing', "This task doesn't exist or was deleted."],
+  ['/activity/tasks/run_missing', 'This task was deleted, or it belongs to someone else.'],
   ['/activity/schedules', 'Weekly PR digest'],
   ['/activity/schedules/new', 'What should Bothy do?'],
   ['/activity/schedules/sch_01jstandup00000000000000', 'Recent runs'],

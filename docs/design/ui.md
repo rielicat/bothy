@@ -1772,7 +1772,7 @@ Answer
 - Refined answers add "Refined from 3 drafts · 2 of 3 agreed" to the meta line.
 - Next step: when the viewer can decide a waiting step, its line ends with a "Review it" link to `/approvals/{id}`. A task that failed because GitHub stopped accepting Bothy's access gets "Check the GitHub connection ›" on the failed step (admins only, to Connections → GitHub), since "Open chat" can't fix it.
 - Details follow the chat's order (§7.4): Result, How it was allowed, What Bothy asked for, Technical.
-- Not found: "This task doesn't exist or was deleted." + "Go to Activity".
+- Not found: title "Can't open this task", "This task was deleted, or it belongs to someone else." + "Go to Activity". The server answers another person's task as it does a deleted one (404, so nobody learns which tasks exist), so the copy names both.
 
 ### 10.3 Schedules (`/activity/schedules`)
 
@@ -2365,7 +2365,7 @@ One sentence in `text-reading text`, an optional second sentence in `muted`, the
 | Activity → Schedules → In chat apps | (the section is left out) | — |
 | Search dialog | "No results for “{q}”." | — |
 | Route not found | Title "Page not found"; "Check the address, or go back to your chats." | Go to chat |
-| Chat, task or approval not found | "This chat doesn't exist or was deleted." / "This task…" / "This request was already decided or doesn't exist." | Go to chat / Go to Approvals |
+| Chat, task or approval not found | "This chat doesn't exist or was deleted." / "This task was deleted, or it belongs to someone else." / "This request was already decided or doesn't exist." | Go to chat / Go to Activity / Go to Approvals |
 | Member on an admin page | "Only admins can see this page." | Go to chat |
 
 ### 13.2 Loading and errors
