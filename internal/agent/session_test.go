@@ -286,6 +286,47 @@ func TestForkIsRelatedListedAndNamedByItsFirstMessage(t *testing.T) {
 	})
 }
 
+// The scheduler sends a check-in's instruction as turn context and the
+// person's list as text: Submit takes it, the transcript's text is only the
+// list, and the model reads both.
+func TestCheckInInstructionIsTurnContext(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{steps: []fakes.LLMStep{{Text: []string{"HEARTBEAT_OK"}}}})
+		defer h.close()
+		h.sess = h.newSession("schedule", nil)
+		req := h.req("")
+		req.Trigger, req.Sender = core.TrigHeartbeat, "schedule:sch_x"
+		req.Input = []core.Part{{Type: core.PartContext, Text: "Here is HEARTBEAT.md. Reply exactly HEARTBEAT_OK."},
+			{Type: core.PartText, Text: "- Tell me if a deploy failed"}}
+		if _, err := h.r.Submit(h.ctx, req); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		var asked *core.Message
+		for _, m := range h.messages() {
+			if m.Role == core.MsgUser {
+				asked = m
+			}
+		}
+		if asked == nil || asked.PlainText() != "- Tell me if a deploy failed" {
+			t.Fatalf("stored check-in = %+v", asked)
+		}
+		reqs := h.requests()
+		if len(reqs) != 1 {
+			t.Fatalf("model requests = %d", len(reqs))
+		}
+		var seen string
+		for _, m := range reqs[0].Messages {
+			for _, p := range m.Parts {
+				seen += p.Text + "\n"
+			}
+		}
+		if !strings.Contains(seen, "Reply exactly HEARTBEAT_OK.") || !strings.Contains(seen, "- Tell me if a deploy failed") {
+			t.Fatalf("the model did not get both the instruction and the list:\n%s", seen)
+		}
+	})
+}
+
 func TestSubmitValidation(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t, opts{})

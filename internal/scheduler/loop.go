@@ -29,12 +29,12 @@ const (
 // Run fires due schedules from a single timer on the earliest next_run_at and
 // keeps the owner's heartbeat schedule in sync with the config. Run outcomes
 // arrive as run.finished events, which also covers runs that parked and were
-// resumed later.
+// resumed later; run.parked lists a check-in waiting on an approval.
 func (s *Service) Run(ctx context.Context) error {
 	var events <-chan core.Event
 	var sub core.Subscription
 	if s.bus != nil {
-		sub = s.bus.Subscribe(core.Filter{System: true, Types: []core.EventType{core.EvRunFinished}}, outcomeBuffer)
+		sub = s.bus.Subscribe(core.Filter{System: true, Types: []core.EventType{core.EvRunFinished, core.EvRunParked}}, outcomeBuffer)
 		defer sub.Close()
 		events = sub.C()
 	}
@@ -59,7 +59,7 @@ func (s *Service) Run(ctx context.Context) error {
 				events = nil
 				continue
 			}
-			s.onFinished(ctx, e)
+			s.onRunEvent(ctx, e)
 			if n := sub.Dropped(); n > 0 {
 				s.log.Warn("scheduler: missed run outcomes; failure counts may be stale", "dropped", n)
 			}
@@ -163,7 +163,7 @@ func (s *Service) due(ctx context.Context, sc *core.Schedule, now time.Time) err
 	if s.isPaused() || (missed && !catchUp) {
 		return s.store.Schedules().SetRun(ctx, sc.ID, sc.LastRunAt, next, sc.LastStatus, sc.Failures, enabled)
 	}
-	_, err = s.fire(ctx, sc, now, next, enabled, false)
+	_, _, err = s.fire(ctx, sc, now, next, enabled, false)
 	switch {
 	case errors.Is(err, errUnsaved):
 		return err
@@ -222,9 +222,10 @@ type notice struct {
 }
 
 // fire submits one run of sc and records the outcome in the schedule row. For
-// manual runs next and enabled are the row's own values. The returned error
-// explains a run that did not start; the row is updated either way.
-func (s *Service) fire(ctx context.Context, sc *core.Schedule, now, next time.Time, enabled, manual bool) (core.RunID, error) {
+// manual runs next and enabled are the row's own values. It returns the run
+// and the chat it writes in; the error explains a run that did not start, and
+// the row is updated either way.
+func (s *Service) fire(ctx context.Context, sc *core.Schedule, now, next time.Time, enabled, manual bool) (core.RunID, core.SessionID, error) {
 	run, ses, status, failed, err := s.submit(ctx, sc, now)
 	st := runState{tick: sc.NextRunAt, last: sc.LastRunAt, next: next, status: sc.LastStatus, failures: sc.Failures, enabled: enabled,
 		session: ses}
@@ -251,9 +252,9 @@ func (s *Service) fire(ctx context.Context, sc *core.Schedule, now, next time.Ti
 		s.publishRun(sc, run, status)
 	}
 	if serr != nil {
-		return run, errors.Join(err, serr)
+		return run, ses, errors.Join(err, serr)
 	}
-	return run, err
+	return run, ses, err
 }
 
 // saveRun writes a tick's outcome and queues the owner notice when it turned
@@ -293,10 +294,10 @@ func (s *Service) submit(ctx context.Context, sc *core.Schedule, now time.Time) 
 		}
 		return "", "", core.RunFailed, true, err
 	}
-	trigger, prompt := core.TrigSchedule, sc.Prompt
+	trigger, input := core.TrigSchedule, []core.Part{{Type: core.PartText, Text: sc.Prompt}}
 	if sc.Kind == core.SchedHeartbeat {
 		trigger = core.TrigHeartbeat
-		if prompt, err = s.heartbeatPrompt(ctx, sc); err != nil {
+		if input, err = s.heartbeatInput(ctx, sc); err != nil {
 			return "", "", "", false, err
 		}
 	}
@@ -306,7 +307,7 @@ func (s *Service) submit(ctx context.Context, sc *core.Schedule, now time.Time) 
 	}
 	req := core.RunRequest{
 		Session: ses.ID, Principal: sc.Principal, User: prin.User, Trigger: trigger, Schedule: sc.ID, Slot: sc.Slot,
-		Input:      []core.Part{{Type: core.PartText, Text: prompt}},
+		Input:      input,
 		Provenance: core.ProvUser, Sender: "schedule:" + string(sc.ID),
 		Sink:   s.deliverySink(ctx, sc, prin),
 		Limits: s.runLimits(sc.Limits),
@@ -377,7 +378,10 @@ func (s *Service) runLimits(l core.RunLimits) *core.RunLimits {
 }
 
 // targetSession is the schedule's own session, or a fresh one per run so
-// independent runs never share history (SPEC §5.16).
+// independent runs never share history (SPEC §5.16). A fresh one is filed
+// under its schedule and named after it with the local date ("Check-in ·
+// 19 Oct"); a check-in's stays hidden until it has something to say
+// (showCheckIn).
 func (s *Service) targetSession(ctx context.Context, sc *core.Schedule, now time.Time) (*core.Session, error) {
 	if sc.Session != "" {
 		ses, err := s.store.Sessions().Get(ctx, core.SystemViewer(), sc.Session)
@@ -394,7 +398,11 @@ func (s *Service) targetSession(ctx context.Context, sc *core.Schedule, now time
 	if lerr != nil {
 		loc = time.UTC
 	}
-	ses.Title = sc.Name + " · " + now.In(loc).Format(time.DateOnly)
+	name := sc.Name
+	if sc.Kind == core.SchedHeartbeat {
+		name = checkInName
+	}
+	ses.Title, ses.ScheduleID, ses.Hidden = name+" · "+now.In(loc).Format("2 Jan"), sc.ID, sc.Kind == core.SchedHeartbeat
 	ses.UpdatedAt = now
 	if err := s.store.Sessions().Update(ctx, ses); err != nil {
 		s.log.Warn("scheduler: title schedule session", "session", ses.ID, "err", err)
@@ -492,9 +500,8 @@ func (s *Service) ownChat(ctx context.Context, prin *core.Principal, c core.Chat
 	return core.ChatRef{}, false, nil
 }
 
-// onFinished folds a run outcome into its schedule: success resets the
-// failure count, and the third consecutive failure disables the schedule.
-func (s *Service) onFinished(ctx context.Context, e core.Event) {
+// onRunEvent handles a run.finished or run.parked.
+func (s *Service) onRunEvent(ctx context.Context, e core.Event) {
 	if e.Run == "" {
 		return
 	}
@@ -505,19 +512,32 @@ func (s *Service) onFinished(ctx context.Context, e core.Event) {
 		}
 		return
 	}
+	if e.Type == core.EvRunFinished {
+		s.onFinished(ctx, e, run)
+	}
+	s.showCheckIn(ctx, e, run)
+}
+
+// runOutcome is how a run.finished says the run ended, else fallback.
+func runOutcome(e core.Event, fallback core.RunStatus) (core.RunStatus, core.BudgetKind) {
+	switch d := e.Data.(type) {
+	case core.RunFinishedData:
+		return d.Status, d.Budget
+	case *core.RunFinishedData:
+		if d != nil {
+			return d.Status, d.Budget
+		}
+	}
+	return fallback, ""
+}
+
+// onFinished folds a run outcome into its schedule: success resets the
+// failure count, and the third consecutive failure disables the schedule.
+func (s *Service) onFinished(ctx context.Context, e core.Event, run *core.Run) {
 	if run.Schedule == "" {
 		return
 	}
-	status := run.Status
-	var kind core.BudgetKind
-	switch d := e.Data.(type) {
-	case core.RunFinishedData:
-		status, kind = d.Status, d.Budget
-	case *core.RunFinishedData:
-		if d != nil {
-			status, kind = d.Status, d.Budget
-		}
-	}
+	status, kind := runOutcome(e, run.Status)
 
 	s.mu.Lock()
 	manual := s.manual[run.ID]
@@ -620,6 +640,13 @@ func (s *Service) webNotice(ctx context.Context, n notice, msg string) {
 	if err := s.store.Messages().Append(ctx, m); err != nil {
 		s.log.Warn("scheduler: notify owner", "schedule", n.sc.ID, "err", err)
 		return
+	}
+	// A quiet check-in's chat is hidden; the notice must be seen.
+	if chat.Hidden {
+		if err := s.store.Sessions().SetHidden(ctx, chat.ID, false); err != nil {
+			s.log.Warn("scheduler: notify owner", "schedule", n.sc.ID, "err", err)
+		}
+		chat.Hidden = false
 	}
 	// A chat with only this notice was never written in: without a time it
 	// would sort below every other chat.

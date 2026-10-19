@@ -278,9 +278,9 @@ func TestRunNowAndSessions(t *testing.T) {
 			t.Fatalf("RunNow = %q, %v", run1, err)
 		}
 		time.Sleep(time.Hour)
-		run2, err := h.svc.RunNow(ctx, h.viewer(), sc.ID, h.owner)
-		if err != nil {
-			t.Fatal(err)
+		run2, ses2, err := h.svc.RunNowIn(ctx, h.viewer(), sc.ID, h.owner)
+		if err != nil || ses2 == "" {
+			t.Fatalf("RunNowIn = %q, %q, %v", run2, ses2, err)
 		}
 		got := h.get(sc.ID)
 		if !got.NextRunAt.Equal(next) || got.LastStatus != core.RunQueued || !got.LastRunAt.Equal(utc(2026, 10, 12, 23, 30)) {
@@ -295,11 +295,14 @@ func TestRunNowAndSessions(t *testing.T) {
 			r.Input[0].Text != "Make a digest" || r.Limits == nil || r.Limits.MaxSteps != 5 || r.Sink != nil || r.Slot != core.SlotMain {
 			t.Fatalf("request = %+v", r)
 		}
-		// A fresh session per run, titled with the schedule name and local date.
+		// A fresh session per run, filed under the schedule and titled with
+		// its name and the date in its time zone (both runs were on 12 Oct
+		// in UTC).
 		s1, err1 := h.store.Sessions().Get(ctx, core.SystemViewer(), fs[0].req.Session)
 		s2, err2 := h.store.Sessions().Get(ctx, core.SystemViewer(), fs[1].req.Session)
-		if err1 != nil || err2 != nil || s1.ID == s2.ID || s1.Origin != "schedule" ||
-			s1.Title != "Digest · 2026-10-12" || s2.Title != "Digest · 2026-10-13" {
+		if err1 != nil || err2 != nil || s1.ID == s2.ID || s1.Origin != "schedule" || s2.ID != ses2 ||
+			s1.Title != "Digest · 12 Oct" || s2.Title != "Digest · 13 Oct" || s1.ScheduleID != sc.ID || s2.ScheduleID != sc.ID ||
+			s1.Hidden || s2.Hidden {
 			t.Fatalf("sessions = %+v %+v (%v %v)", s1, s2, err1, err2)
 		}
 		// The run is the owner's; the audit says who pressed Run now.

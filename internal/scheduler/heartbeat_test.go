@@ -66,10 +66,17 @@ func TestHeartbeatRunAndSuppression(t *testing.T) {
 			t.Fatalf("heartbeat runs = %d", len(fs))
 		}
 		req := fs[0].req
-		wantPrompt := heartbeatInstruction + "\n\n- Check the inbox\n"
+		// The instruction is turn context, so the chat shows the person's
+		// own list; the model gets both.
+		wantInput := []core.Part{{Type: core.PartContext, Text: heartbeatInstruction}, {Type: core.PartText, Text: "- Check the inbox\n"}}
 		if req.Trigger != core.TrigHeartbeat || req.Slot != core.SlotFast || req.Provenance != core.ProvUser ||
-			len(req.Input) != 1 || req.Input[0].Text != wantPrompt || req.Schedule != hb.ID || req.User != h.owner {
+			!slices.EqualFunc(req.Input, wantInput, func(a, b core.Part) bool { return a.Type == b.Type && a.Text == b.Text }) ||
+			req.Schedule != hb.ID || req.User != h.owner {
 			t.Fatalf("heartbeat request = %+v", req)
+		}
+		ses, err := h.store.Sessions().Get(context.Background(), core.SystemViewer(), req.Session)
+		if err != nil || !ses.Hidden || ses.Title != "Check-in · 12 Oct" || ses.ScheduleID != hb.ID || ses.Origin != "schedule" {
+			t.Fatalf("check-in chat = %+v, %v; want hidden, titled Check-in, under its schedule", ses, err)
 		}
 		// An account hears on the web only: no chat app gets the check-in.
 		if req.Sink != nil || len(h.hub.StreamModes) != 0 {
@@ -87,6 +94,111 @@ func TestHeartbeatRunAndSuppression(t *testing.T) {
 		synctest.Wait()
 		if next := h.heartbeat().NextRunAt; !next.Equal(utc(2026, 10, 13, 7, 0)) {
 			t.Fatalf("next heartbeat after 22:00 BST = %v, want 08:00 BST", next)
+		}
+	})
+}
+
+// A check-in's chat is listed once there is something to see: the run
+// parked on an approval, ended other than done, or answered anything but
+// HEARTBEAT_OK. A done all-clear stays hidden and announces nothing.
+func TestCheckInListedOnlyWithSomethingToSay(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, heartbeatOn)
+		ctx := context.Background()
+		h.memory.Files = map[core.PrincipalID]map[core.MemoryFile]string{h.p: {core.FileHeartbeat: "- Tell me if a deploy failed\n"}}
+		sleepUntil(utc(2026, 10, 12, 9, 0))
+		stop := h.start()
+		defer stop()
+		synctest.Wait()
+		sub := h.bus.Subscribe(core.Filter{System: true, Types: []core.EventType{core.EvSessionUpdated}}, 16)
+		defer sub.Close()
+		parked := func(run core.RunID) {
+			r, err := h.store.Runs().Get(ctx, core.SystemViewer(), run)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.Status = core.RunParked
+			if err := h.store.Runs().Update(ctx, r); err != nil {
+				t.Fatal(err)
+			}
+			h.bus.Publish(core.Event{Type: core.EvRunParked, Principal: r.Principal, Session: r.Session, Run: run,
+				Data: core.RunParkedData{Approval: "apr_x"}})
+		}
+		for i, c := range []struct {
+			replies []string
+			end     func(core.RunID)
+			listed  bool
+		}{
+			{[]string{"HEARTBEAT_OK"}, func(r core.RunID) { h.finish(r, core.RunDone) }, false},
+			{[]string{"Checking the deploys first.", "`HEARTBEAT_OK`"}, func(r core.RunID) { h.finish(r, core.RunDone) }, false},
+			{[]string{"HEARTBEAT_OK", "The deploy to staging failed an hour ago."}, func(r core.RunID) { h.finish(r, core.RunDone) }, true},
+			{[]string{"HEARTBEAT_OK"}, func(r core.RunID) { h.finish(r, core.RunFailed) }, true},
+			{nil, parked, true},
+		} {
+			time.Sleep(30 * time.Minute)
+			synctest.Wait()
+			fs := h.runner.all()
+			if len(fs) != i+1 {
+				t.Fatalf("check-ins = %d, want %d", len(fs), i+1)
+			}
+			f := fs[i]
+			for _, text := range c.replies {
+				m := &core.Message{Session: f.req.Session, Run: f.run, Role: core.MsgAssistant, Kind: core.KindNormal,
+					Provenance: core.ProvSystem, Parts: []core.Part{{Type: core.PartText, Text: text}}}
+				if err := h.store.Messages().Append(ctx, m); err != nil {
+					t.Fatal(err)
+				}
+			}
+			c.end(f.run)
+			synctest.Wait()
+			ses, err := h.store.Sessions().Get(ctx, core.SystemViewer(), f.req.Session)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var updated int
+			for len(sub.C()) > 0 {
+				if e := <-sub.C(); e.Session == ses.ID {
+					updated++
+				}
+			}
+			if ses.Hidden == c.listed || (updated == 1) != c.listed {
+				t.Errorf("check-in %d (%q): hidden %v, %d session.updated; want listed %v", i, c.replies, ses.Hidden, updated, c.listed)
+			}
+		}
+	})
+}
+
+// The notice that a check-in was turned off lands in the chat its last tick
+// made, which is hidden while nothing was said there: the notice lists it.
+func TestCheckInTurnedOffNoticeIsListed(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, heartbeatOn)
+		ctx := context.Background()
+		h.memory.Files = map[core.PrincipalID]map[core.MemoryFile]string{h.p: {core.FileHeartbeat: "- x\n"}}
+		h.runner.fail(errors.New("no model is set up"))
+		sleepUntil(utc(2026, 10, 12, 9, 0))
+		stop := h.start()
+		defer stop()
+		for range maxFailures {
+			time.Sleep(30 * time.Minute)
+			synctest.Wait()
+		}
+		if hb := h.heartbeat(); hb.Enabled {
+			t.Fatalf("check-in still on: %+v", hb)
+		}
+		chats, err := h.store.Sessions().List(ctx, h.viewer(), core.SessionFilter{NonEmpty: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(chats) != 1 || chats[0].Hidden || chats[0].Title != "Check-in · 12 Oct" {
+			t.Fatalf("listed chats = %+v, want the check-in's chat with the notice", chats)
+		}
+		all, err := h.store.Sessions().List(ctx, h.viewer(), core.SessionFilter{IncludeHidden: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(all) != maxFailures {
+			t.Fatalf("chats = %d, want one per tick", len(all))
 		}
 	})
 }
