@@ -486,6 +486,7 @@ on('POST', '/api/mcp/resolve', async (req, res) => {
 });
 on('POST', '/api/mcp/{server}/install', (_q, res) => json(res, 202));
 on('POST', '/api/mcp/{server}/reload', (_q, res) => json(res, 202));
+on('POST', '/api/mcp/{server}/use-my-key', (_q, res) => json(res, 202));
 
 // ---- routes: GitHub (F4 API on the server) ----
 

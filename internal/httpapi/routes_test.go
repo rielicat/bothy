@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -724,6 +725,23 @@ func TestConfigEndpoints(t *testing.T) {
 		t.Fatalf("field errors = %s", rec.Body.String())
 	}
 	expect(t, h.do("DELETE", "/api/config/budgets/daily_usd", nil, h.admin), http.StatusNoContent)
+}
+
+// An admin lets their own key list a server's actions; a refusal says why in
+// the server's words.
+func TestMCPUseMyKey(t *testing.T) {
+	h := newHarness(t).setup()
+	expect(t, h.do("POST", "/api/mcp/docs/use-my-key", nil, h.admin), http.StatusAccepted)
+	if got := h.mcp.Discovered; !slices.Equal(got, []string{"docs " + string(h.admin.user)}) {
+		t.Fatalf("DiscoverWith calls = %v", got)
+	}
+	expect(t, h.do("POST", "/api/mcp/docs/use-my-key", nil, h.member), http.StatusForbidden)
+	h.mcp.DiscoverErr = fmt.Errorf("%w: you haven't saved your own key named docs_key. Add it in Saved keys, or add a shared key", core.ErrConflict)
+	rec := h.do("POST", "/api/mcp/docs/use-my-key", nil, h.admin)
+	expect(t, rec, http.StatusConflict)
+	if !strings.Contains(rec.Body.String(), "you haven't saved your own key named docs_key") {
+		t.Fatalf("refusal = %s", rec.Body.String())
+	}
 }
 
 // Only an admin's removal of an MCP server drops its approvals: an entry an

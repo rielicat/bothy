@@ -48,6 +48,7 @@ func (m *Manager) discoverLocked(ctx context.Context, s *server) {
 	defer cancel()
 	var c *conn
 	var err error
+	var keyOf core.UserID // whose personal key listed the tools, if anyone's
 	switch s.spec.transport {
 	case "stdio":
 		c, err = m.discoverStdio(dctx, s)
@@ -55,13 +56,18 @@ func (m *Manager) discoverLocked(ctx context.Context, s *server) {
 			return
 		}
 	default:
-		// Without a shared key, the tools are listed without that header:
-		// each person's own key then makes their calls.
+		// Without a shared key, the tools are listed with the own key of the
+		// admin who chose so, else without that header: each person's own
+		// key then makes their calls.
 		var a *httpAuth
-		if a, err = m.resolveHTTP(dctx, s, "", true); err == nil {
+		holder := m.discoveryKeyOf(ctx, s)
+		if a, err = m.resolveHTTP(dctx, s, "", true, holder); err == nil {
 			c, err = m.connectHTTP(dctx, s, a)
 			if err != nil && len(a.missing) > 0 {
-				err = &codedErr{code: "key_missing", err: fmt.Errorf("%w (sent without the header %s: no shared key has its name)", err, strings.Join(a.missing, ", "))}
+				err = &codedErr{code: "no_shared_key", err: fmt.Errorf("%w (sent without the header %s: no shared key has its name)", err, strings.Join(a.missing, ", "))}
+			}
+			if a.personal {
+				keyOf = holder
 			}
 		}
 	}
@@ -88,6 +94,9 @@ func (m *Manager) discoverLocked(ctx context.Context, s *server) {
 	s.protocol = c.protocol
 	s.retries, s.retryAt = 0, time.Time{}
 	s.mu.Unlock()
+	if keyOf != "" {
+		m.record(ctx, "system", "mcp.discover", s.name, "ok", map[string]any{"key_of": keyOf, "tools": slices.Sorted(maps.Keys(c.tools))})
+	}
 	m.observe(ctx, s, c.tools, true)
 }
 

@@ -131,6 +131,8 @@
       case 'not_installed':
       case 'install_failed':
         return { label: 'Install', onclick: install };
+      case 'no_shared_key':
+        return { label: 'Use my key', onclick: () => post('use-my-key', "Bothy couldn't use your key. Try again.") };
       case 'key_missing':
       case 'key_locked':
       case 'key_rejected':
@@ -151,25 +153,19 @@
     await load();
   }
 
-  async function install() {
+  async function post(what: string, fail: string, done?: string) {
+    problem = null;
     try {
-      await api.post(`/api/mcp/${enc}/install`);
-      toast('Install started.');
+      await api.post(`/api/mcp/${enc}/${what}`);
+      if (done) toast(done);
       await load();
     } catch (e) {
-      problem = { message: "Bothy couldn't start the install. Try again.", details: errorText(e) };
+      // Only this refusal is written for people: it names the key to save.
+      problem = { message: (what === 'use-my-key' && refusal(e)) || fail, details: errorText(e) };
     }
   }
-
-  async function reload() {
-    try {
-      await api.post(`/api/mcp/${enc}/reload`);
-      toast('Reload started.');
-      await load();
-    } catch (e) {
-      problem = { message: "Bothy couldn't reload this server. Try again.", details: errorText(e) };
-    }
-  }
+  const install = () => post('install', "Bothy couldn't start the install. Try again.", 'Install started.');
+  const reload = () => post('reload', "Bothy couldn't reload this server. Try again.", 'Reload started.');
 </script>
 
 {#snippet menu()}

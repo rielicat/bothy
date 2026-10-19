@@ -107,7 +107,9 @@ func (m *Manager) acquire(ctx context.Context, s *server, env *core.ToolEnv) (*c
 		key = "u:" + string(u)
 		// Read on every call: a key replaced or deleted in the vault takes
 		// effect at once, and each use is audited.
-		a, err := m.resolveHTTP(ctx, s, u, false)
+		// Never with the discovery key holder's keys: one person's key never
+		// makes another person's calls.
+		a, err := m.resolveHTTP(ctx, s, u, false, "")
 		if err != nil {
 			m.retire(s.instance(key))
 			return nil, nil, nil, err
@@ -457,14 +459,26 @@ type httpAuth struct {
 	endpoint core.Secret // the address with references resolved; empty when it has none
 	sum      [32]byte
 	missing  []string // headers left out (discovery without the shared key)
+	personal bool     // a key came from the discovery key holder's own (resolveHTTP's own)
 }
 
 // resolveHTTP reads an HTTP server's keys: references in its headers and its
 // address, in u's vault scope then the global one (u == "" means global
-// only). skipMissing leaves out a header whose key doesn't exist, for a
-// server whose people each use their own key.
-func (m *Manager) resolveHTTP(ctx context.Context, s *server, u core.UserID, skipMissing bool) (*httpAuth, error) {
+// only). For discovery, a key that doesn't exist there is looked up among
+// own's personal keys (DiscoverWith), and skipMissing then leaves out a
+// header whose key still doesn't exist, for a server whose people each use
+// their own key.
+func (m *Manager) resolveHTTP(ctx context.Context, s *server, u core.UserID, skipMissing bool, own core.UserID) (*httpAuth, error) {
 	a := &httpAuth{headers: make(map[string]core.Secret, len(s.spec.headers))}
+	resolve := func(ref string) (core.Secret, error) {
+		v, err := m.d.Vault.Resolve(ctx, ref, u, source(s.name))
+		if own != "" && errors.Is(err, core.ErrNotFound) {
+			if v, err = m.d.Vault.Resolve(ctx, ref, own, source(s.name)); err == nil {
+				a.personal = true
+			}
+		}
+		return v, err
+	}
 	h := sha256.New()
 	for _, k := range slices.Sorted(maps.Keys(s.spec.headers)) {
 		ref := s.spec.headers[k]
@@ -472,7 +486,7 @@ func (m *Manager) resolveHTTP(ctx context.Context, s *server, u core.UserID, ski
 			a.headers[k] = core.NewSecret([]byte(ref))
 			continue
 		}
-		v, err := m.d.Vault.Resolve(ctx, ref, u, source(s.name))
+		v, err := resolve(ref)
 		if skipMissing && errors.Is(err, core.ErrNotFound) {
 			a.missing = append(a.missing, k)
 			continue
@@ -484,7 +498,7 @@ func (m *Manager) resolveHTTP(ctx context.Context, s *server, u core.UserID, ski
 		fmt.Fprintf(h, "%s\x00%d\x00%s\x00", k, len(v.Bytes()), v.Bytes())
 	}
 	if config.HasSecretRef(s.spec.url) {
-		v, err := m.d.Vault.Resolve(ctx, s.spec.url, u, source(s.name))
+		v, err := resolve(s.spec.url)
 		if err != nil {
 			return nil, keyErr(fmt.Errorf("mcp server %s: address: %w", s.name, err))
 		}

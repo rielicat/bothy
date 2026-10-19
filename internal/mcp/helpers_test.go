@@ -196,6 +196,9 @@ type fakeServer struct {
 	// auth, when set, is the only Authorization the server accepts; any
 	// other request gets 401, as a server does with a rotated key.
 	auth string
+	// needKey refuses (401) every request without an Authorization, as a
+	// server that won't even list its tools without a key.
+	needKey bool
 	// hideSearch drops the search tool from the list, as a server that no
 	// longer offers it.
 	hideSearch bool
@@ -266,9 +269,9 @@ func (f *fakeServer) httpServer(t *testing.T, legacy bool) *httptest.Server {
 		f.mu.Lock()
 		f.headers = append(f.headers, r.Header.Clone())
 		f.queries = append(f.queries, r.URL.RawQuery)
-		want := f.auth
+		want, needKey := f.auth, f.needKey
 		f.mu.Unlock()
-		if want != "" && r.Header.Get("Authorization") != want {
+		if want != "" && r.Header.Get("Authorization") != want || needKey && r.Header.Get("Authorization") == "" {
 			http.Error(w, "invalid token", http.StatusUnauthorized)
 			return
 		}

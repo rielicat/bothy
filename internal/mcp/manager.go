@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"reflect"
@@ -467,6 +468,9 @@ func (m *Manager) Forget(ctx context.Context, name string) error {
 		m.applyConfig(cur, true)
 		s.op.Lock()
 		defer s.op.Unlock()
+	}
+	if err := m.d.Store.Meta().Delete(ctx, keyHolderMeta+name); err != nil && !errors.Is(err, core.ErrNotFound) {
+		return err
 	}
 	return m.d.Store.MCP().DeletePins(ctx, name)
 }

@@ -30,7 +30,10 @@ HTTP servers use Streamable HTTP (falling back to legacy SSE) through
 `private_address` code), plain http that sends a key asks egress for
 `PrivateOnly`, and header `secret:` references resolve with `Vault.Resolve`
 per billing user (global only for spaces) into a header transport that never
-logs them. Non-streaming responses are capped at 16 MB and definitions at
+logs them. Discovery resolves them globally, then with the personal keys of
+the admin `DiscoverWith` names for that exact config entry (meta
+`mcp.discovery_key.<server>`); its session only lists tools, so that key
+never makes anyone else's calls. Non-streaming responses are capped at 16 MB and definitions at
 64 KB. Stdio servers run only in sandbox boxes, each removed before it is
 created so a stale box is never reused: `Install` (async) builds
 `mcp/<server>/<install_id>` in an installer box limited to the package

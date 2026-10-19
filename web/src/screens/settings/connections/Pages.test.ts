@@ -231,6 +231,26 @@ describe('MCP server page (§12.4)', () => {
     if (write) await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual([write]));
   });
 
+  it("lets an admin's own key show what a server offers when there is no shared key", async () => {
+    let refuse = true;
+    const calls = await start((m, url) => {
+      if (m === 'GET' && url === '/api/mcp') return [{ name: 'linear', transport: 'http', state: 'error', code: 'no_shared_key', protocol: '', tools: 0, pending: 0, since: '' }];
+      if (m === 'POST' && url === '/api/mcp/linear/use-my-key' && refuse)
+        return new Response(
+          JSON.stringify({ error: { code: 'conflict', message: "you haven't saved your own key named linear_key. Add it in Saved keys, or add a shared key" } }),
+          { status: 409 },
+        );
+    });
+    render(McpServer, { params: { item: 'mcp-linear' } });
+    expect(await screen.findByText("Can't start: it needs a shared key to show what it can do.")).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Use my key' }));
+    expect(await screen.findByText("You haven't saved your own key named linear_key. Add it in Saved keys, or add a shared key.")).toBeTruthy();
+    refuse = false;
+    await fireEvent.click(screen.getByRole('button', { name: 'Use my key' }));
+    await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['POST /api/mcp/linear/use-my-key', 'POST /api/mcp/linear/use-my-key']));
+    await waitFor(() => expect(screen.queryByText(/haven't saved your own key/)).toBeNull());
+  });
+
   it('says when Bothy tries a failed install again, and still offers to install now', async () => {
     const retry = new Date(Date.now() + 4 * 60_000 + 10_000).toISOString();
     const calls = await start((m, url) =>

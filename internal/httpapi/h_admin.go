@@ -572,6 +572,18 @@ func (s *Server) mcpReload(w http.ResponseWriter, r *http.Request, _ core.Actor)
 	return accepted(w, nil)
 }
 
+// mcpUseMyKey lets the admin's own keys list a server's actions when it has
+// no shared key; their key never makes anyone else's calls.
+func (s *Server) mcpUseMyKey(w http.ResponseWriter, r *http.Request, a core.Actor) error {
+	if a.User == "" {
+		return errNotFound
+	}
+	if err := s.d.MCP.DiscoverWith(withOrigin(r, a, nil), r.PathValue("server"), a.User); err != nil {
+		return err
+	}
+	return accepted(w, nil)
+}
+
 // ---- providers, models, channels ----
 
 func (s *Server) providers(w http.ResponseWriter, r *http.Request, _ core.Actor) error {

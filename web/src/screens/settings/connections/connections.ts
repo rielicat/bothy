@@ -47,6 +47,8 @@ export function appStatus(app: AppName, s: AppStatus | undefined, people: number
 // What the server's status code says to fix (MCPStatus.code).
 const toolCodes: Record<string, string> = {
   key_missing: 'a saved key it uses is missing. Add it in Saved keys',
+  // Only people's own keys exist: an admin can let theirs show what it offers.
+  no_shared_key: 'it needs a shared key to show what it can do',
   key_locked: "Bothy's saved keys are locked",
   private_address: 'its address is on a private network',
   not_installed: 'it needs to be installed',

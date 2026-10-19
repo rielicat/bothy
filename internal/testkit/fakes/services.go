@@ -369,14 +369,27 @@ func (s *Skills) Remove(_ context.Context, name string, _ core.UserID) error {
 func (s *Skills) Rescan(context.Context) error { return nil }
 
 // MCP reports StatusV; Start, Reload and Close succeed without doing
-// anything. Forget records the names it was given in Forgotten.
+// anything. Forget records the names it was given in Forgotten, DiscoverWith
+// "<server> <admin>" in Discovered (or returns DiscoverErr).
 type MCP struct {
 	core.MCP
-	StatusV   []core.MCPStatus
-	PinsV     map[string][]*core.MCPPin // by server
-	Forgotten []string
+	StatusV     []core.MCPStatus
+	PinsV       map[string][]*core.MCPPin // by server
+	Forgotten   []string
+	Discovered  []string
+	DiscoverErr error
 
 	mu sync.Mutex
+}
+
+func (m *MCP) DiscoverWith(_ context.Context, server string, admin core.UserID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.DiscoverErr != nil {
+		return m.DiscoverErr
+	}
+	m.Discovered = append(m.Discovered, server+" "+string(admin))
+	return nil
 }
 
 func (m *MCP) Forget(_ context.Context, server string) error {

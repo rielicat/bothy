@@ -2314,7 +2314,9 @@ export interface MCPStatus {
   error?: string;
   /**
    * Code says what to fix when State is error: key_missing (a saved key
-   * it uses doesn't exist), key_locked (the saved keys are locked),
+   * it uses doesn't exist), no_shared_key (discovery found no shared key
+   * for a header and the server refused without it; an admin may let
+   * their own key list its tools, MCP.DiscoverWith), key_locked (the saved keys are locked),
    * key_rejected (the server answered 401 or 403), private_address
    * (needs allow_private), not_installed (a command server to install or
    * reinstall), install_failed (its install failed); "" otherwise.
