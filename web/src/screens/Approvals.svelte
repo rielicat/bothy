@@ -311,12 +311,12 @@
 
 <svelte:window {onkeydown} onkeyup={(e) => e.key.toLowerCase() === held && (held = '')} onblur={() => (held = '')} />
 
+<!-- Another person's chat would not open for the approver. -->
 {#snippet chatLink(a: Approval)}
   {@const o = originOf(a)}
   {#if fromTeam(a)}
-    {#if a.card?.context}<span data-copy-ignore>{a.card.context}</span>{/if}
-  {:else if a.session_id && a.principal_id === session.me?.user.id}
-    <!-- Another person's chat would not open for the approver. -->
+    <span data-copy-ignore>{a.card?.context}</span>
+  {:else if a.session_id}
     {#if o.title}From{' '}{/if}<a
       class="link -my-0.5 inline-flex min-h-6 items-center pointer-coarse:-my-3 pointer-coarse:min-h-11"
       href="/chat/{encodeURIComponent(a.session_id)}"
@@ -368,9 +368,10 @@
           <h2 id="done-{gi}" class="section-title">{g.label}</h2>
           <ul class="mt-2">
             {#each g.list as a (a.id)}
+              {@const linked = fromTeam(a) ? !!a.card?.context : !!a.session_id && a.principal_id === session.me?.user.id}
               <li class="border-b border-border py-3 last:border-b-0">
                 {#snippet source()}{@render chatLink(a)}{/snippet}
-                <DecidedLine approval={a} list {source} expanded={showing === a.id} onshow={() => (showing = showing === a.id ? null : a.id)} />
+                <DecidedLine approval={a} list source={linked ? source : undefined} expanded={showing === a.id} onshow={() => (showing = showing === a.id ? null : a.id)} />
                 {#if showing === a.id}
                   <div class="mt-3"><ApprovalCard approval={a} mode="readonly" level={3} /></div>
                 {/if}
