@@ -728,9 +728,11 @@ func TestConfigEndpoints(t *testing.T) {
 }
 
 // An admin lets their own key list a server's actions; a refusal says why in
-// the server's words.
+// the server's words. Only the person, signed in, chooses: an admin token
+// can't send its owner's personal keys anywhere.
 func TestMCPUseMyKey(t *testing.T) {
 	h := newHarness(t).setup()
+	expect(t, h.do("POST", "/api/mcp/docs/use-my-key", nil, h.tokenFor(h.admin, "admin")), http.StatusForbidden)
 	expect(t, h.do("POST", "/api/mcp/docs/use-my-key", nil, h.admin), http.StatusAccepted)
 	if got := h.mcp.Discovered; !slices.Equal(got, []string{"docs " + string(h.admin.user)}) {
 		t.Fatalf("DiscoverWith calls = %v", got)

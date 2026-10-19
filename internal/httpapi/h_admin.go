@@ -573,7 +573,8 @@ func (s *Server) mcpReload(w http.ResponseWriter, r *http.Request, _ core.Actor)
 }
 
 // mcpUseMyKey lets the admin's own keys list a server's actions when it has
-// no shared key; their key never makes anyone else's calls.
+// no shared key; their key never makes anyone else's calls. Cookie only: a
+// token must not be able to send its owner's personal keys to an address.
 func (s *Server) mcpUseMyKey(w http.ResponseWriter, r *http.Request, a core.Actor) error {
 	if a.User == "" {
 		return errNotFound
