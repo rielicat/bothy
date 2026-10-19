@@ -34,14 +34,28 @@ type State struct {
 // Release is a release environment and the repository it deploys.
 type Release struct{ Name, Repo string }
 
-// plain keeps a name from turning into Markdown in the welcome message, or
-// into a line break anywhere.
-func plain(s string) string {
+// oneLine keeps a name from turning into a line break in text that isn't
+// Markdown. Repository and environment names stay whole: "acme/my_repo"
+// and "prod_eu" are valid names.
+func oneLine(s string) string {
 	s = strings.Map(func(r rune) rune {
-		if strings.ContainsRune("*_`[]()<>\\#|~", r) || unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
 			return -1
 		}
 		return r
 	}, s)
 	return strings.Join(strings.Fields(s), " ")
+}
+
+// plain keeps a name from turning into Markdown in the welcome message, or
+// into a line break. An underscore is escaped rather than dropped, since
+// names (a repository's included) may hold one.
+func plain(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if strings.ContainsRune("*`[]()<>\\#|~", r) {
+			return -1
+		}
+		return r
+	}, oneLine(s))
+	return strings.ReplaceAll(s, "_", `\_`)
 }

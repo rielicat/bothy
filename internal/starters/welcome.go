@@ -6,8 +6,9 @@ import "strings"
 // message, not as a notice.
 const Sender = "bothy:welcome"
 
-// WelcomeTitle names the welcome chat until its first message names it.
-func WelcomeTitle(agent string) string { return "Welcome to " + agentName(agent) }
+// WelcomeTitle names the welcome chat until its first message names it. A
+// title is plain text, so the name is kept as written.
+func WelcomeTitle(agent string) string { return "Welcome to " + agentName(agent, oneLine) }
 
 // Welcome is the welcome chat's one message, a static notice that never
 // reaches the model. Like the hello in a chat app it speaks as Bothy, the
@@ -22,7 +23,7 @@ func Welcome(displayName, agent, repo string) string {
 	if r := plain(repo); r != "" {
 		code = "read your code in " + r
 	}
-	return hi + ", I'm " + agentName(agent) + ". I work for your team: I can research questions, draft documents, " + code +
+	return hi + ", I'm " + agentName(agent, plain) + ". I work for your team: I can research questions, draft documents, " + code +
 		" and keep an eye on things on a schedule.\n\n" +
 		"Before I do anything you'd want to check, like changing a file or opening a pull request, I ask first and show " +
 		"exactly what I want to do.\n\n" +
@@ -32,8 +33,8 @@ func Welcome(displayName, agent, repo string) string {
 		"Ask me anything to get started."
 }
 
-func agentName(agent string) string {
-	if a := plain(agent); a != "" {
+func agentName(agent string, clean func(string) string) string {
+	if a := clean(agent); a != "" {
 		return a
 	}
 	return "Bothy"

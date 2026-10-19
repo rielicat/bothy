@@ -53,7 +53,7 @@ func Examples(s State) []Example {
 	if len(s.Schedules) >= examplesUntil {
 		return nil
 	}
-	repo := plain(s.Repo)
+	repo := oneLine(s.Repo)
 	var out []Example
 	for _, e := range examples {
 		switch {
@@ -84,13 +84,13 @@ func used(names []string, name string) bool {
 // from, about what s can watch: deploys to an environment of the
 // repository, its pull requests waiting for review and its builds.
 func CheckinLines(s State) []string {
-	repo := plain(s.Repo)
+	repo := oneLine(s.Repo)
 	if repo == "" || !s.GitHub {
 		return []string{}
 	}
 	var out []string
 	for _, r := range s.Releases {
-		if name := plain(r.Name); name != "" && strings.EqualFold(r.Repo, s.Repo) {
+		if name := oneLine(r.Name); name != "" && strings.EqualFold(r.Repo, s.Repo) {
 			out = append(out, "Tell me if a deploy to "+name+" failed.")
 			break
 		}

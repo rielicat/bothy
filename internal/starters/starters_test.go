@@ -181,6 +181,43 @@ func TestWelcome(t *testing.T) {
 	if WelcomeTitle("") != "Welcome to Bothy" || WelcomeTitle("Ops bot") != "Welcome to Ops bot" {
 		t.Errorf("titles %q, %q", WelcomeTitle(""), WelcomeTitle("Ops bot"))
 	}
+	// Underscores are valid in names and stay, escaped where Markdown
+	// would read them as emphasis.
+	got = Welcome("maya_c", "ops_bot", "acme/_tools_")
+	if !strings.HasPrefix(got, `Hi maya\_c, I'm ops\_bot. I work for your team: I can research questions, draft documents, read your code in acme/\_tools\_ and `) {
+		t.Errorf("welcome with underscores = %q", got)
+	}
+	if WelcomeTitle("ops_bot") != "Welcome to ops_bot" {
+		t.Errorf("title %q", WelcomeTitle("ops_bot"))
+	}
+}
+
+// Repository and environment names keep their underscores and dots in the
+// rows, examples and check-in lines, which are plain text.
+func TestNamesStayWhole(t *testing.T) {
+	s := with(setUp, func(s *State) {
+		s.Repo = "acme/my_repo.go"
+		s.Releases = []Release{{Name: "prod_eu", Repo: "acme/my_repo.go"}}
+	})
+	var texts []string
+	for _, r := range Rows(s) {
+		texts = append(texts, r.Text)
+	}
+	for _, e := range Examples(s) {
+		texts = append(texts, e.Prompt)
+	}
+	lines := CheckinLines(s)
+	texts = append(texts, lines...)
+	named := 0
+	for _, text := range texts {
+		if strings.Contains(text, "acme/my_repo.go") {
+			named++
+		}
+	}
+	// Two rows, the two GitHub examples offered and two check-in lines.
+	if named != 6 || len(lines) != 3 || lines[0] != "Tell me if a deploy to prod_eu failed." {
+		t.Errorf("%d texts name acme/my_repo.go, lines %q:\n%q", named, lines, texts)
+	}
 }
 
 // Every string a person reads follows the copy guide (docs/design/ui.md

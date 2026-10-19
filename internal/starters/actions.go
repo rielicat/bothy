@@ -21,7 +21,7 @@ const AskWhat = "What can you do for our team?"
 // admins get settings links), and AskWhat.
 func Rows(s State) []Row {
 	var rows []Row
-	switch repo := plain(s.Repo); {
+	switch repo := oneLine(s.Repo); {
 	case repo != "":
 		rows = append(rows, Row{Text: "Summarise the open pull requests in " + repo}, Row{Text: "What changed in " + repo + " this week?"})
 	case s.WebSearch:
