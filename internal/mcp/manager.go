@@ -60,10 +60,16 @@ type server struct {
 	regKey     string // registrationKey of the registered tools
 	instances  map[string]*instance
 	installing bool
-	drifted    bool
-	removed    bool
-	retries    int       // consecutive failed discoveries or installs
-	retryAt    time.Time // next automatic discovery (or install) after a failure; zero = none scheduled
+	// keep: the install running leaves the verified install of the same
+	// version serving calls until the new one is ready.
+	keep    bool
+	drifted bool
+	removed bool
+	retries int       // consecutive failed discoveries or installs
+	retryAt time.Time // next automatic discovery (or install) after a failure; zero = none scheduled
+	// reinstallErr says why the last reinstall of the version the server
+	// runs failed while its earlier install kept serving.
+	reinstallErr string
 }
 
 func source(name string) string { return "mcp:" + name }
@@ -74,7 +80,21 @@ func (s *server) setState(now time.Time, state, msg string) {
 	if s.state != state {
 		s.since = now
 	}
-	s.state, s.err, s.code = state, msg, ""
+	s.state, s.err, s.code, s.keep = state, msg, "", false
+}
+
+// startInstall moves the server to installing and reports whether the
+// install keeps the earlier one serving: a reinstall of the version whose
+// verified install is serving, so a failed one costs no calls.
+func (s *server) startInstall(now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state != stInstalling {
+		s.keep = s.install != nil && s.install.Version == s.spec.pkg.Version && !s.drifted && (s.state == stReady || s.state == stPinsPending)
+		s.since = now
+	}
+	s.state, s.err, s.code = stInstalling, "", ""
+	return s.keep
 }
 
 func (s *server) setCode(code string) {
@@ -88,8 +108,11 @@ func (s *server) status() core.MCPStatus {
 	defer s.mu.Unlock()
 	st := core.MCPStatus{Name: s.name, Transport: s.raw.Transport, State: s.state, Protocol: s.protocol, Err: s.err, Code: s.code,
 		Tools: s.tools, Pending: s.pending, Since: s.since}
-	if s.state == stError {
+	switch {
+	case s.state == stError:
 		st.RetryAt = s.retryAt
+	case s.reinstallErr != "" && (s.state == stReady || s.state == stPinsPending):
+		st.Err, st.Code, st.RetryAt = s.reinstallErr, "install_failed", s.retryAt
 	}
 	return st
 }
@@ -107,7 +130,8 @@ func (s *server) isRemoved() bool {
 func (s *server) exposes(tool, hash string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return !s.removed && !s.drifted && (s.state == stReady || s.state == stPinsPending) && hash != "" && s.exposed[tool] == hash
+	serving := s.state == stReady || s.state == stPinsPending || s.state == stInstalling && s.keep
+	return !s.removed && !s.drifted && serving && hash != "" && s.exposed[tool] == hash
 }
 
 // failed records a failed discovery and schedules the next automatic one:
@@ -260,16 +284,32 @@ const noSandboxMsg = "no sandbox: MCP stdio servers need sandboxd or bwrap"
 
 // retryDiscovery rediscovers servers whose last discovery failed once their
 // backoff has passed, so a server that was unreachable at start-up (or later)
-// comes back without an admin's Reload.
+// comes back without an admin's Reload. A failed reinstall whose earlier
+// install still serves is installed again without a discovery first, which
+// would stop those calls while it ran.
 func (m *Manager) retryDiscovery(now time.Time) {
 	for _, s := range m.allServers() {
 		s.mu.Lock()
-		due := !s.removed && s.state == stError && !s.retryAt.IsZero() && !now.Before(s.retryAt)
+		due := !s.removed && !s.retryAt.IsZero() && !now.Before(s.retryAt)
+		reinstall := due && s.reinstallErr != "" && (s.state == stReady || s.state == stPinsPending)
+		due = due && (s.state == stError || reinstall)
 		if due {
 			s.retryAt = time.Time{}
 		}
 		s.mu.Unlock()
-		if due {
+		switch {
+		case reinstall:
+			m.spawn(func(ctx context.Context) {
+				s.op.Lock()
+				defer s.op.Unlock()
+				s.mu.Lock()
+				again := s.reinstallErr != ""
+				s.mu.Unlock()
+				if again {
+					m.retryInstall(ctx, s)
+				}
+			})
+		case due:
 			m.spawn(func(ctx context.Context) { m.discover(ctx, s) })
 		}
 	}

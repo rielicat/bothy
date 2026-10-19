@@ -42,7 +42,9 @@ then `install --require-hashes`), verifies the integrity, records the lock
 (TOFU; a reinstall must reproduce it exactly) and the tree hash. A failed
 install is retried with the discovery backoff, and at once when a discovery
 finds it failed (start, re-enable, sandbox back), but not when the package or
-lock doesn't match its pins. Discovery re-hashes the tree (drift: install
+lock doesn't match its pins. A reinstall of the version a server runs keeps
+that install serving while it runs and after it fails (status `ready` with
+code `install_failed`), and is retried without a discovery first. Discovery re-hashes the tree (drift: install
 `drifted`, server disabled, banner `mcp_drifted`) and lists tools from a short-lived discovery box. Runtime
 instances are per (server, principal), started lazily over `Sandbox.Stdio`,
 read-only tree, server egress list, `NoGrants`, no secrets, stopped after 10

@@ -347,6 +347,22 @@ describe('MCP server page (§12.4)', () => {
     await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['POST /api/mcp/notes/install']));
   });
 
+  it('says a failed reinstall left the earlier install running, and when Bothy tries again', async () => {
+    const retry = new Date(Date.now() + 4 * 60_000 + 10_000).toISOString();
+    const error = 'reinstall failed, so the earlier install keeps running: npm ci exited 1';
+    const calls = await start((m, url) =>
+      m === 'GET' && url === '/api/mcp'
+        ? [{ name: 'notes', transport: 'stdio', state: 'ready', code: 'install_failed', retry_at: retry, protocol: '', tools: 2, pending: 0, since: '', error }]
+        : undefined,
+    );
+    render(McpServer, { params: { item: 'mcp-notes' } });
+    expect(await screen.findByText('Ready · 2 actions')).toBeTruthy();
+    expect(screen.getByText("Bothy couldn't reinstall it, so it keeps using the earlier install. Bothy tries again in 4 min.")).toBeTruthy();
+    expect(screen.queryByText(/Can't start/)).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Install' }));
+    await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['POST /api/mcp/notes/install']));
+  });
+
   it('removes the saved key the Add dialog made along with the server', async () => {
     const calls = await start();
     render(McpServer, { params: { item: 'mcp-linear' } });
