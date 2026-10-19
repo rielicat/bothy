@@ -19,6 +19,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/httpapi/dto"
 	"github.com/rielicat/bothy/internal/testkit/fakes"
@@ -763,6 +764,22 @@ func TestRemovingAnMCPServerForgetsItsApprovals(t *testing.T) {
 	expect(t, h.do("DELETE", "/api/config/mcp.servers.docs", nil, h.admin), http.StatusNoContent)
 	if got := h.mcp.Forgot(); !slices.Equal(got, []string{"linear", "docs"}) {
 		t.Fatalf("forgot %v", got)
+	}
+}
+
+// Removing every server at once, or setting the whole list anew, is an
+// admin's removal too, of each server configured before.
+func TestRemovingAllMCPServersForgetsTheirApprovals(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) {
+		c.MCP.Servers = []config.MCPServer{{Name: "linear", Transport: "http"}, {Name: "docs", Transport: "http"}}
+	}).setup()
+	expect(t, h.do("DELETE", "/api/config/mcp.servers", nil, h.admin), http.StatusNoContent)
+	if got := h.mcp.Forgot(); !slices.Equal(got, []string{"linear", "docs"}) {
+		t.Fatalf("forgot %v after removing the list", got)
+	}
+	expect(t, h.do("PATCH", "/api/config", dto.ConfigPatchReq{Set: map[string]json.RawMessage{"mcp": json.RawMessage(`{"servers":[]}`)}}, h.admin), http.StatusOK)
+	if got := h.mcp.Forgot(); !slices.Equal(got, []string{"linear", "docs", "linear", "docs"}) {
+		t.Fatalf("forgot %v after setting the list anew", got)
 	}
 }
 

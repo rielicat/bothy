@@ -661,36 +661,50 @@ func (s *Server) patchConfig(w http.ResponseWriter, r *http.Request, a core.Acto
 	if len(req.Set) == 0 {
 		return badRequest("set is empty")
 	}
+	before := s.d.Config.Current().MCP.Servers
 	restart, err := s.d.Config.Set(r.Context(), req.Set, byString(a))
 	if err != nil {
 		return err
 	}
 	for path, v := range req.Set {
-		if string(bytes.TrimSpace(v)) == "null" {
-			s.forgetMCP(r.Context(), path)
+		// A whole list set anew leaves out the servers it doesn't name.
+		if string(bytes.TrimSpace(v)) == "null" || path == "mcp" || path == "mcp.servers" {
+			s.forgetMCP(r.Context(), path, before)
 		}
 	}
 	return ok(w, dto.ConfigPatchResp{RestartRequired: nonNil(restart)})
 }
 
 func (s *Server) resetConfig(w http.ResponseWriter, r *http.Request, a core.Actor) error {
+	before := s.d.Config.Current().MCP.Servers
 	if err := s.d.Config.Reset(r.Context(), r.PathValue("path"), byString(a)); err != nil {
 		return err
 	}
-	s.forgetMCP(r.Context(), r.PathValue("path"))
+	s.forgetMCP(r.Context(), r.PathValue("path"), before)
 	return noContent(w)
 }
 
-// forgetMCP drops the approvals of an MCP server an admin removed. Only an
-// explicit removal does: an entry that a bothy.yaml edit made invalid also
-// leaves the config, and its approvals must survive the fix.
-func (s *Server) forgetMCP(ctx context.Context, path string) {
-	name, ok := strings.CutPrefix(path, "mcp.servers.")
-	if !ok || name == "" || strings.Contains(name, ".") || s.d.MCP == nil {
+// forgetMCP drops the approvals of the MCP servers an admin removed at path
+// (one server, or all of them), of those configured before. Only an explicit
+// removal does: an entry that a bothy.yaml edit made invalid also leaves the
+// config, and its approvals must survive the fix. MCP.Forget keeps those of a
+// name that is still configured.
+func (s *Server) forgetMCP(ctx context.Context, path string, before []config.MCPServer) {
+	if s.d.MCP == nil {
 		return
 	}
-	if err := s.d.MCP.Forget(ctx, name); err != nil {
-		s.log.Error("forget a removed mcp server's approvals", "server", name, "err", err)
+	var names []string
+	if name, ok := strings.CutPrefix(path, "mcp.servers."); ok && name != "" && !strings.Contains(name, ".") {
+		names = []string{name}
+	} else if path == "mcp" || path == "mcp.servers" {
+		for _, c := range before {
+			names = append(names, c.Name)
+		}
+	}
+	for _, name := range names {
+		if err := s.d.MCP.Forget(ctx, name); err != nil {
+			s.log.Error("forget a removed mcp server's approvals", "server", name, "err", err)
+		}
 	}
 }
 
