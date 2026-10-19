@@ -68,6 +68,8 @@ describe('Audit log (docs/design/ui.md §10.6)', () => {
     const calls = await start('/activity/audit?view=web');
     expect(await screen.findByText(/Reached api\.github\.com/)).toBeTruthy();
     expect(screen.getByText(/Allowed, but api\.example\.com didn't answer/)).toBeTruthy();
+    // A block is the allowed list working, not a failure: ink, as in the Actions view.
+    expect(screen.getByText(/^Blocked: paste\.example\.net/).className).not.toContain('danger');
     await fireEvent.click(screen.getByRole('button', { name: 'Allow this site…' }));
     expect(await screen.findByText("This applies to everyone's tasks until you remove it in Settings → Security.")).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: 'Allow site' }));

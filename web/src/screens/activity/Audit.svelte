@@ -231,7 +231,7 @@
               <!-- The sentence names the site in full, so there's no host column. On phones it leads and the time and task link fold under it. -->
               <li class="flex min-h-10 items-center gap-x-3 border-b border-border py-2 text-body last:border-b-0 max-sm:flex-col max-sm:items-start">
                 <time class="w-16 shrink-0 whitespace-nowrap text-muted tabular-nums max-sm:hidden" title={fullTime(e.at)}>{time(e.at)}</time>
-                <span class="min-w-0 flex-1 [overflow-wrap:anywhere] {webOutcome(e) === 'blocked' ? 'text-danger-text' : 'text-text'}">
+                <span class="min-w-0 flex-1 text-text [overflow-wrap:anywhere]">
                   {webLine(e)}{#if webOutcome(e) === 'blocked'}.{' '}<LinkButton onclick={() => ((allowing = e), (allowOpen = true))}>Allow this site…</LinkButton>{/if}
                 </span>
                 <span class="flex items-center gap-1.5 text-small text-muted">
