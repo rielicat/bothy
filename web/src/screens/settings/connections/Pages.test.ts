@@ -61,6 +61,23 @@ describe('Connections overview (§12.1)', () => {
     });
   });
 
+  it('takes the name as people write it and keeps it lower-cased with dashes', async () => {
+    const calls = await start();
+    render(Connections);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Add an MCP server' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add an MCP server' });
+    await fireEvent.input(within(dialog).getByLabelText('Address'), { target: { value: 'https://docs.acme.com/mcp' } });
+    await fireEvent.input(within(dialog).getByLabelText('Name'), { target: { value: 'Team wiki!' } });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Add server' }));
+    expect(within(dialog).getByText('Use letters, numbers and spaces, like Linear.')).toBeTruthy();
+    expect(writes(calls)).toEqual([]);
+
+    await fireEvent.input(within(dialog).getByLabelText('Name'), { target: { value: ' Team Wiki ' } });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Add server' }));
+    await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['PATCH /api/config']));
+    expect(Object.keys(JSON.parse(writes(calls)[0].body).set)).toEqual(['mcp.servers.team-wiki']);
+  });
+
   it('adds a server on a private network once its address is allowed', async () => {
     const calls = await start();
     render(Connections);

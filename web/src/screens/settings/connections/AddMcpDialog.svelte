@@ -40,17 +40,26 @@
   });
 
   const taken = $derived(config.keys('mcp.servers'));
+  // The name doubles as the server's key in the settings, so "My Docs" is kept as "my-docs" and shown back as "My docs".
+  const id = $derived(
+    name
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_]+/g, '-'),
+  );
   const blocked = $derived(how === 'stdio' && codeRuns === false);
   // Opening a private address is a deliberate act (D15), so it is allowed here only when ticked.
   const priv = $derived(how === 'http' ? privateHost(address) : '');
   const errors = $derived({
-    name: !name
+    name: !id
       ? 'Give the server a name.'
-      : !/^[a-z0-9][a-z0-9-]{0,31}$/.test(name)
-        ? 'Use lowercase letters, numbers and -, like linear.'
-        : taken.includes(name)
-          ? 'There is already a server with this name.'
-          : undefined,
+      : id.length > 32
+        ? 'Use 32 characters or fewer.'
+        : !/^[a-z0-9][a-z0-9-]*$/.test(id)
+          ? 'Use letters, numbers and spaces, like Linear.'
+          : taken.includes(id)
+            ? 'There is already a server with this name.'
+            : undefined,
     address:
       how === 'http' && !/^https?:\/\/\S+$/.test(address.trim())
         ? 'Enter the full address, like https://mcp.linear.app/mcp.'
@@ -99,12 +108,12 @@
     busy = true;
     failure = null;
     try {
-      const server: Record<string, unknown> = { name, transport: how, side_effects: { default: 'external_send' } };
+      const server: Record<string, unknown> = { name: id, transport: how, side_effects: { default: 'external_send' } };
       if (how === 'http') {
         let headers = {};
         if (header.trim()) {
-          await api.put(`/api/vault/global/mcp_${name}_header`, { value: header.trim() });
-          headers = { Authorization: `secret:mcp_${name}_header` };
+          await api.put(`/api/vault/global/mcp_${id}_header`, { value: header.trim() });
+          headers = { Authorization: `secret:mcp_${id}_header` };
         }
         Object.assign(server, { url: address.trim(), headers }, priv && { allow_private: true });
       } else {
@@ -116,14 +125,14 @@
         }
         Object.assign(server, { package: { ecosystem: 'npm', name: p.name, version: p.version, integrity: p.integrity }, command: p.command, egress, workspace: 'none' });
       }
-      failure = await saveConfig({ [`mcp.servers.${name}`]: server });
+      failure = await saveConfig({ [`mcp.servers.${id}`]: server });
       if (failure) {
         failure.message = /use https/.test(failure.details ?? '')
           ? 'Use an https:// address: over http the secret header would be sent unencrypted.'
           : "Bothy couldn't add this server. Check the details and try again.";
         return;
       }
-      if (how === 'stdio') await api.post(`/api/mcp/${encodeURIComponent(name)}/install`).catch(() => {});
+      if (how === 'stdio') await api.post(`/api/mcp/${encodeURIComponent(id)}/install`).catch(() => {});
       open = false;
       toast('Server added.');
       onadded?.();
@@ -137,7 +146,7 @@
 
 <Dialog bind:open title="Add an MCP server" size="md" dirty={!!(name || address || pkg)} {busy}>
   <form id="add-mcp" class="space-y-5" onsubmit={add} novalidate>
-    <TextField label="Name" bind:value={name} error={show('name')} placeholder="linear" autocomplete="off" spellcheck="false" />
+    <TextField label="Name" bind:value={name} error={show('name')} placeholder="Linear" autocomplete="off" spellcheck="false" />
     <div>
       <p class="field-label">How does it run?</p>
       <OptionList
