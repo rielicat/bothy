@@ -139,6 +139,7 @@
   );
   // The header that is the key as a whole, which the help can name.
   const keyHeader = $derived(keyRef ? headers.find((h) => h[1] === `secret:${keyRef}`)?.[0] : 'Authorization');
+  const keySaved = $derived(!!keyRef && status?.code !== 'key_missing' && status?.code !== 'no_shared_key');
 
   function openKey() {
     newKey = '';
@@ -235,7 +236,7 @@
       placement="bottom-end"
       items={[
         { label: 'Reload', onselect: reload },
-        ...(web ? [{ label: keyRef ? 'Replace key…' : 'Add a key…', onselect: openKey }] : []),
+        ...(web ? [{ label: keySaved ? 'Replace key…' : 'Add a key…', onselect: openKey }] : []),
         { label: 'Remove server…', danger: true, onselect: () => (removing = true) },
       ]}
     >
@@ -354,7 +355,7 @@
   {/snippet}
 </Dialog>
 
-<Dialog bind:open={keying} title={keyRef ? `Replace the key for ${title}` : `Add a key for ${title}`} dirty={!!newKey} {busy}>
+<Dialog bind:open={keying} title={keySaved ? `Replace the key for ${title}` : `Add a key for ${title}`} dirty={!!newKey} {busy}>
   <form id="mcp-key" class="space-y-4" onsubmit={saveKey} novalidate>
     <TextField
       label="Key"

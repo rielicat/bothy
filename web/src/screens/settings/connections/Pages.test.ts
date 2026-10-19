@@ -276,6 +276,10 @@ describe('MCP server page (§12.4)', () => {
     expect(await screen.findByText("Can't start: it needs a shared key to show what it can do.")).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: 'Use my key' }));
     expect(await screen.findByText("You haven't saved your own key named linear_key. Add it in Saved keys, or add a shared key.")).toBeTruthy();
+    config.view!.entries = [...config.view!.entries, { path: 'mcp.servers.linear.headers.Authorization', value: 'secret:linear_key' } as never];
+    await fireEvent.click(screen.getByRole('button', { name: 'Options for Linear' }));
+    expect(await screen.findByRole('menuitem', { name: 'Add a key…' })).toBeTruthy();
+    await fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
     refuse = false;
     await fireEvent.click(screen.getByRole('button', { name: 'Use my key' }));
     await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['POST /api/mcp/linear/use-my-key', 'POST /api/mcp/linear/use-my-key']));
