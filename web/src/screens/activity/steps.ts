@@ -47,7 +47,9 @@ export function decisionLine(a: Approval, who: string): StepLine | null {
           ? prefix(`${who} denied `, p.ing)
           : a.status === 'expired'
             ? prefix(`${approvalsIn(a) ? `Only ${approvalsIn(a)} of ${a.approver?.required} approvals came in` : 'Nobody answered'}, so Bothy didn't `, p.ask)
-            : null;
+            : a.status === 'cancelled'
+              ? prefix("Cancelled: Bothy didn't ", p.ask)
+              : null;
   return line ? { key: a.id, state: a.status === 'allowed' ? 'done' : 'denied', segments: segments(line), approval: a } : null;
 }
 

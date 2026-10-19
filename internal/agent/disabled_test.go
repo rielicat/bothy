@@ -48,3 +48,24 @@ func TestExpiredTextCountsApprovalsThatCameIn(t *testing.T) {
 		t.Fatalf("single approver = %q", got)
 	}
 }
+
+// A task stopped while it waited for an approval doesn't go on saying it
+// waits for one.
+func TestStopWhileWaitingEndsTheWaitingStep(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		act := &testTool{name: "act", se: core.SEExternalSend}
+		h := newHarness(t, opts{tools: []core.Tool{act}, pol: &fakes.Policy{Verdicts: map[string]core.Verdict{"act": core.VerdictAsk}},
+			appr: &fakes.Approvals{Manual: true}, steps: []fakes.LLMStep{{ToolCalls: []core.ToolCall{call("act", `{}`)}}}})
+		defer h.close()
+		res := h.submit("deploy main to production")
+		synctest.Wait()
+		if _, err := h.r.Stop(h.ctx, ownerViewer(h), h.sess.ID, h.user.ID); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		recs := h.toolCalls(res.Run)
+		if len(recs) != 1 || recs[0].Status != core.TCStopped {
+			t.Fatalf("tool calls after Stop = %+v", recs)
+		}
+	})
+}

@@ -65,6 +65,8 @@ describe('an expired request', () => {
     } as unknown as Approval;
     expect(text(decisionLine(a, '')!.segments)).toBe("Only 1 of 2 approvals came in, so Bothy didn't deploy acme/web to production");
     expect(text(decisionLine({ ...a, votes: [] }, '')!.segments)).toBe("Nobody answered, so Bothy didn't deploy acme/web to production");
+    // Stopped while it waited: the chat says so, and so does the task.
+    expect(text(decisionLine({ ...a, status: 'cancelled' }, '')!.segments)).toBe("Cancelled: Bothy didn't deploy acme/web to production");
   });
 });
 

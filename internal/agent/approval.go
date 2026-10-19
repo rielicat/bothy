@@ -76,6 +76,10 @@ func (r *Runner) ask(rs *runState, pc *pcall, rest []core.ToolCall) *runEnd {
 		}
 	}
 	if ctx.Err() != nil {
+		// Otherwise the task keeps saying it waits for an approval that
+		// was cancelled with the run.
+		pc.rec.Status = core.TCStopped
+		r.updateRec(context.WithoutCancel(ctx), pc.rec)
 		return r.ctxEnd(rs)
 	}
 	if aerr := rs.acquire(ctx); aerr != nil {
