@@ -45,5 +45,5 @@
 </script>
 
 {#if shown !== 'hidden'}
-  <p class="px-6 py-2 text-small text-muted transition-opacity duration-200 max-sm:px-4 {fading ? 'opacity-0' : ''}">{text[shown]}</p>
+  <p class="bg-bg px-6 py-2 text-small text-muted transition-opacity duration-200 max-sm:px-4 {fading ? 'opacity-0' : ''}">{text[shown]}</p>
 {/if}

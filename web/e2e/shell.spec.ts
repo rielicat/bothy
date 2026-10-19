@@ -237,6 +237,24 @@ test('on a phone the drawer opens from the top bar, closes with Esc and gives fo
   await page.context().close();
 });
 
+test('a banner stays in view in a chat that opens at its latest reply, above the chat title', async ({ browser, baseURL, page }) => {
+  const paused = (p: Page) => p.getByRole('status').filter({ hasText: 'paused Bothy' });
+  // A new chat, and a chat long enough to open scrolled to the bottom.
+  for (const path of ['/chat?mock=paused', '/chat/ses_0chatlogin0000000000000000?mock=paused']) {
+    await page.goto(path);
+    await expect(paused(page)).toBeInViewport({ ratio: 1 });
+  }
+  await expect(page.getByRole('button', { name: 'Fix login redirect', exact: true })).toBeInViewport({ ratio: 1 });
+  const banner = await paused(page).boundingBox();
+  const title = await page.getByRole('button', { name: 'Fix login redirect', exact: true }).boundingBox();
+  expect(title!.y).toBeGreaterThanOrEqual(banner!.y + banner!.height);
+
+  const small = await phone(browser, baseURL);
+  await small.goto('/chat/ses_0chatstaging00000000000000?mock=paused');
+  await expect(paused(small)).toBeInViewport({ ratio: 1 });
+  await small.context().close();
+});
+
 test('controls are 44 px under a coarse pointer', async ({ browser, baseURL }) => {
   const page = await phone(browser, baseURL);
   await page.goto('/activity?mock=team-chats');

@@ -21,6 +21,11 @@ if (!('showModal' in dialog) || typeof dialog.showModal !== 'function') {
   };
 }
 Element.prototype.scrollIntoView ??= function () {};
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
 window.scrollTo = () => {};
 // Node's own createObjectURL rejects jsdom's Blob, so both are replaced.
 URL.createObjectURL = () => 'blob:test';

@@ -676,7 +676,7 @@ Never behind Details, on any approval card: the full command, the full outgoing 
 
 ### 4.9 Banners
 
-A banner sits at the top of the main area (not over the sidebar), full main width, one at a time, highest priority first. `min-h-10 px-6 py-2 text-body`, one sentence, at most one action. It cannot be dismissed while the condition stops work; otherwise it can be dismissed for the session.
+A banner sits at the top of the main area (not over the sidebar), full main width, one at a time, highest priority first. `min-h-10 px-6 py-2 text-body`, one sentence, at most one action. It cannot be dismissed while the condition stops work; otherwise it can be dismissed for the session. It is sticky (under the phone top bar), so a chat that opens at its latest reply still shows it, and the chat header sticks below it; the chat fills the window under it, so a short chat never scrolls.
 
 | Condition (SPEC `banner` event) | Who | Tone | Copy | Action |
 |---|---|---|---|---|
@@ -1144,7 +1144,7 @@ From the account menu, or "?" when focus is not in a text field. A 440 px dialog
 └─────────┴──────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Header:** `sticky top-0 h-13 bg-bg` inside the column. Title `text-heading`, one line, truncate; click (or Enter on focus) renames inline, Enter saves, Esc cancels. Below 1024 px the header is hidden and the phone top bar holds the title, so renaming happens there (§4.4). Chats from chat apps add a second line in `text-small muted`: "In #eng on Slack", "Telegram". `border-b border-border` appears only once the transcript has scrolled. Right: `⋯` (label "Chat options").
+- **Header:** `sticky h-13 bg-bg` inside the column, at the top or just under a banner (§4.9). Title `text-heading`, one line, truncate; click (or Enter on focus) renames inline, Enter saves, Esc cancels. Below 1024 px the header is hidden and the phone top bar holds the title, so renaming happens there (§4.4). Chats from chat apps add a second line in `text-small muted`: "In #eng on Slack", "Telegram". `border-b border-border` appears only once the transcript has scrolled. Right: `⋯` (label "Chat options").
 - **Chat menu:** Rename · Pinned ({n}) · Chat details · Continue in a clean chat · separator · Delete chat… (`danger-text`).
 - **Transcript:** turns 24 px apart; a person's message 16 px above Bothy's reply; activity lines 12 px above the text that follows them.
 - **Composer:** `sticky bottom-0` on a solid `bg-bg` strip (`pt-2`), 16 px below it plus `env(safe-area-inset-bottom)`. No gradient fade.

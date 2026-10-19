@@ -20,6 +20,12 @@
   // The app frame (docs/design/ui.md §6.1): no app-level header, the document
   // scrolls, the sidebar is sticky with its own scroll.
   let { children }: { children: Snippet } = $props();
+  // The chat header sticks below the banner, so it needs the banner's height.
+  function barHeight(el: HTMLElement) {
+    const ro = new ResizeObserver(() => el.parentElement!.style.setProperty('--bar', `${el.offsetHeight}px`));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }
 
   const sealed = $derived(session.isAdmin && session.banners.some((b) => b.code === 'vault_sealed'));
   const inSettings = $derived(router.path === '/settings' || router.path.startsWith('/settings/'));
@@ -104,11 +110,14 @@
   <nav aria-label="Main" class="sticky top-0 hidden h-dvh w-64 shrink-0 border-r border-border bg-sidebar lg:block">
     <Sidebar />
   </nav>
-  <main id="main" tabindex="-1" class="min-h-dvh min-w-0 flex-1 outline-none">
+  <main id="main" tabindex="-1" class="flex min-h-dvh min-w-0 flex-1 flex-col outline-none">
     <TopBar />
-    <ConnectionStatus />
-    <!-- Activity → Spending says the limit was reached under its meter, with its own Change limit. -->
-    <BannerHost hide={[...(blocking ? ['vault_sealed'] : []), ...(router.path === '/activity/spending' ? ['spend_limit'] : [])]} />
+    <!-- Sticky, so a chat scrolled to its latest reply still shows why work stopped; the chat header sticks below it. -->
+    <div class="sticky top-0 z-20 max-lg:top-13" {@attach barHeight}>
+      <ConnectionStatus />
+      <!-- Activity → Spending says the limit was reached under its meter, with its own Change limit. -->
+      <BannerHost hide={[...(blocking ? ['vault_sealed'] : []), ...(router.path === '/activity/spending' ? ['spend_limit'] : [])]} />
+    </div>
     {#if blocking}
       <UnlockScreen onunlocked={unlocked} />
     {:else}

@@ -583,10 +583,11 @@
   {/if}
 {/snippet}
 
+<!-- Fills the window below the top bar and any banner, so a short chat never scrolls. -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   bind:this={root}
-  class="relative mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-6 max-lg:min-h-[calc(100dvh-3.25rem)] max-sm:px-4"
+  class="relative mx-auto flex w-full max-w-3xl flex-1 flex-col px-6 max-sm:px-4"
   ondragover={dragover}
   ondragleave={(e) => {
     if (!root?.contains(e.relatedTarget as Node | null)) dragging = false;
@@ -599,7 +600,7 @@
   }}
 >
   {#if !isNew}
-    <header class="sticky top-0 z-10 flex min-h-13 items-center gap-2 border-b bg-bg py-1 max-lg:sr-only {scrolled ? 'border-border' : 'border-transparent'}">
+    <header class="sticky top-[var(--bar,0px)] z-10 flex min-h-13 items-center gap-2 border-b bg-bg py-1 max-lg:sr-only {scrolled ? 'border-border' : 'border-transparent'}">
       <div class="min-w-0 flex-1">
         <!-- The chat title stays the page's h1 while it is being renamed. -->
         <h1 class="flex min-w-0" tabindex="-1">
