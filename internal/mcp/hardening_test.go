@@ -297,8 +297,9 @@ func TestReinstallRefusesChangedLock(t *testing.T) {
 		`"node_modules/evil":{"version":"6.6.6"}}}`, npmIntegrity)
 	in.mu.Unlock()
 	h.install("notes")
+	// The first install keeps serving; fetching again would bring the same.
 	st := h.status("notes")
-	if st.State != stError || !strings.Contains(st.Err, "differs from the lock recorded") {
+	if st.State != stPinsPending || st.Code != "install_failed" || !strings.Contains(st.Err, "differs from the lock recorded") || !st.RetryAt.IsZero() {
 		t.Fatalf("status = %+v", st)
 	}
 	cur, _ := h.store.MCP().Install(context.Background(), "notes")

@@ -581,6 +581,128 @@ func TestFailedInstallIsRetriedWhenTurnedOnAgain(t *testing.T) {
 	h.waitFor("installed once the sandbox is back", func() bool { return h.status("notes").State == stPinsPending })
 }
 
+// A reinstall of the version a server runs leaves that install serving: its
+// tools stay registered and callable while the reinstall runs, after it
+// fails (said in the status and retried without a discovery that would stop
+// them) and after a restart, until a reinstall succeeds.
+func TestFailedReinstallKeepsServing(t *testing.T) {
+	cfg := notesCfg()
+	h, in, rec := newStdioHarness(t, cfg)
+	h.start()
+	h.install("notes")
+	h.approve("notes", map[string]core.MCPToolApproval{"search": {}, "block": {}})
+	first, _ := h.store.MCP().Install(context.Background(), "notes")
+	alice := userEnv(newUser("alice"))
+	if _, err := h.call(h.tool("mcp__notes__search"), alice, `{"q":"before"}`); err != nil {
+		t.Fatal(err)
+	}
+	box := runtimeBox("notes", alice.Principal.ID)
+	starts := h.destroyed(box)
+	callable := func(when string) {
+		t.Helper()
+		tool := h.tool("mcp__notes__search")
+		if !tool.(core.Gated).Enabled(alice) {
+			t.Fatalf("tool not offered %s", when)
+		}
+		if res, err := h.call(tool, alice, `{"q":"x"}`); err != nil || res.Content != "results for x" {
+			t.Fatalf("call %s = %+v, %v", when, res, err)
+		}
+	}
+
+	gate := make(chan struct{})
+	open := sync.OnceFunc(func() { close(gate) })
+	t.Cleanup(open)
+	h.sb.ExecFunc = func(ctx context.Context, key string, req core.ExecRequest) (*core.ExecResult, error) {
+		<-gate
+		return &core.ExecResult{Exit: 1, Stderr: []byte("npm ERR! network request to registry.npmjs.org failed")}, nil
+	}
+	if err := h.m.Install(context.Background(), "notes", admin); err != nil {
+		t.Fatal(err)
+	}
+	if st := h.status("notes"); st.State != stInstalling {
+		t.Fatalf("state during the reinstall = %+v", st)
+	}
+	callable("during the reinstall")
+	open()
+	h.waitFor("the reinstall to fail", func() bool { return h.status("notes").State != stInstalling })
+	now := h.clock.Now()
+	st := h.status("notes")
+	if st.State != stReady || st.Tools != 2 || st.Code != "install_failed" || !strings.Contains(st.Err, "earlier install keeps running") ||
+		!strings.Contains(st.Err, "network") || !st.RetryAt.Equal(now.Add(time.Minute)) {
+		t.Fatalf("status after a failed reinstall = %+v", st)
+	}
+	callable("after the reinstall failed")
+	if h.destroyed(box) != starts {
+		t.Fatalf("the running instance was stopped: destroyed %v", h.sb.Destroyed)
+	}
+
+	h.sb.ExecFunc = in.exec
+	in.setOffline(true)
+	streams, n := len(rec.calls()), len(in.commands())
+	h.m.retryDiscovery(now.Add(time.Minute))
+	h.waitFor("a second failed reinstall", func() bool { return h.status("notes").RetryAt.Equal(now.Add(2 * time.Minute)) })
+	if st := h.status("notes"); st.State != stReady || st.Code != "install_failed" || len(in.commands()) != n+1 {
+		t.Fatalf("after the retry: status %+v, commands %q", st, in.commands())
+	}
+	callable("after the retry failed")
+	if len(rec.calls()) != streams {
+		t.Fatalf("%d new stdio streams, want none (no discovery before the retry)", len(rec.calls())-streams)
+	}
+
+	// A server entry made afresh, as at start-up, knows only from the store
+	// that the reinstall failed: it serves the earlier install and retries.
+	h.m.applyConfig(nil, false)
+	h.m.applyConfig([]config.MCPServer{cfg}, true)
+	h.waitFor("the reinstall retried after a restart", func() bool {
+		return len(in.commands()) == n+2 && h.status("notes").Code == "install_failed"
+	})
+	if st := h.status("notes"); st.State != stReady || st.RetryAt.IsZero() {
+		t.Fatalf("status after a restart = %+v", st)
+	}
+	callable("after a restart")
+
+	in.setOffline(false)
+	h.m.retryDiscovery(h.status("notes").RetryAt)
+	h.waitFor("reinstalled", func() bool {
+		cur, _ := h.store.MCP().Install(context.Background(), "notes")
+		return cur.InstallID != first.InstallID && h.status("notes").State == stReady
+	})
+	if st := h.status("notes"); st.Code != "" || st.Err != "" || !st.RetryAt.IsZero() {
+		t.Fatalf("status once reinstalled = %+v", st)
+	}
+	if exists(filepath.Join(h.work, "mcp", "notes", first.InstallID)) {
+		t.Fatal("the earlier install tree was kept")
+	}
+	callable("on the new install")
+}
+
+// A reinstall retry that comes due as its server entry is replaced (turned
+// off, edited or removed) never installs: the tree it would make, and the
+// earlier trees it would then delete, belong to the entry that replaced it.
+func TestReinstallRetrySkipsReplacedServer(t *testing.T) {
+	h, in, _ := newStdioHarness(t, notesCfg())
+	h.start()
+	h.install("notes")
+	in.setOffline(true)
+	h.install("notes")
+	st := h.status("notes")
+	if st.Code != "install_failed" || st.RetryAt.IsZero() {
+		t.Fatalf("status after a failed reinstall = %+v", st)
+	}
+	n := len(in.commands())
+	s := h.m.server("notes")
+	s.op.Lock()
+	h.m.retryDiscovery(st.RetryAt)
+	h.m.applyConfig(nil, false)
+	s.op.Unlock()
+	time.Sleep(50 * time.Millisecond)
+	s.op.Lock()
+	defer s.op.Unlock()
+	if got := in.commands(); len(got) != n {
+		t.Fatalf("the replaced server reinstalled: %q", got[n:])
+	}
+}
+
 func TestPyPIInstall(t *testing.T) {
 	cfg := notesCfg()
 	cfg.Package = &config.MCPPackage{Ecosystem: "pypi", Name: "mcp_notes", Version: "0.4.0", Integrity: pypiIntegrity}

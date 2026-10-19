@@ -53,7 +53,7 @@
     return () => clearTimeout(t);
   });
 
-  // The viewer's own deploys (an admin's: everyone's), and what each environment runs whoever asked.
+  // The viewer's own deploys and those whose approval they may see (an admin's: everyone's), and what each environment runs whoever asked.
   const deploys = $derived(
     [...new Map([...(data?.deploys ?? []), ...(data?.environments ?? []).flatMap((e) => [...(e.running ?? []), e.last])].filter((d): d is Deploy => !!d).map((d) => [d.id, d])).values()].sort(
       (a, b) => b.created_at.localeCompare(a.created_at),

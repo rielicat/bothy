@@ -83,13 +83,16 @@ type MCPStatus struct {
 	// key_rejected (the server answered 401 or 403), private_address
 	// (needs allow_private), needs_https (plain http with a key to a name
 	// that resolves to a public address), not_installed (a command server to
-	// install or reinstall), install_failed (its install failed); "" otherwise.
+	// install or reinstall), install_failed (its install failed; also with
+	// State ready or pins_pending when a reinstall of the version it runs
+	// failed and that install keeps serving, Err saying why); "" otherwise.
 	Code    string    `json:"code,omitempty"`
 	Tools   int       `json:"tools"`
 	Pending int       `json:"pending"`
 	Since   time.Time `json:"since"`
 	// RetryAt is when Bothy tries again on its own after a failed discovery
-	// or install (State error); zero when it won't.
+	// or install (State error) or a failed reinstall (code install_failed);
+	// zero when it won't.
 	RetryAt time.Time `json:"retry_at,omitzero"`
 }
 

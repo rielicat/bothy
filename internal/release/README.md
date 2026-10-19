@@ -45,7 +45,9 @@ Bothy notice to the session (web UI, `message.created`) and, for chat runs,
 to the originating chat, and audited as `release.finish`
 (`release.dispatch` for dispatches and refusals). `release.dispatched` and
 `release.finished {ok, url, duration, failed_step}` go to the deploy's
-principal and as an admin broadcast; `failed_step` comes from the run's jobs
+principal and as an admin broadcast, and without session and run to every
+other enabled non-admin account that may see its approval (the users it
+names, everyone when it names the member role); `failed_step` comes from the run's jobs
 through `StepReader` (implemented by `GitHub` and the GitHub connections),
 cleaned to one line, and never appears in the notice: step names are written
 by whoever can push to the repository. A deploy records the commit the run

@@ -37,12 +37,12 @@ describe('DeployFollowUp (docs/design/ui.md §8.7)', () => {
     events.close();
   });
 
-  it('keeps checking a deploy that is still running', async () => {
+  it('waits for a release event rather than asking again while a deploy runs', async () => {
     vi.useFakeTimers();
     const reads = follow(deploy('running'));
     await vi.waitFor(() => expect(screen.getByRole('status').textContent).toContain('Deploying acme/web to production… · View on GitHub ↗'));
-    await vi.advanceTimersByTimeAsync(15_000);
-    expect(reads()).toBeGreaterThan(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(reads()).toBe(1);
   });
 
   it('says Bothy stopped tracking a deploy it lost, links to GitHub, and stops asking', async () => {
@@ -77,8 +77,6 @@ describe('DeployFollowUp (docs/design/ui.md §8.7)', () => {
       'Deployed acme/web to preview in 3 min',
     ]);
     expect(reads()).toBe(1);
-    await vi.advanceTimersByTimeAsync(15_000);
-    expect(reads()).toBe(2);
   });
 
   it('forgets the deploy list once no line shows it, so the next screen starts from its own read', async () => {
@@ -111,17 +109,22 @@ describe('DeployFollowUp (docs/design/ui.md §8.7)', () => {
 
   it('reads the deploy list again as soon as a release event says the deploy moved', async () => {
     events.connect();
-    let d = deploy('running');
-    const reads = serve(() => [d]);
+    // An approver's line mounts once the approval is allowed, before the deploy is recorded.
+    let list: ReturnType<typeof deploy>[] = [];
+    const reads = serve(() => list);
     render(DeployFollowUp, { approval });
+    await vi.waitFor(() => expect(reads()).toBe(1));
+    list = [deploy('running')];
+    FakeEventSource.last.emit('release.dispatched', { seq: 6, type: 'release.dispatched', at: new Date().toISOString(), data: { deploy_id: 'dep_1' } });
     await vi.waitFor(() => expect(screen.getByRole('status').textContent).toContain('Deploying acme/web to production'));
-    d = deploy('succeeded', { finished_at: '2026-10-14T10:03:00Z' });
+    const d = deploy('succeeded', { finished_at: '2026-10-14T10:03:00Z' });
+    list = [d];
     // An admin who asked hears it twice: as the requester and as an admin.
     for (const seq of [7, 8]) {
       FakeEventSource.last.emit('release.finished', { seq, type: 'release.finished', at: new Date().toISOString(), data: { deploy_id: d.id, status: 'succeeded', ok: true } });
     }
     await vi.waitFor(() => expect(screen.getByRole('status').textContent?.trim()).toBe('Deployed acme/web to production in 3 min'));
     await new Promise((r) => setTimeout(r, 50));
-    expect(reads()).toBe(2);
+    expect(reads()).toBe(3);
   });
 });

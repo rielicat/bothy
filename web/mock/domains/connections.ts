@@ -16,6 +16,7 @@ const nobody = scenario('chat-people-none', 'Nobody has messaged Bothy in a chat
 const noTools = scenario('mcp-none', 'No MCP servers are set up.', 'connections');
 const installing = scenario('mcp-installing', 'A Sentry MCP server is being installed.', 'connections');
 const toolError = scenario('mcp-error', "The Linear MCP server doesn't answer.", 'connections');
+const reinstallFailed = scenario('mcp-reinstall-failed', 'Reinstalling the Sentry MCP command failed, so it keeps using the earlier install.', 'connections');
 const githubNone = scenario('github-none', 'GitHub is not connected.', 'connections');
 const githubNoRepos = scenario('github-no-repos', 'GitHub is connected but no repository is chosen.', 'connections');
 const githubApp = scenario('github-app', 'GitHub is connected through a GitHub App.', 'connections');
@@ -451,7 +452,23 @@ on('DELETE', '/api/spaces/{id}', (_q, res, m) => {
 // Servers come from config, so ones added or removed in the UI appear and go.
 function servers(req: Req): MCPStatus[] {
   if (noTools(req)) return [];
-  const extra: MCPStatus[] = installing(req) ? [{ name: 'sentry', transport: 'stdio', state: 'installing', protocol: '', tools: 0, pending: 0, since: nowISO() }] : [];
+  const failedAgain: MCPStatus = {
+    name: 'sentry',
+    transport: 'stdio',
+    state: 'ready',
+    code: 'install_failed',
+    retry_at: new Date(Date.now() + 4.2 * 60_000).toISOString(),
+    error: 'reinstall failed, so the earlier install keeps running: npm ci exited 1: npm ERR! network request to https://registry.npmjs.org/@sentry/mcp-server failed',
+    protocol: '2026-07-28',
+    tools: 2,
+    pending: 0,
+    since: ago(5),
+  };
+  const extra: MCPStatus[] = installing(req)
+    ? [{ name: 'sentry', transport: 'stdio', state: 'installing', protocol: '', tools: 0, pending: 0, since: nowISO() }]
+    : reinstallFailed(req)
+      ? [failedAgain]
+      : [];
   return [...items('mcp.servers')].map(([name, c]) => {
     const s = state.mcp.find((x) => x.name === name);
     if (s && name === 'linear' && toolError(req)) return { ...s, state: 'error', tools: 0, error: 'POST https://mcp.linear.app/mcp: 502 Bad Gateway' };

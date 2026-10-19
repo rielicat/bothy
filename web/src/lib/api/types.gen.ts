@@ -2325,7 +2325,9 @@ export interface MCPStatus {
    * key_rejected (the server answered 401 or 403), private_address
    * (needs allow_private), needs_https (plain http with a key to a name
    * that resolves to a public address), not_installed (a command server to
-   * install or reinstall), install_failed (its install failed); "" otherwise.
+   * install or reinstall), install_failed (its install failed; also with
+   * State ready or pins_pending when a reinstall of the version it runs
+   * failed and that install keeps serving, Err saying why); "" otherwise.
    */
   code?: string;
   tools: number /* int */;
@@ -2333,7 +2335,8 @@ export interface MCPStatus {
   since: string /* RFC 3339 */;
   /**
    * RetryAt is when Bothy tries again on its own after a failed discovery
-   * or install (State error); zero when it won't.
+   * or install (State error) or a failed reinstall (code install_failed);
+   * zero when it won't.
    */
   retry_at?: string /* RFC 3339 */;
 }
@@ -4034,7 +4037,8 @@ export interface ApprovalVoteView {
 }
 /**
  * Releases is GET /api/releases: the configured environments and the newest
- * deploys the caller may see (their own; everyone's for admins).
+ * deploys the caller may see (their own and those whose approval they may
+ * see; everyone's for admins).
  */
 export interface Releases {
   environments: ReleaseEnvironment[];

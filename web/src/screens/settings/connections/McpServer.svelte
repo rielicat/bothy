@@ -292,6 +292,10 @@
         {:else}
           <p class="text-body text-muted">Ready · {plural(status.tools, 'action')}</p>
         {/if}
+        <!-- A failed reinstall of the version it runs: the earlier install keeps serving. -->
+        {#if status?.code === 'install_failed' && status.state !== 'error'}
+          <StatusLine tone="warning" text="Bothy couldn't reinstall it, so it keeps using the earlier install.{retryText(status)}" details={status.error} action={fix} />
+        {/if}
         {#if problem}<StatusLine tone="danger" alert text={problem.message} details={problem.details} />{/if}
       </div>
       <div class="flex min-h-6 shrink-0 items-center gap-2">

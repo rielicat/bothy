@@ -34,6 +34,10 @@ func (m *Manager) discoverLocked(ctx context.Context, s *server) {
 	if s.isRemoved() || ctx.Err() != nil {
 		return
 	}
+	// The store says again below whether a reinstall failed.
+	s.mu.Lock()
+	s.reinstallErr = ""
+	s.mu.Unlock()
 	now := m.clock.Now()
 	switch {
 	case s.spec == nil:
@@ -100,6 +104,22 @@ func (m *Manager) discoverLocked(ctx context.Context, s *server) {
 		m.record(ctx, "system", "mcp.discover", s.name, "ok", map[string]any{"key_of": keyOf, "tools": slices.Sorted(maps.Keys(c.tools))})
 	}
 	m.observe(ctx, s, c.tools, true)
+	// A reinstall of this version that failed, or that a restart cut short,
+	// is tried again at once while the install just verified serves.
+	if s.spec.transport == "stdio" && m.reinstallPending(ctx, s) {
+		m.retryInstall(ctx, s)
+	}
+}
+
+// reinstallPending reports whether the newest install of the version the
+// server runs is a later one that failed or never finished.
+func (m *Manager) reinstallPending(ctx context.Context, s *server) bool {
+	s.mu.Lock()
+	cur := s.install
+	s.mu.Unlock()
+	last, err := m.d.Store.MCP().LastInstall(ctx, s.name)
+	return err == nil && cur != nil && last.InstallID != cur.InstallID && last.Version == cur.Version &&
+		(last.Status == "failed" || last.Status == "installing")
 }
 
 func (m *Manager) discoverStdio(ctx context.Context, s *server) (*conn, error) {

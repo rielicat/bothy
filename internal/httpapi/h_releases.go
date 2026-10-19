@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"net/http"
@@ -69,6 +70,11 @@ func (s *Server) releases(w http.ResponseWriter, r *http.Request, a core.Actor) 
 		if err != nil {
 			return err
 		}
+		if !a.Viewer.Admin {
+			if ds, err = s.withApproved(ctx, a.Viewer, ds); err != nil {
+				return err
+			}
+		}
 		n := s.namer(ctx, a.Viewer)
 		out.Deploys = ownLinks(a.Viewer, n.deployViews(ds))
 		// Deploys are operational records an admin viewer reads in full
@@ -91,6 +97,30 @@ func (s *Server) releases(w http.ResponseWriter, r *http.Request, a core.Actor) 
 		}
 	}
 	return ok(w, out)
+}
+
+// withApproved adds to a viewer's own deploys the newest of everyone's whose
+// approval they may see: they follow those from their approvals (§8.7),
+// though the deploys are someone else's.
+func (s *Server) withApproved(ctx context.Context, v core.Viewer, own []*core.Deploy) ([]*core.Deploy, error) {
+	all, err := s.d.Deploys.List(ctx, core.Viewer{User: v.User, Admin: true}, core.DeployFilter{Page: core.Page{Limit: releaseDeploysShown}})
+	if err != nil {
+		return nil, err
+	}
+	out := own
+	for _, d := range all {
+		if d.Approval == "" || v.Can(d.Principal) {
+			continue
+		}
+		switch _, err := s.d.Approvals.Get(ctx, v, d.Approval); {
+		case err == nil:
+			out = append(out, d)
+		case !errors.Is(err, core.ErrNotFound):
+			return nil, err
+		}
+	}
+	slices.SortStableFunc(out, func(a, b *core.Deploy) int { return cmp.Or(b.CreatedAt.Compare(a.CreatedAt), cmp.Compare(b.ID, a.ID)) })
+	return out[:min(len(out), releaseDeploysShown)], nil
 }
 
 // ownLinks leaves out of another person's deploy where it came from: an

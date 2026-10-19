@@ -143,12 +143,12 @@ func (t *deployTool) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action
 			"error": d.Error})})
 	if derr != nil {
 		if recErr == nil {
-			s.publishFinished(d, 0, "")
+			s.publishFinished(bg, d, 0, "")
 		}
 		return nil, fmt.Errorf("GitHub did not start the deploy: %w", derr)
 	}
 	if recErr == nil {
-		s.publishDispatched(d)
+		s.publishDispatched(bg, d)
 	}
 	s.poke()
 	var b strings.Builder

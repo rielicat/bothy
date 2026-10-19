@@ -219,7 +219,7 @@ func (s *Service) finish(ctx context.Context, d *core.Deploy, st core.DeployStat
 		took = max(now.Sub(d.CreatedAt), 0)
 	}
 	s.report(ctx, d, outcomeText(d, s.followFor(), took))
-	s.publishFinished(d, took, s.failedStep(ctx, d))
+	s.publishFinished(ctx, d, took, s.failedStep(ctx, d))
 }
 
 // outcomeText is the message posted when Bothy stops following a deploy
