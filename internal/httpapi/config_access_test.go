@@ -60,8 +60,12 @@ func TestConfigThatLetsPeopleInNeedsASignedInAdmin(t *testing.T) {
 	refused("DELETE /api/config/auth", h.do("DELETE", "/api/config/auth", nil, tok))
 	// Turning Slack off lets nobody in.
 	expect(t, patch(tok, map[string]any{"channels.slack.enabled": false}), http.StatusOK)
-	if cur := m.Current(); cur.Mode != "single" || len(cur.Auth.SignIn.Allow) != 1 || cur.Channels.Slack.Enabled {
-		t.Fatalf("after token calls: mode %s allow %v slack %v", cur.Mode, cur.Auth.SignIn.Allow, cur.Channels.Slack.Enabled)
+	// Off, Slack's token still can't point at a secret the token saved: an
+	// admin's later switch would turn that workspace on.
+	expect(t, h.do("PUT", "/api/vault/global/other_workspace", dto.VaultPutReq{Value: "xoxb-other"}, tok), http.StatusOK)
+	refused("another Slack token while it is off", patch(tok, map[string]any{"channels.slack.bot_token": "secret:other_workspace"}))
+	if cur := m.Current(); cur.Mode != "single" || len(cur.Auth.SignIn.Allow) != 1 || cur.Channels.Slack.Enabled || cur.Channels.Slack.BotToken != "secret:slack_bot_token" {
+		t.Fatalf("after token calls: mode %s allow %v slack %v %s", cur.Mode, cur.Auth.SignIn.Allow, cur.Channels.Slack.Enabled, cur.Channels.Slack.BotToken)
 	}
 	expect(t, patch(h.admin, map[string]any{"mode": "multi"}), http.StatusOK)
 

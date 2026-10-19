@@ -683,7 +683,8 @@ var (
 // admitsMore refuses any sign-in setting, team mode while signing in makes
 // accounts, and a chat app turned on or given another token: Slack lets in
 // every member of its token's workspace, Discord every member of a server
-// with a channel on.
+// with a channel on. A token swapped while the app is off counts too: it is
+// the one an admin's later switch turns on.
 func admitsMore(old, next *config.Config) error {
 	for _, p := range config.Diff(old, next) {
 		if strings.HasPrefix(p, "auth.") {
@@ -695,7 +696,7 @@ func admitsMore(old, next *config.Config) error {
 	}
 	was := chatApps(old)
 	for i, app := range chatApps(next) {
-		if app.on && (!was[i].on || !slices.Equal(was[i].tokens, app.tokens)) {
+		if (app.on && !was[i].on) || !slices.Equal(was[i].tokens, app.tokens) {
 			return newError(http.StatusForbidden, "forbidden",
 				"turning on "+app.name+" or changing its token lets people in, so it needs a signed-in browser session, not an API token")
 		}
