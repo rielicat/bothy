@@ -1706,7 +1706,7 @@ History ›                                                              only on
 - A skill is named for people everywhere (list, page heading and `<title>`, switch label, inbox, activity lines): the SKILL.md front matter's title or first heading, else the folder id in words, sentence case ("Release notes", "Incident review"). The id stays in Files paths and Details.
 - Rows: name (`text-body` 500), one-line description (`text-small muted`), right: a `Switch` (admins) or the word "On"/"Off" (members). A changed skill shows admins only a small "Review" button instead of the switch, with no "Needs review" word; members see "Off" in muted text, like any skill that's off.
 - Admin page actions: [Add skill] (upload a zip; only once there is a skill, since the empty state offers it) and `⋯` → "Check for changes".
-- Skill page (`/knowledge/skills/:name`): back link, title, rendered SKILL.md (read-only `Markdown`), then a "Files" disclosure listing files that open in a `CodeBlock`. A changed skill shows "This skill changed, so it's off until an admin approves the changes below." with "Approve" (toast "Approved."), and its Files disclosure starts open.
+- Skill page (`/knowledge/skills/:name`): back link, title, rendered SKILL.md (read-only `Markdown`), then a "Files" disclosure listing files that open in a `CodeBlock` (one that didn't load offers "Try again", and is asked for again when reopened). A changed skill shows "This skill changed, so it's off until an admin approves the changes below." with "Approve" (toast "Approved."), and its Files disclosure starts open.
 - Empty: "No skills yet. Skills teach Bothy how your team does specific things, like writing release notes." + "Add skill" (admins).
 
 ---
@@ -2379,6 +2379,7 @@ One sentence in `text-reading text`, an optional second sentence in `muted`, the
 | Where | Copy | Action |
 |---|---|---|
 | Page failed to load | "This page didn't load. Check your connection and try again." | Try again |
+| Part of a page failed to load | Names the part, never "This page": "The history didn't load. …" (a dialog's list), "The search didn't finish. …", "This file didn't load. …" (a skill file), each ending "Check your connection and try again."; a later page of a list: "Couldn't load more. Check your connection and try again." under Show earlier, with the list kept | Try again (Show earlier stays) |
 | Live updates lost | A muted line at the top of the main area: "Reconnecting…"; after 30 s "You're offline. This page will update when you're back."; on reconnect "Connected" fades after 2 s | — |
 | Session expired (401) | Redirect to sign in with "You were signed out. Sign in again to continue." | — |
 | Forbidden action (403) | Inline: "You can't do this. Ask an admin." | — |
