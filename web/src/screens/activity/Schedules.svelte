@@ -170,7 +170,7 @@
       {/each}
     </ul>
     {#if !others.length}
-      <EmptyState class="mt-6" text="Bothy can do things on a schedule, like a Monday summary of open pull requests." action={{ label: 'New schedule', href: '/activity/schedules/new' }} />
+      <EmptyState class="mt-6" text="Add your own, like a Monday summary of open pull requests." action={{ label: 'New schedule', href: '/activity/schedules/new' }} />
     {/if}
     {#if team.length || teamFailed}
       <section class="mt-10" aria-labelledby="team-schedules">

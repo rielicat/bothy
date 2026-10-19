@@ -71,7 +71,7 @@ const states: ShotState[] = [
 
   // Schedules (§10.3)
   { name: 'schedules', route: '/activity/schedules', ready: 'Weekly PR digest', setup: frame },
-  { name: 'schedules-empty', route: '/activity/schedules', mock: 'activity-empty', ready: 'Bothy can do things on a schedule', setup: frame },
+  { name: 'schedules-empty', route: '/activity/schedules', mock: 'activity-empty', ready: 'Add your own, like a Monday summary', setup: frame },
   { name: 'schedules-menu', route: '/activity/schedules', ready: 'Weekly PR digest', full: false, setup: then(click('More for Weekly PR digest')) },
   {
     name: 'schedules-delete',
