@@ -18,7 +18,9 @@ never lowered, by annotations), `field_map` (`recipient`, `url`, `host` JSON
 pointers copied into the Action; values the Action cannot carry, and keys
 that differ from a mapped one only in case, are refused) and the private
 flag, or disables a tool; an approval naming the reviewed `hash` fails with
-`ErrConflict` once the latest pin differs. Adapters re-check on every call that their
+`ErrConflict` once the latest pin differs. Pins outlive a server leaving the
+config (an entry an edit made invalid comes back approved); only `Forget`, an
+admin's removal through the API, deletes them. Adapters re-check on every call that their
 approved definition is still registered and the server ready, so a call held
 across an approval wait never reaches a tool disabled or changed meanwhile.
 

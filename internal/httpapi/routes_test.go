@@ -726,6 +726,26 @@ func TestConfigEndpoints(t *testing.T) {
 	expect(t, h.do("DELETE", "/api/config/budgets/daily_usd", nil, h.admin), http.StatusNoContent)
 }
 
+// Only an admin's removal of an MCP server drops its approvals: an entry an
+// edit made invalid leaves the config too, and keeps them.
+func TestRemovingAnMCPServerForgetsItsApprovals(t *testing.T) {
+	h := newHarness(t).setup()
+	set := func(k, v string) {
+		t.Helper()
+		expect(t, h.do("PATCH", "/api/config", dto.ConfigPatchReq{Set: map[string]json.RawMessage{k: json.RawMessage(v)}}, h.admin), http.StatusOK)
+	}
+	set("mcp.servers.linear.enabled", "false")
+	set("mcp.servers.linear.headers", "null")
+	if got := h.mcp.Forgot(); len(got) != 0 {
+		t.Fatalf("forgot %v without a removal", got)
+	}
+	set("mcp.servers.linear", "null")
+	expect(t, h.do("DELETE", "/api/config/mcp.servers.docs", nil, h.admin), http.StatusNoContent)
+	if got := h.mcp.Forgot(); !slices.Equal(got, []string{"linear", "docs"}) {
+		t.Fatalf("forgot %v", got)
+	}
+}
+
 func TestVaultEndpoints(t *testing.T) {
 	h := newHarness(t).setup()
 	own := "/api/vault/user:" + string(h.member.user) + "/github"

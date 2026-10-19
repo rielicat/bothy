@@ -166,6 +166,9 @@ func (m *Manager) setDrifted(s *server, on bool) {
 // replaces the server's live tool set (discovery); otherwise the tools are
 // merged in (a runtime session that saw a different definition).
 func (m *Manager) observe(ctx context.Context, s *server, tools map[string]discovered, full bool) {
+	if s.isRemoved() {
+		return
+	}
 	approved, err := m.d.Store.MCP().Approved(ctx, s.name)
 	if err != nil {
 		m.log.Error("load approved mcp pins", "server", s.name, "err", err)

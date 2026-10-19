@@ -652,6 +652,11 @@ func (s *Server) patchConfig(w http.ResponseWriter, r *http.Request, a core.Acto
 	if err != nil {
 		return err
 	}
+	for path, v := range req.Set {
+		if string(bytes.TrimSpace(v)) == "null" {
+			s.forgetMCP(r.Context(), path)
+		}
+	}
 	return ok(w, dto.ConfigPatchResp{RestartRequired: nonNil(restart)})
 }
 
@@ -659,7 +664,21 @@ func (s *Server) resetConfig(w http.ResponseWriter, r *http.Request, a core.Acto
 	if err := s.d.Config.Reset(r.Context(), r.PathValue("path"), byString(a)); err != nil {
 		return err
 	}
+	s.forgetMCP(r.Context(), r.PathValue("path"))
 	return noContent(w)
+}
+
+// forgetMCP drops the approvals of an MCP server an admin removed. Only an
+// explicit removal does: an entry that a bothy.yaml edit made invalid also
+// leaves the config, and its approvals must survive the fix.
+func (s *Server) forgetMCP(ctx context.Context, path string) {
+	name, ok := strings.CutPrefix(path, "mcp.servers.")
+	if !ok || name == "" || strings.Contains(name, ".") || s.d.MCP == nil {
+		return
+	}
+	if err := s.d.MCP.Forget(ctx, name); err != nil {
+		s.log.Error("forget a removed mcp server's approvals", "server", name, "err", err)
+	}
 }
 
 // ---- vault ----

@@ -368,13 +368,29 @@ func (s *Skills) Remove(_ context.Context, name string, _ core.UserID) error {
 
 func (s *Skills) Rescan(context.Context) error { return nil }
 
-// MCP reports StatusV; Start, Reload and Close succeed without doing anything.
+// MCP reports StatusV; Start, Reload and Close succeed without doing
+// anything. Forget records the names it was given in Forgotten.
 type MCP struct {
 	core.MCP
-	StatusV []core.MCPStatus
-	PinsV   map[string][]*core.MCPPin // by server
+	StatusV   []core.MCPStatus
+	PinsV     map[string][]*core.MCPPin // by server
+	Forgotten []string
 
 	mu sync.Mutex
+}
+
+func (m *MCP) Forget(_ context.Context, server string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Forgotten = append(m.Forgotten, server)
+	return nil
+}
+
+// Forgot returns a copy of Forgotten.
+func (m *MCP) Forgot() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return slices.Clone(m.Forgotten)
 }
 
 func (m *MCP) Start(context.Context) error { return nil }

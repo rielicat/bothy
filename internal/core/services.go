@@ -107,6 +107,11 @@ type MCP interface {
 	Approve(ctx context.Context, server string, tools map[string]MCPToolApproval, by UserID) error
 	Install(ctx context.Context, server string, by UserID) error // stdio only, installer box
 	Reload(ctx context.Context, server string) error
+	// Forget drops the pins (approvals, turned-off actions) of a server an
+	// admin removed through the API, so one added again under the name is
+	// reviewed afresh; no-op while the name is still configured. A server
+	// that only left the config because its entry is invalid keeps them.
+	Forget(ctx context.Context, server string) error
 	Close() error
 }
 
