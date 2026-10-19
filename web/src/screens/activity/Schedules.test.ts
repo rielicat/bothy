@@ -32,6 +32,17 @@ describe('Schedules (docs/design/ui.md §10.3)', () => {
     expect(toaster.current?.action?.label).toBe('View');
   });
 
+  it("says why Run now didn't start, when trying again can't help", async () => {
+    const why = "The check-in list is empty, so there's nothing to check yet. Add something to it first.";
+    await start(undefined, (m, url) =>
+      m === 'POST' && url.endsWith('/run') ? new Response(JSON.stringify({ error: { code: 'bad_request', message: why } }), { status: 400 }) : undefined,
+    );
+    await fireEvent.click(screen.getByRole('button', { name: 'More for Morning briefing' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Run now' }));
+    expect(await screen.findByText(why)).toBeTruthy();
+    expect(screen.queryByText("Couldn't start it. Try again.")).toBeNull();
+  });
+
   it('lists the schedules people set up in chat apps for admins, to turn off or delete', async () => {
     const calls = await start();
     const section = (await screen.findByRole('heading', { name: 'In chat apps' })).closest('section')!;

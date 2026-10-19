@@ -119,7 +119,7 @@ func (s *Service) heartbeatPrompt(ctx context.Context, sc *core.Schedule) (strin
 		return "", fmt.Errorf("scheduler: read HEARTBEAT.md: %w", err)
 	}
 	if strings.TrimSpace(content) == "" {
-		return "", skipError{invalidf("HEARTBEAT.md is empty, so there is nothing to check")}
+		return "", skipError{invalidf("The check-in list is empty, so there's nothing to check yet. Add something to it first.")}
 	}
 	if err := s.heartbeatBudget(ctx, sc); err != nil {
 		return "", err

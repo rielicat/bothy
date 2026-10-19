@@ -1837,7 +1837,7 @@ Name
 - Time zones read by city: in the preview "London time", "New York time" ("UTC" as it is), and in the Time zone combobox "London (Europe)".
 - Time zone starts as the person's own (Settings → Account); the preview and the saved schedule use the zone chosen here.
 - "Allowed without asking" lists the pre-authorised narrow grants as plain sentences (`lib/grants.ts` descriptions), unticked until chosen. Deploys never appear.
-- Errors: empty prompt "Tell Bothy what to do."; invalid repeat rule "That repeat rule isn't valid. Example: 0 9 * * 1-5 means weekdays at 9:00."
+- Errors: empty prompt "Tell Bothy what to do."; invalid repeat rule "That repeat rule isn't valid. Example: 0 9 * * 1-5 means weekdays at 9:00."; a save the server refuses shows its reason, which retrying can't change: "Mon 19 Oct 2026 09:00 has already passed. Choose a later time.", "It would never run between 08:00 and 20:00, the hours it may run in. Choose a time inside them." A Run now that can't start says why under the row ("The check-in list is empty, so there's nothing to check yet. Add something to it first.", "Bothy is paused by an admin, so nothing new starts.").
 - Edit pages add "Recent runs" below (rows linking to task detail; the title is when it ran, "Yesterday at 10:58 PM", the meta line how it went, "Posted here" or "Failed: {plain reason}", the cost at the right; the page already names the schedule, so the rows don't) and "Delete schedule…" in the page `⋯`.
 - Buttons: "Create schedule" / "Save schedule" (primary), "Cancel".
 

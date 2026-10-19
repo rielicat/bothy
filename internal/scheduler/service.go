@@ -104,7 +104,7 @@ func (s *Service) upsertLocked(ctx context.Context, v core.Viewer, in *core.Sche
 			return invalidf("%v", err)
 		}
 		if next.IsZero() {
-			return invalidf("%s is in the past", p.once.In(p.loc).Format("Mon 2 Jan 2006 15:04 MST"))
+			return invalidf("%s has already passed. Choose a later time.", p.once.In(p.loc).Format("Mon 2 Jan 2006 15:04"))
 		}
 		sc.NextRunAt = next
 	}

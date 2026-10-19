@@ -307,5 +307,13 @@ func (p plan) next(after time.Time, jitter float64) (time.Time, error) {
 		}
 		t = n
 	}
-	return time.Time{}, fmt.Errorf("cron spec %q never fires within active hours %s: %w", p.spec, p.active, errNever)
+	a := p.active
+	return time.Time{}, neverErr(fmt.Sprintf("It would never run between %02d:%02d and %02d:%02d, the hours it may run in. Choose a time inside them.",
+		a.from/60, a.from%60, a.to/60, a.to%60))
 }
+
+// neverErr is errNever in words a person reads in the schedule form.
+type neverErr string
+
+func (e neverErr) Error() string { return string(e) }
+func (e neverErr) Unwrap() error { return errNever }

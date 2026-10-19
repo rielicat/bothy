@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { Button, EmptyState, IconButton, Menu, StatusLine, Switch, toast, type MenuItem } from '../../components/ui';
-  import { api } from '../../lib/api/client';
+  import { api, ApiError, refusal } from '../../lib/api/client';
   import type { List, Schedule, SchedulePreviewResp, ScheduleRunData, TeamSchedule } from '../../lib/api/types.gen';
   import { appName } from '../../lib/cardcopy';
   import { router } from '../../lib/router.svelte';
@@ -74,10 +74,10 @@
     try {
       const saved = await saveSchedule({ ...(s ?? checkinBlank(session.me?.user)), enabled: on }, s?.id ? await scheduleGrants(s.id) : []);
       list = [...(list ?? []).filter((x) => x.id !== saved.id), saved];
-    } catch {
+    } catch (e) {
       if (s) s.enabled = !on;
       else checkinOn = !on;
-      errors[key] = "Couldn't save. Try again.";
+      errors[key] = refusal(e) || "Couldn't save. Try again.";
     }
   }
 
@@ -85,8 +85,9 @@
     try {
       const r = await api.post<{ run_id: string }>(`/api/schedules/${encodeURIComponent(s.id)}/run`);
       toast('Schedule started.', r?.run_id ? { action: { label: 'View', onclick: () => router.navigate(`/activity/tasks/${encodeURIComponent(r.run_id)}`) } } : {});
-    } catch {
-      errors[s.id] = "Couldn't start it. Try again.";
+    } catch (e) {
+      // An empty check-in list, or Bothy paused: trying again won't help.
+      errors[s.id] = refusal(e) || (e instanceof ApiError && e.code === 'paused' ? 'Bothy is paused by an admin, so nothing new starts.' : "Couldn't start it. Try again.");
     }
   }
 

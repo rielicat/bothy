@@ -15,6 +15,20 @@ beforeEach(async () => {
 
 const posted = () => calls.filter((c) => c.method === 'POST' && c.url === '/api/schedules');
 
+describe('A schedule the server refuses', () => {
+  it('says why, since trying again would not help', async () => {
+    const why = 'Mon 19 Oct 2026 09:00 has already passed. Choose a later time.';
+    calls = installApi({ override: (m, url) => (m === 'POST' && url === '/api/schedules' ? new Response(JSON.stringify({ error: { code: 'bad_request', message: why } }), { status: 400 }) : undefined) });
+    await session.init();
+    router.navigate('/activity/schedules/new');
+    render(ScheduleForm, { params: { id: 'new' } });
+    await fireEvent.input(await screen.findByLabelText('What should Bothy do?'), { target: { value: 'Say hello' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Create schedule' }));
+    expect(await screen.findByText(why)).toBeTruthy();
+    expect(screen.queryByText("Couldn't save. Try again.")).toBeNull();
+  });
+});
+
 describe('New schedule (docs/design/ui.md §10.3)', () => {
   beforeEach(async () => {
     router.navigate('/activity/schedules/new');
