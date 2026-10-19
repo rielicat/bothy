@@ -135,7 +135,9 @@
 </script>
 
 {#snippet rangePicker()}
+  <!-- On touch its 44 px options make it 50 px tall, taller than the header's button strut, which moved the title and tabs 3 px down on this tab only. -->
   <Segmented
+    class="pointer-coarse:-my-0.75"
     label="Period"
     options={[
       { value: 'today', label: 'Today' },
