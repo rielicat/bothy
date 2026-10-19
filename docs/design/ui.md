@@ -1168,7 +1168,7 @@ What can you do for our team?                                      left-aligned 
 - One "New chat" control only, in the sidebar. `/chat` is the new chat itself, not a "pick a chat" screen.
 - Suggestions (at most three): with GitHub connected, the first two use the most recently indexed repository: "Summarise the open pull requests in {owner/repo}", "What changed in {owner/repo} this week?". Without GitHub: "Draft a release checklist for our next version", "Turn these meeting notes into a list of tasks". Always last: "What can you do for our team?". An admin without GitHub sees "Connect GitHub so Bothy can read your code" as the second row; it links to Settings → Connections → GitHub.
 - Clicking a suggestion puts it in the composer and focuses it. It never sends.
-- Nothing is stored until the first message is sent (S14). The sidebar row appears then, titled with the first 48 characters until the generated title arrives.
+- Nothing is stored until the first message is sent (S14). The sidebar row appears then, titled with the first 48 characters until the generated title arrives. Attaching a file first gives the chat its id, since uploads need one, but the screen stays this one (heading, suggestions, no header) until the message is sent.
 
 ### 7.3 Messages
 

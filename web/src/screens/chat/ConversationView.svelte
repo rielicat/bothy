@@ -87,6 +87,9 @@
   let liveSays = '';
 
   const s = $derived(conv.session);
+  // Attaching a file gives a new chat its session (uploads need one); it stays the new chat until a message (§7.2).
+  let adopted = $state(false);
+  const isNew = $derived(!conv.id || (adopted && !conv.messages.length && !conv.live));
   const exposed = $derived(((s?.taint ?? 0) & 3) === 3);
   const firstText = $derived(conv.items.find((i) => i.kind === 'user')?.text ?? '');
   const chatTitle = $derived(s?.title || firstText.slice(0, 48));
@@ -219,21 +222,25 @@
   let loaded = $state(false);
   let hit: Element | null = null;
 
-  $effect(() => {
-    conv.listen();
-    void conv.load().then(() => (loaded = true));
-    void models.load(auth.isAdmin);
-    people.load();
-    if (finePointer()) void tick().then(() => composer?.focus());
-    const onscroll = () => measure();
-    window.addEventListener('scroll', onscroll, true);
-    window.addEventListener('resize', onscroll);
-    return () => {
-      conv.dispose();
-      window.removeEventListener('scroll', onscroll, true);
-      window.removeEventListener('resize', onscroll);
-    };
-  });
+  // Untracked: a new chat getting its id on the first send must not reload,
+  // or the reload's snapshot, taken before the message was stored, drops it.
+  $effect(() =>
+    untrack(() => {
+      conv.listen();
+      void conv.load().then(() => (loaded = true));
+      void models.load(auth.isAdmin);
+      people.load();
+      if (finePointer()) void tick().then(() => composer?.focus());
+      const onscroll = () => measure();
+      window.addEventListener('scroll', onscroll, true);
+      window.addEventListener('resize', onscroll);
+      return () => {
+        conv.dispose();
+        window.removeEventListener('scroll', onscroll, true);
+        window.removeEventListener('resize', onscroll);
+      };
+    }),
+  );
 
   // The chat's own choice, else Settings → Models → "Refine by default".
   $effect(() => {
@@ -334,6 +341,7 @@
       .post<Session>('/api/sessions', {})
       .then(async (n) => {
         conv.adopt(n);
+        adopted = true;
         refineByChat.set(n.id, refine);
         if (refine !== !!models.refine?.enabled) void api.patch(conv.base, { refine: refine ? 'on' : 'off' }).catch(() => {});
         oncreated?.(n.id);
@@ -518,7 +526,7 @@
 
   // Below 1024 px the shell's top bar shows the title and this menu (§4.4); the header stays for screen readers and renaming.
   $effect(() => {
-    if (conv.id) return topBarActions(chatMenu);
+    if (!isNew) return topBarActions(chatMenu);
   });
 
   function dragover(e: DragEvent) {
@@ -554,7 +562,7 @@
   </Menu>
 {/snippet}
 
-<svelte:head><title>{conv.id ? chatTitle || 'Chat' : 'New chat'} · Bothy</title></svelte:head>
+<svelte:head><title>{isNew ? 'New chat' : chatTitle || 'Chat'} · Bothy</title></svelte:head>
 
 {#snippet copyButton(text: string, at: string)}
   <button
@@ -590,7 +598,7 @@
     if (e.dataTransfer?.files.length) composer?.addFiles(e.dataTransfer.files);
   }}
 >
-  {#if conv.id}
+  {#if !isNew}
     <header class="sticky top-0 z-10 flex min-h-13 items-center gap-2 border-b bg-bg py-1 max-lg:sr-only {scrolled ? 'border-border' : 'border-transparent'}">
       <div class="min-w-0 flex-1">
         <!-- The chat title stays the page's h1 while it is being renamed. -->
@@ -616,7 +624,7 @@
 
   <section class="flex-1 pt-4 pb-6" aria-label="Messages">
     {#if editing && !wide && renameError}<p id="rename-error" class="field-error mb-3">{renameError}</p>{/if}
-    {#if !conv.id}
+    {#if isNew}
       <NewChat onpick={(t) => composer?.fill(t)} />
     {:else if conv.loading}
       <p class="text-body text-muted" aria-busy="true">Loading…</p>
