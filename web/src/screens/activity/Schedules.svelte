@@ -114,8 +114,10 @@
     }
   }
 
+  // Times read in the schedule's own zone, so another zone than the viewer's is named.
   function when(s: Pick<Schedule, 'id' | 'kind' | 'spec' | 'tz'>): string {
-    return describeWhen(fromSpec(s.kind, s.spec, s.tz)) ?? custom[s.id] ?? 'On a custom repeat rule';
+    const text = describeWhen(fromSpec(s.kind, s.spec, s.tz)) ?? custom[s.id] ?? 'On a custom repeat rule';
+    return s.tz && s.tz !== (session.me?.user.timezone || localZone()) ? `${text}, ${zoneTime(s.tz)}` : text;
   }
 
   function hours(s: Schedule | undefined): string {
@@ -156,8 +158,7 @@
       ])}
       {#each others as s (s.id)}
         {@render row(s.name, `/activity/schedules/${encodeURIComponent(s.id)}`, s, s.enabled, [
-          // Times read in the schedule's own zone, so another zone is named.
-          { text: when(s) + (s.tz && s.tz !== (session.me?.user.timezone || localZone()) ? `, ${zoneTime(s.tz)}` : '') },
+          { text: when(s) },
           { text: `Posts ${deliverTo(s.deliver)}` },
           ...(s.failures >= 3
             ? [{ text: 'Turned off after 3 failed runs', danger: true }]
