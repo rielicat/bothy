@@ -172,7 +172,7 @@ func (m *Manager) applyConfig(list []config.MCPServer, discover bool) {
 	m.mu.Lock()
 	next := make(map[string]*server, len(list))
 	order := make([]string, 0, len(list))
-	var stop, start []*server
+	var stop, start, gone []*server
 	for _, c := range list {
 		if _, dup := next[c.Name]; dup {
 			m.log.Warn("duplicate mcp server name ignored", "server", c.Name)
@@ -194,6 +194,7 @@ func (m *Manager) applyConfig(list []config.MCPServer, discover bool) {
 	for name, old := range m.servers {
 		if next[name] == nil {
 			stop = append(stop, old)
+			gone = append(gone, old)
 		}
 	}
 	m.servers, m.order = next, order
@@ -204,6 +205,13 @@ func (m *Manager) applyConfig(list []config.MCPServer, discover bool) {
 		s.mu.Unlock()
 		m.closeInstances(s)
 		m.unregister(s.name)
+	}
+	// A server added again under the same name is reviewed afresh, not
+	// given the removed one's approvals and turned-off actions.
+	for _, s := range gone {
+		if err := m.d.Store.MCP().DeletePins(m.ctx, s.name); err != nil {
+			m.log.Error("forget a removed mcp server's pins", "server", s.name, "err", err)
+		}
 	}
 	for _, s := range start {
 		m.spawn(func(ctx context.Context) { m.discover(ctx, s) })
@@ -303,11 +311,37 @@ func (m *Manager) Status() []core.MCPStatus {
 	return out
 }
 
-// Pins returns the latest definition of every tool the server has offered,
-// plus, for each tool whose latest definition is not the approved one, the
-// approved definition as well, so the review UI can diff the two.
+// view is what reviews and counts go by: for each tool the server offers
+// now, the pin of the definition it offers, which may be an older one (a
+// rollback, replicas on different versions); a tool it no longer offers is
+// left out. Before the first discovery the newest pin per tool stands in.
+func (m *Manager) view(ctx context.Context, s *server) (map[string]*core.MCPPin, error) {
+	hist, err := m.d.Store.MCP().History(ctx, s.name)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	live := maps.Clone(s.live)
+	s.mu.Unlock()
+	cur := map[string]*core.MCPPin{}
+	for _, p := range hist { // by tool, then first seen
+		switch h, offered := live[p.Tool]; {
+		case live == nil, offered && h == p.Hash:
+			cur[p.Tool] = p
+		}
+	}
+	return cur, nil
+}
+
+// Pins returns the pin of each tool's current definition (see view), plus,
+// for each whose definition waits for review, its approved definition as
+// well, so the review UI can diff the two.
 func (m *Manager) Pins(ctx context.Context, name string) ([]*core.MCPPin, error) {
-	latest, err := m.d.Store.MCP().Pins(ctx, name)
+	s := m.server(name)
+	if s == nil {
+		return []*core.MCPPin{}, nil
+	}
+	cur, err := m.view(ctx, s)
 	if err != nil {
 		return nil, err
 	}
@@ -315,13 +349,30 @@ func (m *Manager) Pins(ctx context.Context, name string) ([]*core.MCPPin, error)
 	if err != nil {
 		return nil, err
 	}
-	out := slices.Clone(latest)
-	for _, p := range latest {
+	out := make([]*core.MCPPin, 0, len(cur))
+	for _, p := range cur {
+		out = append(out, p)
 		if a := approved[p.Tool]; p.Status != core.PinApproved && a != nil && a.Hash != p.Hash {
 			out = append(out, a)
 		}
 	}
 	slices.SortStableFunc(out, func(a, b *core.MCPPin) int { return cmp.Compare(a.Tool, b.Tool) })
+	return out, nil
+}
+
+// pendingTools lists the tools whose current definition waits for review.
+func (m *Manager) pendingTools(ctx context.Context, s *server) ([]string, error) {
+	cur, err := m.view(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for tool, p := range cur {
+		if p.Status == core.PinPending {
+			out = append(out, tool)
+		}
+	}
+	slices.Sort(out)
 	return out, nil
 }
 
@@ -339,9 +390,9 @@ func checkFieldMap(fm map[string]string) error {
 	return nil
 }
 
-// Approve approves each tool's latest definition with the given class, field
-// map and privacy flag (or disables the tool), then re-registers the server's
-// tools. Everything is validated before anything is written.
+// Approve approves each tool's current definition (see view) with the given
+// class, field map and privacy flag (or disables the tool), then re-registers
+// the server's tools. Everything is validated before anything is written.
 func (m *Manager) Approve(ctx context.Context, name string, tools map[string]core.MCPToolApproval, by core.UserID) error {
 	s := m.server(name)
 	if s == nil {
@@ -350,13 +401,9 @@ func (m *Manager) Approve(ctx context.Context, name string, tools map[string]cor
 	if len(tools) == 0 {
 		return fmt.Errorf("%w: no tools to approve", core.ErrInvalid)
 	}
-	latest, err := m.d.Store.MCP().Pins(ctx, name)
+	byTool, err := m.view(ctx, s)
 	if err != nil {
 		return err
-	}
-	byTool := make(map[string]*core.MCPPin, len(latest))
-	for _, p := range latest {
-		byTool[p.Tool] = p
 	}
 	approve := map[string]core.MCPPin{}
 	var disable []string
@@ -365,7 +412,7 @@ func (m *Manager) Approve(ctx context.Context, name string, tools map[string]cor
 		a := tools[tool]
 		p := byTool[tool]
 		if p == nil {
-			return fmt.Errorf("mcp tool %s/%s: %w", name, tool, core.ErrNotFound)
+			return fmt.Errorf("%w: %s doesn't offer %s now", core.ErrNotFound, name, tool)
 		}
 		if a.Disable {
 			disable = append(disable, tool)
@@ -373,7 +420,7 @@ func (m *Manager) Approve(ctx context.Context, name string, tools map[string]cor
 			continue
 		}
 		if a.Hash != "" && a.Hash != p.Hash {
-			return fmt.Errorf("mcp tool %s/%s: %w: the definition changed after it was reviewed", name, tool, core.ErrConflict)
+			return fmt.Errorf("%w: this action changed after it was shown. Review its change first", core.ErrConflict)
 		}
 		se := a.SideEffect
 		if se == 0 {

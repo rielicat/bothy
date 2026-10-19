@@ -171,18 +171,40 @@ func (m *Manager) observe(ctx context.Context, s *server, tools map[string]disco
 		s.setState(m.clock.Now(), stError, err.Error())
 		return
 	}
+	hist, err := m.d.Store.MCP().History(ctx, s.name)
+	if err != nil {
+		m.log.Error("load mcp pins", "server", s.name, "err", err)
+	}
+	off := map[string]bool{}
+	for _, p := range hist {
+		off[p.Tool] = p.Status == core.PinDisabled
+	}
 	now := m.clock.Now()
 	live := map[string]string{}
 	var pending []string
 	for _, name := range slices.Sorted(maps.Keys(tools)) {
 		d := tools[name]
+		// A changed definition keeps the class an admin chose before.
+		se := s.spec.suggestedClass(name, d.def)
+		if prev := approved[name]; prev != nil {
+			se = max(prev.SideEffect, d.def.annotationFloor())
+		}
 		st, err := m.d.Store.MCP().UpsertPin(ctx, &core.MCPPin{Server: s.name, Tool: name, Hash: d.hash, Definition: d.canon,
-			SideEffect: s.spec.suggestedClass(name, d.def), Private: s.spec.privateOutput(name), FirstSeen: now})
+			SideEffect: se, Private: s.spec.privateOutput(name), FirstSeen: now})
 		if err != nil {
 			m.log.Error("record mcp pin", "server", s.name, "tool", name, "err", err)
 			continue
 		}
 		live[name] = d.hash
+		// An action an admin turned off stays off when the server tweaks
+		// it: a review would offer it as new, allowed by default.
+		if st == core.PinPending && off[name] && approved[name] == nil {
+			if err := m.d.Store.MCP().DisableTool(ctx, s.name, name); err != nil {
+				m.log.Error("keep mcp tool off", "server", s.name, "tool", name, "err", err)
+			} else {
+				st = core.PinDisabled
+			}
+		}
 		if st != core.PinPending {
 			continue
 		}
@@ -238,15 +260,11 @@ func (m *Manager) syncTools(ctx context.Context, s *server) {
 		if err != nil {
 			m.log.Error("load approved mcp pins", "server", s.name, "err", err)
 		}
-		latest, err := m.d.Store.MCP().Pins(ctx, s.name)
+		tools, err := m.pendingTools(ctx, s)
 		if err != nil {
 			m.log.Error("load mcp pins", "server", s.name, "err", err)
 		}
-		for _, p := range latest {
-			if p.Status == core.PinPending && live[p.Tool] == p.Hash {
-				pending++
-			}
-		}
+		pending = len(tools)
 		for _, name := range slices.Sorted(maps.Keys(live)) {
 			p := approved[name]
 			if p == nil || p.Hash != live[name] {

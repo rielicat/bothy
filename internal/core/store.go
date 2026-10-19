@@ -702,8 +702,12 @@ type MCPRepo interface {
 	UpsertPin(ctx context.Context, p *MCPPin) (MCPPinStatus, error) // unseen hash => pending; same as approved => approved
 	ApprovePins(ctx context.Context, server string, approve map[string]MCPPin, by UserID, at time.Time) error
 	Pins(ctx context.Context, server string) ([]*MCPPin, error) // latest per tool
+	// History is every definition the server's tools ever had, by tool then
+	// first_seen_at: what it offers now may be an older one (a rollback).
+	History(ctx context.Context, server string) ([]*MCPPin, error)
 	Approved(ctx context.Context, server string) (map[string]*MCPPin, error)
 	DisableTool(ctx context.Context, server, tool string) error
+	DeletePins(ctx context.Context, server string) error // every pin of a removed server
 	PutInstall(ctx context.Context, in *MCPInstall) error
 	Install(ctx context.Context, server string) (*MCPInstall, error) // current ready (or latest) install
 }

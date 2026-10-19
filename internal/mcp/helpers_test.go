@@ -195,6 +195,9 @@ type fakeServer struct {
 	// auth, when set, is the only Authorization the server accepts; any
 	// other request gets 401, as a server does with a rotated key.
 	auth string
+	// hideSearch drops the search tool from the list, as a server that no
+	// longer offers it.
+	hideSearch bool
 
 	requests  atomic.Int32
 	started   chan struct{}
@@ -215,18 +218,20 @@ var objectSchema = map[string]any{"type": "object", "properties": map[string]any
 
 func (f *fakeServer) server() *mcpsdk.Server {
 	f.mu.Lock()
-	desc, versions, extra := f.desc, f.versions, slices.Clone(f.extra)
+	desc, versions, extra, hide := f.desc, f.versions, slices.Clone(f.extra), f.hideSearch
 	f.mu.Unlock()
 	s := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "fake", Version: "1"},
 		&mcpsdk.ServerOptions{SupportedProtocolVersions: versions, Logger: slog.New(slog.DiscardHandler)})
-	s.AddTool(&mcpsdk.Tool{Name: "search", Description: desc, InputSchema: objectSchema},
-		func(_ context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
-			var args struct {
-				Q string `json:"q"`
-			}
-			_ = json.Unmarshal(req.Params.Arguments, &args)
-			return &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: "results for " + args.Q}}}, nil
-		})
+	if !hide {
+		s.AddTool(&mcpsdk.Tool{Name: "search", Description: desc, InputSchema: objectSchema},
+			func(_ context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
+				var args struct {
+					Q string `json:"q"`
+				}
+				_ = json.Unmarshal(req.Params.Arguments, &args)
+				return &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: "results for " + args.Q}}}, nil
+			})
+	}
 	s.AddTool(&mcpsdk.Tool{Name: "block", Description: "Blocks until cancelled.", InputSchema: map[string]any{"type": "object"}},
 		func(ctx context.Context, _ *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
 			f.started <- struct{}{}

@@ -23,15 +23,9 @@ func (pendingCheck) ID() string { return pendingID }
 func (c pendingCheck) Run(ctx context.Context) []core.Finding {
 	var parts []string
 	for _, s := range c.m.allServers() {
-		pins, err := c.m.d.Store.MCP().Pins(ctx, s.name)
+		tools, err := c.m.pendingTools(ctx, s)
 		if err != nil {
 			continue
-		}
-		var tools []string
-		for _, p := range pins {
-			if p.Status == core.PinPending {
-				tools = append(tools, p.Tool)
-			}
 		}
 		if len(tools) > 0 {
 			parts = append(parts, s.name+": "+strings.Join(tools, ", "))

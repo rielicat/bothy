@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { Button, Dialog, DiffView, Disclosure, CodeBlock, EmptyState, IconButton, LinkButton, Menu, Select, SettingsSection, StatusLine, Switch, toast } from '../../../components/ui';
-  import { api, errorText } from '../../../lib/api/client';
+  import { api, ApiError, errorText, refusal } from '../../../lib/api/client';
   import type { MCPPin, MCPStatus, SideEffect } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
   import { lineDiff } from '../../../lib/diff';
@@ -49,8 +49,9 @@
   });
 
   const off = $derived(status ? status.state === 'disabled' : !enabled);
-  const actions = $derived(pins.filter((p) => p.status === 'approved' || p.status === 'disabled'));
   const pending = $derived(pins.filter((p) => p.status === 'pending'));
+  // An action whose change waits for review is decided in the review, not here.
+  const actions = $derived(pins.filter((p) => (p.status === 'approved' || p.status === 'disabled') && !pending.some((q) => q.tool === p.tool)));
   const def = (p: MCPPin) => (p.definition ?? {}) as { title?: string; description?: string; inputSchema?: unknown };
   const label = (p: MCPPin) => def(p).title || serverTitle(p.tool);
   const known = (e: SideEffect) => (effects.some((x) => x.value === e) ? e : 'irreversible');
@@ -66,7 +67,7 @@
       if (done) toast(done);
       return true;
     } catch (e) {
-      problem = { message: "Couldn't save. Try again.", details: errorText(e) };
+      problem = { message: (e instanceof ApiError && e.status === 409 && refusal(e)) || "Couldn't save. Try again.", details: errorText(e) };
       return false;
     } finally {
       await load();

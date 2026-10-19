@@ -14,7 +14,7 @@
   import OptionList from '../ui/OptionList.svelte';
   import Select from '../ui/Select.svelte';
   import Verbatim from '../Verbatim.svelte';
-  import { decideItem, groupLines, itemQuestion } from './items';
+  import { allNew, decideItem, groupLines, itemQuestion } from './items';
   import type { InboxItem } from './types';
 
   // An inbox item that is not an action approval (§8.8), in the same card shell.
@@ -44,7 +44,7 @@
     switch (item.type) {
       case 'mcp_review':
         return [
-          { choice: 'approve', label: 'Approve changes', variant: 'primary', key: 'allow_once' },
+          { choice: 'approve', label: allNew(item) ? 'Approve actions' : 'Approve changes', variant: 'primary', key: 'allow_once' },
           { choice: 'turn_off', label: `Turn off ${serviceName(item.server)}`, variant: 'secondary', key: 'deny' },
         ];
       case 'skill_review':

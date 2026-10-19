@@ -153,6 +153,21 @@ describe('MCP server page (§12.4)', () => {
     expect(JSON.parse(writes(calls)[0].body)).toEqual({ tools: { search_docs: { side_effect: 'read', private: false, disable: true } } });
   });
 
+  it('leaves an action whose change waits for review to the review, and says why a save was refused', async () => {
+    const pin = (tool: string, status: string, hash: string, description: string) => ({ server: 'docs', tool, hash, status, side_effect: 'read', private: false, definition: { name: tool, description } });
+    const refused = new Response(JSON.stringify({ error: { code: 'conflict', message: 'this action changed after it was shown. Review its change first' } }), { status: 409 });
+    await start((m, url) => {
+      if (m === 'GET' && url === '/api/mcp/docs/pins') return [pin('search_docs', 'pending', 'b3c1', 'Search, v2.'), pin('search_docs', 'approved', 'a9f0', 'Search.'), pin('get_page', 'approved', 'g1', 'Read a page.')];
+      if (m === 'POST' && url === '/api/mcp/docs/approve') return refused;
+    });
+    render(McpServer, { params: { item: 'mcp-docs' } });
+    expect(await screen.findByText('Read a page.')).toBeTruthy();
+    expect(screen.queryByText('Search.')).toBeNull();
+    expect(screen.getAllByLabelText(/^What .* does$/)).toHaveLength(1);
+    await fireEvent.change(screen.getByLabelText(/^What .* does$/), { target: { value: 'external_send' } });
+    expect(await screen.findByText('This action changed after it was shown. Review its change first.')).toBeTruthy();
+  });
+
   it('offers to try again when the server does not start', async () => {
     const calls = await start((m, url) =>
       m === 'GET' && url === '/api/mcp'

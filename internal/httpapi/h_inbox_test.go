@@ -51,8 +51,10 @@ func TestInboxItems(t *testing.T) {
 	}
 	team := request(person.Principal, "fs_delete", core.ApproverReq{Team: true})
 
-	h.mcp.StatusV = []core.MCPStatus{{Name: "linear", State: "pins_pending", Pending: 2}, {Name: "calm", State: "ready"}}
-	h.mcp.PinsV = map[string][]*core.MCPPin{"linear": {
+	h.mcp.StatusV = []core.MCPStatus{{Name: "linear", State: "pins_pending", Pending: 2}, {Name: "calm", State: "ready"}, {Name: "notion", State: "pins_pending", Pending: 1}}
+	h.mcp.PinsV = map[string][]*core.MCPPin{"notion": {
+		{Server: "notion", Tool: "search", Status: core.PinPending, SideEffect: core.SERead, FirstSeen: now.Add(-time.Hour)},
+	}, "linear": {
 		{Server: "linear", Tool: "create_issue", Status: core.PinPending, SideEffect: core.SEExternalSend, FirstSeen: now.Add(-time.Hour)},
 		{Server: "linear", Tool: "list_issues", Status: core.PinApproved, SideEffect: core.SERead, FirstSeen: now.Add(-48 * time.Hour)},
 		{Server: "linear", Tool: "delete_issue", Status: core.PinPending, SideEffect: core.SEIrreversible, FirstSeen: now.Add(-2 * time.Hour)},
@@ -126,7 +128,8 @@ func TestInboxItems(t *testing.T) {
 		forYou   bool
 	}{
 		string(deploy.ID):        {dto.InboxApproval, "Deploy acme/web to staging?", "0 of 2 approvals", true},
-		"mcp:linear":             {dto.InboxMCPReview, "Review changes to Linear actions", "2 actions changed", true},
+		"mcp:linear":             {dto.InboxMCPReview, "Review Linear's actions", "1 new action, 1 changed", true},
+		"mcp:notion":             {dto.InboxMCPReview, "Review Notion's new actions", "1 new action", true},
 		"skill:pdf":              {dto.InboxSkillReview, "Review changes to the “pdf” skill", "Changed since it was approved", true},
 		"skill:slides":           {dto.InboxSkillReview, "Review the new “slides” skill", "Added by admin", true},
 		string(team.ID):          {dto.InboxApproval, "Delete notes/old.md?", "", true},

@@ -250,6 +250,14 @@ func testMCP(f *fx) {
 	f.must(err, "Pins of another server")
 	f.check(len(pins) == 0, "Pins leaked across servers")
 
+	hist, err := r.History(f.ctx, "mail")
+	f.must(err, "History")
+	var seen []string
+	for _, p := range hist {
+		seen = append(seen, p.Tool+"/"+p.Hash+"/"+string(p.Status))
+	}
+	f.eq("History lists every definition by tool, then first seen", seen, []string{"list/l1/pending", "send/h1/pending", "send/h2/approved"})
+
 	f.must(r.DisableTool(f.ctx, "mail", "send"), "DisableTool")
 	approved, err = r.Approved(f.ctx, "mail")
 	f.must(err, "Approved")
@@ -262,6 +270,15 @@ func testMCP(f *fx) {
 	f.want(err, core.ErrInvalid, "definition json_valid CHECK")
 	_, err = r.UpsertPin(f.ctx, &core.MCPPin{Server: "mail", Tool: "x", Hash: "x2", FirstSeen: at(14)})
 	f.want(err, core.ErrInvalid, "definition NOT NULL")
+	_, err = r.UpsertPin(f.ctx, &core.MCPPin{Server: "calendar", Tool: "add", Hash: "c1", Definition: json.RawMessage(`{"name":"add"}`), FirstSeen: at(15)})
+	f.must(err, "UpsertPin of another server")
+	f.must(r.DeletePins(f.ctx, "mail"), "DeletePins")
+	hist, err = r.History(f.ctx, "mail")
+	f.must(err, "History after DeletePins")
+	f.check(len(hist) == 0, "DeletePins left %d pins", len(hist))
+	hist, err = r.History(f.ctx, "calendar")
+	f.must(err, "History of another server")
+	f.check(len(hist) == 1, "DeletePins removed another server's pins: %d left", len(hist))
 
 	in1 := &core.MCPInstall{Server: "mail", Version: "1.0.0", LockHash: "lh", Lock: []byte(`{"lockfileVersion":3}`), TreeHash: "th", Status: "ready", CreatedAt: at(1)}
 	f.must(r.PutInstall(f.ctx, in1), "PutInstall")
