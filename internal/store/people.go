@@ -466,7 +466,7 @@ func (r tokenRepo) Revoke(ctx context.Context, u core.UserID, id string, at time
 	if at.IsZero() {
 		at = r.h.now()
 	}
-	res, err := r.h.wq.ExecContext(ctx, `UPDATE api_tokens SET revoked_at = ? WHERE id = ? AND user_id = ?`, ms(at), id, string(u))
+	res, err := r.h.wq.ExecContext(ctx, `UPDATE api_tokens SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at = 0`, ms(at), id, string(u))
 	return mustAffect("revoke token", res, err)
 }
 

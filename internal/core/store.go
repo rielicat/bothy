@@ -572,7 +572,7 @@ type TokenRepo interface {
 	Create(ctx context.Context, t *TokenRecord) error
 	Get(ctx context.Context, id string) (*TokenRecord, error)
 	List(ctx context.Context, u UserID) ([]*TokenRecord, error)
-	Revoke(ctx context.Context, u UserID, id string, at time.Time) error // ErrNotFound across users
+	Revoke(ctx context.Context, u UserID, id string, at time.Time) error // ErrNotFound across users and once revoked
 	Touch(ctx context.Context, id string, at time.Time) error
 }
 

@@ -7521,7 +7521,7 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `POST /api/sign-in/{provider}/check` | admin | `dto.SignInCheckReq` | `dto.SignInCheck`: trades a made-up code with the given (or saved) client id and secret; `ok` when the provider accepted the client, else `code` (`key_rejected`, `provider_error`, transport codes) |
 | `GET /api/tokens` | user (cookie) | — | `[]core.TokenRecord` (own) |
 | `POST /api/tokens` | user (cookie) | `core.TokenSpec` | `dto.TokenCreateResp` (plaintext once) |
-| `DELETE /api/tokens/{id}` | user (cookie) | — | `204` |
+| `DELETE /api/tokens/{id}` | user (cookie) | — | `204`; 404 for another person's token or one already revoked |
 | `GET /api/users` | admin | — | `[]core.User` (v0.2 UI: `last_login_at`, the last sign-in by any method; zero = never) |
 | `POST /api/users` | admin (multi mode) | `dto.UserCreateReq` | `dto.UserCreateResp` (v0.2 UI: `core.User` plus `one_time_password` when no password was sent; that account has `must_change_password`) |
 | `PATCH /api/users/{id}` | admin | `dto.UserPatchReq` | `core.User` |

@@ -824,7 +824,7 @@ func (r tokenRepo) Revoke(_ context.Context, u core.UserID, id string, at time.T
 	st, unlock := r.s.begin()
 	defer unlock()
 	t, ok := st.tokens[id]
-	if !ok || t.User != u {
+	if !ok || t.User != u || !t.Revoked.IsZero() {
 		return notFound("token")
 	}
 	t.Revoked = ms(at)
