@@ -22,7 +22,9 @@ describe('Projects', () => {
     const list = await screen.findByRole('list', { name: 'Projects' });
     const row = (name: string) => within(list).getByRole('link', { name }).closest('li') as HTMLElement;
     expect(within(row('acme/web')).getByText('Up to date')).toBeTruthy();
-    expect(within(row('acme/web')).getByText(/^Customer-facing web app, deployed from main\. Notes updated/)).toBeTruthy();
+    // The summary is an element of its own, which phones cut to one line, so the date after it is never cut off.
+    const summary = within(row('acme/web')).getByText('Customer-facing web app, deployed from main.');
+    expect(summary.parentElement!.textContent).toMatch(/deployed from main\. Notes updated /);
     expect(row('acme/api').textContent).toContain('Reading… 40%');
     expect(within(row('acme/infra')).getByText("Couldn't read")).toBeTruthy();
     expect(within(row('acme/infra')).getByText('Too large to read (more than 50,000 files).')).toBeTruthy();
