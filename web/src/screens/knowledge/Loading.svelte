@@ -3,7 +3,8 @@
   import EmptyState from '../../components/ui/EmptyState.svelte';
 
   // "Loading…" only after 400 ms; a failed load says so with one way to retry (§13.2).
-  let { failed = false, onretry }: { failed?: boolean; onretry?: () => void } = $props();
+  // `text` names what didn't load when it isn't the page (a dialog's list, a search).
+  let { failed = false, onretry, text = "This page didn't load. Check your connection and try again." }: { failed?: boolean; onretry?: () => void; text?: string } = $props();
 
   let slow = $state(false);
   onMount(() => {
@@ -13,7 +14,7 @@
 </script>
 
 {#if failed}
-  <EmptyState text="This page didn't load. Check your connection and try again." action={onretry ? { label: 'Try again', onclick: onretry, variant: 'secondary' } : undefined} />
+  <EmptyState {text} action={onretry ? { label: 'Try again', onclick: onretry, variant: 'secondary' } : undefined} />
 {:else}
   <p class="text-body text-muted" class:invisible={!slow}>Loading…</p>
 {/if}

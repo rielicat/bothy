@@ -128,7 +128,7 @@
     {#if !q}
       <!-- nothing asked yet -->
     {:else if !hits}
-      <Loading {failed} onretry={search} />
+      <Loading {failed} onretry={search} text="The search didn't finish. Check your connection and try again." />
     {:else if !groups.length}
       <EmptyState text="Nothing in your projects or notes matches “{q}”." />
     {:else}

@@ -100,4 +100,4 @@
   {/if}
 </Knowledge>
 
-<NotesHistoryDialog bind:open={showHistory} {entries} failed={historyFailed} />
+<NotesHistoryDialog bind:open={showHistory} {entries} failed={historyFailed} onretry={openHistory} />

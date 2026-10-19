@@ -27,7 +27,7 @@
   import Loading from './Loading.svelte';
 
   // Who changed a document and how (§9.2, §9.4): one line per change, its prose diff on request.
-  let { open = $bindable(false), entries, failed = false }: { open?: boolean; entries: HistoryEntry[] | null; failed?: boolean } = $props();
+  let { open = $bindable(false), entries, failed = false, onretry }: { open?: boolean; entries: HistoryEntry[] | null; failed?: boolean; onretry?: () => void } = $props();
 
   let shown = $state<Record<string, boolean>>({});
 </script>
@@ -38,7 +38,7 @@
 
 <Dialog bind:open title="History" size="lg">
   {#if !entries}
-    <Loading {failed} />
+    <Loading {failed} {onretry} text="The history didn't load. Check your connection and try again." />
   {:else if !entries.length}
     <p class="text-reading text-text">No changes yet.</p>
   {:else}
