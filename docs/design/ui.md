@@ -1460,7 +1460,7 @@ Directly after the step line it decided, an approval drops the object, in the st
 | Decided by someone else or elsewhere | "Sam Patel approved in Slack · 10:42" / "Sam Patel denied in Slack · 10:42"; a chat approver is named with their app instead: "Maya Chen · Slack approved · 10:42" (in the Done tab "Maya Chen · Slack approved deleting notes/a.md") |
 | Multi-approver approved | "Alex Kim and Maya Chen approved {ing} · 11:02" |
 | Multi-approver denied | "Alex Kim denied {ing} · “Not before the freeze ends” · 10:40" |
-| Expired | "Expired: Bothy didn't {ask}" (close, muted) |
+| Expired | "Expired: Bothy didn't {ask}" (close, muted). On a task's "What Bothy did": "Nobody answered, so Bothy didn't {ask}", or for a multi-approver request with some approvals "Only 1 of 2 approvals came in, so Bothy didn't {ask}" (its Details: "Not enough approvals came in time") |
 | Cancelled | "Cancelled: Bothy didn't {ask}" when the chat was stopped (the "You stopped Bothy." notice gives the reason), e.g. "Cancelled: Bothy didn't send a message to #ops · 9:47 PM · Show" / "Cancelled by {requester}" for a withdrawn request ("Cancelled by you" for the viewer). A multi-approver request its requester withdraws is stored as denied by their vote, and so is a request someone in a chat app withdraws with "Cancel request"; every surface (chat, inbox, task detail, Releases, chat-app cards) still says "Cancelled by {requester}", never "denied". |
 
 Chat apps (SPEC §5.9) edit a card to its decided line in place of the question, with ✓ or ✗ for the glyph and "You" for the approver who reads it: "✓ You approved deleting notes/staging.md.", "✗ Sam Patel denied deleting notes/staging.md in Slack." A pending chat card starts each warning with ⚠ for the alert glyph.

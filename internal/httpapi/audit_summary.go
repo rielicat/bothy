@@ -168,6 +168,11 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 		if d.str("status") == string(core.ApprovalParked) {
 			return "Kept waiting for approval to " + p.ask
 		}
+		if ap := an.approval(e.Target); ap != nil && ap.Approver.Multi() {
+			if votes, err := an.s.d.Store.Approvals().Votes(an.ctx, ap.ID); err == nil && core.AllowVotes(votes, ap.Approver) > 0 {
+				return "Didn't get enough approvals in time to " + p.ask
+			}
+		}
 		return "Nobody approved " + p.ing + " in time"
 	case "tool.exec":
 		p := actionPhrase(cmpOr(d.str("tool"), e.Target), an.toolAction(e.Run, d.str("fingerprint")))

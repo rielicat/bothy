@@ -101,9 +101,26 @@ func (r *Runner) ask(rs *runState, pc *pcall, rest []core.ToolCall) *runEnd {
 		r.updateRec(ctx, pc.rec)
 		return r.finishCall(rs, pc, r.execute(rs, pc), false)
 	case errors.Is(err, core.ErrApprovalExpired), errors.Is(err, core.ErrParked), waitCtx.Err() != nil:
-		return r.finishCall(rs, pc, textResult(core.TCDenied, approvalExpiry), false)
+		text := approvalExpiry
+		if a, gerr := r.d.Approvals.Get(ctx, core.SystemViewer(), appr.ID); gerr == nil {
+			text = expiredText(a, text, "this action did not run.")
+		}
+		return r.finishCall(rs, pc, textResult(core.TCDenied, text), false)
 	}
 	return r.finishCall(rs, pc, textResult(core.TCError, "Approval failed: "+r.redact(err.Error())), false)
+}
+
+// expiredText says that some approvers did approve a multi-approver
+// request that expired: "nobody answered" would blame the wrong people.
+func expiredText(a *core.Approval, nobody, outcome string) string {
+	if a == nil || !a.Approver.Multi() {
+		return nobody
+	}
+	n := core.AllowVotes(a.Votes, a.Approver)
+	if n == 0 {
+		return nobody
+	}
+	return fmt.Sprintf("Only %d of the %d approvals needed came in before the request expired, so %s", n, a.Approver.Needed(), outcome)
 }
 
 func allows(c core.Choice) bool {
@@ -373,7 +390,7 @@ const pausedParkedNotice = "Bothy is paused by an admin, so the task waiting for
 // endParked finishes a parked run whose approval expired or was cancelled
 // (or that cannot resume because Bothy is paused).
 func (r *Runner) endParked(ctx context.Context, run *core.Run, a *core.Approval) {
-	text := "Nobody approved in time, so Bothy stopped this task."
+	text := expiredText(a, "Nobody approved in time, so Bothy stopped this task.", "Bothy stopped this task.")
 	st := core.TCTimeout
 	switch {
 	case a.Status == core.ApprovalCancelled:

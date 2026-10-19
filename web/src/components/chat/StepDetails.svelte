@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { approvalsIn } from '../../lib/cardcopy';
   import { duration } from '../../lib/format';
   import CodeBlock from '../ui/CodeBlock.svelte';
   import DiffView from '../ui/DiffView.svelte';
@@ -29,7 +30,7 @@
       const who = people.name(a.decided_by);
       if (a.status === 'allowed') return `${who} approved it`;
       if (a.status === 'denied') return `${who} denied it`;
-      if (a.status === 'expired') return 'Nobody answered in time';
+      if (a.status === 'expired') return approvalsIn(a) ? 'Not enough approvals came in time' : 'Nobody answered in time';
       return 'The request was cancelled';
     }
     if (a) return 'Waiting for approval';

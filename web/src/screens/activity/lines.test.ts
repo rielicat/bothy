@@ -54,6 +54,20 @@ describe('task steps (docs/design/ui.md §10.2, §7.4)', () => {
   });
 });
 
+describe('an expired request', () => {
+  it('says how many approvals came in, not that nobody answered, when some did', () => {
+    const a = {
+      id: 'a',
+      status: 'expired',
+      approver: { user_id: '', admin_only: false, roles: ['admin'], required: 2, requester: 'usr_sam' },
+      votes: [{ approval_id: 'a', user_id: 'usr_priya', choice: 'allow_once', via: 'web', at: '' }],
+      action: { tool: 'release_deploy', payload: { repo: 'acme/web', environment: 'production' } },
+    } as unknown as Approval;
+    expect(text(decisionLine(a, '')!.segments)).toBe("Only 1 of 2 approvals came in, so Bothy didn't deploy acme/web to production");
+    expect(text(decisionLine({ ...a, votes: [] }, '')!.segments)).toBe("Nobody answered, so Bothy didn't deploy acme/web to production");
+  });
+});
+
 describe('audit lines (docs/design/ui.md §10.6)', () => {
   const names = new Map([['usr_01jalex', 'Alex Kim']]);
   const row = (action: string, extra: Partial<AuditEntry> = {}) => ({ id: 1, at: '', actor: 'system', action, target: '', outcome: 'ok', detail: {}, ...extra }) as AuditEntry;

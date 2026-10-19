@@ -790,6 +790,9 @@ export function requesterOf(ap: Approval, vv?: ApprovalVotes | null): string | u
  * multi-approver request their deny is the only vote they have (§8.5), so it
  * reads "Cancelled by …", never "denied".
  */
+/** Allow votes on a multi-approver request: an expired one that had some didn't go unanswered. */
+export const approvalsIn = (a: Approval) => ((a.approver?.required ?? 0) > 1 ? (a.votes ?? []).filter((v) => v.choice === 'allow_once').length : 0);
+
 export function withdrawn(ap: Approval): boolean {
   const r = ap.approver?.requester;
   if (ap.status !== 'denied' || !r) return false;

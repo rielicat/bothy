@@ -40,3 +40,49 @@ func TestAuditKeepsOtherPeoplesScheduleNamesPrivate(t *testing.T) {
 	}
 	expect(t, h.do("GET", "/api/audit", nil, h.member), http.StatusForbidden)
 }
+
+// A deploy request one approver approved before it expired didn't go
+// unanswered.
+func TestAuditExpiryCountsApprovalsThatCameIn(t *testing.T) {
+	h := newHarness(t).setup()
+	ctx := context.Background()
+	now := time.Now()
+	sess := &core.Session{ID: core.SessionID(core.NewID(core.PrefixSession)), Principal: core.UserPrincipal(h.member.user), Origin: "web", CreatedAt: now, UpdatedAt: now}
+	if err := h.store.Sessions().Create(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+	run := &core.Run{ID: core.RunID(core.NewID(core.PrefixRun)), Session: sess.ID, Principal: sess.Principal, User: h.member.user, Trigger: core.TrigMessage, Status: core.RunDone, CreatedAt: now}
+	if err := h.store.Runs().Create(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	req := core.ApproverReq{Roles: []core.Role{core.RoleAdmin}, Required: 2, Requester: h.member.user}
+	act := &core.Action{Tool: "release_deploy", Kind: core.ActGeneric, SideEffect: core.SEIrreversible, Payload: []byte(`{"environment":"production","ref":"main","repo":"acme/web"}`)}
+	mk := func(votes ...core.UserID) core.ApprovalID {
+		a := &core.Approval{ID: core.ApprovalID(core.NewID(core.PrefixApproval)), Run: run.ID, Session: sess.ID, Principal: sess.Principal, ToolCallID: "c1",
+			Action: act, Decision: core.Decision{Verdict: core.VerdictAsk, Approver: req, Choices: []core.Choice{core.AllowOnce, core.Deny}},
+			Card: core.Card{Title: "Deploy", Risk: core.SEIrreversible, Choices: []core.Choice{core.AllowOnce, core.Deny}}, Status: core.ApprovalPending,
+			Approver: req, OnTimeout: core.TimeoutDeny, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}
+		if err := h.store.Approvals().Create(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+		for _, u := range votes {
+			if err := h.store.Approvals().AddVote(ctx, core.ApprovalVote{Approval: a.ID, User: u, Choice: core.AllowOnce, Via: "web", At: now}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		e := core.AuditEntry{At: now, Actor: "system", Action: "approval.expire", Target: string(a.ID), Outcome: "ok", Detail: json.RawMessage(`{}`)}
+		if _, err := h.store.Audit().Append(ctx, &e, make([]byte, 32), make([]byte, 32)); err != nil {
+			t.Fatal(err)
+		}
+		return a.ID
+	}
+	partly, none := mk(h.admin.user), mk()
+	rows := decodeAs[dto.List[dto.AuditRow]](t, h.do("GET", "/api/audit?action=approval.expire", nil, h.owner))
+	got := map[string]string{}
+	for _, r := range rows.Items {
+		got[r.Target] = r.Summary
+	}
+	if !strings.HasPrefix(got[string(partly)], "Didn't get enough approvals in time to ") || !strings.HasPrefix(got[string(none)], "Nobody approved ") {
+		t.Fatalf("summaries = %q", got)
+	}
+}

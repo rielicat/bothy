@@ -32,3 +32,19 @@ func TestTurnedOffAccountsTurnDoesNotRun(t *testing.T) {
 		}
 	})
 }
+
+// An approver who did approve a request that then expired is not "nobody".
+func TestExpiredTextCountsApprovalsThatCameIn(t *testing.T) {
+	req := core.ApproverReq{Roles: []core.Role{core.RoleAdmin}, Required: 2, Requester: "usr_sam"}
+	a := &core.Approval{Approver: req, Votes: []core.ApprovalVote{{User: "usr_priya", Choice: core.AllowOnce}, {User: "usr_sam", Choice: core.AllowOnce}}}
+	if got := expiredText(a, approvalExpiry, "this action did not run."); got != "Only 1 of the 2 approvals needed came in before the request expired, so this action did not run." {
+		t.Fatalf("partly approved = %q", got)
+	}
+	a.Votes = nil
+	if got := expiredText(a, approvalExpiry, "x"); got != approvalExpiry {
+		t.Fatalf("unanswered = %q", got)
+	}
+	if got := expiredText(&core.Approval{Approver: core.ApproverReq{User: "usr_sam"}}, approvalExpiry, "x"); got != approvalExpiry {
+		t.Fatalf("single approver = %q", got)
+	}
+}
