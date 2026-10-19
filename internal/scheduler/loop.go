@@ -595,19 +595,27 @@ func (s *Service) disabled(ctx context.Context, n notice) {
 
 // webNotice adds msg as a notice to the chat where an account reads how its
 // schedule's tasks went: the last task's, else the one its tick made. A tick
-// that failed before making one gets a new chat, so the notice still arrives.
+// that failed before making one, or a chat the account has since deleted,
+// gets a new chat, so the notice still arrives.
 func (s *Service) webNotice(ctx context.Context, n notice, msg string) {
-	ses := n.session
-	if ses == "" {
-		target, err := s.targetSession(ctx, n.sc, s.clock.Now())
+	now := s.clock.Now()
+	run := n.run
+	var chat *core.Session
+	if n.session != "" {
+		if c, err := s.store.Sessions().Get(ctx, core.SystemViewer(), n.session); err == nil && !c.Archived {
+			chat = c
+		}
+	}
+	if chat == nil {
+		c, err := s.targetSession(ctx, n.sc, now)
 		if err != nil {
 			s.log.Warn("scheduler: notify owner", "schedule", n.sc.ID, "err", err)
 			return
 		}
-		ses = target.ID
+		// The notice no longer sits beside that task's messages.
+		chat, run = c, ""
 	}
-	now := s.clock.Now()
-	m := &core.Message{Session: ses, Run: n.run, Role: core.MsgAssistant, Kind: core.KindNotice, Provenance: core.ProvSystem,
+	m := &core.Message{Session: chat.ID, Run: run, Role: core.MsgAssistant, Kind: core.KindNotice, Provenance: core.ProvSystem,
 		Parts: []core.Part{{Type: core.PartText, Text: msg}}, CreatedAt: now}
 	if err := s.store.Messages().Append(ctx, m); err != nil {
 		s.log.Warn("scheduler: notify owner", "schedule", n.sc.ID, "err", err)
@@ -615,14 +623,14 @@ func (s *Service) webNotice(ctx context.Context, n notice, msg string) {
 	}
 	// A chat with only this notice was never written in: without a time it
 	// would sort below every other chat.
-	if chat, err := s.store.Sessions().Get(ctx, core.SystemViewer(), ses); err == nil && chat.LastMessageAt.IsZero() {
+	if chat.LastMessageAt.IsZero() {
 		chat.LastMessageAt, chat.UpdatedAt = now, now
 		if err := s.store.Sessions().Update(ctx, chat); err != nil {
 			s.log.Warn("scheduler: notify owner", "schedule", n.sc.ID, "err", err)
 		}
 	}
 	if s.bus != nil {
-		s.bus.Publish(core.Event{Type: core.EvMessageCreated, Principal: n.sc.Principal, Session: ses, Run: n.run, Data: core.MessageData{Message: m}})
+		s.bus.Publish(core.Event{Type: core.EvMessageCreated, Principal: n.sc.Principal, Session: chat.ID, Run: run, Data: core.MessageData{Message: m}})
 	}
 }
 

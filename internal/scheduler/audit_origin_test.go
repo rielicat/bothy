@@ -148,3 +148,50 @@ func TestAccountHearsItsScheduleWasTurnedOffWithoutATask(t *testing.T) {
 		})
 	}
 }
+
+// Deleting the failed task's chat archives it, where nobody reads: the notice
+// goes to a new chat instead.
+func TestAccountHearsItsScheduleWasTurnedOffAfterDeletingTheChat(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t)
+		ctx := context.Background()
+		sleepUntil(utc(2026, 10, 12, 10, 0))
+		sc := h.upsert(&core.Schedule{Name: "Morning brief", Kind: core.SchedCron, Spec: "*/10 * * * *", TZ: "UTC", Prompt: "x", Enabled: true})
+		stop := h.start()
+		defer stop()
+		var gone core.SessionID
+		for range maxFailures {
+			time.Sleep(10 * time.Minute)
+			synctest.Wait()
+			fs := h.runner.all()
+			last := fs[len(fs)-1]
+			gone = last.req.Session
+			if err := h.store.Sessions().Archive(ctx, h.viewer(), gone); err != nil {
+				t.Fatal(err)
+			}
+			h.finish(last.run, core.RunFailed)
+			synctest.Wait()
+		}
+		if got := h.get(sc.ID); got.Enabled {
+			t.Fatalf("not turned off: %+v", got)
+		}
+		if msgs, err := h.store.Messages().Range(ctx, core.SystemViewer(), gone, 0, 0); err != nil || len(msgs) != 0 {
+			t.Fatalf("deleted chat got %+v (%v)", msgs, err)
+		}
+		chats, err := h.store.Sessions().List(ctx, h.viewer(), core.SessionFilter{NonEmpty: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(chats) != 1 || chats[0].ID == gone || chats[0].Title != "Morning brief · 2026-10-12" {
+			t.Fatalf("chats = %+v", chats)
+		}
+		msgs, err := h.store.Messages().Range(ctx, h.viewer(), chats[0].ID, 0, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(msgs) != 1 || msgs[0].Kind != core.KindNotice || msgs[0].Run != "" ||
+			msgs[0].PlainText() != "The schedule “Morning brief” was turned off because its last 3 tasks failed. Turn it back on under Schedules once it's fixed." {
+			t.Fatalf("messages = %+v", msgs)
+		}
+	})
+}
