@@ -133,7 +133,7 @@ describe('Connections overview (§12.1)', () => {
   it('keeps web search first and ends Tools with the add button when no servers exist', async () => {
     await start((m, url) => (m === 'GET' && url === '/api/mcp' ? [] : undefined));
     render(Connections);
-    const empty = await screen.findByText('No tools connected.');
+    const empty = await screen.findByText('No other tools connected.');
     const search = screen.getByText('Web search');
     expect(search.compareDocumentPosition(empty) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getAllByRole('button', { name: 'Add an MCP server' })).toHaveLength(1);

@@ -2359,7 +2359,7 @@ One sentence in `text-reading text`, an optional second sentence in `muted`, the
 | Releases | "No deploys yet. Ask Bothy in a chat, for example “Deploy main to staging”." | — |
 | Spending | "Nothing spent in this period." | — |
 | Audit log, filtered | "Nothing matches these filters." | Clear filters |
-| Connections → Tools | "No tools connected. MCP servers let Bothy use other services, like Linear or your database." | Add an MCP server |
+| Connections → Tools | "No other tools connected. MCP servers let Bothy use other services, like Linear or your database." ("other": the Web search row sits right above it, and may be on) | Add an MCP server |
 | Deploy environments | "No deploy environments yet. Add one so Bothy can deploy with approval." | Add environment |
 | People (owner only) | "It's just you so far. Add people so they get their own sign-in." ("Only you sign in to Bothy on the web. …" when people use Bothy in chat apps) | Add person |
 | People → In chat apps | "Nobody uses Bothy in a chat app yet." + "Message Bothy in Slack or Telegram to appear here. On Telegram, let yourself in from Approvals first." (no chat app connected: "No chat app is connected yet.") | Open Approvals (Telegram or Discord connected) / Connect a chat app |
