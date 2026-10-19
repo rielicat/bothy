@@ -52,9 +52,15 @@ func (m *Manager) Install(ctx context.Context, name string, by core.UserID) erro
 		return fmt.Errorf("mcp server %s: install already running: %w", name, core.ErrConflict)
 	}
 	s.installing = true
+	// An admin's own try starts the backoff afresh.
+	s.retries, s.retryAt = 0, time.Time{}
 	s.mu.Unlock()
 	s.setState(m.clock.Now(), stInstalling, "")
-	if !m.spawn(func(ctx context.Context) { m.install(ctx, s, by) }) {
+	if !m.spawn(func(ctx context.Context) {
+		s.op.Lock()
+		defer s.op.Unlock()
+		m.installLocked(ctx, s, by)
+	}) {
 		s.mu.Lock()
 		s.installing = false
 		s.mu.Unlock()
@@ -64,36 +70,73 @@ func (m *Manager) Install(ctx context.Context, name string, by core.UserID) erro
 	return nil
 }
 
-func (m *Manager) install(ctx context.Context, s *server, by core.UserID) {
-	s.op.Lock()
-	defer s.op.Unlock()
+// retryInstall installs again a server whose last install failed or was cut
+// short, when discovery finds it so: at start-up, when the server is turned on
+// again, when the sandbox comes back and when its backoff ends. Callers hold
+// s.op. It reports false when an admin's install is about to run instead.
+func (m *Manager) retryInstall(ctx context.Context, s *server) bool {
+	s.mu.Lock()
+	busy := s.installing
+	s.installing = true
+	s.mu.Unlock()
+	if busy {
+		return false
+	}
+	m.installLocked(ctx, s, "")
+	return true
+}
+
+// installLocked runs an install, by an admin or (by == "") automatically.
+// Callers hold s.op and have set s.installing. A failed install is tried
+// again with the discovery backoff (1 minute doubling to 30), unless what was
+// fetched doesn't match its pins: fetching again would bring the same.
+func (m *Manager) installLocked(ctx context.Context, s *server, by core.UserID) {
 	s.setState(m.clock.Now(), stInstalling, "")
 	m.closeInstances(s)
 	in, err := m.runInstall(ctx, s)
 	// Cleared before the final state is set, so whoever sees the install end
-	// may start the next one; op still serialises them. A failed install is
-	// not retried on its own, unlike a failed discovery.
+	// may start the next one; op still serialises them.
 	s.mu.Lock()
 	s.installing = false
-	s.retries, s.retryAt = 0, time.Time{}
 	s.mu.Unlock()
+	actor := "system"
+	if by != "" {
+		actor = "user:" + string(by)
+	}
 	detail := map[string]any{"ecosystem": s.spec.pkg.Ecosystem, "package": s.spec.pkg.Name, "version": s.spec.pkg.Version}
 	if in != nil {
 		detail["install_id"], detail["tree_hash"], detail["lock_hash"] = in.InstallID, in.TreeHash, in.LockHash
 	}
 	if err != nil {
 		detail["error"] = err.Error()
-		m.record(ctx, "user:"+string(by), "mcp.install", s.name, "error", detail)
+		m.record(ctx, actor, "mcp.install", s.name, "error", detail)
 		m.log.Warn("mcp install failed", "server", s.name, "err", err)
+		var mm mismatch
+		if errors.As(err, &mm) || ctx.Err() != nil {
+			s.mu.Lock()
+			s.retries, s.retryAt = 0, time.Time{}
+			s.mu.Unlock()
+		} else {
+			s.failed(m.clock.Now())
+		}
 		s.setState(m.clock.Now(), stError, "install failed: "+err.Error())
-		s.setCode("not_installed")
+		s.setCode("install_failed")
 		return
 	}
-	m.record(ctx, "user:"+string(by), "mcp.install", s.name, "ok", detail)
+	s.mu.Lock()
+	s.retries, s.retryAt = 0, time.Time{}
+	s.mu.Unlock()
+	m.record(ctx, actor, "mcp.install", s.name, "ok", detail)
 	m.removeOldTrees(s, in.InstallID)
 	m.setDrifted(s, false)
 	m.discoverLocked(ctx, s)
 }
+
+// mismatch marks an install whose package or lock doesn't match what it is
+// pinned to.
+type mismatch struct{ error }
+
+func (e mismatch) Unwrap() error { return e.error }
 
 func (m *Manager) runInstall(ctx context.Context, s *server) (*core.MCPInstall, error) {
 	spec := s.spec
@@ -182,12 +225,12 @@ func (m *Manager) installTree(ctx context.Context, s *server, in *core.MCPInstal
 			return err
 		}
 		if err := checkNPMLock(lock, spec.pkg.Name, spec.pkg.Version, spec.pkg.Integrity); err != nil {
-			return err
+			return mismatch{err}
 		}
 		// npm ci never writes the lock, so any difference means the tree was
 		// not installed from the lock recorded on first install.
 		if recorded != nil && !bytes.Equal(lock, recorded) {
-			return fmt.Errorf("%s differs from the lock recorded on first install", npmLockFile)
+			return mismatch{fmt.Errorf("%s differs from the lock recorded on first install", npmLockFile)}
 		}
 	}
 	sum, err := treehash.SumRoot(root)
@@ -207,7 +250,7 @@ func (m *Manager) installNPM(ctx context.Context, box string, root *os.Root, spe
 	argv := []string{"npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", "--save-exact", "--prefix", "/opt/mcp", name + "@" + version}
 	if lock != nil {
 		if err := checkNPMLock(lock, name, version, spec.pkg.Integrity); err != nil {
-			return fmt.Errorf("recorded lock: %w", err)
+			return mismatch{fmt.Errorf("recorded lock: %w", err)}
 		}
 		manifest["dependencies"] = map[string]string{name: version}
 		if err := root.WriteFile(npmLockFile, lock, 0o660); err != nil {
@@ -270,7 +313,7 @@ func (m *Manager) installPyPI(ctx context.Context, box string, root *os.Root, sp
 		return nil, err
 	}
 	if err := checkPyPILock(lock, spec.pkg.Name, spec.pkg.Version, spec.pkg.Integrity); err != nil {
-		return nil, err
+		return nil, mismatch{err}
 	}
 	if err := m.installExec(ctx, box, []string{"uv", "pip", "install", "--python", "python3", "--no-deps", "--require-hashes",
 		"-r", "/opt/mcp/" + pypiLockFile, "--target", "/opt/mcp"}); err != nil {

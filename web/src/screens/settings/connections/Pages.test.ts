@@ -231,6 +231,19 @@ describe('MCP server page (§12.4)', () => {
     if (write) await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual([write]));
   });
 
+  it('says when Bothy tries a failed install again, and still offers to install now', async () => {
+    const retry = new Date(Date.now() + 4 * 60_000 + 10_000).toISOString();
+    const calls = await start((m, url) =>
+      m === 'GET' && url === '/api/mcp'
+        ? [{ name: 'notes', transport: 'stdio', state: 'error', code: 'install_failed', retry_at: retry, protocol: '', tools: 0, pending: 0, since: '', error: 'install failed: npm install exited 1' }]
+        : undefined,
+    );
+    render(McpServer, { params: { item: 'mcp-notes' } });
+    expect(await screen.findByText("Can't start: it couldn't be installed. Bothy tries again in 4 min.")).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Install' }));
+    await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['POST /api/mcp/notes/install']));
+  });
+
   it('removes the saved key the Add dialog made along with the server', async () => {
     const calls = await start();
     render(McpServer, { params: { item: 'mcp-linear' } });

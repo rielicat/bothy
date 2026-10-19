@@ -85,8 +85,12 @@ func (s *server) setCode(code string) {
 func (s *server) status() core.MCPStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return core.MCPStatus{Name: s.name, Transport: s.raw.Transport, State: s.state, Protocol: s.protocol, Err: s.err, Code: s.code,
+	st := core.MCPStatus{Name: s.name, Transport: s.raw.Transport, State: s.state, Protocol: s.protocol, Err: s.err, Code: s.code,
 		Tools: s.tools, Pending: s.pending, Since: s.since}
+	if s.state == stError {
+		st.RetryAt = s.retryAt
+	}
+	return st
 }
 
 func (s *server) isRemoved() bool {

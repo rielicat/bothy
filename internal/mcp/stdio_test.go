@@ -42,16 +42,26 @@ type installer struct {
 	integrity string
 	gate      chan struct{}
 
-	mu     sync.Mutex
-	argvs  [][]string
-	ciLock string // when set, "npm ci" rewrites package-lock.json with it
+	mu      sync.Mutex
+	argvs   [][]string
+	ciLock  string // when set, "npm ci" rewrites package-lock.json with it
+	offline bool   // the registry can't be reached: every command fails
+}
+
+func (in *installer) setOffline(v bool) {
+	in.mu.Lock()
+	in.offline = v
+	in.mu.Unlock()
 }
 
 func (in *installer) exec(ctx context.Context, key string, req core.ExecRequest) (*core.ExecResult, error) {
 	in.mu.Lock()
 	in.argvs = append(in.argvs, slices.Clone(req.Argv))
-	gate, ciLock := in.gate, in.ciLock
+	gate, ciLock, offline := in.gate, in.ciLock, in.offline
 	in.mu.Unlock()
+	if offline {
+		return &core.ExecResult{Exit: 1, Stderr: []byte("npm ERR! network request to registry.npmjs.org failed")}, nil
+	}
 	if gate != nil {
 		select {
 		case <-gate:
@@ -456,6 +466,85 @@ func TestStdioIntegrityMismatchFailsInstall(t *testing.T) {
 	if f := h.m.Checks()[0].Run(context.Background()); len(f) != 0 {
 		t.Fatalf("pending findings = %+v", f)
 	}
+	// Fetching again would bring the same package: no retry is scheduled.
+	if st.Code != "install_failed" || !st.RetryAt.IsZero() {
+		t.Fatalf("status of a package that doesn't match its pins = %+v", st)
+	}
+	n := len(in.commands())
+	h.m.retryDiscovery(h.clock.Now().Add(time.Hour))
+	time.Sleep(50 * time.Millisecond)
+	if len(in.commands()) != n {
+		t.Fatal("an install refused for its pins was retried on its own")
+	}
+}
+
+// A failed install is tried again on its own, 1 minute then doubling, and
+// the status says when; the server is ready once the registry is back.
+func TestFailedInstallIsRetriedWithBackoff(t *testing.T) {
+	h, in, _ := newStdioHarness(t, notesCfg())
+	in.setOffline(true)
+	h.start()
+	h.install("notes")
+	now := h.clock.Now()
+	st := h.status("notes")
+	if st.State != stError || st.Code != "install_failed" || !strings.Contains(st.Err, "network") || !st.RetryAt.Equal(now.Add(time.Minute)) {
+		t.Fatalf("status after a failed install = %+v", st)
+	}
+	n := len(in.commands())
+	h.m.retryDiscovery(now.Add(30 * time.Second))
+	time.Sleep(50 * time.Millisecond)
+	if len(in.commands()) != n {
+		t.Fatal("install retried before its backoff")
+	}
+	h.m.retryDiscovery(now.Add(time.Minute))
+	h.waitFor("second failed install", func() bool { return h.status("notes").RetryAt.Equal(now.Add(2 * time.Minute)) })
+	if len(in.commands()) != n+1 {
+		t.Fatalf("commands after one retry: %q", in.commands())
+	}
+
+	in.setOffline(false)
+	h.m.retryDiscovery(now.Add(2 * time.Minute))
+	h.waitFor("installed", func() bool { return h.status("notes").State == stPinsPending })
+	if st := h.status("notes"); !st.RetryAt.IsZero() || st.Code != "" {
+		t.Fatalf("status once installed = %+v", st)
+	}
+	audit := h.auditActions("mcp.install")
+	if len(audit) != 3 || audit[0].Actor != "user:"+string(admin) || audit[1].Actor != "system" || audit[2].Actor != "system" || audit[2].Outcome != "ok" {
+		t.Fatalf("install audit = %+v", audit)
+	}
+}
+
+// A server whose last install failed is installed again as soon as it is
+// turned on again, or running code comes back, without waiting for its
+// backoff or an admin.
+func TestFailedInstallIsRetriedWhenTurnedOnAgain(t *testing.T) {
+	cfg := notesCfg()
+	h, in, _ := newStdioHarness(t, cfg)
+	in.setOffline(true)
+	h.start()
+	h.install("notes")
+	if st := h.status("notes"); st.Code != "install_failed" {
+		t.Fatalf("status = %+v", st)
+	}
+	in.setOffline(false)
+	off := cfg
+	off.Enabled = new(false)
+	h.m.applyConfig([]config.MCPServer{off}, true)
+	h.m.applyConfig([]config.MCPServer{cfg}, true)
+	h.waitFor("installed", func() bool { return h.status("notes").State == stPinsPending })
+
+	h, in, _ = newStdioHarness(t, cfg)
+	in.setOffline(true)
+	h.start()
+	h.install("notes")
+	if st := h.status("notes"); st.Code != "install_failed" {
+		t.Fatalf("status = %+v", st)
+	}
+	in.setOffline(false)
+	h.sb.SetStatus(core.SandboxStatus{Backend: "none"})
+	h.waitFor("no sandbox", func() bool { return h.status("notes").State == stNoSandbox })
+	h.sb.SetStatus(core.SandboxStatus{Backend: "fake", Available: true})
+	h.waitFor("installed once the sandbox is back", func() bool { return h.status("notes").State == stPinsPending })
 }
 
 func TestPyPIInstall(t *testing.T) {

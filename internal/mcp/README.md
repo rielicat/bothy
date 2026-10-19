@@ -36,9 +36,11 @@ created so a stale box is never reused: `Install` (async) builds
 `mcp/<server>/<install_id>` in an installer box limited to the package
 registry (`npm install|ci --ignore-scripts`, `uv pip compile --generate-hashes`
 then `install --require-hashes`), verifies the integrity, records the lock
-(TOFU; a reinstall must reproduce it exactly) and the tree hash; discovery
-re-hashes the tree (drift: install `drifted`, server disabled, banner
-`mcp_drifted`) and lists tools from a short-lived discovery box. Runtime
+(TOFU; a reinstall must reproduce it exactly) and the tree hash. A failed
+install is retried with the discovery backoff, and at once when a discovery
+finds it failed (start, re-enable, sandbox back), but not when the package or
+lock doesn't match its pins. Discovery re-hashes the tree (drift: install
+`drifted`, server disabled, banner `mcp_drifted`) and lists tools from a short-lived discovery box. Runtime
 instances are per (server, principal), started lazily over `Sandbox.Stdio`,
 read-only tree, server egress list, `NoGrants`, no secrets, stopped after 10
 minutes idle and restarted with 1 s → 60 s backoff. Cancelled calls send

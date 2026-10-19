@@ -8,7 +8,7 @@
   import { plural } from '../../../lib/format';
   import { router } from '../../../lib/router.svelte';
   import ConnPage from './ConnPage.svelte';
-  import { effects, saveConfig, serverTitle, toolProblem, type Failure } from './connections';
+  import { effects, retryText, saveConfig, serverTitle, toolProblem, type Failure } from './connections';
   import Loading from './Loading.svelte';
 
   let { params }: { params: Record<string, string> } = $props();
@@ -46,6 +46,15 @@
       view = 'loading';
       void load().then(() => router.query.get('review') === '1' && pending.length && openReview());
     });
+  });
+
+  // Installs, discovery and retries end in the background: look again until they do.
+  $effect(() => {
+    const busy = status?.state === 'installing' || status?.state === 'connecting';
+    const at = status?.retry_at;
+    if (!busy && !at) return;
+    const t = setTimeout(load, busy ? 3000 : Math.max(5000, Date.parse(at!) - Date.now() + 5000));
+    return () => clearTimeout(t);
   });
 
   const off = $derived(status ? status.state === 'disabled' && !status.code : !enabled);
@@ -120,6 +129,7 @@
       case 'private_address':
         return { label: `Allow ${hostOf(config.value(`mcp.servers.${name}.url`, ''))}`, onclick: allowPrivate };
       case 'not_installed':
+      case 'install_failed':
         return { label: 'Install', onclick: install };
       case 'key_missing':
       case 'key_locked':
@@ -192,7 +202,7 @@
         {:else if !status || status.state === 'connecting' || status.state === 'installing'}
           <StatusLine tone="progress" text={status?.state === 'installing' ? 'Installing…' : 'Connecting…'} />
         {:else if status.state === 'error' || status.state === 'no_sandbox' || status.state === 'disabled'}
-          <StatusLine tone="danger" text="Can't start: {toolProblem(status)}." details={status.error} action={fix} />
+          <StatusLine tone="danger" text="Can't start: {toolProblem(status)}.{retryText(status)}" details={status.error} action={fix} />
         {:else if pending.length}
           <StatusLine
             tone="warning"

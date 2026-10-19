@@ -2249,6 +2249,12 @@ export interface SystemDest {
    * Cloud metadata addresses stay blocked.
    */
   AllowPrivate: boolean;
+  /**
+   * PrivateOnly refuses every public address: a plain-http destination
+   * that sends a key may reach only the admin's own network, whatever its
+   * name resolves to. It admits nothing AllowPrivate doesn't.
+   */
+  PrivateOnly: boolean;
 }
 /**
  * EgressBinding carries what the proxy needs to log a connection and, for an
@@ -2311,12 +2317,17 @@ export interface MCPStatus {
    * it uses doesn't exist), key_locked (the saved keys are locked),
    * key_rejected (the server answered 401 or 403), private_address
    * (needs allow_private), not_installed (a command server to install or
-   * reinstall); "" otherwise.
+   * reinstall), install_failed (its install failed); "" otherwise.
    */
   code?: string;
   tools: number /* int */;
   pending: number /* int */;
   since: string /* RFC 3339 */;
+  /**
+   * RetryAt is when Bothy tries again on its own after a failed discovery
+   * or install (State error); zero when it won't.
+   */
+  retry_at?: string /* RFC 3339 */;
 }
 export interface MCPToolApproval {
   side_effect: SideEffect;

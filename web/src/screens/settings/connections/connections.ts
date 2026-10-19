@@ -50,7 +50,15 @@ const toolCodes: Record<string, string> = {
   key_locked: "Bothy's saved keys are locked",
   private_address: 'its address is on a private network',
   not_installed: 'it needs to be installed',
+  install_failed: "it couldn't be installed",
 };
+
+/** " Bothy tries again in 4 min." while Bothy will try again on its own (MCPStatus.retry_at), else ''. */
+export function retryText(s: MCPStatus, now = Date.now()): string {
+  if (!s.retry_at) return '';
+  const min = Math.round((Date.parse(s.retry_at) - now) / 60_000);
+  return min >= 1 ? ` Bothy tries again in ${min} min.` : ' Bothy tries again in a moment.';
+}
 
 /** Why an MCP server can't run, as the end of "Can't start: …". "Server" means Bothy's own host only, so a remote tool is named. */
 export function toolProblem(s: MCPStatus): string {

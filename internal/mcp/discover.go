@@ -15,7 +15,10 @@ import (
 	"github.com/rielicat/bothy/internal/skills/treehash"
 )
 
-var errDrifted = errors.New("install tree changed on disk since it was installed (drifted); reinstall to re-enable")
+var (
+	errDrifted       = errors.New("install tree changed on disk since it was installed (drifted); reinstall to re-enable")
+	errInstallFailed = errors.New("the last install didn't finish")
+)
 
 // discover lists the server's tools through a short-lived session (for
 // stdio, a discovery box with no workspace that is destroyed afterwards),
@@ -48,6 +51,9 @@ func (m *Manager) discoverLocked(ctx context.Context, s *server) {
 	switch s.spec.transport {
 	case "stdio":
 		c, err = m.discoverStdio(dctx, s)
+		if errors.Is(err, errInstallFailed) && m.retryInstall(ctx, s) {
+			return
+		}
 	default:
 		// Without a shared key, the tools are listed without that header:
 		// each person's own key then makes their calls.
@@ -111,9 +117,10 @@ func (m *Manager) verifyInstall(ctx context.Context, s *server) (*core.MCPInstal
 		m.setDrifted(s, true)
 		return nil, errDrifted
 	case in.Status != "ready":
-		return nil, fmt.Errorf("%w: last install is %s %s", errNotInstalled, in.Status, in.Error)
+		// failed, or installing when a restart cut it short.
+		return nil, fmt.Errorf("%w: %w: %s", errNotInstalled, errInstallFailed, in.Error)
 	case in.Version != s.spec.pkg.Version:
-		return nil, fmt.Errorf("installed version %s differs from the configured %s; run Install", in.Version, s.spec.pkg.Version)
+		return nil, fmt.Errorf("%w: installed version %s differs from the configured %s; run Install", errNotInstalled, in.Version, s.spec.pkg.Version)
 	}
 	sum, err := treehash.Sum(filepath.Join(m.d.WorkDir, filepath.FromSlash(s.spec.installTree(in.InstallID))))
 	if err != nil || sum != in.TreeHash {
