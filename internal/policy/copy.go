@@ -630,27 +630,28 @@ func humanLabel(k string) string {
 // approves someone else's schedule: a teammate's direct messages, the
 // channel itself, or only the web for an account.
 func deliverText(doc any) string {
-	d, ok := mustPointer(doc, "/deliver").(map[string]any)
-	if !ok {
-		owner, _ := mustPointer(doc, "/owner").(string)
-		usual, _ := mustPointer(doc, "/usual_chat").(string)
-		kind, _ := mustPointer(doc, "/owner_kind").(string)
-		switch {
-		case owner == "" || usual == "":
-			return "Bothy on the web"
-		case kind == string(core.PrincipalPerson):
-			return owner + "'s messages on " + appName(usual)
-		case kind == string(core.PrincipalSpace):
-			return owner + " on " + appName(usual)
+	owner, _ := mustPointer(doc, "/owner").(string)
+	kind, _ := mustPointer(doc, "/owner_kind").(string)
+	app, _ := mustPointer(doc, "/usual_chat").(string)
+	if d, ok := mustPointer(doc, "/deliver").(map[string]any); ok {
+		// A set chat is always the principal's own (scheduler.checkDeliver),
+		// so it reads like the usual one, never as a chat id.
+		app, _ = d["channel"].(string)
+		if app == "web" {
+			app = ""
 		}
-		return "Bothy on the web"
 	}
-	ch, _ := d["channel"].(string)
-	if ch == "web" || ch == "" {
+	switch {
+	case app == "":
 		return "Bothy on the web"
+	case owner != "" && kind == string(core.PrincipalPerson):
+		return owner + "'s messages on " + appName(app)
+	case owner != "" && kind == string(core.PrincipalSpace):
+		return owner + " on " + appName(app)
+	case owner == "":
+		return "a chat on " + appName(app)
 	}
-	id, _ := d["chat_id"].(string)
-	return appName(ch) + " chat " + id
+	return "Bothy on the web"
 }
 
 // chatName names the chat a message goes to in a question.
