@@ -846,9 +846,11 @@ func TestAdminEndpoints(t *testing.T) {
 		}
 	}
 	ctx := context.Background()
-	oa, _ := h.auth.FromCookie(ctx, h.owner.cookie)
-	_, _, _ = h.auth.CreateToken(ctx, oa, core.TokenSpec{Name: "old", Scopes: []string{"read"}, TTL: time.Nanosecond})
-	time.Sleep(2 * time.Millisecond)
+	old := &core.TokenRecord{Name: "old", User: h.owner.user, SecretHash: []byte("0123456789abcdef0123456789abcdef"), Scopes: []string{"read"},
+		OnApproval: "deny", RatePerMin: 30, CreatedAt: time.Now().Add(-2 * time.Hour), Expires: time.Now().Add(-time.Hour)}
+	if err := h.store.Tokens().Create(ctx, old); err != nil {
+		t.Fatal(err)
+	}
 	rep := decodeAs[dto.DoctorReport](t, h.do("POST", "/api/security-audit", dto.SecurityAuditReq{Fix: true}, h.admin))
 	if !slices.Contains(rep.Fixed, "tokens.expired_unrevoked") {
 		t.Fatalf("security audit = %+v", rep)

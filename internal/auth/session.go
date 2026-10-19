@@ -70,9 +70,15 @@ func (s *Service) checkLogin(ctx context.Context, username, password, ip string)
 	} else {
 		s.hash.dummyHeld(password)
 	}
-	if !ok || u.Disabled {
+	if !ok {
 		s.loginFailed(ctx, u, username, ip, now)
 		return nil, errCredentials
+	}
+	// Only someone who knows the password learns the account is off, as
+	// with Google and GitHub sign-in; retrying it must not lock them out.
+	if u.Disabled {
+		s.record(ctx, "system", "auth.login_failed", userTarget(u.ID), "denied", map[string]any{"ip": ip, "method": "password", "reason": "disabled"})
+		return nil, errDisabled
 	}
 	s.locks.reset(ipKey)
 	s.locks.reset(nameKey)
