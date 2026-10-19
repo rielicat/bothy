@@ -146,7 +146,14 @@
                   {:else if st === 'stale'}
                     <LinkButton onclick={() => readAgain(r)}>Read again</LinkButton>
                   {:else}
-                    <LinkButton aria-expanded={!!details[r.repo]} aria-controls="why-{r.id}" onclick={() => (details = { ...details, [r.repo]: !details[r.repo] })}>Details</LinkButton>
+                    <!-- Muted like every Details: it opens the raw message, not an action. -->
+                    <button
+                      type="button"
+                      class="-my-0.5 inline-flex min-h-6 cursor-pointer items-center text-muted hover:text-text pointer-coarse:-my-3 pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:justify-center"
+                      aria-expanded={!!details[r.repo]}
+                      aria-controls="why-{r.id}"
+                      onclick={() => (details = { ...details, [r.repo]: !details[r.repo] })}>Details</button
+                    >
                   {/if}
                 </span>
               {/if}
