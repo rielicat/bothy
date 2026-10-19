@@ -45,6 +45,12 @@ func privateSchedule(own core.Viewer, e *core.AuditEntry) *core.AuditEntry {
 		return e
 	}
 	p, _ := d["principal_id"].(string)
+	// Rows the HTTP handler wrote before the scheduler wrote the one row
+	// name no principal: whoever acted is the best guess, and a team
+	// schedule another admin changed then reads "a schedule" too.
+	if u, ok := strings.CutPrefix(e.Actor, "user:"); ok && p == "" {
+		p = string(core.UserPrincipal(core.UserID(u)))
+	}
 	if !strings.HasPrefix(p, core.PrefixUser+"_") || own.Can(core.PrincipalID(p)) {
 		return e
 	}

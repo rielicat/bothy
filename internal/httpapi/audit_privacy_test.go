@@ -41,6 +41,32 @@ func TestAuditKeepsOtherPeoplesScheduleNamesPrivate(t *testing.T) {
 	expect(t, h.do("GET", "/api/audit", nil, h.member), http.StatusForbidden)
 }
 
+// Rows the handler wrote before the scheduler wrote the one row name no
+// principal; whoever made the change stands in for it.
+func TestAuditKeepsOlderScheduleRowsPrivate(t *testing.T) {
+	h := newHarness(t).setup()
+	ctx := context.Background()
+	row := func(by core.UserID, id string) {
+		e := core.AuditEntry{At: time.Now(), Actor: "user:" + string(by), Action: "schedule.create", Target: "schedule:" + id, Outcome: "ok",
+			Detail: json.RawMessage(`{"name":"plan-for-max","kind":"cron","grants":0}`)}
+		if _, err := h.store.Audit().Append(ctx, &e, make([]byte, 32), make([]byte, 32)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	row(h.member.user, "sch_old1")
+	row(h.admin.user, "sch_old2")
+	got := map[string]dto.AuditRow{}
+	for _, r := range decodeAs[dto.List[dto.AuditRow]](t, h.do("GET", "/api/audit?action=schedule.", nil, h.admin)).Items {
+		got[r.Target] = r
+	}
+	if theirs := got["schedule:sch_old1"]; theirs.Summary != "Created a schedule" || strings.Contains(string(theirs.Detail), "plan-for-max") {
+		t.Fatalf("another person's older schedule row = %q %s", theirs.Summary, theirs.Detail)
+	}
+	if mine := got["schedule:sch_old2"]; mine.Summary != "Created the schedule “plan-for-max”" {
+		t.Fatalf("own older schedule row = %q %s", mine.Summary, mine.Detail)
+	}
+}
+
 // A deploy request one approver approved before it expired didn't go
 // unanswered.
 func TestAuditExpiryCountsApprovalsThatCameIn(t *testing.T) {
