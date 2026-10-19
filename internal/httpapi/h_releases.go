@@ -71,8 +71,11 @@ func (s *Server) releases(w http.ResponseWriter, r *http.Request, a core.Actor) 
 		}
 		n := s.namer(ctx, a.Viewer)
 		out.Deploys = ownLinks(a.Viewer, n.deployViews(ds))
+		// Deploys are operational records an admin viewer reads in full
+		// (core.ReleaseRepo); what an environment runs is everyone's to see.
+		all := core.Viewer{User: a.User, Admin: true}
 		for i, e := range out.Environments {
-			ds, err := s.d.Deploys.List(ctx, core.SystemViewer(), core.DeployFilter{Environment: e.Name, Page: core.Page{Limit: releaseDeploysShown}})
+			ds, err := s.d.Deploys.List(ctx, all, core.DeployFilter{Environment: e.Name, Page: core.Page{Limit: releaseDeploysShown}})
 			if err != nil {
 				return err
 			}
