@@ -268,6 +268,22 @@ describe('Approvals inbox, other states', () => {
     expect(document.querySelector('[data-row^="i:"]')).toBeNull();
   });
 
+  it("links to the chat a decision came from only when it is the viewer's own", async () => {
+    const mine = recentApprovals.find((a) => a.session_id && a.principal_id)!;
+    const theirs = { ...mine, id: 'apr_theirs', principal_id: 'usr_someone_else', session_id: 'ses_theirs' };
+    calls = installApi({ override: (m, url) => (m === 'GET' && url.startsWith('/api/approvals?status=recent') ? { items: [mine, theirs] } : undefined) });
+    approvals.reset();
+    votes.reset();
+    await session.init();
+    session.me = { ...session.me!, user: { ...session.me!.user, id: mine.principal_id } };
+    router.navigate('/approvals?tab=done');
+    render(Approvals, { params: {} });
+    await screen.findAllByText((_, el) => el?.hasAttribute('data-decided') ?? false);
+    const hrefs = [...document.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+    expect(hrefs).toContain(`/chat/${mine.session_id}`);
+    expect(hrefs).not.toContain('/chat/ses_theirs');
+  });
+
   it('groups the Done tab by day, every line naming what was decided', async () => {
     await open('/approvals?tab=done');
     expect(await screen.findByRole('heading', { name: 'Today' })).toBeTruthy();

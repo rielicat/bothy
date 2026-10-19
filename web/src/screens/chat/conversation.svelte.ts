@@ -1,5 +1,5 @@
 import { untrack } from 'svelte';
-import { api, errorText } from '../../lib/api/client';
+import { api, ApiError, errorText } from '../../lib/api/client';
 import type {
   Approval,
   ApprovalData,
@@ -51,6 +51,8 @@ export class Conversation {
   hasMore = $state(false);
   loading = $state(true);
   error = $state('');
+  /** The server knows no such chat for this viewer (404), which no retry changes. */
+  missing = $state(false);
   live: LiveRun | null = $state(null);
   usage: UsageData | null = $state(null);
   preview: Breakdown | null = $state(null);
@@ -158,6 +160,7 @@ export class Conversation {
       if (!this.usage) this.preview = await api.get<Breakdown>(`${this.base}/context`).catch(() => null);
     } catch (e) {
       this.error = errorText(e);
+      this.missing = e instanceof ApiError && e.status === 404;
     } finally {
       this.loading = false;
     }

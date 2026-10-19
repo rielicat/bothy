@@ -620,6 +620,8 @@
       <NewChat onpick={(t) => composer?.fill(t)} />
     {:else if conv.loading}
       <p class="text-body text-muted" aria-busy="true">Loading…</p>
+    {:else if conv.missing}
+      <ChatNotice error text="This chat doesn't exist or was deleted." />
     {:else if conv.error}
       <ChatNotice error text="This chat didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: () => conv.load() }} details={conv.error} />
     {:else}

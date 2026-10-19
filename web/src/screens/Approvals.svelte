@@ -301,7 +301,8 @@
   {@const o = originOf(a)}
   {#if fromTeam(a)}
     {#if a.card?.context}<span data-copy-ignore>{a.card.context}</span>{/if}
-  {:else if a.session_id}
+  {:else if a.session_id && a.principal_id === session.me?.user.id}
+    <!-- Another person's chat would not open for the approver. -->
     {#if o.title}From{' '}{/if}<a
       class="link -my-0.5 inline-flex min-h-6 items-center pointer-coarse:-my-3 pointer-coarse:min-h-11"
       href="/chat/{encodeURIComponent(a.session_id)}"
