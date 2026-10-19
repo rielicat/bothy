@@ -63,7 +63,9 @@ func (m *Manager) discoverLocked(ctx context.Context, s *server) {
 		holder := m.discoveryKeyOf(ctx, s)
 		if a, err = m.resolveHTTP(dctx, s, "", true, holder); err == nil {
 			c, err = m.connectHTTP(dctx, s, a)
-			if err != nil && len(a.missing) > 0 {
+			// Only a server that answered may have refused for want of the
+			// header; one out of reach or not allowed says so itself.
+			if code := errCode(err); len(a.missing) > 0 && (code == "key_rejected" || err != nil && code == "" && core.TransportFailure(err) == "") {
 				err = &codedErr{code: "no_shared_key", err: fmt.Errorf("%w (sent without the header %s: no shared key has its name)", err, strings.Join(a.missing, ", "))}
 			}
 			if a.personal {

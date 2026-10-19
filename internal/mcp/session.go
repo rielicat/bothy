@@ -530,6 +530,9 @@ func (e *codedErr) Error() string { return e.err.Error() }
 func (e *codedErr) Unwrap() error { return e.err }
 
 func errCode(err error) string {
+	if err == nil {
+		return ""
+	}
 	var ce *codedErr
 	if errors.As(err, &ce) {
 		return ce.code

@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -301,6 +302,27 @@ func TestPrivateNameRefusedByEgressIsNamed(t *testing.T) {
 	h.start()
 	if st := h.status("docs"); st.State != stError || st.Code != "private_address" {
 		t.Fatalf("status = %+v", st)
+	}
+}
+
+// A server whose shared key is missing but which can't be reached at all is
+// named for that, not offered a key: it never had the chance to refuse.
+func TestUnreachableServerWithoutASharedKeyIsNamedForWhy(t *testing.T) {
+	for _, tc := range []struct {
+		url, code string
+		refused   error
+	}{
+		{"http://10.0.0.5/mcp", "private_address", nil},
+		{"https://mcp.example.com/mcp", "", errors.New("dial tcp 203.0.114.7:443: connect: connection refused")},
+	} {
+		srv := httpServerCfg("docs", tc.url)
+		srv.AllowPrivate = false
+		srv.Headers = map[string]string{"Authorization": "secret:docs_key"}
+		h := newHarness(t, []config.MCPServer{srv}, withClient(&http.Client{Transport: refusingTransport{cmp.Or(tc.refused, errors.New("unused"))}}))
+		h.start()
+		if st := h.status("docs"); st.State != stError || st.Code != tc.code {
+			t.Errorf("%s: status = %+v", tc.url, st)
+		}
 	}
 }
 
