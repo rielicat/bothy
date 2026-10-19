@@ -49,7 +49,15 @@ func (m *Manager) discoverLocked(ctx context.Context, s *server) {
 	case "stdio":
 		c, err = m.discoverStdio(dctx, s)
 	default:
-		c, err = m.connectHTTP(dctx, s, "")
+		// Without a shared key, the tools are listed without that header:
+		// each person's own key then makes their calls.
+		var a *httpAuth
+		if a, err = m.resolveHTTP(dctx, s, "", true); err == nil {
+			c, err = m.connectHTTP(dctx, s, a)
+			if err != nil && len(a.missing) > 0 {
+				err = &codedErr{code: "key_missing", err: fmt.Errorf("%w (sent without the header %s: no shared key has its name)", err, strings.Join(a.missing, ", "))}
+			}
+		}
 	}
 	if err != nil {
 		state := stError
@@ -65,6 +73,7 @@ func (m *Manager) discoverLocked(ctx context.Context, s *server) {
 		msg := m.redact(err.Error())
 		m.log.Warn("mcp discovery failed", "server", s.name, "err", msg)
 		s.setState(m.clock.Now(), state, msg)
+		s.setCode(errCode(err))
 		m.syncTools(ctx, s)
 		return
 	}

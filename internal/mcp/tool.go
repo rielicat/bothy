@@ -318,10 +318,15 @@ func (t *tool) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action) (*co
 	}
 	res, err := c.sess.CallTool(ctx, &mcpsdk.CallToolParams{Name: t.name, Arguments: a.Payload})
 	if err != nil {
-		if errors.Is(err, mcpsdk.ErrConnectionClosed) || errors.Is(err, mcpsdk.ErrSessionMissing) {
+		rejected := c.ht != nil && c.ht.rejected.Load()
+		if errors.Is(err, mcpsdk.ErrConnectionClosed) || errors.Is(err, mcpsdk.ErrSessionMissing) || rejected {
 			t.m.drop(inst, c)
 		}
-		return nil, fmt.Errorf("mcp %s/%s: %w", t.server, t.name, err)
+		err = c.auth.hideEndpoint(s.spec.url, fmt.Errorf("mcp %s/%s: %w", t.server, t.name, err))
+		if rejected {
+			return nil, fmt.Errorf("%w: %w", errKeyRejected, err)
+		}
+		return nil, err
 	}
 	return &core.ToolResult{Name: t.spec.Def.Name, Content: resultText(res), IsError: res.IsError, Untrusted: !t.trusted}, nil
 }

@@ -48,6 +48,7 @@ type server struct {
 	mu         sync.Mutex
 	state      string
 	err        string
+	code       string // core.MCPStatus.Code, set with an error state
 	protocol   string
 	since      time.Time
 	live       map[string]string // tool -> definition hash at the last discovery
@@ -72,13 +73,19 @@ func (s *server) setState(now time.Time, state, msg string) {
 	if s.state != state {
 		s.since = now
 	}
-	s.state, s.err = state, msg
+	s.state, s.err, s.code = state, msg, ""
+}
+
+func (s *server) setCode(code string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.code = code
 }
 
 func (s *server) status() core.MCPStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return core.MCPStatus{Name: s.name, Transport: s.raw.Transport, State: s.state, Protocol: s.protocol, Err: s.err,
+	return core.MCPStatus{Name: s.name, Transport: s.raw.Transport, State: s.state, Protocol: s.protocol, Err: s.err, Code: s.code,
 		Tools: s.tools, Pending: s.pending, Since: s.since}
 }
 

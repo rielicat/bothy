@@ -479,7 +479,7 @@ Any failure of 1–6 → `Health.OK=false`, Create refused, red banner `sandbox_
   - pypi: with a recorded lock, `uv pip install --no-deps --require-hashes -r lock.txt --target /opt/mcp`; else `uv pip compile --generate-hashes` for `<name>==<version>`, record it, then install from it.
   - The gateway pre-creates `<work>/mcp/<server>/<install_id>/` (2770, group 10001) before the installer box mounts it, then hashes the installed tree (`mcp_installs.tree_hash`, sha256 over sorted relative paths, modes and contents) and re-checks it on every `Start`; drift → status `drifted`, server disabled, banner.
 - **Runtime:** one instance per (server, principal), box key `DerivedID("box","mcp:"+server+":"+principal)`, `MCPTree` mounted **read-only** (the server cannot rewrite itself), workspace mounted only when `workspace: principal`, `Extra` = the server's `egress` list, `NoGrants`. Started lazily on first tool call through `Sandbox.Ensure` + `Sandbox.Stdio`, wired to the go-sdk as `&mcp.IOTransport{Reader: rwc, Writer: rwc}` (the stream closes once); stopped after 10 minutes idle; restarted with backoff 1 s → 60 s. Tool lists come from a short-lived discovery instance (box key `DerivedID("box","mcp-discover:"+server)`, no workspace, same egress) run at `Start`, `Install` and `Reload`, which updates pins and is then destroyed; pins are per server, shared by all principals.
-- **HTTP servers:** `StreamableClientTransport` (legacy `SSEClientTransport` fallback for old servers) with `HTTPClient` always set from `Egress.SystemClient(SystemDest{Name: "mcp:<server>", Hosts: [url host:port], AllowPrivate: allow_private})` (a nil client would fall back to `http.DefaultClient`). One client session per (server, billing user); header refs resolve with `Vault.Resolve(ref, user)` (user scope, then global), so household members can hold their own tokens for the same server. Runs of space principals resolve in the global scope only (spaces have no vault scope). **Discovery** (at `Start`, `Install` and `Reload`) has no billing user, so it resolves every header reference in the global scope only: each referenced secret therefore needs a global value, and a per-user value only overrides it for that user's own calls. Without a global value the server is never discovered and its tools never register.
+- **HTTP servers:** `StreamableClientTransport` (legacy `SSEClientTransport` fallback for old servers) with `HTTPClient` always set from `Egress.SystemClient(SystemDest{Name: "mcp:<server>", Hosts: [url host:port], AllowPrivate: allow_private})` (a nil client would fall back to `http.DefaultClient`). One client session per (server, billing user); header refs, and refs in the query of the server's `url` (`?api_key=secret:<name>`), resolve with `Vault.Resolve(ref, user)` (user scope, then global), so household members can hold their own tokens for the same server. Runs of space principals resolve in the global scope only (spaces have no vault scope). The refs are resolved again at every tool call (each a `secret.use`): a session made with other values is closed (sending no key) and a new one made, so a key replaced in the vault is sent at the next call, and a deleted one fails the call (`key_missing`) and closes the session. A 401 or 403 from the server drops the session (status code `key_rejected` when it happens at discovery). An error that quotes the resolved address shows the configured one. **Discovery** (at `Start`, `Install` and `Reload`) has no billing user, so it resolves every reference in the global scope only; a header whose secret has no global value is left out of the discovery session, so a server whose people each use their own key still lists its tools (a per-user value only overrides a global one for that user's own calls), and the status says which header was left out when the server then refuses. `MCPStatus.code` names the fix for an error state: `key_missing`, `key_locked`, `key_rejected`, `private_address`, `not_installed`.
 - **Tool names** are `mcp__<server>__<tool>`; a name over 64 characters becomes its first 55 characters + `_` + the first 8 hex of sha256(full name).
 - **No secret is ever passed to a stdio server.** Integrations needing credentials use HTTP MCP with vault-injected headers.
 - MCP stdio is unavailable (state `no_sandbox`) without a sandbox; restricted spaces never see MCP tools.
@@ -4279,7 +4279,8 @@ type MCPToolApproval struct {
 type MCP interface {
 	// Start connects enabled servers and registers approved, hash-matching
 	// tools. Discovery has no billing user: HTTP header secret refs resolve in
-	// the global vault scope only, so each needs a global value (§2.11).
+	// the global vault scope only; one without a global value is left out of
+	// the discovery session (§2.11).
 	Start(ctx context.Context) error
 	Status() []MCPStatus
 	Pins(ctx context.Context, server string) ([]*MCPPin, error) // latest definition per tool incl. pending diffs
@@ -6676,7 +6677,7 @@ mcp:
   servers:                        # examples
     - name: docs
       transport: http
-      url: "https://mcp.example.com/mcp"
+      url: "https://mcp.example.com/mcp"   # a key in the query must be a reference (?api_key=secret:<name>); plain http only for loopback or allow_private when it sends a key
       headers: {Authorization: "Bearer secret:docs_mcp_token"}
       side_effects: {default: read}
     - name: notes

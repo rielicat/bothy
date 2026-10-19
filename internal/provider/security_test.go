@@ -166,6 +166,22 @@ func TestSecretCaching(t *testing.T) {
 	if len(h.vault.Uses) != 4 {
 		t.Fatalf("not re-resolved after the TTL: %v", h.vault.Uses)
 	}
+	// A key replaced in the vault is read again at the next call, inside the TTL.
+	if _, err := h.vault.Put(context.Background(), core.GlobalScope, "test_key", []byte(canary+"-rotated"), ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := h.f.Complete(context.Background(), core.SlotMain, nil, userReq, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.vault.Uses) != 6 {
+		t.Fatalf("not re-resolved after the key was replaced: %v", h.vault.Uses)
+	}
+	srv.mu.Lock()
+	hdr = srv.headers[len(srv.headers)-1].Get("X-Org")
+	srv.mu.Unlock()
+	if hdr != "org "+canary+"-rotated" {
+		t.Fatalf("header after the replace %q", hdr)
+	}
 	// A sealed vault is a server-side condition, not an auth failure.
 	h.vault.Seal()
 	h.clock.Advance(secretTTL)

@@ -264,9 +264,9 @@ func TestAuthSchemeValuesMaskTheirToken(t *testing.T) {
 	r.Add("global/mcp_x_header", []byte("Bearer qa-tok-BT55-value-7777"))
 	r.Add("global/note", []byte("keep these words"))
 	for in, want := range map[string]string{
-		"invalid token qa-tok-BT55-value-7777":                 "invalid token " + Mask,
-		"Authorization: Bearer qa-tok-BT55-value-7777":         "Authorization: " + Mask,
-		`{"t":"cWEtdG9rLUJUNTUtdmFsdWUtNzc3Nw=="}`:              `{"t":"` + Mask + `"}`,
+		"invalid token qa-tok-BT55-value-7777":                "invalid token " + Mask,
+		"Authorization: Bearer qa-tok-BT55-value-7777":        "Authorization: " + Mask,
+		`{"t":"cWEtdG9rLUJUNTUtdmFsdWUtNzc3Nw=="}`:            `{"t":"` + Mask + `"}`,
 		"the words keep and these stay; Bearer alone is fine": "the words keep and these stay; Bearer alone is fine",
 	} {
 		if got := r.Redact(in); got != want {

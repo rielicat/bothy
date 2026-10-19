@@ -290,13 +290,26 @@ type credentials struct {
 	secret  core.Secret
 	hdrs    map[string]core.Secret
 	expires time.Time
+	gen     uint64 // the vault's Generation when they were read
+}
+
+// vaultGen is the vault's Generation, which moves when a stored key is
+// replaced or deleted; 0 for a vault without one.
+func (f *Facade) vaultGen() uint64 {
+	if g, ok := f.d.Vault.(interface{ Generation() uint64 }); ok {
+		return g.Generation()
+	}
+	return 0
 }
 
 func (c *credentials) resolve(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	now := c.f.clock.Now()
-	if now.Before(c.expires) {
+	// A key replaced or deleted in the vault is read again at once; the
+	// TTL only spares an audit row per call while nothing changed.
+	gen := c.f.vaultGen()
+	if now.Before(c.expires) && gen == c.gen {
 		return nil
 	}
 	if c.f.d.Vault == nil && (c.keyRef != "" || len(c.headers) > 0) {
@@ -319,7 +332,7 @@ func (c *credentials) resolve(ctx context.Context) error {
 		}
 		hdrs[name] = s
 	}
-	c.secret, c.hdrs, c.expires = key, hdrs, now.Add(secretTTL)
+	c.secret, c.hdrs, c.expires, c.gen = key, hdrs, now.Add(secretTTL), gen
 	return nil
 }
 

@@ -192,6 +192,10 @@ func TestSetRejections(t *testing.T) {
 		{"header literal", map[string]string{"mcp.servers.docs": `{"transport":"http","url":"https://mcp.example.com/mcp","headers":{"Authorization":"Bearer abc123"}}`},
 			"BOTHY_SECRET_DOCS_MCP_TOKEN"},
 		{"invalid json", map[string]string{"budgets.daily_usd": `{`}, "invalid JSON"},
+		{"key in the address", map[string]string{"mcp.servers.docs": `{"transport":"http","url":"https://mcp.example.com/mcp?api_key=abc123"}`},
+			"plaintext secrets are not allowed in the address; write ?api_key=secret:<name>"},
+		{"key over plain http", map[string]string{"mcp.servers.docs": `{"transport":"http","url":"http://mcp.example.com/mcp","headers":{"Authorization":"Bearer secret:docs_mcp_token"}}`},
+			"use https: plain http would send the key unencrypted"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := set(t, m, tc.changes)
@@ -211,6 +215,13 @@ func TestSetRejections(t *testing.T) {
 	if h := m.Current().MCP.Servers[0].Headers["Authorization"]; h != "Bearer secret:docs_mcp_token" {
 		t.Fatalf("embedded ref: %q", h)
 	}
+	// A reference in the address, plain http to the admin's own network, and
+	// an ordinary query parameter are fine.
+	mustSet(t, m, map[string]string{
+		"mcp.servers.hosted":   `{"transport":"http","url":"https://mcp.example.com/mcp?api_key=secret:hosted_key&keyword=x"}`,
+		"mcp.servers.internal": `{"transport":"http","url":"http://10.0.0.5/mcp","allow_private":true,"headers":{"Authorization":"secret:internal_key"}}`,
+		"mcp.servers.open":     `{"transport":"http","url":"http://mcp.example.com/mcp"}`,
+	})
 }
 
 func TestConfigLockGlobs(t *testing.T) {

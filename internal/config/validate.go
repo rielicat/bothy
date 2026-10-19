@@ -875,10 +875,17 @@ func validateMCP(c *Config, v *vctx) {
 				continue
 			}
 			v.url(base+".url", s.URL, true, "http", "https")
+			v.mcpURLKeys(base+".url", s.URL)
 			for _, name := range keysOf(s.Headers) {
 				if !headerNameRe.MatchString(name) {
 					v.add(base+".headers."+name, "invalid header name")
 				}
+			}
+			// A private address is the admin's own network; anywhere else
+			// a key would cross the internet in the clear.
+			if u, err := url.Parse(s.URL); err == nil && u.Scheme == "http" && u.Host != "" && !s.AllowPrivate && !PlainHTTPAllowed(u.Hostname()) &&
+				(len(s.Headers) > 0 || HasSecretRef(u.RawQuery)) {
+				v.add(base+".url", "use https: plain http would send the key unencrypted (http is accepted only for a loopback or private address)")
 			}
 		case "stdio":
 			if s.Package == nil || s.Package.Ecosystem == "" || s.Package.Name == "" || s.Package.Version == "" || s.Package.Integrity == "" {
@@ -923,6 +930,32 @@ func validateMCP(c *Config, v *vctx) {
 		for i, g := range s.Core {
 			if g == "" || !validGlob(g) {
 				v.addAt(base+".core", i, "invalid glob %q", g)
+			}
+		}
+	}
+}
+
+// credentialParam matches a query parameter name that carries a key:
+// api_key, apiKey, access_token, key, token, sig and the like.
+var credentialParam = regexp.MustCompile(`(?i)^(?:.*[_.-])?(?:api_?key|key|token|access_?token|auth|secret|client_?secret|password|passwd|sig|signature|credentials?)$`)
+
+// mcpURLKeys refuses a key written into an MCP server's address, which would
+// show in the configuration, the audit log and status errors: it must be a
+// reference, resolved when Bothy connects.
+func (v *vctx) mcpURLKeys(path, raw string) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return
+	}
+	q, err := url.ParseQuery(u.RawQuery)
+	if err != nil {
+		return
+	}
+	for _, name := range keysOf(q) {
+		for _, val := range q[name] {
+			if val != "" && credentialParam.MatchString(name) && !HasSecretRef(val) {
+				v.add(path, "plaintext secrets are not allowed in the address; write ?%s=secret:<name> and save the key under Saved keys", name)
+				return
 			}
 		}
 	}

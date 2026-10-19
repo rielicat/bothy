@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rielicat/bothy/internal/config"
@@ -50,6 +51,8 @@ type Vault struct {
 	// material, and shared by every operation that encrypts or decrypts, so a
 	// Put can never land a row under a DEK that a concurrent rotation retired.
 	keyMu sync.RWMutex
+
+	gen atomic.Uint64 // Generation
 
 	mu      sync.RWMutex
 	plan    kekPlan

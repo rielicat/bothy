@@ -192,6 +192,9 @@ type fakeServer struct {
 	// client abandoning the HTTP request.
 	stateless bool
 	extra     []*mcpsdk.Tool
+	// auth, when set, is the only Authorization the server accepts; any
+	// other request gets 401, as a server does with a rotated key.
+	auth string
 
 	requests  atomic.Int32
 	started   chan struct{}
@@ -256,11 +259,43 @@ func (f *fakeServer) httpServer(t *testing.T, legacy bool) *httptest.Server {
 		f.requests.Add(1)
 		f.mu.Lock()
 		f.headers = append(f.headers, r.Header.Clone())
+		want := f.auth
 		f.mu.Unlock()
+		if want != "" && r.Header.Get("Authorization") != want {
+			http.Error(w, "invalid token", http.StatusUnauthorized)
+			return
+		}
 		h.ServeHTTP(w, r)
 	}))
 	t.Cleanup(ts.Close)
 	return ts
+}
+
+func (f *fakeServer) setAuth(a string) {
+	f.mu.Lock()
+	f.auth = a
+	f.mu.Unlock()
+}
+
+// lastAuth is the Authorization of the latest request ("" when none).
+func (f *fakeServer) lastAuth() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.headers) == 0 {
+		return ""
+	}
+	return f.headers[len(f.headers)-1].Get("Authorization")
+}
+
+// authHeadersAll is every request's Authorization in order, "" for none.
+func (f *fakeServer) authHeadersAll() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]string, len(f.headers))
+	for i, h := range f.headers {
+		out[i] = h.Get("Authorization")
+	}
+	return out
 }
 
 func (f *fakeServer) authHeaders() []string {

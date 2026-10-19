@@ -225,8 +225,14 @@ func TestHeaderSecretsResolvedAndNeverLogged(t *testing.T) {
 	if !slices.Contains(h.vault.Uses, "docs_token|mcp:docs") {
 		t.Fatalf("vault uses = %v", h.vault.Uses)
 	}
-	if st := h.status("broken"); st.State != stError || !strings.Contains(st.Err, "not_there") {
+	// No shared key: the tools are listed without the header, and each
+	// person's own key makes their calls.
+	if st := h.status("broken"); st.State != stPinsPending {
 		t.Fatalf("broken status = %+v", st)
+	}
+	h.approve("broken", map[string]core.MCPToolApproval{"search": {SideEffect: core.SERead}})
+	if _, err := h.call(h.tool("mcp__broken__search"), bob, `{"q":"b"}`); err == nil || !strings.Contains(err.Error(), "not_there") || errCode(err) != "key_missing" {
+		t.Fatalf("call without any key = %v", err)
 	}
 
 	f.setDesc("changed")

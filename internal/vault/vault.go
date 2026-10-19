@@ -459,6 +459,7 @@ func (v *Vault) Put(ctx context.Context, sc core.Scope, name string, value []byt
 	}
 	v.red.Retire(redactID(sc, name))
 	v.red.Add(redactID(sc, name), value)
+	v.gen.Add(1)
 	if created {
 		v.mu.Lock()
 		v.count++
@@ -486,12 +487,17 @@ func (v *Vault) Delete(ctx context.Context, sc core.Scope, name string, by core.
 		return err
 	}
 	v.red.Retire(redactID(sc, name))
+	v.gen.Add(1)
 	v.mu.Lock()
 	v.count = max(v.count-1, 0)
 	delete(v.touched, redactID(sc, name))
 	v.mu.Unlock()
 	return v.record(ctx, "vault.delete", actor(by), redactID(sc, name), "ok", map[string]any{"scope": string(sc), "name": name})
 }
+
+// Generation changes whenever a stored key is put or deleted, so a holder of
+// resolved values (the providers) knows to read them again.
+func (v *Vault) Generation() uint64 { return v.gen.Load() }
 
 // List returns names and hints, never values. Environment secrets apply to
 // every scope but are listed once, under the global scope, by the lower-cased

@@ -29,6 +29,7 @@ const Mask = "[redacted]"
 type Vault struct {
 	core.Vault
 	Uses []string
+	gen  uint64 // Generation: moves on every Put and Delete
 
 	mu      sync.Mutex
 	secrets map[core.Scope]map[string]vaultEntry
@@ -72,9 +73,17 @@ func (v *Vault) put(sc core.Scope, name string, value []byte) {
 // Seal makes Get and Resolve fail with core.ErrSealed until Unseal.
 func (v *Vault) Seal() { v.mu.Lock(); v.sealed = true; v.mu.Unlock() }
 
+// Generation moves on every Put and Delete, as vault.Vault's does.
+func (v *Vault) Generation() uint64 {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.gen
+}
+
 func (v *Vault) Put(_ context.Context, sc core.Scope, name string, value []byte, _ core.UserID) (core.SecretMeta, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
+	v.gen++
 	v.put(sc, name, value)
 	return meta(sc, name, v.secrets[sc][name]), nil
 }
@@ -152,6 +161,7 @@ func (v *Vault) Delete(_ context.Context, sc core.Scope, name string, _ core.Use
 	}
 	delete(v.secrets[sc], name)
 	v.red.Remove(string(sc) + "/" + name)
+	v.gen++
 	return nil
 }
 
