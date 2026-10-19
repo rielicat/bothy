@@ -286,6 +286,11 @@ func (s *Server) patchUser(w http.ResponseWriter, r *http.Request, a core.Actor)
 		return err
 	}
 	prevRole := u.Role
+	// Like setting someone's password, a role change hands out what a
+	// token must not: promote an account, then sign in to it with a cookie.
+	if req.Role != nil && *req.Role != u.Role && a.Via == "token" {
+		return errCookieOnly
+	}
 	if req.DisplayName != nil {
 		u.DisplayName = *req.DisplayName
 	}
@@ -326,6 +331,11 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request, a core.Actor
 		return newError(http.StatusForbidden, "forbidden", "the owner cannot be deleted")
 	case u.ID == a.User:
 		return newError(http.StatusForbidden, "forbidden", "you cannot delete your own account")
+	case u.Role == core.RoleAdmin && a.Role != core.RoleOwner:
+		return newError(http.StatusForbidden, "forbidden", "only the owner can change another admin's account")
+	// Deleting someone's data can't be undone, as for DELETE /api/teammates.
+	case purge && a.Via == "token":
+		return errCookieOnly
 	}
 	if !u.Disabled {
 		next := *u

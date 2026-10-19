@@ -160,7 +160,8 @@ func (s *Service) ResetUserPassword(ctx context.Context, by core.Actor, uid core
 
 // UpdateUser applies the role, disabled flag and display name of u. Nothing
 // else of u is read. A role change or disabling deletes the user's sessions;
-// disabling also revokes every token.
+// disabling also revokes every token. Only the owner changes the owner or
+// another admin.
 func (s *Service) UpdateUser(ctx context.Context, by core.Actor, u *core.User) error {
 	if err := requireAdmin(by); err != nil {
 		return err
@@ -203,6 +204,11 @@ func (s *Service) UpdateUser(ctx context.Context, by core.Actor, u *core.User) e
 	}
 	if cur.Role == core.RoleOwner && by.Role != core.RoleOwner && len(changed) > 0 {
 		return fmt.Errorf("%w: only the owner can edit the owner", core.ErrForbidden)
+	}
+	// Otherwise an admin could demote another admin, reset the password
+	// that is then a member's, and promote the account back: theirs now.
+	if cur.Role == core.RoleAdmin && cur.ID != by.User && by.Role != core.RoleOwner && len(changed) > 0 {
+		return fmt.Errorf("%w: only the owner can change another admin's account", core.ErrForbidden)
 	}
 	if len(changed) == 0 {
 		return nil

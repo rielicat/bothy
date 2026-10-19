@@ -146,3 +146,38 @@ func TestResetUserPasswordRules(t *testing.T) {
 		t.Fatalf("audit %s", lastAudit(e, "auth.password_changed"))
 	}
 }
+
+// An admin who could demote another admin could then reset that account's
+// password as a member's and promote it back.
+func TestOnlyTheOwnerChangesAnotherAdmin(t *testing.T) {
+	e := newEnv(t, func(c *config.Config) { c.Mode = "multi" })
+	owner := e.owner(t)
+	admin := e.user(t, owner, "ada", core.RoleAdmin)
+	other := e.user(t, owner, "otto", core.RoleAdmin)
+	member := e.user(t, owner, "mel", core.RoleMember)
+	by := core.Actor{User: admin.ID, Role: core.RoleAdmin, Via: "cookie"}
+	for name, mut := range map[string]func(*core.User){
+		"demote":   func(u *core.User) { u.Role = core.RoleMember },
+		"turn off": func(u *core.User) { u.Disabled = true },
+		"rename":   func(u *core.User) { u.DisplayName = "Not Otto" },
+	} {
+		up := *other
+		mut(&up)
+		if err := e.s.UpdateUser(ctx, by, &up); !errors.Is(err, core.ErrForbidden) {
+			t.Errorf("admin may %s another admin: %v", name, err)
+		}
+	}
+	if u, _ := e.store.Users().Get(ctx, other.ID); u.Role != core.RoleAdmin || u.Disabled || u.DisplayName != other.DisplayName {
+		t.Fatalf("another admin changed: %+v", u)
+	}
+	up := *member
+	up.Role = core.RoleAdmin
+	if err := e.s.UpdateUser(ctx, by, &up); err != nil {
+		t.Fatalf("admin promoting a member: %v", err)
+	}
+	up = *other
+	up.Role = core.RoleMember
+	if err := e.s.UpdateUser(ctx, owner, &up); err != nil {
+		t.Fatalf("owner demoting an admin: %v", err)
+	}
+}
