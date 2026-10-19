@@ -101,7 +101,9 @@
 
   // A teammate's request names their chat: the approver may be reading it in Approvals, not there (§8.4).
   const person = $derived(teamPerson(view));
-  const label = (c: Choice) => (c === 'deny' ? 'Deny' : c === 'allow_session' ? (person ? `Allow in ${person}'s chat` : 'Allow for this chat') : copy.primary);
+  // A scheduled run's next run starts in a new chat, so the grant covers the schedule.
+  const label = (c: Choice) =>
+    c === 'deny' ? 'Deny' : c === 'allow_session' ? (originOf(view).schedule ? 'Allow for this schedule' : person ? `Allow in ${person}'s chat` : 'Allow for this chat') : copy.primary;
   const variant = (c: Choice) => (c !== primaryChoice ? 'secondary' : c === 'allow_once' && copy.tone === 'destructive' ? 'danger' : 'primary');
   const keyHint = (c: Choice) => (keys && choiceKey[c] ? `${label(c)} (${choiceKey[c]!.toUpperCase()})` : undefined);
 

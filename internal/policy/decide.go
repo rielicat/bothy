@@ -677,8 +677,18 @@ func (e *Engine) sessionGrantOK(x *input) bool {
 	if x.exposed() || x.Session == "" || x.se >= core.SEFinancial {
 		return false
 	}
-	_, ok := narrowGrant(x.cfg, x.a, x.Principal.ID, core.GrantSession, string(x.Session), core.Decider{User: x.User}, time.Time{})
+	scope, id := grantScopeOf(x.Trigger, x.Session, x.Schedule)
+	_, ok := narrowGrant(x.cfg, x.a, x.Principal.ID, scope, id, core.Decider{User: x.User}, time.Time{})
 	return ok
+}
+
+// grantScopeOf is what allow_session covers: the chat, or for a scheduled
+// run the schedule, whose next run starts in a new chat.
+func grantScopeOf(t core.Trigger, s core.SessionID, sc core.ScheduleID) (core.GrantScope, string) {
+	if t.Scheduled() && sc != "" {
+		return core.GrantSchedule, string(sc)
+	}
+	return core.GrantSession, string(s)
 }
 
 // alwaysGrantOK: allow_always is offered exactly when allow_session is,

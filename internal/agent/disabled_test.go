@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"testing"
 	"testing/synctest"
 
@@ -66,6 +67,26 @@ func TestStopWhileWaitingEndsTheWaitingStep(t *testing.T) {
 		recs := h.toolCalls(res.Run)
 		if len(recs) != 1 || recs[0].Status != core.TCStopped {
 			t.Fatalf("tool calls after Stop = %+v", recs)
+		}
+	})
+}
+
+// "Allow for this schedule" on a scheduled run's card covers the schedule:
+// its next run starts in a new chat, where a chat grant would not reach.
+func TestScheduledAllowSessionCoversTheSchedule(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{})
+		defer h.close()
+		rs := &runState{r: h.r, ctx: h.ctx, id: "run_1", req: core.RunRequest{Session: h.sess.ID, Principal: h.pid, User: h.user.ID,
+			Trigger: core.TrigSchedule, Schedule: "sch_digest"}}
+		if err := h.r.loadRunContext(h.ctx, rs); err != nil {
+			t.Fatal(err)
+		}
+		action := &core.Action{Tool: "act", SideEffect: core.SELocalWrite, Payload: json.RawMessage(`{}`)}
+		pc := &pcall{action: action, dec: core.Decision{Choices: []core.Choice{core.AllowOnce, core.AllowSession, core.Deny}}}
+		h.r.grantFor(h.ctx, rs, pc, core.AllowSession, nil)
+		if len(h.pol.Grants) != 1 || h.pol.Grants[0].Scope != core.GrantSchedule || h.pol.Grants[0].ScopeID != "sch_digest" {
+			t.Fatalf("grants = %+v, want one for the schedule", h.pol.Grants)
 		}
 	})
 }

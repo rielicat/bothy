@@ -186,7 +186,12 @@ func (r *Runner) grantFor(ctx context.Context, rs *runState, pc *pcall, choice c
 		r.log.Warn("approval choice was not offered; treating it as allow_once", "choice", choice, "run", rs.id)
 		return
 	}
+	// A scheduled run's next run starts in a new chat, so its "for this
+	// chat" covers the schedule instead (the card says so).
 	scope, scopeID := core.GrantSession, string(rs.req.Session)
+	if rs.req.Trigger.Scheduled() && rs.req.Schedule != "" {
+		scope, scopeID = core.GrantSchedule, string(rs.req.Schedule)
+	}
 	if choice == core.AllowAlways {
 		scope, scopeID = core.GrantPrincipal, ""
 	}

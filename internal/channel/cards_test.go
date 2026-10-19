@@ -830,3 +830,16 @@ func TestExpiresText(t *testing.T) {
 		}
 	})
 }
+
+// TestScheduledGrantButtonNamesTheSchedule: a scheduled run's allow_session
+// covers the schedule, and its button says so.
+func TestScheduledGrantButtonNamesTheSchedule(t *testing.T) {
+	c := core.Card{Context: "Telegram · DM · schedule · session “Digest”"}
+	if got := choiceLabel(c, core.AllowSession, "Maya"); got != "Allow for this schedule" {
+		t.Fatalf("scheduled = %q", got)
+	}
+	c.Context = "Telegram · DM · session “Digest”"
+	if got := choiceLabel(c, core.AllowSession, ""); got != allowForChat {
+		t.Fatalf("interactive = %q", got)
+	}
+}

@@ -147,6 +147,11 @@ describe('ApprovalCard', () => {
     expect(meta.textContent?.replace(/\s+/g, ' ').trim()).toBe('From “Morning briefing” · Details');
   });
 
+  it("names the schedule, not the chat, on a scheduled run's grant button", () => {
+    render(ApprovalCard, { approval: approval({ card: { ...approval().card, context: 'Web · schedule · session “Digest · 2026-10-19”' } }) });
+    expect(buttons(screen.getByRole('article')).map((b) => b.textContent?.trim())).toEqual(['Run command', 'Allow for this schedule', 'Deny']);
+  });
+
   it('shows bidi and zero-width characters instead of applying them', () => {
     const { container } = render(ApprovalCard, { approval: approval() });
     expect(container.textContent).toContain('⟨U+202E⟩');
