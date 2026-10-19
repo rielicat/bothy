@@ -533,11 +533,25 @@ func (e *Engine) contactOrDefault(ctx context.Context, x *input) core.Decision {
 		})
 	}
 	// The reason reaches people (the card's "Why Bothy asked", the task),
-	// so it names the class and the preset as Settings → Security does.
-	if v == core.VerdictAsk {
-		return e.ask(x, askSpec{rule: "default:" + class, reason: "the " + presetTitle(x.cfg) + " safety setting asks before Bothy can " + classPhrase(x.se), grants: true})
+	// so it names the class and the preset as Settings → Security does, or
+	// the setting for this kind of action when policy.defaults decided.
+	who := "the " + presetTitle(x.cfg) + " safety setting"
+	if overridden(x.cfg, x.se) {
+		who = "the setting for this kind of action"
 	}
-	return allowed("default:"+class, "the "+presetTitle(x.cfg)+" safety setting lets Bothy "+classPhrase(x.se)+" without asking")
+	if v == core.VerdictAsk {
+		return e.ask(x, askSpec{rule: "default:" + class, reason: who + " asks before Bothy can " + classPhrase(x.se), grants: true})
+	}
+	return allowed("default:"+class, who+" lets Bothy "+classPhrase(x.se)+" without asking")
+}
+
+// overridden reports whether policy.defaults, not the preset, sets se's verdict.
+func overridden(c *config.Config, se core.SideEffect) bool {
+	switch core.Verdict(c.Policy.Defaults[se.String()]) {
+	case core.VerdictAuto, core.VerdictAsk, core.VerdictDeny:
+		return true
+	}
+	return false
 }
 
 // presetTitle is a preset's name as Settings → Security shows it.
@@ -551,8 +565,8 @@ func presetTitle(c *config.Config) string {
 }
 
 func defaultVerdict(c *config.Config, se core.SideEffect) core.Verdict {
-	if v := core.Verdict(c.Policy.Defaults[se.String()]); v == core.VerdictAuto || v == core.VerdictAsk || v == core.VerdictDeny {
-		return v
+	if overridden(c, se) {
+		return core.Verdict(c.Policy.Defaults[se.String()])
 	}
 	if v, ok := presets[presetName(c)][se]; ok {
 		return v
