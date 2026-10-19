@@ -36,7 +36,7 @@
   import { narrow } from '../../lib/stores/viewport.svelte';
   import DiscardDialog from './DiscardDialog.svelte';
   import HeaderSpacer from './HeaderSpacer.svelte';
-  import Loading from './Loading.svelte';
+  import Loading from '../../components/ui/Loading.svelte';
   import NotesEditor from './NotesEditor.svelte';
   import NotesHistoryDialog, { type HistoryEntry } from './NotesHistoryDialog.svelte';
   import SuggestionsDialog from './SuggestionsDialog.svelte';
@@ -300,7 +300,7 @@
     {#if missing}
       <EmptyState text="Bothy doesn't read this repository." action={{ label: 'Go to Knowledge', href: '/knowledge', variant: 'secondary' }} />
     {:else if !repo || (repo.id && !notes)}
-      <Loading {failed} onretry={load} />
+      <Loading {failed} retry={load} />
     {:else}
       {#if readError}
         <Notice tone="danger" class="mb-6" text={readError} />

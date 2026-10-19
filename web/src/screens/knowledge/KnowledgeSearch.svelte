@@ -19,7 +19,7 @@
     type KnowledgeRepo,
   } from '../../lib/api/knowledge';
   import { router } from '../../lib/router.svelte';
-  import Loading from './Loading.svelte';
+  import Loading from '../../components/ui/Loading.svelte';
   import SearchField from './SearchField.svelte';
 
   const MAX_LINES = 6;
@@ -128,7 +128,7 @@
     {#if !q}
       <!-- nothing asked yet -->
     {:else if !hits}
-      <Loading {failed} onretry={search} text="The search didn't finish. Check your connection and try again." />
+      <Loading {failed} retry={search} text="The search didn't finish. Check your connection and try again." />
     {:else if !groups.length}
       <EmptyState text="Nothing in your projects or notes matches “{q}”." />
     {:else}

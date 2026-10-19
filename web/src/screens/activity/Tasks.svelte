@@ -9,7 +9,7 @@
   import { matchesResult, matchesWhere } from '../../lib/taskStatus';
   import Activity from './Activity.svelte';
   import { people, sessionsById, type TaskRun, type VotedApproval } from './api';
-  import Loading from './Loading.svelte';
+  import Loading from '../../components/ui/Loading.svelte';
   import ShowEarlier from './ShowEarlier.svelte';
   import TaskRow from './TaskRow.svelte';
   import { groupByDay, taskView, type TaskLookups } from './tasks';

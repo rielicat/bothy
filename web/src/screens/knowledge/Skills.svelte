@@ -12,7 +12,7 @@
   import { skillName } from '../../lib/format';
   import { session } from '../../lib/stores/session.svelte';
   import Knowledge from './Knowledge.svelte';
-  import Loading from './Loading.svelte';
+  import Loading from '../../components/ui/Loading.svelte';
 
   let skills = $state<SkillMeta[] | null>(null);
   let failed = $state(false);
@@ -99,7 +99,7 @@
 <Knowledge title="Skills" {actions}>
   {#if error}<p class="field-error mb-4" role="alert"><Icon name="alert" class="mt-px" /><span>{error}</span></p>{/if}
   {#if !skills}
-    <Loading {failed} onretry={load} />
+    <Loading {failed} retry={load} />
   {:else if !skills.length}
     <EmptyState
       text="No skills yet."

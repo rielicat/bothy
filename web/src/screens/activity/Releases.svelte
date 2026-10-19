@@ -12,7 +12,7 @@
   import { toneClass, type Tone } from '../../lib/taskStatus';
   import Activity from './Activity.svelte';
   import { loadReleases, people, personName, votesOf, type Deploy, type Releases, type VotedApproval } from './api';
-  import Loading from './Loading.svelte';
+  import Loading from '../../components/ui/Loading.svelte';
 
   let data = $state<Releases | null>(null);
   let pending = $state<VotedApproval[]>([]);

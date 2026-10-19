@@ -11,7 +11,7 @@
   import Activity from './Activity.svelte';
   import DeleteSchedule from './DeleteSchedule.svelte';
   import type { TaskRun } from './api';
-  import Loading from './Loading.svelte';
+  import Loading from '../../components/ui/Loading.svelte';
   import { checkinBlank, every, nextRun } from './schedule';
   import { deliverTo } from './tasks';
 

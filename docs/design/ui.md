@@ -2671,6 +2671,7 @@ Never use: exclamation marks, emoji, "Oops", "Whoops", "simply", "just" as fille
 | 43 | `ProviderChooser` | `ProviderSetup.svelte`, `StepModels.svelte` | `mode: 'setup'\|'settings'`, `onconnected?` | §5.6; in settings mode lives in a 560 dialog with `framed=false` lists |
 | 44 | `BarChart` | `BarChart.svelte` | `data: {label, value, title}[]`, `format`, `height = 160` | §10.5 |
 | 45 | `Verbatim`, `Markdown` | kept | unchanged APIs | restyled to tokens; Markdown gets the heading map (§3.2). `QRCode` and `Pairing` went with linking. |
+| 46 | `Loading` | per-screen loading lines | `failed?`, `retry?`, `text?` ("This page didn't load. Check your connection and try again." unless it names a dialog's list or a search) | §13.2: "Loading…" after 400 ms; failed: `role="alert"` EmptyState with secondary "Try again". `ScreenLoading` wraps it for a chunk still on its way. |
 
 ---
 

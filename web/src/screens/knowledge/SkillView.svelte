@@ -12,7 +12,7 @@
   import type { SkillDetail } from '../../lib/api/types.gen';
   import { skillName } from '../../lib/format';
   import { session } from '../../lib/stores/session.svelte';
-  import Loading from './Loading.svelte';
+  import Loading from '../../components/ui/Loading.svelte';
 
   let { params }: { params: Record<string, string> } = $props();
   const name = $derived(params.name);
@@ -86,7 +86,7 @@
     {#if missing}
       <EmptyState text="This skill doesn't exist or was removed." action={{ label: 'Go to Skills', href: '/knowledge/skills', variant: 'secondary' }} />
     {:else if !skill}
-      <Loading {failed} onretry={load} />
+      <Loading {failed} retry={load} />
     {:else}
       {#if review}
         <Notice

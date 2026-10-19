@@ -10,7 +10,7 @@
   import { session } from '../../lib/stores/session.svelte';
   import Activity from './Activity.svelte';
   import { people, sessionsById, type NamedUsageRow } from './api';
-  import Loading from './Loading.svelte';
+  import Loading from '../../components/ui/Loading.svelte';
 
   type Group = 'model' | 'user' | 'schedule' | 'session';
   /** `sub`: muted after the name, a model's provider or the chat app of someone in a chat app or a channel. */

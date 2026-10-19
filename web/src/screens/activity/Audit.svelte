@@ -10,7 +10,7 @@
   import Activity from './Activity.svelte';
   import { people, type AuditCheck, type AuditRow, type EgressRow } from './api';
   import { actionGroups, actorName, resultWord, summarize, webLine, webOutcome } from './audit';
-  import Loading from './Loading.svelte';
+  import Loading from '../../components/ui/Loading.svelte';
   import ShowEarlier from './ShowEarlier.svelte';
   import { groupByDay } from './tasks';
 

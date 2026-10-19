@@ -8,7 +8,7 @@
   import { saveSchedule, scheduleGrants, timeOptions } from '../../lib/schedules';
   import { session } from '../../lib/stores/session.svelte';
   import type { TaskRun } from './api';
-  import Loading from './Loading.svelte';
+  import Loading from '../../components/ui/Loading.svelte';
   import { checkinBlank, checkinFile, checkinText } from './schedule';
 
   let s = $state<Schedule | null>(null);

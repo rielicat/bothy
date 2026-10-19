@@ -21,7 +21,7 @@
   import { events } from '../../lib/sse.svelte';
   import { session } from '../../lib/stores/session.svelte';
   import Knowledge from './Knowledge.svelte';
-  import Loading from './Loading.svelte';
+  import Loading from '../../components/ui/Loading.svelte';
   import { inSentence } from './text';
 
   const GITHUB = '/settings/connections/github';
@@ -98,7 +98,7 @@
 
 <Knowledge {actions} search={!!rows?.some((r) => r.id && !isZeroTime(r.indexed_at))}>
   {#if !rows}
-    <Loading {failed} onretry={load} />
+    <Loading {failed} retry={load} />
   {:else if !rows.length}
     {#if !session.isAdmin}
       <EmptyState text="Ask an admin to connect GitHub so Bothy can read your code." />
