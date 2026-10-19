@@ -111,8 +111,16 @@
     --color-scrim: rgb(0 0 0 / 0.55);
     --shadow-overlay: 0 0 0 1px #363431, 0 8px 24px rgb(0 0 0 / 0.5);
   }
+  /* The sticky banner (--bar, set by the shell) and the phone top bar cover the page's top edge,
+     so what is scrolled or focused into view lands below them. */
   html {
     -webkit-text-size-adjust: 100%;
+    scroll-padding-top: var(--bar, 0px);
+  }
+  @media (width < 64rem) {
+    html {
+      scroll-padding-top: calc(3.25rem + var(--bar, 0px));
+    }
   }
   body {
     background: var(--color-bg);

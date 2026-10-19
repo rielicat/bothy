@@ -536,7 +536,7 @@ On phones and tablets `/settings` is a list page of the same groups; each group 
 ```
 
 - `[≡]` opens the sidebar as a drawer from the left: `min(320px, 85vw)`, full height, `shadow-overlay`, scrim behind. It closes on scrim tap, Escape or navigation. A dot on the button means approvals are waiting (hidden text "{n} approvals waiting").
-- Title: `text-heading`, truncate. On pages it is the page title; in a chat the chat title. Renaming a chat happens in this slot, on the same row: the field takes the title's place (`flex-1 min-w-0`, `h-11`), and no second bar opens over the transcript.
+- Title: `text-heading`, truncate. On pages it is the page title, shown once the page's own heading has scrolled under the bar (or under a banner, §4.9); in a chat the chat title. Renaming a chat happens in this slot, on the same row: the field takes the title's place (`flex-1 min-w-0`, `h-11`), and no second bar opens over the transcript.
 - "{n} waiting": a small ghost text button in `accent-text`, shown only when something waits for this person; opens `/approvals`. Under 640 px it is hidden on chat routes, where the chat title needs the room: the dot on `[≡]` and the Approvals count in the drawer still say it. A bare count without the word would be ambiguous, so the link is hidden rather than shortened.
 - Right slot by page: chat `⋯` (chat menu); Knowledge project "Edit"; elsewhere nothing.
 - The red power icon and the bell from v0.1 (`20b`) are removed.
@@ -676,7 +676,7 @@ Never behind Details, on any approval card: the full command, the full outgoing 
 
 ### 4.9 Banners
 
-A banner sits at the top of the main area (not over the sidebar), full main width, one at a time, highest priority first. `min-h-10 px-6 py-2 text-body`, one sentence, at most one action. It cannot be dismissed while the condition stops work; otherwise it can be dismissed for the session. It is sticky (under the phone top bar), so a chat that opens at its latest reply still shows it, and the chat header sticks below it; the chat fills the window under it, so a short chat never scrolls.
+A banner sits at the top of the main area (not over the sidebar), full main width, one at a time, highest priority first. `min-h-10 px-6 py-2 text-body`, one sentence, at most one action. It cannot be dismissed while the condition stops work; otherwise it can be dismissed for the session. It is sticky (under the phone top bar), so a chat that opens at its latest reply still shows it, and the chat header sticks below it; the chat fills the window under it, so a short chat never scrolls. The page's scroll padding clears the banner and the phone top bar, so a request opened from its link (§8.8) or a control reached with the keyboard is never hidden under them.
 
 | Condition (SPEC `banner` event) | Who | Tone | Copy | Action |
 |---|---|---|---|---|

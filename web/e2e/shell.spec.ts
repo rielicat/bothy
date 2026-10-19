@@ -255,6 +255,31 @@ test('a banner stays in view in a chat that opens at its latest reply, above the
   await small.context().close();
 });
 
+test('a request opened from its link is scrolled clear of the banner and the phone top bar', async ({ browser, baseURL, page }) => {
+  const small = await phone(browser, baseURL);
+  for (const p of [page, small]) {
+    await p.goto('/approvals/apr_01jpr00000000000000000000?mock=paused');
+    const card = p.locator('article[data-approval="apr_01jpr00000000000000000000"]');
+    await expect(card).toBeInViewport();
+    await expect.poll(() => p.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+    const banner = (await p.getByRole('status').filter({ hasText: 'paused Bothy' }).boundingBox())!;
+    expect((await card.boundingBox())!.y).toBeGreaterThanOrEqual(banner.y + banner.height);
+  }
+  await small.context().close();
+});
+
+test('on a phone the top bar names the page once a banner hides its heading', async ({ browser, baseURL }) => {
+  const page = await phone(browser, baseURL);
+  await page.goto('/approvals?mock=paused');
+  await expect(page.locator('article').first()).toBeVisible();
+  const banner = (await page.getByRole('status').filter({ hasText: 'paused Bothy' }).boundingBox())!;
+  const h1 = (await page.getByRole('heading', { level: 1, name: 'Approvals' }).boundingBox())!;
+  // Behind the banner, but not yet behind the bar above it.
+  await page.evaluate((y) => window.scrollTo(0, y), h1.y + h1.height - (banner.y + banner.height) + 4);
+  await expect(page.getByRole('button', { name: /^Open menu/ }).locator('..').getByText('Approvals', { exact: true })).toBeVisible();
+  await page.context().close();
+});
+
 test('controls are 44 px under a coarse pointer', async ({ browser, baseURL }) => {
   const page = await phone(browser, baseURL);
   await page.goto('/activity?mock=team-chats');

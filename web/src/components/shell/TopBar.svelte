@@ -24,7 +24,8 @@
       frame = 0;
       title = document.title.replace(/\s*·\s*Bothy$/, '') || 'Bothy';
       const h1 = [...document.querySelectorAll('main h1')].map((h) => h.getBoundingClientRect()).find((r) => r.width > 1 && r.height > 1);
-      covered = !h1 || h1.bottom <= 52;
+      // A banner sticks under the bar, so the heading is hidden once it reaches the banner's bottom.
+      covered = !h1 || h1.bottom <= 52 + (parseFloat(document.documentElement.style.getPropertyValue('--bar')) || 0);
       scrolled = window.scrollY > 0;
     };
     const soon = () => (frame ||= requestAnimationFrame(check));

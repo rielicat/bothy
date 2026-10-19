@@ -20,11 +20,12 @@
   // The app frame (docs/design/ui.md §6.1): no app-level header, the document
   // scrolls, the sidebar is sticky with its own scroll.
   let { children }: { children: Snippet } = $props();
-  // The chat header sticks below the banner, so it needs the banner's height.
+  // The chat header sticks below the banner, and the page's scroll padding clears it, so both need its height.
   function barHeight(el: HTMLElement) {
-    const ro = new ResizeObserver(() => el.parentElement!.style.setProperty('--bar', `${el.offsetHeight}px`));
+    const root = document.documentElement.style;
+    const ro = new ResizeObserver(() => root.setProperty('--bar', `${el.offsetHeight}px`));
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => (ro.disconnect(), root.removeProperty('--bar'));
   }
 
   const sealed = $derived(session.isAdmin && session.banners.some((b) => b.code === 'vault_sealed'));
