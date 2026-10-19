@@ -1531,13 +1531,13 @@ The diffs start closed everywhere, the inbox too, so the buttons stay in reach; 
 
 ### 8.7 Deploy follow-up
 
-After approval, the originating chat (and the web chat) gets activity lines updated in place. On the web every deploy line on screen shares one read of `GET /api/releases`, so a chat with several deploys asks once; it reads again on `release.dispatched` and `release.finished` (once for the two copies an admin who asked gets) and, since those reach only the requester and admins, every 15 s while a deploy it shows is running:
+After approval, the originating chat (and the web chat) gets activity lines updated in place. On the web every deploy line on screen shares one read of `GET /api/releases`, so a chat with several deploys asks once; it reads again on `release.dispatched` and `release.finished` (once for the copies an admin who asked gets) and on a resync, never on a timer: those events reach everyone who can see the line, the requester and admins and the people the approval names (everyone when it names members), and the list carries the deploys of approvals the viewer may see:
 1. "◌ Deploying acme/web to production… View on GitHub ↗"
 2. "Deployed acme/web to production in 3 min" (check glyph), or
 3. "! Deploy to production failed at “Run migrations” · View logs on GitHub ↗" (`danger-text`), or
 4. "! Bothy stopped tracking the deploy of acme/web to production · Check on GitHub ↗" (alert glyph and text muted, never red) when the deploy's status is `unknown`: Bothy lost the run or stopped following it, so the outcome is only on GitHub.
 
-The client stops asking once the deploy has succeeded, failed or is `unknown`.
+Succeeded, failed and `unknown` are final: no event follows them.
 
 ### 8.8 Approvals inbox (`/approvals`)
 

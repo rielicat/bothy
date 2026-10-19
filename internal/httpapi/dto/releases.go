@@ -37,7 +37,8 @@ type ApprovalVoteView struct {
 }
 
 // Releases is GET /api/releases: the configured environments and the newest
-// deploys the caller may see (their own; everyone's for admins).
+// deploys the caller may see (their own and those whose approval they may
+// see; everyone's for admins).
 type Releases struct {
 	Environments []ReleaseEnvironment `json:"environments"`
 	Deploys      []DeployView         `json:"deploys"`

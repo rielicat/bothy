@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -87,26 +88,63 @@ func (g *GitHub) CommitSubject(ctx context.Context, repo, sha string) (string, e
 }
 
 // publishDispatched tells the requester's session (and admins' release
-// pages) that GitHub took the deploy.
-func (s *Service) publishDispatched(d *core.Deploy) {
-	s.publish(core.EvReleaseDispatched, d, core.ReleaseDispatchedData{Deploy: d.ID, Environment: d.Environment, Repo: d.Repo,
+// pages, and the approvers' approvals) that GitHub took the deploy.
+func (s *Service) publishDispatched(ctx context.Context, d *core.Deploy) {
+	s.publish(ctx, core.EvReleaseDispatched, d, core.ReleaseDispatchedData{Deploy: d.ID, Environment: d.Environment, Repo: d.Repo,
 		Ref: d.Ref, URL: d.RunURL})
 }
 
-func (s *Service) publishFinished(d *core.Deploy, took time.Duration, step string) {
-	s.publish(core.EvReleaseFinished, d, core.ReleaseFinishedData{Deploy: d.ID, Environment: d.Environment, Repo: d.Repo, Ref: d.Ref,
+func (s *Service) publishFinished(ctx context.Context, d *core.Deploy, took time.Duration, step string) {
+	s.publish(ctx, core.EvReleaseFinished, d, core.ReleaseFinishedData{Deploy: d.ID, Environment: d.Environment, Repo: d.Repo, Ref: d.Ref,
 		Status: d.Status, OK: d.Status == core.DeploySucceeded, URL: d.RunURL, Duration: took, FailedStep: step})
 }
 
 // publish sends a deploy event to its principal and, as for the deploy
-// records themselves, to admins (an admin broadcast).
-func (s *Service) publish(typ core.EventType, d *core.Deploy, data core.EventData) {
+// records themselves, to admins (an admin broadcast). Everyone else who may
+// see the approval it ran on follows the deploy from there, so each of them
+// gets it too, without the session and run they couldn't open.
+func (s *Service) publish(ctx context.Context, typ core.EventType, d *core.Deploy, data core.EventData) {
 	if s.d.Bus == nil {
 		return
 	}
 	for _, p := range []core.PrincipalID{d.Principal, ""} {
 		s.d.Bus.Publish(core.Event{Type: typ, Principal: p, Session: d.Session, Run: d.Run, Data: data})
 	}
+	for _, p := range s.approvers(ctx, d) {
+		s.d.Bus.Publish(core.Event{Type: typ, Principal: p, Data: data})
+	}
+}
+
+// approvers are the accounts, other than admins and the deploy's own
+// principal, that may see the approval it ran on (core.ApprovalRepo's
+// Viewer rule): the users it names, and everyone when it names the member
+// role.
+func (s *Service) approvers(ctx context.Context, d *core.Deploy) []core.PrincipalID {
+	if d.Approval == "" {
+		return nil
+	}
+	ap, err := s.d.Store.Approvals().Get(ctx, core.SystemViewer(), d.Approval)
+	if err != nil {
+		s.d.Log.WarnContext(ctx, "release: reading the deploy's approval failed", "deploy", d.ID, "err", err)
+		return nil
+	}
+	anyone := slices.Contains(ap.Approver.Roles, core.RoleMember)
+	if ap.Approver.AdminOnly || !anyone && len(ap.Approver.Users) == 0 {
+		return nil
+	}
+	users, err := s.d.Store.Users().List(ctx)
+	if err != nil {
+		s.d.Log.WarnContext(ctx, "release: listing who may follow a deploy failed", "deploy", d.ID, "err", err)
+		return nil
+	}
+	var out []core.PrincipalID
+	for _, u := range users {
+		p := core.UserPrincipal(u.ID)
+		if !u.Disabled && !u.Role.IsAdmin() && p != d.Principal && (anyone || slices.Contains(ap.Approver.Users, u.ID)) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // failedStep asks the dispatcher that started the deploy where a failed run

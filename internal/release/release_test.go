@@ -126,6 +126,12 @@ func (f *fixture) approveFor(env *core.ToolEnv, sender string, a *core.Action, s
 	f.t.Helper()
 	req := core.ApproverReq{Roles: []core.Role{core.RoleAdmin}, Required: f.cfg.Releases.Environments[0].Needed(), Requester: env.User,
 		RequesterIdentity: sender}
+	return f.approveAs(env, req, a, st, voters...)
+}
+
+// approveAs is approve with the approvers the approval names.
+func (f *fixture) approveAs(env *core.ToolEnv, req core.ApproverReq, a *core.Action, st core.ApprovalStatus, voters ...*core.User) *core.Approval {
+	f.t.Helper()
 	ap := &core.Approval{Run: env.Run, Session: env.Session, Principal: env.Principal.ID, ToolCallID: env.CallID, Action: a,
 		Decision: core.Decision{Verdict: core.VerdictAsk, Approver: req}, Card: core.Card{Title: "Deploy a release", Risk: core.SEIrreversible},
 		Status: st, Approver: req, OnTimeout: core.TimeoutDeny,
@@ -450,6 +456,52 @@ func TestFollowerReportsOutcome(t *testing.T) {
 	f.svc.poll(f.ctx)
 	if len(f.notices()) != 1 {
 		t.Fatal("a finished deploy was reported twice")
+	}
+}
+
+// Release events reach everyone who may see the approval a deploy ran on,
+// since they follow the deploy from there: the users it names, or every
+// account when it names the member role, each on their own principal and
+// without the session and run of the requester's chat.
+func TestDeployEventsReachApprovers(t *testing.T) {
+	for _, anyone := range []bool{false, true} {
+		f := newFixture(t)
+		carol, dave := f.user("carol", core.RoleMember), f.user("dave", core.RoleMember)
+		erin := f.user("erin", core.RoleMember)
+		erin.Disabled = true
+		if err := f.store.Users().Update(f.ctx, erin); err != nil {
+			t.Fatal(err)
+		}
+		env := f.env()
+		a := f.plan(env, `{"environment":"staging"}`)
+		req := core.ApproverReq{Users: []core.UserID{carol.ID}, Roles: []core.Role{core.RoleAdmin}, Required: 2, Requester: env.User}
+		followers := []core.PrincipalID{core.UserPrincipal(carol.ID)}
+		if anyone {
+			req = core.ApproverReq{Roles: []core.Role{core.RoleMember}, Required: 2, Requester: env.User}
+			followers = append(followers, core.UserPrincipal(dave.ID))
+		}
+		f.approveAs(env, req, a, core.ApprovalAllowed, f.alice, f.bob)
+		sub := f.bus.Subscribe(core.Filter{System: true, Types: []core.EventType{core.EvReleaseDispatched, core.EvReleaseFinished}}, 32)
+		if _, err := f.tool(deployName).Exec(f.ctx, env, a); err != nil {
+			t.Fatal(err)
+		}
+		f.gh.FinishRun(f.gh.Runs()[0].ID, "success", time.Minute, "")
+		f.svc.poll(f.ctx)
+		sub.Close()
+		got := map[core.EventType][]core.PrincipalID{}
+		for ev := range sub.C() {
+			follower := slices.Contains(followers, ev.Principal)
+			if follower != (ev.Session == "" && ev.Run == "") {
+				t.Errorf("anyone=%v: %s to %q carries session %q run %q", anyone, ev.Type, ev.Principal, ev.Session, ev.Run)
+			}
+			got[ev.Type] = append(got[ev.Type], ev.Principal)
+		}
+		want := append([]core.PrincipalID{core.UserPrincipal(f.owner.ID), ""}, followers...)
+		for _, typ := range []core.EventType{core.EvReleaseDispatched, core.EvReleaseFinished} {
+			if !slices.Equal(slices.Sorted(slices.Values(got[typ])), slices.Sorted(slices.Values(want))) {
+				t.Errorf("anyone=%v: %s went to %q, want %q", anyone, typ, got[typ], want)
+			}
+		}
 	}
 }
 

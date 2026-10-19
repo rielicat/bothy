@@ -5,8 +5,7 @@ import type { Deploy } from './types';
 
 // One read of the deploy list serves every deploy line on screen (§8.7), so a
 // chat with several approved deploys asks once. It reads again on release
-// events and, while a deploy it shows is running, every 15 s: the events reach
-// only the deploy's requester and admins, not its other approvers.
+// events, which reach everyone who can see a deploy's line, and on a resync.
 class Deploys {
   list = $state<Deploy[]>([]);
   #lines = new Map<string, number>();
@@ -14,7 +13,6 @@ class Deploys {
   #queued = false;
   #reading = false;
   #again = false;
-  #timer: ReturnType<typeof setTimeout> | undefined;
   #offs: (() => void)[] = [];
   #gen = 0;
 
@@ -48,7 +46,6 @@ class Deploys {
       else this.#lines.delete(approval);
       if (this.#lines.size) return;
       this.#offs.forEach((off) => off());
-      clearTimeout(this.#timer);
       // The next screen may be another person's, after a sign-out: it starts
       // from its own read, never from this one's deploys.
       this.list = [];
@@ -64,7 +61,6 @@ class Deploys {
       return;
     }
     if (!this.#lines.size) return;
-    clearTimeout(this.#timer);
     this.#reading = true;
     const gen = this.#gen;
     try {
@@ -79,9 +75,6 @@ class Deploys {
       this.#again = false;
       return this.read();
     }
-    // unknown is final: Bothy stopped following the run, so asking again changes nothing.
-    const open = [...this.#lines.keys()].some((id) => ['dispatched', 'running'].includes(this.of(id)?.status ?? ''));
-    if (open) this.#timer = setTimeout(() => void this.read(), 15_000);
   }
 }
 

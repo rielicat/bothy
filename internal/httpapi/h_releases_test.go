@@ -165,3 +165,42 @@ func TestReleasesWithRemovedApprover(t *testing.T) {
 		t.Fatalf("approvers seen by the owner = %q; want you", v.Approvers)
 	}
 }
+
+// An approver follows a deploy from the approval they may vote on, so the
+// deploy list carries another person's deploy whose approval names them,
+// without links into that person's chat; nobody else's.
+func TestReleasesListApprovedDeploys(t *testing.T) {
+	h := releaseHarness(t)
+	ctx := context.Background()
+	carol := h.newUser("carol", core.RoleMember)
+	deploys := h.store.(core.ReleaseStore).Releases()
+	named := h.multiApproval(h.admin, core.ApproverReq{Users: []core.UserID{h.member.user}, Roles: []core.Role{core.RoleAdmin}, Required: 2,
+		Requester: h.admin.user})
+	admins := h.multiApproval(h.admin, core.ApproverReq{Roles: []core.Role{core.RoleAdmin}, Required: 2, Requester: h.admin.user})
+	for i, ap := range []*core.Approval{named, admins} {
+		d := &core.Deploy{Environment: "staging", Repo: "acme/web", Workflow: "deploy.yml", Ref: "main", Principal: core.UserPrincipal(h.admin.user),
+			Session: ap.Session, Run: ap.Run, Approval: ap.ID, RequestedBy: h.admin.user, Status: core.DeployRunning,
+			CreatedAt: time.UnixMilli(int64(1_780_000_000_000 + i*1000))}
+		if err := deploys.Create(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	own := &core.Deploy{Environment: "staging", Repo: "acme/web", Workflow: "deploy.yml", Ref: "main", Principal: core.UserPrincipal(h.member.user),
+		Session: core.SessionID(core.NewID(core.PrefixSession)), RequestedBy: h.member.user, Status: core.DeploySucceeded,
+		CreatedAt: time.UnixMilli(1_779_000_000_000)}
+	if err := deploys.Create(ctx, own); err != nil {
+		t.Fatal(err)
+	}
+
+	r := decodeAs[dto.Releases](t, h.do(http.MethodGet, "/api/releases", nil, h.member))
+	if len(r.Deploys) != 2 || r.Deploys[0].Approval != named.ID || r.Deploys[1].ID != own.ID {
+		t.Fatalf("member's deploys = %+v; want the one they approve, then their own", r.Deploys)
+	}
+	if d := r.Deploys[0]; d.Session != "" || d.Run != "" || d.Chat != nil || d.Status != core.DeployRunning {
+		t.Fatalf("another person's deploy = %+v; want it without links into their chat", d)
+	}
+	r = decodeAs[dto.Releases](t, h.do(http.MethodGet, "/api/releases", nil, carol))
+	if len(r.Deploys) != 0 {
+		t.Fatalf("carol's deploys = %+v; want none", r.Deploys)
+	}
+}
