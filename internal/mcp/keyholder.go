@@ -22,8 +22,14 @@ type keyHolder struct {
 	Entry string      `json:"entry"` // entryHash of the config entry it was chosen for
 }
 
+// entryHash covers what decides where a key goes and how: turning the server
+// off and on, or changing how its actions are classed, keeps the choice.
 func entryHash(c config.MCPServer) string {
-	b, err := json.Marshal(c)
+	b, err := json.Marshal(struct {
+		Transport, URL string
+		Headers        map[string]string
+		AllowPrivate   bool
+	}{c.Transport, c.URL, c.Headers, c.AllowPrivate})
 	if err != nil {
 		return ""
 	}
@@ -32,8 +38,8 @@ func entryHash(c config.MCPServer) string {
 
 // DiscoverWith lets discovery of an HTTP server use admin's personal keys for
 // the references that have no shared value, and rediscovers it. The choice
-// holds while the config entry stays exactly as it is, so nobody can point
-// that admin's keys at another address, and while admin is still an active
+// holds while the entry's address and headers stay as they are (entryHash), so
+// nobody can point that admin's keys at another address, and while admin is still an active
 // admin. Calls never use those keys: each person's own key or the shared one
 // makes theirs.
 func (m *Manager) DiscoverWith(ctx context.Context, name string, admin core.UserID) error {

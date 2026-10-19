@@ -223,11 +223,21 @@ func TestDiscoveryWithAnAdminsOwnKey(t *testing.T) {
 		}
 	}
 
-	// The choice holds across rediscoveries of the same entry, never for an
-	// entry someone changed since.
+	// The choice holds across rediscoveries of the same entry, and across
+	// turning the server off and on, never for an entry whose address or
+	// headers someone changed since.
 	h.rediscover("docs")
 	if got := f.lastAuth(); got != "Bearer admin-own" || h.status("docs").Code != "" {
 		t.Fatalf("rediscovery sent %q; status %+v", got, h.status("docs"))
+	}
+	off, on := cfg, cfg
+	off.Enabled, on.Enabled = new(false), new(true)
+	h.m.applyConfig([]config.MCPServer{off}, true)
+	h.waitFor("turned off", func() bool { return h.status("docs").State == stDisabled })
+	h.m.applyConfig([]config.MCPServer{on}, true)
+	h.waitFor("turned on again", func() bool { st := h.status("docs"); return st.State != stConnecting && st.State != stDisabled })
+	if st := h.status("docs"); st.Code != "" || f.lastAuth() != "Bearer admin-own" {
+		t.Fatalf("after turning it off and on: status %+v, sent %q", st, f.lastAuth())
 	}
 	changed := cfg
 	changed.Headers = map[string]string{"Authorization": "secret:docs_key", "X-Team": "acme"}

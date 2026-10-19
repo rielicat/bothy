@@ -31,7 +31,7 @@ HTTP servers use Streamable HTTP (falling back to legacy SSE) through
 `PrivateOnly`, and header `secret:` references resolve with `Vault.Resolve`
 per billing user (global only for spaces) into a header transport that never
 logs them. Discovery resolves them globally, then with the personal keys of
-the admin `DiscoverWith` names for that exact config entry (meta
+the admin `DiscoverWith` names for that exact address and headers (meta
 `mcp.discovery_key.<server>`); its session only lists tools, so that key
 never makes anyone else's calls. Non-streaming responses are capped at 16 MB and definitions at
 64 KB. Stdio servers run only in sandbox boxes, each removed before it is

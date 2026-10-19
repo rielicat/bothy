@@ -116,8 +116,8 @@ type MCP interface {
 	Install(ctx context.Context, server string, by UserID) error // stdio only, installer box
 	Reload(ctx context.Context, server string) error
 	// DiscoverWith lets discovery of an HTTP server use admin's personal keys
-	// for references without a shared value, while its config entry stays
-	// the same and admin stays an active admin, and rediscovers it. Calls
+	// for references without a shared value, while its address and headers
+	// stay the same and admin stays an active admin, and rediscovers it. Calls
 	// never use them. ErrConflict when admin has neither for some reference.
 	DiscoverWith(ctx context.Context, server string, admin UserID) error
 	// Forget drops the pins (approvals, turned-off actions) of a server an
