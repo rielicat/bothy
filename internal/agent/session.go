@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -76,8 +77,10 @@ func (r *Runner) NewSession(ctx context.Context, p core.PrincipalID, origin stri
 	return s, nil
 }
 
-// Fork creates the clean fork of §5.3: no history, taint 0, a system note
-// linking the old session. For a channel session it archives the old one and
+// Fork creates the clean fork of §5.3, of any chat the viewer may open: no
+// history, taint 0, a notice, and the old chat as its parent (and its root,
+// or the old chat, as the family's root). It is listed at once, and its
+// first message names it. For a channel session it archives the old one and
 // moves the channel key to the fork, so the chat continues in the fork.
 func (r *Runner) Fork(ctx context.Context, v core.Viewer, id core.SessionID, by core.UserID) (*core.Session, error) {
 	old, err := r.d.Store.Sessions().Get(ctx, v, id)
@@ -94,9 +97,15 @@ func (r *Runner) Fork(ctx context.Context, v core.Viewer, id core.SessionID, by 
 		Chat:          old.Chat,
 		ModelSlot:     old.ModelSlot,
 		ModelOverride: old.ModelOverride,
-		Hidden:        old.Hidden,
+		// A quiet check-in is hidden only until something needs saying; a
+		// chat someone starts from it is theirs and listed.
+		Hidden:        old.Hidden && old.Origin == "api",
+		ParentID:      old.ID,
+		RootID:        cmp.Or(old.RootID, old.ID),
+		TitleAuto:     true,
 		CreatedAt:     now,
 		UpdatedAt:     now,
+		LastMessageAt: now,
 	}
 	if title != "" {
 		fork.Title = truncateRunes(title, 70) + " (clean)"
@@ -112,7 +121,7 @@ func (r *Runner) Fork(ctx context.Context, v core.Viewer, id core.SessionID, by 
 	if err != nil {
 		return nil, fmt.Errorf("agent: fork %s: %w", id, err)
 	}
-	r.notice(ctx, fork.ID, fork.Principal, "", forkNotice(title), nil)
+	r.notice(ctx, fork.ID, fork.Principal, "", forkNotice, nil)
 	r.d.Bus.Publish(core.Event{Type: core.EvSessionUpdated, Principal: fork.Principal, Session: fork.ID,
 		Data: core.SessionData{Title: fork.Title}})
 	return fork, nil

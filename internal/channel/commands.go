@@ -213,12 +213,16 @@ func (h *Hub) answerAnywhere(ctx context.Context, a *adapter, in core.Inbound, r
 	return "", false
 }
 
+// helpAsk opens the help text: most people only need to ask.
+const helpAsk = "Ask me anything, for example “Draft a release checklist for our next version” or “What can you do for our team?”"
+
 // helpText lists the commands everyone sees, as they are typed on a chat
-// app with caps. Only a prefixed command (Slack's) goes in code: Telegram
-// makes a plain /stop tappable, but not one inside code.
+// app with caps, after a line saying what to ask. Only a prefixed command
+// (Slack's) goes in code: Telegram makes a plain /stop tappable, but not one
+// inside code.
 func helpText(caps core.ChannelCaps) string {
 	var b strings.Builder
-	b.WriteString("Commands:")
+	b.WriteString(escapeMD(helpAsk) + "\n\nCommands:")
 	for _, name := range helpOrder {
 		spec := commands[name]
 		cmd := escapeMD(commandIn(caps, spec.usage))

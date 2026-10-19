@@ -72,15 +72,10 @@ func autoPinNotice(pinned []string) string {
 	return "Pinned " + strings.Join(quoted[:len(quoted)-1], ", ") + " and " + quoted[len(quoted)-1] + " so Bothy keeps them in mind."
 }
 
-// forkNotice opens a clean chat continued from another one.
-func forkNotice(title string) string {
-	from := "another chat"
-	if title != "" {
-		from = "“" + title + "”"
-	}
-	return "This is a clean chat continued from " + from + ", without its messages or the private information and outside " +
-		"content it had seen. Bothy's files are shared, so files from outside your team still count as outside content here."
-}
+// forkNotice opens a clean chat continued from another one. It names no
+// chat: the line above the transcript says which one it came from.
+const forkNotice = "This clean chat starts without the messages, private information or outside content of the chat it came " +
+	"from. Bothy's files are shared, so files from outside your team still count as outside content here."
 
 // providerNames name the companies behind provider types and well-known
 // OpenAI-compatible hosts; other servers are "The AI model".

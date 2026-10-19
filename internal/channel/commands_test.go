@@ -143,7 +143,7 @@ func TestCommandsAsSlackTypesThem(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		h := newHarness(t, withChecker("slack")).start()
 		h.dm(ownerChat, "/help")
-		if got := h.lastText(ownerChat); !strings.HasPrefix(got, "Commands:\n`/bothy stop` – stop the current task\n") ||
+		if got := h.lastText(ownerChat); !strings.Contains(got, "\n\nCommands:\n`/bothy stop` – stop the current task\n") ||
 			!strings.Contains(got, "\n`/bothy pin <text>` – keep an instruction in view\n") || strings.Contains(got, "`/stop`") {
 			t.Fatalf("/help on Slack = %q", got)
 		}
@@ -309,6 +309,26 @@ func TestPairTombstoneAndStartHello(t *testing.T) {
 		}
 		if n := len(h.runner.Submitted()); n != 0 {
 			t.Fatalf("commands reached the runner (%d)", n)
+		}
+	})
+}
+
+// The hello and /help give an ask to start from before anything else.
+func TestHelloAndHelpOfferAsks(t *testing.T) {
+	for name, want := range map[string]string{
+		"Maya": "Hi Maya, I'm Bothy. Ask me anything, for example “What can you do for our team?” When something needs approval, I'll ask an admin and tell you here.",
+		"  ":   "Hi, I'm Bothy. Ask me anything, for example “What can you do for our team?” When something needs approval, I'll ask an admin and tell you here.",
+	} {
+		if got := helloText(name); got != want {
+			t.Errorf("hello for %q = %q, want %q", name, got, want)
+		}
+	}
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		h.dm(memberChat, "/help")
+		want := "Ask me anything, for example “Draft a release checklist for our next version” or “What can you do for our team?”\n\nCommands:\n/stop – "
+		if got := h.lastText(memberChat); !strings.HasPrefix(got, want) {
+			t.Fatalf("/help = %q, want it to start %q", got, want)
 		}
 	})
 }

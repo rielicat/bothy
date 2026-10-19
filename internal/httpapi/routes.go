@@ -33,6 +33,8 @@ func (s *Server) routeTable() []route {
 		{pattern: "POST /api/auth/logout", access: accessUser, safe: true, h: s.logout},
 		{pattern: "GET /api/auth/me", access: accessUser, safe: true, h: s.authMe},
 		{pattern: "POST /api/auth/password", access: accessUserCookie, safe: true, h: s.changePassword},
+		// The one welcome chat of a web account; tokens never make it.
+		{pattern: "POST /api/me/welcome", access: accessUserCookie, h: s.welcome},
 
 		{pattern: "GET /api/tokens", access: accessUserCookie, h: s.listTokens},
 		{pattern: "POST /api/tokens", access: accessUserCookie, h: s.createToken},
@@ -74,6 +76,7 @@ func (s *Server) routeTable() []route {
 		{pattern: "POST /api/sessions/{id}/pins", access: accessUser, h: s.addPin},
 		{pattern: "DELETE /api/sessions/{id}/pins/{pin}", access: accessUser, h: s.deletePin},
 		{pattern: "POST /api/uploads", access: accessUser, h: s.upload, limit: -1},
+		{pattern: "GET /api/starters", access: accessUser, h: s.listStarters},
 
 		{pattern: "GET /api/runs", access: accessUser, h: s.listRuns},
 		{pattern: "GET /api/runs/{id}", access: accessUser, h: s.getRun},
@@ -121,6 +124,8 @@ func (s *Server) routeTable() []route {
 		{pattern: "GET /api/schedules", access: accessUser, h: s.listSchedules},
 		{pattern: "POST /api/schedules", access: accessUser, h: s.createSchedule},
 		{pattern: "POST /api/schedules/preview", access: accessUser, h: s.previewSchedule},
+		// The literal path wins over {id}, which never takes "examples".
+		{pattern: "GET /api/schedules/examples", access: accessUser, h: s.scheduleExamples},
 		{pattern: "GET /api/schedules/{id}", access: accessUser, h: s.getSchedule},
 		{pattern: "PATCH /api/schedules/{id}", access: accessUser, h: s.patchSchedule},
 		{pattern: "DELETE /api/schedules/{id}", access: accessUser, h: s.deleteSchedule},

@@ -187,8 +187,7 @@ func TestSessionsResolveForkAndNew(t *testing.T) {
 			t.Fatal("the chat did not move to the fork")
 		}
 		msgs, _ := h.store.Messages().Range(h.ctx, core.SystemViewer(), fork.ID, 0, 0)
-		if len(msgs) != 1 || msgs[0].Kind != core.KindNotice || strings.Contains(msgs[0].PlainText(), string(s3.ID)) ||
-			!strings.HasPrefix(msgs[0].PlainText(), "This is a clean chat continued from ") {
+		if len(msgs) != 1 || msgs[0].Kind != core.KindNotice || msgs[0].PlainText() != forkNotice {
 			t.Fatalf("fork note = %+v", msgs)
 		}
 		if _, err := h.r.Fork(h.ctx, core.Viewer{User: "usr_x"}, s3.ID, "usr_x"); !errors.Is(err, core.ErrNotFound) {
@@ -201,6 +200,180 @@ func TestSessionsResolveForkAndNew(t *testing.T) {
 		}
 		if _, err := h.r.NewSession(h.ctx, h.pid, "fax", nil); !errors.Is(err, core.ErrInvalid) {
 			t.Fatalf("bad origin = %v", err)
+		}
+	})
+}
+
+// A clean chat, made at any time, hangs from the chat it came from and from
+// the top of that family, is listed at once, opens with a notice that names
+// no chat, and takes its name from its first message.
+func TestForkIsRelatedListedAndNamedByItsFirstMessage(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{steps: []fakes.LLMStep{{Text: []string{"Sure, let's plan."}}}})
+		defer h.close()
+		v := ownerViewer(h)
+		root, err := h.r.mutateSession(h.ctx, h.sess.ID, func(s *core.Session) error { s.Title = "Q3 pricing notes"; return nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		child, err := h.r.Fork(h.ctx, v, root.ID, h.user.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		grandchild, err := h.r.Fork(h.ctx, v, child.ID, h.user.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range []struct {
+			fork   *core.Session
+			parent core.SessionID
+			title  string
+		}{{child, root.ID, "Q3 pricing notes (clean)"}, {grandchild, child.ID, "Q3 pricing notes (clean) (clean)"}} {
+			got, err := h.store.Sessions().Get(h.ctx, v, c.fork.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.ParentID != c.parent || got.RootID != root.ID || !got.TitleAuto || got.Title != c.title || got.Hidden ||
+				got.LastMessageAt.IsZero() || !got.LastMessageAt.Equal(got.CreatedAt) {
+				t.Fatalf("fork %s = parent %q root %q auto %v title %q hidden %v last %v; want parent %s, root %s, listed now",
+					got.ID, got.ParentID, got.RootID, got.TitleAuto, got.Title, got.Hidden, got.LastMessageAt, c.parent, root.ID)
+			}
+			if c.fork.ParentID != got.ParentID || c.fork.RootID != got.RootID || c.fork.LastMessageAt.IsZero() {
+				t.Fatalf("Fork returned %+v, stored %+v", c.fork, got)
+			}
+			msgs, _ := h.store.Messages().Range(h.ctx, v, got.ID, 0, 0)
+			if len(msgs) != 1 || msgs[0].PlainText() != forkNotice || strings.Contains(forkNotice, "Q3") {
+				t.Fatalf("fork notice = %+v", msgs)
+			}
+		}
+		if !strings.HasPrefix(forkNotice, "This clean chat starts without the messages, private information or outside content") {
+			t.Fatalf("fork notice copy = %q", forkNotice)
+		}
+
+		sub := h.bus.Subscribe(core.Filter{System: true, Types: []core.EventType{core.EvSessionUpdated}}, 64)
+		defer sub.Close()
+		h.sess = grandchild
+		h.submit("Help me plan the weekend\n\nwith  the whole family, somewhere near the coast")
+		synctest.Wait()
+		var titles []string
+		for len(sub.C()) > 0 {
+			titles = append(titles, (<-sub.C()).Data.(core.SessionData).Title)
+		}
+		if want := []string{"Help me plan the weekend with the whole family,", "Weekend plans"}; !slices.Equal(titles, want) {
+			t.Fatalf("titles %q, want the first message's start replacing Bothy's title, then the generated one %q", titles, want)
+		}
+		if got := h.session(); got.Title != "Weekend plans" || got.TitleAuto {
+			t.Fatalf("named fork = title %q auto %v", got.Title, got.TitleAuto)
+		}
+
+		hb, err := h.r.NewSession(h.ctx, h.pid, "schedule", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := h.store.Sessions().SetHidden(h.ctx, hb.ID, true); err != nil {
+			t.Fatal(err)
+		}
+		api, err := h.r.NewSession(h.ctx, h.pid, "api", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for from, hidden := range map[core.SessionID]bool{hb.ID: false, api.ID: true} {
+			f, err := h.r.Fork(h.ctx, v, from, h.user.ID)
+			if err != nil || f.Hidden != hidden || f.ParentID != from || f.RootID != from {
+				t.Fatalf("fork of %s = %+v, %v; want hidden %v", from, f, err, hidden)
+			}
+		}
+	})
+}
+
+// A hidden chat someone writes in is listed from then on, so retention
+// never archives what they wrote: a quiet check-in replied to, or an API
+// one-shot continued on the web. Bothy's own turns leave it hidden.
+func TestWritingInAHiddenChatListsIt(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{steps: []fakes.LLMStep{{Text: []string{"HEARTBEAT_OK"}}, {Text: []string{"Nothing failed today."}},
+			{Text: []string{"Here it is."}}}})
+		defer h.close()
+		sub := h.bus.Subscribe(core.Filter{System: true, Types: []core.EventType{core.EvSessionUpdated}}, 64)
+		defer sub.Close()
+		updated := func(id core.SessionID) (n int) {
+			for len(sub.C()) > 0 {
+				if (<-sub.C()).Session == id {
+					n++
+				}
+			}
+			return n
+		}
+		checkIn := h.newSession("schedule", nil)
+		if err := h.store.Sessions().SetHidden(h.ctx, checkIn.ID, true); err != nil {
+			t.Fatal(err)
+		}
+		h.sess = checkIn
+		req := h.req("- Tell me if a deploy failed")
+		req.Trigger, req.Sender = core.TrigHeartbeat, "schedule:sch_x"
+		if _, err := h.r.Submit(h.ctx, req); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		if got := h.session(); !got.Hidden || updated(checkIn.ID) != 0 {
+			t.Fatalf("the check-in's own turn listed its chat: %+v", got)
+		}
+		h.submit("Did anything fail yesterday?")
+		synctest.Wait()
+		if got := h.session(); got.Hidden || got.Title != "Test" || updated(checkIn.ID) != 1 {
+			t.Fatalf("after a reply: hidden %v title %q; want listed and announced once", got.Hidden, got.Title)
+		}
+
+		api, err := h.r.NewSession(h.ctx, h.pid, "api", nil)
+		if err != nil || !api.Hidden {
+			t.Fatalf("api session = %+v, %v", api, err)
+		}
+		h.sess = api
+		h.submit("Summarise the release notes")
+		synctest.Wait()
+		if got := h.session(); got.Hidden || got.Title == "" {
+			t.Fatalf("an API one-shot written in = hidden %v title %q; want listed and named", got.Hidden, got.Title)
+		}
+	})
+}
+
+// The scheduler sends a check-in's instruction as turn context and the
+// person's list as text: Submit takes it, the transcript's text is only the
+// list, and the model reads both.
+func TestCheckInInstructionIsTurnContext(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{steps: []fakes.LLMStep{{Text: []string{"HEARTBEAT_OK"}}}})
+		defer h.close()
+		h.sess = h.newSession("schedule", nil)
+		req := h.req("")
+		req.Trigger, req.Sender = core.TrigHeartbeat, "schedule:sch_x"
+		req.Input = []core.Part{{Type: core.PartContext, Text: "Here is HEARTBEAT.md. Reply exactly HEARTBEAT_OK."},
+			{Type: core.PartText, Text: "- Tell me if a deploy failed"}}
+		if _, err := h.r.Submit(h.ctx, req); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		var asked *core.Message
+		for _, m := range h.messages() {
+			if m.Role == core.MsgUser {
+				asked = m
+			}
+		}
+		if asked == nil || asked.PlainText() != "- Tell me if a deploy failed" {
+			t.Fatalf("stored check-in = %+v", asked)
+		}
+		reqs := h.requests()
+		if len(reqs) != 1 {
+			t.Fatalf("model requests = %d", len(reqs))
+		}
+		var seen string
+		for _, m := range reqs[0].Messages {
+			for _, p := range m.Parts {
+				seen += p.Text + "\n"
+			}
+		}
+		if !strings.Contains(seen, "Reply exactly HEARTBEAT_OK.") || !strings.Contains(seen, "- Tell me if a deploy failed") {
+			t.Fatalf("the model did not get both the instruction and the list:\n%s", seen)
 		}
 	})
 }

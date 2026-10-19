@@ -197,7 +197,7 @@ func TestDisableNoticeSentOutsideLock(t *testing.T) {
 	for range maxFailures {
 		h.svc.mu.Lock()
 		cur := h.get(sc.ID)
-		_, _ = h.svc.fire(ctx, cur, time.Now(), cur.NextRunAt, cur.Enabled, false)
+		_, _, _ = h.svc.fire(ctx, cur, time.Now(), cur.NextRunAt, cur.Enabled, false)
 		notes := h.svc.takeNotices()
 		h.svc.mu.Unlock()
 		h.svc.sendNotices(ctx, notes)

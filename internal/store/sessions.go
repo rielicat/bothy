@@ -13,7 +13,7 @@ import (
 
 const sessionCols = `id, principal_id, origin, COALESCE(channel_key, ''), chat, title, model_slot, model_override, system_snapshot,
 	tools_snapshot, snapshot_hash, summary, summary_upto, epoch, memory_seen, pins_seen, taint, hidden, archived,
-	created_at, updated_at, last_message_at`
+	created_at, updated_at, last_message_at, COALESCE(parent_id, ''), COALESCE(root_id, ''), schedule_id, title_auto`
 
 func scanSession(sc scanner) (*core.Session, error) {
 	var s core.Session
@@ -22,7 +22,7 @@ func scanSession(sc scanner) (*core.Session, error) {
 	var created, updated, last int64
 	if err := sc.Scan(&s.ID, &s.Principal, &s.Origin, &s.ChannelKey, &chat, &s.Title, &s.ModelSlot, &s.ModelOverride,
 		&s.SystemSnapshot, &tools, &s.SnapshotHash, &s.Summary, &s.SummaryUpto, &s.Epoch, &s.MemorySeen, &s.PinsSeen,
-		&s.Taint, &s.Hidden, &s.Archived, &created, &updated, &last); err != nil {
+		&s.Taint, &s.Hidden, &s.Archived, &created, &updated, &last, &s.ParentID, &s.RootID, &s.ScheduleID, &s.TitleAuto); err != nil {
 		return nil, err
 	}
 	var err error
@@ -59,10 +59,12 @@ func (r sessionRepo) Create(ctx context.Context, s *core.Session) error {
 	}
 	if _, err := r.h.wq.ExecContext(ctx, `INSERT INTO sessions(id, principal_id, origin, channel_key, chat, title, model_slot,
 		model_override, system_snapshot, tools_snapshot, snapshot_hash, summary, summary_upto, epoch, memory_seen, pins_seen,
-		taint, hidden, archived, created_at, updated_at, last_message_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		taint, hidden, archived, created_at, updated_at, last_message_at, parent_id, root_id, schedule_id, title_auto)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		string(id), string(s.Principal), s.Origin, nullStr(s.ChannelKey), chat, s.Title, string(s.ModelSlot), s.ModelOverride,
 		s.SystemSnapshot, tools, s.SnapshotHash, s.Summary, s.SummaryUpto, s.Epoch, s.MemorySeen, s.PinsSeen, int(s.Taint),
-		b2i(s.Hidden), b2i(s.Archived), ms(s.CreatedAt), ms(s.UpdatedAt), ms(s.LastMessageAt)); err != nil {
+		b2i(s.Hidden), b2i(s.Archived), ms(s.CreatedAt), ms(s.UpdatedAt), ms(s.LastMessageAt), nullStr(s.ParentID),
+		nullStr(s.RootID), string(s.ScheduleID), b2i(s.TitleAuto)); err != nil {
 		return dbErr("create session", err)
 	}
 	s.ID = id
@@ -116,8 +118,9 @@ func (r sessionRepo) List(ctx context.Context, v core.Viewer, f core.SessionFilt
 	return queryAll(ctx, r.h.rq, "list sessions", scanSession, q, args...)
 }
 
-// Update replaces every mutable column; principal_id and created_at are fixed
-// at creation.
+// Update replaces every mutable column; principal_id, created_at, parent_id
+// and root_id are fixed at creation. A copy read before its parent was
+// deleted would otherwise write the gone id back and fail the foreign key.
 func (r sessionRepo) Update(ctx context.Context, s *core.Session) error {
 	chat, tools, err := sessionJSON(s)
 	if err != nil {
@@ -125,11 +128,33 @@ func (r sessionRepo) Update(ctx context.Context, s *core.Session) error {
 	}
 	res, err := r.h.wq.ExecContext(ctx, `UPDATE sessions SET origin = ?, channel_key = ?, chat = ?, title = ?, model_slot = ?,
 		model_override = ?, system_snapshot = ?, tools_snapshot = ?, snapshot_hash = ?, summary = ?, summary_upto = ?, epoch = ?,
-		memory_seen = ?, pins_seen = ?, taint = ?, hidden = ?, archived = ?, updated_at = ?, last_message_at = ? WHERE id = ?`,
+		memory_seen = ?, pins_seen = ?, taint = ?, hidden = ?, archived = ?, updated_at = ?, last_message_at = ?,
+		schedule_id = ?, title_auto = ? WHERE id = ?`,
 		s.Origin, nullStr(s.ChannelKey), chat, s.Title, string(s.ModelSlot), s.ModelOverride, s.SystemSnapshot, tools,
 		s.SnapshotHash, s.Summary, s.SummaryUpto, s.Epoch, s.MemorySeen, s.PinsSeen, int(s.Taint), b2i(s.Hidden),
-		b2i(s.Archived), ms(s.UpdatedAt), ms(s.LastMessageAt), string(s.ID))
+		b2i(s.Archived), ms(s.UpdatedAt), ms(s.LastMessageAt), string(s.ScheduleID), b2i(s.TitleAuto), string(s.ID))
 	return mustAffect("update session", res, err)
+}
+
+// Related returns the listed chats the viewer may open, for the families of
+// a page of chats; archived and hidden ones are left out.
+func (r sessionRepo) Related(ctx context.Context, v core.Viewer, ids []core.SessionID) ([]*core.Session, error) {
+	cond, args, ok := viewerCond("principal_id", v)
+	if !ok || len(ids) == 0 {
+		return nil, nil
+	}
+	q := make([]any, 0, len(ids)+len(args))
+	for _, id := range ids {
+		q = append(q, string(id))
+	}
+	return queryAll(ctx, r.h.rq, "related sessions", scanSession, `SELECT `+sessionCols+` FROM sessions WHERE id IN (`+
+		placeholders(len(ids))+`) AND `+cond+` AND archived = 0 AND hidden = 0 ORDER BY last_message_at DESC, id DESC`,
+		append(q, args...)...)
+}
+
+func (r sessionRepo) SetHidden(ctx context.Context, id core.SessionID, hidden bool) error {
+	res, err := r.h.wq.ExecContext(ctx, `UPDATE sessions SET hidden = ? WHERE id = ?`, b2i(hidden), string(id))
+	return mustAffect("set hidden", res, err)
 }
 
 func (r sessionRepo) SetTaint(ctx context.Context, id core.SessionID, t core.Taint) error {

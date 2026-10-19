@@ -74,6 +74,7 @@ var storeSuite = []struct {
 }{
 	{"Meta", testMeta},
 	{"Users", testUsers},
+	{"ClaimWelcome", testClaimWelcome},
 	{"UserDelete", testUserDelete},
 	{"Principals", testPrincipals},
 	{"Spaces", testSpaces},
@@ -83,6 +84,7 @@ var storeSuite = []struct {
 	{"Sessions", testSessions},
 	{"SessionList", testSessionList},
 	{"SessionURLs", testSessionURLs},
+	{"RelatedChats", testRelatedChats},
 	{"Messages", testMessages},
 	{"MessagePaging", testMessagePaging},
 	{"MessageSearch", testMessageSearch},

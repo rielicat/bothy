@@ -40,6 +40,7 @@ func (r metaRepo) Delete(_ context.Context, k string) error {
 func normUser(u core.User) core.User {
 	u.LockedUntil = ms(u.LockedUntil)
 	u.LastLoginAt = ms(u.LastLoginAt)
+	u.WelcomedAt = ms(u.WelcomedAt)
 	u.CreatedAt = ms(u.CreatedAt)
 	u.UpdatedAt = ms(u.UpdatedAt)
 	return u
@@ -142,9 +143,24 @@ func (r userRepo) Update(_ context.Context, u *core.User) error {
 		return err
 	}
 	row := normUser(*u)
-	row.CreatedAt, row.LastLoginAt = cur.CreatedAt, cur.LastLoginAt
+	row.CreatedAt, row.LastLoginAt, row.WelcomedAt = cur.CreatedAt, cur.LastLoginAt, cur.WelcomedAt
 	st.users[u.ID] = row
 	return nil
+}
+
+func (r userRepo) ClaimWelcome(_ context.Context, id core.UserID, at time.Time) (bool, error) {
+	st, unlock := r.s.begin()
+	defer unlock()
+	u, ok := st.users[id]
+	if !ok || !u.WelcomedAt.IsZero() {
+		return false, nil
+	}
+	u.WelcomedAt = ms(at)
+	if u.WelcomedAt.IsZero() {
+		u.WelcomedAt = time.UnixMilli(1).UTC()
+	}
+	st.users[id] = u
+	return true, nil
 }
 
 func (r userRepo) SetProfile(_ context.Context, u *core.User) error {
@@ -214,9 +230,9 @@ func (r userRepo) Delete(_ context.Context, id core.UserID) error {
 }
 
 // deletePrincipals mirrors the ON DELETE chains from principals: CASCADE
-// through everything they own, SET NULL on schedules.session_id,
-// runs.schedule_id and channel_identities.principal_id, where the teammate
-// CHECK makes SET NULL fail.
+// through everything they own, SET NULL on sessions.parent_id and root_id,
+// schedules.session_id, runs.schedule_id and channel_identities.principal_id,
+// where the teammate CHECK makes SET NULL fail.
 func (st *state) deletePrincipals(ps map[core.PrincipalID]bool) error {
 	for _, row := range st.identities {
 		if row.id.Status == core.IdentityTeammate && ps[row.id.Principal] {
@@ -235,6 +251,17 @@ func (st *state) deletePrincipals(ps map[core.PrincipalID]bool) error {
 			sessions[sid] = true
 			delete(st.sessions, sid)
 			delete(st.lastSeq, sid)
+		}
+	}
+	for sid, sess := range st.sessions {
+		if sessions[sess.ParentID] || sessions[sess.RootID] {
+			if sessions[sess.ParentID] {
+				sess.ParentID = ""
+			}
+			if sessions[sess.RootID] {
+				sess.RootID = ""
+			}
+			st.sessions[sid] = sess
 		}
 	}
 	maps.DeleteFunc(st.sessionURLs, func(k urlKey, _ string) bool { return sessions[k.session] })

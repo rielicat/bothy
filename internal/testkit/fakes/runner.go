@@ -1,6 +1,7 @@
 package fakes
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -174,7 +175,8 @@ func (r *Runner) save(ctx context.Context, s *core.Session) error {
 	return nil
 }
 
-// Fork archives a channel session and moves its channel key to the fork.
+// Fork archives a channel session and moves its channel key to the fork,
+// which hangs from the old session (parent, and its root or itself as root).
 func (r *Runner) Fork(ctx context.Context, v core.Viewer, id core.SessionID, _ core.UserID) (*core.Session, error) {
 	var old *core.Session
 	if r.Store != nil {
@@ -209,7 +211,11 @@ func (r *Runner) Fork(ctx context.Context, v core.Viewer, id core.SessionID, _ c
 	now := time.Now()
 	fork := &core.Session{
 		ID: core.SessionID(core.NewID(core.PrefixSession)), Principal: old.Principal, Origin: old.Origin,
-		ChannelKey: old.ChannelKey, Chat: old.Chat, ModelSlot: old.ModelSlot, CreatedAt: now, UpdatedAt: now,
+		ChannelKey: old.ChannelKey, Chat: old.Chat, ModelSlot: old.ModelSlot, CreatedAt: now, UpdatedAt: now, LastMessageAt: now,
+		ParentID: old.ID, RootID: cmp.Or(old.RootID, old.ID), TitleAuto: true,
+	}
+	if old.Title != "" {
+		fork.Title = old.Title + " (clean)"
 	}
 	return fork, r.save(ctx, fork)
 }

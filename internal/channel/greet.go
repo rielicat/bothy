@@ -15,9 +15,11 @@ const (
 	budgetDMEvery = 20 * time.Hour
 )
 
-// helloText greets a teammate the first time they may use Bothy.
+// helloText greets a teammate the first time they may use Bothy, with an
+// ask to start from.
 func helloText(name string) string {
-	const rest = "I'm Bothy. Ask me anything. When something needs approval, I'll ask an admin and tell you here."
+	const rest = "I'm Bothy. Ask me anything, for example “What can you do for our team?” When something needs approval, " +
+		"I'll ask an admin and tell you here."
 	if name = strings.TrimSpace(name); name == "" {
 		return "Hi, " + rest
 	}

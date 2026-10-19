@@ -142,7 +142,7 @@ func TestGroupSpace(t *testing.T) {
 	// The hub handles one adapter's updates in order, so once Olivia's
 	// /help is answered the group message before it has met the off space.
 	e.tg.Inject(telegramtest.Inbound{ChatID: chOwnerTG, SenderID: chOwnerTG, FirstName: "Olivia", Text: "/help"})
-	e.tgMessage(t, chOwnerTG, "the /help reply", func(m telegramtest.Message) bool { return strings.HasPrefix(m.Text, "Commands:") })
+	e.tgMessage(t, chOwnerTG, "the /help reply", func(m telegramtest.Message) bool { return strings.Contains(m.Text, "\n\nCommands:\n") })
 	enabled, profile := true, "restricted"
 	if code := e.JSON(t, http.MethodPatch, "/api/spaces/"+string(sp.Principal), dto.SpacePatchReq{Enabled: &enabled, ToolProfile: &profile},
 		&sp); code != http.StatusOK || !sp.Enabled || sp.ReviewedAt.IsZero() {

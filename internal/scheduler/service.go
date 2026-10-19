@@ -21,6 +21,7 @@ const (
 	maxPreview     = 50
 
 	heartbeatName = "heartbeat"
+	checkInName   = "Check-in" // what people see for a heartbeat-kind schedule
 	systemActor   = "system"
 
 	heartbeatInstruction = "Here is HEARTBEAT.md. If nothing needs the user's attention, reply exactly HEARTBEAT_OK."
@@ -258,27 +259,34 @@ func (s *Service) deleteAs(ctx context.Context, v core.Viewer, id core.ScheduleI
 // RunNow fires a schedule immediately without moving its next run. The run
 // is the schedule owner's, so the audit is what says who started it.
 func (s *Service) RunNow(ctx context.Context, v core.Viewer, id core.ScheduleID, by core.UserID) (core.RunID, error) {
+	run, _, err := s.RunNowIn(ctx, v, id, by)
+	return run, err
+}
+
+// RunNowIn is RunNow that also says which chat the run writes in: the run's
+// row is made later by the runner, so the caller can't read it from there.
+func (s *Service) RunNowIn(ctx context.Context, v core.Viewer, id core.ScheduleID, by core.UserID) (core.RunID, core.SessionID, error) {
 	s.mu.Lock()
-	sc, run, err := s.runNowLocked(ctx, v, id)
+	sc, run, ses, err := s.runNowLocked(ctx, v, id)
 	notes := s.takeNotices()
 	s.mu.Unlock()
 	if err == nil {
 		s.auditf(ctx, "schedule.run", "user:"+string(by), sc, run, nil)
 	}
 	s.sendNotices(ctx, notes)
-	return run, err
+	return run, ses, err
 }
 
-func (s *Service) runNowLocked(ctx context.Context, v core.Viewer, id core.ScheduleID) (*core.Schedule, core.RunID, error) {
+func (s *Service) runNowLocked(ctx context.Context, v core.Viewer, id core.ScheduleID) (*core.Schedule, core.RunID, core.SessionID, error) {
 	sc, err := s.store.Schedules().Get(ctx, v, id)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 	if s.isPaused() {
-		return nil, "", fmt.Errorf("scheduler: %w", core.ErrPaused)
+		return nil, "", "", fmt.Errorf("scheduler: %w", core.ErrPaused)
 	}
-	run, err := s.fire(ctx, sc, s.clock.Now(), sc.NextRunAt, sc.Enabled, true)
-	return sc, run, err
+	run, ses, err := s.fire(ctx, sc, s.clock.Now(), sc.NextRunAt, sc.Enabled, true)
+	return sc, run, ses, err
 }
 
 // Preview returns the next n fire times in tz (heartbeats without jitter).

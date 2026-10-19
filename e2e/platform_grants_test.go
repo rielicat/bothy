@@ -193,13 +193,12 @@ policy:
 		if code := owner.JSON(t, http.MethodPost, "/api/schedules", sc, &created); code != http.StatusOK || created.ID == "" {
 			t.Fatalf("create schedule = %d", code)
 		}
-		var fired struct {
-			Run core.RunID `json:"run_id"`
-		}
-		if code := owner.JSON(t, http.MethodPost, "/api/schedules/"+string(created.ID)+"/run", nil, &fired); code != http.StatusAccepted || fired.Run == "" {
+		var fired dto.RunScheduleResp
+		if code := owner.JSON(t, http.MethodPost, "/api/schedules/"+string(created.ID)+"/run", nil, &fired); code != http.StatusAccepted ||
+			fired.RunID == "" || fired.SessionID == "" {
 			t.Fatalf("run schedule = %d %+v", code, fired)
 		}
-		a := owner.WaitApproval(t, fired.Run, core.ApprovalPending)
+		a := owner.WaitApproval(t, fired.RunID, core.ApprovalPending)
 		if a.Decision.Rule != "rule:e20-write" || a.OnTimeout != core.TimeoutPark {
 			t.Fatalf("scheduled card = %+v on_timeout %s", a.Decision, a.OnTimeout)
 		}
@@ -207,8 +206,9 @@ policy:
 			t.Fatalf("scheduled card choices = %v", c)
 		}
 		refuse(t, a)
-		if d := owner.Finished(t, fired.Run); d.Run.Trigger != core.TrigSchedule {
-			t.Fatalf("scheduled run = %+v", d.Run)
+		// Run now names the chat the run writes in, for the toast's Open chat.
+		if d := owner.Finished(t, fired.RunID); d.Run.Trigger != core.TrigSchedule || d.Run.Session != fired.SessionID {
+			t.Fatalf("scheduled run = %+v, Run now named chat %s", d.Run, fired.SessionID)
 		}
 	})
 }

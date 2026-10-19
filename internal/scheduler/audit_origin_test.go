@@ -130,7 +130,7 @@ func TestAccountHearsItsScheduleWasTurnedOffWithoutATask(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if len(chats) != 1 || chats[0].Title != "Morning brief · 2026-10-12" || chats[0].LastMessageAt.IsZero() {
+				if len(chats) != 1 || chats[0].Title != "Morning brief · 12 Oct" || chats[0].LastMessageAt.IsZero() {
 					t.Fatalf("chats = %+v", chats)
 				}
 				msgs, err := h.store.Messages().Range(ctx, h.viewer(), chats[0].ID, 0, 0)
@@ -182,7 +182,7 @@ func TestAccountHearsItsScheduleWasTurnedOffAfterDeletingTheChat(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(chats) != 1 || chats[0].ID == gone || chats[0].Title != "Morning brief · 2026-10-12" {
+		if len(chats) != 1 || chats[0].ID == gone || chats[0].Title != "Morning brief · 12 Oct" {
 			t.Fatalf("chats = %+v", chats)
 		}
 		msgs, err := h.store.Messages().Range(ctx, h.viewer(), chats[0].ID, 0, 0)

@@ -14,13 +14,14 @@ const (
 	defaultDedupKeep  = 24 * time.Hour
 )
 
-// Stateless /v1 requests leave one hidden api session each. The pass runs in
-// one write transaction, so it must only touch the not yet archived ones
-// through sessions_hidden_api (same expression), never scan every session
-// ever made. Archived ones are never shown or resumed with their history,
-// so their snapshot and summary are cleared too; their runs keep the costs.
+// Stateless /v1 requests leave one hidden api session each, and a check-in
+// with nothing to report one hidden schedule session. The pass runs in one
+// write transaction, so it must only touch the not yet archived ones through
+// sessions_hidden_due (same expression), never scan every session ever made.
+// Archived ones are never shown or resumed with their history, so their
+// snapshot and summary are cleared too; their runs keep the costs.
 const (
-	hiddenDue           = `hidden = 1 AND origin = 'api' AND archived = 0 AND max(created_at, updated_at, last_message_at) < ?`
+	hiddenDue           = `hidden = 1 AND origin IN ('api','schedule') AND archived = 0 AND max(created_at, updated_at, last_message_at) < ?`
 	pruneHiddenMessages = `DELETE FROM messages WHERE session_id IN (SELECT id FROM sessions WHERE ` + hiddenDue + `)`
 	archiveHidden       = `UPDATE sessions SET archived = 1, system_snapshot = '', tools_snapshot = '[]', snapshot_hash = '',
 		summary = '' WHERE ` + hiddenDue

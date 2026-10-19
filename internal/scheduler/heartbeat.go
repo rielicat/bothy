@@ -104,31 +104,72 @@ func sameSettings(a, b *core.Schedule) bool {
 		reflect.DeepEqual(a.Deliver, b.Deliver)
 }
 
-// heartbeatPrompt inlines HEARTBEAT.md (memory files are not in the
-// workspace). An empty file or a spent daily heartbeat budget skips the tick
-// before any LLM call.
-func (s *Service) heartbeatPrompt(ctx context.Context, sc *core.Schedule) (string, error) {
+// heartbeatInput inlines HEARTBEAT.md (memory files are not in the
+// workspace): the instruction goes as turn context, which the model reads
+// but the transcript doesn't show, so the chat's first bubble is the
+// person's own list. An empty file or a spent daily heartbeat budget skips
+// the tick before any LLM call.
+func (s *Service) heartbeatInput(ctx context.Context, sc *core.Schedule) ([]core.Part, error) {
 	if s.memory == nil {
-		return "", errors.New("scheduler: no memory service for HEARTBEAT.md")
+		return nil, errors.New("scheduler: no memory service for HEARTBEAT.md")
 	}
 	content, _, err := s.memory.Read(ctx, core.SystemViewer(), sc.Principal, core.FileHeartbeat)
 	if errors.Is(err, core.ErrForbidden) {
-		return "", skipError{invalidf("spaces have no HEARTBEAT.md")}
+		return nil, skipError{invalidf("spaces have no HEARTBEAT.md")}
 	}
 	if err != nil {
-		return "", fmt.Errorf("scheduler: read HEARTBEAT.md: %w", err)
+		return nil, fmt.Errorf("scheduler: read HEARTBEAT.md: %w", err)
 	}
 	if strings.TrimSpace(content) == "" {
-		return "", skipError{invalidf("The check-in list is empty, so there's nothing to check yet. Add something to it first.")}
+		return nil, skipError{invalidf("The check-in list is empty, so there's nothing to check yet. Add something to it first.")}
 	}
 	if err := s.heartbeatBudget(ctx, sc); err != nil {
-		return "", err
+		return nil, err
 	}
 	instr := sc.Prompt
 	if strings.TrimSpace(instr) == "" {
 		instr = heartbeatInstruction
 	}
-	return instr + "\n\n" + content, nil
+	return []core.Part{{Type: core.PartContext, Text: instr}, {Type: core.PartText, Text: content}}, nil
+}
+
+// showCheckIn lists a check-in's chat, hidden since its tick made it, once
+// there is something to see: the run parked on an approval, ended other
+// than done, or answered anything but HEARTBEAT_OK. A done all-clear stays
+// hidden, and retention archives it.
+func (s *Service) showCheckIn(ctx context.Context, e core.Event, run *core.Run) {
+	if run.Trigger != core.TrigHeartbeat {
+		return
+	}
+	ses, err := s.store.Sessions().Get(ctx, core.SystemViewer(), run.Session)
+	if err != nil || !ses.Hidden {
+		return
+	}
+	if status, _ := runOutcome(e, run.Status); e.Type == core.EvRunFinished && status == core.RunDone && isHeartbeatOK(s.lastAnswer(ctx, run)) {
+		return
+	}
+	if err := s.store.Sessions().SetHidden(ctx, ses.ID, false); err != nil {
+		s.log.Warn("scheduler: list a check-in with something to say", "session", ses.ID, "err", err)
+		return
+	}
+	if s.bus != nil {
+		s.bus.Publish(core.Event{Type: core.EvSessionUpdated, Principal: ses.Principal, Session: ses.ID,
+			Data: core.SessionData{Title: ses.Title, Taint: ses.Taint, Epoch: ses.Epoch}})
+	}
+}
+
+// lastAnswer is the text of the run's last answer; "" when it has none.
+func (s *Service) lastAnswer(ctx context.Context, run *core.Run) string {
+	msgs, err := s.store.Messages().Page(ctx, core.SystemViewer(), run.Session, core.Page{Limit: 100})
+	if err != nil {
+		return ""
+	}
+	for _, m := range msgs {
+		if m.Run == run.ID && m.Role == core.MsgAssistant && m.Kind == core.KindNormal && strings.TrimSpace(m.PlainText()) != "" {
+			return m.PlainText()
+		}
+	}
+	return ""
 }
 
 // heartbeatBudget sums today's spend (config timezone) of the schedule's runs

@@ -527,6 +527,10 @@ type UserRepo interface {
 	// SignedIn records a successful sign-in at at: LastLoginAt, and the
 	// failure count and lock cleared.
 	SignedIn(ctx context.Context, id UserID, at time.Time) error
+	// ClaimWelcome sets WelcomedAt to at only while it is zero, and reports
+	// whether this call set it: one welcome chat per account, however many
+	// requests race.
+	ClaimWelcome(ctx context.Context, id UserID, at time.Time) (bool, error)
 	Count(ctx context.Context) (int, error)
 	// Delete removes the users row (user purge). Foreign keys cascade to its
 	// principal, sessions (messages, pins, runs, approvals), grants,
@@ -605,8 +609,14 @@ type SessionRepo interface {
 	Get(ctx context.Context, v Viewer, id SessionID) (*Session, error)
 	ByChannelKey(ctx context.Context, p PrincipalID, key string) (*Session, error) // open (non-archived) only
 	List(ctx context.Context, v Viewer, f SessionFilter) ([]*Session, error)
-	Update(ctx context.Context, s *Session) error
+	Update(ctx context.Context, s *Session) error // every mutable column; ParentID and RootID are fixed at Create
 	SetTaint(ctx context.Context, id SessionID, t Taint) error
+	// SetHidden writes only the hidden flag, so it never undoes a concurrent
+	// read-modify-write of the rest of the row.
+	SetHidden(ctx context.Context, id SessionID, hidden bool) error
+	// Related returns the sessions among ids that the Viewer may open and
+	// that are listed (not archived, not hidden), newest first.
+	Related(ctx context.Context, v Viewer, ids []SessionID) ([]*Session, error)
 	Archive(ctx context.Context, v Viewer, id SessionID) error
 	AddURLs(ctx context.Context, id SessionID, urls []string, source string) error // URL provenance: search | user
 	HasURL(ctx context.Context, id SessionID, url string) (bool, error)

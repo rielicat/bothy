@@ -226,7 +226,17 @@ func TestKnowledgeStemmingMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	w := &world{t: t, ctx: ctx, db: old}
-	u := w.user(core.RoleOwner)
+	// The user goes in as SQL: today's repository writes columns later
+	// migrations add.
+	u := &core.User{ID: core.UserID(core.NewID(core.PrefixUser))}
+	for _, q := range []string{
+		`INSERT INTO users(id, username, role, pw_hash, created_at, updated_at) VALUES (?1, 'owner', 'owner', 'h', 1, 1)`,
+		`INSERT INTO principals(id, kind, user_id, workspace_id, tool_profile, created_at) VALUES (?1, 'user', ?1, 'ws_k', 'standard', 1)`,
+	} {
+		if _, err := old.w.ExecContext(ctx, q, string(u.ID)); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
 	r := w.knowledgeRepo(core.UserPrincipal(u.ID), "acme/web")
 	w.knowledgeFile(r.ID, "src/auth/callback.ts", kchunk(1, 3, "callback", "return Response.redirect(next, 302);"))
 	search := func(q string) []core.KnowledgeHit {
