@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Button, CodeBlock, Dialog, Notice, Segmented, TextField } from '../../components/ui';
-  import { api, ApiError } from '../../lib/api/client';
+  import { api, ApiError, refusal } from '../../lib/api/client';
   import type { UserCreateResp } from '../../lib/api/types.gen';
   import { usernameError } from '../../lib/password';
   import { session } from '../../lib/stores/session.svelte';
@@ -24,16 +24,17 @@
   let submitted = $state(false);
   let busy = $state(false);
   let taken = $state('');
+  let nameRefused = $state('');
   let failed = $state('');
   let done = $state<{ name: string; username: string; password: string } | null>(null);
 
-  const nameError = $derived(submitted && !name.trim() ? 'Enter their name.' : undefined);
+  const nameError = $derived(nameRefused || (submitted && !name.trim() ? 'Enter their name.' : undefined));
   const userError = $derived(taken === username && taken ? 'That username is taken. Try another.' : submitted ? usernameError(username) || undefined : undefined);
   const address = $derived(settingsConfig.value<string>('server.public_url', '') || location.origin);
 
   $effect(() => {
     if (open) return;
-    name = username = taken = failed = '';
+    name = username = taken = failed = nameRefused = '';
     role = 'member';
     submitted = false;
     done = null;
@@ -58,7 +59,8 @@
       void focusDialogResult();
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) taken = username;
-      else failed = "Bothy couldn't add them. Try again.";
+      else if (/display name/.test((err as ApiError).message)) nameRefused = 'Use at most 64 characters, with no invisible ones.';
+      else failed = refusal(err) || "Bothy couldn't add them. Try again.";
     } finally {
       busy = false;
     }
@@ -72,7 +74,7 @@
     <p class="mt-3 text-body text-muted">They'll choose their own password when they first sign in.</p>
   {:else}
     <form id={formId} class="grid gap-5" onsubmit={create} novalidate>
-      <TextField label="Name" bind:value={name} autocomplete="off" error={nameError} />
+      <TextField label="Name" bind:value={name} autocomplete="off" error={nameError} oninput={() => (nameRefused = '')} />
       <TextField label="Username" bind:value={username} autocomplete="off" autocapitalize="none" spellcheck="false" help="They sign in with this." error={userError} />
       <div>
         <p class="field-label">Role</p>

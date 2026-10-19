@@ -103,6 +103,17 @@ describe('choose a new password', () => {
     await waitFor(() => expect(background().length).toBeGreaterThan(0));
   });
 
+  it('says the one-time password typed again after a reload is not a new one', async () => {
+    await start('', '/password');
+    installApi({ login: false, override: (m, url) => (m === 'POST' && url === '/api/auth/password' ? new Response(JSON.stringify({ error: { code: 'bad_request', message: 'the new password must differ from the current one' } }), { status: 400 }) : undefined) });
+    render(ChangePassword);
+    await fireEvent.input(screen.getByLabelText('One-time password'), { target: { value: 'Granite-River-42-Lantern' } });
+    await fireEvent.input(screen.getByLabelText('New password'), { target: { value: 'Granite-River-42-Lantern' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Save and continue' }));
+    expect(await screen.findByText('Choose a new password, not the one-time password.')).toBeTruthy();
+    expect(screen.queryByText("That one-time password didn't work. Ask an admin for a new one.")).toBeNull();
+  });
+
   it('asks for the one-time password again after a reload', async () => {
     await start('', '/password');
     render(ChangePassword);

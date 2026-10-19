@@ -115,6 +115,37 @@ describe('Settings → Account', () => {
     expect(await within(dialog).findByText("That's not your current password.")).toBeTruthy();
   });
 
+  // The server answers 400 for a wrong current password and for the same one again, 429 once locked.
+  it.each([
+    [400, 'the current password is incorrect', 'Current password', "That's not your current password."],
+    [400, 'the new password must differ from the current one', 'New password', 'Choose a password different from your current one.'],
+    [429, 'account temporarily locked: try again in 4m0s', '', 'Too many tries. Try again in 4 minutes.'],
+  ])('maps a %i "%s" to its field', async (status, message, field, text) => {
+    await open({ override: (m, url) => (m === 'POST' && url === '/api/auth/password' ? new Response(JSON.stringify({ error: { code: 'x', message } }), { status }) : undefined) });
+    await fireEvent.click(screen.getByRole('button', { name: 'Change password…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Change password' });
+    await fireEvent.input(within(dialog).getByLabelText('Current password'), { target: { value: 'a long old password' } });
+    await fireEvent.input(within(dialog).getByLabelText('New password'), { target: { value: 'a much longer phrase' } });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Save password' }));
+    expect(await within(dialog).findByText(text)).toBeTruthy();
+    if (field) expect(within(dialog).getByLabelText(field).getAttribute('aria-describedby')).toMatch(/error/);
+    expect(within(dialog).queryByText('Use at least 12 characters.')).toBeNull();
+  });
+
+  it('offers the /v1 instructions only to tokens /v1 takes, and caps the name', async () => {
+    await open();
+    await fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Create token' });
+    expect(within(dialog).getByLabelText('Name').getAttribute('maxlength')).toBe('64');
+    expect(within(dialog).getByText('It can also change or delete your chats, memory, schedules and saved keys.')).toBeTruthy();
+    await fireEvent.input(within(dialog).getByLabelText('Name'), { target: { value: 'Reader' } });
+    await fireEvent.click(within(dialog).getByLabelText(/^Chat with Bothy/));
+    await fireEvent.click(within(dialog).getByLabelText('Read your chats and activity'));
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Create token' }));
+    await within(dialog).findByText("Copy this token now. It won't be shown again.");
+    expect(within(dialog).queryByRole('button', { name: 'Details' })).toBeNull();
+  });
+
   it('saves your name through your own profile', async () => {
     const calls = await open();
     const name = (await screen.findByLabelText('Name')) as HTMLInputElement;

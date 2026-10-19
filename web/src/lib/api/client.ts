@@ -13,6 +13,13 @@ export class ApiError extends Error {
   }
 }
 
+/** A 4xx answer's reason as a sentence ("only the owner can …" → "Only the owner can …."), or '' when it gave none. */
+export function refusal(e: unknown): string {
+  if (!(e instanceof ApiError) || e.status < 400 || e.status > 499 || e.status === 401 || !e.message) return '';
+  const t = e.message[0].toUpperCase() + e.message.slice(1);
+  return /[.?!]$/.test(t) ? t : `${t}.`;
+}
+
 let csrf = '';
 let unauthorized: (() => void) | null = null;
 let csrfRejected: (() => Promise<boolean>) | null = null;

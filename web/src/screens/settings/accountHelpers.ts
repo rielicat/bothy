@@ -8,11 +8,12 @@ export interface ScopeChoice {
   label: string;
   /** Short form for the token's summary line. */
   verb: string;
+  hint?: string;
 }
 
 export function scopeChoices(admin: boolean): ScopeChoice[] {
   return [
-    { value: 'chat', label: 'Chat with Bothy', verb: 'chat' },
+    { value: 'chat', label: 'Chat with Bothy', verb: 'chat', hint: 'It can also change or delete your chats, memory, schedules and saved keys.' },
     { value: 'read', label: 'Read your chats and activity', verb: 'read' },
     { value: 'llm', label: 'Use the AI models directly', verb: 'use the AI models' },
     ...(admin ? [{ value: 'admin', label: 'Change settings', verb: 'change settings' }] : []),
