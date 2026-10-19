@@ -56,6 +56,14 @@ describe('Settings → People', () => {
     expect(await screen.findByText('Maya Chen')).toBeTruthy();
   });
 
+  it('suggests the username from the name', async () => {
+    await open();
+    await fireEvent.click(await screen.findByRole('button', { name: 'Add person' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add person' });
+    await fireEvent.input(within(dialog).getByLabelText('Name'), { target: { value: 'Riley Park' } });
+    expect((within(dialog).getByLabelText('Username') as HTMLInputElement).value).toBe('riley');
+  });
+
   it('checks the username and says when it is taken', async () => {
     await open();
     await fireEvent.click(await screen.findByRole('button', { name: 'Add person' }));

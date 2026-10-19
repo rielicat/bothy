@@ -126,7 +126,7 @@ export function failure(code: FailureCode, c: FailureContext): Failure {
         ],
       };
     case 'private_address':
-      return { text: 'Bothy blocks addresses on your private network unless you allow them.', action: c.hostPort ? { kind: 'allow', label: `Allow ${c.hostPort}` } : undefined };
+      return { text: 'This server is on your private network. Allow Bothy to reach it?', action: c.hostPort ? { kind: 'allow', label: `Allow ${c.hostPort}` } : undefined };
     case 'no_models': {
       const example = c.ollama ? `, for example ${OLLAMA_PULL}` : '';
       return {

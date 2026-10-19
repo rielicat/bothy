@@ -41,6 +41,19 @@ describe('ProviderChooser in setup', () => {
     expect(writes(calls)).toEqual([]);
   });
 
+  it("leaves the choice open when the AWS access it picked can't use Bedrock", async () => {
+    const calls = withMock('detect-aws,provider-fail:aws_denied');
+    render(ProviderChooser);
+    expect(await screen.findByText("Found, but it can't use Bedrock right now.", {}, { timeout: 3000 })).toBeTruthy();
+    expect(radio("Use this server's AWS access")).toHaveProperty('checked', false);
+    expect(screen.queryByText(/isn't allowed to use Bedrock/)).toBeNull();
+    expect(tests(calls)).toHaveLength(1);
+    // Choosing it shows why, without checking again until asked.
+    await fireEvent.click(radio("Use this server's AWS access"));
+    expect(screen.getByText(/isn't allowed to use Bedrock\. Ask your AWS admin to allow it\./)).toBeTruthy();
+    expect(tests(calls)).toHaveLength(1);
+  });
+
   it('keeps AWS settings whose sign-in expired, says how to fix them and checks only when asked', async () => {
     const calls = withMock('aws-expired');
     render(ProviderChooser);
@@ -248,7 +261,7 @@ describe('ProviderChooser in setup', () => {
     expect(address.getAttribute('placeholder')).toBe('https://models.example.com/v1');
     await fireEvent.input(address, { target: { value: 'http://127.0.0.1:9/v1' } });
     await fireEvent.keyDown(address, { key: 'Enter' });
-    const line = await screen.findByText('Bothy blocks addresses on your private network unless you allow them.', {}, { timeout: 3000 });
+    const line = await screen.findByText('This server is on your private network. Allow Bothy to reach it?', {}, { timeout: 3000 });
     // An address problem sits under the address, before the key field, so it doesn't read as a wrong key.
     expect(line.compareDocumentPosition(screen.getByLabelText('API key (if needed)')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(address.getAttribute('aria-describedby')).toBe(line.id);

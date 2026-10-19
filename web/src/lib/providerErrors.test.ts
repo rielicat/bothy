@@ -53,7 +53,7 @@ describe('failure copy (§5.6.4)', () => {
   it('has a plain sentence for every code, with no raw error words', () => {
     for (const code of failureCodes) {
       const f = failure(code, ctx);
-      expect(f.text).toMatch(/^[A-Z].*\.$/);
+      expect(f.text).toMatch(/^[A-Z].*[.?]$/);
       expect(f.text).not.toMatch(/allow_private|egress|token|\b\d{3}\b|error:/i);
     }
   });

@@ -112,6 +112,8 @@
   // The provider list is usable while detection runs, so its rows have state from the start.
   let states = $state<Record<string, RowState>>(Object.fromEntries(providers.map((p) => [`p:${p.id}`, blank(listRow(p))])));
   let settled = false;
+  // The option Bothy chose itself when detection settled, until the person chooses.
+  let autoChosen = '';
   let more = $state(false);
   let reveal = $state(false);
   let saveError = $state('');
@@ -127,6 +129,7 @@
   const awsProblems: Record<string, string> = {
     signin_expired: "This server's AWS sign-in has expired.",
     no_credentials: "AWS settings found, but they don't give access right now.",
+    no_access: "Found, but it can't use Bedrock right now.",
   };
   const awsProblem = (d?: Detection) => (d?.kind === 'bedrock' && d.problem ? (awsProblems[d.problem] ?? awsProblems.no_credentials) : '');
 
@@ -231,7 +234,12 @@
     untrack(() => {
       for (const r of found) states[r.value] ??= blank(r);
       const auto = found.filter((r) => r.source !== 'env' && !awsProblem(r.detection));
-      if (auto.length === 1 && selected === undefined) void tick().then(() => selected === undefined && select(auto[0].value));
+      if (auto.length === 1 && selected === undefined)
+        void tick().then(() => {
+          if (selected !== undefined) return;
+          autoChosen = auto[0].value;
+          select(autoChosen);
+        });
     });
   });
 
@@ -243,6 +251,7 @@
 
   function select(v: string) {
     stop();
+    if (v !== autoChosen) autoChosen = '';
     selected = v;
     const r = row(v);
     const s = states[v];
@@ -358,6 +367,14 @@
     s.changing = code === 'no_model_access' && s.models.length > 0;
     if (s.changing) s.main = s.refused;
     s.status = 'failed';
+    // AWS access Bothy picked that doesn't work leaves the choice open rather than
+    // opening the step on an error about something the person never chose. A
+    // local server it found keeps its fix in view (pull a model, start it).
+    if (!o.byPerson && autoChosen === v && selected === v && r.source === 'aws' && r.detection) {
+      autoChosen = '';
+      selected = undefined;
+      r.detection.problem = 'no_access';
+    }
   }
 
   function allow(v: string) {
@@ -449,10 +466,12 @@
     {/if}
   {:else if s.status === 'failed' && s.failure}
     {@const f = s.failure}
+    <!-- A private address is a question for the person, not an error. -->
+    {@const ask = s.code === 'private_address'}
     <div class="text-body {gap}">
       <div class="flex items-start gap-2">
-        <span class="flex h-5 w-4 shrink-0 items-center justify-center"><Icon name="alert" class="text-danger-text" /></span>
-        <p id="{uid}-{v}-status" class="min-w-0 flex-1 text-danger-text" role={s.byPerson ? 'alert' : undefined}>
+        <span class="flex h-5 w-4 shrink-0 items-center justify-center">{#if !ask}<Icon name="alert" class="text-danger-text" />{/if}</span>
+        <p id="{uid}-{v}-status" class="min-w-0 flex-1 {ask ? 'text-text' : 'text-danger-text'}" role={s.byPerson ? 'alert' : undefined}>
           {#if f.command}
             {@const [before, after] = f.text.split(f.command)}
             {before}<code class="rounded-sm bg-subtle px-1 text-code whitespace-nowrap">{f.command}</code>{after}
@@ -469,7 +488,7 @@
       {#if f.action?.kind === 'allow'}
         <Button class="mt-3 ml-6" size="sm" onclick={() => allow(v)}>{f.action.label}</Button>
       {/if}
-      {#if s.details}
+      {#if s.details && !ask}
         <Disclosure class="mt-1 pl-6 max-sm:pl-0"><CodeBlock code={s.details} wrap /></Disclosure>
       {/if}
     </div>

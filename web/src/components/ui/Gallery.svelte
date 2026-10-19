@@ -492,7 +492,7 @@
         <StatusLine tone="warning" text="Expires in less than a minute" />
         <StatusLine
           tone="danger"
-          text="Bothy blocks addresses on your private network unless you allow them."
+          text="This server is on your private network. Allow Bothy to reach it?"
           action={{ label: 'Allow 127.0.0.1:11434', onclick: () => {} }}
           details={'dial tcp 127.0.0.1:11434: blocked: private address'}
         />

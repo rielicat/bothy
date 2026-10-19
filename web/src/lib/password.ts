@@ -16,6 +16,19 @@ export function passwordHelp(pw: string): string {
   return 'Long enough.';
 }
 
+/** A username to suggest for a name: its first word, lower case, accents dropped; "" when nothing usable is left. */
+export function usernameFrom(name: string): string {
+  const word = name.trim().split(/\s+/)[0] ?? '';
+  const u = word
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, '')
+    .replace(/^[._-]+/, '')
+    .slice(0, 32);
+  return USERNAME.test(u) ? u : '';
+}
+
 export function nameError(v: string): string {
   const n = length(v.trim());
   return n >= 1 && n <= 64 ? '' : 'Enter your name.';

@@ -129,6 +129,17 @@ describe('step 1: create your account', () => {
     expect(calls.some((c) => c.url === '/api/setup/owner')).toBe(false);
   });
 
+  it('suggests a username from the name until one is typed', async () => {
+    render(Setup);
+    const name = await screen.findByLabelText('Your name');
+    const username = screen.getByLabelText('Username') as HTMLInputElement;
+    await fireEvent.input(name, { target: { value: 'Morgan Reyes' } });
+    expect(username.value).toBe('morgan');
+    await fireEvent.input(username, { target: { value: 'mreyes' } });
+    await fireEvent.input(name, { target: { value: 'Morgan R.' } });
+    expect(username.value).toBe('mreyes');
+  });
+
   it('counts the characters still needed instead of a strength meter', async () => {
     render(Setup);
     await screen.findByText('Create your account');

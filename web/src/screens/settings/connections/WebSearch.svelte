@@ -159,14 +159,13 @@
           {/key}
         {/if}
         {#if line && (v === 'searxng' || saved(v))}
-          <StatusLine
-            class="mt-3"
-            tone={line.tone}
-            text={line.text}
-            details={line.details}
-            alert
-          />
-          {#if line.allow}<Button class="mt-3" size="sm" onclick={allow}>Allow {line.allow}</Button>{/if}
+          {#if line.allow}
+            <!-- A private address is a question for the admin, not an error. -->
+            <p class="mt-3 text-body text-text" role="status">{line.text}</p>
+            <Button class="mt-3" size="sm" onclick={allow}>Allow {line.allow}</Button>
+          {:else}
+            <StatusLine class="mt-3" tone={line.tone} text={line.text} details={line.details} alert />
+          {/if}
         {/if}
       {/snippet}
     </OptionList>

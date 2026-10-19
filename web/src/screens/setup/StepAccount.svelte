@@ -13,7 +13,7 @@
   import TextField from '../../components/ui/TextField.svelte';
   import { api, setCsrf } from '../../lib/api/client';
   import type { Me } from '../../lib/api/types.gen';
-  import { nameError, passwordError, passwordHelp, usernameError } from '../../lib/password';
+  import { nameError, passwordError, passwordHelp, usernameError, usernameFrom } from '../../lib/password';
   import { session } from '../../lib/stores/session.svelte';
   import { browserZone, ownerError, type AccountField } from './auth';
   import Frame from './Frame.svelte';
@@ -48,6 +48,17 @@
 
   function edit(field: AccountField) {
     if (server?.field === field) server = null;
+  }
+
+  // The username follows the name until the person types one of their own.
+  let ownUsername = !!account.username && account.username !== usernameFrom(account.name);
+  function nameTyped() {
+    edit('name');
+    if (!ownUsername) account.username = usernameFrom(account.name);
+  }
+  function usernameTyped() {
+    edit('username');
+    ownUsername = !!account.username;
   }
 
   async function submit(e: SubmitEvent) {
@@ -93,7 +104,7 @@
 <Frame step={1} title="Create your account" intro="You'll be the owner of this Bothy. You can add your team when you're done.">
   <form novalidate onsubmit={submit}>
     <div class="space-y-5">
-      <TextField label="Your name" bind:value={account.name} bind:input={inputs.name} error={errors.name} autocomplete="name" maxlength={64} oninput={() => edit('name')} />
+      <TextField label="Your name" bind:value={account.name} bind:input={inputs.name} error={errors.name} autocomplete="name" maxlength={64} oninput={nameTyped} />
       <TextField
         label="Username"
         bind:value={account.username}
@@ -103,7 +114,7 @@
         autocomplete="username"
         autocapitalize="none"
         spellcheck="false"
-        oninput={() => edit('username')}
+        oninput={usernameTyped}
       />
       <PasswordField
         label="Password"

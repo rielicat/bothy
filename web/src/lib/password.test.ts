@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nameError, passwordError, passwordHelp, usernameError } from './password';
+import { nameError, passwordError, passwordHelp, usernameError, usernameFrom } from './password';
 
 describe('new password help (§5.5)', () => {
   it('counts what is still needed, in code points', () => {
@@ -26,5 +26,18 @@ describe('new password help (§5.5)', () => {
     expect(usernameError('maya chen!')).toBe("Usernames can't have spaces.");
     expect(passwordError('short')).toBe('Use at least 12 characters.');
     expect(passwordError('long enough pass')).toBe('');
+  });
+});
+
+describe('a username suggested from a name', () => {
+  it('takes the first word, lower case, without accents or other marks', () => {
+    expect(usernameFrom('Morgan Reyes')).toBe('morgan');
+    expect(usernameFrom('  José Núñez ')).toBe('jose');
+    expect(usernameFrom("O'Brien")).toBe('obrien');
+    expect(usernameFrom('-dash')).toBe('dash');
+  });
+  it('suggests nothing when no usable characters are left', () => {
+    expect(usernameFrom('')).toBe('');
+    expect(usernameFrom('李雷')).toBe('');
   });
 });

@@ -261,7 +261,7 @@ describe('Web search (§12.5)', () => {
     });
     render(WebSearch);
     await fireEvent.click(await screen.findByRole('radio', { name: /SearXNG/ }));
-    expect(await screen.findByText('Bothy blocks addresses on your private network unless you allow them.')).toBeTruthy();
+    expect(await screen.findByText('This server is on your private network. Allow Bothy to reach it?')).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: 'Allow searxng:8080' }));
     expect(await screen.findByText('Search works.')).toBeTruthy();
     expect(JSON.parse(writes(calls).find((c) => c.method === 'PATCH')!.body).set).toEqual({ 'search.searxng_allow_private': true });

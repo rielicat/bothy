@@ -2,7 +2,7 @@
   import { Button, CodeBlock, Dialog, Notice, Segmented, TextField } from '../../components/ui';
   import { api, ApiError, refusal } from '../../lib/api/client';
   import type { UserCreateResp } from '../../lib/api/types.gen';
-  import { usernameError } from '../../lib/password';
+  import { usernameError, usernameFrom } from '../../lib/password';
   import { session } from '../../lib/stores/session.svelte';
   import type { User } from '../../lib/api/types.gen';
   import { focusDialogResult } from './dialogFocus';
@@ -20,6 +20,8 @@
 
   let name = $state('');
   let username = $state('');
+  // The username follows the name until the admin types one.
+  let ownUsername = false;
   let role = $state('member');
   let submitted = $state(false);
   let busy = $state(false);
@@ -35,6 +37,7 @@
   $effect(() => {
     if (open) return;
     name = username = taken = failed = nameRefused = '';
+    ownUsername = false;
     role = 'member';
     submitted = false;
     done = null;
@@ -74,8 +77,26 @@
     <p class="mt-3 text-body text-muted">They'll choose their own password when they first sign in.</p>
   {:else}
     <form id={formId} class="grid gap-5" onsubmit={create} novalidate>
-      <TextField label="Name" bind:value={name} autocomplete="off" error={nameError} oninput={() => (nameRefused = '')} />
-      <TextField label="Username" bind:value={username} autocomplete="off" autocapitalize="none" spellcheck="false" help="They sign in with this." error={userError} />
+      <TextField
+        label="Name"
+        bind:value={name}
+        autocomplete="off"
+        error={nameError}
+        oninput={() => {
+          nameRefused = '';
+          if (!ownUsername) username = usernameFrom(name);
+        }}
+      />
+      <TextField
+        label="Username"
+        bind:value={username}
+        autocomplete="off"
+        autocapitalize="none"
+        spellcheck="false"
+        help="They sign in with this."
+        error={userError}
+        oninput={() => (ownUsername = !!username)}
+      />
       <div>
         <p class="field-label">Role</p>
         <Segmented class="mt-2" label="Role" options={roles} bind:value={role} />

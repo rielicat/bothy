@@ -846,7 +846,7 @@ At least 12 characters.
 | Field | Type | Validation (on submit, then live once shown) | Error copy |
 |---|---|---|---|
 | Your name | text, `autocomplete="name"` | required, 1–64 characters | "Enter your name." |
-| Username | text, `autocomplete="username"`, `autocapitalize="none"`, `spellcheck="false"` | `^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$` | Empty: "Enter a username." With a space: "Usernames can't have spaces. Try {suggestion}." (the typed value lowercased, runs of spaces turned into dots: "Try maya.chen."; only when the suggestion passes the pattern, else the line ends at "spaces."). Anything else: "Use up to 32 letters, numbers, dots, dashes or underscores, starting with a letter or number." |
+| Username | text, `autocomplete="username"`, `autocapitalize="none"`, `spellcheck="false"`; filled from Your name as it is typed (its first word, lower case, accents dropped: "Morgan Reyes" → "morgan") until the person types a username of their own; Add person does the same | `^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$` | Empty: "Enter a username." With a space: "Usernames can't have spaces. Try {suggestion}." (the typed value lowercased, runs of spaces turned into dots: "Try maya.chen."; only when the suggestion passes the pattern, else the line ends at "spaces."). Anything else: "Use up to 32 letters, numbers, dots, dashes or underscores, starting with a letter or number." |
 | Password | password, `autocomplete="new-password"`; "Show"/"Hide" ghost text button at the right of the label row (`aria-pressed`, `aria-controls`) | 12 or more characters; the server rejects common passwords | "Use at least 12 characters." / server: "This password is too common. Try a phrase of a few words." |
 
 Live help under Password (replaces the meter; `aria-live="polite"`, throttled to 500 ms):
@@ -901,7 +901,7 @@ Or choose a provider                                       "Choose a provider" w
 - Each group is one `OptionList` (§15): a single `border-strong` `rounded-lg` container, rows split by hairlines. The selected row expands inside the same row, indented to the title. Nothing else on the screen has a border.
 - Detection runs once on entry; after 400 ms without a result, the "Found on this server" area shows one muted line "Looking for models on this server…".
 - Order of detected rows: AWS, Ollama, LM Studio, other local servers, keys found in the server's environment, then AWS settings without access (`problem`).
-- If exactly one AWS or local option with access is detected it is pre-selected and its check starts at once, so the person may only need to press Continue. A detected environment key is never pre-selected, because choosing it copies the key into Bothy's saved keys; nor is an AWS row with a `problem`, whose check fails until the person signs in again.
+- If exactly one AWS or local option with access is detected it is pre-selected and its check starts at once, so the person may only need to press Continue. A detected environment key is never pre-selected, because choosing it copies the key into Bothy's saved keys; nor is an AWS row with a `problem`, whose check fails until the person signs in again. When the check of a pre-selected AWS row fails (the access can't use Bedrock, say), the row is deselected and reads "Found, but it can't use Bedrock right now.", so the step never opens on an error about something the person didn't choose; choosing the row shows the reason. A local server found with no models stays selected, since its fix (pull a model) is the next step.
 - Only one row is open at a time. Changing the selection cancels a running check (AbortController).
 - "More providers" is a disclosure row inside the provider list. Ollama and LM Studio appear there only when not detected.
 
@@ -951,7 +951,7 @@ Every failure is a `StatusLine` in danger tone: alert glyph, one or two sentence
 | `timeout` | "{Provider} took too long to answer." | "Try again" |
 | `unreachable` (cloud) | "Bothy couldn't reach {Provider} from this server. Check the server's internet connection or firewall." | "Try again" |
 | `unreachable` (local) | "{Name} isn't answering at that address. Make sure it's running." | "Try again"; Details adds "If Bothy runs in Docker, {Name} must accept connections from other computers (for Ollama: OLLAMA_HOST=0.0.0.0) and the address is usually http://host.docker.internal:{port}." |
-| `private_address` | "Bothy blocks addresses on your private network unless you allow them." | Secondary "Allow {host:port}" (sets `allow_private` for that exact host and port, then re-checks) |
+| `private_address` | "This server is on your private network. Allow Bothy to reach it?" | Secondary "Allow {host:port}" (sets `allow_private` for that exact host and port, then re-checks) |
 | `no_models` | "{Name} is running but has no models yet. Install one on the server, for example `ollama pull qwen3:8b`." (the example only for Ollama). On the detected Ollama row, whose line 2 already says "Running, but no models downloaded yet.", only "Install a model on the server, for example `ollama pull qwen3:8b`." | "Check again" |
 | `tls` | "The connection to that address isn't secure because of a certificate problem. Check the address. For a server on your own network you can use http://." | none |
 | `not_a_model_server` | "That address answered, but it doesn't look like a model server. Check the address; it usually ends in /v1." Ollama, whose API has no /v1: "That address answered, but it isn't Ollama. Check the address and port; Ollama usually uses 11434." | none |
@@ -1794,7 +1794,7 @@ Mondays at 8:00 · Posts here · Last run failed: the GitHub token was rejected
 - `⋯`: Run now · Edit · History · Delete… (`danger-text`, confirm dialog "Delete the schedule “{name}”? This can't be undone."). Run now is audited with who pressed it ("Started the schedule “{name}” by hand").
 - A result posted to a chat opens with an italic line "From the schedule “{name}” · change it under Schedules" (a check-in: "From your check-in · change it under Schedules"), since nobody asked for it there.
 - **Check-in** is always listed first (the heartbeat). Edit opens `/activity/schedules/checkin`: "How often" (Every 15 min / 30 min / hour), "Between" (active hours, two time selects), "What to check" (sans `TextArea` editing the HEARTBEAT.md checklist as prose), help "Bothy looks through this list regularly and messages you only when something needs attention.", placeholder "One thing per line, for example: Tell me if a deploy to production failed overnight". When every non-empty line of the file is a list item, the box shows plain lines (the leading `- [ ] `, `- [x] ` or `- ` stripped) and saves each line back as `- [ ] {line}`, since the scheduler reads the text as it is; a file with any other line is shown verbatim so nothing is rewritten. Cost line "About $0.05 a day with {Quick tasks model}." [Save] [Cancel].
-- Empty (only Check-in exists): under it, "Bothy can do things on a schedule, like a Monday summary of open pull requests." + "New schedule".
+- Empty (only Check-in exists): under it, "Add your own, like a Monday summary of open pull requests." + "New schedule".
 - **In chat apps** (admins, only when there are any, or when they failed to load): a section under the list for the schedules people and channels set up in chat apps (`GET /api/team/schedules`). Help `text-small muted`: "Schedules people set up in chat apps. Their results go to that chat." Rows: the name (500); `text-small muted` "{owner} · {App} · {repeat text} · Next: {time}", "… · Off" when it is off, or "… · Not scheduled" when it is on with no next run; a `Switch` named after the schedule (`aria-label` "{name}", like the rows above) that only turns it on or off; the same `⋯` as the rows above (`aria-label` "More actions for {name}"), so the switches line up with the list above, holding one danger item "Delete…" → confirm: title "Delete “{name}”?", body "It stops running. Past results stay in that chat. This can't be undone.", buttons "Delete schedule" (danger) and "Cancel". Editing them happens in their chat. If the list doesn't load, the section shows "These schedules didn't load. Check your connection and try again." with "Try again" instead of going missing.
 
 **New or edit schedule** (`/activity/schedules/new`, `/activity/schedules/:id`), one column, no cards:
@@ -2354,7 +2354,7 @@ One sentence in `text-reading text`, an optional second sentence in `muted`, the
 | Memory section | "Bothy hasn't remembered anything yet. It adds things here as you work together, or you can write them yourself." | Edit |
 | Skills | "No skills yet. Skills teach Bothy how your team does specific things, like writing release notes." | Add skill (admins) |
 | Tasks | "Nothing yet. Tasks Bothy works on, in chats or on a schedule, show up here." | Start a chat |
-| Schedules | "Bothy can do things on a schedule, like a Monday summary of open pull requests." | New schedule |
+| Schedules | "Add your own, like a Monday summary of open pull requests." | New schedule |
 | Releases | "No deploys yet. Ask Bothy in a chat, for example “Deploy main to staging”." | — |
 | Spending | "Nothing spent in this period." | — |
 | Audit log, filtered | "Nothing matches these filters." | Clear filters |
@@ -2540,7 +2540,7 @@ Never use: exclamation marks, emoji, "Oops", "Whoops", "simply", "just" as fille
 | 1 | Setup intro | "Welcome to your own assistant" | "Create your account" / "You'll be the owner of this Bothy. You can add your team when you're done." |
 | 2 | Setup code error (`02`) | "invalid or expired setup token" | "That code didn't work. It may have expired, so run the command below to get a new one." |
 | 3 | Model check passed (`09`) | "✓ key valid ✓ tool calling 33K context 0 ms test cost $0" | "Connected. Bothy will use Claude Sonnet 4.5." |
-| 4 | Model check failed (`08`) | `Could not reach 127.0.0.1:9: Post "http://…": egress: dial tcp … allow_private …` | "Bothy blocks addresses on your private network unless you allow them." [Allow 127.0.0.1:9] + Details |
+| 4 | Model check failed (`08`) | `Could not reach 127.0.0.1:9: Post "http://…": egress: dial tcp … allow_private …` | "This server is on your private network. Allow Bothy to reach it?" [Allow 127.0.0.1:9] + Details |
 | 5 | Continue disabled (`06`) | greyed button, no reason | "Connect a model to continue." |
 | 6 | Done screen (`16`) | "Security check: 3 things to look at" | "Bothy is ready" (findings go to Security → Needs attention) |
 | 7 | Global banner | "No sandbox: shell, python and MCP stdio are off. Use the compose file." | no banner; Security: "Off on this server. Bothy can't run commands or scripts." |
