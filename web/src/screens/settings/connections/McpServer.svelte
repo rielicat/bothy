@@ -358,7 +358,7 @@
           {/if}
           <div class="mt-3 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
             <Select class="w-full sm:w-72" label="What this does" bind:value={d.effect} options={effects} />
-            <Switch label="Allow this action" bind:checked={d.on} />
+            <Switch class="sm:h-9" label="Allow this action" bind:checked={d.on} />
           </div>
         </section>
       {/if}
