@@ -52,7 +52,7 @@ func (m *Manager) discoverLocked(ctx context.Context, s *server) {
 	switch s.spec.transport {
 	case "stdio":
 		c, err = m.discoverStdio(dctx, s)
-		if errors.Is(err, errInstallFailed) && m.retryInstall(ctx, s) {
+		if errors.Is(err, errNotInstalled) && (errors.Is(err, errInstallFailed) || s.installsAgain()) && m.retryInstall(ctx, s) {
 			return
 		}
 	default:

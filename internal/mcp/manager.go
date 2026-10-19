@@ -60,10 +60,13 @@ type server struct {
 	regKey     string // registrationKey of the registered tools
 	instances  map[string]*instance
 	installing bool
-	drifted    bool
-	removed    bool
-	retries    int       // consecutive failed discoveries
-	retryAt    time.Time // next automatic discovery after a failure; zero = none scheduled
+	// installAgain: this entry's latest install failed in a way that trying
+	// again may fix, even when an install of another version is ready.
+	installAgain bool
+	drifted      bool
+	removed      bool
+	retries      int       // consecutive failed discoveries or installs
+	retryAt      time.Time // next automatic discovery (or install) after a failure; zero = none scheduled
 }
 
 func source(name string) string { return "mcp:" + name }
@@ -92,6 +95,12 @@ func (s *server) status() core.MCPStatus {
 		st.RetryAt = s.retryAt
 	}
 	return st
+}
+
+func (s *server) installsAgain() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.installAgain
 }
 
 func (s *server) isRemoved() bool {

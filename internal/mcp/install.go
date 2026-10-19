@@ -112,19 +112,21 @@ func (m *Manager) installLocked(ctx context.Context, s *server, by core.UserID) 
 		m.record(ctx, actor, "mcp.install", s.name, "error", detail)
 		m.log.Warn("mcp install failed", "server", s.name, "err", err)
 		var mm mismatch
-		if errors.As(err, &mm) || ctx.Err() != nil {
-			s.mu.Lock()
-			s.retries, s.retryAt = 0, time.Time{}
-			s.mu.Unlock()
-		} else {
+		again := !errors.As(err, &mm) && ctx.Err() == nil
+		if again {
 			s.failed(m.clock.Now())
 		}
+		s.mu.Lock()
+		if s.installAgain = again; !again {
+			s.retries, s.retryAt = 0, time.Time{}
+		}
+		s.mu.Unlock()
 		s.setState(m.clock.Now(), stError, "install failed: "+err.Error())
 		s.setCode("install_failed")
 		return
 	}
 	s.mu.Lock()
-	s.retries, s.retryAt = 0, time.Time{}
+	s.retries, s.retryAt, s.installAgain = 0, time.Time{}, false
 	s.mu.Unlock()
 	m.record(ctx, actor, "mcp.install", s.name, "ok", detail)
 	m.removeOldTrees(s, in.InstallID)

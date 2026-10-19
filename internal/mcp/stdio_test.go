@@ -86,8 +86,10 @@ func (in *installer) exec(ctx context.Context, key string, req core.ExecRequest)
 	var err error
 	switch strings.Join(req.Argv[:2], " ") {
 	case "npm install":
-		lock := fmt.Sprintf(`{"lockfileVersion":3,"packages":{"":{"dependencies":{"@acme/mcp-notes":"1.2.3"}},`+
-			`"node_modules/@acme/mcp-notes":{"version":"1.2.3","integrity":%q}}}`, in.integrity)
+		pkg := req.Argv[len(req.Argv)-1]
+		v := pkg[strings.LastIndex(pkg, "@")+1:]
+		lock := fmt.Sprintf(`{"lockfileVersion":3,"packages":{"":{"dependencies":{"@acme/mcp-notes":%q}},`+
+			`"node_modules/@acme/mcp-notes":{"version":%q,"integrity":%q}}}`, v, v, in.integrity)
 		err = errors.Join(write("package-lock.json", lock), write("node_modules/@acme/mcp-notes/index.js", "server()"))
 	case "npm ci":
 		if !exists(filepath.Join(tree, "package-lock.json")) {
@@ -511,6 +513,31 @@ func TestFailedInstallIsRetriedWithBackoff(t *testing.T) {
 	audit := h.auditActions("mcp.install")
 	if len(audit) != 3 || audit[0].Actor != "user:"+string(admin) || audit[1].Actor != "system" || audit[2].Actor != "system" || audit[2].Outcome != "ok" {
 		t.Fatalf("install audit = %+v", audit)
+	}
+}
+
+// The install of a newly pinned version is retried too, though the earlier
+// version's install is still the ready one.
+func TestFailedInstallOfANewVersionIsRetried(t *testing.T) {
+	cfg := notesCfg()
+	h, in, _ := newStdioHarness(t, cfg)
+	h.start()
+	h.install("notes")
+	next := cfg
+	next.Package = &config.MCPPackage{Ecosystem: "npm", Name: "@acme/mcp-notes", Version: "1.2.4", Integrity: npmIntegrity}
+	h.m.applyConfig([]config.MCPServer{next}, true)
+	h.waitFor("the new version needs installing", func() bool { return h.status("notes").Code == "not_installed" })
+	in.setOffline(true)
+	h.install("notes")
+	st := h.status("notes")
+	if st.Code != "install_failed" || st.RetryAt.IsZero() {
+		t.Fatalf("status after a failed install of the new version = %+v", st)
+	}
+	in.setOffline(false)
+	h.m.retryDiscovery(st.RetryAt)
+	h.waitFor("the new version installed", func() bool { return h.status("notes").State == stPinsPending })
+	if got, _ := h.store.MCP().Install(context.Background(), "notes"); got.Version != "1.2.4" {
+		t.Fatalf("ready install = %+v", got)
 	}
 }
 
