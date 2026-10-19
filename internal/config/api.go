@@ -316,6 +316,21 @@ func isServerWrite(ctx context.Context) bool {
 	return v
 }
 
+type checkKey struct{}
+
+// WithCheck has Set and Reset on ctx call check with the config in effect
+// and the one the change would leave, before writing anything; an error
+// refuses the change. It carries rules that depend on who asks, which the
+// config package doesn't know.
+func WithCheck(ctx context.Context, check func(old, next *Config) error) context.Context {
+	return context.WithValue(ctx, checkKey{}, check)
+}
+
+func checkOf(ctx context.Context) func(old, next *Config) error {
+	c, _ := ctx.Value(checkKey{}).(func(old, next *Config) error)
+	return c
+}
+
 const serverOnly = "set by Bothy itself: change it in bothy.yaml or the environment"
 
 // keepServer is removeUnder's keep for a write without ServerWrite: setting
@@ -335,7 +350,8 @@ func keepServer(server bool) func(*field) bool {
 // "providers.<id>" creates or replaces the UI item); JSON null removes the UI
 // override and is audited as a reset. A rejected change returns FieldErrors
 // and writes nothing. Without ServerWrite on ctx, a server:"true" field can't
-// be set or removed, at its own path or through a value above it.
+// be set or removed, at its own path or through a value above it. A check on
+// ctx (WithCheck) may still refuse the validated result.
 func (m *Manager) Set(ctx context.Context, changes map[string]json.RawMessage, by string) (restart []string, err error) {
 	if len(changes) == 0 {
 		return nil, nil
@@ -409,8 +425,14 @@ func (m *Manager) Set(ctx context.Context, changes map[string]json.RawMessage, b
 	if len(bad) > 0 {
 		return nil, bad
 	}
-	if bad = newErrors(st, m.build(st.file, st.fileErr, ui, nil)); len(bad) > 0 {
+	cand := m.build(st.file, st.fileErr, ui, nil)
+	if bad = newErrors(st, cand); len(bad) > 0 {
 		return nil, bad
+	}
+	if c := checkOf(ctx); c != nil {
+		if err := c(st.cfg, cand.cfg); err != nil {
+			return nil, err
+		}
 	}
 	next, err := m.commitUI(st, ui)
 	if err != nil {
@@ -461,7 +483,7 @@ func newErrors(st, next *state) FieldErrors {
 
 // Reset deletes path (and everything below it) from bothy.ui.yaml. Without
 // ServerWrite on ctx it refuses a server:"true" field and keeps those below
-// path.
+// path. A check on ctx (WithCheck) may refuse the result.
 func (m *Manager) Reset(ctx context.Context, path, by string) error {
 	t, err := resolvePath(path)
 	if err != nil {
@@ -481,6 +503,11 @@ func (m *Manager) Reset(ctx context.Context, path, by string) error {
 	ui.errs = nil
 	if !ui.removeUnder(t.segs, keepServer(server)) {
 		return nil
+	}
+	if c := checkOf(ctx); c != nil {
+		if err := c(st.cfg, m.build(st.file, st.fileErr, ui, nil).cfg); err != nil {
+			return err
+		}
 	}
 	next, err := m.commitUI(st, ui)
 	if err != nil {

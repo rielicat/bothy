@@ -382,6 +382,9 @@ func awsFailure(r config.AWSSecretRef, region string, err error) *ExternalError 
 			"(an interface VPC endpoint with private DNS): " + cause + "."
 	case core.FailTimeout, core.FailUnreachable, core.FailTLS:
 		e.Msg = "Bothy could not reach AWS Secrets Manager in " + region + " to read " + shown + ": " + cause + "."
+		if ae, ok := errors.AsType[*awssm.Error](err); ok && ae.Credentials {
+			e.Msg = "Bothy could not reach AWS to get the credentials that read " + shown + ": " + cause + "."
+		}
 	default:
 		if e.Code == "" {
 			e.Code = core.FailUnknown

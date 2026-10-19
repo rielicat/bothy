@@ -416,6 +416,9 @@ func plain(err error, base string, kind core.ProviderKind, api string) string {
 		}
 		return "The provider rejected the API key: " + pe.Msg
 	case core.ErrKindNetwork:
+		if rest, ok := strings.CutPrefix(pe.Msg, "AWS credentials unavailable: "); ok {
+			return "Could not reach AWS to get credentials: " + rest
+		}
 		msg := "Could not reach " + host + ": " + pe.Msg
 		// On a Linux host, host.docker.internal is the bridge gateway, and a
 		// stock install listens on the host's loopback only.

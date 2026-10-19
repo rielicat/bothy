@@ -380,7 +380,7 @@ type Detection struct {
 type ProviderHealth struct {
 	ID        string       `json:"id"`
 	Kind      ProviderKind `json:"kind"`
-	State     string       `json:"state"` // ok | degraded | down | auth_failed
+	State     string       `json:"state"` // ok | degraded | unreachable (Bothy couldn't reach it or where its key is kept) | down | auth_failed
 	LastError string       `json:"last_error,omitempty"`
 	Since     time.Time    `json:"since"`
 	// Source says in plain words where the credentials come from ("Saved

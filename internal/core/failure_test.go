@@ -59,3 +59,24 @@ func TestCodeOf(t *testing.T) {
 		t.Fatalf("transport: %q", got)
 	}
 }
+
+// A named credential service out of reach is the network; the metadata
+// address not answering is no credentials there at all.
+func TestHostFailure(t *testing.T) {
+	dns := &net.DNSError{Err: "no such host", Name: "oidc.us-east-1.amazonaws.com", IsNotFound: true}
+	for _, tc := range []struct {
+		err  error
+		want FailureCode
+	}{
+		{fmt.Errorf("failed to refresh cached credentials, %w", &url.Error{Op: "Post", URL: "https://oidc.us-east-1.amazonaws.com/token", Err: dns}), FailUnreachable},
+		{&url.Error{Op: "Post", URL: "https://sts.amazonaws.com/", Err: timeoutErr{}}, FailTimeout},
+		{&url.Error{Op: "Put", URL: "http://169.254.169.254/latest/api/token", Err: timeoutErr{}}, ""},
+		{&url.Error{Op: "Get", URL: "http://[fd00:ec2::254]/latest/meta-data/", Err: syscall.EHOSTUNREACH}, ""},
+		{errors.New("dial tcp: lookup sts.amazonaws.com: no such host"), ""},
+		{&url.Error{Op: "Post", URL: "https://sts.amazonaws.com/", Err: errors.New("HTTP 403")}, ""},
+	} {
+		if got := HostFailure(tc.err); got != tc.want {
+			t.Errorf("%v: %q, want %q", tc.err, got, tc.want)
+		}
+	}
+}

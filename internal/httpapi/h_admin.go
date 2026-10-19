@@ -648,7 +648,7 @@ func (s *Server) patchConfig(w http.ResponseWriter, r *http.Request, a core.Acto
 	if len(req.Set) == 0 {
 		return badRequest("set is empty")
 	}
-	restart, err := s.d.Config.Set(r.Context(), req.Set, byString(a))
+	restart, err := s.d.Config.Set(configCtx(r, a), req.Set, byString(a))
 	if err != nil {
 		return err
 	}
@@ -656,10 +656,85 @@ func (s *Server) patchConfig(w http.ResponseWriter, r *http.Request, a core.Acto
 }
 
 func (s *Server) resetConfig(w http.ResponseWriter, r *http.Request, a core.Actor) error {
-	if err := s.d.Config.Reset(r.Context(), r.PathValue("path"), byString(a)); err != nil {
+	if err := s.d.Config.Reset(configCtx(r, a), r.PathValue("path"), byString(a)); err != nil {
 		return err
 	}
 	return noContent(w)
+}
+
+// configCtx gives an API token's config change the check that refuses what
+// could let people in. Like letting in one person (PATCH /api/identities),
+// that needs an admin signed in on the web; everything else stays open to
+// admin tokens.
+func configCtx(r *http.Request, a core.Actor) context.Context {
+	if a.Via != "token" {
+		return r.Context()
+	}
+	return config.WithCheck(r.Context(), admitsMore)
+}
+
+var (
+	errSignInByToken = newError(http.StatusForbidden, "forbidden",
+		"sign-in settings decide who can get in, so changing them needs a signed-in browser session, not an API token")
+	errTeamModeByToken = newError(http.StatusForbidden, "forbidden",
+		"team mode lets the people on the sign-in list make their own accounts, so turning it on needs a signed-in browser session, not an API token")
+)
+
+// admitsMore refuses any sign-in setting, team mode while signing in makes
+// accounts, and a chat app turned on or given another token: Slack lets in
+// every member of its token's workspace, Discord every member of a server
+// with a channel on. A token swapped while the app is off counts too: it is
+// the one an admin's later switch turns on.
+func admitsMore(old, next *config.Config) error {
+	for _, p := range config.Diff(old, next) {
+		if strings.HasPrefix(p, "auth.") {
+			return errSignInByToken
+		}
+	}
+	if makesAccounts(next) && !makesAccounts(old) {
+		return errTeamModeByToken
+	}
+	was := chatApps(old)
+	for i, app := range chatApps(next) {
+		if (app.on && !was[i].on) || !slices.Equal(was[i].tokens, app.tokens) {
+			return newError(http.StatusForbidden, "forbidden",
+				"turning on "+app.name+" or changing its token lets people in, so it needs a signed-in browser session, not an API token")
+		}
+	}
+	return nil
+}
+
+func makesAccounts(c *config.Config) bool { return c.Mode == "multi" && c.Auth.SignIn.AllowNew }
+
+type chatApp struct {
+	name   string
+	on     bool
+	tokens []string // secret references
+}
+
+func chatApps(c *config.Config) []chatApp {
+	ch := c.Channels
+	return []chatApp{
+		{"Telegram", ch.Telegram.Enabled, []string{ch.Telegram.Token}},
+		{"Discord", ch.Discord.Enabled, []string{ch.Discord.Token}},
+		{"Slack", ch.Slack.Enabled, []string{ch.Slack.AppToken, ch.Slack.BotToken}},
+	}
+}
+
+// chatTokenWrite refuses an API token's write of the global secret a chat
+// app's token setting names: another workspace's Slack token lets its
+// members in, as a changed reference would.
+func (s *Server) chatTokenWrite(a core.Actor, sc core.Scope, name string) error {
+	if a.Via != "token" || sc != core.GlobalScope {
+		return nil
+	}
+	for _, app := range chatApps(s.cfg()) {
+		if slices.Contains(app.tokens, "secret:"+name) {
+			return newError(http.StatusForbidden, "forbidden",
+				"this is "+app.name+"'s token, and another one can let people in, so replacing it needs a signed-in browser session, not an API token")
+		}
+	}
+	return nil
 }
 
 // ---- vault ----
@@ -682,6 +757,9 @@ func (s *Server) vaultImport(w http.ResponseWriter, r *http.Request, a core.Acto
 	}
 	if !secretNameRE.MatchString(req.Name) {
 		return badRequest("name must be 1-64 of a-z, 0-9, '_', '.', '-'")
+	}
+	if err := s.chatTokenWrite(a, core.GlobalScope, req.Name); err != nil {
+		return err
 	}
 	val := s.getenv(req.EnvVar)
 	if val == "" {
@@ -761,6 +839,9 @@ func (s *Server) vaultPut(w http.ResponseWriter, r *http.Request, a core.Actor) 
 	name := r.PathValue("name")
 	if !secretNameRE.MatchString(name) {
 		return badRequest("name must be 1-64 of a-z, 0-9, '_', '.', '-'")
+	}
+	if err := s.chatTokenWrite(a, sc, name); err != nil {
+		return err
 	}
 	var req dto.VaultPutReq
 	if err := decode(r, &req); err != nil {

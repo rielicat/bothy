@@ -275,6 +275,9 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request, a core.Actor
 	return ok(w, dto.UserCreateResp{User: *u})
 }
 
+var errTurnOnByToken = newError(http.StatusForbidden, "forbidden",
+	"turning an account back on lets that person sign in again, so it needs a signed-in browser session, not an API token")
+
 func (s *Server) patchUser(w http.ResponseWriter, r *http.Request, a core.Actor) error {
 	var req dto.UserPatchReq
 	if err := decode(r, &req); err != nil {
@@ -290,6 +293,9 @@ func (s *Server) patchUser(w http.ResponseWriter, r *http.Request, a core.Actor)
 	// token must not: promote an account, then sign in to it with a cookie.
 	if req.Role != nil && *req.Role != u.Role && a.Via == "token" {
 		return errCookieOnly
+	}
+	if req.Disabled != nil && !*req.Disabled && u.Disabled && a.Via == "token" {
+		return errTurnOnByToken
 	}
 	if req.DisplayName != nil {
 		u.DisplayName = *req.DisplayName

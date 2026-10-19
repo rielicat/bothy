@@ -363,6 +363,9 @@ func (s *Server) saveGlobalKey(r *http.Request, a core.Actor, base string, val [
 		name = fmt.Sprintf("%s_%d", base, n)
 		prev = find(name)
 	}
+	if err := s.chatTokenWrite(a, core.GlobalScope, name); err != nil {
+		return nil, nil, err
+	}
 	var old core.Secret
 	if prev != nil {
 		if old, err = s.d.Vault.Get(ctx, core.GlobalScope, name, purpose); err != nil && !errors.Is(err, core.ErrNotFound) {

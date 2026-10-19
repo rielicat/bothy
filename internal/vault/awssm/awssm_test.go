@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -172,6 +175,22 @@ func TestCredentialAndTransportFailures(t *testing.T) {
 	_, err := client(t, srv, "us-west-2", noCreds).GetSecretValue(context.Background(), "x")
 	if core.CodeOf(err) != core.FailAWSNoCredentials || strings.Contains(err.Error(), "123456789012") || len(reqs()) != 0 {
 		t.Fatalf("credentials failure: %v (requests %d)", err, len(reqs()))
+	}
+	// AWS's sign-in service out of reach is the network, not missing access;
+	// the metadata address not answering off AWS still is no credentials.
+	for endpoint, want := range map[string]core.FailureCode{
+		"https://oidc.us-west-2.amazonaws.com/token": core.FailUnreachable,
+		"http://169.254.169.254/latest/api/token":    core.FailAWSNoCredentials,
+	} {
+		offline := aws.CredentialsProviderFunc(func(context.Context) (aws.Credentials, error) {
+			return aws.Credentials{}, fmt.Errorf("failed to refresh cached credentials, %w",
+				&url.Error{Op: "Post", URL: endpoint, Err: &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}})
+		})
+		_, err := client(t, srv, "us-west-2", offline).GetSecretValue(context.Background(), "x")
+		var ae *Error
+		if core.CodeOf(err) != want || !errors.As(err, &ae) || !ae.Credentials || len(reqs()) != 0 {
+			t.Errorf("%s out of reach: %q %v", endpoint, core.CodeOf(err), err)
+		}
 	}
 
 	c, err := New(Options{Region: "us-west-2", Credentials: staticCreds(""),

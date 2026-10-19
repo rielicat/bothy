@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"net/url"
 	"regexp"
 	"strings"
 	"syscall"
@@ -117,6 +118,23 @@ func TransportFailure(err error) FailureCode {
 		}
 	}
 	return ""
+}
+
+// HostFailure is TransportFailure for an HTTP request to a named host,
+// read from the *url.Error the client returned. A request to a bare
+// address is left out (""): off a cloud host nothing answers at the
+// instance metadata address, which means there are no credentials to get
+// there, not that the network failed.
+func HostFailure(err error) FailureCode {
+	var ue *url.Error
+	if !errors.As(err, &ue) {
+		return ""
+	}
+	u, perr := url.Parse(ue.URL)
+	if perr != nil || u.Hostname() == "" || net.ParseIP(u.Hostname()) != nil {
+		return ""
+	}
+	return TransportFailure(ue)
 }
 
 func isTLS(err error, msg string) bool {

@@ -110,6 +110,9 @@ type Error struct {
 	Status  int
 	Msg     string
 	Err     error
+	// Credentials: it failed while getting AWS credentials, before
+	// Secrets Manager was asked.
+	Credentials bool
 }
 
 func (e *Error) Error() string {
@@ -146,7 +149,13 @@ func (c *Client) GetSecretValue(ctx context.Context, secretID string) (*Value, e
 		if ctx.Err() != nil {
 			return nil, context.Cause(ctx)
 		}
-		return nil, &Error{Code: core.FailAWSNoCredentials, Msg: ScrubAccounts(err.Error()), Err: err}
+		// AWS's credential services out of reach say nothing about this
+		// server's access: the network failed, as for the secret itself.
+		code := core.HostFailure(err)
+		if code == "" {
+			code = core.FailAWSNoCredentials
+		}
+		return nil, &Error{Code: code, Msg: ScrubAccounts(err.Error()), Err: err, Credentials: true}
 	}
 	sum := sha256.Sum256(payload)
 	if err := c.signer.SignHTTP(ctx, creds, req, hex.EncodeToString(sum[:]), signingName, c.o.Region, c.o.Now()); err != nil {

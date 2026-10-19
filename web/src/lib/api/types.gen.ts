@@ -1965,7 +1965,7 @@ export interface Detection {
 export interface ProviderHealth {
   id: string;
   kind: ProviderKind;
-  state: string; // ok | degraded | down | auth_failed
+  state: string; // ok | degraded | unreachable (Bothy couldn't reach it or where its key is kept) | down | auth_failed
   last_error?: string;
   since: string /* RFC 3339 */;
   /**

@@ -10,8 +10,9 @@ import (
 )
 
 // An admin token must not hand out an account: adding someone returns a
-// password, a promotion makes an account an admin's, and a purge can't be
-// undone. All three need a signed-in admin, like setting a password.
+// password, a promotion makes an account an admin's, turning one back on
+// lets its person in, and a purge can't be undone. All need a signed-in
+// admin, like setting a password.
 func TestPeopleChangesATokenCannotMake(t *testing.T) {
 	h := newHarness(t).setup()
 	tok := h.tokenFor(h.admin, "admin")
@@ -27,6 +28,14 @@ func TestPeopleChangesATokenCannotMake(t *testing.T) {
 		t.Fatalf("member after token calls = %+v", u)
 	}
 	expect(t, h.do("DELETE", path, nil, tok), http.StatusNoContent)
+	// Turning the account back on lets its person sign in again.
+	on, off := false, true
+	expect(t, h.do("PATCH", path, dto.UserPatchReq{Disabled: &on}, tok), http.StatusForbidden)
+	expect(t, h.do("PATCH", path, dto.UserPatchReq{Disabled: &off, DisplayName: &name}, tok), http.StatusOK)
+	if u, _ := h.store.Users().Get(t.Context(), h.member.user); !u.Disabled {
+		t.Fatal("a token turned the account back on")
+	}
+	expect(t, h.do("PATCH", path, dto.UserPatchReq{Disabled: &on}, h.admin), http.StatusOK)
 	expect(t, h.do("POST", "/api/users", dto.UserCreateReq{Username: "eve", Role: core.RoleMember}, h.admin), http.StatusOK)
 }
 

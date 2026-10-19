@@ -114,6 +114,9 @@ export function providerStatus(p: ProviderState): { text: string; tone: Tone } {
       return { text: "Stopped accepting Bothy's key", tone: 'danger' };
     case 'down':
       return { text: "Can't reach it right now", tone: 'danger' };
+    // Bothy couldn't reach it, or where its key is kept: never a refused key.
+    case 'unreachable':
+      return { text: "Can't reach it right now", tone: 'warning' };
     case 'degraded':
       return { text: 'Having trouble answering right now', tone: 'warning' };
   }

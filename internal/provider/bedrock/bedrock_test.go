@@ -9,6 +9,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -515,6 +517,14 @@ func TestHTTPErrorFromHeaderAndCredentials(t *testing.T) {
 	_, err = c.Stream(context.Background(), &core.Request{Model: "m", Messages: []core.Message{userText("hi")}}, nil)
 	if !errors.As(err, &pe) || pe.Kind != core.ErrKindAuth || !strings.Contains(pe.Msg, "AWS credentials unavailable: the SSO session") {
 		t.Fatalf("credential failure: %v", err)
+	}
+	// AWS's sign-in service out of reach is the network, not the
+	// credentials: it passes like any network failure.
+	creds.err = fmt.Errorf("refresh cached SSO token failed, %w", &url.Error{Op: "Post", URL: "https://oidc.us-east-1.amazonaws.com/token",
+		Err: &net.DNSError{Err: "no such host", Name: "oidc.us-east-1.amazonaws.com", IsNotFound: true}})
+	_, err = c.Stream(context.Background(), &core.Request{Model: "m", Messages: []core.Message{userText("hi")}}, nil)
+	if !errors.As(err, &pe) || pe.Kind != core.ErrKindNetwork || !strings.HasPrefix(pe.Msg, "AWS credentials unavailable: ") {
+		t.Fatalf("credential service out of reach: %v", err)
 	}
 	ctx, cancel := context.WithCancelCause(context.Background())
 	cancel(core.ErrStopped)
