@@ -27,7 +27,7 @@ owner() {
 	internal/channel/discord | internal/channel/discord/* | internal/channel/slack | internal/channel/slack/*) echo M10 ;;
 	internal/channel | internal/channel/telegram | internal/channel/telegram/*) echo M9 ;;
 	internal/httpapi/dto) echo dto ;;
-	internal/auth | internal/auth/* | internal/httpapi | internal/httpapi/* | internal/doctor | internal/doctor/* | internal/webui | internal/webui/*) echo M11 ;;
+	internal/auth | internal/auth/* | internal/httpapi | internal/httpapi/* | internal/doctor | internal/doctor/* | internal/webui | internal/webui/* | internal/starters) echo M11 ;;
 	internal/github | internal/github/*) echo F4 ;; # v0.2 brief §4: stdlib, core and config only
 	internal/release | internal/release/*) echo release ;; # v0.2 F5
 	internal/picture | internal/picture/*) echo picture ;; # stdlib, core, config and x/image only
