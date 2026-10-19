@@ -134,3 +134,32 @@ func TestAddressReferenceIsResolvedAndNeverShown(t *testing.T) {
 		t.Fatalf("error = %v", masked)
 	}
 }
+
+// A session whose key sits in its address is closed without sending that
+// address once the key is deleted: the close would carry the old key.
+func TestDeletedAddressKeyIsNotSentToClose(t *testing.T) {
+	f := newFakeServer()
+	ts := f.httpServer(t, false)
+	srv := httpServerCfg("echo", ts.URL+"/mcp?api_key=secret:echo_url_key")
+	h := newHarness(t, []config.MCPServer{srv}, withClient(ts.Client()),
+		withSecrets(map[string]string{"echo_url_key": "qa-url-key-UQ33-0001"}))
+	h.start()
+	h.approve("echo", map[string]core.MCPToolApproval{"search": {SideEffect: core.SERead}})
+	tool := h.tool("mcp__echo__search")
+	env := userEnv(newUser("bob"))
+	if _, err := h.call(tool, env, `{"q":"1"}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.vault.Delete(context.Background(), core.GlobalScope, "echo_url_key", admin); err != nil {
+		t.Fatal(err)
+	}
+	sent := len(f.queriesAll())
+	if _, err := h.call(tool, env, `{"q":"2"}`); errCode(err) != "key_missing" {
+		t.Fatalf("call after Delete = %v", err)
+	}
+	for _, q := range f.queriesAll()[sent:] {
+		if strings.Contains(q, "qa-url-key") {
+			t.Fatalf("the server was sent %q after its key was deleted", q)
+		}
+	}
+}

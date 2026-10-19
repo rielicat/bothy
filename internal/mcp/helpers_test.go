@@ -186,6 +186,7 @@ type fakeServer struct {
 	mu       sync.Mutex
 	desc     string
 	headers  []http.Header
+	queries  []string // each request's raw query, beside headers
 	versions []string // nil = every version the SDK supports
 	// stateless serves Streamable HTTP statelessly, which the 2026-07-28
 	// protocol requires; such a server learns of a cancelled call from the
@@ -264,6 +265,7 @@ func (f *fakeServer) httpServer(t *testing.T, legacy bool) *httptest.Server {
 		f.requests.Add(1)
 		f.mu.Lock()
 		f.headers = append(f.headers, r.Header.Clone())
+		f.queries = append(f.queries, r.URL.RawQuery)
 		want := f.auth
 		f.mu.Unlock()
 		if want != "" && r.Header.Get("Authorization") != want {
@@ -290,6 +292,13 @@ func (f *fakeServer) lastAuth() string {
 		return ""
 	}
 	return f.headers[len(f.headers)-1].Get("Authorization")
+}
+
+// queriesAll is every request's raw query in order.
+func (f *fakeServer) queriesAll() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.queries)
 }
 
 // authHeadersAll is every request's Authorization in order, "" for none.
