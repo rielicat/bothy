@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -74,6 +75,21 @@ type runner struct {
 	mu    sync.Mutex
 	err   error
 	fires []fired
+	// sessionFails is how many NewSession calls fail before they work again.
+	sessionFails int
+}
+
+func (r *runner) NewSession(ctx context.Context, p core.PrincipalID, origin string, chat *core.ChatRef) (*core.Session, error) {
+	r.mu.Lock()
+	fail := r.sessionFails > 0
+	if fail {
+		r.sessionFails--
+	}
+	r.mu.Unlock()
+	if fail {
+		return nil, errors.New("database is locked")
+	}
+	return r.Runner.NewSession(ctx, p, origin, chat)
 }
 
 func (r *runner) Submit(ctx context.Context, req core.RunRequest) (core.SubmitResult, error) {

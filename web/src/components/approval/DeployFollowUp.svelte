@@ -1,44 +1,17 @@
 <script lang="ts">
-  import { api } from '../../lib/api/client';
   import type { Approval } from '../../lib/api/types.gen';
   import { date, duration } from '../../lib/format';
   import Icon from '../Icon.svelte';
   import Spinner from '../ui/Spinner.svelte';
   import Verbatim from '../Verbatim.svelte';
-  import type { Deploy } from './types';
+  import { deploys } from './deploys.svelte';
 
-  // What became of an approved deploy (§8.7). The release events (S17) don't
-  // reach the web yet, so this reads the deploy list every 15 s while the
-  // deploy runs. Without the releases API it shows nothing.
+  // What became of an approved deploy (§8.7), from the deploy list every line
+  // on screen shares.
   let { approval, small = false }: { approval: Approval; /** Sized to sit under a decided line in a list. */ small?: boolean } = $props();
 
-  let deploy = $state<Deploy | null>(null);
-  // unknown is final: Bothy stopped following the run, so asking again changes nothing.
-  const running = $derived(!deploy || deploy.status === 'dispatched' || deploy.status === 'running');
-
-  async function load() {
-    try {
-      const r = await api.get<{ deploys?: (Deploy | null)[] }>('/api/releases');
-      deploy = r.deploys?.find((d) => d?.approval_id === approval.id) ?? null;
-      return !!deploy;
-    } catch {
-      return false;
-    }
-  }
-
-  $effect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let stopped = false;
-    const tick = async () => {
-      const found = await load();
-      if (!stopped && found && running) timer = setTimeout(tick, 15_000);
-    };
-    void tick();
-    return () => {
-      stopped = true;
-      clearTimeout(timer);
-    };
-  });
+  $effect(() => deploys.watch(approval.id));
+  const deploy = $derived(deploys.of(approval.id));
 
   const took = $derived.by(() => {
     const a = date(deploy?.created_at);

@@ -37,4 +37,13 @@ describe('Task detail (docs/design/ui.md §10.2)', () => {
     expect(screen.queryByRole('link', { name: 'Check the GitHub connection ›' })).toBeNull();
     session.me!.user.role = 'owner';
   });
+
+  // The server answers 404 both for a deleted task and for someone else's (internal/httpapi/idor_test.go).
+  it('says a task it cannot open may be deleted or belong to someone else', async () => {
+    await open('run_missing');
+    expect(await screen.findByRole('heading', { name: "Can't open this task" })).toBeTruthy();
+    expect(screen.getByText('This task was deleted, or it belongs to someone else.')).toBeTruthy();
+    expect(screen.queryByText(/not found|doesn't exist/i)).toBeNull();
+    expect(screen.getByRole('link', { name: 'Go to Activity' }).getAttribute('href')).toBe('/activity');
+  });
 });

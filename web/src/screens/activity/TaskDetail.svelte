@@ -126,8 +126,9 @@
 {/snippet}
 
 {#if missing}
-  <Page title="Task not found" back={{ href: '/activity', label: 'Activity' }}>
-    <EmptyState text="This task doesn't exist or was deleted." action={{ label: 'Go to Activity', href: '/activity' }} />
+  <!-- The server answers someone else's task as it does a deleted one, so the copy names both. -->
+  <Page title="Can't open this task" back={{ href: '/activity', label: 'Activity' }}>
+    <EmptyState text="This task was deleted, or it belongs to someone else." action={{ label: 'Go to Activity', href: '/activity' }} />
   </Page>
 {:else if !d || !run}
   <Page title="Task" back={{ href: '/activity', label: 'Activity' }}><Loading {failed} retry={load} /></Page>

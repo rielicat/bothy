@@ -11,7 +11,10 @@ due schedule through `Runner.Submit` with a fresh session per run (titled
 channel's chat; an account's schedule stays on the web), records a `skipped` run when
 the target session's queue is full, and folds `run.finished` events back into
 the row: a success resets the failure count and the third consecutive failure
-disables the schedule, audits it and tells a teammate's or channel's chat.
+disables the schedule, audits it and tells a teammate's or channel's chat, or
+an account in the last task's chat (the chat its tick made when the task never
+started, a new one when the tick failed before making one or that chat was
+deleted).
 Cron specs (5 fields, parsed by gronx) are matched in wall-clock space and
 mapped back to instants with ISC cron's DST rules: a fixed-time job whose time
 is skipped by spring-forward runs once when the clocks change and never runs

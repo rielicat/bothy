@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -95,6 +96,102 @@ func TestAccountHearsItsScheduleWasTurnedOff(t *testing.T) {
 		}
 		if len(notices) != 1 || notices[0] != "The schedule “Morning brief” was turned off because its last 3 tasks failed. Turn it back on under Schedules once it's fixed." {
 			t.Fatalf("notices = %q", notices)
+		}
+	})
+}
+
+// A tick that fails before its task starts leaves no task chat to hear in:
+// the notice goes to the chat that tick made for it, or to a new one when the
+// tick failed before making one.
+func TestAccountHearsItsScheduleWasTurnedOffWithoutATask(t *testing.T) {
+	for name, fault := range map[string]func(*runner){
+		"the task never started": func(r *runner) { r.fail(errors.New("no model is set up")) },
+		"no chat was made":       func(r *runner) { r.sessionFails = maxFailures },
+	} {
+		t.Run(name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				h := newHarness(t)
+				ctx := context.Background()
+				fault(h.runner)
+				sleepUntil(utc(2026, 10, 12, 10, 0))
+				sc := h.upsert(&core.Schedule{Name: "Morning brief", Kind: core.SchedCron, Spec: "*/10 * * * *", TZ: "UTC", Prompt: "x", Enabled: true})
+				sub := h.bus.Subscribe(core.Filter{Principals: []core.PrincipalID{h.p}, Types: []core.EventType{core.EvMessageCreated}}, 8)
+				defer sub.Close()
+				stop := h.start()
+				defer stop()
+				for range maxFailures {
+					time.Sleep(10 * time.Minute)
+					synctest.Wait()
+				}
+				if got := h.get(sc.ID); got.Enabled || got.Failures != maxFailures || len(h.runner.all()) != 0 {
+					t.Fatalf("schedule = %+v, tasks = %+v", got, h.runner.all())
+				}
+				chats, err := h.store.Sessions().List(ctx, h.viewer(), core.SessionFilter{NonEmpty: true})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(chats) != 1 || chats[0].Title != "Morning brief · 2026-10-12" || chats[0].LastMessageAt.IsZero() {
+					t.Fatalf("chats = %+v", chats)
+				}
+				msgs, err := h.store.Messages().Range(ctx, h.viewer(), chats[0].ID, 0, 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(msgs) != 1 || msgs[0].Kind != core.KindNotice ||
+					msgs[0].PlainText() != "The schedule “Morning brief” was turned off because its last 3 tasks failed. Turn it back on under Schedules once it's fixed." {
+					t.Fatalf("messages = %+v", msgs)
+				}
+				if len(sub.C()) != 1 {
+					t.Fatalf("message.created events = %d, want 1", len(sub.C()))
+				}
+			})
+		})
+	}
+}
+
+// Deleting the failed task's chat archives it, where nobody reads: the notice
+// goes to a new chat instead.
+func TestAccountHearsItsScheduleWasTurnedOffAfterDeletingTheChat(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t)
+		ctx := context.Background()
+		sleepUntil(utc(2026, 10, 12, 10, 0))
+		sc := h.upsert(&core.Schedule{Name: "Morning brief", Kind: core.SchedCron, Spec: "*/10 * * * *", TZ: "UTC", Prompt: "x", Enabled: true})
+		stop := h.start()
+		defer stop()
+		var gone core.SessionID
+		for range maxFailures {
+			time.Sleep(10 * time.Minute)
+			synctest.Wait()
+			fs := h.runner.all()
+			last := fs[len(fs)-1]
+			gone = last.req.Session
+			if err := h.store.Sessions().Archive(ctx, h.viewer(), gone); err != nil {
+				t.Fatal(err)
+			}
+			h.finish(last.run, core.RunFailed)
+			synctest.Wait()
+		}
+		if got := h.get(sc.ID); got.Enabled {
+			t.Fatalf("not turned off: %+v", got)
+		}
+		if msgs, err := h.store.Messages().Range(ctx, core.SystemViewer(), gone, 0, 0); err != nil || len(msgs) != 0 {
+			t.Fatalf("deleted chat got %+v (%v)", msgs, err)
+		}
+		chats, err := h.store.Sessions().List(ctx, h.viewer(), core.SessionFilter{NonEmpty: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(chats) != 1 || chats[0].ID == gone || chats[0].Title != "Morning brief · 2026-10-12" {
+			t.Fatalf("chats = %+v", chats)
+		}
+		msgs, err := h.store.Messages().Range(ctx, h.viewer(), chats[0].ID, 0, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(msgs) != 1 || msgs[0].Kind != core.KindNotice || msgs[0].Run != "" ||
+			msgs[0].PlainText() != "The schedule “Morning brief” was turned off because its last 3 tasks failed. Turn it back on under Schedules once it's fixed." {
+			t.Fatalf("messages = %+v", msgs)
 		}
 	})
 }

@@ -27,6 +27,8 @@ export const eventTypes: EventType[] = [
   'approval.requested',
   'approval.resolved',
   'approval.voted',
+  'release.dispatched',
+  'release.finished',
   'message.created',
   'session.updated',
   'memory.updated',
