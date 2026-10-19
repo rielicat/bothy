@@ -117,11 +117,30 @@ func snapshotSandbox(s2 string) (available, known bool) {
 	return false, false
 }
 
+var servicesLine = regexp.MustCompile(`(?m)^- Connected services: (.*) \(find their actions`)
+
+// servicesGone reports whether a frozen S2 names a connected service that is
+// no longer available (turned off or removed): the model would offer it.
+func (r *Runner) servicesGone(rs *runState, s2 string) bool {
+	m := servicesLine.FindStringSubmatch(s2)
+	if m == nil {
+		return false
+	}
+	now := r.connectedServices(r.toolEnv(rs, "", nil), rs.sel)
+	for _, name := range strings.Split(m[1], ", ") {
+		if !strings.HasSuffix(name, " more") && !slices.Contains(now, name) {
+			return true
+		}
+	}
+	return false
+}
+
 // ensureSnapshot builds the frozen tools block and S2 when the session has
-// none or the head model's profile changed (a model override).
+// none, the head model's profile changed (a model override) or a service it
+// names went away.
 func (r *Runner) ensureSnapshot(ctx context.Context, rs *runState) error {
 	p := profileFor(r.cfg(), rs.chain[0].Context)
-	if rs.sess.SystemSnapshot != "" && snapshotProfile(rs.sess.SystemSnapshot) == p {
+	if s2 := rs.sess.SystemSnapshot; s2 != "" && snapshotProfile(s2) == p && !r.servicesGone(rs, s2) {
 		return nil
 	}
 	return r.rebuildSnapshot(ctx, rs, nil, nil)

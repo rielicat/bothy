@@ -563,6 +563,27 @@ func TestFactsNameConnectedServices(t *testing.T) {
 	})
 }
 
+// An existing chat stops naming a service once it is turned off.
+func TestFactsDropAServiceTurnedOff(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		tools := []core.Tool{&testTool{name: "tool_search", lazy: true},
+			&testTool{name: "read_wiki", lazy: true, source: "mcp:deepwiki"}, &testTool{name: "assign_ticket", lazy: true, source: "mcp:tickets"}}
+		h := newHarness(t, opts{tools: tools, steps: []fakes.LLMStep{{Text: []string{"one"}}, {Text: []string{"two"}}}})
+		defer h.close()
+		h.submit("hello")
+		synctest.Wait()
+		if s2 := h.requests()[0].System[1].Text; !strings.Contains(s2, "- Connected services: deepwiki, tickets (") {
+			t.Fatalf("facts:\n%s", s2)
+		}
+		h.reg.UnregisterSource("mcp:tickets")
+		h.submit("again")
+		synctest.Wait()
+		if s2 := h.requests()[1].System[1].Text; !strings.Contains(s2, "- Connected services: deepwiki (") {
+			t.Fatalf("a turned-off service is still named:\n%s", s2)
+		}
+	})
+}
+
 func TestTurnContextNamesTheChannelOnce(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t, opts{steps: []fakes.LLMStep{{Text: []string{"one"}}, {Text: []string{"two"}}}})
