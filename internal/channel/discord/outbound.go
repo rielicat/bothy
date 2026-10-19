@@ -307,14 +307,17 @@ func (a *adapter) BotID() string {
 	return ""
 }
 
-// HasPicture reports whether the bot user has an avatar, however it got one
-// (the developer portal, or Bothy before).
-func (a *adapter) HasPicture(ctx context.Context) (bool, error) {
+// PictureID is the bot user's avatar hash, however it got the avatar (the
+// developer portal, or Bothy before), "" when it has none.
+func (a *adapter) PictureID(ctx context.Context) (string, error) {
 	me, err := a.client().CurrentUser(ctx)
 	if err != nil {
-		return false, a.apiErr("get current user", err)
+		return "", a.apiErr("get current user", err)
 	}
-	return me.Avatar != nil, nil
+	if me.Avatar == nil {
+		return "", nil
+	}
+	return *me.Avatar, nil
 }
 
 // SetPicture makes p the bot user's avatar. Discord allows a few changes an

@@ -12,6 +12,8 @@
   let info = $state<PictureInfo | null>(null);
   let loadFailed = $state(false);
   let slack = $state<ChannelStatus | undefined>();
+  // Telegram or Discord is on, so Bothy's picture can be sent to them again.
+  let sendable = $state(false);
   let picker: HTMLInputElement | undefined = $state();
   let busy = $state<'change' | 'reset' | null>(null);
   let error = $state('');
@@ -32,6 +34,7 @@
     info = i;
     loadFailed = failed;
     slack = list.find((c) => c.name === 'slack' && c.enabled);
+    sendable = list.some((c) => (c.name === 'telegram' || c.name === 'discord') && c.enabled);
   }
 
   async function retryLoad() {
@@ -68,6 +71,7 @@
   }
 
   async function save(kind: 'change' | 'reset', call: () => Promise<PictureChange>) {
+    const wasCustom = info?.custom;
     busy = kind;
     last = kind;
     error = '';
@@ -76,10 +80,13 @@
       const r = await call();
       info = r.picture;
       apps = r.apps;
-      toast(kind === 'change' ? 'Picture changed.' : 'Default picture restored.');
+      // Sending the default again changes nothing in Bothy, so only a chat app that took it is news.
+      if (kind === 'change') toast('Picture changed.');
+      else if (wasCustom) toast('Default picture restored.');
+      else if (apps.some((a) => a.result === 'updated')) toast('Picture sent to the chat apps.');
       if (lines.length) announce(lines.map((a) => a.detail).join(' '));
-      // "Use default" goes away with the custom picture; keep focus in the row.
-      if (kind === 'reset' && !resetAgain) {
+      // The ghost button can go with the custom picture; keep focus in the row.
+      if (kind === 'reset' && !resetAgain && !sendable) {
         await tick();
         document.getElementById(`${uid}-change`)?.focus();
       }
@@ -87,7 +94,8 @@
       // A refused file comes with the server's own sentence; a body over the cap may not.
       if (e instanceof ApiError && e.status === 413) error = pictureTooBig;
       else if (e instanceof ApiError && e.status === 400) error = e.message;
-      else error = kind === 'change' ? "Couldn't change the picture. Try again." : "Couldn't go back to the default picture. Try again.";
+      else if (kind === 'change') error = "Couldn't change the picture. Try again.";
+      else error = wasCustom ? "Couldn't go back to the default picture. Try again." : "Couldn't send the picture to the chat apps. Try again.";
     } finally {
       busy = null;
     }
@@ -119,14 +127,15 @@
           onchange={(e) => change(e.currentTarget.files)}
         />
         <Button id="{uid}-change" loading={busy === 'change'} loadingLabel="Saving…" disabled={busy === 'reset'} aria-describedby={describedBy(c)} onclick={() => picker?.click()}>Change…</Button>
-        {#if current.custom || resetAgain}
+        <!-- With the default in use, sending it again reaches a bot that wears an older one. -->
+        {#if current.custom || resetAgain || sendable}
           <Button
             variant="ghost"
             loading={busy === 'reset'}
             loadingLabel="Saving…"
             disabled={busy === 'change'}
             aria-describedby={describedBy(c)}
-            onclick={() => save('reset', () => api.del<PictureChange>('/api/agent/picture'))}>{current.custom ? 'Use default' : 'Try again'}</Button
+            onclick={() => save('reset', () => api.del<PictureChange>('/api/agent/picture'))}>{current.custom ? 'Use default' : resetAgain ? 'Try again' : 'Send to chat apps'}</Button
           >
         {/if}
       </div>

@@ -34,8 +34,10 @@ type PictureSetter interface {
 	// BotID is the bot's own user id on the platform, "" until it is known.
 	// Unlike its name it tells bots apart: Discord bot names repeat.
 	BotID() string
-	// HasPicture reports whether the bot has a picture now, whoever set it.
-	HasPicture(ctx context.Context) (bool, error)
+	// PictureID names the picture the bot shows now, whoever set it: the
+	// platform's id for that upload, "" when the bot has none. Any change
+	// of picture changes it.
+	PictureID(ctx context.Context) (string, error)
 	// SetPicture replaces the bot's picture. A platform that limits how
 	// often it may change answers with an error whose FailureCode is
 	// FailRateLimited.

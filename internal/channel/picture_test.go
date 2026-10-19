@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -13,17 +14,19 @@ import (
 	"github.com/rielicat/bothy/internal/testkit/channeltest"
 )
 
-// pictureChannel is a chat app whose bot has a picture or not.
+// pictureChannel is a chat app whose bot shows a picture or none ("").
 type pictureChannel struct {
 	*channeltest.Channel
-	mu     sync.Mutex
-	botID  string
-	has    bool
-	hasErr error
-	setErr error
-	checks int
-	set    []core.Picture
-	state  string // replaces the status state when set
+	mu       sync.Mutex
+	botID    string
+	shown    string // PictureID: "pic<n>" after Bothy's nth change
+	idErr    error
+	blindSet bool // PictureID fails once a change went through
+	unnamed  bool // a change shows as "?", a picture the platform can't name
+	setErr   error
+	checks   int
+	set      []core.Picture
+	state    string // replaces the status state when set
 }
 
 func (c *pictureChannel) BotID() string {
@@ -32,11 +35,14 @@ func (c *pictureChannel) BotID() string {
 	return c.botID
 }
 
-func (c *pictureChannel) HasPicture(context.Context) (bool, error) {
+func (c *pictureChannel) PictureID(context.Context) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.checks++
-	return c.has, c.hasErr
+	if c.blindSet && len(c.set) > 0 {
+		return "", errors.New("telegram getUserProfilePhotos: 502 Bad Gateway")
+	}
+	return c.shown, c.idErr
 }
 
 func (c *pictureChannel) SetPicture(_ context.Context, p core.Picture) error {
@@ -45,8 +51,19 @@ func (c *pictureChannel) SetPicture(_ context.Context, p core.Picture) error {
 	if c.setErr != nil {
 		return c.setErr
 	}
-	c.set, c.has = append(c.set, p), true
+	c.set = append(c.set, p)
+	c.shown = fmt.Sprintf("pic%d", len(c.set))
+	if c.unnamed {
+		c.shown = "?"
+	}
 	return nil
+}
+
+// show changes the bot's picture outside Bothy, as BotFather would.
+func (c *pictureChannel) show(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.shown = id
 }
 
 func (c *pictureChannel) Status() core.ChannelStatus {
@@ -87,17 +104,37 @@ func (f *heldPicture) set(p core.Picture) core.Picture {
 
 var (
 	defaultPic = core.Picture{PNG: []byte("default"), JPEG: []byte("default.jpg"), Version: "d1"}
+	newerPic   = core.Picture{PNG: []byte("default2"), JPEG: []byte("default2.jpg"), Version: "d2"}
 	customPic  = core.Picture{PNG: []byte("custom"), JPEG: []byte("custom.jpg"), Custom: true, Version: "c1"}
 )
 
-func withPicture(pc **pictureChannel, has bool) func(*harness) {
+// withPicture starts the bot showing shown ("" for no picture).
+func withPicture(pc **pictureChannel, shown string) func(*harness) {
 	return func(h *harness) {
 		h.picture = &heldPicture{p: defaultPic}
 		h.wrap = func(c *channeltest.Channel) core.Channel {
-			*pc = &pictureChannel{Channel: c, botID: "1001", has: has}
+			*pc = &pictureChannel{Channel: c, botID: "1001", shown: shown}
 			return *pc
 		}
 	}
+}
+
+func (h *harness) pictureMeta(t *testing.T) string {
+	t.Helper()
+	v, err := h.store.Meta().Get(h.ctx, pictureKey("telegram"))
+	if err != nil && !errors.Is(err, core.ErrNotFound) {
+		t.Fatal(err)
+	}
+	return v
+}
+
+// reconnect turns the chat app off, runs between, and turns it on again.
+func (h *harness) reconnect(between func()) {
+	h.cfg.Set(func(c *config.Config) { c.Channels.Telegram.Enabled = false })
+	settle()
+	between()
+	h.cfg.Set(func(c *config.Config) { c.Channels.Telegram.Enabled = true })
+	settle()
 }
 
 // settle lets the hub poll statuses and finish what a connection starts.
@@ -109,22 +146,19 @@ func settle() {
 func TestFirstConnectionGivesTheBotBothysPicture(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		var pc *pictureChannel
-		h := newHarness(t, withPicture(&pc, false)).start()
+		h := newHarness(t, withPicture(&pc, "")).start()
 		settle()
 		checks, set := pc.counts()
-		if checks != 1 || len(set) != 1 || set[0].Version != defaultPic.Version {
+		if checks != 2 || len(set) != 1 || set[0].Version != defaultPic.Version {
 			t.Fatalf("checks=%d set=%+v", checks, set)
 		}
-		if v, err := h.store.Meta().Get(h.ctx, pictureKey("telegram")); err != nil || v != "1001" {
-			t.Fatalf("meta = %q, %v", v, err)
+		if v := h.pictureMeta(t); v != "1001 d1 pic1" {
+			t.Fatalf("meta = %q", v)
 		}
 
 		// Reconnecting, or the next boot, doesn't ask again.
-		h.cfg.Set(func(c *config.Config) { c.Channels.Telegram.Enabled = false })
-		settle()
-		h.cfg.Set(func(c *config.Config) { c.Channels.Telegram.Enabled = true })
-		settle()
-		if checks, set := pc.counts(); checks != 1 || len(set) != 1 {
+		h.reconnect(func() {})
+		if checks, set := pc.counts(); checks != 2 || len(set) != 1 {
 			t.Fatalf("after reconnecting: checks=%d sets=%d", checks, len(set))
 		}
 	})
@@ -133,15 +167,105 @@ func TestFirstConnectionGivesTheBotBothysPicture(t *testing.T) {
 func TestFirstConnectionKeepsAPictureSomeoneSet(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		var pc *pictureChannel
-		h := newHarness(t, withPicture(&pc, true)).start()
+		h := newHarness(t, withPicture(&pc, "own")).start()
 		settle()
 		if checks, set := pc.counts(); checks != 1 || len(set) != 0 {
 			t.Fatalf("checks=%d set=%+v", checks, set)
 		}
-		if v, _ := h.store.Meta().Get(h.ctx, pictureKey("telegram")); v != "1001" {
+		if v := h.pictureMeta(t); v != "1001" {
+			t.Fatalf("meta = %q", v)
+		}
+		// A new built-in default leaves it alone too.
+		h.reconnect(func() { h.picture.(*heldPicture).set(newerPic) })
+		if checks, set := pc.counts(); checks != 1 || len(set) != 0 {
+			t.Fatalf("after a new default: checks=%d set=%+v", checks, set)
+		}
+	})
+}
+
+// A bot still showing the picture Bothy gave it follows Bothy's: a new
+// built-in default after an upgrade, or an admin's change made while the
+// chat app was off.
+func TestABotKeepsUpWithBothysPicture(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		var pc *pictureChannel
+		h := newHarness(t, withPicture(&pc, "")).start()
+		settle()
+		held := h.picture.(*heldPicture)
+		h.reconnect(func() { held.set(newerPic) })
+		if _, set := pc.counts(); len(set) != 2 || set[1].Version != newerPic.Version {
+			t.Fatalf("after a new default: %+v", set)
+		}
+		if v := h.pictureMeta(t); v != "1001 d2 pic2" {
+			t.Fatalf("meta = %q", v)
+		}
+		h.reconnect(func() { held.set(customPic) })
+		if _, set := pc.counts(); len(set) != 3 || set[2].Version != customPic.Version {
+			t.Fatalf("after a change while off: %+v", set)
+		}
+		if v := h.pictureMeta(t); v != "1001 c1 pic3" {
 			t.Fatalf("meta = %q", v)
 		}
 	})
+}
+
+// Someone changing the picture Bothy gave makes it theirs: Bothy's next
+// picture doesn't replace it.
+func TestAPictureSomeoneSetOverBothysStays(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		var pc *pictureChannel
+		h := newHarness(t, withPicture(&pc, "")).start()
+		settle()
+		h.reconnect(func() {
+			pc.show("own")
+			h.picture.(*heldPicture).set(newerPic)
+		})
+		if _, set := pc.counts(); len(set) != 1 {
+			t.Fatalf("their picture was replaced: %+v", set)
+		}
+		if v := h.pictureMeta(t); v != "1001" {
+			t.Fatalf("meta = %q", v)
+		}
+	})
+}
+
+// A bot looked after before Bothy kept track of what it gave keeps its
+// picture: Bothy can't tell whose it is.
+func TestABotFromBeforeTrackingIsLeftAlone(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		var pc *pictureChannel
+		h := newHarness(t, withPicture(&pc, "pic-old"))
+		if err := h.store.Meta().Set(h.ctx, pictureKey("telegram"), "1001"); err != nil {
+			t.Fatal(err)
+		}
+		h.picture.(*heldPicture).set(newerPic)
+		h.start()
+		settle()
+		if checks, set := pc.counts(); checks != 0 || len(set) != 0 {
+			t.Fatalf("checks=%d set=%+v", checks, set)
+		}
+	})
+}
+
+// When the chat app won't say what it shows after a change, or can't name
+// it, the picture counts as the bot's own: Bothy never replaces what it
+// can't recognise.
+func TestAPictureBothyCantRecogniseCountsAsTheBots(t *testing.T) {
+	for _, unnamed := range []bool{false, true} {
+		bubble(t, func(t *testing.T) {
+			var pc *pictureChannel
+			h := newHarness(t, withPicture(&pc, ""))
+			pc.blindSet, pc.unnamed = !unnamed, unnamed
+			h.start()
+			settle()
+			if _, set := pc.counts(); len(set) != 1 {
+				t.Fatalf("unnamed=%v: set = %+v", unnamed, set)
+			}
+			if v := h.pictureMeta(t); v != "1001" {
+				t.Fatalf("unnamed=%v: meta = %q", unnamed, v)
+			}
+		})
+	}
 }
 
 // Another bot behind the same chat app (a new token) is checked afresh; a
@@ -149,27 +273,25 @@ func TestFirstConnectionKeepsAPictureSomeoneSet(t *testing.T) {
 func TestFirstConnectionChecksANewBotAndRetries(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		var pc *pictureChannel
-		h := newHarness(t, withPicture(&pc, false))
+		h := newHarness(t, withPicture(&pc, ""))
 		if err := h.store.Meta().Set(h.ctx, pictureKey("telegram"), "1000"); err != nil {
 			t.Fatal(err)
 		}
-		pc.hasErr = errors.New("telegram getUserProfilePhotos: 502 Bad Gateway")
+		pc.idErr = errors.New("telegram getUserProfilePhotos: 502 Bad Gateway")
 		h.start()
 		settle()
 		if checks, set := pc.counts(); checks != 1 || len(set) != 0 {
 			t.Fatalf("checks=%d sets=%d", checks, len(set))
 		}
-		if v, _ := h.store.Meta().Get(h.ctx, pictureKey("telegram")); v != "1000" {
+		if v := h.pictureMeta(t); v != "1000" {
 			t.Fatalf("a failed check was remembered: %q", v)
 		}
-		pc.mu.Lock()
-		pc.hasErr = nil
-		pc.mu.Unlock()
-		h.cfg.Set(func(c *config.Config) { c.Channels.Telegram.Enabled = false })
-		settle()
-		h.cfg.Set(func(c *config.Config) { c.Channels.Telegram.Enabled = true })
-		settle()
-		if checks, set := pc.counts(); checks != 2 || len(set) != 1 {
+		h.reconnect(func() {
+			pc.mu.Lock()
+			pc.idErr = nil
+			pc.mu.Unlock()
+		})
+		if checks, set := pc.counts(); checks != 3 || len(set) != 1 {
 			t.Fatalf("retry: checks=%d sets=%d", checks, len(set))
 		}
 	})
@@ -179,20 +301,18 @@ func TestFirstConnectionChecksANewBotAndRetries(t *testing.T) {
 func TestFirstConnectionTellsBotsApartByID(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		var pc *pictureChannel
-		h := newHarness(t, withPicture(&pc, true)).start()
+		h := newHarness(t, withPicture(&pc, "own")).start()
 		settle()
 		name := pc.Status().Identity
-		h.cfg.Set(func(c *config.Config) { c.Channels.Telegram.Enabled = false })
-		settle()
-		pc.mu.Lock()
-		pc.botID, pc.has = "1002", false
-		pc.mu.Unlock()
-		h.cfg.Set(func(c *config.Config) { c.Channels.Telegram.Enabled = true })
-		settle()
-		if checks, set := pc.counts(); checks != 2 || len(set) != 1 || pc.Status().Identity != name {
+		h.reconnect(func() {
+			pc.mu.Lock()
+			pc.botID, pc.shown = "1002", ""
+			pc.mu.Unlock()
+		})
+		if checks, set := pc.counts(); checks != 3 || len(set) != 1 || pc.Status().Identity != name {
 			t.Fatalf("checks=%d sets=%d identity %q, was %q", checks, len(set), pc.Status().Identity, name)
 		}
-		if v, _ := h.store.Meta().Get(h.ctx, pictureKey("telegram")); v != "1002" {
+		if v := h.pictureMeta(t); v != "1002 d1 pic1" {
 			t.Fatalf("meta = %q", v)
 		}
 	})
@@ -201,7 +321,7 @@ func TestFirstConnectionTellsBotsApartByID(t *testing.T) {
 func TestApplyPictureReplacesWhateverTheBotHas(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		var pc *pictureChannel
-		h := newHarness(t, withPicture(&pc, true))
+		h := newHarness(t, withPicture(&pc, "own"))
 		slack := channeltest.New("slack")
 		h.hub.Add(slack)
 		h.hub.Add(channeltest.New("discord")) // turned off: not listed
@@ -217,6 +337,9 @@ func TestApplyPictureReplacesWhateverTheBotHas(t *testing.T) {
 		}
 		if _, set := pc.counts(); len(set) != 1 || set[0].Version != customPic.Version {
 			t.Fatalf("set = %+v", set)
+		}
+		if v := h.pictureMeta(t); v != "1001 c1 pic1" {
+			t.Fatalf("meta = %q", v)
 		}
 
 		pc.mu.Lock()
@@ -245,7 +368,7 @@ func TestApplyPictureReplacesWhateverTheBotHas(t *testing.T) {
 func TestApplyPictureSendsTheLatestPicture(t *testing.T) {
 	bubble(t, func(t *testing.T) {
 		var pc *pictureChannel
-		h := newHarness(t, withPicture(&pc, true)).start()
+		h := newHarness(t, withPicture(&pc, "own")).start()
 		settle()
 		h.picture.(*heldPicture).set(defaultPic) // a reset came after this upload
 		got := h.hub.ApplyPicture(h.ctx, customPic)

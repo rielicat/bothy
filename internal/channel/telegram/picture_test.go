@@ -12,8 +12,8 @@ import (
 func TestPicture(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
-	if has, err := e.a.HasPicture(ctx); err != nil || has {
-		t.Fatalf("fresh bot: has=%v err=%v", has, err)
+	if id, err := e.a.PictureID(ctx); err != nil || id != "" {
+		t.Fatalf("fresh bot: id=%q err=%v", id, err)
 	}
 	jpeg := []byte{0xff, 0xd8, 0xff, 0xe0, 'p', 'i', 'c'}
 	if err := e.a.SetPicture(ctx, core.Picture{PNG: []byte("png"), JPEG: jpeg}); err != nil {
@@ -22,13 +22,20 @@ func TestPicture(t *testing.T) {
 	if got := e.srv.ProfilePhoto(); !bytes.Equal(got, jpeg) {
 		t.Fatalf("profile photo = %q", got)
 	}
-	if has, err := e.a.HasPicture(ctx); err != nil || !has {
-		t.Fatalf("after set: has=%v err=%v", has, err)
+	first, err := e.a.PictureID(ctx)
+	if err != nil || first == "" {
+		t.Fatalf("after set: id=%q err=%v", first, err)
+	}
+	if err := e.a.SetPicture(ctx, core.Picture{PNG: []byte("png"), JPEG: jpeg}); err != nil {
+		t.Fatal(err)
+	}
+	if id, err := e.a.PictureID(ctx); err != nil || id == "" || id == first {
+		t.Fatalf("after another set: id=%q (was %q) err=%v", id, first, err)
 	}
 	if err := e.a.SetPicture(ctx, core.Picture{PNG: []byte("png")}); !errors.Is(err, core.ErrInvalid) {
 		t.Fatalf("no JPEG: %v", err)
 	}
-	if e.srv.Calls("setMyProfilePhoto") != 1 {
+	if e.srv.Calls("setMyProfilePhoto") != 2 {
 		t.Fatalf("setMyProfilePhoto calls = %d", e.srv.Calls("setMyProfilePhoto"))
 	}
 }
@@ -50,8 +57,13 @@ func TestPictureBotID(t *testing.T) {
 func TestPictureSetInBotFatherCounts(t *testing.T) {
 	e := newEnv(t)
 	e.srv.SetProfilePhoto([]byte{0xff, 0xd8, 0xff})
-	if has, err := e.a.HasPicture(context.Background()); err != nil || !has {
-		t.Fatalf("has=%v err=%v", has, err)
+	first, err := e.a.PictureID(context.Background())
+	if err != nil || first == "" {
+		t.Fatalf("id=%q err=%v", first, err)
+	}
+	e.srv.SetProfilePhoto([]byte{0xff, 0xd8, 0xff, 0x01})
+	if id, err := e.a.PictureID(context.Background()); err != nil || id == first {
+		t.Fatalf("after another photo: id=%q (was %q) err=%v", id, first, err)
 	}
 }
 

@@ -237,9 +237,19 @@ describe("Settings → General, Bothy's picture", () => {
 
   it('goes back to the default picture', async () => {
     const calls = await open({ mock: 'picture-custom' });
-    await fireEvent.click(within(picture()).getByRole('button', { name: 'Use default' }));
+    const ghost = within(picture()).getByRole('button', { name: 'Use default' });
+    ghost.focus();
+    await fireEvent.click(ghost);
     await waitFor(() => expect(toaster.current?.text).toBe('Default picture restored.'));
     expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/agent/picture')).toBe(true);
+    // With Telegram on the button stays, to send the default again, and keeps focus.
+    expect(await within(picture()).findByRole('button', { name: 'Send to chat apps' })).toBe(document.activeElement);
+  });
+
+  it('moves focus to Change… when going back to the default leaves no button', async () => {
+    await open({ mock: 'picture-custom', override: (m, url) => (m === 'GET' && url === '/api/channels' ? [{ name: 'slack', enabled: true, state: 'connected' }] : undefined) });
+    await fireEvent.click(within(picture()).getByRole('button', { name: 'Use default' }));
+    await waitFor(() => expect(toaster.current?.text).toBe('Default picture restored.'));
     await waitFor(() => expect(within(picture()).queryByRole('button', { name: 'Use default' })).toBeNull());
     expect(document.activeElement).toBe(within(picture()).getByRole('button', { name: 'Change…' }));
   });
@@ -261,10 +271,31 @@ describe("Settings → General, Bothy's picture", () => {
     expect(await within(picture()).findByRole('button', { name: 'Try again' })).toBeTruthy();
     expect(within(picture()).getByText("Couldn't change the picture in Telegram. Try again later.")).toBeTruthy();
     await fireEvent.click(within(picture()).getByRole('button', { name: 'Try again' }));
-    await waitFor(() => expect(within(picture()).queryByRole('button', { name: 'Try again' })).toBeNull());
+    await waitFor(() => expect(toaster.current?.text).toBe('Picture sent to the chat apps.'));
+    expect(within(picture()).queryByRole('button', { name: 'Try again' })).toBeNull();
     expect(within(picture()).queryByText(/Try again later/)).toBeNull();
-    await waitFor(() => expect(document.activeElement).toBe(within(picture()).getByRole('button', { name: 'Change…' })));
+    expect(within(picture()).getByRole('button', { name: 'Send to chat apps' })).toBeTruthy();
     expect(calls.filter((c) => c.method === 'DELETE').length).toBe(3);
+  });
+
+  it('sends the default to Telegram and Discord again, for a bot with an older picture', async () => {
+    const calls = await open();
+    await fireEvent.click(within(picture()).getByRole('button', { name: 'Send to chat apps' }));
+    await waitFor(() => expect(toaster.current?.text).toBe('Picture sent to the chat apps.'));
+    expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/agent/picture')).toBe(true);
+    expect(await within(picture()).findByRole('button', { name: 'Send to chat apps' })).toBeTruthy();
+  });
+
+  it('claims no sending when no chat app took the picture', async () => {
+    await open({ mock: 'picture-fail' });
+    await fireEvent.click(within(picture()).getByRole('button', { name: 'Send to chat apps' }));
+    expect(await within(picture()).findByText("Couldn't change the picture in Telegram. Try again later.")).toBeTruthy();
+    expect(toaster.current).toBeNull();
+  });
+
+  it('offers no sending when only Slack is on', async () => {
+    await open({ override: (m, url) => (m === 'GET' && url === '/api/channels' ? [{ name: 'slack', enabled: true, state: 'connected' }] : undefined) });
+    expect(within(picture()).queryByRole('button', { name: 'Send to chat apps' })).toBeNull();
   });
 
   it('names the row on its buttons for screen readers', async () => {

@@ -475,13 +475,26 @@ func (c *client) setMyCommands(ctx context.Context, cmds []botCommand) error {
 	return c.call(ctx, "setMyCommands", map[string]any{"commands": cmds}, nil)
 }
 
-// getUserProfilePhotos says how many profile photos user has.
-func (c *client) getUserProfilePhotos(ctx context.Context, user int64) (int, error) {
+// getUserProfilePhotos returns the file_unique_id of user's current profile
+// photo (the newest, its first size), "" when there is none and "?" when
+// Telegram reports one without saying which.
+func (c *client) getUserProfilePhotos(ctx context.Context, user int64) (string, error) {
 	var r struct {
 		TotalCount int `json:"total_count"`
+		Photos     [][]struct {
+			FileUniqueID string `json:"file_unique_id"`
+		} `json:"photos"`
 	}
-	err := c.call(ctx, "getUserProfilePhotos", map[string]any{"user_id": user, "limit": 1}, &r)
-	return r.TotalCount, err
+	if err := c.call(ctx, "getUserProfilePhotos", map[string]any{"user_id": user, "limit": 1}, &r); err != nil {
+		return "", err
+	}
+	if r.TotalCount == 0 {
+		return "", nil
+	}
+	if len(r.Photos) == 0 || len(r.Photos[0]) == 0 || r.Photos[0][0].FileUniqueID == "" {
+		return "?", nil
+	}
+	return r.Photos[0][0].FileUniqueID, nil
 }
 
 // setMyProfilePhoto makes jpeg the bot's profile photo: an

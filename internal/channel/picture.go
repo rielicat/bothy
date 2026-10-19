@@ -5,23 +5,34 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/rielicat/bothy/internal/core"
 )
 
-// pictureTimeout bounds one chat app's picture check or upload.
-const pictureTimeout = 30 * time.Second
+const (
+	// pictureTimeout bounds one chat app's picture check or upload.
+	pictureTimeout = 30 * time.Second
+	// pictureReadTimeout bounds reading back what the bot shows after an upload.
+	pictureReadTimeout = 10 * time.Second
+)
 
-// pictureKey is the meta key naming the bot (PictureSetter.BotID) whose
-// picture was already looked after on that chat app, so a restart doesn't
-// ask again.
+// pictureKey is the meta key recording what Bothy knows of the bot's picture
+// on that chat app: "<bot id>" once it looked after a bot whose picture is
+// its own (BotFather, the developer portal), or "<bot id> <version>
+// <picture id>" when Bothy gave the bot core.Picture <version>, which the
+// chat app shows as PictureSetter.PictureID <picture id>. A restart then
+// asks nothing, and a picture Bothy gave can follow Bothy's.
 func pictureKey(app string) string { return "picture:" + app }
 
-// firstPicture gives a newly connected bot Bothy's picture when it has none.
-// A picture someone set in BotFather or the developer portal stays: only an
-// admin's change in Bothy (ApplyPicture) replaces one.
+// firstPicture looks after a bot's picture when it connects. A bot without
+// one gets Bothy's. A bot still showing the picture Bothy gave it gets
+// Bothy's current one when that changed since (a new built-in default, or
+// an admin's change while the chat app was off). A picture someone set
+// themselves stays, even over one Bothy gave: only an admin's change in
+// Bothy (ApplyPicture) replaces it.
 func (h *Hub) firstPicture(ctx context.Context, a *adapter) {
 	ps, ok := a.ch.(core.PictureSetter)
 	if !ok || h.d.Picture == nil {
@@ -30,34 +41,65 @@ func (h *Hub) firstPicture(ctx context.Context, a *adapter) {
 	a.pictureMu.Lock()
 	defer a.pictureMu.Unlock()
 	id := cmp.Or(ps.BotID(), "?")
-	if v, err := h.d.Store.Meta().Get(ctx, pictureKey(a.name)); err == nil && v == id {
+	rec, err := h.d.Store.Meta().Get(ctx, pictureKey(a.name))
+	if err != nil && !errors.Is(err, core.ErrNotFound) {
+		h.log.Warn("channel: reading what Bothy knows of the bot's picture failed", "channel", a.name, "err", err)
+		return
+	}
+	f := strings.Fields(rec)
+	known := len(f) > 0 && f[0] == id
+	gave := known && len(f) == 3
+	if known && !gave {
+		return
+	}
+	p, err := h.d.Picture.Current(ctx)
+	if err != nil {
+		h.log.Warn("channel: reading Bothy's picture failed", "channel", a.name, "err", err)
+		return
+	}
+	if gave && f[1] == p.Version {
 		return
 	}
 	pctx, cancel := context.WithTimeout(ctx, pictureTimeout)
 	defer cancel()
-	has, err := ps.HasPicture(pctx)
+	shown, err := ps.PictureID(pctx)
 	if err != nil {
-		h.log.Warn("channel: can't tell whether the bot has a picture", "channel", a.name, "err", err)
+		h.log.Warn("channel: can't tell what picture the bot has", "channel", a.name, "err", err)
 		return
 	}
-	if !has {
-		p, err := h.d.Picture.Current(ctx)
-		if err == nil {
-			err = ps.SetPicture(pctx, p)
-		}
-		if err != nil {
-			h.log.Warn("channel: giving the bot Bothy's picture failed", "channel", a.name, "err", err)
-			return
-		}
-		h.log.Info("channel: gave the bot Bothy's picture", "channel", a.name, "identity", a.ch.Status().Identity, "custom", p.Custom)
+	if gave && shown != f[2] || !gave && shown != "" {
+		h.rememberPicture(ctx, a, id)
+		return
 	}
-	h.rememberPicture(ctx, a, id)
+	if err := ps.SetPicture(pctx, p); err != nil {
+		h.log.Warn("channel: giving the bot Bothy's picture failed", "channel", a.name, "err", err)
+		return
+	}
+	h.log.Info("channel: gave the bot Bothy's picture", "channel", a.name, "identity", a.ch.Status().Identity, "custom", p.Custom, "replaced", gave)
+	h.rememberGiven(ctx, a, ps, id, p.Version)
 }
 
-func (h *Hub) rememberPicture(ctx context.Context, a *adapter, id string) {
-	if err := h.d.Store.Meta().Set(ctx, pictureKey(a.name), id); err != nil && ctx.Err() == nil {
+func (h *Hub) rememberPicture(ctx context.Context, a *adapter, v string) {
+	if err := h.d.Store.Meta().Set(ctx, pictureKey(a.name), v); err != nil && ctx.Err() == nil {
 		h.log.Warn("channel: remembering the bot's picture failed", "channel", a.name, "err", err)
 	}
+}
+
+// rememberGiven records that the bot now shows Bothy's picture version.
+// When the chat app doesn't say what it shows ("?" is a picture it couldn't
+// name), the picture counts as the bot's own from then on: Bothy never
+// replaces what it can't recognise. The read-back has its own time, so a
+// slow upload that went through still gets recorded.
+func (h *Hub) rememberGiven(ctx context.Context, a *adapter, ps core.PictureSetter, id, version string) {
+	rctx, cancel := context.WithTimeout(ctx, pictureReadTimeout)
+	defer cancel()
+	shown, err := ps.PictureID(rctx)
+	if err != nil || shown == "" || shown == "?" || strings.ContainsAny(shown, " \t\n") {
+		h.log.Warn("channel: can't tell what picture the bot shows now", "channel", a.name, "err", err)
+		h.rememberPicture(ctx, a, id)
+		return
+	}
+	h.rememberPicture(ctx, a, id+" "+version+" "+shown)
 }
 
 // ApplyPicture gives every turned-on chat app Bothy's picture, replacing the
@@ -120,7 +162,7 @@ func (h *Hub) applyPicture(ctx context.Context, a *adapter, ps core.PictureSette
 		r.Err = err
 		return r
 	}
-	h.rememberPicture(ctx, a, cmp.Or(ps.BotID(), "?"))
+	h.rememberGiven(ctx, a, ps, cmp.Or(ps.BotID(), "?"), p.Version)
 	r.Outcome = core.PictureUpdated
 	return r
 }

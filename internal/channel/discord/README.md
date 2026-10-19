@@ -21,7 +21,7 @@ disgo never stops a limiter's goroutine, and the hub rebuilds the adapter
 on every config change. A 401 or close code 4004 reports
 `auth_failed`; 4014 reports it with the Message Content intent hint.
 `InviteURL` builds the §8.6 invite link. `core.PictureSetter`: `BotID` is the
-bot user's snowflake, `GET /users/@me` says whether the bot has an avatar, and `PATCH /users/@me` sets
+bot user's snowflake, `GET /users/@me` gives the bot's avatar hash (its `PictureID`), and `PATCH /users/@me` sets
 one from a PNG data URI in a request of its own, outside disgo's limiter,
 which would wait out the avatar bucket for up to an hour; Discord's 429 and
 its 400 `AVATAR_RATE_LIMIT` both come back at once with the FailureCode

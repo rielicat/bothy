@@ -14,8 +14,8 @@ import (
 func TestPicture(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	if has, err := f.a.HasPicture(ctx); err != nil || has {
-		t.Fatalf("fresh bot: has=%v err=%v", has, err)
+	if id, err := f.a.PictureID(ctx); err != nil || id != "" {
+		t.Fatalf("fresh bot: id=%q err=%v", id, err)
 	}
 	png := []byte("\x89PNG\r\n\x1a\nfake")
 	if err := f.a.SetPicture(ctx, core.Picture{PNG: png, JPEG: []byte{0xff, 0xd8}}); err != nil {
@@ -24,8 +24,15 @@ func TestPicture(t *testing.T) {
 	if got := f.srv.Avatar(); !bytes.Equal(got, png) {
 		t.Fatalf("avatar = %q", got)
 	}
-	if has, err := f.a.HasPicture(ctx); err != nil || !has {
-		t.Fatalf("after set: has=%v err=%v", has, err)
+	first, err := f.a.PictureID(ctx)
+	if err != nil || first == "" {
+		t.Fatalf("after set: id=%q err=%v", first, err)
+	}
+	if err := f.a.SetPicture(ctx, core.Picture{PNG: append(png, '2'), JPEG: []byte{0xff, 0xd8}}); err != nil {
+		t.Fatal(err)
+	}
+	if id, err := f.a.PictureID(ctx); err != nil || id == "" || id == first {
+		t.Fatalf("after another set: id=%q (was %q) err=%v", id, first, err)
 	}
 }
 
@@ -47,8 +54,8 @@ func TestPictureBotID(t *testing.T) {
 func TestPictureSetInThePortalCounts(t *testing.T) {
 	f := newFixture(t)
 	f.srv.SetAvatar([]byte("portal"))
-	if has, err := f.a.HasPicture(context.Background()); err != nil || !has {
-		t.Fatalf("has=%v err=%v", has, err)
+	if id, err := f.a.PictureID(context.Background()); err != nil || id == "" {
+		t.Fatalf("id=%q err=%v", id, err)
 	}
 }
 

@@ -598,12 +598,12 @@ func (a *Adapter) BotID() string {
 	return strconv.FormatInt(a.me.ID, 10)
 }
 
-// HasPicture reports whether the bot has a profile photo, however it got one
-// (BotFather, or Bothy before).
-func (a *Adapter) HasPicture(ctx context.Context) (bool, error) {
+// PictureID is the file_unique_id of the bot's profile photo, however it got
+// one (BotFather, or Bothy before), "" when it has none.
+func (a *Adapter) PictureID(ctx context.Context) (string, error) {
 	cl, err := a.client(ctx)
 	if err != nil {
-		return false, err
+		return "", err
 	}
 	a.mu.Lock()
 	id := a.me.ID
@@ -611,12 +611,11 @@ func (a *Adapter) HasPicture(ctx context.Context) (bool, error) {
 	if id == 0 {
 		me, err := cl.getMe(ctx)
 		if err != nil {
-			return false, err
+			return "", err
 		}
 		id = me.ID
 	}
-	n, err := cl.getUserProfilePhotos(ctx, id)
-	return n > 0, err
+	return cl.getUserProfilePhotos(ctx, id)
 }
 
 // SetPicture makes p the bot's profile photo. Telegram takes a static photo

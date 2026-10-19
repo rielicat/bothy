@@ -64,8 +64,12 @@ The bot's picture: when Telegram or Discord (adapters implementing
 `core.PictureSetter`) connects with a bot other than the one in meta
 `picture:<channel>` (by `BotID`, the platform's user id: Discord bot names
 repeat), a bot without a picture gets Bothy's current one (`Deps.Picture`);
-one someone set in BotFather or the developer portal stays. The id is
-remembered either way; a failure is retried on the next
+one someone set in BotFather or the developer portal stays. Meta records the
+id alone for a bot whose picture is its own, or the id, the `core.Picture`
+version Bothy gave and the `PictureID` the platform showed it as; a bot still
+showing that picture gets Bothy's when its version changed (a new built-in
+default, an admin's change while the app was off), and one someone changed
+since counts as its own from then on. A failure is retried on the next
 connection. `ApplyPicture` is an admin's change: it replaces the picture of
 every turned-on bot in parallel (30 s each) and answers `updated`, `failed`
 (`core.ErrNotConnected`, or the platform's error, coded `rate_limited` when
