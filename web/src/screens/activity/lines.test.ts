@@ -159,10 +159,13 @@ describe('schedules and tasks in words', () => {
     expect(listDate(t, 'Not/AZone', 'en-GB')).toBe('Thu 15 Oct');
   });
 
-  it("adds a task's outcome to its page only when it didn't finish normally", () => {
+  it("adds a task's outcome to its page unless it finished normally or waits on a step it lists", () => {
     const run = (status: string, reason?: string) => ({ status, steps: 3, reason }) as never;
     expect(detailOutcome(run('done'))).toBeNull();
     expect(detailOutcome(run('waiting_approval'))).toBeNull();
+    // A task still going says so, or its page shows nothing but its title before the first step.
+    expect(detailOutcome(run('running'))).toEqual({ text: 'Working…', tone: 'muted' });
+    expect(detailOutcome(run('queued'))).toEqual({ text: 'Waiting to start', tone: 'muted' });
     expect(detailOutcome(run('failed', 'the GitHub token was rejected'))).toEqual({ text: 'Failed: the GitHub token was rejected', tone: 'danger' });
     expect(detailOutcome(run('stopped'))).toEqual({ text: 'Stopped', tone: 'muted' });
   });

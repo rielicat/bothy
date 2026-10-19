@@ -1770,6 +1770,7 @@ Answer
 - Steps are `ActivityLine`s (§7.4) with approvals included; each expands its Details.
 - "Technical details" (closed, `text-small`) holds the old trace as plain tables: Model calls (Model id · Started · Time to first word · Duration · Tokens in / cached / out · Cost · Fallback attempts); Tool calls (Tool · Exact action · Decision · Rule · Approval id · Sites contacted · Duration); Refine ("3 drafts, 2 rounds, 2 of 3 agreed", each draft, critique and correction in its own nested disclosure; a disclosure inside a disclosure is allowed, a card inside a card is not); Task id [Copy].
 - Refined answers add "Refined from 3 drafts · 2 of 3 agreed" to the meta line.
+- A task still going ends the meta line with "Working…" ("Waiting to start" while queued), since it may have no step to show yet; one waiting for approval says so on its waiting step instead.
 - Next step: when the viewer can decide a waiting step, its line ends with a "Review it" link to `/approvals/{id}`. A task that failed because GitHub stopped accepting Bothy's access gets "Check the GitHub connection ›" on the failed step (admins only, to Connections → GitHub), since "Open chat" can't fix it.
 - Details follow the chat's order (§7.4): Result, How it was allowed, What Bothy asked for, Technical.
 - Not found: title "Can't open this task", "This task was deleted, or it belongs to someone else." + "Go to Activity". The server answers another person's task as it does a deleted one (404, so nobody learns which tasks exist), so the copy names both.

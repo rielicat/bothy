@@ -49,11 +49,11 @@ export function taskView(r: TaskRun, l: TaskLookups): TaskView {
 }
 
 /**
- * The outcome a task page adds to its meta line. Finished and running tasks need none, and a
- * waiting task already shows its waiting step.
+ * The outcome a task page adds to its meta line. A finished task needs none, and a waiting
+ * task already shows its waiting step; a running one says "Working…", since it may have no step yet.
  */
 export function detailOutcome(r: TaskRun): Outcome | null {
-  if (['done', 'running', 'queued', 'waiting_approval', 'parked'].includes(r.status)) return null;
+  if (['done', 'waiting_approval', 'parked'].includes(r.status)) return null;
   return outcome({ status: r.status, steps: r.steps, reason: r.reason });
 }
 
