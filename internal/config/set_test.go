@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -398,5 +399,41 @@ func TestBrokenUIFileBlocksWrites(t *testing.T) {
 	}
 	if _, err := set(t, m, map[string]string{"budgets.daily_usd": "1"}); err == nil {
 		t.Fatal("Set must not clobber an unparsable bothy.ui.yaml")
+	}
+}
+
+// A check on the context sees what a change would leave and can refuse it
+// before anything is written, for a Set or a Reset.
+func TestCheckRefusesBeforeWriting(t *testing.T) {
+	dir := t.TempDir()
+	var recs []ChangeRecord
+	m, err := loadErr(t, Options{DataDir: dir, OnSet: func(r ChangeRecord) { recs = append(recs, r) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustSet(t, m, map[string]string{"budgets.daily_usd": "2"})
+	before, _ := os.ReadFile(filepath.Join(dir, "bothy.ui.yaml"))
+	refused := errors.New("refused")
+	var seen []float64
+	ctx := WithCheck(context.Background(), func(old, next *Config) error {
+		seen = append(seen, old.Budgets.DailyUSD, next.Budgets.DailyUSD)
+		return refused
+	})
+	if _, err := m.Set(ctx, map[string]json.RawMessage{"budgets.daily_usd": json.RawMessage("7")}, "user:alice"); !errors.Is(err, refused) {
+		t.Fatalf("Set = %v", err)
+	}
+	if err := m.Reset(ctx, "budgets.daily_usd", "user:alice"); !errors.Is(err, refused) {
+		t.Fatalf("Reset = %v", err)
+	}
+	if want := []float64{2, 7, 2, Default().Budgets.DailyUSD}; !slices.Equal(seen, want) {
+		t.Fatalf("check saw %v, want %v", seen, want)
+	}
+	after, _ := os.ReadFile(filepath.Join(dir, "bothy.ui.yaml"))
+	if string(after) != string(before) || m.Current().Budgets.DailyUSD != 2 || len(recs) != 1 {
+		t.Fatalf("a refused change was written: %s %v %d", after, m.Current().Budgets.DailyUSD, len(recs))
+	}
+	allow := WithCheck(context.Background(), func(_, _ *Config) error { return nil })
+	if _, err := m.Set(allow, map[string]json.RawMessage{"budgets.daily_usd": json.RawMessage("7")}, "user:alice"); err != nil || m.Current().Budgets.DailyUSD != 7 {
+		t.Fatalf("allowed Set = %v %v", err, m.Current().Budgets.DailyUSD)
 	}
 }

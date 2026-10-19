@@ -30,8 +30,10 @@ func (s *Server) signInRoutes() []route {
 		{pattern: "POST /api/me/sign-ins/{provider}", access: accessUserCookie, h: s.signInLink},
 		{pattern: "DELETE /api/me/sign-ins/{provider}", access: accessUserCookie, h: s.unlinkSignIn},
 		{pattern: "GET /api/sign-in", access: accessAdmin, h: s.signInAdmin},
-		{pattern: "PATCH /api/sign-in", access: accessAdmin, h: s.patchSignInList},
-		{pattern: "PATCH /api/sign-in/{provider}", access: accessAdmin, h: s.patchSignIn},
+		// Who may sign in is like letting someone in (PATCH /api/identities):
+		// cookie-only, as are these settings through PATCH /api/config.
+		{pattern: "PATCH /api/sign-in", access: accessAdminCookie, h: s.patchSignInList},
+		{pattern: "PATCH /api/sign-in/{provider}", access: accessAdminCookie, h: s.patchSignIn},
 		{pattern: "POST /api/sign-in/{provider}/check", access: accessAdmin, h: s.checkSignIn},
 	}
 }

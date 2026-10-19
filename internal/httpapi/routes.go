@@ -143,6 +143,9 @@ func (s *Server) routeTable() []route {
 		{pattern: "GET /api/channels/slack/manifest", access: accessAdmin, h: s.slackManifest},
 		{pattern: "GET /api/channels/discord/invite", access: accessAdmin, h: s.discordInvite},
 
+		// A change that could let people in (sign-in settings, a chat app
+		// turned on) is cookie-only like PATCH /api/identities; configCtx
+		// checks it.
 		{pattern: "GET /api/config", access: accessAdmin, safe: true, h: s.getConfig},
 		{pattern: "PATCH /api/config", access: accessAdmin, safe: true, h: s.patchConfig},
 		{pattern: "DELETE /api/config/{path...}", access: accessAdmin, safe: true, h: s.resetConfig},
