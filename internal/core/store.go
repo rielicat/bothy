@@ -709,7 +709,8 @@ type MCPRepo interface {
 	DisableTool(ctx context.Context, server, tool string) error
 	DeletePins(ctx context.Context, server string) error // every pin of a removed server
 	PutInstall(ctx context.Context, in *MCPInstall) error
-	Install(ctx context.Context, server string) (*MCPInstall, error) // current ready (or latest) install
+	Install(ctx context.Context, server string) (*MCPInstall, error)     // current ready (or latest) install
+	LastInstall(ctx context.Context, server string) (*MCPInstall, error) // newest install of any status
 }
 
 type SkillRepo interface {

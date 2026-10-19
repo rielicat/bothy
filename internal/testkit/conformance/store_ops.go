@@ -292,6 +292,9 @@ func testMCP(f *fx) {
 	f.eq("Install round trip", install("mail"), in1)
 	f.must(r.PutInstall(f.ctx, &core.MCPInstall{Server: "mail", Version: "1.1.0", Status: "installing", CreatedAt: at(2)}), "PutInstall")
 	f.eq("Install prefers the latest ready install", install("mail"), in1)
+	last, err := r.LastInstall(f.ctx, "mail")
+	f.must(err, "LastInstall")
+	f.check(last.Version == "1.1.0" && last.Status == "installing", "LastInstall = %+v, want the newest of any status", last)
 	in3 := &core.MCPInstall{Server: "mail", Version: "1.2.0", Status: "ready", CreatedAt: at(3)}
 	f.must(r.PutInstall(f.ctx, in3), "PutInstall")
 	f.eq("Install picks the newest ready install", install("mail"), in3)
@@ -303,6 +306,8 @@ func testMCP(f *fx) {
 	f.eq("Install falls back to the latest install", install("fresh"), failed)
 	_, err = r.Install(f.ctx, "none")
 	f.want(err, core.ErrNotFound, "Install missing")
+	_, err = r.LastInstall(f.ctx, "none")
+	f.want(err, core.ErrNotFound, "LastInstall missing")
 	f.want(r.PutInstall(f.ctx, &core.MCPInstall{Server: "mail", Version: "x", Status: "done", CreatedAt: at(5)}), core.ErrInvalid, "status CHECK")
 }
 

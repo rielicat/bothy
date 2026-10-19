@@ -372,6 +372,11 @@ func (r mcpRepo) Install(ctx context.Context, server string) (*core.MCPInstall, 
 		ORDER BY status = 'ready' DESC, created_at DESC, rowid DESC LIMIT 1`, server)
 }
 
+func (r mcpRepo) LastInstall(ctx context.Context, server string) (*core.MCPInstall, error) {
+	return queryOne(ctx, r.h.rq, "mcp install "+server, scanInstall, `SELECT `+installCols+` FROM mcp_installs WHERE server = ?
+		ORDER BY created_at DESC, rowid DESC LIMIT 1`, server)
+}
+
 const skillCols = `name, description, path, hash, approved_hash, status, tokens, installed_by, approved_by, installed_at, updated_at`
 
 func scanSkill(sc scanner) (*core.SkillMeta, error) {

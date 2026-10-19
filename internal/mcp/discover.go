@@ -52,7 +52,7 @@ func (m *Manager) discoverLocked(ctx context.Context, s *server) {
 	switch s.spec.transport {
 	case "stdio":
 		c, err = m.discoverStdio(dctx, s)
-		if errors.Is(err, errNotInstalled) && (errors.Is(err, errInstallFailed) || s.installsAgain()) && m.retryInstall(ctx, s) {
+		if errors.Is(err, errInstallFailed) && m.retryInstall(ctx, s) {
 			return
 		}
 	default:
@@ -129,6 +129,11 @@ func (m *Manager) verifyInstall(ctx context.Context, s *server) (*core.MCPInstal
 		// failed, or installing when a restart cut it short.
 		return nil, fmt.Errorf("%w: %w: %s", errNotInstalled, errInstallFailed, in.Error)
 	case in.Version != s.spec.pkg.Version:
+		// The earlier version's ready install hides a failed install of the
+		// configured one, which is retried like any other.
+		if last, err := m.d.Store.MCP().LastInstall(ctx, s.name); err == nil && last.Version == s.spec.pkg.Version && last.Status != "ready" && last.Status != "drifted" {
+			return nil, fmt.Errorf("%w: %w: %s", errNotInstalled, errInstallFailed, last.Error)
+		}
 		return nil, fmt.Errorf("%w: installed version %s differs from the configured %s; run Install", errNotInstalled, in.Version, s.spec.pkg.Version)
 	}
 	sum, err := treehash.Sum(filepath.Join(m.d.WorkDir, filepath.FromSlash(s.spec.installTree(in.InstallID))))

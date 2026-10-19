@@ -517,7 +517,8 @@ func TestFailedInstallIsRetriedWithBackoff(t *testing.T) {
 }
 
 // The install of a newly pinned version is retried too, though the earlier
-// version's install is still the ready one.
+// version's install is still the ready one, and also after a restart, when
+// only the store remembers that it failed.
 func TestFailedInstallOfANewVersionIsRetried(t *testing.T) {
 	cfg := notesCfg()
 	h, in, _ := newStdioHarness(t, cfg)
@@ -533,8 +534,14 @@ func TestFailedInstallOfANewVersionIsRetried(t *testing.T) {
 	if st.Code != "install_failed" || st.RetryAt.IsZero() {
 		t.Fatalf("status after a failed install of the new version = %+v", st)
 	}
-	in.setOffline(false)
+	n := len(in.commands())
 	h.m.retryDiscovery(st.RetryAt)
+	h.waitFor("a second failed install", func() bool { return len(in.commands()) > n && h.status("notes").Code == "install_failed" })
+
+	// A server entry made afresh, as at start-up, knows nothing of the failure.
+	h.m.applyConfig(nil, false)
+	in.setOffline(false)
+	h.m.applyConfig([]config.MCPServer{next}, true)
 	h.waitFor("the new version installed", func() bool { return h.status("notes").State == stPinsPending })
 	if got, _ := h.store.MCP().Install(context.Background(), "notes"); got.Version != "1.2.4" {
 		t.Fatalf("ready install = %+v", got)
