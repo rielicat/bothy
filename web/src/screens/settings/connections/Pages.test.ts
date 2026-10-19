@@ -262,6 +262,44 @@ describe('MCP server page (§12.4)', () => {
     expect(JSON.parse(writes(calls)[1].body).set).toEqual({ 'mcp.servers.linear.headers.Authorization': 'secret:mcp_linear_header' });
   });
 
+  it('asks for the key alone when its header puts words before it', async () => {
+    await start();
+    render(McpServer, { params: { item: 'mcp-linear' } });
+    await screen.findByText('Ready · 12 actions');
+    config.view!.entries = [...config.view!.entries, { path: 'mcp.servers.linear.headers.Authorization', value: 'Bearer secret:linear_token' } as never];
+    await fireEvent.click(screen.getByRole('button', { name: 'Options for Linear' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Replace key…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Replace the key for Linear' });
+    expect(within(dialog).getByText('Enter only the key: Bothy puts “Bearer” before it. Stored encrypted. Only sent to this address.')).toBeTruthy();
+  });
+
+  it('keeps no key behind when the address would send it unencrypted', async () => {
+    const refused = { fields: [{ path: 'mcp.servers.linear.url', message: 'use https: plain http would send the key unencrypted (http is accepted only for a loopback or private address)' }] };
+    const calls = await start((m, url) => (m === 'PATCH' && url === '/api/config' ? new Response(JSON.stringify(refused), { status: 400 }) : undefined));
+    render(McpServer, { params: { item: 'mcp-linear' } });
+    await screen.findByText('Ready · 12 actions');
+    await fireEvent.click(screen.getByRole('button', { name: 'Options for Linear' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Add a key…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add a key for Linear' });
+    await fireEvent.input(within(dialog).getByLabelText('Key'), { target: { value: 'Bearer first' } });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Save key' }));
+    expect(await within(dialog).findByText('Over http the key would be sent unencrypted. Add the server again with its https:// address.')).toBeTruthy();
+    expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['PUT /api/vault/global/mcp_linear_header', 'PATCH /api/config', 'DELETE /api/vault/global/mcp_linear_header']);
+  });
+
+  it('offers no key change for a key kept in AWS Secrets Manager', async () => {
+    await start((m, url) => (m === 'GET' && url === '/api/mcp' ? [{ name: 'linear', transport: 'http', state: 'error', code: 'key_rejected', protocol: '', tools: 0, pending: 0, since: '' }] : undefined));
+    render(McpServer, { params: { item: 'mcp-linear' } });
+    await screen.findByText("Can't start: Linear didn't accept its key.");
+    const arn = 'aws-sm:arn:aws:secretsmanager:us-east-1:123456789012:secret:linear-AbCdEf';
+    config.view!.entries = [...config.view!.entries, { path: 'mcp.servers.linear.headers.Authorization', value: arn } as never];
+    expect(await screen.findByRole('button', { name: 'Try again' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Replace key' })).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Options for Linear' }));
+    await screen.findByRole('menuitem', { name: 'Reload' });
+    expect(screen.queryByRole('menuitem', { name: /key/ })).toBeNull();
+  });
+
   it("lets an admin's own key show what a server offers when there is no shared key", async () => {
     let refuse = true;
     const calls = await start((m, url) => {
@@ -274,14 +312,23 @@ describe('MCP server page (§12.4)', () => {
     });
     render(McpServer, { params: { item: 'mcp-linear' } });
     expect(await screen.findByText("Can't start: it needs a shared key to show what it can do.")).toBeTruthy();
-    await fireEvent.click(screen.getByRole('button', { name: 'Use my key' }));
-    expect(await screen.findByText("You haven't saved your own key named linear_key. Add it in Saved keys, or add a shared key.")).toBeTruthy();
     config.view!.entries = [...config.view!.entries, { path: 'mcp.servers.linear.headers.Authorization', value: 'secret:linear_key' } as never];
+    // The admin sees which key goes where before it is sent.
+    const lend = async (confirm: boolean) => {
+      await fireEvent.click(screen.getByRole('button', { name: 'Use my key' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Use your own key?' });
+      within(dialog).getByText("Bothy will send your own key “linear_key” to mcp.linear.app when it checks what Linear can do. It's never used for anyone else.");
+      await fireEvent.click(within(dialog).getByRole('button', { name: confirm ? 'Use my key' : 'Cancel' }));
+    };
+    await lend(false);
+    expect(writes(calls)).toEqual([]);
+    await lend(true);
+    expect(await screen.findByText("You haven't saved your own key named linear_key. Add it in Saved keys, or add a shared key.")).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: 'Options for Linear' }));
     expect(await screen.findByRole('menuitem', { name: 'Add a key…' })).toBeTruthy();
     await fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
     refuse = false;
-    await fireEvent.click(screen.getByRole('button', { name: 'Use my key' }));
+    await lend(true);
     await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['POST /api/mcp/linear/use-my-key', 'POST /api/mcp/linear/use-my-key']));
     await waitFor(() => expect(screen.queryByText(/haven't saved your own key/)).toBeNull());
   });

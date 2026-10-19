@@ -47,6 +47,7 @@
   let newKey = $state('');
   let keyTried = $state(false);
   let keyFailure = $state<Failure | null>(null);
+  let lending = $state(false);
 
   async function load() {
     try {
@@ -131,15 +132,20 @@
   // The key the Add dialog saved for this server goes with it.
   const ownKey = $derived(config.value(`mcp.servers.${name}.headers.Authorization`, '') === `secret:mcp_${name}_header`);
 
-  const web = $derived(config.value<string>(`mcp.servers.${name}.transport`) === 'http');
+  const url = $derived(String(config.value(`mcp.servers.${name}.url`, '')));
   const headers = $derived(config.keys(`mcp.servers.${name}.headers`, 'leaf').map((h) => [h, String(config.value(`mcp.servers.${name}.headers.${h}`, ''))]));
+  const refs = $derived([...headers.map((h) => h[1]), url]);
+  // A key kept in AWS Secrets Manager is replaced there, not here.
+  const keyable = $derived(config.value<string>(`mcp.servers.${name}.transport`) === 'http' && !refs.some((v) => v.includes('aws-sm:')));
   // The shared saved key it sends, from a header or else its address; one added here is named as the Add dialog names it.
-  const keyRef = $derived(
-    [...headers.map((h) => h[1]), String(config.value(`mcp.servers.${name}.url`, ''))].map((v) => /secret:([\w.-]+)/.exec(v)?.[1]).find(Boolean),
-  );
-  // The header that is the key as a whole, which the help can name.
-  const keyHeader = $derived(keyRef ? headers.find((h) => h[1] === `secret:${keyRef}`)?.[0] : 'Authorization');
+  const keyRef = $derived(refs.map((v) => /secret:([\w.-]+)/.exec(v)?.[1]).find(Boolean));
   const keySaved = $derived(!!keyRef && status?.code !== 'key_missing' && status?.code !== 'no_shared_key');
+  // The header that carries the key, and what it sends before it ("Bearer "), which the help names.
+  const keyHelp = $derived.by(() => {
+    const h = keyRef ? headers.find((x) => x[1].includes(`secret:${keyRef}`)) : ['Authorization', ''];
+    const before = h?.[1].split('secret:')[0].trim();
+    return `${before ? `Enter only the key: Bothy puts “${before}” before it. ` : h ? `Sent as the ${h[0]} header, such as Bearer abc123. ` : ''}Stored encrypted. Only sent to this address.`;
+  });
 
   function openKey() {
     newKey = '';
@@ -158,7 +164,11 @@
       await api.put(`/api/vault/global/${ref}`, { value: newKey.trim() });
       // A new header changes the server's entry, which rediscovers it; a replaced key needs a reload to be tried.
       keyFailure = keyRef ? null : await saveConfig({ [`mcp.servers.${name}.headers.Authorization`]: `secret:${ref}` });
-      if (!keyFailure) {
+      if (keyFailure) {
+        // Nothing sends the key just saved: it doesn't stay behind.
+        await api.del(`/api/vault/global/${ref}`).catch(() => {});
+        if (/use https/.test(keyFailure.details ?? '')) keyFailure.message = 'Over http the key would be sent unencrypted. Add the server again with its https:// address.';
+      } else {
         keying = false;
         toast('Key saved.');
         if (keyRef) await post('reload', "Bothy couldn't reload this server. Try again.");
@@ -187,16 +197,16 @@
   const fix = $derived.by(() => {
     switch (status?.code) {
       case 'private_address':
-        return { label: `Allow ${hostOf(config.value(`mcp.servers.${name}.url`, ''))}`, onclick: allowPrivate };
+        return { label: `Allow ${hostOf(url)}`, onclick: allowPrivate };
       case 'not_installed':
       case 'install_failed':
         return { label: 'Install', onclick: install };
       case 'no_shared_key':
-        return { label: 'Use my key', onclick: () => post('use-my-key', "Bothy couldn't use your key. Try again.") };
+        return { label: 'Use my key', onclick: () => (lending = true) };
       case 'key_missing':
-        return { label: 'Add key', onclick: openKey };
       case 'key_rejected':
-        return { label: 'Replace key', onclick: openKey };
+        if (keyable) return { label: status.code === 'key_missing' ? 'Add key' : 'Replace key', onclick: openKey };
+        break;
       case 'key_locked':
         return { label: 'Open saved keys', onclick: () => router.navigate('/settings/security/keys') };
     }
@@ -226,6 +236,11 @@
       problem = { message: (what === 'use-my-key' && refusal(e)) || fail, details: errorText(e) };
     }
   }
+  async function lend() {
+    busy = true;
+    await post('use-my-key', "Bothy couldn't use your key. Try again.");
+    busy = lending = false;
+  }
   const install = () => post('install', "Bothy couldn't start the install. Try again.", 'Install started.');
   const reload = () => post('reload', "Bothy couldn't reload this server. Try again.", 'Reload started.');
 </script>
@@ -236,7 +251,7 @@
       placement="bottom-end"
       items={[
         { label: 'Reload', onselect: reload },
-        ...(web ? [{ label: keySaved ? 'Replace key…' : 'Add a key…', onselect: openKey }] : []),
+        ...(keyable ? [{ label: keySaved ? 'Replace key…' : 'Add a key…', onselect: openKey }] : []),
         { label: 'Remove server…', danger: true, onselect: () => (removing = true) },
       ]}
     >
@@ -363,13 +378,23 @@
       bind:value={newKey}
       autocomplete="off"
       error={keyTried && !newKey.trim() ? 'Enter the key.' : undefined}
-      help="{keyHeader ? `Sent as the ${keyHeader} header, such as Bearer abc123. ` : ''}Stored encrypted. Only sent to this address."
+      help={keyHelp}
     />
     {#if keyFailure}<StatusLine tone="danger" alert text={keyFailure.message} details={keyFailure.details} />{/if}
   </form>
   {#snippet footer({ close })}
     <Button data-cancel onclick={close}>Cancel</Button>
     <Button variant="primary" type="submit" form="mcp-key" loading={busy} loadingLabel="Saving…">Save key</Button>
+  {/snippet}
+</Dialog>
+
+<Dialog bind:open={lending} title="Use your own key?" {busy}>
+  <p class="text-body text-text">
+    Bothy will send your own key{keyRef ? ` “${keyRef}”` : ''} to {hostOf(url)} when it checks what {title} can do. It's never used for anyone else.
+  </p>
+  {#snippet footer({ close })}
+    <Button data-cancel onclick={close}>Cancel</Button>
+    <Button variant="primary" loading={busy} loadingLabel="Saving…" onclick={lend}>Use my key</Button>
   {/snippet}
 </Dialog>
 
