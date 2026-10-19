@@ -1789,7 +1789,7 @@ Weekly PR digest                                                  (on)     ⋯
 Mondays at 8:00 · Posts here · Last run failed: the GitHub token was rejected
 ```
 
-- Row: line 1 the name (`text-body` 500) across the full width minus the switch and `⋯` (72 px); line 2 `text-small muted`, wrapping freely: when · where · next run or last problem (problems in `danger-text`). The name never shares a column with the meta, so it never wraps one word per line at 360 px (fixes `44`).
+- Row: line 1 the name (`text-body` 500) across the full width minus the switch and `⋯` (72 px); line 2 `text-small muted`, wrapping freely: when · where · next run or last problem (problems in `danger-text`). Times read in the schedule's own zone, so one in another zone than the viewer's names it after the repeat text: "Every day at 6:00 AM, Tokyo time". The name never shares a column with the meta, so it never wraps one word per line at 360 px (fixes `44`).
 - Where: "Posts here". Accounts have no chat app (SPEC §5.16), so their schedules post on the web.
 - `⋯`: Run now · Edit · History · Delete… (`danger-text`, confirm dialog "Delete the schedule “{name}”? This can't be undone."). Run now is audited with who pressed it ("Started the schedule “{name}” by hand").
 - A result posted to a chat opens with an italic line "From the schedule “{name}” · change it under Schedules" (a check-in: "From your check-in · change it under Schedules"), since nobody asked for it there.

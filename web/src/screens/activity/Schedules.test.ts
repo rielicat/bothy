@@ -23,6 +23,16 @@ describe('Schedules (docs/design/ui.md §10.3)', () => {
     expect(screen.getByText('Morning briefing').closest('li')!.textContent).toContain('Posts here');
   });
 
+  it("names a schedule's time zone when it isn't the viewer's", async () => {
+    await start(undefined, (m, url) => {
+      if (m !== 'GET' || url !== '/api/schedules') return undefined;
+      const base = { id: 'sch_tokyo', name: 'Morning briefing', kind: 'cron', spec: '0 6 * * *', prompt: 'x', slot: 'main', enabled: true, failures: 0, missed_run: 'skip', created_by: 'u', created_at: '', updated_at: '' };
+      return [{ ...base, tz: 'Asia/Tokyo' }, { ...base, id: 'sch_mine', name: 'Mine', tz: session.me?.user.timezone }];
+    });
+    expect(screen.getByText('Morning briefing').closest('li')!.textContent).toContain('Tokyo time');
+    expect(screen.getByText('Mine').closest('li')!.textContent).not.toMatch(/ time\b/);
+  });
+
   it('confirms Run now in a short toast that opens the task', async () => {
     toaster.dismiss();
     await start();

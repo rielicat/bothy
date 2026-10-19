@@ -5,7 +5,7 @@
   import type { List, Schedule, SchedulePreviewResp, ScheduleRunData, TeamSchedule } from '../../lib/api/types.gen';
   import { appName } from '../../lib/cardcopy';
   import { router } from '../../lib/router.svelte';
-  import { clockLabel, describeWhen, fromSpec, localTimes, saveSchedule, scheduleGrants } from '../../lib/schedules';
+  import { clockLabel, describeWhen, fromSpec, localTimes, localZone, saveSchedule, scheduleGrants, zoneTime } from '../../lib/schedules';
   import { events } from '../../lib/sse.svelte';
   import { session } from '../../lib/stores/session.svelte';
   import Activity from './Activity.svelte';
@@ -156,7 +156,8 @@
       ])}
       {#each others as s (s.id)}
         {@render row(s.name, `/activity/schedules/${encodeURIComponent(s.id)}`, s, s.enabled, [
-          { text: when(s) },
+          // Times read in the schedule's own zone, so another zone is named.
+          { text: when(s) + (s.tz && s.tz !== (session.me?.user.timezone || localZone()) ? `, ${zoneTime(s.tz)}` : '') },
           { text: `Posts ${deliverTo(s.deliver)}` },
           ...(s.failures >= 3
             ? [{ text: 'Turned off after 3 failed runs', danger: true }]
