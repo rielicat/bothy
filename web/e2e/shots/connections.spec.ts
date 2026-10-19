@@ -207,6 +207,7 @@ const states: ShotState[] = [
   { name: 'mcp-off', route: '/settings/connections/mcp-notes', setup: steps(see('Turn it on to see what it can do.')) },
   { name: 'mcp-error', route: '/settings/connections/mcp-linear', mock: 'mcp-error', setup: steps(see("Can't start"), click('Details')) },
   { name: 'mcp-installing', route: '/settings/connections/mcp-sentry', mock: 'mcp-installing', setup: steps(see('Installing…')) },
+  { name: 'mcp-reinstall-failed', route: '/settings/connections/mcp-sentry', mock: 'mcp-reinstall-failed', setup: steps(see("couldn't reinstall"), click('Details')) },
   { name: 'mcp-remove', route: '/settings/connections/mcp-linear', setup: steps(menu('Options for Linear', 'Remove server…'), dialog('Remove Linear?')), full: false },
   { name: 'mcp-missing', route: '/settings/connections/mcp-nope', setup: steps(see('This tool was removed or never added.')) },
 
