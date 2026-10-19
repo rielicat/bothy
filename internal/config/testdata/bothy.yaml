@@ -208,7 +208,7 @@ mcp:
   servers:                        # examples
     - name: docs
       transport: http
-      url: "https://mcp.example.com/mcp"
+      url: "https://mcp.example.com/mcp"   # a key in the query must be a reference (?api_key=secret:<name>); plain http only for loopback or allow_private when it sends a key
       headers: {Authorization: "Bearer secret:docs_mcp_token"}
       side_effects: {default: read}
     - name: notes
