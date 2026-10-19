@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import { Button, LinkButton, Page, Select, TextArea, toast } from '../../components/ui';
   import { api, ApiError } from '../../lib/api/client';
-  import type { ConfigView, List, MemoryDoc, ModelInfo, Schedule } from '../../lib/api/types.gen';
+  import type { ConfigView, List, MemoryDoc, ModelInfo, Schedule, ScheduleExamples } from '../../lib/api/types.gen';
   import { estimate } from '../../lib/format';
   import { router } from '../../lib/router.svelte';
   import { saveSchedule, scheduleGrants, timeOptions } from '../../lib/schedules';
@@ -24,18 +24,24 @@
   let error = $state('');
   let conflict = $state(false);
   let failed = $state(false);
+  let lines = $state<string[]>([]);
+  let box = $state<HTMLTextAreaElement>();
 
   async function load() {
     failed = false;
     try {
-      const [all, d, models, config] = await Promise.all([
+      const [all, d, models, config, ex] = await Promise.all([
         api.get<Schedule[]>('/api/schedules'),
         api.get<MemoryDoc>('/api/memory/HEARTBEAT'),
         api.get<ModelInfo[]>('/api/models').catch(() => [] as ModelInfo[]),
         session.isAdmin ? api.get<ConfigView>('/api/config').catch(() => null) : null,
+        api.get<ScheduleExamples>('/api/schedules/examples').catch(() => null),
       ]);
       const found = all.find((x) => x.kind === 'heartbeat');
       s = found ?? { ...checkinBlank(session.me?.user), enabled: true };
+      // Turning the check-in on with an empty list opens this form, which saves it on.
+      if (router.query.has('on')) s.enabled = true;
+      lines = ex?.checkin.lines ?? [];
       doc = d;
       ({ text: list, items } = checkinText(d.content));
       [from, to] = (s.active_hours || '08:00-22:00').split('-');
@@ -118,7 +124,17 @@
         maxRows={16}
         placeholder="One thing per line, for example: Tell me if a deploy to production failed overnight"
         help="Bothy looks through this list regularly and messages you only when something needs attention."
+        bind:textarea={box}
       />
+      {#if lines.length && !list.trim()}
+        <LinkButton
+          class="mt-2"
+          onclick={() => {
+            list = lines.join('\n');
+            box?.focus();
+          }}>Use suggested lines</LinkButton
+        >
+      {/if}
       {#if costLine}<p class="mt-4 text-small text-muted">{costLine}</p>{/if}
       <div class="mt-8 flex flex-wrap gap-2 max-sm:flex-col">
         <Button type="submit" variant="primary" loading={saving} loadingLabel="Saving…">Save</Button>

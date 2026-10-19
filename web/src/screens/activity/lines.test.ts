@@ -134,9 +134,9 @@ describe('schedules and tasks in words', () => {
     expect(nextRun('2026-10-17T08:00:00Z', 'Europe/London', now, 'en-GB')).toBe('Saturday at 9:00');
   });
 
-  it('says results stay here: accounts have no chat app', () => {
-    expect(deliverTo(undefined)).toBe('here');
-    expect(deliverTo({ channel: 'web', chat_id: '', kind: 'dm' })).toBe('here');
+  it("says results come to the person's chats: accounts have no chat app", () => {
+    expect(deliverTo(undefined)).toBe('to your chats');
+    expect(deliverTo({ channel: 'web', chat_id: '', kind: 'dm' })).toBe('to your chats');
     expect(grantSentence({ kind: 'domain', value: 'api.example.com:443' })).toBe('Read websites on api.example.com');
   });
 
@@ -187,6 +187,14 @@ describe('schedules and tasks in words', () => {
     expect(taskView({ ...(run as object), trigger: 'schedule', schedule_name: 'Daily standup summary' } as never, l)).toMatchObject({ title: 'Daily standup summary', lead: ['Schedule'] });
     // A run whose schedule was deleted keeps no name of its own.
     expect(taskView({ ...(run as object), trigger: 'schedule', schedule_id: undefined, schedule_name: undefined } as never, l)).toMatchObject({ title: 'Deleted schedule' });
+  });
+
+  it('says where a finished schedule posted, but not for a check-in, which posts only when something needs attention', () => {
+    const sched = { id: 'sch_1', name: 'Daily standup summary', deliver: { channel: 'web', chat_id: '', kind: 'dm' } } as never;
+    const l: TaskLookups = { names: new Map(), sessions: new Map(), schedules: new Map([['sch_1', sched]]), waiting: new Map() };
+    const run = { id: 'run_1', session_id: 'ses_1', schedule_id: 'sch_1', trigger: 'schedule', status: 'done', steps: 2 } as never;
+    expect(taskView(run, l).outcome).toEqual({ text: 'Posted to your chats', tone: 'muted' });
+    expect(taskView({ ...(run as object), trigger: 'heartbeat' } as never, l).outcome).toEqual({ text: '2 steps', tone: 'muted' });
   });
 });
 

@@ -51,7 +51,7 @@
     error = '';
   }}
 >
-  <p class="text-body text-text">{team ? "It stops running. Past results stay in that chat. This can't be undone." : "This can't be undone."}</p>
+  <p class="text-body text-text">It stops running. {team ? 'Past results stay in that chat' : 'Its past results stay in your chats'}. This can't be undone.</p>
   {#if error}<p class="field-error mt-2" role="alert">{error}</p>{/if}
   {#snippet footer({ close })}
     <Button data-cancel onclick={close}>Cancel</Button>

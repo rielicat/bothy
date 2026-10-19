@@ -15,9 +15,12 @@ const routes: [string, string][] = [
   ['/activity/tasks/run_01jpricing00000000000000', 'Refined from'],
   ['/activity/tasks/run_missing', 'This task was deleted, or it belongs to someone else.'],
   ['/activity/schedules', 'Weekly PR digest'],
+  ['/activity/schedules?mock=activity-empty', 'Monday pull request summary'],
   ['/activity/schedules/new', 'What should Bothy do?'],
+  ['/activity/schedules/new?example=pr-summary&mock=activity-empty', 'What should Bothy do?'],
   ['/activity/schedules/sch_01jstandup00000000000000', 'Recent runs'],
   ['/activity/schedules/checkin', 'What to check'],
+  ['/activity/schedules/checkin?mock=checkin-empty', 'Use suggested lines'],
   ['/activity/releases?mock=deploy-waiting', 'History'],
   ['/activity/releases?mock=releases-none', 'No deploy environments yet.'],
   ['/activity/spending', 'By model'],
@@ -128,6 +131,40 @@ test('a schedule can be created end to end', async ({ page }) => {
   await page.getByRole('button', { name: 'Create schedule' }).click();
   await expect(page).toHaveURL(/\/activity\/schedules$/);
   await expect(page.getByRole('link', { name: 'List the pull requests that waited more than' })).toBeVisible();
+});
+
+test('a schedule can be created from an example', async ({ page }) => {
+  await open(page, '/activity/schedules?mock=activity-empty', 'Examples');
+  await page.getByRole('link', { name: /^Monday pull request summary/ }).click();
+  await expect(page).toHaveURL(/\/activity\/schedules\/new\?example=pr-summary$/);
+  await expect(page.getByLabel('What should Bothy do?')).toHaveValue(/^Summarise the pull requests in acme\/web from the last 7 days/);
+  await expect(page.getByRole('textbox', { name: 'Name' })).toHaveValue('Monday pull request summary');
+  await expect(page.getByText(/^Runs Mondays at .+ Each result gets its own chat in your list\./)).toBeVisible();
+  await page.getByRole('button', { name: 'Create schedule' }).click();
+  await expect(page).toHaveURL(/\/activity\/schedules$/);
+  await expect(page.getByRole('link', { name: 'Monday pull request summary', exact: true })).toBeVisible();
+  // Its name is taken now, so it isn't offered again.
+  await expect(page.getByRole('link', { name: /^Monday pull request summary Mondays/ })).toHaveCount(0);
+});
+
+test('turning on a check-in with an empty list opens it, with lines to start from', async ({ page }) => {
+  await open(page, '/activity/schedules?mock=checkin-empty', 'Weekly PR digest');
+  await page.getByRole('switch', { name: 'Check-in' }).click();
+  await expect(page).toHaveURL(/\/activity\/schedules\/checkin\?on=1$/);
+  await page.getByRole('button', { name: 'Use suggested lines' }).click();
+  await expect(page.getByLabel('What to check')).toHaveValue(/^Tell me if a deploy to production failed\./);
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page).toHaveURL(/\/activity\/schedules$/);
+  await expect(page.getByRole('switch', { name: 'Check-in' })).toHaveAttribute('aria-checked', 'true');
+});
+
+test('Run now offers the chat the run writes in', async ({ page }) => {
+  await open(page, '/activity/schedules', 'Weekly PR digest');
+  await page.getByRole('button', { name: 'More for Daily standup summary' }).click();
+  await page.getByRole('menuitem', { name: 'Run now' }).click();
+  await page.getByRole('button', { name: 'Open chat' }).click();
+  await expect(page).toHaveURL(/\/chat\/ses_[0-9a-z]{26}$/);
+  await expect(page.getByRole('main').getByText("Summarise yesterday's merged pull requests and open issues in acme/web")).toBeVisible();
 });
 
 test('controls are 44 px on a touch phone', async ({ browser }, info) => {

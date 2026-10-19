@@ -1,26 +1,33 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
+import { schedules as seeded, state as mockActivity } from '../../../mock/domains/activity';
+import { state as mockSettings } from '../../../mock/domains/settings';
 import { toaster } from '../../components/ui';
 import { router } from '../../lib/router.svelte';
 import { session } from '../../lib/stores/session.svelte';
 import { installApi } from '../../test/api';
 import Schedules from './Schedules.svelte';
 
-async function start(role?: string, override?: (method: string, url: string) => unknown) {
+async function start(role?: string, override?: (method: string, url: string) => unknown, ready = 'Morning briefing', seed?: () => void) {
   const calls = installApi({ override });
+  seed?.();
   session.ready = false;
   await session.init();
   if (role) session.me = { ...session.me!, user: { ...session.me!.user, role } };
   router.navigate('/activity/schedules');
   render(Schedules);
-  await screen.findByText('Morning briefing');
+  await screen.findByText(ready);
   return calls;
 }
 
+const checkinOnly = () => (mockActivity.schedules = mockActivity.schedules.filter((s) => s.kind === 'heartbeat'));
+const searchOn = () => (mockSettings.effective.entries.find((e) => e.path === 'search.provider')!.value = 'searxng');
+const examplesSection = () => screen.queryByRole('heading', { name: 'Examples' })?.closest('section');
+
 describe('Schedules (docs/design/ui.md §10.3)', () => {
-  it('says an account\'s schedules post here: accounts have no chat app', async () => {
+  it("says an account's schedules post to their chats: accounts have no chat app", async () => {
     await start();
-    expect(screen.getByText('Morning briefing').closest('li')!.textContent).toContain('Posts here');
+    expect(screen.getByText('Morning briefing').closest('li')!.textContent).toContain('Posts to your chats');
   });
 
   it("names a schedule's time zone when it isn't the viewer's", async () => {
@@ -33,13 +40,86 @@ describe('Schedules (docs/design/ui.md §10.3)', () => {
     expect(screen.getByText('Mine').closest('li')!.textContent).not.toMatch(/ time\b/);
   });
 
-  it('confirms Run now in a short toast that opens the task', async () => {
+  it('confirms Run now in a short toast that opens the chat the run writes in', async () => {
     toaster.dismiss();
     await start();
     await fireEvent.click(screen.getByRole('button', { name: 'More for Morning briefing' }));
     await fireEvent.click(await screen.findByRole('menuitem', { name: 'Run now' }));
     await waitFor(() => expect(toaster.current?.text).toBe('Schedule started.'));
-    expect(toaster.current?.action?.label).toBe('View');
+    expect(toaster.current?.action?.label).toBe('Open chat');
+    toaster.current!.action!.onclick();
+    expect(router.path).toMatch(/^\/chat\/ses_[0-9a-z]{26}$/);
+  });
+
+  it("doesn't offer to open a chat the server didn't name", async () => {
+    toaster.dismiss();
+    await start(undefined, (m, url) => (m === 'POST' && url.endsWith('/run') ? { run_id: 'run_01jx' } : undefined));
+    await fireEvent.click(screen.getByRole('button', { name: 'More for Morning briefing' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Run now' }));
+    await waitFor(() => expect(toaster.current?.text).toBe('Schedule started.'));
+    expect(toaster.current?.action).toBeUndefined();
+  });
+
+  it('offers up to three examples under the list, each opening a prefilled form', async () => {
+    await start(undefined, undefined, 'Examples', () => (checkinOnly(), searchOn()));
+    const rows = within(examplesSection()!).getAllByRole('link');
+    expect(rows.map((r) => r.getAttribute('href'))).toEqual([
+      '/activity/schedules/new?example=pr-summary',
+      '/activity/schedules/new?example=build-check',
+      '/activity/schedules/new?example=news',
+    ]);
+    expect(rows[0].textContent).toMatch(/^\s*Monday pull request summary\s*Mondays at 9:00( AM)? · Uses GitHub\s*$/);
+    expect(rows[2].textContent).toMatch(/Morning news on a topic\s*Weekdays at 8:00( AM)? · Uses web search/);
+    // Examples stand in for the empty sentence, and the header keeps its button.
+    expect(screen.queryByText('Add your own, like a Monday summary of open pull requests.')).toBeNull();
+    const button = screen.getByRole('link', { name: 'New schedule' });
+    expect(screen.getByRole('heading', { level: 1 }).parentElement!.contains(button)).toBe(true);
+  });
+
+  it("leaves out an example named like one of the person's schedules", async () => {
+    await start(undefined, undefined, 'Examples', () => {
+      checkinOnly();
+      mockActivity.schedules.push({ ...seeded[1], id: 'sch_01jmine000000000000000000', name: ' monday pull request SUMMARY' });
+    });
+    expect(within(examplesSection()!).queryByText('Monday pull request summary')).toBeNull();
+    expect(within(examplesSection()!).getByText('Morning build check')).toBeTruthy();
+  });
+
+  it('offers no examples to someone with three schedules of their own', async () => {
+    // The default fixtures have four.
+    await start();
+    expect(examplesSection()).toBeUndefined();
+  });
+
+  it('says how to start, with New schedule in the header, when there are no schedules and no examples', async () => {
+    await start(undefined, (m, url) => (url === '/api/schedules' ? [] : url === '/api/schedules/examples' ? { examples: [], checkin: { empty: false, lines: [] } } : undefined), 'Check-in');
+    expect(screen.getByText('Add your own, like a Monday summary of open pull requests.')).toBeTruthy();
+    expect(screen.getAllByRole('link', { name: 'New schedule' })).toHaveLength(1);
+    expect(screen.getByRole('heading', { level: 1 }).parentElement!.contains(screen.getByRole('link', { name: 'New schedule' }))).toBe(true);
+  });
+
+  it('opens the check-in list instead of turning on a check-in with nothing to check', async () => {
+    const calls = await start(undefined, (m, url) => (url === '/api/schedules/examples' ? { examples: [], checkin: { empty: true, lines: [] } } : undefined));
+    await fireEvent.click(screen.getByRole('switch', { name: 'Check-in' }));
+    expect(router.path + router.search).toBe('/activity/schedules/checkin?on=1');
+    expect(calls.some((c) => c.method !== 'GET' && c.url.startsWith('/api/schedules') && c.url !== '/api/schedules/preview')).toBe(false);
+  });
+
+  it('turns on a check-in that has a list', async () => {
+    const calls = await start();
+    await fireEvent.click(screen.getByRole('switch', { name: 'Check-in' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url === '/api/schedules/sch_01jcheckin00000000000000')).toBe(true));
+    expect(router.path).toBe('/activity/schedules');
+  });
+
+  it("says that deleting a schedule stops it and leaves its past results in the person's chats", async () => {
+    const calls = await start();
+    await fireEvent.click(screen.getByRole('button', { name: 'More for Weekly PR digest' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Delete the schedule “Weekly PR digest”?' });
+    expect(within(dialog).getByText("It stops running. Its past results stay in your chats. This can't be undone.")).toBeTruthy();
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Delete schedule' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/schedules/sch_01jprdigest0000000000000')).toBe(true));
   });
 
   it("says why Run now didn't start, when trying again can't help", async () => {

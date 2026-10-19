@@ -79,10 +79,10 @@ describe('New schedule (docs/design/ui.md §10.3)', () => {
     expect(JSON.parse(posted()[0].body).grants).toEqual([]);
   });
 
-  it('keeps results here, the only place an account has, and says so in the preview', async () => {
+  it('sends results to the chat list, the only place an account has, and says so in the preview', async () => {
     // A fact, not a field with nothing to choose.
     expect(screen.queryByText('Send results to')).toBeNull();
-    await waitFor(() => expect(screen.getByText(/^Runs /).textContent).toMatch(/^Runs weekdays at .+ London time and posts the result here\./));
+    await waitFor(() => expect(screen.getByText(/^Runs /).textContent).toMatch(/^Runs weekdays at .+ London time\. Each result gets its own chat in your list\. Next: /));
     expect(screen.queryByRole('combobox', { name: 'Send results to' })).toBeNull();
     expect(calls.some((c) => c.url.startsWith('/api/identities') || c.url.startsWith('/api/spaces'))).toBe(false);
     await fireEvent.input(screen.getByLabelText('What should Bothy do?'), { target: { value: 'Summarise the open pull requests in acme/web.' } });
@@ -95,17 +95,79 @@ describe('New schedule (docs/design/ui.md §10.3)', () => {
     const line = () => screen.getByText(/^Runs /).textContent ?? '';
     await waitFor(() => expect(line()).toMatch(/Next: /));
     await fireEvent.change(screen.getByLabelText('Repeat'), { target: { value: 'weekly' } });
-    expect(line()).toMatch(/^Runs Mondays at .+ London time and posts the result here\.$/);
+    expect(line()).toMatch(/^Runs Mondays at .+ London time\. Each result gets its own chat in your list\.$/);
     await waitFor(() => expect(line()).toMatch(/Next: /));
   });
 
   it('saves a one-off run as wall-clock time in the schedule time zone', async () => {
     await fireEvent.change(screen.getByLabelText('Repeat'), { target: { value: 'once' } });
     await fireEvent.input(screen.getByLabelText('Date'), { target: { value: '2026-11-02' } });
+    expect(screen.getByText(/^Runs /).textContent).toMatch(/^Runs once on .+ London time\. The result gets its own chat in your list\.$/);
     await fireEvent.input(screen.getByLabelText('What should Bothy do?'), { target: { value: 'Remind the team about the launch.' } });
     await fireEvent.click(screen.getByRole('button', { name: 'Create schedule' }));
     await waitFor(() => expect(posted()).toHaveLength(1));
     expect(JSON.parse(posted()[0].body).schedule).toMatchObject({ kind: 'once', spec: '2026-11-02T09:00', tz: 'Europe/London' });
+  });
+});
+
+describe('A schedule from an example (docs/design/ui.md §10.3)', () => {
+  const news = 'Search the web for news from the last day about [your topic] and list the 5 most useful items, each with a one-line summary and a link.';
+  const examples = {
+    examples: [
+      { id: 'pr-summary', name: 'Monday pull request summary', kind: 'cron', spec: '0 9 * * 1', slot: 'main', needs: 'github', prompt: 'Summarise the pull requests in acme/web from the last 7 days.' },
+      { id: 'news', name: 'Morning news on a topic', kind: 'cron', spec: '0 8 * * 1-5', slot: 'fast', needs: 'web_search', prompt: news },
+    ],
+    checkin: { empty: false, lines: [] },
+  };
+
+  async function open(example: string) {
+    calls = installApi({ override: (m, url) => (url === '/api/schedules/examples' ? examples : undefined) });
+    router.navigate(`/activity/schedules/new?example=${example}`);
+    render(ScheduleForm, { params: { id: 'new' } });
+    return (await screen.findByLabelText('What should Bothy do?')) as HTMLTextAreaElement;
+  }
+
+  it('prefills what to do, when, the name and the model in the person\'s time zone, and saves it as a new schedule', async () => {
+    expect((await open('pr-summary')).value).toBe('Summarise the pull requests in acme/web from the last 7 days.');
+    expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('Monday pull request summary');
+    expect((screen.getByLabelText('Repeat') as HTMLSelectElement).value).toBe('weekly');
+    expect((screen.getByLabelText('Day of the week') as HTMLSelectElement).value).toBe('1');
+    expect((screen.getByLabelText('Time') as HTMLSelectElement).value).toBe('09:00');
+    await fireEvent.click(screen.getByRole('button', { name: 'More options' }));
+    expect((screen.getByLabelText('Model') as HTMLSelectElement).value).toBe('main');
+    expect((screen.getByLabelText('If Bothy was off') as HTMLSelectElement).value).toBe('once');
+    // A name from the example stays when the task changes.
+    await fireEvent.input(screen.getByLabelText('What should Bothy do?'), { target: { value: 'Summarise the pull requests in acme/api from the last 7 days.' } });
+    expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('Monday pull request summary');
+    await fireEvent.click(screen.getByRole('button', { name: 'Create schedule' }));
+    await waitFor(() => expect(posted()).toHaveLength(1));
+    expect(JSON.parse(posted()[0].body).schedule).toMatchObject({ id: '', kind: 'cron', spec: '0 9 * * 1', tz: 'Europe/London', slot: 'main', missed_run: 'once', name: 'Monday pull request summary' });
+  });
+
+  it('opens a blank form for an example it no longer offers', async () => {
+    expect((await open('release-notes')).value).toBe('');
+    expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('');
+  });
+
+  it("won't save an example's placeholder, and selects it so typing replaces it", async () => {
+    const box = await open('news');
+    await fireEvent.click(screen.getByRole('button', { name: 'Create schedule' }));
+    expect(await screen.findByText('Replace [your topic] first.')).toBeTruthy();
+    expect(box.getAttribute('aria-invalid')).toBe('true');
+    await waitFor(() => expect(document.activeElement).toBe(box));
+    expect(box.value.slice(box.selectionStart, box.selectionEnd)).toBe('[your topic]');
+    expect(posted()).toHaveLength(0);
+    await fireEvent.input(box, { target: { value: news.replace('[your topic]', 'electric bikes') } });
+    expect(screen.queryByText('Replace [your topic] first.')).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Create schedule' }));
+    await waitFor(() => expect(posted()).toHaveLength(1));
+  });
+
+  it('saves brackets someone typed: only an example leaves placeholders', async () => {
+    const box = await open('nope');
+    await fireEvent.input(box, { target: { value: 'Post the [DRAFT] release notes.' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Create schedule' }));
+    await waitFor(() => expect(posted()).toHaveLength(1));
   });
 });
 
@@ -132,7 +194,7 @@ describe('Edit schedule', () => {
       expect(r.textContent).not.toContain('Daily standup summary');
       expect(r.textContent).not.toMatch(/\bSchedule\b/);
     }
-    expect(rows[0].textContent).toMatch(/Posted here|Failed/);
+    expect(rows[0].textContent).toMatch(/Posted to your chats|Failed/);
   });
 
   it('keeps the check-in on its own form', async () => {
