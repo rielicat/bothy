@@ -7654,7 +7654,7 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `GET /api/config` | admin | `?schema=1` | `dto.ConfigView` |
 | `PATCH /api/config` | admin | `dto.ConfigPatchReq` | `dto.ConfigPatchResp` / `400` with `config.FieldError`s; server-written keys (§7.2: `auth.sign_in.github.org_ids`) are refused (400) at their own path and inside the value of any parent path; only `PATCH /api/sign-in/github` writes it (§15) |
 | `DELETE /api/config/{path...}` | admin | — | `204` (reset UI override; a server-written key below the path keeps its value); `400` for a server-written key itself |
-| `GET /api/vault/status` | admin | — | `core.VaultStatus` |
+| `GET /api/vault/status` | admin | — | `core.VaultStatus` (`new_passphrase` while a passphrase vault waits for its first passphrase, which its first unseal chooses) |
 | `POST /api/vault/import` | admin | `dto.VaultImportReq` | `core.SecretMeta` (copies one well-known env key, e.g. `ANTHROPIC_API_KEY`, into the global vault; the value never leaves the process; audited `vault.put`) |
 | `GET /api/vault` | admin (`?scope=global\|user:<id>`) / user (own scope) | — | `[]core.SecretMeta` |
 | `PUT /api/vault/{scope}/{name}` | admin / user (own scope) | `dto.VaultPutReq` | `core.SecretMeta` |

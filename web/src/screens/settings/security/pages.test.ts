@@ -257,6 +257,27 @@ describe('Saved keys limits', () => {
 });
 
 describe('Unlock screen', () => {
+  it('offers no passphrase field when a key file locks the keys', async () => {
+    await signIn('sealed', (m, url) => (m === 'GET' && url === '/api/vault/status' ? { sealed: true, kek_source: 'autogen', kek_id: '', colocated: false, secrets: 3 } : undefined));
+    render(UnlockScreen);
+    expect(await screen.findByText(/the key file it was set up with is missing or doesn't match/)).toBeTruthy();
+    expect(screen.queryByLabelText('Passphrase')).toBeNull();
+  });
+
+  it('asks for the first passphrase twice, with its length, before setting it', async () => {
+    const calls = await signIn('sealed', (m, url) => (m === 'GET' && url === '/api/vault/status' ? { sealed: true, kek_source: 'passphrase', kek_id: '', colocated: false, secrets: 0, new_passphrase: true } : undefined));
+    render(UnlockScreen);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Choose a passphrase' })).toBeTruthy();
+    await fireEvent.input(screen.getByLabelText('Passphrase'), { target: { value: 'right horse battery' } });
+    await fireEvent.input(screen.getByLabelText('Type it again'), { target: { value: 'right horse batery' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Save passphrase' }));
+    expect(await screen.findByText("The two passphrases don't match.")).toBeTruthy();
+    await fireEvent.input(screen.getByLabelText('Passphrase'), { target: { value: 'short' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Save passphrase' }));
+    expect(await screen.findByText('Use at least 12 characters.')).toBeTruthy();
+    expect(calls.filter((c) => c.url === '/api/vault/unseal')).toEqual([]);
+  });
+
   it('says why no passphrase can unlock the keys, instead of "Try again"', async () => {
     const why = "A passphrase can't unlock these saved keys: they are locked because Bothy's key file is missing or doesn't match. Put the key file Bothy was set up with back on the server, then restart Bothy.";
     await signIn('sealed', (m, url) => (m === 'POST' && url === '/api/vault/unseal' ? new Response(JSON.stringify({ error: { code: 'bad_request', message: why } }), { status: 400 }) : undefined));

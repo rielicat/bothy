@@ -3012,6 +3012,11 @@ export interface VaultStatus {
   colocated: boolean; // KEK file on the same volume as the DB
   secrets: number /* int */;
   /**
+   * NewPassphrase: a sealed passphrase vault that has none yet, whose
+   * first Unseal chooses it.
+   */
+  new_passphrase?: boolean;
+  /**
    * External counts the configured references to cloud secret stores by
    * source ("aws-sm"). Their values are fetched when used, kept in memory
    * for secrets.aws.cache_ttl and never stored.

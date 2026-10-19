@@ -153,8 +153,13 @@
     <!-- While the locked-keys banner shows, its Unlock is the one action; a second row here would repeat it. -->
     {#if vault?.sealed && !(session.isAdmin && session.banners.some((b) => b.code === 'vault_sealed' && !session.dismissed.includes(b.code)))}
       <div class="flex min-h-14 flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-border py-3">
-        <p class="text-body text-text">Saved keys are locked.</p>
-        <Button variant="primary" size="sm" onclick={() => (unlocking = true)}>Unlock</Button>
+        <!-- Locked by a key file that doesn't match, no passphrase can unlock them. -->
+        {#if vault.kek_source === 'passphrase'}
+          <p class="text-body text-text">Saved keys are locked.</p>
+          <Button variant="primary" size="sm" onclick={() => (unlocking = true)}>Unlock</Button>
+        {:else}
+          <p class="text-body text-text">Saved keys are locked because Bothy's key file is missing or doesn't match. Put it back on the server, then restart Bothy.</p>
+        {/if}
       </div>
     {/if}
     {#if !sorted.length}

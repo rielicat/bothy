@@ -476,8 +476,8 @@ func TestPassphrase(t *testing.T) {
 	ctx := context.Background()
 	f.cfg.Vault.KEK = "passphrase"
 	v := f.open()
-	if st := v.Status(); !st.Sealed || st.KEKSource != srcPassphrase {
-		t.Fatalf("status = %+v", st)
+	if st := v.Status(); !st.Sealed || st.KEKSource != srcPassphrase || !st.NewPassphrase {
+		t.Fatalf("status = %+v; want sealed, waiting for its first passphrase", st)
 	}
 	if _, err := v.Get(ctx, core.GlobalScope, "x", "test"); !errors.Is(err, core.ErrSealed) {
 		t.Errorf("Get while sealed = %v", err)
@@ -499,8 +499,8 @@ func TestPassphrase(t *testing.T) {
 	}
 
 	v2 := f.open()
-	if !v2.Status().Sealed {
-		t.Fatal("a passphrase vault is unsealed after restart")
+	if st := v2.Status(); !st.Sealed || st.NewPassphrase {
+		t.Fatalf("after restart = %+v; want sealed with its passphrase chosen", st)
 	}
 	if err := v2.Unseal(ctx, []byte("wrong horse battery staple")); !errors.Is(err, core.ErrForbidden) {
 		t.Errorf("Unseal with a wrong passphrase = %v", err)

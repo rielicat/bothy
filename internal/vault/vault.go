@@ -49,7 +49,7 @@ func (v *Vault) setSealed(p kekPlan, reason string) {
 func (v *Vault) setOpen(p kekPlan, kek, dek []byte, keyID int64) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	v.plan, v.sealed, v.reason = p, false, ""
+	v.plan, v.sealed, v.reason, v.unchosen = p, false, "", false
 	v.kek, v.dek, v.keyID = kek, dek, keyID
 	v.red.Add("vault:kek", kek)
 	v.red.Add("vault:dek", dek)
@@ -699,10 +699,11 @@ func (v *Vault) Status() core.VaultStatus {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	st := core.VaultStatus{
-		Sealed:    v.sealed,
-		KEKSource: v.plan.source,
-		Colocated: v.plan.source == srcAutogen && v.colocated,
-		Secrets:   v.count + len(v.envSecs),
+		Sealed:        v.sealed,
+		KEKSource:     v.plan.source,
+		Colocated:     v.plan.source == srcAutogen && v.colocated,
+		Secrets:       v.count + len(v.envSecs),
+		NewPassphrase: v.sealed && v.unchosen,
 	}
 	if len(refs) > 0 {
 		st.External = map[string]int{awsSource: len(refs)}

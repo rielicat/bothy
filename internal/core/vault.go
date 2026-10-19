@@ -26,6 +26,9 @@ type VaultStatus struct {
 	KEKID     string `json:"kek_id"`     // sha256(kek)[:8] hex
 	Colocated bool   `json:"colocated"`  // KEK file on the same volume as the DB
 	Secrets   int    `json:"secrets"`
+	// NewPassphrase: a sealed passphrase vault that has none yet, whose
+	// first Unseal chooses it.
+	NewPassphrase bool `json:"new_passphrase,omitempty"`
 	// External counts the configured references to cloud secret stores by
 	// source ("aws-sm"). Their values are fetched when used, kept in memory
 	// for secrets.aws.cache_ttl and never stored.
