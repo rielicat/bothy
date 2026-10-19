@@ -2,6 +2,7 @@ package provider
 
 import (
 	"cmp"
+	"errors"
 	"slices"
 	"strings"
 	"time"
@@ -16,10 +17,11 @@ const (
 
 // Health states reported by core.ProviderHealth.
 const (
-	stateOK         = "ok"
-	stateDegraded   = "degraded"
-	stateDown       = "down"
-	stateAuthFailed = "auth_failed"
+	stateOK          = "ok"
+	stateDegraded    = "degraded"
+	stateDown        = "down"
+	stateAuthFailed  = "auth_failed"
+	stateUnreachable = "unreachable"
 )
 
 // health is one provider's circuit breaker and reported state. Three
@@ -69,19 +71,31 @@ func (f *Facade) succeeded(e *entry) {
 	}
 }
 
+// failed records a failure that isn't about the credentials. It replaces an
+// auth_failed state too, since it says nothing about the key: a key fixed
+// after it was refused must not read as refused while the provider (or
+// where the key is kept) can't be reached.
 func (f *Facade) failed(e *entry, err error) {
 	f.mu.Lock()
 	now := f.clock.Now()
 	h := f.healthOf(e)
+	wasAuth := h.state == stateAuthFailed
 	h.fails++
 	h.lastErr = errText(err)
-	if h.fails >= breakerThreshold {
+	var pe *core.ProviderError
+	switch {
+	case h.fails >= breakerThreshold:
 		h.openUntil = now.Add(breakerOpenFor)
 		h.set(stateDown, now)
-	} else if h.state != stateAuthFailed {
+	case errors.As(err, &pe) && pe.Kind == core.ErrKindNetwork:
+		h.set(stateUnreachable, now)
+	default:
 		h.set(stateDegraded, now)
 	}
 	f.mu.Unlock()
+	if wasAuth {
+		f.updateBanner()
+	}
 }
 
 // authFailed marks the provider auth_failed and drops its cached secret so a

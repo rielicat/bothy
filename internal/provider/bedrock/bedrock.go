@@ -131,13 +131,19 @@ func (c *Client) send(ctx context.Context, method, base, path string, query url.
 }
 
 // credentialError reports AWS credentials that could not be resolved
-// (expired SSO session, no role, unreachable metadata service). They are
-// the operator's to fix, so the facade treats them like a rejected key.
+// (expired SSO session, no role, no metadata service off AWS). They are
+// the operator's to fix, so the facade treats them like a rejected key,
+// unless an AWS credential service (STS, SSO) was out of reach: that is
+// the network, which passes.
 func (c *Client) credentialError(ctx context.Context, err error) error {
 	if ctx.Err() != nil {
 		return context.Cause(ctx)
 	}
-	return &core.ProviderError{Provider: c.o.ID, Kind: core.ErrKindAuth,
+	kind := core.ErrKindAuth
+	if core.HostFailure(err) != "" {
+		kind = core.ErrKindNetwork
+	}
+	return &core.ProviderError{Provider: c.o.ID, Kind: kind,
 		Msg: "AWS credentials unavailable: " + c.o.Redacted(err.Error()), Err: err}
 }
 

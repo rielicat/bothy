@@ -77,6 +77,8 @@ describe('provider status', () => {
     const at = (state: string) => providerStatus({ ...base, health: { id: 'x', kind: 'anthropic', state, since: '' } });
     expect(at('down')).toEqual({ text: "Can't reach it right now", tone: 'danger' });
     expect(at('auth_failed').tone).toBe('danger');
+    // A network failure, to the provider or where its key is kept, never reads as a refused key.
+    expect(at('unreachable')).toEqual({ text: "Can't reach it right now", tone: 'warning' });
     expect(at('degraded').tone).toBe('warning');
     expect(providerStatus({ ...base, enabled: false })).toEqual({ text: 'Off', tone: 'muted' });
   });

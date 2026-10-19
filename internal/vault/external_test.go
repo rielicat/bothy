@@ -5,7 +5,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -300,6 +302,15 @@ func TestAWSRefsErrors(t *testing.T) {
 	_, err = fro.openAWS(h).Resolve(ctx, "aws-sm:prod/llm", "", "provider:test")
 	if core.CodeOf(err) != core.FailAWSNoCredentials || !strings.Contains(err.Error(), "~/.aws/sso/cache writable") {
 		t.Errorf("read-only token cache: %v", err)
+	}
+
+	// AWS's sign-in service out of reach is the network, not missing access.
+	h.fail = fmt.Errorf("refresh cached SSO token failed, %w", &url.Error{Op: "Post", URL: "https://oidc.us-west-2.amazonaws.com/token",
+		Err: &net.DNSError{Err: "no such host", Name: "oidc.us-west-2.amazonaws.com", IsNotFound: true}})
+	foff, _ := newAWSFixture(t)
+	_, err = foff.openAWS(h).Resolve(ctx, "aws-sm:prod/llm", "", "provider:test")
+	if core.CodeOf(err) != core.FailUnreachable || !strings.Contains(err.Error(), "could not reach AWS to get the credentials") {
+		t.Errorf("credential service out of reach: %v", err)
 	}
 
 	f3, h3 := newAWSFixture(t)

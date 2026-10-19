@@ -12,6 +12,7 @@ import (
 	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/events"
+	"github.com/rielicat/bothy/internal/testkit/fakes"
 	"github.com/rielicat/bothy/internal/testkit/sandboxtest"
 )
 
@@ -217,6 +218,83 @@ func TestAuthFailureMovesOnAndRaisesBanner(t *testing.T) {
 	}
 	if len(h.f.Checks()[0].Run(context.Background())) != 0 {
 		t.Fatal("finding not cleared")
+	}
+}
+
+// unreadKeys fails every key it has to read again the way AWS Secrets
+// Manager out of reach does, while down is set.
+type unreadKeys struct {
+	*fakes.Vault
+	down bool
+}
+
+func (v *unreadKeys) Resolve(ctx context.Context, ref string, u core.UserID, purpose string) (core.Secret, error) {
+	if v.down {
+		return core.Secret{}, storeDown{}
+	}
+	return v.Vault.Resolve(ctx, ref, u, purpose)
+}
+
+type storeDown struct{}
+
+func (storeDown) Error() string {
+	return "vault: Bothy could not reach AWS Secrets Manager in us-east-1 to read aws-sm:k: dial tcp: lookup secretsmanager.us-east-1.amazonaws.com: no such host"
+}
+func (storeDown) FailureCode() core.FailureCode { return core.FailUnreachable }
+
+// A network failure, to the provider or to where its key is kept, reads as
+// unreachable and never as a refused key, also right after a refused key,
+// whose banner then goes.
+func TestNetworkFailuresAreNotRefusedKeys(t *testing.T) {
+	health := func(h *harness, id string) core.ProviderHealth {
+		t.Helper()
+		for _, ph := range h.f.Health() {
+			if ph.ID == id {
+				return ph
+			}
+		}
+		t.Fatalf("no health for %s", id)
+		return core.ProviderHealth{}
+	}
+	denied := newServer(t, jsonReply(401, errBody(`"invalid_api_key"`, "invalid_request_error", "Incorrect API key provided")))
+	backup := newServer(t, sse(okStream))
+	h := newHarness(t, []config.Provider{
+		cfgProvider("a", core.KindOpenAICompat, denied.URL),
+		cfgProvider("b", core.KindOpenAICompat, backup.URL),
+	}, "a/m", "b/m")
+	keys := &unreadKeys{Vault: h.vault}
+	h.f.d.Vault = keys
+	bus := events.New(events.Options{Clock: h.clock})
+	h.f.d.Bus = bus
+	if _, ci, err := h.f.Complete(context.Background(), core.SlotMain, nil, userReq, nil); err != nil || ci.Ref.Provider != "b" {
+		t.Fatalf("%v %+v", err, ci)
+	}
+	if ph := health(h, "a"); ph.State != stateAuthFailed || len(bus.Banners(core.Filter{System: true})) != 1 {
+		t.Fatalf("refused key: %+v", ph)
+	}
+	// The refused key is read again, and where it is kept is out of reach.
+	keys.down = true
+	if _, ci, err := h.f.Complete(context.Background(), core.SlotMain, nil, userReq, nil); err != nil || ci.Ref.Provider != "b" {
+		t.Fatalf("%v %+v", err, ci)
+	}
+	if ph := health(h, "a"); ph.State != stateUnreachable || !strings.Contains(ph.LastError, "could not reach AWS Secrets Manager") {
+		t.Fatalf("key store out of reach: %+v", ph)
+	}
+	if banners := bus.Banners(core.Filter{System: true}); len(banners) != 0 {
+		t.Fatalf("banners after the key store failed: %+v", banners)
+	}
+
+	gone := newServer(t, sse(okStream))
+	gone.Close()
+	h = newHarness(t, []config.Provider{
+		cfgProvider("c", core.KindOpenAICompat, gone.URL),
+		cfgProvider("b", core.KindOpenAICompat, backup.URL),
+	}, "c/m", "b/m")
+	if _, ci, err := h.f.Complete(context.Background(), core.SlotMain, nil, userReq, nil); err != nil || ci.Ref.Provider != "b" {
+		t.Fatalf("%v %+v", err, ci)
+	}
+	if ph := health(h, "c"); ph.State != stateUnreachable {
+		t.Fatalf("provider out of reach: %+v", ph)
 	}
 }
 

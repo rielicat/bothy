@@ -240,6 +240,8 @@ func TestFailureCodes(t *testing.T) {
 		{fmt.Errorf("probe: %w", context.DeadlineExceeded), core.KindAnthropic, core.FailTimeout},
 		{pe(core.ErrKindAuth, 0, "credential unavailable: vault: secret x: not found"), core.KindAnthropic, core.FailUnknown},
 		{pe(core.ErrKindAuth, 0, "AWS credentials unavailable: no EC2 IMDS role found"), core.KindBedrock, core.FailAWSNoCredentials},
+		{pe(core.ErrKindNetwork, 0, "AWS credentials unavailable: refresh cached SSO token failed, dial tcp: lookup oidc.us-east-1.amazonaws.com: no such host"),
+			core.KindBedrock, core.FailUnreachable},
 		{pe(core.ErrKindAuth, 403, "AccessDeniedException: User: arn:aws:sts::<account>:assumed-role/x/<session> is not authorized to perform: bedrock:InvokeModelWithResponseStream"), core.KindBedrock, core.FailAWSDenied},
 		{pe(core.ErrKindAuth, 403, "AccessDeniedException: You don't have access to the model with the specified model ID."), core.KindBedrock, core.FailNoModelAccess},
 		{pe(core.ErrKindInvalidRequest, 404, "ResourceNotFoundException: Model use case details have not been submitted for this account."), core.KindBedrock, core.FailAWSNoModels},

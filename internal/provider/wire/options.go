@@ -81,7 +81,9 @@ func (o *Options) NewRequest(ctx context.Context, method, url string, body any, 
 
 // credentialError reports a secret that could not be resolved. A sealed vault
 // or an external store that timed out or failed is a server-side condition
-// that passes; a missing secret or refused access is the operator's to fix.
+// that passes, and one Bothy could not reach is the network, as for the
+// provider itself; a missing secret or refused access is the operator's to
+// fix.
 func (o *Options) credentialError(err error) error {
 	kind := core.ErrKindAuth
 	switch {
@@ -89,7 +91,7 @@ func (o *Options) credentialError(err error) error {
 		kind = core.ErrKindServer
 	default:
 		switch core.CodeOf(err) {
-		case core.FailTimeout, core.FailUnreachable, core.FailTLS:
+		case core.FailTimeout, core.FailUnreachable, core.FailTLS, core.FailPrivateAddress:
 			kind = core.ErrKindNetwork
 		case core.FailRateLimited:
 			kind = core.ErrKindRateLimit

@@ -96,7 +96,8 @@ func failureCode(err error, kind core.ProviderKind) core.FailureCode {
 // without Bedrock permissions, and models not turned on for the account.
 func bedrockFailure(pe *core.ProviderError, msg string) core.FailureCode {
 	switch {
-	case strings.HasPrefix(pe.Msg, "AWS credentials unavailable: "):
+	// One that couldn't reach AWS's credential services is the network.
+	case strings.HasPrefix(pe.Msg, "AWS credentials unavailable: ") && pe.Kind != core.ErrKindNetwork:
 		return core.FailAWSNoCredentials
 	case strings.Contains(msg, "use case details"), strings.Contains(msg, "model access"):
 		return core.FailAWSNoModels
