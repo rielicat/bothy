@@ -10,6 +10,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/rielicat/bothy/internal/core"
 )
 
 const (
@@ -170,8 +172,8 @@ func (s *Service) dialPinned(ctx context.Context, h hostname, port int, allowPri
 			return pinned{ip: a.Unmap(), reason: r, err: fmt.Errorf("%w: %s resolves to %s (%s)", errBlocked, h.name, a.Unmap(), r)}
 		}
 		if privateOnly && !privateAddr(a) {
-			return pinned{ip: a.Unmap(), reason: "public address", err: fmt.Errorf("%w: %s resolves to the public address %s, and plain http with a key may reach only a private one",
-				errBlocked, h.name, a.Unmap())}
+			return pinned{ip: a.Unmap(), reason: "public address", err: fmt.Errorf("%w: %s resolves to the public address %s: %s",
+				errBlocked, h.name, a.Unmap(), core.PrivateOnlyRefused)}
 		}
 		lit := hostname{name: a.Unmap().String(), ip: a.Unmap()}
 		if e, ok := matchAny(deny, lit, port, true, true); ok {

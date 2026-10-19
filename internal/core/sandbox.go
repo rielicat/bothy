@@ -113,6 +113,10 @@ type SystemDest struct {
 	PrivateOnly bool
 }
 
+// PrivateOnlyRefused ends egress's refusal of a PrivateOnly destination whose
+// name resolves to a public address, so a caller can name that fix.
+const PrivateOnlyRefused = "plain http with a key may reach only a private address"
+
 // EgressBinding carries what the proxy needs to log a connection and, for an
 // unknown destination, to build the hold-for-approval PolicyInput.
 type EgressBinding struct {

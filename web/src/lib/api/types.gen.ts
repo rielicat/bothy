@@ -2257,6 +2257,11 @@ export interface SystemDest {
   PrivateOnly: boolean;
 }
 /**
+ * PrivateOnlyRefused ends egress's refusal of a PrivateOnly destination whose
+ * name resolves to a public address, so a caller can name that fix.
+ */
+export const PrivateOnlyRefused = "plain http with a key may reach only a private address";
+/**
  * EgressBinding carries what the proxy needs to log a connection and, for an
  * unknown destination, to build the hold-for-approval PolicyInput.
  */
@@ -2318,8 +2323,9 @@ export interface MCPStatus {
    * for a header and the server refused without it; an admin may let
    * their own key list its tools, MCP.DiscoverWith), key_locked (the saved keys are locked),
    * key_rejected (the server answered 401 or 403), private_address
-   * (needs allow_private), not_installed (a command server to install or
-   * reinstall), install_failed (its install failed); "" otherwise.
+   * (needs allow_private), needs_https (plain http with a key to a name
+   * that resolves to a public address), not_installed (a command server to
+   * install or reinstall), install_failed (its install failed); "" otherwise.
    */
   code?: string;
   tools: number /* int */;

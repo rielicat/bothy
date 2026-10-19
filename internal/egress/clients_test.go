@@ -288,7 +288,7 @@ func TestSystemClientPrivateOnly(t *testing.T) {
 	}
 	body(t, resp)
 	pub := core.SystemDest{Name: "mcp:docs", Hosts: []string{"mcp.example.com:80"}, AllowPrivate: true, PrivateOnly: true}
-	if resp, err := e.s.SystemClient(pub).Get("http://mcp.example.com/mcp"); !errors.Is(err, errBlocked) {
+	if resp, err := e.s.SystemClient(pub).Get("http://mcp.example.com/mcp"); !errors.Is(err, errBlocked) || !strings.Contains(err.Error(), core.PrivateOnlyRefused) {
 		if err == nil {
 			resp.Body.Close()
 		}

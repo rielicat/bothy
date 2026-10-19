@@ -539,6 +539,10 @@ func errCode(err error) string {
 	if errors.Is(err, errPrivateHost) || core.TransportFailure(err) == core.FailPrivateAddress {
 		return "private_address"
 	}
+	// The go-sdk keeps only the text of a transport error.
+	if strings.Contains(err.Error(), core.PrivateOnlyRefused) {
+		return "needs_https"
+	}
 	if errors.Is(err, errNotInstalled) || errors.Is(err, errDrifted) {
 		return "not_installed"
 	}

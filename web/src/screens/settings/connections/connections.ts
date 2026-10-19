@@ -51,6 +51,7 @@ const toolCodes: Record<string, string> = {
   no_shared_key: 'it needs a shared key to show what it can do',
   key_locked: "Bothy's saved keys are locked",
   private_address: 'its address is on a private network',
+  needs_https: "it isn't on your private network, so its key needs an https:// address",
   not_installed: 'it needs to be installed',
   install_failed: "it couldn't be installed",
 };

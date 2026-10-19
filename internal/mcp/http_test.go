@@ -304,6 +304,20 @@ func TestPrivateNameRefusedByEgressIsNamed(t *testing.T) {
 	}
 }
 
+// A plain-http server with a key whose name turns out public is refused by
+// egress; the status says it needs https rather than that it didn't answer.
+func TestPublicNameOfAPlainHTTPServerWithAKeyIsNamed(t *testing.T) {
+	refused := errors.New("egress: destination address blocked: mcp.corp resolves to the public address 203.0.114.7: " + core.PrivateOnlyRefused)
+	srv := httpServerCfg("docs", "http://mcp.corp/mcp")
+	srv.Headers = map[string]string{"Authorization": "secret:docs_key"}
+	h := newHarness(t, []config.MCPServer{srv}, withSecrets(map[string]string{"docs_key": "Bearer k"}),
+		withClient(&http.Client{Transport: refusingTransport{refused}}))
+	h.start()
+	if st := h.status("docs"); st.State != stError || st.Code != "needs_https" {
+		t.Fatalf("status = %+v", st)
+	}
+}
+
 // Plain http that sends a key may reach only a private address, whatever the
 // name resolves to; https, or plain http without a key, is not held to it.
 func TestPlainHTTPWithAKeyReachesPrivateAddressesOnly(t *testing.T) {

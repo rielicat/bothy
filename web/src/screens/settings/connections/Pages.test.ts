@@ -221,6 +221,7 @@ describe('MCP server page (§12.4)', () => {
 
   it.each([
     ['private_address', 'its address is on a private network', 'Allow mcp.linear.app', 'PATCH /api/config'],
+    ['needs_https', "it isn't on your private network, so its key needs an https:// address", 'Try again', 'POST /api/mcp/linear/reload'],
     ['not_installed', 'it needs to be installed', 'Install', 'POST /api/mcp/linear/install'],
     ['key_rejected', "Linear didn't accept its key", 'Replace key', ''],
     ['key_locked', "Bothy's saved keys are locked", 'Open saved keys', ''],
