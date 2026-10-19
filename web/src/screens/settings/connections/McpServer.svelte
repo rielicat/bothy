@@ -48,7 +48,7 @@
     });
   });
 
-  const off = $derived(status ? status.state === 'disabled' : !enabled);
+  const off = $derived(status ? status.state === 'disabled' && !status.code : !enabled);
   const pending = $derived(pins.filter((p) => p.status === 'pending'));
   // An action whose change waits for review is decided in the review, not here.
   const actions = $derived(pins.filter((p) => (p.status === 'approved' || p.status === 'disabled') && !pending.some((q) => q.tool === p.tool)));
@@ -109,6 +109,43 @@
     router.navigate('/settings/connections');
   }
 
+  // The fix the status line offers for what its code says.
+  const fix = $derived.by(() => {
+    switch (status?.code) {
+      case 'private_address':
+        return { label: `Allow ${hostOf(config.value(`mcp.servers.${name}.url`, ''))}`, onclick: allowPrivate };
+      case 'not_installed':
+        return { label: 'Install', onclick: install };
+      case 'key_missing':
+      case 'key_locked':
+      case 'key_rejected':
+        return { label: 'Open saved keys', onclick: () => router.navigate('/settings/security/keys') };
+    }
+    return status?.state === 'error' ? { label: 'Try again', onclick: reload } : undefined;
+  });
+  const hostOf = (u: string) => {
+    try {
+      return new URL(u).hostname;
+    } catch {
+      return 'this address';
+    }
+  };
+
+  async function allowPrivate() {
+    problem = await saveConfig({ [`mcp.servers.${name}.allow_private`]: true });
+    await load();
+  }
+
+  async function install() {
+    try {
+      await api.post(`/api/mcp/${enc}/install`);
+      toast('Install started.');
+      await load();
+    } catch (e) {
+      problem = { message: "Bothy couldn't start the install. Try again.", details: errorText(e) };
+    }
+  }
+
   async function reload() {
     try {
       await api.post(`/api/mcp/${enc}/reload`);
@@ -149,13 +186,8 @@
           <p class="text-body text-muted">Off</p>
         {:else if !status || status.state === 'connecting' || status.state === 'installing'}
           <StatusLine tone="progress" text={status?.state === 'installing' ? 'Installing…' : 'Connecting…'} />
-        {:else if status.state === 'error' || status.state === 'no_sandbox'}
-          <StatusLine
-            tone="danger"
-            text="Can't start: {toolProblem(status)}."
-            details={status.error}
-            action={status.state === 'error' ? { label: 'Try again', onclick: reload } : undefined}
-          />
+        {:else if status.state === 'error' || status.state === 'no_sandbox' || status.state === 'disabled'}
+          <StatusLine tone="danger" text="Can't start: {toolProblem(status)}." details={status.error} action={fix} />
         {:else if pending.length}
           <StatusLine
             tone="warning"

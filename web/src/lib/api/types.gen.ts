@@ -2306,6 +2306,14 @@ export interface MCPStatus {
   state: string; // disabled | installing | connecting | ready | error | no_sandbox | pins_pending
   protocol: string; // negotiated spec revision
   error?: string;
+  /**
+   * Code says what to fix when State is error: key_missing (a saved key
+   * it uses doesn't exist), key_locked (the saved keys are locked),
+   * key_rejected (the server answered 401 or 403), private_address
+   * (needs allow_private), not_installed (a command server to install or
+   * reinstall); "" otherwise.
+   */
+  code?: string;
   tools: number /* int */;
   pending: number /* int */;
   since: string /* RFC 3339 */;
@@ -3598,12 +3606,14 @@ export interface MCPResolveReq {
 }
 /**
  * MCPResolveResp is the exact version and the registry's integrity hash to
- * pin, so the admin never types a hash.
+ * pin, so the admin never types a hash, and the command that runs the
+ * package's own program from /opt/mcp (none when it has no "bin").
  */
 export interface MCPResolveResp {
   name: string;
   version: string;
   integrity: string;
+  command?: string[];
 }
 export interface SandboxInfo {
   status: SandboxStatus;

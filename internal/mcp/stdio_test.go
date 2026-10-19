@@ -379,7 +379,7 @@ func TestStdioTreeDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.waitFor("disabled", func() bool { return h.status("notes").State == stDisabled })
-	if st := h.status("notes"); !strings.Contains(st.Err, "drifted") || st.Tools != 0 {
+	if st := h.status("notes"); !strings.Contains(st.Err, "drifted") || st.Tools != 0 || st.Code != "not_installed" {
 		t.Fatalf("status = %+v", st)
 	}
 	if got, _ := h.store.MCP().Install(context.Background(), "notes"); got.Status != "drifted" {

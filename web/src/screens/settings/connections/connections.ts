@@ -44,10 +44,19 @@ export function appStatus(app: AppName, s: AppStatus | undefined, people: number
   }
 }
 
+// What the server's status code says to fix (MCPStatus.code).
+const toolCodes: Record<string, string> = {
+  key_missing: 'a saved key it uses is missing. Add it in Saved keys',
+  key_locked: "Bothy's saved keys are locked",
+  private_address: 'its address is on a private network',
+  not_installed: 'it needs to be installed',
+};
+
 /** Why an MCP server can't run, as the end of "Can't start: …". "Server" means Bothy's own host only, so a remote tool is named. */
 export function toolProblem(s: MCPStatus): string {
   if (s.state === 'no_sandbox') return "code can't run on this server";
-  return s.transport === 'stdio' ? 'the command stopped with an error' : `${serverTitle(s.name)} didn't answer`;
+  if (s.code === 'key_rejected') return `${serverTitle(s.name)} didn't accept its key`;
+  return toolCodes[s.code ?? ''] ?? (s.transport === 'stdio' ? 'the command stopped with an error' : `${serverTitle(s.name)} didn't answer`);
 }
 
 export function toolStatus(s: MCPStatus | undefined): RowStatus {
@@ -56,6 +65,8 @@ export function toolStatus(s: MCPStatus | undefined): RowStatus {
     case 'connecting':
       return { text: 'Connecting…', tone: 'muted', action: 'Manage' };
     case 'disabled':
+      // Turned off by Bothy (its installed files changed), not by an admin.
+      if (s.code) return { text: `Can't start: ${toolProblem(s)}`, tone: 'danger', action: 'Reconnect' };
       return { text: 'Off', tone: 'muted', action: 'Manage' };
     case 'installing':
       return { text: 'Installing…', tone: 'muted', action: 'Manage' };

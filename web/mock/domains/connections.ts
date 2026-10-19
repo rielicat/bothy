@@ -481,7 +481,8 @@ on('POST', '/api/mcp/{server}/approve', async (req, res, m) => {
 on('POST', '/api/mcp/resolve', async (req, res) => {
   const b = JSON.parse(await body(req)) as { name?: string; version?: string };
   if (!b.name || b.name.includes('missing')) return fail(res, 404, 'not_found', `npm has no package called ${b.name ?? ''}.`);
-  json(res, 200, { name: b.name, version: b.version || '1.4.2', integrity: 'sha512-mockIntegrityHash==' });
+  const command = b.name.includes('nobin') ? undefined : ['node', `node_modules/${b.name}/dist/index.js`];
+  json(res, 200, { name: b.name, version: b.version || '1.4.2', integrity: 'sha512-mockIntegrityHash==', command });
 });
 on('POST', '/api/mcp/{server}/install', (_q, res) => json(res, 202));
 on('POST', '/api/mcp/{server}/reload', (_q, res) => json(res, 202));

@@ -9,8 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -522,8 +524,9 @@ func (s *Server) mcpResolve(w http.ResponseWriter, r *http.Request, _ core.Actor
 		return newError(http.StatusBadGateway, "provider_error", fmt.Sprintf("The npm registry answered %d. Try again in a moment.", resp.StatusCode))
 	}
 	var meta struct {
-		Name    string `json:"name"`
-		Version string `json:"version"`
+		Name    string          `json:"name"`
+		Version string          `json:"version"`
+		Bin     json.RawMessage `json:"bin"`
 		Dist    struct {
 			Integrity string `json:"integrity"`
 		} `json:"dist"`
@@ -532,7 +535,34 @@ func (s *Server) mcpResolve(w http.ResponseWriter, r *http.Request, _ core.Actor
 		!npmVersion.MatchString(meta.Version) || !strings.HasPrefix(meta.Dist.Integrity, "sha512-") {
 		return newError(http.StatusBadGateway, "provider_error", "The npm registry sent something Bothy can't pin. Try again in a moment.")
 	}
-	return ok(w, dto.MCPResolveResp{Name: meta.Name, Version: meta.Version, Integrity: meta.Dist.Integrity})
+	return ok(w, dto.MCPResolveResp{Name: meta.Name, Version: meta.Version, Integrity: meta.Dist.Integrity, Command: npmCommand(meta.Name, meta.Bin)})
+}
+
+// npmCommand runs a package's program as npm installs it under /opt/mcp:
+// "bin" is a path or a map of names to paths; with several, the one named
+// like the package (without its scope), else the first by name. nil when
+// the package has none, or only paths that leave its folder.
+func npmCommand(pkg string, bin json.RawMessage) []string {
+	var one string
+	bins := map[string]string{}
+	if json.Unmarshal(bin, &one) == nil {
+		bins[""] = one
+	} else if json.Unmarshal(bin, &bins) != nil {
+		return nil
+	}
+	short := pkg[strings.LastIndex(pkg, "/")+1:]
+	names := slices.Sorted(maps.Keys(bins))
+	if i := slices.Index(names, short); i > 0 {
+		names[0], names[i] = names[i], names[0]
+	}
+	for _, n := range names {
+		p := path.Clean(strings.TrimPrefix(bins[n], "./"))
+		if p == "." || p == ".." || strings.HasPrefix(p, "../") || path.IsAbs(p) {
+			continue
+		}
+		return []string{"node", "node_modules/" + pkg + "/" + p}
+	}
+	return nil
 }
 
 func (s *Server) mcpReload(w http.ResponseWriter, r *http.Request, _ core.Actor) error {

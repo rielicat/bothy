@@ -143,6 +143,7 @@ func (m *Manager) markDrifted(ctx context.Context, s *server, in *core.MCPInstal
 	s.install = nil
 	s.mu.Unlock()
 	s.setState(m.clock.Now(), stDisabled, errDrifted.Error())
+	s.setCode("not_installed")
 	m.setDrifted(s, true)
 	m.syncTools(ctx, s)
 }

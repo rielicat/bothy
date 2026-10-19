@@ -266,7 +266,7 @@ func TestHTTPPrivateAddressNeedsAllowPrivate(t *testing.T) {
 	srv.AllowPrivate = false
 	h := newHarness(t, []config.MCPServer{srv}, withClient(ts.Client()))
 	h.start()
-	if st := h.status("docs"); st.State != stError || !strings.Contains(st.Err, "allow_private") {
+	if st := h.status("docs"); st.State != stError || !strings.Contains(st.Err, "allow_private") || st.Code != "private_address" {
 		t.Fatalf("status = %+v", st)
 	}
 	if n := f.requests.Load(); n != 0 {

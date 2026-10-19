@@ -523,7 +523,7 @@ func errCode(err error) string {
 	if errors.Is(err, errPrivateHost) {
 		return "private_address"
 	}
-	if errors.Is(err, errNotInstalled) {
+	if errors.Is(err, errNotInstalled) || errors.Is(err, errDrifted) {
 		return "not_installed"
 	}
 	return ""
