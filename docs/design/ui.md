@@ -1531,7 +1531,7 @@ The diffs start closed everywhere, the inbox too, so the buttons stay in reach; 
 
 ### 8.7 Deploy follow-up
 
-After approval, the originating chat (and the web chat) gets activity lines updated in place (S17; until then the client polls `release_status`):
+After approval, the originating chat (and the web chat) gets activity lines updated in place. On the web every deploy line on screen shares one read of `GET /api/releases`, so a chat with several deploys asks once; it reads again on `release.dispatched` and `release.finished` (once for the two copies an admin who asked gets) and, since those reach only the requester and admins, every 15 s while a deploy it shows is running:
 1. "◌ Deploying acme/web to production… View on GitHub ↗"
 2. "Deployed acme/web to production in 3 min" (check glyph), or
 3. "! Deploy to production failed at “Run migrations” · View logs on GitHub ↗" (`danger-text`), or
