@@ -1,6 +1,22 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Button, Dialog, DiffView, Disclosure, CodeBlock, EmptyState, IconButton, LinkButton, Menu, Select, SettingsSection, StatusLine, Switch, toast } from '../../../components/ui';
+  import {
+    Button,
+    Dialog,
+    DiffView,
+    Disclosure,
+    CodeBlock,
+    EmptyState,
+    IconButton,
+    LinkButton,
+    Menu,
+    Select,
+    SettingsSection,
+    StatusLine,
+    Switch,
+    TextField,
+    toast,
+  } from '../../../components/ui';
   import { api, ApiError, errorText, refusal } from '../../../lib/api/client';
   import type { MCPPin, MCPStatus, SideEffect } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
@@ -27,6 +43,10 @@
   let busy = $state(false);
   let enabled = $state(true);
   let saving = $state(false);
+  let keying = $state(false);
+  let newKey = $state('');
+  let keyTried = $state(false);
+  let keyFailure = $state<Failure | null>(null);
 
   async function load() {
     try {
@@ -111,6 +131,45 @@
   // The key the Add dialog saved for this server goes with it.
   const ownKey = $derived(config.value(`mcp.servers.${name}.headers.Authorization`, '') === `secret:mcp_${name}_header`);
 
+  const web = $derived(config.value<string>(`mcp.servers.${name}.transport`) === 'http');
+  const headers = $derived(config.keys(`mcp.servers.${name}.headers`, 'leaf').map((h) => [h, String(config.value(`mcp.servers.${name}.headers.${h}`, ''))]));
+  // The shared saved key it sends, from a header or else its address; one added here is named as the Add dialog names it.
+  const keyRef = $derived(
+    [...headers.map((h) => h[1]), String(config.value(`mcp.servers.${name}.url`, ''))].map((v) => /secret:([\w.-]+)/.exec(v)?.[1]).find(Boolean),
+  );
+  // The header that is the key as a whole, which the help can name.
+  const keyHeader = $derived(keyRef ? headers.find((h) => h[1] === `secret:${keyRef}`)?.[0] : 'Authorization');
+
+  function openKey() {
+    newKey = '';
+    keyTried = false;
+    keyFailure = null;
+    keying = true;
+  }
+
+  async function saveKey(e: SubmitEvent) {
+    e.preventDefault();
+    keyTried = true;
+    if (!newKey.trim()) return;
+    busy = true;
+    const ref = keyRef ?? `mcp_${name}_header`;
+    try {
+      await api.put(`/api/vault/global/${ref}`, { value: newKey.trim() });
+      // A new header changes the server's entry, which rediscovers it; a replaced key needs a reload to be tried.
+      keyFailure = keyRef ? null : await saveConfig({ [`mcp.servers.${name}.headers.Authorization`]: `secret:${ref}` });
+      if (!keyFailure) {
+        keying = false;
+        toast('Key saved.');
+        if (keyRef) await post('reload', "Bothy couldn't reload this server. Try again.");
+        else await load();
+      }
+    } catch (err) {
+      keyFailure = { message: "Bothy couldn't save the key. Try again.", details: errorText(err) };
+    } finally {
+      busy = false;
+    }
+  }
+
   async function remove() {
     busy = true;
     const key = ownKey;
@@ -134,8 +193,10 @@
       case 'no_shared_key':
         return { label: 'Use my key', onclick: () => post('use-my-key', "Bothy couldn't use your key. Try again.") };
       case 'key_missing':
-      case 'key_locked':
+        return { label: 'Add key', onclick: openKey };
       case 'key_rejected':
+        return { label: 'Replace key', onclick: openKey };
+      case 'key_locked':
         return { label: 'Open saved keys', onclick: () => router.navigate('/settings/security/keys') };
     }
     return status?.state === 'error' ? { label: 'Try again', onclick: reload } : undefined;
@@ -174,6 +235,7 @@
       placement="bottom-end"
       items={[
         { label: 'Reload', onselect: reload },
+        ...(web ? [{ label: keyRef ? 'Replace key…' : 'Add a key…', onselect: openKey }] : []),
         { label: 'Remove server…', danger: true, onselect: () => (removing = true) },
       ]}
     >
@@ -289,6 +351,24 @@
   {#snippet footer({ close })}
     <Button data-cancel onclick={close}>Cancel</Button>
     <Button variant="primary" loading={busy} loadingLabel="Saving…" onclick={saveReview}>Save <span class="max-sm:hidden">review</span></Button>
+  {/snippet}
+</Dialog>
+
+<Dialog bind:open={keying} title={keyRef ? `Replace the key for ${title}` : `Add a key for ${title}`} dirty={!!newKey} {busy}>
+  <form id="mcp-key" class="space-y-4" onsubmit={saveKey} novalidate>
+    <TextField
+      label="Key"
+      type="password"
+      bind:value={newKey}
+      autocomplete="off"
+      error={keyTried && !newKey.trim() ? 'Enter the key.' : undefined}
+      help="{keyHeader ? `Sent as the ${keyHeader} header, such as Bearer abc123. ` : ''}Stored encrypted. Only sent to this address."
+    />
+    {#if keyFailure}<StatusLine tone="danger" alert text={keyFailure.message} details={keyFailure.details} />{/if}
+  </form>
+  {#snippet footer({ close })}
+    <Button data-cancel onclick={close}>Cancel</Button>
+    <Button variant="primary" type="submit" form="mcp-key" loading={busy} loadingLabel="Saving…">Save key</Button>
   {/snippet}
 </Dialog>
 
