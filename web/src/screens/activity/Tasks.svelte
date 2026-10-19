@@ -3,7 +3,7 @@
   import { EmptyState, Select } from '../../components/ui';
   import { api } from '../../lib/api/client';
   import type { List, Schedule } from '../../lib/api/types.gen';
-  import { fullTime, money } from '../../lib/format';
+  import { clock as time, fullTime, money } from '../../lib/format';
   import { router } from '../../lib/router.svelte';
   import { session } from '../../lib/stores/session.svelte';
   import { matchesResult, matchesWhere } from '../../lib/taskStatus';
@@ -74,8 +74,6 @@
     { value: 'attention', label: 'Needs attention' },
     { value: 'failed', label: 'Failed' },
   ];
-
-  const time = (t: string) => new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 </script>
 
 <Activity>

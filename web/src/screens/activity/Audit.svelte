@@ -3,7 +3,7 @@
   import { Button, CodeBlock, Dialog, Disclosure, EmptyState, IconButton, LinkButton, Menu, Segmented, Select, StatusLine, toast } from '../../components/ui';
   import { api, qs } from '../../lib/api/client';
   import type { List } from '../../lib/api/types.gen';
-  import { fullTime } from '../../lib/format';
+  import { clock as time, fullTime } from '../../lib/format';
   import { siteGrant } from '../../lib/grants';
   import { router } from '../../lib/router.svelte';
   import { session } from '../../lib/stores/session.svelte';
@@ -92,7 +92,7 @@
     const at = check.bad_at ?? rows?.find((r) => r.id === check?.bad_id)?.at;
     if (!at) return '';
     const d = new Date(at);
-    return `${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} at ${d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+    return `${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} at ${time(at)}`;
   });
 
   function exportLog() {
@@ -120,7 +120,6 @@
     }
   }
 
-  const time = (t: string) => new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
   const clear = () => router.setQuery({ who: null, action: null, period: 'all' });
 </script>
 
