@@ -223,6 +223,12 @@ func (r *Runner) prepareCall(rs *runState, step int, call core.ToolCall) *pcall 
 	}
 	if errors.Is(err, core.ErrInvalid) {
 		msg := strings.TrimPrefix(err.Error(), core.ErrInvalid.Error()+": ")
+		// What the model asked for, so the task can say what Bothy couldn't
+		// do ("Couldn't get acme/web") rather than a sentence with a hole.
+		var obj map[string]json.RawMessage
+		if json.Unmarshal(pc.args, &obj) == nil {
+			pc.rec.Action = &core.Action{Tool: pc.name, Kind: core.ActGeneric, SideEffect: pc.rec.SideEffect, Payload: json.RawMessage(r.redact(string(pc.args)))}
+		}
 		return fail(core.TCInvalid, fmt.Sprintf("Invalid arguments for %s: %s", pc.name, r.redact(msg)))
 	}
 	if err != nil {

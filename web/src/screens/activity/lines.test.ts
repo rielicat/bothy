@@ -28,6 +28,11 @@ describe('task steps (docs/design/ui.md §10.2, §7.4)', () => {
     expect(text(stepLine(call('web_search', 'ok', { payload: { query: 'pricing' } })).segments)).toBe('Searched the web for “pricing”');
   });
 
+  it('names what a call refused for its arguments was asked to do', () => {
+    // The server keeps the arguments of such a call as its action's payload.
+    expect(text(stepLine(call('repo_checkout', 'invalid', { payload: { repo: 'acme/web' } })).segments)).toBe("Couldn't get acme/web");
+  });
+
   it('never names a tool by its id', () => {
     expect(text(stepLine(call('mcp__linear__create_issue', 'ok')).segments)).toBe('Used Linear: Create issue');
     expect(text(stepLine(call('repo_open_pr', 'ok', { payload: { repo: 'acme/web', number: 142 } })).segments)).toBe('Opened pull request #142 in acme/web');

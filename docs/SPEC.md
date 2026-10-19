@@ -2918,7 +2918,7 @@ const (
 	TCError    ToolCallStatus = "error"
 	TCTimeout  ToolCallStatus = "timeout"
 	TCStopped  ToolCallStatus = "stopped"
-	TCInvalid  ToolCallStatus = "invalid" // unknown tool or schema-invalid args
+	TCInvalid  ToolCallStatus = "invalid" // unknown tool or schema-invalid args; for refused args the record's Action is a generic one holding them (redacted), so the task can name what was asked
 )
 
 type ToolCallRecord struct {

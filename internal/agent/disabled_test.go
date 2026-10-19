@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 	"testing/synctest"
 
@@ -87,6 +88,23 @@ func TestScheduledAllowSessionCoversTheSchedule(t *testing.T) {
 		h.r.grantFor(h.ctx, rs, pc, core.AllowSession, nil)
 		if len(h.pol.Grants) != 1 || h.pol.Grants[0].Scope != core.GrantSchedule || h.pol.Grants[0].ScopeID != "sch_digest" {
 			t.Fatalf("grants = %+v, want one for the schedule", h.pol.Grants)
+		}
+	})
+}
+
+// A call refused for its arguments keeps what was asked, so its step reads
+// "Couldn't get acme/web", not "Couldn't get".
+func TestInvalidCallKeepsWhatWasAsked(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		tool := &testTool{name: "repo_checkout", planErr: fmt.Errorf("%w: the checkout has local changes", core.ErrInvalid)}
+		h := newHarness(t, opts{tools: []core.Tool{tool}, steps: []fakes.LLMStep{
+			{ToolCalls: []core.ToolCall{call("repo_checkout", `{"repo":"acme/web"}`)}}, {Text: []string{"done"}}}})
+		defer h.close()
+		res := h.submit("fix the typo")
+		synctest.Wait()
+		recs := h.toolCalls(res.Run)
+		if len(recs) != 1 || recs[0].Status != core.TCInvalid || recs[0].Action == nil || string(recs[0].Action.Payload) != `{"repo":"acme/web"}` {
+			t.Fatalf("records = %+v", recs)
 		}
 	})
 }
