@@ -17,5 +17,5 @@ export const channelName: Record<string, string> = {
   discord: 'Discord',
   slack: 'Slack',
   api: 'API',
-  schedule: 'Schedule',
+  schedule: 'a schedule',
 };
