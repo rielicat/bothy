@@ -143,6 +143,7 @@
           {#if ref}{label(ref).name} <span class="text-muted">· {label(ref).provider}</span>{:else}<span class="text-muted">Not chosen</span>{/if}
         </span>
         <Button
+          size="sm"
           aria-label="Change {title.toLowerCase()}"
           onclick={() => {
             changing = path;
