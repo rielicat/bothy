@@ -691,11 +691,13 @@ func TestSchedulesWithGrants(t *testing.T) {
 	if gs, _ := h.store.Grants().List(ctx, v, core.GrantSchedule, string(sc.ID)); len(gs) != 0 {
 		t.Fatalf("grants after delete = %+v", gs)
 	}
-	acts := strings.Join(h.audit.Actions(), " ")
-	for _, a := range []string{"schedule.create", "schedule.update", "schedule.delete"} {
-		if !strings.Contains(acts, a) {
-			t.Errorf("%s not audited", a)
-		}
+	// The scheduler writes each change's one audit row, with the request's origin.
+	if acts := strings.Join(h.audit.Actions(), " "); strings.Contains(acts, "schedule.") {
+		t.Errorf("the handler audited schedule changes itself: %s", acts)
+	}
+	who := "user:" + string(h.member.user)
+	if n := len(ss.origins); n < 3 || ss.origins[n-3].Actor != who || ss.origins[n-3].Detail["grants"] != 1 || ss.origins[n-1].Actor != who || ss.origins[n-1].IP == "" {
+		t.Errorf("origins = %+v", ss.origins)
 	}
 	prev := decodeAs[dto.SchedulePreviewResp](t, h.do("POST", "/api/schedules/preview",
 		dto.SchedulePreviewReq{Kind: core.SchedHeartbeat, Spec: "30m", TZ: "Europe/London"}, h.member))

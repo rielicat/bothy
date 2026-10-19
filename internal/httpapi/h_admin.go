@@ -220,7 +220,8 @@ func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request, a core.A
 	if _, err := scheduleGrants(req.Grants, &sc, a.User, s.now()); err != nil {
 		return err
 	}
-	if err := s.d.Scheduler.Upsert(ctx, a.Viewer, &sc, byString(a)); err != nil {
+	// The scheduler writes the one audit row, with this request's origin.
+	if err := s.d.Scheduler.Upsert(withOrigin(r, a, map[string]any{"grants": len(req.Grants)}), a.Viewer, &sc, byString(a)); err != nil {
 		return err
 	}
 	grants, err := scheduleGrants(req.Grants, &sc, a.User, s.now())
@@ -237,7 +238,6 @@ func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request, a core.A
 			return err
 		}
 	}
-	s.audit(r, a, "schedule.create", "schedule:"+string(sc.ID), "ok", map[string]any{"name": sc.Name, "kind": sc.Kind, "grants": len(grants)})
 	return s.respondSchedule(w, ctx, a, sc.ID)
 }
 
@@ -296,7 +296,7 @@ func (s *Server) patchSchedule(w http.ResponseWriter, r *http.Request, a core.Ac
 	if err != nil {
 		return err
 	}
-	if err := s.d.Scheduler.Upsert(ctx, a.Viewer, &sc, byString(a)); err != nil {
+	if err := s.d.Scheduler.Upsert(withOrigin(r, a, map[string]any{"grants": len(grants)}), a.Viewer, &sc, byString(a)); err != nil {
 		return err
 	}
 	if err := s.revokeScheduleGrants(ctx, a, sc.ID); err != nil {
@@ -307,7 +307,6 @@ func (s *Server) patchSchedule(w http.ResponseWriter, r *http.Request, a core.Ac
 			return err
 		}
 	}
-	s.audit(r, a, "schedule.update", "schedule:"+string(sc.ID), "ok", map[string]any{"name": sc.Name, "kind": sc.Kind, "grants": len(grants)})
 	return s.respondSchedule(w, ctx, a, sc.ID)
 }
 
@@ -322,13 +321,12 @@ func (s *Server) deleteSchedule(w http.ResponseWriter, r *http.Request, a core.A
 		}
 		v = teamScheduleViewer(a, team)
 	}
-	if err := s.d.Scheduler.Delete(ctx, v, id, a.User); err != nil {
+	if err := s.d.Scheduler.Delete(withOrigin(r, a, nil), v, id, a.User); err != nil {
 		return err
 	}
 	if err := s.revokeScheduleGrants(ctx, core.Actor{User: a.User, Viewer: v}, id); err != nil {
 		return err
 	}
-	s.audit(r, a, "schedule.delete", "schedule:"+string(id), "ok", nil)
 	return noContent(w)
 }
 
@@ -360,10 +358,9 @@ func (s *Server) patchTeamSchedule(w http.ResponseWriter, r *http.Request, a cor
 	v := teamScheduleViewer(a, cur)
 	sc := *cur
 	sc.Enabled = *enabled
-	if err := s.d.Scheduler.Upsert(ctx, v, &sc, byString(a)); err != nil {
+	if err := s.d.Scheduler.Upsert(withOrigin(r, a, nil), v, &sc, byString(a)); err != nil {
 		return err
 	}
-	s.audit(r, a, "schedule.update", "schedule:"+string(sc.ID), "ok", map[string]any{"name": sc.Name, "kind": sc.Kind, "enabled": sc.Enabled})
 	got, err := s.d.Store.Schedules().Get(ctx, v, sc.ID)
 	if err != nil {
 		return err

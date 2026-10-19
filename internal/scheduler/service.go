@@ -1,9 +1,11 @@
 package scheduler
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"strings"
 	"time"
@@ -352,11 +354,16 @@ func (s *Service) auditf(ctx context.Context, action, actor string, sc *core.Sch
 	}
 	d := map[string]any{"schedule_id": sc.ID, "principal_id": sc.Principal, "name": sc.Name, "kind": sc.Kind,
 		"spec": sc.Spec, "tz": sc.TZ, "enabled": sc.Enabled}
-	for k, v := range extra {
-		d[k] = v
+	var ip string
+	// A change made over HTTP is recorded here only, with the request's
+	// actor (a token, say), address and detail.
+	if o, ok := core.AuditOriginFrom(ctx); ok {
+		actor, ip = cmp.Or(o.Actor, actor), o.IP
+		maps.Copy(d, o.Detail)
 	}
+	maps.Copy(d, extra)
 	detail, _ := json.Marshal(d)
-	e := core.AuditEntry{At: s.clock.Now(), Actor: actor, Action: action, Target: "schedule:" + string(sc.ID), Outcome: "ok", Detail: detail, Run: run}
+	e := core.AuditEntry{At: s.clock.Now(), Actor: actor, Action: action, Target: "schedule:" + string(sc.ID), Outcome: "ok", Detail: detail, Run: run, IP: ip}
 	if agentRun, ok := strings.CutPrefix(actor, "agent:"); ok && run == "" {
 		e.Run = core.RunID(agentRun)
 	}
