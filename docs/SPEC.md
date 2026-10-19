@@ -535,7 +535,7 @@ internal/store/migrations/ 0001_init.sql (§6); v0.2: 0002_repos, 0003_knowledge
                            0005_approval_comments, 0006_must_change_password, 0007_v02_fixes (§14.6),
                            0008_external_secret_refs (§14.8), 0009_ui_state (§14.7),
                            0010_knowledge_stemming, 0011_sign_ins (§15), 0012_github_apps (§14.3),
-                           0013_team_access (§6), 0014_team_memory (§6)                                 [S]
+                           0013_team_access (§6), 0014_team_memory (§6), 0015_related_chats (§6)        [S]
 internal/vault/            core.Vault, core.Redactor, KEK sources, envelope crypto, aws-sm references   [M1]
 internal/vault/awssm/      v0.2: AWS Secrets Manager GetSecretValue, hand-signed (SigV4) (§14.8)        [M1]
 internal/audit/            core.Auditor: single writer, hash chain, Verify, offline Archive             [M1]
@@ -573,6 +573,7 @@ internal/channel/discord/  Discord adapter (disgo) + discordtest fake           
 internal/channel/slack/    Slack adapter (slack-go socketmode) + slacktest fake                         [M10]
 internal/auth/             core.Auth                                                                    [M11]
 internal/httpapi/          routes, middleware, SSE, OpenAI-compatible endpoints                         [M11]
+internal/starters/         starter rows, schedule examples, check-in lines, welcome message (§14.10)    [M11]
 internal/doctor/           check runner, text/JSON rendering                                            [M11]
 internal/webui/            go:embed dist (pre-gzipped), SPA fallback, cache headers                     [M11]
 web/                       Svelte 5 SPA (src/lib/api/types.gen.ts is [S], generated)                    [M12]
@@ -588,7 +589,7 @@ scripts/                   check-imports.sh, check-ownership.sh, budgets/*, e2e-
 
 **Import rules (CI-enforced by `scripts/check-imports.sh`):**
 - `internal/core` imports only the standard library.
-- Module packages import `core`, `config`, the stdlib, their own subpackages and their approved deps (§11). They never import another module's package. Exceptions: `httpapi` may import `doctor` and `dto` (same module / skeleton), adapters may import nothing from `internal/channel`, and tests may import `internal/testkit/**` and `internal/events`.
+- Module packages import `core`, `config`, the stdlib, their own subpackages and their approved deps (§11). They never import another module's package. Exceptions: `httpapi` may import `doctor`, `starters` and `dto` (same module / skeleton), adapters may import nothing from `internal/channel`, and tests may import `internal/testkit/**` and `internal/events`.
 - Only `cmd/bothy` imports concrete module packages.
 - `os/exec` only in `internal/sandbox/bwrap`. `unsafe` nowhere outside deps.
 - No provider SDK, no `net/http.DefaultClient` in gateway packages (all clients come from `core.Egress`). v0.2 exception: `internal/provider/bedrock` may import exactly the AWS SDK packages for credentials, SigV4 and event-stream framing (§11.1); `internal/provider` tests may import the event-stream package; `internal/vault/awssm` may import `aws` (the credential type) and `aws/signer/v4` (SigV4), and `internal/vault` tests `aws`. The vault never imports the provider module: `cmd/bothy` hands it the bedrock provider's credential chain (`vault.SetAWS`, §14.8).
@@ -2735,6 +2736,10 @@ type User struct {
 	// LastLoginAt is the last sign-in by any method; zero = never.
 	// UserRepo.SignedIn writes it, Update leaves it alone.
 	LastLoginAt time.Time `json:"last_login_at"`
+
+	// WelcomedAt is when the account got its welcome chat; zero = not yet.
+	// UserRepo.ClaimWelcome writes it once.
+	WelcomedAt time.Time `json:"-"`
 }
 
 // Space is a channel (kind "group") or a teammate's own space (kind
@@ -2854,11 +2859,22 @@ type Session struct {
 	MemorySeen     int64       `json:"-"`            // last memory_events id folded into the snapshot
 	PinsSeen       int64       `json:"-"`            // last pin id folded into the snapshot
 	Taint          Taint       `json:"taint"`
-	Hidden         bool        `json:"hidden"` // ephemeral API sessions
+	Hidden         bool        `json:"hidden"` // not listed: one-shot API chats and check-ins with nothing to report
 	Archived       bool        `json:"archived"`
 	CreatedAt      time.Time   `json:"created_at"`
 	UpdatedAt      time.Time   `json:"updated_at"`
 	LastMessageAt  time.Time   `json:"last_message_at"`
+	// ParentID is the chat this one continued from and RootID the top of
+	// that family (the parent's root, else the parent); both are fixed when
+	// the chat is made and "" for a chat that came from nowhere.
+	ParentID SessionID `json:"parent_id,omitempty"`
+	RootID   SessionID `json:"root_id,omitempty"`
+	// ScheduleID is the schedule whose result this chat holds, for a
+	// schedule that makes a fresh chat per run.
+	ScheduleID ScheduleID `json:"schedule_id,omitempty"`
+	// TitleAuto: Bothy chose the title ("X (clean)", "Welcome to Bothy"), so
+	// the first message's title replaces it.
+	TitleAuto bool `json:"-"`
 }
 
 type RunStatus string
@@ -3214,6 +3230,10 @@ type UserRepo interface {
 	// SignedIn records a successful sign-in at at: LastLoginAt, and the
 	// failure count and lock cleared.
 	SignedIn(ctx context.Context, id UserID, at time.Time) error
+	// ClaimWelcome sets WelcomedAt to at only while it is zero, and reports
+	// whether this call set it: one welcome chat per account, however many
+	// requests race.
+	ClaimWelcome(ctx context.Context, id UserID, at time.Time) (bool, error)
 	Count(ctx context.Context) (int, error)
 	// Delete removes the users row (user purge). Foreign keys cascade to its
 	// principal, sessions (messages, pins, runs, approvals), grants,
@@ -3292,8 +3312,14 @@ type SessionRepo interface {
 	Get(ctx context.Context, v Viewer, id SessionID) (*Session, error)
 	ByChannelKey(ctx context.Context, p PrincipalID, key string) (*Session, error) // open (non-archived) only
 	List(ctx context.Context, v Viewer, f SessionFilter) ([]*Session, error)
-	Update(ctx context.Context, s *Session) error
+	Update(ctx context.Context, s *Session) error // every mutable column; ParentID and RootID are fixed at Create
 	SetTaint(ctx context.Context, id SessionID, t Taint) error
+	// SetHidden writes only the hidden flag, so it never undoes a concurrent
+	// read-modify-write of the rest of the row.
+	SetHidden(ctx context.Context, id SessionID, hidden bool) error
+	// Related returns the sessions among ids that the Viewer may open and
+	// that are listed (not archived, not hidden), newest first.
+	Related(ctx context.Context, v Viewer, ids []SessionID) ([]*Session, error)
 	Archive(ctx context.Context, v Viewer, id SessionID) error
 	AddURLs(ctx context.Context, id SessionID, urls []string, source string) error // URL provenance: search | user
 	HasURL(ctx context.Context, id SessionID, url string) (bool, error)
@@ -5308,7 +5334,7 @@ Outsiders get one line a day in DMs and silence in channels. Blocked people get 
    - **Scope:** what membership means on an adapter is `MemberScope()` (Slack: team and enterprise ids) plus the Discord servers with a channel on. When it changes (another workspace's token; the last channel in a server turned on or off) every verdict on that adapter becomes stale at once (`ResetMembership`, `meta["member_scope:<channel>"]`). The first scope seen resets nothing.
    - **Sweep:** every 15 min the hub renews, through the same limiter, verdicts older than 45 min of teammates who can approve or own an enabled schedule (at most 100 a pass). When Discord connects, channels recorded before Bothy knew their server get it from `InspectChat`.
    - **Admitted** (`IdentityResolution.Admitted`): a teammate whose person space is on and whose verdict is `member`, or whom an admin let in while the verdict is `unknown`.
-   - **DM:** admitted → the teammate's chat (a pending greeting is sent first, once: the hello, or for accounts linked before 0013 the "moved" greeting, *"Hi Maya, this chat is no longer tied to your Bothy account, so your earlier chats and notes stay in Bothy on the web. Ask me anything; when something needs approval, I'll ask an admin and tell you here."*). Outsider → *"Bothy works with members of {workspace}."* (Slack) or *"Bothy works only with members of its team."* at most once a day per identity (`Auth.NoticeSender`), in either `unknown_senders` mode; no admin notice, no inbox item, no model call. Anyone else (Telegram, Discord without a verdict, or a membership teammate Discord can no longer vouch for) **waits**: their first words are kept for the inbox item (once, one line, redacted), admins' inboxes are told, and with `pair` (the default) they get *"You'll be able to use Bothy once an admin lets you in."* at most once a day while approvers hear about it (web banner `unknown_sender`; approver DMs at most 3 an hour in fixed windows, the next window's first DM counting those held back, and none spent while there is no approver to tell). With `ignore` nobody is told, but they are still listed in Approvals. **No LLM call is ever made for someone who isn't admitted.**
+   - **DM:** admitted → the teammate's chat (a pending greeting is sent first, once: the hello, *"Hi Maya, I'm Bothy. Ask me anything, for example “What can you do for our team?” When something needs approval, I'll ask an admin and tell you here."*, or for accounts linked before 0013 the "moved" greeting, *"Hi Maya, this chat is no longer tied to your Bothy account, so your earlier chats and notes stay in Bothy on the web. Ask me anything; when something needs approval, I'll ask an admin and tell you here."*). Outsider → *"Bothy works with members of {workspace}."* (Slack) or *"Bothy works only with members of its team."* at most once a day per identity (`Auth.NoticeSender`), in either `unknown_senders` mode; no admin notice, no inbox item, no model call. Anyone else (Telegram, Discord without a verdict, or a membership teammate Discord can no longer vouch for) **waits**: their first words are kept for the inbox item (once, one line, redacted), admins' inboxes are told, and with `pair` (the default) they get *"You'll be able to use Bothy once an admin lets you in."* at most once a day while approvers hear about it (web banner `unknown_sender`; approver DMs at most 3 an hour in fixed windows, the next window's first DM counting those held back, and none spent while there is no approver to tell). With `ignore` nobody is told, but they are still listed in Approvals. **No LLM call is ever made for someone who isn't admitted.**
    - **Group:** the chat must be an **enabled space** (step 7). On Slack and Discord only admitted teammates are answered; guests, other companies, bots and Slackbot get silence. On Telegram anyone not blocked may talk, as untrusted.
    - **Private, in a group** (`Inbound.Private`: only the sender saw it, a Slack slash command, which works in channels the bot is not in) → never creates a space. Bothy answers it **privately**: where it was typed, seen by the sender alone, through the adapter's `core.PrivateReplier` and `Inbound.ReplyRef` (Slack: an ephemeral reply through the command's `response_url`, good for 30 minutes and five posts (`ChannelCaps.PrivatePosts`), sent only to `hooks.slack.com` and kept out of logs, errors, the database and runs); when the adapter can't, there is no reference or the post fails (logged without it), in the sender's DM (the hub opens it with `Channel.OpenDM` and remembers it), where an answer about a channel Bothy is on in starts by naming it, since "this chat" or "here" would be the DM (*"In #eng: Stopped."*; a longer answer on the lines after *"In #eng:"*), and the *chat* refusal drops "here" (*"In #eng: Only someone who can approve can use /bothy new."*). An answer goes to one place: one that needs more posts than the reference takes goes to the DM whole. Only a post that fails partway leaves the first pieces shown where it was typed, and the DM gets the whole answer too. Where the group has no enabled space, within the sender limit, an admitted teammate asking for help (`/help`, `/start`) gets the help list and nothing else, and `/stopall` (the kill switch, for approvers in any chat) and `/resume` are answered as anywhere, every time; anything else gets *"Bothy is off in #eng. Message Bothy directly, or ask an admin to turn #eng on."* (*"this channel"* when unnamed), or in the DM *"Bothy is off in #eng. You can message Bothy here, or ask an admin to turn #eng on."* (*"that channel"*), at most once per sender and channel an hour. Anyone else gets what a DM from them would, in their DM. In an enabled space it goes on as any message (step 7): free text starts a task in the channel, and a command's answer (help, status, usage, pins, model, refine, refusals, *"There's no /word command."*) is given privately. What needs buttons, later edits or a lasting record (waiting and outsider lines, approval cards, *Cancel request*, runs) never goes privately. A slash command typed in the bot's own DM is answered there; one typed in a DM between two people (Slack sends that conversation's id, which the bot cannot post in) is moved by the adapter to the sender's own DM with the bot (`conversations.open`) before it reaches the hub.
 4. **(Folded into step 3.)**
@@ -5327,7 +5353,7 @@ Outsiders get one line a day in DMs and silence in channels. Blocked people get 
 | `/model <model name>`, `/model`, `/model default` | chat | set, show or clear the session model override. Models are named in plain words (`ModelInfo.DisplayName`); setting takes a display or short name (case-insensitive, the first configured provider winning a shared name) or, as a fallback, a `provider/model` ref. Bare `/model` only shows; clearing takes `default` (or `clear`, `reset`) |
 | `/usage` | anyone | today's spending and this session's cost, money as in `/status` |
 | `/refine [on\|off\|default]` | chat | v0.2: set this session's refine mode; `/refine` alone shows the setting with the typical cost (`core.RefineTypicalCalls`). Also in the Telegram menu and as a Slack `/bothy` subcommand |
-| `/help` | anyone | *"Commands:"*, then one line per command, the command and what it does in plain words (*"/stop – stop the current task"*); on Slack the command is in code (*"`/bothy stop` – stop the current task"*), while elsewhere it stays plain text, which Telegram makes tappable (it makes nothing in code tappable); hidden ones are not listed |
+| `/help` | anyone | *"Ask me anything, for example “Draft a release checklist for our next version” or “What can you do for our team?”"*, a blank line, *"Commands:"*, then one line per command, the command and what it does in plain words (*"/stop – stop the current task"*); on Slack the command is in code (*"`/bothy stop` – stop the current task"*), while elsewhere it stays plain text, which Telegram makes tappable (it makes nothing in code tappable); hidden ones are not listed |
 | `/pair` | anyone (hidden) | *"Bothy doesn't use link codes any more. Write here to ask it anything."* |
 | `/start` | anyone (hidden) | in a DM, the hello; in a channel, the help text. A `/start <payload>` is plain `/start` |
 
@@ -5367,7 +5393,9 @@ Team-owned principals (`Principal.User == ""`: channels and teammates) belong to
 | `TaintUntrusted` | a `ProvUntrusted` message enters the session; a tool with Taint ⊇ Untrusted runs (`web_fetch`, `web_search`, MCP tools unless `trusted_output`; v0.2: `github_issues`, `github_pr`, `github_runs`, `repo_changes`, `repo_checkout` (which also marks the workspace untrusted), `knowledge_search`, and a `notes` read of untrusted notes; their results are untrusted and spotlighted, while `repo_list` is trusted metadata); untrusted project notes enter the turn-context (§5.6); the box moved bytes through the proxy since the previous tool call, background processes included (`Egress.TakeActivity` is taken after every tool call and never cleared before one): that call's output is untrusted; an exec or read-only fs tool reads from a workspace marked untrusted (below); a `session_search` hit with `Trusted=false` |
 | `TaintSend` | the run's toolset contains any `external_send` capability or the box has any egress grant (informational, for the UI badge) |
 
-`Taint.Exposed()` (Private and Untrusted) triggers the **trifecta floor**: every `external_send` or `irreversible` action asks (no "allow for session" offered), session/principal egress grants are suspended at the proxy, `web_fetch` follows the URL-provenance rule, links in agent output are neutralized, and the UI badge turns red with a "Fork clean" button (`POST /api/sessions/{id}/fork` → `Runner.Fork`: a new session with no history, taint 0 and a system note linking the old one, "Clean fork of “<title>” (<id>). History and taint were not carried over; the workspace files are shared, so reading ones that came from untrusted sources taints this session too."; a channel session's chat moves to the fork).
+`Taint.Exposed()` (Private and Untrusted) triggers the **trifecta floor**: every `external_send` or `irreversible` action asks (no "allow for session" offered), session/principal egress grants are suspended at the proxy, `web_fetch` follows the URL-provenance rule, links in agent output are neutralized, and the UI badge turns red with a "Continue in a clean chat" button.
+
+**Clean chats** (`POST /api/sessions/{id}/fork` → `Runner.Fork`) can be made of any chat the caller may open, at any time and from the web or a token with chat scope: the web also offers "New related chat" in every chat's menu. The new session has no history and taint 0; `parent_id` is the old chat and `root_id` the old chat's root, else the old chat, so a clean chat of a clean chat hangs from the top of its family (0015, §14.10). Its title is "<title> (clean)" with `title_auto` set, so the first message's draft and then the generated title replace it (§5.5), and `last_message_at` is now, so it is listed at once. It opens with a notice that names no chat, since the line above the transcript says where it came from: *"This clean chat starts without the messages, private information or outside content of the chat it came from. Bothy's files are shared, so files from outside your team still count as outside content here."* One made from a hidden check-in is listed; one from a hidden API one-shot stays hidden. A channel session's chat moves to the fork.
 
 **Workspace provenance.** The workspace belongs to the principal and is shared by all its sessions (chats, forks, schedules), and its files carry no provenance of their own. The runner marks it untrusted, permanently, in meta key `agent.workspace_untrusted.<ws>` (`"1"`; a failed read counts as marked) when its box egresses, when untrusted output is spilled into `.bothy/out`, when a session holding Untrusted runs an exec or writing fs tool, or when a `ProvUntrusted` message brings files. From then on the output of exec and read-only fs tools from that workspace is untrusted in every session of the principal, clean forks included, and parallel reads are decided with that taint.
 
@@ -5399,7 +5427,7 @@ Team-owned principals (`Principal.User == ""`: channels and teammates) belong to
 7. **No tool calls** → step 10. **Refine (v0.2, §14.2):** when refine mode is on for the run (`RunRequest.Refine`, then the session's meta key `agent.refine.<session>`, then `agent.refine.enabled`; config and session apply to `message` and `api` triggers only), each step's text is held back until a tool call shows the step is not the final answer. A final answer (text, no tool calls) becomes draft 0; `drafts − 1` more drafts repeat the step's request with `ToolChoice: none` (tools block kept, so the cached prefix is unchanged, except on Bedrock, where `none` sends no tools at all and the drafts share no cached prefix with the tool-using step: §14.1); each draft gets `depth` rounds of continue → critique → correct, skipping the correction when the critic confirms and the continued text states a final answer; then a plurality vote over normalized `Final answer:` lines (ties to the earliest draft), stopping early once all drafts (two or more) agree. At most 4 calls are in flight; they are metered as purpose `agent` at the same step, do not count as steps, and `BeforeCall` counts calls in flight. Refinement stops 5 s before the time limit, on a new message or on stop, keeping the best answer so far; only the winner is streamed, without its closing `Final answer:` section (`refine.Strip`; a reply that is only that section keeps the answer), and its message carries a `PartRefine` trace. A steer pending when the final answer arrives skips refinement for that step, and a message whose refine toggle disagrees with the active run is queued as its own turn rather than folded in as a steer.
 8. **Tool calls** → §5.7 for each, in model order. Consecutive calls that are all `read`, all auto-allowed and not exec run in parallel (≤ `agent.parallel_read_tools`, 4); everything else is sequential.
 9. **Loop:** drain steer messages into history, re-check budgets, go to 3. The tools block and S2 never change mid-epoch; S1 changes only when the standing rules or team memory change (step 6, §5.6).
-10. **Finish:** the run stops taking steers as soon as it starts finishing. Final status (`done`, `stopped`, `failed`, `budget_exceeded`, `loop_detected`). Update run totals. Publish `run.finished`. The sink finalizes (last edit, overflow split, Stop button removed, optional usage footer "· 3 steps · $0.01"). Budget stops add a notice; a steps stop offers **Continue** (`Runner.Continue`: new run, same session, +10 steps; the continued run is message-triggered but keeps the provenance of the run it continues, so F6 still applies to a run an untrusted message started). On `budget_exceeded`, `loop_detected`, `failed` or `interrupted`, if a steer arrived after the last completed model call (an assembly that was never sent does not count as read), the session gets the notice *"Bothy stopped before reading your latest message. It stays in this chat, so your next message picks it up."* **Titles (v0.2 UI, S14):** the first stored turn of an untitled, non-hidden session sets `Title` to `core.DraftTitle` of the first message someone wrote (redacted; turns with provenance `system`, such as Bothy's own notices and resumed actions, never name a chat) and publishes `session.updated`. After the first run that ends `done` (an earlier parked, failed or stopped one leaves it to the next; the runner remembers in memory which titles are still drafts), a fast-slot call (≤ 300 tokens, metered) with the prompt *"Write a title of at most six words for this conversation, in plain words and sentence case, with no quotes, emoji or full stop. Reply with the title only."* replaces only that draft, never a name someone chose; `cleanTitle` keeps one line, drops control, format and symbol characters (emoji), surrounding quotes and a trailing full stop or exclamation mark, and cuts at 80 characters.
+10. **Finish:** the run stops taking steers as soon as it starts finishing. Final status (`done`, `stopped`, `failed`, `budget_exceeded`, `loop_detected`). Update run totals. Publish `run.finished`. The sink finalizes (last edit, overflow split, Stop button removed, optional usage footer "· 3 steps · $0.01"). Budget stops add a notice; a steps stop offers **Continue** (`Runner.Continue`: new run, same session, +10 steps; the continued run is message-triggered but keeps the provenance of the run it continues, so F6 still applies to a run an untrusted message started). On `budget_exceeded`, `loop_detected`, `failed` or `interrupted`, if a steer arrived after the last completed model call (an assembly that was never sent does not count as read), the session gets the notice *"Bothy stopped before reading your latest message. It stays in this chat, so your next message picks it up."* **Titles (v0.2 UI, S14):** the first stored turn of an untitled, non-hidden session, or of one whose title Bothy chose (`title_auto`: a clean chat's "<title> (clean)", the welcome chat's; 0015), sets `Title` to `core.DraftTitle` of the first message someone wrote and clears `title_auto` (redacted; turns with provenance `system`, such as Bothy's own notices and resumed actions, never name a chat) and publishes `session.updated`. After the first run that ends `done` (an earlier parked, failed or stopped one leaves it to the next; the runner remembers in memory which titles are still drafts), a fast-slot call (≤ 300 tokens, metered) with the prompt *"Write a title of at most six words for this conversation, in plain words and sentence case, with no quotes, emoji or full stop. Reply with the title only."* replaces only that draft, never a name someone chose; `cleanTitle` keeps one line, drops control, format and symbol characters (emoji), surrounding quotes and a trailing full stop or exclamation mark, and cuts at 80 characters.
 11. **Drain** the queue (busy mode `queue`) and release the worker.
 
 ### 5.6 Context assembly (cache-stable layout)
@@ -5617,11 +5645,12 @@ Ring of the last 16 `(tool, fnv64(args), fnv64(result))`:
 
 ### 5.16 Scheduled and heartbeat runs (M8 + M3)
 
-- A schedule run uses the schedule's target session (`Schedule.Session`, a running conversation) or, when that is empty, a **fresh session per run** (`Runner.NewSession(principal, "schedule", nil)`, title "<schedule name> · <local date>"), so independent runs never accumulate history and each run has its own transcript. Busy target → queued; full queue → run recorded `skipped`. The run's input is the schedule prompt with provenance `user` (heartbeat: §below).
+- A schedule run uses the schedule's target session (`Schedule.Session`, a running conversation) or, when that is empty, a **fresh session per run** (`Runner.NewSession(principal, "schedule", nil)`, titled "<schedule name> · 19 Oct" with the date in the schedule's time zone, "Check-in · 19 Oct" for a heartbeat-kind schedule, and filed under the schedule with `schedule_id`, so the web lists a schedule's results as one series; 0015), so independent runs never accumulate history and each run has its own transcript. A schedule's own target session gets neither. Busy target → queued; full queue → run recorded `skipped`. The run's input is the schedule prompt with provenance `user` (heartbeat: §below).
 - Limits = schedule limits (defaults `budgets.scheduled`). Pre-authorized grants (`scope=schedule`) apply. `schedule_*` tools are absent (`Manifest.Triggers = [message]`), and F3 denies all admin-class actions: cron cannot create cron.
 - Approvals park (§5.9). Delivery: a teammate's or channel's schedule (`deliver: preferred`, nil) posts to `Hub.PrincipalChat` (the teammate's DM, the channel's chat), or to a chat set on the schedule only when it is that principal's own; an account's schedule stays on the web (accounts have no chat), so naming a chat app for one is refused (*"deliver: an account's results stay in Bothy, so its schedules can't post to {app}; leave deliver out"*), and `scheduler.heartbeat.deliver` naming a chat app leaves the owner's check-in without one. `deliver: web` is for accounts only (*"deliver: web is only for accounts on the web; use preferred"*). Before firing a team schedule the scheduler asks `Hub.TeamActive`: a blocked teammate, one no longer in the team, a membership verdict too old to renew, or a channel turned off skip the tick without counting a failure. A delivered result opens with a line naming where it came from, since nobody asked for it in that chat: *"From the schedule “Weekly PR digest” · ask Bothy here to change or stop it"* for a teammate's or channel's schedule (the web's *"… · change it under Schedules"* and *"From your check-in · …"* remain for accounts), in italics; the final-mode sink reads the run's trigger, principal and schedule from the store. A `HEARTBEAT_OK` reply sends nothing, header included. Admins list team schedules (`GET /api/team/schedules`) and may turn them on or off or delete them; everything else is changed by asking Bothy in that chat.
 - `schedule_create` plans an Action with every default resolved. With no set chat (`deliver: preferred`) it also carries `owner`, `owner_kind` and `usual_chat` for the card only: *"Bothy on the web"* for an account, *"{Name}'s messages on {App}"* for a teammate, *"{title} on {App}"* for a channel. Its result tells the model where runs will post (*"Results go to {Name}'s messages on {App}."*, *"Results stay in Bothy on the web."*). F3's reason reads *"creating a schedule needs an admin's approval"* (`schedule_delete`: *"deleting a schedule …"*; other admin-class tools: *"changes to how Bothy works need an admin's approval"*).
-- Heartbeat (`scheduler.heartbeat`, off by default): one schedule of kind `heartbeat` for the owner's principal, kept in sync by the scheduler (`every` ± 10% jitter, `active_hours` in the owner's own time zone; `deliver` may be `preferred`, `web` or a channel name, and in every case the check-in stays on the web, since accounts have no chat), fast slot; a config change or the owner changing their time zone (`PATCH /api/me` calls `ResyncHeartbeat`) re-syncs it. Memory files are not in the workspace, so the scheduler inlines the file: the prompt is *"Here is HEARTBEAT.md. If nothing needs the user's attention, reply exactly HEARTBEAT_OK."* followed by the content of `HEARTBEAT.md` (`Memory.Read`, `SystemViewer`). An empty or whitespace-only HEARTBEAT.md skips the tick with no LLM call. Delivery is suppressed when the final text starts with `HEARTBEAT_OK` (emphasis, blockquote or code ticks around the token are tolerated by the scheduler, the runner and the channel alike), including for a resumed (previously parked) heartbeat run: the runner wraps the resume sink so a `HEARTBEAT_OK` answer is not delivered then either; capped by `heartbeat_daily_usd` (§5.12). Members may create their own `heartbeat`-kind schedules in the Schedules UI; a check-in needs an account on the web (*"a check-in needs an account on the web"*), and teammates have no HEARTBEAT.md.
+- Heartbeat (`scheduler.heartbeat`, off by default): one schedule of kind `heartbeat` for the owner's principal, kept in sync by the scheduler (`every` ± 10% jitter, `active_hours` in the owner's own time zone; `deliver` may be `preferred`, `web` or a channel name, and in every case the check-in stays on the web, since accounts have no chat), fast slot; a config change or the owner changing their time zone (`PATCH /api/me` calls `ResyncHeartbeat`) re-syncs it. Memory files are not in the workspace, so the scheduler inlines the file: the input is the instruction *"Here is HEARTBEAT.md. If nothing needs the user's attention, reply exactly HEARTBEAT_OK."* as a turn-context part (`PartContext`, which the model reads and the transcript doesn't show), then the content of `HEARTBEAT.md` (`Memory.Read`, `SystemViewer`) as text, so the chat's first bubble is the person's own list. An empty or whitespace-only HEARTBEAT.md skips the tick with no LLM call. Delivery is suppressed when the final text starts with `HEARTBEAT_OK` (emphasis, blockquote or code ticks around the token are tolerated by the scheduler, the runner and the channel alike), including for a resumed (previously parked) heartbeat run: the runner wraps the resume sink so a `HEARTBEAT_OK` answer is not delivered then either; capped by `heartbeat_daily_usd` (§5.12). Members may create their own `heartbeat`-kind schedules in the Schedules UI; a check-in needs an account on the web (*"a check-in needs an account on the web"*), and teammates have no HEARTBEAT.md.
+- **Quiet check-ins** (0015): a check-in's fresh chat is made hidden (`Session.Hidden`) and is listed only once there is something to see. The scheduler hears `run.parked` as well as `run.finished`, and for a run with trigger `heartbeat` whose chat is hidden it calls `SessionRepo.SetHidden(false)` and publishes `session.updated` when the run parks, finishes with a status other than `done`, or finishes `done` with a last answer (the run's last assistant text) that doesn't start with `HEARTBEAT_OK` (the same tolerance as delivery). A done all-clear stays hidden, is never listed and is archived after 7 days with its messages deleted (§6 retention); its task stays in Activity. The turned-off notice below lists the chat it writes into. Data note: 0015 hides past all-clear check-ins (a done heartbeat run, no approval, a last answer starting `HEARTBEAT_OK`), so the first retention pass after the upgrade archives those older than 7 days.
 - Missed runs at boot: `missed_run: skip` (default) records nothing; `once` fires one catch-up run if missed by < 1 h. Three consecutive failures auto-disable the schedule and notify the owner (an account in the chat of its last failed task; when that task never started, in the chat its tick made for it; in a new one named as a run's would be when the tick failed before making one or the account has deleted that chat, so the notice always arrives: *"The schedule “{name}” was turned off because its last {n} tasks failed. Turn it back on under Schedules once it's fixed."*; a team schedule's chat hears *"The schedule “{name}” was turned off because its last {n} tasks failed. An admin can turn it back on in Bothy once it's fixed."*). Runs started with Run now don't count toward the three: trying a schedule out never turns it off.
 
 ### 5.17 Run-end notices (v0.2 UI, `internal/agent/notices.go`)
@@ -6196,10 +6225,10 @@ User input to `MATCH` is converted to a quoted-phrase/AND query (never raw FTS s
 - expired `auth_sessions`.
 - `runs` (with cascading `llm_calls`, `tool_calls`, `approvals`) only when `storage.retention.runs` > 0 (default 0 = keep).
 - v0.2 UI (S14): `web` sessions older than 24 h that hold no messages, runs, pins or schedule (archived or not, never hidden ones) are deleted with their meta key `agent.refine.<id>`; the candidate query joins `principals CROSS JOIN sessions` so it stays on the `sessions_recent` index (`last_message_at = 0`) instead of reading every session row.
-- Hidden `api` sessions idle for 7 days (by `max(created_at, updated_at, last_message_at)`) are archived and their messages deleted; archiving also clears the session's `system_snapshot`, `tools_snapshot`, `snapshot_hash` and `summary`. Only unarchived hidden `api` sessions are visited, through the `sessions_hidden_api` index on that same expression, so the hourly pass never scans every session.
+- Hidden `api` sessions, and hidden `schedule` sessions (check-ins with nothing to report, §5.16), idle for 7 days (by `max(created_at, updated_at, last_message_at)`) are archived and their messages deleted; archiving also clears the session's `system_snapshot`, `tools_snapshot`, `snapshot_hash` and `summary`. Only unarchived hidden `api` and `schedule` sessions are visited, through the `sessions_hidden_due` index on that same expression (0015; it replaced 0001's `sessions_hidden_api`), so the hourly pass never scans every session.
 - `audit_log` is never pruned online. `bothy audit archive --before <date>` runs with the gateway stopped: it exports the range to JSONL (0600), rebuilds `audit_log` without the triggers in a transaction, deletes the range, re-creates the triggers, and inserts an anchor row (`action=audit.archived`, detail = range, count and the last archived hash) chained to the remaining log.
 
-**v0.2 migrations** (§14; the lead adds them, each its own file, `0001_init.sql` never changes). Migrations run 1..N without gaps, so a v0.1 database (user_version 1) gets 0002–0014 in order after the pre-migration backup, and the result matches a fresh database's schema. An older binary refuses the upgraded database (e.g. "schema version 7 is newer than this binary supports (1)").
+**v0.2 migrations** (§14; the lead adds them, each its own file, `0001_init.sql` never changes). Migrations run 1..N without gaps, so a v0.1 database (user_version 1) gets 0002–0015 in order after the pre-migration backup, and the result matches a fresh database's schema. An older binary refuses the upgraded database (e.g. "schema version 7 is newer than this binary supports (1)").
 
 - `0002_repos.sql` (F4): `github_connections` (id `ghc_…`, auth pat|app, App rows need `app_id` and `installation_id` > 0, `secret_ref LIKE 'secret:_%'`, status ok|error) and `repos` (primary key `(owner, name)` `COLLATE NOCASE`, connection FK `ON DELETE CASCADE`, `allowed`, `last_indexed_sha`, dropped again by 0007), STRICT.
 - `0003_knowledge.sql` (F6): `knowledge_repos` (UNIQUE principal + repo, index and notes state), `knowledge_files` (repo + path; hash = chunker version + sha256), `knowledge_chunks` (INTEGER PRIMARY KEY as the external content of `knowledge_fts(path, title, body, terms)` with ai/ad triggers and an au trigger on path/title/body/terms only, so relabelling a chunk's sha does not rewrite FTS rows), `knowledge_sessions` (session, repo, touched_at, injected epoch and hash). It also rebuilds `llm_calls` with identical columns, indexes and rowids so the purpose CHECK accepts `notes`.
@@ -6246,6 +6275,7 @@ User input to `MATCH` is converted to a quoted-phrase/AND query (never raw FTS s
   - A temporary `m_rows` table CHECKs that sessions, messages, runs, grants, schedules, memory events, approvals, uploads and llm_calls keep their row counts across the rebuild.
   - `meta.team_access_report` (`at`, `linked`, `approvers`, `disabled_accounts`, `guests`, `telegram_guests`, `guests_blocked`, `schedules_paused`), written only when the migration moved someone (a new install, or one where nobody was linked or a guest, gets none; a report whose counts are all 0 is deleted at boot unseen): at boot `serve` audits it once as `migration.team_access` (actor `system`) and, while it is under 7 days old and no admin has changed anyone in People (any `PATCH /api/identities` deletes it), publishes the admin banner `team_access` (*"People in chat apps no longer link to Bothy accounts. Check who can use Bothy and who can approve in People."*, action `/settings/people`), which the v0.2 UI shows as a notice on People and in Approvals rather than a banner, since nothing stops.
 - `0014_team_memory.sql` (team memory, §14.9): `team_memory_events` (id, `op` add|replace|remove|edit, before, after, run_id, `approval_id` (the admin's approval an agent change ran under; `''` for an admin's own edit), actor, provenance, created_at), STRICT, with a unique index on a non-empty `approval_id`: an approval is good for one change, so a replayed call can't put back a note removed since. It is the history of `<data>/memory/team/TEAM.md`, which belongs to no principal: no foreign key, so a user purge never touches it (`memory_events` rows go with their principal).
+- `0015_related_chats.sql` (related chats and starters, §14.10): `sessions.parent_id` and `root_id` (`REFERENCES sessions(id) ON DELETE SET NULL`, partial indexes `sessions_parent` and `sessions_root`; fixed when the chat is made, so `SessionRepo.Update` never writes them), `schedule_id` (`''` = none; no foreign key, so a deleted schedule's results keep their group) and `title_auto` (0/1); `users.welcomed_at` (unix ms, 0 = the welcome chat is still due). `sessions_hidden_api` becomes `sessions_hidden_due` (`WHERE hidden = 1 AND origin IN ('api','schedule') AND archived = 0`). Data: results of schedules that make a fresh chat per run get the `schedule_id` of their first run (a schedule's own target chat is skipped); past check-ins whose done heartbeat run answered `HEARTBEAT_OK` and asked for no approval are hidden; result titles "heartbeat · 2026-10-19" read "Check-in · 19 Oct" and every "<name> · YYYY-MM-DD" result title gets the human date; every existing account counts as welcomed (`welcomed_at = max(created_at, 1)`).
 - Meta key `agent.refine.<session>` (`on` | `off`): the session's refine setting (runner, hub, httpapi), alongside the keys listed in the 0001 comment. Meta key `member_scope:<channel>`: what membership meant on that chat app when its verdicts were given (§5.1 step 3). Meta key `picture:<channel>`: the bot id (`PictureSetter.BotID`) whose picture the hub already looked after on that chat app, followed by the picture version Bothy gave it and the `PictureID` it showed as when Bothy gave one (§5.1, the bot's picture).
 - Refine calls are recorded in `llm_calls` with purpose `agent` (same step; their trace entries carry the `call_id`); a later migration could add a `refine` purpose.
 
@@ -7544,7 +7574,8 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `POST /api/setup/complete` | admin (during setup) | — | `204`; deletes the token file; setup routes 404 afterwards |
 | `POST /api/auth/login` | none (rate-limited) | `dto.LoginReq` | `dto.Me` + cookie |
 | `POST /api/auth/logout` | user | — | `204` |
-| `GET /api/auth/me` | user | — | `dto.Me` (v0.2 UI: `paused_by`, `paused_by_name`, `paused_at` while paused) |
+| `GET /api/auth/me` | user | — | `dto.Me` (v0.2 UI: `paused_by`, `paused_by_name`, `paused_at` while paused; §14.10: `welcome_pending` for a cookie session whose account hasn't had its welcome chat and has no password to change) |
+| `POST /api/me/welcome` | user (cookie only) | — | `dto.WelcomeResp` (§14.10: in one transaction `UserRepo.ClaimWelcome`, then the welcome chat and its notice; `{chat_id}` the first time, `{}` after, and for accounts from before 0015; publishes `message.created`) |
 | `GET /api/me` | user | — | `dto.Profile` (v0.2 UI; `h_uistate.go`: the caller's id, username, display name and time zone) |
 | `PATCH /api/me` | user (cookie only) | `dto.ProfilePatch` | `dto.Profile` (v0.2 UI: anyone renames themselves (at most 64 printable characters without format characters, as for admin renames, and not another person's display name or username: 400) and sets their own time zone (an IANA name; empty, `Local` or unknown: 400; the owner's change re-syncs their heartbeat); decoded strictly, so an unknown field such as the old `approvals_in` → 400; audited `user.profile`. Bearer tokens → 403, like voting) |
 | `POST /api/auth/password` | user (cookie) | `dto.PasswordReq` | `204` (rotates the session). v0.2 UI: `old` may be empty while `must_change_password` is set, which this clears; the one-time password itself is refused as the new one (400) |
@@ -7574,10 +7605,10 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `PATCH /api/spaces/{id}` | admin; turning a channel on or setting `tool_profile: standard` cookie only | `dto.SpacePatchReq` | `dto.SpaceView`; group chats only (a person space → 404); `enabled` and `tool_profile` change in one transaction, any `enabled` change sets `reviewed_at`, turning a channel off stops its runs, and the hub's list of servers with a channel on is refreshed; audited `space.update`. Turning a channel on lets in everyone Bothy answers there (on Discord, every member of the server), so like `PATCH /api/identities` it needs a signed-in admin: a bearer token gets 403 for `enabled: true` or `tool_profile: standard`, and may still rename, change `mention_only`, turn a channel off or make it `restricted` |
 | `DELETE /api/spaces/{id}` | admin (cookie) | — | `204`: deletes a channel that is off (400 *"Turn it off first."* otherwise; a person space → 404): its runs stop, then its chats, runs, boxes, schedules, grants, memory, project notes and files are purged through a viewer of that principal alone, and `Principals().Delete` removes the principal with everything that cascades from it; the hub's list of servers with a channel on is refreshed and `inbox.changed` sent; audited `space.delete` with the title, chat app and counts. If Bothy is still in the chat, its next message there records the chat again as new (§5.1) |
 | `GET /api/team/schedules` | admin | — | `[]dto.TeamSchedule`: teammates' and channels' schedules with their owner's name, kind (`teammate` \| `channel`) and chat app |
-| `GET /api/sessions` | user | `?principal=&archived=&q=&before=&limit=` | `dto.List[core.Session]` (v0.2 UI: only sessions holding a message, `SessionFilter.NonEmpty`; an untitled one carries its draft title) |
+| `GET /api/sessions` | user | `?principal=&archived=&q=&before=&limit=` | `dto.SessionPage` (v0.2 UI: only sessions holding a message, `SessionFilter.NonEmpty`; an untitled one carries its draft title. §14.10: `next` comes from the items; `parents` are the listed chats the items continued from (`root_id`, `parent_id`) that aren't on the page, through `SessionRepo.Related` with the caller's Viewer, a row of another principal than the item naming it dropped; left out with `q`) |
 | `POST /api/sessions` | user | `dto.SessionCreateReq` | `core.Session` (`Runner.NewSession`, origin `web`). v0.2 UI: with `message` the first message is checked before anything is stored and submitted in the same request → `202 dto.SessionCreated` (the session plus `run`); a refused submit archives the new session and returns the error |
-| `GET /api/sessions/{id}` | user | — | `dto.SessionDetail` (v0.2: `refine` is the session's own setting, `on`, `off` or `""`) |
-| `PATCH /api/sessions/{id}` | user | `dto.SessionPatchReq` | `core.Session` (v0.2: `refine` `on`, `off` or `""` to follow `agent.refine.enabled`; anything else 400) |
+| `GET /api/sessions/{id}` | user | — | `dto.SessionDetail` (v0.2: `refine` is the session's own setting, `on`, `off` or `""`. §14.10: `from` is the parent, read with the caller's Viewer, as `{chat, id, title}` when it is the same principal's and not archived, else `{chat}`; else, for `schedule_id`, `{schedule\|checkin, id, title}` when `Schedules().Get` with the Viewer finds the same principal's schedule (`checkin` and "Check-in" for a heartbeat-kind one), else `{schedule}`; left out for a chat from nowhere) |
+| `PATCH /api/sessions/{id}` | user | `dto.SessionPatchReq` | `core.Session` (v0.2: `refine` `on`, `off` or `""` to follow `agent.refine.enabled`; anything else 400. A title clears `title_auto`, §14.10) |
 | `DELETE /api/sessions/{id}` | user | — | `204` (archive) |
 | `GET /api/sessions/{id}/messages` | user | `?before=<seq>&limit=` | `dto.MessagePage` (v0.2 UI: tool_call parts carry `state` and `approval_id`, derived on read; `approvals` lists the approvals of the page's calls, decided ones and egress holds (`<call>#net`) included, with `decided_by_name`) |
 | `POST /api/sessions/{id}/messages` | user | `dto.SendReq` | `202 core.SubmitResult` (v0.2: `refine` true or false for this message; omitted follows the session, then `agent.refine.enabled`) |
@@ -7585,10 +7616,11 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `POST /api/sessions/{id}/compact` | user | — | `202` |
 | `GET /api/sessions/{id}/context` | user | — | `core.Breakdown` (preview of the next call) |
 | `GET /api/sessions/{id}/refine-estimate` | user | — | `dto.RefineEstimate` (v0.2 UI: `usd` = the average cost of the chat's last 3 priced answer steps × `multiplier`, left out without a priced answer; `multiplier` = drafts × (1 + 3 × rounds), rounds = depth, or (depth+1)/2 with early stop) |
-| `POST /api/sessions/{id}/fork` | user | — | `core.Session` (`Runner.Fork`: clean fork, taint 0) |
+| `POST /api/sessions/{id}/fork` | user | — | `core.Session` (`Runner.Fork`, §5.3: a clean chat of any chat the caller may open, at any time, from the web ("Continue in a clean chat", "New related chat") or a token; taint 0, `parent_id` and `root_id` set, listed at once) |
 | `GET /api/sessions/{id}/pins` | user | — | `[]core.Pin` |
 | `POST /api/sessions/{id}/pins` | user | `dto.PinReq` | `core.Pin` |
 | `DELETE /api/sessions/{id}/pins/{pin}` | user | — | `204` |
+| `GET /api/starters` | user | — | `[]dto.StarterRow` (§14.10: up to four rows for the caller; members never get a settings link) |
 | `POST /api/uploads` | user | multipart `file`, field `session_id` (v0.2 UI: or `principal_id`, as a form field or query parameter, for a chat not stored yet) | `dto.Upload` (streamed to `<work>/ws/<principal workspace>/.bothy/in/<upl>/<sanitized name>`, 0660, ≤ `upload_max_mb`; `uploads` row) |
 | `GET /api/runs` | user | `?session=&schedule=&status=&before=&limit=` | `dto.List[dto.RunView]` (v0.2 UI: `requested_by_name`, `chat_title`, `schedule_name`, `origin` (web, slack, telegram, discord, api or schedule), `reason` (the plain end of "Failed: …" or "Stopped …") and `refined`) |
 | `GET /api/runs/{id}` | user | — | `dto.RunDetail` (v0.2: approvals carry their votes; `refine` is the run's last refine trace; v0.2 UI: `run` is a `dto.RunView`) |
@@ -7631,9 +7663,10 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `GET /api/schedules/{id}` | user | — | `core.Schedule` |
 | `PATCH /api/schedules/{id}` | user (admins also for team schedules) | `dto.ScheduleUpsertReq` | `core.Schedule` (the schedule's grants are replaced: old ones revoked, new ones granted as above; non-empty `grants` from an API token → 403). A team schedule takes only `{"enabled": bool}`; anything else → 400 *"Only turning it on or off can be changed here."* |
 | `DELETE /api/schedules/{id}` | user (admins also for team schedules) | — | `204` |
-| `POST /api/schedules/{id}/run` | user | — | `202 {"run_id":"…"}` (the run is the schedule owner's; `Scheduler.RunNow` audits `schedule.run` with the user who pressed it and the run) |
+| `POST /api/schedules/{id}/run` | user | — | `202 dto.RunScheduleResp` (the run is the schedule owner's; `Scheduler.RunNow` audits `schedule.run` with the user who pressed it and the run. §14.10: `session_id` is the chat the run writes in, from the scheduler's `RunNowIn` since the runner writes the run's row later, else from a run row that already exists, such as a skipped tick's) |
 | `GET /api/schedules/{id}/runs` | user | `?before=&limit=` | `dto.List[dto.RunView]` |
 | `POST /api/schedules/preview` | user | `dto.SchedulePreviewReq` | `dto.SchedulePreviewResp` (an empty `tz` is the caller's own time zone, as on save) |
+| `GET /api/schedules/examples` | user | — | `dto.ScheduleExamples` (§14.10: at most three examples that fit the caller, none once they have three schedules of their own; check-in `empty` and suggested `lines`. Nothing is created. The literal path wins over `{id}`) |
 | `GET /api/mcp` | admin | — | `[]core.MCPStatus` |
 | `GET /api/mcp/{server}/pins` | admin | — | `[]core.MCPPin`: the definition each tool the server offers now has (a rollback to an earlier, superseded definition is pending again and listed; a tool it stopped offering is not), pending ones with the approved definition for diffing; `[]` for an unknown server |
 | `POST /api/mcp/{server}/approve` | admin | `dto.MCPApproveReq` | `204`; approves or turns off the definition the server offers now; 404 for a tool it doesn't offer, 409 *"this action changed after it was shown. Review its change first"* when `hash` is not that definition |
@@ -7792,6 +7825,9 @@ type Me struct {
 	Sandbox      bool              `json:"sandbox_available"`
 	Banners      []core.BannerData `json:"banners"`
 	Access       Access            `json:"access"` // how this request reached the server
+	// WelcomePending: a signed-in web account that hasn't had its welcome
+	// chat; the app asks for it once (POST /api/me/welcome).
+	WelcomePending bool `json:"welcome_pending,omitempty"`
 }
 
 // Profile is GET and PATCH /api/me: what people set about themselves.
@@ -7917,6 +7953,36 @@ type SessionDetail struct {
 	Active  *core.RunInfo    `json:"active,omitempty"`
 	Pending []*core.Approval `json:"pending_approvals"`
 	Refine  string           `json:"refine"` // the session's refine setting: "on" | "off" | "" (follows agent.refine.enabled)
+	From    *SessionFrom     `json:"from,omitempty"`
+}
+
+// SessionPage is GET /api/sessions: a page of chats, and the chats their
+// families hang from that aren't on the page (omitted with ?q=).
+type SessionPage struct {
+	Items   []core.Session `json:"items"`
+	Next    int64          `json:"next,omitempty"`
+	Parents []core.Session `json:"parents,omitempty"`
+}
+
+// SessionFrom says where a chat came from, for the line at its top.
+type SessionFrom struct {
+	Kind  string `json:"kind"`            // chat | schedule | checkin
+	ID    string `json:"id,omitempty"`    // empty when that chat was deleted or the schedule is gone
+	Title string `json:"title,omitempty"` // the chat's title or the schedule's name ("Check-in" for the check-in)
+}
+
+// StarterRow is one row of GET /api/starters: a prompt that fills the
+// message box (Fill, else Text) or, with Href, a link to set something up.
+type StarterRow struct {
+	Text string `json:"text"`
+	Fill string `json:"fill,omitempty"`
+	Href string `json:"href,omitempty"`
+}
+
+// WelcomeResp answers POST /api/me/welcome: the new chat the first time,
+// nothing after.
+type WelcomeResp struct {
+	ChatID core.SessionID `json:"chat_id,omitempty"`
 }
 
 type MessagePage struct {
@@ -8041,6 +8107,37 @@ type SchedulePreviewReq struct {
 type SchedulePreviewResp struct {
 	Next  []time.Time `json:"next"`  // 5 occurrences
 	Human string      `json:"human"` // "Weekdays at 08:00 (Europe/London)"
+}
+
+// ScheduleExample is a schedule people can start from (GET
+// /api/schedules/examples); creating one goes through the usual form.
+type ScheduleExample struct {
+	ID     string    `json:"id"`
+	Name   string    `json:"name"`
+	Kind   string    `json:"kind"` // cron
+	Spec   string    `json:"spec"`
+	Slot   core.Slot `json:"slot"`
+	Prompt string    `json:"prompt"`
+	Needs  string    `json:"needs"` // github | web_search
+}
+
+// CheckinSuggestions are lines for an empty check-in list; Empty says the
+// viewer's list is blank.
+type CheckinSuggestions struct {
+	Empty bool     `json:"empty"`
+	Lines []string `json:"lines"`
+}
+
+type ScheduleExamples struct {
+	Examples []ScheduleExample  `json:"examples"`
+	Checkin  CheckinSuggestions `json:"checkin"`
+}
+
+// RunScheduleResp answers POST /api/schedules/{id}/run; SessionID is the
+// chat the run writes in.
+type RunScheduleResp struct {
+	RunID     core.RunID     `json:"run_id"`
+	SessionID core.SessionID `json:"session_id,omitempty"`
 }
 
 type ScheduleUpsertReq struct {
@@ -10982,6 +11079,22 @@ Personal memory belongs to one principal, so a note one person asked Bothy to ke
 - **Admin editing:** `GET /api/memory/team` (anyone signed in), `PUT` (admin, If-Match), `GET /api/memory/team/history` (§8.3); `Memory.WriteTeam` refuses anyone but an enabled admin. The web shows it as "Remembered for everyone" above "About you" on Knowledge → Memory, read-only for members (`docs/design/ui.md` §9.4).
 - **Events and audit:** `memory.updated` with file `TEAM` is an admin broadcast without the run; `memory.write` / `memory.edit` carry `scope: team`, target `memory:team/TEAM`, and for agent writes `approval_id`, `approved_by` and `provenance`, never the content; activity and audit lines say "Remembered something for everyone", "Edited what Bothy remembers for everyone".
 - Tests: `internal/memory/team_test.go` (caps, atomicity, rollback, concurrency, admin-only edits, the tool proposing and refusing every approval that isn't exactly its own), `internal/policy/team_memory_test.go`, `internal/agent/teammemory_test.go` (S1 for every principal kind and trigger, redacted with `</team-memory>` escaped, no taint, breakdown, no cache-bug report), `internal/httpapi/teammemory_test.go`, E10b; web: `lib/cardcopy.test.ts`, `lib/activity.test.ts`, `ApprovalCard.test.ts` and `Memory.test.ts` against the mock's `/api/memory/team` (scenarios `team-memory-empty`, `team-memory-ask`).
+
+### 14.10 Related chats and starters
+
+The chat list showed one row per chat with nothing tying them together: a clean chat wasn't listed until someone wrote in it, every check-in tick added a row, schedule results crowded out chats, and a new account landed on an empty screen. Chats now record where they came from, schedule results group under their schedule, quiet check-ins stay out of the list, and Bothy offers places to start. Nothing appears in someone's list that they didn't start, apart from their one welcome chat. The web side is `docs/design/ui.md` §4.2, §5.7–5.9 and §7.
+
+- **Schema** (0015, §6): `sessions.parent_id` and `root_id` (`SET NULL` when that chat goes; fixed at creation, so `SessionRepo.Update` never writes them), `schedule_id` (no foreign key: a deleted schedule's results keep their group) and `title_auto`; `users.welcomed_at`. `core.Session` gains `ParentID`, `RootID`, `ScheduleID` and `TitleAuto` (not serialized); `core.User` gains `WelcomedAt` (not serialized). `SessionRepo` gains `Related` and `SetHidden`, `UserRepo` gains `ClaimWelcome` (§4.8).
+- **Who sets what:** `Runner.Fork` sets parent, root (the old chat's root, else the old chat), `title_auto` and `last_message_at` (§5.3); a fresh schedule chat gets `schedule_id`, and a check-in's starts hidden (§5.16); the welcome chat gets `title_auto`. Nothing else sets a relation: a new chat, a starter row, Knowledge's "Ask Bothy about …", `/new` in a chat app and API chats come from nowhere, and a schedule made in a chat groups by schedule, not under that chat. A fork made before 0015 stays unlinked.
+- **Grouping** is the web's: a chat hangs from its root, else its parent, one level deep, and one whose anchor has a `schedule_id` joins that schedule's series; every row is a chat. `GET /api/sessions` sends the anchors of a page's chats that aren't on it as `parents` (`SessionRepo.Related`: the caller's own listed chats, of the principal of the chat that names them), so a family can be drawn before its head's page loads; `?q=` leaves them out. Deleting a chat leaves the chats continued from it where they are; the server re-roots nothing.
+- **Where a chat came from** (`SessionDetail.from`, §8.3): the chat it continued from (`{chat, id, title}`; `{chat}` once that chat is deleted), else its schedule (`{schedule, id, title}`, `{checkin, id, "Check-in"}` for a heartbeat-kind one; `{schedule}` once it is gone).
+- **Welcome chat:** `Me.welcome_pending` is set for a cookie session whose account has `welcomed_at = 0` and no password to change; the web then calls `POST /api/me/welcome` once. One transaction claims it (`UserRepo.ClaimWelcome`, a CAS on `welcomed_at = 0`) and makes the chat: origin `web`, title "Welcome to {agent.name}", `title_auto`, listed now, holding one message (role assistant, kind notice, provenance system, sender `bothy:welcome`) with the static text of `internal/starters/welcome.go`, which speaks as Bothy like the chat-app hello (`docs/design/ui.md` §14.1). No model call, no task, no cost: notices never reach a model. The first answer is `{chat_id}`, every later one `{}`; accounts that existed before 0015 never get one. Its first message names it, and it can be deleted like any chat.
+- **Starter rows** (`internal/starters`, part of the HTTP API module; the copy is served from Go, so the web carries none): `GET /api/starters` returns up to four rows for the caller: two prompts for work Bothy can do with what is set up (with the caller's newest ready index, else the first repository GitHub allows, "Summarise the open pull requests in {repo}" and "What changed in {repo} this week?"; else, with web search, "Research a topic on the web" and "Draft a release checklist for our next version"; else that checklist and "Turn meeting notes into a list of tasks"), at most one link to something not set up yet (for admins: connect GitHub, choose repositories, connect a chat app, add people; for anyone without schedules of their own while an example fits: "Have Bothy do something on a schedule"), and "What can you do for our team?". A row fills the message box and never sends; members never get a settings link. Knowledge or GitHub failing to answer counts as not set up.
+- **Schedule examples:** `GET /api/schedules/examples` offers, in this order, `pr-summary` (Monday pull request summary), `build-check` (morning build check), `news` (morning news on a topic; its prompt keeps "[your topic]", which the web form won't save) and `release-notes` (Friday release notes draft), keeping those whose needs are met (GitHub and a repository, or web search) and whose name the caller doesn't already use (case-insensitive), three at most and none once the caller has three schedules of their own (the check-in aside). Nothing is created and the check-in stays off: the web prefills the usual form. `checkin.empty` says the caller's check-in list is blank; `checkin.lines` suggests lines about the repository: a failed deploy to one of its release environments, pull requests waiting more than 2 days for review, a failed build on the default branch.
+- **Run now** answers with the chat the run writes in (`RunScheduleResp.session_id`), so its toast can open the result.
+- **Chat apps:** the hello and `/help` lead with asks to start from (§5.1).
+- **Isolation:** every `Related` and `from` lookup goes through the caller's Viewer and compares principals. Starters, examples and the welcome quote only repository names from GitHub's allowlist or the caller's own index and the caller's own name and the agent's, with Markdown characters removed, never a pull request title or commit subject.
+- Tests: `internal/store/related_chats_test.go` (0015 from a version-14 database; quiet check-in retention), `plans_test.go` (`sessions_hidden_due`), conformance `RelatedChats` and `ClaimWelcome` (round trips, `SET NULL`, `Related` IDOR, archived and hidden rows, `SetHidden`, concurrent claims winning once), `internal/agent/session_test.go` (parent and root through a fork of a fork, listed at once, the notice, the first message naming it; the check-in's turn context), `internal/scheduler` (`schedule_id`, titles in the schedule's zone, check-ins hidden until they park or find something, the turned-off notice listing its chat, `RunNowIn`), `internal/httpapi/related_test.go` (`parents`, the `from` variants, forks from the web and a token, `PATCH` clearing `title_auto`, the welcome chat, starters by role and state, examples, Run now's chat), `internal/starters/starters_test.go` (rows, examples, lines, the welcome text and a copy check), `internal/channel/commands_test.go` (hello and `/help`).
 
 ## 15. Sign in with Google and GitHub
 
