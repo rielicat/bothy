@@ -73,4 +73,17 @@ describe('Skills', () => {
     expect(JSON.parse(calls.find((c) => c.method === 'PATCH')!.body)).toEqual({ enabled: true, hash: 'h2b' });
     await waitFor(() => expect(screen.queryByText(/This skill changed/)).toBeNull());
   });
+
+  it('loads a file again after it failed, instead of keeping the failure', async () => {
+    let down = true;
+    await start('', (m, url) => (down && url.startsWith('/api/skills/release-notes/files/') ? new Response('{}', { status: 503 }) : undefined));
+    render(SkillView, { params: { name: 'release-notes' } });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Files' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'templates/notes.md' }));
+    expect(await screen.findByText(/This file didn't load\./)).toBeTruthy();
+    down = false;
+    await fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText(/### Fixed/)).toBeTruthy();
+    expect(screen.queryByText(/This file didn't load\./)).toBeNull();
+  });
 });
