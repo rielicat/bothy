@@ -132,6 +132,19 @@
     );
   });
 
+  // The request this address names, decided by someone else while it was open,
+  // shows who decided it, as loading the address afresh would.
+  let ownDecision = '';
+  let shown = '';
+  $effect(() => {
+    const id = params.id;
+    if (!id) return;
+    if (rows.some((r) => r.key === `a:${id}`)) return void (shown = id);
+    if (shown !== id || target || ownDecision === id) return;
+    shown = '';
+    api.get<Approval>(`/api/approvals/${encodeURIComponent(id)}`).then((a) => !isOpen(a) && (target = a), () => {});
+  });
+
   // Keeps one row expanded: the first one for you, unless the person chose another.
   $effect(() => {
     if (!loaded) return;
@@ -190,6 +203,7 @@
   }
 
   function onApprovalResolved(key: string, choice: Choice, result: Approval) {
+    ownDecision = result.id;
     void decided(key, choice === 'deny' && isMulti(result) && requesterOf(result) === me?.id ? 'Cancelled' : choiceDone[choice]);
   }
 

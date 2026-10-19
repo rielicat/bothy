@@ -7,6 +7,7 @@ import { live as region } from '../components/ui/live.svelte';
 import { router } from '../lib/router.svelte';
 import { approvals, session } from '../lib/stores/session.svelte';
 import { installApi, type Call } from '../test/api';
+import { FakeEventSource } from '../test/setup';
 import Approvals from './Approvals.svelte';
 
 const DEPLOY = 'apr_01jdeployweb0000000000000';
@@ -239,6 +240,17 @@ describe('Approvals inbox, other states', () => {
     await waitFor(() => expect(document.querySelector('[data-decided]')?.textContent).toContain('You approved deleting'));
     // This is the Approvals page: no button back to it.
     expect(screen.queryByRole('link', { name: 'Go to Approvals' })).toBeNull();
+  });
+
+  it('says who decided the open request when someone else decides it meanwhile', async () => {
+    await open(`/approvals/${PR}`, { id: PR });
+    await waitFor(() => expect(expanded()?.dataset.approval).toBe(PR));
+    const pr = approvals.pending.find((a) => a.id === PR)!;
+    const decided = { ...pr, status: 'denied', choice: 'deny', decided_by: 'usr_01jalex000000000000000000', decided_by_name: 'Alex Kim', decided_via: 'web', decided_at: new Date().toISOString(), comment: 'Two deploys already running' };
+    calls = installApi({ override: (m, url) => (m === 'GET' && url === `/api/approvals/${PR}` ? decided : undefined) });
+    FakeEventSource.last.emit('approval.resolved', { seq: 900, type: 'approval.resolved', at: new Date().toISOString(), data: { approval_id: PR, status: 'denied', choice: 'deny' } });
+    expect(await screen.findByText('This request was already decided.')).toBeTruthy();
+    expect(screen.queryByText('Nothing needs your approval.')).toBeNull();
   });
 
   it("says a request it can't find may not exist or not be visible", async () => {
