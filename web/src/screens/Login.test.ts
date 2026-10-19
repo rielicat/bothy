@@ -114,6 +114,17 @@ describe('choose a new password', () => {
     expect(screen.queryByText("That one-time password didn't work. Ask an admin for a new one.")).toBeNull();
   });
 
+  it('says when too many wrong one-time passwords locked the account', async () => {
+    await start('', '/password');
+    installApi({ login: false, override: (m, url) => (m === 'POST' && url === '/api/auth/password' ? new Response(JSON.stringify({ error: { code: 'rate_limited', message: 'account temporarily locked: try again in 4m0s' } }), { status: 429 }) : undefined) });
+    render(ChangePassword);
+    await fireEvent.input(screen.getByLabelText('One-time password'), { target: { value: 'Granite-River-42-Lantern' } });
+    await fireEvent.input(screen.getByLabelText('New password'), { target: { value: 'a much longer phrase' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Save and continue' }));
+    expect(await screen.findByText('Too many tries. Try again in 4 minutes.')).toBeTruthy();
+    expect(screen.queryByText('Use at least 12 characters.')).toBeNull();
+  });
+
   it('asks for the one-time password again after a reload', async () => {
     await start('', '/password');
     render(ChangePassword);

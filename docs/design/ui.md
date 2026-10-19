@@ -1045,7 +1045,7 @@ The provider buttons (SPEC §15) are text only, no logos (§2.1). A click asks t
 | Provider: anything else | "{Google} sign-in isn't working right now. Sign in with your username and password, or ask an admin." |
 | Opened at another address | "Open Bothy at {bothy.acme.com} to sign in with {Google}." + link button "Go there" |
 
-**Choose a new password** (`/password`, after signing in with a one-time password, S9): title "Choose a new password", sentence "You signed in with a one-time password. Choose your own to continue.", one password field with the Step 1 help text, button "Save and continue". Typing the one-time password again as the new one: "Choose a new password, not the one-time password." on the field.
+**Choose a new password** (`/password`, after signing in with a one-time password, S9): title "Choose a new password", sentence "You signed in with a one-time password. Choose your own to continue.", one password field with the Step 1 help text, button "Save and continue". Typing the one-time password again as the new one: "Choose a new password, not the one-time password." on the field. Locked after too many wrong one-time passwords (asked again after a reload): "Too many tries. Try again in {n} minutes." under the form.
 
 ---
 
