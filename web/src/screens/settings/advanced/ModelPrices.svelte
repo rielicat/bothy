@@ -95,7 +95,7 @@
     <p class="mt-3 text-body text-muted">No price changes. Bothy uses its built-in prices.</p>
   {/if}
   {#if choices.length}
-    <Button class="mt-3" icon="plus" onclick={() => open('')}>Add a price</Button>
+    <Button class="mt-3" onclick={() => open('')}>Add a price</Button>
   {/if}
 </SettingsSection>
 
