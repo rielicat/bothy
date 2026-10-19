@@ -329,7 +329,13 @@
         </div>
       {:else}
         <p class="text-body text-muted">
-          {off ? 'Turn it on to see what it can do.' : pending.length ? 'Review the changes above to use its actions.' : 'This server has no actions yet.'}
+          {off
+            ? 'Turn it on to see what it can do.'
+            : pending.length
+              ? 'Review the changes above to use its actions.'
+              : status?.state === 'ready'
+                ? `${title} has no actions.`
+                : "Its actions show here once it's running."}
         </p>
       {/each}
     </SettingsSection>

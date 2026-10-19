@@ -389,6 +389,25 @@ describe('MCP server page (§12.4)', () => {
     await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['POST /api/mcp/linear/reload']));
   });
 
+  for (const [state, text] of [
+    ['connecting', "Its actions show here once it's running."],
+    ['installing', "Its actions show here once it's running."],
+    ['ready', 'Linear has no actions.'],
+  ]) {
+    it(`says what an empty action list means while the tool is ${state}`, async () => {
+      await start((m, url) =>
+        m === 'GET' && url === '/api/mcp'
+          ? [{ name: 'linear', transport: 'http', state, protocol: '', tools: 0, pending: 0, since: '' }]
+          : m === 'GET' && url === '/api/mcp/linear/pins'
+            ? []
+            : undefined,
+      );
+      render(McpServer, { params: { item: 'mcp-linear' } });
+      expect(await screen.findByText(text)).toBeTruthy();
+      expect(screen.queryByText(/server has no actions/)).toBeNull();
+    });
+  }
+
   it('says plainly when the tool is gone, without the address as its title', async () => {
     await start();
     render(McpServer, { params: { item: 'mcp-nope' } });
