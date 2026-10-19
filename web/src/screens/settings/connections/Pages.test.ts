@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
+import { config } from '../../../lib/config.svelte';
 import { session } from '../../../lib/stores/session.svelte';
 import { installApi, type Call } from '../../../test/api';
 import Connections from './Connections.svelte';
@@ -193,6 +194,19 @@ describe('MCP server page (§12.4)', () => {
     expect(await screen.findByText(`Can't start: ${text}.`)).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: label }));
     if (write) await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual([write]));
+  });
+
+  it('removes the saved key the Add dialog made along with the server', async () => {
+    const calls = await start();
+    render(McpServer, { params: { item: 'mcp-linear' } });
+    await screen.findByText('Ready · 12 actions');
+    config.view!.entries = [...config.view!.entries, { path: 'mcp.servers.linear.headers.Authorization', value: 'secret:mcp_linear_header' } as never];
+    await fireEvent.click(screen.getByRole('button', { name: 'Options for Linear' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Remove server…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Remove Linear?' });
+    expect(within(dialog).getByText('Bothy loses these actions and deletes its saved key. You can add the server again later.')).toBeTruthy();
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Remove server' }));
+    await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['PATCH /api/config', 'DELETE /api/vault/global/mcp_linear_header']));
   });
 
   it('offers to try again when the server does not start', async () => {

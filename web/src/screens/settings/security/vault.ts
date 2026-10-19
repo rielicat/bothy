@@ -14,6 +14,8 @@ export async function unlock(passphrase: string): Promise<UnlockResult> {
     return { ok: true, status };
   } catch (e) {
     if (e instanceof ApiError && e.status === 403) return { ok: false, error: "That passphrase didn't work. Check it and try again." };
+    // A key file that doesn't match, or a first passphrase too short: trying again won't help.
+    if (e instanceof ApiError && e.status === 400) return { ok: false, error: e.message };
     return { ok: false, error: "Couldn't unlock the saved keys. Try again.", details: errorText(e) };
   }
 }

@@ -81,10 +81,11 @@
     if (target) return '';
     const n = storedName(name);
     if (!n) return 'Enter a name for the key.';
+    if (n.length > 64) return 'Use a shorter name, up to 64 characters.';
     if ((keys ?? []).some((k) => k.name === n)) return 'A key with this name already exists. Replace it instead.';
     return '';
   });
-  const valueError = $derived(value ? '' : 'Paste the key.');
+  const valueError = $derived(!value ? 'Paste the key.' : new Blob([value]).size > 65536 ? 'This is too long for a key: keys can be up to 64 KB.' : '');
 
   // Members don't see the vault's status, so they learn it is locked from a refused change.
   let locked = $state(false);

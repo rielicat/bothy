@@ -422,6 +422,15 @@ func findRefs(s string) ([]refSpan, error) {
 
 func isUpper(c byte) bool { return c >= 'A' && c <= 'Z' }
 
+// plainErr is an ErrInvalid whose message is a sentence for the person
+// unlocking the keys, without the sentinel's word.
+type plainErr string
+
+func (e plainErr) Error() string { return string(e) }
+func (e plainErr) Unwrap() error { return core.ErrInvalid }
+
+func plainInvalid(msg string) error { return plainErr(msg) }
+
 func (v *Vault) Put(ctx context.Context, sc core.Scope, name string, value []byte, by core.UserID) (core.SecretMeta, error) {
 	if err := validScope(sc); err != nil {
 		return core.SecretMeta{}, err
@@ -536,10 +545,12 @@ func (v *Vault) Unseal(ctx context.Context, passphrase []byte) error {
 		return nil
 	}
 	if plan.source != srcPassphrase {
-		return fmt.Errorf("vault: sealed because %s; a passphrase cannot unseal it: %w", reason, core.ErrInvalid)
+		v.log.Warn("vault: unseal refused", "reason", reason)
+		return plainInvalid("A passphrase can't unlock these saved keys: they are locked because Bothy's key file is missing or doesn't match. " +
+			"Put the key file Bothy was set up with back on the server, then restart Bothy.")
 	}
 	if len(passphrase) == 0 {
-		return fmt.Errorf("vault: empty passphrase: %w", core.ErrInvalid)
+		return plainInvalid("Enter the passphrase.")
 	}
 	id, wrapped, check, _, err := v.store.Vault().ActiveKey(ctx)
 	if errors.Is(err, core.ErrNotFound) {
@@ -573,7 +584,7 @@ func (v *Vault) Unseal(ctx context.Context, passphrase []byte) error {
 
 func (v *Vault) initPassphrase(ctx context.Context, plan kekPlan, passphrase []byte) error {
 	if utf8.RuneCount(passphrase) < minPassphrase {
-		return fmt.Errorf("vault: the passphrase must have at least %d characters: %w", minPassphrase, core.ErrInvalid)
+		return plainInvalid(fmt.Sprintf("This sets the passphrase for the saved keys, so it needs at least %d characters.", minPassphrase))
 	}
 	params := kdfParams(newKey()[:argonSaltLen])
 	kek, err := deriveKEK(passphrase, params)

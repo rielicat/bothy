@@ -235,7 +235,7 @@ func TestWrongKEKSeals(t *testing.T) {
 	if err := v2.RotateKEK(ctx, ""); !errors.Is(err, core.ErrSealed) {
 		t.Errorf("RotateKEK on a sealed vault = %v", err)
 	}
-	if err := v2.Unseal(ctx, []byte("a passphrase cannot help")); !errors.Is(err, core.ErrInvalid) {
+	if err := v2.Unseal(ctx, []byte("a passphrase cannot help")); !errors.Is(err, core.ErrInvalid) || !strings.HasPrefix(err.Error(), "A passphrase can't unlock these saved keys") {
 		t.Errorf("Unseal of a file-KEK vault = %v", err)
 	}
 	fs := runChecks(t, v2)
@@ -482,7 +482,8 @@ func TestPassphrase(t *testing.T) {
 	if _, err := v.Get(ctx, core.GlobalScope, "x", "test"); !errors.Is(err, core.ErrSealed) {
 		t.Errorf("Get while sealed = %v", err)
 	}
-	if err := v.Unseal(ctx, []byte("short")); !errors.Is(err, core.ErrInvalid) {
+	// The first unlock sets the passphrase, and the refusal says so plainly.
+	if err := v.Unseal(ctx, []byte("short")); !errors.Is(err, core.ErrInvalid) || err.Error() != "This sets the passphrase for the saved keys, so it needs at least 12 characters." {
 		t.Errorf("Unseal with a short first passphrase = %v", err)
 	}
 	pass := []byte("correct horse battery staple")

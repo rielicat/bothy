@@ -99,9 +99,14 @@
     await load();
   }
 
+  // The key the Add dialog saved for this server goes with it.
+  const ownKey = $derived(config.value(`mcp.servers.${name}.headers.Authorization`, '') === `secret:mcp_${name}_header`);
+
   async function remove() {
     busy = true;
+    const key = ownKey;
     problem = await saveConfig({ [`mcp.servers.${name}`]: null });
+    if (!problem && key) await api.del(`/api/vault/global/mcp_${name}_header`).catch(() => {});
     busy = false;
     removing = false;
     if (problem) return;
@@ -282,7 +287,7 @@
 </Dialog>
 
 <Dialog bind:open={removing} title="Remove {title}?" initialFocus="cancel" {busy}>
-  <p class="text-body text-text">Bothy loses these actions. You can add the server again later.</p>
+  <p class="text-body text-text">Bothy loses these actions{ownKey ? ' and deletes its saved key' : ''}. You can add the server again later.</p>
   {#snippet footer({ close })}
     <Button data-cancel onclick={close}>Cancel</Button>
     <Button variant="danger" loading={busy} loadingLabel="Removing…" onclick={remove}>Remove server</Button>

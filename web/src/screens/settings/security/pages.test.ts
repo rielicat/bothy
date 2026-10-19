@@ -219,18 +219,18 @@ describe('Your saved keys', () => {
     await fireEvent.input(within(dialog).getByLabelText('Name'), { target: { value: 'mcp_linear_header' } });
     await fireEvent.input(within(dialog).getByLabelText('Value'), { target: { value: 'Bearer lin-own-1234' } });
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Save key' }));
-    await screen.findByText('Mcp linear header');
+    await screen.findByText('Key for Linear');
     const put = calls.find((c) => c.method === 'PUT')!;
     expect(put.url).toBe(`/api/vault/${encodeURIComponent(`user:${member.id}`)}/mcp_linear_header`);
     // Admin-only reads would only fail for a member.
     expect(calls.some((c) => c.url.startsWith('/api/vault/status') || c.url.startsWith('/api/config'))).toBe(false);
 
-    await fireEvent.click(screen.getByRole('button', { name: 'More for Mcp linear header' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'More for Key for Linear' }));
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Delete…' }));
-    const del = await screen.findByRole('dialog', { name: 'Delete Mcp linear header?' });
+    const del = await screen.findByRole('dialog', { name: 'Delete Key for Linear?' });
     expect(within(del).getByText("This can't be undone.")).toBeTruthy();
     await fireEvent.click(within(del).getByRole('button', { name: 'Delete key' }));
-    await waitFor(() => expect(screen.queryByText('Mcp linear header')).toBeNull());
+    await waitFor(() => expect(screen.queryByText('Key for Linear')).toBeNull());
     expect(calls.some((c) => c.method === 'DELETE' && c.url === put.url)).toBe(true);
   });
 
@@ -241,7 +241,32 @@ describe('Your saved keys', () => {
   });
 });
 
+describe('Saved keys limits', () => {
+  it('says a name or a value is too long before sending it', async () => {
+    const calls = await signIn();
+    render(SavedKeys);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Add key' }));
+    const dialog = await screen.findByRole('dialog');
+    await fireEvent.input(within(dialog).getByLabelText('Name'), { target: { value: 'Linear API key for the engineering team workspace production east' } });
+    await fireEvent.input(within(dialog).getByLabelText(/^(Key|Value)/), { target: { value: 'x'.repeat(70_000) } });
+    await fireEvent.click(within(dialog).getByRole('button', { name: /Save/ }));
+    expect(await within(dialog).findByText('Use a shorter name, up to 64 characters.')).toBeTruthy();
+    expect(within(dialog).getByText('This is too long for a key: keys can be up to 64 KB.')).toBeTruthy();
+    expect(calls.filter((c) => c.method === 'PUT')).toEqual([]);
+  });
+});
+
 describe('Unlock screen', () => {
+  it('says why no passphrase can unlock the keys, instead of "Try again"', async () => {
+    const why = "A passphrase can't unlock these saved keys: they are locked because Bothy's key file is missing or doesn't match. Put the key file Bothy was set up with back on the server, then restart Bothy.";
+    await signIn('sealed', (m, url) => (m === 'POST' && url === '/api/vault/unseal' ? new Response(JSON.stringify({ error: { code: 'bad_request', message: why } }), { status: 400 }) : undefined));
+    render(UnlockScreen);
+    await fireEvent.input(screen.getByLabelText('Passphrase'), { target: { value: 'right horse battery' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Unlock' }));
+    expect(await screen.findByText(why)).toBeTruthy();
+    expect(screen.queryByText("Couldn't unlock the saved keys. Try again.")).toBeNull();
+  });
+
   it('unlocks from the blocking screen and hands back to the shell', async () => {
     await signIn('sealed');
     const onunlocked = vi.fn();
