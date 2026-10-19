@@ -286,6 +286,57 @@ func TestForkIsRelatedListedAndNamedByItsFirstMessage(t *testing.T) {
 	})
 }
 
+// A hidden chat someone writes in is listed from then on, so retention
+// never archives what they wrote: a quiet check-in replied to, or an API
+// one-shot continued on the web. Bothy's own turns leave it hidden.
+func TestWritingInAHiddenChatListsIt(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{steps: []fakes.LLMStep{{Text: []string{"HEARTBEAT_OK"}}, {Text: []string{"Nothing failed today."}},
+			{Text: []string{"Here it is."}}}})
+		defer h.close()
+		sub := h.bus.Subscribe(core.Filter{System: true, Types: []core.EventType{core.EvSessionUpdated}}, 64)
+		defer sub.Close()
+		updated := func(id core.SessionID) (n int) {
+			for len(sub.C()) > 0 {
+				if (<-sub.C()).Session == id {
+					n++
+				}
+			}
+			return n
+		}
+		checkIn := h.newSession("schedule", nil)
+		if err := h.store.Sessions().SetHidden(h.ctx, checkIn.ID, true); err != nil {
+			t.Fatal(err)
+		}
+		h.sess = checkIn
+		req := h.req("- Tell me if a deploy failed")
+		req.Trigger, req.Sender = core.TrigHeartbeat, "schedule:sch_x"
+		if _, err := h.r.Submit(h.ctx, req); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		if got := h.session(); !got.Hidden || updated(checkIn.ID) != 0 {
+			t.Fatalf("the check-in's own turn listed its chat: %+v", got)
+		}
+		h.submit("Did anything fail yesterday?")
+		synctest.Wait()
+		if got := h.session(); got.Hidden || got.Title != "Test" || updated(checkIn.ID) != 1 {
+			t.Fatalf("after a reply: hidden %v title %q; want listed and announced once", got.Hidden, got.Title)
+		}
+
+		api, err := h.r.NewSession(h.ctx, h.pid, "api", nil)
+		if err != nil || !api.Hidden {
+			t.Fatalf("api session = %+v, %v", api, err)
+		}
+		h.sess = api
+		h.submit("Summarise the release notes")
+		synctest.Wait()
+		if got := h.session(); got.Hidden || got.Title == "" {
+			t.Fatalf("an API one-shot written in = hidden %v title %q; want listed and named", got.Hidden, got.Title)
+		}
+	})
+}
+
 // The scheduler sends a check-in's instruction as turn context and the
 // person's list as text: Submit takes it, the transcript's text is only the
 // list, and the model reads both.

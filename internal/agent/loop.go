@@ -271,15 +271,22 @@ func (r *Runner) persistTurn(ctx context.Context, rs *runState) error {
 	rs.answered = m.Seq
 	w.merged = 0
 	tc.commit(ctx, r.log)
+	// A hidden chat someone writes in (a quiet check-in, an API one-shot
+	// opened on the web) is theirs from then on: listed, so retention never
+	// archives it with its messages.
+	written := req.Trigger == core.TrigMessage
 	var draft string
-	if rs.sess != nil && (rs.sess.Title == "" || rs.sess.TitleAuto) && !rs.sess.Hidden {
+	if rs.sess != nil && (rs.sess.Title == "" || rs.sess.TitleAuto) && (!rs.sess.Hidden || written) {
 		draft = r.draftTitle(ctx, req.Session)
 	}
-	titled := false
+	titled, shown := false, false
 	s, err := r.mutateSession(ctx, req.Session, func(s *core.Session) error {
 		s.MemorySeen, s.PinsSeen = max(s.MemorySeen, tc.memSeen), max(s.PinsSeen, tc.pinsSeen)
 		s.LastMessageAt = r.now()
 		s.Taint |= legs
+		if shown = s.Hidden && written; shown {
+			s.Hidden = false
+		}
 		if titled = (s.Title == "" || s.TitleAuto) && draft != ""; titled {
 			s.Title, s.TitleAuto = draft, false
 		}
@@ -290,6 +297,8 @@ func (r *Runner) persistTurn(ctx context.Context, rs *runState) error {
 	}
 	if titled {
 		r.setDraft(s.ID, draft)
+	}
+	if titled || shown {
 		r.d.Bus.Publish(core.Event{Type: core.EvSessionUpdated, Principal: s.Principal, Session: s.ID,
 			Data: core.SessionData{Title: s.Title, Taint: s.Taint, Epoch: s.Epoch}})
 	}
