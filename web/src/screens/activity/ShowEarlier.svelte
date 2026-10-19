@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from '../../components/Icon.svelte';
   import { Button } from '../../components/ui';
 
   // The next page of a list. A page that didn't load says so here, where it was asked for:
@@ -22,4 +23,4 @@
 </script>
 
 <Button class="mt-6" size="sm" loading={busy} loadingLabel="Loading…" onclick={more}>Show earlier</Button>
-{#if failed}<p class="field-error" role="alert">Couldn't load more. Check your connection and try again.</p>{/if}
+{#if failed}<p class="field-error" role="alert"><Icon name="alert" class="mt-px" /><span>Couldn't load more. Check your connection and try again.</span></p>{/if}
