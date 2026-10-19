@@ -97,6 +97,10 @@ func TestModelErrorNotice(t *testing.T) {
 				"Bothy couldn't read its key for OpenRouter. Check where the key is kept in Settings → Models."},
 			{admin, core.CallInfo{}, &core.ProviderError{Provider: "lab", Kind: core.ErrKindAuth, Msg: "credential unavailable: x"},
 				"Bothy couldn't read its AI model's key. Check where the key is kept in Settings → Models."},
+			// AWS Secrets Manager timing out never reached OpenRouter, so it isn't OpenRouter's problem.
+			{admin, core.CallInfo{Attempts: []core.Attempt{{Ref: core.ModelRef{Provider: "router", Model: "m"}, Kind: core.ErrKindNetwork,
+				Err: "router: network: credential unavailable: vault: aws-sm: net/http: TLS handshake timeout"}}}, nil,
+				"Bothy couldn't read its key for OpenRouter. Check where the key is kept in Settings → Models."},
 			{member, failed(core.ErrKindAuth, "claude", "router"), nil, "Bothy can't reach its AI model right now. An admin has been told."},
 			{admin, core.CallInfo{}, &core.ProviderError{Provider: "router", Kind: core.ErrKindServer}, "OpenRouter had a problem answering."},
 			{admin, core.CallInfo{}, nil, "No AI model could answer right now."},

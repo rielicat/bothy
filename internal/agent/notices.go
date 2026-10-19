@@ -121,6 +121,8 @@ func (r *Runner) modelErrorNotice(rs *runState, ci core.CallInfo, pe *core.Provi
 	auth := len(ci.Attempts) > 0
 	// unread: the key itself was never sent; Bothy could not read it from
 	// where it is kept (an aws-sm reference), so replacing it won't help.
+	// That holds whatever went wrong reading it, a timeout included: the
+	// provider was never contacted, so it isn't the one to blame.
 	unread := auth
 	for _, a := range ci.Attempts {
 		if a.Err == "" {
@@ -134,14 +136,14 @@ func (r *Runner) modelErrorNotice(rs *runState, ci core.CallInfo, pe *core.Provi
 	}
 	if len(providers) == 0 && pe != nil {
 		providers, auth = []string{pe.Provider}, pe.Kind == core.ErrKindAuth
-		unread = auth && strings.HasPrefix(pe.Msg, "credential unavailable: ")
+		unread = strings.HasPrefix(pe.Msg, "credential unavailable: ")
 	}
 	switch {
 	case len(providers) == 0:
 		return noModelNotice
-	case auth && !rs.role.IsAdmin():
+	case (auth || unread) && !rs.role.IsAdmin():
 		return memberAuthNotice
-	case auth && unread:
+	case unread:
 		if n := r.providerName(providers[0]); n != "The AI model" {
 			return "Bothy couldn't read its key for " + n + ". Check where the key is kept in Settings → Models."
 		}
