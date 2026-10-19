@@ -216,6 +216,10 @@ func (s *Service) checkDeliver(ctx context.Context, prin *core.Principal, d *cor
 		return &core.ChatRef{Channel: "web"}, nil
 	case !channelNameRe.MatchString(c.Channel):
 		return nil, invalidf("deliver: unknown channel %q", c.Channel)
+	// It would be saved and shown as posting there, while the results stay
+	// on the web (deliveryChat): accounts have no chat.
+	case !prin.TeamOwned():
+		return nil, invalidf("deliver: an account's results stay in Bothy, so its schedules can't post to %s; leave deliver out", c.Channel)
 	case c.ChatID == "":
 		return &core.ChatRef{Channel: c.Channel}, nil
 	}

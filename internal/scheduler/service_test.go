@@ -130,7 +130,9 @@ func TestUpsertValidation(t *testing.T) {
 		{"past once", func(s *core.Schedule) { s.Kind, s.Spec = core.SchedOnce, "2020-01-01T00:00:00Z" }, "in the past"},
 		{"once with active hours", func(s *core.Schedule) { s.Kind, s.Spec, s.ActiveHours = core.SchedOnce, future, "08:00-09:00" }, "active hours"},
 		{"tiny interval", func(s *core.Schedule) { s.Kind, s.Spec = core.SchedHeartbeat, "10s" }, "between 1m"},
-		{"foreign chat", func(s *core.Schedule) { s.Deliver = &core.ChatRef{Channel: "telegram", ChatID: "999"} }, "is not this principal's own chat"},
+		{"foreign chat", func(s *core.Schedule) { s.Deliver = &core.ChatRef{Channel: "telegram", ChatID: "999"} }, "an account's results stay in Bothy"},
+		// An account has no chat: saving this would say "Posts to Telegram" while results stay on the web.
+		{"account to a chat app", func(s *core.Schedule) { s.Deliver = &core.ChatRef{Channel: "telegram"} }, "an account's results stay in Bothy"},
 		{"bad channel", func(s *core.Schedule) { s.Deliver = &core.ChatRef{Channel: "Tele gram"} }, "unknown channel"},
 		{"foreign session", func(s *core.Schedule) { s.Session = "ses_00000000000000000000000000" }, "not a session"},
 	} {

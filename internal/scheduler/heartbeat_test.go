@@ -205,7 +205,8 @@ func TestHeartbeatSyncHotReload(t *testing.T) {
 		})
 		synctest.Wait()
 		hb = h.heartbeat()
-		if hb.ID != id || hb.Spec != "2h0m0s" || hb.Slot != core.SlotMain || hb.Deliver == nil || *hb.Deliver != (core.ChatRef{Channel: "telegram"}) ||
+		// The owner is an account: a chat app named there posts nowhere, so the schedule doesn't claim it.
+		if hb.ID != id || hb.Spec != "2h0m0s" || hb.Slot != core.SlotMain || hb.Deliver != nil ||
 			!hb.NextRunAt.Equal(utc(2026, 10, 12, 11, 0)) {
 			t.Fatalf("update: %+v", hb)
 		}
