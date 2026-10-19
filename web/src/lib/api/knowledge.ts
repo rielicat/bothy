@@ -1,13 +1,19 @@
 // Knowledge API (docs/design/ui.md §9): repositories with their reading
 // progress, notes and the notes' history, and search over code.
 import { api, ApiError, qs } from './client';
-import { listRepos } from './repos';
 import type { IndexedRepo, KnowledgeHit as Hit, KnowledgeNotes, List, NotesChange } from './types.gen';
 
 export type { KnowledgeNotes, NotesChange };
-export { isUnavailable, readRepos } from './repos';
 
 export type KnowledgeRepo = IndexedRepo;
+
+const listRepos = async () => (await api.get<{ items: KnowledgeRepo[] | null }>('/api/knowledge/repos')).items ?? [];
+
+/** The server has no Knowledge API yet (S18): the screens show the empty state, not an error. */
+export const isUnavailable = (e: unknown) => e instanceof ApiError && (e.status === 404 || e.status === 501 || e.status === 503);
+
+/** The repositories Bothy reads, or none when the server can't say. */
+export const readRepos = () => listRepos().catch((e) => (isUnavailable(e) ? [] : Promise.reject(e)));
 
 export type KnowledgeHit = Hit & {
   /** S18: where the hit came from; the server searches code only today. */

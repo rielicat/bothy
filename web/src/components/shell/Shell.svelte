@@ -1,5 +1,7 @@
 <script lang="ts">
   import { tick, untrack, type Snippet } from 'svelte';
+  import { api } from '../../lib/api/client';
+  import type { WelcomeResp } from '../../lib/api/types.gen';
   import { router } from '../../lib/router.svelte';
   import { session } from '../../lib/stores/session.svelte';
   import { shell } from '../../lib/stores/ui.svelte';
@@ -54,6 +56,21 @@
 
   $effect(() => {
     if (session.isAdmin) void attention.refresh();
+  });
+
+  // The account's one welcome chat (§5.7), asked for once. It takes the place
+  // of an empty new chat, never of a page someone opened or a prompt they bring.
+  // The list is read again because the event that would list the chat can be
+  // published before the event stream is connected.
+  $effect(() => {
+    const me = session.me;
+    if (!me?.welcome_pending) return;
+    me.welcome_pending = false;
+    void api.post<WelcomeResp>('/api/me/welcome').then(({ chat_id }) => {
+      if (!chat_id) return;
+      void chats.load();
+      if (router.path === '/chat' && !router.query.has('prompt')) router.navigate(`/chat/${chat_id}`, { replace: true });
+    }, () => {});
   });
 
   $effect(() => {

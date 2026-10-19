@@ -56,6 +56,27 @@ describe('buildItems', () => {
     expect(items[1].kind === 'user' && items[1].steer).toBe(true);
   });
 
+  it('marks a prompt a schedule sent, not one the person typed', () => {
+    const items = buildItems(
+      [msg(1, 'user', [{ t: 'text', text: 'Summarise the overnight alerts.' }], { sender: 'schedule:sch_1' }), msg(2, 'user', [{ t: 'text', text: 'Thanks' }], { sender: 'web:usr_1' })],
+      null,
+    );
+    expect(items.map((i) => i.kind === 'user' && !!i.auto)).toEqual([true, false]);
+  });
+
+  it("reads the welcome notice as Bothy's message and a check-in's all-clear in plain words", () => {
+    const items = buildItems(
+      [
+        msg(1, 'assistant', [{ t: 'text', text: "Hi Maya, I'm Bothy." }], { kind: 'notice', sender: 'bothy:welcome' }),
+        msg(2, 'assistant', [{ t: 'text', text: '**HEARTBEAT_OK**' }], { run_id: 'run_1' }),
+        msg(3, 'assistant', [{ t: 'text', text: 'One build failed.' }], { run_id: 'run_2' }),
+      ],
+      null,
+    );
+    expect(items.map((i) => i.kind)).toEqual(['assistant', 'assistant', 'assistant']);
+    expect(items.map((i) => (i.kind === 'assistant' ? i.text : ''))).toEqual(["Hi Maya, I'm Bothy.", 'Nothing needs your attention right now.', 'One build failed.']);
+  });
+
   it('replaces persisted tool parts of the live run with streamed rows, in order', () => {
     const messages = [msg(1, 'user', [{ t: 'text', text: 'go' }]), msg(2, 'assistant', [call('c1', 'web_search'), call('c2', 'web_fetch')], { run_id: 'run_1' })];
     const items = buildItems(messages, live([{ tool: 'web_search', status: 'ok' }, { tool: 'web_fetch' }]));

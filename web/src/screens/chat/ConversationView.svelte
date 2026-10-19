@@ -19,6 +19,7 @@
   import PinnedDrawer from '../../components/chat/PinnedDrawer.svelte';
   import { refineLabel, refineStep, type RefineProgress } from '../../components/chat/refine';
   import { stepOf, type StepView } from '../../components/chat/steps';
+  import { chats } from '../../components/shell/chats.svelte';
   import Icon from '../../components/Icon.svelte';
   import Markdown from '../../components/Markdown.svelte';
   import Button from '../../components/ui/Button.svelte';
@@ -74,7 +75,6 @@
   let detailsOpen = $state(false);
   let detailsRun = $state('');
   let cleanOpen = $state(false);
-  let deleteOpen = $state(false);
   let busy = $state(false);
   let dialogError = $state('');
   let sendError = $state('');
@@ -159,6 +159,19 @@
   const modelValue = $derived(conv.id ? (s?.model_override ?? '') : pendingModel);
   const modelLabel = $derived(modelValue ? models.name(modelValue) : models.main ? models.name(models.main) : 'Main model');
   const starter = $derived(people.name(s?.principal_id, { you: false }));
+  const from = $derived(conv.detail?.from);
+  // [before, link text, href, after]: the chat or schedule it came from, unlinked once deleted.
+  const fromLine = $derived(
+    !from
+      ? null
+      : from.kind === 'checkin'
+        ? ['From ', 'your check-in', '/activity/schedules/checkin']
+        : !from.id
+          ? [from.kind === 'chat' ? 'Continued from a deleted chat' : 'From a deleted schedule']
+          : from.kind === 'chat'
+            ? ['Continued from “', from.title, `/chat/${from.id}`, '”']
+            : ['From the schedule “', from.title, `/activity/schedules/${from.id}`, '”'],
+  );
 
   const refineLine = $derived.by(() => {
     const n = est?.drafts ?? models.refine?.drafts ?? 3;
@@ -447,27 +460,11 @@
     busy = true;
     dialogError = '';
     try {
-      const n = await api.post<Session>(`${conv.base}/fork`);
+      await chats.fork(conv.id);
       cleanOpen = false;
-      router.navigate(`/chat/${encodeURIComponent(n.id)}`);
       toast('Started a clean chat.');
     } catch {
-      dialogError = "Couldn't start a clean chat. Try again.";
-    } finally {
-      busy = false;
-    }
-  }
-
-  async function remove() {
-    busy = true;
-    dialogError = '';
-    try {
-      await api.del(conv.base);
-      deleteOpen = false;
-      router.navigate('/chat');
-      toast('Chat deleted.');
-    } catch {
-      dialogError = "Couldn't delete this chat. Try again.";
+      dialogError = "Couldn't start a new chat. Try again.";
     } finally {
       busy = false;
     }
@@ -513,9 +510,10 @@
     { label: 'Rename', onselect: startRename },
     { label: `Pinned (${conv.pins.length})`, onselect: () => ((pinAdding = false), (pinsOpen = true)) },
     { label: 'Chat details', onselect: () => ((detailsRun = ''), (detailsOpen = true)) },
+    { label: 'New related chat', onselect: () => chats.relate(conv.id) },
     { label: 'Continue in a clean chat', onselect: () => ((dialogError = ''), (cleanOpen = true)) },
     'separator',
-    { label: 'Delete chat…', danger: true, onselect: () => ((dialogError = ''), (deleteOpen = true)) },
+    { label: 'Delete chat…', danger: true, onselect: () => (chats.deleting = s) },
   ]);
 
   // Knowledge's "Ask Bothy about …" opens /chat?prompt=…: the text waits in the composer and is never sent.
@@ -634,6 +632,10 @@
     {:else if conv.error}
       <ChatNotice error text="This chat didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: () => conv.load() }} details={conv.error} />
     {:else}
+      {#if fromLine}
+        <!-- Where the chat came from, above everything it holds (§7.1). -->
+        <p class="mb-4 text-small text-muted">{fromLine[0]}{#if fromLine[2]}<a class="link" href={fromLine[2]} onclick={router.link}>{fromLine[1]}</a>{fromLine[3]}{/if}</p>
+      {/if}
       {#if conv.hasMore}
         <div class="mb-4 flex justify-center"><Button size="sm" variant="ghost" onclick={() => conv.loadEarlier().catch(() => {})}>Load earlier messages</Button></div>
       {/if}
@@ -654,7 +656,9 @@
                   {#each b.files as f (f.ref)}<li class="max-w-full min-w-0"><FileToken name={f.name || f.ref.split('/').pop() || f.ref} size={f.size} href={fileHref(f.ref)} /></li>{/each}
                 </ul>
               {/if}
-              {#if b.steer}<p class="mt-1 text-small text-muted">Added while Bothy was working</p>{/if}
+              {#if b.steer || b.auto}
+                <p class="mt-1 text-small text-muted">{b.steer ? 'Added while Bothy was working' : from?.kind === 'checkin' ? 'Your check-in list' : 'Sent by the schedule'}</p>
+              {/if}
             </div>
           {:else if b.kind === 'assistant'}
             {@const files = lastOfRun.has(b.key) ? madeFiles(b.msg.run_id) : []}
@@ -725,6 +729,9 @@
         </div>
       {/each}
 
+      <!-- The welcome chat offers the starters under its message until the person writes (§7.1). -->
+      {#if !lastUser && conv.messages[0]?.sender === 'bothy:welcome'}<NewChat bare onpick={(t) => composer?.fill(t)} />{/if}
+
       {#each strayApprovals as a (a.id)}<div class="mt-3"><InlineApproval approval={a} onresolved={decided} /></div>{/each}
 
       {#if conv.queued.length}<div class="mt-3"><ChatNotice text="Bothy will read this when it finishes the current step." /></div>{/if}
@@ -779,20 +786,11 @@
 
 <Dialog bind:open={cleanOpen} title="Continue in a clean chat?" {busy}>
   <p class="text-body text-text">
-    Bothy will start a new chat with a summary of this one, without the private information and outside content it has seen. This chat stays as it is.
+    Bothy will start a new chat without this chat's messages, or the private information and outside content it has seen. This chat stays as it is, and the new one is listed under it.
   </p>
   {#if dialogError}<p class="mt-2 text-small text-danger-text" role="alert">{dialogError}</p>{/if}
   {#snippet footer({ close })}
     <Button onclick={close}>Cancel</Button>
     <Button variant="primary" loading={busy} onclick={fork}>Continue in a clean chat</Button>
-  {/snippet}
-</Dialog>
-
-<Dialog bind:open={deleteOpen} title="Delete “{chatTitle || 'Chat'}”?" initialFocus="cancel" {busy}>
-  <p class="text-body text-text">The messages will be deleted. Anything Bothy already did stays done, and its record stays in Activity. This can't be undone.</p>
-  {#if dialogError}<p class="mt-2 text-small text-danger-text" role="alert">{dialogError}</p>{/if}
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
-    <Button variant="danger" loading={busy} loadingLabel="Deleting…" onclick={remove}>Delete chat</Button>
   {/snippet}
 </Dialog>

@@ -10,7 +10,7 @@
   import IconButton from '../ui/IconButton.svelte';
   import { announce } from '../ui/live.svelte';
   import { trapTab } from '../ui/layer';
-  import { chats, firstWords } from './chats.svelte';
+  import { chats } from './chats.svelte';
   import { dayLabel, highlight, plainSnippet } from './search';
 
   // docs/design/ui.md §6.3. Only chats until Knowledge has a search API
@@ -53,7 +53,7 @@
       if (out.some((r) => r.id === h.session_id)) continue;
       const s = chats.list.find((x) => x.id === h.session_id);
       const snippet = plainSnippet(h.snippet);
-      out.push({ id: h.session_id, href: `/chat/${enc(h.session_id)}#m${h.seq}`, title: (s && chats.title(s)) || h.title.trim() || firstWords(snippet), snippet, at: h.at });
+      out.push({ id: h.session_id, href: `/chat/${enc(h.session_id)}#m${h.seq}`, title: (s && chats.title(s)) || h.title.trim(), snippet, at: h.at });
     }
     return out;
   });

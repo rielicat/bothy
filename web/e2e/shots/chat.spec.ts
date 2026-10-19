@@ -8,7 +8,18 @@ import { shots, type ShotState } from '../lib/shots';
 
 // The fixture chats of web/mock/domains/chat.ts.
 const sid = (name: string) => `ses_0chat${name}`.padEnd(30, '0');
-const ids = { login: sid('login'), staging: sid('staging'), pricing: sid('pricing'), notices: sid('notices'), decided: sid('decided'), paused: sid('paused') };
+const ids = {
+  login: sid('login'),
+  staging: sid('staging'),
+  pricing: sid('pricing'),
+  notices: sid('notices'),
+  decided: sid('decided'),
+  paused: sid('paused'),
+  pricingCopy: sid('pricingcopy'),
+  checkin: sid('checkin'),
+  checkin2: sid('checkin2'),
+  brief: 'ses_01jbrief00000000000000000',
+};
 
 // Until C1 lands, the chat renders inside the v0.1 shell. This puts it in the
 // v0.2 frame (document scroll, content edge after a 256 px sidebar), so the
@@ -62,7 +73,15 @@ const v01Card = { probes: { nesting: false, shadows: false } };
 const states: ShotState[] = [
   { name: 'new-github', route: '/chat', ready: 'Summarise the open pull requests in acme/web', setup: frame },
   { name: 'new-admin-no-github', route: '/chat', mock: 'knowledge-empty,github-none', ready: 'Connect GitHub so Bothy can read your code', setup: frame },
-  { name: 'new-member', route: '/chat', mock: 'member,knowledge-empty,github-none', ready: 'Turn these meeting notes into a list of tasks', setup: frame },
+  { name: 'new-member', route: '/chat', mock: 'member,knowledge-empty,github-none', ready: 'Turn meeting notes into a list of tasks', setup: frame },
+  { name: 'new-starters-failed', route: '/chat', mock: 'starters-fail', ready: 'What can you do for our team?', setup: frame },
+  // The welcome chat replaces the empty chat once per account (§5.7).
+  { name: 'welcome', route: '/chat', mock: 'welcome', ready: 'Ask me anything to get started.', setup: frame },
+  // Where a chat came from (§7.1), what a schedule sent (§7.3) and a check-in's all-clear.
+  { name: 'from-chat', route: chat(ids.pricingCopy), ready: 'Pick the plan that fits your team', setup: frame },
+  { name: 'from-schedule', route: chat(ids.brief), ready: 'No alerts overnight.', setup: frame },
+  { name: 'from-checkin', route: chat(ids.checkin), ready: 'has waited 3 days for a review', setup: frame },
+  { name: 'checkin-all-clear', route: chat(ids.checkin2), ready: 'Nothing needs your attention right now.', setup: frame },
   { name: 'populated', route: chat(ids.login), ready: 'Fixed. The sign-in callback', setup: frame },
   { name: 'summary-open', route: chat(ids.login), ready: 'Fixed. The sign-in callback', setup: then(click(/^Got a copy of acme\/web and read 3 files/)) },
   {
