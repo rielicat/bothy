@@ -91,11 +91,12 @@ func (s *Server) releases(w http.ResponseWriter, r *http.Request, a core.Actor) 
 }
 
 // ownLinks leaves out of another person's deploy where it came from: an
-// admin sees everyone's deploys, but not their chats or tasks.
+// admin sees everyone's deploys, but not their chats or tasks. The approval
+// stays, so an approver's Done list can follow the deploy they approved.
 func ownLinks(v core.Viewer, ds []dto.DeployView) []dto.DeployView {
 	for i := range ds {
 		if !v.Can(ds[i].Principal) {
-			ds[i].Session, ds[i].Run, ds[i].Approval, ds[i].Chat = "", "", "", nil
+			ds[i].Session, ds[i].Run, ds[i].Chat = "", "", nil
 		}
 	}
 	return ds

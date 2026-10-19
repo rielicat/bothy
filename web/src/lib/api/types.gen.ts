@@ -3954,7 +3954,7 @@ export interface ReleaseEnvironment {
    * Last is the environment's newest deploy and Running its deploys
    * still followed, newest first, whoever asked for them: every viewer
    * reads what the environment is doing. Another person's deploy has no
-   * session, run, approval or chat, which the viewer couldn't open.
+   * session, run or chat, which the viewer couldn't open.
    */
   last?: DeployView;
   running?: DeployView[];
