@@ -82,6 +82,23 @@ describe('Audit log (docs/design/ui.md §10.6)', () => {
   });
 });
 
+describe('Audit log that failed to load', () => {
+  // Try again's click event once reached load(more) as `more`, asking for a page after the last one.
+  it('asks for the first page again, and says so again if that fails too', async () => {
+    let fails = 2;
+    const calls = installApi({ override: (_m, url) => (url.startsWith('/api/audit?') && fails-- > 0 ? new Response('{}', { status: 503 }) : undefined) });
+    session.ready = false;
+    await session.init();
+    router.navigate('/activity/audit');
+    render(Audit);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(calls.filter((c) => c.url.startsWith('/api/audit?'))).toHaveLength(2));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('Approved deleting notes/staging.md')).toBeTruthy();
+    expect(calls.filter((c) => c.url.startsWith('/api/audit?') && c.url.includes('before='))).toHaveLength(0);
+  });
+});
+
 describe('Audit log, Show earlier', () => {
   it('says so when the next page fails, and keeps the entries', async () => {
     installApi();

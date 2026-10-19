@@ -177,7 +177,7 @@
       </div>
 
       {#if rows === null}
-        <div class="mt-6"><Loading {failed} retry={load} /></div>
+        <div class="mt-6"><Loading {failed} retry={() => load()} /></div>
       {:else if !shown.length}
         <EmptyState class="mt-6" text="Nothing matches these filters." action={filtered ? { label: 'Clear filters', variant: 'secondary', onclick: clear } : undefined} />
       {:else}
@@ -220,7 +220,7 @@
         {/each}
       {/if}
     {:else if web === null}
-      <div class="mt-6"><Loading {failed} retry={load} /></div>
+      <div class="mt-6"><Loading {failed} retry={() => load()} /></div>
     {:else if !web.length}
       <EmptyState class="mt-6" text="Bothy hasn't reached any websites yet." />
     {:else}
