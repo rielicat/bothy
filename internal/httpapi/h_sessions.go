@@ -45,7 +45,78 @@ func (s *Server) listSessions(w http.ResponseWriter, r *http.Request, a core.Act
 	for _, sess := range ss {
 		sess.Title = n.title(sess)
 	}
-	return ok(w, listOf(derefs(ss), p, func(s core.Session) int64 { return ms(s.LastMessageAt) }))
+	l := listOf(derefs(ss), p, func(s core.Session) int64 { return ms(s.LastMessageAt) })
+	page := dto.SessionPage{Items: l.Items, Next: l.Next}
+	if f.Query == "" {
+		if page.Parents, err = s.familyHeads(r.Context(), a.Viewer, n, ss); err != nil {
+			return err
+		}
+	}
+	return ok(w, page)
+}
+
+// familyHeads are the listed chats the page's chats continued from (their
+// parents and roots) that aren't on the page, so a family can be drawn
+// before the page that holds its head is loaded. A chat only hangs from
+// one of its own principal's.
+func (s *Server) familyHeads(ctx context.Context, v core.Viewer, n *namer, items []*core.Session) ([]core.Session, error) {
+	onPage := map[core.SessionID]bool{}
+	for _, it := range items {
+		onPage[it.ID] = true
+	}
+	referrers := map[core.SessionID][]core.PrincipalID{}
+	var ids []core.SessionID
+	for _, it := range items {
+		for _, ref := range []core.SessionID{it.RootID, it.ParentID} {
+			if ref == "" || onPage[ref] {
+				continue
+			}
+			if _, seen := referrers[ref]; !seen {
+				ids = append(ids, ref)
+			}
+			referrers[ref] = append(referrers[ref], it.Principal)
+		}
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	heads, err := s.d.Store.Sessions().Related(ctx, v, ids)
+	if err != nil {
+		return nil, err
+	}
+	var out []core.Session
+	for _, h := range heads {
+		if slices.ContainsFunc(referrers[h.ID], func(p core.PrincipalID) bool { return p != h.Principal }) {
+			continue
+		}
+		h.Title = n.title(h)
+		out = append(out, *h)
+	}
+	return out, nil
+}
+
+// sessionFrom says where a chat came from, for the line at its top: the
+// chat it continued from (no id once that chat is deleted), else the
+// schedule whose result it holds (none once the schedule is gone).
+func (s *Server) sessionFrom(ctx context.Context, v core.Viewer, n *namer, sess *core.Session) *dto.SessionFrom {
+	switch {
+	case sess.ParentID != "":
+		p, err := s.d.Store.Sessions().Get(ctx, v, sess.ParentID)
+		if err != nil || p.Principal != sess.Principal || p.Archived {
+			return &dto.SessionFrom{Kind: "chat"}
+		}
+		return &dto.SessionFrom{Kind: "chat", ID: string(p.ID), Title: n.title(p)}
+	case sess.ScheduleID != "":
+		sc, err := s.d.Store.Schedules().Get(ctx, v, sess.ScheduleID)
+		if err != nil || sc.Principal != sess.Principal {
+			return &dto.SessionFrom{Kind: "schedule"}
+		}
+		if sc.Kind == core.SchedHeartbeat {
+			return &dto.SessionFrom{Kind: "checkin", ID: string(sc.ID), Title: checkInName}
+		}
+		return &dto.SessionFrom{Kind: "schedule", ID: string(sc.ID), Title: sc.Name}
+	}
+	return nil
 }
 
 func derefs[T any](xs []*T) []T {
@@ -119,8 +190,9 @@ func (s *Server) getSession(w http.ResponseWriter, r *http.Request, a core.Actor
 	if err != nil {
 		return err
 	}
-	sess.Title = s.namer(ctx, a.Viewer).title(sess)
-	d := dto.SessionDetail{Session: *sess, Pins: nonNil(pins), Pending: []*core.Approval{}, Refine: refine}
+	n := s.namer(ctx, a.Viewer)
+	sess.Title = n.title(sess)
+	d := dto.SessionDetail{Session: *sess, Pins: nonNil(pins), Pending: []*core.Approval{}, Refine: refine, From: s.sessionFrom(ctx, a.Viewer, n, sess)}
 	for _, ri := range s.d.Runner.Active() {
 		if ri.Session == sess.ID {
 			d.Active = &ri
@@ -154,7 +226,7 @@ func (s *Server) patchSession(w http.ResponseWriter, r *http.Request, a core.Act
 		if utf8.RuneCountInString(t) > maxTitle || strings.ContainsFunc(t, isControl) {
 			return badRequest("title must be at most %d printable characters", maxTitle)
 		}
-		sess.Title = t
+		sess.Title, sess.TitleAuto = t, false
 	}
 	if req.ModelOverride != nil {
 		if m := strings.TrimSpace(*req.ModelOverride); m != "" {

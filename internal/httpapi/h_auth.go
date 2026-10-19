@@ -29,6 +29,8 @@ func (s *Server) me(ctx context.Context, a core.Actor) (*dto.Me, error) {
 	m := &dto.Me{User: *u, Mode: s.cfg().Mode, Principals: nonNil(ps), Sandbox: s.sandboxAvailable(ctx), Banners: []core.BannerData{}}
 	if a.Via == "cookie" {
 		m.CSRF = a.CSRF
+		// Until the password is changed nothing else may be asked for.
+		m.WelcomePending = u.WelcomedAt.IsZero() && !u.MustChangePassword
 	}
 	if ri, ok := ctx.Value(ctxKey{}).(*reqInfo); ok {
 		m.Access = dto.Access{Peer: ri.class.String(), TLS: ri.secure}

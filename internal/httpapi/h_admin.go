@@ -370,16 +370,37 @@ func (s *Server) patchTeamSchedule(w http.ResponseWriter, r *http.Request, a cor
 	return ok(w, got)
 }
 
+// runNowIn is a scheduler that says which chat a Run now writes in.
+type runNowIn interface {
+	RunNowIn(ctx context.Context, v core.Viewer, id core.ScheduleID, by core.UserID) (core.RunID, core.SessionID, error)
+}
+
+// runSchedule answers with the run and its chat, so the toast can open the
+// result. The runner makes the run's row after Submit returns, so the
+// chat comes from the scheduler; a run row that already exists (a skipped
+// tick) is the fallback.
 func (s *Server) runSchedule(w http.ResponseWriter, r *http.Request, a core.Actor) error {
+	ctx := r.Context()
 	id := core.ScheduleID(r.PathValue("id"))
-	if _, err := s.d.Store.Schedules().Get(r.Context(), a.Viewer, id); err != nil {
+	if _, err := s.d.Store.Schedules().Get(ctx, a.Viewer, id); err != nil {
 		return err
 	}
-	run, err := s.d.Scheduler.RunNow(r.Context(), a.Viewer, id, a.User)
+	var resp dto.RunScheduleResp
+	var err error
+	if sch, has := s.d.Scheduler.(runNowIn); has {
+		resp.RunID, resp.SessionID, err = sch.RunNowIn(ctx, a.Viewer, id, a.User)
+	} else {
+		resp.RunID, err = s.d.Scheduler.RunNow(ctx, a.Viewer, id, a.User)
+	}
 	if err != nil {
 		return err
 	}
-	return accepted(w, map[string]core.RunID{"run_id": run})
+	if resp.SessionID == "" && resp.RunID != "" {
+		if run, err := s.d.Store.Runs().Get(ctx, a.Viewer, resp.RunID); err == nil {
+			resp.SessionID = run.Session
+		}
+	}
+	return accepted(w, resp)
 }
 
 func (s *Server) scheduleRuns(w http.ResponseWriter, r *http.Request, a core.Actor) error {
