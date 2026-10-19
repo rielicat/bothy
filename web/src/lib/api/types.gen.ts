@@ -2562,11 +2562,23 @@ export interface Session {
   summary_upto: number /* int64 */; // last message seq folded into Summary
   epoch: number /* int */; // incremented by each compaction
   taint: Taint;
-  hidden: boolean; // ephemeral API sessions
+  hidden: boolean; // not listed: one-shot API chats and check-ins with nothing to report
   archived: boolean;
   created_at: string /* RFC 3339 */;
   updated_at: string /* RFC 3339 */;
   last_message_at: string /* RFC 3339 */;
+  /**
+   * ParentID is the chat this one continued from and RootID the top of
+   * that family (the parent's root, else the parent); both are fixed when
+   * the chat is made and "" for a chat that came from nowhere.
+   */
+  parent_id?: SessionID;
+  root_id?: SessionID;
+  /**
+   * ScheduleID is the schedule whose result this chat holds, for a
+   * schedule that makes a fresh chat per run.
+   */
+  schedule_id?: ScheduleID;
 }
 export type RunStatus = string;
 export const RunQueued: RunStatus = "queued";
@@ -3341,6 +3353,11 @@ export interface Me {
   sandbox_available: boolean;
   banners: BannerData[];
   access: Access; // how this request reached the server
+  /**
+   * WelcomePending: a signed-in web account that hasn't had its welcome
+   * chat; the app asks for it once (POST /api/me/welcome).
+   */
+  welcome_pending?: boolean;
 }
 /**
  * Profile is GET and PATCH /api/me: what people set about themselves.
@@ -3466,6 +3483,40 @@ export interface SessionDetail {
   active?: RunInfo;
   pending_approvals: (Approval | undefined)[];
   refine: string; // the session's refine setting: "on" | "off" | "" (follows agent.refine.enabled)
+  from?: SessionFrom;
+}
+/**
+ * SessionPage is GET /api/sessions: a page of chats, and the chats their
+ * families hang from that aren't on the page (omitted with ?q=).
+ */
+export interface SessionPage {
+  items: Session[];
+  next?: number /* int64 */;
+  parents?: Session[];
+}
+/**
+ * SessionFrom says where a chat came from, for the line at its top.
+ */
+export interface SessionFrom {
+  kind: string; // chat | schedule | checkin
+  id?: string; // empty when that chat was deleted or the schedule is gone
+  title?: string; // the chat's title or the schedule's name ("Check-in" for the check-in)
+}
+/**
+ * StarterRow is one row of GET /api/starters: a prompt that fills the
+ * message box (Fill, else Text) or, with Href, a link to set something up.
+ */
+export interface StarterRow {
+  text: string;
+  fill?: string;
+  href?: string;
+}
+/**
+ * WelcomeResp answers POST /api/me/welcome: the new chat the first time,
+ * nothing after.
+ */
+export interface WelcomeResp {
+  chat_id?: SessionID;
 }
 export interface MessagePage {
   messages: (Message | undefined)[]; // oldest first within the page; tool_call parts carry state and approval_id
@@ -3577,6 +3628,39 @@ export interface SchedulePreviewReq {
 export interface SchedulePreviewResp {
   next: string /* RFC 3339 */[]; // 5 occurrences
   human: string; // "Weekdays at 08:00 (Europe/London)"
+}
+/**
+ * ScheduleExample is a schedule people can start from (GET
+ * /api/schedules/examples); creating one goes through the usual form.
+ */
+export interface ScheduleExample {
+  id: string;
+  name: string;
+  kind: string; // cron
+  spec: string;
+  slot: Slot;
+  prompt: string;
+  needs: string; // github | web_search
+}
+/**
+ * CheckinSuggestions are lines for an empty check-in list; Empty says the
+ * viewer's list is blank.
+ */
+export interface CheckinSuggestions {
+  empty: boolean;
+  lines: string[];
+}
+export interface ScheduleExamples {
+  examples: ScheduleExample[];
+  checkin: CheckinSuggestions;
+}
+/**
+ * RunScheduleResp answers POST /api/schedules/{id}/run; SessionID is the
+ * chat the run writes in.
+ */
+export interface RunScheduleResp {
+  run_id: RunID;
+  session_id?: SessionID;
 }
 export interface ScheduleUpsertReq {
   schedule: Schedule;

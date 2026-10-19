@@ -75,6 +75,9 @@ type Me struct {
 	Sandbox      bool              `json:"sandbox_available"`
 	Banners      []core.BannerData `json:"banners"`
 	Access       Access            `json:"access"` // how this request reached the server
+	// WelcomePending: a signed-in web account that hasn't had its welcome
+	// chat; the app asks for it once (POST /api/me/welcome).
+	WelcomePending bool `json:"welcome_pending,omitempty"`
 }
 
 // Profile is GET and PATCH /api/me: what people set about themselves.
@@ -200,6 +203,36 @@ type SessionDetail struct {
 	Active  *core.RunInfo    `json:"active,omitempty"`
 	Pending []*core.Approval `json:"pending_approvals"`
 	Refine  string           `json:"refine"` // the session's refine setting: "on" | "off" | "" (follows agent.refine.enabled)
+	From    *SessionFrom     `json:"from,omitempty"`
+}
+
+// SessionPage is GET /api/sessions: a page of chats, and the chats their
+// families hang from that aren't on the page (omitted with ?q=).
+type SessionPage struct {
+	Items   []core.Session `json:"items"`
+	Next    int64          `json:"next,omitempty"`
+	Parents []core.Session `json:"parents,omitempty"`
+}
+
+// SessionFrom says where a chat came from, for the line at its top.
+type SessionFrom struct {
+	Kind  string `json:"kind"`            // chat | schedule | checkin
+	ID    string `json:"id,omitempty"`    // empty when that chat was deleted or the schedule is gone
+	Title string `json:"title,omitempty"` // the chat's title or the schedule's name ("Check-in" for the check-in)
+}
+
+// StarterRow is one row of GET /api/starters: a prompt that fills the
+// message box (Fill, else Text) or, with Href, a link to set something up.
+type StarterRow struct {
+	Text string `json:"text"`
+	Fill string `json:"fill,omitempty"`
+	Href string `json:"href,omitempty"`
+}
+
+// WelcomeResp answers POST /api/me/welcome: the new chat the first time,
+// nothing after.
+type WelcomeResp struct {
+	ChatID core.SessionID `json:"chat_id,omitempty"`
 }
 
 type MessagePage struct {
@@ -324,6 +357,37 @@ type SchedulePreviewReq struct {
 type SchedulePreviewResp struct {
 	Next  []time.Time `json:"next"`  // 5 occurrences
 	Human string      `json:"human"` // "Weekdays at 08:00 (Europe/London)"
+}
+
+// ScheduleExample is a schedule people can start from (GET
+// /api/schedules/examples); creating one goes through the usual form.
+type ScheduleExample struct {
+	ID     string    `json:"id"`
+	Name   string    `json:"name"`
+	Kind   string    `json:"kind"` // cron
+	Spec   string    `json:"spec"`
+	Slot   core.Slot `json:"slot"`
+	Prompt string    `json:"prompt"`
+	Needs  string    `json:"needs"` // github | web_search
+}
+
+// CheckinSuggestions are lines for an empty check-in list; Empty says the
+// viewer's list is blank.
+type CheckinSuggestions struct {
+	Empty bool     `json:"empty"`
+	Lines []string `json:"lines"`
+}
+
+type ScheduleExamples struct {
+	Examples []ScheduleExample  `json:"examples"`
+	Checkin  CheckinSuggestions `json:"checkin"`
+}
+
+// RunScheduleResp answers POST /api/schedules/{id}/run; SessionID is the
+// chat the run writes in.
+type RunScheduleResp struct {
+	RunID     core.RunID     `json:"run_id"`
+	SessionID core.SessionID `json:"session_id,omitempty"`
 }
 
 type ScheduleUpsertReq struct {

@@ -33,6 +33,10 @@ type User struct {
 	// LastLoginAt is the last sign-in by any method; zero = never.
 	// UserRepo.SignedIn writes it, Update leaves it alone.
 	LastLoginAt time.Time `json:"last_login_at"`
+
+	// WelcomedAt is when the account got its welcome chat; zero = not yet.
+	// UserRepo.ClaimWelcome writes it once.
+	WelcomedAt time.Time `json:"-"`
 }
 
 // Space is a channel (kind "group") or a teammate's own space (kind
@@ -152,11 +156,22 @@ type Session struct {
 	MemorySeen     int64       `json:"-"`            // last memory_events id folded into the snapshot
 	PinsSeen       int64       `json:"-"`            // last pin id folded into the snapshot
 	Taint          Taint       `json:"taint"`
-	Hidden         bool        `json:"hidden"` // ephemeral API sessions
+	Hidden         bool        `json:"hidden"` // not listed: one-shot API chats and check-ins with nothing to report
 	Archived       bool        `json:"archived"`
 	CreatedAt      time.Time   `json:"created_at"`
 	UpdatedAt      time.Time   `json:"updated_at"`
 	LastMessageAt  time.Time   `json:"last_message_at"`
+	// ParentID is the chat this one continued from and RootID the top of
+	// that family (the parent's root, else the parent); both are fixed when
+	// the chat is made and "" for a chat that came from nowhere.
+	ParentID SessionID `json:"parent_id,omitempty"`
+	RootID   SessionID `json:"root_id,omitempty"`
+	// ScheduleID is the schedule whose result this chat holds, for a
+	// schedule that makes a fresh chat per run.
+	ScheduleID ScheduleID `json:"schedule_id,omitempty"`
+	// TitleAuto: Bothy chose the title ("X (clean)", "Welcome to Bothy"), so
+	// the first message's title replaces it.
+	TitleAuto bool `json:"-"`
 }
 
 type RunStatus string
