@@ -743,12 +743,18 @@ export function busyLabel(label: string): string {
   return `${ing}…`;
 }
 
-/** What a parked card says under its question: the most important fact on it, so never fine print (§8.1). */
-export const PARKED = 'Bothy stopped waiting. Approve to let it carry on.';
+/** What a parked card says under its question: the most important fact on it, so never fine print (§8.1), with how long it can still be approved. */
+export function parkedLine(ap: Approval, now = Date.now()): string {
+  const left = expiresIn(ap.park_until, { now }).replace(/^Expires in /, '');
+  return `Bothy stopped waiting. Approve ${left && left !== 'Expired' ? `within ${left} ` : ''}to let it carry on.`;
+}
 
-/** The expiry line: "Expires in 15 min"; urgent under two minutes. Parked approvals wait without a deadline. */
+/**
+ * The expiry line: "Expires in 15 min"; urgent under two minutes. A request that parks when its wait ends
+ * (a schedule's) doesn't expire then, and a parked one says its deadline in its body (parkedLine).
+ */
 export function expiryOf(ap: Approval, now = Date.now()): { text: string; urgent: boolean } | null {
-  if (ap.status !== 'pending') return null;
+  if (ap.status !== 'pending' || ap.on_timeout === 'park') return null;
   const at = date(ap.card?.expires) ?? date(ap.expires_at);
   if (!at) return null;
   const text = expiresIn(at.toISOString(), { now });

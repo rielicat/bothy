@@ -312,6 +312,8 @@ describe('expiry and buttons', () => {
     expect(expiryOf(ap(undefined, { card: { ...ap(undefined).card, expires: '0001-01-01T00:00:00Z' }, expires_at: at(0.5) }), now)?.text).toBe('Expires in less than a minute');
     // A parked card says it waits in its body, not in the expiry slot of the meta line.
     expect(expiryOf(ap(undefined, { status: 'parked' }), now)).toBeNull();
+    // A request that parks when its wait ends doesn't expire then.
+    expect(expiryOf(ap(undefined, { on_timeout: 'park', card: { ...ap(undefined).card, expires: at(2) } }), now)).toBeNull();
   });
 
   it('labels a pressed button with its -ing form', () => {

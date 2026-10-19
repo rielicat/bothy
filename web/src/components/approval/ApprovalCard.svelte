@@ -2,7 +2,7 @@
   import { tick } from 'svelte';
   import { api, ApiError } from '../../lib/api/client';
   import type { Approval, Choice } from '../../lib/api/types.gen';
-  import { appName, busyLabel, cardCopy, decidable, denyAudience, expiryOf, fromTeam, isMulti, isOpen, originOf, PARKED, requesterOf, teamAsked, teamPerson } from '../../lib/cardcopy';
+  import { appName, busyLabel, cardCopy, decidable, denyAudience, expiryOf, fromTeam, isMulti, isOpen, originOf, parkedLine, requesterOf, teamAsked, teamPerson } from '../../lib/cardcopy';
   import { alwaysLabelParts } from '../../lib/grants';
   import { choiceDone, choiceKey } from '../../lib/labels';
   import { router } from '../../lib/router.svelte';
@@ -271,7 +271,7 @@
         {#if askedIn}{requesterName} asked in <span data-copy-ignore>“<Verbatim text={origin.title ?? ''} />”</span> on {origin.app}.{:else}{asked}{/if}
       </p>
     {/if}
-    {#if view.status === 'parked'}<p class="text-body text-text {copy.consequence || asked ? '' : 'mt-1'}">{PARKED}</p>{/if}
+    {#if view.status === 'parked'}<p class="text-body text-text {copy.consequence || asked ? '' : 'mt-1'}">{parkedLine(view, clock.now)}</p>{/if}
 
     {#if warnings.length}
       <ul class="mt-3 space-y-1">
