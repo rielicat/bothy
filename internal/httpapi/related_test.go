@@ -171,6 +171,34 @@ func TestSessionFrom(t *testing.T) {
 			t.Errorf("%s: from is not left out: %s", c.name, rec.Body)
 		}
 	}
+
+	// A viewer of two principals still never reads one principal's chat or
+	// schedule as the origin of another's chat.
+	ctx := context.Background()
+	sp := &core.Space{Kind: core.SpaceGroup, Chat: core.ChatRef{Channel: "slack", ChatID: "C1", Kind: core.ChatGroup}, Title: "#eng",
+		Enabled: true, CreatedAt: now, UpdatedAt: now}
+	if err := h.store.Spaces().Create(ctx, sp, &core.Principal{CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	group := &core.Session{Principal: sp.Principal, Origin: "slack", Title: "#eng chat", CreatedAt: now, UpdatedAt: now, LastMessageAt: now}
+	if err := h.store.Sessions().Create(ctx, group); err != nil {
+		t.Fatal(err)
+	}
+	teamSched := &core.Schedule{Principal: sp.Principal, Name: "Channel digest", Kind: core.SchedCron, Spec: "0 9 * * 1", TZ: "UTC",
+		Prompt: "x", Slot: core.SlotMain, MissedRun: "skip", CreatedBy: "system", CreatedAt: now, UpdatedAt: now}
+	if err := h.store.Schedules().Upsert(ctx, teamSched); err != nil {
+		t.Fatal(err)
+	}
+	v := core.Viewer{User: h.owner.user, Principals: []core.PrincipalID{core.UserPrincipal(h.owner.user), sp.Principal}}
+	n := h.srv.namer(ctx, v)
+	for s, want := range map[*core.Session]dto.SessionFrom{
+		h.chat(h.owner, "i", now, continued(group)):     {Kind: "chat"},
+		h.chat(h.owner, "j", now, result(teamSched.ID)): {Kind: "schedule"},
+	} {
+		if got := h.srv.sessionFrom(ctx, v, n, s); got == nil || *got != want {
+			t.Errorf("%s across principals: from = %+v, want %+v", s.Title, got, want)
+		}
+	}
 }
 
 // POST /api/sessions/{id}/fork makes a related chat of any chat the viewer
@@ -476,7 +504,10 @@ func (s runStored) RunNow(ctx context.Context, v core.Viewer, id core.ScheduleID
 	}
 	run := &core.Run{Session: s.session, Principal: sc.Principal, User: by, Trigger: core.TrigSchedule, Schedule: id,
 		Status: core.RunSkipped, CreatedAt: time.Now()}
-	return run.ID, s.store.Runs().Create(ctx, run)
+	if err := s.store.Runs().Create(ctx, run); err != nil {
+		return "", err
+	}
+	return run.ID, nil
 }
 
 // runInChat is a scheduler that says which chat Run now writes in.
