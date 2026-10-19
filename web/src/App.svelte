@@ -127,9 +127,9 @@
   </div>
 {:else if session.down}
   <!-- Not "signed out": the server didn't say, and sign-in would fail the same way (§13.2). -->
-  <div class="grid h-dvh place-items-center px-4">
+  <main class="grid h-dvh place-items-center px-4">
     <EmptyState text="Bothy isn't responding. It may be restarting." action={{ label: 'Try again', onclick: () => window.location.reload(), variant: 'secondary' }} />
-  </div>
+  </main>
 {:else if bare || !session.me}
   {@render screen()}
 {:else}

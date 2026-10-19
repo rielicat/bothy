@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it } from 'vitest';
 import App from './App.svelte';
 import { router } from './lib/router.svelte';
@@ -90,8 +90,9 @@ describe('a server that does not answer at start', () => {
       await session.init();
       router.navigate('/settings/models');
       render(App);
-      expect(await screen.findByText("Bothy isn't responding. It may be restarting.")).toBeTruthy();
-      expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
+      const main = await screen.findByRole('main');
+      expect(within(main).getByText("Bothy isn't responding. It may be restarting.")).toBeTruthy();
+      expect(within(main).getByRole('button', { name: 'Try again' })).toBeTruthy();
       await new Promise((r) => setTimeout(r, 0));
       expect(router.path).toBe('/settings/models');
       expect(screen.queryByText(/signed out/)).toBeNull();
