@@ -120,7 +120,8 @@ func snapshotSandbox(s2 string) (available, known bool) {
 var servicesLine = regexp.MustCompile(`(?m)^- Connected services: (.*) \(find their actions`)
 
 // servicesGone reports whether a frozen S2 names a connected service that is
-// no longer available (turned off or removed): the model would offer it.
+// no longer available because it was turned off or removed: the model would
+// offer it.
 func (r *Runner) servicesGone(rs *runState, s2 string) bool {
 	m := servicesLine.FindStringSubmatch(s2)
 	if m == nil {
@@ -128,8 +129,21 @@ func (r *Runner) servicesGone(rs *runState, s2 string) bool {
 	}
 	now := r.connectedServices(r.toolEnv(rs, "", nil), rs.sel)
 	for _, name := range strings.Split(m[1], ", ") {
-		if !strings.HasSuffix(name, " more") && !slices.Contains(now, name) {
+		if !strings.HasSuffix(name, " more") && !slices.Contains(now, name) && !r.mcpServerOn(name) {
 			return true
+		}
+	}
+	return false
+}
+
+// mcpServerOn reports whether name is a configured MCP server that is on. Its
+// tools are missing for a while after a restart, until discovery ends, and
+// while it doesn't answer; rebuilding then would leave it out of the facts
+// for the rest of the epoch, since one coming back doesn't rebuild them.
+func (r *Runner) mcpServerOn(name string) bool {
+	for _, s := range r.cfg().MCP.Servers {
+		if s.Name == name {
+			return s.Enabled == nil || *s.Enabled
 		}
 	}
 	return false

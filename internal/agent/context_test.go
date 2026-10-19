@@ -584,6 +584,36 @@ func TestFactsDropAServiceTurnedOff(t *testing.T) {
 	})
 }
 
+// A server that is on but whose tools are missing for now (discovery after a
+// restart, a server not answering) stays named: nothing would name it again
+// once it is back.
+func TestFactsKeepAServiceThatIsOnButNotAnswering(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		tools := []core.Tool{&testTool{name: "tool_search", lazy: true},
+			&testTool{name: "read_wiki", lazy: true, source: "mcp:deepwiki"}, &testTool{name: "assign_ticket", lazy: true, source: "mcp:tickets"}}
+		off := false
+		h := newHarness(t, opts{tools: tools, steps: []fakes.LLMStep{{Text: []string{"one"}}, {Text: []string{"two"}}, {Text: []string{"three"}}},
+			cfg: func(c *config.Config) {
+				c.MCP.Servers = []config.MCPServer{{Name: "deepwiki", Transport: "http"}, {Name: "tickets", Transport: "http"}}
+			}})
+		defer h.close()
+		h.submit("hello")
+		synctest.Wait()
+		h.reg.UnregisterSource("mcp:tickets")
+		h.submit("again")
+		synctest.Wait()
+		if s2 := h.requests()[1].System[1].Text; !strings.Contains(s2, "- Connected services: deepwiki, tickets (") {
+			t.Fatalf("a server that is on was dropped:\n%s", s2)
+		}
+		h.cfg.MCP.Servers[1].Enabled = &off
+		h.submit("and again")
+		synctest.Wait()
+		if s2 := h.requests()[2].System[1].Text; !strings.Contains(s2, "- Connected services: deepwiki (") {
+			t.Fatalf("a server turned off is still named:\n%s", s2)
+		}
+	})
+}
+
 func TestTurnContextNamesTheChannelOnce(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t, opts{steps: []fakes.LLMStep{{Text: []string{"one"}}, {Text: []string{"two"}}}})
