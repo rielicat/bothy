@@ -166,8 +166,12 @@ func (h *Hub) deliverCard(ctx context.Context, ap *core.Approval) {
 			h.sendNotice(ctx, ap, *origin, "Waiting for "+who+" to approve "+cardIng(ap)+".")
 		}
 	case ap.Approver.AdminOnly:
+		// The requester's own DM gets the waiting line only, not also the
+		// link card it would get as an approver.
 		for _, dm := range h.chatApprovers(ctx) {
-			h.sendLinkCard(ctx, ap, dm.chat)
+			if origin == nil || origin.Kind != core.ChatDM || dm.chat.Key() != origin.Key() {
+				h.sendLinkCard(ctx, ap, dm.chat)
+			}
 		}
 		if origin != nil {
 			h.sendNotice(ctx, ap, *origin, needsAdmin)
