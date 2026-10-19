@@ -112,7 +112,7 @@
       {:else}
         <EmptyState
           class="mt-4"
-          text="No tools connected."
+          text="No other tools connected."
           more="MCP servers let Bothy use other services, like Linear or your database."
           action={{ label: 'Add an MCP server', onclick: () => (adding = true), variant: 'secondary' }}
         />

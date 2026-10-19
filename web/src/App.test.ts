@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it } from 'vitest';
 import App from './App.svelte';
 import { router } from './lib/router.svelte';
@@ -71,6 +71,33 @@ describe('a signed-out browser', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(calls.filter((c) => /^\/api\/(models|refine|knowledge|github)/.test(c.url))).toEqual([]);
   });
+});
+
+describe('a server that does not answer at start', () => {
+  for (const [what, answer] of [
+    ['restarting', () => new Response('{"error":{"code":"unavailable","message":"x"}}', { status: 503 })],
+    [
+      'out of reach',
+      () => {
+        throw new TypeError('Failed to fetch');
+      },
+    ],
+  ] as const) {
+    it(`says Bothy isn't responding instead of "signed out" when it is ${what}`, async () => {
+      installApi({ override: (_m, url) => (url.startsWith('/api/') ? answer() : undefined) });
+      session.ready = false;
+      session.me = null;
+      await session.init();
+      router.navigate('/settings/models');
+      render(App);
+      const main = await screen.findByRole('main');
+      expect(within(main).getByText("Bothy isn't responding. It may be restarting.")).toBeTruthy();
+      expect(within(main).getByRole('button', { name: 'Try again' })).toBeTruthy();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(router.path).toBe('/settings/models');
+      expect(screen.queryByText(/signed out/)).toBeNull();
+    });
+  }
 });
 
 describe('route guard after the wizard finished', () => {

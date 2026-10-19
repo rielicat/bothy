@@ -298,7 +298,7 @@
         {/if}
         {#if problem}<StatusLine tone="danger" alert text={problem.message} details={problem.details} />{/if}
       </div>
-      <div class="flex min-h-6 shrink-0 items-center gap-2">
+      <div class="flex min-h-6 shrink-0 items-center gap-2 pointer-coarse:-my-2.5">
         <span class="text-small text-muted" aria-live="polite">{saving ? 'Saving…' : ''}</span>
         <Switch label="Turn on {title}" hideLabel bind:checked={enabled} onchange={setEnabled} />
       </div>
@@ -333,7 +333,13 @@
         </div>
       {:else}
         <p class="text-body text-muted">
-          {off ? 'Turn it on to see what it can do.' : pending.length ? 'Review the changes above to use its actions.' : 'This server has no actions yet.'}
+          {off
+            ? 'Turn it on to see what it can do.'
+            : pending.length
+              ? 'Review the changes above to use its actions.'
+              : status?.state === 'ready'
+                ? `${title} has no actions.`
+                : "Its actions show here once it's running."}
         </p>
       {/each}
     </SettingsSection>
@@ -362,7 +368,7 @@
           {/if}
           <div class="mt-3 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
             <Select class="w-full sm:w-72" label="What this does" bind:value={d.effect} options={effects} />
-            <Switch label="Allow this action" bind:checked={d.on} />
+            <Switch class="sm:h-9" label="Allow this action" bind:checked={d.on} />
           </div>
         </section>
       {/if}

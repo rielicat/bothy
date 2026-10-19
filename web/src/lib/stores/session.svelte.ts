@@ -62,6 +62,8 @@ class Session {
   finishing = $state(false);
   /** The session ran out (401), so sign-in says why (§13.2); cleared by the next sign-in. */
   expired = $state(false);
+  /** Nothing answered at start (restarting, offline), so whether this browser is signed in is unknown. */
+  down = $state(false);
 
   isAdmin = $derived(this.me?.user.role === 'owner' || this.me?.user.role === 'admin');
   multi = $derived(this.me?.mode === 'multi');
@@ -81,11 +83,16 @@ class Session {
   async init() {
     onUnauthorized(() => this.expire());
     onCsrfRejected(() => this.#recheck());
+    let down = false;
     const [me, setup] = await Promise.all([
-      api.get<Me>('/api/auth/me').catch((e) => (e instanceof ApiError && e.status === 401 ? null : Promise.reject(e))),
+      api.get<Me>('/api/auth/me').catch((e) => {
+        down = !(e instanceof ApiError) || e.status >= 500;
+        return null;
+      }),
       // Non-local peers get 403 from setup routes; they can only log in.
       api.get<SetupState>('/api/setup/state').catch(() => null),
-    ]).catch(() => [null, null] as const);
+    ]);
+    this.down = down;
     this.setup = setup;
     if (me) this.login(me);
     this.ready = true;

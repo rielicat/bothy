@@ -70,7 +70,7 @@ const states: ShotState[] = [
   // Overview (§12.1)
   { name: 'overview', route: '/settings/connections', setup: steps(see('Web search')) },
   { name: 'overview-every-status', route: '/settings/connections', mock: 'channel-down:telegram,mcp-installing', setup: steps(see('Installing…')) },
-  { name: 'overview-off-and-empty', route: '/settings/connections', mock: 'chat-apps-off,github-none,mcp-none', setup: steps(see('No tools connected.')) },
+  { name: 'overview-off-and-empty', route: '/settings/connections', mock: 'chat-apps-off,github-none,mcp-none', setup: steps(see('No other tools connected.')) },
   { name: 'overview-member', route: '/settings/connections', mock: 'member', setup: steps(see('Only admins can see this page.')) },
   { name: 'add-mcp-web', route: '/settings/connections', setup: steps(click('Add an MCP server'), dialog('Add an MCP server'), fill('Name', 'linear-eu')), full: false },
   {

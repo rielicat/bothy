@@ -115,7 +115,8 @@
   {@const current = info}
   <SettingsRow label="Picture" help="Bothy uses it in the chat apps." {error} note={lines.length || slack || slackTodo ? note : undefined}>
     {#snippet children(c)}
-      <div class="flex flex-wrap items-center gap-3">
+      <!-- gap-2: with 3 the ghost button wraps onto a line of its own in the 320 px column. -->
+      <div class="flex flex-wrap items-center gap-2">
         <img src={pictureURL(current.version)} alt={settingsConfig.value<string>('agent.name', 'Bothy')} width="48" height="48" class="size-12 shrink-0 rounded-full border border-border bg-subtle" />
         <input
           bind:this={picker}

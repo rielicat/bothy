@@ -61,6 +61,23 @@ describe('Connections overview (§12.1)', () => {
     });
   });
 
+  it('takes the name as people write it and keeps it lower-cased with dashes', async () => {
+    const calls = await start();
+    render(Connections);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Add an MCP server' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add an MCP server' });
+    await fireEvent.input(within(dialog).getByLabelText('Address'), { target: { value: 'https://docs.acme.com/mcp' } });
+    await fireEvent.input(within(dialog).getByLabelText('Name'), { target: { value: 'Team wiki!' } });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Add server' }));
+    expect(within(dialog).getByText('Use letters, numbers and spaces, like Linear.')).toBeTruthy();
+    expect(writes(calls)).toEqual([]);
+
+    await fireEvent.input(within(dialog).getByLabelText('Name'), { target: { value: ' Team Wiki ' } });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Add server' }));
+    await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['PATCH /api/config']));
+    expect(Object.keys(JSON.parse(writes(calls)[0].body).set)).toEqual(['mcp.servers.team-wiki']);
+  });
+
   it('adds a server on a private network once its address is allowed', async () => {
     const calls = await start();
     render(Connections);
@@ -133,7 +150,7 @@ describe('Connections overview (§12.1)', () => {
   it('keeps web search first and ends Tools with the add button when no servers exist', async () => {
     await start((m, url) => (m === 'GET' && url === '/api/mcp' ? [] : undefined));
     render(Connections);
-    const empty = await screen.findByText('No tools connected.');
+    const empty = await screen.findByText('No other tools connected.');
     const search = screen.getByText('Web search');
     expect(search.compareDocumentPosition(empty) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getAllByRole('button', { name: 'Add an MCP server' })).toHaveLength(1);
@@ -387,6 +404,25 @@ describe('MCP server page (§12.4)', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['POST /api/mcp/linear/reload']));
   });
+
+  for (const [state, text] of [
+    ['connecting', "Its actions show here once it's running."],
+    ['installing', "Its actions show here once it's running."],
+    ['ready', 'Linear has no actions.'],
+  ]) {
+    it(`says what an empty action list means while the tool is ${state}`, async () => {
+      await start((m, url) =>
+        m === 'GET' && url === '/api/mcp'
+          ? [{ name: 'linear', transport: 'http', state, protocol: '', tools: 0, pending: 0, since: '' }]
+          : m === 'GET' && url === '/api/mcp/linear/pins'
+            ? []
+            : undefined,
+      );
+      render(McpServer, { params: { item: 'mcp-linear' } });
+      expect(await screen.findByText(text)).toBeTruthy();
+      expect(screen.queryByText(/server has no actions/)).toBeNull();
+    });
+  }
 
   it('says plainly when the tool is gone, without the address as its title', async () => {
     await start();

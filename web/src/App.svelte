@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import NotFound from './components/shell/NotFound.svelte';
   import ScreenLoading from './components/shell/ScreenLoading.svelte';
+  import EmptyState from './components/ui/EmptyState.svelte';
   import { adminOnlyTitle, unknownGroup } from './components/shell/settings';
   import Shell from './components/shell/Shell.svelte';
   import LiveRegion from './components/ui/LiveRegion.svelte';
@@ -82,7 +83,7 @@
   // exists, the rest of the wizard needs their session, so a signed-out
   // browser logs in first.
   $effect(() => {
-    if (!session.ready || moved) return;
+    if (!session.ready || session.down || moved) return;
     const setup = session.setup;
     const here = router.path + router.search;
     const ownerLogin = !!setup?.needs_setup && setup.owner_set && !session.me;
@@ -124,6 +125,11 @@
   <div class="grid h-dvh place-items-center" aria-busy="true">
     <p class="text-body text-muted" class:invisible={!slow}>Loading…</p>
   </div>
+{:else if session.down}
+  <!-- Not "signed out": the server didn't say, and sign-in would fail the same way (§13.2). -->
+  <main class="grid h-dvh place-items-center px-4">
+    <EmptyState text="Bothy isn't responding. It may be restarting." action={{ label: 'Try again', onclick: () => window.location.reload(), variant: 'secondary' }} />
+  </main>
 {:else if bare || !session.me}
   {@render screen()}
 {:else}

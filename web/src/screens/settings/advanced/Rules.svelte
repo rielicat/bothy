@@ -81,7 +81,7 @@
     <p class="mt-3 text-body text-muted">No rules. The approval setting decides.</p>
   {/if}
   <div class="mt-3 flex flex-wrap gap-2">
-    <Button icon="plus" onclick={() => (editing = 'new')}>Add rule</Button>
+    <Button onclick={() => (editing = 'new')}>Add rule</Button>
     <Button onclick={() => (testing = true)}>Test a rule…</Button>
   </div>
 
