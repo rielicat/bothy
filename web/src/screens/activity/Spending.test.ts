@@ -32,7 +32,10 @@ describe('Spending (docs/design/ui.md §10.5)', () => {
     expect(screen.getByRole('progressbar').getAttribute('aria-valuetext')).toBe('$1.20 of $5.00');
     expect(screen.getByText('$18.20')).toBeTruthy();
     expect(screen.getByText('You')).toBeTruthy();
-    expect(screen.getByText('Claude Sonnet 4.6 · Anthropic')).toBeTruthy();
+    // The provider is secondary text, muted like a chat app after a person's name.
+    const model = screen.getByText('Claude Sonnet 4.6');
+    expect(model.closest('li')!.textContent).toMatch(/^Claude Sonnet 4\.6 · Anthropic\s*\$/);
+    expect(model.nextElementSibling!.className).toContain('text-muted');
     expect(screen.getByText('Free')).toBeTruthy();
     expect(screen.getByText('Price not set')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Set price' })).toBeTruthy();
@@ -58,7 +61,7 @@ describe('Spending (docs/design/ui.md §10.5)', () => {
         return { rows: model ? [row] : [], totals: { ...row, key: '' } };
       },
     });
-    expect(await screen.findByText('Claude Sonnet 4.5 · OpenRouter')).toBeTruthy();
+    expect((await screen.findByText('Claude Sonnet 4.5')).closest('li')!.textContent).toMatch(/^Claude Sonnet 4\.5 · OpenRouter/);
   });
 
   it('names a removed custom provider by its own name, not "Other server"', async () => {
@@ -70,7 +73,7 @@ describe('Spending (docs/design/ui.md §10.5)', () => {
         return { rows: model ? [row] : [], totals: { ...row, key: '' } };
       },
     });
-    expect(await screen.findByText(/ · Team lab$/)).toBeTruthy();
+    expect(await screen.findByText(/· Team lab$/)).toBeTruthy();
   });
 
   it('makes every bar focusable and matches the hidden table to the bars', async () => {

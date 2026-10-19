@@ -13,8 +13,8 @@
   import Loading from './Loading.svelte';
 
   type Group = 'model' | 'user' | 'schedule' | 'session';
-  /** `app`: the chat app of someone in a chat app or a channel, after the name. */
-  type Line = { key: string; name: string; amount: string; href?: string; unpriced?: boolean; app?: string };
+  /** `sub`: muted after the name, a model's provider or the chat app of someone in a chat app or a channel. */
+  type Line = { key: string; name: string; amount: string; href?: string; unpriced?: boolean; sub?: string };
 
   const range = $derived(['today', '7'].includes(router.query.get('range') ?? '') ? router.query.get('range')! : '30');
   const days = $derived(range === 'today' ? 1 : Number(range));
@@ -76,12 +76,17 @@
         const info = model(r.key);
         // An id the built-in list doesn't know names its own provider (a removed or custom one), not "Other server".
         const known = providers.some((p) => p.id === providerId);
-        const name = `${info?.display_name || friendlyModel(rest.join('/'))} · ${info?.provider_name || (known ? provider(providerId).name : serviceName(providerId))}`;
-        return { key: r.key, name, amount: money(r.cost_micros, { local: info?.local, known: r.price_known }), unpriced: !r.price_known && !info?.local };
+        return {
+          key: r.key,
+          name: info?.display_name || friendlyModel(rest.join('/')),
+          sub: info?.provider_name || (known ? provider(providerId).name : serviceName(providerId)),
+          amount: money(r.cost_micros, { local: info?.local, known: r.price_known }),
+          unpriced: !r.price_known && !info?.local,
+        };
       }
       const name = r.name ?? labels[g]?.get(r.key) ?? (g === 'session' ? 'A chat' : g === 'schedule' ? 'A schedule' : 'Someone');
       // People in chat apps and channels have no tasks or chats on the web to open.
-      if (g === 'user' && (r.kind === 'teammate' || r.kind === 'channel')) return { key: r.key, name, amount: money(r.cost_micros), app: appName(r.app) };
+      if (g === 'user' && (r.kind === 'teammate' || r.kind === 'channel')) return { key: r.key, name, amount: money(r.cost_micros), sub: appName(r.app) };
       const href = g === 'user' ? `/activity?person=${encodeURIComponent(r.key)}` : g === 'session' ? `/chat/${encodeURIComponent(r.key)}` : `/activity/schedules/${encodeURIComponent(r.key)}`;
       return { key: r.key, name: g === 'user' && r.key === session.me?.user.id ? 'You' : name, amount: money(r.cost_micros), href };
     });
@@ -199,7 +204,7 @@
                 >
               {:else}
                 <span class="min-w-0 flex-1 truncate text-body text-text" title={l.name}
-                  ><span data-copy-ignore>{l.name}</span>{#if l.app}<span class="text-muted">{' · '}{l.app}</span>{/if}</span
+                  ><span data-copy-ignore>{l.name}</span>{#if l.sub}<span class="text-muted">{' · '}{l.sub}</span>{/if}</span
                 >
                 {#if l.unpriced}<span class="text-small text-muted">Price not set</span>{@render setPrice()}{:else}<span class="meta">{l.amount}</span>{/if}
               {/if}
