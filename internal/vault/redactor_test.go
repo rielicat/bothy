@@ -256,3 +256,25 @@ func TestRedactorForScope(t *testing.T) {
 		t.Errorf("after changes = %q", got)
 	}
 }
+
+// A header saved whole, as the MCP dialog asks ("Bearer abc123"), masks
+// the token alone too: servers often quote only the token in an error.
+func TestAuthSchemeValuesMaskTheirToken(t *testing.T) {
+	r := NewRedactor()
+	r.Add("global/mcp_x_header", []byte("Bearer qa-tok-BT55-value-7777"))
+	r.Add("global/note", []byte("keep these words"))
+	for in, want := range map[string]string{
+		"invalid token qa-tok-BT55-value-7777":                 "invalid token " + Mask,
+		"Authorization: Bearer qa-tok-BT55-value-7777":         "Authorization: " + Mask,
+		`{"t":"cWEtdG9rLUJUNTUtdmFsdWUtNzc3Nw=="}`:              `{"t":"` + Mask + `"}`,
+		"the words keep and these stay; Bearer alone is fine": "the words keep and these stay; Bearer alone is fine",
+	} {
+		if got := r.Redact(in); got != want {
+			t.Errorf("Redact(%q) = %q, want %q", in, got, want)
+		}
+	}
+	r.Add("global/short", []byte("Bearer abc"))
+	if got := r.Redact("abc and abcd"); got != "abc and abcd" {
+		t.Errorf("a short token masked ordinary text: %q", got)
+	}
+}

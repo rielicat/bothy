@@ -55,6 +55,9 @@ var markersByByte = func() (m [256][]string) {
 	return m
 }()
 
+// authScheme matches an Authorization-style value, capturing its token.
+var authScheme = regexp.MustCompile(`(?i)^(?:bearer|basic|token|bot|apikey|api-key|key)\s+(\S{8,})\s*$`)
+
 // text is what the scans accept without copying a []byte into a string.
 type text interface{ ~string | ~[]byte }
 
@@ -117,6 +120,22 @@ func (r *Redactor) Add(id string, value []byte) {
 		r.values = map[string][]byte{}
 	}
 	r.values[id] = bytes.Clone(value)
+	r.rebuild()
+}
+
+// Retire keeps id's value masked under a retired id, in place of the one
+// retired before, and frees id. The vault retires a key it replaces or
+// deletes: a session or provider that read it a moment ago may still send
+// it, and what comes back must not show it.
+func (r *Redactor) Retire(id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	v, ok := r.values[id]
+	if !ok {
+		return
+	}
+	r.values[id+"@retired"] = v
+	delete(r.values, id)
 	r.rebuild()
 }
 
@@ -298,6 +317,11 @@ func isWordByte(c byte) bool {
 // inside a longer encoded blob such as an HTTP Basic credential.
 func needles(v []byte) []string {
 	forms := []string{string(v)}
+	// A header saved whole ("Bearer abc123", as the MCP dialog asks for)
+	// leaves the token alone in an error that quotes only it.
+	if m := authScheme.FindSubmatch(v); m != nil {
+		forms = append(forms, needles(m[1])...)
+	}
 	if len(v) >= minEncodedLen {
 		h := hex.EncodeToString(v)
 		forms = append(forms, h, strings.ToUpper(h), url.QueryEscape(string(v)), url.PathEscape(string(v)),

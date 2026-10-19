@@ -3529,7 +3529,11 @@ type VaultStatus struct {
 // Redactor masks exact secret values (and their base64, base64url, hex and
 // percent-encoded forms, for values >= 8 bytes) plus token patterns: sk-…,
 // sk-ant-…, xox[abpr]-…, xapp-…, ghp_/gho_/github_pat_…, AIza…, JWTs,
-// bothy_pat_…. Applied to logs, audit detail, tool results, stored messages,
+// bothy_pat_…. A value of the form "Bearer <token>" (also Basic, Token, Bot,
+// ApiKey, Key; token >= 8 bytes) masks the token alone too. The vault keeps a
+// key it replaces or deletes masked (vault.Redactor.Retire) until that name
+// changes again, since a session or provider may still send it.
+// Applied to logs, audit detail, tool results, stored messages,
 // channel output, SSE payloads and model input. Redact and RedactBytes return
 // their input unchanged when nothing is masked; RedactBytes may return its
 // argument, so callers that keep or modify the result copy it first.

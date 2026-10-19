@@ -161,8 +161,9 @@ func TestRoundTrip(t *testing.T) {
 	if err := v.Delete(ctx, core.GlobalScope, "only_global", u); !errors.Is(err, core.ErrNotFound) {
 		t.Errorf("Delete twice = %v", err)
 	}
-	if red := v.Redactor().Redact("global-only-value-123"); red != "global-only-value-123" {
-		t.Errorf("Delete did not unregister the value: %q", red)
+	// A session or provider that read it a moment ago may still send it.
+	if red := v.Redactor().Redact("global-only-value-123"); red != Mask {
+		t.Errorf("Delete unmasked the value at once: %q", red)
 	}
 	actions := strings.Join(f.audit.(*fakes.Auditor).Actions(), ",")
 	for _, want := range []string{"vault.put", "secret.use", "vault.delete"} {
@@ -768,5 +769,35 @@ func TestKeyChangesCarryTheRequestOrigin(t *testing.T) {
 	}
 	if del == nil || del.Actor != "user:"+string(u) || del.IP != "" {
 		t.Fatalf("delete row without an origin = %+v", del)
+	}
+}
+
+// A replaced or deleted key stays masked while what read it a moment ago may
+// still send it; only the one before the last change is let go.
+func TestReplacedAndDeletedKeysStayMasked(t *testing.T) {
+	f := newFixture(t)
+	v := f.open()
+	ctx := context.Background()
+	put := func(val string) {
+		t.Helper()
+		if _, err := v.Put(ctx, core.GlobalScope, "mcp_echo_header", []byte(val), ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	masked := func(val string) bool { return v.Redactor().Redact("got "+val) == "got "+Mask }
+	put("Bearer qa-good-value-0001")
+	put("Bearer qa-good-value-0002")
+	if !masked("Bearer qa-good-value-0001") || !masked("Bearer qa-good-value-0002") {
+		t.Fatal("a replaced key was unmasked at once")
+	}
+	put("Bearer qa-good-value-0003")
+	if masked("Bearer qa-good-value-0001") || !masked("Bearer qa-good-value-0002") {
+		t.Fatal("want the key before the last change masked, the one before that let go")
+	}
+	if err := v.Delete(ctx, core.GlobalScope, "mcp_echo_header", ""); err != nil {
+		t.Fatal(err)
+	}
+	if !masked("Bearer qa-good-value-0003") || masked("Bearer qa-good-value-0002") {
+		t.Fatal("a deleted key must stay masked in place of the replaced one")
 	}
 }

@@ -457,6 +457,7 @@ func (v *Vault) Put(ctx context.Context, sc core.Scope, name string, value []byt
 	if err != nil {
 		return core.SecretMeta{}, err
 	}
+	v.red.Retire(redactID(sc, name))
 	v.red.Add(redactID(sc, name), value)
 	if created {
 		v.mu.Lock()
@@ -484,7 +485,7 @@ func (v *Vault) Delete(ctx context.Context, sc core.Scope, name string, by core.
 	if err := v.store.Vault().DeleteSecret(ctx, sc, name); err != nil {
 		return err
 	}
-	v.red.Remove(redactID(sc, name))
+	v.red.Retire(redactID(sc, name))
 	v.mu.Lock()
 	v.count = max(v.count-1, 0)
 	delete(v.touched, redactID(sc, name))
