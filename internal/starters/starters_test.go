@@ -47,7 +47,7 @@ func TestRows(t *testing.T) {
 		{"member with nothing set up", State{}, []string{checklist, notes, AskWhat}},
 		{"member with web search", State{WebSearch: true}, []string{research, checklist, schedule, AskWhat}},
 		{"member with a repository indexed but no GitHub", State{Repo: "local/site"},
-			[]string{"Summarise the open pull requests in local/site", "What changed in local/site this week?", AskWhat}},
+			[]string{"How is local/site organised?", "Find where something is handled in local/site", AskWhat}},
 		{"member, everything set up", with(setUp, func(s *State) { s.Admin = false; s.Schedules = []string{"a"} }), []string{prs, changed, AskWhat}},
 	} {
 		var got []string

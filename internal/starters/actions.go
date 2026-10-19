@@ -22,8 +22,11 @@ const AskWhat = "What can you do for our team?"
 func Rows(s State) []Row {
 	var rows []Row
 	switch repo := oneLine(s.Repo); {
-	case repo != "":
+	case repo != "" && s.GitHub:
 		rows = append(rows, Row{Text: "Summarise the open pull requests in " + repo}, Row{Text: "What changed in " + repo + " this week?"})
+	case repo != "":
+		// Only Bothy's notes on the project, so questions they can answer.
+		rows = append(rows, Row{Text: "How is " + repo + " organised?"}, Row{Text: "Find where something is handled in " + repo, Fill: "Where in " + repo + " do we handle "})
 	case s.WebSearch:
 		rows = append(rows, Row{Text: "Research a topic on the web", Fill: "Research this on the web and give me a short summary with links to sources: "},
 			Row{Text: "Draft a release checklist for our next version"})

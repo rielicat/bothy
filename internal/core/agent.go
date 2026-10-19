@@ -90,8 +90,9 @@ type Runner interface {
 	Active() []RunInfo
 	ResolveSession(ctx context.Context, p PrincipalID, chat ChatRef) (*Session, error) // open session by ChatRef.Key()
 	NewSession(ctx context.Context, p PrincipalID, origin string, chat *ChatRef) (*Session, error)
-	// Fork creates the clean fork of §5.3: no history, taint 0, a system note
-	// linking the old session. For a channel session it archives the old one and
+	// Fork creates the clean fork of §5.3 ("Continue in a clean chat", "New
+	// related chat"): no history, taint 0, related to the old session through
+	// ParentID and RootID. For a channel session it archives the old one and
 	// moves the channel key to the fork, so the chat continues in the fork.
 	Fork(ctx context.Context, v Viewer, s SessionID, by UserID) (*Session, error)
 	Compact(ctx context.Context, v Viewer, s SessionID) error
