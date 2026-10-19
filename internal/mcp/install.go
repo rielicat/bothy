@@ -73,13 +73,17 @@ func (m *Manager) Install(ctx context.Context, name string, by core.UserID) erro
 // retryInstall installs again a server whose last install failed or was cut
 // short, when discovery finds it so: at start-up, when the server is turned on
 // again, when the sandbox comes back and when its backoff ends. Callers hold
-// s.op. It reports false when an admin's install is about to run instead.
+// s.op. It reports false when an admin's install is about to run instead, or
+// when the server's entry was replaced meanwhile: install trees are shared by
+// name, so the replaced entry's install would delete its successor's tree.
 func (m *Manager) retryInstall(ctx context.Context, s *server) bool {
 	s.mu.Lock()
-	busy := s.installing
-	s.installing = true
+	skip := s.installing || s.removed
+	if !skip {
+		s.installing = true
+	}
 	s.mu.Unlock()
-	if busy {
+	if skip {
 		return false
 	}
 	m.installLocked(ctx, s, "")

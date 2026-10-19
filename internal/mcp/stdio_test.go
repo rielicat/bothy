@@ -676,6 +676,33 @@ func TestFailedReinstallKeepsServing(t *testing.T) {
 	callable("on the new install")
 }
 
+// A reinstall retry that comes due as its server entry is replaced (turned
+// off, edited or removed) never installs: the tree it would make, and the
+// earlier trees it would then delete, belong to the entry that replaced it.
+func TestReinstallRetrySkipsReplacedServer(t *testing.T) {
+	h, in, _ := newStdioHarness(t, notesCfg())
+	h.start()
+	h.install("notes")
+	in.setOffline(true)
+	h.install("notes")
+	st := h.status("notes")
+	if st.Code != "install_failed" || st.RetryAt.IsZero() {
+		t.Fatalf("status after a failed reinstall = %+v", st)
+	}
+	n := len(in.commands())
+	s := h.m.server("notes")
+	s.op.Lock()
+	h.m.retryDiscovery(st.RetryAt)
+	h.m.applyConfig(nil, false)
+	s.op.Unlock()
+	time.Sleep(50 * time.Millisecond)
+	s.op.Lock()
+	defer s.op.Unlock()
+	if got := in.commands(); len(got) != n {
+		t.Fatalf("the replaced server reinstalled: %q", got[n:])
+	}
+}
+
 func TestPyPIInstall(t *testing.T) {
 	cfg := notesCfg()
 	cfg.Package = &config.MCPPackage{Ecosystem: "pypi", Name: "mcp_notes", Version: "0.4.0", Integrity: pypiIntegrity}
