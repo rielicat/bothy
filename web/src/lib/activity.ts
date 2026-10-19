@@ -321,7 +321,8 @@ export function stepState(i: StateInput): StepState {
   if (i.status === 'error' || i.status === 'timeout' || i.status === 'invalid') return 'failed';
   if (i.result) return i.result.isError ? 'failed' : 'done';
   if (!i.live || i.status === 'stopped') return 'denied';
-  if (i.status === 'waiting' || (i.verdict === 'ask' && !i.approval && (!i.status || i.status === 'planned'))) return 'waiting';
+  // An allowed approval outranks a record stored while it still waited.
+  if (!i.approval && (i.status === 'waiting' || (i.verdict === 'ask' && (!i.status || i.status === 'planned')))) return 'waiting';
   return 'running';
 }
 

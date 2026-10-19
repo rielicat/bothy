@@ -191,6 +191,8 @@ describe('stepState', () => {
 
   it('is never done before the result', () => {
     expect(stepState({ live: true, approval: { status: 'allowed' }, verdict: 'ask' })).toBe('running');
+    // Approved in the chat while the stored record still says it waits: it runs now.
+    expect(stepState({ live: true, approval: { status: 'allowed' }, status: 'waiting', verdict: 'ask' })).toBe('running');
     expect(stepState({ live: true, verdict: 'auto' })).toBe('running');
     expect(stepState({ live: true, verdict: 'ask' })).toBe('waiting');
     expect(stepState({ live: true, approval: { status: 'allowed' }, status: 'ok' })).toBe('done');

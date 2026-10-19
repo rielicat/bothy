@@ -237,6 +237,49 @@ test('on a phone the drawer opens from the top bar, closes with Esc and gives fo
   await page.context().close();
 });
 
+test('a banner stays in view in a chat that opens at its latest reply, above the chat title', async ({ browser, baseURL, page }) => {
+  const paused = (p: Page) => p.getByRole('status').filter({ hasText: 'paused Bothy' });
+  // A new chat, and a chat long enough to open scrolled to the bottom.
+  for (const path of ['/chat?mock=paused', '/chat/ses_0chatlogin0000000000000000?mock=paused']) {
+    await page.goto(path);
+    await expect(paused(page)).toBeInViewport({ ratio: 1 });
+  }
+  await expect(page.getByRole('button', { name: 'Fix login redirect', exact: true })).toBeInViewport({ ratio: 1 });
+  const banner = await paused(page).boundingBox();
+  const title = await page.getByRole('button', { name: 'Fix login redirect', exact: true }).boundingBox();
+  expect(title!.y).toBeGreaterThanOrEqual(banner!.y + banner!.height);
+
+  const small = await phone(browser, baseURL);
+  await small.goto('/chat/ses_0chatstaging00000000000000?mock=paused');
+  await expect(paused(small)).toBeInViewport({ ratio: 1 });
+  await small.context().close();
+});
+
+test('a request opened from its link is scrolled clear of the banner and the phone top bar', async ({ browser, baseURL, page }) => {
+  const small = await phone(browser, baseURL);
+  for (const p of [page, small]) {
+    await p.goto('/approvals/apr_01jpr00000000000000000000?mock=paused');
+    const card = p.locator('article[data-approval="apr_01jpr00000000000000000000"]');
+    await expect(card).toBeInViewport();
+    await expect.poll(() => p.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+    const banner = (await p.getByRole('status').filter({ hasText: 'paused Bothy' }).boundingBox())!;
+    expect((await card.boundingBox())!.y).toBeGreaterThanOrEqual(banner.y + banner.height);
+  }
+  await small.context().close();
+});
+
+test('on a phone the top bar names the page once a banner hides its heading', async ({ browser, baseURL }) => {
+  const page = await phone(browser, baseURL);
+  await page.goto('/approvals?mock=paused');
+  await expect(page.locator('article').first()).toBeVisible();
+  const banner = (await page.getByRole('status').filter({ hasText: 'paused Bothy' }).boundingBox())!;
+  const h1 = (await page.getByRole('heading', { level: 1, name: 'Approvals' }).boundingBox())!;
+  // Behind the banner, but not yet behind the bar above it.
+  await page.evaluate((y) => window.scrollTo(0, y), h1.y + h1.height - (banner.y + banner.height) + 4);
+  await expect(page.getByRole('button', { name: /^Open menu/ }).locator('..').getByText('Approvals', { exact: true })).toBeVisible();
+  await page.context().close();
+});
+
 test('controls are 44 px under a coarse pointer', async ({ browser, baseURL }) => {
   const page = await phone(browser, baseURL);
   await page.goto('/activity?mock=team-chats');

@@ -294,6 +294,11 @@ describe('Approvals inbox, other states', () => {
     const hrefs = [...document.querySelectorAll('a')].map((a) => a.getAttribute('href'));
     expect(hrefs).toContain(`/chat/${mine.session_id}`);
     expect(hrefs).not.toContain('/chat/ses_theirs');
+    // Without a link the meta line is just the time and Show, never an empty "· ·" between them.
+    const metas = [...document.querySelectorAll('[data-decided]')].map((l) => l.nextElementSibling?.textContent?.replace(/\s+/g, ' ').trim());
+    expect(metas).toHaveLength(2);
+    expect(metas.filter((m) => /^\d{1,2}:\d{2}( [AP]M)? · Show$/.test(m ?? ''))).toHaveLength(1);
+    expect(metas.some((m) => m?.includes('· ·'))).toBe(false);
   });
 
   it('groups the Done tab by day, every line naming what was decided', async () => {

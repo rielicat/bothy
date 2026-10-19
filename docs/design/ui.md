@@ -536,7 +536,7 @@ On phones and tablets `/settings` is a list page of the same groups; each group 
 ```
 
 - `[≡]` opens the sidebar as a drawer from the left: `min(320px, 85vw)`, full height, `shadow-overlay`, scrim behind. It closes on scrim tap, Escape or navigation. A dot on the button means approvals are waiting (hidden text "{n} approvals waiting").
-- Title: `text-heading`, truncate. On pages it is the page title; in a chat the chat title. Renaming a chat happens in this slot, on the same row: the field takes the title's place (`flex-1 min-w-0`, `h-11`), and no second bar opens over the transcript.
+- Title: `text-heading`, truncate. On pages it is the page title, shown once the page's own heading has scrolled under the bar (or under a banner, §4.9); in a chat the chat title. Renaming a chat happens in this slot, on the same row: the field takes the title's place (`flex-1 min-w-0`, `h-11`), and no second bar opens over the transcript.
 - "{n} waiting": a small ghost text button in `accent-text`, shown only when something waits for this person; opens `/approvals`. Under 640 px it is hidden on chat routes, where the chat title needs the room: the dot on `[≡]` and the Approvals count in the drawer still say it. A bare count without the word would be ambiguous, so the link is hidden rather than shortened.
 - Right slot by page: chat `⋯` (chat menu); Knowledge project "Edit"; elsewhere nothing.
 - The red power icon and the bell from v0.1 (`20b`) are removed.
@@ -676,7 +676,7 @@ Never behind Details, on any approval card: the full command, the full outgoing 
 
 ### 4.9 Banners
 
-A banner sits at the top of the main area (not over the sidebar), full main width, one at a time, highest priority first. `min-h-10 px-6 py-2 text-body`, one sentence, at most one action. It cannot be dismissed while the condition stops work; otherwise it can be dismissed for the session.
+A banner sits at the top of the main area (not over the sidebar), full main width, one at a time, highest priority first. `min-h-10 px-6 py-2 text-body`, one sentence, at most one action. It cannot be dismissed while the condition stops work; otherwise it can be dismissed for the session. It is sticky (under the phone top bar), so a chat that opens at its latest reply still shows it, and the chat header sticks below it; the chat fills the window under it, so a short chat never scrolls. The page's scroll padding clears the banner and the phone top bar, so a request opened from its link (§8.8) or a control reached with the keyboard is never hidden under them.
 
 | Condition (SPEC `banner` event) | Who | Tone | Copy | Action |
 |---|---|---|---|---|
@@ -1144,7 +1144,7 @@ From the account menu, or "?" when focus is not in a text field. A 440 px dialog
 └─────────┴──────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Header:** `sticky top-0 h-13 bg-bg` inside the column. Title `text-heading`, one line, truncate; click (or Enter on focus) renames inline, Enter saves, Esc cancels. Below 1024 px the header is hidden and the phone top bar holds the title, so renaming happens there (§4.4). Chats from chat apps add a second line in `text-small muted`: "In #eng on Slack", "Telegram". `border-b border-border` appears only once the transcript has scrolled. Right: `⋯` (label "Chat options").
+- **Header:** `sticky h-13 bg-bg` inside the column, at the top or just under a banner (§4.9). Title `text-heading`, one line, truncate; click (or Enter on focus) renames inline, Enter saves, Esc cancels. Below 1024 px the header is hidden and the phone top bar holds the title, so renaming happens there (§4.4). Chats from chat apps add a second line in `text-small muted`: "In #eng on Slack", "Telegram". `border-b border-border` appears only once the transcript has scrolled. Right: `⋯` (label "Chat options").
 - **Chat menu:** Rename · Pinned ({n}) · Chat details · Continue in a clean chat · separator · Delete chat… (`danger-text`).
 - **Transcript:** turns 24 px apart; a person's message 16 px above Bothy's reply; activity lines 12 px above the text that follows them.
 - **Composer:** `sticky bottom-0` on a solid `bg-bg` strip (`pt-2`), 16 px below it plus `env(safe-area-inset-bottom)`. No gradient fade.
@@ -1168,7 +1168,7 @@ What can you do for our team?                                      left-aligned 
 - One "New chat" control only, in the sidebar. `/chat` is the new chat itself, not a "pick a chat" screen.
 - Suggestions (at most three): with GitHub connected, the first two use the most recently indexed repository: "Summarise the open pull requests in {owner/repo}", "What changed in {owner/repo} this week?". Without GitHub: "Draft a release checklist for our next version", "Turn these meeting notes into a list of tasks". Always last: "What can you do for our team?". An admin without GitHub sees "Connect GitHub so Bothy can read your code" as the second row; it links to Settings → Connections → GitHub.
 - Clicking a suggestion puts it in the composer and focuses it. It never sends.
-- Nothing is stored until the first message is sent (S14). The sidebar row appears then, titled with the first 48 characters until the generated title arrives.
+- Nothing is stored until the first message is sent (S14). The sidebar row appears then, titled with the first 48 characters until the generated title arrives. Attaching a file first gives the chat its id, since uploads need one, but the screen stays this one (heading, suggestions, no header) until the message is sent.
 
 ### 7.3 Messages
 
@@ -1771,6 +1771,7 @@ Answer
 - Steps are `ActivityLine`s (§7.4) with approvals included; each expands its Details.
 - "Technical details" (closed, `text-small`) holds the old trace as plain tables: Model calls (Model id · Started · Time to first word · Duration · Tokens in / cached / out · Cost · Fallback attempts); Tool calls (Tool · Exact action · Decision · Rule · Approval id · Sites contacted · Duration); Refine ("3 drafts, 2 rounds, 2 of 3 agreed", each draft, critique and correction in its own nested disclosure; a disclosure inside a disclosure is allowed, a card inside a card is not); Task id [Copy].
 - Refined answers add "Refined from 3 drafts · 2 of 3 agreed" to the meta line.
+- A task still going ends the meta line with "Working…" ("Waiting to start" while queued), since it may have no step to show yet; one waiting for approval says so on its waiting step instead.
 - Next step: when the viewer can decide a waiting step, its line ends with a "Review it" link to `/approvals/{id}`. A task that failed because GitHub stopped accepting Bothy's access gets "Check the GitHub connection ›" on the failed step (admins only, to Connections → GitHub), since "Open chat" can't fix it.
 - Details follow the chat's order (§7.4): Result, How it was allowed, What Bothy asked for, Technical.
 - Not found: title "Can't open this task", "This task was deleted, or it belongs to someone else." + "Go to Activity". The server answers another person's task as it does a deleted one (404, so nobody learns which tasks exist), so the copy names both.

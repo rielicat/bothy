@@ -135,7 +135,7 @@
 {:else}
   <Page {title} back={{ href: '/activity', label: 'Activity' }} actions={openChat}>
     <p class="-mt-4 text-small text-muted">
-      {who} · <time datetime={run.created_at} title={fullTime(run.created_at)}>{when}</time>{#each facts as f (f)}{' · '}{f}{/each}{#if result}{' · '}<span class={toneClass[result.tone]}>{result.text}</span>{/if}
+      {who} · <time datetime={run.created_at} title={fullTime(run.created_at)}>{when}</time>{#each facts as f (f)}{' · '}<span class="whitespace-nowrap">{f}</span>{/each}{#if result}{' · '}<span class={toneClass[result.tone]}>{result.text}</span>{/if}
     </p>
 
     {#if lines.length}

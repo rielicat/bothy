@@ -289,6 +289,35 @@ describe('new chat', () => {
     expect(router.path).toMatch(/^\/chat\/ses_/);
   });
 
+  it('keeps the first message on screen as the reply starts, without reloading the new chat', async () => {
+    render(ConversationView, { id: '' });
+    const box = await screen.findByLabelText('Message');
+    await fireEvent.input(box, { target: { value: 'Draft the launch post' } });
+    await fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && /\/api\/sessions\/[^/]+\/messages$/.test(c.url))).toBe(true));
+    const sid = decodeURIComponent(router.path.split('/').pop()!);
+    const at = new Date().toISOString();
+    emit('message.created', { message: { id: 7001, session_id: sid, seq: 1, role: 'user', kind: 'normal', provenance: 'user', tokens: 3, created_at: at, parts: [{ t: 'text', text: 'Draft the launch post' }] } }, '', sid);
+    emit('run.started', { trigger: 'message', model: 'anthropic/claude-sonnet-4-6' }, 'run_new', sid);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Draft the launch post' })).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getAllByText('Draft the launch post').length).toBeGreaterThan(1);
+    // A reload's snapshot could predate the stored message and wipe it from the screen.
+    expect(calls.some((c) => c.method === 'GET' && c.url.startsWith(`/api/sessions/${sid}`))).toBe(false);
+  });
+
+  it('stays the new chat when a file is attached before the first message', async () => {
+    render(ConversationView, { id: '' });
+    await screen.findByRole('heading', { level: 1, name: 'What should Bothy work on?' });
+    const input = document.querySelector<HTMLInputElement>('input[type=file]')!;
+    await fireEvent.change(input, { target: { files: [new File(['q3'], 'report-q3.pdf', { type: 'application/pdf' })] } });
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/uploads')).toBe(true));
+    expect(router.path).toMatch(/^\/chat\/ses_/);
+    expect(screen.getByRole('heading', { level: 1, name: 'What should Bothy work on?' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { level: 1, name: 'Chat' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'What can you do for our team?' })).toBeTruthy();
+  });
+
   it('puts a ?prompt= from Knowledge in the composer without sending it', async () => {
     router.navigate('/chat?prompt=About%20acme%2Fweb%3A%20');
     render(ConversationView, { id: '' });
