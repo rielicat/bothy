@@ -412,7 +412,7 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 			return "Turned off the skill " + name
 		}
 		return "The skill " + name + " changed"
-	case "mcp.install", "mcp.approve", "mcp.changed":
+	case "mcp.install", "mcp.approve", "mcp.changed", "mcp.discovery_key", "mcp.discover":
 		server := core.ServiceName(strings.TrimPrefix(e.Target, "mcp:"))
 		switch {
 		case e.Action == "mcp.install" && failed:
@@ -421,6 +421,10 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 			return "Installed " + server
 		case e.Action == "mcp.approve":
 			return "Approved " + server + "'s actions"
+		case e.Action == "mcp.discovery_key":
+			return "Let Bothy use their own key to see " + server + "'s actions"
+		case e.Action == "mcp.discover":
+			return "Listed " + server + "'s actions with an admin's own key"
 		}
 		return server + " changed its actions"
 	case "schedule.create", "schedule.update", "schedule.delete", "schedule.run":

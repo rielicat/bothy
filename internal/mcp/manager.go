@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"reflect"
@@ -61,8 +62,8 @@ type server struct {
 	installing bool
 	drifted    bool
 	removed    bool
-	retries    int       // consecutive failed discoveries
-	retryAt    time.Time // next automatic discovery after a failure; zero = none scheduled
+	retries    int       // consecutive failed discoveries or installs
+	retryAt    time.Time // next automatic discovery (or install) after a failure; zero = none scheduled
 }
 
 func source(name string) string { return "mcp:" + name }
@@ -85,8 +86,12 @@ func (s *server) setCode(code string) {
 func (s *server) status() core.MCPStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return core.MCPStatus{Name: s.name, Transport: s.raw.Transport, State: s.state, Protocol: s.protocol, Err: s.err, Code: s.code,
+	st := core.MCPStatus{Name: s.name, Transport: s.raw.Transport, State: s.state, Protocol: s.protocol, Err: s.err, Code: s.code,
 		Tools: s.tools, Pending: s.pending, Since: s.since}
+	if s.state == stError {
+		st.RetryAt = s.retryAt
+	}
+	return st
 }
 
 func (s *server) isRemoved() bool {
@@ -167,12 +172,13 @@ func (m *Manager) allServers() []*server {
 // applyConfig reconciles the server table with mcp.servers: unchanged entries
 // keep their state, changed and removed ones are shut down (sessions closed,
 // boxes destroyed, tools unregistered) and, when discover is set, new and
-// changed ones are discovered in the background.
+// changed ones are discovered in the background. A server that left the list
+// keeps its approvals: its entry may only be invalid for now (see Forget).
 func (m *Manager) applyConfig(list []config.MCPServer, discover bool) {
 	m.mu.Lock()
 	next := make(map[string]*server, len(list))
 	order := make([]string, 0, len(list))
-	var stop, start, gone []*server
+	var stop, start []*server
 	for _, c := range list {
 		if _, dup := next[c.Name]; dup {
 			m.log.Warn("duplicate mcp server name ignored", "server", c.Name)
@@ -194,7 +200,6 @@ func (m *Manager) applyConfig(list []config.MCPServer, discover bool) {
 	for name, old := range m.servers {
 		if next[name] == nil {
 			stop = append(stop, old)
-			gone = append(gone, old)
 		}
 	}
 	m.servers, m.order = next, order
@@ -205,13 +210,6 @@ func (m *Manager) applyConfig(list []config.MCPServer, discover bool) {
 		s.mu.Unlock()
 		m.closeInstances(s)
 		m.unregister(s.name)
-	}
-	// A server added again under the same name is reviewed afresh, not
-	// given the removed one's approvals and turned-off actions.
-	for _, s := range gone {
-		if err := m.d.Store.MCP().DeletePins(m.ctx, s.name); err != nil {
-			m.log.Error("forget a removed mcp server's pins", "server", s.name, "err", err)
-		}
 	}
 	for _, s := range start {
 		m.spawn(func(ctx context.Context) { m.discover(ctx, s) })
@@ -453,6 +451,28 @@ func (m *Manager) Approve(ctx context.Context, name string, tools map[string]cor
 	m.record(ctx, "user:"+string(by), "mcp.approve", name, "ok", detail)
 	m.syncTools(ctx, s)
 	return nil
+}
+
+// Forget drops the approvals and turned-off actions of a server an admin
+// removed, so one added again under the name is reviewed afresh. A name that
+// is still configured (another layer defines it) keeps them.
+func (m *Manager) Forget(ctx context.Context, name string) error {
+	cur := m.d.Config.Current().MCP.Servers
+	if slices.ContainsFunc(cur, func(c config.MCPServer) bool { return c.Name == name }) {
+		return nil
+	}
+	if s := m.server(name); s != nil {
+		// The config watch applies the removal in the background; applying it
+		// here and waiting on op means no discovery of the old entry still
+		// running writes pins after they are deleted.
+		m.applyConfig(cur, true)
+		s.op.Lock()
+		defer s.op.Unlock()
+	}
+	if err := m.d.Store.Meta().Delete(ctx, keyHolderMeta+name); err != nil && !errors.Is(err, core.ErrNotFound) {
+		return err
+	}
+	return m.d.Store.MCP().DeletePins(ctx, name)
 }
 
 // Reload re-reads the server's config entry, closes its sessions and

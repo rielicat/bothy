@@ -46,11 +46,22 @@ export function appStatus(app: AppName, s: AppStatus | undefined, people: number
 
 // What the server's status code says to fix (MCPStatus.code).
 const toolCodes: Record<string, string> = {
-  key_missing: 'a saved key it uses is missing. Add it in Saved keys',
+  key_missing: 'a saved key it uses is missing',
+  // Only people's own keys exist: an admin can let theirs show what it offers.
+  no_shared_key: 'it needs a shared key to show what it can do',
   key_locked: "Bothy's saved keys are locked",
   private_address: 'its address is on a private network',
+  needs_https: "it isn't on your private network, so its key needs an https:// address",
   not_installed: 'it needs to be installed',
+  install_failed: "it couldn't be installed",
 };
+
+/** " Bothy tries again in 4 min." while Bothy will try again on its own (MCPStatus.retry_at), else ''. */
+export function retryText(s: MCPStatus, now = Date.now()): string {
+  if (!s.retry_at) return '';
+  const min = Math.round((Date.parse(s.retry_at) - now) / 60_000);
+  return min >= 1 ? ` Bothy tries again in ${min} min.` : ' Bothy tries again in a moment.';
+}
 
 /** Why an MCP server can't run, as the end of "Can't start: …". "Server" means Bothy's own host only, so a remote tool is named. */
 export function toolProblem(s: MCPStatus): string {
@@ -185,6 +196,26 @@ export function needsAttention(apps: AppStatus[], tools: MCPStatus[], github: Gi
 }
 
 export const searchTitle: Record<string, string> = { none: 'Off', searxng: 'SearXNG', brave: 'Brave Search', tavily: 'Tavily' };
+
+/**
+ * The host of an address on a private network, as company and container hosts are: an IP in a private range, a name
+ * without a dot, or a private-use ending such as .internal. '' otherwise.
+ */
+export function privateHost(address: string): string {
+  let h: string;
+  try {
+    h = new URL(address.trim()).hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  } catch {
+    return '';
+  }
+  const v4 = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(h);
+  if (v4) {
+    const [a, b] = [+v4[1], +v4[2]];
+    return a === 10 || a === 127 || (a === 172 && b >= 16 && b < 32) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b < 128) ? h : '';
+  }
+  if (h.includes(':')) return /^(::1$|f[cd]|fe[89ab])/.test(h) ? h : '';
+  return !h.includes('.') || /\.(internal|local|localhost|lan|home\.arpa|corp|intranet)$/.test(h) ? h : '';
+}
 
 /** "linear" → "Linear", "team-docs" → "Team docs", "deepwiki" → "DeepWiki". */
 export const serverTitle = serviceName;

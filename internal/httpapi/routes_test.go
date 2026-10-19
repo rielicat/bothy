@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/httpapi/dto"
 	"github.com/rielicat/bothy/internal/testkit/fakes"
@@ -724,6 +726,61 @@ func TestConfigEndpoints(t *testing.T) {
 		t.Fatalf("field errors = %s", rec.Body.String())
 	}
 	expect(t, h.do("DELETE", "/api/config/budgets/daily_usd", nil, h.admin), http.StatusNoContent)
+}
+
+// An admin lets their own key list a server's actions; a refusal says why in
+// the server's words. Only the person, signed in, chooses: an admin token
+// can't send its owner's personal keys anywhere.
+func TestMCPUseMyKey(t *testing.T) {
+	h := newHarness(t).setup()
+	expect(t, h.do("POST", "/api/mcp/docs/use-my-key", nil, h.tokenFor(h.admin, "admin")), http.StatusForbidden)
+	expect(t, h.do("POST", "/api/mcp/docs/use-my-key", nil, h.admin), http.StatusAccepted)
+	if got := h.mcp.Discovered; !slices.Equal(got, []string{"docs " + string(h.admin.user)}) {
+		t.Fatalf("DiscoverWith calls = %v", got)
+	}
+	expect(t, h.do("POST", "/api/mcp/docs/use-my-key", nil, h.member), http.StatusForbidden)
+	h.mcp.DiscoverErr = fmt.Errorf("%w: you haven't saved your own key named docs_key. Add it in Saved keys, or add a shared key", core.ErrConflict)
+	rec := h.do("POST", "/api/mcp/docs/use-my-key", nil, h.admin)
+	expect(t, rec, http.StatusConflict)
+	if !strings.Contains(rec.Body.String(), "you haven't saved your own key named docs_key") {
+		t.Fatalf("refusal = %s", rec.Body.String())
+	}
+}
+
+// Only an admin's removal of an MCP server drops its approvals: an entry an
+// edit made invalid leaves the config too, and keeps them.
+func TestRemovingAnMCPServerForgetsItsApprovals(t *testing.T) {
+	h := newHarness(t).setup()
+	set := func(k, v string) {
+		t.Helper()
+		expect(t, h.do("PATCH", "/api/config", dto.ConfigPatchReq{Set: map[string]json.RawMessage{k: json.RawMessage(v)}}, h.admin), http.StatusOK)
+	}
+	set("mcp.servers.linear.enabled", "false")
+	set("mcp.servers.linear.headers", "null")
+	if got := h.mcp.Forgot(); len(got) != 0 {
+		t.Fatalf("forgot %v without a removal", got)
+	}
+	set("mcp.servers.linear", "null")
+	expect(t, h.do("DELETE", "/api/config/mcp.servers.docs", nil, h.admin), http.StatusNoContent)
+	if got := h.mcp.Forgot(); !slices.Equal(got, []string{"linear", "docs"}) {
+		t.Fatalf("forgot %v", got)
+	}
+}
+
+// Removing every server at once, or setting the whole list anew, is an
+// admin's removal too, of each server configured before.
+func TestRemovingAllMCPServersForgetsTheirApprovals(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) {
+		c.MCP.Servers = []config.MCPServer{{Name: "linear", Transport: "http"}, {Name: "docs", Transport: "http"}}
+	}).setup()
+	expect(t, h.do("DELETE", "/api/config/mcp.servers", nil, h.admin), http.StatusNoContent)
+	if got := h.mcp.Forgot(); !slices.Equal(got, []string{"linear", "docs"}) {
+		t.Fatalf("forgot %v after removing the list", got)
+	}
+	expect(t, h.do("PATCH", "/api/config", dto.ConfigPatchReq{Set: map[string]json.RawMessage{"mcp": json.RawMessage(`{"servers":[]}`)}}, h.admin), http.StatusOK)
+	if got := h.mcp.Forgot(); !slices.Equal(got, []string{"linear", "docs", "linear", "docs"}) {
+		t.Fatalf("forgot %v after setting the list anew", got)
+	}
 }
 
 func TestVaultEndpoints(t *testing.T) {

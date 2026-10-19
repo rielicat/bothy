@@ -572,6 +572,19 @@ func (s *Server) mcpReload(w http.ResponseWriter, r *http.Request, _ core.Actor)
 	return accepted(w, nil)
 }
 
+// mcpUseMyKey lets the admin's own keys list a server's actions when it has
+// no shared key; their key never makes anyone else's calls. Cookie only: a
+// token must not be able to send its owner's personal keys to an address.
+func (s *Server) mcpUseMyKey(w http.ResponseWriter, r *http.Request, a core.Actor) error {
+	if a.User == "" {
+		return errNotFound
+	}
+	if err := s.d.MCP.DiscoverWith(withOrigin(r, a, nil), r.PathValue("server"), a.User); err != nil {
+		return err
+	}
+	return accepted(w, nil)
+}
+
 // ---- providers, models, channels ----
 
 func (s *Server) providers(w http.ResponseWriter, r *http.Request, _ core.Actor) error {
@@ -648,17 +661,26 @@ func (s *Server) patchConfig(w http.ResponseWriter, r *http.Request, a core.Acto
 	if len(req.Set) == 0 {
 		return badRequest("set is empty")
 	}
+	before := s.d.Config.Current().MCP.Servers
 	restart, err := s.d.Config.Set(configCtx(r, a), req.Set, byString(a))
 	if err != nil {
 		return err
+	}
+	for path, v := range req.Set {
+		// A whole list set anew leaves out the servers it doesn't name.
+		if string(bytes.TrimSpace(v)) == "null" || path == "mcp" || path == "mcp.servers" {
+			s.forgetMCP(r.Context(), path, before)
+		}
 	}
 	return ok(w, dto.ConfigPatchResp{RestartRequired: nonNil(restart)})
 }
 
 func (s *Server) resetConfig(w http.ResponseWriter, r *http.Request, a core.Actor) error {
+	before := s.d.Config.Current().MCP.Servers
 	if err := s.d.Config.Reset(configCtx(r, a), r.PathValue("path"), byString(a)); err != nil {
 		return err
 	}
+	s.forgetMCP(r.Context(), r.PathValue("path"), before)
 	return noContent(w)
 }
 
@@ -735,6 +757,30 @@ func (s *Server) chatTokenWrite(a core.Actor, sc core.Scope, name string) error 
 		}
 	}
 	return nil
+}
+
+// forgetMCP drops the approvals of the MCP servers an admin removed at path
+// (one server, or all of them), of those configured before. Only an explicit
+// removal does: an entry that a bothy.yaml edit made invalid also leaves the
+// config, and its approvals must survive the fix. MCP.Forget keeps those of a
+// name that is still configured.
+func (s *Server) forgetMCP(ctx context.Context, path string, before []config.MCPServer) {
+	if s.d.MCP == nil {
+		return
+	}
+	var names []string
+	if name, ok := strings.CutPrefix(path, "mcp.servers."); ok && name != "" && !strings.Contains(name, ".") {
+		names = []string{name}
+	} else if path == "mcp" || path == "mcp.servers" {
+		for _, c := range before {
+			names = append(names, c.Name)
+		}
+	}
+	for _, name := range names {
+		if err := s.d.MCP.Forget(ctx, name); err != nil {
+			s.log.Error("forget a removed mcp server's approvals", "server", name, "err", err)
+		}
+	}
 }
 
 // ---- vault ----

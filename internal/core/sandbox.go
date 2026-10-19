@@ -107,7 +107,15 @@ type SystemDest struct {
 	// for these exact hosts (Ollama on the host or LAN, the searxng service).
 	// Cloud metadata addresses stay blocked.
 	AllowPrivate bool
+	// PrivateOnly refuses every public address: a plain-http destination
+	// that sends a key may reach only the admin's own network, whatever its
+	// name resolves to. It admits nothing AllowPrivate doesn't.
+	PrivateOnly bool
 }
+
+// PrivateOnlyRefused ends egress's refusal of a PrivateOnly destination whose
+// name resolves to a public address, so a caller can name that fix.
+const PrivateOnlyRefused = "plain http with a key may reach only a private address"
 
 // EgressBinding carries what the proxy needs to log a connection and, for an
 // unknown destination, to build the hold-for-approval PolicyInput.

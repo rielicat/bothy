@@ -1,6 +1,22 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Button, Dialog, DiffView, Disclosure, CodeBlock, EmptyState, IconButton, LinkButton, Menu, Select, SettingsSection, StatusLine, Switch, toast } from '../../../components/ui';
+  import {
+    Button,
+    Dialog,
+    DiffView,
+    Disclosure,
+    CodeBlock,
+    EmptyState,
+    IconButton,
+    LinkButton,
+    Menu,
+    Select,
+    SettingsSection,
+    StatusLine,
+    Switch,
+    TextField,
+    toast,
+  } from '../../../components/ui';
   import { api, ApiError, errorText, refusal } from '../../../lib/api/client';
   import type { MCPPin, MCPStatus, SideEffect } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
@@ -8,7 +24,7 @@
   import { plural } from '../../../lib/format';
   import { router } from '../../../lib/router.svelte';
   import ConnPage from './ConnPage.svelte';
-  import { effects, saveConfig, serverTitle, toolProblem, type Failure } from './connections';
+  import { effects, retryText, saveConfig, serverTitle, toolProblem, type Failure } from './connections';
   import Loading from './Loading.svelte';
 
   let { params }: { params: Record<string, string> } = $props();
@@ -27,6 +43,11 @@
   let busy = $state(false);
   let enabled = $state(true);
   let saving = $state(false);
+  let keying = $state(false);
+  let newKey = $state('');
+  let keyTried = $state(false);
+  let keyFailure = $state<Failure | null>(null);
+  let lending = $state(false);
 
   async function load() {
     try {
@@ -46,6 +67,15 @@
       view = 'loading';
       void load().then(() => router.query.get('review') === '1' && pending.length && openReview());
     });
+  });
+
+  // Installs, discovery and retries end in the background: look again until they do.
+  $effect(() => {
+    const busy = status?.state === 'installing' || status?.state === 'connecting';
+    const at = status?.retry_at;
+    if (!busy && !at) return;
+    const t = setTimeout(load, busy ? 3000 : Math.max(5000, Date.parse(at!) - Date.now() + 5000));
+    return () => clearTimeout(t);
   });
 
   const off = $derived(status ? status.state === 'disabled' && !status.code : !enabled);
@@ -102,6 +132,55 @@
   // The key the Add dialog saved for this server goes with it.
   const ownKey = $derived(config.value(`mcp.servers.${name}.headers.Authorization`, '') === `secret:mcp_${name}_header`);
 
+  const url = $derived(String(config.value(`mcp.servers.${name}.url`, '')));
+  const headers = $derived(config.keys(`mcp.servers.${name}.headers`, 'leaf').map((h) => [h, String(config.value(`mcp.servers.${name}.headers.${h}`, ''))]));
+  const refs = $derived([...headers.map((h) => h[1]), url]);
+  // A key kept in AWS Secrets Manager is replaced there, not here.
+  const keyable = $derived(config.value<string>(`mcp.servers.${name}.transport`) === 'http' && !refs.some((v) => v.includes('aws-sm:')));
+  // The shared saved key it sends, from a header or else its address; one added here is named as the Add dialog names it.
+  const keyRef = $derived(refs.map((v) => /secret:([\w.-]+)/.exec(v)?.[1]).find(Boolean));
+  const keySaved = $derived(!!keyRef && status?.code !== 'key_missing' && status?.code !== 'no_shared_key');
+  // The header that carries the key, and what it sends before it ("Bearer "), which the help names.
+  const keyHelp = $derived.by(() => {
+    const h = keyRef ? headers.find((x) => x[1].includes(`secret:${keyRef}`)) : ['Authorization', ''];
+    const before = h?.[1].split('secret:')[0].trim();
+    return `${before ? `Enter only the key: Bothy puts “${before}” before it. ` : h ? `Sent as the ${h[0]} header, such as Bearer abc123. ` : ''}Stored encrypted. Only sent to this address.`;
+  });
+
+  function openKey() {
+    newKey = '';
+    keyTried = false;
+    keyFailure = null;
+    keying = true;
+  }
+
+  async function saveKey(e: SubmitEvent) {
+    e.preventDefault();
+    keyTried = true;
+    if (!newKey.trim()) return;
+    busy = true;
+    const ref = keyRef ?? `mcp_${name}_header`;
+    try {
+      await api.put(`/api/vault/global/${ref}`, { value: newKey.trim() });
+      // A new header changes the server's entry, which rediscovers it; a replaced key needs a reload to be tried.
+      keyFailure = keyRef ? null : await saveConfig({ [`mcp.servers.${name}.headers.Authorization`]: `secret:${ref}` });
+      if (keyFailure) {
+        // Nothing sends the key just saved: it doesn't stay behind.
+        await api.del(`/api/vault/global/${ref}`).catch(() => {});
+        if (/use https/.test(keyFailure.details ?? '')) keyFailure.message = 'Over http the key would be sent unencrypted. Add the server again with its https:// address.';
+      } else {
+        keying = false;
+        toast('Key saved.');
+        if (keyRef) await post('reload', "Bothy couldn't reload this server. Try again.");
+        else await load();
+      }
+    } catch (err) {
+      keyFailure = { message: "Bothy couldn't save the key. Try again.", details: errorText(err) };
+    } finally {
+      busy = false;
+    }
+  }
+
   async function remove() {
     busy = true;
     const key = ownKey;
@@ -118,12 +197,17 @@
   const fix = $derived.by(() => {
     switch (status?.code) {
       case 'private_address':
-        return { label: `Allow ${hostOf(config.value(`mcp.servers.${name}.url`, ''))}`, onclick: allowPrivate };
+        return { label: `Allow ${hostOf(url)}`, onclick: allowPrivate };
       case 'not_installed':
+      case 'install_failed':
         return { label: 'Install', onclick: install };
+      case 'no_shared_key':
+        return { label: 'Use my key', onclick: () => (lending = true) };
       case 'key_missing':
-      case 'key_locked':
       case 'key_rejected':
+        if (keyable) return { label: status.code === 'key_missing' ? 'Add key' : 'Replace key', onclick: openKey };
+        break;
+      case 'key_locked':
         return { label: 'Open saved keys', onclick: () => router.navigate('/settings/security/keys') };
     }
     return status?.state === 'error' ? { label: 'Try again', onclick: reload } : undefined;
@@ -141,25 +225,24 @@
     await load();
   }
 
-  async function install() {
+  async function post(what: string, fail: string, done?: string) {
+    problem = null;
     try {
-      await api.post(`/api/mcp/${enc}/install`);
-      toast('Install started.');
+      await api.post(`/api/mcp/${enc}/${what}`);
+      if (done) toast(done);
       await load();
     } catch (e) {
-      problem = { message: "Bothy couldn't start the install. Try again.", details: errorText(e) };
+      // Only this refusal is written for people: it names the key to save.
+      problem = { message: (what === 'use-my-key' && refusal(e)) || fail, details: errorText(e) };
     }
   }
-
-  async function reload() {
-    try {
-      await api.post(`/api/mcp/${enc}/reload`);
-      toast('Reload started.');
-      await load();
-    } catch (e) {
-      problem = { message: "Bothy couldn't reload this server. Try again.", details: errorText(e) };
-    }
+  async function lend() {
+    busy = true;
+    await post('use-my-key', "Bothy couldn't use your key. Try again.");
+    busy = lending = false;
   }
+  const install = () => post('install', "Bothy couldn't start the install. Try again.", 'Install started.');
+  const reload = () => post('reload', "Bothy couldn't reload this server. Try again.", 'Reload started.');
 </script>
 
 {#snippet menu()}
@@ -168,6 +251,7 @@
       placement="bottom-end"
       items={[
         { label: 'Reload', onselect: reload },
+        ...(keyable ? [{ label: keySaved ? 'Replace key…' : 'Add a key…', onselect: openKey }] : []),
         { label: 'Remove server…', danger: true, onselect: () => (removing = true) },
       ]}
     >
@@ -192,7 +276,7 @@
         {:else if !status || status.state === 'connecting' || status.state === 'installing'}
           <StatusLine tone="progress" text={status?.state === 'installing' ? 'Installing…' : 'Connecting…'} />
         {:else if status.state === 'error' || status.state === 'no_sandbox' || status.state === 'disabled'}
-          <StatusLine tone="danger" text="Can't start: {toolProblem(status)}." details={status.error} action={fix} />
+          <StatusLine tone="danger" text="Can't start: {toolProblem(status)}.{retryText(status)}" details={status.error} action={fix} />
         {:else if pending.length}
           <StatusLine
             tone="warning"
@@ -283,6 +367,34 @@
   {#snippet footer({ close })}
     <Button data-cancel onclick={close}>Cancel</Button>
     <Button variant="primary" loading={busy} loadingLabel="Saving…" onclick={saveReview}>Save <span class="max-sm:hidden">review</span></Button>
+  {/snippet}
+</Dialog>
+
+<Dialog bind:open={keying} title={keySaved ? `Replace the key for ${title}` : `Add a key for ${title}`} dirty={!!newKey} {busy}>
+  <form id="mcp-key" class="space-y-4" onsubmit={saveKey} novalidate>
+    <TextField
+      label="Key"
+      type="password"
+      bind:value={newKey}
+      autocomplete="off"
+      error={keyTried && !newKey.trim() ? 'Enter the key.' : undefined}
+      help={keyHelp}
+    />
+    {#if keyFailure}<StatusLine tone="danger" alert text={keyFailure.message} details={keyFailure.details} />{/if}
+  </form>
+  {#snippet footer({ close })}
+    <Button data-cancel onclick={close}>Cancel</Button>
+    <Button variant="primary" type="submit" form="mcp-key" loading={busy} loadingLabel="Saving…">Save key</Button>
+  {/snippet}
+</Dialog>
+
+<Dialog bind:open={lending} title="Use your own key?" {busy}>
+  <p class="text-body text-text">
+    Bothy will send your own key{keyRef ? ` “${keyRef}”` : ''} to {hostOf(url)} when it checks what {title} can do. It's never used for anyone else.
+  </p>
+  {#snippet footer({ close })}
+    <Button data-cancel onclick={close}>Cancel</Button>
+    <Button variant="primary" loading={busy} loadingLabel="Saving…" onclick={lend}>Use my key</Button>
   {/snippet}
 </Dialog>
 

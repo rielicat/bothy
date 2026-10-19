@@ -10,6 +10,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/rielicat/bothy/internal/core"
 )
 
 const (
@@ -151,8 +153,9 @@ type pinned struct {
 // dialPinned refuses a denylisted host, resolves h once, refuses the
 // destination if any answer is blocked or denylisted, and dials only address
 // literals, so a second DNS answer can never redirect the connection
-// (rebinding). egress.deny applies to every dialer.
-func (s *Service) dialPinned(ctx context.Context, h hostname, port int, allowPrivate bool) pinned {
+// (rebinding). egress.deny applies to every dialer. privateOnly refuses every
+// public answer as well (SystemDest.PrivateOnly).
+func (s *Service) dialPinned(ctx context.Context, h hostname, port int, allowPrivate, privateOnly bool) pinned {
 	deny := s.cfg().Egress.Deny
 	if e, ok := matchAny(deny, h, port, true, true); ok {
 		return pinned{ip: h.ip, reason: "denylisted (" + e + ")", err: fmt.Errorf("%w: %s is denylisted", errDenied, h.hostport(port))}
@@ -167,6 +170,10 @@ func (s *Service) dialPinned(ctx context.Context, h hostname, port int, allowPri
 	for _, a := range addrs {
 		if r := addrProblem(a, allowPrivate); r != "" {
 			return pinned{ip: a.Unmap(), reason: r, err: fmt.Errorf("%w: %s resolves to %s (%s)", errBlocked, h.name, a.Unmap(), r)}
+		}
+		if privateOnly && !privateAddr(a) {
+			return pinned{ip: a.Unmap(), reason: "public address", err: fmt.Errorf("%w: %s resolves to the public address %s: %s",
+				errBlocked, h.name, a.Unmap(), core.PrivateOnlyRefused)}
 		}
 		lit := hostname{name: a.Unmap().String(), ip: a.Unmap()}
 		if e, ok := matchAny(deny, lit, port, true, true); ok {

@@ -39,6 +39,7 @@ type serverSpec struct {
 	url           string // http
 	hostPort      string // http: exact host:port for the system dialer
 	allowPrivate  bool
+	privateOnly   bool              // http: plain http that sends a key reaches private addresses only
 	headers       map[string]string // secret references, resolved per session
 	profile       core.BoxProfile
 	pkg           config.MCPPackage
@@ -74,6 +75,10 @@ func newServerSpec(c config.MCPServer) (*serverSpec, error) {
 			port = map[string]string{"http": "80", "https": "443"}[u.Scheme]
 		}
 		s.url, s.hostPort = u.String(), net.JoinHostPort(strings.ToLower(u.Hostname()), port)
+		// Config accepts such an address with allow_private, as the admin's
+		// own network; a name of it that resolves to a public address must
+		// not get the key in the clear.
+		s.privateOnly = u.Scheme == "http" && (len(c.Headers) > 0 || config.HasSecretRef(u.RawQuery))
 	case "stdio":
 		if err := checkPackage(c.Package); err != nil {
 			return nil, err

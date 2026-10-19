@@ -155,7 +155,8 @@ func TestChangedDefinitionKeepsTheChosenClass(t *testing.T) {
 	}
 }
 
-// A server removed and added again under its name is reviewed afresh.
+// A server an admin removed and added again under its name is reviewed
+// afresh; while it is still configured, forgetting it changes nothing.
 func TestRemovedServerIsReviewedAfresh(t *testing.T) {
 	f := newFakeServer()
 	ts := f.httpServer(t, false)
@@ -163,13 +164,50 @@ func TestRemovedServerIsReviewedAfresh(t *testing.T) {
 	h := newHarness(t, []config.MCPServer{cfg}, withClient(ts.Client()))
 	h.start()
 	h.approve("tickets", map[string]core.MCPToolApproval{"search": {SideEffect: core.SERead}, "block": {Disable: true}})
-	h.m.applyConfig(nil, false)
-	if hist, _ := h.store.MCP().History(context.Background(), "tickets"); len(hist) != 0 {
+	ctx := context.Background()
+	if err := h.m.Forget(ctx, "tickets"); err != nil {
+		t.Fatal(err)
+	}
+	if hist, _ := h.store.MCP().History(ctx, "tickets"); len(hist) != 2 {
+		t.Fatalf("a configured server's pins were dropped: %d left", len(hist))
+	}
+	h.cfg.MCP.Servers = nil
+	if err := h.m.Forget(ctx, "tickets"); err != nil {
+		t.Fatal(err)
+	}
+	if hist, _ := h.store.MCP().History(ctx, "tickets"); len(hist) != 0 {
 		t.Fatalf("a removed server's pins were kept: %d", len(hist))
+	}
+	if _, ok := h.reg.Get("mcp__tickets__search"); ok {
+		t.Fatal("a removed server's tool is still registered")
 	}
 	h.m.applyConfig([]config.MCPServer{cfg}, true)
 	h.waitFor("rediscovery", func() bool { return h.status("tickets").State == stPinsPending })
 	if st := h.status("tickets"); st.Pending != 2 || st.Tools != 0 {
 		t.Fatalf("re-added server = %+v", st)
+	}
+}
+
+// An entry that leaves the config because an edit made it invalid keeps its
+// approvals and turned-off actions: once fixed, its tools are back at once.
+func TestInvalidEntryKeepsApprovals(t *testing.T) {
+	f := newFakeServer()
+	ts := f.httpServer(t, false)
+	cfg := httpServerCfg("tickets", ts.URL)
+	h := newHarness(t, []config.MCPServer{cfg}, withClient(ts.Client()))
+	h.start()
+	h.approve("tickets", map[string]core.MCPToolApproval{"search": {SideEffect: core.SERead}, "block": {Disable: true}})
+	h.m.applyConfig(nil, false)
+	if _, ok := h.reg.Get("mcp__tickets__search"); ok {
+		t.Fatal("a server that left the config is still registered")
+	}
+	h.m.applyConfig([]config.MCPServer{cfg}, true)
+	h.waitFor("rediscovery", func() bool { return h.status("tickets").State == stReady })
+	if st := h.status("tickets"); st.Pending != 0 || st.Tools != 1 {
+		t.Fatalf("server back after a fix = %+v", st)
+	}
+	h.tool("mcp__tickets__search")
+	if _, ok := h.reg.Get("mcp__tickets__block"); ok {
+		t.Fatal("a turned-off action came back on")
 	}
 }

@@ -282,7 +282,7 @@ func (t *credsTransport) dial(ctx context.Context, _, addr string) (net.Conn, er
 	if !tg.fixed.IsValid() {
 		// A full-URI host name: an ordinary pinned dial, so it still cannot
 		// resolve to the metadata addresses.
-		c, _, err := t.s.guardedDial(ctx, h, port, true, rec)
+		c, _, err := t.s.guardedDial(ctx, h, port, true, false, rec)
 		return c, err
 	}
 	return t.s.fixedDial(ctx, tg.fixed, rec)

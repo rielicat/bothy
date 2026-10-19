@@ -77,14 +77,20 @@ type MCPStatus struct {
 	Protocol  string `json:"protocol"`  // negotiated spec revision
 	Err       string `json:"error,omitempty"`
 	// Code says what to fix when State is error: key_missing (a saved key
-	// it uses doesn't exist), key_locked (the saved keys are locked),
+	// it uses doesn't exist), no_shared_key (discovery found no shared key
+	// for a header and the server refused without it; an admin may let
+	// their own key list its tools, MCP.DiscoverWith), key_locked (the saved keys are locked),
 	// key_rejected (the server answered 401 or 403), private_address
-	// (needs allow_private), not_installed (a command server to install or
-	// reinstall); "" otherwise.
+	// (needs allow_private), needs_https (plain http with a key to a name
+	// that resolves to a public address), not_installed (a command server to
+	// install or reinstall), install_failed (its install failed); "" otherwise.
 	Code    string    `json:"code,omitempty"`
 	Tools   int       `json:"tools"`
 	Pending int       `json:"pending"`
 	Since   time.Time `json:"since"`
+	// RetryAt is when Bothy tries again on its own after a failed discovery
+	// or install (State error); zero when it won't.
+	RetryAt time.Time `json:"retry_at,omitzero"`
 }
 
 type MCPToolApproval struct {
@@ -100,13 +106,25 @@ type MCPToolApproval struct {
 type MCP interface {
 	// Start connects enabled servers and registers approved, hash-matching
 	// tools. Discovery has no billing user: HTTP header secret refs resolve in
-	// the global vault scope only, so each needs a global value (§2.11).
+	// the global vault scope, then in the personal scope of the admin chosen
+	// with DiscoverWith; one with neither is left out of the discovery
+	// session (§2.11).
 	Start(ctx context.Context) error
 	Status() []MCPStatus
 	Pins(ctx context.Context, server string) ([]*MCPPin, error) // latest definition per tool incl. pending diffs
 	Approve(ctx context.Context, server string, tools map[string]MCPToolApproval, by UserID) error
 	Install(ctx context.Context, server string, by UserID) error // stdio only, installer box
 	Reload(ctx context.Context, server string) error
+	// DiscoverWith lets discovery of an HTTP server use admin's personal keys
+	// for references without a shared value, while its address and headers
+	// stay the same and admin stays an active admin, and rediscovers it. Calls
+	// never use them. ErrConflict when admin has neither for some reference.
+	DiscoverWith(ctx context.Context, server string, admin UserID) error
+	// Forget drops the pins (approvals, turned-off actions) of a server an
+	// admin removed through the API, so one added again under the name is
+	// reviewed afresh; no-op while the name is still configured. A server
+	// that only left the config because its entry is invalid keeps them.
+	Forget(ctx context.Context, server string) error
 	Close() error
 }
 

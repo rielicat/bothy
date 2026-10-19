@@ -15,7 +15,10 @@ import (
 	"github.com/rielicat/bothy/internal/skills/treehash"
 )
 
-var errDrifted = errors.New("install tree changed on disk since it was installed (drifted); reinstall to re-enable")
+var (
+	errDrifted       = errors.New("install tree changed on disk since it was installed (drifted); reinstall to re-enable")
+	errInstallFailed = errors.New("the last install didn't finish")
+)
 
 // discover lists the server's tools through a short-lived session (for
 // stdio, a discovery box with no workspace that is destroyed afterwards),
@@ -45,17 +48,28 @@ func (m *Manager) discoverLocked(ctx context.Context, s *server) {
 	defer cancel()
 	var c *conn
 	var err error
+	var keyOf core.UserID // whose personal key listed the tools, if anyone's
 	switch s.spec.transport {
 	case "stdio":
 		c, err = m.discoverStdio(dctx, s)
+		if errors.Is(err, errInstallFailed) && m.retryInstall(ctx, s) {
+			return
+		}
 	default:
-		// Without a shared key, the tools are listed without that header:
-		// each person's own key then makes their calls.
+		// Without a shared key, the tools are listed with the own key of the
+		// admin who chose so, else without that header: each person's own
+		// key then makes their calls.
 		var a *httpAuth
-		if a, err = m.resolveHTTP(dctx, s, "", true); err == nil {
+		holder := m.discoveryKeyOf(ctx, s)
+		if a, err = m.resolveHTTP(dctx, s, "", true, holder); err == nil {
 			c, err = m.connectHTTP(dctx, s, a)
-			if err != nil && len(a.missing) > 0 {
-				err = &codedErr{code: "key_missing", err: fmt.Errorf("%w (sent without the header %s: no shared key has its name)", err, strings.Join(a.missing, ", "))}
+			// Only a server that answered may have refused for want of the
+			// header; one out of reach or not allowed says so itself.
+			if code := errCode(err); len(a.missing) > 0 && (code == "key_rejected" || err != nil && code == "" && core.TransportFailure(err) == "") {
+				err = &codedErr{code: "no_shared_key", err: fmt.Errorf("%w (sent without the header %s: no shared key has its name)", err, strings.Join(a.missing, ", "))}
+			}
+			if a.personal {
+				keyOf = holder
 			}
 		}
 	}
@@ -82,6 +96,9 @@ func (m *Manager) discoverLocked(ctx context.Context, s *server) {
 	s.protocol = c.protocol
 	s.retries, s.retryAt = 0, time.Time{}
 	s.mu.Unlock()
+	if keyOf != "" {
+		m.record(ctx, "system", "mcp.discover", s.name, "ok", map[string]any{"key_of": keyOf, "tools": slices.Sorted(maps.Keys(c.tools))})
+	}
 	m.observe(ctx, s, c.tools, true)
 }
 
@@ -111,9 +128,15 @@ func (m *Manager) verifyInstall(ctx context.Context, s *server) (*core.MCPInstal
 		m.setDrifted(s, true)
 		return nil, errDrifted
 	case in.Status != "ready":
-		return nil, fmt.Errorf("%w: last install is %s %s", errNotInstalled, in.Status, in.Error)
+		// failed, or installing when a restart cut it short.
+		return nil, fmt.Errorf("%w: %w: %s", errNotInstalled, errInstallFailed, in.Error)
 	case in.Version != s.spec.pkg.Version:
-		return nil, fmt.Errorf("installed version %s differs from the configured %s; run Install", in.Version, s.spec.pkg.Version)
+		// The earlier version's ready install hides a failed install of the
+		// configured one, which is retried like any other.
+		if last, err := m.d.Store.MCP().LastInstall(ctx, s.name); err == nil && last.Version == s.spec.pkg.Version && last.Status != "ready" && last.Status != "drifted" {
+			return nil, fmt.Errorf("%w: %w: %s", errNotInstalled, errInstallFailed, last.Error)
+		}
+		return nil, fmt.Errorf("%w: installed version %s differs from the configured %s; run Install", errNotInstalled, in.Version, s.spec.pkg.Version)
 	}
 	sum, err := treehash.Sum(filepath.Join(m.d.WorkDir, filepath.FromSlash(s.spec.installTree(in.InstallID))))
 	if err != nil || sum != in.TreeHash {
@@ -166,6 +189,9 @@ func (m *Manager) setDrifted(s *server, on bool) {
 // replaces the server's live tool set (discovery); otherwise the tools are
 // merged in (a runtime session that saw a different definition).
 func (m *Manager) observe(ctx context.Context, s *server, tools map[string]discovered, full bool) {
+	if s.isRemoved() {
+		return
+	}
 	approved, err := m.d.Store.MCP().Approved(ctx, s.name)
 	if err != nil {
 		m.log.Error("load approved mcp pins", "server", s.name, "err", err)

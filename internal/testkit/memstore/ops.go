@@ -336,6 +336,14 @@ func (r mcpRepo) PutInstall(_ context.Context, in *core.MCPInstall) error {
 }
 
 func (r mcpRepo) Install(_ context.Context, server string) (*core.MCPInstall, error) {
+	return r.install(server, true)
+}
+
+func (r mcpRepo) LastInstall(_ context.Context, server string) (*core.MCPInstall, error) {
+	return r.install(server, false)
+}
+
+func (r mcpRepo) install(server string, preferReady bool) (*core.MCPInstall, error) {
 	st, unlock := r.s.begin()
 	defer unlock()
 	var ready, latest *installRow
@@ -349,7 +357,7 @@ func (r mcpRepo) Install(_ context.Context, server string) (*core.MCPInstall, er
 		if newer(row, latest) {
 			latest = &row
 		}
-		if row.in.Status == "ready" && newer(row, ready) {
+		if preferReady && row.in.Status == "ready" && newer(row, ready) {
 			ready = &row
 		}
 	}

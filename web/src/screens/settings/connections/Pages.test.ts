@@ -4,6 +4,7 @@ import { config } from '../../../lib/config.svelte';
 import { session } from '../../../lib/stores/session.svelte';
 import { installApi, type Call } from '../../../test/api';
 import Connections from './Connections.svelte';
+import { privateHost } from './connections';
 import { connectionsScreen } from './index';
 import McpServer from './McpServer.svelte';
 import WebSearch from './WebSearch.svelte';
@@ -58,6 +59,40 @@ describe('Connections overview (§12.1)', () => {
     expect(JSON.parse(writes(calls)[1].body).set).toEqual({
       'mcp.servers.sentry': { name: 'sentry', transport: 'http', side_effects: { default: 'external_send' }, url: 'https://mcp.sentry.dev/mcp', headers: { Authorization: 'secret:mcp_sentry_header' } },
     });
+  });
+
+  it('adds a server on a private network once its address is allowed', async () => {
+    const calls = await start();
+    render(Connections);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Add an MCP server' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add an MCP server' });
+    await fireEvent.input(within(dialog).getByLabelText('Name'), { target: { value: 'wiki' } });
+    await fireEvent.input(within(dialog).getByLabelText('Address'), { target: { value: 'https://mcp.example.com/mcp' } });
+    expect(within(dialog).queryByRole('checkbox')).toBeNull();
+    await fireEvent.input(within(dialog).getByLabelText('Address'), { target: { value: 'http://wiki.internal:8080/mcp' } });
+    await fireEvent.input(within(dialog).getByLabelText(/Secret header/), { target: { value: 'Bearer abc123' } });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Add server' }));
+    expect(within(dialog).getByText("Allow wiki.internal below, or Bothy can't reach it.")).toBeTruthy();
+    expect(writes(calls)).toEqual([]);
+
+    await fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Allow wiki.internal' }));
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Add server' }));
+    await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['PUT /api/vault/global/mcp_wiki_header', 'PATCH /api/config']));
+    expect(JSON.parse(writes(calls)[1].body).set['mcp.servers.wiki']).toMatchObject({ url: 'http://wiki.internal:8080/mcp', allow_private: true });
+  });
+
+  it.each([
+    ['http://10.2.3.4/mcp', '10.2.3.4'],
+    ['http://172.20.0.5:9000', '172.20.0.5'],
+    ['http://192.168.1.9/mcp', '192.168.1.9'],
+    ['http://host.docker.internal:3000/mcp', 'host.docker.internal'],
+    ['http://mcp:8080/mcp', 'mcp'],
+    ['http://[fd12::1]/mcp', 'fd12::1'],
+    ['https://mcp.linear.app/mcp', ''],
+    ['http://172.32.0.1/', ''],
+    ['https://fcdn.example.com/', ''],
+  ])('knows %s is on a private network', (url, host) => {
+    expect(privateHost(url)).toBe(host);
   });
 
   it('adds a command server from its package name and pins what npm reports', async () => {
@@ -186,14 +221,130 @@ describe('MCP server page (§12.4)', () => {
 
   it.each([
     ['private_address', 'its address is on a private network', 'Allow mcp.linear.app', 'PATCH /api/config'],
+    ['needs_https', "it isn't on your private network, so its key needs an https:// address", 'Try again', 'POST /api/mcp/linear/reload'],
     ['not_installed', 'it needs to be installed', 'Install', 'POST /api/mcp/linear/install'],
-    ['key_rejected', "Linear didn't accept its key", 'Open saved keys', ''],
+    ['key_rejected', "Linear didn't accept its key", 'Replace key', ''],
+    ['key_locked', "Bothy's saved keys are locked", 'Open saved keys', ''],
   ])('names a %s problem and offers its fix', async (code, text, label, write) => {
     const calls = await start((m, url) => (m === 'GET' && url === '/api/mcp' ? [{ name: 'linear', transport: 'http', state: 'error', code, protocol: '', tools: 0, pending: 0, since: '' }] : undefined));
     render(McpServer, { params: { item: 'mcp-linear' } });
     expect(await screen.findByText(`Can't start: ${text}.`)).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: label }));
     if (write) await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual([write]));
+  });
+
+  it('replaces the key a server sends from its page, and tries it at once', async () => {
+    const calls = await start();
+    render(McpServer, { params: { item: 'mcp-linear' } });
+    await screen.findByText('Ready · 12 actions');
+    config.view!.entries = [...config.view!.entries, { path: 'mcp.servers.linear.headers.Authorization', value: 'secret:mcp_linear_header' } as never];
+    await fireEvent.click(screen.getByRole('button', { name: 'Options for Linear' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Replace key…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Replace the key for Linear' });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Save key' }));
+    expect(within(dialog).getByText('Enter the key.')).toBeTruthy();
+    expect(writes(calls)).toEqual([]);
+    await fireEvent.input(within(dialog).getByLabelText('Key'), { target: { value: 'Bearer new-one' } });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Save key' }));
+    await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['PUT /api/vault/global/mcp_linear_header', 'POST /api/mcp/linear/reload']));
+    expect(JSON.parse(writes(calls)[0].body)).toEqual({ value: 'Bearer new-one' });
+  });
+
+  it('adds a key to a server that sends none, as the Add dialog would', async () => {
+    const calls = await start();
+    render(McpServer, { params: { item: 'mcp-linear' } });
+    await screen.findByText('Ready · 12 actions');
+    await fireEvent.click(screen.getByRole('button', { name: 'Options for Linear' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Add a key…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add a key for Linear' });
+    await fireEvent.input(within(dialog).getByLabelText('Key'), { target: { value: 'Bearer first' } });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Save key' }));
+    await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['PUT /api/vault/global/mcp_linear_header', 'PATCH /api/config']));
+    expect(JSON.parse(writes(calls)[1].body).set).toEqual({ 'mcp.servers.linear.headers.Authorization': 'secret:mcp_linear_header' });
+  });
+
+  it('asks for the key alone when its header puts words before it', async () => {
+    await start();
+    render(McpServer, { params: { item: 'mcp-linear' } });
+    await screen.findByText('Ready · 12 actions');
+    config.view!.entries = [...config.view!.entries, { path: 'mcp.servers.linear.headers.Authorization', value: 'Bearer secret:linear_token' } as never];
+    await fireEvent.click(screen.getByRole('button', { name: 'Options for Linear' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Replace key…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Replace the key for Linear' });
+    expect(within(dialog).getByText('Enter only the key: Bothy puts “Bearer” before it. Stored encrypted. Only sent to this address.')).toBeTruthy();
+  });
+
+  it('keeps no key behind when the address would send it unencrypted', async () => {
+    const refused = { fields: [{ path: 'mcp.servers.linear.url', message: 'use https: plain http would send the key unencrypted (http is accepted only for a loopback or private address)' }] };
+    const calls = await start((m, url) => (m === 'PATCH' && url === '/api/config' ? new Response(JSON.stringify(refused), { status: 400 }) : undefined));
+    render(McpServer, { params: { item: 'mcp-linear' } });
+    await screen.findByText('Ready · 12 actions');
+    await fireEvent.click(screen.getByRole('button', { name: 'Options for Linear' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Add a key…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add a key for Linear' });
+    await fireEvent.input(within(dialog).getByLabelText('Key'), { target: { value: 'Bearer first' } });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Save key' }));
+    expect(await within(dialog).findByText('Over http the key would be sent unencrypted. Add the server again with its https:// address.')).toBeTruthy();
+    expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['PUT /api/vault/global/mcp_linear_header', 'PATCH /api/config', 'DELETE /api/vault/global/mcp_linear_header']);
+  });
+
+  it('offers no key change for a key kept in AWS Secrets Manager', async () => {
+    await start((m, url) => (m === 'GET' && url === '/api/mcp' ? [{ name: 'linear', transport: 'http', state: 'error', code: 'key_rejected', protocol: '', tools: 0, pending: 0, since: '' }] : undefined));
+    render(McpServer, { params: { item: 'mcp-linear' } });
+    await screen.findByText("Can't start: Linear didn't accept its key.");
+    const arn = 'aws-sm:arn:aws:secretsmanager:us-east-1:123456789012:secret:linear-AbCdEf';
+    config.view!.entries = [...config.view!.entries, { path: 'mcp.servers.linear.headers.Authorization', value: arn } as never];
+    expect(await screen.findByRole('button', { name: 'Try again' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Replace key' })).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Options for Linear' }));
+    await screen.findByRole('menuitem', { name: 'Reload' });
+    expect(screen.queryByRole('menuitem', { name: /key/ })).toBeNull();
+  });
+
+  it("lets an admin's own key show what a server offers when there is no shared key", async () => {
+    let refuse = true;
+    const calls = await start((m, url) => {
+      if (m === 'GET' && url === '/api/mcp') return [{ name: 'linear', transport: 'http', state: 'error', code: 'no_shared_key', protocol: '', tools: 0, pending: 0, since: '' }];
+      if (m === 'POST' && url === '/api/mcp/linear/use-my-key' && refuse)
+        return new Response(
+          JSON.stringify({ error: { code: 'conflict', message: "you haven't saved your own key named linear_key. Add it in Saved keys, or add a shared key" } }),
+          { status: 409 },
+        );
+    });
+    render(McpServer, { params: { item: 'mcp-linear' } });
+    expect(await screen.findByText("Can't start: it needs a shared key to show what it can do.")).toBeTruthy();
+    config.view!.entries = [...config.view!.entries, { path: 'mcp.servers.linear.headers.Authorization', value: 'secret:linear_key' } as never];
+    // The admin sees which key goes where before it is sent.
+    const lend = async (confirm: boolean) => {
+      await fireEvent.click(screen.getByRole('button', { name: 'Use my key' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Use your own key?' });
+      within(dialog).getByText("Bothy will send your own key “linear_key” to mcp.linear.app when it checks what Linear can do. It's never used for anyone else.");
+      await fireEvent.click(within(dialog).getByRole('button', { name: confirm ? 'Use my key' : 'Cancel' }));
+    };
+    await lend(false);
+    expect(writes(calls)).toEqual([]);
+    await lend(true);
+    expect(await screen.findByText("You haven't saved your own key named linear_key. Add it in Saved keys, or add a shared key.")).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Options for Linear' }));
+    expect(await screen.findByRole('menuitem', { name: 'Add a key…' })).toBeTruthy();
+    await fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    refuse = false;
+    await lend(true);
+    await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['POST /api/mcp/linear/use-my-key', 'POST /api/mcp/linear/use-my-key']));
+    await waitFor(() => expect(screen.queryByText(/haven't saved your own key/)).toBeNull());
+  });
+
+  it('says when Bothy tries a failed install again, and still offers to install now', async () => {
+    const retry = new Date(Date.now() + 4 * 60_000 + 10_000).toISOString();
+    const calls = await start((m, url) =>
+      m === 'GET' && url === '/api/mcp'
+        ? [{ name: 'notes', transport: 'stdio', state: 'error', code: 'install_failed', retry_at: retry, protocol: '', tools: 0, pending: 0, since: '', error: 'install failed: npm install exited 1' }]
+        : undefined,
+    );
+    render(McpServer, { params: { item: 'mcp-notes' } });
+    expect(await screen.findByText("Can't start: it couldn't be installed. Bothy tries again in 4 min.")).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Install' }));
+    await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['POST /api/mcp/notes/install']));
   });
 
   it('removes the saved key the Add dialog made along with the server', async () => {

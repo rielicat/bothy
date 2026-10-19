@@ -1,17 +1,18 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import { Button, CommandBlock, Dialog, Disclosure, Notice, OptionList, StatusLine, TextField, toast } from '../../../components/ui';
+  import { Button, Checkbox, CommandBlock, Dialog, Disclosure, Notice, OptionList, StatusLine, TextField, toast } from '../../../components/ui';
   import { api, ApiError, errorText } from '../../../lib/api/client';
   import type { MCPResolveResp, SandboxInfo } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
   import { session } from '../../../lib/stores/session.svelte';
-  import { saveConfig, type Failure } from './connections';
+  import { privateHost, saveConfig, type Failure } from './connections';
 
   let { open = $bindable(false), onadded }: { open?: boolean; onadded?: () => void } = $props();
 
   let name = $state('');
   let how = $state('http');
   let address = $state('');
+  let allow = $state(false);
   let header = $state('');
   let pkg = $state('');
   let version = $state('');
@@ -28,7 +29,7 @@
     name = address = header = pkg = version = hosts = pkgError = '';
     pinned = null;
     how = 'http';
-    tried = false;
+    tried = allow = false;
     failure = null;
     codeRuns = session.sandbox;
     api.get<SandboxInfo>('/api/sandbox').then((s) => (codeRuns = s.status.available), () => {});
@@ -40,6 +41,8 @@
 
   const taken = $derived(config.keys('mcp.servers'));
   const blocked = $derived(how === 'stdio' && codeRuns === false);
+  // Opening a private address is a deliberate act (D15), so it is allowed here only when ticked.
+  const priv = $derived(how === 'http' ? privateHost(address) : '');
   const errors = $derived({
     name: !name
       ? 'Give the server a name.'
@@ -48,7 +51,12 @@
         : taken.includes(name)
           ? 'There is already a server with this name.'
           : undefined,
-    address: how === 'http' && !/^https?:\/\/\S+$/.test(address.trim()) ? 'Enter the full address, like https://mcp.linear.app/mcp.' : undefined,
+    address:
+      how === 'http' && !/^https?:\/\/\S+$/.test(address.trim())
+        ? 'Enter the full address, like https://mcp.linear.app/mcp.'
+        : priv && !allow
+          ? `Allow ${priv} below, or Bothy can't reach it.`
+          : undefined,
     pkg: how === 'stdio' && !pkg.trim() ? 'Enter the npm package, like @linear/mcp.' : how === 'stdio' && pkgError ? pkgError : undefined,
     version: how === 'stdio' && version.trim() && !/^\d+\.\d+\.\d+\S*$/.test(version.trim()) ? 'Enter an exact version, like 1.4.0, or leave it empty.' : undefined,
   });
@@ -98,7 +106,7 @@
           await api.put(`/api/vault/global/mcp_${name}_header`, { value: header.trim() });
           headers = { Authorization: `secret:mcp_${name}_header` };
         }
-        Object.assign(server, { url: address.trim(), headers });
+        Object.assign(server, { url: address.trim(), headers }, priv && { allow_private: true });
       } else {
         const p = await pin();
         if (!p) {
@@ -147,6 +155,9 @@
           {#if v === 'http'}
             <div class="space-y-4">
               <TextField label="Address" type="url" bind:value={address} error={show('address')} placeholder="https://mcp.linear.app/mcp" spellcheck="false" />
+              {#if priv}
+                <Checkbox bind:checked={allow} label="Allow {priv}" description="It's on your private network. Bothy blocks private addresses unless you allow them." />
+              {/if}
               <TextField
                 label="Secret header"
                 optional
