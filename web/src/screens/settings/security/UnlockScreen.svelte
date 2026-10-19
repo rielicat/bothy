@@ -3,7 +3,7 @@
   import { Button, CodeBlock, Disclosure, Page, TextField } from '../../../components/ui';
   import { api } from '../../../lib/api/client';
   import type { VaultStatus } from '../../../lib/api/types.gen';
-  import { unlock } from './vault';
+  import { CHOOSE, unlock } from './vault';
 
   // The blocking screen admins see while saved keys are locked (§13.2); the
   // shell mounts it in place of the page, beside the sidebar, and drops it on onunlocked.
@@ -23,16 +23,12 @@
 
   async function submit(e: SubmitEvent) {
     e.preventDefault();
-    if (first && [...passphrase].length < 12) error = 'Use at least 12 characters.';
-    else if (first && again !== passphrase) error = "The two passphrases don't match.";
-    else {
-      busy = true;
-      const r = await unlock(passphrase);
-      busy = false;
-      if (r.ok) return onunlocked?.();
-      error = r.error;
-      details = r.details ?? '';
-    }
+    busy = true;
+    const r = await unlock(passphrase, first ? again : undefined);
+    busy = false;
+    if (r.ok) return onunlocked?.();
+    error = r.error;
+    details = r.details ?? '';
     input?.focus();
   }
 </script>
@@ -45,9 +41,7 @@
     </p>
   {:else}
     <p class="text-reading text-muted">
-      {first
-        ? 'Bothy keeps its saved keys locked with a passphrase. Choose one of at least 12 characters and keep it safe: without it, nobody can unlock them.'
-        : "Bothy can't reach its models or connections until you enter the passphrase."}
+      {first ? CHOOSE : "Bothy can't reach its models or connections until you enter the passphrase."}
     </p>
     <form class="mt-6 max-w-[30rem]" onsubmit={submit} novalidate>
       <TextField label="Passphrase" type="password" autocomplete={first ? 'new-password' : 'off'} bind:value={passphrase} bind:input error={first ? undefined : error} />

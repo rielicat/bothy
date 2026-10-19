@@ -226,4 +226,4 @@
   {/snippet}
 </Dialog>
 
-<UnlockDialog bind:open={unlocking} onunlocked={load} />
+<UnlockDialog bind:open={unlocking} first={!!vault?.new_passphrase} onunlocked={load} />

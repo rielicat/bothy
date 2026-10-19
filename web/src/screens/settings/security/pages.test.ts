@@ -203,6 +203,20 @@ describe('Saved keys', () => {
     await waitFor(() => expect(screen.queryByText('Saved keys are locked.')).toBeNull());
     expect(screen.getByRole('button', { name: 'Add key' })).toBeTruthy();
   });
+
+  it("asks for a first passphrase twice in the page's own dialog too", async () => {
+    const status = { sealed: true, kek_source: 'passphrase', kek_id: '', colocated: false, secrets: 0, new_passphrase: true };
+    const calls = await signIn('sealed', (m, url) => (m === 'GET' && url === '/api/vault/status' ? status : undefined));
+    session.banners = session.banners.filter((b) => b.code !== 'vault_sealed');
+    render(SavedKeys);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Unlock' }));
+    const dialog = screen.getByRole('dialog', { name: 'Choose a passphrase' });
+    await fireEvent.input(within(dialog).getByLabelText('Passphrase'), { target: { value: 'right horse battery' } });
+    await fireEvent.input(within(dialog).getByLabelText('Type it again'), { target: { value: 'right horse batery' } });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Save passphrase' }));
+    expect(await within(dialog).findByText("The two passphrases don't match.")).toBeTruthy();
+    expect(calls.filter((c) => c.url === '/api/vault/unseal')).toEqual([]);
+  });
 });
 
 describe('Your saved keys', () => {

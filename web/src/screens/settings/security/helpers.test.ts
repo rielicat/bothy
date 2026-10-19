@@ -15,6 +15,8 @@ describe('security findings in plain words', () => {
     expect(describeFinding(finding({ id: 'sandbox.unavailable' }))).toMatchObject({ text: 'Running code is off on this server.', action: 'running-code' });
     expect(describeFinding(finding({ id: 'data.permissions', auto_fix: true }))).toMatchObject({ text: 'Data files can be read by other users on this server.', action: 'fix' });
     expect(describeFinding(finding({ id: 'vault.sealed' })).action).toBe('unlock');
+    // A key file locks them: no passphrase can, so there is no Unlock.
+    expect(describeFinding(finding({ id: 'vault.sealed' }), true)).toMatchObject({ action: 'how', steps: 'Put the key file Bothy was set up with back on the server, then restart Bothy.' });
   });
 
   it('falls back to the server title for a finding it does not know', () => {
