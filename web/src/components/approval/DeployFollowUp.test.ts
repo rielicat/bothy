@@ -81,6 +81,34 @@ describe('DeployFollowUp (docs/design/ui.md §8.7)', () => {
     expect(reads()).toBe(2);
   });
 
+  it('forgets the deploy list once no line shows it, so the next screen starts from its own read', async () => {
+    serve(() => [deploy('succeeded', { finished_at: '2026-10-14T10:03:00Z' })]);
+    const first = render(DeployFollowUp, { approval });
+    await vi.waitFor(() => expect(screen.getByRole('status')).toBeTruthy());
+    first.unmount();
+    // Someone else signs in on this tab and can see the same request.
+    let answered = false;
+    installApi({ override: (m, url) => (m === 'GET' && url === '/api/releases' ? ((answered = true), { environments: [], deploys: [] }) : undefined) });
+    render(DeployFollowUp, { approval });
+    expect(screen.queryByRole('status')).toBeNull();
+    await vi.waitFor(() => expect(answered).toBe(true));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('drops an answer that arrives after every line is gone', async () => {
+    let answer: ((r: Response) => void) | undefined;
+    vi.stubGlobal('fetch', () => new Promise<Response>((r) => (answer = r)));
+    const first = render(DeployFollowUp, { approval });
+    await vi.waitFor(() => expect(answer).toBeTypeOf('function'));
+    first.unmount();
+    answer!(new Response(JSON.stringify({ environments: [], deploys: [deploy('running')] }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    await new Promise((r) => setTimeout(r, 20));
+    serve(() => []);
+    render(DeployFollowUp, { approval });
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
   it('reads the deploy list again as soon as a release event says the deploy moved', async () => {
     events.connect();
     let d = deploy('running');

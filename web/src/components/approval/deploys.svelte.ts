@@ -16,6 +16,7 @@ class Deploys {
   #again = false;
   #timer: ReturnType<typeof setTimeout> | undefined;
   #offs: (() => void)[] = [];
+  #gen = 0;
 
   of(approval: string): Deploy | null {
     return this.list.find((d) => d.approval_id === approval) ?? null;
@@ -48,6 +49,11 @@ class Deploys {
       if (this.#lines.size) return;
       this.#offs.forEach((off) => off());
       clearTimeout(this.#timer);
+      // The next screen may be another person's, after a sign-out: it starts
+      // from its own read, never from this one's deploys.
+      this.list = [];
+      this.#heard.clear();
+      this.#gen++;
     };
   }
 
@@ -60,9 +66,10 @@ class Deploys {
     if (!this.#lines.size) return;
     clearTimeout(this.#timer);
     this.#reading = true;
+    const gen = this.#gen;
     try {
       const r = await api.get<{ deploys?: (Deploy | null)[] }>('/api/releases');
-      this.list = (r.deploys ?? []).filter((d): d is Deploy => !!d);
+      if (gen === this.#gen) this.list = (r.deploys ?? []).filter((d): d is Deploy => !!d);
     } catch {
       // Keeps the last answer; without the releases API the lines show nothing.
     } finally {
