@@ -294,7 +294,7 @@
         {/if}
         {#if problem}<StatusLine tone="danger" alert text={problem.message} details={problem.details} />{/if}
       </div>
-      <div class="flex min-h-6 shrink-0 items-center gap-2">
+      <div class="flex min-h-6 shrink-0 items-center gap-2 pointer-coarse:-my-2.5">
         <span class="text-small text-muted" aria-live="polite">{saving ? 'Saving…' : ''}</span>
         <Switch label="Turn on {title}" hideLabel bind:checked={enabled} onchange={setEnabled} />
       </div>
