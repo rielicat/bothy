@@ -851,7 +851,7 @@ export function decidedLine(ap: Approval, o: DecidedOpts): DecidedCopy {
   const voteName = (v: { user_id: string; name?: string }) => who(v.user_id, v.name);
   const votes = o.votes?.votes ?? a2.votes?.map((v) => ({ ...v, name: '' })) ?? [];
 
-  if (ap.status === 'expired') return { glyph: 'close', tone: 'muted', segs: ["Expired: Bothy didn't ", ...copy.ask] };
+  if (ap.status === 'expired') return { glyph: 'close', tone: 'muted', segs: ["Expired: Bothy didn't ", ...copy.ask], time, at };
   if (ap.status === 'cancelled') {
     // "You stopped Bothy." already says why, so a stop's line says what didn't happen.
     if (ap.decided_via === 'stop') return { glyph: 'close', tone: 'muted', segs: ["Cancelled: Bothy didn't ", ...copy.ask], time, at };
@@ -872,7 +872,9 @@ export function decidedLine(ap: Approval, o: DecidedOpts): DecidedCopy {
   }
   // allowed
   const yes = votes.filter((v) => v.choice === 'allow_once');
-  if (isMulti(ap) && yes.length) return { glyph: 'check', tone: 'accent', segs: [`${joinNames(yes.map(voteName))} approved `, ...copy.ing], time, at };
+  // "You" leads, so it never reads "Priya Shah and You".
+  if (isMulti(ap) && yes.length)
+    return { glyph: 'check', tone: 'accent', segs: [`${joinNames(yes.map(voteName).sort((a, b) => +(b === 'You') - +(a === 'You')))} approved `, ...copy.ing], time, at };
   const name = who(ap.decided_by, a2.decided_by_name);
   // A teammate's standing choice is theirs, not the approver's, as its button said.
   const person = teamPerson(ap, 40);
