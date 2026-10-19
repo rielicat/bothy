@@ -620,7 +620,9 @@ func TestDefaultsOverride(t *testing.T) {
 		t.Errorf("defaults deny: %+v", d)
 	}
 	r := action("look", core.ActGeneric, core.SERead, map[string]any{"q": 1})
-	if d := h.decide(h.in(r, spec("look", core.SERead))); d.Verdict != core.VerdictAsk || d.Rule != "default:read" {
+	// "Why Bothy asked" names the safety setting as Settings shows it, not class or preset ids.
+	if d := h.decide(h.in(r, spec("look", core.SERead))); d.Verdict != core.VerdictAsk || d.Rule != "default:read" ||
+		d.Reason != "the Careful safety setting asks before Bothy can read or look things up" {
 		t.Errorf("defaults ask: %+v", d)
 	}
 	h.grant(core.Grant{Principal: h.ownerP.ID, Scope: core.GrantPrincipal, Kind: core.GrantRecipient, Value: "bob@example.com", MaxSE: core.SEExternalSend})

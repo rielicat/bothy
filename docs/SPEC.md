@@ -5455,7 +5455,7 @@ i. **Post-process:** `Redactor.Redact`; truncate to the profile cap as head 60% 
 | R | Config `policy.rules`, first match (tool glob, argv0, domains, paths, JSON-pointer `match`, side effect, triggers) | rule verdict (rules can make things stricter or auto, but not past floors) |
 | G | Active grants for (principal, session, schedule) whose kind/tool/pattern/value match the Action and `MaxSE ≥ SideEffect` | auto (`grant:<id>`, `Grants().Use`) |
 | C | First contact: `send`, `mcp` with a mapped recipient, or `http` with a non-GET method, to a recipient/domain that is not the run's originating chat and not seen in an active grant, `egress.allow`, or an earlier allowed approval of this principal (`Approvals().Seen`) | ask (presets careful and balanced) |
-| D | Class default from the preset, overridden by `policy.defaults` | auto / ask / deny |
+| D | Class default from the preset, overridden by `policy.defaults`; its reason names the preset and class in words (*"the Careful safety setting asks before Bothy can send data out"*) | auto / ask / deny |
 
 F1 is enforced in two places: `Decide` checks trigger, role, principal kind and the kill switch (`meta.paused`, read failures count as paused); sandbox availability is enforced by `ToolRegistry.Available` at §5.7 a, so the runner never reaches `Decide` for an exec tool without a sandbox.
 

@@ -532,10 +532,22 @@ func (e *Engine) contactOrDefault(ctx context.Context, x *input) core.Decision {
 			warnings: []string{contactWarning(x.a, x.Principal, kind, target)},
 		})
 	}
+	// The reason reaches people (the card's "Why Bothy asked", the task),
+	// so it names the class and the preset as Settings → Security does.
 	if v == core.VerdictAsk {
-		return e.ask(x, askSpec{rule: "default:" + class, reason: class + " actions need approval under the " + presetName(x.cfg) + " preset", grants: true})
+		return e.ask(x, askSpec{rule: "default:" + class, reason: "the " + presetTitle(x.cfg) + " safety setting asks before Bothy can " + classPhrase(x.se), grants: true})
 	}
-	return allowed("default:"+class, class+" actions are allowed under the "+presetName(x.cfg)+" preset")
+	return allowed("default:"+class, "the "+presetTitle(x.cfg)+" safety setting lets Bothy "+classPhrase(x.se)+" without asking")
+}
+
+// presetTitle is a preset's name as Settings → Security shows it.
+func presetTitle(c *config.Config) string {
+	switch p := presetName(c); p {
+	case "hands_off":
+		return "Hands-off"
+	default:
+		return strings.ToUpper(p[:1]) + p[1:]
+	}
 }
 
 func defaultVerdict(c *config.Config, se core.SideEffect) core.Verdict {
