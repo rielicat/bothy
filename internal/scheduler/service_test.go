@@ -319,14 +319,15 @@ func TestRunNowAndSessions(t *testing.T) {
 		if _, err := h.svc.RunNow(ctx, h.viewer(), sc.ID, h.owner); err == nil {
 			t.Fatal("RunNow must report a failed submit")
 		}
-		if got := h.get(sc.ID); got.Failures != 1 || got.LastStatus != core.RunFailed {
+		// Trying a schedule out never counts toward turning it off.
+		if got := h.get(sc.ID); got.Failures != 0 || got.LastStatus != core.RunFailed {
 			t.Fatalf("failed manual run not recorded: %+v", got)
 		}
 		h.runner.fail(&core.BudgetError{Kind: core.BudgetDailyCost})
 		if _, err := h.svc.RunNow(ctx, h.viewer(), sc.ID, h.owner); err == nil {
 			t.Fatal("RunNow must report the budget refusal")
 		}
-		if got := h.get(sc.ID); got.Failures != 1 || got.LastStatus != core.RunBudgetExceeded {
+		if got := h.get(sc.ID); got.Failures != 0 || got.LastStatus != core.RunBudgetExceeded {
 			t.Fatalf("a daily-cap refusal is not the schedule's failure: %+v", got)
 		}
 		if n := len(started()); n != 2 {

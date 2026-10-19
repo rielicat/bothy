@@ -48,6 +48,9 @@ type Service struct {
 	mu      sync.Mutex
 	unsaved map[core.ScheduleID]runState
 	notices []notice
+	// manual are runs started with Run now: trying a schedule out must not
+	// turn it off, so their failures don't count.
+	manual map[core.RunID]bool
 
 	paused atomic.Bool
 	syncHB atomic.Bool
@@ -78,6 +81,7 @@ func New(d Deps) (*Service, error) {
 		jitter:  cryptoJitter,
 		wake:    make(chan struct{}, 1),
 		unsaved: map[core.ScheduleID]runState{},
+		manual:  map[core.RunID]bool{},
 	}
 	if s.clock == nil {
 		s.clock = core.SystemClock{}

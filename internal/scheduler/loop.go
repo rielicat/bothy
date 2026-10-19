@@ -205,6 +205,7 @@ type runState struct {
 	status           core.RunStatus
 	failures         int
 	enabled, disable bool
+	run              core.RunID
 }
 
 // notice is an automatic disable the owner must hear about. Notices are sent
@@ -213,6 +214,7 @@ type notice struct {
 	sc   *core.Schedule
 	last core.RunStatus
 	kind core.BudgetKind // which limit stopped the last task, when it hit one
+	run  core.RunID      // the last task, whose chat an account hears in
 }
 
 // fire submits one run of sc and records the outcome in the schedule row. For
@@ -221,9 +223,13 @@ type notice struct {
 func (s *Service) fire(ctx context.Context, sc *core.Schedule, now, next time.Time, enabled, manual bool) (core.RunID, error) {
 	run, status, failed, err := s.submit(ctx, sc, now)
 	st := runState{tick: sc.NextRunAt, last: sc.LastRunAt, next: next, status: sc.LastStatus, failures: sc.Failures, enabled: enabled}
-	if failed {
+	if failed && !manual {
 		st.failures++
 	}
+	if manual && run != "" {
+		s.manual[run] = true
+	}
+	st.run = run
 	if status != "" {
 		st.last, st.status = now, status
 	}
@@ -252,7 +258,7 @@ func (s *Service) saveRun(ctx context.Context, sc *core.Schedule, st runState) e
 		return fmt.Errorf("scheduler: save run state: %w: %w", errUnsaved, err)
 	}
 	if st.disable {
-		s.notices = append(s.notices, notice{sc: sc, last: st.status})
+		s.notices = append(s.notices, notice{sc: sc, last: st.status, run: st.run})
 	}
 	return nil
 }
@@ -265,7 +271,7 @@ func (s *Service) takeNotices() []notice {
 
 func (s *Service) sendNotices(ctx context.Context, notes []notice) {
 	for _, n := range notes {
-		s.disabled(ctx, n.sc, n.last, n.kind)
+		s.disabled(ctx, n.sc, n.last, n.kind, n.run)
 	}
 }
 
@@ -509,6 +515,8 @@ func (s *Service) onFinished(ctx context.Context, e core.Event) {
 	}
 
 	s.mu.Lock()
+	manual := s.manual[run.ID]
+	delete(s.manual, run.ID)
 	sc, err := s.store.Schedules().Get(ctx, core.SystemViewer(), run.Schedule)
 	if err != nil {
 		s.mu.Unlock()
@@ -519,7 +527,9 @@ func (s *Service) onFinished(ctx context.Context, e core.Event) {
 	case core.RunDone:
 		failures = 0
 	case core.RunFailed, core.RunBudgetExceeded, core.RunLoopDetected:
-		failures++
+		if !manual {
+			failures++
+		}
 	}
 	disable := enabled && failures >= maxFailures
 	if disable {
@@ -533,7 +543,7 @@ func (s *Service) onFinished(ctx context.Context, e core.Event) {
 	}
 	s.publishRun(sc, e.Run, status)
 	if disable {
-		s.sendNotices(ctx, []notice{{sc: sc, last: status, kind: kind}})
+		s.sendNotices(ctx, []notice{{sc: sc, last: status, kind: kind, run: run.ID}})
 	}
 }
 
@@ -545,30 +555,57 @@ func (s *Service) publishRun(sc *core.Schedule, run core.RunID, status core.RunS
 		Data: core.ScheduleRunData{Schedule: sc.ID, Status: status}})
 }
 
-// disabled audits an automatic disable and tells the owner in their DM.
-func (s *Service) disabled(ctx context.Context, sc *core.Schedule, last core.RunStatus, kind core.BudgetKind) {
+// disabled audits an automatic disable and tells the owner: a teammate or a
+// channel in their chat, an account in the chat of the last failed task.
+func (s *Service) disabled(ctx context.Context, sc *core.Schedule, last core.RunStatus, kind core.BudgetKind, run core.RunID) {
 	off := *sc
 	off.Enabled = false
 	s.auditf(ctx, "schedule.update", systemActor, &off, "", map[string]any{"reason": "consecutive_failures", "failures": maxFailures})
-	if s.hub == nil {
-		return
-	}
 	prin, err := s.store.Principals().Get(ctx, core.SystemViewer(), sc.Principal)
 	if err != nil {
+		return
+	}
+	msg := fmt.Sprintf("The schedule “%s” was turned off because its last %d tasks failed%s. Turn it back on under Schedules once it's fixed.",
+		plain(sc.Name), maxFailures, lastFailure(last, kind))
+	if !prin.TeamOwned() {
+		s.webNotice(ctx, run, msg)
+		return
+	}
+	if s.hub == nil {
 		return
 	}
 	chat, ok := s.hub.PrincipalChat(ctx, prin.ID)
 	if !ok {
 		return
 	}
-	msg := fmt.Sprintf("The schedule “%s” was turned off because its last %d tasks failed%s. Turn it back on under Schedules once it's fixed.",
-		plain(sc.Name), maxFailures, lastFailure(last, kind))
 	if prin.TeamOwned() {
 		msg = fmt.Sprintf("The schedule “%s” was turned off because its last %d tasks failed%s. An admin can turn it back on in Bothy once it's fixed.",
 			plain(sc.Name), maxFailures, lastFailure(last, kind))
 	}
 	if _, err := s.hub.Send(ctx, chat, msg); err != nil {
 		s.log.Warn("scheduler: notify owner", "schedule", sc.ID, "err", err)
+	}
+}
+
+// webNotice adds msg as a notice to the chat of run, where an account
+// reads how its schedule's task went.
+func (s *Service) webNotice(ctx context.Context, run core.RunID, msg string) {
+	if run == "" {
+		return
+	}
+	r, err := s.store.Runs().Get(ctx, core.SystemViewer(), run)
+	if err != nil {
+		s.log.Warn("scheduler: notify owner", "run", run, "err", err)
+		return
+	}
+	m := &core.Message{Session: r.Session, Run: r.ID, Role: core.MsgAssistant, Kind: core.KindNotice, Provenance: core.ProvSystem,
+		Parts: []core.Part{{Type: core.PartText, Text: msg}}, CreatedAt: s.clock.Now()}
+	if err := s.store.Messages().Append(ctx, m); err != nil {
+		s.log.Warn("scheduler: notify owner", "run", run, "err", err)
+		return
+	}
+	if s.bus != nil {
+		s.bus.Publish(core.Event{Type: core.EvMessageCreated, Principal: r.Principal, Session: r.Session, Run: r.ID, Data: core.MessageData{Message: m}})
 	}
 }
 
