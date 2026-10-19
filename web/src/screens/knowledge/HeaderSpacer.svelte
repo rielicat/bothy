@@ -1,7 +1,6 @@
-<script lang="ts">
-  // A zero-width stand-in for a button at the start of a page header's actions:
-  // the row keeps a button's height and a text baseline for the title to sit on,
-  // even when the only action is an icon button, or there is none.
-</script>
-
-<span class="-mr-2 inline-flex h-9 w-0 items-center overflow-hidden pointer-coarse:h-11" aria-hidden="true">&#8203;</span>
+<!--
+  A zero-width button at the start of a page header's actions. PageHeader puts the title on the
+  baseline of a text button and centres icon-only actions, so without one the title sat 2 px higher
+  on tabs and pages with no button and moved when switching to one with a button.
+-->
+<span class="btn invisible -mr-2 w-0 px-0" aria-hidden="true">&#8203;</span>
