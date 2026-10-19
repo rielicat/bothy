@@ -303,7 +303,9 @@ func (t *statusTool) Exec(ctx context.Context, env *core.ToolEnv, a *core.Action
 	if err := json.Unmarshal(a.Payload, &in); err != nil {
 		return nil, fmt.Errorf("%w: %s payload: %w", core.ErrInvalid, statusName, err)
 	}
-	v := core.Viewer{User: env.User, Principals: []core.PrincipalID{env.Principal.ID}, Admin: env.Role.IsAdmin()}
+	// What an environment runs is everyone's to know, and these lines carry
+	// nothing of the chat a deploy came from.
+	v := core.SystemViewer()
 	live := statusLiveChecks
 	var b strings.Builder
 	for _, e := range s.d.Config.Current().Releases.Environments {

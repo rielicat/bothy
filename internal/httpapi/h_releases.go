@@ -69,9 +69,36 @@ func (s *Server) releases(w http.ResponseWriter, r *http.Request, a core.Actor) 
 		if err != nil {
 			return err
 		}
-		out.Deploys = s.namer(ctx, a.Viewer).deployViews(ds)
+		n := s.namer(ctx, a.Viewer)
+		out.Deploys = ownLinks(a.Viewer, n.deployViews(ds))
+		for i, e := range out.Environments {
+			ds, err := s.d.Deploys.List(ctx, core.SystemViewer(), core.DeployFilter{Environment: e.Name, Page: core.Page{Limit: releaseDeploysShown}})
+			if err != nil {
+				return err
+			}
+			views := ownLinks(a.Viewer, n.deployViews(ds))
+			if len(views) > 0 {
+				out.Environments[i].Last = &views[0]
+			}
+			for _, d := range views {
+				if !d.Status.Terminal() {
+					out.Environments[i].Running = append(out.Environments[i].Running, d)
+				}
+			}
+		}
 	}
 	return ok(w, out)
+}
+
+// ownLinks leaves out of another person's deploy where it came from: an
+// admin sees everyone's deploys, but not their chats or tasks.
+func ownLinks(v core.Viewer, ds []dto.DeployView) []dto.DeployView {
+	for i := range ds {
+		if !v.Can(ds[i].Principal) {
+			ds[i].Session, ds[i].Run, ds[i].Approval, ds[i].Chat = "", "", "", nil
+		}
+	}
+	return ds
 }
 
 // releaseDeploys is GET /api/releases/deploys?environment=&before=&limit=.
