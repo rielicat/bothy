@@ -27,7 +27,7 @@ func (s *Server) auditRows(ctx context.Context, own, av core.Viewer, es []*core.
 		calls: map[core.RunID][]*core.ToolCallRecord{}}
 	out := make([]dto.AuditRow, 0, len(es))
 	for _, e := range es {
-		e = privateSchedule(own, e)
+		e = an.privateSchedule(e)
 		out = append(out, dto.AuditRow{AuditEntry: *e, ActorName: an.actor(e.Actor), Summary: an.summary(e)})
 	}
 	return out
@@ -36,7 +36,7 @@ func (s *Server) auditRows(ctx context.Context, own, av core.Viewer, es []*core.
 // privateSchedule leaves out what another person's schedule row says about
 // it (its name and timing), as their schedules list would: the row still
 // says who did what to a schedule.
-func privateSchedule(own core.Viewer, e *core.AuditEntry) *core.AuditEntry {
+func (an *auditNamer) privateSchedule(e *core.AuditEntry) *core.AuditEntry {
 	if !strings.HasPrefix(e.Action, "schedule.") {
 		return e
 	}
@@ -46,12 +46,13 @@ func privateSchedule(own core.Viewer, e *core.AuditEntry) *core.AuditEntry {
 	}
 	p, _ := d["principal_id"].(string)
 	// Rows the HTTP handler wrote before the scheduler wrote the one row
-	// name no principal: whoever acted is the best guess, and a team
-	// schedule another admin changed then reads "a schedule" too.
-	if u, ok := strings.CutPrefix(e.Actor, "user:"); ok && p == "" {
-		p = string(core.UserPrincipal(core.UserID(u)))
+	// name no principal: whoever acted, or the owner of the token they used,
+	// is the best guess (a team schedule another admin changed then reads
+	// "a schedule" too), and a row naming no one keeps its name to itself.
+	if p == "" {
+		p = string(an.actorPrincipal(e.Actor))
 	}
-	if !strings.HasPrefix(p, core.PrefixUser+"_") || own.Can(core.PrincipalID(p)) {
+	if p != "" && (!strings.HasPrefix(p, core.PrefixUser+"_") || an.v.Can(core.PrincipalID(p))) {
 		return e
 	}
 	delete(d, "name")
@@ -60,6 +61,22 @@ func privateSchedule(own core.Viewer, e *core.AuditEntry) *core.AuditEntry {
 	cp := *e
 	cp.Detail, _ = json.Marshal(d)
 	return &cp
+}
+
+// actorPrincipal is the own principal of the person behind an audit actor:
+// a user, or the owner of an access token; "" for anyone else.
+func (an *auditNamer) actorPrincipal(actor string) core.PrincipalID {
+	var u core.UserID
+	switch kind, rest, _ := strings.Cut(actor, ":"); kind {
+	case "user":
+		u = core.UserID(rest)
+	case "token":
+		u = an.tokenOwner(rest)
+	}
+	if u == "" {
+		return ""
+	}
+	return core.UserPrincipal(u)
 }
 
 func (an *auditNamer) approval(id string) *core.Approval {

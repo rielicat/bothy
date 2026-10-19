@@ -67,6 +67,48 @@ func TestAuditKeepsOlderScheduleRowsPrivate(t *testing.T) {
 	}
 }
 
+// An older row made with an API token goes by the token's owner, and one
+// whose actor names no one keeps the schedule's name to itself.
+func TestAuditKeepsOlderTokenScheduleRowsPrivate(t *testing.T) {
+	h := newHarness(t).setup()
+	ctx := context.Background()
+	tokenOf := func(c *client) string {
+		h.tokenFor(c, "chat")
+		toks, err := h.store.Tokens().List(ctx, c.user)
+		if err != nil || len(toks) == 0 {
+			t.Fatalf("tokens of %s: %v", c.name, err)
+		}
+		return toks[0].ID
+	}
+	row := func(actor, id string) {
+		e := core.AuditEntry{At: time.Now(), Actor: actor, Action: "schedule.update", Target: "schedule:" + id, Outcome: "ok",
+			Detail: json.RawMessage(`{"name":"plan-for-max","kind":"cron","spec":"0 6 * * 1","tz":"Europe/Lisbon","enabled":true}`)}
+		if _, err := h.store.Audit().Append(ctx, &e, make([]byte, 32), make([]byte, 32)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	row("token:"+tokenOf(h.member), "sch_tok1")
+	row("token:"+tokenOf(h.admin), "sch_tok2")
+	row("token:tok_01J00000000000000000000000", "sch_tok3")
+	got := map[string]dto.AuditRow{}
+	for _, r := range decodeAs[dto.List[dto.AuditRow]](t, h.do("GET", "/api/audit?action=schedule.", nil, h.admin)).Items {
+		got[r.Target] = r
+	}
+	for _, id := range []string{"sch_tok1", "sch_tok3"} {
+		r := got["schedule:"+id]
+		if r.Summary != "Changed a schedule" || strings.Contains(string(r.Detail), "plan-for-max") || strings.Contains(string(r.Detail), "0 6") ||
+			strings.Contains(string(r.Detail), "Lisbon") {
+			t.Errorf("%s: another person's older token row = %q %s", id, r.Summary, r.Detail)
+		}
+	}
+	if mine := got["schedule:sch_tok2"]; mine.Summary != "Changed the schedule “plan-for-max”" || !strings.Contains(string(mine.Detail), "0 6") {
+		t.Fatalf("own older token row = %q %s", mine.Summary, mine.Detail)
+	}
+	if theirs := got["schedule:sch_tok1"]; theirs.ActorName != "member" {
+		t.Fatalf("token row actor = %q", theirs.ActorName)
+	}
+}
+
 // A deploy request one approver approved before it expired didn't go
 // unanswered.
 func TestAuditExpiryCountsApprovalsThatCameIn(t *testing.T) {

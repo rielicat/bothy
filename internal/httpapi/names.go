@@ -19,7 +19,7 @@ type namer struct {
 	origins   map[core.SessionID]string
 	schedules map[core.ScheduleID]string
 	idents    map[string]string
-	tokens    map[string]string
+	tokens    map[string]core.UserID
 	spaces    map[core.PrincipalID]*core.Space
 	senders   map[core.SessionID]map[core.RunID]string
 	prins     map[core.PrincipalID]string
@@ -34,7 +34,7 @@ const (
 
 func (s *Server) namer(ctx context.Context, v core.Viewer) *namer {
 	return &namer{s: s, ctx: ctx, v: v, users: map[core.UserID]string{}, sessions: map[core.SessionID]string{},
-		origins: map[core.SessionID]string{}, schedules: map[core.ScheduleID]string{}, idents: map[string]string{}, tokens: map[string]string{},
+		origins: map[core.SessionID]string{}, schedules: map[core.ScheduleID]string{}, idents: map[string]string{}, tokens: map[string]core.UserID{},
 		spaces: map[core.PrincipalID]*core.Space{}, senders: map[core.SessionID]map[core.RunID]string{}, prins: map[core.PrincipalID]string{}}
 }
 
@@ -207,16 +207,19 @@ func (n *namer) teamOwner(p core.PrincipalID) (name, kind, app string) {
 }
 
 // token names the owner of an access token.
-func (n *namer) token(id string) string {
-	if name, ok := n.tokens[id]; ok {
-		return name
+func (n *namer) token(id string) string { return n.user(n.tokenOwner(id)) }
+
+// tokenOwner is the user an access token belongs to, "" when it is unknown.
+func (n *namer) tokenOwner(id string) core.UserID {
+	if u, ok := n.tokens[id]; ok {
+		return u
 	}
-	name := ""
+	var u core.UserID
 	if t, err := n.s.d.Store.Tokens().Get(n.ctx, id); err == nil {
-		name = n.user(t.User)
+		u = t.User
 	}
-	n.tokens[id] = name
-	return name
+	n.tokens[id] = u
+	return u
 }
 
 // actor names an audit actor: user:<id>, token:<id>, channel:<name>:<ext>,
