@@ -26,10 +26,13 @@ UPDATE sessions SET schedule_id = COALESCE((SELECT r.schedule_id FROM runs r
     WHERE r.session_id = sessions.id AND r.schedule_id IS NOT NULL ORDER BY r.created_at LIMIT 1), '')
   WHERE origin = 'schedule' AND id NOT IN (SELECT session_id FROM schedules WHERE session_id IS NOT NULL);
 
--- Past all-clear check-ins stop being listed. Hidden only; retention archives them later.
+-- Past all-clear check-ins stop being listed. Hidden only; retention archives them later,
+-- so one someone wrote in (a message run) stays. Approvals are reached through their runs:
+-- approvals has no index on session_id, and a scan per check-in would stall the upgrade.
 UPDATE sessions SET hidden = 1 WHERE origin = 'schedule' AND hidden = 0
   AND EXISTS (SELECT 1 FROM runs r WHERE r.session_id = sessions.id AND r.trigger = 'heartbeat' AND r.status = 'done')
-  AND NOT EXISTS (SELECT 1 FROM approvals a WHERE a.session_id = sessions.id)
+  AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.session_id = sessions.id AND r.trigger = 'message')
+  AND NOT EXISTS (SELECT 1 FROM runs r JOIN approvals a ON a.run_id = r.id WHERE r.session_id = sessions.id)
   AND (SELECT ltrim(m.text, ' *_`>') FROM messages m WHERE m.session_id = sessions.id AND m.role = 'assistant'
        AND m.kind = 'normal' AND m.text != '' ORDER BY m.seq DESC LIMIT 1) LIKE 'HEARTBEAT_OK%';
 

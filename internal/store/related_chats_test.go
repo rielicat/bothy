@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,7 +12,8 @@ import (
 )
 
 // 0015 files existing schedule results under their schedule (not a
-// schedule's own target chat), stops listing past all-clear check-ins,
+// schedule's own target chat), stops listing past all-clear check-ins
+// (not one that asked for an approval or that someone wrote in),
 // gives result titles the check-in's name and a human date, and marks every
 // existing account as welcomed.
 func TestRelatedChatsMigration(t *testing.T) {
@@ -63,6 +65,9 @@ func TestRelatedChatsMigration(t *testing.T) {
 	steps = append(steps, checkIn("ses_found", "heartbeat · 2026-10-12", "done", "The deploy to staging failed an hour ago.")...)
 	steps = append(steps, checkIn("ses_failed", "heartbeat · 2026-10-13", "failed", "HEARTBEAT_OK")...)
 	steps = append(steps, checkIn("ses_asked", "heartbeat · 2026-10-14", "done", "HEARTBEAT_OK")...)
+	steps = append(steps, checkIn("ses_replied", "heartbeat · 2026-10-15", "done", "HEARTBEAT_OK")...)
+	steps = append(steps, run("run_reply", "ses_replied", "message", "done", ""), msg("ses_replied", 3, "user", "normal", "Thanks, anything else?"),
+		msg("ses_replied", 4, "assistant", "normal", "HEARTBEAT_OK"))
 	steps = append(steps, sqlStep{`INSERT INTO approvals(id, run_id, session_id, principal_id, tool_call_id, action, decision, card, approver, status,
 		on_timeout, created_at, expires_at) VALUES ('apr_asked', 'run_ses_asked', 'ses_asked', ?, 'tcl_x', '{}', '{}', '{}', '{}', 'allowed', 'park', 1, 2)`,
 		[]any{u}})
@@ -95,6 +100,7 @@ func TestRelatedChatsMigration(t *testing.T) {
 		{"ses_found", "sch_hb", "Check-in · 12 Oct", false},
 		{"ses_failed", "sch_hb", "Check-in · 13 Oct", false},
 		{"ses_asked", "sch_hb", "Check-in · 14 Oct", false},
+		{"ses_replied", "sch_hb", "Check-in · 15 Oct", false},
 	} {
 		s, err := db.Sessions().Get(ctx, core.SystemViewer(), c.id)
 		if err != nil {
@@ -124,6 +130,15 @@ func TestRelatedChatsMigration(t *testing.T) {
 	if err := db.w.QueryRowContext(ctx, `SELECT count(*) FROM pragma_foreign_key_check`).Scan(&n); err != nil || n != 0 {
 		t.Errorf("foreign key check: %d %v", n, err)
 	}
+	// The upgrade looks up every past check-in: each lookup must stay on an
+	// index, or months of check-ins times every approval stalls the boot.
+	src, err := migrationsFS.ReadFile("migrations/0015_related_chats.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hide := string(src[strings.Index(string(src), "UPDATE sessions SET hidden = 1"):])
+	hide = hide[:strings.Index(hide, ";")]
+	noScan(t, "0015 hiding quiet check-ins", queryPlan(t, db, hide), "approvals", "a", "runs", "r", "messages", "m")
 }
 
 // A check-in with nothing to report is archived after 7 days like a hidden
