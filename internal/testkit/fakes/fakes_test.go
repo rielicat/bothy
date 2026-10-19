@@ -720,11 +720,15 @@ func TestRunnerSessions(t *testing.T) {
 				t.Fatalf("foreign Fork = %v", err)
 			}
 			fork, err := r.Fork(ctx, v, s1.ID, "usr_a")
-			if err != nil || fork.ID == s1.ID || fork.ChannelKey != chat.Key() {
+			if err != nil || fork.ID == s1.ID || fork.ChannelKey != chat.Key() || fork.ParentID != s1.ID || fork.RootID != s1.ID ||
+				!fork.TitleAuto || fork.LastMessageAt.IsZero() {
 				t.Fatalf("Fork = %+v, %v", fork, err)
 			}
 			if s4, _ := r.ResolveSession(ctx, "usr_a", chat); s4.ID != fork.ID {
 				t.Fatalf("chat did not move to the fork: %s", s4.ID)
+			}
+			if again, err := r.Fork(ctx, v, fork.ID, "usr_a"); err != nil || again.ParentID != fork.ID || again.RootID != s1.ID {
+				t.Fatalf("Fork of a fork = %+v, %v; want the first chat as root", again, err)
 			}
 			web, _ := r.NewSession(ctx, "usr_a", "web", nil)
 			if web.ChannelKey != "" || web.Chat != nil || web.ModelSlot != core.SlotMain {

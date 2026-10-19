@@ -187,8 +187,7 @@ func TestSessionsResolveForkAndNew(t *testing.T) {
 			t.Fatal("the chat did not move to the fork")
 		}
 		msgs, _ := h.store.Messages().Range(h.ctx, core.SystemViewer(), fork.ID, 0, 0)
-		if len(msgs) != 1 || msgs[0].Kind != core.KindNotice || strings.Contains(msgs[0].PlainText(), string(s3.ID)) ||
-			!strings.HasPrefix(msgs[0].PlainText(), "This is a clean chat continued from ") {
+		if len(msgs) != 1 || msgs[0].Kind != core.KindNotice || msgs[0].PlainText() != forkNotice {
 			t.Fatalf("fork note = %+v", msgs)
 		}
 		if _, err := h.r.Fork(h.ctx, core.Viewer{User: "usr_x"}, s3.ID, "usr_x"); !errors.Is(err, core.ErrNotFound) {
@@ -201,6 +200,88 @@ func TestSessionsResolveForkAndNew(t *testing.T) {
 		}
 		if _, err := h.r.NewSession(h.ctx, h.pid, "fax", nil); !errors.Is(err, core.ErrInvalid) {
 			t.Fatalf("bad origin = %v", err)
+		}
+	})
+}
+
+// A clean chat, made at any time, hangs from the chat it came from and from
+// the top of that family, is listed at once, opens with a notice that names
+// no chat, and takes its name from its first message.
+func TestForkIsRelatedListedAndNamedByItsFirstMessage(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{steps: []fakes.LLMStep{{Text: []string{"Sure, let's plan."}}}})
+		defer h.close()
+		v := ownerViewer(h)
+		root, err := h.r.mutateSession(h.ctx, h.sess.ID, func(s *core.Session) error { s.Title = "Q3 pricing notes"; return nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		child, err := h.r.Fork(h.ctx, v, root.ID, h.user.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		grandchild, err := h.r.Fork(h.ctx, v, child.ID, h.user.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range []struct {
+			fork   *core.Session
+			parent core.SessionID
+			title  string
+		}{{child, root.ID, "Q3 pricing notes (clean)"}, {grandchild, child.ID, "Q3 pricing notes (clean) (clean)"}} {
+			got, err := h.store.Sessions().Get(h.ctx, v, c.fork.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.ParentID != c.parent || got.RootID != root.ID || !got.TitleAuto || got.Title != c.title || got.Hidden ||
+				got.LastMessageAt.IsZero() || !got.LastMessageAt.Equal(got.CreatedAt) {
+				t.Fatalf("fork %s = parent %q root %q auto %v title %q hidden %v last %v; want parent %s, root %s, listed now",
+					got.ID, got.ParentID, got.RootID, got.TitleAuto, got.Title, got.Hidden, got.LastMessageAt, c.parent, root.ID)
+			}
+			if c.fork.ParentID != got.ParentID || c.fork.RootID != got.RootID || c.fork.LastMessageAt.IsZero() {
+				t.Fatalf("Fork returned %+v, stored %+v", c.fork, got)
+			}
+			msgs, _ := h.store.Messages().Range(h.ctx, v, got.ID, 0, 0)
+			if len(msgs) != 1 || msgs[0].PlainText() != forkNotice || strings.Contains(forkNotice, "Q3") {
+				t.Fatalf("fork notice = %+v", msgs)
+			}
+		}
+		if !strings.HasPrefix(forkNotice, "This clean chat starts without the messages, private information or outside content") {
+			t.Fatalf("fork notice copy = %q", forkNotice)
+		}
+
+		sub := h.bus.Subscribe(core.Filter{System: true, Types: []core.EventType{core.EvSessionUpdated}}, 64)
+		defer sub.Close()
+		h.sess = grandchild
+		h.submit("Help me plan the weekend\n\nwith  the whole family, somewhere near the coast")
+		synctest.Wait()
+		var titles []string
+		for len(sub.C()) > 0 {
+			titles = append(titles, (<-sub.C()).Data.(core.SessionData).Title)
+		}
+		if want := []string{"Help me plan the weekend with the whole family,", "Weekend plans"}; !slices.Equal(titles, want) {
+			t.Fatalf("titles %q, want the first message's start replacing Bothy's title, then the generated one %q", titles, want)
+		}
+		if got := h.session(); got.Title != "Weekend plans" || got.TitleAuto {
+			t.Fatalf("named fork = title %q auto %v", got.Title, got.TitleAuto)
+		}
+
+		hb, err := h.r.NewSession(h.ctx, h.pid, "schedule", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := h.store.Sessions().SetHidden(h.ctx, hb.ID, true); err != nil {
+			t.Fatal(err)
+		}
+		api, err := h.r.NewSession(h.ctx, h.pid, "api", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for from, hidden := range map[core.SessionID]bool{hb.ID: false, api.ID: true} {
+			f, err := h.r.Fork(h.ctx, v, from, h.user.ID)
+			if err != nil || f.Hidden != hidden || f.ParentID != from || f.RootID != from {
+				t.Fatalf("fork of %s = %+v, %v; want hidden %v", from, f, err, hidden)
+			}
 		}
 	})
 }

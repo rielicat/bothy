@@ -272,7 +272,7 @@ func (r *Runner) persistTurn(ctx context.Context, rs *runState) error {
 	w.merged = 0
 	tc.commit(ctx, r.log)
 	var draft string
-	if rs.sess != nil && rs.sess.Title == "" && !rs.sess.Hidden {
+	if rs.sess != nil && (rs.sess.Title == "" || rs.sess.TitleAuto) && !rs.sess.Hidden {
 		draft = r.draftTitle(ctx, req.Session)
 	}
 	titled := false
@@ -280,8 +280,8 @@ func (r *Runner) persistTurn(ctx context.Context, rs *runState) error {
 		s.MemorySeen, s.PinsSeen = max(s.MemorySeen, tc.memSeen), max(s.PinsSeen, tc.pinsSeen)
 		s.LastMessageAt = r.now()
 		s.Taint |= legs
-		if titled = s.Title == "" && draft != ""; titled {
-			s.Title = draft
+		if titled = (s.Title == "" || s.TitleAuto) && draft != ""; titled {
+			s.Title, s.TitleAuto = draft, false
 		}
 		return nil
 	})
