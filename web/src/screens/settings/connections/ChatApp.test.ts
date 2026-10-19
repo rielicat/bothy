@@ -146,6 +146,18 @@ describe('Slack manage view', () => {
     await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url === '/api/spaces/spc_01jeng00000000000000000000' && JSON.parse(c.body).tool_profile === 'restricted')).toBe(true));
   });
 
+  it('asks how Bothy answers only in group chats it answers in, naming the chat on each control', async () => {
+    await setup('slack');
+    const support = await screen.findByRole('switch', { name: 'Answers here: #support' });
+    expect(screen.getByRole('switch', { name: 'Answers here: #eng' }).getAttribute('aria-checked')).toBe('true');
+    expect(support.getAttribute('aria-checked')).toBe('false');
+    const when = screen.getAllByLabelText('Answers when');
+    expect(when).toHaveLength(1);
+    expect(document.getElementById(when[0].getAttribute('aria-describedby')!)?.textContent).toBe('#eng');
+    await fireEvent.click(support);
+    await waitFor(() => expect(screen.getAllByLabelText('What Bothy can do here')).toHaveLength(2));
+  });
+
   it('puts a group chat control back when the change fails', async () => {
     const calls = await setup('slack', (m, url) => (m === 'PATCH' && url.startsWith('/api/spaces/') ? refuse() : undefined));
     const when = (await screen.findAllByLabelText('Answers when'))[0] as HTMLSelectElement;
@@ -238,7 +250,7 @@ describe('Discord and Telegram', () => {
     const s = await who();
     expect(s.getByText(/^Members of a server where Bothy answers in a channel can message Bothy/)).toBeTruthy();
     expect(screen.getByText('Acme Community · 4,812 people')).toBeTruthy();
-    const on = screen.getByRole('switch', { name: 'Answers here' });
+    const on = screen.getByRole('switch', { name: 'Answers here: #general' });
     await fireEvent.click(on);
     await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && JSON.parse(c.body).enabled === true)).toBe(true));
     await fireEvent.click(on);

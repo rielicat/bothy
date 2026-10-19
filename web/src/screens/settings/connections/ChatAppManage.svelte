@@ -222,37 +222,42 @@
         <!-- Delete sits under the name, so every row keeps its switch in the same right-hand column. -->
         <div class="flex min-h-8 items-start justify-between gap-x-4">
           <span class="min-w-0">
-            <span class="block text-body font-medium text-text" data-copy-ignore>{s.title}</span>
+            <span id="gc-{s.principal_id}" class="block text-body font-medium text-text" data-copy-ignore>{s.title}</span>
             {#if meta}<span class="block text-small text-muted tabular-nums" data-copy-ignore>{meta}</span>{/if}
             <!-- Only a channel that is off can go, so nobody deletes one people are using. -->
             {#if !s.enabled}<Button size="sm" variant="ghost" class="-ml-3 mt-1" aria-label="Delete {s.title}…" onclick={() => (deleting = s)}>Delete…</Button>{/if}
           </span>
-          <span class="flex shrink-0 items-center"><Switch label="Answers here" bind:checked={s.enabled} onchange={(v) => setAnswers(s, v)} /></span>
+          <span class="flex shrink-0 items-center"><Switch label="Answers here" aria-label="Answers here: {s.title}" bind:checked={s.enabled} onchange={(v) => setAnswers(s, v)} /></span>
         </div>
-        <div class="mt-3 grid gap-3 sm:grid-cols-2">
-          <Select
-            label="Answers when"
-            value={s.mention_only ? 'mention' : 'any'}
-            options={[
-              { value: 'mention', label: 'Mentioned' },
-              { value: 'any', label: 'Any message' },
-            ]}
-            onchange={(e) => {
-              const el = e.currentTarget;
-              void patchSpace(s, { mention_only: el.value === 'mention' }, () => (el.value = s.mention_only ? 'mention' : 'any'));
-            }}
-          />
-          <Select
-            label="What Bothy can do here"
-            value={s.tool_profile === 'standard' ? 'standard' : 'restricted'}
-            options={tools}
-            onchange={(e) => {
-              const el = e.currentTarget;
-              const was = s.tool_profile === 'standard' ? 'standard' : 'restricted';
-              void patchSpace(s, { tool_profile: el.value }, () => (el.value = was));
-            }}
-          />
-        </div>
+        <!-- How Bothy answers matters only where it answers, so a channel that is off is just its name and switch. -->
+        {#if s.enabled}
+          <div class="mt-3 grid gap-3 sm:grid-cols-2">
+            <Select
+              label="Answers when"
+              aria-describedby="gc-{s.principal_id}"
+              value={s.mention_only ? 'mention' : 'any'}
+              options={[
+                { value: 'mention', label: 'Mentioned' },
+                { value: 'any', label: 'Any message' },
+              ]}
+              onchange={(e) => {
+                const el = e.currentTarget;
+                void patchSpace(s, { mention_only: el.value === 'mention' }, () => (el.value = s.mention_only ? 'mention' : 'any'));
+              }}
+            />
+            <Select
+              label="What Bothy can do here"
+              aria-describedby="gc-{s.principal_id}"
+              value={s.tool_profile === 'standard' ? 'standard' : 'restricted'}
+              options={tools}
+              onchange={(e) => {
+                const el = e.currentTarget;
+                const was = s.tool_profile === 'standard' ? 'standard' : 'restricted';
+                void patchSpace(s, { tool_profile: el.value }, () => (el.value = was));
+              }}
+            />
+          </div>
+        {/if}
       </div>
     {:else}
       <p class="text-body text-muted">Bothy isn't in any {name} group chats yet. Add it to one and it shows up here.</p>
