@@ -285,7 +285,7 @@ func (s *Server) patchUser(w http.ResponseWriter, r *http.Request, a core.Actor)
 	if err != nil {
 		return err
 	}
-	prevRole := u.Role
+	prevRole, wasOff := u.Role, u.Disabled
 	// Like setting someone's password, a role change hands out what a
 	// token must not: promote an account, then sign in to it with a cookie.
 	if req.Role != nil && *req.Role != u.Role && a.Via == "token" {
@@ -311,7 +311,28 @@ func (s *Server) patchUser(w http.ResponseWriter, r *http.Request, a core.Actor)
 	if u.Disabled || u.Role != prevRole {
 		s.sse.closeUser(u.ID)
 	}
+	if u.Disabled && !wasOff {
+		s.stopUserRuns(r, a, u.ID)
+	}
 	return ok(w, u)
+}
+
+// stopUserRuns ends what a turned-off account's agent still does for it:
+// runs, queued turns and approvals waiting for a vote.
+func (s *Server) stopUserRuns(r *http.Request, a core.Actor, uid core.UserID) {
+	if s.d.Runner == nil {
+		return
+	}
+	ps, err := s.d.Store.Principals().ForUser(r.Context(), uid)
+	if err != nil {
+		s.log.Warn("stopping a turned-off account's tasks failed", "err", err)
+		return
+	}
+	for _, p := range ps {
+		if _, err := s.d.Runner.StopPrincipal(withOrigin(r, a, nil), p.ID); err != nil {
+			s.log.Warn("stopping a turned-off account's tasks failed", "err", err)
+		}
+	}
 }
 
 // deleteUser disables the account (which revokes sessions and tokens) and,
@@ -343,6 +364,7 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request, a core.Actor
 		if err := s.d.Auth.UpdateUser(ctx, a, &next); err != nil {
 			return err
 		}
+		s.stopUserRuns(r, a, u.ID)
 	}
 	s.sse.closeUser(u.ID)
 	if purge {

@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"slices"
 	"testing"
 
 	"github.com/rielicat/bothy/internal/core"
@@ -41,4 +42,26 @@ func TestOnlyTheOwnerTurnsOffOrRemovesAnAdmin(t *testing.T) {
 	// Turned off by the owner, the account still isn't another admin's to purge.
 	expect(t, h.do("DELETE", path+"?purge=true", nil, h.admin), http.StatusForbidden)
 	expect(t, h.do("DELETE", path+"?purge=true", nil, h.owner), http.StatusNoContent)
+}
+
+// A turned-off person's agent stops acting for them: a deploy they asked
+// for must not go out on two admins' votes afterwards.
+func TestTurningAnAccountOffStopsItsTasks(t *testing.T) {
+	h := newHarness(t).setup()
+	off := true
+	expect(t, h.do("PATCH", "/api/users/"+string(h.member.user), dto.UserPatchReq{Disabled: &off}, h.admin), http.StatusOK)
+	if got := h.runner.StoppedPrincipals(); !slices.Contains(got, core.UserPrincipal(h.member.user)) {
+		t.Fatalf("PATCH disabled stopped %v", got)
+	}
+	bob := h.newUser("bob", core.RoleMember)
+	expect(t, h.do("DELETE", "/api/users/"+string(bob.user), nil, h.admin), http.StatusNoContent)
+	if got := h.runner.StoppedPrincipals(); !slices.Contains(got, core.UserPrincipal(bob.user)) {
+		t.Fatalf("DELETE stopped %v", got)
+	}
+	n := len(h.runner.StoppedPrincipals())
+	name := "Still Off"
+	expect(t, h.do("PATCH", "/api/users/"+string(h.member.user), dto.UserPatchReq{DisplayName: &name}, h.admin), http.StatusOK)
+	if len(h.runner.StoppedPrincipals()) != n {
+		t.Fatal("renaming a turned-off account stopped its tasks again")
+	}
 }

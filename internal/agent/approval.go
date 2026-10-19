@@ -497,11 +497,16 @@ func (r *Runner) startResume(rs *runState, j *resumeJob) *runEnd {
 	if err := r.loadRunContext(ctx, rs); err != nil {
 		return failEnd("could not load the session: " + err.Error())
 	}
-	if r.paused.Load() { // engaged while the resume waited in the queue
+	// Engaged while the resume waited in the queue, or the account was
+	// turned off: nothing more runs for it.
+	if off := rs.user != nil && rs.user.Disabled; off || r.paused.Load() {
 		r.closeParkedCall(ctx, rs.id, j.approval.ToolCallID, core.TCStopped)
 		rs.emitMu.Lock()
 		rs.sink = r.resumeSink(ctx, j.run)
 		rs.emitMu.Unlock()
+		if off {
+			return &runEnd{status: core.RunStopped}
+		}
 		return &runEnd{status: core.RunStopped, notice: pausedParkedNotice}
 	}
 	rs.req.Provenance = r.runProvenance(ctx, rs.req.Session, rs.id)

@@ -136,7 +136,8 @@ func (r *Runner) startTurn(rs *runState) *runEnd {
 		return &runEnd{noRow: true}
 	}
 	req = rs.req
-	if rs.sess.Archived {
+	// A turned-off account's queued turns and schedules don't act for it.
+	if rs.sess.Archived || rs.user != nil && rs.user.Disabled {
 		return &runEnd{noRow: true}
 	}
 	if r.paused.Load() { // engaged while the turn waited in a coalescing window or queue
