@@ -86,6 +86,18 @@ func addrProblem(a netip.Addr, allowPrivate bool) string {
 	return ""
 }
 
+// privateAddr reports whether a is in a range AllowPrivate admits: the
+// admin's own network, never one reached through a transition mechanism.
+func privateAddr(a netip.Addr) bool {
+	a = a.Unmap()
+	for _, b := range blocklist {
+		if b.private && b.p.Contains(a) {
+			return true
+		}
+	}
+	return false
+}
+
 // embeddedV4 extracts IPv4 addresses that IPv6 transition mechanisms would
 // route to, so a NAT64, 6to4 or Teredo form cannot smuggle a blocked target.
 func embeddedV4(a netip.Addr) []netip.Addr {

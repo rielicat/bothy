@@ -97,7 +97,7 @@ func (s *Service) publicDial(ctx context.Context, addr string, sess core.Session
 		return nil, fmt.Errorf("egress: %w", err)
 	}
 	rec := core.EgressRecord{Dialer: "public", Session: sess, Principal: p, Host: h.name, Port: port}
-	c, reason, err := s.guardedDial(ctx, h, port, false, rec)
+	c, reason, err := s.guardedDial(ctx, h, port, false, false, rec)
 	if reason != "" {
 		s.publishBlocked(p, sess, "", h.name, port, reason)
 	}
@@ -106,10 +106,10 @@ func (s *Service) publicDial(ctx context.Context, addr string, sess core.Session
 
 // guardedDial dials through dialPinned and logs the connection under rec. A
 // non-empty reason means the destination was refused.
-func (s *Service) guardedDial(ctx context.Context, h hostname, port int, allowPrivate bool, rec core.EgressRecord) (net.Conn, string, error) {
+func (s *Service) guardedDial(ctx context.Context, h hostname, port int, allowPrivate, privateOnly bool, rec core.EgressRecord) (net.Conn, string, error) {
 	rec.At = s.clock.Now()
 	start := time.Now()
-	pd := s.dialPinned(ctx, h, port, allowPrivate)
+	pd := s.dialPinned(ctx, h, port, allowPrivate, privateOnly)
 	if pd.ip.IsValid() {
 		rec.IP = pd.ip.String()
 	}
@@ -148,7 +148,7 @@ func (s *Service) SystemClient(d core.SystemDest) *http.Client {
 		}
 	}
 	slices.Sort(hosts)
-	key := d.Name + "|" + strings.Join(hosts, ",") + "|" + strconv.FormatBool(d.AllowPrivate)
+	key := d.Name + "|" + strings.Join(hosts, ",") + "|" + strconv.FormatBool(d.AllowPrivate) + "|" + strconv.FormatBool(d.PrivateOnly)
 
 	s.sysMu.Lock()
 	defer s.sysMu.Unlock()
@@ -162,11 +162,11 @@ func (s *Service) SystemClient(d core.SystemDest) *http.Client {
 			break
 		}
 	}
-	name, allowPrivate := d.Name, d.AllowPrivate
+	name, allowPrivate, privateOnly := d.Name, d.AllowPrivate, d.PrivateOnly
 	tr := &http.Transport{
 		Proxy: nil,
 		DialContext: func(ctx context.Context, _, addr string) (net.Conn, error) {
-			return s.systemDial(ctx, addr, name, allowed, allowPrivate)
+			return s.systemDial(ctx, addr, name, allowed, allowPrivate, privateOnly)
 		},
 		TLSClientConfig:        &tls.Config{MinVersion: tls.VersionTLS12},
 		ForceAttemptHTTP2:      true,
@@ -182,7 +182,7 @@ func (s *Service) SystemClient(d core.SystemDest) *http.Client {
 	return c
 }
 
-func (s *Service) systemDial(ctx context.Context, addr, name string, allowed map[string]bool, allowPrivate bool) (net.Conn, error) {
+func (s *Service) systemDial(ctx context.Context, addr, name string, allowed map[string]bool, allowPrivate, privateOnly bool) (net.Conn, error) {
 	h, port, err := splitHostPort(addr)
 	if err != nil {
 		return nil, fmt.Errorf("egress: %w", err)
@@ -194,7 +194,7 @@ func (s *Service) systemDial(ctx context.Context, addr, name string, allowed map
 		s.log.Warn("egress: system destination refused", "dest", name, "host", h.hostport(port))
 		return nil, fmt.Errorf("egress: %w: %s is not a configured host for %s", errDenied, h.hostport(port), name)
 	}
-	c, reason, err := s.guardedDial(ctx, h, port, allowPrivate, rec)
+	c, reason, err := s.guardedDial(ctx, h, port, allowPrivate, privateOnly, rec)
 	if reason != "" {
 		s.log.Warn("egress: system destination refused", "dest", name, "host", h.hostport(port), "reason", reason)
 	}

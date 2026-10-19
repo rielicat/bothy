@@ -579,7 +579,7 @@ func (s *Service) handle(b *box, c net.Conn) {
 		return
 	}
 
-	pd := s.dialPinned(b.ctx, t.host, t.port, false)
+	pd := s.dialPinned(b.ctx, t.host, t.port, false, false)
 	if pd.ip.IsValid() {
 		rec.IP = pd.ip.String()
 	}

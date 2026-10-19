@@ -272,6 +272,37 @@ func TestSystemClientExactHostsOnly(t *testing.T) {
 	}
 }
 
+// A plain-http destination that sends a key reaches a private address only:
+// a name that resolves to a public one is refused before anything is sent.
+func TestSystemClientPrivateOnly(t *testing.T) {
+	e := newEnv(t, nil)
+	e.res.set("mcp.internal", []string{"10.1.2.3"})
+	e.res.set("mcp.example.com", []string{publicIP})
+	ts := e.plainUpstream(http.HandlerFunc(hello))
+	e.dial.route("10.1.2.3:80", ts.Listener.Addr().String())
+
+	lan := core.SystemDest{Name: "mcp:docs", Hosts: []string{"mcp.internal:80"}, AllowPrivate: true, PrivateOnly: true}
+	resp, err := e.s.SystemClient(lan).Get("http://mcp.internal/mcp")
+	if err != nil {
+		t.Fatalf("private address: %v", err)
+	}
+	body(t, resp)
+	pub := core.SystemDest{Name: "mcp:docs", Hosts: []string{"mcp.example.com:80"}, AllowPrivate: true, PrivateOnly: true}
+	if resp, err := e.s.SystemClient(pub).Get("http://mcp.example.com/mcp"); !errors.Is(err, errBlocked) {
+		if err == nil {
+			resp.Body.Close()
+		}
+		t.Fatalf("public address with PrivateOnly: %v", err)
+	}
+	if d := e.dial.calls(); slices.ContainsFunc(d, func(a string) bool { return strings.HasPrefix(a, publicIP) }) {
+		t.Fatalf("the public address was dialed: %v", d)
+	}
+	pub.PrivateOnly = false
+	if e.s.SystemClient(pub) == e.s.SystemClient(core.SystemDest{Name: "mcp:docs", Hosts: []string{"mcp.example.com:80"}, AllowPrivate: true, PrivateOnly: true}) {
+		t.Fatal("a PrivateOnly client is shared with one that isn't")
+	}
+}
+
 func TestDenylistAppliesToEveryDialer(t *testing.T) {
 	e := newEnv(t, func(c *config.Config) { c.Egress.Deny = []string{"evil.example", "*.bad.example"} })
 	e.res.set("evil.example", []string{publicIP})

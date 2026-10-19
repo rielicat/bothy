@@ -4,6 +4,7 @@ import { config } from '../../../lib/config.svelte';
 import { session } from '../../../lib/stores/session.svelte';
 import { installApi, type Call } from '../../../test/api';
 import Connections from './Connections.svelte';
+import { privateHost } from './connections';
 import { connectionsScreen } from './index';
 import McpServer from './McpServer.svelte';
 import WebSearch from './WebSearch.svelte';
@@ -58,6 +59,40 @@ describe('Connections overview (§12.1)', () => {
     expect(JSON.parse(writes(calls)[1].body).set).toEqual({
       'mcp.servers.sentry': { name: 'sentry', transport: 'http', side_effects: { default: 'external_send' }, url: 'https://mcp.sentry.dev/mcp', headers: { Authorization: 'secret:mcp_sentry_header' } },
     });
+  });
+
+  it('adds a server on a private network once its address is allowed', async () => {
+    const calls = await start();
+    render(Connections);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Add an MCP server' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add an MCP server' });
+    await fireEvent.input(within(dialog).getByLabelText('Name'), { target: { value: 'wiki' } });
+    await fireEvent.input(within(dialog).getByLabelText('Address'), { target: { value: 'https://mcp.example.com/mcp' } });
+    expect(within(dialog).queryByRole('checkbox')).toBeNull();
+    await fireEvent.input(within(dialog).getByLabelText('Address'), { target: { value: 'http://wiki.internal:8080/mcp' } });
+    await fireEvent.input(within(dialog).getByLabelText(/Secret header/), { target: { value: 'Bearer abc123' } });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Add server' }));
+    expect(within(dialog).getByText("Allow wiki.internal below, or Bothy can't reach it.")).toBeTruthy();
+    expect(writes(calls)).toEqual([]);
+
+    await fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Allow wiki.internal' }));
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Add server' }));
+    await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['PUT /api/vault/global/mcp_wiki_header', 'PATCH /api/config']));
+    expect(JSON.parse(writes(calls)[1].body).set['mcp.servers.wiki']).toMatchObject({ url: 'http://wiki.internal:8080/mcp', allow_private: true });
+  });
+
+  it.each([
+    ['http://10.2.3.4/mcp', '10.2.3.4'],
+    ['http://172.20.0.5:9000', '172.20.0.5'],
+    ['http://192.168.1.9/mcp', '192.168.1.9'],
+    ['http://host.docker.internal:3000/mcp', 'host.docker.internal'],
+    ['http://mcp:8080/mcp', 'mcp'],
+    ['http://[fd12::1]/mcp', 'fd12::1'],
+    ['https://mcp.linear.app/mcp', ''],
+    ['http://172.32.0.1/', ''],
+    ['https://fcdn.example.com/', ''],
+  ])('knows %s is on a private network', (url, host) => {
+    expect(privateHost(url)).toBe(host);
   });
 
   it('adds a command server from its package name and pins what npm reports', async () => {

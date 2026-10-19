@@ -287,6 +287,47 @@ func TestHTTPPrivateAddressNeedsAllowPrivate(t *testing.T) {
 	}
 }
 
+type refusingTransport struct{ err error }
+
+func (r refusingTransport) RoundTrip(*http.Request) (*http.Response, error) { return nil, r.err }
+
+// A name that resolves to a private address is refused by egress after DNS;
+// the status names the same fix as for a private address literal.
+func TestPrivateNameRefusedByEgressIsNamed(t *testing.T) {
+	refused := errors.New("egress: destination address blocked: mcp.internal resolves to 10.0.0.5 (address in blocked range 10.0.0.0/8)")
+	srv := httpServerCfg("docs", "https://mcp.internal/mcp")
+	srv.AllowPrivate = false
+	h := newHarness(t, []config.MCPServer{srv}, withClient(&http.Client{Transport: refusingTransport{refused}}))
+	h.start()
+	if st := h.status("docs"); st.State != stError || st.Code != "private_address" {
+		t.Fatalf("status = %+v", st)
+	}
+}
+
+// Plain http that sends a key may reach only a private address, whatever the
+// name resolves to; https, or plain http without a key, is not held to it.
+func TestPlainHTTPWithAKeyReachesPrivateAddressesOnly(t *testing.T) {
+	for _, tc := range []struct {
+		url     string
+		headers map[string]string
+		want    bool
+	}{
+		{"http://mcp.internal:8080/mcp", map[string]string{"Authorization": "secret:docs_key"}, true},
+		{"http://mcp.internal:8080/mcp?api_key=secret:docs_key", nil, true},
+		{"http://mcp.internal:8080/mcp", nil, false},
+		{"https://mcp.internal/mcp", map[string]string{"Authorization": "secret:docs_key"}, false},
+	} {
+		srv := httpServerCfg("docs", tc.url)
+		srv.Headers = tc.headers
+		h := newHarness(t, []config.MCPServer{srv}, withSecrets(map[string]string{"docs_key": "Bearer k"}),
+			withClient(&http.Client{Transport: refusingTransport{errors.New("offline")}}))
+		h.start()
+		if len(h.eg.Dests) == 0 || h.eg.Dests[0].PrivateOnly != tc.want || !h.eg.Dests[0].AllowPrivate {
+			t.Errorf("%s with headers %v: SystemDest = %+v", tc.url, tc.headers, h.eg.Dests)
+		}
+	}
+}
+
 func TestCheckHost(t *testing.T) {
 	for _, tc := range []struct {
 		host         string

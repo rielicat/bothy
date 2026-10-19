@@ -186,6 +186,26 @@ export function needsAttention(apps: AppStatus[], tools: MCPStatus[], github: Gi
 
 export const searchTitle: Record<string, string> = { none: 'Off', searxng: 'SearXNG', brave: 'Brave Search', tavily: 'Tavily' };
 
+/**
+ * The host of an address on a private network, as company and container hosts are: an IP in a private range, a name
+ * without a dot, or a private-use ending such as .internal. '' otherwise.
+ */
+export function privateHost(address: string): string {
+  let h: string;
+  try {
+    h = new URL(address.trim()).hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  } catch {
+    return '';
+  }
+  const v4 = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(h);
+  if (v4) {
+    const [a, b] = [+v4[1], +v4[2]];
+    return a === 10 || a === 127 || (a === 172 && b >= 16 && b < 32) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b < 128) ? h : '';
+  }
+  if (h.includes(':')) return /^(::1$|f[cd]|fe[89ab])/.test(h) ? h : '';
+  return !h.includes('.') || /\.(internal|local|localhost|lan|home\.arpa|corp|intranet)$/.test(h) ? h : '';
+}
+
 /** "linear" → "Linear", "team-docs" → "Team docs", "deepwiki" → "DeepWiki". */
 export const serverTitle = serviceName;
 

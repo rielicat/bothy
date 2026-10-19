@@ -26,7 +26,9 @@ across an approval wait never reaches a tool disabled or changed meanwhile.
 
 HTTP servers use Streamable HTTP (falling back to legacy SSE) through
 `Egress.SystemClient` for the exact `host:port`; private literals need
-`allow_private`, and header `secret:` references resolve with `Vault.Resolve`
+`allow_private` (a name egress refuses for resolving privately gets the same
+`private_address` code), plain http that sends a key asks egress for
+`PrivateOnly`, and header `secret:` references resolve with `Vault.Resolve`
 per billing user (global only for spaces) into a header transport that never
 logs them. Non-streaming responses are capped at 16 MB and definitions at
 64 KB. Stdio servers run only in sandbox boxes, each removed before it is

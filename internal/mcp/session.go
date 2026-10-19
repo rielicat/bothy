@@ -520,7 +520,9 @@ func errCode(err error) string {
 	if errors.As(err, &ce) {
 		return ce.code
 	}
-	if errors.Is(err, errPrivateHost) {
+	// A name that resolves to a private address is refused by egress, after
+	// DNS, rather than by checkHost.
+	if errors.Is(err, errPrivateHost) || core.TransportFailure(err) == core.FailPrivateAddress {
 		return "private_address"
 	}
 	if errors.Is(err, errNotInstalled) || errors.Is(err, errDrifted) {
@@ -536,7 +538,8 @@ func (m *Manager) connectHTTP(ctx context.Context, s *server, a *httpAuth) (*con
 	if err := checkHost(s.spec.hostPort, s.spec.allowPrivate); err != nil {
 		return nil, fmt.Errorf("mcp server %s: %w", s.name, err)
 	}
-	sys := m.d.Egress.SystemClient(core.SystemDest{Name: source(s.name), Hosts: []string{s.spec.hostPort}, AllowPrivate: s.spec.allowPrivate})
+	sys := m.d.Egress.SystemClient(core.SystemDest{Name: source(s.name), Hosts: []string{s.spec.hostPort}, AllowPrivate: s.spec.allowPrivate,
+		PrivateOnly: s.spec.privateOnly})
 	if sys == nil || sys.Transport == nil {
 		// A nil transport would mean http.DefaultTransport, outside every egress rule.
 		return nil, fmt.Errorf("mcp server %s: egress returned no client transport", s.name)
