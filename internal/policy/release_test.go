@@ -593,3 +593,26 @@ func TestApproverReqEligible(t *testing.T) {
 		t.Errorf("AllowVotes = %d, want 1 (one user, requester and denies excluded)", n)
 	}
 }
+
+// Approvers of a deploy are told when another deploy to that environment is
+// running or waiting: approving both runs two deploys at once.
+func TestReleaseCardWarnsOfOverlap(t *testing.T) {
+	h := newReleaseHarness(t)
+	first := h.requestRelease(h.member)
+	if len(first.Card.Warnings) != 0 {
+		t.Fatalf("first request warnings = %q", first.Card.Warnings)
+	}
+	second := h.requestRelease(h.admin1)
+	if !slices.Contains(second.Card.Warnings, "Another deploy to staging is waiting for approval.") {
+		t.Fatalf("second request warnings = %q", second.Card.Warnings)
+	}
+	d := &core.Deploy{Environment: "staging", Repo: "acme/web", Workflow: "deploy.yml", Ref: "main", Principal: core.UserPrincipal(h.member.ID),
+		RequestedBy: h.member.ID, Status: core.DeployDispatched, CreatedAt: time.Now()}
+	if err := h.store.(core.ReleaseStore).Releases().Create(h.ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	third := h.requestRelease(h.admin2)
+	if !slices.Contains(third.Card.Warnings, "A deploy to staging is already running.") || !slices.Contains(third.Card.Warnings, "2 other deploys to staging are waiting for approval.") {
+		t.Fatalf("third request warnings = %q", third.Card.Warnings)
+	}
+}
