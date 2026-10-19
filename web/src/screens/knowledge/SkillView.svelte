@@ -4,6 +4,7 @@
   import CodeBlock from '../../components/ui/CodeBlock.svelte';
   import Disclosure from '../../components/ui/Disclosure.svelte';
   import EmptyState from '../../components/ui/EmptyState.svelte';
+  import LinkButton from '../../components/ui/LinkButton.svelte';
   import Notice from '../../components/ui/Notice.svelte';
   import PageHeader from '../../components/ui/PageHeader.svelte';
   import { toast } from '../../components/ui/toast.svelte';
@@ -11,7 +12,7 @@
   import type { SkillDetail } from '../../lib/api/types.gen';
   import { skillName } from '../../lib/format';
   import { session } from '../../lib/stores/session.svelte';
-  import Loading from './Loading.svelte';
+  import Loading from '../../components/ui/Loading.svelte';
 
   let { params }: { params: Record<string, string> } = $props();
   const name = $derived(params.name);
@@ -64,14 +65,15 @@
     }
   }
 
-  async function toggle(f: string) {
+  function toggle(f: string) {
     open = { ...open, [f]: !open[f] };
-    if (!open[f] || f in files) return;
-    if (f === 'SKILL.md') {
-      files = { ...files, [f]: skill?.body ?? '' };
-      return;
-    }
-    const text = await api.text(path(f)).catch(() => null);
+    if (open[f] && files[f] == null) void fetchFile(f);
+  }
+
+  // A file that didn't load (null) is asked for again on Try again or when it's opened again.
+  async function fetchFile(f: string) {
+    delete files[f];
+    const text = f === 'SKILL.md' ? (skill?.body ?? '') : await api.text(path(f)).catch(() => null);
     files = { ...files, [f]: text };
   }
 </script>
@@ -84,7 +86,7 @@
     {#if missing}
       <EmptyState text="This skill doesn't exist or was removed." action={{ label: 'Go to Skills', href: '/knowledge/skills', variant: 'secondary' }} />
     {:else if !skill}
-      <Loading {failed} onretry={load} />
+      <Loading {failed} retry={load} />
     {:else}
       {#if review}
         <Notice
@@ -93,7 +95,7 @@
           text={meta?.status === 'changed' ? "This skill changed, so it's off until an admin approves the changes below." : "This skill is new, so it's off until an admin reviews it."}
           action={session.isAdmin ? { label: meta?.status === 'changed' ? 'Approve' : 'Turn on', onclick: approve } : undefined}
         />
-        {#if approveError}<p class="field-error -mt-4 mb-6"><Icon name="alert" class="mt-px" /><span>{approveError}</span></p>{/if}
+        {#if approveError}<p class="field-error -mt-4 mb-6" role="alert"><Icon name="alert" class="mt-px" /><span>{approveError}</span></p>{/if}
       {/if}
       <Markdown text={body} />
       <!-- While the changes wait for approval the files start open, so they are seen before approving. -->
@@ -117,7 +119,9 @@
                   {#if !(f in files)}
                     <Loading />
                   {:else if files[f] === null}
-                    <p class="text-body text-muted">Couldn't load this file.</p>
+                    <p class="text-body text-muted">
+                      This file didn't load. Check your connection and try again.{' '}<LinkButton onclick={() => fetchFile(f)}>Try again</LinkButton>
+                    </p>
                   {:else}
                     <CodeBlock code={files[f] ?? ''} lineNumbers maxLines={40} />
                   {/if}

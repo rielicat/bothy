@@ -8,7 +8,7 @@
   import { session } from '../../lib/stores/session.svelte';
   import { toneClass, where } from '../../lib/taskStatus';
   import { people, personName, type TaskDetail } from './api';
-  import Loading from './Loading.svelte';
+  import Loading from '../../components/ui/Loading.svelte';
   import StepItem from './StepItem.svelte';
   import { allowedHow, decisionLine, stepLine, type StepLine } from './steps';
   import { clampLines, dayLabel, detailOutcome, githubAuthFailed } from './tasks';

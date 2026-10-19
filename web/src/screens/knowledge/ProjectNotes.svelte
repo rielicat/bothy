@@ -36,7 +36,7 @@
   import { narrow } from '../../lib/stores/viewport.svelte';
   import DiscardDialog from './DiscardDialog.svelte';
   import HeaderSpacer from './HeaderSpacer.svelte';
-  import Loading from './Loading.svelte';
+  import Loading from '../../components/ui/Loading.svelte';
   import NotesEditor from './NotesEditor.svelte';
   import NotesHistoryDialog, { type HistoryEntry } from './NotesHistoryDialog.svelte';
   import SuggestionsDialog from './SuggestionsDialog.svelte';
@@ -300,7 +300,7 @@
     {#if missing}
       <EmptyState text="Bothy doesn't read this repository." action={{ label: 'Go to Knowledge', href: '/knowledge', variant: 'secondary' }} />
     {:else if !repo || (repo.id && !notes)}
-      <Loading {failed} onretry={load} />
+      <Loading {failed} retry={load} />
     {:else}
       {#if readError}
         <Notice tone="danger" class="mb-6" text={readError} />
@@ -309,11 +309,18 @@
         <!-- Reading again would fail the same way, so there's nothing to offer but notes written by hand. -->
         <Notice tone="danger" class="mb-6" text="This repository is too big for Bothy to read{fileCap(repo) ? ` (${fileCap(repo)})` : ''}." />
       {:else if st === 'failed'}
+        <!-- The reason says what happened in a sentence of its own; only an unexplained failure needs the general one. -->
         <Notice
           tone="danger"
           class="mb-6"
-          text="Bothy couldn't read this repository. {failReason(repo)}"
-          action={admin && failKind(repo) === 'temporary' ? { label: 'Read again', onclick: readAgain } : undefined}
+          text={failReason(repo, "Bothy couldn't read this repository.")}
+          action={!admin
+            ? undefined
+            : failKind(repo) === 'temporary'
+              ? { label: 'Read again', onclick: readAgain }
+              : failKind(repo) === 'access'
+                ? { label: 'Check the GitHub connection', onclick: () => router.navigate('/settings/connections/github') }
+                : undefined}
         />
       {/if}
       {#if suggestions.length && !editing}
@@ -349,7 +356,8 @@
         {#if repo.progress?.total}
           <p class="text-reading text-muted tabular-nums">Read {repo.progress.done.toLocaleString()} of about {repo.progress.total.toLocaleString()} files</p>
         {/if}
-      {:else if st === 'failed' && failKind(repo) === 'size'}
+      {:else if st === 'failed'}
+        <!-- Not "Bothy writes them after reading": it can't read this one. -->
         <EmptyState text="You can write notes for this project yourself." action={{ label: 'Write notes', onclick: startEdit, variant: 'secondary' }} />
       {:else}
         <EmptyState

@@ -80,7 +80,7 @@ const states: ShotState[] = [
   { name: 'project', route: PROJECT, ready: framed('How to build and test') },
   { name: 'project-member', route: PROJECT, mock: 'member', ready: framed('How to build and test') },
   { name: 'project-first-read', route: '/knowledge/projects/acme/api', ready: framed('Bothy is reading acme/api') },
-  { name: 'project-couldnt-read', route: '/knowledge/projects/acme/infra', mock: 'repo-read-failed', ready: framed("Bothy couldn't read this repository.") },
+  { name: 'project-couldnt-read', route: '/knowledge/projects/acme/infra', mock: 'repo-read-failed', ready: framed('GitHub says Bothy no longer has access to this repository.') },
   { name: 'project-too-big', route: '/knowledge/projects/acme/infra', ready: framed('This repository is too big for Bothy to read') },
   {
     name: 'project-menu',

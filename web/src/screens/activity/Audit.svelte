@@ -3,14 +3,15 @@
   import { Button, CodeBlock, Dialog, Disclosure, EmptyState, IconButton, LinkButton, Menu, Segmented, Select, StatusLine, toast } from '../../components/ui';
   import { api, qs } from '../../lib/api/client';
   import type { List } from '../../lib/api/types.gen';
-  import { fullTime } from '../../lib/format';
+  import { clock as time, fullTime } from '../../lib/format';
   import { siteGrant } from '../../lib/grants';
   import { router } from '../../lib/router.svelte';
   import { session } from '../../lib/stores/session.svelte';
   import Activity from './Activity.svelte';
   import { people, type AuditCheck, type AuditRow, type EgressRow } from './api';
   import { actionGroups, actorName, resultWord, summarize, webLine, webOutcome } from './audit';
-  import Loading from './Loading.svelte';
+  import Loading from '../../components/ui/Loading.svelte';
+  import ShowEarlier from './ShowEarlier.svelte';
   import { groupByDay } from './tasks';
 
   const view = $derived(router.query.get('view') === 'web' ? 'web' : 'actions');
@@ -47,7 +48,9 @@
         rows = more ? [...(rows ?? []), ...(r.items ?? [])] : (r.items ?? []);
         next = r.next ?? 0;
       }
-    } catch {
+    } catch (e) {
+      // A later page failing leaves the list as it was; Show earlier says so.
+      if (more) throw e;
       failed = true;
     }
   }
@@ -89,7 +92,7 @@
     const at = check.bad_at ?? rows?.find((r) => r.id === check?.bad_id)?.at;
     if (!at) return '';
     const d = new Date(at);
-    return `${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} at ${d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+    return `${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} at ${time(at)}`;
   });
 
   function exportLog() {
@@ -117,7 +120,6 @@
     }
   }
 
-  const time = (t: string) => new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
   const clear = () => router.setQuery({ who: null, action: null, period: 'all' });
 </script>
 
@@ -174,7 +176,7 @@
       </div>
 
       {#if rows === null}
-        <div class="mt-6"><Loading {failed} retry={load} /></div>
+        <div class="mt-6"><Loading {failed} retry={() => load()} /></div>
       {:else if !shown.length}
         <EmptyState class="mt-6" text="Nothing matches these filters." action={filtered ? { label: 'Clear filters', variant: 'secondary', onclick: clear } : undefined} />
       {:else}
@@ -217,7 +219,7 @@
         {/each}
       {/if}
     {:else if web === null}
-      <div class="mt-6"><Loading {failed} retry={load} /></div>
+      <div class="mt-6"><Loading {failed} retry={() => load()} /></div>
     {:else if !web.length}
       <EmptyState class="mt-6" text="Bothy hasn't reached any websites yet." />
     {:else}
@@ -229,7 +231,7 @@
               <!-- The sentence names the site in full, so there's no host column. On phones it leads and the time and task link fold under it. -->
               <li class="flex min-h-10 items-center gap-x-3 border-b border-border py-2 text-body last:border-b-0 max-sm:flex-col max-sm:items-start">
                 <time class="w-16 shrink-0 whitespace-nowrap text-muted tabular-nums max-sm:hidden" title={fullTime(e.at)}>{time(e.at)}</time>
-                <span class="min-w-0 flex-1 [overflow-wrap:anywhere] {webOutcome(e) === 'blocked' ? 'text-danger-text' : 'text-text'}">
+                <span class="min-w-0 flex-1 text-text [overflow-wrap:anywhere]">
                   {webLine(e)}{#if webOutcome(e) === 'blocked'}.{' '}<LinkButton onclick={() => ((allowing = e), (allowOpen = true))}>Allow this site…</LinkButton>{/if}
                 </span>
                 <span class="flex items-center gap-1.5 text-small text-muted">
@@ -245,7 +247,7 @@
     {/if}
 
     {#if next && ((view === 'web' && web?.length) || (view === 'actions' && rows?.length))}
-      <Button class="mt-6" size="sm" onclick={() => load(true)}>Show earlier</Button>
+      <ShowEarlier load={() => load(true)} />
     {/if}
   {/if}
 </Activity>

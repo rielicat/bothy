@@ -141,4 +141,19 @@ describe('Memory', () => {
     expect(within(dialog).getAllByText(/· Remembered for everyone ·/).length).toBe(2);
     expect(dialog.textContent).not.toMatch(/usr_|run_|ses_|apr_|TEAM/);
   });
+
+  it("says the history didn't load, and loads it again on request", async () => {
+    let down = true;
+    installApi({ override: (m, url) => (down && /\/history\?limit=25$/.test(url) ? new Response('{}', { status: 503 }) : undefined) });
+    session.ready = false;
+    await session.init();
+    render(Memory);
+    await fireEvent.click(await screen.findByRole('button', { name: 'History' }));
+    const dialog = screen.getByRole('dialog', { name: 'History' });
+    // Not "This page didn't load": the page did; the history in this dialog didn't.
+    expect(await within(dialog).findByText("The history didn't load. Check your connection and try again.")).toBeTruthy();
+    down = false;
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Try again' }));
+    expect(await within(dialog).findByText('You')).toBeTruthy();
+  });
 });

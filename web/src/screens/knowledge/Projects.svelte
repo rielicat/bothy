@@ -21,7 +21,7 @@
   import { events } from '../../lib/sse.svelte';
   import { session } from '../../lib/stores/session.svelte';
   import Knowledge from './Knowledge.svelte';
-  import Loading from './Loading.svelte';
+  import Loading from '../../components/ui/Loading.svelte';
   import { inSentence } from './text';
 
   const GITHUB = '/settings/connections/github';
@@ -82,13 +82,12 @@
     }
   }
 
-  function line2(r: KnowledgeRepo): string {
-    if (unread(r)) return "Bothy hasn't read this project for you yet.";
-    const summary = r.summary;
-    if (repoState(r) === 'failed') return failReason(r);
-    if (r.notes.status !== 'ready') return summary || 'Bothy is writing notes for this project.';
-    const updated = `Notes updated ${inSentence(relTime(r.notes.updated_at))}.`;
-    return summary ? `${summary} ${updated}` : updated;
+  // Line 2, and when the notes changed once there are some.
+  function line2(r: KnowledgeRepo): [string, string?] {
+    if (unread(r)) return ["Bothy hasn't read this project for you yet."];
+    if (repoState(r) === 'failed') return [failReason(r)];
+    if (r.notes.status !== 'ready') return [r.summary || 'Bothy is writing notes for this project.'];
+    return [r.summary, `Notes updated ${inSentence(relTime(r.notes.updated_at))}.`];
   }
 </script>
 
@@ -99,7 +98,7 @@
 
 <Knowledge {actions} search={!!rows?.some((r) => r.id && !isZeroTime(r.indexed_at))}>
   {#if !rows}
-    <Loading {failed} onretry={load} />
+    <Loading {failed} retry={load} />
   {:else if !rows.length}
     {#if !session.isAdmin}
       <EmptyState text="Ask an admin to connect GitHub so Bothy can read your code." />
@@ -133,9 +132,11 @@
               {#if unread(r)}Not read yet{:else if st === 'ready'}Up to date{:else if st === 'stale'}Out of date{:else if st === 'failed'}Couldn't read{:else}<Spinner size={12} />Reading…{#if pct !== null}{' '}{pct}%{/if}{/if}
             </span>
             <div class="col-span-2 flex items-baseline gap-4">
-              <!-- On a phone two lines, so the date at the end isn't always cut off. -->
+              <!-- On a phone two lines: the summary cut to the first and the date on the second, so the date is never cut off. -->
               <p class="min-w-0 flex-1 text-small text-muted {st === 'failed' ? '' : 'max-sm:line-clamp-2 sm:truncate'}" title={r.notes.status === 'ready' ? fullTime(r.notes.updated_at) : undefined}>
-                {#if rowError[r.repo]}<span class="text-danger-text">{rowError[r.repo]}</span>{:else}{line2(r)}{/if}
+                {#if rowError[r.repo]}<span class="text-danger-text">{rowError[r.repo]}</span>{:else}{@const [text, updated] = line2(r)}<span class={updated ? 'max-sm:block max-sm:truncate' : ''}
+                    >{text}</span
+                  >{#if updated}{' '}{updated}{/if}{/if}
               </p>
               <!-- A repository too big to read fails the same way again, so it gets neither Details nor Read again. -->
               {#if unread(r) || (st === 'stale' && session.isAdmin) || (st === 'failed' && r.error && failKind(r) !== 'size')}
@@ -145,6 +146,7 @@
                   {:else if st === 'stale'}
                     <LinkButton onclick={() => readAgain(r)}>Read again</LinkButton>
                   {:else}
+                    <!-- Muted like every Details: it opens the raw message, not an action. -->
                     <button
                       type="button"
                       class="-my-0.5 inline-flex min-h-6 cursor-pointer items-center text-muted hover:text-text pointer-coarse:-my-3 pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:justify-center"

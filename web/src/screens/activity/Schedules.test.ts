@@ -90,6 +90,16 @@ describe('Schedules (docs/design/ui.md §10.3)', () => {
     expect(row.textContent).not.toContain('Not scheduled');
   });
 
+  it("names the time zone of a chat app's schedule set in another zone, as for the schedules above", async () => {
+    await start(undefined, (m, url) =>
+      m === 'GET' && url === '/api/team/schedules'
+        ? [{ id: 'sch_01jteamtokyo0000000000000', name: 'Tokyo standup', owner: 'Ken Sato', owner_kind: 'teammate', app: 'slack', kind: 'cron', spec: '0 9 * * 1-5', tz: 'Asia/Tokyo', enabled: false }]
+        : undefined,
+    );
+    const row = (await screen.findByText('Tokyo standup')).closest('li')!;
+    expect(row.textContent).toMatch(/Ken Sato · Slack · Weekdays at .+, Tokyo time · Off/);
+  });
+
   it("says a chat app's schedule that is on but has no next run isn't scheduled, rather than off", async () => {
     await start(undefined, (m, url) =>
       m === 'GET' && url === '/api/team/schedules'

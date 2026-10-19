@@ -93,15 +93,19 @@ export function progressPct(r: Pick<KnowledgeRepo, 'progress'>): number | null {
   return Math.min(99, Math.floor((p.done / p.total) * 100));
 }
 
+const ACCESS = /\b(401|403|404)\b|not found|no access|access denied|forbidden|bad credentials/;
+
 /**
  * Why a read failed, for what to offer: a repository too big to read fails
  * the same way every time, so only temporary reasons (GitHub limiting
- * requests, or out of reach) get "Read again".
+ * requests, or out of reach) get "Read again"; lost access is fixed in the
+ * GitHub connection.
  */
-export function failKind(r: Pick<KnowledgeRepo, 'error' | 'truncated'>): 'size' | 'temporary' | 'other' {
+export function failKind(r: Pick<KnowledgeRepo, 'error' | 'truncated'>): 'size' | 'temporary' | 'access' | 'other' {
   const e = (r.error ?? '').toLowerCase();
   if (/more than [\d,.]+ files/.test(e) || r.truncated || /max_files|too (many|large)|file (count|cap)/.test(e)) return 'size';
   if (/rate.?limit|timeout|unreachable|connection|dial/.test(e)) return 'temporary';
+  if (ACCESS.test(e)) return 'access';
   return 'other';
 }
 
@@ -111,17 +115,17 @@ export function fileCap(r: Pick<KnowledgeRepo, 'error'>): string {
   return cap > 0 ? `more than ${cap.toLocaleString()} files` : '';
 }
 
-/** The plain reason a read failed; the raw message stays behind Details. */
-export function failReason(r: Pick<KnowledgeRepo, 'error' | 'truncated'>): string {
+/** The plain reason a read failed; the raw message stays behind Details. `fallback` when there's no plainer one. */
+export function failReason(r: Pick<KnowledgeRepo, 'error' | 'truncated'>, fallback = 'An unexpected error stopped the read.'): string {
   const e = (r.error ?? '').toLowerCase();
   // The file cap is a server setting, so the number comes from the message or isn't given.
   const cap = Number(/more than ([\d,.]+) files/.exec(e)?.[1]?.replace(/[,.]/g, ''));
   if (cap > 0) return `Too large to read (more than ${cap.toLocaleString()} files).`;
   if (r.truncated || /max_files|too (many|large)|file (count|cap)/.test(e)) return 'Too large to read.';
   if (/rate.?limit/.test(e)) return 'GitHub is limiting how often Bothy can read. Try again later.';
-  if (/\b(401|403|404)\b|not found|no access|access denied|forbidden|bad credentials/.test(e)) return 'GitHub says Bothy no longer has access to this repository.';
+  if (ACCESS.test(e)) return 'GitHub says Bothy no longer has access to this repository.';
   if (/timeout|unreachable|connection|dial/.test(e)) return "Bothy couldn't reach GitHub. It will try again later.";
-  return 'Something went wrong while reading it.';
+  return fallback;
 }
 
 /** A Markdown snippet as one line of plain text: no list markers, emphasis or code ticks. */

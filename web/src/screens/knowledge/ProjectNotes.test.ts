@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/sve
 import { beforeEach, describe, expect, it } from 'vitest';
 import { resetMock } from '../../../mock/server';
 import { toaster } from '../../components/ui';
+import { router } from '../../lib/router.svelte';
 import { approvals, session } from '../../lib/stores/session.svelte';
 import { installApi, type Call } from '../../test/api';
 import ProjectNotes from './ProjectNotes.svelte';
@@ -115,6 +116,22 @@ describe('Project notes', () => {
     expect(screen.queryByRole('button', { name: 'Read again' })).toBeNull();
     expect(screen.getByText('You can write notes for this project yourself.')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Write notes' })).toBeTruthy();
+  });
+
+  it('says once why a read failed, and points an admin at the GitHub connection when access was lost', async () => {
+    installApi();
+    resetMock({ mock: 'repo-read-failed' });
+    approvals.reset();
+    session.ready = false;
+    await session.init();
+    router.navigate('/knowledge/projects/acme/infra');
+    render(ProjectNotes, { params: { owner: 'acme', repo: 'infra' } });
+    expect(await screen.findByText('GitHub says Bothy no longer has access to this repository.')).toBeTruthy();
+    expect(screen.queryByText(/couldn't read this repository/)).toBeNull();
+    // It can't read the repository, so it doesn't promise notes after reading it.
+    expect(screen.getByText('You can write notes for this project yourself.')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Check the GitHub connection' }));
+    expect(router.path).toBe('/settings/connections/github');
   });
 
   it('offers no actions for a repository Bothy does not read', async () => {

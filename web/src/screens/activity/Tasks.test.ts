@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetMock } from '../../../mock/server';
 import { router } from '../../lib/router.svelte';
 import { session } from '../../lib/stores/session.svelte';
@@ -63,5 +63,28 @@ describe('Tasks for a member', () => {
     await start('activity-empty');
     expect(await screen.findByText('Nothing yet. Tasks Bothy works on, in chats or on a schedule, show up here.')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Start a chat' }).getAttribute('href')).toBe('/chat');
+  });
+});
+
+describe('Show earlier', () => {
+  // The first page says more exist; the next one fails, as when the connection drops.
+  it('says so when the next page fails, and keeps the list and the button', async () => {
+    installApi();
+    const inner = globalThis.fetch;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('before=')) return new Response('{}', { status: 503 });
+      const res = await inner(input, init);
+      if (url !== '/api/runs?limit=50') return res;
+      return new Response(JSON.stringify({ ...(await res.json()), next: 1 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    session.ready = false;
+    await session.init();
+    router.navigate('/activity');
+    render(Tasks);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Show earlier' }));
+    expect((await screen.findByRole('alert')).textContent).toBe("Couldn't load more. Check your connection and try again.");
+    expect(screen.getByText('Fix login redirect')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Show earlier' })).toBeTruthy();
   });
 });

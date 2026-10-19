@@ -3,7 +3,7 @@
   import { Button, Checkbox, Combobox, Disclosure, IconButton, Menu, Page, Select, TextArea, TextField, toast } from '../../components/ui';
   import { api, ApiError, refusal } from '../../lib/api/client';
   import type { Grant, List, Schedule, SchedulePreviewResp } from '../../lib/api/types.gen';
-  import { fullTime, money } from '../../lib/format';
+  import { clock, fullTime, money } from '../../lib/format';
   import { hostPort } from '../../lib/grants';
   import { router } from '../../lib/router.svelte';
   import { describeWhen, fromSpec, localTimes, saveSchedule, scheduleGrants, timeOptions, toSpec, validRule, wallClock, WEEKDAYS, ZERO, zoneOptions, zoneTime, type When } from '../../lib/schedules';
@@ -11,7 +11,7 @@
   import { people, type TaskRun } from './api';
   import CheckIn from './CheckIn.svelte';
   import DeleteSchedule from './DeleteSchedule.svelte';
-  import Loading from './Loading.svelte';
+  import Loading from '../../components/ui/Loading.svelte';
   import { blankSchedule, grantSentence, hostsIn, listDate, nameFrom } from './schedule';
   import TaskRow from './TaskRow.svelte';
   import { dayLabel, taskView } from './tasks';
@@ -179,7 +179,7 @@
     { value: 'once', label: 'Once on' },
     { value: 'custom', label: 'Custom' },
   ];
-  const runTime = (t: string) => `${dayLabel(t)} at ${new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+  const runTime = (t: string) => `${dayLabel(t)} at ${clock(t)}`;
   const dayOptions = WEEKDAYS.map((d, i) => ({ value: String(i), label: d }));
   const dateOptions = Array.from({ length: 31 }, (_, i) => ({ value: String(i + 1), label: String(i + 1) }));
 </script>
@@ -261,7 +261,7 @@
         <Select class="mt-6 sm:max-w-64" label="If Bothy was off" options={[{ value: 'once', label: "Run when it's back" }, { value: 'skip', label: 'Skip that run' }]} bind:value={s.missed_run} />
         <Combobox class="mt-6 sm:max-w-64" label="Time zone" options={zones} bind:value={s.tz} />
         {#if saved.length || suggested.length}
-          <fieldset class="mt-4">
+          <fieldset class="mt-6">
             <legend class="field-label">Allowed without asking</legend>
             {#each [...saved, ...suggested] as g (g.id)}
               <Checkbox label={grantSentence(g)} checked={kept(g)} onchange={(e) => (keep[g.id] = e.currentTarget.checked)} />

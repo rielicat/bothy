@@ -1,22 +1,22 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Button, EmptyState, Select } from '../../components/ui';
+  import { EmptyState, Select } from '../../components/ui';
   import { api } from '../../lib/api/client';
   import type { List, Schedule } from '../../lib/api/types.gen';
-  import { fullTime, money } from '../../lib/format';
+  import { clock as time, fullTime, money } from '../../lib/format';
   import { router } from '../../lib/router.svelte';
   import { session } from '../../lib/stores/session.svelte';
   import { matchesResult, matchesWhere } from '../../lib/taskStatus';
   import Activity from './Activity.svelte';
   import { people, sessionsById, type TaskRun, type VotedApproval } from './api';
-  import Loading from './Loading.svelte';
+  import Loading from '../../components/ui/Loading.svelte';
+  import ShowEarlier from './ShowEarlier.svelte';
   import TaskRow from './TaskRow.svelte';
   import { groupByDay, taskView, type TaskLookups } from './tasks';
 
   let runs = $state<TaskRun[] | null>(null);
   let next = $state(0);
   let failed = $state(false);
-  let more = $state(false);
   let lookups = $state<TaskLookups>({ names: new Map(), sessions: new Map(), schedules: new Map(), waiting: new Map() });
 
   const person = $derived(router.query.get('person') ?? '');
@@ -42,17 +42,10 @@
   }
 
   async function earlier() {
-    more = true;
-    try {
-      const page = await api.get<List<TaskRun>>(`/api/runs?limit=50&before=${next}`);
-      const seen = new Set(runs?.map((r) => r.id));
-      runs = [...(runs ?? []), ...(page.items ?? []).filter((r) => !seen.has(r.id))];
-      next = page.next ?? 0;
-    } catch {
-      failed = true;
-    } finally {
-      more = false;
-    }
+    const page = await api.get<List<TaskRun>>(`/api/runs?limit=50&before=${next}`);
+    const seen = new Set(runs?.map((r) => r.id));
+    runs = [...(runs ?? []), ...(page.items ?? []).filter((r) => !seen.has(r.id))];
+    next = page.next ?? 0;
   }
 
   $effect(() => {
@@ -81,8 +74,6 @@
     { value: 'attention', label: 'Needs attention' },
     { value: 'failed', label: 'Failed' },
   ];
-
-  const time = (t: string) => new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 </script>
 
 <Activity>
@@ -120,8 +111,6 @@
       </section>
     {/each}
 
-    {#if next}
-      <Button class="mt-6" size="sm" loading={more} loadingLabel="Loading…" onclick={earlier}>Show earlier</Button>
-    {/if}
+    {#if next}<ShowEarlier load={earlier} />{/if}
   {/if}
 </Activity>

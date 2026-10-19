@@ -7,7 +7,7 @@
   import { events } from '../../lib/sse.svelte';
   import { session } from '../../lib/stores/session.svelte';
   import Knowledge from './Knowledge.svelte';
-  import Loading from './Loading.svelte';
+  import Loading from '../../components/ui/Loading.svelte';
   import MemorySection from './MemorySection.svelte';
   import NotesHistoryDialog, { type HistoryEntry } from './NotesHistoryDialog.svelte';
   import { changeWords } from './text';
@@ -96,8 +96,8 @@
       </p>
     {/if}
   {:else}
-    <div class="mt-8"><Loading {failed} onretry={load} /></div>
+    <div class="mt-8"><Loading {failed} retry={load} /></div>
   {/if}
 </Knowledge>
 
-<NotesHistoryDialog bind:open={showHistory} {entries} failed={historyFailed} />
+<NotesHistoryDialog bind:open={showHistory} {entries} failed={historyFailed} onretry={openHistory} />
