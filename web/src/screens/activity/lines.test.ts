@@ -28,6 +28,11 @@ describe('task steps (docs/design/ui.md §10.2, §7.4)', () => {
     expect(text(stepLine(call('web_search', 'ok', { payload: { query: 'pricing' } })).segments)).toBe('Searched the web for “pricing”');
   });
 
+  it('names what a call refused for its arguments was asked to do', () => {
+    // The server keeps the arguments of such a call as its action's payload.
+    expect(text(stepLine(call('repo_checkout', 'invalid', { payload: { repo: 'acme/web' } })).segments)).toBe("Couldn't get acme/web");
+  });
+
   it('never names a tool by its id', () => {
     expect(text(stepLine(call('mcp__linear__create_issue', 'ok')).segments)).toBe('Used Linear: Create issue');
     expect(text(stepLine(call('repo_open_pr', 'ok', { payload: { repo: 'acme/web', number: 142 } })).segments)).toBe('Opened pull request #142 in acme/web');
@@ -51,6 +56,22 @@ describe('task steps (docs/design/ui.md §10.2, §7.4)', () => {
     expect(text(decisionLine(a, 'Alex Kim')!.segments)).toBe('Cancelled by Alex Kim');
     expect(text(decisionLine(a, 'You')!.segments)).toBe('Cancelled by you');
     expect(text(decisionLine({ ...a, decided_by: 'usr_maya', votes: [{ ...a.votes![0], user_id: 'usr_maya' }] }, 'Maya Chen')!.segments)).toBe('Maya Chen denied deploying acme/web to production');
+  });
+});
+
+describe('an expired request', () => {
+  it('says how many approvals came in, not that nobody answered, when some did', () => {
+    const a = {
+      id: 'a',
+      status: 'expired',
+      approver: { user_id: '', admin_only: false, roles: ['admin'], required: 2, requester: 'usr_sam' },
+      votes: [{ approval_id: 'a', user_id: 'usr_priya', choice: 'allow_once', via: 'web', at: '' }],
+      action: { tool: 'release_deploy', payload: { repo: 'acme/web', environment: 'production' } },
+    } as unknown as Approval;
+    expect(text(decisionLine(a, '')!.segments)).toBe("Only 1 of 2 approvals came in, so Bothy didn't deploy acme/web to production");
+    expect(text(decisionLine({ ...a, votes: [] }, '')!.segments)).toBe("Nobody answered, so Bothy didn't deploy acme/web to production");
+    // Stopped while it waited: the chat says so, and so does the task.
+    expect(text(decisionLine({ ...a, status: 'cancelled' }, '')!.segments)).toBe("Cancelled: Bothy didn't deploy acme/web to production");
   });
 });
 

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { Button, Dialog, DiffView, Disclosure, CodeBlock, EmptyState, IconButton, LinkButton, Menu, Select, SettingsSection, StatusLine, Switch, toast } from '../../../components/ui';
-  import { api, errorText } from '../../../lib/api/client';
+  import { api, ApiError, errorText, refusal } from '../../../lib/api/client';
   import type { MCPPin, MCPStatus, SideEffect } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
   import { lineDiff } from '../../../lib/diff';
@@ -48,9 +48,10 @@
     });
   });
 
-  const off = $derived(status ? status.state === 'disabled' : !enabled);
-  const actions = $derived(pins.filter((p) => p.status === 'approved' || p.status === 'disabled'));
+  const off = $derived(status ? status.state === 'disabled' && !status.code : !enabled);
   const pending = $derived(pins.filter((p) => p.status === 'pending'));
+  // An action whose change waits for review is decided in the review, not here.
+  const actions = $derived(pins.filter((p) => (p.status === 'approved' || p.status === 'disabled') && !pending.some((q) => q.tool === p.tool)));
   const def = (p: MCPPin) => (p.definition ?? {}) as { title?: string; description?: string; inputSchema?: unknown };
   const label = (p: MCPPin) => def(p).title || serverTitle(p.tool);
   const known = (e: SideEffect) => (effects.some((x) => x.value === e) ? e : 'irreversible');
@@ -66,7 +67,7 @@
       if (done) toast(done);
       return true;
     } catch (e) {
-      problem = { message: "Couldn't save. Try again.", details: errorText(e) };
+      problem = { message: (e instanceof ApiError && e.status === 409 && refusal(e)) || "Couldn't save. Try again.", details: errorText(e) };
       return false;
     } finally {
       await load();
@@ -98,14 +99,56 @@
     await load();
   }
 
+  // The key the Add dialog saved for this server goes with it.
+  const ownKey = $derived(config.value(`mcp.servers.${name}.headers.Authorization`, '') === `secret:mcp_${name}_header`);
+
   async function remove() {
     busy = true;
+    const key = ownKey;
     problem = await saveConfig({ [`mcp.servers.${name}`]: null });
+    if (!problem && key) await api.del(`/api/vault/global/mcp_${name}_header`).catch(() => {});
     busy = false;
     removing = false;
     if (problem) return;
     toast('Server removed.');
     router.navigate('/settings/connections');
+  }
+
+  // The fix the status line offers for what its code says.
+  const fix = $derived.by(() => {
+    switch (status?.code) {
+      case 'private_address':
+        return { label: `Allow ${hostOf(config.value(`mcp.servers.${name}.url`, ''))}`, onclick: allowPrivate };
+      case 'not_installed':
+        return { label: 'Install', onclick: install };
+      case 'key_missing':
+      case 'key_locked':
+      case 'key_rejected':
+        return { label: 'Open saved keys', onclick: () => router.navigate('/settings/security/keys') };
+    }
+    return status?.state === 'error' ? { label: 'Try again', onclick: reload } : undefined;
+  });
+  const hostOf = (u: string) => {
+    try {
+      return new URL(u).hostname;
+    } catch {
+      return 'this address';
+    }
+  };
+
+  async function allowPrivate() {
+    problem = await saveConfig({ [`mcp.servers.${name}.allow_private`]: true });
+    await load();
+  }
+
+  async function install() {
+    try {
+      await api.post(`/api/mcp/${enc}/install`);
+      toast('Install started.');
+      await load();
+    } catch (e) {
+      problem = { message: "Bothy couldn't start the install. Try again.", details: errorText(e) };
+    }
   }
 
   async function reload() {
@@ -148,13 +191,8 @@
           <p class="text-body text-muted">Off</p>
         {:else if !status || status.state === 'connecting' || status.state === 'installing'}
           <StatusLine tone="progress" text={status?.state === 'installing' ? 'Installing…' : 'Connecting…'} />
-        {:else if status.state === 'error' || status.state === 'no_sandbox'}
-          <StatusLine
-            tone="danger"
-            text="Can't start: {toolProblem(status)}."
-            details={status.error}
-            action={status.state === 'error' ? { label: 'Try again', onclick: reload } : undefined}
-          />
+        {:else if status.state === 'error' || status.state === 'no_sandbox' || status.state === 'disabled'}
+          <StatusLine tone="danger" text="Can't start: {toolProblem(status)}." details={status.error} action={fix} />
         {:else if pending.length}
           <StatusLine
             tone="warning"
@@ -249,7 +287,7 @@
 </Dialog>
 
 <Dialog bind:open={removing} title="Remove {title}?" initialFocus="cancel" {busy}>
-  <p class="text-body text-text">Bothy loses these actions. You can add the server again later.</p>
+  <p class="text-body text-text">Bothy loses these actions{ownKey ? ' and deletes its saved key' : ''}. You can add the server again later.</p>
   {#snippet footer({ close })}
     <Button data-cancel onclick={close}>Cancel</Button>
     <Button variant="danger" loading={busy} loadingLabel="Removing…" onclick={remove}>Remove server</Button>

@@ -256,6 +256,36 @@ func (r mcpRepo) Pins(_ context.Context, server string) ([]*core.MCPPin, error) 
 	return ptrs(out), nil
 }
 
+func (r mcpRepo) History(_ context.Context, server string) ([]*core.MCPPin, error) {
+	st, unlock := r.s.begin()
+	defer unlock()
+	var rows []mcpPinRow
+	for k, row := range st.mcpPins {
+		if k.server == server {
+			rows = append(rows, row)
+		}
+	}
+	slices.SortFunc(rows, func(a, b mcpPinRow) int {
+		return cmp.Or(cmp.Compare(a.p.Tool, b.p.Tool), a.p.FirstSeen.Compare(b.p.FirstSeen), cmp.Compare(a.p.Hash, b.p.Hash))
+	})
+	out := make([]core.MCPPin, len(rows))
+	for i, row := range rows {
+		out[i] = must(normMCPPin(row.p))
+	}
+	return ptrs(out), nil
+}
+
+func (r mcpRepo) DeletePins(_ context.Context, server string) error {
+	st, unlock := r.s.begin()
+	defer unlock()
+	for k := range st.mcpPins {
+		if k.server == server {
+			delete(st.mcpPins, k)
+		}
+	}
+	return nil
+}
+
 func (r mcpRepo) Approved(_ context.Context, server string) (map[string]*core.MCPPin, error) {
 	st, unlock := r.s.begin()
 	defer unlock()

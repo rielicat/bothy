@@ -2,7 +2,7 @@
   import { tick } from 'svelte';
   import { api, ApiError } from '../../lib/api/client';
   import type { Approval, Choice } from '../../lib/api/types.gen';
-  import { appName, busyLabel, cardCopy, decidable, denyAudience, expiryOf, fromTeam, isMulti, isOpen, originOf, PARKED, requesterOf, teamAsked, teamPerson } from '../../lib/cardcopy';
+  import { appName, busyLabel, cardCopy, decidable, denyAudience, expiryOf, fromTeam, isMulti, isOpen, originOf, parkedLine, requesterOf, teamAsked, teamPerson } from '../../lib/cardcopy';
   import { alwaysLabelParts } from '../../lib/grants';
   import { choiceDone, choiceKey } from '../../lib/labels';
   import { router } from '../../lib/router.svelte';
@@ -101,7 +101,9 @@
 
   // A teammate's request names their chat: the approver may be reading it in Approvals, not there (§8.4).
   const person = $derived(teamPerson(view));
-  const label = (c: Choice) => (c === 'deny' ? 'Deny' : c === 'allow_session' ? (person ? `Allow in ${person}'s chat` : 'Allow for this chat') : copy.primary);
+  // A scheduled run's next run starts in a new chat, so the grant covers the schedule.
+  const label = (c: Choice) =>
+    c === 'deny' ? 'Deny' : c === 'allow_session' ? (originOf(view).schedule ? 'Allow for this schedule' : person ? `Allow in ${person}'s chat` : 'Allow for this chat') : copy.primary;
   const variant = (c: Choice) => (c !== primaryChoice ? 'secondary' : c === 'allow_once' && copy.tone === 'destructive' ? 'danger' : 'primary');
   const keyHint = (c: Choice) => (keys && choiceKey[c] ? `${label(c)} (${choiceKey[c]!.toUpperCase()})` : undefined);
 
@@ -269,7 +271,7 @@
         {#if askedIn}{requesterName} asked in <span data-copy-ignore>“<Verbatim text={origin.title ?? ''} />”</span> on {origin.app}.{:else}{asked}{/if}
       </p>
     {/if}
-    {#if view.status === 'parked'}<p class="text-body text-text {copy.consequence || asked ? '' : 'mt-1'}">{PARKED}</p>{/if}
+    {#if view.status === 'parked'}<p class="text-body text-text {copy.consequence || asked ? '' : 'mt-1'}">{parkedLine(view, clock.now)}</p>{/if}
 
     {#if warnings.length}
       <ul class="mt-3 space-y-1">

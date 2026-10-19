@@ -20,6 +20,7 @@ func unauthenticated(msg string) error { return &AuthError{msg: msg} }
 
 var (
 	errCredentials = unauthenticated("invalid username or password")
+	errDisabled    = unauthenticated("this account is turned off")
 	errSession     = unauthenticated("not signed in")
 	errToken       = unauthenticated("invalid, expired or revoked API token")
 	errSetupToken  = unauthenticated("invalid or expired setup token")

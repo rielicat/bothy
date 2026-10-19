@@ -743,12 +743,18 @@ export function busyLabel(label: string): string {
   return `${ing}…`;
 }
 
-/** What a parked card says under its question: the most important fact on it, so never fine print (§8.1). */
-export const PARKED = 'Bothy stopped waiting. Approve to let it carry on.';
+/** What a parked card says under its question: the most important fact on it, so never fine print (§8.1), with how long it can still be approved. */
+export function parkedLine(ap: Approval, now = Date.now()): string {
+  const left = expiresIn(ap.park_until, { now }).replace(/^Expires in /, '');
+  return `Bothy stopped waiting. Approve ${left && left !== 'Expired' ? `within ${left} ` : ''}to let it carry on.`;
+}
 
-/** The expiry line: "Expires in 15 min"; urgent under two minutes. Parked approvals wait without a deadline. */
+/**
+ * The expiry line: "Expires in 15 min"; urgent under two minutes. A request that parks when its wait ends
+ * (a schedule's) doesn't expire then, and a parked one says its deadline in its body (parkedLine).
+ */
 export function expiryOf(ap: Approval, now = Date.now()): { text: string; urgent: boolean } | null {
-  if (ap.status !== 'pending') return null;
+  if (ap.status !== 'pending' || ap.on_timeout === 'park') return null;
   const at = date(ap.card?.expires) ?? date(ap.expires_at);
   if (!at) return null;
   const text = expiresIn(at.toISOString(), { now });
@@ -790,6 +796,9 @@ export function requesterOf(ap: Approval, vv?: ApprovalVotes | null): string | u
  * multi-approver request their deny is the only vote they have (§8.5), so it
  * reads "Cancelled by …", never "denied".
  */
+/** Allow votes on a multi-approver request: an expired one that had some didn't go unanswered. */
+export const approvalsIn = (a: Approval) => ((a.approver?.required ?? 0) > 1 ? (a.votes ?? []).filter((v) => v.choice === 'allow_once').length : 0);
+
 export function withdrawn(ap: Approval): boolean {
   const r = ap.approver?.requester;
   if (ap.status !== 'denied' || !r) return false;
@@ -848,7 +857,7 @@ export function decidedLine(ap: Approval, o: DecidedOpts): DecidedCopy {
   const voteName = (v: { user_id: string; name?: string }) => who(v.user_id, v.name);
   const votes = o.votes?.votes ?? a2.votes?.map((v) => ({ ...v, name: '' })) ?? [];
 
-  if (ap.status === 'expired') return { glyph: 'close', tone: 'muted', segs: ["Expired: Bothy didn't ", ...copy.ask] };
+  if (ap.status === 'expired') return { glyph: 'close', tone: 'muted', segs: ["Expired: Bothy didn't ", ...copy.ask], time, at };
   if (ap.status === 'cancelled') {
     // "You stopped Bothy." already says why, so a stop's line says what didn't happen.
     if (ap.decided_via === 'stop') return { glyph: 'close', tone: 'muted', segs: ["Cancelled: Bothy didn't ", ...copy.ask], time, at };
@@ -869,7 +878,9 @@ export function decidedLine(ap: Approval, o: DecidedOpts): DecidedCopy {
   }
   // allowed
   const yes = votes.filter((v) => v.choice === 'allow_once');
-  if (isMulti(ap) && yes.length) return { glyph: 'check', tone: 'accent', segs: [`${joinNames(yes.map(voteName))} approved `, ...copy.ing], time, at };
+  // "You" leads, so it never reads "Priya Shah and You".
+  if (isMulti(ap) && yes.length)
+    return { glyph: 'check', tone: 'accent', segs: [`${joinNames(yes.map(voteName).sort((a, b) => +(b === 'You') - +(a === 'You')))} approved `, ...copy.ing], time, at };
   const name = who(ap.decided_by, a2.decided_by_name);
   // A teammate's standing choice is theirs, not the approver's, as its button said.
   const person = teamPerson(ap, 40);

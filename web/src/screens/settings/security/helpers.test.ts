@@ -15,6 +15,8 @@ describe('security findings in plain words', () => {
     expect(describeFinding(finding({ id: 'sandbox.unavailable' }))).toMatchObject({ text: 'Running code is off on this server.', action: 'running-code' });
     expect(describeFinding(finding({ id: 'data.permissions', auto_fix: true }))).toMatchObject({ text: 'Data files can be read by other users on this server.', action: 'fix' });
     expect(describeFinding(finding({ id: 'vault.sealed' })).action).toBe('unlock');
+    // A key file locks them: no passphrase can, so there is no Unlock.
+    expect(describeFinding(finding({ id: 'vault.sealed' }), true)).toMatchObject({ action: 'how', steps: 'Put the key file Bothy was set up with back on the server, then restart Bothy.' });
   });
 
   it('falls back to the server title for a finding it does not know', () => {
@@ -120,7 +122,7 @@ describe('saved key names', () => {
     expect(keyName('aws-sm:arn:aws:secretsmanager:us-west-2:123456789012:secret:bothy/slack-AbCdEf#bot')).toBe('bothy/slack-AbCdEf (bot) in AWS Secrets Manager');
     const e = (path: string, value: unknown) => ({ path, value }) as Entry;
     const entries = [e('providers.openai.api_key', 'aws-sm:prod/openai#api_key'), e('mcp.servers.docs.headers.Authorization', 'Bearer aws-sm:prod/openai#api_key'), e('providers.groq.api_key', 'aws-sm:prod/openai#api_key2')];
-    expect(usedBy('aws-sm:prod/openai#api_key', entries)).toEqual(['OpenAI', 'docs']);
+    expect(usedBy('aws-sm:prod/openai#api_key', entries)).toEqual(['OpenAI', 'Docs']);
     expect(usedBy('aws-sm:prod/openai', entries)).toEqual([]);
   });
 
@@ -132,6 +134,20 @@ describe('saved key names', () => {
     expect(joinNames(usedBy('tg', entries))).toBe('Telegram and Slack');
     expect(joinNames(['A', 'B', 'C'])).toBe('A, B and C');
     expect(usedBy('nothing', entries)).toEqual([]);
+  });
+
+  it("names an MCP server's saved header by its server, and counts every form that points at it", () => {
+    expect(keyName('mcp_qaecho_header')).toBe('Key for Qaecho');
+    const e = (path: string, value: unknown) => ({ path, value }) as Entry;
+    const entries = [
+      e('mcp.servers.qaecho.headers.Authorization', 'secret:mcp_qaecho_header'),
+      e('mcp.servers.qatok.headers.Authorization', 'Bearer secret:qa_token'),
+      e('mcp.servers.qaurl.url', 'https://mcp.example.com/mcp?api_key=secret:qa_url_key&x=1'),
+      e('mcp.servers.other.headers.Authorization', 'Bearer secret:qa_token_two'),
+    ];
+    expect(usedBy('mcp_qaecho_header', entries)).toEqual(['Qaecho']);
+    expect(usedBy('qa_token', entries)).toEqual(['Qatok']);
+    expect(usedBy('qa_url_key', entries)).toEqual(['Qaurl']);
   });
 
   it('turns a typed name into a stored one', () => {

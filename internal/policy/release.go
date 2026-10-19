@@ -74,9 +74,49 @@ func (e *Engine) releaseFloor(ctx context.Context, x *input, rule *config.Rule) 
 		reason = fmt.Sprintf("deploy to %s asked from a chat app: %s must approve, one more than usual because Bothy can't tell whether one of them asked",
 			env.Name, plural(need, "approver"))
 	}
-	d := e.ask(x, askSpec{rule: floorRelease, floor: true, reason: reason})
+	d := e.ask(x, askSpec{rule: floorRelease, floor: true, reason: reason, warnings: e.releaseOverlap(ctx, env.Name)})
 	d.Approver = approver
 	return d
+}
+
+// releaseOverlap warns approvers of a deploy to an environment that another
+// deploy there is still running or waiting for its own approvals: approving
+// both runs two deploys at once.
+func (e *Engine) releaseOverlap(ctx context.Context, env string) []string {
+	var out []string
+	if rs, ok := e.store.(core.ReleaseStore); ok {
+		open, err := rs.Releases().List(ctx, core.SystemViewer(), core.DeployFilter{Environment: env, Open: true, Page: core.Page{Limit: 10}})
+		if err != nil {
+			e.log.WarnContext(ctx, "policy: listing running deploys failed", "environment", env, "err", err)
+		}
+		switch len(open) {
+		case 0:
+		case 1:
+			out = append(out, "A deploy to "+env+" is already running.")
+		default:
+			out = append(out, strconv.Itoa(len(open))+" deploys to "+env+" are already running.")
+		}
+	}
+	pending, err := e.store.Approvals().Pending(ctx, core.SystemViewer())
+	if err != nil {
+		e.log.WarnContext(ctx, "policy: listing waiting deploys failed", "environment", env, "err", err)
+	}
+	waiting := 0
+	for _, a := range pending {
+		if a.Action != nil && isRelease(a.Action) {
+			if name, _ := mustPointer(decodedPayload(a.Action.Payload), "/environment").(string); name == env {
+				waiting++
+			}
+		}
+	}
+	switch waiting {
+	case 0:
+	case 1:
+		out = append(out, "Another deploy to "+env+" is waiting for approval.")
+	default:
+		out = append(out, strconv.Itoa(waiting)+" other deploys to "+env+" are waiting for approval.")
+	}
+	return out
 }
 
 // releaseMismatch compares a release action's payload with the environment it
@@ -144,4 +184,9 @@ func canApproveText(n int) string {
 		return "only 1 other person can approve it"
 	}
 	return "only " + strconv.Itoa(n) + " other people can approve it"
+}
+
+func decodedPayload(b []byte) any {
+	doc, _ := decodePayload(b)
+	return doc
 }

@@ -6,7 +6,7 @@
   import { passwordError, passwordHelp } from '../lib/password';
   import { router, safeNext } from '../lib/router.svelte';
   import { session } from '../lib/stores/session.svelte';
-  import { takeOneTime, unanswered } from './setup/auth';
+  import { loginError, takeOneTime, unanswered } from './setup/auth';
   import Frame from './setup/Frame.svelte';
   import PasswordField from './setup/PasswordField.svelte';
 
@@ -42,7 +42,11 @@
     } catch (err) {
       const m = err instanceof ApiError ? err.message.toLowerCase() : '';
       if (unanswered(err)) error = "Bothy didn't respond. Check your connection, then try again.";
+      // Wrong one-time passwords typed after a reload count toward the lockout.
+      else if ((err as ApiError).status === 429) error = loginError(err);
       else if (m.includes('common') || m.includes('predictable')) server = 'This password is too common. Try a phrase of a few words.';
+      // "not the one-time password", or "must differ from the current one" when it was typed again after a reload.
+      else if (m.includes('one-time') || m.includes('differ')) server = 'Choose a new password, not the one-time password.';
       else if ((err as ApiError).status === 401 || m.includes('old') || m.includes('current')) {
         oldError = "That one-time password didn't work. Ask an admin for a new one.";
         old = remembered ? '' : old;

@@ -120,6 +120,8 @@ func TestUpsertValidation(t *testing.T) {
 		{"bad kind", func(s *core.Schedule) { s.Kind = "weekly" }, "kind must be"},
 		{"bad cron", func(s *core.Schedule) { s.Spec = "every day" }, "5 fields"},
 		{"never", func(s *core.Schedule) { s.Spec = "0 0 31 2 *" }, "never fires"},
+		{"outside its hours", func(s *core.Schedule) { s.Spec, s.ActiveHours = "30 7 * * *", "08:00-20:00" },
+			"It would never run between 08:00 and 20:00, the hours it may run in. Choose a time inside them."},
 		{"bad tz", func(s *core.Schedule) { s.TZ = "Mars/Olympus" }, "unknown time zone"},
 		{"bad active", func(s *core.Schedule) { s.ActiveHours = "9-5" }, "active hours"},
 		{"no prompt", func(s *core.Schedule) { s.Prompt = "  " }, "prompt is required"},
@@ -127,10 +129,12 @@ func TestUpsertValidation(t *testing.T) {
 		{"bad missed", func(s *core.Schedule) { s.MissedRun = "all" }, "missed_run"},
 		{"bad slot", func(s *core.Schedule) { s.Slot = "turbo" }, "slot"},
 		{"negative limits", func(s *core.Schedule) { s.Limits.MaxSteps = -1 }, "negative"},
-		{"past once", func(s *core.Schedule) { s.Kind, s.Spec = core.SchedOnce, "2020-01-01T00:00:00Z" }, "in the past"},
+		{"past once", func(s *core.Schedule) { s.Kind, s.Spec = core.SchedOnce, "2020-01-01T00:00:00Z" }, "Wed 1 Jan 2020 00:00 has already passed. Choose a later time."},
 		{"once with active hours", func(s *core.Schedule) { s.Kind, s.Spec, s.ActiveHours = core.SchedOnce, future, "08:00-09:00" }, "active hours"},
 		{"tiny interval", func(s *core.Schedule) { s.Kind, s.Spec = core.SchedHeartbeat, "10s" }, "between 1m"},
-		{"foreign chat", func(s *core.Schedule) { s.Deliver = &core.ChatRef{Channel: "telegram", ChatID: "999"} }, "is not this principal's own chat"},
+		{"foreign chat", func(s *core.Schedule) { s.Deliver = &core.ChatRef{Channel: "telegram", ChatID: "999"} }, "an account's results stay in Bothy"},
+		// An account has no chat: saving this would say "Posts to Telegram" while results stay on the web.
+		{"account to a chat app", func(s *core.Schedule) { s.Deliver = &core.ChatRef{Channel: "telegram"} }, "an account's results stay in Bothy"},
 		{"bad channel", func(s *core.Schedule) { s.Deliver = &core.ChatRef{Channel: "Tele gram"} }, "unknown channel"},
 		{"foreign session", func(s *core.Schedule) { s.Session = "ses_00000000000000000000000000" }, "not a session"},
 	} {
@@ -317,14 +321,15 @@ func TestRunNowAndSessions(t *testing.T) {
 		if _, err := h.svc.RunNow(ctx, h.viewer(), sc.ID, h.owner); err == nil {
 			t.Fatal("RunNow must report a failed submit")
 		}
-		if got := h.get(sc.ID); got.Failures != 1 || got.LastStatus != core.RunFailed {
+		// Trying a schedule out never counts toward turning it off.
+		if got := h.get(sc.ID); got.Failures != 0 || got.LastStatus != core.RunFailed {
 			t.Fatalf("failed manual run not recorded: %+v", got)
 		}
 		h.runner.fail(&core.BudgetError{Kind: core.BudgetDailyCost})
 		if _, err := h.svc.RunNow(ctx, h.viewer(), sc.ID, h.owner); err == nil {
 			t.Fatal("RunNow must report the budget refusal")
 		}
-		if got := h.get(sc.ID); got.Failures != 1 || got.LastStatus != core.RunBudgetExceeded {
+		if got := h.get(sc.ID); got.Failures != 0 || got.LastStatus != core.RunBudgetExceeded {
 			t.Fatalf("a daily-cap refusal is not the schedule's failure: %+v", got)
 		}
 		if n := len(started()); n != 2 {

@@ -29,6 +29,15 @@ describe('conversation', () => {
     await session.init();
   });
 
+  it("says a chat the viewer can't open doesn't exist, not to check the connection", async () => {
+    const gone = () => new Response(JSON.stringify({ error: { code: 'not_found', message: 'not found' } }), { status: 404 });
+    calls = installApi({ override: (m, url) => (m === 'GET' && url.startsWith('/api/sessions/ses_someone_else') ? gone() : undefined) });
+    render(ConversationView, { id: 'ses_someone_else' });
+    expect(await screen.findByText("This chat doesn't exist or was deleted.")).toBeTruthy();
+    expect(screen.queryByText(/Check your connection/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+  });
+
   it('streams a run: Working…, a waiting step with its card, the result, then the persisted reply', async () => {
     render(ConversationView, { id: SID });
     await loaded();

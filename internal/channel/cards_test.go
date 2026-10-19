@@ -235,6 +235,19 @@ func TestAdminOnlyTeamCardIsLinkOnlyFixedText(t *testing.T) {
 	})
 }
 
+// TestAdminOnlyFromAnApproverIsOneMessage: a chat approver asking for an
+// admin-class change hears one waiting line, not also the approvers' link.
+func TestAdminOnlyFromAnApproverIsOneMessage(t *testing.T) {
+	bubble(t, func(t *testing.T) {
+		h := newHarness(t).start()
+		chat := h.dmChat(ownerChat)
+		h.requestFrom("telegram:"+ownerChat, h.pid(ownerChat), core.ApproverReq{AdminOnly: true}, &chat)
+		if line := h.sent(ownerChat); len(line) != 1 || line[0].Text != needsAdmin {
+			t.Fatalf("requester who can approve got %+v", line)
+		}
+	})
+}
+
 // TestUserPrincipalApprovalsAreWebOnly: a web account's own requests never
 // reach a chat app.
 func TestUserPrincipalApprovalsAreWebOnly(t *testing.T) {
@@ -816,4 +829,17 @@ func TestExpiresText(t *testing.T) {
 			t.Errorf("expiresText(now+8h) = %q, want %q", got, want)
 		}
 	})
+}
+
+// TestScheduledGrantButtonNamesTheSchedule: a scheduled run's allow_session
+// covers the schedule, and its button says so.
+func TestScheduledGrantButtonNamesTheSchedule(t *testing.T) {
+	c := core.Card{Context: "Telegram · DM · schedule · session “Digest”"}
+	if got := choiceLabel(c, core.AllowSession, "Maya"); got != "Allow for this schedule" {
+		t.Fatalf("scheduled = %q", got)
+	}
+	c.Context = "Telegram · DM · session “Digest”"
+	if got := choiceLabel(c, core.AllowSession, ""); got != allowForChat {
+		t.Fatalf("interactive = %q", got)
+	}
 }

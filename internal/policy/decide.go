@@ -532,15 +532,41 @@ func (e *Engine) contactOrDefault(ctx context.Context, x *input) core.Decision {
 			warnings: []string{contactWarning(x.a, x.Principal, kind, target)},
 		})
 	}
-	if v == core.VerdictAsk {
-		return e.ask(x, askSpec{rule: "default:" + class, reason: class + " actions need approval under the " + presetName(x.cfg) + " preset", grants: true})
+	// The reason reaches people (the card's "Why Bothy asked", the task),
+	// so it names the class and the preset as Settings → Security does, or
+	// the setting for this kind of action when policy.defaults decided.
+	who := "the " + presetTitle(x.cfg) + " safety setting"
+	if overridden(x.cfg, x.se) {
+		who = "the setting for this kind of action"
 	}
-	return allowed("default:"+class, class+" actions are allowed under the "+presetName(x.cfg)+" preset")
+	if v == core.VerdictAsk {
+		return e.ask(x, askSpec{rule: "default:" + class, reason: who + " asks before Bothy can " + classPhrase(x.se), grants: true})
+	}
+	return allowed("default:"+class, who+" lets Bothy "+classPhrase(x.se)+" without asking")
+}
+
+// overridden reports whether policy.defaults, not the preset, sets se's verdict.
+func overridden(c *config.Config, se core.SideEffect) bool {
+	switch core.Verdict(c.Policy.Defaults[se.String()]) {
+	case core.VerdictAuto, core.VerdictAsk, core.VerdictDeny:
+		return true
+	}
+	return false
+}
+
+// presetTitle is a preset's name as Settings → Security shows it.
+func presetTitle(c *config.Config) string {
+	switch p := presetName(c); p {
+	case "hands_off":
+		return "Hands-off"
+	default:
+		return strings.ToUpper(p[:1]) + p[1:]
+	}
 }
 
 func defaultVerdict(c *config.Config, se core.SideEffect) core.Verdict {
-	if v := core.Verdict(c.Policy.Defaults[se.String()]); v == core.VerdictAuto || v == core.VerdictAsk || v == core.VerdictDeny {
-		return v
+	if overridden(c, se) {
+		return core.Verdict(c.Policy.Defaults[se.String()])
 	}
 	if v, ok := presets[presetName(c)][se]; ok {
 		return v
@@ -665,8 +691,18 @@ func (e *Engine) sessionGrantOK(x *input) bool {
 	if x.exposed() || x.Session == "" || x.se >= core.SEFinancial {
 		return false
 	}
-	_, ok := narrowGrant(x.cfg, x.a, x.Principal.ID, core.GrantSession, string(x.Session), core.Decider{User: x.User}, time.Time{})
+	scope, id := grantScopeOf(x.Trigger, x.Session, x.Schedule)
+	_, ok := narrowGrant(x.cfg, x.a, x.Principal.ID, scope, id, core.Decider{User: x.User}, time.Time{})
 	return ok
+}
+
+// grantScopeOf is what allow_session covers: the chat, or for a scheduled
+// run the schedule, whose next run starts in a new chat.
+func grantScopeOf(t core.Trigger, s core.SessionID, sc core.ScheduleID) (core.GrantScope, string) {
+	if t.Scheduled() && sc != "" {
+		return core.GrantSchedule, string(sc)
+	}
+	return core.GrantSession, string(s)
 }
 
 // alwaysGrantOK: allow_always is offered exactly when allow_session is,

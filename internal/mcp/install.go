@@ -86,6 +86,7 @@ func (m *Manager) install(ctx context.Context, s *server, by core.UserID) {
 		m.record(ctx, "user:"+string(by), "mcp.install", s.name, "error", detail)
 		m.log.Warn("mcp install failed", "server", s.name, "err", err)
 		s.setState(m.clock.Now(), stError, "install failed: "+err.Error())
+		s.setCode("not_installed")
 		return
 	}
 	m.record(ctx, "user:"+string(by), "mcp.install", s.name, "ok", detail)

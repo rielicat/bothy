@@ -71,14 +71,20 @@ type Skills interface {
 // ---- MCP ----
 
 type MCPStatus struct {
-	Name      string    `json:"name"`
-	Transport string    `json:"transport"` // stdio | http
-	State     string    `json:"state"`     // disabled | installing | connecting | ready | error | no_sandbox | pins_pending
-	Protocol  string    `json:"protocol"`  // negotiated spec revision
-	Err       string    `json:"error,omitempty"`
-	Tools     int       `json:"tools"`
-	Pending   int       `json:"pending"`
-	Since     time.Time `json:"since"`
+	Name      string `json:"name"`
+	Transport string `json:"transport"` // stdio | http
+	State     string `json:"state"`     // disabled | installing | connecting | ready | error | no_sandbox | pins_pending
+	Protocol  string `json:"protocol"`  // negotiated spec revision
+	Err       string `json:"error,omitempty"`
+	// Code says what to fix when State is error: key_missing (a saved key
+	// it uses doesn't exist), key_locked (the saved keys are locked),
+	// key_rejected (the server answered 401 or 403), private_address
+	// (needs allow_private), not_installed (a command server to install or
+	// reinstall); "" otherwise.
+	Code    string    `json:"code,omitempty"`
+	Tools   int       `json:"tools"`
+	Pending int       `json:"pending"`
+	Since   time.Time `json:"since"`
 }
 
 type MCPToolApproval struct {

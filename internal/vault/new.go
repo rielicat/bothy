@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rielicat/bothy/internal/config"
@@ -51,15 +52,18 @@ type Vault struct {
 	// Put can never land a row under a DEK that a concurrent rotation retired.
 	keyMu sync.RWMutex
 
-	mu      sync.RWMutex
-	plan    kekPlan
-	sealed  bool
-	reason  string // why sealed, for logs and the vault.sealed finding
-	kek     []byte
-	dek     []byte
-	keyID   int64
-	count   int // secrets stored in the vault
-	touched map[string]time.Time
+	gen atomic.Uint64 // Generation
+
+	mu       sync.RWMutex
+	plan     kekPlan
+	sealed   bool
+	unchosen bool   // a passphrase vault with no passphrase yet (VaultStatus.NewPassphrase)
+	reason   string // why sealed, for logs and the vault.sealed finding
+	kek      []byte
+	dek      []byte
+	keyID    int64
+	count    int // secrets stored in the vault
+	touched  map[string]time.Time
 
 	aws awsState // aws-sm references: chains, cached values, uses
 }
@@ -136,6 +140,9 @@ func (v *Vault) boot(ctx context.Context, spec string) error {
 	}
 	if plan.source == srcPassphrase {
 		v.setSealed(plan, "waiting for the passphrase (Settings → Vault → Unseal)")
+		v.mu.Lock()
+		v.unchosen = first
+		v.mu.Unlock()
 		return nil
 	}
 	if plan.source == srcAutogen && !first {

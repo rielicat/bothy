@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
+import { config } from '../../../lib/config.svelte';
 import { session } from '../../../lib/stores/session.svelte';
 import { installApi, type Call } from '../../../test/api';
 import Connections from './Connections.svelte';
@@ -77,6 +78,21 @@ describe('Connections overview (§12.1)', () => {
     await waitFor(() => expect(writes(calls).some((c) => c.method === 'PATCH' && c.url === '/api/config')).toBe(true));
     const set = JSON.parse(writes(calls).find((c) => c.url === '/api/config')!.body).set['mcp.servers.tracker'];
     expect(set.package).toEqual({ ecosystem: 'npm', name: '@linear/mcp', version: '1.4.2', integrity: 'sha512-mockIntegrityHash==' });
+    // The server refuses a command server without its command, which the dialog has no field for.
+    expect(set.command).toEqual(['node', 'node_modules/@linear/mcp/dist/index.js']);
+  });
+
+  it('says when a package has no program to run', async () => {
+    const calls = await start();
+    render(Connections);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Add an MCP server' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add an MCP server' });
+    await fireEvent.input(within(dialog).getByLabelText('Name'), { target: { value: 'tracker' } });
+    await fireEvent.click(within(dialog).getByRole('radio', { name: 'A command on this server' }));
+    await fireEvent.input(within(dialog).getByLabelText('Package'), { target: { value: 'nobin-lib' } });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Add server' }));
+    expect(await within(dialog).findByText('This package has no program for Bothy to run.')).toBeTruthy();
+    expect(writes(calls).filter((c) => c.url === '/api/config')).toEqual([]);
   });
 
   it('keeps web search first and ends Tools with the add button when no servers exist', async () => {
@@ -151,6 +167,46 @@ describe('MCP server page (§12.4)', () => {
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Save review' }));
     await waitFor(() => expect(writes(calls).length).toBe(1));
     expect(JSON.parse(writes(calls)[0].body)).toEqual({ tools: { search_docs: { side_effect: 'read', private: false, disable: true } } });
+  });
+
+  it('leaves an action whose change waits for review to the review, and says why a save was refused', async () => {
+    const pin = (tool: string, status: string, hash: string, description: string) => ({ server: 'docs', tool, hash, status, side_effect: 'read', private: false, definition: { name: tool, description } });
+    const refused = new Response(JSON.stringify({ error: { code: 'conflict', message: 'this action changed after it was shown. Review its change first' } }), { status: 409 });
+    await start((m, url) => {
+      if (m === 'GET' && url === '/api/mcp/docs/pins') return [pin('search_docs', 'pending', 'b3c1', 'Search, v2.'), pin('search_docs', 'approved', 'a9f0', 'Search.'), pin('get_page', 'approved', 'g1', 'Read a page.')];
+      if (m === 'POST' && url === '/api/mcp/docs/approve') return refused;
+    });
+    render(McpServer, { params: { item: 'mcp-docs' } });
+    expect(await screen.findByText('Read a page.')).toBeTruthy();
+    expect(screen.queryByText('Search.')).toBeNull();
+    expect(screen.getAllByLabelText(/^What .* does$/)).toHaveLength(1);
+    await fireEvent.change(screen.getByLabelText(/^What .* does$/), { target: { value: 'external_send' } });
+    expect(await screen.findByText('This action changed after it was shown. Review its change first.')).toBeTruthy();
+  });
+
+  it.each([
+    ['private_address', 'its address is on a private network', 'Allow mcp.linear.app', 'PATCH /api/config'],
+    ['not_installed', 'it needs to be installed', 'Install', 'POST /api/mcp/linear/install'],
+    ['key_rejected', "Linear didn't accept its key", 'Open saved keys', ''],
+  ])('names a %s problem and offers its fix', async (code, text, label, write) => {
+    const calls = await start((m, url) => (m === 'GET' && url === '/api/mcp' ? [{ name: 'linear', transport: 'http', state: 'error', code, protocol: '', tools: 0, pending: 0, since: '' }] : undefined));
+    render(McpServer, { params: { item: 'mcp-linear' } });
+    expect(await screen.findByText(`Can't start: ${text}.`)).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: label }));
+    if (write) await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual([write]));
+  });
+
+  it('removes the saved key the Add dialog made along with the server', async () => {
+    const calls = await start();
+    render(McpServer, { params: { item: 'mcp-linear' } });
+    await screen.findByText('Ready · 12 actions');
+    config.view!.entries = [...config.view!.entries, { path: 'mcp.servers.linear.headers.Authorization', value: 'secret:mcp_linear_header' } as never];
+    await fireEvent.click(screen.getByRole('button', { name: 'Options for Linear' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Remove server…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Remove Linear?' });
+    expect(within(dialog).getByText('Bothy loses these actions and deletes its saved key. You can add the server again later.')).toBeTruthy();
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Remove server' }));
+    await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['PATCH /api/config', 'DELETE /api/vault/global/mcp_linear_header']));
   });
 
   it('offers to try again when the server does not start', async () => {

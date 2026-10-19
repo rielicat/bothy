@@ -6,7 +6,7 @@ import type { Inbox, InboxItem as ServerItem, MCPPin } from '../../lib/api/types
 import { appName } from '../../lib/cardcopy';
 import { lineDiff } from '../../lib/diff';
 import { plural, serviceName, skillName } from '../../lib/format';
-import type { GroupChatItem, InboxItem } from './types';
+import type { GroupChatItem, InboxItem, McpReviewItem } from './types';
 
 const enc = encodeURIComponent;
 const pretty = (p: MCPPin) => JSON.stringify(p.definition ?? {}, null, 2);
@@ -31,7 +31,7 @@ function fromServer(i: ServerItem): InboxItem | null {
         .map((p) => {
           const before = pins.find((x) => x.tool === p.tool && x !== p);
           const d = (p.definition ?? {}) as { title?: string; description?: string };
-          return { name: p.tool, title: d.title, description: d.description ?? '', side_effect: p.side_effect, ...definitionChange(before, p), hash: p.hash, private: p.private, field_map: p.field_map };
+          return { name: p.tool, title: d.title, description: d.description ?? '', side_effect: p.side_effect, ...(before ? definitionChange(before, p) : { fresh: true }), hash: p.hash, private: p.private, field_map: p.field_map };
         });
       return tools.length ? { ...base, type: 'mcp_review', server: i.mcp.server, tools } : null;
     }
@@ -85,10 +85,13 @@ export function decideItem(item: InboxItem, choice: string, extra: { side_effect
   }
 }
 
+/** A server just added offers only new actions: nothing "changed". */
+export const allNew = (i: McpReviewItem) => i.tools.every((t) => t.fresh);
+
 export function itemQuestion(i: InboxItem): string {
   switch (i.type) {
     case 'mcp_review':
-      return `Review changes to ${serviceName(i.server)} actions`;
+      return allNew(i) ? `Review ${serviceName(i.server)}'s new actions` : `Review changes to ${serviceName(i.server)} actions`;
     case 'skill_review':
       return `Review changes to the “${skillName(i.skill)}” skill`;
     case 'unknown_sender':
@@ -119,7 +122,7 @@ export function groupLines(i: GroupChatItem): string[] {
 export function itemSource(i: InboxItem): string {
   switch (i.type) {
     case 'mcp_review':
-      return `${plural(i.tools.length, 'action')} changed`;
+      return allNew(i) ? plural(i.tools.length, 'new action') : `${plural(i.tools.length, 'action')} changed`;
     case 'skill_review':
       return i.files.length ? `${plural(i.files.length, 'file')} changed` : 'Changed files';
     case 'unknown_sender':

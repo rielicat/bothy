@@ -671,8 +671,9 @@ func TestStatusTool(t *testing.T) {
 	other := *env
 	other.User, other.Role = f.alice.ID, core.RoleMember
 	other.Principal = core.Principal{ID: core.UserPrincipal(f.alice.ID), Kind: core.PrincipalUser, User: f.alice.ID}
+	// A member asking about the environment hears about deploys others asked for.
 	res, err = st.Exec(f.ctx, &other, sa)
-	if err != nil || !strings.Contains(res.Content, "no deploys yet") {
+	if err != nil || strings.Contains(res.Content, "no deploys yet") || !strings.Contains(res.Content, "acme/web at main: dispatched") {
 		t.Fatalf("another principal's status = %+v, %v", res, err)
 	}
 }

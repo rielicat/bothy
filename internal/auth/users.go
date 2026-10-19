@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -150,6 +151,8 @@ func (s *Service) ResetUserPassword(ctx context.Context, by core.Actor, uid core
 		return "", fmt.Errorf("%w: the owner's password can only be reset with bothy user reset-password on the server", core.ErrForbidden)
 	case u.Role == core.RoleAdmin && by.Role != core.RoleOwner:
 		return "", fmt.Errorf("%w: only the owner can reset an admin's password", core.ErrForbidden)
+	case u.Disabled:
+		return "", refuse("Turn the account on first. A turned-off account can't sign in.")
 	}
 	pw := oneTimePassword(s.conf().Auth.PasswordMinLength)
 	if err := s.replacePassword(ctx, u, pw, true, actorOf(by), "admin"); err != nil {
@@ -160,7 +163,8 @@ func (s *Service) ResetUserPassword(ctx context.Context, by core.Actor, uid core
 
 // UpdateUser applies the role, disabled flag and display name of u. Nothing
 // else of u is read. A role change or disabling deletes the user's sessions;
-// disabling also revokes every token.
+// disabling revokes every token, losing admin the admin-scoped ones. Only the owner changes the owner or
+// another admin.
 func (s *Service) UpdateUser(ctx context.Context, by core.Actor, u *core.User) error {
 	if err := requireAdmin(by); err != nil {
 		return err
@@ -204,6 +208,11 @@ func (s *Service) UpdateUser(ctx context.Context, by core.Actor, u *core.User) e
 	if cur.Role == core.RoleOwner && by.Role != core.RoleOwner && len(changed) > 0 {
 		return fmt.Errorf("%w: only the owner can edit the owner", core.ErrForbidden)
 	}
+	// Otherwise an admin could demote another admin, reset the password
+	// that is then a member's, and promote the account back: theirs now.
+	if cur.Role == core.RoleAdmin && cur.ID != by.User && by.Role != core.RoleOwner && len(changed) > 0 {
+		return fmt.Errorf("%w: only the owner can change another admin's account", core.ErrForbidden)
+	}
 	if len(changed) == 0 {
 		return nil
 	}
@@ -222,6 +231,13 @@ func (s *Service) UpdateUser(ctx context.Context, by core.Actor, u *core.User) e
 			return err
 		}
 	}
+	// Left alone, an admin token would only sleep until a promotion woke
+	// it, with nobody asked again.
+	if cur.Role.IsAdmin() && !next.Role.IsAdmin() {
+		if err := s.revokeTokens(ctx, next.ID, now, func(t *core.TokenRecord) bool { return slices.Contains(t.Scopes, "admin") }); err != nil {
+			return err
+		}
+	}
 	if _, renamed := changed["display_name"]; renamed {
 		s.renamePrincipal(ctx, next.ID, next.DisplayName)
 	}
@@ -230,12 +246,16 @@ func (s *Service) UpdateUser(ctx context.Context, by core.Actor, u *core.User) e
 }
 
 func (s *Service) revokeAllTokens(ctx context.Context, u core.UserID, now time.Time) error {
+	return s.revokeTokens(ctx, u, now, func(*core.TokenRecord) bool { return true })
+}
+
+func (s *Service) revokeTokens(ctx context.Context, u core.UserID, now time.Time, which func(*core.TokenRecord) bool) error {
 	ts, err := s.store.Tokens().List(ctx, u)
 	if err != nil {
 		return err
 	}
 	for _, t := range ts {
-		if !t.Revoked.IsZero() {
+		if !t.Revoked.IsZero() || !which(t) {
 			continue
 		}
 		if err := s.store.Tokens().Revoke(ctx, u, t.ID, now); err != nil && !errors.Is(err, core.ErrNotFound) {

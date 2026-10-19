@@ -1,9 +1,11 @@
 package scheduler
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"strings"
 	"time"
@@ -102,7 +104,7 @@ func (s *Service) upsertLocked(ctx context.Context, v core.Viewer, in *core.Sche
 			return invalidf("%v", err)
 		}
 		if next.IsZero() {
-			return invalidf("%s is in the past", p.once.In(p.loc).Format("Mon 2 Jan 2006 15:04 MST"))
+			return invalidf("%s has already passed. Choose a later time.", p.once.In(p.loc).Format("Mon 2 Jan 2006 15:04"))
 		}
 		sc.NextRunAt = next
 	}
@@ -214,6 +216,10 @@ func (s *Service) checkDeliver(ctx context.Context, prin *core.Principal, d *cor
 		return &core.ChatRef{Channel: "web"}, nil
 	case !channelNameRe.MatchString(c.Channel):
 		return nil, invalidf("deliver: unknown channel %q", c.Channel)
+	// It would be saved and shown as posting there, while the results stay
+	// on the web (deliveryChat): accounts have no chat.
+	case !prin.TeamOwned():
+		return nil, invalidf("deliver: an account's results stay in Bothy, so its schedules can't post to %s; leave deliver out", c.Channel)
 	case c.ChatID == "":
 		return &core.ChatRef{Channel: c.Channel}, nil
 	}
@@ -352,11 +358,16 @@ func (s *Service) auditf(ctx context.Context, action, actor string, sc *core.Sch
 	}
 	d := map[string]any{"schedule_id": sc.ID, "principal_id": sc.Principal, "name": sc.Name, "kind": sc.Kind,
 		"spec": sc.Spec, "tz": sc.TZ, "enabled": sc.Enabled}
-	for k, v := range extra {
-		d[k] = v
+	var ip string
+	// A change made over HTTP is recorded here only, with the request's
+	// actor (a token, say), address and detail.
+	if o, ok := core.AuditOriginFrom(ctx); ok {
+		actor, ip = cmp.Or(o.Actor, actor), o.IP
+		maps.Copy(d, o.Detail)
 	}
+	maps.Copy(d, extra)
 	detail, _ := json.Marshal(d)
-	e := core.AuditEntry{At: s.clock.Now(), Actor: actor, Action: action, Target: "schedule:" + string(sc.ID), Outcome: "ok", Detail: detail, Run: run}
+	e := core.AuditEntry{At: s.clock.Now(), Actor: actor, Action: action, Target: "schedule:" + string(sc.ID), Outcome: "ok", Detail: detail, Run: run, IP: ip}
 	if agentRun, ok := strings.CutPrefix(actor, "agent:"); ok && run == "" {
 		e.Run = core.RunID(agentRun)
 	}

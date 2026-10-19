@@ -376,6 +376,16 @@ func TestReleaseDenyShortCircuits(t *testing.T) {
 	if got, err := h.vote(withdrawn.ID, h.member, core.Deny); err != nil || got.Status != core.ApprovalDenied {
 		t.Fatalf("requester withdrawing = %+v, %v", got, err)
 	}
+	// A withdrawal is one "Cancelled the request" row, never a vote to deny.
+	var rows []string
+	for _, e := range h.audit.All() {
+		if e.Target == string(withdrawn.ID) && strings.HasPrefix(e.Action, "approval.") && e.Action != "approval.request" {
+			rows = append(rows, e.Action+" "+string(e.Detail))
+		}
+	}
+	if len(rows) != 1 || !strings.HasPrefix(rows[0], "approval.decide") || !strings.Contains(rows[0], `"withdrawn":true`) {
+		t.Fatalf("withdrawal audit = %q", rows)
+	}
 }
 
 // TestDisabledVoterNoLongerCounts: eligibility is checked when the
@@ -581,5 +591,28 @@ func TestApproverReqEligible(t *testing.T) {
 		{User: "usr_r", Choice: core.AllowOnce}, {User: "usr_b", Choice: core.Deny}}
 	if n := core.AllowVotes(votes, r); n != 1 {
 		t.Errorf("AllowVotes = %d, want 1 (one user, requester and denies excluded)", n)
+	}
+}
+
+// Approvers of a deploy are told when another deploy to that environment is
+// running or waiting: approving both runs two deploys at once.
+func TestReleaseCardWarnsOfOverlap(t *testing.T) {
+	h := newReleaseHarness(t)
+	first := h.requestRelease(h.member)
+	if len(first.Card.Warnings) != 0 {
+		t.Fatalf("first request warnings = %q", first.Card.Warnings)
+	}
+	second := h.requestRelease(h.admin1)
+	if !slices.Contains(second.Card.Warnings, "Another deploy to staging is waiting for approval.") {
+		t.Fatalf("second request warnings = %q", second.Card.Warnings)
+	}
+	d := &core.Deploy{Environment: "staging", Repo: "acme/web", Workflow: "deploy.yml", Ref: "main", Principal: core.UserPrincipal(h.member.ID),
+		RequestedBy: h.member.ID, Status: core.DeployDispatched, CreatedAt: time.Now()}
+	if err := h.store.(core.ReleaseStore).Releases().Create(h.ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	third := h.requestRelease(h.admin2)
+	if !slices.Contains(third.Card.Warnings, "A deploy to staging is already running.") || !slices.Contains(third.Card.Warnings, "2 other deploys to staging are waiting for approval.") {
+		t.Fatalf("third request warnings = %q", third.Card.Warnings)
 	}
 }

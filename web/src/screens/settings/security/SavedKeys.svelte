@@ -81,10 +81,11 @@
     if (target) return '';
     const n = storedName(name);
     if (!n) return 'Enter a name for the key.';
+    if (n.length > 64) return 'Use a shorter name, up to 64 characters.';
     if ((keys ?? []).some((k) => k.name === n)) return 'A key with this name already exists. Replace it instead.';
     return '';
   });
-  const valueError = $derived(value ? '' : 'Paste the key.');
+  const valueError = $derived(!value ? 'Paste the key.' : new Blob([value]).size > 65536 ? 'This is too long for a key: keys can be up to 64 KB.' : '');
 
   // Members don't see the vault's status, so they learn it is locked from a refused change.
   let locked = $state(false);
@@ -152,8 +153,13 @@
     <!-- While the locked-keys banner shows, its Unlock is the one action; a second row here would repeat it. -->
     {#if vault?.sealed && !(session.isAdmin && session.banners.some((b) => b.code === 'vault_sealed' && !session.dismissed.includes(b.code)))}
       <div class="flex min-h-14 flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-border py-3">
-        <p class="text-body text-text">Saved keys are locked.</p>
-        <Button variant="primary" size="sm" onclick={() => (unlocking = true)}>Unlock</Button>
+        <!-- Locked by a key file that doesn't match, no passphrase can unlock them. -->
+        {#if vault.kek_source === 'passphrase'}
+          <p class="text-body text-text">Saved keys are locked.</p>
+          <Button variant="primary" size="sm" onclick={() => (unlocking = true)}>Unlock</Button>
+        {:else}
+          <p class="text-body text-text">Saved keys are locked because Bothy's key file is missing or doesn't match. Put it back on the server, then restart Bothy.</p>
+        {/if}
       </div>
     {/if}
     {#if !sorted.length}
@@ -220,4 +226,4 @@
   {/snippet}
 </Dialog>
 
-<UnlockDialog bind:open={unlocking} onunlocked={load} />
+<UnlockDialog bind:open={unlocking} first={!!vault?.new_passphrase} onunlocked={load} />

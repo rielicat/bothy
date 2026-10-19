@@ -691,11 +691,13 @@ func TestSchedulesWithGrants(t *testing.T) {
 	if gs, _ := h.store.Grants().List(ctx, v, core.GrantSchedule, string(sc.ID)); len(gs) != 0 {
 		t.Fatalf("grants after delete = %+v", gs)
 	}
-	acts := strings.Join(h.audit.Actions(), " ")
-	for _, a := range []string{"schedule.create", "schedule.update", "schedule.delete"} {
-		if !strings.Contains(acts, a) {
-			t.Errorf("%s not audited", a)
-		}
+	// The scheduler writes each change's one audit row, with the request's origin.
+	if acts := strings.Join(h.audit.Actions(), " "); strings.Contains(acts, "schedule.") {
+		t.Errorf("the handler audited schedule changes itself: %s", acts)
+	}
+	who := "user:" + string(h.member.user)
+	if n := len(ss.origins); n < 3 || ss.origins[n-3].Actor != who || ss.origins[n-3].Detail["grants"] != 1 || ss.origins[n-1].Actor != who || ss.origins[n-1].IP == "" {
+		t.Errorf("origins = %+v", ss.origins)
 	}
 	prev := decodeAs[dto.SchedulePreviewResp](t, h.do("POST", "/api/schedules/preview",
 		dto.SchedulePreviewReq{Kind: core.SchedHeartbeat, Spec: "30m", TZ: "Europe/London"}, h.member))
@@ -753,6 +755,12 @@ func TestVaultEndpoints(t *testing.T) {
 	if s, err := h.vault.Get(context.Background(), core.GlobalScope, "anthropic_api_key", "test"); err != nil || s.Reveal() != "sk-ant-test-value" {
 		t.Fatalf("imported = %v", err)
 	}
+	// Nothing to unlock: no row says any passphrase unlocked the keys.
+	expect(t, h.do("POST", "/api/vault/unseal", dto.UnsealReq{Passphrase: "qa-not-a-real-passphrase"}, h.admin), http.StatusOK)
+	if strings.Contains(strings.Join(h.audit.Actions(), " "), "vault.unseal") {
+		t.Fatalf("unlocking an open vault was audited: %v", h.audit.Actions())
+	}
+	h.vault.Seal()
 	expect(t, h.do("POST", "/api/vault/unseal", dto.UnsealReq{Passphrase: "pw"}, h.admin), http.StatusOK)
 	st := decodeAs[core.VaultStatus](t, h.do("GET", "/api/vault/status", nil, h.admin))
 	if st.Sealed || st.Secrets != 2 {
@@ -846,9 +854,11 @@ func TestAdminEndpoints(t *testing.T) {
 		}
 	}
 	ctx := context.Background()
-	oa, _ := h.auth.FromCookie(ctx, h.owner.cookie)
-	_, _, _ = h.auth.CreateToken(ctx, oa, core.TokenSpec{Name: "old", Scopes: []string{"read"}, TTL: time.Nanosecond})
-	time.Sleep(2 * time.Millisecond)
+	old := &core.TokenRecord{Name: "old", User: h.owner.user, SecretHash: []byte("0123456789abcdef0123456789abcdef"), Scopes: []string{"read"},
+		OnApproval: "deny", RatePerMin: 30, CreatedAt: time.Now().Add(-2 * time.Hour), Expires: time.Now().Add(-time.Hour)}
+	if err := h.store.Tokens().Create(ctx, old); err != nil {
+		t.Fatal(err)
+	}
 	rep := decodeAs[dto.DoctorReport](t, h.do("POST", "/api/security-audit", dto.SecurityAuditReq{Fix: true}, h.admin))
 	if !slices.Contains(rep.Fixed, "tokens.expired_unrevoked") {
 		t.Fatalf("security audit = %+v", rep)

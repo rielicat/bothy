@@ -381,11 +381,13 @@ type MCPResolveReq struct {
 }
 
 // MCPResolveResp is the exact version and the registry's integrity hash to
-// pin, so the admin never types a hash.
+// pin, so the admin never types a hash, and the command that runs the
+// package's own program from /opt/mcp (none when it has no "bin").
 type MCPResolveResp struct {
-	Name      string `json:"name"`
-	Version   string `json:"version"`
-	Integrity string `json:"integrity"`
+	Name      string   `json:"name"`
+	Version   string   `json:"version"`
+	Integrity string   `json:"integrity"`
+	Command   []string `json:"command,omitempty"`
 }
 
 type SandboxInfo struct {

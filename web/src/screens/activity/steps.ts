@@ -2,7 +2,7 @@
 // the chat's own words for each tool (lib/activity.ts, §7.4).
 import { fill, lineFor, phrases, prefix, type Phrase } from '../../lib/activity';
 import type { Approval, ToolCallRecord } from '../../lib/api/types.gen';
-import { withdrawn } from '../../lib/cardcopy';
+import { approvalsIn, withdrawn } from '../../lib/cardcopy';
 
 export type Segment = { text: string; code: boolean };
 
@@ -46,8 +46,10 @@ export function decisionLine(a: Approval, who: string): StepLine | null {
         : a.status === 'denied'
           ? prefix(`${who} denied `, p.ing)
           : a.status === 'expired'
-            ? prefix("Nobody answered, so Bothy didn't ", p.ask)
-            : null;
+            ? prefix(`${approvalsIn(a) ? `Only ${approvalsIn(a)} of ${a.approver?.required} approvals came in` : 'Nobody answered'}, so Bothy didn't `, p.ask)
+            : a.status === 'cancelled'
+              ? prefix("Cancelled: Bothy didn't ", p.ask)
+              : null;
   return line ? { key: a.id, state: a.status === 'allowed' ? 'done' : 'denied', segments: segments(line), approval: a } : null;
 }
 

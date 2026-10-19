@@ -2,11 +2,13 @@ package mcp
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"maps"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,6 +32,9 @@ type conn struct {
 	protocol string
 	box      string             // stdio box destroyed with the session; "" for HTTP
 	cancel   context.CancelFunc // ends the transport's lifetime context
+	keys     [32]byte           // httpAuth.sum of the keys the session sends; zero for stdio
+	ht       *headerTransport   // HTTP only
+	auth     *httpAuth          // HTTP only
 }
 
 // instance is the lazily started runtime session for one (stdio server,
@@ -86,6 +91,7 @@ func (m *Manager) acquire(ctx context.Context, s *server, env *core.ToolEnv) (*c
 		return nil, nil, nil, fmt.Errorf("mcp server %s: manager closed: %w", s.name, core.ErrConflict)
 	}
 	var key string
+	var keys [32]byte
 	var connect func(context.Context) (*conn, error)
 	switch s.spec.transport {
 	case "stdio":
@@ -99,7 +105,15 @@ func (m *Manager) acquire(ctx context.Context, s *server, env *core.ToolEnv) (*c
 	default:
 		u := vaultUser(env)
 		key = "u:" + string(u)
-		connect = func(ctx context.Context) (*conn, error) { return m.connectHTTP(ctx, s, u) }
+		// Read on every call: a key replaced or deleted in the vault takes
+		// effect at once, and each use is audited.
+		a, err := m.resolveHTTP(ctx, s, u, false)
+		if err != nil {
+			m.retire(s.instance(key))
+			return nil, nil, nil, err
+		}
+		keys = a.sum
+		connect = func(ctx context.Context) (*conn, error) { return m.connectHTTP(ctx, s, a) }
 	}
 	inst := s.instance(key)
 	select {
@@ -115,13 +129,19 @@ func (m *Manager) acquire(ctx context.Context, s *server, env *core.ToolEnv) (*c
 		inst.mu.Unlock()
 	}
 	inst.mu.Lock()
-	if c := inst.c; c != nil {
+	var stale *conn
+	if c := inst.c; c != nil && c.keys == keys {
 		inst.inflight++
 		inst.mu.Unlock()
 		return c, inst, release, nil
+	} else if c != nil {
+		stale, inst.c = c, nil
 	}
 	wait := inst.retryAt.Sub(m.clock.Now())
 	inst.mu.Unlock()
+	if stale != nil {
+		m.closeRetired(stale)
+	}
 	if wait > 0 {
 		return nil, nil, nil, fmt.Errorf("mcp server %s is restarting after a failure; try again in %s", s.name, wait.Round(time.Second))
 	}
@@ -180,6 +200,25 @@ func (m *Manager) watch(s *server, inst *instance, c *conn) {
 		}
 		m.closeConn(c)
 	}
+}
+
+// retire closes an instance's session without counting a failure: the
+// keys it was made with were replaced or can't be read any more.
+func (m *Manager) retire(inst *instance) {
+	inst.mu.Lock()
+	c := inst.c
+	inst.c = nil
+	inst.mu.Unlock()
+	if c != nil {
+		m.closeRetired(c)
+	}
+}
+
+func (m *Manager) closeRetired(c *conn) {
+	if c.ht != nil {
+		c.ht.retired.Store(true)
+	}
+	m.closeConn(c)
 }
 
 // drop discards a session a call found broken; like a crash noticed by
@@ -410,12 +449,90 @@ func (m *Manager) limits() core.BoxLimits {
 	return core.BoxLimits{MemoryMB: l.MemoryMB, CPUs: l.CPUs, Pids: l.Pids}
 }
 
+// httpAuth is what an HTTP session sends: its header values and its address
+// with any reference in it resolved. sum tells sessions made with other
+// values apart.
+type httpAuth struct {
+	headers  map[string]core.Secret
+	endpoint core.Secret // the address with references resolved; empty when it has none
+	sum      [32]byte
+	missing  []string // headers left out (discovery without the shared key)
+}
+
+// resolveHTTP reads an HTTP server's keys: references in its headers and its
+// address, in u's vault scope then the global one (u == "" means global
+// only). skipMissing leaves out a header whose key doesn't exist, for a
+// server whose people each use their own key.
+func (m *Manager) resolveHTTP(ctx context.Context, s *server, u core.UserID, skipMissing bool) (*httpAuth, error) {
+	a := &httpAuth{headers: make(map[string]core.Secret, len(s.spec.headers))}
+	h := sha256.New()
+	for _, k := range slices.Sorted(maps.Keys(s.spec.headers)) {
+		ref := s.spec.headers[k]
+		if !config.HasSecretRef(ref) {
+			a.headers[k] = core.NewSecret([]byte(ref))
+			continue
+		}
+		v, err := m.d.Vault.Resolve(ctx, ref, u, source(s.name))
+		if skipMissing && errors.Is(err, core.ErrNotFound) {
+			a.missing = append(a.missing, k)
+			continue
+		}
+		if err != nil {
+			return nil, keyErr(fmt.Errorf("mcp server %s: header %s: %w", s.name, k, err))
+		}
+		a.headers[k] = v
+		fmt.Fprintf(h, "%s\x00%d\x00%s\x00", k, len(v.Bytes()), v.Bytes())
+	}
+	if config.HasSecretRef(s.spec.url) {
+		v, err := m.d.Vault.Resolve(ctx, s.spec.url, u, source(s.name))
+		if err != nil {
+			return nil, keyErr(fmt.Errorf("mcp server %s: address: %w", s.name, err))
+		}
+		a.endpoint = v
+		fmt.Fprintf(h, "url\x00%s", v.Bytes())
+	}
+	h.Sum(a.sum[:0])
+	return a, nil
+}
+
+// keyErr marks a key that is missing or locked, which the status names.
+func keyErr(err error) error {
+	switch {
+	case errors.Is(err, core.ErrNotFound):
+		return &codedErr{code: "key_missing", err: err}
+	case errors.Is(err, core.ErrSealed):
+		return &codedErr{code: "key_locked", err: err}
+	}
+	return err
+}
+
+// codedErr carries the MCPStatus.Code of a failure.
+type codedErr struct {
+	code string
+	err  error
+}
+
+func (e *codedErr) Error() string { return e.err.Error() }
+func (e *codedErr) Unwrap() error { return e.err }
+
+func errCode(err error) string {
+	var ce *codedErr
+	if errors.As(err, &ce) {
+		return ce.code
+	}
+	if errors.Is(err, errPrivateHost) {
+		return "private_address"
+	}
+	if errors.Is(err, errNotInstalled) || errors.Is(err, errDrifted) {
+		return "not_installed"
+	}
+	return ""
+}
+
 // connectHTTP opens a Streamable HTTP session, falling back to the legacy
 // HTTP+SSE transport for servers that predate it. Requests go only through
-// the egress system client for the server's exact host:port; header
-// references resolve in u's vault scope, then the global one (u == "" means
-// global only).
-func (m *Manager) connectHTTP(ctx context.Context, s *server, u core.UserID) (*conn, error) {
+// the egress system client for the server's exact host:port.
+func (m *Manager) connectHTTP(ctx context.Context, s *server, a *httpAuth) (*conn, error) {
 	if err := checkHost(s.spec.hostPort, s.spec.allowPrivate); err != nil {
 		return nil, fmt.Errorf("mcp server %s: %w", s.name, err)
 	}
@@ -424,33 +541,55 @@ func (m *Manager) connectHTTP(ctx context.Context, s *server, u core.UserID) (*c
 		// A nil transport would mean http.DefaultTransport, outside every egress rule.
 		return nil, fmt.Errorf("mcp server %s: egress returned no client transport", s.name)
 	}
-	headers := make(map[string]core.Secret, len(s.spec.headers))
-	for k, ref := range s.spec.headers {
-		if !config.HasSecretRef(ref) {
-			headers[k] = core.NewSecret([]byte(ref))
-			continue
-		}
-		v, err := m.d.Vault.Resolve(ctx, ref, u, source(s.name))
-		if err != nil {
-			return nil, fmt.Errorf("mcp server %s: header %s: %w", s.name, k, err)
-		}
-		headers[k] = v
+	ht := &headerTransport{base: sys.Transport, headers: a.headers}
+	hc := &http.Client{Transport: ht, CheckRedirect: sys.CheckRedirect}
+	endpoint := s.spec.url
+	if !a.endpoint.IsZero() {
+		endpoint = a.endpoint.Reveal()
 	}
-	hc := &http.Client{Transport: &headerTransport{base: sys.Transport, headers: headers}, CheckRedirect: sys.CheckRedirect}
 	c, err := m.dial(ctx, func(context.Context) (mcpsdk.Transport, error) {
-		return &mcpsdk.StreamableClientTransport{Endpoint: s.spec.url, HTTPClient: hc, MaxRetries: -1, DisableStandaloneSSE: true}, nil
+		return &mcpsdk.StreamableClientTransport{Endpoint: endpoint, HTTPClient: hc, MaxRetries: -1, DisableStandaloneSSE: true}, nil
 	})
-	if err == nil || ctx.Err() != nil {
-		return c, wrapServer(s.name, err)
+	if err != nil && ctx.Err() == nil {
+		var sseErr error
+		c, sseErr = m.dial(ctx, func(context.Context) (mcpsdk.Transport, error) {
+			return &mcpsdk.SSEClientTransport{Endpoint: endpoint, HTTPClient: hc}, nil
+		})
+		if sseErr != nil {
+			err = fmt.Errorf("%w (legacy SSE fallback: %w)", err, sseErr)
+		} else {
+			err = nil
+		}
 	}
-	c, sseErr := m.dial(ctx, func(context.Context) (mcpsdk.Transport, error) {
-		return &mcpsdk.SSEClientTransport{Endpoint: s.spec.url, HTTPClient: hc}, nil
-	})
-	if sseErr != nil {
-		return nil, fmt.Errorf("mcp server %s: %w (legacy SSE fallback: %w)", s.name, err, sseErr)
+	if err != nil {
+		err = a.hideEndpoint(s.spec.url, wrapServer(s.name, err))
+		if ht.rejected.Load() {
+			err = &codedErr{code: "key_rejected", err: fmt.Errorf("%w: %w", errKeyRejected, err)}
+		}
+		return nil, err
 	}
+	c.keys, c.ht, c.auth = a.sum, ht, a
 	return c, nil
 }
+
+var errKeyRejected = errors.New("the server didn't accept the key it was sent")
+
+// hideEndpoint puts the address as configured back in an error that quotes
+// the resolved one, which holds a key.
+func (a *httpAuth) hideEndpoint(configured string, err error) error {
+	if err == nil || a == nil || a.endpoint.IsZero() || !strings.Contains(err.Error(), a.endpoint.Reveal()) {
+		return err
+	}
+	return &maskedErr{msg: strings.ReplaceAll(err.Error(), a.endpoint.Reveal(), configured), err: err}
+}
+
+type maskedErr struct {
+	msg string
+	err error
+}
+
+func (e *maskedErr) Error() string { return e.msg }
+func (e *maskedErr) Unwrap() error { return e.err }
 
 func wrapServer(name string, err error) error {
 	if err == nil {

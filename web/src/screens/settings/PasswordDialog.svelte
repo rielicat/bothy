@@ -4,6 +4,7 @@
   import { api, ApiError } from '../../lib/api/client';
   import { passwordError, passwordHelp } from '../../lib/password';
   import { session } from '../../lib/stores/session.svelte';
+  import { loginError } from '../setup/auth';
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
@@ -53,8 +54,11 @@
       toast('Password changed.');
     } catch (err) {
       busy = false;
-      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) serverError = { current: "That's not your current password." };
-      else if (err instanceof ApiError && err.status === 400 && /common/i.test(err.message)) serverError = { next: 'This password is too common. Try a phrase of a few words.' };
+      const m = err instanceof ApiError ? err.message : '';
+      if (err instanceof ApiError && err.status === 429) serverError = { form: loginError(err) };
+      else if (err instanceof ApiError && (err.status === 401 || err.status === 403 || /current password/.test(m))) serverError = { current: "That's not your current password." };
+      else if (/differ/.test(m)) serverError = { next: 'Choose a password different from your current one.' };
+      else if (/common/i.test(m)) serverError = { next: 'This password is too common. Try a phrase of a few words.' };
       else if (err instanceof ApiError && err.status === 400) serverError = { next: 'Use at least 12 characters.' };
       else serverError = { form: "Bothy didn't respond. Check your connection, then try again." };
     }

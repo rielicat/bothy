@@ -7,6 +7,7 @@ import { live as region } from '../components/ui/live.svelte';
 import { router } from '../lib/router.svelte';
 import { approvals, session } from '../lib/stores/session.svelte';
 import { installApi, type Call } from '../test/api';
+import { FakeEventSource } from '../test/setup';
 import Approvals from './Approvals.svelte';
 
 const DEPLOY = 'apr_01jdeployweb0000000000000';
@@ -241,6 +242,17 @@ describe('Approvals inbox, other states', () => {
     expect(screen.queryByRole('link', { name: 'Go to Approvals' })).toBeNull();
   });
 
+  it('says who decided the open request when someone else decides it meanwhile', async () => {
+    await open(`/approvals/${PR}`, { id: PR });
+    await waitFor(() => expect(expanded()?.dataset.approval).toBe(PR));
+    const pr = approvals.pending.find((a) => a.id === PR)!;
+    const decided = { ...pr, status: 'denied', choice: 'deny', decided_by: 'usr_01jalex000000000000000000', decided_by_name: 'Alex Kim', decided_via: 'web', decided_at: new Date().toISOString(), comment: 'Two deploys already running' };
+    calls = installApi({ override: (m, url) => (m === 'GET' && url === `/api/approvals/${PR}` ? decided : undefined) });
+    FakeEventSource.last.emit('approval.resolved', { seq: 900, type: 'approval.resolved', at: new Date().toISOString(), data: { approval_id: PR, status: 'denied', choice: 'deny' } });
+    expect(await screen.findByText('This request was already decided.')).toBeTruthy();
+    expect(screen.queryByText('Nothing needs your approval.')).toBeNull();
+  });
+
   it("says a request it can't find may not exist or not be visible", async () => {
     await open('/approvals/apr_nope', { id: 'apr_nope' });
     expect(await screen.findByText("This request doesn't exist, or you can't see it.")).toBeTruthy();
@@ -266,6 +278,22 @@ describe('Approvals inbox, other states', () => {
     await open('/approvals', {}, 'approvals-no-items');
     await screen.findByRole('heading', { name: 'For you' });
     expect(document.querySelector('[data-row^="i:"]')).toBeNull();
+  });
+
+  it("links to the chat a decision came from only when it is the viewer's own", async () => {
+    const mine = recentApprovals.find((a) => a.session_id && a.principal_id)!;
+    const theirs = { ...mine, id: 'apr_theirs', principal_id: 'usr_someone_else', session_id: 'ses_theirs' };
+    calls = installApi({ override: (m, url) => (m === 'GET' && url.startsWith('/api/approvals?status=recent') ? { items: [mine, theirs] } : undefined) });
+    approvals.reset();
+    votes.reset();
+    await session.init();
+    session.me = { ...session.me!, user: { ...session.me!.user, id: mine.principal_id } };
+    router.navigate('/approvals?tab=done');
+    render(Approvals, { params: {} });
+    await screen.findAllByText((_, el) => el?.hasAttribute('data-decided') ?? false);
+    const hrefs = [...document.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+    expect(hrefs).toContain(`/chat/${mine.session_id}`);
+    expect(hrefs).not.toContain('/chat/ses_theirs');
   });
 
   it('groups the Done tab by day, every line naming what was decided', async () => {

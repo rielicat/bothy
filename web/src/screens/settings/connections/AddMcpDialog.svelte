@@ -68,6 +68,7 @@
     pkgError = '';
     try {
       pinned = await api.post<MCPResolveResp>('/api/mcp/resolve', want);
+      if (!pinned.command) [pinned, pkgError] = [null, 'This package has no program for Bothy to run.'];
       return pinned;
     } catch (err) {
       pinned = null;
@@ -105,11 +106,13 @@
           form.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
           return;
         }
-        Object.assign(server, { package: { ecosystem: 'npm', name: p.name, version: p.version, integrity: p.integrity }, egress, workspace: 'none' });
+        Object.assign(server, { package: { ecosystem: 'npm', name: p.name, version: p.version, integrity: p.integrity }, command: p.command, egress, workspace: 'none' });
       }
       failure = await saveConfig({ [`mcp.servers.${name}`]: server });
       if (failure) {
-        failure.message = "Bothy couldn't add this server. Check the details and try again.";
+        failure.message = /use https/.test(failure.details ?? '')
+          ? 'Use an https:// address: over http the secret header would be sent unencrypted.'
+          : "Bothy couldn't add this server. Check the details and try again.";
         return;
       }
       if (how === 'stdio') await api.post(`/api/mcp/${encodeURIComponent(name)}/install`).catch(() => {});

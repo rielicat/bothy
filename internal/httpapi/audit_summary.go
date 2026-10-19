@@ -27,9 +27,39 @@ func (s *Server) auditRows(ctx context.Context, own, av core.Viewer, es []*core.
 		calls: map[core.RunID][]*core.ToolCallRecord{}}
 	out := make([]dto.AuditRow, 0, len(es))
 	for _, e := range es {
+		e = privateSchedule(own, e)
 		out = append(out, dto.AuditRow{AuditEntry: *e, ActorName: an.actor(e.Actor), Summary: an.summary(e)})
 	}
 	return out
+}
+
+// privateSchedule leaves out what another person's schedule row says about
+// it (its name and timing), as their schedules list would: the row still
+// says who did what to a schedule.
+func privateSchedule(own core.Viewer, e *core.AuditEntry) *core.AuditEntry {
+	if !strings.HasPrefix(e.Action, "schedule.") {
+		return e
+	}
+	var d map[string]any
+	if json.Unmarshal(e.Detail, &d) != nil {
+		return e
+	}
+	p, _ := d["principal_id"].(string)
+	// Rows the HTTP handler wrote before the scheduler wrote the one row
+	// name no principal: whoever acted is the best guess, and a team
+	// schedule another admin changed then reads "a schedule" too.
+	if u, ok := strings.CutPrefix(e.Actor, "user:"); ok && p == "" {
+		p = string(core.UserPrincipal(core.UserID(u)))
+	}
+	if !strings.HasPrefix(p, core.PrefixUser+"_") || own.Can(core.PrincipalID(p)) {
+		return e
+	}
+	delete(d, "name")
+	delete(d, "spec")
+	delete(d, "tz")
+	cp := *e
+	cp.Detail, _ = json.Marshal(d)
+	return &cp
 }
 
 func (an *auditNamer) approval(id string) *core.Approval {
@@ -143,6 +173,11 @@ func (an *auditNamer) summary(e *core.AuditEntry) string {
 		p := an.approvalPhrase(e, d)
 		if d.str("status") == string(core.ApprovalParked) {
 			return "Kept waiting for approval to " + p.ask
+		}
+		if ap := an.approval(e.Target); ap != nil && ap.Approver.Multi() {
+			if votes, err := an.s.d.Store.Approvals().Votes(an.ctx, ap.ID); err == nil && core.AllowVotes(votes, ap.Approver) > 0 {
+				return "Didn't get enough approvals in time to " + p.ask
+			}
 		}
 		return "Nobody approved " + p.ing + " in time"
 	case "tool.exec":

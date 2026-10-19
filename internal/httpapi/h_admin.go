@@ -9,8 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -220,7 +222,8 @@ func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request, a core.A
 	if _, err := scheduleGrants(req.Grants, &sc, a.User, s.now()); err != nil {
 		return err
 	}
-	if err := s.d.Scheduler.Upsert(ctx, a.Viewer, &sc, byString(a)); err != nil {
+	// The scheduler writes the one audit row, with this request's origin.
+	if err := s.d.Scheduler.Upsert(withOrigin(r, a, map[string]any{"grants": len(req.Grants)}), a.Viewer, &sc, byString(a)); err != nil {
 		return err
 	}
 	grants, err := scheduleGrants(req.Grants, &sc, a.User, s.now())
@@ -237,7 +240,6 @@ func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request, a core.A
 			return err
 		}
 	}
-	s.audit(r, a, "schedule.create", "schedule:"+string(sc.ID), "ok", map[string]any{"name": sc.Name, "kind": sc.Kind, "grants": len(grants)})
 	return s.respondSchedule(w, ctx, a, sc.ID)
 }
 
@@ -296,7 +298,7 @@ func (s *Server) patchSchedule(w http.ResponseWriter, r *http.Request, a core.Ac
 	if err != nil {
 		return err
 	}
-	if err := s.d.Scheduler.Upsert(ctx, a.Viewer, &sc, byString(a)); err != nil {
+	if err := s.d.Scheduler.Upsert(withOrigin(r, a, map[string]any{"grants": len(grants)}), a.Viewer, &sc, byString(a)); err != nil {
 		return err
 	}
 	if err := s.revokeScheduleGrants(ctx, a, sc.ID); err != nil {
@@ -307,7 +309,6 @@ func (s *Server) patchSchedule(w http.ResponseWriter, r *http.Request, a core.Ac
 			return err
 		}
 	}
-	s.audit(r, a, "schedule.update", "schedule:"+string(sc.ID), "ok", map[string]any{"name": sc.Name, "kind": sc.Kind, "grants": len(grants)})
 	return s.respondSchedule(w, ctx, a, sc.ID)
 }
 
@@ -322,13 +323,12 @@ func (s *Server) deleteSchedule(w http.ResponseWriter, r *http.Request, a core.A
 		}
 		v = teamScheduleViewer(a, team)
 	}
-	if err := s.d.Scheduler.Delete(ctx, v, id, a.User); err != nil {
+	if err := s.d.Scheduler.Delete(withOrigin(r, a, nil), v, id, a.User); err != nil {
 		return err
 	}
 	if err := s.revokeScheduleGrants(ctx, core.Actor{User: a.User, Viewer: v}, id); err != nil {
 		return err
 	}
-	s.audit(r, a, "schedule.delete", "schedule:"+string(id), "ok", nil)
 	return noContent(w)
 }
 
@@ -360,10 +360,9 @@ func (s *Server) patchTeamSchedule(w http.ResponseWriter, r *http.Request, a cor
 	v := teamScheduleViewer(a, cur)
 	sc := *cur
 	sc.Enabled = *enabled
-	if err := s.d.Scheduler.Upsert(ctx, v, &sc, byString(a)); err != nil {
+	if err := s.d.Scheduler.Upsert(withOrigin(r, a, nil), v, &sc, byString(a)); err != nil {
 		return err
 	}
-	s.audit(r, a, "schedule.update", "schedule:"+string(sc.ID), "ok", map[string]any{"name": sc.Name, "kind": sc.Kind, "enabled": sc.Enabled})
 	got, err := s.d.Store.Schedules().Get(ctx, v, sc.ID)
 	if err != nil {
 		return err
@@ -525,8 +524,9 @@ func (s *Server) mcpResolve(w http.ResponseWriter, r *http.Request, _ core.Actor
 		return newError(http.StatusBadGateway, "provider_error", fmt.Sprintf("The npm registry answered %d. Try again in a moment.", resp.StatusCode))
 	}
 	var meta struct {
-		Name    string `json:"name"`
-		Version string `json:"version"`
+		Name    string          `json:"name"`
+		Version string          `json:"version"`
+		Bin     json.RawMessage `json:"bin"`
 		Dist    struct {
 			Integrity string `json:"integrity"`
 		} `json:"dist"`
@@ -535,7 +535,34 @@ func (s *Server) mcpResolve(w http.ResponseWriter, r *http.Request, _ core.Actor
 		!npmVersion.MatchString(meta.Version) || !strings.HasPrefix(meta.Dist.Integrity, "sha512-") {
 		return newError(http.StatusBadGateway, "provider_error", "The npm registry sent something Bothy can't pin. Try again in a moment.")
 	}
-	return ok(w, dto.MCPResolveResp{Name: meta.Name, Version: meta.Version, Integrity: meta.Dist.Integrity})
+	return ok(w, dto.MCPResolveResp{Name: meta.Name, Version: meta.Version, Integrity: meta.Dist.Integrity, Command: npmCommand(meta.Name, meta.Bin)})
+}
+
+// npmCommand runs a package's program as npm installs it under /opt/mcp:
+// "bin" is a path or a map of names to paths; with several, the one named
+// like the package (without its scope), else the first by name. nil when
+// the package has none, or only paths that leave its folder.
+func npmCommand(pkg string, bin json.RawMessage) []string {
+	var one string
+	bins := map[string]string{}
+	if json.Unmarshal(bin, &one) == nil {
+		bins[""] = one
+	} else if json.Unmarshal(bin, &bins) != nil {
+		return nil
+	}
+	short := pkg[strings.LastIndex(pkg, "/")+1:]
+	names := slices.Sorted(maps.Keys(bins))
+	if i := slices.Index(names, short); i > 0 {
+		names[0], names[i] = names[i], names[0]
+	}
+	for _, n := range names {
+		p := path.Clean(strings.TrimPrefix(bins[n], "./"))
+		if p == "." || p == ".." || strings.HasPrefix(p, "../") || path.IsAbs(p) {
+			continue
+		}
+		return []string{"node", "node_modules/" + pkg + "/" + p}
+	}
+	return nil
 }
 
 func (s *Server) mcpReload(w http.ResponseWriter, r *http.Request, _ core.Actor) error {
@@ -674,6 +701,11 @@ func (s *Server) vaultUnseal(w http.ResponseWriter, r *http.Request, a core.Acto
 	}
 	if req.Passphrase == "" {
 		return badRequest("passphrase is required")
+	}
+	// Vault.Unseal of an open vault checks nothing; recording it as an
+	// unlock would log any passphrase as the right one.
+	if st := s.d.Vault.Status(); !st.Sealed {
+		return ok(w, st)
 	}
 	if err := s.d.Vault.Unseal(r.Context(), []byte(req.Passphrase)); err != nil {
 		s.audit(r, a, "vault.unseal", "vault", "denied", nil)

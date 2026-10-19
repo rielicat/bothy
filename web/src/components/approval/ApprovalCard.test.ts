@@ -147,6 +147,20 @@ describe('ApprovalCard', () => {
     expect(meta.textContent?.replace(/\s+/g, ' ').trim()).toBe('From “Morning briefing” · Details');
   });
 
+  it("gives a schedule's request no 2-minute deadline while it waits, and its real one once parked", () => {
+    const sched = { ...approval().card, context: 'Web · schedule · session “Digest”', expires: new Date(Date.now() + 90_000).toISOString() };
+    const { unmount } = render(ApprovalCard, { approval: approval({ on_timeout: 'park', card: sched }) });
+    expect(document.body.textContent).not.toMatch(/Expires in/);
+    unmount();
+    render(ApprovalCard, { approval: approval({ status: 'parked', on_timeout: 'park', card: sched, park_until: new Date(Date.now() + 23.2 * 3_600_000).toISOString() }) });
+    expect(screen.getByText('Bothy stopped waiting. Approve within 23 h to let it carry on.')).toBeTruthy();
+  });
+
+  it("names the schedule, not the chat, on a scheduled run's grant button", () => {
+    render(ApprovalCard, { approval: approval({ card: { ...approval().card, context: 'Web · schedule · session “Digest · 2026-10-19”' } }) });
+    expect(buttons(screen.getByRole('article')).map((b) => b.textContent?.trim())).toEqual(['Run command', 'Allow for this schedule', 'Deny']);
+  });
+
   it('shows bidi and zero-width characters instead of applying them', () => {
     const { container } = render(ApprovalCard, { approval: approval() });
     expect(container.textContent).toContain('⟨U+202E⟩');

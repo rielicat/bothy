@@ -193,8 +193,14 @@ func TestDisableNoticeSentOutsideLock(t *testing.T) {
 	h.svc.hub = probe
 	sc := h.teamUpsert(&core.Schedule{Name: "x", Kind: core.SchedCron, Spec: "0 8 * * *", Prompt: "p", Enabled: true})
 	h.runner.fail(errors.New("boom"))
+	// Scheduled ticks, as the loop runs them: Run now doesn't count.
 	for range maxFailures {
-		_, _ = h.svc.RunNow(ctx, core.SystemViewer(), sc.ID, h.owner)
+		h.svc.mu.Lock()
+		cur := h.get(sc.ID)
+		_, _ = h.svc.fire(ctx, cur, time.Now(), cur.NextRunAt, cur.Enabled, false)
+		notes := h.svc.takeNotices()
+		h.svc.mu.Unlock()
+		h.svc.sendNotices(ctx, notes)
 	}
 	if got := h.get(sc.ID); got.Enabled {
 		t.Fatalf("three failed submits must disable: %+v", got)

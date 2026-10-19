@@ -34,7 +34,8 @@
         people(),
       ]);
       pending = (p.items ?? []).filter(isDeploy);
-      denied = (recent.items ?? []).filter((a) => isDeploy(a) && a.status === 'denied');
+      // Requests that ended without a deploy: denied, cancelled (withdrawn or stopped) or expired.
+      denied = (recent.items ?? []).filter((a) => isDeploy(a) && ['denied', 'cancelled', 'expired'].includes(a.status));
       names = n;
       data = r;
     } catch {
@@ -47,12 +48,17 @@
     untrack(() => void load());
   });
   $effect(() => {
-    if (!data?.deploys.some((d) => d && open(d))) return;
+    if (!data?.deploys.some((d) => d && open(d)) && !data?.environments.some((e) => e.running?.length)) return;
     const t = setTimeout(load, 15_000);
     return () => clearTimeout(t);
   });
 
-  const deploys = $derived((data?.deploys ?? []).filter((d): d is Deploy => !!d).sort((a, b) => b.created_at.localeCompare(a.created_at)));
+  // The viewer's own deploys (an admin's: everyone's), and what each environment runs whoever asked.
+  const deploys = $derived(
+    [...new Map([...(data?.deploys ?? []), ...(data?.environments ?? []).flatMap((e) => [...(e.running ?? []), e.last])].filter((d): d is Deploy => !!d).map((d) => [d.id, d])).values()].sort(
+      (a, b) => b.created_at.localeCompare(a.created_at),
+    ),
+  );
   const and = (list: string[]) => new Intl.ListFormat('en', { type: 'conjunction' }).format(list);
   const approvers = (d: Deploy) => and(d.approved_by_names);
   const took = (d: Deploy) => {
@@ -77,30 +83,34 @@
 
   const environments = $derived(
     (data?.environments ?? []).map((env) => {
-      const last = deploys.find((d) => d.environment === env.name);
+      // The server says what the environment does, whoever deployed; older servers only list the viewer's own deploys.
+      const last = env.last ?? deploys.find((d) => d.environment === env.name);
+      const running = env.running ?? (last && open(last) ? [last] : []);
       const wait = pending.find((a) => envOf(a) === env.name);
       // A request its asker cancelled says nothing about the environment, so it shows the last deploy.
-      const no = denied.find((a) => envOf(a) === env.name && !withdrawn(a) && (!last || a.created_at > last.created_at));
+      const no = denied.find((a) => a.status === 'denied' && envOf(a) === env.name && !withdrawn(a) && (!last || a.created_at > last.created_at));
       let status: Status = { text: 'Not deployed yet', tone: 'muted' };
-      if (last && open(last)) status = deployStatus(last);
+      if (running.length) status = { ...deployStatus(running[0]), text: running.length > 1 ? `${running.length} deploys running` : 'Deploying…' };
       else if (wait)
         status = { text: `Waiting for approval${votesOf(wait) ? ` (${votesOf(wait)!.approved} of ${votesOf(wait)!.required})` : ''}`, tone: 'warning', href: `/approvals/${encodeURIComponent(wait.id)}` };
       else if (no) status = { text: 'Denied', tone: 'muted' };
       else if (last) status = deployStatus(last);
       // A waiting or denied request is the status, so line 2 says it's about the last deploy, not that request.
-      return { env, last, status, before: !!last && !open(last) && (!!wait || !!no) };
+      return { env, last, shown: running[0]?.id, status, before: !!last && !open(last) && (!!wait || !!no) };
     }),
   );
 
-  type Item = { key: string; at: string; title: string; href: string; status: Status; facts: string[]; link?: { href: string; label: string } };
+  type Item = { key: string; at: string; title: string; href?: string; status: Status; facts: string[]; link?: { href: string; label: string } };
+  const me = $derived(session.me?.user.id);
   const history = $derived<Item[]>(
     [
-      // A running deploy is the environment's status above; it joins the history once it ends.
-      ...deploys.filter((d) => !open(d)).map((d) => ({
+      // The running deploy shown as the environment's status joins the history once it ends; others running beside it are listed here.
+      // Another person's deploy comes without its chat or task, which the viewer couldn't open.
+      ...deploys.filter((d) => !environments.some((e) => e.shown === d.id)).map((d) => ({
         key: d.id,
         at: d.created_at,
         title: `Deploy ${d.repo} to ${d.environment} · ${d.ref}${d.short_sha ? ` at ${d.short_sha}` : ''}`,
-        href: d.run_id ? `/activity/tasks/${encodeURIComponent(d.run_id)}` : `/chat/${encodeURIComponent(d.session_id)}`,
+        href: d.run_id ? `/activity/tasks/${encodeURIComponent(d.run_id)}` : d.session_id ? `/chat/${encodeURIComponent(d.session_id)}` : undefined,
         status: deployStatus(d),
         facts: [
           `${personName(d.requested_by, names, d.requested_by_name)} asked`,
@@ -114,14 +124,26 @@
         const p = (a.action?.payload ?? {}) as Record<string, unknown>;
         const reason = a.comment ? `: “${a.comment}”` : '';
         const asker = personName(a.approver?.requester, names, a.requested_by_name);
-        const cancelled = withdrawn(a);
+        const cancelled = withdrawn(a) || a.status === 'cancelled';
+        const v = votesOf(a);
         return {
           key: a.id,
           at: a.created_at,
           title: `Deploy ${String(p.repo ?? '')} to ${envOf(a)} · ${String(p.ref ?? '')}`,
-          href: `/activity/tasks/${encodeURIComponent(a.run_id)}`,
-          status: { text: cancelled ? 'Cancelled' : 'Denied', tone: 'muted' as Tone },
-          facts: [`${asker} asked`, cancelled ? `Cancelled by ${asker === 'You' ? 'you' : asker}${reason}` : `${personName(a.decided_by, names, a.decided_by_name)} denied${reason}`],
+          href: a.approver?.requester === me ? `/activity/tasks/${encodeURIComponent(a.run_id)}` : undefined,
+          status: { text: a.status === 'expired' ? 'Expired' : cancelled ? 'Cancelled' : 'Denied', tone: 'muted' as Tone },
+          facts: [
+            `${asker} asked`,
+            a.status === 'expired'
+              ? v?.approved
+                ? `only ${v.approved} of ${v.required} approvals came in time`
+                : 'nobody answered in time'
+              : a.status === 'cancelled'
+                ? 'stopped before it was decided'
+                : cancelled
+                  ? `Cancelled by ${asker === 'You' ? 'you' : asker}${reason}`
+                  : `${personName(a.decided_by, names, a.decided_by_name)} denied${reason}`,
+          ],
         };
       }),
     ].sort((a, b) => b.at.localeCompare(a.at)),
@@ -194,12 +216,16 @@
             <li class="flex min-h-14 flex-col justify-center border-b border-border py-2 last:border-b-0">
               <!-- On a phone the title wraps, since rows differ at its end (environment, commit), and the status leads the meta line. -->
               <div class="flex items-baseline gap-4">
-                <a
-                  href={h.href}
-                  onclick={router.link}
-                  class="-my-0.5 flex min-h-6 min-w-0 flex-1 items-center text-body font-medium text-text hover:underline pointer-coarse:-my-3 pointer-coarse:min-h-11"
-                  title={h.title}><span class="[overflow-wrap:anywhere] sm:truncate">{h.title}</span></a
-                >
+                {#if h.href}
+                  <a
+                    href={h.href}
+                    onclick={router.link}
+                    class="-my-0.5 flex min-h-6 min-w-0 flex-1 items-center text-body font-medium text-text hover:underline pointer-coarse:-my-3 pointer-coarse:min-h-11"
+                    title={h.title}><span class="[overflow-wrap:anywhere] sm:truncate">{h.title}</span></a
+                  >
+                {:else}
+                  <span class="flex min-h-6 min-w-0 flex-1 items-center text-body font-medium text-text" title={h.title}><span class="[overflow-wrap:anywhere] sm:truncate">{h.title}</span></span>
+                {/if}
                 {@render word(h.status, 'max-sm:hidden')}
                 <time class="meta min-w-20 text-right whitespace-nowrap max-sm:hidden" title={fullTime(h.at)}>{relTime(h.at)}</time>
               </div>

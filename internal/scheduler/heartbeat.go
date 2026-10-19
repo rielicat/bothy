@@ -88,14 +88,14 @@ func (s *Service) owner(ctx context.Context) (*core.User, error) {
 	return nil, nil
 }
 
-// heartbeatDeliver maps scheduler.heartbeat.deliver onto Schedule.Deliver:
-// preferred = nil, web = web only, a channel name = the owner's DM there.
+// heartbeatDeliver maps scheduler.heartbeat.deliver onto Schedule.Deliver
+// of the owner's check-in: web = web only, anything else = nil. The owner is
+// an account, which has no chat, so a channel name posts nowhere else.
 func heartbeatDeliver(d string) *core.ChatRef {
-	switch d {
-	case "", "preferred":
-		return nil
+	if d == "web" {
+		return &core.ChatRef{Channel: "web"}
 	}
-	return &core.ChatRef{Channel: d}
+	return nil
 }
 
 func sameSettings(a, b *core.Schedule) bool {
@@ -119,7 +119,7 @@ func (s *Service) heartbeatPrompt(ctx context.Context, sc *core.Schedule) (strin
 		return "", fmt.Errorf("scheduler: read HEARTBEAT.md: %w", err)
 	}
 	if strings.TrimSpace(content) == "" {
-		return "", skipError{invalidf("HEARTBEAT.md is empty, so there is nothing to check")}
+		return "", skipError{invalidf("The check-in list is empty, so there's nothing to check yet. Add something to it first.")}
 	}
 	if err := s.heartbeatBudget(ctx, sc); err != nil {
 		return "", err

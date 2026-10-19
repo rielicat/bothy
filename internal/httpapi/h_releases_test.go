@@ -111,6 +111,35 @@ func TestReleasesRoutes(t *testing.T) {
 	expect(t, h.do(http.MethodGet, "/api/releases", nil, nil), http.StatusUnauthorized)
 }
 
+// Everyone reads what an environment is doing, all deploys still running
+// included, without links into another person's chat or task.
+func TestReleasesEnvironmentForEveryone(t *testing.T) {
+	h := releaseHarness(t)
+	ctx := context.Background()
+	deploys := h.store.(core.ReleaseStore).Releases()
+	for i, c := range []*client{h.member, h.admin} {
+		d := &core.Deploy{Environment: "staging", Repo: "acme/web", Workflow: "deploy.yml", Ref: "main",
+			Principal: core.UserPrincipal(c.user), Session: core.SessionID(core.NewID(core.PrefixSession)), Run: core.RunID(core.NewID(core.PrefixRun)),
+			RequestedBy: c.user, Status: core.DeployDispatched, CreatedAt: time.UnixMilli(int64(1_780_000_000_000 + i*1000))}
+		if err := deploys.Create(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range []*client{h.member, h.admin} {
+		r := decodeAs[dto.Releases](t, h.do(http.MethodGet, "/api/releases", nil, c))
+		env := r.Environments[0]
+		if env.Last == nil || env.Last.RequestedBy != h.admin.user || len(env.Running) != 2 {
+			t.Fatalf("%s sees staging as %+v", c.name, env)
+		}
+		for _, d := range append(env.Running, r.Deploys...) {
+			mine := d.RequestedBy == c.user
+			if mine != (d.Run != "" && d.Session != "") {
+				t.Errorf("%s sees %s's deploy with run %q session %q", c.name, d.RequestedBy, d.Run, d.Session)
+			}
+		}
+	}
+}
+
 // A user that no longer exists is named nowhere by id: no name on the
 // environment's approver and left out of who can still vote.
 func TestReleasesWithRemovedApprover(t *testing.T) {

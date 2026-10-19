@@ -30,6 +30,8 @@ const (
 
 	defaultRatePerMin = 30
 	maxRatePerMin     = 10000
+	minTokenTTL       = time.Minute
+	maxTokenTTL       = 400 * 24 * time.Hour
 )
 
 // Scopes a token may carry (SPEC §8.1).
@@ -112,6 +114,11 @@ func (s *Service) CreateToken(ctx context.Context, by core.Actor, spec core.Toke
 	}
 	if spec.TTL <= 0 {
 		return "", nil, fmt.Errorf("%w: ttl is required (tokens without expiry are not allowed; the UI default is 90 days)", core.ErrInvalid)
+	}
+	// ttl is in nanoseconds: a client sending days or seconds gets a token
+	// that is born expired, and a huge one never expires.
+	if spec.TTL < minTokenTTL || spec.TTL > maxTokenTTL {
+		return "", nil, fmt.Errorf("%w: ttl must be between 1 minute and 400 days, in nanoseconds", core.ErrInvalid)
 	}
 	onApproval := spec.OnApproval
 	switch onApproval {

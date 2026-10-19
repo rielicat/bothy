@@ -312,6 +312,8 @@ describe('expiry and buttons', () => {
     expect(expiryOf(ap(undefined, { card: { ...ap(undefined).card, expires: '0001-01-01T00:00:00Z' }, expires_at: at(0.5) }), now)?.text).toBe('Expires in less than a minute');
     // A parked card says it waits in its body, not in the expiry slot of the meta line.
     expect(expiryOf(ap(undefined, { status: 'parked' }), now)).toBeNull();
+    // A request that parks when its wait ends doesn't expire then.
+    expect(expiryOf(ap(undefined, { on_timeout: 'park', card: { ...ap(undefined).card, expires: at(2) } }), now)).toBeNull();
   });
 
   it('labels a pressed button with its -ing form', () => {
@@ -446,6 +448,10 @@ describe('decidedLine', () => {
       'Alex Kim denied deploying acme/web to production · “Not before the freeze ends”',
     );
     expect(line(decided(dep, { status: 'denied', choice: 'deny', approver, votes: [vote(me, 'deny')] }))).toBe('Cancelled by you');
+    // Never "Alex Kim and You" mid-sentence.
+    expect(line(decided(dep, { status: 'allowed', choice: 'allow_once', approver: { ...approver, requester: 'usr_x' }, votes: [vote(alex, 'allow_once'), vote(me, 'allow_once')] }))).toBe(
+      'You and Alex Kim approved deploying acme/web to production',
+    );
   });
 
   it('prints the time of day, and the date for older lines in a list', () => {
@@ -453,6 +459,9 @@ describe('decidedLine', () => {
     expect(d.time).toMatch(/\d{1,2}:42/);
     const old = decidedLine(decided(del, { status: 'allowed', choice: 'allow_once', decided_at: '2026-10-02T10:42:00Z' }), { me, name: () => '', now, list: true });
     expect(old.time).toBe(new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' }).format(new Date('2026-10-02T10:42:00Z')));
+    // Expired lines in Earlier carry their date like the rest.
+    const expired = decidedLine(decided(del, { status: 'expired', decided_at: '2026-10-02T10:42:00Z' }), { me, name: () => '', now, list: true });
+    expect(expired.time).toBe(old.time);
   });
 });
 

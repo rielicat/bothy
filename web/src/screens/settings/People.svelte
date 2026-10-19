@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { Avatar, Button, CodeBlock, Dialog, EmptyState, IconButton, Menu, Notice, Radio, StatusLine, TextField, toast, type MenuItem } from '../../components/ui';
-  import { api, ApiError } from '../../lib/api/client';
+  import { api, ApiError, refusal } from '../../lib/api/client';
   import { router } from '../../lib/router.svelte';
   import { session } from '../../lib/stores/session.svelte';
   import AddPerson from './AddPerson.svelte';
@@ -46,28 +46,33 @@
   const sorted = $derived([...users].sort((a, b) => (order[a.role] ?? 3) - (order[b.role] ?? 3) || displayName(a).localeCompare(displayName(b))));
   const solo = $derived(loaded && users.length <= 1);
   const meId = $derived(session.me?.user.id);
+  const isOwner = $derived(session.me?.user.role === 'owner');
 
   async function patch(u: User, body: Partial<User>, ok: string, fail: string) {
     actionError = '';
     try {
       Object.assign(u, await api.patch<User>(`/api/users/${encodeURIComponent(u.id)}`, body));
       toast(ok);
-    } catch {
-      actionError = fail;
+    } catch (err) {
+      actionError = (err as ApiError).status === 403 ? refusal(err) || fail : fail;
     }
   }
 
   function items(u: User): MenuItem[] {
     const name = displayName(u);
+    const limit: MenuItem = { label: 'Daily limit…', onselect: () => openLimit({ key: u.username, name, member: u.role === 'member' }) };
+    // Only the owner changes another admin's account.
+    if (u.role === 'admin' && !isOwner) return [limit];
     return [
       { label: 'Member', group: 'Change role', checked: u.role === 'member', onselect: () => u.role !== 'member' && patch(u, { role: 'member' }, 'Role changed.', `Couldn't change ${name}'s role. Try again.`) },
       { label: 'Admin', group: 'Change role', checked: u.role === 'admin', onselect: () => u.role !== 'admin' && patch(u, { role: 'admin' }, 'Role changed.', `Couldn't change ${name}'s role. Try again.`) },
       'separator',
-      { label: 'Daily limit…', onselect: () => openLimit({ key: u.username, name, member: u.role === 'member' }) },
-      { label: 'Reset password…', onselect: () => openReset(u) },
+      limit,
+      // A turned-off account can't sign in with a one-time password.
       u.disabled
-        ? { label: 'Turn on account', onselect: () => patch(u, { disabled: false }, 'Account turned on.', `Couldn't turn on ${name}'s account. Try again.`) }
-        : { label: 'Turn off account…', danger: true, onselect: () => (turningOff = u) },
+        ? { label: 'Turn on account', onselect: () => patch(u, { disabled: false }, 'Account turned on. Their old API tokens stay revoked.', `Couldn't turn on ${name}'s account. Try again.`) }
+        : { label: 'Reset password…', onselect: () => openReset(u) },
+      ...(u.disabled ? [] : [{ label: 'Turn off account…', danger: true, onselect: () => (turningOff = u) }]),
     ];
   }
 
@@ -145,7 +150,7 @@
       resetError =
         err instanceof ApiError && (err.status === 404 || err.status === 405 || err.status === 501)
           ? "This version of Bothy can't reset passwords yet. Update Bothy, then try again."
-          : "Bothy couldn't reset the password. Try again.";
+          : refusal(err) || "Bothy couldn't reset the password. Try again.";
     } finally {
       resetBusy = false;
     }
@@ -166,9 +171,9 @@
       offBusy = false;
       turningOff = null;
       toast('Account turned off.');
-    } catch {
+    } catch (err) {
       offBusy = false;
-      offError = `Bothy couldn't turn off ${displayName(u)}'s account. Try again.`;
+      offError = ((err as ApiError).status === 403 && refusal(err)) || `Bothy couldn't turn off ${displayName(u)}'s account. Try again.`;
     }
   }
 
@@ -274,5 +279,5 @@
   onclose={() => {
     turningOff = null;
     offError = '';
-  }}>They're signed out everywhere and can't sign in until an admin turns the account back on. Their chats and memory are kept.</ConfirmDialog
+  }}>They're signed out everywhere and can't sign in until an admin turns the account back on. Their API tokens stop working for good. Their chats and memory are kept.</ConfirmDialog
 >

@@ -102,6 +102,42 @@ describe('Releases (docs/design/ui.md §10.4)', () => {
     expect(screen.getAllByText('Cancelled').every((el) => el.closest('section'))).toBe(true);
   });
 
+  it('shows every deploy still running and every request that ended without one, linking only what the viewer can open', async () => {
+    const at = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+    const dep = (id: string, who: string, min: number, mine: boolean) => ({
+      id, environment: 'production', repo: 'acme/web', workflow: 'deploy.yml', ref: 'main', principal_id: who, session_id: mine ? 'ses_' + id : '', run_id: mine ? 'run_' + id : '',
+      requested_by: who, approved_by: [], status: 'dispatched', created_at: at(min), updated_at: at(min), finished_at: '', sha: '', short_sha: id, requested_by_name: who, approved_by_names: [],
+    });
+    const max = dep('max0001', 'Max', 15, false);
+    const mine = dep('min0002', member.id, 9, true);
+    await open((m, url) => {
+      if (m !== 'GET') return undefined;
+      if (url === '/api/approvals?status=pending') return { items: [] };
+      if (url === '/api/approvals?status=recent')
+        return {
+          items: [
+            {
+              id: 'apr_expired', run_id: 'run_e', status: 'expired', created_at: at(30), requested_by_name: 'Sam',
+              approver: { user_id: '', admin_only: false, roles: ['admin'], required: 2, requester: 'usr_sam' },
+              votes: [{ approval_id: 'apr_expired', user_id: 'usr_priya', choice: 'allow_once', via: 'web', at: at(29) }],
+              action: { tool: 'release_deploy', kind: 'release', side_effect: 'irreversible', payload: { repo: 'acme/web', environment: 'production', ref: 'main' }, fingerprint: 'f' },
+            },
+          ],
+        };
+      if (url === '/api/releases')
+        return { environments: [{ name: 'production', repo: 'acme/web', workflow: 'deploy.yml', ref_pattern: 'main', inputs: {}, required: 2, approvers: [], last: mine, running: [mine, max] }], deploys: [mine] };
+      return undefined;
+    });
+    const history = (await screen.findByText('History')).closest('section')!;
+    expect(document.querySelector('ul > li')!.textContent).toContain('2 deploys running');
+    expect(history.textContent).toContain('Deploy acme/web to production · main at max0001');
+    expect(history.textContent).not.toContain('min0002');
+    expect(history.textContent).toContain('Sam asked · only 1 of 2 approvals came in time');
+    expect(history.textContent).toContain('Expired');
+    // Neither another person's deploy nor their request leads to a task the viewer can't open.
+    expect([...history.querySelectorAll('a')].filter((a) => a.getAttribute('href')?.startsWith('/activity/tasks/'))).toEqual([]);
+  });
+
   it('shows a commit subject as quoted text, never as markup', async () => {
     const now = new Date().toISOString();
     await open((m, url) =>

@@ -3,6 +3,7 @@
   import { cardCopy, joinNames, withdrawn } from '../../lib/cardcopy';
   import type { Approval } from '../../lib/api/types.gen';
   import { clock, fullTime } from '../../lib/format';
+  import DeployFollowUp from '../approval/DeployFollowUp.svelte';
   import Icon from '../Icon.svelte';
   import LinkButton from '../ui/LinkButton.svelte';
   import InlineApproval from './InlineApproval.svelte';
@@ -64,6 +65,8 @@
       >
     </span>
   </p>
+  <!-- An approved deploy says how it goes, live, until its outcome notice arrives (§8.7). -->
+  {#if approval.status === 'allowed' && approval.action?.tool === 'release_deploy'}<div class="pl-6"><DeployFollowUp {approval} small /></div>{/if}
   <!-- The line above already says the decision, so the card leaves its own out. -->
   {#if show}<div class="mt-2 mb-1"><InlineApproval {approval} readonly decision={false} /></div>{/if}
 </div>

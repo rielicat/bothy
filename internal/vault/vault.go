@@ -49,7 +49,7 @@ func (v *Vault) setSealed(p kekPlan, reason string) {
 func (v *Vault) setOpen(p kekPlan, kek, dek []byte, keyID int64) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	v.plan, v.sealed, v.reason = p, false, ""
+	v.plan, v.sealed, v.reason, v.unchosen = p, false, "", false
 	v.kek, v.dek, v.keyID = kek, dek, keyID
 	v.red.Add("vault:kek", kek)
 	v.red.Add("vault:dek", dek)
@@ -422,6 +422,15 @@ func findRefs(s string) ([]refSpan, error) {
 
 func isUpper(c byte) bool { return c >= 'A' && c <= 'Z' }
 
+// plainErr is an ErrInvalid whose message is a sentence for the person
+// unlocking the keys, without the sentinel's word.
+type plainErr string
+
+func (e plainErr) Error() string { return string(e) }
+func (e plainErr) Unwrap() error { return core.ErrInvalid }
+
+func plainInvalid(msg string) error { return plainErr(msg) }
+
 func (v *Vault) Put(ctx context.Context, sc core.Scope, name string, value []byte, by core.UserID) (core.SecretMeta, error) {
 	if err := validScope(sc); err != nil {
 		return core.SecretMeta{}, err
@@ -457,7 +466,9 @@ func (v *Vault) Put(ctx context.Context, sc core.Scope, name string, value []byt
 	if err != nil {
 		return core.SecretMeta{}, err
 	}
+	v.red.Retire(redactID(sc, name))
 	v.red.Add(redactID(sc, name), value)
+	v.gen.Add(1)
 	if created {
 		v.mu.Lock()
 		v.count++
@@ -484,13 +495,18 @@ func (v *Vault) Delete(ctx context.Context, sc core.Scope, name string, by core.
 	if err := v.store.Vault().DeleteSecret(ctx, sc, name); err != nil {
 		return err
 	}
-	v.red.Remove(redactID(sc, name))
+	v.red.Retire(redactID(sc, name))
+	v.gen.Add(1)
 	v.mu.Lock()
 	v.count = max(v.count-1, 0)
 	delete(v.touched, redactID(sc, name))
 	v.mu.Unlock()
 	return v.record(ctx, "vault.delete", actor(by), redactID(sc, name), "ok", map[string]any{"scope": string(sc), "name": name})
 }
+
+// Generation changes whenever a stored key is put or deleted, so a holder of
+// resolved values (the providers) knows to read them again.
+func (v *Vault) Generation() uint64 { return v.gen.Load() }
 
 // List returns names and hints, never values. Environment secrets apply to
 // every scope but are listed once, under the global scope, by the lower-cased
@@ -529,10 +545,12 @@ func (v *Vault) Unseal(ctx context.Context, passphrase []byte) error {
 		return nil
 	}
 	if plan.source != srcPassphrase {
-		return fmt.Errorf("vault: sealed because %s; a passphrase cannot unseal it: %w", reason, core.ErrInvalid)
+		v.log.Warn("vault: unseal refused", "reason", reason)
+		return plainInvalid("A passphrase can't unlock these saved keys: they are locked because Bothy's key file is missing or doesn't match. " +
+			"Put the key file Bothy was set up with back on the server, then restart Bothy.")
 	}
 	if len(passphrase) == 0 {
-		return fmt.Errorf("vault: empty passphrase: %w", core.ErrInvalid)
+		return plainInvalid("Enter the passphrase.")
 	}
 	id, wrapped, check, _, err := v.store.Vault().ActiveKey(ctx)
 	if errors.Is(err, core.ErrNotFound) {
@@ -566,7 +584,7 @@ func (v *Vault) Unseal(ctx context.Context, passphrase []byte) error {
 
 func (v *Vault) initPassphrase(ctx context.Context, plan kekPlan, passphrase []byte) error {
 	if utf8.RuneCount(passphrase) < minPassphrase {
-		return fmt.Errorf("vault: the passphrase must have at least %d characters: %w", minPassphrase, core.ErrInvalid)
+		return plainInvalid(fmt.Sprintf("This sets the passphrase for the saved keys, so it needs at least %d characters.", minPassphrase))
 	}
 	params := kdfParams(newKey()[:argonSaltLen])
 	kek, err := deriveKEK(passphrase, params)
@@ -681,10 +699,11 @@ func (v *Vault) Status() core.VaultStatus {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	st := core.VaultStatus{
-		Sealed:    v.sealed,
-		KEKSource: v.plan.source,
-		Colocated: v.plan.source == srcAutogen && v.colocated,
-		Secrets:   v.count + len(v.envSecs),
+		Sealed:        v.sealed,
+		KEKSource:     v.plan.source,
+		Colocated:     v.plan.source == srcAutogen && v.colocated,
+		Secrets:       v.count + len(v.envSecs),
+		NewPassphrase: v.sealed && v.unchosen,
 	}
 	if len(refs) > 0 {
 		st.External = map[string]int{awsSource: len(refs)}

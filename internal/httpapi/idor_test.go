@@ -21,9 +21,13 @@ type storeScheduler struct {
 	*fakes.Scheduler
 	store core.Store
 	runs  []core.ScheduleID
+	// origins are what each change carried for the scheduler's audit row.
+	origins []core.AuditOrigin
 }
 
 func (s *storeScheduler) Upsert(ctx context.Context, v core.Viewer, sc *core.Schedule, by string) error {
+	o, _ := core.AuditOriginFrom(ctx)
+	s.origins = append(s.origins, o)
 	if !v.Can(sc.Principal) {
 		return fmt.Errorf("schedule: %w", core.ErrNotFound)
 	}
@@ -48,6 +52,8 @@ func (s *storeScheduler) Upsert(ctx context.Context, v core.Viewer, sc *core.Sch
 }
 
 func (s *storeScheduler) Delete(ctx context.Context, v core.Viewer, id core.ScheduleID, _ core.UserID) error {
+	o, _ := core.AuditOriginFrom(ctx)
+	s.origins = append(s.origins, o)
 	return s.store.Schedules().Delete(ctx, v, id)
 }
 

@@ -23,6 +23,16 @@ describe('Schedules (docs/design/ui.md §10.3)', () => {
     expect(screen.getByText('Morning briefing').closest('li')!.textContent).toContain('Posts here');
   });
 
+  it("names a schedule's time zone when it isn't the viewer's", async () => {
+    await start(undefined, (m, url) => {
+      if (m !== 'GET' || url !== '/api/schedules') return undefined;
+      const base = { id: 'sch_tokyo', name: 'Morning briefing', kind: 'cron', spec: '0 6 * * *', prompt: 'x', slot: 'main', enabled: true, failures: 0, missed_run: 'skip', created_by: 'u', created_at: '', updated_at: '' };
+      return [{ ...base, tz: 'Asia/Tokyo' }, { ...base, id: 'sch_mine', name: 'Mine', tz: session.me?.user.timezone }];
+    });
+    expect(screen.getByText('Morning briefing').closest('li')!.textContent).toContain('Tokyo time');
+    expect(screen.getByText('Mine').closest('li')!.textContent).not.toMatch(/ time\b/);
+  });
+
   it('confirms Run now in a short toast that opens the task', async () => {
     toaster.dismiss();
     await start();
@@ -30,6 +40,17 @@ describe('Schedules (docs/design/ui.md §10.3)', () => {
     await fireEvent.click(await screen.findByRole('menuitem', { name: 'Run now' }));
     await waitFor(() => expect(toaster.current?.text).toBe('Schedule started.'));
     expect(toaster.current?.action?.label).toBe('View');
+  });
+
+  it("says why Run now didn't start, when trying again can't help", async () => {
+    const why = "The check-in list is empty, so there's nothing to check yet. Add something to it first.";
+    await start(undefined, (m, url) =>
+      m === 'POST' && url.endsWith('/run') ? new Response(JSON.stringify({ error: { code: 'bad_request', message: why } }), { status: 400 }) : undefined,
+    );
+    await fireEvent.click(screen.getByRole('button', { name: 'More for Morning briefing' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Run now' }));
+    expect(await screen.findByText(why)).toBeTruthy();
+    expect(screen.queryByText("Couldn't start it. Try again.")).toBeNull();
   });
 
   it('lists the schedules people set up in chat apps for admins, to turn off or delete', async () => {

@@ -112,8 +112,11 @@ function signInFinding(f: Finding): FindingCopy {
   return { text: `${p} sign-in is on, but its client secret is missing.`, steps: `Open Security → ${p} sign-in and save the client secret again.`, action: 'how' };
 }
 
-export function describeFinding(f: Finding): FindingCopy {
+export function describeFinding(f: Finding, keyFile = false): FindingCopy {
   if (f.id === 'auth.sign_in') return signInFinding(f);
+  // keyFile: locked by a key file (VaultStatus.kek_source isn't passphrase), which no passphrase can unlock.
+  if (f.id === 'vault.sealed' && keyFile)
+    return { text: "Saved keys are locked because Bothy's key file is missing or doesn't match.", steps: 'Put the key file Bothy was set up with back on the server, then restart Bothy.', action: 'how' };
   const c = copy[f.id];
   const action: FindingAction = c?.action ?? (f.auto_fix ? 'fix' : 'how');
   return { text: c?.text ?? sentence(f.title), steps: c?.steps, action };

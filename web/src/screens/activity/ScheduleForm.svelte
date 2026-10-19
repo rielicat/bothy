@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
   import { Button, Checkbox, Combobox, Disclosure, IconButton, Menu, Page, Select, TextArea, TextField, toast } from '../../components/ui';
-  import { api, ApiError } from '../../lib/api/client';
+  import { api, ApiError, refusal } from '../../lib/api/client';
   import type { Grant, List, Schedule, SchedulePreviewResp } from '../../lib/api/types.gen';
   import { fullTime, money } from '../../lib/format';
   import { hostPort } from '../../lib/grants';
@@ -163,8 +163,9 @@
       await saveSchedule(out, grants);
       toast(isNew ? 'Schedule created.' : 'Saved.');
       router.navigate('/activity/schedules');
-    } catch {
-      saveError = "Couldn't save. Try again.";
+    } catch (e) {
+      // A time already past or outside the chosen hours: retrying can't help, so say why.
+      saveError = refusal(e) || "Couldn't save. Try again.";
     } finally {
       saving = false;
     }

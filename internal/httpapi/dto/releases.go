@@ -61,6 +61,12 @@ type ReleaseEnvironment struct {
 	Inputs     map[string]string `json:"inputs"`
 	Required   int               `json:"required"` // approvers besides the requester
 	Approvers  []ReleaseApprover `json:"approvers"`
+	// Last is the environment's newest deploy and Running its deploys
+	// still followed, newest first, whoever asked for them: every viewer
+	// reads what the environment is doing. Another person's deploy has no
+	// session, run or chat, which the viewer couldn't open.
+	Last    *DeployView  `json:"last,omitempty"`
+	Running []DeployView `json:"running,omitempty"`
 }
 
 type ReleaseApprover struct {

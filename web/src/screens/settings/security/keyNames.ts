@@ -57,6 +57,9 @@ export function keyName(name: string): string {
   const lower = name.toLowerCase();
   const mine = own.find(([re]) => re.test(lower));
   if (mine) return mine[1];
+  // The secret header the Add an MCP server dialog saves.
+  const mcp = /^mcp_([a-z0-9-]+)_header$/.exec(lower);
+  if (mcp) return `Key for ${serviceName(mcp[1])}`;
   const [prefix] = lower.split(/[_.-]/);
   for (const [re, kind] of kinds) {
     if (re.test(lower) && services[prefix] && lower.replace(re, '') === prefix) return `${services[prefix]} ${kind}`;
@@ -77,9 +80,10 @@ function awsSecretName(ref: string): string {
   return `${secret}${key ? ` (${key})` : ''} in AWS Secrets Manager`;
 }
 
-// A reference may sit at the end of a header value: "Bearer aws-sm:docs#token".
+// A reference may sit inside a value, as in "Bearer secret:docs_token" or an
+// address's "?api_key=secret:docs_key", as long as it stands as a word.
 const pointsAt = (value: unknown, name: string) =>
-  name.startsWith(AWS_SM) ? typeof value === 'string' && (value === name || value.endsWith(` ${name}`)) : value === `secret:${name}`;
+  typeof value === 'string' && ` ${value} `.replace(/[=&]/g, ' ').includes(` ${name.startsWith(AWS_SM) ? name : `secret:${name}`} `);
 
 /** What uses a saved key, from the settings that point at `secret:<name>` (or at the aws-sm reference). */
 export function usedBy(name: string, entries: Entry[]): string[] {
@@ -92,7 +96,7 @@ export function usedBy(name: string, entries: Entry[]): string[] {
     const [area, id] = e.path.split('.');
     if (area === 'providers' || area === 'channels') out.add(serviceName(id));
     else if (area === 'search') out.add(serviceName(id.split('_')[0]));
-    else if (area === 'mcp') out.add(e.path.split('.')[2] ?? 'a connected tool');
+    else if (area === 'mcp') out.add(serviceName(e.path.split('.')[2] ?? 'a connected tool'));
     else if (area === 'auth') out.add('Sign-in');
     else out.add(serviceName(area));
   }

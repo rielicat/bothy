@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/rielicat/bothy/internal/core"
 )
@@ -19,9 +20,21 @@ import (
 type headerTransport struct {
 	base    http.RoundTripper
 	headers map[string]core.Secret
+	// rejected is set once the server answers 401 or 403: the SDK reports
+	// only the status text, and such a session never works again.
+	rejected atomic.Bool
+	// retired stops every request: the session is closed because its key
+	// was replaced or deleted, and the close itself must not send it, which
+	// sits in the address as well when it is ?api_key=secret:<name>.
+	retired atomic.Bool
 }
 
+var errRetired = errors.New("mcp session closed: the key it was made with changed")
+
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.retired.Load() {
+		return nil, errRetired
+	}
 	r := req.Clone(req.Context())
 	for k, v := range t.headers {
 		r.Header.Set(k, v.Reveal())
@@ -29,6 +42,9 @@ func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	resp, err := t.base.RoundTrip(r)
 	if err != nil {
 		return nil, err
+	}
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		t.rejected.Store(true)
 	}
 	// The SDK reads a JSON response whole; event streams it bounds per event.
 	if ct := strings.ToLower(resp.Header.Get("Content-Type")); !strings.HasPrefix(ct, "text/event-stream") {

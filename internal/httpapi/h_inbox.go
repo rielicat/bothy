@@ -110,7 +110,7 @@ func (s *Server) mcpItems(ctx context.Context) []dto.InboxItem {
 			continue
 		}
 		// A changed tool's approved definition stays beside the pending one,
-		// so the review can show what changed.
+		// so the review can show what changed; a tool without one is new.
 		changed := map[string]bool{}
 		var first time.Time
 		for _, p := range pins {
@@ -124,9 +124,21 @@ func (s *Server) mcpItems(ctx context.Context) []dto.InboxItem {
 		if len(changed) == 0 {
 			continue
 		}
+		fresh := len(changed)
+		for _, p := range pins {
+			if p.Status != core.PinPending && changed[p.Tool] {
+				fresh--
+			}
+		}
+		question, summary := "Review changes to "+capitalise(st.Name)+" actions", plural(len(changed), "action changed", "actions changed")
+		switch {
+		case fresh == len(changed):
+			question, summary = "Review "+capitalise(st.Name)+"'s new actions", plural(fresh, "new action", "new actions")
+		case fresh > 0:
+			question, summary = "Review "+capitalise(st.Name)+"'s actions", plural(fresh, "new action", "new actions")+", "+plural(len(changed)-fresh, "changed", "changed")
+		}
 		pins = slices.DeleteFunc(pins, func(p *core.MCPPin) bool { return !changed[p.Tool] })
-		items = append(items, dto.InboxItem{ID: "mcp:" + st.Name, Type: dto.InboxMCPReview,
-			Question: "Review changes to " + capitalise(st.Name) + " actions", Summary: plural(len(changed), "action changed", "actions changed"),
+		items = append(items, dto.InboxItem{ID: "mcp:" + st.Name, Type: dto.InboxMCPReview, Question: question, Summary: summary,
 			ForYou: true, CreatedAt: first, MCP: &dto.InboxMCP{Server: st.Name, Tools: pins}})
 	}
 	return items

@@ -186,12 +186,19 @@ type fakeServer struct {
 	mu       sync.Mutex
 	desc     string
 	headers  []http.Header
+	queries  []string // each request's raw query, beside headers
 	versions []string // nil = every version the SDK supports
 	// stateless serves Streamable HTTP statelessly, which the 2026-07-28
 	// protocol requires; such a server learns of a cancelled call from the
 	// client abandoning the HTTP request.
 	stateless bool
 	extra     []*mcpsdk.Tool
+	// auth, when set, is the only Authorization the server accepts; any
+	// other request gets 401, as a server does with a rotated key.
+	auth string
+	// hideSearch drops the search tool from the list, as a server that no
+	// longer offers it.
+	hideSearch bool
 
 	requests  atomic.Int32
 	started   chan struct{}
@@ -212,18 +219,20 @@ var objectSchema = map[string]any{"type": "object", "properties": map[string]any
 
 func (f *fakeServer) server() *mcpsdk.Server {
 	f.mu.Lock()
-	desc, versions, extra := f.desc, f.versions, slices.Clone(f.extra)
+	desc, versions, extra, hide := f.desc, f.versions, slices.Clone(f.extra), f.hideSearch
 	f.mu.Unlock()
 	s := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "fake", Version: "1"},
 		&mcpsdk.ServerOptions{SupportedProtocolVersions: versions, Logger: slog.New(slog.DiscardHandler)})
-	s.AddTool(&mcpsdk.Tool{Name: "search", Description: desc, InputSchema: objectSchema},
-		func(_ context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
-			var args struct {
-				Q string `json:"q"`
-			}
-			_ = json.Unmarshal(req.Params.Arguments, &args)
-			return &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: "results for " + args.Q}}}, nil
-		})
+	if !hide {
+		s.AddTool(&mcpsdk.Tool{Name: "search", Description: desc, InputSchema: objectSchema},
+			func(_ context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
+				var args struct {
+					Q string `json:"q"`
+				}
+				_ = json.Unmarshal(req.Params.Arguments, &args)
+				return &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: "results for " + args.Q}}}, nil
+			})
+	}
 	s.AddTool(&mcpsdk.Tool{Name: "block", Description: "Blocks until cancelled.", InputSchema: map[string]any{"type": "object"}},
 		func(ctx context.Context, _ *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
 			f.started <- struct{}{}
@@ -256,11 +265,51 @@ func (f *fakeServer) httpServer(t *testing.T, legacy bool) *httptest.Server {
 		f.requests.Add(1)
 		f.mu.Lock()
 		f.headers = append(f.headers, r.Header.Clone())
+		f.queries = append(f.queries, r.URL.RawQuery)
+		want := f.auth
 		f.mu.Unlock()
+		if want != "" && r.Header.Get("Authorization") != want {
+			http.Error(w, "invalid token", http.StatusUnauthorized)
+			return
+		}
 		h.ServeHTTP(w, r)
 	}))
 	t.Cleanup(ts.Close)
 	return ts
+}
+
+func (f *fakeServer) setAuth(a string) {
+	f.mu.Lock()
+	f.auth = a
+	f.mu.Unlock()
+}
+
+// lastAuth is the Authorization of the latest request ("" when none).
+func (f *fakeServer) lastAuth() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.headers) == 0 {
+		return ""
+	}
+	return f.headers[len(f.headers)-1].Get("Authorization")
+}
+
+// queriesAll is every request's raw query in order.
+func (f *fakeServer) queriesAll() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.queries)
+}
+
+// authHeadersAll is every request's Authorization in order, "" for none.
+func (f *fakeServer) authHeadersAll() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]string, len(f.headers))
+	for i, h := range f.headers {
+		out[i] = h.Get("Authorization")
+	}
+	return out
 }
 
 func (f *fakeServer) authHeaders() []string {

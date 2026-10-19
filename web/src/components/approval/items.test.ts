@@ -59,6 +59,16 @@ describe('inbox items', () => {
     expect(other.container.textContent).not.toContain('U0123ABC');
   });
 
+  it('calls a new server\'s actions new, not changes', async () => {
+    const all = await items();
+    const github = all.find((i) => i.id === 'mcp:github')!;
+    expect(itemQuestion(github)).toBe("Review GitHub's new actions");
+    expect(itemSource(github)).toBe('1 new action');
+    const { container } = render(ReviewCard, { item: github });
+    expect([...container.querySelectorAll('button[data-choice]')].map((b) => b.textContent?.trim())[0]).toBe('Approve actions');
+    expect(container.textContent).not.toContain('Show what changed');
+  });
+
   it('lets someone in or blocks them, and nothing else', async () => {
     const [jordan] = await items();
     const { container } = render(ReviewCard, { item: jordan });
@@ -135,7 +145,7 @@ describe('inbox items', () => {
 
   it('spells a service the way it spells itself', async () => {
     const review = (await items())[2];
-    expect(itemQuestion(review)).toBe('Review changes to GitHub actions');
+    expect(itemQuestion(review)).toBe("Review GitHub's new actions");
     const { container } = render(ReviewCard, { item: review });
     expect(within(container).getByRole('button', { name: 'Turn off GitHub' })).toBeTruthy();
   });

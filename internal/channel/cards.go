@@ -166,8 +166,12 @@ func (h *Hub) deliverCard(ctx context.Context, ap *core.Approval) {
 			h.sendNotice(ctx, ap, *origin, "Waiting for "+who+" to approve "+cardIng(ap)+".")
 		}
 	case ap.Approver.AdminOnly:
+		// The requester's own DM gets the waiting line only, not also the
+		// link card it would get as an approver.
 		for _, dm := range h.chatApprovers(ctx) {
-			h.sendLinkCard(ctx, ap, dm.chat)
+			if origin == nil || origin.Kind != core.ChatDM || dm.chat.Key() != origin.Key() {
+				h.sendLinkCard(ctx, ap, dm.chat)
+			}
 		}
 		if origin != nil {
 			h.sendNotice(ctx, ap, *origin, needsAdmin)
@@ -289,6 +293,9 @@ func choiceLabel(c core.Card, ch core.Choice, person string) string {
 		}
 		return "Allow"
 	case core.AllowSession:
+		if scheduledCard(c) {
+			return "Allow for this schedule"
+		}
 		if person != "" {
 			return "Allow in " + person + "'s chat"
 		}
@@ -382,6 +389,17 @@ func mentionLink(identity, name, handle string) (link, id string) {
 }
 
 const allowForChat = "Allow for this chat"
+
+// scheduledCard reports a card of a scheduled run, whose allow_session
+// covers the schedule (agent.grantFor), by its context line.
+func scheduledCard(c core.Card) bool {
+	for _, p := range strings.Split(c.Context, " · ") {
+		if p == string(core.TrigSchedule) || p == string(core.TrigHeartbeat) {
+			return true
+		}
+	}
+	return false
+}
 
 // plainLine shows a sentence of card copy verbatim. Words a chat client
 // would turn into a link (a file name like staging.md passes for a domain)

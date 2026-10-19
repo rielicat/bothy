@@ -309,6 +309,16 @@ func (r mcpRepo) Pins(ctx context.Context, server string) ([]*core.MCPPin, error
 		ORDER BY tool`, server)
 }
 
+func (r mcpRepo) History(ctx context.Context, server string) ([]*core.MCPPin, error) {
+	return queryAll(ctx, r.h.rq, "mcp pin history", scanMCPPin, `SELECT `+pinColsMCP+` FROM mcp_tool_pins WHERE server = ?
+		ORDER BY tool, first_seen_at, hash`, server)
+}
+
+func (r mcpRepo) DeletePins(ctx context.Context, server string) error {
+	_, err := r.h.wq.ExecContext(ctx, `DELETE FROM mcp_tool_pins WHERE server = ?`, server)
+	return dbErr("delete mcp pins", err)
+}
+
 func (r mcpRepo) Approved(ctx context.Context, server string) (map[string]*core.MCPPin, error) {
 	pins, err := queryAll(ctx, r.h.rq, "approved pins", scanMCPPin,
 		`SELECT `+pinColsMCP+` FROM mcp_tool_pins WHERE server = ? AND status = 'approved'`, server)

@@ -39,7 +39,11 @@ func (s *Server) routeTable() []route {
 		{pattern: "DELETE /api/tokens/{id}", access: accessUserCookie, h: s.revokeToken},
 
 		{pattern: "GET /api/users", access: accessAdmin, h: s.listUsers},
-		{pattern: "POST /api/users", access: accessAdmin, h: s.createUser},
+		// Adding someone returns a password to sign in with, so it is
+		// cookie-only like setting one (POST /api/users/{id}/password); a
+		// token could otherwise make itself an admin account with a cookie.
+		// Role changes and purges check the same in their handlers.
+		{pattern: "POST /api/users", access: accessAdminCookie, h: s.createUser},
 		{pattern: "PATCH /api/users/{id}", access: accessAdmin, h: s.patchUser},
 		{pattern: "DELETE /api/users/{id}", access: accessAdmin, h: s.deleteUser},
 

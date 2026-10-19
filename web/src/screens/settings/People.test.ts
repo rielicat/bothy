@@ -124,6 +124,53 @@ describe('Settings → People', () => {
     await waitFor(() => expect(screen.getByRole('dialog', { name: 'New password for Jordan Kim' })).toBe(dialog));
   });
 
+  it("says why a reset was refused, and offers none for a turned-off account", async () => {
+    const refused = new Response(JSON.stringify({ error: { code: 'forbidden', message: "only the owner can reset an admin's password" } }), { status: 403 });
+    installApi({ override: (m, url) => (m === 'POST' && url.endsWith('/password') ? refused : undefined) });
+    session.ready = false;
+    await session.init();
+    setCsrf('mock-csrf');
+    render(Settings, { params: { group: 'people', page: 'people' } });
+    let m = await menu('Priya Rao');
+    await fireEvent.click(within(m).getByRole('menuitem', { name: 'Reset password…' }));
+    const dialog = await screen.findByRole('dialog', { name: "Reset Priya Rao's password?" });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Reset password' }));
+    expect(await within(dialog).findByText("Only the owner can reset an admin's password.")).toBeTruthy();
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    m = await menu('Priya Rao');
+    await fireEvent.click(within(m).getByRole('menuitem', { name: 'Turn off account…' }));
+    await fireEvent.click(within(await screen.findByRole('dialog', { name: "Turn off Priya Rao's account?" })).getByRole('button', { name: 'Turn off account' }));
+    await screen.findByText('Admin · Turned off', { selector: 'p' });
+    m = await menu('Priya Rao');
+    expect(within(m).queryByRole('menuitem', { name: 'Reset password…' })).toBeNull();
+    expect(within(m).getByRole('menuitem', { name: 'Turn on account' })).toBeTruthy();
+  });
+
+  it("leaves another admin's account to the owner", async () => {
+    await open();
+    session.me = { ...session.me!, user: { ...session.me!.user, role: 'admin' } };
+    const m = await menu('Priya Rao');
+    expect(within(m).getAllByRole('menuitem').map((i) => i.textContent?.trim())).toEqual(['Daily limit…']);
+    expect(within(m).queryAllByRole('menuitemradio')).toEqual([]);
+    session.me = { ...session.me!, user: { ...session.me!.user, role: 'owner' } };
+  });
+
+  it('says on the field when the server refuses a name', async () => {
+    const refused = new Response(JSON.stringify({ error: { code: 'bad_request', message: 'display name must be at most 64 printable characters' } }), { status: 400 });
+    installApi({ override: (m, url) => (m === 'POST' && url === '/api/users' ? refused : undefined) });
+    session.ready = false;
+    await session.init();
+    setCsrf('mock-csrf');
+    render(Settings, { params: { group: 'people', page: 'people' } });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Add person' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add person' });
+    await fireEvent.input(within(dialog).getByLabelText('Name'), { target: { value: 'Maya\u200bChen' } });
+    await fireEvent.input(within(dialog).getByLabelText('Username'), { target: { value: 'maya' } });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+    expect(await within(dialog).findByText('Use at most 64 characters, with no invisible ones.')).toBeTruthy();
+    expect(within(dialog).queryByText("Bothy couldn't add them. Try again.")).toBeNull();
+  });
+
   it("opens Add person when setup's \"Add people\" sends someone here", async () => {
     router.navigate('/settings/people?add=1');
     await open();

@@ -344,7 +344,9 @@ func TestScheduleSendsTo(t *testing.T) {
 		{map[string]any{"owner": "Sam Patel", "owner_kind": "user"}, "Bothy on the web"},
 		{map[string]any{}, "Bothy on the web"},
 		{map[string]any{"deliver": map[string]any{"channel": "web"}}, "Bothy on the web"},
-		{map[string]any{"deliver": map[string]any{"channel": "slack", "chat_id": "C1"}}, "Slack chat C1"},
+		// A set chat is the owner's own: named like the usual one, never by its id.
+		{map[string]any{"deliver": map[string]any{"channel": "slack", "chat_id": "C1"}}, "a chat on Slack"},
+		{map[string]any{"owner": "Test", "usual_chat": "telegram", "owner_kind": "person", "deliver": map[string]any{"channel": "telegram", "chat_id": "555001"}}, "Test's messages on Telegram"},
 	} {
 		p := map[string]any{"name": "Digest", "when": "Mondays at 08:00", "prompt": "Summarise the open pull requests"}
 		maps.Copy(p, tc.payload)

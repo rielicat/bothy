@@ -91,6 +91,20 @@ describe('Security', () => {
     expect(screen.queryByText('Saved keys are locked.')).toBeNull();
   });
 
+  it('offers no Unlock for keys a key file locks, but says what to do', async () => {
+    installApi({ override: (m, url) => (m === 'GET' && url === '/api/vault/status' ? { sealed: true, kek_source: 'file', kek_id: '', colocated: false, secrets: 2 } : undefined) });
+    resetMock({ mock: 'sealed' });
+    session.ready = false;
+    await session.init();
+    session.banners = session.banners.filter((b) => b.code !== 'vault_sealed');
+    config.view = null;
+    render(Security);
+    const row = (await screen.findByText("Saved keys are locked because Bothy's key file is missing or doesn't match.")).parentElement!;
+    expect(screen.queryByRole('button', { name: 'Unlock' })).toBeNull();
+    await fireEvent.click(within(row).getByRole('button', { name: 'How to fix' }));
+    expect(await screen.findByText('Put the key file Bothy was set up with back on the server, then restart Bothy.')).toBeTruthy();
+  });
+
   it('turns package downloads on from a switch', async () => {
     const calls = await open();
     const sw = screen.getByRole('switch', { name: 'Let code download Python packages' });

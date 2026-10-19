@@ -51,9 +51,10 @@
 
   // The Running code section says it, with how to turn it on; the locked-keys banner says the other, with Unlock.
   const sealedBanner = $derived(session.banners.some((b) => b.code === 'vault_sealed') && !session.dismissed.includes('vault_sealed'));
+  const keyFile = $derived(!!vault?.kek_source && vault.kek_source !== 'passphrase');
   const attention = $derived(
     needsAttention(audit).filter((f) => {
-      const a = describeFinding(f).action;
+      const a = describeFinding(f, keyFile).action;
       return !(a === 'running-code' && codeOn === false) && !(f.id === 'vault.sealed' && sealedBanner);
     }),
   );
@@ -200,7 +201,7 @@
   }
 
   function act(f: Finding, i: number) {
-    const a = describeFinding(f).action;
+    const a = describeFinding(f, keyFile).action;
     if (a === 'fix') void fix(i);
     else if (a === 'unlock') unlocking = true;
     else if (a === 'running-code') {
@@ -253,7 +254,7 @@
         {/if}
         <div bind:this={attentionList}>
           {#each attention as f, i (i)}
-            {@const c = describeFinding(f)}
+            {@const c = describeFinding(f, keyFile)}
             <div class="border-b border-border py-3 last:border-b-0">
               <div class="grid min-h-8 items-center gap-x-6 gap-y-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                 <p class="text-body text-text">{c.text}</p>
@@ -458,6 +459,7 @@
 <PauseDialog bind:open={pausing} onpaused={paused} />
 <UnlockDialog
   bind:open={unlocking}
+  first={!!vault?.new_passphrase}
   onunlocked={() => {
     vault = vault ? { ...vault, sealed: false } : vault;
     void runAudit();
