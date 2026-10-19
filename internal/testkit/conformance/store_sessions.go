@@ -1,6 +1,7 @@
 package conformance
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -144,6 +145,93 @@ func testSessionList(f *fx) {
 	f.must(f.s.Messages().Append(f.ctx, textMsg(g.ID, core.MsgAssistant, core.ProvSystem, "a notice", 1)), "Append")
 	f.eq("List non-empty", list(v, core.SessionFilter{NonEmpty: true}), []*core.Session{g, b})
 	f.eq("List non-empty by title", list(v, core.SessionFilter{NonEmpty: true, Query: "beta"}), []*core.Session{b})
+}
+
+// testRelatedChats pins where a chat came from: parent, root, schedule and
+// the auto-title flag round-trip, parent and root are fixed at Create and
+// become "" when that chat is deleted, and Related never returns another
+// viewer's, an archived or a hidden chat.
+func testRelatedChats(f *fx) {
+	r := f.s.Sessions()
+	u := f.user(core.RoleMember)
+	other := f.user(core.RoleMember)
+	sp := f.space()
+	pu := core.UserPrincipal(u.ID)
+	v := viewer(u)
+	mk := func(s *core.Session) *core.Session {
+		f.t.Helper()
+		s.Principal = cmp.Or(s.Principal, pu)
+		s.Origin = cmp.Or(s.Origin, "web")
+		s.CreatedAt, s.UpdatedAt = at(1), at(1)
+		f.must(r.Create(f.ctx, s), "Create "+s.Title)
+		return s
+	}
+	missing := core.SessionID(core.NewID(core.PrefixSession))
+
+	root := mk(&core.Session{Title: "Q3 pricing notes", LastMessageAt: at(10)})
+	fork := mk(&core.Session{Title: "Q3 pricing notes (clean)", ParentID: root.ID, RootID: root.ID, TitleAuto: true, LastMessageAt: at(20)})
+	result := mk(&core.Session{Origin: "schedule", Title: "Check-in · 19 Oct", ScheduleID: core.ScheduleID(core.NewID(core.PrefixSchedule)),
+		Hidden: true, LastMessageAt: at(30)})
+	for _, s := range []*core.Session{root, fork, result} {
+		got, err := r.Get(f.ctx, v, s.ID)
+		f.must(err, "Get")
+		f.eq("round trip of "+s.Title, got, s)
+	}
+	f.want(r.Create(f.ctx, &core.Session{Principal: pu, Origin: "web", ParentID: missing}), core.ErrInvalid, "parent_id foreign key")
+	f.want(r.Create(f.ctx, &core.Session{Principal: pu, Origin: "web", RootID: missing}), core.ErrInvalid, "root_id foreign key")
+
+	upd := *fork
+	upd.Title, upd.TitleAuto, upd.ScheduleID = "Pricing for the EU launch", false, "sch_moved"
+	upd.ParentID, upd.RootID = "", missing
+	f.must(r.Update(f.ctx, &upd), "Update")
+	got, err := r.Get(f.ctx, v, fork.ID)
+	f.must(err, "Get after Update")
+	want := upd
+	want.ParentID, want.RootID = root.ID, root.ID
+	f.eq("Update writes schedule_id and title_auto but never parent_id or root_id", got, &want)
+
+	f.must(r.SetHidden(f.ctx, result.ID, false), "SetHidden false")
+	got, err = r.Get(f.ctx, v, result.ID)
+	f.must(err, "Get after SetHidden")
+	shown := *result
+	shown.Hidden = false
+	f.eq("SetHidden changes only the hidden flag", got, &shown)
+	f.must(r.SetHidden(f.ctx, result.ID, true), "SetHidden true")
+	got, err = r.Get(f.ctx, v, result.ID)
+	f.must(err, "Get after SetHidden")
+	f.check(got.Hidden, "SetHidden(true) left the chat listed")
+	f.want(r.SetHidden(f.ctx, missing, true), core.ErrNotFound, "SetHidden missing")
+
+	foreign := mk(&core.Session{Principal: core.UserPrincipal(other.ID), Title: "Bob's chat", LastMessageAt: at(40)})
+	archived := mk(&core.Session{Title: "Deleted", LastMessageAt: at(50)})
+	f.must(r.Archive(f.ctx, v, archived.ID), "Archive")
+	related := func(v core.Viewer, ids ...core.SessionID) []core.SessionID {
+		f.t.Helper()
+		ss, err := r.Related(f.ctx, v, ids)
+		f.must(err, "Related")
+		out := []core.SessionID{}
+		for _, s := range ss {
+			out = append(out, s.ID)
+		}
+		return out
+	}
+	all := []core.SessionID{root.ID, fork.ID, foreign.ID, archived.ID, result.ID, missing, root.ID}
+	f.eq("Related: listed chats of the viewer, newest first", related(v, all...), []core.SessionID{fork.ID, root.ID})
+	f.eq("Related with another viewer", related(viewer(other), root.ID, fork.ID), []core.SessionID{})
+	f.eq("Related with an empty viewer", related(core.Viewer{}, all...), []core.SessionID{})
+	f.eq("Related of nothing", related(v), []core.SessionID{})
+	f.eq("Related with SystemViewer", related(core.SystemViewer(), all...), []core.SessionID{foreign.ID, fork.ID, root.ID})
+
+	group := mk(&core.Session{Principal: sp.Principal, Origin: "telegram", Title: "Group chat", LastMessageAt: at(60)})
+	child := mk(&core.Session{Title: "Group chat (clean)", ParentID: group.ID, RootID: group.ID, LastMessageAt: at(61)})
+	grandchild := mk(&core.Session{Title: "Deeper", ParentID: child.ID, RootID: group.ID, LastMessageAt: at(62)})
+	f.must(f.s.Principals().Delete(f.ctx, sp.Principal), "Principals.Delete")
+	got, err = r.Get(f.ctx, v, child.ID)
+	f.must(err, "Get a chat whose parent was deleted")
+	f.check(got.ParentID == "" && got.RootID == "", "parent and root of a deleted chat = %q, %q, want SET NULL", got.ParentID, got.RootID)
+	got, err = r.Get(f.ctx, v, grandchild.ID)
+	f.must(err, "Get a chat whose root was deleted")
+	f.check(got.ParentID == child.ID && got.RootID == "", "grandchild parent %q root %q, want %s and SET NULL", got.ParentID, got.RootID, child.ID)
 }
 
 func testSessionURLs(f *fx) {

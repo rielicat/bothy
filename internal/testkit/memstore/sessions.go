@@ -27,15 +27,20 @@ func normSession(s core.Session) (core.Session, error) {
 	return s, nil
 }
 
-// checkSession enforces the origin CHECK, the principal foreign key and
-// sessions_channel_key, which only covers open sessions with a channel key
-// ("" is stored as NULL).
+// checkSession enforces the origin CHECK, the principal, parent and root
+// foreign keys and sessions_channel_key, which only covers open sessions
+// with a channel key ("" is stored as NULL).
 func (st *state) checkSession(s core.Session) error {
 	if !oneOf(s.Origin, "web", "telegram", "discord", "slack", "api", "schedule") {
 		return invalid("sessions.origin")
 	}
 	if _, ok := st.principals[s.Principal]; !ok {
 		return invalid("sessions.principal_id: no such principal")
+	}
+	for _, ref := range []core.SessionID{s.ParentID, s.RootID} {
+		if _, ok := st.sessions[ref]; ref != "" && !ok {
+			return invalid("sessions.parent_id/root_id: no such session")
+		}
 	}
 	if s.ChannelKey == "" || s.Archived {
 		return nil
@@ -130,6 +135,7 @@ func (r sessionRepo) Update(_ context.Context, s *core.Session) error {
 	row := *s
 	row.Principal = cur.Principal
 	row.CreatedAt = cur.CreatedAt
+	row.ParentID, row.RootID = cur.ParentID, cur.RootID
 	if err := st.checkSession(row); err != nil {
 		return err
 	}
@@ -151,6 +157,33 @@ func (r sessionRepo) SetTaint(_ context.Context, id core.SessionID, t core.Taint
 	s.Taint = t
 	st.sessions[id] = s
 	return nil
+}
+
+func (r sessionRepo) SetHidden(_ context.Context, id core.SessionID, hidden bool) error {
+	st, unlock := r.s.begin()
+	defer unlock()
+	s, ok := st.sessions[id]
+	if !ok {
+		return notFound("session")
+	}
+	s.Hidden = hidden
+	st.sessions[id] = s
+	return nil
+}
+
+func (r sessionRepo) Related(_ context.Context, v core.Viewer, ids []core.SessionID) ([]*core.Session, error) {
+	st, unlock := r.s.begin()
+	defer unlock()
+	var out []core.Session
+	for _, id := range ids {
+		s, ok := st.sessions[id]
+		if !ok || !v.Can(s.Principal) || s.Archived || s.Hidden || slices.ContainsFunc(out, func(o core.Session) bool { return o.ID == id }) {
+			continue
+		}
+		out = append(out, must(normSession(s)))
+	}
+	out = newestFirst(out, len(out), func(s core.Session) (int64, string) { return unixMS(s.LastMessageAt), string(s.ID) })
+	return ptrs(out), nil
 }
 
 func (r sessionRepo) Archive(_ context.Context, v core.Viewer, id core.SessionID) error {

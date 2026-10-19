@@ -29,17 +29,17 @@ func (r metaRepo) Delete(ctx context.Context, k string) error {
 	return dbErr("meta delete", err)
 }
 
-const userCols = `id, username, display_name, role, pw_hash, timezone, disabled, failed_logins, locked_until, created_at, updated_at, must_change_password, last_login_at`
+const userCols = `id, username, display_name, role, pw_hash, timezone, disabled, failed_logins, locked_until, created_at, updated_at, must_change_password, last_login_at, welcomed_at`
 
 func scanUser(sc scanner) (*core.User, error) {
 	var u core.User
-	var locked, created, updated, lastLogin int64
+	var locked, created, updated, lastLogin, welcomed int64
 	if err := sc.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &u.PWHash, &u.Timezone, &u.Disabled,
-		&u.FailedLogins, &locked, &created, &updated, &u.MustChangePassword, &lastLogin); err != nil {
+		&u.FailedLogins, &locked, &created, &updated, &u.MustChangePassword, &lastLogin, &welcomed); err != nil {
 		return nil, err
 	}
 	u.LockedUntil, u.CreatedAt, u.UpdatedAt = fromMS(locked), fromMS(created), fromMS(updated)
-	u.LastLoginAt = fromMS(lastLogin)
+	u.LastLoginAt, u.WelcomedAt = fromMS(lastLogin), fromMS(welcomed)
 	return &u, nil
 }
 
@@ -48,10 +48,10 @@ type userRepo struct{ h *handle }
 func (r userRepo) Create(ctx context.Context, u *core.User) error {
 	id := idOr(u.ID, core.PrefixUser)
 	err := r.h.write(ctx, func(q querier) error {
-		if _, err := q.ExecContext(ctx, `INSERT INTO users(`+userCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		if _, err := q.ExecContext(ctx, `INSERT INTO users(`+userCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			string(id), u.Username, u.DisplayName, string(u.Role), u.PWHash, u.Timezone, b2i(u.Disabled),
 			u.FailedLogins, ms(u.LockedUntil), ms(u.CreatedAt), ms(u.UpdatedAt), b2i(u.MustChangePassword),
-			ms(u.LastLoginAt)); err != nil {
+			ms(u.LastLoginAt), ms(u.WelcomedAt)); err != nil {
 			return dbErr("create user", err)
 		}
 		_, err := q.ExecContext(ctx, `INSERT INTO principals(id, kind, user_id, display_name, workspace_id, tool_profile, created_at)
@@ -102,6 +102,17 @@ func (r userRepo) SignedIn(ctx context.Context, id core.UserID, at time.Time) er
 	res, err := r.h.wq.ExecContext(ctx, `UPDATE users SET last_login_at = ?, failed_logins = 0, locked_until = 0 WHERE id = ?`,
 		ms(at), string(id))
 	return mustAffect("record sign-in", res, err)
+}
+
+// ClaimWelcome is a CAS on welcomed_at = 0, so two requests racing for the
+// welcome chat make one.
+func (r userRepo) ClaimWelcome(ctx context.Context, id core.UserID, at time.Time) (bool, error) {
+	res, err := r.h.wq.ExecContext(ctx, `UPDATE users SET welcomed_at = ? WHERE id = ? AND welcomed_at = 0`, max(ms(at), 1), string(id))
+	if err != nil {
+		return false, dbErr("claim welcome", err)
+	}
+	n, err := res.RowsAffected()
+	return n == 1, dbErr("claim welcome", err)
 }
 
 // Delete relies on the schema's ON DELETE CASCADE chains from users through

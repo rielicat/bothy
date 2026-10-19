@@ -2,6 +2,7 @@ package conformance
 
 import (
 	"crypto/sha256"
+	"sync"
 	"time"
 
 	"github.com/rielicat/bothy/internal/core"
@@ -136,6 +137,58 @@ func testUsers(f *fx) {
 	pm, err := f.s.Principals().Get(f.ctx, core.SystemViewer(), core.UserPrincipal(member.ID))
 	f.must(err, "user principal")
 	f.check(pm.Workspace != po.Workspace, "users share workspace %s", po.Workspace)
+}
+
+// testClaimWelcome: one welcome chat per account, however many requests
+// race, and nothing else writes or clears welcomed_at.
+func testClaimWelcome(f *fx) {
+	r := f.s.Users()
+	u := f.user(core.RoleMember)
+	got, err := r.Get(f.ctx, u.ID)
+	f.must(err, "Get")
+	f.check(got.WelcomedAt.IsZero(), "a new account is already welcomed at %v", got.WelcomedAt)
+
+	const n = 50
+	wins := make([]bool, n)
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Go(func() { wins[i], errs[i] = r.ClaimWelcome(f.ctx, u.ID, at(10+i)) })
+	}
+	wg.Wait()
+	winner := -1
+	for i := range n {
+		f.must(errs[i], "concurrent ClaimWelcome")
+		if wins[i] {
+			f.check(winner < 0, "claims %d and %d both won", winner, i)
+			winner = i
+		}
+	}
+	f.need(winner >= 0, "no concurrent ClaimWelcome won")
+	got, err = r.Get(f.ctx, u.ID)
+	f.must(err, "Get")
+	f.check(got.WelcomedAt.Equal(at(10+winner)), "WelcomedAt = %v, want the winner's %v", got.WelcomedAt, at(10+winner))
+	again, err := r.ClaimWelcome(f.ctx, u.ID, at(500))
+	f.must(err, "ClaimWelcome again")
+	f.check(!again, "a second ClaimWelcome won")
+
+	stale := *got
+	stale.WelcomedAt, stale.DisplayName, stale.UpdatedAt = time.Time{}, "Renamed", at(600)
+	f.must(r.Update(f.ctx, &stale), "Update")
+	got, err = r.Get(f.ctx, u.ID)
+	f.must(err, "Get after Update")
+	f.check(got.WelcomedAt.Equal(at(10+winner)), "Update changed WelcomedAt to %v", got.WelcomedAt)
+
+	old := &core.User{Username: "welcomed", Role: core.RoleMember, PWHash: "h", Timezone: "UTC", CreatedAt: at(1), UpdatedAt: at(1), WelcomedAt: at(1)}
+	f.must(r.Create(f.ctx, old), "Create a welcomed account")
+	got, err = r.Get(f.ctx, old.ID)
+	f.must(err, "Get")
+	f.eq("Create round trip with WelcomedAt", got, old)
+	won, err := r.ClaimWelcome(f.ctx, old.ID, at(700))
+	f.must(err, "ClaimWelcome of a welcomed account")
+	f.check(!won, "ClaimWelcome won for an account welcomed at creation")
+	won, err = r.ClaimWelcome(f.ctx, core.UserID(core.NewID(core.PrefixUser)), at(700))
+	f.check(err == nil && !won, "ClaimWelcome of a missing account = %v, %v; want false, nil", won, err)
 }
 
 func testPrincipals(f *fx) {
