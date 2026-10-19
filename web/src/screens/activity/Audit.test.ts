@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { resetMock } from '../../../mock/server';
 import { router } from '../../lib/router.svelte';
 import { session } from '../../lib/stores/session.svelte';
@@ -79,5 +79,26 @@ describe('Audit log (docs/design/ui.md §10.6)', () => {
     const calls = await start('/activity/audit', 'member');
     expect(await screen.findByText('Only admins can see this page.')).toBeTruthy();
     expect(calls.some((c) => c.url.startsWith('/api/audit'))).toBe(false);
+  });
+});
+
+describe('Audit log, Show earlier', () => {
+  it('says so when the next page fails, and keeps the entries', async () => {
+    installApi();
+    const inner = globalThis.fetch;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('before=')) return new Response('{}', { status: 503 });
+      const res = await inner(input, init);
+      if (!url.startsWith('/api/audit?')) return res;
+      return new Response(JSON.stringify({ ...(await res.json()), next: 1 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    session.ready = false;
+    await session.init();
+    router.navigate('/activity/audit');
+    render(Audit);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Show earlier' }));
+    expect((await screen.findByRole('alert')).textContent).toBe("Couldn't load more. Check your connection and try again.");
+    expect(screen.getByText('Approved deleting notes/staging.md')).toBeTruthy();
   });
 });

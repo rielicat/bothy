@@ -11,6 +11,7 @@
   import { people, type AuditCheck, type AuditRow, type EgressRow } from './api';
   import { actionGroups, actorName, resultWord, summarize, webLine, webOutcome } from './audit';
   import Loading from './Loading.svelte';
+  import ShowEarlier from './ShowEarlier.svelte';
   import { groupByDay } from './tasks';
 
   const view = $derived(router.query.get('view') === 'web' ? 'web' : 'actions');
@@ -47,7 +48,9 @@
         rows = more ? [...(rows ?? []), ...(r.items ?? [])] : (r.items ?? []);
         next = r.next ?? 0;
       }
-    } catch {
+    } catch (e) {
+      // A later page failing leaves the list as it was; Show earlier says so.
+      if (more) throw e;
       failed = true;
     }
   }
@@ -245,7 +248,7 @@
     {/if}
 
     {#if next && ((view === 'web' && web?.length) || (view === 'actions' && rows?.length))}
-      <Button class="mt-6" size="sm" onclick={() => load(true)}>Show earlier</Button>
+      <ShowEarlier load={() => load(true)} />
     {/if}
   {/if}
 </Activity>
