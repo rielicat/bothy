@@ -1,13 +1,21 @@
-import { render } from '@testing-library/svelte';
+import { render, screen, waitFor } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
 import { phrases } from '../../lib/activity';
 import type { Approval } from '../../lib/api/types.gen';
+import { installApi } from '../../test/api';
 import DecidedLine from './DecidedLine.svelte';
 
 const deploy = phrases({ tool: 'release_deploy', args: { repo: 'acme/web', environment: 'production' } });
 const base = { id: 'apr_1', status: 'denied', decided_by: 'usr_admin', decided_at: '2026-10-14T22:28:00Z' } as unknown as Approval;
 
 describe('DecidedLine', () => {
+  it('follows an approved deploy live in the chat, with its GitHub link (§8.7)', async () => {
+    const d = { id: 'dep_1', approval_id: 'apr_1', environment: 'production', repo: 'acme/web', ref: 'main', status: 'running', run_url: 'https://github.com/acme/web/actions/runs/1005', created_at: base.decided_at };
+    installApi({ override: (m, url) => (m === 'GET' && url === '/api/releases' ? { environments: [], deploys: [d] } : undefined) });
+    render(DecidedLine, { approval: { ...base, status: 'allowed', choice: 'allow_once', action: { tool: 'release_deploy' } } as unknown as Approval, phrases: deploy });
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Deploying acme/web to production… · View on GitHub ↗'));
+  });
+
   it("names a decider the viewer can't look up, with their reason", () => {
     const { container } = render(DecidedLine, {
       approval: { ...base, approvals: { required: 2, eligible: [], any_admin: true, votes: [{ user: 'usr_admin', name: 'Tess', choice: 'deny', at: base.decided_at!, comment: 'Freeze until Thursday' }] } } as Approval,
