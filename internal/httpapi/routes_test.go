@@ -755,6 +755,12 @@ func TestVaultEndpoints(t *testing.T) {
 	if s, err := h.vault.Get(context.Background(), core.GlobalScope, "anthropic_api_key", "test"); err != nil || s.Reveal() != "sk-ant-test-value" {
 		t.Fatalf("imported = %v", err)
 	}
+	// Nothing to unlock: no row says any passphrase unlocked the keys.
+	expect(t, h.do("POST", "/api/vault/unseal", dto.UnsealReq{Passphrase: "qa-not-a-real-passphrase"}, h.admin), http.StatusOK)
+	if strings.Contains(strings.Join(h.audit.Actions(), " "), "vault.unseal") {
+		t.Fatalf("unlocking an open vault was audited: %v", h.audit.Actions())
+	}
+	h.vault.Seal()
 	expect(t, h.do("POST", "/api/vault/unseal", dto.UnsealReq{Passphrase: "pw"}, h.admin), http.StatusOK)
 	st := decodeAs[core.VaultStatus](t, h.do("GET", "/api/vault/status", nil, h.admin))
 	if st.Sealed || st.Secrets != 2 {

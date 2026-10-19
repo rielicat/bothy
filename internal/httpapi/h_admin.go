@@ -672,6 +672,11 @@ func (s *Server) vaultUnseal(w http.ResponseWriter, r *http.Request, a core.Acto
 	if req.Passphrase == "" {
 		return badRequest("passphrase is required")
 	}
+	// Vault.Unseal of an open vault checks nothing; recording it as an
+	// unlock would log any passphrase as the right one.
+	if st := s.d.Vault.Status(); !st.Sealed {
+		return ok(w, st)
+	}
 	if err := s.d.Vault.Unseal(r.Context(), []byte(req.Passphrase)); err != nil {
 		s.audit(r, a, "vault.unseal", "vault", "denied", nil)
 		return err
