@@ -1,10 +1,13 @@
 # internal/picture
 
 Bothy's picture in the chat apps (`core.AgentPicture`). The default,
-`default.png` and `default.jpg` (1024 px, the brand mark from
-`web/public/icon-maskable.svg` centred so its ink reaches 61% of the way to
-the edge of a circle crop), is embedded; `TestDefaultPicture` renders the mark
-again, fails when the files drift from it and rewrites them with `-update`.
+`default.png` and `default.jpg` (1024 px, the mascot of
+`web/public/icon-maskable.svg`, whose ink reaches 77% of the way to the edge
+of a circle crop), is embedded. `make icons` renders it with Playwright's
+Chromium, records the SVG's hash in `default.sum` and re-encodes both files
+with Bothy's encoders; `TestDefaultPicture` fails when the SVG changed since,
+when the JPEG strays from the PNG, or when anything but the dark tile lies
+within 32 px of a circle crop's edge.
 An admin's picture is `<data>/picture.png`, written atomically through
 `os.Root` (temp file, fsync, rename, 0600). `Set` sniffs the upload (PNG, JPEG
 or WebP, at most 5 MB, whatever type the client claimed), reads the declared

@@ -1,5 +1,5 @@
 // Package picture keeps Bothy's picture in the chat apps (core.AgentPicture):
-// the embedded default, rendered from the brand mark, or one an admin
+// the embedded default, rendered from the mascot, or one an admin
 // uploaded, kept as <data>/picture.png.
 package picture
 

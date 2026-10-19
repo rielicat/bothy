@@ -69,7 +69,7 @@ Every screen review checks against these seven rules.
 1. **Content first, one job per screen.** No global top bar and no permanent status chrome. A page leads with its title and its content. A banner appears only when something stops work (§4.9).
 2. **Say it like a colleague.** Names, not ids. Money, not tokens. "Bothy wants to run a command", not `shell`. If a sentence needs a config key to make sense, it belongs in Advanced.
 3. **Detail on request, never deleted.** Tool names, ids, token counts, rules, raw errors and config keys live one click away behind "Details" or in Settings → Advanced. Anything that leaves Bothy or can't be undone stays on the approval card in full.
-4. **Type and space make the hierarchy, not boxes.** One bordered container level per page, never a card inside a card. Hairlines only between rows. No icon tiles, no subtitle under every heading, no pills.
+4. **Type and space make the hierarchy, not boxes.** One bordered container level per page, never a card inside a card. Hairlines only between rows. No icon tiles (the logo is the one picture on a tile, §3.7), no subtitle under every heading, no pills.
 5. **Colour means something.** Neutral by default. Green marks the one action and things that are on or done. Red marks failures and the destructive click. Amber marks "needs attention soon". Selection and hover are grey.
 6. **Honest record.** Tense matches reality: "Waiting for approval to delete…", "Deleting…", "Deleted", "Didn't delete". Decisions stay in the transcript and in Activity. Cost is shown before an expensive action, in dollars.
 7. **The same everywhere.** One column, one left edge, one control height, one button system. Keyboard, touch, 360 px, light and dark are designed states. Shortcut hints never show on touch devices. Nothing relies on colour alone.
@@ -78,7 +78,7 @@ Every screen review checks against these seven rules.
 
 | Tell (v0.1) | Where (audit screen) | Replacement |
 |---|---|---|
-| Icon in a tinted rounded square | Logo, Done, every empty state, chat-app rows, sandbox card (`11`, `12`, `16`, `21`–`23`, `74`, `75`) | Wordmark "Bothy" in text. Empty states are text plus one button. Icons only inline at 16 px, and only when they are the control or carry a state next to words. |
+| Icon in a tinted rounded square | Logo, Done, every empty state, chat-app rows, sandbox card (`11`, `12`, `16`, `21`–`23`, `74`, `75`) | Wordmark "Bothy" in text beside the mascot (§3.7), the one picture in the chrome. Empty states are text plus one button. Icons only inline at 16 px, and only when they are the control or carry a state next to words. |
 | Pills and chips (105 `chip` usages) | Tool rows, approval cards, audit "ok", `default` under 50 fields, provenance chips, "disabled" said four ways (`24`, `29`, `47`, `60`–`65`, `71`) | `.chip` deleted, no badge component. A status is a word, coloured only when abnormal. Provenance only in Advanced, only for changed values. |
 | Cards inside cards | Wizard, settings sections, approvals focus ring, Usage, Memory, schedule edit, run trace (`10`, `29`, `40`, `43`, `46`, `51`) | Approval cards, option lists and overlays are the only bordered containers. Code blocks and diffs use a tint, not a border. |
 | Sparkle for "model", an icon on every nav item | Settings nav, run trace (`51`, `61`) | Text-only navigation. Models are called by name. |
@@ -271,11 +271,11 @@ Always use a named radius; bare `rounded` is not allowed.
 
 18 inline SVG icons in `lib/icons.ts`, 1.5 px stroke, `currentColor`, drawn at 16 px (20 px inside 36 px icon buttons): `plus`, `search`, `chevron-down`, `chevron-right`, `more`, `close`, `check`, `alert`, `clock`, `arrow-up` (send), `stop`, `paperclip`, `copy`, `external`, `menu`, `back`, `refresh`, `spinner`.
 
-- An icon never decorates: never in a tile, on a nav item or on a heading.
+- An icon never decorates: never in a tile, on a nav item or on a heading. The logo below is not an icon.
 - Icons appear only when they are the control (search, attach, send, close, menu, more, chevron, copy) or carry a state next to words (check, alert, clock, spinner).
 - Every icon-only button has an `aria-label` and a tooltip with the same text.
 - Everything else in today's set goes (house, sparkle, cube, globe, shield, wallet, plug, plane, hash, game, power, sun, moon, monitor and the rest), which shrinks the bundle.
-- Logo: the wordmark "Bothy" in `text-heading`. Favicon and PWA icon: a simple roof-line mark in `#1E1D1A` on transparent (`icon.svg`), white on a `#2A6A54` square for the maskable and touch icons. The house in a green squircle is removed.
+- Logo: the mascot, a white robot hound with a dark visor and warm eyes on a near-black tile (`public/icon.svg`), at 24 px beside the wordmark "Bothy" in `text-heading` in the sidebar and 28 px on the setup and sign-in frame. It is also the favicon and the manifest's icons; `icon-maskable.svg` is the same dog full bleed, inside the maskable safe circle, for the maskable and Apple touch icons and Bothy's default chat-app picture. `make icons` renders the PNGs. No other icon sits on a tile.
 
 ### 3.8 `app.css` (final state)
 
@@ -471,7 +471,7 @@ Four destinations (Chat, Approvals, Knowledge, Activity) plus Settings, where v0
 
 ```
 ┌──────────────────────────┐
-│ Bothy                    │  44 px row, wordmark text-heading, links to /chat
+│ ▣ Bothy                  │  44 px row, 24 px mascot and wordmark text-heading, links to /chat
 │ + New chat               │  sidebar item with plus icon (not a filled button)
 │ ⌕ Search            ⌘K   │  hint text-caption faint, fine pointer only
 │                          │
@@ -666,7 +666,7 @@ Never behind Details, on any approval card: the full command, the full outgoing 
 - The P·U·S badge, the context ring, the pin counter, the header model dropdown.
 - "Used use_tool" rows.
 - Setup steps Safety, Chat apps and Make it yours; progress dots; "Step 3 of 7 · Models"; the Main/Fast chain editors, Test button, "Use this provider" button, "Private address" toggle and typed "Model to test" field; the password strength bar; the household/team toggle; the security audit on Done.
-- `default` and provenance chips outside Advanced; section subtitles that only reassure; icons on nav items; icon tiles.
+- `default` and provenance chips outside Advanced; section subtitles that only reassure; icons on nav items; icon tiles (the logo aside).
 - KPI card rows, the 11-colour legend, backdrop blur, keyboard chips on buttons.
 - "ok" pills on audit rows; the duplicate card on the approval detail page.
 - Empty chats in the list; the timestamp "never"; "Untitled chat".
@@ -751,7 +751,7 @@ Target: with the setup link and a detected AWS or Ollama option, the first chat 
 ```
                      |<------------------- 480 px ------------------->|
   15vh top margin (24 px on phones)
-                     Bothy                                 Step 1 of 3     wordmark text-heading · text-small muted
+                     ▣ Bothy                               Step 1 of 3     28 px mascot, wordmark text-heading · text-small muted
                                                                            (40 px)
                      Create your account                                   text-display
                      You'll be the owner of this Bothy. You can add        text-reading muted, mt-2
@@ -762,7 +762,7 @@ Target: with the setup link and a detected AWS or Ollama option, the first chat 
                      [ Create account ]                                    primary, h-10, left-aligned
 ```
 
-- No card, no border, no progress bar, no icon; page background is `bg`. The intro is `text-pretty`, so its last line never holds one word alone.
+- No card, no border, no progress bar, no icon besides the logo; page background is `bg`. The intro is `text-pretty`, so its last line never holds one word alone.
 - Buttons are left-aligned on desktop and full width under 640 px.
 - No Back on steps 2 and 3 (the account already exists).
 - Errors appear inline under the field or the button, never as a toast. On an error, focus moves to the first field that has one.
@@ -1055,7 +1055,7 @@ The provider buttons (SPEC §15) are text only, no logos (§2.1). A click asks t
 
 ```
 ┌ sidebar 256 ─────────┬ main area (1024 at 1280) ──────────────────────────────────────┐
-│ Bothy                │ (banner, full main width, only when §4.9 applies)               │
+│ ▣ Bothy              │ (banner, full main width, only when §4.9 applies)               │
 │ + New chat           │         ┌──────────── column 768 (720 content) ────────────┐    │
 │ ⌕ Search        ⌘K   │         │ ← Knowledge                     text-small muted │    │
 │                      │         │ acme/web                      [ Edit ]  ⋯        │    │
@@ -2947,7 +2947,7 @@ Acceptance: every gate over the whole app; `--color-*: initial` in place and the
 - [ ] Setup reaches the first chat in 3 screens and 3 typed values with a detected option, 4 with a pasted key.
 - [ ] No global top bar; at most one banner, only for the conditions in §4.9.
 - [ ] Every page and the chat share the left edge (x = 408 at 1280 px); no horizontal scroll at 360 px on any route, both themes.
-- [ ] No pills, badges, icon tiles, blur, uppercase labels, cards inside cards or text under 12 px anywhere.
+- [ ] No pills, badges, icon tiles (the logo aside), blur, uppercase labels, cards inside cards or text under 12 px anywhere.
 - [ ] Approval cards ask a plain question with a verb button; decided cards stay in the transcript; a two-approver deploy shows "1 of 2", names and who can still approve; the requester has no buttons.
 - [ ] Activity lines never use the past tense before the result; `use_tool` never appears.
 - [ ] Names, never ids, outside Details; money, never tokens, outside Details.

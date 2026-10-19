@@ -14,7 +14,7 @@ TOOLS_BIN := bin/tools
 GOLANGCI_LINT_VERSION := v2.14.0
 GOVULNCHECK_VERSION := v1.8.0
 
-.PHONY: all build test ui ui-reset gen lint vuln e2e e2e-docker image budgets clean
+.PHONY: all build test ui ui-reset icons gen lint vuln e2e e2e-docker image budgets clean
 
 all: build
 
@@ -35,6 +35,14 @@ ui:
 ui-reset:
 	find internal/webui/dist -mindepth 1 ! -name index.html -delete
 	git checkout -- internal/webui/dist/index.html
+
+# Renders the PNG icons and the default chat-app picture from the SVGs in
+# web/public (needs web/node_modules and Playwright's Chromium, or
+# PLAYWRIGHT_CHROMIUM as in web/e2e/README.md), then re-encodes the picture
+# with Bothy's own encoders.
+icons:
+	cd web && node scripts/icons.mjs
+	go test ./internal/picture -run TestDefaultPicture -update
 
 gen:
 	go -C tools run ./typesgen -root ..

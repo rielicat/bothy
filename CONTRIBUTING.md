@@ -24,6 +24,7 @@ UI (`web/.nvmrc`) and, for images, Docker with buildx.
 | `make ui` | builds `web/` into `internal/webui/dist` with `npm ci --ignore-scripts` |
 | `make ui-reset` | restores the committed placeholder in `internal/webui/dist` |
 | `make gen` | regenerates `web/src/lib/api/types.gen.ts` from `internal/core`, `internal/config` and `internal/httpapi/dto` |
+| `make icons` | renders the PNG icons and the default chat-app picture from `web/public/icon.svg` and `icon-maskable.svg` |
 | `make e2e` | builds the binary and runs the black-box suite in `e2e/` |
 | `make image` | builds the gateway image from `deploy/Dockerfile` |
 | `make budgets` | size, cold-start and RSS budgets (SPEC §11.3) |

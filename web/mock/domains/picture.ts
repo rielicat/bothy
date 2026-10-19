@@ -14,11 +14,16 @@ const custom = scenario('picture-custom', "An admin replaced Bothy's default pic
 const applyFail = scenario('picture-fail', 'Changing the picture fails in Telegram and Discord; picture-fail:<telegram|discord> picks one (Discord says it allows only a few changes an hour).', 'settings');
 const refused = scenario('picture-refused', 'Uploads are refused; picture-refused:<not-picture|too-large|too-small> picks why.', 'settings');
 
-// The brand mark, as in public/icon-maskable.svg: well inside the circle chat apps crop to.
-const mark = (fill: string) =>
-  `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" fill="${fill}"/><path transform="translate(128 134) scale(8)" d="M3 21 16 9.5 29 21M23 15.3V10" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-const standIn = { type: 'image/svg+xml', data: mark('#8A4B2A') };
-const byDefault = { type: 'image/svg+xml', data: mark('#2A6A54') };
+// An admin's upload, as far as the mock can tell: a portrait, nothing like the default.
+const standIn = {
+  type: 'image/svg+xml',
+  data: '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" fill="#8A4B2A"/><circle cx="256" cy="208" r="88" fill="#F3E3D6"/><path d="M88 512c16-104 88-168 168-168s152 64 168 168Z" fill="#F3E3D6"/></svg>',
+};
+declare const process: { getBuiltinModule(id: 'node:fs'): { readFileSync(path: string, encoding: 'latin1'): string } };
+// The gateway's own default, as the latin1 string res.end sends byte for byte.
+// A path, not a URL: under jsdom the global URL isn't one node:fs accepts.
+const here = (import.meta as ImportMeta & { dirname: string }).dirname;
+const byDefault = { type: 'image/png', data: process.getBuiltinModule('node:fs').readFileSync(`${here}/../../../internal/picture/default.png`, 'latin1') };
 
 const state = { custom: false, version: '', type: '', data: '', n: 0 };
 const use = (p: { type: string; data: string } | null) => {

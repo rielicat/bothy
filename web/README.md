@@ -62,7 +62,11 @@ src/
 mock/                   fixture gateway (dev and tests only; never bundled)
 e2e/                    Playwright smoke tests and screenshot sets
 scripts/ui-lint.sh      the G5 source rules, run by npm run check
-public/                 theme.js (sets the theme before first paint), PWA manifest, icons
+scripts/icons.mjs       renders the PNG icons and the default chat-app picture
+                        from the SVGs in public/ (make icons)
+public/                 theme.js (sets the theme before first paint), PWA manifest,
+                        icon.svg (the mascot on its tile), icon-maskable.svg
+                        (full bleed) and the PNGs rendered from them
 ```
 
 ## Security rules this package keeps

@@ -136,7 +136,7 @@ func TestNormalizeReadsWebP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := img.At(512, 512); !near(c, brandGreen) {
+	if c := img.At(512, 512); !near(c, color.RGBA{0x2a, 0x6a, 0x54, 0xff}) {
 		t.Fatalf("webp centre = %v", c)
 	}
 }

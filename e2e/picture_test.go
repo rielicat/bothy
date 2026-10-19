@@ -26,8 +26,10 @@ func TestBotPicture(t *testing.T) {
 	e := chStart(t, chOpts{telegram: true, slack: true})
 	chEventually(t, 15*time.Second, "the default picture on Telegram", func() bool { return e.tg.ProfilePhoto() != nil })
 	first := e.tg.ProfilePhoto()
-	if c := picCentre(t, first, "jpeg"); !picNear(c.At(16, 16), color.RGBA{0x2a, 0x6a, 0x54, 0xff}) {
-		t.Fatalf("the default picture's corner is %v, not the brand green", c.At(16, 16))
+	// The top of the default's dark tile (web/public/icon-maskable.svg).
+	tile := color.RGBA{0x29, 0x29, 0x2d, 0xff}
+	if c := picCentre(t, first, "jpeg"); !picNear(c.At(16, 16), tile) {
+		t.Fatalf("the default picture's corner is %v, not the dark tile", c.At(16, 16))
 	}
 	var info dto.PictureInfo
 	if e.JSON(t, http.MethodGet, "/api/agent/picture/info", nil, &info) != http.StatusOK || info.Custom || info.Version == "" {
@@ -76,7 +78,7 @@ func TestBotPicture(t *testing.T) {
 		change.Picture.Version != info.Version || change.Apps[1].Result != core.PictureUpdated {
 		t.Fatalf("DELETE = %s %s", resp.Status, resp.Body)
 	}
-	if c := picCentre(t, e.tg.ProfilePhoto(), "jpeg"); !picNear(c.At(16, 16), color.RGBA{0x2a, 0x6a, 0x54, 0xff}) {
+	if c := picCentre(t, e.tg.ProfilePhoto(), "jpeg"); !picNear(c.At(16, 16), tile) {
 		t.Fatalf("Telegram after the reset shows %v", c.At(16, 16))
 	}
 	if _, err := os.Stat(filepath.Join(e.DataDir, "picture.png")); !os.IsNotExist(err) {

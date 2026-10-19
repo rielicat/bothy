@@ -564,8 +564,8 @@ internal/knowledge/        v0.2 F6: core.Knowledge: FTS5 index queue, knowledge_
                            turn-context hook (§14.4)                                                    [knowledge]
 internal/release/          v0.2 F5: release_deploy/release_status, run follower, token GitHub client;
                            actionstest fake Actions API (§14.5)                                         [release]
-internal/picture/          core.AgentPicture: embedded default picture (rendered from the brand mark by
-                           its test), upload checks, crop and scale, <data>/picture.png (§4.20)          [picture]
+internal/picture/          core.AgentPicture: embedded default picture (rendered from the mascot by
+                           make icons), upload checks, crop and scale, <data>/picture.png (§4.20)       [picture]
 internal/channel/          core.ChannelHub: gatekeeping, membership, commands, streamer, card delivery  [M9]
 internal/channel/telegram/ Telegram adapter (hand-written) + telegramtest fake Bot API server           [M9]
 internal/channel/discord/  Discord adapter (disgo) + discordtest fake                                   [M10]
@@ -5173,7 +5173,7 @@ type ReleaseStore interface {
 
 ### 4.20 `picture.go`: Bothy's picture in the chat apps
 
-`internal/picture` implements `AgentPicture` (the embedded default rendered from the brand mark, or `<data>/picture.png`); the Telegram and Discord adapters implement `PictureSetter`; `ChannelHub.ApplyPicture` (§4.6) and the hub's first connection use them (§5.1, §8.3 `/api/agent/picture`).
+`internal/picture` implements `AgentPicture` (the embedded default rendered from the mascot, `web/public/icon-maskable.svg`, or `<data>/picture.png`); the Telegram and Discord adapters implement `PictureSetter`; `ChannelHub.ApplyPicture` (§4.6) and the hub's first connection use them (§5.1, §8.3 `/api/agent/picture`).
 
 ```go
 package core
@@ -8794,7 +8794,7 @@ Owners: `sqlite.*`, `data.*`, `backups.*`, `vault.*` M1; `providers.*` M2; `poli
 | `golang.org/x/crypto` (*verify*) | auth, vault | `argon2` only |
 | `golang.org/x/net` (*verify*) | egress, policy, sandbox/bwrap | `html` (web_fetch text extraction), `idna` (punycode), `bpf` (serializing the seccomp program) |
 | `github.com/adhocore/gronx` v1.20.5 | scheduler | Cron parsing and next tick with timezone; zero deps |
-| `golang.org/x/image` v0.42.0 (published 2026-06-08) | picture | `webp` to read uploaded WebP pictures, `draw` for Catmull-Rom scaling; the default picture's renderer is a test and needs neither |
+| `golang.org/x/image` v0.42.0 (published 2026-06-08) | picture | `webp` to read uploaded WebP pictures, `draw` for Catmull-Rom scaling; the default picture is rendered by `make icons` (Playwright's Chromium) and needs neither |
 | `github.com/elastic/go-seccomp-bpf` v1.6.0 or newer (*verify* newest tag ≥ 14 days old) | sandbox/bwrap | `Policy.Assemble()` builds an arch-checked program without loading it (§2.12) |
 | `github.com/aws/aws-sdk-go-v2` v1.47.1, `…/aws/protocol/eventstream` v1.7.20, `…/config` v1.33.6, `…/credentials` v1.20.6, `…/feature/ec2/imds` v1.20.1 (v0.2; indirect: `service/sso`, `ssooidc`, `sts`, `signin`, `internal/*`, `github.com/aws/smithy-go` v1.28.1; all published 2026-08-26..09-24) | provider/bedrock (eventstream also in `internal/provider` tests); vault/awssm: `aws` and `aws/signer/v4` only (§14.8) | The AWS default credential chain (env, shared files with SSO and `aws login`, assumed roles, web identity, ECS/EKS container and EC2 IMDSv2 credentials), SigV4 signing and event-stream decoding; `scripts/check-imports.sh` allows exactly these packages |
 

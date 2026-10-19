@@ -54,7 +54,7 @@
     <SettingsNav {drawer} />
   {:else}
     <div class="flex h-11 shrink-0 items-center justify-between">
-      <a href="/chat" onclick={router.link} class="flex h-11 items-center rounded-md px-2 text-heading text-text focus-visible:-outline-offset-2">Bothy</a>
+      <a href="/chat" onclick={router.link} class="flex h-11 items-center gap-2 rounded-md px-2 text-heading text-text focus-visible:-outline-offset-2"><img src="/icon.svg" alt="" width="24" height="24" class="size-6" />Bothy</a>
       {#if drawer}<IconButton icon="close" label="Close menu" variant="quiet" onclick={() => (shell.drawer = false)} />{/if}
     </div>
     <ul class="shrink-0">
