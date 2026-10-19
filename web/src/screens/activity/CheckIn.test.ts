@@ -61,6 +61,26 @@ describe('Check-in (docs/design/ui.md §10.3)', () => {
     expect(JSON.parse(saved('PATCH', '/api/schedules/sch_01jcheckin00000000000000')!.body).schedule.enabled).toBe(true);
   });
 
+  it("won't turn on a check-in with nothing to check, and points to the suggested lines", async () => {
+    mockKnowledge.memory.HEARTBEAT = '';
+    const box = await open('/activity/schedules/checkin?on=1');
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Add something to check first.')).toBeTruthy();
+    expect(box.getAttribute('aria-invalid')).toBe('true');
+    expect(document.activeElement).toBe(box);
+    expect(calls.some((c) => c.method !== 'GET')).toBe(false);
+    await fireEvent.click(screen.getByRole('button', { name: 'Use suggested lines' }));
+    expect(screen.queryByText('Add something to check first.')).toBeNull();
+  });
+
+  it('saves an empty list while the check-in stays off', async () => {
+    mockKnowledge.memory.HEARTBEAT = '';
+    await open();
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(saved('PATCH', '/api/schedules/sch_01jcheckin00000000000000')).toBeTruthy());
+    expect(screen.queryByText('Add something to check first.')).toBeNull();
+  });
+
   it('leaves an off check-in off when it was opened to edit', async () => {
     await open();
     await fireEvent.click(screen.getByRole('button', { name: 'Save' }));

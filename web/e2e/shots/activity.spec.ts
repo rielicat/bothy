@@ -122,6 +122,7 @@ const states: ShotState[] = [
   { name: 'schedule-once', route: '/activity/schedules/new', ready: 'What should Bothy do?', setup: then(pick('Repeat', 'once')) },
   { name: 'checkin', route: '/activity/schedules/checkin', ready: 'What to check', setup: frame },
   { name: 'checkin-suggested', route: '/activity/schedules/checkin', mock: 'checkin-empty', ready: 'Use suggested lines', setup: frame },
+  { name: 'checkin-nothing-to-check', route: '/activity/schedules/checkin?on=1', mock: 'checkin-empty', ready: 'Use suggested lines', setup: then(click('Save')) },
 
   // Releases (§10.4)
   { name: 'releases', route: '/activity/releases', ready: 'History', setup: frame },

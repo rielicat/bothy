@@ -26,6 +26,9 @@
   let failed = $state(false);
   let lines = $state<string[]>([]);
   let box = $state<HTMLTextAreaElement>();
+  let tried = $state(false);
+  // The scheduler skips an empty list, so a check-in saved on with one would never do anything.
+  const listError = $derived(tried && s?.enabled && !list.trim() ? 'Add something to check first.' : '');
 
   async function load() {
     failed = false;
@@ -74,6 +77,8 @@
   async function save(e: SubmitEvent) {
     e.preventDefault();
     if (!s || !doc) return;
+    tried = true;
+    if (listError) return box?.focus();
     saving = true;
     error = '';
     conflict = false;
@@ -124,6 +129,7 @@
         maxRows={16}
         placeholder="One thing per line, for example: Tell me if a deploy to production failed overnight"
         help="Bothy looks through this list regularly and messages you only when something needs attention."
+        error={listError}
         bind:textarea={box}
       />
       {#if lines.length && !list.trim()}

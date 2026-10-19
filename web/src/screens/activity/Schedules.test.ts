@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { schedules as seeded, state as mockActivity } from '../../../mock/domains/activity';
 import { state as mockSettings } from '../../../mock/domains/settings';
 import { toaster } from '../../components/ui';
@@ -20,6 +20,8 @@ async function start(role?: string, override?: (method: string, url: string) => 
   return calls;
 }
 
+const blankList = (m: string, url: string) => (url === '/api/schedules/examples' ? { examples: [], checkin: { empty: true, lines: [] } } : undefined);
+const patched = (calls: { method: string; url: string }[], id: string) => calls.some((c) => c.method === 'PATCH' && c.url === `/api/schedules/${id}`);
 const checkinOnly = () => (mockActivity.schedules = mockActivity.schedules.filter((s) => s.kind === 'heartbeat'));
 const searchOn = () => (mockSettings.effective.entries.find((e) => e.path === 'search.provider')!.value = 'searxng');
 const examplesSection = () => screen.queryByRole('heading', { name: 'Examples' })?.closest('section');
@@ -103,6 +105,40 @@ describe('Schedules (docs/design/ui.md §10.3)', () => {
     await fireEvent.click(screen.getByRole('switch', { name: 'Check-in' }));
     expect(router.path + router.search).toBe('/activity/schedules/checkin?on=1');
     expect(calls.some((c) => c.method !== 'GET' && c.url.startsWith('/api/schedules') && c.url !== '/api/schedules/preview')).toBe(false);
+  });
+
+  it('turns off a check-in whose list is empty', async () => {
+    const calls = await start(undefined, blankList, 'Morning briefing', () => (mockActivity.schedules.find((s) => s.kind === 'heartbeat')!.enabled = true));
+    await fireEvent.click(screen.getByRole('switch', { name: 'Check-in' }));
+    await waitFor(() => expect(patched(calls, 'sch_01jcheckin00000000000000')).toBe(true));
+    expect(router.path).toBe('/activity/schedules');
+  });
+
+  it('turns on other schedules while the check-in list is empty', async () => {
+    const calls = await start(undefined, blankList);
+    await fireEvent.click(screen.getByRole('switch', { name: 'Morning briefing' }));
+    await waitFor(() => expect(patched(calls, 'sch_01jbrief00000000000000000')).toBe(true));
+    expect(router.path).toBe('/activity/schedules');
+  });
+
+  it('shows the list only once its examples are in, so the empty sentence never shows first', async () => {
+    const calls = installApi();
+    checkinOnly();
+    let release = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    const real = globalThis.fetch;
+    vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => (input.startsWith('/api/schedules/examples') && (await gate), real(input, init)));
+    session.ready = false;
+    await session.init();
+    router.navigate('/activity/schedules');
+    render(Schedules);
+    await waitFor(() => expect(calls.some((c) => c.url === '/api/schedules')).toBe(true));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText('Check-in')).toBeNull();
+    expect(screen.queryByText('Add your own, like a Monday summary of open pull requests.')).toBeNull();
+    release();
+    expect(await screen.findByRole('heading', { name: 'Examples' })).toBeTruthy();
+    expect(screen.queryByText('Add your own, like a Monday summary of open pull requests.')).toBeNull();
   });
 
   it('turns on a check-in that has a list', async () => {
