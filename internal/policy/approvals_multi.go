@@ -92,12 +92,16 @@ func (ap *Approvals) vote(ctx context.Context, a *core.Approval, r core.Resoluti
 	if to != "" {
 		a.Comment = r.Comment
 	}
-	ap.audit1(ctx, core.AuditEntry{
-		Actor: "user:" + string(r.By), Action: "approval.vote", Target: string(a.ID), Outcome: "ok",
-		Session: a.Session, Run: a.Run,
-		Detail: auditDetail(map[string]any{"choice": r.Choice, "via": r.Via, "tool": toolOf(a), "fingerprint": fingerprintOf(a),
-			"approvals": count, "required": a.Approver.Needed()}),
-	})
+	// A requester's deny withdraws the request: the approval.decide row
+	// says so, and a vote row would log it as a vote to deny.
+	if withdrawn := r.Choice == core.Deny && r.By == a.Approver.Requester; !withdrawn {
+		ap.audit1(ctx, core.AuditEntry{
+			Actor: "user:" + string(r.By), Action: "approval.vote", Target: string(a.ID), Outcome: "ok",
+			Session: a.Session, Run: a.Run,
+			Detail: auditDetail(map[string]any{"choice": r.Choice, "via": r.Via, "tool": toolOf(a), "fingerprint": fingerprintOf(a),
+				"approvals": count, "required": a.Approver.Needed()}),
+		})
+	}
 	if to == "" {
 		ap.fillQuiet(ctx, a)
 		ap.publish(ctx, core.EvApprovalVoted, a, func(cp *core.Approval) core.EventData { return core.ApprovalData{Approval: cp} })

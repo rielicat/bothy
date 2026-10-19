@@ -376,6 +376,16 @@ func TestReleaseDenyShortCircuits(t *testing.T) {
 	if got, err := h.vote(withdrawn.ID, h.member, core.Deny); err != nil || got.Status != core.ApprovalDenied {
 		t.Fatalf("requester withdrawing = %+v, %v", got, err)
 	}
+	// A withdrawal is one "Cancelled the request" row, never a vote to deny.
+	var rows []string
+	for _, e := range h.audit.All() {
+		if e.Target == string(withdrawn.ID) && strings.HasPrefix(e.Action, "approval.") && e.Action != "approval.request" {
+			rows = append(rows, e.Action+" "+string(e.Detail))
+		}
+	}
+	if len(rows) != 1 || !strings.HasPrefix(rows[0], "approval.decide") || !strings.Contains(rows[0], `"withdrawn":true`) {
+		t.Fatalf("withdrawal audit = %q", rows)
+	}
 }
 
 // TestDisabledVoterNoLongerCounts: eligibility is checked when the
