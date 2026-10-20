@@ -266,12 +266,14 @@ const serviceNames: Record<string, string> = {
   youtube: 'YouTube',
 };
 
+/** The first letter up: "deploy" → "Deploy". */
+export const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
 /** A configured MCP server's name for people: "deepwiki" → "DeepWiki", "team-docs" → "Team docs". */
 export function serviceName(id: string): string {
   const known = serviceNames[id.toLowerCase()];
   if (known) return known;
-  const s = id.replace(/[-_]+/g, ' ').trim();
-  return s.charAt(0).toUpperCase() + s.slice(1);
+  return capital(id.replace(/[-_]+/g, ' ').trim());
 }
 
 /**

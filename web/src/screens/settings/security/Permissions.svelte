@@ -4,10 +4,10 @@
   import { Button, CodeBlock, Disclosure, EmptyState, Page, toast } from '../../../components/ui';
   import { api } from '../../../lib/api/client';
   import type { Grant, GrantView, List, Schedule, Session } from '../../../lib/api/types.gen';
-  import { fullTime, relTime } from '../../../lib/format';
+  import { capital, fullTime, relTime } from '../../../lib/format';
   import { session } from '../../../lib/stores/session.svelte';
   import { describeGrant, grantMeta } from './grantText';
-  import { capital, relLower, securityBack } from './page.svelte';
+  import { relLower, securityBack } from './page.svelte';
   import PageState from './PageState.svelte';
 
   let grants = $state<GrantView[] | null>(null);

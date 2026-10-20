@@ -4,10 +4,11 @@
   import { Button, Dialog, EmptyState, IconButton, Menu, Page, TextField, toast } from '../../../components/ui';
   import { api, ApiError } from '../../../lib/api/client';
   import type { SecretMeta, VaultStatus } from '../../../lib/api/types.gen';
+  import { joinNames } from '../../../lib/cardcopy';
   import { config } from '../../../lib/config.svelte';
   import { date, fullTime, relTime } from '../../../lib/format';
   import { session } from '../../../lib/stores/session.svelte';
-  import { joinNames, keyName, storedName, usedBy } from './keyNames';
+  import { keyName, storedName, usedBy } from './keyNames';
   import { focusInvalid, relLower, securityBack } from './page.svelte';
   import PageState from './PageState.svelte';
   import UnlockDialog from './UnlockDialog.svelte';

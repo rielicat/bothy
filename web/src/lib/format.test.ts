@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { lineDiff } from './diff';
-import { bytes, clock, countdown, duration, estimate, expiresIn, fullTime, ms, money, parseGoDuration, plural, prettyGoDuration, relTime, skillName, tokens, usd } from './format';
+import { bytes, capital, clock, countdown, duration, estimate, expiresIn, fullTime, ms, money, parseGoDuration, plural, prettyGoDuration, relTime, skillName, tokens, usd } from './format';
 
 describe('format', () => {
   it('formats micro-dollars', () => {
@@ -159,6 +159,11 @@ describe('clock', () => {
 });
 
 describe('helpers', () => {
+  it('puts the first letter up, and leaves an empty string alone', () => {
+    expect(capital('deploy failed')).toBe('Deploy failed');
+    expect(capital('')).toBe('');
+  });
+
   it('diffs lines', () => {
     expect(lineDiff('a\nb\nc', 'a\nc\nd')).toBe(' a\n-b\n c\n+d');
     expect(lineDiff('', 'x')).toBe('+x');

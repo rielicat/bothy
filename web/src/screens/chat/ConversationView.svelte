@@ -34,7 +34,7 @@
   import { fill, prefix, type Phrase } from '../../lib/activity';
   import { api, ApiError } from '../../lib/api/client';
   import type { Approval, RefineData, RefineEstimate, SandboxInfo, Session, SubmitResult } from '../../lib/api/types.gen';
-  import { clock, estimate, fullTime, money, plural } from '../../lib/format';
+  import { capital, clock, estimate, fullTime, money, plural } from '../../lib/format';
   import { channelName } from '../../lib/labels';
   import { router } from '../../lib/router.svelte';
   import { events } from '../../lib/sse.svelte';
@@ -176,7 +176,7 @@
     const head = `Refine is on: Bothy writes ${n} drafts, checks them and sends the best.`;
     if (est?.usd != null) {
       const e = estimate(est.usd * 1e6);
-      return `${head} ${e.charAt(0).toUpperCase()}${e.slice(1)} for this reply.`;
+      return `${head} ${capital(e)} for this reply.`;
     }
     const m = Math.round(est?.multiplier ?? models.refine?.multiplier ?? 0);
     return m > 1 ? `${head} Costs about ${m}× a normal reply.` : `${head} Slower, and costs several times more.`;

@@ -3,6 +3,7 @@
   import { api, ApiError } from '../../lib/api/client';
   import type { Approval, Choice } from '../../lib/api/types.gen';
   import { appName, busyLabel, cardCopy, decidable, denyAudience, expiryOf, fromTeam, isMulti, isOpen, originOf, parkedLine, requesterOf, teamAsked, teamPerson } from '../../lib/cardcopy';
+  import { capital } from '../../lib/format';
   import { alwaysLabelParts } from '../../lib/grants';
   import { choiceDone, choiceKey } from '../../lib/labels';
   import { router } from '../../lib/router.svelte';
@@ -203,7 +204,7 @@
     }
     const why = e.message.trim();
     if (!why) return retry;
-    return `${why[0].toUpperCase()}${why.slice(1)}${/[.?]$/.test(why) ? '' : '.'}`;
+    return `${capital(why)}${/[.?]$/.test(why) ? '' : '.'}`;
   }
 
   async function startDeny() {

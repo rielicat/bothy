@@ -1,3 +1,4 @@
+import { capital } from '../format';
 import type { Error as ErrorEnvelope, FieldError } from './types.gen';
 
 export class ApiError extends Error {
@@ -16,7 +17,7 @@ export class ApiError extends Error {
 /** A 4xx answer's reason as a sentence ("only the owner can …" → "Only the owner can …."), or '' when it gave none. */
 export function refusal(e: unknown): string {
   if (!(e instanceof ApiError) || e.status < 400 || e.status > 499 || e.status === 401 || !e.message) return '';
-  const t = e.message[0].toUpperCase() + e.message.slice(1);
+  const t = capital(e.message);
   return /[.?!]$/.test(t) ? t : `${t}.`;
 }
 

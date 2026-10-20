@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { timeOfDay } from '../../lib/cardcopy';
-  import { fullTime, plural } from '../../lib/format';
+  import { clock, fullTime, plural } from '../../lib/format';
   import Avatar from '../ui/Avatar.svelte';
   import type { ApprovalVotes } from '../../lib/api/types.gen';
 
@@ -19,7 +18,7 @@
     {@const mine = !!me && v.user_id === me}
     <p class="flex items-center gap-2">
       <Avatar name={v.name || '?'} />
-      <span>{mine ? 'You' : v.name || 'Someone'} {v.choice === 'deny' ? 'denied' : 'approved'} · <time datetime={v.at} title={fullTime(v.at)}>{timeOfDay(v.at)}</time></span>
+      <span>{mine ? 'You' : v.name || 'Someone'} {v.choice === 'deny' ? 'denied' : 'approved'} · <time datetime={v.at} title={fullTime(v.at)}>{clock(v.at)}</time></span>
     </p>
   {/each}
   {#if open && remaining && left > 0 && view.approvers}

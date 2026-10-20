@@ -1,7 +1,7 @@
 // Plain words for models, providers and their state on Settings → Models
 // (docs/design/ui.md §11.4, §14.3).
 import type { ModelInfo, ProviderHealth } from '../../lib/api/types.gen';
-import { plural } from '../../lib/format';
+import { capital, plural } from '../../lib/format';
 import { failure, type FailureCode } from '../../lib/providerErrors';
 import { friendlyModel } from '../../lib/providers';
 
@@ -23,7 +23,7 @@ const providerNames: Record<string, string> = {
 /** "Anthropic" for the id or kind; an unknown id keeps its own spelling, capitalised. */
 export function providerName(id: string, kind?: string): string {
   const known = providerNames[id] ?? (kind && kind !== 'openai_compat' ? providerNames[kind] : undefined);
-  return known ?? (id ? id[0].toUpperCase() + id.slice(1) : '');
+  return known ?? capital(id);
 }
 
 /** "<provider id>/<model>"; the model part may itself contain "/". */

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { EgressRecord, Entry, Finding, Grant, GrantView, SignInAdmin, SignInProviderStatus } from '../../../lib/api/types.gen';
+import { joinNames } from '../../../lib/cardcopy';
 import { describeFinding, needsAttention } from './findings';
 import { addressSummary, canEnable, checkLine, entryProblem, listProblem, listSummary, listText, orgsProblem, parseList, parseOrgs, rowValue } from './signin';
 import { describeGrant, grantMeta, siteName } from './grantText';
-import { joinNames, keyName, storedName, usedBy } from './keyNames';
+import { keyName, storedName, usedBy } from './keyNames';
 import { covers, recentBlocks, sharedSuffix, siteEntry, siteOf } from './sites';
 import { chatChanges, chatChoice, longDuration, scheduledChanges, scheduledChoice } from './timeouts';
 

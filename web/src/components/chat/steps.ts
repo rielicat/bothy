@@ -3,6 +3,7 @@
 // approval itself.
 import { phrases, stepLink, stepState, type Phrases, type StepInput, type StepState } from '../../lib/activity';
 import type { Approval, ToolCallRecord } from '../../lib/api/types.gen';
+import { capital } from '../../lib/format';
 import type { ToolItem } from '../../lib/transcript';
 
 export interface StepView {
@@ -48,7 +49,7 @@ export function refusalReason(result: string | undefined): string {
     if (env) return `This deploy doesn't match how ${env[1]} is set up.`;
   }
   if (technical.some((re) => re.test(reason))) return "Bothy's rules don't allow this.";
-  return reason.charAt(0).toUpperCase() + reason.slice(1) + (/[.!?]$/.test(reason) ? '' : '.');
+  return capital(reason) + (/[.!?]$/.test(reason) ? '' : '.');
 }
 
 export interface StepContext {

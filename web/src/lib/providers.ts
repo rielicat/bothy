@@ -1,4 +1,5 @@
 import type { ProviderKind } from './api/types.gen';
+import { capital } from './format';
 
 export type Kind = ProviderKind;
 export interface ProbeRequest {
@@ -94,7 +95,7 @@ function word(w: string): string {
   // Sizes ("14b", "8x7b", "1.5b") and OpenAI's o-series ("o3") keep their own case.
   if (/^\d+(\.\d+)?(x\d+)?[bkm]$/i.test(w)) return w.slice(0, -1) + w.slice(-1).toUpperCase();
   if (/^o\d/.test(w) || /^\d/.test(w)) return w;
-  return w[0].toUpperCase() + w.slice(1);
+  return capital(w);
 }
 
 /**
