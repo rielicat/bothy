@@ -50,10 +50,24 @@ function punyHost(host: string): string {
   }
 }
 
-// A bare name counts as a domain only when every label is letters, digits
-// and inner hyphens and the last starts with a letter: prose such as
-// "mondays.”" or "Ana.¿Ok" has a dot and a non-ASCII character too.
-const DOMAIN = /^(?:[\p{L}\p{N}](?:[\p{L}\p{M}\p{N}-]*[\p{L}\p{M}\p{N}])?\.)+\p{L}[\p{L}\p{M}\p{N}-]*[\p{L}\p{M}\p{N}]$/u;
+const EDGE = /[\p{P}\p{S}]/u;
+const LEAD = /^[\p{P}\p{S}]*/u;
+const LABEL = /^[\p{L}\p{N}]/u;
+
+// The punctuation around a run ("“аpple.com”", "visit аpple.com.") is kept
+// as written and only the name between is a host. Trailing punctuation is
+// found by a backwards scan: /[\p{P}\p{S}]+$/ is quadratic on a long run of
+// dashes.
+function trimEdges(run: string): [number, number] {
+  const start = LEAD.exec(run)![0].length;
+  let end = run.length;
+  while (end > start) {
+    const lo = run.charCodeAt(end - 1) >= 0xdc00 && run.charCodeAt(end - 1) <= 0xdfff && end - 2 >= start ? end - 2 : end - 1;
+    if (!EDGE.test(run.slice(lo, end))) break;
+    end = lo;
+  }
+  return [start, end];
+}
 
 // Rewrites hosts inside URLs, and bare non-ASCII domain names, to punycode so
 // homographs ("аpple.com" with a Cyrillic а) are visible as xn--…. Both
@@ -65,9 +79,13 @@ export function punycode(s: string): string {
       return scheme + auth.slice(0, at + 1) + punyHost(auth.slice(at + 1));
     })
     .replace(/(^|[\s(,;@])([^\s/:@(),;]+)/gu, (m, pre: string, run: string) => {
-      // Sentence punctuation after a name ("visit аpple.com.") stays as written.
-      const host = run.replace(/[\p{P}\p{S}]+$/u, '');
-      return NON_ASCII.test(host) && host.includes('.') && DOMAIN.test(host) ? pre + punyHost(host) + run.slice(host.length) : m;
+      const [start, end] = trimEdges(run);
+      const host = run.slice(start, end);
+      // Every label must start with a letter or digit, which prose such as
+      // "Ana.¿Ok" fails; symbols inside a label still count, since a lookalike
+      // slash ("paypal.com⁄signin.evil.io") is the spoof to reveal.
+      if (!NON_ASCII.test(host) || !host.includes('.') || !host.split('.').every((l) => LABEL.test(l))) return m;
+      return pre + run.slice(0, start) + punyHost(host) + run.slice(end);
     });
 }
 
