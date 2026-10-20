@@ -441,7 +441,7 @@ func TestMessageToANamedChat(t *testing.T) {
 	}
 }
 
-func TestPropertyOrder(t *testing.T) {
+func TestFieldOrder(t *testing.T) {
 	for _, c := range []struct {
 		schema string
 		want   []string
@@ -453,9 +453,31 @@ func TestPropertyOrder(t *testing.T) {
 		{`[1,2]`, nil},
 		{`{"properties":{"a":{},`, []string{"a"}},
 		{``, nil},
+		// As discovery stores it, keys sorted: "required" still carries the author's order.
+		{`{"properties":{"body":{},"title":{}},"required":["title"],"type":"object"}`, []string{"title", "body"}},
+		{`{"properties":{"a":{},"b":{},"c":{}},"required":["c","nope","a","c"]}`, []string{"c", "a", "b"}},
+		{`{"properties":{"a":{},"b":{}},"required":[1,"b"]}`, []string{"b", "a"}},
 	} {
-		if got := propertyOrder(json.RawMessage(c.schema)); !slices.Equal(got, c.want) {
-			t.Errorf("propertyOrder(%s) = %q, want %q", c.schema, got, c.want)
+		if got := fieldOrder(json.RawMessage(c.schema)); !slices.Equal(got, c.want) {
+			t.Errorf("fieldOrder(%s) = %q, want %q", c.schema, got, c.want)
 		}
+	}
+}
+
+// A ticket card reads Title before Body although discovery stored the
+// schema with its keys sorted.
+func TestMCPCardFieldsAsDiscoveryStoresTheSchema(t *testing.T) {
+	canon, err := core.CanonicalJSON(json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"},"body":{"type":"string"}},"required":["title"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := spec("mcp__acme-helpdesk__create_ticket", core.SEExternalSend)
+	s.Def.Schema = canon
+	var labels []string
+	for _, f := range schemaFields(s, map[string]any{"body": "It broke", "title": "Login fails"}) {
+		labels = append(labels, f.Label)
+	}
+	if !slices.Equal(labels, []string{"Title", "Body"}) {
+		t.Fatalf("labels = %q (schema %s)", labels, canon)
 	}
 }

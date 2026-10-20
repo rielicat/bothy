@@ -569,7 +569,7 @@ func schemaFields(spec core.ToolSpec, doc any) []core.CardField {
 		return nil
 	}
 	var out []core.CardField
-	for _, k := range propertyOrder(spec.Def.Schema) {
+	for _, k := range fieldOrder(spec.Def.Schema) {
 		if len(out) == maxSchemaFields {
 			break
 		}
@@ -591,41 +591,65 @@ func schemaFields(spec core.ToolSpec, doc any) []core.CardField {
 	return out
 }
 
-// propertyOrder lists a JSON schema's top-level property names in the order
-// the schema declares them, which is the order its author meant (title
-// before body); a map would sort them. A duplicate name counts once.
-func propertyOrder(schema json.RawMessage) []string {
+// fieldOrder lists a JSON schema's top-level property names: the required
+// ones first, as "required" lists them, then the rest as "properties"
+// declares them. Discovery stores an MCP schema canonically, keys sorted, so
+// "properties" alone would put body before title; "required" is an array
+// and keeps its author's order. A name counts once.
+func fieldOrder(schema json.RawMessage) []string {
 	dec := json.NewDecoder(bytes.NewReader(schema))
 	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
 		return nil
 	}
-	var out []string
+	var props []string
+	var required json.RawMessage
+	declared := map[string]bool{}
+walk:
 	for dec.More() {
 		k, err := dec.Token()
 		if err != nil {
-			return out
+			break
 		}
 		if k != "properties" {
-			var skip json.RawMessage
-			if dec.Decode(&skip) != nil {
-				return out
+			var v json.RawMessage
+			if dec.Decode(&v) != nil {
+				break
+			}
+			if k == "required" {
+				required = v
 			}
 			continue
 		}
 		if t, err := dec.Token(); err != nil || t != json.Delim('{') {
-			return out
+			break
 		}
 		for dec.More() {
 			name, err := dec.Token()
 			var skip json.RawMessage
 			if err != nil || dec.Decode(&skip) != nil {
-				return out
+				break walk
 			}
-			if n, ok := name.(string); ok && !slices.Contains(out, n) {
-				out = append(out, n)
+			if n, ok := name.(string); ok && !declared[n] {
+				declared[n] = true
+				props = append(props, n)
 			}
 		}
-		return out
+		if _, err := dec.Token(); err != nil {
+			break
+		}
+	}
+	var req []string
+	_ = json.Unmarshal(required, &req)
+	out := make([]string, 0, len(props))
+	placed := map[string]bool{}
+	for _, n := range append(req, props...) {
+		if declared[n] && !placed[n] {
+			placed[n] = true
+			out = append(out, n)
+		}
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }
