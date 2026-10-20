@@ -1812,7 +1812,7 @@ Daily standup summary                                             (on)     ⋯
 Weekdays at 9:00 · Posts to your chats · Next: tomorrow at 9:00
 ──────────────────────────────────────────────────────────────────────────────────
 Weekly PR digest                                                  (on)     ⋯
-Mondays at 8:00 · Posts to your chats · Last run failed: the GitHub token was rejected
+Mondays at 8:00 · Posts to your chats · Last run failed: the GitHub token was rejected · Next: Monday at 8:00
 
 Examples                                     with fewer than 3 schedules of their own
 Monday pull request summary                                                      ›

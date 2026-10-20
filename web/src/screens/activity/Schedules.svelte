@@ -156,11 +156,11 @@
           { text: `Posts ${deliverTo(s.deliver)}` },
           ...(s.failures >= 3
             ? [{ text: 'Turned off after 3 failed runs', danger: true }]
-            : s.last_status === 'failed'
-              ? [{ text: problems[s.id] ? `Last run failed: ${problems[s.id]}` : 'Last run failed', danger: true }]
-              : s.enabled && s.next_run_at
-                ? [{ text: `Next: ${nextRun(s.next_run_at, s.tz)}` }]
-                : []),
+            : [
+                ...(s.last_status === 'failed' ? [{ text: problems[s.id] ? `Last run failed: ${problems[s.id]}` : 'Last run failed', danger: true }] : []),
+                // A failed run doesn't stop the next one, so when it is still says.
+                ...(s.enabled && s.next_run_at ? [{ text: `Next: ${nextRun(s.next_run_at, s.tz)}` }] : []),
+              ]),
         ])}
       {/each}
     </ul>

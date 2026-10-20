@@ -32,6 +32,13 @@ describe('Schedules (docs/design/ui.md §10.3)', () => {
     expect(screen.getByText('Morning briefing').closest('li')!.textContent).toContain('Posts to your chats');
   });
 
+  // A failed run doesn't stop the next one; the row used to drop "Next:".
+  it('says when a schedule whose last run failed runs next', async () => {
+    await start();
+    const row = screen.getByText('Weekly PR digest').closest('li')!;
+    expect(row.textContent).toMatch(/Last run failed.* · Next: /);
+  });
+
   it("names a schedule's time zone when it isn't the viewer's", async () => {
     await start(undefined, (m, url) => {
       if (m !== 'GET' || url !== '/api/schedules') return undefined;
