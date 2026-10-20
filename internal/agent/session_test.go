@@ -277,6 +277,14 @@ func TestForkIsRelatedListedAndNamedByItsFirstMessage(t *testing.T) {
 		if f, err := h.r.Fork(h.ctx, v, result.ID, h.user.ID); err != nil || f.Title != "Morning build check (clean)" {
 			t.Fatalf("fork of a schedule's result = %+v %v", f, err)
 		}
+		// A result someone renamed keeps every word of its name.
+		result.Title = "Build failures · follow up"
+		if err := h.store.Sessions().Update(h.ctx, result); err != nil {
+			t.Fatal(err)
+		}
+		if f, err := h.r.Fork(h.ctx, v, result.ID, h.user.ID); err != nil || f.Title != "Build failures · follow up (clean)" {
+			t.Fatalf("fork of a renamed result = %+v %v", f, err)
+		}
 
 		hb, err := h.r.NewSession(h.ctx, h.pid, "schedule", nil)
 		if err != nil {

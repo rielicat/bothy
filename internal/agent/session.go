@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/rielicat/bothy/internal/core"
 )
@@ -82,6 +83,17 @@ func (r *Runner) NewSession(ctx context.Context, p core.PrincipalID, origin stri
 // or the old chat, as the family's root). It is listed at once, and its
 // first message names it. For a channel session it archives the old one and
 // moves the channel key to the fork, so the chat continues in the fork.
+// resultDate reports whether s is the date the scheduler puts in a result's
+// title ("19 Oct", "19 Oct, 14:05"), not words someone renamed it with.
+func resultDate(s string) bool {
+	for _, layout := range []string{"2 Jan", "2 Jan, 15:04"} {
+		if _, err := time.Parse(layout, s); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *Runner) Fork(ctx context.Context, v core.Viewer, id core.SessionID, by core.UserID) (*core.Session, error) {
 	old, err := r.d.Store.Sessions().Get(ctx, v, id)
 	if err != nil {
@@ -89,7 +101,7 @@ func (r *Runner) Fork(ctx context.Context, v core.Viewer, id core.SessionID, by 
 	}
 	now := r.now()
 	title := strings.TrimSpace(old.Title)
-	if i := strings.LastIndex(title, " · "); old.ScheduleID != "" && i > 0 {
+	if i := strings.LastIndex(title, " · "); old.ScheduleID != "" && i > 0 && resultDate(title[i+len(" · "):]) {
 		// A result's date would push "(clean)" out of the sidebar, where the
 		// clean chat then reads as one more run of the schedule.
 		title = title[:i]
